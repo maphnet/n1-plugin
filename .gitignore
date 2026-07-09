@@ -1,9 +1,6 @@
 # N1 plugin state
 .n1/
 
-# N1 worktree directories
-.claude/worktrees/
-
 docs/
 .superpowers
 
