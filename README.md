@@ -18,10 +18,10 @@ Add the marketplace and install:
 
 ```
 /plugin marketplace add maphnet/n1-plugin
-/plugin install n1-plugin@n1-plugin
+/plugin install n1@n1
 ```
 
-Then enable auto-update: `/plugin` → Marketplaces → n1-plugin → Auto-update.
+Then enable auto-update: `/plugin` → Marketplaces → n1 → Auto-update.
 
 For local development:
 

@@ -8,8 +8,9 @@
       "description": "AI-driven development orchestrator. No one writes the code.",
       "version": "2.22.0",
       "source": {
-        "source": "git",
-        "url": "https://github.com/maphnet/n1-plugin"
+        "source": "git-subdir",
+        "url": "https://github.com/maphnet/n1-plugin",
+        "path": "."
       }
     }
   ]
