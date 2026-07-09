@@ -1,0 +1,12 @@
+{
+  "balanced": {
+    "marginThreshold": 0.15,
+    "timeoutSeconds": 1800,
+    "timeoutAction": "pause"
+  },
+  "autonomous": {
+    "marginThreshold": 0.05,
+    "timeoutSeconds": 600,
+    "timeoutAction": "proceed"
+  }
+}
