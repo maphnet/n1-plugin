@@ -6,12 +6,8 @@
     {
       "name": "n1",
       "description": "AI-driven development orchestrator. No one writes the code.",
-      "version": "2.22.0",
-      "source": {
-        "source": "git-subdir",
-        "url": "https://github.com/maphnet/n1-plugin",
-        "path": "."
-      }
+      "version": "2.22.1",
+      "source": "./"
     }
   ]
 }
