@@ -130,7 +130,12 @@ When step mode is active:
    ```
    Exception: if the requested step is `ticket` and overview.md does not exist, this is a fresh start — skip the overview read and proceed to the ticket step directly.
 
-3. **Ensure Worktree** — run the Ensure Worktree(`<ID>`) procedure (Step Mode, see Workspace Isolation above).
+3. **Ensure Worktree (conditional)** — Read `mode` from overview.md frontmatter (if overview.md exists for this `<ID>`):
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   MODE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode" 2>/dev/null || echo "")
+   ```
+   Skip Ensure Worktree when `MODE` is `"investigation"` or when `step_name` is `"ticket"` (the ticket step fragment handles its own workspace isolation after investigation detection). Otherwise, run the **Ensure Worktree(`<ID>`)** procedure (Step Mode, see Workspace Isolation above).
 
 4. **Verify dependencies:**
    ```bash
@@ -386,17 +391,16 @@ Do not attempt to cache volatile memory files; interleaving them into the prefix
 
 Check if `$N1_HOME/memory/<input>/overview.md` exists:
 
-- **If exists:** Read the overview frontmatter to determine current step. Run the appropriate workspace isolation procedure: **Ensure Working Branch(`<ID>`)** in full pipeline mode, or **Ensure Worktree(`<ID>`)** in step mode (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
-  ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-  n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
-  ```
-  Also read the pipeline mode:
+- **If exists:** Read the overview frontmatter to determine current step. Also read the pipeline mode:
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   MODE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode")
   ```
-  When `MODE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Complexity Decision below).
+  When `MODE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Complexity Decision below) — skip workspace isolation (no branch or worktree needed for investigation tasks). Otherwise, run the appropriate workspace isolation procedure: **Ensure Working Branch(`<ID>`)** in full pipeline mode, or **Ensure Worktree(`<ID>`)** in step mode (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
+  ```bash
+  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+  n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
+  ```
 - **If not exists:** Fresh start. Create `$N1_HOME/memory/<ID>/` directory.
 
 ### Step dependency map

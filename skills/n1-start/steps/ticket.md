@@ -6,7 +6,7 @@ Resolve model for `intake-agent` (see Model Resolution above).
 The intake-agent accepts four input modes. Choose based on input type:
 
 **Ticket mode** (input matches `<prefix>-<number>`):
-0. The `<ID>` is already known (the ticket ID). Run the workspace isolation procedure now, before spawning the agent: **Ensure Working Branch(`<ticketId>`)** in full pipeline mode, or **Ensure Worktree(`<ticketId>`)** in step mode.
+0. The `<ID>` is already known (the ticket ID). Workspace isolation is deferred until after investigation detection (see below).
 1. Read `$N1_HOME/config.json` -> `tracker.type`, `tracker.mcp`, `tracker.operations`
 2. Spawn intake-agent with:
    - `mode`: "ticket"
@@ -31,7 +31,7 @@ The intake-agent accepts four input modes. Choose based on input type:
 **Error tracker mode** (input matches `errorTracking.urlPattern`):
 1. Read `$N1_HOME/config.json` -> `errorTracking.mcp`, `errorTracking.operations`, `errorTracking.orgSlug`, `errorTracking.projectSlug`
 2. Parse the issue ID from the URL (see Error tracker URL parsing above)
-3. The provisional `<ID>` is `sentry-<issueId>`. Run the workspace isolation procedure now: **Ensure Working Branch(`sentry-<issueId>`)** in full pipeline mode, or **Ensure Worktree(`sentry-<issueId>`)** in step mode.
+3. The provisional `<ID>` is `sentry-<issueId>`. Workspace isolation is deferred until after investigation detection (see below).
 4. Spawn intake-agent with:
    - `mode`: "error-tracker"
    - `issueId`: the parsed issue ID
@@ -71,6 +71,10 @@ else
     INVESTIGATION_DETECTED=false
 fi
 ```
+
+**Workspace isolation (ticket and error-tracker modes)**
+
+If `INVESTIGATION_DETECTED` is false AND the input mode is "ticket" or "error-tracker" (i.e., the `<ID>` is already known from intake): run the workspace isolation procedure now — **Ensure Working Branch(`<ID>`)** in full pipeline mode, or **Ensure Worktree(`<ID>`)** in step mode. For investigation tasks, no branch or worktree is created — all output goes to `$N1_HOME/memory/<ID>/` only.
 
 Note: overview.md may not exist yet at this point (for ticket mode it does because we already resolved `<ID>`; for brain dump/file/error-tracker the ID may still be provisional). If overview.md does not exist yet, store the investigation flag in context and write it after overview.md is created (see "Write investigation mode to overview.md" below).
 
@@ -147,7 +151,7 @@ The task has been structured. Would you like to create a tracker ticket?
 4. The returned ticket ID is the final `<ID>`. Adopt it deterministically:
    1. Compute the provisional `<slug>` exactly as the "No" path would (description slug for brain dump, filename slug for file mode).
    2. Run **Reconcile Memory ID & Branch(`<slug>`, `<ticketID>`)** (see Workspace Isolation above) -- a no-op in the clean path; it moves any leaked slug memory folder into the ticket-ID folder and renames the slug branch if drift occurred.
-   3. Set `<ID>` = `<ticketID>`, then run the workspace isolation procedure: **Ensure Working Branch(`<ticketID>`)** in full pipeline mode, or **Ensure Worktree(`<ticketID>`)** in step mode.
+   3. Set `<ID>` = `<ticketID>`. If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Working Branch(`<ticketID>`)** in full pipeline mode, or **Ensure Worktree(`<ticketID>`)** in step mode.
 5. Extract the ticket URL from the MCP response (YouTrack returns it in the response body; for Jira construct it as `https://<cloud>/browse/<key>` from the response)
 6. **Assign to creator.** Run this step ONLY if ALL of: `tracker.assignToCreator !== false`, `tracker.operations.getCurrentUser` exists, AND `tracker.operations.assign` exists. If any condition fails, skip this step silently (no message) and go to step 7.
    1. Resolve the current user: call `mcp__<tracker.mcp>__<tracker.operations.getCurrentUser>` (no arguments). Use exactly `mcp__<tracker.mcp>__` as the tool prefix.
@@ -163,7 +167,7 @@ The task has been structured. Would you like to create a tracker ticket?
 
 **If 2 (No):**
 - Use description slug as memory ID for brain dump (e.g., `csv-export-users`) or filename slug for file mode (e.g., `requirements` from `requirements.md`)
-- Now that the slug `<ID>` is known, run the workspace isolation procedure: **Ensure Working Branch(`<slug>`)** in full pipeline mode, or **Ensure Worktree(`<slug>`)** in step mode.
+- Now that the slug `<ID>` is known: if `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Working Branch(`<slug>`)** in full pipeline mode, or **Ensure Worktree(`<slug>`)** in step mode.
 - Skip tracker status updates throughout the pipeline
 
 **Tracker ticket creation (error tracker mode):**
@@ -192,12 +196,12 @@ The Sentry issue has been analyzed. Would you like to create a tracker ticket?
 5. The returned ticket ID is the final `<ID>`. Adopt it:
    1. The provisional ID is `sentry-<issueId>`.
    2. Run **Reconcile Memory ID & Branch(`sentry-<issueId>`, `<ticketID>`)**.
-   3. Set `<ID>` = `<ticketID>`, then run the workspace isolation procedure: **Ensure Working Branch(`<ticketID>`)** in full pipeline mode, or **Ensure Worktree(`<ticketID>`)** in step mode.
+   3. Set `<ID>` = `<ticketID>`. If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Working Branch(`<ticketID>`)** in full pipeline mode, or **Ensure Worktree(`<ticketID>`)** in step mode.
 6. Extract the ticket URL, assign to creator, report -- same as brain-dump ticket creation (steps 5-8 above).
 
 **If 2 (No):**
 - `sentry-<issueId>` is the final `<ID>`
-- The working branch was already created in the error tracker mode block above
+- If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Working Branch(`sentry-<issueId>`)** in full pipeline mode, or **Ensure Worktree(`sentry-<issueId>`)** in step mode.
 - Skip tracker status updates throughout the pipeline
 
 **If no tracker is configured** (`tracker.mcp` is null or `tracker.operations.createIssue` does not exist):
