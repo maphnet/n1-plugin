@@ -455,8 +455,8 @@ Step numbering and names:
 |-------------|-----------|-----------------|
 | 1 | `ticket` | `{}` (writes `tier` to overview.md frontmatter) |
 | 2 | `analysis` | `{}` (may update `tier` in overview.md frontmatter) |
-| 3 | `brainstorm` | `{}` |
-| 4 | `plan` | `{"complexity":"simple\|complex"}` |
+| 3 | `brainstorm` | `{"planning_need":"plan\|direct"}` |
+| 4 | `plan` | `{}` |
 | 5 | `plan-review` | `{"verdict":"CLEAN\|FIXED"}` |
 | 6 | `estimation` | `{"tier":"XS\|S\|M\|L\|XL"}` |
 | 7 | `implementation` | `{}` |
@@ -468,7 +468,7 @@ Step numbering and names:
 | 13 | `ci` | `{}` |
 | 14 | `finish` | `{}` |
 
-**Naming note:** The overview.md frontmatter `tier:` field (values: `simple`/`standard`/`complex`) controls model/effort routing in n1-loop. This is distinct from: (1) the brainstorm step-result `complexity` key (values: `simple`/`complex`) which controls pipeline branching, and (2) the estimation body line `**Complexity:** XS/S/M/L/XL` which is delivery sizing. Do not confuse these three concepts.
+**Naming note:** The overview.md frontmatter `tier:` field (values: `simple`/`standard`/`complex`) controls model/effort routing in n1-loop. The brainstorm step-result `planning_need` key (values: `plan`/`direct`) controls pipeline branching — whether a formal plan is needed. The estimation body line `**Complexity:** XS/S/M/L/XL` is delivery sizing. These three concepts are independent.
 
 **Skipped steps** get a single event with `outcome: "skip"` (no separate start event needed). For example, if estimation is disabled: `{"step":"estimation","step_number":6,"completed_at":"...","outcome":"skip"}`.
 
@@ -496,20 +496,17 @@ This step only runs when `MODE` is `"investigation"` (read from overview.md fron
 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/estimation.md`.
 
-### Complexity Decision
+### Planning Need Routing
 
-**Investigation mode:** If `MODE` is `"investigation"` (read from overview.md frontmatter), skip the Complexity Decision entirely -- investigation tasks always proceed from brainstorm to the investigation-deliverable step, regardless of complexity. The brainstorm step's routing handles this via `pipeline.json`.
+**Investigation mode:** If `MODE` is `"investigation"` (read from overview.md frontmatter), skip planning need routing entirely — investigation tasks always proceed from brainstorm to the investigation-deliverable step. The brainstorm step's routing handles this via `pipeline.json`.
 
-Based on brainstorming output, determine complexity:
+Read `planning_need` from the brainstorm step result (set by the brainstormer in Step 3). Route:
+- `planning_need: plan` → Continue to **PLAN** (Step 4)
+- `planning_need: direct` → Skip to **IMPLEMENT** (Step 5)
 
-- **Simple task** (clear scope, single component, no architectural decisions) → Skip to **IMPLEMENT**
-- **Complex task** (multiple components, architectural decisions, needs research) → Continue to **PLAN**
+The orchestrator does NOT make its own judgment — the brainstormer already evaluated design sufficiency with analysis.md in context. The `planning_need` value is authoritative.
 
-State your reasoning: "This task is [simple/complex] because [reason]. [Skipping to implementation / Proceeding with detailed planning]."
-
-**Deterministic floor.** The "simple" path skips PLAN and therefore PLAN-REVIEW (the CCR safety net). Before classifying a task as simple, check `analysis.md` for blast-radius signals: if it touches more than ~2 files, modifies a public API, or flags security/architecture concerns, treat it as complex regardless of the judgment call. When uncertain, prefer complex — plan-review is cheap insurance.
-
-**If simple:** Before proceeding to IMPLEMENT, run the **Estimation** procedure (see above). Then continue to Step 5 (IMPLEMENT).
+**If direct:** Before proceeding to IMPLEMENT, run the **Estimation** procedure (see above). Then continue to Step 5 (IMPLEMENT).
 
 ### 4. PLAN (complex tasks only)
 
@@ -606,7 +603,7 @@ MODE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode")
 ```
 If `MODE` is `investigation`, set `investigation=true` in the routing context passed to `pipeline.json` evaluation.
 
-**Complexity decision (brainstorm routing):** When the `brainstorm` step completes in step mode, the routing logic performs the same complexity classification as the full pipeline's Complexity Decision section. Read `analysis.md` for blast-radius signals: if it touches more than ~2 files, modifies a public API, or flags security/architecture concerns, route to `plan`. Otherwise route to `implementation`. State the reasoning in the step result output.
+**Planning need routing (brainstorm routing):** When the `brainstorm` step completes in step mode, the routing logic reads `planning_need` from the brainstorm step result. The autonomous brainstormer evaluates planning need as part of its process (step 8b) and sets the value in its step result. The orchestrator routes `plan` → plan step, `direct` → implementation step. No independent judgment — the brainstormer's evaluation is authoritative.
 
 **Fix step context inference:** The `fix` step determines what to fix by reading `overview.md`'s `step` field. If `step` is `qa`, the fix addresses QA failures (reads `qa.md`). If `step` is `review`, the fix addresses review findings (reads `review.md`). After the fix, `next_step` routes back to the source step for re-verification.
 
