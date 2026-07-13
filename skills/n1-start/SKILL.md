@@ -396,7 +396,7 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   MODE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode")
   ```
-  When `MODE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Complexity Decision below) — skip workspace isolation (no branch or worktree needed for investigation tasks). Otherwise, run the appropriate workspace isolation procedure: **Ensure Working Branch(`<ID>`)** in full pipeline mode, or **Ensure Worktree(`<ID>`)** in step mode (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
+  When `MODE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). Otherwise, run the appropriate workspace isolation procedure: **Ensure Working Branch(`<ID>`)** in full pipeline mode, or **Ensure Worktree(`<ID>`)** in step mode (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
@@ -585,8 +585,8 @@ evaluate the routing edges for the just-completed `(step, outcome)`:
    frontmatter). The first row whose `when` is satisfied wins; its `next` is
    `next_step` (`null` terminates the pipeline).
 3. `when` grammar (see `plugin/pipeline.schema.md`): `null` = always;
-   `"complex"`/`"simple"` = the brainstorm branch (from the Complexity Decision
-   below); `{"config": k, "eq"/"neq": v}` = config comparison using the gate
+   `"plan"`/`"direct"` = the brainstorm planning need branch (from Planning Need
+   Routing below); `{"config": k, "eq"/"neq": v}` = config comparison using the gate
    default when absent; `{"all"|"any": [...]}` = combinators;
    `{"counter": c, "lt"/"gte": k}` = loop-bound check; `{"overview_step": s}` =
    fix-target inference from `overview.md`'s `step:` field.
