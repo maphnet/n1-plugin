@@ -18,7 +18,7 @@ Pass to brainstorming:
 - **Spec location:** Write the design doc directly to `$N1_HOME/memory/<ID>/brainstorm.md` — NOT to `docs/superpowers/specs/`. The brainstorming skill honors "user preferences for spec location override this default," so this is the sanctioned location override.
 - **Do NOT commit the spec.** `$N1_HOME/` is N1's ephemeral state directory — N1 owns this content in per-ticket memory. No spec artifact may be committed to the target repo.
 - **Skip the User Review Gate.** The brainstorming skill's checklist has a "User reviews written spec" step that asks the user to re-approve the spec after it is written to disk. Skip it — the design was already approved conversationally (step 5), and `brainstorm.md` is an ephemeral memory file, not a committed artifact. Writing it is a recording step, not a review step. After the spec self-review passes, hand control back to the N1 orchestrator immediately.
-- **Stop after the design; do NOT auto-invoke `writing-plans`.** SP 5.1 brainstorming treats "invoke writing-plans" as its terminal state ("the ONLY skill you invoke after brainstorming is writing-plans"). Override this: once the design is written to `brainstorm.md` and approved, hand control back to the N1 orchestrator. N1 runs its own Complexity Decision and then invokes `writing-plans` itself with the overrides in Step 4. If brainstorming auto-chained into `writing-plans` directly, the plan would be produced WITHOUT N1's location and execution-handoff overrides — writing to `docs/superpowers/plans/` and offering execution options. Do not let it.
+- **Stop after the design; do NOT auto-invoke `writing-plans`.** SP 5.1 brainstorming treats "invoke writing-plans" as its terminal state ("the ONLY skill you invoke after brainstorming is writing-plans"). Override this: once the design is written to `brainstorm.md` and approved, hand control back to the N1 orchestrator. N1 runs its own Planning Need Routing and then invokes `writing-plans` itself with the overrides in Step 4. If brainstorming auto-chained into `writing-plans` directly, the plan would be produced WITHOUT N1's location and execution-handoff overrides — writing to `docs/superpowers/plans/` and offering execution options. Do not let it.
 
 > **After `superpowers:brainstorming` returns, IMMEDIATELY continue to the overview update and Post-Brainstorm Enrichment section below -- do NOT write a summary message or yield to the user.**
 
@@ -33,6 +33,30 @@ After brainstorming completes (the design already lives in `$N1_HOME/memory/<ID>
 - Update overview: `[x] Brainstorm`, set `step: brainstorm`
 - Record key decisions in overview's `## Key Decisions` section
 
+### Planning Need Evaluation
+
+Evaluate whether the brainstorm output is sufficient for direct implementation, or whether a formal plan is needed. The brainstorm content and `analysis.md` are already in your context — do not re-read them.
+
+**Route `direct` when ALL hold:**
+1. **Changes are specified** — the brainstorm names the files and describes what changes in each
+2. **Changes are independent** — no ordering constraints between files; editing file A doesn't change what's needed in file B
+3. **No remaining design decisions** — the approach is fully resolved; the implementer makes no architectural calls
+4. **No test strategy needed** — changes don't require new tests or a validation approach beyond what QA does naturally
+
+**Route `plan` when ANY hold:**
+1. **Coordination required** — changes interact across files/components, ordering matters, or there are dependencies to sequence
+2. **Open questions remain** — the brainstorm flagged uncertainties or the approach has decision points the implementer will face
+3. **New abstractions introduced** — the design creates new interfaces, modules, or patterns needing specification beyond the brainstorm
+4. **Non-trivial test/migration strategy** — changes need a test plan, data migration path, or rollback approach
+
+**Safety guard (always `plan`):** If `analysis.md` flags security concerns, public API changes, or cross-cutting architectural impact, route to `plan` regardless of design clarity.
+
+**Uncertainty default:** When uncertain, prefer `plan` — plan-review is cheap insurance.
+
+State your evaluation: "Planning need: [plan/direct] because [one-line reason]."
+
+Record the `planning_need` value (`plan` or `direct`) for use in the step result. The orchestrator uses this to route — it does NOT perform its own complexity judgment.
+
 ### Post-Brainstorm Enrichment (Phase 2)
 
 **Gate:** Run ONLY when ALL conditions are met:
@@ -41,7 +65,7 @@ After brainstorming completes (the design already lives in `$N1_HOME/memory/<ID>
 3. `tracker.operations.editTicket` exists
 4. `tracker.operations.addComment` exists
 
-If any condition fails, skip silently and proceed to Complexity Decision.
+If any condition fails, skip silently and proceed to Planning Need Routing.
 
 **Process:**
 
