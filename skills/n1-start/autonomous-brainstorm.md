@@ -147,13 +147,35 @@ Run this 4-point checklist on the written design:
 
 Fix issues inline. No need to re-review.
 
+### 8b. Planning Need Evaluation
+
+Evaluate whether the design you just wrote is sufficient for direct implementation, or whether a formal plan is needed. Both `analysis.md` and the design you wrote are already in your context — do not re-read them.
+
+**Route `direct` when ALL hold:**
+1. **Changes are specified** — the design names the files and describes what changes in each
+2. **Changes are independent** — no ordering constraints between files; editing file A doesn't change what's needed in file B
+3. **No remaining design decisions** — the approach is fully resolved; the implementer makes no architectural calls
+4. **No test strategy needed** — changes don't require new tests or a validation approach beyond what QA does naturally
+
+**Route `plan` when ANY hold:**
+1. **Coordination required** — changes interact across files/components, ordering matters, or there are dependencies to sequence
+2. **Open questions remain** — the design flagged uncertainties or the approach has decision points the implementer will face
+3. **New abstractions introduced** — the design creates new interfaces, modules, or patterns needing specification beyond the design
+4. **Non-trivial test/migration strategy** — changes need a test plan, data migration path, or rollback approach
+
+**Safety guard (always `plan`):** If `analysis.md` flags security concerns, public API changes, or cross-cutting architectural impact, route to `plan` regardless of design clarity.
+
+**Uncertainty default:** When uncertain, prefer `plan` — plan-review is cheap insurance.
+
+State your evaluation: "Planning need: [plan/direct] because [one-line reason]."
+
 ### 9. Emit Step Result
 
 ```
-N1_STEP_RESULT: {"step":"brainstorm","outcome":"done","next_step":null,"loop_counter":null}
+N1_STEP_RESULT: {"step":"brainstorm","outcome":"done","planning_need":"<plan|direct>","next_step":null,"loop_counter":null}
 ```
 
-The `next_step` is `null` — the n1-start orchestrator computes it from the Complexity Decision routing logic.
+The `next_step` is `null` — the n1-start orchestrator reads `planning_need` from this result and routes accordingly.
 
 ## Key Principles
 
