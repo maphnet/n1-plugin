@@ -508,7 +508,7 @@ The orchestrator does NOT make its own judgment — the brainstormer already eva
 
 **If direct:** Before proceeding to IMPLEMENT, run the **Estimation** procedure (see above). Then continue to Step 5 (IMPLEMENT).
 
-### 4. PLAN (complex tasks only)
+### 4. PLAN (plan path only)
 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/plan.md`.
 
@@ -516,7 +516,7 @@ The orchestrator does NOT make its own judgment — the brainstormer already eva
 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/plan-review.md`.
 
-### 4c. Estimation (complex tasks)
+### 4c. Estimation (after plan)
 
 Run the **Estimation** procedure (see Estimation section above). The `plan.md` file is available, providing maximum context for accurate classification.
 

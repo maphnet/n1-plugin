@@ -71,7 +71,7 @@ Input (ticket or brain dump)
 
 - **Agent personas:** 9 specialized agents with scoped tools and configurable models
 - **Parallel security review:** code-reviewer and security-reviewer run simultaneously
-- **Adaptive routing:** simple tasks skip the plan step
+- **Adaptive routing:** tasks that don't need a formal plan skip straight to implementation
 - **Resume support:** interrupt anytime, `/n1:n1-start TRID-510` picks up where you left off
 - **Confidence-based escalation:** low confidence + high blast radius = stop and ask
 - **Step mode:** `--step <name>` runs a single pipeline step and exits with a structured result
@@ -173,7 +173,7 @@ Optional complexity classification that maps tasks to delivery time estimates. O
 
 Times represent total delivery (including QA/review), not just coding. Default mapping is overridable per-project via `estimation.mapping` in config.
 
-When enabled, estimation runs automatically in the `n1-start` pipeline (after plan for complex tasks, after brainstorm for simple tasks) and writes to the tracker's time field (Jira `originalEstimate`, YouTrack `Estimation`). Use `/n1:n1-estimate` standalone to estimate without running the full pipeline.
+When enabled, estimation runs automatically in the `n1-start` pipeline (after plan when `planning_need: plan`, after brainstorm when `planning_need: direct`) and writes to the tracker's time field (Jira `originalEstimate`, YouTrack `Estimation`). Use `/n1:n1-estimate` standalone to estimate without running the full pipeline.
 
 ## How It Works
 

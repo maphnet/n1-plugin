@@ -4,8 +4,8 @@
 > The gate key (`estimation.enabled`) and its default (`false`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
 
 When the gate passes, run estimation at the appropriate pipeline point:
-- **Simple tasks:** after Complexity Decision routes to simple, before IMPLEMENT
-- **Complex tasks:** after Plan Review (4b), before Plan Checkpoint
+- **Direct tasks:** after Planning Need Routing routes to direct, before IMPLEMENT
+- **Plan tasks:** after Plan Review (4b), before Plan Checkpoint
 
 **Estimation procedure:**
 
