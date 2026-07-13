@@ -69,7 +69,7 @@ terminates the pipeline.
 | Form | Meaning |
 |------|---------|
 | `null` | Always true. |
-| `"complex"` / `"simple"` | Brainstorm complexity branch. The classification itself stays prose in n1-start (judgment over `analysis.md`); the edge only names the branch taken. |
+| `"plan"` / `"direct"` | Brainstorm planning need branch. The brainstormer evaluates design sufficiency (step 8b in autonomous-brainstorm.md, Planning Need Evaluation in brainstorm.md) and sets `planning_need` in its step result; the edge names the branch taken. |
 | `{"config": "<dotted.key>", "eq": <v>}` | Config value equals `<v>` (using the gate/loop default when absent). |
 | `{"config": "<dotted.key>", "neq": <v>}` | Config value not equal to `<v>`. |
 | `{"all": [<cond>, ...]}` | All sub-conditions true. |
