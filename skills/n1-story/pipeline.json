@@ -6,13 +6,14 @@
     { "name": "discovery", "number": 3, "agent": "orchestrator",                 "reads": ["ticket.md", "analysis.md"],                       "writes": ["discovery.md"] },
     { "name": "design",    "number": 4, "agent": "solution-architect",           "reads": ["ticket.md", "analysis.md", "discovery.md"],       "writes": ["story-design.md"] },
     { "name": "review",    "number": 5, "agent": "orchestrator",                 "reads": ["story-design.md", "story-overview.md"],           "writes": ["story-design.md", "story-overview.md"] },
-    { "name": "publish",   "number": 6, "agent": "tech-writer",                  "reads": ["story-design.md", "story-overview.md"],           "writes": ["story-overview.md"] },
+    { "name": "publish",   "number": 6, "agent": "tech-writer",                  "reads": ["ticket.md", "story-design.md", "story-overview.md"], "writes": ["story-overview.md"] },
     { "name": "decompose", "number": 7, "agent": "orchestrator",                 "reads": ["story-design.md", "story-overview.md"],           "writes": ["story-overview.md"] }
   ],
   "gates": [],
   "loops": [],
   "routing": [
     { "step": "intake",    "outcome": "pass", "next": "analysis",  "when": null },
+    { "step": "intake",    "outcome": "redirect", "next": null,    "when": null },
     { "step": "analysis",  "outcome": "pass", "next": "discovery", "when": null },
     { "step": "discovery", "outcome": "pass", "next": "design",    "when": null },
     { "step": "design",    "outcome": "pass", "next": "review",    "when": null },

@@ -37,7 +37,7 @@ n1_story_step_dependencies() {
         discovery)  printf 'ticket.md analysis.md' ;;
         design)     printf 'ticket.md analysis.md discovery.md' ;;
         review)     printf 'story-design.md story-overview.md' ;;
-        publish)    printf 'story-design.md story-overview.md' ;;
+        publish)    printf 'ticket.md story-design.md story-overview.md' ;;
         decompose)  printf 'story-design.md story-overview.md' ;;
         *)          return 1 ;;
     esac

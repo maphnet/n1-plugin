@@ -178,7 +178,7 @@ Story pipeline memory (n1-story steps):
 | analysis (story) | `ticket.md` | `analysis.md` |
 | discovery | `ticket.md`, `analysis.md` | `discovery.md` |
 | design | `ticket.md`, `analysis.md`, `discovery.md` | `story-design.md` |
-| review (story) | `story-design.md` | `story-design.md` (in-place fixes) |
+| review (story) | `story-design.md`, `story-overview.md` | `story-design.md` (in-place fixes), `story-overview.md` |
 | publish | `ticket.md`, `story-design.md`, `story-overview.md` | `story-overview.md` |
 | decompose | `story-design.md`, `story-overview.md` | `story-overview.md` |
 

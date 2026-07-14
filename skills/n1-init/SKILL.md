@@ -1069,13 +1069,13 @@ No knowledge base detected. Store design docs in:
 2 — Local repo file
 ```
 - **1:** set `story.designStorage: "ticket"`
-- **2:** set `story.designStorage: "file"`
+- **2:** set `story.designStorage: "local"`
 
 ```json
 {
   "story": {
     "enabled": true,
-    "designStorage": "<article|ticket|file>",
+    "designStorage": "<article|ticket|local>",
     "designPath": "docs/design/",
     "taskSizing": {
       "maxSize": "L",
@@ -1091,7 +1091,7 @@ If `story` already exists in the current config, show current state and offer:
 ```
 Current story workflow:
   enabled        → <true/false>
-  designStorage  → <article/ticket/file>
+  designStorage  → <article/ticket/local>
 
 1 — Keep current
 2 — Enable / change settings
