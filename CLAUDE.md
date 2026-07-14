@@ -169,9 +169,18 @@ Each step reads ONLY its declared dependencies:
 | ci | `overview.md`, `plan.md`, `implementation.md` | `overview.md` (CI status) |
 | finish | `overview.md`; PR state via gh | `overview.md` (Finish section) |
 | investigation-deliverable | `ticket.md`, `analysis.md` | `investigation.md` |
-| `story-overview.md` | intake | all story steps |
-| `discovery.md` | discovery | design |
-| `story-design.md` | design | review, publish, decompose |
+
+Story pipeline memory (n1-story steps):
+
+| Step | Reads | Writes |
+|------|-------|--------|
+| intake (story) | — | `ticket.md`, `story-overview.md` |
+| analysis (story) | `ticket.md` | `analysis.md` |
+| discovery | `ticket.md`, `analysis.md` | `discovery.md` |
+| design | `ticket.md`, `analysis.md`, `discovery.md` | `story-design.md` |
+| review (story) | `story-design.md` | `story-design.md` (in-place fixes) |
+| publish | `ticket.md`, `story-design.md`, `story-overview.md` | `story-overview.md` |
+| decompose | `story-design.md`, `story-overview.md` | `story-overview.md` |
 
 ### Tracker Routing
 
