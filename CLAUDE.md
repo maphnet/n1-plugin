@@ -89,6 +89,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-init | (inline: analysis + prompts) | Project setup wizard (v2: migration flow) |
 | n1-estimate | product-analyst, solution-architect agents + autonomous brainstormer + inline estimation | Standalone estimation |
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
+| n1-story | intake-agent, product-analyst, solution-architect, tech-writer agents + inline interactive steps | Story decomposition: multi-repo analysis → discovery → design → publish → ticket creation |
 
 Superpowers calls use the `superpowers:` prefix. Agent spawns use N1's own agent definitions. Each gets fresh context — the orchestrator never accumulates full history.
 
@@ -111,6 +112,18 @@ Without `--step`, behavior is unchanged (full pipeline, backward compatible).
 When a ticket title contains `investigation` or `investigate` (case-insensitive) or carries an `investigation` tag, N1 runs a shortened pipeline: ticket -> analysis -> brainstorm -> investigation-deliverable. The deliverable is a structured findings/recommendations document written to `investigation.md`. Implementation, QA, review, and PR steps are skipped.
 
 Detection happens in the orchestrator after the ticket step. The flag is stored as `mode: investigation` in overview.md frontmatter. Follow-up ticket creation and ticket closing are handled inline in the investigation-deliverable step (interactive mode only).
+
+### Story Decomposition
+
+When invoked via `/n1:n1-story`, N1 runs a 7-step pipeline for feature story decomposition: intake → analysis → discovery → design → review → publish → decompose.
+
+- **Multi-repo analysis:** `--repos path1,path2` flag enables cross-repo architecture analysis. Solution-architect runs sequentially per repo with a final cross-repo synthesis pass.
+- **Interactive discovery:** Extracts `uncertain`/`unknown` confidence-tagged items from analysis, presents them one-at-a-time for user resolution via Socratic Q&A.
+- **Design output:** Phased design document with INVEST-validated tasks, Gherkin acceptance criteria, and XS–XL estimates.
+- **Publishing:** Config-driven via `story.designStorage`: `"article"` (YouTrack KB / Confluence), `"ticket"` (description), or `"local"` (repo file). Falls back automatically.
+- **Ticket creation:** One-by-one with user approval per subtask. Each created ticket is independently executable via `/n1:n1-start`.
+
+Gated on `story.enabled` in config (default `false`). Configured by `n1-init`.
 
 ### Per-Ticket Memory (`$N1_HOME/`)
 
@@ -156,6 +169,9 @@ Each step reads ONLY its declared dependencies:
 | ci | `overview.md`, `plan.md`, `implementation.md` | `overview.md` (CI status) |
 | finish | `overview.md`; PR state via gh | `overview.md` (Finish section) |
 | investigation-deliverable | `ticket.md`, `analysis.md` | `investigation.md` |
+| `story-overview.md` | intake | all story steps |
+| `discovery.md` | discovery | design |
+| `story-design.md` | design | review, publish, decompose |
 
 ### Tracker Routing
 
