@@ -253,7 +253,8 @@ Set config:
       "createIssue": "createJiraIssue",
       "getCurrentUser": "atlassianUserInfo",
       "assign": "editJiraIssue",
-      "editTicket": "editJiraIssue"
+      "editTicket": "editJiraIssue",
+      "linkIssues": "linkJiraIssues"
     },
     "statuses": {
       "todo": "<detected or manual>",
@@ -317,7 +318,11 @@ Set config:
       "createIssue": "create_issue",
       "getCurrentUser": "get_current_user",
       "assign": "change_issue_assignee",
-      "editTicket": "update_issue"
+      "editTicket": "update_issue",
+      "createArticle": "create_article",
+      "getArticle": "get_article",
+      "updateArticle": "update_article",
+      "linkIssues": "link_issues"
     },
     "statuses": {
       "todo": "<detected or manual>",
@@ -1010,6 +1015,92 @@ Use defaults. **Do NOT ask** the user about this unless they explicitly requeste
 }
 ```
 
+## Story Workflow Configuration
+
+### Detect Article Support
+
+Check if the tracker supports knowledge base articles:
+
+**YouTrack:** Check if `create_article` MCP tool exists:
+```
+Use ToolSearch to look for "create_article" in the youtrack MCP tools.
+```
+If found: article support = true.
+
+**Jira:** Check if Confluence MCP tools exist:
+```
+Use ToolSearch to look for "confluence" or "create_page" MCP tools.
+```
+If found: article support = true.
+
+### Configure Story
+
+Ask whether N1 should enable story decomposition. **Default is No.**
+
+```
+Enable story decomposition workflow?
+This lets you use /n1:n1-story to break features into design docs and subtask tickets.
+1 — Yes
+2 — No (default)
+```
+
+**If 2 (No) or default:**
+```json
+{
+  "story": {
+    "enabled": false
+  }
+}
+```
+
+**If 1 (Yes):**
+
+Set `story.enabled: true`.
+
+**If article support detected:**
+- Set `story.designStorage: "article"`
+- Add article operations to tracker operations map (already included in the tracker operations maps above)
+
+**If no article support:**
+Ask:
+```
+No knowledge base detected. Store design docs in:
+1 — Ticket description
+2 — Local repo file
+```
+- **1:** set `story.designStorage: "ticket"`
+- **2:** set `story.designStorage: "file"`
+
+```json
+{
+  "story": {
+    "enabled": true,
+    "designStorage": "<article|ticket|file>",
+    "designPath": "docs/design/",
+    "taskSizing": {
+      "maxSize": "L",
+      "warnOnLargeTask": true
+    }
+  }
+}
+```
+
+### On reconfiguration (n1-init re-run):
+
+If `story` already exists in the current config, show current state and offer:
+```
+Current story workflow:
+  enabled        → <true/false>
+  designStorage  → <article/ticket/file>
+
+1 — Keep current
+2 — Enable / change settings
+3 — Disable
+```
+- **1** → leave unchanged.
+- **2** → re-run the detection and questions above, overwrite the block.
+- **3** → set `enabled: false`. Keep the other keys.
+
 ## Agent Model Configuration
 
 Use default models from agent frontmatter. **Do NOT ask** about model customization unless the user explicitly requested it when invoking n1-init.
@@ -1080,6 +1171,15 @@ Create all files:
   "planReview": {
     "reviewPlan": true,
     "requirePlanApproval": false
+  },
+  "story": {
+    "enabled": false,
+    "designStorage": "article",
+    "designPath": "docs/design/",
+    "taskSizing": {
+      "maxSize": "L",
+      "warnOnLargeTask": true
+    }
   },
   "memory": {
     "ticketContext": true,
@@ -1246,6 +1346,7 @@ Local testing: enabled / disabled
 Codex review: enabled / disabled
 Test coverage: maintain / minimal / standard
 Telemetry: enabled / disabled
+Story workflow: enabled (article/ticket/file) / disabled
 PR mode: draft / ready / skip
 
 Created:
