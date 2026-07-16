@@ -63,12 +63,21 @@ Parse the JSON fields:
 Run investigation detection using the parsed metadata:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-TAGS_STR=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"')
-if n1_detect_investigation "$TITLE" "$TAGS_STR"; then
+# Parse is_investigation from intake-result
+IS_INV_RAW=$(echo "$INTAKE_RESULT" | sed 's/.*"is_investigation": *\([a-z]*\).*/\1/')
+if [ "$IS_INV_RAW" = "true" ]; then
     INVESTIGATION_DETECTED=true
-else
+elif [ "$IS_INV_RAW" = "false" ]; then
     INVESTIGATION_DETECTED=false
+else
+    # Fallback: absent field (old cached intake-result) — use bash regex
+    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+    TAGS_STR=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"')
+    if n1_detect_investigation "$TITLE" "$TAGS_STR"; then
+        INVESTIGATION_DETECTED=true
+    else
+        INVESTIGATION_DETECTED=false
+    fi
 fi
 ```
 

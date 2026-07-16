@@ -52,6 +52,10 @@ You will receive ONE of four input modes:
    - For Jira: if a `cloudId` parameter was provided, include it in the call. If not provided, resolve it first via `mcp__<trackerMcp>__getAccessibleAtlassianResources`.
    - Extract: title, tags/labels, type (bug/task/feature/improvement), status, description
    - For Jira: also extract comments from the `getJiraIssue` response and include them in ticket.md under `### Comments` (last 5 meaningful, human comments only -- skip bot/automated comments). The `getJiraIssue` response embeds comments -- no separate fetch needed. If no comments or comments absent from the response, omit the section entirely.
+   - **Classify investigation intent:** Set `is_investigation` based on the ticket's *purpose*:
+     - `true` — the ticket's purpose is to discover unknowns and produce findings. Signals: title starts with "Investigate", "Investigation:", "Research why", "Explore", "Find out"; OR any tag is exactly "investigation" (case-insensitive)
+     - `false` — the ticket merely mentions investigation as a concept or feature being built/modified (e.g., "fix investigation mode", "update investigation detection logic")
+     - The `investigation` tag unconditionally forces `true` regardless of title
 2. **Write raw ticket.md** (see Output Format below)
 3. **Return intake-result** (see Return Line below). For Jira, include `cloudId` in the result.
 
@@ -60,6 +64,7 @@ You will receive ONE of four input modes:
 1. **Parse the provided text.**
    - Extract a rough title: the first imperative phrase, sentence, or summary (max 80 chars)
    - Infer type: if text contains "investigation" or "investigate" (case-insensitive word boundary) -> "task"; if text contains "bug", "error", "crash", "fix" (case-insensitive word boundary) -> "bug"; otherwise -> "task"
+   - Classify `is_investigation`: `true` if the text's purpose is discovering unknowns (starts with "Investigate", "Research why", "Explore", etc.); `false` if investigation is merely mentioned as a feature being built/modified. Same semantic distinction as tracker mode.
 2. **Write raw ticket.md** with the raw text as description
 3. **Return intake-result** with extracted title and inferred type. Tags are always empty (`[]`).
 
@@ -68,14 +73,16 @@ You will receive ONE of four input modes:
 1. **Read the file** at `filePath` using the Read tool.
 2. **Extract title** from the first markdown heading (`# ...`) if present, otherwise use the filename without extension.
 3. **Infer type** using the same keyword heuristic as text mode.
-4. **Write raw ticket.md** with the file contents as description
-5. **Return intake-result** with extracted title and inferred type. Tags are always empty (`[]`).
+4. **Classify `is_investigation`**: same semantic rule as text mode — `true` only when the file's purpose is discovering unknowns.
+5. **Write raw ticket.md** with the file contents as description
+6. **Return intake-result** with extracted title and inferred type. Tags are always empty (`[]`).
 
 ### Error tracker mode:
 
 1. **Fetch the issue** using the MCP tool:
    - Call `mcp__<errorTrackingMcp>__<operations.getIssue>` with the issue ID (and org/project slugs if required)
    - Extract: error type/message, title (from issue metadata), environment
+   - `is_investigation` is always `false` (error tracker issues are bug fixes by nature).
 2. **Write raw ticket.md** with the error summary as description
 3. **Return intake-result** with type always `"bug"`. Tags are always empty.
 
@@ -103,17 +110,17 @@ The `### Comments` section is Jira only. Include the last 5 meaningful human com
 After writing ticket.md, output this exact line (parseable by the orchestrator):
 
 ```
-intake-result: {"title": "<title>", "tags": [<tags as JSON array of strings>], "type": "<bug|task|feature|improvement>"}
+intake-result: {"title": "<title>", "tags": [<tags as JSON array of strings>], "type": "<bug|task|feature|improvement>", "is_investigation": <true|false>}
 ```
 
 For Jira ticket mode, add the resolved cloudId:
 ```
-intake-result: {"title": "<title>", "tags": [], "type": "<type>", "cloudId": "<resolved-cloud-id>"}
+intake-result: {"title": "<title>", "tags": [], "type": "<type>", "cloudId": "<resolved-cloud-id>", "is_investigation": <true|false>}
 ```
 
 If you cannot extract a title (e.g., empty or unparseable input), use `null`:
 ```
-intake-result: {"title": null, "tags": [], "type": "task"}
+intake-result: {"title": null, "tags": [], "type": "task", "is_investigation": false}
 ```
 
 ## Constraints
