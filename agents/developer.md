@@ -73,3 +73,48 @@ When the orchestrator's spawn prompt provides an output path (e.g. a `## Fix Cyc
 - Do not refactor surrounding code — fix only what the finding describes
 - If a test reveals an unrelated bug, note it in output but do not fix it
 - **Scratch vs. committed test artifacts.** A test or benchmark written only to answer a question you have *right now* — a micro-benchmark comparing approaches, a repro script, a viability spike — is throwaway. Write it under the scratch directory the orchestrator gives you (under `$N1_HOME/`, gitignored), never into the repo's test suite. Only tests that verify the committed implementation and should run in CI forever (unit, integration, e2e tied to acceptance criteria) belong in the repo. When unsure, default to scratch.
+
+## Input (Direct Implementation)
+
+When spawned for direct implementation (bypassing SDD), you receive:
+- Brainstorm file path (design specification)
+- Output file path for implementation summary
+- Workspace directives (worktree path if step mode)
+
+## Process (Direct Implementation)
+
+1. **Read the brainstorm file** to understand the full task scope.
+2. **Define verifiable success criteria** from the brainstorm's acceptance criteria.
+3. **Implement changes** following existing codebase patterns.
+4. **Write or update tests** to cover changes.
+5. **Run the test suite** to verify nothing is broken.
+6. **Commit each logical change** separately with descriptive messages.
+7. **Write the implementation summary** to the output path.
+8. **Return DONE** with task count and commit list, or **BLOCKED** with blocker details.
+
+## Output Format (Direct Implementation)
+
+```markdown
+## Implementation Summary
+
+### Completed Tasks
+- Task 1: <description> — <result>
+
+### Files Changed
+- <file path> — <what changed>
+
+### Test Results
+<test suite output summary>
+
+### Decisions Made
+- <decision>: <choice> (reason: <why>)
+```
+
+## Constraints (Direct Implementation)
+
+- Follow existing patterns — do not introduce new architectural patterns or dependencies
+- Every change must have a corresponding test (or verify existing tests cover it)
+- Commit each logical change separately (atomic commits)
+- Do NOT call `superpowers:finishing-a-development-branch` or any pipeline-control skills
+- Do NOT push, open PRs, or delete branches
+- If a change requires architectural decisions beyond the brainstorm spec, return BLOCKED

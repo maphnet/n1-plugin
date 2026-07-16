@@ -459,7 +459,7 @@ Step numbering and names:
 | 4 | `plan` | `{}` |
 | 5 | `plan-review` | `{"verdict":"CLEAN\|FIXED"}` |
 | 6 | `estimation` | `{"tier":"XS\|S\|M\|L\|XL"}` |
-| 7 | `implementation` | `{}` |
+| 7 | `implementation` | `{"execution_path":"direct|sdd"}` |
 | 8 | `qa` | `{"loop_iteration":<N>}` |
 | 9 | `review` | `{"findings_total":<N>,"findings_critical":<N>}` |
 | 10 | `fix` | `{"loop_iteration":<N>}` |

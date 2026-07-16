@@ -7,6 +7,36 @@ most once per worktree).
 
 **Execution mode is predetermined:** Do NOT present execution options to the user. Do NOT invoke superpowers:executing-plans. Always use superpowers:subagent-driven-development regardless of what the plan document or writing-plans suggests.
 
+**Read the execution path:**
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need")
+```
+
+Route based on `PLANNING_NEED`:
+- `direct` → **Direct path** (below)
+- `plan` or absent → **Plan path** (below)
+
+### Direct path (`planning_need: direct`)
+
+**Spawn agent:** developer
+
+Resolve model for `developer` via `n1_resolve_model`.
+
+The developer runs in Direct Implementation mode — it reads the brainstorm directly and implements without SDD's task decomposition. This is appropriate because `planning_need: direct` tasks have fully-specified brainstorm output with independent, well-scoped changes.
+
+Spawn the developer agent with:
+- **Input:** `$N1_HOME/memory/<ID>/brainstorm.md` — instruct: "Read this brainstorm file for the full task specification. You are in Direct Implementation mode (not Fix Cycle mode)."
+- **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the developer to write the implementation summary there after all changes are complete.
+- **Output format:** pass the implementation.md format template verbatim (from the "implementation.md format" section below).
+- **Workspace directives:** same as the plan path — when `WORKTREE_PATH` is set, pass: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory."
+- **Scratch artifact policy:** "Throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo."
+- **Hard stops:** Do NOT call `superpowers:finishing-a-development-branch`. Do NOT push, open PRs, or delete branches.
+- **Escalation rules:** pass the Confidence-Based Escalation protocol (section below).
+
+### Plan path (`planning_need: plan` or absent)
+
 **Spawn agent:** implementer
 
 Resolve model for `implementer` and for `developer` (SDD subagent model).
@@ -36,7 +66,7 @@ Spawn the implementer agent with:
 - **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the implementer to write the implementation summary there after all tasks complete (format specified in the "After implementation" section below).
 - **Escalation rules:** pass the Confidence-Based Escalation protocol (section below). If a "Low confidence + High blast radius" decision arises, the implementer returns BLOCKED with the decision details.
 
-**After the implementer agent returns:**
+**After the agent returns:**
 
 If the agent returned **DONE:**
 - The implementation summary already lives in `$N1_HOME/memory/<ID>/implementation.md` (written by the implementer).
@@ -45,7 +75,7 @@ If the agent returned **DONE:**
 
 If the agent returned **BLOCKED:**
 - Present the blocker to the user using the Confidence-Based Escalation format below.
-- After the user decides, re-spawn the implementer with the decision included. SDD resumes from its progress ledger (`/.superpowers/sdd/progress.md`) — completed tasks are not re-dispatched.
+- After the user decides, re-spawn the agent (developer for direct path, implementer for plan path) with the decision included. For the plan path, SDD resumes from its progress ledger (`/.superpowers/sdd/progress.md`) — completed tasks are not re-dispatched.
 
 ### Confidence-Based Escalation
 
@@ -72,7 +102,7 @@ Which approach?
 
 **Always escalate for:** security changes, new architectural patterns, public API contract changes (per `escalation.alwaysAskOn` in config).
 
-**implementation.md format** (pass to implementer — this is the format for the output file):
+**implementation.md format** (pass to the agent — this is the format for the output file):
 ```markdown
 ## Implementation Summary
 

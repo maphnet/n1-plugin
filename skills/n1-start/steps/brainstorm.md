@@ -57,6 +57,15 @@ State your evaluation: "Planning need: [plan/direct] because [one-line reason]."
 
 Record the `planning_need` value (`plan` or `direct`) for use in the step result. The orchestrator uses this to route — it does NOT perform its own complexity judgment.
 
+**Persist to overview.md frontmatter** so the implementation step can read it back:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNING_NEED"
+```
+
+This write happens in both full-pipeline and step mode — the Planning Need Evaluation section is shared by both paths.
+
 ### Post-Brainstorm Enrichment (Phase 2)
 
 **Gate:** Run ONLY when ALL conditions are met:
