@@ -1,4 +1,10 @@
 
+**Telemetry (if enabled):** Emit `started_at` for step 8 (`qa`) before spawning the qa-engineer. This applies to both the initial run and any re-entry after a QA fix cycle:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "qa" 8 "${N1_HOME}/memory/$ID/telemetry" started_at=now
+```
+
 **Ensure dependencies (step mode).** Run the **Ensure Dependencies(`<ID>`)**
 procedure before running any tests. Marker-guarded — a no-op if implementation
 already installed, but keeps a resumed/partial pipeline (entering directly at QA
