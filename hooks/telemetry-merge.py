@@ -9,6 +9,8 @@ Stdlib only. Invoked as:
     python telemetry-merge.py <run_id> <telemetry_dir> [--n1-version V] [--project P]
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
