@@ -21,6 +21,7 @@ else
     fi
 fi
 
+[[ "$AGENT_TYPE" == n1:* ]] || exit 0
 [ -n "$AGENT_ID" ] || exit 0
 
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)

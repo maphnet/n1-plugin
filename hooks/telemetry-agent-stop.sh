@@ -23,6 +23,7 @@ else
     TRANSCRIPT_PATH=$(echo "$INPUT" | grep -o '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true)
 fi
 
+[[ "$AGENT_TYPE" == n1:* ]] || exit 0
 [ -n "$AGENT_ID" ] || exit 0
 
 # The payload's transcript_path is the PARENT session transcript; the subagent's own
