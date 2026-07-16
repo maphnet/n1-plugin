@@ -16,7 +16,7 @@ PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_
 
 Route based on `PLANNING_NEED`:
 - `direct` → **Direct path** (below)
-- `plan` or absent → **Plan path** (below)
+- `plan` or absent → **Evaluate plan complexity** (below), then route to **Simple plan direct path** or **Plan path**
 
 ### Direct path (`planning_need: direct`)
 
@@ -35,7 +35,40 @@ Spawn the developer agent with:
 - **Hard stops:** Do NOT call `superpowers:finishing-a-development-branch`. Do NOT push, open PRs, or delete branches.
 - **Escalation rules:** pass the Confidence-Based Escalation protocol (section below).
 
-### Plan path (`planning_need: plan` or absent)
+### Simple plan evaluation (`planning_need: plan`)
+
+When `PLANNING_NEED` is `plan` (or absent), evaluate whether the plan is simple enough to bypass SDD. Read `$N1_HOME/memory/<ID>/plan.md` — if plan.md does not exist, skip evaluation and route directly to **Plan path** below (which already handles missing plan.md by falling back to brainstorm.md). Apply these criteria:
+
+1. **Count tasks** — scan for top-level task headers (`## Task` or `### Task`, following the Superpowers writing-plans format). Count distinct task entries.
+2. **If count > 2** — the plan is complex. Route to **Plan path** below.
+3. **If count <= 2** — evaluate independence:
+   - Check for explicit dependency markers between tasks: "depends on Task 1", "after Task 1 completes", "requires output from", "blocked by", or similar cross-task references.
+   - Check for implicit coupling: one task creates a resource (schema, API, file) that the other task consumes or queries.
+   - If dependencies exist (explicit or implicit) — the plan is complex. Route to **Plan path** below.
+   - If tasks are independent — the plan is simple. Route to **Simple plan direct path** below.
+
+Log the routing decision to overview.md `## Key Decisions`:
+- Simple plan: "Implementation: simple plan detected (N task(s), independent) — using Direct Implementation mode with plan.md"
+- Complex plan: "Implementation: complex plan detected (N tasks / has dependencies) — using SDD"
+
+### Simple plan direct path
+
+**Spawn agent:** developer
+
+Resolve model for `developer` via `n1_resolve_model`.
+
+The developer runs in Direct Implementation mode with the plan as input. This is appropriate because the plan contains 1-2 independent tasks that fit within a single agent's context window — SDD's decomposition and multi-agent dispatch would add overhead without value.
+
+Spawn the developer agent with:
+- **Input:** `$N1_HOME/memory/<ID>/plan.md` — instruct: "Read this plan file for the full task specification. You are in Direct Implementation mode (not Fix Cycle mode). The plan contains 1-2 tasks — implement them sequentially in the order listed."
+- **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the developer to write the implementation summary there after all changes are complete.
+- **Output format:** pass the implementation.md format template verbatim (from the "implementation.md format" section below).
+- **Workspace directives:** same as the plan path — when `WORKTREE_PATH` is set, pass: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory."
+- **Scratch artifact policy:** "Throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo."
+- **Hard stops:** Do NOT call `superpowers:finishing-a-development-branch`. Do NOT push, open PRs, or delete branches.
+- **Escalation rules:** pass the Confidence-Based Escalation protocol (section below).
+
+### Plan path (`planning_need: plan`, complex plans)
 
 **Spawn agent:** implementer
 
@@ -75,7 +108,7 @@ If the agent returned **DONE:**
 
 If the agent returned **BLOCKED:**
 - Present the blocker to the user using the Confidence-Based Escalation format below.
-- After the user decides, re-spawn the agent (developer for direct path, implementer for plan path) with the decision included. For the plan path, SDD resumes from its progress ledger (`/.superpowers/sdd/progress.md`) — completed tasks are not re-dispatched.
+- After the user decides, re-spawn the agent (developer for direct path and simple plan path, implementer for complex plan path) with the decision included. For the complex plan path, SDD resumes from its progress ledger (`/.superpowers/sdd/progress.md`) — completed tasks are not re-dispatched.
 
 ### Confidence-Based Escalation
 
