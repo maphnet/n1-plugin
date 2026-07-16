@@ -1,4 +1,10 @@
 
+**Telemetry (if enabled):** Emit `started_at` for step 10 (`fix`) before any other work in this step:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "fix" 10 "${N1_HOME}/memory/$ID/telemetry" started_at=now
+```
+
 **Ensure dependencies (step mode).** Run the **Ensure Dependencies(`<ID>`)**
 procedure before spawning the developer. Marker-guarded no-op if already installed,
 but keeps a resumed/partial pipeline (entering directly at fix in a fresh worktree)

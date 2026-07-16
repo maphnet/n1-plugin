@@ -10,6 +10,12 @@ BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || echo "<git.defaultBranch f
 ```
 (The branch-point file pins the review diff to THIS ticket's commits; diffing against `git.defaultBranch` balloons to the whole parent branch when the run started from a non-default branch.) It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT), reviewer selection with skip-recording, the Codex probe + CODEX_ACTIVE gating with retry, and the code-reviewer scope-narrowing directive.
 
+**Telemetry (if enabled):** Emit `started_at` for step 9 (`review`) before spawning reviewers. This applies to both the initial review and any re-review pass after a fix cycle:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "review" 9 "${N1_HOME}/memory/$ID/telemetry" started_at=now
+```
+
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer (+ Codex reviewer if enabled)
 
 Resolve models for code-reviewer and security-reviewer.
