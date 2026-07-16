@@ -7,12 +7,19 @@
 
 **Full pipeline + non-investigation mode** (no `--step` flag, normal task): Use the interactive brainstormer:
 
+Read the test coverage tier from config:
+```bash
+TEST_TIER=$(n1_config_val '.testCoverage.tier' 2>/dev/null)
+TEST_TIER="${TEST_TIER:-maintain}"
+```
+
 **REQUIRED SUB-SKILL:** Use superpowers:brainstorming to explore the scope and refine the approach.
 
 Pass to brainstorming:
 - The content of `ticket.md` as the idea to explore
 - The content of `analysis.md` as **pre-researched codebase context** — tell brainstorming: "Here is a codebase analysis already performed by our solution architect — use this as your starting context instead of exploring from scratch."
 - **If ticket type is `bug`:** Also tell brainstorming: "This is a bug. The analysis includes a Bug Investigation section with the likely root cause and affected code path. Use these findings to ask informed questions about the fix approach rather than generic questions."
+- **Project testing policy:** "testCoverage.tier is `{TEST_TIER}` (substitute the actual value). QA behavior by tier: `maintain` = fix broken existing tests only, no new tests added; `minimal` = up to 3 focused behavioral tests per feature for acceptance criteria only; `standard` = edge cases and error paths included. When designing the Testing section, default your proposals to match this tier. Only propose new tests if this specific change introduces risk that existing coverage does not address and the risk clearly justifies an exception to the project's testing policy."
 
 **Brainstorming overrides (IMPORTANT):**
 - **Spec location:** Write the design doc directly to `$N1_HOME/memory/<ID>/brainstorm.md` — NOT to `docs/superpowers/specs/`. The brainstorming skill honors "user preferences for spec location override this default," so this is the sanctioned location override.
