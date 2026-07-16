@@ -62,9 +62,9 @@ After the agent returns:
 
 **Edge case — no testable scenarios:** If the analysis produces zero automated test scenarios (no startable app, no testable endpoints, purely library/SDK changes), auto-skip: "Local testing analysis found no testable scenarios for this change. Proceeding to PR." Update overview: `[x] Local Testing`, set `step: local-testing`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10.
 
-#### 9b. APPROVAL CHECKPOINT
+#### 9b. PLAN SUMMARY
 
-Read `local-test-plan.md`. Present a plan summary:
+Read `local-test-plan.md`. Print to the user:
 
 ```
 Local Testing Plan for <ID>:
@@ -75,45 +75,7 @@ Scenarios: <N> automated checks, <M> manual verification items
 Estimated time: <time estimate>
 ```
 
-**Step-mode escalation protocol (plan approval).** In step mode there is no interactive channel — do NOT print a question for the user. When the test plan is ready for approval:
-
-1. Write `$N1_HOME/memory/<ID>/escalation/request.json` (create the directory if needed):
-   ```json
-   {
-     "run_id": "<value of the N1_RUN_ID environment variable>",
-     "step": "local-testing",
-     "questions": [{
-       "id": "local_test_plan_approval",
-       "text": "Local test plan is ready. Should I run local tests or skip to PR?",
-       "options": ["Go: run local tests", "Skip: proceed to PR"],
-       "recommendation": "Go — the plan covers <N> automated scenarios for the changed functionality",
-       "context": "<infrastructure services, scenario count, estimated time from the plan>"
-     }]
-   }
-   ```
-2. Run via Bash:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "local-testing" "escalation" "null" "null"
-   ```
-   Then STOP.
-3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `local_test_plan_approval`:
-   - "Go" → proceed to 9c (EXECUTION).
-   - "Skip" → update overview: `[x] Local Testing`, set `step: local-testing`; add key decision: "Local Testing: skipped by user"; run via Bash: `n1_emit_step_result "local-testing" "pass" "null" "null"` and STOP.
-
-In full pipeline mode this protocol does NOT apply — keep the interactive prompt below unchanged.
-
-**In full pipeline mode:** Proceed with local testing, or skip to PR?
-
-1 — Go (run local tests)
-2 — Skip (proceed to PR)
-
-**If 2 (Skip):**
-- Update overview: `[x] Local Testing`, set `step: local-testing`
-- Add key decision: "Local Testing: skipped by user"
-- Skip to Step 10 (PR CREATION)
-
-**If 1 (Go):** Proceed to execution.
+Proceed to 9c (EXECUTION).
 
 #### 9c. EXECUTION (developer)
 
