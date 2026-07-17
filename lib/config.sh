@@ -159,6 +159,16 @@ n1_codex_available() {
     return 0
 }
 
+n1_codex_preflight() {
+    local base_branch="$1"
+    n1_codex_available || return 1
+    if ! git rev-parse --verify "$base_branch" >/dev/null 2>&1; then
+        echo "base branch '$base_branch' not resolvable" >&2
+        return 1
+    fi
+    return 0
+}
+
 escape_json_val() {
     local s="$1"
     s="${s//\\/\\\\}"
