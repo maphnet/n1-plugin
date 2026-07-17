@@ -217,7 +217,7 @@ Optional complexity classification and delivery time estimation. Gated on `estim
 
 ### Local Testing
 
-When `localTesting.enabled` is true, n1-start runs a local end-to-end testing phase (Step 9) after Review and before PR. Solution-architect produces a test plan, prints a summary, and developer executes automatically. Bounded fix loop: `localTesting.maxFixAttempts` (default 3). Off by default; configured by `n1-init`.
+When `localTesting.enabled` is true, n1-start runs a local end-to-end testing phase (Step 9) after Review and before PR. Local-test-planner produces a test plan, prints a summary, and developer executes automatically. Bounded fix loop: `localTesting.maxFixAttempts` (default 3). Off by default; configured by `n1-init`.
 
 The PR body uses a unified `## Verification` section (not separate `## Test Plan` / `## Local Testing`). The tech-writer merges QA verification steps with local testing results via best-effort semantic matching — matched items show checked/unchecked with evidence, unmatched items from either source are included as-is.
 
