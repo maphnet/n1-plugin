@@ -33,6 +33,7 @@ N1 is a Claude Code plugin that orchestrates the full development cycle (ticket 
 - **Plugin manifest:** `.claude-plugin/plugin.json`
 - **Marketplace manifest:** `.claude-plugin/marketplace.json` (repo root — for `marketplace add`)
 - **Dependency:** Superpowers plugin >=5.0
+- **Shared shell helpers:** `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/memory.sh` (compaction)
 
 ## Plugin Development
 
@@ -153,14 +154,14 @@ Each step reads ONLY its declared dependencies:
 
 | Step | Reads | Writes |
 |------|-------|--------|
-| ticket | — | `ticket.md` |
-| analysis | `ticket.md` | `analysis.md` |
-| brainstorm | `ticket.md`, `analysis.md` | `brainstorm.md` |
+| ticket | — | `ticket.md` (+ `<!-- n1:signals -->` block: `task_type`, `has_acceptance_criteria`, `description_quality`) |
+| analysis | `ticket.md` | `analysis.md` (+ signals: `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`) |
+| brainstorm | `ticket.md`, `analysis.md` | `brainstorm.md` (+ signals: `planning_need`, `design_clarity`, `approach_count`) |
 | plan | `ticket.md`, `brainstorm.md`, `analysis.md` | `plan.md` |
 | plan-review | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` | `plan.md` (in-place fixes) |
 | estimation | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` (if exists) | `overview.md` (estimation section) |
-| implementation | `brainstorm.md`, `plan.md` | `implementation.md` |
-| qa | `ticket.md`, `implementation.md`, `plan.md` | `qa.md` |
+| implementation | `brainstorm.md`, `plan.md` | `implementation.md` (+ signals: `diff_surface`, `lines_changed`, `new_files_count`) |
+| qa | `ticket.md`, `implementation.md`, `plan.md` | `qa.md` (+ signals: `tests_added`, `tests_broken`, `coverage_change`) |
 | review | `ticket.md`, `brainstorm.md`, `implementation.md`, `qa.md` | `review.md` |
 | local-test-analysis | `ticket.md`, `implementation.md`, `plan.md` or `brainstorm.md`, codebase | `local-test-plan.md` |
 | local-test-execution | `local-test-plan.md`, `implementation.md` | `local-testing.md` |
@@ -196,6 +197,51 @@ When `ticketTagging.enabled` is true, `n1-start` prefixes created tickets with `
 When `tracker.assignToCreator` is not `false` (default ON), `n1-start` assigns tickets it creates to the currently-authenticated tracker user via the `getCurrentUser` + `assign` operations. Creation only; non-fatal on failure; silently skipped when those operations are absent (legacy configs). Configured by `n1-init`.
 
 On brain-dump/file runs where the user opts to create a ticket, `n1-start` adopts the **created ticket ID** as the per-ticket memory `<ID>` and worktree name. An ID-Final invariant blocks any memory/worktree write until that ID is known; if state was already written under the provisional slug, the idempotent `Reconcile Memory ID & Worktree` procedure moves the memory folder (inside `$N1_HOME/memory/`) and renames the worktree directory to the ticket-ID-based names.
+
+### Type Registry
+
+Workflow types are declared in `pipeline.json` under `types`. Each type defines its step sequence, detection rules, and optional per-step model overrides.
+
+| Type | Steps | Detection | Key differences |
+|------|-------|-----------|-----------------|
+| `task` (default) | ticket → analysis → [brainstorm] → [plan] → [plan-review] → [estimation] → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] | `detect.default: true` | Full pipeline |
+| `investigation` | ticket → analysis → brainstorm → investigation-deliverable | Title match: `investigat`, tags: `investigation` | No implementation, QA, or PR |
+| `bug` | ticket → analysis → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] | Type field: `bug`, tags: `bug` | Skips brainstorm and plan; analysis model downgraded |
+| `chore` | ticket → analysis → implementation → qa → review → pr → [ci] → [finish] | Type field: `chore`, tags: `chore/config/deps` | Skips brainstorm, plan, local-testing; analysis and review models downgraded |
+
+Brackets = skippable by config gates or runtime signals. Detection cascade: `--type` flag > tags > type_field > title_match > default.
+
+Adding a new type requires only a `types` entry in `pipeline.json` — no new skills, step files, or orchestrator code changes.
+
+### Runtime Signals
+
+Steps emit runtime signals stored as `<!-- n1:signals -->` blocks in memory files. Signals drive step gating, model tiering, and decision telemetry.
+
+| Step | Signals | Stored in |
+|------|---------|-----------|
+| ticket | `task_type`, `has_acceptance_criteria`, `description_quality` | ticket.md |
+| analysis | `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause` | analysis.md |
+| brainstorm | `planning_need`, `design_clarity`, `approach_count` | brainstorm.md |
+| implementation | `diff_surface`, `lines_changed`, `new_files_count` | implementation.md |
+| qa | `tests_added`, `tests_broken`, `coverage_change` | qa.md |
+
+Helpers in `lib/signals.sh`: `n1_read_signal`, `n1_write_signals`, `n1_eval_signal_gate`, `n1_check_signal_gates`.
+
+### Signal-Driven Gating
+
+Signal gates in `pipeline.json` under `signal_gates` define `skip_when` conditions evaluated before each step. Safety invariants (qa, review, pr) are never skipped regardless of signals. Override hierarchy (highest wins): safety invariants > runtime signals > pipeline profile defaults > config gates.
+
+### Model Tiering
+
+`n1_resolve_model` accepts an optional context parameter for signal-driven model selection. Resolution chain: config override > signal-driven triggers > profile step_overrides > agent frontmatter default. Tier keywords: `frontier` (opus), `standard` (agent default), `downgrade` (one tier below), `minimal` (haiku). Triggers defined in `pipeline.json` under `downgrade_triggers` and `escalation_triggers`.
+
+### Memory Compaction
+
+`n1_compact_memory` in `lib/memory.sh` archives full memory files to `<file>.full.md` and replaces originals with compacted versions keeping only high-signal sections. Applied after brainstorm (291K → <10K target), analysis (30-50% reduction), and implementation before review (40-60% reduction).
+
+### Implementation Simplicity Gate
+
+When `tier == simple` AND `blast_radius == low` AND `files_changed < 3`, the implementation step bypasses SDD fan-out and spawns a single developer agent directly. Fallback to full SDD if the developer fails. Gate checked before the existing planning_need routing.
 
 ### Ticket Description Enrichment
 
