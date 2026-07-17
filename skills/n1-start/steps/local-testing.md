@@ -13,21 +13,14 @@ Run `n1_config_val '.localTesting.enabled'` (default: `false`).
 **Ensure dependencies (step mode).** Run the **Ensure Dependencies(`<ID>`)**
 procedure before infrastructure/app startup. Marker-guarded no-op if already installed.
 
-#### 9a. ANALYSIS (solution-architect)
+#### 9a. ANALYSIS (local-test-planner)
 
-**Spawn agent:** solution-architect
+**Spawn agent:** local-test-planner
 
-Resolve model for `solution-architect`.
+Resolve model for `local-test-planner`.
 
-Spawn the solution-architect agent with:
+Spawn the local-test-planner agent with:
 - The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/implementation.md` (what changed, which files), `$N1_HOME/memory/<ID>/ticket.md` (acceptance criteria), and `$N1_HOME/memory/<ID>/plan.md` if it exists, else `$N1_HOME/memory/<ID>/brainstorm.md` (design intent, scope). Their content is NOT inlined here."
-- Directive: "Analyze this project for local end-to-end testing. Your task is to produce a structured test plan — do NOT execute any commands that modify state. You MAY run read-only commands (ls, cat, grep, docker compose config) to discover infrastructure."
-- Directive: "Detect the following from the project:"
-  - "1. Infrastructure: what services the app needs (DB, Redis, queues, external APIs), how they start (docker-compose, manual), what ports/env vars are required. Check docker-compose*.yml, Dockerfile*, .env.example, CLAUDE.md."
-  - "2. App startup: how the app starts locally (npm run dev, cargo run, etc.), what the readiness signal is (port open, health endpoint, specific log line). Check package.json scripts, Makefile, Cargo.toml, CLAUDE.md."
-  - "3. Test scenarios: concrete test scenarios based on changed functionality + acceptance criteria. Each scenario has: description, method (curl/CLI/browser), command or URL, expected outcome. Prioritize critical path first. Scope to changed functionality ONLY."
-  - "4. Manual checklist: things the agent cannot verify automatically — visual UI changes, complex multi-step workflows requiring human judgment."
-  - "5. Cleanup plan: how to tear down services and kill processes after testing."
 - Directive: "Output the plan in this exact structure:"
 
 ```markdown
