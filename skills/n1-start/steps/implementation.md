@@ -7,6 +7,45 @@ most once per worktree).
 
 **Execution mode is predetermined:** Do NOT present execution options to the user. Do NOT invoke superpowers:executing-plans. Always use superpowers:subagent-driven-development regardless of what the plan document or writing-plans suggests.
 
+### Signal-Driven Simplicity Gate
+
+Before the normal planning_need routing, check runtime signals for a simple-task bypass:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
+BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")
+FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")
+```
+
+**If ALL three conditions hold:**
+1. `TIER == "simple"`
+2. `BLAST == "low"`
+3. `FILES_CHANGED < 3` (numeric comparison; treat empty as 999)
+
+**→ Simple signal path:** Spawn a single `developer` agent with context `implementation`. Use `n1_resolve_model developer implementation` to get the model (signal-driven downgrade may apply).
+
+Spawn the developer agent with:
+- **Input:** `$N1_HOME/memory/<ID>/brainstorm.md` (or `plan.md` if it exists) — instruct: "Read this file for the full task specification. You are in Direct Implementation mode."
+- **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the developer to write the implementation summary there after all changes are complete.
+- **Output format:** pass the implementation.md format template verbatim (from the "implementation.md format" section below).
+- **Workspace directives:** same as existing direct path — when `WORKTREE_PATH` is set, pass: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory."
+- **Scratch artifact policy:** "Throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo."
+- **Hard stops:** Do NOT call `superpowers:finishing-a-development-branch`. Do NOT push, open PRs, or delete branches.
+- **Escalation rules:** pass the Confidence-Based Escalation protocol (section below).
+
+Log the gate decision to overview.md `## Key Decisions`:
+- Gate triggered: "Implementation simplicity gate: direct developer spawn (tier=$TIER, blast_radius=$BLAST, files_changed=$FILES_CHANGED)"
+
+**If the developer agent succeeds** (produces `implementation.md`), proceed to signal computation and QA (skip the routing below).
+
+**If the developer agent fails** (exits without producing `implementation.md`), fall through to the normal routing below — the existing planning_need-based dispatch acts as the safety net.
+
+**If ANY condition fails → skip this gate** and proceed to the existing "Read the execution path" block below.
+
+---
+
 **Read the execution path:**
 
 ```bash
