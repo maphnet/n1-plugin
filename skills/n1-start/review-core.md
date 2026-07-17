@@ -19,17 +19,17 @@ Classify the changed-file set into two independent booleans:
 Reviewer selection follows directly:
 - `code-reviewer` **always runs** (docs still get a quality pass).
 - `security-reviewer` runs **iff `SECURITY_RELEVANT`** — skip on doc/config-only or clearly non-security code diffs.
-- Codex runs **iff** `n1_codex_available` passes (checks `codex.enabled` with backward compat for `codexReview.enabled`, companion path, and CLI availability) AND **not** `DOC_CONFIG_ONLY`.
+- Codex runs **iff** `n1_codex_preflight "<BASE_BRANCH>"` passes (checks `codex.enabled` with backward compat for `codexReview.enabled`, companion path, CLI availability, AND base branch resolvability) AND **not** `DOC_CONFIG_ONLY`.
 
 Record every skip explicitly in `review.md` (e.g. `"⚠ security-reviewer skipped — no security-relevant surface in diff"`, `"⚠ Codex skipped — documentation/config-only diff"`) so a missing reviewer is never mistaken for a PASS.
 
 ## Codex Reviewer (conditional)
 
-Call `n1_codex_available` (from `plugin/lib/config.sh`). Codex is additionally suppressed when `DOC_CONFIG_ONLY` is true.
+Call `n1_codex_preflight "<BASE_BRANCH>"` (from `plugin/lib/config.sh`). Codex is additionally suppressed when `DOC_CONFIG_ONLY` is true.
 
-If `n1_codex_available` returns 0 (success) AND `DOC_CONFIG_ONLY` is false:
+If `n1_codex_preflight` returns 0 (success) AND `DOC_CONFIG_ONLY` is false:
 
-1. `CODEX` is already set by `n1_codex_available`. Read model/effort config:
+1. `CODEX` is already set by `n1_codex_preflight` (via `n1_codex_available`). Read model/effort config:
    ```bash
    CODEX_MODEL=$(n1_codex_val 'model')
    CODEX_EFFORT=$(n1_codex_val 'effort')
@@ -38,19 +38,29 @@ If `n1_codex_available` returns 0 (success) AND `DOC_CONFIG_ONLY` is false:
 
 2. Spawn Codex review **in parallel** with the Claude reviewers:
    ```bash
-   node "$CODEX" review --wait --scope branch --base "<BASE_BRANCH>" \
+   CODEX_STDERR=$(mktemp)
+   CODEX_OUTPUT=$(node "$CODEX" review --wait --scope branch --base "<BASE_BRANCH>" \
      ${CODEX_MODEL:+--model "$CODEX_MODEL"} \
-     --effort "$CODEX_EFFORT"
+     --effort "$CODEX_EFFORT" 2>"$CODEX_STDERR")
+   CODEX_EXIT=$?
    ```
    Run this as a single **blocking foreground** Bash call (the `--wait` flag makes the command return only when the review is done). NEVER end your response turn to "wait for Codex" — in headless mode there is no later turn, and the review dies unfinished. If you launched it in the background for parallelism, you MUST block on its completion (e.g. poll/wait on the background task) within the same turn before proceeding to merge findings.
 
-3. After Codex returns, spawn the **codex-adapter** agent (resolve model for `codex-adapter`) to parse raw output into `[CX-N]` structured findings.
+   After the call completes, validate the result:
+   - If `CODEX_EXIT != 0`: this is a **Codex failure**. Read `$CODEX_STDERR` (first 20 lines). Enter the retry path (step 4 below).
+   - If `CODEX_EXIT == 0` but `CODEX_OUTPUT` is empty or whitespace-only: treat as failure. Log `"⚠ Codex returned empty output (exit 0) — treating as failure"`. Enter the retry path.
+   - If `CODEX_EXIT == 0` and `CODEX_OUTPUT` is non-empty: success. Proceed to spawn codex-adapter (step 3).
+   - Always clean up: `rm -f "$CODEX_STDERR"` after recording any needed content.
 
-4. **Partial-failure handling:** If the Codex call errors or times out, retry once. If it still fails, proceed with the remaining reviewers' findings. Record the gap in review.md: `"⚠ Codex review did not complete — review incomplete"`.
+3. After Codex returns successfully, spawn the **codex-adapter** agent (resolve model for `codex-adapter`) to parse raw output into `[CX-N]` structured findings.
 
-If `n1_codex_available` returns 1 (unavailable) OR `DOC_CONFIG_ONLY` is true → log `"⚠ Codex review skipped — not available or documentation/config-only diff"` in review.md and treat Codex as NOT running (this affects the code-reviewer scope decision below).
+4. **Partial-failure handling:** If the Codex call failed (non-zero exit or empty output), retry once using the same command. If the retry also fails, proceed with the remaining reviewers' findings. Record the gap in review.md with the **actual error** — do NOT interpret or diagnose the cause; quote stderr verbatim:
+   - Format: `"⚠ Codex review did not complete (exit <CODEX_EXIT>). stderr: <first 20 lines of CODEX_STDERR>"`
+   - If both attempts produced empty output: `"⚠ Codex review returned empty output on both attempts (exit 0 both times)"`
 
-Let **CODEX_ACTIVE** be true only when all of these hold: `n1_codex_available` passed, `DOC_CONFIG_ONLY` is false, and the Codex call did not permanently fail after its retry.
+If `n1_codex_preflight` returns 1 (unavailable) OR `DOC_CONFIG_ONLY` is true → capture the stderr from the preflight call and log `"⚠ Codex skipped — <stderr reason, or 'documentation/config-only diff'>"` in review.md and treat Codex as NOT running (this affects the code-reviewer scope decision below).
+
+Let **CODEX_ACTIVE** be true only when all of these hold: `n1_codex_preflight` passed, `DOC_CONFIG_ONLY` is false, and the Codex call did not permanently fail after its retry.
 
 ## code-reviewer Scope (Codex-aware delegation)
 
