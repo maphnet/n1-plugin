@@ -130,12 +130,12 @@ When step mode is active:
    ```
    Exception: if the requested step is `ticket` and overview.md does not exist, this is a fresh start — skip the overview read and proceed to the ticket step directly.
 
-3. **Ensure Worktree (conditional)** — Read `mode` from overview.md frontmatter (if overview.md exists for this `<ID>`):
+3. **Ensure Worktree (conditional)** — Read `type` from overview.md frontmatter (if overview.md exists for this `<ID>`):
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-   MODE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode" 2>/dev/null || echo "")
+   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+   TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md" 2>/dev/null || echo "")
    ```
-   Skip Ensure Worktree when `MODE` is `"investigation"` or when `step_name` is `"ticket"` (the ticket step fragment handles its own workspace isolation after investigation detection). Otherwise, run the **Ensure Worktree(`<ID>`)** procedure (Step Mode, see Workspace Isolation above).
+   Skip Ensure Worktree when `TYPE` is `"investigation"` or when `step_name` is `"ticket"` (the ticket step fragment handles its own workspace isolation after investigation detection). Otherwise, run the **Ensure Worktree(`<ID>`)** procedure (Step Mode, see Workspace Isolation above).
 
 4. **Verify dependencies:**
    ```bash
@@ -391,12 +391,12 @@ Do not attempt to cache volatile memory files; interleaving them into the prefix
 
 Check if `$N1_HOME/memory/<input>/overview.md` exists:
 
-- **If exists:** Read the overview frontmatter to determine current step. Also read the pipeline mode:
+- **If exists:** Read the overview frontmatter to determine current step. Also read the pipeline type:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-  MODE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode")
+  source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+  TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
   ```
-  When `MODE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). Otherwise, run the appropriate workspace isolation procedure: **Ensure Working Branch(`<ID>`)** in full pipeline mode, or **Ensure Worktree(`<ID>`)** in step mode (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
+  When `TYPE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). Otherwise, run the appropriate workspace isolation procedure: **Ensure Working Branch(`<ID>`)** in full pipeline mode, or **Ensure Worktree(`<ID>`)** in step mode (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
@@ -490,7 +490,7 @@ Each step section in the pipeline below should emit its start marker before spaw
 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/investigation-deliverable.md`.
 
-This step only runs when `MODE` is `"investigation"` (read from overview.md frontmatter: `n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode"`). After this step, the pipeline terminates (no plan, implementation, QA, review, or PR steps).
+This step only runs when `TYPE` is `"investigation"` (read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`). After this step, the pipeline terminates (no plan, implementation, QA, review, or PR steps).
 
 ### Estimation
 
@@ -498,7 +498,7 @@ This step only runs when `MODE` is `"investigation"` (read from overview.md fron
 
 ### Planning Need Routing
 
-**Investigation mode:** If `MODE` is `"investigation"` (read from overview.md frontmatter), skip planning need routing entirely — investigation tasks always proceed from brainstorm to the investigation-deliverable step. The brainstorm step's routing handles this via `pipeline.json`.
+**Investigation mode:** If `TYPE` is `"investigation"` (read from overview.md frontmatter via `n1_read_type`), skip planning need routing entirely — investigation tasks always proceed from brainstorm to the investigation-deliverable step. The brainstorm step's routing handles this via `pipeline.json`.
 
 Read `planning_need` from the brainstorm step result (set by the brainstormer in Step 3). Route:
 - `planning_need: plan` → Continue to **PLAN** (Step 4)
@@ -596,12 +596,12 @@ Gate defaults (`estimation.enabled`=false, `planReview.reviewPlan`=true,
 and loop bounds (`qa/review/localTesting/ciChecks.maxFixAttempts`, default 3 each)
 are the `gates[]`/`loops[]` defaults in `pipeline.json` — do not hardcode them here.
 
-**Investigation mode routing:** When `overview.md` frontmatter has `mode: investigation`, the `brainstorm` step routes to `investigation-deliverable` instead of `plan`/`implementation`. The `investigation-deliverable` step is terminal (`next_step: null`). Read the `mode` frontmatter before evaluating routing:
+**Investigation mode routing:** When `overview.md` frontmatter has `type: investigation`, the `brainstorm` step routes to `investigation-deliverable` instead of `plan`/`implementation`. The `investigation-deliverable` step is terminal (`next_step: null`). Read the `type` frontmatter before evaluating routing:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-MODE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode")
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
 ```
-If `MODE` is `investigation`, set `investigation=true` in the routing context passed to `pipeline.json` evaluation.
+If `TYPE` is `investigation`, set `type=investigation` in the routing context passed to `pipeline.json` evaluation (matching the `"when": {"type": "investigation"}` condition in `pipeline.json`).
 
 **Planning need routing (brainstorm routing):** When the `brainstorm` step completes in step mode, the routing logic reads `planning_need` from the brainstorm step result. The autonomous brainstormer evaluates planning need as part of its process (step 8b) and sets the value in its step result. The orchestrator routes `plan` → plan step, `direct` → implementation step. No independent judgment — the brainstormer's evaluation is authoritative.
 

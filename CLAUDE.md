@@ -109,9 +109,9 @@ Without `--step`, behavior is unchanged (full pipeline, backward compatible).
 
 ### Investigation Mode
 
-When a ticket title contains `investigation` or `investigate` (case-insensitive) or carries an `investigation` tag, N1 runs a shortened pipeline: ticket -> analysis -> brainstorm -> investigation-deliverable. The deliverable is a structured findings/recommendations document written to `investigation.md`. Implementation, QA, review, and PR steps are skipped.
+When a ticket matches a type's detection rules in the `pipeline.json` type registry (title match, tags, or type field — or an explicit `--type` flag), N1 runs that type's step sequence. The `investigation` type runs a shortened pipeline: ticket -> analysis -> brainstorm -> investigation-deliverable. The deliverable is a structured findings/recommendations document written to `investigation.md`. Implementation, QA, review, and PR steps are skipped.
 
-Detection happens in the orchestrator after the ticket step. The flag is stored as `mode: investigation` in overview.md frontmatter. Follow-up ticket creation and ticket closing are handled inline in the investigation-deliverable step (interactive mode only).
+Detection happens in the orchestrator after the ticket step via `n1_resolve_type()` (detection cascade: `--type` flag > tags > type field > title match > default). The resolved type is stored as `type: <name>` in overview.md frontmatter. Backward compat: if overview.md has `mode` but no `type`, `n1_read_type()` reads `mode` as `type`. Follow-up ticket creation and ticket closing are handled inline in the investigation-deliverable step (interactive mode only).
 
 ### Story Decomposition
 

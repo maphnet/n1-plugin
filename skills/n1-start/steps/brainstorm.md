@@ -3,7 +3,7 @@
 
 **Step mode** (`--step brainstorm`): Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). This skill runs without any interactive channel — it generates approaches, scores them, and either selects autonomously or writes an escalation request for n1-loop to mediate.
 
-**Full pipeline + investigation mode** (no `--step` flag, AND `MODE == "investigation"` from overview.md frontmatter): Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). Pass the investigation focus override (see Investigation mode section below). After the autonomous brainstormer returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Post-Brainstorm Enrichment gate.
+**Full pipeline + investigation mode** (no `--step` flag, AND `TYPE == "investigation"` from overview.md frontmatter): Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). Pass the investigation focus override (see Investigation mode section below). After the autonomous brainstormer returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Post-Brainstorm Enrichment gate.
 
 **Full pipeline + non-investigation mode** (no `--step` flag, normal task): Use the interactive brainstormer:
 
@@ -29,7 +29,7 @@ Pass to brainstorming:
 
 > **After `superpowers:brainstorming` returns, IMMEDIATELY continue to the overview update and Post-Brainstorm Enrichment section below -- do NOT write a summary message or yield to the user.**
 
-**Investigation mode (when `MODE` is `"investigation"`, read from overview.md frontmatter: `n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode"`):**
+**Investigation mode (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):**
 
 In step mode, the autonomous brainstormer is already used (routing above). In full pipeline mode, the autonomous brainstormer is used instead of `superpowers:brainstorming` (routing above). In both cases, override the brainstorming focus:
 - Pass to brainstorming (or autonomous brainstormer): "This is an investigation task -- explore the question and research findings, not implementation approaches. Focus on validating or challenging the analysis findings, exploring alternative explanations, and identifying gaps in the investigation. The output should be research-focused, not design-focused."

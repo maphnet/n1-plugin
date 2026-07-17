@@ -58,26 +58,30 @@ Parse the JSON fields:
 - `TYPE` -- from `type`
 - `CLOUD_ID` -- from `cloudId` (Jira only, may be absent)
 
-**Investigation detection (between spawns)**
+**Type resolution (between spawns)**
 
-Run investigation detection using the parsed metadata:
+Resolve the workflow type using the parsed metadata and the type registry in `pipeline.json`:
 
 ```bash
-# Parse is_investigation from intake-result
-IS_INV_RAW=$(echo "$INTAKE_RESULT" | sed 's/.*"is_investigation": *\([a-z]*\).*/\1/')
-if [ "$IS_INV_RAW" = "true" ]; then
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+
+# Parse --type flag if provided by the user
+TYPE_OVERRIDE=""
+if n1_parse_type_arg "$USER_INPUT" 2>/dev/null; then
+    TYPE_OVERRIDE=$(n1_parse_type_arg "$USER_INPUT")
+fi
+
+# Extract tags as CSV from intake-result
+TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
+
+# Extract type field from intake-result (bug/task/feature/improvement)
+TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*"type": *"\([^"]*\)".*/\1/')
+
+# Resolve type via registry cascade
+RESOLVED_TYPE=$(n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE")
+INVESTIGATION_DETECTED=false
+if [ "$RESOLVED_TYPE" = "investigation" ]; then
     INVESTIGATION_DETECTED=true
-elif [ "$IS_INV_RAW" = "false" ]; then
-    INVESTIGATION_DETECTED=false
-else
-    # Fallback: absent field (old cached intake-result) — use bash regex
-    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-    TAGS_STR=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"')
-    if n1_detect_investigation "$TITLE" "$TAGS_STR"; then
-        INVESTIGATION_DETECTED=true
-    else
-        INVESTIGATION_DETECTED=false
-    fi
 fi
 ```
 
@@ -85,7 +89,7 @@ fi
 
 If `INVESTIGATION_DETECTED` is false AND the input mode is "ticket" or "error-tracker" (i.e., the `<ID>` is already known from intake): run the workspace isolation procedure now — **Ensure Working Branch(`<ID>`)** in full pipeline mode, or **Ensure Worktree(`<ID>`)** in step mode. For investigation tasks, no branch or worktree is created — all output goes to `$N1_HOME/memory/<ID>/` only.
 
-Note: overview.md may not exist yet at this point (for ticket mode it does because we already resolved `<ID>`; for brain dump/file/error-tracker the ID may still be provisional). If overview.md does not exist yet, store the investigation flag in context and write it after overview.md is created (see "Write investigation mode to overview.md" below).
+Note: overview.md may not exist yet at this point (for ticket mode it does because we already resolved `<ID>`; for brain dump/file/error-tracker the ID may still be provisional). If overview.md does not exist yet, store the investigation flag in context and write it after overview.md is created (see "Write resolved type to overview.md" below).
 
 **Phase 2: Spawn product-analyst**
 
@@ -278,15 +282,16 @@ local_test_fix_cycle: 0
 (none yet)
 ```
 
-**Write investigation mode to overview.md (if detected):**
+**Write resolved type to overview.md:**
 
-If `INVESTIGATION_DETECTED` is true (from the investigation detection between spawns), now that overview.md exists:
-1. Write `mode: investigation` to overview.md frontmatter:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-   n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "mode" "investigation"
-   ```
-2. Replace the overview.md progress checklist with the investigation variant:
+Write the resolved type to overview.md frontmatter:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "$RESOLVED_TYPE"
+```
+
+**If `INVESTIGATION_DETECTED` is true** (i.e., `RESOLVED_TYPE` is `"investigation"`):
+1. Replace the overview.md progress checklist with the investigation variant:
    ```markdown
    ## Progress
    - [x] Ticket read
@@ -294,7 +299,7 @@ If `INVESTIGATION_DETECTED` is true (from the investigation detection between sp
    - [ ] Brainstorm
    - [ ] Investigation deliverable
    ```
-3. Report: "Detected investigation task -- running shortened pipeline (no implementation/QA/review/PR)."
+2. Report: "Detected investigation task -- running shortened pipeline (no implementation/QA/review/PR)."
 
 **Telemetry (if enabled):** Write the run envelope -- this provides the run-level metadata for the merge script:
 

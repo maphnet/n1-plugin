@@ -1,5 +1,34 @@
 {
   "version": 1,
+  "types": {
+    "task": {
+      "steps": ["ticket", "analysis", "brainstorm", "plan", "plan-review", "estimation",
+                 "implementation", "qa", "review", "local-testing", "pr", "ci", "finish"],
+      "detect": { "default": true }
+    },
+    "investigation": {
+      "steps": ["ticket", "analysis", "brainstorm", "investigation-deliverable"],
+      "detect": { "title_match": "investigat", "tags": ["investigation"] }
+    },
+    "bug": {
+      "steps": ["ticket", "analysis", "implementation", "qa", "review",
+                 "local-testing", "pr", "ci", "finish"],
+      "detect": { "type_field": "bug", "tags": ["bug"] },
+      "step_overrides": {
+        "analysis": { "model_tier": "downgrade" },
+        "review": { "model_tier": "standard" }
+      }
+    },
+    "chore": {
+      "steps": ["ticket", "analysis", "implementation", "qa", "review",
+                 "pr", "ci", "finish"],
+      "detect": { "type_field": "chore", "tags": ["chore", "config", "deps"] },
+      "step_overrides": {
+        "analysis": { "model_tier": "downgrade" },
+        "review": { "model_tier": "downgrade" }
+      }
+    }
+  },
   "steps": [
     { "name": "ticket",         "number": 1,  "agent": "intake-agent,product-analyst", "reads": [],                                                     "writes": ["ticket.md"] },
     { "name": "analysis",       "number": 2,  "agent": "solution-architect",    "reads": ["ticket.md"],                                          "writes": ["analysis.md"] },
@@ -33,7 +62,7 @@
   "routing": [
     { "step": "ticket",         "outcome": "pass",       "next": "analysis",       "when": null },
     { "step": "analysis",       "outcome": "pass",       "next": "brainstorm",     "when": null },
-    { "step": "brainstorm",     "outcome": "pass",       "next": "investigation-deliverable", "when": {"investigation": true} },
+    { "step": "brainstorm",     "outcome": "pass",       "next": "investigation-deliverable", "when": {"type": "investigation"} },
     { "step": "brainstorm",     "outcome": "pass",       "next": "plan",           "when": "plan" },
     { "step": "brainstorm",     "outcome": "pass",       "next": "implementation", "when": "direct" },
     { "step": "plan",           "outcome": "pass",       "next": "plan-review",    "when": { "config": "planReview.reviewPlan", "eq": true } },
