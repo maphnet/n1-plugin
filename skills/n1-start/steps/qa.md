@@ -38,6 +38,12 @@ if [ -n "$SIGNAL_LINE" ]; then
 fi
 ```
 
+**Compact implementation memory for review:**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summary,completed tasks,files changed,test results,decisions"
+```
+
 - The agent wrote `$N1_HOME/memory/<ID>/qa.md` itself. Verify it:
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"

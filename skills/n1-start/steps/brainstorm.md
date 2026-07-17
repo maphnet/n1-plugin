@@ -86,6 +86,12 @@ APPROACH_COUNT=$(grep -c -iE '^#{2,3}\s*(approach|option)\s' "$N1_HOME/memory/$I
 n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NEED" "design_clarity=$DESIGN_CLARITY" "approach_count=$APPROACH_COUNT"
 ```
 
+**Compact brainstorm memory:**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,key decisions,approach,acceptance criteria,testing"
+```
+
 ### Post-Brainstorm Enrichment (Phase 2)
 
 **Gate:** Run ONLY when ALL conditions are met:

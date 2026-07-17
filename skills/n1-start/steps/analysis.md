@@ -51,3 +51,13 @@ if [ -n "$SIGNAL_LINE" ]; then
 fi
 ```
 
+**Compact analysis memory (non-investigation only):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
+if [ "$TYPE" != "investigation" ]; then
+    n1_compact_memory "$N1_HOME/memory/$ID/analysis.md" "conclusions,affected files,blast radius,risks,industry standards,bug investigation,tier"
+fi
+```
+
