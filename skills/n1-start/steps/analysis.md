@@ -1,7 +1,7 @@
 
 **Spawn agent:** solution-architect
 
-Resolve model for `solution-architect`.
+Resolve model for `solution-architect` with context `analysis`.
 
 Spawn the solution-architect agent with:
 - The path to the ticket file — instruct the agent: "Read `$N1_HOME/memory/<ID>/ticket.md` yourself (you have Read); it is the scope to analyze. Its content is NOT inlined here."

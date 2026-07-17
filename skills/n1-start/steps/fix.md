@@ -16,7 +16,7 @@ If the combined Step-7 verdict is FAIL:
 
 **Spawn agent:** developer
 
-Resolve model for `developer`.
+Resolve model for `developer` with context `fix`.
 
 Pass to developer:
 - Combined review findings (Critical + High only)

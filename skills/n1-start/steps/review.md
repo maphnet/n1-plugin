@@ -18,7 +18,7 @@ BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || echo "<git.defaultBranch f
 
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer (+ Codex reviewer if enabled)
 
-Resolve models for code-reviewer and security-reviewer.
+Resolve models for code-reviewer (with context `review`) and security-reviewer (with context `review`).
 
 Prepare review context (curated per reviewer, not one identical bundle):
 - **Shared:** the PATHS `$N1_HOME/memory/<ID>/ticket.md`, `$N1_HOME/memory/<ID>/implementation.md`, `$N1_HOME/memory/<ID>/qa.md` (instruct each reviewer: "Read these files yourself; their content is NOT inlined here"), the default branch name, and the `## Key Decisions` + `## Escalations` slices of `overview.md` inline — so neither reviewer flags a deliberate, recorded choice as a defect.

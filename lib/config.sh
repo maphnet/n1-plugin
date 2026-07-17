@@ -93,12 +93,31 @@ n1_config_ops() {
         | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g' || true
 }
 
+n1_resolve_tier() {
+    local tier="$1" base_model="$2"
+    case "$tier" in
+        frontier) printf 'opus' ;;
+        standard) printf '%s' "$base_model" ;;
+        downgrade)
+            case "$base_model" in
+                opus) printf 'sonnet' ;;
+                sonnet) printf 'haiku' ;;
+                *) printf '%s' "$base_model" ;;
+            esac
+            ;;
+        minimal) printf 'haiku' ;;
+        *) printf '%s' "$base_model" ;;
+    esac
+}
+
 n1_resolve_model() {
     local agent_name="$1"
-    local fallback_default="${2:-}"
+    local context="${2:-}"
     local override=""
     local config_file
     config_file=$(n1_config_file)
+
+    # 1. Config override (always wins)
     if [ -f "$config_file" ]; then
         if command -v jq >/dev/null 2>&1; then
             override=$(jq -r ".models[\"${agent_name}\"] // empty" "$config_file" 2>/dev/null || true)
@@ -106,19 +125,57 @@ n1_resolve_model() {
             override=$(n1_config_val ".models.${agent_name}" "$config_file")
         fi
     fi
-    # Precedence: config override > caller-supplied fallback > agent frontmatter default.
     if [ -n "$override" ]; then
         printf '%s' "$override"
         return
     fi
-    if [ -n "$fallback_default" ]; then
-        printf '%s' "$fallback_default"
-        return
-    fi
+
+    # Get base model from agent frontmatter
+    local base_model=""
     local agent_file="${CLAUDE_PLUGIN_ROOT}/agents/${agent_name}.md"
     if [ -f "$agent_file" ]; then
-        awk 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && /^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/\r/, ""); printf "%s", $0; exit }' "$agent_file"
+        base_model=$(awk 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && /^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/\r/, ""); printf "%s", $0; exit }' "$agent_file")
     fi
+    base_model="${base_model:-sonnet}"
+
+    # 2. Signal-driven escalation/downgrade
+    local pipeline_file="${CLAUDE_PLUGIN_ROOT}/pipeline.json"
+    if [ -f "$pipeline_file" ] && [ -n "$context" ]; then
+        local trigger_key="${agent_name}:${context}"
+        local trigger_tier=""
+        if command -v jq >/dev/null 2>&1; then
+            trigger_tier=$(jq -r ".downgrade_triggers[\"${trigger_key}\"].tier // empty" "$pipeline_file" 2>/dev/null || true)
+        fi
+        if [ -n "$trigger_tier" ]; then
+            n1_resolve_tier "$trigger_tier" "$base_model"
+            return
+        fi
+    fi
+
+    # 3. Profile step_overrides (from type registry)
+    if [ -f "$pipeline_file" ] && [ -n "$N1_HOME" ] && [ -n "$ID" ]; then
+        local overview_file="${N1_HOME}/memory/${ID}/overview.md"
+        if [ -f "$overview_file" ]; then
+            source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh" 2>/dev/null || true
+            local wf_type
+            wf_type=$(n1_read_frontmatter "$overview_file" "type" 2>/dev/null || true)
+            if [ -n "$wf_type" ]; then
+                local step_name="$context"
+                [ -z "$step_name" ] && step_name="$agent_name"
+                local profile_tier=""
+                if command -v jq >/dev/null 2>&1; then
+                    profile_tier=$(jq -r ".types[\"${wf_type}\"].step_overrides[\"${step_name}\"].model_tier // empty" "$pipeline_file" 2>/dev/null || true)
+                fi
+                if [ -n "$profile_tier" ]; then
+                    n1_resolve_tier "$profile_tier" "$base_model"
+                    return
+                fi
+            fi
+        fi
+    fi
+
+    # 4. Agent frontmatter default
+    printf '%s' "$base_model"
 }
 
 n1_codex_companion() {

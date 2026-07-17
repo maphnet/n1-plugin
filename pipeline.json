@@ -1,5 +1,52 @@
 {
-  "version": 1,
+  "version": 2,
+  "downgrade_triggers": {
+    "solution-architect:analysis": {
+      "condition": { "all": [
+        { "signal": "ticket.description_quality", "eq": "adequate" },
+        { "frontmatter": "type", "neq": "investigation" }
+      ]},
+      "tier": "downgrade"
+    },
+    "code-reviewer:review": {
+      "condition": { "all": [
+        { "signal": "analysis.blast_radius", "eq": "low" },
+        { "signal": "implementation.lines_changed", "lt": 50 }
+      ]},
+      "tier": "downgrade"
+    },
+    "planner:plan": {
+      "condition": { "all": [
+        { "signal": "brainstorm.design_clarity", "eq": "high" },
+        { "signal": "analysis.files_changed", "lt": 5 }
+      ]},
+      "tier": "downgrade"
+    },
+    "developer:fix": {
+      "condition": { "signal": "analysis.blast_radius", "eq": "low" },
+      "tier": "downgrade"
+    },
+    "developer:implementation": {
+      "condition": { "all": [
+        { "signal": "analysis.blast_radius", "eq": "low" },
+        { "frontmatter": "tier", "eq": "simple" }
+      ]},
+      "tier": "downgrade"
+    }
+  },
+  "escalation_triggers": {
+    "qa-engineer:qa": {
+      "condition": { "all": [
+        { "signal": "analysis.complexity_delta", "eq": "complex" },
+        { "signal": "qa.tests_broken", "gt": 0 }
+      ]},
+      "tier": "frontier"
+    },
+    "code-reviewer:review": {
+      "condition": { "signal": "analysis.security_relevant", "eq": "true" },
+      "tier": "frontier"
+    }
+  },
   "types": {
     "task": {
       "steps": ["ticket", "analysis", "brainstorm", "plan", "plan-review", "estimation",

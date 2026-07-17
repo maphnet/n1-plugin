@@ -22,7 +22,7 @@ Route based on `PLANNING_NEED`:
 
 **Spawn agent:** developer
 
-Resolve model for `developer` via `n1_resolve_model`.
+Resolve model for `developer` via `n1_resolve_model` with context `implementation`.
 
 The developer runs in Direct Implementation mode — it reads the brainstorm directly and implements without SDD's task decomposition. This is appropriate because `planning_need: direct` tasks have fully-specified brainstorm output with independent, well-scoped changes.
 
@@ -55,7 +55,7 @@ Log the routing decision to overview.md `## Key Decisions`:
 
 **Spawn agent:** developer
 
-Resolve model for `developer` via `n1_resolve_model`.
+Resolve model for `developer` via `n1_resolve_model` with context `implementation`.
 
 The developer runs in Direct Implementation mode with the plan as input. This is appropriate because the plan contains 1-2 independent tasks that fit within a single agent's context window — SDD's decomposition and multi-agent dispatch would add overhead without value.
 

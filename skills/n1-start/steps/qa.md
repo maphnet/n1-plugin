@@ -12,7 +12,7 @@ in a fresh worktree) safe.
 
 **Spawn agent:** qa-engineer
 
-Resolve model for `qa-engineer`.
+Resolve model for `qa-engineer` with context `qa`.
 
 Run `n1_config_val '.testCoverage.tier'` (default `"maintain"` if `testCoverage` block is absent or `tier` key is missing).
 
