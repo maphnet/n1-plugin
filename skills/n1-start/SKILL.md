@@ -173,10 +173,28 @@ When spawning any agent, resolve its model via Bash:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-n1_resolve_model <agent-name>
+n1_resolve_model <agent-name> [context]
 ```
 
-Returns the config override (`models.<agent-name>`) if set, otherwise the agent's frontmatter default.
+The optional `context` parameter enables signal-driven model tiering (e.g., `n1_resolve_model developer fix`). Resolution chain: config override > signal-driven triggers > profile step_overrides > agent frontmatter default.
+
+## Orchestrator Output Discipline
+
+Between steps, emit ONLY: the step name being dispatched, the agent being spawned (with model), and any routing decision with its reason. Do not summarize step outputs, re-describe the task, or narrate intermediate state. Memory files carry context between steps — the orchestrator does not need to.
+
+## Effort-Level Routing
+
+After resolving the workflow type, read the `orchestrator_effort` field from the type's pipeline.json entry. If the type has a `tier_override` map and the current tier matches, use the override value instead. This controls the orchestrator's reasoning depth for the run:
+
+```bash
+# Read from pipeline.json after type resolution
+EFFORT=$(jq -r ".types[\"$TYPE\"].orchestrator_effort // \"high\"" "${CLAUDE_PLUGIN_ROOT}/pipeline.json")
+TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" 2>/dev/null || echo "")
+if [ -n "$TIER" ]; then
+    TIER_EFFORT=$(jq -r ".types[\"$TYPE\"].tier_override[\"$TIER\"] // empty" "${CLAUDE_PLUGIN_ROOT}/pipeline.json" 2>/dev/null || true)
+    [ -n "$TIER_EFFORT" ] && EFFORT="$TIER_EFFORT"
+fi
+```
 
 ## Workspace Isolation
 

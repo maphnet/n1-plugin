@@ -51,16 +51,20 @@
     "task": {
       "steps": ["ticket", "analysis", "brainstorm", "plan", "plan-review", "estimation",
                  "implementation", "qa", "review", "local-testing", "pr", "ci", "finish"],
-      "detect": { "default": true }
+      "detect": { "default": true },
+      "orchestrator_effort": "high",
+      "tier_override": { "simple": "medium" }
     },
     "investigation": {
       "steps": ["ticket", "analysis", "brainstorm", "investigation-deliverable"],
-      "detect": { "title_match": "investigat", "tags": ["investigation"] }
+      "detect": { "title_match": "investigat", "tags": ["investigation"] },
+      "orchestrator_effort": "high"
     },
     "bug": {
       "steps": ["ticket", "analysis", "implementation", "qa", "review",
                  "local-testing", "pr", "ci", "finish"],
       "detect": { "type_field": "bug", "tags": ["bug"] },
+      "orchestrator_effort": "low",
       "step_overrides": {
         "analysis": { "model_tier": "downgrade" },
         "review": { "model_tier": "standard" }
@@ -70,6 +74,7 @@
       "steps": ["ticket", "analysis", "implementation", "qa", "review",
                  "pr", "ci", "finish"],
       "detect": { "type_field": "chore", "tags": ["chore", "config", "deps"] },
+      "orchestrator_effort": "low",
       "step_overrides": {
         "analysis": { "model_tier": "downgrade" },
         "review": { "model_tier": "downgrade" }
