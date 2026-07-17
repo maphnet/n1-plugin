@@ -98,6 +98,33 @@
     { "name": "finish",         "number": 14, "agent": "n1:n1-finish",          "reads": ["overview.md"],                                        "writes": ["overview.md"] },
     { "name": "investigation-deliverable", "number": 15, "agent": "solution-architect", "reads": ["ticket.md", "analysis.md"], "writes": ["investigation.md"] }
   ],
+  "signal_gates": [
+    {
+      "step": "brainstorm",
+      "skip_when": { "all": [
+        { "signal": "analysis.has_bug_root_cause", "eq": "true" },
+        { "frontmatter": "type", "eq": "bug" }
+      ]},
+      "reason": "Bug with identified root cause — brainstorm unnecessary"
+    },
+    {
+      "step": "plan",
+      "skip_when": { "all": [
+        { "signal": "brainstorm.design_clarity", "eq": "high" },
+        { "signal": "analysis.blast_radius", "eq": "low" }
+      ]},
+      "reason": "High design clarity with low blast radius — plan unnecessary"
+    },
+    {
+      "step": "plan-review",
+      "skip_when": { "all": [
+        { "signal": "analysis.files_changed", "lt": 3 },
+        { "signal": "analysis.blast_radius", "eq": "low" }
+      ]},
+      "reason": "Small change set with low blast radius — plan-review unnecessary"
+    }
+  ],
+  "safety_invariants": ["qa", "review", "pr"],
   "gates": [
     { "name": "estimation",    "config_key": "estimation.enabled",     "default": false, "skips": ["estimation"] },
     { "name": "plan_review",   "config_key": "planReview.reviewPlan",  "default": true,  "skips": ["plan-review"] },

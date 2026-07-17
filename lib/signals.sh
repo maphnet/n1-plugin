@@ -99,3 +99,105 @@ n1_write_signals() {
 
     rm -f "$tmpairs"
 }
+
+# n1_eval_signal_gate <memory_dir> <overview_file> <condition_json>
+# Evaluates a signal gate condition against memory files.
+# Returns 0 (true) if the condition is met, 1 (false) otherwise.
+# Requires jq. Falls back to false (no skip) if jq is absent.
+#
+# Condition format (JSON):
+#   { "signal": "analysis.blast_radius", "eq": "low" }
+#   { "frontmatter": "type", "eq": "bug" }
+#   { "all": [ <condition>, ... ] }
+#   { "any": [ <condition>, ... ] }
+n1_eval_signal_gate() {
+    local mem_dir="$1" overview="$2" cond="$3"
+    command -v jq >/dev/null 2>&1 || return 1
+
+    local has_all has_any
+    has_all=$(echo "$cond" | jq -r 'has("all")' 2>/dev/null)
+    has_any=$(echo "$cond" | jq -r 'has("any")' 2>/dev/null)
+
+    if [ "$has_all" = "true" ]; then
+        local count i sub
+        count=$(echo "$cond" | jq '.all | length' 2>/dev/null)
+        for ((i=0; i<count; i++)); do
+            sub=$(echo "$cond" | jq -c ".all[$i]" 2>/dev/null)
+            n1_eval_signal_gate "$mem_dir" "$overview" "$sub" || return 1
+        done
+        return 0
+    fi
+
+    if [ "$has_any" = "true" ]; then
+        local count i sub
+        count=$(echo "$cond" | jq '.any | length' 2>/dev/null)
+        for ((i=0; i<count; i++)); do
+            sub=$(echo "$cond" | jq -c ".any[$i]" 2>/dev/null)
+            n1_eval_signal_gate "$mem_dir" "$overview" "$sub" && return 0
+        done
+        return 1
+    fi
+
+    # Leaf condition: resolve value
+    local actual=""
+    local sig fm
+    sig=$(echo "$cond" | jq -r '.signal // empty' 2>/dev/null)
+    fm=$(echo "$cond" | jq -r '.frontmatter // empty' 2>/dev/null)
+
+    if [ -n "$sig" ]; then
+        local file_prefix="${sig%%.*}"
+        local key="${sig#*.}"
+        actual=$(n1_read_signal "${mem_dir}/${file_prefix}.md" "$key")
+    elif [ -n "$fm" ]; then
+        source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh" 2>/dev/null || true
+        actual=$(n1_read_frontmatter "$overview" "$fm" 2>/dev/null || true)
+    fi
+
+    [ -z "$actual" ] && return 1
+
+    # Evaluate operator
+    local op val
+    for op in eq neq lt gt lte gte; do
+        val=$(echo "$cond" | jq -r ".${op} // empty" 2>/dev/null)
+        [ -n "$val" ] && break
+    done
+    [ -z "$val" ] && return 1
+
+    case "$op" in
+        eq)  [ "$actual" = "$val" ] ;;
+        neq) [ "$actual" != "$val" ] ;;
+        lt)  [ "$actual" -lt "$val" ] 2>/dev/null ;;
+        gt)  [ "$actual" -gt "$val" ] 2>/dev/null ;;
+        lte) [ "$actual" -le "$val" ] 2>/dev/null ;;
+        gte) [ "$actual" -ge "$val" ] 2>/dev/null ;;
+        *)   return 1 ;;
+    esac
+}
+
+# n1_check_signal_gates <step_name> <memory_dir> <overview_file> <pipeline_json>
+# Checks all signal_gates for the given step. Returns 0 if the step should be
+# skipped, 1 if it should run. Prints the skip reason on stdout if skipping.
+n1_check_signal_gates() {
+    local step="$1" mem_dir="$2" overview="$3" pipeline="$4"
+    command -v jq >/dev/null 2>&1 || return 1
+
+    local gates count i entry skip_cond reason
+    gates=$(jq -c '.signal_gates // []' "$pipeline" 2>/dev/null)
+    count=$(echo "$gates" | jq 'length' 2>/dev/null)
+    [ -z "$count" ] || [ "$count" = "0" ] && return 1
+
+    for ((i=0; i<count; i++)); do
+        entry=$(echo "$gates" | jq -c ".[$i]" 2>/dev/null)
+        local gate_step
+        gate_step=$(echo "$entry" | jq -r '.step' 2>/dev/null)
+        [ "$gate_step" = "$step" ] || continue
+
+        skip_cond=$(echo "$entry" | jq -c '.skip_when' 2>/dev/null)
+        if n1_eval_signal_gate "$mem_dir" "$overview" "$skip_cond"; then
+            reason=$(echo "$entry" | jq -r '.reason // "Signal gate triggered"' 2>/dev/null)
+            printf '%s' "$reason"
+            return 0
+        fi
+    done
+    return 1
+}

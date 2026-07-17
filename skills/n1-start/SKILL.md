@@ -159,9 +159,24 @@ When step mode is active:
 
 6. **Telemetry init** — if telemetry is enabled, initialize `N1_RUN_ID` and write the lock file (same as full pipeline Telemetry Initialization). Each step-mode invocation gets its own run ID — **supplied by n1-loop via the `N1_RUN_ID` environment variable; reuse it, never regenerate it** (escalation correlation matches on it).
 
-7. **Execute the step** — Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/<step_name>.md` (the fragment file named after the step). The step execution logic is identical to full pipeline mode — same agent spawning, same output handling, same overview.md updates. The `brainstorm` fragment itself routes step mode to `autonomous-brainstorm.md`, as before.
+7. **Check signal gates** — Before executing, check if runtime signals indicate this step should be skipped. Safety invariants (qa, review, pr) are never skipped regardless of signals:
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+   SKIP_REASON=$(n1_check_signal_gates "$step_name" "$N1_HOME/memory/$ID" "$N1_HOME/memory/$ID/overview.md" "${CLAUDE_PLUGIN_ROOT}/pipeline.json")
+   if [ $? -eq 0 ]; then
+       # Verify this step is not a safety invariant
+       SAFE=$(jq -r '.safety_invariants[]' "${CLAUDE_PLUGIN_ROOT}/pipeline.json" 2>/dev/null | grep -qx "$step_name" && echo "yes" || echo "no")
+       if [ "$SAFE" = "no" ]; then
+           echo "Skipping $step_name: $SKIP_REASON"
+           n1_emit_step_result "$step_name" "skip" "<next_step>" "null"
+           # Stop — do not execute the step
+       fi
+   fi
+   ```
 
-8. **After step execution** — do NOT proceed to the next step. Instead, compute the `next_step` from the Step Mode Routing table and emit the structured result — you MUST actually run the bash helper (it writes `step-result.json` AND prints the line); merely typing an `N1_STEP_RESULT:` line in your response text is NOT sufficient:
+8. **Execute the step** — Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/<step_name>.md` (the fragment file named after the step). The step execution logic is identical to full pipeline mode — same agent spawning, same output handling, same overview.md updates. The `brainstorm` fragment itself routes step mode to `autonomous-brainstorm.md`, as before.
+
+9. **After step execution** — do NOT proceed to the next step. Instead, compute the `next_step` from the Step Mode Routing table and emit the structured result — you MUST actually run the bash helper (it writes `step-result.json` AND prints the line); merely typing an `N1_STEP_RESULT:` line in your response text is NOT sufficient:
    ```bash
    n1_emit_step_result "$step_name" "<outcome>" "<next_step>" "<loop_counter_or_null>"
    ```
