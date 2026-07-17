@@ -283,7 +283,7 @@ Optional final pipeline step (`finish`) that runs after CI, gated on `finishWork
 
 ### Agent Personas
 
-10 atomic agents with scoped tools and configurable models:
+11 atomic agents with scoped tools and configurable models:
 
 | Agent | Default Model | Tools | Pipeline Stage |
 |-------|---------------|-------|----------------|
@@ -296,6 +296,7 @@ Optional final pipeline step (`finish`) that runs after CI, gated on `finishWork
 | security-reviewer | opus | Read, Grep, Glob | Review (parallel) |
 | codex-adapter | sonnet | (none) | Review (Codex output parsing, conditional) |
 | qa-engineer | sonnet | Read, Edit, Write, Bash, Grep, Glob | QA (tier-aware: maintain/minimal/standard) |
+| local-test-planner | sonnet | Read, Grep, Glob, Bash | Local testing (plan creation) |
 | tech-writer | sonnet | Read, Grep, Edit, Write, Glob | Doc update, PR content |
 
 Models default to agent frontmatter values, overridable via `models` section in `$N1_HOME/config.json`.
