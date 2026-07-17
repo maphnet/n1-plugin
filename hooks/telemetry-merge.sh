@@ -73,6 +73,18 @@ if command -v jq >/dev/null 2>&1; then
         ' "$STEPS_FILE" 2>/dev/null || echo "[]")
     fi
 
+    # --- Extract decision events ---
+    DECISIONS_JSON="[]"
+    if [ -f "$STEPS_FILE" ]; then
+        DECISIONS_JSON=$(jq -s '[.[] | select(.event == "decision")]' "$STEPS_FILE" 2>/dev/null || echo "[]")
+    fi
+
+    # --- Extract outcome events ---
+    OUTCOMES_JSON="[]"
+    if [ -f "$STEPS_FILE" ]; then
+        OUTCOMES_JSON=$(jq -s '[.[] | select(.event == "outcome")]' "$STEPS_FILE" 2>/dev/null || echo "[]")
+    fi
+
     # --- Parse agent events: pair start/stop by agent_id ---
     AGENTS_RAW="[]"
     if [ -f "$AGENTS_FILE" ]; then
@@ -224,6 +236,8 @@ if command -v jq >/dev/null 2>&1; then
         --argjson steps "$STEPS_JSON" \
         --argjson agents "$AGENTS_JSON" \
         --argjson summary "$SUMMARY" \
+        --argjson decisions "$DECISIONS_JSON" \
+        --argjson outcomes "$OUTCOMES_JSON" \
         --arg run_id "$RUN_ID" \
         --arg n1_version "$N1_VERSION" \
         --arg project "$PROJECT_NAME" \
@@ -242,6 +256,8 @@ if command -v jq >/dev/null 2>&1; then
             config_snapshot: ($envelope.config_snapshot // null),
             steps: $steps,
             agents: $agents,
+            decisions: $decisions,
+            outcomes: $outcomes,
             summary: $summary
         }
     ' > "$OUT_FILE"

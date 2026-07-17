@@ -168,6 +168,9 @@ When step mode is active:
        SAFE=$(jq -r '.safety_invariants[]' "${CLAUDE_PLUGIN_ROOT}/pipeline.json" 2>/dev/null | grep -qx "$step_name" && echo "yes" || echo "no")
        if [ "$SAFE" = "no" ]; then
            echo "Skipping $step_name: $SKIP_REASON"
+           # Log decision to telemetry
+           source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+           n1_emit_decision "$N1_RUN_ID" "$N1_VERSION" "$ID" "$step_name" "skip" "$SKIP_REASON" "${N1_HOME}/memory/$ID/telemetry"
            n1_emit_step_result "$step_name" "skip" "<next_step>" "null"
            # Stop — do not execute the step
        fi

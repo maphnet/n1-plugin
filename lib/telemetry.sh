@@ -57,6 +57,53 @@ n1_read_lock() {
     N1_LOCK_TICKET_ID=$(basename "$(dirname "$N1_LOCK_TELEM_DIR")")
 }
 
+# n1_emit_decision <run_id> <n1_version> <ticket_id> <step> <action> <reason> <telemetry_dir> [signal_key=value ...]
+# Appends a decision event to raw/steps/<run_id>.jsonl
+# action: skip | downgrade | escalate
+# Remaining args are signal snapshot key=value pairs
+n1_emit_decision() {
+    local run_id="$1" version="$2" ticket_id="$3" step="$4" action="$5" reason="$6" tdir="$7"
+    shift 7
+    local signals="{"
+    local first=true
+    for pair in "$@"; do
+        local k="${pair%%=*}" v="${pair#*=}"
+        $first || signals="${signals},"
+        signals="${signals}\"${k}\":\"${v}\""
+        first=false
+    done
+    signals="${signals}}"
+    local ts
+    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")
+    local file="${tdir}/raw/steps/${run_id}.jsonl"
+    mkdir -p "$(dirname "$file")"
+    printf '{"event":"decision","run_id":"%s","n1_version":"%s","ticket_id":"%s","step":"%s","action":"%s","reason":"%s","signals":%s,"timestamp":"%s"}\n' \
+        "$run_id" "$version" "$ticket_id" "$step" "$action" "$reason" "$signals" "$ts" >> "$file"
+}
+
+# n1_emit_outcome <run_id> <n1_version> <ticket_id> <telemetry_dir> [key=value ...]
+# Appends a pipeline-completion quality outcome event
+# Expected keys: review_pass_first_try, qa_pass_first_try, fix_cycles_count, total_duration_s
+n1_emit_outcome() {
+    local run_id="$1" version="$2" ticket_id="$3" tdir="$4"
+    shift 4
+    local outcomes="{"
+    local first=true
+    for pair in "$@"; do
+        local k="${pair%%=*}" v="${pair#*=}"
+        $first || outcomes="${outcomes},"
+        outcomes="${outcomes}\"${k}\":\"${v}\""
+        first=false
+    done
+    outcomes="${outcomes}}"
+    local ts
+    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "unknown")
+    local file="${tdir}/raw/steps/${run_id}.jsonl"
+    mkdir -p "$(dirname "$file")"
+    printf '{"event":"outcome","run_id":"%s","n1_version":"%s","ticket_id":"%s","outcomes":%s,"timestamp":"%s"}\n' \
+        "$run_id" "$version" "$ticket_id" "$outcomes" "$ts" >> "$file"
+}
+
 n1_merge_pending() {
     local memory_dir="$1"
     n1_read_lock "$memory_dir" || return 0

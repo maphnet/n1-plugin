@@ -156,6 +156,31 @@ n1_resolve_type() {
     printf 'task'
 }
 
+n1_next_step_for_type() {
+    local current_step="$1" wf_type="$2"
+    local pipeline_json="${CLAUDE_PLUGIN_ROOT}/pipeline.json"
+    command -v jq >/dev/null 2>&1 || return 1
+    local steps
+    steps=$(jq -r --arg t "$wf_type" '.types[$t].steps // [] | .[]' "$pipeline_json" 2>/dev/null)
+    [ -z "$steps" ] && return 1
+    local found=false
+    for s in $steps; do
+        if $found; then
+            printf '%s' "$s"
+            return 0
+        fi
+        [ "$s" = "$current_step" ] && found=true
+    done
+    return 1
+}
+
+n1_step_in_type() {
+    local step="$1" wf_type="$2"
+    local pipeline_json="${CLAUDE_PLUGIN_ROOT}/pipeline.json"
+    command -v jq >/dev/null 2>&1 || return 1
+    jq -e --arg t "$wf_type" --arg s "$step" '.types[$t].steps // [] | index($s) != null' "$pipeline_json" >/dev/null 2>&1
+}
+
 N1_VALID_STEPS="ticket analysis brainstorm plan plan-review estimation implementation qa review fix local-testing pr ci finish investigation-deliverable"
 
 n1_parse_step_arg() {

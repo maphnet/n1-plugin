@@ -28,6 +28,21 @@ The PR skill handles documentation update, tech-writer spawning, git push, PR cr
 After PR is created:
 - The PR skill reports the URL
 
+**Emit quality outcomes (if telemetry enabled):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+QA_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
+REVIEW_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
+QA_FIRST=$( [ "${QA_FIX:-0}" = "0" ] && echo "true" || echo "false" )
+REVIEW_FIRST=$( [ "${REVIEW_FIX:-0}" = "0" ] && echo "true" || echo "false" )
+FIX_TOTAL=$(( ${QA_FIX:-0} + ${REVIEW_FIX:-0} ))
+n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" \
+    "review_pass_first_try=$REVIEW_FIRST" \
+    "qa_pass_first_try=$QA_FIRST" \
+    "fix_cycles_count=$FIX_TOTAL"
+```
+
 **CHECKPOINT:** "PR created at <URL>. Ready for Tech Lead review."
 
 <!-- AUDIT N1-37: stop after n1:n1-pr is intentional — this is the Tech Lead review checkpoint. Do NOT add a continuation directive here. -->
