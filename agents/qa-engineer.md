@@ -142,3 +142,20 @@ When the orchestrator's spawn prompt provides an output path, write this full re
 - If the project has no existing test patterns and tier is `minimal` or `standard`, note this in the report and write tests using the most common framework for the detected stack. In `maintain` tier with no existing tests, report "No existing tests to maintain" with PASS verdict and do not create new tests.
 - Touch only test files related to the implemented feature — do not "improve" or refactor existing unrelated tests
 - **Scratch vs. committed test artifacts.** Your acceptance, edge-case, and error-path tests verify the committed implementation — commit them to the repo's test suite as usual. But a throwaway probe written only to answer a question — a spike checking whether an approach is viable, a one-off benchmark — goes under the scratch directory the orchestrator gives you (under `$N1_HOME/`, gitignored), never into the repo. When unsure whether a test protects shipped code, default to scratch.
+
+## Signal Emission
+
+Append this line as the LAST line of your compact return to the orchestrator (after `Verdict:`, `Bugs found:`, and the summary):
+
+```
+n1:signals tests_added=<number> tests_broken=<number> coverage_change=<increased|unchanged|decreased>
+```
+
+- `tests_added`: count of new test cases written (0 for maintain tier or when no new tests were needed)
+- `tests_broken`: count of pre-existing tests that were found broken by the implementation before your fixes (0 if none)
+- `coverage_change`: `increased` if new tests were added, `decreased` if tests were removed for deleted functionality, `unchanged` otherwise
+
+Emit only this one `n1:signals` line — no label, no explanation. Example:
+```
+n1:signals tests_added=3 tests_broken=1 coverage_change=increased
+```

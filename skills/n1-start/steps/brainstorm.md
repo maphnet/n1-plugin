@@ -73,6 +73,19 @@ n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNIN
 
 This write happens in both full-pipeline and step mode — the Planning Need Evaluation section is shared by both paths.
 
+**Persist brainstorm signals:**
+After `planning_need` is determined, assess and persist signals:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+if [ "$PLANNING_NEED" = "direct" ]; then
+    DESIGN_CLARITY="high"
+else
+    DESIGN_CLARITY="medium"
+fi
+APPROACH_COUNT=$(grep -c -iE '^#{2,3}\s*(approach|option)\s' "$N1_HOME/memory/$ID/brainstorm.md" 2>/dev/null || echo "1")
+n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NEED" "design_clarity=$DESIGN_CLARITY" "approach_count=$APPROACH_COUNT"
+```
+
 ### Post-Brainstorm Enrichment (Phase 2)
 
 **Gate:** Run ONLY when ALL conditions are met:

@@ -40,3 +40,14 @@ After the agent returns:
    ```
 3. If no valid tier found in architect output, leave the existing tier unchanged (analyst's assessment stands).
 
+**Extract and persist signals:**
+Parse the solution-architect's output for a line starting with `n1:signals `:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
+if [ -n "$SIGNAL_LINE" ]; then
+    PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //')
+    n1_write_signals "$N1_HOME/memory/$ID/analysis.md" $PAIRS
+fi
+```
+

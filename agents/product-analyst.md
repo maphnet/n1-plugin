@@ -238,3 +238,20 @@ Assessment criteria:
 - For error tracker mode: **Type** is always `bug` — error tracker issues are defects by definition
 - For error tracker mode: **Source** uses the format `<provider> issue #<id> (<url>)` (e.g., `Sentry issue #12345 (https://myorg.sentry.io/issues/12345)`)
 - **Lean output:** Carry forward only information that downstream steps need — acceptance criteria, constraints, and technical context. Don't rephrase or expand what's already clear in the original ticket. If the original description is adequate, your structured output should be comparable in length, not longer. The 600-word limit is a ceiling, not a target.
+
+## Signal Emission
+
+Append this line as the LAST line of your compact return to the orchestrator (after the `tier:`, `title:`, and `ambiguities:` lines):
+
+```
+n1:signals task_type=<bug|feature|task|improvement|investigation> has_acceptance_criteria=<true|false> description_quality=<empty|skeletal|weak|adequate>
+```
+
+- `task_type`: the ticket type from your analysis (`bug`, `feature`, `task`, `improvement`; use `investigation` when the resolved type is investigation)
+- `has_acceptance_criteria`: `true` if the ticket contains at least one explicit acceptance criterion, `false` otherwise
+- `description_quality`: the quality tier from your Description Quality Assessment (`empty`, `skeletal`, `weak`, or `adequate`); use `adequate` when enrichment was skipped or disabled
+
+Emit only this one `n1:signals` line — no label, no explanation. Example:
+```
+n1:signals task_type=feature has_acceptance_criteria=true description_quality=adequate
+```

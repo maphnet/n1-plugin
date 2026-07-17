@@ -106,3 +106,22 @@ reason: <one-line reason for confirmation or revision>
 - Do not propose solutions or designs — analyze what exists and identify patterns to follow
 - If no similar features exist, say so explicitly rather than forcing a comparison
 - **Scratch vs. committed test artifacts.** A test or benchmark written only to answer a question you have *right now* — a micro-benchmark comparing approaches, a repro script, a viability spike — is throwaway. Write it under the scratch directory the orchestrator gives you (under `$N1_HOME/`, gitignored), never into the repo's test suite. Only tests that verify the committed implementation and should run in CI forever (unit, integration, e2e tied to acceptance criteria) belong in the repo. When unsure, default to scratch.
+
+## Signal Emission
+
+Append this line as the LAST line of your output (after the full analysis report):
+
+```
+n1:signals blast_radius=<low|medium|high> security_relevant=<true|false> files_changed=<number> complexity_delta=<simple|standard|complex> has_bug_root_cause=<true|false>
+```
+
+- `blast_radius`: `low` = 1–2 files in one module; `medium` = 3–5 files or cross-module; `high` = 6+ files or architectural
+- `security_relevant`: `true` if the task touches auth, crypto, input validation, or secrets handling; `false` otherwise
+- `files_changed`: estimated count of files the task will modify (integer)
+- `complexity_delta`: the final tier from your Tier Assessment (`simple`, `standard`, or `complex`)
+- `has_bug_root_cause`: `true` only for bug-type tickets where a specific root cause was identified in Bug Investigation; `false` for all other ticket types and for bugs where root cause is unresolved
+
+Emit only this one `n1:signals` line — no label, no explanation. Example:
+```
+n1:signals blast_radius=medium security_relevant=false files_changed=4 complexity_delta=standard has_bug_root_cause=false
+```

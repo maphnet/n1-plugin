@@ -103,6 +103,21 @@ Spawn the implementer agent with:
 
 If the agent returned **DONE:**
 - The implementation summary already lives in `$N1_HOME/memory/<ID>/implementation.md` (written by the implementer).
+
+**Compute and persist implementation signals:**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+LINES_CHANGED=$(git diff --stat HEAD~1 2>/dev/null | tail -1 | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
+NEW_FILES=$(git diff --name-status HEAD~1 2>/dev/null | grep -c '^A' || echo "0")
+CHANGED_FILES=$(git diff --name-only HEAD~1 2>/dev/null || true)
+if echo "$CHANGED_FILES" | grep -qvE '\.(md|txt|json|ya?ml|toml|cfg|ini|conf|env)$'; then
+    DIFF_SURFACE="code"
+else
+    DIFF_SURFACE="config"
+fi
+n1_write_signals "$N1_HOME/memory/$ID/implementation.md" "diff_surface=$DIFF_SURFACE" "lines_changed=$LINES_CHANGED" "new_files_count=$NEW_FILES"
+```
+
 - Update overview: `[x] Implementation`, set `step: implementation`
 - Proceed to Step 6 (QA).
 

@@ -234,6 +234,17 @@ The Sentry issue has been analyzed. Would you like to create a tracker ticket?
   If missing/empty (agent failed to write), write the returned compact block to `ticket.md` as a fallback and note the gap in overview's `## Key Decisions`: "product-analyst failed to write ticket.md; stub written from compact return -- downstream context is degraded."
 - ID is: ticket ID for ticket mode (or brain dump/file mode with ticket creation), filename slug for file mode without ticket, description slug for brain dump without ticket (e.g., `csv-export-users`)
 
+**Extract and persist signals:**
+Parse the product-analyst's compact return for a line starting with `n1:signals `:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
+if [ -n "$SIGNAL_LINE" ]; then
+    PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //')
+    n1_write_signals "$N1_HOME/memory/$ID/ticket.md" $PAIRS
+fi
+```
+
 **Parse compact return:**
 1. Extract `tier:` from the product-analyst's compact return. Use case-insensitive regex: `^tier:\s*(simple|standard|complex)` against the compact return.
 2. If a valid tier is found, set `TIER` to that value. If not found or invalid, default to `standard`.
