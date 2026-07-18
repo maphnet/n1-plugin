@@ -27,7 +27,8 @@ n1_snapshot_write() {
     generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     local file_count
     file_count=$(git ls-files 2>/dev/null | wc -l | tr -d ' ')
-    local tmp="${cache_dir}/.project-snapshot.tmp.md"
+    local tmp
+    tmp=$(mktemp "${cache_dir}/.project-snapshot.XXXXXX.tmp.md")
     {
         printf '%s\n' "---"
         printf 'schema_version: 1\n'
@@ -110,10 +111,15 @@ n1_snapshot_check_freshness() {
     fi
 
     # Load structural file patterns from config (or defaults)
+    local structural_raw
+    structural_raw=$(n1_config_val ".analysisCache.structuralFiles" "$config_file")
     local structural_patterns
-    structural_patterns=$(n1_config_val ".analysisCache.structuralFiles" "$config_file")
-    if [ -z "$structural_patterns" ]; then
-        structural_patterns="package.json Cargo.toml go.mod pyproject.toml CLAUDE.md Dockerfile docker-compose.yml"
+    if [ -z "$structural_raw" ]; then
+        structural_patterns="package.json Cargo.toml go.mod pyproject.toml CLAUDE.md Dockerfile docker-compose.yml .github/workflows/*"
+    elif [ "${structural_raw:0:1}" = "[" ]; then
+        structural_patterns=$(echo "$structural_raw" | jq -r '.[]' 2>/dev/null)
+    else
+        structural_patterns="$structural_raw"
     fi
 
     local neutral_threshold
@@ -136,11 +142,12 @@ n1_snapshot_check_freshness() {
 
         # Check STRUCTURAL
         local is_structural=0
-        for pattern in $structural_patterns; do
+        while IFS= read -r pattern; do
+            [ -z "$pattern" ] && continue
             case "$changed_file" in
                 $pattern) is_structural=1; break ;;
             esac
-        done
+        done <<< "$structural_patterns"
 
         if [ "$is_structural" -eq 1 ]; then
             structural_count=$((structural_count + 1))

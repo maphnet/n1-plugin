@@ -34,7 +34,7 @@ Spawn the solution-architect agent with:
 - Directive: "Research relevant industry standards, best practices, and practitioner experience per agents/research-standards.md and include the cited Industry Standards & Best Practices section."
 - Directive: "Scratch-artifact policy: write any throwaway benchmark or investigative/spike test (one that answers a current question rather than verifying committed code) under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Tests that verify the implementation still go into the repo as usual. When unsure, default to scratch."
 - **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** Also pass: "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan."
-- OUTPUT FORMAT REQUIREMENT at end of prompt:
+- **When `CACHE_ENABLED` is `true`**, also append this OUTPUT FORMAT REQUIREMENT at end of prompt:
 
   > Separate your findings into two clearly marked sections:
   > `## [PROJECT] <section name>` — for project-level facts (architecture, conventions, patterns, stack, industry standards, subsystem registry, key files).
@@ -121,7 +121,7 @@ When CACHE_STATE is `fresh`:
 **Post-processing — default (cold + cache disabled):**
 
 When CACHE_STATE is `cold` AND `$CACHE_ENABLED` is not `true`:
-- Write agent output to `$N1_HOME/memory/<ID>/analysis.md`
+- Write agent output directly to `$N1_HOME/memory/<ID>/analysis.md` (no prefix stripping — no `[PROJECT]`/`[TICKET]` markers will be present)
 
 - Update overview: `[x] Analysis`, set `step: analysis`
 
