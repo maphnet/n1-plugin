@@ -192,6 +192,25 @@ n1_codex_companion() {
             newest_ver="$ver"
         fi
     done
+    # WSL: also search Windows-side plugin cache (version comparison picks newest across both)
+    if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+        local win_home
+        win_home=$(wslpath -u "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')" 2>/dev/null) || true
+        if [ -n "$win_home" ] && [ -d "$win_home" ]; then
+            for f in "${win_home}"/.claude/plugins/cache/*/codex/*/scripts/codex-companion.mjs; do
+                [ -f "$f" ] || continue
+                ver="${f%/scripts/codex-companion.mjs}"
+                ver="${ver##*/}"
+                if [ -z "$newest" ]; then
+                    newest="$f"
+                    newest_ver="$ver"
+                elif [ "$ver" != "$newest_ver" ] && [ "$(printf '%s\n%s\n' "$newest_ver" "$ver" | sort -V | tail -1)" = "$ver" ]; then
+                    newest="$f"
+                    newest_ver="$ver"
+                fi
+            done
+        fi
+    fi
     printf '%s' "$newest"
 }
 
