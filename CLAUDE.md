@@ -33,7 +33,7 @@ N1 is a Claude Code plugin that orchestrates the full development cycle (ticket 
 - **Plugin manifest:** `.claude-plugin/plugin.json`
 - **Marketplace manifest:** `.claude-plugin/marketplace.json` (repo root — for `marketplace add`)
 - **Dependency:** Superpowers plugin >=5.0
-- **Shared shell helpers:** `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/memory.sh` (compaction)
+- **Shared shell helpers:** `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check)
 
 ## Plugin Development
 
@@ -238,6 +238,29 @@ Signal gates in `pipeline.json` under `signal_gates` define `skip_when` conditio
 ### Memory Compaction
 
 `n1_compact_memory` in `lib/memory.sh` archives full memory files to `<file>.full.md` and replaces originals with compacted versions keeping only high-signal sections. Applied after brainstorm (291K → <10K target), analysis (30-50% reduction), and implementation before review (40-60% reduction).
+
+### Analysis Cache
+
+Optional project-level snapshot that eliminates redundant codebase discovery on sequential tickets. Gated on `analysisCache.enabled` in `$N1_HOME/config.json` (default `false`).
+
+**Snapshot location:** `$N1_HOME/cache/project-snapshot.md` — structured, schema-versioned document with provenance comments per section. Not a memory file — it's a cache artifact scoped to the project, not a ticket.
+
+**Lifecycle:** First ticket (cold start) generates the snapshot as a byproduct of full analysis. Subsequent tickets (warm start) inject it into the solution-architect's prompt, skipping project-level discovery. Stale snapshots trigger full regeneration.
+
+**Invalidation (full-snapshot, v1):** git-diff-based classification against `analysisCache.structuralFiles` (force stale), neutral-file threshold (`analysisCache.neutralThreshold`, default 15), and TTL (`analysisCache.ttl`, default `"4h"`). Provenance comments stored per section for future partial invalidation.
+
+**Fail-open:** Any cache failure (corrupt file, missing SHA, git error) falls back to full analysis. `SNAPSHOT_DRIFT` markers from the agent force regeneration on the next ticket.
+
+**Helpers:** `lib/cache.sh` — `n1_snapshot_path`, `n1_snapshot_check_freshness`, `n1_snapshot_read_body`, `n1_snapshot_write`, `n1_parse_ttl`.
+
+**Config:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `analysisCache.enabled` | boolean | `false` | Master gate |
+| `analysisCache.ttl` | string | `"4h"` | Max age before forced regeneration |
+| `analysisCache.neutralThreshold` | integer | `15` | NEUTRAL files changed before invalidation |
+| `analysisCache.structuralFiles` | string[] | See `defaults/analysis-cache.json` | Glob patterns for structural files |
 
 ### Implementation Simplicity Gate
 
