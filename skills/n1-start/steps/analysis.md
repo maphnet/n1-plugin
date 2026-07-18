@@ -126,7 +126,7 @@ When CACHE_STATE is `cold` AND `$CACHE_ENABLED` is not `true`:
 - Update overview: `[x] Analysis`, set `step: analysis`
 
 **Parse and persist tier revision (if any):**
-1. Extract `tier:` from the solution-architect's output text. Use case-insensitive regex: `^tier:\s*(simple|standard|complex)` against the output.
+1. Extract `tier:` from the written analysis file. Use case-insensitive regex: `^tier:\s*(simple|standard|complex)` against `$N1_HOME/memory/$ID/analysis.md`.
 2. If a valid tier is found:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
@@ -141,10 +141,10 @@ When CACHE_STATE is `cold` AND `$CACHE_ENABLED` is not `true`:
 3. If no valid tier found in architect output, leave the existing tier unchanged (analyst's assessment stands).
 
 **Extract and persist signals:**
-Parse the solution-architect's output for a line starting with `n1:signals `:
+Parse the written analysis file for a line starting with `n1:signals `:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
+SIGNAL_LINE=$(grep -m1 '^n1:signals ' "$N1_HOME/memory/$ID/analysis.md")
 if [ -n "$SIGNAL_LINE" ]; then
     PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //')
     n1_write_signals "$N1_HOME/memory/$ID/analysis.md" $PAIRS
