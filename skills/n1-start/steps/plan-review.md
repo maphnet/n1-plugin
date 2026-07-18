@@ -117,3 +117,15 @@ The `codex-adapter` agent is NOT used — output is a simple verdict string, not
 - Record the CCR verdict: if verdict is FIXED, the plan file was updated in-place by the reviewer. Record the plan-review verdict and a one-line summary of changes in overview's `## Key Decisions` — durable traceability that survives a resume, rather than living only in transient orchestrator context.
 - Record the Codex verdict (if it ran): append to overview `## Key Decisions`: "Codex plan review: APPROVED" or "Codex plan review flagged issues: <summary>". If Codex flagged issues that the CCR did not catch, note them in Key Decisions for awareness but do NOT block the pipeline.
 
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+EST=$(n1_config_val '.estimation.enabled')
+if [ "${EST:-false}" = "true" ]; then
+    NEXT="estimation"
+else
+    NEXT="implementation"
+fi
+n1_emit_step_result "plan-review" "pass" "$NEXT" "null"
+```

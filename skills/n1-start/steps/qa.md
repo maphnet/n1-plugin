@@ -96,3 +96,18 @@ In full pipeline mode this protocol does NOT apply — keep the interactive prom
 
 In full pipeline mode: "After <N> QA fix cycles this test still fails: [details]. Please advise."
 
+**Step result (step mode) — pass path:**
+
+When QA verdict is PASS (no bugs, no test failures):
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+n1_emit_step_result "qa" "pass" "review" "null"
+```
+
+When QA verdict is FAIL and fix loop is within bound (not escalated):
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+new_count=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
+n1_emit_step_result "qa" "fail" "fix" "{\"qa_fix_cycle\":$new_count}"
+```

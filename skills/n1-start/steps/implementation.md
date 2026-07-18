@@ -207,3 +207,8 @@ Which approach?
 - <decision>: <choice> (reason: <why>)
 ```
 
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+n1_emit_step_result "implementation" "pass" "qa" "null"
+```

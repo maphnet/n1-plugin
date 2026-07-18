@@ -25,3 +25,9 @@ The n1-finish skill receives the ticket `<ID>` and (when known) the PR number fr
 - Merge-wait timeout or deploy-watch timeout → n1-finish writes `escalation/request.json` AND emits the step result itself (`outcome: "escalation"`, `next_step: null`) — the orchestrator must NOT emit a duplicate result for this case
 
 > **After `n1:n1-finish` returns, IMMEDIATELY continue to FINALIZE MEMORY with the finish result noted -- do NOT write a summary message or yield to the user.**
+
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+n1_emit_step_result "finish" "pass" "null" "null"
+```

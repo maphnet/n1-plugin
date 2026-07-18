@@ -61,3 +61,8 @@ if [ "$TYPE" != "investigation" ]; then
 fi
 ```
 
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+n1_emit_step_result "analysis" "pass" "brainstorm" "null"
+```

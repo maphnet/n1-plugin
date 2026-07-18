@@ -43,6 +43,23 @@ n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetr
     "fix_cycles_count=$FIX_TOTAL"
 ```
 
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+CI=$(n1_config_val '.ciChecks.enabled')
+PR_MODE=$(n1_config_val '.git.prMode')
+FW=$(n1_config_val '.finishWork.enabled')
+if [ "${CI:-true}" = "true" ] && [ "${PR_MODE}" != "skip" ]; then
+    NEXT="ci"
+elif [ "${FW:-false}" = "true" ]; then
+    NEXT="finish"
+else
+    NEXT="null"
+fi
+n1_emit_step_result "pr" "pass" "$NEXT" "null"
+```
+
 **CHECKPOINT:** "PR created at <URL>. Ready for Tech Lead review."
 
 <!-- AUDIT N1-37: stop after n1:n1-pr is intentional — this is the Tech Lead review checkpoint. Do NOT add a continuation directive here. -->

@@ -22,3 +22,15 @@ The n1-ci skill receives the PR number from the PR creation step above. It:
 
 > **After `n1:n1-ci` returns, IMMEDIATELY continue to the next pipeline step (finish if enabled, otherwise FINALIZE MEMORY) -- do NOT write a summary message or yield to the user.**
 
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+FW=$(n1_config_val '.finishWork.enabled')
+if [ "${FW:-false}" = "true" ]; then
+    NEXT="finish"
+else
+    NEXT="null"
+fi
+n1_emit_step_result "ci" "pass" "$NEXT" "null"
+```

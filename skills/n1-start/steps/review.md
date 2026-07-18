@@ -134,3 +134,25 @@ In full pipeline mode this protocol does NOT apply — keep the interactive prom
 
 In full pipeline mode: "After `review.maxFixAttempts` (default 3) review cycles, these findings remain unresolved: [list]. Please advise."
 
+**Step result (step mode) — pass path:**
+
+When combined review verdict is PASS:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+LT=$(n1_config_val '.localTesting.enabled')
+if [ "${LT:-false}" = "true" ]; then
+    NEXT="local-testing"
+else
+    NEXT="pr"
+fi
+n1_emit_step_result "review" "pass" "$NEXT" "null"
+```
+
+When combined review verdict is FAIL and fix loop is within bound (not escalated):
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+new_count=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
+n1_emit_step_result "review" "fail" "fix" "{\"review_fix_cycle\":$new_count}"
+```

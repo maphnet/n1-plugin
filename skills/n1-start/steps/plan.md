@@ -16,3 +16,20 @@ After the planner returns (the full plan body already lives in `$N1_HOME/memory/
 - Update overview: `[x] Plan`, set `step: plan`
 - Record a 2-3 sentence summary of the approach in overview's `## Key Decisions` section
 
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+REVIEW_PLAN=$(n1_config_val '.planReview.reviewPlan')
+if [ "${REVIEW_PLAN:-true}" = "true" ]; then
+    NEXT="plan-review"
+else
+    EST=$(n1_config_val '.estimation.enabled')
+    if [ "${EST:-false}" = "true" ]; then
+        NEXT="estimation"
+    else
+        NEXT="implementation"
+    fi
+fi
+n1_emit_step_result "plan" "pass" "$NEXT" "null"
+```

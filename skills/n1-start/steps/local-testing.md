@@ -228,3 +228,10 @@ In full pipeline mode: "After <N> local testing fix cycles, these scenarios stil
 
 **Cleanup guarantee:** cleanup runs after EVERY execution attempt, including failed ones. No orphan containers or processes between fix cycles.
 
+**Step result (step mode) — pass path:**
+
+When all local tests pass:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+n1_emit_step_result "local-testing" "pass" "pr" "null"
+```

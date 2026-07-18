@@ -78,3 +78,8 @@ When the gate passes, run estimation at the appropriate pipeline point:
 
 9. **Report.** Log: "Estimated complexity: **<TIER>** — <time>. Basis: <one sentence>"
 
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+n1_emit_step_result "estimation" "pass" "implementation" "null"
+```

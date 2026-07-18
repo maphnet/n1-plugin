@@ -76,3 +76,15 @@ If the combined Step-7 verdict is PASS:
 
 Update overview: `[x] Review`, set `step: review`
 
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+FIX_TARGET=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "step")
+if [ "$FIX_TARGET" = "qa" ]; then
+    NEXT="qa"
+else
+    NEXT="review"
+fi
+n1_emit_step_result "fix" "pass" "$NEXT" "null"
+```

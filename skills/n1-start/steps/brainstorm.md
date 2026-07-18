@@ -152,3 +152,19 @@ If any condition fails, skip silently and proceed to Planning Need Routing.
 
 5. Log: "Tracker updated with refined requirements and design summary." (or "Tracker enrichment skipped." if gated out)
 
+**Step result (step mode):**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || echo "")
+PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" 2>/dev/null || echo "plan")
+if [ "$TYPE" = "investigation" ]; then
+    NEXT="investigation-deliverable"
+elif [ "$PLANNING_NEED" = "direct" ]; then
+    NEXT="implementation"
+else
+    NEXT="plan"
+fi
+n1_emit_step_result "brainstorm" "pass" "$NEXT" "null"
+```
