@@ -1,0 +1,12 @@
+{
+  "structuralFiles": [
+    "package.json",
+    "Cargo.toml",
+    "go.mod",
+    "pyproject.toml",
+    "CLAUDE.md",
+    "Dockerfile",
+    "docker-compose.yml",
+    ".github/workflows/*"
+  ]
+}
