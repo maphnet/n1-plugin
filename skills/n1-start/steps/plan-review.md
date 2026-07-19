@@ -64,15 +64,21 @@ Output format:
 
 #### B. Codex plan review (conditional, advisory)
 
-Call `n1_codex_available` (from `plugin/lib/config.sh`).
-
-**If unavailable:** Log in overview `## Key Decisions`: "Codex plan review skipped — not available". Proceed with CCR only.
-
-**If available:** `CODEX` is set by the availability probe. Read config:
+Run the standalone preflight script (no base branch needed for plan review):
 ```bash
-CODEX_MODEL=$(n1_codex_val 'model')
-CODEX_EFFORT=$(n1_codex_val 'effort')
-: "${CODEX_EFFORT:=medium}"
+CODEX_PREFLIGHT=$(bash "${CLAUDE_PLUGIN_ROOT}/lib/codex-preflight.sh" 2>&1)
+echo "$CODEX_PREFLIGHT"
+```
+
+Parse the JSON output. **Do NOT replicate this logic yourself — run the script and read the result.**
+
+**If `available` is `false`:** Log in overview `## Key Decisions`: "Codex plan review skipped — <reason from JSON>". Proceed with CCR only.
+
+**If `available` is `true`:** Extract `codex_path`, `model`, `effort` from the JSON. Set:
+```bash
+CODEX="<codex_path from JSON>"
+CODEX_MODEL="<model from JSON>"
+CODEX_EFFORT="<effort from JSON>"
 ```
 
 Write a temporary prompt file containing the plan content, ticket acceptance criteria, and this instruction:

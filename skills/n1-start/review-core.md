@@ -19,31 +19,39 @@ Classify the changed-file set into two independent booleans:
 Reviewer selection follows directly:
 - `code-reviewer` **always runs** (docs still get a quality pass).
 - `security-reviewer` runs **iff `SECURITY_RELEVANT`** — skip on doc/config-only or clearly non-security code diffs.
-- Codex runs **iff** `n1_codex_preflight "<BASE_BRANCH>"` passes (checks `codex.enabled` with backward compat for `codexReview.enabled`, companion path, CLI availability, AND base branch resolvability) AND **not** `DOC_CONFIG_ONLY`.
+- Codex runs **iff** the preflight script reports `available:true` (see below) AND **not** `DOC_CONFIG_ONLY`.
 
 Record every skip explicitly in `review.md` (e.g. `"⚠ security-reviewer skipped — no security-relevant surface in diff"`, `"⚠ Codex skipped — documentation/config-only diff"`) so a missing reviewer is never mistaken for a PASS.
 
 ## Codex Reviewer (conditional)
 
-Call `n1_codex_preflight "<BASE_BRANCH>"` (from `plugin/lib/config.sh`). Codex is additionally suppressed when `DOC_CONFIG_ONLY` is true.
+Run the standalone preflight script — it handles ALL checks (enabled flag with backward compat, companion path resolution, CLI availability, base branch verification) and outputs structured JSON:
 
-If `n1_codex_preflight` returns 0 (success) AND `DOC_CONFIG_ONLY` is false:
+```bash
+CODEX_PREFLIGHT=$(bash "${CLAUDE_PLUGIN_ROOT}/lib/codex-preflight.sh" "<BASE_BRANCH>" 2>&1)
+echo "$CODEX_PREFLIGHT"
+```
 
-1. `CODEX` is already set by `n1_codex_preflight` (via `n1_codex_available`). Read model/effort config:
-   ```bash
-   CODEX_MODEL=$(n1_codex_val 'model')
-   CODEX_EFFORT=$(n1_codex_val 'effort')
-   : "${CODEX_EFFORT:=medium}"
-   ```
+Parse the JSON output. The script always exits 0 and prints exactly one JSON line:
+- `{"available":true,"codex_path":"...","model":"...","effort":"..."}` — Codex is ready
+- `{"available":false,"reason":"..."}` — Codex is unavailable (reason explains why)
+
+**Do NOT attempt to replicate this logic yourself.** Run the script, read the JSON, branch on `available`.
+
+If `available` is `true` AND `DOC_CONFIG_ONLY` is false:
+
+1. Extract values from the preflight JSON: `codex_path`, `model`, `effort`.
 
 2. Spawn Codex review **in parallel** with the Claude reviewers:
    ```bash
    CODEX_STDERR=$(mktemp)
-   CODEX_OUTPUT=$(node "$CODEX" review --wait --scope branch --base "<BASE_BRANCH>" \
+   CODEX_OUTPUT=$(node "<codex_path>" review --wait --scope branch --base "<BASE_BRANCH>" \
      ${CODEX_MODEL:+--model "$CODEX_MODEL"} \
      --effort "$CODEX_EFFORT" 2>"$CODEX_STDERR")
    CODEX_EXIT=$?
    ```
+   Where `CODEX_MODEL` and `CODEX_EFFORT` are from the preflight JSON (`model` and `effort` fields).
+
    Run this as a single **blocking foreground** Bash call (the `--wait` flag makes the command return only when the review is done). NEVER end your response turn to "wait for Codex" — in headless mode there is no later turn, and the review dies unfinished. If you launched it in the background for parallelism, you MUST block on its completion (e.g. poll/wait on the background task) within the same turn before proceeding to merge findings.
 
    After the call completes, validate the result:
@@ -58,9 +66,9 @@ If `n1_codex_preflight` returns 0 (success) AND `DOC_CONFIG_ONLY` is false:
    - Format: `"⚠ Codex review did not complete (exit <CODEX_EXIT>). stderr: <first 20 lines of CODEX_STDERR>"`
    - If both attempts produced empty output: `"⚠ Codex review returned empty output on both attempts (exit 0 both times)"`
 
-If `n1_codex_preflight` returns 1 (unavailable) OR `DOC_CONFIG_ONLY` is true → capture the stderr from the preflight call and log `"⚠ Codex skipped — <stderr reason, or 'documentation/config-only diff'>"` in review.md and treat Codex as NOT running (this affects the code-reviewer scope decision below).
+If `available` is `false` OR `DOC_CONFIG_ONLY` is true → log `"⚠ Codex skipped — <reason field from JSON, or 'documentation/config-only diff'>"` in review.md and treat Codex as NOT running (this affects the code-reviewer scope decision below).
 
-Let **CODEX_ACTIVE** be true only when all of these hold: `n1_codex_preflight` passed, `DOC_CONFIG_ONLY` is false, and the Codex call did not permanently fail after its retry.
+Let **CODEX_ACTIVE** be true only when all of these hold: preflight reported `available:true`, `DOC_CONFIG_ONLY` is false, and the Codex call did not permanently fail after its retry.
 
 ## code-reviewer Scope (Codex-aware delegation)
 

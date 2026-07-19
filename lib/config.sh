@@ -6,6 +6,10 @@ n1_home() {
     home=$(git config n1.home 2>/dev/null || true)
     if [ -n "$home" ]; then
         home="${home/#\~/$HOME}"
+        # Convert Windows paths (C:/...) to WSL paths when running under WSL
+        if [ -n "${WSL_DISTRO_NAME:-}" ] && [[ "$home" =~ ^[A-Z]:/ ]]; then
+            home=$(wslpath -u "$home" 2>/dev/null) || true
+        fi
         printf '%s' "$home"
         return
     fi
