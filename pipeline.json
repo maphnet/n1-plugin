@@ -61,7 +61,8 @@
       "orchestrator_effort": "high"
     },
     "bug": {
-      "steps": ["ticket", "analysis", "implementation", "qa", "review",
+      "steps": ["ticket", "analysis", "brainstorm", "plan",
+                 "implementation", "qa", "review",
                  "local-testing", "pr", "ci", "finish"],
       "detect": { "type_field": "bug", "tags": ["bug"] },
       "orchestrator_effort": "low",
@@ -103,9 +104,10 @@
       "step": "brainstorm",
       "skip_when": { "all": [
         { "signal": "analysis.has_bug_root_cause", "eq": "true" },
-        { "frontmatter": "type", "eq": "bug" }
+        { "signal": "analysis.blast_radius", "neq": "high" },
+        { "signal": "analysis.files_changed", "lt": 5 }
       ]},
-      "reason": "Bug with identified root cause — brainstorm unnecessary"
+      "reason": "Bug with known root cause, contained blast radius, and few files — brainstorm unnecessary"
     },
     {
       "step": "plan",

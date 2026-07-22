@@ -206,7 +206,7 @@ Workflow types are declared in `pipeline.json` under `types`. Each type defines 
 |------|-------|-----------|-----------------|
 | `task` (default) | ticket → analysis → [brainstorm] → [plan] → [plan-review] → [estimation] → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] | `detect.default: true` | Full pipeline |
 | `investigation` | ticket → analysis → brainstorm → investigation-deliverable | Title match: `investigat`, tags: `investigation` | No implementation, QA, or PR |
-| `bug` | ticket → analysis → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] | Type field: `bug`, tags: `bug` | Skips brainstorm and plan; analysis model downgraded |
+| `bug` | ticket → analysis → [brainstorm] → [plan] → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] | Type field: `bug`, tags: `bug` | Brainstorm/plan signal-gated: skipped when root cause known + blast radius not high + files < 5; analysis model downgraded |
 | `chore` | ticket → analysis → implementation → qa → review → pr → [ci] → [finish] | Type field: `chore`, tags: `chore/config/deps` | Skips brainstorm, plan, local-testing; analysis and review models downgraded |
 
 Brackets = skippable by config gates or runtime signals. Detection cascade: `--type` flag > tags > type_field > title_match > default.
