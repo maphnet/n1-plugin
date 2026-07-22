@@ -84,7 +84,7 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 2. Run via Bash:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "qa" "escalation" "null" "{\"qa_fix_cycle\":$qa_fix_cycle}"
+   n1_emit_step_result "qa" "escalation" "null" "{\"qa_fix_cycle\":$qa_fix_cycle}" "" "$N1_HOME/memory/$ID"
    ```
    Then STOP.
 3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `qa_fix_exhausted`:
@@ -101,7 +101,7 @@ In full pipeline mode: "After <N> QA fix cycles this test still fails: [details]
 When QA verdict is PASS (no bugs, no test failures):
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "qa" "pass" "review" "null"
+n1_emit_step_result "qa" "pass" "review" "null" "" "$N1_HOME/memory/$ID"
 ```
 
 When QA verdict is FAIL and fix loop is within bound (not escalated):
@@ -109,5 +109,5 @@ When QA verdict is FAIL and fix loop is within bound (not escalated):
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 new_count=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
-n1_emit_step_result "qa" "fail" "fix" "{\"qa_fix_cycle\":$new_count}"
+n1_emit_step_result "qa" "fail" "fix" "{\"qa_fix_cycle\":$new_count}" "" "$N1_HOME/memory/$ID"
 ```

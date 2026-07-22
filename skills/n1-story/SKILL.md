@@ -114,7 +114,7 @@ When `--step` is present and valid:
 
 5. **After step execution** — compute `next_step` from `pipeline.json` routing and emit:
    ```bash
-   n1_emit_step_result "$step_name" "<outcome>" "<next_step>" "null"
+   n1_emit_step_result "$step_name" "<outcome>" "<next_step>" "null" "" "$N1_HOME/memory/$ID"
    ```
    Then stop.
 

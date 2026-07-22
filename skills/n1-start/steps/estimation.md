@@ -81,5 +81,5 @@ When the gate passes, run estimation at the appropriate pipeline point:
 **Step result (step mode):**
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "estimation" "pass" "implementation" "null"
+n1_emit_step_result "estimation" "pass" "implementation" "null" "" "$N1_HOME/memory/$ID"
 ```

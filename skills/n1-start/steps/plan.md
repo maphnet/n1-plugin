@@ -31,5 +31,5 @@ else
         NEXT="implementation"
     fi
 fi
-n1_emit_step_result "plan" "pass" "$NEXT" "null"
+n1_emit_step_result "plan" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
 ```

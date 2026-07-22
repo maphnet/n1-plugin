@@ -57,7 +57,7 @@ elif [ "${FW:-false}" = "true" ]; then
 else
     NEXT="null"
 fi
-n1_emit_step_result "pr" "pass" "$NEXT" "null"
+n1_emit_step_result "pr" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
 ```
 
 **CHECKPOINT:** "PR created at <URL>. Ready for Tech Lead review."

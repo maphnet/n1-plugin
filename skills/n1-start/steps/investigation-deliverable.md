@@ -125,5 +125,5 @@ Would you like to close this investigation ticket (<ID>)?
 **Step result (step mode):**
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "investigation-deliverable" "pass" "null" "null"
+n1_emit_step_result "investigation-deliverable" "pass" "null" "null" "" "$N1_HOME/memory/$ID"
 ```

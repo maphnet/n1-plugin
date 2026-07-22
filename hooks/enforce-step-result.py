@@ -24,7 +24,7 @@ from pathlib import Path
 
 REASON = (
     "Step-mode contract: you must run "
-    "`n1_emit_step_result <step> <outcome> <next_step> <loop_counter>` "
+    '`n1_emit_step_result <step> <outcome> <next_step> <loop_counter> "" "$N1_HOME/memory/$ID"` '
     "(the bash helper — typing the N1_STEP_RESULT line as text is not sufficient) "
     "before ending. Compute next_step from the Step Mode Routing table in SKILL.md."
 )

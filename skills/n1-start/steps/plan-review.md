@@ -133,5 +133,5 @@ if [ "${EST:-false}" = "true" ]; then
 else
     NEXT="implementation"
 fi
-n1_emit_step_result "plan-review" "pass" "$NEXT" "null"
+n1_emit_step_result "plan-review" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
 ```

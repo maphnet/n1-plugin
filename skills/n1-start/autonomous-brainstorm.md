@@ -94,7 +94,7 @@ Read the margin threshold from `N1_ESCALATION_MARGIN` environment variable (defa
 Then run via Bash:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "brainstorm" "escalation" "null" "null"
+n1_emit_step_result "brainstorm" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
 ```
 and stop.
 

@@ -166,5 +166,5 @@ elif [ "$PLANNING_NEED" = "direct" ]; then
 else
     NEXT="plan"
 fi
-n1_emit_step_result "brainstorm" "pass" "$NEXT" "null"
+n1_emit_step_result "brainstorm" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
 ```

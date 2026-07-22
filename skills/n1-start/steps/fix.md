@@ -52,7 +52,7 @@ After developer returns:
 2. Run via Bash:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "fix" "escalation" "null" "{\"review_fix_cycle\":$review_fix_cycle}"
+   n1_emit_step_result "fix" "escalation" "null" "{\"review_fix_cycle\":$review_fix_cycle}" "" "$N1_HOME/memory/$ID"
    ```
    Then STOP.
 3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `fix_blocked`:
@@ -86,5 +86,5 @@ if [ "$FIX_TARGET" = "qa" ]; then
 else
     NEXT="review"
 fi
-n1_emit_step_result "fix" "pass" "$NEXT" "null"
+n1_emit_step_result "fix" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
 ```

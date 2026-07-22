@@ -110,7 +110,7 @@ step_exit=$?
 - `exit 1` — `--step` absent. Continue with full pipeline mode (existing behavior, no changes).
 - `exit 2` — `--step` present but invalid name. Emit error result and stop:
   ```bash
-  n1_emit_step_result "<invalid-name>" "error" "null" "null" ',"error":"Invalid step name"'
+  n1_emit_step_result "<invalid-name>" "error" "null" "null" ',"error":"Invalid step name"' "$N1_HOME/memory/$ID"
   ```
 
 ### Step mode dispatch
@@ -146,7 +146,7 @@ When step mode is active:
    ```
    If verification fails, emit error result:
    ```bash
-   n1_emit_step_result "$step_name" "error" "null" "null" ',"error":"Missing dependency files: <list>"'
+   n1_emit_step_result "$step_name" "error" "null" "null" ',"error":"Missing dependency files: <list>"' "$N1_HOME/memory/$ID"
    ```
    and stop.
 
@@ -171,7 +171,7 @@ When step mode is active:
            # Log decision to telemetry
            source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
            n1_emit_decision "$N1_RUN_ID" "$N1_VERSION" "$ID" "$step_name" "skip" "$SKIP_REASON" "${N1_HOME}/memory/$ID/telemetry"
-           n1_emit_step_result "$step_name" "skip" "<next_step>" "null"
+           n1_emit_step_result "$step_name" "skip" "<next_step>" "null" "" "$N1_HOME/memory/$ID"
            # Stop — do not execute the step
        fi
    fi
@@ -181,7 +181,7 @@ When step mode is active:
 
 9. **After step execution** — do NOT proceed to the next step. Instead, compute the `next_step` from the Step Mode Routing table and emit the structured result — you MUST actually run the bash helper (it writes `step-result.json` AND prints the line); merely typing an `N1_STEP_RESULT:` line in your response text is NOT sufficient:
    ```bash
-   n1_emit_step_result "$step_name" "<outcome>" "<next_step>" "<loop_counter_or_null>"
+   n1_emit_step_result "$step_name" "<outcome>" "<next_step>" "<loop_counter_or_null>" "" "$N1_HOME/memory/$ID"
    ```
    Then stop.
 
@@ -301,7 +301,7 @@ Used only by `n1-start --step`. Creates or reattaches a worktree at `<main-check
 1. **Check if `N1_HOME` is absolute** (starts with `/`, `~`, or a drive letter like `C:\`):
    - **If relative** (starts with `.`, e.g. `.n1`) → worktrees cannot be used because config and memory paths would resolve inside the worktree instead of the main checkout. Emit error result and stop:
      ```bash
-     n1_emit_step_result "$step_name" "error" "null" "null" ',"error":"Step mode requires externalized state (absolute N1_HOME). Run n1-init to migrate."'
+     n1_emit_step_result "$step_name" "error" "null" "null" ',"error":"Step mode requires externalized state (absolute N1_HOME). Run n1-init to migrate."' "$N1_HOME/memory/$ID"
      ```
    - **If absolute** → continue with worktree creation.
 
@@ -386,7 +386,7 @@ step (implementation) and defensively by qa/review/local-testing. Full-pipeline
        Then run via Bash:
        ```bash
        source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-       n1_emit_step_result "<current step name>" "escalation" "null" "null"
+       n1_emit_step_result "<current step name>" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
        ```
        and STOP.
      - **On re-run** (`response.json` present and `run_id` matches `N1_RUN_ID`):
@@ -663,11 +663,11 @@ applying the `default` from the matching `gates[]` entry when a key is absent.
 ```bash
 # After QA fix cycle increment
 new_count=$(n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
-n1_emit_step_result "qa" "fail" "fix" "{\"qa_fix_cycle\":$new_count}"
+n1_emit_step_result "qa" "fail" "fix" "{\"qa_fix_cycle\":$new_count}" "" "$N1_HOME/memory/$ID"
 
 # After review fix cycle increment
 new_count=$(n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
-n1_emit_step_result "review" "fail" "fix" "{\"review_fix_cycle\":$new_count}"
+n1_emit_step_result "review" "fail" "fix" "{\"review_fix_cycle\":$new_count}" "" "$N1_HOME/memory/$ID"
 ```
 
 **Telemetry finalization:** In step mode, do NOT run the full "FINALIZE MEMORY" section (Step 12). That section is for the full pipeline's final wrap-up. In step mode, telemetry is finalized per-step: the step's end marker is emitted as part of normal step execution, and the telemetry lock is NOT removed (subsequent step invocations will overwrite it with their own run ID).

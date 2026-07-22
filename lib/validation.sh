@@ -210,6 +210,7 @@ n1_parse_step_arg() {
 n1_emit_step_result() {
     local step="$1" outcome="$2" next_step="$3" loop_counter="${4:-null}"
     local extra="${5:-}"
+    local result_dir="${6:-}"
     local next_json
     if [ "$next_step" = "null" ]; then
         next_json="null"
@@ -218,8 +219,12 @@ n1_emit_step_result() {
     fi
     printf 'N1_STEP_RESULT: {"step":"%s","outcome":"%s","next_step":%s,"loop_counter":%s%s}\n' \
         "$step" "$outcome" "$next_json" "$loop_counter" "$extra"
-    if [ -n "${N1_HOME:-}" ] && [ -n "${ID:-}" ]; then
-        local result_file="${N1_HOME}/memory/${ID}/step-result.json"
+    # Resolve target directory: explicit param > ambient env vars
+    if [ -z "$result_dir" ] && [ -n "${N1_HOME:-}" ] && [ -n "${ID:-}" ]; then
+        result_dir="${N1_HOME}/memory/${ID}"
+    fi
+    if [ -n "$result_dir" ]; then
+        local result_file="${result_dir}/step-result.json"
         printf '{"step":"%s","outcome":"%s","next_step":%s,"loop_counter":%s}\n' \
             "$step" "$outcome" "$next_json" "$loop_counter" \
             > "${result_file}.tmp" && mv "${result_file}.tmp" "${result_file}" || true

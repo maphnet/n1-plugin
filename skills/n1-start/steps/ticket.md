@@ -330,5 +330,5 @@ echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"
 **Step result (step mode):**
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "ticket" "pass" "analysis" "null"
+n1_emit_step_result "ticket" "pass" "analysis" "null" "" "$N1_HOME/memory/$ID"
 ```

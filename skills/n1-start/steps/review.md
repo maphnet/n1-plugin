@@ -87,7 +87,7 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
 2. Run via Bash:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "review" "escalation" "null" "{\"qa_fix_cycle\":$qa_fix_cycle}"
+   n1_emit_step_result "review" "escalation" "null" "{\"qa_fix_cycle\":$qa_fix_cycle}" "" "$N1_HOME/memory/$ID"
    ```
    Then STOP.
 3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `tq_fix_exhausted`:
@@ -122,7 +122,7 @@ If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX) — unle
 2. Run via Bash:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "review" "escalation" "null" "{\"review_fix_cycle\":$review_fix_cycle}"
+   n1_emit_step_result "review" "escalation" "null" "{\"review_fix_cycle\":$review_fix_cycle}" "" "$N1_HOME/memory/$ID"
    ```
    Then STOP.
 3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `review_fix_exhausted`:
@@ -146,7 +146,7 @@ if [ "${LT:-false}" = "true" ]; then
 else
     NEXT="pr"
 fi
-n1_emit_step_result "review" "pass" "$NEXT" "null"
+n1_emit_step_result "review" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
 ```
 
 When combined review verdict is FAIL and fix loop is within bound (not escalated):
@@ -154,5 +154,5 @@ When combined review verdict is FAIL and fix loop is within bound (not escalated
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 new_count=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
-n1_emit_step_result "review" "fail" "fix" "{\"review_fix_cycle\":$new_count}"
+n1_emit_step_result "review" "fail" "fix" "{\"review_fix_cycle\":$new_count}" "" "$N1_HOME/memory/$ID"
 ```

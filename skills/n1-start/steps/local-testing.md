@@ -149,11 +149,11 @@ After the agent returns:
 2. Run via Bash:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":0}"
+   n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":0}" "" "$N1_HOME/memory/$ID"
    ```
    Then STOP.
 3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `local_test_env_failure`:
-   - "Skip local testing" → update overview (`[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — environment failure"), record in `## Escalations`; run via Bash: `n1_emit_step_result "local-testing" "pass" "null" "null"` and STOP.
+   - "Skip local testing" → update overview (`[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — environment failure"), record in `## Escalations`; run via Bash: `n1_emit_step_result "local-testing" "pass" "null" "null" "" "$N1_HOME/memory/$ID"` and STOP.
    - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
 
 In full pipeline mode this protocol does NOT apply — keep the interactive prompt below unchanged.
@@ -210,7 +210,7 @@ After developer returns:
 2. Run via Bash:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":$local_test_fix_cycle}"
+   n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":$local_test_fix_cycle}" "" "$N1_HOME/memory/$ID"
    ```
    Then STOP.
 3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `local_test_fix_exhausted`:
@@ -233,5 +233,5 @@ In full pipeline mode: "After <N> local testing fix cycles, these scenarios stil
 When all local tests pass:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "local-testing" "pass" "pr" "null"
+n1_emit_step_result "local-testing" "pass" "pr" "null" "" "$N1_HOME/memory/$ID"
 ```

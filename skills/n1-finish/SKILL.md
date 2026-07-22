@@ -179,7 +179,7 @@ Then emit the step result via Bash and STOP:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "finish" "escalation" "null" "null"
+n1_emit_step_result "finish" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
 ```
 
 On re-run with `response.json` present and `run_id` matching `N1_RUN_ID`: "Retry" → re-enter the step that timed out (Step 2c poll or Step 3 watch); "Abort" → record in overview `## Escalations` and emit `outcome: "fail"`.
