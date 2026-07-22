@@ -34,10 +34,9 @@ n1_compact_memory() {
     # Single-pass awk:
     #   - Frontmatter (---...---) is passed through verbatim
     #   - Signals block (<!-- n1:signals ... -->) is collected and appended at the end
-    #   - Level-2+ headings (##...) start sections; a section is kept when its heading
-    #     text matches any keep pattern (case-insensitive substring).  A new heading at
-    #     the same or higher level ends the current section and starts a new one.
-    #     Sub-headings (deeper level) inherit the keep status of their parent section.
+    #   - Level-2 and level-3 headings (## / ###) are independent section boundaries;
+    #     each is evaluated against keep patterns regardless of nesting.
+    #     Level-4+ headings (####...) inherit the keep status of their nearest ##/### ancestor.
     awk -v kfile="$tmpkeep" '
     BEGIN {
         while ((getline line < kfile) > 0) {
@@ -77,7 +76,8 @@ n1_compact_memory() {
     in_fm && /^---$/   { in_fm = 0; out_fm = out_fm $0 "\n"; next }
     in_fm              { out_fm = out_fm $0 "\n"; next }
 
-    /^<!-- n1:signals$/ { in_signals = 1; out_sig = out_sig $0 "\n"; next }
+    /^<!-- n1:signals/ { in_signals = 1; out_sig = out_sig $0 "\n"; next }
+    /^<!-- \/n1:signals/ { out_sig = out_sig $0 "\n"; in_signals = 0; next }
     in_signals {
         out_sig = out_sig $0 "\n"
         if (/^-->$/) in_signals = 0
@@ -87,10 +87,14 @@ n1_compact_memory() {
     /^#{2,}[[:space:]]/ {
         lv = hlevel($0)
         ht = htext($0)
-        if (cur_outer_lv == 0 || lv <= cur_outer_lv) {
+        if (lv <= 3) {
+            cur_outer_lv = lv
+            cur_keep     = matches(ht)
+        } else if (cur_outer_lv == 0) {
             cur_outer_lv = lv
             cur_keep     = matches(ht)
         }
+        # lv >= 4 with cur_outer_lv set: inherit cur_keep from parent
         if (cur_keep) out_body = out_body $0 "\n"
         next
     }
@@ -102,7 +106,20 @@ n1_compact_memory() {
         printf "%s", out_body
         if (out_sig != "") printf "%s", out_sig
     }
-    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+    ' "$file" > "${file}.tmp"
+
+    # Safety net: abort compaction if output < 20% of input
+    local in_size out_size
+    in_size=$(wc -c < "$file")
+    out_size=$(wc -c < "${file}.tmp")
+    if [ "$in_size" -gt 0 ] && [ $((out_size * 100 / in_size)) -lt 20 ]; then
+        echo "n1_compact_memory: output is ${out_size}/${in_size} bytes (<20%), aborting compaction" >&2
+        rm -f "${file}.tmp" "${file}.full.md"
+        rm -f "$tmpkeep"
+        return 1
+    fi
+
+    mv "${file}.tmp" "$file"
 
     rm -f "$tmpkeep"
 }
