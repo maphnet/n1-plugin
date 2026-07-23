@@ -195,7 +195,7 @@ gh pr create \
 
 Capture and display the PR URL.
 
-## Step 4b: Worktree Cleanup (step mode only)
+## Step 4b: Worktree Cleanup
 
 After a successful push and PR creation (or when `prMode` is `"ready"` and push succeeded), check whether a worktree should be removed:
 

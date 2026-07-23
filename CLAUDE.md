@@ -145,10 +145,11 @@ fi
 
 Config file: `$N1_HOME/config.json` (renamed from `n1.config.json` in v2.0.0).
 
-**Workspace isolation:** `n1-start` uses two isolation modes determined by invocation. In full-pipeline mode (no `--step`), it creates a feature branch in the current checkout via `Ensure Working Branch` — the user and IDE stay in familiar territory. In step mode (`--step`, consumed by the future `n1-loop`), it creates a git worktree at `<main-checkout>/.claude/worktrees/<ID>/` via `Ensure Worktree`. `n1-pr` removes the worktree after push (step mode only); in branch mode the branch is preserved.
+**Workspace isolation:** `n1-start` resolves isolation mode via: `--step` (always worktree) > `--worktree` flag > `worktree.mode` config (`"branch"` default, `"worktree"`) > branch. In branch mode, it creates a feature branch in the current checkout via `Ensure Working Branch`. In worktree mode, it creates a git worktree at `<main-checkout>/.claude/worktrees/<ID>/` via `Ensure Worktree`. `n1-pr` removes the worktree after push when `worktree.cleanup` is `"after-pr"`, regardless of how it was created.
 
 **Worktree config options** (in `$N1_HOME/config.json`):
-- `worktree.setup` — command to install dependencies in a worktree. Derived silently by `n1-init` from lockfiles (override for non-standard projects). Runs **lazily on first code-executing step** (implementation, or qa/review/local-testing on a resumed run), not at worktree creation — marker-guarded so it runs at most once per worktree. Step mode only.
+- `worktree.mode` — isolation mode for full-pipeline runs: `"branch"` (default, feature branch in current checkout) or `"worktree"` (worktree at `.claude/worktrees/<ID>/`). Overridable per-run with `--worktree` flag. Step mode always uses worktree regardless.
+- `worktree.setup` — command to install dependencies in a worktree. Derived silently by `n1-init` from lockfiles (override for non-standard projects). Runs **lazily on first code-executing step** (implementation, or qa/review/local-testing on a resumed run), not at worktree creation — marker-guarded so it runs at most once per worktree.
 - `worktree.cleanup` — when to auto-remove the worktree: `"after-pr"` (default, removed after push/PR) or `"manual"` (only via `/n1:n1-clean`)
 
 Each step reads ONLY its declared dependencies:
@@ -394,4 +395,4 @@ Always escalate: security, architecture, public API changes.
 - Commit style: imperative mood, English
 - No Co-Authored-By trailers
 - **Version bump is mandatory on every task branch.** Before the PR/merge step, bump the patch version in BOTH `.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (they must match). Commit as `chore: bump version to <new> (<ID>)`. Without a bump, `plugin marketplace update` sees no change and consumers stay on the old version.
-- **Workspace isolation lifecycle:** In full-pipeline mode, `n1-start` creates a feature branch eagerly in Step 1, the moment `<ID>` is resolved, via the idempotent `Ensure Working Branch` procedure. All implementation, QA, and review commits happen on this branch. In step mode (`--step`), `n1-start` creates a git worktree at `<main-checkout>/.claude/worktrees/<ID>/` instead, via `Ensure Worktree`. `n1-pr` performs `git push -u origin <branch>` and removes the worktree after push in step mode (skipped entirely when `git.prMode` is `"skip"`); in branch mode the branch is preserved.
+- **Workspace isolation lifecycle:** `n1-start` resolves isolation mode via: `--step` > `--worktree` flag > `worktree.mode` config > default branch. In branch mode, it creates a feature branch eagerly in Step 1 via `Ensure Working Branch`. In worktree mode, it creates a worktree at `<main-checkout>/.claude/worktrees/<ID>/` via `Ensure Worktree`. `n1-pr` performs `git push -u origin <branch>` and removes the worktree after push when `worktree.cleanup` is `"after-pr"` (skipped entirely when `git.prMode` is `"skip"`); in branch mode the branch is preserved.

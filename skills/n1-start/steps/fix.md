@@ -5,10 +5,10 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "fix" 10 "${N1_HOME}/memory/$ID/telemetry" started_at=now
 ```
 
-**Ensure dependencies (step mode).** Run the **Ensure Dependencies(`<ID>`)**
-procedure before spawning the developer. Marker-guarded no-op if already installed,
-but keeps a resumed/partial pipeline (entering directly at fix in a fresh worktree)
-safe.
+**Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
+procedure before spawning the developer. Marker-guarded no-op if already installed
+or if no worktree is active, but keeps a resumed/partial pipeline (entering directly
+at fix in a fresh worktree) safe.
 
 > The fix-target inference (reading `overview.md`'s `step:` to decide whether to route back to QA or review) corresponds to the `{"overview_step": ...}` routing edges in `pipeline.json` — this prose must match that declaration. No behavior change.
 

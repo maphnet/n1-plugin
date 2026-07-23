@@ -1,7 +1,7 @@
 
-**Ensure dependencies (step mode).** Before any code execution, run the
+**Ensure dependencies (worktree mode).** Before any code execution, run the
 **Ensure Dependencies(`<ID>`)** procedure (see Workspace Isolation in `SKILL.md`).
-In full-pipeline mode this is a no-op. In step mode it lazily installs
+In branch mode this is a no-op. When a worktree is active it lazily installs
 `worktree.setup` into the worktree on first need (marker-guarded, so it runs at
 most once per worktree).
 

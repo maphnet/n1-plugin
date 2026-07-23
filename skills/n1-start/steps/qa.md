@@ -5,10 +5,10 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "qa" 8 "${N1_HOME}/memory/$ID/telemetry" started_at=now
 ```
 
-**Ensure dependencies (step mode).** Run the **Ensure Dependencies(`<ID>`)**
+**Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
 procedure before running any tests. Marker-guarded — a no-op if implementation
-already installed, but keeps a resumed/partial pipeline (entering directly at QA
-in a fresh worktree) safe.
+already installed or if no worktree is active, but keeps a resumed/partial pipeline
+(entering directly at QA in a fresh worktree) safe.
 
 **Spawn agent:** qa-engineer
 

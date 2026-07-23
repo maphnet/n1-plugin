@@ -1,7 +1,7 @@
 ---
 name: n1-start
 description: "Core orchestrator. Start working on a task: /n1:n1-start TRID-510 or /n1:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
-argument-hint: "<ticket-id or brain dump> [--step <name>]"
+argument-hint: "<ticket-id or brain dump> [--step <name>] [--worktree]"
 model: sonnet
 effort: medium
 ---
@@ -91,6 +91,19 @@ When error tracker mode is detected, extract the issue ID from the URL:
 - Store the original URL for later use in ticket.md and tracker ticket creation.
 - The provisional memory ID is `sentry-<issueId>` (e.g., `sentry-12345`). The `sentry-` prefix avoids collision with numeric ticket IDs.
 
+### Worktree flag detection
+
+Check if the input contains `--worktree`:
+
+```bash
+WORKTREE_FLAG=false
+case "$RAW_INPUT" in
+    *--worktree*) WORKTREE_FLAG=true ;;
+esac
+```
+
+The `--worktree` flag forces worktree isolation in full-pipeline mode. In step mode this flag is ignored (step mode always uses worktrees). Strip `--worktree` from the input before passing to ticket/brain-dump parsing.
+
 ## Step Mode
 
 When the input contains `--step <name>`, n1-start executes ONLY the named step and exits with a structured result. This enables the n1-loop step-per-session execution model where each step gets a fresh context window.
@@ -135,7 +148,7 @@ When step mode is active:
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
    TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md" 2>/dev/null || echo "")
    ```
-   Skip Ensure Worktree when `TYPE` is `"investigation"` or when `step_name` is `"ticket"` (the ticket step fragment handles its own workspace isolation after investigation detection). Otherwise, run the **Ensure Worktree(`<ID>`)** procedure (Step Mode, see Workspace Isolation above).
+   Skip Ensure Worktree when `TYPE` is `"investigation"` or when `step_name` is `"ticket"` (the ticket step fragment handles its own workspace isolation after investigation detection). Otherwise, run the **Ensure Worktree(`<ID>`)** procedure (see Workspace Isolation above).
 
 4. **Verify dependencies:**
    ```bash
@@ -216,12 +229,33 @@ fi
 
 ## Workspace Isolation
 
-N1 uses two isolation modes, determined by invocation:
+### Isolation Mode Resolution
 
-| Invocation | Isolation | Rationale |
+Determine workspace isolation mode using this resolution order:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+WORKTREE_MODE=$(n1_config_val '.worktree.mode')
+
+if [ -n "$STEP_NAME" ]; then
+    USE_WORKTREE=true          # step mode: always worktree
+elif [ "$WORKTREE_FLAG" = "true" ]; then
+    USE_WORKTREE=true          # --worktree flag overrides config
+elif [ "$WORKTREE_MODE" = "worktree" ]; then
+    USE_WORKTREE=true          # config says worktree
+else
+    USE_WORKTREE=false         # default: branch
+fi
+```
+
+| Condition | Isolation | Rationale |
 |---|---|---|
-| `n1-start <ID>` (full pipeline) | **Branch** in current checkout | Interactive — user and IDE stay in familiar territory |
-| `n1-start <ID> --step <name>` | **Worktree** at `.claude/worktrees/<ID>/` | Automated — fresh context per step, no human navigating |
+| `--step` present | **Worktree** | Automated — fresh context per step |
+| `--worktree` flag | **Worktree** | Explicit user override for this run |
+| `worktree.mode: "worktree"` | **Worktree** | User prefers worktree isolation |
+| Default | **Branch** in current checkout | Interactive — user and IDE stay in place |
+
+When `USE_WORKTREE` is true, use **Ensure Worktree(`<ID>`)**. When false, use **Ensure Working Branch(`<ID>`)**.
 
 Both procedures are **idempotent** — safe to call again on resume. They are called at each ID-resolution point (see Step 1 and Memory Check).
 
@@ -294,9 +328,9 @@ Used by full-pipeline `n1-start` (no `--step`). Operates in the current checkout
 
 No `fetch`/`pull` is performed — the branch is created from the local default branch's current HEAD. The user owns keeping their local default up to date.
 
-**PROCEDURE: Ensure Worktree (`<ID>`) — Step Mode**
+**PROCEDURE: Ensure Worktree (`<ID>`)**
 
-Used only by `n1-start --step`. Creates or reattaches a worktree at `<main-checkout>/.claude/worktrees/<ID>/`.
+Used when `USE_WORKTREE` is true — in step mode, when `--worktree` flag is set, or when `worktree.mode` is `"worktree"` in config. Creates or reattaches a worktree at `<main-checkout>/.claude/worktrees/<ID>/`.
 
 1. **Check if `N1_HOME` is absolute** (starts with `/`, `~`, or a drive letter like `C:\`):
    - **If relative** (starts with `.`, e.g. `.n1`) → worktrees cannot be used because config and memory paths would resolve inside the worktree instead of the main checkout. Emit error result and stop:
@@ -340,19 +374,22 @@ Used only by `n1-start --step`. Creates or reattaches a worktree at `<main-check
       ```
       If this fails because the directory already exists (e.g., from a crashed prior run), manually remove `<main-checkout>/.claude/worktrees/<ID>/` or run `/n1:n1-clean` to clean up stale worktrees, then retry.
    e. Report: "Working in worktree `$WORKTREE_PATH` on branch `<TARGET>`."
+   f. **IDE hint (interactive mode only).** If this is NOT step mode (`STEP_NAME` is empty), print an additional line:
+      > Open this directory in your IDE: `$WORKTREE_PATH`
 
 5. Store `WORKTREE_PATH` for use by subsequent pipeline steps.
 
 No `fetch`/`pull` is performed — the branch is created from the local default branch's current HEAD.
 
-**PROCEDURE: Ensure Dependencies (`<ID>`) — Step Mode only**
+**PROCEDURE: Ensure Dependencies (`<ID>`)**
 
 Idempotent, marker-guarded dependency install. Called by the first code-executing
-step (implementation) and defensively by qa/review/local-testing. Full-pipeline
-(branch) mode never calls this — its checkout already has dependencies.
+step (implementation) and defensively by qa/review/local-testing when a worktree
+is active. Branch mode (no worktree) never calls this — the checkout already has
+dependencies.
 
-1. **Step-mode check.** If this run is NOT step mode (no worktree for `<ID>`), return
-   immediately — do nothing.
+1. **Worktree check.** If `USE_WORKTREE` is false (no worktree for `<ID>`), return
+   immediately — do nothing. In branch mode the checkout already has dependencies.
 2. **Config check.** Read `worktree.setup` from config:
    ```bash
    SETUP=$(n1_config_val '.worktree.setup')
@@ -408,11 +445,11 @@ Heals state that leaked under a provisional slug before the final `<ID>` was kno
 
 ### Agent Working Directory
 
-In step mode, when `WORKTREE_PATH` is set, pass this directive to every agent spawn that reads or modifies source code (qa-engineer, code-reviewer, security-reviewer, developer in fix cycles, tech-writer, solution-architect for local testing):
+When `USE_WORKTREE` is true and `WORKTREE_PATH` is set, pass this directive to every agent spawn that reads or modifies source code (qa-engineer, code-reviewer, security-reviewer, developer in fix cycles, tech-writer, solution-architect for local testing):
 
 > Work in the worktree directory at `WORKTREE_PATH`. All file read/write/edit/grep/glob operations and all git/bash commands that touch the codebase MUST target files within this directory, not the main checkout. Memory files remain at `$N1_HOME/memory/<ID>/` (unchanged).
 
-In branch mode (full pipeline, no `--step`), omit this directive — agents work in the current directory on the feature branch.
+In branch mode (`USE_WORKTREE` is false), omit this directive — agents work in the current directory on the feature branch.
 
 ### Context Assembly Order (step mode)
 
@@ -432,7 +469,7 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
   TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
   ```
-  When `TYPE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). Otherwise, run the appropriate workspace isolation procedure: **Ensure Working Branch(`<ID>`)** in full pipeline mode, or **Ensure Worktree(`<ID>`)** in step mode (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
+  When `TYPE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). Otherwise, run the appropriate workspace isolation procedure: **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
