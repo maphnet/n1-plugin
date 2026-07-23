@@ -794,6 +794,92 @@ Current finish work:
 - **2** → re-run the questions, overwrite the block.
 - **3** → set `enabled: false`, keep the other keys.
 
+## Release Configuration
+
+Ask whether N1 should create a release (git tag + GitHub Release) after the pipeline completes. **Default is No.**
+
+```
+Enable releases?
+/n1:n1-release can guide you through releasing a version after the pipeline completes.
+1 — Yes
+2 — No (default)
+```
+
+**If 2 (No) or default:**
+```json
+{
+  "release": {
+    "enabled": false
+  }
+}
+```
+
+**If 1 (Yes):**
+
+```
+Release procedure?
+1 — GitHub Release (default) — git tag + gh release create --generate-notes
+2 — Custom — paste your multi-step procedure as markdown
+```
+
+**If 1 (GitHub Release):**
+
+Write:
+```json
+{
+  "release": {
+    "enabled": true,
+    "tagPrefix": "v",
+    "procedure": null
+  }
+}
+```
+
+**If 2 (Custom):**
+
+Ask: "Tag prefix? (default: v)"
+
+Then:
+```
+Paste your release procedure as markdown.
+Use {{RELEASE_TAG}}, {{VERSION}}, {{MERGE_SHA}}, {{TICKET_ID}} as placeholders.
+
+Example:
+1. Build: `npm run build`
+2. Push tag: `git push origin {{RELEASE_TAG}}`
+3. Deploy to prod: `ssh prod@example.com "cd /app && git pull && pm2 restart all"`
+4. Verify: `curl -f https://example.com/healthz`
+
+Waiting for your procedure:
+```
+
+Write:
+```json
+{
+  "release": {
+    "enabled": true,
+    "tagPrefix": "<from answer, default v>",
+    "procedure": "<verbatim paste>"
+  }
+}
+```
+
+### On reconfiguration (n1-init re-run):
+
+If `release` already exists in the current config, show current state and offer:
+```
+Current release:
+  enabled   → <true/false>
+  procedure → GitHub Release (built-in) | custom (<N> steps)
+
+1 — Keep current
+2 — Change settings
+3 — Disable
+```
+- **1** → leave unchanged.
+- **2** → re-run the questions above, overwrite the block.
+- **3** → set `enabled: false`, keep other keys.
+
 ## Codex Review Configuration
 
 Ask whether N1 should use Codex for cross-model code review alongside the Claude-based reviewers. **Default is No.**
@@ -1147,6 +1233,9 @@ Create all files:
     "enabled": false
   },
   "finishWork": {
+    "enabled": false
+  },
+  "release": {
     "enabled": false
   },
   "codex": {

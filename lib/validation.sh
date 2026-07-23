@@ -181,7 +181,7 @@ n1_step_in_type() {
     jq -e --arg t "$wf_type" --arg s "$step" '.types[$t].steps // [] | index($s) != null' "$pipeline_json" >/dev/null 2>&1
 }
 
-N1_VALID_STEPS="ticket analysis brainstorm plan plan-review estimation implementation qa review fix local-testing pr ci finish investigation-deliverable"
+N1_VALID_STEPS="ticket analysis brainstorm plan plan-review estimation implementation qa review fix local-testing pr ci finish investigation-deliverable release"
 
 n1_parse_step_arg() {
     local input="$1"
@@ -249,6 +249,7 @@ n1_step_dependencies() {
         ci)              printf 'overview.md plan.md implementation.md' ;;
         finish)          printf 'overview.md' ;;
         investigation-deliverable) printf 'ticket.md analysis.md' ;;
+        release)         printf 'overview.md' ;;
         *)               return 1 ;;
     esac
 }
@@ -271,6 +272,7 @@ n1_step_number() {
         ci)              printf '13' ;;
         finish)          printf '14' ;;
         investigation-deliverable) printf '15' ;;
+        release)         printf '16' ;;
         *)               return 1 ;;
     esac
 }

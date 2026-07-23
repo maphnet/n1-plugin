@@ -25,7 +25,7 @@ Russian is prohibited in any committed file.
 
 N1 is a Claude Code plugin that orchestrates the full development cycle (ticket read, analysis, brainstorm, plan, implement, QA, review, [local testing], PR). It uses a **hybrid delegation model**: 9 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while [Superpowers](https://github.com/obra/superpowers) ^5.0 sub-skills handle interactive steps (brainstorming, planning, implementation dispatch via SDD). It is a **thin controller** (~5-10K tokens per skill): skills load only the memory files they need, spawn agents or invoke Superpowers, and write results back to per-ticket memory.
 
-**n1-start skill layout (v2.12.0):** `skills/n1-start/SKILL.md` is a thin dispatcher; each of the 14 pipeline step bodies lives in `skills/n1-start/steps/<step>.md` (one file per step name). Shared review logic (diff-surface classification, Codex probe + CODEX_ACTIVE gating, code-reviewer scope-narrowing) lives in `skills/n1-start/review-core.md`, referenced by both `steps/review.md` and `skills/n1-review/SKILL.md`.
+**n1-start skill layout (v2.12.0):** `skills/n1-start/SKILL.md` is a thin dispatcher; each of the 16 pipeline step bodies lives in `skills/n1-start/steps/<step>.md` (one file per step name). Shared review logic (diff-surface classification, Codex probe + CODEX_ACTIVE gating, code-reviewer scope-narrowing) lives in `skills/n1-start/review-core.md`, referenced by both `steps/review.md` and `skills/n1-review/SKILL.md`.
 
 ## Stack
 
@@ -87,6 +87,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-pr | tech-writer agent + inline git/gh/MCP | Doc update, push, create or skip PR, update tracker, worktree cleanup |
 | n1-ci | developer agent + inline gh CLI | Post-PR CI watch, classify failures, fix loop |
 | n1-finish | (inline: gh + tracker MCP) | Merge verify/auto-merge, deploy watch, ticket close |
+| n1-release | (inline: gh + git + tracker MCP) | Git tag, GitHub Release (or custom procedure), tracker comment |
 | n1-init | (inline: analysis + prompts) | Project setup wizard (v2: migration flow) |
 | n1-estimate | product-analyst, solution-architect agents + autonomous brainstormer + inline estimation | Standalone estimation |
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
@@ -102,9 +103,9 @@ Superpowers calls use the `superpowers:` prefix. Agent spawns use N1's own agent
 N1_STEP_RESULT: {"step":"<name>","outcome":"<outcome>","next_step":"<name|null>","loop_counter":<object|null>}
 ```
 
-Valid step names: `ticket`, `analysis`, `brainstorm`, `plan`, `plan-review`, `estimation`, `implementation`, `qa`, `review`, `fix`, `local-testing`, `pr`, `ci`, `finish`, `investigation-deliverable`.
+Valid step names: `ticket`, `analysis`, `brainstorm`, `plan`, `plan-review`, `estimation`, `implementation`, `qa`, `review`, `fix`, `local-testing`, `pr`, `ci`, `finish`, `investigation-deliverable`, `release`.
 
-n1-start owns the routing logic — the `next_step` field is authoritative. Config gates (`estimation.enabled`, `planReview.reviewPlan`, `localTesting.enabled`, `ciChecks.enabled`, `finishWork.enabled`) are respected; gated steps return `outcome: "skip"`. Fix step infers its target (QA or review) from overview.md state.
+n1-start owns the routing logic — the `next_step` field is authoritative. Config gates (`estimation.enabled`, `planReview.reviewPlan`, `localTesting.enabled`, `ciChecks.enabled`, `finishWork.enabled`, `release.enabled`) are respected; gated steps return `outcome: "skip"`. Fix step infers its target (QA or review) from overview.md state.
 
 Without `--step`, behavior is unchanged (full pipeline, backward compatible).
 
@@ -169,6 +170,7 @@ Each step reads ONLY its declared dependencies:
 | pr | `overview.md` (full); verdict lines only from `review.md`, `qa.md`, `local-testing.md` (skip mode: `overview.md` only); `implementation.md` by path | `overview.md` (updates) |
 | ci | `overview.md`, `plan.md`, `implementation.md` | `overview.md` (CI status) |
 | finish | `overview.md`; PR state via gh | `overview.md` (Finish section) |
+| release | `overview.md` (optional, for merge SHA); `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | tracker comment (best-effort) |
 | investigation-deliverable | `ticket.md`, `analysis.md` | `investigation.md` |
 
 Story pipeline memory (n1-story steps):
@@ -204,10 +206,10 @@ Workflow types are declared in `pipeline.json` under `types`. Each type defines 
 
 | Type | Steps | Detection | Key differences |
 |------|-------|-----------|-----------------|
-| `task` (default) | ticket → analysis → [brainstorm] → [plan] → [plan-review] → [estimation] → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] | `detect.default: true` | Full pipeline |
+| `task` (default) | ticket → analysis → [brainstorm] → [plan] → [plan-review] → [estimation] → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] → [release] | `detect.default: true` | Full pipeline |
 | `investigation` | ticket → analysis → brainstorm → investigation-deliverable | Title match: `investigat`, tags: `investigation` | No implementation, QA, or PR |
-| `bug` | ticket → analysis → [brainstorm] → [plan] → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] | Type field: `bug`, tags: `bug` | Brainstorm/plan signal-gated: skipped when root cause known + blast radius not high + files < 5; analysis model downgraded |
-| `chore` | ticket → analysis → implementation → qa → review → pr → [ci] → [finish] | Type field: `chore`, tags: `chore/config/deps` | Skips brainstorm, plan, local-testing; analysis and review models downgraded |
+| `bug` | ticket → analysis → [brainstorm] → [plan] → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] → [release] | Type field: `bug`, tags: `bug` | Brainstorm/plan signal-gated: skipped when root cause known + blast radius not high + files < 5; analysis model downgraded |
+| `chore` | ticket → analysis → implementation → qa → review → pr → [ci] → [finish] → [release] | Type field: `chore`, tags: `chore/config/deps` | Skips brainstorm, plan, local-testing; analysis and review models downgraded |
 
 Brackets = skippable by config gates or runtime signals. Detection cascade: `--type` flag > tags > type_field > title_match > default.
 
@@ -327,6 +329,16 @@ Optional final pipeline step (`finish`) that runs after CI, gated on `finishWork
 - **Merge:** `mergeOnFinish` (default `false`, reviewer merges) triggers `gh pr merge --auto --<mergeMethod> --delete-branch` when enabled. Projects with `git.prMode: "skip"` have no PR — finish performs a local merge into the default branch and explicitly does **not** push.
 - **Deploy watch** (`deployWatch.enabled`, default `false`): polls `gh run list --commit <sha>` for workflow runs on the merge commit, optionally filtered by `workflowName`. Deploy failure leaves the ticket open.
 - **Ticket close:** requires `tracker.statuses.done` in config (detected by `n1-init`, or added manually); absent → finish skips closing with an explanatory message.
+
+### Release
+
+Optional final pipeline step (`release`) that runs after finish, gated on `release.enabled` (default `false`) in `$N1_HOME/config.json`. The standalone `/n1:n1-release` skill works regardless of the gate.
+
+Two modes: built-in gh flow (`procedure: null`) creates an annotated git tag and GitHub Release via `gh release create --generate-notes`; custom flow (`procedure: "<markdown>"`) walks the user through a pasted markdown procedure with placeholder substitution (`{{RELEASE_TAG}}`, `{{VERSION}}`, `{{MERGE_SHA}}`, `{{TICKET_ID}}`).
+
+Idempotent: `gh release view` check before creating; existing tag/release causes a skip. Tracker comment ("Released as vX.Y.Z") posted best-effort when a ticket can be inferred from the branch name.
+
+Config keys: `release.enabled` (boolean, default `false`), `release.tagPrefix` (string, default `"v"`), `release.procedure` (string|null, default `null`), `release.draft` (boolean, default `false`).
 
 ### Agent Personas
 

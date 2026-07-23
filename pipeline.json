@@ -50,7 +50,7 @@
   "types": {
     "task": {
       "steps": ["ticket", "analysis", "brainstorm", "plan", "plan-review", "estimation",
-                 "implementation", "qa", "review", "local-testing", "pr", "ci", "finish"],
+                 "implementation", "qa", "review", "local-testing", "pr", "ci", "finish", "release"],
       "detect": { "default": true },
       "orchestrator_effort": "high",
       "tier_override": { "simple": "medium" }
@@ -63,7 +63,7 @@
     "bug": {
       "steps": ["ticket", "analysis", "brainstorm", "plan",
                  "implementation", "qa", "review",
-                 "local-testing", "pr", "ci", "finish"],
+                 "local-testing", "pr", "ci", "finish", "release"],
       "detect": { "type_field": "bug", "tags": ["bug"] },
       "orchestrator_effort": "low",
       "step_overrides": {
@@ -73,7 +73,7 @@
     },
     "chore": {
       "steps": ["ticket", "analysis", "implementation", "qa", "review",
-                 "pr", "ci", "finish"],
+                 "pr", "ci", "finish", "release"],
       "detect": { "type_field": "chore", "tags": ["chore", "config", "deps"] },
       "orchestrator_effort": "low",
       "step_overrides": {
@@ -97,7 +97,8 @@
     { "name": "pr",             "number": 12, "agent": "tech-writer",           "reads": ["overview.md", "review.md", "qa.md", "implementation.md"], "writes": ["overview.md"] },
     { "name": "ci",             "number": 13, "agent": "developer",             "reads": ["overview.md", "plan.md", "implementation.md"],        "writes": ["overview.md"] },
     { "name": "finish",         "number": 14, "agent": "n1:n1-finish",          "reads": ["overview.md"],                                        "writes": ["overview.md"] },
-    { "name": "investigation-deliverable", "number": 15, "agent": "solution-architect", "reads": ["ticket.md", "analysis.md"], "writes": ["investigation.md"] }
+    { "name": "investigation-deliverable", "number": 15, "agent": "solution-architect", "reads": ["ticket.md", "analysis.md"], "writes": ["investigation.md"] },
+    { "name": "release",        "number": 16, "agent": "n1:n1-release",        "reads": ["overview.md"],                                        "writes": [] }
   ],
   "signal_gates": [
     {
@@ -132,7 +133,8 @@
     { "name": "plan_review",   "config_key": "planReview.reviewPlan",  "default": true,  "skips": ["plan-review"] },
     { "name": "local_testing", "config_key": "localTesting.enabled",   "default": false, "skips": ["local-testing"] },
     { "name": "ci",            "config_key": "ciChecks.enabled",       "default": true,  "skips": ["ci"] },
-    { "name": "finish",        "config_key": "finishWork.enabled",     "default": false, "skips": ["finish"] }
+    { "name": "finish",        "config_key": "finishWork.enabled",     "default": false, "skips": ["finish"] },
+    { "name": "release",       "config_key": "release.enabled",        "default": false, "skips": ["release"] }
   ],
   "loops": [
     { "name": "qa_fix",            "trigger_step": "qa",            "trigger_outcome": "fail", "fix_step": "fix",            "retry_step": "qa",            "counter": "qa_fix_cycle",         "max_config_key": "qa.maxFixAttempts",           "max_default": 3 },
@@ -171,16 +173,24 @@
     { "step": "local-testing",  "outcome": "escalation", "next": null,             "when": null },
     { "step": "pr",             "outcome": "pass",       "next": "ci",             "when": { "all": [ { "config": "ciChecks.enabled", "eq": true }, { "config": "git.prMode", "neq": "skip" } ] } },
     { "step": "pr",             "outcome": "pass",       "next": "finish",         "when": { "all": [ { "any": [ { "config": "ciChecks.enabled", "neq": true }, { "config": "git.prMode", "eq": "skip" } ] }, { "config": "finishWork.enabled", "eq": true } ] } },
+    { "step": "pr",             "outcome": "pass",       "next": "release",        "when": { "all": [ { "any": [ { "config": "ciChecks.enabled", "neq": true }, { "config": "git.prMode", "eq": "skip" } ] }, { "config": "release.enabled", "eq": true } ] } },
     { "step": "pr",             "outcome": "pass",       "next": null,             "when": { "any": [ { "config": "ciChecks.enabled", "neq": true }, { "config": "git.prMode", "eq": "skip" } ] } },
     { "step": "ci",             "outcome": "pass",       "next": "finish",         "when": { "config": "finishWork.enabled", "eq": true } },
+    { "step": "ci",             "outcome": "pass",       "next": "release",        "when": { "config": "release.enabled", "eq": true } },
     { "step": "ci",             "outcome": "pass",       "next": null,             "when": null },
     { "step": "ci",             "outcome": "skip",       "next": "finish",         "when": { "config": "finishWork.enabled", "eq": true } },
+    { "step": "ci",             "outcome": "skip",       "next": "release",        "when": { "config": "release.enabled", "eq": true } },
     { "step": "ci",             "outcome": "skip",       "next": null,             "when": null },
     { "step": "ci",             "outcome": "fail",       "next": null,             "when": null },
     { "step": "investigation-deliverable", "outcome": "pass", "next": null, "when": null },
+    { "step": "finish",         "outcome": "pass",       "next": "release",        "when": { "config": "release.enabled", "eq": true } },
     { "step": "finish",         "outcome": "pass",       "next": null,             "when": null },
+    { "step": "finish",         "outcome": "skip",       "next": "release",        "when": { "config": "release.enabled", "eq": true } },
     { "step": "finish",         "outcome": "skip",       "next": null,             "when": null },
     { "step": "finish",         "outcome": "fail",       "next": null,             "when": null },
-    { "step": "finish",         "outcome": "escalation", "next": null,             "when": null }
+    { "step": "finish",         "outcome": "escalation", "next": null,             "when": null },
+    { "step": "release",        "outcome": "pass",       "next": null,             "when": null },
+    { "step": "release",        "outcome": "skip",       "next": null,             "when": null },
+    { "step": "release",        "outcome": "fail",       "next": null,             "when": null }
   ]
 }
