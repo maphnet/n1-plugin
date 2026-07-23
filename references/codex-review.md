@@ -1,9 +1,10 @@
 ### Codex Cross-Model Review
 
-Optional cross-model review via the OpenAI Codex CLI plugin. Gated on `codex.enabled` in `$N1_HOME/config.json` (default `false`; backward compat reads `codexReview.enabled` via `n1_codex_val` fallback). Two touchpoints:
+Optional cross-model review via the OpenAI Codex CLI plugin. Gated on `codex.enabled` in `$N1_HOME/config.json` (default `false`; backward compat reads `codexReview.enabled` via `n1_codex_val` fallback). Single touchpoint:
 
-- **Plan review** (Step 4b): `n1_codex_available` check, then `node "$CODEX" task --wait [--model] --effort <effort|medium> --prompt-file <file>`. Advisory APPROVED/ISSUES verdict logged in overview.md `## Key Decisions`. Non-blocking — CCR is the authoritative plan reviewer. No `codex-adapter` or `[CX-N]` findings.
 - **PR review** (Step 7 / `n1-review` Phase 2): `n1_codex_preflight "<BASE_BRANCH>"` check (availability + branch resolution), then `node "$CODEX" review --wait --scope branch --base <branch> [--model] --effort <effort|medium>` with stderr capture and empty-output validation. `codex-adapter` agent parses output into `[CX-N]`-prefixed structured findings merged into `review.md` alongside `[CR-N]` and `[SEC-N]`.
+
+Codex is not used for plan review (Step 4b) — the CCR solution-architect with codebase access (Grep/Read) is strictly more capable for assumption validation than a text-only Codex `task` call.
 
 **Config keys** (in `codex` block, backward compat for `codexReview` block):
 - `codex.enabled` (boolean, default `false`) — master gate for all Codex touchpoints.

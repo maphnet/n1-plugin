@@ -7,9 +7,9 @@ Run `n1_config_val '.planReview.reviewPlan'` (default: `true`).
 
 **If `planReview.reviewPlan` is `true`:**
 
-**Spawn reviewers in PARALLEL:**
+**Spawn reviewer:**
 
-#### A. Solution-architect CCR (always)
+#### Solution-architect CCR
 
 **Spawn agent:** solution-architect (fresh context — CCR)
 
@@ -62,66 +62,9 @@ Output format:
 **Verified standards:** (list of best-practice/standard claims confirmed via web, with cited URLs; or "None")
 ```
 
-#### B. Codex plan review (conditional, advisory)
-
-Run the standalone preflight script (no base branch needed for plan review):
-```bash
-CODEX_PREFLIGHT=$(bash "${CLAUDE_PLUGIN_ROOT}/lib/codex-preflight.sh" 2>&1)
-echo "$CODEX_PREFLIGHT"
-```
-
-Parse the JSON output. **Do NOT replicate this logic yourself — run the script and read the result.**
-
-**If `available` is `false`:** Log in overview `## Key Decisions`: "Codex plan review skipped — <reason from JSON>". Proceed with CCR only.
-
-**If `available` is `true`:** Extract `codex_path`, `model`, `effort` from the JSON. Set:
-```bash
-CODEX="<codex_path from JSON>"
-CODEX_MODEL="<model from JSON>"
-CODEX_EFFORT="<effort from JSON>"
-```
-
-Write a temporary prompt file containing the plan content, ticket acceptance criteria, and this instruction:
-
-```
-You are reviewing an implementation plan for correctness and completeness.
-
-Review the plan below against the acceptance criteria. Produce exactly one of these verdicts:
-
-APPROVED — the plan addresses all acceptance criteria and has no significant gaps.
-
-ISSUES:
-- <issue 1>
-- <issue 2>
-...
-
-Only flag concrete issues (missing acceptance criteria, logical errors, impossible steps). Do not flag style preferences.
-
-=== ACCEPTANCE CRITERIA ===
-<content of ticket.md acceptance criteria section>
-
-=== PLAN ===
-<content of plan.md>
-```
-
-Run:
-```bash
-node "$CODEX" task --wait \
-  ${CODEX_MODEL:+--model "$CODEX_MODEL"} \
-  --effort "$CODEX_EFFORT" \
-  --prompt-file "<temp-prompt-file>"
-```
-
-**Graceful fallback:** If the Codex call errors or times out, retry once. If it still fails, log in overview `## Key Decisions`: "Codex plan review failed — proceeding with CCR only". Never treat missing Codex as a review FAIL.
-
-The `codex-adapter` agent is NOT used — output is a simple verdict string, not structured `[CX-N]` findings.
-
-**Non-blocking:** CCR is the authoritative reviewer. Codex is advisory only.
-
-#### After BOTH return:
+#### After CCR returns:
 
 - Record the CCR verdict: if verdict is FIXED, the plan file was updated in-place by the reviewer. Record the plan-review verdict and a one-line summary of changes in overview's `## Key Decisions` — durable traceability that survives a resume, rather than living only in transient orchestrator context.
-- Record the Codex verdict (if it ran): append to overview `## Key Decisions`: "Codex plan review: APPROVED" or "Codex plan review flagged issues: <summary>". If Codex flagged issues that the CCR did not catch, note them in Key Decisions for awareness but do NOT block the pipeline.
 
 **Step result (step mode):**
 ```bash
