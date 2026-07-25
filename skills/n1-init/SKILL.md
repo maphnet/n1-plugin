@@ -219,21 +219,39 @@ Auto-map detected statuses to N1 workflow slots by matching common names:
 - **todo**: "To Do", "Open", "New", "Backlog", "Created"
 - **inProgress**: "In Progress", "In Development", "Active", "In Work"
 - **codeReview**: "Code Review" — if no exact match found, fall back to the `inProgress` value (N1 uses this after PR creation; the tracker's "Review"/"QA" columns are reserved for human QA outside the orchestrator)
-- **done**: "Done", "Closed", "Resolved", "Fixed", "Complete", "Completed" — if no match found, leave the slot absent (n1-finish will skip ticket closing and say why)
+- **done**: "Done", "Closed", "Resolved", "Fixed", "Complete", "Completed" — if no match found, run the **Done Fallback Picker** after the main confirmation (see below)
 
-Show the detected mapping for confirmation:
+Show the detected mapping for confirmation. When `done` was not auto-matched, omit it from the table:
 ```
 Detected workflow statuses:
   todo       → To Do
   inProgress → In Progress
   codeReview → Code Review (or In Progress if no Code Review status)
-  done       → Done (or absent if none matched)
+  done       → Done        ← include only when a match was found
 
 Correct? 1 — Yes / 2 — No, let me specify manually
 ```
 
-- If **1**: use detected values.
-- If **2** or auto-detection failed entirely: ask the user for the 4 status names (todo, inProgress, codeReview, done — done may be left empty to skip ticket closing).
+- If **1**: use detected values. If `done` was not matched, run the **Done Fallback Picker** below.
+- If **2** or auto-detection failed entirely: ask the user for the 3 status names (todo, inProgress, codeReview) as text prompts, then run the **Done Fallback Picker** below.
+
+**Done Fallback Picker:**
+
+Present all raw statuses fetched from the tracker. Sort: names matching any of ("Done", "Closed", "Resolved", "Fixed", "Complete", "Completed") — case-insensitive substring — appear first annotated `← best match`. Remaining statuses follow in their original order.
+
+```
+No status matched "done" automatically. Available statuses in your project:
+1 — Closed   ← best match
+2 — Resolved
+3 — Won't Fix
+4 — Obsolete
+0 — Disable ticket closing (/n1:n1-finish will skip this step)
+
+Which status represents a closed/resolved ticket?
+```
+
+- **Numbered pick** → set as `tracker.statuses.done`.
+- **Pick 0** → omit `tracker.statuses.done` from config. Warn: "Ticket closing disabled. Re-run `/n1:n1-init` to configure it later."
 
 Set config:
 ```json
