@@ -315,8 +315,9 @@ Optional integration with error-tracking systems (Sentry first, extensible to Da
 |----------|-----------|---------------|
 | Sentry | `sentry` | `get_sentry_issue` (getIssue), `search_sentry_issues` (searchIssues), `list_projects` (listProjects), `get_autofix_state` (getAiAnalysis) |
 
-Two pipeline touchpoints:
-- **Intake** (n1-start + product-analyst): URL detection via `errorTracking.urlPattern`, MCP fetch of issue data + optional AI root-cause analysis, structured `ticket.md` with error-specific sections
+Three pipeline touchpoints:
+- **Intake — direct** (n1-start + product-analyst): URL detection via `errorTracking.urlPattern` on the user's input, MCP fetch of issue data + optional AI root-cause analysis, structured `ticket.md` with error-specific sections
+- **Intake — linked** (intake-agent inline): when a Jira ticket description contains an error-tracker URL, intake-agent detects it, fetches the Sentry issue data inline, and appends a `### Linked Error Tracker Issue` section to raw ticket.md. Gated on `errorTracking` config presence. First URL only; silent failure. Returns `linked_error` in intake-result; type overridden to `bug`.
 - **Analysis** (solution-architect): search for related issues via `errorTracking.operations.searchIssues`, reported in `analysis.md`
 
 Memory ID for error-tracker runs: `sentry-<issueId>` (provisional; replaced by tracker ticket ID if user creates one). Ticket creation is optional — reuses the brain-dump ticket-creation flow with a Sentry link prepended to the description.

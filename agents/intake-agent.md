@@ -20,6 +20,11 @@ You will receive ONE of four input modes:
 - `operations` -- the operation-to-tool mapping
 - `trackerType` -- "jira" or "youtrack"
 - `ticketMdPath` -- absolute path to write the raw ticket.md file
+- (**optional**) `errorTrackingMcp` -- error tracker MCP server name (e.g., sentry). Absent = no error tracking configured.
+- (**optional**) `errorTrackingOps` -- error tracker operation-to-tool mapping
+- (**optional**) `errorTrackingUrlPattern` -- regex pattern to detect error tracker URLs
+- (**optional**) `orgSlug` -- error tracker organization slug
+- (**optional**) `projectSlug` -- error tracker project slug
 
 ### Mode 2: Raw text
 - `mode`: "text"
@@ -57,7 +62,30 @@ You will receive ONE of four input modes:
      - `false` — the ticket merely mentions investigation as a concept or feature being built/modified (e.g., "fix investigation mode", "update investigation detection logic")
      - The `investigation` tag unconditionally forces `true` regardless of title
 2. **Write raw ticket.md** (see Output Format below)
-3. **Return intake-result** (see Return Line below). For Jira, include `cloudId` in the result.
+3. **Post-fetch: linked error-tracker scan** (only if `errorTrackingUrlPattern` was provided)
+   1. Scan the raw description for a URL matching `errorTrackingUrlPattern`.
+   2. If no match found, skip to step 4.
+   3. Extract the issue ID from the first matching URL (the numeric segment after `/issues/` in the URL path).
+   4. Call `mcp__<errorTrackingMcp>__<errorTrackingOps.getIssue>` with the issue ID (and `orgSlug`, `projectSlug` if provided).
+      - If the call **fails** (timeout, auth error, issue not found): skip silently. Do not append anything. Proceed to step 4 without `linked_error`.
+   5. If `errorTrackingOps.getAiAnalysis` exists, also call `mcp__<errorTrackingMcp>__<errorTrackingOps.getAiAnalysis>` with the issue ID. Skip silently on failure.
+   6. Append to the raw ticket.md (after the existing content):
+      ```
+      ### Linked Error Tracker Issue
+      - **Source:** <provider> issue #<issueId> (<matched URL>)
+      - **Error:** <error type/message from the issue>
+      - **Location:** <file:line if available, or "N/A">
+      - **Frequency:** <event count if available, or "N/A">
+      - **Environment:** <environment if available, or "N/A">
+
+      ### Stack Trace (top 5 project-code frames)
+      <frames, or "No stack trace available">
+
+      ### AI Root-Cause Analysis
+      <analysis content if fetched, or omit this section entirely if not available>
+      ```
+   7. Set `LINKED_ERROR` = `{"provider": "<provider>", "issueId": "<issueId>", "issueUrl": "<matched URL>"}` for use in the return line.
+4. **Return intake-result** (see Return Line below). For Jira, include `cloudId` in the result.
 
 ### Raw text mode:
 
@@ -117,6 +145,12 @@ For Jira ticket mode, add the resolved cloudId:
 ```
 intake-result: {"title": "<title>", "tags": [], "type": "<type>", "cloudId": "<resolved-cloud-id>", "is_investigation": <true|false>}
 ```
+
+For tracker ticket mode when a linked error was detected (step 3 above):
+```
+intake-result: {"title": "<title>", "tags": [...], "type": "bug", "cloudId": "<cloud-id>", "linked_error": {"provider": "<provider>", "issueId": "<id>", "issueUrl": "<url>"}, "is_investigation": false}
+```
+When `linked_error` is present, `type` is always `"bug"` (overrides the Jira type field) and `is_investigation` is always `false`.
 
 If you cannot extract a title (e.g., empty or unparseable input), use `null`:
 ```

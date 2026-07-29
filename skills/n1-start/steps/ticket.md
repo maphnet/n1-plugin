@@ -8,13 +8,19 @@ The intake-agent accepts four input modes. Choose based on input type:
 **Ticket mode** (input matches `<prefix>-<number>`):
 0. The `<ID>` is already known (the ticket ID). Workspace isolation is deferred until after investigation detection (see below).
 1. Read `$N1_HOME/config.json` -> `tracker.type`, `tracker.mcp`, `tracker.operations`
-2. Spawn intake-agent with:
+2. Read `$N1_HOME/config.json` -> `errorTracking` block. Set `ET_CONFIGURED` = true if ALL of: `errorTracking` block exists, `errorTracking.urlPattern` is non-empty, `errorTracking.operations.getIssue` exists. Otherwise `ET_CONFIGURED` = false.
+3. Spawn intake-agent with:
    - `mode`: "ticket"
    - `ticketId`: the parsed ticket ID
    - `trackerMcp`: from config (`tracker.mcp`)
    - `operations`: from config (`tracker.operations`)
    - `trackerType`: from config (`tracker.type`)
    - `ticketMdPath`: `$N1_HOME/memory/<ID>/ticket.md`
+   - (**Only if `ET_CONFIGURED` is true**) `errorTrackingMcp`: from `errorTracking.mcp`
+   - (**Only if `ET_CONFIGURED` is true**) `errorTrackingOps`: from `errorTracking.operations`
+   - (**Only if `ET_CONFIGURED` is true**) `errorTrackingUrlPattern`: from `errorTracking.urlPattern`
+   - (**Only if `ET_CONFIGURED` is true**) `orgSlug`: from `errorTracking.orgSlug` (if present)
+   - (**Only if `ET_CONFIGURED` is true**) `projectSlug`: from `errorTracking.projectSlug` (if present)
 
 **File mode** (input is a file path that exists on disk):
 1. Spawn intake-agent with:
@@ -57,6 +63,11 @@ Parse the JSON fields:
 - `TAGS` -- from `tags` (array, join with `, ` for the bash helper)
 - `TYPE` -- from `type`
 - `CLOUD_ID` -- from `cloudId` (Jira only, may be absent)
+- `LINKED_ERROR` -- from `linked_error` (object with `provider`, `issueId`, `issueUrl`; may be absent)
+
+If `LINKED_ERROR` is present (not null/absent):
+- Override `TYPE` to `"bug"` (linked error tracker issues are defects by definition)
+- Store `LINKED_ERROR_URL` = the `issueUrl` value (available for downstream steps: PR body, ticket description enrichment)
 
 **Type resolution (between spawns)**
 
