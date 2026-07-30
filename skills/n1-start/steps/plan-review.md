@@ -11,6 +11,25 @@ Run `n1_config_val '.planReview.reviewPlan'` (default: `true`).
 
 #### Solution-architect CCR
 
+**Rule injection for plan review:**
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+RULES_DIR=$(n1_rules_dir)
+PLAN_RULES_BLOCK=""
+if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
+    GATE_RULES=""
+    while IFS= read -r rf; do
+        [ -z "$rf" ] && continue
+        enf=$(n1_rule_field "$rf" "enforcement")
+        [ "$enf" = "gate" ] && GATE_RULES="${GATE_RULES} ${rf}"
+    done < <(n1_rules_for_agent "solution-architect" "" "$RULES_DIR")
+    if [ -n "$GATE_RULES" ]; then
+        PLAN_RULES_BLOCK=$(n1_rules_render $GATE_RULES)
+    fi
+fi
+```
+
 **Spawn agent:** solution-architect (fresh context — CCR)
 
 Resolve model for `solution-architect` using **Sonnet as the fallback default for this plan-review pass** — this pass is grep-heavy assumption/standards checking, not open-ended reasoning. The `models.solution-architect` config override still takes precedence; only the default changes here (the Step-2 analysis pass keeps its Opus default). Resolve via `n1_resolve_model solution-architect sonnet`. Spawn with:
@@ -53,6 +72,15 @@ Your job is to find specific issues in these categories:
 
 If you find issues: fix them in-place in the plan file. State what you changed and why.
 If the plan is clean: state "Plan validated, no issues found."
+
+{When $PLAN_RULES_BLOCK is non-empty, append this section to the prompt:}
+
+7. RULE CHECK — Test each project rule below against the plan. For each rule:
+   state whether the plan complies or violates. A violation requires either
+   (a) an explicit justification in the plan explaining why the rule does not apply, or
+   (b) a plan edit to comply.
+
+   $PLAN_RULES_BLOCK
 
 Output format:
 ## Plan Review Result

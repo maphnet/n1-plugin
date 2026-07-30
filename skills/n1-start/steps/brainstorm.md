@@ -7,10 +7,20 @@
 
 **Full pipeline + non-investigation mode** (no `--step` flag, normal task): Use the interactive brainstormer:
 
-Read the test coverage tier from config:
+Read the test coverage tier from config and resolve matching rules:
 ```bash
 TEST_TIER=$(n1_config_val '.testCoverage.tier' 2>/dev/null)
 TEST_TIER="${TEST_TIER:-maintain}"
+
+source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+RULES_DIR=$(n1_rules_dir)
+RULES_BLOCK=""
+if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
+    MATCHING_RULES=$(n1_rules_for_agent "solution-architect" "" "$RULES_DIR")
+    if [ -n "$MATCHING_RULES" ]; then
+        RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
+    fi
+fi
 ```
 
 **REQUIRED SUB-SKILL:** Use superpowers:brainstorming to explore the scope and refine the approach.
@@ -20,6 +30,7 @@ Pass to brainstorming:
 - The content of `analysis.md` as **pre-researched codebase context** — tell brainstorming: "Here is a codebase analysis already performed by our solution architect — use this as your starting context instead of exploring from scratch."
 - **If ticket type is `bug`:** Also tell brainstorming: "This is a bug. The analysis includes a Bug Investigation section with the likely root cause and affected code path. Use these findings to ask informed questions about the fix approach rather than generic questions."
 - **Project testing policy:** "testCoverage.tier is `{TEST_TIER}` (substitute the actual value). QA behavior by tier: `maintain` = fix broken existing tests only, no new tests added; `minimal` = up to 3 focused behavioral tests per feature for acceptance criteria only; `standard` = edge cases and error paths included. When designing the Testing section, default your proposals to match this tier. Only propose new tests if this specific change introduces risk that existing coverage does not address and the risk clearly justifies an exception to the project's testing policy."
+- When `$RULES_BLOCK` is non-empty, append it verbatim to the brainstorming prompt after the other directives above.
 
 **Brainstorming overrides (IMPORTANT):**
 - **Spec location:** Write the design doc directly to `$N1_HOME/memory/<ID>/brainstorm.md` — NOT to `docs/superpowers/specs/`. The brainstorming skill honors "user preferences for spec location override this default," so this is the sanctioned location override.

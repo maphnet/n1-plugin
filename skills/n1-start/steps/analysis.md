@@ -4,6 +4,7 @@
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/cache.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
 
 CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json")
 SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME")
@@ -11,6 +12,16 @@ CACHE_STATE="cold"
 
 if [ "$CACHE_ENABLED" = "true" ]; then
     CACHE_STATE=$(n1_snapshot_check_freshness "$SNAPSHOT_PATH" "$N1_HOME/config.json")
+fi
+
+# Rule injection for solution-architect
+RULES_DIR=$(n1_rules_dir)
+RULES_BLOCK=""
+if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
+    MATCHING_RULES=$(n1_rules_for_agent "solution-architect" "" "$RULES_DIR")
+    if [ -n "$MATCHING_RULES" ]; then
+        RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
+    fi
 fi
 ```
 
@@ -34,6 +45,7 @@ Spawn the solution-architect agent with:
 - Directive: "Research relevant industry standards, best practices, and practitioner experience per agents/research-standards.md and include the cited Industry Standards & Best Practices section."
 - Directive: "Scratch-artifact policy: write any throwaway benchmark or investigative/spike test (one that answers a current question rather than verifying committed code) under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Tests that verify the implementation still go into the repo as usual. When unsure, default to scratch."
 - **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** Also pass: "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan."
+- **When `$RULES_BLOCK` is non-empty**, append it after the directives above.
 - **When `CACHE_ENABLED` is `true`**, also append this OUTPUT FORMAT REQUIREMENT at end of prompt:
 
   > Separate your findings into two clearly marked sections:
@@ -70,6 +82,9 @@ Spawn the solution-architect agent with this prompt (replacing the standard proj
 > - DO focus on ticket-specific analysis: affected files/modules, blast radius, integration points, risks, complexity tier.
 > - You MAY read specific files referenced in the Subsystem Registry for deeper understanding.
 > - You MAY do ticket-specific web research if the ticket touches a domain not covered by the Industry Standards section.
+> - Where the snapshot describes current practice and a rule prescribes required practice, the rule wins.
+>
+> {$RULES_BLOCK if non-empty, otherwise omit this section entirely}
 > - If you notice the snapshot appears incorrect or outdated, flag it with: SNAPSHOT_DRIFT: <description>
 >
 > OUTPUT FORMAT:

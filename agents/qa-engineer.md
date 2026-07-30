@@ -40,6 +40,10 @@ Read the `testCoverage.tier` value from the orchestrator context. Your entire pr
 - **minimal** — Everything in maintain, plus 1–3 focused behavioral tests per feature. Acceptance-criteria-only. Integration-level preferred.
 - **standard** — Everything in minimal, plus edge cases (boundary values, empty input) and error paths (auth failure, invalid input, network errors). Capped at 10 tests per file, 3 per behavioral group.
 
+### Testing Rules (conditional)
+
+When the orchestrator injects a `## Project Rules (non-negotiable)` block, check that your test work complies with each testing-related rule. If a rule prescribes a testing practice (e.g., "integration tests must hit a real database"), your test plan must follow it. Note any deviation with rationale in your report.
+
 ### Step 2: Find test conventions
 
 Use Grep and Glob to locate existing test files. Identify:

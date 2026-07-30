@@ -23,6 +23,49 @@ Reviewer selection follows directly:
 
 Record every skip explicitly in `review.md` (e.g. `"⚠ security-reviewer skipped — no security-relevant surface in diff"`, `"⚠ Codex skipped — documentation/config-only diff"`) so a missing reviewer is never mistaken for a PASS.
 
+## Gate Rule Injection (conditional)
+
+Resolve gate rules for each reviewer:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+RULES_DIR=$(n1_rules_dir)
+CR_RULES_BLOCK=""
+SEC_RULES_BLOCK=""
+if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
+    CHANGED=$(git diff --name-only "$BASE" HEAD 2>/dev/null)
+
+    # Gate rules for code-reviewer
+    CR_GATE_FILES=""
+    while IFS= read -r rf; do
+        [ -z "$rf" ] && continue
+        enf=$(n1_rule_field "$rf" "enforcement")
+        [ "$enf" = "gate" ] && CR_GATE_FILES="${CR_GATE_FILES} ${rf}"
+    done < <(n1_rules_for_agent "code-reviewer" "$CHANGED" "$RULES_DIR")
+    if [ -n "$CR_GATE_FILES" ]; then
+        CR_RULES_BLOCK=$(n1_rules_render $CR_GATE_FILES)
+    fi
+
+    # Security-topic gate rules for security-reviewer
+    SEC_GATE_FILES=""
+    while IFS= read -r rf; do
+        [ -z "$rf" ] && continue
+        enf=$(n1_rule_field "$rf" "enforcement")
+        topic=$(n1_rule_field "$rf" "topic")
+        [ "$enf" = "gate" ] && [ "$topic" = "security" ] && SEC_GATE_FILES="${SEC_GATE_FILES} ${rf}"
+    done < <(n1_rules_for_agent "security-reviewer" "$CHANGED" "$RULES_DIR")
+    if [ -n "$SEC_GATE_FILES" ]; then
+        SEC_RULES_BLOCK=$(n1_rules_render $SEC_GATE_FILES)
+    fi
+fi
+```
+
+When spawning reviewers below:
+- **code-reviewer**: if `$CR_RULES_BLOCK` is non-empty, append it to the spawn prompt. The code-reviewer's persona includes instructions to produce `[RULE-N]` findings for violations. Any `[RULE-N]` finding causes review **FAIL**.
+- **security-reviewer**: if `$SEC_RULES_BLOCK` is non-empty, append it to the spawn prompt. Security-topic rule violations fold into existing `[SEC-N]` findings, tagged with the rule name.
+
+Record in `review.md` when no gate rules exist: `"Rule compliance: no gate rules configured."`
+
 ## Codex Reviewer (conditional)
 
 Run the standalone preflight script — it handles ALL checks (enabled flag with backward compat, companion path resolution, CLI availability, base branch verification) and outputs structured JSON:

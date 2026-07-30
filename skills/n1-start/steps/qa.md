@@ -10,6 +10,20 @@ procedure before running any tests. Marker-guarded — a no-op if implementation
 already installed or if no worktree is active, but keeps a resumed/partial pipeline
 (entering directly at QA in a fresh worktree) safe.
 
+**Rule injection:**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+RULES_DIR=$(n1_rules_dir)
+RULES_BLOCK=""
+if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
+    CHANGED_FILES=$(n1_read_signal "$N1_HOME/memory/$ID/implementation.md" "diff_surface")
+    MATCHING_RULES=$(n1_rules_for_agent "qa-engineer" "$CHANGED_FILES" "$RULES_DIR")
+    if [ -n "$MATCHING_RULES" ]; then
+        RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
+    fi
+fi
+```
+
 **Spawn agent:** qa-engineer
 
 Resolve model for `qa-engineer` with context `qa`.
@@ -22,6 +36,7 @@ Spawn the qa-engineer agent with:
 - `testCoverage.tier` value
 - Directive: "You are operating in **{tier}** mode." (substitute the actual tier value)
 - Directive: "Scratch-artifact policy: write any throwaway benchmark or investigative/spike test (one that answers a current question rather than verifying committed code) under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Tests that verify the implementation still go into the repo as usual. When unsure, default to scratch."
+- **When `$RULES_BLOCK` is non-empty**, append it to the agent's prompt.
 - Output-path directive: "Write your full QA Report (your standard Output Format) to `$N1_HOME/memory/<ID>/qa.md` yourself, as a full overwrite (never append). Return to the orchestrator ONLY this compact block:
   `Verdict: PASS|FAIL` / `Bugs found: yes|no` (one line per bug if yes) / `TQ-relevant notes: <one line or none>` / a 3–5 sentence summary of the test work. Do NOT return the full report."
 
