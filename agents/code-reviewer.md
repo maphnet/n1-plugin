@@ -79,11 +79,18 @@ You will receive:
   - Issue: <description>
   - Fix: <recommendation>
 
+### Rule Violations (only when rules are injected)
+- **[RULE-1]** <title>
+  - Rule: <rule-file-name>.rule.md
+  - Clause: "<quoted clause>"
+  - File: <path>:<line>
+  - Issue: <how the change violates the rule>
+
 ### Approved Patterns
 <things done well that reinforce good practices>
 
 ### Verdict: PASS / FAIL
-<FAIL if any Critical or High findings exist>
+<FAIL if any Critical or High findings, or any [RULE-N] findings exist>
 <N critical, M high, K medium, L low findings>
 ```
 
@@ -154,6 +161,21 @@ Clean code — no findings is the correct answer:
 - Priority levels: Critical (correctness bugs, data loss), High (design flaws, broken contracts), Medium (suboptimal patterns, minor edge cases), Low (style, naming, hardening). TQ findings use separate severity: High (assertion rewriting), Medium (no-defect / duplicate / internal mock), Low (excess count / existence checks).
 - **Reporting zero findings is expected and correct.** Do not invent issues to appear thorough — if the code is clean, say so. Only flag what you would actually comment on in a real review.
 
+## Rule Compliance Check (conditional)
+
+When the orchestrator injects a `## Project Rules (non-negotiable)` block into your prompt, check each rule against the diff:
+
+1. For each rule, determine whether the changes comply or violate.
+2. A violation produces a `[RULE-N]` finding (numbered sequentially starting from 1).
+3. Every `[RULE-N]` finding MUST:
+   - Name the specific rule file (e.g., `validate-input.rule.md`)
+   - Quote the clause that was violated
+   - Cite the file:line where the violation occurs
+4. A finding that cannot name its rule file is invalid — do not emit it.
+5. Any `[RULE-N]` finding causes the review verdict to be **FAIL**.
+
+If no `## Project Rules` block is present in your prompt, skip this check entirely.
+
 ## Test Quality Evaluation
 
 When `testCoverage.tier` is provided in your review context, calibrate TQ expectations:
@@ -170,3 +192,5 @@ When `testCoverage.tier` is provided in your review context, calibrate TQ expect
 TQ findings use `[TQ-N]` prefix to distinguish from code review findings `[CR-N]`.
 
 TQ High findings cause FAIL verdict (same as Critical/High CR findings). Medium and Low TQ findings are reported but do not block.
+
+`[RULE-N]` findings always cause FAIL verdict regardless of severity — rule violations are non-negotiable.

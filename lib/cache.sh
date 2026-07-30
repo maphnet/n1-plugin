@@ -96,6 +96,22 @@ n1_snapshot_check_freshness() {
         return 1
     fi
 
+    # Rule file mtime check — catches edits to rules outside the git tree
+    source "$(dirname "${BASH_SOURCE[0]}")/rules.sh" 2>/dev/null || true
+    local rules_dir
+    rules_dir=$(n1_rules_dir "$config_file" 2>/dev/null)
+    if [ -n "$rules_dir" ] && [ -d "$rules_dir" ]; then
+        local rule_file rule_mtime
+        while IFS= read -r rule_file; do
+            [ -z "$rule_file" ] && continue
+            rule_mtime=$(stat -c %Y "$rule_file" 2>/dev/null || stat -f %m "$rule_file" 2>/dev/null || echo 0)
+            if [ "$rule_mtime" -gt "$generated_epoch" ] 2>/dev/null; then
+                printf 'stale'
+                return 1
+            fi
+        done < <(n1_rules_list "$rules_dir")
+    fi
+
     # Git diff classification
     local diff_files
     diff_files=$(git diff --name-only "$git_sha"..HEAD 2>/dev/null)

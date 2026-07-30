@@ -1,0 +1,351 @@
+#!/usr/bin/env bash
+# N1 rules layer: resolve, parse, filter, render
+
+n1_rules_dir() {
+    local config_file="${1:-$(n1_config_file)}"
+    source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+    local location
+    location=$(n1_config_val ".rules.location" "$config_file")
+    location="${location:-private}"
+
+    case "$location" in
+        private)
+            local home
+            home=$(n1_home)
+            [ -n "$home" ] && printf '%s' "${home}/rules"
+            ;;
+        repo)
+            local root
+            root=$(git rev-parse --show-toplevel 2>/dev/null)
+            [ -n "$root" ] && printf '%s' "${root}/.n1/rules"
+            ;;
+        /*)
+            printf '%s' "$location"
+            ;;
+        *)
+            local root
+            root=$(git rev-parse --show-toplevel 2>/dev/null)
+            [ -n "$root" ] && printf '%s' "${root}/${location}"
+            ;;
+    esac
+}
+
+n1_rules_list() {
+    local dir="${1:-$(n1_rules_dir)}"
+    [ -n "$dir" ] && [ -d "$dir" ] || return 0
+    find "$dir" -maxdepth 1 -name '*.rule.md' -type f 2>/dev/null | sort
+}
+
+n1_rule_field() {
+    local file="$1" key="$2"
+    [ -f "$file" ] || return 0
+    awk -v key="$key" '
+        NR==1 && /^---$/ { in_fm=1; next }
+        in_fm && /^---$/ { exit }
+        in_fm && $0 ~ "^" key ":" {
+            sub("^" key ":[[:space:]]*", "")
+            gsub(/\r/, "")
+            gsub(/[\[\]"]/, "")
+            gsub(/,[[:space:]]+/, ",")
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+            printf "%s", $0
+            exit
+        }
+    ' "$file"
+}
+
+n1_rule_body() {
+    local file="$1"
+    [ -f "$file" ] || return 0
+    awk '
+        NR==1 && /^---$/ { in_fm=1; next }
+        in_fm && /^---$/ { in_fm=0; next }
+        in_fm { next }
+        { print }
+    ' "$file" | sed '/./,$!d' | sed -e :a -e '/^[[:space:]]*$/{ $d; N; ba; }'
+}
+
+n1_rules_for_agent() {
+    local persona="$1"
+    local changed_files="${2:-}"
+    local rules_dir="${3:-$(n1_rules_dir)}"
+
+    local rule_file applies paths
+    while IFS= read -r rule_file; do
+        [ -z "$rule_file" ] && continue
+
+        applies=$(n1_rule_field "$rule_file" "applies_to")
+        [ -z "$applies" ] && continue
+
+        local matched=0
+        local agent
+        IFS=',' read -ra agents <<< "$applies"
+        for agent in "${agents[@]}"; do
+            agent=$(echo "$agent" | tr -d ' ')
+            if [ "$agent" = "*" ] || [ "$agent" = "$persona" ]; then
+                matched=1
+                break
+            fi
+        done
+        [ "$matched" -eq 0 ] && continue
+
+        paths=$(n1_rule_field "$rule_file" "paths")
+        if [ -n "$paths" ] && [ -n "$changed_files" ]; then
+            local path_matched=0
+            local glob changed
+            IFS=',' read -ra globs <<< "$paths"
+            for glob in "${globs[@]}"; do
+                glob=$(echo "$glob" | tr -d ' ')
+                while IFS= read -r changed; do
+                    [ -z "$changed" ] && continue
+                    case "$changed" in
+                        $glob) path_matched=1; break ;;
+                    esac
+                done <<< "$changed_files"
+                [ "$path_matched" -eq 1 ] && break
+            done
+            [ "$path_matched" -eq 0 ] && continue
+        fi
+
+        printf '%s\n' "$rule_file"
+    done < <(n1_rules_list "$rules_dir")
+}
+
+n1_rules_render() {
+    [ $# -eq 0 ] && return 0
+
+    local has_rules=0
+    local output=""
+    local file desc body name
+
+    for file in "$@"; do
+        [ -f "$file" ] || continue
+        desc=$(n1_rule_field "$file" "description")
+        body=$(n1_rule_body "$file")
+        [ -z "$body" ] && continue
+
+        if [ "$has_rules" -eq 0 ]; then
+            output="## Project Rules (non-negotiable)\n\nThese rules are authored project conventions. Violations are review failures.\nWhere a rule conflicts with observed codebase patterns, the rule wins.\n"
+            has_rules=1
+        fi
+
+        name=$(basename "$file" .rule.md)
+        output="${output}\n### ${name}: ${desc}\n\n${body}\n"
+    done
+
+    [ "$has_rules" -eq 1 ] && printf '%b' "$output"
+}
+
+n1_rules_deny_field() {
+    local file="$1" subkey="$2"
+    [ -f "$file" ] || return 0
+    awk -v subkey="$subkey" '
+        NR==1 && /^---$/ { in_fm=1; next }
+        in_fm && /^---$/ { exit }
+        in_fm && /^deny:/ { in_deny=1; next }
+        in_deny && /^[a-z]/ { exit }
+        in_deny && $0 ~ subkey ":" {
+            sub(".*" subkey ":[[:space:]]*", "")
+            gsub(/[\[\]"]/, "")
+            gsub(/,[[:space:]]+/, ",")
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+            printf "%s", $0
+            exit
+        }
+    ' "$file"
+}
+
+n1_generate_deny_hook() {
+    local rules_dir="$1" output_path="$2"
+    local deny_rules=()
+    local rule_file enf
+
+    while IFS= read -r rule_file; do
+        [ -z "$rule_file" ] && continue
+        enf=$(n1_rule_field "$rule_file" "enforcement")
+        [ "$enf" = "deny" ] && deny_rules+=("$rule_file")
+    done < <(n1_rules_list "$rules_dir")
+
+    [ ${#deny_rules[@]} -eq 0 ] && return 1
+
+    mkdir -p "$(dirname "$output_path")"
+
+    cat > "$output_path" << 'HOOK_HEADER'
+#!/usr/bin/env bash
+# Generated by N1 rules layer — do not edit manually.
+# Regenerate with: /n1:n1-rules check --fix
+
+set -o pipefail 2>/dev/null || true
+trap 'exit 0' ERR
+
+TOOL_NAME="${TOOL_NAME:-}"
+TOOL_INPUT="${TOOL_INPUT:-}"
+
+HOOK_HEADER
+
+    # Build Edit/Write path checks
+    local has_path_rules=false
+    for rule_file in "${deny_rules[@]}"; do
+        local paths_val
+        paths_val=$(n1_rules_deny_field "$rule_file" "paths")
+        [ -n "$paths_val" ] && has_path_rules=true && break
+    done
+
+    if [ "$has_path_rules" = true ]; then
+        cat >> "$output_path" << 'PATH_OPEN'
+case "$TOOL_NAME" in
+    Edit|Write)
+        FILE_PATH=$(printf '%s' "$TOOL_INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+        [ -z "$FILE_PATH" ] && exit 0
+        PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+        REL_PATH="${FILE_PATH#$PROJECT_ROOT/}"
+PATH_OPEN
+
+        for rule_file in "${deny_rules[@]}"; do
+            local paths_val desc name
+            paths_val=$(n1_rules_deny_field "$rule_file" "paths")
+            [ -z "$paths_val" ] && continue
+            desc=$(n1_rule_field "$rule_file" "description")
+            name=$(basename "$rule_file" .rule.md)
+            IFS=',' read -ra globs <<< "$paths_val"
+            for glob in "${globs[@]}"; do
+                glob=$(echo "$glob" | tr -d ' ')
+                printf '        case "$REL_PATH" in\n' >> "$output_path"
+                printf '            %s) echo "DENY: Rule '\''%s'\'' — %s"; exit 2 ;;\n' "$glob" "$name" "$desc" >> "$output_path"
+                printf '        esac\n' >> "$output_path"
+            done
+        done
+
+        printf '        ;;\n' >> "$output_path"
+    fi
+
+    # Build Bash command checks
+    local has_cmd_rules=false
+    for rule_file in "${deny_rules[@]}"; do
+        local cmds_val
+        cmds_val=$(n1_rules_deny_field "$rule_file" "commands")
+        [ -n "$cmds_val" ] && has_cmd_rules=true && break
+    done
+
+    if [ "$has_cmd_rules" = true ]; then
+        if [ "$has_path_rules" = true ]; then
+            cat >> "$output_path" << 'CMD_OPEN'
+    Bash)
+        COMMAND=$(printf '%s' "$TOOL_INPUT" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+        [ -z "$COMMAND" ] && exit 0
+CMD_OPEN
+        else
+            cat >> "$output_path" << 'CMD_OPEN_FIRST'
+case "$TOOL_NAME" in
+    Bash)
+        COMMAND=$(printf '%s' "$TOOL_INPUT" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+        [ -z "$COMMAND" ] && exit 0
+CMD_OPEN_FIRST
+        fi
+
+        for rule_file in "${deny_rules[@]}"; do
+            local cmds_val desc name
+            cmds_val=$(n1_rules_deny_field "$rule_file" "commands")
+            [ -z "$cmds_val" ] && continue
+            desc=$(n1_rule_field "$rule_file" "description")
+            name=$(basename "$rule_file" .rule.md)
+            IFS=',' read -ra patterns <<< "$cmds_val"
+            for pattern in "${patterns[@]}"; do
+                pattern=$(echo "$pattern" | tr -d ' ')
+                printf '        case "$COMMAND" in\n' >> "$output_path"
+                printf '            *%s*) echo "DENY: Rule '\''%s'\'' — %s"; exit 2 ;;\n' "$pattern" "$name" "$desc" >> "$output_path"
+                printf '        esac\n' >> "$output_path"
+            done
+        done
+
+        printf '        ;;\n' >> "$output_path"
+    fi
+
+    if [ "$has_path_rules" = true ] || [ "$has_cmd_rules" = true ]; then
+        printf 'esac\n\n' >> "$output_path"
+    fi
+
+    printf 'exit 0\n' >> "$output_path"
+    chmod +x "$output_path"
+    return 0
+}
+
+n1_deny_hook_register() {
+    local hook_path="$1" location="$2"
+    local settings_file
+
+    case "$location" in
+        private) settings_file=".claude/settings.local.json" ;;
+        *)       settings_file=".claude/settings.json" ;;
+    esac
+
+    mkdir -p "$(dirname "$settings_file")"
+
+    if [ ! -f "$settings_file" ]; then
+        cat > "$settings_file" << EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${hook_path}"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+        return 0
+    fi
+
+    grep -q "$hook_path" "$settings_file" 2>/dev/null && return 0
+
+    if command -v jq >/dev/null 2>&1; then
+        local hook_entry tmp
+        hook_entry=$(printf '{"matcher":"Edit|Write|Bash","hooks":[{"type":"command","command":"bash %s"}]}' "$hook_path")
+        tmp=$(mktemp)
+        jq --argjson entry "$hook_entry" '
+            .hooks //= {} |
+            .hooks.PreToolUse //= [] |
+            .hooks.PreToolUse += [$entry]
+        ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+    else
+        echo "Warning: Cannot register deny hook without jq. Add it manually to $settings_file."
+    fi
+}
+
+n1_deny_hook_deregister() {
+    local hook_path="$1" location="$2"
+    local settings_file
+
+    case "$location" in
+        private) settings_file=".claude/settings.local.json" ;;
+        *)       settings_file=".claude/settings.json" ;;
+    esac
+
+    [ -f "$settings_file" ] || return 0
+    grep -q "$hook_path" "$settings_file" 2>/dev/null || return 0
+
+    if command -v jq >/dev/null 2>&1; then
+        local tmp
+        tmp=$(mktemp)
+        jq --arg path "$hook_path" '
+            if .hooks.PreToolUse then
+                .hooks.PreToolUse |= map(
+                    select(.hooks | all(.command | contains($path) | not))
+                ) |
+                if (.hooks.PreToolUse | length) == 0 then
+                    del(.hooks.PreToolUse)
+                else . end |
+                if (.hooks | length) == 0 then
+                    del(.hooks)
+                else . end
+            else . end
+        ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+    fi
+}

@@ -7,10 +7,25 @@ Resolve model for `planner` (see Model Resolution above).
 
 The planner runs `superpowers:writing-plans` in an isolated subagent context. This is deliberate: the writing-plans skill ends with an "Execution Handoff" step that asks the user which execution mode to use, and when invoked in-context that prompt intermittently leaks to the user even though N1 predetermines the execution mode. A dispatched subagent has no interactive channel — any such prompt returns to the orchestrator as text and is absorbed here, never shown to the user. The planner also lacks `Bash`, so it cannot chain into implementation or commit.
 
+Inject matching rules before spawning:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+RULES_DIR=$(n1_rules_dir)
+RULES_BLOCK=""
+if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
+    MATCHING_RULES=$(n1_rules_for_agent "planner" "" "$RULES_DIR")
+    if [ -n "$MATCHING_RULES" ]; then
+        RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
+    fi
+fi
+```
+
 Spawn the planner agent with:
 - The paths to its inputs — instruct the planner: "Read these files yourself before planning: `$N1_HOME/memory/<ID>/ticket.md`, `$N1_HOME/memory/<ID>/brainstorm.md`, `$N1_HOME/memory/<ID>/analysis.md` (the Step-2 analysis). Their content is NOT inlined here. `analysis.md` contains the codebase context already discovered — use it instead of re-exploring from scratch."
 - **Output path:** `$N1_HOME/memory/<ID>/plan.md` — instruct the planner to write the plan there and nowhere else, and NOT to commit it (`$N1_HOME/` is N1's ephemeral state directory; N1 owns this content in per-ticket memory).
 - Directive: "Do NOT include any `REQUIRED SUB-SKILL` execution directive in the plan body — N1 controls execution mode; the plan contains only implementation tasks."
+- **When `$RULES_BLOCK` is non-empty**, append it to the planner's prompt so rules are accounted for in the plan.
 
 After the planner returns (the full plan body already lives in `$N1_HOME/memory/<ID>/plan.md`, written by the planner):
 - Update overview: `[x] Plan`, set `step: plan`

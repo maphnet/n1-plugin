@@ -1119,6 +1119,128 @@ Use defaults. **Do NOT ask** the user about this unless they explicitly requeste
 }
 ```
 
+## Rules Configuration
+
+Ask whether N1 should generate project rules — authored, checkable conventions that drive review gates and deny hooks. **Default is Yes** for new setups, presented after all other config is written.
+
+```
+N1 can generate project rules from what it detects about your project.
+Rules are checkable conventions — violations block reviews or deny tool calls.
+1 — Yes, generate starter rules (recommended)
+2 — No, skip rules for now
+```
+
+**If 2 (No) or skip:** Write `"rules": { "location": "private" }` to config and move on. No rules directory created.
+
+**If 1 (Yes):**
+
+1. Ask about storage location:
+   ```
+   Where should rules live?
+   1 — Private (default) — in N1 state directory, not committed
+   2 — Repo — in .n1/rules/, committed with the project
+   ```
+   - **1:** set `rules.location: "private"`, rules dir = `$N1_HOME/rules/`
+   - **2:** set `rules.location: "repo"`, rules dir = `<root>/.n1/rules/`
+
+2. Create the rules directory: `mkdir -p "$RULES_DIR"`
+
+3. Generate starter rules from existing detection results. For each detected characteristic, propose a rule with enforcement recommendation. Present **one at a time** for approval:
+
+   **From lockfile/package manager detection:**
+   - Propose a `deny` rule if a lockfile exists: "no direct edits to `<lockfile>`" with `deny.paths: ["<lockfile>"]`
+     - `topic: ops`, `applies_to: [developer, implementer]`, `enforcement: deny`
+
+   **From test runner detection:**
+   - Propose a `gate` rule: "changes that modify behavior must update or add corresponding tests"
+     - `topic: testing`, `applies_to: [code-reviewer, qa-engineer]`, `enforcement: gate`
+
+   **From CI detection:**
+   - If `.github/workflows/` exists: propose a `deny` rule against editing CI workflows: `deny.paths: [".github/workflows/**"]`
+     - `topic: ops`, `applies_to: [developer, implementer]`, `enforcement: deny`
+
+   **From analysis cache snapshot (when available):**
+   - If `$N1_HOME/cache/project-snapshot.md` exists, read its conventions section and propose `gate` rules for any convention that is checkable
+
+   For each proposed rule, show:
+   ```
+   Proposed rule: <name>
+     Description: <one-line>
+     Topic: <topic>
+     Applies to: <agents>
+     Enforcement: <deny|gate>
+     Body:
+       <rule text>
+
+   1 — Accept
+   2 — Edit (modify before saving)
+   3 — Skip
+   ```
+
+   - **1 (Accept):** Write the rule file to `<rules_dir>/<name>.rule.md`
+   - **2 (Edit):** Let the user modify the description, body, and enforcement, then write
+   - **3 (Skip):** Do not create this rule
+
+4. After all proposals: show count of accepted rules. If > 10, warn about cost-of-compliance.
+
+5. If any accepted rules have `enforcement: deny`:
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+   case "$LOCATION" in
+       private) HOOK_DIR="$N1_HOME/hooks" ;;
+       repo)    HOOK_DIR="$(git rev-parse --show-toplevel)/.n1/hooks" ;;
+   esac
+   mkdir -p "$HOOK_DIR"
+   HOOK_PATH="$HOOK_DIR/rules-deny.sh"
+   n1_generate_deny_hook "$RULES_DIR" "$HOOK_PATH"
+   n1_deny_hook_register "$HOOK_PATH" "$LOCATION"
+   ```
+   Tell the user: "Deny hook installed — matching tool calls will be blocked."
+
+### CLAUDE.md Convention Migration (conditional)
+
+**Only show this section when at least one rule was created in the Rules Configuration step above.**
+
+Scan CLAUDE.md for behavioral convention blocks — lines that prescribe behavior (imperative mood: "always", "never", "must", "use X for Y") rather than state facts. For each identified block:
+
+```
+Found behavioral convention in CLAUDE.md:
+
+  > <quoted block>
+
+This could become a rule. Extract it?
+1 — Yes, extract as gate rule
+2 — Yes, extract as deny rule (if mechanically checkable)
+3 — No, leave in CLAUDE.md
+```
+
+- **1 or 2:** Remove the block from CLAUDE.md, create a rule file, ask for `applies_to`
+- **3:** Leave in place
+
+After all extractions, if any rules were extracted, add a one-line pointer to CLAUDE.md:
+```
+## Project Rules
+This project uses N1 rules for enforced conventions. Run `/n1:n1-rules list` to see them.
+```
+
+**Do NOT remove factual content from CLAUDE.md** — only behavioral prescriptions that became rules.
+
+### On reconfiguration (n1-init re-run):
+
+If `rules` already exists in the current config, show current state and offer:
+```
+Current rules:
+  location → <private/repo/custom>
+  count    → <N> rules
+
+1 — Keep current
+2 — Change location
+3 — Re-generate starter rules (adds to existing, does not delete)
+```
+- **1** → leave unchanged.
+- **2** → ask location question, move existing rule files if location changed.
+- **3** → re-run the detection-based rule generation (skips rules that already exist by name).
+
 ## Story Workflow Configuration
 
 ### Detect Article Support
@@ -1265,6 +1387,9 @@ Create all files:
   },
   "telemetry": {
     "enabled": false
+  },
+  "rules": {
+    "location": "private"
   },
   "escalation": {
     "checkpoints": ["pr"],

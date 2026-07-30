@@ -33,7 +33,7 @@ N1 is a Claude Code plugin that orchestrates the full development cycle (ticket 
 - **Plugin manifest:** `.claude-plugin/plugin.json`
 - **Marketplace manifest:** `.claude-plugin/marketplace.json` (repo root — for `marketplace add`)
 - **Dependency:** Superpowers plugin >=5.0
-- **Shared shell helpers:** `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check)
+- **Shared shell helpers:** `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation)
 
 ## Plugin Development
 
@@ -92,6 +92,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-estimate | product-analyst, solution-architect agents + autonomous brainstormer + inline estimation | Standalone estimation |
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
 | n1-story | intake-agent, product-analyst, solution-architect, tech-writer agents + inline interactive steps | Story decomposition: multi-repo analysis → discovery → design → publish → ticket creation |
+| n1-rules | (inline: lib/rules.sh) | List, add, validate project rules; regenerate deny hook |
 
 Superpowers calls use the `superpowers:` prefix. Agent spawns use N1's own agent definitions. Each gets fresh context — the orchestrator never accumulates full history.
 
@@ -264,6 +265,19 @@ Optional project-level snapshot that eliminates redundant codebase discovery on 
 | `analysisCache.ttl` | string | `"4h"` | Max age before forced regeneration |
 | `analysisCache.neutralThreshold` | integer | `15` | NEUTRAL files changed before invalidation |
 | `analysisCache.structuralFiles` | string[] | See `defaults/analysis-cache.json` | Glob patterns for structural files |
+
+### Rules Layer
+
+Authored, checkable project conventions stored as `.rule.md` files with YAML frontmatter (`description`, `topic`, `applies_to`, `enforcement`, `paths`). Two enforcement rungs:
+
+- **`gate`** — rule is injected into reviewer prompts; violation produces a `[RULE-N]` finding that causes review FAIL. Also checked during plan-review CCR.
+- **`deny`** — generates a PreToolUse hook that deterministically blocks matching tool calls. Registered per-project (not in plugin `hooks/hooks.json`).
+
+Storage controlled by `rules.location` config key: `"private"` (default, `$N1_HOME/rules/`), `"repo"` (`<root>/.n1/rules/`), or an explicit path. Rules are injected into agent prompts at every spawn via `lib/rules.sh` helpers — filtered by `applies_to` persona and `paths` intersection with the ticket's change surface.
+
+Relationship to analysis cache: the snapshot carries descriptive content (how the project IS); rules carry prescriptive content (how the project MUST BE). Where they conflict, rules win — stated explicitly in the analysis step prompt. `lib/cache.sh` uses mtime-based staleness to detect rule edits outside the git tree.
+
+**Helpers** in `lib/rules.sh`: `n1_rules_dir`, `n1_rules_list`, `n1_rule_field`, `n1_rule_body`, `n1_rules_for_agent`, `n1_rules_render`, `n1_rules_deny_field`, `n1_generate_deny_hook`, `n1_deny_hook_register`, `n1_deny_hook_deregister`.
 
 ### Implementation Simplicity Gate
 
