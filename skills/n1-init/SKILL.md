@@ -547,6 +547,8 @@ Current ticket tagging:
 - **2** → run the derive+confirm flow above, set `enabled: true`.
 - **3** → set `{ "enabled": false }`.
 
+If `ticketTagging` is absent from the current config, run the fresh-setup flow above.
+
 ## Assign to Creator Configuration
 
 Ask whether N1 should auto-assign tickets it creates to the user running it. **Default is Yes.**
@@ -576,6 +578,8 @@ Auto-assign created tickets to you: <true/false>
 ```
 - **1** → leave unchanged.
 - **2** → flip the boolean.
+
+If `tracker.assignToCreator` is absent from the current config, run the fresh-setup flow above. Skip entirely when `tracker.mcp` is `null`.
 
 ## Error Tracking Configuration
 
@@ -734,6 +738,8 @@ Current estimation:
 - **3** → set `enabled: false`. Remove `writeToTracker` and `mapping` keys.
 - **4** → show current mapping (merged with defaults), ask for changes. Only store overridden tiers.
 
+If `estimation` is absent from the current config, run the fresh-setup flow above.
+
 ## Local Testing Configuration
 
 Ask whether N1 should run local end-to-end tests after implementation and review, before creating a PR. **Default is No.**
@@ -780,6 +786,8 @@ Current local testing:
 - **1** → leave unchanged.
 - **2** → set `enabled: true`, `maxFixAttempts: 3`.
 - **3** → set `enabled: false`. Remove `maxFixAttempts` key.
+
+If `localTesting` is absent from the current config, run the fresh-setup flow above.
 
 ## Finish Work Configuration
 
@@ -862,6 +870,8 @@ Current finish work:
 - **1** → leave unchanged.
 - **2** → re-run the questions, overwrite the block.
 - **3** → set `enabled: false`, keep the other keys.
+
+If `finishWork` is absent from the current config, run the fresh-setup flow above.
 
 ## Release Configuration
 
@@ -949,6 +959,8 @@ Current release:
 - **2** → re-run the questions above, overwrite the block.
 - **3** → set `enabled: false`, keep other keys.
 
+If `release` is absent from the current config, run the fresh-setup flow above.
+
 ## Codex Review Configuration
 
 Ask whether N1 should use Codex for cross-model code review alongside the Claude-based reviewers. **Default is No.**
@@ -1019,6 +1031,8 @@ Current Codex review:
 - **2** → run the probe flow above. Set `enabled: true` only if Codex CLI is installed and authenticated.
 - **3** → set `enabled: false`.
 
+If neither `codex` nor `codexReview` exists in the current config, run the fresh-setup flow above.
+
 ## Test Coverage Configuration
 
 Ask what level of test work the QA agent should do. **Default is maintain** — fix and update existing tests, no new test creation.
@@ -1076,6 +1090,8 @@ Current test coverage tier: <current value>
 - **2** → set `tier: "maintain"`.
 - **3** → set `tier: "minimal"`.
 - **4** → set `tier: "standard"`.
+
+If `testCoverage` is absent from the current config, run the fresh-setup flow above.
 
 ## Review Configuration
 
@@ -1153,6 +1169,8 @@ Current telemetry:
 - **1** → leave unchanged.
 - **2** → set `enabled: true`.
 - **3** → set `enabled: false`.
+
+If `telemetry` is absent from the current config, run the fresh-setup flow above.
 
 ## Plan Review Configuration
 
@@ -1292,6 +1310,8 @@ Current rules:
 - **2** → ask location question, move existing rule files if location changed.
 - **3** → re-run the detection-based rule generation (skips rules that already exist by name).
 
+If `rules` is absent from the current config, run the fresh-setup flow above. Run **Analyze Repository** first if it has not already been run this session (rules starter generation needs detection results).
+
 ## Story Workflow Configuration
 
 ### Detect Article Support
@@ -1377,6 +1397,8 @@ Current story workflow:
 - **1** → leave unchanged.
 - **2** → re-run the detection and questions above, overwrite the block.
 - **3** → set `enabled: false`. Keep the other keys.
+
+If `story` is absent from the current config, run the fresh-setup flow above.
 
 ## Agent Model Configuration
 
