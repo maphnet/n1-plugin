@@ -28,12 +28,63 @@ Check if CLAUDE.md exists in the project root:
 Check for N1 configuration in priority order:
 
 1. **New-format config:** Run `git config n1.home`. If it returns a path, expand `~` and check if `$N1_HOME/config.json` exists.
-   - **If exists:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Ask: "Reconfigure? **1** — Yes / **2** — No". If no — **STOP.**
+   - **If exists:** Load the config and check for missing top-level keys against the **Expected Config Keys** list below. Then branch:
+     - **If no missing keys:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Ask: "Reconfigure? **1** — Yes / **2** — No". If no — **STOP.** If yes — continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
+     - **If missing keys found:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Then show:
+
+       ```
+       N1 config is missing sections added in newer versions:
+         → <comma-separated missing key names>
+
+       1 — Add missing sections (walks through only the new ones)
+       2 — Full reconfigure (re-ask everything)
+       3 — Skip
+       ```
+
+       - **If 1 (Add missing sections):** Run the **Targeted Upgrade** flow below.
+       - **If 2 (Full reconfigure):** Continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows (which now handle absent blocks via the implicit-else fix).
+       - **If 3 (Skip):** **STOP.**
 
 2. **Old-format config (migration candidate):** Check if `.n1/n1.config.json` exists on disk.
    - **If exists:** Proceed to **Migration Flow** below.
 
 3. **No config found:** Continue with **Fresh Setup**.
+
+### Expected Config Keys
+
+The canonical set of top-level config keys. Used by the completeness check to detect missing sections. When adding a new config section to n1-init, add its key here.
+
+```
+worktree, tracker, git, ticketTagging, errorTracking, estimation,
+localTesting, finishWork, release, codex, testCoverage, telemetry,
+rules, story, escalation, review, ciChecks, planReview, memory, models
+```
+
+### Targeted Upgrade
+
+For each missing key, run that key's **fresh-setup** flow (the primary section, not the "On reconfiguration" variant). Process missing keys in the same order as the full n1-init flow:
+
+1. `tracker` → **Tracker Setup**
+2. `git` → **Git Configuration**
+3. `ticketTagging` → **Ticket Tagging Configuration** (fresh-setup portion)
+4. `errorTracking` → **Error Tracking Configuration** (fresh-setup portion)
+5. `estimation` → **Estimation Configuration** (fresh-setup portion)
+6. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
+7. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
+8. `release` → **Release Configuration** (fresh-setup portion)
+9. `codex` → **Codex Review Configuration** (fresh-setup portion)
+10. `testCoverage` → **Test Coverage Configuration** (fresh-setup portion)
+11. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
+12. `rules` → **Rules Configuration** (fresh-setup portion)
+13. `story` → **Story Workflow Configuration** (fresh-setup portion)
+14. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
+15. `escalation`, `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
+
+Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
+
+**Special case:** If `rules` is among the missing keys, run **Analyze Repository** first (rules starter generation needs detection results). Otherwise skip Analyze Repository and CLAUDE.md enrichment.
+
+After all missing sections are processed, merge results into the existing `config.json` at the top level and show the summary (same format as **Confirm**, but listing only the added sections).
 
 ### Migration Flow (existing `.n1/n1.config.json`)
 
