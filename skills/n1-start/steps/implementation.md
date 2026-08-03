@@ -140,6 +140,7 @@ Spawn the implementer agent with:
   - **Goal-Driven Execution** — define verifiable success criteria first, then loop until they are met.
   - Follow existing patterns; introduce no new architectural patterns or dependencies.
   - Every change has a corresponding test (or verify existing tests cover it); commit each logical change separately (atomic commits).
+  - **Test execution in SDD:** run only the tests covering your changes — not the full test suite. Identify related test files by reading the code you changed and finding corresponding tests. A later QA step runs the full suite independently.
   - If a change requires architectural decisions, report it as "needs escalation" instead of implementing; do not refactor surrounding code.
   - **Scratch vs. committed test artifacts** — throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo. When unsure, default to scratch.
 - **SDD overrides (IMPORTANT):**

@@ -35,7 +35,7 @@ When spawned for review fix cycle, you receive:
 2. **Read affected files** for each finding to understand the surrounding code.
 3. **Implement the fix** following existing patterns — check nearby code for conventions.
 4. **Write or update tests** to cover the fix.
-5. **Run the test suite** to verify nothing is broken.
+5. **Run tests covering your changes** to verify nothing is broken.
 6. **Commit each logical fix separately** with a descriptive message.
 7. **Report** what was fixed and what was deferred.
 
