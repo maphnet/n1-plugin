@@ -1263,18 +1263,11 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 2 — No, skip rules for now
 ```
 
-**If 2 (No) or skip:** Write `"rules": { "location": "private" }` to config and move on. No rules directory created.
+**If 2 (No) or skip:** Write `"rules": { "enabled": true }` to config and move on. No rules directory created.
 
 **If 1 (Yes):**
 
-1. Ask about storage location:
-   ```
-   Where should rules live?
-   1 — Private (default) — in N1 state directory, not committed
-   2 — Repo — in .n1/rules/, committed with the project
-   ```
-   - **1:** set `rules.location: "private"`, rules dir = `$N1_HOME/rules/`
-   - **2:** set `rules.location: "repo"`, rules dir = `<root>/.n1/rules/`
+1. Set `RULES_DIR="$N1_HOME/rules"`. Write `"rules": { "enabled": true }` to config.
 
 2. Create the rules directory: `mkdir -p "$RULES_DIR"`
 
@@ -1283,10 +1276,6 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
    **From lockfile/package manager detection:**
    - Propose a `deny` rule if a lockfile exists: "no direct edits to `<lockfile>`" with `deny.paths: ["<lockfile>"]`
      - `topic: ops`, `applies_to: [developer, implementer]`, `enforcement: deny`
-
-   **From test runner detection:**
-   - Propose a `gate` rule: "changes that modify behavior must update or add corresponding tests"
-     - `topic: testing`, `applies_to: [code-reviewer, qa-engineer]`, `enforcement: gate`
 
    **From CI detection:**
    - If `.github/workflows/` exists: propose a `deny` rule against editing CI workflows: `deny.paths: [".github/workflows/**"]`
@@ -1310,7 +1299,7 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
    3 — Skip
    ```
 
-   - **1 (Accept):** Write the rule file to `<rules_dir>/<name>.rule.md`
+   - **1 (Accept):** Write the rule file to `$RULES_DIR/<name>.rule.md`
    - **2 (Edit):** Let the user modify the description, body, and enforcement, then write
    - **3 (Skip):** Do not create this rule
 
@@ -1319,14 +1308,11 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 5. If any accepted rules have `enforcement: deny`:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
-   case "$LOCATION" in
-       private) HOOK_DIR="$N1_HOME/hooks" ;;
-       repo)    HOOK_DIR="$(git rev-parse --show-toplevel)/.n1/hooks" ;;
-   esac
+   HOOK_DIR="$N1_HOME/hooks"
    mkdir -p "$HOOK_DIR"
    HOOK_PATH="$HOOK_DIR/rules-deny.sh"
    n1_generate_deny_hook "$RULES_DIR" "$HOOK_PATH"
-   n1_deny_hook_register "$HOOK_PATH" "$LOCATION"
+   n1_deny_hook_register "$HOOK_PATH"
    ```
    Tell the user: "Deny hook installed — matching tool calls will be blocked."
 
@@ -1347,32 +1333,39 @@ This could become a rule. Extract it?
 3 — No, leave in CLAUDE.md
 ```
 
-- **1 or 2:** Remove the block from CLAUDE.md, create a rule file, ask for `applies_to`
+- **1 or 2:** Create a rule file, ask for `applies_to`, then ask:
+  ```
+  Remove this convention from CLAUDE.md now that it's a rule?
+  1 — Yes, remove from CLAUDE.md
+  2 — No, keep in both places
+  ```
 - **3:** Leave in place
 
-After all extractions, if any rules were extracted, add a one-line pointer to CLAUDE.md:
-```
-## Project Rules
-This project uses N1 rules for enforced conventions. Run `/n1:n1-rules list` to see them.
-```
-
-**Do NOT remove factual content from CLAUDE.md** — only behavioral prescriptions that became rules.
+**Do NOT add any "Project Rules" section to CLAUDE.md.** Do NOT remove factual content — only behavioral prescriptions the user explicitly chose to remove.
 
 ### On reconfiguration (n1-init re-run):
 
-If `rules` already exists in the current config, show current state and offer:
+If `rules` already exists in the current config:
+
 ```
 Current rules:
-  location → <private/repo/custom>
-  count    → <N> rules
+  count → <N> rules
 
 1 — Keep current
-2 — Change location
-3 — Re-generate starter rules (adds to existing, does not delete)
+2 — Re-generate starter rules (adds to existing, does not delete)
 ```
+
 - **1** → leave unchanged.
-- **2** → ask location question, move existing rule files if location changed.
-- **3** → re-run the detection-based rule generation (skips rules that already exist by name).
+- **2** → re-run the detection-based rule generation (skips rules that already exist by name).
+
+**Repo→private migration:** If rules exist at `<root>/.n1/rules/` (legacy repo mode), detect and offer:
+```
+Found rules in <root>/.n1/rules/ (legacy repo mode).
+Rules now always live in $N1_HOME/rules/.
+1 — Move rules to $N1_HOME/rules/
+2 — Leave as-is (rules will not be discovered)
+```
+If 1: move all `.rule.md` files, regenerate deny hook at new location, deregister old hook path.
 
 If `rules` is absent from the current config, run the fresh-setup flow above. Run **Analyze Repository** first if it has not already been run this session (rules starter generation needs detection results).
 
