@@ -57,7 +57,7 @@ The canonical set of top-level config keys. Used by the completeness check to de
 ```
 worktree, tracker, git, ticketTagging, errorTracking, estimation,
 localTesting, finishWork, release, codex, testCoverage, telemetry,
-rules, story, escalation, review, ciChecks, planReview, memory, models
+analysisCache, rules, story, escalation, review, ciChecks, planReview, memory, models
 ```
 
 ### Targeted Upgrade
@@ -75,10 +75,11 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 9. `codex` → **Codex Review Configuration** (fresh-setup portion)
 10. `testCoverage` → **Test Coverage Configuration** (fresh-setup portion)
 11. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
-12. `rules` → **Rules Configuration** (fresh-setup portion)
-13. `story` → **Story Workflow Configuration** (fresh-setup portion)
-14. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
-15. `escalation`, `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
+12. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
+13. `rules` → **Rules Configuration** (fresh-setup portion)
+14. `story` → **Story Workflow Configuration** (fresh-setup portion)
+15. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
+16. `escalation`, `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
 
@@ -1171,6 +1172,69 @@ Current telemetry:
 - **3** → set `enabled: false`.
 
 If `telemetry` is absent from the current config, run the fresh-setup flow above.
+
+## Analysis Cache Configuration
+
+Ask whether N1 should cache project-level analysis snapshots to speed up sequential tickets. **Default is No.**
+
+```
+Enable analysis cache?
+Caches project-level architecture analysis (file structure, dependencies, patterns) so subsequent tickets skip redundant discovery.
+Cache is stored at $N1_HOME/cache/project-snapshot.md and auto-invalidated on structural changes.
+1 — Yes
+2 — No (default)
+```
+
+**If 2 (No) or default:**
+```json
+{
+  "analysisCache": {
+    "enabled": false
+  }
+}
+```
+
+**If 1 (Yes):**
+
+Detect structural files by scanning the repo root for known markers:
+```bash
+# Check which structural file patterns actually exist in this repo
+for pattern in package.json Cargo.toml go.mod pyproject.toml CLAUDE.md Dockerfile docker-compose.yml ".github/workflows/*"; do
+  ls $pattern 2>/dev/null
+done
+```
+
+Use detected files plus the defaults from `defaults/analysis-cache.json` to populate `structuralFiles`. Write:
+```json
+{
+  "analysisCache": {
+    "enabled": true,
+    "ttl": "4h",
+    "neutralThreshold": 15,
+    "structuralFiles": ["<detected patterns + defaults>"]
+  }
+}
+```
+
+### On reconfiguration (n1-init re-run):
+
+If `analysisCache` already exists in the current config, show current state and offer:
+```
+Current analysis cache:
+  enabled → <true/false>
+  ttl → <value>
+  neutralThreshold → <value>
+  structuralFiles → <count> patterns
+
+1 — Keep current
+2 — Enable
+3 — Disable
+```
+- **1** → leave unchanged.
+- **2** → set `enabled: true`, re-detect structural files if currently disabled.
+- **3** → set `enabled: false`, preserve other settings.
+
+If `analysisCache` is absent from the current config, run the fresh-setup flow above.
 
 ## Plan Review Configuration
 
