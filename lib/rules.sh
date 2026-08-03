@@ -2,33 +2,10 @@
 # N1 rules layer: resolve, parse, filter, render
 
 n1_rules_dir() {
-    local config_file="${1:-$(n1_config_file)}"
     source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
-
-    local location
-    location=$(n1_config_val ".rules.location" "$config_file")
-    location="${location:-private}"
-
-    case "$location" in
-        private)
-            local home
-            home=$(n1_home)
-            [ -n "$home" ] && printf '%s' "${home}/rules"
-            ;;
-        repo)
-            local root
-            root=$(git rev-parse --show-toplevel 2>/dev/null)
-            [ -n "$root" ] && printf '%s' "${root}/.n1/rules"
-            ;;
-        /*)
-            printf '%s' "$location"
-            ;;
-        *)
-            local root
-            root=$(git rev-parse --show-toplevel 2>/dev/null)
-            [ -n "$root" ] && printf '%s' "${root}/${location}"
-            ;;
-    esac
+    local home
+    home=$(n1_home)
+    [ -n "$home" ] && printf '%s' "${home}/rules"
 }
 
 n1_rules_list() {
@@ -272,13 +249,8 @@ CMD_OPEN_FIRST
 }
 
 n1_deny_hook_register() {
-    local hook_path="$1" location="$2"
-    local settings_file
-
-    case "$location" in
-        private) settings_file=".claude/settings.local.json" ;;
-        *)       settings_file=".claude/settings.json" ;;
-    esac
+    local hook_path="$1"
+    local settings_file=".claude/settings.local.json"
 
     mkdir -p "$(dirname "$settings_file")"
 
@@ -320,13 +292,8 @@ EOF
 }
 
 n1_deny_hook_deregister() {
-    local hook_path="$1" location="$2"
-    local settings_file
-
-    case "$location" in
-        private) settings_file=".claude/settings.local.json" ;;
-        *)       settings_file=".claude/settings.json" ;;
-    esac
+    local hook_path="$1"
+    local settings_file=".claude/settings.local.json"
 
     [ -f "$settings_file" ] || return 0
     grep -q "$hook_path" "$settings_file" 2>/dev/null || return 0
