@@ -24,8 +24,6 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
 
 N1_HOME=$(n1_home)
 RULES_DIR=$(n1_rules_dir)
-LOCATION=$(n1_config_val ".rules.location")
-LOCATION="${LOCATION:-private}"
 ```
 
 Parse the user's command from the invocation arguments. If no command given, show usage:
@@ -52,7 +50,7 @@ No rules configured. Run /n1:n1-init to set up rules, or use /n1:n1-rules add to
 Otherwise, iterate all rule files and display:
 
 ```
-Project Rules ($LOCATION mode — $RULES_DIR)
+Project Rules ($RULES_DIR)
 
 | Rule | Topic | Applies To | Enforcement | Paths |
 |------|-------|------------|-------------|-------|
@@ -173,25 +171,18 @@ deny:                   # only for deny rules
 {body}
 ```
 
-If `rules.location` is not set in config, write it:
-```bash
-# Add rules.location to config if absent
-```
+If `rules` is not set in config, write `"rules": { "enabled": true }` to config.
 
 **9. If enforcement is `deny`:**
 
 Generate and register the deny hook:
 ```bash
-case "$LOCATION" in
-    private) HOOK_DIR="$N1_HOME/hooks" ;;
-    repo)    HOOK_DIR="$(git rev-parse --show-toplevel)/.n1/hooks" ;;
-    *)       HOOK_DIR="$(dirname "$RULES_DIR")/hooks" ;;
-esac
+HOOK_DIR="$N1_HOME/hooks"
 mkdir -p "$HOOK_DIR"
 HOOK_PATH="$HOOK_DIR/rules-deny.sh"
 
 n1_generate_deny_hook "$RULES_DIR" "$HOOK_PATH"
-n1_deny_hook_register "$HOOK_PATH" "$LOCATION"
+n1_deny_hook_register "$HOOK_PATH"
 ```
 
 Tell the user: "Deny hook generated and registered. Matching tool calls will be blocked."
@@ -241,10 +232,6 @@ For each rule file:
 **Count warning:**
 - If total rules > 10 → WARN: "⚠ {N} rules — research shows >10 blocking rules risk degrading task success. Consider consolidating."
 
-**Legacy N1_HOME warning:**
-- If `$LOCATION` is `private` and `$N1_HOME` starts with `$(git rev-parse --show-toplevel)`:
-  → WARN: "Private rules resolve inside the project tree because N1_HOME is not externalized. Run `/n1:n1-init` to migrate N1_HOME."
-
 **Report:**
 ```
 Checked {N} rules: {errors} errors, {warnings} warnings.
@@ -271,24 +258,20 @@ done < <(n1_rules_list "$RULES_DIR")
 
 1. Determine hook output path:
    ```bash
-   case "$LOCATION" in
-       private) HOOK_DIR="$N1_HOME/hooks" ;;
-       repo)    HOOK_DIR="$(git rev-parse --show-toplevel)/.n1/hooks" ;;
-       *)       HOOK_DIR="$(dirname "$RULES_DIR")/hooks" ;;
-   esac
+   HOOK_DIR="$N1_HOME/hooks"
    mkdir -p "$HOOK_DIR"
    HOOK_PATH="$HOOK_DIR/rules-deny.sh"
    ```
 
 2. Generate: `n1_generate_deny_hook "$RULES_DIR" "$HOOK_PATH"`
 
-3. Register: `n1_deny_hook_register "$HOOK_PATH" "$LOCATION"`
+3. Register: `n1_deny_hook_register "$HOOK_PATH"`
 
 4. Report: "Deny hook generated at `$HOOK_PATH` and registered."
 
 **If `HAS_DENY` is false and a hook was previously registered:**
 
 1. Determine `$HOOK_PATH` same as above
-2. Deregister: `n1_deny_hook_deregister "$HOOK_PATH" "$LOCATION"`
+2. Deregister: `n1_deny_hook_deregister "$HOOK_PATH"`
 3. Remove the generated hook file: `rm -f "$HOOK_PATH"`
 4. Report: "No deny rules found. Deny hook removed."
