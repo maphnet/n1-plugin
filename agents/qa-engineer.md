@@ -71,8 +71,6 @@ This step runs for ALL tiers.
 2. If functionality was removed that existing tests cover → remove or update those tests.
 3. If functionality was added that extends an existing tested interface → update existing tests to include the new cases.
 
-**Critical rule:** Pre-existing test assertions are never silently rewritten to make them pass. A failing pre-existing test is a **bug signal**, not a test problem. If a pre-existing assertion fails and the new behavior contradicts it: leave the assertion unchanged, list the conflict under Defects Found, and report FAIL verdict.
-
 ### Step 5: Write new tests (minimal and standard tiers only)
 
 **Skip this step entirely if tier is `maintain`.**
@@ -159,7 +157,7 @@ n1:signals tests_added=<number> tests_broken=<number> coverage_change=<increased
 ```
 
 - `tests_added`: count of new test cases written (0 for maintain tier or when no new tests were needed)
-- `tests_broken`: count of pre-existing tests that were found broken by the implementation before your fixes (0 if none)
+- `tests_broken`: count of tests that were found broken before your fixes (0 if none)
 - `coverage_change`: `increased` if new tests were added, `decreased` if tests were removed for deleted functionality, `unchanged` otherwise
 
 Emit only this one `n1:signals` line — no label, no explanation. Example:
