@@ -70,8 +70,8 @@ FINDINGS_COUNT=$(sed -n '/^### Findings$/,/^### /p' "$INV_FILE" | grep -c '^- ' 
 RECOMMENDATIONS_COUNT=$(sed -n '/^### Recommendations$/,/^### /p' "$INV_FILE" | grep -c '^- ' 2>/dev/null || echo "0")
 
 # Unknowns resolved: count clarifications answered vs total
-UNKNOWNS_TOTAL=$(grep -c '<!-- n1:unknown:' "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null || echo "0")
-UNKNOWNS_ANSWERED=$(grep -c '^\s*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
+UNKNOWNS_TOTAL=$(cat "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null | grep -c '<!-- n1:unknown:' || echo "0")
+UNKNOWNS_ANSWERED=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
 UNKNOWNS_RESOLVED="${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
 
 n1_write_signals "$INV_FILE" \
@@ -119,9 +119,9 @@ Update the `unknowns_resolved` signal:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
 INV_FILE="$N1_HOME/memory/$ID/investigation.md"
-UNKNOWNS_TOTAL=$(grep -c '<!-- n1:unknown:' "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null || echo "0")
-UNKNOWNS_ANSWERED_ANALYSIS=$(grep -c '^\s*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
-UNKNOWNS_ANSWERED_INVEST=$(grep -c '^\s*\*\*A:\*\*' "$INV_FILE" 2>/dev/null || echo "0")
+UNKNOWNS_TOTAL=$(cat "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null | grep -c '<!-- n1:unknown:' || echo "0")
+UNKNOWNS_ANSWERED_ANALYSIS=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
+UNKNOWNS_ANSWERED_INVEST=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$INV_FILE" 2>/dev/null || echo "0")
 UNKNOWNS_ANSWERED=$((UNKNOWNS_ANSWERED_ANALYSIS + UNKNOWNS_ANSWERED_INVEST))
 n1_write_signals "$INV_FILE" "unknowns_resolved=${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
 ```
