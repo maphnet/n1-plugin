@@ -49,6 +49,8 @@ Spawn the local-test-planner agent with:
    - Command: `<exact command>`
    - Expected: <expected outcome>
 
+{If all acceptance criteria are covered by existing e2e tests, write: "All acceptance criteria covered by existing e2e tests — no ad-hoc scenarios needed."}
+
 ### Manual Verification Checklist
 - [ ] <item>
 
@@ -59,7 +61,7 @@ Spawn the local-test-planner agent with:
 After the agent returns:
 - Write its output to `$N1_HOME/memory/<ID>/local-test-plan.md`
 
-**Edge case — no testable scenarios:** If the analysis produces zero automated test scenarios (no startable app, no testable endpoints, purely library/SDK changes), auto-skip: "Local testing analysis found no testable scenarios for this change. Proceeding to PR." Update overview: `[x] Local Testing`, set `step: local-testing`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10.
+**Edge case — no testable scenarios:** If the plan has no existing e2e suite (`### Existing E2E Tests` Framework is "None" and Run command is "N/A") AND zero ad-hoc test scenarios in `### Automated Test Scenarios`, auto-skip: "Local testing analysis found no testable scenarios for this change. Proceeding to PR." Update overview: `[x] Local Testing`, set `step: local-testing`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10. If the plan has a valid e2e suite, do NOT auto-skip even if there are zero ad-hoc scenarios.
 
 #### 9b. PLAN SUMMARY
 
@@ -183,7 +185,7 @@ In full pipeline mode: "Infrastructure/startup failure — not a code bug. Optio
 
 #### 9d. FIX LOOP (if local testing failed)
 
-If any automated scenario failed:
+If local testing verdict is FAIL (e2e tests or ad-hoc scenarios failed):
 
 **Spawn agent:** developer (fix mode)
 
