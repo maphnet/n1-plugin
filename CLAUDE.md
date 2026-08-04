@@ -112,9 +112,9 @@ Without `--step`, behavior is unchanged (full pipeline, backward compatible).
 
 ### Investigation Mode
 
-When a ticket matches a type's detection rules in the `pipeline.json` type registry (title match, tags, or type field — or an explicit `--type` flag), N1 runs that type's step sequence. The `investigation` type runs a shortened pipeline: ticket -> analysis -> brainstorm -> investigation-deliverable. The deliverable is a structured findings/recommendations document written to `investigation.md`. Implementation, QA, review, and PR steps are skipped.
+When a ticket matches a type's detection rules in the `pipeline.json` type registry (title match, tags, or type field — or an explicit `--type` flag), N1 runs that type's step sequence. The `investigation` type runs a shortened pipeline: ticket -> analysis -> brainstorm -> investigation-deliverable. The deliverable is a structured findings/recommendations/metrics document written to `investigation.md` with signals (`confidence`, `implementable`, `unknowns_resolved`, `findings_count`, `recommendations_count`). Implementation, QA, review, and PR steps are skipped. During analysis and deliverable production, the agent flags unknowns via `<!-- n1:unknown -->` markers; the orchestrator extracts these and presents them to the user for clarification (interactive) or writes escalation requests (step mode). After the deliverable, tracker enrichment writes findings back to the ticket (description append + comment), and post-investigation routing offers three options: create a new linked implementation ticket, convert the current ticket to implementation, or close.
 
-Detection happens in the orchestrator after the ticket step via `n1_resolve_type()` (detection cascade: `--type` flag > tags > type field > title match > default). The resolved type is stored as `type: <name>` in overview.md frontmatter. Backward compat: if overview.md has `mode` but no `type`, `n1_read_type()` reads `mode` as `type`. Follow-up ticket creation and ticket closing are handled inline in the investigation-deliverable step (interactive mode only).
+Detection happens in the orchestrator after the ticket step via `n1_resolve_type()` (detection cascade: `--type` flag > tags > type field > title match > default). The resolved type is stored as `type: <name>` in overview.md frontmatter. Backward compat: if overview.md has `mode` but no `type`, `n1_read_type()` reads `mode` as `type`. Post-investigation routing (create linked ticket, convert to implementation, or close) is handled in the investigation-deliverable step (interactive mode only). Tracker enrichment (description append + comment) runs in both interactive and step mode.
 
 ### Story Decomposition
 
@@ -173,7 +173,7 @@ Each step reads ONLY its declared dependencies:
 | ci | `overview.md`, `plan.md`, `implementation.md` | `overview.md` (CI status) |
 | finish | `overview.md`; PR state via gh | `overview.md` (Finish section) |
 | release | `overview.md` (optional, for merge SHA); `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | tracker comment (best-effort) |
-| investigation-deliverable | `ticket.md`, `analysis.md` | `investigation.md` |
+| investigation-deliverable | `ticket.md`, `analysis.md`, `brainstorm.md` | `investigation.md` |
 
 Story pipeline memory (n1-story steps):
 
@@ -209,7 +209,7 @@ Workflow types are declared in `pipeline.json` under `types`. Each type defines 
 | Type | Steps | Detection | Key differences |
 |------|-------|-----------|-----------------|
 | `task` (default) | ticket → analysis → [brainstorm] → [plan] → [plan-review] → [estimation] → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] → [release] | `detect.default: true` | Full pipeline |
-| `investigation` | ticket → analysis → brainstorm → investigation-deliverable | Title match: `investigat`, tags: `investigation` | No implementation, QA, or PR |
+| `investigation` | ticket → analysis → brainstorm → investigation-deliverable | Title match: `investigat`, tags: `investigation` | No implementation, QA, or PR. Interactive Q&A during analysis + deliverable, tracker enrichment, post-investigation routing (create/convert/close) |
 | `bug` | ticket → analysis → [brainstorm] → [plan] → implementation → qa → review ⇄ fix → [local-testing] → pr → [ci] → [finish] → [release] | Type field: `bug`, tags: `bug` | Brainstorm/plan signal-gated: skipped when root cause known + blast radius not high + files < 5; analysis model downgraded |
 | `chore` | ticket → analysis → implementation → qa → review → pr → [ci] → [finish] → [release] | Type field: `chore`, tags: `chore/config/deps` | Skips brainstorm, plan, local-testing; analysis and review models downgraded |
 
@@ -228,6 +228,7 @@ Steps emit runtime signals stored as `<!-- n1:signals -->` blocks in memory file
 | brainstorm | `planning_need`, `design_clarity`, `approach_count` | brainstorm.md |
 | implementation | `diff_surface`, `lines_changed`, `new_files_count` | implementation.md |
 | qa | `tests_added`, `tests_broken`, `coverage_change` | qa.md |
+| investigation-deliverable | `confidence`, `implementable`, `unknowns_resolved`, `findings_count`, `recommendations_count` | investigation.md |
 
 Helpers in `lib/signals.sh`: `n1_read_signal`, `n1_write_signals`, `n1_eval_signal_gate`, `n1_check_signal_gates`.
 
