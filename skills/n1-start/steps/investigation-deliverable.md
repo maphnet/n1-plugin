@@ -7,9 +7,9 @@ Resolve model for `solution-architect`.
 
 Spawn the solution-architect agent with:
 - Path to `$N1_HOME/memory/<ID>/ticket.md` -- instruct: "Read this file yourself; it contains the investigation question."
-- Path to `$N1_HOME/memory/<ID>/analysis.md` -- instruct: "Read this file yourself; it contains codebase analysis and findings."
+- Path to `$N1_HOME/memory/<ID>/analysis.md` -- instruct: "Read this file yourself; it contains codebase analysis and findings. If it contains a `### Clarifications` section, treat those as answered questions -- incorporate the answers into your synthesis."
 - Path to `$N1_HOME/memory/<ID>/brainstorm.md` (if it exists) -- instruct: "Read this file yourself; it contains additional research and design exploration."
-- Directive: "This is an investigation task. Your job is to synthesize the analysis into a structured investigation deliverable. Do NOT propose implementation changes -- produce findings, conclusions, and recommendations. Write your output in this exact format:"
+- Directive: "This is an investigation task. Your job is to synthesize the analysis into a structured investigation deliverable. Do NOT propose implementation changes -- produce findings, conclusions, and recommendations. Flag any NEW constraint, assumption, or ambiguity you discover during deeper investigation that was not flagged in the analysis phase. Mark each with `<!-- n1:unknown: <brief description> -->` inline. Write your output in this exact format:"
 
 ```markdown
 ## Investigation: <title>
@@ -19,6 +19,15 @@ Spawn the solution-architect agent with:
 
 ### Summary
 <1-3 sentence answer>
+
+### Metrics
+- **Files analyzed:** <count of distinct files you read or grepped>
+- **Blast radius:** <low|medium|high> (carry from analysis.md signal, or assess independently)
+- **Confidence:** <high|medium|low> (<N>/<M> findings verified with file:line evidence)
+- **Complexity assessment:** <XS|S|M|L|XL> (based on cross-cutting scope)
+- **Implementable:** <yes|no> -- <one-line reason>
+- **Risk factors:** <none | comma-separated list>
+- **Unknowns resolved:** <N>/<M> (<K> deferred -- from analysis and deliverable Q&A phases)
 
 ### Findings
 - <finding 1 with evidence (file:line references where applicable)>
@@ -36,12 +45,209 @@ Spawn the solution-architect agent with:
 - <file:line or URL cited>
 ```
 
+- Directive: "Compute the Metrics section from your actual work -- files analyzed is the count of distinct files you Read or Grepped, confidence is the ratio of findings with file:line evidence vs total, complexity uses the XS-XL scale based on cross-cutting scope, and implementable reflects whether your recommendations describe concrete code changes."
 - Directive: "Ground every finding in evidence from the codebase (file:line refs) or external sources (URLs). Do not speculate without noting uncertainty."
 - Directive: "Scratch-artifact policy: write any throwaway test or benchmark under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` -- never into the repo's test suite."
 
 After the agent returns:
 - Write its output to `$N1_HOME/memory/<ID>/investigation.md`
 - Update overview: `[x] Investigation deliverable`, set `step: investigation-deliverable`
+
+**Extract and persist signals:**
+
+Parse the `### Metrics` section from the written `investigation.md` to extract signal values:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+
+INV_FILE="$N1_HOME/memory/$ID/investigation.md"
+
+# Extract metrics from investigation.md (POSIX grep -- no -P)
+CONFIDENCE=$(grep -oE '\*\*Confidence:\*\* [a-z]+' "$INV_FILE" | head -1 | sed 's/.*\*\* //')
+IMPLEMENTABLE_RAW=$(grep -oE '\*\*Implementable:\*\* [a-z]+' "$INV_FILE" | head -1 | sed 's/.*\*\* //')
+IMPLEMENTABLE=$([ "$IMPLEMENTABLE_RAW" = "yes" ] && echo "true" || echo "false")
+FINDINGS_COUNT=$(sed -n '/^### Findings$/,/^### /p' "$INV_FILE" | grep -c '^- ' 2>/dev/null || echo "0")
+RECOMMENDATIONS_COUNT=$(sed -n '/^### Recommendations$/,/^### /p' "$INV_FILE" | grep -c '^- ' 2>/dev/null || echo "0")
+
+# Unknowns resolved: count clarifications answered vs total
+UNKNOWNS_TOTAL=$(grep -c '<!-- n1:unknown:' "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null || echo "0")
+UNKNOWNS_ANSWERED=$(grep -c '^\s*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
+UNKNOWNS_RESOLVED="${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
+
+n1_write_signals "$INV_FILE" \
+    "confidence=$CONFIDENCE" \
+    "implementable=$IMPLEMENTABLE" \
+    "unknowns_resolved=$UNKNOWNS_RESOLVED" \
+    "findings_count=$FINDINGS_COUNT" \
+    "recommendations_count=$RECOMMENDATIONS_COUNT"
+```
+
+**Phase 1b -- Deliverable Q&A**
+
+Extract any NEW unknowns flagged by the solution-architect during deliverable production:
+
+```bash
+# Only unknowns in investigation.md (analysis.md unknowns were already handled in the analysis step)
+INV_FILE="$N1_HOME/memory/$ID/investigation.md"
+UNKNOWNS=$(grep -oE '<!-- n1:unknown: [^>]+ -->' "$INV_FILE" | sed 's/<!-- n1:unknown: //;s/ -->//')
+UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
+```
+
+If `UNKNOWN_COUNT` is 0, skip to Phase 2b.
+
+**Interactive mode (not step mode):**
+
+Present each unknown to the user one at a time:
+
+```
+During the investigation, I found {UNKNOWN_COUNT} additional question(s):
+
+1. <first unknown>
+
+Can you clarify this? (type your answer, or "skip" to leave it unresolved)
+```
+
+After collecting answers, append a `### Clarifications` section to `investigation.md` (after `### References`):
+
+```markdown
+### Clarifications
+- **Q:** <unknown text>
+  **A:** <user's answer or "Unresolved -- deferred">
+```
+
+Update the `unknowns_resolved` signal:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+INV_FILE="$N1_HOME/memory/$ID/investigation.md"
+UNKNOWNS_TOTAL=$(grep -c '<!-- n1:unknown:' "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null || echo "0")
+UNKNOWNS_ANSWERED_ANALYSIS=$(grep -c '^\s*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
+UNKNOWNS_ANSWERED_INVEST=$(grep -c '^\s*\*\*A:\*\*' "$INV_FILE" 2>/dev/null || echo "0")
+UNKNOWNS_ANSWERED=$((UNKNOWNS_ANSWERED_ANALYSIS + UNKNOWNS_ANSWERED_INVEST))
+n1_write_signals "$INV_FILE" "unknowns_resolved=${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
+```
+
+**Step mode:**
+
+Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` (one item per line), assigning incrementing IDs (`unknown_1`, `unknown_2`, ...):
+
+```json
+{
+  "run_id": "<N1_RUN_ID>",
+  "step": "investigation-deliverable",
+  "questions": [
+    {
+      "id": "unknown_1",
+      "text": "<first unknown text>",
+      "options": [],
+      "recommendation": "",
+      "context": "Flagged during investigation deliverable -- not covered by analysis"
+    },
+    {
+      "id": "unknown_2",
+      "text": "<second unknown text>",
+      "options": [],
+      "recommendation": "",
+      "context": "Flagged during investigation deliverable -- not covered by analysis"
+    }
+  ]
+}
+```
+
+Include one entry per unknown -- do not limit to the first item.
+
+Write to `$N1_HOME/memory/<ID>/escalation/request.json`. Emit step result:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+n1_emit_step_result "investigation-deliverable" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
+```
+
+On re-entry (when `escalation/response.json` exists and `run_id` matches `N1_RUN_ID`):
+1. Read ALL answers from `response.json` -- iterate over every entry in the `answers` array, matching each answer to its `id` (`unknown_1`, `unknown_2`, ...)
+2. Append `### Clarifications` section to `investigation.md` with one bullet per answered unknown (same format as interactive), using "Unresolved -- deferred" for any skipped or absent answers
+3. Update the `unknowns_resolved` signal (same calculation as interactive mode above)
+4. Delete `$N1_HOME/memory/<ID>/escalation/` directory
+5. Proceed to Phase 2b normally
+
+**Phase 2b -- Tracker Enrichment**
+
+**Gate -- ALL must hold, otherwise skip:**
+1. A tracker ticket ID exists (not a slug -- must match `<prefix>-<number>` or equivalent)
+2. `ticketEnrichment.enabled !== false` in `$N1_HOME/config.json` (default true when absent)
+3. At least one of: `tracker.operations.editTicket` exists OR `tracker.operations.addComment` exists
+
+If the gate fails, log "Tracker enrichment skipped -- no tracker or enrichment disabled." and proceed to Phase 2.
+
+Read config:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+ENRICHMENT_ENABLED=$(n1_config_val ".ticketEnrichment.enabled" "$N1_HOME/config.json")
+HAS_EDIT=$(n1_config_val ".tracker.operations.editTicket" "$N1_HOME/config.json")
+HAS_COMMENT=$(n1_config_val ".tracker.operations.addComment" "$N1_HOME/config.json")
+TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
+TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
+```
+
+**2b-i. Description update (when `HAS_EDIT` is non-empty):**
+
+1. Fetch current ticket description from tracker:
+   - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.readTicket>` with `cloudId` (resolve via `mcp__<TRACKER_MCP>__getAccessibleAtlassianResources` if not cached), `issueIdOrKey`: `<ID>`
+   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.readTicket>` with `issueId`: `<ID>`
+
+2. Check idempotency: if current description contains `*Investigation completed -- N1*`, skip description update.
+
+3. Extract from `investigation.md`: Summary section, Findings section (bullet items only), Metrics (Confidence, Blast radius, Implementable values), Recommendations section (bullet items only).
+
+4. Construct append content:
+   ```
+   ---
+   *Investigation completed -- N1*
+
+   **Summary:** <summary text>
+
+   **Key Findings:**
+   <findings bullet items>
+
+   **Confidence:** <level> | **Blast Radius:** <level> | **Implementable:** <yes/no>
+
+   **Recommendations:**
+   <recommendations bullet items>
+   ```
+
+5. Update via MCP. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix -- the value from config, not from the tool list.
+   - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>` with `cloudId`, `issueIdOrKey`: `<ID>`, `description`: `<current description>\n\n<append content>`
+   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>` with `issueId`: `<ID>`, `description`: `<current description>\n\n<append content>`
+
+6. On MCP failure: log "Warning: Investigation description update failed: <reason>" -- non-blocking.
+
+**2b-ii. Comment (when `HAS_COMMENT` is non-empty):**
+
+Post a structured comment with the full investigation output. Construct:
+
+```
+**Investigation Results (N1)**
+
+**Question:** <question section>
+
+**Summary:** <summary>
+
+**Findings:**
+<all findings with evidence>
+
+**Metrics:**
+<full metrics section>
+
+**Recommendations:**
+<all recommendations>
+
+**Next Steps:**
+<all next steps>
+```
+
+Post via MCP. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix -- the value from config, not from the tool list.
+- If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with `cloudId`, `issueIdOrKey`: `<ID>`, `body`: `<comment>`
+- Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with `issueId`: `<ID>`, `text`: `<comment>`
+
+On MCP failure: log "Warning: Investigation comment failed: <reason>" -- non-blocking.
 
 **Phase 2 -- Discussion**
 
@@ -58,69 +264,161 @@ Would you like to discuss or refine any findings? (yes/no)
 ```
 
 - **If yes:** Enter a back-and-forth conversation with the user. After discussion, update `investigation.md` with any refinements. Do NOT re-spawn the agent -- the orchestrator handles the refinement inline.
-- **If no:** Proceed to follow-up.
+- **If no:** Proceed to post-investigation routing.
 
 **Step mode variant:** In step mode (no interactive channel), skip Phase 2. The findings are written to `investigation.md` and the user can review them asynchronously.
 
-**Phase 3 -- Follow-up Ticket Creation (inline)**
+**Phase 5 -- Post-Investigation Routing (interactive only)**
 
-Check if follow-up is applicable:
-1. Read `$N1_HOME/config.json` for `tracker.mcp` and `tracker.operations.createIssue`
-2. Read the `### Next Steps` section from `investigation.md`
+**Gate:** Skip entirely if step mode. Skip if no tracker is configured (`tracker.mcp` is null or absent).
 
-**If tracker is configured AND next steps exist AND NOT step mode:**
+**Step 1 -- Present results summary:**
 
-Ask the user:
+Read signals from `investigation.md`:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+INV_FILE="$N1_HOME/memory/$ID/investigation.md"
+CONFIDENCE=$(n1_read_signal "$INV_FILE" "confidence")
+IMPLEMENTABLE=$(n1_read_signal "$INV_FILE" "implementable")
+FINDINGS_COUNT=$(n1_read_signal "$INV_FILE" "findings_count")
+RECOMMENDATIONS_COUNT=$(n1_read_signal "$INV_FILE" "recommendations_count")
 ```
-Would you like to create a follow-up ticket for the next steps identified in this investigation?
-1 -- Yes, create a follow-up ticket
-2 -- No, skip
+
+Present:
+```
+Investigation complete.
+
+- {FINDINGS_COUNT} findings (confidence: {CONFIDENCE})
+- {RECOMMENDATIONS_COUNT} recommendations
+- Implementable: {IMPLEMENTABLE == "true" ? "yes" : "no"}
+
+What would you like to do next?
+1 -- Create a new implementation ticket (linked to this investigation)
+2 -- Convert this ticket to an implementation task
+3 -- Done -- no further action needed
 ```
 
-**If 1 (Yes):**
-1. Compose the follow-up ticket:
-   - `<summary>`: First next-step item as title (trimmed to ~80 chars)
-   - `<description>`: All next steps as acceptance criteria, prefixed with:
-     ```
-     Follows investigation <ID> (<ticket URL if available>)
+**Step 2 -- Route based on user choice:**
 
-     ## Next Steps (from investigation)
-     <next steps items as checkboxes>
-     ```
-2. **Resolve ticket tagging** -- same logic as brain-dump ticket creation in `steps/ticket.md`.
-3. Create via MCP -- same tracker-type-specific logic as brain-dump ticket creation in `steps/ticket.md`.
-4. Report: "Created follow-up ticket **[<newID>](<url>)**: <title>"
+**If 1 -- Create new implementation ticket:**
 
-**If 2 (No) or tracker not configured or no next steps:** Skip silently.
+1. Read the `### Recommendations` and `### Summary` sections from `investigation.md`.
+2. Derive title: first recommendation trimmed to ~80 chars, or ask user to provide a title.
+3. Construct description:
+   ```
+   Follows investigation <ID>
 
-**Step mode variant:** In step mode, skip follow-up ticket creation. Write a note to `investigation.md`: "Follow-up ticket creation deferred to interactive session."
+   ## Summary
+   <investigation summary>
 
-**Phase 4 -- Close Investigation Ticket (inline)**
+   ## Acceptance Criteria
+   - [ ] <derived from recommendation 1>
+   - [ ] <derived from recommendation 2>
+   ...
 
-**Gate -- ALL must hold, otherwise skip:**
-- A tracker ticket ID exists (not a slug)
-- `tracker.mcp` is configured
-- `tracker.statuses.done` is present in config
-- NOT step mode
+   ## Scope
+   <scope boundaries derived from findings -- what is in and out of scope>
 
-**If gate passes:**
+   ## Context
+   <relevant key findings as implementation context>
+   ```
 
-Ask the user:
+4. **Resolve ticket tagging** -- same logic as brain-dump ticket creation in `steps/ticket.md`:
+   - Read `ticketTagging` from config. If `ticketTagging.enabled` is true AND `ticketTagging.service` is non-empty: `<summary>` = `<service> | <title>`, `<description>` = `**Service:** <service>\n\n<description>`. Idempotency guard on title prefix.
+   - Otherwise: `<summary>` = title, `<description>` = description as-is.
+
+5. Create ticket via MCP -- same tracker-type-specific logic as brain-dump ticket creation in `steps/ticket.md`. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix -- the value from config, not from the tool list.
+   - If `tracker.type == "jira"`: resolve `cloudId` via `mcp__<TRACKER_MCP>__getAccessibleAtlassianResources` (reuse if already cached), then `mcp__<TRACKER_MCP>__<tracker.operations.createIssue>` with `cloudId`, `projectKey`, `issueTypeName: "Task"`, `summary`, `description`.
+   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.createIssue>` with `project`, `summary`, `description`.
+
+6. **Link to investigation ticket (mandatory invariant):**
+
+   Attempt native linking first:
+   - Read `tracker.operations.createIssueLink` from config.
+   - If the operation exists:
+     - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.createIssueLink>` with `cloudId`, `issueIdOrKey`: `<newID>`, `linkedIssueIdOrKey`: `<ID>`, `linkType`: `"Relates"`. If the operation requires a link type ID, first call `mcp__<TRACKER_MCP>__getIssueLinkTypes` to resolve the `Relates` type ID.
+     - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.createIssueLink>` with `issueId`: `<newID>`, `targetIssueId`: `<ID>`, `linkType`: `"depends on"`.
+   - If the linking operation is absent or fails: the `Follows investigation <ID>` text in the description serves as fallback (it is always present). Log "Warning: Native issue linking failed: <reason> -- text link in description." -- non-blocking.
+
+7. Post comment on the investigation ticket: `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with "Follow-up implementation ticket created: <newID> -- <title>". Non-blocking on failure.
+
+8. Report: "Created follow-up ticket **[<newID>](<url>)**: <title>, linked to investigation <ID>."
+
+9. **Optionally close investigation ticket** -- ask:
+   ```
+   Would you like to close this investigation ticket (<ID>)?
+   1 -- Yes, mark as done
+   2 -- No, leave open
+   ```
+   If yes: transition status and add comment "Investigation completed. Findings documented. Follow-up: <newID>" (see close logic below).
+
+**If 2 -- Convert this ticket to implementation:**
+
+1. **Update ticket type/tags** via `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>`. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix.
+   - If `tracker.type == "jira"`: update `issueTypeName` to "Task" with `cloudId`, `issueIdOrKey`: `<ID>`.
+   - Else (`tracker.type == "youtrack"`): update the `Type` field to "Task" with `issueId`: `<ID>`.
+   - If the operation fails, log the error and continue -- the description enrichment is more important.
+
+2. **Enrich description** -- fetch current description, check idempotency marker `*Converted to implementation -- N1*`. If already present, skip. Otherwise append:
+   ```
+   ---
+   *Converted to implementation -- N1*
+
+   ## Implementation Context
+   <investigation summary>
+
+   ## Acceptance Criteria
+   - [ ] <derived from recommendation 1>
+   - [ ] <derived from recommendation 2>
+   ...
+
+   ## Investigation Findings
+   <key findings as implementation context>
+   ```
+
+   Update via MCP (same Jira/YouTrack pattern as Phase 2b description update). Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix.
+   - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>` with `cloudId`, `issueIdOrKey`: `<ID>`, `description`: `<current description>\n\n<append content>`
+   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>` with `issueId`: `<ID>`, `description`: `<current description>\n\n<append content>`
+
+3. **Post comment:** "Converted from investigation to implementation task. Investigation findings retained in description." Via `mcp__<TRACKER_MCP>__<tracker.operations.addComment>`. Non-blocking on failure.
+   - If `tracker.type == "jira"`: with `cloudId`, `issueIdOrKey`: `<ID>`, `body`: `<comment>`
+   - Else (`tracker.type == "youtrack"`): with `issueId`: `<ID>`, `text`: `<comment>`
+
+4. **No status transition** -- the ticket is not closed. It continues as an active implementation task.
+
+5. Report: "Ticket <ID> converted to implementation task. Run `/n1:n1-start <ID>` to begin implementation."
+
+**If 3 -- Done:**
+
+Ask whether to close the investigation ticket:
 ```
 Would you like to close this investigation ticket (<ID>)?
 1 -- Yes, mark as done
 2 -- No, leave open
 ```
 
-**If 1 (Yes):**
-1. Move status via the operations map (same pattern as n1-finish Step 4):
-   - Jira: `mcp__<tracker.mcp>__<operations.getTransitions>` -> find done transition -> `mcp__<tracker.mcp>__<operations.moveStatus>`
-   - YouTrack: `mcp__<tracker.mcp>__<operations.moveStatus>` with done state
-2. Add comment: `mcp__<tracker.mcp>__<operations.addComment>` with "Investigation completed. Findings documented."
-   If a follow-up ticket was created, append: " Follow-up: <newID>"
+If yes: transition status and add comment "Investigation completed. Findings documented." (see close logic below).
+
+If no: skip.
+
+**Close logic (shared by option 1 and option 3):**
+
+**Gate -- ALL must hold, otherwise skip with warning:**
+- `tracker.mcp` is configured
+- `tracker.statuses.done` is present in config
+- `tracker.operations.moveStatus` exists
+
+If the gate fails, log "Warning: Cannot close ticket -- tracker status configuration missing." and skip.
+
+1. Move status via the operations map:
+   - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.getTransitions>` with `cloudId`, `issueIdOrKey`: `<ID>` -> find the transition matching `tracker.statuses.done` -> `mcp__<TRACKER_MCP>__<tracker.operations.moveStatus>` with `cloudId`, `issueIdOrKey`: `<ID>`, `transitionId`: `<matched transition id>`
+   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.moveStatus>` with `issueId`: `<ID>`, `state`: `<tracker.statuses.done>`
+2. Add comment via `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with the close message.
+   - If `tracker.type == "jira"`: with `cloudId`, `issueIdOrKey`: `<ID>`, `body`: `<comment>`
+   - Else (`tracker.type == "youtrack"`): with `issueId`: `<ID>`, `text`: `<comment>`
 3. Tracker failures: warn, never block.
 
-**If 2 (No):** Skip.
+**Step mode variant:** In step mode, Phase 1b Q&A uses the escalation protocol (same as analysis step). Phase 2b tracker enrichment runs normally. Phase 2 discussion and Phase 5 post-investigation routing are skipped entirely. The step result is unchanged.
 
 **Step result (step mode):**
 ```bash
