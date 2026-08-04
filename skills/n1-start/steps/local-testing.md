@@ -21,6 +21,7 @@ Resolve model for `local-test-planner`.
 
 Spawn the local-test-planner agent with:
 - The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/implementation.md` (what changed, which files), `$N1_HOME/memory/<ID>/ticket.md` (acceptance criteria), and `$N1_HOME/memory/<ID>/plan.md` if it exists, else `$N1_HOME/memory/<ID>/brainstorm.md` (design intent, scope). Their content is NOT inlined here."
+- Read `localTesting.startCommand` from config: `n1_config_val '.localTesting.startCommand'` (default: empty). If non-empty, include in the prompt: "The project has a configured start command: `<value>`. Use this as the app start command instead of auto-detecting."
 - Directive: "Output the plan in this exact structure:"
 
 ```markdown
@@ -36,6 +37,11 @@ Spawn the local-test-planner agent with:
 - **Start command:** <command>
 - **Readiness signal:** <description>
 - **Estimated startup time:** <time>
+
+### Existing E2E Tests
+- **Framework:** <detected framework or "None">
+- **Run command:** <command or "N/A">
+- **Coverage:** <which acceptance criteria these cover, or "None detected">
 
 ### Automated Test Scenarios
 1. **[Critical/Normal] <scenario name>**
@@ -64,7 +70,8 @@ Local Testing Plan for <ID>:
 
 Infrastructure: <services summary or "None needed">
 App start: <start command> → <readiness signal>
-Scenarios: <N> automated checks, <M> manual verification items
+E2E suite: <framework and run command, or "None detected">
+Ad-hoc scenarios: <N> automated checks, <M> manual verification items
 Estimated time: <time estimate>
 ```
 
@@ -81,9 +88,10 @@ Spawn the developer agent with:
 - Directive: "Execute the local test plan. Follow this sequence strictly:"
   - "1. Infrastructure setup: run the start command from the plan. Poll readiness check with a 60s timeout. If infrastructure fails to start, report immediately with the error output and STOP — do not attempt scenarios."
   - "2. App startup: start the app in background. Poll the readiness signal with a 30s timeout. If app fails to start, capture stderr/stdout, report FAIL, run cleanup, and STOP."
-  - "3. Scenario execution: execute each scenario SEQUENTIALLY (not parallel — some may depend on prior state). Record PASS/FAIL per scenario with actual output. Continue through ALL scenarios even if some fail."
-  - "4. Evidence capture: for each scenario, record HTTP response bodies and status codes, command stdout/stderr, relevant app log output, full error context for failures."
-  - "5. Cleanup: ALWAYS runs, even on failure. Kill app process, tear down infrastructure, verify no orphan containers/processes."
+  - "3. Existing e2e tests: if the plan has an 'Existing E2E Tests' section with a run command (not 'N/A' or 'None'), run that command. Record the full output. If no existing e2e suite, skip this step."
+  - "4. Ad-hoc scenario execution: execute each scenario from 'Automated Test Scenarios' SEQUENTIALLY (not parallel — some may depend on prior state). Record PASS/FAIL per scenario with actual output. Continue through ALL scenarios even if some fail. If the plan says 'no ad-hoc scenarios needed', skip this step."
+  - "5. Evidence capture: for each test/scenario, record HTTP response bodies and status codes, command stdout/stderr, relevant app log output, full error context for failures."
+  - "6. Cleanup: ALWAYS runs, even on failure. Kill app process, tear down infrastructure, verify no orphan containers/processes."
 - Directive: "CONSTRAINTS — you MUST follow these:"
   - "Do NOT modify production code — only execute and observe"
   - "Do NOT write or modify tests"
@@ -100,10 +108,17 @@ Spawn the developer agent with:
 ### Application
 - **Status:** Running/Failed (<details>)
 
-### Scenario Results
+### Existing E2E Test Results
+- **Command:** <command run or "Skipped — no e2e suite detected">
+- **Result:** PASS/FAIL/SKIPPED
+- **Details:** <summary or failure output>
+
+### Ad-Hoc Scenario Results
 | # | Scenario | Result | Details |
 |---|----------|--------|---------|
 | 1 | <name> | PASS/FAIL | <details> |
+
+{If no ad-hoc scenarios were planned: "No ad-hoc scenarios — all acceptance criteria covered by existing e2e tests."}
 
 ### Manual Verification Checklist
 - [ ] <item from plan>
@@ -113,7 +128,7 @@ Spawn the developer agent with:
 - App process: <status>
 
 ### Verdict: PASS / FAIL
-<PASS if all automated scenarios passed, FAIL if any failed>
+<PASS if existing e2e tests passed (or were skipped) AND all ad-hoc scenarios passed (or none were needed), FAIL if any failed>
 ```
 
 After the agent returns:
