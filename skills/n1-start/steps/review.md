@@ -60,46 +60,8 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
      source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
      n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
      ```
-4. **If any TQ findings were High** (pre-existing assertion rewriting = potential bug): re-run code-reviewer's TQ dimension only. This is a targeted re-check of test quality, not a full code re-review. Spawn code-reviewer with:
-   - Updated `qa.md`
-   - `testCoverage.tier`
-   - Directive: "Re-evaluate Test Quality only. Check whether the TQ-High findings (assertion rewriting) were resolved. Do not re-review code quality, design, or security."
-   - If new TQ-High findings emerge, loop back to step 1
-5. **If TQ findings were Medium/Low only:** No re-review needed. Proceed to Step 8.
-6. **Bounded:** same `qa.maxFixAttempts` (config, default 3) counter as the QA bug-fix loop. On exhaustion, escalate instead of looping forever.
-
-**Step-mode escalation protocol (TQ fix loop).** In step mode there is no interactive channel — do NOT print a question for the user. When the TQ fix loop exhausts its bound:
-
-1. Write `$N1_HOME/memory/<ID>/escalation/request.json` (create the directory if needed):
-   ```json
-   {
-     "run_id": "<value of the N1_RUN_ID environment variable>",
-     "step": "review",
-     "questions": [{
-       "id": "tq_fix_exhausted",
-       "text": "<one-paragraph description of what is blocked and why, with concrete specifics>",
-       "options": ["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed with remaining findings documented in review.md", "Abort: stop the pipeline"],
-       "recommendation": "<the option you would pick, with a one-line reason>",
-       "context": "<cycles used, remaining [TQ-N]/[CR-N]/[SEC-N]/[CX-N] findings, error excerpts>"
-     }]
-   }
-   ```
-2. Run via Bash:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "review" "escalation" "null" "{\"qa_fix_cycle\":$qa_fix_cycle}" "" "$N1_HOME/memory/$ID"
-   ```
-   Then STOP.
-3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `tq_fix_exhausted`:
-   - "Retry with guidance" → raise the loop ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci), record the guidance in overview `## Escalations`, and continue the fix loop using it.
-   - "Accept as-is" → record the decision in overview `## Escalations` and emit `outcome: "pass"` (the pipeline proceeds with the issue documented in this step's memory file).
-   - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
-
-In full pipeline mode this protocol does NOT apply — keep the interactive prompt below unchanged.
-
-In full pipeline mode: "After <N> QA fix cycles these TQ findings remain: [list]. Please advise."
-
-**After Step 7b completes, recompute the merged verdict:** If the original FAIL was caused solely by TQ-High findings and Step 7b resolved them (no TQ-High findings remain), AND there are no CR-Critical, CR-High, SEC, or CX-Critical/CX-High findings in `review.md`, update the merged verdict to PASS and skip Step 8. Proceed directly to Step 9 (LOCAL TESTING) or Step 10 (PR CREATION).
+4. After QA fixes TQ findings, proceed to Step 8. No re-review needed — TQ findings are non-blocking.
+5. **Bounded:** same `qa.maxFixAttempts` (config, default 3) counter as the QA bug-fix loop. On exhaustion, log remaining TQ findings in `review.md` and proceed to Step 8 — non-blocking findings do not stall the pipeline.
 
 If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX) — unless in step mode with `review_fix_cycle` at its bound, in which case escalate using the protocol below. The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3 — the `review_fix` `max_default` in `pipeline.json`).
 
