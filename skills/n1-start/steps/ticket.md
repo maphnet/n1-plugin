@@ -270,6 +270,23 @@ fi
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" "$TIER"
    ```
 
+**Name the session:**
+After `ID` and `TITLE` are finalized, rename the current Claude Code session so it appears in the session picker:
+```bash
+SESSION_NAME="$ID"
+if [ -n "$TITLE" ]; then
+    # Truncate title so total length (ID + space + title) stays under 50 chars
+    MAX_TITLE_LEN=$(( 50 - ${#ID} - 1 ))
+    if [ ${#TITLE} -gt $MAX_TITLE_LEN ]; then
+        TITLE_SHORT="${TITLE:0:$MAX_TITLE_LEN}"
+    else
+        TITLE_SHORT="$TITLE"
+    fi
+    SESSION_NAME="$ID $TITLE_SHORT"
+fi
+```
+Then run: `/rename $SESSION_NAME`
+
 **Create initial overview.md:**
 ```markdown
 ---
