@@ -97,7 +97,7 @@
     { "name": "pr",             "number": 12, "agent": "tech-writer",           "reads": ["overview.md", "review.md", "qa.md", "implementation.md"], "writes": ["overview.md"] },
     { "name": "ci",             "number": 13, "agent": "developer",             "reads": ["overview.md", "plan.md", "implementation.md"],        "writes": ["overview.md"] },
     { "name": "finish",         "number": 14, "agent": "n1:n1-finish",          "reads": ["overview.md"],                                        "writes": ["overview.md"] },
-    { "name": "investigation-deliverable", "number": 15, "agent": "solution-architect", "reads": ["ticket.md", "analysis.md"], "writes": ["investigation.md"] },
+    { "name": "investigation-deliverable", "number": 15, "agent": "solution-architect", "reads": ["ticket.md", "analysis.md", "brainstorm.md"], "writes": ["investigation.md"] },
     { "name": "release",        "number": 16, "agent": "n1:n1-release",        "reads": ["overview.md"],                                        "writes": [] }
   ],
   "signal_gates": [
