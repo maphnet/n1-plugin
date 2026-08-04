@@ -187,7 +187,7 @@ Skip this phase entirely if `TYPE` is not `"investigation"`.
 
 Extract unknowns from the analysis output:
 ```bash
-UNKNOWNS=$(grep -oP '<!-- n1:unknown: \K[^>]+(?= -->)' "$N1_HOME/memory/$ID/analysis.md")
+UNKNOWNS=$(grep -oE '<!-- n1:unknown: [^>]+ -->' "$N1_HOME/memory/$ID/analysis.md" | sed 's/<!-- n1:unknown: //;s/ -->//')
 UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
 ```
 
@@ -215,7 +215,8 @@ After collecting all answers, append a `### Clarifications` section to `analysis
 
 **Step mode:**
 
-Write an escalation request:
+Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` (one item per line), assigning incrementing IDs (`unknown_1`, `unknown_2`, …):
+
 ```json
 {
   "run_id": "<N1_RUN_ID>",
@@ -223,7 +224,14 @@ Write an escalation request:
   "questions": [
     {
       "id": "unknown_1",
-      "text": "<first unknown>",
+      "text": "<first unknown text>",
+      "options": [],
+      "recommendation": "",
+      "context": "Flagged during investigation analysis — not covered by ticket description"
+    },
+    {
+      "id": "unknown_2",
+      "text": "<second unknown text>",
       "options": [],
       "recommendation": "",
       "context": "Flagged during investigation analysis — not covered by ticket description"
@@ -232,6 +240,8 @@ Write an escalation request:
 }
 ```
 
+Include one entry per unknown — do not limit to the first item.
+
 Write to `$N1_HOME/memory/<ID>/escalation/request.json`. Emit step result:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
@@ -239,8 +249,8 @@ n1_emit_step_result "analysis" "escalation" "null" "null" "" "$N1_HOME/memory/$I
 ```
 
 On re-entry (when `escalation/response.json` exists and `run_id` matches `N1_RUN_ID`):
-1. Read answers from `response.json`
-2. Append `### Clarifications` section to `analysis.md` (same format as interactive)
+1. Read ALL answers from `response.json` — iterate over every entry in the `answers` array, matching each answer to its `id` (`unknown_1`, `unknown_2`, …)
+2. Append `### Clarifications` section to `analysis.md` with one bullet per answered unknown (same format as interactive), using "Unresolved — deferred" for any skipped or absent answers
 3. Delete `$N1_HOME/memory/<ID>/escalation/` directory
 4. Proceed to step result normally
 
