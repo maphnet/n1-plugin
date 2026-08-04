@@ -320,9 +320,9 @@ Configurable QA behavior controlled by `testCoverage.tier` in `$N1_HOME/config.j
 | **minimal** | Maintain + 1–3 focused unit tests per feature, acceptance-criteria-only |
 | **standard** | Minimal + edge cases + error paths, capped at 10 per test file / 3 per group. Unit-level only. |
 
-Cross-tier invariants: broken tests are always fixed, tests for removed functionality are always updated, pre-existing assertions are never silently rewritten. QA never writes tests that require starting the application or making HTTP requests to a running server.
+Cross-tier invariants: broken tests are always fixed, tests for removed functionality are always updated. QA never writes tests that require starting the application or making HTTP requests to a running server.
 
-The code-reviewer evaluates a **Test Quality (TQ)** dimension with `[TQ-N]` prefix findings. TQ-High (assertion rewriting) causes review FAIL; Medium/Low are non-blocking. A TQ fix loop (Step 7b in n1-start) spawns the QA agent to fix flagged tests before the review fix loop.
+The code-reviewer evaluates a **Test Quality (TQ)** dimension with `[TQ-N]` prefix findings (Medium/Low severity, non-blocking). A TQ fix loop (Step 7b in n1-start) spawns the QA agent to fix flagged tests before the review fix loop.
 
 ### Error Tracking Routing
 
