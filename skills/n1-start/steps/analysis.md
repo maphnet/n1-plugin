@@ -44,7 +44,7 @@ Spawn the solution-architect agent with:
   Pass the value explicitly so the architect knows whether to perform bug investigation
 - Directive: "Research relevant industry standards, best practices, and practitioner experience per agents/research-standards.md and include the cited Industry Standards & Best Practices section."
 - Directive: "Scratch-artifact policy: write any throwaway benchmark or investigative/spike test (one that answers a current question rather than verifying committed code) under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Tests that verify the implementation still go into the repo as usual. When unsure, default to scratch."
-- **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** Also pass: "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan."
+- **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** Also pass: "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan. Flag any constraint, assumption, or ambiguity you discover that is not covered by the ticket description. Mark each with `<!-- n1:unknown: <brief description of the unknown> -->` inline in your output so the orchestrator can extract them for user clarification."
 - **When `$RULES_BLOCK` is non-empty**, append it after the directives above.
 - **When `CACHE_ENABLED` is `true`**, also append this OUTPUT FORMAT REQUIREMENT at end of prompt:
 
@@ -175,6 +175,74 @@ if [ "$TYPE" != "investigation" ]; then
     n1_compact_memory "$N1_HOME/memory/$ID/analysis.md" "conclusions,affected files,blast radius,risks,industry standards,bug investigation,tier"
 fi
 ```
+
+**Phase 3 — Investigation Q&A (investigation-only):**
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
+```
+
+Skip this phase entirely if `TYPE` is not `"investigation"`.
+
+Extract unknowns from the analysis output:
+```bash
+UNKNOWNS=$(grep -oP '<!-- n1:unknown: \K[^>]+(?= -->)' "$N1_HOME/memory/$ID/analysis.md")
+UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
+```
+
+If `UNKNOWN_COUNT` is 0, skip to Step result.
+
+**Interactive mode (not step mode):**
+
+Present each unknown to the user one at a time:
+
+```
+During analysis, I found {UNKNOWN_COUNT} item(s) not covered by the ticket:
+
+1. <first unknown>
+
+Can you clarify this? (type your answer, or "skip" to leave it unresolved)
+```
+
+After collecting all answers, append a `### Clarifications` section to `analysis.md`:
+
+```markdown
+### Clarifications
+- **Q:** <unknown text>
+  **A:** <user's answer or "Unresolved — deferred">
+```
+
+**Step mode:**
+
+Write an escalation request:
+```json
+{
+  "run_id": "<N1_RUN_ID>",
+  "step": "analysis",
+  "questions": [
+    {
+      "id": "unknown_1",
+      "text": "<first unknown>",
+      "options": [],
+      "recommendation": "",
+      "context": "Flagged during investigation analysis — not covered by ticket description"
+    }
+  ]
+}
+```
+
+Write to `$N1_HOME/memory/<ID>/escalation/request.json`. Emit step result:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+n1_emit_step_result "analysis" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
+```
+
+On re-entry (when `escalation/response.json` exists and `run_id` matches `N1_RUN_ID`):
+1. Read answers from `response.json`
+2. Append `### Clarifications` section to `analysis.md` (same format as interactive)
+3. Delete `$N1_HOME/memory/<ID>/escalation/` directory
+4. Proceed to step result normally
 
 **Step result (step mode):**
 ```bash
