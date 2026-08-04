@@ -1277,10 +1277,6 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
    - Propose a `deny` rule if a lockfile exists: "no direct edits to `<lockfile>`" with `deny.paths: ["<lockfile>"]`
      - `topic: ops`, `applies_to: [developer, implementer]`, `enforcement: deny`
 
-   **From CI detection:**
-   - If `.github/workflows/` exists: propose a `deny` rule against editing CI workflows: `deny.paths: [".github/workflows/**"]`
-     - `topic: ops`, `applies_to: [developer, implementer]`, `enforcement: deny`
-
    **From analysis cache snapshot (when available):**
    - If `$N1_HOME/cache/project-snapshot.md` exists, read its conventions section and propose `gate` rules for any convention that is checkable
 
