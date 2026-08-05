@@ -99,19 +99,17 @@ If `ciChecks.enabled` is explicitly `false`: "CI checks are disabled in config."
 
 ### Phase 2 — Poll until resolution (up to 30 min total)
 
-Each iteration is a **separate shell command** — never a loop:
+Poll via `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call:
 
-1. Run `gh pr checks <PR#> --json name,state,conclusion,detailsUrl`.
-2. Parse the JSON. Count checks by state:
-   - **Passed:** `conclusion` is `SUCCESS`, `NEUTRAL`, or `SKIPPED`
-   - **Failed:** `conclusion` is `FAILURE`
-   - **Pending:** `state` is not `COMPLETED`
-3. Report: `"CI: N passed, M failed, K pending of T total"`
-4. **Decision tree:**
-   - All completed, none failed → proceed to **Step 4** (all green)
-   - All completed, some failed → proceed to **Step 4** (evaluate failures)
-   - **Some failed, others still pending → enter Phase 3** (grace period)
-   - None failed, some still pending → run `sleep 30`, then repeat from step 1
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/poll.sh"
+n1_wait_ci_checks <PR#> <remaining-minutes>
+```
+
+Re-invoke while it prints `pending` and the 30-minute budget remains. On each return:
+- `green` → proceed to **Step 4** (all green)
+- `red` → run one detailed `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` to enumerate the failures, then apply the existing Phase 3 grace-period rule (up to 2 more `n1_wait_ci_checks` calls with `<max-minutes>` = 1) and proceed to **Step 4**
+- `pending` at budget exhaustion → (existing 30-minute timeout text unchanged)
 5. **Timeout:** If 30 minutes of total polling time have elapsed and checks are still pending → report which checks are still pending, ask user: "CI checks are still running after 30 minutes. Wait longer or skip?" **STOP and wait for user response.**
 
 ### Phase 3 — Failure grace period (max 60s)

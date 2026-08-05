@@ -64,7 +64,7 @@ When invoked from `n1-start --step finish`, the orchestrator passes step-mode co
 
 ## Step 2: Merge State Machine (PR path)
 
-> **Polling discipline:** every poll is a separate, individual shell command; sleep between polls via standalone `sleep 30`. NEVER a bash `while` loop or background process.
+> **Polling discipline:** merge-waiting uses `n1_wait_pr_merged` from `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call. Re-invoke until it prints a terminal state or the `waitForMergeMinutes` budget is spent. Never poll one-`gh`-call-per-model-turn.
 
 Evaluate the PR state:
 
@@ -77,9 +77,15 @@ Evaluate the PR state:
       gh pr merge <n> --auto --<mergeMethod> --delete-branch
       ```
       `--auto` respects branch protection (required approvals, checks, merge queues). If the command itself is rejected (e.g. auto-merge disabled on the repo and checks pending), retry once with the direct form `gh pr merge <n> --<mergeMethod> --delete-branch`; if that is also rejected, before treating the failure as fatal re-check `gh pr view <n> --json state` — if the PR is `MERGED`, treat the merge as successful and continue to Step 3; otherwise report GitHub's error verbatim and **STOP** (step mode: `outcome: "fail"`).
-   c. Bounded wait for merged state — up to `waitForMergeMinutes` total: poll `gh pr view <n> --json state,mergeCommit` (separate command), `sleep 30` between polls.
-      - Becomes `MERGED` → capture SHA, go to Step 3.
-      - Still `OPEN` at timeout:
+   c. Bounded wait for merged state — up to `waitForMergeMinutes` total:
+      ```bash
+      source "${CLAUDE_PLUGIN_ROOT}/lib/poll.sh"
+      n1_wait_pr_merged <n> <remaining-minutes>
+      ```
+      Repeat the call (subtracting elapsed minutes) while it prints `open` and budget remains.
+      - Prints `merged <sha>` → capture SHA, go to Step 3.
+      - Prints `closed` → treat as Step 2 case 2 (closed without merging).
+      - Budget exhausted, still `open`:
         - **Standalone:** "PR #<n> is not merged yet — waiting on reviewer approval. Re-run `/n1:n1-finish` after the merge; the command is idempotent." **STOP.**
         - **Step mode:** escalate with id `merge_wait_timeout` (see Escalation), then emit `outcome: "escalation"` and **STOP.**
 
