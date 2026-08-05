@@ -256,6 +256,29 @@ Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | nothing t
 Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
 ```
 
+**Release routing (standalone/interactive only, when `release.enabled` is `true` and the merge succeeded):** after printing the report, ask:
+
+```
+Release this now?
+1 — Now: run /n1:n1-release (I will suggest it; you invoke it)
+2 — Later: nothing recorded
+3 — Batch: queue this ticket for the next release
+```
+
+- **1** → report `Next: /n1:n1-release` and STOP — do NOT invoke it yourself; releases are human-initiated.
+- **2** → nothing to do.
+- **3** → append to `$N1_HOME/pending-releases.json` (create as `{"pending": []}` if absent):
+  ```bash
+  TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  F="$N1_HOME/pending-releases.json"
+  [ -f "$F" ] || printf '{"pending": []}\n' > "$F"
+  TMP=$(jq --arg id "$ID" --arg sha "$MERGE_SHA" --arg ts "$TS" \
+      '.pending += [{"id": $id, "merged_sha": $sha, "added": $ts}]' "$F")
+  printf '%s\n' "$TMP" > "$F"
+  ```
+
+In step mode, skip this question entirely — the `Next (manual): /n1:n1-release` line in the report above covers step-mode output.
+
 On non-complete exits, state exactly what stopped the flow and what the user should do (re-run command, fix CI, resolve conflict).
 
 ## Idempotency
