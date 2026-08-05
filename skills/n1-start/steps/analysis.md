@@ -44,7 +44,15 @@ Spawn the solution-architect agent with:
   Pass the value explicitly so the architect knows whether to perform bug investigation
 - Directive: "Research relevant industry standards, best practices, and practitioner experience per agents/research-standards.md and include the cited Industry Standards & Best Practices section."
 - Directive: "Scratch-artifact policy: write any throwaway benchmark or investigative/spike test (one that answers a current question rather than verifying committed code) under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Tests that verify the implementation still go into the repo as usual. When unsure, default to scratch."
-- **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** Also pass: "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan. Flag any constraint, assumption, or ambiguity you discover that is not covered by the ticket description. Mark each with `<!-- n1:unknown: <brief description of the unknown> -->` inline in your output so the orchestrator can extract them for user clarification."
+- **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** Also pass: "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan.
+
+    When you encounter a constraint, assumption, or ambiguity not covered by the ticket description, classify it before acting:
+
+    - **A -- blocking:** Only a human can answer -- business intent, stakeholder preference, requirement ambiguity with no codebase evidence either way. Mark with `<!-- n1:unknown: <brief description> -->` inline.
+    - **B -- significant:** The codebase likely contains the answer. You MUST explore (Read/Grep/Glob) before classifying. If you find evidence, resolve it inline and mark with `<!-- n1:resolved: <question> → <answer (file:line evidence)> -->`. If exploration is inconclusive, escalate to A.
+    - **C -- convention:** Answerable from project patterns or standard practice. Resolve silently -- no marker needed.
+
+    Default to B. Only classify as A after a genuine exploration attempt fails. The goal: the user should never be asked a question you could have answered by reading the code."
 - **When `$RULES_BLOCK` is non-empty**, append it after the directives above.
 - **When `CACHE_ENABLED` is `true`**, also append this OUTPUT FORMAT REQUIREMENT at end of prompt:
 
@@ -164,7 +172,17 @@ if [ -n "$SIGNAL_LINE" ]; then
     PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //')
     n1_write_signals "$N1_HOME/memory/$ID/analysis.md" $PAIRS
 fi
+
+# Self-resolved unknowns (investigation mode)
+SELF_RESOLVED=$(grep -c '<!-- n1:resolved:' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
+if [ "$SELF_RESOLVED" -gt 0 ]; then
+    n1_write_signals "$N1_HOME/memory/$ID/analysis.md" "self_resolved=$SELF_RESOLVED"
+fi
 ```
+
+If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`:
+
+| analysis | scope | B | [auto] | {SELF_RESOLVED} unknowns answerable from codebase | Self-resolved via Read/Grep/Glob | — | B/C tier classification -- see `<!-- n1:resolved: -->` markers in analysis.md |
 
 **Compact analysis memory (non-investigation only):**
 ```bash
