@@ -5,7 +5,11 @@
 
 **Full pipeline + investigation mode** (no `--step` flag, AND `TYPE == "investigation"` from overview.md frontmatter): Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). Pass the investigation focus override (see Investigation mode section below). After the autonomous brainstormer returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Post-Brainstorm Enrichment gate.
 
-**Full pipeline + non-investigation mode** (no `--step` flag, normal task): Use the interactive brainstormer:
+**Full pipeline + non-investigation mode** (no `--step` flag, normal task): route by autonomy config:
+
+```bash
+BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
+```
 
 Read the test coverage tier from config and resolve matching rules:
 ```bash
@@ -22,6 +26,9 @@ if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
     fi
 fi
 ```
+
+- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` in **interactive escalation mode** — tell it: "interactive escalation mode: you have a user-facing session; ask A-tier and inconclusive-dominance questions inline, one at a time; write [auto]/[asked] ledger rows per skills/n1-start/ledger.md." Also pass the test-coverage-tier directive and `$RULES_BLOCK` (same way the interactive path passes them). After it returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies).
+- **`BRAINSTORM_MODE` == `interactive` (default):** Use the interactive brainstormer:
 
 **REQUIRED SUB-SKILL:** Use superpowers:brainstorming to explore the scope and refine the approach.
 

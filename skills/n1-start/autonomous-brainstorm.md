@@ -196,5 +196,5 @@ The `next_step` is `null` — the n1-start orchestrator reads `planning_need` fr
 - **YAGNI ruthlessly** — remove unnecessary features from all designs
 - **Design for isolation** — clear boundaries, well-defined interfaces
 - **Follow existing patterns** — explore the codebase before proposing
-- **No interactive gates** — you cannot ask the user. Use evidence.
+- **Interactive gates are mode-scoped** — in step mode you cannot ask the user (use evidence); in interactive escalation mode you CAN ask for A-tier questions and inconclusive dominance tests, one at a time.
 - **Escalate sparingly** — only when the dominance test fails
