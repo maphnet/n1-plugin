@@ -1094,6 +1094,37 @@ Current test coverage tier: <current value>
 
 If `testCoverage` is absent from the current config, run the fresh-setup flow above.
 
+## Autonomy Configuration
+
+Ask:
+
+```
+How autonomous should pipeline runs be?
+
+1 — Interactive (default): the pipeline asks at every decision point
+2 — Hands-off: mechanical prompts (ticket creation, stash/branch handling) auto-resolve with safe defaults; every autonomous decision is logged to a Decision Ledger and rendered in the PR body for review
+```
+
+- **1** → write `"autonomy": { "brainstorm": "interactive", "mechanicalPrompts": "ask", "qualityEscalations": "block", "tailChain": "suggest" }`
+- **2** → write `"autonomy": { "brainstorm": "auto", "mechanicalPrompts": "auto", "qualityEscalations": "block", "tailChain": "suggest" }`
+
+Then ask **only when option 2 was chosen**:
+
+```
+At quality-gate exhaustion (QA/review fix loops out of attempts), should the run:
+
+1 — Block and ask (default, recommended)
+2 — Accept the recommendation, record it as a tier-A ledger entry, and continue to PR
+```
+
+- **2** → set `"qualityEscalations": "auto-accept"` in the block above.
+
+Note in the summary output: security, architecture, and public-API escalations always block regardless of this setting, and releases are always manual.
+
+### On reconfiguration (n1-init re-run):
+
+If `autonomy` already exists in the current config, show current values and re-ask both questions (following the same flow as fresh setup).
+
 ## Review Configuration
 
 Use `minCleanPasses: 1` by default. **Do NOT ask** the user about this unless they explicitly requested review customization when invoking n1-init.

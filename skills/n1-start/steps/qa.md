@@ -109,6 +109,18 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 
 In full pipeline mode this protocol does NOT apply — keep the interactive prompt below unchanged.
 
+**Autonomy gate (full pipeline only):** read the policy first:
+
+```bash
+QE=$(n1_autonomy_val 'qualityEscalations')
+```
+
+If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — accept the current state as-is, note the unresolved items, and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
+
+`| qa | quality | A | [auto] | <what remained unresolved after N attempts> | Accept as-is, proceed | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review |`
+
+Then continue the pipeline as if the user had chosen the recommended option. Otherwise (policy `block`, or safety-relevant): ask as below.
+
 In full pipeline mode: "After <N> QA fix cycles this test still fails: [details]. Please advise."
 
 **Step result (step mode) — pass path:**

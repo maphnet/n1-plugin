@@ -62,6 +62,18 @@ After developer returns:
 
 In full pipeline mode this protocol does NOT apply — keep the interactive prompt below unchanged.
 
+**Autonomy gate (full pipeline only):** read the policy first:
+
+```bash
+QE=$(n1_autonomy_val 'qualityEscalations')
+```
+
+If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — accept the developer's best-effort resolution as-is, note the ambiguity, and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
+
+`| fix | quality | A | [auto] | <ambiguity the developer encountered during fix cycle> | Accept developer resolution, proceed | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review |`
+
+Then continue the pipeline as if the user had chosen the recommended option. Otherwise (policy `block`, or safety-relevant): ask as below.
+
 In full pipeline mode: "The developer encountered an ambiguity during this fix cycle that requires your input: [details]. Please advise."
 
 If the combined Step-7 verdict is PASS:

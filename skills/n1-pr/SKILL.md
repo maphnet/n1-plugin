@@ -128,6 +128,8 @@ Pass to tech-writer:
 ### If mode is `confirm`:
 After tech-writer completes Phase 1 scan, present findings to the user:
 
+**Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, do not ask — proceed with the recommended action (apply the doc updates) and append a Decision Ledger row per `skills/n1-start/ledger.md` (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass these prompts via `docUpdateMode: "autonomous"`; this gate only aligns standalone runs.
+
 ```
 Documentation scan complete.
 
@@ -163,6 +165,8 @@ Spawn tech-writer with:
 - Doc update report from Step 2 Phase 1 (updated/flagged/needs_review lists) — for the Documentation section in the PR body
 
 The tech-writer agent returns a structured PR title and body.
+
+**Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, do not ask — proceed with the recommended action (create the PR as composed) and append a Decision Ledger row per `skills/n1-start/ledger.md` (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass these prompts via `docUpdateMode: "autonomous"`; this gate only aligns standalone runs.
 
 Present the generated title and body to the user. Ask: **"Create PR with this content? (yes/edit/cancel)"**
 

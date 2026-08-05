@@ -64,7 +64,7 @@ When invoked from `n1-start --step finish`, the orchestrator passes step-mode co
 
 ## Step 2: Merge State Machine (PR path)
 
-> **Polling discipline:** every poll is a separate, individual shell command; sleep between polls via standalone `sleep 30`. NEVER a bash `while` loop or background process.
+> **Polling discipline:** merge-waiting uses `n1_wait_pr_merged` from `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call. Re-invoke until it prints a terminal state or the `waitForMergeMinutes` budget is spent. Never poll one-`gh`-call-per-model-turn.
 
 Evaluate the PR state:
 
@@ -77,9 +77,15 @@ Evaluate the PR state:
       gh pr merge <n> --auto --<mergeMethod> --delete-branch
       ```
       `--auto` respects branch protection (required approvals, checks, merge queues). If the command itself is rejected (e.g. auto-merge disabled on the repo and checks pending), retry once with the direct form `gh pr merge <n> --<mergeMethod> --delete-branch`; if that is also rejected, before treating the failure as fatal re-check `gh pr view <n> --json state` — if the PR is `MERGED`, treat the merge as successful and continue to Step 3; otherwise report GitHub's error verbatim and **STOP** (step mode: `outcome: "fail"`).
-   c. Bounded wait for merged state — up to `waitForMergeMinutes` total: poll `gh pr view <n> --json state,mergeCommit` (separate command), `sleep 30` between polls.
-      - Becomes `MERGED` → capture SHA, go to Step 3.
-      - Still `OPEN` at timeout:
+   c. Bounded wait for merged state — up to `waitForMergeMinutes` total:
+      ```bash
+      source "${CLAUDE_PLUGIN_ROOT}/lib/poll.sh"
+      n1_wait_pr_merged <n> <remaining-minutes>
+      ```
+      Repeat the call (subtracting elapsed minutes) while it prints `open` and budget remains.
+      - Prints `merged <sha>` → capture SHA, go to Step 3.
+      - Prints `closed` → treat as Step 2 case 2 (closed without merging).
+      - Budget exhausted, still `open`:
         - **Standalone:** "PR #<n> is not merged yet — waiting on reviewer approval. Re-run `/n1:n1-finish` after the merge; the command is idempotent." **STOP.**
         - **Step mode:** escalate with id `merge_wait_timeout` (see Escalation), then emit `outcome: "escalation"` and **STOP.**
 
@@ -205,6 +211,8 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "finish"
    ```
+   Also delete the `## Pending` section from overview.md if present (the merge is no longer pending). If finish exits without a merge (timeout paths), instead update only its `last_checked` line with `date -u +%Y-%m-%dT%H:%M:%SZ`.
+
    Standalone without memory: skip silently.
 
 ## Escalation (step mode only)
@@ -245,7 +253,31 @@ PR: <url> — merged (<method>, by <auto-merge|reviewer|local merge>)
 Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
 Ticket: <ID> → <done status> / left open (<reason>) / tracker not configured
 Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | nothing to do>
+Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
 ```
+
+**Release routing (standalone/interactive only, when `release.enabled` is `true` and the merge succeeded):** after printing the report, ask:
+
+```
+Release this now?
+1 — Now: run /n1:n1-release (I will suggest it; you invoke it)
+2 — Later: nothing recorded
+3 — Batch: queue this ticket for the next release
+```
+
+- **1** → report `Next: /n1:n1-release` and STOP — do NOT invoke it yourself; releases are human-initiated.
+- **2** → nothing to do.
+- **3** → append to `$N1_HOME/pending-releases.json` (create as `{"pending": []}` if absent):
+  ```bash
+  TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  F="$N1_HOME/pending-releases.json"
+  [ -f "$F" ] || printf '{"pending": []}\n' > "$F"
+  TMP=$(jq --arg id "$ID" --arg sha "$MERGE_SHA" --arg ts "$TS" \
+      '.pending += [{"id": $id, "merged_sha": $sha, "added": $ts}]' "$F")
+  printf '%s\n' "$TMP" > "$F"
+  ```
+
+In step mode, skip this question entirely — the `Next (manual): /n1:n1-release` line in the report above covers step-mode output.
 
 On non-complete exits, state exactly what stopped the flow and what the user should do (re-run command, fix CI, resolve conflict).
 
