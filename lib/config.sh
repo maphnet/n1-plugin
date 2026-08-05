@@ -229,6 +229,27 @@ n1_codex_val() {
     n1_config_val ".codexReview.${key}"
 }
 
+n1_autonomy_val() {
+    # Usage: n1_autonomy_val <key>
+    # Reads .autonomy.<key> from config with hardcoded safe defaults.
+    # Safe defaults preserve pre-autonomy behavior exactly.
+    local key="$1"
+    local val
+    val=$(n1_config_val ".autonomy.${key}")
+    if [ -n "$val" ]; then
+        printf '%s' "$val"
+        return
+    fi
+    case "$key" in
+        brainstorm)         printf 'interactive' ;;
+        mechanicalPrompts)  printf 'ask' ;;
+        qualityEscalations) printf 'block' ;;
+        tailChain)          printf 'suggest' ;;
+        escalationMargin)   printf '0.15' ;;
+        *)                  printf '' ;;
+    esac
+}
+
 n1_codex_available() {
     local enabled
     enabled=$(n1_codex_val 'enabled')
