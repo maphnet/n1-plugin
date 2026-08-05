@@ -105,7 +105,7 @@ Compile three lists for use in Phase 2:
 
 Generate the PR title and body from implementation context.
 
-1. **Read overview.md** for ticket title, key decisions made during implementation, and any escalations.
+1. **Read overview.md** for ticket title, key decisions made during implementation, any escalations, and the `## Decision Ledger` table (if present).
 
 2. **Read review.md** for review results — what was found and fixed during review.
 
@@ -138,9 +138,14 @@ Generate the PR title and body from implementation context.
 
    If local-testing.md was NOT provided, skip this step entirely — all QA items become plain unchecked checkboxes with no summary line.
 
-6. **Analyze diff stat** to understand the scope of changes (which areas of the codebase were touched).
+6. **Render the Decision Ledger.** If overview.md contains a `## Decision Ledger` section with at least one data row, add a `## Decisions` section to the PR body. One bullet per row, ordered tier A → B → C, and `[auto]` before `[asked]` within a tier:
+   - `- **[auto/asked] <question>** — <chosen>. *(<reason>)*` — include `(alternatives: <...>)` only for tier A rows.
+   - Tier A rows are the ones the reviewer must actually judge — never omit them, even under the word budget. Tier C rows may be collapsed to a single line: `- N routine decisions made autonomously (see overview.md ledger)` when the body would otherwise exceed the 500-word budget.
+   If there is no ledger section or it has no rows, omit the `## Decisions` section entirely.
 
-7. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1.
+7. **Analyze diff stat** to understand the scope of changes (which areas of the codebase were touched).
+
+8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1.
 
 ## Output Format
 
@@ -169,6 +174,10 @@ Local testing: PASS — N/N automated scenarios passed
 - [ ] <description>
 - [ ] <description> *(manual check)*
 
+## Decisions
+- **[auto] <question>** — <chosen>. *(<reason>)* (alternatives: <...>)
+- **[asked] <question>** — <chosen>. *(<reason>)*
+
 ## Documentation
 - **Updated:** <file> — <what was updated> (high confidence)
 - **Flagged:** <file> — <what was updated, reviewer should verify> (low confidence)
@@ -182,6 +191,8 @@ Local testing: PASS — N/N automated scenarios passed
 ```
 
 **Note:** Omit the Documentation section entirely if Phase 1 found no documentation files to update, flag, or note.
+
+**Note:** Omit the Decisions section entirely when overview.md has no `## Decision Ledger` rows. Tier A entries are never dropped for budget reasons.
 
 **Note:** The `## Verification` section is always included. When local-testing.md was provided, include the summary line at top and apply evidence/failure/manual-check annotations per the merge rules in step 5. When local-testing.md was NOT provided, omit the summary line and all annotations — list QA items as plain unchecked checkboxes:
 
