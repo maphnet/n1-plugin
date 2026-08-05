@@ -61,7 +61,19 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
      n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
      ```
 4. After QA fixes TQ findings, proceed to Step 8. No re-review needed — TQ findings are non-blocking.
-5. **Bounded:** same `qa.maxFixAttempts` (config, default 3) counter as the QA bug-fix loop. On exhaustion, log remaining TQ findings in `review.md` and proceed to Step 8 — non-blocking findings do not stall the pipeline.
+5. **Bounded:** same `qa.maxFixAttempts` (config, default 3) counter as the QA bug-fix loop. On exhaustion:
+
+   **Autonomy gate (full pipeline only):** read the policy first:
+
+   ```bash
+   QE=$(n1_autonomy_val 'qualityEscalations')
+   ```
+
+   If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): accept the current state as-is and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
+
+   `| review | quality | A | [auto] | <TQ findings that remained unresolved after N attempts> | Accept as-is, proceed | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review |`
+
+   Then proceed to Step 8. Otherwise (policy `block`, or safety-relevant): log remaining TQ findings in `review.md` and proceed to Step 8 — non-blocking findings do not stall the pipeline.
 
 If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX) — unless in step mode with `review_fix_cycle` at its bound, in which case escalate using the protocol below. The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3 — the `review_fix` `max_default` in `pipeline.json`).
 
@@ -93,6 +105,18 @@ If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX) — unle
    - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
 
 In full pipeline mode this protocol does NOT apply — keep the interactive prompt unchanged.
+
+**Autonomy gate (full pipeline only):** read the policy first:
+
+```bash
+QE=$(n1_autonomy_val 'qualityEscalations')
+```
+
+If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — accept the current state as-is, note the unresolved findings, and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
+
+`| review | quality | A | [auto] | <findings that remained unresolved after N fix cycles> | Accept as-is, proceed | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review |`
+
+Then continue the pipeline as if the user had chosen the recommended option. Otherwise (policy `block`, or safety-relevant): ask as below.
 
 In full pipeline mode: "After `review.maxFixAttempts` (default 3) review cycles, these findings remain unresolved: [list]. Please advise."
 

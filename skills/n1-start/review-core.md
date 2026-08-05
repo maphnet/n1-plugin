@@ -21,7 +21,7 @@ Reviewer selection follows directly:
 - `security-reviewer` runs **iff `SECURITY_RELEVANT`** — skip on doc/config-only or clearly non-security code diffs.
 - Codex runs **iff** the preflight script reports `available:true` (see below) AND **not** `DOC_CONFIG_ONLY`.
 
-Record every skip explicitly in `review.md` (e.g. `"⚠ security-reviewer skipped — no security-relevant surface in diff"`, `"⚠ Codex skipped — documentation/config-only diff"`) so a missing reviewer is never mistaken for a PASS.
+Record every skip explicitly in `review.md` (e.g. `"⚠ security-reviewer skipped — no security-relevant surface in diff"`, `"⚠ Codex skipped — documentation/config-only diff"`) so a missing reviewer is never mistaken for a PASS. Additionally append a Decision Ledger row (`skills/n1-start/ledger.md`) to overview.md for each skipped reviewer: `| review | scope | C | [auto] | Run <reviewer>? | Skipped | Run | <skip reason, e.g. doc/config-only diff> |`.
 
 ## Gate Rule Injection (conditional)
 

@@ -618,7 +618,9 @@ Proceed directly to implementation. Log: "Plan review passed — proceeding to i
 
 ### 7. REVIEW
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/review.md`.
+**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/review.md`. That step references `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/review-core.md` for shared diff-surface classification, Codex gating, and reviewer scope rules.
+
+Autonomous decisions made anywhere in the pipeline are recorded per `skills/n1-start/ledger.md` (Decision Ledger in overview.md, rendered into the PR body).
 
 ### 8. FIX (if review failed)
 
