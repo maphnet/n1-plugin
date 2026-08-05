@@ -243,11 +243,11 @@ In full pipeline mode this protocol does NOT apply — keep the interactive prom
 QE=$(n1_autonomy_val 'qualityEscalations')
 ```
 
-If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — skip local testing and proceed to PR with failures documented, and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
+If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — skip local testing and proceed to PR with failures documented — update overview.md: check `[x] Local Testing`, add key decision `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)` to `## Escalations`, then proceed to Step 10 (PR). Append a Decision Ledger row per `skills/n1-start/ledger.md`:
 
 `| local-testing | quality | A | [auto] | <scenarios that still fail after N fix cycles> | Skip local testing, proceed to PR | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review |`
 
-Then continue the pipeline as if the user had chosen option 2. Otherwise (policy `block`, or safety-relevant): ask as below.
+Otherwise (policy `block`, or safety-relevant): ask as below.
 
 In full pipeline mode: "After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
   - "1 — Fix manually, type 'continue' to re-test"
