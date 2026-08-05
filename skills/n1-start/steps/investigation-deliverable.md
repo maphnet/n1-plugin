@@ -9,7 +9,17 @@ Spawn the solution-architect agent with:
 - Path to `$N1_HOME/memory/<ID>/ticket.md` -- instruct: "Read this file yourself; it contains the investigation question."
 - Path to `$N1_HOME/memory/<ID>/analysis.md` -- instruct: "Read this file yourself; it contains codebase analysis and findings. If it contains a `### Clarifications` section, treat those as answered questions -- incorporate the answers into your synthesis."
 - Path to `$N1_HOME/memory/<ID>/brainstorm.md` (if it exists) -- instruct: "Read this file yourself; it contains additional research and design exploration."
-- Directive: "This is an investigation task. Your job is to synthesize the analysis into a structured investigation deliverable. Do NOT propose implementation changes -- produce findings, conclusions, and recommendations. Flag any NEW constraint, assumption, or ambiguity you discover during deeper investigation that was not flagged in the analysis phase. Mark each with `<!-- n1:unknown: <brief description> -->` inline. Write your output in this exact format:"
+- Directive: "This is an investigation task. Your job is to synthesize the analysis into a structured investigation deliverable. Do NOT propose implementation changes -- produce findings, conclusions, and recommendations.
+
+    When you encounter a NEW constraint, assumption, or ambiguity not flagged in the analysis phase (check both the `### Clarifications` section and `<!-- n1:resolved: -->` markers in analysis.md -- do not re-flag already-resolved items), classify it before acting:
+
+    - **A -- blocking:** Only a human can answer -- business intent, stakeholder preference, requirement ambiguity with no codebase evidence either way. Mark with `<!-- n1:unknown: <brief description> -->` inline.
+    - **B -- significant:** The codebase likely contains the answer. You MUST explore (Read/Grep/Glob) before classifying. If you find evidence, resolve it inline and mark with `<!-- n1:resolved: <question> → <answer (file:line evidence)> -->`. If exploration is inconclusive, escalate to A.
+    - **C -- convention:** Answerable from project patterns or standard practice. Resolve silently -- no marker needed.
+
+    Default to B. Only classify as A after a genuine exploration attempt fails. The goal: the user should never be asked a question you could have answered by reading the code.
+
+    Write your output in this exact format:"
 
 ```markdown
 ## Investigation: <title>
@@ -74,13 +84,21 @@ UNKNOWNS_TOTAL=$(cat "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null |
 UNKNOWNS_ANSWERED=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
 UNKNOWNS_RESOLVED="${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
 
+# Self-resolved unknowns in deliverable
+SELF_RESOLVED=$(grep -c '<!-- n1:resolved:' "$INV_FILE" 2>/dev/null || echo "0")
+
 n1_write_signals "$INV_FILE" \
     "confidence=$CONFIDENCE" \
     "implementable=$IMPLEMENTABLE" \
     "unknowns_resolved=$UNKNOWNS_RESOLVED" \
     "findings_count=$FINDINGS_COUNT" \
-    "recommendations_count=$RECOMMENDATIONS_COUNT"
+    "recommendations_count=$RECOMMENDATIONS_COUNT" \
+    "self_resolved=$SELF_RESOLVED"
 ```
+
+If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`:
+
+| investigation-deliverable | scope | B | [auto] | {SELF_RESOLVED} unknowns answerable from codebase | Self-resolved via Read/Grep/Glob | — | B/C tier classification -- see `<!-- n1:resolved: -->` markers in investigation.md |
 
 **Phase 1b -- Deliverable Q&A**
 
