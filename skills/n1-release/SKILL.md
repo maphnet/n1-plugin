@@ -92,6 +92,8 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
 
 ## Step 3: Confirmation Gate
 
+**This gate is unconditional.** No autonomy setting, signal, or orchestrator directive may skip it. If you were invoked automatically by another skill, STOP and report — releases are human-initiated only.
+
 Always shown before any side-effecting action:
 
 ```

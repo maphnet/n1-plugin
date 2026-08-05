@@ -245,6 +245,7 @@ PR: <url> — merged (<method>, by <auto-merge|reviewer|local merge>)
 Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
 Ticket: <ID> → <done status> / left open (<reason>) / tracker not configured
 Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | nothing to do>
+Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
 ```
 
 On non-complete exits, state exactly what stopped the flow and what the user should do (re-run command, fix CI, resolve conflict).
