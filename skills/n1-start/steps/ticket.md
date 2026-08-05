@@ -142,6 +142,12 @@ The product-analyst reads the raw `ticket.md` (written by intake-agent) instead 
 
 After product-analyst returns, if the input was a brain dump or file path, AND a tracker is configured (`tracker.mcp` is not null AND `tracker.operations.createIssue` exists):
 
+**Autonomy gate:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`, do NOT ask — take path **1 (Yes)** below (a tracker is configured when this prompt is reachable; creating the ticket is the recommended default and the tracker write is editable/deletable). After the ticket is created and `<ID>` is final, append a Decision Ledger row per `skills/n1-start/ledger.md`:
+
+`| ticket | mechanical | C | [auto] | Create tracker ticket for brain-dump run? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
+
+If `MP` is `ask` (default), ask as below.
+
 Ask the user:
 ```
 The task has been structured. Would you like to create a tracker ticket?
@@ -199,6 +205,12 @@ The task has been structured. Would you like to create a tracker ticket?
 After product-analyst returns, if the input was an error tracker URL:
 
 **If a tracker is configured** (`tracker.mcp` is not null AND `tracker.operations.createIssue` exists):
+
+**Autonomy gate:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`, do NOT ask — take path **1 (Yes)** below (a tracker is configured when this prompt is reachable; creating the ticket is the recommended default and the tracker write is editable/deletable). After the ticket is created and `<ID>` is final, append a Decision Ledger row per `skills/n1-start/ledger.md`:
+
+`| ticket | mechanical | C | [auto] | Create tracker ticket for Sentry issue? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
+
+If `MP` is `ask` (default), ask as below.
 
 Ask the user:
 ```
