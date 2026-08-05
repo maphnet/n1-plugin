@@ -1,7 +1,7 @@
 ---
 name: n1-start
 description: "Core orchestrator. Start working on a task: /n1:n1-start TRID-510 or /n1:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
-argument-hint: "<ticket-id or brain dump> [--step <name>] [--worktree]"
+argument-hint: "<ticket-id or brain dump> [--step <name>] [--branch]"
 model: sonnet
 effort: medium
 ---
@@ -91,18 +91,18 @@ When error tracker mode is detected, extract the issue ID from the URL:
 - Store the original URL for later use in ticket.md and tracker ticket creation.
 - The provisional memory ID is `sentry-<issueId>` (e.g., `sentry-12345`). The `sentry-` prefix avoids collision with numeric ticket IDs.
 
-### Worktree flag detection
+### Branch flag detection
 
-Check if the input contains `--worktree`:
+Check if the input contains `--branch`:
 
 ```bash
-WORKTREE_FLAG=false
+BRANCH_FLAG=false
 case "$RAW_INPUT" in
-    *--worktree*) WORKTREE_FLAG=true ;;
+    *--branch*) BRANCH_FLAG=true ;;
 esac
 ```
 
-The `--worktree` flag forces worktree isolation in full-pipeline mode. In step mode this flag is ignored (step mode always uses worktrees). Strip `--worktree` from the input before passing to ticket/brain-dump parsing.
+The `--branch` flag forces branch isolation (no worktree) in full-pipeline mode. In step mode this flag is ignored (step mode always uses worktrees). Strip `--branch` from the input before passing to ticket/brain-dump parsing.
 
 ## Step Mode
 
@@ -239,21 +239,21 @@ WORKTREE_MODE=$(n1_config_val '.worktree.mode')
 
 if [ -n "$STEP_NAME" ]; then
     USE_WORKTREE=true          # step mode: always worktree
-elif [ "$WORKTREE_FLAG" = "true" ]; then
-    USE_WORKTREE=true          # --worktree flag overrides config
-elif [ "$WORKTREE_MODE" = "worktree" ]; then
-    USE_WORKTREE=true          # config says worktree
+elif [ "$BRANCH_FLAG" = "true" ]; then
+    USE_WORKTREE=false         # --branch flag overrides config
+elif [ "$WORKTREE_MODE" = "branch" ]; then
+    USE_WORKTREE=false         # config says branch
 else
-    USE_WORKTREE=false         # default: branch
+    USE_WORKTREE=true          # default: worktree
 fi
 ```
 
 | Condition | Isolation | Rationale |
 |---|---|---|
 | `--step` present | **Worktree** | Automated — fresh context per step |
-| `--worktree` flag | **Worktree** | Explicit user override for this run |
-| `worktree.mode: "worktree"` | **Worktree** | User prefers worktree isolation |
-| Default | **Branch** in current checkout | Interactive — user and IDE stay in place |
+| `--branch` flag | **Branch** in current checkout | Explicit user override for this run |
+| `worktree.mode: "branch"` | **Branch** in current checkout | User prefers branch isolation |
+| Default | **Worktree** | Isolated workspace, no IDE conflicts |
 
 When `USE_WORKTREE` is true, use **Ensure Worktree(`<ID>`)**. When false, use **Ensure Working Branch(`<ID>`)**.
 
@@ -330,7 +330,7 @@ No `fetch`/`pull` is performed — the branch is created from the local default 
 
 **PROCEDURE: Ensure Worktree (`<ID>`)**
 
-Used when `USE_WORKTREE` is true — in step mode, when `--worktree` flag is set, or when `worktree.mode` is `"worktree"` in config. Creates or reattaches a worktree at `<main-checkout>/.claude/worktrees/<ID>/`.
+Used when `USE_WORKTREE` is true — the default mode, in step mode, or when `worktree.mode` is `"worktree"` in config. Creates or reattaches a worktree at `<main-checkout>/.claude/worktrees/<ID>/`.
 
 1. **Check if `N1_HOME` is absolute** (starts with `/`, `~`, or a drive letter like `C:\`):
    - **If relative** (starts with `.`, e.g. `.n1`) → worktrees cannot be used because config and memory paths would resolve inside the worktree instead of the main checkout. Emit error result and stop:

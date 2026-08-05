@@ -1481,7 +1481,7 @@ Create all files:
 {
   "version": "2.0.0",
   "worktree": {
-    "mode": "branch",
+    "mode": "worktree",
     "setup": "<detected or null>",
     "cleanup": "after-pr"
   },
@@ -1692,7 +1692,7 @@ Show summary:
 N1 is ready.
 
 State directory: ~/.n1/<project-name>/
-Worktree mode: branch
+Worktree mode: worktree
 Worktree setup: <command or "none">
 Worktree cleanup: after-pr
 
