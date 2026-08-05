@@ -290,6 +290,23 @@ Used by full-pipeline `n1-start` (no `--step`). Operates in the current checkout
    - **`CURRENT` is some OTHER branch AND `DIRTY` is empty** → prompt (foreign branch prompt below).
    - **`CURRENT` is some OTHER branch AND `DIRTY` is non-empty** → prompt (combined prompt below).
 
+**Mechanical-prompt autonomy (full pipeline only):** before showing any of the three prompts below, read the policy:
+
+```bash
+MP=$(n1_autonomy_val 'mechanicalPrompts')
+```
+
+If `MP` is `auto`, do NOT prompt — resolve each case with its safe default and append a Decision Ledger row (`skills/n1-start/ledger.md`) to `$N1_HOME/memory/<ID>/overview.md` (write the row after the memory dir exists; if the branch decision happens before memory creation, hold the row and write it together with the first overview.md write):
+
+- **Dirty working tree** → option 1: `git stash push -m "n1: stashed before switching to <TARGET>"`, switch, report "Stashed uncommitted changes. Run `git stash pop` when done."
+  Ledger: `| start | mechanical | C | [auto] | Dirty tree before branch switch | Stash and switch | Carry, Abort | mechanicalPrompts=auto; stash is reversible |`
+- **Foreign branch** → option 2: switch to `<DEFAULT>`, branch `<TARGET>` from there.
+  Ledger: `| start | mechanical | B | [auto] | On '<CURRENT>' not default | Branch from default | Branch from here, Stay | default base avoids accidental stacked branches |`
+- **Combined** → option 1: stash, switch to `<DEFAULT>`, branch from there (same stash report).
+  Ledger: `| start | mechanical | B | [auto] | Foreign branch + dirty tree | Stash, branch from default | Carry from here, Abort | mechanicalPrompts=auto; both actions reversible |`
+
+The destructive option (Abort) is never auto-selected. If `MP` is `ask` (default) or empty, show the prompts exactly as below.
+
 5. **Dirty working tree prompt** (when on `DEFAULT` or `TARGET` exists, with uncommitted changes):
    ```
    You have uncommitted changes. How should I proceed?
