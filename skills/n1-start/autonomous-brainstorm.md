@@ -4,7 +4,10 @@ Autonomous design brainstorming for step-mode execution. Forked from superpowers
 
 ## Context
 
-You are running as a headless step in the n1-loop pipeline. There is no interactive channel — you cannot ask the user questions. You must make autonomous design decisions, escalating only when the margin between approaches is too narrow for a confident autonomous choice.
+You are running as an autonomous brainstormer. Two escalation channels exist, selected by the caller:
+
+- **Step mode** (default; no interactive channel): escalate by writing `escalation/request.json` for n1-loop to mediate — exactly as specified below.
+- **Interactive mode** (the caller says "interactive escalation mode"): you ARE in a user-facing session. Escalate by asking the user directly in conversation — one question at a time, numbered options with your recommendation first. Never write `request.json` in this mode.
 
 **Inputs (read from `$N1_HOME/memory/<ID>/`):**
 - `ticket.md` — the ticket requirements
@@ -14,7 +17,7 @@ You are running as a headless step in the n1-loop pipeline. There is no interact
 - Write the design to `$N1_HOME/memory/<ID>/brainstorm.md`
 
 **Environment variables:**
-- `N1_ESCALATION_MARGIN` — margin threshold as a fraction of max score (e.g., 0.15). Default to 0.15 if not set.
+- `N1_ESCALATION_MARGIN` — margin threshold as a fraction of max score. When unset, read `$(n1_autonomy_val 'escalationMargin')` (config `autonomy.escalationMargin`, default 0.15).
 - `N1_RUN_ID` — unique run identifier for escalation correlation
 
 ## Process
@@ -35,6 +38,14 @@ Explore the codebase to fill gaps not covered by the analysis. Generate the ques
 - Analysis findings
 
 Document your questions and answers — these become the "Clarifying Questions" section of the design.
+
+**Tier every question** before answering it:
+
+- **A — blocking:** a wrong guess changes the design materially (requirement ambiguity, contract shape, user-visible behavior). In interactive mode, ASK the user (even though this is auto mode); in step mode, batch A-tier questions into the escalation request. Record the answer as an `[asked]` ledger row.
+- **B — significant:** better to know, but a well-evidenced default exists. Answer it yourself from codebase evidence; record an `[auto]` ledger row with the reason.
+- **C — nice-to-have:** answer silently from convention; record an `[auto]` ledger row.
+
+Ledger rows append to the `## Decision Ledger` table in `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`, step `brainstorm`, category `design`.
 
 ### 3. Approach Generation
 
@@ -71,9 +82,12 @@ Compute the unweighted aggregate for each approach (sum of all 5 axes, max 25).
 
 Read the margin threshold from `N1_ESCALATION_MARGIN` environment variable (default 0.15). Compute the margin as: `(top_score - runner_up_score) / 25`.
 
-**If margin > threshold:** The top approach dominates. Select it autonomously. State the scores and reasoning.
+**If margin > threshold:** The top approach dominates. Select it autonomously. State the scores and reasoning, and append an `[auto]` ledger row: `| brainstorm | design | B | [auto] | Approach selection: <topic> | <chosen> (score X/25) | <rejected> (score Y/25) | margin <margin> above threshold <threshold> |`.
 
-**If margin <= threshold:** Escalation needed. Write an escalation request to `$N1_HOME/memory/<ID>/escalation/request.json`:
+**If margin <= threshold:** Escalation needed.
+
+- **Interactive mode:** ask the user directly — present the approaches with their axis scores, lead with your recommendation, wait for the answer, then record it as an `[asked]` ledger row (`| brainstorm | design | A | [asked] | Approach selection: <topic> | <chosen> | <rejected> | margin <margin> below threshold |`) and continue from step 7.
+- **Step mode:** write an escalation request to `$N1_HOME/memory/<ID>/escalation/request.json`:
 
 ```json
 {
