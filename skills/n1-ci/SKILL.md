@@ -124,7 +124,9 @@ Once at least one failure is detected but other checks are still pending:
 Once all checks have `state: COMPLETED`:
 
 **If all checks have `conclusion: SUCCESS` (or `NEUTRAL` or `SKIPPED`):**
-- Report: "All CI checks passed." → Go to **Step 7** (Report).
+- Report: "All CI checks passed."
+- **Finish chaining (full pipeline context only):** when invoked from the n1-start pipeline AND `finishWork.enabled` is `true`, continue directly into the finish step (n1:n1-finish) in this session instead of stopping at the report — green CI is the trigger; the merge-wait inside finish uses its own bounded budget. Standalone `/n1:n1-ci` runs never chain; they stop at the report. Never chain into release from anywhere.
+- Go to **Step 7** (Report).
 
 **If any checks have `conclusion: FAILURE`:**
 - Collect all failed checks

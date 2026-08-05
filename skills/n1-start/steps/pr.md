@@ -28,6 +28,20 @@ The PR skill handles documentation update, tech-writer spawning, git push, PR cr
 After PR is created:
 - The PR skill reports the URL
 
+**Record pending-merge state** (enables cross-session finish resume; skip when `prMode` is `skip`):
+
+Append (or replace, idempotent upsert) a `## Pending` section in `$N1_HOME/memory/$ID/overview.md`:
+
+```markdown
+## Pending
+awaiting: merge
+pr: <PR number>
+pr_url: <PR URL>
+branch: <branch name>
+last_checked: <output of `date -u +%Y-%m-%dT%H:%M:%SZ`>
+created: <same timestamp>
+```
+
 **Emit quality outcomes (if telemetry enabled):**
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"

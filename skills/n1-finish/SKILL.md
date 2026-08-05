@@ -211,6 +211,8 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "finish"
    ```
+   Also delete the `## Pending` section from overview.md if present (the merge is no longer pending). If finish exits without a merge (timeout paths), instead update only its `last_checked` line with `date -u +%Y-%m-%dT%H:%M:%SZ`.
+
    Standalone without memory: skip silently.
 
 ## Escalation (step mode only)
