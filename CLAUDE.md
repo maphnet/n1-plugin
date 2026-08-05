@@ -238,7 +238,7 @@ Signal gates in `pipeline.json` under `signal_gates` define `skip_when` conditio
 
 ### Model Tiering
 
-`n1_resolve_model` accepts an optional context parameter for signal-driven model selection. Resolution chain: config override > signal-driven triggers > profile step_overrides > agent frontmatter default. Tier keywords: `frontier` (opus), `standard` (agent default), `downgrade` (one tier below), `minimal` (haiku). Triggers defined in `pipeline.json` under `downgrade_triggers` and `escalation_triggers`.
+`n1_resolve_model` accepts an optional context parameter for signal-driven model selection. Resolution chain: config override > signal-driven triggers (condition-gated, escalation before downgrade) > profile step_overrides > agent frontmatter default. Tier keywords: `frontier` (opus), `standard` (agent default), `downgrade` (one tier below), `minimal` (haiku). Triggers defined in `pipeline.json` under `escalation_triggers` and `downgrade_triggers` — each trigger's `.condition` is evaluated via `n1_eval_signal_gate`; the trigger fires only when its condition holds (or unconditionally if no condition is specified). When the same key appears in both sections, escalation is checked first.
 
 ### Memory Compaction
 

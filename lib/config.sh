@@ -142,18 +142,35 @@ n1_resolve_model() {
     fi
     base_model="${base_model:-sonnet}"
 
-    # 2. Signal-driven escalation/downgrade
+    # 2. Signal-driven escalation/downgrade (condition-gated)
     local pipeline_file="${CLAUDE_PLUGIN_ROOT}/pipeline.json"
-    if [ -f "$pipeline_file" ] && [ -n "$context" ]; then
+    if [ -f "$pipeline_file" ] && [ -n "$context" ] && command -v jq >/dev/null 2>&1; then
         local trigger_key="${agent_name}:${context}"
-        local trigger_tier=""
-        if command -v jq >/dev/null 2>&1; then
-            trigger_tier=$(jq -r ".downgrade_triggers[\"${trigger_key}\"].tier // empty" "$pipeline_file" 2>/dev/null || true)
-        fi
-        if [ -n "$trigger_tier" ]; then
-            n1_resolve_tier "$trigger_tier" "$base_model"
-            return
-        fi
+        local mem_dir="${N1_HOME:+${N1_HOME}/memory/${ID}}"
+        local overview_file="${mem_dir:+${mem_dir}/overview.md}"
+
+        type n1_eval_signal_gate >/dev/null 2>&1 || source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh" 2>/dev/null || true
+
+        local section trigger_tier trigger_cond
+        for section in escalation_triggers downgrade_triggers; do
+            trigger_tier=$(jq -r ".${section}[\"${trigger_key}\"].tier // empty" "$pipeline_file" 2>/dev/null || true)
+            [ -n "$trigger_tier" ] || continue
+
+            trigger_cond=$(jq -c ".${section}[\"${trigger_key}\"].condition // empty" "$pipeline_file" 2>/dev/null || true)
+            if [ -z "$trigger_cond" ] || [ "$trigger_cond" = '""' ]; then
+                # No condition — apply unconditionally
+                n1_resolve_tier "$trigger_tier" "$base_model"
+                return
+            fi
+
+            # Evaluate condition; requires memory dir
+            if [ -n "$mem_dir" ] && [ -d "$mem_dir" ]; then
+                if n1_eval_signal_gate "$mem_dir" "$overview_file" "$trigger_cond"; then
+                    n1_resolve_tier "$trigger_tier" "$base_model"
+                    return
+                fi
+            fi
+        done
     fi
 
     # 3. Profile step_overrides (from type registry)
