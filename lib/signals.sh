@@ -107,6 +107,7 @@ n1_write_signals() {
 #
 # Condition format (JSON):
 #   { "signal": "analysis.blast_radius", "eq": "low" }
+#   { "signal": "brainstorm.files_changed", "fallback": "analysis.files_changed", "lt": 5 }
 #   { "frontmatter": "type", "eq": "bug" }
 #   { "all": [ <condition>, ... ] }
 #   { "any": [ <condition>, ... ] }
@@ -148,6 +149,16 @@ n1_eval_signal_gate() {
         local file_prefix="${sig%%.*}"
         local key="${sig#*.}"
         actual=$(n1_read_signal "${mem_dir}/${file_prefix}.md" "$key")
+        # Fallback: if primary signal is empty, try "fallback" source (e.g. brainstorm → analysis)
+        if [ -z "$actual" ]; then
+            local fb
+            fb=$(echo "$cond" | jq -r '.fallback // empty' 2>/dev/null)
+            if [ -n "$fb" ]; then
+                local fb_prefix="${fb%%.*}"
+                local fb_key="${fb#*.}"
+                actual=$(n1_read_signal "${mem_dir}/${fb_prefix}.md" "$fb_key")
+            fi
+        fi
     elif [ -n "$fm" ]; then
         source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh" 2>/dev/null || true
         actual=$(n1_read_frontmatter "$overview" "$fm" 2>/dev/null || true)

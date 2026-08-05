@@ -15,8 +15,12 @@ Before the normal planning_need routing, check runtime signals for a simple-task
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
-BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")
-FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")
+# Prefer brainstorm signals (post-design, scope-aware) over analysis (pre-design estimate).
+# Brainstorm may not exist when skipped (e.g. bug with known root cause).
+BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "blast_radius" 2>/dev/null)
+BLAST="${BLAST:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")}"
+FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "files_changed" 2>/dev/null)
+FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")}"
 
 # Rule injection
 source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"

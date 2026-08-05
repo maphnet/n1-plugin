@@ -18,7 +18,7 @@
     "planner:plan": {
       "condition": { "all": [
         { "signal": "brainstorm.design_clarity", "eq": "high" },
-        { "signal": "analysis.files_changed", "lt": 5 }
+        { "signal": "brainstorm.files_changed", "fallback": "analysis.files_changed", "lt": 5 }
       ]},
       "tier": "downgrade"
     },
@@ -89,7 +89,7 @@
     { "name": "plan",           "number": 4,  "agent": "planner",               "reads": ["ticket.md", "brainstorm.md", "analysis.md"],          "writes": ["plan.md"] },
     { "name": "plan-review",    "number": 5,  "agent": "solution-architect",    "reads": ["ticket.md", "analysis.md", "brainstorm.md", "plan.md"], "writes": ["plan.md"] },
     { "name": "estimation",     "number": 6,  "agent": "solution-architect",    "reads": ["ticket.md", "analysis.md", "brainstorm.md"],          "writes": ["overview.md"] },
-    { "name": "implementation", "number": 7,  "agent": "developer",             "reads": ["brainstorm.md"],                                      "writes": ["implementation.md"] },
+    { "name": "implementation", "number": 7,  "agent": "developer",             "reads": ["brainstorm.md", "analysis.md"],                       "writes": ["implementation.md"] },
     { "name": "qa",             "number": 8,  "agent": "qa-engineer",           "reads": ["ticket.md", "implementation.md", "plan.md"],          "writes": ["qa.md"] },
     { "name": "review",         "number": 9,  "agent": "code-reviewer",         "reads": ["ticket.md", "brainstorm.md", "implementation.md", "qa.md"], "writes": ["review.md"] },
     { "name": "fix",            "number": 10, "agent": "developer",             "reads": ["implementation.md"],                                  "writes": ["implementation.md"] },
@@ -121,8 +121,8 @@
     {
       "step": "plan-review",
       "skip_when": { "all": [
-        { "signal": "analysis.files_changed", "lt": 3 },
-        { "signal": "analysis.blast_radius", "eq": "low" }
+        { "signal": "brainstorm.files_changed", "fallback": "analysis.files_changed", "lt": 3 },
+        { "signal": "brainstorm.blast_radius", "fallback": "analysis.blast_radius", "eq": "low" }
       ]},
       "reason": "Small change set with low blast radius — plan-review unnecessary"
     }

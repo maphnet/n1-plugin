@@ -101,7 +101,28 @@ else
     DESIGN_CLARITY="medium"
 fi
 APPROACH_COUNT=$(grep -c -iE '^#{2,3}\s*(approach|option)\s' "$N1_HOME/memory/$ID/brainstorm.md" 2>/dev/null || echo "1")
-n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NEED" "design_clarity=$DESIGN_CLARITY" "approach_count=$APPROACH_COUNT"
+```
+
+**Reassess scope signals from the finalized design:**
+The brainstorm design names specific files and describes the change scope. Re-derive `files_changed` and `blast_radius` from the design output — these supersede the analysis estimates when brainstorming narrows (or widens) scope.
+
+```bash
+# Count files explicitly named in the design's file list / change description.
+# Look for file paths (containing / or ending in common extensions) in the brainstorm doc.
+BRAINSTORM_FILES=$(grep -oE '[a-zA-Z0-9_/.-]+\.(py|ts|tsx|js|jsx|go|rs|java|rb|sh|sql|yaml|yml|json|toml|md|css|html)' "$N1_HOME/memory/$ID/brainstorm.md" 2>/dev/null | sort -u | wc -l)
+BRAINSTORM_FILES=$((BRAINSTORM_FILES > 0 ? BRAINSTORM_FILES : 1))
+
+# Reassess blast radius based on the design's file count and scope.
+ANALYSIS_BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")
+if [ "$BRAINSTORM_FILES" -le 2 ]; then
+    BRAINSTORM_BLAST="low"
+elif [ "$BRAINSTORM_FILES" -le 5 ]; then
+    BRAINSTORM_BLAST="${ANALYSIS_BLAST:-medium}"
+else
+    BRAINSTORM_BLAST="${ANALYSIS_BLAST:-high}"
+fi
+
+n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NEED" "design_clarity=$DESIGN_CLARITY" "approach_count=$APPROACH_COUNT" "files_changed=$BRAINSTORM_FILES" "blast_radius=$BRAINSTORM_BLAST"
 ```
 
 **Compact brainstorm memory:**

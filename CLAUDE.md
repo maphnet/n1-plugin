@@ -163,7 +163,7 @@ Each step reads ONLY its declared dependencies:
 | plan | `ticket.md`, `brainstorm.md`, `analysis.md` | `plan.md` |
 | plan-review | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` | `plan.md` (in-place fixes) |
 | estimation | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` (if exists) | `overview.md` (estimation section) |
-| implementation | `brainstorm.md`, `plan.md` | `implementation.md` (+ signals: `diff_surface`, `lines_changed`, `new_files_count`) |
+| implementation | `brainstorm.md`, `plan.md`, `analysis.md` (fallback for simplicity gate when brainstorm skipped) | `implementation.md` (+ signals: `diff_surface`, `lines_changed`, `new_files_count`) |
 | qa | `ticket.md`, `implementation.md`, `plan.md` | `qa.md` (+ signals: `tests_added`, `tests_broken`, `coverage_change`) |
 | review | `ticket.md`, `brainstorm.md`, `implementation.md`, `qa.md` | `review.md` |
 | local-test-analysis | `ticket.md`, `implementation.md`, `plan.md` or `brainstorm.md`, codebase | `local-test-plan.md` |
@@ -225,7 +225,7 @@ Steps emit runtime signals stored as `<!-- n1:signals -->` blocks in memory file
 |------|---------|-----------|
 | ticket | `task_type`, `has_acceptance_criteria`, `description_quality` | ticket.md |
 | analysis | `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`, `self_resolved` | analysis.md |
-| brainstorm | `planning_need`, `design_clarity`, `approach_count` | brainstorm.md |
+| brainstorm | `planning_need`, `design_clarity`, `approach_count`, `files_changed`, `blast_radius` | brainstorm.md |
 | implementation | `diff_surface`, `lines_changed`, `new_files_count` | implementation.md |
 | qa | `tests_added`, `tests_broken`, `coverage_change` | qa.md |
 | investigation-deliverable | `confidence`, `implementable`, `unknowns_resolved`, `findings_count`, `recommendations_count`, `self_resolved` | investigation.md |
@@ -282,7 +282,7 @@ Relationship to analysis cache: the snapshot carries descriptive content (how th
 
 ### Implementation Simplicity Gate
 
-When `tier == simple` AND `blast_radius == low` AND `files_changed < 3`, the implementation step bypasses SDD fan-out and spawns a single developer agent directly. Fallback to full SDD if the developer fails. Gate checked before the existing planning_need routing.
+When `tier == simple` AND `blast_radius == low` AND `files_changed < 3`, the implementation step bypasses SDD fan-out and spawns a single developer agent directly. Fallback to full SDD if the developer fails. Gate checked before the existing planning_need routing. Signals are read from `brainstorm.md` first (post-design, scope-aware); falls back to `analysis.md` when brainstorm was skipped.
 
 ### Ticket Description Enrichment
 
