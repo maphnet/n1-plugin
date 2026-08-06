@@ -305,12 +305,29 @@ Which status represents a closed/resolved ticket?
 - **Numbered pick** → set as `tracker.statuses.done`.
 - **Pick 0** → omit `tracker.statuses.done` from config. Warn: "Ticket closing disabled. Re-run `/n1:n1-init` to configure it later."
 
+**Detect Atlassian Cloud ID:**
+
+Call `mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources`.
+
+- **Single resource returned:** auto-select it. Set `tracker.cloudId` from the resource's `id` field.
+- **Multiple resources:** present numbered list:
+  ```
+  Available Atlassian sites:
+    1 — mycompany.atlassian.net
+    2 — other-site.atlassian.net
+  
+  Which site should N1 use?
+  ```
+  Set `tracker.cloudId` from the selected resource's `id` field.
+- **Failure or empty:** log "Could not detect Atlassian Cloud ID — Confluence KB features will be unavailable." Set `tracker.cloudId` to `null`.
+
 Set config:
 ```json
 {
   "tracker": {
     "type": "jira",
     "mcp": "plugin_atlassian_atlassian",
+    "cloudId": "<detected or null>",
     "prefix": "<from project selection>",
     "projectKey": "<from project selection>",
     "assignToCreator": true,
@@ -324,7 +341,10 @@ Set config:
       "getCurrentUser": "atlassianUserInfo",
       "assign": "editJiraIssue",
       "editTicket": "editJiraIssue",
-      "linkIssues": "linkJiraIssues"
+      "linkIssues": "linkJiraIssues",
+      "createArticle": "createConfluencePage",
+      "getArticle": "getConfluencePage",
+      "updateArticle": "updateConfluencePage"
     },
     "statuses": {
       "todo": "<detected or manual>",
@@ -413,6 +433,99 @@ Set config:
   }
 }
 ```
+
+## Knowledge Base Configuration
+
+Detect KB support based on the configured tracker. Runs immediately after tracker setup.
+
+### If Jira:
+
+**Prerequisite:** `tracker.cloudId` must be non-null (detected in tracker setup). If null, set `kb.enabled: false` and skip.
+
+Call `mcp__plugin_atlassian_atlassian__getConfluenceSpaces` with `cloudId` from `tracker.cloudId`.
+
+- **Spaces found:** present numbered list:
+  ```
+  Confluence spaces detected:
+    1 — Engineering (ENG)
+    2 — Platform (PLAT)
+    ...
+  
+  Which Confluence space should N1 use for knowledge base articles?
+  (Select a space, or 0 to skip KB support)
+  ```
+  - **Numbered pick:** set `kb.enabled: true`, `kb.spaceId` from selected space's numeric ID, `kb.spaceKey` from selected space's key.
+  - **Pick 0:** set `kb.enabled: false`.
+
+- **No spaces or failure:** log "No Confluence spaces found — KB features disabled." Set `kb.enabled: false`.
+
+Set config:
+```json
+{
+  "kb": {
+    "enabled": true,
+    "spaceId": "<from selection>",
+    "spaceKey": "<from selection>"
+  }
+}
+```
+
+Or when disabled:
+```json
+{
+  "kb": {
+    "enabled": false
+  }
+}
+```
+
+### If YouTrack:
+
+Use ToolSearch to look for `create_article` in the youtrack MCP tools.
+
+- **Found:** log "YouTrack KB article support detected." Set `kb.enabled: true`.
+- **Not found:** log "YouTrack KB article support not detected — KB features disabled." Set `kb.enabled: false`.
+
+Set config:
+```json
+{
+  "kb": {
+    "enabled": true
+  }
+}
+```
+
+Or when disabled:
+```json
+{
+  "kb": {
+    "enabled": false
+  }
+}
+```
+
+### If no tracker:
+
+Omit `kb` block entirely from config.
+
+### On reconfiguration (n1-init re-run):
+
+If `kb` already exists in the current config, show current state and offer:
+```
+Current KB configuration:
+  enabled  → <true/false>
+  space    → <spaceKey> (Jira only)
+
+1 — Keep current
+2 — Reconfigure
+3 — Disable
+```
+
+- **1** → leave unchanged.
+- **2** → re-run the detection and questions above, overwrite the block.
+- **3** → set `enabled: false`. Remove `spaceId`/`spaceKey` if present.
+
+If `kb` is absent from the current config, run the fresh-setup flow above.
 
 ## Git Configuration
 
@@ -1461,7 +1574,7 @@ Current story workflow:
 3 — Disable
 ```
 - **1** → leave unchanged.
-- **2** → re-run the detection and questions above, overwrite the block.
+- **2** → re-run the questions above (re-derive designStorage from kb.enabled), overwrite the block.
 - **3** → set `enabled: false`. Keep the other keys.
 
 If `story` is absent from the current config, run the fresh-setup flow above.

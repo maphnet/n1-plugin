@@ -32,41 +32,38 @@ TRACKER_MCP=$(n1_config_val '.tracker.mcp' "$CONFIG_FILE")
 
 If `$DESIGN_STORAGE` is `article`:
 
-### YouTrack
-
-Check if `createArticle` operation exists in config:
+Check KB availability:
 ```bash
+KB_ENABLED=$(n1_config_val '.kb.enabled' "$CONFIG_FILE")
 CREATE_ARTICLE_OP=$(n1_config_val '.tracker.operations.createArticle' "$CONFIG_FILE")
 ```
 
-If present:
+If `$KB_ENABLED` is not `true` or `$CREATE_ARTICLE_OP` is empty: fall through to ticket mode with log message: "KB not configured, falling back to ticket description mode."
+
 1. Spawn **tech-writer** to reformat `$MEMORY_DIR/story-design.md` into tracker-friendly markup:
    - **Agent type:** `n1:tech-writer`
-   - **Prompt:** "Reformat this design document for YouTrack Knowledge Base. YouTrack uses Markdown natively. Clean up any formatting that might not render well. Write the result to `$MEMORY_DIR/story-design-formatted.md`."
+   - **YouTrack (`$TRACKER_TYPE` = `youtrack`):** "Reformat this design document for YouTrack Knowledge Base. YouTrack uses Markdown natively. Clean up any formatting that might not render well. Write the result to `$MEMORY_DIR/story-design-formatted.md`."
+   - **Jira (`$TRACKER_TYPE` = `jira`):** "Reformat this design document for Confluence. Use HTML content format. Clean up any formatting that might not render well. Write the result to `$MEMORY_DIR/story-design-formatted.md`."
 
 2. Read the formatted content and create article via MCP:
    ```
-   mcp__<TRACKER_MCP>__create_article
+   mcp__<TRACKER_MCP>__<CREATE_ARTICLE_OP>
    ```
-   Parameters: `project` (from `tracker.project` config), `summary` ("Design: <Feature Title>"), `content` (formatted design).
+   - **YouTrack:** Parameters: `project` (from `tracker.projectKey`), `summary` ("Design: <Feature Title>"), `content` (formatted design).
+   - **Jira/Confluence:** Parameters: `cloudId` (from `tracker.cloudId`), `spaceId` (from `kb.spaceId`), `title` ("Design: <Feature Title>"), `body` (formatted design), `contentFormat` ("html").
 
-3. Capture the returned article `idReadable` (e.g., `PROJ-A-12`).
+3. Capture the returned article ID:
+   - **YouTrack:** `idReadable` (e.g., `PROJ-A-12`)
+   - **Jira/Confluence:** `id` (numeric page ID)
 
-4. Update story ticket description — prepend `Design document: <idReadable>`:
-   ```
-   mcp__<TRACKER_MCP>__update_issue
-   ```
-   Read current description first, prepend the article link line.
+4. Update story ticket description — prepend design document link:
+   - **YouTrack:** prepend `Design document: <idReadable>`
+   - **Jira:** prepend `Design document: <confluence-page-url>` (construct from cloudId + page ID)
+   Read current description first, prepend the link line.
 
-5. Update `story-overview.md` frontmatter: `article_id: <idReadable>`
+5. Update `story-overview.md` frontmatter: `article_id: <id>`
 
 6. Clean up `$MEMORY_DIR/story-design-formatted.md`.
-
-If `createArticle` operation is absent: fall through to ticket mode.
-
-### Jira
-
-Check if Confluence MCP is available. If yes, create page and link via remote links API. If not, fall through to ticket mode with a log message: "Confluence MCP not available, falling back to ticket description mode."
 
 ## Ticket Description Mode
 
