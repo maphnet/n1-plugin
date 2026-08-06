@@ -57,6 +57,28 @@ ERROR TRACKING ROUTING (from N1 config — authoritative, do not override):
 - Operations: ${error_ops}"
 fi
 
+kb_enabled=$(n1_config_val '.kb.enabled' "$CONFIG_FILE")
+if [ "$kb_enabled" = "true" ]; then
+    kb_space_id=$(n1_config_val '.kb.spaceId' "$CONFIG_FILE")
+    kb_space_key=$(n1_config_val '.kb.spaceKey' "$CONFIG_FILE")
+    kb_cloud_id=$(n1_config_val '.tracker.cloudId' "$CONFIG_FILE")
+
+    if [ -n "$kb_space_id" ]; then
+        kb_detail="Space: ${kb_space_key} (spaceId: ${kb_space_id}, cloudId: ${kb_cloud_id})"
+    else
+        kb_project=$(n1_config_val '.tracker.projectKey' "$CONFIG_FILE")
+        kb_detail="Project: ${kb_project}"
+    fi
+
+    context="${context}
+
+KB ROUTING (from N1 config):
+- Enabled: true
+- ${kb_detail}
+- Use the createArticle operation from tracker routing to publish to KB
+- Only publish to KB when the user explicitly asks"
+fi
+
 # --- Pending-merge resume scan (fail-open: any error injects nothing) ---
 pending_context=""
 n1_root=$(n1_home)
