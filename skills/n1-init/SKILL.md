@@ -305,12 +305,29 @@ Which status represents a closed/resolved ticket?
 - **Numbered pick** → set as `tracker.statuses.done`.
 - **Pick 0** → omit `tracker.statuses.done` from config. Warn: "Ticket closing disabled. Re-run `/n1:n1-init` to configure it later."
 
+**Detect Atlassian Cloud ID:**
+
+Call `mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources`.
+
+- **Single resource returned:** auto-select it. Set `tracker.cloudId` from the resource's `id` field.
+- **Multiple resources:** present numbered list:
+  ```
+  Available Atlassian sites:
+    1 — mycompany.atlassian.net
+    2 — other-site.atlassian.net
+  
+  Which site should N1 use?
+  ```
+  Set `tracker.cloudId` from the selected resource's `id` field.
+- **Failure or empty:** log "Could not detect Atlassian Cloud ID — Confluence KB features will be unavailable." Set `tracker.cloudId` to `null`.
+
 Set config:
 ```json
 {
   "tracker": {
     "type": "jira",
     "mcp": "plugin_atlassian_atlassian",
+    "cloudId": "<detected or null>",
     "prefix": "<from project selection>",
     "projectKey": "<from project selection>",
     "assignToCreator": true,
@@ -324,7 +341,10 @@ Set config:
       "getCurrentUser": "atlassianUserInfo",
       "assign": "editJiraIssue",
       "editTicket": "editJiraIssue",
-      "linkIssues": "linkJiraIssues"
+      "linkIssues": "linkJiraIssues",
+      "createArticle": "createConfluencePage",
+      "getArticle": "getConfluencePage",
+      "updateArticle": "updateConfluencePage"
     },
     "statuses": {
       "todo": "<detected or manual>",
