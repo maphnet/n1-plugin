@@ -1,6 +1,5 @@
 {
   "enabled": false,
-  "designStorage": "article",
   "designPath": "docs/design/",
   "taskSizing": {
     "maxSize": "L",

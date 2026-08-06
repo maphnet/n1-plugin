@@ -1511,22 +1511,6 @@ If `rules` is absent from the current config, run the fresh-setup flow above. Ru
 
 ## Story Workflow Configuration
 
-### Detect Article Support
-
-Check if the tracker supports knowledge base articles:
-
-**YouTrack:** Check if `create_article` MCP tool exists:
-```
-Use ToolSearch to look for "create_article" in the youtrack MCP tools.
-```
-If found: article support = true.
-
-**Jira:** Check if Confluence MCP tools exist:
-```
-Use ToolSearch to look for "confluence" or "create_page" MCP tools.
-```
-If found: article support = true.
-
 ### Configure Story
 
 Ask whether N1 should enable story decomposition. **Default is No.**
@@ -1551,19 +1535,17 @@ This lets you use /n1:n1-story to break features into design docs and subtask ti
 
 Set `story.enabled: true`.
 
-**If article support detected:**
-- Set `story.designStorage: "article"`
-- Add article operations to tracker operations map (already included in the tracker operations maps above)
-
-**If no article support:**
-Ask:
-```
-No knowledge base detected. Store design docs in:
-1 — Ticket description
-2 — Local repo file
-```
-- **1:** set `story.designStorage: "ticket"`
-- **2:** set `story.designStorage: "local"`
+**Derive `designStorage`:**
+- If `kb.enabled` is `true`: set `story.designStorage: "article"`.
+- If `kb.enabled` is `false` or `kb` block absent:
+  Ask:
+  ```
+  No knowledge base configured. Store design docs in:
+  1 — Ticket description
+  2 — Local repo file
+  ```
+  - **1:** set `story.designStorage: "ticket"`
+  - **2:** set `story.designStorage: "local"`
 
 ```json
 {
@@ -1661,6 +1643,9 @@ Create all files:
   "rules": {
     "location": "private"
   },
+  "kb": {
+    "enabled": false
+  },
   "escalation": {
     "checkpoints": ["pr"],
     "alwaysAskOn": ["security", "architecture", "public-api"]
@@ -1677,7 +1662,6 @@ Create all files:
   },
   "story": {
     "enabled": false,
-    "designStorage": "article",
     "designPath": "docs/design/",
     "taskSizing": {
       "maxSize": "L",
