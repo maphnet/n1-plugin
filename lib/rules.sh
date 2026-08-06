@@ -175,16 +175,21 @@ case "$TOOL_NAME" in
     Edit|Write)
         FILE_PATH=$(printf '%s' "$TOOL_INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
         [ -z "$FILE_PATH" ] && exit 0
-        # On Windows, normalize C:/ paths to the current bash's POSIX convention
-        if [[ "$FILE_PATH" =~ ^[A-Za-z]:/ ]]; then
-            if command -v cygpath >/dev/null 2>&1; then
-                FILE_PATH=$(cygpath -u "$FILE_PATH")
-            elif [[ "$(uname -s)" == "Linux" ]]; then
-                _n1_drive=$(printf '%s' "${FILE_PATH:0:1}" | tr 'A-Z' 'a-z')
-                FILE_PATH="/mnt/${_n1_drive}${FILE_PATH:2}"
-            fi
-        fi
         PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+        # Normalize both to mixed-mode (C:/...) for reliable comparison.
+        # Claude Code sends C:/ paths; git may return C:/, /c/, or /mnt/c/.
+        _n1_to_mixed() {
+            case "$1" in
+                [A-Za-z]:/*) printf '%s' "$1" ;;
+                *) if command -v cygpath >/dev/null 2>&1; then
+                       cygpath -m "$1" 2>/dev/null || printf '%s' "$1"
+                   elif command -v wslpath >/dev/null 2>&1; then
+                       wslpath -m "$1" 2>/dev/null || printf '%s' "$1"
+                   else printf '%s' "$1"; fi ;;
+            esac
+        }
+        FILE_PATH=$(_n1_to_mixed "$FILE_PATH")
+        PROJECT_ROOT=$(_n1_to_mixed "$PROJECT_ROOT")
         REL_PATH="${FILE_PATH#$PROJECT_ROOT/}"
 PATH_OPEN
 
