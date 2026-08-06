@@ -65,8 +65,28 @@ Tool names constructed as `mcp__<tracker.mcp>__<operation>` — never hardcoded.
 
 | Tracker | type | mcp value | Key operations |
 |---------|------|-----------|---------------|
-| Jira | `jira` | `plugin_atlassian_atlassian` | `getJiraIssue`, `transitionJiraIssue`, `addCommentToJiraIssue`, `getTransitionsForJiraIssue`, `atlassianUserInfo`, `editJiraIssue` |
-| YouTrack | `youtrack` | `youtrack` | `get_issue`, `update_issue`, `add_issue_comment`, `get_issue_comments`, `get_current_user`, `change_issue_assignee` |
+| Jira | `jira` | `plugin_atlassian_atlassian` | `getJiraIssue`, `transitionJiraIssue`, `addCommentToJiraIssue`, `getTransitionsForJiraIssue`, `atlassianUserInfo` (getCurrentUser), `editJiraIssue` (assign, editTicket), `createConfluencePage` (createArticle), `getConfluencePage` (getArticle), `updateConfluencePage` (updateArticle) |
+| YouTrack | `youtrack` | `youtrack` | `get_issue`, `update_issue` (moveStatus, editTicket), `add_issue_comment`, `get_issue_comments`, `get_current_user` (getCurrentUser), `change_issue_assignee` (assign), `create_article` (createArticle), `get_article` (getArticle), `update_article` (updateArticle) |
+
+### Knowledge Base
+
+Optional KB article support for on-demand publishing. Gated on `kb.enabled` in `$N1_HOME/config.json` (default `false`). Configured by `n1-init` during tracker setup — Jira detects Confluence spaces, YouTrack detects `create_article` tool availability.
+
+KB operations use the abstract names (`createArticle`, `getArticle`, `updateArticle`) in the tracker operations map. No dedicated skill — the model uses KB ops directly when the user asks to publish content.
+
+**Config:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `kb.enabled` | boolean | `false` | Master gate |
+| `kb.spaceId` | string | — | Confluence space ID (Jira only) |
+| `kb.spaceKey` | string | — | Confluence space key for display (Jira only) |
+
+Jira also requires `tracker.cloudId` (detected during tracker setup) for all Confluence operations. YouTrack uses `tracker.projectKey` — no extra config needed.
+
+The session-start hook injects KB ROUTING context when enabled, providing the model with space/project defaults for KB calls.
+
+`story.designStorage: "article"` is the primary consumer — the story publish step uses tracker-level KB ops instead of inline detection. Other pipeline steps do not auto-publish to KB; publishing is strictly on-demand.
 
 ## Escalation Safety
 

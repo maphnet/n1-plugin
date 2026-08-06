@@ -47,7 +47,7 @@ When invoked via `/n1:n1-story`, N1 runs a 7-step pipeline for feature story dec
 - **Multi-repo analysis:** `--repos path1,path2` flag enables cross-repo architecture analysis. Solution-architect runs sequentially per repo with a final cross-repo synthesis pass.
 - **Interactive discovery:** Extracts `uncertain`/`unknown` confidence-tagged items from analysis, presents them one-at-a-time for user resolution via Socratic Q&A.
 - **Design output:** Phased design document with INVEST-validated tasks, Gherkin acceptance criteria, and XS–XL estimates.
-- **Publishing:** Config-driven via `story.designStorage`: `"article"` (YouTrack KB / Confluence), `"ticket"` (description), or `"local"` (repo file). Falls back automatically.
+- **Publishing:** Config-driven via `story.designStorage`: `"article"` (uses tracker-level KB ops from `kb` config), `"ticket"` (description), or `"local"` (repo file). Falls back to ticket mode when `kb.enabled` is false.
 - **Ticket creation:** One-by-one with user approval per subtask. Each created ticket is independently executable via `/n1:n1-start`.
 
 Gated on `story.enabled` in config (default `false`). Configured by `n1-init`.
