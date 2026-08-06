@@ -1574,7 +1574,7 @@ Current story workflow:
 3 — Disable
 ```
 - **1** → leave unchanged.
-- **2** → re-run the detection and questions above, overwrite the block.
+- **2** → re-run the questions above (re-derive designStorage from kb.enabled), overwrite the block.
 - **3** → set `enabled: false`. Keep the other keys.
 
 If `story` is absent from the current config, run the fresh-setup flow above.
