@@ -434,6 +434,99 @@ Set config:
 }
 ```
 
+## Knowledge Base Configuration
+
+Detect KB support based on the configured tracker. Runs immediately after tracker setup.
+
+### If Jira:
+
+**Prerequisite:** `tracker.cloudId` must be non-null (detected in tracker setup). If null, set `kb.enabled: false` and skip.
+
+Call `mcp__plugin_atlassian_atlassian__getConfluenceSpaces` with `cloudId` from `tracker.cloudId`.
+
+- **Spaces found:** present numbered list:
+  ```
+  Confluence spaces detected:
+    1 — Engineering (ENG)
+    2 — Platform (PLAT)
+    ...
+  
+  Which Confluence space should N1 use for knowledge base articles?
+  (Select a space, or 0 to skip KB support)
+  ```
+  - **Numbered pick:** set `kb.enabled: true`, `kb.spaceId` from selected space's numeric ID, `kb.spaceKey` from selected space's key.
+  - **Pick 0:** set `kb.enabled: false`.
+
+- **No spaces or failure:** log "No Confluence spaces found — KB features disabled." Set `kb.enabled: false`.
+
+Set config:
+```json
+{
+  "kb": {
+    "enabled": true,
+    "spaceId": "<from selection>",
+    "spaceKey": "<from selection>"
+  }
+}
+```
+
+Or when disabled:
+```json
+{
+  "kb": {
+    "enabled": false
+  }
+}
+```
+
+### If YouTrack:
+
+Use ToolSearch to look for `create_article` in the youtrack MCP tools.
+
+- **Found:** log "YouTrack KB article support detected." Set `kb.enabled: true`.
+- **Not found:** log "YouTrack KB article support not detected — KB features disabled." Set `kb.enabled: false`.
+
+Set config:
+```json
+{
+  "kb": {
+    "enabled": true
+  }
+}
+```
+
+Or when disabled:
+```json
+{
+  "kb": {
+    "enabled": false
+  }
+}
+```
+
+### If no tracker:
+
+Omit `kb` block entirely from config.
+
+### On reconfiguration (n1-init re-run):
+
+If `kb` already exists in the current config, show current state and offer:
+```
+Current KB configuration:
+  enabled  → <true/false>
+  space    → <spaceKey> (Jira only)
+
+1 — Keep current
+2 — Reconfigure
+3 — Disable
+```
+
+- **1** → leave unchanged.
+- **2** → re-run the detection and questions above, overwrite the block.
+- **3** → set `enabled: false`. Remove `spaceId`/`spaceKey` if present.
+
+If `kb` is absent from the current config, run the fresh-setup flow above.
+
 ## Git Configuration
 
 Detect **defaultBranch** automatically:
