@@ -175,6 +175,15 @@ case "$TOOL_NAME" in
     Edit|Write)
         FILE_PATH=$(printf '%s' "$TOOL_INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
         [ -z "$FILE_PATH" ] && exit 0
+        # On Windows, normalize C:/ paths to the current bash's POSIX convention
+        if [[ "$FILE_PATH" =~ ^[A-Za-z]:/ ]]; then
+            if command -v cygpath >/dev/null 2>&1; then
+                FILE_PATH=$(cygpath -u "$FILE_PATH")
+            elif [[ "$(uname -s)" == "Linux" ]]; then
+                _n1_drive=$(printf '%s' "${FILE_PATH:0:1}" | tr 'A-Z' 'a-z')
+                FILE_PATH="/mnt/${_n1_drive}${FILE_PATH:2}"
+            fi
+        fi
         PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
         REL_PATH="${FILE_PATH#$PROJECT_ROOT/}"
 PATH_OPEN
@@ -249,13 +258,26 @@ CMD_OPEN_FIRST
 }
 
 n1_deny_hook_register() {
-    local hook_path="$1"
     local settings_file=".claude/settings.local.json"
+    # Self-resolving hook command: reads n1.home from git config at hook
+    # execution time and converts it to the running bash's path convention using
+    # wslpath (WSL), cygpath (MSYS2/Git Bash), or no conversion (macOS/Linux).
+    # This avoids hardcoding a path format that only works for one bash variant —
+    # critical on Windows where the hook runner (WSL or Git Bash) may differ from
+    # the bash used during registration. No double-quotes inside the payload so
+    # the string embeds safely in JSON without escaping.
+    local hook_cmd='bash -c '"'"'h=$(git config n1.home 2>/dev/null);[ -z $h ]&&exit 0;case $h in ~/*) h=$HOME${h#~};; esac;if command -v wslpath>/dev/null 2>&1;then nh=$(wslpath -u $h 2>/dev/null)&&h=$nh;elif command -v cygpath>/dev/null 2>&1;then nh=$(cygpath -u $h 2>/dev/null)&&h=$nh;fi;s=$h/hooks/rules-deny.sh;[ -f $s ]&&exec bash $s'"'"''
 
     mkdir -p "$(dirname "$settings_file")"
 
     if [ ! -f "$settings_file" ]; then
-        cat > "$settings_file" << EOF
+        if command -v jq >/dev/null 2>&1; then
+            jq -n --arg cmd "$hook_cmd" '{
+                "hooks": {"PreToolUse": [{"matcher": "Edit|Write|Bash",
+                    "hooks": [{"type": "command", "command": $cmd}]}]}
+            }' > "$settings_file"
+        else
+            cat > "$settings_file" << EOF
 {
   "hooks": {
     "PreToolUse": [
@@ -264,7 +286,7 @@ n1_deny_hook_register() {
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${hook_path}"
+            "command": "${hook_cmd}"
           }
         ]
       }
@@ -272,19 +294,39 @@ n1_deny_hook_register() {
   }
 }
 EOF
+        fi
         return 0
     fi
 
-    grep -q "$hook_path" "$settings_file" 2>/dev/null && return 0
+    # Remove stale hardcoded-path entries from the old registration style
+    # (old entries have a path literal in the command, not the self-resolving
+    # bash -c form). Keep entries that either don't mention rules-deny.sh or
+    # already use the self-resolving form (contain "git config n1.home").
+    if command -v jq >/dev/null 2>&1; then
+        local tmp
+        tmp=$(mktemp)
+        jq '
+            if .hooks.PreToolUse then
+                .hooks.PreToolUse |= map(
+                    select(.hooks | all(
+                        .command | (contains("rules-deny.sh") | not)
+                            or contains("git config n1.home")
+                    ))
+                )
+            else . end
+        ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+    fi
+
+    grep -qF "rules-deny.sh" "$settings_file" 2>/dev/null && return 0
 
     if command -v jq >/dev/null 2>&1; then
-        local hook_entry tmp
-        hook_entry=$(printf '{"matcher":"Edit|Write|Bash","hooks":[{"type":"command","command":"bash %s"}]}' "$hook_path")
+        local tmp
         tmp=$(mktemp)
-        jq --argjson entry "$hook_entry" '
+        jq --arg cmd "$hook_cmd" '
             .hooks //= {} |
             .hooks.PreToolUse //= [] |
-            .hooks.PreToolUse += [$entry]
+            .hooks.PreToolUse += [{"matcher":"Edit|Write|Bash",
+                "hooks":[{"type":"command","command":$cmd}]}]
         ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
     else
         echo "Warning: Cannot register deny hook without jq. Add it manually to $settings_file."
@@ -292,26 +334,21 @@ EOF
 }
 
 n1_deny_hook_deregister() {
-    local hook_path="$1"
     local settings_file=".claude/settings.local.json"
 
     [ -f "$settings_file" ] || return 0
-    grep -q "$hook_path" "$settings_file" 2>/dev/null || return 0
+    grep -qF "rules-deny.sh" "$settings_file" 2>/dev/null || return 0
 
     if command -v jq >/dev/null 2>&1; then
         local tmp
         tmp=$(mktemp)
-        jq --arg path "$hook_path" '
+        jq '
             if .hooks.PreToolUse then
                 .hooks.PreToolUse |= map(
-                    select(.hooks | all(.command | contains($path) | not))
+                    select(.hooks | all(.command | contains("rules-deny.sh") | not))
                 ) |
-                if (.hooks.PreToolUse | length) == 0 then
-                    del(.hooks.PreToolUse)
-                else . end |
-                if (.hooks | length) == 0 then
-                    del(.hooks)
-                else . end
+                if (.hooks.PreToolUse | length) == 0 then del(.hooks.PreToolUse) else . end |
+                if (.hooks | length) == 0 then del(.hooks) else . end
             else . end
         ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
     fi
