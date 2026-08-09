@@ -39,13 +39,29 @@ Pass to brainstorming:
 - **Project testing policy:** "testCoverage.tier is `{TEST_TIER}` (substitute the actual value). QA behavior by tier: `maintain` = fix broken existing tests only, no new tests added; `minimal` = up to 3 focused behavioral tests per feature for acceptance criteria only; `standard` = edge cases and error paths included. When designing the Testing section, default your proposals to match this tier. Only propose new tests if this specific change introduces risk that existing coverage does not address and the risk clearly justifies an exception to the project's testing policy."
 - When `$RULES_BLOCK` is non-empty, append it verbatim to the brainstorming prompt after the other directives above.
 
-**Brainstorming overrides (IMPORTANT):**
-- **Spec location:** Write the design doc directly to `$N1_HOME/memory/<ID>/brainstorm.md` — NOT to `docs/superpowers/specs/`. The brainstorming skill honors "user preferences for spec location override this default," so this is the sanctioned location override.
-- **Do NOT commit the spec.** `$N1_HOME/` is N1's ephemeral state directory — N1 owns this content in per-ticket memory. No spec artifact may be committed to the target repo.
-- **Skip the User Review Gate.** The brainstorming skill's checklist has a "User reviews written spec" step that asks the user to re-approve the spec after it is written to disk. Skip it — the design was already approved conversationally (step 5), and `brainstorm.md` is an ephemeral memory file, not a committed artifact. Writing it is a recording step, not a review step. After the spec self-review passes, hand control back to the N1 orchestrator immediately.
-- **Stop after the design; do NOT auto-invoke `writing-plans`.** SP 5.1 brainstorming treats "invoke writing-plans" as its terminal state ("the ONLY skill you invoke after brainstorming is writing-plans"). Override this: once the design is written to `brainstorm.md` and approved, hand control back to the N1 orchestrator. N1 runs its own Planning Need Routing and then invokes `writing-plans` itself with the overrides in Step 4. If brainstorming auto-chained into `writing-plans` directly, the plan would be produced WITHOUT N1's location and execution-handoff overrides — writing to `docs/superpowers/plans/` and offering execution options. Do not let it.
+<N1-OVERRIDE>
+These overrides take precedence over superpowers:brainstorming's checklist and HARD-GATE for steps 5-9.
+Steps 1-4 (explore context, clarifying questions, propose approaches) run normally.
 
-> **After `superpowers:brainstorming` returns, IMMEDIATELY continue to the overview update and Post-Brainstorm Enrichment section below -- do NOT write a summary message or yield to the user.**
+Step 5 (Present design): Present the recommended approach as the chosen design in a single cohesive section.
+Do NOT ask for section-by-section approval or wait for explicit user confirmation before proceeding.
+State the design, then move directly to writing the spec. If the user objects before you finish writing,
+stop and address their feedback — this override removes the mandatory gate, not the user's ability to intervene.
+
+Step 6 (Write design doc): Write to `$N1_HOME/memory/<ID>/brainstorm.md` (passed by the orchestrator).
+Do NOT write to docs/superpowers/specs/. Do NOT git-commit the spec.
+
+Step 7 (Spec self-review): Run normally (placeholder scan, consistency, scope, ambiguity).
+
+Step 8 (User reviews written spec): SKIP entirely. The design was already presented in step 5,
+and brainstorm.md is an ephemeral N1 memory file, not a committed artifact.
+
+Step 9 (Transition to implementation): Do NOT invoke writing-plans or any other skill.
+Return control to the N1 orchestrator immediately after step 7 completes.
+
+Output discipline: After the brainstorming sub-skill returns, do NOT write a summary message
+or yield to the user. The orchestrator continues to the next pipeline section immediately.
+</N1-OVERRIDE>
 
 **Investigation mode (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):**
 
