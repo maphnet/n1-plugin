@@ -144,11 +144,13 @@ After the agent returns:
 
 **Step-mode escalation protocol (infrastructure failure).** → § Step-Mode Escalation Protocol with step=`local-testing`, id=`local_test_env_failure`, options=["Skip local testing: proceed to PR", "Abort: stop the pipeline"], context=infrastructure/startup failure with full error output, startup command, and readiness check result.
 
+**text override:** Replace SKILL.md template `text` with: `"Local testing could not start due to infrastructure/environment failure: {context}. Please advise."`
+
 **Step result override:** In SKILL.md § Step-Mode Escalation Protocol step 2, use this command instead:
 `n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":0}" "" "$N1_HOME/memory/$ID"`
 
 **On re-run**, apply the answer for `local_test_env_failure`:
-- "Skip local testing" → update overview (`[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — environment failure"), record in `## Escalations`; emit `outcome: "pass"` and STOP.
+- "Skip local testing" → update overview (`[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — environment failure"), record in `## Escalations`; run `n1_emit_step_result "local-testing" "pass" "null" "null" "" "$N1_HOME/memory/$ID"` and STOP.
 - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
 
 In full pipeline mode: "Infrastructure/startup failure — not a code bug. Options:"
@@ -194,7 +196,7 @@ After developer returns:
 - "Skip local testing" → update overview `[x] Local Testing`, add key decision "Local Testing: skipped after fix-loop exhaustion" to `## Escalations`, and emit `outcome: "pass"`.
 - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
 
-**Autonomy gate (full pipeline only):** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`.
+**Autonomy gate (full pipeline only):** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`. Also update `## Escalations` with key decision: `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)`.
 
 In full pipeline mode: "After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
   - "1 — Fix manually, type 'continue' to re-test"
