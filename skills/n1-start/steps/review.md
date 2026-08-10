@@ -69,7 +69,10 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
 
 If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX) — unless in step mode with `review_fix_cycle` at its bound, in which case escalate using the protocol below. The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3 — the `review_fix` `max_default` in `pipeline.json`).
 
-**Step-mode escalation protocol (main review loop).** In step mode there is no interactive channel — do NOT print a question for the user. When combined verdict is FAIL and `review_fix_cycle` has reached `review.maxFixAttempts` (config, default 3): → § Step-Mode Escalation Protocol with step=`review`, id=`review_fix_exhausted`, options=["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed with remaining findings documented in review.md", "Abort: stop the pipeline"], context=cycles used + remaining [CR-N]/[SEC-N]/[CX-N] findings. Emit step result with `{"review_fix_cycle":$review_fix_cycle}`.
+**Step-mode escalation protocol (main review loop).** In step mode there is no interactive channel — do NOT print a question for the user. When combined verdict is FAIL and `review_fix_cycle` has reached `review.maxFixAttempts` (config, default 3): → § Step-Mode Escalation Protocol with step=`review`, id=`review_fix_exhausted`, options=["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed with remaining findings documented in review.md", "Abort: stop the pipeline"], context=cycles used + remaining [CR-N]/[SEC-N]/[CX-N] findings.
+
+**Step result override:** In SKILL.md § Step-Mode Escalation Protocol step 2, use this command instead:
+`n1_emit_step_result "review" "escalation" "null" "{\"review_fix_cycle\":$review_fix_cycle}" "" "$N1_HOME/memory/$ID"`
 
 **On re-run**, apply the answer for `review_fix_exhausted`:
 - "Retry with guidance" → raise the ceiling to `review.maxFixAttempts` × 2 (default 6, hard ceiling), record guidance in overview `## Escalations`, continue the fix loop.
