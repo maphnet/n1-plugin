@@ -34,7 +34,7 @@ FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "files_change
 FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")}"
 ```
 
-**Rules injection:** Run SKILL.md § Rules Injection with `agent_name=developer`, `changed_files_source=diff_surface` (from `implementation.md`). This populates `$RULES_BLOCK`.
+**Rules injection:** Run SKILL.md § Rules Injection with `agent_name=developer`, no `changed_files_source` (implementation.md does not exist yet; `CHANGED_FILES` will be empty, which correctly matches rules by agent name only). This populates `$RULES_BLOCK`.
 
 **If ALL three conditions hold:**
 1. `TIER == "simple"`
@@ -159,14 +159,33 @@ n1_write_signals "$N1_HOME/memory/$ID/implementation.md" "diff_surface=$DIFF_SUR
 - Proceed to Step 6 (QA).
 
 If the agent returned **BLOCKED:**
-- Present the blocker output to the user as-is.
+- Present the blocker to the user using the Confidence-Based Escalation format below.
 - After the user decides, re-spawn the agent (developer for direct path and simple plan path, implementer for complex plan path) with the decision included. For the complex plan path, SDD resumes from its progress ledger (`/.superpowers/sdd/progress.md`) — completed tasks are not re-dispatched.
 
 ### Confidence-Based Escalation
 
-The developer agent self-escalates per the full protocol in `agents/developer.md`: high confidence → proceed autonomously; low confidence + low blast radius → proceed with a Key Decisions note; low confidence + high blast radius → stop and return BLOCKED with options. Always escalate for security changes, new architectural patterns, and public API contract changes.
+During implementation, evaluate each significant decision:
 
-Pass this protocol to the developer agent when spawning on any direct path. For the complex plan path (SDD), include it in the implementer spawn prompt so SDD subagents also receive it.
+**High confidence → Full autonomy.** Proceed without asking.
+
+**Low confidence + Low blast radius → Proceed with note.** Make the decision, note it in overview's `## Key Decisions`, continue.
+
+**Low confidence + High blast radius → ESCALATE.** Stop and ask:
+```
+I'm not confident about this decision and it has high impact:
+
+**Decision:** <what needs to be decided>
+**Options:**
+A. <option> — <tradeoff>
+B. <option> — <tradeoff>
+C. <option> — <tradeoff>
+
+**My recommendation:** <option> because <reason>
+
+Which approach?
+```
+
+**Always escalate for:** security changes, new architectural patterns, public API contract changes (per `escalation.alwaysAskOn` in config).
 
 **implementation.md format** (pass to the agent — this is the format for the output file):
 ```markdown
