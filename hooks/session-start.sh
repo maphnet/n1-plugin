@@ -23,18 +23,16 @@ EOF
     exit 0
 fi
 
-# Merge any stale telemetry from interrupted runs
+# Merge any stale telemetry from interrupted runs; emit compaction marker if triggered
 telem_enabled=$(n1_config_val '.telemetry.enabled' "$CONFIG_FILE")
 if [ "$telem_enabled" = "true" ]; then
     source "${SCRIPT_DIR}/../lib/telemetry.sh"
     n1_memory_dir=$(n1_home)
     [ -n "$n1_memory_dir" ] && n1_merge_pending "${n1_memory_dir}/memory" 2>/dev/null || true
-fi
-
-# Emit compaction telemetry marker when context was compacted
-if [ "${TRIGGER:-}" = "compact" ] && [ "${telem_enabled:-}" = "true" ]; then
-    if n1_read_lock "${n1_memory_dir}/memory" 2>/dev/null; then
-        n1_emit_compaction "$N1_LOCK_RUN_ID" "$N1_LOCK_VERSION" "$N1_LOCK_TICKET_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
+    if [ "${TRIGGER:-}" = "compact" ] && [ -n "${n1_memory_dir:-}" ]; then
+        if n1_read_lock "${n1_memory_dir}/memory" 2>/dev/null; then
+            n1_emit_compaction "$N1_LOCK_RUN_ID" "$N1_LOCK_VERSION" "$N1_LOCK_TICKET_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
+        fi
     fi
 fi
 

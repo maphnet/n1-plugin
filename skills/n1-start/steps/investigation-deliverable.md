@@ -329,20 +329,16 @@ What would you like to do next?
    - Read `ticketTagging` from config. If `ticketTagging.enabled` is true AND `ticketTagging.service` is non-empty: `<summary>` = `<service> | <title>`, `<description>` = `**Service:** <service>\n\n<description>`. Idempotency guard on title prefix.
    - Otherwise: `<summary>` = title, `<description>` = description as-is.
 
-5. Create ticket via MCP -- same tracker-type-specific logic as brain-dump ticket creation in `steps/ticket.md`. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix -- the value from config, not from the tool list.
-   - If `tracker.type == "jira"`: resolve `cloudId` via `mcp__<TRACKER_MCP>__getAccessibleAtlassianResources` (reuse if already cached), then `mcp__<TRACKER_MCP>__<tracker.operations.createIssue>` with `cloudId`, `projectKey`, `issueTypeName: "Task"`, `summary`, `description`.
-   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.createIssue>` with `project`, `summary`, `description`.
+5. Call `tracker.operations.createIssue` via tracker MCP -- Jira: `cloudId` (from `tracker.cloudId` in config, or resolve via `getAccessibleAtlassianResources` if absent), `projectKey`, `issueTypeName: "Task"`, `summary`, `description`; YouTrack: `project`, `summary`, `description`.
 
 6. **Link to investigation ticket (mandatory invariant):**
 
    Attempt native linking first:
-   - Read `tracker.operations.createIssueLink` from config.
-   - If the operation exists:
-     - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.createIssueLink>` with `cloudId`, `issueIdOrKey`: `<newID>`, `linkedIssueIdOrKey`: `<ID>`, `linkType`: `"Relates"`. If the operation requires a link type ID, first call `mcp__<TRACKER_MCP>__getIssueLinkTypes` to resolve the `Relates` type ID.
-     - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.createIssueLink>` with `issueId`: `<newID>`, `targetIssueId`: `<ID>`, `linkType`: `"depends on"`.
-   - If the linking operation is absent or fails: the `Follows investigation <ID>` text in the description serves as fallback (it is always present). Log "Warning: Native issue linking failed: <reason> -- text link in description." -- non-blocking.
+   - Read `tracker.operations.createIssueLink` from config. If absent, skip to fallback.
+   - If exists: call `tracker.operations.createIssueLink` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <newID>`, `linkedIssueIdOrKey: <ID>`, `linkType: "Relates"` (if link type ID required, first call `tracker.operations.getIssueLinkTypes` to resolve); YouTrack: `issueId: <newID>`, `targetIssueId: <ID>`, `linkType: "depends on"`.
+   - If absent or fails: `Follows investigation <ID>` in description is the fallback (always present). Log "Warning: Native issue linking failed: <reason> -- text link in description." -- non-blocking.
 
-7. Post comment on the investigation ticket: `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with "Follow-up implementation ticket created: <newID> -- <title>". Non-blocking on failure.
+7. Call `tracker.operations.addComment` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <ID>`, `body: "Follow-up implementation ticket created: <newID> -- <title>"`; YouTrack: `issueId: <ID>`, `text: "Follow-up implementation ticket created: <newID> -- <title>"`. Non-blocking on failure.
 
 8. Report: "Created follow-up ticket **[<newID>](<url>)**: <title>, linked to investigation <ID>."
 
