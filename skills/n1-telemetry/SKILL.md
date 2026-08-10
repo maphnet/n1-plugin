@@ -88,6 +88,20 @@ If agent token data is available in run records:
 - Tokens saved by downgrades (estimated: difference between frontier and downgraded model costs)
 - Orchestrator output tokens (avg per type)
 
+### 5. Compaction Events
+
+If compaction data is available in run records (`summary.compaction_count > 0`):
+- Runs with compaction: N out of total (X%)
+- Average compaction count per affected run
+- Compaction timing: correlate `compaction_timestamps` with step start/end times to determine which step was running when compaction fired
+- Trend: is compaction frequency increasing/decreasing across recent runs?
+
+| Step at compaction | Count | % of compactions |
+|-------------------|-------|-----------------|
+| review | N | X% |
+| local-testing | N | X% |
+| ... | ... | ... |
+
 ## Output Format
 
 Present the full report as markdown. End with:

@@ -188,6 +188,8 @@ On re-entry (when `escalation/response.json` exists and `run_id` matches `N1_RUN
 
 **Phase 2b -- Tracker Enrichment**
 
+Use `mcp__<tracker.mcp>__` prefix (from session context TRACKER ROUTING) for all tracker calls.
+
 **Gate -- ALL must hold, otherwise skip:**
 1. A tracker ticket ID exists (not a slug -- must match `<prefix>-<number>` or equivalent)
 2. `ticketEnrichment.enabled !== false` in `$N1_HOME/config.json` (default true when absent)
@@ -207,9 +209,7 @@ TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
 
 **2b-i. Description update (when `HAS_EDIT` is non-empty):**
 
-1. Fetch current ticket description from tracker:
-   - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.readTicket>` with `cloudId` (resolve via `mcp__<TRACKER_MCP>__getAccessibleAtlassianResources` if not cached), `issueIdOrKey`: `<ID>`
-   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.readTicket>` with `issueId`: `<ID>`
+1. Fetch current ticket description. Call `tracker.operations.readTicket` via tracker MCP -- Jira: with `cloudId` (from `tracker.cloudId` in config, or resolve via `getAccessibleAtlassianResources` if absent), `issueIdOrKey: <ID>`; YouTrack: with `issueId: <ID>`.
 
 2. Check idempotency: if current description contains `*Investigation completed -- N1*`, skip description update.
 
@@ -231,41 +231,23 @@ TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
    <recommendations bullet items>
    ```
 
-5. Update via MCP. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix -- the value from config, not from the tool list.
-   - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>` with `cloudId`, `issueIdOrKey`: `<ID>`, `description`: `<current description>\n\n<append content>`
-   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>` with `issueId`: `<ID>`, `description`: `<current description>\n\n<append content>`
-
-6. On MCP failure: log "Warning: Investigation description update failed: <reason>" -- non-blocking.
+5. Call `tracker.operations.editTicket` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `description: <current>\n\n<append>`; YouTrack: with `issueId: <ID>`, `description: <current>\n\n<append>`. On failure: log "Warning: Investigation description update failed: <reason>" -- non-blocking.
 
 **2b-ii. Comment (when `HAS_COMMENT` is non-empty):**
 
-Post a structured comment with the full investigation output. Construct:
-
+Construct comment body:
 ```
 **Investigation Results (N1)**
 
 **Question:** <question section>
-
 **Summary:** <summary>
-
-**Findings:**
-<all findings with evidence>
-
-**Metrics:**
-<full metrics section>
-
-**Recommendations:**
-<all recommendations>
-
-**Next Steps:**
-<all next steps>
+**Findings:** <all findings with evidence>
+**Metrics:** <full metrics section>
+**Recommendations:** <all recommendations>
+**Next Steps:** <all next steps>
 ```
 
-Post via MCP. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix -- the value from config, not from the tool list.
-- If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with `cloudId`, `issueIdOrKey`: `<ID>`, `body`: `<comment>`
-- Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with `issueId`: `<ID>`, `text`: `<comment>`
-
-On MCP failure: log "Warning: Investigation comment failed: <reason>" -- non-blocking.
+Call `tracker.operations.addComment` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `body: <comment>`; YouTrack: with `issueId: <ID>`, `text: <comment>`. On failure: log "Warning: Investigation comment failed: <reason>" -- non-blocking.
 
 **Phase 2 -- Discussion**
 
@@ -289,6 +271,8 @@ Would you like to discuss or refine any findings? (yes/no)
 **Phase 5 -- Post-Investigation Routing (interactive only)**
 
 **Gate:** Skip entirely if step mode. Skip if no tracker is configured (`tracker.mcp` is null or absent).
+
+Use `mcp__<tracker.mcp>__` prefix for all tracker calls in this phase.
 
 **Step 1 -- Present results summary:**
 
@@ -345,20 +329,16 @@ What would you like to do next?
    - Read `ticketTagging` from config. If `ticketTagging.enabled` is true AND `ticketTagging.service` is non-empty: `<summary>` = `<service> | <title>`, `<description>` = `**Service:** <service>\n\n<description>`. Idempotency guard on title prefix.
    - Otherwise: `<summary>` = title, `<description>` = description as-is.
 
-5. Create ticket via MCP -- same tracker-type-specific logic as brain-dump ticket creation in `steps/ticket.md`. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix -- the value from config, not from the tool list.
-   - If `tracker.type == "jira"`: resolve `cloudId` via `mcp__<TRACKER_MCP>__getAccessibleAtlassianResources` (reuse if already cached), then `mcp__<TRACKER_MCP>__<tracker.operations.createIssue>` with `cloudId`, `projectKey`, `issueTypeName: "Task"`, `summary`, `description`.
-   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.createIssue>` with `project`, `summary`, `description`.
+5. Call `tracker.operations.createIssue` via tracker MCP -- Jira: `cloudId` (from `tracker.cloudId` in config, or resolve via `getAccessibleAtlassianResources` if absent), `projectKey`, `issueTypeName: "Task"`, `summary`, `description`; YouTrack: `project`, `summary`, `description`.
 
 6. **Link to investigation ticket (mandatory invariant):**
 
    Attempt native linking first:
-   - Read `tracker.operations.createIssueLink` from config.
-   - If the operation exists:
-     - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.createIssueLink>` with `cloudId`, `issueIdOrKey`: `<newID>`, `linkedIssueIdOrKey`: `<ID>`, `linkType`: `"Relates"`. If the operation requires a link type ID, first call `mcp__<TRACKER_MCP>__getIssueLinkTypes` to resolve the `Relates` type ID.
-     - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.createIssueLink>` with `issueId`: `<newID>`, `targetIssueId`: `<ID>`, `linkType`: `"depends on"`.
-   - If the linking operation is absent or fails: the `Follows investigation <ID>` text in the description serves as fallback (it is always present). Log "Warning: Native issue linking failed: <reason> -- text link in description." -- non-blocking.
+   - Read `tracker.operations.createIssueLink` from config. If absent, skip to fallback.
+   - If exists: call `tracker.operations.createIssueLink` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <newID>`, `linkedIssueIdOrKey: <ID>`, `linkType: "Relates"` (if link type ID required, first call `tracker.operations.getIssueLinkTypes` to resolve); YouTrack: `issueId: <newID>`, `targetIssueId: <ID>`, `linkType: "depends on"`.
+   - If absent or fails: `Follows investigation <ID>` in description is the fallback (always present). Log "Warning: Native issue linking failed: <reason> -- text link in description." -- non-blocking.
 
-7. Post comment on the investigation ticket: `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with "Follow-up implementation ticket created: <newID> -- <title>". Non-blocking on failure.
+7. Call `tracker.operations.addComment` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <ID>`, `body: "Follow-up implementation ticket created: <newID> -- <title>"`; YouTrack: `issueId: <ID>`, `text: "Follow-up implementation ticket created: <newID> -- <title>"`. Non-blocking on failure.
 
 8. Report: "Created follow-up ticket **[<newID>](<url>)**: <title>, linked to investigation <ID>."
 
@@ -372,12 +352,9 @@ What would you like to do next?
 
 **If 2 -- Convert this ticket to implementation:**
 
-1. **Update ticket type/tags** via `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>`. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix.
-   - If `tracker.type == "jira"`: update `issueTypeName` to "Task" with `cloudId`, `issueIdOrKey`: `<ID>`.
-   - Else (`tracker.type == "youtrack"`): update the `Type` field to "Task" with `issueId`: `<ID>`.
-   - If the operation fails, log the error and continue -- the description enrichment is more important.
+1. Call `tracker.operations.editTicket` via tracker MCP to update type -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `issueTypeName: "Task"`; YouTrack: with `issueId: <ID>`, `Type: "Task"`. On failure: log and continue.
 
-2. **Enrich description** -- fetch current description, check idempotency marker `*Converted to implementation -- N1*`. If already present, skip. Otherwise append:
+2. Fetch current description. Check idempotency marker `*Converted to implementation -- N1*` -- skip if present. Otherwise construct append content:
    ```
    ---
    *Converted to implementation -- N1*
@@ -393,47 +370,25 @@ What would you like to do next?
    ## Investigation Findings
    <key findings as implementation context>
    ```
+   Call `tracker.operations.editTicket` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `description: <current>\n\n<append>`; YouTrack: with `issueId: <ID>`, `description: <current>\n\n<append>`.
 
-   Update via MCP (same Jira/YouTrack pattern as Phase 2b description update). Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix.
-   - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>` with `cloudId`, `issueIdOrKey`: `<ID>`, `description`: `<current description>\n\n<append content>`
-   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.editTicket>` with `issueId`: `<ID>`, `description`: `<current description>\n\n<append content>`
+3. Call `tracker.operations.addComment` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <ID>`, `body: "Converted from investigation to implementation task. Investigation findings retained in description."`; YouTrack: `issueId: <ID>`, `text: "Converted from investigation to implementation task. Investigation findings retained in description."`. Non-blocking.
 
-3. **Post comment:** "Converted from investigation to implementation task. Investigation findings retained in description." Via `mcp__<TRACKER_MCP>__<tracker.operations.addComment>`. Non-blocking on failure.
-   - If `tracker.type == "jira"`: with `cloudId`, `issueIdOrKey`: `<ID>`, `body`: `<comment>`
-   - Else (`tracker.type == "youtrack"`): with `issueId`: `<ID>`, `text`: `<comment>`
-
-4. **No status transition** -- the ticket is not closed. It continues as an active implementation task.
-
-5. Report: "Ticket <ID> converted to implementation task. Run `/n1:n1-start <ID>` to begin implementation."
+4. The ticket is not closed -- it continues as an active implementation task. Report: "Ticket <ID> converted to implementation task. Run `/n1:n1-start <ID>` to begin implementation."
 
 **If 3 -- Done:**
 
-Ask whether to close the investigation ticket:
-```
-Would you like to close this investigation ticket (<ID>)?
-1 -- Yes, mark as done
-2 -- No, leave open
-```
-
-If yes: transition status and add comment "Investigation completed. Findings documented." (see close logic below).
-
-If no: skip.
+Ask: "Would you like to close this investigation ticket (<ID>)? 1 -- Yes, mark as done / 2 -- No, leave open". If yes: close with comment "Investigation completed. Findings documented." (see close logic below).
 
 **Close logic (shared by option 1 and option 3):**
 
 **Gate -- ALL must hold, otherwise skip with warning:**
-- `tracker.mcp` is configured
-- `tracker.statuses.done` is present in config
-- `tracker.operations.moveStatus` exists
+- `tracker.mcp` is configured; `tracker.statuses.done` is present; `tracker.operations.moveStatus` exists.
 
 If the gate fails, log "Warning: Cannot close ticket -- tracker status configuration missing." and skip.
 
-1. Move status via the operations map:
-   - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.getTransitions>` with `cloudId`, `issueIdOrKey`: `<ID>` -> find the transition matching `tracker.statuses.done` -> `mcp__<TRACKER_MCP>__<tracker.operations.moveStatus>` with `cloudId`, `issueIdOrKey`: `<ID>`, `transitionId`: `<matched transition id>`
-   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.moveStatus>` with `issueId`: `<ID>`, `state`: `<tracker.statuses.done>`
-2. Add comment via `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with the close message.
-   - If `tracker.type == "jira"`: with `cloudId`, `issueIdOrKey`: `<ID>`, `body`: `<comment>`
-   - Else (`tracker.type == "youtrack"`): with `issueId`: `<ID>`, `text`: `<comment>`
+1. Call `tracker.operations.moveStatus` via tracker MCP -- Jira: first call `tracker.operations.getTransitions` with `cloudId`, `issueIdOrKey: <ID>` to find the transition matching `tracker.statuses.done`, then call `tracker.operations.moveStatus` with `cloudId`, `issueIdOrKey: <ID>`, `transitionId: <matched id>`; YouTrack: call `tracker.operations.moveStatus` with `issueId: <ID>`, `state: <tracker.statuses.done>`.
+2. Call `tracker.operations.addComment` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `body: <close message>`; YouTrack: with `issueId: <ID>`, `text: <close message>`.
 3. Tracker failures: warn, never block.
 
 **Step mode variant:** In step mode, Phase 1b Q&A uses the escalation protocol (same as analysis step). Phase 2b tracker enrichment runs normally. Phase 2 discussion and Phase 5 post-investigation routing are skipped entirely. The step result is unchanged.

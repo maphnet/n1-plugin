@@ -10,19 +10,7 @@ procedure before running any tests. Marker-guarded — a no-op if implementation
 already installed or if no worktree is active, but keeps a resumed/partial pipeline
 (entering directly at QA in a fresh worktree) safe.
 
-**Rule injection:**
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
-RULES_DIR=$(n1_rules_dir)
-RULES_BLOCK=""
-if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
-    CHANGED_FILES=$(n1_read_signal "$N1_HOME/memory/$ID/implementation.md" "diff_surface")
-    MATCHING_RULES=$(n1_rules_for_agent "qa-engineer" "$CHANGED_FILES" "$RULES_DIR")
-    if [ -n "$MATCHING_RULES" ]; then
-        RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
-    fi
-fi
-```
+**Rules injection:** Prepare rules block per SKILL.md § Rules Injection with agent_name=`qa-engineer`, changed_files_source=`diff_surface` from `implementation.md`.
 
 **Spawn agent:** qa-engineer
 
@@ -80,48 +68,24 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
     ```
   - **Bounded loop:** stop after `qa.maxFixAttempts` cycles (config, default 3). On exhaustion, escalate instead of looping forever. The counter is persisted, so the bound survives a resume. The bound and its default are declared in `pipeline.json` `loops[]` (`qa_fix`).
 
-**Step-mode escalation protocol.** In step mode there is no interactive channel — do NOT print a question for the user. When this step must escalate (fix-loop bound exhausted, or a blocking ambiguity it cannot resolve):
+**Step-mode escalation** (if QA fix loop exhausted):
+Apply the Step-Mode Escalation Protocol (see SKILL.md § Step-Mode Escalation Protocol) with:
+- id: `qa_fix_exhausted`
+- step: `qa`
+- options: ["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed to review with the failure documented in qa.md", "Abort: stop the pipeline"]
+- context: QA fix cycles completed, specific failing tests, qa.md content summary
 
-1. Write `$N1_HOME/memory/<ID>/escalation/request.json` (create the directory if needed):
-   ```json
-   {
-     "run_id": "<value of the N1_RUN_ID environment variable>",
-     "step": "qa",
-     "questions": [{
-       "id": "qa_fix_exhausted",
-       "text": "<one-paragraph description of what is blocked and why, with concrete specifics>",
-       "options": ["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed to review with the failure documented in qa.md", "Abort: stop the pipeline"],
-       "recommendation": "<the option you would pick, with a one-line reason>",
-       "context": "<cycles used, remaining findings/failures, error excerpts>"
-     }]
-   }
-   ```
-2. Run via Bash:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "qa" "escalation" "null" "{\"qa_fix_cycle\":$qa_fix_cycle}" "" "$N1_HOME/memory/$ID"
-   ```
-   Then STOP.
-3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `qa_fix_exhausted`:
-   - "Retry with guidance" → raise the loop ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci), record the guidance in overview `## Escalations`, and continue the fix loop using it.
-   - "Accept as-is" → record the decision in overview `## Escalations` and emit `outcome: "pass"` (the pipeline proceeds with the issue documented in this step's memory file).
-   - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
+Note: override the shared procedure's step result to pass the cycle count:
+`n1_emit_step_result "qa" "escalation" "null" "{\"qa_fix_cycle\":$qa_fix_cycle}" "" "$N1_HOME/memory/$ID"`
 
-In full pipeline mode this protocol does NOT apply — keep the interactive prompt below unchanged.
+**On escalation response (step mode):**
+- "Retry with guidance" → raise the loop ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci), record the guidance in overview `## Escalations`, and continue the fix loop using it.
+- "Accept as-is" → record the decision in overview `## Escalations` and emit `outcome: "pass"` (the pipeline proceeds with the issue documented in this step's memory file).
+- "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
 
-**Autonomy gate (full pipeline only):** read the policy first:
+**Autonomy gate (full pipeline only):** Apply per SKILL.md § Autonomy Gate with step=`qa`, action=`accept current test state`, ledger_context=`<failing test names and counts>`.
 
-```bash
-QE=$(n1_autonomy_val 'qualityEscalations')
-```
-
-If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — accept the current state as-is, note the unresolved items, and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
-
-`| qa | quality | A | [auto] | <what remained unresolved after N attempts> | Accept as-is, proceed | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review |`
-
-Then continue the pipeline as if the user had chosen the recommended option. Otherwise (policy `block`, or safety-relevant): ask as below.
-
-In full pipeline mode: "After <N> QA fix cycles this test still fails: [details]. Please advise."
+**If ask (default):** Prompt the user: "After <N> QA fix cycles this test still fails: [test name/details]. Please advise: Retry / Accept as-is / Abort?"
 
 **Step result (step mode) — pass path:**
 

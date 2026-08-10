@@ -14,16 +14,9 @@ if [ "$CACHE_ENABLED" = "true" ]; then
     CACHE_STATE=$(n1_snapshot_check_freshness "$SNAPSHOT_PATH" "$N1_HOME/config.json")
 fi
 
-# Rule injection for solution-architect
-RULES_DIR=$(n1_rules_dir)
-RULES_BLOCK=""
-if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
-    MATCHING_RULES=$(n1_rules_for_agent "solution-architect" "" "$RULES_DIR")
-    if [ -n "$MATCHING_RULES" ]; then
-        RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
-    fi
-fi
 ```
+
+Run SKILL.md § Rules Injection with `agent_name=solution-architect`, no `changed_files_source` — analysis runs before implementation; CHANGED_FILES will be empty, matching rules by agent name only.
 
 The `CACHE_STATE` variable (`cold`, `stale`, or `fresh`) determines the dispatch path below. When `analysisCache.enabled` is `false` (default), `CACHE_STATE` stays `cold` and the step runs identically to today.
 
@@ -31,20 +24,11 @@ The `CACHE_STATE` variable (`cold`, `stale`, or `fresh`) determines the dispatch
 
 Resolve model for `solution-architect` with context `analysis`.
 
-**Prompt construction depends on CACHE_STATE:**
+**Shared spawn directives (apply to both cold/stale and fresh paths):**
 
-**When CACHE_STATE is `cold` or `stale`:**
-
-Spawn the solution-architect agent with:
-- The path to the ticket file — instruct the agent: "Read `$N1_HOME/memory/<ID>/ticket.md` yourself (you have Read); it is the scope to analyze. Its content is NOT inlined here."
-- The **Type** field (bug/feature/task/improvement) — extract it without reading the whole file into orchestrator context:
-  ```bash
-  grep -m1 -i '^\*\*Type:\*\*' "$N1_HOME/memory/$ID/ticket.md"
-  ```
-  Pass the value explicitly so the architect knows whether to perform bug investigation
-- Directive: "Research relevant industry standards, best practices, and practitioner experience per agents/research-standards.md and include the cited Industry Standards & Best Practices section."
-- Directive: "Scratch-artifact policy: write any throwaway benchmark or investigative/spike test (one that answers a current question rather than verifying committed code) under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Tests that verify the implementation still go into the repo as usual. When unsure, default to scratch."
-- **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** Also pass: "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan.
+- **Type:** Extract via `grep -m1 -i '^\*\*Type:\*\*' "$N1_HOME/memory/$ID/ticket.md"` and pass the value explicitly so the architect knows whether to perform bug investigation.
+- **Scratch-artifact policy:** "Write any throwaway benchmark or investigative/spike test (one that answers a current question rather than verifying committed code) under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Tests that verify the implementation still go into the repo as usual. When unsure, default to scratch."
+- **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan.
 
     When you encounter a constraint, assumption, or ambiguity not covered by the ticket description, classify it before acting:
 
@@ -53,7 +37,16 @@ Spawn the solution-architect agent with:
     - **C -- convention:** Answerable from project patterns or standard practice. Resolve silently -- no marker needed.
 
     Default to B. Only classify as A after a genuine exploration attempt fails. The goal: the user should never be asked a question you could have answered by reading the code."
-- **When `$RULES_BLOCK` is non-empty**, append it after the directives above.
+- **Rules:** If `$RULES_BLOCK` is non-empty, append it after the directives above.
+
+**Prompt construction depends on CACHE_STATE:**
+
+**When CACHE_STATE is `cold` or `stale`:**
+
+Spawn the solution-architect agent with:
+- The path to the ticket file — instruct the agent: "Read `$N1_HOME/memory/<ID>/ticket.md` yourself (you have Read); it is the scope to analyze. Its content is NOT inlined here."
+- Directive: "Research relevant industry standards, best practices, and practitioner experience per agents/research-standards.md and include the cited Industry Standards & Best Practices section."
+- All shared spawn directives above.
 - **When `CACHE_ENABLED` is `true`**, also append this OUTPUT FORMAT REQUIREMENT at end of prompt:
 
   > Separate your findings into two clearly marked sections:
@@ -83,7 +76,7 @@ Spawn the solution-architect agent with this prompt (replacing the standard proj
 > TASK: Analyze the following ticket for implementation readiness.
 >
 > Ticket: Read `$N1_HOME/memory/<ID>/ticket.md` yourself (you have Read); it is the scope to analyze.
-> Type: {TYPE extracted via `grep -m1 -i '^\*\*Type:\*\*' "$N1_HOME/memory/$ID/ticket.md"`}
+> Type: {TYPE from shared spawn directives}
 >
 > INSTRUCTIONS:
 > - DO NOT re-scan the project structure, conventions, or architecture — the snapshot covers this.
@@ -92,16 +85,16 @@ Spawn the solution-architect agent with this prompt (replacing the standard proj
 > - You MAY do ticket-specific web research if the ticket touches a domain not covered by the Industry Standards section.
 > - Where the snapshot describes current practice and a rule prescribes required practice, the rule wins.
 >
-> {$RULES_BLOCK if non-empty, otherwise omit this section entirely}
+> {$RULES_BLOCK from shared spawn directives, if non-empty, otherwise omit}
 > - If you notice the snapshot appears incorrect or outdated, flag it with: SNAPSHOT_DRIFT: <description>
 >
 > OUTPUT FORMAT:
 > Use `## [TICKET] <section name>` for all sections.
 > Emit signals as the final line as usual.
 >
-> Directive: "Scratch-artifact policy: write any throwaway benchmark or investigative/spike test under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` — never into the repo's test suite."
+> {Scratch-artifact policy from shared spawn directives}
 
-Include investigation-mode and error-tracking-enrichment directives same as cold/stale path (these are ticket-specific and always apply).
+Also apply the investigation-mode directive from shared spawn directives (ticket-specific, always applies).
 
 **Error-tracking enrichment (error tracker mode only):**
 
@@ -241,15 +234,8 @@ Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` 
   "step": "analysis",
   "questions": [
     {
-      "id": "unknown_1",
-      "text": "<first unknown text>",
-      "options": [],
-      "recommendation": "",
-      "context": "Flagged during investigation analysis — not covered by ticket description"
-    },
-    {
-      "id": "unknown_2",
-      "text": "<second unknown text>",
+      "id": "unknown_<N>",
+      "text": "<unknown text>",
       "options": [],
       "recommendation": "",
       "context": "Flagged during investigation analysis — not covered by ticket description"
@@ -258,7 +244,7 @@ Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` 
 }
 ```
 
-Include one entry per unknown — do not limit to the first item.
+Include one entry per unknown (incrementing IDs: `unknown_1`, `unknown_2`, …) — do not limit to the first item.
 
 Write to `$N1_HOME/memory/<ID>/escalation/request.json`. Emit step result:
 ```bash
