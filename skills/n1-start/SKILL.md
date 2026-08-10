@@ -518,6 +518,76 @@ n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md analysis.md
 
 (Pass the declared dependency files for the current step — see table above.) If any dependency is missing or empty, the function prints the missing files to stderr and returns non-zero — **STOP and report** rather than proceeding with a degraded handoff. (`ticket.md` with no acceptance criteria is handled upstream by product-analyst and is not a hard stop.)
 
+## Step-Mode Escalation Protocol
+
+When a fix loop is exhausted in step mode (no interactive channel), write an escalation request and emit a step result so n1-loop can surface the question to the user.
+
+**Parameters:** `{step}`, `{id}`, `{options}` (array of `{label, recommendation?}` objects), `{context}` (step-specific details)
+
+1. Write `$N1_HOME/memory/<ID>/escalation/request.json`:
+   ```json
+   {
+     "run_id": "<value of the N1_RUN_ID environment variable>",
+     "step": "{step}",
+     "questions": [{
+       "id": "{id}",
+       "text": "The {step} fix loop has been exhausted. {context}",
+       "options": ["{options[0].label}", "{options[1].label}", ...],
+       "recommendation": "{options[0].recommendation // first option}",
+       "context": "{context}"
+     }]
+   }
+   ```
+2. Emit step result:
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+   n1_emit_step_result "{step}" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
+   ```
+3. STOP — do not continue the step.
+
+**On re-run** (`response.json` present and `run_id` matches `N1_RUN_ID`): read the user's chosen option index and execute the corresponding action defined by the step file (retry/accept/abort). Record the decision in overview.md `## Escalations`.
+
+In full pipeline mode this protocol does NOT apply — keep the interactive prompt unchanged.
+
+## Autonomy Gate (qualityEscalations)
+
+When a quality step has findings that the user would normally be prompted about (full pipeline mode), check the autonomy policy first.
+
+**Parameters:** `{step}`, `{action}` (what auto-accept does, e.g. "accept remaining findings"), `{ledger_context}` (summary for the Decision Ledger row)
+
+```bash
+QE=$(n1_autonomy_val 'qualityEscalations')
+```
+
+**If `QE` is `auto`** AND the findings do NOT involve security, architecture, or public API changes: take `{action}` silently. Append a Decision Ledger row to overview.md:
+
+`| {step} | quality | A | [auto] | {ledger_context} | {action} | Prompt user | qualityEscalations=auto |`
+
+**If `QE` is `ask`** (default) or the findings involve security/architecture/public API: show the interactive prompt as defined by the step file.
+
+## Rules Injection
+
+Prepare a rules block to inject into an agent spawn prompt. The block is empty when no matching rules exist.
+
+**Parameters:** `{agent_name}` (e.g. `"developer"`, `"solution-architect"`), `{changed_files_source}` (optional signal key to read changed files from, e.g. `"diff_surface"` from `implementation.md`)
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+RULES_DIR=$(n1_rules_dir)
+RULES_BLOCK=""
+if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
+    CHANGED_FILES=""
+    # If changed_files_source is provided, read the signal
+    # CHANGED_FILES=$(n1_read_signal "$N1_HOME/memory/$ID/{source_file}" "{changed_files_source}")
+    MATCHING_RULES=$(n1_rules_for_agent "{agent_name}" "$CHANGED_FILES" "$RULES_DIR")
+    if [ -n "$MATCHING_RULES" ]; then
+        RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
+    fi
+fi
+```
+
+When `$RULES_BLOCK` is non-empty, append it to the agent's spawn prompt.
+
 ## Pipeline Steps
 
 Step 3 (Brainstorm) is **INTERACTIVE in full pipeline mode only** — Superpowers handles user interaction during brainstorming. In step mode, the autonomous brainstormer runs headlessly with escalation-on-demand. Step 4 (Plan checkpoint) pauses for explicit plan approval when `requirePlanApproval` is enabled.
