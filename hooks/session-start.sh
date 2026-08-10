@@ -4,6 +4,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/config.sh"
 
+INPUT=$(cat)
+TRIGGER=$(echo "$INPUT" | grep -o '"trigger"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:.*"\([^"]*\)"/\1/' || true)
+
 CONFIG_FILE=$(n1_config_file)
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -26,6 +29,13 @@ if [ "$telem_enabled" = "true" ]; then
     source "${SCRIPT_DIR}/../lib/telemetry.sh"
     n1_memory_dir=$(n1_home)
     [ -n "$n1_memory_dir" ] && n1_merge_pending "${n1_memory_dir}/memory" 2>/dev/null || true
+fi
+
+# Emit compaction telemetry marker when context was compacted
+if [ "${TRIGGER:-}" = "compact" ] && [ "${telem_enabled:-}" = "true" ]; then
+    if n1_read_lock "${n1_memory_dir}/memory" 2>/dev/null; then
+        n1_emit_compaction "$N1_LOCK_RUN_ID" "$N1_LOCK_VERSION" "$N1_LOCK_TICKET_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
+    fi
 fi
 
 context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (/n1:n1-start, /n1:n1-pr, /n1:n1-review, /n1:n1-ci) over alternatives."

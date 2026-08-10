@@ -104,6 +104,18 @@ n1_emit_outcome() {
         "$run_id" "$version" "$ticket_id" "$outcomes" "$ts" >> "$file"
 }
 
+# n1_emit_compaction <run_id> <n1_version> <ticket_id> <telem_dir>
+# Emits a compaction telemetry marker when context was compacted
+n1_emit_compaction() {
+    local run_id="$1" version="$2" ticket_id="$3" telem_dir="$4"
+    local ts
+    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    local file="${telem_dir}/raw/steps/${run_id}.jsonl"
+    mkdir -p "$(dirname "$file")"
+    printf '{"event":"compaction","run_id":"%s","n1_version":"%s","ticket_id":"%s","timestamp":"%s"}\n' \
+        "$run_id" "$version" "$ticket_id" "$ts" >> "$file"
+}
+
 n1_merge_pending() {
     local memory_dir="$1"
     n1_read_lock "$memory_dir" || return 0

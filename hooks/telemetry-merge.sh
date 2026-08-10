@@ -85,6 +85,12 @@ if command -v jq >/dev/null 2>&1; then
         OUTCOMES_JSON=$(jq -s '[.[] | select(.event == "outcome")]' "$STEPS_FILE" 2>/dev/null || echo "[]")
     fi
 
+    # --- Extract compaction events ---
+    COMPACTIONS_JSON="[]"
+    if [ -f "$STEPS_FILE" ]; then
+        COMPACTIONS_JSON=$(jq -s '[.[] | select(.event == "compaction") | .timestamp]' "$STEPS_FILE" 2>/dev/null || echo "[]")
+    fi
+
     # --- Parse agent events: pair start/stop by agent_id ---
     AGENTS_RAW="[]"
     if [ -f "$AGENTS_FILE" ]; then
@@ -212,6 +218,7 @@ if command -v jq >/dev/null 2>&1; then
     SUMMARY=$(jq -n \
         --argjson steps "$STEPS_JSON" \
         --argjson agents "$AGENTS_JSON" \
+        --argjson compactions "$COMPACTIONS_JSON" \
         '{
             total_duration_s: ([$steps[].duration_s | select(. != null)] | add // 0),
             total_input_tokens: ([$agents[].input_tokens | select(. != null)] | add // 0),
@@ -226,7 +233,9 @@ if command -v jq >/dev/null 2>&1; then
             steps_completed: ([$steps[] | select(.outcome == "pass" or .outcome == "skip")] | length),
             steps_skipped: ([$steps[] | select(.outcome == "skip")] | length),
             review_fix_cycles: ([$steps[] | select(.step == "fix") | .loop_iteration // 0] | max // 0),
-            qa_fix_cycles: ([$steps[] | select(.step == "qa" and .loop_iteration != null and .loop_iteration > 0)] | length)
+            qa_fix_cycles: ([$steps[] | select(.step == "qa" and .loop_iteration != null and .loop_iteration > 0)] | length),
+            compaction_count: ($compactions | length),
+            compaction_timestamps: $compactions
         }
     ')
 
