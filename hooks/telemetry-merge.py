@@ -204,6 +204,8 @@ def main() -> int:
         return sum(v for v in vals if v is not None)
 
     compaction_events = [e['timestamp'] for e in step_events if e.get('event') == 'compaction']
+    decisions = [e for e in step_events if e.get('event') == 'decision']
+    outcomes = [e for e in step_events if e.get('event') == 'outcome']
     total_in = _sum(a["input_tokens"] for a in agents)
     total_cache = _sum(a["cache_read_tokens"] for a in agents)
     summary = {
@@ -236,6 +238,8 @@ def main() -> int:
         "config_snapshot": envelope.get("config_snapshot"),
         "steps": steps,
         "agents": agents,
+        "decisions": decisions,
+        "outcomes": outcomes,
         "summary": summary,
     }
     (out_dir / f"{args.run_id}.jsonl").write_text(
