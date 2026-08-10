@@ -11,21 +11,13 @@
 BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
 ```
 
-Read the test coverage tier from config and resolve matching rules:
+Read the test coverage tier from config:
 ```bash
 TEST_TIER=$(n1_config_val '.testCoverage.tier' 2>/dev/null)
 TEST_TIER="${TEST_TIER:-maintain}"
-
-source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
-RULES_DIR=$(n1_rules_dir)
-RULES_BLOCK=""
-if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
-    MATCHING_RULES=$(n1_rules_for_agent "solution-architect" "" "$RULES_DIR")
-    if [ -n "$MATCHING_RULES" ]; then
-        RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
-    fi
-fi
 ```
+
+Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `changed_files_source` — brainstorm runs before implementation; `CHANGED_FILES` will be empty). Capture result as `$RULES_BLOCK`.
 
 - **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` in **interactive escalation mode** — tell it: "interactive escalation mode: you have a user-facing session; ask A-tier and inconclusive-dominance questions inline, one at a time; write [auto]/[asked] ledger rows per skills/n1-start/ledger.md." Also pass the test-coverage-tier directive and `$RULES_BLOCK` (same way the interactive path passes them). After it returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies).
 - **`BRAINSTORM_MODE` == `interactive` (default):** Use the interactive brainstormer:
@@ -149,26 +141,18 @@ n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,ke
 
 ### Post-Brainstorm Enrichment (Phase 2)
 
-**Gate:** Run ONLY when ALL conditions are met:
-1. A tracker ticket ID exists (ticket mode, OR brain-dump/file/error-tracker mode where the user created a ticket)
-2. `ticketEnrichment.enabled !== false` (from config; default true when block is absent)
-3. `tracker.operations.editTicket` exists
-4. `tracker.operations.addComment` exists
+**MCP routing:** Use the tracker MCP prefix from session context (`mcp__<tracker.mcp>__`) for all tracker calls in this section — do not repeat or restate it per call.
 
-If any condition fails, skip silently and proceed to Planning Need Routing.
+**Gate (skip silently if any fails):** Tracker ticket ID exists; `ticketEnrichment.enabled !== false` (default true); `tracker.operations.editTicket` and `.addComment` exist.
 
 **Process:**
 
-1. Read `brainstorm.md` — extract:
-   - Refined acceptance criteria (more specific than what Phase 1 may have added)
-   - Scope boundaries (in-scope / out-of-scope)
-   - Design approach summary (1-2 sentences)
-   - Key design decisions (bulleted list)
+1. Read `brainstorm.md` — extract refined AC, scope boundaries (in/out-of-scope), approach summary (1-2 sentences), and key decisions.
 
-2. **Check whether brainstorming produced meaningful refinements.** Compare the brainstorm output against `ticket.md`'s acceptance criteria. If the brainstorm AC are substantively identical to what's already in the ticket (Phase 1 enrichment or original), skip the description update. Always post the comment (the design summary is new information regardless).
+2. **Check for meaningful refinements.** If brainstorm AC are substantively identical to `ticket.md`'s AC (Phase 1 or original), skip the description update. Always post the comment (design summary is always new information).
 
 3. **Update description** (append) — only if refinements exist:
-   - First, fetch the current description from the tracker: call `mcp__<tracker.mcp>__<tracker.operations.readTicket>` with the ticket ID to get the latest description (it may have been modified by Phase 1 or manually since).
+   - First, fetch the current description: call `readTicket` via tracker MCP routing with the ticket ID (it may have been modified by Phase 1 or manually since).
    - Construct append content:
      ```
      ---
@@ -181,12 +165,10 @@ If any condition fails, skip silently and proceed to Planning Need Routing.
      - In scope: <what's included>
      - Out of scope: <what's explicitly excluded>
      ```
-     Only include sections that add new information. If brainstorming didn't refine AC, omit that section. If no scope boundaries were discussed, omit that section. If BOTH would be omitted, skip the description update entirely.
+     Omit sections that add no new information; if both would be omitted, skip the update entirely.
    - Idempotency: if the current description already contains `*Refined after design review — N1*`, skip the description update (already applied in a prior run).
-   - Call `mcp__<tracker.mcp>__<tracker.operations.editTicket>`. Use exactly `mcp__<tracker.mcp>__` as the tool prefix — the value from config, not from the tool list.
-     - If `tracker.type == "jira"`: with `cloudId` (resolve via `mcp__<tracker.mcp>__getAccessibleAtlassianResources` if not cached), `issueIdOrKey`: `<ticketId>`, `description`: `<current description>\n\n<append content>`
-     - Else (`tracker.type == "youtrack"`): with `issueId`: `<ticketId>`, `description`: `<current description>\n\n<append content>`
-   - If the MCP call fails: log "⚠ Post-brainstorm description update failed: <reason>" and continue — non-blocking.
+   - Call `editTicket` via tracker MCP routing (Jira: `issueIdOrKey`, `description`, include `cloudId`; YouTrack: `issueId`, `description`).
+   - On failure: log "⚠ Post-brainstorm description update failed: <reason>" and continue — non-blocking.
 
 4. **Post design summary comment:**
    - Construct comment:
@@ -200,10 +182,8 @@ If any condition fails, skip silently and proceed to Planning Need Routing.
 
      Design doc: internal (per-ticket memory)
      ```
-   - Call `mcp__<tracker.mcp>__<tracker.operations.addComment>`. Use exactly `mcp__<tracker.mcp>__` as the tool prefix — the value from config, not from the tool list.
-     - If `tracker.type == "jira"`: with `cloudId`, `issueIdOrKey`: `<ticketId>`, `body`: `<comment text>`
-     - Else (`tracker.type == "youtrack"`): with `issueId`: `<ticketId>`, `text`: `<comment text>`
-   - If the MCP call fails: log "⚠ Design summary comment failed: <reason>" and continue — non-blocking.
+   - Call `addComment` via tracker MCP routing (Jira: `issueIdOrKey`, `body`, include `cloudId`; YouTrack: `issueId`, `text`).
+   - On failure: log "⚠ Design summary comment failed: <reason>" and continue — non-blocking.
 
 5. Log: "Tracker updated with refined requirements and design summary." (or "Tracker enrichment skipped." if gated out)
 
