@@ -72,10 +72,20 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 Apply the Step-Mode Escalation Protocol (see SKILL.md § Step-Mode Escalation Protocol) with:
 - id: `qa_fix_exhausted`
 - step: `qa`
-- options: ["Retry with specific guidance", "Accept current test state and continue", "Abort pipeline"]
+- options: ["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed to review with the failure documented in qa.md", "Abort: stop the pipeline"]
 - context: QA fix cycles completed, specific failing tests, qa.md content summary
 
+Note: override the shared procedure's step result to pass the cycle count:
+`n1_emit_step_result "qa" "escalation" "null" "{\"qa_fix_cycle\":$qa_fix_cycle}" "" "$N1_HOME/memory/$ID"`
+
+**On escalation response (step mode):**
+- "Retry with guidance" → raise the loop ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci), record the guidance in overview `## Escalations`, and continue the fix loop using it.
+- "Accept as-is" → record the decision in overview `## Escalations` and emit `outcome: "pass"` (the pipeline proceeds with the issue documented in this step's memory file).
+- "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
+
 **Autonomy gate (full pipeline only):** Apply per SKILL.md § Autonomy Gate with step=`qa`, action=`accept current test state`, ledger_context=`<failing test names and counts>`.
+
+**If ask (default):** Prompt the user: "After <N> QA fix cycles this test still fails: [test name/details]. Please advise: Retry / Accept as-is / Abort?"
 
 **Step result (step mode) — pass path:**
 

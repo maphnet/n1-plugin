@@ -526,9 +526,9 @@ When a quality step has findings that the user would normally be prompted about 
 QE=$(n1_autonomy_val 'qualityEscalations')
 ```
 
-**If `QE` is `auto`** AND the findings do NOT involve security, architecture, or public API changes: take `{action}` silently. Append a Decision Ledger row to overview.md:
+**If `QE` is `auto-accept`** AND the findings do NOT involve security, architecture, or public API changes: take `{action}` silently. Append a Decision Ledger row to overview.md:
 
-`| {step} | quality | A | [auto] | {ledger_context} | {action} | Prompt user | qualityEscalations=auto |`
+`| {step} | quality | A | [auto] | {ledger_context} | {action} | Prompt user | qualityEscalations=auto-accept |`
 
 **If `QE` is `ask`** (default) or the findings involve security/architecture/public API: show the interactive prompt as defined by the step file.
 
