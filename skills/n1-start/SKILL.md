@@ -261,27 +261,16 @@ Both procedures are **idempotent** — safe to call again on resume. They are ca
 
 **PROCEDURE: Ensure Working Branch (`<ID>`)**
 
-Used by full-pipeline `n1-start` (no `--step`). Operates in the current checkout.
+1. Compute target branch from `git.branchPattern` (config) + `<ID>`. Patterns: `{prefix}-{id}` → `TRID-510`, `{id}` → `510`, `{slug}`/`feature/{slug}` → `feature/csv-export-users`. Sanitize slug for git ref validity (lowercase, replace spaces/illegal chars with `-`).
 
-1. Compute the target branch name from `git.branchPattern` (config) + `<ID>`:
-   - `{prefix}-{id}` → e.g. `TRID-510`
-   - `{id}` → e.g. `510`
-   - `{slug}` or `feature/{slug}` → e.g. `feature/csv-export-users`
-
-   Sanitize for git ref validity: lowercase the slug, replace spaces and illegal characters with `-`, collapse repeats, trim leading/trailing `-`. Ticket IDs are already ref-safe; only slugs need sanitizing.
-
-2. Read current state:
+2. Read state:
    ```bash
    CURRENT=$(git branch --show-current)
    DEFAULT=<git.defaultBranch from config>
-   ```
-
-3. Check for uncommitted changes:
-   ```bash
    DIRTY=$(git status --porcelain)
    ```
 
-4. Decide:
+3. Decide:
    - **`CURRENT` == `TARGET`** → already on it. Reuse silently.
    - **A local branch named `TARGET` already exists AND `DIRTY` is empty** → `git checkout <TARGET>`.
    - **A local branch named `TARGET` already exists AND `DIRTY` is non-empty** → prompt (dirty working tree prompt below).
@@ -307,7 +296,7 @@ If `MP` is `auto`, do NOT prompt — resolve each case with its safe default and
 
 The destructive option (Abort) is never auto-selected. If `MP` is `ask` (default) or empty, show the prompts exactly as below.
 
-5. **Dirty working tree prompt** (when on `DEFAULT` or `TARGET` exists, with uncommitted changes):
+4. **Dirty working tree prompt** (when on `DEFAULT` or `TARGET` exists, with uncommitted changes):
    ```
    You have uncommitted changes. How should I proceed?
    1 — Stash changes and switch to '<TARGET>' (run `git stash pop` to restore later)
@@ -316,7 +305,7 @@ The destructive option (Abort) is never auto-selected. If `MP` is `ask` (default
    ```
    If option 1: run `git stash push -m "n1: stashed before switching to <TARGET>"`, then proceed with the branch switch. Report the stash name so the user can restore it: "Stashed uncommitted changes. Run `git stash pop` when done."
 
-6. **Foreign branch prompt** (when on a branch that is neither `TARGET` nor `DEFAULT`, clean tree):
+5. **Foreign branch prompt** (when on a branch that is neither `TARGET` nor `DEFAULT`, clean tree):
    ```
    You're on branch '<CURRENT>', not the default ('<DEFAULT>').
    1 — Create '<TARGET>' from here
@@ -324,30 +313,26 @@ The destructive option (Abort) is never auto-selected. If `MP` is `ask` (default
    3 — Keep working on '<CURRENT>'
    ```
 
-7. **Combined prompt** (foreign branch + dirty):
+6. **Combined prompt** (foreign branch + dirty):
    ```
    You're on branch '<CURRENT>' (not '<DEFAULT>') and have uncommitted changes.
    1 — Stash changes, switch to '<DEFAULT>', branch '<TARGET>' from there (run `git stash pop` to restore later)
    2 — Create '<TARGET>' from '<CURRENT>', carrying uncommitted changes
    3 — Abort — handle manually
    ```
-   If option 1: same stash procedure as the dirty working tree prompt above.
-
-8. **Record the review base (creation paths only, idempotent):** on any path that CREATES `<TARGET>` (`git checkout -b`), record the branch point immediately — before any commits land — so later review steps diff against it instead of `git.defaultBranch` (which balloons when the branch started from a non-default branch):
+7. **Record review base (creation paths only, idempotent):** on any path that CREATES `<TARGET>` (`git checkout -b`), record the branch point before any commits land:
    ```bash
    mkdir -p "$N1_HOME/memory/<ID>"
    BP_FILE="$N1_HOME/memory/<ID>/branch-point"
    [ -f "$BP_FILE" ] || git rev-parse HEAD > "$BP_FILE"
    ```
-   On reuse paths (branch already existed), do NOT write the file — review falls back to a merge-base against the default branch.
+   On reuse paths (branch already existed), do NOT write the file.
 
-9. Report: "Working on branch `<TARGET>`."
-
-No `fetch`/`pull` is performed — the branch is created from the local default branch's current HEAD. The user owns keeping their local default up to date.
+8. Report: "Working on branch `<TARGET>`."
 
 **PROCEDURE: Ensure Worktree (`<ID>`)**
 
-Used when `USE_WORKTREE` is true — the default mode, in step mode, or when `worktree.mode` is `"worktree"` in config. Creates or reattaches a worktree at `<main-checkout>/.claude/worktrees/<ID>/`.
+Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Creates or reattaches a worktree at `<main-checkout>/.claude/worktrees/<ID>/`.
 
 1. **Check if `N1_HOME` is absolute** (starts with `/`, `~`, or a drive letter like `C:\`):
    - **If relative** (starts with `.`, e.g. `.n1`) → worktrees cannot be used because config and memory paths would resolve inside the worktree instead of the main checkout. Emit error result and stop:
@@ -356,23 +341,22 @@ Used when `USE_WORKTREE` is true — the default mode, in step mode, or when `wo
      ```
    - **If absolute** → continue with worktree creation.
 
-2. Compute the target branch name from `git.branchPattern` (config) + `<ID>` (same sanitization as Ensure Working Branch above).
+2. Compute target branch: same formula/sanitization as Ensure Working Branch.
 
-2. Check if a worktree for this branch already exists:
+3. Check if a worktree for `<TARGET>` already exists:
    ```bash
    git worktree list --porcelain
    ```
-   Parse the porcelain output: each entry has a `worktree <path>` line followed by `branch refs/heads/<name>`. Look for an entry whose `branch` line matches `refs/heads/<TARGET>`.
 
-3. **If worktree exists** → extract its path from the `worktree` line preceding the matching `branch` line. Store it as `WORKTREE_PATH`. Report: "Resuming worktree at `<WORKTREE_PATH>`."
+4. **If worktree exists** → store its path as `WORKTREE_PATH`. Report: "Resuming worktree at `<WORKTREE_PATH>`."
 
-4. **If worktree does not exist:**
+5. **If worktree does not exist:**
    a. Compute the main checkout root:
       ```bash
       MAIN_CHECKOUT=$(git rev-parse --show-toplevel)
       WORKTREE_PATH="$MAIN_CHECKOUT/.claude/worktrees/<ID>"
       ```
-   b. Create the branch if needed (idempotent — fails silently if already exists), and record the review base at creation:
+   b. Create branch (idempotent) and record review base:
       ```bash
       DEFAULT=<git.defaultBranch from config>
       git branch <TARGET> $DEFAULT 2>/dev/null || true
@@ -380,11 +364,11 @@ Used when `USE_WORKTREE` is true — the default mode, in step mode, or when `wo
       mkdir -p "$N1_HOME/memory/<ID>"
       [ -f "$BP_FILE" ] || git rev-parse "$DEFAULT" > "$BP_FILE"
       ```
-   c. Check if the main checkout is currently on the target branch (this blocks `git worktree add`):
+   c. If main checkout is on `<TARGET>` (blocks `git worktree add`):
       ```bash
       CURRENT=$(git branch --show-current)
       ```
-      If `CURRENT == TARGET`: switch the main checkout away first: `git checkout $DEFAULT`.
+      If `CURRENT == TARGET`: `git checkout $DEFAULT`.
    d. Create the worktree:
       ```bash
       git worktree add "$WORKTREE_PATH" <TARGET>
@@ -394,27 +378,17 @@ Used when `USE_WORKTREE` is true — the default mode, in step mode, or when `wo
    f. **IDE hint (interactive mode only).** If this is NOT step mode (`STEP_NAME` is empty), print an additional line:
       > Open this directory in your IDE: `$WORKTREE_PATH`
 
-5. Store `WORKTREE_PATH` for use by subsequent pipeline steps.
-
-No `fetch`/`pull` is performed — the branch is created from the local default branch's current HEAD.
-
 **PROCEDURE: Ensure Dependencies (`<ID>`)**
 
-Idempotent, marker-guarded dependency install. Called by the first code-executing
-step (implementation) and defensively by qa/review/local-testing when a worktree
-is active. Branch mode (no worktree) never calls this — the checkout already has
-dependencies.
+Idempotent, marker-guarded. Called by implementation and defensively by qa/review/local-testing when `USE_WORKTREE` is true.
 
-1. **Worktree check.** If `USE_WORKTREE` is false (no worktree for `<ID>`), return
-   immediately — do nothing. In branch mode the checkout already has dependencies.
+1. **Worktree check.** If `USE_WORKTREE` is false → return.
 2. **Config check.** Read `worktree.setup` from config:
    ```bash
    SETUP=$(n1_config_val '.worktree.setup')
    ```
    If `SETUP` is empty, `null`, or absent → return (nothing to install).
-3. **Marker check.** Resolve `WORKTREE_PATH` for `<ID>` (from `git worktree list`, same
-   parse as `Ensure Worktree`). If `<WORKTREE_PATH>/.n1-deps-installed` exists → return
-   (already installed for this worktree).
+3. **Marker check.** Resolve `WORKTREE_PATH` (from `git worktree list`, same parse as Ensure Worktree). If `<WORKTREE_PATH>/.n1-deps-installed` exists → return.
 4. **Install.**
    ```bash
    cd "$WORKTREE_PATH" && eval "$SETUP"
@@ -451,7 +425,7 @@ dependencies.
 
 **PROCEDURE: Reconcile Memory ID & Branch (`<oldId>`, `<newId>`)**
 
-Heals state that leaked under a provisional slug before the final `<ID>` was known (e.g. if the orchestrator drifted into the ticket-less path after a "Yes"). **Idempotent** — safe to call when nothing leaked. `<oldId>` is the deterministically-computed provisional slug; `<newId>` is the final ID.
+**Idempotent.** Renames memory dir, branch, and worktree when the final `<ID>` differs from the provisional slug. `<oldId>` = provisional slug; `<newId>` = final ID.
 
 1. **If `<oldId>` == `<newId>`** → return (no-op).
 2. **Memory move:** if `$N1_HOME/memory/<oldId>/` exists AND `$N1_HOME/memory/<newId>/` does NOT → filesystem-move the directory `<oldId>/` → `<newId>/` (`$N1_HOME/` is gitignored or outside the repo, so a plain `mv` / `Move-Item`, NOT `git mv`). If `$N1_HOME/memory/<newId>/` already exists, skip the move and report — the `<newId>` memory is authoritative (resume/collision guard).
@@ -495,14 +469,7 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
 
 ### Step dependency map
 
-Step dependencies (the `reads`/`writes` for each of the 14 steps) are declared
-in `${CLAUDE_PLUGIN_ROOT}/pipeline.json` under `steps[]`. **Read that file** to
-determine which files a step depends on. The `reads` list is the **hard-dependency**
-set enforced by the dependency-integrity guard; a step's fragment MAY additionally
-read the optional/context inputs its own body specifies (e.g. implementation and qa
-also use `plan.md`). No step blanket-reads the full history. The bash helper `n1_step_dependencies`
-(in `lib/validation.sh`) mirrors the same `reads` values for the dependency
-integrity guard below; a CI test keeps the two in parity.
+Read `pipeline.json` under `steps[]` for dependency declarations. The bash helper `n1_step_dependencies` (in `lib/validation.sh`) mirrors these values.
 
 ### Loop-counter durability & crash-safe checkpointing
 
@@ -629,8 +596,6 @@ Step numbering and names:
 | 14 | `finish` | `{}` |
 
 **Naming note:** The overview.md frontmatter `tier:` field (values: `simple`/`standard`/`complex`) controls model/effort routing in n1-loop. The brainstorm step-result `planning_need` key (values: `plan`/`direct`) controls pipeline branching — whether a formal plan is needed. The estimation body line `**Complexity:** XS/S/M/L/XL` is delivery sizing. These three concepts are independent.
-
-**Skipped steps** get a single event with `outcome: "skip"` (no separate start event needed). For example, if estimation is disabled: `{"step":"estimation","step_number":6,"completed_at":"...","outcome":"skip"}`.
 
 Each step section in the pipeline below should emit its start marker before spawning agents and its end marker after updating overview.md.
 
@@ -828,7 +793,7 @@ Update overview.md:
 
 If any step fails, first classify the failure:
 
-- **Transient** (tracker/MCP timeout, `gh` rate-limit, agent-spawn hiccup, network blip) → retry once or twice with brief backoff before escalating. Most external-call failures are transient.
+- **Transient** (tracker/MCP timeout, `gh` rate-limit, agent-spawn hiccup, network blip) → retry once or twice with brief backoff before escalating.
 - **Terminal or ambiguous** (logic error, repeated failure after retry, an unresolvable blocker) → do not retry blindly:
   1. Note the failure in overview.md under `## Escalations`
   2. **Telemetry (if enabled):** Before escalating, emit a final step event with `outcome: "failed"` for the current step, and run the merge script. This ensures interrupted runs produce partial but valid telemetry records.
