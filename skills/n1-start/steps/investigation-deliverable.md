@@ -146,18 +146,32 @@ n1_write_signals "$INV_FILE" "unknowns_resolved=${UNKNOWNS_ANSWERED}/${UNKNOWNS_
 
 **Step mode:**
 
-Build the questions array from ALL extracted unknowns (one entry per unknown; do not limit to the first item):
+Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` (one item per line), assigning incrementing IDs (`unknown_1`, `unknown_2`, ...):
 
 ```json
 {
   "run_id": "<N1_RUN_ID>",
   "step": "investigation-deliverable",
   "questions": [
-    { "id": "unknown_1", "text": "<first unknown text>", "context": "Flagged during investigation deliverable -- not covered by analysis" },
-    { "id": "unknown_2", "text": "<second unknown text>", "context": "Flagged during investigation deliverable -- not covered by analysis" }
+    {
+      "id": "unknown_1",
+      "text": "<first unknown text>",
+      "options": [],
+      "recommendation": "",
+      "context": "Flagged during investigation deliverable -- not covered by analysis"
+    },
+    {
+      "id": "unknown_2",
+      "text": "<second unknown text>",
+      "options": [],
+      "recommendation": "",
+      "context": "Flagged during investigation deliverable -- not covered by analysis"
+    }
   ]
 }
 ```
+
+Include one entry per unknown -- do not limit to the first item.
 
 Write to `$N1_HOME/memory/<ID>/escalation/request.json`. Emit step result:
 ```bash
@@ -290,33 +304,55 @@ What would you like to do next?
 
 **If 1 -- Create new implementation ticket:**
 
-Derive title from the first recommendation (~80 chars), or ask user. Construct description:
-```
-Follows investigation <ID>
+1. Read the `### Recommendations` and `### Summary` sections from `investigation.md`.
+2. Derive title: first recommendation trimmed to ~80 chars, or ask user to provide a title.
+3. Construct description:
+   ```
+   Follows investigation <ID>
 
-## Summary
-<investigation summary>
+   ## Summary
+   <investigation summary>
 
-## Acceptance Criteria
-- [ ] <derived from recommendation 1>
-- [ ] <derived from recommendation 2>
-...
+   ## Acceptance Criteria
+   - [ ] <derived from recommendation 1>
+   - [ ] <derived from recommendation 2>
+   ...
 
-## Scope
-<scope boundaries derived from findings -- what is in and out of scope>
+   ## Scope
+   <scope boundaries derived from findings -- what is in and out of scope>
 
-## Context
-<relevant key findings as implementation context>
-```
+   ## Context
+   <relevant key findings as implementation context>
+   ```
 
-Create the follow-up implementation ticket using the Tracker Ticket Creation procedure from `steps/ticket.md` with `source_mode: braindump`. Pass: `summary=<title>`, `description=<description>`, `parentLink=<investigation ticket ID>`. All cloudId, tagging, assignToCreator, and ID adoption steps follow the same procedure.
+4. **Resolve ticket tagging** -- same logic as brain-dump ticket creation in `steps/ticket.md`:
+   - Read `ticketTagging` from config. If `ticketTagging.enabled` is true AND `ticketTagging.service` is non-empty: `<summary>` = `<service> | <title>`, `<description>` = `**Service:** <service>\n\n<description>`. Idempotency guard on title prefix.
+   - Otherwise: `<summary>` = title, `<description>` = description as-is.
 
-After ticket creation (`<newID>` returned):
+5. Create ticket via MCP -- same tracker-type-specific logic as brain-dump ticket creation in `steps/ticket.md`. Use exactly `mcp__<TRACKER_MCP>__` as the tool prefix -- the value from config, not from the tool list.
+   - If `tracker.type == "jira"`: resolve `cloudId` via `mcp__<TRACKER_MCP>__getAccessibleAtlassianResources` (reuse if already cached), then `mcp__<TRACKER_MCP>__<tracker.operations.createIssue>` with `cloudId`, `projectKey`, `issueTypeName: "Task"`, `summary`, `description`.
+   - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.createIssue>` with `project`, `summary`, `description`.
 
-- **Link to investigation ticket:** call `tracker.operations.createIssueLink` via tracker MCP if the operation exists -- Jira: with `cloudId`, `issueIdOrKey: <newID>`, `linkedIssueIdOrKey: <ID>`, `linkType: "Relates"` (call `getIssueLinkTypes` first if a type ID is required); YouTrack: with `issueId: <newID>`, `targetIssueId: <ID>`, `linkType: "depends on"`. If absent or fails: the `Follows investigation <ID>` text in the description is the fallback -- log warning, non-blocking.
-- **Comment on investigation ticket:** call `tracker.operations.addComment` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <ID>`, `body: "Follow-up implementation ticket created: <newID> -- <title>"`; YouTrack: `issueId: <ID>`, `text: "Follow-up implementation ticket created: <newID> -- <title>"`. Non-blocking.
-- **Report:** "Created follow-up ticket **[<newID>](<url>)**: <title>, linked to investigation <ID>."
-- **Optionally close investigation ticket** (see close logic below) -- prompt: "Would you like to close this investigation ticket (<ID>)? 1 -- Yes, mark as done / 2 -- No, leave open". Close comment: "Investigation completed. Findings documented. Follow-up: <newID>".
+6. **Link to investigation ticket (mandatory invariant):**
+
+   Attempt native linking first:
+   - Read `tracker.operations.createIssueLink` from config.
+   - If the operation exists:
+     - If `tracker.type == "jira"`: `mcp__<TRACKER_MCP>__<tracker.operations.createIssueLink>` with `cloudId`, `issueIdOrKey`: `<newID>`, `linkedIssueIdOrKey`: `<ID>`, `linkType`: `"Relates"`. If the operation requires a link type ID, first call `mcp__<TRACKER_MCP>__getIssueLinkTypes` to resolve the `Relates` type ID.
+     - Else (`tracker.type == "youtrack"`): `mcp__<TRACKER_MCP>__<tracker.operations.createIssueLink>` with `issueId`: `<newID>`, `targetIssueId`: `<ID>`, `linkType`: `"depends on"`.
+   - If the linking operation is absent or fails: the `Follows investigation <ID>` text in the description serves as fallback (it is always present). Log "Warning: Native issue linking failed: <reason> -- text link in description." -- non-blocking.
+
+7. Post comment on the investigation ticket: `mcp__<TRACKER_MCP>__<tracker.operations.addComment>` with "Follow-up implementation ticket created: <newID> -- <title>". Non-blocking on failure.
+
+8. Report: "Created follow-up ticket **[<newID>](<url>)**: <title>, linked to investigation <ID>."
+
+9. **Optionally close investigation ticket** -- ask:
+   ```
+   Would you like to close this investigation ticket (<ID>)?
+   1 -- Yes, mark as done
+   2 -- No, leave open
+   ```
+   If yes: transition status and add comment "Investigation completed. Findings documented. Follow-up: <newID>" (see close logic below).
 
 **If 2 -- Convert this ticket to implementation:**
 
