@@ -167,7 +167,7 @@ n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,ke
      ```
      Omit sections that add no new information; if both would be omitted, skip the update entirely.
    - Idempotency: if the current description already contains `*Refined after design review — N1*`, skip the description update (already applied in a prior run).
-   - Call `editTicket` via tracker MCP routing (Jira: `issueIdOrKey`, `description`, include `cloudId`; YouTrack: `issueId`, `description`).
+   - Call `editTicket` via tracker MCP routing (Jira: `issueIdOrKey`, `description`, `cloudId` from `tracker.cloudId` in config or resolve via `getAccessibleAtlassianResources` if absent; YouTrack: `issueId`, `description`).
    - On failure: log "⚠ Post-brainstorm description update failed: <reason>" and continue — non-blocking.
 
 4. **Post design summary comment:**
@@ -182,7 +182,7 @@ n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,ke
 
      Design doc: internal (per-ticket memory)
      ```
-   - Call `addComment` via tracker MCP routing (Jira: `issueIdOrKey`, `body`, include `cloudId`; YouTrack: `issueId`, `text`).
+   - Call `addComment` via tracker MCP routing (Jira: `issueIdOrKey`, `body`, `cloudId` from `tracker.cloudId` in config or resolve via `getAccessibleAtlassianResources` if absent; YouTrack: `issueId`, `text`).
    - On failure: log "⚠ Design summary comment failed: <reason>" and continue — non-blocking.
 
 5. Log: "Tracker updated with refined requirements and design summary." (or "Tracker enrichment skipped." if gated out)
