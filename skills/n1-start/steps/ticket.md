@@ -138,111 +138,75 @@ The product-analyst reads the raw `ticket.md` (written by intake-agent) instead 
 
 **Scratch-to-memory move (brain dump and file modes only):** After `<ID>` is resolved (via ticket creation "Yes" or slug adoption "No"), move the scratch file to the final memory path: `mv "$N1_HOME/scratch/intake-raw.md" "$N1_HOME/memory/$ID/ticket.md"`. The product-analyst's structured output will overwrite this file in place. For ticket and error-tracker modes this step is unnecessary -- intake-agent writes directly to `$N1_HOME/memory/<ID>/ticket.md` because the ID is already known.
 
-**Tracker ticket creation (brain dump and file modes):**
+**Tracker ticket creation (brain-dump, file, and error-tracker modes):**
 
-After product-analyst returns, if the input was a brain dump or file path, AND a tracker is configured (`tracker.mcp` is not null AND `tracker.operations.createIssue` exists):
+> **MCP prefix for all tracker calls in this section:** Use `mcp__<tracker.mcp>__` (value from config, not from tool list).
 
-**Autonomy gate:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`, do NOT ask — take path **1 (Yes)** below (a tracker is configured when this prompt is reachable; creating the ticket is the recommended default and the tracker write is editable/deletable). After the ticket is created and `<ID>` is final, append a Decision Ledger row per `skills/n1-start/ledger.md`:
+After product-analyst returns, if the input was a brain dump, file path, or error tracker URL, AND a tracker is configured (`tracker.mcp` is not null AND `tracker.operations.createIssue` exists):
 
-`| ticket | mechanical | C | [auto] | Create tracker ticket for brain-dump run? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
+Determine `source_mode`:
+- `braindump` if input was brain dump or file path
+- `error-tracker` if input was an error tracker URL
 
-If `MP` is `ask` (default), ask as below.
+**Autonomy gate:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`, skip the prompt — take path **1 (Yes)** below (creating the ticket is the recommended default and the tracker write is editable/deletable). After the ticket is created and `<ID>` is final, append a Decision Ledger row per `skills/n1-start/ledger.md`:
 
-Ask the user:
-```
-The task has been structured. Would you like to create a tracker ticket?
-1 -- Yes, create a ticket in <tracker.mcp>
-2 -- No, continue without a ticket
-```
+- If `source_mode == braindump`: `| ticket | mechanical | C | [auto] | Create tracker ticket for brain-dump run? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
+- If `source_mode == error-tracker`: `| ticket | mechanical | C | [auto] | Create tracker ticket for Sentry issue? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
+
+If `MP` is `ask` (default), ask:
+
+- If `source_mode == braindump`:
+  ```
+  The task has been structured. Would you like to create a tracker ticket?
+  1 -- Yes, create a ticket in <tracker.mcp>
+  2 -- No, continue without a ticket
+  ```
+- If `source_mode == error-tracker`:
+  ```
+  The Sentry issue has been analyzed. Would you like to create a tracker ticket?
+  1 -- Yes, create a ticket in <tracker.mcp>
+  2 -- No, continue with sentry-<issueId> as the working ID
+  ```
 
 **If 1 (Yes):**
 
 > **Create the ticket now.** Creating the ticket via MCP is **mandatory and immediate** -- it is the first action after the user answers "Yes". Do NOT proceed as if the run were ticket-less; the slug is adopted as `<ID>` ONLY on the explicit "No" path. (See the ID-Final invariant above.)
 
-1. Read the Title from the compact return (`title:` line). Read structured content (Core Ask, Description, Acceptance Criteria sections) from `$N1_HOME/memory/<ID>/ticket.md` (or `$N1_HOME/scratch/intake-raw.md` for brain-dump/file modes before ID resolution).
-2. **Resolve ticket tagging.** Read `ticketTagging` from `$N1_HOME/config.json`.
-   - **If `ticketTagging.enabled` is `true` AND `ticketTagging.service` is a non-empty string** -> tagging is ON:
-     - `<summary>` = `<service> | <Title>` -- but if `<Title>` already begins with `<service> |`, use `<Title>` unchanged (idempotency guard for resume/retry).
-     - `<description>` = `**Service:** <service>` as the first line, a blank line, then the Core Ask + Description + Acceptance Criteria sections.
-   - **Otherwise** (block missing, `enabled` false, or `service` empty) -> tagging is OFF:
-     - `<summary>` = the Title from product-analyst output.
-     - `<description>` = the Core Ask + Description + Acceptance Criteria sections.
-3. Create the ticket via MCP. Use exactly `mcp__<tracker.mcp>__` as the tool prefix -- the value from config, not from the tool list.
-   - If `tracker.type == "jira"`: First resolve `cloudId` via `mcp__<tracker.mcp>__getAccessibleAtlassianResources` (reuse if already cached), then call `mcp__<tracker.mcp>__<tracker.operations.createIssue>` with:
-     - `cloudId`: resolved cloud ID
-     - `projectKey`: `tracker.projectKey`
-     - `issueTypeName`: "Task"
-     - `summary`: `<summary>`
-     - `description`: `<description>`
-   - Else (`tracker.type == "youtrack"`): Call `mcp__<tracker.mcp>__<tracker.operations.createIssue>` with:
-     - `project`: `tracker.projectKey`
-     - `summary`: `<summary>`
-     - `description`: `<description>`
-4. The returned ticket ID is the final `<ID>`. Adopt it deterministically:
-   1. Compute the provisional `<slug>` exactly as the "No" path would (description slug for brain dump, filename slug for file mode).
-   2. Run **Reconcile Memory ID & Branch(`<slug>`, `<ticketID>`)** (see Workspace Isolation above) -- a no-op in the clean path; it moves any leaked slug memory folder into the ticket-ID folder and renames the slug branch if drift occurred.
-   3. Set `<ID>` = `<ticketID>`. If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Worktree(`<ticketID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ticketID>`)** otherwise.
-5. Extract the ticket URL from the MCP response (YouTrack returns it in the response body; for Jira construct it as `https://<cloud>/browse/<key>` from the response)
-6. **Assign to creator.** Run this step ONLY if ALL of: `tracker.assignToCreator !== false`, `tracker.operations.getCurrentUser` exists, AND `tracker.operations.assign` exists. If any condition fails, skip this step silently (no message) and go to step 7.
-   1. Resolve the current user: call `mcp__<tracker.mcp>__<tracker.operations.getCurrentUser>` (no arguments). Use exactly `mcp__<tracker.mcp>__` as the tool prefix.
-      - If `tracker.type == "jira"`: take the account id (`account_id`) from the response; reuse the `cloudId` already resolved during creation.
-      - Else (`tracker.type == "youtrack"`): take `login` from the response.
-   2. Assign the ticket: call `mcp__<tracker.mcp>__<tracker.operations.assign>`. Use exactly `mcp__<tracker.mcp>__` as the tool prefix.
-      - If `tracker.type == "jira"`: with `cloudId`: resolved cloud ID, `issueIdOrKey`: `<ID>`, `assignee_account_id`: `<account id>`.
-      - Else (`tracker.type == "youtrack"`): with `issueId`: `<ID>`, `assigneeLogin`: `<login>`.
-   3. **On success:** set the report suffix to ` (assigned to you)`.
-   4. **On failure** (either call errors -- permission, unresolvable user, MCP error): do NOT roll back creation. Emit "Warning: Ticket created but could not auto-assign (<reason>); assign it manually." and use an empty report suffix.
-7. Report: "Created ticket **[<ID>](<ticket URL>)**<report suffix>: <title>"
-8. After writing ticket.md and overview.md, update tracker status to In Progress (same as ticket mode -- call `mcp__<tracker.mcp>__<tracker.operations.moveStatus>`)
-
-**If 2 (No):**
-- Use description slug as memory ID for brain dump (e.g., `csv-export-users`) or filename slug for file mode (e.g., `requirements` from `requirements.md`)
-- Now that the slug `<ID>` is known: if `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Worktree(`<slug>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<slug>`)** otherwise.
-- Skip tracker status updates throughout the pipeline
-
-**Tracker ticket creation (error tracker mode):**
-
-After product-analyst returns, if the input was an error tracker URL:
-
-**If a tracker is configured** (`tracker.mcp` is not null AND `tracker.operations.createIssue` exists):
-
-**Autonomy gate:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`, do NOT ask — take path **1 (Yes)** below (a tracker is configured when this prompt is reachable; creating the ticket is the recommended default and the tracker write is editable/deletable). After the ticket is created and `<ID>` is final, append a Decision Ledger row per `skills/n1-start/ledger.md`:
-
-`| ticket | mechanical | C | [auto] | Create tracker ticket for Sentry issue? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
-
-If `MP` is `ask` (default), ask as below.
-
-Ask the user:
-```
-The Sentry issue has been analyzed. Would you like to create a tracker ticket?
-1 -- Yes, create a ticket in <tracker.mcp>
-2 -- No, continue with sentry-<issueId> as the working ID
-```
-
-**If 1 (Yes):**
-
-> **Create the ticket now.** Same mandatory-immediate semantics as brain-dump "Yes" (see ID-Final invariant above).
-
-1. Read the Title from the compact return (`title:` line). Read structured content (Core Ask, Description, Acceptance Criteria sections) from `$N1_HOME/memory/<ID>/ticket.md` (or `$N1_HOME/scratch/intake-raw.md` for brain-dump/file modes before ID resolution).
-2. **Prepend Sentry link to description:** The first line of `<description>` is `**Sentry:** [#<issueId>](<original URL>)`, followed by a blank line, then the Core Ask + Description + Acceptance Criteria sections.
-3. **Resolve ticket tagging** -- same logic as brain-dump ticket creation (see above).
-   - If tagging is ON: `<summary>` = `<service> | <Title>` (with idempotency guard); `<description>` = `**Service:** <service>` line, blank line, then the Sentry-prefixed description from step 2.
-   - If tagging is OFF: `<summary>` = the Title; `<description>` = the Sentry-prefixed description from step 2.
-4. Create the ticket via MCP -- same YouTrack/Jira logic as brain-dump ticket creation (see above).
+1. Read the Title from the compact return (`title:` line). Read structured content (Core Ask, Description, Acceptance Criteria sections) from the product-analyst output path: `$N1_HOME/scratch/intake-raw.md` (braindump/file) or `$N1_HOME/memory/<ID>/ticket.md` (error-tracker, where `<ID>` = `sentry-<issueId>`).
+2. **Build description:**
+   - If `source_mode == error-tracker`: prepend `**Sentry:** [#<issueId>](<original URL>)`, a blank line, then Core Ask + Description + Acceptance Criteria.
+   - If `source_mode == braindump`: description = Core Ask + Description + Acceptance Criteria sections.
+3. **Resolve ticket tagging.** Read `ticketTagging` from `$N1_HOME/config.json`.
+   - If `ticketTagging.enabled == true` AND `ticketTagging.service` is non-empty → tagging ON:
+     - `<summary>` = `<service> | <Title>` (if Title already begins with `<service> |`, use Title unchanged -- idempotency guard).
+     - `<description>` = `**Service:** <service>` line, blank line, then description from step 2.
+   - Otherwise → tagging OFF: `<summary>` = Title; `<description>` = description from step 2.
+4. Create the ticket via tracker MCP:
+   - Jira: resolve `cloudId` via `getAccessibleAtlassianResources` (reuse if already cached), then call `<tracker.operations.createIssue>` with `cloudId`, `projectKey: tracker.projectKey`, `issueTypeName: "Task"`, `summary`, `description`.
+   - YouTrack: call `<tracker.operations.createIssue>` with `project: tracker.projectKey`, `summary`, `description`.
 5. The returned ticket ID is the final `<ID>`. Adopt it:
-   1. The provisional ID is `sentry-<issueId>`.
-   2. Run **Reconcile Memory ID & Branch(`sentry-<issueId>`, `<ticketID>`)**.
-   3. Set `<ID>` = `<ticketID>`. If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Worktree(`<ticketID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ticketID>`)** otherwise.
-6. Extract the ticket URL, assign to creator, report -- same as brain-dump ticket creation (steps 5-8 above).
+   - Provisional ID: description slug (brain dump) or filename slug (file mode) if `source_mode == braindump`; `sentry-<issueId>` if `source_mode == error-tracker`.
+   - Run **Reconcile Memory ID & Branch(`<provisional>`, `<ticketID>`)** (a no-op in the clean path; moves any leaked slug memory folder and renames the slug branch if drift occurred).
+   - Set `<ID>` = `<ticketID>`. If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Worktree(`<ticketID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ticketID>`)** otherwise.
+6. Extract the ticket URL from the MCP response (YouTrack returns it in the response body; for Jira construct it as `https://<cloud>/browse/<key>` from the response).
+7. **Assign to creator.** Skip if ANY of: `tracker.assignToCreator === false`, `tracker.operations.getCurrentUser` missing, `tracker.operations.assign` missing.
+   - Resolve current user: call `<tracker.operations.getCurrentUser>` (no args).
+     - Jira: take `account_id`; reuse `cloudId`.
+     - YouTrack: take `login`.
+   - Assign: call `<tracker.operations.assign>`.
+     - Jira: `cloudId`, `issueIdOrKey: <ID>`, `assignee_account_id: <account_id>`.
+     - YouTrack: `issueId: <ID>`, `assigneeLogin: <login>`.
+   - Success: report suffix = ` (assigned to you)`. Failure: emit warning; use empty suffix; do not roll back creation.
+8. Report: "Created ticket **[<ID>](<ticket URL>)**<report suffix>: <title>"
+9. After writing ticket.md and overview.md, update tracker status to In Progress (call `<tracker.operations.moveStatus>`).
 
 **If 2 (No):**
-- `sentry-<issueId>` is the final `<ID>`
-- If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Worktree(`sentry-<issueId>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`sentry-<issueId>`)** otherwise.
-- Skip tracker status updates throughout the pipeline
+- Final `<ID>`: description slug (brain dump) or filename slug (file mode) if `source_mode == braindump`; `sentry-<issueId>` if `source_mode == error-tracker`.
+- If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise.
+- Skip tracker status updates throughout the pipeline.
 
-**If no tracker is configured** (`tracker.mcp` is null or `tracker.operations.createIssue` does not exist):
-- Skip the prompt entirely -- `sentry-<issueId>` is the final `<ID>`
-- Skip tracker status updates throughout the pipeline
+**If no tracker is configured** (error-tracker mode only — brain-dump/file mode is already gated by the outer `if` above):
+- `sentry-<issueId>` is the final `<ID>`. Skip tracker status updates throughout the pipeline.
 
 **For ticket mode only (after product-analyst returns):**
 5. After agent returns, update tracker status to In Progress:
@@ -283,21 +247,12 @@ fi
    ```
 
 **Name the session:**
-After `ID` and `TITLE` are finalized, rename the current Claude Code session so it appears in the session picker:
+After `ID` and `TITLE` are finalized, output `/rename <ID> <TITLE truncated so total length (ID + space + title) ≤ 50 chars>`. If `TITLE` is empty, output `/rename <ID>`.
 ```bash
-SESSION_NAME="$ID"
-if [ -n "$TITLE" ]; then
-    # Truncate title so total length (ID + space + title) stays under 50 chars
-    MAX_TITLE_LEN=$(( 50 - ${#ID} - 1 ))
-    if [ ${#TITLE} -gt $MAX_TITLE_LEN ]; then
-        TITLE_SHORT="${TITLE:0:$MAX_TITLE_LEN}"
-    else
-        TITLE_SHORT="$TITLE"
-    fi
-    SESSION_NAME="$ID $TITLE_SHORT"
-fi
+MAX=$(( 50 - ${#ID} - 1 ))
+SESSION_NAME="$ID${TITLE:+ ${TITLE:0:$MAX}}"
 ```
-Then run: `/rename $SESSION_NAME`
+Run: `/rename $SESSION_NAME`
 
 **Create initial overview.md:**
 ```markdown
