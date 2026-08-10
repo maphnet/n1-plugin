@@ -41,15 +41,12 @@ Spawn the local-test-planner agent with:
 ### Existing E2E Tests
 - **Framework:** <detected framework or "None">
 - **Run command:** <command or "N/A">
-- **Coverage:** <which acceptance criteria these cover, or "None detected">
+- **Coverage:** <which acceptance criteria covered, or "None detected">
 
 ### Automated Test Scenarios
-1. **[Critical/Normal] <scenario name>**
-   - Method: <curl/CLI/browser>
-   - Command: `<exact command>`
-   - Expected: <expected outcome>
+1. **[Critical/Normal] <scenario name>** — Method: <curl/CLI/browser> — Command: `<exact command>` — Expected: <outcome>
 
-{If all acceptance criteria are covered by existing e2e tests, write: "All acceptance criteria covered by existing e2e tests — no ad-hoc scenarios needed."}
+{Omit if all acceptance criteria are covered by existing e2e tests.}
 
 ### Manual Verification Checklist
 - [ ] <item>
@@ -118,9 +115,8 @@ Spawn the developer agent with:
 ### Ad-Hoc Scenario Results
 | # | Scenario | Result | Details |
 |---|----------|--------|---------|
-| 1 | <name> | PASS/FAIL | <details> |
 
-{If no ad-hoc scenarios were planned: "No ad-hoc scenarios — all acceptance criteria covered by existing e2e tests."}
+{Omit table if no ad-hoc scenarios were planned.}
 
 ### Manual Verification Checklist
 - [ ] <item from plan>
@@ -130,7 +126,6 @@ Spawn the developer agent with:
 - App process: <status>
 
 ### Verdict: PASS / FAIL
-<PASS if existing e2e tests passed (or were skipped) AND all ad-hoc scenarios passed (or none were needed), FAIL if any failed>
 ```
 
 After the agent returns:
@@ -147,33 +142,14 @@ After the agent returns:
 - Do NOT enter the fix loop — these are environment issues, not code bugs
 - Report the failure with full error output
 
-**Step-mode escalation protocol (infrastructure failure).** In step mode there is no interactive channel — do NOT print a question for the user. When infrastructure or app startup fails:
+**Step-mode escalation protocol (infrastructure failure).** → § Step-Mode Escalation Protocol with step=`local-testing`, id=`local_test_env_failure`, options=["Skip local testing: proceed to PR", "Abort: stop the pipeline"], context=infrastructure/startup failure with full error output, startup command, and readiness check result.
 
-1. Write `$N1_HOME/memory/<ID>/escalation/request.json` (create the directory if needed):
-   ```json
-   {
-     "run_id": "<value of the N1_RUN_ID environment variable>",
-     "step": "local-testing",
-     "questions": [{
-       "id": "local_test_env_failure",
-       "text": "<one-paragraph description of the infrastructure/startup failure with full error output>",
-       "options": ["Skip local testing: proceed to PR", "Abort: stop the pipeline"],
-       "recommendation": "<the option you would pick, with a one-line reason>",
-       "context": "<error output, startup command, readiness check result>"
-     }]
-   }
-   ```
-2. Run via Bash:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":0}" "" "$N1_HOME/memory/$ID"
-   ```
-   Then STOP.
-3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `local_test_env_failure`:
-   - "Skip local testing" → update overview (`[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — environment failure"), record in `## Escalations`; run via Bash: `n1_emit_step_result "local-testing" "pass" "null" "null" "" "$N1_HOME/memory/$ID"` and STOP.
-   - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
+**Step result override:** In SKILL.md § Step-Mode Escalation Protocol step 2, use this command instead:
+`n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":0}" "" "$N1_HOME/memory/$ID"`
 
-In full pipeline mode this protocol does NOT apply — keep the interactive prompt below unchanged.
+**On re-run**, apply the answer for `local_test_env_failure`:
+- "Skip local testing" → update overview (`[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — environment failure"), record in `## Escalations`; emit `outcome: "pass"` and STOP.
+- "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
 
 In full pipeline mode: "Infrastructure/startup failure — not a code bug. Options:"
   - "1 — Fix environment manually, type 'continue' to re-test"
@@ -208,46 +184,17 @@ After developer returns:
 - Re-run FULL execution (Step 9c) — all scenarios, not just failed ones (catches regressions)
 - **Bounded loop:** read `local_test_fix_cycle` from overview frontmatter. Stop after `localTesting.maxFixAttempts` cycles (config, default 3). On exhaustion, escalate instead of looping forever. The bound and its default are declared in `pipeline.json` `loops[]` (`local_testing_fix`).
 
-**Step-mode escalation protocol (fix loop).** In step mode there is no interactive channel — do NOT print a question for the user. When the fix loop exhausts its bound:
+**Step-mode escalation protocol (fix loop).** → § Step-Mode Escalation Protocol with step=`local-testing`, id=`local_test_fix_exhausted`, options=["Retry with guidance: another fix attempt with your instructions", "Skip local testing: proceed to PR with failures documented in local-testing.md", "Abort: stop the pipeline"], context=cycles used + failing scenarios + error excerpts.
 
-1. Write `$N1_HOME/memory/<ID>/escalation/request.json` (create the directory if needed):
-   ```json
-   {
-     "run_id": "<value of the N1_RUN_ID environment variable>",
-     "step": "local-testing",
-     "questions": [{
-       "id": "local_test_fix_exhausted",
-       "text": "<one-paragraph description of what is blocked and why, with concrete specifics>",
-       "options": ["Retry with guidance: another fix attempt with your instructions", "Skip local testing: proceed to PR with failures documented in local-testing.md", "Abort: stop the pipeline"],
-       "recommendation": "<the option you would pick, with a one-line reason>",
-       "context": "<cycles used, failing scenarios, error excerpts>"
-     }]
-   }
-   ```
-2. Run via Bash:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":$local_test_fix_cycle}" "" "$N1_HOME/memory/$ID"
-   ```
-   Then STOP.
-3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `local_test_fix_exhausted`:
-   - "Retry with guidance" → raise the loop ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci), record the guidance in overview `## Escalations`, and continue the fix loop using it.
-   - "Skip local testing" → update overview `[x] Local Testing`, add key decision "Local Testing: skipped after fix-loop exhaustion" to `## Escalations`, and emit `outcome: "pass"` (pipeline proceeds to PR).
-   - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
+**Step result override:** In SKILL.md § Step-Mode Escalation Protocol step 2, use this command instead:
+`n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":$local_test_fix_cycle}" "" "$N1_HOME/memory/$ID"`
 
-In full pipeline mode this protocol does NOT apply — keep the interactive prompt below unchanged.
+**On re-run**, apply the answer for `local_test_fix_exhausted`:
+- "Retry with guidance" → raise the loop ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci), record guidance in overview `## Escalations`, and continue the fix loop.
+- "Skip local testing" → update overview `[x] Local Testing`, add key decision "Local Testing: skipped after fix-loop exhaustion" to `## Escalations`, and emit `outcome: "pass"`.
+- "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
 
-**Autonomy gate (full pipeline only):** read the policy first:
-
-```bash
-QE=$(n1_autonomy_val 'qualityEscalations')
-```
-
-If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — skip local testing and proceed to PR with failures documented — update overview.md: check `[x] Local Testing`, add key decision `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)` to `## Escalations`, then proceed to Step 10 (PR). Append a Decision Ledger row per `skills/n1-start/ledger.md`:
-
-`| local-testing | quality | A | [auto] | <scenarios that still fail after N fix cycles> | Skip local testing, proceed to PR | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review |`
-
-Otherwise (policy `block`, or safety-relevant): ask as below.
+**Autonomy gate (full pipeline only):** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`.
 
 In full pipeline mode: "After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
   - "1 — Fix manually, type 'continue' to re-test"
