@@ -7,6 +7,17 @@ most once per worktree).
 
 **Execution mode is predetermined:** Do NOT present execution options to the user. Do NOT invoke superpowers:executing-plans. Always use superpowers:subagent-driven-development regardless of what the plan document or writing-plans suggests.
 
+### Standard developer spawn directives
+
+Apply these to every `developer` agent spawn below. The only variable is the **Input** (specified per-path):
+- **Workspace directive:** When `WORKTREE_PATH` is set, pass: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory."
+- **Scratch artifact policy:** "Throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo."
+- **Hard stops:** Do NOT call `superpowers:finishing-a-development-branch`. Do NOT push, open PRs, or delete branches.
+- **Escalation rules:** Pass the Confidence-Based Escalation protocol (section below).
+- **Rules block:** When `$RULES_BLOCK` is non-empty, append it to the agent's prompt.
+- **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the developer to write the implementation summary there after all changes are complete.
+- **Output format:** Pass the implementation.md format template verbatim (from the "implementation.md format" section below).
+
 ### Signal-Driven Simplicity Gate
 
 Before the normal planning_need routing, check runtime signals for a simple-task bypass:
@@ -21,18 +32,9 @@ BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "blast_radius" 2>/dev
 BLAST="${BLAST:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")}"
 FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "files_changed" 2>/dev/null)
 FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")}"
-
-# Rule injection
-source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
-RULES_DIR=$(n1_rules_dir)
-RULES_BLOCK=""
-if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
-    MATCHING_RULES=$(n1_rules_for_agent "developer" "" "$RULES_DIR")
-    if [ -n "$MATCHING_RULES" ]; then
-        RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
-    fi
-fi
 ```
+
+**Rules injection:** Run SKILL.md § Rules Injection with `agent_name=developer`, `changed_files_source=diff_surface` (from `implementation.md`). This populates `$RULES_BLOCK`.
 
 **If ALL three conditions hold:**
 1. `TIER == "simple"`
@@ -41,15 +43,7 @@ fi
 
 **→ Simple signal path:** Spawn a single `developer` agent with context `implementation`. Use `n1_resolve_model developer implementation` to get the model (signal-driven downgrade may apply).
 
-Spawn the developer agent with:
-- **Input:** `$N1_HOME/memory/<ID>/brainstorm.md` (or `plan.md` if it exists) — instruct: "Read this file for the full task specification. You are in Direct Implementation mode."
-- **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the developer to write the implementation summary there after all changes are complete.
-- **Output format:** pass the implementation.md format template verbatim (from the "implementation.md format" section below).
-- **Workspace directives:** same as existing direct path — when `WORKTREE_PATH` is set, pass: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory."
-- **Scratch artifact policy:** "Throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo."
-- **Hard stops:** Do NOT call `superpowers:finishing-a-development-branch`. Do NOT push, open PRs, or delete branches.
-- **Escalation rules:** pass the Confidence-Based Escalation protocol (section below).
-- **When `$RULES_BLOCK` is non-empty**, append it to the agent's prompt.
+Spawn the developer agent with the Standard developer spawn directives above. Input: `$N1_HOME/memory/<ID>/brainstorm.md` (or `plan.md` if it exists) — "Read this file for the full task specification. You are in Direct Implementation mode."
 
 Log the gate decision to overview.md `## Key Decisions`:
 - Gate triggered: "Implementation simplicity gate: direct developer spawn (tier=$TIER, blast_radius=$BLAST, files_changed=$FILES_CHANGED)"
@@ -81,15 +75,7 @@ Resolve model for `developer` via `n1_resolve_model` with context `implementatio
 
 The developer runs in Direct Implementation mode — it reads the brainstorm directly and implements without SDD's task decomposition. This is appropriate because `planning_need: direct` tasks have fully-specified brainstorm output with independent, well-scoped changes.
 
-Spawn the developer agent with:
-- **Input:** `$N1_HOME/memory/<ID>/brainstorm.md` — instruct: "Read this brainstorm file for the full task specification. You are in Direct Implementation mode (not Fix Cycle mode)."
-- **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the developer to write the implementation summary there after all changes are complete.
-- **Output format:** pass the implementation.md format template verbatim (from the "implementation.md format" section below).
-- **Workspace directives:** same as the plan path — when `WORKTREE_PATH` is set, pass: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory."
-- **Scratch artifact policy:** "Throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo."
-- **Hard stops:** Do NOT call `superpowers:finishing-a-development-branch`. Do NOT push, open PRs, or delete branches.
-- **Escalation rules:** pass the Confidence-Based Escalation protocol (section below).
-- **When `$RULES_BLOCK` is non-empty**, append it to the agent's prompt.
+Spawn the developer agent with the Standard developer spawn directives above. Input: `$N1_HOME/memory/<ID>/brainstorm.md` — "Read this brainstorm file for the full task specification. You are in Direct Implementation mode (not Fix Cycle mode)."
 
 ### Simple plan evaluation (`planning_need: plan`)
 
@@ -115,15 +101,7 @@ Resolve model for `developer` via `n1_resolve_model` with context `implementatio
 
 The developer runs in Direct Implementation mode with the plan as input. This is appropriate because the plan contains 1-2 independent tasks that fit within a single agent's context window — SDD's decomposition and multi-agent dispatch would add overhead without value.
 
-Spawn the developer agent with:
-- **Input:** `$N1_HOME/memory/<ID>/plan.md` — instruct: "Read this plan file for the full task specification. You are in Direct Implementation mode (not Fix Cycle mode). The plan contains 1-2 tasks — implement them sequentially in the order listed."
-- **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the developer to write the implementation summary there after all changes are complete.
-- **Output format:** pass the implementation.md format template verbatim (from the "implementation.md format" section below).
-- **Workspace directives:** same as the plan path — when `WORKTREE_PATH` is set, pass: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory."
-- **Scratch artifact policy:** "Throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo."
-- **Hard stops:** Do NOT call `superpowers:finishing-a-development-branch`. Do NOT push, open PRs, or delete branches.
-- **Escalation rules:** pass the Confidence-Based Escalation protocol (section below).
-- **When `$RULES_BLOCK` is non-empty**, append it to the agent's prompt.
+Spawn the developer agent with the Standard developer spawn directives above. Input: `$N1_HOME/memory/<ID>/plan.md` — "Read this plan file for the full task specification. You are in Direct Implementation mode (not Fix Cycle mode). The plan contains 1-2 tasks — implement them sequentially in the order listed."
 
 ### Plan path (`planning_need: plan`, complex plans)
 
@@ -181,33 +159,14 @@ n1_write_signals "$N1_HOME/memory/$ID/implementation.md" "diff_surface=$DIFF_SUR
 - Proceed to Step 6 (QA).
 
 If the agent returned **BLOCKED:**
-- Present the blocker to the user using the Confidence-Based Escalation format below.
+- Present the blocker output to the user as-is.
 - After the user decides, re-spawn the agent (developer for direct path and simple plan path, implementer for complex plan path) with the decision included. For the complex plan path, SDD resumes from its progress ledger (`/.superpowers/sdd/progress.md`) — completed tasks are not re-dispatched.
 
 ### Confidence-Based Escalation
 
-During implementation, evaluate each significant decision:
+The developer agent self-escalates per the full protocol in `agents/developer.md`: high confidence → proceed autonomously; low confidence + low blast radius → proceed with a Key Decisions note; low confidence + high blast radius → stop and return BLOCKED with options. Always escalate for security changes, new architectural patterns, and public API contract changes.
 
-**High confidence → Full autonomy.** Proceed without asking.
-
-**Low confidence + Low blast radius → Proceed with note.** Make the decision, note it in overview's `## Key Decisions`, continue.
-
-**Low confidence + High blast radius → ESCALATE.** Stop and ask:
-```
-I'm not confident about this decision and it has high impact:
-
-**Decision:** <what needs to be decided>
-**Options:**
-A. <option> — <tradeoff>
-B. <option> — <tradeoff>
-C. <option> — <tradeoff>
-
-**My recommendation:** <option> because <reason>
-
-Which approach?
-```
-
-**Always escalate for:** security changes, new architectural patterns, public API contract changes (per `escalation.alwaysAskOn` in config).
+Pass this protocol to the developer agent when spawning on any direct path. For the complex plan path (SDD), include it in the implementer spawn prompt so SDD subagents also receive it.
 
 **implementation.md format** (pass to the agent — this is the format for the output file):
 ```markdown
