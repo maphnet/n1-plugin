@@ -50,9 +50,6 @@ and brainstorm.md is an ephemeral N1 memory file, not a committed artifact.
 
 Step 9 (Transition to implementation): Do NOT invoke writing-plans or any other skill.
 Return control to the N1 orchestrator immediately after step 7 completes.
-
-Output discipline: After the brainstorming sub-skill returns, do NOT write a summary message
-or yield to the user. The orchestrator continues to the next pipeline section immediately.
 </N1-OVERRIDE>
 
 **Investigation mode (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):**
@@ -65,6 +62,18 @@ In step mode, the autonomous brainstormer is already used (routing above). In fu
 After brainstorming completes (the design already lives in `$N1_HOME/memory/<ID>/brainstorm.md` per the override above):
 - Update overview: `[x] Brainstorm`, set `step: brainstorm`
 - Record key decisions in overview's `## Key Decisions` section
+
+### User Gate (full pipeline, interactive mode only)
+
+**Applies when:** full pipeline mode (no `--step` flag) AND `BRAINSTORM_MODE` is `interactive` or `auto` with interactive escalation.
+
+**Skip when:** step mode, investigation mode, or `BRAINSTORM_MODE` is `auto` without interactive escalation (headless).
+
+Present the design checkpoint to the user:
+
+> "Brainstorm complete — design saved to `brainstorm.md`. Review the approach above and let me know if you'd like any changes, or say **proceed** to continue."
+
+**Wait for the user's response.** If they request changes, revise `brainstorm.md` accordingly and re-present. Only continue to Planning Need Evaluation after the user confirms.
 
 ### Planning Need Evaluation
 
