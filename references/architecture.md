@@ -15,7 +15,8 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-init | (inline: analysis + prompts) | Project setup wizard (v2: migration flow) |
 | n1-estimate | product-analyst, solution-architect agents + autonomous brainstormer + inline estimation | Standalone estimation |
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
-| n1-story | intake-agent, product-analyst, solution-architect, tech-writer agents + inline interactive steps | Story decomposition: multi-repo analysis → discovery → design → publish → ticket creation |
+| n1-ticket | solution-architect agent + inline context capture, web research, tracker MCP | Create a single backlog ticket (Task/Bug) from conversation context |
+| n1-story | solution-architect agent + inline context capture, interactive discovery, tracker MCP | Create a story with subtask tickets from conversation context |
 | n1-rules | (inline: lib/rules.sh) | List, add, validate project rules; regenerate deny hook |
 
 Superpowers calls use the `superpowers:` prefix. Agent spawns use N1's own agent definitions. Each gets fresh context — the orchestrator never accumulates full history.
@@ -40,15 +41,14 @@ When a ticket matches a type's detection rules in the `pipeline.json` type regis
 
 Detection happens in the orchestrator after the ticket step via `n1_resolve_type()` (detection cascade: `--type` flag > tags > type field > title match > default). The resolved type is stored as `type: <name>` in overview.md frontmatter. Backward compat: if overview.md has `mode` but no `type`, `n1_read_type()` reads `mode` as `type`. Post-investigation routing (create linked ticket, convert to implementation, or close) is handled in the investigation-deliverable step (interactive mode only). Tracker enrichment (description append + comment) runs in both interactive and step mode.
 
-## Story Decomposition
+## Ticket & Story Creation
 
-When invoked via `/n1:n1-story`, N1 runs a 7-step pipeline for feature story decomposition: intake → analysis → discovery → design → review → publish → decompose.
+`/n1:n1-ticket` and `/n1:n1-story` create backlog tickets from conversation context and/or a brain dump argument. Both are single-file skills with no step mode and no persistent memory — the tracker is the source of truth.
 
-- **Multi-repo analysis:** `--repos path1,path2` flag enables cross-repo architecture analysis. Solution-architect runs sequentially per repo with a final cross-repo synthesis pass.
-- **Interactive discovery:** Extracts `uncertain`/`unknown` confidence-tagged items from analysis, presents them one-at-a-time for user resolution via Socratic Q&A.
-- **Design output:** Phased design document with INVEST-validated tasks, Gherkin acceptance criteria, and XS–XL estimates.
-- **Publishing:** Config-driven via `story.designStorage`: `"article"` (uses tracker-level KB ops from `kb` config), `"ticket"` (description), or `"local"` (repo file). Falls back to ticket mode when `kb.enabled` is false.
-- **Ticket creation:** One-by-one with user approval per subtask. Each created ticket is independently executable via `/n1:n1-start`.
+- **n1-ticket:** Captures context → light analysis (solution-architect, low effort) → optional web research → bug type detection → approval gate → creates one Task or Bug ticket.
+- **n1-story:** Captures context → deeper analysis (solution-architect, standard effort) → interactive discovery of unknowns → designs subtask decomposition → approval gate → creates a Story ticket with linked subtasks.
+
+Neither command transitions ticket status or creates branches. Both mention `/n1:n1-start <ID>` as the next step.
 
 ## Per-Ticket Memory (`$N1_HOME/`)
 
@@ -97,17 +97,6 @@ Each step reads ONLY its declared dependencies:
 | release | `overview.md` (optional, for merge SHA); `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | tracker comment (best-effort) |
 | investigation-deliverable | `ticket.md`, `analysis.md`, `brainstorm.md` | `investigation.md` |
 
-Story pipeline memory (n1-story steps):
-
-| Step | Reads | Writes |
-|------|-------|--------|
-| intake (story) | — | `ticket.md`, `story-overview.md` |
-| analysis (story) | `ticket.md` | `analysis.md` |
-| discovery | `ticket.md`, `analysis.md` | `discovery.md` |
-| design | `ticket.md`, `analysis.md`, `discovery.md` | `story-design.md` |
-| review (story) | `story-design.md`, `story-overview.md` | `story-design.md` (in-place fixes), `story-overview.md` |
-| publish | `ticket.md`, `story-design.md`, `story-overview.md` | `story-overview.md` |
-| decompose | `story-design.md`, `story-overview.md` | `story-overview.md` |
 
 ## Tracker Routing
 
