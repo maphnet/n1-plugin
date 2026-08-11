@@ -102,10 +102,18 @@ If Step 1 classified the type as `Bug`:
 **Jira:** Use `issueTypeName: "Bug"` directly — Jira natively supports Bug as an issue type.
 
 **YouTrack:** Query project issue types to check Bug availability:
-- Call `mcp__<TRACKER_MCP>__get_project_fields` with `projectId: <PROJECT_KEY>`
+
+```bash
+GET_PROJECT_FIELDS_OP=$(n1_config_val '.tracker.operations.getProjectFields')
+```
+
+If `GET_PROJECT_FIELDS_OP` is non-empty:
+- Call `mcp__<TRACKER_MCP>__<GET_PROJECT_FIELDS_OP>` with `projectId: <PROJECT_KEY>`
 - Look for a field of type "enum" named "Type" that includes a "Bug" value
 - If Bug type exists: use it when creating the issue
 - If Bug type does not exist: fall back to default issue type and add a note in the description: "**Note:** Bug type not available in project — created as default type."
+
+If `GET_PROJECT_FIELDS_OP` is empty: skip bug type querying. Use the type from Step 1 as-is and note in the approval gate: "Bug type availability could not be verified (getProjectFields operation not configured)."
 
 The detected type is shown in the approval gate. The user can override it there.
 
@@ -150,14 +158,17 @@ Otherwise: `summary` = title as-is.
 
 **Escape description for JSON:**
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
 ```
 
 **Create the ticket:**
 
 - **Jira:**
-  1. Resolve `cloudId`: call `mcp__<TRACKER_MCP>__getAccessibleAtlassianResources`, extract the `id` field.
+  1. Resolve `cloudId`:
+     ```bash
+     CLOUD_ID=$(n1_config_val '.tracker.cloudId')
+     ```
+     If `CLOUD_ID` is empty, call `mcp__<TRACKER_MCP>__getAccessibleAtlassianResources` and extract the `id` field.
   2. Determine `issueTypeName`: `"Bug"` if type is Bug, `"Task"` otherwise.
   3. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName`, `summary`, `description`.
 
