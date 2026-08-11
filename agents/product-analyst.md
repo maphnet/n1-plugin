@@ -168,6 +168,10 @@ Run this assessment AFTER reading the raw ticket.md (step 1) but BEFORE the fina
 
 **E. Record the tier and action** for the Description Quality output section below.
 
+## Behavioral Principles
+
+**No Preambles.** Start with the output format heading. Do not restate the task, acknowledge instructions, or narrate your process.
+
 ## Output Format
 
 ```markdown

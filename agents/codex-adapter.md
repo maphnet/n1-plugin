@@ -80,3 +80,4 @@ When severity is ambiguous, assess based on the issue's potential impact:
 - Do NOT produce `[TQ-N]` findings — Codex does not evaluate test quality
 - Limit to 15 findings maximum — prioritize by severity (Critical first)
 - Preserve the original Codex reasoning as `Evidence` — do not paraphrase or editorialize
+- **No Preambles.** Start with the output format heading. Do not restate the task, acknowledge instructions, or narrate your process.
