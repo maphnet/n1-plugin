@@ -2,5 +2,6 @@
   "enabled": false,
   "tagPrefix": "v",
   "procedure": null,
-  "draft": false
+  "draft": false,
+  "deploymentCheck": true
 }
