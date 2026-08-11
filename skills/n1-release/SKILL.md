@@ -36,6 +36,7 @@ Read the `release` block via `n1_config_val`, applying defaults when keys are ab
 | `.release.tagPrefix` | `"v"` |
 | `.release.procedure` | `null` |
 | `.release.draft` | `false` |
+| `.release.deploymentCheck` | `true` |
 
 Also read `git.defaultBranch`, `git.branchPattern`, `tracker.mcp`, `tracker.operations`.
 
@@ -230,6 +231,38 @@ On idempotent skip:
 Release <TAG> already exists — nothing to do.
 ```
 
+## Step 8: Deployment Check
+
+Only runs after a **successful release** (built-in flow success or custom procedure completion). Skipped on idempotent skip.
+
+1. Read `release.deploymentCheck` — if `false`, skip entirely.
+2. Run deployment pipeline detection per `references/ci-detection.md`:
+   - Read `.github/workflows/` contents.
+   - Classify into one of the five categories.
+3. **Category 5** (release-triggered deployment exists):
+   ```
+   Deployment pipeline: <filename> — triggered on release, targets <environment>.
+   ```
+   Done — no action needed.
+4. **Categories 1-4** — present findings and ask:
+   ```
+   No release-triggered deployment pipeline detected.
+   <category-specific context line from detection>
+
+   Does this project need a deployment pipeline triggered on release?
+   1 — Yes, help me set one up
+   2 — No, this project doesn't deploy on release
+   ```
+   - **2 (No)** → set `release.deploymentCheck` to `false` in `$N1_HOME/config.json` via:
+     ```bash
+     source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+     N1_HOME=$(n1_home)
+     jq '.release.deploymentCheck = false' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
+     ```
+     Report: "Deployment check disabled for this project. Re-enable via n1-init or by setting `release.deploymentCheck: true` in config."
+     Done.
+   - **1 (Yes)** → follow the scaffolding options for the detected category per `references/ci-detection.md`. Inspect project context (existing workflows, Dockerfile, package manager, framework) and write the workflow conversationally. Commit the new/modified workflow file to the current branch. Report the file path and remind the user to review before pushing.
+
 ## Idempotency
 
 Every path is safe to re-run: existing release causes a skip; existing tag skips tag creation; existing tracker comment is not duplicated (when comments are readable).
@@ -241,5 +274,5 @@ Every path is safe to re-run: existing release causes a skip; existing tag skips
 - **Standalone** -- `/n1:n1-release`
 
 **Invokes:**
-- Inline: `gh` CLI (release view/create, auth status), git (tag, push), tracker MCP operations
+- Inline: `gh` CLI (release view/create, auth status), git (tag, push), tracker MCP operations, `references/ci-detection.md` (deployment pipeline detection)
 - No agent spawns -- thin controller, orchestration only
