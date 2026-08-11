@@ -32,12 +32,12 @@ Pass to brainstorming:
 - When `$RULES_BLOCK` is non-empty, append it verbatim to the brainstorming prompt after the other directives above.
 
 <N1-OVERRIDE>
-These overrides take precedence over superpowers:brainstorming's checklist and HARD-GATE for steps 5-9.
-Steps 1-4 (explore context, clarifying questions, propose approaches) run normally.
+These overrides take precedence over superpowers:brainstorming's checklist AND its HARD-GATE for steps 5-9.
+The HARD-GATE ("Do NOT invoke any implementation skill... until the user has approved") is SUSPENDED inside this N1 pipeline — user approval is NOT required to proceed past brainstorming. Steps 1-4 (explore context, clarifying questions, propose approaches) run normally.
 
 Step 5 (Present design): Present the recommended approach as the chosen design in a single cohesive section.
-Do NOT ask for section-by-section approval or wait for explicit user confirmation before proceeding.
-State the design, then move directly to writing the spec. If the user objects before you finish writing,
+Do NOT ask for user approval, confirmation, or "proceed" prompts. Do NOT end with "let me know if you'd like changes" or similar.
+State the design, then move directly to writing the spec without pausing. If the user objects before you finish writing,
 stop and address their feedback — this override removes the mandatory gate, not the user's ability to intervene.
 
 Step 6 (Write design doc): Write to `$N1_HOME/memory/<ID>/brainstorm.md` (passed by the orchestrator).
