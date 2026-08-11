@@ -1,5 +1,4 @@
 {
-  "enabled": false,
   "designPath": "docs/design/",
   "taskSizing": {
     "maxSize": "L",

@@ -50,8 +50,6 @@ When invoked via `/n1:n1-story`, N1 runs a 7-step pipeline for feature story dec
 - **Publishing:** Config-driven via `story.designStorage`: `"article"` (uses tracker-level KB ops from `kb` config), `"ticket"` (description), or `"local"` (repo file). Falls back to ticket mode when `kb.enabled` is false.
 - **Ticket creation:** One-by-one with user approval per subtask. Each created ticket is independently executable via `/n1:n1-start`.
 
-Gated on `story.enabled` in config (default `false`). Configured by `n1-init`.
-
 ## Per-Ticket Memory (`$N1_HOME/`)
 
 N1 state is **externalized** to `~/.n1/<project>/` (the `N1_HOME` directory), discovered via `git config n1.home`. This directory is set by `n1-init` and read by all skills and hooks. It never lives inside the project tree, so it requires no gitignore entry.

@@ -57,7 +57,7 @@ The canonical set of top-level config keys. Used by the completeness check to de
 ```
 worktree, tracker, git, ticketTagging, errorTracking, estimation,
 localTesting, finishWork, release, codex, testCoverage, telemetry,
-analysisCache, rules, story, escalation, review, ciChecks, planReview, memory, models
+analysisCache, rules, escalation, review, ciChecks, planReview, memory, models
 ```
 
 ### Targeted Upgrade
@@ -77,9 +77,8 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 11. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
 12. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
 13. `rules` → **Rules Configuration** (fresh-setup portion)
-14. `story` → **Story Workflow Configuration** (fresh-setup portion)
-15. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
-16. `escalation`, `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
+14. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
+15. `escalation`, `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
 
@@ -1509,76 +1508,6 @@ If 1: move all `.rule.md` files, regenerate deny hook at new location, deregiste
 
 If `rules` is absent from the current config, run the fresh-setup flow above. Run **Analyze Repository** first if it has not already been run this session (rules starter generation needs detection results).
 
-## Story Workflow Configuration
-
-### Configure Story
-
-Ask whether N1 should enable story decomposition. **Default is No.**
-
-```
-Enable story decomposition workflow?
-This lets you use /n1:n1-story to break features into design docs and subtask tickets.
-1 — Yes
-2 — No (default)
-```
-
-**If 2 (No) or default:**
-```json
-{
-  "story": {
-    "enabled": false
-  }
-}
-```
-
-**If 1 (Yes):**
-
-Set `story.enabled: true`.
-
-**Derive `designStorage`:**
-- If `kb.enabled` is `true`: set `story.designStorage: "article"`.
-- If `kb.enabled` is `false` or `kb` block absent:
-  Ask:
-  ```
-  No knowledge base configured. Store design docs in:
-  1 — Ticket description
-  2 — Local repo file
-  ```
-  - **1:** set `story.designStorage: "ticket"`
-  - **2:** set `story.designStorage: "local"`
-
-```json
-{
-  "story": {
-    "enabled": true,
-    "designStorage": "<article|ticket|local>",
-    "designPath": "docs/design/",
-    "taskSizing": {
-      "maxSize": "L",
-      "warnOnLargeTask": true
-    }
-  }
-}
-```
-
-### On reconfiguration (n1-init re-run):
-
-If `story` already exists in the current config, show current state and offer:
-```
-Current story workflow:
-  enabled        → <true/false>
-  designStorage  → <article/ticket/local>
-
-1 — Keep current
-2 — Enable / change settings
-3 — Disable
-```
-- **1** → leave unchanged.
-- **2** → re-run the questions above (re-derive designStorage from kb.enabled), overwrite the block.
-- **3** → set `enabled: false`. Keep the other keys.
-
-If `story` is absent from the current config, run the fresh-setup flow above.
-
 ## Agent Model Configuration
 
 Use default models from agent frontmatter. **Do NOT ask** about model customization unless the user explicitly requested it when invoking n1-init.
@@ -1659,14 +1588,6 @@ Create all files:
   "planReview": {
     "reviewPlan": true,
     "requirePlanApproval": false
-  },
-  "story": {
-    "enabled": false,
-    "designPath": "docs/design/",
-    "taskSizing": {
-      "maxSize": "L",
-      "warnOnLargeTask": true
-    }
   },
   "memory": {
     "ticketContext": true,

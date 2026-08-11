@@ -86,8 +86,6 @@ Jira also requires `tracker.cloudId` (detected during tracker setup) for all Con
 
 The session-start hook injects KB ROUTING context when enabled, providing the model with space/project defaults for KB calls.
 
-`story.designStorage: "article"` is the primary consumer — the story publish step uses tracker-level KB ops instead of inline detection. Other pipeline steps do not auto-publish to KB; publishing is strictly on-demand.
-
 ## Escalation Safety
 
 Always escalate: security, architecture, public API changes.

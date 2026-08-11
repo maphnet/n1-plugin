@@ -25,12 +25,6 @@ N1_HOME=$(n1_home)
 
 If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not configured for this project. Would you like to run `/n1:n1-init` to set it up?" **Wait for response.** If yes — invoke `/n1:n1-init`, then resume. If no — **STOP.**
 
-## Prerequisites
-
-Read `$N1_HOME/config.json`:
-
-- Check `story.enabled` (default `false`). If not enabled: "Story workflow is not enabled. Run `/n1:n1-init` to configure it, or manually set `story.enabled: true` in `$N1_HOME/config.json`." **STOP.**
-
 ## Input Parsing
 
 The user provides one of:
