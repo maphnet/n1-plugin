@@ -69,11 +69,39 @@ After brainstorming completes (the design already lives in `$N1_HOME/memory/<ID>
 
 **Skip when:** step mode, investigation mode, or `BRAINSTORM_MODE` is `auto` without interactive escalation (headless).
 
-Present the design checkpoint to the user:
+Present the design checkpoint to the user. Before presenting, extract two pieces of context:
 
-> "Brainstorm complete — design saved to `brainstorm.md`. Review the approach above and let me know if you'd like any changes, or say **proceed** to continue."
+1. **Acceptance criteria** — read `$N1_HOME/memory/<ID>/brainstorm.md` and extract the acceptance criteria (look for a section headed `## Acceptance Criteria`, `### Acceptance Criteria`, or a checklist under any heading containing "acceptance" or "criteria"). If no such section exists, note that no explicit acceptance criteria were found.
 
-**Wait for the user's response.** If they request changes, revise `brainstorm.md` accordingly and re-present. Only continue to Planning Need Evaluation after the user confirms.
+2. **Input quality signal** — read the `description_quality` signal from `$N1_HOME/memory/<ID>/ticket.md`:
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+   DESC_QUALITY=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "description_quality")
+   ```
+   If the file is missing or the signal is absent, treat quality as unknown.
+
+Present the checkpoint:
+
+> Brainstorm complete — design saved to `brainstorm.md`.
+>
+> **Acceptance Criteria:**
+> - [ ] <first criterion from brainstorm.md>
+> - [ ] <second criterion>
+> - [ ] ...
+>
+> **Scope:** <key files or areas identified in the brainstorm>
+>
+> Confirm these are correct, amend, or add what's missing.
+
+**Conditional warning:** If `DESC_QUALITY` is `empty` or `skeletal`, insert before the confirm line:
+
+> **Note:** input was terse — criteria above are inferred, not stated. Please verify carefully.
+
+If no acceptance criteria section was found in `brainstorm.md`, replace the criteria list with:
+
+> No explicit acceptance criteria found in the brainstorm. Consider adding criteria before proceeding.
+
+**Wait for the user's response.** If they amend or add criteria, update the `## Acceptance Criteria` section in `brainstorm.md` to match, then re-present the gate. Only continue to Planning Need Evaluation after the user confirms.
 
 ### Planning Need Evaluation
 
