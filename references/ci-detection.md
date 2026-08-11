@@ -21,9 +21,9 @@ Based on the detection, classify into exactly one category:
 | 2 | **No deployment workflows** | Workflows exist but none match deployment indicators |
 | 3 | **Dev-only deployment** | Deployment workflow found, targets only dev/staging environments, no `on: release` trigger |
 | 4 | **Prod without release trigger** | Deployment workflow targets prod but triggers on push/manual only, not `on: release` |
-| 5 | **Release-triggered deployment** | Deployment workflow has `on: release` (any type filter) AND targets a prod environment |
+| 5 | **Release-triggered deployment** | Deployment workflow has `on: release` (any type filter) — with or without an explicit environment declaration |
 
-Apply categories in order — first match wins. When a workflow has multiple jobs targeting different environments, classify by the highest-environment job (prod > staging > dev).
+Apply categories in order — first match wins. When a workflow has multiple jobs targeting different environments, classify by the highest-environment job (prod > staging > dev). A deployment workflow triggered on release with no explicit `environment:` declaration is Category 5 (assumed prod — release-triggered deployments are production by convention).
 
 ## Environment Detection Patterns
 
