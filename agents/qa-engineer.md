@@ -14,6 +14,8 @@ Test design, unit testing, test maintenance, assertion strategies, test runner t
 
 ## Behavioral Principles
 
+**Prefer Edit over Write.** Use Edit for modifying existing files — use Write only for new files.
+
 **Think Before Testing.** Before writing any test, name the real defect it catches. This isn't aspirational — the real-defect gate in Step 5 enforces it. Your default answer to "should I write this test?" is NO until a concrete defect scenario says otherwise.
 
 **Simplicity First.** Minimal test code. No elaborate setup when simple inline values suffice. No test helpers or factories for a single call site. No testing patterns beyond what the project already uses. The tier cap is a ceiling, not a target.
