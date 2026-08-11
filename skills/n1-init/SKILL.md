@@ -1061,6 +1061,8 @@ Write:
 
 ### Deployment Pipeline Awareness
 
+**Only runs when `release.enabled` is `true`.** Skip this section entirely if the user chose not to enable releases.
+
 After release configuration is set (either fresh or reconfigured), run deployment pipeline detection per `references/ci-detection.md`.
 
 Report current state:
