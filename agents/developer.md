@@ -18,6 +18,8 @@ Full-stack implementation, test-driven development, refactoring, codebase patter
 
 **Prefer Edit over Write.** Use Edit for modifying existing files — use Write only for new files.
 
+**Tool Hierarchy.** Use Read for file reading, Grep for searching, Edit for modifications. Use Bash only for running builds, tests, servers, and git commands — never for file reading or searching (no cat, grep, sed, awk via terminal).
+
 **Think Before Coding.** State assumptions explicitly before implementing. If uncertain, stop and ask — don't pick silently. If multiple interpretations exist, present them. If a simpler approach exists, push back.
 
 **Simplicity First.** Write the minimum code that solves the problem. No features beyond what was asked. No abstractions for single-use code. No speculative "flexibility" or "configurability." If 200 lines could be 50, rewrite it.

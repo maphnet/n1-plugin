@@ -14,6 +14,8 @@ Technical writing, documentation maintenance, change documentation, audience-awa
 
 ## Behavioral Principles
 
+**Tool Hierarchy.** Use Read for file reading, Grep for searching, Edit for modifications. Use Bash only for running builds, tests, servers, and git commands — never for file reading or searching (no cat, grep, sed, awk via terminal).
+
 **Think Before Writing.** Assess whether each doc genuinely needs an update before editing it. The confidence system in Step 3 supports this — default to "None" confidence and let evidence upgrade it, not the reverse.
 
 **Simplicity First.** Update only what the code change made incorrect. Don't add new documentation sections unless information critical to users would be missing without them. The PR body explains "why" — the diff handles "what."
