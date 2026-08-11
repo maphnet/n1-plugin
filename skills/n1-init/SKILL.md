@@ -1001,7 +1001,8 @@ Enable releases?
 ```json
 {
   "release": {
-    "enabled": false
+    "enabled": false,
+    "deploymentCheck": false
   }
 }
 ```
@@ -1022,7 +1023,8 @@ Write:
   "release": {
     "enabled": true,
     "tagPrefix": "v",
-    "procedure": null
+    "procedure": null,
+    "deploymentCheck": "<from deployment pipeline awareness answer>"
   }
 }
 ```
@@ -1051,25 +1053,53 @@ Write:
   "release": {
     "enabled": true,
     "tagPrefix": "<from answer, default v>",
-    "procedure": "<verbatim paste>"
+    "procedure": "<verbatim paste>",
+    "deploymentCheck": "<from deployment pipeline awareness answer>"
   }
 }
 ```
+
+### Deployment Pipeline Awareness
+
+After release configuration is set (either fresh or reconfigured), run deployment pipeline detection per `references/ci-detection.md`.
+
+Report current state:
+```
+Deployment pipelines:
+<one of the following based on detection category>
+  Category 1: "No GitHub Actions workflows found."
+  Category 2: "Workflows found (CI/lint/test) but no deployment pipelines."
+  Category 3: "Found: <filename> — deploys to <env> on <trigger>. No release-triggered deployment."
+  Category 4: "Found: <filename> — deploys to <env> (prod) on <trigger>. Not triggered by release."
+  Category 5: "Found: <filename> — deploys to <env> on release. Release deployment is configured."
+```
+
+Ask:
+```
+Check for deployment pipeline after each release?
+1 — Yes (default for deployable services)
+2 — No (default for libraries/plugins)
+```
+
+Default suggestion: `true` if any deployment workflows were detected (categories 3-5) or project has a Dockerfile / `docker-compose.yml`; `false` if project looks like a library/plugin (has `.claude-plugin/plugin.json` with no Dockerfile, or is an npm package with no deployment indicators).
+
+Set `release.deploymentCheck` to the chosen value.
 
 ### On reconfiguration (n1-init re-run):
 
 If `release` already exists in the current config, show current state and offer:
 ```
 Current release:
-  enabled   → <true/false>
-  procedure → GitHub Release (built-in) | custom (<N> steps)
+  enabled         → <true/false>
+  procedure       → GitHub Release (built-in) | custom (<N> steps)
+  deploymentCheck → <true/false>
 
 1 — Keep current
 2 — Change settings
 3 — Disable
 ```
 - **1** → leave unchanged.
-- **2** → re-run the questions above, overwrite the block.
+- **2** → re-run the questions above (including Deployment Pipeline Awareness), overwrite the block.
 - **3** → set `enabled: false`, keep other keys.
 
 If `release` is absent from the current config, run the fresh-setup flow above.
