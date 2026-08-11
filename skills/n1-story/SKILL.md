@@ -72,7 +72,7 @@ Spawn the `solution-architect` agent with **standard effort** for a deeper codeb
 
 Resolve model:
 ```bash
-MODEL=$(n1_resolve_model 'solution-architect')
+MODEL=$(n1_resolve_model 'solution-architect' 'standard')
 ```
 
 Spawn with these instructions:
@@ -164,6 +164,11 @@ If `TAGGING_ENABLED` is `true` and `TAGGING_SERVICE` is non-empty:
 
 Otherwise: `summary` = title as-is.
 
+**Escape description for JSON:**
+```bash
+DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
+```
+
 **Create the story ticket:**
 
 - **Jira:**
@@ -172,10 +177,10 @@ Otherwise: `summary` = title as-is.
      CLOUD_ID=$(n1_config_val '.tracker.cloudId')
      ```
      If `CLOUD_ID` is empty, call `mcp__<TRACKER_MCP>__getAccessibleAtlassianResources` and extract the `id` field.
-  2. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName: "Story"`, `summary`, `description`.
+  2. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName: "Story"`, `summary`, `description: DESC_ESCAPED`.
 
 - **YouTrack:**
-  1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description`.
+  1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description: DESC_ESCAPED`.
 
 Store the returned story ticket ID as `STORY_ID`.
 
@@ -200,10 +205,14 @@ For each subtask:
 1. **Build summary and description:**
    - Apply ticket tagging (same logic as story)
    - Description = subtask description + acceptance criteria formatted as checklist
+   - Escape the description:
+     ```bash
+     SUBTASK_DESC_ESCAPED=$(escape_json_val "$SUBTASK_DESCRIPTION")
+     ```
 
 2. **Create the subtask:**
-   - **Jira:** Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName: "Task"`, `summary`, `description`, `parentKey: <STORY_ID>`.
-   - **YouTrack:** Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description`. Then link to story: call `mcp__<TRACKER_MCP>__<LINK_OP>` with `issueId: <subtask_id>`, `targetIssueId: <STORY_ID>`, `linkType: "subtask"` (or "Subtask" — use the link type name the YouTrack instance recognizes).
+   - **Jira:** Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`, `parentKey: <STORY_ID>`.
+   - **YouTrack:** Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description: SUBTASK_DESC_ESCAPED`. Then link to story: call `mcp__<TRACKER_MCP>__<LINK_OP>` with `issueId: <subtask_id>`, `targetIssueId: <STORY_ID>`, `linkType: "subtask"` (or "Subtask" — use the link type name the YouTrack instance recognizes).
 
 3. **Assign to creator** (if configured): same pattern as story assignment, substituting `<subtask_id>` for the issue identifier.
 
