@@ -96,7 +96,7 @@ Spawn the developer agent with:
   - "Do NOT write or modify tests"
   - "Do NOT commit anything"
   - "Skip destructive or ambiguous commands, note why"
-- Directive: "Output the report in this exact structure:"
+- Directive: "Write the report in this exact structure to `$N1_HOME/memory/<ID>/local-testing.md` (full overwrite):"
 
 ```markdown
 ## Local Testing Report
@@ -128,8 +128,16 @@ Spawn the developer agent with:
 ### Verdict: PASS / FAIL
 ```
 
+- Output-path directive: "Write your full Local Testing Report to `$N1_HOME/memory/<ID>/local-testing.md` yourself, as a full overwrite (never append). Return to the orchestrator ONLY this compact block:
+  `Verdict: PASS|FAIL` / `Failure class: infra|code-bug|none` / per-scenario one-liners (`<name>: PASS|FAIL — <detail>`) / cleanup status. Do NOT return the full report."
+
 After the agent returns:
-- Write its output to `$N1_HOME/memory/<ID>/local-testing.md`
+- The agent wrote `$N1_HOME/memory/<ID>/local-testing.md` itself. Verify it:
+  ```bash
+  source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+  n1_verify_dependencies "$N1_HOME/memory/$ID" local-testing.md
+  ```
+  If missing/empty (agent failed to write), write the returned compact summary block to `local-testing.md` as a fallback and note the gap in overview's `## Key Decisions`.
 
 **If verdict is PASS:**
 - Update overview: `[x] Local Testing`, set `step: local-testing`
