@@ -82,6 +82,11 @@ if n1_parse_type_arg "$USER_INPUT" 2>/dev/null; then
     TYPE_OVERRIDE=$(n1_parse_type_arg "$USER_INPUT")
 fi
 
+# --investigate flag forces the investigation type (see SKILL.md Investigate flag detection)
+if [ "$INVESTIGATE_FLAG" = "true" ]; then
+    TYPE_OVERRIDE="investigation"
+fi
+
 # Extract tags as CSV from intake-result
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 
@@ -158,6 +163,8 @@ Determine `source_mode`:
 
 - If `source_mode == braindump`: `| ticket | mechanical | C | [auto] | Create tracker ticket for brain-dump run? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
 - If `source_mode == error-tracker`: `| ticket | mechanical | C | [auto] | Create tracker ticket for Sentry issue? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
+
+**Deferred ticket creation (`--investigate` brain-dump mode):** If `INVESTIGATE_FLAG` is `true` AND `source_mode == braindump`, skip this ticket-creation question entirely (regardless of `MP`) and take the "No" path below: adopt the description slug as `<ID>` and skip tracker status updates. Report: "Investigation mode: ticket creation deferred until findings are ready." Ticket creation is offered after the investigation deliverable instead (see steps/investigation-deliverable.md, Phase 5 brain-dump variant).
 
 If `MP` is `ask` (default), ask:
 
@@ -301,6 +308,12 @@ Write the resolved type to overview.md frontmatter:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "$RESOLVED_TYPE"
+```
+
+If `INVESTIGATE_FLAG` is `true`, also persist the interactive-investigation marker (read by the brainstorm and investigation-deliverable steps, and by resumed sessions):
+
+```bash
+n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive" "true"
 ```
 
 **If `INVESTIGATION_DETECTED` is true** (i.e., `RESOLVED_TYPE` is `"investigation"`):
