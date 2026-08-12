@@ -144,9 +144,13 @@ If the agent returned **DONE:**
 **Compute and persist implementation signals:**
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-LINES_CHANGED=$(git diff --stat HEAD~1 2>/dev/null | tail -1 | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
-NEW_FILES=$(git diff --name-status HEAD~1 2>/dev/null | grep -c '^A' || echo "0")
-CHANGED_FILES=$(git diff --name-only HEAD~1 2>/dev/null || true)
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+BP_FILE="$N1_HOME/memory/$ID/branch-point"
+BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
+BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "HEAD")
+LINES_CHANGED=$(git diff --stat "$BASE" 2>/dev/null | tail -1 | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
+NEW_FILES=$(git diff --name-status "$BASE" 2>/dev/null | grep -c '^A' || echo "0")
+CHANGED_FILES=$(git diff --name-only "$BASE" 2>/dev/null || true)
 if echo "$CHANGED_FILES" | grep -qvE '\.(md|txt|json|ya?ml|toml|cfg|ini|conf|env)$'; then
     DIFF_SURFACE="code"
 else
