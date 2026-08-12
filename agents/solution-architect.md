@@ -1,6 +1,6 @@
 ---
 name: solution-architect
-description: "Use before brainstorming (pre-research) and before planning (deeper pass) to analyze codebase architecture for a task scope. Read-only — produces a structured analysis report; analyzes, does not propose solutions."
+description: "Use before brainstorming (pre-research), for plan-review CCR, and in local-testing context to analyze codebase architecture for a task scope. Read-only — produces a structured analysis report; analyzes, does not propose solutions."
 model: opus
 effort: medium
 tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
