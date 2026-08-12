@@ -125,6 +125,8 @@ If no acceptance criteria section was found in `brainstorm.md`, replace the crit
 ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate')
 ```
 
+If `ACCEPTANCE_GATE` is `auto`: auto-confirm unconditionally without waiting for user input. Present the checkpoint info (acceptance criteria, scope) for visibility, then continue directly to Planning Need Evaluation. The user can still intervene if they see something wrong, but no explicit confirmation is requested.
+
 If `ACCEPTANCE_GATE` is `auto-when-clear`, check ALL of the following conditions:
 1. `DESC_QUALITY` is `adequate` (not `empty`, `skeletal`, `weak`, or unknown)
 2. Acceptance criteria section exists in `brainstorm.md`

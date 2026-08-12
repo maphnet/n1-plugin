@@ -262,7 +262,7 @@ n1_autonomy_val() {
         mechanicalPrompts)  printf 'ask' ;;
         qualityEscalations) printf 'block' ;;
         tailChain)          printf 'suggest' ;;
-        acceptanceGate)     printf 'ask' ;;
+        acceptanceGate)     printf 'auto' ;;
         escalationMargin)   printf '0.15' ;;
         *)                  printf '' ;;
     esac

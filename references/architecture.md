@@ -318,9 +318,9 @@ Always escalate: security, architecture, public API changes.
 
 ## Autonomy
 
-Config block `autonomy` in `$N1_HOME/config.json` (all defaults preserve interactive behavior): `brainstorm` (`"interactive"`|`"auto"`), `mechanicalPrompts` (`"ask"`|`"auto"`), `qualityEscalations` (`"block"`|`"auto-accept"`), `tailChain` (`"suggest"`|`"auto"`), `acceptanceGate` (`"ask"`|`"auto-when-clear"`), `escalationMargin` (default `0.15`). Read via `n1_autonomy_val` in `lib/config.sh`.
+Config block `autonomy` in `$N1_HOME/config.json`: `brainstorm` (`"interactive"`|`"auto"`, default `"interactive"`), `mechanicalPrompts` (`"ask"`|`"auto"`, default `"ask"`), `qualityEscalations` (`"block"`|`"auto-accept"`, default `"block"`), `tailChain` (`"suggest"`|`"auto"`, default `"suggest"`), `acceptanceGate` (`"auto"`|`"auto-when-clear"`|`"ask"`, default `"auto"`), `escalationMargin` (default `0.15`). Read via `n1_autonomy_val` in `lib/config.sh`.
 
-`acceptanceGate`: `"ask"` (default) presents the brainstorm design checkpoint to the user and waits for confirmation; `"auto-when-clear"` auto-confirms when all four conditions hold: `description_quality == adequate`, acceptance criteria section exists in brainstorm.md, no deferred A-tier questions, and `brainstorm == auto`. Falls back to interactive gate if any condition fails.
+`acceptanceGate`: `"auto"` (default) presents the checkpoint info (acceptance criteria, scope) for visibility, then auto-confirms unconditionally; `"auto-when-clear"` auto-confirms only when all four conditions hold: `description_quality == adequate`, acceptance criteria section exists in brainstorm.md, no deferred A-tier questions, and `brainstorm == auto` — falls back to interactive gate if any condition fails; `"ask"` always waits for explicit user confirmation.
 
 Three n1-init presets write the autonomy block:
 - **Interactive** — `brainstorm: interactive`, `mechanicalPrompts: ask`, `qualityEscalations: block`, `tailChain: suggest`, `acceptanceGate: ask`. Every decision point is interactive.
