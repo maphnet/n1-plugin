@@ -39,6 +39,15 @@ Resolve model for `solution-architect` with context `analysis`.
     Default to B. Only classify as A after a genuine exploration attempt fails. The goal: the user should never be asked a question you could have answered by reading the code."
 - **Rules:** If `$RULES_BLOCK` is non-empty, append it after the directives above.
 
+**Shared output-path directives (apply to all paths):**
+
+<!-- #44657: Claude Code harness may refuse Write tool calls targeting files named
+     "analysis.md" (blocked-filename family). The agent must write analysis.md via
+     Bash (heredoc/cat redirect) rather than the Write tool. Do not simplify back
+     to Write without verifying #44657 is resolved in the target harness version. -->
+
+- Output-path directive: "Write your full analysis report to `$N1_HOME/memory/<ID>/analysis.md` yourself using your Bash tool (cat heredoc redirect — do NOT use the Write tool for this file, ref #44657). Write ONLY to the provided paths under `$N1_HOME`. Return to the orchestrator ONLY this compact block: your `n1:signals` line, `tier:` line, optional `SNAPSHOT_DRIFT:` line, and a 3-10 line summary. Do NOT return the full analysis report — it is in the file you wrote."
+
 **Prompt construction depends on CACHE_STATE:**
 
 **When CACHE_STATE is `cold` or `stale`:**
@@ -47,12 +56,26 @@ Spawn the solution-architect agent with:
 - The path to the ticket file — instruct the agent: "Read `$N1_HOME/memory/<ID>/ticket.md` yourself (you have Read); it is the scope to analyze. Its content is NOT inlined here."
 - Directive: "Research relevant industry standards, best practices, and practitioner experience per agents/research-standards.md and include the cited Industry Standards & Best Practices section."
 - All shared spawn directives above.
-- **When `CACHE_ENABLED` is `true`**, also append this OUTPUT FORMAT REQUIREMENT at end of prompt:
+- All shared output-path directives above.
+- **When `CACHE_ENABLED` is `true`**, also append this SNAPSHOT PERSISTENCE REQUIREMENT at end of prompt:
 
-  > Separate your findings into two clearly marked sections:
+  > Separate your findings into two categories:
   > `## [PROJECT] <section name>` — for project-level facts (architecture, conventions, patterns, stack, industry standards, subsystem registry, key files).
   > Include `<!-- provenance: <files/globs that informed this section> -->` after each [PROJECT] section heading.
   > `## [TICKET] <section name>` — for ticket-specific analysis (affected files, blast radius, risks, integration points, tier assessment).
+  >
+  > When writing to analysis.md, include ONLY the [TICKET] sections (strip the `[TICKET] ` prefix from headings).
+  > Persist the [PROJECT] sections as a snapshot by running this via Bash:
+  > ```bash
+  > source "<CLAUDE_PLUGIN_ROOT>/lib/cache.sh"
+  > n1_snapshot_write "<SNAPSHOT_PATH>" "$PROJECT_CONTENT" "$(git rev-parse HEAD)"
+  > ```
+  > Where `$PROJECT_CONTENT` is all [PROJECT] sections concatenated with the `[PROJECT] ` prefix stripped from headings (so `## [PROJECT] Architecture` becomes `## Architecture`).
+  > Snapshot path: `<SNAPSHOT_PATH>` (substitute the actual resolved path).
+
+  Substitute `<CLAUDE_PLUGIN_ROOT>` and `<SNAPSHOT_PATH>` with their actual resolved values in the prompt.
+
+- **When `CACHE_ENABLED` is `false`** (or absent), no [PROJECT]/[TICKET] separation needed — the agent writes its full report directly to analysis.md.
 
 **When CACHE_STATE is `fresh`:**
 
@@ -89,12 +112,13 @@ Spawn the solution-architect agent with this prompt (replacing the standard proj
 > - If you notice the snapshot appears incorrect or outdated, flag it with: SNAPSHOT_DRIFT: <description>
 >
 > OUTPUT FORMAT:
-> Use `## [TICKET] <section name>` for all sections.
-> Emit signals as the final line as usual.
+> Write only [TICKET]-scoped content to analysis.md (no [TICKET] prefix in headings — just the section names).
+> Emit signals and summary as the compact return per your Output Contract.
 >
 > {Scratch-artifact policy from shared spawn directives}
 
 Also apply the investigation-mode directive from shared spawn directives (ticket-specific, always applies).
+Also apply all shared output-path directives.
 
 **Error-tracking enrichment (error tracker mode only):**
 
@@ -105,39 +129,44 @@ If the task originated from an error tracker URL (ticket.md Source contains an e
 
 After the agent returns:
 
-**Post-processing — snapshot extraction (cold/stale + cache enabled):**
+**Post-return verification — analysis.md (all paths):**
+
+The agent wrote `$N1_HOME/memory/<ID>/analysis.md` itself. Verify it:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md
+```
+If missing/empty (agent failed to write), **re-prompt the agent once** with: "analysis.md was not written. Write your full analysis report to `$N1_HOME/memory/<ID>/analysis.md` now using Bash (cat heredoc redirect, ref #44657)."
+
+After re-prompt, verify again:
+```bash
+n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md
+```
+If still missing/empty: write the agent's returned summary to `$N1_HOME/memory/<ID>/analysis.md` as a degraded fallback (via Bash cat redirect, ref #44657), and record the degradation in overview's `## Key Decisions`: "Analysis: agent failed to write analysis.md; using returned summary as fallback."
+
+**Post-return verification — snapshot (cold/stale + cache enabled):**
 
 When CACHE_STATE is `cold` or `stale` AND `$CACHE_ENABLED` is `true`:
-1. Split agent output by `## [PROJECT]` and `## [TICKET]` markers.
-2. Collect all `## [PROJECT]` sections into a single string, stripping the `[PROJECT] ` prefix from each heading (so `## [PROJECT] Architecture` becomes `## Architecture`).
-3. If `## [PROJECT]` sections were found, write the project content to the snapshot:
-   ```bash
-   GIT_SHA=$(git rev-parse HEAD)
-   n1_snapshot_write "$SNAPSHOT_PATH" "$PROJECT_CONTENT" "$GIT_SHA"
-   ```
-4. Collect all `## [TICKET]` sections, strip the `[TICKET] ` prefix from each heading.
-5. Write the ticket content to `$N1_HOME/memory/<ID>/analysis.md`.
-6. If no `## [PROJECT]` sections were found in agent output: write the FULL agent output to `$N1_HOME/memory/<ID>/analysis.md` (fail-open — no snapshot created, next ticket retries cold start).
+```bash
+if [ ! -f "$SNAPSHOT_PATH" ] || [ ! -s "$SNAPSHOT_PATH" ]; then
+    # Record snapshot-persist failure — cache stays cold, next run re-analyzes.
+    # Do NOT fail the pipeline for this.
+    echo "Snapshot persistence failed — cache remains cold."
+    # Log in overview's ## Key Decisions
+fi
+```
 
-**Post-processing — warm path (fresh):**
+**Post-return — SNAPSHOT_DRIFT handling (fresh path):**
 
-When CACHE_STATE is `fresh`:
-1. Strip `[TICKET] ` prefix from all `## [TICKET]` headings in agent output.
-2. Write the result to `$N1_HOME/memory/<ID>/analysis.md`.
-3. Check for `SNAPSHOT_DRIFT:` markers in agent output:
-   ```bash
-   DRIFT=$(echo "$AGENT_OUTPUT" | grep -m1 '^SNAPSHOT_DRIFT:')
-   if [ -n "$DRIFT" ]; then
-       # Log drift note in overview.md Key Decisions section
-       # Force regeneration on next ticket by deleting snapshot
-       rm -f "$SNAPSHOT_PATH"
-   fi
-   ```
-
-**Post-processing — default (cold + cache disabled):**
-
-When CACHE_STATE is `cold` AND `$CACHE_ENABLED` is not `true`:
-- Write agent output directly to `$N1_HOME/memory/<ID>/analysis.md` (no prefix stripping — no `[PROJECT]`/`[TICKET]` markers will be present)
+When CACHE_STATE is `fresh`, check the agent's returned text for `SNAPSHOT_DRIFT:`:
+```bash
+DRIFT=$(echo "$AGENT_OUTPUT" | grep -m1 '^SNAPSHOT_DRIFT:')
+if [ -n "$DRIFT" ]; then
+    # Log drift note in overview.md Key Decisions section
+    # Force regeneration on next ticket by deleting snapshot
+    rm -f "$SNAPSHOT_PATH"
+fi
+```
 
 - Update overview: `[x] Analysis`, set `step: analysis`
 

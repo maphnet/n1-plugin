@@ -41,7 +41,7 @@ Do NOT install N1 as a user-scope plugin for local development.
 - **Timestamps:** Never invent a timestamp. Date-only: use harness-injected `currentDate`. Time: `date -u +%Y-%m-%dT%H:%M:%SZ`. Don't add timestamp fields unless something reads them.
 - **Test/benchmark artifacts:** committed tests go in repo; throwaway probes go under `$N1_HOME/` (per-ticket `memory/<ID>/{benchmarks,tests}/` or `scratch/{benchmarks,tests}/`)
 - **Design specs:** `docs/superpowers/specs/` is gitignored — do not commit or force-add
-- **Agent spawns pass memory-file paths:** Skills pass absolute paths so agents `Read` files directly. Read-only agents (code-reviewer, security-reviewer, codex-adapter, solution-architect) never write memory; qa-engineer writes `qa.md`; developer writes `## Fix Cycle <N>` sections in `implementation.md` (idempotent upsert)
+- **Agent spawns pass memory-file paths:** Skills pass absolute paths so agents `Read` files directly. Read-only agents (code-reviewer, security-reviewer, codex-adapter) never write memory; solution-architect writes `analysis.md` + snapshot (via Bash, ref #44657); qa-engineer writes `qa.md`; developer writes `## Fix Cycle <N>` sections in `implementation.md` (idempotent upsert)
 
 ## N1_HOME Resolution
 

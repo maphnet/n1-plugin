@@ -1,6 +1,6 @@
 ---
 name: solution-architect
-description: "Use before brainstorming (pre-research), for plan-review CCR, and in local-testing context to analyze codebase architecture for a task scope. Read-only — produces a structured analysis report; analyzes, does not propose solutions."
+description: "Use before brainstorming (pre-research), for plan-review CCR, and in local-testing context to analyze codebase architecture for a task scope. Writes analysis.md and optionally the project snapshot; analyzes, does not propose solutions."
 model: opus
 effort: medium
 tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
@@ -101,7 +101,7 @@ reason: <one-line reason for confirmation or revision>
 
 ## Constraints
 
-- Read-only — do not modify any files
+- **Write boundary:** write ONLY to the provided paths under `$N1_HOME` (analysis.md, snapshot file when instructed). Do not modify any project/repo files.
 - Focus on the specific task scope, not a full architecture audit
 - Include file:line references for all claims about existing code
 - Keep under 1000 words
@@ -109,21 +109,31 @@ reason: <one-line reason for confirmation or revision>
 - If no similar features exist, say so explicitly rather than forcing a comparison
 - **Scratch vs. committed test artifacts.** A test or benchmark written only to answer a question you have *right now* — a micro-benchmark comparing approaches, a repro script, a viability spike — is throwaway. Write it under the scratch directory the orchestrator gives you (under `$N1_HOME/`, gitignored), never into the repo's test suite. Only tests that verify the committed implementation and should run in CI forever (unit, integration, e2e tied to acceptance criteria) belong in the repo. When unsure, default to scratch.
 
-## Signal Emission
+## Output Contract
 
-Append this line as the LAST line of your output (after the full analysis report):
+The orchestrator passes you output paths. You write your artifacts yourself and return ONLY the compact block below.
 
+**File writes (via Bash tool — see #44657 note):**
+1. **analysis.md** — always provided. Write your full analysis report (Output Format above) to this path using Bash (heredoc/cat redirect), NOT the Write tool.
+2. **Snapshot file** — provided on cold/stale cache paths only. When given a snapshot path and a `lib/cache.sh` path, persist `[PROJECT]` sections by sourcing `lib/cache.sh` and calling `n1_snapshot_write "$SNAPSHOT_PATH" "$PROJECT_CONTENT" "$GIT_SHA"` via Bash. Strip the `[PROJECT] ` prefix from headings before passing as `$PROJECT_CONTENT`. For `[TICKET]` sections, strip the `[TICKET] ` prefix and write those to analysis.md.
+
+<!-- #44657: Claude Code harness may refuse Write tool calls targeting files named
+     "analysis.md" (blocked-filename family). Always use Bash heredoc/cat redirect
+     instead. Do not simplify back to Write. -->
+
+**Returned text (to orchestrator):**
 ```
 n1:signals blast_radius=<low|medium|high> security_relevant=<true|false> files_changed=<number> complexity_delta=<simple|standard|complex> has_bug_root_cause=<true|false>
+tier: <simple|standard|complex> [confirmed|revised from <previous>]
+SNAPSHOT_DRIFT: <description>  ← only if snapshot was provided and appears incorrect/outdated
+<3-10 line summary of key findings>
 ```
 
+Signal values:
 - `blast_radius`: `low` = 1–2 files in one module; `medium` = 3–5 files or cross-module; `high` = 6+ files or architectural
 - `security_relevant`: `true` if the task touches auth, crypto, input validation, or secrets handling; `false` otherwise
 - `files_changed`: estimated count of files the task will modify (integer)
 - `complexity_delta`: the final tier from your Tier Assessment (`simple`, `standard`, or `complex`)
 - `has_bug_root_cause`: `true` only for bug-type tickets where a specific root cause was identified in Bug Investigation; `false` for all other ticket types and for bugs where root cause is unresolved
 
-Emit only this one `n1:signals` line — no label, no explanation. Example:
-```
-n1:signals blast_radius=medium security_relevant=false files_changed=4 complexity_delta=standard has_bug_root_cause=false
-```
+Do NOT return the full analysis report — it is in the file you wrote. Return only the compact block above.
