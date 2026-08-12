@@ -52,7 +52,56 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
   n1_verify_dependencies "$N1_HOME/memory/$ID" qa.md
   ```
-  If missing/empty (agent failed to write), write the returned summary block to `qa.md` as a fallback and note the gap in overview's `## Key Decisions`.
+  If missing/empty (agent failed to write), write the returned summary block to `qa.md` as a fallback, set `QA_DEGRADED=1`, and note the gap in overview's `## Key Decisions`.
+
+- **Evidence check.** After qa.md is confirmed present and non-empty, verify it contains an Evidence subsection:
+  ```bash
+  if ! grep -q "^### Evidence" "$N1_HOME/memory/$ID/qa.md" || [ "${QA_DEGRADED:-0}" = "1" ]; then
+      QA_DEGRADED=1
+      # Record in overview frontmatter so review step can read it without grep
+      source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+      n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified" "true"
+      # Append degraded-verdict Key Decision to overview.md
+      source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+      n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" \
+          "QA degraded: unevidenced verdict — Evidence section absent or stub-fallback qa.md written"
+  fi
+  ```
+  Surface to the user at the QA gate output: if `QA_DEGRADED=1`, print:
+  ```
+  ⚠ QA evidence missing — verdict is agent-transcribed, not machine-captured. Review step will flag this.
+  ```
+
+- **verifyGate (optional hardening).** Read `qa.verifyGate` from config (default `false`):
+  ```bash
+  source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+  VERIFY_GATE=$(n1_config_val '.qa.verifyGate' 'false')
+  ```
+  When `true`, re-execute the test suite via Bash and compare exit codes:
+  ```bash
+  if [ "${VERIFY_GATE}" = "true" ]; then
+      # Derive runner command from Evidence section; fall back to first n1:signals runner hint
+      RUNNER_CMD=$(grep "^Runner command:" "$N1_HOME/memory/$ID/qa.md" | sed 's/Runner command: //' | tr -d '`')
+      if [ -n "$RUNNER_CMD" ]; then
+          VERIFY_LOG="$N1_HOME/memory/$ID/qa-verify.log"
+          eval "$RUNNER_CMD" > "$VERIFY_LOG" 2>&1
+          ACTUAL_EXIT=$?
+          REPORTED_EXIT=$(grep "^Exit code:" "$N1_HOME/memory/$ID/qa.md" | head -1 | grep -o '[0-9]*' | head -1)
+          if [ "$ACTUAL_EXIT" != "$REPORTED_EXIT" ]; then
+              source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+              n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" \
+                  "QA verifyGate mismatch: agent reported exit code ${REPORTED_EXIT}, re-execution exited ${ACTUAL_EXIT}. Log: $VERIFY_LOG"
+              QA_DEGRADED=1
+          fi
+      fi
+  fi
+  # Note: without verifyGate, evidence is agent-transcribed, not machine-captured.
+  # qa.verifyGate: boolean (default false). When true, the orchestrator re-executes
+  # the test suite after QA, compares the exit code to the agent-reported one, and
+  # records any mismatch in overview Key Decisions. Log stored under $N1_HOME/memory/<ID>/
+  # (never inlined into context). Enable for projects where hallucinated pass verdicts
+  # are a higher risk than the added execution time.
+  ```
 - Update overview: `[x] QA`, set `step: qa`
 - **Maintain-mode skip path:** If tier is `maintain` AND QA verdict is PASS with "No test work needed" → skip the QA bug-fix loop below and proceed to Step 7 (Review). The code-reviewer still receives `qa.md` and evaluates the absence of new tests against the `maintain` tier expectation (zero new tests is correct).
 - If QA verdict is FAIL (test reveals a bug):

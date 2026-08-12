@@ -235,6 +235,8 @@ Cross-tier invariants: broken tests are always fixed, tests for removed function
 
 The code-reviewer evaluates a **Test Quality (TQ)** dimension with `[TQ-N]` prefix findings (Medium/Low severity, non-blocking). A TQ fix loop (Step 7b in n1-start) spawns the QA agent to fix flagged tests before the review fix loop.
 
+**QA evidence and optional verification gate.** Each QA run writes a `### Evidence` subsection to `qa.md` containing the exact runner command, exit code, and last ~10 lines of output from the Step 6 full-suite run. Without `qa.verifyGate`, this evidence is agent-transcribed (not machine-captured). When `qa.verifyGate: true` (default `false`), the orchestrator re-executes the suite via Bash after the agent returns, stores the log under `$N1_HOME/memory/<ID>/qa-verify.log`, and records any exit-code mismatch in overview Key Decisions. If Evidence is absent or the fallback qa.md was written, the orchestrator sets `qa_verdict_unverified: true` in overview.md frontmatter, records a Key Decision ("QA degraded: unevidenced verdict"), and the review step instructs the code-reviewer to treat the QA pass as unconfirmed when evaluating Test Quality.
+
 ## Error Tracking Routing
 
 Optional integration with error-tracking systems (Sentry first, extensible to Datadog/Rollbar). Config-driven via `errorTracking` block in `$N1_HOME/config.json` — same operations-map pattern as tracker routing. When `errorTracking` is `null` or absent, the feature is fully disabled.

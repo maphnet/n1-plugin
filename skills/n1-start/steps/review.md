@@ -23,7 +23,12 @@ Resolve models for code-reviewer (with context `review`) and security-reviewer (
 Prepare review context (curated per reviewer, not one identical bundle):
 - **Shared:** the PATHS `$N1_HOME/memory/<ID>/ticket.md`, `$N1_HOME/memory/<ID>/implementation.md`, `$N1_HOME/memory/<ID>/qa.md` (instruct each reviewer: "Read these files yourself; their content is NOT inlined here"), the default branch name, and the `## Key Decisions` + `## Escalations` slices of `overview.md` inline — so neither reviewer flags a deliberate, recorded choice as a defect.
 - **code-reviewer also receives** the path `$N1_HOME/memory/<ID>/brainstorm.md` (read it yourself) — design intent matters for a design-quality review.
-- **code-reviewer also receives** `testCoverage.tier` value (same value read in Step 6) — for Test Quality evaluation calibration.
+- **code-reviewer also receives** `testCoverage.tier` value (same value read in Step 6) — for Test Quality evaluation calibration. Also read `qa_verdict_unverified` from overview.md frontmatter:
+  ```bash
+  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+  QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified")
+  ```
+  When `QA_UNVERIFIED=true`, append this directive to the code-reviewer prompt (immediately after the `testCoverage.tier` line): **"QA verdict is unverified (evidence missing from qa.md). Treat the QA pass as unconfirmed when evaluating Test Quality — apply additional scrutiny to any test coverage claims."**
 - **security-reviewer does NOT receive** `brainstorm.md` or `testCoverage.tier` — the design narrative and test tier are low-signal for vulnerability scanning. Keep its context lean: acceptance criteria + changed-file list + the diff are its high-signal inputs.
 
 Spawn all selected reviewers simultaneously:

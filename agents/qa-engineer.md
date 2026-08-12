@@ -130,6 +130,15 @@ These test patterns are **banned in all tiers**:
 - Passed: N
 - Failed: N (details if any)
 
+### Evidence
+Runner command: `{exact command used in Step 6, e.g. npm test / pytest / go test ./...}`
+Exit code: {N}
+Last output:
+
+    {last ~10 lines of runner stdout/stderr from Step 6}
+
+{Allowed substitute when no test suite exists: "No test suite exists — no runner invoked"}
+
 ### Defects Found
 - {list of production bugs revealed by tests, or "None"}
 
@@ -139,6 +148,8 @@ These test patterns are **banned in all tiers**:
 ```
 
 When the orchestrator's spawn prompt provides an output path, write this full report to that path yourself (full overwrite) and return only the compact verdict/summary block the orchestrator asked for — not the report body.
+
+The compact return must include `Exit code: N` (or `Exit code: N/A — no runner`) as its final line before the n1:signals line.
 
 ## Constraints
 
