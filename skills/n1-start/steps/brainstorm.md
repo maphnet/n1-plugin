@@ -9,7 +9,19 @@ n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/m
 
 **Step mode** (`--step brainstorm`): Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). This skill runs without any interactive channel — it generates approaches, scores them, and either selects autonomously or writes an escalation request for n1-loop to mediate.
 
-**Full pipeline + investigation mode** (no `--step` flag, AND `TYPE == "investigation"` from overview.md frontmatter): Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). Pass the investigation focus override (see Investigation mode section below). After the autonomous brainstormer returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Post-Brainstorm Enrichment gate.
+**Full pipeline + investigation mode** (no `--step` flag, AND `TYPE == "investigation"` from overview.md frontmatter): route by `BRAINSTORM_MODE`, with one override — if overview.md frontmatter has `investigate_interactive: true` (set by the `--investigate` flag), force `BRAINSTORM_MODE=interactive` for this run:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+INVESTIGATE_INTERACTIVE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive")
+BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
+if [ "$INVESTIGATE_INTERACTIVE" = "true" ]; then
+    BRAINSTORM_MODE=interactive
+fi
+```
+
+- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). Pass the investigation focus override (see Investigation mode section below). After the autonomous brainstormer returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update (Post-Brainstorm Enrichment stays skipped for investigation).
+- **`BRAINSTORM_MODE` == `interactive`:** Use the interactive brainstormer (`REQUIRED SUB-SKILL: superpowers:brainstorming`) exactly as in the non-investigation interactive path below — including the N1-OVERRIDE block — but ADD the investigation focus override (see Investigation mode section below) to the brainstorming prompt, and SKIP the bug directive and the test-coverage-tier directive (investigation output is research, not a design with a Testing section). Post-Brainstorm Enrichment stays skipped for investigation.
 
 **Full pipeline + non-investigation mode** (no `--step` flag, normal task): route by autonomy config:
 
@@ -60,7 +72,7 @@ Return control to the N1 orchestrator immediately after step 7 completes.
 
 **Investigation mode (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):**
 
-In step mode, the autonomous brainstormer is already used (routing above). In full pipeline mode, the autonomous brainstormer is used instead of `superpowers:brainstorming` (routing above). In both cases, override the brainstorming focus:
+In step mode, the autonomous brainstormer is already used (routing above). In full pipeline mode, routing follows `BRAINSTORM_MODE` (`--investigate` forces `interactive`; see routing above). In all cases, override the brainstorming focus:
 - Pass to brainstorming (or autonomous brainstormer): "This is an investigation task -- explore the question and research findings, not implementation approaches. Focus on validating or challenging the analysis findings, exploring alternative explanations, and identifying gaps in the investigation. The output should be research-focused, not design-focused."
 - The brainstorm output goes to `$N1_HOME/memory/<ID>/brainstorm.md` as usual.
 - **Skip Post-Brainstorm Enrichment** (Phase 2) entirely -- investigation tasks don't refine acceptance criteria.
