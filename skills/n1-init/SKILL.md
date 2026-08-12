@@ -78,7 +78,8 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 12. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
 13. `rules` → **Rules Configuration** (fresh-setup portion)
 14. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
-15. `escalation`, `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
+15. `escalation` → **Escalation Channel Configuration** (asks channel question when tracker is configured; writes defaults silently when no tracker)
+16. `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
 
@@ -271,14 +272,16 @@ Auto-map detected statuses to N1 workflow slots by matching common names:
 - **inProgress**: "In Progress", "In Development", "Active", "In Work"
 - **codeReview**: "Code Review" — if no exact match found, fall back to the `inProgress` value (N1 uses this after PR creation; the tracker's "Review"/"QA" columns are reserved for human QA outside the orchestrator)
 - **done**: "Done", "Closed", "Resolved", "Fixed", "Complete", "Completed" — if no match found, run the **Done Fallback Picker** after the main confirmation (see below)
+- **blocked**: "Blocked", "On Hold", "Waiting", "Paused" — if no match found, omit from config (runtime recovery handles the miss; see `skills/n1-start/references/blocked-status-recovery.md`)
 
-Show the detected mapping for confirmation. When `done` was not auto-matched, omit it from the table:
+Show the detected mapping for confirmation. When `done` or `blocked` was not auto-matched, omit it from the table:
 ```
 Detected workflow statuses:
   todo       → To Do
   inProgress → In Progress
   codeReview → Code Review (or In Progress if no Code Review status)
   done       → Done        ← include only when a match was found
+  blocked    → On Hold     ← include only when a match was found
 
 Correct? 1 — Yes / 2 — No, let me specify manually
 ```
@@ -335,9 +338,11 @@ Set config:
       "getTransitions": "getTransitionsForJiraIssue",
       "moveStatus": "transitionJiraIssue",
       "addComment": "addCommentToJiraIssue",
+      "getComments": "getIssueComments",
       "search": "searchJiraIssuesUsingJql",
       "createIssue": "createJiraIssue",
       "getCurrentUser": "atlassianUserInfo",
+      "lookupUser": "lookupJiraAccountId",
       "assign": "editJiraIssue",
       "editTicket": "editJiraIssue",
       "linkIssues": "linkJiraIssues",
@@ -349,11 +354,14 @@ Set config:
       "todo": "<detected or manual>",
       "inProgress": "<detected or manual>",
       "codeReview": "<detected or inProgress fallback>",
-      "done": "<detected or manual — omit key entirely when absent>"
+      "done": "<detected or manual — omit key entirely when absent>",
+      "blocked": "<detected or omit key entirely when absent>"
     }
   }
 }
 ```
+
+**Verify comment ops availability:** Use ToolSearch to confirm that `mcp__plugin_atlassian_atlassian__addCommentToJiraIssue` and `mcp__plugin_atlassian_atlassian__getIssueComments` are visible in the tool list. If `getIssueComments` is absent, log: "Note: getComments op not found in Jira MCP — tracker escalation replies will fall back to interactive." Do not block setup.
 
 ### If YouTrack:
 
@@ -406,6 +414,7 @@ Set config:
       "search": "search_issues",
       "createIssue": "create_issue",
       "getCurrentUser": "get_current_user",
+      "lookupUser": "search_users",
       "assign": "change_issue_assignee",
       "editTicket": "update_issue",
       "createArticle": "create_article",
@@ -417,11 +426,14 @@ Set config:
       "todo": "<detected or manual>",
       "inProgress": "<detected or manual>",
       "codeReview": "<detected or inProgress fallback>",
-      "done": "<detected or manual — omit key entirely when absent>"
+      "done": "<detected or manual — omit key entirely when absent>",
+      "blocked": "<detected or omit key entirely when absent>"
     }
   }
 }
 ```
+
+**Verify comment ops availability:** Use ToolSearch to confirm that `mcp__youtrack__add_issue_comment` and `mcp__youtrack__get_issue_comments` are visible in the tool list. If `get_issue_comments` is absent, log: "Note: getComments op not found in YouTrack MCP — tracker escalation replies will fall back to interactive." Do not block setup.
 
 ### If None:
 
@@ -525,6 +537,36 @@ Current KB configuration:
 - **3** → set `enabled: false`. Remove `spaceId`/`spaceKey` if present.
 
 If `kb` is absent from the current config, run the fresh-setup flow above.
+
+## Escalation Channel Configuration
+
+**Gate:** only run this section when `tracker.mcp` is configured (not null). If no tracker, set `escalation.channel: "interactive"` silently and skip.
+
+Ask:
+```
+When N1 blocks on a question in step mode, where should it post the escalation?
+
+1 — Interactive only (default): surface the question to the user in the terminal
+2 — Tracker: post questions as a tracker comment and move ticket to Blocked status
+3 — Both: post to tracker AND wait for interactive reply
+```
+
+- **1** (or default): set `escalation.channel: "interactive"`.
+- **2**: set `escalation.channel: "tracker"`.
+- **3**: set `escalation.channel: "both"`.
+
+When `tracker` or `both` is selected, ask:
+```
+Should N1 mention you in escalation comments? 1 — Yes (default) / 2 — No
+```
+- **1**: set `escalation.mentionUser: true`.
+- **2**: set `escalation.mentionUser: false`.
+
+These values are written into the `escalation` block in config (alongside the existing `checkpoints` and `alwaysAskOn` defaults).
+
+### On reconfiguration (n1-init re-run):
+
+If `escalation.channel` is already set, show current value and re-ask the channel question.
 
 ## Git Configuration
 
@@ -1608,6 +1650,8 @@ Create all files:
     "enabled": false
   },
   "escalation": {
+    "channel": "<from Escalation Channel Configuration, default: interactive>",
+    "mentionUser": "<true or false, default: true — omit when channel is interactive>",
     "checkpoints": ["pr"],
     "alwaysAskOn": ["security", "architecture", "public-api"]
   },

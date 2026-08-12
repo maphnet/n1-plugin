@@ -275,7 +275,7 @@ Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` 
 
 Include one entry per unknown (incrementing IDs: `unknown_1`, `unknown_2`, …) — do not limit to the first item.
 
-Write to `$N1_HOME/memory/<ID>/escalation/request.json`. Emit step result:
+Write to `$N1_HOME/memory/<ID>/escalation/request.json`. If `n1_escalation_val channel` is `tracker` or `both`, also run the **Post-to-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`). Emit step result:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
 n1_emit_step_result "analysis" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"

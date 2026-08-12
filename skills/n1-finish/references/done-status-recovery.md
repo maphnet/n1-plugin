@@ -45,7 +45,7 @@ When hard-skip gates pass but `tracker.statuses.done` is absent from config:
      }]
    }
    ```
-   Emit `outcome: "escalation"` and STOP.
+   If `n1_escalation_val channel` is `tracker` or `both`, also run the **Post-to-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`). Emit `outcome: "escalation"` and STOP.
 
    On re-run with `response.json` present and `run_id` matching `N1_RUN_ID`:
    - Response is a status name → patch config (same `jq` command above), set the value in memory, re-enter ticket close (continue to Move Status below).

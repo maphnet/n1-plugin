@@ -143,6 +143,32 @@ ${directive}"
     fi
 fi
 
+# --- Awaiting-reply scan (no network calls, fail-open) ---
+if [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ]; then
+    reply_context=""
+    now_epoch_r=$(date +%s)
+    for ov_r in "${n1_root}"/memory/*/overview.md; do
+        [ -f "$ov_r" ] || continue
+        grep -q '^awaiting: reply$' "$ov_r" 2>/dev/null || continue
+        tid_r=$(basename "$(dirname "$ov_r")")
+        blocked_since=$(grep -m1 '^blocked_since: ' "$ov_r" | sed 's/^blocked_since: //' | tr -d '[:space:]' || true)
+        blocked_epoch=$(date -d "$blocked_since" +%s 2>/dev/null || echo 0)
+        if [ "$blocked_epoch" -gt 0 ] && [ $(( now_epoch_r - blocked_epoch )) -gt 1209600 ]; then
+            reply_context="${reply_context}
+- ${tid_r}: tracker escalation reply is stale (>14 days since ${blocked_since}) — consider /n1:n1-clean or re-escalating"
+        else
+            reply_context="${reply_context}
+- ${tid_r}: blocked on tracker reply since ${blocked_since:-unknown} — run /n1:n1-start ${tid_r} after replying to the tracker comment"
+        fi
+    done
+    if [ -n "$reply_context" ]; then
+        context="${context}
+
+AWAITING TRACKER REPLIES (N1 blocked, waiting for user response on tracker):${reply_context}
+Reply to the tracker comment and then run /n1:n1-start <ID> to resume the pipeline."
+    fi
+fi
+
 escaped_context=$(escape_json_val "$context")
 
 cat <<EOF

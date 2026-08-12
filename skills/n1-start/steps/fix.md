@@ -49,6 +49,8 @@ After developer returns:
      }]
    }
    ```
+1.5. If `n1_escalation_val channel` is `tracker` or `both`, also run the **Post-to-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`).
+
 2. Run via Bash:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
