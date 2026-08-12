@@ -85,12 +85,16 @@ If `available` is `true` AND `DOC_CONFIG_ONLY` is false:
 
 1. Extract values from the preflight JSON: `codex_path`, `model`, `effort`.
 
-2. Spawn Codex review **in parallel** with the Claude reviewers:
+2. Spawn Codex review **in parallel** with the Claude reviewers. Write raw output to a scratch file so it stays out of orchestrator context (the adapter reads it directly):
    ```bash
    CODEX_STDERR=$(mktemp)
-   CODEX_OUTPUT=$(node "<codex_path>" review --wait --scope branch --base "<BASE_BRANCH>" \
+   CODEX_ID="${ID:-$(git branch --show-current)}"
+   CODEX_SCRATCH="$N1_HOME/scratch"
+   mkdir -p "$CODEX_SCRATCH"
+   CODEX_RAW="$CODEX_SCRATCH/codex-raw-${CODEX_ID}.txt"
+   node "<codex_path>" review --wait --scope branch --base "<BASE_BRANCH>" \
      ${CODEX_MODEL:+--model "$CODEX_MODEL"} \
-     --effort "$CODEX_EFFORT" 2>"$CODEX_STDERR")
+     --effort "$CODEX_EFFORT" >"$CODEX_RAW" 2>"$CODEX_STDERR"
    CODEX_EXIT=$?
    ```
    Where `CODEX_MODEL` and `CODEX_EFFORT` are from the preflight JSON (`model` and `effort` fields).
@@ -99,13 +103,13 @@ If `available` is `true` AND `DOC_CONFIG_ONLY` is false:
 
    After the call completes, validate the result:
    - If `CODEX_EXIT != 0`: this is a **Codex failure**. Read `$CODEX_STDERR` (first 20 lines). Enter the retry path (step 4 below).
-   - If `CODEX_EXIT == 0` but `CODEX_OUTPUT` is empty or whitespace-only: treat as failure. Log `"⚠ Codex returned empty output (exit 0) — treating as failure"`. Enter the retry path.
-   - If `CODEX_EXIT == 0` and `CODEX_OUTPUT` is non-empty: success. Proceed to spawn codex-adapter (step 3).
+   - If `CODEX_EXIT == 0` but the output file is empty or whitespace-only (`! [ -s "$CODEX_RAW" ] || ! grep -q '[^[:space:]]' "$CODEX_RAW"`): treat as failure. Log `"⚠ Codex returned empty output (exit 0) — treating as failure"`. Enter the retry path. The retry overwrites the same `$CODEX_RAW` file.
+   - If `CODEX_EXIT == 0` and `$CODEX_RAW` contains non-whitespace content: success. Proceed to spawn codex-adapter (step 3).
    - Always clean up: `rm -f "$CODEX_STDERR"` after recording any needed content.
 
-3. After Codex returns successfully, spawn the **codex-adapter** agent (resolve model for `codex-adapter`) to parse raw output into `[CX-N]` structured findings.
+3. After Codex returns successfully, spawn the **codex-adapter** agent (resolve model for `codex-adapter`; default haiku, overridable via `models.codex-adapter` in `$N1_HOME/config.json`). Pass the **absolute path** `$CODEX_RAW` — do NOT inline the file content. The adapter `Read`s the file itself and returns only the structured `[CX-N]` block.
 
-4. **Partial-failure handling:** If the Codex call failed (non-zero exit or empty output), retry once using the same command. If the retry also fails, proceed with the remaining reviewers' findings. Record the gap in review.md with the **actual error** — do NOT interpret or diagnose the cause; quote stderr verbatim:
+4. **Partial-failure handling:** If the Codex call failed (non-zero exit or empty/whitespace-only output file), retry once using the same command (overwrites `$CODEX_RAW`). If the retry also fails, proceed with the remaining reviewers' findings. Record the gap in review.md with the **actual error** — do NOT interpret or diagnose the cause; quote stderr verbatim:
    - Format: `"⚠ Codex review did not complete (exit <CODEX_EXIT>). stderr: <first 20 lines of CODEX_STDERR>"`
    - If both attempts produced empty output: `"⚠ Codex review returned empty output on both attempts (exit 0 both times)"`
 
