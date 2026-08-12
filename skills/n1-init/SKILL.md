@@ -57,7 +57,7 @@ The canonical set of top-level config keys. Used by the completeness check to de
 ```
 worktree, tracker, git, ticketTagging, errorTracking, estimation,
 localTesting, finishWork, release, codex, testCoverage, telemetry,
-analysisCache, rules, escalation, review, ciChecks, planReview, memory, models
+analysisCache, rules, escalation, autonomy, review, ciChecks, planReview, memory, models
 ```
 
 ### Targeted Upgrade
@@ -79,7 +79,8 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 13. `rules` → **Rules Configuration** (fresh-setup portion)
 14. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
 15. `escalation` → **Escalation Channel Configuration** (asks channel question when tracker is configured; writes defaults silently when no tracker)
-16. `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
+16. `autonomy` → **Autonomy Configuration** (fresh-setup portion: offer preset selection)
+17. `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
 

@@ -87,7 +87,7 @@ All tracker calls use the `mcp__<tracker.mcp>__<operation>` form from TRACKER RO
 
 3. **Fetch candidate reply comments.** Call `mcp__<tracker.mcp>__<operations.getComments>` for `{ID}`. Filter the result:
    - Keep only comments where `created > posted_at`.
-   - Exclude comments whose body contains `n1-esc-` as a standalone line (this excludes N1's own escalation and ack comments — marker exclusion, not author-based, because N1 posts as the user's token).
+   - Exclude comments whose body contains a line starting with `n1-escalation: n1-esc-` (this excludes N1's own escalation and ack comments — marker exclusion, not author-based, because N1 posts as the user's token).
 
 4. **No candidates — no reply yet.**
    - **Interactive mode:** re-present the questions inline to the user directly (do not re-post to tracker). Wait for the user's answer and continue.
