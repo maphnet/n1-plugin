@@ -270,9 +270,33 @@ Would you like to discuss or refine any findings? (yes/no)
 
 **Phase 5 -- Post-Investigation Routing (interactive only)**
 
-**Gate:** Skip entirely if step mode. Skip if no tracker is configured (`tracker.mcp` is null or absent).
+**Gate:** Skip entirely if step mode. Skip if no tracker is configured (`tracker.mcp` is null or absent). If a tracker IS configured but this run has no tracker ticket (deferred creation: `--investigate` brain-dump mode, `<ID>` is a description slug), run the **Brain-dump variant** below instead of Steps 1-2.
 
 Use `mcp__<tracker.mcp>__` prefix for all tracker calls in this phase.
+
+**Brain-dump variant (deferred ticket creation):**
+
+Applies when overview.md frontmatter has `investigate_interactive: true` AND `<ID>` is a provisional slug (no tracker ticket was created at intake). Ask:
+
+```
+Investigation done. Create a tracker ticket for this?
+1 -- Yes, create a ticket in <tracker.mcp>
+2 -- No, keep the report in local memory only
+```
+
+**If 2 (No):** report "Investigation report saved to `$N1_HOME/memory/<ID>/investigation.md`." and end the run.
+
+**If 1 (Yes):**
+
+1. Create the ticket via tracker MCP using the same mechanics as steps/ticket.md brain-dump creation (tagging config, createIssue call shapes, assign-to-creator, URL extraction), with content derived from the investigation:
+   - `summary` = the investigation title (from `investigation.md` heading, or `ticket.md` Title).
+   - `description` = the `## Summary` section of `investigation.md`, then `## Findings` (key findings), then `## Recommendations` — copied from `investigation.md`.
+2. The returned ticket ID is the final `<ID>`. Run **Reconcile Memory ID & Branch(`<provisional>`, `<ticketID>`)** (SKILL.md procedure) to move `$N1_HOME/memory/<provisional>/` to the real ID.
+3. Run the existing tracker-enrichment idempotency check and comment logic against the NEW ticket only if enrichment has not already run this session (the description already contains the findings — skip the description append, add no duplicate comment).
+4. Report: "Created ticket **[<ID>](<ticket URL>)**: <title>"
+5. Continue to the **Continuation offer** below (same as convert path step 5).
+
+**Ticket-creation failure:** log the tracker error, report "Ticket creation failed — investigation report remains at `$N1_HOME/memory/<ID>/investigation.md`.", and end the run without losing the report.
 
 **Step 1 -- Present results summary:**
 
@@ -374,7 +398,36 @@ What would you like to do next?
 
 3. Call `tracker.operations.addComment` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <ID>`, `body: "Converted from investigation to implementation task. Investigation findings retained in description."`; YouTrack: `issueId: <ID>`, `text: "Converted from investigation to implementation task. Investigation findings retained in description."`. Non-blocking.
 
-4. The ticket is not closed -- it continues as an active implementation task. Report: "Ticket <ID> converted to implementation task. Run `/n1:n1-start <ID>` to begin implementation."
+4. Update `overview.md` so the pipeline can actually continue (this is the resume contract — without it, `n1_read_type` still returns `investigation` and resume dead-ends in the terminal investigation flow):
+
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "task"
+   n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "brainstorm"
+   ```
+
+   Then replace the investigation progress checklist in overview.md with the normal pipeline checklist, carrying over completed boxes:
+
+   ```markdown
+   ## Progress
+   - [x] Ticket read
+   - [x] Analysis
+   - [x] Brainstorm
+   - [ ] Plan
+   - [ ] Estimation
+   - [ ] Implementation
+   - [ ] QA
+   - [ ] Review
+   - [ ] Local Testing
+   - [ ] PR
+   - [ ] CI
+   ```
+
+   Crash-safe order: the tracker updates (items 1-3) and checklist rewrite happen first; the `step`/`type` frontmatter writes are the last mutation.
+
+5. **Continuation offer.** Ask: "Continue to implementation now? 1 -- Yes, continue in this session / 2 -- No, stop here".
+   - **If 1 (Yes):** run workspace isolation now — **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise (investigation mode skipped it) — then proceed to SKILL.md § Planning Need Routing using the `planning_need` signal from `$N1_HOME/memory/$ID/brainstorm.md`; if the signal is absent (research-focused brainstorm may not emit it), default to `deep` (route to plan). The existing artifacts (`ticket.md`, `analysis.md`, `brainstorm.md`) satisfy the dependency guard — no step is re-run.
+   - **If 2 (No):** report "Ticket <ID> converted to implementation task. Run `/n1:n1-start <ID>` to continue — the pipeline will resume at the next step."
 
 **If 3 -- Done:**
 
