@@ -25,7 +25,7 @@ TEST_TIER="${TEST_TIER:-maintain}"
 
 Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `changed_files_source` — brainstorm runs before implementation; `CHANGED_FILES` will be empty). Capture result as `$RULES_BLOCK`.
 
-- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` in **interactive escalation mode** — tell it: "interactive escalation mode: you have a user-facing session; ask A-tier and inconclusive-dominance questions inline, one at a time; write [auto]/[asked] ledger rows per skills/n1-start/ledger.md." Also pass the test-coverage-tier directive and `$RULES_BLOCK` (same way the interactive path passes them). After it returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies). **Note: `auto` shortens the session by eliminating the interactive design conversation; it does NOT isolate context — the autonomous brainstormer runs as a skill fragment in the orchestrator's own window, so its design work accumulates in the same context as all other steps.**
+- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` in **interactive escalation mode** — tell it: "interactive escalation mode: you have a user-facing session; batch ALL A-tier and inconclusive-dominance questions into ONE message (do not ask one at a time); write [auto]/[asked] ledger rows per skills/n1-start/ledger.md; if all A-tier questions are resolved, mark none as deferred." Also pass the test-coverage-tier directive and `$RULES_BLOCK` (same way the interactive path passes them). After it returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies). **Note: `auto` shortens the session by eliminating the interactive design conversation; it does NOT isolate context — the autonomous brainstormer runs as a skill fragment in the orchestrator's own window, so its design work accumulates in the same context as all other steps.**
 - **`BRAINSTORM_MODE` == `interactive` (default):** Use the interactive brainstormer:
 
 **REQUIRED SUB-SKILL:** Use superpowers:brainstorming to explore the scope and refine the approach.
@@ -106,6 +106,26 @@ Present the checkpoint:
 If no acceptance criteria section was found in `brainstorm.md`, replace the criteria list with:
 
 > No explicit acceptance criteria found in the brainstorm. Consider adding criteria before proceeding.
+
+**Acceptance gate routing:**
+
+```bash
+ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate')
+```
+
+If `ACCEPTANCE_GATE` is `auto-when-clear`, check ALL of the following conditions:
+1. `DESC_QUALITY` is `adequate` (not `empty`, `skeletal`, `weak`, or unknown)
+2. Acceptance criteria section exists in `brainstorm.md`
+3. The autonomous brainstormer reported no deferred A-tier questions (no ledger rows with `[deferred]` for this brainstorm run)
+4. `BRAINSTORM_MODE` is `auto`
+
+If ALL four conditions hold: auto-confirm without waiting for user input. Append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md`:
+
+`| brainstorm | acceptance | A | [auto] | description_quality=adequate, AC present, no deferred A-tier questions | Auto-confirm design and proceed | Wait for user | acceptanceGate=auto-when-clear; all clarity conditions met |`
+
+Then continue directly to Planning Need Evaluation.
+
+If ANY condition fails: fall through to the interactive gate below.
 
 **Wait for the user's response.** If they amend or add criteria, update the `## Acceptance Criteria` section in `brainstorm.md` to match, then re-present the gate. Only continue to Planning Need Evaluation after the user confirms.
 

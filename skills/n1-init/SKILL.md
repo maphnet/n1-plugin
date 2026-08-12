@@ -1287,29 +1287,51 @@ Ask:
 ```
 How autonomous should pipeline runs be?
 
-1 — Interactive (default): the pipeline asks at every decision point
-2 — Hands-off: mechanical prompts (ticket creation, stash/branch handling) auto-resolve with safe defaults; every autonomous decision is logged to a Decision Ledger and rendered in the PR body for review
+1 — Interactive: the pipeline asks at every decision point (brainstorm design, branch/stash handling, acceptance gate)
+2 — Hands-off (recommended): mechanical prompts auto-resolve with safe defaults; brainstorm runs autonomously with A-tier questions batched into one message; single-candidate status lookups auto-pick; full-suite regressions auto-spawn a fix cycle; the acceptance gate auto-confirms when the design is clear. Every autonomous decision is logged to a Decision Ledger and rendered in the PR body for review.
+3 — Fully autonomous: same as Hands-off but quality-gate exhaustion also auto-accepts instead of blocking
 ```
 
-- **1** → write `"autonomy": { "brainstorm": "interactive", "mechanicalPrompts": "ask", "qualityEscalations": "block", "tailChain": "suggest" }`
-- **2** → write `"autonomy": { "brainstorm": "auto", "mechanicalPrompts": "auto", "qualityEscalations": "block", "tailChain": "suggest" }`
-
-Then ask **only when option 2 was chosen**:
-
-```
-At quality-gate exhaustion (QA/review fix loops out of attempts), should the run:
-
-1 — Block and ask (default, recommended)
-2 — Accept the recommendation, record it as a tier-A ledger entry, and continue to PR
-```
-
-- **2** → set `"qualityEscalations": "auto-accept"` in the block above.
+- **1** → write:
+  ```json
+  "autonomy": {
+    "brainstorm": "interactive",
+    "mechanicalPrompts": "ask",
+    "qualityEscalations": "block",
+    "tailChain": "suggest",
+    "acceptanceGate": "ask"
+  }
+  ```
+- **2** → write:
+  ```json
+  "autonomy": {
+    "brainstorm": "auto",
+    "mechanicalPrompts": "auto",
+    "qualityEscalations": "block",
+    "tailChain": "auto",
+    "acceptanceGate": "auto-when-clear",
+    "escalationMargin": 0.10
+  }
+  ```
+  Also set `"qa": { "blockUntestedFeatures": true }` — the compensating gate that prevents untested features from proceeding silently.
+- **3** → write:
+  ```json
+  "autonomy": {
+    "brainstorm": "auto",
+    "mechanicalPrompts": "auto",
+    "qualityEscalations": "auto-accept",
+    "tailChain": "auto",
+    "acceptanceGate": "auto-when-clear",
+    "escalationMargin": 0.05
+  }
+  ```
+  Also set `"qa": { "blockUntestedFeatures": true }` — the compensating gate.
 
 Note in the summary output: security, architecture, and public-API escalations always block regardless of this setting, and releases are always manual.
 
 ### On reconfiguration (n1-init re-run):
 
-If `autonomy` already exists in the current config, show current values and re-ask both questions (following the same flow as fresh setup).
+If `autonomy` already exists in the current config, show current values and re-ask (following the same flow as fresh setup).
 
 ## Review Configuration
 
