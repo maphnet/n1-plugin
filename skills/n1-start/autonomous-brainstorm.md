@@ -105,6 +105,8 @@ Read the margin threshold from `N1_ESCALATION_MARGIN` environment variable (defa
 }
 ```
 
+If `n1_escalation_val channel` is `tracker` or `both`, also run the **Post-to-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`).
+
 Then run via Bash:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"

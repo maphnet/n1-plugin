@@ -143,6 +143,12 @@ When step mode is active:
    ```
    Exception: if the requested step is `ticket` and overview.md does not exist, this is a fresh start — skip the overview read and proceed to the ticket step directly.
 
+2.5. **Tracker escalation check** — Step mode bypasses Memory Check entirely, so this check must run here. After reading overview.md, check:
+   ```bash
+   [ -f "$N1_HOME/memory/$ID/tracker-state.json" ]
+   ```
+   If `tracker-state.json` exists, run the **Resume-from-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`). The procedure materializes `escalation/response.json` and cleans up state; the normal re-run logic for the current step then reads it.
+
 3. **Ensure Worktree (conditional)** — Read `type` from overview.md frontmatter (if overview.md exists for this `<ID>`):
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
@@ -467,6 +473,16 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   ```
 - **If not exists:** Fresh start. Create `$N1_HOME/memory/<ID>/` directory.
 
+### Tracker Escalation Check
+
+After the Memory Check "If exists" path resolves the current step, check for a pending tracker escalation:
+
+```bash
+[ -f "$N1_HOME/memory/$ID/tracker-state.json" ]
+```
+
+If `tracker-state.json` exists, run the **Resume-from-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`). The procedure materializes `escalation/response.json` and cleans up state before returning — the normal resume flow then reads `response.json` as it would from any other escalation reply.
+
 ### Step dependency map
 
 Read `pipeline.json` under `steps[]` for dependency declarations. The bash helper `n1_step_dependencies` (in `lib/validation.sh`) mirrors these values.
@@ -505,6 +521,9 @@ When a fix loop is exhausted in step mode (no interactive channel), write an esc
      }]
    }
    ```
+
+1.5. **Tracker channel (optional).** If `n1_escalation_val channel` is `tracker` or `both`, also run the **Post-to-Tracker procedure** (see `references/tracker-escalation.md`), passing `{ID}`, `{step}`, the `questions` array from `request.json`, and `N1_RUN_ID`. This posts the escalation to the ticket and moves it to a blocked status when configured. Run after writing `request.json` so the questions array is finalized. Degrade gracefully on any tracker error — never block the emit.
+
 2. Emit step result:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
@@ -513,6 +532,12 @@ When a fix loop is exhausted in step mode (no interactive channel), write an esc
 3. STOP — do not continue the step.
 
 **On re-run** (`response.json` present and `run_id` matches `N1_RUN_ID`): read the user's chosen option index and execute the corresponding action defined by the step file (retry/accept/abort). Record the decision in overview.md `## Escalations`.
+
+**Response.json schema (pinned):**
+```json
+{ "run_id": "...", "answers": [{ "id": "question_id", "choice_index": 1, "choice": "Option label", "text": "free text guidance" }] }
+```
+`choice_index` is 0-based. `text` is optional free-text from the user. All step re-run handlers read this schema.
 
 In full pipeline mode this protocol does NOT apply — keep the interactive prompt unchanged.
 

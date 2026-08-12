@@ -24,7 +24,7 @@ Same shape: text describes the still-running run(s), options are "Retry: keep wa
 
 ## Emit and resume
 
-After writing `request.json`, emit the step result via Bash and STOP:
+After writing `request.json`, if `n1_escalation_val channel` is `tracker` or `both`, also run the **Post-to-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`). Then emit the step result via Bash and STOP:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
