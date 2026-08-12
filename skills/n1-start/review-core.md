@@ -111,9 +111,23 @@ If `available` is `true` AND `DOC_CONFIG_ONLY` is false:
 
 If `available` is `false` OR `DOC_CONFIG_ONLY` is true → log `"⚠ Codex skipped — <reason field from JSON, or 'documentation/config-only diff'>"` in review.md and treat Codex as NOT running (this affects the code-reviewer scope decision below).
 
-Let **CODEX_ACTIVE** be true only when all of these hold: preflight reported `available:true`, `DOC_CONFIG_ONLY` is false, and the Codex call did not permanently fail after its retry.
+Let **CODEX_EXPECTED** be true iff the preflight reported `available:true` AND `DOC_CONFIG_ONLY` is false. This is a **spawn-time** predicate — it does not depend on the Codex CLI call outcome.
+
+Let **CODEX_ACTIVE** be true only when all of these hold: `CODEX_EXPECTED` is true and the Codex call did not permanently fail after its retry. This is a **post-hoc** fact, known only after the Codex CLI call (and optional retry) resolves.
 
 ## code-reviewer Scope (Codex-aware delegation)
 
-- **If CODEX_ACTIVE:** Codex owns whole-diff general correctness (a genuine cross-model, uncorrelated channel), so narrow the `code-reviewer` to the dimensions nothing else covers. Add this directive to its spawn: *"Codex (a cross-model reviewer) owns whole-diff general correctness and bug hunting for this review. **Override section 4 of your default process:** report ONLY (a) Test Quality `[TQ-N]` findings and (b) design-intent / convention-adherence findings evaluated against `brainstorm.md` (when available). Do NOT perform a general correctness/bug sweep; skip Correctness, Edge cases, and performance dimensions."*
-- **If NOT CODEX_ACTIVE:** `code-reviewer` runs its **full default scope** (whole-diff correctness + TQ + design-intent) — no diverse channel exists. Add no scope-narrowing directive.
+Narrowing is decided at spawn time using only `CODEX_EXPECTED` (never `CODEX_ACTIVE`, which is unknown until after the Codex CLI call).
+
+- **If CODEX_EXPECTED:** Codex is expected to cover whole-diff general correctness, so narrow the `code-reviewer` to the dimensions nothing else covers. Add this directive to its spawn: *"Codex (a cross-model reviewer) is expected to own whole-diff general correctness and bug hunting for this review. **Override section 4 of your default process:** report ONLY (a) Test Quality `[TQ-N]` findings and (b) design-intent / convention-adherence findings evaluated against `brainstorm.md` (when available). Do NOT perform a general correctness/bug sweep; skip Correctness, Edge cases, and performance dimensions."*
+- **If NOT CODEX_EXPECTED:** `code-reviewer` runs its **full default scope** (whole-diff correctness + TQ + design-intent) — no diverse channel exists. Add no scope-narrowing directive.
+
+### Partial-failure recovery (CODEX_EXPECTED but NOT CODEX_ACTIVE)
+
+After the Codex CLI call and retry resolve, if `CODEX_EXPECTED` is true but `CODEX_ACTIVE` is false (Codex permanently failed), the code-reviewer's first pass covered only TQ + design-intent — no reviewer has covered correctness. Re-spawn code-reviewer scoped to ONLY the complement dimensions:
+
+1. Record in `review.md`: `"⚠ Codex permanently failed — re-spawning code-reviewer for correctness complement dimensions."`
+2. Let **LAST_CR** = the highest `[CR-N]` number from the first code-reviewer pass (0 if no findings). The re-spawned reviewer continues numbering from `[CR-(LAST_CR+1)]`.
+3. Spawn code-reviewer with this directive: *"A prior pass already covered Test Quality and design-intent dimensions. **Override section 4 of your default process:** report ONLY Correctness, Edge cases, and Performance findings. Do NOT report `[TQ-N]` findings or design-intent/convention-adherence findings — those are already covered. Number your findings starting at `[CR-<LAST_CR+1>]`."*
+4. Provide the same review context as the original code-reviewer spawn (ticket.md, implementation.md, qa.md, brainstorm.md, testCoverage.tier, Key Decisions + Escalations).
+5. Merge its findings into `review.md` alongside the first-pass findings. The combined verdict applies to ALL `[CR-N]` findings (both passes).

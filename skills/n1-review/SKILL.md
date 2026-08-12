@@ -82,7 +82,7 @@ Read N1 memory if available:
 
 ### Phase 2: Find Bugs
 
-**Shared review core:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = `${REVIEW_BASE}` (computed in Phase 1). It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT), reviewer selection with skip-recording, the Codex probe + CODEX_ACTIVE gating with retry, and the code-reviewer scope-narrowing directive.
+**Shared review core:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = `${REVIEW_BASE}` (computed in Phase 1). It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT), reviewer selection with skip-recording, the Codex probe + CODEX_EXPECTED/CODEX_ACTIVE gating with retry and partial-failure recovery, and the code-reviewer scope-narrowing directive.
 
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer (+ Codex reviewer if enabled)
 
