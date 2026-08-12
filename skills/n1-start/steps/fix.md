@@ -101,7 +101,7 @@ Discover the full-suite test command using the same detection as the qa-engineer
   ```
   - **Exit code 0 (pass):** proceed.
   - **Exit code non-zero (fail):** surface the failure output to the user: "Full test suite failed after fix cycle <N> (exit code <FULL_SUITE_EXIT>) — potential regression introduced during fix cycles. Fix failing tests before proceeding, or acknowledge explicitly."
-    - **Full pipeline mode:** ask: "Fix the regression now (re-spawn developer) or proceed anyway (regression will land in CI)?"
+    - **Full pipeline mode:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: auto-spawn the developer agent once to fix the regression (same spawn parameters as the fix cycle above, with additional context: "Full test suite failed — fix the regressions introduced during fix cycles before returning"). Append a Decision Ledger row: `| fix | mechanical | B | [auto] | Full-suite regression after fix cycle <N> | Spawn developer to fix regression | Ask user, Proceed with regression | mechanicalPrompts=auto; regression fix attempted once |`. After developer returns, re-run the full-suite check once more; if it still fails, fall through to the interactive prompt below. If `MP` is `ask` (default) or the re-run still fails: ask: "Fix the regression now (re-spawn developer) or proceed anyway (regression will land in CI)?"
     - **Step mode:** escalate with id `full_suite_regression` (options: `["Fix: spawn developer to resolve", "Proceed: acknowledge regression"]`, recommendation: `Fix`). Emit step result and STOP.
     - Do NOT silently proceed on a non-zero exit.
 

@@ -318,7 +318,14 @@ Always escalate: security, architecture, public API changes.
 
 ## Autonomy
 
-Config block `autonomy` in `$N1_HOME/config.json` (all defaults preserve interactive behavior): `brainstorm` (`"interactive"`|`"auto"`), `mechanicalPrompts` (`"ask"`|`"auto"`), `qualityEscalations` (`"block"`|`"auto-accept"`), `tailChain` (`"suggest"`|`"auto"`), `escalationMargin` (default `0.15`). Read via `n1_autonomy_val` in `lib/config.sh`.
+Config block `autonomy` in `$N1_HOME/config.json` (all defaults preserve interactive behavior): `brainstorm` (`"interactive"`|`"auto"`), `mechanicalPrompts` (`"ask"`|`"auto"`), `qualityEscalations` (`"block"`|`"auto-accept"`), `tailChain` (`"suggest"`|`"auto"`), `acceptanceGate` (`"ask"`|`"auto-when-clear"`), `escalationMargin` (default `0.15`). Read via `n1_autonomy_val` in `lib/config.sh`.
+
+`acceptanceGate`: `"ask"` (default) presents the brainstorm design checkpoint to the user and waits for confirmation; `"auto-when-clear"` auto-confirms when all four conditions hold: `description_quality == adequate`, acceptance criteria section exists in brainstorm.md, no deferred A-tier questions, and `brainstorm == auto`. Falls back to interactive gate if any condition fails.
+
+Three n1-init presets write the autonomy block:
+- **Interactive** — `brainstorm: interactive`, `mechanicalPrompts: ask`, `qualityEscalations: block`, `tailChain: suggest`, `acceptanceGate: ask`. Every decision point is interactive.
+- **Hands-off** — `brainstorm: auto`, `mechanicalPrompts: auto`, `qualityEscalations: block`, `tailChain: auto`, `acceptanceGate: auto-when-clear`, `escalationMargin: 0.10`. Mechanical prompts auto-resolve; brainstorm questions are batched; acceptance gate auto-confirms on clear designs; full-suite regressions auto-spawn a fix cycle; single-candidate status lookups auto-pick. Quality-gate exhaustion still blocks. Also sets `qa.blockUntestedFeatures: true`.
+- **Fully autonomous** — same as Hands-off but `qualityEscalations: auto-accept` and `escalationMargin: 0.05`. Quality-gate exhaustion auto-accepts. Also sets `qa.blockUntestedFeatures: true`.
 
 `autonomy.brainstorm`: `"interactive"` (default) runs superpowers:brainstorming with a multi-turn user session; `"auto"` switches to the autonomous brainstormer in interactive-escalation mode, which eliminates the back-and-forth design conversation and shortens the session. **`"auto"` does NOT isolate context** — the autonomous brainstormer is a skill fragment the orchestrator follows in-session; its design work accumulates in the same orchestrator context window as every other step.
 

@@ -9,7 +9,13 @@ When hard-skip gates pass but `tracker.statuses.done` is absent from config:
 
 2. **Sort and auto-match:** names matching any of ("Done", "Closed", "Resolved", "Fixed", "Complete", "Completed") — case-insensitive substring — sort first.
 
-3. **Standalone mode — interactive prompt:**
+3. **Mechanical-prompt auto-pick (standalone and step mode):** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto` AND exactly one status matches the auto-match list: patch config (same `jq` command as below) and append a Decision Ledger row to overview.md:
+
+   `| finish | mechanical | B | [auto] | Exactly one done-status candidate: <status-name> | Auto-select and save to config | Prompt user | mechanicalPrompts=auto; unambiguous match |`
+
+   Then continue to Move Status (skip steps 4 and 5 for this prompt). If `MP` is `auto` but zero or two or more candidates match: fall through to the prompt below (ambiguity requires human input even in auto mode).
+
+4. **Standalone mode — interactive prompt:**
    ```
    tracker.statuses.done is not configured.
 
@@ -31,7 +37,7 @@ When hard-skip gates pass but `tracker.statuses.done` is absent from config:
      If `jq` is unavailable, skip ticket closing with message: "Ticket close skipped: jq not available to patch config. Install jq and re-run." Go to Step 5.
    - **Pick 0** → skip ticket closing this run; nothing written to config. Go to Step 5.
 
-4. **Step mode — escalation:** write `$N1_HOME/memory/<ID>/escalation/request.json`. The `options` array is built dynamically from the detected status names (best matches first, plain names) with `"Skip ticket closing this time"` appended as the last entry. The `recommendation` is the first best-match name, or `"Skip ticket closing this time"` if no match exists.
+5. **Step mode — escalation:** write `$N1_HOME/memory/<ID>/escalation/request.json`. The `options` array is built dynamically from the detected status names (best matches first, plain names) with `"Skip ticket closing this time"` appended as the last entry. The `recommendation` is the first best-match name, or `"Skip ticket closing this time"` if no match exists.
    ```json
    {
      "run_id": "<N1_RUN_ID>",
