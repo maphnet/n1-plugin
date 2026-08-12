@@ -1,7 +1,7 @@
 ---
 name: n1-start
 description: "Core orchestrator. Start working on a task: /n1:n1-start TRID-510 or /n1:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
-argument-hint: "<ticket-id or brain dump> [--step <name>] [--branch]"
+argument-hint: "<ticket-id or brain dump> [--step <name>] [--branch] [--investigate]"
 model: sonnet
 effort: medium
 ---
@@ -103,6 +103,24 @@ esac
 ```
 
 The `--branch` flag forces branch isolation (no worktree) in full-pipeline mode. In step mode this flag is ignored (step mode always uses worktrees). Strip `--branch` from the input before passing to ticket/brain-dump parsing.
+
+### Investigate flag detection
+
+Check if the input contains `--investigate`:
+
+```bash
+INVESTIGATE_FLAG=false
+case "$RAW_INPUT" in
+    *--investigate*) INVESTIGATE_FLAG=true ;;
+esac
+```
+
+The `--investigate` flag starts an interactive investigation. It forces the `investigation` pipeline type (equivalent to `--type investigation`, bypassing title/tag detection) and additionally:
+
+- Forces `BRAINSTORM_MODE=interactive` for this run, overriding `autonomy.brainstorm` from config (the brainstorm step reads `investigate_interactive` from overview.md frontmatter — see steps/brainstorm.md).
+- In brain-dump mode, defers tracker ticket creation until the investigation deliverable is complete (see steps/ticket.md and steps/investigation-deliverable.md).
+
+Strip `--investigate` from the input before passing to ticket/brain-dump parsing. In step mode (`--step` present) this flag is ignored — the type and `investigate_interactive` are read from overview.md frontmatter. Pass `INVESTIGATE_FLAG` in context to the ticket step.
 
 ## Step Mode
 
