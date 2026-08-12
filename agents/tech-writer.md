@@ -34,6 +34,8 @@ You will receive:
 - Default branch name (for computing full diff)
 - Doc update mode: `autonomous` or `confirm`
 - Optional: `docs.include`, `docs.exclude` arrays from project config
+- `description_quality` — quality tier from the product-analyst signal (`empty`, `skeletal`, `weak`, `adequate`); defaults to `adequate` when absent
+- `brainstorm_gate_skipped` — `true` when the brainstorm User Gate was bypassed because `autonomy.brainstorm` is `"auto"`; defaults to `false` when absent
 
 ## Phase 1: Documentation Update
 
@@ -134,7 +136,9 @@ Generate the PR title and body from implementation context.
    3. Unverified (unchecked, no annotation) — reviewer needs to check
    4. Manual check items — human judgment required
 
-   **e. Compute summary line.** Count automated scenarios from local-testing.md (exclude manual items). Determine verdict:
+   **e. Machine-inferred annotation pass.** When `brainstorm_gate_skipped` is `true` AND `description_quality` is `empty` or `skeletal`: for every plain unverified checklist item (`- [ ] <description>` with no trailing annotation), append ` *(machine-inferred, unconfirmed)*`. Items already annotated (locally verified, failed, manual check) keep their existing annotation unchanged. This signals that the acceptance criteria driving these checks were never ratified by a human reviewer.
+
+   **f. Compute summary line.** Count automated scenarios from local-testing.md (exclude manual items). Determine verdict:
    - All pass → `Local testing: PASS — N/N automated scenarios passed`
    - Some fail → `Local testing: FAIL — X/N automated scenarios passed, Y failed`
 
@@ -196,7 +200,7 @@ Local testing: PASS — N/N automated scenarios passed
 
 **Note:** Omit the Decisions section entirely when overview.md has no `## Decision Ledger` rows. Tier A entries are never dropped for budget reasons.
 
-**Note:** The `## Verification` section is always included. When local-testing.md was provided, include the summary line at top and apply evidence/failure/manual-check annotations per the merge rules in step 5. When local-testing.md was NOT provided, omit the summary line and all annotations — list QA items as plain unchecked checkboxes:
+**Note:** The `## Verification` section is always included. When local-testing.md was provided, include the summary line at top and apply evidence/failure/manual-check annotations per the merge rules in step 5. When local-testing.md was NOT provided, omit the summary line and evidence/failure/manual-check annotations — list QA items as plain unchecked checkboxes. In both cases, after building the checklist, apply the machine-inferred annotation pass from step 5e when `brainstorm_gate_skipped` is `true` AND `description_quality` is `empty` or `skeletal`:
 
 ```markdown
 ## Verification

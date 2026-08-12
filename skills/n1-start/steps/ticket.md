@@ -138,6 +138,12 @@ The product-analyst reads the raw `ticket.md` (written by intake-agent) instead 
 
 **Scratch-to-memory move (brain dump and file modes only):** After `<ID>` is resolved (via ticket creation "Yes" or slug adoption "No"), move the scratch file to the final memory path: `mv "$N1_HOME/scratch/intake-raw.md" "$N1_HOME/memory/$ID/ticket.md"`. The product-analyst's structured output will overwrite this file in place. For ticket and error-tracker modes this step is unnecessary -- intake-agent writes directly to `$N1_HOME/memory/<ID>/ticket.md` because the ID is already known.
 
+**Brain dump raw persist (brain dump mode only):** Immediately after `<ID>` is final and the memory directory exists, write the requester's original raw input text to `$N1_HOME/memory/<ID>/ticket.raw.md`. Use the Write tool directly — the content is the verbatim text the user provided (the brain dump). This file is for audit and traceability only; it is never fed into agent spawns by default. Prefix the file with a single header line so its provenance is clear:
+```markdown
+<!-- n1: raw brain dump input — verbatim; not processed by agents -->
+<original user text>
+```
+
 **Tracker ticket creation (brain-dump, file, and error-tracker modes):**
 
 > **MCP prefix for all tracker calls in this section:** Use `mcp__<tracker.mcp>__` (value from config, not from tool list).

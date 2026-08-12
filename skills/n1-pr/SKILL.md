@@ -158,11 +158,25 @@ Proceed directly to Step 3.
 
 Resolve model for `tech-writer`.
 
+**Collect inferred-criteria context** before spawning:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+DQ=$(n1_read_frontmatter "$N1_HOME/memory/$ID/ticket.md" "description_quality" 2>/dev/null || echo "adequate")
+[ -z "$DQ" ] && DQ="adequate"
+BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
+BRAINSTORM_GATE_SKIPPED=false
+[ "${BRAINSTORM_MODE:-ask}" = "auto" ] && BRAINSTORM_GATE_SKIPPED=true
+```
+
 Spawn tech-writer with:
 - Ticket ID (extracted from branch name, if available)
 - Paths to memory files: `overview.md`, `review.md`, `qa.md`, `local-testing.md` (if exists)
 - Git diff stat output from Step 1
 - Doc update report from Step 2 Phase 1 (updated/flagged/needs_review lists) — for the Documentation section in the PR body
+- `description_quality`: `$DQ`
+- `brainstorm_gate_skipped`: `$BRAINSTORM_GATE_SKIPPED`
 
 The tech-writer agent returns a structured PR title and body.
 

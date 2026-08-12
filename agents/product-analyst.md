@@ -191,6 +191,8 @@ Run this assessment AFTER reading the raw ticket.md (step 1) but BEFORE the fina
 - [ ] <criterion 1>
 - [ ] <criterion 2>
 
+**Inferred-criteria rule:** When `description_quality` is `empty` or `skeletal`, every acceptance criterion you write is inferred from the title, type, and available context — append ` (inferred)` to each item. When `description_quality` is `weak`, criteria explicitly present in the source keep no suffix; any criterion you add that was not stated in the source must be suffixed with ` (inferred)`. When `description_quality` is `adequate`, no suffix is added to any item.
+
 ### Technical Context
 <referenced code paths, APIs, schemas, or config mentioned in the requirements>
 
@@ -234,7 +236,7 @@ Assessment criteria:
 
 - Keep the summary under 600 words
 - Preserve exact technical terms, API names, field names
-- If acceptance criteria are not explicitly listed, extract them from the description
+- If acceptance criteria are not explicitly listed, extract them from the description; follow the inferred-criteria rule in the Output Format to suffix inferred items correctly
 - Do not add your own opinions, suggestions, or solutions — distill only
 - Write your full structured output to the path provided as `ticketMdPath`, as a full overwrite (never append). Do not modify any other files.
 - Skip bot/automated comments — only include human comments (tracker mode)
