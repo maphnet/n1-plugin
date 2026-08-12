@@ -41,6 +41,32 @@ if [ -n "$SIGNAL_LINE" ]; then
 fi
 ```
 
+**Untested-functionality gate.** After writing signals, parse `new_functionality_untested` and read `qa.blockUntestedFeatures` (default `false`):
+```bash
+NEW_FUNC_UNTESTED=$(echo "${SIGNAL_LINE}" | grep -o 'new_functionality_untested=[^ ]*' | cut -d= -f2)
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+BLOCK_UNTESTED=$(n1_config_val '.qa.blockUntestedFeatures' 'false')
+```
+
+If `NEW_FUNC_UNTESTED` is `true`:
+
+- Append a tier-B Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
+
+  `| qa | quality | B | [auto] | New functionality shipped without test coverage | Accepted — no new tests added (maintain tier) | Add tests (minimal / standard tier) | maintain mode: new_functionality_untested signal; tests_added=0 alone cannot distinguish untested-new from nothing-new |`
+
+- If `BLOCK_UNTESTED` is `true`, override the QA verdict to FAIL. Append to `$N1_HOME/memory/$ID/qa.md` a note: "QA FAIL override: new functionality is untested and `qa.blockUntestedFeatures` is enabled." Record the override in overview `## Key Decisions` via `n1_append_key_decision`:
+  ```bash
+  # qa.blockUntestedFeatures: boolean (default false). When true, a maintain-tier run where
+  # new functionality was added without test coverage fails the QA step, preventing silent
+  # shipment of untested features. The Decision Ledger row is written regardless of this flag.
+  if [ "${BLOCK_UNTESTED}" = "true" ]; then
+      source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+      n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" \
+          "QA FAIL override: new_functionality_untested=true and qa.blockUntestedFeatures=true — verdict forced to FAIL"
+  fi
+  ```
+  Then treat the QA result as FAIL for all downstream logic (bug-fix loop, step result).
+
 **Compact implementation memory for review:**
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"

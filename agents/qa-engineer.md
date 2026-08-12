@@ -168,14 +168,15 @@ The compact return must include `Exit code: N` (or `Exit code: N/A — no runner
 Append this line as the LAST line of your compact return to the orchestrator (after `Verdict:`, `Bugs found:`, and the summary):
 
 ```
-n1:signals tests_added=<number> tests_broken=<number> coverage_change=<increased|unchanged|decreased>
+n1:signals tests_added=<number> tests_broken=<number> coverage_change=<increased|unchanged|decreased> new_functionality_untested=<true|false>
 ```
 
 - `tests_added`: count of new test cases written (0 for maintain tier or when no new tests were needed)
 - `tests_broken`: count of tests that were found broken before your fixes (0 if none)
 - `coverage_change`: `increased` if new tests were added, `decreased` if tests were removed for deleted functionality, `unchanged` otherwise
+- `new_functionality_untested`: `true` when new or changed functionality exists AND no existing or new tests cover it; `false` otherwise. Note: `tests_added=0` alone is insufficient to signal this — it cannot distinguish "nothing new was added" from "something new was added but not tested" (both produce `tests_added=0` in maintain tier). This key provides that distinction. Set to `true` exactly on the Step 3 path: "tests pass, tier is `maintain`, functionality was added or removed, and NO existing tests cover the new/changed area."
 
 Emit only this one `n1:signals` line — no label, no explanation. Example:
 ```
-n1:signals tests_added=3 tests_broken=1 coverage_change=increased
+n1:signals tests_added=0 tests_broken=0 coverage_change=unchanged new_functionality_untested=true
 ```
