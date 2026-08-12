@@ -9,62 +9,44 @@ effort: low
 
 ## Overview
 
-Create a pull request from the current feature branch. Spawns the tech-writer agent for PR content generation, then handles git push, PR creation via GitHub CLI, and tracker update.
+Create a PR from the current feature branch. Spawns tech-writer for PR content, then handles push, PR creation via `gh`, and tracker update.
 
 **Announce at start:** "I'm using the n1-pr skill to finalize the branch."
 
 ## N1_HOME Resolution
-
-Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
-If `N1_HOME` is empty — N1 is not configured; warn the user.
-
-All config reads use `$N1_HOME/config.json`. All memory paths use `$N1_HOME/memory/$ID/`.
+If empty — N1 not configured; warn the user. Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/$ID/`.
 
 ## Model Resolution
-
-When spawning any agent, resolve its model via Bash:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 n1_resolve_model <agent-name>
 ```
 
-Returns the config override if set, otherwise the agent's frontmatter default.
-
 ## Prerequisites
-
-Verify the working state:
 
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
 ```
 
-- **On default branch?** → "You're on the default branch. Switch to a feature branch first." **STOP.**
-- **Uncommitted changes?** → Commit them first. Summarize what's being committed and ask for confirmation.
+- On default branch → "Switch to a feature branch first." **STOP.**
+- Uncommitted changes → commit first (summarize, ask confirmation).
 
 ## Standalone Skip Guard
 
-Read `git.prMode` via `n1_config_val '.git.prMode'` using the fallback chain:
-1. If `git.prMode` is present → use it directly (`"draft"`, `"ready"`, or `"skip"`)
-2. Else if `git.draftPR` is `false` → treat as `"ready"`
-3. Else (key absent or `true`) → treat as `"draft"`
+Read `git.prMode` via `n1_config_val '.git.prMode'`:
+1. `git.prMode` present → use directly (`"draft"` | `"ready"` | `"skip"`)
+2. Else `git.draftPR` is `false` → `"ready"`
+3. Else → `"draft"`
 
-If `prMode` is `"skip"`:
-
-```
-PR mode is set to "skip" for this project.
-No push or PR will be created.
-To change this, run /n1:n1-init to reconfigure.
-```
-
-**STOP.**
+If `"skip"`: report "PR mode is set to skip. No push or PR will be created. Run /n1:n1-init to reconfigure." **STOP.**
 
 ## Step 1: Collect Information
 
@@ -76,10 +58,9 @@ git diff ${DEFAULT_BRANCH}...HEAD --stat
 
 ### N1 memory (if available):
 
-Do NOT read the full report files into context — the tech-writer receives their paths in Steps 2–3 and reads them itself. Extract only what this session needs, in a single Bash call:
-
+Do NOT read full reports — tech-writer receives paths and reads them itself. Extract only:
 - `overview.md` — read in full (small: ticket title, status, key decisions)
-- Verdict lines (review pass confirmation, QA line, local-testing line — the last only if the file exists):
+- Verdict lines via single Bash call:
 
 ```bash
 grep -m1 -iE 'verdict' "$N1_HOME/memory/$ID/review.md" 2>/dev/null || true
@@ -87,78 +68,49 @@ grep -m1 -iE 'verdict|overall' "$N1_HOME/memory/$ID/qa.md" 2>/dev/null || true
 grep -m1 -iE 'verdict|result' "$N1_HOME/memory/$ID/local-testing.md" 2>/dev/null || true
 ```
 
-If a grep returns nothing (file missing or unexpected format), proceed — these lines feed the report text only; they gate nothing hard.
+Missing grep results are non-blocking — they feed report text only.
 
 ### N1 config:
-Read `$N1_HOME/config.json` for:
-- `tracker.prefix` — to detect ticket ID from branch name
-- `tracker.mcp` — to know if tracker update is needed
-- `git.defaultBranch` — confirmed default branch
-- `git.branchPattern` — to extract ticket ID
+Read from `$N1_HOME/config.json`: `tracker.prefix`, `tracker.mcp`, `git.defaultBranch`, `git.branchPattern`.
 
 ### Extract ticket ID:
-Parse from branch name using `git.branchPattern`. Example:
-- Branch: `TRID-510` + pattern `{prefix}-{id}` → ticket = `TRID-510`
+Parse from branch name using `git.branchPattern` (e.g. branch `TRID-510` + pattern `{prefix}-{id}` → `TRID-510`).
 
 ## Step 2: Documentation Update
 
-**Spawn agent:** tech-writer (Phase 1 only)
+**Spawn agent:** tech-writer (Phase 1 only). Resolve model for `tech-writer`.
 
-Resolve model for `tech-writer`.
+### Doc config:
+From `$N1_HOME/config.json` optional `docs` section: `docs.include` (globs), `docs.exclude` (globs), `docs.autoUpdate` (bool, default `false`).
 
-### Read doc config:
-Read `$N1_HOME/config.json` → check for optional `docs` section:
-- `docs.include` — additional doc paths to scan (array of globs)
-- `docs.exclude` — doc paths to skip (array of globs)
-- `docs.autoUpdate` — if `true`, skip user confirmation (default: `false`)
-
-### Determine mode:
-- If called with `docUpdateMode: "autonomous"` (passed from n1-start) → `autonomous`
-- If `docs.autoUpdate` is `true` in config → `autonomous`
+### Mode:
+- Called with `docUpdateMode: "autonomous"` (from n1-start) → `autonomous`
+- `docs.autoUpdate` is `true` → `autonomous`
 - Otherwise → `confirm`
 
-### Spawn tech-writer for Phase 1:
-Pass to tech-writer:
-- Default branch name (from Step 1)
-- Paths to memory files: `implementation.md` (if available)
-- Git diff stat output from Step 1
-- Doc config: `docs.include`, `docs.exclude` (if present)
-- Doc update mode: the resolved mode from above
+### Spawn tech-writer Phase 1 with:
+Default branch, paths to `implementation.md` (if available), git diff stat, doc config (`include`/`exclude`), doc update mode.
 
-### If mode is `confirm`:
-After tech-writer completes Phase 1 scan, present findings to the user:
+### If `confirm` mode:
+**Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, skip the prompt — apply updates and append a Decision Ledger row per `skills/n1-start/ledger.md` (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass via `docUpdateMode: "autonomous"`.
 
-**Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, do not ask — proceed with the recommended action (apply the doc updates) and append a Decision Ledger row per `skills/n1-start/ledger.md` (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass these prompts via `docUpdateMode: "autonomous"`; this gate only aligns standalone runs.
+Otherwise present updates and ask: "Apply or skip? (apply/skip)"
 
-```
-Documentation scan complete.
+### If `autonomous` mode:
+Tech-writer applies and commits without prompting.
 
-Updates to apply:
-- <file>: <what will be updated> (<confidence>)
-
-Apply or skip? (apply/skip)
-```
-
-- **apply** → tech-writer commits the doc changes
-- **skip** → discard doc changes, proceed to Step 3
-
-### If mode is `autonomous`:
-Tech-writer applies updates and commits without prompting.
-
-### If no stale docs found:
-Proceed directly to Step 3.
+### No stale docs found:
+Proceed to Step 3.
 
 ## Step 3: Generate PR Content
 
-**If PR title and body are provided as input** (e.g., when called from n1-start after tech-writer already ran): skip tech-writer spawning and use the provided content directly.
+**If PR title and body provided as input** (e.g. from n1-start): use directly, skip tech-writer.
 
-**Otherwise (standalone invocation):**
+**Otherwise (standalone):**
 
-**Spawn agent:** tech-writer
+**Spawn agent:** tech-writer. Resolve model.
 
-Resolve model for `tech-writer`.
-
-**Collect inferred-criteria context** before spawning:
+**Collect inferred-criteria context:**
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
@@ -170,136 +122,67 @@ BRAINSTORM_GATE_SKIPPED=false
 [ "${BRAINSTORM_MODE:-ask}" = "auto" ] && BRAINSTORM_GATE_SKIPPED=true
 ```
 
-Spawn tech-writer with:
-- Ticket ID (extracted from branch name, if available)
-- Paths to memory files: `overview.md`, `review.md`, `qa.md`, `local-testing.md` (if exists)
-- Git diff stat output from Step 1
-- Doc update report from Step 2 Phase 1 (updated/flagged/needs_review lists) — for the Documentation section in the PR body
-- `description_quality`: `$DQ`
-- `brainstorm_gate_skipped`: `$BRAINSTORM_GATE_SKIPPED`
+Spawn tech-writer with: ticket ID, paths to `overview.md`/`review.md`/`qa.md`/`local-testing.md` (if exists), git diff stat, Phase 1 doc update report, `description_quality: $DQ`, `brainstorm_gate_skipped: $BRAINSTORM_GATE_SKIPPED`.
 
-The tech-writer agent returns a structured PR title and body.
+Returns structured PR title and body.
 
-**Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, do not ask — proceed with the recommended action (create the PR as composed) and append a Decision Ledger row per `skills/n1-start/ledger.md` (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass these prompts via `docUpdateMode: "autonomous"`; this gate only aligns standalone runs.
+**Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, skip the prompt — create PR as composed, append Decision Ledger row (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass.
 
-Present the generated title and body to the user. Ask: **"Create PR with this content? (yes/edit/cancel)"**
+Otherwise: present title/body, ask **"Create PR with this content? (yes/edit/cancel)"**
 
 ## Step 4: Push and Create PR
 
-Use `prMode` as already resolved by the Standalone Skip Guard above (only `"draft"` or `"ready"` reaches this step — `"skip"` exits at the Guard).
+`prMode` already resolved (only `"draft"` or `"ready"` reaches here).
 
 ```bash
 git push -u origin ${CURRENT_BRANCH}
 ```
 
-If `prMode` is `"draft"`:
+Draft: `gh pr create --title "<title>" --body "<body>" --base ${DEFAULT_BRANCH} --draft`
+Ready: same without `--draft`.
 
-```bash
-gh pr create \
-  --title "<generated title>" \
-  --body "<generated body>" \
-  --base ${DEFAULT_BRANCH} \
-  --draft
-```
-
-If `prMode` is `"ready"`:
-
-```bash
-gh pr create \
-  --title "<generated title>" \
-  --body "<generated body>" \
-  --base ${DEFAULT_BRANCH}
-```
-
-Capture and display the PR URL.
+Capture and display PR URL.
 
 ## Step 4b: Worktree Cleanup
 
-After a successful push and PR creation (or when `prMode` is `"ready"` and push succeeded), check whether a worktree should be removed:
+After successful push+PR, check worktree removal:
 
-1. Detect if the current working directory is inside a worktree under `.claude/worktrees/`:
-   ```bash
-   CURRENT_DIR=$(git rev-parse --show-toplevel)
-   ```
-   Check if `$CURRENT_DIR` contains `/.claude/worktrees/` (or `\.claude\worktrees\` on Windows).
-2. If NOT inside a worktree (branch mode): skip silently — the branch remains after push/PR (standard git workflow).
-3. If inside a worktree (step mode):
-   1. Read `worktree.cleanup` from `$N1_HOME/config.json` (default: `"after-pr"`).
-   2. If `worktree.cleanup != "after-pr"`: skip silently.
-   3. Resolve the worktree path: `WORKTREE_PATH=$CURRENT_DIR`
-   4. Find the main checkout: `MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`
-   5. Change to the main checkout: the subsequent remove command must be run from `$MAIN_CHECKOUT`, not from inside the worktree (removing the CWD always fails)
-   6. Remove the worktree: `cd "$MAIN_CHECKOUT" && git worktree remove "$WORKTREE_PATH" --force`
-   7. On success: report "Worktree `<ID>` removed."
-   8. On failure: warn "Worktree cleanup failed (files may be locked). Run `/n1:n1-clean` to remove it manually." — do not abort the skill.
-   Note: After successful removal, do not issue further bash commands that depend on the now-deleted `$WORKTREE_PATH`.
+1. `CURRENT_DIR=$(git rev-parse --show-toplevel)` — if not under `/.claude/worktrees/`: skip (branch mode).
+2. If inside a worktree:
+   1. Read `worktree.cleanup` from config (default: `"after-pr"`). If not `"after-pr"`: skip.
+   2. `MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`
+   3. `cd "$MAIN_CHECKOUT" && git worktree remove "$WORKTREE_PATH" --force`
+   4. Success → "Worktree `<ID>` removed." Failure → warn, point at `/n1:n1-clean`.
+   5. Do not issue commands depending on deleted `$WORKTREE_PATH` after removal.
 
 ## Step 5: Update Tracker (if configured)
 
-Read `$N1_HOME/config.json`. If `tracker.mcp` is not null:
+If `tracker.mcp` is not null:
 
-1. **Move status to code review:**
-   - Construct MCP tool call: `mcp__<tracker.mcp>__<tracker.operations.moveStatus>`
-   - Use `tracker.statuses.codeReview` as the target status (this is "Code Review" if the tracker has it, or falls back to "In Progress")
-   - For Jira: first call `mcp__<tracker.mcp>__<tracker.operations.getTransitions>` to get the transition ID for the `codeReview` status, then call `transitionJiraIssue`
-   - For YouTrack: call `update_issue` with the `codeReview` status value
+1. **Move to code review:** `mcp__<tracker.mcp>__<operations.moveStatus>` with `tracker.statuses.codeReview`. Jira: get transition ID first via `getTransitions`. YouTrack: `update_issue` directly.
+2. **Add comment:** `mcp__<tracker.mcp>__<operations.addComment>` — body: `PR created: <PR_URL>`
 
-2. **Add PR link as comment:**
-   - Construct MCP tool call: `mcp__<tracker.mcp>__<tracker.operations.addComment>`
-   - Comment body: `PR created: <PR_URL>`
-
-If tracker operations fail, warn but don't block — the PR is already created.
+Tracker failures: warn, don't block.
 
 ## Step 6: Update Memory
 
-If N1 memory exists for this ticket:
-- Update `overview.md`: mark PR step as done, add PR URL
-- Add `docs_updated` to overview.md with the list of files updated, flagged, or skipped:
-  ```yaml
-  docs_updated:
-    - file: README.md
-      confidence: high
-      action: updated
-    - file: docs/migration.md
-      confidence: none
-      action: skipped
-  ```
-- Frontmatter: set `step: pr`
+If N1 memory exists: update `overview.md` (mark PR done, add URL), add `docs_updated` list (file, confidence, action), set frontmatter `step: pr`.
 
 ## Step 7: Report
 
-When `prMode` is `"draft"`, the PR URL line is **bolded** to surface draft state:
-
+Draft mode (**bolded** URL to surface draft state):
 ```
 **PR created (draft):** <PR_URL>
 PR #: <number>
-
 Title: <title>
 Base: <default branch>
 Tracker: <status updated / not configured / failed>
-
 CHECKPOINT: Ready for Tech Lead review.
 ```
 
-When `prMode` is `"ready"`:
-
-```
-PR created: <PR_URL>
-PR #: <number>
-
-Title: <title>
-Base: <default branch>
-Tracker: <status updated / not configured / failed>
-
-CHECKPOINT: Ready for Tech Lead review.
-```
+Ready mode: same with `PR created:` (not bolded).
 
 ## Integration
 
-**Called by:**
-- **n1-start** — after review loop passes (and local testing, when enabled)
-- **Standalone** — `/n1:n1-pr`
-
-**Invokes:**
-- n1 agent: **tech-writer** — doc update (Phase 1) + PR content generation (Phase 2)
-- Inline: git, gh, tracker MCP operations
+**Called by:** n1-start (after review loop + local testing), standalone `/n1:n1-pr`
+**Invokes:** n1 agent: tech-writer (Phase 1 doc update + Phase 2 PR content); inline: git, gh, tracker MCP

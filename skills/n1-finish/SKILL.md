@@ -137,56 +137,7 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 - `closeTicket` is `false` → "Ticket close skipped: closeTicket is false."
 - `tracker.mcp` is null → "Ticket close skipped: no tracker configured."
 
-**Runtime recovery** — when the hard-skip gates pass but `tracker.statuses.done` is absent from config:
-
-1. **Detect available statuses:**
-   - Jira: call `mcp__<tracker.mcp>__<operations.getTransitions>` on the current ticket; extract the target status name from each transition.
-   - YouTrack: call `mcp__<tracker.mcp>__<operations.readTicket>` on the current ticket; inspect `customFields` for the State field — read its bundle values (or `value.name` when a single value is present). Fallback: call `mcp__<tracker.mcp>__<operations.search>` for one sample issue in the project and read its State field.
-   - **If detection fails** (MCP error or empty result): skip ticket closing. Message: "Ticket close skipped: `tracker.statuses.done` not configured and status detection failed. Re-run `/n1:n1-init` to configure it." Go to Step 5.
-
-2. **Sort and auto-match:** names matching any of ("Done", "Closed", "Resolved", "Fixed", "Complete", "Completed") — case-insensitive substring — sort first.
-
-3. **Standalone mode — interactive prompt:**
-   ```
-   tracker.statuses.done is not configured.
-
-   Available statuses (best match first):
-   1 — Done  ← auto-matched
-   2 — Closed
-   3 — Resolved
-   0 — Skip ticket closing this time
-
-   Which status should N1 use to close this ticket? (Selection saves to config.)
-   ```
-   - **Numbered pick** → patch `$N1_HOME/config.json` and hold the value in memory for the rest of this step:
-     ```bash
-     CONFIG="$N1_HOME/config.json"
-     DONE_STATUS="<selected name>"
-     TMP="$(jq --arg v "$DONE_STATUS" '.tracker.statuses.done = $v' "$CONFIG")"
-     printf '%s\n' "$TMP" > "$CONFIG"
-     ```
-     If `jq` is unavailable, skip ticket closing with message: "Ticket close skipped: jq not available to patch config. Install jq and re-run." Go to Step 5.
-   - **Pick 0** → skip ticket closing this run; nothing written to config. Go to Step 5.
-
-4. **Step mode — escalation:** write `$N1_HOME/memory/<ID>/escalation/request.json`. The `options` array is built dynamically from the detected status names (best matches first, plain names) with `"Skip ticket closing this time"` appended as the last entry. The `recommendation` is the first best-match name, or `"Skip ticket closing this time"` if no match exists.
-   ```json
-   {
-     "run_id": "<N1_RUN_ID>",
-     "step": "finish",
-     "questions": [{
-       "id": "done_status_missing",
-       "text": "tracker.statuses.done is not configured. Which status represents a closed/resolved ticket?",
-       "options": ["<best-match-1>", "<best-match-2>", "...", "Skip ticket closing this time"],
-       "recommendation": "<first best-match or Skip ticket closing this time>",
-       "context": "Available statuses fetched from tracker. Selection will be saved to config."
-     }]
-   }
-   ```
-   Emit `outcome: "escalation"` and STOP.
-
-   On re-run with `response.json` present and `run_id` matching `N1_RUN_ID`:
-   - Response is a status name → patch config (same `jq` command above), set the value in memory, re-enter ticket close (continue to Move Status below).
-   - Response is `"Skip ticket closing this time"` → append `Ticket: close skipped (user skipped at runtime)` to the `## Finish` section in overview.md; emit `outcome: "pass"`; go to Step 5.
+**Runtime recovery** — when the hard-skip gates pass but `tracker.statuses.done` is absent from config: read `references/done-status-recovery.md` for the full detection, prompt, and step-mode escalation procedure.
 
 **When `tracker.statuses.done` was already present in config, or after successful recovery above, proceed:**
 
@@ -224,32 +175,7 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 
 ## Escalation (step mode only)
 
-Write `$N1_HOME/memory/<ID>/escalation/request.json`:
-
-```json
-{
-  "run_id": "<value of the N1_RUN_ID environment variable>",
-  "step": "finish",
-  "questions": [{
-    "id": "merge_wait_timeout",
-    "text": "PR <url> is not merged after <waitForMergeMinutes> minutes. It is waiting on reviewer approval.",
-    "options": ["Retry: poll again for the merge", "Abort: end the run, re-run finish later"],
-    "recommendation": "Abort — re-run the finish step after the reviewer merges",
-    "context": "<PR URL, CI state, mergeOnFinish value>"
-  }]
-}
-```
-
-(`deploy_watch_timeout` uses the same shape: text describes the still-running run(s), options are "Retry: keep watching" / "Abort: end the run".)
-
-Then emit the step result via Bash and STOP:
-
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "finish" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
-```
-
-On re-run with `response.json` present and `run_id` matching `N1_RUN_ID`: "Retry" → re-enter the step that timed out (Step 2c poll or Step 3 watch); "Abort" → record in overview `## Escalations` and emit `outcome: "fail"`.
+Read `references/escalation-templates.md` for the `merge_wait_timeout` and `deploy_watch_timeout` request.json shapes, emit command, and resume logic.
 
 ## Report (final message)
 
@@ -274,15 +200,7 @@ Release this now?
 
 - **1** → report `Next: /n1:n1-release` and STOP — do NOT invoke it yourself; releases are human-initiated.
 - **2** → nothing to do.
-- **3** → append to `$N1_HOME/pending-releases.json` (create as `{"pending": []}` if absent):
-  ```bash
-  TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  F="$N1_HOME/pending-releases.json"
-  [ -f "$F" ] || printf '{"pending": []}\n' > "$F"
-  TMP=$(jq --arg id "$ID" --arg sha "$MERGE_SHA" --arg ts "$TS" \
-      '.pending += [{"id": $id, "merged_sha": $sha, "added": $ts}]' "$F")
-  printf '%s\n' "$TMP" > "$F"
-  ```
+- **3** → read `references/release-batching.md` for the append procedure.
 
 In step mode, skip this question entirely — the `Next (manual): /n1:n1-release` line in the report above covers step-mode output.
 

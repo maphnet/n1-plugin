@@ -10,74 +10,54 @@ effort: low
 
 ## Overview
 
-Monitor CI checks on a pull request, classify failures, and delegate fixes to the developer agent. The user is only involved when max fix attempts are exhausted or when an unknown check falls below the confidence threshold.
+Monitor CI checks on a PR, classify failures, and delegate fixes to the developer agent. User involvement only when max fix attempts exhausted or unknown check below confidence threshold.
 
 **Announce at start:** "I'm using the n1-ci skill to monitor CI checks."
 
 ## N1_HOME Resolution
-
-Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
-If `N1_HOME` is empty — N1 is not configured; warn the user.
-
-All config reads use `$N1_HOME/config.json`. All memory paths use `$N1_HOME/memory/$ID/`.
+If empty — N1 not configured; warn the user. Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/$ID/`.
 
 ## Model Resolution
-
-When spawning any agent, resolve its model via Bash:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 n1_resolve_model <agent-name>
 ```
 
-Returns the config override if set, otherwise the agent's frontmatter default.
-
 ## Prerequisites
-
-Check if `gh` CLI is available and authenticated:
 
 ```bash
 gh auth status
 ```
 
-If not authenticated: "GitHub CLI is not authenticated. Run `gh auth login` first." **STOP.**
+Not authenticated → "Run `gh auth login` first." **STOP.**
 
 ## Step 1: Resolve PR Number
 
-**If argument provided** (e.g., `#123` or `123`):
-- Strip `#` prefix if present
-- Use the number directly
+- **Argument** (`#123` or `123`): strip `#`, use directly.
+- **No argument:** `gh pr view --json number,url,headRefName --jq '.number'`. No PR found → "No open PR found. Create one first or specify: `/n1:n1-ci #123`" **STOP.**
 
-**If no argument:**
-- Detect current branch and find its open PR:
-
-```bash
-gh pr view --json number,url,headRefName --jq '.number'
-```
-
-- If no PR found: "No open PR found for the current branch. Create a PR first or specify a PR number: `/n1:n1-ci #123`" **STOP.**
-
-Capture the PR number and URL for reporting.
+Capture PR number and URL.
 
 ## Step 2: Read CI Check Config
 
-Read the `ciChecks` section from config:
+From config:
 - `n1_config_val '.ciChecks.maxFixAttempts'` — default: `3`
 - `n1_config_val '.ciChecks.confidenceThreshold'` — default: `0.7`
-- `categories` — default: built-in category map (see below)
+- `categories` — default: built-in map below
 
-If `ciChecks.enabled` is explicitly `false`: "CI checks are disabled in config." **STOP.**
+If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP.**
 
-**Default categories** (used when config has no `ciChecks.categories`):
+**Default categories** (when config has no `ciChecks.categories`):
 
-| Category | Patterns | Default Behavior |
-|----------|----------|-----------------|
+| Category | Patterns | Behavior |
+|----------|----------|----------|
 | lint | lint, eslint, prettier, format, style, biome | auto-fix |
 | typecheck | typecheck, tsc, mypy, type-check, pyright | auto-fix |
 | test | test, jest, pytest, spec, vitest, mocha | auto-fix |
@@ -87,227 +67,147 @@ If `ciChecks.enabled` is explicitly `false`: "CI checks are disabled in config."
 
 ## Step 3: Poll for CI Checks
 
-> **IMPORTANT — polling discipline:** Run each `gh pr checks` poll as a **separate, individual shell command**. NEVER combine polling into a bash `while`-loop, background process, or any other single long-running shell command. Sleep between polls via a standalone `sleep 30` command, then run the next poll command separately. This keeps every poll result visible in your reasoning context.
+> **Polling discipline:** Each `gh pr checks` poll is a **separate shell command**. NEVER combine into a bash loop. `sleep 30` between polls as a standalone command. Every poll result must be visible in reasoning context.
 
-### Phase 1 — Wait for checks to register (up to 15 min)
+### Phase 1 — Wait for registration (up to 15 min)
 
-1. Run `sleep 15` (initial registration delay).
-2. Run `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` as a **separate shell command**.
-3. If the output is empty or contains no checks → run `sleep 30`, then poll again (go to step 2).
-4. If no checks have appeared after 15 minutes total → report: "No CI checks appeared after 15 minutes. The repository may not have CI configured." **STOP.**
-5. Once checks appear → enter Phase 2.
+1. `sleep 15` (initial delay).
+2. `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` — separate command.
+3. Empty/no checks → `sleep 30`, re-poll (step 2).
+4. Nothing after 15 min → "No CI checks appeared after 15 minutes." **STOP.**
+5. Checks appear → Phase 2.
 
-### Phase 2 — Poll until resolution (up to 30 min total)
+### Phase 2 — Poll until resolution (up to 30 min)
 
-Poll via `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call:
+Poll via `lib/poll.sh` (internal 30s loop, 8-minute chunks):
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/poll.sh"
 n1_wait_ci_checks <PR#> <remaining-minutes>
 ```
 
-Re-invoke while it prints `pending` and the 30-minute budget remains. On each return:
-- `green` → proceed to **Step 4** (all green)
-- `red` → run one detailed `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` to enumerate the failures, then apply the existing Phase 3 grace-period rule (up to 2 more `n1_wait_ci_checks` calls with `<max-minutes>` = 1) and proceed to **Step 4**
-- `pending` at budget exhaustion → report which checks are still pending, ask user: "CI checks are still running after 30 minutes. Wait longer or skip?" **STOP and wait for user response.**
+Re-invoke while `pending` and budget remains:
+- `green` → **Step 4** (all green)
+- `red` → run `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` to enumerate failures, apply Phase 3 grace (up to 2 more `n1_wait_ci_checks` calls, `<max-minutes>` = 1), then **Step 4**
+- `pending` at budget exhaustion → report pending checks, ask "Wait longer or skip?" **STOP.**
 
-### Phase 3 — Failure grace period (max 60s)
+### Phase 3 — Failure grace (max 60s)
 
-Once at least one failure is detected but other checks are still pending:
-
-1. Log: `"Failure detected. Waiting up to 60s for remaining checks to finish or fail."`
-2. Run up to 2 more polls (run `sleep 30` then `gh pr checks ...` each time — still individual commands).
-3. After 2 grace polls OR all checks completed (whichever comes first) → proceed to **Step 4** with all currently-known results.
+Once failure detected but other checks still pending:
+1. Log: `"Failure detected. Waiting up to 60s for remaining checks."`
+2. Up to 2 more polls (`sleep 30` + `gh pr checks` each — individual commands).
+3. After 2 grace polls OR all completed → **Step 4** with current results.
 
 ## Step 4: Evaluate Results
 
-Once all checks have `state: COMPLETED`:
+All checks `conclusion: SUCCESS`/`NEUTRAL`/`SKIPPED`:
+- Report "All CI checks passed."
+- **Finish chaining (pipeline only):** when invoked from n1-start AND `finishWork.enabled` is `true`, continue into n1:n1-finish. Standalone runs never chain. Never chain into release.
+- Go to **Step 7**.
 
-**If all checks have `conclusion: SUCCESS` (or `NEUTRAL` or `SKIPPED`):**
-- Report: "All CI checks passed."
-- **Finish chaining (full pipeline context only):** when invoked from the n1-start pipeline AND `finishWork.enabled` is `true`, continue directly into the finish step (n1:n1-finish) in this session instead of stopping at the report — green CI is the trigger; the merge-wait inside finish uses its own bounded budget. Standalone `/n1:n1-ci` runs never chain; they stop at the report. Never chain into release from anywhere.
-- Go to **Step 7** (Report).
-
-**If any checks have `conclusion: FAILURE`:**
-- Collect all failed checks
-- Continue to **Step 5** (Classify & Fix)
+Any `conclusion: FAILURE` → collect failures, go to **Step 5**.
 
 ## Step 5: Classify Failures
 
-For each failed check, classify by matching its `name` against category patterns (case-insensitive substring match):
+Match each failed check `name` against category patterns (case-insensitive substring, first match wins). No match → `unknown`.
 
-1. Iterate through configured categories
-2. For each category, check if any pattern is a substring of the check name
-3. First matching category wins
-4. If no category matches → classify as `unknown`
-
-**Determine behavior for each failed check:**
-- Category behavior is `auto-fix` → developer agent handles it
-- Category behavior is `escalate` → skip developer agent, ask user immediately
-- Category behavior is `skip` → ignore this check entirely
-- Category is `unknown` → developer agent assesses confidence (see Step 5b)
+**Per-category behavior:**
+- `auto-fix` → developer agent
+- `escalate` → skip developer, ask user immediately
+- `skip` → ignore
+- `unknown` → developer agent with confidence assessment (Step 5b)
 
 ### Step 5a: Fetch Failed Run Logs
 
-For each failed check that needs fixing (not `skip` or `escalate`):
-
-Extract the run ID from the `detailsUrl` (the URL contains the run ID in the path: `https://github.com/<owner>/<repo>/actions/runs/<run-id>/...`).
+Extract run ID from `detailsUrl` (`/actions/runs/<run-id>/...`):
 
 ```bash
 gh run view <run-id> --log-failed 2>&1 | head -500
 ```
 
-Truncate to 500 lines per check to keep context manageable. Capture the output for the developer agent.
-
 ### Step 5b: Unknown Category Confidence Check
 
-For checks classified as `unknown`: include them in the developer agent spawn. The developer agent assesses its confidence (0-1) in the fix. After the developer returns:
-
-- If confidence >= `confidenceThreshold` → accept the fix (already applied)
-- If confidence < `confidenceThreshold` → present to user:
-  ```
-  CI check "<check name>" failed. The developer agent assessed low confidence
-  in the fix (confidence: <N>).
-
-  Failed check logs:
-  <truncated logs>
-
-  Developer agent's analysis:
-  <agent's assessment>
-
-  How would you like to proceed?
-  1 — Accept the proposed fix
-  2 — Provide guidance for a different fix
-  3 — Skip this check
-  ```
+After developer returns for `unknown` checks:
+- confidence >= `confidenceThreshold` → accept fix
+- confidence < threshold → present to user with logs and analysis:
+  "1 — Accept fix / 2 — Provide guidance / 3 — Skip this check"
 
 ## Step 6: Fix Cycle
 
-**Batch all fixable failures** from a single CI run into one developer agent spawn.
+**Batch all fixable failures** into one developer agent spawn. Resolve model for `developer`.
 
-**Spawn agent:** developer
+Pass: failed checks with categories, `--log-failed` output per check, `git diff $(git merge-base origin/<default-branch> HEAD)..HEAD`, memory files (`plan.md`, `implementation.md`) if available. Scratch-artifact policy: throwaway benchmarks/spikes go under `$N1_HOME/scratch/{benchmarks,tests}/` (gitignored), never in the repo test suite.
 
-Resolve model for `developer`.
-
-Pass to developer:
-- List of failed checks with their categories
-- Failed run logs for each check (`--log-failed` output)
-- Current git diff against base branch: `git diff $(git merge-base origin/<default-branch> HEAD)..HEAD`
-- N1 memory files if available: `plan.md`, `implementation.md` (so developer understands intent)
-- For each failed check: the check name, category, and truncated log output
-- Scratch-artifact policy: write any throwaway benchmark or investigative/spike test (one answering a current question rather than verifying committed code) under `$N1_HOME/scratch/benchmarks/` or `$N1_HOME/scratch/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Fixes that need real regression coverage still get committed tests in the repo as usual. When unsure, default to scratch.
-
-**Developer agent instructions (append to standard developer prompt):**
+**Developer instructions:**
 
 ```
 You are fixing CI failures on an open pull request. For each failed check:
-
 1. Read the failure logs carefully
 2. Identify the root cause in the codebase
 3. Implement the minimal fix
 4. Run relevant local checks if possible (e.g., lint, typecheck, test commands)
 
-For "unknown" category checks: include a confidence assessment (0.0-1.0) in your
-output indicating how confident you are that your fix resolves the issue.
+For "unknown" category checks: include a confidence assessment (0.0-1.0).
 
-Commit all fixes with descriptive messages (e.g., "fix: resolve eslint no-unused-vars in auth.ts").
-Push to the PR branch after committing.
+Commit all fixes with descriptive messages. Push to the PR branch after committing.
 
 Output format:
 ## CI Fixes Applied
-
 ### Check: <check name> (<category>)
-- **Root cause:** <what caused the failure>
-- **Fix:** <what was changed>
-- **Files:** <list of files modified>
-- **Confidence:** <0.0-1.0> (only for unknown category)
-
+- **Root cause:** <cause>
+- **Fix:** <change>
+- **Files:** <modified files>
+- **Confidence:** <0.0-1.0> (unknown category only)
 ## Summary
 - Checks fixed: N/M
-- Commits: <list of commit messages>
+- Commits: <list>
 ```
 
 **After developer returns:**
-
-1. Check for `unknown` category fixes with confidence below threshold → present to user (Step 5b flow)
-2. Push changes if developer didn't already: `git push`
+1. Handle `unknown` fixes below threshold (Step 5b flow)
+2. Push if developer didn't: `git push`
 3. ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
    n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "ci_fix_cycle"
    ```
-4. If `ci_fix_cycle` < `maxFixAttempts` → go back to **Step 3** (Poll for new CI run)
-5. If cycle counter >= `maxFixAttempts` → go to **Step 6b** (Exhausted)
+4. `ci_fix_cycle` < `maxFixAttempts` → back to **Step 3**
+5. `ci_fix_cycle` >= `maxFixAttempts` → **Step 6b**
 
 ### Step 6b: Max Attempts Exhausted
 
-If after `maxFixAttempts` cycles there are still failing checks:
-
-```
-CI checks are still failing after <N> fix attempts.
-
-Remaining failures:
-- <check name>: <last failure summary>
-- <check name>: <last failure summary>
-
-Fix history:
-- Cycle 1: Fixed <checks>, remaining: <checks>
-- Cycle 2: Fixed <checks>, remaining: <checks>
-- Cycle 3: <checks still failing>
-
-How would you like to proceed?
-1 — Provide guidance for another fix attempt
-2 — Skip CI checks and finalize (PR will have red CI)
-3 — I'll fix manually, then type "continue" to re-poll
-```
-
-**Wait for user response:**
-- **1:** Accept user guidance, spawn developer with the guidance as additional context, increment max attempts by 1 — up to a hard ceiling of 2×`maxFixAttempts` total, beyond which only options 2 and 3 are offered — log the extension to the CI status section, then go back to Step 3
-- **2:** Proceed to Step 7 with CI status = failing
-- **3:** Wait for user to say "continue", then go back to Step 3 (reset cycle counter)
+Present remaining failures and fix history, then offer:
+1. Provide guidance → spawn developer with guidance, increment max by 1 (hard ceiling: 2x`maxFixAttempts`), log extension, back to Step 3
+2. Skip CI → Step 7 with failing status
+3. Fix manually → wait for "continue", back to Step 3 (reset counter)
 
 ## Step 7: Report & Memory Update
 
-### Update overview.md
-
-If N1 memory exists (`$N1_HOME/memory/$ID/overview.md`):
-
-Add CI status section:
+### Update overview.md (if memory exists):
 ```markdown
 ## CI Status
 - **Result:** PASS / FAIL (with N fix cycles)
 - **Fix cycles:** N
-- **Auto-fixed:** <list of checks that were auto-fixed, if any>
-- **Escalated:** <list of checks escalated to user, if any>
-- **Still failing:** <list, if any>
+- **Auto-fixed:** <checks>
+- **Escalated:** <checks>
+- **Still failing:** <checks>
 ```
 
-### Final report
-
+### Final report:
 ```
 CI Watch complete.
-
 Result: All checks passing (after N fix cycles) / Some checks still failing
 PR: <PR URL>
-
 Fixed:
-- <check>: <what was fixed> (cycle N)
-
+- <check>: <fix> (cycle N)
 Still failing:
 - <check>: <reason>
 ```
 
 ## Standalone Usage
 
-When invoked directly (`/n1:n1-ci` or `/n1:n1-ci #123`):
-- Works without N1 memory files — developer agent uses only the diff and failure logs
-- Same flow as above, but skip memory file reads if `$N1_HOME/memory/` doesn't exist
-- Skip overview.md update if no memory directory
+Works without N1 memory — developer uses only diff and logs. Skip memory reads/updates when `$N1_HOME/memory/` absent.
 
 ## Integration
 
-**Called by:**
-- **n1-start** — as step 11 (CI watch) after PR creation
-- **Standalone** — `/n1:n1-ci` or `/n1:n1-ci #123`
-
-**Invokes:**
-- n1 agent: **developer** — CI failure fix cycle
+**Called by:** n1-start (step 11, CI watch after PR creation), standalone `/n1:n1-ci` or `/n1:n1-ci #123`
+**Invokes:** n1 agent: developer (CI fix cycle)

@@ -9,12 +9,6 @@ Run `n1_config_val '.ciChecks.enabled'` (default: `true`).
 
 **REQUIRED SUB-SKILL:** Use n1:n1-ci to monitor CI checks and fix failures.
 
-The n1-ci skill receives the PR number from the PR creation step above. It:
-1. Polls CI checks until all complete
-2. Classifies failures and delegates fixes to the developer agent
-3. Loops up to `ciChecks.maxFixAttempts` cycles — the bound and its default are declared in `pipeline.json` `loops[]` (`ci_fix`).
-4. Escalates to user only if max attempts exhausted or unknown check below confidence threshold
-
 **After n1-ci returns:**
 - If all checks passed (with or without fixes) → continue to FINALIZE
 - If user chose "skip" (CI still red) → continue to FINALIZE with CI status noted

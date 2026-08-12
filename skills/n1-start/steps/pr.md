@@ -23,8 +23,6 @@ Resolve `prMode` from `$N1_HOME/config.json` using the fallback chain:
 Pass to n1-pr:
 - `docUpdateMode: "autonomous"` — doc updates run without user confirmation in the full pipeline
 
-The PR skill handles documentation update, tech-writer spawning, git push, PR creation, and tracker update.
-
 After PR is created:
 - The PR skill reports the URL
 

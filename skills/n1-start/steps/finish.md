@@ -11,13 +11,6 @@ Run `n1_config_val '.finishWork.enabled'` (default: `false`).
 
 **REQUIRED SUB-SKILL:** Use n1:n1-finish to verify/perform the merge, watch the deployment, and close the ticket.
 
-The n1-finish skill receives the ticket `<ID>` and (when known) the PR number from the PR creation step. It:
-1. Resolves the PR (or the local-merge target when `git.prMode` is `"skip"`)
-2. Verifies merged state — or initiates the merge when `finishWork.mergeOnFinish` is `true`
-3. Watches deployment workflow runs on the merge commit when `finishWork.deployWatch.enabled` is `true`
-4. Closes the tracker ticket (moves to `tracker.statuses.done`) when merged and deploy succeeded/not-watched
-5. Updates overview.md (`## Finish` section) and cleans up branch/worktree
-
 **Outcome mapping (step mode):**
 - Merged (+ deploy ok or not watched) + ticket handled → `outcome: "pass"`, `next_step: null`
 - Gate closed → `outcome: "skip"`, `next_step: null`
