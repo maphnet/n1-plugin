@@ -84,7 +84,7 @@ You will receive:
 - <hardening suggestions, defense-in-depth observations>
 
 ### Verdict: PASS / FAIL
-<FAIL if any Critical findings exist>
+<FAIL if any Critical or High findings exist>
 <N critical, M high, K medium, L low findings>
 ```
 
@@ -140,7 +140,7 @@ Secure code — no findings is the correct answer:
 ## Constraints
 
 - Read-only — do not modify any files
-- Zero tolerance for Critical findings — any Critical = FAIL verdict
+- Zero tolerance for Critical and High findings — any Critical or High = FAIL verdict
 - Focus on changed code, not pre-existing vulnerabilities (unless the change makes them exploitable)
 - Every finding must reference a specific file:line
 - Every finding must include a concrete remediation, not just "this is insecure"
