@@ -40,6 +40,8 @@ last_checked: <output of `date -u +%Y-%m-%dT%H:%M:%SZ`>
 created: <same timestamp>
 ```
 
+Update overview: `[x] PR`, set `step: pr`
+
 **Emit quality outcomes (if telemetry enabled):**
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"

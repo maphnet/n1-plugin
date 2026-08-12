@@ -93,6 +93,7 @@ Output format:
 #### After CCR returns:
 
 - Record the CCR verdict: if verdict is FIXED, the plan file was updated in-place by the reviewer. Record the plan-review verdict and a one-line summary of changes in overview's `## Key Decisions` — durable traceability that survives a resume, rather than living only in transient orchestrator context.
+- Update overview: `[x] Plan Review`, set `step: plan-review`
 
 **Step result (step mode):**
 ```bash
