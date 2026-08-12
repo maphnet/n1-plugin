@@ -7,7 +7,7 @@ Run `n1_config_val '.ciChecks.enabled'` (default: `true`).
 
 **If `ciChecks.enabled` is `false`:** Skip to FINALIZE MEMORY.
 
-**REQUIRED SUB-SKILL:** Use n1:n1-ci to monitor CI checks and fix failures.
+**REQUIRED SUB-SKILL:** Use n1:n1-ci to monitor CI checks and fix failures. Pass it the PR number from the PR creation step above.
 
 **After n1-ci returns:**
 - If all checks passed (with or without fixes) → continue to FINALIZE

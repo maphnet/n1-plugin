@@ -96,7 +96,7 @@ Prepare shared review context:
 - Base SHA: `${REVIEW_BASE}`
 - Head SHA: current `HEAD`
 
-Spawn the selected reviewers simultaneously (code-reviewer always; security-reviewer iff `SECURITY_RELEVANT`; Codex iff CODEX_ACTIVE). Each returns findings ranked by priority (Critical → High → Medium → Low).
+Spawn the selected reviewers simultaneously (code-reviewer always; security-reviewer iff `SECURITY_RELEVANT`; Codex iff CODEX_EXPECTED). Each returns findings ranked by priority (Critical → High → Medium → Low).
 
 **Wait for ALL agents/commands to complete before proceeding.**
 

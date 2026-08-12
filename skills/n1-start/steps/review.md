@@ -66,7 +66,13 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
      n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"
      ```
 4. After QA fixes TQ findings, proceed to Step 8. No re-review needed — TQ findings are non-blocking.
-5. **Bounded:** `tq.maxFixAttempts` (config, default 2) — a separate counter from the Step 6 QA bug-fix loop so QA exhaustion never blocks TQ cleanup. On exhaustion:
+5. **Bounded:** `tq.maxFixAttempts` (config, default 2) — a separate counter from the Step 6 QA bug-fix loop so QA exhaustion never blocks TQ cleanup. Before spawning, check the bound:
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   TQ_MAX=$(n1_config_val '.tq.maxFixAttempts' '2')
+   # exhausted when tq_fix_cycle (overview.md frontmatter) >= TQ_MAX
+   ```
+   On exhaustion:
 
    **Autonomy gate (full pipeline only):** → § Autonomy Gate (qualityEscalations) with step=`review`, action=`log remaining TQ findings in review.md and proceed to Step 8`, ledger_context=`<TQ findings that remained unresolved after N attempts>`.
 
