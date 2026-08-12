@@ -320,6 +320,8 @@ Always escalate: security, architecture, public API changes.
 
 Config block `autonomy` in `$N1_HOME/config.json` (all defaults preserve interactive behavior): `brainstorm` (`"interactive"`|`"auto"`), `mechanicalPrompts` (`"ask"`|`"auto"`), `qualityEscalations` (`"block"`|`"auto-accept"`), `tailChain` (`"suggest"`|`"auto"`), `escalationMargin` (default `0.15`). Read via `n1_autonomy_val` in `lib/config.sh`.
 
+`autonomy.brainstorm`: `"interactive"` (default) runs superpowers:brainstorming with a multi-turn user session; `"auto"` switches to the autonomous brainstormer in interactive-escalation mode, which eliminates the back-and-forth design conversation and shortens the session. **`"auto"` does NOT isolate context** — the autonomous brainstormer is a skill fragment the orchestrator follows in-session; its design work accumulates in the same orchestrator context window as every other step.
+
 Every autonomous decision appends a row to the `## Decision Ledger` table in overview.md (spec: `skills/n1-start/ledger.md`); the tech-writer renders it as a `## Decisions` section in the PR body — the after-the-fact review artifact. Hard invariants: security/architecture/public-API escalations always block; **release is never automatic** — `tailChain` scope ends at finish, `pipeline.json` routing never auto-enters release (`manual_only`), and the n1-release confirmation gate is unconditional.
 
 Cross-session resume: the pr step writes a `## Pending` block (`awaiting: merge`) to overview.md; `hooks/session-start.sh` scans these (capped at 5 `gh pr view` calls, 30-min throttle via `last_checked`, 14-day expiry, fail-open) and suggests — or under `tailChain: "auto"` runs — `/n1:n1-finish` when the PR was merged externally.

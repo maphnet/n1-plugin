@@ -102,6 +102,39 @@ If compaction data is available in run records (`summary.compaction_count > 0`):
 | local-testing | N | X% |
 | ... | ... | ... |
 
+## Brainstorm Context-Contribution Analysis
+
+**Purpose:** Attribute compaction events to the brainstorm step across runs to decide whether Stage 2 (subagent brainstormer) is worth implementing.
+
+**Procedure:**
+
+1. For each run JSONL file, extract two event streams:
+   - `step` events for `"step":"brainstorm"`: note `started_at` and `completed_at` timestamps.
+   - `compaction` events: note `timestamp`.
+
+2. For each compaction event, classify which step was active when it fired:
+   - A compaction belongs to `brainstorm` if its `timestamp` falls between the brainstorm `started_at` and `completed_at`.
+   - Repeat for all other steps (analysis, plan, review, etc.).
+
+3. Aggregate across all runs:
+
+| Step | Compaction count | % of all compactions | Runs affected |
+|------|-----------------|----------------------|---------------|
+| brainstorm | N | X% | M |
+| review | N | X% | M |
+| ... | ... | ... | ... |
+
+4. Report average brainstorm duration for runs that compacted vs. those that did not. A large duration gap corroborates that brainstorm is a dominant context consumer.
+
+**Stage 2 go/no-go criterion:** Proceed to Stage 2 (subagent brainstormer) only if ALL of:
+- Brainstorm accounts for ≥ 40% of all compaction events across runs with compaction, AND
+- At least 10 runs with completed brainstorm telemetry are available (sufficient sample), AND
+- No other single step accounts for a higher share (brainstorm is the dominant sink, not just large).
+
+If the data shows brainstorm is not the dominant compaction source, Stage 2 is not justified — investigate the actual dominant step instead.
+
+**Note:** This procedure requires `telemetry.enabled: true` in config and at least one full pipeline run that produced `started_at`/`completed_at` step events for `brainstorm`. If brainstorm step events are missing, the compaction-to-step attribution cannot be performed.
+
 ## Output Format
 
 Present the full report as markdown. End with:

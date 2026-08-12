@@ -1,4 +1,10 @@
 
+**Telemetry (if enabled):** Emit `started_at` for step 3 (`brainstorm`) before any routing or agent spawning:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/memory/$ID/telemetry" started_at=now
+```
+
 **Conditional routing based on execution mode:**
 
 **Step mode** (`--step brainstorm`): Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). This skill runs without any interactive channel — it generates approaches, scores them, and either selects autonomously or writes an escalation request for n1-loop to mediate.
@@ -19,7 +25,7 @@ TEST_TIER="${TEST_TIER:-maintain}"
 
 Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `changed_files_source` — brainstorm runs before implementation; `CHANGED_FILES` will be empty). Capture result as `$RULES_BLOCK`.
 
-- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` in **interactive escalation mode** — tell it: "interactive escalation mode: you have a user-facing session; ask A-tier and inconclusive-dominance questions inline, one at a time; write [auto]/[asked] ledger rows per skills/n1-start/ledger.md." Also pass the test-coverage-tier directive and `$RULES_BLOCK` (same way the interactive path passes them). After it returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies).
+- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` in **interactive escalation mode** — tell it: "interactive escalation mode: you have a user-facing session; ask A-tier and inconclusive-dominance questions inline, one at a time; write [auto]/[asked] ledger rows per skills/n1-start/ledger.md." Also pass the test-coverage-tier directive and `$RULES_BLOCK` (same way the interactive path passes them). After it returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies). **Note: `auto` shortens the session by eliminating the interactive design conversation; it does NOT isolate context — the autonomous brainstormer runs as a skill fragment in the orchestrator's own window, so its design work accumulates in the same context as all other steps.**
 - **`BRAINSTORM_MODE` == `interactive` (default):** Use the interactive brainstormer:
 
 **REQUIRED SUB-SKILL:** Use superpowers:brainstorming to explore the scope and refine the approach.
