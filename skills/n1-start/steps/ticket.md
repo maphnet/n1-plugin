@@ -127,7 +127,7 @@ tier: <simple|standard|complex>
 title: <ticket title>
 ambiguities: <count of ambiguity items, 0 if none>
 ```
-Do NOT return the full report."
+Do NOT return the full report — followed by your n1:signals line per your Signal Emission section."
 
 For error tracker mode, also pass:
 - `issueId`, `issueUrl`, `errorTrackingMcp`, `operations` (error tracker ops), `orgSlug`, `projectSlug`

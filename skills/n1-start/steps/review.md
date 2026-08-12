@@ -52,7 +52,7 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
    - `testCoverage.tier` value
    - Directive: "**TQ Fix Mode — skip your standard 6-step process.** The code-reviewer flagged these test quality issues. Your only task: remove or rewrite the specific tests identified in the TQ findings below. After making those changes, run the test suite to confirm no regressions. Do not follow Steps 1–5 of your normal process."
    - Output-path directive: "Write your full QA Report (your standard Output Format) to `$N1_HOME/memory/<ID>/qa.md` yourself, as a full overwrite (never append). Return to the orchestrator ONLY this compact block:
-     `Verdict: PASS|FAIL` / `Bugs found: yes|no` (one line per bug if yes) / `TQ-relevant notes: <one line or none>` / a 3–5 sentence summary of the test work. Do NOT return the full report."
+     `Verdict: PASS|FAIL` / `Bugs found: yes|no` (one line per bug if yes) / `TQ-relevant notes: <one line or none>` / a 3–5 sentence summary of the test work. Do NOT return the full report — followed by your n1:signals line per your Signal Emission section."
 3. After QA returns:
    - The qa-engineer updated `$N1_HOME/memory/<ID>/qa.md` itself (verify non-empty as in Step 6; fallback-write the returned summary if not)
    - Run via Bash:

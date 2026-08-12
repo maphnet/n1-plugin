@@ -11,9 +11,7 @@ You are a Planner. Your single job is to produce a detailed, bite-sized implemen
 ## Input
 
 You will receive in your dispatch prompt:
-- The task scope (`ticket.md` content)
-- The approved design (`brainstorm.md` content)
-- The codebase analysis (`analysis.md` content)
+- Absolute **paths** to your inputs — Read these files yourself before planning: `ticket.md` (task scope), `brainstorm.md` (approved design), and `analysis.md` (Step-2 codebase analysis). Their content is NOT inlined here.
 - An **output path** where the plan file must be written (e.g. `$N1_HOME/memory/<ID>/plan.md`)
 
 ## Process
