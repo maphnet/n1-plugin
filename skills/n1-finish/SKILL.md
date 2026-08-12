@@ -93,7 +93,14 @@ Evaluate the PR state:
 
 1. Detect worktree context: if `git rev-parse --show-toplevel` contains `/.claude/worktrees/`, resolve the main checkout (`MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`) and run ALL subsequent Step 2b git commands from `$MAIN_CHECKOUT` (the default branch is checked out there — do not `git checkout <defaultBranch>` from inside the worktree; it always fails with "already checked out"). The clean-tree precondition applies to the main checkout's tree in this case. When NOT in a worktree (plain checkout), proceed as written below.
 2. Preconditions: `git status --porcelain` must be empty (dirty tree → "Commit or stash changes first." STOP); the feature branch and `git.defaultBranch` must both exist locally.
-3. Merge — from the default branch:
+3. **Test-suite precondition:** Discover the full-suite test command using the same detection as the qa-engineer agent (inspect project root for `package.json` `scripts.test`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod` (→ `go test ./...`), Makefile `test` target — first match wins).
+   - **No test configuration found:** note "no test suite detected — skipping test precondition" in the report and proceed.
+   - **Test configuration found:** run via Bash:
+     ```bash
+     <discovered-test-command> 2>&1; SUITE_EXIT=$?
+     ```
+     If `SUITE_EXIT` is non-zero: report the failure output and output "Refusing to merge: test suite is failing (exit code <SUITE_EXIT>). Fix failing tests and re-run `/n1:n1-finish`." **STOP** (step mode: `outcome: "fail"`).
+4. Merge — from the default branch:
    ```bash
    git checkout <defaultBranch>
    ```
@@ -101,10 +108,10 @@ Evaluate the PR state:
    - `squash`: `git merge --squash <branch> && git commit -m "<ID>: <ticket title>"`
    - `merge`: `git merge --no-ff <branch> -m "Merge branch '<branch>'"`
    - `rebase`: `git checkout <branch> && git rebase <defaultBranch> && git checkout <defaultBranch> && git merge --ff-only <branch>`
-4. **Merge conflict** → `git merge --abort` (or `git rebase --abort`), report the conflicting files, switch back to the feature branch. **STOP** (step mode: `outcome: "fail"`).
-5. **No push.** Report explicitly: "Merged `<branch>` into `<defaultBranch>` locally. Push manually when ready: `git push origin <defaultBranch>`."
-6. Deploy watch is **skipped** on this path (nothing on the remote yet) — note it in the report.
-7. Continue to Step 4 (close ticket). The tracker comment must say "merged locally, push pending".
+5. **Merge conflict** → `git merge --abort` (or `git rebase --abort`), report the conflicting files, switch back to the feature branch. **STOP** (step mode: `outcome: "fail"`).
+6. **No push.** Report explicitly: "Merged `<branch>` into `<defaultBranch>` locally. Push manually when ready: `git push origin <defaultBranch>`."
+7. Deploy watch is **skipped** on this path (nothing on the remote yet) — note it in the report.
+8. Continue to Step 4 (close ticket). The tracker comment must say "merged locally, push pending".
 
 ## Step 3: Deploy Watch (PR path only, when `deployWatch.enabled` is `true`)
 

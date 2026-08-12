@@ -86,6 +86,25 @@ If the combined Step-7 verdict is PASS:
 - If `clean_passes` < `MIN_CLEAN`: go back to Step 7
 - If `clean_passes` >= `MIN_CLEAN`: proceed
 
+**Full-suite regression check (orchestrator-side, once at PASS transition):**
+
+Discover the full-suite test command using the same detection as the qa-engineer agent (Step 2: Find test conventions): inspect the project root for `package.json` (`scripts.test`), `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod` (→ `go test ./...`), and a `Makefile` `test` target — first match wins.
+
+- **No test configuration found:** append one line to the current `## Fix Cycle <N>` section in `$N1_HOME/memory/<ID>/implementation.md` (where `<N>` is `review_fix_cycle`): `Full-suite check skipped: no test configuration detected.` Then proceed.
+- **Test configuration found:** run via Bash and capture the exit code:
+  ```bash
+  <discovered-test-command> 2>&1; FULL_SUITE_EXIT=$?
+  ```
+  Append one line to the current `## Fix Cycle <N>` section in `$N1_HOME/memory/<ID>/implementation.md`:
+  ```
+  **Full-suite run:** exit code <FULL_SUITE_EXIT> — <PASS|FAIL>
+  ```
+  - **Exit code 0 (pass):** proceed.
+  - **Exit code non-zero (fail):** surface the failure output to the user: "Full test suite failed after fix cycle <N> (exit code <FULL_SUITE_EXIT>) — potential regression introduced during fix cycles. Fix failing tests before proceeding, or acknowledge explicitly."
+    - **Full pipeline mode:** ask: "Fix the regression now (re-spawn developer) or proceed anyway (regression will land in CI)?"
+    - **Step mode:** escalate with id `full_suite_regression` (options: `["Fix: spawn developer to resolve", "Proceed: acknowledge regression"]`, recommendation: `Fix`). Emit step result and STOP.
+    - Do NOT silently proceed on a non-zero exit.
+
 Update overview: `[x] Review`, set `step: review`
 
 **Step result (step mode):**
