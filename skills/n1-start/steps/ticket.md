@@ -211,7 +211,7 @@ If `MP` is `ask` (default), ask:
      - YouTrack: `issueId: <ID>`, `assigneeLogin: <login>`.
    - Success: report suffix = ` (assigned to you)`. Failure: emit warning; use empty suffix; do not roll back creation.
 8. Report: "Created ticket **[<ID>](<ticket URL>)**<report suffix>: <title>"
-9. After writing ticket.md and overview.md, update tracker status to In Progress (call `<tracker.operations.moveStatus>`).
+9. After writing ticket.md and overview.md, proceed to the next step.
 
 **If 2 (No):**
 - Final `<ID>`: description slug (brain dump) or filename slug (file mode) if `source_mode == braindump`; `sentry-<issueId>` if `source_mode == error-tracker`.
@@ -220,10 +220,6 @@ If `MP` is `ask` (default), ask:
 
 **If no tracker is configured** (error-tracker mode only — brain-dump/file mode is already gated by the outer `if` above):
 - `sentry-<issueId>` is the final `<ID>`. Skip tracker status updates throughout the pipeline.
-
-**For ticket mode only (after product-analyst returns):**
-5. After agent returns, update tracker status to In Progress:
-   - Call `mcp__<tracker.mcp>__<tracker.operations.moveStatus>`
 
 **For all modes:**
 - The agent wrote `$N1_HOME/memory/<ID>/ticket.md` itself. Verify it:
