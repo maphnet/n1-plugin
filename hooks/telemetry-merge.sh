@@ -116,7 +116,7 @@ if command -v jq >/dev/null 2>&1; then
     # --- Discover orchestrator (parent session) transcript ---
     SESSION_TRANSCRIPT=""
     if [ -f "$AGENTS_FILE" ]; then
-        SESSION_TRANSCRIPT=$(jq -r '[.[] | select(.session_transcript_path) | .session_transcript_path] | first // empty' "$AGENTS_FILE" 2>/dev/null || true)
+        SESSION_TRANSCRIPT=$(jq -rs 'first(.[] | select(.session_transcript_path) | .session_transcript_path) // empty' "$AGENTS_FILE" 2>/dev/null || true)
     fi
 
     # --- Parse each transcript file ---

@@ -148,7 +148,7 @@ def parse_transcript(path: str) -> dict:
         return {"parse_error": "transcript_parse_failed"}
 
 
-def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict | None:
+def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict:
     p = Path(path)
     if not p.is_file():
         return {"steps": [], "unattributed": None, "totals": None,
