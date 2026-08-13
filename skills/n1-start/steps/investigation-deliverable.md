@@ -27,6 +27,9 @@ Spawn the solution-architect agent with:
 ### Question
 <the core question being investigated>
 
+### Background
+<2-4 paragraphs explaining the problem domain, why this investigation was needed, and what context a reader needs to understand the findings. Written for someone encountering this problem for the first time. Cover: what the system or component does, what went wrong or was unclear, what the user or team was trying to achieve, and why the answer was not obvious from surface inspection. Draw on ticket.md and analysis.md for context but rewrite in your own narrative voice -- do not copy-paste.>
+
 ### Summary
 <1-3 sentence answer>
 
@@ -251,17 +254,35 @@ Call `tracker.operations.addComment` via tracker MCP -- Jira: with `cloudId`, `i
 
 **Phase 2 -- Discussion**
 
-Present the findings summary to the user:
+Present the investigation deliverable to the user. Extract the following sections from `investigation.md` and print them verbatim (preserve all markdown formatting, tables, and file:line references):
 
 ```
-Investigation complete. Here are the key findings:
+## Investigation: <title from investigation.md>
 
+### Background
+<Background section from investigation.md>
+
+### Summary
 <Summary section from investigation.md>
 
+### Metrics
+<Metrics section from investigation.md>
+
+### Findings
+<Findings section from investigation.md -- all evidence and file:line references preserved>
+
+### Recommendations
 <Recommendations section from investigation.md>
 
-Would you like to discuss or refine any findings? (yes/no)
+### Next Steps
+<Next Steps section from investigation.md>
+
+Full report: `$N1_HOME/memory/<ID>/investigation.md`
+
+Would you like to discuss or refine any findings?
 ```
+
+Omit `### References` and `### Clarifications` from chat output (reference-only, not actionable in conversation).
 
 - **If yes:** Enter a back-and-forth conversation with the user. After discussion, update `investigation.md` with any refinements. Do NOT re-spawn the agent -- the orchestrator handles the refinement inline.
 - **If no:** Proceed to post-investigation routing.
