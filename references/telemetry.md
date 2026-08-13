@@ -30,3 +30,28 @@ Optional local-first telemetry gated on `telemetry.enabled` in `$N1_HOME/config.
 **ID reconciliation:** Telemetry directories live inside `$N1_HOME/memory/<ID>/`, so the existing Reconcile Memory ID & Worktree procedure moves them automatically when a provisional ID is replaced with a tracker ticket ID.
 
 Hooks use `matcher: "n1:*"` — zero overhead for non-N1 sessions. All collection is async and non-blocking.
+
+**Schema version:** Current version is **2**. Version 1 records lack the `orchestrator` field; consumers should treat its absence as "not collected".
+
+**Orchestrator telemetry** (schema v2+):
+
+The merged record includes an `orchestrator` field with per-step tool call and token data for the orchestrator (main Claude Code session), excluding `Agent` tool calls (tracked separately as subagents).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `orchestrator.steps[]` | array | Per-pipeline-step tool histogram and token totals |
+| `orchestrator.steps[].step` | string | Pipeline step name |
+| `orchestrator.steps[].input_tokens` | int | Input tokens consumed during this step |
+| `orchestrator.steps[].output_tokens` | int | Output tokens generated during this step |
+| `orchestrator.steps[].cache_read_tokens` | int | Cache read tokens during this step |
+| `orchestrator.steps[].cache_creation_tokens` | int | Cache creation tokens during this step |
+| `orchestrator.steps[].api_calls` | int | Number of API calls during this step |
+| `orchestrator.steps[].tool_calls` | int | Number of tool calls (excluding Agent) during this step |
+| `orchestrator.steps[].tools_used` | object | Tool name → call count histogram |
+| `orchestrator.unattributed` | object | Same shape as a step entry, for API calls outside any step window |
+| `orchestrator.totals` | object | Rollup across all steps + unattributed |
+| `orchestrator.parse_error` | string\|null | Error string if transcript could not be parsed |
+
+Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `orchestrator_tool_calls`.
+
+**Session transcript discovery:** The agent-stop hook writes `session_transcript_path` (the raw parent session transcript path from the harness payload) alongside the resolved per-agent `transcript_path`. The merge script reads the first `session_transcript_path` from the raw agents file. If no agent events exist, `orchestrator` is `null`.
