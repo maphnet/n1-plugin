@@ -148,6 +148,95 @@ def parse_transcript(path: str) -> dict:
         return {"parse_error": "transcript_parse_failed"}
 
 
+def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict | None:
+    p = Path(path)
+    if not p.is_file():
+        return {"steps": [], "unattributed": None, "totals": None,
+                "parse_error": "orchestrator_transcript_not_found"}
+    try:
+        messages = []
+        for rec in _read_jsonl(p):
+            if rec.get("type") != "assistant" or not rec.get("message"):
+                continue
+            msg = rec["message"]
+            tools = []
+            for block in msg.get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") != "Agent":
+                    tools.append(block.get("name", "?"))
+            u = msg.get("usage") or {}
+            messages.append({
+                "ts": rec.get("timestamp", ""),
+                "input_tokens": u.get("input_tokens") or 0,
+                "output_tokens": u.get("output_tokens") or 0,
+                "cache_read_tokens": u.get("cache_read_input_tokens") or 0,
+                "cache_creation_tokens": u.get("cache_creation_input_tokens") or 0,
+                "tools": tools,
+            })
+
+        def _find_step(ts: str) -> str:
+            for step in steps:
+                s_start = step.get("started_at")
+                s_end = step.get("completed_at")
+                if s_start and s_start <= ts and (s_end is None or s_end >= ts):
+                    return step.get("step", "__unattributed__")
+            return "__unattributed__"
+
+        grouped: dict[str, list] = {}
+        for m in messages:
+            step_name = _find_step(m["ts"])
+            grouped.setdefault(step_name, []).append(m)
+
+        step_entries = []
+        unattributed = None
+        for step_name, msgs in grouped.items():
+            tools_used: dict[str, int] = {}
+            for m in msgs:
+                for t in m["tools"]:
+                    tools_used[t] = tools_used.get(t, 0) + 1
+            entry = {
+                "step": step_name,
+                "input_tokens": sum(m["input_tokens"] for m in msgs),
+                "output_tokens": sum(m["output_tokens"] for m in msgs),
+                "cache_read_tokens": sum(m["cache_read_tokens"] for m in msgs),
+                "cache_creation_tokens": sum(m["cache_creation_tokens"] for m in msgs),
+                "api_calls": len(msgs),
+                "tool_calls": sum(len(m["tools"]) for m in msgs),
+                "tools_used": tools_used,
+            }
+            if step_name == "__unattributed__":
+                del entry["step"]
+                unattributed = entry
+            else:
+                step_entries.append(entry)
+
+        if unattributed is None:
+            unattributed = {"input_tokens": 0, "output_tokens": 0,
+                            "cache_read_tokens": 0, "cache_creation_tokens": 0,
+                            "api_calls": 0, "tool_calls": 0, "tools_used": {}}
+
+        all_tools: dict[str, int] = {}
+        for msgs in grouped.values():
+            for m in msgs:
+                for t in m["tools"]:
+                    all_tools[t] = all_tools.get(t, 0) + 1
+
+        totals = {
+            "input_tokens": sum(m["input_tokens"] for m in messages),
+            "output_tokens": sum(m["output_tokens"] for m in messages),
+            "cache_read_tokens": sum(m["cache_read_tokens"] for m in messages),
+            "cache_creation_tokens": sum(m["cache_creation_tokens"] for m in messages),
+            "api_calls": len(messages),
+            "tool_calls": sum(len(m["tools"]) for m in messages),
+            "tools_used": all_tools,
+        }
+
+        return {"steps": step_entries, "unattributed": unattributed,
+                "totals": totals, "parse_error": None}
+    except OSError:
+        return {"steps": [], "unattributed": None, "totals": None,
+                "parse_error": "orchestrator_transcript_parse_failed"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("run_id")
@@ -193,6 +282,16 @@ def main() -> int:
                 entry.update(parsed)
         agents.append(entry)
 
+    session_transcript = None
+    for ev in _read_jsonl(agents_file):
+        if ev.get("session_transcript_path"):
+            session_transcript = ev["session_transcript_path"]
+            break
+
+    orchestrator = None
+    if session_transcript:
+        orchestrator = parse_orchestrator_transcript(session_transcript, steps)
+
     envelope = {}
     for ev in step_events:
         if ev.get("layer") == "envelope":
@@ -208,6 +307,7 @@ def main() -> int:
     outcomes = [e for e in step_events if e.get('event') == 'outcome']
     total_in = _sum(a["input_tokens"] for a in agents)
     total_cache = _sum(a["cache_read_tokens"] for a in agents)
+    orch_totals = (orchestrator or {}).get("totals")
     summary = {
         "total_duration_s": _sum(s["duration_s"] for s in steps),
         "total_input_tokens": total_in,
@@ -221,10 +321,13 @@ def main() -> int:
         "qa_fix_cycles": sum(1 for s in steps if s["step"] == "qa" and (s["loop_iteration"] or 0) > 0),
         "compaction_count": len(compaction_events),
         "compaction_timestamps": compaction_events,
+        "orchestrator_input_tokens": orch_totals["input_tokens"] if orch_totals else None,
+        "orchestrator_output_tokens": orch_totals["output_tokens"] if orch_totals else None,
+        "orchestrator_tool_calls": orch_totals["tool_calls"] if orch_totals else None,
     }
 
     record = {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": args.run_id,
         "session_id": envelope.get("session_id"),
         "n1_version": args.n1_version,
@@ -236,6 +339,7 @@ def main() -> int:
         "final_outcome": envelope.get("final_outcome"),
         "estimated_tier": envelope.get("estimated_tier"),
         "config_snapshot": envelope.get("config_snapshot"),
+        "orchestrator": orchestrator,
         "steps": steps,
         "agents": agents,
         "decisions": decisions,
