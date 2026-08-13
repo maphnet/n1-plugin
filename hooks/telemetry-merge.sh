@@ -269,8 +269,10 @@ if command -v jq >/dev/null 2>&1; then
             }
         ' "$SESSION_TRANSCRIPT" 2>/dev/null || echo '{"parse_error":"orchestrator_transcript_parse_failed"}')
 
-        # Remove the step field from unattributed if it leaked through
-        ORCHESTRATOR_JSON=$(echo "$ORCHESTRATOR_JSON" | jq '.unattributed |= del(.step)')
+        # Remove the step field from unattributed if it leaked through (skip on parse errors)
+        if echo "$ORCHESTRATOR_JSON" | jq -e '.parse_error == null' >/dev/null 2>&1; then
+            ORCHESTRATOR_JSON=$(echo "$ORCHESTRATOR_JSON" | jq '.unattributed |= del(.step)')
+        fi
     elif [ -n "$SESSION_TRANSCRIPT" ]; then
         ORCHESTRATOR_JSON='{"steps":[],"unattributed":null,"totals":null,"parse_error":"orchestrator_transcript_not_found"}'
     fi
