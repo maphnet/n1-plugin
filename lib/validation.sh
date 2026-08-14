@@ -20,6 +20,18 @@ n1_verify_dependencies() {
     return 0
 }
 
+n1_extract_ticket_from_url() {
+    local input="$1" config_file="$2"
+    local prefix
+    prefix=$(n1_config_val '.tracker.prefix' "$config_file")
+    [ -z "$prefix" ] && return 1
+    echo "$input" | grep -qE '^https?://' || return 1
+    local ticket_id
+    ticket_id=$(echo "$input" | grep -oE "${prefix}-[0-9]+" | head -1)
+    [ -n "$ticket_id" ] && printf '%s' "$ticket_id" && return 0
+    return 1
+}
+
 n1_detect_input_type() {
     local input="$1" config_file="$2"
     local prefix
