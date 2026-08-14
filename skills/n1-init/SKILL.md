@@ -326,6 +326,18 @@ Call `mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources`.
   Set `tracker.cloudId` from the selected resource's `id` field.
 - **Failure or empty:** log "Could not detect Atlassian Cloud ID — Confluence KB features will be unavailable." Set `tracker.cloudId` to `null`.
 
+**Detect jc-mcp server (for version operations):**
+
+Use ToolSearch to find a tool matching `jcm_createVersion`. Extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`).
+
+- **Found:** set `VERSION_MCP` to the detected server name.
+- **Not found:** prompt:
+  ```
+  Version operations (create/release Jira versions) require jc-mcp.
+  Enter your jc-mcp MCP server name (e.g., publius-jc-mcp), or leave blank to skip:
+  ```
+  If blank or skipped → set `VERSION_MCP` to `null` and omit `versionMcp` from the config block. Version operations will be unavailable until configured.
+
 Set config:
 ```json
 {
@@ -336,7 +348,7 @@ Set config:
     "prefix": "<from project selection>",
     "projectKey": "<from project selection>",
     "assignToCreator": true,
-    "versionMcp": "publius-jc-mcp",
+    "versionMcp": "<VERSION_MCP — omit key if null>",
     "operations": {
       "readTicket": "getJiraIssue",
       "getTransitions": "getTransitionsForJiraIssue",

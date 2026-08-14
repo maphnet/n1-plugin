@@ -250,7 +250,7 @@ Warning format: "Could not <operation> for <target>: <error> -- continuing."
 
 ### 5b-1. Create & release version
 
-Gate: `trackerRelease.createVersion` is `true`.
+Gate: `trackerRelease.createVersion` is `true` AND `tracker.type` is `"jira"` (YouTrack version bundles not yet supported — skip with `"Version creation skipped: not supported for this tracker type."`).
 
 Resolve `VERSION_NAME` from the template:
 ```bash
@@ -269,7 +269,7 @@ Report: `"Version \"<VERSION_NAME>\" -- created and released"` or `"Version \"<V
 
 ### 5b-2. Set fix version on tickets
 
-Gate: `trackerRelease.setFixVersion` is `true`.
+Gate: `trackerRelease.setFixVersion` is `true` AND `tracker.type` is `"jira"` (YouTrack fix-version assignment not yet supported — skip with `"Fix version skipped: not supported for this tracker type."`).
 
 For each ticket in `RELEASE_TICKET_IDS`:
 
