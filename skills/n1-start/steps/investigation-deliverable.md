@@ -243,23 +243,48 @@ If either condition fails, set `KB_ARTICLE_LINK=""` and proceed to 2b-ii.
 
 2. Check idempotency: if current description contains `*Investigation completed -- N1*`, skip description update.
 
-3. Extract from `investigation.md`: Summary section, Findings section (bullet items only), Metrics (Confidence, Blast radius, Implementable values), Recommendations section (bullet items only).
+3. Extract from `investigation.md`: Summary section, all Findings with evidence (file:line references preserved), Recommendations section, Metrics (all values — Confidence, Blast radius, Implementable, Complexity, Risk factors), Next Steps, Background section (for scope and constraints derivation).
 
 4. Construct append content:
    ```
    ---
    *Investigation completed -- N1*
 
-   **Summary:** <summary text>
+   ## Summary
+   <summary text from investigation.md>
 
-   **Key Findings:**
-   <findings bullet items>
+   ## Key Findings
+   <all findings with evidence — file:line references preserved, not just bullets>
 
+   ## Acceptance Criteria
+   - [ ] <derived from recommendation 1>
+   - [ ] <derived from recommendation 2>
+   ...
+
+   ## Scope
+   - **In scope:** <components/areas affected, derived from findings and file references>
+   - **Out of scope:** <explicitly excluded areas, derived from investigation boundaries>
+
+   ## Architectural Constraints
+   <constraints, decisions, or gotchas discovered during investigation — anything a fresh implementer needs to know that isn't obvious from the code>
+
+   ## Metrics
    **Confidence:** <level> | **Blast Radius:** <level> | **Implementable:** <yes/no>
+   **Complexity:** <tier> | **Risk factors:** <list or none>
 
-   **Recommendations:**
-   <recommendations bullet items>
+   ## Recommendations
+   <all recommendations from investigation.md>
+
+   ## Full Report
+   <KB article link — only present when KB_ARTICLE_LINK is non-empty>
    ```
+
+   **Derivation rules:**
+   - **Acceptance criteria:** One checkbox per recommendation. Each criterion is a verifiable statement derived from the recommendation (e.g., recommendation "Add input validation to endpoint X" becomes `- [ ] Input validation added to endpoint X`).
+   - **Scope — In scope:** List the components, files, or subsystems referenced in the Findings section. Group by area if more than 5.
+   - **Scope — Out of scope:** Derive from investigation boundaries — anything the investigation explicitly noted as unrelated or deferred.
+   - **Architectural constraints:** Extract from Findings any items that describe how something works or must work (invariants, dependencies, ordering requirements), as opposed to what's wrong. If none, omit the section.
+   - **Full Report:** Include only when `KB_ARTICLE_LINK` is non-empty. Omit the entire section otherwise.
 
 5. Call `tracker.operations.editTicket` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `description: <current>\n\n<append>`; YouTrack: with `issueId: <ID>`, `description: <current>\n\n<append>`. On failure: log "Warning: Investigation description update failed: <reason>" -- non-blocking.
 
