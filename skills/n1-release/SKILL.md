@@ -37,8 +37,15 @@ Read the `release` block via `n1_config_val`, applying defaults when keys are ab
 | `.release.procedure` | `null` |
 | `.release.draft` | `false` |
 | `.release.deploymentCheck` | `true` |
+| `.release.trackerRelease.enabled` | `false` |
+| `.release.trackerRelease.versionName` | `"{serviceName} {version}"` |
+| `.release.trackerRelease.moveTickets` | `true` |
+| `.release.trackerRelease.setFixVersion` | `true` |
+| `.release.trackerRelease.createVersion` | `true` |
 
-Also read `git.defaultBranch`, `git.branchPattern`, `tracker.mcp`, `tracker.operations`.
+Also read `git.defaultBranch`, `git.branchPattern`, `tracker.mcp`, `tracker.operations`, `tracker.prefix`, `tracker.projectKey`, `tracker.statuses`, `ticketTagging.service`.
+
+For version operations (Jira only): read `tracker.versionMcp` (defaults to `null`). When non-null, version tool calls use `mcp__<tracker.versionMcp>__<operation>` instead of `mcp__<tracker.mcp>__<operation>`.
 
 `release.enabled` gates only the pipeline step -- standalone invocation proceeds regardless.
 
@@ -92,12 +99,42 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
 5. **Merge SHA**: attempt to read from `$N1_HOME/memory/<ID>/overview.md` `## Finish` section if a memory directory exists for the inferred ticket ID (parsed from branch name via `git.branchPattern`). Otherwise empty string.
 6. **Pending batch**: if `$N1_HOME/pending-releases.json` exists and `.pending` is non-empty, read its ticket IDs:
    ```bash
-   PENDING_IDS=$(jq -r '[.pending[].id] | join(", ")' "$N1_HOME/pending-releases.json" 2>/dev/null || true)
+   PENDING_IDS=$(jq -r '.pending[].id' "$N1_HOME/pending-releases.json" 2>/dev/null || true)
+   PENDING_IDS_DISPLAY=$(echo "$PENDING_IDS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')
    ```
-   This release covers the whole batch — include the IDs in the Step 3 confirmation summary as `Batch: <ID1>, <ID2>, ...` (omit this line when `PENDING_IDS` is empty). After a successful release (Step 5 complete), post the tracker release comment (Step 6) for EACH batched ticket ID in addition to the current ticket. Then reset the file:
+   This release covers the whole batch — include the IDs in the Step 3 confirmation summary as `Batch: <PENDING_IDS_DISPLAY>` (omit this line when `PENDING_IDS` is empty). After a successful release (Step 5 complete), post the tracker release comment (Step 6) for EACH batched ticket ID in addition to the current ticket. Then reset the file:
    ```bash
    printf '{"pending": []}\n' > "$N1_HOME/pending-releases.json"
    ```
+7. **Unified ticket discovery**: build `RELEASE_TICKET_IDS` by merging four sources (deduplicated):
+
+   **Source A — Branch name** (existing): parse current branch via `git.branchPattern` for ticket prefix. Produces `BRANCH_ID` (single ID or empty).
+
+   **Source B — Pending batch** (existing): `PENDING_IDS` from sub-step 6 above.
+
+   **Source C — GitHub Release notes** (new): after Step 5 creates the release, parse its body for ticket IDs:
+   ```bash
+   PREFIX=$(n1_config_val '.tracker.prefix')
+   GH_BODY=$(gh release view "${TAG}" --json body --jq '.body' 2>/dev/null || true)
+   GH_IDS=$(echo "$GH_BODY" | grep -oE "${PREFIX}-[0-9]+" | sort -u)
+   ```
+
+   **Source D — Git log between tags** (new): scan commit messages between previous and current tag:
+   ```bash
+   if [ -n "$PREV_TAG" ]; then
+     GIT_LOG=$(git log "${PREV_TAG}..${TAG}" --oneline 2>/dev/null || true)
+   else
+     GIT_LOG=$(git log "${TAG}" --oneline 2>/dev/null || true)
+   fi
+   GIT_IDS=$(echo "$GIT_LOG" | grep -oE "${PREFIX}-[0-9]+" | sort -u)
+   ```
+
+   **Merge all sources:**
+   ```bash
+   RELEASE_TICKET_IDS=$(echo -e "${BRANCH_ID}\n${PENDING_IDS}\n${GH_IDS}\n${GIT_IDS}" | grep -v '^$' | sort -u)
+   ```
+
+   Note: Sources C and D require `TAG` to exist, so their extraction runs after Step 5 (Execute) completes. The merge produces the final `RELEASE_TICKET_IDS` used by Steps 5b, 6, and 7.
 
 ## Step 3: Confirmation Gate
 
@@ -194,18 +231,85 @@ Report the release URL from `gh release view "${TAG}" --json url --jq '.url'` on
 
 4. **On abort** at any step -> report which step was abandoned, remind the user of what ran and what didn't, leave cleanup to the user.
 
+## Step 5b: Tracker Release Operations
+
+**Runs after Step 5 completes successfully.** First, resolve Sources C and D of the ticket discovery (sub-step 7 in Step 2) — these require the tag/release to exist.
+
+Only runs when ALL hold:
+- `release.trackerRelease.enabled` is `true`
+- `tracker.mcp` is configured (not null)
+- `RELEASE_TICKET_IDS` is non-empty
+
+All sub-operations are best-effort: failures warn but never block the release report.
+
+```
+Warning format: "Could not <operation> for <target>: <error> -- continuing."
+```
+
+**MCP routing for version operations:** Version ops (`createVersion`, `releaseVersion`, `listVersions`) use `tracker.versionMcp` when configured, falling back to `tracker.mcp`. Construct tool names as `mcp__<versionMcp>__<operation>`. All other operations (editTicket, getTransitions, moveStatus) use `tracker.mcp` as usual.
+
+### 5b-1. Create & release version
+
+Gate: `trackerRelease.createVersion` is `true` AND `tracker.type` is `"jira"` (YouTrack version bundles not yet supported — skip with `"Version creation skipped: not supported for this tracker type."`).
+
+Resolve `VERSION_NAME` from the template:
+```bash
+SERVICE=$(n1_config_val '.ticketTagging.service')
+[ -z "$SERVICE" ] && SERVICE=$(basename "$(git rev-parse --show-toplevel)")
+VERSION_NAME=$(echo "$TRACKER_RELEASE_VERSION_NAME" | sed "s/{serviceName}/$SERVICE/g; s/{version}/$VERSION/g")
+```
+
+Where `TRACKER_RELEASE_VERSION_NAME` is the value of `release.trackerRelease.versionName`.
+
+1. `mcp__<versionMcp>__<operations.listVersions>` with `projectKey` -- check if `VERSION_NAME` already exists.
+2. If not found: `mcp__<versionMcp>__<operations.createVersion>` with `projectKey`, `name=VERSION_NAME`, `releaseDate=<today's date>`.
+3. `mcp__<versionMcp>__<operations.releaseVersion>` with `versionId` from step 1 or 2, `releaseDate=<today's date>` -- mark as released. Idempotent if already released.
+
+Report: `"Version \"<VERSION_NAME>\" -- created and released"` or `"Version \"<VERSION_NAME>\" -- already existed, marked released"`.
+
+### 5b-2. Set fix version on tickets
+
+Gate: `trackerRelease.setFixVersion` is `true` AND `tracker.type` is `"jira"` (YouTrack fix-version assignment not yet supported — skip with `"Fix version skipped: not supported for this tracker type."`).
+
+For each ticket in `RELEASE_TICKET_IDS`:
+
+`mcp__<tracker.mcp>__<operations.editTicket>` with `issueKey=<ticket>`, `fields: {"fixVersions": [{"add": {"name": VERSION_NAME}}]}`.
+
+Idempotent: adding an already-set fix version is a no-op in Jira.
+
+Report: `"Fix version set on <ID1>, <ID2>, ..."` or `"Fix version: skipped (setFixVersion disabled)"`.
+
+### 5b-3. Move tickets to released status
+
+Gate: `trackerRelease.moveTickets` is `true`.
+
+Resolve target status: `tracker.statuses.released` -- fall back to `tracker.statuses.done` when `released` is absent.
+
+If neither status is configured, skip with: `"Ticket transition skipped: no released or done status configured."`.
+
+For each ticket in `RELEASE_TICKET_IDS`:
+
+1. `mcp__<tracker.mcp>__<operations.getTransitions>` on the ticket -- find the transition whose target status matches the resolved target.
+2. If a matching transition is found: `mcp__<tracker.mcp>__<operations.moveStatus>` with that transition ID.
+3. If the ticket is already in the target status -- skip silently (idempotent).
+4. If no matching transition exists -- warn: `"Could not transition <ID>: no transition to '<target>' available -- continuing."`.
+
+Report: `"<N> ticket(s) moved to \"<target>\""` or `"Ticket transition: skipped (moveTickets disabled)"`.
+
 ## Step 6: Tracker Comment (best-effort)
 
 Only when ALL hold:
 - `tracker.mcp` is configured (not null)
 - `tracker.operations.addComment` exists
-- A ticket ID can be inferred from branch name (`git branch --show-current` parsed against `git.branchPattern`)
+- `RELEASE_TICKET_IDS` is non-empty
+
+For each ticket in `RELEASE_TICKET_IDS`:
 
 Post: `"Released as <TAG>"` via `mcp__<tracker.mcp>__<operations.addComment>`.
 
-When `tracker.operations.getComments` exists, check recent comments first and skip if an identical comment is already present (idempotent re-run).
+When `tracker.operations.getComments` exists, check recent comments on each ticket first and skip if an identical comment is already present (idempotent re-run).
 
-Failure -> warn and continue; never block the release report.
+Failure on any individual ticket -> warn and continue to the next; never block the release report.
 
 ## Step 7: Report
 
@@ -215,7 +319,8 @@ Released <TAG>
 
 Tag:     <TAG> (pushed to origin)
 Release: <release URL>
-Ticket:  <ID> — comment posted / no ticket inferred / tracker not configured
+Tickets: <RELEASE_TICKET_IDS comma-separated> -- comments posted / no tickets found / tracker not configured
+<tracker release summary -- only when trackerRelease.enabled is true>
 ```
 
 On custom procedure completion:
@@ -224,6 +329,15 @@ Release procedure complete.
 
 Steps completed: <N>/<total>
 Ticket: <ID> — comment posted / no ticket inferred / tracker not configured
+```
+
+**Tracker release summary** (appended to report when `trackerRelease.enabled` is true):
+
+```
+Tracker release:
+  Version:     "<VERSION_NAME>" -- created and released / already existed / skipped (createVersion disabled)
+  Fix version: set on <IDs> / skipped (setFixVersion disabled)
+  Tickets:     <N> moved to "<target>" / skipped (moveTickets disabled) / skipped (no status configured)
 ```
 
 On idempotent skip:
@@ -267,6 +381,8 @@ Only runs after a **successful release** (built-in flow success or custom proced
 
 Every path is safe to re-run: existing release causes a skip; existing tag skips tag creation; existing tracker comment is not duplicated (when comments are readable).
 
+Tracker release operations are individually idempotent: existing versions are reused (not duplicated), fix versions already set are no-ops, and tickets already in the target status are skipped.
+
 ## Integration
 
 **Called by:**
@@ -274,5 +390,5 @@ Every path is safe to re-run: existing release causes a skip; existing tag skips
 - **Standalone** -- `/n1:n1-release`
 
 **Invokes:**
-- Inline: `gh` CLI (release view/create, auth status), git (tag, push), tracker MCP operations, `references/ci-detection.md` (deployment pipeline detection)
+- Inline: `gh` CLI (release view/create, auth status), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit), `references/ci-detection.md` (deployment pipeline detection)
 - No agent spawns -- thin controller, orchestration only

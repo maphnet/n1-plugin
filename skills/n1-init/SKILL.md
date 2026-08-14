@@ -274,6 +274,7 @@ Auto-map detected statuses to N1 workflow slots by matching common names:
 - **codeReview**: "Code Review" — if no exact match found, fall back to the `inProgress` value (N1 uses this after PR creation; the tracker's "Review"/"QA" columns are reserved for human QA outside the orchestrator)
 - **done**: "Done", "Closed", "Resolved", "Fixed", "Complete", "Completed" — if no match found, run the **Done Fallback Picker** after the main confirmation (see below)
 - **blocked**: "Blocked", "On Hold", "Waiting", "Paused" — if no match found, omit from config (runtime recovery handles the miss; see `skills/n1-start/references/blocked-status-recovery.md`)
+- **released**: "Released", "Deployed", "Live" — if no match found, omit from config (runtime falls back to `done`)
 
 Show the detected mapping for confirmation. When `done` or `blocked` was not auto-matched, omit it from the table:
 ```
@@ -283,6 +284,7 @@ Detected workflow statuses:
   codeReview → Code Review (or In Progress if no Code Review status)
   done       → Done        ← include only when a match was found
   blocked    → On Hold     ← include only when a match was found
+  released   → Released    ← include only when a match was found
 
 Correct? 1 — Yes / 2 — No, let me specify manually
 ```
@@ -324,6 +326,18 @@ Call `mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources`.
   Set `tracker.cloudId` from the selected resource's `id` field.
 - **Failure or empty:** log "Could not detect Atlassian Cloud ID — Confluence KB features will be unavailable." Set `tracker.cloudId` to `null`.
 
+**Detect jc-mcp server (for version operations):**
+
+Use ToolSearch to find a tool matching `jcm_createVersion`. Extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`).
+
+- **Found:** set `VERSION_MCP` to the detected server name.
+- **Not found:** prompt:
+  ```
+  Version operations (create/release Jira versions) require jc-mcp.
+  Enter your jc-mcp MCP server name (e.g., publius-jc-mcp), or leave blank to skip:
+  ```
+  If blank or skipped → set `VERSION_MCP` to `null` and omit `versionMcp` from the config block. Version operations will be unavailable until configured.
+
 Set config:
 ```json
 {
@@ -334,6 +348,7 @@ Set config:
     "prefix": "<from project selection>",
     "projectKey": "<from project selection>",
     "assignToCreator": true,
+    "versionMcp": "<VERSION_MCP — omit key if null>",
     "operations": {
       "readTicket": "getJiraIssue",
       "getTransitions": "getTransitionsForJiraIssue",
@@ -349,14 +364,18 @@ Set config:
       "linkIssues": "linkJiraIssues",
       "createArticle": "createConfluencePage",
       "getArticle": "getConfluencePage",
-      "updateArticle": "updateConfluencePage"
+      "updateArticle": "updateConfluencePage",
+      "createVersion": "jcm_createVersion",
+      "releaseVersion": "jcm_releaseVersion",
+      "listVersions": "jcm_listVersions"
     },
     "statuses": {
       "todo": "<detected or manual>",
       "inProgress": "<detected or manual>",
       "codeReview": "<detected or inProgress fallback>",
       "done": "<detected or manual — omit key entirely when absent>",
-      "blocked": "<detected or omit key entirely when absent>"
+      "blocked": "<detected or omit key entirely when absent>",
+      "released": "<detected or omit key entirely when absent>"
     }
   }
 }
@@ -428,7 +447,8 @@ Set config:
       "inProgress": "<detected or manual>",
       "codeReview": "<detected or inProgress fallback>",
       "done": "<detected or manual — omit key entirely when absent>",
-      "blocked": "<detected or omit key entirely when absent>"
+      "blocked": "<detected or omit key entirely when absent>",
+      "released": "<detected or omit key entirely when absent>"
     }
   }
 }
@@ -1102,6 +1122,36 @@ Write:
 }
 ```
 
+### Tracker Release Automation
+
+**Only runs when `release.enabled` is `true` AND `tracker.mcp` is not null.** Skip this section entirely otherwise.
+
+```
+Enable tracker release automation?
+Creates versions, sets fix versions, and moves tickets on release.
+1 -- Yes
+2 -- No (default)
+```
+
+**If 2 (No) or default:** do not add `trackerRelease` to config (defaults apply from `defaults/release.json` with `enabled: false`).
+
+**If 1 (Yes):** add `trackerRelease` to the `release` block:
+```json
+{
+  "release": {
+    "trackerRelease": {
+      "enabled": true,
+      "versionName": "{serviceName} {version}",
+      "moveTickets": true,
+      "setFixVersion": true,
+      "createVersion": true
+    }
+  }
+}
+```
+
+No sub-questions for individual flags -- all default to `true` when enabled. Users can fine-tune in config.json after init.
+
 ### Deployment Pipeline Awareness
 
 **Only runs when `release.enabled` is `true`.** Skip this section entirely if the user chose not to enable releases.
@@ -1138,6 +1188,7 @@ Current release:
   enabled         → <true/false>
   procedure       → GitHub Release (built-in) | custom (<N> steps)
   deploymentCheck → <true/false>
+  trackerRelease  → <enabled/disabled>
 
 1 — Keep current
 2 — Change settings
