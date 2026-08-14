@@ -99,9 +99,10 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
 5. **Merge SHA**: attempt to read from `$N1_HOME/memory/<ID>/overview.md` `## Finish` section if a memory directory exists for the inferred ticket ID (parsed from branch name via `git.branchPattern`). Otherwise empty string.
 6. **Pending batch**: if `$N1_HOME/pending-releases.json` exists and `.pending` is non-empty, read its ticket IDs:
    ```bash
-   PENDING_IDS=$(jq -r '[.pending[].id] | join(", ")' "$N1_HOME/pending-releases.json" 2>/dev/null || true)
+   PENDING_IDS=$(jq -r '.pending[].id' "$N1_HOME/pending-releases.json" 2>/dev/null || true)
+   PENDING_IDS_DISPLAY=$(echo "$PENDING_IDS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')
    ```
-   This release covers the whole batch — include the IDs in the Step 3 confirmation summary as `Batch: <ID1>, <ID2>, ...` (omit this line when `PENDING_IDS` is empty). After a successful release (Step 5 complete), post the tracker release comment (Step 6) for EACH batched ticket ID in addition to the current ticket. Then reset the file:
+   This release covers the whole batch — include the IDs in the Step 3 confirmation summary as `Batch: <PENDING_IDS_DISPLAY>` (omit this line when `PENDING_IDS` is empty). After a successful release (Step 5 complete), post the tracker release comment (Step 6) for EACH batched ticket ID in addition to the current ticket. Then reset the file:
    ```bash
    printf '{"pending": []}\n' > "$N1_HOME/pending-releases.json"
    ```
