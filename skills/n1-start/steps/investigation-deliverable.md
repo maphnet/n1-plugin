@@ -443,6 +443,10 @@ What would you like to do next?
 
 **Step 2 -- Route based on user choice:**
 
+---
+
+**When `IMPLEMENTABLE == "true"` (options 1-3 or 1-4 depending on `ORIGINAL_STATUS`):**
+
 **If 1 -- Create new implementation ticket:**
 
 1. Read the `### Recommendations` and `### Summary` sections from `investigation.md`.
@@ -503,7 +507,7 @@ What would you like to do next?
    If 1: transition to `tracker.statuses.done` and add comment "Investigation completed. Findings documented. Follow-up: <newID>" (see close logic below).
    If 2: no status change.
 
-**If 2 -- Convert this ticket to implementation:**
+**If 2 -- Convert this ticket to implementation** (applies only when `IMPLEMENTABLE == "true"`):
 
 1. Call `tracker.operations.editTicket` via tracker MCP to update type -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `issueTypeName: "Task"`; YouTrack: with `issueId: <ID>`, `Type: "Task"`. On failure: log and continue.
 
@@ -557,6 +561,24 @@ What would you like to do next?
 5. **Continuation offer.** Ask: "Continue to implementation now? 1 -- Yes, continue in this session / 2 -- No, stop here".
    - **If 1 (Yes):** run workspace isolation now — **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise (investigation mode skipped it) — then proceed to SKILL.md § Planning Need Routing using the `planning_need` signal from `$N1_HOME/memory/$ID/brainstorm.md`; if the signal is absent (research-focused brainstorm may not emit it), default to `deep` (route to plan). The existing artifacts (`ticket.md`, `analysis.md`, `brainstorm.md`) satisfy the dependency guard — no step is re-run.
    - **If 2 (No):** report "Ticket <ID> converted to implementation task. Run `/n1:n1-start <ID>` to continue — the pipeline will resume at the next step."
+
+**If 3 -- Close ticket** (when `ORIGINAL_STATUS` is empty, option 3; also the close option in the 4-item menu):
+Apply close logic below. Comment: "Investigation completed. Findings documented."
+
+**If 4 -- Restore to original status** (only present when `ORIGINAL_STATUS` is non-empty; option 4 in the 4-item menu):
+Apply restore logic below. Comment: "Investigation completed. Ticket restored to original status."
+
+---
+
+**When `IMPLEMENTABLE != "true"` (options 1-2 or option 1 only):**
+
+**If 1 -- Close ticket:**
+Apply close logic below. Comment: "Investigation completed. Findings documented."
+
+**If 2 -- Restore to original status** (only present when `ORIGINAL_STATUS` is non-empty):
+Apply restore logic below. Comment: "Investigation completed. Ticket restored to original status."
+
+---
 
 **Close logic (shared by close options across all menu variants):**
 
