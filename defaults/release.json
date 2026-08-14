@@ -3,5 +3,12 @@
   "tagPrefix": "v",
   "procedure": null,
   "draft": false,
-  "deploymentCheck": true
+  "deploymentCheck": true,
+  "trackerRelease": {
+    "enabled": false,
+    "versionName": "{serviceName} {version}",
+    "moveTickets": true,
+    "setFixVersion": true,
+    "createVersion": true
+  }
 }
