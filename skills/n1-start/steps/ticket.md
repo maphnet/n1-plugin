@@ -107,6 +107,14 @@ If `INVESTIGATION_DETECTED` is false AND the input mode is "ticket" or "error-tr
 
 Note: overview.md may not exist yet at this point (for ticket mode it does because we already resolved `<ID>`; for brain dump/file/error-tracker the ID may still be provisional). If overview.md does not exist yet, store the investigation flag in context and write it after overview.md is created (see "Write resolved type to overview.md" below).
 
+**Capture original ticket status (ticket mode only):**
+
+Read the raw ticket.md written by the intake-agent BEFORE the product-analyst overwrites it:
+```bash
+ORIGINAL_STATUS=$(grep -m1 '^\*\*Status:\*\*' "$N1_HOME/memory/$ID/ticket.md" | sed 's/^\*\*Status:\*\* //')
+```
+Store `ORIGINAL_STATUS` in context — it will be written to overview.md frontmatter after overview.md is created (see "Write original ticket status to overview.md" below). Brain-dump and file modes produce `Not specified` or an empty string here — the guard at write-time skips the frontmatter write, which is correct since there is no tracker status to restore.
+
 **Phase 2: Spawn product-analyst**
 
 Resolve model for `product-analyst` (see Model Resolution above).
@@ -314,14 +322,14 @@ n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive"
 
 **Write original ticket status to overview.md:**
 
+`ORIGINAL_STATUS` was captured from the raw intake-agent output before the product-analyst ran (see "Capture original ticket status" above). Write it to frontmatter now that overview.md exists:
 ```bash
-ORIGINAL_STATUS=$(grep -m1 '^\*\*Status:\*\*' "$N1_HOME/memory/$ID/ticket.md" | sed 's/^\*\*Status:\*\* //')
 if [ -n "$ORIGINAL_STATUS" ] && [ "$ORIGINAL_STATUS" != "Not specified" ]; then
     n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status" "$ORIGINAL_STATUS"
 fi
 ```
 
-This runs for all pipeline types. Brain-dump and file modes produce `Not specified` — the guard skips writing frontmatter, which is correct since there is no tracker status to restore.
+Brain-dump and file modes produce `Not specified` or an empty string — the guard skips the frontmatter write, which is correct since there is no tracker status to restore.
 
 **If `INVESTIGATION_DETECTED` is true** (i.e., `RESOLVED_TYPE` is `"investigation"`):
 1. Replace the overview.md progress checklist with the investigation variant:

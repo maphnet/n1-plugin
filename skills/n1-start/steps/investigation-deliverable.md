@@ -427,6 +427,7 @@ Investigation complete.
 What would you like to do next?
 1 -- Close ticket
 2 -- Restore to original status ({ORIGINAL_STATUS})
+3 -- Leave ticket as-is
 ```
 
 **When `IMPLEMENTABLE != "true"` AND `ORIGINAL_STATUS` is empty:**
@@ -439,6 +440,7 @@ Investigation complete.
 
 What would you like to do next?
 1 -- Close ticket
+2 -- Leave ticket as-is
 ```
 
 **Step 2 -- Route based on user choice:**
@@ -562,7 +564,7 @@ What would you like to do next?
    - **If 1 (Yes):** run workspace isolation now — **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise (investigation mode skipped it) — then proceed to SKILL.md § Planning Need Routing using the `planning_need` signal from `$N1_HOME/memory/$ID/brainstorm.md`; if the signal is absent (research-focused brainstorm may not emit it), default to `deep` (route to plan). The existing artifacts (`ticket.md`, `analysis.md`, `brainstorm.md`) satisfy the dependency guard — no step is re-run.
    - **If 2 (No):** report "Ticket <ID> converted to implementation task. Run `/n1:n1-start <ID>` to continue — the pipeline will resume at the next step."
 
-**If 3 -- Close ticket** (when `ORIGINAL_STATUS` is empty, option 3; also the close option in the 4-item menu):
+**If 3 -- Close ticket** (option 3 in both the 3-item and 4-item implementable menus — applies regardless of `ORIGINAL_STATUS`):
 Apply close logic below. Comment: "Investigation completed. Findings documented."
 
 **If 4 -- Restore to original status** (only present when `ORIGINAL_STATUS` is non-empty; option 4 in the 4-item menu):
@@ -570,13 +572,16 @@ Apply restore logic below. Comment: "Investigation completed. Ticket restored to
 
 ---
 
-**When `IMPLEMENTABLE != "true"` (options 1-2 or option 1 only):**
+**When `IMPLEMENTABLE != "true"` (options 1-3 when `ORIGINAL_STATUS` is non-empty; options 1-2 when empty):**
 
 **If 1 -- Close ticket:**
 Apply close logic below. Comment: "Investigation completed. Findings documented."
 
 **If 2 -- Restore to original status** (only present when `ORIGINAL_STATUS` is non-empty):
 Apply restore logic below. Comment: "Investigation completed. Ticket restored to original status."
+
+**If 3 (when `ORIGINAL_STATUS` is non-empty) or If 2 (when `ORIGINAL_STATUS` is empty) -- Leave ticket as-is:**
+No status change, no comment. Report "Investigation complete. Ticket status unchanged."
 
 ---
 
