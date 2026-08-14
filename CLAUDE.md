@@ -66,6 +66,7 @@ Tool names constructed as `mcp__<tracker.mcp>__<operation>` — never hardcoded.
 | Tracker | type | mcp value | Key operations |
 |---------|------|-----------|---------------|
 | Jira | `jira` | `plugin_atlassian_atlassian` | `getJiraIssue`, `transitionJiraIssue`, `addCommentToJiraIssue`, `getTransitionsForJiraIssue`, `atlassianUserInfo` (getCurrentUser), `editJiraIssue` (assign, editTicket), `createConfluencePage` (createArticle), `getConfluencePage` (getArticle), `updateConfluencePage` (updateArticle) |
+| Jira (versions) | `jira` | `publius-jc-mcp` | `jcm_createVersion` (createVersion), `jcm_releaseVersion` (releaseVersion), `jcm_listVersions` (listVersions) — routed via `tracker.versionMcp` |
 | YouTrack | `youtrack` | `youtrack` | `get_issue`, `update_issue` (moveStatus, editTicket), `add_issue_comment`, `get_issue_comments`, `get_current_user` (getCurrentUser), `change_issue_assignee` (assign), `create_article` (createArticle), `get_article` (getArticle), `update_article` (updateArticle) |
 
 ### Knowledge Base
