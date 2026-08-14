@@ -1,4 +1,10 @@
 
+**Update tracker status to In Progress.** Before analysis begins, move the ticket to the configured In Progress status:
+- **Gate:** Skip if `tracker.mcp` is not configured, `tracker.statuses.inProgress` is absent, or `tracker.operations.moveStatus` is absent.
+- Jira: first call `mcp__<tracker.mcp>__<tracker.operations.getTransitions>` with `cloudId`, `issueIdOrKey: <ID>` to find the transition matching `tracker.statuses.inProgress`, then call `mcp__<tracker.mcp>__<tracker.operations.moveStatus>` with `cloudId`, `issueIdOrKey: <ID>`, `transitionId: <matched id>`.
+- YouTrack: call `mcp__<tracker.mcp>__<tracker.operations.moveStatus>` with `issueId: <ID>`, `state: <tracker.statuses.inProgress>`.
+- If the call fails, emit a warning and continue — do not block analysis on a status update failure.
+
 **Cache check (when `analysisCache.enabled` is true):**
 
 ```bash

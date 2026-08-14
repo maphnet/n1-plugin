@@ -312,6 +312,17 @@ If `INVESTIGATE_FLAG` is `true`, also persist the interactive-investigation mark
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive" "true"
 ```
 
+**Write original ticket status to overview.md:**
+
+```bash
+ORIGINAL_STATUS=$(grep -m1 '^\*\*Status:\*\*' "$N1_HOME/memory/$ID/ticket.md" | sed 's/^\*\*Status:\*\* //')
+if [ -n "$ORIGINAL_STATUS" ] && [ "$ORIGINAL_STATUS" != "Not specified" ]; then
+    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status" "$ORIGINAL_STATUS"
+fi
+```
+
+This runs for all pipeline types. Brain-dump and file modes produce `Not specified` — the guard skips writing frontmatter, which is correct since there is no tracker status to restore.
+
 **If `INVESTIGATION_DETECTED` is true** (i.e., `RESOLVED_TYPE` is `"investigation"`):
 1. Replace the overview.md progress checklist with the investigation variant:
    ```markdown

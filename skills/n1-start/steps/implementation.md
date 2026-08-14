@@ -1,8 +1,4 @@
 
-**Update tracker status to In Progress.** Before any code execution, move the ticket to the configured In Progress status:
-- Call `mcp__<tracker.mcp>__<tracker.operations.moveStatus>` with the ticket `<ID>` and target status `<tracker.statuses.inProgress>`.
-- If the call fails, emit a warning and continue — do not block implementation on a status update failure.
-
 **Ensure dependencies (worktree mode).** Before any code execution, run the
 **Ensure Dependencies(`<ID>`)** procedure (see Workspace Isolation in `SKILL.md`).
 In branch mode this is a no-op. When a worktree is active it lazily installs
