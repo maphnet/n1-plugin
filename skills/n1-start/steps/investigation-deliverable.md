@@ -210,7 +210,34 @@ TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
 TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
 ```
 
-**2b-i. Description update (when `HAS_EDIT` is non-empty):**
+**2b-i. KB auto-publish (when KB is configured):**
+
+**Gate -- ALL must hold, otherwise skip:**
+1. `kb.enabled == true` in `$N1_HOME/config.json`
+2. `tracker.operations.createArticle` exists in config
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+KB_ENABLED=$(n1_config_val ".kb.enabled" "$N1_HOME/config.json")
+HAS_CREATE_ARTICLE=$(n1_config_val ".tracker.operations.createArticle" "$N1_HOME/config.json")
+```
+
+If either condition fails, set `KB_ARTICLE_LINK=""` and proceed to 2b-ii.
+
+**Idempotency:** Before creating, search for an existing article titled `"Investigation: <title> (<ID>)"`:
+- Jira/Confluence: call `searchConfluenceUsingCql` via tracker MCP with CQL `title = "Investigation: <escaped_title> (<ID>)"` and `spaceKey` from `kb.spaceKey`. Escape double quotes in `<title>` with backslash before embedding in CQL. If results are non-empty, extract the article URL from the first result and set `KB_ARTICLE_LINK` to it. Skip creation.
+- YouTrack: call `search_articles` via tracker MCP with query matching the title. If results are non-empty, extract the article URL/ID and set `KB_ARTICLE_LINK`. Skip creation.
+
+**Create article:**
+1. Read the full content of `$N1_HOME/memory/<ID>/investigation.md`.
+2. Title: `"Investigation: <title> (<ID>)"` — where `<title>` is from the `## Investigation: <title>` heading in `investigation.md`.
+3. Body: the full `investigation.md` content (all sections including References and Clarifications).
+4. Jira/Confluence: call `tracker.operations.createArticle` via tracker MCP with `cloudId` (from `tracker.cloudId` in config), `spaceId` (from `kb.spaceId`), `title`, `body`. Extract the article URL from the response.
+5. YouTrack: call `tracker.operations.createArticle` via tracker MCP with `project` (from `tracker.projectKey`), `summary` (title), `content` (body). Extract the article URL/ID from the response.
+
+**Capture link:** Set `KB_ARTICLE_LINK` to the article URL. On failure: log `"Warning: KB article creation failed: <reason>"` — non-blocking, set `KB_ARTICLE_LINK=""`.
+
+**2b-ii. Description update (when `HAS_EDIT` is non-empty):**
 
 1. Fetch current ticket description. Call `tracker.operations.readTicket` via tracker MCP -- Jira: with `cloudId` (from `tracker.cloudId` in config, or resolve via `getAccessibleAtlassianResources` if absent), `issueIdOrKey: <ID>`; YouTrack: with `issueId: <ID>`.
 
@@ -236,7 +263,7 @@ TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
 
 5. Call `tracker.operations.editTicket` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `description: <current>\n\n<append>`; YouTrack: with `issueId: <ID>`, `description: <current>\n\n<append>`. On failure: log "Warning: Investigation description update failed: <reason>" -- non-blocking.
 
-**2b-ii. Comment (when `HAS_COMMENT` is non-empty):**
+**2b-iii. Comment (when `HAS_COMMENT` is non-empty):**
 
 Construct comment body:
 ```
