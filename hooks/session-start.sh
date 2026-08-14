@@ -84,7 +84,8 @@ KB ROUTING (from N1 config):
 - Enabled: true
 - ${kb_detail}
 - Use the createArticle operation from tracker routing to publish to KB
-- Only publish to KB when the user explicitly asks"
+- Investigation results are auto-published to KB when the pipeline completes
+- Use createArticle for on-demand publishing when the user explicitly asks"
 fi
 
 # --- Pending-merge resume scan (fail-open: any error injects nothing) ---
