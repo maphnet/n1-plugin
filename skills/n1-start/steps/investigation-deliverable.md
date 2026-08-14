@@ -376,25 +376,69 @@ Investigation done. Create a tracker ticket for this?
 Read signals from `investigation.md`:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 INV_FILE="$N1_HOME/memory/$ID/investigation.md"
 CONFIDENCE=$(n1_read_signal "$INV_FILE" "confidence")
 IMPLEMENTABLE=$(n1_read_signal "$INV_FILE" "implementable")
 FINDINGS_COUNT=$(n1_read_signal "$INV_FILE" "findings_count")
 RECOMMENDATIONS_COUNT=$(n1_read_signal "$INV_FILE" "recommendations_count")
+ORIGINAL_STATUS=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status")
 ```
 
-Present:
+**Build the menu dynamically** based on `IMPLEMENTABLE` and `ORIGINAL_STATUS`:
+
+**When `IMPLEMENTABLE == "true"` AND `ORIGINAL_STATUS` is non-empty:**
 ```
 Investigation complete.
 
 - {FINDINGS_COUNT} findings (confidence: {CONFIDENCE})
 - {RECOMMENDATIONS_COUNT} recommendations
-- Implementable: {IMPLEMENTABLE == "true" ? "yes" : "no"}
+- Implementable: yes
 
 What would you like to do next?
 1 -- Create a new implementation ticket (linked to this investigation)
 2 -- Convert this ticket to an implementation task
-3 -- Done -- no further action needed
+3 -- Close ticket
+4 -- Restore to original status ({ORIGINAL_STATUS})
+```
+
+**When `IMPLEMENTABLE == "true"` AND `ORIGINAL_STATUS` is empty:**
+```
+Investigation complete.
+
+- {FINDINGS_COUNT} findings (confidence: {CONFIDENCE})
+- {RECOMMENDATIONS_COUNT} recommendations
+- Implementable: yes
+
+What would you like to do next?
+1 -- Create a new implementation ticket (linked to this investigation)
+2 -- Convert this ticket to an implementation task
+3 -- Close ticket
+```
+
+**When `IMPLEMENTABLE != "true"` AND `ORIGINAL_STATUS` is non-empty:**
+```
+Investigation complete.
+
+- {FINDINGS_COUNT} findings (confidence: {CONFIDENCE})
+- {RECOMMENDATIONS_COUNT} recommendations
+- Implementable: no
+
+What would you like to do next?
+1 -- Close ticket
+2 -- Restore to original status ({ORIGINAL_STATUS})
+```
+
+**When `IMPLEMENTABLE != "true"` AND `ORIGINAL_STATUS` is empty:**
+```
+Investigation complete.
+
+- {FINDINGS_COUNT} findings (confidence: {CONFIDENCE})
+- {RECOMMENDATIONS_COUNT} recommendations
+- Implementable: no
+
+What would you like to do next?
+1 -- Close ticket
 ```
 
 **Step 2 -- Route based on user choice:**
@@ -439,13 +483,25 @@ What would you like to do next?
 
 8. Report: "Created follow-up ticket **[<newID>](<url>)**: <title>, linked to investigation <ID>."
 
-9. **Optionally close investigation ticket** -- ask:
+9. **Post-action: investigation ticket disposition** -- when `ORIGINAL_STATUS` is non-empty, ask:
    ```
-   Would you like to close this investigation ticket (<ID>)?
-   1 -- Yes, mark as done
-   2 -- No, leave open
+   What should happen to this investigation ticket (<ID>)?
+   1 -- Close ticket
+   2 -- Restore to original status ({ORIGINAL_STATUS})
+   3 -- Leave as-is
    ```
-   If yes: transition status and add comment "Investigation completed. Findings documented. Follow-up: <newID>" (see close logic below).
+   If 1: transition to `tracker.statuses.done` and add comment "Investigation completed. Findings documented. Follow-up: <newID>" (see close logic below).
+   If 2: restore to original status and add comment "Investigation completed. Ticket restored to original status. Follow-up: <newID>" (see restore logic below).
+   If 3: no status change.
+
+   When `ORIGINAL_STATUS` is empty, ask:
+   ```
+   What should happen to this investigation ticket (<ID>)?
+   1 -- Close ticket
+   2 -- Leave as-is
+   ```
+   If 1: transition to `tracker.statuses.done` and add comment "Investigation completed. Findings documented. Follow-up: <newID>" (see close logic below).
+   If 2: no status change.
 
 **If 2 -- Convert this ticket to implementation:**
 
@@ -502,11 +558,7 @@ What would you like to do next?
    - **If 1 (Yes):** run workspace isolation now — **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise (investigation mode skipped it) — then proceed to SKILL.md § Planning Need Routing using the `planning_need` signal from `$N1_HOME/memory/$ID/brainstorm.md`; if the signal is absent (research-focused brainstorm may not emit it), default to `deep` (route to plan). The existing artifacts (`ticket.md`, `analysis.md`, `brainstorm.md`) satisfy the dependency guard — no step is re-run.
    - **If 2 (No):** report "Ticket <ID> converted to implementation task. Run `/n1:n1-start <ID>` to continue — the pipeline will resume at the next step."
 
-**If 3 -- Done:**
-
-Ask: "Would you like to close this investigation ticket (<ID>)? 1 -- Yes, mark as done / 2 -- No, leave open". If yes: close with comment "Investigation completed. Findings documented." (see close logic below).
-
-**Close logic (shared by option 1 and option 3):**
+**Close logic (shared by close options across all menu variants):**
 
 **Gate -- ALL must hold, otherwise skip with warning:**
 - `tracker.mcp` is configured; `tracker.statuses.done` is present; `tracker.operations.moveStatus` exists.
@@ -515,6 +567,17 @@ If the gate fails, log "Warning: Cannot close ticket -- tracker status configura
 
 1. Call `tracker.operations.moveStatus` via tracker MCP -- Jira: first call `tracker.operations.getTransitions` with `cloudId`, `issueIdOrKey: <ID>` to find the transition matching `tracker.statuses.done`, then call `tracker.operations.moveStatus` with `cloudId`, `issueIdOrKey: <ID>`, `transitionId: <matched id>`; YouTrack: call `tracker.operations.moveStatus` with `issueId: <ID>`, `state: <tracker.statuses.done>`.
 2. Call `tracker.operations.addComment` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `body: <close message>`; YouTrack: with `issueId: <ID>`, `text: <close message>`.
+3. Tracker failures: warn, never block.
+
+**Restore logic:**
+
+**Gate -- ALL must hold, otherwise skip with warning:**
+- `tracker.mcp` is configured; `ORIGINAL_STATUS` is non-empty; `tracker.operations.moveStatus` exists.
+
+If the gate fails, log "Warning: Cannot restore ticket status -- tracker configuration missing or original status unknown." and skip.
+
+1. Call `tracker.operations.moveStatus` via tracker MCP -- Jira: first call `tracker.operations.getTransitions` with `cloudId`, `issueIdOrKey: <ID>` to find the transition matching `ORIGINAL_STATUS`, then call `tracker.operations.moveStatus` with `cloudId`, `issueIdOrKey: <ID>`, `transitionId: <matched id>`; YouTrack: call `tracker.operations.moveStatus` with `issueId: <ID>`, `state: <ORIGINAL_STATUS>`.
+2. Call `tracker.operations.addComment` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `body: <restore message>`; YouTrack: with `issueId: <ID>`, `text: <restore message>`.
 3. Tracker failures: warn, never block.
 
 **Step mode variant:** In step mode, Phase 1b Q&A uses the escalation protocol (same as analysis step). Phase 2b tracker enrichment runs normally. Phase 2 discussion and Phase 5 post-investigation routing are skipped entirely. The step result is unchanged.
