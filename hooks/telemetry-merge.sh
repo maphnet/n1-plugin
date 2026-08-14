@@ -113,6 +113,12 @@ if command -v jq >/dev/null 2>&1; then
         ' "$AGENTS_FILE" 2>/dev/null || echo "[]")
     fi
 
+    # --- Discover orchestrator (parent session) transcript ---
+    SESSION_TRANSCRIPT=""
+    if [ -f "$AGENTS_FILE" ]; then
+        SESSION_TRANSCRIPT=$(jq -rs 'first(.[] | select(.session_transcript_path) | .session_transcript_path) // empty' "$AGENTS_FILE" 2>/dev/null || true)
+    fi
+
     # --- Parse each transcript file ---
     AGENTS_JSON=$(echo "$AGENTS_RAW" | jq --argjson steps "$STEPS_JSON" --argjson smap "$STATIC_MAP" '
         [.[] | . as $agent |
@@ -204,6 +210,73 @@ if command -v jq >/dev/null 2>&1; then
     # Remove internal _transcript_path field
     AGENTS_JSON=$(echo "$AGENTS_JSON" | jq '[.[] | del(._transcript_path)]')
 
+    # --- Parse orchestrator (parent session) transcript ---
+    ORCHESTRATOR_JSON="null"
+    if [ -n "$SESSION_TRANSCRIPT" ] && [ -f "$SESSION_TRANSCRIPT" ]; then
+        ORCHESTRATOR_JSON=$(jq -s --argjson steps "$STEPS_JSON" '
+            [.[] | select(.type == "assistant" and .message)] |
+
+            # Per-message records with timestamp and tool details (excluding Agent tool)
+            [.[] | {
+                ts: .timestamp,
+                model: (.message.model // null),
+                input_tokens: (.message.usage.input_tokens // 0),
+                output_tokens: (.message.usage.output_tokens // 0),
+                cache_read_tokens: (.message.usage.cache_read_input_tokens // 0),
+                cache_creation_tokens: (.message.usage.cache_creation_input_tokens // 0),
+                tools: [.message.content[]? | select(.type == "tool_use" and .name != "Agent") | .name]
+            }] |
+
+            # Assign each message to a step or "unattributed"
+            [.[] | . as $msg |
+                ($steps | map(select(
+                    .started_at and .started_at <= ($msg.ts // "") and
+                    (.completed_at == null or .completed_at >= ($msg.ts // ""))
+                )) | first // null) as $matched_step |
+                . + {step: ($matched_step.step // "__unattributed__")}
+            ] |
+
+            # Group by step and aggregate
+            group_by(.step) |
+            map({
+                step: .[0].step,
+                input_tokens: (map(.input_tokens) | add // 0),
+                output_tokens: (map(.output_tokens) | add // 0),
+                cache_read_tokens: (map(.cache_read_tokens) | add // 0),
+                cache_creation_tokens: (map(.cache_creation_tokens) | add // 0),
+                api_calls: length,
+                tool_calls: ([.[].tools[]] | length),
+                tools_used: ([.[].tools[]] | group_by(.) | map({(.[0]): length}) | add // {})
+            }) |
+
+            # Split into steps array and unattributed bucket
+            {
+                steps: [.[] | select(.step != "__unattributed__")],
+                unattributed: ([.[] | select(.step == "__unattributed__")] | first // {
+                    input_tokens: 0, output_tokens: 0, cache_read_tokens: 0,
+                    cache_creation_tokens: 0, api_calls: 0, tool_calls: 0, tools_used: {}
+                } | del(.step)),
+                totals: {
+                    input_tokens: ([.[].input_tokens] | add // 0),
+                    output_tokens: ([.[].output_tokens] | add // 0),
+                    cache_read_tokens: ([.[].cache_read_tokens] | add // 0),
+                    cache_creation_tokens: ([.[].cache_creation_tokens] | add // 0),
+                    api_calls: ([.[] | .api_calls] | add // 0),
+                    tool_calls: ([[.[].tools_used | to_entries[]? | .value] | add // 0][0] // 0),
+                    tools_used: ([.[].tools_used | to_entries[]?] | group_by(.key) | map({(.[0].key): (map(.value) | add)}) | add // {})
+                },
+                parse_error: null
+            }
+        ' "$SESSION_TRANSCRIPT" 2>/dev/null || echo '{"parse_error":"orchestrator_transcript_parse_failed"}')
+
+        # Remove the step field from unattributed if it leaked through (skip on parse errors)
+        if echo "$ORCHESTRATOR_JSON" | jq -e '.parse_error == null' >/dev/null 2>&1; then
+            ORCHESTRATOR_JSON=$(echo "$ORCHESTRATOR_JSON" | jq '.unattributed |= del(.step)')
+        fi
+    elif [ -n "$SESSION_TRANSCRIPT" ]; then
+        ORCHESTRATOR_JSON='{"steps":[],"unattributed":null,"totals":null,"parse_error":"orchestrator_transcript_not_found"}'
+    fi
+
     # --- Extract run envelope (merge open + close) ---
     RUN_ENVELOPE='{}'
     if [ -f "$STEPS_FILE" ]; then
@@ -219,6 +292,7 @@ if command -v jq >/dev/null 2>&1; then
         --argjson steps "$STEPS_JSON" \
         --argjson agents "$AGENTS_JSON" \
         --argjson compactions "$COMPACTIONS_JSON" \
+        --argjson orch "$ORCHESTRATOR_JSON" \
         '{
             total_duration_s: ([$steps[].duration_s | select(. != null)] | add // 0),
             total_input_tokens: ([$agents[].input_tokens | select(. != null)] | add // 0),
@@ -235,7 +309,10 @@ if command -v jq >/dev/null 2>&1; then
             review_fix_cycles: ([$steps[] | select(.step == "fix") | .loop_iteration // 0] | max // 0),
             qa_fix_cycles: ([$steps[] | select(.step == "qa" and .loop_iteration != null and .loop_iteration > 0)] | length),
             compaction_count: ($compactions | length),
-            compaction_timestamps: $compactions
+            compaction_timestamps: $compactions,
+            orchestrator_input_tokens: (if $orch != null and $orch.totals != null then $orch.totals.input_tokens else null end),
+            orchestrator_output_tokens: (if $orch != null and $orch.totals != null then $orch.totals.output_tokens else null end),
+            orchestrator_tool_calls: (if $orch != null and $orch.totals != null then $orch.totals.tool_calls else null end)
         }
     ')
 
@@ -247,11 +324,12 @@ if command -v jq >/dev/null 2>&1; then
         --argjson summary "$SUMMARY" \
         --argjson decisions "$DECISIONS_JSON" \
         --argjson outcomes "$OUTCOMES_JSON" \
+        --argjson orchestrator "$ORCHESTRATOR_JSON" \
         --arg run_id "$RUN_ID" \
         --arg n1_version "$N1_VERSION" \
         --arg project "$PROJECT_NAME" \
         '{
-            schema_version: 1,
+            schema_version: 2,
             run_id: $run_id,
             session_id: ($envelope.session_id // null),
             n1_version: $n1_version,
@@ -263,6 +341,7 @@ if command -v jq >/dev/null 2>&1; then
             final_outcome: ($envelope.final_outcome // null),
             estimated_tier: ($envelope.estimated_tier // null),
             config_snapshot: ($envelope.config_snapshot // null),
+            orchestrator: $orchestrator,
             steps: $steps,
             agents: $agents,
             decisions: $decisions,
@@ -286,7 +365,7 @@ else
         echo "telemetry-merge: jq not available, merged via python fallback" >&2
     else
         # Neither jq nor python — write a minimal record with raw file references
-        echo "{\"schema_version\":1,\"run_id\":\"${RUN_ID}\",\"project\":\"${PROJECT_NAME}\",\"n1_version\":\"${N1_VERSION}\",\"ticket_id\":\"${TICKET_ID}\",\"parse_error\":\"jq_not_available\",\"raw_steps\":\"${STEPS_FILE}\",\"raw_agents\":\"${AGENTS_FILE}\"}" > "$OUT_FILE"
+        echo "{\"schema_version\":2,\"run_id\":\"${RUN_ID}\",\"project\":\"${PROJECT_NAME}\",\"n1_version\":\"${N1_VERSION}\",\"ticket_id\":\"${TICKET_ID}\",\"parse_error\":\"jq_not_available\",\"raw_steps\":\"${STEPS_FILE}\",\"raw_agents\":\"${AGENTS_FILE}\"}" > "$OUT_FILE"
         echo "telemetry-merge: jq and python not available, wrote minimal record" >&2
     fi
 fi

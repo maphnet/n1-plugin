@@ -23,6 +23,8 @@ else
     TRANSCRIPT_PATH=$(echo "$INPUT" | grep -o '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true)
 fi
 
+SESSION_TRANSCRIPT_PATH="$TRANSCRIPT_PATH"
+
 [[ "$AGENT_TYPE" == n1:* ]] || exit 0
 [ -n "$AGENT_ID" ] || exit 0
 
@@ -38,4 +40,4 @@ TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 OUTFILE="${N1_LOCK_TELEM_DIR}/raw/agents/${N1_LOCK_RUN_ID}.jsonl"
 mkdir -p "$(dirname "$OUTFILE")"
 
-echo "{\"run_id\":\"$(escape_json_val "$N1_LOCK_RUN_ID")\",\"n1_version\":\"$(escape_json_val "$N1_LOCK_VERSION")\",\"ticket_id\":\"$(escape_json_val "$N1_LOCK_TICKET_ID")\",\"layer\":\"agent\",\"event\":\"stop\",\"agent_id\":\"$(escape_json_val "$AGENT_ID")\",\"agent_type\":\"$(escape_json_val "$AGENT_TYPE")\",\"completed_at\":\"${TIMESTAMP}\",\"transcript_path\":\"$(escape_json_val "$TRANSCRIPT_PATH")\"}" >> "$OUTFILE"
+echo "{\"run_id\":\"$(escape_json_val "$N1_LOCK_RUN_ID")\",\"n1_version\":\"$(escape_json_val "$N1_LOCK_VERSION")\",\"ticket_id\":\"$(escape_json_val "$N1_LOCK_TICKET_ID")\",\"layer\":\"agent\",\"event\":\"stop\",\"agent_id\":\"$(escape_json_val "$AGENT_ID")\",\"agent_type\":\"$(escape_json_val "$AGENT_TYPE")\",\"completed_at\":\"${TIMESTAMP}\",\"transcript_path\":\"$(escape_json_val "$TRANSCRIPT_PATH")\",\"session_transcript_path\":\"$(escape_json_val "$SESSION_TRANSCRIPT_PATH")\"}" >> "$OUTFILE"
