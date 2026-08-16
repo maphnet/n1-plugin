@@ -27,3 +27,24 @@ done
 [ -n "$PY" ] || exit 0
 
 printf '%s' "$INPUT" | "$PY" "${SCRIPT_DIR}/enforce-step-result.py" "$N1_HOME/memory" || exit 0
+
+# Clean up active-run.json if the pipeline reached a terminal step
+AR_FILE="${N1_HOME}/active-run.json"
+if [ -f "$AR_FILE" ]; then
+    AR_TICKET=""
+    if command -v jq >/dev/null 2>&1; then
+        AR_TICKET=$(jq -r '.ticketId // empty' "$AR_FILE" 2>/dev/null || true)
+    else
+        AR_TICKET=$(grep -o '"ticketId":"[^"]*"' "$AR_FILE" | sed 's/.*:"//' | sed 's/"$//' || true)
+    fi
+    if [ -n "$AR_TICKET" ]; then
+        OV_FILE="${N1_HOME}/memory/${AR_TICKET}/overview.md"
+        if [ -f "$OV_FILE" ]; then
+            source "${SCRIPT_DIR}/../lib/frontmatter.sh"
+            AWAITING=$(n1_read_frontmatter "$OV_FILE" "awaiting" || true)
+            if [ "$AWAITING" = "merge" ] || [ "$AWAITING" = "done" ]; then
+                rm -f "$AR_FILE"
+            fi
+        fi
+    fi
+fi
