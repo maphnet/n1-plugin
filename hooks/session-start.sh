@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/config.sh"
+source "${SCRIPT_DIR}/../lib/frontmatter.sh"
 
 INPUT=$(cat)
 TRIGGER=$(echo "$INPUT" | grep -o '"trigger"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:.*"\([^"]*\)"/\1/' || true)
@@ -32,6 +33,73 @@ if [ "$telem_enabled" = "true" ]; then
     if [ "${TRIGGER:-}" = "compact" ] && [ -n "${n1_memory_dir:-}" ]; then
         if n1_read_lock "${n1_memory_dir}/memory" 2>/dev/null; then
             n1_emit_compaction "$N1_LOCK_RUN_ID" "$N1_LOCK_VERSION" "$N1_LOCK_TICKET_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
+        fi
+    fi
+fi
+
+# --- Orchestrator state recovery on compaction ---
+N1_COMPACT_STATE=""
+if [ "${TRIGGER:-}" = "compact" ]; then
+    n1_root=$(n1_home)
+    ar_file="${n1_root:+${n1_root}/active-run.json}"
+    if [ -n "$ar_file" ] && [ -f "$ar_file" ]; then
+        ar_ticket=""
+        ar_run_id=""
+        ar_worktree=""
+        ar_branch=""
+        if command -v jq >/dev/null 2>&1; then
+            ar_ticket=$(jq -r '.ticketId // empty' "$ar_file" 2>/dev/null || true)
+            ar_run_id=$(jq -r '.runId // empty' "$ar_file" 2>/dev/null || true)
+            ar_worktree=$(jq -r '.worktreePath // empty' "$ar_file" 2>/dev/null || true)
+            ar_branch=$(jq -r '.branch // empty' "$ar_file" 2>/dev/null || true)
+        else
+            ar_ticket=$(grep -o '"ticketId":"[^"]*"' "$ar_file" | sed 's/.*:"//' | sed 's/"$//')
+            ar_run_id=$(grep -o '"runId":"[^"]*"' "$ar_file" | sed 's/.*:"//' | sed 's/"$//')
+            ar_worktree=$(grep -o '"worktreePath":"[^"]*"' "$ar_file" | sed 's/.*:"//' | sed 's/"$//')
+            ar_branch=$(grep -o '"branch":"[^"]*"' "$ar_file" | sed 's/.*:"//' | sed 's/"$//')
+        fi
+
+        if [ -n "$ar_ticket" ]; then
+            ov_file="${n1_root}/memory/${ar_ticket}/overview.md"
+            ov_step=""
+            ov_type=""
+            ov_qa_fix=""
+            ov_review_fix=""
+            ov_clean_passes=""
+            ov_lt_fix=""
+            ov_ci_fix=""
+            if [ -f "$ov_file" ]; then
+                ov_step=$(n1_read_frontmatter "$ov_file" "step")
+                ov_type=$(n1_read_frontmatter "$ov_file" "type")
+                ov_qa_fix=$(n1_read_frontmatter "$ov_file" "qa_fix_cycle")
+                ov_review_fix=$(n1_read_frontmatter "$ov_file" "review_fix_cycle")
+                ov_clean_passes=$(n1_read_frontmatter "$ov_file" "clean_passes")
+                ov_lt_fix=$(n1_read_frontmatter "$ov_file" "local_test_fix_cycle")
+                ov_ci_fix=$(n1_read_frontmatter "$ov_file" "ci_fix_cycle")
+            fi
+
+            cfg="${n1_root}/config.json"
+            auto_brainstorm=$(n1_autonomy_val 'brainstorm')
+            auto_tail=$(n1_autonomy_val 'tailChain')
+            auto_mech=$(n1_autonomy_val 'mechanicalPrompts')
+            gate_estimation=$(n1_config_val '.estimation.enabled' "$cfg")
+            gate_local=$(n1_config_val '.localTesting.enabled' "$cfg")
+            gate_finish=$(n1_config_val '.finishWork.enabled' "$cfg")
+            gate_ci=$(n1_config_val '.ciChecks.enabled' "$cfg")
+
+            N1_COMPACT_STATE="
+ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any compacted summary):
+- N1_HOME: ${n1_root}
+- Active ticket: ${ar_ticket}
+- Run ID: ${ar_run_id}
+- Current step: ${ov_step:-unknown}
+- Pipeline type: ${ov_type:-standard}
+- Worktree: ${ar_worktree:-none}
+- Branch: ${ar_branch:-unknown}
+- Loop counters: qa_fix_cycle=${ov_qa_fix:-0}, review_fix_cycle=${ov_review_fix:-0}, clean_passes=${ov_clean_passes:-0}, local_test_fix_cycle=${ov_lt_fix:-0}, ci_fix_cycle=${ov_ci_fix:-0}
+- Autonomy: brainstorm=${auto_brainstorm}, tailChain=${auto_tail}, mechanicalPrompts=${auto_mech}
+- Config gates: estimation.enabled=${gate_estimation:-false}, localTesting.enabled=${gate_local:-false}, finishWork.enabled=${gate_finish:-true}, ciChecks.enabled=${gate_ci:-false}
+- IMPORTANT: Use these values, not anything from the compacted conversation summary. Re-read overview.md and config.json if you need values not listed here."
         fi
     fi
 fi
@@ -86,6 +154,11 @@ KB ROUTING (from N1 config):
 - Use the createArticle operation from tracker routing to publish to KB
 - Investigation results are auto-published to KB when the pipeline completes
 - Use createArticle for on-demand publishing when the user explicitly asks"
+fi
+
+# Append orchestrator state (populated only on compact trigger with active run)
+if [ -n "${N1_COMPACT_STATE:-}" ]; then
+    context="${context}${N1_COMPACT_STATE}"
 fi
 
 # --- Pending-merge resume scan (fail-open: any error injects nothing) ---
