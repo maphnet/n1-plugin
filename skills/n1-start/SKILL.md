@@ -500,6 +500,24 @@ In step/loop mode, each step is a fresh session that reloads persona + config + 
 
 Do not attempt to cache volatile memory files; interleaving them into the prefix defeats caching and can increase latency. In branch mode (full pipeline) this ordering is a no-op — the session is continuous — but applying it uniformly is harmless.
 
+### Post-Compaction Recovery
+
+When Claude Code compacts the conversation context, the session-start hook fires synchronously and injects an **ORCHESTRATOR STATE** block into `additionalContext`. This block contains the authoritative runtime state: N1_HOME, active ticket, current step, worktree path, branch, loop counters, autonomy settings, and config gates.
+
+**After any compaction, you MUST:**
+
+1. Read the ORCHESTRATOR STATE block from the re-injected session context — it is marked "authoritative, overrides any compacted summary"
+2. Use those values for all subsequent decisions — tracker type, MCP prefix, worktree path, step routing, loop counters
+3. Do NOT rely on the compacted conversation summary for config or routing values — compaction is lossy and may distort tracker type, MCP names, or other critical state
+4. If the ORCHESTRATOR STATE block is missing (no active run), re-resolve N1_HOME and re-read config.json via Bash before continuing:
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   N1_HOME=$(n1_home)
+   cat "$N1_HOME/config.json"
+   ```
+
+This is belt-and-suspenders: the hook guarantees config delivery, the directive ensures the orchestrator knows to trust it over the compacted summary.
+
 ## Memory Check (Resume Support)
 
 Check if `$N1_HOME/memory/<input>/overview.md` exists:
