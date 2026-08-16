@@ -316,3 +316,22 @@ escape_json_val() {
     s="${s//$'\t'/\\t}"
     printf '%s' "$s"
 }
+
+n1_active_run_write() {
+    local ticket_id="$1" run_id="$2" worktree_path="${3:-null}" branch="${4:-}"
+    local home
+    home=$(n1_home)
+    [ -n "$home" ] || return 0
+    local wt_val="null"
+    [ "$worktree_path" != "null" ] && [ -n "$worktree_path" ] && wt_val="\"${worktree_path}\""
+    cat > "${home}/active-run.json" <<AREOF
+{"ticketId":"${ticket_id}","runId":"${run_id}","worktreePath":${wt_val},"branch":"${branch}"}
+AREOF
+}
+
+n1_active_run_clear() {
+    local home
+    home=$(n1_home)
+    [ -n "$home" ] || return 0
+    rm -f "${home}/active-run.json"
+}
