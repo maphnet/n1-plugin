@@ -56,6 +56,12 @@ Read `telemetry.enabled` from `$N1_HOME/config.json` (default `false` if absent 
    ```bash
    echo '{"run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'"}' > "${N1_HOME}/memory/$ID/telemetry/telemetry.lock"
    ```
+5. Write active-run pointer (regardless of telemetry setting):
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
+   ```
+   This file is read by the session-start hook on compaction to restore orchestrator state. It is NOT gated on `telemetry.enabled`.
 
 Where `$ID` is the ticket ID or provisional slug — the same `<ID>` used for the memory directory. The telemetry directory is created at the same moment as the memory directory (using provisional ID if the final ID is not yet known). Since telemetry lives inside `$N1_HOME/memory/<ID>/`, the existing **Reconcile Memory ID & Branch** procedure moves it automatically when the ID changes.
 
@@ -471,6 +477,10 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
 4. **Branch rename:** compute `<oldBranch>` and `<newBranch>` from `git.branchPattern` (config). If a local branch `<oldBranch>` exists AND `<newBranch>` does NOT → `git branch -m <oldBranch> <newBranch>` (rename preserves commits; N1 has not pushed yet). If `<newBranch>` already exists, skip the rename.
 5. **Worktree move (step mode only):** if `.claude/worktrees/<oldId>/` exists → compute `MAIN_CHECKOUT=$(git rev-parse --show-toplevel)` and run `git worktree move $MAIN_CHECKOUT/.claude/worktrees/<oldId> $MAIN_CHECKOUT/.claude/worktrees/<newId>`. In branch mode (no `--step`), no worktree exists — skip silently.
 6. Report: "Migrated memory + branch `<oldId>` → `<newId>`." (append "+ worktree" if a worktree was moved)
+7. **Update active-run pointer:**
+   ```bash
+   n1_active_run_write "$newId" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
+   ```
 
 ### Agent Working Directory
 
@@ -845,6 +855,12 @@ Update overview.md:
    MERGED="${N1_HOME}/memory/$ID/telemetry/runs/$N1_RUN_ID.jsonl"
    [ -s "$MERGED" ] && rm -f "${N1_HOME}/memory/$ID/telemetry/telemetry.lock"
    ```
+
+After emitting the final step result, clear the active-run pointer:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+n1_active_run_clear
+```
 
 ## Error Recovery
 
