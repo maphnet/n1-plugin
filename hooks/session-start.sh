@@ -78,14 +78,13 @@ if [ "${TRIGGER:-}" = "compact" ]; then
                 ov_ci_fix=$(n1_read_frontmatter "$ov_file" "ci_fix_cycle")
             fi
 
-            cfg="${n1_root}/config.json"
             auto_brainstorm=$(n1_autonomy_val 'brainstorm')
             auto_tail=$(n1_autonomy_val 'tailChain')
             auto_mech=$(n1_autonomy_val 'mechanicalPrompts')
-            gate_estimation=$(n1_config_val '.estimation.enabled' "$cfg")
-            gate_local=$(n1_config_val '.localTesting.enabled' "$cfg")
-            gate_finish=$(n1_config_val '.finishWork.enabled' "$cfg")
-            gate_ci=$(n1_config_val '.ciChecks.enabled' "$cfg")
+            gate_estimation=$(n1_config_val '.estimation.enabled' "$CONFIG_FILE")
+            gate_local=$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")
+            gate_finish=$(n1_config_val '.finishWork.enabled' "$CONFIG_FILE")
+            gate_ci=$(n1_config_val '.ciChecks.enabled' "$CONFIG_FILE")
 
             N1_COMPACT_STATE="
 ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any compacted summary):

@@ -35,7 +35,7 @@ if [ -f "$AR_FILE" ]; then
     if command -v jq >/dev/null 2>&1; then
         AR_TICKET=$(jq -r '.ticketId // empty' "$AR_FILE" 2>/dev/null || true)
     else
-        AR_TICKET=$(grep -o '"ticketId":"[^"]*"' "$AR_FILE" | sed 's/.*:"//' | sed 's/"$//' || true)
+        AR_TICKET=$(grep -o '"ticketId"[[:space:]]*:[[:space:]]*"[^"]*"' "$AR_FILE" | sed 's/.*:[[:space:]]*"//' | sed 's/"$//' || true)
     fi
     if [ -n "$AR_TICKET" ]; then
         OV_FILE="${N1_HOME}/memory/${AR_TICKET}/overview.md"

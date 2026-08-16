@@ -323,9 +323,13 @@ n1_active_run_write() {
     home=$(n1_home)
     [ -n "$home" ] || return 0
     local wt_val="null"
-    [ "$worktree_path" != "null" ] && [ -n "$worktree_path" ] && wt_val="\"${worktree_path}\""
+    [ "$worktree_path" != "null" ] && [ -n "$worktree_path" ] && wt_val="\"$(escape_json_val "$worktree_path")\""
+    local esc_ticket esc_run esc_branch
+    esc_ticket=$(escape_json_val "$ticket_id")
+    esc_run=$(escape_json_val "$run_id")
+    esc_branch=$(escape_json_val "$branch")
     cat > "${home}/active-run.json" <<AREOF
-{"ticketId":"${ticket_id}","runId":"${run_id}","worktreePath":${wt_val},"branch":"${branch}"}
+{"ticketId":"${esc_ticket}","runId":"${esc_run}","worktreePath":${wt_val},"branch":"${esc_branch}"}
 AREOF
 }
 
