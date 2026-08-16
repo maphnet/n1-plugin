@@ -214,7 +214,8 @@ For each subtask:
      ```
 
 2. **Create the subtask:**
-   - **Jira:** Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`, `parentKey: <STORY_ID>`.
+   - **Jira (with jc-mcp):** If `VERSION_MCP` is available, call `mcp__<VERSION_MCP>__jcm_createIssue` with: `projectKey: <PROJECT_KEY>`, `issueType: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`, `parentKey: <STORY_ID>`.
+   - **Jira (without jc-mcp):** If `VERSION_MCP` is empty, call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`. Warn after creation: "⚠ Subtask <SUBTASK_ID> created without parent link (jc-mcp not configured)."
    - **YouTrack:** Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description: SUBTASK_DESC_ESCAPED`. Then link to story: call `mcp__<TRACKER_MCP>__<LINK_OP>` with `issueId: <subtask_id>`, `targetIssueId: <STORY_ID>`, `linkType: "subtask"` (or "Subtask" — use the link type name the YouTrack instance recognizes).
 
 3. **Assign to creator** (if configured): same pattern as story assignment, substituting `<subtask_id>` for the issue identifier.
