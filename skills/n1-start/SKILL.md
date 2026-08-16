@@ -479,6 +479,7 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
 6. Report: "Migrated memory + branch `<oldId>` → `<newId>`." (append "+ worktree" if a worktree was moved)
 7. **Update active-run pointer:**
    ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
    n1_active_run_write "$newId" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
    ```
 
