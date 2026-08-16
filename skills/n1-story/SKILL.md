@@ -62,9 +62,12 @@ GET_USER_OP=$(n1_config_val '.tracker.operations.getCurrentUser')
 ASSIGN_OP=$(n1_config_val '.tracker.operations.assign')
 ASSIGN_TO_CREATOR=$(n1_config_val '.tracker.assignToCreator')
 LINK_OP=$(n1_config_val '.tracker.operations.linkIssues')
+VERSION_MCP=$(n1_config_val '.tracker.versionMcp')
 EDIT_OP=$(n1_config_val '.tracker.operations.editTicket')
 EST_ENABLED=$(n1_config_val '.estimation.writeToTracker')
 ```
+
+**Jira subtask linking guard:** If `TRACKER_TYPE` is `jira` and `VERSION_MCP` is empty or null, warn: "Subtask linking requires jc-mcp (`tracker.versionMcp`). Subtasks will be created as standalone tickets without a parent link. Configure jc-mcp via `/n1:n1-init` to enable linking. Continue anyway?" Soft gate — proceed if user accepts.
 
 ## Step 4: Analysis
 
