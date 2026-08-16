@@ -53,10 +53,10 @@ if [ "${TRIGGER:-}" = "compact" ]; then
             ar_worktree=$(jq -r '.worktreePath // empty' "$ar_file" 2>/dev/null || true)
             ar_branch=$(jq -r '.branch // empty' "$ar_file" 2>/dev/null || true)
         else
-            ar_ticket=$(grep -o '"ticketId":"[^"]*"' "$ar_file" | sed 's/.*:"//' | sed 's/"$//')
-            ar_run_id=$(grep -o '"runId":"[^"]*"' "$ar_file" | sed 's/.*:"//' | sed 's/"$//')
-            ar_worktree=$(grep -o '"worktreePath":"[^"]*"' "$ar_file" | sed 's/.*:"//' | sed 's/"$//')
-            ar_branch=$(grep -o '"branch":"[^"]*"' "$ar_file" | sed 's/.*:"//' | sed 's/"$//')
+            ar_ticket=$(grep -o '"ticketId"[[:space:]]*:[[:space:]]*"[^"]*"' "$ar_file" | sed 's/.*:[[:space:]]*"//' | sed 's/"$//' || true)
+            ar_run_id=$(grep -o '"runId"[[:space:]]*:[[:space:]]*"[^"]*"' "$ar_file" | sed 's/.*:[[:space:]]*"//' | sed 's/"$//' || true)
+            ar_worktree=$(grep -o '"worktreePath"[[:space:]]*:[[:space:]]*"[^"]*"' "$ar_file" | sed 's/.*:[[:space:]]*"//' | sed 's/"$//' || true)
+            ar_branch=$(grep -o '"branch"[[:space:]]*:[[:space:]]*"[^"]*"' "$ar_file" | sed 's/.*:[[:space:]]*"//' | sed 's/"$//' || true)
         fi
 
         if [ -n "$ar_ticket" ]; then
