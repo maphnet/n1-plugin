@@ -224,6 +224,16 @@ HAS_CREATE_ARTICLE=$(n1_config_val ".tracker.operations.createArticle" "$N1_HOME
 
 If either condition fails, set `KB_ARTICLE_LINK=""` and proceed to 2b-ii.
 
+**Intent gate:** KB auto-publish requires explicit user intent — `kb.enabled` alone is not sufficient for investigation mode. Read `$N1_HOME/memory/<ID>/ticket.md` and judge whether the user expressed intent to publish findings to a knowledge base, Confluence, wiki, or shared documentation. This is an inline LLM judgment on semantic intent, not a keyword search.
+
+Positive intent examples: "publish results to Confluence", "create a KB article", "document this in the wiki", "add to knowledge base".
+
+Non-intent examples: mentioning KB as research context ("check the KB for prior art"), no mention of KB/publishing at all, referencing existing articles.
+
+If intent is **not** detected (the default path): set `KB_ARTICLE_LINK=""` and proceed to 2b-ii.
+
+If intent **is** detected: proceed with the idempotency check and article creation below.
+
 **Idempotency:** Before creating, search for an existing article titled `"Investigation: <title> (<ID>)"`:
 - Jira/Confluence: call `searchConfluenceUsingCql` via tracker MCP with CQL `title = "Investigation: <escaped_title> (<ID>)"` and `spaceKey` from `kb.spaceKey`. Escape double quotes in `<title>` with backslash before embedding in CQL. If results are non-empty, extract the article URL from the first result and set `KB_ARTICLE_LINK` to it. Skip creation.
 - YouTrack: call `search_articles` via tracker MCP with query matching the title. If results are non-empty, extract the article URL/ID and set `KB_ARTICLE_LINK`. Skip creation.
