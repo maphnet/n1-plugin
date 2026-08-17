@@ -51,21 +51,17 @@
     "task": {
       "steps": ["ticket", "analysis", "brainstorm", "plan", "plan-review", "estimation",
                  "implementation", "qa", "review", "local-testing", "pr", "ci", "finish", "release"],
-      "detect": { "default": true },
-      "orchestrator_effort": "high",
-      "tier_override": { "simple": "medium" }
+      "detect": { "default": true }
     },
     "investigation": {
       "steps": ["ticket", "analysis", "brainstorm", "investigation-deliverable"],
-      "detect": { "title_match": "investigat", "tags": ["investigation"] },
-      "orchestrator_effort": "high"
+      "detect": { "title_match": "investigat", "tags": ["investigation"] }
     },
     "bug": {
       "steps": ["ticket", "analysis", "brainstorm", "plan",
                  "implementation", "qa", "review",
                  "local-testing", "pr", "ci", "finish", "release"],
       "detect": { "type_field": "bug", "tags": ["bug"] },
-      "orchestrator_effort": "low",
       "step_overrides": {
         "analysis": { "model_tier": "downgrade" },
         "review": { "model_tier": "standard" }
@@ -75,7 +71,6 @@
       "steps": ["ticket", "analysis", "implementation", "qa", "review",
                  "pr", "ci", "finish", "release"],
       "detect": { "type_field": "chore", "tags": ["chore", "config", "deps"] },
-      "orchestrator_effort": "low",
       "step_overrides": {
         "analysis": { "model_tier": "downgrade" },
         "review": { "model_tier": "downgrade" }

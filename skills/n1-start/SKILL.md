@@ -3,7 +3,6 @@ name: n1-start
 description: "Core orchestrator. Start working on a task: /n1:n1-start TRID-510 or /n1:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
 argument-hint: "<ticket-id or brain dump> [--step <name>] [--branch] [--investigate]"
 model: sonnet
-effort: medium
 ---
 
 # N1 Core Orchestrator
@@ -256,20 +255,6 @@ The optional `context` parameter enables signal-driven model tiering (e.g., `n1_
 ## Orchestrator Output Discipline
 
 Between steps, emit ONLY: the step name being dispatched, the agent being spawned (with model), and any routing decision with its reason. Do not summarize step outputs, re-describe the task, or narrate intermediate state. Memory files carry context between steps — the orchestrator does not need to.
-
-## Effort-Level Routing
-
-After resolving the workflow type, read the `orchestrator_effort` field from the type's pipeline.json entry. If the type has a `tier_override` map and the current tier matches, use the override value instead. This controls the orchestrator's reasoning depth for the run:
-
-```bash
-# Read from pipeline.json after type resolution
-EFFORT=$(jq -r ".types[\"$TYPE\"].orchestrator_effort // \"high\"" "${CLAUDE_PLUGIN_ROOT}/pipeline.json")
-TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" 2>/dev/null || echo "")
-if [ -n "$TIER" ]; then
-    TIER_EFFORT=$(jq -r ".types[\"$TYPE\"].tier_override[\"$TIER\"] // empty" "${CLAUDE_PLUGIN_ROOT}/pipeline.json" 2>/dev/null || true)
-    [ -n "$TIER_EFFORT" ] && EFFORT="$TIER_EFFORT"
-fi
-```
 
 ## Workspace Isolation
 
