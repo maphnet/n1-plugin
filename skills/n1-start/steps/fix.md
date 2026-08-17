@@ -16,7 +16,13 @@ If the combined Step-7 verdict is FAIL:
 
 **Spawn agent:** developer
 
-Resolve model for `developer` with context `fix`.
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+DEVELOPER_MODEL=$(n1_resolve_model developer fix)
+echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
+```
+
+Spawn the developer with model `$DEVELOPER_MODEL` (resolved above — do NOT substitute a different model).
 
 Pass to developer:
 - Combined review findings (Critical + High only)

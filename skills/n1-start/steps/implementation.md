@@ -25,6 +25,7 @@ Before the normal planning_need routing, check runtime signals for a simple-task
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
 # Prefer brainstorm signals (post-design, scope-aware) over analysis (pre-design estimate).
 # Brainstorm may not exist when skipped (e.g. bug with known root cause).
@@ -32,6 +33,8 @@ BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "blast_radius" 2>/dev
 BLAST="${BLAST:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")}"
 FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "files_changed" 2>/dev/null)
 FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")}"
+DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
+echo "TIER=$TIER BLAST=$BLAST FILES_CHANGED=$FILES_CHANGED DEVELOPER_MODEL=$DEVELOPER_MODEL"
 ```
 
 **Rules injection:** Run SKILL.md § Rules Injection with `agent_name=developer`, no `changed_files_source` (implementation.md does not exist yet; `CHANGED_FILES` will be empty, which correctly matches rules by agent name only). This populates `$RULES_BLOCK`.
@@ -41,12 +44,12 @@ FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.m
 2. `BLAST == "low"`
 3. `FILES_CHANGED < 3` (numeric comparison; treat empty as 999)
 
-**→ Simple signal path:** Spawn a single `developer` agent with context `implementation`. Use `n1_resolve_model developer implementation` to get the model (signal-driven downgrade may apply).
+**→ Simple signal path:** Spawn a single `developer` agent with model `$DEVELOPER_MODEL` (resolved above — do NOT substitute a different model).
 
 Spawn the developer agent with the Standard developer spawn directives above. Input: `$N1_HOME/memory/<ID>/brainstorm.md` (or `plan.md` if it exists) — "Read this file for the full task specification. You are in Direct Implementation mode."
 
 Log the gate decision to overview.md `## Key Decisions`:
-- Gate triggered: "Implementation simplicity gate: direct developer spawn (tier=$TIER, blast_radius=$BLAST, files_changed=$FILES_CHANGED)"
+- Gate triggered: "Implementation simplicity gate: direct developer spawn (tier=$TIER, blast_radius=$BLAST, files_changed=$FILES_CHANGED, model=$DEVELOPER_MODEL)"
 
 **If the developer agent succeeds** (produces `implementation.md`), proceed to signal computation and QA (skip the routing below).
 
@@ -71,7 +74,13 @@ Route based on `PLANNING_NEED`:
 
 **Spawn agent:** developer
 
-Resolve model for `developer` via `n1_resolve_model` with context `implementation`.
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
+echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
+```
+
+Spawn the developer agent with model `$DEVELOPER_MODEL` (resolved above — do NOT substitute a different model).
 
 The developer runs in Direct Implementation mode — it reads the brainstorm directly and implements without SDD's task decomposition. This is appropriate because `planning_need: direct` tasks have fully-specified brainstorm output with independent, well-scoped changes.
 
@@ -97,7 +106,13 @@ Log the routing decision to overview.md `## Key Decisions`:
 
 **Spawn agent:** developer
 
-Resolve model for `developer` via `n1_resolve_model` with context `implementation`.
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
+echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
+```
+
+Spawn the developer agent with model `$DEVELOPER_MODEL` (resolved above — do NOT substitute a different model).
 
 The developer runs in Direct Implementation mode with the plan as input. This is appropriate because the plan contains 1-2 independent tasks that fit within a single agent's context window — SDD's decomposition and multi-agent dispatch would add overhead without value.
 
