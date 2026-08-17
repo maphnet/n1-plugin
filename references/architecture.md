@@ -274,21 +274,25 @@ Config keys: `release.enabled` (boolean, default `false`), `release.tagPrefix` (
 
 11 atomic agents with scoped tools and configurable models:
 
-| Agent | Default Model | Tools | Pipeline Stage |
-|-------|---------------|-------|----------------|
-| product-analyst | sonnet | inherits (needs dynamic tracker + error-tracking MCP) | Ticket read, Error intake, Description enrichment |
-| solution-architect | opus | Read, Grep, Glob, Bash, WebSearch, WebFetch | Analysis, Bug investigation, Plan review (CCR) |
-| planner | opus | Read, Grep, Glob, Write, Edit, Skill, WebSearch, WebFetch | Plan writing |
-| implementer | opus | inherits (needs Skill for SDD, Agent for SDD subagents) | Implementation (wraps SDD) |
-| developer | opus | Read, Edit, Write, Bash, Grep, Glob | Fix cycle, CI fix |
-| code-reviewer | opus | Read, Grep, Glob | Review (parallel) |
-| security-reviewer | opus | Read, Grep, Glob | Review (parallel) |
-| codex-adapter | sonnet | (none) | Review (Codex output parsing, conditional) |
-| qa-engineer | sonnet | Read, Edit, Write, Bash, Grep, Glob | QA (tier-aware: maintain/minimal/standard) |
-| local-test-planner | sonnet | Read, Grep, Glob, Bash | Local testing (plan creation) |
-| tech-writer | sonnet | Read, Grep, Edit, Write, Glob | Doc update, PR content |
+| Agent | Default Model | Effort | Tools | Pipeline Stage |
+|-------|---------------|--------|-------|----------------|
+| product-analyst | sonnet | low | inherits (needs dynamic tracker + error-tracking MCP) | Ticket read, Error intake, Description enrichment |
+| solution-architect | opus | medium | Read, Grep, Glob, Bash, WebSearch, WebFetch | Analysis, Bug investigation, Plan review (CCR) |
+| planner | opus | medium | Read, Grep, Glob, Write, Edit, Skill, WebSearch, WebFetch | Plan writing |
+| implementer | sonnet | medium | inherits (needs Skill for SDD, Agent for SDD subagents) | Implementation (wraps SDD) |
+| developer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | Fix cycle, CI fix |
+| code-reviewer | opus | medium | Read, Grep, Glob | Review (parallel) |
+| security-reviewer | opus | medium | Read, Grep, Glob | Review (parallel) |
+| codex-adapter | haiku | low | (none) | Review (Codex output parsing, conditional) |
+| qa-engineer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | QA (tier-aware: maintain/minimal/standard) |
+| local-test-planner | sonnet | medium | Read, Grep, Glob, Bash | Local testing (plan creation) |
+| tech-writer | sonnet | medium | Read, Grep, Edit, Write, Glob | Doc update, PR content |
 
 Models default to agent frontmatter values, overridable via `models` section in `$N1_HOME/config.json`.
+
+Agent effort levels are static per-agent, set via subagent frontmatter `effort:` field (low or medium). Session-level effort (`/effort`, `effortLevel` setting) controls the orchestrator's reasoning depth — it does not propagate to subagents. There is no per-spawn effort parameter.
+
+Note: Sonnet 4.6 supports effort levels low, medium, high, and max (no xhigh).
 
 **Trusted web research (always on).** `solution-architect` and `planner` carry `WebSearch, WebFetch` to research industry standards, best practices, and practitioner experience during analysis, planning, and plan-review. Research is constrained by the shared rubric in `agents/research-standards.md`: trusted source tiers, a marketing reject-list, ≥2-source corroboration, mandatory URL citation, a standards-over-soft-practices fitness gate (guards against over-engineering), and graceful degradation when the network is unavailable. Library API docs still go through Context7, not web search.
 - **Single-pass analysis & research (v2.11.0):** the pre-plan `solution-architect` "deeper analysis" re-spawn was removed — the Step-2 `analysis.md` plus the `planner`'s native file discovery feed planning, and plan-review (4b) is the assumption safety net. Web research runs once (Step 2); 4b validates against the standards already recorded in `analysis.md` rather than re-researching.

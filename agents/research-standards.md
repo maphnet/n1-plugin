@@ -1,3 +1,8 @@
+---
+model: sonnet
+effort: medium
+---
+
 # Research Standards (shared rubric)
 
 Agents that perform web research (solution-architect, planner) MUST follow these

@@ -181,18 +181,22 @@ N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation
 
 ### Agent Personas
 
-| Agent | Default Model | Role |
-|-------|---------------|------|
-| product-analyst | sonnet | Ticket distillation and requirements extraction |
-| solution-architect | opus | Codebase analysis and architecture assessment |
-| planner | opus | Isolated implementation-plan writing |
-| developer | opus | Implementation and review fix cycles |
-| code-reviewer | opus | Adversarial code quality review |
-| security-reviewer | opus | Security vulnerability review (OWASP, CWE) |
-| qa-engineer | sonnet | Test design and implementation |
-| tech-writer | sonnet | PR content generation |
+| Agent | Default Model | Effort | Role |
+|-------|---------------|--------|------|
+| product-analyst | sonnet | low | Ticket distillation and requirements extraction |
+| solution-architect | opus | medium | Codebase analysis and architecture assessment |
+| planner | opus | medium | Isolated implementation-plan writing |
+| implementer | sonnet | medium | SDD execution wrapper |
+| developer | sonnet | medium | Implementation and review fix cycles |
+| code-reviewer | opus | medium | Adversarial code quality review |
+| security-reviewer | opus | medium | Security vulnerability review (OWASP, CWE) |
+| codex-adapter | haiku | low | Review (Codex output parsing, conditional) |
+| qa-engineer | sonnet | medium | Test design and implementation |
+| intake-agent | haiku | low | Ticket/content intake |
+| local-test-planner | sonnet | medium | Local test plan creation |
+| tech-writer | sonnet | medium | PR content generation |
 
-Models are configurable per-project via `models` section in `~/.n1/<project>/config.json`.
+Defaults come from agent frontmatter; `models.*` in config is an explicit override that also disables signal-based tier adjustments for that agent.
 
 ### Per-Ticket Memory
 

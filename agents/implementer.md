@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: "Wraps superpowers:subagent-driven-development in an isolated subagent context. Receives plan path and execution constraints, invokes SDD, writes implementation.md, returns status. No interactive channel — blockers return as text."
-model: opus
+model: sonnet
 effort: medium
 ---
 
