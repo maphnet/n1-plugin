@@ -1562,6 +1562,28 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 
 2. Create the rules directory: `mkdir -p "$RULES_DIR"`
 
+2b. **Seed default rules.** Scan `${CLAUDE_PLUGIN_ROOT}/defaults/rules/` for `.rule.md` files. For each file, check whether a rule with the same basename already exists in `$RULES_DIR/`. If it does, skip silently. If it does not, present it using the same Accept/Edit/Skip UX as detection-based rules:
+
+   ```
+   Default rule: <name>
+     Description: <description field>
+     Topic: <topic field>
+     Applies to: <applies_to field>
+     Enforcement: <enforcement field>
+     Body:
+       <rule body text>
+
+   1 — Accept
+   2 — Edit (modify before saving)
+   3 — Skip
+   ```
+
+   - **1 (Accept):** Copy the file to `$RULES_DIR/<name>.rule.md`
+   - **2 (Edit):** Let the user modify the description, body, and enforcement, then write the edited version
+   - **3 (Skip):** Do not create this rule
+
+   Default rules are presented before detection-based rules so universal conventions appear first.
+
 3. Generate starter rules from existing detection results. For each detected characteristic, propose a rule with enforcement recommendation. Present **one at a time** for approval:
 
    **From lockfile/package manager detection:**
@@ -1643,7 +1665,7 @@ Current rules:
 ```
 
 - **1** → leave unchanged.
-- **2** → re-run the detection-based rule generation (skips rules that already exist by name).
+- **2** → re-run default rule seeding (step 2b) and detection-based rule generation (step 3). Both skip rules that already exist by name in `$RULES_DIR/`.
 
 **Repo→private migration:** If rules exist at `<root>/.n1/rules/` (legacy repo mode), detect and offer:
 ```
