@@ -265,8 +265,8 @@ Ask: **"Use {KEY} as branch prefix? (e.g., branch name: {KEY}-123) 1 — Yes (de
 
 Detect statuses via MCP — do NOT ask the user to type status names:
 
-1. Try calling `mcp__plugin_atlassian_atlassian__fetch` with the Jira REST endpoint `/rest/api/3/project/{projectKey}/statuses` to get all workflow statuses for the project.
-2. If that fails or returns empty: find a sample issue via `mcp__plugin_atlassian_atlassian__searchJiraIssuesUsingJql` (JQL: `project = {KEY} ORDER BY created DESC`, maxResults: 1), then call `mcp__plugin_atlassian_atlassian__getTransitionsForJiraIssue` on it to retrieve available transitions.
+1. Try calling `mcp__plugin_atlassian_atlassian__fetch` with the Jira REST endpoint `/rest/api/3/project/{projectKey}/statuses` to get all workflow statuses for the project. The response is an array of issue-type objects, each containing a `statuses` array — flatten and deduplicate by status name across all issue types to build the full status list.
+2. If that fails or returns empty: find sample issues in **distinct statuses** via `mcp__plugin_atlassian_atlassian__searchJiraIssuesUsingJql` (JQL: `project = {KEY} ORDER BY status ASC`, maxResults: 5), then call `mcp__plugin_atlassian_atlassian__getTransitionsForJiraIssue` on each and union all transition target statuses. A single issue only exposes transitions reachable from its current state — scanning multiple issues in different states covers end-of-workflow statuses (e.g. "Released") that are invisible from early states like "To Do".
 
 Auto-map detected statuses to N1 workflow slots by matching common names:
 - **todo**: "To Do", "Open", "New", "Backlog", "Created"
@@ -412,8 +412,8 @@ Same config effect as Jira above.
 
 Detect statuses via MCP — do NOT ask the user to type status names:
 
-1. Try `mcp__youtrack__get_issue_fields_schema` — look for the State field and extract its bundle values (possible states).
-2. If that doesn't return state values: search for a sample issue via `mcp__youtrack__search_issues` (query: `project: {shortName}`, limit: 1), then examine its State field to see available values.
+1. Try `mcp__youtrack__get_issue_fields_schema` — look for the State field and extract its bundle values (all possible states in the workflow).
+2. If that doesn't return state values: search for sample issues in **distinct states** via `mcp__youtrack__search_issues` (query: `project: {shortName}`, limit: 5, `sort by: State asc`), then collect all State field values from the results to build the full status list.
 
 Same auto-mapping and confirmation flow as Jira above.
 

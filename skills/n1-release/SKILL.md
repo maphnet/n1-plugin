@@ -283,9 +283,22 @@ Report: `"Fix version set on <ID1>, <ID2>, ..."` or `"Fix version: skipped (setF
 
 Gate: `trackerRelease.moveTickets` is `true`.
 
-Resolve target status: `tracker.statuses.released` -- fall back to `tracker.statuses.done` when `released` is absent.
+Resolve target status: `tracker.statuses.released`.
 
-If neither status is configured, skip with: `"Ticket transition skipped: no released or done status configured."`.
+**Released-status recovery** — when `tracker.statuses.released` is absent:
+
+1. Pick **one ticket** from `RELEASE_TICKET_IDS` that is currently in the `done` status (or the first ticket if none are in `done`).
+2. Call `mcp__<tracker.mcp>__<operations.getTransitions>` on it to get available transitions.
+3. Match transition target names against: "Released", "Deployed", "Live" (case-insensitive).
+4. If a match is found — present it for confirmation:
+   ```
+   No "released" status configured. Detected "<match>" as a post-done status.
+   Use "<match>" for this release? 1 — Yes (also save to config) / 2 — No, use "<done>" instead
+   ```
+   - **1**: use the matched status, persist it to `tracker.statuses.released` in config.
+   - **2**: fall back to `tracker.statuses.done`.
+5. If no match and no `tracker.statuses.done` — skip with: `"Ticket transition skipped: no released or done status configured."`.
+6. If no match but `tracker.statuses.done` exists — warn: `"No released status found — falling back to done status \"<done>\"."` and use `done`.
 
 For each ticket in `RELEASE_TICKET_IDS`:
 
