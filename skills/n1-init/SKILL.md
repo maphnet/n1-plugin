@@ -133,8 +133,20 @@ When an old `.n1/n1.config.json` is detected:
       rm -rf .n1/memory .n1/n1.config.json 2>/dev/null || true
       ```
       Then optionally remove the `.n1/` directory (ask user or leave it — the `.gitignore` entry was already addressed in step 3g above)
-   i. Report: "Migrated N1 state to `~/.n1/$PROJECT_NAME/`. Config, memory, and telemetry moved."
-   j. Continue to **Analyze Repository** (skip the fresh setup sections that the migration already handled)
+   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs):
+      ```bash
+      CFG="$HOME/.n1/$PROJECT_NAME/config.json"
+      for f in "${CLAUDE_PLUGIN_ROOT}"/agents/*.md; do a=$(basename "$f" .md)
+        def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
+        cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
+        if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
+          jq "del(.models[\"$a\"])" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+          echo "pruned models.$a=$cur (equals frontmatter default)"
+        fi
+      done
+      ```
+   j. Report: "Migrated N1 state to `~/.n1/$PROJECT_NAME/`. Config, memory, and telemetry moved."
+   k. Continue to **Analyze Repository** (skip the fresh setup sections that the migration already handled)
 
 4. **If 2 (No — decline migration):**
    a. Set git config explicitly to relative path:
@@ -1682,19 +1694,26 @@ If `rules` is absent from the current config, run the fresh-setup flow above. Ru
 
 Use default models from agent frontmatter. **Do NOT ask** about model customization unless the user explicitly requested it when invoking n1-init.
 
-If the user did request customization, show the defaults table and accept per-agent overrides (valid values: opus, sonnet, haiku) — only store overrides that differ from the default.
+If the user did request customization, derive the defaults table by reading the `model:` field from each agent's frontmatter in `${CLAUDE_PLUGIN_ROOT}/agents/*.md`, display it, and accept per-agent overrides (valid values: opus, sonnet, haiku) — only store overrides that differ from the frontmatter default.
 
-Defaults:
+To read an agent's default model from frontmatter:
+```bash
+def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "${CLAUDE_PLUGIN_ROOT}/agents/<name>.md")
 ```
-product-analyst    sonnet
-solution-architect opus
-planner            opus
-developer          opus
-code-reviewer      opus
-security-reviewer  opus
-qa-engineer        sonnet
-tech-writer        sonnet
-codex-adapter      sonnet
+
+### On reconfiguration (n1-init re-run):
+
+Prune every `models.<agent>` entry whose value equals the agent's frontmatter default, then print what was pruned. This is idempotent — running it multiple times has no additional effect.
+
+```bash
+for f in "${CLAUDE_PLUGIN_ROOT}"/agents/*.md; do a=$(basename "$f" .md)
+  def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
+  cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
+  if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
+    jq "del(.models[\"$a\"])" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+    echo "pruned models.$a=$cur (equals frontmatter default)"
+  fi
+done
 ```
 
 ## Write Configuration and Structure
@@ -1765,17 +1784,7 @@ Create all files:
     "ticketContext": true,
     "decisions": true
   },
-  "models": {
-    "product-analyst": "sonnet",
-    "solution-architect": "opus",
-    "planner": "opus",
-    "developer": "opus",
-    "code-reviewer": "opus",
-    "security-reviewer": "opus",
-    "qa-engineer": "sonnet",
-    "tech-writer": "sonnet",
-    "codex-adapter": "sonnet"
-  }
+  "models": {}
 }
 ```
 
