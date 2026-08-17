@@ -1706,6 +1706,7 @@ def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ 
 Prune every `models.<agent>` entry whose value equals the agent's frontmatter default, then print what was pruned. This is idempotent — running it multiple times has no additional effect.
 
 ```bash
+CFG="$N1_HOME/config.json"
 for f in "${CLAUDE_PLUGIN_ROOT}"/agents/*.md; do a=$(basename "$f" .md)
   def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
   cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
@@ -1787,6 +1788,8 @@ Create all files:
   "models": {}
 }
 ```
+
+The `models` object is empty by default — agent model defaults come from agent frontmatter. Only store per-agent overrides here.
 
 **Directory structure** (fresh setup only — migration handles this in the Migration Flow):
 ```bash
