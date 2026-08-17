@@ -97,5 +97,5 @@ Release is never automatic — `tailChain` scope ends at finish; n1-release conf
 - Default branch: `main`
 - Commit style: imperative mood, English
 - No Co-Authored-By trailers
-- **Version bump mandatory on every task branch:** bump patch version in BOTH `.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (they must match). Commit as `chore: bump version to <new> (<ID>)`.
+- **Version bump mandatory on every task branch:** bump minor version in BOTH `.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` (they must match). Commit as `chore: bump version to <new> (<ID>)`.
 - **Workspace isolation:** worktree at `<main-checkout>/.claude/worktrees/<ID>/` (default). `n1-pr` performs `git push -u origin <branch>` and removes worktree after push when `worktree.cleanup` is `"after-pr"`.
