@@ -21,17 +21,6 @@
         { "signal": "brainstorm.files_changed", "fallback": "analysis.files_changed", "lt": 5 }
       ]},
       "tier": "downgrade"
-    },
-    "developer:fix": {
-      "condition": { "signal": "analysis.blast_radius", "eq": "low" },
-      "tier": "downgrade"
-    },
-    "developer:implementation": {
-      "condition": { "all": [
-        { "signal": "analysis.blast_radius", "eq": "low" },
-        { "frontmatter": "tier", "eq": "simple" }
-      ]},
-      "tier": "downgrade"
     }
   },
   "escalation_triggers": {
@@ -44,6 +33,13 @@
     },
     "code-reviewer:review": {
       "condition": { "signal": "analysis.security_relevant", "eq": "true" },
+      "tier": "frontier"
+    },
+    "developer:implementation": {
+      "condition": { "any": [
+        { "signal": "analysis.blast_radius", "eq": "high" },
+        { "signal": "analysis.security_relevant", "eq": "true" }
+      ]},
       "tier": "frontier"
     }
   },
