@@ -58,7 +58,7 @@ JSON
     n1_config_file() { echo "$TEST_CONFIG"; }
 
     local result
-    result=$(n1_resolve_model developer implementation)
+    result=$(n1_resolve_model developer implementation) || true
 
     # Restore
     n1_config_file() { echo "$(n1_home)/config.json"; }
@@ -105,7 +105,7 @@ MD
     n1_config_file() { echo "$TEST_CONFIG"; }
 
     local result
-    result=$(n1_resolve_model developer implementation)
+    result=$(n1_resolve_model developer implementation) || true
 
     # Restore
     n1_config_file() { echo "$(n1_home)/config.json"; }

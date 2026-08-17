@@ -2,7 +2,7 @@
 
 AI-driven development orchestrator for Claude Code. No one writes the code.
 
-N1 is a Claude Code plugin that orchestrates the full development cycle using 9 specialized agent personas and [Superpowers](https://github.com/obra/superpowers) sub-skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); Superpowers handles interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
+N1 is a Claude Code plugin that orchestrates the full development cycle using 12 specialized agent personas and [Superpowers](https://github.com/obra/superpowers) sub-skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); Superpowers handles interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
 
 ## Requirements
 
@@ -69,7 +69,7 @@ Input (ticket or brain dump)
   → Finish (n1:n1-finish, if finishWork.enabled) — merge verify, deploy watch, ticket close
 ```
 
-- **Agent personas:** 9 specialized agents with scoped tools and configurable models
+- **Agent personas:** 12 specialized agents with scoped tools and configurable models
 - **Parallel security review:** code-reviewer and security-reviewer run simultaneously
 - **Adaptive routing:** tasks that don't need a formal plan skip straight to implementation
 - **Resume support:** interrupt anytime, `/n1:n1-start TRID-510` picks up where you left off
@@ -177,7 +177,7 @@ When enabled, estimation runs automatically in the `n1-start` pipeline (after pl
 
 ## How It Works
 
-N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 9 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while Superpowers sub-skills handle interactive steps (brainstorming, planning, implementation dispatch via SDD). Each agent gets fresh context with scoped tools.
+N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 12 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while Superpowers sub-skills handle interactive steps (brainstorming, planning, implementation dispatch via SDD). Each agent gets fresh context with scoped tools.
 
 ### Agent Personas
 
