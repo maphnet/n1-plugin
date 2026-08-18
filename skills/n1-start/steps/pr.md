@@ -25,6 +25,7 @@ Pass to n1-pr:
 
 After PR is created:
 - The PR skill reports the URL
+- **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** any later user request to change the branch is handled per n1-pr `## Step 8: Post-PR Follow-ups` (developer agent in fix mode) — the orchestrator never edits or commits project files itself.
 
 **Record pending-merge state** (enables cross-session finish resume; skip when `prMode` is `skip`):
 
