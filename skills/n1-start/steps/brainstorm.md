@@ -78,6 +78,7 @@ In step mode, the autonomous brainstormer is already used (routing above). In fu
 - Pass to brainstorming (or autonomous brainstormer): "This is an investigation task -- explore the question and research findings, not implementation approaches. Focus on validating or challenging the analysis findings, exploring alternative explanations, and identifying gaps in the investigation. The output should be research-focused, not design-focused."
 - The brainstorm output goes to `$N1_HOME/memory/<ID>/brainstorm.md` as usual.
 - **Skip Post-Brainstorm Enrichment** (Phase 2) entirely -- investigation tasks don't refine acceptance criteria.
+- **ORCHESTRATOR GUARDRAIL (experiments):** if, during brainstorming, the user asks to run something (local test, docker build, benchmark, curl, script), do not run it in this session — spawn `developer` in experiment mode as described in `investigation-deliverable.md` and bring back its summary.
 
 After brainstorming completes (the design already lives in `$N1_HOME/memory/<ID>/brainstorm.md` per the override above):
 - Update overview: `[x] Brainstorm`, set `step: brainstorm`

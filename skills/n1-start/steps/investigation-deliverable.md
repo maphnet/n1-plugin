@@ -1,4 +1,11 @@
 
+> **ORCHESTRATOR GUARDRAIL (experiments):** in investigation tasks the user often asks for evidence — "test it locally", "run it in docker", "benchmark model A vs B", "curl the endpoint and check the stream". The orchestrator does NOT run these itself. Spawn the **developer** agent in *experiment mode* with:
+> - the exact question to answer and the user's wording,
+> - the worktree/branch path,
+> - the directive: "Experiment mode: you may build, start containers, run scripts, install throwaway deps under `$N1_HOME/memory/<ID>/scratch/`, and call local endpoints. You MUST NOT modify production code or commit. Capture raw evidence (commands + output excerpts) and write `$N1_HOME/memory/<ID>/experiment-<N>.md` with sections `## Question`, `## Setup`, `## Runs`, `## Result`, `## Cleanup`. Always run cleanup (stop containers, kill processes). Return ONLY a ≤15-line summary and the file path."
+>
+> The orchestrator reads the summary and continues the investigation. If a *fix* is then requested, that is a normal developer (fix mode) spawn — again not inline.
+
 **Spawn agent:** solution-architect
 
 Resolve model for `solution-architect`.
