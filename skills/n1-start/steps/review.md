@@ -9,6 +9,8 @@ n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "review" 9 "${N1_HOME}/memor
 procedure before any reviewer that may execute lint/typecheck tooling.
 Marker-guarded no-op on the normal path.
 
+> **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step. Reviewers and the developer (fix mode) run what they need; the orchestrator only reads their returned findings and routes them.**
+
 **Shared review core:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = the recorded branch point when available, else the `git.defaultBranch` value from `$N1_HOME/config.json`:
 ```bash
 BP_FILE="$N1_HOME/memory/<ID>/branch-point"

@@ -5,6 +5,8 @@ Run `n1_config_val '.localTesting.enabled'` (default: `false`).
 
 **If `localTesting.enabled` is `false`:** Skip to Step 10 (PR CREATION).
 
+> **ORCHESTRATOR GUARDRAIL (local testing): do not run test suites, `pytest`/`make test`/`npm test`, coverage runs, package installs (`pip`, `uv`, `npm`), interpreter/venv discovery or repair, or app/infrastructure startup in this step. All execution belongs to the developer spawn in 9c. If the environment is broken, the developer reports it and it is routed through the `local_test_env_failure` escalation — the orchestrator never debugs it inline. The only permitted orchestrator commands here are the memory/config helpers, `git diff --stat` for the auto-skip check, and the Ensure Dependencies fast path.**
+
 **Auto-skip conditions (even when enabled):**
 - If the diff against the default branch contains ONLY non-runtime files (`.md`, `.txt`, `.yml`/`.yaml` config, `.gitignore`, `LICENSE`, `CHANGELOG`) → skip with message: "Local testing skipped — documentation/config-only changes."
 - If `implementation.md` indicates no runtime-affecting code was modified → skip.
@@ -84,7 +86,9 @@ Resolve model for `developer`.
 
 Spawn the developer agent with:
 - The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/local-test-plan.md` (the test plan to execute) and `$N1_HOME/memory/<ID>/implementation.md` (context for debugging)."
+- The value of `n1_config_val '.worktree.setup'` as `<SETUP>` (may be empty).
 - Directive: "Execute the local test plan. Follow this sequence strictly:"
+  - "0. Environment check: before anything else, verify the interpreter and test runner work in the worktree (e.g. `python -m pytest --version`, `npm test -- --help`, or the project's equivalent). If dependencies are missing and the project defines a setup command (`worktree.setup` in `$N1_HOME/config.json`, passed to you as `<SETUP>`), run it ONCE. If the environment still does not work, write a report with `Result: ENV_FAILURE` and the exact stderr, run cleanup, and STOP — do not attempt scenarios and do not try to repair the environment further."
   - "1. Infrastructure setup: run the start command from the plan. Poll readiness check with a 60s timeout. If infrastructure fails to start, report immediately with the error output and STOP — do not attempt scenarios."
   - "2. App startup: start the app in background. Poll the readiness signal with a 30s timeout. If app fails to start, capture stderr/stdout, report FAIL, run cleanup, and STOP."
   - "3. Existing e2e tests: if the plan has an 'Existing E2E Tests' section with a run command (not 'N/A' or 'None'), run that command. Record the full output. If no existing e2e suite, skip this step."

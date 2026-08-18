@@ -10,6 +10,8 @@ procedure before running any tests. Marker-guarded — a no-op if implementation
 already installed or if no worktree is active, but keeps a resumed/partial pipeline
 (entering directly at QA in a fresh worktree) safe.
 
+> **ORCHESTRATOR GUARDRAIL (qa): do not run tests, coverage, or lint commands in this step — not before spawning the qa-engineer, not after it returns "to double-check". The qa-engineer's report is the source of truth; if it looks wrong, re-spawn the qa-engineer with the specific concern.**
+
 **Rules injection:** Prepare rules block per SKILL.md § Rules Injection with agent_name=`qa-engineer`, changed_files_source=`diff_surface` from `implementation.md`.
 
 **Spawn agent:** qa-engineer
