@@ -44,7 +44,7 @@ Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `change
 
 Pass to brainstorming:
 - The content of `ticket.md` as the idea to explore
-- The content of `analysis.md` as **pre-researched codebase context** — tell brainstorming: "Here is a codebase analysis already performed by our solution architect — use this as your starting context instead of exploring from scratch."
+- The content of `analysis.md` as **pre-researched codebase context** — tell brainstorming: "Here is a codebase analysis already performed by our solution architect. It REPLACES your Step 1 (explore context) — treat it as complete. Do not open project source files to re-verify it."
 - **If ticket type is `bug`:** Also tell brainstorming: "This is a bug. The analysis includes a Bug Investigation section with the likely root cause and affected code path. Use these findings to ask informed questions about the fix approach rather than generic questions."
 - **Project testing policy:** "testCoverage.tier is `{TEST_TIER}` (substitute the actual value). QA behavior by tier: `maintain` = fix broken existing tests only, no new tests added; `minimal` = up to 3 focused behavioral tests per feature for acceptance criteria only; `standard` = edge cases and error paths included. When designing the Testing section, default your proposals to match this tier. Only propose new tests if this specific change introduces risk that existing coverage does not address and the risk clearly justifies an exception to the project's testing policy."
 - When `$RULES_BLOCK` is non-empty, append it verbatim to the brainstorming prompt after the other directives above.
@@ -52,6 +52,8 @@ Pass to brainstorming:
 <N1-OVERRIDE>
 These overrides take precedence over superpowers:brainstorming's checklist AND its HARD-GATE for steps 5-9.
 The HARD-GATE ("Do NOT invoke any implementation skill... until the user has approved") is SUSPENDED inside this N1 pipeline — user approval is NOT required to proceed past brainstorming. Steps 1-4 (explore context, clarifying questions, propose approaches) run normally.
+
+**ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, `cat`, `sed -n`, or otherwise open project source files in this step — Step 1 is satisfied by `analysis.md`.** If a design question needs a fact that `analysis.md` lacks (how a name is generated, which script owns cleanup, what a template contains), re-spawn `solution-architect` with that specific question ("Answer only: <question>. Return file:line evidence, ≤200 words.") and feed the answer into the conversation. Reading `$N1_HOME/**` memory files and `rules/` is fine.
 
 Step 5 (Present design): Present the recommended approach as the chosen design in a single cohesive section.
 Do NOT ask for user approval, confirmation, or "proceed" prompts. Do NOT end with "let me know if you'd like changes" or similar.
