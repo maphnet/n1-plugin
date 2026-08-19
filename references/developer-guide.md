@@ -53,6 +53,10 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 - **Always test on a separate repo before committing plugin changes**
 - **Dogfooding:** use N1 skills on the N1 repo itself
 
+### Auditing orchestrator delegation
+
+`python3 scripts/audit-orchestrator.py --since <date>` scans local Claude Code transcripts of `/n1:n1-start` sessions and lists main-thread tool calls that touched project files or ran tests/installs/commits, grouped by the preceding agent/skill context. Lines marked `!!` are guardrail violations (see `tests/test_orchestrator_guardrails.sh` for the guardrails). Run it after dogfooding a change to the orchestrator; the goal is `violations: 0` on fresh sessions.
+
 ## Conventions
 
 - **Skill authoring:** Always use `/writing-skills` skill when creating or modifying skills (available in Superpowers <=5.x; removed in v6)

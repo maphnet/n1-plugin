@@ -424,7 +424,7 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
    ```
    - **On success:** `touch "$WORKTREE_PATH/.n1-deps-installed"`; report
      "Dependencies installed via `$SETUP`."
-   - **On failure:** do NOT create the marker (so the next run / a Retry re-attempts).
+   - **On failure:** do NOT create the marker (so the next run / a Retry re-attempts). Do NOT diagnose or repair the environment inline (no `which python`, no `pip install` of individual packages, no venv inspection) — capture stderr and follow the retry/escalation path below exactly; deeper environment work belongs to the developer spawn of the current step.
      Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto` AND this is the first attempt (no prior retry recorded in overview.md `## Escalations`): append `worktree setup auto-retry attempted` to overview.md `## Escalations`, then re-run step 4 once. If the retry succeeds, continue normally. If the retry also fails (or `MP` is not `auto`): report the command's stderr and **escalate**:
      - **Step mode:** write `$N1_HOME/memory/<ID>/escalation/request.json` (no Post-to-Tracker here — worktree setup failures are transient infra issues, not design questions worth blocking a ticket on):
        ```json

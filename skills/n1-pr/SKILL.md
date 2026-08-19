@@ -182,7 +182,18 @@ CHECKPOINT: Ready for Tech Lead review.
 
 Ready mode: same with `PR created:` (not bolded).
 
+## Step 8: Post-PR Follow-ups
+
+> **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** after the PR exists, any user request that changes code, tests, docs, or config on the branch (rename a flag, tweak a message, "also handle X", address a review comment) is implemented by the **developer agent in fix mode** — never by the orchestrator with Edit/Write/`sed`, and never committed by the orchestrator. This holds even for one-line changes.
+
+Procedure for a follow-up request:
+1. Resolve the workspace: if `<main-checkout>/.claude/worktrees/<ID>` still exists use it; otherwise `git fetch origin <branch> && git worktree add <main-checkout>/.claude/worktrees/<ID> <branch>` (re-create it; the developer needs an isolated checkout).
+2. Resolve model for `developer`. Spawn developer with: the user's request verbatim, the branch name and worktree path, `$N1_HOME/memory/<ID>/implementation.md` path, and the directive: "Implement exactly this follow-up on the existing branch. Update any docs that reference the changed behaviour (README, CLI help). Run the relevant tests. Commit with an imperative message and push to `<branch>`. Append a `## Follow-up <N>` section to `implementation.md` (idempotent). Return: commit SHAs + one-line summaries."
+3. If the change touches public behaviour (CLI flags, API, config keys): spawn `code-reviewer` on `git diff <pre-follow-up SHA>..HEAD` and route any Critical/High finding back to the developer (max 2 cycles).
+4. Post a tracker comment via `mcp__<tracker.mcp>__<operations.addComment>`: `Follow-up pushed to PR: <one-line summary>` (warn, don't block, on failure).
+5. If `worktree.cleanup` is `"after-pr"`, remove the worktree again after the push.
+
 ## Integration
 
 **Called by:** n1-start (after review loop + local testing), standalone `/n1:n1-pr`
-**Invokes:** n1 agent: tech-writer (Phase 1 doc update + Phase 2 PR content); inline: git, gh, tracker MCP
+**Invokes:** n1 agent: tech-writer (Phase 1 doc update + Phase 2 PR content), developer (post-PR follow-ups); inline: git, gh, tracker MCP

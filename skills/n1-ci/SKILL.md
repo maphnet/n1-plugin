@@ -117,13 +117,11 @@ Match each failed check `name` against category patterns (case-insensitive subst
 - `skip` → ignore
 - `unknown` → developer agent with confidence assessment (Step 5b)
 
-### Step 5a: Fetch Failed Run Logs
+### Step 5a: Collect Run IDs (no log fetching here)
 
-Extract run ID from `detailsUrl` (`/actions/runs/<run-id>/...`):
+Extract the run ID from each failed check's `detailsUrl` (`/actions/runs/<run-id>/...`) and pair it with the check name and category. Do NOT run `gh run view --log-failed` in the orchestrator — failure logs are large and pull the orchestrator into diagnosing and fixing the failure itself. The developer agent fetches logs (Step 6).
 
-```bash
-gh run view <run-id> --log-failed 2>&1 | head -500
-```
+Only when a check is classified `escalate` (needs the user) may the orchestrator run `gh run view <run-id> --log-failed 2>&1 | tail -60` to show the user the failure excerpt.
 
 ### Step 5b: Unknown Category Confidence Check
 
@@ -134,18 +132,29 @@ After developer returns for `unknown` checks:
 
 ## Step 6: Fix Cycle
 
+> **ORCHESTRATOR GUARDRAIL (n1-ci): the orchestrator NEVER edits files, runs formatters, linters, compilers, package managers, or lock-file tools, and NEVER commits or pushes in this skill — regardless of how trivial the failure looks (a one-line lint fix, a lock-file regeneration, a CRLF issue). Every remediation, including "obvious" ones, goes through the developer spawn below. The orchestrator's only git actions in n1-ci are `git push` in "After developer returns" step 2 and read-only inspection (`git log`, `git status`, `gh pr checks`).**
+
 **Batch all fixable failures** into one developer agent spawn. Resolve model for `developer`.
 
-Pass: failed checks with categories, `--log-failed` output per check, `git diff $(git merge-base origin/<default-branch> HEAD)..HEAD`, memory files (`plan.md`, `implementation.md`) if available. Scratch-artifact policy: throwaway benchmarks/spikes go under `$N1_HOME/scratch/{benchmarks,tests}/` (gitignored), never in the repo test suite.
+Pass: failed checks with categories and run IDs (from Step 5a), the PR branch name, the main checkout path, `git diff $(git merge-base origin/<default-branch> HEAD)..HEAD`, memory files (`plan.md`, `implementation.md`) if available. Scratch-artifact policy: throwaway benchmarks/spikes go under `$N1_HOME/scratch/{benchmarks,tests}/` (gitignored), never in the repo test suite.
 
 **Developer instructions:**
 
 ```
-You are fixing CI failures on an open pull request. For each failed check:
-1. Read the failure logs carefully
+You are fixing CI failures on an open pull request.
+
+Workspace: The worktree may already have been removed after PR creation. Resolve your working directory first:
+- If `<worktree path>` exists, `cd` there.
+- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && git checkout <branch>` (create a fresh worktree with `git worktree add <main-checkout>/.claude/worktrees/<ID> <branch>` if the main checkout has uncommitted changes).
+Never work on the default branch.
+
+For each failed check (name, category, run ID):
+1. Fetch the logs yourself: `gh run view <run-id> --log-failed 2>&1 | head -500`
 2. Identify the root cause in the codebase
-3. Implement the minimal fix
-4. Run relevant local checks if possible (e.g., lint, typecheck, test commands)
+3. Decide: is the failure caused by THIS branch's changes, or is it pre-existing / CI-side (e.g. lock drift that also fails on the default branch, flaky infra)? Check with `gh run list --branch <default-branch> --limit 5` when unsure.
+   - Branch-caused → implement the minimal fix.
+   - Pre-existing / CI-side → do NOT paper over it with unrelated changes; report it as `NOT_BRANCH_CAUSED` with evidence so the orchestrator can escalate.
+4. Run the relevant local check (lint, typecheck, test command) if possible before committing.
 
 For "unknown" category checks: include a confidence assessment (0.0-1.0).
 
@@ -155,23 +164,25 @@ Output format:
 ## CI Fixes Applied
 ### Check: <check name> (<category>)
 - **Root cause:** <cause>
-- **Fix:** <change>
+- **Fix:** <change> | NOT_BRANCH_CAUSED: <evidence>
 - **Files:** <modified files>
 - **Confidence:** <0.0-1.0> (unknown category only)
 ## Summary
 - Checks fixed: N/M
+- Not branch-caused: <list or none>
 - Commits: <list>
 ```
 
 **After developer returns:**
 1. Handle `unknown` fixes below threshold (Step 5b flow)
-2. Push if developer didn't: `git push`
-3. ```bash
+2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`.
+3. Push if developer didn't: `git push`
+4. ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
    n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "ci_fix_cycle"
    ```
-4. `ci_fix_cycle` < `maxFixAttempts` → back to **Step 3**
-5. `ci_fix_cycle` >= `maxFixAttempts` → **Step 6b**
+5. `ci_fix_cycle` < `maxFixAttempts` → back to **Step 3**
+6. `ci_fix_cycle` >= `maxFixAttempts` → **Step 6b**
 
 ### Step 6b: Max Attempts Exhausted
 
