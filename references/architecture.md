@@ -157,7 +157,7 @@ Signal gates in `pipeline.json` under `signal_gates` define `skip_when` conditio
 
 ## Analysis Cache
 
-Optional project-level snapshot that eliminates redundant codebase discovery on sequential tickets. Gated on `analysisCache.enabled` in `$N1_HOME/config.json` (default `false`).
+Project-level snapshot that eliminates redundant codebase discovery on sequential tickets. Gated on `analysisCache.enabled` in `$N1_HOME/config.json` (default `true`).
 
 **Snapshot location:** `$N1_HOME/cache/project-snapshot.md` — structured, schema-versioned document with provenance comments per section. Not a memory file — it's a cache artifact scoped to the project, not a ticket.
 
@@ -173,7 +173,7 @@ Optional project-level snapshot that eliminates redundant codebase discovery on 
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `analysisCache.enabled` | boolean | `false` | Master gate |
+| `analysisCache.enabled` | boolean | `true` | Master gate |
 | `analysisCache.ttl` | string | `"4h"` | Max age before forced regeneration |
 | `analysisCache.neutralThreshold` | integer | `15` | NEUTRAL files changed before invalidation |
 | `analysisCache.structuralFiles` | string[] | See `defaults/analysis-cache.json` | Glob patterns for structural files |
