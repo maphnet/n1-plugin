@@ -1478,17 +1478,17 @@ If `telemetry` is absent from the current config, run the fresh-setup flow above
 
 ## Analysis Cache Configuration
 
-Ask whether N1 should cache project-level analysis snapshots to speed up sequential tickets. **Default is No.**
+Ask whether N1 should cache project-level analysis snapshots to speed up sequential tickets. **Default is Yes.**
 
 ```
 Enable analysis cache?
 Caches project-level architecture analysis (file structure, dependencies, patterns) so subsequent tickets skip redundant discovery.
 Cache is stored at $N1_HOME/cache/project-snapshot.md and auto-invalidated on structural changes.
-1 — Yes
-2 — No (default)
+1 — Yes (default)
+2 — No
 ```
 
-**If 2 (No) or default:**
+**If 2 (No):**
 ```json
 {
   "analysisCache": {
@@ -1497,7 +1497,7 @@ Cache is stored at $N1_HOME/cache/project-snapshot.md and auto-invalidated on st
 }
 ```
 
-**If 1 (Yes):**
+**If 1 (Yes) or default:**
 
 Detect structural files by scanning the repo root for known markers:
 ```bash
