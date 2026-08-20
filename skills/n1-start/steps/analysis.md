@@ -5,7 +5,7 @@
 - YouTrack: call `mcp__<tracker.mcp>__<tracker.operations.moveStatus>` with `issueId: <ID>`, `state: <tracker.statuses.inProgress>`.
 - If the call fails, emit a warning and continue — do not block analysis on a status update failure.
 
-**Cache check (when `analysisCache.enabled` is true):**
+**Cache check:**
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
@@ -13,6 +13,7 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/cache.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
 
 CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json")
+CACHE_ENABLED="${CACHE_ENABLED:-true}"
 SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME")
 CACHE_STATE="cold"
 
@@ -24,7 +25,7 @@ fi
 
 Run SKILL.md § Rules Injection with `agent_name=solution-architect`, no `changed_files_source` — analysis runs before implementation; CHANGED_FILES will be empty, matching rules by agent name only.
 
-The `CACHE_STATE` variable (`cold`, `stale`, or `fresh`) determines the dispatch path below. When `analysisCache.enabled` is `false` (default), `CACHE_STATE` stays `cold` and the step runs identically to today.
+The `CACHE_STATE` variable (`cold`, `stale`, or `fresh`) determines the dispatch path below. When `analysisCache.enabled` is `false`, `CACHE_STATE` stays `cold` and the step always runs full analysis. When `analysisCache` is absent from config, the cache defaults to enabled.
 
 **Spawn agent:** solution-architect
 
@@ -81,7 +82,7 @@ Spawn the solution-architect agent with:
 
   Substitute `<CLAUDE_PLUGIN_ROOT>` and `<SNAPSHOT_PATH>` with their actual resolved values in the prompt.
 
-- **When `CACHE_ENABLED` is `false`** (or absent), no [PROJECT]/[TICKET] separation needed — the agent writes its full report directly to analysis.md.
+- **When `CACHE_ENABLED` is `false`**, no [PROJECT]/[TICKET] separation needed — the agent writes its full report directly to analysis.md.
 
 **When CACHE_STATE is `fresh`:**
 
