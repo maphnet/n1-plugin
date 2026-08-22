@@ -87,6 +87,25 @@ Jira also requires `tracker.cloudId` (detected during tracker setup) for all Con
 
 The session-start hook injects KB ROUTING context when enabled, providing the model with space/project defaults for KB calls.
 
+### Logging
+
+Optional log aggregation integration for querying logs during investigations and on-demand. Config-driven via `logging` block in `$N1_HOME/config.json`. Multi-environment: each environment has its own MCP server pointing to a different log aggregation instance. When `logging` is `null` or absent, the feature is fully disabled.
+
+| Provider | type | mcp value | Key operations |
+|----------|------|-----------|----------------|
+| Loki | `loki` | per-env (e.g. `publius-loki-mcp`) | `loki_query` (query), `loki_label_names` (labelNames), `loki_label_values` (labelValues) |
+
+**Config:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `logging.type` | string | — | Provider identifier (`loki`) |
+| `logging.default` | string | — | Environment name used for automatic pipeline enrichment |
+| `logging.operations` | object | — | Abstract-to-MCP-tool mapping, shared across environments |
+| `logging.environments` | object | — | Map of env name to `{ "mcp": "<server-name>" }` |
+
+The session-start hook injects LOGGING ROUTING context when configured, providing the model with per-environment MCP prefixes and available operations.
+
 ## Escalation Safety
 
 Always escalate: security, architecture, public API changes.

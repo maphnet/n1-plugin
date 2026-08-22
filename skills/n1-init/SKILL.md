@@ -55,7 +55,7 @@ Check for N1 configuration in priority order:
 The canonical set of top-level config keys. Used by the completeness check to detect missing sections. When adding a new config section to n1-init, add its key here.
 
 ```
-worktree, tracker, git, ticketTagging, errorTracking, estimation,
+worktree, tracker, git, ticketTagging, errorTracking, logging, estimation,
 localTesting, finishWork, release, codex, testCoverage, telemetry,
 analysisCache, rules, escalation, autonomy, review, ciChecks, planReview, memory, models
 ```
@@ -1738,6 +1738,7 @@ Create all files:
   },
   "ticketTagging": { ... },
   "errorTracking": null,
+  "logging": null,
   "estimation": {
     "enabled": false
   },

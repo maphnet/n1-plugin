@@ -252,6 +252,35 @@ Three pipeline touchpoints:
 
 Memory ID for error-tracker runs: `sentry-<issueId>` (provisional; replaced by tracker ticket ID if user creates one). Ticket creation is optional — reuses the brain-dump ticket-creation flow with a Sentry link prepended to the description.
 
+## Logging Integration
+
+Optional integration with log aggregation systems (Loki first, extensible to CloudWatch/Datadog). Config-driven via `logging` block in `$N1_HOME/config.json`. Unlike `errorTracking` (single MCP), `logging` supports multiple environments — each with its own MCP server pointing to a different log instance.
+
+| Provider | type | Key operations |
+|----------|------|---------------|
+| Loki | `loki` | `loki_query` (query), `loki_label_names` (labelNames), `loki_label_values` (labelValues) |
+
+Config structure:
+```json
+{
+  "logging": {
+    "type": "loki",
+    "default": "prod",
+    "operations": { "query": "loki_query", "labelNames": "loki_label_names", "labelValues": "loki_label_values" },
+    "environments": {
+      "prod": { "mcp": "publius-loki-mcp" },
+      "staging": { "mcp": "publius-loki-staging" }
+    }
+  }
+}
+```
+
+Two pipeline touchpoints:
+- **Analysis — error-tracker tasks:** when both `errorTracking` and `logging` are configured, the solution-architect gets both Sentry search and Loki query tools for correlation
+- **Analysis — bug tasks:** when `logging` is configured and task type is `bug`, the solution-architect gets the default environment's query tool
+
+On-demand access is automatic via session-start LOGGING ROUTING injection — no pipeline changes needed.
+
 ## Finish Work
 
 Optional final pipeline step (`finish`) that runs after CI, gated on `finishWork.enabled` (default `false`) in `$N1_HOME/config.json`. The standalone `/n1:n1-finish` skill works regardless of the gate — it's a merge-verify + close command any time. The ticket is closed **only when the code is actually merged**, never on green-CI-but-open.
