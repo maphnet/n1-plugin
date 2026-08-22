@@ -135,17 +135,11 @@ ERROR TRACKING ROUTING (from N1 config — authoritative, do not override):
 - Operations: ${error_ops}"
 fi
 
-if [ -n "$log_type" ]; then
-    log_envs=""
-    if command -v jq >/dev/null 2>&1; then
-        log_envs=$(jq -r '
-            .logging.environments // {} | to_entries[]
-            | "  - \(.key): mcp__\(.value.mcp)__\(if .key == ($default // "") then " (default)" else "" end)"
-        ' --arg default "$log_default" "$CONFIG_FILE" 2>/dev/null || true)
-    else
-        log_default_mcp=$(n1_config_val '.logging.environments.'"${log_default}"'.mcp' "$CONFIG_FILE" 2>/dev/null || true)
-        log_envs="  - ${log_default}: mcp__${log_default_mcp}__ (default)"
-    fi
+if [ -n "$log_type" ] && command -v jq >/dev/null 2>&1; then
+    log_envs=$(jq -r '
+        .logging.environments // {} | to_entries[]
+        | "  - \(.key): mcp__\(.value.mcp)__\(if .key == ($default // "") then " (default)" else "" end)"
+    ' --arg default "$log_default" "$CONFIG_FILE" 2>/dev/null || true)
 
     context="${context}
 
