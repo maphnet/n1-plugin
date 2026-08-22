@@ -855,6 +855,111 @@ Current error tracking:
 
 If `errorTracking` is `null` or absent, re-run detection from scratch (same as fresh setup).
 
+## Logging Configuration
+
+Detect available log aggregation MCP servers. Currently supported: Loki (via `grafana/loki-mcp`).
+
+**Detection:** Use ToolSearch to find tools matching `loki_label_names`. If a match is found, extract the MCP server name from the tool name prefix (e.g., `mcp__publius-loki-mcp__loki_label_names` → server name is `publius-loki-mcp`). Then attempt a probe call to `mcp__<detected-server>__loki_label_names` (no arguments) to confirm connectivity. If no matching tool is found or the probe fails, skip this section silently — no logging setup offered.
+
+**If Loki MCP detected:**
+
+```
+Log aggregation integration detected: Loki MCP server (<detected-server>)
+Enable logging integration? 1 — Yes / 2 — No (default)
+```
+
+**If 2 (No) or default:**
+```json
+{
+  "logging": null
+}
+```
+
+**If 1 (Yes):**
+
+1. Ask for environment name for the detected MCP server:
+   ```
+   What environment does this Loki instance serve?
+   1 — prod
+   2 — staging
+   3 — dev
+   4 — Enter custom name
+   ```
+
+2. Record as the first environment entry with the detected MCP server name.
+
+3. Ask about additional environments:
+   ```
+   Add another Loki environment? Enter MCP server name (or press Enter to skip)
+   ```
+   If the user enters a name (e.g., `publius-loki-staging`):
+   - Probe it with `mcp__<name>__loki_label_names` to confirm connectivity.
+   - If probe succeeds, ask which environment it serves (same selection as step 1).
+   - Add to environments map. Repeat until the user presses Enter.
+   - If probe fails, report the failure and ask again.
+
+4. Set `default` to the first environment added.
+
+5. Operations map is preset (not asked interactively):
+   ```json
+   {
+     "query": "loki_query",
+     "labelNames": "loki_label_names",
+     "labelValues": "loki_label_values"
+   }
+   ```
+
+6. Confirm summary:
+   ```
+   Logging integration:
+     Provider: loki
+     Default: prod
+     Environments:
+       prod → publius-loki-mcp
+       staging → publius-loki-staging
+   ```
+
+Result config block:
+```json
+{
+  "logging": {
+    "type": "loki",
+    "default": "<first-env-name>",
+    "operations": {
+      "query": "loki_query",
+      "labelNames": "loki_label_names",
+      "labelValues": "loki_label_values"
+    },
+    "environments": {
+      "<env1>": { "mcp": "<detected-or-entered-server>" },
+      "<env2>": { "mcp": "<entered-server>" }
+    }
+  }
+}
+```
+
+### On reconfiguration (n1-init re-run):
+
+If `logging` already exists and is not `null`, show current config and offer:
+```
+Current logging:
+  Provider: <type>
+  Default: <default> (<default-env-mcp>)
+  Environments: <comma-separated env names>
+
+1 — Keep current
+2 — Add/remove environments
+3 — Change default
+4 — Disable
+```
+
+- **1** → leave unchanged.
+- **2** → list current environments with their MCP server names. Offer to add new (same flow as fresh setup step 3) or remove existing (numbered list, select to remove).
+- **3** → present numbered list of configured environment names, select new default.
+- **4** → set `"logging": null`.
+
+If `logging` is `null` or absent, re-run detection from scratch (same as fresh setup).
+
 ## Estimation Configuration
 
 Ask whether N1 should estimate task complexity and write delivery time to the tracker. **Default is No.**
