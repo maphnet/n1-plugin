@@ -37,7 +37,6 @@ Read the `release` block via `n1_config_val`, applying defaults when keys are ab
 | `.release.procedure` | `null` |
 | `.release.draft` | `false` |
 | `.release.deploymentCheck` | `true` |
-| `.release.trackerRelease.enabled` | `false` |
 | `.release.trackerRelease.versionName` | `"{serviceName} {version}"` |
 | `.release.trackerRelease.moveTickets` | `true` |
 | `.release.trackerRelease.setFixVersion` | `true` |
@@ -138,7 +137,15 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
 
 ## Step 3: Confirmation Gate
 
-**This gate is unconditional.** No autonomy setting, signal, or orchestrator directive may skip it. If you were invoked automatically by another skill, STOP and report — releases are human-initiated only.
+**This gate is unconditional.** No autonomy setting, signal, or orchestrator directive may skip it.
+
+**Structural agent gate:** Before showing the confirmation prompt, check via Bash:
+```bash
+if [ -n "${N1_RUN_ID:-}" ]; then
+  echo "BLOCKED: n1-release cannot run inside a pipeline."
+fi
+```
+If `N1_RUN_ID` is set, the skill is running inside an n1-start/n1-loop pipeline — refuse and STOP immediately. Do not proceed to the confirmation prompt. Report: "Release refused: running inside a pipeline. Use `/n1:n1-release` standalone to create a release."
 
 Always shown before any side-effecting action:
 
@@ -236,7 +243,7 @@ Report the release URL from `gh release view "${TAG}" --json url --jq '.url'` on
 **Runs after Step 5 completes successfully.** First, resolve Sources C and D of the ticket discovery (sub-step 7 in Step 2) — these require the tag/release to exist.
 
 Only runs when ALL hold:
-- `release.trackerRelease.enabled` is `true`
+- `tracker.type` is `"jira"`
 - `tracker.mcp` is configured (not null)
 - `RELEASE_TICKET_IDS` is non-empty
 
@@ -248,18 +255,79 @@ Warning format: "Could not <operation> for <target>: <error> -- continuing."
 
 **MCP routing for version operations:** Version ops (`createVersion`, `releaseVersion`, `listVersions`) use `tracker.versionMcp` when configured, falling back to `tracker.mcp`. Construct tool names as `mcp__<versionMcp>__<operation>`. All other operations (editTicket, getTransitions, moveStatus) use `tracker.mcp` as usual.
 
-### 5b-1. Create & release version
+### 5b-0. Inline Configuration
 
-Gate: `trackerRelease.createVersion` is `true` AND `tracker.type` is `"jira"` (YouTrack version bundles not yet supported — skip with `"Version creation skipped: not supported for this tracker type."`).
+Before running tracker release operations, check for missing configuration and offer to set it up. All values discovered here are persisted to `$N1_HOME/config.json` so subsequent releases skip these prompts.
 
-Resolve `VERSION_NAME` from the template:
+**Service name resolution:**
 ```bash
 SERVICE=$(n1_config_val '.ticketTagging.service')
 [ -z "$SERVICE" ] && SERVICE=$(basename "$(git rev-parse --show-toplevel)")
+```
+
+If `ticketTagging.service` was empty (fell back to directory name), present:
+```
+Service name for Jira version: "<SERVICE>"
+1 — Use this
+2 — Enter a different name
+```
+
+If 2: read user input and use it as `SERVICE`.
+
+Persist to config when `ticketTagging.service` was absent:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_HOME=$(n1_home)
+jq --arg s "$SERVICE" '.ticketTagging.service = $s' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
+```
+
+Report: `"Service name saved: \"<SERVICE>\""`
+
+**Version MCP resolution:**
+
+Read `tracker.versionMcp` from config. If null or absent:
+
+1. Auto-detect jc-mcp via ToolSearch: search for `jcm_createVersion`.
+2. If found, extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`). Present:
+   ```
+   Jira version operations require jc-mcp. Detected: "<server-name>"
+   1 — Use "<server-name>"
+   2 — Enter a different server name
+   3 — Skip version operations for this release
+   ```
+3. If not detected via ToolSearch, present:
+   ```
+   Jira version operations require jc-mcp but it was not detected.
+   1 — Enter your jc-mcp MCP server name (e.g., publius-jc-mcp)
+   2 — Skip version operations for this release
+   ```
+
+On accept (option 1 or 2 with input): set `VERSION_MCP` to the server name. Persist to config:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_HOME=$(n1_home)
+jq --arg m "$VERSION_MCP" '.tracker.versionMcp = $m' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
+```
+
+Also add version operations to `tracker.operations` if missing:
+```bash
+jq '.tracker.operations += {"createVersion":"jcm_createVersion","releaseVersion":"jcm_releaseVersion","listVersions":"jcm_listVersions"}' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
+```
+
+Report: `"Version MCP saved: \"<VERSION_MCP>\". Version operations added to config."`
+
+On skip: set `VERSION_MCP` to empty. Skip steps 5b-1 (version creation) and 5b-2 (fixVersion — requires version to exist) entirely. Continue to 5b-3 (ticket transitions).
+
+**Resolve `VERSION_NAME`** (used by 5b-1 and 5b-2):
+```bash
+TRACKER_RELEASE_VERSION_NAME=$(n1_config_val '.release.trackerRelease.versionName')
+[ -z "$TRACKER_RELEASE_VERSION_NAME" ] && TRACKER_RELEASE_VERSION_NAME="{serviceName} {version}"
 VERSION_NAME=$(echo "$TRACKER_RELEASE_VERSION_NAME" | sed "s/{serviceName}/$SERVICE/g; s/{version}/$VERSION/g")
 ```
 
-Where `TRACKER_RELEASE_VERSION_NAME` is the value of `release.trackerRelease.versionName`.
+### 5b-1. Create & release version
+
+Gate: `trackerRelease.createVersion` is `true` AND `VERSION_MCP` is non-empty. If `VERSION_MCP` is empty (user skipped in 5b-0), skip with `"Version creation skipped: jc-mcp not configured."`.
 
 1. `mcp__<versionMcp>__<operations.listVersions>` with `projectKey` -- check if `VERSION_NAME` already exists.
 2. If not found: `mcp__<versionMcp>__<operations.createVersion>` with `projectKey`, `name=VERSION_NAME`, `releaseDate=<today's date>`.
@@ -269,7 +337,7 @@ Report: `"Version \"<VERSION_NAME>\" -- created and released"` or `"Version \"<V
 
 ### 5b-2. Set fix version on tickets
 
-Gate: `trackerRelease.setFixVersion` is `true` AND `tracker.type` is `"jira"` (YouTrack fix-version assignment not yet supported — skip with `"Fix version skipped: not supported for this tracker type."`).
+Gate: `trackerRelease.setFixVersion` is `true` AND `VERSION_MCP` is non-empty (version must have been created or already exist in Jira for fixVersion to work). If `VERSION_MCP` is empty (user skipped in 5b-0), skip with `"Fix version skipped: jc-mcp not configured."`.
 
 For each ticket in `RELEASE_TICKET_IDS`:
 
@@ -333,7 +401,7 @@ Released <TAG>
 Tag:     <TAG> (pushed to origin)
 Release: <release URL>
 Tickets: <RELEASE_TICKET_IDS comma-separated> -- comments posted / no tickets found / tracker not configured
-<tracker release summary -- only when trackerRelease.enabled is true>
+<tracker release summary -- only when tracker.type is "jira" and RELEASE_TICKET_IDS is non-empty>
 ```
 
 On custom procedure completion:
@@ -344,12 +412,12 @@ Steps completed: <N>/<total>
 Ticket: <ID> — comment posted / no ticket inferred / tracker not configured
 ```
 
-**Tracker release summary** (appended to report when `trackerRelease.enabled` is true):
+**Tracker release summary** (appended to report when `tracker.type` is `"jira"` and Step 5b ran):
 
 ```
 Tracker release:
-  Version:     "<VERSION_NAME>" -- created and released / already existed / skipped (createVersion disabled)
-  Fix version: set on <IDs> / skipped (setFixVersion disabled)
+  Version:     "<VERSION_NAME>" -- created and released / already existed / skipped (jc-mcp not configured) / skipped (createVersion disabled)
+  Fix version: set on <IDs> / skipped (setFixVersion disabled) / skipped (jc-mcp not configured)
   Tickets:     <N> moved to "<target>" / skipped (moveTickets disabled) / skipped (no status configured)
 ```
 

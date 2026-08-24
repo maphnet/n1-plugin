@@ -5,7 +5,6 @@
   "draft": false,
   "deploymentCheck": true,
   "trackerRelease": {
-    "enabled": false,
     "versionName": "{serviceName} {version}",
     "moveTickets": true,
     "setFixVersion": true,

@@ -1136,23 +1136,13 @@ Write:
 
 ### Tracker Release Automation
 
-**Only runs when `release.enabled` is `true` AND `tracker.mcp` is not null.** Skip this section entirely otherwise.
+**Only runs when `release.enabled` is `true` AND `tracker.type` is `"jira"`.** Skip this section entirely otherwise.
 
-```
-Enable tracker release automation?
-Creates versions, sets fix versions, and moves tickets on release.
-1 -- Yes
-2 -- No (default)
-```
-
-**If 2 (No) or default:** do not add `trackerRelease` to config (defaults apply from `defaults/release.json` with `enabled: false`).
-
-**If 1 (Yes):** add `trackerRelease` to the `release` block:
+When conditions are met, write the `trackerRelease` block to the `release` config with default sub-flags:
 ```json
 {
   "release": {
     "trackerRelease": {
-      "enabled": true,
       "versionName": "{serviceName} {version}",
       "moveTickets": true,
       "setFixVersion": true,
@@ -1162,7 +1152,7 @@ Creates versions, sets fix versions, and moves tickets on release.
 }
 ```
 
-No sub-questions for individual flags -- all default to `true` when enabled. Users can fine-tune in config.json after init.
+No questions asked -- tracker release operations are on by default for Jira projects. Users can disable individual operations in config.json after init. Missing infrastructure (e.g., `versionMcp`) is configured inline by `/n1:n1-release` on first run.
 
 ### Deployment Pipeline Awareness
 
@@ -1200,7 +1190,6 @@ Current release:
   enabled         → <true/false>
   procedure       → GitHub Release (built-in) | custom (<N> steps)
   deploymentCheck → <true/false>
-  trackerRelease  → <enabled/disabled>
 
 1 — Keep current
 2 — Change settings
