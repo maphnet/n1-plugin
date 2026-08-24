@@ -5,6 +5,6 @@
   "version": "2.58.0",
   "license": "MIT",
   "dependencies": [
-    { "name": "superpowers", "version": "2.58.0", "marketplace": "claude-plugins-official" }
+    { "name": "superpowers", "version": "6.2.0", "marketplace": "claude-plugins-official" }
   ]
 }
