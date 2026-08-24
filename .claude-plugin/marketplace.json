@@ -6,11 +6,7 @@
     {
       "name": "n1",
       "description": "AI-driven development orchestrator. No one writes the code.",
-<<<<<<< HEAD
       "version": "2.58.0",
-=======
-      "version": "2.58.0",
->>>>>>> worktree-logging-integration
       "source": "./"
     }
   ]
