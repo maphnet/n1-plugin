@@ -127,12 +127,15 @@ Spawn the solution-architect agent with this prompt (replacing the standard proj
 Also apply the investigation-mode directive from shared spawn directives (ticket-specific, always applies).
 Also apply all shared output-path directives.
 
-**Error-tracking enrichment (error tracker mode only):**
+**Observability enrichment (bug and error-tracker tasks):**
 
-If the task originated from an error tracker URL (ticket.md Source contains an error tracker reference):
-1. Read `$N1_HOME/config.json` → `errorTracking.mcp` and `errorTracking.operations`
-2. Append the error-tracking search MCP tool to the agent's tool grant: add `mcp__<errorTracking.mcp>__<errorTracking.operations.searchIssues>` to the `tools` list for this spawn (e.g., `Read, Grep, Glob, Bash, WebSearch, WebFetch, mcp__sentry__search_sentry_issues`)
-3. Add directive: "Search the error-tracking system for related issues using `mcp__<errorTracking.mcp>__<errorTracking.operations.searchIssues>`. Look for issues with the same exception type, affected file, or error message. Include findings in the Related Error-Tracker Issues section of your output."
+If the task type is `bug` (from ticket.md or intake classification) OR the task originated from an error tracker URL, AND `observability` is configured (not null) in `$N1_HOME/config.json`:
+
+1. Read `observability.default` and `observability.environments[default]` from config (requires jq — skip enrichment entirely without jq).
+2. Iterate all providers in the default environment.
+3. For each provider: append ALL its operations as MCP tool grants — `mcp__<provider.mcp>__<operation>` for each operation value in the provider's operations map.
+4. If the task originated from an error tracker URL, add directive: "Query all available observability tools for context around this error. Search for related errors, query logs, and check traces as relevant. Include findings in an `### Observability Findings` section of your output."
+5. If the task is a regular bug (not from error tracker), add directive: "If relevant to the bug being analyzed, use the granted observability tools to investigate. Include any relevant findings in your analysis."
 
 After the agent returns:
 

@@ -55,7 +55,7 @@ Check for N1 configuration in priority order:
 The canonical set of top-level config keys. Used by the completeness check to detect missing sections. When adding a new config section to n1-init, add its key here.
 
 ```
-worktree, tracker, git, ticketTagging, errorTracking, estimation,
+worktree, tracker, git, ticketTagging, observability, estimation,
 localTesting, finishWork, release, codex, testCoverage, telemetry,
 analysisCache, rules, escalation, autonomy, review, ciChecks, planReview, memory, models
 ```
@@ -67,7 +67,7 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 1. `tracker` → **Tracker Setup**
 2. `git` → **Git Configuration**
 3. `ticketTagging` → **Ticket Tagging Configuration** (fresh-setup portion)
-4. `errorTracking` → **Error Tracking Configuration** (fresh-setup portion)
+4. `observability` → **Observability Configuration** (fresh-setup portion)
 5. `estimation` → **Estimation Configuration** (fresh-setup portion)
 6. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
 7. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
@@ -769,29 +769,68 @@ Auto-assign created tickets to you: <true/false>
 
 If `tracker.assignToCreator` is absent from the current config, run the fresh-setup flow above. Skip entirely when `tracker.mcp` is `null`.
 
-## Error Tracking Configuration
+## Observability Configuration
 
-Detect available error-tracking MCP servers by attempting a lightweight discovery call. Currently supported: Sentry.
+Detect available observability MCP servers using ToolSearch probes for known provider signatures:
 
-**Detection:** Attempt `mcp__sentry__list_projects` (no arguments). If it succeeds, the Sentry MCP server is available. If it fails or times out, skip this section silently — no error-tracking setup offered.
+| Provider | Probe tool | Probe args |
+|----------|-----------|------------|
+| Sentry | `search_sentry_tools` | (none) |
+| Loki | `loki_label_names` | (none) |
+| Langfuse | `fetch_traces` | `age: 1` |
 
-**If Sentry MCP detected:**
+For each detected provider, extract MCP server name from the tool name prefix (e.g., `mcp__publius-sentry__search_sentry_tools` → server name is `publius-sentry`).
+
+**If no providers detected:** set `"observability": null` silently and skip this section.
+
+**If providers detected:**
 
 ```
-Error tracking integration detected: Sentry MCP server
-Enable Sentry integration? 1 — Yes / 2 — No (default)
+Observability tools detected:
+  - sentry via publius-sentry
+  - loki via publius-loki-mcp
+  - langfuse via publius-dev-langfuse-mcp
+Enable observability integration? 1 — Yes / 2 — No (default)
 ```
 
 **If 2 (No) or default:**
 ```json
 {
-  "errorTracking": null
+  "observability": null
 }
 ```
 
-**If 1 (Yes):**
+**If 1 (Yes) — for each detected provider, ask which environment it serves:**
 
-1. Use the project list from the detection call result (or re-call `mcp__sentry__list_projects`).
+```
+What environment does <provider> (<mcp-server>) serve?
+1 — prod
+2 — staging
+3 — dev
+4 — Enter custom name
+```
+
+**Ask about additional MCP servers:**
+
+```
+Add another observability MCP server? Enter MCP server name (or press Enter to skip)
+```
+
+If entered: probe to identify provider type, ask which env it serves, add to config. Repeat until Enter.
+
+**Auto-detect operations per provider** by probing the MCP server's available tools via ToolSearch with the server prefix. For known providers, use a preset list of key operations:
+
+| Provider | Key operations |
+|----------|---------------|
+| Sentry | `searchIssues=search_sentry_issues`, `getIssue=get_sentry_issue`, `getAiAnalysis=get_autofix_state`, `listProjects=list_projects` |
+| Loki | `query=loki_query`, `labelNames=loki_label_names`, `labelValues=loki_label_values` |
+| Langfuse | `findExceptions=find_exceptions`, `fetchTraces=fetch_traces`, `getSessionDetails=get_session_details` |
+
+For unknown providers, store all discovered tools as operations.
+
+**Sentry intake fields** — when the detected provider is Sentry, also ask for the project selection:
+
+1. Call `mcp__<detected-sentry-mcp>__list_projects` to get the project list.
 2. Present selection — number each project, plus a manual-entry option:
    ```
    Select Sentry project:
@@ -802,58 +841,103 @@ Enable Sentry integration? 1 — Yes / 2 — No (default)
    - If numbered option: extract `orgSlug` and `projectSlug` from the selected project.
    - If "Enter manually": ask for `orgSlug` and `projectSlug` separately.
 3. Auto-generate `urlPattern`: `sentry\\.io/issues/|<orgSlug>\\.sentry\\.io/issues/`
-4. Operations map is preset (not asked interactively):
+4. Store these intake fields on the Sentry provider entry alongside `mcp` and `operations`:
    ```json
    {
-     "getIssue": "get_sentry_issue",
-     "searchIssues": "search_sentry_issues",
-     "listProjects": "list_projects",
-     "getAiAnalysis": "get_autofix_state"
+     "sentry": {
+       "mcp": "publius-sentry",
+       "operations": { "searchIssues": "search_sentry_issues" },
+       "urlPattern": "sentry\\.io/issues/|my-org\\.sentry\\.io/issues/",
+       "orgSlug": "my-org",
+       "projectSlug": "my-backend"
+     }
    }
    ```
-   **Implementation note:** verify actual tool names against the live MCP server during development (call `ToolSearch` or list available tools); the names above are based on research and may differ from the actual server's tool identifiers.
-5. Confirm:
-   ```
-   Sentry integration:
-     Org: my-org
-     Project: my-backend
-     URL pattern: sentry\.io/issues/|my-org\.sentry\.io/issues/
-   ```
 
+**Set `default`** to the environment with the most providers (or `prod` if tied).
+
+**Confirm summary:**
+
+```
+Observability integration:
+  Default: prod
+  Environments:
+    prod:
+      sentry → publius-sentry (searchIssues)
+      loki → publius-loki-mcp (query, labelNames, labelValues)
+    dev:
+      langfuse → publius-dev-langfuse-mcp (findExceptions, fetchTraces, getSessionDetails)
+```
+
+Result config block:
 ```json
 {
-  "errorTracking": {
-    "mcp": "sentry",
-    "operations": {
-      "getIssue": "get_sentry_issue",
-      "searchIssues": "search_sentry_issues",
-      "listProjects": "list_projects",
-      "getAiAnalysis": "get_autofix_state"
-    },
-    "urlPattern": "sentry\\.io/issues/|<orgSlug>\\.sentry\\.io/issues/",
-    "projectSlug": "<selected>",
-    "orgSlug": "<selected>"
+  "observability": {
+    "default": "prod",
+    "environments": {
+      "prod": {
+        "sentry": {
+          "mcp": "publius-sentry",
+          "operations": { "searchIssues": "search_sentry_issues" },
+          "urlPattern": "sentry\\.io/issues/|my-org\\.sentry\\.io/issues/",
+          "orgSlug": "my-org",
+          "projectSlug": "my-backend"
+        },
+        "loki": {
+          "mcp": "publius-loki-mcp",
+          "operations": { "query": "loki_query", "labelNames": "loki_label_names", "labelValues": "loki_label_values" }
+        }
+      },
+      "dev": {
+        "langfuse": {
+          "mcp": "publius-dev-langfuse-mcp",
+          "operations": { "findExceptions": "find_exceptions", "fetchTraces": "fetch_traces", "getSessionDetails": "get_session_details" }
+        }
+      }
+    }
   }
 }
 ```
 
+### Migration from `errorTracking` + `logging`
+
+**Gate:** Only when old blocks exist (`errorTracking` and/or `logging` are present and not null) but no `observability` block exists.
+
+Auto-migration logic during n1-init:
+
+1. **Convert `errorTracking`:** Create a provider entry `"sentry": { "mcp": "<errorTracking.mcp>", "operations": <errorTracking.operations>, "urlPattern": "<errorTracking.urlPattern>", "orgSlug": "<errorTracking.orgSlug>", "projectSlug": "<errorTracking.projectSlug>" }` under the environment `"prod"`. Copy all intake-specific fields (`urlPattern`, `orgSlug`, `projectSlug`) if present.
+
+2. **Convert `logging`:** For each entry in `logging.environments`, create a provider entry `"<logging.type>": { "mcp": "<env.mcp>", "operations": <logging.operations> }` under the corresponding environment name.
+
+3. **Merge:** Combine into a single `observability` block. Set `observability.default` to `logging.default` if it existed, otherwise `"prod"`.
+
+4. **Clean up:** Remove old `errorTracking` and `logging` blocks from config.
+
+5. **Present:** Show the migrated config using the reconfigure menu so the user can review and adjust.
+
 ### On reconfiguration (n1-init re-run):
 
-If `errorTracking` already exists and is not `null`, show current config and offer:
+If `observability` already exists and is not null:
 ```
-Current error tracking:
-  Provider: sentry
-  Project: <projectSlug> (<orgSlug>)
+Current observability:
+  Default: prod
+  Environments:
+    prod: sentry, loki
+    staging: loki
+    dev: langfuse
 
 1 — Keep current
-2 — Change project
-3 — Disable
+2 — Add/remove providers or environments
+3 — Change default environment
+4 — Disable
 ```
-- **1** → leave unchanged.
-- **2** → re-run the project selection flow above (detection call, project list, confirm).
-- **3** → set `"errorTracking": null`.
 
-If `errorTracking` is `null` or absent, re-run detection from scratch (same as fresh setup).
+- **1** — leave unchanged.
+- **2** — list current env/provider entries. Offer to add new (same flow as fresh setup step 4) or remove existing (select env, then provider to remove).
+- **3** — select from configured environment names.
+- **4** — set `"observability": null`.
+
+If `observability` is `null` or absent (and no old blocks to migrate), re-run detection from scratch.
 
 ## Estimation Configuration
 
@@ -1726,7 +1810,7 @@ Create all files:
     "prMode": "<from PR Mode Configuration selection>"
   },
   "ticketTagging": { ... },
-  "errorTracking": null,
+  "observability": null,
   "estimation": {
     "enabled": false
   },

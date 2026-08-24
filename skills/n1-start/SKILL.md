@@ -73,7 +73,7 @@ Throughout the pipeline, `N1_RUN_ID` and `N1_VERSION` are passed to each telemet
 The user provides one of:
 - **Ticket ID** — matches the tracker prefix from config (e.g., `TRID-510`, `PROJ-42`)
 - **Tracker URL** — a URL containing the tracker prefix and ticket number (e.g., `https://maphnet.youtrack.cloud/issue/H1-86/slug-text`)
-- **Error tracker URL** — matches `errorTracking.urlPattern` from config (e.g., `https://myorg.sentry.io/issues/12345`)
+- **Error tracker URL** — matches `urlPattern` from the error-tracker provider in `observability.environments` (e.g., `https://myorg.sentry.io/issues/12345`)
 - **File path** — a path to a file containing requirements
 - **Brain dump** — free-text description of what needs to be built
 - **Resume** — ticket ID or slug where memory already exists

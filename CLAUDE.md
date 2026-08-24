@@ -87,6 +87,27 @@ Jira also requires `tracker.cloudId` (detected during tracker setup) for all Con
 
 The session-start hook injects KB ROUTING context when enabled, providing the model with space/project defaults for KB calls.
 
+### Observability
+
+Optional multi-provider observability integration for querying logs, errors, and traces during investigations and on-demand. Config-driven via `observability` block in `$N1_HOME/config.json`. Environment-first grouping: each environment maps provider names to self-contained `{ mcp, operations }` entries. When `observability` is `null` or absent, the feature is fully disabled.
+
+| Provider | Example mcp value | Key operations |
+|----------|-------------------|----------------|
+| Sentry | `publius-sentry` | `search_sentry_issues` (searchIssues) |
+| Loki | `publius-loki-mcp` | `loki_query` (query), `loki_label_names` (labelNames), `loki_label_values` (labelValues) |
+| Langfuse | `publius-dev-langfuse-mcp` | `find_exceptions` (findExceptions), `fetch_traces` (fetchTraces), `get_session_details` (getSessionDetails) |
+
+**Config:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `observability.default` | string | — | Environment name used for pipeline auto-enrichment |
+| `observability.environments` | object | — | Env name → provider name → `{ "mcp": "<server-name>", "operations": { ... } }` |
+
+Provider keys are human-readable labels. Operations may differ per environment for the same provider. Providers with intake support (e.g. Sentry) carry additional fields (`urlPattern`, `orgSlug`, `projectSlug`) on the provider entry for URL detection. Adding a new provider requires zero code changes — just a config entry.
+
+The session-start hook injects OBSERVABILITY ROUTING context when configured, providing the model with per-environment MCP prefixes, providers, and available operations.
+
 ## Escalation Safety
 
 Always escalate: security, architecture, public API changes.

@@ -237,20 +237,43 @@ The code-reviewer evaluates a **Test Quality (TQ)** dimension with `[TQ-N]` pref
 
 **QA evidence and optional verification gate.** Each QA run writes a `### Evidence` subsection to `qa.md` containing the exact runner command, exit code, and last ~10 lines of output from the Step 6 full-suite run. Without `qa.verifyGate`, this evidence is agent-transcribed (not machine-captured). When `qa.verifyGate: true` (default `false`), the orchestrator re-executes the suite via Bash after the agent returns, stores the log under `$N1_HOME/memory/<ID>/qa-verify.log`, and records any exit-code mismatch in overview Key Decisions. If Evidence is absent or the fallback qa.md was written, the orchestrator sets `qa_verdict_unverified: true` in overview.md frontmatter, records a Key Decision ("QA degraded: unevidenced verdict"), and the review step instructs the code-reviewer to treat the QA pass as unconfirmed when evaluating Test Quality.
 
-## Error Tracking Routing
+## Observability Integration
 
-Optional integration with error-tracking systems (Sentry first, extensible to Datadog/Rollbar). Config-driven via `errorTracking` block in `$N1_HOME/config.json` — same operations-map pattern as tracker routing. When `errorTracking` is `null` or absent, the feature is fully disabled.
+Optional multi-provider observability integration (Sentry, Loki, Langfuse, extensible). Config-driven via `observability` block in `$N1_HOME/config.json` — environment-first grouping where each environment maps provider names to self-contained `{ mcp, operations }` entries. When `observability` is `null` or absent, the feature is fully disabled.
 
-| Provider | mcp value | Key operations |
-|----------|-----------|---------------|
-| Sentry | `sentry` | `get_sentry_issue` (getIssue), `search_sentry_issues` (searchIssues), `list_projects` (listProjects), `get_autofix_state` (getAiAnalysis) |
+Config structure:
+```json
+{
+  "observability": {
+    "default": "prod",
+    "environments": {
+      "prod": {
+        "sentry": {
+          "mcp": "publius-sentry",
+          "operations": { "searchIssues": "search_sentry_issues" }
+        },
+        "loki": {
+          "mcp": "publius-loki-mcp",
+          "operations": { "query": "loki_query", "labelNames": "loki_label_names", "labelValues": "loki_label_values" }
+        }
+      },
+      "dev": {
+        "langfuse": {
+          "mcp": "publius-dev-langfuse-mcp",
+          "operations": { "findExceptions": "find_exceptions", "fetchTraces": "fetch_traces", "getSessionDetails": "get_session_details" }
+        }
+      }
+    }
+  }
+}
+```
 
 Three pipeline touchpoints:
-- **Intake — direct** (n1-start + product-analyst): URL detection via `errorTracking.urlPattern` on the user's input, MCP fetch of issue data + optional AI root-cause analysis, structured `ticket.md` with error-specific sections
-- **Intake — linked** (intake-agent inline): when a Jira ticket description contains an error-tracker URL, intake-agent detects it, fetches the Sentry issue data inline, and appends a `### Linked Error Tracker Issue` section to raw ticket.md. Gated on `errorTracking` config presence. First URL only; silent failure. Returns `linked_error` in intake-result; type overridden to `bug`.
-- **Analysis** (solution-architect): search for related issues via `errorTracking.operations.searchIssues`, reported in `analysis.md`
+- **Intake** (n1-start + product-analyst): providers with `urlPattern` field (e.g. Sentry) support direct URL intake — URL detection, MCP fetch of issue data, structured `ticket.md`. Intake fields (`urlPattern`, `orgSlug`, `projectSlug`) live on the provider entry alongside `mcp` and `operations`.
+- **Analysis — error-tracker tasks:** all providers in the default environment get their operations granted; agent searches errors, queries logs, and checks traces
+- **Analysis — bug tasks:** same grants with a lighter directive
 
-Memory ID for error-tracker runs: `sentry-<issueId>` (provisional; replaced by tracker ticket ID if user creates one). Ticket creation is optional — reuses the brain-dump ticket-creation flow with a Sentry link prepended to the description.
+On-demand access is automatic via session-start OBSERVABILITY ROUTING injection — no pipeline changes needed for ad-hoc queries. Adding a new provider (CloudWatch, Datadog, etc.) requires zero code changes — just an n1-init detection probe entry and a config entry.
 
 ## Finish Work
 

@@ -8,7 +8,14 @@ The intake-agent accepts four input modes. Choose based on input type:
 **Ticket mode** (input matches `<prefix>-<number>`):
 0. The `<ID>` is already known (the ticket ID). Workspace isolation is deferred until after investigation detection (see below).
 1. Read `$N1_HOME/config.json` -> `tracker.type`, `tracker.mcp`, `tracker.operations`
-2. Read `$N1_HOME/config.json` -> `errorTracking` block. Set `ET_CONFIGURED` = true if ALL of: `errorTracking` block exists, `errorTracking.urlPattern` is non-empty, `errorTracking.operations.getIssue` exists. Otherwise `ET_CONFIGURED` = false.
+2. Read `$N1_HOME/config.json` -> find the error-tracker provider. Requires jq. Scan all providers across all environments in `observability.environments` for one that has a `urlPattern` field. If found, set `ET_CONFIGURED` = true and extract from that provider entry: `errorTrackingMcp` (from `.mcp`), `errorTrackingOps` (from `.operations`), `errorTrackingUrlPattern` (from `.urlPattern`), `orgSlug` (from `.orgSlug`), `projectSlug` (from `.projectSlug`). If no provider has `urlPattern` or jq is unavailable, set `ET_CONFIGURED` = false.
+
+jq extraction:
+```bash
+ET_PROVIDER=$(jq -r '
+    [.observability.environments // {} | to_entries[] | .value | to_entries[] | select(.value.urlPattern)] | first | .value // empty
+' "$N1_HOME/config.json" 2>/dev/null)
+```
 3. Spawn intake-agent with:
    - `mode`: "ticket"
    - `ticketId`: the parsed ticket ID
@@ -16,11 +23,11 @@ The intake-agent accepts four input modes. Choose based on input type:
    - `operations`: from config (`tracker.operations`)
    - `trackerType`: from config (`tracker.type`)
    - `ticketMdPath`: `$N1_HOME/memory/<ID>/ticket.md`
-   - (**Only if `ET_CONFIGURED` is true**) `errorTrackingMcp`: from `errorTracking.mcp`
-   - (**Only if `ET_CONFIGURED` is true**) `errorTrackingOps`: from `errorTracking.operations`
-   - (**Only if `ET_CONFIGURED` is true**) `errorTrackingUrlPattern`: from `errorTracking.urlPattern`
-   - (**Only if `ET_CONFIGURED` is true**) `orgSlug`: from `errorTracking.orgSlug` (if present)
-   - (**Only if `ET_CONFIGURED` is true**) `projectSlug`: from `errorTracking.projectSlug` (if present)
+   - (**Only if `ET_CONFIGURED` is true**) `errorTrackingMcp`: from the matched provider's `.mcp`
+   - (**Only if `ET_CONFIGURED` is true**) `errorTrackingOps`: from the matched provider's `.operations`
+   - (**Only if `ET_CONFIGURED` is true**) `errorTrackingUrlPattern`: from the matched provider's `.urlPattern`
+   - (**Only if `ET_CONFIGURED` is true**) `orgSlug`: from the matched provider's `.orgSlug` (if present)
+   - (**Only if `ET_CONFIGURED` is true**) `projectSlug`: from the matched provider's `.projectSlug` (if present)
 
 **File mode** (input is a file path that exists on disk):
 1. Spawn intake-agent with:
@@ -34,18 +41,18 @@ The intake-agent accepts four input modes. Choose based on input type:
    - `content`: the raw input text
    - `ticketMdPath`: `$N1_HOME/scratch/intake-raw.md` (ID not yet final -- write outside memory; moved to final path after ID resolution)
 
-**Error tracker mode** (input matches `errorTracking.urlPattern`):
-1. Read `$N1_HOME/config.json` -> `errorTracking.mcp`, `errorTracking.operations`, `errorTracking.orgSlug`, `errorTracking.projectSlug`
+**Error tracker mode** (input matches the matched provider's `urlPattern`):
+1. Use the already-extracted provider fields from the `ET_CONFIGURED` detection above: `errorTrackingMcp` (`.mcp`), `errorTrackingOps` (`.operations`), `orgSlug`, `projectSlug`.
 2. Parse the issue ID from the URL (see Error tracker URL parsing above)
 3. The provisional `<ID>` is `sentry-<issueId>`. Workspace isolation is deferred until after investigation detection (see below).
 4. Spawn intake-agent with:
    - `mode`: "error-tracker"
    - `issueId`: the parsed issue ID
    - `issueUrl`: the original URL
-   - `errorTrackingMcp`: from config
-   - `operations`: from config (`errorTracking.operations`)
-   - `orgSlug`: from config
-   - `projectSlug`: from config
+   - `errorTrackingMcp`: from the matched provider's `.mcp`
+   - `operations`: from the matched provider's `.operations`
+   - `orgSlug`: from the matched provider's `.orgSlug`
+   - `projectSlug`: from the matched provider's `.projectSlug`
    - `ticketMdPath`: `$N1_HOME/memory/<ID>/ticket.md`
 
 **Parse intake-result**
