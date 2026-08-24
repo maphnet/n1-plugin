@@ -108,11 +108,6 @@ context="N1 is configured for this project. For task work, PR creation, and code
 tracker_mcp=$(n1_config_val '.tracker.mcp' "$CONFIG_FILE")
 tracker_type=$(n1_config_val '.tracker.type' "$CONFIG_FILE")
 tracker_ops=$(n1_config_ops '.tracker.operations' "$CONFIG_FILE")
-error_mcp=$(n1_config_val '.errorTracking.mcp' "$CONFIG_FILE")
-error_ops=$(n1_config_ops '.errorTracking.operations' "$CONFIG_FILE")
-log_type=$(n1_config_val '.logging.type' "$CONFIG_FILE")
-log_default=$(n1_config_val '.logging.default' "$CONFIG_FILE")
-log_ops=$(n1_config_ops '.logging.operations' "$CONFIG_FILE")
 
 if [ -n "$tracker_mcp" ]; then
     context="${context}
@@ -125,32 +120,27 @@ TRACKER ROUTING (from N1 config — authoritative, do not override):
 - Operations: ${tracker_ops}"
 fi
 
-if [ -n "$error_mcp" ]; then
-    context="${context}
+if command -v jq >/dev/null 2>&1; then
+    obs_default=$(jq -r '.observability.default // empty' "$CONFIG_FILE" 2>/dev/null)
+    if [ -n "$obs_default" ]; then
+        obs_envs=$(jq -r --arg default "$obs_default" '
+            .observability.environments // {} | to_entries[] |
+            "  - \(.key)\(if .key == $default then " (default)" else "" end):\n" +
+            (.value | to_entries[] |
+                "    - \(.key): mcp__\(.value.mcp)__ (operations: \(
+                    .value.operations // {} | to_entries | map("\(.key)=\(.value)") | join(", ")
+                ))")
+        ' "$CONFIG_FILE" 2>/dev/null || true)
 
-ERROR TRACKING ROUTING (from N1 config — authoritative, do not override):
-- MCP server: ${error_mcp}
-- All error tracking MCP tool calls MUST use prefix: mcp__${error_mcp}__
-- NEVER use any other MCP server for error tracking operations
-- Operations: ${error_ops}"
-fi
+        context="${context}
 
-if [ -n "$log_type" ] && command -v jq >/dev/null 2>&1; then
-    log_envs=$(jq -r '
-        .logging.environments // {} | to_entries[]
-        | "  - \(.key): mcp__\(.value.mcp)__\(if .key == ($default // "") then " (default)" else "" end)"
-    ' --arg default "$log_default" "$CONFIG_FILE" 2>/dev/null || true)
-
-    context="${context}
-
-LOGGING ROUTING (from N1 config — authoritative, do not override):
-- Provider: ${log_type}
-- Default environment: ${log_default}
+OBSERVABILITY ROUTING (from N1 config — authoritative, do not override):
+- Default environment: ${obs_default}
 - Environments:
-${log_envs}
-- All logging MCP tool calls MUST use prefix: mcp__<env-mcp>__
-- Use default environment unless user specifies otherwise
-- Operations: ${log_ops}"
+${obs_envs}
+- All observability MCP tool calls MUST use prefix: mcp__<provider-mcp>__
+- Use default environment unless user specifies otherwise"
+    fi
 fi
 
 kb_enabled=$(n1_config_val '.kb.enabled' "$CONFIG_FILE")
