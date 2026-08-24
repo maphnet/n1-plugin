@@ -822,7 +822,7 @@ If entered: probe to identify provider type, ask which env it serves, add to con
 
 | Provider | Key operations |
 |----------|---------------|
-| Sentry | `searchIssues=search_sentry_issues` |
+| Sentry | `searchIssues=search_sentry_issues`, `getIssue=get_sentry_issue`, `getAiAnalysis=get_autofix_state`, `listProjects=list_projects` |
 | Loki | `query=loki_query`, `labelNames=loki_label_names`, `labelValues=loki_label_values` |
 | Langfuse | `findExceptions=find_exceptions`, `fetchTraces=fetch_traces`, `getSessionDetails=get_session_details` |
 

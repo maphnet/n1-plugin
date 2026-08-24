@@ -132,7 +132,7 @@ if command -v jq >/dev/null 2>&1; then
                 ))"] | join("\n"))
         ' "$CONFIG_FILE" 2>/dev/null || true)
 
-        if [ -n "$obs_default" ] && [ -n "$obs_envs" ]; then
+        if [ -n "$obs_envs" ]; then
             context="${context}
 
 OBSERVABILITY ROUTING (from N1 config — authoritative, do not override):

@@ -13,7 +13,7 @@ The intake-agent accepts four input modes. Choose based on input type:
 jq extraction:
 ```bash
 ET_PROVIDER=$(jq -r '
-    [.observability.environments // {} | to_entries[] | .value | to_entries[] | select(.value.urlPattern)] | first // empty
+    [.observability.environments // {} | to_entries[] | .value | to_entries[] | select(.value.urlPattern)] | first | .value // empty
 ' "$N1_HOME/config.json" 2>/dev/null)
 ```
 3. Spawn intake-agent with:
