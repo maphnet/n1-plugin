@@ -68,12 +68,12 @@ fi
 
 Config file: `$N1_HOME/config.json` (renamed from `n1.config.json` in v2.0.0).
 
-**Workspace isolation:** `n1-start` resolves isolation mode via: `--step` (always worktree) > `--branch` flag > `worktree.mode` config (`"worktree"` default, `"branch"`) > worktree. In worktree mode, it creates a git worktree at `<main-checkout>/.claude/worktrees/<ID>/` via `Ensure Worktree`. In branch mode, it creates a feature branch in the current checkout via `Ensure Working Branch`. `n1-pr` removes the worktree after push when `worktree.cleanup` is `"after-pr"`, regardless of how it was created.
+**Workspace isolation:** `n1-start` resolves isolation mode via: external worktree detection (highest priority) > `--step` (always worktree) > `--branch` flag > `worktree.mode` config (`"worktree"` default, `"branch"`, `"external"`) > worktree. When an external worktree is detected (linked git worktree not under `.claude/worktrees/`), or `worktree.mode` is `"external"`, N1 skips worktree and branch creation and operates on the current checkout and branch. In worktree mode, it creates a git worktree at `<main-checkout>/.claude/worktrees/<ID>/` via `Ensure Worktree`. In branch mode, it creates a feature branch in the current checkout via `Ensure Working Branch`. `n1-pr` removes the worktree after push when `worktree.cleanup` is `"after-pr"`, regardless of how it was created.
 
 **Worktree config options** (in `$N1_HOME/config.json`):
-- `worktree.mode` — isolation mode for full-pipeline runs: `"worktree"` (default, worktree at `.claude/worktrees/<ID>/`) or `"branch"` (feature branch in current checkout). Overridable per-run with `--branch` flag. Step mode always uses worktree regardless.
+- `worktree.mode` — isolation mode for full-pipeline runs: `"worktree"` (default, worktree at `.claude/worktrees/<ID>/`), `"branch"` (feature branch in current checkout), or `"external"` (force external worktree mode — skip all isolation, reuse current checkout and branch). Auto-detection of external worktrees takes precedence over all modes except `"external"` itself. Overridable per-run with `--branch` flag. Step mode always uses worktree unless an external worktree is detected.
 - `worktree.setup` — command to install dependencies in a worktree. Derived silently by `n1-init` from lockfiles (override for non-standard projects). Runs **lazily on first code-executing step** (implementation, or qa/review/local-testing on a resumed run), not at worktree creation — marker-guarded so it runs at most once per worktree.
-- `worktree.cleanup` — when to auto-remove the worktree: `"after-pr"` (default, removed after push/PR) or `"manual"` (only via `/n1:n1-clean`)
+- `worktree.cleanup` — when to auto-remove the worktree: `"after-pr"` (default, removed after push/PR) or `"manual"` (only via `/n1:n1-clean`). Does not apply to external worktrees (cleanup is skipped automatically via path gate).
 
 Each step reads ONLY its declared dependencies:
 

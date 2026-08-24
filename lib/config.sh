@@ -307,6 +307,29 @@ n1_codex_preflight() {
     return 0
 }
 
+# Detect if running inside a linked git worktree NOT managed by N1.
+# Returns 0 (true) when: git-dir diverges from git-common-dir (linked worktree)
+# AND the worktree toplevel is NOT under .claude/worktrees/ (not N1-managed).
+# Returns 1 (false) otherwise.
+n1_is_external_worktree() {
+    local git_dir git_common_dir toplevel
+    git_dir=$(git rev-parse --git-dir 2>/dev/null) || return 1
+    git_common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
+    # Resolve to absolute paths for reliable comparison
+    git_dir=$(cd "$git_dir" && pwd -P)
+    git_common_dir=$(cd "$git_common_dir" && pwd -P)
+    # Not a linked worktree — git-dir and git-common-dir are the same
+    [ "$git_dir" != "$git_common_dir" ] || return 1
+    # It is a linked worktree — check if N1-managed
+    toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+    # If path contains /.claude/worktrees/, it is N1-managed
+    case "$toplevel" in
+        */.claude/worktrees/*) return 1 ;;
+    esac
+    # Linked worktree, not under .claude/worktrees/ — external
+    return 0
+}
+
 escape_json_val() {
     local s="$1"
     s="${s//\\/\\\\}"

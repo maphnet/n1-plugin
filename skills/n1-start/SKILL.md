@@ -186,12 +186,25 @@ When step mode is active:
    ```
    If `tracker-state.json` exists, run the **Resume-from-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`). The procedure materializes `escalation/response.json` and cleans up state; the normal re-run logic for the current step then reads it.
 
+2.75. **External worktree detection (step mode only):** Before making the Ensure Worktree decision, detect if running inside an external worktree:
+
+    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+    WORKTREE_MODE=$(n1_config_val '.worktree.mode')
+    EXTERNAL_WORKTREE=false
+    if [ "$WORKTREE_MODE" = "external" ] || n1_is_external_worktree; then
+        EXTERNAL_WORKTREE=true
+        WORKTREE_PATH=$(git rev-parse --show-toplevel)
+        BRANCH=$(git branch --show-current)
+    fi
+
+When `EXTERNAL_WORKTREE` is true, skip Ensure Worktree (step 3) entirely.
+
 3. **Ensure Worktree (conditional)** — Read `type` from overview.md frontmatter (if overview.md exists for this `<ID>`):
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
    TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md" 2>/dev/null || echo "")
    ```
-   Skip Ensure Worktree when `TYPE` is `"investigation"` or when `step_name` is `"ticket"` (the ticket step fragment handles its own workspace isolation after investigation detection). Otherwise, run the **Ensure Worktree(`<ID>`)** procedure (see Workspace Isolation above).
+   Skip Ensure Worktree when `TYPE` is `"investigation"`, when `step_name` is `"ticket"` (the ticket step fragment handles its own workspace isolation after investigation detection), or when `EXTERNAL_WORKTREE` is true (the run reuses the orchestrator's checkout). Otherwise, run the **Ensure Worktree(`<ID>`)** procedure (see Workspace Isolation above).
 
 4. **Verify dependencies:**
    ```bash
@@ -265,8 +278,12 @@ Determine workspace isolation mode using this resolution order:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 WORKTREE_MODE=$(n1_config_val '.worktree.mode')
+EXTERNAL_WORKTREE=false
 
-if [ -n "$STEP_NAME" ]; then
+if [ "$WORKTREE_MODE" = "external" ] || n1_is_external_worktree; then
+    EXTERNAL_WORKTREE=true
+    USE_WORKTREE=false
+elif [ -n "$STEP_NAME" ]; then
     USE_WORKTREE=true          # step mode: always worktree
 elif [ "$BRANCH_FLAG" = "true" ]; then
     USE_WORKTREE=false         # --branch flag overrides config
@@ -279,12 +296,18 @@ fi
 
 | Condition | Isolation | Rationale |
 |---|---|---|
-| `--step` present | **Worktree** | Automated — fresh context per step |
+| `worktree.mode: "external"` or auto-detected external worktree | **External** — reuse current checkout and branch | Running inside orchestrator-managed worktree |
+| `--step` present (and not external) | **Worktree** | Automated — fresh context per step |
 | `--branch` flag | **Branch** in current checkout | Explicit user override for this run |
 | `worktree.mode: "branch"` | **Branch** in current checkout | User prefers branch isolation |
 | Default | **Worktree** | Isolated workspace, no IDE conflicts |
 
-When `USE_WORKTREE` is true, use **Ensure Worktree(`<ID>`)**. When false, use **Ensure Working Branch(`<ID>`)**.
+When `EXTERNAL_WORKTREE` is true, skip both Ensure Worktree and Ensure Working Branch — the run operates on the current checkout and its existing branch. Set `WORKTREE_PATH=$(git rev-parse --show-toplevel)` and `BRANCH=$(git branch --show-current)`, then record branch-point: `git merge-base HEAD <defaultBranch>` (fall back to `git rev-parse <defaultBranch>` for shallow clones). Then immediately call:
+
+    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+    n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "$WORKTREE_PATH" "$BRANCH"
+
+This explicit write is necessary because the initial active-run write in Telemetry Initialization (line 61) runs before isolation mode resolution and records null values; ID reconciliation is a no-op when the user provides the ticket ID explicitly, so there is no later write to rely on. When `USE_WORKTREE` is true (and not external), use **Ensure Worktree(`<ID>`)**. When `USE_WORKTREE` is false (and not external), use **Ensure Working Branch(`<ID>`).**
 
 Both procedures are **idempotent** — safe to call again on resume. They are called at each ID-resolution point (see Step 1 and Memory Check).
 
@@ -460,7 +483,7 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
 2. **Memory move:** if `$N1_HOME/memory/<oldId>/` exists AND `$N1_HOME/memory/<newId>/` does NOT → filesystem-move the directory `<oldId>/` → `<newId>/` (`$N1_HOME/` is gitignored or outside the repo, so a plain `mv` / `Move-Item`, NOT `git mv`). If `$N1_HOME/memory/<newId>/` already exists, skip the move and report — the `<newId>` memory is authoritative (resume/collision guard).
 3. **Frontmatter fix:** if `$N1_HOME/memory/<newId>/overview.md` exists (true only when an overview was already written under the slug and just moved — in the clean path it does not exist yet), rewrite its `ticket: <oldId>` → `ticket: <newId>` and its `# <oldId>: <Title>` heading → `# <newId>: <Title>`.
 4. **Branch rename:** compute `<oldBranch>` and `<newBranch>` from `git.branchPattern` (config). If a local branch `<oldBranch>` exists AND `<newBranch>` does NOT → `git branch -m <oldBranch> <newBranch>` (rename preserves commits; N1 has not pushed yet). If `<newBranch>` already exists, skip the rename.
-5. **Worktree move (step mode only):** if `.claude/worktrees/<oldId>/` exists → compute `MAIN_CHECKOUT=$(git rev-parse --show-toplevel)` and run `git worktree move $MAIN_CHECKOUT/.claude/worktrees/<oldId> $MAIN_CHECKOUT/.claude/worktrees/<newId>`. In branch mode (no `--step`), no worktree exists — skip silently.
+5. **Worktree move (step mode only):** if `EXTERNAL_WORKTREE` is true → skip (external worktrees are not relocated). Otherwise, if `.claude/worktrees/<oldId>/` exists → compute `MAIN_CHECKOUT=$(git rev-parse --show-toplevel)` and run `git worktree move $MAIN_CHECKOUT/.claude/worktrees/<oldId> $MAIN_CHECKOUT/.claude/worktrees/<newId>`. In branch mode (no `--step`), no worktree exists — skip silently.
 6. Report: "Migrated memory + branch `<oldId>` → `<newId>`." (append "+ worktree" if a worktree was moved)
 7. **Update active-run pointer:**
    ```bash
@@ -512,7 +535,7 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
   TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
   ```
-  When `TYPE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). Otherwise, run the appropriate workspace isolation procedure: **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
+  When `TYPE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). When `EXTERNAL_WORKTREE` is true, skip workspace isolation entirely — the external checkout is reused (set `WORKTREE_PATH` and `BRANCH` from git as described in Isolation Mode Resolution above). Otherwise, run the appropriate workspace isolation procedure: **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
