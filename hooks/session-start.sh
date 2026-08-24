@@ -126,13 +126,14 @@ if command -v jq >/dev/null 2>&1; then
         obs_envs=$(jq -r --arg default "$obs_default" '
             .observability.environments // {} | to_entries[] |
             "  - \(.key)\(if .key == $default then " (default)" else "" end):\n" +
-            (.value | to_entries[] |
+            ([.value | to_entries[] |
                 "    - \(.key): mcp__\(.value.mcp)__ (operations: \(
                     .value.operations // {} | to_entries | map("\(.key)=\(.value)") | join(", ")
-                ))")
+                ))"] | join("\n"))
         ' "$CONFIG_FILE" 2>/dev/null || true)
 
-        context="${context}
+        if [ -n "$obs_default" ] && [ -n "$obs_envs" ]; then
+            context="${context}
 
 OBSERVABILITY ROUTING (from N1 config — authoritative, do not override):
 - Default environment: ${obs_default}
@@ -140,6 +141,7 @@ OBSERVABILITY ROUTING (from N1 config — authoritative, do not override):
 ${obs_envs}
 - All observability MCP tool calls MUST use prefix: mcp__<provider-mcp>__
 - Use default environment unless user specifies otherwise"
+        fi
     fi
 fi
 
