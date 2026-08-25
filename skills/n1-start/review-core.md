@@ -76,14 +76,14 @@ echo "$CODEX_PREFLIGHT"
 ```
 
 Parse the JSON output. The script always exits 0 and prints exactly one JSON line:
-- `{"available":true,"codex_path":"...","model":"...","effort":"..."}` — Codex is ready
+- `{"available":true,"codex_path":"...","model":"..."}` — Codex is ready
 - `{"available":false,"reason":"..."}` — Codex is unavailable (reason explains why)
 
 **Do NOT attempt to replicate this logic yourself.** Run the script, read the JSON, branch on `available`.
 
 If `available` is `true` AND `DOC_CONFIG_ONLY` is false:
 
-1. Extract values from the preflight JSON: `codex_path`, `model`, `effort`.
+1. Extract values from the preflight JSON: `codex_path`, `model`.
 
 2. Spawn Codex review **in parallel** with the Claude reviewers. Write raw output to a scratch file so it stays out of orchestrator context (the adapter reads it directly):
    ```bash
@@ -94,10 +94,10 @@ If `available` is `true` AND `DOC_CONFIG_ONLY` is false:
    CODEX_RAW="$CODEX_SCRATCH/codex-raw-${CODEX_ID}.txt"
    node "<codex_path>" review --wait --scope branch --base "<BASE_BRANCH>" \
      ${CODEX_MODEL:+--model "$CODEX_MODEL"} \
-     --effort "$CODEX_EFFORT" >"$CODEX_RAW" 2>"$CODEX_STDERR"
+     >"$CODEX_RAW" 2>"$CODEX_STDERR"
    CODEX_EXIT=$?
    ```
-   Where `CODEX_MODEL` and `CODEX_EFFORT` are from the preflight JSON (`model` and `effort` fields).
+   Where `CODEX_MODEL` is from the preflight JSON (`model` field).
 
    Run this as a single **blocking foreground** Bash call (the `--wait` flag makes the command return only when the review is done). NEVER end your response turn to "wait for Codex" — in headless mode there is no later turn, and the review dies unfinished. If you launched it in the background for parallelism, you MUST block on its completion (e.g. poll/wait on the background task) within the same turn before proceeding to merge findings.
 

@@ -42,11 +42,9 @@ if [ -n "$BASE_BRANCH" ]; then
     fi
 fi
 
-# Step 5: Read model/effort config
+# Step 5: Read model config
 CODEX_MODEL=$(n1_codex_val 'model')
-CODEX_EFFORT=$(n1_codex_val 'effort')
-: "${CODEX_EFFORT:=medium}"
 
 # Success — output structured result
-printf '{"available":true,"codex_path":"%s","model":"%s","effort":"%s"}\n' \
-    "$CODEX" "${CODEX_MODEL:-}" "$CODEX_EFFORT"
+printf '{"available":true,"codex_path":"%s","model":"%s"}\n' \
+    "$CODEX" "${CODEX_MODEL:-}"
