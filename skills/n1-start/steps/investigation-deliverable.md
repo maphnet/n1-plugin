@@ -274,8 +274,8 @@ If intent **is** detected: proceed with the idempotency check and article creati
    <all findings with evidence — file:line references preserved, not just bullets>
 
    ## Acceptance Criteria
-   - [ ] <derived from recommendation 1>
-   - [ ] <derived from recommendation 2>
+   - [ ] <derived from recommendation 1>       ← YouTrack
+   - <derived from recommendation 1>           ← Jira (see Jira formatting below)
    ...
 
    ## Scope
@@ -296,8 +296,10 @@ If intent **is** detected: proceed with the idempotency check and article creati
    <KB article link — only present when KB_ARTICLE_LINK is non-empty>
    ```
 
+   **Jira formatting:** If `tracker.type == "jira"`, use plain bullets (`- criterion`) instead of checkbox syntax (`- [ ] criterion`) in all content written to the tracker. Jira does not support GitHub-flavored Markdown checkboxes and silently strips the brackets. YouTrack supports checkboxes — use `- [ ]` for YouTrack.
+
    **Derivation rules:**
-   - **Acceptance criteria:** One checkbox per recommendation. Each criterion is a verifiable statement derived from the recommendation (e.g., recommendation "Add input validation to endpoint X" becomes `- [ ] Input validation added to endpoint X`).
+   - **Acceptance criteria:** One item per recommendation. Each criterion is a verifiable statement derived from the recommendation (e.g., recommendation "Add input validation to endpoint X" becomes `- [ ] Input validation added to endpoint X` for YouTrack, or `- Input validation added to endpoint X` for Jira).
    - **Scope — In scope:** List the components, files, or subsystems referenced in the Findings section. Group by area if more than 5.
    - **Scope — Out of scope:** Derive from investigation boundaries — anything the investigation explicitly noted as unrelated or deferred.
    - **Architectural constraints:** Extract from Findings any items that describe how something works or must work (invariants, dependencies, ordering requirements), as opposed to what's wrong. If none, omit the section.
@@ -478,8 +480,8 @@ What would you like to do next?
    <investigation summary>
 
    ## Acceptance Criteria
-   - [ ] <derived from recommendation 1>
-   - [ ] <derived from recommendation 2>
+   - [ ] <derived from recommendation 1>       ← YouTrack
+   - <derived from recommendation 1>           ← Jira (see Jira formatting below)
    ...
 
    ## Scope
@@ -489,24 +491,26 @@ What would you like to do next?
    <relevant key findings as implementation context>
    ```
 
-4. **Resolve ticket tagging** -- same logic as brain-dump ticket creation in `steps/ticket.md`:
+4. **Jira formatting:** If `tracker.type == "jira"`, convert any checkbox syntax in the description: replace `- [ ] ` with `- ` and `- [x] ` with `- ` (Jira does not support GitHub-flavored Markdown checkboxes).
+
+5. **Resolve ticket tagging** -- same logic as brain-dump ticket creation in `steps/ticket.md`:
    - Read `ticketTagging` from config. If `ticketTagging.enabled` is true AND `ticketTagging.service` is non-empty: `<summary>` = `<service> | <title>`, `<description>` = `**Service:** <service>\n\n<description>`. Idempotency guard on title prefix.
    - Otherwise: `<summary>` = title, `<description>` = description as-is.
 
-5. Call `tracker.operations.createIssue` via tracker MCP -- Jira: `cloudId` (from `tracker.cloudId` in config, or resolve via `getAccessibleAtlassianResources` if absent), `projectKey`, `issueTypeName: "Task"`, `summary`, `description`; YouTrack: `project`, `summary`, `description`.
+6. Call `tracker.operations.createIssue` via tracker MCP -- Jira: `cloudId` (from `tracker.cloudId` in config, or resolve via `getAccessibleAtlassianResources` if absent), `projectKey`, `issueTypeName: "Task"`, `summary`, `description`; YouTrack: `project`, `summary`, `description`.
 
-6. **Link to investigation ticket (mandatory invariant):**
+7. **Link to investigation ticket (mandatory invariant):**
 
    Attempt native linking first:
    - Read `tracker.operations.createIssueLink` from config. If absent, skip to fallback.
    - If exists: call `tracker.operations.createIssueLink` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <newID>`, `linkedIssueIdOrKey: <ID>`, `linkType: "Relates"` (if link type ID required, first call `tracker.operations.getIssueLinkTypes` to resolve); YouTrack: `issueId: <newID>`, `targetIssueId: <ID>`, `linkType: "depends on"`.
    - If absent or fails: `Follows investigation <ID>` in description is the fallback (always present). Log "Warning: Native issue linking failed: <reason> -- text link in description." -- non-blocking.
 
-7. Call `tracker.operations.addComment` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <ID>`, `body: "Follow-up implementation ticket created: <newID> -- <title>"`; YouTrack: `issueId: <ID>`, `text: "Follow-up implementation ticket created: <newID> -- <title>"`. Non-blocking on failure.
+8. Call `tracker.operations.addComment` via tracker MCP -- Jira: `cloudId`, `issueIdOrKey: <ID>`, `body: "Follow-up implementation ticket created: <newID> -- <title>"`; YouTrack: `issueId: <ID>`, `text: "Follow-up implementation ticket created: <newID> -- <title>"`. Non-blocking on failure.
 
-8. Report: "Created follow-up ticket **[<newID>](<url>)**: <title>, linked to investigation <ID>."
+9. Report: "Created follow-up ticket **[<newID>](<url>)**: <title>, linked to investigation <ID>."
 
-9. **Post-action: investigation ticket disposition** -- when `ORIGINAL_STATUS` is non-empty, ask:
+10. **Post-action: investigation ticket disposition** -- when `ORIGINAL_STATUS` is non-empty, ask:
    ```
    What should happen to this investigation ticket (<ID>)?
    1 -- Close ticket
@@ -530,7 +534,7 @@ What would you like to do next?
 
 1. Call `tracker.operations.editTicket` via tracker MCP to update type -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `issueTypeName: "Task"`; YouTrack: with `issueId: <ID>`, `Type: "Task"`. On failure: log and continue.
 
-2. Fetch current description. Check idempotency marker `*Converted to implementation -- N1*` -- skip if present. Otherwise construct append content:
+2. Fetch current description. Check idempotency marker `*Converted to implementation -- N1*` -- skip if present. Otherwise construct append content (use plain bullets for Jira, checkboxes for YouTrack -- see Jira formatting rule in Phase 2b):
    ```
    ---
    *Converted to implementation -- N1*
@@ -539,8 +543,8 @@ What would you like to do next?
    <investigation summary>
 
    ## Acceptance Criteria
-   - [ ] <derived from recommendation 1>
-   - [ ] <derived from recommendation 2>
+   - [ ] <derived from recommendation 1>       ← YouTrack
+   - <derived from recommendation 1>           ← Jira
    ...
 
    ## Investigation Findings

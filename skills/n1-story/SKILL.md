@@ -208,6 +208,7 @@ For each subtask:
 1. **Build summary and description:**
    - Apply ticket tagging (same logic as story)
    - Description = subtask description + acceptance criteria formatted as checklist
+   - **Jira formatting:** If `TRACKER_TYPE == "jira"`, convert any checkbox syntax in the description: replace `- [ ] ` with `- ` and `- [x] ` with `- ` (Jira does not support GitHub-flavored Markdown checkboxes and silently strips the brackets).
    - Escape the description:
      ```bash
      SUBTASK_DESC_ESCAPED=$(escape_json_val "$SUBTASK_DESCRIPTION")

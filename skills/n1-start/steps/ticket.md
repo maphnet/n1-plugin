@@ -204,6 +204,7 @@ If `MP` is `ask` (default), ask:
 2. **Build description:**
    - If `source_mode == error-tracker`: prepend `**Sentry:** [#<issueId>](<original URL>)`, a blank line, then Core Ask + Description + Acceptance Criteria.
    - If `source_mode == braindump`: description = Core Ask + Description + Acceptance Criteria sections.
+   - **Jira formatting:** If `tracker.type == "jira"`, convert any checkbox syntax in the description: replace `- [ ] ` with `- ` and `- [x] ` with `- ` (Jira does not support GitHub-flavored Markdown checkboxes and silently strips the brackets, leaving empty bullets).
 3. **Resolve ticket tagging.** Read `ticketTagging` from `$N1_HOME/config.json`.
    - If `ticketTagging.enabled == true` AND `ticketTagging.service` is non-empty → tagging ON:
      - `<summary>` = `<service> | <Title>` (if Title already begins with `<service> |`, use Title unchanged -- idempotency guard).

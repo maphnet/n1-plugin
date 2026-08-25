@@ -116,19 +116,21 @@ Run this assessment AFTER reading the raw ticket.md (step 1) but BEFORE the fina
 | **Weak** | Description has content but ≥2 ambiguities detected OR missing ≥2 type-specific required sections |
 | **Adequate** | Everything else — description has meaningful content with acceptance criteria and ≤1 ambiguity |
 
+**Jira formatting rule:** When `cloudId` is present (Jira tracker), all content written to the tracker via MCP must use plain bullets (`- criterion`) instead of checkbox syntax (`- [ ] criterion`). Jira does not support GitHub-flavored Markdown checkboxes and silently strips the brackets, leaving empty bullets. This rule applies ONLY to content sent to the tracker — the internal `ticket.md` output format is unchanged.
+
 **D. Act on the tier:**
 
 - **Adequate** → skip enrichment, proceed to distill.
 
 - **Empty** or **Skeletal** → generate enrichment content and update the tracker silently:
-  1. Construct append content — infer from the title, ticket type, and any available comments:
+  1. Construct append content — infer from the title, ticket type, and any available comments. Use plain bullets for Jira (see Jira formatting rule above), checkboxes for YouTrack:
      ```
      ---
      *Structured by N1*
 
      ### Acceptance Criteria
-     - [ ] <inferred criterion 1>
-     - [ ] <inferred criterion 2>
+     - [ ] <inferred criterion 1>       ← YouTrack
+     - <inferred criterion 1>           ← Jira (when cloudId is present)
 
      ### <Type-specific section(s) — only sections that are missing>
      <content inferred from title, comments, and available context>
@@ -141,7 +143,7 @@ Run this assessment AFTER reading the raw ticket.md (step 1) but BEFORE the fina
   4. If the MCP call fails: log "⚠ Enrichment failed: <reason>" and proceed — enrichment is non-blocking. Never stop the pipeline for an enrichment failure.
 
 - **Weak** → generate a full rewrite and update the tracker silently:
-  1. Construct the rewrite:
+  1. Construct the rewrite. Use plain bullets for Jira (see Jira formatting rule above), checkboxes for YouTrack:
      ```
      <details><summary>Original description</summary>
 
@@ -153,7 +155,8 @@ Run this assessment AFTER reading the raw ticket.md (step 1) but BEFORE the fina
      <1-2 sentences summarizing what needs to happen>
 
      ### Acceptance Criteria
-     - [ ] <criterion>
+     - [ ] <criterion>                  ← YouTrack
+     - <criterion>                      ← Jira (when cloudId is present)
 
      ### <Type-specific sections — all required sections for this ticket type>
      <content>

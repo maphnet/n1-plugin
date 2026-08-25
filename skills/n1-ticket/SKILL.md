@@ -156,6 +156,8 @@ If `TAGGING_ENABLED` is `true` and `TAGGING_SERVICE` is non-empty:
 
 Otherwise: `summary` = title as-is.
 
+**Jira formatting:** If `TRACKER_TYPE == "jira"`, convert any checkbox syntax in the description before creating: replace `- [ ] ` with `- ` and `- [x] ` with `- ` (Jira does not support GitHub-flavored Markdown checkboxes and silently strips the brackets).
+
 **Escape description for JSON:**
 ```bash
 DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")

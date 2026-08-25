@@ -233,13 +233,14 @@ n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,ke
 
 3. **Update description** (append) — only if refinements exist:
    - First, fetch the current description: call `readTicket` via tracker MCP routing with the ticket ID (it may have been modified by Phase 1 or manually since).
-   - Construct append content:
+   - Construct append content. **Jira formatting:** If `tracker.type == "jira"`, use plain bullets (`- criterion`) instead of checkbox syntax (`- [ ] criterion`) — Jira silently strips the brackets:
      ```
      ---
      *Refined after design review — N1*
 
      ### Refined Acceptance Criteria
-     - [ ] <refined criterion — more specific than earlier>
+     - [ ] <refined criterion — more specific than earlier>  ← YouTrack
+     - <refined criterion — more specific than earlier>      ← Jira
 
      ### Scope Boundaries
      - In scope: <what's included>
