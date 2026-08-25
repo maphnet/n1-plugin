@@ -156,7 +156,7 @@ After the agent returns:
 
 **Step-mode escalation protocol (infrastructure failure).** → § Step-Mode Escalation Protocol with step=`local-testing`, id=`local_test_env_failure`, options=["Skip local testing: proceed to PR", "Abort: stop the pipeline"], context=infrastructure/startup failure with full error output, startup command, and readiness check result.
 
-**text override:** Replace SKILL.md template `text` with: `"Local testing could not start due to infrastructure/environment failure: {context}. Please advise."`
+**text override:** Replace SKILL.md template `text` with: `"{PREAMBLE} Local testing could not start due to infrastructure/environment failure: {context}. Please advise."` where `PREAMBLE` is composed as in SKILL.md § Step-Mode Escalation Protocol (title from overview.md heading + Core Ask from ticket.md). Omit `PREAMBLE` and its trailing space if unavailable.
 
 **Step result override:** In SKILL.md § Step-Mode Escalation Protocol step 2, use this command instead:
 `n1_emit_step_result "local-testing" "escalation" "null" "{\"local_test_fix_cycle\":0}" "" "$N1_HOME/memory/$ID"`
@@ -165,7 +165,7 @@ After the agent returns:
 - "Skip local testing" → update overview (`[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — environment failure"), record in `## Escalations`; run `n1_emit_step_result "local-testing" "pass" "null" "null" "" "$N1_HOME/memory/$ID"` and STOP.
 - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
 
-In full pipeline mode: "Infrastructure/startup failure — not a code bug. Options:"
+In full pipeline mode: compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then: "{PREAMBLE} Infrastructure/startup failure — not a code bug. Options:"
   - "1 — Fix environment manually, type 'continue' to re-test"
   - "2 — Skip local testing, proceed to PR"
   - "3 — Abort"
@@ -210,7 +210,7 @@ After developer returns:
 
 **Autonomy gate (full pipeline only):** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`. Also update `## Escalations` with key decision: `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)`.
 
-In full pipeline mode: "After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
+In full pipeline mode: compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then prompt: "{PREAMBLE} After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
   - "1 — Fix manually, type 'continue' to re-test"
   - "2 — Skip local testing, proceed to PR"
   - "3 — Provide guidance for another fix attempt"

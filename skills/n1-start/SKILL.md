@@ -576,6 +576,13 @@ When a fix loop is exhausted in step mode (no interactive channel), write an esc
 
 **Parameters:** `{step}`, `{id}`, `{options}` (array of `{label, recommendation?}` objects), `{context}` (step-specific details)
 
+**Compose problem preamble** before writing `request.json`:
+- Read the title: extract the part after `: ` from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md`.
+- Read the Core Ask: extract the first non-blank line of content under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md` (trim to ≤1 sentence if long).
+- Compose `PREAMBLE="{Title}: {Core Ask}."` If either part is unavailable, omit that part (keep the other); if both are missing, `PREAMBLE` is empty.
+- **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
+- If `PREAMBLE` is non-empty, prefix it with a space when appending: the final `text` value is `"${PREAMBLE} The {step} fix loop has been exhausted. {context}"`.
+
 1. Write `$N1_HOME/memory/<ID>/escalation/request.json`:
    ```json
    {
@@ -583,7 +590,7 @@ When a fix loop is exhausted in step mode (no interactive channel), write an esc
      "step": "{step}",
      "questions": [{
        "id": "{id}",
-       "text": "The {step} fix loop has been exhausted. {context}",
+       "text": "{PREAMBLE} The {step} fix loop has been exhausted. {context}",
        "options": ["{options[0].label}", "{options[1].label}", ...],
        "recommendation": "{options[0].recommendation // first option}",
        "context": "{context}"

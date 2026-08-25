@@ -245,10 +245,10 @@ If `UNKNOWN_COUNT` is 0, skip to Step result.
 
 **Interactive mode (not step mode):**
 
-Present each unknown to the user one at a time:
+Present each unknown to the user one at a time. Compose `PREAMBLE` as described in the step mode section below and prefix the opening message with it (omit if unavailable):
 
 ```
-During analysis, I found {UNKNOWN_COUNT} item(s) not covered by the ticket:
+{PREAMBLE} During analysis, I found {UNKNOWN_COUNT} item(s) not covered by the ticket:
 
 1. <first unknown>
 
@@ -265,7 +265,9 @@ After collecting all answers, append a `### Clarifications` section to `analysis
 
 **Step mode:**
 
-Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` (one item per line), assigning incrementing IDs (`unknown_1`, `unknown_2`, …):
+Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` (one item per line), assigning incrementing IDs (`unknown_1`, `unknown_2`, …).
+
+**Problem preamble:** Before writing the questions, compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body. Prepend `PREAMBLE` (followed by a space) to each question's `text`.
 
 ```json
 {
@@ -274,7 +276,7 @@ Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` 
   "questions": [
     {
       "id": "unknown_<N>",
-      "text": "<unknown text>",
+      "text": "{PREAMBLE} <unknown text>",
       "options": [],
       "recommendation": "",
       "context": "Flagged during investigation analysis — not covered by ticket description"

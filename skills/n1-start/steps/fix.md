@@ -42,13 +42,21 @@ After developer returns:
 **Step-mode escalation protocol.** In step mode there is no interactive channel — do NOT print a question for the user. When this step must escalate (a blocking ambiguity it cannot resolve):
 
 1. Write `$N1_HOME/memory/<ID>/escalation/request.json` (create the directory if needed):
+
+   **Problem preamble:** Before writing, compose a 1-2 sentence summary:
+   - Extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md`.
+   - Extract the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`.
+   - Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit it.
+   - **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
+   - Prepend `PREAMBLE` (followed by a space) to `text`.
+
    ```json
    {
      "run_id": "<value of the N1_RUN_ID environment variable>",
      "step": "fix",
      "questions": [{
        "id": "fix_blocked",
-       "text": "<one-paragraph description of what is blocked and why, with concrete specifics>",
+       "text": "{PREAMBLE} <one-paragraph description of what is blocked and why, with concrete specifics>",
        "options": ["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed with remaining findings documented in review.md", "Abort: stop the pipeline"],
        "recommendation": "<the option you would pick, with a one-line reason>",
        "context": "<cycles used, remaining [TQ-N]/[CR-N]/[SEC-N]/[CX-N] findings, error excerpts>"
@@ -82,7 +90,7 @@ If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-A
 
 Then continue the pipeline as if the user had chosen the recommended option. Otherwise (policy `block`, or safety-relevant): ask as below.
 
-In full pipeline mode: "The developer encountered an ambiguity during this fix cycle that requires your input: [details]. Please advise."
+In full pipeline mode: compose `PREAMBLE` as described in the step-mode escalation protocol above (title + Core Ask; append root cause sentence only if the `has_bug_root_cause` signal is strictly `true` — do not parse section body prose as a fallback). Then: "{PREAMBLE} The developer encountered an ambiguity during this fix cycle that requires your input: [details]. Please advise."
 
 If the combined Step-7 verdict is PASS:
 - Run via Bash:
