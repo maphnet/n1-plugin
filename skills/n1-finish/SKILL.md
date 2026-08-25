@@ -156,7 +156,7 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 
 1. **Local branch (branch mode, merged PR):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`.
 2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it.
-3. **Worktree (step mode):** normally already removed by n1-pr. If the current toplevel (`git rev-parse --show-toplevel`) contains `/.claude/worktrees/` and `worktree.cleanup` is `"after-pr"`, reuse the n1-pr Step 4b removal procedure (switch to the main checkout first, then `git worktree remove <path> --force`; on failure point at `/n1:n1-clean`).
+3. **Worktree (step mode):** If the current toplevel (`git rev-parse --show-toplevel`) contains `/.claude/worktrees/`, read `worktree.cleanup` from config. If it is `"after-pr"` or `"after-merge"`, remove the worktree: switch to the main checkout first (`MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn, point at `/n1:n1-clean`.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish

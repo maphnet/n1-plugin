@@ -128,7 +128,7 @@ Estimates task complexity and delivery time. Runs the analysis pipeline (ticket 
 
 ### `/n1:n1-clean` — Worktree Cleanup
 
-Removes the git worktree for a ticket after work is done or abandoned. Use when a worktree was not automatically cleaned up by `n1-pr` (e.g., when PR was skipped or the session was interrupted).
+Removes the git worktree for a ticket after work is done or abandoned. Use when a worktree was not automatically cleaned up by `n1-finish` (e.g., when the finish step was skipped or the session was interrupted).
 
 ```
 /n1:n1-clean TRID-510   # remove worktree for TRID-510

@@ -191,7 +191,7 @@ Auto-detect the appropriate setup command for new worktrees based on the project
 
 Silently derive the setup command from the detection table above — do NOT prompt.
 Store the derived value as `worktree.setup` in config (store `null` when the table
-yields no command). Store `"after-pr"` as `worktree.cleanup` (default).
+yields no command). Store `"after-merge"` as `worktree.cleanup` (default).
 
 The command is reported (not asked) in the init summary — see the summary block below,
 which already prints `Worktree setup: <command or "none">`. Non-standard projects
@@ -1857,7 +1857,7 @@ Create all files:
   "worktree": {
     "mode": "worktree",
     "setup": "<detected or null>",
-    "cleanup": "after-pr"
+    "cleanup": "after-merge"
   },
   "tracker": { ... },
   "git": {
@@ -2056,7 +2056,7 @@ N1 is ready.
 State directory: ~/.n1/<project-name>/
 Worktree mode: worktree
 Worktree setup: <command or "none">
-Worktree cleanup: after-pr
+Worktree cleanup: after-merge
 
 Tracker: Jira (TRID) / YouTrack / None
 Default branch: main

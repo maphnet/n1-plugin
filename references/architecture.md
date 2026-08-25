@@ -8,9 +8,9 @@ Skills are lightweight controllers that delegate all heavy work:
 |----------|-------------|---------|
 | n1-start | product-analyst, solution-architect, planner, implementer, qa-engineer agents + superpowers (brainstorming, writing-plans) | Full pipeline + single-step mode. Brainstorm step uses autonomous-brainstorm.md in step mode and in full-pipeline mode when `BRAINSTORM_MODE` is `auto`; superpowers:brainstorming in interactive full-pipeline mode (investigation included — `--investigate` forces interactive). Implementation uses implementer agent wrapping SDD (same pattern as planner wrapping writing-plans). |
 | n1-review | code-reviewer, security-reviewer, developer agents | Review + fix loop |
-| n1-pr | tech-writer agent + inline git/gh/MCP | Doc update, push, create or skip PR, update tracker, worktree cleanup |
+| n1-pr | tech-writer agent + inline git/gh/MCP | Doc update, push, create or skip PR, update tracker |
 | n1-ci | developer agent + inline gh CLI | Post-PR CI watch, classify failures, fix loop |
-| n1-finish | (inline: gh + tracker MCP) | Merge verify/auto-merge, deploy watch, ticket close |
+| n1-finish | (inline: gh + tracker MCP) | Merge verify/auto-merge, deploy watch, ticket close, worktree cleanup |
 | n1-release | (inline: gh + git + tracker MCP) | Git tag, GitHub Release (or custom procedure), tracker comment |
 | n1-init | (inline: analysis + prompts) | Project setup wizard (v2: migration flow) |
 | n1-estimate | product-analyst, solution-architect agents + autonomous brainstormer + inline estimation | Standalone estimation |
@@ -68,12 +68,12 @@ fi
 
 Config file: `$N1_HOME/config.json` (renamed from `n1.config.json` in v2.0.0).
 
-**Workspace isolation:** `n1-start` resolves isolation mode via: external worktree detection (highest priority) > `--step` (always worktree) > `--branch` flag > `worktree.mode` config (`"worktree"` default, `"branch"`, `"external"`) > worktree. When an external worktree is detected (linked git worktree not under `.claude/worktrees/`), or `worktree.mode` is `"external"`, N1 skips worktree and branch creation and operates on the current checkout and branch. In worktree mode, it creates a git worktree at `<main-checkout>/.claude/worktrees/<ID>/` via `Ensure Worktree`. In branch mode, it creates a feature branch in the current checkout via `Ensure Working Branch`. `n1-pr` removes the worktree after push when `worktree.cleanup` is `"after-pr"`, regardless of how it was created.
+**Workspace isolation:** `n1-start` resolves isolation mode via: external worktree detection (highest priority) > `--step` (always worktree) > `--branch` flag > `worktree.mode` config (`"worktree"` default, `"branch"`, `"external"`) > worktree. When an external worktree is detected (linked git worktree not under `.claude/worktrees/`), or `worktree.mode` is `"external"`, N1 skips worktree and branch creation and operates on the current checkout and branch. In worktree mode, it creates a git worktree at `<main-checkout>/.claude/worktrees/<ID>/` via `Ensure Worktree`. In branch mode, it creates a feature branch in the current checkout via `Ensure Working Branch`. `n1-finish` removes the worktree after merge when `worktree.cleanup` is `"after-pr"` or `"after-merge"`, regardless of how it was created.
 
 **Worktree config options** (in `$N1_HOME/config.json`):
 - `worktree.mode` — isolation mode for full-pipeline runs: `"worktree"` (default, worktree at `.claude/worktrees/<ID>/`), `"branch"` (feature branch in current checkout), or `"external"` (force external worktree mode — skip all isolation, reuse current checkout and branch). Auto-detection of external worktrees takes precedence over all modes except `"external"` itself. Overridable per-run with `--branch` flag. Step mode always uses worktree unless an external worktree is detected.
 - `worktree.setup` — command to install dependencies in a worktree. Derived silently by `n1-init` from lockfiles (override for non-standard projects). Runs **lazily on first code-executing step** (implementation, or qa/review/local-testing on a resumed run), not at worktree creation — marker-guarded so it runs at most once per worktree.
-- `worktree.cleanup` — when to auto-remove the worktree: `"after-pr"` (default, removed after push/PR) or `"manual"` (only via `/n1:n1-clean`). Does not apply to external worktrees (cleanup is skipped automatically via path gate).
+- `worktree.cleanup` — when to auto-remove the worktree: `"after-merge"` (default, removed after merge by n1-finish; `"after-pr"` is a permanent backward-compatible alias) or `"manual"` (only via `/n1:n1-clean`). Does not apply to external worktrees (cleanup is skipped automatically via path gate).
 
 Each step reads ONLY its declared dependencies:
 

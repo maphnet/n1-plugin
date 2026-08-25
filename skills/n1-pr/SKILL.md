@@ -143,18 +143,6 @@ Ready: same without `--draft`.
 
 Capture and display PR URL.
 
-## Step 4b: Worktree Cleanup
-
-After successful push+PR, check worktree removal:
-
-1. `CURRENT_DIR=$(git rev-parse --show-toplevel)` — if not under `/.claude/worktrees/`: skip (branch mode).
-2. If inside a worktree:
-   1. Read `worktree.cleanup` from config (default: `"after-pr"`). If not `"after-pr"`: skip.
-   2. `MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`
-   3. `cd "$MAIN_CHECKOUT" && git worktree remove "$WORKTREE_PATH" --force`
-   4. Success → "Worktree `<ID>` removed." Failure → warn, point at `/n1:n1-clean`.
-   5. Do not issue commands depending on deleted `$WORKTREE_PATH` after removal.
-
 ## Step 5: Update Tracker (if configured)
 
 If `tracker.mcp` is not null:
@@ -187,11 +175,10 @@ Ready mode: same with `PR created:` (not bolded).
 > **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** after the PR exists, any user request that changes code, tests, docs, or config on the branch (rename a flag, tweak a message, "also handle X", address a review comment) is implemented by the **developer agent in fix mode** — never by the orchestrator with Edit/Write/`sed`, and never committed by the orchestrator. This holds even for one-line changes.
 
 Procedure for a follow-up request:
-1. Resolve the workspace: read `worktreePath` from `$N1_HOME/active-run.json` (via `jq -r '.worktreePath // empty'`). If the recorded path exists and is not under `/.claude/worktrees/` (external worktree), use it directly — do not attempt re-creation. Otherwise, if `<main-checkout>/.claude/worktrees/<ID>` still exists use it; otherwise `git fetch origin <branch> && git worktree add <main-checkout>/.claude/worktrees/<ID> <branch>` (re-create it; the developer needs an isolated checkout).
+1. Resolve the workspace: read `worktreePath` from `$N1_HOME/active-run.json` (via `jq -r '.worktreePath // empty'`). If the recorded path exists and is not under `/.claude/worktrees/` (external worktree), use it directly. Otherwise, use `<main-checkout>/.claude/worktrees/<ID>` (the worktree is still present — n1-pr no longer removes it).
 2. Resolve model for `developer`. Spawn developer with: the user's request verbatim, the branch name and worktree path, `$N1_HOME/memory/<ID>/implementation.md` path, and the directive: "Implement exactly this follow-up on the existing branch. Update any docs that reference the changed behaviour (README, CLI help). Run the relevant tests. Commit with an imperative message and push to `<branch>`. Append a `## Follow-up <N>` section to `implementation.md` (idempotent). Return: commit SHAs + one-line summaries."
 3. If the change touches public behaviour (CLI flags, API, config keys): spawn `code-reviewer` on `git diff <pre-follow-up SHA>..HEAD` and route any Critical/High finding back to the developer (max 2 cycles).
 4. Post a tracker comment via `mcp__<tracker.mcp>__<operations.addComment>`: `Follow-up pushed to PR: <one-line summary>` (warn, don't block, on failure).
-5. If `worktree.cleanup` is `"after-pr"`, remove the worktree again after the push.
 
 ## Integration
 
