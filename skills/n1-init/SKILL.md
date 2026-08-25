@@ -771,64 +771,86 @@ If `tracker.assignToCreator` is absent from the current config, run the fresh-se
 
 ## Observability Configuration
 
-Detect available observability MCP servers using ToolSearch probes for known provider signatures:
+Detect available observability MCP servers via dynamic discovery — scan all connected MCP servers, classify by observability category, infer environments from server names, and present a confidence-ranked selection list.
 
-| Provider | Probe tool | Probe args |
-|----------|-----------|------------|
-| Sentry | `search_sentry_tools` | (none) |
-| Loki | `loki_label_names` | (none) |
-| Langfuse | `fetch_traces` | `age: 1` |
+### Step 1 — Discovery
 
-For each detected provider, extract MCP server name from the tool name prefix (e.g., `mcp__publius-sentry__search_sentry_tools` → server name is `publius-sentry`).
+Use ToolSearch to enumerate all available MCP tools. Group tools by their MCP server prefix (the segment between `mcp__` and the next `__`). This produces a map of server name → list of tool names.
 
-**If no providers detected:** set `"observability": null` silently and skip this section.
+### Step 2 — Classification
 
-**If providers detected:**
+For each server, match its tool names against the signature table:
+
+| Category | Tool name patterns | Known providers |
+|----------|-------------------|-----------------|
+| Error tracking | `*sentry*`, `*error*issue*`, `*exception*` | Sentry |
+| Log querying | `*loki*`, `*log*query*` | Loki |
+| Tracing/APM | `*trace*`, `*observation*`, `*session*` combined with `*exception*` | Langfuse |
+
+A server matches a category when 2+ of its tools hit any of the patterns for that category. Each tool counts at most once regardless of how many patterns it matches. This threshold prevents false positives from servers that happen to have one tool with a matching name.
+
+Known provider names are also checked against the server name (e.g., server name contains "sentry" → Sentry).
+
+### Step 3 — Environment inference
+
+Parse the MCP server name for environment tokens by splitting on `-` and matching:
+
+- Tokens: `dev`, `prod`, `production`, `staging`, `stg`, `stage`, `local`, `test`
+- Examples: `publius-dev-loki-mcp` → `dev`, `publius-prod-loki-mcp` → `prod`, `publius-sentry` → `all`
+- No token match → mark as `all` (single-MCP-for-all-envs)
+
+### Step 4 — Confidence scoring
+
+| Score | Criteria |
+|-------|----------|
+| high | Known provider exact match (server name contains the provider name AND tools match the signature) |
+| medium | Category match via tool patterns but not a known provider name |
+| low | Few matching tools or ambiguous pattern overlap |
+
+Sort candidates descending by confidence.
+
+### Step 5 — Present to user
+
+**If no candidates detected:** set `"observability": null` silently and skip this section.
+
+**If candidates detected:**
 
 ```
-Observability tools detected:
-  - sentry via publius-sentry
-  - loki via publius-loki-mcp
-  - langfuse via publius-dev-langfuse-mcp
-Enable observability integration? 1 — Yes / 2 — No (default)
+Observability MCP servers detected:
+
+  1. [high]   sentry (publius-sentry) — error tracking, all envs
+  2. [high]   loki (publius-dev-loki-mcp) — log querying, dev
+  3. [high]   loki (publius-prod-loki-mcp) — log querying, prod
+  4. [medium] langfuse (publius-dev-langfuse-mcp) — tracing/APM, dev
+
+Select which to enable (comma-separated numbers, or 0 to skip):
 ```
 
-**If 2 (No) or default:**
+**If 0 or no selection:**
 ```json
 {
   "observability": null
 }
 ```
 
-**If 1 (Yes) — for each detected provider, ask which environment it serves:**
+### Step 6 — Environment confirmation
+
+For servers marked `all` (no env in name), ask:
 
 ```
 What environment does <provider> (<mcp-server>) serve?
 1 — prod
-2 — staging
-3 — dev
-4 — Enter custom name
+2 — all (queries across environments)
+3 — Enter custom name
 ```
 
-**Ask about additional MCP servers:**
+When the user picks `all`, the provider is placed under every environment that has at least one other provider. If no other environments exist yet, place it under `prod`.
 
-```
-Add another observability MCP server? Enter MCP server name (or press Enter to skip)
-```
+For servers with inferred environments, no confirmation needed — the inference is shown in the Step 5 list and the user's selection implicitly confirms it.
 
-If entered: probe to identify provider type, ask which env it serves, add to config. Repeat until Enter.
+### Step 7 — Sentry intake fields
 
-**Auto-detect operations per provider** by probing the MCP server's available tools via ToolSearch with the server prefix. For known providers, use a preset list of key operations:
-
-| Provider | Key operations |
-|----------|---------------|
-| Sentry | `searchIssues=search_sentry_issues`, `getIssue=get_sentry_issue`, `getAiAnalysis=get_autofix_state`, `listProjects=list_projects` |
-| Loki | `query=loki_query`, `labelNames=loki_label_names`, `labelValues=loki_label_values` |
-| Langfuse | `findExceptions=find_exceptions`, `fetchTraces=fetch_traces`, `getSessionDetails=get_session_details` |
-
-For unknown providers, store all discovered tools as operations.
-
-**Sentry intake fields** — when the detected provider is Sentry, also ask for the project selection:
+When a Sentry provider is among the selected servers:
 
 1. Call `mcp__<detected-sentry-mcp>__list_projects` to get the project list.
 2. Present selection — number each project, plus a manual-entry option:
@@ -854,7 +876,29 @@ For unknown providers, store all discovered tools as operations.
    }
    ```
 
-**Set `default`** to the environment with the most providers (or `prod` if tied).
+### Step 8 — Auto-detect operations
+
+For known providers, use preset operation maps:
+
+| Provider | Key operations |
+|----------|---------------|
+| Sentry | `searchIssues=search_sentry_issues`, `getIssue=get_sentry_issue`, `getAiAnalysis=get_autofix_state`, `listProjects=list_projects` |
+| Loki | `query=loki_query`, `labelNames=loki_label_names`, `labelValues=loki_label_values` |
+| Langfuse | `findExceptions=find_exceptions`, `fetchTraces=fetch_traces`, `getSessionDetails=get_session_details` |
+
+For unknown providers (discovered generically), store all tools that matched the observability category patterns as operations.
+
+### Step 9 — Set default environment and confirm
+
+Pick the environment with the most providers. If tied, prefer `prod`. If the only environment is `all`, use `prod` as the default.
+
+**Ask about additional MCP servers:**
+
+```
+Add another observability MCP server not in the list? Enter MCP server name (or Enter to skip):
+```
+
+If entered: probe to identify provider type via ToolSearch, ask which env it serves, detect operations, add to config. Repeat until Enter.
 
 **Confirm summary:**
 
@@ -864,7 +908,7 @@ Observability integration:
   Environments:
     prod:
       sentry → publius-sentry (searchIssues)
-      loki → publius-loki-mcp (query, labelNames, labelValues)
+      loki → publius-prod-loki-mcp (query, labelNames, labelValues)
     dev:
       langfuse → publius-dev-langfuse-mcp (findExceptions, fetchTraces, getSessionDetails)
 ```
@@ -884,7 +928,7 @@ Result config block:
           "projectSlug": "my-backend"
         },
         "loki": {
-          "mcp": "publius-loki-mcp",
+          "mcp": "publius-prod-loki-mcp",
           "operations": { "query": "loki_query", "labelNames": "loki_label_names", "labelValues": "loki_label_values" }
         }
       },
@@ -933,11 +977,23 @@ Current observability:
 ```
 
 - **1** — leave unchanged.
-- **2** — list current env/provider entries. Offer to add new (same flow as fresh setup step 4) or remove existing (select env, then provider to remove).
+- **2** — re-run the full discovery scan (Steps 1–4). Show results with status labels:
+  ```
+  Observability MCP servers detected:
+
+    1. [configured] sentry (publius-sentry) — error tracking, prod
+    2. [configured] loki (publius-prod-loki-mcp) — log querying, prod
+    3. [new]        loki (publius-staging-loki-mcp) — log querying, staging
+    4. [new]        langfuse (publius-dev-langfuse-mcp) — tracing/APM, dev
+
+  Add new providers (comma-separated numbers), or remove existing ones?
+  Type + followed by numbers to add, - followed by numbers to remove, or Enter to keep as-is:
+  ```
+  Adding follows the same env confirmation → Sentry intake (if applicable) → operations flow. Removing deletes the provider entry from the environment; if the environment becomes empty, remove it too.
 - **3** — select from configured environment names.
 - **4** — set `"observability": null`.
 
-If `observability` is `null` or absent (and no old blocks to migrate), re-run detection from scratch.
+If `observability` is `null` or absent (and no old blocks to migrate), re-run detection from scratch (Steps 1–9).
 
 ## Estimation Configuration
 
