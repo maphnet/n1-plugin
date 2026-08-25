@@ -190,7 +190,7 @@ N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation
 | developer | sonnet | medium | Implementation and review fix cycles |
 | code-reviewer | opus | medium | Adversarial code quality review |
 | security-reviewer | opus | medium | Security vulnerability review (OWASP, CWE) |
-| codex-adapter | haiku | low | Review (Codex output parsing, conditional) |
+| codex-reviewer | haiku | low | Review (Codex CLI + output parsing, conditional) |
 | qa-engineer | sonnet | medium | Test design and implementation |
 | intake-agent | haiku | low | Ticket/content intake |
 | local-test-planner | sonnet | medium | Local test plan creation |

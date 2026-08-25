@@ -40,7 +40,7 @@ Spawn all selected reviewers simultaneously:
 
 After ALL return, merge findings:
 - Combine outputs into `$N1_HOME/memory/<ID>/review.md`
-- Prefix code-reviewer findings with [CR-N], security-reviewer with [SEC-N], codex-adapter with [CX-N]. Code-reviewer `[RULE-N]` findings keep their prefix (not remapped).
+- Prefix code-reviewer findings with [CR-N], security-reviewer with [SEC-N], codex-reviewer with [CX-N]. Code-reviewer `[RULE-N]` findings keep their prefix (not remapped).
 - Combined verdict: FAIL if any confirmed **Critical or High** findings exist across all reviewers, or any `[RULE-N]` findings exist. Medium and Low findings are reported in `review.md` but do not block the pass — consistent with n1-review Phase 4 threshold.
 - **Partial-failure handling:** if any reviewer errors, times out, or returns malformed output, retry that reviewer once. If it still fails, proceed with the remaining reviewers' findings, record the gap explicitly in review.md (e.g., "⚠ Codex review did not complete — review incomplete"), and do NOT treat the missing reviewer as a PASS. **Codex-specific recovery:** when code-reviewer was narrowed because Codex was expected (`CODEX_EXPECTED`) but Codex permanently failed (`NOT CODEX_ACTIVE`), review-core.md requires a complement re-spawn of code-reviewer covering the correctness dimensions the first pass skipped — see § Partial-failure recovery.
 

@@ -102,7 +102,7 @@ Spawn the selected reviewers simultaneously (code-reviewer always; security-revi
 
 ### Phase 3: Verify Findings (False-Positive Elimination)
 
-After ALL reviewers return, merge their raw findings into a single list ordered by priority. Findings carry their source prefix: `[CR-N]` from code-reviewer, `[SEC-N]` from security-reviewer, `[CX-N]` from codex-adapter (if Codex was enabled and succeeded).
+After ALL reviewers return, merge their raw findings into a single list ordered by priority. Findings carry their source prefix: `[CR-N]` from code-reviewer, `[SEC-N]` from security-reviewer, `[CX-N]` from codex-reviewer (if Codex was enabled and succeeded).
 
 **Spawn agent:** code-reviewer (with adversarial verification prompt)
 
@@ -265,5 +265,5 @@ Do NOT apply any fixes. This is advisory only — the user decides what to do wi
 **Invokes:**
 - n1 agent: **code-reviewer** — bug finding (Phase 2) and false-positive verification (Phase 3)
 - n1 agent: **security-reviewer** — security vulnerability finding (Phase 2)
-- n1 agent: **codex-adapter** — Codex output parsing into structured `[CX-N]` findings (Phase 2, conditional on `codex.enabled` / `codexReview.enabled` via `n1_codex_available`)
+- n1 agent: **codex-reviewer** — Codex CLI invocation and output parsing into structured `[CX-N]` findings (Phase 2, conditional on `codex.enabled` / `codexReview.enabled` via `n1_codex_available`)
 - n1 agent: **developer** — systematic fix of confirmed findings (Phase 4, review loop mode only)

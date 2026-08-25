@@ -85,33 +85,19 @@ If `available` is `true` AND `DOC_CONFIG_ONLY` is false:
 
 1. Extract values from the preflight JSON: `codex_path`, `model`.
 
-2. Spawn Codex review **in parallel** with the Claude reviewers. Write raw output to a scratch file so it stays out of orchestrator context (the adapter reads it directly):
-   ```bash
-   CODEX_STDERR=$(mktemp)
-   CODEX_ID="${ID:-$(git branch --show-current)}"
-   CODEX_SCRATCH="$N1_HOME/scratch"
-   mkdir -p "$CODEX_SCRATCH"
-   CODEX_RAW="$CODEX_SCRATCH/codex-raw-${CODEX_ID}.txt"
-   node "<codex_path>" review --wait --scope branch --base "<BASE_BRANCH>" \
-     ${CODEX_MODEL:+--model "$CODEX_MODEL"} \
-     >"$CODEX_RAW" 2>"$CODEX_STDERR"
-   CODEX_EXIT=$?
-   ```
-   Where `CODEX_MODEL` is from the preflight JSON (`model` field).
+2. Spawn the **codex-reviewer** agent (resolve model for `codex-reviewer`; default haiku, overridable via `models.codex-reviewer` in `$N1_HOME/config.json`; if `models.codex-reviewer` is not set, also check `models.codex-adapter` as a backward-compatibility fallback). Pass these values in the dispatch prompt:
+   - `CODEX_PATH` = the `codex_path` from preflight JSON
+   - `CODEX_MODEL` = the `model` from preflight JSON (may be empty)
+   - `BASE_BRANCH` = `<BASE_BRANCH>`
+   - `N1_HOME` = `$N1_HOME`
+   - `ID` = `$ID` (or `$(git branch --show-current)` if no ID)
 
-   Run this as a single **blocking foreground** Bash call (the `--wait` flag makes the command return only when the review is done). NEVER end your response turn to "wait for Codex" — in headless mode there is no later turn, and the review dies unfinished. If you launched it in the background for parallelism, you MUST block on its completion (e.g. poll/wait on the background task) within the same turn before proceeding to merge findings.
+   The agent runs the Codex CLI, retries once on failure, and returns structured `[CX-N]` findings. Spawn it **in parallel** with the Claude reviewers (code-reviewer, security-reviewer).
 
-   After the call completes, validate the result:
-   - If `CODEX_EXIT != 0`: this is a **Codex failure**. Read `$CODEX_STDERR` (first 20 lines). Enter the retry path (step 4 below).
-   - If `CODEX_EXIT == 0` but the output file is empty or whitespace-only (`! [ -s "$CODEX_RAW" ] || ! grep -q '[^[:space:]]' "$CODEX_RAW"`): treat as failure. Log `"⚠ Codex returned empty output (exit 0) — treating as failure"`. Enter the retry path. The retry overwrites the same `$CODEX_RAW` file.
-   - If `CODEX_EXIT == 0` and `$CODEX_RAW` contains non-whitespace content: success. Proceed to spawn codex-adapter (step 3).
-   - Always clean up: `rm -f "$CODEX_STDERR"` after recording any needed content.
-
-3. After Codex returns successfully, spawn the **codex-adapter** agent (resolve model for `codex-adapter`; default haiku, overridable via `models.codex-adapter` in `$N1_HOME/config.json`). Pass the **absolute path** `$CODEX_RAW` — do NOT inline the file content. The adapter `Read`s the file itself and returns only the structured `[CX-N]` block.
-
-4. **Partial-failure handling:** If the Codex call failed (non-zero exit or empty/whitespace-only output file), retry once using the same command (overwrites `$CODEX_RAW`). If the retry also fails, proceed with the remaining reviewers' findings. Record the gap in review.md with the **actual error** — do NOT interpret or diagnose the cause; quote stderr verbatim:
-   - Format: `"⚠ Codex review did not complete (exit <CODEX_EXIT>). stderr: <first 20 lines of CODEX_STDERR>"`
-   - If both attempts produced empty output: `"⚠ Codex review returned empty output on both attempts (exit 0 both times)"`
+3. After the agent returns, parse the first line of its output:
+   - If it starts with `codex-status: success` — Codex succeeded. The rest of the output contains the structured `[CX-N]` findings block. Merge into review.md.
+   - If it starts with `codex-status: failure` — Codex permanently failed (the agent already retried once internally). Record the gap in review.md using all content after the `codex-status: failure` line from the agent output (preserves the full stderr excerpt the agent captured):
+     - Format: `"⚠ Codex review did not complete. <all remaining agent output after the status line>"`
 
 If `available` is `false` OR `DOC_CONFIG_ONLY` is true → log `"⚠ Codex skipped — <reason field from JSON, or 'documentation/config-only diff'>"` in review.md and treat Codex as NOT running (this affects the code-reviewer scope decision below).
 

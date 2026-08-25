@@ -306,7 +306,7 @@ Config keys: `release.enabled` (boolean, default `false`), `release.tagPrefix` (
 | developer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | Fix cycle, CI fix |
 | code-reviewer | opus | medium | Read, Grep, Glob | Review (parallel) |
 | security-reviewer | opus | medium | Read, Grep, Glob | Review (parallel) |
-| codex-adapter | haiku | low | (none) | Review (Codex output parsing, conditional) |
+| codex-reviewer | haiku | low | Read, Bash | Review (Codex CLI + output parsing, conditional) |
 | qa-engineer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | QA (tier-aware: maintain/minimal/standard) |
 | intake-agent | haiku | low | Read, Grep, Glob, Bash | Ticket/content intake |
 | local-test-planner | sonnet | medium | Read, Grep, Glob, Bash | Local testing (plan creation) |
