@@ -149,9 +149,36 @@ Pass to developer:
 - List of affected files
 - Scratch-artifact policy: write any throwaway benchmark or investigative/spike test (one answering a current question rather than verifying committed code) under `$N1_HOME/scratch/benchmarks/` or `$N1_HOME/scratch/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Fixes that need real regression coverage still get committed tests in the repo as usual. When unsure, default to scratch.
 
-After developer fixes are applied, go back to **Phase 2** (full re-review: find → verify → report).
+**Fix-the-class directive (security-shaped findings):** Before spawning the developer, scan the confirmed Critical/High findings. If ANY of the following conditions is true — a finding tagged `[SEC-N]`, OR a finding tagged `[CX-N]` whose title contains any of: injection, XSS, CSRF, authentication, authorization, traversal, deserialization, command execution, SSRF, open redirect, SQL injection, path traversal, RCE — append this directive to the developer spawn prompt:
 
-**Oscillation guard:** fingerprint each confirmed Critical/High finding (file + line + title). If a fix attempt does not reduce the confirmed Critical/High count, or the same fingerprint reappears after being marked fixed, escalate early rather than burning the remaining cycles.
+> "One or more findings are security-shaped. When fixing a security finding, do NOT fix only the specific instance reported. Instead, fix the entire CLASS of the vulnerability: search the codebase for all variants of the same pattern (e.g., all injection points, all unsanitized inputs of the same type, all instances of the same auth bypass pattern) and fix them all in one pass. This prevents variant whack-a-mole where fixing one instance exposes the next variant in the subsequent review cycle."
+
+After developer fixes are applied, record the fix commit SHA (`n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "last_fix_sha" "$(git rev-parse HEAD)"`), increment the internal cycle counter, and go back to **Phase 2**. **Delta re-review mode selection:** When selecting review mode for the codex-reviewer dispatch (via review-core.md), check `delta_pass_pending` first: if `delta_pass_pending=true`, force `REVIEW_MODE=full` (mandatory full-branch confirmation run — cycle count does not override this). Otherwise, if cycle >= 2 and a fix SHA is recorded, use `REVIEW_MODE=delta` with `COMMIT_SHA=$(git rev-parse HEAD)` and pass `PRIOR_FINDINGS` = a summary of prior-cycle confirmed Critical/High findings. Otherwise use `REVIEW_MODE=full`. Claude reviewers always review the full branch diff regardless of mode. **Final full-branch pass:** When the delta re-review produces a PASS, one additional full-branch pass (`REVIEW_MODE=full`) is required before emitting final PASS.
+
+Also record each confirmed Critical/High finding's fingerprint after every review pass (BEFORE the convergence check):
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
+FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
+# For each confirmed Critical/High finding:
+FP=$(n1_fingerprint_finding "<file>" "<title>")
+n1_fingerprint_append "$FP_FILE" "$FP" "<finding_id>" "<severity>" "active" "<cycle>"
+```
+
+**Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `cycle > 0`:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
+FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
+CYCLE=<current review_fix_cycle value>
+if [ "$CYCLE" -gt 0 ]; then
+    if ! n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE"; then
+        # Non-convergence detected — escalate to user immediately
+    fi
+fi
+```
+
+On non-convergence (blocking count for cycle N is not less than cycle N-1), escalate to the user rather than burning remaining cycles. Context: "Review findings are not converging."
 
 Maximum 3 review-fix cycles before escalating to user.
 

@@ -18,6 +18,40 @@ BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || echo "<git.defaultBranch f
 ```
 (The branch-point file pins the review diff to THIS ticket's commits; diffing against `git.defaultBranch` balloons to the whole parent branch when the run started from a non-default branch.) It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT), reviewer selection with skip-recording, the Codex probe + CODEX_EXPECTED/CODEX_ACTIVE gating with retry and partial-failure recovery, and the code-reviewer scope-narrowing directive.
 
+**Delta re-review (cycles >= 2):** When `review_fix_cycle` >= 2, the first re-review pass uses delta mode (reviews only the fix commit, not the entire branch). Read the current cycle count:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+REVIEW_FIX_CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
+REVIEW_FIX_CYCLE=${REVIEW_FIX_CYCLE:-0}
+```
+
+Read the `delta_pass_pending` flag before selecting review mode:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+DELTA_PASS_PENDING=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "delta_pass_pending")
+LAST_FIX_SHA=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "last_fix_sha")
+```
+
+When following `review-core.md` for Codex spawning, select mode using this priority order:
+- If `DELTA_PASS_PENDING=true`: pass `REVIEW_MODE=full` (this is the mandatory full-branch confirmation run — cycle count does not override this).
+- Else if `REVIEW_FIX_CYCLE` >= 2 and `LAST_FIX_SHA` is set: pass `REVIEW_MODE=delta` and `COMMIT_SHA=$(git rev-parse HEAD)` to the codex-reviewer. Also pass `PRIOR_FINDINGS` = a one-paragraph summary of prior-cycle findings from `$N1_HOME/memory/$ID/review.md` (the confirmed Critical/High findings and their dispositions).
+- Else (initial review or first re-review, or no fix SHA recorded): pass `REVIEW_MODE=full` as before.
+
+**Important:** Even when delta mode is used for Codex, the Claude reviewers (code-reviewer, security-reviewer) ALWAYS review the full branch diff — delta scoping applies only to the Codex CLI invocation.
+
+**Final full-branch pass:** When the delta re-review produces a PASS verdict, one additional full-branch review pass (`REVIEW_MODE=full`) is required before the review step can emit a final PASS. Track this via a `delta_pass_pending` frontmatter flag:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+if [ "$REVIEW_FIX_CYCLE" -ge 2 ]; then
+    # After delta PASS, set flag and re-run as full
+    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "delta_pass_pending" "true"
+    # Loop back to review with REVIEW_MODE=full
+fi
+```
+
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer (+ Codex reviewer if enabled)
 
 Resolve models for code-reviewer (with context `review`) and security-reviewer (with context `review`).
@@ -43,6 +77,42 @@ After ALL return, merge findings:
 - Prefix code-reviewer findings with [CR-N], security-reviewer with [SEC-N], codex-reviewer with [CX-N]. Code-reviewer `[RULE-N]` findings keep their prefix (not remapped).
 - Combined verdict: FAIL if any confirmed **Critical or High** findings exist across all reviewers, or any `[RULE-N]` findings exist. Medium and Low findings are reported in `review.md` but do not block the pass — consistent with n1-review Phase 4 threshold.
 - **Partial-failure handling:** if any reviewer errors, times out, or returns malformed output, retry that reviewer once. If it still fails, proceed with the remaining reviewers' findings, record the gap explicitly in review.md (e.g., "⚠ Codex review did not complete — review incomplete"), and do NOT treat the missing reviewer as a PASS. **Codex-specific recovery:** when code-reviewer was narrowed because Codex was expected (`CODEX_EXPECTED`) but Codex permanently failed (`NOT CODEX_ACTIVE`), review-core.md requires a complement re-spawn of code-reviewer covering the correctness dimensions the first pass skipped — see § Partial-failure recovery.
+
+**Fingerprint recording:** After merging all findings, record fingerprints for all confirmed Critical and High findings:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
+CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
+CYCLE=${CYCLE:-1}
+```
+
+For each confirmed Critical or High finding (from code-reviewer, security-reviewer, or codex-reviewer), compute and append — the angle-bracket values are per-finding placeholders, not literals: substitute the finding's actual ID (e.g., `CR-1`, `SEC-2`, `CX-3`), its actual severity (`Critical` or `High`), and the actual file path and title from the finding:
+
+```bash
+FP=$(n1_fingerprint_finding "<file_path>" "<finding_title>")
+n1_fingerprint_append "$FP_FILE" "$FP" "<finding_id>" "<severity>" "active" "$CYCLE"
+```
+
+**Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `review_fix_cycle > 0`:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
+CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
+CYCLE=${CYCLE:-0}
+if [ "$CYCLE" -gt 0 ]; then
+    if ! n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE"; then
+        # Non-convergence: blocking count did not decrease from previous cycle to current cycle
+        # Escalate immediately — do not burn remaining fix cycles
+        # Context: "Review findings are not converging (blocking count: <prev> -> <new>). Continuing fix cycles is unlikely to resolve the remaining issues."
+    fi
+fi
+```
+
+On non-convergence (blocking count for cycle N is not less than cycle N-1), escalate to the user immediately using the same escalation protocol as bound exhaustion, with context: "Review findings are not converging. Continuing fix cycles is unlikely to resolve the remaining issues."
 
 Update overview: `[x] Review`, set `step: review`
 
@@ -100,7 +170,20 @@ If `QE` is `ask`: compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.
 
 **Step result (step mode) — pass path:**
 
-When combined review verdict is PASS:
+When combined review verdict is PASS, first check whether a delta full-branch confirmation pass is still required:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+DELTA_PASS_PENDING=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "delta_pass_pending")
+if [ "${DELTA_PASS_PENDING:-false}" = "true" ]; then
+    # Clear the flag and loop back to a full-branch review (REVIEW_MODE=full)
+    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "delta_pass_pending" "false"
+    # Do NOT emit a PASS result — re-run reviewers with REVIEW_MODE=full before proceeding
+fi
+```
+
+Only when `delta_pass_pending` is not set (or is `false`) — meaning a full-branch pass already occurred — emit the final PASS:
+
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"

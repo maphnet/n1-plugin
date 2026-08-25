@@ -29,14 +29,22 @@ Pass to developer:
 - List of affected files
 - Output-path directive: "After applying fixes, record your 'Fixes Applied' report (your standard Fix Cycle output format) in `$N1_HOME/memory/<ID>/implementation.md` yourself, under a `## Fix Cycle <N>` heading where `<N>` is the current `review_fix_cycle` value. If a `## Fix Cycle <N>` section for this N already exists, REPLACE it (idempotent upsert — safe on re-run), never duplicate it. Return to the orchestrator ONLY: the list of commit SHAs with one-line summaries, and `Findings fixed: N/M`."
 
+**Fix-the-class directive (security-shaped findings):** Before spawning the developer, scan the confirmed Critical/High findings. If ANY of the following conditions is true — a finding tagged `[SEC-N]`, OR a finding tagged `[CX-N]` whose title contains any of: injection, XSS, CSRF, authentication, authorization, traversal, deserialization, command execution, SSRF, open redirect, SQL injection, path traversal, RCE — append this directive to the developer spawn prompt:
+
+> "One or more findings are security-shaped. When fixing a security finding, do NOT fix only the specific instance reported. Instead, fix the entire CLASS of the vulnerability: search the codebase for all variants of the same pattern (e.g., all injection points, all unsanitized inputs of the same type, all instances of the same auth bypass pattern) and fix them all in one pass. This prevents variant whack-a-mole where fixing one instance exposes the next variant in the subsequent review cycle."
+
 After developer returns:
-- Run via Bash (so the bound survives a resume):
+- Record the fix commit SHA for delta re-review:
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+  LAST_FIX_SHA=$(git rev-parse HEAD)
+  n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "last_fix_sha" "$LAST_FIX_SHA"
+  ```
+- Run via Bash (so the bound survives a resume):
+  ```bash
   n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
   ```
 - Go back to **Step 7** (REVIEW) — re-run both reviewers
-- **Oscillation guard:** fingerprint each confirmed Critical/High finding (file + line + title). If a fix attempt does NOT reduce the confirmed Critical/High count, or the same fingerprint reappears after being marked fixed, escalate early — don't burn the remaining cycles making negative progress.
 - The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3); when `review_fix_cycle` reaches it, escalate to the user.
 
 **Step-mode escalation protocol.** In step mode there is no interactive channel — do NOT print a question for the user. When this step must escalate (a blocking ambiguity it cannot resolve):

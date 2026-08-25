@@ -18,7 +18,7 @@ See [references/developer-guide.md](references/developer-guide.md) for project s
 
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
 - **Dependency:** Superpowers plugin >=5.0
-- **Shared shell helpers:** `lib/config.sh`, `lib/signals.sh`, `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`
+- **Shared shell helpers:** `lib/config.sh`, `lib/signals.sh`, `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`
 
 ## Plugin Development
 

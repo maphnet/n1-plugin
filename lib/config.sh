@@ -291,8 +291,6 @@ n1_codex_available() {
     local enabled
     enabled=$(n1_codex_val 'enabled')
     [ "$enabled" = "true" ] || return 1
-    CODEX=$(n1_codex_companion)
-    [ -n "$CODEX" ] || return 1
     codex --version >/dev/null 2>&1 || return 1
     return 0
 }

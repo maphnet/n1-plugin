@@ -76,19 +76,21 @@ echo "$CODEX_PREFLIGHT"
 ```
 
 Parse the JSON output. The script always exits 0 and prints exactly one JSON line:
-- `{"available":true,"codex_path":"...","model":"..."}` — Codex is ready
+- `{"available":true,"model":"..."}` — Codex is ready
 - `{"available":false,"reason":"..."}` — Codex is unavailable (reason explains why)
 
 **Do NOT attempt to replicate this logic yourself.** Run the script, read the JSON, branch on `available`.
 
 If `available` is `true` AND `DOC_CONFIG_ONLY` is false:
 
-1. Extract values from the preflight JSON: `codex_path`, `model`.
+1. Extract the `model` value from the preflight JSON.
 
 2. Spawn the **codex-reviewer** agent (resolve model for `codex-reviewer`; default haiku, overridable via `models.codex-reviewer` in `$N1_HOME/config.json`; if `models.codex-reviewer` is not set, also check `models.codex-adapter` as a backward-compatibility fallback). Pass these values in the dispatch prompt:
-   - `CODEX_PATH` = the `codex_path` from preflight JSON
    - `CODEX_MODEL` = the `model` from preflight JSON (may be empty)
    - `BASE_BRANCH` = `<BASE_BRANCH>`
+   - `REVIEW_MODE` = `full` (default for initial review; callers may override to `delta` for fix cycles >= 2)
+   - `COMMIT_SHA` = empty (callers provide for delta mode)
+   - `PRIOR_FINDINGS` = empty (callers provide for cycles >= 2)
    - `N1_HOME` = `$N1_HOME`
    - `ID` = `$ID` (or `$(git branch --show-current)` if no ID)
 

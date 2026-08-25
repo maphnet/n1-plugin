@@ -11,9 +11,11 @@ You are a Codex Review Runner. Your job is to invoke the Codex CLI, handle failu
 ## Input
 
 Your dispatch prompt provides these values:
-- `CODEX_PATH` — absolute path to the codex-companion.mjs script
 - `CODEX_MODEL` — model to pass via `--model` (may be empty/omitted)
-- `BASE_BRANCH` — the base branch for `--base`
+- `BASE_BRANCH` — the base branch for `--base` (full-branch review)
+- `REVIEW_MODE` — either `full` (use `--base`) or `delta` (use `--commit`)
+- `COMMIT_SHA` — the commit SHA to review when `REVIEW_MODE=delta` (ignored when `full`)
+- `PRIOR_FINDINGS` — prior findings summary from previous cycles (may be empty)
 - `N1_HOME` — absolute path to the N1 home directory
 - `ID` — the ticket/branch identifier (used for scratch file naming)
 
@@ -21,29 +23,69 @@ Your dispatch prompt provides these values:
 
 ### 1. Run Codex CLI
 
-Before running, substitute ALL `<PLACEHOLDER>` values from your dispatch prompt:
-- `<CODEX_PATH>` → the absolute path to the codex-companion.mjs script
-- `<BASE_BRANCH>` → the base branch value
-- `<N1_HOME>` → the absolute N1 home directory path
-- `<ID>` → the ticket/branch identifier
+Before running, substitute ALL `<PLACEHOLDER>` values from your dispatch prompt.
 
-For `<CODEX_MODEL>`: if the dispatch prompt provides a non-empty model value, set `CX_MODEL` in the environment block below; if empty or omitted, leave it as an empty string.
+For `<CODEX_MODEL>`: if the dispatch prompt provides a non-empty model value, set `CX_MODEL`; if empty or omitted, leave it as an empty string.
 
-Run this as a **single blocking Bash call**. Pass all dispatch values as shell variables assigned at the top — never interpolate dispatch values directly into command strings (branch names and paths may contain shell metacharacters):
+Determine the review scope flag based on `REVIEW_MODE`:
+- If `REVIEW_MODE=full`: use `--base "$CX_BASE"`
+- If `REVIEW_MODE=delta`: use `--commit "$CX_COMMIT"`
+
+**If PRIOR_FINDINGS is non-empty:** write it to a temp file in a SEPARATE Bash call before the main call (this avoids shell quoting issues with embedded single quotes or other metacharacters):
 
 ```bash
 CX_N1_HOME='<N1_HOME>'
 CX_ID='<ID>'
-CX_PATH='<CODEX_PATH>'
+CODEX_SCRATCH="$CX_N1_HOME/scratch"
+mkdir -p "$CODEX_SCRATCH"
+PRIOR_FILE="$CODEX_SCRATCH/codex-prior-$CX_ID.txt"
+cat > "$PRIOR_FILE" << 'PRIOR_FINDINGS_EOF'
+<PRIOR_FINDINGS>
+PRIOR_FINDINGS_EOF
+```
+
+Run the main review as a **single blocking Bash call**:
+
+```bash
+CX_N1_HOME='<N1_HOME>'
+CX_ID='<ID>'
 CX_BASE='<BASE_BRANCH>'
 CX_MODEL='<CODEX_MODEL>'
+CX_MODE='<REVIEW_MODE>'
+CX_COMMIT='<COMMIT_SHA>'
 
 CODEX_SCRATCH="$CX_N1_HOME/scratch"
 mkdir -p "$CODEX_SCRATCH"
 CODEX_RAW="$CODEX_SCRATCH/codex-raw-$CX_ID.txt"
 CODEX_STDERR_FILE="$CODEX_SCRATCH/codex-stderr-$CX_ID.txt"
-node "$CX_PATH" review --wait --scope branch --base "$CX_BASE" \
+
+# Read prior findings from temp file (written before this call to avoid quoting issues)
+PRIOR_FILE="$CODEX_SCRATCH/codex-prior-$CX_ID.txt"
+CX_PRIOR=$(cat "$PRIOR_FILE" 2>/dev/null || true)
+
+# Build scope flag
+if [ "$CX_MODE" = "delta" ] && [ -n "$CX_COMMIT" ]; then
+    SCOPE_FLAG="--commit $CX_COMMIT"
+else
+    SCOPE_FLAG="--base $CX_BASE"
+fi
+
+# Build instructions if prior findings exist (graceful degradation: if --instructions
+# is not supported by the installed codex version, omit it — the review still works,
+# just without prior-findings context narrowing)
+INSTR_FLAG=""
+if [ -n "$CX_PRIOR" ]; then
+    INSTR_FILE="$CODEX_SCRATCH/codex-instructions-$CX_ID.txt"
+    printf '%s' "$CX_PRIOR" > "$INSTR_FILE"
+    # Check if --instructions is supported before using it
+    if codex review --help 2>&1 | grep -q '\-\-instructions'; then
+        INSTR_FLAG="--instructions $INSTR_FILE"
+    fi
+fi
+
+codex review $SCOPE_FLAG \
   ${CX_MODEL:+--model "$CX_MODEL"} \
+  $INSTR_FLAG \
   >"$CODEX_RAW" 2>"$CODEX_STDERR_FILE"
 CODEX_EXIT=$?
 echo "RESULT_EXIT=$CODEX_EXIT"
@@ -82,13 +124,46 @@ reason: <actual error — quote stderr verbatim (first 20 lines) or "empty outpu
 
 Do NOT interpret or diagnose the cause. Quote stderr verbatim.
 
+### 3b. Compute changed hunks
+
+Run via Bash to get the list of changed files and line ranges:
+
+```bash
+CX_BASE='<BASE_BRANCH>'
+git diff --unified=0 "$CX_BASE" HEAD | grep -E '^\+\+\+ b/|^@@' | awk '
+  /^\+\+\+ b\// { file=substr($0,7) }
+  /^@@/ {
+    s=$0; sub(/.*\+/, "", s); sub(/ .*/, "", s)
+    split(s, parts, ",")
+    start=parts[1]+0; count=(parts[2]=="" ? 1 : parts[2]+0)
+    if (count==0) next
+    printf "%s:%d-%d\n", file, start, start+count-1
+  }
+' > "$CODEX_SCRATCH/changed-hunks-$CX_ID.txt"
+```
+
+Use this file when determining the `Scope` field for each finding in step 4: a finding at `file:line` has `Scope: changed` if `line` falls within any range for that file in the hunks file; otherwise `Scope: unchanged`.
+
 ### 4. Parse output into structured findings
 
 Read the file at the path shown in `RESULT_RAW_PATH` using the Read tool. Transform the raw Codex output into structured findings.
 
 ## Severity Mapping
 
-Map Codex severity indicators to N1's four-tier scale:
+### Priority tag extraction (preferred)
+
+If the Codex output includes explicit priority tags `[P0]`, `[P1]`, `[P2]`, or `[P3]` on findings, map them directly:
+
+| Codex tag | N1 Priority |
+|-----------|-------------|
+| `[P0]` | Critical |
+| `[P1]` | High |
+| `[P2]` | Medium |
+| `[P3]` | Low |
+
+### Keyword inference (fallback only)
+
+Use keyword inference ONLY when a finding has NO `[P0]`-`[P3]` tag:
 
 | Codex indicator | N1 Priority |
 |----------------|-------------|
@@ -97,11 +172,20 @@ Map Codex severity indicators to N1's four-tier scale:
 | suggestion, improvement, suboptimal, minor issue | Medium |
 | nit, style, naming, nitpick, cosmetic | Low |
 
-When severity is ambiguous, assess based on the issue's potential impact:
+When severity is ambiguous and no tag is present, assess based on impact:
 - Data loss, security holes, crashes -> Critical
 - Logic errors, missing edge cases, broken APIs -> High
 - Non-optimal patterns, incomplete handling -> Medium
 - Cosmetic, naming, style preferences -> Low
+
+### Changed-hunk scoping
+
+For each finding, determine whether the finding's file:line falls within the changed hunks of the current diff. Add a `Scope:` field to every finding:
+
+- **`Scope: changed`** — the finding targets code that was modified in this branch
+- **`Scope: unchanged`** — the finding targets pre-existing code not modified in this branch
+
+**Downgrade rule:** Any finding at P2/Medium or above that has `Scope: unchanged` MUST be downgraded to Medium (if not already Medium or Low). Unchanged-scope findings at Medium or Low keep their severity. This prevents pre-existing issues from blocking the review.
 
 ## Output Format
 
@@ -115,6 +199,7 @@ codex-status: success
 ### Critical
 - **[CX-1]** <title>
   - File: <path>:<line>
+  - Scope: changed / unchanged
   - Issue: <description of the problem>
   - Impact: <what breaks or could break>
   - Evidence: <relevant code or output from Codex>

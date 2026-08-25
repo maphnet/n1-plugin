@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # Standalone Codex preflight check.
-# Outputs JSON: {"available":true,"codex_path":"...","model":"...","effort":"..."} or
+# Outputs JSON: {"available":true,"model":"..."} or
 #               {"available":false,"reason":"..."}
 # Usage: bash "$CLAUDE_PLUGIN_ROOT/lib/codex-preflight.sh" <base_branch>
-#
-# Designed to be called as a single Bash command by the orchestrator model,
-# eliminating the need to source config.sh and call functions.
 
 set -euo pipefail
 
@@ -21,20 +18,13 @@ if [ "$enabled" != "true" ]; then
     exit 0
 fi
 
-# Step 2: Resolve companion path
-CODEX=$(n1_codex_companion)
-if [ -z "$CODEX" ]; then
-    printf '{"available":false,"reason":"codex-companion.mjs not found in plugin cache"}\n'
-    exit 0
-fi
-
-# Step 3: Check codex CLI
+# Step 2: Check codex CLI on PATH
 if ! codex --version >/dev/null 2>&1; then
     printf '{"available":false,"reason":"codex CLI not available (codex --version failed)"}\n'
     exit 0
 fi
 
-# Step 4: Verify base branch (if provided)
+# Step 3: Verify base branch (if provided)
 if [ -n "$BASE_BRANCH" ]; then
     if ! git rev-parse --verify "$BASE_BRANCH" >/dev/null 2>&1; then
         printf '{"available":false,"reason":"base branch %s not resolvable"}\n' "$BASE_BRANCH"
@@ -42,9 +32,8 @@ if [ -n "$BASE_BRANCH" ]; then
     fi
 fi
 
-# Step 5: Read model config
+# Step 4: Read model config
 CODEX_MODEL=$(n1_codex_val 'model')
 
 # Success — output structured result
-printf '{"available":true,"codex_path":"%s","model":"%s"}\n' \
-    "$CODEX" "${CODEX_MODEL:-}"
+printf '{"available":true,"model":"%s"}\n' "${CODEX_MODEL:-}"
