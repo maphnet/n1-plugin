@@ -15,7 +15,7 @@ Run `n1_config_val '.finishWork.enabled'` (default: `false`).
 - Merged (+ deploy ok or not watched) + ticket handled → `outcome: "pass"`, `next_step: null`
 - Gate closed → `outcome: "skip"`, `next_step: null`
 - PR closed unmerged, CI red, merge blocked, or deploy failed → `outcome: "fail"`, `next_step: null`
-- Merge-wait timeout or deploy-watch timeout → n1-finish writes `escalation/request.json` AND emits the step result itself (`outcome: "escalation"`, `next_step: null`) — the orchestrator must NOT emit a duplicate result for this case
+- Merge-wait timeout, deploy-watch timeout, or PR comments unresolved → n1-finish writes `escalation/request.json` AND emits the step result itself (`outcome: "escalation"`, `next_step: null`) — the orchestrator must NOT emit a duplicate result for this case
 
 > **After `n1:n1-finish` returns, IMMEDIATELY continue to FINALIZE MEMORY with the finish result noted -- do NOT write a summary message or yield to the user.**
 

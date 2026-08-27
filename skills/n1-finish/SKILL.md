@@ -72,12 +72,78 @@ Evaluate the PR state:
 2. **`CLOSED`** (not merged) → report "PR #<n> was closed without merging — nothing to finish. The ticket stays open." **STOP** (step mode: `outcome: "fail"`).
 3. **`OPEN`:**
    a. Check CI: `gh pr checks <n> --json name,state,conclusion`. If any check has `conclusion: FAILURE` → "CI is red on PR #<n> — run /n1:n1-ci first." **STOP** (step mode: `outcome: "fail"`).
-   b. If `mergeOnFinish` is `true` → initiate the merge (once, not per poll):
+   b. **PR comment check:** fetch unresolved review threads and pending change requests via a single GraphQL call:
+      ```bash
+      gh api graphql -f query='
+        query($owner:String!,$repo:String!,$pr:Int!) {
+          repository(owner:$owner,name:$repo) {
+            pullRequest(number:$pr) {
+              reviewThreads(first:100) {
+                nodes {
+                  isResolved
+                  comments(first:10) {
+                    nodes { author{login} body path line createdAt }
+                  }
+                }
+              }
+              reviews(first:50,states:[CHANGES_REQUESTED]) {
+                nodes { author{login} body state createdAt }
+              }
+              latestOpinionatedReviews(first:50) {
+                nodes { author{login} state }
+              }
+            }
+          }
+        }
+      ' -f owner="<owner>" -f repo="<repo>" -F pr=<n>
+      ```
+      Extract `<owner>` and `<repo>` from `gh repo view --json owner,name --jq '.owner.login,.name'`.
+
+      **What counts as unresolved:**
+      - Review threads where `isResolved: false`
+      - `CHANGES_REQUESTED` reviews from authors whose `latestOpinionatedReviews` entry is NOT `APPROVED`
+
+      **When nothing is found:** skip silently, proceed to sub-item c.
+
+      **When unresolved items exist,** analyze each inline (no agent spawn):
+      1. Read the comment text and the referenced file/line (if inline thread).
+      2. Check current code via `git show HEAD:<path>` at the referenced line range to see if the concern was already addressed.
+      3. Produce a per-comment recommendation:
+         - **Fix** — valid concern not yet addressed. Reasoning explains what needs to change.
+         - **Skip** — already addressed in code, outdated (file/line no longer exists), or stylistic nitpick with no functional impact. Reasoning explains why it is safe to skip.
+
+      Present grouped by reviewer:
+      ```
+      PR #<n> has unresolved reviewer feedback:
+
+      @reviewer1 (CHANGES_REQUESTED):
+        1. [path/to/file.ts:25] "Consider using a map here instead of forEach"
+           -> Skip: stylistic preference, current implementation is correct.
+        2. [path/to/file.ts:89] "This doesn't handle the null case"
+           -> Fix: the null guard is still missing at line 89.
+
+      @dependabot:
+        3. [package.json:15] "Upgrade lodash to fix CVE-2024-XXXX"
+           -> Fix: dependency is still at the vulnerable version.
+
+      Recommendation: <M> comment(s) to address, <K> to skip.
+      ```
+
+      **Standalone mode:** ask inline — "Proceed with merge? (yes / no — fix first)"
+      - **yes** → record in memory (`overview.md` `## Finish`): `Comments: <N> unresolved, user approved merge`. Proceed to sub-item c.
+      - **no** → "Address the comments, push, then re-run `/n1:n1-finish`." **STOP.**
+
+      **Step mode:** escalate with id `pr_comments_unresolved` (see `references/escalation-templates.md`), then emit `outcome: "escalation"` and **STOP.** On re-run: apply the response per the template's re-run instructions.
+
+      **Pagination:** `first:100` threads covers virtually all PRs. If `reviewThreads.pageInfo.hasNextPage` is true, log: "PR has >100 review threads; only the first 100 were checked."
+
+      **API failure:** warn and proceed to sub-item c. Comment check is advisory; never blocks merge due to API errors. Log: "Could not fetch PR review comments — skipping comment check."
+   c. If `mergeOnFinish` is `true` → initiate the merge (once, not per poll):
       ```bash
       gh pr merge <n> --auto --<mergeMethod> --delete-branch
       ```
       `--auto` respects branch protection (required approvals, checks, merge queues). If the command itself is rejected (e.g. auto-merge disabled on the repo and checks pending), retry once with the direct form `gh pr merge <n> --<mergeMethod> --delete-branch`; if that is also rejected, before treating the failure as fatal re-check `gh pr view <n> --json state` — if the PR is `MERGED`, treat the merge as successful and continue to Step 3; otherwise report GitHub's error verbatim and **STOP** (step mode: `outcome: "fail"`).
-   c. Bounded wait for merged state — up to `waitForMergeMinutes` total:
+   d. Bounded wait for merged state — up to `waitForMergeMinutes` total:
       ```bash
       source "${CLAUDE_PLUGIN_ROOT}/lib/poll.sh"
       n1_wait_pr_merged <n> <remaining-minutes>
@@ -161,6 +227,7 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
    ```markdown
    ## Finish
    - **Merged:** <sha> (<method>, by <auto-merge|reviewer|local merge>)
+   - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged | local merge)>
    - **Deploy:** <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    ```
