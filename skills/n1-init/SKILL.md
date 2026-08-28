@@ -833,20 +833,23 @@ Select which to enable (comma-separated numbers, or 0 to skip):
 }
 ```
 
-### Step 6 — Environment confirmation
+### Step 6 — Environment tagging
 
 For servers marked `all` (no env in name), ask:
 
 ```
 What environment does <provider> (<mcp-server>) serve?
-1 — prod
-2 — all (queries across environments)
-3 — Enter custom name
+1 — All environments (global — always active)
+2 — prod
+3 — dev
+4 — Enter custom name
 ```
 
-When the user picks `all`, the provider is placed under every environment that has at least one other provider. If no other environments exist yet, place it under `prod`.
+When the user picks option 1 (global), the provider gets no `env` field — making it always active regardless of `observability.default`.
 
-For servers with inferred environments, no confirmation needed — the inference is shown in the Step 5 list and the user's selection implicitly confirms it.
+For options 2-4, the provider gets `"env": "<chosen value>"`.
+
+For servers with inferred environments (e.g., `publius-prod-loki-mcp` → `prod`), the inference is shown in the Step 5 list and the user's selection implicitly confirms it. Tag with `"env": "<inferred env>"`.
 
 ### Step 7 — Sentry intake fields
 
@@ -888,9 +891,67 @@ For known providers, use preset operation maps:
 
 For unknown providers (discovered generically), store all tools that matched the observability category patterns as operations.
 
+### Step 8b — Auto-generate instructions
+
+For each selected provider, generate a default `instructions` string based on the provider type:
+
+| Provider | Default instructions |
+|----------|---------------------|
+| Sentry | `"Search Sentry for errors related to the task. Use project slug '<projectSlug>', org '<orgSlug>'."` (substitute actual values from Step 7; omit the slug clause if no intake fields) |
+| Loki | `"Query Loki for application logs. Filter by app label matching the service name."` |
+| Langfuse | `"Query Langfuse for traces, sessions, and exceptions related to the task."` |
+| Unknown | `"Query <provider-name> via MCP for observability data related to the task."` |
+
+Present the generated instructions for confirmation:
+```
+Generated instructions for selected providers:
+  sentry: "Search Sentry for errors related to the task. Use project slug 'publius', org 'publius-bb'."
+  loki-prod: "Query Loki for application logs. Filter by app label matching the service name."
+
+Edit any? Enter provider name to edit, or Enter to accept all:
+```
+
+If the user enters a provider name, let them type replacement instructions text. Repeat until Enter.
+
+### Step 8c — Kubectl log access (optional)
+
+Ask:
+```
+Add kubectl-based log access?
+1 — Yes
+2 — No (default)
+```
+
+**If 1 (Yes):**
+
+Ask: `"Kube context name for log access? (e.g., observability)"`
+
+Ask: `"Default namespace? (Enter for dynamic — discover with kubectl get ns)"`
+
+Generate provider entry:
+- Provider key: `k8s-logs`
+- `context`: the entered context name
+- `instructions`: `"Use kubectl --context <context> to query pod logs. <namespace clause>. Look for pods matching the service name."`
+  - If a default namespace was given: namespace clause = `"Service runs in the '<namespace>' namespace"`
+  - If dynamic: namespace clause = `"Discover namespaces with 'kubectl get ns'"`
+
+Show the generated entry for confirmation:
+```
+kubectl provider:
+  k8s-logs:
+    context: observability
+    instructions: "Use kubectl --context observability to query pod logs. Discover namespaces with 'kubectl get ns'. Look for pods matching the service name."
+
+Accept? 1 — Yes / 2 — Edit instructions / 3 — Skip
+```
+
+If 2: let the user type replacement instructions. If 3: discard this provider.
+
 ### Step 9 — Set default environment and confirm
 
-Pick the environment with the most providers. If tied, prefer `prod`. If the only environment is `all`, use `prod` as the default.
+Pick the default from env-tagged providers: the `env` value with the most providers. If tied, prefer `prod`. If all providers are global (no `env` field), omit `observability.default`.
+
+**Provider naming rule:** When the same provider type appears in multiple envs (e.g., Loki in prod and dev), use `<type>-<env>` as the key (e.g., `loki-prod`, `loki-dev`). Single-env providers keep their base name (e.g., `sentry`).
 
 **Ask about additional MCP servers:**
 
@@ -898,19 +959,18 @@ Pick the environment with the most providers. If tied, prefer `prod`. If the onl
 Add another observability MCP server not in the list? Enter MCP server name (or Enter to skip):
 ```
 
-If entered: probe to identify provider type via ToolSearch, ask which env it serves, detect operations, add to config. Repeat until Enter.
+If entered: probe to identify provider type via ToolSearch, ask which env it serves, detect operations, generate instructions, add to providers. Repeat until Enter.
 
 **Confirm summary:**
 
 ```
 Observability integration:
   Default: prod
-  Environments:
-    prod:
-      sentry → publius-sentry (searchIssues)
-      loki → publius-prod-loki-mcp (query, labelNames, labelValues)
-    dev:
-      langfuse → publius-dev-langfuse-mcp (findExceptions, fetchTraces, getSessionDetails)
+  Providers:
+    sentry [prod] → publius-sentry (searchIssues)
+    loki-prod [prod] → publius-prod-loki-mcp (query, labelNames, labelValues)
+    langfuse-dev [dev] → publius-dev-langfuse-mcp (findExceptions, fetchTraces)
+    k8s-logs [global] → kubectl --context observability
 ```
 
 Result config block:
@@ -918,46 +978,73 @@ Result config block:
 {
   "observability": {
     "default": "prod",
-    "environments": {
-      "prod": {
-        "sentry": {
-          "mcp": "publius-sentry",
-          "operations": { "searchIssues": "search_sentry_issues" },
-          "urlPattern": "sentry\\.io/issues/|my-org\\.sentry\\.io/issues/",
-          "orgSlug": "my-org",
-          "projectSlug": "my-backend"
-        },
-        "loki": {
-          "mcp": "publius-prod-loki-mcp",
-          "operations": { "query": "loki_query", "labelNames": "loki_label_names", "labelValues": "loki_label_values" }
-        }
+    "providers": {
+      "sentry": {
+        "env": "prod",
+        "mcp": "publius-sentry",
+        "operations": { "searchIssues": "search_sentry_issues" },
+        "instructions": "Search Sentry for errors related to the task. Use project slug 'my-backend', org 'my-org'.",
+        "urlPattern": "sentry\\.io/issues/|my-org\\.sentry\\.io/issues/",
+        "orgSlug": "my-org",
+        "projectSlug": "my-backend"
       },
-      "dev": {
-        "langfuse": {
-          "mcp": "publius-dev-langfuse-mcp",
-          "operations": { "findExceptions": "find_exceptions", "fetchTraces": "fetch_traces", "getSessionDetails": "get_session_details" }
-        }
+      "loki-prod": {
+        "env": "prod",
+        "mcp": "publius-prod-loki-mcp",
+        "operations": { "query": "loki_query", "labelNames": "loki_label_names", "labelValues": "loki_label_values" },
+        "instructions": "Query Loki for application logs. Filter by app label matching the service name."
+      },
+      "langfuse-dev": {
+        "env": "dev",
+        "mcp": "publius-dev-langfuse-mcp",
+        "operations": { "findExceptions": "find_exceptions", "fetchTraces": "fetch_traces", "getSessionDetails": "get_session_details" },
+        "instructions": "Query Langfuse for traces, sessions, and exceptions related to the task."
+      },
+      "k8s-logs": {
+        "context": "observability",
+        "instructions": "Use kubectl --context observability to query pod logs. Discover namespaces with 'kubectl get ns'. Look for pods matching the service name."
       }
     }
   }
 }
 ```
 
+### Migration from `environments` format
+
+**Gate:** Only when `observability.environments` exists in config but `observability.providers` does not.
+
+Auto-migration logic during n1-init:
+
+1. **Flatten providers:** For each `environments.<env>.<provider>` entry, create a top-level provider:
+   - Provider key: `<provider>` if it appears in only one env, `<provider>-<env>` if multiple envs.
+   - Copy `mcp`, `operations`, and all extra fields (`urlPattern`, `orgSlug`, `projectSlug`).
+   - Add `"env": "<env>"`.
+   - Auto-generate `instructions` using the provider-type templates from Step 8b.
+
+2. **Preserve default:** Set `observability.default` from the old `observability.default`.
+
+3. **Write new format:** Replace `observability.environments` with `observability.providers`.
+
+4. **Present:** Show the migrated config for confirmation:
+   ```
+   Migrated observability config from environments to providers format:
+
+   Providers:
+     sentry [prod] → publius-sentry
+     loki-prod [prod] → publius-prod-loki-mcp
+     loki-dev [dev] → publius-dev-loki-mcp
+
+   1 — Accept
+   2 — Edit (re-run full observability setup)
+   ```
+
 ### Migration from `errorTracking` + `logging`
 
 **Gate:** Only when old blocks exist (`errorTracking` and/or `logging` are present and not null) but no `observability` block exists.
 
-Auto-migration logic during n1-init:
+Same auto-migration logic as the current n1-init (convert to `observability` block), but write the flat `providers` format instead of `environments`. Follow the provider-type templates from Step 8b for auto-generating `instructions`. Each provider entry gets an `"env"` tag from its source environment.
 
-1. **Convert `errorTracking`:** Create a provider entry `"sentry": { "mcp": "<errorTracking.mcp>", "operations": <errorTracking.operations>, "urlPattern": "<errorTracking.urlPattern>", "orgSlug": "<errorTracking.orgSlug>", "projectSlug": "<errorTracking.projectSlug>" }` under the environment `"prod"`. Copy all intake-specific fields (`urlPattern`, `orgSlug`, `projectSlug`) if present.
-
-2. **Convert `logging`:** For each entry in `logging.environments`, create a provider entry `"<logging.type>": { "mcp": "<env.mcp>", "operations": <logging.operations> }` under the corresponding environment name.
-
-3. **Merge:** Combine into a single `observability` block. Set `observability.default` to `logging.default` if it existed, otherwise `"prod"`.
-
-4. **Clean up:** Remove old `errorTracking` and `logging` blocks from config.
-
-5. **Present:** Show the migrated config using the reconfigure menu so the user can review and adjust.
+Clean up: remove old `errorTracking` and `logging` blocks from config.
 
 ### On reconfiguration (n1-init re-run):
 
@@ -965,33 +1052,35 @@ If `observability` already exists and is not null:
 ```
 Current observability:
   Default: prod
-  Environments:
-    prod: sentry, loki
-    staging: loki
-    dev: langfuse
+  Providers:
+    sentry [prod]: Search Sentry for errors...
+    loki-prod [prod]: Query Loki for application logs...
+    k8s-logs [global]: Use kubectl --context observability...
 
 1 — Keep current
-2 — Add/remove providers or environments
+2 — Add/remove providers
 3 — Change default environment
-4 — Disable
+4 — Edit provider instructions
+5 — Disable
 ```
 
 - **1** — leave unchanged.
-- **2** — re-run the full discovery scan (Steps 1–4). Show results with status labels:
+- **2** — re-run MCP discovery (Steps 1–4). Show results with status labels:
   ```
   Observability MCP servers detected:
 
     1. [configured] sentry (publius-sentry) — error tracking, prod
     2. [configured] loki (publius-prod-loki-mcp) — log querying, prod
-    3. [new]        loki (publius-staging-loki-mcp) — log querying, staging
-    4. [new]        langfuse (publius-dev-langfuse-mcp) — tracing/APM, dev
+    3. [new]        langfuse (publius-dev-langfuse-mcp) — tracing/APM, dev
 
   Add new providers (comma-separated numbers), or remove existing ones?
   Type + followed by numbers to add, - followed by numbers to remove, or Enter to keep as-is:
   ```
-  Adding follows the same env confirmation → Sentry intake (if applicable) → operations flow. Removing deletes the provider entry from the environment; if the environment becomes empty, remove it too.
-- **3** — select from configured environment names.
-- **4** — set `"observability": null`.
+  Also offer: `"Add kubectl-based log access? 1 — Yes / 2 — No"` (run Step 8c).
+  Adding follows env tagging → instructions generation → operations flow. Removing deletes the provider entry.
+- **3** — select from configured env values.
+- **4** — show each provider with its current instructions, ask which to edit. Let the user type replacement text.
+- **5** — set `"observability": null`.
 
 If `observability` is `null` or absent (and no old blocks to migrate), re-run detection from scratch (Steps 1–9).
 
