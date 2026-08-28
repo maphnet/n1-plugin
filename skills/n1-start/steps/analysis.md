@@ -131,13 +131,20 @@ Also apply all shared output-path directives.
 
 If `observability` is configured (not null) in `$N1_HOME/config.json`:
 
-1. Resolve the target environment: read `observability.default` from config. If `default` is null or empty, fall back to the first key in `observability.environments`. Skip enrichment only if `environments` is also empty (requires jq — skip enrichment entirely without jq).
-2. Read `observability.environments[<resolved environment>]` from config.
-3. Iterate all providers in the resolved environment.
-4. For each provider: append ALL its operations as MCP tool grants — `mcp__<provider.mcp>__<operation>` for each operation value in the provider's operations map.
-5. If the task originated from an error tracker URL, add directive: "Query all available observability tools for context around this error. Search for related errors, query logs, and check traces as relevant. Include findings in an `### Observability Findings` section of your output."
-6. If the task type is `bug` (not from error tracker), add directive: "Query the granted observability tools for errors, logs, and traces related to this bug. Include findings in an `### Observability Findings` section of your output."
-7. For all other task types, add directive: "Observability tools are available. If relevant to understanding the system behavior for this task, query them for context. Include any relevant findings in an `### Observability Findings` section."
+1. Read `observability` from config. If null/absent or `observability.providers` is empty, skip enrichment entirely (requires jq — skip enrichment entirely without jq).
+2. Read `observability.default` from config.
+3. Collect active providers: all entries in `observability.providers` where `env` is absent (global) OR `env` matches `observability.default`. If `default` is null/empty, only global providers (no `env` field) activate.
+4. If no providers are active (e.g., `default` is set but no providers match, and no global providers exist), skip enrichment. If no `default` and all providers have `env`, skip enrichment and log a warning in the SA prompt: "Observability is configured but no providers are active (all have env tags and no default is set)."
+5. Build a directive block listing each active provider by name with its `instructions` text and append it to the SA prompt:
+   ```
+   The following observability sources are available for this project:
+
+   - **<provider-name>**: <instructions text>
+   - **<provider-name>**: <instructions text>
+   ```
+6. If the task originated from an error tracker URL, append directive: "Query all available observability sources for context around this error. Search for related errors, query logs, and check traces as relevant. Include findings in an `### Observability Findings` section of your output."
+7. If the task type is `bug` (not from error tracker), append directive: "Query the available observability sources for errors, logs, and traces related to this bug. Include findings in an `### Observability Findings` section of your output."
+8. For all other task types, append directive: "Observability sources are available. If relevant to understanding the system behavior for this task, query them for context. Include any relevant findings in an `### Observability Findings` section."
 
 After the agent returns:
 
