@@ -8,12 +8,12 @@ The intake-agent accepts four input modes. Choose based on input type:
 **Ticket mode** (input matches `<prefix>-<number>`):
 0. The `<ID>` is already known (the ticket ID). Workspace isolation is deferred until after investigation detection (see below).
 1. Read `$N1_HOME/config.json` -> `tracker.type`, `tracker.mcp`, `tracker.operations`
-2. Read `$N1_HOME/config.json` -> find the error-tracker provider. Requires jq. Scan all providers across all environments in `observability.environments` for one that has a `urlPattern` field. If found, set `ET_CONFIGURED` = true and extract from that provider entry: `errorTrackingMcp` (from `.mcp`), `errorTrackingOps` (from `.operations`), `errorTrackingUrlPattern` (from `.urlPattern`), `orgSlug` (from `.orgSlug`), `projectSlug` (from `.projectSlug`). If no provider has `urlPattern` or jq is unavailable, set `ET_CONFIGURED` = false.
+2. Read `$N1_HOME/config.json` -> find the error-tracker provider. Requires jq. Scan all providers in `observability.providers` for one that has a `urlPattern` field. If found, set `ET_CONFIGURED` = true and extract from that provider entry: `errorTrackingMcp` (from `.mcp`), `errorTrackingOps` (from `.operations`), `errorTrackingUrlPattern` (from `.urlPattern`), `orgSlug` (from `.orgSlug`), `projectSlug` (from `.projectSlug`). If no provider has `urlPattern` or jq is unavailable, set `ET_CONFIGURED` = false.
 
 jq extraction:
 ```bash
 ET_PROVIDER=$(jq -r '
-    [.observability.environments // {} | to_entries[] | .value | to_entries[] | select(.value.urlPattern)] | first | .value // empty
+    [.observability.providers // {} | to_entries[] | select(.value.urlPattern)] | first | .value // empty
 ' "$N1_HOME/config.json" 2>/dev/null)
 ```
 3. Spawn intake-agent with:

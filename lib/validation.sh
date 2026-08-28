@@ -42,7 +42,7 @@ n1_detect_input_type() {
     fi
     local url_pattern=""
     if command -v jq >/dev/null 2>&1; then
-        url_pattern=$(jq -r '[.observability.environments // {} | to_entries[] | .value | to_entries[] | .value.urlPattern // empty] | first // empty' "$config_file" 2>/dev/null)
+        url_pattern=$(jq -r '[.observability.providers // {} | to_entries[] | .value.urlPattern // empty] | first // empty' "$config_file" 2>/dev/null)
     fi
     if [ -n "$url_pattern" ] && echo "$input" | grep -qE "$url_pattern"; then
         printf 'error-tracker'
