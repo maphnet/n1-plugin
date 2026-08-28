@@ -127,15 +127,17 @@ Spawn the solution-architect agent with this prompt (replacing the standard proj
 Also apply the investigation-mode directive from shared spawn directives (ticket-specific, always applies).
 Also apply all shared output-path directives.
 
-**Observability enrichment (bug and error-tracker tasks):**
+**Observability enrichment:**
 
-If the task type is `bug` (from ticket.md or intake classification) OR the task originated from an error tracker URL, AND `observability` is configured (not null) in `$N1_HOME/config.json`:
+If `observability` is configured (not null) in `$N1_HOME/config.json`:
 
-1. Read `observability.default` and `observability.environments[default]` from config (requires jq — skip enrichment entirely without jq).
-2. Iterate all providers in the default environment.
-3. For each provider: append ALL its operations as MCP tool grants — `mcp__<provider.mcp>__<operation>` for each operation value in the provider's operations map.
-4. If the task originated from an error tracker URL, add directive: "Query all available observability tools for context around this error. Search for related errors, query logs, and check traces as relevant. Include findings in an `### Observability Findings` section of your output."
-5. If the task is a regular bug (not from error tracker), add directive: "If relevant to the bug being analyzed, use the granted observability tools to investigate. Include any relevant findings in your analysis."
+1. Resolve the target environment: read `observability.default` from config. If `default` is null or empty, fall back to the first key in `observability.environments`. Skip enrichment only if `environments` is also empty (requires jq — skip enrichment entirely without jq).
+2. Read `observability.environments[<resolved environment>]` from config.
+3. Iterate all providers in the resolved environment.
+4. For each provider: append ALL its operations as MCP tool grants — `mcp__<provider.mcp>__<operation>` for each operation value in the provider's operations map.
+5. If the task originated from an error tracker URL, add directive: "Query all available observability tools for context around this error. Search for related errors, query logs, and check traces as relevant. Include findings in an `### Observability Findings` section of your output."
+6. If the task type is `bug` (not from error tracker), add directive: "Query the granted observability tools for errors, logs, and traces related to this bug. Include findings in an `### Observability Findings` section of your output."
+7. For all other task types, add directive: "Observability tools are available. If relevant to understanding the system behavior for this task, query them for context. Include any relevant findings in an `### Observability Findings` section."
 
 After the agent returns:
 
