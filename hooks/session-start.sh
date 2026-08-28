@@ -121,26 +121,28 @@ TRACKER ROUTING (from N1 config — authoritative, do not override):
 fi
 
 if command -v jq >/dev/null 2>&1; then
-    obs_default=$(jq -r '.observability.default // empty' "$CONFIG_FILE" 2>/dev/null)
-    if [ -n "$obs_default" ]; then
-        obs_envs=$(jq -r --arg default "$obs_default" '
-            .observability.environments // {} | to_entries[] |
-            "  - \(.key)\(if .key == $default then " (default)" else "" end):\n" +
-            ([.value | to_entries[] |
-                "    - \(.key): mcp__\(.value.mcp)__ (operations: \(
+    obs_has_providers=$(jq -r '.observability.providers // {} | length' "$CONFIG_FILE" 2>/dev/null || echo "0")
+    if [ "$obs_has_providers" -gt 0 ] 2>/dev/null; then
+        obs_default=$(jq -r '.observability.default // empty' "$CONFIG_FILE" 2>/dev/null)
+        obs_providers=$(jq -r '
+            .observability.providers // {} | to_entries[] |
+            "  - \(.key) [\(.value.env // "global")]: " +
+            if .value.mcp then
+                "mcp__\(.value.mcp)__ (operations: \(
                     .value.operations // {} | to_entries | map("\(.key)=\(.value)") | join(", ")
-                ))"] | join("\n"))
+                ))"
+            else
+                (.value.instructions // "" | split("\n") | .[0] | .[0:80])
+            end
         ' "$CONFIG_FILE" 2>/dev/null || true)
 
-        if [ -n "$obs_envs" ]; then
+        if [ -n "$obs_providers" ]; then
             context="${context}
 
-OBSERVABILITY ROUTING (from N1 config — authoritative, do not override):
-- Default environment: ${obs_default}
-- Environments:
-${obs_envs}
-- All observability MCP tool calls MUST use prefix: mcp__<provider-mcp>__
-- Use default environment unless user specifies otherwise"
+OBSERVABILITY ROUTING (from N1 config):
+- Default environment: ${obs_default:-none}
+- Providers:
+${obs_providers}"
         fi
     fi
 fi
