@@ -89,24 +89,25 @@ The session-start hook injects KB ROUTING context when enabled, providing the mo
 
 ### Observability
 
-Optional multi-provider observability integration for querying logs, errors, and traces during investigations and on-demand. Config-driven via `observability` block in `$N1_HOME/config.json`. Environment-first grouping: each environment maps provider names to self-contained `{ mcp, operations }` entries. When `observability` is `null` or absent, the feature is fully disabled.
+Optional multi-provider observability integration for querying logs, errors, and traces during investigations and on-demand. Config-driven via `observability` block in `$N1_HOME/config.json`. Flat provider map: each provider is a self-contained entry with free-text `instructions` and optional `env` tag. Supports MCP tools, kubectl, CLI tools, and HTTP APIs. When `observability` is `null` or absent, the feature is fully disabled.
 
 | Provider | Example mcp value | Key operations |
 |----------|-------------------|----------------|
 | Sentry | `publius-sentry` | `search_sentry_issues` (searchIssues) |
 | Loki | `publius-loki-mcp` | `loki_query` (query), `loki_label_names` (labelNames), `loki_label_values` (labelValues) |
 | Langfuse | `publius-dev-langfuse-mcp` | `find_exceptions` (findExceptions), `fetch_traces` (fetchTraces), `get_session_details` (getSessionDetails) |
+| kubectl | — | — (instructions-based, no MCP) |
 
 **Config:**
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `observability.default` | string | — | Environment name used for pipeline auto-enrichment |
-| `observability.environments` | object | — | Env name → provider name → `{ "mcp": "<server-name>", "operations": { ... } }` |
+| `observability.default` | string | — | Environment name for pipeline auto-enrichment |
+| `observability.providers` | object | — | Provider name → `{ "instructions": "...", "env?": "...", "mcp?": "...", "operations?": { ... } }` |
 
-Provider keys are human-readable labels. Operations may differ per environment for the same provider. Providers with intake support (e.g. Sentry) carry additional fields (`urlPattern`, `orgSlug`, `projectSlug`) on the provider entry for URL detection. Adding a new provider requires zero code changes — just a config entry.
+Each provider requires `instructions` (free-text). Optional: `env` (ties to environment), `mcp` (MCP server name), `operations` (operation map), `context` (kube context), `urlPattern`, `orgSlug`, `projectSlug`. Provider activation: global providers (no `env`) always active; env-tagged providers active when `env` matches `observability.default`.
 
-The session-start hook injects OBSERVABILITY ROUTING context when configured, providing the model with per-environment MCP prefixes, providers, and available operations.
+The session-start hook injects OBSERVABILITY ROUTING context when configured, providing the model with provider names, env tags, and access details.
 
 ## Escalation Safety
 
