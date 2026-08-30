@@ -1,10 +1,16 @@
 {
   "name": "n1",
   "description": "AI-driven development orchestrator. No one writes the code.",
-  "author": { "name": "N1 Team" },
-  "version": "2.69.0",
+  "author": {
+    "name": "N1 Team"
+  },
+  "version": "2.70.0",
   "license": "MIT",
   "dependencies": [
-    { "name": "superpowers", "version": ">=6", "marketplace": "claude-plugins-official" }
+    {
+      "name": "superpowers",
+      "version": ">=6",
+      "marketplace": "claude-plugins-official"
+    }
   ]
 }
