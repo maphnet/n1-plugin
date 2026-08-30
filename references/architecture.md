@@ -239,41 +239,47 @@ The code-reviewer evaluates a **Test Quality (TQ)** dimension with `[TQ-N]` pref
 
 ## Observability Integration
 
-Optional multi-provider observability integration (Sentry, Loki, Langfuse, extensible). Config-driven via `observability` block in `$N1_HOME/config.json` — environment-first grouping where each environment maps provider names to self-contained `{ mcp, operations }` entries. When `observability` is `null` or absent, the feature is fully disabled.
+Optional multi-provider observability integration. Config-driven via `observability` block in `$N1_HOME/config.json`. Flat provider map: each provider is a self-contained entry with free-text `instructions` and optional `env` tag. Supports MCP tools, kubectl, CLI tools, HTTP APIs, and instructions-only providers (filesystem-based data sources). When `observability` is `null` or absent, the feature is fully disabled.
 
 Config structure:
 ```json
 {
   "observability": {
     "default": "prod",
-    "environments": {
-      "prod": {
-        "sentry": {
-          "mcp": "publius-sentry",
-          "operations": { "searchIssues": "search_sentry_issues" }
-        },
-        "loki": {
-          "mcp": "publius-loki-mcp",
-          "operations": { "query": "loki_query", "labelNames": "loki_label_names", "labelValues": "loki_label_values" }
-        }
+    "providers": {
+      "sentry": {
+        "mcp": "publius-sentry",
+        "env": "prod",
+        "instructions": "Search Sentry for errors related to the task.",
+        "operations": { "searchIssues": "search_sentry_issues" },
+        "urlPattern": "sentry\\.io/issues/|my-org\\.sentry\\.io/issues/",
+        "orgSlug": "my-org",
+        "projectSlug": "my-backend"
       },
-      "dev": {
-        "langfuse": {
-          "mcp": "publius-dev-langfuse-mcp",
-          "operations": { "findExceptions": "find_exceptions", "fetchTraces": "fetch_traces", "getSessionDetails": "get_session_details" }
-        }
+      "loki": {
+        "mcp": "publius-prod-loki-mcp",
+        "env": "prod",
+        "instructions": "Query Loki for application logs.",
+        "operations": { "query": "loki_query", "labelNames": "loki_label_names", "labelValues": "loki_label_values" }
+      },
+      "n1-telemetry": {
+        "instructions": "N1 pipeline telemetry. Data at ~/.n1/<project>/memory/<ticket-id>/telemetry/."
       }
     }
   }
 }
 ```
 
+Each provider requires `instructions` (free-text). Optional: `env` (ties to environment — global providers with no `env` are always active), `mcp` (MCP server name), `operations` (operation map), `context` (kube context), `urlPattern`, `orgSlug`, `projectSlug`.
+
+Provider activation: global providers (no `env`) always active; env-tagged providers active when `env` matches `observability.default`.
+
 Three pipeline touchpoints:
 - **Intake** (n1-start + product-analyst): providers with `urlPattern` field (e.g. Sentry) support direct URL intake — URL detection, MCP fetch of issue data, structured `ticket.md`. Intake fields (`urlPattern`, `orgSlug`, `projectSlug`) live on the provider entry alongside `mcp` and `operations`.
-- **Analysis — error-tracker tasks:** all providers in the default environment get their operations granted; agent searches errors, queries logs, and checks traces
+- **Analysis — error-tracker tasks:** all active providers get their instructions and operations granted to the solution-architect; agent searches errors, queries logs, and checks traces
 - **Analysis — bug tasks:** same grants with a lighter directive
 
-On-demand access is automatic via session-start OBSERVABILITY ROUTING injection — no pipeline changes needed for ad-hoc queries. Adding a new provider (CloudWatch, Datadog, etc.) requires zero code changes — just an n1-init detection probe entry and a config entry.
+On-demand access is automatic via session-start OBSERVABILITY ROUTING injection — no pipeline changes needed for ad-hoc queries. MCP providers show their tool prefix and operations; instructions-only providers inject their full instructions text. Adding a new provider requires zero code changes — just a config entry.
 
 ## Finish Work
 

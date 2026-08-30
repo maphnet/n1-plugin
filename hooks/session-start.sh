@@ -132,7 +132,7 @@ if command -v jq >/dev/null 2>&1; then
                     .value.operations // {} | to_entries | map("\(.key)=\(.value)") | join(", ")
                 ))"
             else
-                (.value.instructions // "" | split("\n") | .[0] | .[0:80])
+                (.value.instructions // "")
             end
         ' "$CONFIG_FILE" 2>/dev/null || true)
 
