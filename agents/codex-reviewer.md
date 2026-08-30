@@ -83,11 +83,16 @@ if [ -n "$CX_PRIOR" ]; then
     fi
 fi
 
-codex review $SCOPE_FLAG \
+# Run in its own process group so the entire tree can be killed on exit
+setsid codex review $SCOPE_FLAG \
   ${CX_MODEL:+--model "$CX_MODEL"} \
   $INSTR_FLAG \
-  >"$CODEX_RAW" 2>"$CODEX_STDERR_FILE"
+  >"$CODEX_RAW" 2>"$CODEX_STDERR_FILE" &
+CODEX_PID=$!
+trap "kill -TERM -$CODEX_PID 2>/dev/null; wait $CODEX_PID 2>/dev/null" EXIT
+wait $CODEX_PID
 CODEX_EXIT=$?
+trap - EXIT
 echo "RESULT_EXIT=$CODEX_EXIT"
 if [ -s "$CODEX_RAW" ] && grep -q '[^[:space:]]' "$CODEX_RAW"; then
   echo "RESULT_HAS_OUTPUT=true"
