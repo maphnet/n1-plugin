@@ -20,7 +20,7 @@ Initialize N1 for the current project. This creates the externalized N1 state di
 ## Prerequisites
 
 Check if CLAUDE.md exists in the project root:
-- **If missing:** Tell the user: "CLAUDE.md not found. Run `/init` first to create one, then re-run `/n1:n1-init`." **STOP.**
+- **If missing:** Create a minimal `CLAUDE.md` with `# <project-name>` (derived from the directory name or `package.json`/`Cargo.toml`/etc. if available). Log: "Created a minimal CLAUDE.md — I'll enrich it after analyzing the repo." Continue.
 - **If exists:** Continue.
 
 ### Detect Existing Configuration
