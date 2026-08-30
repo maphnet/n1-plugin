@@ -30,17 +30,18 @@ If `N1_HOME` is empty -- N1 is not configured; warn the user and STOP.
 
 Read the `release` block via `n1_config_val`, applying defaults when keys are absent:
 
-| Key | Default |
-|-----|---------|
-| `.release.enabled` | `false` |
-| `.release.tagPrefix` | `"v"` |
-| `.release.procedure` | `null` |
-| `.release.draft` | `false` |
-| `.release.deploymentCheck` | `true` |
-| `.release.trackerRelease.versionName` | `"{serviceName} {version}"` |
-| `.release.trackerRelease.moveTickets` | `true` |
-| `.release.trackerRelease.setFixVersion` | `true` |
-| `.release.trackerRelease.createVersion` | `true` |
+| Key | Default | Description |
+|-----|---------|-------------|
+| `.release.enabled` | `false` | |
+| `.release.tagPrefix` | `"v"` | |
+| `.release.versionSource` | `null` | Optional `{"file":"...","jq":"..."}` — auto-detects common files when absent |
+| `.release.procedure` | `null` | |
+| `.release.draft` | `false` | |
+| `.release.deploymentCheck` | `true` | |
+| `.release.trackerRelease.versionName` | `"{serviceName} {version}"` | |
+| `.release.trackerRelease.moveTickets` | `true` | |
+| `.release.trackerRelease.setFixVersion` | `true` | |
+| `.release.trackerRelease.createVersion` | `true` | |
 
 Also read `git.defaultBranch`, `git.branchPattern`, `tracker.mcp`, `tracker.operations`, `tracker.prefix`, `tracker.projectKey`, `tracker.statuses`, `ticketTagging.service`.
 
@@ -74,20 +75,58 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
 
 ## Step 2: Resolve Release Metadata
 
-1. **Version**: read `.version` from `.claude-plugin/plugin.json` via Bash:
+1. **Version**: resolved via `release.versionSource` config. The value is an object `{"file": "<path>", "jq": "<expression>"}` specifying where to read the version. When `release.versionSource` is `null` or absent, auto-detect by probing common locations in order:
+
    ```bash
-   VERSION=$(jq -r '.version' .claude-plugin/plugin.json)
+   VERSION_SOURCE=$(n1_config_val '.release.versionSource')
+   if [ -z "$VERSION_SOURCE" ] || [ "$VERSION_SOURCE" = "null" ]; then
+     # Auto-detect: probe common version files
+     if [ -f "package.json" ]; then
+       VERSION=$(jq -r '.version' package.json)
+       VERSION_SOURCE_DISPLAY="package.json"
+     elif [ -f ".claude-plugin/plugin.json" ]; then
+       VERSION=$(jq -r '.version' .claude-plugin/plugin.json)
+       VERSION_SOURCE_DISPLAY=".claude-plugin/plugin.json"
+     elif [ -f "pyproject.toml" ]; then
+       VERSION=$(grep -m1 '^version' pyproject.toml | sed 's/.*= *"\(.*\)"/\1/')
+       VERSION_SOURCE_DISPLAY="pyproject.toml"
+     elif [ -f "Cargo.toml" ]; then
+       VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*= *"\(.*\)"/\1/')
+       VERSION_SOURCE_DISPLAY="Cargo.toml"
+     elif [ -f "VERSION" ]; then
+       VERSION=$(cat VERSION | tr -d '[:space:]')
+       VERSION_SOURCE_DISPLAY="VERSION"
+     else
+       VERSION=""
+       VERSION_SOURCE_DISPLAY="none"
+     fi
+   else
+     # Explicit config: {"file": "...", "jq": "..."}
+     VS_FILE=$(echo "$VERSION_SOURCE" | jq -r '.file')
+     VS_JQ=$(echo "$VERSION_SOURCE" | jq -r '.jq // ".version"')
+     if [ -f "$VS_FILE" ]; then
+       VERSION=$(jq -r "$VS_JQ" "$VS_FILE")
+       VERSION_SOURCE_DISPLAY="$VS_FILE"
+     else
+       VERSION=""
+       VERSION_SOURCE_DISPLAY="$VS_FILE (not found)"
+     fi
+   fi
    ```
-2. **Marketplace version**: read `.version` (or `.plugins[0].version`) from `.claude-plugin/marketplace.json`:
-   ```bash
-   MKT_VERSION=$(jq -r '.plugins[0].version // .version' .claude-plugin/marketplace.json)
+
+   If `VERSION` is empty or `"null"` after resolution, ask the user:
    ```
-3. **TAG**: concatenate `tagPrefix + VERSION`:
+   Could not detect project version (source: <VERSION_SOURCE_DISPLAY>).
+   Enter the version to release (e.g., 1.0.0):
+   ```
+   Read user input as `VERSION`. If user declines, STOP.
+
+2. **TAG**: concatenate `tagPrefix + VERSION`:
    ```bash
    TAG_PREFIX=$(n1_config_val '.release.tagPrefix')
    TAG="${TAG_PREFIX}${VERSION}"
    ```
-4. **Previous tag**: resolve from local git tags first, fall back to gh:
+3. **Previous tag**: resolve from local git tags first, fall back to gh:
    ```bash
    PREV_TAG=$(git tag --list "${TAG_PREFIX}*" --sort=-version:refname | head -1)
    if [ -z "$PREV_TAG" ]; then
@@ -95,8 +134,8 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    fi
    # Show "(none — first release)" when nothing found
    ```
-5. **Merge SHA**: attempt to read from `$N1_HOME/memory/<ID>/overview.md` `## Finish` section if a memory directory exists for the inferred ticket ID (parsed from branch name via `git.branchPattern`). Otherwise empty string.
-6. **Pending batch**: if `$N1_HOME/pending-releases.json` exists and `.pending` is non-empty, read its ticket IDs:
+4. **Merge SHA**: attempt to read from `$N1_HOME/memory/<ID>/overview.md` `## Finish` section if a memory directory exists for the inferred ticket ID (parsed from branch name via `git.branchPattern`). Otherwise empty string.
+5. **Pending batch**: if `$N1_HOME/pending-releases.json` exists and `.pending` is non-empty, read its ticket IDs:
    ```bash
    PENDING_IDS=$(jq -r '.pending[].id' "$N1_HOME/pending-releases.json" 2>/dev/null || true)
    PENDING_IDS_DISPLAY=$(echo "$PENDING_IDS" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')
@@ -105,11 +144,11 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    ```bash
    printf '{"pending": []}\n' > "$N1_HOME/pending-releases.json"
    ```
-7. **Unified ticket discovery**: build `RELEASE_TICKET_IDS` by merging four sources (deduplicated):
+6. **Unified ticket discovery**: build `RELEASE_TICKET_IDS` by merging four sources (deduplicated):
 
    **Source A — Branch name** (existing): parse current branch via `git.branchPattern` for ticket prefix. Produces `BRANCH_ID` (single ID or empty).
 
-   **Source B — Pending batch** (existing): `PENDING_IDS` from sub-step 6 above.
+   **Source B — Pending batch** (existing): `PENDING_IDS` from sub-step 5 above.
 
    **Source C — GitHub Release notes** (new): after Step 5 creates the release, parse its body for ticket IDs:
    ```bash
@@ -152,7 +191,7 @@ Always shown before any side-effecting action:
 ```
 Ready to release:
 
-  Version:      <TAG>  (from .claude-plugin/plugin.json)
+  Version:      <TAG>  (from <VERSION_SOURCE_DISPLAY>)
   Previous tag: <PREV_TAG or "(none — first release)">
   Branch:       <CURRENT>
   <condition lines>
@@ -163,8 +202,6 @@ Proceed with release?
 ```
 
 Condition lines (informational -- no hard blocks):
-- `plugin.json == marketplace.json (<VERSION>)` -- versions match
-- `plugin.json / marketplace.json versions differ (plugin.json: <VERSION>, marketplace.json: <MKT_VERSION>)` -- mismatch warning
 - `Merge SHA: <sha>` -- found in overview.md
 - `No merge SHA found (standalone run — not post-finish)` -- not available
 
@@ -240,7 +277,7 @@ Report the release URL from `gh release view "${TAG}" --json url --jq '.url'` on
 
 ## Step 5b: Tracker Release Operations
 
-**Runs after Step 5 completes successfully.** First, resolve Sources C and D of the ticket discovery (sub-step 7 in Step 2) — these require the tag/release to exist.
+**Runs after Step 5 completes successfully.** First, resolve Sources C and D of the ticket discovery (sub-step 6 in Step 2) — these require the tag/release to exist.
 
 Only runs when ALL hold:
 - `tracker.type` is `"jira"`
