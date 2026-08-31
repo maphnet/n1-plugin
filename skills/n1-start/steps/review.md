@@ -5,7 +5,7 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "review" 9 "${N1_HOME}/memory/$ID/telemetry" started_at=now
 ```
 
-**Ensure dependencies (step mode).** Run the **Ensure Dependencies(`<ID>`)**
+**Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
 procedure before any reviewer that may execute lint/typecheck tooling.
 Marker-guarded no-op on the normal path.
 
@@ -148,29 +148,19 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
    ```
    On exhaustion:
 
-   **Autonomy gate (full pipeline only):** → § Autonomy Gate (qualityEscalations) with step=`review`, action=`log remaining TQ findings in review.md and proceed to Step 8`, ledger_context=`<TQ findings that remained unresolved after N attempts>`.
+   **Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`review`, action=`log remaining TQ findings in review.md and proceed to Step 8`, ledger_context=`<TQ findings that remained unresolved after N attempts>`.
 
    If `QE` is `ask`: log remaining TQ findings in `review.md` and proceed to Step 8 — non-blocking findings do not stall the pipeline.
 
-If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX) — unless in step mode with `review_fix_cycle` at its bound, in which case escalate using the protocol below. The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3 — the `review_fix` `max_default` in `pipeline.json`).
+If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX). The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3 — the `review_fix` `max_default` in `pipeline.json`). When `review_fix_cycle` has reached the bound, escalate via the autonomy gate below instead of entering another fix cycle.
 
-**Step-mode escalation protocol (main review loop).** In step mode there is no interactive channel — do NOT print a question for the user. When combined verdict is FAIL and `review_fix_cycle` has reached `review.maxFixAttempts` (config, default 3): → § Step-Mode Escalation Protocol with step=`review`, id=`review_fix_exhausted`, options=["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed with remaining findings documented in review.md", "Abort: stop the pipeline"], context=cycles used + remaining [CR-N]/[SEC-N]/[CX-N] findings.
-
-**Step result override:** In SKILL.md § Step-Mode Escalation Protocol step 2, use this command instead:
-`n1_emit_step_result "review" "escalation" "null" "{\"review_fix_cycle\":$review_fix_cycle}" "" "$N1_HOME/memory/$ID"`
-
-**On re-run**, apply the answer for `review_fix_exhausted`:
-- "Retry with guidance" → raise the ceiling to `review.maxFixAttempts` × 2 (default 6, hard ceiling), record guidance in overview `## Escalations`, continue the fix loop.
-- "Accept as-is" → record in overview `## Escalations`, emit `outcome: "pass"`.
-- "Abort" → record it, emit `outcome: "error"` with `next_step: null`.
-
-**Autonomy gate (full pipeline only):** → § Autonomy Gate (qualityEscalations) with step=`review`, action=`accept remaining findings and continue`, ledger_context=`<findings that remained unresolved after N fix cycles>`.
+**Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`review`, action=`accept remaining findings and continue`, ledger_context=`<findings that remained unresolved after N fix cycles>`.
 
 If `QE` is `ask`: compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then: "{PREAMBLE} After `review.maxFixAttempts` (default 3) review cycles, these findings remain unresolved: [list]. Please advise."
 
-**Step result (step mode) — pass path:**
+**On PASS verdict:**
 
-When combined review verdict is PASS, first check whether a delta full-branch confirmation pass is still required:
+When the combined review verdict is PASS, first check whether a delta full-branch confirmation pass is still required:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
@@ -178,28 +168,8 @@ DELTA_PASS_PENDING=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "delt
 if [ "${DELTA_PASS_PENDING:-false}" = "true" ]; then
     # Clear the flag and loop back to a full-branch review (REVIEW_MODE=full)
     n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "delta_pass_pending" "false"
-    # Do NOT emit a PASS result — re-run reviewers with REVIEW_MODE=full before proceeding
+    # Do NOT treat the review as passed — re-run reviewers with REVIEW_MODE=full before proceeding
 fi
 ```
 
-Only when `delta_pass_pending` is not set (or is `false`) — meaning a full-branch pass already occurred — emit the final PASS:
-
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-LT=$(n1_config_val '.localTesting.enabled')
-if [ "${LT:-false}" = "true" ]; then
-    NEXT="local-testing"
-else
-    NEXT="pr"
-fi
-n1_emit_step_result "review" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
-```
-
-When combined review verdict is FAIL and fix loop is within bound (not escalated):
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-new_count=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
-n1_emit_step_result "review" "fail" "fix" "{\"review_fix_cycle\":$new_count}" "" "$N1_HOME/memory/$ID"
-```
+Only when `delta_pass_pending` is not set (or is `false`) — meaning a full-branch pass already occurred — treat the review as PASS and proceed to the next pipeline step.

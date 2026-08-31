@@ -111,7 +111,7 @@ Same as n1-start Step 2. After the agent returns:
 
 ### 3. BRAINSTORM
 
-Read and follow the autonomous brainstormer at `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/autonomous-brainstorm.md` (steps 1–8 only — skip step 9, the step-result emission, which is for n1-loop step mode). Estimation does not require interactive design exploration — the autonomous brainstormer generates approaches, scores them, and selects autonomously. No Skill invocation, no turn boundary.
+Read and follow the autonomous brainstormer at `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/autonomous-brainstorm.md`. Estimation does not require interactive design exploration — the autonomous brainstormer generates approaches, scores them, and selects autonomously. No Skill invocation, no turn boundary.
 
 The autonomous brainstormer reads `ticket.md` and `analysis.md` from `$N1_HOME/memory/$ID/` and writes the design to `$N1_HOME/memory/$ID/brainstorm.md`.
 

@@ -32,7 +32,7 @@ RUNS=$(find "${N1_HOME}/memory" -path "*/telemetry/runs/*.jsonl" -type f 2>/dev/
 If no run records found, report: "No telemetry data found. Run some tasks with `telemetry.enabled: true` to generate data." and stop.
 
 For each JSONL file, read all lines and parse:
-- `decision` events: `{"event":"decision","step":"...","action":"skip|downgrade|escalate","reason":"...","signals":{...}}`
+- `decision` events: `{"event":"decision","step":"...","action":"skip|downgrade|escalate","reason":"...","signals":{...}}` — historical only: emitted by runs before v2.76.0; current runs no longer produce them
 - `outcome` events: `{"event":"outcome","outcomes":{"review_pass_first_try":"true|false","qa_pass_first_try":"true|false","fix_cycles_count":"N"}}`
 - `step_start`/`step_end` events: for duration calculation
 

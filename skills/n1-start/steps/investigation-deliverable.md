@@ -123,9 +123,9 @@ UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
 
 If `UNKNOWN_COUNT` is 0, skip to Phase 2b.
 
-**Interactive mode (not step mode):**
+**Problem preamble:** compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` -- call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` -- prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely -- do not fall back to parsing the section body.
 
-Present each unknown to the user one at a time. Compose `PREAMBLE` (title from `overview.md` heading + Core Ask from `ticket.md`, as in the step mode section below) and prefix the opening message with it (omit if unavailable):
+Present each unknown to the user one at a time, prefixing the opening message with `PREAMBLE` (omit if empty):
 
 ```
 {PREAMBLE} During the investigation, I found {UNKNOWN_COUNT} additional question(s):
@@ -153,50 +153,6 @@ UNKNOWNS_ANSWERED_INVEST=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$INV_FILE" 2>/dev
 UNKNOWNS_ANSWERED=$((UNKNOWNS_ANSWERED_ANALYSIS + UNKNOWNS_ANSWERED_INVEST))
 n1_write_signals "$INV_FILE" "unknowns_resolved=${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
 ```
-
-**Step mode:**
-
-Build the questions array from ALL extracted unknowns. Iterate over `$UNKNOWNS` (one item per line), assigning incrementing IDs (`unknown_1`, `unknown_2`, ...).
-
-**Problem preamble:** Before writing the questions, compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` -- call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` -- prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely -- do not fall back to parsing the section body. Prepend `PREAMBLE` (followed by a space) to each question's `text`.
-
-```json
-{
-  "run_id": "<N1_RUN_ID>",
-  "step": "investigation-deliverable",
-  "questions": [
-    {
-      "id": "unknown_1",
-      "text": "{PREAMBLE} <first unknown text>",
-      "options": [],
-      "recommendation": "",
-      "context": "Flagged during investigation deliverable -- not covered by analysis"
-    },
-    {
-      "id": "unknown_2",
-      "text": "{PREAMBLE} <second unknown text>",
-      "options": [],
-      "recommendation": "",
-      "context": "Flagged during investigation deliverable -- not covered by analysis"
-    }
-  ]
-}
-```
-
-Include one entry per unknown -- do not limit to the first item.
-
-Write to `$N1_HOME/memory/<ID>/escalation/request.json`. If `n1_escalation_val channel` is `tracker` or `both`, also run the **Post-to-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`). Emit step result:
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "investigation-deliverable" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
-```
-
-On re-entry (when `escalation/response.json` exists and `run_id` matches `N1_RUN_ID`):
-1. Read ALL answers from `response.json` -- iterate over every entry in the `answers` array, matching each answer to its `id` (`unknown_1`, `unknown_2`, ...)
-2. Append `### Clarifications` section to `investigation.md` with one bullet per answered unknown (same format as interactive), using "Unresolved -- deferred" for any skipped or absent answers
-3. Update the `unknowns_resolved` signal (same calculation as interactive mode above)
-4. Delete `$N1_HOME/memory/<ID>/escalation/` directory
-5. Proceed to Phase 2b normally
 
 **Phase 2b -- Tracker Enrichment**
 
@@ -360,11 +316,9 @@ Omit `### References` and `### Clarifications` from chat output (reference-only,
 - **If yes:** Enter a back-and-forth conversation with the user. After discussion, update `investigation.md` with any refinements. Do NOT re-spawn the agent -- the orchestrator handles the refinement inline.
 - **If no:** Proceed to post-investigation routing.
 
-**Step mode variant:** In step mode (no interactive channel), skip Phase 2. The findings are written to `investigation.md` and the user can review them asynchronously.
+**Phase 5 -- Post-Investigation Routing**
 
-**Phase 5 -- Post-Investigation Routing (interactive only)**
-
-**Gate:** Skip entirely if step mode. Skip if no tracker is configured (`tracker.mcp` is null or absent). If a tracker IS configured but this run has no tracker ticket (deferred creation: `--investigate` brain-dump mode, `<ID>` is a description slug), run the **Brain-dump variant** below instead of Steps 1-2.
+**Gate:** Skip if no tracker is configured (`tracker.mcp` is null or absent). If a tracker IS configured but this run has no tracker ticket (deferred creation: `--investigate` brain-dump mode, `<ID>` is a description slug), run the **Brain-dump variant** below instead of Steps 1-2.
 
 Use `mcp__<tracker.mcp>__` prefix for all tracker calls in this phase.
 
@@ -629,11 +583,3 @@ If the gate fails, log "Warning: Cannot restore ticket status -- tracker configu
 1. Call `tracker.operations.moveStatus` via tracker MCP -- Jira: first call `tracker.operations.getTransitions` with `cloudId`, `issueIdOrKey: <ID>` to find the transition matching `ORIGINAL_STATUS`, then call `tracker.operations.moveStatus` with `cloudId`, `issueIdOrKey: <ID>`, `transitionId: <matched id>`; YouTrack: call `tracker.operations.moveStatus` with `issueId: <ID>`, `state: <ORIGINAL_STATUS>`.
 2. Call `tracker.operations.addComment` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `body: <restore message>`; YouTrack: with `issueId: <ID>`, `text: <restore message>`.
 3. Tracker failures: warn, never block.
-
-**Step mode variant:** In step mode, Phase 1b Q&A uses the escalation protocol (same as analysis step). Phase 2b tracker enrichment runs normally. Phase 2 discussion and Phase 5 post-investigation routing are skipped entirely. The step result is unchanged.
-
-**Step result (step mode):**
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "investigation-deliverable" "pass" "null" "null" "" "$N1_HOME/memory/$ID"
-```

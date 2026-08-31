@@ -80,7 +80,7 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
             "QA FAIL override: new_functionality_untested=true and qa.blockUntestedFeatures=true — verdict forced to FAIL"
     fi
     ```
-    Then treat the QA result as FAIL for all downstream logic (bug-fix loop, step result).
+    Then treat the QA result as FAIL for all downstream logic (bug-fix loop).
 
 - **Evidence check.** After qa.md is confirmed present and non-empty, verify it contains an Evidence subsection:
   ```bash
@@ -152,37 +152,8 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
     ```
   - **Bounded loop:** stop after `qa.maxFixAttempts` cycles (config, default 3). On exhaustion, escalate instead of looping forever. The counter is persisted, so the bound survives a resume. The bound and its default are declared in `pipeline.json` `loops[]` (`qa_fix`).
 
-**Step-mode escalation** (if QA fix loop exhausted):
-Apply the Step-Mode Escalation Protocol (see SKILL.md § Step-Mode Escalation Protocol) with:
-- id: `qa_fix_exhausted`
-- step: `qa`
-- options: ["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed to review with the failure documented in qa.md", "Abort: stop the pipeline"]
-- context: QA fix cycles completed, specific failing tests, qa.md content summary
+**On fix-loop exhaustion:**
 
-Note: override the shared procedure's step result to pass the cycle count:
-`n1_emit_step_result "qa" "escalation" "null" "{\"qa_fix_cycle\":$qa_fix_cycle}" "" "$N1_HOME/memory/$ID"`
-
-**On escalation response (step mode):**
-- "Retry with guidance" → raise the loop ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci), record the guidance in overview `## Escalations`, and continue the fix loop using it.
-- "Accept as-is" → record the decision in overview `## Escalations` and emit `outcome: "pass"` (the pipeline proceeds with the issue documented in this step's memory file).
-- "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
-
-**Autonomy gate (full pipeline only):** Apply per SKILL.md § Autonomy Gate with step=`qa`, action=`accept current test state`, ledger_context=`<failing test names and counts>`.
+**Autonomy gate:** Apply per SKILL.md § Autonomy Gate with step=`qa`, action=`accept current test state`, ledger_context=`<failing test names and counts>`.
 
 **If ask (default):** Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Prompt the user: "{PREAMBLE} After <N> QA fix cycles this test still fails: [test name/details]. Please advise: Retry / Accept as-is / Abort?"
-
-**Step result (step mode) — pass path:**
-
-When QA verdict is PASS (no bugs, no test failures):
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "qa" "pass" "review" "null" "" "$N1_HOME/memory/$ID"
-```
-
-When QA verdict is FAIL and fix loop is within bound (not escalated):
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-new_count=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
-n1_emit_step_result "qa" "fail" "fix" "{\"qa_fix_cycle\":$new_count}" "" "$N1_HOME/memory/$ID"
-```

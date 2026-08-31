@@ -94,16 +94,3 @@ Output format:
 
 - Record the CCR verdict: if verdict is FIXED, the plan file was updated in-place by the reviewer. Record the plan-review verdict and a one-line summary of changes in overview's `## Key Decisions` — durable traceability that survives a resume, rather than living only in transient orchestrator context.
 - Update overview: `[x] Plan Review`, set `step: plan-review`
-
-**Step result (step mode):**
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-EST=$(n1_config_val '.estimation.enabled')
-if [ "${EST:-false}" = "true" ]; then
-    NEXT="estimation"
-else
-    NEXT="implementation"
-fi
-n1_emit_step_result "plan-review" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
-```

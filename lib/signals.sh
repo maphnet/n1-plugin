@@ -185,30 +185,3 @@ n1_eval_signal_gate() {
     esac
 }
 
-# n1_check_signal_gates <step_name> <memory_dir> <overview_file> <pipeline_json>
-# Checks all signal_gates for the given step. Returns 0 if the step should be
-# skipped, 1 if it should run. Prints the skip reason on stdout if skipping.
-n1_check_signal_gates() {
-    local step="$1" mem_dir="$2" overview="$3" pipeline="$4"
-    command -v jq >/dev/null 2>&1 || return 1
-
-    local gates count i entry skip_cond reason
-    gates=$(jq -c '.signal_gates // []' "$pipeline" 2>/dev/null)
-    count=$(echo "$gates" | jq 'length' 2>/dev/null)
-    [ -z "$count" ] || [ "$count" = "0" ] && return 1
-
-    for ((i=0; i<count; i++)); do
-        entry=$(echo "$gates" | jq -c ".[$i]" 2>/dev/null)
-        local gate_step
-        gate_step=$(echo "$entry" | jq -r '.step' 2>/dev/null)
-        [ "$gate_step" = "$step" ] || continue
-
-        skip_cond=$(echo "$entry" | jq -c '.skip_when' 2>/dev/null)
-        if n1_eval_signal_gate "$mem_dir" "$overview" "$skip_cond"; then
-            reason=$(echo "$entry" | jq -r '.reason // "Signal gate triggered"' 2>/dev/null)
-            printf '%s' "$reason"
-            return 0
-        fi
-    done
-    return 1
-}

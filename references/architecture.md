@@ -6,7 +6,7 @@ Skills are lightweight controllers that delegate all heavy work:
 
 | N1 Skill | Delegates To | Purpose |
 |----------|-------------|---------|
-| n1-start | product-analyst, solution-architect, planner, implementer, qa-engineer agents + superpowers (brainstorming, writing-plans) | Full pipeline + single-step mode. Brainstorm step uses autonomous-brainstorm.md in step mode and in full-pipeline mode when `BRAINSTORM_MODE` is `auto`; superpowers:brainstorming in interactive full-pipeline mode (investigation included — `--investigate` forces interactive). Implementation uses implementer agent wrapping SDD (same pattern as planner wrapping writing-plans). |
+| n1-start | product-analyst, solution-architect, planner, implementer, qa-engineer agents + superpowers (brainstorming, writing-plans) | Full pipeline. Brainstorm step uses autonomous-brainstorm.md when `BRAINSTORM_MODE` is `auto`; superpowers:brainstorming in interactive mode (investigation included — `--investigate` forces interactive). Implementation uses implementer agent wrapping SDD (same pattern as planner wrapping writing-plans). |
 | n1-review | code-reviewer, security-reviewer, developer agents | Review + fix loop |
 | n1-pr | tech-writer agent + inline git/gh/MCP | Doc update, push, create or skip PR, update tracker |
 | n1-ci | developer agent + inline gh CLI | Post-PR CI watch, classify failures, fix loop |
@@ -21,29 +21,15 @@ Skills are lightweight controllers that delegate all heavy work:
 
 Superpowers calls use the `superpowers:` prefix. Agent spawns use N1's own agent definitions. Each gets fresh context — the orchestrator never accumulates full history.
 
-## Step Mode
-
-`n1-start <ID> --step <name>` executes a single pipeline step and exits with a structured result:
-
-```
-N1_STEP_RESULT: {"step":"<name>","outcome":"<outcome>","next_step":"<name|null>","loop_counter":<object|null>}
-```
-
-Valid step names: `ticket`, `analysis`, `brainstorm`, `plan`, `plan-review`, `estimation`, `implementation`, `qa`, `review`, `fix`, `local-testing`, `pr`, `ci`, `finish`, `investigation-deliverable`, `release`.
-
-n1-start owns the routing logic — the `next_step` field is authoritative. Config gates (`estimation.enabled`, `planReview.reviewPlan`, `localTesting.enabled`, `ciChecks.enabled`, `finishWork.enabled`, `release.enabled`) are respected; gated steps return `outcome: "skip"`. Fix step infers its target (QA or review) from overview.md state.
-
-Without `--step`, behavior is unchanged (full pipeline, backward compatible).
-
 ## Investigation Mode
 
 When a ticket matches a type's detection rules in the `pipeline.json` type registry (title match, tags, or type field — or an explicit `--type` flag), N1 runs that type's step sequence. The `investigation` type runs a shortened pipeline: ticket -> analysis -> brainstorm -> investigation-deliverable. The deliverable is a structured findings/recommendations/metrics document written to `investigation.md` with signals (`confidence`, `implementable`, `unknowns_resolved`, `findings_count`, `recommendations_count`). Implementation, QA, review, and PR steps are skipped. During analysis and deliverable production, the agent classifies unknowns into A/B/C tiers (matching the brainstormer pattern): A-tier (human-only) are flagged via `<!-- n1:unknown -->` markers and presented to the user; B-tier (code-answerable) are self-resolved via codebase exploration and marked with `<!-- n1:resolved -->`. Only A-tier unknowns reach the user Q&A phase. After the deliverable, tracker enrichment writes findings back to the ticket (description append + comment), and post-investigation routing offers three options: create a new linked implementation ticket, convert the current ticket to implementation, or close. The `--investigate` flag forces the investigation type explicitly and makes the brainstorm step interactive (`superpowers:brainstorming` with a research-focus override) regardless of `autonomy.brainstorm`; the marker is persisted as `investigate_interactive: true` in overview.md frontmatter. In brain-dump mode the flag defers tracker ticket creation until after the deliverable: the user is asked at the end whether to create a ticket (memory is then reconciled from the provisional slug to the real ID). Converting to implementation rewrites overview.md frontmatter (`type: task`, `step: brainstorm`) and the progress checklist, then offers to continue in-session straight into planning-need routing — or resume later via `/n1:n1-start <ID>`.
 
-Detection happens in the orchestrator after the ticket step via `n1_resolve_type()` (detection cascade: `--type` flag > tags > type field > title match > default). The resolved type is stored as `type: <name>` in overview.md frontmatter. Backward compat: if overview.md has `mode` but no `type`, `n1_read_type()` reads `mode` as `type`. Post-investigation routing (create linked ticket, convert to implementation, or close) is handled in the investigation-deliverable step (interactive mode only). Tracker enrichment (description append + comment) runs in both interactive and step mode.
+Detection happens in the orchestrator after the ticket step via `n1_resolve_type()` (detection cascade: `--type` flag > tags > type field > title match > default). The resolved type is stored as `type: <name>` in overview.md frontmatter. Backward compat: if overview.md has `mode` but no `type`, `n1_read_type()` reads `mode` as `type`. Post-investigation routing (create linked ticket, convert to implementation, or close) is handled in the investigation-deliverable step. Tracker enrichment (description append + comment) runs unconditionally.
 
 ## Ticket & Story Creation
 
-`/n1:n1-ticket` and `/n1:n1-story` create backlog tickets from conversation context and/or a brain dump argument. Both are single-file skills with no step mode and no persistent memory — the tracker is the source of truth.
+`/n1:n1-ticket` and `/n1:n1-story` create backlog tickets from conversation context and/or a brain dump argument. Both are single-file skills with no persistent memory — the tracker is the source of truth.
 
 - **n1-ticket:** Captures context → light analysis (solution-architect, low effort) → optional web research → bug type detection → approval gate → creates one Task or Bug ticket.
 - **n1-story:** Captures context → deeper analysis (solution-architect, standard effort) → interactive discovery of unknowns → designs subtask decomposition → approval gate → creates a Story ticket with linked subtasks.
@@ -68,10 +54,10 @@ fi
 
 Config file: `$N1_HOME/config.json` (renamed from `n1.config.json` in v2.0.0).
 
-**Workspace isolation:** `n1-start` resolves isolation mode via: external worktree detection (highest priority) > `--step` (always worktree) > `--branch` flag > `worktree.mode` config (`"worktree"` default, `"branch"`, `"external"`) > worktree. When an external worktree is detected (linked git worktree not under `.claude/worktrees/`), or `worktree.mode` is `"external"`, N1 skips worktree and branch creation and operates on the current checkout and branch. In worktree mode, it creates a git worktree at `<main-checkout>/.claude/worktrees/<ID>/` via `Ensure Worktree`. In branch mode, it creates a feature branch in the current checkout via `Ensure Working Branch`. `n1-finish` removes the worktree after merge when `worktree.cleanup` is `"after-pr"` or `"after-merge"`, regardless of how it was created.
+**Workspace isolation:** `n1-start` resolves isolation mode via: external worktree detection (highest priority) > `--branch` flag > `worktree.mode` config (`"worktree"` default, `"branch"`, `"external"`) > worktree. When an external worktree is detected (linked git worktree not under `.claude/worktrees/`), or `worktree.mode` is `"external"`, N1 skips worktree and branch creation and operates on the current checkout and branch. In worktree mode, it creates a git worktree at `<main-checkout>/.claude/worktrees/<ID>/` via `Ensure Worktree`. In branch mode, it creates a feature branch in the current checkout via `Ensure Working Branch`. `n1-finish` removes the worktree after merge when `worktree.cleanup` is `"after-pr"` or `"after-merge"`, regardless of how it was created.
 
 **Worktree config options** (in `$N1_HOME/config.json`):
-- `worktree.mode` — isolation mode for full-pipeline runs: `"worktree"` (default, worktree at `.claude/worktrees/<ID>/`), `"branch"` (feature branch in current checkout), or `"external"` (force external worktree mode — skip all isolation, reuse current checkout and branch). Auto-detection of external worktrees takes precedence over all modes except `"external"` itself. Overridable per-run with `--branch` flag. Step mode always uses worktree unless an external worktree is detected.
+- `worktree.mode` — isolation mode: `"worktree"` (default, worktree at `.claude/worktrees/<ID>/`), `"branch"` (feature branch in current checkout), or `"external"` (force external worktree mode — skip all isolation, reuse current checkout and branch). Auto-detection of external worktrees takes precedence over all modes except `"external"` itself. Overridable per-run with `--branch` flag.
 - `worktree.setup` — command to install dependencies in a worktree. Derived silently by `n1-init` from lockfiles (override for non-standard projects). Runs **lazily on first code-executing step** (implementation, or qa/review/local-testing on a resumed run), not at worktree creation — marker-guarded so it runs at most once per worktree.
 - `worktree.cleanup` — when to auto-remove the worktree: `"after-merge"` (default, removed after merge by n1-finish; `"after-pr"` is a permanent backward-compatible alias) or `"manual"` (only via `/n1:n1-clean`). Does not apply to external worktrees (cleanup is skipped automatically via path gate).
 
@@ -141,11 +127,7 @@ Steps emit runtime signals stored as `<!-- n1:signals -->` blocks in memory file
 | qa | `tests_added`, `tests_broken`, `coverage_change` | qa.md |
 | investigation-deliverable | `confidence`, `implementable`, `unknowns_resolved`, `findings_count`, `recommendations_count`, `self_resolved` | investigation.md |
 
-Helpers in `lib/signals.sh`: `n1_read_signal`, `n1_write_signals`, `n1_eval_signal_gate`, `n1_check_signal_gates`.
-
-## Signal-Driven Gating
-
-Signal gates in `pipeline.json` under `signal_gates` define `skip_when` conditions evaluated before each step. Safety invariants (qa, review, pr) are never skipped regardless of signals. Override hierarchy (highest wins): safety invariants > runtime signals > pipeline profile defaults > config gates.
+Helpers in `lib/signals.sh`: `n1_read_signal`, `n1_write_signals`, `n1_eval_signal_gate`.
 
 ## Model Tiering
 
@@ -331,19 +313,6 @@ Note: Sonnet 4.6 supports effort levels low, medium, high, and max (no xhigh).
 
 `hooks/session-start.sh` fires on session start/resume/clear/compact. It resolves `N1_HOME` via `git config n1.home` (falling back to `.n1/` in the project root for unmigrated projects), then reads `$N1_HOME/config.json` and injects context telling Claude to prefer N1 skills. When a tracker is configured, it also injects a **TRACKER ROUTING** directive containing the tracker type, MCP server name, full operations map, and a negative instruction to never use any other MCP server. This keeps the correct MCP server name in the model's attention window throughout the session. After running `n1-init`, the user must `/clear` or restart to pick up the new config.
 
-## Escalation Protocol
-
-The loop controller uses a file-based escalation callback protocol for steps that need user input. All escalating steps (brainstorm, qa, review, local-testing) write a uniform `escalation/request.json` under `$N1_HOME/memory/<ID>/escalation/`; the loop controller reads it, delivers the question via a pluggable I/O adapter, collects the response, writes it to `escalation/response.json`, and re-runs the step. Only two files exist at any time; each round overwrites the previous. Directory is deleted on step completion.
-
-Two autonomy profiles control escalation behavior:
-
-| Profile | Margin | Timeout | On timeout |
-|---------|--------|---------|------------|
-| `balanced` (default) | 0.15 | 30 min | pause |
-| `autonomous` | 0.05 | 10 min | proceed with recommendation |
-
-Configured via `loop.autonomy` in `$N1_HOME/config.json`. Individual settings overridable via `loop.escalation.*`.
-
 ## Escalation Model
 
 Fixed checkpoints: after PR creation (Tech Lead reviews). Plan checkpoint is off by default (`requirePlanApproval: false`) — the plan-review CCR step validates the plan automatically. Enable `requirePlanApproval: true` to restore the manual plan checkpoint.
@@ -363,6 +332,6 @@ Three n1-init presets write the autonomy block:
 
 `autonomy.brainstorm`: `"interactive"` (default) runs superpowers:brainstorming with a multi-turn user session; `"auto"` switches to the autonomous brainstormer in interactive-escalation mode, which eliminates the back-and-forth design conversation and shortens the session. **`"auto"` does NOT isolate context** — the autonomous brainstormer is a skill fragment the orchestrator follows in-session; its design work accumulates in the same orchestrator context window as every other step.
 
-Every autonomous decision appends a row to the `## Decision Ledger` table in overview.md (spec: `skills/n1-start/ledger.md`); the tech-writer renders it as a `## Decisions` section in the PR body — the after-the-fact review artifact. Hard invariants: security/architecture/public-API escalations always block; **release is never automatic** — `tailChain` scope ends at finish, `pipeline.json` routing never auto-enters release (`manual_only`), and the n1-release confirmation gate is unconditional.
+Every autonomous decision appends a row to the `## Decision Ledger` table in overview.md (spec: `skills/n1-start/ledger.md`); the tech-writer renders it as a `## Decisions` section in the PR body — the after-the-fact review artifact. Hard invariants: security/architecture/public-API escalations always block; **release is never automatic** — `tailChain` scope ends at finish, release is declared `manual_only` in `pipeline.json`, and the n1-release confirmation gate is unconditional.
 
 Cross-session resume: the pr step writes a `## Pending` block (`awaiting: merge`) to overview.md; `hooks/session-start.sh` scans these (capped at 5 `gh pr view` calls, 30-min throttle via `last_checked`, 14-day expiry, fail-open) and suggests — or under `tailChain: "auto"` runs — `/n1:n1-finish` when the PR was merged externally.

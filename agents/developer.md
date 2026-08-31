@@ -85,7 +85,7 @@ When the orchestrator's spawn prompt provides an output path (e.g. a `## Fix Cyc
 When spawned for direct implementation (bypassing SDD), you receive:
 - Brainstorm file path (design specification)
 - Output file path for implementation summary
-- Workspace directives (worktree path if step mode)
+- Workspace directives (worktree path when worktree isolation is used)
 
 ## Process (Direct Implementation)
 

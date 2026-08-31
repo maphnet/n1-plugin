@@ -10,8 +10,6 @@ procedure before spawning the developer. Marker-guarded no-op if already install
 or if no worktree is active, but keeps a resumed/partial pipeline (entering directly
 at fix in a fresh worktree) safe.
 
-> The fix-target inference (reading `overview.md`'s `step:` to decide whether to route back to QA or review) corresponds to the `{"overview_step": ...}` routing edges in `pipeline.json` — this prose must match that declaration. No behavior change.
-
 If the combined Step-7 verdict is FAIL:
 
 **Spawn agent:** developer
@@ -47,46 +45,7 @@ After developer returns:
 - Go back to **Step 7** (REVIEW) — re-run both reviewers
 - The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3); when `review_fix_cycle` reaches it, escalate to the user.
 
-**Step-mode escalation protocol.** In step mode there is no interactive channel — do NOT print a question for the user. When this step must escalate (a blocking ambiguity it cannot resolve):
-
-1. Write `$N1_HOME/memory/<ID>/escalation/request.json` (create the directory if needed):
-
-   **Problem preamble:** Before writing, compose a 1-2 sentence summary:
-   - Extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md`.
-   - Extract the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`.
-   - Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit it.
-   - **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
-   - Prepend `PREAMBLE` (followed by a space) to `text`.
-
-   ```json
-   {
-     "run_id": "<value of the N1_RUN_ID environment variable>",
-     "step": "fix",
-     "questions": [{
-       "id": "fix_blocked",
-       "text": "{PREAMBLE} <one-paragraph description of what is blocked and why, with concrete specifics>",
-       "options": ["Retry with guidance: another fix attempt with your instructions", "Accept as-is: proceed with remaining findings documented in review.md", "Abort: stop the pipeline"],
-       "recommendation": "<the option you would pick, with a one-line reason>",
-       "context": "<cycles used, remaining [TQ-N]/[CR-N]/[SEC-N]/[CX-N] findings, error excerpts>"
-     }]
-   }
-   ```
-1.5. If `n1_escalation_val channel` is `tracker` or `both`, also run the **Post-to-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`).
-
-2. Run via Bash:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "fix" "escalation" "null" "{\"review_fix_cycle\":$review_fix_cycle}" "" "$N1_HOME/memory/$ID"
-   ```
-   Then STOP.
-3. **On re-run:** check `$N1_HOME/memory/<ID>/escalation/response.json`. If it exists and its `run_id` matches `N1_RUN_ID`, apply the answer for `fix_blocked`:
-   - "Retry with guidance" → raise the ceiling to double the review-cycle bound (`review.maxFixAttempts` × 2, default 3 × 2 = 6) (hard ceiling, same pattern as n1-ci), record the guidance in overview `## Escalations`, and continue the fix loop using it.
-   - "Accept as-is" → record the decision in overview `## Escalations` and emit `outcome: "pass"` (the pipeline proceeds with the issue documented in this step's memory file).
-   - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
-
-In full pipeline mode this protocol does NOT apply — keep the interactive prompt below unchanged.
-
-**Autonomy gate (full pipeline only):** read the policy first:
+**Autonomy gate:** when this step must escalate (a blocking ambiguity it cannot resolve), read the policy first:
 
 ```bash
 QE=$(n1_autonomy_val 'qualityEscalations')
@@ -98,7 +57,13 @@ If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-A
 
 Then continue the pipeline as if the user had chosen the recommended option. Otherwise (policy `block`, or safety-relevant): ask as below.
 
-In full pipeline mode: compose `PREAMBLE` as described in the step-mode escalation protocol above (title + Core Ask; append root cause sentence only if the `has_bug_root_cause` signal is strictly `true` — do not parse section body prose as a fallback). Then: "{PREAMBLE} The developer encountered an ambiguity during this fix cycle that requires your input: [details]. Please advise."
+**Problem preamble:** compose a 1-2 sentence summary:
+- Extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md`.
+- Extract the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`.
+- Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit it.
+- **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
+
+Then ask: "{PREAMBLE} The developer encountered an ambiguity during this fix cycle that requires your input: [details]. Please advise."
 
 If the combined Step-7 verdict is PASS:
 - Run via Bash:
@@ -125,21 +90,7 @@ Discover the full-suite test command using the same detection as the qa-engineer
   ```
   - **Exit code 0 (pass):** proceed.
   - **Exit code non-zero (fail):** surface the failure output to the user: "Full test suite failed after fix cycle <N> (exit code <FULL_SUITE_EXIT>) — potential regression introduced during fix cycles. Fix failing tests before proceeding, or acknowledge explicitly."
-    - **Full pipeline mode:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: auto-spawn the developer agent once to fix the regression (same spawn parameters as the fix cycle above, with additional context: "Full test suite failed — fix the regressions introduced during fix cycles before returning"). Append a Decision Ledger row: `| fix | mechanical | B | [auto] | Full-suite regression after fix cycle <N> | Spawn developer to fix regression | Ask user, Proceed with regression | mechanicalPrompts=auto; regression fix attempted once |`. After developer returns, re-run the full-suite check once more; if it still fails, fall through to the interactive prompt below. If `MP` is `ask` (default) or the re-run still fails: ask: "Fix the regression now (re-spawn developer) or proceed anyway (regression will land in CI)?"
-    - **Step mode:** escalate with id `full_suite_regression` (options: `["Fix: spawn developer to resolve", "Proceed: acknowledge regression"]`, recommendation: `Fix`). Emit step result and STOP.
+    - Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: auto-spawn the developer agent once to fix the regression (same spawn parameters as the fix cycle above, with additional context: "Full test suite failed — fix the regressions introduced during fix cycles before returning"). Append a Decision Ledger row: `| fix | mechanical | B | [auto] | Full-suite regression after fix cycle <N> | Spawn developer to fix regression | Ask user, Proceed with regression | mechanicalPrompts=auto; regression fix attempted once |`. After developer returns, re-run the full-suite check once more; if it still fails, fall through to the interactive prompt below. If `MP` is `ask` (default) or the re-run still fails: ask: "Fix the regression now (re-spawn developer) or proceed anyway (regression will land in CI)?"
     - Do NOT silently proceed on a non-zero exit.
 
 Update overview: `[x] Review`, set `step: review`
-
-**Step result (step mode):**
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-FIX_TARGET=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "step")
-if [ "$FIX_TARGET" = "qa" ]; then
-    NEXT="qa"
-else
-    NEXT="review"
-fi
-n1_emit_step_result "fix" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
-```

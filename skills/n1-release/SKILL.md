@@ -49,10 +49,6 @@ For version operations (Jira only): read `tracker.versionMcp` (defaults to `null
 
 `release.enabled` gates only the pipeline step -- standalone invocation proceeds regardless.
 
-## Step Mode Detection
-
-When invoked from `n1-start --step release`, the orchestrator passes step-mode context (`<ID>`, `N1_RUN_ID`). Standalone invocation asks/reports inline.
-
 ## Prerequisites
 
 - `gh auth status` -- if not authenticated: "GitHub CLI is not authenticated. Run `gh auth login` first." **STOP.**
@@ -184,7 +180,7 @@ if [ -n "${N1_RUN_ID:-}" ]; then
   echo "BLOCKED: n1-release cannot run inside a pipeline."
 fi
 ```
-If `N1_RUN_ID` is set, the skill is running inside an n1-start/n1-loop pipeline — refuse and STOP immediately. Do not proceed to the confirmation prompt. Report: "Release refused: running inside a pipeline. Use `/n1:n1-release` standalone to create a release."
+If `N1_RUN_ID` is set, the skill is running inside an n1-start pipeline — refuse and STOP immediately. Do not proceed to the confirmation prompt. Report: "Release refused: running inside a pipeline. Use `/n1:n1-release` standalone to create a release."
 
 Always shown before any side-effecting action:
 

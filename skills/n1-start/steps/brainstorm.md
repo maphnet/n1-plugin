@@ -5,11 +5,9 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/memory/$ID/telemetry" started_at=now
 ```
 
-**Conditional routing based on execution mode:**
+**Conditional routing:**
 
-**Step mode** (`--step brainstorm`): Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). This skill runs without any interactive channel — it generates approaches, scores them, and either selects autonomously or writes an escalation request for n1-loop to mediate.
-
-**Full pipeline + investigation mode** (no `--step` flag, AND `TYPE == "investigation"` from overview.md frontmatter): route by `BRAINSTORM_MODE`, with one override — if overview.md frontmatter has `investigate_interactive: true` (set by the `--investigate` flag), force `BRAINSTORM_MODE=interactive` for this run:
+**Investigation mode** (`TYPE == "investigation"` from overview.md frontmatter): route by `BRAINSTORM_MODE`, with one override — if overview.md frontmatter has `investigate_interactive: true` (set by the `--investigate` flag), force `BRAINSTORM_MODE=interactive` for this run:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
@@ -23,7 +21,7 @@ fi
 - **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). Pass the investigation focus override (see Investigation mode section below). After the autonomous brainstormer returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update (Post-Brainstorm Enrichment stays skipped for investigation).
 - **`BRAINSTORM_MODE` == `interactive`:** Use the interactive brainstormer (`REQUIRED SUB-SKILL: superpowers:brainstorming`) exactly as in the non-investigation interactive path below — including the N1-OVERRIDE block — but ADD the investigation focus override (see Investigation mode section below) to the brainstorming prompt, and SKIP the bug directive and the test-coverage-tier directive (investigation output is research, not a design with a Testing section). Post-Brainstorm Enrichment stays skipped for investigation.
 
-**Full pipeline + non-investigation mode** (no `--step` flag, normal task): route by autonomy config:
+**Non-investigation mode** (normal task): route by autonomy config:
 
 ```bash
 BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
@@ -37,7 +35,7 @@ TEST_TIER="${TEST_TIER:-maintain}"
 
 Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `changed_files_source` — brainstorm runs before implementation; `CHANGED_FILES` will be empty). Capture result as `$RULES_BLOCK`.
 
-- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` in **interactive escalation mode** — tell it: "interactive escalation mode: you have a user-facing session; batch ALL A-tier and inconclusive-dominance questions into ONE message (do not ask one at a time); write [auto]/[asked] ledger rows per skills/n1-start/ledger.md; if all A-tier questions are resolved, mark none as deferred." Also pass the test-coverage-tier directive and `$RULES_BLOCK` (same way the interactive path passes them). After it returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies). **Note: `auto` shortens the session by eliminating the interactive design conversation; it does NOT isolate context — the autonomous brainstormer runs as a skill fragment in the orchestrator's own window, so its design work accumulates in the same context as all other steps.**
+- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` — tell it: "batch ALL A-tier and inconclusive-dominance questions into ONE message (do not ask one at a time); write [auto]/[asked] ledger rows per skills/n1-start/ledger.md; if all A-tier questions are resolved, mark none as deferred." Also pass the test-coverage-tier directive and `$RULES_BLOCK` (same way the interactive path passes them). After it returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies). **Note: `auto` shortens the session by eliminating the interactive design conversation; it does NOT isolate context — the autonomous brainstormer runs as a skill fragment in the orchestrator's own window, so its design work accumulates in the same context as all other steps.**
 - **`BRAINSTORM_MODE` == `interactive` (default):** Use the interactive brainstormer:
 
 **REQUIRED SUB-SKILL:** Use superpowers:brainstorming to explore the scope and refine the approach.
@@ -74,7 +72,7 @@ Return control to the N1 orchestrator immediately after step 7 completes.
 
 **Investigation mode (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):**
 
-In step mode, the autonomous brainstormer is already used (routing above). In full pipeline mode, routing follows `BRAINSTORM_MODE` (`--investigate` forces `interactive`; see routing above). In all cases, override the brainstorming focus:
+Routing follows `BRAINSTORM_MODE` (`--investigate` forces `interactive`; see routing above). In all cases, override the brainstorming focus:
 - Pass to brainstorming (or autonomous brainstormer): "This is an investigation task -- explore the question and research findings, not implementation approaches. Focus on validating or challenging the analysis findings, exploring alternative explanations, and identifying gaps in the investigation. The output should be research-focused, not design-focused."
 - The brainstorm output goes to `$N1_HOME/memory/<ID>/brainstorm.md` as usual.
 - **Skip Post-Brainstorm Enrichment** (Phase 2) entirely -- investigation tasks don't refine acceptance criteria.
@@ -84,11 +82,11 @@ After brainstorming completes (the design already lives in `$N1_HOME/memory/<ID>
 - Update overview: `[x] Brainstorm`, set `step: brainstorm`
 - Record key decisions in overview's `## Key Decisions` section
 
-### User Gate (full pipeline, interactive mode only)
+### User Gate
 
-**Applies when:** full pipeline mode (no `--step` flag) AND `BRAINSTORM_MODE` is `interactive` or `auto` with interactive escalation.
+**Applies when:** `BRAINSTORM_MODE` is `interactive` or `auto`.
 
-**Skip when:** step mode, investigation mode, or `BRAINSTORM_MODE` is `auto` without interactive escalation (headless).
+**Skip when:** investigation mode.
 
 Present the design checkpoint to the user. Before presenting, extract two pieces of context:
 
@@ -168,7 +166,7 @@ Evaluate whether the brainstorm output is sufficient for direct implementation, 
 
 State your evaluation: "Planning need: [plan/direct] because [one-line reason]."
 
-Record the `planning_need` value (`plan` or `direct`) for use in the step result. The orchestrator uses this to route — it does NOT perform its own complexity judgment.
+Record the `planning_need` value (`plan` or `direct`). The orchestrator uses this to route — it does NOT perform its own complexity judgment.
 
 **Persist to overview.md frontmatter** so the implementation step can read it back:
 
@@ -176,8 +174,6 @@ Record the `planning_need` value (`plan` or `direct`) for use in the step result
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNING_NEED"
 ```
-
-This write happens in both full-pipeline and step mode — the Planning Need Evaluation section is shared by both paths.
 
 **Persist brainstorm signals:**
 After `planning_need` is determined, assess and persist signals:
@@ -267,20 +263,3 @@ n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,ke
    - On failure: log "⚠ Design summary comment failed: <reason>" and continue — non-blocking.
 
 5. Log: "Tracker updated with refined requirements and design summary." (or "Tracker enrichment skipped." if gated out)
-
-**Step result (step mode):**
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || echo "")
-PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" 2>/dev/null || echo "plan")
-if [ "$TYPE" = "investigation" ]; then
-    NEXT="investigation-deliverable"
-elif [ "$PLANNING_NEED" = "direct" ]; then
-    NEXT="implementation"
-else
-    NEXT="plan"
-fi
-n1_emit_step_result "brainstorm" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
-```

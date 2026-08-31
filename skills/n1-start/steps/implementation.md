@@ -142,11 +142,11 @@ Spawn the implementer agent with:
   - **Scratch vs. committed test artifacts** — throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo. When unsure, default to scratch.
 - **SDD overrides (IMPORTANT):**
   - **Do NOT call `superpowers:finishing-a-development-branch` under any circumstance.** SDD's flow ends by invoking it — it would present merge/PR/discard options that collide with N1's own QA → Review → PR pipeline. STOP at the last completed task.
-  - **Workspace isolation is already satisfied** — N1 set up the working branch (or worktree in step mode). When `WORKTREE_PATH` is set, SDD subagents work in `$WORKTREE_PATH`. In branch mode, they work in the current directory on the feature branch. Treat SDD's `superpowers:using-git-worktrees` prerequisite as ALREADY MET: do NOT create a new worktree or switch branches.
+  - **Workspace isolation is already satisfied** — N1 set up the working branch or worktree. When `WORKTREE_PATH` is set, SDD subagents work in `$WORKTREE_PATH`. In branch mode, they work in the current directory on the feature branch. Treat SDD's `superpowers:using-git-worktrees` prerequisite as ALREADY MET: do NOT create a new worktree or switch branches.
   - Skip the final whole-implementation code review — N1's Review stage (Step 7) handles this.
   - Run in CONTINUOUS mode: do NOT pause between tasks to ask for user approval or feedback.
 - If config has a model override for developer, instruct: "Use model `<model>` for ALL implementer subagents." Set `CLAUDE_CODE_SUBAGENT_MODEL` environment variable to `<model>` if possible; fall back to the text instruction if not.
-- **Worktree working directory (step mode only, when `WORKTREE_PATH` is set):** Pass verbatim: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory. Do NOT operate on the main checkout. Memory files under `$N1_HOME/memory/<ID>/` are written by the orchestrator and are not affected by this restriction."
+- **Worktree working directory (when `WORKTREE_PATH` is set):** Pass verbatim: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory. Do NOT operate on the main checkout. Memory files under `$N1_HOME/memory/<ID>/` are written by the orchestrator and are not affected by this restriction."
 - **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the implementer to write the implementation summary there after all tasks complete (format specified in the "After implementation" section below).
 - **Escalation rules:** pass the Confidence-Based Escalation protocol (section below). If a "Low confidence + High blast radius" decision arises, the implementer returns BLOCKED with the decision details.
 - **When `$RULES_BLOCK` is non-empty**, append it to the implementer's prompt AND include it in the Developer persona constraints so SDD subagents also receive it.
@@ -222,10 +222,4 @@ Which approach?
 
 ### Decisions Made
 - <decision>: <choice> (reason: <why>)
-```
-
-**Step result (step mode):**
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "implementation" "pass" "qa" "null" "" "$N1_HOME/memory/$ID"
 ```

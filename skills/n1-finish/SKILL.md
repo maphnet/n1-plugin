@@ -45,10 +45,6 @@ Also read `git.prMode` (fallback chain: `git.prMode` → `git.draftPR: false` = 
 
 `finishWork.enabled` gates only the pipeline step — standalone invocation proceeds regardless. If `finishWork` is entirely absent, all defaults apply and the skill still works as a merge-verify + close command.
 
-## Step Mode Detection
-
-When invoked from `n1-start --step finish`, the orchestrator passes step-mode context (`<ID>`, `N1_RUN_ID`). In step mode, escalation points write `$N1_HOME/memory/<ID>/escalation/request.json` instead of asking inline (see Escalation below). Standalone invocation asks/reports inline.
-
 ## Prerequisites
 
 - `gh auth status` — if not authenticated AND the run needs a PR (prMode is not `"skip"`): "GitHub CLI is not authenticated. Run `gh auth login` first." **STOP.** (The local-merge path needs no `gh`.)
@@ -69,9 +65,9 @@ When invoked from `n1-start --step finish`, the orchestrator passes step-mode co
 Evaluate the PR state:
 
 1. **`MERGED`** → capture the merge commit SHA (`.mergeCommit.oid`). Go to Step 3.
-2. **`CLOSED`** (not merged) → report "PR #<n> was closed without merging — nothing to finish. The ticket stays open." **STOP** (step mode: `outcome: "fail"`).
+2. **`CLOSED`** (not merged) → report "PR #<n> was closed without merging — nothing to finish. The ticket stays open." **STOP.**
 3. **`OPEN`:**
-   a. Check CI: `gh pr checks <n> --json name,state,conclusion`. If any check has `conclusion: FAILURE` → "CI is red on PR #<n> — run /n1:n1-ci first." **STOP** (step mode: `outcome: "fail"`).
+   a. Check CI: `gh pr checks <n> --json name,state,conclusion`. If any check has `conclusion: FAILURE` → "CI is red on PR #<n> — run /n1:n1-ci first." **STOP.**
    b. **PR comment check:** fetch unresolved review threads and pending change requests via a single GraphQL call:
       ```bash
       gh api graphql -f query='
@@ -129,11 +125,9 @@ Evaluate the PR state:
       Recommendation: <M> comment(s) to address, <K> to skip.
       ```
 
-      **Standalone mode:** ask inline — "Proceed with merge? (yes / no — fix first)"
+      Ask inline — "Proceed with merge? (yes / no — fix first)"
       - **yes** → record in memory (`overview.md` `## Finish`): `Comments: <N> unresolved, user approved merge`. Proceed to sub-item c.
       - **no** → "Address the comments, push, then re-run `/n1:n1-finish`." **STOP.**
-
-      **Step mode:** escalate with id `pr_comments_unresolved` (see `references/escalation-templates.md`), then emit `outcome: "escalation"` and **STOP.** On re-run: apply the response per the template's re-run instructions.
 
       **Pagination:** `first:100` threads covers virtually all PRs. If `reviewThreads.pageInfo.hasNextPage` is true, log: "PR has >100 review threads; only the first 100 were checked."
 
@@ -142,7 +136,7 @@ Evaluate the PR state:
       ```bash
       gh pr merge <n> --auto --<mergeMethod> --delete-branch
       ```
-      `--auto` respects branch protection (required approvals, checks, merge queues). If the command itself is rejected (e.g. auto-merge disabled on the repo and checks pending), retry once with the direct form `gh pr merge <n> --<mergeMethod> --delete-branch`; if that is also rejected, before treating the failure as fatal re-check `gh pr view <n> --json state` — if the PR is `MERGED`, treat the merge as successful and continue to Step 3; otherwise report GitHub's error verbatim and **STOP** (step mode: `outcome: "fail"`).
+      `--auto` respects branch protection (required approvals, checks, merge queues). If the command itself is rejected (e.g. auto-merge disabled on the repo and checks pending), retry once with the direct form `gh pr merge <n> --<mergeMethod> --delete-branch`; if that is also rejected, before treating the failure as fatal re-check `gh pr view <n> --json state` — if the PR is `MERGED`, treat the merge as successful and continue to Step 3; otherwise report GitHub's error verbatim and **STOP.**
    d. Bounded wait for merged state — up to `waitForMergeMinutes` total:
       ```bash
       source "${CLAUDE_PLUGIN_ROOT}/lib/poll.sh"
@@ -151,9 +145,7 @@ Evaluate the PR state:
       Repeat the call (subtracting elapsed minutes) while it prints `open` and budget remains.
       - Prints `merged <sha>` → capture SHA, go to Step 3.
       - Prints `closed` → treat as Step 2 case 2 (closed without merging).
-      - Budget exhausted, still `open`:
-        - **Standalone:** "PR #<n> is not merged yet — waiting on reviewer approval. Re-run `/n1:n1-finish` after the merge; the command is idempotent." **STOP.**
-        - **Step mode:** escalate with id `merge_wait_timeout` (see Escalation), then emit `outcome: "escalation"` and **STOP.**
+      - Budget exhausted, still `open` → "PR #<n> is not merged yet — waiting on reviewer approval. Re-run `/n1:n1-finish` after the merge; the command is idempotent." **STOP.**
 
 ## Step 2b: Local Merge (no-PR path, `git.prMode == "skip"` only)
 
@@ -165,7 +157,7 @@ Evaluate the PR state:
      ```bash
      <discovered-test-command> 2>&1; SUITE_EXIT=$?
      ```
-     If `SUITE_EXIT` is non-zero: report the failure output and output "Refusing to merge: test suite is failing (exit code <SUITE_EXIT>). Fix failing tests and re-run `/n1:n1-finish`." **STOP** (step mode: `outcome: "fail"`).
+     If `SUITE_EXIT` is non-zero: report the failure output and output "Refusing to merge: test suite is failing (exit code <SUITE_EXIT>). Fix failing tests and re-run `/n1:n1-finish`." **STOP.**
 4. Merge — from the default branch:
    ```bash
    git checkout <defaultBranch>
@@ -174,7 +166,7 @@ Evaluate the PR state:
    - `squash`: `git merge --squash <branch> && git commit -m "<ID>: <ticket title>"`
    - `merge`: `git merge --no-ff <branch> -m "Merge branch '<branch>'"`
    - `rebase`: `git checkout <branch> && git rebase <defaultBranch> && git checkout <defaultBranch> && git merge --ff-only <branch>`
-5. **Merge conflict** → `git merge --abort` (or `git rebase --abort`), report the conflicting files, switch back to the feature branch. **STOP** (step mode: `outcome: "fail"`).
+5. **Merge conflict** → `git merge --abort` (or `git rebase --abort`), report the conflicting files, switch back to the feature branch. **STOP.**
 6. **No push.** Report explicitly: "Merged `<branch>` into `<defaultBranch>` locally. Push manually when ready: `git push origin <defaultBranch>`."
 7. Deploy watch is **skipped** on this path (nothing on the remote yet) — note it in the report.
 8. Continue to Step 4 (close ticket). The tracker comment must say "merged locally, push pending".
@@ -192,10 +184,8 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 2. **Watch until completion (up to `timeoutMinutes` total):** poll the same command; runs are done when every run has `status: completed`.
 3. Outcomes:
    - **All `conclusion: success` (or `neutral`/`skipped`)** → deploy status `succeeded`. Continue to Step 4.
-   - **Any `failure`** → fetch logs: `gh run view <databaseId> --log-failed 2>&1 | head -200`. Report the failed run + URL. Add tracker comment (when tracker configured): "Deployment failed after merging <PR URL>: <run URL>". **Do not close the ticket.** **STOP** (step mode: `outcome: "fail"`).
-   - **Timeout with runs still in progress** →
-     - **Standalone:** report the still-running run URLs; "Deploy still running — re-run `/n1:n1-finish` to resume watching." **STOP.**
-     - **Step mode:** escalate with id `deploy_watch_timeout`, emit `outcome: "escalation"`, **STOP.**
+   - **Any `failure`** → fetch logs: `gh run view <databaseId> --log-failed 2>&1 | head -200`. Report the failed run + URL. Add tracker comment (when tracker configured): "Deployment failed after merging <PR URL>: <run URL>". **Do not close the ticket.** **STOP.**
+   - **Timeout with runs still in progress** → report the still-running run URLs; "Deploy still running — re-run `/n1:n1-finish` to resume watching." **STOP.**
 
 ## Step 4: Close Ticket
 
@@ -203,7 +193,7 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 - `closeTicket` is `false` → "Ticket close skipped: closeTicket is false."
 - `tracker.mcp` is null → "Ticket close skipped: no tracker configured."
 
-**Runtime recovery** — when the hard-skip gates pass but `tracker.statuses.done` is absent from config: read `references/done-status-recovery.md` for the full detection, prompt, and step-mode escalation procedure.
+**Runtime recovery** — when the hard-skip gates pass but `tracker.statuses.done` is absent from config: read `references/done-status-recovery.md` for the full detection and prompt procedure.
 
 **When `tracker.statuses.done` was already present in config, or after successful recovery above, proceed:**
 
@@ -222,7 +212,7 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 
 1. **Local branch (branch mode, merged PR):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`.
 2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it.
-3. **Worktree (step mode):** If the current toplevel (`git rev-parse --show-toplevel`) contains `/.claude/worktrees/`, read `worktree.cleanup` from config. If it is `"after-pr"` or `"after-merge"`, remove the worktree: switch to the main checkout first (`MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn, point at `/n1:n1-clean`.
+3. **Worktree:** If the current toplevel (`git rev-parse --show-toplevel`) contains `/.claude/worktrees/`, read `worktree.cleanup` from config. If it is `"after-pr"` or `"after-merge"`, remove the worktree: switch to the main checkout first (`MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn, point at `/n1:n1-clean`.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish
@@ -240,10 +230,6 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 
    Standalone without memory: skip silently.
 
-## Escalation (step mode only)
-
-Read `references/escalation-templates.md` for the `merge_wait_timeout` and `deploy_watch_timeout` request.json shapes, emit command, and resume logic.
-
 ## Report (final message)
 
 ```
@@ -256,7 +242,7 @@ Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | nothing t
 Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
 ```
 
-**Release routing (standalone/interactive only, when `release.enabled` is `true` and the merge succeeded):** after printing the report, ask:
+**Release routing (when `release.enabled` is `true` and the merge succeeded):** after printing the report, ask:
 
 ```
 Release this now?
@@ -268,8 +254,6 @@ Release this now?
 - **1** → report `Next: /n1:n1-release` and STOP — do NOT invoke it yourself; releases are human-initiated.
 - **2** → nothing to do.
 - **3** → read `references/release-batching.md` for the append procedure.
-
-In step mode, skip this question entirely — the `Next (manual): /n1:n1-release` line in the report above covers step-mode output.
 
 On non-complete exits, state exactly what stopped the flow and what the user should do (re-run command, fix CI, resolve conflict).
 

@@ -268,25 +268,6 @@ n1_autonomy_val() {
     esac
 }
 
-n1_escalation_val() {
-    # Usage: n1_escalation_val <key>
-    # Reads .escalation.<key> from config with hardcoded safe defaults.
-    # Safe defaults: channel=interactive (no tracker posting), mentionUser=true.
-    local key="$1"
-    local val
-    val=$(n1_config_val ".escalation.${key}")
-    if [ -n "$val" ]; then
-        printf '%s' "$val"
-        return
-    fi
-    case "$key" in
-        channel)       printf 'interactive' ;;
-        mentionUser)   printf 'true' ;;
-        mentionTarget) printf '' ;;
-        *)             printf '' ;;
-    esac
-}
-
 n1_codex_available() {
     local enabled
     enabled=$(n1_codex_val 'enabled')

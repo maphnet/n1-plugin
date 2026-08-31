@@ -21,7 +21,7 @@ Resolve `prMode` from `$N1_HOME/config.json` using the fallback chain:
 **REQUIRED SUB-SKILL:** Use n1:n1-pr to create the pull request.
 
 Pass to n1-pr:
-- `docUpdateMode: "autonomous"` — doc updates run without user confirmation in the full pipeline
+- `docUpdateMode: "autonomous"` — doc updates run without user confirmation in the pipeline
 
 After PR is created:
 - The PR skill reports the URL
@@ -56,23 +56,6 @@ n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetr
     "review_pass_first_try=$REVIEW_FIRST" \
     "qa_pass_first_try=$QA_FIRST" \
     "fix_cycles_count=$FIX_TOTAL"
-```
-
-**Step result (step mode):**
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-CI=$(n1_config_val '.ciChecks.enabled')
-PR_MODE=$(n1_config_val '.git.prMode')
-FW=$(n1_config_val '.finishWork.enabled')
-if [ "${CI:-true}" = "true" ] && [ "${PR_MODE}" != "skip" ]; then
-    NEXT="ci"
-elif [ "${FW:-false}" = "true" ]; then
-    NEXT="finish"
-else
-    NEXT="null"
-fi
-n1_emit_step_result "pr" "pass" "$NEXT" "null" "" "$N1_HOME/memory/$ID"
 ```
 
 **CHECKPOINT:** "PR created at <URL>. Ready for Tech Lead review."

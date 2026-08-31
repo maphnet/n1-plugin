@@ -1,7 +1,7 @@
 ---
 name: n1-start
 description: "Core orchestrator. Start working on a task: /n1:n1-start TRID-510 or /n1:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
-argument-hint: "<ticket-id or brain dump> [--step <name>] [--branch] [--investigate]"
+argument-hint: "<ticket-id or brain dump> [--branch] [--investigate]"
 model: sonnet
 ---
 
@@ -43,9 +43,9 @@ Read `telemetry.enabled` from `$N1_HOME/config.json` (default `false` if absent 
    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
    N1_VERSION=$(n1_config_val '.version' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
    ```
-2. Generate run ID — **preserve an existing `N1_RUN_ID` environment value** (n1-loop provides one per step-mode invocation; escalation request/response correlation depends on echoing it back exactly):
+2. Generate run ID:
    ```bash
-   N1_RUN_ID="${N1_RUN_ID:-$(date -u +n1-run-%Y%m%dT%H%M%SZ)}"
+   N1_RUN_ID=$(date -u +n1-run-%Y%m%dT%H%M%SZ)
    ```
 3. Create per-ticket telemetry directories:
    ```bash
@@ -66,7 +66,7 @@ Where `$ID` is the ticket ID or provisional slug — the same `<ID>` used for th
 
 **If `telemetry.enabled` is `false`:** Skip all telemetry shell calls throughout the pipeline. Do not generate `N1_RUN_ID`, do not write lock files, do not emit step markers. The hooks will also exit silently (no lock file = no-op).
 
-Throughout the pipeline, `N1_RUN_ID` and `N1_VERSION` are passed to each telemetry shell call explicitly — do not rely on them persisting between shell calls. (In step mode, n1-loop DOES set `N1_RUN_ID` in the session environment — that value is authoritative and must be reused, never regenerated.)
+Throughout the pipeline, `N1_RUN_ID` and `N1_VERSION` are passed to each telemetry shell call explicitly — do not rely on them persisting between shell calls.
 
 ## Input Parsing
 
@@ -121,7 +121,7 @@ case "$RAW_INPUT" in
 esac
 ```
 
-The `--branch` flag forces branch isolation (no worktree) in full-pipeline mode. In step mode this flag is ignored (step mode always uses worktrees). Strip `--branch` from the input before passing to ticket/brain-dump parsing.
+The `--branch` flag forces branch isolation (no worktree) for this run. Strip `--branch` from the input before passing to ticket/brain-dump parsing.
 
 ### Investigate flag detection
 
@@ -139,120 +139,7 @@ The `--investigate` flag starts an interactive investigation. It forces the `inv
 - Forces `BRAINSTORM_MODE=interactive` for this run, overriding `autonomy.brainstorm` from config (the brainstorm step reads `investigate_interactive` from overview.md frontmatter — see steps/brainstorm.md).
 - In brain-dump mode, defers tracker ticket creation until the investigation deliverable is complete (see steps/ticket.md and steps/investigation-deliverable.md).
 
-Strip `--investigate` from the input before passing to ticket/brain-dump parsing. In step mode (`--step` present) this flag is ignored — the type and `investigate_interactive` are read from overview.md frontmatter. Pass `INVESTIGATE_FLAG` in context to the ticket step.
-
-## Step Mode
-
-When the input contains `--step <name>`, n1-start executes ONLY the named step and exits with a structured result. This enables the n1-loop step-per-session execution model where each step gets a fresh context window.
-
-### Step argument detection
-
-After resolving N1_HOME and loading config, check if the input contains `--step`:
-
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-step_result=$(n1_parse_step_arg "<raw-input>")
-step_exit=$?
-```
-
-**Three outcomes:**
-- `exit 0` — `--step` present and valid. Parse the result: `step_name` and `id_part` are extracted from the `step=<name> id=<rest>` output. Enter step mode.
-- `exit 1` — `--step` absent. Continue with full pipeline mode (existing behavior, no changes).
-- `exit 2` — `--step` present but invalid name. Emit error result and stop:
-  ```bash
-  n1_emit_step_result "<invalid-name>" "error" "null" "null" ',"error":"Invalid step name"' "$N1_HOME/memory/$ID"
-  ```
-
-### Step mode dispatch
-
-When step mode is active:
-
-1. **Set `<ID>`** from the parsed `id_part`. This is always a ticket ID or slug — brain-dump text is not supported in step mode (the `ticket` step with brain-dump input should be run in full pipeline mode for the first invocation; subsequent steps use the resolved ID).
-
-2. **Read overview.md** — load `$N1_HOME/memory/<ID>/overview.md` for current state and loop counters:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-   current_step=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "step")
-   qa_fix_cycle=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
-   review_fix_cycle=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
-   clean_passes=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "clean_passes")
-   local_test_fix_cycle=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "local_test_fix_cycle")
-   ```
-   Exception: if the requested step is `ticket` and overview.md does not exist, this is a fresh start — skip the overview read and proceed to the ticket step directly.
-
-2.5. **Tracker escalation check** — Step mode bypasses Memory Check entirely, so this check must run here. After reading overview.md, check:
-   ```bash
-   [ -f "$N1_HOME/memory/$ID/tracker-state.json" ]
-   ```
-   If `tracker-state.json` exists, run the **Resume-from-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`). The procedure materializes `escalation/response.json` and cleans up state; the normal re-run logic for the current step then reads it.
-
-2.75. **External worktree detection (step mode only):** Before making the Ensure Worktree decision, detect if running inside an external worktree:
-
-    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-    WORKTREE_MODE=$(n1_config_val '.worktree.mode')
-    EXTERNAL_WORKTREE=false
-    if [ "$WORKTREE_MODE" = "external" ] || n1_is_external_worktree; then
-        EXTERNAL_WORKTREE=true
-        WORKTREE_PATH=$(git rev-parse --show-toplevel)
-        BRANCH=$(git branch --show-current)
-    fi
-
-When `EXTERNAL_WORKTREE` is true, skip Ensure Worktree (step 3) entirely.
-
-3. **Ensure Worktree (conditional)** — Read `type` from overview.md frontmatter (if overview.md exists for this `<ID>`):
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md" 2>/dev/null || echo "")
-   ```
-   Skip Ensure Worktree when `TYPE` is `"investigation"`, when `step_name` is `"ticket"` (the ticket step fragment handles its own workspace isolation after investigation detection), or when `EXTERNAL_WORKTREE` is true (the run reuses the orchestrator's checkout). Otherwise, run the **Ensure Worktree(`<ID>`)** procedure (see Workspace Isolation above).
-
-4. **Verify dependencies:**
-   ```bash
-   deps=$(n1_step_dependencies "$step_name")
-   if [ -n "$deps" ]; then
-       n1_verify_dependencies "$N1_HOME/memory/$ID" $deps
-   fi
-   ```
-   If verification fails, emit error result:
-   ```bash
-   n1_emit_step_result "$step_name" "error" "null" "null" ',"error":"Missing dependency files: <list>"' "$N1_HOME/memory/$ID"
-   ```
-   and stop.
-
-5. **Check config gates** — certain steps are gated by config. If the gate is closed, emit `skip` and the appropriate `next_step` (see Step Mode Routing below):
-   - `estimation`: gated by `estimation.enabled` (default `false`)
-   - `plan-review`: gated by `planReview.reviewPlan` (default `true`)
-   - `local-testing`: gated by `localTesting.enabled` (default `false`)
-   - `ci`: gated by `ciChecks.enabled` (default `true`)
-   - `finish`: gated by `finishWork.enabled` (default `false`)
-
-6. **Telemetry init** — if telemetry is enabled, initialize `N1_RUN_ID` and write the lock file (same as full pipeline Telemetry Initialization). Each step-mode invocation gets its own run ID — **supplied by n1-loop via the `N1_RUN_ID` environment variable; reuse it, never regenerate it** (escalation correlation matches on it).
-
-7. **Check signal gates** — Before executing, check if runtime signals indicate this step should be skipped. Safety invariants (qa, review, pr) are never skipped regardless of signals:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-   SKIP_REASON=$(n1_check_signal_gates "$step_name" "$N1_HOME/memory/$ID" "$N1_HOME/memory/$ID/overview.md" "${CLAUDE_PLUGIN_ROOT}/pipeline.json")
-   if [ $? -eq 0 ]; then
-       # Verify this step is not a safety invariant
-       SAFE=$(jq -r '.safety_invariants[]' "${CLAUDE_PLUGIN_ROOT}/pipeline.json" 2>/dev/null | grep -qx "$step_name" && echo "yes" || echo "no")
-       if [ "$SAFE" = "no" ]; then
-           echo "Skipping $step_name: $SKIP_REASON"
-           # Log decision to telemetry
-           source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
-           n1_emit_decision "$N1_RUN_ID" "$N1_VERSION" "$ID" "$step_name" "skip" "$SKIP_REASON" "${N1_HOME}/memory/$ID/telemetry"
-           n1_emit_step_result "$step_name" "skip" "<next_step>" "null" "" "$N1_HOME/memory/$ID"
-           # Stop — do not execute the step
-       fi
-   fi
-   ```
-
-8. **Execute the step** — Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/<step_name>.md` (the fragment file named after the step). The step execution logic is identical to full pipeline mode — same agent spawning, same output handling, same overview.md updates. The `brainstorm` fragment itself routes step mode to `autonomous-brainstorm.md`, as before.
-
-9. **After step execution** — do NOT proceed to the next step. Instead, compute the `next_step` from the Step Mode Routing table and emit the structured result — you MUST actually run the bash helper (it writes `step-result.json` AND prints the line); merely typing an `N1_STEP_RESULT:` line in your response text is NOT sufficient:
-   ```bash
-   n1_emit_step_result "$step_name" "<outcome>" "<next_step>" "<loop_counter_or_null>" "" "$N1_HOME/memory/$ID"
-   ```
-   Then stop.
+Strip `--investigate` from the input before passing to ticket/brain-dump parsing. Pass `INVESTIGATE_FLAG` in context to the ticket step.
 
 ## Model Resolution
 
@@ -283,8 +170,6 @@ EXTERNAL_WORKTREE=false
 if [ "$WORKTREE_MODE" = "external" ] || n1_is_external_worktree; then
     EXTERNAL_WORKTREE=true
     USE_WORKTREE=false
-elif [ -n "$STEP_NAME" ]; then
-    USE_WORKTREE=true          # step mode: always worktree
 elif [ "$BRANCH_FLAG" = "true" ]; then
     USE_WORKTREE=false         # --branch flag overrides config
 elif [ "$WORKTREE_MODE" = "branch" ]; then
@@ -296,8 +181,7 @@ fi
 
 | Condition | Isolation | Rationale |
 |---|---|---|
-| `worktree.mode: "external"` or auto-detected external worktree | **External** — reuse current checkout and branch | Running inside orchestrator-managed worktree |
-| `--step` present (and not external) | **Worktree** | Automated — fresh context per step |
+| `worktree.mode: "external"` or auto-detected external worktree | **External** — reuse current checkout and branch | Running inside an existing worktree |
 | `--branch` flag | **Branch** in current checkout | Explicit user override for this run |
 | `worktree.mode: "branch"` | **Branch** in current checkout | User prefers branch isolation |
 | Default | **Worktree** | Isolated workspace, no IDE conflicts |
@@ -307,7 +191,7 @@ When `EXTERNAL_WORKTREE` is true, skip both Ensure Worktree and Ensure Working B
     source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
     n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "$WORKTREE_PATH" "$BRANCH"
 
-This explicit write is necessary because the initial active-run write in Telemetry Initialization (line 61) runs before isolation mode resolution and records null values; ID reconciliation is a no-op when the user provides the ticket ID explicitly, so there is no later write to rely on. When `USE_WORKTREE` is true (and not external), use **Ensure Worktree(`<ID>`)**. When `USE_WORKTREE` is false (and not external), use **Ensure Working Branch(`<ID>`).**
+This explicit write is necessary because the initial active-run write in Telemetry Initialization runs before isolation mode resolution and records null values; ID reconciliation is a no-op when the user provides the ticket ID explicitly, so there is no later write to rely on. When `USE_WORKTREE` is true (and not external), use **Ensure Worktree(`<ID>`)**. When `USE_WORKTREE` is false (and not external), use **Ensure Working Branch(`<ID>`).**
 
 Both procedures are **idempotent** — safe to call again on resume. They are called at each ID-resolution point (see Step 1 and Memory Check).
 
@@ -331,7 +215,7 @@ Both procedures are **idempotent** — safe to call again on resume. They are ca
    - **`CURRENT` is some OTHER branch AND `DIRTY` is empty** → prompt (foreign branch prompt below).
    - **`CURRENT` is some OTHER branch AND `DIRTY` is non-empty** → prompt (combined prompt below).
 
-**Mechanical-prompt autonomy (full pipeline only):** before showing any of the three prompts below, read the policy:
+**Mechanical-prompt autonomy:** before showing any of the three prompts below, read the policy:
 
 ```bash
 MP=$(n1_autonomy_val 'mechanicalPrompts')
@@ -387,10 +271,7 @@ The destructive option (Abort) is never auto-selected. If `MP` is `ask` (default
 Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Creates or reattaches a worktree at `<main-checkout>/.claude/worktrees/<ID>/`.
 
 1. **Check if `N1_HOME` is absolute** (starts with `/`, `~`, or a drive letter like `C:\`):
-   - **If relative** (starts with `.`, e.g. `.n1`) → worktrees cannot be used because config and memory paths would resolve inside the worktree instead of the main checkout. Emit error result and stop:
-     ```bash
-     n1_emit_step_result "$step_name" "error" "null" "null" ',"error":"Step mode requires externalized state (absolute N1_HOME). Run n1-init to migrate."' "$N1_HOME/memory/$ID"
-     ```
+   - **If relative** (starts with `.`, e.g. `.n1`) → worktrees cannot be used because config and memory paths would resolve inside the worktree instead of the main checkout. Report to the user: "Worktree isolation requires externalized state (absolute N1_HOME). Run `/n1:n1-init` to migrate, or re-run with `--branch` for branch isolation." **STOP.**
    - **If absolute** → continue with worktree creation.
 
 2. Compute target branch: same formula/sanitization as Ensure Working Branch.
@@ -427,7 +308,7 @@ Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Create
       ```
       If this fails because the directory already exists (e.g., from a crashed prior run), manually remove `<main-checkout>/.claude/worktrees/<ID>/` or run `/n1:n1-clean` to clean up stale worktrees, then retry.
    e. Report: "Working in worktree `$WORKTREE_PATH` on branch `<TARGET>`."
-   f. **IDE hint (interactive mode only).** If this is NOT step mode (`STEP_NAME` is empty), print an additional line:
+   f. **IDE hint.** Print an additional line:
       > Open this directory in your IDE: `$WORKTREE_PATH`
 
 **PROCEDURE: Ensure Dependencies (`<ID>`)**
@@ -447,33 +328,18 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
    ```
    - **On success:** `touch "$WORKTREE_PATH/.n1-deps-installed"`; report
      "Dependencies installed via `$SETUP`."
-   - **On failure:** do NOT create the marker (so the next run / a Retry re-attempts). Do NOT diagnose or repair the environment inline (no `which python`, no `pip install` of individual packages, no venv inspection) — capture stderr and follow the retry/escalation path below exactly; deeper environment work belongs to the developer spawn of the current step.
-     Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto` AND this is the first attempt (no prior retry recorded in overview.md `## Escalations`): append `worktree setup auto-retry attempted` to overview.md `## Escalations`, then re-run step 4 once. If the retry succeeds, continue normally. If the retry also fails (or `MP` is not `auto`): report the command's stderr and **escalate**:
-     - **Step mode:** write `$N1_HOME/memory/<ID>/escalation/request.json` (no Post-to-Tracker here — worktree setup failures are transient infra issues, not design questions worth blocking a ticket on):
-       ```json
-       {
-         "run_id": "<value of the N1_RUN_ID environment variable>",
-         "step": "<current step name>",
-         "questions": [{
-           "id": "worktree_setup_failure",
-           "text": "<one-paragraph description of the setup failure with stderr>",
-           "options": ["Retry setup", "Skip and continue anyway", "Abort: stop the pipeline"],
-           "recommendation": "Retry setup — a transient install failure usually clears on retry",
-           "context": "<setup command, stderr excerpt, worktree path>"
-         }]
-       }
-       ```
-       Then run via Bash:
-       ```bash
-       source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-       n1_emit_step_result "<current step name>" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
-       ```
-       and STOP.
-     - **On re-run** (`response.json` present and `run_id` matches `N1_RUN_ID`):
-       - "Retry setup" → re-run step 4.
-       - "Skip and continue anyway" → record in overview `## Escalations`
-         ("worktree setup skipped by user"), do NOT create the marker, and continue the step.
-       - "Abort" → record it and emit `outcome: "error"` with `next_step: null`.
+   - **On failure:** do NOT create the marker (so the next run / a Retry re-attempts). Do NOT diagnose or repair the environment inline (no `which python`, no `pip install` of individual packages, no venv inspection) — capture stderr and follow the retry/prompt path below exactly; deeper environment work belongs to the developer spawn of the current step.
+     Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto` AND this is the first attempt (no prior retry recorded in overview.md `## Escalations`): append `worktree setup auto-retry attempted` to overview.md `## Escalations`, then re-run step 4 once. If the retry succeeds, continue normally. If the retry also fails (or `MP` is not `auto`): report the command's stderr and ask the user:
+     ```
+     Worktree dependency setup failed. How should I proceed?
+     1 — Retry setup (a transient install failure usually clears on retry)
+     2 — Skip and continue anyway
+     3 — Abort — stop the pipeline
+     ```
+     - "Retry setup" → re-run step 4.
+     - "Skip and continue anyway" → record in overview `## Escalations`
+       ("worktree setup skipped by user"), do NOT create the marker, and continue the step.
+     - "Abort" → record it in overview `## Escalations` and STOP.
 
 **PROCEDURE: Reconcile Memory ID & Branch (`<oldId>`, `<newId>`)**
 
@@ -483,7 +349,7 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
 2. **Memory move:** if `$N1_HOME/memory/<oldId>/` exists AND `$N1_HOME/memory/<newId>/` does NOT → filesystem-move the directory `<oldId>/` → `<newId>/` (`$N1_HOME/` is gitignored or outside the repo, so a plain `mv` / `Move-Item`, NOT `git mv`). If `$N1_HOME/memory/<newId>/` already exists, skip the move and report — the `<newId>` memory is authoritative (resume/collision guard).
 3. **Frontmatter fix:** if `$N1_HOME/memory/<newId>/overview.md` exists (true only when an overview was already written under the slug and just moved — in the clean path it does not exist yet), rewrite its `ticket: <oldId>` → `ticket: <newId>` and its `# <oldId>: <Title>` heading → `# <newId>: <Title>`.
 4. **Branch rename:** compute `<oldBranch>` and `<newBranch>` from `git.branchPattern` (config). If a local branch `<oldBranch>` exists AND `<newBranch>` does NOT → `git branch -m <oldBranch> <newBranch>` (rename preserves commits; N1 has not pushed yet). If `<newBranch>` already exists, skip the rename.
-5. **Worktree move (step mode only):** if `EXTERNAL_WORKTREE` is true → skip (external worktrees are not relocated). Otherwise, if `.claude/worktrees/<oldId>/` exists → compute `MAIN_CHECKOUT=$(git rev-parse --show-toplevel)` and run `git worktree move $MAIN_CHECKOUT/.claude/worktrees/<oldId> $MAIN_CHECKOUT/.claude/worktrees/<newId>`. In branch mode (no `--step`), no worktree exists — skip silently.
+5. **Worktree move:** if `EXTERNAL_WORKTREE` is true → skip (external worktrees are not relocated). Otherwise, if `.claude/worktrees/<oldId>/` exists → compute `MAIN_CHECKOUT=$(git rev-parse --show-toplevel)` and run `git worktree move $MAIN_CHECKOUT/.claude/worktrees/<oldId> $MAIN_CHECKOUT/.claude/worktrees/<newId>`. In branch mode, no worktree exists — skip silently.
 6. Report: "Migrated memory + branch `<oldId>` → `<newId>`." (append "+ worktree" if a worktree was moved)
 7. **Update active-run pointer:**
    ```bash
@@ -498,15 +364,6 @@ When `USE_WORKTREE` is true and `WORKTREE_PATH` is set, pass this directive to e
 > Work in the worktree directory at `WORKTREE_PATH`. All file read/write/edit/grep/glob operations and all git/bash commands that touch the codebase MUST target files within this directory, not the main checkout. Memory files remain at `$N1_HOME/memory/<ID>/` (unchanged).
 
 In branch mode (`USE_WORKTREE` is false), omit this directive — agents work in the current directory on the feature branch.
-
-### Context Assembly Order (step mode)
-
-In step/loop mode, each step is a fresh session that reloads persona + config + memory, so prompt-cache hits depend on a stable leading prefix. When assembling any agent spawn's context in step mode, order it **stable-prefix-first, volatile-last**:
-
-1. **Stable prefix (cache-eligible):** agent persona/definition, the tracker-routing block, and the config snapshot — content that is identical across loop sessions for this project.
-2. **Volatile suffix (do NOT rely on caching):** per-ticket memory files (`ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md`, `implementation.md`, `qa.md`, `review.md`), diffs, and tool results — content that changes every step.
-
-Do not attempt to cache volatile memory files; interleaving them into the prefix defeats caching and can increase latency. In branch mode (full pipeline) this ordering is a no-op — the session is continuous — but applying it uniformly is harmless.
 
 ### Post-Compaction Recovery
 
@@ -542,19 +399,9 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   ```
 - **If not exists:** Fresh start. Create `$N1_HOME/memory/<ID>/` directory.
 
-### Tracker Escalation Check
-
-After the Memory Check "If exists" path resolves the current step, check for a pending tracker escalation:
-
-```bash
-[ -f "$N1_HOME/memory/$ID/tracker-state.json" ]
-```
-
-If `tracker-state.json` exists, run the **Resume-from-Tracker procedure** (see `skills/n1-start/references/tracker-escalation.md`). The procedure materializes `escalation/response.json` and cleans up state before returning — the normal resume flow then reads `response.json` as it would from any other escalation reply.
-
 ### Step dependency map
 
-Read `pipeline.json` under `steps[]` for dependency declarations. The bash helper `n1_step_dependencies` (in `lib/validation.sh`) mirrors these values.
+Read `pipeline.json` under `steps[]` for dependency declarations.
 
 ### Loop-counter durability & crash-safe checkpointing
 
@@ -570,56 +417,9 @@ n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md analysis.md
 
 (Pass the declared dependency files for the current step — see table above.) If any dependency is missing or empty, the function prints the missing files to stderr and returns non-zero — **STOP and report** rather than proceeding with a degraded handoff. (`ticket.md` with no acceptance criteria is handled upstream by product-analyst and is not a hard stop.)
 
-## Step-Mode Escalation Protocol
-
-When a fix loop is exhausted in step mode (no interactive channel), write an escalation request and emit a step result so n1-loop can surface the question to the user.
-
-**Parameters:** `{step}`, `{id}`, `{options}` (array of `{label, recommendation?}` objects), `{context}` (step-specific details)
-
-**Compose problem preamble** before writing `request.json`:
-- Read the title: extract the part after `: ` from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md`.
-- Read the Core Ask: extract the first non-blank line of content under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md` (trim to ≤1 sentence if long).
-- Compose `PREAMBLE="{Title}: {Core Ask}."` If either part is unavailable, omit that part (keep the other); if both are missing, `PREAMBLE` is empty.
-- **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
-- If `PREAMBLE` is non-empty, prefix it with a space when appending: the final `text` value is `"${PREAMBLE} The {step} fix loop has been exhausted. {context}"`.
-
-1. Write `$N1_HOME/memory/<ID>/escalation/request.json`:
-   ```json
-   {
-     "run_id": "<value of the N1_RUN_ID environment variable>",
-     "step": "{step}",
-     "questions": [{
-       "id": "{id}",
-       "text": "{PREAMBLE} The {step} fix loop has been exhausted. {context}",
-       "options": ["{options[0].label}", "{options[1].label}", ...],
-       "recommendation": "{options[0].recommendation // first option}",
-       "context": "{context}"
-     }]
-   }
-   ```
-
-1.5. **Tracker channel (optional).** If `n1_escalation_val channel` is `tracker` or `both`, also run the **Post-to-Tracker procedure** (see `references/tracker-escalation.md`), passing `{ID}`, `{step}`, the `questions` array from `request.json`, and `N1_RUN_ID`. This posts the escalation to the ticket and moves it to a blocked status when configured. Run after writing `request.json` so the questions array is finalized. Degrade gracefully on any tracker error — never block the emit.
-
-2. Emit step result:
-   ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-   n1_emit_step_result "{step}" "escalation" "null" "null" "" "$N1_HOME/memory/$ID"
-   ```
-3. STOP — do not continue the step.
-
-**On re-run** (`response.json` present and `run_id` matches `N1_RUN_ID`): read the user's chosen option index and execute the corresponding action defined by the step file (retry/accept/abort). Record the decision in overview.md `## Escalations`.
-
-**Response.json schema (pinned):**
-```json
-{ "run_id": "...", "answers": [{ "id": "question_id", "choice_index": 1, "choice": "Option label", "text": "free text guidance" }] }
-```
-`choice_index` is 0-based. `text` is optional free-text from the user. All step re-run handlers read this schema.
-
-In full pipeline mode this protocol does NOT apply — keep the interactive prompt unchanged.
-
 ## Autonomy Gate (qualityEscalations)
 
-When a quality step has findings that the user would normally be prompted about (full pipeline mode), check the autonomy policy first.
+When a quality step has findings that the user would normally be prompted about, check the autonomy policy first.
 
 **Parameters:** `{step}`, `{action}` (what auto-accept does, e.g. "accept remaining findings"), `{ledger_context}` (summary for the Decision Ledger row)
 
@@ -658,7 +458,7 @@ When `$RULES_BLOCK` is non-empty, append it to the agent's spawn prompt.
 
 ## Pipeline Steps
 
-Step 3 (Brainstorm) is **INTERACTIVE in full pipeline mode only** — Superpowers handles user interaction during brainstorming. In step mode, the autonomous brainstormer runs headlessly with escalation-on-demand. Step 4 (Plan checkpoint) pauses for explicit plan approval when `requirePlanApproval` is enabled.
+Step 3 (Brainstorm) is **INTERACTIVE** by default — Superpowers handles user interaction during brainstorming. When `autonomy.brainstorm` is `auto`, the autonomous brainstormer runs headlessly instead, asking the user only for blocking questions. Step 4 (Plan checkpoint) pauses for explicit plan approval when `requirePlanApproval` is enabled.
 
 ### Telemetry Step Markers
 
@@ -696,7 +496,7 @@ Step numbering and names:
 | 13 | `ci` | `{}` |
 | 14 | `finish` | `{}` |
 
-**Naming note:** The overview.md frontmatter `tier:` field (values: `simple`/`standard`/`complex`) controls model/effort routing in n1-loop. The brainstorm step-result `planning_need` key (values: `plan`/`direct`) controls pipeline branching — whether a formal plan is needed. The estimation body line `**Complexity:** XS/S/M/L/XL` is delivery sizing. These three concepts are independent.
+**Naming note:** The overview.md frontmatter `tier:` field (values: `simple`/`standard`/`complex`) controls model/effort routing. The brainstorm `planning_need` value (values: `plan`/`direct`) controls pipeline branching — whether a formal plan is needed. The estimation body line `**Complexity:** XS/S/M/L/XL` is delivery sizing. These three concepts are independent.
 
 Each step section in the pipeline below should emit its start marker before spawning agents and its end marker after updating overview.md.
 
@@ -724,9 +524,9 @@ This step only runs when `TYPE` is `"investigation"` (read from overview.md fron
 
 ### Planning Need Routing
 
-**Investigation mode:** If `TYPE` is `"investigation"` (read from overview.md frontmatter via `n1_read_type`), skip planning need routing entirely — investigation tasks always proceed from brainstorm to the investigation-deliverable step. The brainstorm step's routing handles this via `pipeline.json`.
+**Investigation mode:** If `TYPE` is `"investigation"` (read from overview.md frontmatter via `n1_read_type`), skip planning need routing entirely — investigation tasks always proceed from brainstorm to the investigation-deliverable step.
 
-Read `planning_need` from the brainstorm step result (set by the brainstormer in Step 3). Route:
+Read `planning_need` from the brainstorm step output (set by the brainstormer in Step 3). Route:
 - `planning_need: plan` → Continue to **PLAN** (Step 4)
 - `planning_need: direct` → Skip to **IMPLEMENT** (Step 5)
 
@@ -799,71 +599,6 @@ Autonomous decisions made anywhere in the pipeline are recorded per `skills/n1-s
 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/investigation-deliverable.md`.
 
-### Step Mode Routing
-
-This section applies ONLY in step mode. After executing the named step, compute `next_step` using this routing table. In full pipeline mode, this section is ignored — the pipeline proceeds sequentially as before.
-
-**Routing model.** The `next_step` state machine is declared in
-`${CLAUDE_PLUGIN_ROOT}/pipeline.json` under `routing[]`. **Read that file** and
-evaluate the routing edges for the just-completed `(step, outcome)`:
-
-1. Scan `routing[]` top-to-bottom for rows whose `step` and `outcome` match.
-2. For each matching row, evaluate its `when` condition against the current
-   config (`$N1_HOME/config.json`) and loop counters (from `overview.md`
-   frontmatter). The first row whose `when` is satisfied wins; its `next` is
-   `next_step` (`null` terminates the pipeline).
-3. `when` grammar (see `plugin/pipeline.schema.md`): `null` = always;
-   `"plan"`/`"direct"` = the brainstorm planning need branch (from Planning Need
-   Routing below); `{"config": k, "eq"/"neq": v}` = config comparison using the gate
-   default when absent; `{"all"|"any": [...]}` = combinators;
-   `{"counter": c, "lt"/"gte": k}` = loop-bound check; `{"overview_step": s}` =
-   fix-target inference from `overview.md`'s `step:` field.
-
-Gate defaults (`estimation.enabled`=false, `planReview.reviewPlan`=true,
-`localTesting.enabled`=false, `ciChecks.enabled`=true, `finishWork.enabled`=false)
-and loop bounds (`qa/review/localTesting/ciChecks.maxFixAttempts`, default 3 each)
-are the `gates[]`/`loops[]` defaults in `pipeline.json` — do not hardcode them here.
-
-**Investigation mode routing:** When `overview.md` frontmatter has `type: investigation`, the `brainstorm` step routes to `investigation-deliverable` instead of `plan`/`implementation`. The `investigation-deliverable` step is terminal (`next_step: null`). Read the `type` frontmatter before evaluating routing:
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
-```
-If `TYPE` is `investigation`, set `type=investigation` in the routing context passed to `pipeline.json` evaluation (matching the `"when": {"type": "investigation"}` condition in `pipeline.json`).
-
-**Planning need routing (brainstorm routing):** When the `brainstorm` step completes in step mode, the routing logic reads `planning_need` from the brainstorm step result. The autonomous brainstormer evaluates planning need as part of its process (step 8b) and sets the value in its step result. The orchestrator routes `plan` → plan step, `direct` → implementation step. No independent judgment — the brainstormer's evaluation is authoritative.
-
-**Fix step context inference:** The `fix` step determines what to fix by reading `overview.md`'s `step` field. If `step` is `qa`, the fix addresses QA failures (reads `qa.md`). If `step` is `review`, the fix addresses review findings (reads `review.md`). After the fix, `next_step` routes back to the source step for re-verification.
-
-**Step field update before result emission:** In step mode, the `qa` and `review` steps MUST update `overview.md`'s `step:` field to their own name before emitting the structured result. In full pipeline mode this field is written after the fix loop completes, but in step mode the fix loop is external — the `fix` step reads `step:` to determine its target, so the value must be current. Use `n1_write_frontmatter` to update it:
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "review"
-```
-
-**PR skip routing:** When the `pr` step detects `git.prMode: "skip"` (resolved via the same fallback chain as Step 10), the step completes with `outcome: "pass"` and no CI to monitor — `next_step` is `finish` when `finishWork.enabled` is `true`, otherwise `null`. The `ciChecks.enabled` gate is only consulted when a PR was actually created.
-
-**Config gate resolution in routing:** Gate config keys and their defaults are
-declared in `pipeline.json` `gates[]`. Read the gate values from
-`$N1_HOME/config.json` via `n1_config_val` (`.estimation.enabled`,
-`.planReview.reviewPlan`, `.localTesting.enabled`, `.ciChecks.enabled`,
-`.finishWork.enabled`),
-applying the `default` from the matching `gates[]` entry when a key is absent.
-
-**Loop counter in result:** When a fix loop increments a counter, include the updated value:
-
-```bash
-# After QA fix cycle increment
-new_count=$(n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
-n1_emit_step_result "qa" "fail" "fix" "{\"qa_fix_cycle\":$new_count}" "" "$N1_HOME/memory/$ID"
-
-# After review fix cycle increment
-new_count=$(n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
-n1_emit_step_result "review" "fail" "fix" "{\"review_fix_cycle\":$new_count}" "" "$N1_HOME/memory/$ID"
-```
-
-**Telemetry finalization:** In step mode, do NOT run the full "FINALIZE MEMORY" section (Step 12). That section is for the full pipeline's final wrap-up. In step mode, telemetry is finalized per-step: the step's end marker is emitted as part of normal step execution, and the telemetry lock is NOT removed (subsequent step invocations will overwrite it with their own run ID).
-
 ### 12. FINALIZE MEMORY
 
 Update overview.md:
@@ -890,7 +625,7 @@ Update overview.md:
    [ -s "$MERGED" ] && rm -f "${N1_HOME}/memory/$ID/telemetry/telemetry.lock"
    ```
 
-After emitting the final step result, clear the active-run pointer:
+After finalizing, clear the active-run pointer:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 n1_active_run_clear

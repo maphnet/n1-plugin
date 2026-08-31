@@ -91,34 +91,6 @@
     { "name": "investigation-deliverable", "number": 15, "agent": "solution-architect", "reads": ["ticket.md", "analysis.md", "brainstorm.md"], "writes": ["investigation.md"] },
     { "name": "release",        "number": 16, "agent": "n1:n1-release",        "reads": ["overview.md"],                                        "writes": [] }
   ],
-  "signal_gates": [
-    {
-      "step": "brainstorm",
-      "skip_when": { "all": [
-        { "signal": "analysis.has_bug_root_cause", "eq": "true" },
-        { "signal": "analysis.blast_radius", "neq": "high" },
-        { "signal": "analysis.files_changed", "lt": 5 }
-      ]},
-      "reason": "Bug with known root cause, contained blast radius, and few files — brainstorm unnecessary"
-    },
-    {
-      "step": "plan",
-      "skip_when": { "all": [
-        { "signal": "brainstorm.design_clarity", "eq": "high" },
-        { "signal": "analysis.blast_radius", "eq": "low" }
-      ]},
-      "reason": "High design clarity with low blast radius — plan unnecessary"
-    },
-    {
-      "step": "plan-review",
-      "skip_when": { "all": [
-        { "signal": "brainstorm.files_changed", "fallback": "analysis.files_changed", "lt": 3 },
-        { "signal": "brainstorm.blast_radius", "fallback": "analysis.blast_radius", "eq": "low" }
-      ]},
-      "reason": "Small change set with low blast radius — plan-review unnecessary"
-    }
-  ],
-  "safety_invariants": ["qa", "review", "pr"],
   "manual_only": ["release"],
   "gates": [
     { "name": "estimation",    "config_key": "estimation.enabled",     "default": false, "skips": ["estimation"] },
@@ -133,51 +105,5 @@
     { "name": "review_fix",        "trigger_step": "review",        "trigger_outcome": "fail", "fix_step": "fix",            "retry_step": "review",        "counter": "review_fix_cycle",     "max_config_key": "review.maxFixAttempts",       "max_default": 3 },
     { "name": "local_testing_fix", "trigger_step": "local-testing", "trigger_outcome": "fail", "fix_step": "local-test-fix", "retry_step": "local-testing", "counter": "local_test_fix_cycle", "max_config_key": "localTesting.maxFixAttempts", "max_default": 3 },
     { "name": "ci_fix",            "trigger_step": "ci",            "trigger_outcome": "fail", "fix_step": null,             "retry_step": "ci",            "counter": "ci_fix_cycle",         "max_config_key": "ciChecks.maxFixAttempts",     "max_default": 3 }
-  ],
-  "routing": [
-    { "step": "ticket",         "outcome": "pass",       "next": "analysis",       "when": null },
-    { "step": "analysis",       "outcome": "pass",       "next": "brainstorm",     "when": null },
-    { "step": "brainstorm",     "outcome": "pass",       "next": "investigation-deliverable", "when": {"type": "investigation"} },
-    { "step": "brainstorm",     "outcome": "pass",       "next": "plan",           "when": "plan" },
-    { "step": "brainstorm",     "outcome": "pass",       "next": "implementation", "when": "direct" },
-    { "step": "plan",           "outcome": "pass",       "next": "plan-review",    "when": { "config": "planReview.reviewPlan", "eq": true } },
-    { "step": "plan",           "outcome": "pass",       "next": "estimation",     "when": { "all": [ { "config": "planReview.reviewPlan", "eq": false }, { "config": "estimation.enabled", "eq": true } ] } },
-    { "step": "plan",           "outcome": "pass",       "next": "implementation", "when": { "all": [ { "config": "planReview.reviewPlan", "eq": false }, { "config": "estimation.enabled", "neq": true } ] } },
-    { "step": "plan-review",    "outcome": "pass",       "next": "estimation",     "when": { "config": "estimation.enabled", "eq": true } },
-    { "step": "plan-review",    "outcome": "pass",       "next": "implementation", "when": { "config": "estimation.enabled", "neq": true } },
-    { "step": "plan-review",    "outcome": "skip",       "next": "estimation",     "when": { "config": "estimation.enabled", "eq": true } },
-    { "step": "plan-review",    "outcome": "skip",       "next": "implementation", "when": { "config": "estimation.enabled", "neq": true } },
-    { "step": "estimation",     "outcome": "pass",       "next": "implementation", "when": null },
-    { "step": "estimation",     "outcome": "skip",       "next": "implementation", "when": null },
-    { "step": "implementation", "outcome": "pass",       "next": "qa",             "when": null },
-    { "step": "qa",             "outcome": "pass",       "next": "review",         "when": null },
-    { "step": "qa",             "outcome": "fail",       "next": "fix",            "when": { "counter": "qa_fix_cycle", "lt": "qa.maxFixAttempts" } },
-    { "step": "qa",             "outcome": "escalation", "next": null,             "when": { "counter": "qa_fix_cycle", "gte": "qa.maxFixAttempts" } },
-    { "step": "review",         "outcome": "pass",       "next": "local-testing",  "when": { "config": "localTesting.enabled", "eq": true } },
-    { "step": "review",         "outcome": "pass",       "next": "pr",             "when": { "config": "localTesting.enabled", "neq": true } },
-    { "step": "review",         "outcome": "fail",       "next": "fix",            "when": { "counter": "review_fix_cycle", "lt": "review.maxFixAttempts" } },
-    { "step": "review",         "outcome": "escalation", "next": null,             "when": { "counter": "review_fix_cycle", "gte": "review.maxFixAttempts" } },
-    { "step": "fix",            "outcome": "pass",       "next": "qa",             "when": { "overview_step": "qa" } },
-    { "step": "fix",            "outcome": "pass",       "next": "review",         "when": { "overview_step": "review" } },
-    { "step": "local-testing",  "outcome": "pass",       "next": "pr",             "when": null },
-    { "step": "local-testing",  "outcome": "skip",       "next": "pr",             "when": null },
-    { "step": "local-testing",  "outcome": "fail",       "next": null,             "when": null },
-    { "step": "local-testing",  "outcome": "escalation", "next": null,             "when": null },
-    { "step": "pr",             "outcome": "pass",       "next": "ci",             "when": { "all": [ { "config": "ciChecks.enabled", "eq": true }, { "config": "git.prMode", "neq": "skip" } ] } },
-    { "step": "pr",             "outcome": "pass",       "next": "finish",         "when": { "all": [ { "any": [ { "config": "ciChecks.enabled", "neq": true }, { "config": "git.prMode", "eq": "skip" } ] }, { "config": "finishWork.enabled", "eq": true } ] } },
-    { "step": "pr",             "outcome": "pass",       "next": null,             "when": { "any": [ { "config": "ciChecks.enabled", "neq": true }, { "config": "git.prMode", "eq": "skip" } ] } },
-    { "step": "ci",             "outcome": "pass",       "next": "finish",         "when": { "config": "finishWork.enabled", "eq": true } },
-    { "step": "ci",             "outcome": "pass",       "next": null,             "when": null },
-    { "step": "ci",             "outcome": "skip",       "next": "finish",         "when": { "config": "finishWork.enabled", "eq": true } },
-    { "step": "ci",             "outcome": "skip",       "next": null,             "when": null },
-    { "step": "ci",             "outcome": "fail",       "next": null,             "when": null },
-    { "step": "investigation-deliverable", "outcome": "pass", "next": null, "when": null },
-    { "step": "finish",         "outcome": "pass",       "next": null,             "when": null },
-    { "step": "finish",         "outcome": "skip",       "next": null,             "when": null },
-    { "step": "finish",         "outcome": "fail",       "next": null,             "when": null },
-    { "step": "finish",         "outcome": "escalation", "next": null,             "when": null },
-    { "step": "release",        "outcome": "pass",       "next": null,             "when": null },
-    { "step": "release",        "outcome": "skip",       "next": null,             "when": null },
-    { "step": "release",        "outcome": "fail",       "next": null,             "when": null }
   ]
 }

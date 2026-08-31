@@ -364,9 +364,3 @@ echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"
     "${TIER:-maintain}" "${EST:-false}" "${LT:-false}" "${CX:-false}" "${PR:-true}"
 )"'}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
 ```
-
-**Step result (step mode):**
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "ticket" "pass" "analysis" "null" "" "$N1_HOME/memory/$ID"
-```

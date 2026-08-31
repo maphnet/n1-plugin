@@ -74,7 +74,6 @@ Input (ticket or brain dump)
 - **Adaptive routing:** tasks that don't need a formal plan skip straight to implementation
 - **Resume support:** interrupt anytime, `/n1:n1-start TRID-510` picks up where you left off
 - **Confidence-based escalation:** low confidence + high blast radius = stop and ask
-- **Step mode:** `--step <name>` runs a single pipeline step and exits with a structured result
 
 ### `/n1:n1-review` — Code Review
 

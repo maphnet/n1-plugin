@@ -77,9 +77,3 @@ When the gate passes, run estimation at the appropriate pipeline point:
    If the MCP call fails: log "⚠ Estimation time field update failed: <reason>" and continue — non-blocking.
 
 9. **Report.** Log: "Estimated complexity: **<TIER>** — <time>. Basis: <one sentence>"
-
-**Step result (step mode):**
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
-n1_emit_step_result "estimation" "pass" "implementation" "null" "" "$N1_HOME/memory/$ID"
-```

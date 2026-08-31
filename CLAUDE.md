@@ -11,7 +11,7 @@ Russian is prohibited in any committed file.
 
 N1 is a Claude Code plugin that orchestrates the full development cycle using a **hybrid delegation model**: specialized agent personas handle autonomous work, while [Superpowers](https://github.com/obra/superpowers) ^5.0 sub-skills handle interactive steps. It is a **thin controller** (~5-10K tokens per skill).
 
-See [references/architecture.md](references/architecture.md) for pipeline internals, step mode, signal-driven gating, type registry, and all subsystem details.
+See [references/architecture.md](references/architecture.md) for pipeline internals, signal-driven gating, type registry, and all subsystem details.
 See [references/developer-guide.md](references/developer-guide.md) for project structure, plugin development workflow, and authoring conventions.
 
 ## Stack
