@@ -62,12 +62,58 @@ You will receive ONE of four input modes:
      - `false` — the ticket merely mentions investigation as a concept or feature being built/modified (e.g., "fix investigation mode", "update investigation detection logic")
      - The `investigation` tag unconditionally forces `true` regardless of title
 2. **Write raw ticket.md** (see Output Format below)
-3. **Post-fetch: linked error-tracker scan** (only if `errorTrackingUrlPattern` was provided)
+3. **Post-fetch: parent context** (tracker ticket mode only; skip for text/file/error-tracker modes)
+
+   **Purpose:** Surface the parent ticket's description, acceptance criteria, and linked ticket summaries to all downstream agents. Implemented as an append to ticket.md immediately after the main write.
+
+   **Jira path** (when `trackerType == "jira"`):
+
+   1. Inspect the fetched issue response for a `parent` field.
+      - If `parent` is absent: skip this step entirely (flat task — no `### Parent Context` appended).
+      - If `parent` is present: extract `PARENT_ID` = `parent.key` (e.g., `PROJ-42`).
+   2. **Circular guard:** if `PARENT_ID == ticketId`, skip this step entirely.
+   3. Fetch parent: call `mcp__<trackerMcp>__<operations.readTicket>` with `PARENT_ID`.
+      - On failure (any error): append the comment `<!-- parent-context: fetch failed for <PARENT_ID> -->` to ticket.md and end parent-context processing, continuing to the next main process step.
+   4. Extract from parent response:
+      - `parentTitle`: the issue summary/title field.
+      - `parentDescription`: the description field (verbatim).
+      - `parentLinkedTickets`: from the parent's link entries, keep only link types `blocks`, `is blocked by`, `relates to`, `depends on`, `is depended on by` — collect as `<LINK_ID>: <link title> (<link type>)` lines. Exclude `clones`, `is cloned by`, and duplicate link types.
+   5. Append to ticket.md (after existing content, including any `### Comments` section):
+
+      ```
+      ### Parent Context
+      **Parent:** <PARENT_ID>: <parentTitle>
+
+      **Parent Description:**
+      <parentDescription, verbatim>
+
+      **Parent Linked Tickets:**
+      <each parentLinkedTicket on its own line, or "(none)" if no relevant links>
+      ```
+
+   **YouTrack path** (when `trackerType == "youtrack"`):
+
+   1. Check if `operations.getIssueLinks` is present in the `operations` map.
+      - If absent: skip this step entirely (not configured — preserve existing behavior).
+   2. Call `mcp__<trackerMcp>__<operations.getIssueLinks>` with `issueId: ticketId`.
+      - On failure: skip this step entirely (non-blocking).
+   3. From the response, find a link whose type indicates the current ticket is a **child** of another issue. Canonical YouTrack child-side link types are `subtask` and `is a subtask of` (direction: current issue is the subtask/child). Extract `PARENT_ID` from the first matching link's target issue ID.
+      - If no parent-type link found: skip this step entirely (flat task).
+   4. **Circular guard:** if `PARENT_ID == ticketId`, skip this step entirely.
+   5. Fetch parent: call `mcp__<trackerMcp>__<operations.readTicket>` with `PARENT_ID`.
+      - On failure: append `<!-- parent-context: fetch failed for <PARENT_ID> -->` to ticket.md and end parent-context processing, continuing to the next main process step.
+   6. Extract `parentTitle` and `parentDescription` (verbatim) from the parent response.
+   7. Fetch parent's links for linked-ticket summaries: call `mcp__<trackerMcp>__<operations.getIssueLinks>` with `issueId: PARENT_ID`.
+      - On failure: set `parentLinkedTickets` to empty.
+      - On success: `parentLinkedTickets`: from the response, keep only link types `depends on`, `is depended on by`, `relates to`, `blocks`, `is blocked by` — collect as `<LINK_ID>: <link title> (<link type>)` lines.
+   8. Append to ticket.md (same `### Parent Context` format as the Jira path above).
+
+4. **Post-fetch: linked error-tracker scan** (only if `errorTrackingUrlPattern` was provided)
    1. Scan the raw description for a URL matching `errorTrackingUrlPattern`.
-   2. If no match found, skip to step 4.
+   2. If no match found, skip to step 5.
    3. Extract the issue ID from the first matching URL (the numeric segment after `/issues/` in the URL path).
    4. Call `mcp__<errorTrackingMcp>__<errorTrackingOps.getIssue>` with the issue ID (and `orgSlug`, `projectSlug` if provided).
-      - If the call **fails** (timeout, auth error, issue not found): skip silently. Do not append anything. Proceed to step 4 without `linked_error`.
+      - If the call **fails** (timeout, auth error, issue not found): skip silently. Do not append anything. Proceed to step 5 without `linked_error`.
    5. If `errorTrackingOps.getAiAnalysis` exists, also call `mcp__<errorTrackingMcp>__<errorTrackingOps.getAiAnalysis>` with the issue ID. Skip silently on failure.
    6. Append to the raw ticket.md (after the existing content):
       ```
@@ -85,7 +131,7 @@ You will receive ONE of four input modes:
       <analysis content if fetched, or omit this section entirely if not available>
       ```
    7. Set `LINKED_ERROR` = `{"provider": "<provider>", "issueId": "<issueId>", "issueUrl": "<matched URL>"}` for use in the return line.
-4. **Return intake-result** (see Return Line below). For Jira, include `cloudId` in the result.
+5. **Return intake-result** (see Return Line below). For Jira, include `cloudId` in the result.
 
 ### Raw text mode:
 
@@ -133,6 +179,8 @@ Write the following to the specified `ticketMdPath`:
 
 The `### Comments` section is Jira only. Include the last 5 meaningful human comments (skip bot/automated ones). If no comments exist or comments are absent from the response, omit the `### Comments` section entirely.
 
+The `### Parent Context` section is tracker ticket mode only. It is appended by step 3 (parent context fetch) when the ticket has a parent. If the ticket is a flat task (no parent), this section is absent entirely. Downstream agents (product-analyst, solution-architect, developer, qa-engineer) receive parent context automatically by reading ticket.md — no additional changes to those agents are required.
+
 ## Return Line
 
 After writing ticket.md, output this exact line (parseable by the orchestrator):
@@ -146,7 +194,7 @@ For Jira ticket mode, add the resolved cloudId:
 intake-result: {"title": "<title>", "tags": [], "type": "<type>", "cloudId": "<resolved-cloud-id>", "is_investigation": <true|false>}
 ```
 
-For tracker ticket mode when a linked error was detected (step 3 above):
+For tracker ticket mode when a linked error was detected (step 4 above):
 ```
 intake-result: {"title": "<title>", "tags": [...], "type": "bug", "cloudId": "<cloud-id>", "linked_error": {"provider": "<provider>", "issueId": "<id>", "issueUrl": "<url>"}, "is_investigation": false}
 ```

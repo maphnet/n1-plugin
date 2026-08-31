@@ -452,7 +452,8 @@ Set config:
       "createArticle": "create_article",
       "getArticle": "get_article",
       "updateArticle": "update_article",
-      "linkIssues": "link_issues"
+      "linkIssues": "link_issues",
+      "getIssueLinks": "get_issue_links"
     },
     "statuses": {
       "todo": "<detected or manual>",
