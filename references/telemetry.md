@@ -27,7 +27,7 @@ Optional local-first telemetry gated on `telemetry.enabled` in `$N1_HOME/config.
 
 **Lock discovery:** Hooks resolve `N1_HOME` via the standard preamble and glob for `${N1_HOME}/memory/*/telemetry/telemetry.lock`, taking the most recent by mtime when multiple exist. No lock = silent exit (zero overhead for non-telemetry runs).
 
-**ID reconciliation:** Telemetry directories live inside `$N1_HOME/memory/<ID>/`, so the existing Reconcile Memory ID & Worktree procedure moves them automatically when a provisional ID is replaced with a tracker ticket ID.
+**ID reconciliation:** Telemetry directories live inside `$N1_HOME/memory/<ID>/`, so the existing Reconcile Memory ID & Branch procedure moves them automatically when a provisional ID is replaced with a tracker ticket ID.
 
 Hooks use `matcher: "n1:*"` — zero overhead for non-N1 sessions. All collection is async and non-blocking.
 

@@ -110,7 +110,7 @@ If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/ov
 
 | investigation-deliverable | scope | B | [auto] | {SELF_RESOLVED} unknowns answerable from codebase | Self-resolved via Read/Grep/Glob | — | B/C tier classification -- see `<!-- n1:resolved: -->` markers in investigation.md |
 
-**Phase 1b -- Deliverable Q&A**
+**Phase 2 -- Deliverable Q&A**
 
 Extract any NEW unknowns flagged by the solution-architect during deliverable production:
 
@@ -121,7 +121,7 @@ UNKNOWNS=$(grep -oE '<!-- n1:unknown: [^>]+ -->' "$INV_FILE" | sed 's/<!-- n1:un
 UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
 ```
 
-If `UNKNOWN_COUNT` is 0, skip to Phase 2b.
+If `UNKNOWN_COUNT` is 0, skip to Phase 3.
 
 **Problem preamble:** compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` -- call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` -- prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely -- do not fall back to parsing the section body.
 
@@ -154,7 +154,7 @@ UNKNOWNS_ANSWERED=$((UNKNOWNS_ANSWERED_ANALYSIS + UNKNOWNS_ANSWERED_INVEST))
 n1_write_signals "$INV_FILE" "unknowns_resolved=${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
 ```
 
-**Phase 2b -- Tracker Enrichment**
+**Phase 3 -- Tracker Enrichment**
 
 Use `mcp__<tracker.mcp>__` prefix (from session context TRACKER ROUTING) for all tracker calls.
 
@@ -163,7 +163,7 @@ Use `mcp__<tracker.mcp>__` prefix (from session context TRACKER ROUTING) for all
 2. `ticketEnrichment.enabled !== false` in `$N1_HOME/config.json` (default true when absent)
 3. At least one of: `tracker.operations.editTicket` exists OR `tracker.operations.addComment` exists
 
-If the gate fails, log "Tracker enrichment skipped -- no tracker or enrichment disabled." and proceed to Phase 2.
+If the gate fails, log "Tracker enrichment skipped -- no tracker or enrichment disabled." and proceed to Phase 4.
 
 Read config:
 ```bash
@@ -175,7 +175,7 @@ TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
 TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
 ```
 
-**2b-i. KB auto-publish (when KB is configured):**
+**3-i. KB auto-publish (when KB is configured):**
 
 **Gate -- ALL must hold, otherwise skip:**
 1. `kb.enabled == true` in `$N1_HOME/config.json`
@@ -187,7 +187,7 @@ KB_ENABLED=$(n1_config_val ".kb.enabled" "$N1_HOME/config.json")
 HAS_CREATE_ARTICLE=$(n1_config_val ".tracker.operations.createArticle" "$N1_HOME/config.json")
 ```
 
-If either condition fails, set `KB_ARTICLE_LINK=""` and proceed to 2b-ii.
+If either condition fails, set `KB_ARTICLE_LINK=""` and proceed to 3-ii.
 
 **Intent gate:** KB auto-publish requires explicit user intent — `kb.enabled` alone is not sufficient for investigation mode. Read `$N1_HOME/memory/<ID>/ticket.md` and judge whether the user expressed intent to publish findings to a knowledge base, Confluence, wiki, or shared documentation. This is an inline LLM judgment on semantic intent, not a keyword search.
 
@@ -195,7 +195,7 @@ Positive intent examples: "publish results to Confluence", "create a KB article"
 
 Non-intent examples: mentioning KB as research context ("check the KB for prior art"), no mention of KB/publishing at all, referencing existing articles.
 
-If intent is **not** detected (the default path): set `KB_ARTICLE_LINK=""` and proceed to 2b-ii.
+If intent is **not** detected (the default path): set `KB_ARTICLE_LINK=""` and proceed to 3-ii.
 
 If intent **is** detected: proceed with the idempotency check and article creation below.
 
@@ -212,7 +212,7 @@ If intent **is** detected: proceed with the idempotency check and article creati
 
 **Capture link:** Set `KB_ARTICLE_LINK` to the article URL. On failure: log `"Warning: KB article creation failed: <reason>"` — non-blocking, set `KB_ARTICLE_LINK=""`.
 
-**2b-ii. Description update (when `HAS_EDIT` is non-empty):**
+**3-ii. Description update (when `HAS_EDIT` is non-empty):**
 
 1. Fetch current ticket description. Call `tracker.operations.readTicket` via tracker MCP -- Jira: with `cloudId` (from `tracker.cloudId` in config, or resolve via `getAccessibleAtlassianResources` if absent), `issueIdOrKey: <ID>`; YouTrack: with `issueId: <ID>`.
 
@@ -265,7 +265,7 @@ If intent **is** detected: proceed with the idempotency check and article creati
 
 5. Call `tracker.operations.editTicket` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `description: <current>\n\n<append>`; YouTrack: with `issueId: <ID>`, `description: <current>\n\n<append>`. On failure: log "Warning: Investigation description update failed: <reason>" -- non-blocking.
 
-**2b-iii. Comment (when `HAS_COMMENT` is non-empty):**
+**3-iii. Comment (when `HAS_COMMENT` is non-empty):**
 
 Construct comment body:
 ```
@@ -281,7 +281,7 @@ Construct comment body:
 
 Call `tracker.operations.addComment` via tracker MCP -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `body: <comment>`; YouTrack: with `issueId: <ID>`, `text: <comment>`. On failure: log "Warning: Investigation comment failed: <reason>" -- non-blocking.
 
-**Phase 2 -- Discussion**
+**Phase 4 -- Discussion**
 
 Present the investigation deliverable to the user. Extract the following sections from `investigation.md` and print them verbatim (preserve all markdown formatting, tables, and file:line references):
 
@@ -490,7 +490,7 @@ What would you like to do next?
 
 1. Call `tracker.operations.editTicket` via tracker MCP to update type -- Jira: with `cloudId`, `issueIdOrKey: <ID>`, `issueTypeName: "Task"`; YouTrack: with `issueId: <ID>`, `Type: "Task"`. On failure: log and continue.
 
-2. Fetch current description. Check idempotency marker `*Converted to implementation -- N1*` -- skip if present. Otherwise construct append content (use plain bullets for Jira, checkboxes for YouTrack -- see Jira formatting rule in Phase 2b):
+2. Fetch current description. Check idempotency marker `*Converted to implementation -- N1*` -- skip if present. Otherwise construct append content (use plain bullets for Jira, checkboxes for YouTrack -- see Jira formatting rule in Phase 3):
    ```
    ---
    *Converted to implementation -- N1*

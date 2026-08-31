@@ -123,3 +123,106 @@ n1_compact_memory() {
 
     rm -f "$tmpkeep"
 }
+
+# n1_append_key_decision <overview_path> <decision_text>
+# Appends a bullet entry to the ## Key Decisions section of an overview file.
+#
+# Behavior:
+#   - If ## Key Decisions is found and contains "(none yet)", replaces that line
+#     with "- <decision_text>"
+#   - If ## Key Decisions is found without "(none yet)", appends "- <decision_text>"
+#     after the last content line of the section (before the next ## heading or EOF)
+#   - If ## Key Decisions is absent, creates the section before ## Escalations
+#     (or at EOF if ## Escalations is also absent)
+# No deduplication — entries are event-style.
+n1_append_key_decision() {
+    local file="$1" text="$2"
+
+    [ -f "$file" ] || return 1
+    [ -n "$text" ] || return 1
+
+    awk -v entry="- ${text}" '
+    BEGIN {
+        found_section = 0
+        in_section    = 0
+        replaced_none = 0
+        section_end   = -1
+        n              = 0
+    }
+
+    {
+        lines[n] = $0
+        n++
+    }
+
+    END {
+        # Locate the ## Key Decisions section
+        sec_start = -1
+        sec_end   = -1
+        for (i = 0; i < n; i++) {
+            if (lines[i] ~ /^## Key Decisions[[:space:]]*$/) {
+                sec_start = i
+                continue
+            }
+            if (sec_start >= 0 && sec_end < 0 && i > sec_start && lines[i] ~ /^## /) {
+                sec_end = i
+                break
+            }
+        }
+        if (sec_start >= 0 && sec_end < 0) sec_end = n  # section runs to EOF
+
+        if (sec_start >= 0) {
+            # Check for "(none yet)" placeholder
+            none_idx = -1
+            for (i = sec_start + 1; i < sec_end; i++) {
+                if (index(lines[i], "(none yet)") > 0) {
+                    none_idx = i
+                    break
+                }
+            }
+            if (none_idx >= 0) {
+                # Replace placeholder line
+                for (i = 0; i < n; i++) {
+                    if (i == none_idx) print entry
+                    else print lines[i]
+                }
+            } else {
+                # Append after last non-blank line in section (before sec_end)
+                last_content = sec_start  # fallback: right after heading
+                for (i = sec_start + 1; i < sec_end; i++) {
+                    if (lines[i] !~ /^[[:space:]]*$/) last_content = i
+                }
+                insert_after = (last_content > sec_start) ? last_content : sec_start
+                for (i = 0; i < n; i++) {
+                    print lines[i]
+                    if (i == insert_after) print entry
+                }
+            }
+        } else {
+            # Section absent — find ## Escalations or use EOF
+            esc_idx = -1
+            for (i = 0; i < n; i++) {
+                if (lines[i] ~ /^## Escalations[[:space:]]*$/) {
+                    esc_idx = i
+                    break
+                }
+            }
+            if (esc_idx >= 0) {
+                # Insert new section before ## Escalations
+                for (i = 0; i < esc_idx; i++) print lines[i]
+                print ""
+                print "## Key Decisions"
+                print entry
+                print ""
+                for (i = esc_idx; i < n; i++) print lines[i]
+            } else {
+                # Append at EOF
+                for (i = 0; i < n; i++) print lines[i]
+                print ""
+                print "## Key Decisions"
+                print entry
+            }
+        }
+    }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
