@@ -110,7 +110,7 @@ fi
 
 **Workspace isolation (ticket and error-tracker modes)**
 
-If `INVESTIGATION_DETECTED` is false AND the input mode is "ticket" or "error-tracker" (i.e., the `<ID>` is already known from intake): run the workspace isolation procedure now. If `N1_MANAGED_WORKTREE` is true, run **Rename N1-Managed Worktree(`<ID>`)** (renames the current worktree to match the ticket ID if needed). Otherwise, run **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** when `USE_WORKTREE` is false. For investigation tasks, no branch or worktree is created — all output goes to `$N1_HOME/memory/<ID>/` only.
+If `INVESTIGATION_DETECTED` is false AND the input mode is "ticket" or "error-tracker" (i.e., the `<ID>` is already known from intake): run the workspace isolation procedure now — **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise. For investigation tasks, no branch or worktree is created — all output goes to `$N1_HOME/memory/<ID>/` only.
 
 Note: overview.md may not exist yet at this point (for ticket mode it does because we already resolved `<ID>`; for brain dump/file/error-tracker the ID may still be provisional). If overview.md does not exist yet, store the investigation flag in context and write it after overview.md is created (see "Write resolved type to overview.md" below).
 
@@ -216,7 +216,7 @@ If `MP` is `ask` (default), ask:
 5. The returned ticket ID is the final `<ID>`. Adopt it:
    - Provisional ID: description slug (brain dump) or filename slug (file mode) if `source_mode == braindump`; `sentry-<issueId>` if `source_mode == error-tracker`.
    - Run **Reconcile Memory ID & Branch(`<provisional>`, `<ticketID>`)** (a no-op in the clean path; moves any leaked slug memory folder and renames the slug branch if drift occurred).
-   - Set `<ID>` = `<ticketID>`. If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: if `N1_MANAGED_WORKTREE` is true, run **Rename N1-Managed Worktree(`<ticketID>`)**; otherwise, run **Ensure Worktree(`<ticketID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ticketID>`)** when `USE_WORKTREE` is false.
+   - Set `<ID>` = `<ticketID>`. If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Worktree(`<ticketID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ticketID>`)** otherwise.
 6. Extract the ticket URL from the MCP response (YouTrack returns it in the response body; for Jira construct it as `https://<cloud>/browse/<key>` from the response).
 7. **Assign to creator.** Skip if ANY of: `tracker.assignToCreator === false`, `tracker.operations.getCurrentUser` missing, `tracker.operations.assign` missing.
    - Resolve current user: call `<tracker.operations.getCurrentUser>` (no args).
@@ -231,7 +231,7 @@ If `MP` is `ask` (default), ask:
 
 **If 2 (No):**
 - Final `<ID>`: description slug (brain dump) or filename slug (file mode) if `source_mode == braindump`; `sentry-<issueId>` if `source_mode == error-tracker`.
-- If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: if `N1_MANAGED_WORKTREE` is true, run **Rename N1-Managed Worktree(`<ID>`)**; otherwise, run **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** when `USE_WORKTREE` is false.
+- If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise.
 - Skip tracker status updates throughout the pipeline.
 
 **If no tracker is configured** (error-tracker mode only — brain-dump/file mode is already gated by the outer `if` above):

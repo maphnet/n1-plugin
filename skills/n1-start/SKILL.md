@@ -166,13 +166,9 @@ Determine workspace isolation mode using this resolution order:
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 WORKTREE_MODE=$(n1_config_val '.worktree.mode')
 EXTERNAL_WORKTREE=false
-N1_MANAGED_WORKTREE=false
 
 if [ "$WORKTREE_MODE" = "external" ] || n1_is_external_worktree; then
     EXTERNAL_WORKTREE=true
-    USE_WORKTREE=false
-elif N1_MANAGED_WT_NAME=$(n1_n1_worktree_name); then
-    N1_MANAGED_WORKTREE=true
     USE_WORKTREE=false
 elif [ "$BRANCH_FLAG" = "true" ]; then
     USE_WORKTREE=false         # --branch flag overrides config
@@ -185,8 +181,7 @@ fi
 
 | Condition | Isolation | Rationale |
 |---|---|---|
-| `worktree.mode: "external"` or auto-detected external worktree | **External** -- reuse current checkout and branch | Running inside an existing worktree |
-| Auto-detected N1-managed worktree (under `.claude/worktrees/`) | **Reuse + rename** -- reuse current worktree, rename to ticket ID if needed | Running inside a pre-existing N1-managed worktree |
+| `worktree.mode: "external"` or auto-detected external worktree | **External** — reuse current checkout and branch | Running inside an existing worktree |
 | `--branch` flag | **Branch** in current checkout | Explicit user override for this run |
 | `worktree.mode: "branch"` | **Branch** in current checkout | User prefers branch isolation |
 | Default | **Worktree** | Isolated workspace, no IDE conflicts |
@@ -195,13 +190,6 @@ When `EXTERNAL_WORKTREE` is true, skip both Ensure Worktree and Ensure Working B
 
     source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
     n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "$WORKTREE_PATH" "$BRANCH"
-
-When `N1_MANAGED_WORKTREE` is true, skip both Ensure Worktree and Ensure Working Branch -- the run operates inside the existing N1-managed worktree. Set `WORKTREE_PATH=$(git rev-parse --show-toplevel)` and `BRANCH=$(git branch --show-current)`, then record branch-point: `git merge-base HEAD <defaultBranch>` (fall back to `git rev-parse <defaultBranch>` for shallow clones). Then immediately call:
-
-    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-    n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "$WORKTREE_PATH" "$BRANCH"
-
-The rename to match the ticket ID happens later, after the ID is resolved (see Rename N1-Managed Worktree below).
 
 This explicit write is necessary because the initial active-run write in Telemetry Initialization runs before isolation mode resolution and records null values; ID reconciliation is a no-op when the user provides the ticket ID explicitly, so there is no later write to rely on. When `USE_WORKTREE` is true (and not external), use **Ensure Worktree(`<ID>`)**. When `USE_WORKTREE` is false (and not external), use **Ensure Working Branch(`<ID>`).**
 
@@ -369,39 +357,6 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
    n1_active_run_write "$newId" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
    ```
 
-**PROCEDURE: Rename N1-Managed Worktree (`<ID>`)**
-
-Called when `N1_MANAGED_WORKTREE` is true, after the ticket ID is resolved. Renames the current worktree directory to match the ticket ID using `git worktree move`.
-
-1. **If `N1_MANAGED_WT_NAME` == `<ID>`** -- return (worktree name already matches).
-
-2. **Collision check.** Compute target path:
-   ```bash
-   MAIN_CHECKOUT=$(dirname "$(cd "$WORKTREE_PATH" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" && pwd -P)")
-   TARGET_PATH="$MAIN_CHECKOUT/.claude/worktrees/<ID>"
-   ```
-   If `TARGET_PATH` already exists -- report warning: "Cannot rename worktree: `<TARGET_PATH>` already exists. Continuing with current path." Return without error.
-
-3. **Rename:**
-   ```bash
-   git worktree move "$WORKTREE_PATH" "$TARGET_PATH"
-   ```
-   If `git worktree move` fails -- report warning with stderr. Return without error (the pipeline continues with the old path).
-
-4. **Update state and CWD:**
-   ```bash
-   WORKTREE_PATH="$TARGET_PATH"
-   cd "$WORKTREE_PATH"
-   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-   n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "$WORKTREE_PATH" "$BRANCH"
-   ```
-   The `cd` is critical: the orchestrator's CWD pointed to the old (now-deleted) path. Without it, all subsequent Bash commands fail with "no such file or directory."
-
-5. Report: "Renamed worktree `<N1_MANAGED_WT_NAME>` to `<ID>` at `$WORKTREE_PATH`."
-
-6. **IDE hint.** Print:
-   > Open this directory in your IDE: `$WORKTREE_PATH`
-
 ### Agent Working Directory
 
 When `USE_WORKTREE` is true and `WORKTREE_PATH` is set, pass this directive to every agent spawn that reads or modifies source code (qa-engineer, code-reviewer, security-reviewer, developer in fix cycles, tech-writer, solution-architect for local testing):
@@ -437,7 +392,7 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
   TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
   ```
-  When `TYPE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). When `EXTERNAL_WORKTREE` is true, skip workspace isolation entirely — the external checkout is reused (set `WORKTREE_PATH` and `BRANCH` from git as described in Isolation Mode Resolution above). Otherwise, run the appropriate workspace isolation procedure: if `N1_MANAGED_WORKTREE` is true, run **Rename N1-Managed Worktree(`<ID>`)**; otherwise, run **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** when `USE_WORKTREE` is false (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
+  When `TYPE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). When `EXTERNAL_WORKTREE` is true, skip workspace isolation entirely — the external checkout is reused (set `WORKTREE_PATH` and `BRANCH` from git as described in Isolation Mode Resolution above). Otherwise, run the appropriate workspace isolation procedure: **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"

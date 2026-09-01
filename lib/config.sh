@@ -331,27 +331,6 @@ n1_is_external_worktree() {
     return 0
 }
 
-# If running inside an N1-managed worktree (.claude/worktrees/<name>/),
-# print the worktree directory basename to stdout and return 0.
-# Return 1 otherwise (not a worktree, or external worktree).
-n1_n1_worktree_name() {
-    local git_dir git_common_dir toplevel
-    git_dir=$(git rev-parse --git-dir 2>/dev/null) || return 1
-    git_common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
-    git_dir=$(cd "$git_dir" && pwd -P)
-    git_common_dir=$(cd "$git_common_dir" && pwd -P)
-    # Not a linked worktree
-    [ "$git_dir" != "$git_common_dir" ] || return 1
-    toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
-    case "$toplevel" in
-        */.claude/worktrees/*)
-            basename "$toplevel"
-            return 0
-            ;;
-    esac
-    return 1
-}
-
 escape_json_val() {
     local s="$1"
     s="${s//\\/\\\\}"
