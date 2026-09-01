@@ -11,17 +11,20 @@ n1_home() {
     fi
 
     # 2. Auto-derive from repo name: $HOME/.n1/<slug>
-    local slug
-    slug=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
-    [ -z "$slug" ] && slug=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
-    if [ -n "$slug" ]; then
-        slug=$(printf '%s' "$slug" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
-        home="${HOME}/.n1/${slug}"
+    # Try both remote-URL and directory-name slugs — n1-init historically used
+    # directory name, so existing setups may only match that.
+    local slug_remote slug_dir candidate
+    slug_remote=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
+    slug_dir=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
+    for candidate in "$slug_remote" "$slug_dir"; do
+        [ -n "$candidate" ] || continue
+        candidate=$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+        home="${HOME}/.n1/${candidate}"
         if [ -d "$home" ]; then
             printf '%s' "$home"
             return
         fi
-    fi
+    done
 
     # 3. Legacy: git config n1.home (backward compat)
     home=$(git config n1.home 2>/dev/null || true)

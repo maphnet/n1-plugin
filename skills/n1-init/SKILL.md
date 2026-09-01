@@ -92,9 +92,11 @@ After all missing sections are processed, merge results into the existing `confi
 
 When an old `.n1/n1.config.json` is detected:
 
-1. Compute project name:
+1. Compute project name (remote URL preferred, directory name fallback — must match `n1_home()` resolution):
    ```bash
-   PROJECT_NAME=$(basename "$(git rev-parse --show-toplevel)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+   _raw=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
+   [ -z "$_raw" ] && _raw=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
+   PROJECT_NAME=$(printf '%s' "$_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
    ```
 
 2. Prompt:
@@ -1976,7 +1978,9 @@ The `models` object is empty by default — agent model defaults come from agent
 
 **Directory structure** (fresh setup only — migration handles this in the Migration Flow):
 ```bash
-PROJECT_NAME=$(basename "$(git rev-parse --show-toplevel)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+_raw=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
+[ -z "$_raw" ] && _raw=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
+PROJECT_NAME=$(printf '%s' "$_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
 N1_HOME="$HOME/.n1/$PROJECT_NAME"
 mkdir -p "$N1_HOME/memory"
 git config --unset n1.home 2>/dev/null || true

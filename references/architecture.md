@@ -43,7 +43,7 @@ N1 state is **externalized** to `~/.n1/<project>/` (the `N1_HOME` directory). Th
 **N1_HOME resolution** (single source of truth: `lib/config.sh:n1_home()`):
 
 1. `$N1_HOME` env var — if set, used as-is (platform-local override for cross-platform repos)
-2. Auto-derive: `$HOME/.n1/<slug>/` where slug is `basename $(git remote get-url origin) .git`, lowercased and sanitized (if the directory exists)
+2. Auto-derive: `$HOME/.n1/<slug>/` — tries remote-URL slug first (`basename $(git remote get-url origin) .git`), then directory-name slug (`basename $(git rev-parse --show-toplevel)`), both lowercased and sanitized; returns whichever matches an existing directory
 3. `git config n1.home` — legacy backward compat; tilde expansion; WSL `wslpath` conversion
 4. In-repo `.n1/` fallback (legacy unmigrated projects)
 

@@ -48,7 +48,7 @@ Do NOT install N1 as a user-scope plugin for local development.
 Resolution priority (all paths go through `n1_home()` in `lib/config.sh`):
 
 1. `$N1_HOME` env var — if set, used as-is (platform-local override)
-2. Auto-derive from repo name: `$HOME/.n1/<slug>/` (if directory exists). Slug from `git remote get-url origin` basename, falling back to repo directory basename, lowercased and sanitized.
+2. Auto-derive from repo name: `$HOME/.n1/<slug>/` (if directory exists). Tries remote-URL slug (`git remote get-url origin` basename) first, then directory-name slug (`git rev-parse --show-toplevel` basename); both lowercased and sanitized; returns whichever matches an existing directory.
 3. `git config n1.home` — legacy backward compat; expand `~`; WSL `wslpath` conversion
 4. In-repo `.n1/` fallback
 
