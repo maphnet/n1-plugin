@@ -264,14 +264,11 @@ CMD_OPEN_FIRST
 
 n1_deny_hook_register() {
     local settings_file=".claude/settings.local.json"
-    # Self-resolving hook command: reads n1.home from git config at hook
-    # execution time and converts it to the running bash's path convention using
-    # wslpath (WSL), cygpath (MSYS2/Git Bash), or no conversion (macOS/Linux).
-    # This avoids hardcoding a path format that only works for one bash variant —
-    # critical on Windows where the hook runner (WSL or Git Bash) may differ from
-    # the bash used during registration. No double-quotes inside the payload so
-    # the string embeds safely in JSON without escaping.
-    local hook_cmd='bash -c '"'"'h=$(git config n1.home 2>/dev/null);[ -z $h ]&&exit 0;case $h in ~/*) h=$HOME${h#~};; esac;if command -v wslpath>/dev/null 2>&1;then nh=$(wslpath -u $h 2>/dev/null)&&h=$nh;elif command -v cygpath>/dev/null 2>&1;then nh=$(cygpath -u $h 2>/dev/null)&&h=$nh;fi;s=$h/hooks/rules-deny.sh;[ -f $s ]&&exec bash $s'"'"''
+    # Self-resolving hook command: derives N1_HOME at hook execution time.
+    # Priority: $N1_HOME env var > auto-derive from repo name > git config n1.home.
+    # Path conversion via wslpath (WSL) or cygpath (MSYS2/Git Bash) for cross-platform.
+    # No double-quotes inside the payload so the string embeds safely in JSON.
+    local hook_cmd='bash -c '"'"'if [ -n "${N1_HOME:-}" ];then h=$N1_HOME;else g=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null);[ -z "$g" ]&&g=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null);g=$(printf %s "$g"|tr "[:upper:]" "[:lower:]"|sed "s/[^a-z0-9._-]/-/g;s/--*/-/g;s/^-//;s/-$//");if [ -n "$g" ]&&[ -d "$HOME/.n1/$g" ];then h=$HOME/.n1/$g;else h=$(git config n1.home 2>/dev/null);[ -z "$h" ]&&exit 0;case $h in ~/*) h=$HOME${h#~};; esac;fi;fi;if command -v wslpath>/dev/null 2>&1;then nh=$(wslpath -u $h 2>/dev/null)&&h=$nh;elif command -v cygpath>/dev/null 2>&1;then nh=$(cygpath -u $h 2>/dev/null)&&h=$nh;fi;s=$h/hooks/rules-deny.sh;[ -f $s ]&&exec bash $s'"'"''
 
     mkdir -p "$(dirname "$settings_file")"
 

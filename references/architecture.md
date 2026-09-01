@@ -38,18 +38,19 @@ Neither command transitions ticket status or creates branches. Both mention `/n1
 
 ## Per-Ticket Memory (`$N1_HOME/`)
 
-N1 state is **externalized** to `~/.n1/<project>/` (the `N1_HOME` directory), discovered via `git config n1.home`. This directory is set by `n1-init` and read by all skills and hooks. It never lives inside the project tree, so it requires no gitignore entry.
+N1 state is **externalized** to `~/.n1/<project>/` (the `N1_HOME` directory). This directory is set by `n1-init` and read by all skills and hooks via `n1_home()` in `lib/config.sh`. It never lives inside the project tree, so it requires no gitignore entry.
 
-**N1_HOME resolution (skills):** run `git config n1.home`; expand `~`; if empty, fall back to `.n1` in the project root (backward compat for unmigrated projects).
+**N1_HOME resolution** (single source of truth: `lib/config.sh:n1_home()`):
 
-**N1_HOME resolution (hooks — bash preamble):**
+1. `$N1_HOME` env var — if set, used as-is (platform-local override for cross-platform repos)
+2. Auto-derive: `$HOME/.n1/<slug>/` where slug is `basename $(git remote get-url origin) .git`, lowercased and sanitized (if the directory exists)
+3. `git config n1.home` — legacy backward compat; tilde expansion; WSL `wslpath` conversion
+4. In-repo `.n1/` fallback (legacy unmigrated projects)
+
+**All skills and hooks** resolve via:
 ```bash
-N1_HOME=$(git config n1.home 2>/dev/null || true)
-if [ -n "$N1_HOME" ]; then
-    N1_HOME="${N1_HOME/#\~/$HOME}"
-else
-    N1_HOME="${PWD}/.n1"  # backward compat
-fi
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_HOME=$(n1_home)
 ```
 
 Config file: `$N1_HOME/config.json` (renamed from `n1.config.json` in v2.0.0).
@@ -311,7 +312,7 @@ Note: Sonnet 4.6 supports effort levels low, medium, high, and max (no xhigh).
 
 ## Session Start Hook
 
-`hooks/session-start.sh` fires on session start/resume/clear/compact. It resolves `N1_HOME` via `git config n1.home` (falling back to `.n1/` in the project root for unmigrated projects), then reads `$N1_HOME/config.json` and injects context telling Claude to prefer N1 skills. When a tracker is configured, it also injects a **TRACKER ROUTING** directive containing the tracker type, MCP server name, full operations map, and a negative instruction to never use any other MCP server. This keeps the correct MCP server name in the model's attention window throughout the session. After running `n1-init`, the user must `/clear` or restart to pick up the new config.
+`hooks/session-start.sh` fires on session start/resume/clear/compact. It resolves `N1_HOME` via `n1_home()` from `lib/config.sh` (env var → auto-derive from repo name → legacy git config → in-repo `.n1/`), then reads `$N1_HOME/config.json` and injects context telling Claude to prefer N1 skills. When a tracker is configured, it also injects a **TRACKER ROUTING** directive containing the tracker type, MCP server name, full operations map, and a negative instruction to never use any other MCP server. This keeps the correct MCP server name in the model's attention window throughout the session. After running `n1-init`, the user must `/clear` or restart to pick up the new config.
 
 ## Escalation Model
 

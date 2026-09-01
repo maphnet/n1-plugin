@@ -45,17 +45,14 @@ Do NOT install N1 as a user-scope plugin for local development.
 
 ## N1_HOME Resolution
 
-**Skills:** `git config n1.home`; expand `~`; fall back to `.n1/` in project root.
+Resolution priority (all paths go through `n1_home()` in `lib/config.sh`):
 
-**Hooks bash preamble:**
-```bash
-N1_HOME=$(git config n1.home 2>/dev/null || true)
-if [ -n "$N1_HOME" ]; then
-    N1_HOME="${N1_HOME/#\~/$HOME}"
-else
-    N1_HOME="${PWD}/.n1"
-fi
-```
+1. `$N1_HOME` env var — if set, used as-is (platform-local override)
+2. Auto-derive from repo name: `$HOME/.n1/<slug>/` (if directory exists). Slug from `git remote get-url origin` basename, falling back to repo directory basename, lowercased and sanitized.
+3. `git config n1.home` — legacy backward compat; expand `~`; WSL `wslpath` conversion
+4. In-repo `.n1/` fallback
+
+**Skills:** `source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"` then `N1_HOME=$(n1_home)`.
 
 Config: `$N1_HOME/config.json`
 

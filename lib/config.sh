@@ -3,16 +3,38 @@
 
 n1_home() {
     local home
+
+    # 1. Env-var override (highest priority — platform-local, user-controlled)
+    if [ -n "${N1_HOME:-}" ]; then
+        printf '%s' "$N1_HOME"
+        return
+    fi
+
+    # 2. Auto-derive from repo name: $HOME/.n1/<slug>
+    local slug
+    slug=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
+    [ -z "$slug" ] && slug=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
+    if [ -n "$slug" ]; then
+        slug=$(printf '%s' "$slug" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+        home="${HOME}/.n1/${slug}"
+        if [ -d "$home" ]; then
+            printf '%s' "$home"
+            return
+        fi
+    fi
+
+    # 3. Legacy: git config n1.home (backward compat)
     home=$(git config n1.home 2>/dev/null || true)
     if [ -n "$home" ]; then
         home="${home/#\~/$HOME}"
-        # Convert Windows paths (C:/...) to WSL paths when running under WSL
         if [ -n "${WSL_DISTRO_NAME:-}" ] && [[ "$home" =~ ^[A-Z]:/ ]]; then
             home=$(wslpath -u "$home" 2>/dev/null) || true
         fi
         printf '%s' "$home"
         return
     fi
+
+    # 4. Legacy: in-repo .n1/
     if [ -f "${PWD}/.n1/n1.config.json" ]; then
         printf '%s' ".n1"
         return

@@ -113,7 +113,7 @@ Interactive wizard:
 5. Detects and configures error tracking (Sentry)
 6. Configures estimation (off by default — complexity tier → delivery time)
 7. Configures agent models (defaults or custom per-agent)
-8. Creates `~/.n1/<project>/` state directory and sets `git config n1.home` (v1 projects: offers migration from `.n1/`)
+8. Creates `~/.n1/<project>/` state directory (v1 projects: offers migration from `.n1/`)
 9. Adds `.claude/worktrees/` to `.gitignore`
 
 ### `/n1:n1-estimate` — Task Estimation
@@ -142,7 +142,7 @@ Removes the git worktree for a ticket after work is done or abandoned. Use when 
 | YouTrack | `youtrack` | Supported |
 | None | — | Works without tracker |
 
-Tracker routing is config-driven via `~/.n1/<project>/config.json` (discovered via `git config n1.home`) — all MCP tool names are mapped through operations presets populated by `n1-init`.
+Tracker routing is config-driven via `~/.n1/<project>/config.json` (auto-derived from repo name at runtime) — all MCP tool names are mapped through operations presets populated by `n1-init`.
 
 Created tickets can optionally be tagged with a service name. When `ticketTagging.enabled` is set (off by default; configured by `n1-init`), N1-created tickets get a `{service} | <title>` summary prefix and a `**Service:** <service>` line in the description.
 

@@ -1,6 +1,6 @@
 ---
 name: n1-init
-description: "Set up N1 for a project. Creates externalized state at ~/.n1/<project>/, config.json, sets git config n1.home, and enriches CLAUDE.md with project conventions."
+description: "Set up N1 for a project. Creates externalized state at ~/.n1/<project>/, config.json, and enriches CLAUDE.md with project conventions."
 model: sonnet
 effort: low
 ---
@@ -9,7 +9,7 @@ effort: low
 
 ## Overview
 
-Initialize N1 for the current project. This creates the externalized N1 state directory at `~/.n1/<project-name>/`, generates `config.json` with tracker and git settings, sets `git config n1.home`, configures worktree setup, and optionally enriches CLAUDE.md with detected project conventions.
+Initialize N1 for the current project. This creates the externalized N1 state directory at `~/.n1/<project-name>/`, generates `config.json` with tracker and git settings, configures worktree setup, and optionally enriches CLAUDE.md with detected project conventions. N1_HOME is auto-derived at runtime from the repo name — no git config needed.
 
 **Announce at start:** "I'm using the n1-init skill to set up N1 for this project."
 
@@ -27,7 +27,7 @@ Check if CLAUDE.md exists in the project root:
 
 Check for N1 configuration in priority order:
 
-1. **New-format config:** Run `git config n1.home`. If it returns a path, expand `~` and check if `$N1_HOME/config.json` exists.
+1. **New-format config:** Resolve N1_HOME by running `source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
    - **If exists:** Load the config and check for missing top-level keys against the **Expected Config Keys** list below. Then branch:
      - **If no missing keys:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Ask: "Reconfigure? **1** — Yes / **2** — No". If no — **STOP.** If yes — continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
      - **If missing keys found:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Then show:
@@ -122,9 +122,9 @@ When an old `.n1/n1.config.json` is detected:
           cp -r .n1/memory/* "$HOME/.n1/$PROJECT_NAME/memory/" 2>/dev/null || true
       fi
       ```
-   e. Set git config:
+   e. Remove legacy git config if present:
       ```bash
-      git config n1.home "$HOME/.n1/$PROJECT_NAME"
+      git config --unset n1.home 2>/dev/null || true
       ```
    f. Auto-detect `worktree.setup` (see **Worktree Setup Detection** below) and add to config
    g. Add `.claude/worktrees/` to gitignore (see **`.gitignore` configuration** below)
@@ -149,17 +149,13 @@ When an old `.n1/n1.config.json` is detected:
    k. Continue to **Analyze Repository** (skip the fresh setup sections that the migration already handled)
 
 4. **If 2 (No — decline migration):**
-   a. Set git config explicitly to relative path:
-      ```bash
-      git config n1.home .n1
-      ```
-   b. Rename config file in place:
+   a. Rename config file in place:
       ```bash
       mv .n1/n1.config.json .n1/config.json
       ```
-   c. Update the config content: add `"version": "2.0.0"` field
-   d. Warn: "State will remain in the project root. Worktree isolation requires externalized state (absolute N1_HOME) — run n1-init again to migrate later."
-   e. Continue to **Analyze Repository** (for CLAUDE.md enrichment and any new config fields)
+   b. Update the config content: add `"version": "2.0.0"` field
+   c. Warn: "State will remain in the project root. Worktree isolation requires externalized state (absolute N1_HOME) — run n1-init again to migrate later."
+   d. Continue to **Analyze Repository** (for CLAUDE.md enrichment and any new config fields)
 
 ## Analyze Repository
 
@@ -1983,7 +1979,7 @@ The `models` object is empty by default — agent model defaults come from agent
 PROJECT_NAME=$(basename "$(git rev-parse --show-toplevel)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
 N1_HOME="$HOME/.n1/$PROJECT_NAME"
 mkdir -p "$N1_HOME/memory"
-git config n1.home "$N1_HOME"
+git config --unset n1.home 2>/dev/null || true
 ```
 
 Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is not carried forward.
@@ -2132,7 +2128,7 @@ PR mode: draft / ready / skip
 Created:
   ~/.n1/<project-name>/config.json
   ~/.n1/<project-name>/memory/
-  git config n1.home set
+  N1_HOME auto-derived from repo name (no git config needed)
   .gitignore configured (.claude/worktrees/ — global or project-level)
   .claude/settings.json updated (if pinning configured)
 

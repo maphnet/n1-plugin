@@ -30,7 +30,7 @@ All config reads use `$N1_HOME/config.json`. All memory paths use `$N1_HOME/memo
 
 Read `$N1_HOME/config.json` (resolved via N1_HOME Resolution above):
 
-- **If N1_HOME could not be resolved** (no `git config n1.home` and no `.n1/n1.config.json`): Tell the user: "N1 is not configured for this project. Would you like to run `/n1:n1-init` to set it up?" **Wait for response.** If yes — invoke `/n1:n1-init`, then resume. If no — **STOP.**
+- **If N1_HOME could not be resolved** (no matching `~/.n1/<repo-name>/` directory, no `git config n1.home`, and no `.n1/` in project root): Tell the user: "N1 is not configured for this project. Would you like to run `/n1:n1-init` to set it up?" **Wait for response.** If yes — invoke `/n1:n1-init`, then resume. If no — **STOP.**
 - **If resolved:** Continue.
 
 ## Telemetry Initialization
