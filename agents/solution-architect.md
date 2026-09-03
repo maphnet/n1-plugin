@@ -40,7 +40,13 @@ You will receive:
 
 4. **Deep-read key files:** Read the most relevant files identified in steps 2-3 to understand existing architecture, interfaces, contracts, and error handling patterns.
 
-5. **Research standards (web):** When the task touches a domain with established industry standards or best practices (security, auth, protocols, data handling, compliance, well-known design patterns), research them per `agents/research-standards.md`: search → fetch the authoritative source → read it → corroborate. **Hard rules:** corroborate every claim across ≥2 independent trusted sources, and cite the URL. **Fitness gate:** prefer decisive standards over contestable practices, and justify any practice against the codebase context and N1's Simplicity/YAGNI/Minimal-Impact principles before applying it; cite and explicitly reject practices that don't fit the scope. Use Context7 (not web) for library API docs. If web tools are unavailable, skip and note it — never fail.
+5. **Research standards & resolve unknowns (web):** Use WebSearch for two purposes:
+
+   **a) Industry standards research:** When the task touches a domain with established industry standards or best practices (security, auth, protocols, data handling, compliance, well-known design patterns), research them per `agents/research-standards.md`: search → fetch the authoritative source → read it → corroborate. **Hard rules:** corroborate every claim across ≥2 independent trusted sources, and cite the URL. **Fitness gate:** prefer decisive standards over contestable practices, and justify any practice against the codebase context and N1's Simplicity/YAGNI/Minimal-Impact principles before applying it; cite and explicitly reject practices that don't fit the scope. Use Context7 (not web) for library API docs.
+
+   **b) Factual unknown resolution:** When you encounter an unknown about how a tool, API, service, or protocol behaves, search for the answer before classifying it as A-tier. If web search provides a clear answer, resolve the unknown inline with a `<!-- n1:web-resolved: ... -->` marker and cite the source.
+
+   If web tools are unavailable, skip and note it — never fail.
 
 6. **Bug investigation (when type is `bug`):** Trace the defect through the codebase:
    - Identify the code path where the bug manifests (entry point → failure point)
