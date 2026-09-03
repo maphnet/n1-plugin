@@ -35,15 +35,18 @@ Resolve model for `solution-architect` with context `analysis`.
 
 - **Type:** Extract via `grep -m1 -i '^\*\*Type:\*\*' "$N1_HOME/memory/$ID/ticket.md"` and pass the value explicitly so the architect knows whether to perform bug investigation.
 - **Scratch-artifact policy:** "Write any throwaway benchmark or investigative/spike test (one that answers a current question rather than verifying committed code) under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (both gitignored; create the directory if needed) — never into the repo's test suite. Tests that verify the implementation still go into the repo as usual. When unsure, default to scratch."
-- **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan.
+- **Unknown classification directive:** "When you encounter a constraint, assumption, or ambiguity not covered by the ticket description, classify it before acting:
 
-    When you encounter a constraint, assumption, or ambiguity not covered by the ticket description, classify it before acting:
-
-    - **A -- blocking:** Only a human can answer -- business intent, stakeholder preference, requirement ambiguity with no codebase evidence either way. Mark with `<!-- n1:unknown: <brief description> -->` inline.
-    - **B -- significant:** The codebase likely contains the answer. You MUST explore (Read/Grep/Glob) before classifying. If you find evidence, resolve it inline and mark with `<!-- n1:resolved: <question> → <answer (file:line evidence)> -->`. If exploration is inconclusive, escalate to A.
+    - **A -- blocking:** Only a human can answer -- business intent, stakeholder preference, requirement ambiguity that cannot be resolved from codebase, documentation, or web search. Mark with `<!-- n1:unknown: <brief description> -->` inline.
+    - **B -- significant:** Resolvable with effort. You MUST attempt resolution in this order before escalating to A:
+      1. Codebase search (Read/Grep/Glob) — if you find evidence, resolve inline: `<!-- n1:resolved: <question> → <answer (file:line evidence)> -->`
+      2. Web search (WebSearch) for docs, best practices, API references, changelogs — if you find the answer, resolve inline: `<!-- n1:web-resolved: <question> → <answer (source URL)> -->`
+      3. Command prescription — when the answer is observable on a host the agent cannot reach (e.g., `cat /etc/resolv.conf`, `apt list --installed`), resolve by noting the command and a reasonable default: `<!-- n1:cmd-prescribed: <question> → <command> (default: <value>) -->`
+      If all three fail, escalate to A.
     - **C -- convention:** Answerable from project patterns or standard practice. Resolve silently -- no marker needed.
 
-    Default to B. Only classify as A after a genuine exploration attempt fails. The goal: the user should never be asked a question you could have answered by reading the code."
+    Default to B. Only classify as A after a genuine resolution attempt fails across all three channels. The goal: the user should never be asked a question you could have answered by reading the code, searching the web, or prescribing a lookup command."
+- **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan."
 - **Rules:** If `$RULES_BLOCK` is non-empty, append it after the directives above.
 
 **Shared output-path directives (apply to all paths):**
@@ -235,14 +238,14 @@ if [ "$TYPE" != "investigation" ]; then
 fi
 ```
 
-**Phase 3 — Investigation Q&A (investigation-only):**
+**Phase 3 — Unknown Q&A (all task types):**
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 ```
 
-Skip this phase entirely if `TYPE` is not `"investigation"`.
+Run this phase for all task types (not just investigation).
 
 Extract unknowns from the analysis output:
 ```bash
