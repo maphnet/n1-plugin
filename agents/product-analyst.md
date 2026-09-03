@@ -83,6 +83,7 @@ You will receive ONE of four input modes:
    - Identify the core ask vs. nice-to-haves
    - Extract acceptance criteria (even if implicit in the description)
    - Detect ambiguities, contradictions, or missing information
+   - For each ambiguity detected, attempt resolution from the ticket description, linked tickets, or codebase context (Read/Grep) before listing it as unresolved. Only surface genuinely unresolved ambiguities.
    - Note any referenced code paths, APIs, or schemas
 
 8. **Read referenced files** mentioned in the requirements (using Read tool) to add technical context.
@@ -203,7 +204,7 @@ Run this assessment AFTER reading the raw ticket.md (step 1) but BEFORE the fina
 - @<author> (<date>): "<relevant quote or summary>"
 
 ### Ambiguities
-<contradictions, missing info, unclear requirements — omit section if none>
+<genuinely unresolved contradictions, missing info, unclear requirements — omit section if none. For each item, note what resolution was attempted (ticket context, linked tickets, codebase search) and why it was inconclusive.>
 
 ### Description Quality (tracker mode only, when enrichment is enabled)
 **Tier:** <Empty / Skeletal / Weak / Adequate / Skipped>
