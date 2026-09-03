@@ -37,8 +37,12 @@ Document your questions and answers — these become the "Clarifying Questions" 
 
 **Tier every question** before answering it:
 
-- **A — blocking:** a wrong guess changes the design materially (requirement ambiguity, contract shape, user-visible behavior). ASK the user (even though this is auto mode). Record the answer as an `[asked]` ledger row.
-- **B — significant:** better to know, but a well-evidenced default exists. Answer it yourself from codebase evidence; record an `[auto]` ledger row with the reason.
+- **A — blocking:** a wrong guess changes the design materially (requirement ambiguity, contract shape, user-visible behavior) AND you cannot resolve it from codebase evidence or web search. Before classifying as A, you MUST:
+  1. Search the codebase for evidence (Read/Grep/Glob)
+  2. Search the web for factual answers about how technologies/APIs/protocols work (WebSearch)
+  If both fail and the question is genuinely a preference or judgment call, ASK the user. Record the answer as an `[asked]` ledger row.
+- **B — significant:** better to know, but a well-evidenced default exists. Answer it yourself from codebase evidence or web search; record an `[auto]` ledger row with the reason and evidence source.
+- **B-auto — clear recommendation:** you have a recommendation and no other option is defensible (no meaningful trade-off, no viable alternative). Decide and record as an `[auto-decided]` ledger row with rationale. Do not ask.
 - **C — nice-to-have:** answer silently from convention; record an `[auto]` ledger row.
 
 Ledger rows append to the `## Decision Ledger` table in `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`, step `brainstorm`, category `design`.
@@ -51,12 +55,19 @@ Propose 2-3 approaches with tradeoffs. For each approach describe:
 - Which existing patterns it follows or breaks
 - Effort estimate (relative)
 
-### 4. Web Research Validation
+### 4. Web Research Validation & Question Resolution
 
-Use WebSearch to validate approaches against best practices and prior art:
+Use WebSearch for two purposes:
+
+**a) Approach validation** — validate approaches against best practices and prior art:
 - Search for industry patterns related to the problem domain
 - Look for known pitfalls or anti-patterns
 - If uncertain about any approach, run a second search pass
+
+**b) Unknown resolution** — resolve B-tier factual questions before escalating to A-tier:
+- When a question is about how a technology, API, or protocol works, search for the answer
+- When a question is about best practices or recommended defaults, search for the consensus
+- If web search resolves the question, record as `[auto]` with the source URL
 
 Cite sources with URLs. If web search is unavailable, proceed with codebase evidence only.
 

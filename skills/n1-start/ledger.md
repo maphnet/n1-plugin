@@ -17,7 +17,7 @@ One markdown table row per decision:
 - **step** — pipeline step name (`ticket`, `brainstorm`, `qa`, `review`, `fix`, `local-testing`, `pr`, `start`)
 - **category** — `design` | `mechanical` | `quality` | `scope`
 - **tier** — `A` (blocking-grade impact), `B` (significant), `C` (routine). Quality escalations resolved autonomously are always `A`.
-- **tag** — `[auto]` (decided autonomously) or `[asked]` (human answered)
+- **tag** — `[auto]` (decided autonomously), `[auto-decided]` (clear recommendation, no viable alternative, decided without asking), or `[asked]` (human answered)
 - **question** — what was being decided, one clause
 - **chosen** — the selected option, one clause
 - **alternatives** — rejected options, comma-separated (or `—`)
@@ -46,7 +46,7 @@ Section skeleton written on first entry:
 |------|----------------|
 | start (branch/stash preamble) | `mechanicalPrompts: "auto"` resolved a dirty-tree/foreign-branch prompt |
 | ticket | `mechanicalPrompts: "auto"` auto-created (or auto-skipped) the tracker ticket |
-| brainstorm | Autonomous brainstormer selected an approach or resolved B/C-tier questions; A-tier answers recorded as `[asked]` |
+| brainstorm | Autonomous brainstormer selected an approach or resolved B/B-auto/C-tier questions; B-auto decisions recorded as `[auto-decided]`; A-tier answers recorded as `[asked]` |
 | qa / review / fix / local-testing | `qualityEscalations: "auto-accept"` accepted a recommendation at loop exhaustion (always tier `A`) |
 | pr | Reviewer skips (Codex inactive, security-reviewer gated out) when they were autonomy-influenced |
 
