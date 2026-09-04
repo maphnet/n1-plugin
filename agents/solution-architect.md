@@ -134,6 +134,8 @@ The orchestrator passes you output paths. You write your artifacts yourself and 
 ```
 n1:signals blast_radius=<low|medium|high> security_relevant=<true|false> files_changed=<number> complexity_delta=<simple|standard|complex> has_bug_root_cause=<true|false>
 tier: <simple|standard|complex> [confirmed|revised from <previous>]
+context: |
+  <2-8 lines of plain prose, 50-100 words>
 SNAPSHOT_DRIFT: <description>  ← only if snapshot was provided and appears incorrect/outdated
 <3-10 line summary of key findings>
 ```
@@ -146,3 +148,5 @@ Signal values:
 - `has_bug_root_cause`: `true` only for bug-type tickets where a specific root cause was identified in Bug Investigation; `false` for all other ticket types and for bugs where root cause is unresolved
 
 Do NOT return the full analysis report — it is in the file you wrote. Return only the compact block above.
+
+The `context:` block (50-100 words, hard ceiling 100 words) explains the ticket to a human who has never seen it. Answer three questions in plain prose: what is the problem, why does it matter, what will change in the codebase. Every sentence must add value. No bullets, no headers — just sentences a person reads on their phone. Scale naturally to ticket complexity: a simple bug fix may need 50 words; a complex cross-cutting feature may need 100. You already have ticket.md and your own analysis in context — no extra reads needed.
