@@ -101,6 +101,21 @@ Run all tests (not just new ones) and fix any test failures in test code only. I
 
 ## Anti-Trivial Rules
 
+**Before writing any test, name three things in one sentence: the concrete input, the wrong output the code produces without the change, and why that matters. If any of the three cannot be named, do not write the test.** A test that passes identically with and without the change is not a test.
+
+**Hollow-test catalogue — reject on sight:**
+1. Mocks the unit under change, so the assertion exercises the mock.
+2. Asserts that a value was stored, not that it is used.
+3. Re-asserts a bound the fixture already satisfies by construction.
+4. Asserts before an async continuation that overwrites the result.
+5. Dispatches a synthetic DOM event the browser would not trust (focus, navigation).
+6. Asserts the literal text the change just wrote (a string constant, a label) — git already reports that.
+7. Test and code derive the expected value from the same unverified constant or helper.
+8. Fixture encodes the author's assumption about an external API's field names instead of the documented shape.
+9. Browser suite that disconnects or navigates away instead of failing — zero failures reported, zero tests ran.
+
+The orchestrator verifies the regression test by reverting the fix and running it (break-check). A test that stays green without the fix is returned to you as a defect in your own work.
+
 These test patterns are **banned in all tiers**:
 
 - `expect(component).toBeTruthy()` / `expect(result).toBeDefined()` — existence checks that catch nothing
@@ -133,11 +148,13 @@ These test patterns are **banned in all tiers**:
 ### Evidence
 Runner command: `{exact command used in Step 6, e.g. npm test / pytest / go test ./...}`
 Exit code: {N}
+Regression test: {test_name} | `{runner command that executes only this test, e.g. pytest tests/test_x.py::test_name}`
+New test: {test_name} | `{runner command that executes only this test}`
 Last output:
 
     {last ~10 lines of runner stdout/stderr from Step 6}
 
-{Allowed substitute when no test suite exists: "No test suite exists — no runner invoked"}
+{Rules: `Regression test:` appears exactly once on bug tickets and names the test that fails without the fix. One `New test:` line per test written in Step 5; omit when none. The test_name must be the identifier the runner prints on failure (pytest function name, jest/vitest `it` title, go Test function). Allowed substitute when no test suite exists: "No test suite exists — no runner invoked"}
 
 ### Defects Found
 - {list of production bugs revealed by tests, or "None"}
