@@ -199,6 +199,52 @@ def link_transcript(run: dict, projects_dir: Path):
     return None, "unlinked"
 
 
+# ------------------------------------------------------- turn extraction
+
+def step_at(run: dict, ts: float) -> str:
+    for step in run.get("steps") or []:
+        s, e = parse_ts(step.get("started_at")), parse_ts(step.get("completed_at"))
+        if s is not None and e is not None and s <= ts <= e:
+            return step.get("step") or "outside"
+    return "outside"
+
+
+def _assistant_text_and_ask(rec: dict):
+    content = (rec.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return (content if isinstance(content, str) else ""), False
+    texts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+    last = content[-1] if content else None
+    asked = isinstance(last, dict) and last.get("type") == "tool_use" and last.get("name") == "AskUserQuestion"
+    return "\n".join(texts), asked
+
+
+def extract_turns(transcript_path: str, run: dict):
+    turns = []
+    prev_text, prev_ask = "", False
+    n = 0
+    for rec, _ in read_jsonl(Path(transcript_path)):
+        if not rec:
+            continue
+        if rec.get("type") == "assistant" and not rec.get("isSidechain"):
+            prev_text, prev_ask = _assistant_text_and_ask(rec)
+            continue
+        if not is_human_turn(rec):
+            continue
+        ts = parse_ts(rec.get("timestamp"))
+        turns.append({
+            "id": f"{run['run_id']}#{n}",
+            "timestamp": rec.get("timestamp"),
+            "step": step_at(run, ts) if ts is not None else "outside",
+            "text": (turn_text(rec) or "")[:TEXT_LIMIT],
+            "prev_assistant": prev_text[:TEXT_LIMIT],
+            "asked_question": prev_ask,
+        })
+        n += 1
+        prev_text, prev_ask = "", False
+    return turns
+
+
 # ------------------------------------------------------------------------ CLI
 
 def build_parser():

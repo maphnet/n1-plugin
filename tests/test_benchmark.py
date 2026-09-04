@@ -188,5 +188,53 @@ class LinkingTest(unittest.TestCase):
         self.assertEqual(got, ["-mnt-c-Dev-Proj", "-mnt-c-Dev-proj--claude-worktrees-proj-T-1"])
 
 
+class ExtractTurnsTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+        self.run = make_run()
+
+    def write(self, records):
+        p = self.d.projects / "-mnt-c-Dev-proj" / "s.jsonl"
+        write_jsonl(p, records)
+        return str(p)
+
+    def test_filters_and_attributes(self):
+        path = self.write([
+            human("2026-09-01T10:01:00Z", "<command-name>/n1:n1-start</command-name>"),
+            assistant("2026-09-01T10:02:00Z", "Which option?", ask=True),
+            human("2026-09-01T10:03:00Z", "2"),
+            tool_result("2026-09-01T10:04:00Z"),
+            {"type": "user", "isMeta": True, "timestamp": "2026-09-01T10:04:30Z",
+             "message": {"role": "user", "content": "skill body"}},
+            assistant("2026-09-01T10:05:00Z", "Done with brainstorm."),
+            human("2026-09-01T10:35:00Z", "no, wrong file"),
+            human("2026-09-01T10:36:00Z", "[Request interrupted by user]"),
+            human("2026-09-01T12:00:00Z", "later"),
+        ])
+        turns = bm.extract_turns(path, self.run)
+        self.assertEqual([t["text"] for t in turns], ["2", "no, wrong file", "later"])
+        self.assertEqual([t["step"] for t in turns], ["brainstorm", "implementation", "outside"])
+        self.assertEqual(turns[0]["id"], "n1-run-1#0")
+        self.assertTrue(turns[0]["asked_question"])
+        self.assertEqual(turns[0]["prev_assistant"], "Which option?")
+        self.assertFalse(turns[1]["asked_question"])
+        self.assertEqual(turns[1]["prev_assistant"], "Done with brainstorm.")
+
+    def test_truncates_text(self):
+        path = self.write([assistant("2026-09-01T10:02:00Z", "a" * 1000),
+                           human("2026-09-01T10:03:00Z", "b" * 1000)])
+        t = bm.extract_turns(path, self.run)[0]
+        self.assertEqual(len(t["text"]), bm.TEXT_LIMIT)
+        self.assertEqual(len(t["prev_assistant"]), bm.TEXT_LIMIT)
+
+    def test_list_content_and_missing_origin(self):
+        path = self.write([{"type": "user", "timestamp": "2026-09-01T10:03:00Z",
+                            "message": {"role": "user", "content": [{"type": "text", "text": "hi"}]}}])
+        self.assertEqual(bm.extract_turns(path, self.run)[0]["text"], "hi")
+
+    def test_unreadable_transcript_gives_empty(self):
+        self.assertEqual(bm.extract_turns(str(self.d.tmp / "missing.jsonl"), self.run), [])
+
+
 if __name__ == "__main__":
     unittest.main()
