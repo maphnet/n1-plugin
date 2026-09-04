@@ -55,17 +55,16 @@ n1_detect_input_type() {
     printf 'braindump'
 }
 
+# n1_title_hints_investigation <title> → 0 when the title reads like an investigation.
+# Advisory only: titles never route (a false positive would skip implementation on real work).
+n1_title_hints_investigation() {
+    echo "$1" | grep -qiE '\b(investigation|investigate|spike|research)\b'
+}
+
+# Backward-compatible wrapper: tags only.
 n1_detect_investigation() {
-    local title="$1" tags="$2"
-    # Case-insensitive word boundary match for "investigation" or "investigate" in title
-    if echo "$title" | grep -qiE '\b(investigation|investigate)\b'; then
-        return 0
-    fi
-    # Case-insensitive exact match for "investigation" tag
-    if echo "$tags" | tr ',' '\n' | grep -qiE '^\s*investigation\s*$'; then
-        return 0
-    fi
-    return 1
+    local tags="$2"
+    echo "$tags" | tr ',' '\n' | grep -qiE '^\s*investigation\s*$'
 }
 
 n1_read_type() {
@@ -103,10 +102,12 @@ n1_parse_type_arg() {
 n1_resolve_type() {
     local title="$1" tags_csv="$2" type_field="$3" type_override="${4:-}"
     local pipeline_json="${CLAUDE_PLUGIN_ROOT}/pipeline.json"
+    N1_TYPE_MATCHED_BY=""
 
     # 1. Explicit --type override: validate against registry
     if [ -n "$type_override" ]; then
         if jq -e --arg t "$type_override" '.types[$t]' "$pipeline_json" > /dev/null 2>&1; then
+            N1_TYPE_MATCHED_BY=override
             printf '%s' "$type_override"
             return
         fi
@@ -125,6 +126,7 @@ n1_resolve_type() {
             detect_tags=$(jq -r --arg t "$tname" '.types[$t].detect.tags[]' "$pipeline_json")
             for dtag in $detect_tags; do
                 if echo "$tags_csv" | tr ',' '\n' | grep -qiE "^\s*${dtag}\s*$"; then
+                    N1_TYPE_MATCHED_BY=tags
                     printf '%s' "$tname"
                     return
                 fi
@@ -138,35 +140,26 @@ n1_resolve_type() {
             local detect_tf
             detect_tf=$(jq -r --arg t "$tname" '.types[$t].detect.type_field // empty' "$pipeline_json")
             if [ -n "$detect_tf" ] && echo "$type_field" | grep -qiE "^${detect_tf}$"; then
+                N1_TYPE_MATCHED_BY=type_field
                 printf '%s' "$tname"
                 return
             fi
         done
     fi
 
-    # 4. title_match (alphabetical iteration)
-    if [ -n "$title" ]; then
-        for tname in $type_names; do
-            local detect_tm
-            detect_tm=$(jq -r --arg t "$tname" '.types[$t].detect.title_match // empty' "$pipeline_json")
-            if [ -n "$detect_tm" ] && echo "$title" | grep -qi "$detect_tm"; then
-                printf '%s' "$tname"
-                return
-            fi
-        done
-    fi
-
-    # 5. Default type
+    # 4. Default type
     for tname in $type_names; do
         local is_default
         is_default=$(jq -r --arg t "$tname" '.types[$t].detect.default // false' "$pipeline_json")
         if [ "$is_default" = "true" ]; then
+            N1_TYPE_MATCHED_BY=default
             printf '%s' "$tname"
             return
         fi
     done
 
     # Fallback if no default declared
+    N1_TYPE_MATCHED_BY=default
     printf 'task'
 }
 

@@ -101,10 +101,15 @@ TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | 
 TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*"type": *"\([^"]*\)".*/\1/')
 
 # Resolve type via registry cascade
-RESOLVED_TYPE=$(n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE")
+# Redirect output to a file so N1_TYPE_MATCHED_BY global survives (subshell $() loses it)
+n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE" > "$N1_HOME/memory/$ID/.resolved-type" 2>/dev/null || true
+RESOLVED_TYPE=$(cat "$N1_HOME/memory/$ID/.resolved-type"); rm -f "$N1_HOME/memory/$ID/.resolved-type"
+TYPE_MATCHED_BY="$N1_TYPE_MATCHED_BY"
 INVESTIGATION_DETECTED=false
 if [ "$RESOLVED_TYPE" = "investigation" ]; then
     INVESTIGATION_DETECTED=true
+elif n1_title_hints_investigation "$TITLE"; then
+    echo "Hint: the title reads like an investigation but the ticket carries no 'investigation' tag. Re-run with --type investigation (or --investigate) to skip implementation; continuing as ${RESOLVED_TYPE}."
 fi
 ```
 
@@ -325,10 +330,11 @@ local_test_fix_cycle: 0
 
 **Write resolved type to overview.md:**
 
-Write the resolved type to overview.md frontmatter:
+Write the resolved type and matched-by rule to overview.md frontmatter:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "$RESOLVED_TYPE"
+n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type_matched_by" "$TYPE_MATCHED_BY"
 ```
 
 If `INVESTIGATE_FLAG` is `true`, also persist the interactive-investigation marker (read by the brainstorm and investigation-deliverable steps, and by resumed sessions):
