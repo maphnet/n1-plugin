@@ -47,6 +47,12 @@ if [ "$STEP" = "analysis" ] && [ "$BRAINSTORM_MODE" = "interactive" ] && [ ! -f 
     exit 0
 fi
 
+# Acceptance gate: user is being asked to confirm design
+ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate' 2>/dev/null || echo "auto")
+if [ "$STEP" = "brainstorm" ] && [ "$ACCEPTANCE_GATE" != "auto" ]; then
+    exit 0
+fi
+
 # Pipeline is active at a non-terminal, non-gated step — block the stop
 echo "N1 pipeline is active (ticket: ${TICKET}, step: ${STEP}). Continue to the next pipeline step — do not stop here." >&2
 exit 2
