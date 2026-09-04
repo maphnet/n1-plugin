@@ -57,15 +57,36 @@ fi
 Resolve models for code-reviewer (with context `review`) and security-reviewer (with context `review`).
 
 Prepare review context (curated per reviewer, not one identical bundle):
-- **Shared:** the PATHS `$N1_HOME/memory/<ID>/ticket.md`, `$N1_HOME/memory/<ID>/implementation.md`, `$N1_HOME/memory/<ID>/qa.md` (instruct each reviewer: "Read these files yourself; their content is NOT inlined here"), the default branch name, and the `## Key Decisions` + `## Escalations` slices of `overview.md` inline — so neither reviewer flags a deliberate, recorded choice as a defect.
-- **code-reviewer also receives** the path `$N1_HOME/memory/<ID>/brainstorm.md` (read it yourself) — design intent matters for a design-quality review.
+
+Generate the cold-review inputs first (the reviewer must not see the author's narrative):
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/treestate.sh"
+MEM="$N1_HOME/memory/$ID"
+{
+  echo "# Review Spec (generated — acceptance criteria and chosen approach only)"
+  n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"
+  [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"
+} > "$MEM/review-spec.md"
+{
+  echo "# QA Facts (generated — evidence only, no narrative)"
+  n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"
+  if [ -n "${BREAK_CHECK_TQ:-}" ]; then
+    echo "## Hollow tests (break-check never-red or inconclusive)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'
+  fi
+} > "$MEM/qa-facts.md"
+TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
+```
+- **Shared:** the PATHS `$MEM/ticket.md` and `$MEM/qa-facts.md` (instruct each reviewer: "Read these files yourself; their content is NOT inlined here"), the base branch name, and the `## Key Decisions` + `## Escalations` slices of `overview.md` inline — so neither reviewer flags a deliberate, recorded choice as a defect.
+- **code-reviewer also receives** the paths `$MEM/review-spec.md` and, when it exists, `$MEM/plan.md`. It does **NOT** receive `implementation.md` or `brainstorm.md`: the reviewer is a cold second pair of eyes and must derive what changed from the diff, not from the author's account. Add the directive: **"You are a cold second pair of eyes. Review the code that is actually there against the spec. Do not assume intent the code does not demonstrate. Identify changed files with `git diff --name-only <BASE_BRANCH>...HEAD`."**
 - **code-reviewer also receives** `testCoverage.tier` value (same value read in Step 6) — for Test Quality evaluation calibration. Also read `qa_verdict_unverified` from overview.md frontmatter:
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified")
   ```
   When `QA_UNVERIFIED=true`, append this directive to the code-reviewer prompt (immediately after the `testCoverage.tier` line): **"QA verdict is unverified (evidence missing from qa.md). Treat the QA pass as unconfirmed when evaluating Test Quality — apply additional scrutiny to any test coverage claims."**
-- **security-reviewer does NOT receive** `brainstorm.md` or `testCoverage.tier` — the design narrative and test tier are low-signal for vulnerability scanning. Keep its context lean: acceptance criteria + changed-file list + the diff are its high-signal inputs.
+  When `qa-facts.md` lists hollow tests, add: **"The listed tests stayed green with the fix reverted. Report each as a `[TQ-N]` finding (Medium) unless the diff shows it is a pure refactor guard."**
+- **security-reviewer does NOT receive** `review-spec.md`, `plan.md`, or `testCoverage.tier` — keep its context lean: `ticket.md` acceptance criteria + changed-file list + the diff.
 
 Spawn all selected reviewers simultaneously:
 - **code-reviewer** with the code review context (scoped per the rule above) — always.
@@ -73,6 +94,7 @@ Spawn all selected reviewers simultaneously:
 - **Codex review command** — only if CODEX_EXPECTED.
 
 After ALL return, merge findings:
+- **Tree freeze check.** `n1_tree_verify "$TREE_BEFORE" "<worktree dir>"`. If it fails, the tree moved while reviewers ran (a reviewer or a stray process edited, staged, or committed). Discard ALL findings from this pass, increment `review_discarded_count` in overview frontmatter (`n1_increment_counter`), record `n1_append_key_decision ... "Review discarded: working tree changed during review (cycle N)"`, and re-run the reviewers once from "Spawn agents in PARALLEL". If the second pass also fails the check → § Autonomy Gate (qualityEscalations) with step=`review`, action=`proceed with the second pass findings and flag the review as tree-unstable in review.md`.
 - Combine outputs into `$N1_HOME/memory/<ID>/review.md`
 - Prefix code-reviewer findings with [CR-N], security-reviewer with [SEC-N], codex-reviewer with [CX-N]. Code-reviewer `[RULE-N]` findings keep their prefix (not remapped).
 - Combined verdict: FAIL if any confirmed **Critical or High** findings exist across all reviewers, or any `[RULE-N]` findings exist. Medium and Low findings are reported in `review.md` but do not block the pass — consistent with n1-review Phase 4 threshold.

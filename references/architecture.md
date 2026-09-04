@@ -74,7 +74,7 @@ Each step reads ONLY its declared dependencies:
 | estimation | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` (if exists) | `overview.md` (estimation section) |
 | implementation | `brainstorm.md`, `plan.md`, `analysis.md` (fallback for simplicity gate when brainstorm skipped) | `implementation.md` (+ signals: `diff_surface`, `lines_changed`, `new_files_count`) |
 | qa | `ticket.md`, `implementation.md`, `plan.md` | `qa.md` (+ signals: `tests_added`, `tests_broken`, `coverage_change`) |
-| review | `ticket.md`, `brainstorm.md`, `implementation.md`, `qa.md` | `review.md` |
+| review | `ticket.md`, `review-spec.md` (generated from brainstorm AC + chosen approach), `plan.md` (if any), `qa-facts.md` (generated from qa.md evidence) | `review.md`, `review-spec.md`, `qa-facts.md` |
 | local-test-analysis | `ticket.md`, `implementation.md`, `plan.md` or `brainstorm.md`, codebase | `local-test-plan.md` |
 | local-test-execution | `local-test-plan.md`, `implementation.md` | `local-testing.md` |
 | local-test-fix | `local-testing.md`, `local-test-plan.md`, `implementation.md` | code fixes, then re-execution |
@@ -306,6 +306,8 @@ Config keys: `release.enabled` (boolean, default `false`), `release.tagPrefix` (
 Models default to agent frontmatter values, overridable via `models` section in `$N1_HOME/config.json`.
 
 Agent effort levels are static per-agent, set via subagent frontmatter `effort:` field (low or medium). Session-level effort (`/effort`, `effortLevel` setting) controls the orchestrator's reasoning depth — it does not propagate to subagents. There is no per-spawn effort parameter.
+
+**Cold review.** The code-reviewer never receives `implementation.md` or `brainstorm.md`; it reads a generated `review-spec.md` (acceptance criteria and chosen approach) and derives the change surface from the diff. The orchestrator snapshots the working tree before spawning reviewers (`lib/treestate.sh`) and discards the pass if the tree moved. Every acceptance criterion gets a row in the reviewer's `### AC Coverage` table; a missing criterion is a High finding, and the tech-writer copies the table into the PR body.
 
 Note: Sonnet 4.6 supports effort levels low, medium, high, and max (no xhigh).
 
