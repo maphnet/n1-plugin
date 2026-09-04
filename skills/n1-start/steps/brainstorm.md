@@ -18,7 +18,15 @@ if [ "$INVESTIGATE_INTERACTIVE" = "true" ]; then
 fi
 ```
 
-- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` (in this skill's directory). Pass the investigation focus override (see Investigation mode section below). After the autonomous brainstormer returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update (Post-Brainstorm Enrichment stays skipped for investigation).
+- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The subagent absorbs the brainstormer's turn boundary — when the Agent tool returns, the orchestrator sees a clean result and continues.
+
+  Spawn via Agent tool with `subagent_type: "n1:solution-architect"` (the SA has Read/Grep/Glob/Bash/WebSearch — everything the autonomous brainstormer needs). Prompt the subagent:
+
+  "You are the autonomous brainstormer. Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/autonomous-brainstorm.md` exactly. Inputs: `$N1_HOME/memory/$ID/ticket.md`, `$N1_HOME/memory/$ID/analysis.md`. Output: write the design to `$N1_HOME/memory/$ID/brainstorm.md`. Investigation focus: this is an investigation task — explore the question and research findings, not implementation approaches. Focus on validating or challenging the analysis findings, exploring alternative explanations, and identifying gaps in the investigation. The output should be research-focused, not design-focused. After writing brainstorm.md, report back: the `planning_need` value (plan or direct) and, if scope changed materially, an updated `context:` block."
+
+  Pass the test-coverage-tier directive and `$RULES_BLOCK` if applicable.
+
+  After the subagent returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update (Post-Brainstorm Enrichment stays skipped for investigation).
 - **`BRAINSTORM_MODE` == `interactive`:** Use the interactive brainstormer (`REQUIRED SUB-SKILL: superpowers:brainstorming`) exactly as in the non-investigation interactive path below — including the N1-OVERRIDE block — but ADD the investigation focus override (see Investigation mode section below) to the brainstorming prompt, and SKIP the bug directive and the test-coverage-tier directive (investigation output is research, not a design with a Testing section). Post-Brainstorm Enrichment stays skipped for investigation.
 
 **Non-investigation mode** (normal task): route by autonomy config:
@@ -35,7 +43,15 @@ TEST_TIER="${TEST_TIER:-maintain}"
 
 Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `changed_files_source` — brainstorm runs before implementation; `CHANGED_FILES` will be empty). Capture result as `$RULES_BLOCK`.
 
-- **`BRAINSTORM_MODE` == `auto`:** Use the autonomous brainstormer defined in `autonomous-brainstorm.md` — tell it: "batch ALL A-tier and inconclusive-dominance questions into ONE message (do not ask one at a time); write [auto]/[asked] ledger rows per skills/n1-start/ledger.md; if all A-tier questions are resolved, mark none as deferred." Also pass the test-coverage-tier directive and `$RULES_BLOCK` (same way the interactive path passes them). After it returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies). **Note: `auto` shortens the session by eliminating the interactive design conversation; it does NOT isolate context — the autonomous brainstormer runs as a skill fragment in the orchestrator's own window, so its design work accumulates in the same context as all other steps.**
+- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The subagent absorbs the brainstormer's turn boundary — when the Agent tool returns, the orchestrator sees a clean result and continues. This replaces the prior in-context skill-fragment approach that intermittently caused the orchestrator to stop after brainstorming completed.
+
+  Spawn via Agent tool with `subagent_type: "n1:solution-architect"` (the SA has Read/Grep/Glob/Bash/WebSearch — everything the autonomous brainstormer needs). Prompt the subagent:
+
+  "You are the autonomous brainstormer. Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/autonomous-brainstorm.md` exactly. Inputs: `$N1_HOME/memory/$ID/ticket.md`, `$N1_HOME/memory/$ID/analysis.md`. Output: write the design to `$N1_HOME/memory/$ID/brainstorm.md`. Batch ALL A-tier and inconclusive-dominance questions into ONE message (do not ask one at a time); write [auto]/[asked] ledger rows per `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/ledger.md`; if all A-tier questions are resolved, mark none as deferred. testCoverage.tier is `{TEST_TIER}`. After writing brainstorm.md, report back: the `planning_need` value (plan or direct) and, if scope changed materially, an updated `context:` block."
+
+  When `$RULES_BLOCK` is non-empty, append it to the subagent prompt.
+
+  After the subagent returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies).
 - **`BRAINSTORM_MODE` == `interactive` (default):** Use the interactive brainstormer:
 
 **REQUIRED SUB-SKILL:** Use superpowers:brainstorming to explore the scope and refine the approach.
