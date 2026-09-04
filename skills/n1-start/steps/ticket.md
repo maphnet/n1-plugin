@@ -300,6 +300,9 @@ local_test_fix_cycle: 0
 
 # <ID>: <Title>
 
+## Context
+(pending — written after analysis)
+
 ## Progress
 - [x] Ticket read
 - [ ] Analysis

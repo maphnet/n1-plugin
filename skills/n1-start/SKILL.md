@@ -156,6 +156,8 @@ The optional `context` parameter enables signal-driven model tiering (e.g., `n1_
 
 Between steps, emit ONLY: the step name being dispatched, the agent being spawned (with model), and any routing decision with its reason. Do not summarize step outputs, re-describe the task, or narrate intermediate state. Memory files carry context between steps — the orchestrator does not need to.
 
+**Exception — Orientation block:** After the analysis step, on resume, and after compaction recovery, the orchestrator prints a framed orientation block containing the ticket ID, title, context summary, metadata, and ticket URL. This is a defined exception — it presents stable task context for human orientation, not a step output summary.
+
 ## Workspace Isolation
 
 ### Isolation Mode Resolution
