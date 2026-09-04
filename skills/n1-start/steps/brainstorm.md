@@ -82,8 +82,20 @@ Step 7 (Spec self-review): Run normally (placeholder scan, consistency, scope, a
 Step 8 (User reviews written spec): SKIP entirely. The design was already presented in step 5,
 and brainstorm.md is an ephemeral N1 memory file, not a committed artifact.
 
-Step 9 (Transition to implementation): Do NOT invoke writing-plans or any other skill.
-Return control to the N1 orchestrator immediately after step 7 completes.
+Step 9 (Post-brainstorm continuation): Do NOT invoke writing-plans or any other skill.
+After step 7 completes, IMMEDIATELY execute these post-brainstorm procedures
+(they are part of the brainstorm step, not a handoff):
+
+1. Update overview.md: mark `[x] Brainstorm` checkbox, set `step: brainstorm` in frontmatter:
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "brainstorm"
+   ```
+2. Record key decisions from the design in overview.md's `## Key Decisions` section
+3. State: "Brainstorm step complete. Proceeding to user gate."
+
+Do NOT stop, pause, ask for confirmation, or say "returning control" between step 7
+and these updates. Execute them immediately as the final part of the brainstorm skill.
 </N1-OVERRIDE>
 
 **Investigation mode (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):**
