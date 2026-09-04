@@ -397,6 +397,42 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
   ```
+
+  **Print orientation block (resume):**
+  After reading the overview frontmatter and before dispatching the next step, check if overview.md contains a `## Context` section:
+  ```bash
+  CONTEXT_SECTION=$(sed -n '/^## Context$/,/^## /{/^## Context$/d;/^## /d;p}' "$N1_HOME/memory/$ID/overview.md")
+  ```
+  If `CONTEXT_SECTION` is non-empty:
+  1. Read the title from the overview heading:
+     ```bash
+     TITLE=$(grep -m1 '^# ' "$N1_HOME/memory/$ID/overview.md" | sed 's/^# [^:]*: //')
+     ```
+  2. Read metadata from frontmatter:
+     ```bash
+     source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+     TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
+     CURRENT_STEP=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "step")
+     TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url")
+     FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed" 2>/dev/null || echo "")
+     ```
+  3. Print:
+     ```bash
+     cat <<EOF
+     ── $ID ────────────────────────────────────────
+     $TITLE
+
+     $CONTEXT_SECTION
+
+     Tier: $TIER · Step: $CURRENT_STEP · Files: ~$FILES_CHANGED
+     EOF
+     [ -n "$TICKET_URL" ] && echo "$TICKET_URL"
+     echo "─────────────────────────────────────────────────"
+     ```
+     Note: the resume metadata line shows `Step: <current step>` instead of `Blast radius:` — on resume, where-you-are matters more.
+
+  If `CONTEXT_SECTION` is empty (pre-feature runs, or SA didn't emit it), skip silently — no error, no warning.
+
 - **If not exists:** Fresh start. Create `$N1_HOME/memory/<ID>/` directory.
 
 ### Step dependency map
