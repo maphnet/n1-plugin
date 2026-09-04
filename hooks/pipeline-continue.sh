@@ -53,6 +53,19 @@ if [ "$STEP" = "brainstorm" ] && [ "$ACCEPTANCE_GATE" != "auto" ]; then
     exit 0
 fi
 
+# Plan approval gate: plan written, user has not approved yet
+REQUIRE_PLAN_APPROVAL=$(n1_config_val '.planReview.requirePlanApproval' 2>/dev/null || echo "false")
+PLAN_APPROVED=$(n1_read_frontmatter "$OV_FILE" "plan_approved")
+if [ "$STEP" = "plan" ] && [ "$REQUIRE_PLAN_APPROVAL" = "true" ] && [ "$PLAN_APPROVED" != "true" ]; then
+    exit 0
+fi
+
+# Mechanical prompt in flight: the orchestrator wrote pending_prompt before asking the user
+PENDING_PROMPT=$(n1_read_frontmatter "$OV_FILE" "pending_prompt")
+if [ -n "$PENDING_PROMPT" ]; then
+    exit 0
+fi
+
 # Pipeline is active at a non-terminal, non-gated step — block the stop
 echo "N1 pipeline is active (ticket: ${TICKET}, step: ${STEP}). Continue to the next pipeline step — do not stop here." >&2
 exit 2

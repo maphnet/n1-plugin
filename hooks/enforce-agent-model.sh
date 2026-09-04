@@ -26,6 +26,17 @@ for cand in python3 python; do
         break
     fi
 done
-[ -n "$PY" ] || exit 0
+if [ -z "$PY" ]; then
+    # Warn once per session instead of silently skipping enforcement.
+    SESSION_ID=$(printf '%s' "$INPUT" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    N1_ROOT=$(n1_home 2>/dev/null || true)
+    MARKER="${N1_ROOT:-/tmp}/.enforce-warned-${SESSION_ID:-nosession}"
+    if [ ! -f "$MARKER" ]; then
+        mkdir -p "$(dirname "$MARKER")" 2>/dev/null || true
+        : > "$MARKER" 2>/dev/null || true
+        printf '{"systemMessage":"N1: agent model enforcement skipped (no Python interpreter)"}\n'
+    fi
+    exit 0
+fi
 
 printf '%s' "$INPUT" | "$PY" "${SCRIPT_DIR}/enforce-agent-model.py" "$CONFIG_FILE" || exit 0
