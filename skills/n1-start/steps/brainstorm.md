@@ -79,6 +79,35 @@ Routing follows `BRAINSTORM_MODE` (`--investigate` forces `interactive`; see rou
 - **ORCHESTRATOR GUARDRAIL (experiments):** if, during brainstorming, the user asks to run something (local test, docker build, benchmark, curl, script), do not run it in this session — spawn `developer` in experiment mode as described in `investigation-deliverable.md` and bring back its summary.
 
 After brainstorming completes (the design already lives in `$N1_HOME/memory/<ID>/brainstorm.md` per the override above):
+
+**Context scope-change update:**
+
+**Autonomous path:** Parse the brainstormer's output for a `context:` block (same parsing as the analysis step):
+```bash
+UPDATED_CONTEXT=$(echo "$BRAINSTORM_OUTPUT" | sed -n '/^context: |$/,/^[^ ]/{/^context: |$/d;/^[^ ]/d;s/^  //;p}')
+```
+
+**Interactive path:** The Superpowers brainstorming skill is not modified. After the interactive session completes, the orchestrator evaluates whether scope changed materially by comparing the design in `brainstorm.md` against the existing `## Context` in overview.md. If the brainstorm chose a fundamentally different approach or redefined the problem, the orchestrator generates an updated context block itself (it has brainstorm.md + ticket.md + analysis.md available). If the design refines without redefining, no update.
+
+**Both paths — if updated context is available:**
+1. Replace the `## Context` section in overview.md:
+   - Read overview.md
+   - Replace content between `## Context` and the next `## ` heading with the updated text
+   - Write overview.md back
+2. Reprint the orientation block with a scope-updated header:
+   ```
+   ── <ID> (scope updated) ──────────────────────
+   <TITLE>
+
+   <UPDATED_CONTEXT>
+
+   Tier: <TIER> · Files: ~<FILES_CHANGED> · Blast radius: <BLAST_RADIUS>
+   <TICKET_URL — omit if empty>
+   ─────────────────────────────────────────────────
+   ```
+
+If no updated context: no action — the original context stands.
+
 - Update overview: `[x] Brainstorm`, set `step: brainstorm`
 - Record key decisions in overview's `## Key Decisions` section
 

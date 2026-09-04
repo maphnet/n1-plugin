@@ -129,6 +129,17 @@ Write the selected approach to `$N1_HOME/memory/<ID>/brainstorm.md` using this s
 <Web research results with citations, if any>
 ```
 
+### 7b. Context Update (scope change only)
+
+If the design you selected materially changed the task scope compared to what analysis.md described — different approach, requirements narrowed or expanded, problem redefined — emit an updated `context:` block as the last element of your return to the orchestrator:
+
+```
+context: |
+  <2-8 lines of plain prose, 50-100 words>
+```
+
+Same constraints as the SA's original: plain prose answering what is the problem, why does it matter, what will change. If scope is unchanged from the analysis, omit the `context:` block entirely — the original stands.
+
 ### 8. Spec Self-Review
 
 Run this 4-point checklist on the written design:
