@@ -237,12 +237,6 @@ If `MP` is `ask` (default), ask:
 **If no tracker is configured** (error-tracker mode only — brain-dump/file mode is already gated by the outer `if` above):
 - `sentry-<issueId>` is the final `<ID>`. Skip tracker status updates throughout the pipeline.
 
-**Capture ticket URL (ticket mode):**
-For ticket mode where the URL was not captured by creation (step 6 above), construct it:
-- YouTrack: `TICKET_URL` is the tracker instance URL + `/issue/<ID>` (read `tracker.instanceUrl` from config if available, or derive from `tracker.mcp`)
-- Jira: `TICKET_URL = https://<cloud>.atlassian.net/browse/<ID>` (derive `<cloud>` from the `cloudId` or `getAccessibleAtlassianResources` response)
-- If URL cannot be constructed, set `TICKET_URL` to empty — the orientation block omits the link line.
-
 **For all modes:**
 - The agent wrote `$N1_HOME/memory/<ID>/ticket.md` itself. Verify it:
   ```bash
@@ -251,6 +245,12 @@ For ticket mode where the URL was not captured by creation (step 6 above), const
   ```
   If missing/empty (agent failed to write), write the returned compact block to `ticket.md` as a fallback and note the gap in overview's `## Key Decisions`: "product-analyst failed to write ticket.md; stub written from compact return -- downstream context is degraded."
 - ID is: ticket ID for ticket mode (or brain dump/file mode with ticket creation), filename slug for file mode without ticket, description slug for brain dump without ticket (e.g., `csv-export-users`)
+
+**Capture ticket URL (ticket mode):**
+For ticket mode where the URL was not captured by creation (step 6 above), construct it:
+- YouTrack: `TICKET_URL` is the tracker instance URL + `/issue/<ID>` (read `tracker.instanceUrl` from config if available, or derive from `tracker.mcp`)
+- Jira: `TICKET_URL = https://<cloud>.atlassian.net/browse/<ID>` (derive `<cloud>` from the `cloudId` or `getAccessibleAtlassianResources` response)
+- If URL cannot be constructed, set `TICKET_URL` to empty — the orientation block omits the link line.
 
 **Extract and persist signals:**
 Parse the product-analyst's compact return for a line starting with `n1:signals `:
