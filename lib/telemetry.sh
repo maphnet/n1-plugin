@@ -113,3 +113,39 @@ n1_merge_pending() {
         [ "$current_run_id" = "$saved_run_id" ] && rm -f "$lock_file"
     fi
 }
+
+# n1_record_decision <decision_id> <result:true|false> [<condition_json>] [key=value ...]
+# Appends a decision event paired with the signal values it read. No-op without a telemetry lock.
+n1_record_decision() {
+    local id="$1" result="$2" cond="${3:-}"
+    shift 2; [ $# -gt 0 ] && shift
+    [ -n "${N1_HOME:-}" ] && [ -n "${ID:-}" ] || return 0
+    local tdir="${N1_HOME}/memory/${ID}/telemetry"
+    [ -f "${tdir}/telemetry.lock" ] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    local run_id version
+    run_id=$(jq -r '.run_id // empty' "${tdir}/telemetry.lock" 2>/dev/null); [ -n "$run_id" ] || return 0
+    version=$(jq -r '.n1_version // empty' "${tdir}/telemetry.lock" 2>/dev/null)
+
+    type n1_read_signal >/dev/null 2>&1 || source "$(dirname "${BASH_SOURCE[0]}")/signals.sh"
+    local signals="{}" mem_dir="${N1_HOME}/memory/${ID}"
+    if [ -n "$cond" ]; then
+        local sig prefix key val
+        for sig in $(echo "$cond" | jq -r '.. | .signal? // empty' 2>/dev/null | sort -u); do
+            prefix="${sig%%.*}"; key="${sig#*.}"
+            val=$(n1_read_signal "${mem_dir}/${prefix}.md" "$key" 2>/dev/null || true)
+            signals=$(echo "$signals" | jq -c --arg k "$sig" --arg v "$val" '. + {($k): $v}')
+        done
+    fi
+    local kv
+    for kv in "$@"; do
+        signals=$(echo "$signals" | jq -c --arg k "${kv%%=*}" --arg v "${kv#*=}" '. + {($k): $v}')
+    done
+    [ -n "$cond" ] || cond="null"
+    local ts; ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    mkdir -p "${tdir}/raw/steps"
+    jq -cn --arg run "$run_id" --arg ver "$version" --arg tid "$ID" --arg id "$id" --argjson res "$result" \
+        --argjson cond "$cond" --argjson sig "$signals" --arg ts "$ts" \
+        '{event:"decision",run_id:$run,n1_version:$ver,ticket_id:$tid,id:$id,result:$res,condition:$cond,signals:$sig,timestamp:$ts}' \
+        >> "${tdir}/raw/steps/${run_id}.jsonl"
+}
