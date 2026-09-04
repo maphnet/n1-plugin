@@ -77,6 +77,14 @@ if [ "${TRIGGER:-}" = "compact" ]; then
                 ov_lt_fix=$(n1_read_frontmatter "$ov_file" "local_test_fix_cycle")
                 ov_ci_fix=$(n1_read_frontmatter "$ov_file" "ci_fix_cycle")
             fi
+            ov_context=""
+            if [ -f "$ov_file" ]; then
+                ov_context=$(sed -n '/^## Context$/,/^## /{/^## Context$/d;/^## /d;p}' "$ov_file" | head -10 | tr '\n' ' ' | sed 's/  */ /g')
+            fi
+            ov_ticket_url=""
+            if [ -f "$ov_file" ]; then
+                ov_ticket_url=$(n1_read_frontmatter "$ov_file" "ticket_url")
+            fi
 
             auto_brainstorm=$(n1_autonomy_val 'brainstorm')
             auto_tail=$(n1_autonomy_val 'tailChain')
@@ -98,6 +106,8 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
 - Loop counters: qa_fix_cycle=${ov_qa_fix:-0}, review_fix_cycle=${ov_review_fix:-0}, clean_passes=${ov_clean_passes:-0}, local_test_fix_cycle=${ov_lt_fix:-0}, ci_fix_cycle=${ov_ci_fix:-0}
 - Autonomy: brainstorm=${auto_brainstorm}, tailChain=${auto_tail}, mechanicalPrompts=${auto_mech}
 - Config gates: estimation.enabled=${gate_estimation:-false}, localTesting.enabled=${gate_local:-false}, finishWork.enabled=${gate_finish:-true}, ciChecks.enabled=${gate_ci:-false}
+- Task context: ${ov_context}
+- Ticket URL: ${ov_ticket_url}
 - IMPORTANT: Use these values, not anything from the compacted conversation summary. Re-read overview.md and config.json if you need values not listed here."
         fi
     fi

@@ -374,7 +374,18 @@ When Claude Code compacts the conversation context, the session-start hook fires
 1. Read the ORCHESTRATOR STATE block from the re-injected session context — it is marked "authoritative, overrides any compacted summary"
 2. Use those values for all subsequent decisions — tracker type, MCP prefix, worktree path, step routing, loop counters
 3. Do NOT rely on the compacted conversation summary for config or routing values — compaction is lossy and may distort tracker type, MCP names, or other critical state
-4. If the ORCHESTRATOR STATE block is missing (no active run), re-resolve N1_HOME and re-read config.json via Bash before continuing:
+4. If `Task context:` is present in the ORCHESTRATOR STATE block and non-empty, print the orientation block before continuing the next step:
+   ```
+   ── <Active ticket> ────────────────────────────────────────
+   <Title from overview.md heading>
+
+   <Task context value>
+
+   Tier: <tier from state> · Step: <Current step from state>
+   <Ticket URL from state — omit if empty>
+   ─────────────────────────────────────────────────
+   ```
+5. If the ORCHESTRATOR STATE block is missing (no active run), re-resolve N1_HOME and re-read config.json via Bash before continuing:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
    N1_HOME=$(n1_home)
