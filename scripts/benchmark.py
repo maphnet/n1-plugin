@@ -90,6 +90,115 @@ def is_eligible(run: dict) -> bool:
     return run.get("final_outcome") in ELIGIBLE_OUTCOMES
 
 
+# --------------------------------------------------------------- linking
+
+def raw_agents_session_path(run: dict):
+    """First session_transcript_path in the run's raw agents file, if that file exists."""
+    src = run.get("_source_path")
+    if not src:
+        return None
+    raw = Path(src).parent.parent / "raw" / "agents" / f"{run['run_id']}.jsonl"
+    if not raw.is_file():
+        return None
+    for rec, _ in read_jsonl(raw):
+        if rec and rec.get("session_transcript_path"):
+            return rec["session_transcript_path"]
+    return None
+
+
+def candidate_project_dirs(projects_dir: Path, project: str, branch):
+    """Claude Code project dirs whose slug ends with the project name, or is a
+    worktree slug for it (…--claude-worktrees-<project>-<branch> or …--claude-worktrees-<branch>)."""
+    projects_dir = Path(projects_dir)
+    if not projects_dir.is_dir() or not project:
+        return []
+    proj = project.lower()
+    tails = {f"-{proj}"}
+    if branch:
+        b = str(branch).lower()
+        tails.add(f"-{proj}--claude-worktrees-{proj}-{b}")
+        tails.add(f"-{proj}--claude-worktrees-{b}")
+    out = []
+    for d in sorted(projects_dir.iterdir()):
+        if not d.is_dir():
+            continue
+        name = d.name.lower()
+        if any(name.endswith(t) for t in tails):
+            out.append(d)
+    return out
+
+
+def is_human_turn(rec: dict) -> bool:
+    """A user record typed by the human: not meta, not a tool result, not a
+    slash-command expansion, not an interrupt marker."""
+    if not isinstance(rec, dict) or rec.get("type") != "user" or rec.get("isMeta"):
+        return False
+    origin = rec.get("origin")
+    if isinstance(origin, dict) and origin.get("kind") not in (None, "human"):
+        return False
+    text = turn_text(rec)
+    if text is None:
+        return False
+    stripped = text.lstrip()
+    if stripped.startswith("<command-") or stripped.startswith("[Request interrupted"):
+        return False
+    return True
+
+
+def turn_text(rec: dict):
+    """Concatenated text of a user record, or None if it carries no text (tool results)."""
+    content = (rec.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+        if parts:
+            return "\n".join(parts)
+    return None
+
+
+def human_turn_timestamps(path: Path):
+    out = []
+    for rec, _ in read_jsonl(path):
+        if rec and is_human_turn(rec):
+            ts = parse_ts(rec.get("timestamp"))
+            if ts is not None:
+                out.append(ts)
+    return out
+
+
+def _transcript_mentions(path: Path, needle: str) -> bool:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return any(needle in line for line in fh)
+    except OSError:
+        return False
+
+
+def link_transcript(run: dict, projects_dir: Path):
+    """Return (transcript_path, method). method: agent_event | heuristic | unlinked."""
+    direct = raw_agents_session_path(run)
+    if direct and Path(direct).is_file():
+        return direct, "agent_event"
+
+    start, end = parse_ts(run.get("started_at")), parse_ts(run.get("completed_at"))
+    ticket = run.get("ticket_id") or ""
+    if start is None or end is None or not ticket:
+        return None, "unlinked"
+
+    best, best_count = None, 0
+    for d in candidate_project_dirs(projects_dir, run.get("project") or "", run.get("branch")):
+        for path in sorted(d.glob("*.jsonl")):
+            in_window = sum(1 for ts in human_turn_timestamps(path) if start <= ts <= end)
+            if in_window == 0 or not _transcript_mentions(path, ticket):
+                continue
+            if in_window > best_count:
+                best, best_count = str(path), in_window
+    if best:
+        return best, "heuristic"
+    return None, "unlinked"
+
+
 # ------------------------------------------------------------------------ CLI
 
 def build_parser():

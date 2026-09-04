@@ -55,7 +55,9 @@ class TempDirs:
         return self.n1 / run["project"] / "memory" / run["ticket_id"] / "telemetry" / "runs" / f"{run['run_id']}.jsonl"
 
     def add_run(self, run: dict, extra_lines=()):
-        write_jsonl(self.run_path(run), [run, *extra_lines])
+        p = self.run_path(run)
+        write_jsonl(p, [run, *extra_lines])
+        run["_source_path"] = str(p)
         return run
 
 
@@ -109,6 +111,81 @@ class ParseTsTest(unittest.TestCase):
     def test_none_and_garbage(self):
         self.assertIsNone(bm.parse_ts(None))
         self.assertIsNone(bm.parse_ts("yesterday"))
+
+
+def human(ts, text, session="s1"):
+    return {"type": "user", "uuid": ts, "timestamp": ts, "sessionId": session,
+            "origin": {"kind": "human"}, "message": {"role": "user", "content": text}}
+
+
+def tool_result(ts):
+    return {"type": "user", "timestamp": ts, "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "x", "content": "ok"}]}}
+
+
+def assistant(ts, text=None, ask=False):
+    content = []
+    if text is not None:
+        content.append({"type": "text", "text": text})
+    if ask:
+        content.append({"type": "tool_use", "name": "AskUserQuestion", "input": {"questions": []}})
+    return {"type": "assistant", "timestamp": ts, "message": {"role": "assistant", "content": content}}
+
+
+class LinkingTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+        self.run = self.d.add_run(make_run())
+
+    def raw_agents(self, session_path):
+        p = self.d.n1 / "proj" / "memory" / "T-1" / "telemetry" / "raw" / "agents" / "n1-run-1.jsonl"
+        write_jsonl(p, [
+            {"run_id": "n1-run-1", "layer": "agent", "event": "start", "agent_id": "a1"},
+            {"run_id": "n1-run-1", "layer": "agent", "event": "stop", "agent_id": "a1",
+             "transcript_path": "/x/subagents/agent-a1.jsonl", "session_transcript_path": session_path},
+        ])
+
+    def transcript(self, slug, name, records):
+        p = self.d.projects / slug / f"{name}.jsonl"
+        write_jsonl(p, records)
+        return p
+
+    def test_agent_event_link_wins_when_file_exists(self):
+        t = self.transcript("-mnt-c-Dev-proj", "sess", [human("2026-09-01T10:05:00Z", "T-1 go")])
+        self.raw_agents(str(t))
+        path, method = bm.link_transcript(self.run, self.d.projects)
+        self.assertEqual((path, method), (str(t), "agent_event"))
+
+    def test_agent_event_path_missing_falls_back_to_heuristic(self):
+        self.raw_agents("/nonexistent/session.jsonl")
+        t = self.transcript("-mnt-c-Dev-proj", "sess", [human("2026-09-01T10:05:00Z", "working on T-1")])
+        path, method = bm.link_transcript(self.run, self.d.projects)
+        self.assertEqual((path, method), (str(t), "heuristic"))
+
+    def test_heuristic_matches_worktree_slug_and_requires_ticket_and_window(self):
+        self.transcript("-mnt-c-Dev-proj", "old", [human("2026-08-01T10:05:00Z", "T-1 earlier")])
+        self.transcript("-mnt-c-Dev-proj", "other-ticket", [human("2026-09-01T10:05:00Z", "T-9 stuff")])
+        good = self.transcript("-mnt-c-Dev-proj--claude-worktrees-proj-T-1", "wt",
+                               [human("2026-09-01T10:05:00Z", "start T-1"), human("2026-09-01T10:40:00Z", "ok")])
+        path, method = bm.link_transcript(self.run, self.d.projects)
+        self.assertEqual((path, method), (str(good), "heuristic"))
+
+    def test_heuristic_prefers_most_turns_in_window(self):
+        self.transcript("-mnt-c-Dev-proj", "one", [human("2026-09-01T10:05:00Z", "T-1 a")])
+        two = self.transcript("-mnt-c-Dev-proj", "two", [human("2026-09-01T10:05:00Z", "T-1 a"),
+                                                         human("2026-09-01T10:06:00Z", "b")])
+        path, _ = bm.link_transcript(self.run, self.d.projects)
+        self.assertEqual(path, str(two))
+
+    def test_unlinked_when_nothing_matches(self):
+        self.transcript("-mnt-c-Dev-unrelated", "x", [human("2026-09-01T10:05:00Z", "T-1")])
+        self.assertEqual(bm.link_transcript(self.run, self.d.projects), (None, "unlinked"))
+
+    def test_candidate_dirs_ignore_case_and_match_worktrees(self):
+        for slug in ("-mnt-c-Dev-Proj", "-mnt-c-Dev-proj--claude-worktrees-proj-T-1", "-mnt-c-Dev-projx", "-home-u-other"):
+            (self.d.projects / slug).mkdir()
+        got = sorted(p.name for p in bm.candidate_project_dirs(self.d.projects, "proj", "T-1"))
+        self.assertEqual(got, ["-mnt-c-Dev-Proj", "-mnt-c-Dev-proj--claude-worktrees-proj-T-1"])
 
 
 if __name__ == "__main__":
