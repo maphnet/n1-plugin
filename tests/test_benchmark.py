@@ -476,5 +476,71 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(bm.main(["baseline", "set", "--out", str(d.out)]), 2)
 
 
+def stat(mean, lo, hi, n=5):
+    return {"n": n, "mean": mean, "median": mean, "ci": [lo, hi]}
+
+
+def snap_with(groups, sid="20260905T000000Z"):
+    return {"snapshot_id": sid, "created_at": "2026-09-05T00:00:00Z", "by": "version", "plugin_version": "2.83.0",
+            "rubric_version": 1, "judge_model": "m", "judge_fallbacks": 0, "malformed_lines": 0,
+            "groups": groups, "run_ids": [], "unlinked": []}
+
+
+def group(mean_interventions, lo, hi, sufficient=True, n=5):
+    metrics = {m.name: stat(mean_interventions if m.name == "interventions" else 1.0, lo, hi, n) for m in bm.METRICS}
+    return {"n_runs": n, "n_all": n, "sufficient": sufficient, "metrics": metrics, "abandon_rate": 0.0, "run_ids": []}
+
+
+class ReportTest(unittest.TestCase):
+    def test_delta_and_significance(self):
+        d = bm.delta(stat(2.0, 1.5, 2.5), stat(4.0, 3.0, 5.0))
+        self.assertEqual((d["abs"], d["pct"], d["significant"]), (-2.0, -50.0, True))
+        d = bm.delta(stat(3.0, 2.0, 4.5), stat(4.0, 3.0, 5.0))
+        self.assertFalse(d["significant"])
+        self.assertIsNone(bm.delta(stat(3.0, 2.0, 4.0), stat(0.0, 0.0, 0.0))["pct"])
+
+    def test_baseline_selection(self):
+        snap = snap_with({"2.70.0": group(5, 4, 6), "2.80.0": group(2, 1, 3), "2.81.0": group(3, 2, 4, sufficient=False, n=2)})
+        self.assertEqual(bm.pick_baseline_group(snap, {"version": "2.70.0"})[0], "2.70.0")
+        key, note = bm.pick_baseline_group(snap, None)
+        self.assertEqual(key, "2.70.0")
+        self.assertIn("oldest", note)
+        key, note = bm.pick_baseline_group(snap, {"version": "9.9.9"})
+        self.assertEqual(key, "2.70.0")
+        self.assertIn("not found", note)
+        self.assertEqual(bm.latest_sufficient(snap), "2.80.0")
+
+    def test_render_contains_sections(self):
+        snap = snap_with({"2.70.0": group(5, 4, 6), "2.80.0": group(2, 1, 3), "2.81.0": group(3, 2, 4, sufficient=False, n=2)})
+        snap["unlinked"] = [{"run_id": "r9", "project": "p", "ticket_id": "T-9", "reason": "no transcript matched"}]
+        prev = snap_with({"2.80.0": group(2.5, 1, 3)}, sid="20260901T000000Z")
+        caches = {"r1": {"run_id": "r1", "n1_version": "2.80.0", "eligible": True, "project": "p", "ticket_id": "T-1",
+                         "transcript_path": "/t/r1.jsonl", "metrics": {"corrections": 3.0},
+                         "turns": [{"label": "correction", "reason": "wrong file"}, {"label": "correction", "reason": "wrong file"},
+                                   {"label": "correction", "reason": "bad plan"}]}}
+        text = bm.render_report(snap, prev, "2.70.0", "pinned", caches)
+        self.assertIn("2.80.0 vs baseline 2.70.0", text)
+        self.assertIn("interventions", text)
+        self.assertIn("| 2.81.0 |", text)
+        self.assertIn("Insufficient sample", text)
+        self.assertIn("2.81.0 (2 runs)", text)
+        self.assertIn("Unlinked runs", text)
+        self.assertIn("r9", text)
+        self.assertIn("Worst runs", text)
+        self.assertIn("wrong file (2)", text)
+        self.assertIn("Previous snapshot: 20260901T000000Z", text)
+        self.assertIn("rubric v1", text)
+
+    def test_cmd_report_writes_file(self):
+        d = TempDirs()
+        bm.write_snapshot(d.out, snap_with({"2.80.0": group(2, 1, 3)}))
+        self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
+        self.assertTrue((d.out / "reports" / "20260905T000000Z.md").is_file())
+
+    def test_cmd_report_without_snapshots(self):
+        d = TempDirs()
+        self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

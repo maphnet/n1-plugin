@@ -644,6 +644,185 @@ COMMANDS["finalize"] = cmd_finalize
 COMMANDS["baseline"] = cmd_baseline
 
 
+# ------------------------------------------------------------------ report
+
+def delta(cur: dict, ref: dict) -> dict:
+    a = round(cur["mean"] - ref["mean"], 3)
+    pct = round(a / ref["mean"] * 100, 1) if ref["mean"] else None
+    significant = cur["ci"][0] > ref["ci"][1] or cur["ci"][1] < ref["ci"][0]
+    return {"abs": a, "pct": pct, "significant": bool(significant)}
+
+
+def _sorted_groups(snapshot: dict):
+    keys = [k for k in snapshot["groups"] if k != "unknown"]
+    if snapshot.get("by") == "week":
+        return sorted(keys) + (["unknown"] if "unknown" in snapshot["groups"] else [])
+    return sorted(keys, key=version_key) + (["unknown"] if "unknown" in snapshot["groups"] else [])
+
+
+def _sufficient_groups(snapshot: dict):
+    return [k for k in _sorted_groups(snapshot) if snapshot["groups"][k]["sufficient"]]
+
+
+def latest_sufficient(snapshot: dict):
+    groups = _sufficient_groups(snapshot)
+    return groups[-1] if groups else None
+
+
+def pick_baseline_group(snapshot: dict, baseline):
+    sufficient = _sufficient_groups(snapshot)
+    if baseline and baseline.get("version") in snapshot["groups"]:
+        return baseline["version"], "pinned"
+    fallback = sufficient[0] if sufficient else None
+    if baseline:
+        return fallback, f"pinned baseline {baseline.get('version')} not found in this snapshot; using oldest sufficient version"
+    return fallback, "no baseline pinned; using oldest sufficient version"
+
+
+def _fmt_stat(s):
+    if not s:
+        return "n/a"
+    return f"{s['mean']:g} [{s['ci'][0]:g}, {s['ci'][1]:g}] (n={s['n']})"
+
+
+def _fmt_delta(d, direction):
+    if d is None:
+        return "n/a"
+    better = (d["abs"] < 0) if direction == "lower" else (d["abs"] > 0)
+    arrow = "better" if better else ("worse" if d["abs"] != 0 else "same")
+    pct = f", {d['pct']:+g}%" if d["pct"] is not None else ""
+    sig = " significant" if d["significant"] else ""
+    return f"{d['abs']:+g}{pct} ({arrow}{sig})"
+
+
+def _judge_reasons(turns):
+    counts = {}
+    for t in turns:
+        if t.get("label") == "correction" and t.get("reason"):
+            counts[t["reason"]] = counts.get(t["reason"], 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:3]
+
+
+def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> str:
+    g = snapshot["groups"]
+    lines = [f"# N1 Orchestrator Benchmark — snapshot {snapshot['snapshot_id']}", ""]
+
+    latest = latest_sufficient(snapshot)
+    if latest and baseline_group and baseline_group in g:
+        cur, ref = g[latest]["metrics"].get("interventions"), g[baseline_group]["metrics"].get("interventions")
+        if cur and ref:
+            d = delta(cur, ref)
+            lines.append(f"**{latest} vs baseline {baseline_group}** ({baseline_note}): interventions "
+                         f"{cur['mean']:g} vs {ref['mean']:g}, {_fmt_delta(d, 'lower')}.")
+        else:
+            lines.append(f"**{latest} vs baseline {baseline_group}** ({baseline_note}): no interventions data.")
+    else:
+        lines.append("No version has a sufficient sample yet; trends are not computed.")
+    lines.append("")
+
+    # Per-group table
+    header = ["group", "runs"] + [m.name for m in METRICS] + ["abandon_rate"]
+    lines.append("## Per-version metrics" if snapshot.get("by") == "version" else "## Per-week metrics")
+    lines.append("")
+    lines.append("| " + " | ".join(header) + " |")
+    lines.append("|" + "---|" * len(header))
+    prev_key = None
+    for key in _sorted_groups(snapshot):
+        row = [key, f"{g[key]['n_runs']}/{g[key]['n_all']}" + ("" if g[key]["sufficient"] else " (insufficient)")]
+        for m in METRICS:
+            cell = _fmt_stat(g[key]["metrics"].get(m.name))
+            if g[key]["sufficient"] and prev_key and g[key]["metrics"].get(m.name) and g[prev_key]["metrics"].get(m.name):
+                d = delta(g[key]["metrics"][m.name], g[prev_key]["metrics"][m.name])
+                cell += f" {_fmt_delta(d, m.direction)}"
+            row.append(cell)
+        ar = g[key].get("abandon_rate")
+        row.append(f"{ar:.0%}" if ar is not None else "n/a")
+        lines.append("| " + " | ".join(row) + " |")
+        if g[key]["sufficient"]:
+            prev_key = key
+    lines.append("")
+    lines.append("Cells: mean [95% bootstrap CI] (n). Deltas compare against the previous sufficient group.")
+    lines.append("")
+
+    # Baseline comparison table
+    if latest and baseline_group and baseline_group in g and latest != baseline_group:
+        lines += [f"## {latest} vs baseline {baseline_group}", "", "| metric | baseline | latest | delta |", "|---|---|---|---|"]
+        for m in METRICS:
+            cur, ref = g[latest]["metrics"].get(m.name), g[baseline_group]["metrics"].get(m.name)
+            d = delta(cur, ref) if cur and ref else None
+            lines.append(f"| {m.name} | {_fmt_stat(ref)} | {_fmt_stat(cur)} | {_fmt_delta(d, m.direction)} |")
+        lines.append("")
+
+    # Drift vs previous snapshot
+    if previous:
+        lines += [f"## Drift vs previous snapshot ({previous['snapshot_id']})", ""]
+        drift = []
+        for key in _sorted_groups(snapshot):
+            pg = previous["groups"].get(key)
+            if not pg:
+                continue
+            cur, ref = g[key]["metrics"].get("interventions"), pg["metrics"].get("interventions")
+            if cur and ref and (cur["mean"] != ref["mean"] or cur["n"] != ref["n"]):
+                drift.append(f"- {key}: interventions {ref['mean']:g} (n={ref['n']}) -> {cur['mean']:g} (n={cur['n']})")
+        lines += drift or ["- no changes in interventions for shared versions"]
+        lines.append("")
+
+    insufficient = [k for k in _sorted_groups(snapshot) if not g[k]["sufficient"]]
+    lines += ["## Insufficient sample", ""]
+    lines += [f"- {k} ({g[k]['n_runs']} runs)" for k in insufficient] or ["- none"]
+    lines.append("")
+
+    lines += ["## Unlinked runs", ""]
+    lines += [f"- {u['run_id']} ({u.get('project')}, {u.get('ticket_id')}): {u.get('reason')}"
+              for u in snapshot.get("unlinked") or []] or ["- none"]
+    lines.append("")
+
+    worst = sorted((c for c in caches.values() if c.get("eligible") and isinstance(c.get("metrics", {}).get("corrections"), (int, float))),
+                   key=lambda c: -c["metrics"]["corrections"])[:5]
+    lines += ["## Worst runs (most corrections)", ""]
+    for c in worst:
+        reasons = ", ".join(f"{r} ({n})" for r, n in _judge_reasons(c.get("turns") or []))
+        lines.append(f"- {c['run_id']} [{c.get('n1_version')}] {c.get('project')}/{c.get('ticket_id')}: "
+                     f"{c['metrics']['corrections']:g} corrections. {reasons or 'no judge reasons'}. {c.get('transcript_path') or ''}")
+    if not worst:
+        lines.append("- none")
+    lines.append("")
+
+    lines.append(f"Snapshot {snapshot['snapshot_id']}, plugin {snapshot.get('plugin_version') or 'unknown'}, "
+                 f"rubric v{snapshot['rubric_version']}, judge {snapshot['judge_model']}, "
+                 f"judge fallbacks {snapshot['judge_fallbacks']}, malformed lines {snapshot.get('malformed_lines', 0)}. "
+                 f"Previous snapshot: {previous['snapshot_id'] if previous else 'none'}.")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_report(args) -> int:
+    out = Path(args.out)
+    snaps = [s for s in load_snapshots(out) if s.get("by", "version") == args.by]
+    if not snaps:
+        print("No snapshots found. Run `finalize` first.")
+        return 0
+    if args.snapshot:
+        idx = next((i for i, s in enumerate(snaps) if s["snapshot_id"] == args.snapshot), None)
+        if idx is None:
+            print(f"snapshot not found: {args.snapshot}", file=sys.stderr)
+            return 1
+    else:
+        idx = len(snaps) - 1
+    snapshot = snaps[idx]
+    previous = snaps[idx - 1] if idx > 0 else None
+    baseline_group, note = pick_baseline_group(snapshot, load_baseline(out))
+    text = render_report(snapshot, previous, baseline_group, note, load_cache(out))
+    rp = out / "reports" / f"{snapshot['snapshot_id']}.md"
+    rp.parent.mkdir(parents=True, exist_ok=True)
+    rp.write_text(text, encoding="utf-8")
+    print(text)
+    print(f"report saved: {rp}")
+    return 0
+
+
+COMMANDS["report"] = cmd_report
+
+
 # ------------------------------------------------------------------------ CLI
 
 def build_parser():
