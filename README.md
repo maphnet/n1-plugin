@@ -50,6 +50,17 @@ claude --plugin-dir ~/dev/n1-plugin
 
 ## Skills
 
+| Skill | Description |
+|-------|-------------|
+| /n1:n1-benchmark | Benchmark orchestrator autonomy across versions (interventions per run, quality metrics, baseline deltas) |
+| /n1:n1-clean | Remove git worktree for a ticket after work is done or abandoned |
+| /n1:n1-estimate | Estimate task complexity and delivery time |
+| /n1:n1-finish | Verify/merge PR, watch deploy, close ticket |
+| /n1:n1-init | Set up N1 for your project (tracker, models, flags) |
+| /n1:n1-pr | Finalize branch: docs, push, create or skip PR |
+| /n1:n1-review | Code review loop or advisory review of a PR |
+| /n1:n1-start | Full pipeline orchestrator — ticket to merged PR |
+
 ### `/n1:n1-start` — Core Orchestrator
 
 Single entry point for all task work. Full pipeline:

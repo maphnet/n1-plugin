@@ -57,6 +57,8 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 
 `python3 scripts/audit-orchestrator.py --since <date>` scans local Claude Code transcripts of `/n1:n1-start` sessions and lists main-thread tool calls that touched project files or ran tests/installs/commits, grouped by the preceding agent/skill context. Lines marked `!!` are guardrail violations (see `tests/test_orchestrator_guardrails.sh` for the guardrails). Run it after dogfooding a change to the orchestrator; the goal is `violations: 0` on fresh sessions.
 
+`python3 scripts/benchmark.py` is the orchestrator benchmark behind `/n1:n1-benchmark`. `collect` scans all run records under `~/.n1/*/memory/*/telemetry/runs/`, links each completed run to its Claude Code session transcript (via the raw agents file, falling back to project slug plus time window plus ticket ID), extracts human turns, and classifies them heuristically; ambiguous turns are labeled by a Haiku judge in the skill and passed back via `finalize --labels`, which computes metrics and writes a snapshot. `report` renders per-version tables with bootstrap confidence intervals and deltas against the previous snapshot and the pinned baseline (`baseline set <version>`). State lives in `~/.n1/benchmark/`. Tests: `bash tests/test_benchmark.sh`.
+
 ## Conventions
 
 - **Skill authoring:** Always use `/writing-skills` skill when creating or modifying skills (available in Superpowers <=5.x; removed in v6)
