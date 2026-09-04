@@ -22,6 +22,7 @@ import datetime as dt
 import json
 import os
 import random
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -169,8 +170,9 @@ def human_turn_timestamps(path: Path):
 
 def _transcript_mentions(path: Path, needle: str) -> bool:
     try:
+        pattern = re.compile(r'(?<!\w)' + re.escape(needle) + r'(?!\w)')
         with open(path, encoding="utf-8", errors="replace") as fh:
-            return any(needle in line for line in fh)
+            return any(pattern.search(line) for line in fh)
     except OSError:
         return False
 

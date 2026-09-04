@@ -192,6 +192,10 @@ class LinkingTest(unittest.TestCase):
         got = sorted(p.name for p in bm.candidate_project_dirs(self.d.projects, "proj", "T-1"))
         self.assertEqual(got, ["-mnt-c-Dev-Proj", "-mnt-c-Dev-proj--claude-worktrees-proj-T-1"])
 
+    def test_heuristic_does_not_match_prefix_ticket(self):
+        self.transcript("-mnt-c-Dev-proj", "prefix", [human("2026-09-01T10:05:00Z", "working on T-10")])
+        self.assertEqual(bm.link_transcript(self.run, self.d.projects), (None, "unlinked"))
+
 
 class ExtractTurnsTest(unittest.TestCase):
     def setUp(self):
