@@ -387,5 +387,94 @@ class ApplyLabelsTest(unittest.TestCase):
         self.assertEqual(cache["turns"][0]["reason"], "user said wrong file")
 
 
+def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01T10:00:00Z", link="heuristic"):
+    return {"run_id": run_id, "n1_version": version, "eligible": eligible, "started_at": started,
+            "link_method": link if eligible else "skipped", "project": "p", "ticket_id": "T",
+            "metrics": {"interventions": interventions, "answers": interventions, "corrections": 0.0,
+                        "fix_cycles": 1.0, "review_pass_first_try": 1.0, "duration_min": 10.0,
+                        "orchestrator_output_tokens": None, "compactions": 0.0} if eligible else {},
+            "turns": []}
+
+
+class AggregateTest(unittest.TestCase):
+    def test_version_key_sorts_numerically(self):
+        vs = ["2.10.0", "2.9.0", "2.52.17", "2.52.3", "unknown", ""]
+        self.assertEqual(sorted(vs, key=bm.version_key), ["", "unknown", "2.9.0", "2.10.0", "2.52.3", "2.52.17"])
+
+    def test_group_keys(self):
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1), "version"), "2.80.0")
+        self.assertEqual(bm.group_key(cache_for("", "a", 1), "version"), "unknown")
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1), "week"), "2026-W36")
+
+    def test_bootstrap_ci_is_deterministic_and_brackets_mean(self):
+        lo, hi = bm.bootstrap_ci([1, 2, 3, 4, 10])
+        self.assertEqual((lo, hi), bm.bootstrap_ci([1, 2, 3, 4, 10]))
+        self.assertLessEqual(lo, 4.0)
+        self.assertGreaterEqual(hi, 4.0)
+        self.assertEqual(bm.bootstrap_ci([5.0]), (5.0, 5.0))
+
+    def test_aggregate_gate_and_abandon_rate(self):
+        caches = [cache_for("2.80.0", f"a{i}", float(i)) for i in range(5)]
+        caches += [cache_for("2.80.0", "x", None, eligible=False)]
+        caches += [cache_for("2.81.0", "b1", 3.0), cache_for("2.81.0", "b2", None, link="unlinked")]
+        agg = bm.aggregate(caches, "version")
+        g = agg["2.80.0"]
+        self.assertEqual((g["n_runs"], g["n_all"], g["sufficient"]), (5, 6, True))
+        self.assertEqual(g["metrics"]["interventions"]["n"], 5)
+        self.assertEqual(g["metrics"]["interventions"]["mean"], 2.0)
+        self.assertEqual(g["metrics"]["interventions"]["median"], 2.0)
+        self.assertIsNone(g["metrics"]["orchestrator_output_tokens"])
+        self.assertAlmostEqual(g["abandon_rate"], 1 / 6)
+        h = agg["2.81.0"]
+        self.assertFalse(h["sufficient"])
+        self.assertEqual(h["metrics"]["interventions"]["n"], 1)
+
+
+class FinalizeTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+        self.d.add_run(make_run())
+        write_jsonl(self.d.projects / "-mnt-c-Dev-proj" / "s.jsonl", [
+            human("2026-09-01T10:03:00Z", "T-1 no, revert that"),
+            human("2026-09-01T10:04:00Z", "and also add tests")])
+        bm.main(["collect", "--n1-root", str(self.d.n1), "--projects-dir", str(self.d.projects),
+                 "--out", str(self.d.out), "--ambiguous-out", str(self.d.tmp / "a.json")])
+
+    def finalize(self, labels):
+        lf = self.d.tmp / "labels.json"
+        lf.write_text(json.dumps(labels))
+        rc = bm.main(["finalize", "--labels", str(lf), "--out", str(self.d.out), "--plugin-version", "2.83.0"])
+        self.assertEqual(rc, 0)
+        return bm.load_snapshots(self.d.out)[-1]
+
+    def test_finalize_writes_snapshot_and_updates_cache(self):
+        snap = self.finalize([{"id": "n1-run-1#0", "label": "correction", "reason": "revert"}])
+        self.assertEqual(snap["judge_fallbacks"], 1)
+        self.assertEqual(snap["plugin_version"], "2.83.0")
+        self.assertEqual(snap["rubric_version"], bm.RUBRIC_VERSION)
+        g = snap["groups"]["2.80.0"]
+        self.assertEqual(g["metrics"]["corrections"]["mean"], 1.0)
+        self.assertFalse(g["sufficient"])
+        cache = bm.load_cache(self.d.out)["n1-run-1"]
+        self.assertEqual(cache["metrics"]["interventions"], 1.0)
+        self.assertEqual(cache["judge_model"], bm.DEFAULT_JUDGE_MODEL)
+        self.assertEqual([t["label_source"] for t in cache["turns"]], ["judge", "fallback"])
+
+    def test_finalize_accepts_dict_labels_and_is_idempotent(self):
+        self.finalize({"n1-run-1#0": {"label": "correction"}, "n1-run-1#1": {"label": "instruction"}})
+        snap = self.finalize([])
+        self.assertEqual(snap["judge_fallbacks"], 0)
+        self.assertEqual(len(bm.load_snapshots(self.d.out)), 2)
+
+
+class BaselineTest(unittest.TestCase):
+    def test_set_and_show(self):
+        d = TempDirs()
+        self.assertEqual(bm.main(["baseline", "set", "2.80.0", "--out", str(d.out)]), 0)
+        self.assertEqual(bm.load_baseline(d.out)["version"], "2.80.0")
+        self.assertEqual(bm.main(["baseline", "show", "--out", str(d.out)]), 0)
+        self.assertEqual(bm.main(["baseline", "set", "--out", str(d.out)]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

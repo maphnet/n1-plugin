@@ -484,6 +484,166 @@ def apply_labels(cache: dict, labels: dict) -> int:
     return fallbacks
 
 
+# -------------------------------------------------------------- aggregation
+
+def version_key(v: str):
+    parts = []
+    for piece in (v or "").split("."):
+        try:
+            parts.append((1, int(piece)))
+        except ValueError:
+            parts.append((0, piece))
+    return (1 if parts and parts[0][0] == 1 else 0, parts)
+
+
+def group_key(cache: dict, by: str) -> str:
+    if by == "week":
+        ts = parse_ts(cache.get("started_at"))
+        if ts is None:
+            return "unknown"
+        iso = dt.datetime.fromtimestamp(ts, dt.timezone.utc).isocalendar()
+        return f"{iso[0]}-W{iso[1]:02d}"
+    return cache.get("n1_version") or "unknown"
+
+
+def bootstrap_ci(values, seed=0, n=1000, alpha=0.05):
+    vals = [float(v) for v in values]
+    if not vals:
+        return (0.0, 0.0)
+    if len(vals) == 1:
+        return (vals[0], vals[0])
+    rng = random.Random(seed)
+    means = sorted(statistics.fmean(rng.choices(vals, k=len(vals))) for _ in range(n))
+    lo = means[int(alpha / 2 * n)]
+    hi = means[min(n - 1, int((1 - alpha / 2) * n))]
+    return (round(lo, 3), round(hi, 3))
+
+
+def aggregate(caches, by: str) -> dict:
+    groups = {}
+    for c in caches:
+        groups.setdefault(group_key(c, by), []).append(c)
+    out = {}
+    for key, members in groups.items():
+        eligible = [c for c in members if c.get("eligible")]
+        metrics = {}
+        for m in METRICS:
+            vals = [c["metrics"].get(m.name) for c in eligible]
+            vals = [v for v in vals if isinstance(v, (int, float))]
+            if not vals:
+                metrics[m.name] = None
+                continue
+            metrics[m.name] = {"n": len(vals), "mean": round(statistics.fmean(vals), 3),
+                               "median": round(statistics.median(vals), 3),
+                               "ci": list(bootstrap_ci(vals))}
+        out[key] = {
+            "n_runs": len(eligible), "n_all": len(members),
+            "sufficient": len(eligible) >= MIN_SAMPLE,
+            "metrics": metrics,
+            "abandon_rate": (1 - len(eligible) / len(members)) if members else None,
+            "run_ids": sorted(c["run_id"] for c in eligible),
+        }
+    return out
+
+
+# ---------------------------------------------------------------- storage
+
+def write_snapshot(out: Path, snapshot: dict) -> Path:
+    d = Path(out) / "snapshots"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / f"{snapshot['snapshot_id']}.json"
+    p.write_text(json.dumps(snapshot, indent=1, sort_keys=True), encoding="utf-8")
+    return p
+
+
+def load_snapshots(out: Path):
+    snaps = []
+    for p in sorted((Path(out) / "snapshots").glob("*.json")):
+        try:
+            snaps.append(json.loads(p.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return snaps
+
+
+def load_baseline(out: Path):
+    p = Path(out) / "baseline.json"
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _read_labels(path: str) -> dict:
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if isinstance(raw, dict) and "labels" in raw:
+        raw = raw["labels"]
+    if isinstance(raw, list):
+        return {e["id"]: e for e in raw if isinstance(e, dict) and e.get("id")}
+    if isinstance(raw, dict):
+        return {k: (v if isinstance(v, dict) else {"label": v}) for k, v in raw.items()}
+    return {}
+
+
+def cmd_finalize(args) -> int:
+    out = Path(args.out)
+    caches = load_cache(out)
+    if not caches:
+        print("No collected runs. Run `collect` first.")
+        return 0
+    labels = _read_labels(args.labels)
+    fallbacks = 0
+    for cache in caches.values():
+        fb = apply_labels(cache, labels)
+        if fb or any(t.get("label_source") == "judge" for t in cache.get("turns") or []):
+            cache["judge_model"] = args.judge_model
+        cache["judge_fallbacks"] = (cache.get("judge_fallbacks") or 0) + fb
+        fallbacks += fb
+        compute_run_metrics(cache)
+        save_cache(out, cache)
+    ordered = sorted(caches.values(), key=lambda c: c.get("started_at") or "")
+    snapshot = {
+        "snapshot_id": dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
+        "created_at": now_iso(), "by": args.by, "plugin_version": args.plugin_version,
+        "rubric_version": RUBRIC_VERSION, "judge_model": args.judge_model,
+        "judge_fallbacks": fallbacks, "malformed_lines": 0,
+        "groups": aggregate(ordered, args.by),
+        "run_ids": sorted(caches),
+        "unlinked": [{"run_id": c["run_id"], "project": c.get("project"), "ticket_id": c.get("ticket_id"),
+                      "reason": "no transcript matched"}
+                     for c in ordered if c.get("eligible") and c.get("link_method") == "unlinked"],
+    }
+    # Guarantee unique ids when two finalize calls land in the same second.
+    existing = {s["snapshot_id"] for s in load_snapshots(out)}
+    while snapshot["snapshot_id"] in existing:
+        snapshot["snapshot_id"] += "x"
+    path = write_snapshot(out, snapshot)
+    print(f"snapshot written: {path}")
+    return 0
+
+
+def cmd_baseline(args) -> int:
+    out = Path(args.out)
+    if args.action == "set":
+        if not args.version:
+            print("baseline set requires a version", file=sys.stderr)
+            return 2
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "baseline.json").write_text(json.dumps({"version": args.version, "set_at": now_iso()}, indent=1),
+                                           encoding="utf-8")
+        print(f"baseline set to {args.version}")
+        return 0
+    b = load_baseline(out)
+    print(f"baseline: {b['version']} (set {b['set_at']})" if b else "no baseline pinned")
+    return 0
+
+
+COMMANDS["finalize"] = cmd_finalize
+COMMANDS["baseline"] = cmd_baseline
+
+
 # ------------------------------------------------------------------------ CLI
 
 def build_parser():
