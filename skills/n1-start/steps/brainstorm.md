@@ -232,6 +232,12 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNING_NEED"
 ```
 
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_record_decision planning-need-direct "$( [ "$PLANNING_NEED" = "direct" ] && echo true || echo false )" \
+  '{"signal":"brainstorm.design_clarity","eq":"high"}' "planning_need=$PLANNING_NEED"
+```
+
 **Persist brainstorm signals:**
 After `planning_need` is determined, assess and persist signals:
 ```bash
