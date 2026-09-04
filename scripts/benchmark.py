@@ -245,6 +245,128 @@ def extract_turns(transcript_path: str, run: dict):
     return turns
 
 
+COMMANDS = {}
+
+
+# ------------------------------------------------- heuristic classification
+
+APPROVAL_VOCAB = frozenset({
+    "yes", "y", "ok", "okay", "go", "continue", "proceed", "approved", "approve",
+    "lgtm", "looks good", "do it", "sure", "fine", "yep", "yup",
+    "1", "2", "3", "4", "5", "6", "7", "8", "9",
+})
+ANSWER_MAX_CHARS = 200
+
+
+def _normalize(text: str) -> str:
+    return "".join(ch for ch in text.lower() if ch.isalnum() or ch.isspace()).strip()
+
+
+def classify_heuristic(turn: dict) -> str:
+    text = turn.get("text") or ""
+    if not text.strip():
+        return "noise"
+    prev = (turn.get("prev_assistant") or "").rstrip()
+    asked = bool(turn.get("asked_question")) or prev.endswith("?")
+    if asked and len(text) < ANSWER_MAX_CHARS:
+        return "answer"
+    if _normalize(text) in APPROVAL_VOCAB:
+        return "approval"
+    return "ambiguous"
+
+
+# --------------------------------------------------------------- run cache
+
+def run_cache_path(out: Path, run_id: str) -> Path:
+    return Path(out) / "runs" / f"{run_id}.json"
+
+
+def load_cache(out: Path):
+    caches = {}
+    for p in sorted((Path(out) / "runs").glob("*.json")):
+        try:
+            c = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if c.get("run_id"):
+            caches[c["run_id"]] = c
+    return caches
+
+
+def save_cache(out: Path, cache: dict):
+    p = run_cache_path(out, cache["run_id"])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(cache, indent=1, sort_keys=True), encoding="utf-8")
+
+
+def now_iso() -> str:
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def build_run_cache(run: dict, projects_dir: Path) -> dict:
+    eligible = is_eligible(run)
+    cache = {
+        "run_id": run["run_id"], "n1_version": run.get("n1_version") or "",
+        "project": run.get("project"), "ticket_id": run.get("ticket_id"),
+        "started_at": run.get("started_at"), "completed_at": run.get("completed_at"),
+        "final_outcome": run.get("final_outcome"), "eligible": eligible,
+        "link_method": "skipped", "transcript_path": None, "turns": [],
+        "metrics": {}, "per_step": {}, "judge_model": None,
+        "rubric_version": RUBRIC_VERSION, "judge_fallbacks": 0, "collected_at": now_iso(),
+        "_run": run,
+    }
+    if not eligible:
+        return cache
+    path, method = link_transcript(run, projects_dir)
+    cache["link_method"], cache["transcript_path"] = method, path
+    if path:
+        for t in extract_turns(path, run):
+            label = classify_heuristic(t)
+            t["label"] = label
+            t["label_source"] = "heuristic" if label != "ambiguous" else None
+            t["reason"] = None
+            cache["turns"].append(t)
+    return cache
+
+
+def _strip_private(cache: dict) -> dict:
+    return {k: v for k, v in cache.items() if not k.startswith("_")}
+
+
+def cmd_collect(args) -> int:
+    out = Path(args.out)
+    runs, malformed = load_runs(Path(args.n1_root))
+    since = parse_ts(f"{args.since}T00:00:00Z") if args.since else None
+    if since is not None:
+        runs = [r for r in runs if (parse_ts(r.get("started_at")) or 0) >= since]
+    existing = {} if args.force else load_cache(out)
+    new, cached, ambiguous = 0, 0, []
+    for run in runs:
+        cache = existing.get(run["run_id"])
+        if cache is None:
+            cache = build_run_cache(run, Path(args.projects_dir))
+            cache["run_record"] = {k: v for k, v in run.items() if not k.startswith("_")}
+            save_cache(out, _strip_private(cache))
+            new += 1
+        else:
+            cached += 1
+        for t in cache["turns"]:
+            if t.get("label") == "ambiguous":
+                ambiguous.append({"id": t["id"], "text": t["text"], "prev_assistant": t["prev_assistant"]})
+    result = {"ambiguous": ambiguous, "runs_new": new, "runs_cached": cached,
+              "runs_total": len(runs), "malformed_lines": malformed}
+    payload = json.dumps(result, indent=1)
+    if args.ambiguous_out:
+        Path(args.ambiguous_out).write_text(payload, encoding="utf-8")
+        print(f"runs: {len(runs)} (new {new}, cached {cached}); ambiguous turns: {len(ambiguous)} -> {args.ambiguous_out}")
+    else:
+        print(payload)
+    return 0
+
+
+COMMANDS["collect"] = cmd_collect
+
+
 # ------------------------------------------------------------------------ CLI
 
 def build_parser():
@@ -290,8 +412,6 @@ def main(argv=None) -> int:
         return 2
     return handler(args)
 
-
-COMMANDS = {}
 
 if __name__ == "__main__":
     sys.exit(main())

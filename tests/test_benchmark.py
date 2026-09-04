@@ -236,5 +236,86 @@ class ExtractTurnsTest(unittest.TestCase):
         self.assertEqual(bm.extract_turns(str(self.d.tmp / "missing.jsonl"), self.run), [])
 
 
+def turn(text, asked=False, prev="Summary."):
+    return {"id": "r#0", "timestamp": "2026-09-01T10:03:00Z", "step": "brainstorm",
+            "text": text, "prev_assistant": prev, "asked_question": asked}
+
+
+class HeuristicTest(unittest.TestCase):
+    def test_empty_is_noise(self):
+        self.assertEqual(bm.classify_heuristic(turn("   ")), "noise")
+
+    def test_short_reply_after_ask_is_answer(self):
+        self.assertEqual(bm.classify_heuristic(turn("Option 2, the second one", asked=True)), "answer")
+
+    def test_short_reply_after_question_mark_is_answer(self):
+        self.assertEqual(bm.classify_heuristic(turn("use jira", prev="Which tracker?")), "answer")
+
+    def test_long_reply_after_ask_is_ambiguous(self):
+        self.assertEqual(bm.classify_heuristic(turn("x" * 201, asked=True)), "ambiguous")
+
+    def test_approval_vocab(self):
+        for t in ("yes", "Y", "ok.", "Looks good!", "go", "3", "LGTM", "do it"):
+            self.assertEqual(bm.classify_heuristic(turn(t)), "approval", t)
+
+    def test_answer_beats_approval_when_asked(self):
+        self.assertEqual(bm.classify_heuristic(turn("1", asked=True)), "answer")
+
+    def test_other_is_ambiguous(self):
+        self.assertEqual(bm.classify_heuristic(turn("no, revert that and use the other file")), "ambiguous")
+        self.assertEqual(bm.classify_heuristic(turn("also add a CSV export")), "ambiguous")
+
+
+class CollectTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+        self.run = self.d.add_run(make_run())
+        self.d.add_run(make_run(run_id="n1-run-2", ticket="T-2", outcome=None))
+        write_jsonl(self.d.projects / "-mnt-c-Dev-proj" / "s.jsonl", [
+            assistant("2026-09-01T10:02:00Z", "Which?", ask=True),
+            human("2026-09-01T10:03:00Z", "T-1: option 2"),
+            human("2026-09-01T10:40:00Z", "no, revert that"),
+        ])
+
+    def collect(self, *extra):
+        out_file = self.d.tmp / "amb.json"
+        rc = bm.main(["collect", "--n1-root", str(self.d.n1), "--projects-dir", str(self.d.projects),
+                      "--out", str(self.d.out), "--ambiguous-out", str(out_file), *extra])
+        self.assertEqual(rc, 0)
+        return json.loads(out_file.read_text())
+
+    def test_collect_caches_and_emits_ambiguous(self):
+        res = self.collect()
+        self.assertEqual(res["runs_new"], 2)
+        self.assertEqual([a["id"] for a in res["ambiguous"]], ["n1-run-1#1"])
+        cache = json.loads((self.d.out / "runs" / "n1-run-1.json").read_text())
+        self.assertEqual(cache["link_method"], "heuristic")
+        self.assertEqual([t["label"] for t in cache["turns"]], ["answer", "ambiguous"])
+        self.assertEqual(cache["turns"][0]["label_source"], "heuristic")
+        skipped = json.loads((self.d.out / "runs" / "n1-run-2.json").read_text())
+        self.assertFalse(skipped["eligible"])
+        self.assertEqual(skipped["link_method"], "skipped")
+
+    def test_second_collect_skips_cached_but_re_emits_unlabeled_ambiguous(self):
+        self.collect()
+        res = self.collect()
+        self.assertEqual((res["runs_new"], res["runs_cached"]), (0, 2))
+        self.assertEqual(len(res["ambiguous"]), 1)
+
+    def test_force_reprocesses(self):
+        self.collect()
+        res = self.collect("--force")
+        self.assertEqual(res["runs_new"], 2)
+
+    def test_since_filters_old_runs(self):
+        res = self.collect("--since", "2026-09-02")
+        self.assertEqual(res["runs_total"], 0)
+
+    def test_missing_root_is_clean_exit(self):
+        rc = bm.main(["collect", "--n1-root", str(self.d.tmp / "none"), "--projects-dir", str(self.d.projects),
+                      "--out", str(self.d.out)])
+        self.assertEqual(rc, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
