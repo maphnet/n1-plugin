@@ -100,10 +100,10 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
   ⚠ QA evidence missing — verdict is agent-transcribed, not machine-captured. Review step will flag this.
   ```
 
-- **verifyGate (optional hardening).** Read `qa.verifyGate` from config (default `false`):
+- **verifyGate.** Read `qa.verifyGate` from config (default `true`; set `false` to skip re-execution):
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-  VERIFY_GATE=$(n1_config_val '.qa.verifyGate' 'false')
+  VERIFY_GATE=$(n1_config_val '.qa.verifyGate' 'true')
   ```
   When `true`, re-execute the test suite via Bash and compare exit codes:
   ```bash
@@ -131,12 +131,72 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
       fi
   fi
   # Note: without verifyGate, evidence is agent-transcribed, not machine-captured.
-  # qa.verifyGate: boolean (default false). When true, the orchestrator re-executes
+  # qa.verifyGate: boolean (default true). When true, the orchestrator re-executes
   # the test suite after QA, compares the exit code to the agent-reported one, and
   # records any mismatch in overview Key Decisions. Log stored under $N1_HOME/memory/<ID>/
-  # (never inlined into context). Enable for projects where hallucinated pass verdicts
-  # are a higher risk than the added execution time.
+  # (never inlined into context). Set false for projects where the added execution time
+  # outweighs the benefit of catching hallucinated pass verdicts.
   ```
+- **Break-check (a test must be able to fail).** Read config and the QA evidence lines:
+  ```bash
+  source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+  source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+  source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+  source "${CLAUDE_PLUGIN_ROOT}/lib/breakcheck.sh"
+  # n1_break_check <base_ref> <test_cmd> <test_name> <log_path> [<repo_dir>] → JSON envelope (.verdict, .error.kind)
+  BC_MODE=$(n1_config_val '.qa.breakCheck' 'bugs')          # bugs | all | off
+  BC_MAX=$(n1_config_val '.qa.breakCheckMaxTests' '5')
+  TASK_TYPE=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "task_type")
+  TESTS_ADDED=$(n1_read_signal "$N1_HOME/memory/$ID/qa.md" "tests_added"); TESTS_ADDED=${TESTS_ADDED:-0}
+  BP_FILE="$N1_HOME/memory/$ID/branch-point"
+  BC_BASE=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' 'main' )
+  BC_LOG="$N1_HOME/memory/$ID/break-check.log"
+  BREAK_CHECK_TQ=""
+  BC_VERDICT="skipped"
+  ```
+  Run in the worktree directory (`cd` is not needed: pass the repo dir as the fifth argument).
+
+  **Bug tickets (`TASK_TYPE == bug`, unless `BC_MODE == off`):** the check is blocking.
+  ```bash
+  REG_LINE=$(grep -m1 '^Regression test:' "$N1_HOME/memory/$ID/qa.md" || true)
+  REG_NAME=$(echo "$REG_LINE" | sed 's/^Regression test: *//; s/ *|.*//')
+  REG_CMD=$(echo "$REG_LINE" | sed 's/^[^|]*| *//' | tr -d '`')
+  if [ -z "$REG_NAME" ] || [ -z "$REG_CMD" ]; then
+      BC_JSON='{"success":false,"error":{"kind":"inconclusive","message":"qa.md has no Regression test: line"},"verdict":"inconclusive"}'
+  else
+      BC_JSON=$(n1_break_check "$BC_BASE" "$REG_CMD" "$REG_NAME" "$BC_LOG" "<worktree dir>" || true)
+  fi
+  BC_VERDICT=$(echo "$BC_JSON" | jq -r '.verdict // "inconclusive"')
+  BC_MSG=$(echo "$BC_JSON" | jq -r '.error.message // empty')
+  ```
+  Append to `qa.md`:
+  ```
+  ## Break-check
+  Regression test: <REG_NAME>
+  Verdict: <BC_VERDICT>
+  <BC_MSG, if any>
+  Log: <BC_LOG>
+  ```
+  If `BC_VERDICT != red-then-green`: set `QA_RESULT=FAIL`, record `n1_append_key_decision ... "Break-check FAIL: regression test '<REG_NAME>' verdict <BC_VERDICT> — <BC_MSG>"`, and enter the QA fix cycle with this finding text as the sole defect: "The regression test `<REG_NAME>` does not fail when the fix is reverted (verdict: <BC_VERDICT>). Rewrite it so it exercises the fixed behavior; see <BC_LOG>." The existing `qa.maxFixAttempts` bound applies.
+
+  **Other types (`BC_MODE == bugs` and `TESTS_ADDED > 0`), or every type when `BC_MODE == all`:** run on each `New test:` line, at most `BC_MAX`.
+  ```bash
+  HOLLOW=""
+  grep '^New test:' "$N1_HOME/memory/$ID/qa.md" | head -n "$BC_MAX" | while IFS= read -r line; do
+      NAME=$(echo "$line" | sed 's/^New test: *//; s/ *|.*//')
+      CMD=$(echo "$line" | sed 's/^[^|]*| *//' | tr -d '`')
+      J=$(n1_break_check "$BC_BASE" "$CMD" "$NAME" "$BC_LOG.$NAME" "<worktree dir>" || true)
+      V=$(echo "$J" | jq -r '.verdict // "inconclusive"')
+      echo "$NAME $V"
+  done > "$N1_HOME/memory/$ID/break-check.new-tests"
+  BREAK_CHECK_TQ=$(awk '$2 != "red-then-green" {print $1" ("$2")"}' "$N1_HOME/memory/$ID/break-check.new-tests")
+  ```
+  Append a `## Break-check` section to `qa.md` listing each `New test:` name with its verdict. When `BC_MODE == all`, any non-`red-then-green` verdict is blocking exactly as for bug tickets. Otherwise hollow tests are non-blocking and `BREAK_CHECK_TQ` is passed to the review step (§ Review context) as `[TQ-N]` findings.
+
+  Always persist: `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "break_check_verdict" "$BC_VERDICT"`.
+
+  > Config: `qa.breakCheck` (`"bugs"` default, `"all"`, `"off"`), `qa.breakCheckMaxTests` (default `5`). Break-check never uses `git stash`; it checks out non-test files from the branch point and restores `HEAD`. A `dirty-tree` result means the developer or QA agent left uncommitted files — treat as `inconclusive`.
 - Update overview: `[x] QA`, set `step: qa`
 - **Maintain-mode skip path:** If tier is `maintain` AND QA verdict is PASS with "No test work needed" → skip the QA bug-fix loop below and proceed to Step 7 (Review). The code-reviewer still receives `qa.md` and evaluates the absence of new tests against the `maintain` tier expectation (zero new tests is correct).
 - If QA verdict is FAIL (test reveals a bug):
