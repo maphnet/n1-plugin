@@ -201,15 +201,17 @@ CONTEXT_BLOCK=$(echo "$AGENT_OUTPUT" | sed -n '/^context: |$/,/^[^ ]/{/^context:
 
 If `CONTEXT_BLOCK` is non-empty:
 
-1. Write the `## Context` section to overview.md, between the `# <ID>: <Title>` heading and `## Progress`:
+1. Replace the `## Context` section placeholder in overview.md with the real content:
    - Read overview.md
-   - Insert after the `# <ID>:` heading line and before `## Progress`:
-     ```markdown
-     ## Context
-     <CONTEXT_BLOCK content>
-
+   - Replace everything between `## Context` and `## Progress` (inclusive of the placeholder line) with the context block text:
+     ```bash
+     sed -i '/^## Context$/,/^## Progress$/{/^## Context$/!{/^## Progress$/!d}}' "$N1_HOME/memory/$ID/overview.md"
+     # Then insert CONTEXT_BLOCK content after the ## Context line
+     sed -i "/^## Context$/ a\\
+     $CONTEXT_BLOCK
+     " "$N1_HOME/memory/$ID/overview.md"
      ```
-   - Write overview.md back
+   - Write overview.md back (the overview template already has `## Context` with a placeholder — this replaces the placeholder, not inserts a new section)
 
 2. Persist ticket URL to overview.md frontmatter (if available from the ticket step):
    ```bash

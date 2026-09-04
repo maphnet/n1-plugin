@@ -387,6 +387,7 @@ When Claude Code compacts the conversation context, the session-start hook fires
    <Ticket URL from state — omit if empty>
    ─────────────────────────────────────────────────
    ```
+   Note: the `Task context:` value in ORCHESTRATOR STATE is a single-line flattened version of the context block (newlines collapsed to spaces for JSON transport). Print it as-is — it reads as a paragraph rather than multi-line, which is acceptable after compaction.
 5. If the ORCHESTRATOR STATE block is missing (no active run), re-resolve N1_HOME and re-read config.json via Bash before continuing:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
@@ -418,6 +419,7 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   if [ -n "$CONTEXT_SECTION" ]; then
     TITLE=$(grep -m1 '^# ' "$N1_HOME/memory/$ID/overview.md" | sed 's/^# [^:]*: //')
     source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+    source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
     TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
     CURRENT_STEP=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "step")
     TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url")
