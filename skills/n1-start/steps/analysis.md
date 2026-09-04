@@ -192,6 +192,55 @@ fi
 
 - Update overview: `[x] Analysis`, set `step: analysis`
 
+**Parse and persist context block:**
+
+Extract the `context:` block from the SA's compact return:
+```bash
+CONTEXT_BLOCK=$(echo "$AGENT_OUTPUT" | sed -n '/^context: |$/,/^[^ ]/{/^context: |$/d;/^[^ ]/d;s/^  //;p}')
+```
+
+If `CONTEXT_BLOCK` is non-empty:
+
+1. Write the `## Context` section to overview.md, between the `# <ID>: <Title>` heading and `## Progress`:
+   - Read overview.md
+   - Insert after the `# <ID>:` heading line and before `## Progress`:
+     ```markdown
+     ## Context
+     <CONTEXT_BLOCK content>
+
+     ```
+   - Write overview.md back
+
+2. Persist ticket URL to overview.md frontmatter (if available from the ticket step):
+   ```bash
+   if [ -n "$TICKET_URL" ]; then
+       source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+       n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" "$TICKET_URL"
+   fi
+   ```
+
+3. Read signals for the metadata line:
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+   FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")
+   BLAST_RADIUS=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")
+   TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
+   ```
+
+4. Print the orientation block:
+   ```
+   ── <ID> ────────────────────────────────────────
+   <TITLE>
+
+   <CONTEXT_BLOCK>
+
+   Tier: <TIER> · Files: ~<FILES_CHANGED> · Blast radius: <BLAST_RADIUS>
+   <TICKET_URL — omit this line entirely if empty>
+   ─────────────────────────────────────────────────
+   ```
+
+If `CONTEXT_BLOCK` is empty (SA failed to emit it), log in overview's `## Key Decisions`: "Context block: SA did not emit context: block — orientation block skipped." Do not fail the pipeline.
+
 **Parse and persist tier revision (if any):**
 1. Extract `tier:` from the written analysis file. Use case-insensitive regex: `^tier:\s*(simple|standard|complex)` against `$N1_HOME/memory/$ID/analysis.md`.
 2. If a valid tier is found:

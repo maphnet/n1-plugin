@@ -217,7 +217,7 @@ If `MP` is `ask` (default), ask:
    - Provisional ID: description slug (brain dump) or filename slug (file mode) if `source_mode == braindump`; `sentry-<issueId>` if `source_mode == error-tracker`.
    - Run **Reconcile Memory ID & Branch(`<provisional>`, `<ticketID>`)** (a no-op in the clean path; moves any leaked slug memory folder and renames the slug branch if drift occurred).
    - Set `<ID>` = `<ticketID>`. If `INVESTIGATION_DETECTED` is false, run the workspace isolation procedure: **Ensure Worktree(`<ticketID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ticketID>`)** otherwise.
-6. Extract the ticket URL from the MCP response (YouTrack returns it in the response body; for Jira construct it as `https://<cloud>/browse/<key>` from the response).
+6. Extract the ticket URL from the MCP response (YouTrack returns it in the response body; for Jira construct it as `https://<cloud>/browse/<key>` from the response). Store it as `TICKET_URL` in orchestrator context for downstream use (persisted to overview.md frontmatter by the analysis step).
 7. **Assign to creator.** Skip if ANY of: `tracker.assignToCreator === false`, `tracker.operations.getCurrentUser` missing, `tracker.operations.assign` missing.
    - Resolve current user: call `<tracker.operations.getCurrentUser>` (no args).
      - Jira: take `account_id`; reuse `cloudId`.
@@ -236,6 +236,12 @@ If `MP` is `ask` (default), ask:
 
 **If no tracker is configured** (error-tracker mode only — brain-dump/file mode is already gated by the outer `if` above):
 - `sentry-<issueId>` is the final `<ID>`. Skip tracker status updates throughout the pipeline.
+
+**Capture ticket URL (ticket mode):**
+For ticket mode where the URL was not captured by creation (step 6 above), construct it:
+- YouTrack: `TICKET_URL` is the tracker instance URL + `/issue/<ID>` (read `tracker.instanceUrl` from config if available, or derive from `tracker.mcp`)
+- Jira: `TICKET_URL = https://<cloud>.atlassian.net/browse/<ID>` (derive `<cloud>` from the `cloudId` or `getAccessibleAtlassianResources` response)
+- If URL cannot be constructed, set `TICKET_URL` to empty — the orientation block omits the link line.
 
 **For all modes:**
 - The agent wrote `$N1_HOME/memory/<ID>/ticket.md` itself. Verify it:
