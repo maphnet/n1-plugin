@@ -20,25 +20,30 @@ def write_jsonl(path: Path, records):
             fh.write("\n")
 
 
+_UNSET = object()
+
+
 def make_run(run_id="n1-run-1", version="2.80.0", project="proj", ticket="T-1",
-             started="2026-09-01T10:00:00Z", completed="2026-09-01T11:00:00Z",
-             outcome="pr_created", steps=None, outcomes=None, summary=None, orchestrator=None):
+             started="2026-09-01T10:00:00Z", completed=_UNSET,
+             outcome="pr_created", steps=_UNSET, outcomes=_UNSET, summary=_UNSET, orchestrator=_UNSET):
     return {
         "schema_version": 2, "run_id": run_id, "session_id": None, "n1_version": version,
         "project": project, "ticket_id": ticket, "branch": ticket,
-        "started_at": started, "completed_at": completed, "final_outcome": outcome,
-        "steps": steps if steps is not None else [
+        "started_at": started,
+        "completed_at": completed if completed is not _UNSET else "2026-09-01T11:00:00Z",
+        "final_outcome": outcome,
+        "steps": steps if steps is not _UNSET else [
             {"step": "brainstorm", "step_number": 3, "started_at": "2026-09-01T10:00:00Z",
              "completed_at": "2026-09-01T10:30:00Z", "outcome": "pass"},
             {"step": "implementation", "step_number": 7, "started_at": "2026-09-01T10:30:00Z",
              "completed_at": "2026-09-01T11:00:00Z", "outcome": "pass"},
         ],
         "agents": [], "decisions": [],
-        "outcomes": outcomes if outcomes is not None else [
+        "outcomes": outcomes if outcomes is not _UNSET else [
             {"event": "outcome", "outcomes": {"review_pass_first_try": "true",
                                               "qa_pass_first_try": "true", "fix_cycles_count": "1"}}],
-        "summary": summary if summary is not None else {"compaction_count": 2},
-        "orchestrator": orchestrator if orchestrator is not None else {"totals": {"output_tokens": 5000}},
+        "summary": summary if summary is not _UNSET else {"compaction_count": 2},
+        "orchestrator": orchestrator if orchestrator is not _UNSET else {"totals": {"output_tokens": 5000}},
     }
 
 
@@ -315,6 +320,71 @@ class CollectTest(unittest.TestCase):
         rc = bm.main(["collect", "--n1-root", str(self.d.tmp / "none"), "--projects-dir", str(self.d.projects),
                       "--out", str(self.d.out)])
         self.assertEqual(rc, 0)
+
+
+def labeled(label, step="brainstorm", n=0):
+    return {"id": f"r#{n}", "timestamp": "x", "step": step, "text": "t", "prev_assistant": "",
+            "asked_question": False, "label": label, "label_source": "heuristic", "reason": None}
+
+
+class MetricsTest(unittest.TestCase):
+    def test_turn_metrics_and_per_step(self):
+        cache = {"run_record": make_run(), "turns": [
+            labeled("answer"), labeled("correction", n=1), labeled("correction", "implementation", 2),
+            labeled("approval", n=3), labeled("instruction", n=4), labeled("noise", n=5)]}
+        bm.compute_run_metrics(cache)
+        m = cache["metrics"]
+        self.assertEqual((m["interventions"], m["answers"], m["corrections"]), (3, 1, 2))
+        self.assertEqual(cache["per_step"]["brainstorm"]["corrections"], 1)
+        self.assertEqual(cache["per_step"]["implementation"]["interventions"], 1)
+
+    def test_telemetry_metrics(self):
+        cache = {"run_record": make_run(), "turns": []}
+        bm.compute_run_metrics(cache)
+        m = cache["metrics"]
+        self.assertEqual(m["fix_cycles"], 1.0)
+        self.assertEqual(m["review_pass_first_try"], 1.0)
+        self.assertEqual(m["duration_min"], 60.0)
+        self.assertEqual(m["orchestrator_output_tokens"], 5000.0)
+        self.assertEqual(m["compactions"], 2.0)
+
+    def test_missing_data_yields_none(self):
+        run = make_run(outcomes=[], summary={}, orchestrator=None, completed=None)
+        cache = {"run_record": run, "turns": []}
+        bm.compute_run_metrics(cache)
+        m = cache["metrics"]
+        for k in ("fix_cycles", "review_pass_first_try", "duration_min", "orchestrator_output_tokens", "compactions"):
+            self.assertIsNone(m[k], k)
+        self.assertEqual(m["interventions"], 0)
+
+    def test_unlinked_run_has_none_turn_metrics(self):
+        cache = {"run_record": make_run(), "turns": [], "link_method": "unlinked"}
+        bm.compute_run_metrics(cache)
+        self.assertIsNone(cache["metrics"]["interventions"])
+
+    def test_metric_registry_shape(self):
+        names = [m.name for m in bm.METRICS]
+        self.assertEqual(names, ["interventions", "answers", "corrections", "fix_cycles",
+                                 "review_pass_first_try", "duration_min", "orchestrator_output_tokens", "compactions"])
+        self.assertTrue(all(m.direction in ("lower", "higher") for m in bm.METRICS))
+
+
+class ApplyLabelsTest(unittest.TestCase):
+    def test_applies_valid_labels_and_falls_back(self):
+        cache = {"turns": [
+            {**labeled("ambiguous", n=0), "label_source": None},
+            {**labeled("ambiguous", n=1), "label_source": None},
+            {**labeled("ambiguous", n=2), "label_source": None},
+            labeled("answer", n=3)]}
+        fallbacks = bm.apply_labels(cache, {
+            "r#0": {"label": "correction", "reason": "user said wrong file"},
+            "r#1": {"label": "banana", "reason": ""},
+        })
+        self.assertEqual(fallbacks, 2)
+        got = [(t["label"], t["label_source"]) for t in cache["turns"]]
+        self.assertEqual(got, [("correction", "judge"), ("instruction", "fallback"),
+                               ("instruction", "fallback"), ("answer", "heuristic")])
+        self.assertEqual(cache["turns"][0]["reason"], "user said wrong file")
 
 
 if __name__ == "__main__":

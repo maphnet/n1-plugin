@@ -367,6 +367,123 @@ def cmd_collect(args) -> int:
 COMMANDS["collect"] = cmd_collect
 
 
+# ------------------------------------------------------------------ metrics
+
+class Metric:
+    name = ""
+    unit = ""
+    direction = "lower"  # or "higher"
+
+    def compute(self, run_record: dict, turns):
+        raise NotImplementedError
+
+
+class TurnCountMetric(Metric):
+    unit = "count"
+
+    def __init__(self, name, labels):
+        self.name, self.labels = name, set(labels)
+
+    def compute(self, run_record, turns):
+        if turns is None:
+            return None
+        return float(sum(1 for t in turns if t.get("label") in self.labels))
+
+
+def _last_outcomes(run_record: dict):
+    events = run_record.get("outcomes") or []
+    for ev in reversed(events):
+        if isinstance(ev, dict) and isinstance(ev.get("outcomes"), dict):
+            return ev["outcomes"]
+    return {}
+
+
+class OutcomeMetric(Metric):
+    def __init__(self, name, key, unit, direction, boolean=False):
+        self.name, self.key, self.unit, self.direction, self.boolean = name, key, unit, direction, boolean
+
+    def compute(self, run_record, turns):
+        raw = _last_outcomes(run_record).get(self.key)
+        if raw is None or raw == "":
+            return None
+        if self.boolean:
+            return 1.0 if str(raw).lower() == "true" else 0.0
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+
+class DurationMetric(Metric):
+    name, unit, direction = "duration_min", "minutes", "lower"
+
+    def compute(self, run_record, turns):
+        s, e = parse_ts(run_record.get("started_at")), parse_ts(run_record.get("completed_at"))
+        if s is None or e is None or e < s:
+            return None
+        return round((e - s) / 60.0, 1)
+
+
+class OrchestratorTokensMetric(Metric):
+    name, unit, direction = "orchestrator_output_tokens", "tokens", "lower"
+
+    def compute(self, run_record, turns):
+        orch = run_record.get("orchestrator") or {}
+        val = (orch.get("totals") or {}).get("output_tokens")
+        return float(val) if isinstance(val, (int, float)) else None
+
+
+class CompactionsMetric(Metric):
+    name, unit, direction = "compactions", "count", "lower"
+
+    def compute(self, run_record, turns):
+        val = (run_record.get("summary") or {}).get("compaction_count")
+        return float(val) if isinstance(val, (int, float)) else None
+
+
+METRICS = [
+    TurnCountMetric("interventions", {"answer", "correction"}),
+    TurnCountMetric("answers", {"answer"}),
+    TurnCountMetric("corrections", {"correction"}),
+    OutcomeMetric("fix_cycles", "fix_cycles_count", "count", "lower"),
+    OutcomeMetric("review_pass_first_try", "review_pass_first_try", "ratio", "higher", boolean=True),
+    DurationMetric(),
+    OrchestratorTokensMetric(),
+    CompactionsMetric(),
+]
+TURN_METRICS = [m for m in METRICS if isinstance(m, TurnCountMetric)]
+
+
+def compute_run_metrics(cache: dict) -> None:
+    run_record = cache.get("run_record") or {}
+    turns = cache.get("turns") or []
+    linked = cache.get("link_method", "heuristic") in ("agent_event", "heuristic")
+    turn_arg = turns if linked else None
+    cache["metrics"] = {m.name: m.compute(run_record, turn_arg) for m in METRICS}
+    per_step = {}
+    if linked:
+        for step in sorted({t.get("step") or "outside" for t in turns}):
+            subset = [t for t in turns if (t.get("step") or "outside") == step]
+            per_step[step] = {m.name: m.compute(run_record, subset) for m in TURN_METRICS}
+    cache["per_step"] = per_step
+
+
+def apply_labels(cache: dict, labels: dict) -> int:
+    """Merge judge labels into ambiguous turns. Returns the number of fallbacks."""
+    fallbacks = 0
+    for t in cache.get("turns") or []:
+        if t.get("label") != "ambiguous":
+            continue
+        entry = labels.get(t["id"]) or {}
+        label = entry.get("label")
+        if label in LABELS:
+            t["label"], t["label_source"], t["reason"] = label, "judge", entry.get("reason")
+        else:
+            t["label"], t["label_source"], t["reason"] = FALLBACK_LABEL, "fallback", None
+            fallbacks += 1
+    return fallbacks
+
+
 # ------------------------------------------------------------------------ CLI
 
 def build_parser():
