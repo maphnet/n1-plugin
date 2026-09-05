@@ -178,7 +178,10 @@ def _transcript_mentions(path: Path, needle: str) -> bool:
 
 
 def link_transcript(run: dict, projects_dir: Path):
-    """Return (transcript_path, method). method: agent_event | heuristic | unlinked."""
+    """Return (transcript_path, method). method: run_record | agent_event | heuristic | unlinked."""
+    inline = run.get("session_transcript_path")
+    if inline and Path(inline).is_file():
+        return inline, "run_record"
     direct = raw_agents_session_path(run)
     if direct and Path(direct).is_file():
         return direct, "agent_event"
@@ -383,13 +386,24 @@ class Metric:
 class TurnCountMetric(Metric):
     unit = "count"
 
-    def __init__(self, name, labels):
+    def __init__(self, name, labels, *, exclude_steps=None, only_steps=None):
         self.name, self.labels = name, set(labels)
+        self.exclude_steps = frozenset(exclude_steps) if exclude_steps else frozenset()
+        self.only_steps = frozenset(only_steps) if only_steps else None
+
+    def _filter(self, turns):
+        for t in turns:
+            step = t.get("step") or "outside"
+            if step in self.exclude_steps:
+                continue
+            if self.only_steps is not None and step not in self.only_steps:
+                continue
+            yield t
 
     def compute(self, run_record, turns):
         if turns is None:
             return None
-        return float(sum(1 for t in turns if t.get("label") in self.labels))
+        return float(sum(1 for t in self._filter(turns) if t.get("label") in self.labels))
 
 
 def _last_outcomes(run_record: dict):
@@ -443,10 +457,16 @@ class CompactionsMetric(Metric):
         return float(val) if isinstance(val, (int, float)) else None
 
 
+INTERACTIVE_STEPS = frozenset({"brainstorm"})
+
 METRICS = [
-    TurnCountMetric("interventions", {"answer", "correction"}),
-    TurnCountMetric("answers", {"answer"}),
-    TurnCountMetric("corrections", {"correction"}),
+    TurnCountMetric("interventions", {"answer", "correction"}, exclude_steps={"outside"}),
+    TurnCountMetric("answers", {"answer"}, exclude_steps={"outside"}),
+    TurnCountMetric("corrections", {"correction"}, exclude_steps={"outside"}),
+    TurnCountMetric("brainstorm_interactions", {"answer", "correction", "approval", "instruction"},
+                    only_steps=INTERACTIVE_STEPS),
+    TurnCountMetric("autonomous_interventions", {"answer", "correction"},
+                    exclude_steps={"outside"} | INTERACTIVE_STEPS),
     OutcomeMetric("fix_cycles", "fix_cycles_count", "count", "lower"),
     OutcomeMetric("review_pass_first_try", "review_pass_first_try", "ratio", "higher", boolean=True),
     DurationMetric(),
@@ -459,7 +479,7 @@ TURN_METRICS = [m for m in METRICS if isinstance(m, TurnCountMetric)]
 def compute_run_metrics(cache: dict) -> None:
     run_record = cache.get("run_record") or {}
     turns = cache.get("turns") or []
-    linked = cache.get("link_method", "heuristic") in ("agent_event", "heuristic")
+    linked = cache.get("link_method", "heuristic") in ("run_record", "agent_event", "heuristic")
     turn_arg = turns if linked else None
     cache["metrics"] = {m.name: m.compute(run_record, turn_arg) for m in METRICS}
     per_step = {}

@@ -328,10 +328,12 @@ if command -v jq >/dev/null 2>&1; then
         --arg run_id "$RUN_ID" \
         --arg n1_version "$N1_VERSION" \
         --arg project "$PROJECT_NAME" \
+        --arg session_transcript "${SESSION_TRANSCRIPT:-}" \
         '{
-            schema_version: 2,
+            schema_version: 3,
             run_id: $run_id,
             session_id: ($envelope.session_id // null),
+            session_transcript_path: (if $session_transcript == "" then null else $session_transcript end),
             n1_version: $n1_version,
             project: $project,
             ticket_id: ($envelope.ticket_id // null),
@@ -365,7 +367,7 @@ else
         echo "telemetry-merge: jq not available, merged via python fallback" >&2
     else
         # Neither jq nor python — write a minimal record with raw file references
-        echo "{\"schema_version\":2,\"run_id\":\"${RUN_ID}\",\"project\":\"${PROJECT_NAME}\",\"n1_version\":\"${N1_VERSION}\",\"ticket_id\":\"${TICKET_ID}\",\"parse_error\":\"jq_not_available\",\"raw_steps\":\"${STEPS_FILE}\",\"raw_agents\":\"${AGENTS_FILE}\"}" > "$OUT_FILE"
+        echo "{\"schema_version\":3,\"run_id\":\"${RUN_ID}\",\"project\":\"${PROJECT_NAME}\",\"n1_version\":\"${N1_VERSION}\",\"ticket_id\":\"${TICKET_ID}\",\"parse_error\":\"jq_not_available\",\"raw_steps\":\"${STEPS_FILE}\",\"raw_agents\":\"${AGENTS_FILE}\"}" > "$OUT_FILE"
         echo "telemetry-merge: jq and python not available, wrote minimal record" >&2
     fi
 fi

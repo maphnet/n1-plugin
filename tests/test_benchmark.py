@@ -155,6 +155,13 @@ class LinkingTest(unittest.TestCase):
         write_jsonl(p, records)
         return p
 
+    def test_run_record_link_wins_over_agent_event(self):
+        t = self.transcript("-mnt-c-Dev-proj", "inline", [human("2026-09-01T10:05:00Z", "T-1 go")])
+        self.raw_agents(str(t))
+        self.run["session_transcript_path"] = str(t)
+        path, method = bm.link_transcript(self.run, self.d.projects)
+        self.assertEqual((path, method), (str(t), "run_record"))
+
     def test_agent_event_link_wins_when_file_exists(self):
         t = self.transcript("-mnt-c-Dev-proj", "sess", [human("2026-09-01T10:05:00Z", "T-1 go")])
         self.raw_agents(str(t))
@@ -339,8 +346,22 @@ class MetricsTest(unittest.TestCase):
         bm.compute_run_metrics(cache)
         m = cache["metrics"]
         self.assertEqual((m["interventions"], m["answers"], m["corrections"]), (3, 1, 2))
+        self.assertEqual(m["brainstorm_interactions"], 4)
+        self.assertEqual(m["autonomous_interventions"], 1)
         self.assertEqual(cache["per_step"]["brainstorm"]["corrections"], 1)
         self.assertEqual(cache["per_step"]["implementation"]["interventions"], 1)
+
+    def test_outside_turns_excluded_from_interventions(self):
+        cache = {"run_record": make_run(), "turns": [
+            labeled("answer", "outside"), labeled("correction", "outside", 1),
+            labeled("answer", "brainstorm", 2), labeled("instruction", "outside", 3)]}
+        bm.compute_run_metrics(cache)
+        m = cache["metrics"]
+        self.assertEqual(m["interventions"], 1)
+        self.assertEqual(m["answers"], 1)
+        self.assertEqual(m["corrections"], 0)
+        self.assertEqual(m["brainstorm_interactions"], 1)
+        self.assertEqual(m["autonomous_interventions"], 0)
 
     def test_telemetry_metrics(self):
         cache = {"run_record": make_run(), "turns": []}
@@ -368,8 +389,10 @@ class MetricsTest(unittest.TestCase):
 
     def test_metric_registry_shape(self):
         names = [m.name for m in bm.METRICS]
-        self.assertEqual(names, ["interventions", "answers", "corrections", "fix_cycles",
-                                 "review_pass_first_try", "duration_min", "orchestrator_output_tokens", "compactions"])
+        self.assertEqual(names, ["interventions", "answers", "corrections",
+                                 "brainstorm_interactions", "autonomous_interventions",
+                                 "fix_cycles", "review_pass_first_try",
+                                 "duration_min", "orchestrator_output_tokens", "compactions"])
         self.assertTrue(all(m.direction in ("lower", "higher") for m in bm.METRICS))
 
 
@@ -395,6 +418,7 @@ def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01
     return {"run_id": run_id, "n1_version": version, "eligible": eligible, "started_at": started,
             "link_method": link if eligible else "skipped", "project": "p", "ticket_id": "T",
             "metrics": {"interventions": interventions, "answers": interventions, "corrections": 0.0,
+                        "brainstorm_interactions": 0.0, "autonomous_interventions": interventions,
                         "fix_cycles": 1.0, "review_pass_first_try": 1.0, "duration_min": 10.0,
                         "orchestrator_output_tokens": None, "compactions": 0.0} if eligible else {},
             "turns": []}

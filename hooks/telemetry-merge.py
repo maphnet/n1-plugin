@@ -327,9 +327,10 @@ def main() -> int:
     }
 
     record = {
-        "schema_version": 2,
+        "schema_version": 3,
         "run_id": args.run_id,
         "session_id": envelope.get("session_id"),
+        "session_transcript_path": session_transcript,
         "n1_version": args.n1_version,
         "project": args.project,
         "ticket_id": envelope.get("ticket_id"),
