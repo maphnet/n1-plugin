@@ -76,7 +76,7 @@ n1_break_check() {
         return 0
     fi
     # Clean build artefacts produced by the baseline run (e.g. __pycache__).
-    git -C "$dir" clean -q -fdx 2>/dev/null || true
+    git -C "$dir" clean -q -fd 2>/dev/null || true
 
     echo "=== reverted run (non-test files at ${base}) ===" >> "$log"
     local revert_log; revert_log=$(mktemp)
@@ -96,12 +96,12 @@ n1_break_check() {
     echo "=== restore ===" >> "$log"
     git -C "$dir" checkout -q HEAD -- . 2>>"$log"
     # Remove all untracked build artefacts left by the reverted run before checking health.
-    git -C "$dir" clean -q -fdx --exclude "$(basename "$log_abs")" 2>>"$log" || true
+    git -C "$dir" clean -q -fd --exclude "$(basename "$log_abs")" 2>>"$log" || true
     echo "=== post-restore run ===" >> "$log"
     local restore_ok=true
     _n1_bc_run "$cmd" "$log" "$dir" || restore_ok=false
     # Clean artefacts produced by the post-restore run; keep the log file (excluded above).
-    git -C "$dir" clean -q -fdx --exclude "$(basename "$log_abs")" 2>>"$log" || true
+    git -C "$dir" clean -q -fd --exclude "$(basename "$log_abs")" 2>>"$log" || true
     n1_tree_is_clean "$dir" || restore_ok=false
 
     local failed_names

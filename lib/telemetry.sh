@@ -148,4 +148,5 @@ n1_record_decision() {
         --argjson cond "$cond" --argjson sig "$signals" --arg ts "$ts" \
         '{event:"decision",run_id:$run,n1_version:$ver,ticket_id:$tid,id:$id,result:$res,condition:$cond,signals:$sig,timestamp:$ts}' \
         >> "${tdir}/raw/steps/${run_id}.jsonl"
+    return 0
 }
