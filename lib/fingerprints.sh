@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # N1 cross-pass finding fingerprint helpers.
 # Persistence format: JSONL in $N1_HOME/memory/<ID>/fingerprints.jsonl
-# Each line: {"fp":"<hex>","id":"<CX-1>","severity":"High","status":"active","cycle":1,"ts":"..."}
+# Each line: {"fp":"<hex>","id":"<CR-1>","severity":"High","status":"active","cycle":1,"ts":"..."}
 
 _n1_portable_hash() {
     # Portable MD5 hash: tries md5sum (Linux), md5 -r (macOS), sha256sum as last resort

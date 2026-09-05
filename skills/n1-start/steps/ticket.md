@@ -366,10 +366,8 @@ echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"
   TIER=$(json_val '.testCoverage.tier' "${N1_HOME}/config.json")
   EST=$(json_val '.estimation.enabled' "${N1_HOME}/config.json")
   LT=$(json_val '.localTesting.enabled' "${N1_HOME}/config.json")
-  CX=$(json_val '.codex.enabled' "${N1_HOME}/config.json")
-  [ -z "$CX" ] && CX=$(json_val '.codexReview.enabled' "${N1_HOME}/config.json")
   PR=$(json_val '.planReview.reviewPlan' "${N1_HOME}/config.json")
-  printf '"test_coverage_tier":"%s","estimation_enabled":%s,"local_testing_enabled":%s,"codex_review_enabled":%s,"plan_review_enabled":%s' \
-    "${TIER:-maintain}" "${EST:-false}" "${LT:-false}" "${CX:-false}" "${PR:-true}"
+  printf '"test_coverage_tier":"%s","estimation_enabled":%s,"local_testing_enabled":%s,"plan_review_enabled":%s' \
+    "${TIER:-maintain}" "${EST:-false}" "${LT:-false}" "${PR:-true}"
 )"'}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
 ```

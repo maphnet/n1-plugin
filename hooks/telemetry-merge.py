@@ -22,7 +22,6 @@ STATIC_MAP = {
     "n1:planner": ["plan"],
     "n1:code-reviewer": ["review"],
     "n1:security-reviewer": ["review"],
-    "n1:codex-reviewer": ["review"],
     "n1:tech-writer": ["pr"],
 }
 

@@ -77,7 +77,7 @@ n1_config_val() {
     local section="${stripped%%.*}"
     local key="${stripped#*.}"
     # Value pattern matches quoted strings AND unquoted scalars (true/false/numbers/null),
-    # so boolean gates like codex.enabled work without jq.
+    # so boolean gates like estimation.enabled work without jq.
     local val_re="\"${key}\"[[:space:]]*:[[:space:]]*\(\"[^\"]*\"\|[-0-9a-zA-Z.]\{1,\}\)"
     if [ "$section" = "$key" ]; then
         grep -o "$val_re" "$file" 2>/dev/null \
@@ -224,52 +224,6 @@ n1_resolve_model() {
     printf '%s' "$base_model"
 }
 
-n1_codex_companion() {
-    local newest=""
-    local newest_ver=""
-    local f
-    local ver
-    for f in "${HOME}"/.claude/plugins/cache/*/codex/*/scripts/codex-companion.mjs; do
-        [ -f "$f" ] || continue
-        ver="${f%/scripts/codex-companion.mjs}"   # strip trailing /scripts/codex-companion.mjs
-        ver="${ver##*/}"                          # keep the <version> dir name
-        if [ -z "$newest" ] || [ "$(printf '%s\n%s\n' "$newest_ver" "$ver" | sort -V | tail -1)" = "$ver" ]; then
-            newest="$f"
-            newest_ver="$ver"
-        fi
-    done
-    # WSL: also search Windows-side plugin cache (version comparison picks newest across both)
-    if [ -n "${WSL_DISTRO_NAME:-}" ]; then
-        local win_home
-        win_home=$(wslpath -u "$(cmd.exe /c 'echo %USERPROFILE%' 2>/dev/null | tr -d '\r')" 2>/dev/null) || true
-        if [ -n "$win_home" ] && [ -d "$win_home" ]; then
-            for f in "${win_home}"/.claude/plugins/cache/*/codex/*/scripts/codex-companion.mjs; do
-                [ -f "$f" ] || continue
-                ver="${f%/scripts/codex-companion.mjs}"
-                ver="${ver##*/}"
-                if [ -z "$newest" ]; then
-                    newest="$f"
-                    newest_ver="$ver"
-                elif [ "$ver" != "$newest_ver" ] && [ "$(printf '%s\n%s\n' "$newest_ver" "$ver" | sort -V | tail -1)" = "$ver" ]; then
-                    newest="$f"
-                    newest_ver="$ver"
-                fi
-            done
-        fi
-    fi
-    printf '%s' "$newest"
-}
-
-n1_codex_val() {
-    local key="$1"
-    local val
-    val=$(n1_config_val ".codex.${key}")
-    if [ -n "$val" ]; then
-        printf '%s' "$val"
-        return
-    fi
-    n1_config_val ".codexReview.${key}"
-}
 
 n1_autonomy_val() {
     # Usage: n1_autonomy_val <key>
@@ -293,23 +247,6 @@ n1_autonomy_val() {
     esac
 }
 
-n1_codex_available() {
-    local enabled
-    enabled=$(n1_codex_val 'enabled')
-    [ "$enabled" = "true" ] || return 1
-    codex --version >/dev/null 2>&1 || return 1
-    return 0
-}
-
-n1_codex_preflight() {
-    local base_branch="$1"
-    n1_codex_available || return 1
-    if ! git rev-parse --verify "$base_branch" >/dev/null 2>&1; then
-        echo "base branch '$base_branch' not resolvable" >&2
-        return 1
-    fi
-    return 0
-}
 
 # Detect if running inside a linked git worktree NOT managed by N1.
 # Returns 0 (true) when: git-dir diverges from git-common-dir (linked worktree)

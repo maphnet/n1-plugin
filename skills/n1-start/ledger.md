@@ -48,7 +48,7 @@ Section skeleton written on first entry:
 | ticket | `mechanicalPrompts: "auto"` auto-created (or auto-skipped) the tracker ticket |
 | brainstorm | Autonomous brainstormer selected an approach or resolved B/B-auto/C-tier questions; B-auto decisions recorded as `[auto-decided]`; A-tier answers recorded as `[asked]` |
 | qa / review / fix / local-testing | `qualityEscalations: "auto-accept"` accepted a recommendation at loop exhaustion (always tier `A`) |
-| pr | Reviewer skips (Codex inactive, security-reviewer gated out) when they were autonomy-influenced |
+| pr | Reviewer skips (security-reviewer gated out) when they were autonomy-influenced |
 
 ## PR Rendering
 

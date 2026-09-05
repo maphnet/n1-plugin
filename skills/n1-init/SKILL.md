@@ -56,7 +56,7 @@ The canonical set of top-level config keys. Used by the completeness check to de
 
 ```
 worktree, tracker, git, ticketTagging, observability, estimation,
-localTesting, finishWork, release, codex, testCoverage, telemetry,
+localTesting, finishWork, release, testCoverage, telemetry,
 analysisCache, rules, escalation, autonomy, review, ciChecks, planReview, memory, models
 ```
 
@@ -72,15 +72,14 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 6. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
 7. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
 8. `release` → **Release Configuration** (fresh-setup portion)
-9. `codex` → **Codex Review Configuration** (fresh-setup portion)
-10. `testCoverage` → **Test Coverage Configuration** (fresh-setup portion)
-11. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
-12. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
-13. `rules` → **Rules Configuration** (fresh-setup portion)
-14. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
-15. `escalation` → **Escalation Defaults** (writes defaults silently)
-16. `autonomy` → **Autonomy Configuration** (fresh-setup portion: offer preset selection)
-17. `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
+9. `testCoverage` → **Test Coverage Configuration** (fresh-setup portion)
+10. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
+11. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
+12. `rules` → **Rules Configuration** (fresh-setup portion)
+13. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
+14. `escalation` → **Escalation Defaults** (writes defaults silently)
+15. `autonomy` → **Autonomy Configuration** (fresh-setup portion: offer preset selection)
+16. `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
 
@@ -1399,78 +1398,6 @@ Current release:
 
 If `release` is absent from the current config, run the fresh-setup flow above.
 
-## Codex Review Configuration
-
-Ask whether N1 should use Codex for cross-model code review alongside the Claude-based reviewers. **Default is No.**
-
-```
-Enable Codex cross-model review?
-Adds a Codex-based reviewer alongside Claude reviewers for broader bug coverage.
-Requires the Codex CLI to be installed and authenticated.
-1 — Yes
-2 — No (default)
-```
-
-**If 2 (No) or default:**
-```json
-{
-  "codex": {
-    "enabled": false
-  }
-}
-```
-
-**If 1 (Yes):**
-
-1. Probe Codex CLI availability:
-   ```bash
-   codex --version
-   ```
-
-2. **If command fails (not installed):**
-   ```
-   Codex CLI is not installed.
-   Would you like help setting it up?
-   1 — Yes (guides you through /codex:setup)
-   2 — Skip (disable Codex review for now)
-   ```
-   - **1:** Tell the user: "Run `/codex:setup` to install and configure the Codex CLI, then re-run `/n1:n1-init` to enable Codex review." Set `codex.enabled: false`.
-   - **2:** Set `codex.enabled: false`.
-
-3. **If command succeeds (installed) — check authentication:**
-   Run `codex auth status` (or equivalent auth check). If not authenticated:
-   ```
-   Codex CLI is installed but not authenticated.
-   Run `!codex login` to authenticate, then re-run `/n1:n1-init` to enable Codex review.
-   ```
-   Set `codex.enabled: false`.
-
-4. **If installed and authenticated:**
-   ```json
-   {
-     "codex": {
-       "enabled": true
-     }
-   }
-   ```
-
-### On reconfiguration (n1-init re-run):
-
-If `codex` or `codexReview` already exists in the current config, show current state and offer:
-```
-Current Codex review:
-  enabled → <true/false>
-
-1 — Keep current
-2 — Enable
-3 — Disable
-```
-- **1** → leave unchanged.
-- **2** → run the probe flow above. Set `enabled: true` only if Codex CLI is installed and authenticated.
-- **3** → set `enabled: false`.
-
-If neither `codex` nor `codexReview` exists in the current config, run the fresh-setup flow above.
-
 ## Test Coverage Configuration
 
 Ask what level of test work the QA agent should do. **Default is maintain** — fix and update existing tests, no new test creation.
@@ -1937,9 +1864,6 @@ Create all files:
   "release": {
     "enabled": false
   },
-  "codex": {
-    "enabled": false
-  },
   "testCoverage": {
     "tier": "maintain"
   },
@@ -2123,7 +2047,6 @@ Ticket tagging: payments-api / disabled
 Error tracking: Sentry (my-backend @ my-org) / disabled
 Estimation: enabled (default mapping) / enabled (custom mapping) / disabled
 Local testing: enabled / disabled
-Codex review: enabled / disabled
 Test coverage: maintain / minimal / standard
 Telemetry: enabled / disabled
 Story workflow: enabled (article/ticket/file) / disabled

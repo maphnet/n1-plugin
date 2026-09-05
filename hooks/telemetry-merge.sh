@@ -45,7 +45,6 @@ if command -v jq >/dev/null 2>&1; then
         "n1:planner": ["plan"],
         "n1:code-reviewer": ["review"],
         "n1:security-reviewer": ["review"],
-        "n1:codex-reviewer": ["review"],
         "n1:tech-writer": ["pr"]
     }'
 
