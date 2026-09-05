@@ -51,7 +51,7 @@
     },
     "investigation": {
       "steps": ["ticket", "analysis", "brainstorm", "investigation-deliverable"],
-      "detect": { "title_match": "investigat", "tags": ["investigation"] }
+      "detect": { "tags": ["investigation"] }
     },
     "bug": {
       "steps": ["ticket", "analysis", "brainstorm", "plan",

@@ -149,3 +149,4 @@ Secure code — no findings is the correct answer:
 - Limit to 10 findings maximum — prioritize by exploitability
 - Priority levels: Critical (exploitable vulnerabilities, data exposure), High (auth/authz gaps, injection risks), Medium (missing hardening, weak validation), Low (defense-in-depth suggestions)
 - **Reporting zero findings is expected and correct.** Do not invent vulnerabilities to appear thorough — if the code is secure, say so. Only flag what you would actually file a security bug for.
+- **Secrets:** never quote a credential value in a finding. Report the file path and match count and mask any span with `<redacted>`.

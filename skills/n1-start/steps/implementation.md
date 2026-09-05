@@ -51,6 +51,15 @@ Spawn the developer agent with the Standard developer spawn directives above. In
 Log the gate decision to overview.md `## Key Decisions`:
 - Gate triggered: "Implementation simplicity gate: direct developer spawn (tier=$TIER, blast_radius=$BLAST, files_changed=$FILES_CHANGED, model=$DEVELOPER_MODEL)"
 
+Record the decision for telemetry (both outcomes):
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+GATE_RESULT=$( [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHANGED:-999}" -lt 3 ] && echo true || echo false )
+n1_record_decision simplicity-gate "$GATE_RESULT" \
+  '{"all":[{"signal":"brainstorm.blast_radius","fallback":"analysis.blast_radius","eq":"low"},{"signal":"brainstorm.files_changed","fallback":"analysis.files_changed","lt":3}]}' \
+  "tier=$TIER"
+```
+
 **If the developer agent succeeds** (produces `implementation.md`), proceed to signal computation and QA (skip the routing below).
 
 **If the developer agent fails** (exits without producing `implementation.md`), fall through to the normal routing below — the existing planning_need-based dispatch acts as the safety net.

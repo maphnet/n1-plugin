@@ -217,6 +217,13 @@ Both procedures are **idempotent** — safe to call again on resume. They are ca
    - **`CURRENT` is some OTHER branch AND `DIRTY` is empty** → prompt (foreign branch prompt below).
    - **`CURRENT` is some OTHER branch AND `DIRTY` is non-empty** → prompt (combined prompt below).
 
+Before any `AskUserQuestion` on this path, write the pending marker so the stop hook lets the turn end:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" "<one-line description of the question>"
+```
+After the answer is received, clear it: `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" ""`.
+
 **Mechanical-prompt autonomy:** before showing any of the three prompts below, read the policy:
 
 ```bash
@@ -597,6 +604,13 @@ Present the plan to the user for approval:
 "Plan is ready at `$N1_HOME/memory/<ID>/plan.md`. Please review and approve before I proceed with implementation."
 
 **Wait for explicit approval before continuing.**
+
+After the user approves, record it so the stop hook resumes enforcement:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "plan_approved" "true"
+```
+(The stop hook allows the session to end while `step: plan` and `plan_approved` is absent; writing it resumes enforcement.)
 
 **If `planReview.requirePlanApproval` is `false`:**
 

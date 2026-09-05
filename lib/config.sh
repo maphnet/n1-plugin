@@ -190,9 +190,14 @@ n1_resolve_model() {
 
             # Evaluate condition; requires memory dir
             if [ -n "$mem_dir" ] && [ -d "$mem_dir" ]; then
+                type n1_record_decision >/dev/null 2>&1 || source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh" 2>/dev/null || true
+                local dec_id="${section%_triggers}:${trigger_key}"   # e.g. escalation:developer:implementation
                 if n1_eval_signal_gate "$mem_dir" "$overview_file" "$trigger_cond"; then
+                    n1_record_decision "$dec_id" true "$trigger_cond" "tier=${trigger_tier}" 2>/dev/null || true
                     n1_resolve_tier "$trigger_tier" "$base_model"
                     return
+                else
+                    n1_record_decision "$dec_id" false "$trigger_cond" "tier=${trigger_tier}" 2>/dev/null || true
                 fi
             fi
         done
