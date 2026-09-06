@@ -47,16 +47,14 @@ Also read `git.prMode` (fallback chain: `git.prMode` → `git.draftPR: false` = 
 
 ## Prerequisites
 
-- `gh auth status` — if not authenticated AND the run needs a PR (prMode is not `"skip"`): "GitHub CLI is not authenticated. Run `gh auth login` first." **STOP.** (The local-merge path needs no `gh`.)
+- `gh auth status` — if not authenticated: "GitHub CLI is not authenticated. Run `gh auth login` first." **STOP.**
 - Resolve `<ID>`: explicit argument, else parse from the current branch name using `git.branchPattern` (same extraction as n1-pr Step 1). A `#123`/`123` argument selects a PR number directly instead.
 
 ## Step 1: Resolve Target
 
 - **PR number argument** → `gh pr view <n> --json number,state,mergedAt,mergeCommit,url,headRefName,baseRefName`.
 - **No argument / ticket ID** → `gh pr view --json ...` (current branch), or `gh pr list --head <branch> --state all --json ...` when not on the branch.
-- **No PR found:**
-  - If `git.prMode` is `"skip"` → go to Step 2b (local merge path).
-  - Otherwise → "No PR found for this branch — run /n1:n1-pr first." **STOP.**
+- **No PR found:** "No PR found for this branch — run /n1:n1-pr first." **STOP.**
 
 ## Step 2: Merge State Machine (PR path)
 
@@ -147,30 +145,6 @@ Evaluate the PR state:
       - Prints `closed` → treat as Step 2 case 2 (closed without merging).
       - Budget exhausted, still `open` → "PR #<n> is not merged yet — waiting on reviewer approval. Re-run `/n1:n1-finish` after the merge; the command is idempotent." **STOP.**
 
-## Step 2b: Local Merge (no-PR path, `git.prMode == "skip"` only)
-
-1. Detect worktree context: if `git rev-parse --show-toplevel` contains `/.claude/worktrees/`, resolve the main checkout (`MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`) and run ALL subsequent Step 2b git commands from `$MAIN_CHECKOUT` (the default branch is checked out there — do not `git checkout <defaultBranch>` from inside the worktree; it always fails with "already checked out"). The clean-tree precondition applies to the main checkout's tree in this case. When NOT in a worktree (plain checkout), proceed as written below.
-2. Preconditions: `git status --porcelain` must be empty (dirty tree → "Commit or stash changes first." STOP); the feature branch and `git.defaultBranch` must both exist locally.
-3. **Test-suite precondition:** Discover the full-suite test command using the same detection as the qa-engineer agent (inspect project root for `package.json` `scripts.test`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod` (→ `go test ./...`), Makefile `test` target — first match wins).
-   - **No test configuration found:** note "no test suite detected — skipping test precondition" in the report and proceed.
-   - **Test configuration found:** run via Bash:
-     ```bash
-     <discovered-test-command> 2>&1; SUITE_EXIT=$?
-     ```
-     If `SUITE_EXIT` is non-zero: report the failure output and output "Refusing to merge: test suite is failing (exit code <SUITE_EXIT>). Fix failing tests and re-run `/n1:n1-finish`." **STOP.**
-4. Merge — from the default branch:
-   ```bash
-   git checkout <defaultBranch>
-   ```
-   Then by `mergeMethod`:
-   - `squash`: `git merge --squash <branch> && git commit -m "<ID>: <ticket title>"`
-   - `merge`: `git merge --no-ff <branch> -m "Merge branch '<branch>'"`
-   - `rebase`: `git checkout <branch> && git rebase <defaultBranch> && git checkout <defaultBranch> && git merge --ff-only <branch>`
-5. **Merge conflict** → `git merge --abort` (or `git rebase --abort`), report the conflicting files, switch back to the feature branch. **STOP.**
-6. **No push.** Report explicitly: "Merged `<branch>` into `<defaultBranch>` locally. Push manually when ready: `git push origin <defaultBranch>`."
-7. Deploy watch is **skipped** on this path (nothing on the remote yet) — note it in the report.
-8. Continue to Step 4 (close ticket). The tracker comment must say "merged locally, push pending".
-
 ## Step 3: Deploy Watch (PR path only, when `deployWatch.enabled` is `true`)
 
 If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipped (not configured)`.
@@ -204,7 +178,6 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 2. **Add comment** via `mcp__<tracker.mcp>__<operations.addComment>`, one of:
    - `"PR merged: <PR URL>"` (deploy not watched)
    - `"PR merged: <PR URL>. Deployment succeeded: <run URL>"` (deploy watched)
-   - `"Merged locally into <defaultBranch>, push pending."` (local merge path)
    When `operations.getComments` exists, check recent comments first and skip if an identical comment is already present (idempotent re-run); otherwise add best-effort once.
 3. Tracker failures: **warn, never block** — the merge already happened. Record the failure in the report.
 
@@ -216,8 +189,8 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish
-   - **Merged:** <sha> (<method>, by <auto-merge|reviewer|local merge>)
-   - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged | local merge)>
+   - **Merged:** <sha> (<method>, by <auto-merge|reviewer>)
+   - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged)>
    - **Deploy:** <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    ```
@@ -235,7 +208,7 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
 ```
 Finish complete.
 
-PR: <url> — merged (<method>, by <auto-merge|reviewer|local merge>)
+PR: <url> — merged (<method>, by <auto-merge|reviewer>)
 Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
 Ticket: <ID> → <done status> / left open (<reason>) / tracker not configured
 Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | nothing to do>
