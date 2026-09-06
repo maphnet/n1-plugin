@@ -596,7 +596,6 @@ Ask how N1 should handle PRs. **Default is Draft.**
 How should N1 handle PRs?
 1 — Draft (default) — create PR immediately as draft
 2 — Ready — create PR ready to merge
-3 — Skip — I merge branches manually
 ```
 
 **If 1 (Draft) or default:**
@@ -617,32 +616,21 @@ How should N1 handle PRs?
 }
 ```
 
-**If 3 (Skip):**
-```json
-{
-  "git": {
-    "prMode": "skip"
-  }
-}
-```
-
 ### On reconfiguration (n1-init re-run):
 
 If `git.prMode` already exists in the config, show its current value and offer. If only `git.draftPR` exists (legacy config), derive the display value: `true` → `"draft"`, `false` → `"ready"`. If neither key exists, treat as `"draft"` (the default).
 
 ```
-PR mode: <draft/ready/skip>
+PR mode: <draft/ready>
 1 — Keep current
 2 — Draft (create PR as draft)
 3 — Ready (create PR immediately)
-4 — Skip (merge manually)
 ```
 - **1** → leave unchanged.
 - **2** → set `prMode: "draft"`.
 - **3** → set `prMode: "ready"`.
-- **4** → set `prMode: "skip"`.
 
-When writing any of options 2–4, also remove the `git.draftPR` key if it is present in the config (it is superseded by `prMode`).
+When writing any of options 2–3, also remove the `git.draftPR` key if it is present in the config (it is superseded by `prMode`).
 
 ## Ticket Tagging Configuration
 
@@ -1178,7 +1166,7 @@ If `localTesting` is absent from the current config, run the fresh-setup flow ab
 
 Ask whether N1 should run a finish step after CI: verify/perform the PR merge, optionally watch the deployment, and close the tracker ticket. **Default is No.**
 
-Only ask when a tracker is configured OR a PR mode other than "skip" is set — with neither, finish work has nothing to do; write `"finishWork": { "enabled": false }` silently.
+Only ask when a tracker is configured — without one, finish work has nothing useful to do beyond merge verification; write `"finishWork": { "enabled": false }` silently.
 
 ```
 Enable the finish step in the automated pipeline?
@@ -2054,7 +2042,7 @@ Local testing: enabled / disabled
 Test coverage: maintain / minimal / standard
 Telemetry: enabled / disabled
 Story workflow: enabled (article/ticket/file) / disabled
-PR mode: draft / ready / skip
+PR mode: draft / ready
 
 Created:
   ~/.n1/<project-name>/config.json
