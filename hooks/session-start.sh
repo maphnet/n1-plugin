@@ -10,6 +10,15 @@ TRIGGER=$(echo "$INPUT" | grep -o '"trigger"[[:space:]]*:[[:space:]]*"[^"]*"' | 
 
 CONFIG_FILE=$(n1_config_file)
 
+# Migrate prMode: "skip" → "ready" (one-time, idempotent)
+if [ -f "$CONFIG_FILE" ] && command -v jq >/dev/null 2>&1; then
+    current_pr_mode=$(jq -r '.git.prMode // empty' "$CONFIG_FILE" 2>/dev/null || true)
+    if [ "$current_pr_mode" = "skip" ]; then
+        jq '.git.prMode = "ready"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
+        echo "N1: PR skip mode removed — migrated to 'ready'. Every task now creates a PR." >&2
+    fi
+fi
+
 if [ ! -f "$CONFIG_FILE" ]; then
     context="N1 plugin is available but not configured for this project. Run /n1:n1-init to set up."
     escaped_context=$(escape_json_val "$context")
