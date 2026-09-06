@@ -108,7 +108,7 @@ You will receive ONE of four input modes:
       - On success: `parentLinkedTickets`: from the response, keep only link types `depends on`, `is depended on by`, `relates to`, `blocks`, `is blocked by` — collect as `<LINK_ID>: <link title> (<link type>)` lines.
    8. Append to ticket.md (same `### Parent Context` format as the Jira path above).
 
-4b. **Child subtasks (tracker ticket mode only):** count direct children.
+3b. **Child subtasks (tracker ticket mode only):** count direct children.
    - Jira: length of the `subtasks` array in the issue response (0 if absent).
    - YouTrack: from the links response, count links of type `subtask` where the current issue is the parent (direction: current issue → child). 0 if none.
    Set `subtask_count`. Set `issue_type` to the tracker's raw issue type name (`issuetype.name` for Jira, the `Type` custom field value for YouTrack; `"unknown"` if unavailable).

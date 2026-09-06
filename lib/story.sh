@@ -55,7 +55,7 @@ n1_story_pick_model() {
     local f
     local -a _flags
     IFS=',' read -r -a _flags <<< "$flags"
-    for f in "${_flags[@]:-}"; do
+    for f in "${_flags[@]+"${_flags[@]}"}"; do
         case "$f" in
             security|public-api|schema-migration|contract) printf 'opus'; return ;;
         esac
