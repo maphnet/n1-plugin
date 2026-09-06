@@ -48,8 +48,32 @@ test_find_repo() {
     fi
 }
 
+test_pick_model() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    echo '{}' > "$tmp/config.json"
+    local TEST_CONFIG="$tmp/config.json"
+    n1_config_file() { echo "$TEST_CONFIG"; }
+
+    assert_eq "model: XS -> sonnet" "sonnet" "$(n1_story_pick_model XS)"
+    assert_eq "model: S -> sonnet" "sonnet" "$(n1_story_pick_model S)"
+    assert_eq "model: M -> opus (default threshold)" "opus" "$(n1_story_pick_model M)"
+    assert_eq "model: XL -> opus" "opus" "$(n1_story_pick_model XL)"
+    assert_eq "model: empty size -> sonnet" "sonnet" "$(n1_story_pick_model '')"
+    assert_eq "model: S + security -> opus" "opus" "$(n1_story_pick_model S security)"
+    assert_eq "model: XS + contract -> opus" "opus" "$(n1_story_pick_model XS 'docs,contract')"
+    assert_eq "model: XS + unknown flag -> sonnet" "sonnet" "$(n1_story_pick_model XS docs)"
+
+    echo '{"story":{"opusFromSize":"L"}}' > "$tmp/config.json"
+    assert_eq "model: threshold L, M -> sonnet" "sonnet" "$(n1_story_pick_model M)"
+    assert_eq "model: threshold L, L -> opus" "opus" "$(n1_story_pick_model L)"
+    assert_eq "val: config override" "L" "$(n1_story_val opusFromSize)"
+    assert_eq "val: default fallback" "60" "$(n1_story_val pollSeconds)"
+    unset -f n1_config_file
+}
+
 test_parse_service
 test_find_repo
+test_pick_model
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

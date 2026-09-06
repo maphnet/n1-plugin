@@ -29,3 +29,39 @@ n1_story_find_repo() {
     done
     return 1
 }
+
+n1_story_val() {
+    # Usage: n1_story_val <key> — .story.<key> from config, else defaults/story.json.
+    local key="$1" val
+    val=$(n1_config_val ".story.${key}")
+    if [ -z "$val" ]; then
+        val=$(n1_config_val ".${key}" "${CLAUDE_PLUGIN_ROOT}/defaults/story.json")
+    fi
+    printf '%s' "$val"
+}
+
+_n1_story_size_rank() {
+    case "$1" in
+        XS) echo 1 ;; S) echo 2 ;; M) echo 3 ;; L) echo 4 ;; XL) echo 5 ;;
+        *) echo 2 ;;  # unknown/empty counts as S
+    esac
+}
+
+n1_story_pick_model() {
+    # Usage: n1_story_pick_model <size> [flags-csv]
+    # sonnet by default; opus when size >= story.opusFromSize or a risk flag is set.
+    local size="$1" flags="${2:-}" threshold
+    threshold=$(n1_story_val opusFromSize)
+    local f
+    IFS=',' read -r -a _flags <<< "$flags"
+    for f in "${_flags[@]:-}"; do
+        case "$f" in
+            security|public-api|schema-migration|contract) printf 'opus'; return ;;
+        esac
+    done
+    if [ "$(_n1_story_size_rank "$size")" -ge "$(_n1_story_size_rank "${threshold:-M}")" ]; then
+        printf 'opus'
+    else
+        printf 'sonnet'
+    fi
+}
