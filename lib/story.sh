@@ -88,10 +88,10 @@ n1_story_child_status() {
 }
 
 n1_story_child_pr_url() {
-    # Usage: n1_story_child_pr_url <overview.md> — pr_url from Pending/Finish blocks.
+    # Usage: n1_story_child_pr_url <overview.md> — pr_url from Pending/Finish blocks only.
     local overview="$1"
     [ -f "$overview" ] || return 0
-    grep -m1 '^pr_url:' "$overview" | sed 's/^pr_url:[[:space:]]*//' | tr -d '\r'
+    awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$overview"
 }
 
 n1_story_child_cmd() {

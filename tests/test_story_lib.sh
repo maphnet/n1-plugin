@@ -88,7 +88,7 @@ test_toposort() {
 
 test_child_status() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    printf -- '---\nstep: done\n---\n# T\n\n## Finish\nMerged PR https://x/pr/1\n' > "$tmp/done.md"
+    printf -- '---\nstep: done\n---\n# T\n\n## Finish\nMerged PR https://x/pr/1\npr_url: https://x/pr/1\n' > "$tmp/done.md"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\nawaiting: merge\npr: 7\npr_url: https://x/pr/7\n' > "$tmp/pending.md"
     printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- plan approval needed\n' > "$tmp/esc.md"
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- QA exhausted\n' > "$tmp/esc2.md"
@@ -103,6 +103,7 @@ test_child_status() {
     assert_eq "status: missing file exit 1 -> failed" "failed" "$(n1_story_child_status "$tmp/none.md" 1)"
     assert_eq "status: missing file exit 0 -> running" "running" "$(n1_story_child_status "$tmp/none.md" 0)"
     assert_eq "pr_url: from pending" "https://x/pr/7" "$(n1_story_child_pr_url "$tmp/pending.md")"
+    assert_eq "pr_url: from finish block" "https://x/pr/1" "$(n1_story_child_pr_url "$tmp/done.md")"
     assert_eq "pr_url: absent" "" "$(n1_story_child_pr_url "$tmp/mid.md")"
 }
 
