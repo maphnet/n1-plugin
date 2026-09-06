@@ -55,7 +55,7 @@ The worktree directory no longer exists on disk (git knows about it but the dire
 - Action: mark for `git worktree prune`
 
 ### Completed
-The corresponding task has finished (PR created or skipped).
+The corresponding task has finished (PR created).
 - Detection: `$N1_HOME/memory/<ID>/overview.md` exists AND its frontmatter has `step: done` or `step: pr`
 - Action: offer to remove
 

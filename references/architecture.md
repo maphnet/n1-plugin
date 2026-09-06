@@ -8,7 +8,7 @@ Skills are lightweight controllers that delegate all heavy work:
 |----------|-------------|---------|
 | n1-start | product-analyst, solution-architect, planner, implementer, qa-engineer agents + superpowers (brainstorming, writing-plans) | Full pipeline. Brainstorm step uses autonomous-brainstorm.md when `BRAINSTORM_MODE` is `auto`; superpowers:brainstorming in interactive mode (investigation included — `--investigate` forces interactive). Implementation uses implementer agent wrapping SDD (same pattern as planner wrapping writing-plans). |
 | n1-review | code-reviewer, security-reviewer, developer agents | Review + fix loop |
-| n1-pr | tech-writer agent + inline git/gh/MCP | Doc update, push, create or skip PR, update tracker |
+| n1-pr | tech-writer agent + inline git/gh/MCP | Doc update, push, create PR, update tracker |
 | n1-ci | developer agent + inline gh CLI | Post-PR CI watch, classify failures, fix loop |
 | n1-finish | (inline: gh + tracker MCP) | Merge verify/auto-merge, deploy watch, ticket close, worktree cleanup |
 | n1-release | (inline: gh + git + tracker MCP) | Git tag, GitHub Release (or custom procedure), tracker comment |
