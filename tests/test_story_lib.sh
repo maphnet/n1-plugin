@@ -86,10 +86,47 @@ test_toposort() {
     fi
 }
 
+test_child_status() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    printf -- '---\nstep: done\n---\n# T\n\n## Finish\nMerged PR https://x/pr/1\n' > "$tmp/done.md"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\nawaiting: merge\npr: 7\npr_url: https://x/pr/7\n' > "$tmp/pending.md"
+    printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- plan approval needed\n' > "$tmp/esc.md"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- QA exhausted\n' > "$tmp/esc2.md"
+    printf -- '---\nstep: implementation\n---\n# T\n' > "$tmp/mid.md"
+
+    assert_eq "status: done -> merged" "merged" "$(n1_story_child_status "$tmp/done.md" 0)"
+    assert_eq "status: pending -> awaiting-merge" "awaiting-merge" "$(n1_story_child_status "$tmp/pending.md" 0)"
+    assert_eq "status: step escalated" "escalated" "$(n1_story_child_status "$tmp/esc.md" 0)"
+    assert_eq "status: escalations section" "escalated" "$(n1_story_child_status "$tmp/esc2.md" 0)"
+    assert_eq "status: mid-run exit 0 -> running" "running" "$(n1_story_child_status "$tmp/mid.md" 0)"
+    assert_eq "status: mid-run exit 1 -> failed" "failed" "$(n1_story_child_status "$tmp/mid.md" 1)"
+    assert_eq "status: missing file exit 1 -> failed" "failed" "$(n1_story_child_status "$tmp/none.md" 1)"
+    assert_eq "status: missing file exit 0 -> running" "running" "$(n1_story_child_status "$tmp/none.md" 0)"
+    assert_eq "pr_url: from pending" "https://x/pr/7" "$(n1_story_child_pr_url "$tmp/pending.md")"
+    assert_eq "pr_url: absent" "" "$(n1_story_child_pr_url "$tmp/mid.md")"
+}
+
+test_child_cmd() {
+    unset N1_STORY_PLUGIN_DIR
+    local cmd; cmd=$(n1_story_child_cmd /repos/inf INF-12 opus STORY-1 /tmp/log.jsonl)
+    case "$cmd" in
+        *'cd "/repos/inf"'*'N1_HEADLESS=1'*'N1_AUTONOMY_PRESET=autonomous'*'N1_STORY_ID="STORY-1"'*'claude -p "/n1:n1-start INF-12"'*'--model opus'*'--permission-mode bypassPermissions'*'--output-format stream-json --verbose'*'> "/tmp/log.jsonl" 2>&1'*)
+            assert_eq "cmd: full shape" "ok" "ok" ;;
+        *) assert_eq "cmd: full shape" "ok" "$cmd" ;;
+    esac
+    case "$cmd" in *--plugin-dir*) assert_eq "cmd: no plugin-dir by default" "absent" "present" ;; *) assert_eq "cmd: no plugin-dir by default" "absent" "absent" ;; esac
+    export N1_STORY_PLUGIN_DIR=/dev/n1-plugin
+    cmd=$(n1_story_child_cmd /repos/inf INF-12 sonnet STORY-1 /tmp/log.jsonl)
+    case "$cmd" in *'--plugin-dir "/dev/n1-plugin"'*) assert_eq "cmd: plugin-dir when env set" "ok" "ok" ;; *) assert_eq "cmd: plugin-dir when env set" "ok" "$cmd" ;; esac
+    unset N1_STORY_PLUGIN_DIR
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
 test_toposort
+test_child_status
+test_child_cmd
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -67,6 +67,42 @@ n1_story_pick_model() {
     fi
 }
 
+n1_story_child_status() {
+    # Usage: n1_story_child_status <overview.md> <exit-code>
+    # Prints: merged | awaiting-merge | escalated | failed | running
+    local overview="$1" exit_code="${2:-0}"
+    if [ ! -f "$overview" ]; then
+        [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
+        return
+    fi
+    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+    local step; step=$(n1_read_frontmatter "$overview" "step")
+    if [ "$step" = "escalated" ] || awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF' "$overview" | grep -q .; then
+        printf 'escalated'; return
+    fi
+    if awk '/^## Pending/{f=1;next} /^## /{f=0} f' "$overview" | grep -q '^awaiting: merge'; then
+        printf 'awaiting-merge'; return
+    fi
+    if [ "$step" = "done" ]; then printf 'merged'; return; fi
+    [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
+}
+
+n1_story_child_pr_url() {
+    # Usage: n1_story_child_pr_url <overview.md> — pr_url from Pending/Finish blocks.
+    local overview="$1"
+    [ -f "$overview" ] || return 0
+    grep -m1 '^pr_url:' "$overview" | sed 's/^pr_url:[[:space:]]*//' | tr -d '\r'
+}
+
+n1_story_child_cmd() {
+    # Usage: n1_story_child_cmd <repoPath> <ticket-id> <model> <story-id> <log-path>
+    local repo="$1" id="$2" model="$3" story="$4" log="$5"
+    local plugin_dir=""
+    [ -n "${N1_STORY_PLUGIN_DIR:-}" ] && plugin_dir=" --plugin-dir \"${N1_STORY_PLUGIN_DIR}\""
+    printf 'cd "%s" && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STORY_ID="%s" claude -p "/n1:n1-start %s" --model %s --permission-mode bypassPermissions --output-format stream-json --verbose%s > "%s" 2>&1' \
+        "$repo" "$story" "$id" "$model" "$plugin_dir" "$log"
+}
+
 n1_story_toposort() {
     # Usage: n1_story_toposort <nodes-csv> <edges: newline-separated "A>B" (A before B)>
     # Kahn's algorithm, stable on input order. Exit 2 on cycle.
