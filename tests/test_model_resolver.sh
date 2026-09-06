@@ -184,7 +184,7 @@ JSON
     assert_eq "preset: brainstorm" "auto" "$(n1_autonomy_val brainstorm)"
     assert_eq "preset: mechanicalPrompts" "auto" "$(n1_autonomy_val mechanicalPrompts)"
     assert_eq "preset: qualityEscalations" "auto-accept" "$(n1_autonomy_val qualityEscalations)"
-    assert_eq "preset: tailChain" "auto" "$(n1_autonomy_val tailChain)"
+    assert_eq "preset: tailChain" "suggest" "$(n1_autonomy_val tailChain)"
     assert_eq "preset: acceptanceGate" "auto" "$(n1_autonomy_val acceptanceGate)"
     assert_eq "preset: escalationMargin" "0.05" "$(n1_autonomy_val escalationMargin)"
     assert_eq "preset: plan approval forced false" "false" "$(n1_plan_approval_required)"

@@ -152,8 +152,6 @@ n1_resolve_model <agent-name> [context]
 
 The optional `context` parameter enables signal-driven model tiering (e.g., `n1_resolve_model developer fix`). Resolution chain: config override > signal-driven triggers > profile step_overrides > agent frontmatter default.
 
-**Synchronous agent execution:** Always pass `run_in_background: false` to every Agent tool call. Claude Code launches agents asynchronously by default, which triggers the stop hook mid-flight and reports stale pipeline state. Synchronous execution ensures the orchestrator waits for the agent to complete before continuing, keeps subagent output visible in the parent transcript, and prevents the stop hook from firing between spawn and completion.
-
 ## Orchestrator Output Discipline
 
 Between steps, emit ONLY: the step name being dispatched, the agent being spawned (with model), and any routing decision with its reason. Do not summarize step outputs, re-describe the task, or narrate intermediate state. Memory files carry context between steps — the orchestrator does not need to.

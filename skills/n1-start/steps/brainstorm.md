@@ -18,7 +18,7 @@ if [ "$INVESTIGATE_INTERACTIVE" = "true" ]; then
 fi
 ```
 
-- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The synchronous subagent (`run_in_background: false`) absorbs the brainstormer's turn boundary — when the Agent tool returns, the orchestrator sees a clean result and continues.
+- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The subagent absorbs the brainstormer's turn boundary — when the Agent tool returns, the orchestrator sees a clean result and continues.
 
   Spawn via Agent tool with `subagent_type: "n1:solution-architect"` (the SA has Read/Grep/Glob/Bash/WebSearch — everything the autonomous brainstormer needs). Prompt the subagent:
 
@@ -43,7 +43,7 @@ TEST_TIER="${TEST_TIER:-maintain}"
 
 Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `changed_files_source` — brainstorm runs before implementation; `CHANGED_FILES` will be empty). Capture result as `$RULES_BLOCK`.
 
-- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The synchronous subagent (`run_in_background: false`) absorbs the brainstormer's turn boundary — when the Agent tool returns, the orchestrator sees a clean result and continues. This replaces the prior in-context skill-fragment approach that intermittently caused the orchestrator to stop after brainstorming completed.
+- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The subagent absorbs the brainstormer's turn boundary — when the Agent tool returns, the orchestrator sees a clean result and continues. This replaces the prior in-context skill-fragment approach that intermittently caused the orchestrator to stop after brainstorming completed.
 
   Spawn via Agent tool with `subagent_type: "n1:solution-architect"` (the SA has Read/Grep/Glob/Bash/WebSearch — everything the autonomous brainstormer needs). Prompt the subagent:
 

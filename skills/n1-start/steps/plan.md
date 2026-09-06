@@ -5,7 +5,7 @@ The single Step-2 `analysis.md` (broad codebase analysis with its one research r
 
 Resolve model for `planner` (see Model Resolution above).
 
-The planner runs `superpowers:writing-plans` in an isolated subagent context. This is deliberate: the writing-plans skill ends with an "Execution Handoff" step that asks the user which execution mode to use, and when invoked in-context that prompt intermittently leaks to the user even though N1 predetermines the execution mode. A synchronous subagent (`run_in_background: false`) has no interactive channel — any such prompt returns to the orchestrator as text and is absorbed here, never shown to the user. The planner also lacks `Bash`, so it cannot chain into implementation or commit.
+The planner runs `superpowers:writing-plans` in an isolated subagent context. This is deliberate: the writing-plans skill ends with an "Execution Handoff" step that asks the user which execution mode to use, and when invoked in-context that prompt intermittently leaks to the user even though N1 predetermines the execution mode. A dispatched subagent has no interactive channel — any such prompt returns to the orchestrator as text and is absorbed here, never shown to the user. The planner also lacks `Bash`, so it cannot chain into implementation or commit.
 
 Inject matching rules before spawning:
 

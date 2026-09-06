@@ -133,7 +133,7 @@ Spawn the developer agent with the Standard developer spawn directives above. In
 
 Resolve model for `implementer` and for `developer` (SDD subagent model).
 
-The implementer runs `superpowers:subagent-driven-development` in an isolated subagent context. This is deliberate: the SDD Skill creates a turn boundary on completion, and an in-context invocation intermittently causes the orchestrator to stop and yield to the user instead of continuing to QA. A synchronous subagent (`run_in_background: false`) absorbs this boundary — when the Agent returns, the orchestrator sees a clean tool-call return and continues. (Same pattern as the planner wrapping `writing-plans`.)
+The implementer runs `superpowers:subagent-driven-development` in an isolated subagent context. This is deliberate: the SDD Skill creates a turn boundary on completion, and an in-context invocation intermittently causes the orchestrator to stop and yield to the user instead of continuing to QA. A dispatched subagent absorbs this boundary — when the Agent returns, the orchestrator sees a clean tool-call return and continues. (Same pattern as the planner wrapping `writing-plans`.)
 
 Spawn the implementer agent with:
 - **Plan path:** `$N1_HOME/memory/<ID>/plan.md` (or `$N1_HOME/memory/<ID>/brainstorm.md` when no plan.md exists). Instruct: "Read the plan once to enumerate tasks and derive success criteria; when dispatching each SDD task subagent, pass that task's own text + success criteria — do NOT paste the whole plan into every task subagent."
