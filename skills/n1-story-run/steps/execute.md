@@ -20,7 +20,7 @@ STATUS=$(n1_story_child_status "$OVERVIEW" 0)
 ```bash
 CMD=$(n1_story_child_cmd "$REPO" "$KEY" "$MODEL" "$STORY_ID" "$LOG")
 ```
-Run `bash -c "$CMD"` with the Bash tool in background mode; capture the PID it reports. Append `## Runs` row: `| KEY | <date -u +%Y-%m-%dT%H:%M:%SZ> | pid:<PID> | running | | |`. Print `>>> [i/N] <KEY> -- <service> -- <MODEL>`.
+Run `bash -c "$CMD"` with the Bash tool in background mode; capture the PID it reports. Append `## Runs` row: `| KEY | <date -u +%Y-%m-%dT%H:%M:%SZ> | pid:<PID> | running | | |`. Print `▶ [i/N] <KEY> — <service> — <MODEL>`.
 
 ## 3. Monitor
 Repeat until the process exits or `SUB_TIMEOUT` minutes pass. Each iteration is one short Bash call (never exceed one call per poll; do not block longer than `POLL` seconds in a single call):
@@ -28,7 +28,7 @@ Repeat until the process exits or `SUB_TIMEOUT` minutes pass. Each iteration is 
 sleep "$POLL"; kill -0 "$PID" 2>/dev/null && ALIVE=1 || ALIVE=0
 STEP=$(n1_read_frontmatter "$OVERVIEW" step)
 ```
-Print `  . <KEY> step: <STEP>` only when `STEP` changed since the last poll. On timeout: `kill -TERM -- -"$PID" 2>/dev/null; sleep 5; kill -KILL -- -"$PID" 2>/dev/null`, set outcome `timeout`, go to section 6.
+Print `  · <KEY> step: <STEP>` only when `STEP` changed since the last poll. On timeout: `kill -TERM -- -"$PID" 2>/dev/null; sleep 5; kill -KILL -- -"$PID" 2>/dev/null`, set outcome `timeout`, go to section 6.
 When the process exits, `EXIT=$(tail -1 "$LOG" | grep -q '"is_error":true' && echo 1 || echo 0)`; if the process was launched via `bash -c` and its exit code is available from the background task result, prefer that.
 
 ## 4. Classify
@@ -48,9 +48,9 @@ STATE=$(cd "$REPO" && gh pr view "$PR_URL" --json state,mergedAt -q '.state')
 
 ## 6. Escalate / pause
 Append to `## Escalations` in `story.md`:
-`- <date> <KEY>: <OUTCOME> -- <reason>. Child step: <STEP>. Log: <LOG>. Overview: <OVERVIEW>. <child ## Escalations text if any, first 3 lines>`
-Update the row Status to `<OUTCOME>`, set frontmatter `step: paused` (keep `current_index`). Post a tracker comment on `STORY_ID` via `mcp__<TRACKER_MCP>__<COMMENT_OP>`: `N1 story run paused at <KEY>: <OUTCOME> -- <reason>`. Print a report with the escalation lines and: "Fix or merge, then re-run `/n1:n1-story-run <STORY_ID>` to resume. To skip <KEY>, change its Status to `skip` in <story.md path>." **STOP.**
+`- <date> <KEY>: <OUTCOME> — <reason>. Child step: <STEP>. Log: <LOG>. Overview: <OVERVIEW>. <child ## Escalations text if any, first 3 lines>`
+Update the row Status to `<OUTCOME>`, set frontmatter `step: paused` (keep `current_index`). Post a tracker comment on `STORY_ID` via `mcp__<TRACKER_MCP>__<COMMENT_OP>`: `N1 story run paused at <KEY>: <OUTCOME> — <reason>`. Print a report with the escalation lines and: "Fix or merge, then re-run `/n1:n1-story-run <STORY_ID>` to resume. To skip <KEY>, change its Status to `skip` in <story.md path>." **STOP.**
 
 ## 7. Advance
-Update the Runs row: exit code, outcome, PR URL, merged time (`gh pr view --json mergedAt -q .mergedAt`). Set row Status `merged`. `current_index += 1` via `n1_write_frontmatter`. Print `[ok] [i/N] <KEY> merged -- <PR_URL>`.
+Update the Runs row: exit code, outcome, PR URL, merged time (`gh pr view --json mergedAt -q .mergedAt`). Set row Status `merged`. `current_index += 1` via `n1_write_frontmatter`. Print `✔ [i/N] <KEY> merged — <PR_URL>`.
 After the last pending row: `n1_write_frontmatter "$STORY_MEM/story.md" step summarize`.
