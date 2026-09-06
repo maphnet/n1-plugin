@@ -1890,6 +1890,17 @@ def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ 
 
 ### On reconfiguration (n1-init re-run):
 
+Ensure `repoPath` is present and current:
+```bash
+CFG="$N1_HOME/config.json"
+COMMON=$(git rev-parse --git-common-dir); case "$COMMON" in .git) REPO_PATH=$(git rev-parse --show-toplevel) ;; *) REPO_PATH=$(dirname "$COMMON") ;; esac
+CUR=$(jq -r '.repoPath // empty' "$CFG")
+if [ "$CUR" != "$REPO_PATH" ]; then
+  jq --arg p "$REPO_PATH" '.repoPath = $p' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+  echo "repoPath set to $REPO_PATH"
+fi
+```
+
 Prune every `models.<agent>` entry whose value equals the agent's frontmatter default, then print what was pruned. This is idempotent — running it multiple times has no additional effect.
 
 ```bash
@@ -1912,6 +1923,7 @@ Create all files:
 ```json
 {
   "version": "2.0.0",
+  "repoPath": "<absolute git toplevel, see below>",
   "worktree": {
     "mode": "worktree",
     "setup": "<detected or null>",
@@ -1927,6 +1939,9 @@ Create all files:
   "observability": null,
   "estimation": {
     "enabled": false
+  },
+  "story": {
+    "opusFromSize": "M"
   },
   "localTesting": {
     "enabled": false
@@ -1973,6 +1988,14 @@ Create all files:
   "models": {}
 }
 ```
+
+**`repoPath`** is the absolute path of the repository's main checkout, used by `n1-story-run` to launch subtask pipelines in the right repo:
+```bash
+REPO_PATH=$(git rev-parse --show-toplevel)
+```
+Store it as-is (WSL-native path on WSL). Do not store worktree paths — if the current directory is a worktree (`git rev-parse --git-common-dir` differs from `.git`), use `dirname "$(git rev-parse --git-common-dir)"` instead.
+
+**`story`** keys `pollSeconds`, `subtaskTimeoutMinutes`, `mergePollMinutes`, `mergeTimeoutMinutes` fall back to `defaults/story.json`; set them in config.json only to override.
 
 The `models` object is empty by default — agent model defaults come from agent frontmatter. Only store per-agent overrides here.
 
