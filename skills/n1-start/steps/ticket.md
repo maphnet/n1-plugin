@@ -98,7 +98,8 @@ fi
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 
 # Extract type field from intake-result (bug/task/feature/improvement)
-TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*"type": *"\([^"]*\)".*/\1/')
+# Use [,{] anchor to avoid matching "issue_type" when greedy .* scans the string
+TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
 
 # Resolve type via registry cascade
 RESOLVED_TYPE=$(n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE")
