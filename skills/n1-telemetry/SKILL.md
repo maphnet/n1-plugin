@@ -66,6 +66,8 @@ For each decision type, correlate with quality outcomes:
 
 ### 3. Threshold Recommendations
 
+**Paired-run floor.** A recommendation for a decision id is allowed only when at least `telemetry.minPairedRuns` runs (config, default `100`) contain both a `decisions[]` entry with that id and an `outcomes[]` entry with `review_blocking_count`. Below the floor, print the row with `Recommendation: insufficient data (N/100 paired runs)` and never propose a threshold change. Print the paired-run count next to every number in this section; a median over 6 runs and over 120 runs are different claims.
+
 For each threshold in the system, report:
 
 | Threshold | Current value | Hit rate | Outcome when triggered | Recommendation |
@@ -78,7 +80,7 @@ For each threshold in the system, report:
 **Recommendation logic:**
 - If outcome is WORSE when threshold triggers: recommend **tighten** (make harder to trigger)
 - If outcome is SAME or BETTER: recommend **keep** (threshold is well-calibrated)
-- If threshold rarely triggers (<10% of runs): recommend **loosen** (threshold is too conservative)
+- If threshold rarely triggers (<10% of runs) AND the floor is met: recommend **loosen** (threshold is too conservative)
 - If insufficient data (<5 runs with this decision): report "insufficient data"
 
 ### 4. Token Usage Summary

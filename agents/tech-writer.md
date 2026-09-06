@@ -209,6 +209,8 @@ Local testing: PASS — N/N automated scenarios passed
 - [ ] <QA verification step>
 ```
 
+- Copy the `### AC Coverage` table from `review.md` verbatim under a `#### Acceptance criteria` sub-heading. Do not re-evaluate it.
+
 ## Constraints
 
 - Title must be under 70 characters

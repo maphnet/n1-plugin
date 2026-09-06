@@ -214,9 +214,11 @@ if [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2
         checked=$(( checked + 1 ))
         state=$(timeout 5 gh pr view "$pr_num" --json state,mergedAt \
             --jq '.state' 2>/dev/null) || state=""
-        # refresh last_checked regardless of outcome
-        ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        sed -i "s/^last_checked: .*/last_checked: ${ts}/" "$ov" 2>/dev/null || true
+        # refresh last_checked only when gh answered; a failed call must not consume the throttle window
+        if [ -n "$state" ]; then
+            ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            sed -i "s/^last_checked: .*/last_checked: ${ts}/" "$ov" 2>/dev/null || true
+        fi
         case "$state" in
             MERGED)
                 pending_context="${pending_context}

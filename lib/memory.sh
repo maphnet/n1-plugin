@@ -226,3 +226,23 @@ n1_append_key_decision() {
     }
     ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
 }
+
+# n1_extract_sections <file> <heading_regex>...
+# Prints each ## or ### section whose heading text matches one of the regexes (case-insensitive ERE),
+# including nested lower-level headings, up to the next heading of the same or higher level.
+n1_extract_sections() {
+    local file="$1"; shift
+    [ -f "$file" ] || return 0
+    local pattern
+    pattern=$(printf '%s|' "$@"); pattern="${pattern%|}"
+    awk -v pat="$pattern" '
+        function level(line) { match(line, /^#+/); return RLENGTH }
+        /^#{2,3} / {
+            text=$0; sub(/^#+[[:space:]]*/, "", text)
+            if (printing && level($0) <= plevel) { printing=0; if (last != "") print ""; last="" }
+            if (!printing && tolower(text) ~ tolower(pat)) { printing=1; plevel=level($0); print; last=$0; next }
+        }
+        printing { print; last=$0 }
+        END { if (printing && last != "") print "" }
+    ' "$file"
+}

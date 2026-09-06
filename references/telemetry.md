@@ -55,3 +55,9 @@ The merged record includes an `orchestrator` field with per-step tool call and t
 Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `orchestrator_tool_calls`.
 
 **Session transcript discovery:** The agent-stop hook writes `session_transcript_path` (the raw parent session transcript path from the harness payload) alongside the resolved per-agent `transcript_path`. The merge script reads the first `session_transcript_path` from the raw agents file. If no agent events exist, `orchestrator` is `null`.
+
+## Decision events (schema v2.1)
+
+`lib/telemetry.sh:n1_record_decision <id> <result> [<condition_json>] [k=v...]` appends `{"event":"decision","id":...,"result":true|false,"condition":{...},"signals":{"<file.key>":"<value>",...}}` to `raw/steps/<run_id>.jsonl`. Emitted automatically for every `escalation_triggers` / `downgrade_triggers` evaluation in `n1_resolve_model` (id `escalation:<agent>:<step>` or `downgrade:<agent>:<step>`), and explicitly by step files for `simplicity-gate` and `planning-need-direct`. The merge collects them into `decisions[]`.
+
+The outcome event gained `review_blocking_count` (Critical/High fingerprints from the first review pass), `review_fix_cycles`, `qa_fix_cycles`, `break_check_verdict`, `review_discarded_count`. `n1-telemetry` correlates `decisions[].id`/`result` with these fields and refuses threshold recommendations below `telemetry.minPairedRuns` (default 100).

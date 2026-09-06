@@ -29,6 +29,21 @@ n1_read_signal() {
             printf "%s", $0
             exit
         }
+        /^<!-- n1:signals / && /-->$/ {
+            # Inline format: <!-- n1:signals key1=val1 key2=val2 -->
+            line = $0
+            gsub(/^<!-- n1:signals[[:space:]]+/, "", line)
+            gsub(/[[:space:]]*-->$/, "", line)
+            n = split(line, pairs, " ")
+            for (i = 1; i <= n; i++) {
+                eq = index(pairs[i], "=")
+                if (eq > 0) {
+                    k = substr(pairs[i], 1, eq - 1)
+                    v = substr(pairs[i], eq + 1)
+                    if (k == key) { printf "%s", v; exit }
+                }
+            }
+        }
     ' "$file"
 }
 

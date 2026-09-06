@@ -52,6 +52,7 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 - **Plugin:** `claude --plugin-dir ~/dev/n1-plugin` from any test project; `/reload-plugins` to pick up edits
 - **Always test on a separate repo before committing plugin changes**
 - **Dogfooding:** use N1 skills on the N1 repo itself
+- Run `bash tests/run.sh` before committing; every lib helper has a test file under `tests/` that builds throwaway git repos in `mktemp -d`.
 
 ### Auditing orchestrator delegation
 

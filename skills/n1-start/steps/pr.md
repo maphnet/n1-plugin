@@ -47,15 +47,25 @@ Update overview: `[x] PR`, set `step: pr`
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
 QA_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
 REVIEW_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
 QA_FIRST=$( [ "${QA_FIX:-0}" = "0" ] && echo "true" || echo "false" )
 REVIEW_FIRST=$( [ "${REVIEW_FIX:-0}" = "0" ] && echo "true" || echo "false" )
 FIX_TOTAL=$(( ${QA_FIX:-0} + ${REVIEW_FIX:-0} ))
+FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
+BLOCKING_C1=$(n1_fingerprint_blocking_count_for_cycle "$FP_FILE" 0 2>/dev/null || echo 0)
+BC_VERDICT=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "break_check_verdict"); BC_VERDICT=${BC_VERDICT:-skipped}
+DISCARDED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_discarded_count"); DISCARDED=${DISCARDED:-0}
 n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" \
     "review_pass_first_try=$REVIEW_FIRST" \
     "qa_pass_first_try=$QA_FIRST" \
-    "fix_cycles_count=$FIX_TOTAL"
+    "fix_cycles_count=$FIX_TOTAL" \
+    "review_blocking_count=$BLOCKING_C1" \
+    "review_fix_cycles=${REVIEW_FIX:-0}" \
+    "qa_fix_cycles=${QA_FIX:-0}" \
+    "break_check_verdict=$BC_VERDICT" \
+    "review_discarded_count=$DISCARDED"
 ```
 
 **CHECKPOINT:** "PR created at <URL>. Ready for Tech Lead review."
