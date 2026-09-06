@@ -156,4 +156,6 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 
 **Autonomy gate:** Apply per SKILL.md § Autonomy Gate with step=`qa`, action=`accept current test state`, ledger_context=`<failing test names and counts>`.
 
+**Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+
 **If ask (default):** Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Prompt the user: "{PREAMBLE} After <N> QA fix cycles this test still fails: [test name/details]. Please advise: Retry / Accept as-is / Abort?"

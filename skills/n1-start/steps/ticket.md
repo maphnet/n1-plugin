@@ -98,7 +98,8 @@ fi
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 
 # Extract type field from intake-result (bug/task/feature/improvement)
-TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*"type": *"\([^"]*\)".*/\1/')
+# Use [,{] anchor to avoid matching "issue_type" when greedy .* scans the string
+TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
 
 # Resolve type via registry cascade
 RESOLVED_TYPE=$(n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE")
@@ -107,6 +108,20 @@ if [ "$RESOLVED_TYPE" = "investigation" ]; then
     INVESTIGATION_DETECTED=true
 fi
 ```
+
+**Story handoff**
+
+```bash
+ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]')
+SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p')
+IS_STORY=false
+case "$ISSUE_TYPE" in story|epic) IS_STORY=true ;; esac
+if [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md"; then IS_STORY=true; fi
+```
+
+If `IS_STORY` is `true` and `N1_HEADLESS` is not `1`: print "**<ID>** is a story with <SUBTASK_COUNT> subtasks — handing off to n1-story-run." Then invoke the `n1:n1-story-run` skill with argument `<ID>` and **STOP this pipeline** (no worktree, no product-analyst). The memory directory already created is reused as story memory.
+
+If `IS_STORY` is `true` and `N1_HEADLESS=1`: apply SKILL.md § Headless Guard with the message "Ticket is a story; run /n1:n1-story-run <ID> interactively."
 
 **Workspace isolation (ticket and error-tracker modes)**
 
@@ -335,6 +350,12 @@ If `INVESTIGATE_FLAG` is `true`, also persist the interactive-investigation mark
 
 ```bash
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive" "true"
+```
+
+**Record parent story (headless story runs):** if the environment variable `N1_STORY_ID` is non-empty:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+[ -n "${N1_STORY_ID:-}" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story" "$N1_STORY_ID"
 ```
 
 **Write original ticket status to overview.md:**

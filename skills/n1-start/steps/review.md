@@ -79,6 +79,8 @@ fi
 
 On non-convergence (blocking count for cycle N is not less than cycle N-1), escalate to the user immediately using the same escalation protocol as bound exhaustion, with context: "Review findings are not converging. Continuing fix cycles is unlikely to resolve the remaining issues."
 
+**Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+
 Update overview: `[x] Review`, set `step: review`
 
 ### 7b. TQ FIX LOOP (if TQ findings exist)
@@ -115,11 +117,15 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
 
    **Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`review`, action=`log remaining TQ findings in review.md and proceed to Step 8`, ledger_context=`<TQ findings that remained unresolved after N attempts>`.
 
+   **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+
    If `QE` is `ask`: log remaining TQ findings in `review.md` and proceed to Step 8 — non-blocking findings do not stall the pipeline.
 
 If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX). The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3 — the `review_fix` `max_default` in `pipeline.json`). When `review_fix_cycle` has reached the bound, escalate via the autonomy gate below instead of entering another fix cycle.
 
 **Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`review`, action=`accept remaining findings and continue`, ledger_context=`<findings that remained unresolved after N fix cycles>`.
+
+**Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 
 If `QE` is `ask`: compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then: "{PREAMBLE} After `review.maxFixAttempts` (default 3) review cycles, these findings remain unresolved: [list]. Please advise."
 

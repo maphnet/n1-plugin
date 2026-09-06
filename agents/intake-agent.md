@@ -108,6 +108,11 @@ You will receive ONE of four input modes:
       - On success: `parentLinkedTickets`: from the response, keep only link types `depends on`, `is depended on by`, `relates to`, `blocks`, `is blocked by` — collect as `<LINK_ID>: <link title> (<link type>)` lines.
    8. Append to ticket.md (same `### Parent Context` format as the Jira path above).
 
+3b. **Child subtasks (tracker ticket mode only):** count direct children.
+   - Jira: length of the `subtasks` array in the issue response (0 if absent).
+   - YouTrack: from the links response, count links of type `subtask` where the current issue is the parent (direction: current issue → child). 0 if none.
+   Set `subtask_count`. Set `issue_type` to the tracker's raw issue type name (`issuetype.name` for Jira, the `Type` custom field value for YouTrack; `"unknown"` if unavailable).
+
 4. **Post-fetch: linked error-tracker scan** (only if `errorTrackingUrlPattern` was provided)
    1. Scan the raw description for a URL matching `errorTrackingUrlPattern`.
    2. If no match found, skip to step 5.
@@ -186,23 +191,25 @@ The `### Parent Context` section is tracker ticket mode only. It is appended by 
 After writing ticket.md, output this exact line (parseable by the orchestrator):
 
 ```
-intake-result: {"title": "<title>", "tags": [<tags as JSON array of strings>], "type": "<bug|task|feature|improvement>", "is_investigation": <true|false>}
+intake-result: {"title": "<title>", "tags": [<tags as JSON array of strings>], "type": "<bug|task|feature|improvement>", "issue_type": "<raw tracker issue type, e.g. Story|Epic|Task|Bug>", "subtask_count": <number of child subtasks, 0 if none>, "is_investigation": <true|false>}
 ```
 
 For Jira ticket mode, add the resolved cloudId:
 ```
-intake-result: {"title": "<title>", "tags": [], "type": "<type>", "cloudId": "<resolved-cloud-id>", "is_investigation": <true|false>}
+intake-result: {"title": "<title>", "tags": [], "type": "<type>", "cloudId": "<resolved-cloud-id>", "issue_type": "<raw tracker issue type>", "subtask_count": <subtask count>, "is_investigation": <true|false>}
 ```
 
 For tracker ticket mode when a linked error was detected (step 4 above):
 ```
-intake-result: {"title": "<title>", "tags": [...], "type": "bug", "cloudId": "<cloud-id>", "linked_error": {"provider": "<provider>", "issueId": "<id>", "issueUrl": "<url>"}, "is_investigation": false}
+intake-result: {"title": "<title>", "tags": [...], "type": "bug", "cloudId": "<cloud-id>", "issue_type": "<raw tracker issue type>", "subtask_count": <subtask count>, "linked_error": {"provider": "<provider>", "issueId": "<id>", "issueUrl": "<url>"}, "is_investigation": false}
 ```
 When `linked_error` is present, `type` is always `"bug"` (overrides the Jira type field) and `is_investigation` is always `false`.
 
+Text mode, file mode, and error-tracker mode emit `"issue_type": "unknown", "subtask_count": 0`.
+
 If you cannot extract a title (e.g., empty or unparseable input), use `null`:
 ```
-intake-result: {"title": null, "tags": [], "type": "task", "is_investigation": false}
+intake-result: {"title": null, "tags": [], "type": "task", "issue_type": "unknown", "subtask_count": 0, "is_investigation": false}
 ```
 
 ## Constraints

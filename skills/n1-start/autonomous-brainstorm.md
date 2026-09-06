@@ -93,6 +93,8 @@ Read the margin threshold from `N1_ESCALATION_MARGIN` environment variable (defa
 
 **If margin <= threshold:** Escalation needed. Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Ask the user directly — prefix your message with `PREAMBLE`, then present the approaches with their axis scores, lead with your recommendation, wait for the answer, then record it as an `[asked]` ledger row (`| brainstorm | design | A | [asked] | Approach selection: <topic> | <chosen> | <rejected> | margin <margin> below threshold |`) and continue from step 7.
 
+**Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+
 ### 7. Design Writing
 
 Write the selected approach to `$N1_HOME/memory/<ID>/brainstorm.md` using this structure:

@@ -3,5 +3,10 @@
   "taskSizing": {
     "maxSize": "L",
     "warnOnLargeTask": true
-  }
+  },
+  "opusFromSize": "M",
+  "pollSeconds": 60,
+  "subtaskTimeoutMinutes": 180,
+  "mergePollMinutes": 5,
+  "mergeTimeoutMinutes": 120
 }

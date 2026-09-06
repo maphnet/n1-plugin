@@ -231,6 +231,16 @@ n1_autonomy_val() {
     # Safe defaults preserve pre-autonomy behavior exactly.
     local key="$1"
     local val
+    if [ "${N1_AUTONOMY_PRESET:-}" = "autonomous" ]; then
+        case "$key" in
+            brainstorm)         printf 'auto'; return ;;
+            mechanicalPrompts)  printf 'auto'; return ;;
+            qualityEscalations) printf 'auto-accept'; return ;;
+            tailChain)          printf 'auto'; return ;;
+            acceptanceGate)     printf 'auto'; return ;;
+            escalationMargin)   printf '0.05'; return ;;
+        esac
+    fi
     val=$(n1_config_val ".autonomy.${key}")
     if [ -n "$val" ]; then
         printf '%s' "$val"
@@ -247,6 +257,30 @@ n1_autonomy_val() {
     esac
 }
 
+n1_plan_approval_required() {
+    # Prints true/false. The autonomous env preset always disables the plan checkpoint.
+    if [ "${N1_AUTONOMY_PRESET:-}" = "autonomous" ]; then printf 'false'; return; fi
+    local v; v=$(n1_config_val '.planReview.requirePlanApproval')
+    [ "$v" = "true" ] && printf 'true' || printf 'false'
+}
+
+n1_codex_available() {
+    local enabled
+    enabled=$(n1_codex_val 'enabled')
+    [ "$enabled" = "true" ] || return 1
+    codex --version >/dev/null 2>&1 || return 1
+    return 0
+}
+
+n1_codex_preflight() {
+    local base_branch="$1"
+    n1_codex_available || return 1
+    if ! git rev-parse --verify "$base_branch" >/dev/null 2>&1; then
+        echo "base branch '$base_branch' not resolvable" >&2
+        return 1
+    fi
+    return 0
+}
 
 # Detect if running inside a linked git worktree NOT managed by N1.
 # Returns 0 (true) when: git-dir diverges from git-common-dir (linked worktree)

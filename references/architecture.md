@@ -17,6 +17,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
 | n1-ticket | solution-architect agent + inline context capture, web research, tracker MCP | Create a single backlog ticket (Task/Bug) from conversation context |
 | n1-story | solution-architect agent + inline context capture, interactive discovery, tracker MCP | Create a story with subtask tickets from conversation context |
+| n1-story-run | headless `claude -p` child per subtask (n1-start, n1-finish), solution-architect (order gap-fill), tracker MCP | Implement a whole story: validate → sequential subtask pipelines in each subtask's repo → summary comment |
 | n1-rules | (inline: lib/rules.sh) | List, add, validate project rules; regenerate deny hook |
 
 Superpowers calls use the `superpowers:` prefix. Agent spawns use N1's own agent definitions. Each gets fresh context — the orchestrator never accumulates full history.
@@ -335,3 +336,11 @@ Three n1-init presets write the autonomy block:
 Every autonomous decision appends a row to the `## Decision Ledger` table in overview.md (spec: `skills/n1-start/ledger.md`); the tech-writer renders it as a `## Decisions` section in the PR body — the after-the-fact review artifact. Hard invariants: security/architecture/public-API escalations always block; **release is never automatic** — `tailChain` scope ends at finish, release is declared `manual_only` in `pipeline.json`, and the n1-release confirmation gate is unconditional.
 
 Cross-session resume: the pr step writes a `## Pending` block (`awaiting: merge`) to overview.md; `hooks/session-start.sh` scans these (capped at 5 `gh pr view` calls, 30-min throttle via `last_checked`, 14-day expiry, fail-open) and suggests — or under `tailChain: "auto"` runs — `/n1:n1-finish` when the PR was merged externally.
+
+## Story Orchestration
+
+`/n1:n1-story-run <STORY-ID>` (also reached when `/n1:n1-start` is given a Story/Epic or a parent with subtasks) runs every open subtask through `n1-start` sequentially. Each subtask runs as a **headless child process** launched from the subtask's repository: `cd <repoPath> && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STORY_ID=<STORY> claude -p "/n1:n1-start <ID>" --model <sonnet|opus> --permission-mode bypassPermissions`. The repo is found by matching the subtask's `service | title` prefix against `ticketTagging.service` in `~/.n1/*/config.json` and reading that config's `repoPath` (written by n1-init). A dependent subtask starts only after its predecessor's PR is merged; the orchestrator polls `gh pr view` and runs a headless `n1-finish` on merge.
+
+Env contract: `N1_AUTONOMY_PRESET=autonomous` makes `n1_autonomy_val` return the fully autonomous profile (`brainstorm=auto`, `mechanicalPrompts=auto`, `qualityEscalations=auto-accept`, `tailChain=auto`, `acceptanceGate=auto`, `escalationMargin=0.05`) and disables the plan checkpoint. `N1_HEADLESS=1` turns any remaining prompt into a recorded escalation (`## Escalations`, `step: escalated`) and ends the child. `N1_STORY_ID` is recorded in the child's overview frontmatter. `N1_STORY_PLUGIN_DIR` (optional) passes `--plugin-dir` to each child `claude -p` invocation, allowing story runs against a local plugin build.
+
+Model per subtask: sonnet by default; opus when size ≥ `story.opusFromSize` (default M) or a risk flag (`security`, `public-api`, `schema-migration`, `contract`) is set. Outcomes read from the child's overview.md: `merged`, `awaiting-merge`, `escalated`, `failed`. Any escalation pauses the story (comment on the story, `step: paused`); re-running the command resumes. On completion a `N1 Story Summary` comment is posted grouped by service with PR links. Helpers: `lib/story.sh`; defaults: `defaults/story.json`. Release remains manual.

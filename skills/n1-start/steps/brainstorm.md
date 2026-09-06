@@ -201,6 +201,8 @@ If ANY condition fails: fall through to the interactive gate below.
 
 **Wait for the user's response.** If they amend or add criteria, update the `## Acceptance Criteria` section in `brainstorm.md` to match, then re-present the gate. Only continue to Planning Need Evaluation after the user confirms.
 
+**Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+
 ### Planning Need Evaluation
 
 Evaluate whether the brainstorm output is sufficient for direct implementation, or whether a formal plan is needed. The brainstorm content and `analysis.md` are already in your context — do not re-read them.
