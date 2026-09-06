@@ -108,6 +108,20 @@ if [ "$RESOLVED_TYPE" = "investigation" ]; then
 fi
 ```
 
+**Story handoff**
+
+```bash
+ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]')
+SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p')
+IS_STORY=false
+case "$ISSUE_TYPE" in story|epic) IS_STORY=true ;; esac
+if [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md"; then IS_STORY=true; fi
+```
+
+If `IS_STORY` is `true` and `N1_HEADLESS` is not `1`: print "**<ID>** is a story with <SUBTASK_COUNT> subtasks — handing off to n1-story-run." Then invoke the `n1:n1-story-run` skill with argument `<ID>` and **STOP this pipeline** (no worktree, no product-analyst). The memory directory already created is reused as story memory.
+
+If `IS_STORY` is `true` and `N1_HEADLESS=1`: apply SKILL.md § Headless Guard with the message "Ticket is a story; run /n1:n1-story-run <ID> interactively."
+
 **Workspace isolation (ticket and error-tracker modes)**
 
 If `INVESTIGATION_DETECTED` is false AND the input mode is "ticket" or "error-tracker" (i.e., the `<ID>` is already known from intake): run the workspace isolation procedure now — **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise. For investigation tasks, no branch or worktree is created — all output goes to `$N1_HOME/memory/<ID>/` only.
