@@ -277,6 +277,16 @@ n1_autonomy_val() {
     # Safe defaults preserve pre-autonomy behavior exactly.
     local key="$1"
     local val
+    if [ "${N1_AUTONOMY_PRESET:-}" = "autonomous" ]; then
+        case "$key" in
+            brainstorm)         printf 'auto'; return ;;
+            mechanicalPrompts)  printf 'auto'; return ;;
+            qualityEscalations) printf 'auto-accept'; return ;;
+            tailChain)          printf 'auto'; return ;;
+            acceptanceGate)     printf 'auto'; return ;;
+            escalationMargin)   printf '0.05'; return ;;
+        esac
+    fi
     val=$(n1_config_val ".autonomy.${key}")
     if [ -n "$val" ]; then
         printf '%s' "$val"
@@ -291,6 +301,13 @@ n1_autonomy_val() {
         escalationMargin)   printf '0.15' ;;
         *)                  printf '' ;;
     esac
+}
+
+n1_plan_approval_required() {
+    # Prints true/false. The autonomous env preset always disables the plan checkpoint.
+    if [ "${N1_AUTONOMY_PRESET:-}" = "autonomous" ]; then printf 'false'; return; fi
+    local v; v=$(n1_config_val '.planReview.requirePlanApproval')
+    [ "$v" = "true" ] && printf 'true' || printf 'false'
 }
 
 n1_codex_available() {

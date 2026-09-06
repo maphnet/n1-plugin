@@ -167,12 +167,38 @@ JSON
     assert_eq "prune emitted log for code-reviewer" "1" "$pruned_reviewer"
 }
 
+test_autonomy_preset() {
+    local tmpdir; tmpdir=$(mktemp -d); trap 'rm -rf "$tmpdir"' RETURN
+    cat > "${tmpdir}/config.json" <<'JSON'
+{ "autonomy": { "brainstorm": "interactive", "qualityEscalations": "block", "tailChain": "suggest", "acceptanceGate": "ask" },
+  "planReview": { "requirePlanApproval": true } }
+JSON
+    local TEST_CONFIG="${tmpdir}/config.json"
+    n1_config_file() { echo "$TEST_CONFIG"; }
+
+    unset N1_AUTONOMY_PRESET
+    assert_eq "preset off: brainstorm from config" "interactive" "$(n1_autonomy_val brainstorm)"
+    assert_eq "preset off: plan approval from config" "true" "$(n1_plan_approval_required)"
+
+    export N1_AUTONOMY_PRESET=autonomous
+    assert_eq "preset: brainstorm" "auto" "$(n1_autonomy_val brainstorm)"
+    assert_eq "preset: mechanicalPrompts" "auto" "$(n1_autonomy_val mechanicalPrompts)"
+    assert_eq "preset: qualityEscalations" "auto-accept" "$(n1_autonomy_val qualityEscalations)"
+    assert_eq "preset: tailChain" "auto" "$(n1_autonomy_val tailChain)"
+    assert_eq "preset: acceptanceGate" "auto" "$(n1_autonomy_val acceptanceGate)"
+    assert_eq "preset: escalationMargin" "0.05" "$(n1_autonomy_val escalationMargin)"
+    assert_eq "preset: plan approval forced false" "false" "$(n1_plan_approval_required)"
+    unset N1_AUTONOMY_PRESET
+    unset -f n1_config_file
+}
+
 # ---------------------------------------------------------------------------
 # Run tests
 # ---------------------------------------------------------------------------
 test_a
 test_b
 test_c
+test_autonomy_preset
 
 echo "---"
 echo "$PASS passed, $FAIL failed"
