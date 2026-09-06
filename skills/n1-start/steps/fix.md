@@ -43,7 +43,7 @@ After developer returns:
   n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
   ```
 - Go back to **Step 7** (REVIEW) — re-run both reviewers
-- The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3); when `review_fix_cycle` reaches it, escalate to the user.
+- The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3); when `review_fix_cycle` reaches it, escalate to the user. **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 
 **Autonomy gate:** when this step must escalate (a blocking ambiguity it cannot resolve), read the policy first:
 

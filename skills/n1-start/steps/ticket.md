@@ -337,6 +337,12 @@ If `INVESTIGATE_FLAG` is `true`, also persist the interactive-investigation mark
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive" "true"
 ```
 
+**Record parent story (headless story runs):** if the environment variable `N1_STORY_ID` is non-empty:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+[ -n "${N1_STORY_ID:-}" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story" "$N1_STORY_ID"
+```
+
 **Write original ticket status to overview.md:**
 
 `ORIGINAL_STATUS` was captured from the raw intake-agent output before the product-analyst ran (see "Capture original ticket status" above). Write it to frontmatter now that overview.md exists:
