@@ -29,7 +29,7 @@ from pathlib import Path
 
 RUBRIC_VERSION = 1
 DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
-ELIGIBLE_OUTCOMES = {"pr_created", "pr_skipped", "investigation_complete"}
+ELIGIBLE_OUTCOMES = {"pr_created", "investigation_complete"}
 MIN_SAMPLE = 5
 TEXT_LIMIT = 600
 LABELS = {"answer", "approval", "correction", "instruction", "noise"}

@@ -99,14 +99,13 @@ Two modes:
 
 ### `/n1:n1-pr` — Pull Request Creation
 
-Spawns tech-writer agent for doc updates and PR content, pushes, creates PR via `gh` (or exits immediately when `prMode: "skip"`), and updates the tracker.
+Spawns tech-writer agent for doc updates and PR content, pushes, creates PR via `gh`, and updates the tracker.
 
 ### `/n1:n1-finish` — Finish Work
 
 Completes the cycle after PR/CI: verifies the PR is merged (or merges it when `finishWork.mergeOnFinish` is enabled), optionally watches the deployment workflow triggered by the merge commit, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
 
 - Standalone and idempotent — works with or without the `finishWork.enabled` pipeline gate
-- Projects with `prMode: "skip"` get a local merge into the default branch (no push)
 - Configure via `/n1:n1-init` or the `finishWork` block in `~/.n1/<project>/config.json`
 
 ```

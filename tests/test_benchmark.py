@@ -100,11 +100,11 @@ class LoadRunsTest(unittest.TestCase):
 
 class EligibilityTest(unittest.TestCase):
     def test_eligible_outcomes(self):
-        for o in ("pr_created", "pr_skipped", "investigation_complete"):
+        for o in ("pr_created", "investigation_complete"):
             self.assertTrue(bm.is_eligible(make_run(outcome=o)), o)
 
     def test_ineligible_outcomes(self):
-        for o in (None, "", "superseded", "operational_fix"):
+        for o in (None, "", "superseded", "operational_fix", "pr_skipped"):
             self.assertFalse(bm.is_eligible(make_run(outcome=o)), repr(o))
 
 
