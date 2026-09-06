@@ -1,22 +1,11 @@
 
 **Context discipline — resolve `prMode` (below) BEFORE opening any memory file:**
-- `skip` mode reads overview.md only. Do NOT read `review.md`, `qa.md`, `implementation.md`, or `local-testing.md` — the skip path needs only a checkbox update and a report line.
-- `draft`/`ready` mode: do not read full reports in this session either — n1-pr extracts the verdict lines it needs via `grep`, and the tech-writer reads the full files itself via the paths it receives.
+- Do not read full reports in this session — n1-pr extracts the verdict lines it needs via `grep`, and the tech-writer reads the full files itself via the paths it receives.
 
 Resolve `prMode` from `$N1_HOME/config.json` using the fallback chain:
-1. If `git.prMode` is present → use it (`"draft"`, `"ready"`, or `"skip"`)
+1. If `git.prMode` is present → use it (`"draft"` or `"ready"`)
 2. Else if `git.draftPR` is `false` → treat as `"ready"`
 3. Otherwise → treat as `"draft"`
-
-**If `prMode` is `"skip"`:**
-- Do NOT invoke n1-pr
-- Do NOT push the branch
-- Update `overview.md`: check `[x] PR`, set `step: pr`, add key decision: `"PR: skipped (prMode: skip)"`
-- Report: "PR step skipped. Branch `<branch-name>` is ready — merge manually when done."
-- Skip Step 11 (CI watch) — no PR to monitor
-- Proceed to FINALIZE MEMORY
-
-**Otherwise:** invoke n1-pr as below.
 
 **REQUIRED SUB-SKILL:** Use n1:n1-pr to create the pull request.
 
@@ -27,7 +16,7 @@ After PR is created:
 - The PR skill reports the URL
 - **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** any later user request to change the branch is handled per n1-pr `## Step 8: Post-PR Follow-ups` (developer agent in fix mode) — the orchestrator never edits or commits project files itself.
 
-**Record pending-merge state** (enables cross-session finish resume; skip when `prMode` is `skip`):
+**Record pending-merge state** (enables cross-session finish resume):
 
 Append (or replace, idempotent upsert) a `## Pending` section in `$N1_HOME/memory/$ID/overview.md`:
 

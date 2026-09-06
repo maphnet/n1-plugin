@@ -683,7 +683,7 @@ Autonomous decisions made anywhere in the pipeline are recorded per `skills/n1-s
 Update overview.md:
 - All checkboxes checked
 - Frontmatter: `step: done`
-- Add `docs_updated` field from n1-pr's Phase 1 results (if any doc updates occurred; omit entirely when `prMode` was `"skip"` — n1-pr was not invoked)
+- Add `docs_updated` field from n1-pr's Phase 1 results (if any doc updates occurred)
 - Final status line added
 
 **Telemetry finalization (if enabled):**
@@ -692,7 +692,7 @@ Update overview.md:
    ```bash
    echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$FINAL_OUTCOME"'","estimated_tier":"'"$ESTIMATED_TIER"'"}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
    ```
-   Where `$FINAL_OUTCOME` is one of: `pr_created`, `pr_skipped`, `escalated`, `failed`. `$ESTIMATED_TIER` is the tier from the estimation step (or empty if estimation was skipped).
+   Where `$FINAL_OUTCOME` is one of: `pr_created`, `escalated`, `failed`. `$ESTIMATED_TIER` is the tier from the estimation step (or empty if estimation was skipped).
 
 2. Run the merge script:
    ```bash

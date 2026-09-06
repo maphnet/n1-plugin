@@ -1,6 +1,4 @@
 
-**If `git.prMode` was `"skip"`:** the finish step still runs — n1-finish handles the local-merge path (no PR).
-
 Run `n1_config_val '.finishWork.enabled'` (default: `false`).
 
 > The gate key (`finishWork.enabled`) and its default (`false`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.

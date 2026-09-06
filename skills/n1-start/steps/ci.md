@@ -1,6 +1,4 @@
 
-**If `prMode` was `"skip"` (resolved in Step 10):** Skip to FINALIZE MEMORY — no PR exists to monitor.
-
 Run `n1_config_val '.ciChecks.enabled'` (default: `true`).
 
 > The gate key (`ciChecks.enabled`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
