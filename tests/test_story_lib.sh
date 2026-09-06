@@ -71,9 +71,25 @@ test_pick_model() {
     unset -f n1_config_file
 }
 
+test_toposort() {
+    local out
+    out=$(n1_story_toposort "A,B,C" "" | tr '\n' ',')
+    assert_eq "topo: no edges keeps order" "A,B,C," "$out"
+    out=$(n1_story_toposort "A,B,C" $'B>A\nC>B' | tr '\n' ',')
+    assert_eq "topo: linear chain" "C,B,A," "$out"
+    out=$(n1_story_toposort "A,B,C,D" $'A>B\nA>C\nB>D\nC>D' | tr '\n' ',')
+    assert_eq "topo: diamond" "A,B,C,D," "$out"
+    if n1_story_toposort "A,B" $'A>B\nB>A' >/dev/null 2>&1; then
+        assert_eq "topo: cycle exits 2" "2" "0"
+    else
+        assert_eq "topo: cycle exits 2" "2" "$?"
+    fi
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
+test_toposort
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

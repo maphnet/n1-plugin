@@ -66,3 +66,39 @@ n1_story_pick_model() {
         printf 'sonnet'
     fi
 }
+
+n1_story_toposort() {
+    # Usage: n1_story_toposort <nodes-csv> <edges: newline-separated "A>B" (A before B)>
+    # Kahn's algorithm, stable on input order. Exit 2 on cycle.
+    local nodes_csv="$1" edges="${2:-}"
+    awk -v nodes="$nodes_csv" -v edges="$edges" '
+    BEGIN {
+        n = split(nodes, order, ",");
+        for (i = 1; i <= n; i++) { node = order[i]; indeg[node] = 0; present[node] = 1 }
+        m = split(edges, lines, "\n");
+        for (j = 1; j <= m; j++) {
+            if (lines[j] == "") continue;
+            split(lines[j], pair, ">");
+            a = pair[1]; b = pair[2];
+            if (!(a in present) || !(b in present)) continue;
+            succ[a] = succ[a] " " b; indeg[b]++;
+        }
+        emitted = 0;
+        while (emitted < n) {
+            found = 0;
+            for (i = 1; i <= n; i++) {
+                node = order[i];
+                if (done[node] || indeg[node] != 0) continue;
+                print node; done[node] = 1; emitted++; found = 1;
+                k = split(succ[node], s, " ");
+                for (t = 1; t <= k; t++) if (s[t] != "") indeg[s[t]]--;
+                break;
+            }
+            if (!found) {
+                rem = "";
+                for (i = 1; i <= n; i++) if (!done[order[i]]) rem = rem (rem == "" ? "" : ",") order[i];
+                print "cycle: " rem > "/dev/stderr"; exit 2;
+            }
+        }
+    }'
+}
