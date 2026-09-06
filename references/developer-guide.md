@@ -26,7 +26,7 @@ N1 is a Claude Code plugin that orchestrates the full development cycle (ticket 
 - **Plugin manifest:** `.claude-plugin/plugin.json`
 - **Marketplace manifest:** `.claude-plugin/marketplace.json` (repo root — for `marketplace add`)
 - **Dependency:** Superpowers plugin >=5.0
-- **Shared shell helpers:** `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation)
+- **Shared shell helpers:** `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation), `lib/story.sh` (story orchestrator: service→repo lookup, model pick, toposort, child status/launch)
 
 ## Plugin Development
 

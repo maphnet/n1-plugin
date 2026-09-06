@@ -46,6 +46,7 @@ claude --plugin-dir ~/dev/n1-plugin
 /n1:n1-review #340                 # advisory review of a PR
 /n1:n1-pr                          # finalize branch: docs, push, create or skip PR
 /n1:n1-finish                      # verify/merge PR, watch deploy, close ticket
+/n1:n1-story-run STORY-12          # implement a whole story: subtasks run one by one through n1-start in their own repos, then a summary is posted on the story. --dry-run shows the plan only.
 ```
 
 ## Skills
@@ -60,6 +61,7 @@ claude --plugin-dir ~/dev/n1-plugin
 | /n1:n1-pr | Finalize branch: docs, push, create or skip PR |
 | /n1:n1-review | Code review loop or advisory review of a PR |
 | /n1:n1-start | Full pipeline orchestrator — ticket to merged PR |
+| /n1:n1-story-run | Implement a whole story: subtasks run one by one through n1-start in their own repos, then a summary is posted on the story. `--dry-run` shows the plan only. |
 
 ### `/n1:n1-start` — Core Orchestrator
 

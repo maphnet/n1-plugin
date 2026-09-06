@@ -18,7 +18,7 @@ See [references/developer-guide.md](references/developer-guide.md) for project s
 
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
 - **Dependency:** Superpowers plugin >=5.0
-- **Shared shell helpers:** `lib/config.sh`, `lib/signals.sh`, `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`
+- **Shared shell helpers:** `lib/config.sh`, `lib/signals.sh`, `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`, `lib/story.sh`
 
 ## Plugin Development
 
@@ -110,6 +110,7 @@ The session-start hook injects OBSERVABILITY ROUTING context when configured, pr
 
 Always escalate: security, architecture, public API changes.
 Release is never automatic — `tailChain` scope ends at finish; n1-release confirmation gate is unconditional.
+Headless story runs (`N1_HEADLESS=1`) never auto-resolve these — they pause with a recorded escalation.
 
 ## Git
 
