@@ -1,6 +1,6 @@
 ---
 name: n1-pr
-description: "Finalize the branch: update docs, push, create or skip PR based on config, and update tracker."
+description: "Finalize the branch: update docs, push, create PR based on config, and update tracker."
 model: sonnet
 effort: low
 ---
@@ -39,14 +39,12 @@ DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@
 - On default branch → "Switch to a feature branch first." **STOP.**
 - Uncommitted changes → commit first (summarize, ask confirmation).
 
-## Standalone Skip Guard
+## PR Mode Resolution
 
 Read `git.prMode` via `n1_config_val '.git.prMode'`:
-1. `git.prMode` present → use directly (`"draft"` | `"ready"` | `"skip"`)
+1. `git.prMode` present → use directly (`"draft"` | `"ready"`)
 2. Else `git.draftPR` is `false` → `"ready"`
 3. Else → `"draft"`
-
-If `"skip"`: report "PR mode is set to skip. No push or PR will be created. Run /n1:n1-init to reconfigure." **STOP.**
 
 ## Step 1: Collect Information
 
