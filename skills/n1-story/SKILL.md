@@ -41,6 +41,10 @@ Present the story seed to the user for confirmation: "Here's the story scope I c
 
 Review the story seed. If it looks like a single atomic task with no meaningful subtask decomposition, suggest:
 
+**Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-proceed with the story (continue with Step 3). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
+`| n1-story | mechanical | C | [auto] | Single-task scope detected — use n1-ticket? | Proceed with story | Use n1-ticket instead | mechanicalPrompts=auto |`
+If `MP` is `ask`: continue to the prompt below.
+
 "This looks like a single task rather than a multi-part story. Would you like to use `/n1:n1-ticket` instead?"
 
 Soft gate — if the user says no, proceed with a story.
@@ -67,7 +71,11 @@ EDIT_OP=$(n1_config_val '.tracker.operations.editTicket')
 EST_ENABLED=$(n1_config_val '.estimation.writeToTracker')
 ```
 
-**Jira subtask linking guard:** If `TRACKER_TYPE` is `jira` and `VERSION_MCP` is empty or null, warn: "Subtask linking requires jc-mcp (`tracker.versionMcp`). Subtasks will be created as standalone tickets without a parent link. Configure jc-mcp via `/n1:n1-init` to enable linking. Continue anyway?" Soft gate — proceed if user accepts.
+**Jira subtask linking guard:** If `TRACKER_TYPE` is `jira` and `VERSION_MCP` is empty or null:
+
+**Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-proceed without subtask linking. Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
+`| n1-story | mechanical | C | [auto] | jc-mcp not configured — proceed without subtask linking? | Continue without linking | Cancel | mechanicalPrompts=auto |`
+If `MP` is `ask`: warn the user and wait for confirmation: "Subtask linking requires jc-mcp (`tracker.versionMcp`). Subtasks will be created as standalone tickets without a parent link. Configure jc-mcp via `/n1:n1-init` to enable linking. Continue anyway?" Soft gate — proceed if user accepts.
 
 ## Step 4: Analysis
 
@@ -120,6 +128,10 @@ Using the enriched context (story seed + analysis + discovery answers), structur
 Order subtasks by dependency (independent tasks first, dependent tasks after their prerequisites).
 
 ## Step 7: Approval Gate
+
+**Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-select **Create all** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
+`| n1-story | mechanical | C | [auto] | Story approval gate | Create all | Edit, Remove, or Cancel | mechanicalPrompts=auto |`
+If `MP` is `ask`: continue to the approval gate below.
 
 Present the story preview using AskUserQuestion:
 

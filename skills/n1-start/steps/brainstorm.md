@@ -183,23 +183,13 @@ If no acceptance criteria section was found in `brainstorm.md`, replace the crit
 ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate')
 ```
 
-If `ACCEPTANCE_GATE` is `auto`: auto-confirm unconditionally without waiting for user input. Present the checkpoint info (acceptance criteria, scope) for visibility, then continue directly to Planning Need Evaluation. The user can still intervene if they see something wrong, but no explicit confirmation is requested.
+If `ACCEPTANCE_GATE` is `auto`: auto-confirm unconditionally without waiting for user input. Present the checkpoint info (acceptance criteria, scope) for visibility, then continue directly to Planning Need Evaluation. Append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md`:
 
-If `ACCEPTANCE_GATE` is `auto-when-clear`, check ALL of the following conditions:
-1. `DESC_QUALITY` is `adequate` (not `empty`, `skeletal`, `weak`, or unknown)
-2. Acceptance criteria section exists in `brainstorm.md`
-3. The autonomous brainstormer reported no deferred A-tier questions (no ledger rows with `[deferred]` for this brainstorm run)
-4. `BRAINSTORM_MODE` is `auto`
-
-If ALL four conditions hold: auto-confirm without waiting for user input. Append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md`:
-
-`| brainstorm | acceptance | A | [auto] | description_quality=adequate, AC present, no deferred A-tier questions | Auto-confirm design and proceed | Wait for user | acceptanceGate=auto-when-clear; all clarity conditions met |`
+`| brainstorm | acceptance | A | [auto] | Confirm design and proceed? | Auto-confirmed design | Wait for user | acceptanceGate=auto (autonomy.mode=hands-off) |`
 
 Then continue directly to Planning Need Evaluation.
 
-If ANY condition fails: fall through to the interactive gate below.
-
-**Wait for the user's response.** If they amend or add criteria, update the `## Acceptance Criteria` section in `brainstorm.md` to match, then re-present the gate. Only continue to Planning Need Evaluation after the user confirms.
+**Wait for the user's response.** (Applies when `ACCEPTANCE_GATE` is `ask`.) If they amend or add criteria, update the `## Acceptance Criteria` section in `brainstorm.md` to match, then re-present the gate. Only continue to Planning Need Evaluation after the user confirms.
 
 **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 

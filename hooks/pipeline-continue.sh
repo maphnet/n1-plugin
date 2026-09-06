@@ -48,6 +48,8 @@ if [ "$STEP" = "analysis" ] && [ "$BRAINSTORM_MODE" = "interactive" ] && [ ! -f 
 fi
 
 # Acceptance gate: user is being asked to confirm design
+# Acceptance gate: 'auto' (hands-off) -> pipeline continues; 'ask' (interactive) -> wait for user.
+# autonomy.mode=hands-off -> 'auto'; autonomy.mode=interactive -> 'ask'.
 ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate' 2>/dev/null || echo "auto")
 if [ "$STEP" = "brainstorm" ] && [ "$ACCEPTANCE_GATE" != "auto" ]; then
     exit 0

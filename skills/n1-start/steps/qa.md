@@ -214,7 +214,7 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 
 **On fix-loop exhaustion:**
 
-**Autonomy gate:** Apply per SKILL.md § Autonomy Gate with step=`qa`, action=`accept current test state`, ledger_context=`<failing test names and counts>`.
+**Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`qa`, action=`accept current test state`, ledger_context=`<failing test names and counts>`.
 
 **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 

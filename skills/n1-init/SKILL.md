@@ -78,7 +78,7 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 12. `rules` → **Rules Configuration** (fresh-setup portion)
 13. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
 14. `escalation` → **Escalation Defaults** (writes defaults silently)
-15. `autonomy` → **Autonomy Configuration** (fresh-setup portion: offer preset selection)
+15. `autonomy` → **Autonomy Configuration** (fresh-setup: offer hands-off / interactive, write single `mode` key)
 16. `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
@@ -1465,51 +1465,32 @@ Ask:
 ```
 How autonomous should pipeline runs be?
 
-1 — Interactive: the pipeline asks at every decision point (brainstorm design, branch/stash handling, acceptance gate)
-2 — Hands-off (recommended): mechanical prompts auto-resolve with safe defaults; brainstorm runs autonomously with A-tier questions batched into one message; single-candidate status lookups auto-pick; full-suite regressions auto-spawn a fix cycle; the acceptance gate auto-confirms when the design is clear. Every autonomous decision is logged to a Decision Ledger and rendered in the PR body for review.
-3 — Fully autonomous: same as Hands-off but quality-gate exhaustion also auto-accepts instead of blocking
+1 — Hands-off (recommended): mechanical prompts auto-resolve with safe defaults; brainstorm
+    runs autonomously; acceptance gate auto-confirms; quality-gate exhaustion auto-accepts.
+    Every autonomous decision is logged to a Decision Ledger and rendered in the PR body for review.
+2 — Interactive: the pipeline asks at every decision point.
 ```
 
-- **1** → write:
+- **1 (Hands-off)** → write:
   ```json
-  "autonomy": {
-    "brainstorm": "interactive",
-    "mechanicalPrompts": "ask",
-    "qualityEscalations": "block",
-    "tailChain": "suggest",
-    "acceptanceGate": "ask"
-  }
+  "autonomy": { "mode": "hands-off" }
   ```
-- **2** → write:
+
+- **2 (Interactive)** → write:
   ```json
-  "autonomy": {
-    "brainstorm": "auto",
-    "mechanicalPrompts": "auto",
-    "qualityEscalations": "block",
-    "tailChain": "auto",
-    "acceptanceGate": "auto-when-clear",
-    "escalationMargin": 0.10
-  }
+  "autonomy": { "mode": "interactive" }
   ```
-  Also set `"qa": { "blockUntestedFeatures": true }` — the compensating gate that prevents untested features from proceeding silently.
-- **3** → write:
-  ```json
-  "autonomy": {
-    "brainstorm": "auto",
-    "mechanicalPrompts": "auto",
-    "qualityEscalations": "auto-accept",
-    "tailChain": "auto",
-    "acceptanceGate": "auto-when-clear",
-    "escalationMargin": 0.05
-  }
-  ```
-  Also set `"qa": { "blockUntestedFeatures": true }` — the compensating gate.
+
+Neither option writes individual sub-keys (`brainstorm`, `mechanicalPrompts`, etc.) — those are code defaults derived from `autonomy.mode` at runtime.
 
 Note in the summary output: security, architecture, and public-API escalations always block regardless of this setting, and releases are always manual.
 
 ### On reconfiguration (n1-init re-run):
 
-If `autonomy` already exists in the current config, show current values and re-ask (following the same flow as fresh setup).
+If `autonomy` already exists in the current config:
+- If it contains only `"mode"`: show current value and re-ask (two options as above).
+- If it contains legacy sub-keys (no `"mode"` key): show a migration note —
+  `"Your config uses legacy autonomy keys. Reconfiguring will write the new single-key format."` — then re-ask.
 
 ## Review Configuration
 

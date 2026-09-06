@@ -130,6 +130,34 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    fi
    # Show "(none — first release)" when nothing found
    ```
+3b. **Suggested next version** (derived from conventional commits since `PREV_TAG`):
+
+   ```bash
+   # Scan commit messages between previous tag and HEAD for conventional commit prefixes.
+   if [ -n "${PREV_TAG:-}" ]; then
+       CC_LOG=$(git log "${PREV_TAG}..HEAD" --oneline 2>/dev/null || true)
+   else
+       CC_LOG=$(git log --oneline 2>/dev/null || true)
+   fi
+
+   # Detect bump level: major > minor > patch
+   BUMP_LEVEL="patch"
+   if echo "$CC_LOG" | grep -qiE '(BREAKING[[:space:]]CHANGE|^[a-z]+(\([^)]*\))?!:)'; then
+       BUMP_LEVEL="major"
+   elif echo "$CC_LOG" | grep -qE '^[a-f0-9]+ feat(\([^)]*\))?:'; then
+       BUMP_LEVEL="minor"
+   fi
+
+   # Split VERSION into major.minor.patch components
+   IFS='.' read -r V_MAJOR V_MINOR V_PATCH <<< "${VERSION}"
+   V_MAJOR="${V_MAJOR:-0}"; V_MINOR="${V_MINOR:-0}"; V_PATCH="${V_PATCH:-0}"
+
+   case "$BUMP_LEVEL" in
+       major) SUGGESTED_VERSION="$((V_MAJOR + 1)).0.0" ;;
+       minor) SUGGESTED_VERSION="${V_MAJOR}.$((V_MINOR + 1)).0" ;;
+       patch) SUGGESTED_VERSION="${V_MAJOR}.${V_MINOR}.$((V_PATCH + 1))" ;;
+   esac
+   ```
 4. **Merge SHA**: attempt to read from `$N1_HOME/memory/<ID>/overview.md` `## Finish` section if a memory directory exists for the inferred ticket ID (parsed from branch name via `git.branchPattern`). Otherwise empty string.
 5. **Pending batch**: if `$N1_HOME/pending-releases.json` exists and `.pending` is non-empty, read its ticket IDs:
    ```bash
@@ -187,15 +215,19 @@ Always shown before any side-effecting action:
 ```
 Ready to release:
 
-  Version:      <TAG>  (from <VERSION_SOURCE_DISPLAY>)
-  Previous tag: <PREV_TAG or "(none — first release)">
-  Branch:       <CURRENT>
+  Current version: <VERSION>  (from <VERSION_SOURCE_DISPLAY>)
+  Suggested next:  <SUGGESTED_VERSION>  (from <BUMP_LEVEL> bump)
+  Previous tag:    <PREV_TAG or "(none — first release)">
+  Branch:          <CURRENT>
   <condition lines>
 
-Proceed with release?
+Release as <SUGGESTED_VERSION>?
 1 — Yes
-2 — No
+2 — No (enter a different version)
+3 — Cancel
 ```
+
+If the user picks 2, prompt: `Enter version:` and read their input as the new `VERSION`. Recompute `TAG = tagPrefix + VERSION`. Then proceed.
 
 Condition lines (informational -- no hard blocks):
 - `Merge SHA: <sha>` -- found in overview.md

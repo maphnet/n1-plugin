@@ -109,8 +109,9 @@ The session-start hook injects OBSERVABILITY ROUTING context when configured, pr
 ## Escalation Safety
 
 Always escalate: security, architecture, public API changes.
-Release is never automatic — `tailChain` scope ends at finish; n1-release confirmation gate is unconditional.
-Headless story runs (`N1_HEADLESS=1`) never auto-resolve these — they pause with a recorded escalation. Story orchestrator env vars: `N1_HEADLESS=1`, `N1_AUTONOMY_PRESET`, `N1_STORY_ID`, `N1_STORY_PLUGIN_DIR` (optional `--plugin-dir` for local plugin builds).
+Release is never automatic — n1-release confirmation gate is unconditional.
+`tailChain` is `suggest` in all autonomy modes — release must be triggered manually.
+Headless story runs (`N1_HEADLESS=1`) never auto-resolve unconditional gates — they pause with a recorded escalation.
 
 ## Git
 

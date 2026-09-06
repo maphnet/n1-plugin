@@ -242,7 +242,23 @@ Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | nothing t
 Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
 ```
 
-**Release routing (when `release.enabled` is `true` and the merge succeeded):** after printing the report, ask:
+<!-- tailChain has no effect here: n1-release is never invoked automatically regardless of autonomy mode (NP-71). The steps below are always interactive/suggestion-only. -->
+**Release routing (when `release.enabled` is `true` and the merge succeeded):** after printing the report, read the autonomy setting via Bash (source `lib/config.sh` first):
+
+```bash
+MP=$(n1_autonomy_val 'mechanicalPrompts')
+```
+
+**If `MP` is `auto`:** skip the question below and instead print:
+
+```
+Work complete. If you're ready to publish a release, run /n1:n1-release.
+```
+
+Write a Decision Ledger row to overview.md:
+`| finish | mechanical | C | [auto] | Release now? | Suggest /n1:n1-release | Ask user | mechanicalPrompts=auto |`
+
+**If `MP` is `ask` (default):** ask:
 
 ```
 Release this now?
