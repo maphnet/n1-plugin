@@ -53,6 +53,7 @@ n1_story_pick_model() {
     local size="$1" flags="${2:-}" threshold
     threshold=$(n1_story_val opusFromSize)
     local f
+    local -a _flags
     IFS=',' read -r -a _flags <<< "$flags"
     for f in "${_flags[@]:-}"; do
         case "$f" in
