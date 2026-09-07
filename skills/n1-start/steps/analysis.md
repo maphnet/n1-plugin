@@ -267,7 +267,7 @@ fi
 
 If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`:
 
-| analysis | scope | B | [auto] | {SELF_RESOLVED} unknowns answerable from codebase | Self-resolved via Read/Grep/Glob | — | B/C tier classification -- see `<!-- n1:resolved: -->` markers in analysis.md |
+| analysis | scope | B | [auto] | {SELF_RESOLVED} unknowns answerable from codebase | Self-resolved via Read/Grep/Glob | — | B/C tier classification -- see `<!-- n1:resolved: -->` markers in analysis.md | --- |
 
 **Compact analysis memory (non-investigation only):**
 ```bash
@@ -296,17 +296,68 @@ UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
 
 If `UNKNOWN_COUNT` is 0, skip the rest of this phase.
 
+**Story-run clarification inheritance (headless children only):**
+
+When `N1_HEADLESS=1` and `N1_STORY_ID` is set, check parent story clarifications before asking:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/story.sh"
+STORY_MEM="$N1_HOME/memory/$N1_STORY_ID"
+INHERITED_COUNT=0
+REMAINING_UNKNOWNS=""
+
+while IFS= read -r unknown; do
+    [ -z "$unknown" ] && continue
+    ANSWER=$(n1_story_match_clarification "$unknown" "$STORY_MEM/story.md")
+    if [ -n "$ANSWER" ]; then
+        # Inherited from parent story -- resolve without asking
+        ((INHERITED_COUNT++))
+        # Append to clarifications section directly
+    else
+        REMAINING_UNKNOWNS="${REMAINING_UNKNOWNS}${unknown}\n"
+    fi
+done <<< "$UNKNOWNS"
+```
+
+For each inherited answer:
+- Append to `### Clarifications` in analysis.md: `**Q:** <unknown> **A:** <answer> (inherited from story <N1_STORY_ID>)`
+- Emit telemetry: `n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "analysis" "scope" "inherited" "---"`
+- Append a ledger row: `| analysis | scope | B | [auto] | <unknown> | <answer> | --- | Inherited from parent story clarifications | --- |`
+
+Update `UNKNOWNS` to `REMAINING_UNKNOWNS` and `UNKNOWN_COUNT` to the remaining count. If `UNKNOWN_COUNT` becomes 0, skip the rest of Phase 3.
+
 **Problem preamble:** Before presenting the unknowns, compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
 
-Present each unknown to the user one at a time, prefixing the opening message with `PREAMBLE` (omit if empty):
+**Batch all unknowns into one AskUserQuestion** (max 4 per call; chain if more than 4):
+
+Present all unknowns in a single message, prefixing with `PREAMBLE` (omit if empty). For each unknown, state the resolution ladder rungs already tried by the solution-architect (extract from `<!-- n1:unknown: ... -->` context or infer from the SA's analysis process -- at minimum `codebase` was tried since the SA always searches first).
 
 ```
 {PREAMBLE} During analysis, I found {UNKNOWN_COUNT} item(s) not covered by the ticket:
 
 1. <first unknown>
+   Tried: codebase search, web search -- unresolvable because <why>
+   (Recommended) <recommended answer if available>
 
-Can you clarify this? (type your answer, or "skip" to leave it unresolved)
+2. <second unknown>
+   Tried: codebase search -- unresolvable because <why>
+   (Recommended) <recommended answer if available>
+
+...
+
+For each item: type your answer, "skip" to defer, or "Decide for me" to research and apply the recommendation.
+You can also reply "use recommended" to accept all recommendations at once.
 ```
+
+When 5+ unknowns exist, present the first 4 in one AskUserQuestion call, then chain additional calls for the remainder (max 4 per call).
+
+**"Use recommended" handling:** If the user replies "use recommended" (or similar: "use all recommendations", "recommended for all"), apply the recommendation for each unknown that has one. For unknowns without a recommendation, ask individually as a follow-up.
+
+**"Decide for me" handling (per-item):** When the user selects "Decide for me" for a specific item:
+1. Re-run the resolution ladder for that item with emphasis on broader web search (multiple queries, cross-reference sources).
+2. Apply the best-evidenced answer.
+3. Record as `[auto-decided]` ledger row with reason starting with `decide-for-me:` and `rungs_tried` listing all rungs attempted.
+4. Do NOT ask a follow-up question for this item.
 
 After collecting all answers, append a `### Clarifications` section to `analysis.md`:
 
@@ -314,4 +365,17 @@ After collecting all answers, append a `### Clarifications` section to `analysis
 ### Clarifications
 - **Q:** <unknown text>
   **A:** <user's answer or "Unresolved — deferred">
+```
+
+**Emit question telemetry (if enabled):**
+
+For each unknown that was presented to the user:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+# For each asked unknown:
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "analysis" "scope" "asked" "codebase,web"
+# For each "Decide for me" resolution:
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "analysis" "scope" "decide-for-me" "codebase,web,prescribed"
+# For each "skip":
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "analysis" "scope" "asked" "codebase,web"
 ```
