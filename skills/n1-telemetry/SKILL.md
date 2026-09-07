@@ -104,6 +104,33 @@ If compaction data is available in run records (`summary.compaction_count > 0`):
 | local-testing | N | X% |
 | ... | ... | ... |
 
+### 6. Question Quality
+
+If question events are available in run records (`questions` array non-empty):
+
+**Questions per run:**
+- Total questions per run: avg, p50, p90
+- Brainstorm questions per run: avg (target: below 0.5 after two weeks)
+- Trend: is questions/run decreasing across recent versions?
+
+| Step | Questions/run (avg) | Asked | Auto-decided | Decide-for-me | Inherited |
+|------|---------------------|-------|--------------|---------------|-----------|
+| analysis | X | N | N | N | N |
+| brainstorm | X | N | N | N | N |
+| fix | X | N | N | N | N |
+| ... | ... | ... | ... | ... | ... |
+
+**Resolution distribution:**
+- Recommended-followed share: X% (questions resolved as auto-decided / total)
+- Decide-for-me share: X% (questions resolved via decide-for-me / total)
+- Inherited share: X% (questions inherited from parent story / total)
+- Asked share: X% (questions escalated to user / total)
+
+**Earned autonomy line:**
+For each project with >= 20 runs, compute a rolling 10-run average of questions/run. If the trend is monotonically decreasing over the last 3 data points AND the current average is below 1.0, report: "Project <name> has earned autonomy -- consider tightening escalation thresholds."
+
+If no question events are found across any runs, report: "No question telemetry data found. Question events are emitted starting from v2.90.0."
+
 ## Brainstorm Context-Contribution Analysis
 
 **Purpose:** Attribute compaction events to the brainstorm step across runs to decide whether Stage 2 (subagent brainstormer) is worth implementing.
