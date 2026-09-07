@@ -22,7 +22,7 @@ One markdown table row per decision:
 - **chosen** — the selected option, one clause
 - **alternatives** — rejected options, comma-separated (or `—`)
 - **reason** — why, one clause. NEVER empty: every autonomous skip or selection records a reason (the `noTestReason` principle).
-- **rungs_tried** -- resolution ladder rungs attempted before asking: `codebase` (Read/Grep/Glob), `web` (WebSearch), `prescribed` (command prescription), `telemetry` (telemetry/memory lookup), `---` (not applicable, e.g. for `[auto]` decisions that did not need a ladder). Comma-separated. Required for `[asked]` rows; `---` for `[auto]` and `[auto-decided]` rows.
+- **rungs_tried** -- resolution ladder rungs attempted before asking: `codebase` (Read/Grep/Glob), `web` (WebSearch), `prescribed` (command prescription), `telemetry` (telemetry/memory lookup), `---` (not applicable, e.g. for `[auto]` decisions that did not need a ladder). Comma-separated. Required for `[asked]` rows; `---` for `[auto]` rows and B-auto `[auto-decided]` rows (clear recommendation with no viable alternative, no ladder search needed); list actual rungs for "Decide for me" `[auto-decided]` rows (the SA/brainstormer does run codebase + web search before applying the recommendation).
 
 Section skeleton written on first entry:
 

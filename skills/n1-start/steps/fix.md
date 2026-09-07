@@ -60,9 +60,15 @@ Then continue the pipeline as if the user had chosen the recommended option. Oth
 **Resolution ladder (before asking):** Before escalating to the user, the orchestrator MUST attempt:
 1. **Codebase search** -- check if the ambiguity can be resolved from code context
 2. **Web search** -- search for the specific error, API behavior, or pattern
-3. **Prior decisions** -- check overview.md Decision Ledger for prior decisions on similar questions
+3. **Command prescription** -- when the answer is observable on the host (e.g., a config file, environment variable, installed package), note the command and a reasonable default
+4. **Prior decisions** -- check overview.md Decision Ledger for prior decisions on similar questions
 
 Only if all rungs fail, proceed to ask. Include a "Decide for me" option in the escalation prompt.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "clarification" "user_answer" "codebase|web|command|prior-decisions"
+```
 
 Then ask:
 
@@ -79,6 +85,10 @@ Please advise.
 ```
 
 When "Decide for me" is selected: re-run web search with broader terms, apply the recommendation, record as `[auto-decided]` with `rungs_tried` and reason `decide-for-me: <evidence>`. Do not ask a follow-up question.
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "clarification" "auto_decided" "codebase|web|command|prior-decisions"
+```
 
 If the combined Step-7 verdict is PASS:
 - Run via Bash:

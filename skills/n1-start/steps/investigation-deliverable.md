@@ -125,6 +125,16 @@ If `UNKNOWN_COUNT` is 0, skip to Phase 3.
 
 **Problem preamble:** compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` -- call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` -- prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely -- do not fall back to parsing the section body.
 
+**Emit question telemetry (if enabled):**
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+# For each unknown presented to the user (user-answered or skipped):
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "user_answer" "codebase|web"
+# For each "Decide for me" resolution:
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "auto_decided" "codebase|web"
+```
+
 **Batch all unknowns into one AskUserQuestion** (max 4 per call; chain if more than 4):
 
 ```
