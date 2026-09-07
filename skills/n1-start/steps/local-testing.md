@@ -12,6 +12,34 @@ Run `n1_config_val '.localTesting.enabled'` (default: `false`).
 - If `implementation.md` indicates no runtime-affecting code was modified → skip.
 - Log skip reason in overview under `## Key Decisions`.
 
+**QA dedup gate (even when enabled):** Run via Bash:
+```bash
+QA_MD="$N1_HOME/memory/$ID/qa.md"
+if [ -f "$QA_MD" ]; then
+  RUNNER_CMDS=$(grep 'Runner command:' "$QA_MD" | sed 's/.*Runner command: *//')
+  if [ -n "$RUNNER_CMDS" ]; then
+    NON_PYTEST=$(echo "$RUNNER_CMDS" | grep -v '^pytest\b' | grep -v '^python -m pytest\b' || true)
+    if [ -z "$NON_PYTEST" ]; then
+      echo "QA_DEDUP_SKIP=true"
+    else
+      echo "QA_DEDUP_SKIP=false"
+      echo "QA_RUNNER_CMDS<<EOF"
+      echo "$RUNNER_CMDS"
+      echo "EOF"
+    fi
+  fi
+fi
+```
+- If `QA_DEDUP_SKIP=true`: all Runner commands in qa.md are pytest — QA already covers the test surface.
+  - Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — QA dedup (all Runner commands are pytest)".
+  - Emit telemetry:
+    ```bash
+    source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+    n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"skip_reason":"qa_dedup"}'
+    ```
+  - Skip to Step 10 (PR CREATION).
+- If `QA_DEDUP_SKIP=false`: at least one non-pytest Runner command exists — proceed to 9a. Capture the `QA_RUNNER_CMDS` value for injection into the planner prompt in 9a.
+
 **Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
 procedure before infrastructure/app startup. Marker-guarded no-op if already installed.
 
@@ -24,6 +52,7 @@ Resolve model for `local-test-planner`.
 Spawn the local-test-planner agent with:
 - The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/implementation.md` (what changed, which files), `$N1_HOME/memory/<ID>/ticket.md` (acceptance criteria), and `$N1_HOME/memory/<ID>/plan.md` if it exists, else `$N1_HOME/memory/<ID>/brainstorm.md` (design intent, scope). Their content is NOT inlined here."
 - Read `localTesting.startCommand` from config: `n1_config_val '.localTesting.startCommand'` (default: empty). If non-empty, include in the prompt: "The project has a configured start command: `<value>`. Use this as the app start command instead of auto-detecting."
+- If `QA_RUNNER_CMDS` is set (from the QA dedup gate above), include in the prompt: "The QA step already ran these test commands: `<QA_RUNNER_CMDS value, one per line>`. Do not duplicate these as ad-hoc scenarios — design test scenarios that complement them (e.g. infrastructure checks, curl endpoints, CLI flows that QA did not exercise)."
 - Directive: "Output the plan in this exact structure:"
 
 ```markdown

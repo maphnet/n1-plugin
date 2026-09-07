@@ -29,6 +29,7 @@ You will receive:
 - ticket.md — acceptance criteria
 - plan.md or brainstorm.md — design intent, scope
 - **localTesting.startCommand** (optional) — if provided, use this as the app start command instead of auto-detecting
+- **QA Runner commands** (optional) — if provided, these are the test commands the QA step already executed. Do not duplicate them as ad-hoc scenarios — design scenarios that complement them (e.g. infrastructure checks, curl endpoints, CLI flows not exercised by QA)
 
 ## Process
 
@@ -95,4 +96,5 @@ You will receive:
 - Scope to changed functionality — don't test the entire app
 - If no testable scenarios exist (no startable app, purely library/SDK changes), state this explicitly so the orchestrator can auto-skip
 - Generate ad-hoc test scenarios only for acceptance criteria not covered by existing e2e tests — never duplicate what the e2e suite already verifies
+- If QA Runner commands were provided, never include them as ad-hoc scenarios — only add scenarios that exercise test surface QA did not cover
 - If `localTesting.startCommand` is provided, use it as the app start command without overriding it with auto-detection
