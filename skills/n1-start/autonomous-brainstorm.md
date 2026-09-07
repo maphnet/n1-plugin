@@ -40,10 +40,19 @@ Document your questions and answers — these become the "Clarifying Questions" 
 - **A — blocking:** a wrong guess changes the design materially (requirement ambiguity, contract shape, user-visible behavior) AND you cannot resolve it from codebase evidence or web search. Before classifying as A, you MUST:
   1. Search the codebase for evidence (Read/Grep/Glob)
   2. Search the web for factual answers about how technologies/APIs/protocols work (WebSearch)
-  If both fail and the question is genuinely a preference or judgment call, ASK the user. Record the answer as an `[asked]` ledger row.
-- **B — significant:** better to know, but a well-evidenced default exists. Answer it yourself from codebase evidence or web search; record an `[auto]` ledger row with the reason and evidence source.
-- **B-auto — clear recommendation:** you have a recommendation and no other option is defensible (no meaningful trade-off, no viable alternative). Decide and record as an `[auto-decided]` ledger row with rationale. Do not ask.
-- **C — nice-to-have:** answer silently from convention; record an `[auto]` ledger row.
+  3. Check telemetry/memory (`$N1_HOME/memory/<ID>/`) for prior decisions on the same question
+  4. If prescribable (answer observable via a command), note the command and a default
+
+  If all four rungs fail, ASK the user. Include a final option: **"Decide for me — research and apply recommendation"**. Record the answer as an `[asked]` ledger row with `rungs_tried` listing the rungs attempted (e.g., `codebase,web,telemetry`).
+
+  **"Decide for me" handling:** When the user selects this option:
+  1. Re-run web search with broader queries (2-3 varied search terms, cross-reference multiple sources).
+  2. Apply the best-evidenced answer.
+  3. Record as `[auto-decided]` ledger row with reason `decide-for-me: <evidence summary>` and `rungs_tried` listing all rungs.
+  4. Do NOT ask a follow-up.
+- **B — significant:** better to know, but a well-evidenced default exists. Answer it yourself from codebase evidence or web search; record an `[auto]` ledger row with the reason and evidence source; `rungs_tried` is `---`.
+- **B-auto — clear recommendation:** you have a recommendation and no other option is defensible (no meaningful trade-off, no viable alternative). Decide and record as an `[auto-decided]` ledger row with rationale; `rungs_tried` is `---`. Do not ask.
+- **C — nice-to-have:** answer silently from convention; record an `[auto]` ledger row; `rungs_tried` is `---`.
 
 Ledger rows append to the `## Decision Ledger` table in `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`, step `brainstorm`, category `design`.
 
@@ -89,9 +98,9 @@ Compute the unweighted aggregate for each approach (sum of all 5 axes, max 25).
 
 Read the margin threshold from `N1_ESCALATION_MARGIN` environment variable (default 0.15). Compute the margin as: `(top_score - runner_up_score) / 25`.
 
-**If margin > threshold:** The top approach dominates. Select it autonomously. State the scores and reasoning, and append an `[auto]` ledger row: `| brainstorm | design | B | [auto] | Approach selection: <topic> | <chosen> (score X/25) | <rejected> (score Y/25) | margin <margin> above threshold <threshold> |`.
+**If margin > threshold:** The top approach dominates. Select it autonomously. State the scores and reasoning, and append an `[auto]` ledger row: `| brainstorm | design | B | [auto] | Approach selection: <topic> | <chosen> (score X/25) | <rejected> (score Y/25) | margin <margin> above threshold <threshold> | --- |`.
 
-**If margin <= threshold:** Escalation needed. Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Ask the user directly — prefix your message with `PREAMBLE`, then present the approaches with their axis scores, lead with your recommendation, wait for the answer, then record it as an `[asked]` ledger row (`| brainstorm | design | A | [asked] | Approach selection: <topic> | <chosen> | <rejected> | margin <margin> below threshold |`) and continue from step 7.
+**If margin <= threshold:** Escalation needed. Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Ask the user directly — prefix your message with `PREAMBLE`, then present the approaches with their axis scores, lead with your recommendation, wait for the answer, then record it as an `[asked]` ledger row (`| brainstorm | design | A | [asked] | Approach selection: <topic> | <chosen> | <rejected> | margin <margin> below threshold | codebase,web |`) and continue from step 7.
 
 **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 

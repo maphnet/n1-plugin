@@ -320,6 +320,7 @@ def build_run_cache(run: dict, projects_dir: Path) -> dict:
         "rubric_version": RUBRIC_VERSION, "judge_fallbacks": 0, "collected_at": now_iso(),
         "_run": run,
     }
+    cache["questions"] = _extract_questions(run)
     if not eligible:
         return cache
     path, method = link_transcript(run, projects_dir)
@@ -332,6 +333,28 @@ def build_run_cache(run: dict, projects_dir: Path) -> dict:
             t["reason"] = None
             cache["turns"].append(t)
     return cache
+
+
+def _extract_questions(run: dict) -> list:
+    """Extract question events from raw step JSONL if not already in the merged record."""
+    if run.get("questions"):
+        return run["questions"]
+    src = run.get("_source_path")
+    if not src:
+        return []
+    raw = Path(src).parent.parent / "raw" / "steps" / f"{run['run_id']}.jsonl"
+    if not raw.is_file():
+        return []
+    questions = []
+    for rec, _ in read_jsonl(raw):
+        if rec and rec.get("event") == "question":
+            questions.append({
+                "step": rec.get("step", ""),
+                "question_category": rec.get("question_category", ""),
+                "resolution": rec.get("resolution", ""),
+                "rungs_tried": rec.get("rungs_tried", ""),
+            })
+    return questions
 
 
 def _strip_private(cache: dict) -> dict:
@@ -457,6 +480,44 @@ class CompactionsMetric(Metric):
         return float(val) if isinstance(val, (int, float)) else None
 
 
+class QuestionMetric(Metric):
+    """Questions asked per run, optionally filtered by step or resolution."""
+    unit = "count"
+    direction = "lower"
+
+    def __init__(self, name, *, only_steps=None, only_resolutions=None):
+        self.name = name
+        self.only_steps = frozenset(only_steps) if only_steps else None
+        self.only_resolutions = frozenset(only_resolutions) if only_resolutions else None
+
+    def compute(self, run_record, turns):
+        questions = [e for e in (run_record.get("questions") or [])
+                     if isinstance(e, dict)]
+        if self.only_steps:
+            questions = [q for q in questions if q.get("step") in self.only_steps]
+        if self.only_resolutions:
+            questions = [q for q in questions if q.get("resolution") in self.only_resolutions]
+        return float(len(questions))
+
+
+class QuestionShareMetric(Metric):
+    """Share of questions with a specific resolution, as a ratio 0-1."""
+    unit = "ratio"
+
+    def __init__(self, name, resolution, *, direction="higher"):
+        self.name = name
+        self.resolution = resolution
+        self.direction = direction
+
+    def compute(self, run_record, turns):
+        questions = [e for e in (run_record.get("questions") or [])
+                     if isinstance(e, dict)]
+        if not questions:
+            return None
+        matched = sum(1 for q in questions if q.get("resolution") == self.resolution)
+        return round(matched / len(questions), 3)
+
+
 INTERACTIVE_STEPS = frozenset({"brainstorm"})
 
 METRICS = [
@@ -472,12 +533,18 @@ METRICS = [
     DurationMetric(),
     OrchestratorTokensMetric(),
     CompactionsMetric(),
+    QuestionMetric("questions_per_run"),
+    QuestionMetric("brainstorm_questions", only_steps={"brainstorm"}),
+    QuestionShareMetric("recommended_followed_share", "auto-decided"),
+    QuestionShareMetric("decide_for_me_share", "decide-for-me"),
+    QuestionShareMetric("inherited_share", "inherited"),
 ]
 TURN_METRICS = [m for m in METRICS if isinstance(m, TurnCountMetric)]
 
 
 def compute_run_metrics(cache: dict) -> None:
     run_record = cache.get("run_record") or {}
+    run_record["questions"] = cache.get("questions", [])
     turns = cache.get("turns") or []
     linked = cache.get("link_method", "heuristic") in ("run_record", "agent_event", "heuristic")
     turn_arg = turns if linked else None
@@ -488,6 +555,18 @@ def compute_run_metrics(cache: dict) -> None:
             subset = [t for t in turns if (t.get("step") or "outside") == step]
             per_step[step] = {m.name: m.compute(run_record, subset) for m in TURN_METRICS}
     cache["per_step"] = per_step
+    # Per-step question counts
+    questions = cache.get("questions", [])
+    question_by_step = {}
+    for q in questions:
+        step = q.get("step") or "outside"
+        if step not in question_by_step:
+            question_by_step[step] = {"total": 0, "asked": 0, "auto": 0, "decide_for_me": 0, "inherited": 0}
+        question_by_step[step]["total"] += 1
+        res = q.get("resolution", "")
+        if res in question_by_step[step]:
+            question_by_step[step][res] += 1
+    cache["question_by_step"] = question_by_step
 
 
 def apply_labels(cache: dict, labels: dict) -> int:

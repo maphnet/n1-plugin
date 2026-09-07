@@ -392,7 +392,10 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(names, ["interventions", "answers", "corrections",
                                  "brainstorm_interactions", "autonomous_interventions",
                                  "fix_cycles", "review_pass_first_try",
-                                 "duration_min", "orchestrator_output_tokens", "compactions"])
+                                 "duration_min", "orchestrator_output_tokens", "compactions",
+                                 "questions_per_run", "brainstorm_questions",
+                                 "recommended_followed_share", "decide_for_me_share",
+                                 "inherited_share"])
         self.assertTrue(all(m.direction in ("lower", "higher") for m in bm.METRICS))
 
 

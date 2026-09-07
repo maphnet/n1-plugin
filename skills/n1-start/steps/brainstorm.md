@@ -47,7 +47,7 @@ Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `change
 
   Spawn via Agent tool with `subagent_type: "n1:solution-architect"` (the SA has Read/Grep/Glob/Bash/WebSearch — everything the autonomous brainstormer needs). Prompt the subagent:
 
-  "You are the autonomous brainstormer. Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/autonomous-brainstorm.md` exactly. Inputs: `$N1_HOME/memory/$ID/ticket.md`, `$N1_HOME/memory/$ID/analysis.md`. Output: write the design to `$N1_HOME/memory/$ID/brainstorm.md`. Batch ALL A-tier and inconclusive-dominance questions into ONE message (do not ask one at a time); write [auto]/[asked] ledger rows per `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/ledger.md`; if all A-tier questions are resolved, mark none as deferred. testCoverage.tier is `{TEST_TIER}`. After writing brainstorm.md, report back: the `planning_need` value (plan or direct) and, if scope changed materially, an updated `context:` block."
+  "You are the autonomous brainstormer. Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/autonomous-brainstorm.md` exactly. Inputs: `$N1_HOME/memory/$ID/ticket.md`, `$N1_HOME/memory/$ID/analysis.md`. Output: write the design to `$N1_HOME/memory/$ID/brainstorm.md`. Batch ALL A-tier and inconclusive-dominance questions into ONE message (do not ask one at a time); write [auto]/[asked] ledger rows per `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/ledger.md`; if all A-tier questions are resolved, mark none as deferred. For each A-tier question, include a final option 'Decide for me -- research and apply recommendation'. When selected, re-run web search with broader queries and apply the best-evidenced answer without asking a follow-up. Record as [auto-decided] with rungs_tried per skills/n1-start/ledger.md. testCoverage.tier is `{TEST_TIER}`. After writing brainstorm.md, report back: the `planning_need` value (plan or direct) and, if scope changed materially, an updated `context:` block."
 
   When `$RULES_BLOCK` is non-empty, append it to the subagent prompt.
 
@@ -68,6 +68,10 @@ These overrides take precedence over superpowers:brainstorming's checklist AND i
 The HARD-GATE ("Do NOT invoke any implementation skill... until the user has approved") is SUSPENDED inside this N1 pipeline — user approval is NOT required to proceed past brainstorming. Steps 1-4 (explore context, clarifying questions, propose approaches) run normally.
 
 **ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, `cat`, `sed -n`, or otherwise open project source files in this step — Step 1 is satisfied by `analysis.md`.** If a design question needs a fact that `analysis.md` lacks (how a name is generated, which script owns cleanup, what a template contains), re-spawn `solution-architect` with that specific question ("Answer only: <question>. Return file:line evidence, ≤200 words.") and feed the answer into the conversation. Reading `$N1_HOME/**` memory files and `rules/` is fine.
+
+**Question batching directive (interactive brainstorm):** Present ALL clarifying questions in ONE message. For each question, include a recommended answer based on codebase evidence or web research. Accept "use recommended" as a global answer that applies all recommendations at once. If the user answers individual questions selectively, apply their answers and use recommendations for the rest.
+
+This replaces the default one-at-a-time questioning pattern. The goal: at most one user interaction for all clarifying questions, not a back-and-forth per question.
 
 Step 5 (Present design): Present the recommended approach as the chosen design in a single cohesive section.
 Do NOT ask for user approval, confirmation, or "proceed" prompts. Do NOT end with "let me know if you'd like changes" or similar.
@@ -185,9 +189,19 @@ ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate')
 
 If `ACCEPTANCE_GATE` is `auto`: auto-confirm unconditionally without waiting for user input. Present the checkpoint info (acceptance criteria, scope) for visibility, then continue directly to Planning Need Evaluation. Append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md`:
 
-`| brainstorm | acceptance | A | [auto] | Confirm design and proceed? | Auto-confirmed design | Wait for user | acceptanceGate=auto (autonomy.mode=hands-off) |`
+`| brainstorm | acceptance | A | [auto] | Confirm design and proceed? | Auto-confirmed design | Wait for user | acceptanceGate=auto (autonomy.mode=hands-off) | --- |`
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "auto-decided" "---"
+```
 
 Then continue directly to Planning Need Evaluation.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "asked" "codebase|web"
+```
 
 **Wait for the user's response.** (Applies when `ACCEPTANCE_GATE` is `ask`.) If they amend or add criteria, update the `## Acceptance Criteria` section in `brainstorm.md` to match, then re-present the gate. Only continue to Planning Need Evaluation after the user confirms.
 

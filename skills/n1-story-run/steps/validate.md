@@ -57,6 +57,31 @@ Done before run: <keys or none>   Skipped: <keys or none>
 If `DRY_RUN`: print "Dry run -- nothing launched." **STOP** (do not write story.md).
 AskUserQuestion options: **Start**, **Reorder / edit** (free text -> apply, re-print, ask again), **Change models** (free text `KEY=opus|sonnet` -> apply, re-print), **Cancel** (STOP).
 
+## 6b. Intake clarification batch
+
+For each pending subtask that has a description, scan the description for A-tier unknowns (items that would normally require user input during analysis or brainstorm). These are questions about:
+- Business intent or stakeholder preference across subtasks
+- Cross-service contract decisions (identified by SA flags from step 4)
+- Shared assumptions that affect multiple subtasks
+
+If unknowns are found (or if SA gap-fill in step 4 flagged any `FLAGS:` items of type `contract` or `security`):
+
+Present them in one batched AskUserQuestion:
+
+```
+Before launching subtasks, I have {N} cross-cutting question(s) that affect multiple subtasks:
+
+1. <question about contract between subtask A and subtask B>
+   (Recommended) <recommendation if available>
+
+2. <question about shared business logic>
+   (Recommended) <recommendation if available>
+
+For each: type your answer, or "use recommended" to accept all.
+```
+
+Record each answer for inclusion in `story.md`. If no unknowns are found, skip this step entirely.
+
 ## 7. Persist plan
 Write `$STORY_MEM/story.md`:
 ```markdown
@@ -87,4 +112,18 @@ started: <date -u +%Y-%m-%dT%H:%M:%SZ>
 |---------|---------|------|---------|----|--------|
 
 ## Escalations
+
+## Clarifications
 ```
+
+When clarification answers were collected in step 6b, populate the `## Clarifications` section:
+
+```markdown
+## Clarifications
+- **Q:** <question text>
+  **A:** <user's answer or recommendation applied>
+- **Q:** <question text>
+  **A:** <user's answer>
+```
+
+When no clarifications were collected, the section remains with just the heading (empty body).

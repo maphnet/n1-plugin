@@ -338,7 +338,7 @@ Legacy keys (`brainstorm`, `mechanicalPrompts`, `qualityEscalations`, `tailChain
 
 **Unconditional gates** (never affected by `autonomy.mode`): security/architecture/public-API escalations, release confirmation, prod deploys, secrets. These are configured in the `escalation.alwaysAskOn` array.
 
-Every autonomous decision appends a row to the `## Decision Ledger` table in overview.md (spec: `skills/n1-start/ledger.md`); the tech-writer renders it as a `## Decisions` section in the PR body — the after-the-fact review artifact. Hard invariants: security/architecture/public-API escalations always block; **release is never automatic** — `tailChain` scope ends at finish, release is declared `manual_only` in `pipeline.json`, and the n1-release confirmation gate is unconditional.
+Every autonomous decision appends a row to the `## Decision Ledger` table in overview.md (spec: `skills/n1-start/ledger.md`); the ledger uses a 9-column format (step, category, tier, tag, question, chosen, alternatives, reason, rungs_tried — the 9th column added in v2.90.0). The tech-writer renders it as a `## Decisions` section in the PR body — the after-the-fact review artifact. Hard invariants: security/architecture/public-API escalations always block; **release is never automatic** — `tailChain` scope ends at finish, release is declared `manual_only` in `pipeline.json`, and the n1-release confirmation gate is unconditional.
 
 Cross-session resume: the pr step writes a `## Pending` block (`awaiting: merge`) to overview.md; `hooks/session-start.sh` scans these (capped at 5 `gh pr view` calls, 30-min throttle via `last_checked`, 14-day expiry, fail-open) and suggests `/n1:n1-finish` when the PR was merged externally.
 

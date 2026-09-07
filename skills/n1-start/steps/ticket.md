@@ -196,8 +196,8 @@ Determine `source_mode`:
 
 **Autonomy gate:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`, skip the prompt — take path **1 (Yes)** below (creating the ticket is the recommended default and the tracker write is editable/deletable). After the ticket is created and `<ID>` is final, append a Decision Ledger row per `skills/n1-start/ledger.md`:
 
-- If `source_mode == braindump`: `| ticket | mechanical | C | [auto] | Create tracker ticket for brain-dump run? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
-- If `source_mode == error-tracker`: `| ticket | mechanical | C | [auto] | Create tracker ticket for Sentry issue? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker |`
+- If `source_mode == braindump`: `| ticket | mechanical | C | [auto] | Create tracker ticket for brain-dump run? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker | --- |`
+- If `source_mode == error-tracker`: `| ticket | mechanical | C | [auto] | Create tracker ticket for Sentry issue? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker | --- |`
 
 **Deferred ticket creation (`--investigate` brain-dump mode):** If `INVESTIGATE_FLAG` is `true` AND `source_mode == braindump`, skip this ticket-creation question entirely (regardless of `MP`) and take the "No" path below: adopt the description slug as `<ID>` and skip tracker status updates. Report: "Investigation mode: ticket creation deferred until findings are ready." Ticket creation is offered after the investigation deliverable instead (see steps/investigation-deliverable.md, Phase 5 brain-dump variant).
 
