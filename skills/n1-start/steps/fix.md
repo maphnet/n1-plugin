@@ -47,7 +47,7 @@ QE=$(n1_autonomy_val 'qualityEscalations')
 
 If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — accept the developer's best-effort resolution as-is, note the ambiguity, and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
 
-`| fix | quality | A | [auto] | <ambiguity the developer encountered during fix cycle> | Accept developer resolution, proceed | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review |`
+`| fix | quality | A | [auto] | <ambiguity the developer encountered during fix cycle> | Accept developer resolution, proceed | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review | --- |`
 
 Then continue the pipeline as if the user had chosen the recommended option. Otherwise (policy `block`, or safety-relevant): ask as below.
 
@@ -57,7 +57,28 @@ Then continue the pipeline as if the user had chosen the recommended option. Oth
 - Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit it.
 - **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
 
-Then ask: "{PREAMBLE} The developer encountered an ambiguity during this fix cycle that requires your input: [details]. Please advise."
+**Resolution ladder (before asking):** Before escalating to the user, the orchestrator MUST attempt:
+1. **Codebase search** -- check if the ambiguity can be resolved from code context
+2. **Web search** -- search for the specific error, API behavior, or pattern
+3. **Prior decisions** -- check overview.md Decision Ledger for prior decisions on similar questions
+
+Only if all rungs fail, proceed to ask. Include a "Decide for me" option in the escalation prompt.
+
+Then ask:
+
+```
+{PREAMBLE} The developer encountered an ambiguity during this fix cycle that requires your input: [details].
+
+Tried: <rungs attempted, e.g., codebase search (no match), web search (inconclusive)>
+
+1. <recommended resolution>  (Recommended)
+2. <alternative>
+3. Decide for me -- research and apply recommendation
+
+Please advise.
+```
+
+When "Decide for me" is selected: re-run web search with broader terms, apply the recommendation, record as `[auto-decided]` with `rungs_tried` and reason `decide-for-me: <evidence>`.
 
 If the combined Step-7 verdict is PASS:
 - Run via Bash:
@@ -84,7 +105,7 @@ Discover the full-suite test command using the same detection as the qa-engineer
   ```
   - **Exit code 0 (pass):** proceed.
   - **Exit code non-zero (fail):** surface the failure output to the user: "Full test suite failed after fix cycle <N> (exit code <FULL_SUITE_EXIT>) — potential regression introduced during fix cycles. Fix failing tests before proceeding, or acknowledge explicitly."
-    - Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: auto-spawn the developer agent once to fix the regression (same spawn parameters as the fix cycle above, with additional context: "Full test suite failed — fix the regressions introduced during fix cycles before returning"). Append a Decision Ledger row: `| fix | mechanical | B | [auto] | Full-suite regression after fix cycle <N> | Spawn developer to fix regression | Ask user, Proceed with regression | mechanicalPrompts=auto; regression fix attempted once |`. After developer returns, re-run the full-suite check once more; if it still fails, fall through to the interactive prompt below. If `MP` is `ask` (default) or the re-run still fails: ask: "Fix the regression now (re-spawn developer) or proceed anyway (regression will land in CI)?"
+    - Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: auto-spawn the developer agent once to fix the regression (same spawn parameters as the fix cycle above, with additional context: "Full test suite failed — fix the regressions introduced during fix cycles before returning"). Append a Decision Ledger row: `| fix | mechanical | B | [auto] | Full-suite regression after fix cycle <N> | Spawn developer to fix regression | Ask user, Proceed with regression | mechanicalPrompts=auto; regression fix attempted once | --- |`. After developer returns, re-run the full-suite check once more; if it still fails, fall through to the interactive prompt below. If `MP` is `ask` (default) or the re-run still fails: ask: "Fix the regression now (re-spawn developer) or proceed anyway (regression will land in CI)?"
     - Do NOT silently proceed on a non-zero exit.
 
 Update overview: `[x] Review`, set `step: review`
