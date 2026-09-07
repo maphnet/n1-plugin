@@ -31,7 +31,7 @@ Optional local-first telemetry gated on `telemetry.enabled` in `$N1_HOME/config.
 
 Hooks use `matcher: "n1:*"` — zero overhead for non-N1 sessions. All collection is async and non-blocking.
 
-**Schema version:** Current version is **2**. Version 1 records lack the `orchestrator` field; consumers should treat its absence as "not collected".
+**Schema version:** Current version is **2** (question events added in v2.2). Version 1 records lack the `orchestrator` field; consumers should treat its absence as "not collected".
 
 **Orchestrator telemetry** (schema v2+):
 
@@ -61,3 +61,9 @@ Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `o
 `lib/telemetry.sh:n1_record_decision <id> <result> [<condition_json>] [k=v...]` appends `{"event":"decision","id":...,"result":true|false,"condition":{...},"signals":{"<file.key>":"<value>",...}}` to `raw/steps/<run_id>.jsonl`. Emitted automatically for every `escalation_triggers` / `downgrade_triggers` evaluation in `n1_resolve_model` (id `escalation:<agent>:<step>` or `downgrade:<agent>:<step>`), and explicitly by step files for `simplicity-gate` and `planning-need-direct`. The merge collects them into `decisions[]`.
 
 The outcome event gained `review_blocking_count` (Critical/High fingerprints from the first review pass), `review_fix_cycles`, `qa_fix_cycles`, `break_check_verdict`, `review_discarded_count`. `n1-telemetry` correlates `decisions[].id`/`result` with these fields and refuses threshold recommendations below `telemetry.minPairedRuns` (default 100).
+
+## Question events (schema v2.2)
+
+`lib/telemetry.sh:n1_emit_question_event` appends `{"event":"question","step":"...","question_category":"design|mechanical|quality|scope","resolution":"asked|auto|auto-decided|decide-for-me|inherited","rungs_tried":"codebase,web,..."}` to `raw/steps/<run_id>.jsonl`. Emitted by analysis (Phase 3), brainstorm (A-tier questions), fix (escalation), and investigation-deliverable (Phase 2) steps. The merge collects them into `questions[]`.
+
+`n1-telemetry` reports questions/run by step, resolution distribution, and an earned-autonomy trend line. `scripts/benchmark.py` includes `QuestionMetric` and `QuestionShareMetric` for cross-version comparison.
