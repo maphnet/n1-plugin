@@ -67,7 +67,7 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 
   - Append a tier-B Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
 
-    `| qa | quality | B | [auto] | New functionality shipped without test coverage | Accepted — no new tests added (maintain tier) | Add tests (minimal / standard tier) | maintain mode: new_functionality_untested signal; tests_added=0 alone cannot distinguish untested-new from nothing-new |`
+    `| qa | quality | B | [auto] | New functionality shipped without test coverage | Accepted — no new tests added (maintain tier) | Add tests (minimal / standard tier) | maintain mode: new_functionality_untested signal; tests_added=0 alone cannot distinguish untested-new from nothing-new | --- |`
 
   - If `BLOCK_UNTESTED` is `true`, override the QA verdict to FAIL. Append to `$N1_HOME/memory/$ID/qa.md` a note: "QA FAIL override: new functionality is untested and `qa.blockUntestedFeatures` is enabled." Record the override in overview `## Key Decisions` via `n1_append_key_decision`:
     ```bash

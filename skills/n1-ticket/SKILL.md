@@ -43,7 +43,7 @@ Present the summary to the user for confirmation: "Here's what I captured — do
 Review the summary. If it contains multiple independent deliverables (e.g., "add CSV export AND redesign the settings page"), suggest:
 
 **Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-proceed with a single ticket (continue with Step 3). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
-`| n1-ticket | mechanical | C | [auto] | Multi-task scope detected — use n1-story? | Proceed with single ticket | Use n1-story instead | mechanicalPrompts=auto |`
+`| n1-ticket | mechanical | C | [auto] | Multi-task scope detected — use n1-story? | Proceed with single ticket | Use n1-story instead | mechanicalPrompts=auto | --- |`
 If `MP` is `ask`: continue to the prompt below.
 
 "This looks like it contains multiple independent tasks. Would you like to use `/n1:n1-story` instead to create a story with subtasks?"
@@ -124,7 +124,7 @@ The detected type is shown in the approval gate. The user can override it there.
 ## Step 7: Approval Gate
 
 **Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-select **Create** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
-`| n1-ticket | mechanical | C | [auto] | Ticket approval gate | Create ticket | Edit or Cancel | mechanicalPrompts=auto |`
+`| n1-ticket | mechanical | C | [auto] | Ticket approval gate | Create ticket | Edit or Cancel | mechanicalPrompts=auto | --- |`
 If `MP` is `ask`: continue to the approval gate below.
 
 Present the ticket preview using AskUserQuestion:

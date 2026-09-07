@@ -233,11 +233,11 @@ MP=$(n1_autonomy_val 'mechanicalPrompts')
 If `MP` is `auto`, do NOT prompt — resolve each case with its safe default and append a Decision Ledger row (`skills/n1-start/ledger.md`) to `$N1_HOME/memory/<ID>/overview.md` (write the row after the memory dir exists; if the branch decision happens before memory creation, hold the row and write it together with the first overview.md write):
 
 - **Dirty working tree** → option 1: `git stash push -m "n1: stashed before switching to <TARGET>"`, switch, report "Stashed uncommitted changes. Run `git stash pop` when done."
-  Ledger: `| start | mechanical | C | [auto] | Dirty tree before branch switch | Stash and switch | Carry, Abort | mechanicalPrompts=auto; stash is reversible |`
+  Ledger: `| start | mechanical | C | [auto] | Dirty tree before branch switch | Stash and switch | Carry, Abort | mechanicalPrompts=auto; stash is reversible | --- |`
 - **Foreign branch** → option 2: switch to `<DEFAULT>`, branch `<TARGET>` from there.
-  Ledger: `| start | mechanical | B | [auto] | On '<CURRENT>' not default | Branch from default | Branch from here, Stay | default base avoids accidental stacked branches |`
+  Ledger: `| start | mechanical | B | [auto] | On '<CURRENT>' not default | Branch from default | Branch from here, Stay | default base avoids accidental stacked branches | --- |`
 - **Combined** → option 1: stash, switch to `<DEFAULT>`, branch from there (same stash report).
-  Ledger: `| start | mechanical | B | [auto] | Foreign branch + dirty tree | Stash, branch from default | Carry from here, Abort | mechanicalPrompts=auto; both actions reversible |`
+  Ledger: `| start | mechanical | B | [auto] | Foreign branch + dirty tree | Stash, branch from default | Carry from here, Abort | mechanicalPrompts=auto; both actions reversible | --- |`
 
 The destructive option (Abort) is never auto-selected. If `MP` is `ask` (default) or empty, show the prompts exactly as below.
 
@@ -477,7 +477,7 @@ QE=$(n1_autonomy_val 'qualityEscalations')
 
 **If `QE` is `auto-accept`** AND the findings do NOT involve security, architecture, or public API changes: take `{action}` silently. Append a Decision Ledger row to overview.md:
 
-`| {step} | quality | A | [auto] | {ledger_context} | {action} | Prompt user | qualityEscalations=auto-accept |`
+`| {step} | quality | A | [auto] | {ledger_context} | {action} | Prompt user | qualityEscalations=auto-accept | --- |`
 
 **If `QE` is `block`** (default) or the findings involve security/architecture/public API: show the interactive prompt as defined by the step file.
 

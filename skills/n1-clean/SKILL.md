@@ -98,7 +98,7 @@ Removable: <N> worktrees (stale + completed + abandoned)
 If no removable worktrees: "All worktrees are active. Nothing to clean up." **STOP.**
 
 **Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip the prompt below and auto-select **Remove all** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
-`| n1-clean | mechanical | C | [auto] | Remove removable worktrees? | Remove all | Select or Cancel | mechanicalPrompts=auto |`
+`| n1-clean | mechanical | C | [auto] | Remove removable worktrees? | Remove all | Select or Cancel | mechanicalPrompts=auto | --- |`
 If `MP` is `ask`: continue to the prompt below.
 
 Ask:

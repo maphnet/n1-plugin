@@ -229,7 +229,7 @@ Work complete. If you're ready to publish a release, run /n1:n1-release.
 ```
 
 Write a Decision Ledger row to overview.md:
-`| finish | mechanical | C | [auto] | Release now? | Suggest /n1:n1-release | Ask user | mechanicalPrompts=auto |`
+`| finish | mechanical | C | [auto] | Release now? | Suggest /n1:n1-release | Ask user | mechanicalPrompts=auto | --- |`
 
 **If `MP` is `ask` (default):** ask:
 
