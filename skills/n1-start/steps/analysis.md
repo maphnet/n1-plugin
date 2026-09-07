@@ -326,6 +326,17 @@ For each inherited answer:
 
 Update `UNKNOWNS` to `REMAINING_UNKNOWNS` and `UNKNOWN_COUNT` to the remaining count. If `UNKNOWN_COUNT` becomes 0, skip the rest of Phase 3.
 
+**Story clarification pre-check (interactive story children):**
+
+When `N1_STORY_ID` is set but `N1_HEADLESS` is NOT set:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/story.sh"
+STORY_MEM="$N1_HOME/memory/$N1_STORY_ID"
+```
+
+For each unknown, check story clarifications using `n1_story_match_clarification`. If a match is found, pre-populate the recommended answer in the batched presentation: `(Pre-answered in story: <answer>)`. The user can confirm or override the pre-populated answer.
+
 **Problem preamble:** Before presenting the unknowns, compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
 
 **Batch all unknowns into one AskUserQuestion** (max 4 per call; chain if more than 4):
