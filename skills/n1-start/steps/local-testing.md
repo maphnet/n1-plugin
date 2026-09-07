@@ -35,7 +35,7 @@ fi
   - Emit telemetry:
     ```bash
     source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
-    n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"skip_reason":"qa_dedup"}'
+    n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 9 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"skip_reason":"qa_dedup"}'
     ```
   - Skip to Step 10 (PR CREATION).
 - If `QA_DEDUP_SKIP=false`: at least one non-pytest Runner command exists — proceed to 9a. Capture the `QA_RUNNER_CMDS` value for injection into the planner prompt in 9a.
