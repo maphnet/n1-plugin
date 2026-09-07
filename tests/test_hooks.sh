@@ -1,26 +1,15 @@
 #!/usr/bin/env bash
-# tests/test_hooks.sh — behavioral tests for pipeline-continue, enforce-agent-model warning, session-start throttle.
+# tests/test_hooks.sh — behavioral tests for enforce-agent-model warning, session-start throttle.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected=[$2] actual=[$3])"; FAIL=$((FAIL+1)); fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export N1_HOME="$T/home"; export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
-MEM="$N1_HOME/memory/T-9"; mkdir -p "$MEM"
-echo '{"ticketId":"T-9"}' > "$N1_HOME/active-run.json"
+mkdir -p "$N1_HOME"
 cat > "$N1_HOME/config.json" <<'EOF'
 {"planReview":{"requirePlanApproval":true},"autonomy":{"brainstorm":"auto","acceptanceGate":"auto"}}
 EOF
-run_stop() { echo '{"stop_hook_active":false}' | bash "$REPO_ROOT/hooks/pipeline-continue.sh" >/dev/null 2>&1; echo $?; }
-
-printf -- '---\nstep: plan\n---\n' > "$MEM/overview.md"
-assert_eq "plan approval pending allows stop" "0" "$(run_stop)"
-printf -- '---\nstep: plan\nplan_approved: true\n---\n' > "$MEM/overview.md"
-assert_eq "plan approved blocks stop" "2" "$(run_stop)"
-printf -- '---\nstep: implementation\npending_prompt: dirty tree — commit or discard?\n---\n' > "$MEM/overview.md"
-assert_eq "pending prompt allows stop" "0" "$(run_stop)"
-printf -- '---\nstep: implementation\npending_prompt: \n---\n' > "$MEM/overview.md"
-assert_eq "cleared prompt blocks stop" "2" "$(run_stop)"
 
 # enforce-agent-model: no python → systemMessage once
 FAKEBIN="$T/bin"; mkdir -p "$FAKEBIN"

@@ -217,7 +217,7 @@ Both procedures are **idempotent** — safe to call again on resume. They are ca
    - **`CURRENT` is some OTHER branch AND `DIRTY` is empty** → prompt (foreign branch prompt below).
    - **`CURRENT` is some OTHER branch AND `DIRTY` is non-empty** → prompt (combined prompt below).
 
-Before any `AskUserQuestion` on this path, write the pending marker so the stop hook lets the turn end:
+Before any `AskUserQuestion` on this path, write the pending marker so compaction recovery knows a prompt is in flight:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" "<one-line description of the question>"
@@ -629,12 +629,11 @@ Present the plan to the user for approval:
 
 **Wait for explicit approval before continuing.** Under `N1_HEADLESS=1` this cannot happen — but `n1_plan_approval_required` already returns `false` when `N1_AUTONOMY_PRESET=autonomous`; if it is still `true` in a headless run, apply § Headless Guard.
 
-After the user approves, record it so the stop hook resumes enforcement:
+After the user approves, record it for resume and compaction recovery:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "plan_approved" "true"
 ```
-(The stop hook allows the session to end while `step: plan` and `plan_approved` is absent; writing it resumes enforcement.)
 
 **If `PLAN_APPROVAL` is `false`:**
 
