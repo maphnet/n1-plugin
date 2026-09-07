@@ -78,7 +78,7 @@ Tried: <rungs attempted, e.g., codebase search (no match), web search (inconclus
 Please advise.
 ```
 
-When "Decide for me" is selected: re-run web search with broader terms, apply the recommendation, record as `[auto-decided]` with `rungs_tried` and reason `decide-for-me: <evidence>`.
+When "Decide for me" is selected: re-run web search with broader terms, apply the recommendation, record as `[auto-decided]` with `rungs_tried` and reason `decide-for-me: <evidence>`. Do not ask a follow-up question.
 
 If the combined Step-7 verdict is PASS:
 - Run via Bash:
