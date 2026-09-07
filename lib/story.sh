@@ -138,3 +138,70 @@ n1_story_toposort() {
         }
     }'
 }
+
+n1_story_match_clarification() {
+    # Usage: n1_story_match_clarification <question_text> <story_md_path>
+    # Searches ## Clarifications in story.md for a Q whose words overlap >= 60% with question_text.
+    # Prints the answer text if matched, empty string otherwise. Returns 0 in both cases.
+    local question="$1" story_path="$2"
+    [ -f "$story_path" ] || return 0
+
+    # Extract Q&A pairs from ## Clarifications section
+    local in_section=0
+    local current_q="" current_a=""
+    while IFS= read -r line; do
+        case "$line" in
+            "## Clarifications"*) in_section=1; continue ;;
+            "## "*) [ "$in_section" = "1" ] && break ;;
+        esac
+        [ "$in_section" = "1" ] || continue
+
+        if [[ "$line" =~ ^[[:space:]]*\*\*Q:\*\*[[:space:]]*(.*) ]]; then
+            # Emit previous pair before starting new one
+            if [ -n "$current_q" ] && [ -n "$current_a" ]; then
+                if _n1_word_overlap "$question" "$current_q" 60; then
+                    printf '%s' "$current_a"
+                    return 0
+                fi
+            fi
+            current_q="${BASH_REMATCH[1]}"
+            current_a=""
+        elif [[ "$line" =~ ^[[:space:]]*\*\*A:\*\*[[:space:]]*(.*) ]]; then
+            current_a="${BASH_REMATCH[1]}"
+        fi
+    done < "$story_path"
+
+    # Check last pair
+    if [ -n "$current_q" ] && [ -n "$current_a" ]; then
+        if _n1_word_overlap "$question" "$current_q" 60; then
+            printf '%s' "$current_a"
+            return 0
+        fi
+    fi
+}
+
+_n1_word_overlap() {
+    # Usage: _n1_word_overlap <text_a> <text_b> <threshold_percent>
+    # Returns 0 (true) if word overlap >= threshold%, 1 otherwise.
+    # Uses awk for bash 3.2 compatibility (no associative arrays).
+    local a="$1" b="$2" threshold="$3"
+    awk -v a="$a" -v b="$b" -v threshold="$threshold" '
+    BEGIN {
+        na = split(tolower(a), wa, /[^a-zA-Z0-9]+/)
+        nb = split(tolower(b), wb, /[^a-zA-Z0-9]+/)
+        # Build set from b
+        for (i = 1; i <= nb; i++) words_b[wb[i]] = 1
+        # Count overlap
+        overlap = 0
+        total_a = 0
+        for (i = 1; i <= na; i++) {
+            if (wa[i] != "") {
+                total_a++
+                if (wa[i] in words_b) overlap++
+            }
+        }
+        if (total_a == 0) exit 1
+        pct = int(overlap * 100 / total_a)
+        exit (pct >= threshold) ? 0 : 1
+    }'
+}
