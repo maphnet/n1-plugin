@@ -150,3 +150,19 @@ n1_record_decision() {
         >> "${tdir}/raw/steps/${run_id}.jsonl"
     return 0
 }
+
+# n1_emit_question_event <run_id> <n1_version> <ticket_id> <telem_dir> <step> <question_category> <resolution> [rungs_tried]
+# Emits a question-layer telemetry event. resolution: asked|auto|auto-decided|decide-for-me|inherited
+# question_category: design|mechanical|quality|scope
+n1_emit_question_event() {
+    local run_id="$1" version="$2" ticket_id="$3" telem_dir="$4" step="$5"
+    local category="$6" resolution="$7" rungs="${8:-}"
+    local ts
+    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    local file="${telem_dir}/raw/steps/${run_id}.jsonl"
+    mkdir -p "$(dirname "$file")"
+    printf '{"event":"question","run_id":"%s","n1_version":"%s","ticket_id":"%s","layer":"question","step":"%s","question_category":"%s","resolution":"%s","rungs_tried":"%s","timestamp":"%s"}\n' \
+        "$(escape_json_val "$run_id")" "$(escape_json_val "$version")" "$(escape_json_val "$ticket_id")" \
+        "$(escape_json_val "$step")" "$(escape_json_val "$category")" "$(escape_json_val "$resolution")" \
+        "$(escape_json_val "$rungs")" "$ts" >> "$file"
+}
