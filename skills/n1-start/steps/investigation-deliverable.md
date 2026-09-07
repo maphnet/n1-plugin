@@ -130,9 +130,9 @@ If `UNKNOWN_COUNT` is 0, skip to Phase 3.
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
 # For each unknown presented to the user (user-answered or skipped):
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "user_answer" "codebase|web"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "asked" "codebase|web"
 # For each "Decide for me" resolution:
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "auto_decided" "codebase|web"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "auto-decided" "codebase|web"
 ```
 
 **Batch all unknowns into one AskUserQuestion** (max 4 per call; chain if more than 4):

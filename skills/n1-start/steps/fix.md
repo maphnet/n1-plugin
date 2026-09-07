@@ -67,7 +67,7 @@ Only if all rungs fail, proceed to ask. Include a "Decide for me" option in the 
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "clarification" "user_answer" "codebase|web|command|prior-decisions"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "asked" "codebase|web|command|prior-decisions"
 ```
 
 Then ask:
@@ -87,7 +87,7 @@ Please advise.
 When "Decide for me" is selected: re-run web search with broader terms, apply the recommendation, record as `[auto-decided]` with `rungs_tried` and reason `decide-for-me: <evidence>`. Do not ask a follow-up question.
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "clarification" "auto_decided" "codebase|web|command|prior-decisions"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "auto-decided" "codebase|web|command|prior-decisions"
 ```
 
 If the combined Step-7 verdict is PASS:
