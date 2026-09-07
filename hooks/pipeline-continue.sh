@@ -35,7 +35,7 @@ STEP=$(n1_read_frontmatter "$OV_FILE" "step")
 
 # Terminal states — pipeline is done, allow stop
 case "$STEP" in
-    done|"") exit 0 ;;
+    done|escalated|"") exit 0 ;;
 esac
 
 # Legitimate user gates — the pipeline is paused for user input, allow stop

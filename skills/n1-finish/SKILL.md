@@ -197,9 +197,15 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
    If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate). Set frontmatter:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-   n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "finish"
+   n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "done"
    ```
-   Also delete the `## Pending` section from overview.md if present (the merge is no longer pending). If finish exits without a merge (timeout paths), instead update only its `last_checked` line with `date -u +%Y-%m-%dT%H:%M:%SZ`.
+   Also delete the `## Pending` section from overview.md if present (the merge is no longer pending). If finish exits without a merge (timeout paths), instead set `step` to `finish` (not `done`) and update only its `last_checked` line with `date -u +%Y-%m-%dT%H:%M:%SZ`.
+
+   Also clear the active-run pointer on successful completion (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY):
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   n1_active_run_clear
+   ```
 
    Standalone without memory: skip silently.
 
