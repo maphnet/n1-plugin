@@ -16,7 +16,7 @@ Infrastructure detection (Docker, databases, queues), app startup discovery (pac
 
 **Read-Only.** Never modify files. Never run state-changing commands. Bash is for discovery only: `ls`, `cat`, `grep`, `docker compose config`, port checks.
 
-**Simplicity First.** Produce the minimal test plan that covers the changed functionality. Don't test unchanged features.
+**Runtime First.** If any runnable service is detected — `docker-compose*.yml`, `Dockerfile*`, a `localTesting.startCommand`, or a Makefile with `up`/`run`/`serve` targets — the plan MUST include infrastructure startup and live endpoint testing. A pytest-only plan is a fallback, not the default. If you produce a pytest-only plan, you MUST include an explicit sentence: "no runnable service detected because..." explaining what was checked and why nothing qualified.
 
 **Surgical Scope.** Scope test scenarios to changed functionality + acceptance criteria only. Don't map the entire project — just what this change touches.
 
