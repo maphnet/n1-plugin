@@ -108,7 +108,7 @@ n1_write_signals "$INV_FILE" \
 
 If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`:
 
-| investigation-deliverable | scope | B | [auto] | {SELF_RESOLVED} unknowns answerable from codebase | Self-resolved via Read/Grep/Glob | — | B/C tier classification -- see `<!-- n1:resolved: -->` markers in investigation.md |
+| investigation-deliverable | scope | B | [auto] | {SELF_RESOLVED} unknowns answerable from codebase | Self-resolved via Read/Grep/Glob | --- | B/C tier classification -- see `<!-- n1:resolved: -->` markers in investigation.md | --- |
 
 **Phase 2 -- Deliverable Q&A**
 
@@ -125,15 +125,28 @@ If `UNKNOWN_COUNT` is 0, skip to Phase 3.
 
 **Problem preamble:** compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` -- call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` -- prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely -- do not fall back to parsing the section body.
 
-Present each unknown to the user one at a time, prefixing the opening message with `PREAMBLE` (omit if empty):
+**Batch all unknowns into one AskUserQuestion** (max 4 per call; chain if more than 4):
 
 ```
 {PREAMBLE} During the investigation, I found {UNKNOWN_COUNT} additional question(s):
 
 1. <first unknown>
+   Tried: codebase search, web search -- unresolvable because <why>
+   (Recommended) <recommended answer if available>
 
-Can you clarify this? (type your answer, or "skip" to leave it unresolved)
+2. <second unknown>
+   Tried: codebase search -- unresolvable because <why>
+   (Recommended) <recommended answer if available>
+
+...
+
+For each item: type your answer, "skip" to defer, or "Decide for me" to research and apply the recommendation.
+You can also reply "use recommended" to accept all recommendations at once.
 ```
+
+**"Decide for me" handling:** Same protocol as `skills/n1-start/ledger.md` Resolution Ladder: re-run web search with broader queries, apply the best-evidenced answer, record as `[auto-decided]` with reason `decide-for-me: <evidence>` and `rungs_tried` listing all rungs attempted. Do NOT ask a follow-up.
+
+**"Use recommended" handling:** If the user replies "use recommended" (or "use all recommendations"), apply the recommendation for each unknown that has one. For unknowns without a recommendation, ask individually as a follow-up.
 
 After collecting answers, append a `### Clarifications` section to `investigation.md` (after `### References`):
 
