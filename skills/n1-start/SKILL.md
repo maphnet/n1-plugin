@@ -644,6 +644,73 @@ Proceed directly to implementation. Log: "Plan review passed — proceeding to i
 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/implementation.md`.
 
+### 5b. RUNTIME CROSS-REPO DETECTION (post-implementation)
+
+**Runtime cross-repo detection (post-implementation):**
+
+When `relatedProjects.enabled` is `true` in config, scan the implementation diff for unregistered cross-repo references:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
+
+if [ "$RELATED_ENABLED" = "true" ]; then
+    # Get the diff since the base branch
+    IMPL_DIFF=$(git diff "$(n1_config_val '.git.defaultBranch' "$N1_HOME/config.json")"...HEAD 2>/dev/null || true)
+
+    if [ -n "$IMPL_DIFF" ]; then
+        DETECTED=$(n1_related_detect_in_diff "$IMPL_DIFF" "$N1_HOME/config.json")
+
+        if [ -n "$DETECTED" ]; then
+            AUTONOMY=$(n1_autonomy_val "mechanicalPrompts")
+            IMPL_XREPO_DETECTED=""
+
+            while IFS=$'\t' read -r det_slug det_signal; do
+                [ -z "$det_slug" ] && continue
+
+                if [ "$AUTONOMY" = "auto" ]; then
+                    n1_related_add "$N1_HOME/config.json" "$det_slug" "auto-detected: $det_signal" "auto"
+                    if ! grep -q '^## Decision Ledger' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null; then
+                        printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$N1_HOME/memory/$ID/overview.md"
+                    fi
+                    printf '| implementation | scope | B | [auto] | New integration with %s detected in diff | Added to related projects | — | Auto-detected from: %s | --- |\n' "$det_slug" "$det_signal" >> "$N1_HOME/memory/$ID/overview.md"
+                else
+                    IMPL_XREPO_DETECTED="${IMPL_XREPO_DETECTED:+$IMPL_XREPO_DETECTED\n}- **${det_slug}**: ${det_signal}"
+                fi
+            done < <(printf '%s\n' "$DETECTED")
+
+            if [ "$AUTONOMY" != "auto" ] && [ -n "$IMPL_XREPO_DETECTED" ]; then
+                printf '\nNew cross-repo integrations detected in your changes:\n%b\n\nAdd to related projects? (yes/no/select)\n' "$IMPL_XREPO_DETECTED"
+            fi
+        fi
+    fi
+fi
+```
+
+**Collect telemetry metadata for implementation step:**
+
+```bash
+XREPO_RT_DETECTED=""
+XREPO_RT_ADDED=""
+
+if [ "$RELATED_ENABLED" = "true" ] && [ -n "$DETECTED" ]; then
+    XREPO_RT_DETECTED=$(printf '%s\n' "$DETECTED" | awk -F'\t' '{print $1}' | tr '\n' ',' | sed 's/,$//')
+    if [ "$AUTONOMY" = "auto" ]; then
+        XREPO_RT_ADDED="$XREPO_RT_DETECTED"
+    fi
+fi
+
+IMPL_XREPO_METADATA="{\"cross_repo_runtime_detected\":\"${XREPO_RT_DETECTED}\",\"cross_repo_runtime_added\":\"${XREPO_RT_ADDED}\"}"
+```
+
+When emitting the implementation step-end telemetry event (step 7, per the Telemetry Step Markers template above), merge `$IMPL_XREPO_METADATA` fields into the `metadata` JSON object alongside the standard `execution_path` field:
+
+```json
+{"execution_path":"direct|sdd","cross_repo_runtime_detected":"<slug,...>","cross_repo_runtime_added":"<slug,...>"}
+```
+
+No separate emit is added here — the implementation step's existing end event (emitted by `steps/implementation.md` or the orchestrator after that step) carries these fields. `$IMPL_XREPO_METADATA` is available in scope for that merge.
+
 ### 6. QA
 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/qa.md`.
