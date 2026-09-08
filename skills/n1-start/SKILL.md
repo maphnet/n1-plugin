@@ -664,6 +664,8 @@ if [ "$RELATED_ENABLED" = "true" ]; then
         if [ -n "$DETECTED" ]; then
             AUTONOMY=$(n1_autonomy_val "mechanicalPrompts")
             IMPL_XREPO_DETECTED=""
+            XREPO_RT_DETECTED=""
+            XREPO_RT_ADDED=""
 
             while IFS=$'\t' read -r det_slug det_signal; do
                 [ -z "$det_slug" ] && continue
@@ -725,9 +727,6 @@ After handling the response, `XREPO_RT_ADDED` reflects any interactively approve
 **Collect telemetry metadata for implementation step:**
 
 ```bash
-XREPO_RT_DETECTED=""
-XREPO_RT_ADDED=""
-
 if [ "$RELATED_ENABLED" = "true" ] && [ -n "$DETECTED" ]; then
     XREPO_RT_DETECTED=$(printf '%s\n' "$DETECTED" | awk -F'\t' '{print $1}' | tr '\n' ',' | sed 's/,$//')
     if [ "$AUTONOMY" = "auto" ]; then
