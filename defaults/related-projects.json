@@ -1,0 +1,4 @@
+{
+  "enabled": false,
+  "maxSnapshotAge": "72h"
+}
