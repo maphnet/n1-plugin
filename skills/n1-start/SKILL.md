@@ -556,7 +556,7 @@ Step numbering and names:
 | 4 | `plan` | `{}` |
 | 5 | `plan-review` | `{"verdict":"CLEAN\|FIXED"}` |
 | 6 | `estimation` | `{"tier":"XS\|S\|M\|L\|XL"}` |
-| 7 | `implementation` | `{"execution_path":"direct|sdd"}` |
+| 7 | `implementation` | `{"execution_path":"direct|sdd"}` (+ `cross_repo_runtime_detected`, `cross_repo_runtime_added` when `relatedProjects.enabled` — see §5b) |
 | 8 | `qa` | `{"loop_iteration":<N>}` |
 | 9 | `review` | `{"findings_total":<N>,"findings_critical":<N>}` |
 | 10 | `fix` | `{"loop_iteration":<N>}` |
@@ -686,6 +686,41 @@ if [ "$RELATED_ENABLED" = "true" ]; then
     fi
 fi
 ```
+
+**Interactive response handling (non-auto path):**
+
+On the user's response to "Add to related projects? (yes/no/select)":
+
+- **"yes"** — add all detected slugs; for each slug from `$IMPL_XREPO_DETECTED`:
+
+```bash
+# For each det_slug / det_signal pair in DETECTED (re-iterate with process substitution):
+while IFS=$'\t' read -r det_slug det_signal; do
+    [ -z "$det_slug" ] && continue
+    n1_related_add "$N1_HOME/config.json" "$det_slug" "auto-detected: $det_signal" "manual"
+    if ! grep -q '^## Decision Ledger' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null; then
+        printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$N1_HOME/memory/$ID/overview.md"
+    fi
+    printf '| implementation | scope | B | [asked] | New integration with %s detected in diff | Added to related projects | — | User approved on prompt | codebase |\n' "$det_slug" >> "$N1_HOME/memory/$ID/overview.md"
+    XREPO_RT_ADDED="${XREPO_RT_ADDED:+$XREPO_RT_ADDED,}${det_slug}"
+done < <(printf '%s\n' "$DETECTED")
+```
+
+- **"select"** — present each detected slug individually; apply `n1_related_add` + ledger row (tag `[asked]`) only for the approved ones; skip the rest (no ledger row for skipped). Accumulate approved slugs into `XREPO_RT_ADDED`.
+
+- **"no"** — add nothing; append one ledger row per detected slug recording the decline:
+
+```bash
+while IFS=$'\t' read -r det_slug det_signal; do
+    [ -z "$det_slug" ] && continue
+    if ! grep -q '^## Decision Ledger' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null; then
+        printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$N1_HOME/memory/$ID/overview.md"
+    fi
+    printf '| implementation | scope | B | [asked] | New integration with %s detected in diff | Not added | Added to related projects | User declined on prompt | codebase |\n' "$det_slug" >> "$N1_HOME/memory/$ID/overview.md"
+done < <(printf '%s\n' "$DETECTED")
+```
+
+After handling the response, `XREPO_RT_ADDED` reflects any interactively approved slugs and is available for the telemetry block below.
 
 **Collect telemetry metadata for implementation step:**
 
