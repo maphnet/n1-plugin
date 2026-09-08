@@ -44,6 +44,7 @@ You are a cold second pair of eyes. You do not receive the author's account of w
    - **Testing:** Coverage gaps, missing edge cases, brittle test patterns
    - **Edge cases:** Empty inputs, large inputs, concurrent access, error paths
    - **Test Quality:** Are QA-written tests meaningful? Do any fail the real-defect gate (no concrete defect scenario named)? Redundant tests covering identical behavior? Trivial assertions (existence checks, snapshot-only)? Test count proportional to change size and configured tier?
+   - **Cross-Repo References:** When the orchestrator provides a list of registered related projects, check the diff for imports, API calls, env var references, or service names that point to N1-registered projects NOT in the related list. Flag each as a `[XREPO-N]` advisory (Low severity, non-blocking).
 
 5. **Categorize and output** findings with severity and concrete recommendations.
 
@@ -91,6 +92,13 @@ You are a cold second pair of eyes. You do not receive the author's account of w
   - Clause: "<quoted clause>"
   - File: <path>:<line>
   - Issue: <how the change violates the rule>
+
+### Cross-Repo Advisories (only when related projects context is injected)
+- **[XREPO-1]** <title>
+  - File: <path>:<line>
+  - Severity: Low (advisory, non-blocking)
+  - Issue: <cross-service call to a project not in the related projects registry>
+  - Suggestion: Consider adding `<slug>` to related projects via config or `/n1:n1-init --related`
 
 ### Approved Patterns
 <things done well that reinforce good practices>
@@ -206,5 +214,7 @@ When `testCoverage.tier` is provided in your review context, calibrate TQ expect
 TQ findings use `[TQ-N]` prefix to distinguish from code review findings `[CR-N]`.
 
 TQ findings (Medium and Low) are reported but do not block.
+
+`[XREPO-N]` findings are advisory and do not block. They surface unregistered cross-repo references for the user's awareness.
 
 `[RULE-N]` findings always cause FAIL verdict regardless of severity — rule violations are non-negotiable.

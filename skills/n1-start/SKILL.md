@@ -558,7 +558,7 @@ Step numbering and names:
 | 6 | `estimation` | `{"tier":"XS\|S\|M\|L\|XL"}` |
 | 7 | `implementation` | `{"execution_path":"direct|sdd"}` (+ `cross_repo_runtime_detected`, `cross_repo_runtime_added` when `relatedProjects.enabled` — see §5b) |
 | 8 | `qa` | `{"loop_iteration":<N>}` |
-| 9 | `review` | `{"findings_total":<N>,"findings_critical":<N>}` |
+| 9 | `review` | `{"findings_total":<N>,"findings_critical":<N>}` (+ `cross_repo_xrepo_findings` when `relatedProjects.enabled` — see §7b) |
 | 10 | `fix` | `{"loop_iteration":<N>}` |
 | 11 | `local-testing` | `{"action_type":"live\|test_only\|skipped\|smoke_deferred","infra_started":<bool>,"app_started":<bool>,"services":[...],"scenario_types":[...],"qa_overlap_pct":<int\|null>}` |
 | 12 | `pr` | `{}` |
@@ -754,6 +754,24 @@ No separate emit is added here — the implementation step's existing end event 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/review.md`. That step references `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/review-core.md` for shared diff-surface classification and reviewer scope rules.
 
 Autonomous decisions made anywhere in the pipeline are recorded per `skills/n1-start/ledger.md` (Decision Ledger in overview.md, rendered into the PR body).
+
+### 7b. REVIEW CROSS-REPO TELEMETRY (post-review)
+
+**Cross-repo telemetry (post-review):**
+
+When `relatedProjects.enabled` is `true` in config, count `[XREPO-N]` advisory findings in the review output:
+
+```bash
+XREPO_FINDINGS_COUNT=$(grep -c '^\- \*\*\[XREPO-' "$N1_HOME/memory/$ID/review.md" 2>/dev/null || echo 0)
+```
+
+When emitting the review step-end telemetry event (step 9, per the Telemetry Step Markers template above), merge `$XREPO_FINDINGS_COUNT` into the `metadata` JSON object alongside the standard fields:
+
+```json
+{"findings_total":<N>,"findings_critical":<N>,"cross_repo_xrepo_findings":<N>}
+```
+
+No separate emit is added here — the review step's existing end event carries this field when `relatedProjects.enabled` is `true`. When the feature is disabled, omit the field entirely.
 
 ### 8. FIX (if review failed)
 
