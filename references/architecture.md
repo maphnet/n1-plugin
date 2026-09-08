@@ -201,11 +201,17 @@ Optional complexity classification and delivery time estimation. Gated on `estim
 
 ## Local Testing
 
-When `localTesting.enabled` is true, n1-start runs a local runtime verification phase (Step 9) after Review and before PR. The local-test-planner discovers infrastructure, app startup (auto-detected or via `localTesting.startCommand` config override), and existing e2e test suites. Execution runs existing e2e tests first, then generates ad-hoc curl/CLI scenarios only for acceptance criteria not covered by the e2e suite. Bounded fix loop: `localTesting.maxFixAttempts` (default 3). Off by default; configured by `n1-init`.
+When `localTesting.enabled` is true, n1-start runs a local verification phase (Step 9) after Review and before PR. Behavior depends on `localTesting.mode` (configured by `n1-init`, or inferred: startCommand present -> `"live"`, absent -> `"test"`):
 
-Local testing owns all live-app verification — starting services, running e2e suites, hitting real endpoints. QA owns the unit test suite. These scopes are independently defined; neither is conditional on the other being enabled.
+- **`"live"`** (default when startCommand is configured): The local-test-planner discovers infrastructure, app startup (auto-detected or via `localTesting.startCommand` config override), and existing e2e test suites. Execution runs existing e2e tests first, then generates ad-hoc curl/CLI scenarios only for acceptance criteria not covered by the e2e suite. Enforces Runtime First mandate (NP-78).
+- **`"test"`** (default when no startCommand): Runs existing test suites only with no infrastructure startup. The planner suppresses Runtime First and produces test-suite-only plans.
+- **`"smoke"`** (cloud-native services): Skips the local-testing step entirely with `smoke_deferred` telemetry. After merge and deployment, n1-finish runs post-deploy verification (health endpoint check via `localTesting.smokeEndpoint`, custom commands via `localTesting.smokeTests`).
 
-The PR body uses a unified `## Verification` section (not separate `## Test Plan` / `## Local Testing`). The tech-writer merges QA verification steps with local testing results via best-effort semantic matching — matched items show checked/unchecked with evidence, unmatched items from either source are included as-is.
+Bounded fix loop (live/test modes): `localTesting.maxFixAttempts` (default 3). Off by default; configured by `n1-init`.
+
+Local testing owns all live-app verification -- starting services, running e2e suites, hitting real endpoints. QA owns the unit test suite. These scopes are independently defined; neither is conditional on the other being enabled.
+
+The PR body uses a unified `## Verification` section (not separate `## Test Plan` / `## Local Testing`). The tech-writer merges QA verification steps with local testing results via best-effort semantic matching -- matched items show checked/unchecked with evidence, unmatched items from either source are included as-is.
 
 ## Test Coverage Tiers
 
