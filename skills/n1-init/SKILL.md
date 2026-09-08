@@ -1152,7 +1152,7 @@ Check the project root for the following files in priority order:
 
 | Priority | File Pattern | Suggested startCommand | Notes |
 |----------|-------------|----------------------|-------|
-| 1 | `docker-compose.yml` or `compose.yml` | `docker compose up -d` | Most deterministic |
+| 1 | `docker-compose.yml`, `docker-compose.yaml`, or `compose.yml` | `docker compose up -d` | Most deterministic |
 | 2 | `Makefile` with targets matching `^(up\|run\|serve\|start\|dev):` | `make <first matching target>` | Simple target grep |
 | 3 | `package.json` with `dev` or `start` in `scripts` | `npm run dev` (prefer `dev` over `start`) | Check `dev` first |
 | 4 | `manage.py` in project root | `python manage.py runserver` | Django convention |
