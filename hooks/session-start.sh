@@ -197,6 +197,24 @@ KB ROUTING (from N1 config):
 - Use createArticle for on-demand publishing when the user explicitly asks"
 fi
 
+# Related projects routing
+related_enabled=$(n1_config_val '.relatedProjects.enabled' "$CONFIG_FILE")
+if [ "$related_enabled" = "true" ] && command -v jq >/dev/null 2>&1; then
+    source "${SCRIPT_DIR}/../lib/related.sh"
+    related_list=""
+    while IFS=$'\t' read -r rp_slug rp_reason rp_repo; do
+        [ -z "$rp_slug" ] && continue
+        related_list="${related_list}
+  - ${rp_slug}: ${rp_reason} (repo: ${rp_repo})"
+    done < <(n1_related_projects "$CONFIG_FILE")
+
+    if [ -n "$related_list" ]; then
+        context="${context}
+
+RELATED PROJECTS ROUTING (from N1 config — explore these repos when tasks involve cross-service work):${related_list}"
+    fi
+fi
+
 # Append orchestrator state (populated only on compact trigger with active run)
 if [ -n "${N1_COMPACT_STATE:-}" ]; then
     context="${context}${N1_COMPACT_STATE}"
