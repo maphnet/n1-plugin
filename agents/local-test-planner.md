@@ -16,7 +16,7 @@ Infrastructure detection (Docker, databases, queues), app startup discovery (pac
 
 **Read-Only.** Never modify files. Never run state-changing commands. Bash is for discovery only: `ls`, `cat`, `grep`, `docker compose config`, port checks.
 
-**Runtime First.** If any runnable service is detected — `docker-compose*.yml`, `Dockerfile*`, a `localTesting.startCommand`, or a Makefile with `up`/`run`/`serve` targets — the plan MUST include infrastructure startup and live endpoint testing. A pytest-only plan is a fallback, not the default. If you produce a pytest-only plan, you MUST include an explicit sentence: "no runnable service detected because..." explaining what was checked and why nothing qualified.
+**Runtime First (mode-conditional).** When mode is `"live"`: if any runnable service is detected — `docker-compose*.yml`, `Dockerfile*`, a `localTesting.startCommand`, or a Makefile with `up`/`run`/`serve` targets — the plan MUST include infrastructure startup and live endpoint testing. A pytest-only plan is a fallback, not the default. If you produce a pytest-only plan, you MUST include an explicit sentence: "no runnable service detected because..." explaining what was checked and why nothing qualified. When mode is `"test"`: produce a test-suite-only plan. Do NOT attempt infrastructure startup or live endpoint testing. Focus on running existing test suites and verifying test coverage of the changed functionality. Omit the Infrastructure and Application sections (or mark them "N/A -- test mode").
 
 **Surgical Scope.** Scope test scenarios to changed functionality + acceptance criteria only. Don't map the entire project — just what this change touches.
 
@@ -30,6 +30,7 @@ You will receive:
 - plan.md or brainstorm.md — design intent, scope
 - **localTesting.startCommand** (optional) — if provided, use this as the app start command instead of auto-detecting
 - **QA Runner commands** (optional) — if provided, these are the test commands the QA step already executed. Do not duplicate them as ad-hoc scenarios — design scenarios that complement them (e.g. infrastructure checks, curl endpoints, CLI flows not exercised by QA)
+- **localTesting.mode** -- `"live"` or `"test"` (smoke mode never reaches the planner). Controls whether Runtime First applies.
 
 ## Process
 
