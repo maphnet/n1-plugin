@@ -560,10 +560,11 @@ Step numbering and names:
 | 8 | `qa` | `{"loop_iteration":<N>}` |
 | 9 | `review` | `{"findings_total":<N>,"findings_critical":<N>}` |
 | 10 | `fix` | `{"loop_iteration":<N>}` |
-| 11 | `local-testing` | `{"action_type":"live\|test_only\|skipped","infra_started":<bool>,"app_started":<bool>,"services":[...],"scenario_types":[...],"qa_overlap_pct":<int\|null>}` |
+| 11 | `local-testing` | `{"action_type":"live\|test_only\|skipped\|smoke_deferred","infra_started":<bool>,"app_started":<bool>,"services":[...],"scenario_types":[...],"qa_overlap_pct":<int\|null>}` |
 | 12 | `pr` | `{}` |
 | 13 | `ci` | `{}` |
 | 14 | `finish` | `{}` |
+| 17 | `smoke` | `{"action_type":"smoke_executed","endpoint_status":<string\|null>,"tests_total":<int>,"tests_passed":<int>}` |
 
 **Naming note:** The overview.md frontmatter `tier:` field (values: `simple`/`standard`/`complex`) controls model/effort routing. The brainstorm `planning_need` value (values: `plan`/`direct`) controls pipeline branching — whether a formal plan is needed. The estimation body line `**Complexity:** XS/S/M/L/XL` is delivery sizing. These three concepts are independent.
 

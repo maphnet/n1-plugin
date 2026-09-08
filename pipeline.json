@@ -89,7 +89,8 @@
     { "name": "ci",             "number": 13, "agent": "developer",             "reads": ["overview.md", "plan.md", "implementation.md"],        "writes": ["overview.md"] },
     { "name": "finish",         "number": 14, "agent": "n1:n1-finish",          "reads": ["overview.md"],                                        "writes": ["overview.md"] },
     { "name": "investigation-deliverable", "number": 15, "agent": "solution-architect", "reads": ["ticket.md", "analysis.md", "brainstorm.md"], "writes": ["investigation.md"] },
-    { "name": "release",        "number": 16, "agent": "n1:n1-release",        "reads": ["overview.md"],                                        "writes": [] }
+    { "name": "release",        "number": 16, "agent": "n1:n1-release",        "reads": ["overview.md"],                                        "writes": [] },
+    { "name": "smoke",          "number": 17, "agent": "n1:n1-finish",         "reads": ["overview.md"],                                        "writes": ["overview.md"] }
   ],
   "manual_only": ["release"],
   "gates": [

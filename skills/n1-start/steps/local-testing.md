@@ -5,6 +5,19 @@ Run `n1_config_val '.localTesting.enabled'` (default: `false`).
 
 **If `localTesting.enabled` is `false`:** Skip to Step 10 (PR CREATION).
 
+**Mode resolution:** Read `n1_config_val '.localTesting.mode'` (default: empty). If empty or absent, infer:
+- If `n1_config_val '.localTesting.startCommand'` returns a non-empty value -> mode is `"live"`
+- Otherwise -> mode is `"test"`
+
+Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
+
+**If mode is `"smoke"`:** Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped -- smoke tests deferred to n1-finish post-deploy". Emit telemetry:
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"smoke_deferred","skip_reason":"smoke_mode"}'
+```
+Skip to Step 10 (PR CREATION).
+
 > **ORCHESTRATOR GUARDRAIL (local testing): do not run test suites, `pytest`/`make test`/`npm test`, coverage runs, package installs (`pip`, `uv`, `npm`), interpreter/venv discovery or repair, or app/infrastructure startup in this step. All execution belongs to the developer spawn in 9c. If the environment is broken, the developer reports it and it is routed through the `local_test_env_failure` escalation — the orchestrator never debugs it inline. The only permitted orchestrator commands here are the memory/config helpers, `git diff --stat` for the auto-skip check, and the Ensure Dependencies fast path.**
 
 **Auto-skip conditions (even when enabled):**
@@ -52,6 +65,7 @@ Resolve model for `local-test-planner`.
 Spawn the local-test-planner agent with:
 - The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/implementation.md` (what changed, which files), `$N1_HOME/memory/<ID>/ticket.md` (acceptance criteria), and `$N1_HOME/memory/<ID>/plan.md` if it exists, else `$N1_HOME/memory/<ID>/brainstorm.md` (design intent, scope). Their content is NOT inlined here."
 - Read `localTesting.startCommand` from config: `n1_config_val '.localTesting.startCommand'` (default: empty). If non-empty, include in the prompt: "The project has a configured start command: `<value>`. Use this as the app start command instead of auto-detecting."
+- Include the resolved mode in the prompt: "The local testing mode is `<LOCAL_TESTING_MODE>`. If mode is `test`, suppress Runtime First -- produce a test-suite-only plan with no infrastructure startup. If mode is `live`, enforce Runtime First as usual."
 - If `QA_RUNNER_CMDS` is set (from the QA dedup gate above), include in the prompt: "The QA step already ran these test commands: `<QA_RUNNER_CMDS value, one per line>`. Do not duplicate these as ad-hoc scenarios — design test scenarios that complement them (e.g. infrastructure checks, curl endpoints, CLI flows that QA did not exercise)."
 - Directive: "Output the plan in this exact structure:"
 
