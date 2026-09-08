@@ -164,6 +164,62 @@ If the data shows brainstorm is not the dominant compaction source, Stage 2 is n
 
 **Note:** This procedure requires `telemetry.enabled: true` in config and at least one full pipeline run that produced `started_at`/`completed_at` step events for `brainstorm`. If brainstorm step events are missing, the compaction-to-step attribution cannot be performed.
 
+## Local Testing Effectiveness
+
+Aggregate `local-testing` step events across all runs to characterize how local testing is being used. A run contributes to this section only when its `local-testing` step event has a non-empty `metadata` field (runs before v2.97.0 may have empty metadata — include them in counts but exclude from rate calculations).
+
+### Action-Type Distribution
+
+Count runs by `action_type` value:
+
+| action_type | Count | % of local-testing runs |
+|-------------|-------|------------------------|
+| live | N | X% |
+| test_only | N | X% |
+| skipped | N | X% |
+
+`skipped` runs carry `{"skip_reason":"qa_dedup"}` in metadata (pre-v2.97.0 skip path) or `{"action_type":"skipped"}` (v2.97.0+). Count both forms as `skipped`. Include auto-skip runs (documentation-only changes, no testable scenarios) in the `skipped` bucket as well.
+
+### Infrastructure Start Rate
+
+Across non-skipped runs with metadata:
+- Runs where `infra_started: true`: N (X%)
+- Runs where `infra_started: false` (test_only): N (X%)
+
+A high `test_only` rate indicates projects where infrastructure is consistently unavailable or not needed. A high `live` rate indicates projects with real integration testing.
+
+### Common Services and Scenario Types
+
+**Top services started** (from `services[]` across all `live` runs):
+
+| Service | Runs | % of live runs |
+|---------|------|----------------|
+| postgres | N | X% |
+| redis | N | X% |
+| ... | ... | ... |
+
+**Scenario type distribution** (from `scenario_types[]` across non-skipped runs):
+
+| Type | Runs | % of non-skipped runs |
+|------|------|-----------------------|
+| curl | N | X% |
+| CLI | N | X% |
+| browser | N | X% |
+
+### QA Overlap
+
+Across runs with `qa_overlap_pct` not null:
+- Average qa_overlap_pct: X%
+- p50: X%, p90: X%
+- Runs with 0% overlap (fully complementary to QA): N (X%)
+- Runs with >50% overlap (mostly duplicating QA): N (X%)
+
+A low average overlap confirms local testing is complementary to the QA step rather than redundant. A high overlap may indicate the QA dedup gate threshold needs tuning.
+
+Runs with `qa_overlap_pct: null` (no QA runner commands found or pre-v2.97.0): excluded from this calculation — note count separately.
+
+**Backward compatibility:** Runs emitted before v2.97.0 have `metadata: {}` for the local-testing step. Report them as "legacy runs (no metadata)" and exclude them from all rate calculations above.
+
 ## Output Format
 
 Present the full report as markdown. End with:
