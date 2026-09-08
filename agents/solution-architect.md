@@ -59,6 +59,14 @@ You will receive:
 
 8. **Synthesize:** Produce the analysis report in the output format below.
 
+9. **Cross-repo exploration (when related projects provided):** When the orchestrator passes a list of related projects with their project map paths and repo paths:
+   a. Assess relevance — does the current ticket involve any of these projects? Check: ticket mentions a related service name, code analysis found cross-repo imports/calls, bug symptoms suggest a cross-service issue. Use each project's `reason` field as a relevance hint.
+   b. For relevant projects: read their project map (~300-500 tokens each) to understand structure.
+   c. Use the map to identify which specific files to read from the related repo (via absolute path from `repoPath`).
+   d. Incorporate findings into a `### Cross-Repo Context` section in your analysis.
+   e. If you explore a project NOT in the related projects list (e.g., you discover a dependency by following imports), note it in your return text as: `XREPO_SUGGEST: <slug> <reason>` — the orchestrator will handle the suggestion.
+   f. If you need a related project's map but it doesn't exist or the orchestrator tells you it's stale, generate it yourself: scan the related repo's directory structure, CLAUDE.md, exports, API surface, and write the map to the provided path.
+
 ## Output Format
 
 ```markdown
@@ -103,6 +111,10 @@ You will receive:
 ### Recommended Patterns
 <which existing patterns to follow, with file:line references>
 
+### Cross-Repo Context (when related projects explored)
+- <project slug>: <what was found, how it relates to this task, key file:line references from the related repo>
+(or omit this section entirely if no related projects were explored)
+
 ### Tier Assessment
 tier: <simple|standard|complex> [confirmed|revised from <previous>]
 reason: <one-line reason for confirmation or revision>
@@ -125,6 +137,7 @@ The orchestrator passes you output paths. You write your artifacts yourself and 
 **File writes (via Bash tool — see #44657 note):**
 1. **analysis.md** — always provided. Write your full analysis report (Output Format above) to this path using Bash (heredoc/cat redirect), NOT the Write tool.
 2. **Snapshot file** — provided on cold/stale cache paths only. When given a snapshot path and a `lib/cache.sh` path, persist `[PROJECT]` sections by sourcing `lib/cache.sh` and calling `n1_snapshot_write "$SNAPSHOT_PATH" "$PROJECT_CONTENT" "$GIT_SHA"` via Bash. Strip the `[PROJECT] ` prefix from headings before passing as `$PROJECT_CONTENT`. For `[TICKET]` sections, strip the `[TICKET] ` prefix and write those to analysis.md.
+3. **Project map file** — provided on cold/stale cache paths only (alongside snapshot). Write a structural index of the current project to the provided path using Bash (heredoc/cat redirect). Format: frontmatter (`schema_version: 1`, `generated_at`, `git_sha`, `git_sha_short`, `generator: solution-architect`) followed by sections: `## Modules` (directory → purpose, one line each), `## API Surface` (method path → handler file:line), `## Exports & Shared Types` (name → file:line → consumer count), `## Integration Points` (consumes/exposes with protocol and file ref), `## Key Files` (navigation-critical files). Target: 300-500 tokens. This is a table of contents for navigation — not an architecture narrative.
 
 <!-- #44657: Claude Code harness may refuse Write tool calls targeting files named
      "analysis.md" (blocked-filename family). Always use Bash heredoc/cat redirect
@@ -132,7 +145,7 @@ The orchestrator passes you output paths. You write your artifacts yourself and 
 
 **Returned text (to orchestrator):**
 ```
-n1:signals blast_radius=<low|medium|high> security_relevant=<true|false> files_changed=<number> complexity_delta=<simple|standard|complex> has_bug_root_cause=<true|false>
+n1:signals blast_radius=<low|medium|high> security_relevant=<true|false> files_changed=<number> complexity_delta=<simple|standard|complex> has_bug_root_cause=<true|false> cross_repo_explored=<true|false>
 tier: <simple|standard|complex> [confirmed|revised from <previous>]
 context: |
   <2-8 lines of plain prose, 50-100 words>
@@ -146,6 +159,7 @@ Signal values:
 - `files_changed`: estimated count of files the task will modify (integer)
 - `complexity_delta`: the final tier from your Tier Assessment (`simple`, `standard`, or `complex`)
 - `has_bug_root_cause`: `true` only for bug-type tickets where a specific root cause was identified in Bug Investigation; `false` for all other ticket types and for bugs where root cause is unresolved
+- `cross_repo_explored`: `true` if any related project's code was read during analysis; `false` otherwise (including when no related projects were provided)
 
 Do NOT return the full analysis report — it is in the file you wrote. Return only the compact block above.
 
