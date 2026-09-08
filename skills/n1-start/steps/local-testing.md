@@ -172,8 +172,77 @@ After the agent returns:
   ```
   If missing/empty (agent failed to write), write the returned compact summary block to `local-testing.md` as a fallback and note the gap in overview's `## Key Decisions`.
 
+- Extract telemetry metadata from the report and plan. Run via Bash:
+  ```bash
+  LOCAL_TESTING_REPORT="$N1_HOME/memory/$ID/local-testing.md"
+  LOCAL_TEST_PLAN="$N1_HOME/memory/$ID/local-test-plan.md"
+  QA_MD="$N1_HOME/memory/$ID/qa.md"
+
+  # Parse Infrastructure Status from report (first Status: line, under ### Infrastructure)
+  INFRA_STATUS=$(awk '/^### Infrastructure/{found=1} found && /\*\*Status:\*\*/{print; exit}' "$LOCAL_TESTING_REPORT" | sed 's/.*\*\*Status:\*\* *//')
+  if echo "$INFRA_STATUS" | grep -qiE '\bup\b|started|running'; then
+    INFRA_STARTED=true
+  else
+    INFRA_STARTED=false
+  fi
+
+  # Parse Application Status from report (Status: line under ### Application)
+  APP_STATUS=$(awk '/^### Application/{found=1} found && /\*\*Status:\*\*/{print; exit}' "$LOCAL_TESTING_REPORT" | sed 's/.*\*\*Status:\*\* *//')
+  if echo "$APP_STATUS" | grep -qiE 'running|started|\bup\b'; then
+    APP_STARTED=true
+  else
+    APP_STARTED=false
+  fi
+
+  # Derive action_type from infra_started
+  if [ "$INFRA_STARTED" = "true" ]; then
+    ACTION_TYPE="live"
+  else
+    ACTION_TYPE="test_only"
+  fi
+
+  # Extract services list from plan (Services required: line under ### Infrastructure)
+  SERVICES_RAW=$(awk '/^### Infrastructure/{found=1} found && /Services required:/{print; exit}' "$LOCAL_TEST_PLAN" 2>/dev/null | sed 's/.*Services required: *//')
+  if [ -z "$SERVICES_RAW" ] || echo "$SERVICES_RAW" | grep -qi '^none$'; then
+    SERVICES_JSON="[]"
+  else
+    # Convert comma/space-separated service names to JSON array
+    SERVICES_JSON=$(echo "$SERVICES_RAW" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$' | sed 's/\(.*\)/"\1"/' | paste -sd ',' | sed 's/^/[/;s/$/]/')
+  fi
+
+  # Extract scenario method types from plan (Method: curl/CLI/browser/script)
+  TYPES_RAW=$(grep -oiE 'Method: [A-Za-z]+' "$LOCAL_TEST_PLAN" 2>/dev/null | sed 's/Method: *//' | sort -u | tr '\n' ',' | sed 's/,$//')
+  if [ -z "$TYPES_RAW" ]; then
+    SCENARIO_TYPES_JSON="[]"
+  else
+    SCENARIO_TYPES_JSON=$(echo "$TYPES_RAW" | tr ',' '\n' | sed 's/\(.*\)/"\1"/' | paste -sd ',' | sed 's/^/[/;s/$/]/')
+  fi
+
+  # Compute qa_overlap_pct: fraction of QA runner commands also present in the local test plan
+  QA_RUNNER_COUNT=$(grep -c 'Runner command:' "$QA_MD" 2>/dev/null || echo 0)
+  if [ "$QA_RUNNER_COUNT" -gt 0 ]; then
+    MATCH_COUNT=0
+    while IFS= read -r rcmd; do
+      rcmd_trimmed=$(echo "$rcmd" | sed 's/^ *//;s/ *$//')
+      [ -z "$rcmd_trimmed" ] && continue
+      grep -qF "$rcmd_trimmed" "$LOCAL_TEST_PLAN" 2>/dev/null && MATCH_COUNT=$((MATCH_COUNT + 1))
+    done < <(grep 'Runner command:' "$QA_MD" | sed 's/.*Runner command: *//')
+    QA_OVERLAP_PCT=$((MATCH_COUNT * 100 / QA_RUNNER_COUNT))
+  else
+    QA_OVERLAP_PCT=null
+  fi
+
+  LOCAL_TESTING_METADATA="{\"action_type\":\"$ACTION_TYPE\",\"infra_started\":$INFRA_STARTED,\"app_started\":$APP_STARTED,\"services\":$SERVICES_JSON,\"scenario_types\":$SCENARIO_TYPES_JSON,\"qa_overlap_pct\":$QA_OVERLAP_PCT}"
+  echo "$LOCAL_TESTING_METADATA"
+  ```
+
 **If verdict is PASS:**
 - Update overview: `[x] Local Testing`, set `step: local-testing`
+- Emit step-end telemetry:
+  ```bash
+  source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+  n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=pass loop_iteration=null metadata="$LOCAL_TESTING_METADATA"
+  ```
 - Proceed to Step 10 (PR CREATION)
 
 **If verdict is FAIL:**
