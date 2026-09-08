@@ -366,7 +366,7 @@ XREPO_METADATA="{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL},\"cross_repo_pro
 
 # Emit analysis step completed event
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
-n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "analysis" 2 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=completed loop_iteration=null metadata="$XREPO_METADATA"
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "analysis" 2 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=pass loop_iteration=null metadata="$XREPO_METADATA"
 ```
 
 If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`:
