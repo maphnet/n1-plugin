@@ -31,7 +31,6 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 RELATED_CONTEXT=""
 PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME")
-PROJECT_MAP_STALE=false
 
 if [ "$RELATED_ENABLED" = "true" ]; then
     MAX_AGE=$(n1_config_val ".relatedProjects.maxSnapshotAge" "$N1_HOME/config.json")
@@ -334,7 +333,10 @@ if [ -n "$XREPO_SUGGESTS" ]; then
 
         if [ "$autonomy_mode" = "auto" ]; then
             n1_related_add "$N1_HOME/config.json" "$xr_slug" "$xr_reason" "auto"
-            printf '| analysis | cross-repo | B | [auto] | New integration with %s detected by SA | Added to related projects | — | XREPO_SUGGEST: %s | --- |\n' "$xr_slug" "$xr_reason" >> "$N1_HOME/memory/$ID/overview.md"
+            if ! grep -q '^## Decision Ledger' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null; then
+                printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$N1_HOME/memory/$ID/overview.md"
+            fi
+            printf '| analysis | scope | B | [auto] | New integration with %s detected by SA | Added to related projects | — | XREPO_SUGGEST: %s | --- |\n' "$xr_slug" "$xr_reason" >> "$N1_HOME/memory/$ID/overview.md"
         else
             XREPO_PENDING_SLUGS="${XREPO_PENDING_SLUGS:+$XREPO_PENDING_SLUGS }${xr_slug}"
             XREPO_PENDING_REASONS="${XREPO_PENDING_REASONS:+$XREPO_PENDING_REASONS\n}${xr_slug}: ${xr_reason}"
@@ -358,8 +360,13 @@ XREPO_MAPS_GENERATED=$(echo "$AGENT_OUTPUT" | grep -c 'Writing project map to' |
 # Count new discoveries (from XREPO_SUGGEST lines)
 XREPO_DISCOVERY_NEW=$(echo "$XREPO_SUGGESTS" | grep -c '^XREPO_SUGGEST: ' 2>/dev/null || echo 0)
 
-# Append to step event metadata
-XREPO_METADATA="\"cross_repo_explored\":\"${CROSS_REPO_EXPLORED:-false}\",\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}"
+# Build completed-step metadata JSON object
+XREPO_EXPLORED_BOOL="${CROSS_REPO_EXPLORED:-false}"
+XREPO_METADATA="{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL},\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}}"
+
+# Emit analysis step completed event
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "analysis" 2 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=completed loop_iteration=null metadata="$XREPO_METADATA"
 ```
 
 If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`:
