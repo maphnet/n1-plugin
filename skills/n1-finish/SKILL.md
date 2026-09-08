@@ -40,6 +40,9 @@ Read the `finishWork` block via `n1_config_val`, applying defaults when keys are
 | `.finishWork.deployWatch.timeoutMinutes` | `30` |
 | `.finishWork.closeTicket` | `true` |
 | `.finishWork.waitForMergeMinutes` | `10` |
+| `.localTesting.mode` | `null` (infer from startCommand) |
+| `.localTesting.smokeEndpoint` | `null` |
+| `.localTesting.smokeTests` | `[]` |
 
 Also read `git.prMode` (fallback chain: `git.prMode` → `git.draftPR: false` = `"ready"` → `"draft"`), `git.defaultBranch`, `git.branchPattern`, `tracker.mcp`, `tracker.operations`, `tracker.statuses`.
 
@@ -161,6 +164,47 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
    - **Any `failure`** → fetch logs: `gh run view <databaseId> --log-failed 2>&1 | head -200`. Report the failed run + URL. Add tracker comment (when tracker configured): "Deployment failed after merging <PR URL>: <run URL>". **Do not close the ticket.** **STOP.**
    - **Timeout with runs still in progress** → report the still-running run URLs; "Deploy still running — re-run `/n1:n1-finish` to resume watching." **STOP.**
 
+## Step 3b: Post-Deploy Smoke Verification (when `localTesting.mode` is `"smoke"`)
+
+**Gate:** read `localTesting.mode` from config. If mode is not `"smoke"` -> skip to Step 4.
+Also skip if deploy status from Step 3 is `failed` (deployment failed -- no point in smoke testing).
+
+**Smoke execution:**
+
+1. If `localTesting.smokeEndpoint` is configured, run a health check:
+   ```bash
+   HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "<smokeEndpoint>")
+   echo "Smoke endpoint status: $HTTP_STATUS"
+   ```
+   - 2xx -> PASS
+   - Other -> FAIL (report status code)
+
+2. If `localTesting.smokeTests` array is non-empty, execute each command sequentially:
+   ```bash
+   # For each command in smokeTests array:
+   eval "<command>" 2>&1
+   # Record exit code: 0 = PASS, non-zero = FAIL
+   ```
+   Continue through all commands even if some fail.
+
+3. If neither `smokeEndpoint` nor `smokeTests` is configured -> skip with message: "Smoke mode is configured but no smoke endpoint or tests defined. Configure `localTesting.smokeEndpoint` or `localTesting.smokeTests` in config." Proceed to Step 4.
+
+**Results:**
+- All PASS -> smoke status `passed`. Proceed to Step 4.
+- Any FAIL -> smoke status `failed`. Report failures. Add tracker comment (when tracker configured): "Post-deploy smoke tests failed after merging <PR URL>: <failure details>". Proceed to Step 4 (do not block ticket close -- the code is already merged; failures are informational).
+
+**Telemetry:**
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+SMOKE_OUTCOME=$( [ "$SMOKE_ALL_PASSED" = "true" ] && echo "pass" || echo "fail" )
+n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "smoke" 17 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=$SMOKE_OUTCOME loop_iteration=null metadata="{\"action_type\":\"smoke_executed\",\"endpoint_status\":\"$HTTP_STATUS\",\"tests_total\":$TESTS_TOTAL,\"tests_passed\":$TESTS_PASSED}"
+```
+
+**Memory:** Add to the `## Finish` section in overview.md:
+```markdown
+- **Smoke:** <passed | failed (<details>) | skipped (not configured) | skipped (deploy failed)>
+```
+
 ## Step 4: Close Ticket
 
 **Hard-skip gates** — when either holds, skip immediately with the stated reason and go to Step 5:
@@ -192,6 +236,7 @@ If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipp
    - **Merged:** <sha> (<method>, by <auto-merge|reviewer>)
    - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged)>
    - **Deploy:** <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
+   - **Smoke:** <passed | failed (<details>) | skipped (not configured) | skipped (deploy failed) | n/a>
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    ```
    If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate). Set frontmatter:
@@ -216,6 +261,7 @@ Finish complete.
 
 PR: <url> — merged (<method>, by <auto-merge|reviewer>)
 Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
+Smoke: <passed | failed (<details>) | skipped (not configured) | skipped (deploy failed) | n/a (mode is not smoke)>
 Ticket: <ID> → <done status> / left open (<reason>) / tracker not configured
 Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | nothing to do>
 Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
