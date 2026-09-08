@@ -1144,21 +1144,71 @@ Requires the app to be startable from the command line.
 }
 ```
 
+Then run the **Startup Detection** flow below.
+
+### Startup Detection Heuristics
+
+Check the project root for the following files in priority order:
+
+| Priority | File Pattern | Suggested startCommand | Notes |
+|----------|-------------|----------------------|-------|
+| 1 | `docker-compose.yml` or `compose.yml` | `docker compose up -d` | Most deterministic |
+| 2 | `Makefile` with targets matching `^(up\|run\|serve\|start\|dev):` | `make <first matching target>` | Simple target grep |
+| 3 | `package.json` with `dev` or `start` in `scripts` | `npm run dev` (prefer `dev` over `start`) | Check `dev` first |
+| 4 | `manage.py` in project root | `python manage.py runserver` | Django convention |
+| 5 | `Procfile` | Command from `web:` line, or `heroku local` | Extract after `web:` prefix |
+
+Use the **highest-priority match only**. When multiple files are detected, mention the others for user awareness.
+
+**If at least one file is detected**, present:
+```
+Detected <file> in project root.
+Suggested start command: <command>
+(Also detected: <other files>, if any)
+
+1 — Accept
+2 — Customize (enter your own command)
+3 — Skip
+```
+
+- **1 (Accept):** Write suggested command to `localTesting.startCommand` in config.
+- **2 (Customize):** Prompt: "Enter your start command:". Write user's input to `localTesting.startCommand`.
+- **3 (Skip):** Leave `startCommand` absent.
+
+**If no files are detected:**
+```
+No startup mechanism detected. You can configure `localTesting.startCommand` manually later.
+```
+Leave `startCommand` absent.
+
+**After startCommand is accepted or customized (not skipped)**, offer teardown:
+```
+Optional: enter a teardown command for cleanup (e.g., docker compose down -v):
+1 — Enter teardown command
+2 — Skip
+```
+- **1 (Enter):** Prompt: "Enter your teardown command:". Write to `localTesting.teardownCommand`.
+- **2 (Skip):** Leave `teardownCommand` absent.
+
 ### On reconfiguration (n1-init re-run):
 
 If `localTesting` already exists in the current config, show current state and offer:
 ```
-Current local testing:
-  enabled → <true/false>
-  maxFixAttempts → <value>
+Current local testing configuration:
+  Enabled: <true/false>
+  Start command: <current value or "(not set)">
+  Teardown command: <current value or "(not set)">
+  maxFixAttempts: <value>
 
 1 — Keep current
 2 — Enable
 3 — Disable
+4 — Reconfigure start/teardown commands
 ```
 - **1** → leave unchanged.
-- **2** → set `enabled: true`, `maxFixAttempts: 3`.
-- **3** → set `enabled: false`. Remove `maxFixAttempts` key.
+- **2** → set `enabled: true`, `maxFixAttempts: 3`. Then run the Startup Detection flow above.
+- **3** → set `enabled: false`. Remove `maxFixAttempts`, `startCommand`, and `teardownCommand` keys.
+- **4** → run the Startup Detection flow above (regardless of enabled state).
 
 If `localTesting` is absent from the current config, run the fresh-setup flow above.
 
