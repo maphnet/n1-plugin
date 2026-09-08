@@ -23,6 +23,44 @@ fi
 
 ```
 
+**Related projects context:**
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+
+RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
+RELATED_CONTEXT=""
+PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME")
+PROJECT_MAP_STALE=false
+
+if [ "$RELATED_ENABLED" = "true" ]; then
+    MAX_AGE=$(n1_config_val ".relatedProjects.maxSnapshotAge" "$N1_HOME/config.json")
+    MAX_AGE="${MAX_AGE:-72h}"
+
+    RELATED_LINES=""
+    while IFS=$'\t' read -r slug reason repo_path; do
+        [ -z "$slug" ] && continue
+        peer_map=$(n1_related_project_map "$slug")
+        map_state=$(n1_project_map_check_freshness "$peer_map" "$MAX_AGE") || true
+
+        RELATED_LINES="${RELATED_LINES}
+- **${slug}** (${reason}): map=${map_state}, mapPath=${peer_map}, repoPath=${repo_path}"
+    done < <(n1_related_projects "$N1_HOME/config.json")
+
+    if [ -n "$RELATED_LINES" ]; then
+        RELATED_CONTEXT="
+RELATED PROJECTS (from N1 config — explore when relevant to the current task):
+${RELATED_LINES}
+
+For each relevant project:
+1. If map is 'fresh', read the map file at mapPath for navigation context.
+2. If map is 'stale' or 'cold', generate the map yourself: scan the repo at repoPath (directory structure, CLAUDE.md, exports, API surface), write to mapPath using Bash.
+3. Use repoPath + relative paths from the map to read specific files.
+4. Include findings in a '### Cross-Repo Context' section of your analysis."
+    fi
+fi
+```
+
 Run SKILL.md § Rules Injection with `agent_name=solution-architect`, no `changed_files_source` — analysis runs before implementation; CHANGED_FILES will be empty, matching rules by agent name only.
 
 The `CACHE_STATE` variable (`cold`, `stale`, or `fresh`) determines the dispatch path below. When `analysisCache.enabled` is `false`, `CACHE_STATE` stays `cold` and the step always runs full analysis. When `analysisCache` is absent from config, the cache defaults to enabled.
@@ -57,6 +95,7 @@ Resolve model for `solution-architect` with context `analysis`.
      to Write without verifying #44657 is resolved in the target harness version. -->
 
 - Output-path directive: "Write your full analysis report to `$N1_HOME/memory/<ID>/analysis.md` yourself using your Bash tool (cat heredoc redirect — do NOT use the Write tool for this file, ref #44657). Write ONLY to the provided paths under `$N1_HOME`. Return to the orchestrator ONLY this compact block: your `n1:signals` line, `tier:` line, optional `SNAPSHOT_DRIFT:` line, and a 3-10 line summary. Do NOT return the full analysis report — it is in the file you wrote."
+- Project map output-path directive (when `CACHE_STATE` is `cold` or `stale` AND `CACHE_ENABLED` is `true`): "Also write a project map (structural index) for THIS project to `<PROJECT_MAP_PATH>` using Bash (cat heredoc redirect). Format: frontmatter (schema_version: 1, generated_at, git_sha, git_sha_short, generator: solution-architect) + sections: ## Modules, ## API Surface, ## Exports & Shared Types, ## Integration Points, ## Key Files. Target 300-500 tokens. This is a navigation index, not an architecture document."
 
 **Prompt construction depends on CACHE_STATE:**
 
@@ -149,6 +188,8 @@ If `observability` is configured (not null) in `$N1_HOME/config.json`:
 7. If the task type is `bug` (not from error tracker), append directive: "Query the available observability sources for errors, logs, and traces related to this bug. Include findings in an `### Observability Findings` section of your output."
 8. For all other task types, append directive: "Observability sources are available. If relevant to understanding the system behavior for this task, query them for context. Include any relevant findings in an `### Observability Findings` section."
 
+If `$RELATED_CONTEXT` is non-empty, append it to the SA prompt after the observability enrichment block.
+
 After the agent returns:
 
 **Post-return verification — analysis.md (all paths):**
@@ -175,6 +216,16 @@ if [ ! -f "$SNAPSHOT_PATH" ] || [ ! -s "$SNAPSHOT_PATH" ]; then
     # Do NOT fail the pipeline for this.
     echo "Snapshot persistence failed — cache remains cold."
     # Log in overview's ## Key Decisions
+fi
+```
+
+**Post-return verification — project map (cold/stale + cache enabled):**
+
+```bash
+if [ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ]; then
+    if [ ! -f "$PROJECT_MAP_PATH" ] || [ ! -s "$PROJECT_MAP_PATH" ]; then
+        echo "Project map persistence failed — map will be generated on next run."
+    fi
 fi
 ```
 
@@ -263,6 +314,52 @@ SELF_RESOLVED=$(grep -c '<!-- n1:resolved:' "$N1_HOME/memory/$ID/analysis.md" 2>
 if [ "$SELF_RESOLVED" -gt 0 ]; then
     n1_write_signals "$N1_HOME/memory/$ID/analysis.md" "self_resolved=$SELF_RESOLVED"
 fi
+```
+
+**Parse cross-repo signals:**
+
+```bash
+CROSS_REPO_EXPLORED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "cross_repo_explored")
+
+# Handle XREPO_SUGGEST lines (runtime discovery during analysis)
+XREPO_SUGGESTS=$(echo "$AGENT_OUTPUT" | grep '^XREPO_SUGGEST: ' || true)
+if [ -n "$XREPO_SUGGESTS" ]; then
+    source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+    autonomy_mode=$(n1_autonomy_val "mechanicalPrompts")
+
+    while IFS= read -r line; do
+        xr_slug=$(echo "$line" | sed 's/^XREPO_SUGGEST: //' | awk '{print $1}')
+        xr_reason=$(echo "$line" | sed 's/^XREPO_SUGGEST: [^ ]* //')
+        [ -z "$xr_slug" ] && continue
+
+        if [ "$autonomy_mode" = "auto" ]; then
+            n1_related_add "$N1_HOME/config.json" "$xr_slug" "$xr_reason" "auto"
+            printf '| analysis | cross-repo | B | [auto] | New integration with %s detected by SA | Added to related projects | — | XREPO_SUGGEST: %s | --- |\n' "$xr_slug" "$xr_reason" >> "$N1_HOME/memory/$ID/overview.md"
+        else
+            XREPO_PENDING_SLUGS="${XREPO_PENDING_SLUGS:+$XREPO_PENDING_SLUGS }${xr_slug}"
+            XREPO_PENDING_REASONS="${XREPO_PENDING_REASONS:+$XREPO_PENDING_REASONS\n}${xr_slug}: ${xr_reason}"
+        fi
+    done < <(printf '%s\n' "$XREPO_SUGGESTS")
+fi
+```
+
+**Cross-repo telemetry metadata:**
+
+```bash
+# Count explored projects (from the ### Cross-Repo Context section of analysis.md)
+XREPO_PROJECTS=""
+if [ "$CROSS_REPO_EXPLORED" = "true" ]; then
+    XREPO_PROJECTS=$(grep -oP '^\- \*\*\K[^*]+' "$N1_HOME/memory/$ID/analysis.md" | tr '\n' ',' | sed 's/,$//')
+fi
+
+# Count on-demand maps generated (from agent output)
+XREPO_MAPS_GENERATED=$(echo "$AGENT_OUTPUT" | grep -c 'Writing project map to' || echo 0)
+
+# Count new discoveries (from XREPO_SUGGEST lines)
+XREPO_DISCOVERY_NEW=$(echo "$XREPO_SUGGESTS" | grep -c '^XREPO_SUGGEST: ' 2>/dev/null || echo 0)
+
+# Append to step event metadata
+XREPO_METADATA="\"cross_repo_explored\":\"${CROSS_REPO_EXPLORED:-false}\",\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}"
 ```
 
 If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`:
