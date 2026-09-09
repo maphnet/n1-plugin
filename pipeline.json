@@ -75,7 +75,7 @@
   },
   "steps": [
     { "name": "ticket",         "number": 1,  "agent": "intake-agent,product-analyst", "reads": [],                                                     "writes": ["ticket.md"] },
-    { "name": "analysis",       "number": 2,  "agent": "solution-architect",    "reads": ["ticket.md"],                                          "writes": ["analysis.md"] },
+    { "name": "analysis",       "number": 2,  "agent": "solution-architect",    "reads": ["ticket.md"],                                          "writes": ["analysis.md", "project-map.md"] },
     { "name": "brainstorm",     "number": 3,  "agent": "superpowers:brainstorming", "reads": ["ticket.md", "analysis.md"],                       "writes": ["brainstorm.md"] },
     { "name": "plan",           "number": 4,  "agent": "planner",               "reads": ["ticket.md", "brainstorm.md", "analysis.md"],          "writes": ["plan.md"] },
     { "name": "plan-review",    "number": 5,  "agent": "solution-architect",    "reads": ["ticket.md", "analysis.md", "brainstorm.md", "plan.md"], "writes": ["plan.md"] },

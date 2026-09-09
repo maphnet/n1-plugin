@@ -106,6 +106,12 @@ Each provider requires `instructions` (free-text). Optional: `env` (ties to envi
 
 The session-start hook injects OBSERVABILITY ROUTING context when configured, providing the model with provider names, env tags, and access details.
 
+### Cross-Repo Awareness
+
+Optional cross-repo exploration during analysis and investigation. Gated on `relatedProjects.enabled` in `$N1_HOME/config.json` (default `false`). See [references/architecture.md](references/architecture.md) for details.
+
+The session-start hook injects RELATED PROJECTS ROUTING context when configured, providing the model with related project slugs, reasons, and repo paths.
+
 ## Escalation Safety
 
 Always escalate: security, architecture, public API changes.
