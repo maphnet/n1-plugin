@@ -1,4 +1,6 @@
 
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+
 Run `n1_config_val '.localTesting.enabled'` (default: `false`).
 
 > The gate key (`localTesting.enabled`) and its default (`false`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
@@ -103,23 +105,7 @@ Spawn the local-test-planner agent with:
 After the agent returns:
 - Write its output to `$N1_HOME/memory/<ID>/local-test-plan.md`
 
-**Edge case — no testable scenarios:** If the plan has no existing e2e suite (`### Existing E2E Tests` Framework is "None" and Run command is "N/A") AND zero ad-hoc test scenarios in `### Automated Test Scenarios`, auto-skip: "Local testing analysis found no testable scenarios for this change. Proceeding to PR." Update overview: `[x] Local Testing`, set `step: local-testing`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10. If the plan has a valid e2e suite, do NOT auto-skip even if there are zero ad-hoc scenarios.
-
-#### 9b. PLAN SUMMARY
-
-Read `local-test-plan.md`. Print to the user:
-
-```
-Local Testing Plan for <ID>:
-
-Infrastructure: <services summary or "None needed">
-App start: <start command> → <readiness signal>
-E2E suite: <framework and run command, or "None detected">
-Ad-hoc scenarios: <N> automated checks, <M> manual verification items
-Estimated time: <time estimate>
-```
-
-Proceed to 9c (EXECUTION).
+**Edge case — no testable scenarios:** If the plan has no existing e2e suite (`### Existing E2E Tests` Framework is "None" and Run command is "N/A") AND zero ad-hoc test scenarios in `### Automated Test Scenarios`, auto-skip: Record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="no testable scenarios"`. Do not print here — Gate 3 will emit `Local Testing: SKIPPED — no testable scenarios` in the Done summary. Update overview: `[x] Local Testing`, set `step: local-testing`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10. If the plan has a valid e2e suite, do NOT auto-skip even if there are zero ad-hoc scenarios.
 
 #### 9c. EXECUTION (developer)
 
@@ -296,6 +282,7 @@ After developer returns:
   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
   n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "local_test_fix_cycle"
   ```
+- Emit one fix-loop iteration line (exempt from inter-gate silence per D2): `<ID> · local-test fix cycle <N>/<MAX>`
 - Re-run FULL execution (Step 9c) — all scenarios, not just failed ones (catches regressions)
 - **Bounded loop:** read `local_test_fix_cycle` from overview frontmatter. Stop after `localTesting.maxFixAttempts` cycles (config, default 3). On exhaustion, escalate instead of looping forever. The bound and its default are declared in `pipeline.json` `loops[]` (`local_testing_fix`).
 
