@@ -1,4 +1,6 @@
 
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+
 **Telemetry (if enabled):** Emit `started_at` for step 8 (`qa`) before spawning the qa-engineer. This applies to both the initial run and any re-entry after a QA fix cycle:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
@@ -210,6 +212,7 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
     source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
     n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
     ```
+  - Emit one fix-loop iteration line (exempt from inter-gate silence per D2): `<ID> · QA fix cycle <N>/<MAX>`
   - **Bounded loop:** stop after `qa.maxFixAttempts` cycles (config, default 3). On exhaustion, escalate instead of looping forever. The counter is persisted, so the bound survives a resume. The bound and its default are declared in `pipeline.json` `loops[]` (`qa_fix`).
 
 **On fix-loop exhaustion:**

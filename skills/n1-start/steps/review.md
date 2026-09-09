@@ -1,4 +1,6 @@
 
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+
 **Telemetry (if enabled):** Emit `started_at` for step 9 (`review`) before spawning reviewers. This applies to both the initial review and any re-review pass after a fix cycle:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
