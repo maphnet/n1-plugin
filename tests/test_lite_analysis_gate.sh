@@ -5,6 +5,8 @@
 #      documented truth table under n1_eval_signal_gate
 #   2. n1_record_decision snapshots the referenced signal
 #   3. the skill contains the suppression sentinels the gate depends on
+#   4. the executable Bash predicate that assigns LITE_MODE (all three copies)
+#      is drift-free and matches the same truth table
 #
 # Run: bash tests/test_lite_analysis_gate.sh
 # Expected: all tests PASS; exit 0.
@@ -135,6 +137,76 @@ assert_contains "T32: project-map verification skipped in lite" "$SKILL" \
     'if [ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then'
 assert_contains "T33: LITE_MODE re-derived in project-map verification block" "$SKILL" \
     "# Re-derived for project-map verification: LITE_MODE was set in a different Bash invocation."
+assert_contains "T34: fresh path applies the lite directives" "$SKILL" \
+    "**When \`LITE_MODE\` is \`true\`, also apply the lite scope directive and the lite escape-hatch directive from shared spawn directives.**"
+assert_contains "T35: fresh-path web-research bullet omitted in lite" "$SKILL" \
+    "(Omit this bullet from the prompt entirely when \`LITE_MODE\` is \`true\`"
+assert_contains "T36: lite ban is proactive-only, unknown resolution keeps WebSearch" "$SKILL" \
+    "You MAY still use WebSearch to resolve a specific unknown before escalating it to the user"
+assert_contains "T37: snapshot post-return verification is lite-aware" "$SKILL" \
+    "AND \`\$CACHE_ENABLED\` is \`true\` AND \`LITE_MODE\` is \`false\`"
+assert_contains "T38: Tier Assessment section is never optional in lite" "$SKILL" \
+    "The \`### Tier Assessment\` section is never optional"
+
+# ---------------------------------------------------------------------------
+# The executable predicate itself. T2-T12 above exercise the *descriptive*
+# telemetry condition JSON; the Bash `if` that actually assigns LITE_MODE is a
+# separate artifact, duplicated three times in the skill. Extract every copy,
+# prove they have not drifted apart, and run each against the same truth table.
+# ---------------------------------------------------------------------------
+PRED_DIR="$T/preds"
+mkdir -p "$PRED_DIR"
+awk -v dir="$PRED_DIR" '
+    /^LITE_MODE=false$/ { n++; collecting = 1 }
+    collecting { print > (dir "/pred" n ".sh") }
+    collecting && /^fi$/ { collecting = 0 }
+' "$SKILL"
+
+PRED_COUNT=$(ls "$PRED_DIR" 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "T39: three LITE_MODE predicate copies extracted from skill" "3" "$PRED_COUNT"
+
+if [ "$PRED_COUNT" != "3" ]; then
+    echo; echo "Passed: $PASS  Failed: $FAIL"; exit 1
+fi
+
+# (a) The three copies must be byte-identical -- they must never drift.
+for i in 2 3; do
+    if cmp -s "$PRED_DIR/pred1.sh" "$PRED_DIR/pred$i.sh"; then
+        pass "T40.$i: predicate copy $i is byte-identical to copy 1"
+    else
+        fail "T40.$i: predicate copy $i drifted from copy 1"
+        diff "$PRED_DIR/pred1.sh" "$PRED_DIR/pred$i.sh" || true
+    fi
+done
+
+# (b) Evaluate each extracted predicate against the truth table.
+run_pred() {
+    local pred
+    pred=$(cat "$1")
+    (
+        TIER="$2"; TYPE="$3"; DESC_QUALITY="$4"
+        eval "$pred"
+        echo "$LITE_MODE"
+    )
+}
+
+check_pred() {
+    local file="$1" idx="$2" tier="$3" type="$4" quality="$5" expected="$6" actual
+    actual=$(run_pred "$file" "$tier" "$type" "$quality")
+    assert_eq "T41.$idx: predicate copy $idx (tier=$tier type=$type quality=${quality:-<empty>})" \
+        "$expected" "$actual"
+}
+
+for i in 1 2 3; do
+    P="$PRED_DIR/pred$i.sh"
+    check_pred "$P" "$i" simple   task  adequate true
+    check_pred "$P" "$i" simple   chore weak     true
+    check_pred "$P" "$i" simple   task  weak     true
+    check_pred "$P" "$i" simple   bug   adequate false
+    check_pred "$P" "$i" simple   task  skeletal false
+    check_pred "$P" "$i" standard task  adequate false
+    check_pred "$P" "$i" simple   task  ""       false
+done
 
 echo
 echo "Passed: $PASS  Failed: $FAIL"

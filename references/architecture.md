@@ -235,13 +235,13 @@ When `tier == simple` AND `blast_radius == low` AND `files_changed < 3`, the imp
 
 ## Lite-Analysis Gate
 
-When `tier == simple` AND `description_quality` is `adequate` or `weak` AND `type` is `task` or `chore`, the analysis step runs the solution-architect with reduced scope. All three inputs exist before analysis runs: `tier` and `type` from `overview.md` frontmatter, `description_quality` from the `ticket.md` signal block.
+When `tier == simple` AND `description_quality` is `adequate` or `weak` AND `type` is `task` or `chore`, the analysis step runs the solution-architect with reduced scope. All three inputs exist before analysis runs: `tier` and `type` from `overview.md` frontmatter, `description_quality` from the `ticket.md` signal block. Note that `task` is the pipeline's catch-all type (`pipeline.json` → `types.task.detect.default`), so the gate is not limited to housekeeping work — small features and improvements resolve to `task` and are lite-eligible too; the escape hatch below is what keeps that safe.
 
 The analysis step **produces** the signals downstream gates consume, so it can never be skipped. Lite mode changes how much work produces the signals, not the signals themselves — the architect's Output Contract (`n1:signals` line, `tier:` line, `context:` block) is identical in both modes.
 
 **Stripped in lite mode:** industry-standards web research, cross-repo exploration (the `relatedProjects` block is skipped entirely, including peer-map freshness checks), observability enrichment, snapshot persistence, and project-map generation. The codebase scan narrows to the files the ticket touches, and the report is capped at 300 words.
 
-**Not stripped:** the model. `pipeline.json` already downgrades `solution-architect:analysis` to Sonnet on adequate descriptions; lite mode keeps that tier because codebase verification is the safety net. Savings come from scope, not capability.
+**Not stripped:** the model. `pipeline.json` downgrades `solution-architect:analysis` to Sonnet for `simple` + `adequate` descriptions (and for `chore` regardless of quality, via `types.chore.step_overrides`); lite mode keeps whatever tier resolves, because codebase verification is the safety net. The one lite combination that is **not** downgraded is `simple` + `task` + `weak`, which still runs at the architect's base `opus` tier — so not every lite run is a Sonnet run. Whether to extend the downgrade trigger to `weak` is a separate call to make from telemetry. Savings come from scope, not capability.
 
 **Escape hatch:** if the architect finds the task touches 3+ files, spans modules, touches auth/crypto/secrets/input-validation, changes a public API, or changes a schema or contract, it abandons the lite budget, emits corrected signals, and returns `LITE_ESCALATED: <reason>`. The orchestrator logs it to `## Key Decisions` and continues — analysis is never re-run. The corrected signals then drive the existing `pipeline.json` escalation triggers.
 
