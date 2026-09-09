@@ -921,6 +921,21 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 n1_active_run_clear
 ```
 
+**Emit Gate 3** (see `## Output Gates § Gate 3 — Done/Tested Summary`):
+
+Read sources in this order:
+1. `$N1_HOME/memory/$ID/implementation.md` — `## Implementation Summary` section (files changed, what was built)
+2. `$N1_HOME/memory/$ID/qa.md` — verdict line and Evidence section (verbatim test commands and results)
+3. `$N1_HOME/memory/$ID/local-testing.md` — local-test report (verbatim commands and results, or SKIPPED line)
+4. `$N1_HOME/memory/$ID/overview.md` — `## Pending` section for PR URL
+
+**Rules (stated here so a later reader cannot delete them as optional):**
+- Copy test commands and result lines verbatim. Do not paraphrase or summarise to "tests pass".
+- Every step that did not run gets a `SKIPPED — <reason>` line. Missing steps are never silent.
+- The PR URL is Gate 3's final field; `steps/pr.md`'s CHECKPOINT line folds here.
+- For investigation tickets use the investigation-mode variant (see Gate 3 definition in `## Output Gates`).
+- Apply the Gate 3 budget (20 lines, ~1 200 characters). If the Findings section (investigation mode) would exceed budget, print the first 15 lines then: `(full text: $N1_HOME/memory/<ID>/investigation.md)`.
+
 ## Error Recovery
 
 If any step fails, first classify the failure:
