@@ -1,4 +1,6 @@
 
+> **After this step completes, IMMEDIATELY continue to the next pipeline step (FINALIZE MEMORY) — do NOT write a summary message or yield to the user.**
+
 **Context discipline — resolve `prMode` (below) BEFORE opening any memory file:**
 - Do not read full reports in this session — n1-pr extracts the verdict lines it needs via `grep`, and the tech-writer reads the full files itself via the paths it receives.
 
@@ -57,6 +59,6 @@ n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetr
     "review_discarded_count=$DISCARDED"
 ```
 
-**CHECKPOINT:** "PR created at <URL>. Ready for Tech Lead review."
+Record the PR URL in `overview.md` `## Pending` section. Gate 3 (emitted in FINALIZE MEMORY) carries the `PR: <url>` line — do not print a CHECKPOINT here.
 
 <!-- AUDIT N1-37: stop after n1:n1-pr is intentional — this is the Tech Lead review checkpoint. Do NOT add a continuation directive here. -->
