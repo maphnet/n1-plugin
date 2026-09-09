@@ -2,9 +2,16 @@
   "version": 2,
   "downgrade_triggers": {
     "solution-architect:analysis": {
-      "condition": { "all": [
-        { "signal": "ticket.description_quality", "eq": "adequate" },
-        { "frontmatter": "type", "neq": "investigation" }
+      "condition": { "any": [
+        { "all": [
+          { "signal": "ticket.description_quality", "eq": "adequate" },
+          { "frontmatter": "type", "neq": "investigation" }
+        ]},
+        { "all": [
+          { "signal": "ticket.description_quality", "eq": "weak" },
+          { "frontmatter": "tier", "eq": "simple" },
+          { "frontmatter": "type", "eq": "task" }
+        ]}
       ]},
       "tier": "downgrade"
     },
