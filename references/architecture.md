@@ -233,6 +233,22 @@ Relationship to analysis cache: the snapshot carries descriptive content (how th
 
 When `tier == simple` AND `blast_radius == low` AND `files_changed < 3`, the implementation step bypasses SDD fan-out and spawns a single developer agent directly. Fallback to full SDD if the developer fails. Gate checked before the existing planning_need routing. Signals are read from `brainstorm.md` first (post-design, scope-aware); falls back to `analysis.md` when brainstorm was skipped.
 
+## Lite-Analysis Gate
+
+When `tier == simple` AND `description_quality` is `adequate` or `weak` AND `type` is `task` or `chore`, the analysis step runs the solution-architect with reduced scope. All three inputs exist before analysis runs: `tier` and `type` from `overview.md` frontmatter, `description_quality` from the `ticket.md` signal block. Note that `task` is the pipeline's catch-all type (`pipeline.json` → `types.task.detect.default`), so the gate is not limited to housekeeping work — small features and improvements resolve to `task` and are lite-eligible too; the escape hatch below is what keeps that safe.
+
+The analysis step **produces** the signals downstream gates consume, so it can never be skipped. Lite mode changes how much work produces the signals, not the signals themselves — the architect's Output Contract (`n1:signals` line, `tier:` line, `context:` block) is identical in both modes.
+
+**Stripped in lite mode:** industry-standards web research, cross-repo exploration (the `relatedProjects` block is skipped entirely, including peer-map freshness checks), observability enrichment, snapshot persistence, and project-map generation. The codebase scan narrows to the files the ticket touches, and the report is capped at 300 words.
+
+**Not stripped:** the model. Every combination the gate accepts resolves to a downgraded (Sonnet) architect, so lite runs trade scope for capability nowhere. Three rules cover the four cells: the `solution-architect:analysis` downgrade trigger matches `adequate` descriptions on any non-investigation ticket, and matches `weak` descriptions on `simple` + `task`; `types.chore.step_overrides` covers `chore` regardless of quality. The `weak` clause is deliberately narrowed to `simple` + `task` — a weak description on a `standard` or `complex` ticket is exactly where the frontier architect earns its cost. Lite mode itself never changes the tier: codebase verification is the safety net, so the savings come from scope, not capability.
+
+**Escape hatch:** if the architect finds the task touches 3+ files, spans modules, touches auth/crypto/secrets/input-validation, changes a public API, or changes a schema or contract, it abandons the lite budget, emits corrected signals, and returns `LITE_ESCALATED: <reason>`. The orchestrator logs it to `## Key Decisions` and continues — analysis is never re-run. The corrected signals then drive the existing `pipeline.json` escalation triggers.
+
+**Cache interaction:** a lite run writes no snapshot, so a cold cache stays cold and the next standard-tier ticket warms it. A `fresh` snapshot is still consumed — that path already skips project discovery and composes with lite's other reductions.
+
+**Telemetry:** the decision is recorded as `lite-analysis-gate` on both outcomes via `n1_record_decision`, so `/n1:n1-telemetry` can correlate lite runs against review pass rate, fix cycles, and `LITE_ESCALATED` frequency. A high escalation rate means the gate is too loose. No config key — the gate is purely signal-driven, like the Implementation Simplicity Gate.
+
 ## Ticket Description Enrichment
 
 Optional two-phase enrichment that writes structured content back to the tracker when a ticket description is poor or absent. Gated on `ticketEnrichment.enabled` (default true) and the `editTicket` operation existing in config.

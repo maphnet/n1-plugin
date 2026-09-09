@@ -193,11 +193,65 @@ JSON
 }
 
 # ---------------------------------------------------------------------------
+# Test (d): analysis downgrade covers every ticket the lite-analysis gate
+# accepts. The gate fires on tier=simple + quality in {adequate,weak} +
+# type in {task,chore}, and its design assumes the architect is downgraded on
+# all of them. `chore` is downgraded by types.chore.step_overrides and
+# `adequate` by the downgrade trigger, which left simple+task+weak running at
+# the frontier base model with the narrowest scope directive.
+# ---------------------------------------------------------------------------
+test_d() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' RETURN
+
+    cat > "${tmpdir}/config.json" <<'JSON'
+{
+  "models": {}
+}
+JSON
+
+    local saved_n1_home="${N1_HOME:-}"
+    local saved_id="${ID:-}"
+    local TEST_CONFIG="${tmpdir}/config.json"
+    n1_config_file() { echo "$TEST_CONFIG"; }
+
+    # $1=label $2=tier $3=type $4=description_quality $5=expected model
+    _case() {
+        local mem_dir="${tmpdir}/memory/$1"
+        mkdir -p "$mem_dir"
+        printf -- '---\ntier: %s\ntype: %s\n---\n' "$2" "$3" > "${mem_dir}/overview.md"
+        printf '<!-- n1:signals description_quality=%s -->\n' "$4" > "${mem_dir}/ticket.md"
+        export N1_HOME="$tmpdir"
+        export ID="$1"
+        local result
+        result=$(n1_resolve_model solution-architect analysis) || true
+        assert_eq "analysis model: tier=$2 type=$3 quality=$4" "$5" "$result"
+    }
+
+    _case LITE-1 simple   task  adequate sonnet
+    _case LITE-2 simple   chore weak     sonnet
+    _case LITE-3 simple   task  weak     sonnet
+
+    # Guardrails: the widened trigger must not downgrade tickets the gate
+    # rejects. A weak description on a non-simple ticket, or on an
+    # investigation, still needs the frontier architect.
+    _case KEEP-1 complex  task  weak     opus
+    _case KEEP-2 standard task  weak     opus
+
+    unset -f _case
+    n1_config_file() { echo "$(n1_home)/config.json"; }
+    [ -n "$saved_n1_home" ] && export N1_HOME="$saved_n1_home" || export N1_HOME=""
+    [ -n "$saved_id"      ] && export ID="$saved_id"      || export ID=""
+}
+
+# ---------------------------------------------------------------------------
 # Run tests
 # ---------------------------------------------------------------------------
 test_a
 test_b
 test_c
+test_d
 test_autonomy_preset
 
 echo "---"
