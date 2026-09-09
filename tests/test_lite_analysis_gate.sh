@@ -208,6 +208,95 @@ for i in 1 2 3; do
     check_pred "$P" "$i" simple   task  ""       false
 done
 
+# ---------------------------------------------------------------------------
+# T42: the decision id must be discoverable in the telemetry reference, which
+# enumerates the ids step files record explicitly.
+# ---------------------------------------------------------------------------
+assert_contains "T42: telemetry.md documents the lite-analysis-gate decision id" \
+    "$REPO_ROOT/references/telemetry.md" "lite-analysis-gate"
+
+# ---------------------------------------------------------------------------
+# Post-return verification blocks execute in their own Bash invocation, so
+# every variable they branch on must be re-derived inside the block. A block
+# that reads an unset CACHE_ENABLED / CACHE_STATE / PROJECT_MAP_PATH /
+# SNAPSHOT_PATH silently takes the wrong branch -- either suppressing a real
+# failure report or emitting a false one. Extract each block and RUN it
+# against a real fixture rather than grepping for the variable names.
+# ---------------------------------------------------------------------------
+extract_block() {
+    awk -v marker="$1" '
+        index($0, marker) { found = 1 }
+        found && !collecting && /^```bash$/ { collecting = 1; next }
+        collecting && /^```$/ { exit }
+        collecting { print }
+    ' "$SKILL"
+}
+
+# Fixture: a populated N1_HOME with the cache enabled and a non-lite ticket.
+PR_HOME="$T/postreturn"
+PR_MEM="$PR_HOME/memory/PR-1"
+mkdir -p "$PR_MEM" "$PR_HOME/cache"
+printf '{"analysisCache":{"enabled":true}}\n' > "$PR_HOME/config.json"
+printf -- '---\ntier: standard\ntype: task\n---\n' > "$PR_MEM/overview.md"
+printf '<!-- n1:signals description_quality=adequate -->\n' > "$PR_MEM/ticket.md"
+
+run_block() {
+    # $1 = extracted block, $2 = ID to run under
+    local block="$1"
+    (
+        # The orchestrator runs these blocks in a plain shell, not under
+        # `set -u`. Emulate that: an unset variable must expand to empty and
+        # take a branch, not abort -- that is the failure mode under test.
+        set +u
+        export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+        export N1_HOME="$PR_HOME"
+        export ID="$2"
+        eval "$block"
+    ) 2>&1
+}
+
+MAP_BLOCK=$(extract_block 'Post-return verification — project map')
+SNAP_BLOCK=$(extract_block 'Post-return verification — snapshot')
+
+# (a) Cold cache, non-lite, project map absent -> the failure must be reported.
+#     Before re-derivation this printed nothing, because an unset CACHE_ENABLED
+#     made the guard false and silently skipped the check.
+rm -f "$PR_HOME/cache/project-map.md"
+OUT=$(run_block "$MAP_BLOCK" "PR-1")
+case "$OUT" in
+    *"Project map persistence failed"*) pass "T43: project-map check fires on a non-lite cold run" ;;
+    *) fail "T43: project-map check did not fire on a non-lite cold run (output=[$OUT])" ;;
+esac
+
+# (b) Same fixture but a lite ticket -> must stay silent.
+PR_LITE="$PR_HOME/memory/PR-2"
+mkdir -p "$PR_LITE"
+printf -- '---\ntier: simple\ntype: task\n---\n' > "$PR_LITE/overview.md"
+printf '<!-- n1:signals description_quality=adequate -->\n' > "$PR_LITE/ticket.md"
+OUT=$(run_block "$MAP_BLOCK" "PR-2")
+case "$OUT" in
+    *"Project map persistence failed"*) fail "T44: project-map check fired on a lite run (output=[$OUT])" ;;
+    *) pass "T44: project-map check stays silent on a lite run" ;;
+esac
+
+# (c) Snapshot present and non-empty -> no failure may be reported. Before
+#     re-derivation SNAPSHOT_PATH was empty, so [ ! -f "" ] was always true and
+#     every run logged a phantom persistence failure into ## Key Decisions.
+printf '# snapshot\ncontent\n' > "$PR_HOME/cache/project-snapshot.md"
+OUT=$(run_block "$SNAP_BLOCK" "PR-1")
+case "$OUT" in
+    *"Snapshot persistence failed"*) fail "T45: phantom snapshot failure reported although the snapshot exists (output=[$OUT])" ;;
+    *) pass "T45: no snapshot failure reported when the snapshot exists" ;;
+esac
+
+# (d) Snapshot genuinely missing -> the failure must still be reported.
+rm -f "$PR_HOME/cache/project-snapshot.md"
+OUT=$(run_block "$SNAP_BLOCK" "PR-1")
+case "$OUT" in
+    *"Snapshot persistence failed"*) pass "T46: snapshot check still fires when the snapshot is missing" ;;
+    *) fail "T46: snapshot check did not fire on a missing snapshot (output=[$OUT])" ;;
+esac
+
 echo
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

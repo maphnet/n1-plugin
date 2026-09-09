@@ -285,6 +285,13 @@ Do NOT re-run analysis. The architect's corrected `tier`, `blast_radius`, and `s
 
 When CACHE_STATE is `cold` or `stale` AND `$CACHE_ENABLED` is `true` AND `LITE_MODE` is `false` (a lite run is instructed to persist no snapshot, so a missing snapshot is expected, not a failure):
 ```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/cache.sh"
+
+# Re-derived: SNAPSHOT_PATH was set in a different Bash invocation. Left unset
+# it expands to empty, `[ ! -f "" ]` is true, and every run reports a phantom
+# persistence failure into ## Key Decisions.
+SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME")
+
 if [ ! -f "$SNAPSHOT_PATH" ] || [ ! -s "$SNAPSHOT_PATH" ]; then
     # Record snapshot-persist failure — cache stays cold, next run re-analyzes.
     # Do NOT fail the pipeline for this.
@@ -296,6 +303,9 @@ fi
 **Post-return verification — project map (cold/stale + cache enabled):**
 
 ```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/cache.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
 
@@ -308,6 +318,17 @@ if [ "$TIER" = "simple" ] \
    && { [ "$DESC_QUALITY" = "adequate" ] || [ "$DESC_QUALITY" = "weak" ]; } \
    && { [ "$TYPE" = "task" ] || [ "$TYPE" = "chore" ]; }; then
     LITE_MODE=true
+fi
+
+# Re-derived for the same reason. Left unset, CACHE_ENABLED expands to empty,
+# the guard is false, and a genuinely missing project map goes unreported.
+CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json")
+CACHE_ENABLED="${CACHE_ENABLED:-true}"
+SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME")
+PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME")
+CACHE_STATE="cold"
+if [ "$CACHE_ENABLED" = "true" ]; then
+    CACHE_STATE=$(n1_snapshot_check_freshness "$SNAPSHOT_PATH" "$N1_HOME/config.json") || true
 fi
 
 if [ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then
