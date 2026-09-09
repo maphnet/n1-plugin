@@ -172,11 +172,11 @@ Optional feature for exploring related projects' code during analysis and invest
 
 **Related Projects:** `relatedProjects.projects[]` in config — registry of cross-repo relationships. Each entry has `slug` (maps to `~/.n1/<slug>/`), `reason` (relevance hint), `source` (`"auto"` or `"manual"`), `confirmedAt`. Resolution: slug → peer config → `repoPath` + project map.
 
-**Auto-discovery (during analysis):** The solution-architect emits `XREPO_SUGGEST: <slug> <reason>` lines for projects it discovers (incremental — skips already-confirmed projects). The orchestrator auto-adds via `n1_related_add` in hands-off mode, or accumulates suggestions in `$XREPO_PENDING_SLUGS` and presents them to the user in interactive mode. No confidence tiering; no CLAUDE.md reading.
+**Auto-discovery (during analysis):** The solution-architect emits `XREPO_SUGGEST: <slug> <reason>` lines for projects it discovers (incremental — skips already-confirmed projects). The orchestrator auto-adds via `n1_related_add` in hands-off mode, or — in interactive mode — persists the suggestions to `$N1_HOME/memory/<ID>/xrepo-pending.tsv` (skill Bash blocks are separate invocations, so shell variables cannot carry state across the prompt) and asks the user yes/no/select. Approved slugs are added via `n1_related_add` and recorded as `[asked]` Decision Ledger rows. No confidence tiering; no CLAUDE.md reading.
 
 **Auto-discovery (during `n1-init`):** Three-tier confidence cascade — high (direct import/require in file contents, `.proto`/`.graphql` refs) → auto-add with `source:"auto"`; medium (yaml/yml/env references) → read the candidate's CLAUDE.md, present to the user for confirmation; user choosing "Add all" records entries with `source:"auto"`, explicit per-entry confirmation records `source:"manual"`; low → skip.
 
-**Runtime detection:** Post-implementation diff scan detects unregistered cross-repo references. In hands-off mode, auto-adds to config. In interactive mode, presents suggestion. Code-reviewer flags unregistered cross-service calls as advisory `[XREPO-N]` findings (non-blocking).
+**Runtime detection:** Post-implementation diff scan (`n1_related_detect_in_diff`) detects unregistered cross-repo references; the current project is always excluded, and slug/service matching is literal (metacharacters escaped) with non-alphanumeric boundaries. Detections are persisted to `$N1_HOME/memory/<ID>/xrepo-runtime.tsv` so the prompt response (a later Bash invocation) can act on them. In hands-off mode, auto-adds to config. In interactive mode, presents suggestion. The review step injects the registered related projects list into the code-reviewer prompt, which flags unregistered cross-service calls as advisory `[XREPO-N]` findings (non-blocking).
 
 **Pipeline touchpoints:**
 
@@ -200,13 +200,13 @@ Optional feature for exploring related projects' code during analysis and invest
 | `relatedProjects.projects[].source` | string | — | `"auto"` or `"manual"` |
 | `relatedProjects.projects[].confirmedAt` | string | — | ISO timestamp |
 
-**Helpers:** `lib/related.sh` — `n1_project_map_path`, `n1_project_map_check_freshness`, `n1_related_projects`, `n1_related_project_map`, `n1_related_detect_in_diff`, `n1_related_add`.
+**Helpers:** `lib/related.sh` — `n1_project_map_path`, `n1_project_map_check_freshness`, `n1_related_projects`, `n1_related_project_map`, `n1_related_detect_in_diff`, `n1_related_add`, `n1_related_escape_ere`.
 
 **Telemetry fields** (emitted on step events via `n1_emit_step_event`):
 
 | Step | Field | Type | Description |
 |------|-------|------|-------------|
-| Analysis | `cross_repo_explored` | string | `"true"` if any related project's code was read |
+| Analysis | `cross_repo_explored` | boolean | `true` if any related project's code was read |
 | Analysis | `cross_repo_projects` | string | Comma-separated slugs of explored projects |
 | Analysis | `cross_repo_maps_generated` | integer | On-demand cold-start maps generated |
 | Analysis | `cross_repo_discovery_new` | integer | Newly discovered relationships |
@@ -214,7 +214,7 @@ Optional feature for exploring related projects' code during analysis and invest
 | Implementation | `cross_repo_runtime_added` | string | Slugs auto-added (hands-off) or confirmed (interactive) |
 | Review | `cross_repo_xrepo_findings` | integer | Count of `[XREPO-N]` advisory findings |
 
-Note: the analysis step self-emits its completed step event carrying the four analysis fields. Implementation and review fields are merged into their respective step-end events (not self-emitted by the agent).
+Note: when `relatedProjects.enabled` is `true`, the analysis step self-emits its completed step event carrying the four analysis fields (and the orchestrator does not emit a second one); when the feature is off, the orchestrator emits the standard analysis end event. Implementation and review fields are merged into their respective step-end events (not self-emitted by the agent).
 
 ## Rules Layer
 

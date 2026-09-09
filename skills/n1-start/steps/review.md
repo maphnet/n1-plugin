@@ -43,6 +43,42 @@ MEM="$N1_HOME/memory/$ID"
 } > "$MEM/qa-facts.md"
 TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
 ```
+
+**Related projects context (code-reviewer only):** when `relatedProjects.enabled` is `true`, build the registry block that the code-reviewer's Cross-Repo References check requires:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+
+RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
+XREPO_REVIEW_CONTEXT=""
+
+if [ "$RELATED_ENABLED" = "true" ]; then
+    XREPO_REGISTERED=""
+    while IFS=$'\t' read -r slug reason repo_path; do
+        [ -z "$slug" ] && continue
+        XREPO_REGISTERED="${XREPO_REGISTERED}
+- ${slug} (${reason})"
+    done < <(n1_related_projects "$N1_HOME/config.json")
+
+    SELF_SLUG=$(basename "$(n1_home)")
+    XREPO_KNOWN=$(for cfg in "${HOME}"/.n1/*/config.json; do
+        [ -f "$cfg" ] || continue
+        peer=$(basename "$(dirname "$cfg")")
+        [ "$peer" = "$SELF_SLUG" ] && continue
+        printf '%s\n' "$peer"
+    done | tr '\n' ',' | sed 's/,$//')
+
+    XREPO_REVIEW_CONTEXT="
+REGISTERED RELATED PROJECTS (cross-repo registry for this project):${XREPO_REGISTERED:-
+(none registered yet)}
+
+N1-registered projects on this machine: ${XREPO_KNOWN}
+
+Check the diff for imports, API calls, env var references, or service names pointing to any N1-registered project that is NOT in the registered related projects list above. Flag each as an [XREPO-N] advisory finding (Low severity, non-blocking) per your Cross-Repo Advisories output section."
+fi
+```
+
 - **Shared:** the PATHS `$MEM/ticket.md` and `$MEM/qa-facts.md` (instruct each reviewer: "Read these files yourself; their content is NOT inlined here"), the base branch name, and the `## Key Decisions` + `## Escalations` slices of `overview.md` inline — so neither reviewer flags a deliberate, recorded choice as a defect.
 - **code-reviewer also receives** the paths `$MEM/review-spec.md` and, when it exists, `$MEM/plan.md`. It does **NOT** receive `implementation.md` or `brainstorm.md`: the reviewer is a cold second pair of eyes and must derive what changed from the diff, not from the author's account. Add the directive: **"You are a cold second pair of eyes. Review the code that is actually there against the spec. Do not assume intent the code does not demonstrate. Identify changed files with `git diff --name-only <BASE_BRANCH>...HEAD`."**
 - **code-reviewer also receives** `testCoverage.tier` value (same value read in Step 6) — for Test Quality evaluation calibration. Also read `qa_verdict_unverified` from overview.md frontmatter:
@@ -52,6 +88,7 @@ TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
   ```
   When `QA_UNVERIFIED=true`, append this directive to the code-reviewer prompt (immediately after the `testCoverage.tier` line): **"QA verdict is unverified (evidence missing from qa.md). Treat the QA pass as unconfirmed when evaluating Test Quality — apply additional scrutiny to any test coverage claims."**
   When `qa-facts.md` lists hollow tests, add: **"The listed tests stayed green with the fix reverted. Report each as a `[TQ-N]` finding (Medium) unless the diff shows it is a pure refactor guard."**
+- **code-reviewer also receives** `$XREPO_REVIEW_CONTEXT` verbatim when it is non-empty (appended at the end of its prompt). This is the only source of the registered related projects list — without it the reviewer's Cross-Repo References check stays inert. Omit the block entirely when `relatedProjects.enabled` is `false`.
 - **security-reviewer does NOT receive** `review-spec.md`, `plan.md`, or `testCoverage.tier` — keep its context lean: `ticket.md` acceptance criteria + changed-file list + the diff.
 
 Spawn all selected reviewers simultaneously:

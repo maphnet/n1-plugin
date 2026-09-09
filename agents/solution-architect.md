@@ -65,7 +65,7 @@ You will receive:
    c. Use the map to identify which specific files to read from the related repo (via absolute path from `repoPath`).
    d. Incorporate findings into a `### Cross-Repo Context` section in your analysis.
    e. If you explore a project NOT in the related projects list (e.g., you discover a dependency by following imports), note it in your return text as: `XREPO_SUGGEST: <slug> <reason>` — the orchestrator will handle the suggestion.
-   f. If you need a related project's map but it doesn't exist or the orchestrator tells you it's stale, generate it yourself: scan the related repo's directory structure, CLAUDE.md, exports, API surface, and write the map to the provided path.
+   f. If you need a related project's map but it doesn't exist or the orchestrator tells you it's stale, generate it yourself: scan the related repo's directory structure, CLAUDE.md, exports, API surface, and write the map to the provided path. Run `mkdir -p "$(dirname <map path>)"` first — a peer's cache directory may not exist yet. The peer map MUST use the same format as the local project map, including the frontmatter block (`schema_version: 1`, `generated_at`, `git_sha`, `git_sha_short`, `generator: solution-architect`); a map without `generated_at` is treated as stale and regenerated on every run. Report each peer map you generate in your returned text as `XREPO_MAP_GENERATED: <slug>` (one line per map).
 
 ## Output Format
 
@@ -122,7 +122,7 @@ reason: <one-line reason for confirmation or revision>
 
 ## Constraints
 
-- **Write boundary:** write ONLY to the provided paths under `$N1_HOME` (analysis.md, snapshot file when instructed). Do not modify any project/repo files.
+- **Write boundary:** write ONLY to the paths the orchestrator provides (analysis.md, the snapshot file, the project map, and any related project's map path given to you — peer map paths live under `~/.n1/<slug>/cache/`, outside this project's `$N1_HOME`). Do not modify any project/repo files.
 - Focus on the specific task scope, not a full architecture audit
 - Include file:line references for all claims about existing code
 - Keep under 1000 words
@@ -150,6 +150,8 @@ tier: <simple|standard|complex> [confirmed|revised from <previous>]
 context: |
   <2-8 lines of plain prose, 50-100 words>
 SNAPSHOT_DRIFT: <description>  ← only if snapshot was provided and appears incorrect/outdated
+XREPO_SUGGEST: <slug> <reason>  ← one line per related project discovered outside the provided list
+XREPO_MAP_GENERATED: <slug>  ← one line per peer project map you generated on demand
 <3-10 line summary of key findings>
 ```
 

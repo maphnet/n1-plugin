@@ -2121,6 +2121,12 @@ _rpc_url_raw=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/n
 _rpc_dir_raw=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
 _rpc_self_url=$(printf '%s' "$_rpc_url_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
 _rpc_self_dir=$(printf '%s' "$_rpc_dir_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+N1_HOME=$(n1_home)
+# Step 2 runs in a SEPARATE Bash invocation — persist the candidates instead of
+# relying on a shell variable surviving across blocks.
+CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
+mkdir -p "$(dirname "$CANDIDATES_FILE")"
+: > "$CANDIDATES_FILE"
 CANDIDATES=""
 for peer_cfg in "${HOME}"/.n1/*/config.json; do
     [ -f "$peer_cfg" ] || continue
@@ -2132,10 +2138,11 @@ for peer_cfg in "${HOME}"/.n1/*/config.json; do
     [ -n "$peer_repo" ] || continue
     peer_service=$(jq -r '.ticketTagging.service // empty' "$peer_cfg" 2>/dev/null)
     CANDIDATES="${CANDIDATES}${peer_slug}\t${peer_service}\t${peer_repo}\n"
+    printf '%s\t%s\t%s\n' "$peer_slug" "$peer_service" "$peer_repo" >> "$CANDIDATES_FILE"
 done
 ```
 
-If no candidates (all projects lack `repoPath` or only self exists), set `relatedProjects.enabled: false` silently and skip this section.
+If `$CANDIDATES_FILE` is empty (all projects lack `repoPath` or only self exists), set `relatedProjects.enabled: false` silently and skip this section.
 
 ### Step 2 — Search for references (confidence cascade)
 
@@ -2148,6 +2155,9 @@ For each candidate, search the current repo for references. Classify matches by 
 Search implementation:
 
 ```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_HOME=$(n1_home)
+CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
 REPO_ROOT=$(git rev-parse --show-toplevel)
 FOUND=""
 while IFS=$'\t' read -r c_slug c_service c_repo; do
@@ -2181,7 +2191,10 @@ while IFS=$'\t' read -r c_slug c_service c_repo; do
         fi
         FOUND="${FOUND}${c_slug}\t${c_service}\t${match_summary}\t${confidence}\n"
     fi
-done <<< "$(printf '%b' "$CANDIDATES")"
+done < "$CANDIDATES_FILE"
+
+# Print the results — Step 3 runs in a later Bash/model turn and reads them from here.
+printf '%b' "$FOUND"
 ```
 
 ### Step 3 — Present to user
@@ -2225,6 +2238,7 @@ n1_related_add "$CFG" "$slug" "$reason" "$source"
 count=$(jq '.relatedProjects.projects | length' "$CFG")
 enabled=$( [ "$count" -gt 0 ] && echo true || echo false )
 jq --argjson e "$enabled" '.relatedProjects.enabled = $e' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+rm -f "$N1_HOME/cache/init-candidates.tsv"
 ```
 
 If no projects were approved, `relatedProjects.enabled` remains `false` (the default seeded by the template).

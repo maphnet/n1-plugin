@@ -26,6 +26,7 @@ fi
 **Related projects context:**
 
 ```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
 
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
@@ -53,9 +54,9 @@ ${RELATED_LINES}
 
 For each relevant project:
 1. If map is 'fresh', read the map file at mapPath for navigation context.
-2. If map is 'stale' or 'cold', generate the map yourself: scan the repo at repoPath (directory structure, CLAUDE.md, exports, API surface), write to mapPath using Bash.
+2. If map is 'stale' or 'cold', generate the map yourself: scan the repo at repoPath (directory structure, CLAUDE.md, exports, API surface), run \`mkdir -p \"\$(dirname <mapPath>)\"\` first (the peer cache directory may not exist), then write to mapPath using Bash. The peer map MUST carry the same frontmatter as a local project map (\`schema_version: 1\`, \`generated_at\`, \`git_sha\`, \`git_sha_short\`, \`generator: solution-architect\`) — without it the map is treated as stale and regenerated on every run. Report each map you generate in your return text as: \`XREPO_MAP_GENERATED: <slug>\`.
 3. Use repoPath + relative paths from the map to read specific files.
-4. Include findings in a '### Cross-Repo Context' section of your analysis."
+4. Include findings in a '### Cross-Repo Context' section of your analysis, one bullet per project in the form '- <slug>: <findings>'."
     fi
 fi
 ```
@@ -309,7 +310,8 @@ if [ -n "$SIGNAL_LINE" ]; then
 fi
 
 # Self-resolved unknowns (investigation mode)
-SELF_RESOLVED=$(grep -c '<!-- n1:resolved:' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
+SELF_RESOLVED=$(grep -c '<!-- n1:resolved:' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null | head -1)
+SELF_RESOLVED="${SELF_RESOLVED:-0}"
 if [ "$SELF_RESOLVED" -gt 0 ]; then
     n1_write_signals "$N1_HOME/memory/$ID/analysis.md" "self_resolved=$SELF_RESOLVED"
 fi
@@ -318,55 +320,109 @@ fi
 **Parse cross-repo signals:**
 
 ```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+
 CROSS_REPO_EXPLORED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "cross_repo_explored")
 
 # Handle XREPO_SUGGEST lines (runtime discovery during analysis)
+XREPO_PENDING_FILE="$N1_HOME/memory/$ID/xrepo-pending.tsv"
+rm -f "$XREPO_PENDING_FILE"
 XREPO_SUGGESTS=$(echo "$AGENT_OUTPUT" | grep '^XREPO_SUGGEST: ' || true)
 if [ -n "$XREPO_SUGGESTS" ]; then
-    source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
     autonomy_mode=$(n1_autonomy_val "mechanicalPrompts")
 
     while IFS= read -r line; do
         xr_slug=$(echo "$line" | sed 's/^XREPO_SUGGEST: //' | awk '{print $1}')
         xr_reason=$(echo "$line" | sed 's/^XREPO_SUGGEST: [^ ]* //')
         [ -z "$xr_slug" ] && continue
+        # Ledger cells must not contain pipes and must stay short (ledger.md Rules 4-5)
+        xr_reason_cell=$(printf '%s' "$xr_reason" | tr '|' '/' | cut -c1-80)
 
         if [ "$autonomy_mode" = "auto" ]; then
             n1_related_add "$N1_HOME/config.json" "$xr_slug" "$xr_reason" "auto"
             if ! grep -q '^## Decision Ledger' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null; then
                 printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$N1_HOME/memory/$ID/overview.md"
             fi
-            printf '| analysis | scope | B | [auto] | New integration with %s detected by SA | Added to related projects | — | XREPO_SUGGEST: %s | --- |\n' "$xr_slug" "$xr_reason" >> "$N1_HOME/memory/$ID/overview.md"
+            printf '| analysis | scope | B | [auto] | New integration with %s detected by SA | Added to related projects | — | XREPO_SUGGEST: %s | --- |\n' "$xr_slug" "$xr_reason_cell" >> "$N1_HOME/memory/$ID/overview.md"
         else
-            XREPO_PENDING_SLUGS="${XREPO_PENDING_SLUGS:+$XREPO_PENDING_SLUGS }${xr_slug}"
-            XREPO_PENDING_REASONS="${XREPO_PENDING_REASONS:+$XREPO_PENDING_REASONS\n}${xr_slug}: ${xr_reason}"
+            # Persist for the interactive prompt below — the prompt and its
+            # response handler run in LATER Bash invocations, so shell variables
+            # do not survive.
+            printf '%s\t%s\n' "$xr_slug" "$xr_reason" >> "$XREPO_PENDING_FILE"
         fi
     done < <(printf '%s\n' "$XREPO_SUGGESTS")
 fi
+
+if [ -s "$XREPO_PENDING_FILE" ]; then
+    printf '\nThe solution-architect discovered cross-repo integrations that are not registered:\n'
+    awk -F'\t' '{printf "- %s: %s\n", $1, $2}' "$XREPO_PENDING_FILE"
+    printf '\nAdd to related projects? (yes/no/select)\n'
+fi
 ```
 
-**Cross-repo telemetry metadata:**
+**Interactive response handling (non-auto path):**
+
+When the pending list was presented, handle the user's response to "Add to related projects? (yes/no/select)". Re-read `$XREPO_PENDING_FILE` — the response arrives in a separate Bash invocation:
+
+- **"yes"** — add every pending slug:
 
 ```bash
-# Count explored projects (from the ### Cross-Repo Context section of analysis.md)
-XREPO_PROJECTS=""
-if [ "$CROSS_REPO_EXPLORED" = "true" ]; then
-    XREPO_PROJECTS=$(grep -oP '^\- \*\*\K[^*]+' "$N1_HOME/memory/$ID/analysis.md" | tr '\n' ',' | sed 's/,$//')
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+XREPO_PENDING_FILE="$N1_HOME/memory/$ID/xrepo-pending.tsv"
+while IFS=$'\t' read -r xr_slug xr_reason; do
+    [ -z "$xr_slug" ] && continue
+    n1_related_add "$N1_HOME/config.json" "$xr_slug" "$xr_reason" "manual"
+    xr_reason_cell=$(printf '%s' "$xr_reason" | tr '|' '/' | cut -c1-80)
+    if ! grep -q '^## Decision Ledger' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null; then
+        printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$N1_HOME/memory/$ID/overview.md"
+    fi
+    printf '| analysis | scope | B | [asked] | New integration with %s detected by SA | Added to related projects | Not added | User approved: %s | codebase |\n' "$xr_slug" "$xr_reason_cell" >> "$N1_HOME/memory/$ID/overview.md"
+done < "$XREPO_PENDING_FILE"
+```
+
+- **"select"** — present each pending slug individually; apply `n1_related_add` + the `[asked]` ledger row above only for the approved ones; skip the rest (no ledger row for skipped).
+- **"no"** — add nothing; append one `[asked]` ledger row per pending slug recording the decline (`Chosen` = `Not added`, `Alternatives` = `Added to related projects`, `Reason` = `User declined on prompt`).
+
+**Headless:** under `N1_HEADLESS=1`, do not prompt — apply SKILL.md § Headless Guard (record the pending slugs as an escalation and continue).
+
+**Cross-repo telemetry metadata (if telemetry enabled AND `relatedProjects.enabled` is `true`):**
+
+This block owns the step-2 (`analysis`) end event when cross-repo awareness is on — see the Telemetry Step Markers table in SKILL.md. When `relatedProjects.enabled` is `false`, skip the whole block; the orchestrator emits the standard end event per the table.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
+
+if [ "$RELATED_ENABLED" = "true" ]; then
+    # Re-derived here: the values above were set in a different Bash invocation.
+    CROSS_REPO_EXPLORED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "cross_repo_explored")
+    XREPO_SUGGESTS=$(echo "$AGENT_OUTPUT" | grep '^XREPO_SUGGEST: ' || true)
+
+    # Explored projects — scoped to the ### Cross-Repo Context section, whose
+    # bullets are '- <slug>: <findings>' (portable BRE/ERE, no grep -P).
+    XREPO_PROJECTS=""
+    if [ "$CROSS_REPO_EXPLORED" = "true" ]; then
+        XREPO_PROJECTS=$(sed -n '/^### Cross-Repo Context/,/^### /p' "$N1_HOME/memory/$ID/analysis.md" \
+            | grep -oE '^- [A-Za-z0-9._-]+:' | sed 's/^- //; s/:$//' | tr '\n' ',' | sed 's/,$//')
+    fi
+
+    # On-demand peer maps generated (agent return contract line)
+    XREPO_MAPS_GENERATED=$(echo "$AGENT_OUTPUT" | grep -c '^XREPO_MAP_GENERATED: ' 2>/dev/null | head -1)
+
+    # New discoveries (from XREPO_SUGGEST lines)
+    XREPO_DISCOVERY_NEW=$(echo "$XREPO_SUGGESTS" | grep -c '^XREPO_SUGGEST: ' 2>/dev/null | head -1)
+
+    # Build completed-step metadata JSON object
+    XREPO_EXPLORED_BOOL="${CROSS_REPO_EXPLORED:-false}"
+    XREPO_METADATA="{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL},\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}}"
+
+    # Emit analysis step completed event
+    source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+    n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "analysis" 2 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=pass loop_iteration=null metadata="$XREPO_METADATA"
 fi
-
-# Count on-demand maps generated (from agent output)
-XREPO_MAPS_GENERATED=$(echo "$AGENT_OUTPUT" | grep -c 'Writing project map to' || echo 0)
-
-# Count new discoveries (from XREPO_SUGGEST lines)
-XREPO_DISCOVERY_NEW=$(echo "$XREPO_SUGGESTS" | grep -c '^XREPO_SUGGEST: ' 2>/dev/null || echo 0)
-
-# Build completed-step metadata JSON object
-XREPO_EXPLORED_BOOL="${CROSS_REPO_EXPLORED:-false}"
-XREPO_METADATA="{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL},\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}}"
-
-# Emit analysis step completed event
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
-n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "analysis" 2 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=pass loop_iteration=null metadata="$XREPO_METADATA"
 ```
 
 If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`:
@@ -395,7 +451,8 @@ Run this phase for all task types (not just investigation).
 Extract unknowns from the analysis output:
 ```bash
 UNKNOWNS=$(grep -oE '<!-- n1:unknown: [^>]+ -->' "$N1_HOME/memory/$ID/analysis.md" | sed 's/<!-- n1:unknown: //;s/ -->//')
-UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
+UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null | head -1)
+UNKNOWN_COUNT="${UNKNOWN_COUNT:-0}"
 ```
 
 If `UNKNOWN_COUNT` is 0, skip the rest of this phase.

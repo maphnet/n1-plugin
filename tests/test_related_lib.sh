@@ -163,6 +163,90 @@ CFGEOF
     export HOME="$HOME_ORIG"
 }
 
+# --- related_detect_in_diff: self-exclusion ----------------------------------
+test_detect_excludes_self() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+
+    mkdir -p "$tmp/.n1/myself" "$tmp/.n1/ingestion"
+    echo '{"ticketTagging":{"service":"Myself"},"repoPath":"/repos/myself"}' > "$tmp/.n1/myself/config.json"
+    echo '{"ticketTagging":{"service":"Ingestion"},"repoPath":"/repos/ingestion"}' > "$tmp/.n1/ingestion/config.json"
+
+    local cfg="$tmp/config.json"
+    echo '{"relatedProjects":{"enabled":true,"projects":[]}}' > "$cfg"
+
+    HOME_ORIG="$HOME"; export HOME="$tmp"
+    N1_HOME_ORIG="${N1_HOME:-}"; export N1_HOME="$tmp/.n1/myself"
+
+    # Diff references the current project itself AND a peer project
+    local diff='+const a = require("./myself/foo");
++const b = require("./ingestion/bar");'
+
+    local result
+    result=$(n1_related_detect_in_diff "$diff" "$cfg")
+    echo "$result" | grep -q "^myself	" && assert_eq "detect: self excluded (derived slug)" "0" "1" || assert_eq "detect: self excluded (derived slug)" "0" "0"
+    echo "$result" | grep -q "^ingestion	" && assert_eq "detect: peer still found" "1" "1" || assert_eq "detect: peer still found" "1" "0"
+
+    # Explicit current_slug parameter also excludes self
+    result=$(n1_related_detect_in_diff "$diff" "$cfg" "myself")
+    echo "$result" | grep -q "^myself	" && assert_eq "detect: self excluded (explicit slug)" "0" "1" || assert_eq "detect: self excluded (explicit slug)" "0" "0"
+
+    export N1_HOME="$N1_HOME_ORIG"
+    export HOME="$HOME_ORIG"
+}
+
+# --- related_detect_in_diff: regex safety ------------------------------------
+test_detect_regex_safety() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+
+    mkdir -p "$tmp/.n1/a.b" "$tmp/.n1/api"
+    echo '{"repoPath":"/repos/ab"}' > "$tmp/.n1/a.b/config.json"
+    echo '{"repoPath":"/repos/api"}' > "$tmp/.n1/api/config.json"
+
+    local cfg="$tmp/config.json"
+    echo '{"relatedProjects":{"enabled":true,"projects":[]}}' > "$cfg"
+
+    HOME_ORIG="$HOME"; export HOME="$tmp"
+    N1_HOME_ORIG="${N1_HOME:-}"; export N1_HOME="$tmp/.n1/self"
+
+    # "axb" must not match slug "a.b"; "rapids" must not match slug "api"
+    local diff='+const x = "axb";
++const y = "rapids";'
+    local result
+    result=$(n1_related_detect_in_diff "$diff" "$cfg")
+    assert_eq "detect: no metachar/substring false positives" "" "$result"
+
+    # Real word-boundary references are still detected
+    diff='+import client from "@org/api-client";'
+    result=$(n1_related_detect_in_diff "$diff" "$cfg" | awk -F'\t' '{print $1}')
+    assert_eq "detect: bounded match still found" "api" "$result"
+
+    export N1_HOME="$N1_HOME_ORIG"
+    export HOME="$HOME_ORIG"
+}
+
+# --- related_detect_in_diff: quoting safety ----------------------------------
+test_detect_quote_safety() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+
+    mkdir -p "$tmp/.n1/ingestion"
+    echo '{"repoPath":"/repos/ingestion"}' > "$tmp/.n1/ingestion/config.json"
+
+    local cfg="$tmp/config.json"
+    echo '{"relatedProjects":{"enabled":true,"projects":[]}}' > "$cfg"
+
+    HOME_ORIG="$HOME"; export HOME="$tmp"
+    N1_HOME_ORIG="${N1_HOME:-}"; export N1_HOME="$tmp/.n1/self"
+
+    # Unbalanced quote in the diff line must not truncate or error the signal
+    local diff='+  const msg = "it'"'"'s the /ingestion/ route;'
+    local signal
+    signal=$(n1_related_detect_in_diff "$diff" "$cfg" | awk -F'\t' '{print $2}')
+    assert_eq "detect: unbalanced quote preserved" 'const msg = "it'"'"'s the /ingestion/ route;' "$signal"
+
+    export N1_HOME="$N1_HOME_ORIG"
+    export HOME="$HOME_ORIG"
+}
+
 # --- related_add -------------------------------------------------------------
 test_related_add() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
@@ -190,6 +274,9 @@ test_related_add() {
 }
 
 test_detect_in_diff
+test_detect_excludes_self
+test_detect_regex_safety
+test_detect_quote_safety
 test_related_add
 
 echo "---"

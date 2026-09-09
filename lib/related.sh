@@ -5,6 +5,12 @@
 _n1_related_lib_dir="$(dirname "${BASH_SOURCE[0]}")"
 source "${_n1_related_lib_dir}/frontmatter.sh"
 source "${_n1_related_lib_dir}/cache.sh"
+source "${_n1_related_lib_dir}/config.sh"
+
+# Escape ERE metacharacters so a slug/service name is matched literally.
+n1_related_escape_ere() {
+    printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|]/\\&/g'
+}
 
 n1_project_map_path() {
     local n1_home="$1"
@@ -69,22 +75,31 @@ n1_related_projects() {
     done
 }
 
+# n1_related_detect_in_diff <diff_text> <config_file> [current_slug]
+# Reports N1 projects referenced in the diff that are not yet registered.
+# The current project is always excluded — a repo is never its own related
+# project. When <current_slug> is omitted it is derived from n1_home().
 n1_related_detect_in_diff() {
-    local diff_text="$1" config_file="$2"
+    local diff_text="$1" config_file="$2" current_slug="${3:-}"
     command -v jq >/dev/null 2>&1 || return 0
+
+    if [ -z "$current_slug" ]; then
+        current_slug=$(basename "$(n1_home)")
+    fi
 
     # Collect known slugs already in relatedProjects
     local known_slugs
-    known_slugs=$(jq -r '.relatedProjects.projects // [] | .[].slug' "$config_file" 2>/dev/null | tr '\n' '|')
-    known_slugs="${known_slugs%|}"
+    known_slugs=$(jq -r '.relatedProjects.projects // [] | .[].slug' "$config_file" 2>/dev/null)
 
     # Scan all N1 projects for service names and slugs
     local cfg slug service
     for cfg in "${HOME}"/.n1/*/config.json; do
         [ -f "$cfg" ] || continue
         slug=$(basename "$(dirname "$cfg")")
+        # Never suggest the current project as its own related project
+        [ "$slug" = "$current_slug" ] && continue
         # Skip if already known
-        if [ -n "$known_slugs" ] && echo "$slug" | grep -qE "^(${known_slugs})$"; then
+        if [ -n "$known_slugs" ] && printf '%s\n' "$known_slugs" | grep -qxF "$slug"; then
             continue
         fi
         service=$(jq -r '.ticketTagging.service // empty' "$cfg" 2>/dev/null)
@@ -92,12 +107,17 @@ n1_related_detect_in_diff() {
         repo_path=$(jq -r '.repoPath // empty' "$cfg" 2>/dev/null)
         [ -n "$repo_path" ] || continue
 
-        # Check diff for references to this project's slug or service name (case-insensitive)
-        local pattern="${slug}"
-        [ -n "$service" ] && pattern="${pattern}|${service}"
-        if echo "$diff_text" | grep -iqE "$pattern"; then
+        # Check the diff for references to this project's slug or service name.
+        # Case-insensitive, metacharacters escaped, non-alphanumeric boundaries
+        # on both sides so short slugs (api, web) do not match everything.
+        local names
+        names=$(n1_related_escape_ere "$slug")
+        [ -n "$service" ] && names="${names}|$(n1_related_escape_ere "$service")"
+        local pattern="(^|[^a-zA-Z0-9])(${names})([^a-zA-Z0-9]|\$)"
+        if printf '%s\n' "$diff_text" | grep -iqE "$pattern"; then
             local signal
-            signal=$(echo "$diff_text" | grep -iE "$pattern" | head -1 | sed 's/^[+-]//' | xargs)
+            signal=$(printf '%s\n' "$diff_text" | grep -iE "$pattern" | head -1 \
+                | sed 's/^[+-]//; s/^[[:space:]]*//; s/[[:space:]]*$//')
             printf '%s\t%s\n' "$slug" "$signal"
         fi
     done
