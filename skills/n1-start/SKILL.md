@@ -308,9 +308,7 @@ Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Create
       git worktree add "$WORKTREE_PATH" <TARGET>
       ```
       If this fails because the directory already exists (e.g., from a crashed prior run), manually remove `<main-checkout>/.claude/worktrees/<ID>/` or run `/n1:n1-clean` to clean up stale worktrees, then retry.
-   e. Report: "Working in worktree `$WORKTREE_PATH` on branch `<TARGET>`."
-   f. **IDE hint.** Print an additional line:
-      > Open this directory in your IDE: `$WORKTREE_PATH`
+   e. Set `WORKTREE_PATH` and `BRANCH` for use in Gate 1's `Workspace:` line. Do not print a report here — Gate 1 surfaces these values after analysis.
 
 **PROCEDURE: Ensure Dependencies (`<ID>`)**
 
@@ -327,8 +325,7 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
    ```bash
    cd "$WORKTREE_PATH" && eval "$SETUP"
    ```
-   - **On success:** `touch "$WORKTREE_PATH/.n1-deps-installed"`; report
-     "Dependencies installed via `$SETUP`."
+   - **On success:** `touch "$WORKTREE_PATH/.n1-deps-installed"`. Do not print a report — success is not news.
    - **On failure:** do NOT create the marker (so the next run / a Retry re-attempts). Do NOT diagnose or repair the environment inline (no `which python`, no `pip install` of individual packages, no venv inspection) — capture stderr and follow the retry/prompt path below exactly; deeper environment work belongs to the developer spawn of the current step.
      Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto` AND this is the first attempt (no prior retry recorded in overview.md `## Escalations`): append `worktree setup auto-retry attempted` to overview.md `## Escalations`, then re-run step 4 once. If the retry succeeds, continue normally. If the retry also fails (or `MP` is not `auto`): report the command's stderr and ask the user:
      ```
@@ -684,7 +681,12 @@ The orchestrator does NOT make its own judgment — the brainstormer already eva
 
 Run the **Estimation** procedure (see Estimation section above). The `plan.md` file is available, providing maximum context for accurate classification.
 
-### Plan Checkpoint (conditional)
+### Gate 2 — Pre-Implementation Brief
+
+Emit **Gate 2** unconditionally (see `## Output Gates § Gate 2 — Pre-Implementation Brief`):
+- Read intent paragraph from `overview.md` `## Key Decisions` (recorded by planner)
+- Read file list from `$N1_HOME/memory/$ID/plan.md` (on `planning_need: direct` path emit `Files: (direct path — determined during implementation)` instead)
+- Read risk line from `analysis.md` signals (`blast_radius`, `complexity_delta`)
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
@@ -693,8 +695,8 @@ PLAN_APPROVAL=$(n1_plan_approval_required)
 
 **If `PLAN_APPROVAL` is `true`:**
 
-Present the plan to the user for approval:
-"Plan is ready at `$N1_HOME/memory/<ID>/plan.md`. Please review and approve before I proceed with implementation."
+After emitting Gate 2, present the approval prompt:
+"Please review the brief above and the full plan at `$N1_HOME/memory/<ID>/plan.md`, then approve to continue."
 
 **Wait for explicit approval before continuing.** Under `N1_HEADLESS=1` this cannot happen — but `n1_plan_approval_required` already returns `false` when `N1_AUTONOMY_PRESET=autonomous`; if it is still `true` in a headless run, apply § Headless Guard.
 
@@ -704,11 +706,11 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "plan_approved" "true"
 ```
 
-**If `PLAN_APPROVAL` is `false`:**
-
-Proceed directly to implementation. Log: "Plan review passed — proceeding to implementation."
+**If `PLAN_APPROVAL` is `false`:** No additional output — Gate 2 already emitted above.
 
 ### 5. IMPLEMENT
+
+Before dispatching the implementer, emit exactly one liveness line: `<ID> · implementing — <N> files` (where `<N>` comes from `FILES_CHANGED` already in context from Gate 1 or analysis signals). This is the single named exception to inter-gate silence — it fires once per run, not once per step, and must not be generalised.
 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/implementation.md`.
 
@@ -927,7 +929,7 @@ If any step fails, first classify the failure:
 - **Terminal or ambiguous** (logic error, repeated failure after retry, an unresolvable blocker) → do not retry blindly:
   1. Note the failure in overview.md under `## Escalations`
   2. **Telemetry (if enabled):** Before escalating, emit a final step event with `outcome: "failed"` for the current step, and run the merge script. This ensures interrupted runs produce partial but valid telemetry records.
-  3. Report to the user with context. **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+  3. Report to the user with context (budget: 20 words per line — state what failed and where; do not narrate diagnosis steps). **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
   4. On next `/n1:n1-start <ID>`, resume support picks up from the last successful step
 
 ## Context Management
