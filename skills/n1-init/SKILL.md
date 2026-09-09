@@ -2211,19 +2211,17 @@ Do you want to manually specify related projects? (List N1 project slugs, or ski
 
 ### Step 4 — Persist
 
-`config.json` already exists at this point. Source `lib/related.sh` and call `n1_related_add` for each approved project:
+`config.json` already exists at this point (written by `## Write Configuration and Structure`). Resolve `N1_HOME`, source `lib/related.sh`, call `n1_related_add` for each approved project, then update `enabled` — all in one block:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_HOME=$(n1_home)
 CFG="$N1_HOME/config.json"
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
 # For each approved project (auto-added high-confidence or user-confirmed medium-confidence):
 n1_related_add "$CFG" "$slug" "$reason" "$source"
 # source = "auto" for high-confidence auto-added; "manual" for user-confirmed
-```
-
-`n1_related_add` is idempotent (skips if slug already present) and stamps `confirmedAt`. After all calls, set `relatedProjects.enabled` based on whether any projects exist:
-
-```bash
+# n1_related_add is idempotent (skips if slug already present) and stamps confirmedAt
 count=$(jq '.relatedProjects.projects | length' "$CFG")
 enabled=$( [ "$count" -gt 0 ] && echo true || echo false )
 jq --argjson e "$enabled" '.relatedProjects.enabled = $e' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
