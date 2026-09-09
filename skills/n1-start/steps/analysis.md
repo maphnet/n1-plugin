@@ -294,6 +294,20 @@ fi
 **Post-return verification — project map (cold/stale + cache enabled):**
 
 ```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+
+# Re-derived for project-map verification: LITE_MODE was set in a different Bash invocation.
+TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
+TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
+DESC_QUALITY=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "description_quality")
+LITE_MODE=false
+if [ "$TIER" = "simple" ] \
+   && { [ "$DESC_QUALITY" = "adequate" ] || [ "$DESC_QUALITY" = "weak" ]; } \
+   && { [ "$TYPE" = "task" ] || [ "$TYPE" = "chore" ]; }; then
+    LITE_MODE=true
+fi
+
 if [ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then
     if [ ! -f "$PROJECT_MAP_PATH" ] || [ ! -s "$PROJECT_MAP_PATH" ]; then
         echo "Project map persistence failed — map will be generated on next run."

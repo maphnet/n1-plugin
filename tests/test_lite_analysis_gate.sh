@@ -133,6 +133,8 @@ assert_contains "T31: output contract preserved in lite" "$SKILL" \
     "Your Output Contract is UNCHANGED"
 assert_contains "T32: project-map verification skipped in lite" "$SKILL" \
     'if [ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then'
+assert_contains "T33: LITE_MODE re-derived in project-map verification block" "$SKILL" \
+    "# Re-derived for project-map verification: LITE_MODE was set in a different Bash invocation."
 
 echo
 echo "Passed: $PASS  Failed: $FAIL"
