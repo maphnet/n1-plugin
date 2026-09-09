@@ -273,11 +273,54 @@ test_related_add() {
     assert_eq "add: second entry" "2" "$count"
 }
 
+# --- related_escape_ere ------------------------------------------------------
+test_escape_ere() {
+    assert_eq "escape: plain slug unchanged" "loop" "$(n1_related_escape_ere "loop")"
+    assert_eq "escape: hyphen and underscore unchanged" "app-legal_service" \
+        "$(n1_related_escape_ere "app-legal_service")"
+    assert_eq "escape: dot escaped" 'app\.core' "$(n1_related_escape_ere 'app.core')"
+    assert_eq "escape: plus and parens escaped" 'a\+b\(c\)' "$(n1_related_escape_ere 'a+b(c)')"
+    assert_eq "escape: brackets, backslash and alternation escaped" '\[x\]\\y\|z' \
+        "$(n1_related_escape_ere '[x]\y|z')"
+
+    # Functional guard: the boundary-wrapped pattern built from a dictionary-word
+    # slug must not match an in-word occurrence, but must match a bounded one.
+    local names pattern
+    names=$(n1_related_escape_ere "loop")
+    pattern="(^|[^a-zA-Z0-9])(${names})([^a-zA-Z0-9]|\$)"
+
+    local got
+    if printf '%s\n' "for (const x of xs) { doloopwork(x); }" | grep -qE "$pattern"; then
+        got="match"
+    else
+        got="nomatch"
+    fi
+    assert_eq "escape: no in-word match for 'loop'" "nomatch" "$got"
+
+    if printf '%s\n' "import { c } from 'loop/client';" | grep -qE "$pattern"; then
+        got="match"
+    else
+        got="nomatch"
+    fi
+    assert_eq "escape: bounded match for 'loop'" "match" "$got"
+
+    # A metacharacter-bearing name must be matched literally, not as a regex.
+    names=$(n1_related_escape_ere "app.core")
+    pattern="(^|[^a-zA-Z0-9])(${names})([^a-zA-Z0-9]|\$)"
+    if printf '%s\n' "require('appXcore/index')" | grep -qE "$pattern"; then
+        got="match"
+    else
+        got="nomatch"
+    fi
+    assert_eq "escape: dot is literal, not wildcard" "nomatch" "$got"
+}
+
 test_detect_in_diff
 test_detect_excludes_self
 test_detect_regex_safety
 test_detect_quote_safety
 test_related_add
+test_escape_ere
 
 echo "---"
 echo "$PASS passed, $FAIL failed"

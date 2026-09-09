@@ -2127,7 +2127,6 @@ N1_HOME=$(n1_home)
 CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
 mkdir -p "$(dirname "$CANDIDATES_FILE")"
 : > "$CANDIDATES_FILE"
-CANDIDATES=""
 for peer_cfg in "${HOME}"/.n1/*/config.json; do
     [ -f "$peer_cfg" ] || continue
     peer_slug=$(basename "$(dirname "$peer_cfg")")
@@ -2137,8 +2136,14 @@ for peer_cfg in "${HOME}"/.n1/*/config.json; do
     peer_repo=$(jq -r '.repoPath // empty' "$peer_cfg" 2>/dev/null)
     [ -n "$peer_repo" ] || continue
     peer_service=$(jq -r '.ticketTagging.service // empty' "$peer_cfg" 2>/dev/null)
-    CANDIDATES="${CANDIDATES}${peer_slug}\t${peer_service}\t${peer_repo}\n"
-    printf '%s\t%s\t%s\n' "$peer_slug" "$peer_service" "$peer_repo" >> "$CANDIDATES_FILE"
+    # A "bare registration" is a hand-authored peer config carrying only version+repoPath:
+    # readable for cross-repo context, but with no tracker/ticketTagging/rules to corroborate
+    # an automatic match. Such peers stay candidates but are never auto-added (see Step 2).
+    peer_bare=true
+    if jq -e '(.tracker // .ticketTagging // .rules) != null' "$peer_cfg" >/dev/null 2>&1; then
+        peer_bare=false
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$peer_slug" "$peer_service" "$peer_repo" "$peer_bare" >> "$CANDIDATES_FILE"
 done
 ```
 
@@ -2156,14 +2161,32 @@ Search implementation:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
 N1_HOME=$(n1_home)
 CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
 REPO_ROOT=$(git rev-parse --show-toplevel)
+# The candidate snapshot is written by Step 1 in an EARLIER Bash invocation. The path is
+# scoped to this project's N1_HOME and Step 1 truncates unconditionally, so cross-project
+# runs cannot collide and an aborted run's leftovers are overwritten, not read. The one
+# remaining window is two concurrent n1-init (or --related) runs in THIS project. No
+# session identifier is available to skill Bash blocks, so warn on age instead of locking.
+if [ -f "$CANDIDATES_FILE" ]; then
+    _cand_mtime=$(stat -c %Y "$CANDIDATES_FILE" 2>/dev/null || stat -f %m "$CANDIDATES_FILE" 2>/dev/null || echo 0)
+    _cand_age=$(( $(date +%s) - _cand_mtime ))
+    if [ "$_cand_mtime" -gt 0 ] && [ "$_cand_age" -gt 30 ]; then
+        echo "WARN: candidate list was generated ${_cand_age}s ago; if another n1-init run is active in this project the results may be stale — re-run Step 1 to refresh."
+    fi
+fi
 FOUND=""
-while IFS=$'\t' read -r c_slug c_service c_repo; do
+while IFS=$'\t' read -r c_slug c_service c_repo c_bare; do
     [ -z "$c_slug" ] && continue
-    pattern="$c_slug"
-    [ -n "$c_service" ] && pattern="${pattern}|${c_service}"
+    note=""
+    # Escape ERE metacharacters and wrap with non-alphanumeric boundaries so short
+    # slugs (loop, api, web) do not match unrelated code. Mirrors lib/related.sh:113-116.
+    # `names` is the reusable escaped alternation; the boundary wrapper is per-site.
+    names=$(n1_related_escape_ere "$c_slug")
+    [ -n "$c_service" ] && names="${names}|$(n1_related_escape_ere "$c_service")"
+    pattern="(^|[^a-zA-Z0-9])(${names})([^a-zA-Z0-9]|\$)"
     # Search in source files (exclude node_modules, .git, vendor)
     matches=$(grep -rlE "$pattern" "$REPO_ROOT" \
         --include='*.ts' --include='*.js' --include='*.py' --include='*.go' \
@@ -2181,7 +2204,10 @@ while IFS=$'\t' read -r c_slug c_service c_repo; do
             _hi=0
             while IFS= read -r _f; do
                 [ -n "$_f" ] || continue
-                if grep -qE "^[[:space:]]*(import|from|require|use)\b.*(${pattern})" "$_f" 2>/dev/null; then _hi=1; break; fi
+                # Use the escaped alternation, not the boundary-wrapped `pattern` —
+                # the wrapper cannot be nested verbatim inside this larger regex.
+                # The import/require keyword prefix supplies the left-hand context.
+                if grep -qE "^[[:space:]]*(import|from|require|use)\b.*(${names})" "$_f" 2>/dev/null; then _hi=1; break; fi
             done <<< "$matches"
             if [ "$_hi" = "1" ]; then
                 confidence="high"
@@ -2189,7 +2215,13 @@ while IFS=$'\t' read -r c_slug c_service c_repo; do
                 confidence="medium"
             fi
         fi
-        FOUND="${FOUND}${c_slug}\t${c_service}\t${match_summary}\t${confidence}\n"
+        # A bare registration has no tracker/CLAUDE.md context to corroborate the match,
+        # so it is never auto-added: cap it at medium and route it to the confirm prompt.
+        if [ "$c_bare" = "true" ] && [ "$confidence" = "high" ]; then
+            confidence="medium"
+            note="bare registration"
+        fi
+        FOUND="${FOUND}${c_slug}\t${c_service}\t${match_summary}\t${confidence}\t${note}\n"
     fi
 done < "$CANDIDATES_FILE"
 
@@ -2201,12 +2233,15 @@ printf '%b' "$FOUND"
 
 High-confidence matches are auto-added (with `source: "auto"`). Medium-confidence matches are presented for confirmation. Low-confidence matches are skipped.
 
+The 5th `FOUND` field is a note. When it reads `bare registration`, the peer's config holds only `version` + `repoPath` — there is no tracker or `ticketTagging` context to corroborate the match, so the row was capped at medium and must be confirmed by the user even if the match itself looked high-confidence. Show the reason in the prompt so the user understands why it is flagged.
+
 If any medium-confidence references need confirmation:
 
 ```
 Detected potential related projects:
 1. **<slug>** (<service>) — referenced in <match_summary> [confidence: high, auto-added]
 2. **<slug>** (<service>) — referenced in <match_summary> [confidence: medium, confirm?]
+3. **<slug>** (<service>) — referenced in <match_summary> [confidence: medium, confirm? — bare registration]
 
 Add all / Select individually / Skip?
 ```
