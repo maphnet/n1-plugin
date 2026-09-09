@@ -2165,6 +2165,18 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
 N1_HOME=$(n1_home)
 CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
 REPO_ROOT=$(git rev-parse --show-toplevel)
+# The candidate snapshot is written by Step 1 in an EARLIER Bash invocation. The path is
+# scoped to this project's N1_HOME and Step 1 truncates unconditionally, so cross-project
+# runs cannot collide and an aborted run's leftovers are overwritten, not read. The one
+# remaining window is two concurrent n1-init (or --related) runs in THIS project. No
+# session identifier is available to skill Bash blocks, so warn on age instead of locking.
+if [ -f "$CANDIDATES_FILE" ]; then
+    _cand_mtime=$(stat -c %Y "$CANDIDATES_FILE" 2>/dev/null || stat -f %m "$CANDIDATES_FILE" 2>/dev/null || echo 0)
+    _cand_age=$(( $(date +%s) - _cand_mtime ))
+    if [ "$_cand_mtime" -gt 0 ] && [ "$_cand_age" -gt 30 ]; then
+        echo "WARN: candidate list was generated ${_cand_age}s ago; if another n1-init run is active in this project the results may be stale — re-run Step 1 to refresh."
+    fi
+fi
 FOUND=""
 while IFS=$'\t' read -r c_slug c_service c_repo c_bare; do
     [ -z "$c_slug" ] && continue
