@@ -2156,14 +2156,19 @@ Search implementation:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
 N1_HOME=$(n1_home)
 CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
 REPO_ROOT=$(git rev-parse --show-toplevel)
 FOUND=""
 while IFS=$'\t' read -r c_slug c_service c_repo; do
     [ -z "$c_slug" ] && continue
-    pattern="$c_slug"
-    [ -n "$c_service" ] && pattern="${pattern}|${c_service}"
+    # Escape ERE metacharacters and wrap with non-alphanumeric boundaries so short
+    # slugs (loop, api, web) do not match unrelated code. Mirrors lib/related.sh:113-116.
+    # `names` is the reusable escaped alternation; the boundary wrapper is per-site.
+    names=$(n1_related_escape_ere "$c_slug")
+    [ -n "$c_service" ] && names="${names}|$(n1_related_escape_ere "$c_service")"
+    pattern="(^|[^a-zA-Z0-9])(${names})([^a-zA-Z0-9]|\$)"
     # Search in source files (exclude node_modules, .git, vendor)
     matches=$(grep -rlE "$pattern" "$REPO_ROOT" \
         --include='*.ts' --include='*.js' --include='*.py' --include='*.go' \
@@ -2181,7 +2186,10 @@ while IFS=$'\t' read -r c_slug c_service c_repo; do
             _hi=0
             while IFS= read -r _f; do
                 [ -n "$_f" ] || continue
-                if grep -qE "^[[:space:]]*(import|from|require|use)\b.*(${pattern})" "$_f" 2>/dev/null; then _hi=1; break; fi
+                # Use the escaped alternation, not the boundary-wrapped `pattern` —
+                # the wrapper cannot be nested verbatim inside this larger regex.
+                # The import/require keyword prefix supplies the left-hand context.
+                if grep -qE "^[[:space:]]*(import|from|require|use)\b.*(${names})" "$_f" 2>/dev/null; then _hi=1; break; fi
             done <<< "$matches"
             if [ "$_hi" = "1" ]; then
                 confidence="high"
