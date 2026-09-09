@@ -172,7 +172,9 @@ Optional feature for exploring related projects' code during analysis and invest
 
 **Related Projects:** `relatedProjects.projects[]` in config — registry of cross-repo relationships. Each entry has `slug` (maps to `~/.n1/<slug>/`), `reason` (relevance hint), `source` (`"auto"` or `"manual"`), `confirmedAt`. Resolution: slug → peer config → `repoPath` + project map.
 
-**Auto-discovery:** Runs during analysis (incremental — skips already-confirmed projects). Confidence cascade: high (direct imports, proto refs) → auto-add; medium (env vars, docker-compose) → verify via CLAUDE.md → add if confirmed; low → skip. Also runs during `n1-init`.
+**Auto-discovery (during analysis):** The solution-architect emits `XREPO_SUGGEST: <slug> <reason>` lines for projects it discovers (incremental — skips already-confirmed projects). The orchestrator auto-adds via `n1_related_add` in hands-off mode, or accumulates suggestions in `$XREPO_PENDING_SLUGS` and presents them to the user in interactive mode. No confidence tiering; no CLAUDE.md reading.
+
+**Auto-discovery (during `n1-init`):** Three-tier confidence cascade — high (direct import/require in file contents, `.proto`/`.graphql` refs) → auto-add with `source:"auto"`; medium (yaml/yml/env references) → read the candidate's CLAUDE.md, present to the user for confirmation; user choosing "Add all" records entries with `source:"auto"`, explicit per-entry confirmation records `source:"manual"`; low → skip.
 
 **Runtime detection:** Post-implementation diff scan detects unregistered cross-repo references. In hands-off mode, auto-adds to config. In interactive mode, presents suggestion. Code-reviewer flags unregistered cross-service calls as advisory `[XREPO-N]` findings (non-blocking).
 
