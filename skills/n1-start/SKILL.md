@@ -592,7 +592,7 @@ PR: <url>
 
 ## Pipeline Steps
 
-Step 3 (Brainstorm) is **INTERACTIVE** by default — Superpowers handles user interaction during brainstorming. When `autonomy.brainstorm` is `auto`, the autonomous brainstormer runs headlessly instead, asking the user only for blocking questions. Step 4 (Plan checkpoint) pauses for explicit plan approval when `requirePlanApproval` is enabled.
+Step 3 (Brainstorm) is **INTERACTIVE** by default — Superpowers handles user interaction during brainstorming. When `autonomy.brainstorm` is `auto`, the autonomous brainstormer runs headlessly instead, asking the user only for blocking questions. Gate 2 (Pre-Implementation Brief) pauses for explicit plan approval when `requirePlanApproval` is enabled.
 
 ### Telemetry Step Markers
 
