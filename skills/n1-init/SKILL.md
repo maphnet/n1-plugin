@@ -1863,6 +1863,8 @@ def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ 
 
 ### On reconfiguration (n1-init re-run):
 
+**`--related` flag:** When invoked as `n1-init --related`, skip all other configuration steps and run only the Related Projects Configuration section above. Read the existing config to preserve all other settings.
+
 Ensure `repoPath` is present and current:
 ```bash
 CFG="$N1_HOME/config.json"
@@ -1887,6 +1889,102 @@ for f in "${CLAUDE_PLUGIN_ROOT}"/agents/*.md; do a=$(basename "$f" .md)
   fi
 done
 ```
+
+## Related Projects Configuration
+
+Discover and configure related projects — other N1-managed repositories that this project integrates with.
+
+### Step 1 — Enumerate candidates
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+# Derive current project slug (PROJECT_NAME may not yet be set at this point)
+_rpc_raw=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
+[ -z "$_rpc_raw" ] && _rpc_raw=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
+_rpc_self=$(printf '%s' "$_rpc_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+CANDIDATES=""
+for peer_cfg in "${HOME}"/.n1/*/config.json; do
+    [ -f "$peer_cfg" ] || continue
+    peer_slug=$(basename "$(dirname "$peer_cfg")")
+    # Skip self
+    [ "$peer_slug" = "$_rpc_self" ] && continue
+    peer_repo=$(jq -r '.repoPath // empty' "$peer_cfg" 2>/dev/null)
+    [ -n "$peer_repo" ] || continue
+    peer_service=$(jq -r '.ticketTagging.service // empty' "$peer_cfg" 2>/dev/null)
+    CANDIDATES="${CANDIDATES}${peer_slug}\t${peer_service}\t${peer_repo}\n"
+done
+```
+
+If no candidates (all projects lack `repoPath` or only self exists), set `relatedProjects.enabled: false` silently and skip this section.
+
+### Step 2 — Search for references (confidence cascade)
+
+For each candidate, search the current repo for references. Classify matches by confidence:
+
+- **High confidence** (direct import/require, shared proto path, explicit API client): auto-add with `source: "auto"`
+- **Medium confidence** (env var or config reference, docker-compose dependency): read candidate's CLAUDE.md to confirm relationship before presenting
+- **Low confidence** (vague name overlap, transitive): skip
+
+Search implementation:
+
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+FOUND=""
+while IFS=$'\t' read -r c_slug c_service c_repo; do
+    [ -z "$c_slug" ] && continue
+    pattern="$c_slug"
+    [ -n "$c_service" ] && pattern="${pattern}|${c_service}"
+    # Search in source files (exclude node_modules, .git, vendor)
+    matches=$(grep -rlE "$pattern" "$REPO_ROOT" \
+        --include='*.ts' --include='*.js' --include='*.py' --include='*.go' \
+        --include='*.java' --include='*.rs' --include='*.yaml' --include='*.yml' \
+        --include='*.json' --include='*.toml' --include='*.proto' \
+        --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=vendor \
+        2>/dev/null | head -3)
+    if [ -n "$matches" ]; then
+        match_summary=$(echo "$matches" | head -1 | sed "s|$REPO_ROOT/||")
+        # Classify confidence based on match file type and content
+        confidence="medium"
+        if echo "$matches" | grep -qE '\.(proto|graphql)$'; then
+            confidence="high"
+        elif grep -lE "^[[:space:]]*(import|from|require|use)\b.*${c_slug}" $matches 2>/dev/null | grep -q .; then
+            confidence="high"
+        elif echo "$matches" | grep -qE '\.(yaml|yml|env)' 2>/dev/null; then
+            confidence="medium"
+        fi
+        FOUND="${FOUND}${c_slug}\t${c_service}\t${match_summary}\t${confidence}\n"
+    fi
+done <<< "$(printf '%b' "$CANDIDATES")"
+```
+
+### Step 3 — Present to user
+
+High-confidence matches are auto-added (with `source: "auto"`). Medium-confidence matches are presented for confirmation. Low-confidence matches are skipped.
+
+If any medium-confidence references need confirmation:
+
+```
+Detected potential related projects:
+1. **<slug>** (<service>) — referenced in <match_summary> [confidence: high, auto-added]
+2. **<slug>** (<service>) — referenced in <match_summary> [confidence: medium, confirm?]
+
+Add all / Select individually / Skip?
+```
+
+For "Add all": add each with `source: "auto"` and a reason derived from the match.
+For "Select individually": present each and let the user confirm/edit reason.
+For "Skip": set `relatedProjects.enabled: false`.
+
+If no references found, ask:
+
+```
+No cross-repo references detected automatically.
+Do you want to manually specify related projects? (List N1 project slugs, or skip)
+```
+
+### Step 4 — Persist
+
+Write the `relatedProjects` block to config. Set `enabled: true` if any projects were added.
 
 ## Write Configuration and Structure
 
@@ -1937,6 +2035,11 @@ Create all files:
   },
   "kb": {
     "enabled": false
+  },
+  "relatedProjects": {
+    "enabled": false,
+    "maxSnapshotAge": "72h",
+    "projects": []
   },
   "escalation": {
     "checkpoints": ["pr"],
