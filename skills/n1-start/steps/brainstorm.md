@@ -61,6 +61,9 @@ Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `change
   **Round 1:** Spawn `n1:solution-architect` as a subagent with this contract:
   - Run `superpowers:brainstorming` against `ticket.md` + `analysis.md`
   - Apply the design focus and override directives listed below for the ticket type
+  - **If ticket type is `bug`:** Tell brainstorming: "This is a bug. The analysis includes a Bug Investigation section with the likely root cause and affected code path. Use these findings to ask informed questions about the fix approach rather than generic questions."
+  - **Project testing policy:** `testCoverage.tier is {TEST_TIER}` (substitute the actual value). QA behavior by tier: `maintain` = fix broken existing tests only, no new tests added; `minimal` = up to 3 focused behavioral tests per feature for acceptance criteria only; `standard` = edge cases and error paths included. When designing the Testing section, default your proposals to match this tier. Only propose new tests if this specific change introduces risk that existing coverage does not address and the risk clearly justifies an exception to the project's testing policy.
+  - When `$RULES_BLOCK` is non-empty, append it to the subagent prompt.
   - **When you reach a question that genuinely requires the user:** stop and return a `QUESTIONS:` block as your final output — numbered items, each with a recommended answer based on codebase evidence. Do not ask one at a time.
   - **If no user questions are needed:** write `brainstorm.md` and return the standard compact block (`planning_need:`, updated `context:`). Relay ends.
 
