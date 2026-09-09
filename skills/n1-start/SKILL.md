@@ -375,18 +375,13 @@ When Claude Code compacts the conversation context, the session-start hook fires
 1. Read the ORCHESTRATOR STATE block from the re-injected session context — it is marked "authoritative, overrides any compacted summary"
 2. Use those values for all subsequent decisions — tracker type, MCP prefix, worktree path, step routing, loop counters
 3. Do NOT rely on the compacted conversation summary for config or routing values — compaction is lossy and may distort tracker type, MCP names, or other critical state
-4. If `Task context:` is present in the ORCHESTRATOR STATE block and non-empty, print the orientation block before continuing the next step:
-   ```
-   ── <Active ticket> ────────────────────────────────────────
-   <Title from overview.md heading>
-
-   <Task context value>
-
-   Tier: <tier from state> · Step: <Current step from state>
-   <Ticket URL from state — omit if empty>
-   ─────────────────────────────────────────────────
-   ```
-   Note: the `Task context:` value in ORCHESTRATOR STATE is a single-line flattened version of the context block (newlines collapsed to spaces for JSON transport). Print it as-is — it reads as a paragraph rather than multi-line, which is acceptable after compaction.
+4. If `Task context:` is present in the ORCHESTRATOR STATE block and non-empty, print **Gate 1** (see `## Output Gates § Gate 1 — Task Orientation`) using the resume/post-compaction variant:
+     - `<ID>` from ORCHESTRATOR STATE `Active ticket:`
+     - `<TITLE>` from overview.md heading
+     - `<CONTEXT_BLOCK>` from ORCHESTRATOR STATE `Task context:` (single-line flattened value; print as-is)
+     - `<TIER>` and `<CURRENT_STEP>` from ORCHESTRATOR STATE
+     - `<FILES_CHANGED>` from ORCHESTRATOR STATE `Files changed:` (omit line if absent)
+     - `<TICKET_URL>` from ORCHESTRATOR STATE (omit line if empty)
 5. If the ORCHESTRATOR STATE block is missing (no active run), re-resolve N1_HOME and re-read config.json via Bash before continuing:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
@@ -411,31 +406,11 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
   ```
 
-  **Print orientation block (resume):**
-  After reading the overview frontmatter and before dispatching the next step, check if overview.md contains a `## Context` section and print the orientation block if non-empty:
+  **Print Gate 1 (resume):** See `## Output Gates § Gate 1 — Task Orientation`. Use the resume/post-compaction variant. Read values via Bash:
   ```bash
   CONTEXT_SECTION=$(sed -n '/^## Context$/,/^## /{/^## Context$/d;/^## /d;p}' "$N1_HOME/memory/$ID/overview.md")
-  if [ -n "$CONTEXT_SECTION" ]; then
-    TITLE=$(grep -m1 '^# ' "$N1_HOME/memory/$ID/overview.md" | sed 's/^# [^:]*: //')
-    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-    source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-    TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
-    CURRENT_STEP=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "step")
-    TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url")
-    FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed" 2>/dev/null || echo "")
-    cat <<EOF
-  ── $ID ────────────────────────────────────────
-  $TITLE
-
-  $CONTEXT_SECTION
-
-  Tier: $TIER · Step: $CURRENT_STEP · Files: ~$FILES_CHANGED
-  EOF
-    [ -n "$TICKET_URL" ] && echo "$TICKET_URL"
-    echo "─────────────────────────────────────────────────"
-  fi
   ```
-  Note: the resume metadata line shows `Step: <current step>` instead of `Blast radius:` — on resume, where-you-are matters more. If `CONTEXT_SECTION` is empty (pre-feature runs, or SA didn't emit it), skip silently — no error, no warning.
+  If `CONTEXT_SECTION` is empty (pre-feature runs or SA did not emit it), skip Gate 1 silently — no error, no warning. Otherwise populate the template fields from frontmatter (`tier`, `step`, `ticket_url`) and signals (`files_changed`), then print.
 
 - **If not exists:** Fresh start. Create `$N1_HOME/memory/<ID>/` directory.
 
