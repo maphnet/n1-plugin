@@ -113,6 +113,26 @@ GUARDED=$(grep -cF 'if [ "$RELATED_ENABLED" = "true" ] && [ "$LITE_MODE" != "tru
 UNGUARDED=$(grep -cF 'if [ "$RELATED_ENABLED" = "true" ]; then' "$SKILL")
 assert_eq "T21: related-projects guard is lite-aware (exactly 1)" "1" "$GUARDED"
 assert_eq "T22: cross-repo telemetry guard untouched (exactly 1)" "1" "$UNGUARDED"
+assert_contains "T23: lite scope directive exists" "$SKILL" \
+    "**Lite scope directive (when \`LITE_MODE\` is \`true\`):**"
+assert_contains "T24: lite escape-hatch directive exists" "$SKILL" \
+    "**Lite escape-hatch directive (when \`LITE_MODE\` is \`true\`):**"
+assert_contains "T25: standards research gated off in lite" "$SKILL" \
+    "**When \`LITE_MODE\` is \`false\`:** Directive: \"Research relevant industry standards"
+assert_contains "T26: snapshot persistence gated off in lite" "$SKILL" \
+    "When \`CACHE_ENABLED\` is \`true\` AND \`LITE_MODE\` is \`false\`"
+assert_contains "T27: project map gated off in lite" "$SKILL" \
+    "AND \`CACHE_ENABLED\` is \`true\` AND \`LITE_MODE\` is \`false\`"
+assert_contains "T28: observability skipped in lite" "$SKILL" \
+    "Skip this entire block when \`LITE_MODE\` is \`true\`"
+assert_contains "T29: LITE_ESCALATED parsed" "$SKILL" \
+    "grep -m1 '^LITE_ESCALATED:'"
+assert_contains "T30: no re-run on escalation" "$SKILL" \
+    "Do NOT re-run analysis."
+assert_contains "T31: output contract preserved in lite" "$SKILL" \
+    "Your Output Contract is UNCHANGED"
+assert_contains "T32: project-map verification skipped in lite" "$SKILL" \
+    'if [ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then'
 
 echo
 echo "Passed: $PASS  Failed: $FAIL"

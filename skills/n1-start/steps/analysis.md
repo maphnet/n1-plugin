@@ -130,6 +130,15 @@ Resolve model for `solution-architect` with context `analysis`.
 
     Default to B. Only classify as A after a genuine resolution attempt fails across all three channels. The goal: the user should never be asked a question you could have answered by reading the code, searching the web, or prescribing a lookup command."
 - **Investigation mode directive (when `TYPE` is `"investigation"`, read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`):** "This is an investigation task -- analyze the codebase to answer the question posed in the ticket, not to plan implementation changes. Focus on findings, evidence, and recommendations rather than files-to-change and blast radius. Your analysis will feed directly into an investigation deliverable, not a plan."
+- **Lite scope directive (when `LITE_MODE` is `true`):** "This is a LITE analysis. The ticket is pre-classified as a simple `task` or `chore` with a usable description. Scope your work accordingly:
+
+    - Read only the files the ticket actually touches, plus their direct callers. Do NOT survey the project structure, module layout, or conventions beyond what the ticket needs.
+    - Do NOT research industry standards or best practices, and do NOT use WebSearch or WebFetch.
+    - Do NOT explore other repositories.
+    - Do NOT query observability sources.
+    - Keep `analysis.md` to 300 words or fewer. Omit any section that would be N/A at this size — no Industry Standards section, no Cross-Repo Context section.
+    - Your Output Contract is UNCHANGED: still return the complete `n1:signals` line, the `tier:` line, and the `context:` block exactly as your agent definition specifies. Every downstream step reads them."
+- **Lite escape-hatch directive (when `LITE_MODE` is `true`):** "If, while reading the code, the task proves materially more than simple — it touches 3 or more files, spans more than one module, touches authentication, authorization, cryptography, secrets, or input validation, changes a public API, or changes a schema or wire contract — do NOT constrain yourself to the lite budget. Analyze it properly, emit the corrected `tier`, `blast_radius`, and `security_relevant` signals, and add one line to your return: `LITE_ESCALATED: <one-sentence reason>`."
 - **Rules:** If `$RULES_BLOCK` is non-empty, append it after the directives above.
 
 **Shared output-path directives (apply to all paths):**
@@ -140,7 +149,7 @@ Resolve model for `solution-architect` with context `analysis`.
      to Write without verifying #44657 is resolved in the target harness version. -->
 
 - Output-path directive: "Write your full analysis report to `$N1_HOME/memory/<ID>/analysis.md` yourself using your Bash tool (cat heredoc redirect — do NOT use the Write tool for this file, ref #44657). Write ONLY to the provided paths under `$N1_HOME`. Return to the orchestrator ONLY this compact block: your `n1:signals` line, `tier:` line, optional `SNAPSHOT_DRIFT:` line, and a 3-10 line summary. Do NOT return the full analysis report — it is in the file you wrote."
-- Project map output-path directive (when `CACHE_STATE` is `cold` or `stale` AND `CACHE_ENABLED` is `true`): "Also write a project map (structural index) for THIS project to `<PROJECT_MAP_PATH>` using Bash (cat heredoc redirect). Format: frontmatter (schema_version: 1, generated_at, git_sha, git_sha_short, generator: solution-architect) + sections: ## Modules, ## API Surface, ## Exports & Shared Types, ## Integration Points, ## Key Files. Target 300-500 tokens. This is a navigation index, not an architecture document."
+- Project map output-path directive (when `CACHE_STATE` is `cold` or `stale` AND `CACHE_ENABLED` is `true` AND `LITE_MODE` is `false`): "Also write a project map (structural index) for THIS project to `<PROJECT_MAP_PATH>` using Bash (cat heredoc redirect). Format: frontmatter (schema_version: 1, generated_at, git_sha, git_sha_short, generator: solution-architect) + sections: ## Modules, ## API Surface, ## Exports & Shared Types, ## Integration Points, ## Key Files. Target 300-500 tokens. This is a navigation index, not an architecture document."
 
 **Prompt construction depends on CACHE_STATE:**
 
@@ -148,10 +157,10 @@ Resolve model for `solution-architect` with context `analysis`.
 
 Spawn the solution-architect agent with:
 - The path to the ticket file — instruct the agent: "Read `$N1_HOME/memory/<ID>/ticket.md` yourself (you have Read); it is the scope to analyze. Its content is NOT inlined here."
-- Directive: "Research relevant industry standards, best practices, and practitioner experience per agents/research-standards.md and include the cited Industry Standards & Best Practices section."
+- **When `LITE_MODE` is `false`:** Directive: "Research relevant industry standards, best practices, and practitioner experience per agents/research-standards.md and include the cited Industry Standards & Best Practices section." Omit this directive entirely when `LITE_MODE` is `true`.
 - All shared spawn directives above.
 - All shared output-path directives above.
-- **When `CACHE_ENABLED` is `true`**, also append this SNAPSHOT PERSISTENCE REQUIREMENT at end of prompt:
+- **When `CACHE_ENABLED` is `true` AND `LITE_MODE` is `false`**, also append this SNAPSHOT PERSISTENCE REQUIREMENT at end of prompt:
 
   > Separate your findings into two categories:
   > `## [PROJECT] <section name>` — for project-level facts (architecture, conventions, patterns, stack, industry standards, subsystem registry, key files).
@@ -170,6 +179,7 @@ Spawn the solution-architect agent with:
   Substitute `<CLAUDE_PLUGIN_ROOT>` and `<SNAPSHOT_PATH>` with their actual resolved values in the prompt.
 
 - **When `CACHE_ENABLED` is `false`**, no [PROJECT]/[TICKET] separation needed — the agent writes its full report directly to analysis.md.
+- **When `LITE_MODE` is `true`**, no [PROJECT]/[TICKET] separation either — the agent writes its (short) report directly to analysis.md and persists no snapshot. The cache stays cold; the next standard-tier ticket warms it.
 
 **When CACHE_STATE is `fresh`:**
 
@@ -216,7 +226,9 @@ Also apply all shared output-path directives.
 
 **Observability enrichment:**
 
-If `observability` is configured (not null) in `$N1_HOME/config.json`:
+Skip this entire block when `LITE_MODE` is `true` — only `task` and `chore` tickets reach lite mode, and observability pays off on bugs and error-tracker tickets, which never do.
+
+Otherwise, if `observability` is configured (not null) in `$N1_HOME/config.json`:
 
 1. Read `observability` from config. If null/absent or `observability.providers` is empty, skip enrichment entirely (requires jq — skip enrichment entirely without jq).
 2. Read `observability.default` from config.
@@ -252,6 +264,21 @@ n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md
 ```
 If still missing/empty: write the agent's returned summary to `$N1_HOME/memory/<ID>/analysis.md` as a degraded fallback (via Bash cat redirect, ref #44657), and record the degradation in overview's `## Key Decisions`: "Analysis: agent failed to write analysis.md; using returned summary as fallback."
 
+**Post-return — LITE_ESCALATED handling (lite path):**
+
+When `LITE_MODE` is `true`, check the agent's returned text for the escape hatch:
+
+```bash
+ESCALATED=$(echo "$AGENT_OUTPUT" | grep -m1 '^LITE_ESCALATED:')
+if [ -n "$ESCALATED" ]; then
+    echo "$ESCALATED"
+fi
+```
+
+If non-empty, log it to overview's `## Key Decisions`: "Lite analysis escalated: <reason from the LITE_ESCALATED line> — corrected signals applied, analysis not re-run."
+
+Do NOT re-run analysis. The architect's corrected `tier`, `blast_radius`, and `security_relevant` values flow through the tier-revision and signal-extraction blocks below, and the escalation triggers in `pipeline.json` react on their own: `security_relevant == true` escalates review to frontier, `blast_radius == high` escalates implementation to frontier.
+
 **Post-return verification — snapshot (cold/stale + cache enabled):**
 
 When CACHE_STATE is `cold` or `stale` AND `$CACHE_ENABLED` is `true`:
@@ -267,7 +294,7 @@ fi
 **Post-return verification — project map (cold/stale + cache enabled):**
 
 ```bash
-if [ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ]; then
+if [ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then
     if [ ! -f "$PROJECT_MAP_PATH" ] || [ ! -s "$PROJECT_MAP_PATH" ]; then
         echo "Project map persistence failed — map will be generated on next run."
     fi
