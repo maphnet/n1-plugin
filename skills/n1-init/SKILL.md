@@ -1863,7 +1863,7 @@ def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ 
 
 ### On reconfiguration (n1-init re-run):
 
-**`--related` flag:** When invoked as `n1-init --related`, skip all other configuration steps and run only the Related Projects Configuration section above. Read the existing config to preserve all other settings.
+**`--related` flag:** When invoked as `n1-init --related`, skip all other configuration steps and run only the Related Projects Configuration section below. Read the existing config to preserve all other settings.
 
 Ensure `repoPath` is present and current:
 ```bash
@@ -1898,16 +1898,20 @@ Discover and configure related projects — other N1-managed repositories that t
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-# Derive current project slug (PROJECT_NAME may not yet be set at this point)
-_rpc_raw=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
-[ -z "$_rpc_raw" ] && _rpc_raw=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
-_rpc_self=$(printf '%s' "$_rpc_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+# Derive both candidate self-slugs (remote-URL and directory-name), each sanitized the same way.
+# n1_home() resolves N1_HOME by matching whichever slug has an existing ~/.n1/<slug>/ dir,
+# so we must skip a peer that matches EITHER to avoid adding self when the two slugs differ.
+_rpc_url_raw=$(basename "$(git remote get-url origin 2>/dev/null)" .git 2>/dev/null || true)
+_rpc_dir_raw=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)
+_rpc_self_url=$(printf '%s' "$_rpc_url_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
+_rpc_self_dir=$(printf '%s' "$_rpc_dir_raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g; s/--*/-/g; s/^-//; s/-$//')
 CANDIDATES=""
 for peer_cfg in "${HOME}"/.n1/*/config.json; do
     [ -f "$peer_cfg" ] || continue
     peer_slug=$(basename "$(dirname "$peer_cfg")")
-    # Skip self
-    [ "$peer_slug" = "$_rpc_self" ] && continue
+    # Skip self — match against both remote-URL-derived and dir-name-derived slugs
+    [ "$peer_slug" = "$_rpc_self_url" ] && continue
+    [ "$peer_slug" = "$_rpc_self_dir" ] && continue
     peer_repo=$(jq -r '.repoPath // empty' "$peer_cfg" 2>/dev/null)
     [ -n "$peer_repo" ] || continue
     peer_service=$(jq -r '.ticketTagging.service // empty' "$peer_cfg" 2>/dev/null)
@@ -1947,10 +1951,17 @@ while IFS=$'\t' read -r c_slug c_service c_repo; do
         confidence="medium"
         if echo "$matches" | grep -qE '\.(proto|graphql)$'; then
             confidence="high"
-        elif grep -lE "^[[:space:]]*(import|from|require|use)\b.*${c_slug}" $matches 2>/dev/null | grep -q .; then
-            confidence="high"
-        elif echo "$matches" | grep -qE '\.(yaml|yml|env)' 2>/dev/null; then
-            confidence="medium"
+        else
+            _hi=0
+            while IFS= read -r _f; do
+                [ -n "$_f" ] || continue
+                if grep -qE "^[[:space:]]*(import|from|require|use)\b.*(${pattern})" "$_f" 2>/dev/null; then _hi=1; break; fi
+            done <<< "$matches"
+            if [ "$_hi" = "1" ]; then
+                confidence="high"
+            elif echo "$matches" | grep -qE '\.(yaml|yml|env)' 2>/dev/null; then
+                confidence="medium"
+            fi
         fi
         FOUND="${FOUND}${c_slug}\t${c_service}\t${match_summary}\t${confidence}\n"
     fi
@@ -1984,7 +1995,47 @@ Do you want to manually specify related projects? (List N1 project slugs, or ski
 
 ### Step 4 — Persist
 
-Write the `relatedProjects` block to config. Set `enabled: true` if any projects were added.
+There are two execution paths. Handle each explicitly.
+
+**`--related` re-run** (config.json already exists — invoked via `n1-init --related`):
+
+Source `lib/related.sh` and call `n1_related_add` for each approved project immediately:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+CFG="$N1_HOME/config.json"
+# For each approved project (auto-added high-confidence or user-confirmed medium-confidence):
+n1_related_add "$CFG" "$slug" "$reason" "$source"
+# source = "auto" for high-confidence auto-added; "manual" for user-confirmed
+```
+
+`n1_related_add` is idempotent (skips if slug already present) and stamps `confirmedAt`. After all calls, set `relatedProjects.enabled` based on whether any projects exist:
+
+```bash
+count=$(jq '.relatedProjects.projects | length' "$CFG")
+enabled=$( [ "$count" -gt 0 ] && echo true || echo false )
+jq --argjson e "$enabled" '.relatedProjects.enabled = $e' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+```
+
+**Fresh init** (config.json does not yet exist — running the full n1-init flow):
+
+Accumulate approved entries in a shell variable during this section. Do NOT attempt to write them now — `config.json` does not exist yet. After `## Write Configuration and Structure` finishes writing `config.json`, immediately call `n1_related_add` for each accumulated entry:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+CFG="$N1_HOME/config.json"
+# APPROVED_RELATED holds newline-separated lines of: slug<TAB>reason<TAB>source
+# (populated during Steps 2–3 above)
+while IFS=$'\t' read -r r_slug r_reason r_source; do
+    [ -z "$r_slug" ] && continue
+    n1_related_add "$CFG" "$r_slug" "$r_reason" "$r_source"
+done <<< "$(printf '%b' "$APPROVED_RELATED")"
+count=$(jq '.relatedProjects.projects | length' "$CFG")
+enabled=$( [ "$count" -gt 0 ] && echo true || echo false )
+jq --argjson e "$enabled" '.relatedProjects.enabled = $e' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+```
+
+If no projects were approved, `relatedProjects.enabled` remains `false` (the default written by the template).
 
 ## Write Configuration and Structure
 
