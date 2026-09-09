@@ -23,17 +23,62 @@ fi
 
 ```
 
+**Lite-Analysis Gate:**
+
+A simple, well-described `task` or `chore` does not need the full architect treatment. Evaluate this gate before building any of the expensive prompt context below.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+
+TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
+TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
+DESC_QUALITY=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "description_quality")
+
+LITE_MODE=false
+if [ "$TIER" = "simple" ] \
+   && { [ "$DESC_QUALITY" = "adequate" ] || [ "$DESC_QUALITY" = "weak" ]; } \
+   && { [ "$TYPE" = "task" ] || [ "$TYPE" = "chore" ]; }; then
+    LITE_MODE=true
+fi
+echo "LITE_MODE=$LITE_MODE (tier=$TIER type=$TYPE quality=$DESC_QUALITY)"
+
+n1_record_decision lite-analysis-gate "$LITE_MODE" \
+  '{"all":[{"frontmatter":"tier","eq":"simple"},{"signal":"ticket.description_quality","neq":"empty"},{"signal":"ticket.description_quality","neq":"skeletal"},{"any":[{"frontmatter":"type","eq":"task"},{"frontmatter":"type","eq":"chore"}]}]}' \
+  "tier=$TIER" "type=$TYPE" "quality=$DESC_QUALITY"
+```
+
+`LITE_MODE` controls the scope of the analysis, never its output contract. The solution-architect still returns the full `n1:signals` line, `tier:` line, and `context:` block in lite mode — every downstream gate depends on them.
+
+The Bash predicate uses an explicit `adequate`/`weak` allowlist; the recorded condition JSON expresses the same set as paired `neq` guards (`n1_eval_signal_gate` has no `in` operator) plus a nested `any` for the type allowlist. The two agree on every reachable value, including an absent `description_quality` signal, which both treat as not-lite.
+
+When `LITE_MODE` is `true`, log to overview's `## Key Decisions`: "Lite-analysis gate: reduced-scope analysis (tier=$TIER, type=$TYPE, quality=$DESC_QUALITY)."
+
 **Related projects context:**
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+
+# Re-derived: LITE_MODE was set in a different Bash invocation.
+TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
+TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
+DESC_QUALITY=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "description_quality")
+LITE_MODE=false
+if [ "$TIER" = "simple" ] \
+   && { [ "$DESC_QUALITY" = "adequate" ] || [ "$DESC_QUALITY" = "weak" ]; } \
+   && { [ "$TYPE" = "task" ] || [ "$TYPE" = "chore" ]; }; then
+    LITE_MODE=true
+fi
 
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 RELATED_CONTEXT=""
 PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME")
 
-if [ "$RELATED_ENABLED" = "true" ]; then
+if [ "$RELATED_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then
     MAX_AGE=$(n1_config_val ".relatedProjects.maxSnapshotAge" "$N1_HOME/config.json")
     MAX_AGE="${MAX_AGE:-72h}"
 
