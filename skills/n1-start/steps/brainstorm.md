@@ -1,4 +1,6 @@
 
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+
 **Telemetry (if enabled):** Emit `started_at` for step 3 (`brainstorm`) before any routing or agent spawning:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
@@ -52,16 +54,24 @@ Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `change
   When `$RULES_BLOCK` is non-empty, append it to the subagent prompt.
 
   After the subagent returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies).
-- **`BRAINSTORM_MODE` == `interactive` (default):** Use the interactive brainstormer:
+- **`BRAINSTORM_MODE` == `interactive` (default):** Delegate brainstorming to a subagent using a batched question-relay loop. **Behaviour change:** this converts the `superpowers:brainstorming` iterative dialogue into at most two batched rounds — a stated fidelity trade on genuinely exploratory tickets, not a blocker.
 
-**REQUIRED SUB-SKILL:** Use superpowers:brainstorming to explore the scope and refine the approach.
+  **Relay loop (cap: 2 rounds):**
 
-Pass to brainstorming:
-- The content of `ticket.md` as the idea to explore
-- The content of `analysis.md` as **pre-researched codebase context** — tell brainstorming: "Here is a codebase analysis already performed by our solution architect. It REPLACES your Step 1 (explore context) — treat it as complete. Do not open project source files to re-verify it."
-- **If ticket type is `bug`:** Also tell brainstorming: "This is a bug. The analysis includes a Bug Investigation section with the likely root cause and affected code path. Use these findings to ask informed questions about the fix approach rather than generic questions."
-- **Project testing policy:** "testCoverage.tier is `{TEST_TIER}` (substitute the actual value). QA behavior by tier: `maintain` = fix broken existing tests only, no new tests added; `minimal` = up to 3 focused behavioral tests per feature for acceptance criteria only; `standard` = edge cases and error paths included. When designing the Testing section, default your proposals to match this tier. Only propose new tests if this specific change introduces risk that existing coverage does not address and the risk clearly justifies an exception to the project's testing policy."
-- When `$RULES_BLOCK` is non-empty, append it verbatim to the brainstorming prompt after the other directives above.
+  **Round 1:** Spawn `n1:solution-architect` as a subagent with this contract:
+  - Run `superpowers:brainstorming` against `ticket.md` + `analysis.md`
+  - Apply the design focus and override directives listed below for the ticket type
+  - **When you reach a question that genuinely requires the user:** stop and return a `QUESTIONS:` block as your final output — numbered items, each with a recommended answer based on codebase evidence. Do not ask one at a time.
+  - **If no user questions are needed:** write `brainstorm.md` and return the standard compact block (`planning_need:`, updated `context:`). Relay ends.
+
+  If the subagent returns a `QUESTIONS:` block:
+  - Raise all questions in a single `AskUserQuestion` (max 4 items; chain beyond 4 using the same rule as `steps/analysis.md:596`).
+  - Accept "use recommended" as a global answer.
+  - **Round 2:** Re-spawn the same subagent with the original inputs plus the user's answers appended. The subagent writes `brainstorm.md` and returns the compact block. Do not spawn a third round regardless of output.
+
+  The user sees: the batched questions and nothing else. The exploration transcript stays inside the subagent. This matches the existing relay pattern at `steps/implementation.md:191`.
+
+  **Apply these directives to the subagent regardless of mode (lifted from the existing interactive path below):**
 
 <N1-OVERRIDE>
 These overrides take precedence over superpowers:brainstorming's checklist AND its HARD-GATE for steps 5-9.
@@ -330,5 +340,3 @@ n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,ke
      ```
    - Call `addComment` via tracker MCP routing (Jira: `issueIdOrKey`, `body`, `cloudId` from `tracker.cloudId` in config or resolve via `getAccessibleAtlassianResources` if absent; YouTrack: `issueId`, `text`).
    - On failure: log "⚠ Design summary comment failed: <reason>" and continue — non-blocking.
-
-5. Log: "Tracker updated with refined requirements and design summary." (or "Tracker enrichment skipped." if gated out)
