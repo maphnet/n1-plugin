@@ -11,8 +11,6 @@ model: sonnet
 
 Single entry point for all task work. Accepts a ticket ID or a brain dump, then orchestrates the full development cycle using specialized agent personas: product-analyst, solution-architect, developer, qa-engineer, code-reviewer, security-reviewer, and tech-writer.
 
-**Announce at start:** "I'm using the n1-start skill to work on this task."
-
 ## N1_HOME Resolution
 
 Resolve the N1 state directory at the start of every run, before any config or memory access. Run via Bash:
@@ -151,12 +149,6 @@ n1_resolve_model <agent-name> [context]
 ```
 
 The optional `context` parameter enables signal-driven model tiering (e.g., `n1_resolve_model developer fix`). Resolution chain: config override > signal-driven triggers > profile step_overrides > agent frontmatter default.
-
-## Orchestrator Output Discipline
-
-Between steps, emit ONLY: the step name being dispatched, the agent being spawned (with model), and any routing decision with its reason. Do not summarize step outputs, re-describe the task, or narrate intermediate state. Memory files carry context between steps — the orchestrator does not need to.
-
-**Exception — Orientation block:** After the analysis step, on resume, and after compaction recovery, the orchestrator prints a framed orientation block containing the ticket ID, title, context summary, metadata, and ticket URL. This is a defined exception — it presents stable task context for human orientation, not a step output summary.
 
 ## Workspace Isolation
 
@@ -316,9 +308,7 @@ Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Create
       git worktree add "$WORKTREE_PATH" <TARGET>
       ```
       If this fails because the directory already exists (e.g., from a crashed prior run), manually remove `<main-checkout>/.claude/worktrees/<ID>/` or run `/n1:n1-clean` to clean up stale worktrees, then retry.
-   e. Report: "Working in worktree `$WORKTREE_PATH` on branch `<TARGET>`."
-   f. **IDE hint.** Print an additional line:
-      > Open this directory in your IDE: `$WORKTREE_PATH`
+   e. Set `WORKTREE_PATH` and `BRANCH` for use in Gate 1's `Workspace:` line. Do not print a report here — Gate 1 surfaces these values after analysis.
 
 **PROCEDURE: Ensure Dependencies (`<ID>`)**
 
@@ -335,8 +325,7 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
    ```bash
    cd "$WORKTREE_PATH" && eval "$SETUP"
    ```
-   - **On success:** `touch "$WORKTREE_PATH/.n1-deps-installed"`; report
-     "Dependencies installed via `$SETUP`."
+   - **On success:** `touch "$WORKTREE_PATH/.n1-deps-installed"`. Do not print a report — success is not news.
    - **On failure:** do NOT create the marker (so the next run / a Retry re-attempts). Do NOT diagnose or repair the environment inline (no `which python`, no `pip install` of individual packages, no venv inspection) — capture stderr and follow the retry/prompt path below exactly; deeper environment work belongs to the developer spawn of the current step.
      Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto` AND this is the first attempt (no prior retry recorded in overview.md `## Escalations`): append `worktree setup auto-retry attempted` to overview.md `## Escalations`, then re-run step 4 once. If the retry succeeds, continue normally. If the retry also fails (or `MP` is not `auto`): report the command's stderr and ask the user:
      ```
@@ -383,18 +372,13 @@ When Claude Code compacts the conversation context, the session-start hook fires
 1. Read the ORCHESTRATOR STATE block from the re-injected session context — it is marked "authoritative, overrides any compacted summary"
 2. Use those values for all subsequent decisions — tracker type, MCP prefix, worktree path, step routing, loop counters
 3. Do NOT rely on the compacted conversation summary for config or routing values — compaction is lossy and may distort tracker type, MCP names, or other critical state
-4. If `Task context:` is present in the ORCHESTRATOR STATE block and non-empty, print the orientation block before continuing the next step:
-   ```
-   ── <Active ticket> ────────────────────────────────────────
-   <Title from overview.md heading>
-
-   <Task context value>
-
-   Tier: <tier from state> · Step: <Current step from state>
-   <Ticket URL from state — omit if empty>
-   ─────────────────────────────────────────────────
-   ```
-   Note: the `Task context:` value in ORCHESTRATOR STATE is a single-line flattened version of the context block (newlines collapsed to spaces for JSON transport). Print it as-is — it reads as a paragraph rather than multi-line, which is acceptable after compaction.
+4. If `Task context:` is present in the ORCHESTRATOR STATE block and non-empty, print **Gate 1** (see `## Output Gates § Gate 1 — Task Orientation`) using the resume/post-compaction variant:
+     - `<ID>` from ORCHESTRATOR STATE `Active ticket:`
+     - `<TITLE>` from overview.md heading
+     - `<CONTEXT_BLOCK>` from ORCHESTRATOR STATE `Task context:` (single-line flattened value; print as-is)
+     - `<TIER>` and `<CURRENT_STEP>` from ORCHESTRATOR STATE
+     - `<FILES_CHANGED>` from ORCHESTRATOR STATE `Files changed:` (omit line if absent)
+     - `<TICKET_URL>` from ORCHESTRATOR STATE (omit line if empty)
 5. If the ORCHESTRATOR STATE block is missing (no active run), re-resolve N1_HOME and re-read config.json via Bash before continuing:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
@@ -419,31 +403,11 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
   n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
   ```
 
-  **Print orientation block (resume):**
-  After reading the overview frontmatter and before dispatching the next step, check if overview.md contains a `## Context` section and print the orientation block if non-empty:
+  **Print Gate 1 (resume):** See `## Output Gates § Gate 1 — Task Orientation`. Use the resume/post-compaction variant. Read values via Bash:
   ```bash
   CONTEXT_SECTION=$(sed -n '/^## Context$/,/^## /{/^## Context$/d;/^## /d;p}' "$N1_HOME/memory/$ID/overview.md")
-  if [ -n "$CONTEXT_SECTION" ]; then
-    TITLE=$(grep -m1 '^# ' "$N1_HOME/memory/$ID/overview.md" | sed 's/^# [^:]*: //')
-    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-    source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-    TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
-    CURRENT_STEP=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "step")
-    TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url")
-    FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed" 2>/dev/null || echo "")
-    cat <<EOF
-  ── $ID ────────────────────────────────────────
-  $TITLE
-
-  $CONTEXT_SECTION
-
-  Tier: $TIER · Step: $CURRENT_STEP · Files: ~$FILES_CHANGED
-  EOF
-    [ -n "$TICKET_URL" ] && echo "$TICKET_URL"
-    echo "─────────────────────────────────────────────────"
-  fi
   ```
-  Note: the resume metadata line shows `Step: <current step>` instead of `Blast radius:` — on resume, where-you-are matters more. If `CONTEXT_SECTION` is empty (pre-feature runs, or SA didn't emit it), skip silently — no error, no warning.
+  If `CONTEXT_SECTION` is empty (pre-feature runs or SA did not emit it), skip Gate 1 silently — no error, no warning. Otherwise populate the template fields from frontmatter (`tier`, `step`, `ticket_url`) and signals (`files_changed`), then print.
 
 - **If not exists:** Fresh start. Create `$N1_HOME/memory/<ID>/` directory.
 
@@ -525,9 +489,110 @@ fi
 
 When `$RULES_BLOCK` is non-empty, append it to the agent's spawn prompt.
 
+## Output Gates
+
+Between gates, emit nothing. Do not announce the step being dispatched, the agent being spawned, the model resolved, or the routing decision taken — the pipeline shape is stated once in Gate 1. Memory files carry context between steps; the orchestrator does not.
+
+Four categories may still surface between gates, and nothing else:
+1. **Blocking prompts** — any AskUserQuestion. You cannot answer a prompt you cannot see.
+2. **Warnings and escalations** — anything that changes what "done" will mean, or stops the run.
+3. **Fix-loop iterations** — one line per cycle: `<ID> · <loop-name> fix cycle <N>/<MAX>`. Keeps a long run from reading as hung.
+4. **The three gates** — defined below.
+
+A length budget removes padding more reliably than any instruction to "be concise." Cut 30% of what's left before emitting a gate — if the meaning survived, that's the version to send.
+
+| Surface | Budget |
+|---|---|
+| Gate 1 | 12 lines, ~700 characters |
+| Gate 2 | 15 lines, ~800 characters |
+| Gate 3 | 20 lines, ~1 200 characters |
+| Any inter-gate line | 1 line, 20 words |
+| Any sentence | 20 words, one idea |
+
+Nothing found → print nothing. No table, no "Nothing needs updating", no summary of having looked. Do NOT list what you wrote down.
+
+### Gate 1 — Task Orientation
+
+Emitted: after analysis completes, on resume, and after compaction recovery.
+
+```
+=== <ID> ===
+<TITLE>
+
+<CONTEXT_BLOCK>
+
+Tier: <TIER> · Files: ~<FILES_CHANGED> · Blast radius: <BLAST_RADIUS>
+Pipeline: <resolved step list, comma-separated>
+Workspace: <WORKTREE_PATH> (<BRANCH>)
+<TICKET_URL — omit this line entirely if empty>
+===
+```
+
+**Resume and post-compaction variant** — identical except replace the metadata line with:
+```
+Tier: <TIER> · Step: <CURRENT_STEP> · Files: ~<FILES_CHANGED>
+```
+(On resume, where-you-are matters more than blast radius.)
+
+**Folds in (routing decisions surfaced here instead of inline):**
+- `Pipeline:` carries the resolved step list, absorbing per-step routing echoes and the investigation-mode pipeline announcement
+- `Workspace:` absorbs the worktree-path and IDE-hint lines from the Ensure Worktree procedure
+- `<TICKET_URL>` absorbs the ticket ID/URL print from intake
+
+### Gate 2 — Pre-Implementation Brief
+
+Emitted: unconditionally, after plan completes and before implementation starts. Fires on both the plan path and the `planning_need: direct` path.
+
+```
+=== <ID> — plan ===
+<intent paragraph — 2-3 sentences, product language, no symbol or path names>
+
+Files:
+  <path> — add|modify|delete|test
+  <path> — add|modify|delete|test
+
+Risk: <one line, the single thing most likely to go wrong>
+===
+```
+
+**Content sources:**
+- Intent paragraph: `overview.md` `## Key Decisions` (recorded by the planner at `steps/plan.md:32`)
+- File list: `plan.md` file list section
+- Risk line: `analysis.md` signals (blast_radius, complexity_delta)
+
+**`planning_need: direct` branch (no `plan.md`):** Source the intent paragraph from `brainstorm.md`'s chosen approach; emit `Files: (direct path — determined during implementation)`. Do not skip Gate 2 on this branch — a silent implementation start is what this model prevents.
+
+### Gate 3 — Done/Tested Summary
+
+Emitted: at the end of `### 12. FINALIZE MEMORY`, after `n1_active_run_clear`, as the final act of the run.
+
+```
+=== <ID> — done ===
+Implemented:
+  <what a user of this system can now do, or what stopped being broken — one line each, product language>
+
+Tested:
+  $ <verbatim command>
+  <verbatim result line>
+
+  <STEP>: SKIPPED — <reason>
+
+PR: <url>
+===
+```
+
+**Three rules:**
+1. **Verbatim means verbatim.** Copy the command and result line from `qa.md` / `local-testing.md`. Do not paraphrase, do not summarise to "tests pass".
+2. **Skipped steps are printed, never omitted.** Every step not run gets a `SKIPPED — <reason>` line.
+3. **`steps/pr.md`'s CHECKPOINT folds here** — the `PR:` line is Gate 3's closing field.
+
+**Content sources:** `implementation.md` `## Implementation Summary`, `qa.md` verdict and Evidence section, `local-testing.md` report, `overview.md` `## Pending` for PR URL.
+
+**Investigation-mode variant:** For investigation tickets, Gate 3 uses the `=== <ID> — done ===` frame and prints the Background, Summary, Metrics, Findings (capped at Gate 3 budget), Recommendations, and Next Steps sections from `investigation.md`. The Findings section points to `$N1_HOME/memory/<ID>/investigation.md` for the full text when it would exceed budget. Content stays (F8) — frame changes.
+
 ## Pipeline Steps
 
-Step 3 (Brainstorm) is **INTERACTIVE** by default — Superpowers handles user interaction during brainstorming. When `autonomy.brainstorm` is `auto`, the autonomous brainstormer runs headlessly instead, asking the user only for blocking questions. Step 4 (Plan checkpoint) pauses for explicit plan approval when `requirePlanApproval` is enabled.
+Step 3 (Brainstorm) is **INTERACTIVE** by default — Superpowers handles user interaction during brainstorming. When `autonomy.brainstorm` is `auto`, the autonomous brainstormer runs headlessly instead, asking the user only for blocking questions. Gate 2 (Pre-Implementation Brief) pauses for explicit plan approval when `requirePlanApproval` is enabled.
 
 ### Telemetry Step Markers
 
@@ -616,7 +681,12 @@ The orchestrator does NOT make its own judgment — the brainstormer already eva
 
 Run the **Estimation** procedure (see Estimation section above). The `plan.md` file is available, providing maximum context for accurate classification.
 
-### Plan Checkpoint (conditional)
+### Gate 2 — Pre-Implementation Brief
+
+Emit **Gate 2** unconditionally (see `## Output Gates § Gate 2 — Pre-Implementation Brief`):
+- Read intent paragraph from `overview.md` `## Key Decisions` (recorded by planner)
+- Read file list from `$N1_HOME/memory/$ID/plan.md` (on `planning_need: direct` path emit `Files: (direct path — determined during implementation)` instead)
+- Read risk line from `analysis.md` signals (`blast_radius`, `complexity_delta`)
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
@@ -625,8 +695,8 @@ PLAN_APPROVAL=$(n1_plan_approval_required)
 
 **If `PLAN_APPROVAL` is `true`:**
 
-Present the plan to the user for approval:
-"Plan is ready at `$N1_HOME/memory/<ID>/plan.md`. Please review and approve before I proceed with implementation."
+After emitting Gate 2, present the approval prompt:
+"Please review the brief above and the full plan at `$N1_HOME/memory/<ID>/plan.md`, then approve to continue."
 
 **Wait for explicit approval before continuing.** Under `N1_HEADLESS=1` this cannot happen — but `n1_plan_approval_required` already returns `false` when `N1_AUTONOMY_PRESET=autonomous`; if it is still `true` in a headless run, apply § Headless Guard.
 
@@ -636,11 +706,11 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "plan_approved" "true"
 ```
 
-**If `PLAN_APPROVAL` is `false`:**
-
-Proceed directly to implementation. Log: "Plan review passed — proceeding to implementation."
+**If `PLAN_APPROVAL` is `false`:** No additional output — Gate 2 already emitted above.
 
 ### 5. IMPLEMENT
+
+Before dispatching the implementer, emit exactly one liveness line: `<ID> · implementing — <N> files` (where `<N>` comes from `FILES_CHANGED` already in context from Gate 1 or analysis signals). This is the single named exception to inter-gate silence — it fires once per run, not once per step, and must not be generalised.
 
 **Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/implementation.md`.
 
@@ -851,6 +921,21 @@ source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 n1_active_run_clear
 ```
 
+**Emit Gate 3** (see `## Output Gates § Gate 3 — Done/Tested Summary`):
+
+Read sources in this order:
+1. `$N1_HOME/memory/$ID/implementation.md` — `## Implementation Summary` section (files changed, what was built)
+2. `$N1_HOME/memory/$ID/qa.md` — verdict line and Evidence section (verbatim test commands and results)
+3. `$N1_HOME/memory/$ID/local-testing.md` — local-test report (verbatim commands and results, or SKIPPED line)
+4. `$N1_HOME/memory/$ID/overview.md` — `## Pending` section for PR URL
+
+**Rules (stated here so a later reader cannot delete them as optional):**
+- Copy test commands and result lines verbatim. Do not paraphrase or summarise to "tests pass".
+- Every step that did not run gets a `SKIPPED — <reason>` line. Missing steps are never silent.
+- The PR URL is Gate 3's final field; `steps/pr.md`'s CHECKPOINT line folds here.
+- For investigation tickets use the investigation-mode variant (see Gate 3 definition in `## Output Gates`).
+- Apply the Gate 3 budget (20 lines, ~1 200 characters). If the Findings section (investigation mode) would exceed budget, print the first 15 lines then: `(full text: $N1_HOME/memory/<ID>/investigation.md)`.
+
 ## Error Recovery
 
 If any step fails, first classify the failure:
@@ -859,7 +944,7 @@ If any step fails, first classify the failure:
 - **Terminal or ambiguous** (logic error, repeated failure after retry, an unresolvable blocker) → do not retry blindly:
   1. Note the failure in overview.md under `## Escalations`
   2. **Telemetry (if enabled):** Before escalating, emit a final step event with `outcome: "failed"` for the current step, and run the merge script. This ensures interrupted runs produce partial but valid telemetry records.
-  3. Report to the user with context. **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+  3. Report to the user with context (budget: 20 words per line — state what failed and where; do not narrate diagnosis steps). **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
   4. On next `/n1:n1-start <ID>`, resume support picks up from the last successful step
 
 ## Context Management

@@ -36,6 +36,7 @@ After developer returns:
   ```bash
   n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
   ```
+- Emit one fix-loop iteration line (exempt from inter-gate silence per D2): `<ID> · review fix cycle <N>/<MAX>`
 - Go back to **Step 7** (REVIEW) — re-run both reviewers
 - The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3); when `review_fix_cycle` reaches it, escalate to the user. **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 

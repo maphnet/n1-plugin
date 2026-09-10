@@ -1,4 +1,6 @@
 
+> **After the implementer subagent returns, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+
 **Ensure dependencies (worktree mode).** Before any code execution, run the
 **Ensure Dependencies(`<ID>`)** procedure (see Workspace Isolation in `SKILL.md`).
 In branch mode this is a no-op. When a worktree is active it lazily installs

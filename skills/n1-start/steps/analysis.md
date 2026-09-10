@@ -1,4 +1,6 @@
 
+> **After this step's agent returns, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+
 **Update tracker status to In Progress.** Before analysis begins, move the ticket to the configured In Progress status:
 - **Gate:** Skip if `tracker.mcp` is not configured, `tracker.statuses.inProgress` is absent, or `tracker.operations.moveStatus` is absent.
 - Jira: first call `mcp__<tracker.mcp>__<tracker.operations.getTransitions>` with `cloudId`, `issueIdOrKey: <ID>` to find the transition matching `tracker.statuses.inProgress`, then call `mcp__<tracker.mcp>__<tracker.operations.moveStatus>` with `cloudId`, `issueIdOrKey: <ID>`, `transitionId: <matched id>`.
@@ -379,19 +381,18 @@ If `CONTEXT_BLOCK` is non-empty:
    TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
    ```
 
-4. Print the orientation block:
-   ```
-   ── <ID> ────────────────────────────────────────
-   <TITLE>
+4. **Print Gate 1** (see `SKILL.md § Gate 1 — Task Orientation`). Populate the template fields:
+   - `<ID>` = current ticket ID
+   - `<TITLE>` = ticket title from overview.md heading
+   - `<CONTEXT_BLOCK>` = `CONTEXT_BLOCK` extracted above
+   - `<TIER>` = final tier (after revision check below)
+   - `<FILES_CHANGED>` = `FILES_CHANGED` signal from analysis.md
+   - `<BLAST_RADIUS>` = `BLAST_RADIUS` signal from analysis.md
+   - `Pipeline:` = resolved step list for this ticket (standard or investigation-shortened)
+   - `Workspace:` = `$WORKTREE_PATH ($BRANCH)` (already set by Ensure Worktree)
+   - `<TICKET_URL>` = ticket URL from frontmatter (omit line entirely if empty)
 
-   <CONTEXT_BLOCK>
-
-   Tier: <TIER> · Files: ~<FILES_CHANGED> · Blast radius: <BLAST_RADIUS>
-   <TICKET_URL — omit this line entirely if empty>
-   ─────────────────────────────────────────────────
-   ```
-
-If `CONTEXT_BLOCK` is empty (SA failed to emit it), log in overview's `## Key Decisions`: "Context block: SA did not emit context: block — orientation block skipped." Do not fail the pipeline.
+   If `CONTEXT_BLOCK` is empty (SA failed to emit it), log in overview's `## Key Decisions`: "Context block: SA did not emit context: block — Gate 1 skipped." Do not fail the pipeline.
 
 **Parse and persist tier revision (if any):**
 1. Extract `tier:` from the written analysis file. Use case-insensitive regex: `^tier:\s*(simple|standard|complex)` against `$N1_HOME/memory/$ID/analysis.md`.
@@ -401,9 +402,6 @@ If `CONTEXT_BLOCK` is empty (SA failed to emit it), log in overview's `## Key De
    CURRENT_TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
    if [ "$NEW_TIER" != "$CURRENT_TIER" ]; then
        n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" "$NEW_TIER"
-       echo "Tier updated to '$NEW_TIER' (was '$CURRENT_TIER')"
-   else
-       echo "Tier confirmed as '$CURRENT_TIER'"
    fi
    ```
 3. If no valid tier found in architect output, leave the existing tier unchanged (analyst's assessment stands).

@@ -1,4 +1,6 @@
 
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+
 > **ORCHESTRATOR GUARDRAIL (experiments):** in investigation tasks the user often asks for evidence — "test it locally", "run it in docker", "benchmark model A vs B", "curl the endpoint and check the stream". The orchestrator does NOT run these itself. Spawn the **developer** agent in *experiment mode* with:
 > - the exact question to answer and the user's wording,
 > - the worktree/branch path,
@@ -306,33 +308,15 @@ Call `tracker.operations.addComment` via tracker MCP -- Jira: with `cloudId`, `i
 
 **Phase 4 -- Discussion**
 
-Present the investigation deliverable to the user. Extract the following sections from `investigation.md` and print them verbatim (preserve all markdown formatting, tables, and file:line references):
+**Emit Gate 3 — investigation variant** (see `SKILL.md § Gate 3 — Done/Tested Summary`):
 
-```
-## Investigation: <title from investigation.md>
+The investigation deliverable IS the done summary. Adopt the `=== <ID> — done ===` frame. Content stays — only the frame changes.
 
-### Background
-<Background section from investigation.md>
+**Agent extraction (move this work into the subagent, not the orchestrator):** When spawning the investigation agent, add this to the agent's compact-return contract: "Return the gate-ready Gate 3 block as your compact return — the six sections (Background, Summary, Metrics, Findings, Recommendations, Next Steps) formatted inside `=== <ID> — done ===` markers. The orchestrator prints that return verbatim without re-reading the file."
 
-### Summary
-<Summary section from investigation.md>
+If the agent does not return a pre-formatted gate block (backward compat): read `$N1_HOME/memory/$ID/investigation.md` and emit the six sections inside the gate frame.
 
-### Metrics
-<Metrics section from investigation.md>
-
-### Findings
-<Findings section from investigation.md -- all evidence and file:line references preserved>
-
-### Recommendations
-<Recommendations section from investigation.md>
-
-### Next Steps
-<Next Steps section from investigation.md>
-
-Full report: `$N1_HOME/memory/<ID>/investigation.md`
-
-Would you like to discuss or refine any findings?
-```
+**Findings budget:** Cap the Findings section at the Gate 3 budget (20 lines). If it would exceed budget, print the first 15 lines of Findings then: `(full investigation: $N1_HOME/memory/<ID>/investigation.md)`. All other sections (Background, Summary, Metrics, Recommendations, Next Steps) are printed in full — they are typically short.
 
 Omit `### References` and `### Clarifications` from chat output (reference-only, not actionable in conversation).
 
@@ -369,9 +353,9 @@ Investigation done. Create a tracker ticket for this?
 
 **Ticket-creation failure:** log the tracker error, report "Ticket creation failed — investigation report remains at `$N1_HOME/memory/<ID>/investigation.md`.", and end the run without losing the report.
 
-**Step 1 -- Present results summary:**
+(Results summary is emitted as Gate 3 in the block above — no separate presentation step.)
 
-Read signals from `investigation.md`:
+Read signals from `investigation.md` (needed for menu construction below):
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
 source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"

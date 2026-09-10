@@ -1,4 +1,6 @@
 
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+
 **Phase 1: Spawn intake-agent**
 
 Resolve model for `intake-agent` (see Model Resolution above).
@@ -199,7 +201,7 @@ Determine `source_mode`:
 - If `source_mode == braindump`: `| ticket | mechanical | C | [auto] | Create tracker ticket for brain-dump run? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker | --- |`
 - If `source_mode == error-tracker`: `| ticket | mechanical | C | [auto] | Create tracker ticket for Sentry issue? | Created <ID> | Continue without ticket | mechanicalPrompts=auto; formalizes work, reversible in tracker | --- |`
 
-**Deferred ticket creation (`--investigate` brain-dump mode):** If `INVESTIGATE_FLAG` is `true` AND `source_mode == braindump`, skip this ticket-creation question entirely (regardless of `MP`) and take the "No" path below: adopt the description slug as `<ID>` and skip tracker status updates. Report: "Investigation mode: ticket creation deferred until findings are ready." Ticket creation is offered after the investigation deliverable instead (see steps/investigation-deliverable.md, Phase 5 brain-dump variant).
+**Deferred ticket creation (`--investigate` brain-dump mode):** If `INVESTIGATE_FLAG` is `true` AND `source_mode == braindump`, skip this ticket-creation question entirely (regardless of `MP`) and take the "No" path below: adopt the description slug as `<ID>` and skip tracker status updates. Ticket creation is offered after the investigation deliverable instead (see steps/investigation-deliverable.md, Phase 5 brain-dump variant).
 
 If `MP` is `ask` (default), ask:
 
@@ -246,7 +248,7 @@ If `MP` is `ask` (default), ask:
      - Jira: `cloudId`, `issueIdOrKey: <ID>`, `assignee_account_id: <account_id>`.
      - YouTrack: `issueId: <ID>`, `assigneeLogin: <login>`.
    - Success: report suffix = ` (assigned to you)`. Failure: emit warning; use empty suffix; do not roll back creation.
-8. Report: "Created ticket **[<ID>](<ticket URL>)**<report suffix>: <title>"
+8. Record the ticket ID, URL, and title in overview.md frontmatter (`ticket:`, `ticket_url:`, heading). These values are surfaced in Gate 1 after analysis — do not print them here.
 9. After writing ticket.md and overview.md, proceed to the next step.
 
 **If 2 (No):**
@@ -384,7 +386,7 @@ Brain-dump and file modes produce `Not specified` or an empty string — the gua
    - [ ] Brainstorm
    - [ ] Investigation deliverable
    ```
-2. Report: "Detected investigation task -- running shortened pipeline (no implementation/QA/review/PR)."
+2. Set `INVESTIGATION_DETECTED=true` and record the shortened pipeline in overview.md. The pipeline shape is surfaced in Gate 1's `Pipeline:` line after analysis — do not print an announcement here.
 
 **Telemetry (if enabled):** Write the run envelope -- this provides the run-level metadata for the merge script:
 

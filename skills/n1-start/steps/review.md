@@ -1,4 +1,6 @@
 
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+
 **Telemetry (if enabled):** Emit `started_at` for step 9 (`review`) before spawning reviewers. This applies to both the initial review and any re-review pass after a fix cycle:
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
@@ -180,7 +182,7 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
 
    If `QE` is `ask`: log remaining TQ findings in `review.md` and proceed to Step 8 — non-blocking findings do not stall the pipeline.
 
-If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX). The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3 — the `review_fix` `max_default` in `pipeline.json`). When `review_fix_cycle` has reached the bound, escalate via the autonomy gate below instead of entering another fix cycle.
+If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX). Note for maintainers: the fix-loop liveness line (e.g. "Fix cycle N of M") is emitted by the fix step (fix.md), not by this review step — the counter increment happens there, so the liveness output lives there too. The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3 — the `review_fix` `max_default` in `pipeline.json`). When `review_fix_cycle` has reached the bound, escalate via the autonomy gate below instead of entering another fix cycle.
 
 **Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`review`, action=`accept remaining findings and continue`, ledger_context=`<findings that remained unresolved after N fix cycles>`.
 
