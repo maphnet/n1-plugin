@@ -1,5 +1,38 @@
 {
   "baseline": "5ba19cbfc0a7564f803ea53d9bfa8dd92630b902",
+  "manifests": {
+    "plugin": {
+      "author": {
+        "name": "N1 Team"
+      },
+      "dependencies": [
+        {
+          "marketplace": "claude-plugins-official",
+          "name": "superpowers",
+          "version": ">=6"
+        }
+      ],
+      "description": "AI-driven development orchestrator. No one writes the code.",
+      "license": "MIT",
+      "name": "n1"
+    },
+    "marketplace": {
+      "allowCrossMarketplaceDependenciesOn": [
+        "claude-plugins-official"
+      ],
+      "name": "n1",
+      "owner": {
+        "name": "maphskiy"
+      },
+      "plugins": [
+        {
+          "description": "AI-driven development orchestrator. No one writes the code.",
+          "name": "n1",
+          "source": "./"
+        }
+      ]
+    }
+  },
   "sha256": {
     "agents/code-reviewer.md": "c7fa9e1ba203d8b2080350ada8458361366396d36f12612626147151a681cdaa",
     "agents/developer.md": "4aaf5016c51b9d470f94365306b87010240f9a1ecb7fcbf11f1483b31ef62234",
@@ -79,4 +112,3 @@
     "skills/n1-ticket/SKILL.md": "b3b4b9369f9269404c6172885282e175d1e9f047b0fda4842f396cb998914e68"
   }
 }
-

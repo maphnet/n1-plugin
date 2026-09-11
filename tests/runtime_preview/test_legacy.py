@@ -29,6 +29,15 @@ class LegacyFenceTests(unittest.TestCase):
         self.assertEqual(plugin["version"], "2.104.0")
         self.assertEqual(marketplace["plugins"][0]["version"], "2.104.0")
 
+    def test_manifest_structure_unchanged(self):
+        expected = json.loads((Path(__file__).with_name("legacy.json")).read_text())
+        plugin = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
+        marketplace = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())
+        plugin.pop("version", None)
+        marketplace["plugins"][0].pop("version", None)
+        self.assertEqual(plugin, expected["manifests"]["plugin"])
+        self.assertEqual(marketplace, expected["manifests"]["marketplace"])
+
 
 if __name__ == "__main__":
     unittest.main()
