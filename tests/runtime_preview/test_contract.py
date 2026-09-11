@@ -22,20 +22,43 @@ def result(status="completed"):
         "host": "codex", "role": "code-reviewer",
         "revision": {"repository": "owner/repo", "baseSha": "a" * 40, "headSha": "b" * 40},
         "status": status,
-        "modelObservation": {
-            "requested": {"provider": None, "model": None, "effort": None},
-            "effective": None,
-            "reason": "The host did not report an effective model.",
+        "evidence": {
+            "workerId": "native-handle",
+            "requestedModel": None,
+            "effectiveModel": None,
+            "effectiveModelReason": "The host did not report an effective model.",
+            "enforcement": "qualified configuration digest",
+            "tokenUsage": None,
         },
-        "output": {"summary": "One issue found.", "findings": [{
-            "id": "CR-1", "severity": "high", "path": "/scratch/source/app.py",
-            "line": 12, "message": "The request is unchecked.",
+        "output": {"findings": [{
+            "id": "code-reviewer:1", "title": "Unchecked request", "file": "app.py",
+            "line": 12, "claim": "The request is unchecked.", "severity": "High",
+            "reasoning": "A caller-controlled request reaches the operation unchecked.",
+            "evidence": "app.py:12 accepts the request without validation.",
+            "suggestedFix": "Validate the request before the operation.",
         }]},
         "error": None,
     }
     if status != "completed":
         value["output"] = None
         value["error"] = {"code": "adapter-failed", "message": "The adapter failed."}
+    return value
+
+
+def verifier_request():
+    value = request()
+    value["role"] = "review-verifier"
+    value["inputs"] = [{"name": "claims", "path": "/scratch/inputs/claims", "required": True}]
+    return value
+
+
+def verifier_result():
+    value = result()
+    value["role"] = "review-verifier"
+    value["output"] = {"dispositions": [{
+        "id": "code-reviewer:1", "verdict": "confirmed",
+        "reason": "The source confirms the claim.",
+    }]}
     return value
 
 
@@ -80,6 +103,27 @@ class ContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_request(value)
 
+    def test_request_requires_role_specific_inputs(self):
+        cases = []
+        missing_conventions = request()
+        missing_conventions["inputs"] = missing_conventions["inputs"][:-1]
+        cases.append(missing_conventions)
+        reviewer_arbitrary = request()
+        reviewer_arbitrary["inputs"][2]["name"] = "notes"
+        cases.append(reviewer_arbitrary)
+        optional_diff = request()
+        optional_diff["inputs"][0]["required"] = False
+        cases.append(optional_diff)
+        verifier_arbitrary = verifier_request()
+        verifier_arbitrary["inputs"].append({
+            "name": "diff", "path": "/scratch/inputs/diff", "required": True,
+        })
+        cases.append(verifier_arbitrary)
+        for value in cases:
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "inputs"):
+                    validate_request(value)
+
     def test_request_rejects_nonstring_enum_values_with_value_error(self):
         value = request()
         value["role"] = []
@@ -109,7 +153,7 @@ class ContractTests(unittest.TestCase):
     def test_result_rejects_malformed_completed_output(self):
         cases = []
         unknown_severity = result()
-        unknown_severity["output"]["findings"][0]["severity"] = "urgent"
+        unknown_severity["output"]["findings"][0]["severity"] = "Urgent"
         cases.append(unknown_severity)
         duplicate_finding = result()
         duplicate_finding["output"]["findings"].append(dict(
@@ -120,7 +164,7 @@ class ContractTests(unittest.TestCase):
         zero_line["output"]["findings"][0]["line"] = 0
         cases.append(zero_line)
         malformed_output = result()
-        del malformed_output["output"]["summary"]
+        del malformed_output["output"]["findings"][0]["suggestedFix"]
         cases.append(malformed_output)
         for value in cases:
             with self.subTest(value=value):
@@ -139,33 +183,24 @@ class ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "error"):
             validate_result(request(), value)
         value = result("failed")
-        value["output"] = {"summary": "not allowed", "findings": []}
+        value["output"] = {"findings": []}
         with self.assertRaisesRegex(ValueError, "output"):
             validate_result(request(), value)
 
     def test_result_requires_reason_for_missing_model_observations(self):
         value = result()
-        value["modelObservation"]["reason"] = None
-        with self.assertRaisesRegex(ValueError, "modelObservation.reason"):
+        value["evidence"]["effectiveModelReason"] = None
+        with self.assertRaisesRegex(ValueError, "evidence.effectiveModelReason"):
             validate_result(request(), value)
 
-    def test_result_requires_reason_for_unknown_model_evidence(self):
-        value = result()
-        value["modelObservation"]["effective"] = {
-            "provider": None, "model": None, "effort": None,
-        }
-        value["modelObservation"]["reason"] = None
-        with self.assertRaisesRegex(ValueError, "modelObservation.reason"):
-            validate_result(request(), value)
+    def test_result_accepts_shared_evidence_envelope(self):
+        self.assertEqual(validate_result(request(), result())["evidence"], result()["evidence"])
 
-    def test_result_allows_missing_requested_observation_with_reason(self):
-        value = result()
-        value["modelObservation"]["requested"] = None
-        value["modelObservation"]["effective"] = {
-            "provider": "openai", "model": "gpt-5", "effort": None,
-        }
-        value["modelObservation"]["reason"] = "The requested policy was not observed."
-        self.assertEqual(validate_result(request(), value)["modelObservation"], value["modelObservation"])
+    def test_verifier_accepts_dispositions(self):
+        self.assertEqual(
+            validate_result(verifier_request(), verifier_result())["output"],
+            verifier_result()["output"],
+        )
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ HOSTS = {"claude-code", "codex", "pi"}
 ROLES = {"code-reviewer", "security-reviewer", "review-verifier"}
 STATUSES = {"completed", "failed", "cancelled", "timed-out", "unsupported"}
 CAPABILITIES = {"readSearchEnforced", "isolatedContext", "lifecycleControl"}
-SEVERITIES = {"critical", "high", "medium", "low"}
+SEVERITIES = {"Critical", "High", "Medium", "Low"}
 VERDICTS = {"confirmed", "dismissed"}
 IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,128}")
 SHA = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})")
@@ -118,6 +118,15 @@ def validate_request(value: dict) -> dict:
         _absolute_path(item["path"], field + ".path")
         if type(item["required"]) is not bool:
             raise ValueError(field + ".required must be a boolean")
+    expected_inputs = (
+        {"claims"}
+        if value["role"] == "review-verifier"
+        else {"diff", "requirements", "conventions"}
+    )
+    if names != expected_inputs:
+        raise ValueError("inputs must contain exactly the required artifacts for the role")
+    if any(not item["required"] for item in value["inputs"]):
+        raise ValueError("inputs required artifacts must be marked required")
     _revision(value["revision"], "revision")
     _model_policy(value["modelPolicy"], "modelPolicy")
     if type(value["requiredCapabilities"]) is not list:
@@ -133,50 +142,45 @@ def validate_request(value: dict) -> dict:
     return deepcopy(value)
 
 
-def _model_evidence(value, field):
-    if value is None:
-        return None
-    _keys(value, field, {"provider", "model", "effort"})
-    for name in ("provider", "model", "effort"):
-        _nullable_text(value[name], field + "." + name)
-    return value
-
-
-def _model_observation(value, request):
-    _keys(value, "modelObservation", {"requested", "effective", "reason"})
-    requested = _model_evidence(value["requested"], "modelObservation.requested")
-    effective = _model_evidence(value["effective"], "modelObservation.effective")
-    reason = value["reason"]
-    unknown_requested = requested is None or any(
-        requested[name] is None for name in ("provider", "model")
-    )
-    unknown_effective = effective is None or any(
-        effective[name] is None for name in ("provider", "model")
-    )
-    if unknown_requested or unknown_effective:
-        _text(reason, "modelObservation.reason")
-    elif reason is not None:
-        _text(reason, "modelObservation.reason")
-    expected_requested = {
-        name: request["modelPolicy"][name] for name in ("provider", "model", "effort")
-    }
-    if requested is not None and requested != expected_requested:
-        raise ValueError("modelObservation.requested must match modelPolicy")
+def _evidence(value):
+    _keys(value, "evidence", {
+        "workerId", "requestedModel", "effectiveModel", "effectiveModelReason",
+        "enforcement", "tokenUsage",
+    })
+    _identifier(value["workerId"], "evidence.workerId")
+    _nullable_text(value["requestedModel"], "evidence.requestedModel")
+    _nullable_text(value["effectiveModel"], "evidence.effectiveModel")
+    if value["effectiveModel"] is None:
+        _text(value["effectiveModelReason"], "evidence.effectiveModelReason")
+    elif value["effectiveModelReason"] is not None:
+        _text(value["effectiveModelReason"], "evidence.effectiveModelReason")
+    # This is an adapter assertion retained for diagnostics.  Capability
+    # qualification is deliberately performed only by controller preflight.
+    _text(value["enforcement"], "evidence.enforcement")
+    if value["tokenUsage"] is not None and type(value["tokenUsage"]) is not dict:
+        raise ValueError("evidence.tokenUsage must be an object or null")
 
 
 def _finding(value, field):
-    _keys(value, field, {"id", "severity", "path", "line", "message"})
-    _identifier(value["id"], field + ".id")
+    _keys(value, field, {
+        "id", "title", "file", "line", "claim", "severity", "reasoning", "evidence",
+        "suggestedFix",
+    })
+    _text(value["id"], field + ".id")
+    _text(value["title"], field + ".title")
+    if type(value["file"]) is not str or not value["file"] or value["file"].startswith("/"):
+        raise ValueError(field + ".file must be a relative path")
+    positive_int(value["line"], field + ".line")
+    _text(value["claim"], field + ".claim")
     if type(value["severity"]) is not str or value["severity"] not in SEVERITIES:
         raise ValueError(field + ".severity must be a known severity")
-    _absolute_path(value["path"], field + ".path")
-    positive_int(value["line"], field + ".line")
-    _text(value["message"], field + ".message")
+    _text(value["reasoning"], field + ".reasoning")
+    _text(value["evidence"], field + ".evidence")
+    _text(value["suggestedFix"], field + ".suggestedFix")
 
 
 def _review_output(value, field):
-    _keys(value, field, {"summary", "findings"})
-    _text(value["summary"], field + ".summary")
+    _keys(value, field, {"findings"})
     if type(value["findings"]) is not list:
         raise ValueError(field + ".findings must be a list")
     ids = set()
@@ -189,18 +193,17 @@ def _review_output(value, field):
 
 
 def _verifier_output(value, field):
-    _keys(value, field, {"summary", "verdicts"})
-    _text(value["summary"], field + ".summary")
-    if type(value["verdicts"]) is not list:
-        raise ValueError(field + ".verdicts must be a list")
+    _keys(value, field, {"dispositions"})
+    if type(value["dispositions"]) is not list:
+        raise ValueError(field + ".dispositions must be a list")
     ids = set()
-    for index, verdict in enumerate(value["verdicts"]):
-        verdict_field = field + ".verdicts[{}]".format(index)
-        _keys(verdict, verdict_field, {"findingId", "verdict", "reason"})
-        _identifier(verdict["findingId"], verdict_field + ".findingId")
-        if verdict["findingId"] in ids:
-            raise ValueError(verdict_field + ".findingId must be unique")
-        ids.add(verdict["findingId"])
+    for index, verdict in enumerate(value["dispositions"]):
+        verdict_field = field + ".dispositions[{}]".format(index)
+        _keys(verdict, verdict_field, {"id", "verdict", "reason"})
+        _text(verdict["id"], verdict_field + ".id")
+        if verdict["id"] in ids:
+            raise ValueError(verdict_field + ".id must be unique")
+        ids.add(verdict["id"])
         if type(verdict["verdict"]) is not str or verdict["verdict"] not in VERDICTS:
             raise ValueError(verdict_field + ".verdict must be a known verdict")
         _text(verdict["reason"], verdict_field + ".reason")
@@ -218,7 +221,7 @@ def validate_result(request: dict, value: dict) -> dict:
     value = deepcopy(value)
     _keys(value, "result", {
         "schemaVersion", "runId", "requestId", "host", "role", "revision", "status",
-        "modelObservation", "output", "error",
+        "evidence", "output", "error",
     })
     if value["schemaVersion"] != request["schemaVersion"] or type(value["schemaVersion"]) is not int:
         raise ValueError("schemaVersion must match request")
@@ -230,7 +233,7 @@ def validate_result(request: dict, value: dict) -> dict:
         raise ValueError("revision must match request")
     if type(value["status"]) is not str or value["status"] not in STATUSES:
         raise ValueError("status must be a known status")
-    _model_observation(value["modelObservation"], request)
+    _evidence(value["evidence"])
     if value["status"] == "completed":
         if value["error"] is not None:
             raise ValueError("error must be null for completed results")
