@@ -6,6 +6,36 @@ host configuration, trust hooks, run hooks, install Pi dependencies, or start a
 model. The packages shipped at this revision remain unsupported until their
 required native capabilities have passing disposable-environment evidence.
 
+## Observed installation boundary (2026-09-12)
+
+These are package-loading checks, not support qualification or a completed live
+review. Codex CLI `0.154.0` successfully added the local wrapper marketplace,
+installed `runtime-review@n1-review-runtime` twice without a duplicate, listed
+one enabled registration, and removed both plugin and marketplace cleanly.
+Its app-server discovered `runtime-review:n1-review-runtime` with plugin ID
+`runtime-review@n1-review-runtime`; that discovery name is not a promise that a
+skill invocation works. The installed preflight returned unsupported for an
+explicit target (exit 3) and rejected a missing target (exit 2). An isolated
+live attempt stopped at HTTP 401 before the skill ran.
+
+With Node `24.19.0` and Pi `0.85.1`, the relocated Pi package completed `npm
+ci`, native extension install/list/remove, and 21 package tests. Explicit
+extension loading rejected a missing target; an explicit target stopped because
+the isolated native model registry was empty. Pi can exit 0 for an extension
+error, so inspect its output/native receipt rather than exit status alone.
+Against an existing native model registry, the package then rejected
+unverified `isolatedContext` evidence before source preparation or workers.
+The package's capability records still leave required native enforcement and
+context-isolation evidence unverified; neither host may dispatch a worker.
+
+For comparison, the source Claude package is `3.0.0`, but the public N1
+marketplace probe served `2.103.0`, which has no runtime-preview components.
+In an isolated Claude `2.1.258` probe, adding `anthropics/claude-plugins-official`
+and installing Superpowers `6.3.0` **before** N1 allowed N1 `3.0.0` to install
+with no dependency errors. Installing N1 first produced a dependency-resolution
+error, so the dependency-first order is required. The live runtime-review lane
+was not run: the isolated host was not logged in.
+
 ## Build and relocate a package
 
 Choose a unique build ID and an absolute destination outside this source tree.
