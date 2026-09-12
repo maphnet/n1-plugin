@@ -182,7 +182,7 @@ class PackagingTests(unittest.TestCase):
                 "defaults/estimation.json", "references/ci-detection.md",
                 "hooks/hooks.json", "skills/n1-review/SKILL.md",
                 "skills/n1-review-runtime/SKILL.md", "scripts/benchmark.py",
-                "pipeline.json",
+                "README.md", "pipeline.json",
             ):
                 with self.subTest(required_path=required_path):
                     self.assertTrue((package / required_path).is_file())

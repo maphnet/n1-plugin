@@ -13,7 +13,7 @@ SOURCE_ROOT = Path(__file__).resolve().parents[1]
 HOSTS = {"claude-code", "codex", "pi"}
 COMMON_FILES = (Path("lib/config.sh"), Path("lib/runtime-review.sh"))
 COMMON_TREES = (Path("lib/runtime_review"), Path("runtime/review"))
-CLAUDE_FILES = (Path("pipeline.json"),)
+CLAUDE_FILES = (Path("README.md"), Path("pipeline.json"))
 CLAUDE_TREES = (
     Path(".claude-plugin"), Path("agents"), Path("defaults"), Path("hooks"),
     Path("lib"), Path("references"), Path("scripts"), Path("skills"),
