@@ -162,17 +162,23 @@ class CliTests(unittest.TestCase):
         for role, handle in [("code-reviewer", "code-worker"), ("security-reviewer", "security-worker")]:
             self.send("spawned", requestId=self.state()["workers"][role]["request"]["requestId"], workerId=handle)
         self.send("result", result=result_for(self.state(), "code-reviewer", findings=[finding()]), rawText="original worker JSON text")
-        joined = json.loads(self.send("result", result=result_for(self.state(), "security-reviewer")).stdout)
+        joined = json.loads(self.send("result", result=result_for(self.state(), "security-reviewer"),
+                                      rawText="original security worker JSON text").stdout)
         self.assertEqual(len(joined["actions"]), 1)
         self.assertEqual(json.loads((self.run / "inputs" / "claims").read_text()), [
             {"id": "code-reviewer:1", "title": "Bound", "file": "app.py", "line": 1, "claim": "Zero divides"}])
         self.assertEqual((self.run / "results" / "code-reviewer.raw.txt").read_text(), "original worker JSON text")
+        self.assertEqual((self.run / "results" / "security-reviewer.raw.txt").read_text(),
+                         "original security worker JSON text")
         self.assertEqual(json.loads((self.run / "results" / "code-reviewer.json").read_text())["status"], "completed")
         self.assertNotIn("rawText", self.state()["workers"]["code-reviewer"]["result"])
         self.send("spawned", requestId=joined["actions"][0]["request"]["requestId"], workerId="verifier-worker")
         completed = json.loads(self.send("result", result=result_for(self.state(), "review-verifier", dispositions=[
-            {"id": "code-reviewer:1", "verdict": "confirmed", "reason": "Caller supplies zero"}])).stdout)
+            {"id": "code-reviewer:1", "verdict": "confirmed", "reason": "Caller supplies zero"}]),
+                                           rawText="original verifier worker JSON text").stdout)
         self.assertEqual((completed["status"], completed["actions"]), ("completed", [{"kind": "report"}]))
+        self.assertEqual((self.run / "results" / "review-verifier.raw.txt").read_text(),
+                         "original verifier worker JSON text")
         report = json.loads(self.cli("report", "--run", self.run.name).stdout)
         self.assertIn("Assessment: request changes", report["report"])
 
@@ -184,7 +190,7 @@ class CliTests(unittest.TestCase):
             with self.subTest(file=file, line=line):
                 state = self.state()
                 self.send("result", expected=2, result=result_for(state, "code-reviewer", findings=[
-                    {**finding(), "file": file, "line": line}]))
+                    {**finding(), "file": file, "line": line}]), rawText="invalid location worker JSON text")
                 self.assertEqual(self.state(), state)
 
     def test_duplicate_and_cross_run_events_fail_without_changing_generation(self):
@@ -242,4 +248,14 @@ class CliTests(unittest.TestCase):
         before = self.state()
         result = self.send("cancel", reason="cancel", rawText=None, expected=2)
         self.assertEqual(result.stdout, "")
+        self.assertEqual(self.state(), before)
+
+    def test_result_requires_adapter_captured_raw_text_before_accepting_the_event(self):
+        self.prepare()
+        request_id = self.state()["workers"]["code-reviewer"]["request"]["requestId"]
+        self.send("spawned", requestId=request_id, workerId="code-worker")
+        before = self.state()
+        result = self.send("result", result=result_for(before, "code-reviewer"), expected=2)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("rawText", result.stderr)
         self.assertEqual(self.state(), before)

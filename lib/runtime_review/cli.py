@@ -82,17 +82,19 @@ def _dispatch(args):
     event = _json_file(args.file)
     if type(event) is not dict:
         raise ValueError("event must be an object")
-    # rawText is optional transport evidence, not part of the reducer event or
-    # T2 envelope. It cannot select a destination or influence review decisions.
+    # rawText is adapter-captured diagnostic evidence, not part of the reducer
+    # event or T2 envelope. Every accepted worker result retains it separately.
     has_raw = "rawText" in event
     raw = event.pop("rawText", None)
-    if has_raw and (event.get("kind") != "result" or type(raw) is not str
-                            or len(raw.encode("utf-8")) > MAX_FILE_BYTES):
+    if event.get("kind") == "result":
+        if not has_raw or type(raw) is not str or len(raw.encode("utf-8")) > MAX_FILE_BYTES:
+            raise ValueError("result events require bounded adapter-captured rawText")
+    elif has_raw:
         raise ValueError("rawText is only permitted as bounded text on a result event")
     updated, actions = advance(state, event)
     _locations(state, event)
     save_state(run, updated, state["generation"])
-    if raw is not None:
+    if event["kind"] == "result":
         save_raw_result(run, event["result"]["requestId"], raw)
     status = updated["status"]
     return {"runId": run.name, "generation": updated["generation"], "status": status, "actions": actions}, (
