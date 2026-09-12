@@ -4,6 +4,8 @@ Adapters must bind the root outside model-controlled arguments. This module
 does not grant authority to choose a root, launch a shell, or load project code.
 """
 
+import hashlib
+import hmac
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -14,6 +16,7 @@ import sys
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_TOTAL_BYTES = 100 * 1024 * 1024
 MAX_MATCHES = 10000
+POLICY_KEYS = {'schemaVersion', 'sourceRoot', 'allowedInputPaths'}
 
 
 def safe_relative(name):
@@ -122,14 +125,89 @@ def search_files(root: Path, literal: str) -> list[dict]:
         raise ValueError('search source is inaccessible') from exc
 
 
-def main(argv=None):
-    """Restricted script form: reader.py read|search ROOT VALUE (T6 bridge)."""
-    argv = sys.argv[1:] if argv is None else argv
+def _unique_keys(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError('worker policy contains a duplicate key')
+        value[key] = item
+    return value
+
+
+def _canonical_absolute(path, label):
+    if type(path) is not str or not path or '\x00' in path:
+        raise ValueError(label + ' must be an absolute canonical path')
+    value = Path(path)
+    if not value.is_absolute() or Path(os.path.abspath(value)) != value:
+        raise ValueError(label + ' must be an absolute canonical path')
     try:
-        if len(argv) != 3 or argv[0] not in ('read', 'search'):
-            raise ValueError('expected read|search ROOT VALUE')
-        operation, root, value = argv
-        result = read_file(Path(root), value) if operation == 'read' else search_files(Path(root), value)
+        if value.resolve(strict=True) != value:
+            raise ValueError(label + ' must not contain symlinks')
+    except OSError as exc:
+        raise ValueError(label + ' is inaccessible') from exc
+    return value
+
+
+def _worker_policy():
+    raw_path = os.environ.get('N1_REVIEW_POLICY')
+    digest = os.environ.get('N1_REVIEW_POLICY_DIGEST')
+    policy_path = _canonical_absolute(raw_path, 'N1_REVIEW_POLICY')
+    if type(digest) is not str or len(digest) != 64 or any(c not in '0123456789abcdef' for c in digest):
+        raise ValueError('N1_REVIEW_POLICY_DIGEST is invalid')
+    try:
+        info = policy_path.stat()
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o222:
+            raise ValueError('worker policy must be a read-only regular file')
+        raw = policy_path.read_bytes()
+    except OSError as exc:
+        raise ValueError('worker policy is inaccessible') from exc
+    if len(raw) > MAX_FILE_BYTES:
+        raise ValueError('worker policy byte limit exceeded')
+    if not hmac.compare_digest(hashlib.sha256(raw).hexdigest(), digest):
+        raise ValueError('worker policy digest does not match')
+    try:
+        policy = json.loads(raw, object_pairs_hook=_unique_keys)
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise ValueError('worker policy is malformed') from exc
+    if type(policy) is not dict or set(policy) != POLICY_KEYS or policy.get('schemaVersion') != 1:
+        raise ValueError('worker policy has an invalid shape')
+    source = _canonical_absolute(policy.get('sourceRoot'), 'sourceRoot')
+    if not source.is_dir():
+        raise ValueError('sourceRoot must be a directory')
+    inputs = policy.get('allowedInputPaths')
+    if type(inputs) is not list or any(type(item) is not str for item in inputs):
+        raise ValueError('allowedInputPaths must be a list of paths')
+    allowed = {}
+    for raw_input in inputs:
+        path = _canonical_absolute(raw_input, 'allowedInputPaths entry')
+        if path == policy_path or not path.is_file() or path.stat().st_mode & 0o222:
+            raise ValueError('allowed input must be a distinct read-only regular file')
+        alias = 'inputs/' + path.name
+        if alias in allowed:
+            raise ValueError('allowed input names must be unique')
+        allowed[alias] = path
+    return policy_path, source, allowed
+
+
+def reader_main(argv: list[str]) -> int:
+    """Worker script form: reader.py read|search VALUE, with a trusted policy env."""
+    try:
+        if len(argv) != 2 or argv[0] not in ('read', 'search'):
+            raise ValueError('expected read|search VALUE')
+        operation, value = argv
+        if operation == 'read':
+            safe_relative(value)
+        policy_path, root, inputs = _worker_policy()
+        if operation == 'search':
+            result = search_files(root, value)
+        elif value in inputs:
+            target = inputs[value]
+            result = read_file(target.parent, target.name)
+        else:
+            candidate = (root / value).resolve(strict=False)
+            if candidate == policy_path:
+                raise ValueError('worker policy is not readable through the worker reader')
+            result = read_file(root, value)
         print(json.dumps(result))
         return 0
     except ValueError as exc:
@@ -138,4 +216,4 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(reader_main(sys.argv[1:]))
