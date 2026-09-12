@@ -30,12 +30,16 @@ for dispatch, isolation, read/search denial receipts, deadlines, cancellation,
 and observed model/provider/effort values.
 
 Use the existing T4 CLI and each returned prepared request without changing its
-schema. For the initial batch, call `collaboration.spawn_agent` twice with the
-distinct custom-agent task names `n1_preview_code_reviewer` and
-`n1_preview_security_reviewer`; use `fork_turns: "none"`, the supplied request
-and packaged role instructions as the message, and the controller-resolved
-model/effort arguments. Register both returned native handles and submit both
-T4 `spawned` events before waiting. There is no generic-role fallback.
+schema. Qualification must identify and record a supported role/profile binding
+that selects each exact packaged profile; a generic spawn with a descriptive
+label does not select one and is never a fallback. Until a real binding and its
+arguments/results are proven, remain unsupported and do not dispatch.
+
+After qualification, use only the proven bindings for
+`n1_preview_code_reviewer` and `n1_preview_security_reviewer`, with the supplied
+request, packaged role instructions, and controller-resolved model/effort
+policy. Register both returned native handles and submit both T4 `spawned`
+events before waiting.
 
 Wait through `collaboration.wait_agent` up to each request's 600-second
 deadline. Convert only actual native output and metadata into observed envelopes,
@@ -45,12 +49,13 @@ failed result, submit the corresponding T4 event, invoke
 `collaboration.interrupt_agent` for every returned cancel action, and retain
 native terminal cancellation receipts before reporting.
 
-Spawn `n1_preview_review_verifier` only when T4 returns that spawn action. Give
-it claims and permitted source/conventions inputs in a fresh nonforked context,
-never sibling raw results, parent conversation, credentials, or controller
-state. Apply the same deadline, observation, and cancellation rules. Invoke the
-T4 `report` command only after all actions and receipts have been reconciled,
-then display only its controller-rendered local report.
+Start `n1_preview_review_verifier` through its proven profile binding only when
+T4 returns that spawn action. Give it claims and permitted source/conventions
+inputs in a fresh nonforked context, never sibling raw results, parent
+conversation, credentials, or controller state. Apply the same deadline,
+observation, and cancellation rules. Invoke the T4 `report` command only after
+all actions and receipts have been reconciled, then display only its
+controller-rendered local report.
 
 ## Enforcement boundary
 

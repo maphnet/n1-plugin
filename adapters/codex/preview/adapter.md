@@ -11,14 +11,14 @@ package time, because the shared T4 request owns policy and a disposable
 qualification installer must render its resolved values using those supported
 keys. The probe does not demonstrate the effective values.
 
-The native collaboration surface available to a controller defines
-`spawn_agent({task_name,message,fork_turns,model,reasoning_effort})`,
-`wait_agent({timeout_ms})`, and `interrupt_agent({target})`. It says spawned
-agents inherit the parent's tools and can spawn nested agents. Model and effort
-arguments can override inherited settings. The role `sandbox_mode =
-"read-only"` is therefore only a default: it does not remove inherited
-shell/MCP/connector/dynamic-discovery/delegation surfaces or prove that parent
-permission/configuration overrides are absent.
+The native collaboration surface available to this controller exposes generic
+agent spawning, waiting, and interruption, but no observed argument binds a
+spawn to one of these custom-agent profiles. Spawned agents inherit the
+parent's tools and can spawn nested agents, and model/effort arguments can
+override inherited settings. The role `sandbox_mode = "read-only"` is therefore
+only a default: it does not remove inherited shell/MCP/connector/dynamic-
+discovery/delegation surfaces or prove that parent permission/configuration
+overrides are absent.
 
 No live or paid native call was authorized. The installed host was not placed
 in a disposable qualification environment, no plugin or role was installed,
@@ -30,15 +30,18 @@ dispatch.
 
 ## Mapping after disposable qualification
 
-For each initial T4 spawn action, call the two named roles independently with
-`fork_turns: "none"`, register each returned handle, and submit both `spawned`
-events before the first wait. Use `wait_agent` within the request's 600-second
-deadline. Submit only observed completion/error data and preserve the exact
-native response as `rawText`; never synthesize a completed envelope. Execute
-every T4 cancel action with `interrupt_agent({target: workerId})` and await a
+Qualification must first identify and record a supported role/profile binding
+that selects each exact packaged custom-agent profile. A generic spawn with a
+descriptive label is not a binding and is never a fallback. Only after that
+binding is proven may each initial T4 spawn action start the two roles
+independently, register each returned handle, and submit both `spawned` events
+before the first wait. Wait within the request's 600-second deadline. Submit
+only observed completion/error data and preserve the exact native response as
+`rawText`; never synthesize a completed envelope. Execute every T4 cancel action
+through the separately qualified native interruption operation and await a
 terminal receipt. Run the verifier only for a returned verifier spawn action,
-in a fresh nonforked context. A report action maps only to the existing shared
-CLI's controller-rendered local report.
+using its proven profile binding in a fresh nonforked context. A report action
+maps only to the existing shared CLI's controller-rendered local report.
 
 Exact native arguments and results cannot be recorded until Task 9 exercises
 the package in an authorized disposable environment. If dispatch, wait,

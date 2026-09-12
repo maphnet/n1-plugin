@@ -85,7 +85,7 @@ def read_file(root: Path, relative: str) -> str:
     return _text(_read_bytes(root, relative))
 
 
-def search_files(root: Path, literal: str) -> list[dict]:
+def search_files(root: Path, literal: str, *, excluded_paths=()) -> list[dict]:
     if not isinstance(literal, str) or not literal:
         raise ValueError('search literal must be nonempty')
     results = []
@@ -94,6 +94,8 @@ def search_files(root: Path, literal: str) -> list[dict]:
     try:
         fd = _root_fd(root)
         os.close(fd)
+        excluded = {(info.st_dev, info.st_ino) for info in
+                    (Path(path).stat() for path in excluded_paths)}
         def fail(exc):
             raise ValueError('search directory is inaccessible') from exc
         for directory, dirs, files in os.walk(root, followlinks=False, onerror=fail):
@@ -103,7 +105,8 @@ def search_files(root: Path, literal: str) -> list[dict]:
                 path = Path(directory) / name
                 if name.lower() == '.git' or path.is_symlink():
                     continue
-                if not stat.S_ISREG(path.lstat().st_mode):
+                info = path.lstat()
+                if not stat.S_ISREG(info.st_mode) or (info.st_dev, info.st_ino) in excluded:
                     continue
                 relative = path.relative_to(root).as_posix()
                 data = _read_bytes(root, relative)
@@ -199,7 +202,7 @@ def reader_main(argv: list[str]) -> int:
             safe_relative(value)
         policy_path, root, inputs = _worker_policy()
         if operation == 'search':
-            result = search_files(root, value)
+            result = search_files(root, value, excluded_paths=(policy_path,))
         elif value in inputs:
             target = inputs[value]
             result = read_file(target.parent, target.name)

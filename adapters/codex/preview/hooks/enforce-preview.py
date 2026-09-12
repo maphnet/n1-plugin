@@ -47,9 +47,11 @@ def handle_payload(payload: object, worker_scoped: bool,
     if type(payload) is not dict or type(payload.get("tool_name")) is not str:
         return deny("N1 preview worker scope or tool input is unavailable")
     tool_input = payload.get("tool_input")
-    command = tool_input.get("command") if type(tool_input) is dict else None
+    if type(tool_input) is not dict or "command" in tool_input:
+        return deny("N1 preview worker command field is missing, malformed, or ambiguous")
+    command = tool_input.get("cmd")
     if type(command) is not str:
-        command = ""
+        return deny("N1 preview worker command field is missing, malformed, or ambiguous")
     return decision(payload["tool_name"], command, True, executable, reader)
 
 

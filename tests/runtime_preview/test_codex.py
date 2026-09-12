@@ -3,6 +3,8 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 
 try:
@@ -82,6 +84,58 @@ class CodexAdapterTests(unittest.TestCase):
                 )
         self.assertEqual(hook.decision("apply_patch", command, False, executable, reader), {})
 
+    def test_hook_payload_uses_only_one_string_cmd_field(self):
+        """Would fail if the hook read a non-native, absent, malformed, or ambiguous command field."""
+        hook = load_hook()
+        executable = "/usr/bin/python3"
+        reader = "/opt/n1/lib/runtime_review/reader.py"
+        command = executable + " " + reader + " read app.py"
+        valid = {"tool_name": "exec_command", "tool_input": {"cmd": command}}
+        self.assertEqual(hook.handle_payload(valid, True, executable, reader), {})
+        invalid = (
+            {"tool_name": "exec_command", "tool_input": {}},
+            {"tool_name": "exec_command", "tool_input": {"cmd": [command]}},
+            {"tool_name": "exec_command", "tool_input": {
+                "cmd": command, "command": command,
+            }},
+        )
+        for payload in invalid:
+            with self.subTest(payload=payload):
+                result = hook.handle_payload(payload, True, executable, reader)
+                self.assertEqual(result["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_hook_cli_uses_cmd_and_denies_ambiguous_command_fields(self):
+        """Would fail if the executable hook diverged from native cmd-field validation."""
+        executable = "/usr/bin/python3"
+        reader = "/opt/n1/lib/runtime_review/reader.py"
+        command = executable + " " + reader + " read app.py"
+        script = ROOT / "hooks/enforce-preview.py"
+        valid = subprocess.run(
+            [sys.executable, str(script), "--worker-scoped", executable, reader],
+            input=json.dumps({"tool_name": "exec_command", "tool_input": {"cmd": command}}),
+            capture_output=True, text=True,
+        )
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+        self.assertEqual(json.loads(valid.stdout), {})
+        invalid = (
+            {"tool_name": "exec_command", "tool_input": {}},
+            {"tool_name": "exec_command", "tool_input": {"cmd": [command]}},
+            {"tool_name": "exec_command", "tool_input": {
+                "cmd": command, "command": command,
+            }},
+        )
+        for payload in invalid:
+            with self.subTest(payload=payload):
+                denied = subprocess.run(
+                    [sys.executable, str(script), "--worker-scoped", executable, reader],
+                    input=json.dumps(payload), capture_output=True, text=True,
+                )
+                self.assertEqual(denied.returncode, 0, denied.stderr)
+                self.assertEqual(
+                    json.loads(denied.stdout)["hookSpecificOutput"]["permissionDecision"],
+                    "deny",
+                )
+
     @unittest.skipIf(tomllib is None, "TOML qualification requires Python 3.11+")
     def test_native_roles_are_distinct_read_only_templates_with_explicit_inheritance(self):
         """Would fail if a native role could edit, delegate, or silently select another model policy."""
@@ -132,6 +186,11 @@ class CodexAdapterTests(unittest.TestCase):
         ):
             with self.subTest(required=required):
                 self.assertIn(required, skill)
+        adapter = (ROOT / "adapter.md").read_text()
+        for name, document in (("skill", skill), ("adapter", adapter)):
+            with self.subTest(document=name):
+                self.assertNotIn("task_name", document)
+                self.assertIn("supported role/profile binding", document)
 
 
 if __name__ == "__main__":

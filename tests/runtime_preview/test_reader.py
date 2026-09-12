@@ -115,3 +115,14 @@ class ReaderTests(unittest.TestCase):
             'N1_REVIEW_POLICY_DIGEST': hashlib.sha256(malformed).hexdigest()}
         with patch.dict(os.environ, malformed_environment, clear=True):
             self.assertEqual(reader_main(['read', 'real.txt']), 2)
+
+    def test_worker_search_never_discloses_policy_inside_source_root(self):
+        """Would fail if bounded search treated the controller policy as review source."""
+        script = Path(__file__).resolve().parents[2] / 'lib/runtime_review/reader.py'
+        environment, _ = self.policy_environment()
+        result = subprocess.run(
+            ['python3', str(script), 'search', '"schemaVersion"'],
+            capture_output=True, text=True, env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), [])
