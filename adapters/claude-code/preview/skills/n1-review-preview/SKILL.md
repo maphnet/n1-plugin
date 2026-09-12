@@ -14,28 +14,23 @@ controller-rendered local report; it never approves an incomplete review.
 Accept exactly an explicit `owner/repo#123` target. Reject a missing, local,
 branch-only, or non-explicit target before any controller action.
 
-Resolve the controller home through the existing bridge, which calls `n1_home()`.
-The controller supplies its trusted paths; do not replace its bridge with a
-checkout-local Python command:
+Run the packaged preflight guard before the shared bridge. It consumes its own
+current capability record; it accepts no caller-supplied capability evidence:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/../../../lib/runtime-review.sh" preflight \
-  --host claude-code --capabilities <controller-owned-capabilities.json> \
-  --observed <controller-owned-observations.json>
+python3 "${CLAUDE_PLUGIN_ROOT}/preflight.py" "owner/repo#123"
 ```
 
-Before preparation, require current native evidence for `readSearchEnforced`,
-`isolatedContext`, and `lifecycleControl`, plus requested and observed model
-settings for every role. Run the packaged `preflight`, then `prepare`, only
-with controller-owned capability/observation files and configuration. If any
-capability is unavailable or unverified, return `unsupported` with its exact
-reason; do not dispatch a worker. In particular, this adapter's installed-host
-evidence does not establish worker-scoped hooks, fresh contexts, path
-restriction, effective model selection, or in-session Agent wait/cancel calls.
+The shipped record is unverified, so this command returns `unsupported` and the
+skill stops. It does not invoke `lib/runtime-review.sh`, `prepare`, Agent,
+wait, or stop. The existing bridge (which calls `n1_home()`) remains the only
+trusted launcher for a future qualified controller; do not replace it with a
+checkout-local Python command.
 
 ## Qualified dispatch only
 
-For each returned spawn action, configure the named native agent
+No native dispatch is enabled by this package version. If future disposable
+qualification changes that state, each returned spawn action must configure the named native agent
 (`n1-preview-code-reviewer` or `n1-preview-security-reviewer`) with the
 frontmatter read/search allowlist before its first tool call. Resolve model
 policy through native configuration and retain requested and observed settings
@@ -44,13 +39,13 @@ individual request/input paths and the pinned working directory, never parent
 conversation history. Record both native handles immediately and submit a
 `spawned` event for each.
 
-Wait for native completions up to each request's 600-second default deadline.
+The future qualified flow must wait for native completions up to each request's 600-second default deadline.
 Capture raw worker text as `rawText`, validate the resulting envelope, and
 submit it through `event`. On a failure, timeout, interruption, or lost session,
 send the matching controller event, cancel every remaining native handle, and
 await terminal receipts. A Markdown instruction to stop is not a receipt.
 
-Only if `event` returns a verifier spawn action, start
+Only if `event` returns a verifier spawn action may the future qualified flow start
 `n1-preview-review-verifier` in a fresh context. Pass only claims plus permitted
 source/conventions paths; it must not receive sibling results or controller
 `state.json`. Apply the same model, deadline, rawText, and cancellation rules.

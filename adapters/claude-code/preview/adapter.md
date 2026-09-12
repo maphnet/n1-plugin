@@ -14,6 +14,9 @@ Agent argument/result fields, a per-worker cancellation receipt, fresh-context
 selection, effective worker model observation, or the field shape/ordering of
 worker `PreToolUse` hook payloads. No paid/live probe was authorized. Therefore
 the preview is **unsupported** on this evidence: it must not dispatch a review.
+`qualification.json` is the package-owned current record, and `preflight.py`
+always returns that unsupported result before the shared controller bridge can
+receive caller-supplied capability JSON.
 
 ## Mapping after qualification
 
@@ -39,7 +42,9 @@ before their first tool call. `enforce-preview.py` is a second layer: a
 registered worker permits only those exact names and an absolute path below its
 supplied source/input roots; it denies traversal, shell aliases, MCP, nested
 agents, and unknown names. It passes unrelated production events. If it is
-invoked as worker-scoped with empty or malformed data it denies.
+invoked as worker-scoped with empty or malformed data it denies. The package
+does not register this hook on the selected host: its documented hook command
+cannot supply verified worker identity or controller-owned per-run roots.
 
 The selected host help does not establish that `SubagentStart` registration
 precedes the first worker tool event or that a `PreToolUse` payload identifies a

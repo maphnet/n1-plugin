@@ -84,6 +84,25 @@ class ClaudeAdapterTests(unittest.TestCase):
         )
         self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
 
+    def test_unrooted_hook_is_not_registered_until_the_host_can_scope_it(self):
+        """Would fail if package config enabled a hook without worker identity and per-run roots."""
+        hooks = json.loads((ROOT / "hooks/hooks.json").read_text())
+        commands = [item["command"] for entries in hooks["hooks"].values()
+                    for entry in entries for item in entry["hooks"]]
+        self.assertFalse(any("enforce-preview.py" in command for command in commands))
+
+    def test_packaged_preflight_is_executable_and_blocks_before_the_shared_bridge(self):
+        """Would fail if a caller could bypass the known-unverified host state into prepare."""
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "preflight.py"), "owner/repo#123"],
+            text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 3)
+        value = json.loads(result.stdout)
+        self.assertEqual(value["status"], "unsupported")
+        self.assertIn("lifecycleControl", value["reasons"])
+        self.assertEqual(result.stderr, "")
+
     def test_controller_skill_static_pressure_covers_native_lifecycle_fail_closed_rules(self):
         """Static pressure test: omission of a lifecycle safety rule must fail package qualification."""
         skill = (ROOT / "skills/n1-review-preview/SKILL.md").read_text()
