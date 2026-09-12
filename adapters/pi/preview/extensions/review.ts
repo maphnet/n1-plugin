@@ -1,8 +1,7 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { chmod, lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { runWorker as runNativeWorker, workerArgs } from "../worker.ts";
@@ -10,7 +9,7 @@ import { runWorker as runNativeWorker, workerArgs } from "../worker.ts";
 type JsonObject = Record<string, any>;
 
 export interface ReviewDependencies {
-  cli: (args: string[]) => Promise<JsonObject>;
+  cli: (args: string[], invocationCwd?: string, controllerRunRoot?: string) => Promise<JsonObject>;
   guardPath: string;
   makePrompt: (request: JsonObject) => Promise<string>;
   runWorker: typeof runNativeWorker;
@@ -49,45 +48,66 @@ function qualification(): JsonObject {
   };
 }
 
-function execute(command: string, args: string[], cwd?: string): Promise<{ stdout: string; stderr: string }> {
+function execute(command: string, args: string[], cwd?: string, stdin?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { cwd, encoding: "utf8", maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const child = execFile(command, args, { cwd, encoding: "utf8", maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error((stderr || stdout || error.message).trim()));
       } else {
         resolve({ stdout, stderr });
       }
     });
+    if (stdin !== undefined) child.stdin?.end(stdin);
   });
 }
 
-async function defaultCli(args: string[]): Promise<JsonObject> {
-  const temporary = await mkdtemp(join(tmpdir(), "n1-pi-controller-"));
-  try {
-    const actual = [...args];
-    const eventIndex = actual.indexOf("--event-json");
-    if (eventIndex >= 0) {
-      const eventFile = join(temporary, "event.json");
-      await writeFile(eventFile, actual[eventIndex + 1], { mode: 0o600 });
-      actual.splice(eventIndex, 2, "--file", eventFile);
-    }
-    if (actual[0] === "prepare") {
-      const evidence = qualification();
-      const capabilityFile = join(temporary, "capabilities.json");
-      const observedFile = join(temporary, "observed.json");
-      const serialized = JSON.stringify(evidence);
-      await Promise.all([
-        writeFile(capabilityFile, serialized, { mode: 0o600 }),
-        writeFile(observedFile, serialized, { mode: 0o600 }),
-      ]);
-      actual.push("--host", "pi", "--capabilities", capabilityFile, "--observed", observedFile);
-    }
-    const result = await execute("bash", [bridge, ...actual], root);
-    if (result.stderr) throw new Error(result.stderr.trim());
-    return JSON.parse(result.stdout);
-  } finally {
-    await rm(temporary, { recursive: true, force: true });
+async function writeEventHandoff(controllerRunRoot: string | undefined, runId: string | undefined, serialized: string): Promise<string> {
+  if (!controllerRunRoot || !runId || resolve(controllerRunRoot) !== controllerRunRoot
+      || basename(controllerRunRoot) !== runId
+      || basename(dirname(controllerRunRoot)) !== "reviews"
+      || basename(dirname(dirname(controllerRunRoot))) !== "scratch") {
+    throw new Error("event handoff requires the controller-owned run tree");
   }
+  const runInfo = await lstat(controllerRunRoot);
+  if (!runInfo.isDirectory() || runInfo.isSymbolicLink() || await realpath(controllerRunRoot) !== controllerRunRoot) {
+    throw new Error("controller-owned run tree must be a canonical directory");
+  }
+  const eventDirectory = join(controllerRunRoot, "events");
+  try {
+    await mkdir(eventDirectory, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  const eventInfo = await lstat(eventDirectory);
+  if (!eventInfo.isDirectory() || eventInfo.isSymbolicLink() || await realpath(eventDirectory) !== eventDirectory) {
+    throw new Error("event handoff directory must be controller-owned");
+  }
+  const eventFile = join(eventDirectory, "event-" + randomUUID() + ".json");
+  await writeFile(eventFile, serialized, { flag: "wx", mode: 0o600 });
+  return eventFile;
+}
+
+export async function defaultCli(
+  args: string[],
+  invocationCwd?: string,
+  controllerRunRoot?: string,
+): Promise<JsonObject> {
+  const actual = [...args];
+  const eventIndex = actual.indexOf("--event-json");
+  if (eventIndex >= 0) {
+    const runIndex = actual.indexOf("--run");
+    const eventFile = await writeEventHandoff(controllerRunRoot, actual[runIndex + 1], actual[eventIndex + 1]);
+    actual.splice(eventIndex, 2, "--file", eventFile);
+  }
+  let stdin: string | undefined;
+  if (actual[0] === "prepare") {
+    const evidence = qualification();
+    stdin = JSON.stringify({ capabilities: evidence, observed: evidence });
+    actual.push("--host", "pi", "--capabilities", "-", "--observed", "-");
+  }
+  const result = await execute("bash", [bridge, ...actual], invocationCwd, stdin);
+  if (result.stderr) throw new Error(result.stderr.trim());
+  return JSON.parse(result.stdout);
 }
 
 async function defaultPrompt(request: JsonObject): Promise<string> {
@@ -193,10 +213,15 @@ export async function runReview(
   let eventSequence = 0;
   let queue: Promise<unknown> = Promise.resolve();
   let firstFailure: unknown;
+  let controllerRunRoot: string | undefined;
 
   const postEvent = (event: JsonObject): Promise<JsonObject> => {
     const payload = { eventId: "pi-event-" + (++eventSequence), runId: event.runId, ...event };
-    const next = queue.then(() => dependencies.cli(["event", "--run", payload.runId, "--event-json", JSON.stringify(payload)]));
+    const next = queue.then(() => dependencies.cli(
+      ["event", "--run", payload.runId, "--event-json", JSON.stringify(payload)],
+      ctx.cwd,
+      controllerRunRoot,
+    ));
     queue = next.catch(() => {});
     return next;
   };
@@ -272,11 +297,12 @@ export async function runReview(
   };
 
   try {
-    const prepared = await dependencies.cli(["prepare", "--target", target.trim()]);
+    const prepared = await dependencies.cli(["prepare", "--target", target.trim()], ctx.cwd);
     const reviewers = (prepared.actions ?? []).filter((action: JsonObject) => action.kind === "spawn");
     if (reviewers.length !== 2 || reviewers.some((action: JsonObject) => !["code-reviewer", "security-reviewer"].includes(action.request?.role))) {
       throw new Error("controller did not return both reviewer spawn actions");
     }
+    controllerRunRoot = dirname(reviewers[0].request.cwd);
     const reviewerPromises = reviewers.map((action: JsonObject) => runAction(action));
     const joined = await Promise.allSettled(reviewerPromises);
     if (joined.some((item) => item.status === "rejected")) throw firstFailure ?? new Error("review worker failed");
@@ -287,7 +313,7 @@ export async function runReview(
     if (!verifierActions.some((action: JsonObject) => action.kind === "report")) {
       throw new Error("verifier did not yield a report action");
     }
-    const report = await dependencies.cli(["report", "--run", prepared.runId]);
+    const report = await dependencies.cli(["report", "--run", prepared.runId], ctx.cwd);
     ctx.ui.notify(report.report, "info");
   } finally {
     ctx.signal?.removeEventListener("abort", parentAbort);

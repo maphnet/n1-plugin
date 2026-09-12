@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import registerReview, { runReview, type ReviewDependencies } from "./extensions/review.ts";
+import registerReview, { defaultCli, runReview, type ReviewDependencies } from "./extensions/review.ts";
 import { allowedInputsFromArgs, createWorkerGuard } from "./extensions/worker-guard.ts";
 import { runWorker, workerArgs, type WorkerDependencies } from "./worker.ts";
 
@@ -322,6 +322,84 @@ test("Pi extension registers the advisory review command", () => {
     name: "n1-review-preview",
     description: "Read-only N1 advisory PR review preview",
   });
+});
+
+test("default bridge resolves repository-local N1 state from the Pi session cwd", async (t) => {
+  const fixture = mkdtempSync(join(tmpdir(), "n1-pi-bridge-"));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  const checkout = join(fixture, "checkout");
+  const home = join(checkout, ".n1");
+  const runId = "12345678-1234-4234-8234-123456789abc";
+  const run = join(home, "scratch", "reviews", runId);
+  mkdirSync(join(run, "requests"), { recursive: true });
+  mkdirSync(join(run, "results"));
+  writeFileSync(join(home, "config.json"), "{}\n");
+  const git = await import("node:child_process");
+  git.execFileSync("git", ["init", "--quiet", checkout]);
+  git.execFileSync("git", ["-C", checkout, "config", "n1.home", ".n1"]);
+  writeFileSync(join(run, "state.json"), JSON.stringify({
+    runId,
+    status: "completed",
+    reason: null,
+    prNumber: 1,
+    prTitle: "Fixture",
+    findings: [],
+    dispositions: [],
+    cancellationUnconfirmed: [],
+    revision: { repository: "owner/repo", baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+    workers: Object.fromEntries(["code-reviewer", "security-reviewer", "review-verifier"].map((role) => [role, {
+      status: "completed",
+      result: { evidence: { effectiveModel: "provider/model", effectiveModelReason: null, tokenUsage: null } },
+    }])),
+  }));
+
+  const result = await defaultCli(["report", "--run", runId], checkout);
+  assert.equal(result.runId, runId);
+  assert.match(result.report, /Assessment: approve/);
+  assert.match(readFileSync(join(run, "report.md"), "utf8"), /Assessment: approve/);
+});
+
+test("default event handoff stays inside its controller-owned run tree", async (t) => {
+  const fixture = mkdtempSync(join(tmpdir(), "n1-pi-event-"));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  const checkout = join(fixture, "checkout");
+  const home = join(checkout, ".n1");
+  const runId = "22345678-1234-4234-8234-123456789abc";
+  const run = join(home, "scratch", "reviews", runId);
+  mkdirSync(run, { recursive: true });
+  writeFileSync(join(home, "config.json"), "{}\n");
+  const git = await import("node:child_process");
+  git.execFileSync("git", ["init", "--quiet", checkout]);
+  git.execFileSync("git", ["-C", checkout, "config", "n1.home", ".n1"]);
+  const event = JSON.stringify({ eventId: "pi-event-2", runId, kind: "cancel", reason: "fixture" });
+
+  await assert.rejects(defaultCli(
+    ["event", "--run", runId, "--event-json", event],
+    checkout,
+    run,
+  ), /run has no state/);
+  const eventDirectory = join(run, "events");
+  assert.equal(existsSync(eventDirectory), true);
+  const files = readdirSync(eventDirectory);
+  assert.equal(files.length, 1);
+  assert.equal(readFileSync(join(eventDirectory, files[0]), "utf8"), event);
+});
+
+test("unverified pre-prepare qualification does not depend on OS temporary storage", async (t) => {
+  const fixture = mkdtempSync(join(tmpdir(), "n1-pi-qualification-"));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  mkdirSync(join(fixture, ".n1"));
+  writeFileSync(join(fixture, ".n1", "config.json"), "{}\n");
+  const previous = process.env.TMPDIR;
+  process.env.TMPDIR = join(fixture, "missing-temp-root");
+  t.after(() => {
+    if (previous === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previous;
+  });
+  await assert.rejects(
+    defaultCli(["prepare", "--target", "owner/repo#123"], fixture),
+    /lacks available native evidence/i,
+  );
 });
 
 test("controller starts both reviewers with inherited model values and joins before verifier", async () => {

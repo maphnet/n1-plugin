@@ -33,9 +33,27 @@ def _json_file(path):
     return json.loads(text, object_pairs_hook=_unique_keys)
 
 
+def _qualification_inputs(args):
+    if args.capabilities != "-" and args.observed != "-":
+        return _json_file(args.capabilities), _json_file(args.observed)
+    if args.capabilities != "-" or args.observed != "-":
+        raise ValueError("capabilities and observed must both use the qualification stream")
+    raw = sys.stdin.buffer.read(MAX_FILE_BYTES + 1)
+    if len(raw) > MAX_FILE_BYTES:
+        raise ValueError("qualification stream byte limit exceeded")
+    try:
+        envelope = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_keys)
+    except (json.JSONDecodeError, UnicodeError) as exc:
+        raise ValueError("qualification stream is malformed") from exc
+    if type(envelope) is not dict or set(envelope) != {"capabilities", "observed"}:
+        raise ValueError("qualification stream must contain capabilities and observed")
+    return envelope["capabilities"], envelope["observed"]
+
+
 def _qualification(args):
     check_platform()
-    report = validate_capabilities(_json_file(args.capabilities), _json_file(args.observed))
+    capabilities, observed = _qualification_inputs(args)
+    report = validate_capabilities(capabilities, observed)
     if report["host"] != args.host:
         raise ValueError("host must match capability report and native observations")
     config = _json_file(args.config_file)
