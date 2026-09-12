@@ -33,10 +33,13 @@ def parse_target(text: str) -> tuple[str, int]:
     return match[1], int(match[2])
 
 
-def _run(argv, *, cwd, git=False):
+def _run(argv, *, cwd, git=False, input_data=None):
     kwargs = dict(check=True, capture_output=True, timeout=60, shell=False, cwd=str(cwd))
+    if input_data is not None:
+        kwargs['input'] = input_data
     if git:
-        env = {key: value for key, value in os.environ.items() if not key.startswith('GIT_')}
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith('GIT_') and key != 'SSH_ASKPASS'}
         env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_SYSTEM='/dev/null',
                    GIT_CONFIG_GLOBAL='/dev/null', GIT_ATTR_NOSYSTEM='1',
                    GIT_TERMINAL_PROMPT='0')
@@ -120,9 +123,29 @@ def prepare_source(target: str, run_dir: Path) -> dict:
         objects = run_dir / 'objects.git'
         for path in (source, inputs, objects):
             path.mkdir(mode=0o700)
-        def git(*args):
-            return _run(_GIT_OPTIONS + ['--git-dir=' + str(objects)] + list(args), cwd=run_dir, git=True)
+        def git(*args, input_data=None):
+            return _run(_GIT_OPTIONS + ['--git-dir=' + str(objects)] + list(args),
+                        cwd=run_dir, git=True, input_data=input_data)
         git('init', '--bare', '--template=', str(objects))
+        # --numstat disables applying the patch: use Git's parser for quoted
+        # names and rename destinations without modifying any files or index.
+        try:
+            stats = git('apply', '--numstat', '-z', input_data=diff)
+        except RuntimeError as exc:
+            raise ValueError('changed paths could not be established: ' + str(exc)) from exc
+        changed_paths = set()
+        for record in stats.split(b'\0'):
+            if not record:
+                continue
+            added, removed, raw_name = record.split(b'\t', 2)
+            if not added.isdigit() or not removed.isdigit():
+                raise ValueError('binary changes are unsupported')
+            name = raw_name.decode('utf-8')
+            if safe_relative(name).as_posix() != name:
+                raise ValueError('noncanonical changed source path')
+            changed_paths.add(name)
+        if not changed_paths:
+            raise ValueError('changed paths could not be established')
         git('fetch', '--no-tags', '--depth=1', '--no-recurse-submodules',
             f'https://github.com/{repository}.git', before['headRefOid'])
         tree = git('ls-tree', '-rz', '--full-tree', before['headRefOid'])
@@ -152,6 +175,12 @@ def prepare_source(target: str, run_dir: Path) -> dict:
         for name in paths:
             if any(parent.as_posix() in paths for parent in Path(name).parents if parent != Path('.')):
                 raise ValueError('source directory collision')
+        for boundary in boundaries:
+            if boundary['path'] in changed_paths:
+                raise ValueError('changed symlink/gitlink boundary is unsupported: ' + boundary['path'])
+        if changed_paths - paths:
+            raise ValueError('changed path is absent from pinned snapshot; coverage cannot be established: '
+                             + sorted(changed_paths - paths)[0])
         total = len(diff) + len(json.dumps(before).encode()) + sum(len(x['text'].encode()) for x in instructions)
         source_bytes = 0
         configs = []
@@ -169,6 +198,9 @@ def prepare_source(target: str, run_dir: Path) -> dict:
             with destination.open('xb') as handle:
                 handle.write(blob)
             destination.chmod(0o400)
+            if name in changed_paths:
+                # Check the entire pinned text, including bytes outside hunks.
+                read_file(source, name)
             parts = Path(name).parts
             if any(part in _CONFIG_DIRS for part in parts) or Path(name).name == '.mcp.json':
                 configs.append(name)

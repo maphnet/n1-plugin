@@ -18,6 +18,7 @@ META = {'number': 123, 'title': 'Title', 'body': 'Requirements',
         'baseRefOid': BASE, 'headRefOid': HEAD,
         'url': 'https://github.com/owner/repo/pull/123'}
 DIFF = b'diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n'
+REAL_SUBPROCESS_RUN = subprocess.run
 
 
 class SourceTests(unittest.TestCase):
@@ -52,6 +53,11 @@ class SourceTests(unittest.TestCase):
             data = json.dumps(self.metadata.pop(0)).encode()
         elif argv[:3] == ['gh', 'pr', 'diff']:
             data = self.diff
+        elif 'apply' in argv:
+            # Keep Git's read-only patch parser real; only acquisition is fake.
+            return REAL_SUBPROCESS_RUN(['git', 'apply', '--numstat', '-z'],
+                                       input=kwargs['input'], check=True, capture_output=True,
+                                       env=kwargs['env'], cwd=self.workspace)
         elif 'ls-tree' in argv:
             data = b''.join(f'{mode} {kind} {oid}\t{name}\0'.encode()
                             for mode, kind, oid, name in self.entries)
@@ -124,6 +130,21 @@ class SourceTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'fetch.*not our ref'):
                 prepare_source('owner/repo#123', self.run)
 
+    def test_fetch_authentication_failure_cannot_inherit_ssh_askpass(self):
+        original = self.controller
+        def authenticate(argv, **kwargs):
+            if 'fetch' in argv:
+                self.assertTrue('SSH_ASKPASS' not in kwargs['env'], 'untrusted askpass was inherited')
+                raise subprocess.CalledProcessError(128, argv, stderr=b'authentication failed; prompts disabled')
+            if argv[0] == 'gh':
+                self.assertNotIn('env', kwargs)
+            return original(argv, **kwargs)
+        with patch.dict(os.environ, {'SSH_ASKPASS': '/untrusted/askpass'}):
+            with patch('lib.runtime_review.source.subprocess.run', side_effect=authenticate):
+                with self.assertRaisesRegex(RuntimeError, 'fetch.*authentication failed'):
+                    prepare_source('owner/repo#123', self.run)
+            self.assertEqual(os.environ['SSH_ASKPASS'], '/untrusted/askpass')
+
     def test_tree_escape_git_and_collisions_are_denied(self):
         for names in (['../escape'], ['/escape'], ['.git/config'], ['a', 'a/b']):
             with self.subTest(names=names):
@@ -162,6 +183,42 @@ class SourceTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'coverage'):
                     self.prepare()
 
+    def test_pure_boundary_renames_fail_coverage_without_mode_headers(self):
+        for mode, kind in [('120000', 'blob'), ('160000', 'commit')]:
+            with self.subTest(mode=mode):
+                self.metadata = [dict(META), dict(META)]
+                self.run = self.workspace / mode
+                self.diff = b'diff --git a/old b/app.py\nsimilarity index 100%\nrename from old\nrename to app.py\n'
+                self.entries = [(mode, kind, OID, 'app.py')]
+                with self.assertRaisesRegex(RuntimeError, 'coverage.*boundary'):
+                    self.prepare()
+
+    def test_changed_blob_with_unsupported_bytes_outside_hunks_fails_coverage(self):
+        for value in (b'\x00', b'\xff'):
+            with self.subTest(value=value):
+                self.metadata = [dict(META), dict(META)]
+                self.run = self.workspace / value.hex()
+                self.blobs[OID] = b'new\n' + b'unchanged\n' * 50 + value
+                with self.assertRaisesRegex(RuntimeError, 'coverage.*(?:binary|UTF-8)'):
+                    self.prepare()
+
+    def test_git_quoted_rename_path_is_correlated_with_pinned_blob(self):
+        self.diff = (b'diff --git a/old "b/new\\tname.py"\nsimilarity index 100%\n'
+                     b'rename from old\nrename to "new\\tname.py"\n')
+        self.entries = [('100644', 'blob', OID, 'new\tname.py')]
+        result = self.prepare()
+        self.assertEqual((Path(result['cwd']) / 'new\tname.py').read_bytes(), b'new\n')
+
+    def test_unestablished_or_missing_changed_paths_fail_coverage(self):
+        for diff in (b'not a patch\n', DIFF):
+            with self.subTest(diff=diff):
+                self.metadata = [dict(META), dict(META)]
+                self.run = self.workspace / str(len(self.calls))
+                self.diff = diff
+                self.entries = []
+                with self.assertRaisesRegex(RuntimeError, 'coverage.*(?:changed paths|absent)'):
+                    self.prepare()
+
     def test_size_limit_fails_without_reading_oversize_blob(self):
         self.blobs[OID] = b'x' * 1025
         with patch('lib.runtime_review.source.MAX_FILE_BYTES', 1024):
@@ -193,6 +250,7 @@ class SourceTests(unittest.TestCase):
         fixture_git('update-index', '--chmod=+x', 'script.sh')
         fixture_git('commit', '-qm', 'fixture')
         head = fixture_git('rev-parse', 'HEAD').decode().strip()
+        self.diff = fixture_git('show', '--format=', 'HEAD')
         self.metadata = [dict(META, headRefOid=head), dict(META, headRefOid=head)]
         real_run = subprocess.run
         def transport(argv, **kwargs):
