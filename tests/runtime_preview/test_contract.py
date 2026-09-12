@@ -1,5 +1,7 @@
 import unittest
+from copy import deepcopy
 
+from lib.runtime_review import contract
 from lib.runtime_review.contract import validate_request, validate_result
 
 
@@ -60,6 +62,90 @@ def verifier_result():
         "reason": "The source confirms the claim.",
     }]}
     return value
+
+
+def capability_report():
+    return {"host": "codex", "hostVersion": "test-native-1", "packageDigest": "a" * 64,
+            "configurationDigest": "b" * 64, "toolInventoryDigest": "c" * 64,
+            "capabilities": {name: {"status": "available", "evidence": ["native-probe:" + name]}
+                             for name in ("readSearchEnforced", "isolatedContext", "lifecycleControl")},
+            "models": {role: {"mode": "inherit", "provider": None, "model": None, "effort": None}
+                       for role in ("code-reviewer", "security-reviewer", "review-verifier")},
+            "reasons": {}}
+
+
+class CapabilityTests(unittest.TestCase):
+    def test_available_native_evidence_is_validated_and_detached(self):
+        report, observed = capability_report(), capability_report()
+        value = contract.validate_capabilities(report, observed)
+        self.assertEqual(value, report)
+        value["capabilities"]["readSearchEnforced"]["evidence"].append("changed")
+        self.assertEqual(len(report["capabilities"]["readSearchEnforced"]["evidence"]), 1)
+
+    def test_changed_observed_identity_invalidates_old_probe_evidence(self):
+        for field, value in [("host", "pi"), ("hostVersion", "native-2"),
+                             ("packageDigest", "d" * 64), ("configurationDigest", "e" * 64),
+                             ("toolInventoryDigest", "f" * 64)]:
+            with self.subTest(field=field):
+                observed = capability_report()
+                observed[field] = value
+                with self.assertRaisesRegex(ValueError, field):
+                    contract.validate_capabilities(capability_report(), observed)
+
+    def test_missing_unavailable_and_unverified_required_capabilities_fail_with_reason(self):
+        for side in ("report", "observed"):
+            for capability in ("readSearchEnforced", "isolatedContext", "lifecycleControl"):
+                for status in (None, "unavailable", "unverified", "available"):
+                    with self.subTest(side=side, capability=capability, status=status):
+                        report, observed = capability_report(), capability_report()
+                        value = report if side == "report" else observed
+                        value["reasons"][capability] = "native denial probe missing"
+                        if status is None:
+                            del value["capabilities"][capability]
+                        else:
+                            value["capabilities"][capability] = {"status": status, "evidence": []}
+                        with self.assertRaisesRegex(ValueError, capability + ".*native denial probe missing"):
+                            contract.validate_capabilities(report, observed)
+
+    def test_report_prose_cannot_replace_missing_or_different_observations(self):
+        observed = capability_report()
+        observed["capabilities"]["readSearchEnforced"]["evidence"] = ["another probe"]
+        with self.assertRaisesRegex(ValueError, "readSearchEnforced.*evidence"):
+            contract.validate_capabilities(capability_report(), observed)
+        with self.assertRaisesRegex(ValueError, "observed"):
+            contract.validate_capabilities(capability_report(), {})
+
+    def test_every_role_requires_a_strict_matching_policy(self):
+        for role in ("code-reviewer", "security-reviewer", "review-verifier"):
+            for bad in (None, {"mode": "auto"}, {"mode": "explicit", "provider": None, "model": None, "effort": None}):
+                with self.subTest(role=role, bad=bad):
+                    report = capability_report()
+                    if bad is None:
+                        del report["models"][role]
+                    else:
+                        report["models"][role] = bad
+                    with self.assertRaisesRegex(ValueError, role):
+                        contract.validate_capabilities(report, capability_report())
+        observed = capability_report()
+        observed["models"]["review-verifier"] = {"mode": "explicit", "provider": "host", "model": "model", "effort": None}
+        with self.assertRaisesRegex(ValueError, "models.review-verifier"):
+            contract.validate_capabilities(capability_report(), observed)
+
+    def test_unknown_fields_and_nonstring_keys_are_field_specific_value_errors(self):
+        for path in ((), ("capabilities",), ("capabilities", "readSearchEnforced"), ("models",), ("reasons",)):
+            for key in ("unexpected", 42):
+                with self.subTest(path=path, key=key):
+                    value = capability_report()
+                    node = value
+                    for part in path:
+                        node = node[part]
+                    node[key] = "unexpected"
+                    with self.assertRaisesRegex(ValueError, "report"):
+                        contract.validate_capabilities(value, capability_report())
+        value = request()
+        value[42] = "unexpected"
+        with self.assertRaisesRegex(ValueError, "request"):
+            validate_request(value)
 
 
 class ContractTests(unittest.TestCase):

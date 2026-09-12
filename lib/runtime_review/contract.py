@@ -1,7 +1,7 @@
 """Validation for versioned, host-neutral runtime-review messages.
 
-These functions only validate the wire contract.  In particular, they do not
-probe paths, infer host capabilities, or attempt to resolve a model.
+These functions validate the wire contract and compare trusted native probe
+observations. They do not probe paths, execute host tools, or resolve a model.
 """
 
 from copy import deepcopy
@@ -32,6 +32,8 @@ def _object(value, field):
 
 def _keys(value, field, required, optional=()):
     _object(value, field)
+    if any(type(key) is not str for key in value):
+        raise ValueError(field + " keys must be strings")
     required = set(required)
     allowed = required | set(optional)
     missing = required - set(value)
@@ -246,3 +248,59 @@ def validate_result(request: dict, value: dict) -> dict:
             raise ValueError("output must be null for noncompleted results")
         _error(value["error"])
     return deepcopy(value)
+
+
+def _capability_observations(value, field):
+    identity = {"host", "hostVersion", "packageDigest", "configurationDigest", "toolInventoryDigest"}
+    _keys(value, field, identity | {"capabilities", "models", "reasons"})
+    if type(value["host"]) is not str or value["host"] not in HOSTS:
+        raise ValueError(field + ".host must be a known host")
+    _text(value["hostVersion"], field + ".hostVersion")
+    for name in ("packageDigest", "configurationDigest", "toolInventoryDigest"):
+        if type(value[name]) is not str or not re.fullmatch(r"[0-9a-f]{64}", value[name]):
+            raise ValueError(field + "." + name + " must be a SHA-256 digest")
+    _keys(value["reasons"], field + ".reasons", set(), CAPABILITIES | ROLES)
+    for name, reason in value["reasons"].items():
+        _text(reason, field + ".reasons." + name)
+    _keys(value["capabilities"], field + ".capabilities", set(), CAPABILITIES)
+    for name in sorted(CAPABILITIES):
+        label = field + ".capabilities." + name
+        entry = value["capabilities"].get(name)
+        reason = value["reasons"].get(name, "required native probe evidence is missing")
+        if entry is None:
+            raise ValueError(label + " is missing: " + reason)
+        _keys(entry, label, {"status", "evidence"})
+        if type(entry["status"]) is not str or entry["status"] not in {"available", "unavailable", "unverified"}:
+            raise ValueError(label + ".status must be available, unavailable, or unverified")
+        if type(entry["evidence"]) is not list:
+            raise ValueError(label + ".evidence must be a list")
+        for item in entry["evidence"]:
+            _text(item, label + ".evidence")
+        if entry["status"] != "available" or not entry["evidence"]:
+            raise ValueError(label + " lacks available native evidence: " + reason)
+    _keys(value["models"], field + ".models", ROLES)
+    for role in sorted(ROLES):
+        _model_policy(value["models"][role], field + ".models." + role)
+    return identity
+
+
+def validate_capabilities(report: dict, observed: dict) -> dict:
+    """Match probe qualification against fresh, controller-collected native facts.
+
+    Both inputs use the same strict shape. ``observed`` must originate from the
+    native adapter, never reviewer prose. This comparison is not a host probe or
+    a model availability check; adapters must execute those before prepare.
+    """
+    report, observed = deepcopy(report), deepcopy(observed)
+    identity = _capability_observations(report, "report")
+    _capability_observations(observed, "observed")
+    for name in sorted(identity):
+        if report[name] != observed[name]:
+            raise ValueError(name + " changed; capability evidence is stale")
+    for name in sorted(CAPABILITIES):
+        if report["capabilities"][name] != observed["capabilities"][name]:
+            raise ValueError("capabilities." + name + ".evidence does not match observed native evidence")
+    for role in sorted(ROLES):
+        if report["models"][role] != observed["models"][role]:
+            raise ValueError("models." + role + " does not match observed model policy")
+    return report
