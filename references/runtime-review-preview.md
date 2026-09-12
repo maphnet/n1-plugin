@@ -101,10 +101,60 @@ permissions, MCP/connectors, tool inventory, instruction hierarchy, and plugin
 trust before qualification. Do not use a trust bypass, sandbox bypass, or the
 normal user `~/.codex` configuration.
 
-Loading the preview manifest does **not** install or bind custom agents. As a
-separate, explicit step, add only these entries to the disposable
-`$CODEX_HOME/config.toml`, replacing `/absolute/package` with the relocated
-package root:
+The installed `codex-cli 0.154.0` has no direct option that loads an arbitrary
+local `.codex-plugin/plugin.json` path. Its native package-loading boundary is
+a marketplace-backed plugin install. Create a disposable local marketplace
+whose single source points at the packaged adapter; the symlink is outside the
+package, so `package-evidence.json` remains valid:
+
+```bash
+mkdir -p /absolute/n1-preview-marketplace/.agents/plugins \
+  /absolute/n1-preview-marketplace/plugins
+ln -s /absolute/package/adapters/codex/preview \
+  /absolute/n1-preview-marketplace/plugins/preview
+```
+
+```text
+/absolute/n1-preview-marketplace/
+├── .agents/plugins/marketplace.json
+└── plugins/preview -> /absolute/package/adapters/codex/preview
+```
+
+The marketplace file is:
+
+```json
+{
+  "name": "n1-review-preview",
+  "interface": {"displayName": "N1 Review Preview"},
+  "plugins": [{
+    "name": "preview",
+    "source": {"source": "local", "path": "./plugins/preview"},
+    "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+    "category": "Productivity"
+  }]
+}
+```
+
+Register that marketplace and install the plugin only in the disposable home:
+
+```bash
+CODEX_HOME=/absolute/disposable-codex-home \
+  codex plugin marketplace add /absolute/n1-preview-marketplace
+CODEX_HOME=/absolute/disposable-codex-home \
+  codex plugin add preview@n1-review-preview
+```
+
+Run `codex plugin add preview@n1-review-preview` a second time with the same
+`CODEX_HOME`, then use `codex plugin list --json` to confirm there is exactly
+one enabled `preview@n1-review-preview` registration. Confirm the single cached
+packaged `hooks.json` is still `{"hooks": {}}`, so there are zero preview hook
+registrations, and that no unrelated hook was duplicated. A duplicate plugin or
+hook registration is unsupported.
+
+The native plugin install loads the packaged skill and manifest; it does
+**not** install or bind custom agents. As a separate configuration step, add
+only these entries to the disposable `$CODEX_HOME/config.toml`, replacing
+`/absolute/package` with the relocated package root:
 
 ```toml
 [agents.n1_preview_code_reviewer]
@@ -117,10 +167,12 @@ config_file = "/absolute/package/adapters/codex/preview/agents/n1_preview_securi
 config_file = "/absolute/package/adapters/codex/preview/agents/n1_preview_review_verifier.toml"
 ```
 
-Validate that disposable configuration with the qualified Codex version and
-confirm each exact profile binding. The current package has no registered hook
-and no proven native role/profile dispatch binding, so it remains unsupported.
-A generic spawned agent is not a substitute.
+Add each table only if it is absent. Repeating enablement must leave one copy of
+each table and must preserve all unrelated agents, hooks, comments, and
+settings. Validate that disposable configuration with the qualified Codex
+version and confirm each exact profile binding. The current package registers
+no preview hook and has no proven native role/profile dispatch binding, so it
+remains unsupported. A generic spawned agent is not a substitute.
 
 The only accepted invocation syntax is:
 
@@ -187,9 +239,20 @@ runtime setup. Stop active preview workers and wait for native terminal receipts
 Then use only the host-specific opt-in boundary:
 
 - Claude Code: start the next session without the preview `--plugin-dir` value.
-- Codex: stop loading the preview package and remove only the three
-  `agents.n1_preview_*` tables shown above from the disposable
-  `$CODEX_HOME/config.toml`.
+- Codex: run the native inverse operations against the same disposable home:
+
+  ```bash
+  CODEX_HOME=/absolute/disposable-codex-home \
+    codex plugin remove preview@n1-review-preview
+  CODEX_HOME=/absolute/disposable-codex-home \
+    codex plugin marketplace remove n1-review-preview
+  ```
+
+  Then remove only the three `agents.n1_preview_*` tables shown above from
+  that `$CODEX_HOME/config.toml`. Remove the exact disposable marketplace
+  wrapper or its `plugins/preview` symlink only after confirming it contains no
+  unrelated entries. Keep the relocated package and its
+  `package-evidence.json` with the preserved scratch evidence.
 - Pi: start the next session without the preview `--extension` value. If the
   package-local dependency install is no longer needed, uninstall only
   `@earendil-works/pi-coding-agent` from that exact preview prefix with npm, or
@@ -202,3 +265,10 @@ configuration, production `.claude-plugin`, `agents/`, `hooks/`, `skills/`,
 pipeline files, scratch evidence, and ticket state must remain unchanged. Do
 not prescribe or run recursive deletion against a home directory, repository,
 `.claude`, `.codex`, `.n1`, `scratch`, or another broad parent directory.
+
+These Codex commands are qualified only for the installed `codex-cli 0.154.0`
+surface. If the target installed version does not expose `plugin marketplace
+add`, `plugin add`, `plugin remove`, and `plugin marketplace remove`, or if any
+command or the exact post-install/post-removal comparison fails, there is no
+qualified native package-loading lifecycle for that host. Stop as unsupported;
+do not copy the skill into a discovery directory or invent a manifest flag.
