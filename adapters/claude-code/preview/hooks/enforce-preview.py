@@ -12,6 +12,11 @@ import sys
 
 
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob"}
+RUNTIME_WORKER_IDENTITIES = {
+    "n1:n1-runtime-code-reviewer",
+    "n1:n1-runtime-security-reviewer",
+    "n1:n1-runtime-review-verifier",
+}
 DENIAL = {
     "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
@@ -60,7 +65,7 @@ def _preview_worker(payload: object) -> bool:
         return False
     for field in ("subagent_type", "agent_type"):
         value = payload.get(field)
-        if type(value) is str and value.startswith("n1-runtime:"):
+        if type(value) is str and value in RUNTIME_WORKER_IDENTITIES:
             return True
     return False
 

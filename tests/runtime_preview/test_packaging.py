@@ -400,6 +400,15 @@ class PackagingTests(unittest.TestCase):
         self.assertIn("codex plugin remove runtime-review@n1-review-runtime", guide)
         self.assertIn("codex plugin marketplace remove n1-review-runtime", guide)
 
+    def test_claude_docs_use_the_installed_n1_command_namespace(self):
+        """Would fail if Claude documentation omitted the root plugin command namespace."""
+        guide = GUIDE.read_text(encoding="utf-8")
+        claude_section = guide.split("## Enable and check Claude Code", 1)[1].split(
+            "## Enable and check Codex", 1
+        )[0]
+        self.assertIn("/n1:n1-review-runtime owner/repo#123", claude_section)
+        self.assertNotIn("/n1-review-runtime owner/repo#123", claude_section)
+
     def test_codex_rehearsal_changes_disposable_opt_in_state(self):
         """Would fail without native, repeatable Codex enablement and narrow rollback."""
         build_package = load_packager().build_package

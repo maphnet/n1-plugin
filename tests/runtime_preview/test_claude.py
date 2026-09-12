@@ -90,6 +90,33 @@ class ClaudeAdapterTests(unittest.TestCase):
         )
         self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
 
+    def test_hook_recognizes_only_exact_namespaced_runtime_workers(self):
+        """Would fail if an installed runtime worker passed through or another N1 agent was denied."""
+        identities = (
+            "n1:n1-runtime-code-reviewer",
+            "n1:n1-runtime-security-reviewer",
+            "n1:n1-runtime-review-verifier",
+        )
+        for field in ("subagent_type", "agent_type"):
+            for identity in identities:
+                with self.subTest(field=field, identity=identity):
+                    result = subprocess.run(
+                        [sys.executable, str(ADAPTER_ROOT / "hooks/enforce-preview.py")],
+                        input=json.dumps({field: identity, "tool_name": "Bash"}),
+                        text=True, capture_output=True, check=True,
+                    )
+                    self.assertEqual(
+                        json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny"
+                    )
+        for field in ("subagent_type", "agent_type"):
+            with self.subTest(field=field, identity="n1:unrelated-agent"):
+                result = subprocess.run(
+                    [sys.executable, str(ADAPTER_ROOT / "hooks/enforce-preview.py")],
+                    input=json.dumps({field: "n1:unrelated-agent", "tool_name": "Bash"}),
+                    text=True, capture_output=True, check=True,
+                )
+                self.assertEqual(json.loads(result.stdout), {})
+
     def test_unrooted_hook_is_not_registered_until_the_host_can_scope_it(self):
         """Would fail if package config enabled a hook without worker identity and per-run roots."""
         hooks = json.loads((ADAPTER_ROOT / "hooks/hooks.json").read_text())

@@ -95,7 +95,7 @@ pre-first-tool ordering.
 The only accepted invocation syntax is:
 
 ```text
-/n1-review-runtime owner/repo#123
+/n1:n1-review-runtime owner/repo#123
 ```
 
 A no-argument, local-path, branch-only, or malformed invocation must fail.
