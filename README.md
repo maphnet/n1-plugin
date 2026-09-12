@@ -4,22 +4,36 @@ AI-driven development orchestrator for Claude Code. No one writes the code.
 
 N1 is a Claude Code plugin that orchestrates the full development cycle using 12 specialized agent personas and [Superpowers](https://github.com/obra/superpowers) sub-skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); Superpowers handles interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
 
+The full N1 workflow below is for Claude Code. A separate, opt-in Codex/Pi package exists only for an **unsupported, read-only runtime-review preview**; it does not provide `n1-start`, the full pipeline, or a qualified live review.
+
 ## Requirements
 
-- [Claude Code](https://claude.ai/code) 2.1+
-- [Superpowers](https://github.com/obra/superpowers) plugin ^5.0
+### Claude Code full workflow
+
+- [Claude Code](https://code.claude.com/docs/en/overview) 2.1+
+- [Superpowers](https://github.com/obra/superpowers) plugin >=6, from the `claude-plugins-official` marketplace
 - `git` and `gh` (GitHub CLI) on PATH
 - Optional: Jira (Atlassian MCP) or YouTrack MCP for tracker integration
 - Optional: Sentry MCP for error-tracking integration
 
+### Codex/Pi runtime-review preview only
+
+Use a disposable host home and an assembled package outside the checkout. The Pi lane requires Node `>=24.19.0 <25` and Pi `0.85.1`; its dependencies are installed explicitly with `npm ci`. Installation proves package loading only: the current capability gates stop before source preparation, worker dispatch, or a live model review.
+
 ## Installation
 
-Add the marketplace and install:
+### Claude Code — full workflow
 
+Follow the [Claude Code plugin guide](https://code.claude.com/docs/en/plugins). N1 declares Superpowers from its actual marketplace identity, `claude-plugins-official`. Install that dependency first: in an isolated Claude `2.1.258` probe, this order enabled Superpowers `6.3.0` and source N1 `3.0.0` with no dependency errors.
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+claude plugin install superpowers@claude-plugins-official --scope user --yes
+claude plugin marketplace add maphnet/n1-plugin
+claude plugin install n1@n1 --scope user --yes
 ```
-/plugin marketplace add maphnet/n1-plugin
-/plugin install n1@n1
-```
+
+Installing N1 before Superpowers produced a dependency-resolution error in the same isolated test. The ordering is therefore deliberate. The equivalent interactive commands are `/plugin marketplace add maphnet/n1-plugin` and `/plugin install n1@n1`.
 
 Then enable auto-update: `/plugin` → Marketplaces → n1 → Auto-update.
 
@@ -29,7 +43,89 @@ For local development:
 claude --plugin-dir ~/dev/n1-plugin
 ```
 
-## Quick Start
+As observed on 2026-09-12, the published N1 marketplace served `2.103.0`, while this source package is `3.0.0` and contains the preview adapters; use a checked-out branch/ref for unreleased adapter work. An isolated live Claude attempt also requires a logged-in host, and no full live runtime-review E2E is claimed here.
+
+### Codex — local runtime-review preview (unsupported)
+
+Codex has no advertised N1 remote marketplace in this repository; see the [Codex plugin documentation](https://developers.openai.com/codex/plugins/) for its native lifecycle. Clone the exact branch/ref you need, assemble it to an absolute path outside the checkout, and keep every directory in the assembled package together:
+
+```bash
+git clone --branch agent-agnostic https://github.com/maphnet/n1-plugin.git /absolute/n1-source
+cd /absolute/n1-source
+python3 scripts/package-review-preview.py \
+  --host codex \
+  --destination /absolute/n1-home/scratch/reviews/packages/20260912-preview/codex
+```
+
+Codex's native local-package path is a disposable marketplace wrapper. Create the wrapper JSON and symlink exactly as shown in the [runtime-preview reference](references/runtime-review-preview.md#enable-and-check-codex), then use a dedicated home:
+
+```bash
+mkdir -p /absolute/disposable-codex-home
+CODEX_HOME=/absolute/disposable-codex-home \
+  codex plugin marketplace add /absolute/n1-runtime-marketplace
+CODEX_HOME=/absolute/disposable-codex-home \
+  codex plugin add runtime-review@n1-review-runtime
+CODEX_HOME=/absolute/disposable-codex-home codex plugin list --json
+```
+
+Restart Codex with that same dedicated home before attempting its discovered skill:
+
+```bash
+CODEX_HOME=/absolute/disposable-codex-home codex
+# In the new Codex session: $runtime-review:n1-review-runtime owner/repo#123
+```
+
+Remove the same opt-in setup with:
+
+```bash
+CODEX_HOME=/absolute/disposable-codex-home \
+  codex plugin remove runtime-review@n1-review-runtime
+CODEX_HOME=/absolute/disposable-codex-home \
+  codex plugin marketplace remove n1-review-runtime
+```
+
+With `codex-cli 0.154.0`, repeated native installation left one enabled registration, and native discovery reported `runtime-review:n1-review-runtime` (plugin ID `runtime-review@n1-review-runtime`). That is distinct from the skill basename `n1-review-runtime`; it does not promise an invocation. The packaged preflight rejects an explicit target as unsupported, and a Codex live attempt in an unauthenticated disposable home stopped at HTTP 401 before the skill ran.
+
+### Pi — local runtime-review preview (unsupported)
+
+See Pi's [extension documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md). Reuse the checked-out branch/ref above (or clone it first), build the Pi package, keep the entire assembled package together, then install its pinned dependency and extension in a dedicated Pi home:
+
+```bash
+cd /absolute/n1-source
+python3 scripts/package-review-preview.py \
+  --host pi \
+  --destination /absolute/n1-home/scratch/reviews/packages/20260912-preview/pi
+
+PKG=/absolute/n1-home/scratch/reviews/packages/20260912-preview/pi
+PI_HOME=/absolute/disposable-pi-home
+PI_CLI="$PKG/adapters/pi/preview/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
+EXT="$PKG/adapters/pi/preview/extensions/review.ts"
+npm --prefix "$PKG/adapters/pi/preview" ci --ignore-scripts --no-audit --no-fund
+PI_CODING_AGENT_DIR="$PI_HOME" node "$PI_CLI" install "$EXT"
+PI_CODING_AGENT_DIR="$PI_HOME" node "$PI_CLI" list
+```
+
+For development or isolated qualification, load the relocated extension explicitly (rather than relying on discovery):
+
+```bash
+PI_CODING_AGENT_DIR="$PI_HOME" PI_OFFLINE=1 PI_TELEMETRY=0 \
+  node "$PI_CLI" --offline --no-session --no-extensions --no-skills \
+  --no-prompt-templates --no-themes --no-context-files \
+  --extension "$EXT" \
+  --print '/n1-review-runtime owner/repo#123'
+```
+
+Use Pi's native removal command against the same dedicated home, then confirm `list` is empty:
+
+```bash
+PI_CODING_AGENT_DIR="$PI_HOME" PI_OFFLINE=1 PI_TELEMETRY=0 \
+  node "$PI_CLI" remove "$EXT"
+PI_CODING_AGENT_DIR="$PI_HOME" node "$PI_CLI" list
+```
+
+Node `24.19.0`/Pi `0.85.1` successfully built, installed, listed, removed, and passed the 21 package tests. In an isolated empty model registry, a missing target was rejected and an explicit target stopped at the inherited-model gate; Pi reports extension errors in its output even when the launcher exits 0. A follow-up against an existing native registry reached the package gate, which rejected unverified `isolatedContext` evidence before source preparation or workers. The Codex discovery name above is likewise unverified for execution. This is fail-closed evidence, not a completed model review.
+
+## Quick Start (Claude Code only)
 
 ```
 # 1. Set up N1 for your project
@@ -49,7 +145,7 @@ claude --plugin-dir ~/dev/n1-plugin
 /n1:n1-story-run STORY-12          # implement a whole story: subtasks run one by one through n1-start in their own repos, then a summary is posted on the story. --dry-run shows the plan only.
 ```
 
-## Skills
+## Skills (Claude Code only)
 
 | Skill | Description |
 |-------|-------------|

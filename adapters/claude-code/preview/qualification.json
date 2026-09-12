@@ -1,0 +1,11 @@
+{
+  "host": "claude-code",
+  "hostVersion": "2.1.258",
+  "status": "unverified",
+  "capabilities": {
+    "readSearchEnforced": "unverified: worker-scoped hook identity and per-run roots were not established",
+    "isolatedContext": "unverified: fresh worker context and path restriction were not established",
+    "lifecycleControl": "unverified: in-session dispatch, wait, stop, and terminal receipts were not established"
+  },
+  "models": "unverified: effective worker model selection was not established"
+}

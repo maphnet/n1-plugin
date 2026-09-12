@@ -1,0 +1,114 @@
+{
+  "baseline": "5ba19cbfc0a7564f803ea53d9bfa8dd92630b902",
+  "manifests": {
+    "plugin": {
+      "author": {
+        "name": "N1 Team"
+      },
+      "dependencies": [
+        {
+          "marketplace": "claude-plugins-official",
+          "name": "superpowers",
+          "version": ">=6"
+        }
+      ],
+      "description": "AI-driven development orchestrator. No one writes the code.",
+      "license": "MIT",
+      "name": "n1"
+    },
+    "marketplace": {
+      "allowCrossMarketplaceDependenciesOn": [
+        "claude-plugins-official"
+      ],
+      "name": "n1",
+      "owner": {
+        "name": "maphskiy"
+      },
+      "plugins": [
+        {
+          "description": "AI-driven development orchestrator. No one writes the code.",
+          "name": "n1",
+          "source": "./"
+        }
+      ]
+    }
+  },
+  "sha256": {
+    "agents/code-reviewer.md": "c7fa9e1ba203d8b2080350ada8458361366396d36f12612626147151a681cdaa",
+    "agents/developer.md": "4aaf5016c51b9d470f94365306b87010240f9a1ecb7fcbf11f1483b31ef62234",
+    "agents/implementer.md": "ff995d3acd72165c17ce78beb5b510893a101f72753cd64cd1f5aa9b47fa606a",
+    "agents/intake-agent.md": "81699ad67a7b42eb7c3f4ccac0e5fd32237b7a344944ba887463575eba04d17f",
+    "agents/local-test-planner.md": "32a3490d551547ffbdbf80438f8a8ceafb132a929b2810ac5e9de86fcf8bcab4",
+    "agents/planner.md": "3190ca267ba90bf2bbbec2cda1ef45b067f5cb0012649b16177e0af44c536e1b",
+    "agents/product-analyst.md": "aaa7f378f0fc3c057eca6177d157d11c3b3d9ab31a58bf7b0c0b056fca5641aa",
+    "agents/qa-engineer.md": "476defc17534422af8cac5db4d091e6d5769e5e08224e786e98059c308a15d41",
+    "agents/research-standards.md": "22c2339b135788b46392e819b992ea73c43b68a673b0f359d09e5288e6ac4347",
+    "agents/security-reviewer.md": "f75b7e73bc2970938b9b9060939c14e249785f519575e236ba91c1b759dde386",
+    "agents/solution-architect.md": "61539e5e41cae899e49ff7df0f26afc50bf04375c37131b1f14a38453fb65a00",
+    "agents/tech-writer.md": "0e7a4d45f8281f360d2c5a00f53e0c3e58e2d996412575b69495f924afd432b0",
+    "hooks/enforce-agent-model.py": "96ca894a553cb532f7432ca55918e69c292d0f54f6e8dfa81bca2e69586d349b",
+    "hooks/enforce-agent-model.sh": "61effc8e17a529cd4bd9de96a62c401de6aea766e559f566215f5c6861a720b6",
+    "hooks/hooks.json": "b271f10b731b35780b0ed56a8d5f534a01cb29a92dbc1d21ff03a58a0473fc0a",
+    "hooks/session-start.sh": "6fa1ab3b45f8be6030f5b5ee26ad715aa8b82e6b9b21dda9b7bb7d8246b67d35",
+    "hooks/telemetry-agent-start.sh": "87ecaf1fb5d7863f706fc74d2697dbf53515e5a49e921908ecd0770367d1f75d",
+    "hooks/telemetry-agent-stop.sh": "823016f33df41a7e73cbea6bff64b4f04bbaee98944edd1dbf524b8596e55937",
+    "hooks/telemetry-merge.py": "fc840a31883db499270a3061d993f260e8c5f14bed93ffc54ddfea4f78d15c84",
+    "hooks/telemetry-merge.sh": "06d288ef19b33e813a3ebda21f79bbfca6aa0892e7cd83c0e9586be4bfcca98a",
+    "lib/breakcheck.sh": "91e38cdfc4d29d3a03e0954b3d925a5cf5802494047cf2764c833110a2a6baa8",
+    "lib/cache.sh": "45ad90f03bbdb22662096e330dd5452c600777981f29f099f2e58ff6cd1402a7",
+    "lib/config.sh": "177b22449789abcb73c00f50b489de822c061c774e98ca2021317be3f31f4c92",
+    "lib/fingerprints.sh": "55a2205e9c7afc4eb9c5b32f8ef514831110e8d15ba18a31b8b68e78e688e1b3",
+    "lib/frontmatter.sh": "b0b8a1ee892e31e68a96b531cd498ce9266f960d4908a448ba7f6353dbec01da",
+    "lib/memory.sh": "f9611c48699872937a9b5ef67bbd4d7a633308fa7deccd859ba961aaf021bd09",
+    "lib/poll.sh": "5ac486e5c569fba7a56501bb91f5efbb421e520668dba836fca40c71af22095e",
+    "lib/related.sh": "f28ad70609879d31370fa7805a9d51658494ea60b1ea93da2e16543c25a1cb98",
+    "lib/rules.sh": "4a3634d7954605732e6b94af51d3f4b890497d14c14fa79606836124c80da39c",
+    "lib/signals.sh": "d114fe34f75cd37bcf783928d1acb41f3bdc7a5e1d2ed95a3746de7bcc9d323f",
+    "lib/story.sh": "02299731d7f704bdef49df5f69e873de036bb7aa7c3b1a42ac0777ee707c1d10",
+    "lib/telemetry.sh": "cb43adb4e062b12feecf30fa4b23f744b67568124561a97e67326c4755e99ecc",
+    "lib/testparse.sh": "080dcecb59223ca8d775519db701450e13e202240ac271bc4405371488ed3729",
+    "lib/treestate.sh": "a6dea2e17ab28a2608c760f9ff35b32800061641416209bf316de69049c94294",
+    "lib/validation.sh": "1ce60c65bc743a25c54fccca1d7d8493ca5029db3e402c67b0e6b3cb9901cda9",
+    "pipeline.json": "4e26b4e1ed38e3ce0d0bd74188be1845b36833ed6a9322be1c36ba96cc005ac8",
+    "skills/n1-benchmark/SKILL.md": "1daf32a55f6dc1e53a0ca33f81ad9002acfb2bd5d734c167f5415c0270721afd",
+    "skills/n1-ci/SKILL.md": "c488e4c909a10de5a4658688c4988d72dfd543c736a4972881e2f35d74db853d",
+    "skills/n1-clean/SKILL.md": "851ce40c96f0ccb258cef2e276aa8b5266962c6aa1f90baabe24526642e2a959",
+    "skills/n1-estimate/SKILL.md": "b499bdf46dd13ee15242af7758a62a10bbe56d95d6670ceb1689b08c3b085f6b",
+    "skills/n1-finish/SKILL.md": "159e21686fe9b52e404042d40121db54b6a395e38fe3943886776815a39aef4b",
+    "skills/n1-finish/references/done-status-recovery.md": "253c4bb8aa061ec76ebd0d60021f453a50354b56454190a7f8a1f571b36ac8c7",
+    "skills/n1-finish/references/release-batching.md": "573673ed52b80bc22712dbac1e97a02deb5eb2395217a7760a452afd63df0eee",
+    "skills/n1-init/SKILL.md": "9811995cf311df7690246b8ba81f09a0c9db69360b018c8a5d782620ee929b59",
+    "skills/n1-pr/SKILL.md": "d27cda22b0ea8eff8c681636ecea19c4d018ba6b5e86c509def170d4133c5c11",
+    "skills/n1-release/SKILL.md": "0f704b65bdb9c40ec47f35eb4c3102a20b2cc88b8e830d01078df33c2c7ac8be",
+    "skills/n1-review-response/SKILL.md": "ad4dae7a671578408b888fcbcb069b9d81ff3138558b76f2c66f3ede7a7d2fcc",
+    "skills/n1-review/SKILL.md": "b9440b1eac54c0fda58773897b365bbb072265b68eb6923d71d4106670570454",
+    "skills/n1-rules/SKILL.md": "f79b5ccf273d587132505f7e156ad0e683b0da7e204c8656babd7da869e8cfce",
+    "skills/n1-start/SKILL.md": "107e1350a54ee9200f412bfe53de2b2c282a5d0b265c8595b29cc3f109c2a860",
+    "skills/n1-start/autonomous-brainstorm.md": "64de319568b00ff4522c57a027f9d43aac0bfe9b972144ebab4032220f2e47d5",
+    "skills/n1-start/ledger.md": "352d215c2072bb1b054177211024edba87af9e8efc6a8c234c3e4d4d1c213478",
+    "skills/n1-start/review-core.md": "636d8d4ce66b22140cd02f7c102d6bca3f294128383af632bd5891f598a98027",
+    "skills/n1-start/steps/analysis.md": "972cbbcdf3dffe19d8a09364a391645333d82250053668ad59ebb22a10d1bee0",
+    "skills/n1-start/steps/brainstorm.md": "95f83926223dbdb2b5eedf54dfa9394c79e584bfcaf0369a9094bcff78500943",
+    "skills/n1-start/steps/ci.md": "24576e9816e7eb977c50d82976b1fa37e65f2c49b81cba189a3b5c71651b8aa7",
+    "skills/n1-start/steps/estimation.md": "1cc4b18c4da2a5dea5478a4b4638442c0fa0c5a357a482bfc96b16ed377e835d",
+    "skills/n1-start/steps/finish.md": "29eb3a307c87194fbf78199f31b0d131d61171fade581b9d414ff46d12c5611d",
+    "skills/n1-start/steps/fix.md": "2d2bed0e46e087a0818166799b01463247af628702f106d1636ba4c10a5a3dfc",
+    "skills/n1-start/steps/implementation.md": "e52f97d6e3dd440245fed874731801796a81ee280ca3008e0aab1543da5fb1fe",
+    "skills/n1-start/steps/investigation-deliverable.md": "534ad1305b9d4e870ce093ed34666b17bfb331258e8d99cb5e74b07a19fe2ba2",
+    "skills/n1-start/steps/local-testing.md": "698b3f1797d46077835949214b5ad93df0272dbf52a638399c338378d14ee9e3",
+    "skills/n1-start/steps/plan-review.md": "37187b52e95e196c7b030a54d692cceeb3489570815d31e2291ff92cbaa91dd1",
+    "skills/n1-start/steps/plan.md": "3eb07b73532e56be43f228cdab0487c5c30afb624649fc2f8ea76d16fa385fd1",
+    "skills/n1-start/steps/pr.md": "200cecbda18bcb6914758cc2f053dc02fe2545ff13a7dcd03393fb38f4c49a81",
+    "skills/n1-start/steps/qa.md": "5aac8ea0d87c0418ae1fe687439f24931b39915383559de8a0e65ae31f528a46",
+    "skills/n1-start/steps/release.md": "eb06fe90d6f40097a32b5acc2d086db26634d3a1655432aad1a2fdae2519a937",
+    "skills/n1-start/steps/review.md": "c39f56ba087f04b945e59cf4d136a5fda363758665a9d7970765b25edade1f6f",
+    "skills/n1-start/steps/ticket.md": "e57d0dab3be8e4d5fa80b419f4001882226878c7123af8a5ada63149be643e90",
+    "skills/n1-story-run/SKILL.md": "d2d39b54299581c7630c8a10c2790c1a7c246a5a2e8e196400be1b9a44ee4c45",
+    "skills/n1-story-run/steps/execute.md": "7bb69331f391e84491f8f022b435d9a8ab5aaf0fe58146876f77fbabd968443b",
+    "skills/n1-story-run/steps/summarize.md": "154a59cfaf54b85836a0debdb80282879879e51a07e0f8081ce5e0a48f581fd7",
+    "skills/n1-story-run/steps/validate.md": "00576734f8e6b1ea6383507ce7cb1367c5935ccba4ecb0bfbc9041fb3ee3c377",
+    "skills/n1-story/SKILL.md": "528948b38903d9cfc06d94acb0ddfad6abf9dcd111b9706b28017197acd724a7",
+    "skills/n1-telemetry/SKILL.md": "bb58e295f23c61f682b61f4f3c92531b2fc2efb446193ce06b5957f737a5a9f3",
+    "skills/n1-ticket/SKILL.md": "b3b4b9369f9269404c6172885282e175d1e9f047b0fda4842f396cb998914e68"
+  }
+}

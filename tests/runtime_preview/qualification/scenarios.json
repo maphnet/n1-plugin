@@ -1,0 +1,6 @@
+[
+  {"id":"correctness","file":"average.py","before":"def average(xs):\n    return sum(xs) / len(xs) if xs else 0\n","after":"def average(xs):\n    return sum(xs) / len(xs)\n","requirements":"Average of an empty collection must be zero.","expect":"confirmed"},
+  {"id":"security","file":"lookup.py","before":"def lookup(db, name):\n    return db.execute('SELECT id FROM users WHERE name = ?', (name,))\n","after":"def lookup(db, name):\n    return db.execute(\"SELECT id FROM users WHERE name = '\" + name + \"'\")\n","requirements":"name comes directly from an untrusted HTTP query parameter.","expect":"confirmed"},
+  {"id":"neutralized","file":"ratio.py","before":"def ratio(n, d):\n    return n / d\n\ndef public_ratio(n, d):\n    if d == 0:\n        return 0\n    return ratio(n, d)\n","after":"def ratio(n, d):\n    return float(n) / d\n\ndef public_ratio(n, d):\n    if d == 0:\n        return 0\n    return ratio(n, d)\n","requirements":"Only public_ratio is exported or called; numeric inputs only.","expect":"dismissed"},
+  {"id":"docs","file":"README.md","before":"# Example\n","after":"# Example\n\nThis project provides a small example.\n","requirements":"Document the project purpose only.","expect":"clean"}
+]
