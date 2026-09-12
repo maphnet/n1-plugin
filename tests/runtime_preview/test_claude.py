@@ -1,4 +1,4 @@
-"""Offline package and policy tests for the Claude advisory preview."""
+"""Offline package and policy tests for the Claude advisory runtime."""
 
 import importlib.util
 import json
@@ -8,11 +8,14 @@ import sys
 import unittest
 
 
-ROOT = Path("adapters/claude-code/preview")
+PLUGIN_ROOT = Path(".")
+ADAPTER_ROOT = Path("adapters/claude-code/preview")
 
 
 def load_hook():
-    spec = importlib.util.spec_from_file_location("n1_preview_hook", ROOT / "hooks/enforce-preview.py")
+    spec = importlib.util.spec_from_file_location(
+        "n1_runtime_hook", ADAPTER_ROOT / "hooks/enforce-preview.py"
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -20,17 +23,20 @@ def load_hook():
 
 
 class ClaudeAdapterTests(unittest.TestCase):
-    def test_package_is_separate_and_reviewers_are_native_read_only_agents(self):
-        """Would fail if the preview leaked into the production package or granted execution."""
-        manifest = json.loads((ROOT / ".claude-plugin/plugin.json").read_text())
-        self.assertEqual(manifest, {
-            "name": "n1-preview",
-            "version": "0.1.0",
-            "description": "Opt-in N1 advisory review qualification preview",
-        })
+    def test_existing_n1_plugin_owns_the_runtime_agents_without_a_second_identity(self):
+        """Would fail if Claude needed a second plugin or lost the existing N1 identity."""
+        manifest = json.loads((PLUGIN_ROOT / ".claude-plugin/plugin.json").read_text())
+        marketplace = json.loads((PLUGIN_ROOT / ".claude-plugin/marketplace.json").read_text())
+        self.assertEqual(manifest["name"], "n1")
+        self.assertEqual(manifest["version"], "3.0.0")
+        self.assertEqual(marketplace["plugins"][0]["name"], "n1")
+        self.assertEqual(marketplace["plugins"][0]["version"], manifest["version"])
+        self.assertFalse((ADAPTER_ROOT / ".claude-plugin").exists())
+        self.assertTrue((PLUGIN_ROOT / "skills/n1-review/SKILL.md").is_file())
+        self.assertTrue((PLUGIN_ROOT / "skills/n1-review-runtime/SKILL.md").is_file())
         for role in ("code-reviewer", "security-reviewer", "review-verifier"):
-            persona = (ROOT / "agents" / ("n1-preview-" + role + ".md")).read_text()
-            self.assertIn("name: n1-preview-" + role, persona)
+            persona = (PLUGIN_ROOT / "agents" / ("n1-runtime-" + role + ".md")).read_text()
+            self.assertIn("name: n1-runtime-" + role, persona)
             self.assertIn("tools: Read, Grep, Glob", persona)
             self.assertNotIn("Bash", persona)
             self.assertIn("runtime/review/roles/" + role + ".md", persona)
@@ -47,7 +53,7 @@ class ClaudeAdapterTests(unittest.TestCase):
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
                         "permissionDecision": "deny",
-                        "permissionDecisionReason": "N1 preview reviewers are read-only",
+                        "permissionDecisionReason": "N1 runtime reviewers are read-only",
                     }
                 })
         self.assertEqual(hook.decision("Bash", False), {})
@@ -79,14 +85,14 @@ class ClaudeAdapterTests(unittest.TestCase):
     def test_hook_cli_denies_a_registered_worker_shell_call(self):
         """Would fail if the installed Python hook stopped applying the real decision function."""
         result = subprocess.run(
-            [sys.executable, str(ROOT / "hooks/enforce-preview.py"), "--worker-scoped"],
+            [sys.executable, str(ADAPTER_ROOT / "hooks/enforce-preview.py"), "--worker-scoped"],
             input=json.dumps({"tool_name": "Bash"}), text=True, capture_output=True, check=True,
         )
         self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_unrooted_hook_is_not_registered_until_the_host_can_scope_it(self):
         """Would fail if package config enabled a hook without worker identity and per-run roots."""
-        hooks = json.loads((ROOT / "hooks/hooks.json").read_text())
+        hooks = json.loads((ADAPTER_ROOT / "hooks/hooks.json").read_text())
         commands = [item["command"] for entries in hooks["hooks"].values()
                     for entry in entries for item in entry["hooks"]]
         self.assertFalse(any("enforce-preview.py" in command for command in commands))
@@ -94,7 +100,7 @@ class ClaudeAdapterTests(unittest.TestCase):
     def test_packaged_preflight_is_executable_and_blocks_before_the_shared_bridge(self):
         """Would fail if a caller could bypass the known-unverified host state into prepare."""
         result = subprocess.run(
-            [sys.executable, str(ROOT / "preflight.py"), "owner/repo#123"],
+            [sys.executable, str(ADAPTER_ROOT / "preflight.py"), "owner/repo#123"],
             text=True, capture_output=True,
         )
         self.assertEqual(result.returncode, 3)
@@ -105,7 +111,7 @@ class ClaudeAdapterTests(unittest.TestCase):
 
     def test_controller_skill_static_pressure_covers_native_lifecycle_fail_closed_rules(self):
         """Static pressure test: omission of a lifecycle safety rule must fail package qualification."""
-        skill = (ROOT / "skills/n1-review-preview/SKILL.md").read_text()
+        skill = (PLUGIN_ROOT / "skills/n1-review-runtime/SKILL.md").read_text()
         for required in (
             "owner/repo#123", "before waiting", "600-second", "fresh context",
             "rawText", "unsupported", "controller-rendered local report",

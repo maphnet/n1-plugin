@@ -23,8 +23,11 @@ own new directory. The resulting `package-evidence.json` identifies the host
 and records the SHA-256 of every packaged file. It deliberately contains no
 credentials, environment values, user configuration, or file contents.
 
-The package preserves `adapters/<host>/preview/`, `lib/`, and `runtime/review/`
-as one relocatable tree. Move that whole tree before enabling it. Adapter paths
+The Claude Code package preserves the existing `n1` plugin identity and its
+normal `.claude-plugin/`, `agents/`, `hooks/`, `skills/`, `lib/`, and pipeline
+resources while adding the runtime adapter. Codex and Pi packages preserve
+`adapters/<host>/preview/`, `lib/`, and `runtime/review/`. Move the whole
+assembled tree before enabling it. Adapter paths
 must continue to point into that tree; they must not point back to this checkout
 or an installation cache. Moving it after configuration changes the effective
 configuration, so update every absolute reference and repeat capability
@@ -72,15 +75,18 @@ static configuration, or model refusal into capability evidence.
 
 ## Enable and check Claude Code
 
-Use a disposable project and the host's explicit local package option; do not
-add this package to the production marketplace or plugin configuration:
+Use a disposable project and the host's explicit local package option. The
+assembled artifact is the existing `n1` plugin at version `3.0.0`, not a second
+plugin identity. Do not load it alongside another `n1` installation in the
+same disposable session:
 
 ```bash
-claude --plugin-dir /absolute/package/adapters/claude-code/preview
+claude --plugin-dir /absolute/package
 ```
 
-Inspect the loaded plugin path and trust state, confirm that only the preview
-package is selected, and run its packaged preflight. The package currently has
+Inspect the loaded plugin path and trust state, confirm that only this `n1`
+package is selected, and run its packaged preflight. Existing N1 commands use
+their normal names and installation layout. The runtime currently has
 no registered hooks and its packaged qualification record is unverified, so it
 must report unsupported without dispatch. Do not enable a hook unless a later
 qualification proves worker identity, per-run path binding, trust, and
@@ -89,7 +95,7 @@ pre-first-tool ordering.
 The only accepted invocation syntax is:
 
 ```text
-/n1-review-preview owner/repo#123
+/n1-review-runtime owner/repo#123
 ```
 
 A no-argument, local-path, branch-only, or malformed invocation must fail.
@@ -108,27 +114,27 @@ whose single source points at the packaged adapter; the symlink is outside the
 package, so `package-evidence.json` remains valid:
 
 ```bash
-mkdir -p /absolute/n1-preview-marketplace/.agents/plugins \
-  /absolute/n1-preview-marketplace/plugins
+mkdir -p /absolute/n1-runtime-marketplace/.agents/plugins \
+  /absolute/n1-runtime-marketplace/plugins
 ln -s /absolute/package/adapters/codex/preview \
-  /absolute/n1-preview-marketplace/plugins/preview
+  /absolute/n1-runtime-marketplace/plugins/runtime-review
 ```
 
 ```text
-/absolute/n1-preview-marketplace/
+/absolute/n1-runtime-marketplace/
 ├── .agents/plugins/marketplace.json
-└── plugins/preview -> /absolute/package/adapters/codex/preview
+└── plugins/runtime-review -> /absolute/package/adapters/codex/preview
 ```
 
 The marketplace file is:
 
 ```json
 {
-  "name": "n1-review-preview",
-  "interface": {"displayName": "N1 Review Preview"},
+  "name": "n1-review-runtime",
+  "interface": {"displayName": "N1 Review Runtime"},
   "plugins": [{
-    "name": "preview",
-    "source": {"source": "local", "path": "./plugins/preview"},
+    "name": "runtime-review",
+    "source": {"source": "local", "path": "./plugins/runtime-review"},
     "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
     "category": "Productivity"
   }]
@@ -139,14 +145,14 @@ Register that marketplace and install the plugin only in the disposable home:
 
 ```bash
 CODEX_HOME=/absolute/disposable-codex-home \
-  codex plugin marketplace add /absolute/n1-preview-marketplace
+  codex plugin marketplace add /absolute/n1-runtime-marketplace
 CODEX_HOME=/absolute/disposable-codex-home \
-  codex plugin add preview@n1-review-preview
+  codex plugin add runtime-review@n1-review-runtime
 ```
 
-Run `codex plugin add preview@n1-review-preview` a second time with the same
+Run `codex plugin add runtime-review@n1-review-runtime` a second time with the same
 `CODEX_HOME`, then use `codex plugin list --json` to confirm there is exactly
-one enabled `preview@n1-review-preview` registration. Confirm the single cached
+one enabled `runtime-review@n1-review-runtime` registration. Confirm the single cached
 packaged `hooks.json` is still `{"hooks": {}}`, so there are zero preview hook
 registrations, and that no unrelated hook was duplicated. A duplicate plugin or
 hook registration is unsupported.
@@ -157,14 +163,14 @@ only these entries to the disposable `$CODEX_HOME/config.toml`, replacing
 `/absolute/package` with the relocated package root:
 
 ```toml
-[agents.n1_preview_code_reviewer]
-config_file = "/absolute/package/adapters/codex/preview/agents/n1_preview_code_reviewer.toml"
+[agents.n1_runtime_code_reviewer]
+config_file = "/absolute/package/adapters/codex/preview/agents/n1_runtime_code_reviewer.toml"
 
-[agents.n1_preview_security_reviewer]
-config_file = "/absolute/package/adapters/codex/preview/agents/n1_preview_security_reviewer.toml"
+[agents.n1_runtime_security_reviewer]
+config_file = "/absolute/package/adapters/codex/preview/agents/n1_runtime_security_reviewer.toml"
 
-[agents.n1_preview_review_verifier]
-config_file = "/absolute/package/adapters/codex/preview/agents/n1_preview_review_verifier.toml"
+[agents.n1_runtime_review_verifier]
+config_file = "/absolute/package/adapters/codex/preview/agents/n1_runtime_review_verifier.toml"
 ```
 
 Add each table only if it is absent. Repeating enablement must leave one copy of
@@ -177,7 +183,7 @@ remains unsupported. A generic spawned agent is not a substitute.
 The only accepted invocation syntax is:
 
 ```text
-$n1-review-preview owner/repo#123
+$n1-review-runtime owner/repo#123
 ```
 
 A no-argument invocation must fail.
@@ -214,7 +220,7 @@ must work without Node or Pi.
 The only accepted invocation syntax is:
 
 ```text
-/n1-review-preview owner/repo#123
+/n1-review-runtime owner/repo#123
 ```
 
 A no-argument invocation must fail.
@@ -243,14 +249,14 @@ Then use only the host-specific opt-in boundary:
 
   ```bash
   CODEX_HOME=/absolute/disposable-codex-home \
-    codex plugin remove preview@n1-review-preview
+    codex plugin remove runtime-review@n1-review-runtime
   CODEX_HOME=/absolute/disposable-codex-home \
-    codex plugin marketplace remove n1-review-preview
+    codex plugin marketplace remove n1-review-runtime
   ```
 
-  Then remove only the three `agents.n1_preview_*` tables shown above from
+  Then remove only the three `agents.n1_runtime_*` tables shown above from
   that `$CODEX_HOME/config.toml`. Remove the exact disposable marketplace
-  wrapper or its `plugins/preview` symlink only after confirming it contains no
+  wrapper or its `plugins/runtime-review` symlink only after confirming it contains no
   unrelated entries. Keep the relocated package and its
   `package-evidence.json` with the preserved scratch evidence.
 - Pi: start the next session without the preview `--extension` value. If the

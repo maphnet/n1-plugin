@@ -26,7 +26,7 @@ native receipts.
 
 ## Qualified controller and worker mapping
 
-After qualification, `/n1-review-preview owner/repo#123` captures the current
+After qualification, `/n1-review-runtime owner/repo#123` captures the current
 Pi provider, model ID, and thinking level. It rejects a missing value or a model
 absent from the native registry rather than applying Pi defaults. It invokes
 the packaged Bash controller with argument arrays, starts both T4 reviewer

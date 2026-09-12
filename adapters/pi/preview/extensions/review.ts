@@ -322,8 +322,8 @@ export async function runReview(
 }
 
 export default function (pi: ExtensionAPI): void {
-  pi.registerCommand("n1-review-preview", {
-    description: "Read-only N1 advisory PR review preview",
+  pi.registerCommand("n1-review-runtime", {
+    description: "Read-only N1 advisory PR review runtime",
     handler: async (args, ctx) => {
       await runReview(args, ctx);
     },

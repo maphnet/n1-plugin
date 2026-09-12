@@ -326,8 +326,8 @@ test("Pi extension registers the advisory review command", () => {
     on() {},
   } as never);
   assert.deepEqual(registration, {
-    name: "n1-review-preview",
-    description: "Read-only N1 advisory PR review preview",
+    name: "n1-review-runtime",
+    description: "Read-only N1 advisory PR review runtime",
   });
 });
 

@@ -1,4 +1,4 @@
-name = "n1_preview_review_verifier"
-description = "N1 advisory finding verifier; no edits or delegation"
+name = "n1_runtime_code_reviewer"
+description = "N1 advisory correctness reviewer; no edits or delegation"
 sandbox_mode = "read-only"
 developer_instructions = "Read the supplied N1 request and packaged role instructions. Return only the specified JSON result."

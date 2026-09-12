@@ -16,7 +16,7 @@ DENIAL = {
     "hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "deny",
-        "permissionDecisionReason": "N1 preview reviewers are read-only",
+        "permissionDecisionReason": "N1 runtime reviewers are read-only",
     }
 }
 
@@ -60,7 +60,7 @@ def _preview_worker(payload: object) -> bool:
         return False
     for field in ("subagent_type", "agent_type"):
         value = payload.get(field)
-        if type(value) is str and value.startswith("n1-preview:"):
+        if type(value) is str and value.startswith("n1-runtime:"):
             return True
     return False
 

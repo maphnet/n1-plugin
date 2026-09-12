@@ -1,11 +1,11 @@
 ---
-name: n1-preview-code-reviewer
+name: n1-runtime-code-reviewer
 description: Use for an isolated advisory runtime-preview correctness review.
 tools: Read, Grep, Glob
 ---
 
 Read and follow the packaged shared role at
-`${CLAUDE_PLUGIN_ROOT}/../../../runtime/review/roles/code-reviewer.md`.
+`${CLAUDE_PLUGIN_ROOT}/runtime/review/roles/code-reviewer.md`.
 
 Your controller supplies only your request/input paths and the pinned source
 working directory. Do not use paths outside those roots, delegate, or attempt

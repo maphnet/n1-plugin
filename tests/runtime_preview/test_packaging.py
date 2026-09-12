@@ -16,9 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/package-review-preview.py"
 GUIDE = ROOT / "references/runtime-review-preview.md"
 CODEX_AGENT_NAMES = (
-    "n1_preview_code_reviewer",
-    "n1_preview_security_reviewer",
-    "n1_preview_review_verifier",
+    "n1_runtime_code_reviewer",
+    "n1_runtime_security_reviewer",
+    "n1_runtime_review_verifier",
 )
 
 
@@ -56,9 +56,9 @@ def snapshot_file_state(root: Path):
 class DisposableCodexHost:
     """A native Codex plugin/config rehearsal isolated from user configuration."""
 
-    MARKETPLACE_NAME = "n1-review-preview"
-    AGENT_BLOCK_BEGIN = "# n1-review-preview agents: begin"
-    AGENT_BLOCK_END = "# n1-review-preview agents: end"
+    MARKETPLACE_NAME = "n1-review-runtime"
+    AGENT_BLOCK_BEGIN = "# n1-review-runtime agents: begin"
+    AGENT_BLOCK_END = "# n1-review-runtime agents: end"
 
     def __init__(self, root: Path, package: Path):
         self.root = root
@@ -68,12 +68,12 @@ class DisposableCodexHost:
             raise unittest.SkipTest("installed Codex CLI is required for native package rehearsal")
         self.codex_home = root / "codex-home"
         self.user_home = root / "user-home"
-        self.marketplace = root / "n1-preview-marketplace"
+        self.marketplace = root / "n1-runtime-marketplace"
         self.codex_home.mkdir()
         self.user_home.mkdir()
         (self.marketplace / ".agents/plugins").mkdir(parents=True)
         (self.marketplace / "plugins").mkdir()
-        (self.marketplace / "plugins/preview").symlink_to(
+        (self.marketplace / "plugins/runtime-review").symlink_to(
             package / "adapters/codex/preview",
             target_is_directory=True,
         )
@@ -81,10 +81,10 @@ class DisposableCodexHost:
             "name": self.MARKETPLACE_NAME,
             "interface": {"displayName": "N1 Review Preview Test"},
             "plugins": [{
-                "name": "preview",
+                "name": "runtime-review",
                 "source": {
                     "source": "local",
-                    "path": "./plugins/preview",
+                    "path": "./plugins/runtime-review",
                 },
                 "policy": {
                     "installation": "AVAILABLE",
@@ -134,7 +134,7 @@ class DisposableCodexHost:
 
     def install(self):
         self.run("marketplace", "add", str(self.marketplace), "--json")
-        self.run("add", f"preview@{self.MARKETPLACE_NAME}", "--json")
+        self.run("add", f"runtime-review@{self.MARKETPLACE_NAME}", "--json")
         current = self.config.read_text(encoding="utf-8")
         if self.AGENT_BLOCK_BEGIN not in current:
             entries = [self.AGENT_BLOCK_BEGIN]
@@ -145,7 +145,7 @@ class DisposableCodexHost:
             self.config.write_text(current + "\n" + "\n".join(entries) + "\n", encoding="utf-8")
 
     def remove(self):
-        self.run("remove", f"preview@{self.MARKETPLACE_NAME}", "--json")
+        self.run("remove", f"runtime-review@{self.MARKETPLACE_NAME}", "--json")
         self.run("marketplace", "remove", self.MARKETPLACE_NAME, "--json")
         current = self.config.read_text(encoding="utf-8")
         before, marker, remainder = current.partition(self.AGENT_BLOCK_BEGIN)
@@ -166,17 +166,26 @@ class DisposableCodexHost:
 
 
 class PackagingTests(unittest.TestCase):
-    def test_claude_package_is_relocatable_allowlisted_and_no_clobber(self):
-        """Would fail if assembly omitted runtime files, copied production trees, or overwrote output."""
+    def test_claude_package_preserves_the_existing_n1_plugin_and_adds_runtime_resources(self):
+        """Would fail if assembly created a second identity or omitted existing N1 commands."""
         build_package = load_packager().build_package
         with TemporaryDirectory() as temporary:
             package = build_package("claude-code", Path(temporary) / "preview")
 
             self.assertTrue((package / "lib/runtime-review.sh").is_file())
-            self.assertTrue((package / "adapters/claude-code/preview/.claude-plugin/plugin.json").is_file())
-            for production_path in (".claude-plugin", "agents", "hooks", "skills", "pipeline.json"):
-                with self.subTest(production_path=production_path):
-                    self.assertFalse((package / production_path).exists())
+            manifest = json.loads((package / ".claude-plugin/plugin.json").read_text())
+            self.assertEqual(manifest["name"], "n1")
+            self.assertEqual(manifest["version"], "3.0.0")
+            self.assertFalse((package / "adapters/claude-code/preview/.claude-plugin").exists())
+            for required_path in (
+                "agents/developer.md", "agents/n1-runtime-code-reviewer.md",
+                "defaults/estimation.json", "references/ci-detection.md",
+                "hooks/hooks.json", "skills/n1-review/SKILL.md",
+                "skills/n1-review-runtime/SKILL.md", "scripts/benchmark.py",
+                "pipeline.json",
+            ):
+                with self.subTest(required_path=required_path):
+                    self.assertTrue((package / required_path).is_file())
             self.assertFalse((package / "node_modules").exists())
             with self.assertRaises(FileExistsError):
                 build_package("claude-code", package)
@@ -213,7 +222,7 @@ class PackagingTests(unittest.TestCase):
             source = temporary_path / "source"
             (source / "lib/runtime_review").mkdir(parents=True)
             (source / "runtime/review").mkdir(parents=True)
-            (source / "adapters/claude-code/preview").mkdir(parents=True)
+            (source / "adapters/pi/preview").mkdir(parents=True)
             (source / "lib/config.sh").write_text("config\n", encoding="utf-8")
             (source / "lib/runtime-review.sh").write_text("runtime\n", encoding="utf-8")
             outside = temporary_path / "outside.txt"
@@ -225,7 +234,7 @@ class PackagingTests(unittest.TestCase):
             destination = temporary_path / "output"
             try:
                 with self.assertRaisesRegex(ValueError, "source symlink"):
-                    packager.build_package("claude-code", destination)
+                    packager.build_package("pi", destination)
                 self.assertFalse(destination.exists())
             finally:
                 packager.SOURCE_ROOT = original_root
@@ -386,10 +395,10 @@ class PackagingTests(unittest.TestCase):
     def test_codex_docs_define_the_native_package_lifecycle(self):
         """Would fail if Codex enablement/removal named no executable native package boundary."""
         guide = GUIDE.read_text(encoding="utf-8")
-        self.assertIn("codex plugin marketplace add /absolute/n1-preview-marketplace", guide)
-        self.assertIn("codex plugin add preview@n1-review-preview", guide)
-        self.assertIn("codex plugin remove preview@n1-review-preview", guide)
-        self.assertIn("codex plugin marketplace remove n1-review-preview", guide)
+        self.assertIn("codex plugin marketplace add /absolute/n1-runtime-marketplace", guide)
+        self.assertIn("codex plugin add runtime-review@n1-review-runtime", guide)
+        self.assertIn("codex plugin remove runtime-review@n1-review-runtime", guide)
+        self.assertIn("codex plugin marketplace remove n1-review-runtime", guide)
 
     def test_codex_rehearsal_changes_disposable_opt_in_state(self):
         """Would fail without native, repeatable Codex enablement and narrow rollback."""
@@ -439,7 +448,7 @@ class PackagingTests(unittest.TestCase):
             registrations = [
                 entry
                 for entry in installed["installed"]
-                if entry["pluginId"] == f"preview@{host.MARKETPLACE_NAME}"
+                if entry["pluginId"] == f"runtime-review@{host.MARKETPLACE_NAME}"
             ]
             self.assertEqual(len(registrations), 1, installed)
             self.assertTrue(registrations[0]["enabled"])

@@ -142,16 +142,16 @@ class CodexAdapterTests(unittest.TestCase):
     def test_native_roles_are_distinct_read_only_templates_with_explicit_inheritance(self):
         """Would fail if a native role could edit, delegate, or silently select another model policy."""
         expected = {
-            "n1_preview_code_reviewer.toml": (
-                "n1_preview_code_reviewer",
+            "n1_runtime_code_reviewer.toml": (
+                "n1_runtime_code_reviewer",
                 "N1 advisory correctness reviewer; no edits or delegation",
             ),
-            "n1_preview_security_reviewer.toml": (
-                "n1_preview_security_reviewer",
+            "n1_runtime_security_reviewer.toml": (
+                "n1_runtime_security_reviewer",
                 "N1 advisory security reviewer; no edits or delegation",
             ),
-            "n1_preview_review_verifier.toml": (
-                "n1_preview_review_verifier",
+            "n1_runtime_review_verifier.toml": (
+                "n1_runtime_review_verifier",
                 "N1 advisory finding verifier; no edits or delegation",
             ),
         }
@@ -172,7 +172,7 @@ class CodexAdapterTests(unittest.TestCase):
     def test_package_is_separate_and_hooks_are_not_enabled_without_worker_scope(self):
         """Would fail if an untrusted package hook became a claimed enforcement boundary."""
         manifest = json.loads((ROOT / ".codex-plugin/plugin.json").read_text())
-        self.assertEqual(manifest["name"], "preview")
+        self.assertEqual(manifest["name"], "runtime-review")
         self.assertEqual(manifest["version"], "0.1.0")
         self.assertEqual(manifest["skills"], "./skills/")
         hooks = json.loads((ROOT / "hooks/hooks.json").read_text())
@@ -207,9 +207,9 @@ class CodexAdapterTests(unittest.TestCase):
 
     def test_controller_skill_stays_unsupported_until_native_lifecycle_is_proven(self):
         """Static pressure check: removing a fail-closed lifecycle rule blocks qualification."""
-        skill = (ROOT / "skills/n1-review-preview/SKILL.md").read_text()
+        skill = (ROOT / "skills/n1-review-runtime/SKILL.md").read_text()
         for required in (
-            "$n1-review-preview owner/repo#123", "host fixed to `codex`",
+            "$n1-review-runtime owner/repo#123", "host fixed to `codex`",
             "unsupported", "before waiting", "600-second", "fresh nonforked context",
             "observed envelopes", "cancellation receipts", "controller-rendered local report",
         ):

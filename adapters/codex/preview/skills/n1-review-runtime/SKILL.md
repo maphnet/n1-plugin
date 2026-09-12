@@ -1,11 +1,11 @@
 ---
-name: n1-review-preview
+name: n1-review-runtime
 description: Use when an explicit owner/repo#123 target needs opt-in advisory runtime-preview qualification in Codex.
 ---
 
 # N1 Advisory Review Preview
 
-Invoke only as `$n1-review-preview owner/repo#123`, with the host fixed to `codex`.
+Invoke only as `$n1-review-runtime owner/repo#123`, with the host fixed to `codex`.
 This preview is advisory and read-only. It may display only a
 controller-rendered local report; it never approves an incomplete review.
 
@@ -44,7 +44,7 @@ label does not select one and is never a fallback. Until a real binding and its
 arguments/results are proven, remain unsupported and do not dispatch.
 
 After qualification, use only the proven bindings for
-`n1_preview_code_reviewer` and `n1_preview_security_reviewer`, with the supplied
+`n1_runtime_code_reviewer` and `n1_runtime_security_reviewer`, with the supplied
 request, packaged role instructions, and controller-resolved model/effort
 policy. Register both returned native handles and submit both T4 `spawned`
 events before waiting.
@@ -57,7 +57,7 @@ failed result, submit the corresponding T4 event, invoke
 `collaboration.interrupt_agent` for every returned cancel action, and retain
 native terminal cancellation receipts before reporting.
 
-Start `n1_preview_review_verifier` through its proven profile binding only when
+Start `n1_runtime_review_verifier` through its proven profile binding only when
 T4 returns that spawn action. Give it claims and permitted source/conventions
 inputs in a fresh nonforked context, never sibling raw results, parent
 conversation, credentials, or controller state. Apply the same deadline,

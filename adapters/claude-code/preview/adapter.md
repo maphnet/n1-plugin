@@ -21,7 +21,7 @@ receive caller-supplied capability JSON.
 ## Mapping after qualification
 
 When a future disposable-context probe supplies all missing evidence, map each
-T4 `{kind: "spawn", request}` to a named `n1-preview-*` Agent dispatch and
+T4 `{kind: "spawn", request}` to a named `n1-runtime-*` Agent dispatch and
 immediately send `{kind: "spawned", requestId, workerId}`. Capture the native
 completion text verbatim as `rawText`, construct a T2 result envelope with the
 native `workerId`, separately record requested versus observed model values,

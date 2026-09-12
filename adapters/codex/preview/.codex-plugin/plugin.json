@@ -1,5 +1,5 @@
 {
-  "name": "preview",
+  "name": "runtime-review",
   "version": "0.1.0",
   "description": "Opt-in N1 advisory review qualification preview",
   "author": {
@@ -7,12 +7,12 @@
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "Preview",
-    "shortDescription": "Preview an advisory N1 pull-request review.",
+    "displayName": "N1 Review Runtime",
+    "shortDescription": "Run an advisory N1 pull-request review.",
     "longDescription": "A capability-gated, read-only preview of N1 pull-request review using native Codex custom agents.",
     "developerName": "Local developer",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": "Use $n1-review-preview only for an explicit owner/repo#123 target."
+    "defaultPrompt": "Use $n1-review-runtime only for an explicit owner/repo#123 target."
   }
 }

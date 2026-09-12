@@ -1,5 +1,5 @@
 ---
-name: n1-review-preview
+name: n1-review-runtime
 description: Use when an explicit owner/repo#123 target needs opt-in advisory runtime-preview qualification in Claude Code.
 argument-hint: owner/repo#123
 ---
@@ -18,7 +18,7 @@ Run the packaged preflight guard before the shared bridge. It consumes its own
 current capability record; it accepts no caller-supplied capability evidence:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/preflight.py" "owner/repo#123"
+python3 "${CLAUDE_PLUGIN_ROOT}/adapters/claude-code/preview/preflight.py" "owner/repo#123"
 ```
 
 The shipped record is unverified, so this command returns `unsupported` and the
@@ -31,7 +31,7 @@ checkout-local Python command.
 
 No native dispatch is enabled by this package version. If future disposable
 qualification changes that state, each returned spawn action must configure the named native agent
-(`n1-preview-code-reviewer` or `n1-preview-security-reviewer`) with the
+(`n1-runtime-code-reviewer` or `n1-runtime-security-reviewer`) with the
 frontmatter read/search allowlist before its first tool call. Resolve model
 policy through native configuration and retain requested and observed settings
 separately. Start both named reviewer agents before waiting; give each only its
@@ -46,7 +46,7 @@ send the matching controller event, cancel every remaining native handle, and
 await terminal receipts. A Markdown instruction to stop is not a receipt.
 
 Only if `event` returns a verifier spawn action may the future qualified flow start
-`n1-preview-review-verifier` in a fresh context. Pass only claims plus permitted
+`n1-runtime-review-verifier` in a fresh context. Pass only claims plus permitted
 source/conventions paths; it must not receive sibling results or controller
 `state.json`. Apply the same model, deadline, rawText, and cancellation rules.
 Finally invoke `report` and display only its controller-rendered local report.

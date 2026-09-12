@@ -13,6 +13,12 @@ SOURCE_ROOT = Path(__file__).resolve().parents[1]
 HOSTS = {"claude-code", "codex", "pi"}
 COMMON_FILES = (Path("lib/config.sh"), Path("lib/runtime-review.sh"))
 COMMON_TREES = (Path("lib/runtime_review"), Path("runtime/review"))
+CLAUDE_FILES = (Path("pipeline.json"),)
+CLAUDE_TREES = (
+    Path(".claude-plugin"), Path("agents"), Path("defaults"), Path("hooks"),
+    Path("lib"), Path("references"), Path("scripts"), Path("skills"),
+    Path("runtime/review"), Path("adapters/claude-code/preview"),
+)
 
 
 def _is_generated(name: str) -> bool:
@@ -37,7 +43,7 @@ def _reject_source_symlinks(path: Path) -> None:
 
 
 def build_package(host: str, destination: Path) -> Path:
-    """Copy one host adapter and the shared runtime into a new directory."""
+    """Copy one host runtime and its shared resources into a new directory."""
     if host not in HOSTS:
         raise ValueError(f"unknown host: {host}")
     destination = Path(destination)
@@ -50,16 +56,22 @@ def build_package(host: str, destination: Path) -> Path:
     if resolved_destination == source_root or source_root in resolved_destination.parents:
         raise ValueError("destination must be outside the source tree")
 
-    sources = COMMON_FILES + COMMON_TREES + (Path("adapters") / host / "preview",)
+    if host == "claude-code":
+        files = CLAUDE_FILES
+        trees = CLAUDE_TREES
+    else:
+        files = COMMON_FILES
+        trees = COMMON_TREES + (Path("adapters") / host / "preview",)
+    sources = files + trees
     for relative in sources:
         _reject_source_symlinks(source_root / relative)
 
     destination.mkdir(parents=True)
-    for relative in COMMON_FILES:
+    for relative in files:
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_root / relative, target)
-    for relative in COMMON_TREES + (Path("adapters") / host / "preview",):
+    for relative in trees:
         shutil.copytree(
             source_root / relative,
             destination / relative,

@@ -1,11 +1,11 @@
 ---
-name: n1-preview-review-verifier
+name: n1-runtime-review-verifier
 description: Use for an isolated advisory runtime-preview finding verification.
 tools: Read, Grep, Glob
 ---
 
 Read and follow the packaged shared role at
-`${CLAUDE_PLUGIN_ROOT}/../../../runtime/review/roles/review-verifier.md`.
+`${CLAUDE_PLUGIN_ROOT}/runtime/review/roles/review-verifier.md`.
 
 Your controller supplies only the claims input, permitted source, and
 conventions access in a fresh context. Do not read sibling results or
