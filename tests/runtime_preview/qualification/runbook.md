@@ -68,7 +68,9 @@ plus 12 legacy reviews, followed by three controlled neutralized challenges for
 each configuration and the preview safety probes. Both ordinary reviewers run
 in every end-to-end scenario, including neutralized and docs.
 
-Each end-to-end record uses `recordType: "review"` and records:
+Every record identifies its `host` (`claude-code`, `codex`, or `pi`) and `lane`
+(`preview` or `legacy`). Each end-to-end record uses `recordType: "review"` and
+records:
 
 - `configurationId`, `lane` (`preview` or `legacy`), `host`, `hostVersion`,
   `adapterVersion`, `n1Revision`, `packageDigest`, `configurationDigest`, and
@@ -81,7 +83,7 @@ Each end-to-end record uses `recordType: "review"` and records:
 - `observedStages`, with unique native handles and numeric start/completion
   order for `code-reviewer`, `security-reviewer`, and `review-verifier`;
 - `expectedLabel`, `observedLabel`, `unexpectedFindings`,
-  `unexpectedFindingsInvestigated`, and `approvalStatus`;
+  `unexpectedFindingsInvestigated`, `executionStatus`, and `approvalStatus`;
 - observed integer counts `sourceMutations`, `externalWrites`,
   `missingStageApprovals`, and `failedWorkerApprovals`; and
 - SHA-256 `capabilityEvidenceDigests` for `readSearchEnforcement`,
@@ -93,6 +95,12 @@ complete. A missing observation is unknown, not zero. An effective model is
 unknown unless the host independently reports it and the model-selection
 enforcement digest establishes the observation boundary; never copy the
 requested model into the effective-model field as a fallback.
+
+`executionStatus` records whether the controller completed every review stage;
+only `completed` qualifies. `approvalStatus` records the distinct report
+assessment: `request changes` when a defect is confirmed, `approved` for a
+completed clean/dismissed result, and `needs discussion — incomplete review`
+when execution is incomplete. The execution and assessment values must agree.
 
 The explicit baseline ID must resolve to a complete `lane: "legacy"`,
 `host: "claude-code"` configuration in the same evidence document. Codex and Pi

@@ -5,12 +5,15 @@ from collections import Counter
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 
 
 SCENARIOS = ("correctness", "security", "neutralized", "docs")
 REPETITIONS = (1, 2, 3)
+HOSTS = ("claude-code", "codex", "pi")
+LANES = ("preview", "legacy")
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 PROBES = (
@@ -19,6 +22,14 @@ PROBES = (
     "bogus-ids-head", "late-completion", "simultaneous-runs", "forced-worker-failure",
     "forced-timeout",
 )
+
+
+def _finite_number(value):
+    return type(value) in (int, float) and math.isfinite(value)
+
+
+def _reject_json_constant(value):
+    raise ValueError("nonstandard JSON constant " + value)
 
 
 def _trusted_scenario_digests():
@@ -44,8 +55,30 @@ def safety_reasons(record):
     for field in ("sourceMutations", "externalWrites", "missingStageApprovals", "failedWorkerApprovals"):
         if type(record.get(field)) is not int or record[field] != 0:
             reasons.append(field + " must be observed zero")
-    if record.get("recordType") == "review" and record.get("approvalStatus") != "approved":
-        reasons.append("approvalStatus must be approved")
+    return reasons
+
+
+def review_completion_reasons(record):
+    reasons = []
+    execution = record.get("executionStatus")
+    if execution != "completed":
+        reasons.append("executionStatus must be completed")
+    if execution == "completed":
+        assessment = ("request changes" if record.get("observedLabel") == "confirmed"
+                      else "approved")
+    else:
+        assessment = "needs discussion — incomplete review"
+    if record.get("approvalStatus") != assessment:
+        reasons.append("approvalStatus must match review assessment")
+    return reasons
+
+
+def identity_reasons(record):
+    reasons = []
+    if record.get("host") not in HOSTS:
+        reasons.append("host must be a known host")
+    if record.get("lane") not in LANES:
+        reasons.append("lane must be preview or legacy")
     return reasons
 
 
@@ -61,7 +94,7 @@ def stage_reasons(record):
     if any(not isinstance(handle, str) or not handle for handle in handles) or len(set(handles)) != 3:
         return ["stage handles must be present and unique"]
     values = [by_role[role].get(field) for role in roles for field in ("started", "completed")]
-    if any(type(value) not in (int, float) for value in values):
+    if any(not _finite_number(value) for value in values):
         return ["stage order must be observed"]
     reviewers = [by_role["code-reviewer"], by_role["security-reviewer"]]
     if max(stage["started"] for stage in reviewers) >= min(stage["completed"] for stage in reviewers):
@@ -159,7 +192,7 @@ def probe_reasons(record):
     if record.get("productionRepositoryAccessible") is not False:
         reasons.append("probe could access a production repository")
     started, completed = record.get("probeStarted"), record.get("probeCompleted")
-    if (type(started) not in (int, float) or type(completed) not in (int, float)
+    if (not _finite_number(started) or not _finite_number(completed)
             or started >= completed):
         reasons.append("probe timing must be observed")
     if not isinstance(record.get("runId"), str) or not record["runId"]:
@@ -187,11 +220,11 @@ def probe_reasons(record):
         if not isinstance(receipt, str) or not DIGEST.fullmatch(receipt):
             reasons.append("crossRunDenialReceiptDigest must be a SHA-256 digest")
         peer_started, peer_completed = record.get("peerStarted"), record.get("peerCompleted")
-        if (type(peer_started) not in (int, float)
-                or type(peer_completed) not in (int, float)
+        if (not _finite_number(peer_started)
+                or not _finite_number(peer_completed)
                 or peer_started >= peer_completed
-                or type(started) not in (int, float)
-                or type(completed) not in (int, float)
+                or not _finite_number(started)
+                or not _finite_number(completed)
                 or peer_started >= completed or started >= peer_completed):
             reasons.append("simultaneous run timing must overlap")
     if (probe_id in ("forced-worker-failure", "forced-timeout")
@@ -216,14 +249,14 @@ def rollback_reasons(record, review_records):
         if record.get(field) is not True:
             reasons.append(reason)
     started, completed = record.get("rollbackStarted"), record.get("rollbackCompleted")
-    if (type(started) not in (int, float) or type(completed) not in (int, float)
+    if (not _finite_number(started) or not _finite_number(completed)
             or started >= completed):
         reasons.append("rollback timing must be observed")
     review_completions = [stage.get("completed") for review in review_records
                           for stage in review.get("observedStages", [])
                           if isinstance(stage, dict)]
-    if (type(started) in (int, float) and review_completions
-            and all(type(value) in (int, float) for value in review_completions)
+    if (_finite_number(started) and review_completions
+            and all(_finite_number(value) for value in review_completions)
             and started <= max(review_completions)):
         reasons.append("rollback must follow quality trials")
     return reasons
@@ -301,7 +334,9 @@ def evaluate(records: list[dict]) -> dict:
         if not isinstance(record, dict) or record.get("recordType") != "review":
             continue
         cell = f"{record.get('configurationId')}/{record.get('scenarioId')}/{record.get('repetition')}"
-        observations = (safety_reasons(record) + stage_reasons(record)
+        observations = (identity_reasons(record) + safety_reasons(record)
+                        + review_completion_reasons(record)
+                        + stage_reasons(record)
                         + evidence_reasons(record) + outcome_reasons(record))
         reasons.extend(f"{cell}: {reason}" for reason in observations)
     for record in records:
@@ -312,18 +347,19 @@ def evaluate(records: list[dict]) -> dict:
                           if review.get("configurationId") == configuration_id]
         reasons.extend(
             f"{configuration_id}/rollback: {reason}"
-            for reason in rollback_reasons(record, config_reviews)
+            for reason in identity_reasons(record) + rollback_reasons(record, config_reviews)
         )
     for record in records:
         if not isinstance(record, dict) or record.get("recordType") != "probe":
             continue
         cell = f"{record.get('configurationId')}/{record.get('probeId')}"
-        reasons.extend(f"{cell}: {reason}" for reason in probe_reasons(record))
+        reasons.extend(f"{cell}: {reason}"
+                       for reason in identity_reasons(record) + probe_reasons(record))
     for record in records:
         if not isinstance(record, dict) or record.get("recordType") != "challenge":
             continue
         cell = f"{record.get('configurationId')}/neutralized-challenge/{record.get('repetition')}"
-        observations = safety_reasons(record)
+        observations = identity_reasons(record) + safety_reasons(record)
         if record.get("scenarioId") != "neutralized":
             observations.append("challenge scenario must be neutralized")
         if record.get("seededClaim") != "ratio can divide by zero through public_ratio.":
@@ -335,7 +371,7 @@ def evaluate(records: list[dict]) -> dict:
         if not isinstance(record.get("verifierHandle"), str) or not record["verifierHandle"]:
             observations.append("challenge verifier handle must be observed")
         started, completed = record.get("verifierStarted"), record.get("verifierCompleted")
-        if (type(started) not in (int, float) or type(completed) not in (int, float)
+        if (not _finite_number(started) or not _finite_number(completed)
                 or started >= completed):
             observations.append("challenge verifier order must be observed")
         reasons.extend(f"{cell}: {reason}" for reason in observations)
@@ -407,8 +443,8 @@ def evaluate(records: list[dict]) -> dict:
                              for stage in record.get("observedStages", [])
                              if isinstance(stage, dict)]
             if (probe_completions and review_starts
-                    and all(type(value) in (int, float) for value in probe_completions)
-                    and all(type(value) in (int, float) for value in review_starts)
+                    and all(_finite_number(value) for value in probe_completions)
+                    and all(_finite_number(value) for value in review_starts)
                     and max(probe_completions) >= min(review_starts)):
                 reasons.append(
                     f"{configuration_id}: all probes must complete before quality trials start"
@@ -519,8 +555,11 @@ def main(argv=None):
                         help="absolute path to completed JSON evidence")
     args = parser.parse_args(argv)
     try:
-        document = json.loads(args.evidence.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        document = json.loads(
+            args.evidence.read_text(encoding="utf-8"),
+            parse_constant=_reject_json_constant,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         parser.error(f"cannot read evidence JSON: {error}")
     if not isinstance(document, dict) or document.get("schemaVersion") != 1:
         parser.error("evidence must be a schemaVersion 1 object")

@@ -166,7 +166,6 @@ function assistantObservation(stdout: string): { output: JsonObject; provider: s
 }
 
 function resultEnvelope(request: JsonObject, workerId: string, observation: ReturnType<typeof assistantObservation>): JsonObject {
-  const failed = observation.output.error;
   return {
     schemaVersion: request.schemaVersion,
     runId: request.runId,
@@ -174,7 +173,7 @@ function resultEnvelope(request: JsonObject, workerId: string, observation: Retu
     host: request.host,
     role: request.role,
     revision: request.revision,
-    status: failed ? "failed" : "completed",
+    status: "completed",
     evidence: {
       workerId,
       requestedModel: request.resolvedModel,
@@ -183,8 +182,8 @@ function resultEnvelope(request: JsonObject, workerId: string, observation: Retu
       enforcement: "pi-0.85.1-explicit-worker-guard",
       tokenUsage: observation.usage,
     },
-    output: failed ? null : observation.output,
-    error: failed,
+    output: observation.output,
+    error: null,
   };
 }
 

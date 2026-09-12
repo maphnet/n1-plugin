@@ -26,7 +26,9 @@ and no hook was trusted. Consequently there are no observed dispatch returns,
 wait results, cancellation results, tool-denial receipts, hook-failure
 receipts, disabled-trust receipts, fresh-context receipts, or effective
 model/provider/effort observations. The adapter is **unsupported** and must not
-dispatch.
+dispatch. `qualification.json` is the package-owned current record, and
+`preflight.py` rejects the preview before the shared bridge can receive
+caller-supplied capability evidence.
 
 ## Mapping after disposable qualification
 

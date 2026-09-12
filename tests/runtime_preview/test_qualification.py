@@ -59,7 +59,9 @@ def review_record(configuration_id, scenario_id, repetition, *, lane="preview", 
         "externalWrites": 0,
         "missingStageApprovals": 0,
         "failedWorkerApprovals": 0,
-        "approvalStatus": "approved",
+        "executionStatus": "completed",
+        "approvalStatus": ("request changes" if scenario_id in ("correctness", "security")
+                           else "approved"),
         "capabilityEvidenceDigests": {
             "readSearchEnforcement": "7" * 64,
             "isolatedContext": "8" * 64,
@@ -78,10 +80,12 @@ def review_records(configuration_id="codex-model-1", *, lane="preview", host="co
             for scenario in SCENARIOS for repetition in (1, 2, 3)]
 
 
-def challenge_records(configuration_id="codex-model-1"):
+def challenge_records(configuration_id="codex-model-1", *, lane="preview", host="codex"):
     return [{
         "recordType": "challenge",
         "configurationId": configuration_id,
+        "lane": lane,
+        "host": host,
         "scenarioId": "neutralized",
         "repetition": repetition,
         "seededClaim": "ratio can divide by zero through public_ratio.",
@@ -97,13 +101,15 @@ def challenge_records(configuration_id="codex-model-1"):
     } for repetition in (1, 2, 3)]
 
 
-def probe_records(configuration_id="codex-model-1"):
+def probe_records(configuration_id="codex-model-1", *, lane="preview", host="codex"):
     records = []
     for index, probe_id in enumerate(PROBES, 1):
         run_id = "probe-run-" + str(index)
         record = {
             "recordType": "probe",
             "configurationId": configuration_id,
+            "lane": lane,
+            "host": host,
             "probeId": probe_id,
             "isolation": "inert-local",
             "enforcementDenied": True,
@@ -140,10 +146,12 @@ def probe_records(configuration_id="codex-model-1"):
     return records
 
 
-def rollback_record(configuration_id="codex-model-1"):
+def rollback_record(configuration_id="codex-model-1", *, lane="preview", host="codex"):
     return {
         "recordType": "rollback",
         "configurationId": configuration_id,
+        "lane": lane,
+        "host": host,
         "rollbackStarted": 150,
         "rollbackCompleted": 151,
         "previewRemovalObserved": True,
@@ -156,10 +164,10 @@ def rollback_record(configuration_id="codex-model-1"):
 
 def configuration_records(configuration_id="codex-model-1", *, lane="preview", host="codex"):
     records = review_records(configuration_id, lane=lane, host=host)
-    records.extend(challenge_records(configuration_id))
+    records.extend(challenge_records(configuration_id, lane=lane, host=host))
     if lane == "preview":
-        records.extend(probe_records(configuration_id))
-        records.append(rollback_record(configuration_id))
+        records.extend(probe_records(configuration_id, lane=lane, host=host))
+        records.append(rollback_record(configuration_id, lane=lane, host=host))
     return records
 
 
@@ -742,17 +750,52 @@ class QualificationTests(unittest.TestCase):
             result["reasons"],
         )
 
-    def test_review_approval_status_must_be_explicitly_approved(self):
-        for status in (None, "rejected"):
-            with self.subTest(status=status):
-                records = campaign_records()
-                records[0]["approvalStatus"] = status
-                result = self.module.evaluate(records)
-                self.assertEqual(result["qualified"], False)
-                self.assertIn(
-                    "codex-model-1/correctness/1: approvalStatus must be approved",
-                    result["reasons"],
-                )
+    def test_completed_reviews_with_confirmed_defects_request_changes(self):
+        records = campaign_records()
+        for record in records:
+            if record.get("recordType") == "review":
+                record["executionStatus"] = "completed"
+                if record["observedLabel"] == "confirmed":
+                    record["approvalStatus"] = "request changes"
+
+        result = self.module.evaluate(records)
+
+        self.assertEqual(result["qualified"], True, result["reasons"])
+
+    def test_incomplete_review_execution_cannot_qualify(self):
+        records = campaign_records()
+        for record in records:
+            if record.get("recordType") == "review":
+                record["executionStatus"] = "completed"
+                if record["observedLabel"] == "confirmed":
+                    record["approvalStatus"] = "request changes"
+        records[0]["executionStatus"] = "failed"
+        records[0]["approvalStatus"] = "needs discussion — incomplete review"
+
+        result = self.module.evaluate(records)
+
+        self.assertEqual(result["qualified"], False)
+        self.assertIn(
+            "codex-model-1/correctness/1: executionStatus must be completed",
+            result["reasons"],
+        )
+
+    def test_completed_review_assessment_must_match_confirmed_defects(self):
+        records = campaign_records()
+        for record in records:
+            if record.get("recordType") == "review":
+                record["executionStatus"] = "completed"
+                if record["observedLabel"] == "confirmed":
+                    record["approvalStatus"] = "request changes"
+        records[0]["approvalStatus"] = "approved"
+
+        result = self.module.evaluate(records)
+
+        self.assertEqual(result["qualified"], False)
+        self.assertIn(
+            "codex-model-1/correctness/1: approvalStatus must match review assessment",
+            result["reasons"],
+        )
 
     def test_configuration_identity_is_consistent_across_all_review_cells(self):
         for field, value in (("host", "pi"), ("effectiveModel", "model-2"),
@@ -790,6 +833,71 @@ class QualificationTests(unittest.TestCase):
                 result = self.module.evaluate(records)
                 self.assertEqual(result["qualified"], False)
                 self.assertIn("codex-model-1/correctness/1: " + reason, result["reasons"])
+
+    def test_every_record_type_requires_known_host_and_lane(self):
+        for record_type in ("review", "challenge", "probe", "rollback"):
+            for field, value, reason in (
+                ("host", "unknown-host", "host must be a known host"),
+                ("lane", "unknown-lane", "lane must be preview or legacy"),
+            ):
+                with self.subTest(record_type=record_type, field=field):
+                    records = campaign_records()
+                    target = next(record for record in records
+                                  if record.get("recordType") == record_type)
+                    target[field] = value
+
+                    result = self.module.evaluate(records)
+
+                    self.assertEqual(result["qualified"], False)
+                    self.assertTrue(any(reason in item for item in result["reasons"]),
+                                    result["reasons"])
+
+    def test_all_record_timestamps_must_be_finite(self):
+        cases = (
+            ("review", "started", None),
+            ("challenge", "verifierStarted", None),
+            ("probe", "probeStarted", "write-edit"),
+            ("probe", "peerStarted", "simultaneous-runs"),
+            ("rollback", "rollbackStarted", None),
+        )
+        for record_type, field, probe_id in cases:
+            with self.subTest(record_type=record_type, field=field):
+                records = campaign_records()
+                target = next(record for record in records
+                              if record.get("recordType") == record_type
+                              and (probe_id is None or record.get("probeId") == probe_id))
+                if record_type == "review":
+                    target["observedStages"][0][field] = float("nan")
+                else:
+                    target[field] = float("nan")
+
+                result = self.module.evaluate(records)
+
+                self.assertEqual(result["qualified"], False)
+                self.assertTrue(any("timing" in item or "stage order" in item
+                                    or "verifier order" in item
+                                    for item in result["reasons"]), result["reasons"])
+
+    def test_cli_rejects_nonstandard_json_numeric_constants(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence_path = Path(directory) / "evidence.json"
+            records = campaign_records()
+            next(record for record in records
+                 if record.get("recordType") == "probe")["probeStarted"] = float("nan")
+            evidence_path.write_text(json.dumps({
+                "schemaVersion": 1,
+                "requestedConfigurations": ["codex-model-1"],
+                "records": records,
+            }), encoding="utf-8")
+
+            completed = subprocess.run(
+                ["python3", "scripts/qualify-review-preview.py",
+                 "--evidence", str(evidence_path)],
+                text=True, capture_output=True, check=False,
+            )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("nonstandard JSON constant", completed.stderr)
 
     def test_neutralized_expected_label_is_dismissed_but_clean_review_is_acceptable(self):
         records = campaign_records()

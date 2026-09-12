@@ -11,8 +11,16 @@ controller-rendered local report; it never approves an incomplete review.
 
 ## Current capability gate
 
-This package version is **unsupported** and must stop before calling the shared
-controller, preparing source, or dispatching an agent. Static configuration,
+Run the packaged preflight guard before the shared bridge:
+
+```bash
+python3 "${CODEX_PLUGIN_ROOT}/preflight.py" "owner/repo#123"
+```
+
+It consumes only its package-owned qualification record and accepts no
+caller-supplied capability evidence. This package version is **unsupported**,
+so the guard stops before calling the shared controller, preparing source, or
+dispatching an agent. Static configuration,
 the role `sandbox_mode`, and documentation do not prove native enforcement.
 The package hook is intentionally unregistered because plugin-hook trust,
 preview-worker identity, per-run policy binding, and pre-first-tool ordering

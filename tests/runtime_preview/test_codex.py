@@ -2,9 +2,11 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 try:
@@ -175,6 +177,33 @@ class CodexAdapterTests(unittest.TestCase):
         self.assertEqual(manifest["skills"], "./skills/")
         hooks = json.loads((ROOT / "hooks/hooks.json").read_text())
         self.assertEqual(hooks, {"hooks": {}})
+
+    def test_packaged_preflight_rejects_even_caller_supplied_available_evidence(self):
+        """Would fail if caller-controlled capability JSON could reach prepare or dispatch."""
+        script = ROOT / "preflight.py"
+        self.assertTrue(os.access(script, os.X_OK))
+        blocked = subprocess.run(
+            [sys.executable, str(script), "owner/repo#123"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(blocked.returncode, 3, blocked.stderr)
+        self.assertEqual(json.loads(blocked.stdout)["status"], "unsupported")
+
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = Path(directory) / "available.json"
+            evidence.write_text(json.dumps({
+                "capabilities": {
+                    name: {"status": "available", "evidence": ["caller claim"]}
+                    for name in ("readSearchEnforced", "isolatedContext", "lifecycleControl")
+                },
+            }), encoding="utf-8")
+            supplied = subprocess.run(
+                [sys.executable, str(script), "owner/repo#123",
+                 "--capabilities", str(evidence), "--observed", str(evidence)],
+                capture_output=True, text=True,
+            )
+        self.assertNotEqual(supplied.returncode, 0)
+        self.assertNotIn('"status": "completed"', supplied.stdout)
 
     def test_controller_skill_stays_unsupported_until_native_lifecycle_is_proven(self):
         """Static pressure check: removing a fail-closed lifecycle rule blocks qualification."""

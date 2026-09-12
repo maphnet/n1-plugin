@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,7 +52,13 @@ function request(role: string) {
     host: "pi",
     role,
     cwd: "/scratch/source",
-    inputs: [{ name: role === "review-verifier" ? "claims" : "diff", path: "/scratch/input", required: true }],
+    inputs: role === "review-verifier"
+      ? [{ name: "claims", path: "/scratch/claims", required: true }]
+      : [
+          { name: "diff", path: "/scratch/diff", required: true },
+          { name: "requirements", path: "/scratch/requirements", required: true },
+          { name: "conventions", path: "/scratch/conventions", required: true },
+        ],
     revision: { repository: "owner/repo", baseSha: "a".repeat(40), headSha: "b".repeat(40) },
     modelPolicy: { mode: "inherit", provider: null, model: null, effort: null },
     requiredCapabilities: ["isolatedContext", "lifecycleControl", "readSearchEnforced"],
@@ -434,6 +441,42 @@ test("controller starts both reviewers with inherited model values and joins bef
   calls[2].release();
   await pending;
   assert.deepEqual(notices, ["review report"]);
+});
+
+test("serialized successful reviewer and verifier envelopes pass the shared contract", async () => {
+  const events: Array<Record<string, any>> = [];
+  const dependencies: ReviewDependencies = {
+    cli: reviewCli(events),
+    guardPath: "/trusted/worker-guard.ts",
+    makePrompt: async (value) => "/scratch/" + value.role + ".md",
+    runWorker: async (args, _cwd, _signal, onSpawn) => {
+      const role = args.at(-1)!.slice("@/scratch/".length, -".md".length);
+      await onSpawn(role + "-pid");
+      const output = role === "review-verifier" ? { dispositions: [] } : { findings: [] };
+      return { exitCode: 0, stdout: workerOutput(output, role), stderr: "" };
+    },
+  };
+  const { ctx } = reviewContext();
+  await runReview("owner/repo#123", ctx as never, dependencies);
+
+  const results = events.filter((event) => event.kind === "result").map((event) => event.result);
+  assert.equal(results.length, 3);
+  for (const result of results) {
+    const contractRequest = request(result.role);
+    const serialized = JSON.stringify({ request: contractRequest, result });
+    const validated = spawnSync("python3", ["-c", [
+      "import json, sys",
+      "from lib.runtime_review.contract import validate_result",
+      "value = json.load(sys.stdin)",
+      "validate_result(value['request'], value['result'])",
+    ].join("; ")], {
+      cwd: new URL("../../../", import.meta.url),
+      input: serialized,
+      encoding: "utf8",
+    });
+    assert.equal(validated.status, 0, validated.stderr);
+    assert.equal(JSON.parse(serialized).result.error, null);
+  }
 });
 
 test("first reviewer failure immediately aborts its sibling and never starts verifier", async () => {
