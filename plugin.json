@@ -1,0 +1,31 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "n1",
+  "version": "3.0.0",
+  "description": "AI-driven development orchestrator. No one writes the code.",
+  "author": {
+    "name": "N1 Team"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/maphnet/n1-plugin",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "N1",
+    "shortDescription": "Ticket-to-PR development orchestrator",
+    "longDescription": "N1 runs the full development cycle (ticket, analysis, brainstorm, plan, implement, QA, review, PR) with specialized agent personas and Superpowers skills. Install superpowers first and enable [features] multi_agent = true.",
+    "developerName": "N1 Team",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "$n1-init",
+      "$n1-start <ticket-id or task description>"
+    ]
+  },
+  "extensions": {
+    "com.openai.hooks": "./hooks/codex-hooks.json"
+  }
+}
