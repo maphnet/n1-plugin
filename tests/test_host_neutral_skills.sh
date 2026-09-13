@@ -33,4 +33,7 @@ if bad:
 print("PASS: every $N1_ROOT snippet starts with the preamble")
 PY
 
+check "worktree directory literal" '\.claude/worktrees'
+check "manifest version read through plugin root" 'N1_ROOT/\.claude-plugin/plugin\.json|N1_ROOT>/\.claude-plugin'
+
 exit $FAIL

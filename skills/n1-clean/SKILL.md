@@ -9,7 +9,7 @@ effort: low
 
 ## Overview
 
-Manage the lifecycle of N1 worktrees. Lists all worktrees created by N1 (under `.claude/worktrees/`), classifies them by status, and offers to remove completed or abandoned ones. Memory in `$N1_HOME` is always preserved — only the worktree directory and its checkout are removed.
+Manage the lifecycle of N1 worktrees. Lists all worktrees created by N1 (under the worktree root: `n1_worktree_root`, the Claude Code default directory (see HOST ROUTING)), classifies them by status, and offers to remove completed or abandoned ones. Memory in `$N1_HOME` is always preserved — only the worktree directory and its checkout are removed.
 
 **Announce at start:** "I'm using the n1-clean skill to manage worktrees."
 
@@ -42,7 +42,7 @@ Parse the porcelain output. Each entry has:
 - `HEAD <hash>` — current commit
 - `branch refs/heads/<name>` — branch name (if not detached)
 
-Filter to entries whose path is under `.claude/worktrees/`. Extract the `<ID>` from the path (last component of the worktree path).
+Filter to entries whose path is under `$(n1_worktree_root)/` (source `config.sh` with the preamble first). Extract the `<ID>` from the path (last component of the worktree path).
 
 If no N1 worktrees found: "No N1 worktrees found. Nothing to clean up." **STOP.**
 

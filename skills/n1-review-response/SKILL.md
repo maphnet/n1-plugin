@@ -63,7 +63,7 @@ if [ -z "$WORKTREE_PATH" ]; then
     echo "Warning: could not extract ticket ID segment from branch '${BRANCH}' — worktree path may be incorrect" >&2
     _WT_SLUG=$(echo "$BRANCH" | tr '/' '-')
   fi
-  WORKTREE_PATH="${MAIN_CHECKOUT}/.claude/worktrees/${_WT_SLUG}"
+  WORKTREE_PATH="${MAIN_CHECKOUT}/$(n1_worktree_root)/${_WT_SLUG}"
 fi
 ```
 
@@ -195,7 +195,7 @@ Workspace: The worktree may have been removed after PR creation. Resolve your wo
 - If `<WORKTREE_PATH>` exists, cd there.
 - Otherwise, in `<MAIN_CHECKOUT>`: run `git fetch origin <BRANCH> && git checkout <BRANCH>`.
   If the main checkout has uncommitted changes, create a fresh worktree:
-  `git worktree add <MAIN_CHECKOUT>/.claude/worktrees/<ID> <BRANCH>`
+  `git worktree add <MAIN_CHECKOUT>/<worktree-root>/<ID> <BRANCH>`
 Never work on the default branch.
 
 Review comments to fix (each verified against the codebase as technically valid):

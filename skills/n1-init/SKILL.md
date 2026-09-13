@@ -128,7 +128,7 @@ When an old `.n1/n1.config.json` is detected:
       git config --unset n1.home 2>/dev/null || true
       ```
    f. Auto-detect `worktree.setup` (see **Worktree Setup Detection** below) and add to config
-   g. Add `.claude/worktrees/` to gitignore (see **`.gitignore` configuration** below)
+   g. Add `${WT_ROOT}/` to gitignore (see **`.gitignore` configuration** below)
    h. Clean up the old location (the copy in step d preserved the originals):
       ```bash
       rm -rf .n1/memory .n1/n1.config.json 2>/dev/null || true
@@ -1995,21 +1995,27 @@ Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is n
 
 **`.gitignore` configuration** — detect existing coverage, then ask the user:
 
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+WT_ROOT=$(n1_worktree_root)   # host default from HOST ROUTING, or worktree.root from config
+```
+
 **Detection (run in order):**
 
 1. Run `git config --global core.excludesFile` to get the global excludes file path.
-   - If a path is returned AND the file exists, check whether it contains a line matching `.claude/worktrees/` or `.claude/worktrees`.
+   - If a path is returned AND the file exists, check whether it contains a line matching `${WT_ROOT}/` or `${WT_ROOT}`.
    - If `core.excludesFile` is unset, check Git's default location: `${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore`. If that file exists, check it for the same pattern.
-2. If `.claude/worktrees/` was not found in any global excludes file, check `.gitignore` in the project root for a line matching `.claude/worktrees/` or `.claude/worktrees`.
+2. If `${WT_ROOT}/` was not found in any global excludes file, check `.gitignore` in the project root for a line matching `${WT_ROOT}/` or `${WT_ROOT}`.
 
 **If already gitignored:**
-- Found globally → tell the user: "`.claude/worktrees/` is already gitignored globally via `<path>`." Move on.
-- Found in project `.gitignore` → tell the user: "`.claude/worktrees/` is already gitignored in this project's `.gitignore`." Move on.
+- Found globally → tell the user: "`${WT_ROOT}/` is already gitignored globally via `<path>`." Move on.
+- Found in project `.gitignore` → tell the user: "`${WT_ROOT}/` is already gitignored in this project's `.gitignore`." Move on.
 
 **If NOT gitignored anywhere**, ask:
 
 ```
-.claude/worktrees/ directory is not gitignored. Where would you like to add it?
+${WT_ROOT}/ directory is not gitignored. Where would you like to add it?
 1 — Globally (user-scoped gitignore, applies to all repos)
 2 — Project-level (.gitignore in this repo)
 ```
@@ -2019,26 +2025,26 @@ Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is n
 1. Run `git config --global core.excludesFile`.
 2. **If set** → append the entry to that file (with duplicate check):
    ```bash
-   # only if .claude/worktrees entry not already present in the file:
+   # only if ${WT_ROOT} entry not already present in the file:
    echo "" >> "<excludesFile>"
    echo "# N1 worktree directories" >> "<excludesFile>"
-   echo ".claude/worktrees/" >> "<excludesFile>"
+   echo "${WT_ROOT}/" >> "<excludesFile>"
    ```
-   Tell the user: "Added `.claude/worktrees/` to global gitignore (`<path>`)."
-   Then check project `.gitignore` for a stale `.claude/worktrees` entry (see **Project-level cleanup after global add** below).
+   Tell the user: "Added `${WT_ROOT}/` to global gitignore (`<path>`)."
+   Then check project `.gitignore` for a stale `${WT_ROOT}` entry (see **Project-level cleanup after global add** below).
 3. **If NOT set** → check for Git's default global excludes file before offering to create one:
    ```bash
    XDG="${XDG_CONFIG_HOME:-$HOME/.config}"
    DEFAULT_EXCLUDES="$XDG/git/ignore"
    ```
-   - **If `$DEFAULT_EXCLUDES` exists** → Git is already using it as the implicit global excludes file. Check whether it contains `.claude/worktrees`. If not, append the entry there:
+   - **If `$DEFAULT_EXCLUDES` exists** → Git is already using it as the implicit global excludes file. Check whether it contains `${WT_ROOT}`. If not, append the entry there:
      ```bash
      echo "" >> "$DEFAULT_EXCLUDES"
      echo "# N1 worktree directories" >> "$DEFAULT_EXCLUDES"
-     echo ".claude/worktrees/" >> "$DEFAULT_EXCLUDES"
+     echo "${WT_ROOT}/" >> "$DEFAULT_EXCLUDES"
      ```
-     Tell the user: "Added `.claude/worktrees/` to Git's default global excludes (`$DEFAULT_EXCLUDES`). No `core.excludesFile` change needed."
-     Then check project `.gitignore` for a stale `.claude/worktrees` entry (see **Project-level cleanup after global add** below).
+     Tell the user: "Added `${WT_ROOT}/` to Git's default global excludes (`$DEFAULT_EXCLUDES`). No `core.excludesFile` change needed."
+     Then check project `.gitignore` for a stale `${WT_ROOT}` entry (see **Project-level cleanup after global add** below).
    - **If `$DEFAULT_EXCLUDES` does not exist** → sub-prompt:
      ```
      No global gitignore is configured (core.excludesFile is unset and $XDG_CONFIG_HOME/git/ignore does not exist).
@@ -2050,41 +2056,41 @@ Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is n
        ```bash
        mkdir -p "$XDG/git"
        echo "# N1 worktree directories" >> "$XDG/git/ignore"
-       echo ".claude/worktrees/" >> "$XDG/git/ignore"
+       echo "${WT_ROOT}/" >> "$XDG/git/ignore"
        ```
-       Tell the user: "Created `$XDG/git/ignore` and added `.claude/worktrees/`. Git uses this location by default — no `core.excludesFile` needed."
-       Then check project `.gitignore` for a stale `.claude/worktrees` entry (see **Project-level cleanup after global add** below).
+       Tell the user: "Created `$XDG/git/ignore` and added `${WT_ROOT}/`. Git uses this location by default — no `core.excludesFile` needed."
+       Then check project `.gitignore` for a stale `${WT_ROOT}` entry (see **Project-level cleanup after global add** below).
      - **2 (No):** Fall through to project-level append below.
 
 **If 2 (Project-level) from the main prompt**, or fell through from the global sub-prompt:
 
 ```bash
-# only if .claude/worktrees entry not already present in .gitignore:
-if ! grep -q '\.claude/worktrees' .gitignore 2>/dev/null; then
+# only if ${WT_ROOT} entry not already present in .gitignore:
+if ! grep -qF "${WT_ROOT}" .gitignore 2>/dev/null; then
     echo "" >> .gitignore
     echo "# N1 worktree directories" >> .gitignore
-    echo ".claude/worktrees/" >> .gitignore
+    echo "${WT_ROOT}/" >> .gitignore
 fi
 ```
-Tell the user: "Added `.claude/worktrees/` to this project's `.gitignore`."
+Tell the user: "Added `${WT_ROOT}/` to this project's `.gitignore`."
 
 **Project-level cleanup after global add:**
 
-After successfully adding `.claude/worktrees/` to the global excludes file, check if the project `.gitignore` also contains a `.claude/worktrees/` or `.claude/worktrees` entry. If found, ask:
+After successfully adding `${WT_ROOT}/` to the global excludes file, check if the project `.gitignore` also contains a `${WT_ROOT}/` or `${WT_ROOT}` entry. If found, ask:
 
 ```
-.claude/worktrees/ is now gitignored globally. The project .gitignore also has this entry.
+${WT_ROOT}/ is now gitignored globally. The project .gitignore also has this entry.
 1 — Remove it from .gitignore (global covers it)
 2 — Keep both (redundant, but harmless)
 ```
 
-**If 1 (Remove):** remove the `.claude/worktrees/` line and its comment line (`# N1 worktree directories`) if present on the preceding line. Tell the user: "Removed redundant `.claude/worktrees/` entry from project `.gitignore`."
+**If 1 (Remove):** remove the `${WT_ROOT}/` line and its comment line (`# N1 worktree directories`) if present on the preceding line. Tell the user: "Removed redundant `${WT_ROOT}/` entry from project `.gitignore`."
 
 **If 2 (Keep):** move on.
 
 **Migration cleanup — old `.n1/` entry:**
 
-During migration only (step 3g), after adding `.claude/worktrees/`, check if the project `.gitignore` contains an `.n1/` or `.n1` entry. If found, check whether the `.n1/` directory still exists and contains files:
+During migration only (step 3g), after adding `${WT_ROOT}/`, check if the project `.gitignore` contains an `.n1/` or `.n1` entry. If found, check whether the `.n1/` directory still exists and contains files:
 
 ```bash
 if [ -d ".n1" ] && [ "$(ls -A .n1 2>/dev/null)" ]; then
@@ -2312,7 +2318,7 @@ Created:
   ~/.n1/<project-name>/config.json
   ~/.n1/<project-name>/memory/
   N1_HOME auto-derived from repo name (no git config needed)
-  .gitignore configured (.claude/worktrees/ — global or project-level)
+  .gitignore configured (${WT_ROOT}/ — global or project-level)
   .claude/settings.json updated (if pinning configured)
 
 Next: Use /n1:n1-start <ticket-or-description> to begin working on a task.

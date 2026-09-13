@@ -379,7 +379,7 @@ n1_plan_approval_required() {
 
 # Detect if running inside a linked git worktree NOT managed by N1.
 # Returns 0 (true) when: git-dir diverges from git-common-dir (linked worktree)
-# AND the worktree toplevel is NOT under .claude/worktrees/ (not N1-managed).
+# AND the worktree toplevel is NOT under the host worktree root (n1_worktree_root).
 # Returns 1 (false) otherwise.
 n1_is_external_worktree() {
     local git_dir git_common_dir toplevel
@@ -392,11 +392,12 @@ n1_is_external_worktree() {
     [ "$git_dir" != "$git_common_dir" ] || return 1
     # It is a linked worktree — check if N1-managed
     toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
-    # If path contains /.claude/worktrees/, it is N1-managed
+    # Under the host's N1 worktree root → N1-managed
+    local wt_root; wt_root=$(n1_worktree_root)
     case "$toplevel" in
-        */.claude/worktrees/*) return 1 ;;
+        */"${wt_root}"/*) return 1 ;;
     esac
-    # Linked worktree, not under .claude/worktrees/ — external
+    # Linked worktree, not under the host worktree root — external
     return 0
 }
 

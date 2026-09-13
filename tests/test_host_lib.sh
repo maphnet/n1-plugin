@@ -64,4 +64,12 @@ CMD=$(N1_HOST=codex n1_headless_cmd n1-finish NP-1 "" /tmp/o.jsonl)
 assert_not_contains "codex cmd omits empty model" '-c model' "$CMD"
 assert_not_contains "codex cmd omits --cd without repo" '--cd' "$CMD"
 
+# --- external worktree detection honours the host worktree root
+echo '{}' > "$N1_HOME/config.json"   # reset: clear worktree.root override from prior test
+REPO="$T/repo"; git init -q "$REPO"; (cd "$REPO" && git commit -q --allow-empty -m init && git worktree add -q "$REPO/.codex/worktrees/X-1" -b x1 >/dev/null 2>&1)
+( cd "$REPO/.codex/worktrees/X-1" && N1_HOST=codex n1_is_external_worktree ) && R=external || R=managed
+assert_eq "codex worktree dir is N1-managed" "managed" "$R"
+( cd "$REPO/.codex/worktrees/X-1" && N1_HOST=claude-code n1_is_external_worktree ) && R=external || R=managed
+assert_eq "same dir is external on claude" "external" "$R"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

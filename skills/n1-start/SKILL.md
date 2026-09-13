@@ -279,7 +279,7 @@ The destructive option (Abort) is never auto-selected. If `MP` is `ask` (default
 
 **PROCEDURE: Ensure Worktree (`<ID>`)**
 
-Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Creates or reattaches a worktree at `<main-checkout>/.claude/worktrees/<ID>/`.
+Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Creates or reattaches a worktree at `<main-checkout>/<worktree-root>/<ID>/` where `<worktree-root>` is `n1_worktree_root` (config `worktree.root`, else the host default from HOST ROUTING).
 
 1. **Check if `N1_HOME` is absolute** (starts with `/`, `~`, or a drive letter like `C:\`):
    - **If relative** (starts with `.`, e.g. `.n1`) → worktrees cannot be used because config and memory paths would resolve inside the worktree instead of the main checkout. Report to the user: "Worktree isolation requires externalized state (absolute N1_HOME). Run `/n1:n1-init` to migrate, or re-run with `--branch` for branch isolation." **STOP.**
@@ -298,7 +298,8 @@ Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Create
    a. Compute the main checkout root:
       ```bash
       MAIN_CHECKOUT=$(git rev-parse --show-toplevel)
-      WORKTREE_PATH="$MAIN_CHECKOUT/.claude/worktrees/<ID>"
+      WT_ROOT=$(n1_worktree_root)
+      WORKTREE_PATH="$MAIN_CHECKOUT/$WT_ROOT/<ID>"
       ```
    b. Create branch (idempotent) and record review base:
       ```bash
@@ -317,7 +318,7 @@ Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Create
       ```bash
       git worktree add "$WORKTREE_PATH" <TARGET>
       ```
-      If this fails because the directory already exists (e.g., from a crashed prior run), manually remove `<main-checkout>/.claude/worktrees/<ID>/` or run `/n1:n1-clean` to clean up stale worktrees, then retry.
+      If this fails because the directory already exists (e.g., from a crashed prior run), manually remove `<main-checkout>/<worktree-root>/<ID>/` or run `/n1:n1-clean` to clean up stale worktrees, then retry.
    e. Set `WORKTREE_PATH` and `BRANCH` for use in Gate 1's `Workspace:` line. Do not print a report here — Gate 1 surfaces these values after analysis.
 
 **PROCEDURE: Ensure Dependencies (`<ID>`)**
@@ -357,7 +358,7 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
 2. **Memory move:** if `$N1_HOME/memory/<oldId>/` exists AND `$N1_HOME/memory/<newId>/` does NOT → filesystem-move the directory `<oldId>/` → `<newId>/` (`$N1_HOME/` is gitignored or outside the repo, so a plain `mv` / `Move-Item`, NOT `git mv`). If `$N1_HOME/memory/<newId>/` already exists, skip the move and report — the `<newId>` memory is authoritative (resume/collision guard).
 3. **Frontmatter fix:** if `$N1_HOME/memory/<newId>/overview.md` exists (true only when an overview was already written under the slug and just moved — in the clean path it does not exist yet), rewrite its `ticket: <oldId>` → `ticket: <newId>` and its `# <oldId>: <Title>` heading → `# <newId>: <Title>`.
 4. **Branch rename:** compute `<oldBranch>` and `<newBranch>` from `git.branchPattern` (config). If a local branch `<oldBranch>` exists AND `<newBranch>` does NOT → `git branch -m <oldBranch> <newBranch>` (rename preserves commits; N1 has not pushed yet). If `<newBranch>` already exists, skip the rename.
-5. **Worktree move:** if `EXTERNAL_WORKTREE` is true → skip (external worktrees are not relocated). Otherwise, if `.claude/worktrees/<oldId>/` exists → compute `MAIN_CHECKOUT=$(git rev-parse --show-toplevel)` and run `git worktree move $MAIN_CHECKOUT/.claude/worktrees/<oldId> $MAIN_CHECKOUT/.claude/worktrees/<newId>`. In branch mode, no worktree exists — skip silently.
+5. **Worktree move:** if `EXTERNAL_WORKTREE` is true → skip (external worktrees are not relocated). Otherwise, if `<worktree-root>/<oldId>/` exists → compute `MAIN_CHECKOUT=$(git rev-parse --show-toplevel); WT_ROOT=$(n1_worktree_root)` and run `git worktree move $MAIN_CHECKOUT/$WT_ROOT/<oldId> $MAIN_CHECKOUT/$WT_ROOT/<newId>`. In branch mode, no worktree exists — skip silently.
 6. Report: "Migrated memory + branch `<oldId>` → `<newId>`." (append "+ worktree" if a worktree was moved)
 7. **Update active-run pointer:**
    ```bash

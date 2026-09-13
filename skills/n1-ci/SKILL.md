@@ -148,7 +148,7 @@ You are fixing CI failures on an open pull request.
 
 Workspace: The worktree may already have been removed after PR creation. Resolve your working directory first:
 - If `<worktree path>` exists, `cd` there.
-- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && git checkout <branch>` (create a fresh worktree with `git worktree add <main-checkout>/.claude/worktrees/<ID> <branch>` if the main checkout has uncommitted changes).
+- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && git checkout <branch>` (create a fresh worktree with `git worktree add <main-checkout>/<worktree-root>/<ID> <branch>` if the main checkout has uncommitted changes).
 Never work on the default branch.
 
 For each failed check (name, category, run ID):
