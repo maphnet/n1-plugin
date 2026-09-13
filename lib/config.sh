@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # N1 shared helpers: N1_HOME resolution, JSON config, model resolution, JSON escaping
+# shellcheck source=host.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host.sh"
 
 n1_home() {
     local home
@@ -161,20 +163,20 @@ n1_resolve_model() {
 
     # Get base model from agent frontmatter
     local base_model=""
-    local agent_file="${CLAUDE_PLUGIN_ROOT}/agents/${agent_name}.md"
+    local agent_file="$(n1_plugin_root)/agents/${agent_name}.md"
     if [ -f "$agent_file" ]; then
         base_model=$(awk 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && /^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/\r/, ""); printf "%s", $0; exit }' "$agent_file")
     fi
     base_model="${base_model:-sonnet}"
 
     # 2. Signal-driven escalation/downgrade (condition-gated)
-    local pipeline_file="${CLAUDE_PLUGIN_ROOT}/pipeline.json"
+    local pipeline_file="$(n1_plugin_root)/pipeline.json"
     if [ -f "$pipeline_file" ] && [ -n "$context" ] && command -v jq >/dev/null 2>&1; then
         local trigger_key="${agent_name}:${context}"
         local mem_dir="${N1_HOME:+${N1_HOME}/memory/${ID}}"
         local overview_file="${mem_dir:+${mem_dir}/overview.md}"
 
-        type n1_eval_signal_gate >/dev/null 2>&1 || source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh" 2>/dev/null || true
+        type n1_eval_signal_gate >/dev/null 2>&1 || source "$(n1_plugin_root)/lib/signals.sh" 2>/dev/null || true
 
         local section trigger_tier trigger_cond
         for section in escalation_triggers downgrade_triggers; do
@@ -190,7 +192,7 @@ n1_resolve_model() {
 
             # Evaluate condition; requires memory dir
             if [ -n "$mem_dir" ] && [ -d "$mem_dir" ]; then
-                type n1_record_decision >/dev/null 2>&1 || source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh" 2>/dev/null || true
+                type n1_record_decision >/dev/null 2>&1 || source "$(n1_plugin_root)/lib/telemetry.sh" 2>/dev/null || true
                 local dec_id="${section%_triggers}:${trigger_key}"   # e.g. escalation:developer:implementation
                 if n1_eval_signal_gate "$mem_dir" "$overview_file" "$trigger_cond"; then
                     n1_record_decision "$dec_id" true "$trigger_cond" "tier=${trigger_tier}" 2>/dev/null || true
@@ -207,7 +209,7 @@ n1_resolve_model() {
     if [ -f "$pipeline_file" ] && [ -n "$N1_HOME" ] && [ -n "$ID" ]; then
         local overview_file="${N1_HOME}/memory/${ID}/overview.md"
         if [ -f "$overview_file" ]; then
-            source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh" 2>/dev/null || true
+            source "$(n1_plugin_root)/lib/frontmatter.sh" 2>/dev/null || true
             local wf_type
             wf_type=$(n1_read_frontmatter "$overview_file" "type" 2>/dev/null || true)
             if [ -n "$wf_type" ]; then
@@ -323,24 +325,6 @@ n1_plan_approval_required() {
     if [ "${N1_AUTONOMY_PRESET:-}" = "autonomous" ]; then printf 'false'; return; fi
     local v; v=$(n1_config_val '.planReview.requirePlanApproval')
     [ "$v" = "true" ] && printf 'true' || printf 'false'
-}
-
-n1_codex_available() {
-    local enabled
-    enabled=$(n1_codex_val 'enabled')
-    [ "$enabled" = "true" ] || return 1
-    codex --version >/dev/null 2>&1 || return 1
-    return 0
-}
-
-n1_codex_preflight() {
-    local base_branch="$1"
-    n1_codex_available || return 1
-    if ! git rev-parse --verify "$base_branch" >/dev/null 2>&1; then
-        echo "base branch '$base_branch' not resolvable" >&2
-        return 1
-    fi
-    return 0
 }
 
 # Detect if running inside a linked git worktree NOT managed by N1.

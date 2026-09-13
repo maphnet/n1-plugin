@@ -35,7 +35,7 @@ n1_story_val() {
     local key="$1" val
     val=$(n1_config_val ".story.${key}")
     if [ -z "$val" ]; then
-        val=$(n1_config_val ".${key}" "${CLAUDE_PLUGIN_ROOT}/defaults/story.json")
+        val=$(n1_config_val ".${key}" "$(n1_plugin_root)/defaults/story.json")
     fi
     printf '%s' "$val"
 }
@@ -75,7 +75,7 @@ n1_story_child_status() {
         [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
         return
     fi
-    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+    source "$(n1_plugin_root)/lib/frontmatter.sh"
     local step; step=$(n1_read_frontmatter "$overview" "step")
     if [ "$step" = "escalated" ] || awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF' "$overview" | grep -q .; then
         printf 'escalated'; return

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # N1 validation helpers: dependency checks, input type detection
+type n1_plugin_root >/dev/null 2>&1 || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host.sh"
 
 _N1_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_N1_LIB_DIR}/config.sh"
@@ -101,7 +102,7 @@ n1_parse_type_arg() {
 
 n1_resolve_type() {
     local title="$1" tags_csv="$2" type_field="$3" type_override="${4:-}"
-    local pipeline_json="${CLAUDE_PLUGIN_ROOT}/pipeline.json"
+    local pipeline_json="$(n1_plugin_root)/pipeline.json"
     N1_TYPE_MATCHED_BY=""
 
     # 1. Explicit --type override: validate against registry
