@@ -8,6 +8,8 @@ effort: medium
 
 # N1 Ticket from Context
 
+**Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context (a question tool on Claude Code, a plain numbered-options message on Codex). "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
+
 Create a single tracker ticket (Task or Bug) from the current conversation context and/or a provided description. The ticket is created as a backlog item — no status transitions, no branch creation.
 
 **Announce at start:** "I'm using the n1-ticket skill to create a backlog ticket."
@@ -128,7 +130,7 @@ The detected type is shown in the approval gate. The user can override it there.
 `| n1-ticket | mechanical | C | [auto] | Ticket approval gate | Create ticket | Edit or Cancel | mechanicalPrompts=auto | --- |`
 If `MP` is `ask`: continue to the approval gate below.
 
-Present the ticket preview using AskUserQuestion:
+Present the ticket preview by asking the user (HOST ROUTING: ask the user):
 
 ```
 ## Ticket Preview

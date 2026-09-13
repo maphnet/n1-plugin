@@ -14,7 +14,7 @@ STATUS=$(n1_story_child_status "$OVERVIEW" 0)
 - `merged` -> mark row `merged`, record PR via `n1_story_child_pr_url`, advance (section 7).
 - `awaiting-merge` -> go to section 5.
 - Otherwise, if `## Runs` has a row for `KEY` with a PID and `kill -0 <PID>` succeeds -> re-attach: go to section 3 with that PID.
-- Busy guard: if `$SUB_HOME/active-run.json` exists and its `ticketId` != `KEY` -> AskUserQuestion "Repo <REPO> has an active N1 run for <other>. **Wait & retry** / **Launch anyway** / **Pause story**."
+- Busy guard: if `$SUB_HOME/active-run.json` exists and its `ticketId` != `KEY` -> ask the user: "Repo <REPO> has an active N1 run for <other>. **Wait & retry** / **Launch anyway** / **Pause story**."
 
 ## 2. Launch
 ```bash

@@ -23,10 +23,10 @@ else
   if [ -z "$MY_SERVICE" ]; then CFG_PATH="$N1_HOME/config.json"; N1_HOME_SUB="$N1_HOME"; REPO=$(n1_config_val '.repoPath'); [ -z "$REPO" ] && REPO=$(git rev-parse --show-toplevel); else CFG_PATH=""; REPO=""; fi
 fi
 ```
-- Matched config but empty `REPO` -> AskUserQuestion: "Config for service `<SERVICE>` (<CFG_PATH>) has no `repoPath`. Enter the absolute path of that repo's main checkout." Validate with `git -C "<path>" rev-parse --show-toplevel`; then backfill: `jq --arg p "<path>" '.repoPath=$p' "$CFG_PATH" > tmp && mv tmp "$CFG_PATH"`.
-- No matching config -> AskUserQuestion with options **Enter path**, **Skip this subtask** (Status `skip`, reason "no repo"), **Cancel**.
+- Matched config but empty `REPO` -> ask the user: "Config for service `<SERVICE>` (<CFG_PATH>) has no `repoPath`. Enter the absolute path of that repo's main checkout." Validate with `git -C "<path>" rev-parse --show-toplevel`; then backfill: `jq --arg p "<path>" '.repoPath=$p' "$CFG_PATH" > tmp && mv tmp "$CFG_PATH"`.
+- No matching config -> ask the user with options **Enter path**, **Skip this subtask** (Status `skip`, reason "no repo"), **Cancel**.
 - Tracker consistency: for each `CFG_PATH`, `jq -r '.tracker.type,.tracker.mcp'` must equal the story config's values; otherwise list mismatches and **STOP**.
-- Worktree warning: if `jq -r '.worktree.mode' "$CFG_PATH"` is not `worktree`, warn "<SERVICE> uses branch mode -- unattended runs on a shared checkout are unsafe." Soft gate (AskUserQuestion: Continue / Cancel).
+- Worktree warning: if `jq -r '.worktree.mode' "$CFG_PATH"` is not `worktree`, warn "<SERVICE> uses branch mode -- unattended runs on a shared checkout are unsafe." Soft gate (ask the user: Continue / Cancel).
 
 ## 4. Derive order
 Build `EDGES` (lines `A>B`, A before B):
@@ -36,7 +36,7 @@ Build `EDGES` (lines `A>B`, A before B):
 ```bash
 ORDER=$(n1_story_toposort "$PENDING_KEYS_CSV" "$EDGES") || { echo "Dependency cycle: $(n1_story_toposort "$PENDING_KEYS_CSV" "$EDGES" 2>&1 >/dev/null)"; }
 ```
-On cycle -> present the cycle and AskUserQuestion: **Drop tracker edges and use story order**, **Cancel**.
+On cycle -> present the cycle and ask the user: **Drop tracker edges and use story order**, **Cancel**.
 
 ## 5. Choose models
 For each pending subtask: if `size` empty, classify XS-XL from `description` using the tier table in `<N1_ROOT>/skills/n1-start/steps/estimation.md` (read that file's step 3 table; classify inline, no agent). Then:
@@ -55,7 +55,7 @@ Print:
 Done before run: <keys or none>   Skipped: <keys or none>
 ```
 If `DRY_RUN`: print "Dry run -- nothing launched." **STOP** (do not write story.md).
-AskUserQuestion options: **Start**, **Reorder / edit** (free text -> apply, re-print, ask again), **Change models** (free text `KEY=opus|sonnet` -> apply, re-print), **Cancel** (STOP).
+User prompt options: **Start**, **Reorder / edit** (free text -> apply, re-print, ask again), **Change models** (free text `KEY=opus|sonnet` -> apply, re-print), **Cancel** (STOP).
 
 ## 6b. Intake clarification batch
 
@@ -66,7 +66,7 @@ For each pending subtask that has a description, scan the description for A-tier
 
 If unknowns are found (or if SA gap-fill in step 4 flagged any `FLAGS:` items of type `contract` or `security`):
 
-Present them in one batched AskUserQuestion:
+Present them in one batched user prompt:
 
 ```
 Before launching subtasks, I have {N} cross-cutting question(s) that affect multiple subtasks:

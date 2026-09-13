@@ -11,6 +11,11 @@ check() { # <label> <extended-regex>
     if [ -n "$hits" ]; then echo "FAIL: $1"; echo "$hits" | head -20; FAIL=1; else echo "PASS: $1"; fi
 }
 check "plugin root literal outside the preamble" '\$\{CLAUDE_PLUGIN_ROOT\}'
+check "AskUserQuestion literal" 'AskUserQuestion'
+check "ToolSearch literal" 'ToolSearch'
+check "Agent tool / subagent_type literal" 'Agent tool|subagent_type|when the Agent returns'
+check "Skill tool / superpowers: prefix" 'Skill tool|superpowers:'
+check "persona namespace literal" '"n1:[a-z-]+"|`n1:(solution-architect|developer|planner|implementer|qa-engineer|code-reviewer|security-reviewer|tech-writer|product-analyst|intake-agent|local-test-planner)`'
 
 # Every fenced bash block that uses $N1_ROOT must start with the preamble (each snippet is its own shell).
 python3 - <<'PY' || FAIL=1

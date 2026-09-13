@@ -46,7 +46,7 @@ Read `$WORK/ambiguous.json`. It contains `ambiguous`, a list of `{id, text, prev
 
 If the list is empty, write `[]` to `$WORK/labels.json` and skip to step 5.
 
-Otherwise split the list into batches of 30. For each batch dispatch ONE Agent call with `subagent_type: general-purpose`, `model: haiku`, and this prompt, substituting the batch as JSON:
+Otherwise split the list into batches of 30. For each batch dispatch ONE general-purpose subagent (HOST ROUTING: dispatch a general-purpose subagent; model `haiku` on Claude Code, the default subagent model on Codex) with this prompt, substituting the batch as JSON:
 
 ```
 You label single human messages from a coding-assistant session. For each item you get the human's message (`text`) and the assistant message that preceded it (`prev_assistant`).

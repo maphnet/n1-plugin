@@ -625,7 +625,7 @@ For each unknown, check story clarifications using `n1_story_match_clarification
 
 **Problem preamble:** Before presenting the unknowns, compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
 
-**Batch all unknowns into one AskUserQuestion** (max 4 per call; chain if more than 4):
+**Batch all unknowns into one user prompt** (max 4 per call; chain if more than 4):
 
 Present all unknowns in a single message, prefixing with `PREAMBLE` (omit if empty). For each unknown, state the resolution ladder rungs already tried by the solution-architect (extract from `<!-- n1:unknown: ... -->` context or infer from the SA's analysis process -- at minimum `codebase` was tried since the SA always searches first).
 
@@ -646,7 +646,7 @@ For each item: type your answer, "skip" to defer, or "Decide for me" to research
 You can also reply "use recommended" to accept all recommendations at once.
 ```
 
-When 5+ unknowns exist, present the first 4 in one AskUserQuestion call, then chain additional calls for the remainder (max 4 per call).
+When 5+ unknowns exist, present the first 4 in one user prompt, then chain additional calls for the remainder (max 4 per call).
 
 **"Use recommended" handling:** If the user replies "use recommended" (or similar: "use all recommendations", "recommended for all"), apply the recommendation for each unknown that has one. For unknowns without a recommendation, ask individually as a follow-up.
 

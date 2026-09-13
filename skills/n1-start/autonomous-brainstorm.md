@@ -1,6 +1,6 @@
 # Autonomous Brainstormer
 
-Autonomous design brainstorming. Forked from superpowers:brainstorming (MIT), replacing interactive scaffolding with self-directed analysis and escalation-on-demand.
+Autonomous design brainstorming. Forked from the Superpowers brainstorming skill (MIT), replacing interactive scaffolding with self-directed analysis and escalation-on-demand.
 
 ## Context
 

@@ -139,7 +139,7 @@ n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/t
 n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "auto-decided" "codebase|web"
 ```
 
-**Batch all unknowns into one AskUserQuestion** (max 4 per call; chain if more than 4):
+**Batch all unknowns into one user prompt** (max 4 per call; chain if more than 4):
 
 ```
 {PREAMBLE} During the investigation, I found {UNKNOWN_COUNT} additional question(s):

@@ -336,7 +336,7 @@ Call `mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources`.
 
 **Detect jc-mcp server (for version operations):**
 
-Use ToolSearch to find a tool matching `jcm_createVersion`. Extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`).
+Look in the tool list (load the tool if deferred, per HOST ROUTING) for a tool matching `jcm_createVersion`. Extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`).
 
 - **Found:** set `VERSION_MCP` to the detected server name.
 - **Not found:** prompt:
@@ -388,7 +388,7 @@ Set config:
 }
 ```
 
-**Verify comment ops availability:** Use ToolSearch to confirm that `mcp__plugin_atlassian_atlassian__addCommentToJiraIssue` and `mcp__plugin_atlassian_atlassian__getIssueComments` are visible in the tool list. If `getIssueComments` is absent, log: "Note: getComments op not found in Jira MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
+**Verify comment ops availability:** Confirm in the tool list (load the tools if deferred, per HOST ROUTING) that `mcp__plugin_atlassian_atlassian__addCommentToJiraIssue` and `mcp__plugin_atlassian_atlassian__getIssueComments` are visible in the tool list. If `getIssueComments` is absent, log: "Note: getComments op not found in Jira MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
 
 ### If YouTrack:
 
@@ -461,7 +461,7 @@ Set config:
 }
 ```
 
-**Verify comment ops availability:** Use ToolSearch to confirm that `mcp__youtrack__add_issue_comment` and `mcp__youtrack__get_issue_comments` are visible in the tool list. If `get_issue_comments` is absent, log: "Note: getComments op not found in YouTrack MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
+**Verify comment ops availability:** Confirm in the tool list (load the tools if deferred, per HOST ROUTING) that `mcp__youtrack__add_issue_comment` and `mcp__youtrack__get_issue_comments` are visible in the tool list. If `get_issue_comments` is absent, log: "Note: getComments op not found in YouTrack MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
 
 ### If None:
 
@@ -520,7 +520,7 @@ Or when disabled:
 
 ### If YouTrack:
 
-Use ToolSearch to look for `create_article` in the youtrack MCP tools.
+Look for `create_article` among the youtrack MCP tools (load it if deferred, per HOST ROUTING).
 
 - **Found:** log "YouTrack KB article support detected." Set `kb.enabled: true`.
 - **Not found:** log "YouTrack KB article support not detected — KB features disabled." Set `kb.enabled: false`.
@@ -732,7 +732,7 @@ Detect available observability MCP servers via dynamic discovery — scan all co
 
 ### Step 1 — Discovery
 
-Use ToolSearch to enumerate all available MCP tools. Group tools by their MCP server prefix (the segment between `mcp__` and the next `__`). This produces a map of server name → list of tool names.
+Enumerate all available MCP tools from the tool list (on hosts with deferred tools, search for `mcp__` first, per HOST ROUTING). Group tools by their MCP server prefix (the segment between `mcp__` and the next `__`). This produces a map of server name → list of tool names.
 
 ### Step 2 — Classification
 
@@ -916,7 +916,7 @@ Pick the default from env-tagged providers: the `env` value with the most provid
 Add another observability MCP server not in the list? Enter MCP server name (or Enter to skip):
 ```
 
-If entered: probe to identify provider type via ToolSearch, ask which env it serves, detect operations, generate instructions, add to providers. Repeat until Enter.
+If entered: probe to identify provider type from the tool list, ask which env it serves, detect operations, generate instructions, add to providers. Repeat until Enter.
 
 **Confirm summary:**
 

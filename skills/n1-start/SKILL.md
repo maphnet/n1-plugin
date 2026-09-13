@@ -9,6 +9,8 @@ model: sonnet
 
 ## Overview
 
+**Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context (a question tool on Claude Code, a plain numbered-options message on Codex). "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
+
 Single entry point for all task work. Accepts a ticket ID or a brain dump, then orchestrates the full development cycle using specialized agent personas: product-analyst, solution-architect, developer, qa-engineer, code-reviewer, security-reviewer, and tech-writer.
 
 ## N1_HOME Resolution
@@ -216,7 +218,7 @@ Both procedures are **idempotent** — safe to call again on resume. They are ca
    - **`CURRENT` is some OTHER branch AND `DIRTY` is empty** → prompt (foreign branch prompt below).
    - **`CURRENT` is some OTHER branch AND `DIRTY` is non-empty** → prompt (combined prompt below).
 
-Before any `AskUserQuestion` on this path, write the pending marker so compaction recovery knows a prompt is in flight:
+Before any user prompt on this path, write the pending marker so compaction recovery knows a prompt is in flight:
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/frontmatter.sh"
@@ -464,7 +466,7 @@ QE=$(n1_autonomy_val 'qualityEscalations')
 
 Applies whenever the environment variable `N1_HEADLESS` equals `1` (the run was launched by `n1-story-run` or another non-interactive parent). There is no user to answer prompts.
 
-At any point where a step would call AskUserQuestion or otherwise **wait for the user** (plan checkpoint, acceptance gate fallback, quality-gate exhaustion on security/architecture/public-API findings, brainstorm escalation below margin, error-recovery "report to user"), do this instead:
+At any point where a step would ask the user or otherwise **wait for the user** (plan checkpoint, acceptance gate fallback, quality-gate exhaustion on security/architecture/public-API findings, brainstorm escalation below margin, error-recovery "report to user"), do this instead:
 
 1. Append to `## Escalations` in `$N1_HOME/memory/$ID/overview.md`:
    `- [headless] <step>: <the exact question or decision that needed a human>, options: <options>`
@@ -509,7 +511,7 @@ When `$RULES_BLOCK` is non-empty, append it to the agent's spawn prompt.
 Between gates, emit nothing. Do not announce the step being dispatched, the agent being spawned, the model resolved, or the routing decision taken — the pipeline shape is stated once in Gate 1. Memory files carry context between steps; the orchestrator does not.
 
 Four categories may still surface between gates, and nothing else:
-1. **Blocking prompts** — any AskUserQuestion. You cannot answer a prompt you cannot see.
+1. **Blocking prompts** — any user prompt. You cannot answer a prompt you cannot see.
 2. **Warnings and escalations** — anything that changes what "done" will mean, or stops the run.
 3. **Fix-loop iterations** — one line per cycle: `<ID> · <loop-name> fix cycle <N>/<MAX>`. Keeps a long run from reading as hung.
 4. **The three gates** — defined below.

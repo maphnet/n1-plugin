@@ -354,7 +354,7 @@ Report: `"Service name saved: \"<SERVICE>\""`
 
 Read `tracker.versionMcp` from config. If null or absent:
 
-1. Auto-detect jc-mcp via ToolSearch: search for `jcm_createVersion`.
+1. Auto-detect jc-mcp from the tool list (load if deferred, per HOST ROUTING): search for `jcm_createVersion`.
 2. If found, extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`). Present:
    ```
    Jira version operations require jc-mcp. Detected: "<server-name>"
@@ -362,7 +362,7 @@ Read `tracker.versionMcp` from config. If null or absent:
    2 — Enter a different server name
    3 — Skip version operations for this release
    ```
-3. If not detected via ToolSearch, present:
+3. If not detected in the tool list, present:
    ```
    Jira version operations require jc-mcp but it was not detected.
    1 — Enter your jc-mcp MCP server name (e.g., publius-jc-mcp)
