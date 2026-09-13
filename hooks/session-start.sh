@@ -6,7 +6,49 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 source "${SCRIPT_DIR}/../lib/frontmatter.sh"
 
 INPUT=$(cat)
-TRIGGER=$(echo "$INPUT" | grep -o '"trigger"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:.*"\([^"]*\)"/\1/' || true)
+# Both hosts send the SessionStart reason as `source` (startup|resume|clear|compact).
+TRIGGER=$(printf '%s' "$INPUT" | n1_hook_field source)
+HOOK_CWD=$(printf '%s' "$INPUT" | n1_hook_field cwd)
+
+# --- Host facts: recorded for skill preambles and injected as routing context ---
+N1_HOST_NAME=$(n1_host)
+N1_ROOT_DIR=$(n1_plugin_root)
+N1_VERSION_STR=$(n1_plugin_version)
+HOST_FILE=$(n1_host_file)
+mkdir -p "$(dirname "$HOST_FILE")" 2>/dev/null || true
+printf '{"host":"%s","pluginRoot":"%s","version":"%s"}\n' \
+    "$(escape_json_val "$N1_HOST_NAME")" "$(escape_json_val "$N1_ROOT_DIR")" "$(escape_json_val "$N1_VERSION_STR")" > "$HOST_FILE" 2>/dev/null || true
+
+if [ "$N1_HOST_NAME" = "codex" ]; then
+    HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
+
+HOST ROUTING (host: codex — authoritative for how N1 skills reach the harness):
+- Dispatch persona <name>: spawn_agent with agent_type \"n1-<name>\", fork_turns \"none\", task_name, message = the prompt, model and reasoning_effort from N1 model resolution. Wait for it: wait_agent (timeout_ms 300000-600000). Fix loops: keep the agent open and send_input the next cycle.
+- Dispatch a general-purpose subagent: spawn_agent without agent_type, fork_turns \"none\".
+- Ask the user: end the turn with a plain message listing numbered options. There is no question tool.
+- Load the tool if deferred: skip, all tools are preloaded.
+- Invoke skill <x>: \$<x>. Skill references written /n1:n1-<skill> are invoked as \$n1-<skill>.
+- <N1_ROOT> in skill text means the N1 PLUGIN ROOT above. Persona definitions are .codex/agents/n1-*.toml (generated at session start, never edit).
+- Full table: ${N1_ROOT_DIR}/references/host-routing.md"
+else
+    HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
+
+HOST ROUTING (host: claude-code — authoritative for how N1 skills reach the harness):
+- Dispatch persona <name>: Agent tool with subagent_type \"n1:<name>\", prompt, model from N1 model resolution. Wait for it: the tool call returns the result inline. Fix loops: dispatch a fresh persona per cycle.
+- Dispatch a general-purpose subagent: Agent tool with subagent_type \"general-purpose\".
+- Ask the user: AskUserQuestion tool (max 4 questions per call).
+- Load the tool if deferred: ToolSearch with select:<tool>.
+- Invoke skill <x>: Skill tool with superpowers:<x>. N1 skills: /n1:n1-<skill>.
+- <N1_ROOT> in skill text means the N1 PLUGIN ROOT above.
+- Full table: ${N1_ROOT_DIR}/references/host-routing.md"
+fi
+
+# Codex cannot ship agents: materialise persona TOMLs in the project (idempotent, fingerprinted).
+if [ "$N1_HOST_NAME" = "codex" ] && [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
+    _cfg=$(n1_config_file)
+    python3 "${SCRIPT_DIR}/../lib/agent_profiles.py" --plugin-root "$N1_ROOT_DIR" --out "${HOOK_CWD}/.codex/agents" \
+        ${_cfg:+--config "$_cfg"} --version "$N1_VERSION_STR" >/dev/null 2>&1 || true
+fi
 
 CONFIG_FILE=$(n1_config_file)
 
@@ -20,7 +62,9 @@ if [ -f "$CONFIG_FILE" ] && command -v jq >/dev/null 2>&1; then
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    context="N1 plugin is available but not configured for this project. Run /n1:n1-init to set up."
+    context="N1 plugin is available but not configured for this project. Run /n1:n1-init to set up.
+
+${HOST_BLOCK}"
     escaped_context=$(escape_json_val "$context")
     cat <<EOF
 {
@@ -121,7 +165,9 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
     fi
 fi
 
-context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (/n1:n1-start, /n1:n1-pr, /n1:n1-review, /n1:n1-ci) over alternatives."
+context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (/n1:n1-start, /n1:n1-pr, /n1:n1-review, /n1:n1-ci) over alternatives.
+
+${HOST_BLOCK}"
 
 # Emit deprecation note when legacy autonomy keys are in use
 AUTONOMY_DEPRECATION=""

@@ -66,4 +66,32 @@ assert_eq "codex agent start recorded" "n1-developer" "$(jq -r .agent_type "$MEM
 N1_HOST=claude-code bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/claude/subagent-start.json"
 assert_eq "claude agent start recorded" "2" "$(wc -l < "$MEM3/raw/agents/n1-run-x.jsonl")"
 
+# --- session-start: host.json, routing block, codex TOML generation --------
+export N1_HOST_FILE="$T/host.json"
+rm -f "$N1_HOST_FILE"; rm -f "$N1_HOME/config.json"
+OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+assert_eq "host.json written (claude)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
+assert_eq "host.json pluginRoot" "$REPO_ROOT" "$(jq -r .pluginRoot "$N1_HOST_FILE")"
+case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
+case "$CTX" in *"HOST ROUTING (host: claude-code"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
+echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
+PROJ="$T/proj"; mkdir -p "$PROJ"
+PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/codex/session-start.json")
+OUT=$(echo "$PAYLOAD" | N1_HOST=codex CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CODEX_HOME="$T/codexhome" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
+case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent"*'agent_type "n1-<name>"'*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
+assert_eq "codex persona TOMLs generated in cwd" "11" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
+# compaction restore fires on source=compact
+cat > "$N1_HOME/active-run.json" <<'AREOF'
+{"ticketId":"T-30","runId":"n1-run-c","worktreePath":null,"branch":"T-30"}
+AREOF
+mkdir -p "$N1_HOME/memory/T-30"; printf -- '---\nstep: review\ntype: task\n---\n## Context\nctx line\n' > "$N1_HOME/memory/T-30/overview.md"
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review"*) assert_eq "compaction state restore on source=compact" ok ok;; *) assert_eq "compaction state restore on source=compact" ok "$CTX";; esac
+rm -f "$N1_HOME/active-run.json"
+unset N1_HOST_FILE
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
