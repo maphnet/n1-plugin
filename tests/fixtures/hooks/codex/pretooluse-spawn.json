@@ -1,0 +1,1 @@
+{"session_id":"01a094f8","cwd":"/repo","hook_event_name":"PreToolUse","tool_name":"spawn_agent","tool_input":{"agent_type":"n1-developer","task_name":"fix-1","message":"fix it","fork_turns":"none","model":"gpt-5.6-terra","reasoning_effort":"medium"}}

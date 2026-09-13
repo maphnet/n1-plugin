@@ -18,12 +18,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 STATIC_MAP = {
-    "n1:product-analyst": ["ticket"],
-    "n1:planner": ["plan"],
-    "n1:code-reviewer": ["review"],
-    "n1:security-reviewer": ["review"],
-    "n1:tech-writer": ["pr"],
+    "product-analyst": ["ticket"],
+    "planner": ["plan"],
+    "code-reviewer": ["review"],
+    "security-reviewer": ["review"],
+    "tech-writer": ["pr"],
 }
+
+
+def persona_of(agent_type: str) -> str:
+    """Strip the host namespace: n1:<p> (Claude Code) or n1-<p> (Codex)."""
+    for prefix in ("n1:", "n1-"):
+        if agent_type.startswith(prefix):
+            return agent_type[len(prefix):]
+    return agent_type
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -104,7 +112,7 @@ def pair_agents(events: list[dict]) -> list[dict]:
 
 
 def correlate_step(agent: dict, steps: list[dict]) -> str | None:
-    static = STATIC_MAP.get(agent.get("agent_type") or "")
+    static = STATIC_MAP.get(persona_of(agent.get("agent_type") or ""))
     if static and len(static) == 1:
         return static[0]
     a_start = agent.get("started_at")

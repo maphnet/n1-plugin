@@ -1,0 +1,1 @@
+{"session_id":"01a094f8","cwd":"/repo","hook_event_name":"PreToolUse","agent_type":"n1-code-reviewer","agent_id":"t1","tool_name":"apply_patch","tool_input":{"input":"*** Begin Patch\n*** Update File: x.py\n*** End Patch"}}
