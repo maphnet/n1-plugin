@@ -1,7 +1,8 @@
 
 **Telemetry (if enabled):** Emit `started_at` for step 10 (`fix`) before any other work in this step:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "fix" 10 "${N1_HOME}/memory/$ID/telemetry" started_at=now
 ```
 
@@ -15,7 +16,8 @@ If the combined Step-7 verdict is FAIL:
 **Spawn agent:** developer
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 DEVELOPER_MODEL=$(n1_resolve_model developer fix)
 echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
 ```
@@ -56,7 +58,7 @@ Then continue the pipeline as if the user had chosen the recommended option. Oth
 - Extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md`.
 - Extract the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`.
 - Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit it.
-- **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
+- **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
 
 **Resolution ladder (before asking):** Before escalating to the user, the orchestrator MUST attempt:
 1. **Codebase search** -- check if the ambiguity can be resolved from code context
@@ -67,7 +69,8 @@ Then continue the pipeline as if the user had chosen the recommended option. Oth
 Only if all rungs fail, proceed to ask. Include a "Decide for me" option in the escalation prompt.
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "asked" "codebase|web|command|prior-decisions"
 ```
 
@@ -87,14 +90,16 @@ Please advise.
 
 When "Decide for me" is selected: re-run web search with broader terms, apply the recommendation, record as `[auto-decided]` with `rungs_tried` and reason `decide-for-me: <evidence>`. Do not ask a follow-up question.
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "auto-decided" "codebase|web|command|prior-decisions"
 ```
 
 If the combined Step-7 verdict is PASS:
 - Run via Bash:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/frontmatter.sh"
   n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "clean_passes"
   ```
 - Resolve `MIN_CLEAN=$(n1_config_val '.review.minCleanPasses')`; if empty, default to `1` (never re-run reviewers that already returned PASS — the config knob remains for anyone wanting belt-and-suspenders, only the default is 1).

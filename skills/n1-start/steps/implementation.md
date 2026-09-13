@@ -25,9 +25,10 @@ Apply these to every `developer` agent spawn below. The only variable is the **I
 Before the normal planning_need routing, check runtime signals for a simple-task bypass:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/signals.sh"
+source "$N1_ROOT/lib/config.sh"
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
 # Prefer brainstorm signals (post-design, scope-aware) over analysis (pre-design estimate).
 # Brainstorm may not exist when skipped (e.g. bug with known root cause).
@@ -55,7 +56,8 @@ Log the gate decision to overview.md `## Key Decisions`:
 
 Record the decision for telemetry (both outcomes):
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 GATE_RESULT=$( [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHANGED:-999}" -lt 3 ] && echo true || echo false )
 n1_record_decision simplicity-gate "$GATE_RESULT" \
   '{"all":[{"signal":"brainstorm.blast_radius","fallback":"analysis.blast_radius","eq":"low"},{"signal":"brainstorm.files_changed","fallback":"analysis.files_changed","lt":3}]}' \
@@ -73,7 +75,8 @@ n1_record_decision simplicity-gate "$GATE_RESULT" \
 **Read the execution path:**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need")
 ```
 
@@ -86,7 +89,8 @@ Route based on `PLANNING_NEED`:
 **Spawn agent:** developer
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
 echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
 ```
@@ -118,7 +122,8 @@ Log the routing decision to overview.md `## Key Decisions`:
 **Spawn agent:** developer
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
 echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
 ```
@@ -169,8 +174,9 @@ If the agent returned **DONE:**
 
 **Compute and persist implementation signals:**
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/signals.sh"
+source "$N1_ROOT/lib/config.sh"
 BP_FILE="$N1_HOME/memory/$ID/branch-point"
 BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
 BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "HEAD")

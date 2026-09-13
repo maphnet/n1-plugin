@@ -14,9 +14,10 @@ Runs every open subtask of a story sequentially through `n1-start`, each in its 
 ## N1_HOME Resolution
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/story.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/story.sh"
+source "$N1_ROOT/lib/frontmatter.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -45,9 +46,9 @@ Between subtasks print only: the launch line, step-change lines, the outcome lin
 ## Steps
 
 1. **Resume check.** If `$STORY_MEM/story.md` exists and its frontmatter `step` is `execute`, `paused`, or `summarize`: print the `## Plan` table, say "Resuming story <STORY_ID> at subtask #<current_index+1>", and skip to step 3 (or 4 when `step: summarize`). If `step: done`: "Story <STORY_ID> already completed -- summary was posted." **STOP.**
-2. **VALIDATE** -- read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-story-run/steps/validate.md`. Ends with `story.md` written and `step: execute`, or STOP on cancel / dry-run.
-3. **EXECUTE** -- read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-story-run/steps/execute.md`. Ends with `step: summarize` or `step: paused` (STOP).
-4. **SUMMARIZE** -- read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-story-run/steps/summarize.md`. Ends with `step: done`.
+2. **VALIDATE** -- read and follow `<N1_ROOT>/skills/n1-story-run/steps/validate.md`. Ends with `story.md` written and `step: execute`, or STOP on cancel / dry-run.
+3. **EXECUTE** -- read and follow `<N1_ROOT>/skills/n1-story-run/steps/execute.md`. Ends with `step: summarize` or `step: paused` (STOP).
+4. **SUMMARIZE** -- read and follow `<N1_ROOT>/skills/n1-story-run/steps/summarize.md`. Ends with `step: done`.
 
 ## Error Recovery
 

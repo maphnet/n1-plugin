@@ -80,7 +80,8 @@ After the agent returns:
 Parse the `### Metrics` section from the written `investigation.md` to extract signal values:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/signals.sh"
 
 INV_FILE="$N1_HOME/memory/$ID/investigation.md"
 
@@ -125,12 +126,13 @@ UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
 
 If `UNKNOWN_COUNT` is 0, skip to Phase 3.
 
-**Problem preamble:** compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` -- call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` -- prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely -- do not fall back to parsing the section body.
+**Problem preamble:** compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` -- call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` -- prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely -- do not fall back to parsing the section body.
 
 **Emit question telemetry (if enabled):**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 # For each unknown presented to the user (user-answered or skipped):
 n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "asked" "codebase|web"
 # For each "Decide for me" resolution:
@@ -170,7 +172,8 @@ After collecting answers, append a `### Clarifications` section to `investigatio
 
 Update the `unknowns_resolved` signal:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/signals.sh"
 INV_FILE="$N1_HOME/memory/$ID/investigation.md"
 UNKNOWNS_TOTAL=$(cat "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null | grep -c '<!-- n1:unknown:' || echo "0")
 UNKNOWNS_ANSWERED_ANALYSIS=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
@@ -192,7 +195,8 @@ If the gate fails, log "Tracker enrichment skipped -- no tracker or enrichment d
 
 Read config:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 ENRICHMENT_ENABLED=$(n1_config_val ".ticketEnrichment.enabled" "$N1_HOME/config.json")
 HAS_EDIT=$(n1_config_val ".tracker.operations.editTicket" "$N1_HOME/config.json")
 HAS_COMMENT=$(n1_config_val ".tracker.operations.addComment" "$N1_HOME/config.json")
@@ -207,7 +211,8 @@ TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
 2. `tracker.operations.createArticle` exists in config
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 KB_ENABLED=$(n1_config_val ".kb.enabled" "$N1_HOME/config.json")
 HAS_CREATE_ARTICLE=$(n1_config_val ".tracker.operations.createArticle" "$N1_HOME/config.json")
 ```
@@ -357,8 +362,9 @@ Investigation done. Create a tracker ticket for this?
 
 Read signals from `investigation.md` (needed for menu construction below):
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/signals.sh"
+source "$N1_ROOT/lib/frontmatter.sh"
 INV_FILE="$N1_HOME/memory/$ID/investigation.md"
 CONFIDENCE=$(n1_read_signal "$INV_FILE" "confidence")
 IMPLEMENTABLE=$(n1_read_signal "$INV_FILE" "implementable")
@@ -520,7 +526,8 @@ What would you like to do next?
 4. Update `overview.md` so the pipeline can actually continue (this is the resume contract — without it, `n1_read_type` still returns `investigation` and resume dead-ends in the terminal investigation flow):
 
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/frontmatter.sh"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "task"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "brainstorm"
    ```

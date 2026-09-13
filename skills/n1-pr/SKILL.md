@@ -16,7 +16,8 @@ Create a PR from the current feature branch. Spawns tech-writer for PR content, 
 ## N1_HOME Resolution
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -25,7 +26,8 @@ If empty — N1 not configured; warn the user. Config: `$N1_HOME/config.json`. M
 ## Model Resolution
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 n1_resolve_model <agent-name>
 ```
 
@@ -111,8 +113,9 @@ Proceed to Step 3.
 **Collect inferred-criteria context:**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/config.sh"
 DQ=$(n1_read_frontmatter "$N1_HOME/memory/$ID/ticket.md" "description_quality" 2>/dev/null || echo "adequate")
 [ -z "$DQ" ] && DQ="adequate"
 BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')

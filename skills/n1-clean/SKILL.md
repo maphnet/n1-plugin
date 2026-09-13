@@ -18,7 +18,8 @@ Manage the lifecycle of N1 worktrees. Lists all worktrees created by N1 (under `
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 

@@ -20,7 +20,8 @@ Standalone invocation is the primary pattern -- no ticket argument required. Pip
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -341,7 +342,8 @@ If 2: read user input and use it as `SERVICE`.
 
 Persist to config when `ticketTagging.service` was absent:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 jq --arg s "$SERVICE" '.ticketTagging.service = $s' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
 ```
@@ -369,7 +371,8 @@ Read `tracker.versionMcp` from config. If null or absent:
 
 On accept (option 1 or 2 with input): set `VERSION_MCP` to the server name. Persist to config:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 jq --arg m "$VERSION_MCP" '.tracker.versionMcp = $m' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
 ```
@@ -515,7 +518,8 @@ Only runs after a **successful release** (built-in flow success or custom proced
    ```
    - **2 (No)** → set `release.deploymentCheck` to `false` in `$N1_HOME/config.json` via:
      ```bash
-     source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+     N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+     source "$N1_ROOT/lib/config.sh"
      N1_HOME=$(n1_home)
      jq '.release.deploymentCheck = false' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
      ```

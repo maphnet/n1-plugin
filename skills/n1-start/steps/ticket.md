@@ -83,7 +83,8 @@ If `LINKED_ERROR` is present (not null/absent):
 Resolve the workflow type using the parsed metadata and the type registry in `pipeline.json`:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/validation.sh"
 
 # Parse --type flag if provided by the user
 TYPE_OVERRIDE=""
@@ -262,7 +263,8 @@ If `MP` is `ask` (default), ask:
 **For all modes:**
 - The agent wrote `$N1_HOME/memory/<ID>/ticket.md` itself. Verify it:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/validation.sh"
   n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md
   ```
   If missing/empty (agent failed to write), write the returned compact block to `ticket.md` as a fallback and note the gap in overview's `## Key Decisions`: "product-analyst failed to write ticket.md; stub written from compact return -- downstream context is degraded."
@@ -277,7 +279,8 @@ For ticket mode where the URL was not captured by creation (step 6 above), const
 **Extract and persist signals:**
 Parse the product-analyst's compact return for a line starting with `n1:signals `:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/signals.sh"
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
 if [ -n "$SIGNAL_LINE" ]; then
     PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //')
@@ -295,7 +298,8 @@ fi
    This `TITLE` is used for the overview.md heading `# <ID>: <Title>`.
 4. After writing the overview.md template below, update the tier in frontmatter:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/frontmatter.sh"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" "$TIER"
    ```
 
@@ -349,7 +353,8 @@ local_test_fix_cycle: 0
 
 Write the resolved type and matched-by rule to overview.md frontmatter:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "$RESOLVED_TYPE"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type_matched_by" "$TYPE_MATCHED_BY"
 ```
@@ -362,7 +367,8 @@ n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive"
 
 **Record parent story (headless story runs):** if the environment variable `N1_STORY_ID` is non-empty:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 [ -n "${N1_STORY_ID:-}" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story" "$N1_STORY_ID"
 ```
 

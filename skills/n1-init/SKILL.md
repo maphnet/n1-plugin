@@ -27,7 +27,7 @@ Check if CLAUDE.md exists in the project root:
 
 Check for N1 configuration in priority order:
 
-1. **New-format config:** Resolve N1_HOME by running `source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
+1. **New-format config:** Resolve N1_HOME by running the preamble line from `references/host-routing.md` followed by `source "$N1_ROOT/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
    - **If exists:** Load the config and check for missing top-level keys against the **Expected Config Keys** list below. Then branch:
      - **If no missing keys:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Ask: "Reconfigure? **1** — Yes / **2** — No". If no — **STOP.** If yes — continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
      - **If missing keys found:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Then show:
@@ -136,8 +136,9 @@ When an old `.n1/n1.config.json` is detected:
       Then optionally remove the `.n1/` directory (ask user or leave it — the `.gitignore` entry was already addressed in step 3g above)
    i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs):
       ```bash
+      N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
       CFG="$HOME/.n1/$PROJECT_NAME/config.json"
-      for f in "${CLAUDE_PLUGIN_ROOT}"/agents/*.md; do a=$(basename "$f" .md)
+      for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
         def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
         cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
         if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
@@ -1734,7 +1735,7 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 
 2. Create the rules directory: `mkdir -p "$RULES_DIR"`
 
-2b. **Seed default rules.** Scan `${CLAUDE_PLUGIN_ROOT}/defaults/rules/` for `.rule.md` files. For each file, check whether a rule with the same basename already exists in `$RULES_DIR/`. If it does, skip silently. If it does not, present it using the same Accept/Edit/Skip UX as detection-based rules:
+2b. **Seed default rules.** Scan `<N1_ROOT>/defaults/rules/` for `.rule.md` files. For each file, check whether a rule with the same basename already exists in `$RULES_DIR/`. If it does, skip silently. If it does not, present it using the same Accept/Edit/Skip UX as detection-based rules:
 
    ```
    Default rule: <name>
@@ -1788,7 +1789,8 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 
 5. If any accepted rules have `enforcement: deny`:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/rules.sh"
    HOOK_DIR="$N1_HOME/hooks"
    mkdir -p "$HOOK_DIR"
    HOOK_PATH="$HOOK_DIR/rules-deny.sh"
@@ -1854,11 +1856,12 @@ If `rules` is absent from the current config, run the fresh-setup flow above. Ru
 
 Use default models from agent frontmatter. **Do NOT ask** about model customization unless the user explicitly requested it when invoking n1-init.
 
-If the user did request customization, derive the defaults table by reading the `model:` field from each agent's frontmatter in `${CLAUDE_PLUGIN_ROOT}/agents/*.md`, display it, and accept per-agent overrides (valid values: opus, sonnet, haiku) — only store overrides that differ from the frontmatter default.
+If the user did request customization, derive the defaults table by reading the `model:` field from each agent's frontmatter in `<N1_ROOT>/agents/*.md`, display it, and accept per-agent overrides (valid values: opus, sonnet, haiku) — only store overrides that differ from the frontmatter default.
 
 To read an agent's default model from frontmatter:
 ```bash
-def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "${CLAUDE_PLUGIN_ROOT}/agents/<name>.md")
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$N1_ROOT/agents/<name>.md")
 ```
 
 ### On reconfiguration (n1-init re-run):
@@ -1879,8 +1882,9 @@ fi
 Prune every `models.<agent>` entry whose value equals the agent's frontmatter default, then print what was pruned. This is idempotent — running it multiple times has no additional effect.
 
 ```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 CFG="$N1_HOME/config.json"
-for f in "${CLAUDE_PLUGIN_ROOT}"/agents/*.md; do a=$(basename "$f" .md)
+for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
   def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
   cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
   if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
@@ -2113,7 +2117,8 @@ Discover and configure related projects — other N1-managed repositories that t
 ### Step 1 — Enumerate candidates
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 # Derive both candidate self-slugs (remote-URL and directory-name), each sanitized the same way.
 # n1_home() resolves N1_HOME by matching whichever slug has an existing ~/.n1/<slug>/ dir,
 # so we must skip a peer that matches EITHER to avoid adding self when the two slugs differ.
@@ -2160,8 +2165,9 @@ For each candidate, search the current repo for references. Classify matches by 
 Search implementation:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/related.sh"
 N1_HOME=$(n1_home)
 CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
 REPO_ROOT=$(git rev-parse --show-toplevel)
@@ -2262,10 +2268,11 @@ Do you want to manually specify related projects? (List N1 project slugs, or ski
 `config.json` already exists at this point (written by `## Write Configuration and Structure`). Resolve `N1_HOME`, source `lib/related.sh`, call `n1_related_add` for each approved project, then update `enabled` — all in one block:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 CFG="$N1_HOME/config.json"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+source "$N1_ROOT/lib/related.sh"
 # For each approved project (auto-added high-confidence or user-confirmed medium-confidence):
 n1_related_add "$CFG" "$slug" "$reason" "$source"
 # source = "auto" for high-confidence auto-added; "manual" for user-confirmed

@@ -39,7 +39,7 @@ ORDER=$(n1_story_toposort "$PENDING_KEYS_CSV" "$EDGES") || { echo "Dependency cy
 On cycle -> present the cycle and AskUserQuestion: **Drop tracker edges and use story order**, **Cancel**.
 
 ## 5. Choose models
-For each pending subtask: if `size` empty, classify XS-XL from `description` using the tier table in `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/estimation.md` (read that file's step 3 table; classify inline, no agent). Then:
+For each pending subtask: if `size` empty, classify XS-XL from `description` using the tier table in `<N1_ROOT>/skills/n1-start/steps/estimation.md` (read that file's step 3 table; classify inline, no agent). Then:
 ```bash
 MODEL=$(n1_story_pick_model "$SIZE" "$FLAGS_CSV")
 ```

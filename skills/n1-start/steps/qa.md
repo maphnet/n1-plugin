@@ -3,7 +3,8 @@
 
 **Telemetry (if enabled):** Emit `started_at` for step 8 (`qa`) before spawning the qa-engineer. This applies to both the initial run and any re-entry after a QA fix cycle:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "qa" 8 "${N1_HOME}/memory/$ID/telemetry" started_at=now
 ```
 
@@ -37,7 +38,8 @@ After the agent returns:
 **Extract and persist signals:**
 Parse the qa-engineer's compact return for a line starting with `n1:signals `:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/signals.sh"
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
 if [ -n "$SIGNAL_LINE" ]; then
     PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //')
@@ -47,21 +49,24 @@ fi
 
 **Compact implementation memory for review:**
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/memory.sh"
 n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summary,completed tasks,files changed,test results,decisions"
 ```
 
 - The agent wrote `$N1_HOME/memory/<ID>/qa.md` itself. Verify it:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/validation.sh"
   n1_verify_dependencies "$N1_HOME/memory/$ID" qa.md
   ```
   If missing/empty (agent failed to write), write the returned summary block to `qa.md` as a fallback, set `QA_DEGRADED=1`, and note the gap in overview's `## Key Decisions`.
 
 - **Untested-functionality gate.** After qa.md is confirmed present, parse `new_functionality_untested` and read `qa.blockUntestedFeatures` (default `false`):
   ```bash
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
   NEW_FUNC_UNTESTED=$(echo "${SIGNAL_LINE}" | grep -o 'new_functionality_untested=[^ ]*' | cut -d= -f2)
-  source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+  source "$N1_ROOT/lib/config.sh"
   BLOCK_UNTESTED=$(n1_config_val '.qa.blockUntestedFeatures' 'false')
   ```
 
@@ -73,11 +78,12 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 
   - If `BLOCK_UNTESTED` is `true`, override the QA verdict to FAIL. Append to `$N1_HOME/memory/$ID/qa.md` a note: "QA FAIL override: new functionality is untested and `qa.blockUntestedFeatures` is enabled." Record the override in overview `## Key Decisions` via `n1_append_key_decision`:
     ```bash
+    N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
     # qa.blockUntestedFeatures: boolean (default false). When true, a maintain-tier run where
     # new functionality was added without test coverage fails the QA step, preventing silent
     # shipment of untested features. The Decision Ledger row is written regardless of this flag.
     if [ "${BLOCK_UNTESTED}" = "true" ]; then
-        source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+        source "$N1_ROOT/lib/memory.sh"
         n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" \
             "QA FAIL override: new_functionality_untested=true and qa.blockUntestedFeatures=true — verdict forced to FAIL"
     fi
@@ -86,13 +92,14 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 
 - **Evidence check.** After qa.md is confirmed present and non-empty, verify it contains an Evidence subsection:
   ```bash
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
   if ! grep -q "^### Evidence" "$N1_HOME/memory/$ID/qa.md" || [ "${QA_DEGRADED:-0}" = "1" ]; then
       QA_DEGRADED=1
       # Record in overview frontmatter so review step can read it without grep
-      source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+      source "$N1_ROOT/lib/frontmatter.sh"
       n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified" "true"
       # Append degraded-verdict Key Decision to overview.md
-      source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+      source "$N1_ROOT/lib/memory.sh"
       n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" \
           "QA degraded: unevidenced verdict — Evidence section absent or stub-fallback qa.md written"
   fi
@@ -104,11 +111,13 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 
 - **verifyGate.** Read `qa.verifyGate` from config (default `true`; set `false` to skip re-execution):
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/config.sh"
   VERIFY_GATE=$(n1_config_val '.qa.verifyGate' 'true')
   ```
   When `true`, re-execute the test suite via Bash and compare exit codes:
   ```bash
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
   if [ "${VERIFY_GATE}" = "true" ]; then
       # Derive runner command from Evidence section; fall back to first n1:signals runner hint
       RUNNER_CMD=$(grep "^Runner command:" "$N1_HOME/memory/$ID/qa.md" | sed 's/Runner command: //' | tr -d '`')
@@ -118,8 +127,8 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
           ACTUAL_EXIT=$?
           REPORTED_EXIT=$(grep "^Exit code:" "$N1_HOME/memory/$ID/qa.md" | head -1 | grep -o '[0-9]*' | head -1)
           if [ "$ACTUAL_EXIT" != "$REPORTED_EXIT" ]; then
-              source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
-              source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+              source "$N1_ROOT/lib/memory.sh"
+              source "$N1_ROOT/lib/frontmatter.sh"
               n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" \
                   "QA verifyGate mismatch: agent reported exit code ${REPORTED_EXIT}, re-execution exited ${ACTUAL_EXIT}. Log: $VERIFY_LOG"
               n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified" "true"
@@ -127,7 +136,7 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
           fi
       else
           # Evidence present but no parseable "Runner command:" line — gate cannot run; say so, don't skip silently
-          source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+          source "$N1_ROOT/lib/memory.sh"
           n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" \
               "QA verifyGate skipped: no 'Runner command:' line parseable from qa.md Evidence section"
       fi
@@ -141,11 +150,12 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
   ```
 - **Break-check (a test must be able to fail).** Read config and the QA evidence lines:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-  source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-  source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
-  source "${CLAUDE_PLUGIN_ROOT}/lib/breakcheck.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/config.sh"
+  source "$N1_ROOT/lib/signals.sh"
+  source "$N1_ROOT/lib/frontmatter.sh"
+  source "$N1_ROOT/lib/memory.sh"
+  source "$N1_ROOT/lib/breakcheck.sh"
   # n1_break_check <base_ref> <test_cmd> <test_name> <log_path> [<repo_dir>] → JSON envelope (.verdict, .error.kind)
   BC_MODE=$(n1_config_val '.qa.breakCheck' 'bugs')          # bugs | all | off
   BC_MAX=$(n1_config_val '.qa.breakCheckMaxTests' '5')
@@ -209,7 +219,8 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
     - Output-path directive: "After applying fixes, record your 'Fixes Applied' report (your standard Fix Cycle output format) in `$N1_HOME/memory/<ID>/implementation.md` yourself, under a `## QA Fix Cycle <N>` heading where `<N>` is the current `qa_fix_cycle` value. If a `## QA Fix Cycle <N>` section for this N already exists, REPLACE it (idempotent upsert — safe on re-run), never duplicate it. Return to the orchestrator ONLY: the list of commit SHAs with one-line summaries, and `Findings fixed: N/M`."
   - Run via Bash, then re-run QA:
     ```bash
-    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+    N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+    source "$N1_ROOT/lib/frontmatter.sh"
     n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
     ```
   - Emit one fix-loop iteration line (exempt from inter-gate silence per D2): `<ID> · QA fix cycle <N>/<MAX>`
@@ -221,4 +232,4 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 
 **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 
-**If ask (default):** Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Prompt the user: "{PREAMBLE} After <N> QA fix cycles this test still fails: [test name/details]. Please advise: Retry / Accept as-is / Abort?"
+**If ask (default):** Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Prompt the user: "{PREAMBLE} After <N> QA fix cycles this test still fails: [test name/details]. Please advise: Retry / Accept as-is / Abort?"

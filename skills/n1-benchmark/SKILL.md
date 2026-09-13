@@ -15,10 +15,13 @@ All deterministic work is done by `scripts/benchmark.py`. This skill only drives
 ## 1. Resolve paths
 
 ```bash
-SCRIPT="${CLAUDE_PLUGIN_ROOT}/scripts/benchmark.py"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+SCRIPT="$N1_ROOT/scripts/benchmark.py"
 OUT="${HOME}/.n1/benchmark"
 WORK=$(mktemp -d)
-PLUGIN_VERSION=$(python3 -c "import json;print(json.load(open('${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json'))['version'])")
+PLUGIN_VERSION=$(n1_plugin_version)
+N1_HOST_NAME=$(n1_host)
 ```
 
 If `~/.n1` does not exist, tell the user N1 is not configured and stop.

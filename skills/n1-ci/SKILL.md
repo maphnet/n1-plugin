@@ -17,7 +17,8 @@ Monitor CI checks on a PR, classify failures, and delegate fixes to the develope
 ## N1_HOME Resolution
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -26,7 +27,8 @@ If empty — N1 not configured; warn the user. Config: `$N1_HOME/config.json`. M
 ## Model Resolution
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 n1_resolve_model <agent-name>
 ```
 
@@ -82,7 +84,8 @@ If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP
 Poll via `lib/poll.sh` (internal 30s loop, 8-minute chunks):
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/poll.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/poll.sh"
 n1_wait_ci_checks <PR#> <remaining-minutes>
 ```
 
@@ -178,7 +181,8 @@ Output format:
 2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`.
 3. Push if developer didn't: `git push`
 4. ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/frontmatter.sh"
    n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "ci_fix_cycle"
    ```
 5. `ci_fix_cycle` < `maxFixAttempts` → back to **Step 3**

@@ -19,7 +19,8 @@ Three-phase code review: **find → verify → report**. Specialized agents hunt
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -32,7 +33,8 @@ All config reads use `$N1_HOME/config.json`. All memory paths use `$N1_HOME/memo
 When spawning any agent, resolve its model via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 n1_resolve_model <agent-name>
 ```
 
@@ -82,7 +84,7 @@ Read N1 memory if available:
 
 ### Phase 2: Find Bugs
 
-**Shared review core:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = `${REVIEW_BASE}` (computed in Phase 1). It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT) and reviewer selection with skip-recording.
+**Shared review core:** Read and follow `<N1_ROOT>/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = `${REVIEW_BASE}` (computed in Phase 1). It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT) and reviewer selection with skip-recording.
 
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer (if SECURITY_RELEVANT)
 
@@ -158,7 +160,8 @@ After developer fixes are applied, increment the internal cycle counter and go b
 Also record each confirmed Critical/High finding's fingerprint after every review pass (BEFORE the convergence check):
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 # For each confirmed Critical/High finding:
 FP=$(n1_fingerprint_finding "<file>" "<title>")
@@ -168,7 +171,8 @@ n1_fingerprint_append "$FP_FILE" "$FP" "<finding_id>" "<severity>" "active" "<cy
 **Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `cycle > 0`:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 CYCLE=<current review_fix_cycle value>
 if [ "$CYCLE" -gt 0 ]; then

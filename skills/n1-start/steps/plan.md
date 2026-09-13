@@ -10,7 +10,8 @@ The planner runs `superpowers:writing-plans` in an isolated subagent context. Th
 Inject matching rules before spawning:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 RULES_BLOCK=""
 if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then

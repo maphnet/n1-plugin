@@ -10,9 +10,10 @@
 **Cache check:**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/cache.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/cache.sh"
+source "$N1_ROOT/lib/rules.sh"
 
 CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json")
 CACHE_ENABLED="${CACHE_ENABLED:-true}"
@@ -30,9 +31,10 @@ fi
 A simple, well-described `task` or `chore` does not need the full architect treatment. Evaluate this gate before building any of the expensive prompt context below.
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/signals.sh"
+source "$N1_ROOT/lib/telemetry.sh"
 
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
@@ -60,10 +62,11 @@ When `LITE_MODE` is `true`, log to overview's `## Key Decisions`: "Lite-analysis
 **Related projects context:**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/related.sh"
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/signals.sh"
 
 # Re-derived: LITE_MODE was set in a different Bash invocation.
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
@@ -173,13 +176,13 @@ Spawn the solution-architect agent with:
   > When writing to analysis.md, include ONLY the [TICKET] sections (strip the `[TICKET] ` prefix from headings).
   > Persist the [PROJECT] sections as a snapshot by running this via Bash:
   > ```bash
-  > source "<CLAUDE_PLUGIN_ROOT>/lib/cache.sh"
+  > source "<N1_ROOT>/lib/cache.sh"
   > n1_snapshot_write "<SNAPSHOT_PATH>" "$PROJECT_CONTENT" "$(git rev-parse HEAD)"
   > ```
   > Where `$PROJECT_CONTENT` is all [PROJECT] sections concatenated with the `[PROJECT] ` prefix stripped from headings (so `## [PROJECT] Architecture` becomes `## Architecture`).
   > Snapshot path: `<SNAPSHOT_PATH>` (substitute the actual resolved path).
 
-  Substitute `<CLAUDE_PLUGIN_ROOT>` and `<SNAPSHOT_PATH>` with their actual resolved values in the prompt.
+  Substitute `<N1_ROOT>` and `<SNAPSHOT_PATH>` with their actual resolved values in the prompt.
 
 - **When `CACHE_ENABLED` is `false`**, no [PROJECT]/[TICKET] separation needed — the agent writes its full report directly to analysis.md.
 - **When `LITE_MODE` is `true`**, no [PROJECT]/[TICKET] separation either — the agent writes its (short) report directly to analysis.md and persists no snapshot. The cache stays cold; the next standard-tier ticket warms it.
@@ -188,7 +191,8 @@ Spawn the solution-architect agent with:
 
 Read the snapshot metadata:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 SNAPSHOT_BODY=$(n1_snapshot_read_body "$SNAPSHOT_PATH")
 SNAPSHOT_SHA=$(n1_read_frontmatter "$SNAPSHOT_PATH" "git_sha_short")
 SNAPSHOT_AGE_RAW=$(n1_read_frontmatter "$SNAPSHOT_PATH" "generated_at")
@@ -257,7 +261,8 @@ After the agent returns:
 
 The agent wrote `$N1_HOME/memory/<ID>/analysis.md` itself. Verify it:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/validation.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md
 ```
 If missing/empty (agent failed to write), **re-prompt the agent once** with: "analysis.md was not written. Write your full analysis report to `$N1_HOME/memory/<ID>/analysis.md` now using Bash (cat heredoc redirect, ref #44657)."
@@ -287,7 +292,8 @@ Do NOT re-run analysis. The architect's corrected `tier`, `blast_radius`, and `s
 
 When CACHE_STATE is `cold` or `stale` AND `$CACHE_ENABLED` is `true` AND `LITE_MODE` is `false` (a lite run is instructed to persist no snapshot, so a missing snapshot is expected, not a failure):
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/cache.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/cache.sh"
 
 # Re-derived: SNAPSHOT_PATH was set in a different Bash invocation. Left unset
 # it expands to empty, `[ ! -f "" ]` is true, and every run reports a phantom
@@ -305,11 +311,12 @@ fi
 **Post-return verification — project map (cold/stale + cache enabled):**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/cache.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/cache.sh"
+source "$N1_ROOT/lib/related.sh"
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/signals.sh"
 
 # Re-derived for project-map verification: LITE_MODE was set in a different Bash invocation.
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
@@ -367,15 +374,17 @@ If `CONTEXT_BLOCK` is non-empty:
 
 2. Persist ticket URL to overview.md frontmatter (if available from the ticket step):
    ```bash
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
    if [ -n "$TICKET_URL" ]; then
-       source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+       source "$N1_ROOT/lib/frontmatter.sh"
        n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" "$TICKET_URL"
    fi
    ```
 
 3. Read signals for the metadata line:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/signals.sh"
    FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")
    BLAST_RADIUS=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")
    TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
@@ -398,7 +407,8 @@ If `CONTEXT_BLOCK` is non-empty:
 1. Extract `tier:` from the written analysis file. Use case-insensitive regex: `^tier:\s*(simple|standard|complex)` against `$N1_HOME/memory/$ID/analysis.md`.
 2. If a valid tier is found:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/frontmatter.sh"
    CURRENT_TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
    if [ "$NEW_TIER" != "$CURRENT_TIER" ]; then
        n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" "$NEW_TIER"
@@ -409,7 +419,8 @@ If `CONTEXT_BLOCK` is non-empty:
 **Extract and persist signals:**
 Parse the solution-architect's return for a line starting with `n1:signals `:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/signals.sh"
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
 if [ -n "$SIGNAL_LINE" ]; then
     PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //')
@@ -427,9 +438,10 @@ fi
 **Parse cross-repo signals:**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/signals.sh"
+source "$N1_ROOT/lib/related.sh"
 
 CROSS_REPO_EXPLORED=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "cross_repo_explored")
 
@@ -476,7 +488,8 @@ When the pending list was presented, handle the user's response to "Add to relat
 - **"yes"** — add every pending slug:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/related.sh"
 XREPO_PENDING_FILE="$N1_HOME/memory/$ID/xrepo-pending.tsv"
 while IFS=$'\t' read -r xr_slug xr_reason; do
     [ -z "$xr_slug" ] && continue
@@ -499,8 +512,9 @@ done < "$XREPO_PENDING_FILE"
 This block owns the step-2 (`analysis`) end event when cross-repo awareness is on — see the Telemetry Step Markers table in SKILL.md. When `relatedProjects.enabled` is `false`, skip the whole block; the orchestrator emits the standard end event per the table.
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/signals.sh"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 
 if [ "$RELATED_ENABLED" = "true" ]; then
@@ -527,7 +541,7 @@ if [ "$RELATED_ENABLED" = "true" ]; then
     XREPO_METADATA="{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL},\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}}"
 
     # Emit analysis step completed event
-    source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+    source "$N1_ROOT/lib/telemetry.sh"
     n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "analysis" 2 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=pass loop_iteration=null metadata="$XREPO_METADATA"
 fi
 ```
@@ -538,8 +552,9 @@ If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/ov
 
 **Compact analysis memory (non-investigation only):**
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/memory.sh"
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 if [ "$TYPE" != "investigation" ]; then
     n1_compact_memory "$N1_HOME/memory/$ID/analysis.md" "conclusions,affected files,blast radius,risks,industry standards,bug investigation,tier"
@@ -549,7 +564,8 @@ fi
 **Phase 3 — Unknown Q&A (all task types):**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 ```
 
@@ -569,7 +585,8 @@ If `UNKNOWN_COUNT` is 0, skip the rest of this phase.
 When `N1_HEADLESS=1` and `N1_STORY_ID` is set, check parent story clarifications before asking:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/story.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/story.sh"
 STORY_MEM="$N1_HOME/memory/$N1_STORY_ID"
 INHERITED_COUNT=0
 REMAINING_UNKNOWNS=""
@@ -599,13 +616,14 @@ Update `UNKNOWNS` to `REMAINING_UNKNOWNS` and `UNKNOWN_COUNT` to the remaining c
 When `N1_STORY_ID` is set but `N1_HEADLESS` is NOT set:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/story.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/story.sh"
 STORY_MEM="$N1_HOME/memory/$N1_STORY_ID"
 ```
 
 For each unknown, check story clarifications using `n1_story_match_clarification`. If a match is found, pre-populate the recommended answer in the batched presentation: `(Pre-answered in story: <answer>)`. The user can confirm or override the pre-populated answer.
 
-**Problem preamble:** Before presenting the unknowns, compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
+**Problem preamble:** Before presenting the unknowns, compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
 
 **Batch all unknowns into one AskUserQuestion** (max 4 per call; chain if more than 4):
 
@@ -650,7 +668,8 @@ After collecting all answers, append a `### Clarifications` section to `analysis
 
 For each unknown that was presented to the user:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 # For each asked unknown:
 n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "analysis" "scope" "asked" "codebase,web"
 # For each "Decide for me" resolution:
