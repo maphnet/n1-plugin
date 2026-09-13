@@ -1,20 +1,20 @@
 # N1 (No-One)
 
-AI-driven development orchestrator for Claude Code. No one writes the code.
+AI-driven development orchestrator for Claude Code and Codex. No one writes the code.
 
-N1 is a Claude Code plugin that orchestrates the full development cycle using 12 specialized agent personas and [Superpowers](https://github.com/obra/superpowers) sub-skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); Superpowers handles interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
+N1 is a plugin that orchestrates the full development cycle using 11 specialized agent personas and [Superpowers](https://github.com/obra/superpowers) sub-skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); Superpowers handles interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop. The same repository installs on both hosts; see [references/host-routing.md](references/host-routing.md) for how each host is addressed.
 
 ## Requirements
 
-- [Claude Code](https://claude.ai/code) 2.1+
-- [Superpowers](https://github.com/obra/superpowers) plugin ^5.0
-- `git` and `gh` (GitHub CLI) on PATH
+- [Claude Code](https://claude.ai/code) 2.1+ **or** [Codex CLI](https://github.com/openai/codex) 0.154+
+- [Superpowers](https://github.com/obra/superpowers) plugin >=6
+- `git`, `gh` (GitHub CLI), `jq`, and `python3` on PATH
 - Optional: Jira (Atlassian MCP) or YouTrack MCP for tracker integration
 - Optional: Sentry MCP for error-tracking integration
 
 ## Installation
 
-Add the marketplace and install:
+### Claude Code
 
 ```
 /plugin marketplace add maphnet/n1-plugin
@@ -23,10 +23,21 @@ Add the marketplace and install:
 
 Then enable auto-update: `/plugin` → Marketplaces → n1 → Auto-update.
 
+### Codex
+
+```
+codex plugin add superpowers
+codex plugin marketplace add maphnet/n1-plugin
+codex plugin add n1@n1
+```
+
+Make sure `~/.codex/config.toml` has `[features] multi_agent = true` and, recommended, `[agents] default_subagent_model`. Start Codex in your project, run `/hooks` and trust the n1 hooks once, then `$n1-init`. Skills are invoked as `$n1-start TRID-510` (the `/n1:n1-start` form in the docs is the Claude Code spelling). N1 writes its persona definitions to `.codex/agents/n1-*.toml` in the project at every session start; `n1-init` adds them to `.gitignore`.
+
 For local development:
 
 ```bash
-claude --plugin-dir ~/dev/n1-plugin
+claude --plugin-dir ~/dev/n1-plugin          # Claude Code
+codex plugin marketplace add ~/dev/n1-plugin && codex plugin add n1@n1   # Codex (re-add after edits)
 ```
 
 ## Quick Start
@@ -188,7 +199,7 @@ When enabled, estimation runs automatically in the `n1-start` pipeline (after pl
 
 ## How It Works
 
-N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 12 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while Superpowers sub-skills handle interactive steps (brainstorming, planning, implementation dispatch via SDD). Each agent gets fresh context with scoped tools.
+N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 11 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while Superpowers sub-skills handle interactive steps (brainstorming, planning, implementation dispatch via SDD). Each agent gets fresh context with scoped tools. On Codex, personas are dispatched with `spawn_agent` from generated `.codex/agents/n1-*.toml` files and tool scoping is enforced by the `enforce-agent-policy` hook.
 
 ### Agent Personas
 
