@@ -6,19 +6,20 @@ plus telemetry-derived quality metrics. Persists per-run caches, snapshots,
 and reports under an output directory (default ~/.n1/benchmark/).
 
 Usage:
-  python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--force] [--ambiguous-out FILE]
+  python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--force] [--ambiguous-out FILE] [--host claude-code|codex] [--sessions-dir DIR]
   python3 scripts/benchmark.py finalize --labels FILE [--out DIR] [--by version|week] [--plugin-version V] [--judge-model M]
   python3 scripts/benchmark.py report   [--out DIR] [--snapshot ID] [--by version|week]
   python3 scripts/benchmark.py baseline set <version> | show [--out DIR]
 
 The script never calls a model. Ambiguous turns are printed by `collect`;
 the n1-benchmark skill labels them and passes the labels file to `finalize`.
-Read-only with respect to ~/.n1/<project>/ and ~/.claude/projects/.
+Read-only with respect to ~/.n1/<project>/, ~/.claude/projects/, and ~/.codex/sessions/.
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import os
 import random
@@ -160,9 +161,9 @@ def turn_text(rec: dict):
 
 def human_turn_timestamps(path: Path):
     out = []
-    for rec, _ in read_jsonl(path):
-        if rec and is_human_turn(rec):
-            ts = parse_ts(rec.get("timestamp"))
+    for ev in iter_events(path):
+        if ev["kind"] == "user":
+            ts = parse_ts(ev["timestamp"])
             if ts is not None:
                 out.append(ts)
     return out
@@ -192,13 +193,19 @@ def link_transcript(run: dict, projects_dir: Path):
         return None, "unlinked"
 
     best, best_count = None, 0
-    for d in candidate_project_dirs(projects_dir, run.get("project") or "", run.get("branch")):
-        for path in sorted(d.glob("*.jsonl")):
-            in_window = sum(1 for ts in human_turn_timestamps(path) if start <= ts <= end)
-            if in_window == 0 or not _transcript_mentions(path, ticket):
-                continue
-            if in_window > best_count:
-                best, best_count = str(path), in_window
+    if HOST == "codex":
+        slug = (run.get("project") or "").lower()
+        candidates = [p for p in transcript_codex.session_files(projects_dir)
+                      if (transcript_codex.session_cwd(p) or "").lower().rstrip("/").endswith("/" + slug)]
+    else:
+        candidates = [p for d in candidate_project_dirs(projects_dir, run.get("project") or "", run.get("branch"))
+                      for p in sorted(d.glob("*.jsonl"))]
+    for path in candidates:
+        in_window = sum(1 for ts in human_turn_timestamps(path) if start <= ts <= end)
+        if in_window == 0 or not _transcript_mentions(path, ticket):
+            continue
+        if in_window > best_count:
+            best, best_count = str(path), in_window
     if best:
         return best, "heuristic"
     return None, "unlinked"
@@ -224,24 +231,49 @@ def _assistant_text_and_ask(rec: dict):
     return "\n".join(texts), asked
 
 
+_TC_SPEC = importlib.util.spec_from_file_location("transcript_codex", Path(__file__).resolve().parent.parent / "lib" / "transcript_codex.py")
+transcript_codex = importlib.util.module_from_spec(_TC_SPEC)
+_TC_SPEC.loader.exec_module(transcript_codex)
+
+HOST = "claude-code"  # set by cmd_collect from --host
+
+
+def iter_events_claude(path):
+    """Normalized events from a Claude Code transcript (same shape as transcript_codex.iter_events)."""
+    for rec, _ in read_jsonl(Path(path)):
+        if not rec:
+            continue
+        if rec.get("type") == "assistant" and not rec.get("isSidechain"):
+            text, asked = _assistant_text_and_ask(rec)
+            yield {"kind": "assistant", "timestamp": rec.get("timestamp"), "text": text, "tool": None, "asked": False}
+            if asked:
+                yield {"kind": "tool_call", "timestamp": rec.get("timestamp"), "text": "", "tool": "AskUserQuestion", "asked": True}
+            continue
+        if is_human_turn(rec):
+            yield {"kind": "user", "timestamp": rec.get("timestamp"), "text": turn_text(rec) or "", "tool": None, "asked": False}
+
+
+def iter_events(path):
+    return transcript_codex.iter_events(path) if HOST == "codex" else iter_events_claude(path)
+
+
 def extract_turns(transcript_path: str, run: dict):
     turns = []
     prev_text, prev_ask = "", False
     n = 0
-    for rec, _ in read_jsonl(Path(transcript_path)):
-        if not rec:
+    for ev in iter_events(transcript_path):
+        if ev["kind"] == "assistant":
+            prev_text, prev_ask = ev["text"], False
             continue
-        if rec.get("type") == "assistant" and not rec.get("isSidechain"):
-            prev_text, prev_ask = _assistant_text_and_ask(rec)
+        if ev["kind"] == "tool_call":
+            prev_ask = prev_ask or ev["asked"]
             continue
-        if not is_human_turn(rec):
-            continue
-        ts = parse_ts(rec.get("timestamp"))
+        ts = parse_ts(ev["timestamp"])
         turns.append({
             "id": f"{run['run_id']}#{n}",
-            "timestamp": rec.get("timestamp"),
+            "timestamp": ev["timestamp"],
             "step": step_at(run, ts) if ts is not None else "outside",
-            "text": (turn_text(rec) or "")[:TEXT_LIMIT],
+            "text": ev["text"][:TEXT_LIMIT],
             "prev_assistant": prev_text[:TEXT_LIMIT],
             "asked_question": prev_ask,
         })
@@ -362,6 +394,8 @@ def _strip_private(cache: dict) -> dict:
 
 
 def cmd_collect(args) -> int:
+    global HOST
+    HOST = args.host
     out = Path(args.out)
     runs, malformed = load_runs(Path(args.n1_root))
     since = parse_ts(f"{args.since}T00:00:00Z") if args.since else None
@@ -372,7 +406,7 @@ def cmd_collect(args) -> int:
     for run in runs:
         cache = existing.get(run["run_id"])
         if cache is None:
-            cache = build_run_cache(run, Path(args.projects_dir))
+            cache = build_run_cache(run, Path(args.sessions_dir if HOST == "codex" else args.projects_dir))
             cache["run_record"] = {k: v for k, v in run.items() if not k.startswith("_")}
             save_cache(out, _strip_private(cache))
             new += 1
@@ -941,6 +975,8 @@ def build_parser():
     c.add_argument("--since", default=None, help="YYYY-MM-DD; ignore runs started earlier")
     c.add_argument("--force", action="store_true", help="re-process cached runs")
     c.add_argument("--ambiguous-out", default=None, help="write ambiguous turns JSON here instead of stdout")
+    c.add_argument("--host", choices=["claude-code", "codex"], default=os.environ.get("N1_HOST") or "claude-code")
+    c.add_argument("--sessions-dir", default=os.path.expanduser("~/.codex/sessions"), help="Codex rollout root (codex host)")
 
     f = sub.add_parser("finalize")
     common(f)

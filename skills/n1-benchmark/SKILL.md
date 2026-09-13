@@ -1,6 +1,6 @@
 ---
 name: n1-benchmark
-description: "Benchmark N1 as an orchestrator across plugin versions: counts human interventions (answers and corrections) per pipeline run from telemetry plus Claude Code transcripts, adds telemetry quality metrics, persists snapshots under ~/.n1/benchmark/, and reports deltas against the previous snapshot and a pinned baseline. Use when asked how N1 is trending, whether a version regressed, or to run the benchmark."
+description: "Benchmark N1 as an orchestrator across plugin versions: counts human interventions (answers and corrections) per pipeline run from telemetry plus host transcripts (Claude Code projects or Codex rollouts), adds telemetry quality metrics, persists snapshots under ~/.n1/benchmark/, and reports deltas against the previous snapshot and a pinned baseline. Use when asked how N1 is trending, whether a version regressed, or to run the benchmark."
 argument-hint: "[--baseline <version>] [--by week] [--since YYYY-MM-DD] [--force]"
 model: sonnet
 effort: medium
@@ -37,7 +37,7 @@ python3 "$SCRIPT" baseline set <version> --out "$OUT"
 ## 3. Collect
 
 ```bash
-python3 "$SCRIPT" collect --out "$OUT" --ambiguous-out "$WORK/ambiguous.json" [--since DATE] [--force]
+python3 "$SCRIPT" collect --out "$OUT" --host "$N1_HOST_NAME" --ambiguous-out "$WORK/ambiguous.json" [--since DATE] [--force]
 ```
 
 Read `$WORK/ambiguous.json`. It contains `ambiguous`, a list of `{id, text, prev_assistant}`.
