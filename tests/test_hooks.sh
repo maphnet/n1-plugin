@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/test_hooks.sh — behavioral tests for enforce-agent-model warning, session-start throttle.
+# tests/test_hooks.sh — behavioral tests for enforce-agent-policy, session-start throttle.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
@@ -11,7 +11,7 @@ cat > "$N1_HOME/config.json" <<'EOF'
 {"planReview":{"requirePlanApproval":true},"autonomy":{"brainstorm":"auto","acceptanceGate":"auto"}}
 EOF
 
-# enforce-agent-model: no python → systemMessage once
+# enforce-agent-policy: no python → systemMessage once
 FAKEBIN="$T/bin"; mkdir -p "$FAKEBIN"
 for c in bash jq grep sed cat dirname basename printf head tr awk mv rm mkdir date; do p=$(command -v $c) && ln -sf "$p" "$FAKEBIN/$c"; done
 INPUT='{"session_id":"s1","tool_name":"Agent","tool_input":{"subagent_type":"n1:developer"}}'
