@@ -134,13 +134,15 @@ When an old `.n1/n1.config.json` is detected:
       rm -rf .n1/memory .n1/n1.config.json 2>/dev/null || true
       ```
       Then optionally remove the `.n1/` directory (ask user or leave it — the `.gitignore` entry was already addressed in step 3g above)
-   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs):
+   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs). Run only when `HOST` is `claude-code`; skip entries whose value is an object (host-keyed).
       ```bash
       N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+      source "$N1_ROOT/lib/config.sh"; [ "$(n1_host)" = "claude-code" ] || exit 0
       CFG="$HOME/.n1/$PROJECT_NAME/config.json"
       for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
         def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
         cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
+        [ "$(printf '%s' "$cur" | cut -c1)" = "{" ] && continue
         if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
           jq "del(.models[\"$a\"])" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
           echo "pruned models.$a=$cur (equals frontmatter default)"
@@ -225,6 +227,53 @@ Add these to CLAUDE.md?
 ```
 
 If approved (1), append to CLAUDE.md. If edit (3) — ask what to change first.
+
+## Host Setup
+
+Detect the host once; the rest of n1-init reads `HOST` where behaviour differs.
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+HOST=$(n1_host)
+HOST_FILE=$(n1_host_file)
+CODEX_CFG="${CODEX_HOME:-$HOME/.codex}/config.toml"
+```
+
+**If `HOST` is `claude-code`:** nothing to do; continue.
+
+**If `HOST` is `codex`:** run these checks in order and stop at the first failure.
+
+1. **Hooks trusted.** N1's session-start hook writes `$HOST_FILE`. If the file is missing, or `jq -r .host "$HOST_FILE"` is not `codex`, or `jq -r .version "$HOST_FILE"` differs from `n1_plugin_version`, the hooks have not run for this plugin version. Tell the user:
+
+   ```
+   N1's hooks are not trusted yet. Run /hooks, trust the n1 plugin hooks, restart Codex, then run $n1-init again.
+   ```
+   **STOP.**
+
+2. **Multi-agent tools.** Check `features.multi_agent` and the tool list:
+   ```bash
+   MA=$(awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && $1=="multi_agent"{print $3}' "$CODEX_CFG" 2>/dev/null)
+   ```
+   If `MA` is `false`, or `spawn_agent` is absent from your tool list, tell the user:
+   ```
+   N1 dispatches its personas as Codex subagents, which needs multi-agent tools.
+   Add to ~/.codex/config.toml:
+     [features]
+     multi_agent = true
+   then restart Codex and run $n1-init again.
+   ```
+   **STOP.**
+
+3. **Superpowers present.** If `$brainstorming` is not in your skill list, tell the user: "N1 needs the Superpowers plugin: run `codex plugin add superpowers`, restart Codex, then re-run `$n1-init`." **STOP.**
+
+4. **Persona files.** `ls .codex/agents/n1-*.toml 2>/dev/null | wc -l` must be 11 (one per spawnable persona). If it is 0, the hook could not write into this project: tell the user the path and **STOP**. Otherwise add the generated files to the project `.gitignore` if missing:
+   ```bash
+   grep -qF '.codex/agents/n1-*.toml' .gitignore 2>/dev/null || { [ -s .gitignore ] && [ -n "$(tail -c1 .gitignore)" ] && echo >> .gitignore; printf '# N1 generated Codex personas\n.codex/agents/n1-*.toml\n' >> .gitignore; }
+   ```
+   Log: "Added `.codex/agents/n1-*.toml` to .gitignore." (or "already ignored").
+
+5. **Default subagent model.** Read `DEF_MODEL=$(n1_codex_default default_subagent_model)` and `DEF_EFFORT=$(n1_codex_default default_subagent_reasoning_effort)`. If `DEF_MODEL` is empty, tell the user: "Codex has no `[agents] default_subagent_model`; every N1 persona will inherit the session model, which is usually the most expensive one. Set it in ~/.codex/config.toml or pick per-persona models below." Continue to **Agent Model Configuration**, which on Codex is always offered (not only on request).
 
 ## Tracker Setup
 
@@ -1864,6 +1913,28 @@ N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c '
 def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$N1_ROOT/agents/<name>.md")
 ```
 
+**On Codex (`HOST` = `codex`):** frontmatter models (opus/sonnet/haiku) do not apply. Show the table of personas with the current value of `n1_model_for <persona>` (config `models.<persona>.codex`, else `DEF_MODEL`) and `n1_reasoning_effort_for <persona>`, then ask:
+
+```
+Persona models for Codex (default: <DEF_MODEL> / <DEF_EFFORT>):
+  1 — Keep defaults for all personas
+  2 — Override some (enter `persona=model[/effort]`, e.g. code-reviewer=gpt-5.6/high)
+```
+
+Store overrides as host-keyed objects, preserving any Claude value:
+
+```bash
+CFG="$N1_HOME/config.json"
+# for each "<persona>=<model>[/<effort>]" the user entered:
+jq --arg p "<persona>" --arg m "<model>" --arg e "<effort-or-empty>" '
+  .models[$p] = (
+    (if (.models[$p] | type) == "string" then {"claude-code": .models[$p]} else (.models[$p] // {}) end)
+    + {codex: (if $e == "" then $m else {model: $m, reasoning_effort: $e} end)}
+  )' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+```
+
+The prune snippets in this section compare against the *Claude* frontmatter default; run them only when `HOST` is `claude-code`, and skip entries whose value is an object.
+
 ### On reconfiguration (n1-init re-run):
 
 **`--related` flag:** When invoked as `n1-init --related`, skip all other configuration steps and run only the Related Projects Configuration section below. Read the existing config to preserve all other settings.
@@ -1879,14 +1950,16 @@ if [ "$CUR" != "$REPO_PATH" ]; then
 fi
 ```
 
-Prune every `models.<agent>` entry whose value equals the agent's frontmatter default, then print what was pruned. This is idempotent — running it multiple times has no additional effect.
+Prune every `models.<agent>` entry whose value equals the agent's frontmatter default, then print what was pruned. This is idempotent — running it multiple times has no additional effect. Run only when `HOST` is `claude-code`; skip entries whose value is an object (host-keyed).
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"; [ "$(n1_host)" = "claude-code" ] || exit 0
 CFG="$N1_HOME/config.json"
 for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
   def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
   cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
+  [ "$(printf '%s' "$cur" | cut -c1)" = "{" ] && continue
   if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
     jq "del(.models[\"$a\"])" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
     echo "pruned models.$a=$cur (equals frontmatter default)"
@@ -2298,6 +2371,7 @@ Show summary:
 N1 is ready.
 
 State directory: ~/.n1/<project-name>/
+Host: claude-code / codex (personas: .codex/agents/n1-*.toml, hooks trusted)
 Worktree mode: worktree
 Worktree setup: <command or "none">
 Worktree cleanup: after-merge
@@ -2326,5 +2400,5 @@ Next: Use /n1:n1-start <ticket-or-description> to begin working on a task.
 
 If `tracker.mcp` is not null, append after the summary:
 ```
-To activate tracker routing, reload the session: type /clear or restart Claude Code.
+To activate tracker routing, reload the session: type /clear or restart Claude Code (on Codex: start a new session).
 ```
