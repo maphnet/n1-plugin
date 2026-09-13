@@ -141,6 +141,57 @@ n1_resolve_tier() {
     esac
 }
 
+n1_codex_default() {
+    # Usage: n1_codex_default <key> — value of [agents].<key> in the Codex CLI config.toml
+    local f="${CODEX_HOME:-$HOME/.codex}/config.toml"
+    [ -f "$f" ] || return 0
+    awk -v key="$1" '
+        /^[[:space:]]*\[/ { sec=$0; gsub(/[[:space:]]/, "", sec) }
+        sec=="[agents]" && $1==key { if (match($0, /"[^"]*"/)) print substr($0, RSTART+1, RLENGTH-2); exit }
+    ' "$f"
+}
+
+_n1_model_override() {
+    # Usage: _n1_model_override <persona> — models.<persona> from config for the current host, or empty.
+    # String = legacy Claude-only value; object = {"claude-code": m, "codex": m | {"model": m, "reasoning_effort": e}}.
+    local persona="$1" host config_file
+    host=$(n1_host); config_file=$(n1_config_file)
+    [ -f "$config_file" ] || return 0
+    if command -v jq >/dev/null 2>&1; then
+        jq -r --arg p "$persona" --arg h "$host" '
+            .models[$p] as $e |
+            if ($e|type) == "string" then (if $h == "claude-code" then $e else empty end)
+            elif ($e|type) == "object" then ($e[$h] | if type == "object" then (.model // empty) else (. // empty) end)
+            else empty end' "$config_file" 2>/dev/null || true
+    elif [ "$host" = "claude-code" ]; then
+        n1_config_val ".models.${persona}" "$config_file"
+    fi
+}
+
+n1_model_for() {
+    # Usage: n1_model_for <persona> — the model to spawn this persona with on the current host.
+    local persona="$1" v
+    v=$(_n1_model_override "$persona")
+    if [ -n "$v" ]; then printf '%s' "$v"; return; fi
+    if [ "$(n1_host)" = "codex" ]; then n1_codex_default default_subagent_model; return; fi
+    local agent_file base=""
+    agent_file="$(n1_plugin_root)/agents/${persona}.md"
+    [ -f "$agent_file" ] && base=$(awk 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && /^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/\r/, ""); printf "%s", $0; exit }' "$agent_file")
+    printf '%s' "${base:-sonnet}"
+}
+
+n1_reasoning_effort_for() {
+    # Usage: n1_reasoning_effort_for <persona> — Codex reasoning effort for a spawn; empty on Claude Code.
+    [ "$(n1_host)" = "codex" ] || return 0
+    local persona="$1" config_file v=""
+    config_file=$(n1_config_file)
+    if [ -f "$config_file" ] && command -v jq >/dev/null 2>&1; then
+        v=$(jq -r --arg p "$persona" '.models[$p].codex.reasoning_effort? // empty' "$config_file" 2>/dev/null || true)
+    fi
+    [ -n "$v" ] && { printf '%s' "$v"; return; }
+    n1_codex_default default_subagent_reasoning_effort
+}
+
 n1_resolve_model() {
     local agent_name="$1"
     local context="${2:-}"
@@ -148,16 +199,15 @@ n1_resolve_model() {
     local config_file
     config_file=$(n1_config_file)
 
-    # 1. Config override (always wins)
-    if [ -f "$config_file" ]; then
-        if command -v jq >/dev/null 2>&1; then
-            override=$(jq -r ".models[\"${agent_name}\"] // empty" "$config_file" 2>/dev/null || true)
-        else
-            override=$(n1_config_val ".models.${agent_name}" "$config_file")
-        fi
-    fi
+    # 1. Config override (always wins); host-keyed objects resolve to the current host's value
+    override=$(_n1_model_override "$agent_name")
     if [ -n "$override" ]; then
         printf '%s' "$override"
+        return
+    fi
+    # Codex has no opus/sonnet/haiku tier vocabulary: no signal-driven tiering there.
+    if [ "$(n1_host)" = "codex" ]; then
+        n1_model_for "$agent_name"
         return
     fi
 

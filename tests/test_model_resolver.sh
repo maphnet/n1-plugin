@@ -254,6 +254,39 @@ test_c
 test_d
 test_autonomy_preset
 
+# ---------------------------------------------------------------------------
+# Host-keyed models object (3.0.0)
+# ---------------------------------------------------------------------------
+test_host_models() {
+    local tmpdir; tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' RETURN
+    export N1_HOME="$tmpdir/home"; mkdir -p "$N1_HOME"
+    export CODEX_HOME="$tmpdir/codex"; mkdir -p "$CODEX_HOME"
+    printf '[agents]\ndefault_subagent_model = "gpt-5.6-terra"\ndefault_subagent_reasoning_effort = "medium"\n' > "$CODEX_HOME/config.toml"
+    cat > "$N1_HOME/config.json" <<'CFG'
+{"models": {
+  "code-reviewer": {"claude-code": "opus", "codex": "gpt-5.6"},
+  "developer": "sonnet",
+  "qa-engineer": {"codex": {"model": "gpt-5.6-sol", "reasoning_effort": "high"}}
+}}
+CFG
+    assert_eq "object form: claude value" "opus" "$(N1_HOST=claude-code n1_model_for code-reviewer)"
+    assert_eq "object form: codex value" "gpt-5.6" "$(N1_HOST=codex n1_model_for code-reviewer)"
+    assert_eq "object form: resolve_model returns codex value not JSON" "gpt-5.6" "$(N1_HOST=codex n1_resolve_model code-reviewer)"
+    assert_eq "legacy string applies on claude" "sonnet" "$(N1_HOST=claude-code n1_model_for developer)"
+    assert_eq "legacy string ignored on codex -> codex default" "gpt-5.6-terra" "$(N1_HOST=codex n1_model_for developer)"
+    assert_eq "no entry on claude -> frontmatter" "opus" "$(N1_HOST=claude-code n1_model_for security-reviewer)"
+    assert_eq "no entry on codex -> codex default" "gpt-5.6-terra" "$(N1_HOST=codex n1_model_for security-reviewer)"
+    assert_eq "nested codex model" "gpt-5.6-sol" "$(N1_HOST=codex n1_model_for qa-engineer)"
+    assert_eq "nested codex effort" "high" "$(N1_HOST=codex n1_reasoning_effort_for qa-engineer)"
+    assert_eq "default codex effort" "medium" "$(N1_HOST=codex n1_reasoning_effort_for developer)"
+    assert_eq "effort empty on claude" "" "$(N1_HOST=claude-code n1_reasoning_effort_for qa-engineer)"
+    unset CODEX_HOME
+}
+# Restore n1_config_file that test_autonomy_preset unset.
+n1_config_file() { printf '%s' "$(n1_home)/config.json"; }
+test_host_models
+
 echo "---"
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
