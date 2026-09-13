@@ -96,11 +96,10 @@ n1_story_child_pr_url() {
 
 n1_story_child_cmd() {
     # Usage: n1_story_child_cmd <repoPath> <ticket-id> <model> <story-id> <log-path>
+    # Host-specific child command comes from lib/host.sh n1_headless_cmd.
     local repo="$1" id="$2" model="$3" story="$4" log="$5"
-    local plugin_dir=""
-    [ -n "${N1_STORY_PLUGIN_DIR:-}" ] && plugin_dir=" --plugin-dir \"${N1_STORY_PLUGIN_DIR}\""
-    printf 'cd "%s" && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STORY_ID="%s" claude -p "/n1:n1-start %s" --model %s --permission-mode bypassPermissions --output-format stream-json --verbose%s > "%s" 2>&1' \
-        "$repo" "$story" "$id" "$model" "$plugin_dir" "$log"
+    printf 'cd "%s" && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STORY_ID="%s" %s' \
+        "$repo" "$story" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
 }
 
 n1_story_toposort() {

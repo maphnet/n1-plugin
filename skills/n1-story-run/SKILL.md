@@ -9,7 +9,7 @@ model: sonnet
 
 **Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context (a question tool on Claude Code, a plain numbered-options message on Codex). "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
-Runs every open subtask of a story sequentially through `n1-start`, each in its own headless Claude process launched from the subtask's repository, then posts a technical summary on the story.
+Runs every open subtask of a story sequentially through `n1-start`, each in its own headless child process of the current host (see HOST ROUTING: headless child run) launched from the subtask's repository, then posts a technical summary on the story.
 
 **Announce at start:** "I'm using the n1-story-run skill to implement story <STORY-ID>."
 
