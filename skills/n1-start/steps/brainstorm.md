@@ -45,7 +45,7 @@ TEST_TIER=$(n1_config_val '.testCoverage.tier' 2>/dev/null)
 TEST_TIER="${TEST_TIER:-maintain}"
 ```
 
-Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `changed_files_source` — brainstorm runs before implementation; `CHANGED_FILES` will be empty). Capture result as `$RULES_BLOCK`.
+Run `procedures/rules-injection.md` with `agent_name=solution-architect` (no `changed_files_source` — brainstorm runs before implementation; `CHANGED_FILES` will be empty). Capture result as `$RULES_BLOCK`.
 
 - **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The subagent absorbs the brainstormer's turn boundary — when its result comes back, the orchestrator continues. This replaces the prior in-context skill-fragment approach that intermittently caused the orchestrator to stop after brainstorming completed.
 
@@ -224,7 +224,7 @@ n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/t
 
 **Wait for the user's response.** (Applies when `ACCEPTANCE_GATE` is `ask`.) If they amend or add criteria, update the `## Acceptance Criteria` section in `brainstorm.md` to match, then re-present the gate. Only continue to Planning Need Evaluation after the user confirms.
 
-**Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+**Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
 
 ### Planning Need Evaluation
 

@@ -15,7 +15,7 @@ already installed or if no worktree is active, but keeps a resumed/partial pipel
 
 > **ORCHESTRATOR GUARDRAIL (qa): do not run tests, coverage, or lint commands in this step — not before spawning the qa-engineer, not after it returns "to double-check". The qa-engineer's report is the source of truth; if it looks wrong, re-spawn the qa-engineer with the specific concern.**
 
-**Rules injection:** Prepare rules block per SKILL.md § Rules Injection with agent_name=`qa-engineer`, changed_files_source=`diff_surface` from `implementation.md`.
+**Rules injection:** Prepare rules block per `procedures/rules-injection.md` with agent_name=`qa-engineer`, changed_files_source=`diff_surface` from `implementation.md`.
 
 **Spawn agent:** qa-engineer
 
@@ -230,6 +230,6 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 
 **Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`qa`, action=`accept current test state`, ledger_context=`<failing test names and counts>`.
 
-**Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+**Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
 
 **If ask (default):** Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Prompt the user: "{PREAMBLE} After <N> QA fix cycles this test still fails: [test name/details]. Please advise: Retry / Accept as-is / Abort?"

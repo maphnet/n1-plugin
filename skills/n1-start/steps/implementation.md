@@ -2,7 +2,7 @@
 > **After the implementer subagent returns, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
 **Ensure dependencies (worktree mode).** Before any code execution, run the
-**Ensure Dependencies(`<ID>`)** procedure (see Workspace Isolation in `SKILL.md`).
+**Ensure Dependencies(`<ID>`)** procedure (see `procedures/workspace-isolation.md`).
 In branch mode this is a no-op. When a worktree is active it lazily installs
 `worktree.setup` into the worktree on first need (marker-guarded, so it runs at
 most once per worktree).
@@ -40,7 +40,7 @@ DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
 echo "TIER=$TIER BLAST=$BLAST FILES_CHANGED=$FILES_CHANGED DEVELOPER_MODEL=$DEVELOPER_MODEL"
 ```
 
-**Rules injection:** Run SKILL.md § Rules Injection with `agent_name=developer`, no `changed_files_source` (implementation.md does not exist yet; `CHANGED_FILES` will be empty, which correctly matches rules by agent name only). This populates `$RULES_BLOCK`.
+**Rules injection:** Run `procedures/rules-injection.md` with `agent_name=developer`, no `changed_files_source` (implementation.md does not exist yet; `CHANGED_FILES` will be empty, which correctly matches rules by agent name only). This populates `$RULES_BLOCK`.
 
 **If ALL three conditions hold:**
 1. `TIER == "simple"`
