@@ -7,7 +7,7 @@
 
 1. **Load mapping.** Read `estimation.mapping` from `$N1_HOME/config.json`. Missing tiers: load defaults from `defaults/estimation.json`. Project overrides win.
 
-2. **Read context:** ticket.md, analysis.md, brainstorm.md. Complex path only: plan.md.
+2. **Read context:** ticket.md, analysis.md, brainstorm.md (if present — absent on simple-path; use analysis.md signals alone). Complex path only: plan.md.
 
 3. **Classify tier:** one of XS/S/M/L/XL using scope (file/module/subsystem count), infrastructure (migrations, new services), testing (new suites vs extending), uncertainty (new tech, external deps, ambiguities).
 

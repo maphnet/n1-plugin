@@ -12,6 +12,8 @@ BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "blast_radius" 2>/dev
 FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "files_changed" 2>/dev/null); FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")}"
 DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
 PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need")
+# Fallback simplicity gate: fires if simple-path gate (analysis.md) did not already route directly.
+# Primary routing is done earlier by the simple-path gate in analysis.md.
 GATE_RESULT=$( [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHANGED:-999}" -lt 3 ] && echo true || echo false )
 n1_record_decision simplicity-gate "$GATE_RESULT" '{"all":[{"signal":"brainstorm.blast_radius","fallback":"analysis.blast_radius","eq":"low"},{"signal":"brainstorm.files_changed","fallback":"analysis.files_changed","lt":3}]}' "tier=$TIER"
 ```

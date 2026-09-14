@@ -15,6 +15,7 @@ bounds. `docs/` is gitignored, so this schema lives beside the data file.
 | `types` | object | Pipeline type registry: per-type step sequence, detection rules, and optional `step_overrides`. |
 | `steps` | array | The canonical pipeline steps. |
 | `manual_only` | string[] | Steps that are never entered automatically (release). |
+| `signal_routing` | array | Signal-driven routing rules that skip steps based on analysis signals (not config keys). |
 | `gates` | array | The config gates that skip a step. |
 | `loops` | array | The bounded fix loops. |
 
@@ -29,6 +30,18 @@ Each entry: `{name, number, agent, reads, writes}`.
 | `agent` | string | Primary persona or sub-skill invoked. Informational; the review context asymmetry (code-reviewer vs security-reviewer bundles) stays prose in `review-core.md`. |
 | `reads` | string[] | Hard dependency files, verified by `n1_verify_dependencies` before the step runs. |
 | `writes` | string[] | Primary output file(s). `local-testing` sub-steps collapse to `local-testing.md`. |
+
+## `signal_routing[]`
+
+Each entry: `{name, decision_id, evaluated_after, condition, skips}`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Routing rule identifier. |
+| `decision_id` | string | ID passed to `n1_record_decision` in the step that evaluates the gate. |
+| `evaluated_after` | string | Step after which the condition is evaluated. |
+| `condition` | object | Signal/frontmatter condition (same DSL as `downgrade_triggers`/`escalation_triggers`). |
+| `skips` | string[] | Step name(s) skipped when the condition is true. |
 
 ## `gates[]`
 

@@ -22,7 +22,7 @@ Emitted: after analysis, on resume, post-compaction.
 <CONTEXT_BLOCK>
 
 Tier: <TIER> · Files: ~<FILES_CHANGED> · Blast radius: <BLAST_RADIUS>
-Pipeline: <resolved step list, comma-separated>
+Pipeline: <resolved step list, comma-separated> — if `SIMPLE_PATH=true`: `analysis → developer → qa → review → pr (simple-path)`
 Workspace: <WORKTREE_PATH> (<BRANCH>)
 <TICKET_URL — omit if empty>
 ===
