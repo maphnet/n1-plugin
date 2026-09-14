@@ -19,15 +19,15 @@ assert_contains() {
     fi
 }
 
-# Task 2 — n1-ci
+# Task 2 — n1-ci (guardrails live in steps/02-fix.md after sub-file refactoring)
 assert_contains "ci: orchestrator never remediates" \
-    "skills/n1-ci/SKILL.md" \
+    "skills/n1-ci/steps/02-fix.md" \
     "ORCHESTRATOR GUARDRAIL (n1-ci): the orchestrator NEVER edits files, runs formatters, linters, compilers, package managers, or lock-file tools, and NEVER commits or pushes in this skill"
 assert_contains "ci: developer fetches logs" \
-    "skills/n1-ci/SKILL.md" \
+    "skills/n1-ci/steps/02-fix.md" \
     "Do NOT run \`gh run view --log-failed\` in the orchestrator"
 assert_contains "ci: developer handles missing worktree" \
-    "skills/n1-ci/SKILL.md" \
+    "skills/n1-ci/steps/02-fix.md" \
     "The worktree may already have been removed after PR creation"
 
 # Task 3 — local testing / qa / review / ensure deps
@@ -44,7 +44,7 @@ assert_contains "review: no inline test runs" \
     "skills/n1-start/steps/review.md" \
     "ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step"
 assert_contains "ensure-deps: no inline debugging" \
-    "skills/n1-start/SKILL.md" \
+    "skills/n1-start/procedures/workspace-isolation.md" \
     "Do NOT diagnose or repair the environment inline"
 
 # Task 4 — post-PR follow-ups
@@ -52,7 +52,7 @@ assert_contains "pr step: follow-up routing" \
     "skills/n1-start/steps/pr.md" \
     "ORCHESTRATOR GUARDRAIL (post-PR follow-ups)"
 assert_contains "n1-pr: follow-up routing" \
-    "skills/n1-pr/SKILL.md" \
+    "skills/n1-pr/steps/02-push-create.md" \
     "ORCHESTRATOR GUARDRAIL (post-PR follow-ups)"
 
 # Task 5 — brainstorm

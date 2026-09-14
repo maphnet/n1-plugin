@@ -80,20 +80,19 @@ fi
 # Test 5: Release confirmation gate in n1-release is NOT routed through n1_autonomy_val
 # (grep-based structural check)
 # ---------------------------------------------------------------------------
-RELEASE_SKILL="${PLUGIN_ROOT}/skills/n1-release/SKILL.md"
-if grep -q 'This gate is unconditional' "$RELEASE_SKILL" 2>/dev/null; then
+RELEASE_CONFIRM="${PLUGIN_ROOT}/skills/n1-release/steps/02-confirm-execute.md"
+if grep -q 'This gate is unconditional' "$RELEASE_CONFIRM" 2>/dev/null; then
     pass "T5: n1-release Step 3 Confirmation Gate carries 'unconditional' marker"
 else
-    fail "T5: n1-release SKILL.md missing 'This gate is unconditional' marker — release gate may have been weakened"
+    fail "T5: n1-release steps/02-confirm-execute.md missing 'This gate is unconditional' marker — release gate may have been weakened"
 fi
 
 # ---------------------------------------------------------------------------
 # Test 6: n1-release Step 3 does NOT call n1_autonomy_val to decide whether to show prompt
 # ---------------------------------------------------------------------------
-# We check the region between "## Step 3" and "## Step 4" for absence of n1_autonomy_val calls.
-GATE_SECTION=$(awk '/^## Step 3:/,/^## Step 4:/' "$RELEASE_SKILL" 2>/dev/null || true)
-if echo "$GATE_SECTION" | grep -q 'n1_autonomy_val'; then
-    fail "T6: n1-release Step 3 calls n1_autonomy_val — release gate is NOT unconditional"
+# After sub-file refactoring, the confirmation gate lives in steps/02-confirm-execute.md.
+if grep -q 'n1_autonomy_val' "$RELEASE_CONFIRM" 2>/dev/null; then
+    fail "T6: n1-release steps/02-confirm-execute.md calls n1_autonomy_val — release gate is NOT unconditional"
 else
     pass "T6: n1-release Step 3 does not call n1_autonomy_val"
 fi
