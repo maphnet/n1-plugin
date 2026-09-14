@@ -113,6 +113,33 @@ You will receive ONE of four input modes:
    - YouTrack: from the links response, count links of type `subtask` where the current issue is the parent (direction: current issue → child). 0 if none.
    Set `subtask_count`. Set `issue_type` to the tracker's raw issue type name (`issuetype.name` for Jira, the `Type` custom field value for YouTrack; `"unknown"` if unavailable).
 
+3c. **Current ticket's own linked tickets (tracker ticket mode only):**
+
+   **Jira path** (when `trackerType == "jira"`):
+   - From the `getJiraIssue` response already fetched in step 1, inspect the `issuelinks` field.
+   - If `issuelinks` is absent or empty: skip this step entirely (no `### Linked Tickets` section appended).
+   - Keep only these link types: `blocks`, `is blocked by`, `relates to`, `depends on`, `is depended on by`. Exclude `clones`, `is cloned by`, and any other link types.
+   - For each qualifying link, extract: relation (the link type name), linked ticket ID (`key`), linked ticket summary (`fields.summary`).
+   - Append to ticket.md after existing content:
+     ```
+     ### Linked Tickets
+     | Relation | Ticket | Summary |
+     |----------|--------|---------|
+     | <relation> | <TICKET_ID> | <summary> |
+     ```
+   - If no qualifying links remain after filtering, omit the section entirely.
+
+   **YouTrack path** (when `trackerType == "youtrack"`):
+   - Check if `operations.getIssueLinks` is present in the `operations` map.
+     - If absent: skip this step entirely (not configured — preserve existing behavior).
+   - Use the `getIssueLinks` response already obtained in step 3 (parent context). If step 3 was skipped or the call was not made, call `mcp__<trackerMcp>__<operations.getIssueLinks>` with `issueId: ticketId` now.
+     - On failure: skip this step entirely (non-blocking).
+   - From the response, extract non-parent links: keep only link types `depends on`, `is depended on by`, `relates to`, `blocks`, `is blocked by`. Exclude `subtask`, `is a subtask of`, and any other parent/child link types.
+   - For each qualifying link, extract: relation (the link type name), linked issue ID, linked issue summary.
+   - Append the same `### Linked Tickets` table to ticket.md after existing content.
+   - If no qualifying links remain after filtering, omit the section entirely.
+   - The agent may optionally deep-fetch (call `readTicket` on) specific linked tickets if they appear highly relevant (e.g., blockers), but this is at agent discretion.
+
 4. **Post-fetch: linked error-tracker scan** (only if `errorTrackingUrlPattern` was provided)
    1. Scan the raw description for a URL matching `errorTrackingUrlPattern`.
    2. If no match found, skip to step 5.
@@ -185,6 +212,8 @@ Write the following to the specified `ticketMdPath`:
 The `### Comments` section is Jira only. Include the last 5 meaningful human comments (skip bot/automated ones). If no comments exist or comments are absent from the response, omit the `### Comments` section entirely.
 
 The `### Parent Context` section is tracker ticket mode only. It is appended by step 3 (parent context fetch) when the ticket has a parent. If the ticket is a flat task (no parent), this section is absent entirely. Downstream agents (product-analyst, solution-architect, developer, qa-engineer) receive parent context automatically by reading ticket.md — no additional changes to those agents are required.
+
+The `### Linked Tickets` section is tracker ticket mode only. It is appended by step 3c when the current ticket has non-parent links of interest. If there are no qualifying links, this section is absent entirely. Format: a markdown table with columns `Relation`, `Ticket`, `Summary`.
 
 ## Return Line
 
