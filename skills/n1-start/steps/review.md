@@ -1,37 +1,19 @@
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
-**Telemetry (if enabled):** Emit `started_at` for step 9 (`review`) before spawning reviewers. This applies to both the initial review and any re-review pass after a fix cycle:
+**Step begin:** Emit `started_at` for step 9 (`review`) and prepare all review inputs. This applies to both the initial review and any re-review pass after a fix cycle:
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
-n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "review" 9 "${N1_HOME}/memory/$ID/telemetry" started_at=now
-```
-
-**Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
-procedure before any reviewer that may execute lint/typecheck tooling.
-Marker-guarded no-op on the normal path.
-
-> **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step. Reviewers and the developer (fix mode) run what they need; the orchestrator only reads their returned findings and routes them.**
-
-**Shared review core:** Read and follow `<N1_ROOT>/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = the recorded branch point when available, else the `git.defaultBranch` value from `$N1_HOME/config.json`:
-```bash
-BP_FILE="$N1_HOME/memory/<ID>/branch-point"
-BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || echo "<git.defaultBranch from config>" )
-```
-(The branch-point file pins the review diff to THIS ticket's commits; diffing against `git.defaultBranch` balloons to the whole parent branch when the run started from a non-default branch.) It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT) and reviewer selection with skip-recording.
-
-**Spawn agents in PARALLEL:** code-reviewer + security-reviewer (if SECURITY_RELEVANT)
-
-Resolve models for code-reviewer (with context `review`) and security-reviewer (with context `review`).
-
-Prepare review context (curated per reviewer, not one identical bundle):
-
-Generate the cold-review inputs first (the reviewer must not see the author's narrative):
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/step.sh"
 source "$N1_ROOT/lib/memory.sh"
 source "$N1_ROOT/lib/treestate.sh"
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/related.sh"
+n1_step_begin "review" 9
+# Resolve branch point for review diff
+BP_FILE="$N1_HOME/memory/$ID/branch-point"
+BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
+# Generate cold-review inputs (reviewer must not see author's narrative)
 MEM="$N1_HOME/memory/$ID"
 {
   echo "# Review Spec (generated — acceptance criteria and chosen approach only)"
@@ -46,18 +28,9 @@ MEM="$N1_HOME/memory/$ID"
   fi
 } > "$MEM/qa-facts.md"
 TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
-```
-
-**Related projects context (code-reviewer only):** when `relatedProjects.enabled` is `true`, build the registry block that the code-reviewer's Cross-Repo References check requires:
-
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-source "$N1_ROOT/lib/related.sh"
-
+# Build related-projects context for code-reviewer Cross-Repo References check
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 XREPO_REVIEW_CONTEXT=""
-
 if [ "$RELATED_ENABLED" = "true" ]; then
     XREPO_REGISTERED=""
     while IFS=$'\t' read -r slug reason repo_path; do
@@ -65,7 +38,6 @@ if [ "$RELATED_ENABLED" = "true" ]; then
         XREPO_REGISTERED="${XREPO_REGISTERED}
 - ${slug} (${reason})"
     done < <(n1_related_projects "$N1_HOME/config.json")
-
     SELF_SLUG=$(basename "$(n1_home)")
     XREPO_KNOWN=$(for cfg in "${HOME}"/.n1/*/config.json; do
         [ -f "$cfg" ] || continue
@@ -73,7 +45,6 @@ if [ "$RELATED_ENABLED" = "true" ]; then
         [ "$peer" = "$SELF_SLUG" ] && continue
         printf '%s\n' "$peer"
     done | tr '\n' ',' | sed 's/,$//')
-
     XREPO_REVIEW_CONTEXT="
 REGISTERED RELATED PROJECTS (cross-repo registry for this project):${XREPO_REGISTERED:-
 (none registered yet)}
@@ -82,7 +53,22 @@ N1-registered projects on this machine: ${XREPO_KNOWN}
 
 Check the diff for imports, API calls, env var references, or service names pointing to any N1-registered project that is NOT in the registered related projects list above. Flag each as an [XREPO-N] advisory finding (Low severity, non-blocking) per your Cross-Repo Advisories output section."
 fi
+echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED"
 ```
+
+**Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
+procedure before any reviewer that may execute lint/typecheck tooling.
+Marker-guarded no-op on the normal path.
+
+> **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step. Reviewers and the developer (fix mode) run what they need; the orchestrator only reads their returned findings and routes them.**
+
+**Shared review core:** Read and follow `<N1_ROOT>/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = `$BASE_BRANCH` (resolved at step begin — the branch-point file pins the review diff to THIS ticket's commits; diffing against `git.defaultBranch` balloons to the whole parent branch when the run started from a non-default branch). It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT) and reviewer selection with skip-recording.
+
+**Spawn agents in PARALLEL:** code-reviewer + security-reviewer (if SECURITY_RELEVANT)
+
+Resolve models for code-reviewer (with context `review`) and security-reviewer (with context `review`).
+
+Prepare review context (curated per reviewer, not one identical bundle; `review-spec.md`, `qa-facts.md`, and `XREPO_REVIEW_CONTEXT` were generated in the step-begin block above).
 
 - **Shared:** the PATHS `$MEM/ticket.md` and `$MEM/qa-facts.md` (instruct each reviewer: "Read these files yourself; their content is NOT inlined here"), the base branch name, and the `## Key Decisions` + `## Escalations` slices of `overview.md` inline — so neither reviewer flags a deliberate, recorded choice as a defect.
 - **code-reviewer also receives** the paths `$MEM/review-spec.md` and, when it exists, `$MEM/plan.md`. It does **NOT** receive `implementation.md` or `brainstorm.md`: the reviewer is a cold second pair of eyes and must derive what changed from the diff, not from the author's account. Add the directive: **"You are a cold second pair of eyes. Review the code that is actually there against the spec. Do not assume intent the code does not demonstrate. Identify changed files with `git diff --name-only <BASE_BRANCH>...HEAD`."**
@@ -119,17 +105,17 @@ CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 CYCLE=${CYCLE:-1}
 ```
 
-For each confirmed Critical or High finding (from code-reviewer or security-reviewer), compute and append — the angle-bracket values are per-finding placeholders, not literals: substitute the finding's actual ID (e.g., `CR-1`, `SEC-2`), its actual severity (`Critical` or `High`), and the actual file path and title from the finding:
+For each confirmed Critical or High finding (from code-reviewer or security-reviewer), compute and append — the angle-bracket values are per-finding placeholders, not literals: substitute the finding's actual ID (e.g., `CR-1`, `SEC-2`), its actual severity (`Critical` or `High`), and the actual file path and title from the finding. Run via Bash for each finding:
+  ```bash
+  FP=$(n1_fingerprint_finding "<file_path>" "<finding_title>")
+  n1_fingerprint_append "$FP_FILE" "$FP" "<finding_id>" "<severity>" "active" "$CYCLE"
+  ```
 
-```bash
-FP=$(n1_fingerprint_finding "<file_path>" "<finding_title>")
-n1_fingerprint_append "$FP_FILE" "$FP" "<finding_id>" "<severity>" "active" "$CYCLE"
-```
-
-**Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `review_fix_cycle > 0`:
+**Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `review_fix_cycle > 0` and emit step-end telemetry:
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/step.sh"
 source "$N1_ROOT/lib/fingerprints.sh"
 source "$N1_ROOT/lib/frontmatter.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
@@ -142,13 +128,12 @@ if [ "$CYCLE" -gt 0 ]; then
         # Context: "Review findings are not converging (blocking count: <prev> -> <new>). Continuing fix cycles is unlikely to resolve the remaining issues."
     fi
 fi
+n1_step_end "review" 9 "success"
 ```
 
 On non-convergence (blocking count for cycle N is not less than cycle N-1), escalate to the user immediately using the same escalation protocol as bound exhaustion, with context: "Review findings are not converging. Continuing fix cycles is unlikely to resolve the remaining issues."
 
 **Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
-
-Update overview: `[x] Review`, set `step: review`
 
 ### 7b. TQ FIX LOOP (if TQ findings exist)
 
