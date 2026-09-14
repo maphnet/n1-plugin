@@ -1,40 +1,25 @@
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step (FINALIZE MEMORY) — do NOT write a summary message or yield to the user.**
 
-**Context discipline — resolve `prMode` (below) BEFORE opening any memory file:**
-- Do not read full reports in this session — n1-pr extracts the verdict lines it needs via `grep`, and the tech-writer reads the full files itself via the paths it receives.
+Do not read full reports — n1-pr extracts what it needs via `grep`; tech-writer reads files directly.
 
-Resolve `prMode` from `$N1_HOME/config.json` using the fallback chain:
-1. If `git.prMode` is present → use it (`"draft"` or `"ready"`)
-2. Else if `git.draftPR` is `false` → treat as `"ready"`
-3. Otherwise → treat as `"draft"`
+Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"ready"`; else → `"draft"`.
 
-**REQUIRED SUB-SKILL:** Use n1:n1-pr to create the pull request.
+**REQUIRED SUB-SKILL:** `n1:n1-pr`. Pass: `docUpdateMode: "autonomous"`.
 
-Pass to n1-pr:
-- `docUpdateMode: "autonomous"` — doc updates run without user confirmation in the pipeline
-
-After PR is created:
-- The PR skill reports the URL
-- **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** any later user request to change the branch is handled per n1-pr `## Step 8: Post-PR Follow-ups` (developer agent in fix mode) — the orchestrator never edits or commits project files itself.
-
-**Record pending-merge state** (enables cross-session finish resume):
-
-Append (or replace, idempotent upsert) a `## Pending` section in `$N1_HOME/memory/$ID/overview.md`:
-
+After PR created: record `## Pending` section in `$N1_HOME/memory/$ID/overview.md` (idempotent upsert):
 ```markdown
 ## Pending
 awaiting: merge
 pr: <PR number>
 pr_url: <PR URL>
 branch: <branch name>
-last_checked: <output of `date -u +%Y-%m-%dT%H:%M:%SZ`>
+last_checked: <date -u +%Y-%m-%dT%H:%M:%SZ>
 created: <same timestamp>
 ```
 
-Update overview: `[x] PR`, set `step: pr`
+Update overview: `[x] PR`, set `step: pr`.
 
-**Emit quality outcomes (if telemetry enabled):**
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/telemetry.sh"
@@ -60,6 +45,6 @@ n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetr
     "review_discarded_count=$DISCARDED"
 ```
 
-Record the PR URL in `overview.md` `## Pending` section. Gate 3 (emitted in FINALIZE MEMORY) carries the `PR: <url>` line — do not print a CHECKPOINT here.
+Gate 3 (emitted in FINALIZE MEMORY) carries `PR: <url>` — do not print CHECKPOINT here.
 
 <!-- AUDIT N1-37: stop after n1:n1-pr is intentional — this is the Tech Lead review checkpoint. Do NOT add a continuation directive here. -->

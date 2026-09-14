@@ -1,124 +1,52 @@
+<!-- n1:step-snippet-exception: FAIL/PASS branching: separate asked/auto-decided telemetry, PASS-only counter and step_end -->
 
-**Step begin:** Emit `started_at` for step 10 (`fix`) and resolve routing values before any other work in this step:
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"
-source "$N1_ROOT/lib/config.sh"
-n1_step_begin "fix" 10
-DEVELOPER_MODEL=$(n1_resolve_model developer fix)
-QE=$(n1_autonomy_val 'qualityEscalations')
-echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
-echo "QE=$QE"
+source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"
+n1_step_begin "fix" 10; DEVELOPER_MODEL=$(n1_resolve_model developer fix); QE=$(n1_autonomy_val 'qualityEscalations')
 ```
 
-**Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
-procedure before spawning the developer. Marker-guarded no-op if already installed
-or if no worktree is active, but keeps a resumed/partial pipeline (entering directly
-at fix in a fresh worktree) safe.
+Run **Ensure Dependencies(`<ID>`)** before spawning.
 
-If the combined Step-7 verdict is FAIL:
+**FAIL:** spawn developer `$DEVELOPER_MODEL`; pass Critical+High findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
 
-**Spawn agent:** developer
-
-Spawn the developer with model `$DEVELOPER_MODEL` (resolved at step begin — do NOT substitute a different model).
-
-Pass to developer:
-- Combined review findings (Critical + High only)
-- List of affected files
-- Output-path directive: "After applying fixes, record your 'Fixes Applied' report (your standard Fix Cycle output format) in `$N1_HOME/memory/<ID>/implementation.md` yourself, under a `## Fix Cycle <N>` heading where `<N>` is the current `review_fix_cycle` value. If a `## Fix Cycle <N>` section for this N already exists, REPLACE it (idempotent upsert — safe on re-run), never duplicate it. Return to the orchestrator ONLY: the list of commit SHAs with one-line summaries, and `Findings fixed: N/M`."
-
-**Fix-the-class directive (security-shaped findings):** Before spawning the developer, scan the confirmed Critical/High findings. If ANY of the following conditions is true — a finding tagged `[SEC-N]`, OR a finding whose title contains any of: injection, XSS, CSRF, authentication, authorization, traversal, deserialization, command execution, SSRF, open redirect, SQL injection, path traversal, RCE — append this directive to the developer spawn prompt:
-
-> "One or more findings are security-shaped. When fixing a security finding, do NOT fix only the specific instance reported. Instead, fix the entire CLASS of the vulnerability: search the codebase for all variants of the same pattern (e.g., all injection points, all unsanitized inputs of the same type, all instances of the same auth bypass pattern) and fix them all in one pass. This prevents variant whack-a-mole where fixing one instance exposes the next variant in the subsequent review cycle."
+**Security findings** (`[SEC-N]` or security CVE title): append "Fix the entire CLASS — search all variants and fix in one pass."
 
 After developer returns:
-- Run via Bash (so the bound survives a resume):
-  ```bash
-  n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
-  ```
-- Emit one fix-loop iteration line (exempt from inter-gate silence per D2): `<ID> · review fix cycle <N>/<MAX>`
-- Go back to **Step 7** (REVIEW) — re-run both reviewers
-- The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3); when `review_fix_cycle` reaches it, escalate to the user. **Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
-
-**Autonomy gate:** when this step must escalate (a blocking ambiguity it cannot resolve), use `QE` resolved at step begin.
-
-If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — accept the developer's best-effort resolution as-is, note the ambiguity, and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
-
-`| fix | quality | A | [auto] | <ambiguity the developer encountered during fix cycle> | Accept developer resolution, proceed | Ask user, Abort | qualityEscalations=auto-accept; surfaced for PR review | --- |`
-
-Then continue the pipeline as if the user had chosen the recommended option. Otherwise (policy `block`, or safety-relevant): ask as below.
-
-**Problem preamble:** compose a 1-2 sentence summary:
-- Extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md`.
-- Extract the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`.
-- Format: `"{Title}: {Core Ask (≤1 sentence)}."` — call this `PREAMBLE`. If either part is unavailable omit it.
-- **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely — do not fall back to parsing the section body.
-
-**Resolution ladder (before asking):** Before escalating to the user, the orchestrator MUST attempt:
-1. **Codebase search** -- check if the ambiguity can be resolved from code context
-2. **Web search** -- search for the specific error, API behavior, or pattern
-3. **Command prescription** -- when the answer is observable on the host (e.g., a config file, environment variable, installed package), note the command and a reasonable default
-4. **Prior decisions** -- check overview.md Decision Ledger for prior decisions on similar questions
-
-Only if all rungs fail, proceed to ask. Include a "Decide for me" option in the escalation prompt. Run via Bash:
-  ```bash
-  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-  source "$N1_ROOT/lib/telemetry.sh"
-  n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "asked" "codebase|web|command|prior-decisions"
-  ```
-
-Then ask:
-
+```bash
+n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 ```
-{PREAMBLE} The developer encountered an ambiguity during this fix cycle that requires your input: [details].
+Emit: `<ID> · review fix cycle <N>/<MAX>`. Return to Step 7. Bound: `review.maxFixAttempts` (default 3).
 
-Tried: <rungs attempted, e.g., codebase search (no match), web search (inconclusive)>
-
-1. <recommended resolution>  (Recommended)
-2. <alternative>
-3. Decide for me -- research and apply recommendation
-
-Please advise.
-```
-
-When "Decide for me" is selected: re-run web search with broader terms, apply the recommendation, record as `[auto-decided]` with `rungs_tried` and reason `decide-for-me: <evidence>`. Do not ask a follow-up question. Run via Bash:
-  ```bash
-  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-  source "$N1_ROOT/lib/telemetry.sh"
-  n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "auto-decided" "codebase|web|command|prior-decisions"
-  ```
-
-If the combined Step-7 verdict is PASS:
-- Run via Bash:
-  ```bash
-  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-  source "$N1_ROOT/lib/frontmatter.sh"
-  n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "clean_passes"
-  ```
-- Resolve `MIN_CLEAN=$(n1_config_val '.review.minCleanPasses')`; if empty, default to `1` (never re-run reviewers that already returned PASS — the config knob remains for anyone wanting belt-and-suspenders, only the default is 1).
-- If `clean_passes` < `MIN_CLEAN`: go back to Step 7
-- If `clean_passes` >= `MIN_CLEAN`: proceed
-
-**Full-suite regression check (orchestrator-side, once at PASS transition):**
-
-Discover the full-suite test command using the same detection as the qa-engineer agent (Step 2: Find test conventions): inspect the project root for `package.json` (`scripts.test`), `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod` (→ `go test ./...`), and a `Makefile` `test` target — first match wins.
-
-- **No test configuration found:** append one line to the current `## Fix Cycle <N>` section in `$N1_HOME/memory/<ID>/implementation.md` (where `<N>` is `review_fix_cycle`): `Full-suite check skipped: no test configuration detected.` Then proceed.
-- **Test configuration found:** run via Bash and capture the exit code:
-  ```bash
-  <discovered-test-command> 2>&1; FULL_SUITE_EXIT=$?
-  ```
-  Append one line to the current `## Fix Cycle <N>` section in `$N1_HOME/memory/<ID>/implementation.md`:
-  ```
-  **Full-suite run:** exit code <FULL_SUITE_EXIT> — <PASS|FAIL>
-  ```
-  - **Exit code 0 (pass):** proceed.
-  - **Exit code non-zero (fail):** surface the failure output to the user: "Full test suite failed after fix cycle <N> (exit code <FULL_SUITE_EXIT>) — potential regression introduced during fix cycles. Fix failing tests before proceeding, or acknowledge explicitly."
-    - Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: auto-spawn the developer agent once to fix the regression (same spawn parameters as the fix cycle above, with additional context: "Full test suite failed — fix the regressions introduced during fix cycles before returning"). Append a Decision Ledger row: `| fix | mechanical | B | [auto] | Full-suite regression after fix cycle <N> | Spawn developer to fix regression | Ask user, Proceed with regression | mechanicalPrompts=auto; regression fix attempted once | --- |`. After developer returns, re-run the full-suite check once more; if it still fails, fall through to the interactive prompt below. If `MP` is `ask` (default) or the re-run still fails: ask: "Fix the regression now (re-spawn developer) or proceed anyway (regression will land in CI)?"
-    - Do NOT silently proceed on a non-zero exit.
-
+**Escalation:** `QE==auto-accept` AND not security/architecture/public-API: take recommended action, append Decision Ledger row `| fix | quality | A | [auto] | <ambiguity> | Accept developer resolution, proceed | Ask, Abort | qualityEscalations=auto-accept | --- |`. Otherwise: resolution ladder (codebase→web→command+default→prior decisions). If all fail:
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/step.sh"
-n1_step_end "fix" 10 "success"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "asked" "codebase|web|command|prior-decisions"
+```
+**Preamble:** `"{Title}: {Core Ask}."` Bug+root-cause: prepend. Ask: "{PREAMBLE} Ambiguity: [details]. 1. <recommended> (Recommended) 2. <alt> 3. Decide for me"
+
+"Decide for me": web search, apply, then:
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/step.sh"
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "auto-decided" "codebase|web|command|prior-decisions"
+```
+
+**PASS verdict:**
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"; n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "clean_passes"
+```
+`clean_passes < MIN_CLEAN` (default 1) → back to Step 7. `clean_passes >= MIN_CLEAN` → proceed.
+
+**Full-suite regression check** (once at PASS): detect: `package.json scripts.test`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod`, `Makefile test`. First match wins; none → "Full-suite check skipped." Found:
+```bash
+<discovered-test-command> 2>&1; FULL_SUITE_EXIT=$?
+```
+Append to `## Fix Cycle <N>`: `**Full-suite:** exit <FULL_SUITE_EXIT> — PASS|FAIL`. Exit 0: proceed. Non-zero: `MP=$(n1_autonomy_val 'mechanicalPrompts')`. `MP==auto` + first attempt: spawn developer to fix, re-run once. Else: ask "Fix regression or proceed?"
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/step.sh"; n1_step_end "fix" 10 "success"
 ```

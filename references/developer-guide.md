@@ -49,7 +49,7 @@ Skills under 6 KB remain in their existing `skills/<name>/SKILL.md` form without
 
 **Procedures:** Shared content referenced by 2+ steps within one skill. Loaded by the step that needs it, never by the dispatcher. Content used by only one step stays inline.
 
-**Reference implementations:** `n1-init` (15 step files, dispatcher-only architecture) and `n1-start` (16 step files + 10 procedures for shared orchestrator logic).
+**Reference implementations:** `n1-init` (15 step files, dispatcher-only architecture) and `n1-start` (16 step files + 11 procedures for shared orchestrator logic).
 
 **Size enforcement:** `tests/test_skill_size.sh` asserts all SKILL.md files are under 6 KB in CI.
 
@@ -58,7 +58,7 @@ Skills under 6 KB remain in their existing `skills/<name>/SKILL.md` form without
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
 - **Plugin manifests:** `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (Claude Code), `plugin.json` + `.agents/plugins/marketplace.json` (Codex); bump all four with `scripts/bump-version.sh`
 - **Dependency:** Superpowers plugin >=5.0
-- **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/agent_profiles.py` (Codex persona TOML generator), `lib/transcript_codex.py` (Codex rollout parser), `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/step.sh` (per-step begin/end helpers: telemetry, frontmatter, signal persistence, decision records), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation), `lib/story.sh` (story orchestrator: service→repo lookup, model pick, toposort, child status/launch)
+- **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/agent_profiles.py` (Codex persona TOML generator), `lib/transcript_codex.py` (Codex rollout parser), `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/step.sh` (per-step begin/end helpers: telemetry, frontmatter, signal persistence, decision records), `lib/context.sh` (context-persistence: write/read TIER/TYPE/DESC_QUALITY/LITE_MODE to `ticket-context.sh` so downstream bash snippets can source it instead of re-deriving from frontmatter), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation), `lib/story.sh` (story orchestrator: service→repo lookup, model pick, toposort, child status/launch)
 
 ## Plugin Development
 
