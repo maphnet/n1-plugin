@@ -43,12 +43,13 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 |------|------|-------|
 | 1. REQUIREMENTS ANALYSIS | `steps/ticket.md` | |
 | 2. ANALYSIS | `steps/analysis.md` | moveStatus → In Progress |
-| 3. BRAINSTORM | `steps/brainstorm.md` | interactive unless auto |
+| Simple-Path Routing | — | `n1_read_context`; if `SIMPLE_PATH=true`: skip steps 3, 4, 4b, Gate 2 — jump to Estimation (if enabled) then Step 5 |
+| 3. BRAINSTORM | `steps/brainstorm.md` | interactive unless auto; skipped on simple-path |
 | 3b. INVESTIGATION DELIVERABLE | `steps/investigation-deliverable.md` | investigation mode only; terminates pipeline |
 | Estimation | `steps/estimation.md` | run after brainstorm (direct) or after plan |
 | Planning Need Routing | — | `plan` → Step 4; `direct` → Estimation then Step 5 |
-| 4. PLAN | `steps/plan.md` | plan path only |
-| 4b. PLAN REVIEW | `steps/plan-review.md` | |
+| 4. PLAN | `steps/plan.md` | plan path only; skipped on simple-path |
+| 4b. PLAN REVIEW | `steps/plan-review.md` | skipped on simple-path |
 | Gate 2 | — | emit Gate 2; if `n1_plan_approval_required`: await user approval |
 | 5. IMPLEMENT | `steps/implementation.md` | emit `<ID> · implementing — <N> files` |
 | 5b. RUNTIME CROSS-REPO | `procedures/cross-repo.md §5b` | |

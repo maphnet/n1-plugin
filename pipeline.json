@@ -100,6 +100,28 @@
     { "name": "smoke",          "number": 17, "agent": "n1:n1-finish",         "reads": ["overview.md"],                                        "writes": ["overview.md"] }
   ],
   "manual_only": ["release"],
+  "signal_routing": [
+    {
+      "name": "simple_path",
+      "decision_id": "simple-path",
+      "evaluated_after": "analysis",
+      "condition": { "all": [
+        { "frontmatter": "tier",   "eq":  "simple" },
+        { "signal": "analysis.blast_radius",     "eq":  "low"  },
+        { "signal": "analysis.files_changed",    "lt":  3      },
+        { "signal": "analysis.security_relevant","neq": "true" },
+        { "any": [
+          { "frontmatter": "type", "eq": "task"  },
+          { "frontmatter": "type", "eq": "chore" },
+          { "all": [
+            { "frontmatter": "type",                     "eq": "bug"  },
+            { "signal": "analysis.has_bug_root_cause",   "eq": "true" }
+          ]}
+        ]}
+      ]},
+      "skips": ["brainstorm", "plan", "plan-review"]
+    }
+  ],
   "gates": [
     { "name": "estimation",    "config_key": "estimation.enabled",     "default": false, "skips": ["estimation"] },
     { "name": "plan_review",   "config_key": "planReview.reviewPlan",  "default": true,  "skips": ["plan-review"] },

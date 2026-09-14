@@ -65,6 +65,17 @@ SELF_RESOLVED=$(grep -c '<!-- n1:resolved:' "$N1_HOME/memory/$ID/analysis.md" 2>
 [ "$SELF_RESOLVED" -gt 0 ] && n1_write_signals "$N1_HOME/memory/$ID/analysis.md" "self_resolved=$SELF_RESOLVED"
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 [ "$TYPE" != "investigation" ] && n1_compact_memory "$N1_HOME/memory/$ID/analysis.md" "conclusions,affected files,blast radius,risks,industry standards,bug investigation,tier"
+BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius"); FILES_CHANGED_A=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")
+SECURITY=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "security_relevant"); HAS_ROOT_CAUSE=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "has_bug_root_cause")
+SIMPLE_PATH=false
+if [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHANGED_A:-999}" -lt 3 ] && [ "$SECURITY" != "true" ]; then
+    if [ "$TYPE" = "task" ] || [ "$TYPE" = "chore" ] || { [ "$TYPE" = "bug" ] && [ "$HAS_ROOT_CAUSE" = "true" ]; }; then
+        SIMPLE_PATH=true
+    fi
+fi
+n1_record_decision simple-path "$SIMPLE_PATH" '{"all":[{"frontmatter":"tier","eq":"simple"},{"signal":"analysis.blast_radius","eq":"low"},{"signal":"analysis.files_changed","lt":3},{"signal":"analysis.security_relevant","neq":"true"},{"any":[{"frontmatter":"type","eq":"task"},{"frontmatter":"type","eq":"chore"},{"all":[{"frontmatter":"type","eq":"bug"},{"signal":"analysis.has_bug_root_cause","eq":"true"}]}]}]}' "tier=$TIER" "type=$TYPE" "blast=$BLAST" "files_changed=${FILES_CHANGED_A:-}" "security_relevant=${SECURITY:-}" "has_bug_root_cause=${HAS_ROOT_CAUSE:-}"
+n1_write_context
+[ "$SIMPLE_PATH" = "true" ] && echo "Simple-path: skipping brainstorm and plan"
 XREPO_PENDING_FILE="$N1_HOME/memory/$ID/xrepo-pending.tsv"; rm -f "$XREPO_PENDING_FILE"
 XREPO_SUGGESTS=$(echo "$AGENT_OUTPUT" | grep '^XREPO_SUGGEST: ' || true)
 if [ -n "$XREPO_SUGGESTS" ]; then
@@ -81,7 +92,7 @@ if [ -n "$XREPO_SUGGESTS" ]; then
 fi
 [ -s "$XREPO_PENDING_FILE" ] && { printf '\nSA detected cross-repo integrations:\n'; awk -F'\t' '{printf "- %s: %s\n",$1,$2}' "$XREPO_PENDING_FILE"; printf '\nAdd? (yes/no/select)\n'; }
 ```
-Missing/empty: re-prompt once; fallback write summary. DRIFT: delete snapshot. Extract `tier:` → write frontmatter. `CONTEXT_BLOCK` → replace `## Context`; **Print Gate 1**. `SELF_RESOLVED>0`: `[auto]` ledger. Update overview: `[x] Analysis`, `step: analysis`.
+Missing/empty: re-prompt once; fallback write summary. DRIFT: delete snapshot. Extract `tier:` → write frontmatter. `CONTEXT_BLOCK` → replace `## Context`; **Print Gate 1** (`SIMPLE_PATH=true`: pipeline shows `analysis → developer → qa → review → pr (simple-path)`). `SELF_RESOLVED>0`: `[auto]` ledger. Update overview: `[x] Analysis`, `step: analysis`.
 
 Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":**
 ```bash
