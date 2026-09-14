@@ -75,7 +75,7 @@ python3 "$SCRIPT" report --out "$OUT" [--by week]
 rm -rf "$WORK"
 ```
 
-Print the report exactly as the script emitted it. Do not summarize it away; the user wants the tables. After it, add at most three sentences of interpretation, and mention if the unlinked list or the insufficient list is long.
+Print the report exactly as the script emitted it. Do not summarize it away; the user wants the tables. The report includes per-version metric tables, a baseline comparison, drift vs. the previous snapshot, a "Worst runs" section, and a "Tool efficiency" section showing `bash_calls_per_run` and `api_calls_per_run` (Bash and total tool invocations by the orchestrator). After it, add at most three sentences of interpretation, and mention if the unlinked list or the insufficient list is long.
 
 ## Storage
 

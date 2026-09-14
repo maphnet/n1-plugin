@@ -1,9 +1,14 @@
 
-**Telemetry (if enabled):** Emit `started_at` for step 10 (`fix`) before any other work in this step:
+**Step begin:** Emit `started_at` for step 10 (`fix`) and resolve routing values before any other work in this step:
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
-n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "fix" 10 "${N1_HOME}/memory/$ID/telemetry" started_at=now
+source "$N1_ROOT/lib/step.sh"
+source "$N1_ROOT/lib/config.sh"
+n1_step_begin "fix" 10
+DEVELOPER_MODEL=$(n1_resolve_model developer fix)
+QE=$(n1_autonomy_val 'qualityEscalations')
+echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
+echo "QE=$QE"
 ```
 
 **Ensure dependencies (worktree mode).** Run the **Ensure Dependencies(`<ID>`)**
@@ -15,14 +20,7 @@ If the combined Step-7 verdict is FAIL:
 
 **Spawn agent:** developer
 
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-DEVELOPER_MODEL=$(n1_resolve_model developer fix)
-echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
-```
-
-Spawn the developer with model `$DEVELOPER_MODEL` (resolved above — do NOT substitute a different model).
+Spawn the developer with model `$DEVELOPER_MODEL` (resolved at step begin — do NOT substitute a different model).
 
 Pass to developer:
 - Combined review findings (Critical + High only)
@@ -42,11 +40,7 @@ After developer returns:
 - Go back to **Step 7** (REVIEW) — re-run both reviewers
 - The bound is `review.maxFixAttempts` (config in `$N1_HOME/config.json`, default 3); when `review_fix_cycle` reaches it, escalate to the user. **Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
 
-**Autonomy gate:** when this step must escalate (a blocking ambiguity it cannot resolve), read the policy first:
-
-```bash
-QE=$(n1_autonomy_val 'qualityEscalations')
-```
+**Autonomy gate:** when this step must escalate (a blocking ambiguity it cannot resolve), use `QE` resolved at step begin.
 
 If `QE` is `auto-accept` AND the situation is NOT security/architecture/public-API related (those always block): take the recommended action instead of asking — accept the developer's best-effort resolution as-is, note the ambiguity, and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` per `skills/n1-start/ledger.md`:
 
@@ -66,13 +60,12 @@ Then continue the pipeline as if the user had chosen the recommended option. Oth
 3. **Command prescription** -- when the answer is observable on the host (e.g., a config file, environment variable, installed package), note the command and a reasonable default
 4. **Prior decisions** -- check overview.md Decision Ledger for prior decisions on similar questions
 
-Only if all rungs fail, proceed to ask. Include a "Decide for me" option in the escalation prompt.
-
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "asked" "codebase|web|command|prior-decisions"
-```
+Only if all rungs fail, proceed to ask. Include a "Decide for me" option in the escalation prompt. Run via Bash:
+  ```bash
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/telemetry.sh"
+  n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "asked" "codebase|web|command|prior-decisions"
+  ```
 
 Then ask:
 
@@ -88,12 +81,12 @@ Tried: <rungs attempted, e.g., codebase search (no match), web search (inconclus
 Please advise.
 ```
 
-When "Decide for me" is selected: re-run web search with broader terms, apply the recommendation, record as `[auto-decided]` with `rungs_tried` and reason `decide-for-me: <evidence>`. Do not ask a follow-up question.
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "auto-decided" "codebase|web|command|prior-decisions"
-```
+When "Decide for me" is selected: re-run web search with broader terms, apply the recommendation, record as `[auto-decided]` with `rungs_tried` and reason `decide-for-me: <evidence>`. Do not ask a follow-up question. Run via Bash:
+  ```bash
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/telemetry.sh"
+  n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "auto-decided" "codebase|web|command|prior-decisions"
+  ```
 
 If the combined Step-7 verdict is PASS:
 - Run via Bash:
@@ -124,4 +117,8 @@ Discover the full-suite test command using the same detection as the qa-engineer
     - Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: auto-spawn the developer agent once to fix the regression (same spawn parameters as the fix cycle above, with additional context: "Full test suite failed — fix the regressions introduced during fix cycles before returning"). Append a Decision Ledger row: `| fix | mechanical | B | [auto] | Full-suite regression after fix cycle <N> | Spawn developer to fix regression | Ask user, Proceed with regression | mechanicalPrompts=auto; regression fix attempted once | --- |`. After developer returns, re-run the full-suite check once more; if it still fails, fall through to the interactive prompt below. If `MP` is `ask` (default) or the re-run still fails: ask: "Fix the regression now (re-spawn developer) or proceed anyway (regression will land in CI)?"
     - Do NOT silently proceed on a non-zero exit.
 
-Update overview: `[x] Review`, set `step: review`
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/step.sh"
+n1_step_end "fix" 10 "success"
+```

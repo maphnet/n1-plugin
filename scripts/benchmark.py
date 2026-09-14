@@ -66,6 +66,29 @@ def read_jsonl(path: Path):
             yield None, line
 
 
+def count_tool_calls(path: Path):
+    """Read a Claude Code transcript JSONL and count tool_use events from the orchestrator.
+
+    Returns (bash_calls, api_calls):
+      bash_calls — tool_use items whose name is "Bash"
+      api_calls  — all tool_use items
+    Sidechain assistant records are excluded to isolate the orchestrator.
+    """
+    bash_calls, api_calls = 0, 0
+    for rec, _ in read_jsonl(path):
+        if not rec or rec.get("type") != "assistant" or rec.get("isSidechain"):
+            continue
+        content = (rec.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "tool_use":
+                api_calls += 1
+                if item.get("name") == "Bash":
+                    bash_calls += 1
+    return bash_calls, api_calls
+
+
 def load_runs(n1_root: Path):
     """Load merged run records from <n1_root>/*/memory/*/telemetry/runs/*.jsonl.
 
@@ -552,6 +575,24 @@ class QuestionShareMetric(Metric):
         return round(matched / len(questions), 3)
 
 
+class BashCallsMetric(Metric):
+    """Bash tool invocations per run (pre-computed in compute_run_metrics)."""
+    name, unit, direction = "bash_calls_per_run", "count", "lower"
+
+    def compute(self, run_record, turns):
+        v = run_record.get("_bash_calls")
+        return float(v) if isinstance(v, (int, float)) else None
+
+
+class ApiCallsMetric(Metric):
+    """Total tool_use items from the orchestrator per run (pre-computed in compute_run_metrics)."""
+    name, unit, direction = "api_calls_per_run", "count", "lower"
+
+    def compute(self, run_record, turns):
+        v = run_record.get("_api_calls")
+        return float(v) if isinstance(v, (int, float)) else None
+
+
 INTERACTIVE_STEPS = frozenset({"brainstorm"})
 
 METRICS = [
@@ -572,6 +613,9 @@ METRICS = [
     QuestionShareMetric("recommended_followed_share", "auto-decided"),
     QuestionShareMetric("decide_for_me_share", "decide-for-me"),
     QuestionShareMetric("inherited_share", "inherited"),
+    # Tool efficiency
+    BashCallsMetric(),
+    ApiCallsMetric(),
 ]
 TURN_METRICS = [m for m in METRICS if isinstance(m, TurnCountMetric)]
 
@@ -579,6 +623,12 @@ TURN_METRICS = [m for m in METRICS if isinstance(m, TurnCountMetric)]
 def compute_run_metrics(cache: dict) -> None:
     run_record = cache.get("run_record") or {}
     run_record["questions"] = cache.get("questions", [])
+    # Pre-compute tool call counts so BashCallsMetric / ApiCallsMetric can read them.
+    transcript_path = cache.get("transcript_path")
+    if transcript_path and Path(transcript_path).is_file():
+        bash_c, api_c = count_tool_calls(Path(transcript_path))
+        run_record["_bash_calls"] = bash_c
+        run_record["_api_calls"] = api_c
     turns = cache.get("turns") or []
     linked = cache.get("link_method", "heuristic") in ("run_record", "agent_event", "heuristic")
     turn_arg = turns if linked else None
@@ -921,6 +971,17 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
                      f"{c['metrics']['corrections']:g} corrections. {reasons or 'no judge reasons'}. {c.get('transcript_path') or ''}")
     if not worst:
         lines.append("- none")
+    lines.append("")
+
+    # Tool efficiency
+    lines += ["## Tool efficiency", ""]
+    lines += ["| group | bash_calls_per_run | api_calls_per_run |", "|---|---|---|"]
+    for key in _sorted_groups(snapshot):
+        bc = _fmt_stat(g[key]["metrics"].get("bash_calls_per_run"))
+        ac = _fmt_stat(g[key]["metrics"].get("api_calls_per_run"))
+        lines.append(f"| {key} | {bc} | {ac} |")
+    lines.append("")
+    lines.append("Cells: mean [95% bootstrap CI] (n). Lower is better.")
     lines.append("")
 
     lines.append(f"Snapshot {snapshot['snapshot_id']}, plugin {snapshot.get('plugin_version') or 'unknown'}, "

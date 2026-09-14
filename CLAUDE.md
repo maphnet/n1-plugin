@@ -18,7 +18,7 @@ See [references/developer-guide.md](references/developer-guide.md) for project s
 
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
 - **Dependency:** Superpowers plugin >=5.0
-- **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/config.sh`, `lib/signals.sh`, `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`, `lib/story.sh`, `lib/related.sh`
+- **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/config.sh`, `lib/signals.sh`, `lib/step.sh` (per-step begin/end helpers), `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`, `lib/story.sh`, `lib/related.sh`
 - **Host layer:** skill text is host-neutral; per-host syntax lives in `references/host-routing.md` and is injected by the session-start hook as HOST ROUTING. `tests/test_host_neutral_skills.sh` rejects host literals in `skills/` and `agents/`.
 
 ## Plugin Development

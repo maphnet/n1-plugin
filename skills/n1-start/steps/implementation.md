@@ -22,13 +22,15 @@ Apply these to every `developer` agent spawn below. The only variable is the **I
 
 ### Signal-Driven Simplicity Gate
 
-Before the normal planning_need routing, check runtime signals for a simple-task bypass:
+Emit `started_at` for step 7 (`implementation`) and resolve all routing values before any other work in this step:
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/step.sh"
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/signals.sh"
 source "$N1_ROOT/lib/config.sh"
+n1_step_begin "implementation" 7
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
 # Prefer brainstorm signals (post-design, scope-aware) over analysis (pre-design estimate).
 # Brainstorm may not exist when skipped (e.g. bug with known root cause).
@@ -37,7 +39,12 @@ BLAST="${BLAST:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius
 FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "files_changed" 2>/dev/null)
 FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")}"
 DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
-echo "TIER=$TIER BLAST=$BLAST FILES_CHANGED=$FILES_CHANGED DEVELOPER_MODEL=$DEVELOPER_MODEL"
+PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need")
+GATE_RESULT=$( [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHANGED:-999}" -lt 3 ] && echo true || echo false )
+n1_record_decision simplicity-gate "$GATE_RESULT" \
+  '{"all":[{"signal":"brainstorm.blast_radius","fallback":"analysis.blast_radius","eq":"low"},{"signal":"brainstorm.files_changed","fallback":"analysis.files_changed","lt":3}]}' \
+  "tier=$TIER"
+echo "TIER=$TIER BLAST=$BLAST FILES_CHANGED=$FILES_CHANGED DEVELOPER_MODEL=$DEVELOPER_MODEL PLANNING_NEED=$PLANNING_NEED"
 ```
 
 **Rules injection:** Run `procedures/rules-injection.md` with `agent_name=developer`, no `changed_files_source` (implementation.md does not exist yet; `CHANGED_FILES` will be empty, which correctly matches rules by agent name only). This populates `$RULES_BLOCK`.
@@ -54,31 +61,13 @@ Spawn the developer agent with the Standard developer spawn directives above. In
 Log the gate decision to overview.md `## Key Decisions`:
 - Gate triggered: "Implementation simplicity gate: direct developer spawn (tier=$TIER, blast_radius=$BLAST, files_changed=$FILES_CHANGED, model=$DEVELOPER_MODEL)"
 
-Record the decision for telemetry (both outcomes):
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
-GATE_RESULT=$( [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHANGED:-999}" -lt 3 ] && echo true || echo false )
-n1_record_decision simplicity-gate "$GATE_RESULT" \
-  '{"all":[{"signal":"brainstorm.blast_radius","fallback":"analysis.blast_radius","eq":"low"},{"signal":"brainstorm.files_changed","fallback":"analysis.files_changed","lt":3}]}' \
-  "tier=$TIER"
-```
-
 **If the developer agent succeeds** (produces `implementation.md`), proceed to signal computation and QA (skip the routing below).
 
 **If the developer agent fails** (exits without producing `implementation.md`), fall through to the normal routing below — the existing planning_need-based dispatch acts as the safety net.
 
-**If ANY condition fails → skip this gate** and proceed to the existing "Read the execution path" block below.
+**If ANY condition fails → skip this gate** and proceed to the routing below (based on `$PLANNING_NEED` resolved at step begin).
 
 ---
-
-**Read the execution path:**
-
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/frontmatter.sh"
-PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need")
-```
 
 Route based on `PLANNING_NEED`:
 - `direct` → **Direct path** (below)
@@ -88,14 +77,7 @@ Route based on `PLANNING_NEED`:
 
 **Spawn agent:** developer
 
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
-echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
-```
-
-Spawn the developer agent with model `$DEVELOPER_MODEL` (resolved above — do NOT substitute a different model).
+Spawn the developer agent with model `$DEVELOPER_MODEL` (resolved at step begin — do NOT substitute a different model).
 
 The developer runs in Direct Implementation mode — it reads the brainstorm directly and implements without SDD's task decomposition. This is appropriate because `planning_need: direct` tasks have fully-specified brainstorm output with independent, well-scoped changes.
 
@@ -121,14 +103,7 @@ Log the routing decision to overview.md `## Key Decisions`:
 
 **Spawn agent:** developer
 
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
-echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
-```
-
-Spawn the developer agent with model `$DEVELOPER_MODEL` (resolved above — do NOT substitute a different model).
+Spawn the developer agent with model `$DEVELOPER_MODEL` (resolved at step begin — do NOT substitute a different model).
 
 The developer runs in Direct Implementation mode with the plan as input. This is appropriate because the plan contains 1-2 independent tasks that fit within a single agent's context window — SDD's decomposition and multi-agent dispatch would add overhead without value.
 
@@ -189,9 +164,9 @@ else
     DIFF_SURFACE="config"
 fi
 n1_write_signals "$N1_HOME/memory/$ID/implementation.md" "diff_surface=$DIFF_SURFACE" "lines_changed=$LINES_CHANGED" "new_files_count=$NEW_FILES"
+source "$N1_ROOT/lib/step.sh"
+n1_step_end "implementation" 7 "success"
 ```
-
-- Update overview: `[x] Implementation`, set `step: implementation`
 - Proceed to Step 6 (QA).
 
 If the agent returned **BLOCKED:**

@@ -58,7 +58,7 @@ Skills under 6 KB remain in their existing `skills/<name>/SKILL.md` form without
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
 - **Plugin manifests:** `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (Claude Code), `plugin.json` + `.agents/plugins/marketplace.json` (Codex); bump all four with `scripts/bump-version.sh`
 - **Dependency:** Superpowers plugin >=5.0
-- **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/agent_profiles.py` (Codex persona TOML generator), `lib/transcript_codex.py` (Codex rollout parser), `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation), `lib/story.sh` (story orchestrator: service→repo lookup, model pick, toposort, child status/launch)
+- **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/agent_profiles.py` (Codex persona TOML generator), `lib/transcript_codex.py` (Codex rollout parser), `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/step.sh` (per-step begin/end helpers: telemetry, frontmatter, signal persistence, decision records), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation), `lib/story.sh` (story orchestrator: service→repo lookup, model pick, toposort, child status/launch)
 
 ## Plugin Development
 

@@ -395,8 +395,70 @@ class MetricsTest(unittest.TestCase):
                                  "duration_min", "orchestrator_output_tokens", "compactions",
                                  "questions_per_run", "brainstorm_questions",
                                  "recommended_followed_share", "decide_for_me_share",
-                                 "inherited_share"])
+                                 "inherited_share",
+                                 "bash_calls_per_run", "api_calls_per_run"])
         self.assertTrue(all(m.direction in ("lower", "higher") for m in bm.METRICS))
+
+
+def asst_with_tools(ts, tool_names, sidechain=False):
+    """Build an assistant transcript record with the given tool_use names in its content."""
+    content = [{"type": "tool_use", "id": f"t{i}", "name": n, "input": {}} for i, n in enumerate(tool_names)]
+    rec = {"type": "assistant", "timestamp": ts, "message": {"role": "assistant", "content": content}}
+    if sidechain:
+        rec["isSidechain"] = True
+    return rec
+
+
+class CountToolCallsTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+
+    def write(self, records):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, records)
+        return p
+
+    def test_counts_bash_and_total(self):
+        p = self.write([
+            asst_with_tools("2026-09-01T10:01:00Z", ["Bash", "Bash", "Read"]),
+            asst_with_tools("2026-09-01T10:02:00Z", ["Bash", "Edit"]),
+        ])
+        bash, api = bm.count_tool_calls(p)
+        self.assertEqual(bash, 3)
+        self.assertEqual(api, 5)
+
+    def test_excludes_sidechain_records(self):
+        p = self.write([
+            asst_with_tools("2026-09-01T10:01:00Z", ["Bash"]),
+            asst_with_tools("2026-09-01T10:02:00Z", ["Bash", "Read"], sidechain=True),
+        ])
+        bash, api = bm.count_tool_calls(p)
+        self.assertEqual(bash, 1)
+        self.assertEqual(api, 1)
+
+    def test_empty_transcript_returns_zeros(self):
+        p = self.write([human("2026-09-01T10:01:00Z", "hello")])
+        bash, api = bm.count_tool_calls(p)
+        self.assertEqual(bash, 0)
+        self.assertEqual(api, 0)
+
+    def test_missing_file_returns_zeros(self):
+        bash, api = bm.count_tool_calls(self.d.tmp / "nonexistent.jsonl")
+        self.assertEqual(bash, 0)
+        self.assertEqual(api, 0)
+
+    def test_compute_run_metrics_injects_tool_counts(self):
+        p = self.write([asst_with_tools("2026-09-01T10:01:00Z", ["Bash", "Read", "Bash"])])
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": str(p)}
+        bm.compute_run_metrics(cache)
+        self.assertEqual(cache["metrics"]["bash_calls_per_run"], 2.0)
+        self.assertEqual(cache["metrics"]["api_calls_per_run"], 3.0)
+
+    def test_compute_run_metrics_no_transcript_yields_none(self):
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": None}
+        bm.compute_run_metrics(cache)
+        self.assertIsNone(cache["metrics"]["bash_calls_per_run"])
+        self.assertIsNone(cache["metrics"]["api_calls_per_run"])
 
 
 class ApplyLabelsTest(unittest.TestCase):
@@ -561,6 +623,9 @@ class ReportTest(unittest.TestCase):
         self.assertIn("wrong file (2)", text)
         self.assertIn("Previous snapshot: 20260901T000000Z", text)
         self.assertIn("rubric v1", text)
+        self.assertIn("Tool efficiency", text)
+        self.assertIn("bash_calls_per_run", text)
+        self.assertIn("api_calls_per_run", text)
 
     def test_cmd_report_writes_file(self):
         d = TempDirs()
