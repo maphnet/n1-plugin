@@ -20,7 +20,7 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
   ```
   If 2 -> report and STOP.
 
-# Step 2: Resolve Release Metadata
+## Step 2: Resolve Release Metadata
 
 1. **Version**: resolved via `release.versionSource` config. The value is an object `{"file": "<path>", "jq": "<expression>"}` specifying where to read the version. When `release.versionSource` is `null` or absent, auto-detect by probing common locations in order:
 
