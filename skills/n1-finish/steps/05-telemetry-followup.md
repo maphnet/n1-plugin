@@ -1,6 +1,6 @@
 # Step 5a: Telemetry Follow-Up Ticket
 
-**Hard-skip gates** — when either holds, skip immediately without warning and go to Step 5:
+**Hard-skip gates** — when either holds, skip immediately without warning and go to Step 6 (Cleanup & Report):
 - `tracker.mcp` is null or absent in `$N1_HOME/config.json`
 - `N1_HEADLESS=1` is set in the environment
 
@@ -12,7 +12,7 @@
 
 Skip for: documentation updates, chore/version-bump-only commits, non-behavioral config changes. When uncertain, skip.
 
-**Idempotency:** Read the `## Pending` section of `$N1_HOME/memory/<ID>/overview.md`. If any line starts with `telemetry_followup:`, skip the entire step (ticket was already created on a prior run) and go to Step 5.
+**Idempotency:** Read the `## Pending` section of `$N1_HOME/memory/<ID>/overview.md`. If any line starts with `telemetry_followup:`, skip the entire step (ticket was already created on a prior run) and go to Step 6 (Cleanup & Report).
 
 **When trigger applies and no prior follow-up exists:**
 
@@ -98,6 +98,6 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
    Only append on successful ticket creation. If creation failed, do not write this line.
 
 **Error handling:** All tracker calls in this step are **non-blocking** — same pattern as Step 4 Comment.
-- On any failure: emit `> Warning: Telemetry follow-up ticket creation failed: <brief error>` and continue to Step 5.
+- On any failure: emit `> Warning: Telemetry follow-up ticket creation failed: <brief error>` and continue to Step 6 (Cleanup & Report).
 - Do NOT set the idempotency marker on failure.
 - Never abort n1-finish due to errors in this step.
