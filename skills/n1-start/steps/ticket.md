@@ -1,3 +1,4 @@
+<!-- n1:step-snippet-exception: two sequential agent spawns with interspersed type resolution and tracker MCP calls -->
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
