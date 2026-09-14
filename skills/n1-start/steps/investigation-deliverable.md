@@ -107,6 +107,11 @@ n1_write_signals "$INV_FILE" \
     "findings_count=$FINDINGS_COUNT" \
     "recommendations_count=$RECOMMENDATIONS_COUNT" \
     "self_resolved=$SELF_RESOLVED"
+# Extract unknowns from investigation.md for Phase 2 Q&A
+# (analysis.md unknowns were already handled in the analysis step)
+UNKNOWNS=$(grep -oE '<!-- n1:unknown: [^>]+ -->' "$INV_FILE" | sed 's/<!-- n1:unknown: //;s/ -->//')
+UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
+echo "SELF_RESOLVED=$SELF_RESOLVED UNKNOWN_COUNT=$UNKNOWN_COUNT"
 ```
 
 If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`:
@@ -115,29 +120,21 @@ If `SELF_RESOLVED` > 0, append a decision ledger row to `$N1_HOME/memory/<ID>/ov
 
 **Phase 2 -- Deliverable Q&A**
 
-Extract any NEW unknowns flagged by the solution-architect during deliverable production:
-
-```bash
-# Only unknowns in investigation.md (analysis.md unknowns were already handled in the analysis step)
-INV_FILE="$N1_HOME/memory/$ID/investigation.md"
-UNKNOWNS=$(grep -oE '<!-- n1:unknown: [^>]+ -->' "$INV_FILE" | sed 's/<!-- n1:unknown: //;s/ -->//')
-UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
-```
+`$UNKNOWN_COUNT` unknowns were extracted from `investigation.md` in the block above.
 
 If `UNKNOWN_COUNT` is 0, skip to Phase 3.
 
 **Problem preamble:** compose a 1-2 sentence summary: extract the title from the `# <ID>: <Title>` heading in `$N1_HOME/memory/<ID>/overview.md` and the first non-blank line under `### Core Ask` in `$N1_HOME/memory/<ID>/ticket.md`. Format: `"{Title}: {Core Ask (≤1 sentence)}."` -- call this `PREAMBLE`. If either part is unavailable omit that part (keep the other); if both are missing, `PREAMBLE` is empty. **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` -- prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely -- do not fall back to parsing the section body.
 
-**Emit question telemetry (if enabled):**
-
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
-# For each unknown presented to the user (user-answered or skipped):
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "asked" "codebase|web"
-# For each "Decide for me" resolution:
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "auto-decided" "codebase|web"
-```
+**Emit question telemetry (if enabled):** Run via Bash for each unknown presented to the user, and again for each "Decide for me" resolution:
+  ```bash
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/telemetry.sh"
+  # For each unknown presented to the user (user-answered or skipped):
+  n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "asked" "codebase|web"
+  # For each "Decide for me" resolution:
+  n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "investigation-deliverable" "scope" "auto-decided" "codebase|web"
+  ```
 
 **Batch all unknowns into one user prompt** (max 4 per call; chain if more than 4):
 
@@ -170,17 +167,17 @@ After collecting answers, append a `### Clarifications` section to `investigatio
   **A:** <user's answer or "Unresolved -- deferred">
 ```
 
-Update the `unknowns_resolved` signal:
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/signals.sh"
-INV_FILE="$N1_HOME/memory/$ID/investigation.md"
-UNKNOWNS_TOTAL=$(cat "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null | grep -c '<!-- n1:unknown:' || echo "0")
-UNKNOWNS_ANSWERED_ANALYSIS=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
-UNKNOWNS_ANSWERED_INVEST=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$INV_FILE" 2>/dev/null || echo "0")
-UNKNOWNS_ANSWERED=$((UNKNOWNS_ANSWERED_ANALYSIS + UNKNOWNS_ANSWERED_INVEST))
-n1_write_signals "$INV_FILE" "unknowns_resolved=${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
-```
+Update the `unknowns_resolved` signal. Run via Bash:
+  ```bash
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/signals.sh"
+  INV_FILE="$N1_HOME/memory/$ID/investigation.md"
+  UNKNOWNS_TOTAL=$(cat "$N1_HOME/memory/$ID/analysis.md" "$INV_FILE" 2>/dev/null | grep -c '<!-- n1:unknown:' || echo "0")
+  UNKNOWNS_ANSWERED_ANALYSIS=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null || echo "0")
+  UNKNOWNS_ANSWERED_INVEST=$(grep -cE '^[[:space:]]*\*\*A:\*\*' "$INV_FILE" 2>/dev/null || echo "0")
+  UNKNOWNS_ANSWERED=$((UNKNOWNS_ANSWERED_ANALYSIS + UNKNOWNS_ANSWERED_INVEST))
+  n1_write_signals "$INV_FILE" "unknowns_resolved=${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
+  ```
 
 **Phase 3 -- Tracker Enrichment**
 
@@ -193,7 +190,7 @@ Use `mcp__<tracker.mcp>__` prefix (from session context TRACKER ROUTING) for all
 
 If the gate fails, log "Tracker enrichment skipped -- no tracker or enrichment disabled." and proceed to Phase 4.
 
-Read config:
+Read config (tracker enrichment + KB settings):
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/config.sh"
@@ -202,20 +199,16 @@ HAS_EDIT=$(n1_config_val ".tracker.operations.editTicket" "$N1_HOME/config.json"
 HAS_COMMENT=$(n1_config_val ".tracker.operations.addComment" "$N1_HOME/config.json")
 TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
 TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
+KB_ENABLED=$(n1_config_val ".kb.enabled" "$N1_HOME/config.json")
+HAS_CREATE_ARTICLE=$(n1_config_val ".tracker.operations.createArticle" "$N1_HOME/config.json")
+echo "ENRICHMENT_ENABLED=$ENRICHMENT_ENABLED HAS_EDIT=$HAS_EDIT HAS_COMMENT=$HAS_COMMENT KB_ENABLED=$KB_ENABLED HAS_CREATE_ARTICLE=$HAS_CREATE_ARTICLE"
 ```
 
 **3-i. KB auto-publish (when KB is configured):**
 
-**Gate -- ALL must hold, otherwise skip:**
+**Gate -- ALL must hold, otherwise skip (use `$KB_ENABLED` and `$HAS_CREATE_ARTICLE` resolved above):**
 1. `kb.enabled == true` in `$N1_HOME/config.json`
 2. `tracker.operations.createArticle` exists in config
-
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-KB_ENABLED=$(n1_config_val ".kb.enabled" "$N1_HOME/config.json")
-HAS_CREATE_ARTICLE=$(n1_config_val ".tracker.operations.createArticle" "$N1_HOME/config.json")
-```
 
 If either condition fails, set `KB_ARTICLE_LINK=""` and proceed to 3-ii.
 
