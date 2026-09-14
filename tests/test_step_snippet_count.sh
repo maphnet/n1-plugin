@@ -26,7 +26,7 @@ for f in "${STEPS_DIR}"/*.md; do
     fi
 
     # Count lines that open a bash fenced block
-    count=$(grep -c '^```bash' "$f" 2>/dev/null || echo 0)
+    count=$(grep -c '^```bash' "$f" 2>/dev/null) || count=0
 
     if [ "$count" -gt "$MAX_SNIPPETS" ]; then
         echo "FAIL: ${name} has ${count} bash snippets (max ${MAX_SNIPPETS})"
