@@ -10,18 +10,10 @@ n1_read_lock "$N1_HOME/memory" || exit 0
 
 INPUT=$(cat)
 
-if command -v jq >/dev/null 2>&1; then
-    AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty' 2>/dev/null || true)
-    AGENT_TYPE=$(echo "$INPUT" | jq -r '.subagent_type // .agent_type // empty' 2>/dev/null || true)
-else
-    AGENT_ID=$(echo "$INPUT" | grep -o '"agent_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true)
-    AGENT_TYPE=$(echo "$INPUT" | grep -o '"subagent_type"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true)
-    if [ -z "$AGENT_TYPE" ]; then
-        AGENT_TYPE=$(echo "$INPUT" | grep -o '"agent_type"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true)
-    fi
-fi
+AGENT_ID=$(printf '%s' "$INPUT" | n1_hook_field agent_id)
+AGENT_TYPE=$(printf '%s' "$INPUT" | n1_hook_field agent_type)
 
-[[ "$AGENT_TYPE" == n1:* ]] || exit 0
+[ -n "$(n1_persona_name "$AGENT_TYPE")" ] || exit 0
 [ -n "$AGENT_ID" ] || exit 0
 
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)

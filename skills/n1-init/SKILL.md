@@ -27,7 +27,7 @@ Check if CLAUDE.md exists in the project root:
 
 Check for N1 configuration in priority order:
 
-1. **New-format config:** Resolve N1_HOME by running `source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
+1. **New-format config:** Resolve N1_HOME by running the preamble line from `references/host-routing.md` followed by `source "$N1_ROOT/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
    - **If exists:** Load the config and check for missing top-level keys against the **Expected Config Keys** list below. Then branch:
      - **If no missing keys:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Ask: "Reconfigure? **1** — Yes / **2** — No". If no — **STOP.** If yes — continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
      - **If missing keys found:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Then show:
@@ -128,18 +128,21 @@ When an old `.n1/n1.config.json` is detected:
       git config --unset n1.home 2>/dev/null || true
       ```
    f. Auto-detect `worktree.setup` (see **Worktree Setup Detection** below) and add to config
-   g. Add `.claude/worktrees/` to gitignore (see **`.gitignore` configuration** below)
+   g. Add `${WT_ROOT}/` to gitignore (see **`.gitignore` configuration** below)
    h. Clean up the old location (the copy in step d preserved the originals):
       ```bash
       rm -rf .n1/memory .n1/n1.config.json 2>/dev/null || true
       ```
       Then optionally remove the `.n1/` directory (ask user or leave it — the `.gitignore` entry was already addressed in step 3g above)
-   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs):
+   i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs). Run only when `HOST` is `claude-code`; skip entries whose value is an object (host-keyed).
       ```bash
+      N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+      source "$N1_ROOT/lib/config.sh"; [ "$(n1_host)" = "claude-code" ] || exit 0
       CFG="$HOME/.n1/$PROJECT_NAME/config.json"
-      for f in "${CLAUDE_PLUGIN_ROOT}"/agents/*.md; do a=$(basename "$f" .md)
+      for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
         def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
         cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
+        [ "$(printf '%s' "$cur" | cut -c1)" = "{" ] && continue
         if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
           jq "del(.models[\"$a\"])" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
           echo "pruned models.$a=$cur (equals frontmatter default)"
@@ -224,6 +227,53 @@ Add these to CLAUDE.md?
 ```
 
 If approved (1), append to CLAUDE.md. If edit (3) — ask what to change first.
+
+## Host Setup
+
+Detect the host once; the rest of n1-init reads `HOST` where behaviour differs.
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+HOST=$(n1_host)
+HOST_FILE=$(n1_host_file)
+CODEX_CFG="${CODEX_HOME:-$HOME/.codex}/config.toml"
+```
+
+**If `HOST` is `claude-code`:** nothing to do; continue.
+
+**If `HOST` is `codex`:** run these checks in order and stop at the first failure.
+
+1. **Hooks trusted.** N1's session-start hook writes `$HOST_FILE`. If the file is missing, or `jq -r .host "$HOST_FILE"` is not `codex`, or `jq -r .version "$HOST_FILE"` differs from `n1_plugin_version`, the hooks have not run for this plugin version. Tell the user:
+
+   ```
+   N1's hooks are not trusted yet. Run /hooks, trust the n1 plugin hooks, restart Codex, then run $n1-init again.
+   ```
+   **STOP.**
+
+2. **Multi-agent tools.** Check `features.multi_agent` and the tool list:
+   ```bash
+   MA=$(awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && $1=="multi_agent"{print $3}' "$CODEX_CFG" 2>/dev/null)
+   ```
+   If `MA` is `false`, or `spawn_agent` is absent from your tool list, tell the user:
+   ```
+   N1 dispatches its personas as Codex subagents, which needs multi-agent tools.
+   Add to ~/.codex/config.toml:
+     [features]
+     multi_agent = true
+   then restart Codex and run $n1-init again.
+   ```
+   **STOP.**
+
+3. **Superpowers present.** If `$brainstorming` is not in your skill list, tell the user: "N1 needs the Superpowers plugin: run `codex plugin add superpowers`, restart Codex, then re-run `$n1-init`." **STOP.**
+
+4. **Persona files.** `ls .codex/agents/n1-*.toml 2>/dev/null | wc -l` must be 11 (one per spawnable persona). If it is 0, the hook could not write into this project: tell the user the path and **STOP**. Otherwise add the generated files to the project `.gitignore` if missing:
+   ```bash
+   grep -qF '.codex/agents/n1-*.toml' .gitignore 2>/dev/null || { [ -s .gitignore ] && [ -n "$(tail -c1 .gitignore)" ] && echo >> .gitignore; printf '# N1 generated Codex personas\n.codex/agents/n1-*.toml\n' >> .gitignore; }
+   ```
+   Log: "Added `.codex/agents/n1-*.toml` to .gitignore." (or "already ignored").
+
+5. **Default subagent model.** Read `DEF_MODEL=$(n1_codex_default default_subagent_model)` and `DEF_EFFORT=$(n1_codex_default default_subagent_reasoning_effort)`. If `DEF_MODEL` is empty, tell the user: "Codex has no `[agents] default_subagent_model`; every N1 persona will inherit the session model, which is usually the most expensive one. Set it in ~/.codex/config.toml or pick per-persona models below." Continue to **Agent Model Configuration**, which on Codex is always offered (not only on request).
 
 ## Tracker Setup
 
@@ -335,7 +385,7 @@ Call `mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources`.
 
 **Detect jc-mcp server (for version operations):**
 
-Use ToolSearch to find a tool matching `jcm_createVersion`. Extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`).
+Look in the tool list (load the tool if deferred, per HOST ROUTING) for a tool matching `jcm_createVersion`. Extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`).
 
 - **Found:** set `VERSION_MCP` to the detected server name.
 - **Not found:** prompt:
@@ -387,7 +437,7 @@ Set config:
 }
 ```
 
-**Verify comment ops availability:** Use ToolSearch to confirm that `mcp__plugin_atlassian_atlassian__addCommentToJiraIssue` and `mcp__plugin_atlassian_atlassian__getIssueComments` are visible in the tool list. If `getIssueComments` is absent, log: "Note: getComments op not found in Jira MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
+**Verify comment ops availability:** Confirm in the tool list (load the tools if deferred, per HOST ROUTING) that `mcp__plugin_atlassian_atlassian__addCommentToJiraIssue` and `mcp__plugin_atlassian_atlassian__getIssueComments` are visible in the tool list. If `getIssueComments` is absent, log: "Note: getComments op not found in Jira MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
 
 ### If YouTrack:
 
@@ -460,7 +510,7 @@ Set config:
 }
 ```
 
-**Verify comment ops availability:** Use ToolSearch to confirm that `mcp__youtrack__add_issue_comment` and `mcp__youtrack__get_issue_comments` are visible in the tool list. If `get_issue_comments` is absent, log: "Note: getComments op not found in YouTrack MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
+**Verify comment ops availability:** Confirm in the tool list (load the tools if deferred, per HOST ROUTING) that `mcp__youtrack__add_issue_comment` and `mcp__youtrack__get_issue_comments` are visible in the tool list. If `get_issue_comments` is absent, log: "Note: getComments op not found in YouTrack MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
 
 ### If None:
 
@@ -519,7 +569,7 @@ Or when disabled:
 
 ### If YouTrack:
 
-Use ToolSearch to look for `create_article` in the youtrack MCP tools.
+Look for `create_article` among the youtrack MCP tools (load it if deferred, per HOST ROUTING).
 
 - **Found:** log "YouTrack KB article support detected." Set `kb.enabled: true`.
 - **Not found:** log "YouTrack KB article support not detected — KB features disabled." Set `kb.enabled: false`.
@@ -731,7 +781,7 @@ Detect available observability MCP servers via dynamic discovery — scan all co
 
 ### Step 1 — Discovery
 
-Use ToolSearch to enumerate all available MCP tools. Group tools by their MCP server prefix (the segment between `mcp__` and the next `__`). This produces a map of server name → list of tool names.
+Enumerate all available MCP tools from the tool list (on hosts with deferred tools, search for `mcp__` first, per HOST ROUTING). Group tools by their MCP server prefix (the segment between `mcp__` and the next `__`). This produces a map of server name → list of tool names.
 
 ### Step 2 — Classification
 
@@ -915,7 +965,7 @@ Pick the default from env-tagged providers: the `env` value with the most provid
 Add another observability MCP server not in the list? Enter MCP server name (or Enter to skip):
 ```
 
-If entered: probe to identify provider type via ToolSearch, ask which env it serves, detect operations, generate instructions, add to providers. Repeat until Enter.
+If entered: probe to identify provider type from the tool list, ask which env it serves, detect operations, generate instructions, add to providers. Repeat until Enter.
 
 **Confirm summary:**
 
@@ -1734,7 +1784,7 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 
 2. Create the rules directory: `mkdir -p "$RULES_DIR"`
 
-2b. **Seed default rules.** Scan `${CLAUDE_PLUGIN_ROOT}/defaults/rules/` for `.rule.md` files. For each file, check whether a rule with the same basename already exists in `$RULES_DIR/`. If it does, skip silently. If it does not, present it using the same Accept/Edit/Skip UX as detection-based rules:
+2b. **Seed default rules.** Scan `<N1_ROOT>/defaults/rules/` for `.rule.md` files. For each file, check whether a rule with the same basename already exists in `$RULES_DIR/`. If it does, skip silently. If it does not, present it using the same Accept/Edit/Skip UX as detection-based rules:
 
    ```
    Default rule: <name>
@@ -1788,7 +1838,8 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 
 5. If any accepted rules have `enforcement: deny`:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/rules.sh"
    HOOK_DIR="$N1_HOME/hooks"
    mkdir -p "$HOOK_DIR"
    HOOK_PATH="$HOOK_DIR/rules-deny.sh"
@@ -1854,12 +1905,35 @@ If `rules` is absent from the current config, run the fresh-setup flow above. Ru
 
 Use default models from agent frontmatter. **Do NOT ask** about model customization unless the user explicitly requested it when invoking n1-init.
 
-If the user did request customization, derive the defaults table by reading the `model:` field from each agent's frontmatter in `${CLAUDE_PLUGIN_ROOT}/agents/*.md`, display it, and accept per-agent overrides (valid values: opus, sonnet, haiku) — only store overrides that differ from the frontmatter default.
+If the user did request customization, derive the defaults table by reading the `model:` field from each agent's frontmatter in `<N1_ROOT>/agents/*.md`, display it, and accept per-agent overrides (valid values: opus, sonnet, haiku) — only store overrides that differ from the frontmatter default.
 
 To read an agent's default model from frontmatter:
 ```bash
-def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "${CLAUDE_PLUGIN_ROOT}/agents/<name>.md")
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$N1_ROOT/agents/<name>.md")
 ```
+
+**On Codex (`HOST` = `codex`):** frontmatter models (opus/sonnet/haiku) do not apply. Show the table of personas with the current value of `n1_model_for <persona>` (config `models.<persona>.codex`, else `DEF_MODEL`) and `n1_reasoning_effort_for <persona>`, then ask:
+
+```
+Persona models for Codex (default: <DEF_MODEL> / <DEF_EFFORT>):
+  1 — Keep defaults for all personas
+  2 — Override some (enter `persona=model[/effort]`, e.g. code-reviewer=gpt-5.6/high)
+```
+
+Store overrides as host-keyed objects, preserving any Claude value:
+
+```bash
+CFG="$N1_HOME/config.json"
+# for each "<persona>=<model>[/<effort>]" the user entered:
+jq --arg p "<persona>" --arg m "<model>" --arg e "<effort-or-empty>" '
+  .models[$p] = (
+    (if (.models[$p] | type) == "string" then {"claude-code": .models[$p]} else (.models[$p] // {}) end)
+    + {codex: (if $e == "" then $m else {model: $m, reasoning_effort: $e} end)}
+  )' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+```
+
+The prune snippets in this section compare against the *Claude* frontmatter default; run them only when `HOST` is `claude-code`, and skip entries whose value is an object.
 
 ### On reconfiguration (n1-init re-run):
 
@@ -1876,13 +1950,16 @@ if [ "$CUR" != "$REPO_PATH" ]; then
 fi
 ```
 
-Prune every `models.<agent>` entry whose value equals the agent's frontmatter default, then print what was pruned. This is idempotent — running it multiple times has no additional effect.
+Prune every `models.<agent>` entry whose value equals the agent's frontmatter default, then print what was pruned. This is idempotent — running it multiple times has no additional effect. Run only when `HOST` is `claude-code`; skip entries whose value is an object (host-keyed).
 
 ```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"; [ "$(n1_host)" = "claude-code" ] || exit 0
 CFG="$N1_HOME/config.json"
-for f in "${CLAUDE_PLUGIN_ROOT}"/agents/*.md; do a=$(basename "$f" .md)
+for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
   def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
   cur=$(jq -r ".models[\"$a\"] // empty" "$CFG")
+  [ "$(printf '%s' "$cur" | cut -c1)" = "{" ] && continue
   if [ -n "$cur" ] && [ "$cur" = "$def" ]; then
     jq "del(.models[\"$a\"])" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
     echo "pruned models.$a=$cur (equals frontmatter default)"
@@ -1991,21 +2068,27 @@ Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is n
 
 **`.gitignore` configuration** — detect existing coverage, then ask the user:
 
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+WT_ROOT=$(n1_worktree_root)   # host default from HOST ROUTING, or worktree.root from config
+```
+
 **Detection (run in order):**
 
 1. Run `git config --global core.excludesFile` to get the global excludes file path.
-   - If a path is returned AND the file exists, check whether it contains a line matching `.claude/worktrees/` or `.claude/worktrees`.
+   - If a path is returned AND the file exists, check whether it contains a line matching `${WT_ROOT}/` or `${WT_ROOT}`.
    - If `core.excludesFile` is unset, check Git's default location: `${XDG_CONFIG_HOME:-$HOME/.config}/git/ignore`. If that file exists, check it for the same pattern.
-2. If `.claude/worktrees/` was not found in any global excludes file, check `.gitignore` in the project root for a line matching `.claude/worktrees/` or `.claude/worktrees`.
+2. If `${WT_ROOT}/` was not found in any global excludes file, check `.gitignore` in the project root for a line matching `${WT_ROOT}/` or `${WT_ROOT}`.
 
 **If already gitignored:**
-- Found globally → tell the user: "`.claude/worktrees/` is already gitignored globally via `<path>`." Move on.
-- Found in project `.gitignore` → tell the user: "`.claude/worktrees/` is already gitignored in this project's `.gitignore`." Move on.
+- Found globally → tell the user: "`${WT_ROOT}/` is already gitignored globally via `<path>`." Move on.
+- Found in project `.gitignore` → tell the user: "`${WT_ROOT}/` is already gitignored in this project's `.gitignore`." Move on.
 
 **If NOT gitignored anywhere**, ask:
 
 ```
-.claude/worktrees/ directory is not gitignored. Where would you like to add it?
+${WT_ROOT}/ directory is not gitignored. Where would you like to add it?
 1 — Globally (user-scoped gitignore, applies to all repos)
 2 — Project-level (.gitignore in this repo)
 ```
@@ -2015,26 +2098,26 @@ Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is n
 1. Run `git config --global core.excludesFile`.
 2. **If set** → append the entry to that file (with duplicate check):
    ```bash
-   # only if .claude/worktrees entry not already present in the file:
+   # only if ${WT_ROOT} entry not already present in the file:
    echo "" >> "<excludesFile>"
    echo "# N1 worktree directories" >> "<excludesFile>"
-   echo ".claude/worktrees/" >> "<excludesFile>"
+   echo "${WT_ROOT}/" >> "<excludesFile>"
    ```
-   Tell the user: "Added `.claude/worktrees/` to global gitignore (`<path>`)."
-   Then check project `.gitignore` for a stale `.claude/worktrees` entry (see **Project-level cleanup after global add** below).
+   Tell the user: "Added `${WT_ROOT}/` to global gitignore (`<path>`)."
+   Then check project `.gitignore` for a stale `${WT_ROOT}` entry (see **Project-level cleanup after global add** below).
 3. **If NOT set** → check for Git's default global excludes file before offering to create one:
    ```bash
    XDG="${XDG_CONFIG_HOME:-$HOME/.config}"
    DEFAULT_EXCLUDES="$XDG/git/ignore"
    ```
-   - **If `$DEFAULT_EXCLUDES` exists** → Git is already using it as the implicit global excludes file. Check whether it contains `.claude/worktrees`. If not, append the entry there:
+   - **If `$DEFAULT_EXCLUDES` exists** → Git is already using it as the implicit global excludes file. Check whether it contains `${WT_ROOT}`. If not, append the entry there:
      ```bash
      echo "" >> "$DEFAULT_EXCLUDES"
      echo "# N1 worktree directories" >> "$DEFAULT_EXCLUDES"
-     echo ".claude/worktrees/" >> "$DEFAULT_EXCLUDES"
+     echo "${WT_ROOT}/" >> "$DEFAULT_EXCLUDES"
      ```
-     Tell the user: "Added `.claude/worktrees/` to Git's default global excludes (`$DEFAULT_EXCLUDES`). No `core.excludesFile` change needed."
-     Then check project `.gitignore` for a stale `.claude/worktrees` entry (see **Project-level cleanup after global add** below).
+     Tell the user: "Added `${WT_ROOT}/` to Git's default global excludes (`$DEFAULT_EXCLUDES`). No `core.excludesFile` change needed."
+     Then check project `.gitignore` for a stale `${WT_ROOT}` entry (see **Project-level cleanup after global add** below).
    - **If `$DEFAULT_EXCLUDES` does not exist** → sub-prompt:
      ```
      No global gitignore is configured (core.excludesFile is unset and $XDG_CONFIG_HOME/git/ignore does not exist).
@@ -2046,41 +2129,41 @@ Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is n
        ```bash
        mkdir -p "$XDG/git"
        echo "# N1 worktree directories" >> "$XDG/git/ignore"
-       echo ".claude/worktrees/" >> "$XDG/git/ignore"
+       echo "${WT_ROOT}/" >> "$XDG/git/ignore"
        ```
-       Tell the user: "Created `$XDG/git/ignore` and added `.claude/worktrees/`. Git uses this location by default — no `core.excludesFile` needed."
-       Then check project `.gitignore` for a stale `.claude/worktrees` entry (see **Project-level cleanup after global add** below).
+       Tell the user: "Created `$XDG/git/ignore` and added `${WT_ROOT}/`. Git uses this location by default — no `core.excludesFile` needed."
+       Then check project `.gitignore` for a stale `${WT_ROOT}` entry (see **Project-level cleanup after global add** below).
      - **2 (No):** Fall through to project-level append below.
 
 **If 2 (Project-level) from the main prompt**, or fell through from the global sub-prompt:
 
 ```bash
-# only if .claude/worktrees entry not already present in .gitignore:
-if ! grep -q '\.claude/worktrees' .gitignore 2>/dev/null; then
+# only if ${WT_ROOT} entry not already present in .gitignore:
+if ! grep -qF "${WT_ROOT}" .gitignore 2>/dev/null; then
     echo "" >> .gitignore
     echo "# N1 worktree directories" >> .gitignore
-    echo ".claude/worktrees/" >> .gitignore
+    echo "${WT_ROOT}/" >> .gitignore
 fi
 ```
-Tell the user: "Added `.claude/worktrees/` to this project's `.gitignore`."
+Tell the user: "Added `${WT_ROOT}/` to this project's `.gitignore`."
 
 **Project-level cleanup after global add:**
 
-After successfully adding `.claude/worktrees/` to the global excludes file, check if the project `.gitignore` also contains a `.claude/worktrees/` or `.claude/worktrees` entry. If found, ask:
+After successfully adding `${WT_ROOT}/` to the global excludes file, check if the project `.gitignore` also contains a `${WT_ROOT}/` or `${WT_ROOT}` entry. If found, ask:
 
 ```
-.claude/worktrees/ is now gitignored globally. The project .gitignore also has this entry.
+${WT_ROOT}/ is now gitignored globally. The project .gitignore also has this entry.
 1 — Remove it from .gitignore (global covers it)
 2 — Keep both (redundant, but harmless)
 ```
 
-**If 1 (Remove):** remove the `.claude/worktrees/` line and its comment line (`# N1 worktree directories`) if present on the preceding line. Tell the user: "Removed redundant `.claude/worktrees/` entry from project `.gitignore`."
+**If 1 (Remove):** remove the `${WT_ROOT}/` line and its comment line (`# N1 worktree directories`) if present on the preceding line. Tell the user: "Removed redundant `${WT_ROOT}/` entry from project `.gitignore`."
 
 **If 2 (Keep):** move on.
 
 **Migration cleanup — old `.n1/` entry:**
 
-During migration only (step 3g), after adding `.claude/worktrees/`, check if the project `.gitignore` contains an `.n1/` or `.n1` entry. If found, check whether the `.n1/` directory still exists and contains files:
+During migration only (step 3g), after adding `${WT_ROOT}/`, check if the project `.gitignore` contains an `.n1/` or `.n1` entry. If found, check whether the `.n1/` directory still exists and contains files:
 
 ```bash
 if [ -d ".n1" ] && [ "$(ls -A .n1 2>/dev/null)" ]; then
@@ -2113,7 +2196,8 @@ Discover and configure related projects — other N1-managed repositories that t
 ### Step 1 — Enumerate candidates
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 # Derive both candidate self-slugs (remote-URL and directory-name), each sanitized the same way.
 # n1_home() resolves N1_HOME by matching whichever slug has an existing ~/.n1/<slug>/ dir,
 # so we must skip a peer that matches EITHER to avoid adding self when the two slugs differ.
@@ -2160,8 +2244,9 @@ For each candidate, search the current repo for references. Classify matches by 
 Search implementation:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/related.sh"
 N1_HOME=$(n1_home)
 CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
 REPO_ROOT=$(git rev-parse --show-toplevel)
@@ -2262,10 +2347,11 @@ Do you want to manually specify related projects? (List N1 project slugs, or ski
 `config.json` already exists at this point (written by `## Write Configuration and Structure`). Resolve `N1_HOME`, source `lib/related.sh`, call `n1_related_add` for each approved project, then update `enabled` — all in one block:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 CFG="$N1_HOME/config.json"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+source "$N1_ROOT/lib/related.sh"
 # For each approved project (auto-added high-confidence or user-confirmed medium-confidence):
 n1_related_add "$CFG" "$slug" "$reason" "$source"
 # source = "auto" for high-confidence auto-added; "manual" for user-confirmed
@@ -2285,6 +2371,7 @@ Show summary:
 N1 is ready.
 
 State directory: ~/.n1/<project-name>/
+Host: claude-code / codex (personas: .codex/agents/n1-*.toml, hooks trusted)
 Worktree mode: worktree
 Worktree setup: <command or "none">
 Worktree cleanup: after-merge
@@ -2305,7 +2392,7 @@ Created:
   ~/.n1/<project-name>/config.json
   ~/.n1/<project-name>/memory/
   N1_HOME auto-derived from repo name (no git config needed)
-  .gitignore configured (.claude/worktrees/ — global or project-level)
+  .gitignore configured (${WT_ROOT}/ — global or project-level)
   .claude/settings.json updated (if pinning configured)
 
 Next: Use /n1:n1-start <ticket-or-description> to begin working on a task.
@@ -2313,5 +2400,5 @@ Next: Use /n1:n1-start <ticket-or-description> to begin working on a task.
 
 If `tracker.mcp` is not null, append after the summary:
 ```
-To activate tracker routing, reload the session: type /clear or restart Claude Code.
+To activate tracker routing, reload the session: type /clear or restart Claude Code (on Codex: start a new session).
 ```

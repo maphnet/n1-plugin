@@ -35,7 +35,7 @@ n1_story_val() {
     local key="$1" val
     val=$(n1_config_val ".story.${key}")
     if [ -z "$val" ]; then
-        val=$(n1_config_val ".${key}" "${CLAUDE_PLUGIN_ROOT}/defaults/story.json")
+        val=$(n1_config_val ".${key}" "$(n1_plugin_root)/defaults/story.json")
     fi
     printf '%s' "$val"
 }
@@ -75,7 +75,7 @@ n1_story_child_status() {
         [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
         return
     fi
-    source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+    source "$(n1_plugin_root)/lib/frontmatter.sh"
     local step; step=$(n1_read_frontmatter "$overview" "step")
     if [ "$step" = "escalated" ] || awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF' "$overview" | grep -q .; then
         printf 'escalated'; return
@@ -96,11 +96,10 @@ n1_story_child_pr_url() {
 
 n1_story_child_cmd() {
     # Usage: n1_story_child_cmd <repoPath> <ticket-id> <model> <story-id> <log-path>
+    # Host-specific child command comes from lib/host.sh n1_headless_cmd.
     local repo="$1" id="$2" model="$3" story="$4" log="$5"
-    local plugin_dir=""
-    [ -n "${N1_STORY_PLUGIN_DIR:-}" ] && plugin_dir=" --plugin-dir \"${N1_STORY_PLUGIN_DIR}\""
-    printf 'cd "%s" && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STORY_ID="%s" claude -p "/n1:n1-start %s" --model %s --permission-mode bypassPermissions --output-format stream-json --verbose%s > "%s" 2>&1' \
-        "$repo" "$story" "$id" "$model" "$plugin_dir" "$log"
+    printf 'cd "%s" && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STORY_ID="%s" %s' \
+        "$repo" "$story" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
 }
 
 n1_story_toposort() {

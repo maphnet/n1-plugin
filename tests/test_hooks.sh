@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/test_hooks.sh — behavioral tests for enforce-agent-model warning, session-start throttle.
+# tests/test_hooks.sh — behavioral tests for enforce-agent-policy, session-start throttle.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
@@ -11,12 +11,12 @@ cat > "$N1_HOME/config.json" <<'EOF'
 {"planReview":{"requirePlanApproval":true},"autonomy":{"brainstorm":"auto","acceptanceGate":"auto"}}
 EOF
 
-# enforce-agent-model: no python → systemMessage once
+# enforce-agent-policy: no python → systemMessage once
 FAKEBIN="$T/bin"; mkdir -p "$FAKEBIN"
 for c in bash jq grep sed cat dirname basename printf head tr awk mv rm mkdir date; do p=$(command -v $c) && ln -sf "$p" "$FAKEBIN/$c"; done
-INPUT='{"session_id":"s1","tool_input":{"subagent_type":"n1:developer"}}'
-OUT1=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-model.sh")
-OUT2=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-model.sh")
+INPUT='{"session_id":"s1","tool_name":"Agent","tool_input":{"subagent_type":"n1:developer"}}'
+OUT1=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
+OUT2=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
 assert_eq "warns once when python missing" "N1: agent model enforcement skipped (no Python interpreter)" "$(echo "$OUT1" | jq -r .systemMessage)"
 assert_eq "second call silent" "" "$OUT2"
 
@@ -29,5 +29,69 @@ assert_eq "last_checked unchanged on gh failure" "last_checked: 2026-01-01T00:00
 printf '#!/usr/bin/env bash\necho MERGED\n' > "$T/ghbin/gh"
 echo '{"source":"startup"}' | PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 [ "$(grep '^last_checked:' "$MEM2/overview.md")" != "last_checked: 2026-01-01T00:00:00Z" ] && { echo "PASS: last_checked advanced on success"; PASS=$((PASS+1)); } || { echo "FAIL: last_checked advanced on success"; FAIL=$((FAIL+1)); }
+
+# --- enforce-agent-policy (both hosts) -------------------------------------
+FX="$REPO_ROOT/tests/fixtures/hooks"
+cat > "$N1_HOME/config.json" <<'EOF'
+{"models":{"developer":{"claude-code":"opus","codex":"gpt-5.6"}}}
+EOF
+POLICY="$REPO_ROOT/hooks/enforce-agent-policy.sh"
+OUT=$(N1_HOST=claude-code bash "$POLICY" < "$FX/claude/pretooluse-spawn.json")
+assert_eq "claude spawn override model" "opus" "$(echo "$OUT" | jq -r .hookSpecificOutput.updatedInput.model)"
+OUT=$(N1_HOST=codex bash "$POLICY" < "$FX/codex/pretooluse-spawn.json")
+assert_eq "codex spawn override model" "gpt-5.6" "$(echo "$OUT" | jq -r .hookSpecificOutput.updatedInput.model)"
+assert_eq "codex spawn override keeps task_name" "fix-1" "$(echo "$OUT" | jq -r .hookSpecificOutput.updatedInput.task_name)"
+set +e
+N1_HOST=claude-code bash "$POLICY" < "$FX/claude/pretooluse-persona-denied.json" 2>"$T/err"; RC=$?
+set -e
+assert_eq "claude persona denial exit 2" "2" "$RC"
+assert_eq "claude persona denial reason" "N1: persona code-reviewer may not use tool Edit (allowed: Glob, Grep, Read)" "$(cat "$T/err")"
+set +e
+N1_HOST=codex bash "$POLICY" < "$FX/codex/pretooluse-persona-denied.json" 2>"$T/err"; RC=$?
+set -e
+assert_eq "codex persona denial exit 2" "2" "$RC"
+assert_eq "codex apply_patch denied for read-only persona" "N1: persona code-reviewer may not use tool apply_patch (allowed: Glob, Grep, Read)" "$(cat "$T/err")"
+OUT=$(N1_HOST=codex bash "$POLICY" < "$FX/codex/pretooluse-persona-allowed.json"); RC=$?
+assert_eq "codex exec_command allowed for read-only persona" "0:" "$RC:$OUT"
+OUT=$(N1_HOST=claude-code bash "$POLICY" < "$FX/claude/pretooluse-persona-allowed.json"); RC=$?
+assert_eq "claude Grep allowed for read-only persona" "0:" "$RC:$OUT"
+OUT=$(echo '{"tool_name":"Read","agent_type":"general-purpose","tool_input":{}}' | N1_HOST=claude-code bash "$POLICY"); RC=$?
+assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
+
+# --- telemetry hooks accept the Codex persona prefix -----------------------
+MEM3="$N1_HOME/memory/T-20/telemetry"; mkdir -p "$MEM3"
+echo '{"run_id":"n1-run-x","n1_version":"3.0.0"}' > "$MEM3/telemetry.lock"
+N1_HOST=codex bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/codex/subagent-start.json"
+assert_eq "codex agent start recorded" "n1-developer" "$(jq -r .agent_type "$MEM3/raw/agents/n1-run-x.jsonl")"
+N1_HOST=claude-code bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/claude/subagent-start.json"
+assert_eq "claude agent start recorded" "2" "$(wc -l < "$MEM3/raw/agents/n1-run-x.jsonl")"
+
+# --- session-start: host.json, routing block, codex TOML generation --------
+export N1_HOST_FILE="$T/host.json"
+rm -f "$N1_HOST_FILE"; rm -f "$N1_HOME/config.json"
+OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+assert_eq "host.json written (claude)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
+assert_eq "host.json pluginRoot" "$REPO_ROOT" "$(jq -r .pluginRoot "$N1_HOST_FILE")"
+case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
+case "$CTX" in *"HOST ROUTING (host: claude-code"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
+echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
+PROJ="$T/proj"; mkdir -p "$PROJ"
+PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/codex/session-start.json")
+OUT=$(echo "$PAYLOAD" | N1_HOST=codex CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CODEX_HOME="$T/codexhome" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
+case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent"*'agent_type "n1-<name>"'*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
+assert_eq "codex persona TOMLs generated in cwd" "11" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
+# compaction restore fires on source=compact
+cat > "$N1_HOME/active-run.json" <<'AREOF'
+{"ticketId":"T-30","runId":"n1-run-c","worktreePath":null,"branch":"T-30"}
+AREOF
+mkdir -p "$N1_HOME/memory/T-30"; printf -- '---\nstep: review\ntype: task\n---\n## Context\nctx line\n' > "$N1_HOME/memory/T-30/overview.md"
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review"*) assert_eq "compaction state restore on source=compact" ok ok;; *) assert_eq "compaction state restore on source=compact" ok "$CTX";; esac
+rm -f "$N1_HOME/active-run.json"
+unset N1_HOST_FILE
 
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

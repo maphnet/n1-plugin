@@ -21,7 +21,8 @@ The ticket is closed **only when the code is actually merged** — never on gree
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -140,7 +141,8 @@ Evaluate the PR state:
       `--auto` respects branch protection (required approvals, checks, merge queues). If the command itself is rejected (e.g. auto-merge disabled on the repo and checks pending), retry once with the direct form `gh pr merge <n> --<mergeMethod> --delete-branch`; if that is also rejected, before treating the failure as fatal re-check `gh pr view <n> --json state` — if the PR is `MERGED`, treat the merge as successful and continue to Step 3; otherwise report GitHub's error verbatim and **STOP.**
    d. Bounded wait for merged state — up to `waitForMergeMinutes` total:
       ```bash
-      source "${CLAUDE_PLUGIN_ROOT}/lib/poll.sh"
+      N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+      source "$N1_ROOT/lib/poll.sh"
       n1_wait_pr_merged <n> <remaining-minutes>
       ```
       Repeat the call (subtracting elapsed minutes) while it prints `open` and budget remains.
@@ -195,7 +197,8 @@ Also skip if deploy status from Step 3 is `failed` (deployment failed -- no poin
 
 **Telemetry:**
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 SMOKE_OUTCOME=$( [ "$SMOKE_ALL_PASSED" = "true" ] && echo "pass" || echo "fail" )
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "smoke" 17 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=$SMOKE_OUTCOME loop_iteration=null metadata="{\"action_type\":\"smoke_executed\",\"endpoint_status\":\"$HTTP_STATUS\",\"tests_total\":$TESTS_TOTAL,\"tests_passed\":$TESTS_PASSED}"
 ```
@@ -266,7 +269,8 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
 4. **Read tracker config** (run via Bash):
 
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/config.sh"
    TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
    PROJECT_KEY=$(n1_config_val ".tracker.projectKey" "$N1_HOME/config.json")
    TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
@@ -332,7 +336,7 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
 
 1. **Local branch (branch mode, merged PR):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`.
 2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it.
-3. **Worktree:** If the current toplevel (`git rev-parse --show-toplevel`) contains `/.claude/worktrees/`, read `worktree.cleanup` from config. If it is `"after-pr"` or `"after-merge"`, remove the worktree: switch to the main checkout first (`MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn, point at `/n1:n1-clean`.
+3. **Worktree:** If the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, read `worktree.cleanup` from config. If it is `"after-pr"` or `"after-merge"`, remove the worktree: switch to the main checkout first (`MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn, point at `/n1:n1-clean`.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish
@@ -344,14 +348,16 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
    ```
    If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate). Set frontmatter:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/frontmatter.sh"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "done"
    ```
    Also delete the `## Pending` section from overview.md if present (the merge is no longer pending). If finish exits without a merge (timeout paths), instead set `step` to `finish` (not `done`) and update only its `last_checked` line with `date -u +%Y-%m-%dT%H:%M:%SZ`.
 
    Also clear the active-run pointer on successful completion (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY):
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/config.sh"
    n1_active_run_clear
    ```
 

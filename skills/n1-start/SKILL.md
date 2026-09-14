@@ -9,6 +9,8 @@ model: sonnet
 
 ## Overview
 
+**Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context (a question tool on Claude Code, a plain numbered-options message on Codex). "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
+
 Single entry point for all task work. Accepts a ticket ID or a brain dump, then orchestrates the full development cycle using specialized agent personas: product-analyst, solution-architect, developer, qa-engineer, code-reviewer, security-reviewer, and tech-writer.
 
 ## N1_HOME Resolution
@@ -16,7 +18,8 @@ Single entry point for all task work. Accepts a ticket ID or a brain dump, then 
 Resolve the N1 state directory at the start of every run, before any config or memory access. Run via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -38,8 +41,9 @@ Read `telemetry.enabled` from `$N1_HOME/config.json` (default `false` if absent 
 **If `telemetry.enabled` is `true`:**
 1. Read plugin version:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-   N1_VERSION=$(n1_config_val '.version' "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json")
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/config.sh"
+   N1_VERSION=$(n1_plugin_version)
    ```
 2. Generate run ID:
    ```bash
@@ -55,7 +59,8 @@ Read `telemetry.enabled` from `$N1_HOME/config.json` (default `false` if absent 
    ```
 5. Write active-run pointer (regardless of telemetry setting):
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/config.sh"
    n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
    ```
    This file is read by the session-start hook on compaction to restore orchestrator state. It is NOT gated on `telemetry.enabled`.
@@ -83,7 +88,8 @@ Before type detection, try to extract a ticket ID from URL inputs. This handles 
 Run via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/validation.sh"
 EXTRACTED=$(n1_extract_ticket_from_url "<user-input>" "$N1_HOME/config.json") && USER_INPUT="$EXTRACTED" || USER_INPUT="<user-input>"
 ```
 
@@ -94,7 +100,8 @@ If extraction succeeds, use the extracted ticket ID as input for all subsequent 
 Run via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/validation.sh"
 n1_detect_input_type "$USER_INPUT" "$N1_HOME/config.json"
 ```
 
@@ -144,7 +151,8 @@ Strip `--investigate` from the input before passing to ticket/brain-dump parsing
 When spawning any agent, resolve its model via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 n1_resolve_model <agent-name> [context]
 ```
 
@@ -157,7 +165,8 @@ The optional `context` parameter enables signal-driven model tiering (e.g., `n1_
 Determine workspace isolation mode using this resolution order:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 WORKTREE_MODE=$(n1_config_val '.worktree.mode')
 EXTERNAL_WORKTREE=false
 
@@ -182,7 +191,7 @@ fi
 
 When `EXTERNAL_WORKTREE` is true, skip both Ensure Worktree and Ensure Working Branch — the run operates on the current checkout and its existing branch. Set `WORKTREE_PATH=$(git rev-parse --show-toplevel)` and `BRANCH=$(git branch --show-current)`, then record branch-point: `git merge-base HEAD <defaultBranch>` (fall back to `git rev-parse <defaultBranch>` for shallow clones). Then immediately call:
 
-    source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+    source "<N1_ROOT>/lib/config.sh"
     n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "$WORKTREE_PATH" "$BRANCH"
 
 This explicit write is necessary because the initial active-run write in Telemetry Initialization runs before isolation mode resolution and records null values; ID reconciliation is a no-op when the user provides the ticket ID explicitly, so there is no later write to rely on. When `USE_WORKTREE` is true (and not external), use **Ensure Worktree(`<ID>`)**. When `USE_WORKTREE` is false (and not external), use **Ensure Working Branch(`<ID>`).**
@@ -209,9 +218,10 @@ Both procedures are **idempotent** — safe to call again on resume. They are ca
    - **`CURRENT` is some OTHER branch AND `DIRTY` is empty** → prompt (foreign branch prompt below).
    - **`CURRENT` is some OTHER branch AND `DIRTY` is non-empty** → prompt (combined prompt below).
 
-Before any `AskUserQuestion` on this path, write the pending marker so compaction recovery knows a prompt is in flight:
+Before any user prompt on this path, write the pending marker so compaction recovery knows a prompt is in flight:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" "<one-line description of the question>"
 ```
 After the answer is received, clear it: `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" ""`.
@@ -269,7 +279,7 @@ The destructive option (Abort) is never auto-selected. If `MP` is `ask` (default
 
 **PROCEDURE: Ensure Worktree (`<ID>`)**
 
-Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Creates or reattaches a worktree at `<main-checkout>/.claude/worktrees/<ID>/`.
+Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Creates or reattaches a worktree at `<main-checkout>/<worktree-root>/<ID>/` where `<worktree-root>` is `n1_worktree_root` (config `worktree.root`, else the host default from HOST ROUTING).
 
 1. **Check if `N1_HOME` is absolute** (starts with `/`, `~`, or a drive letter like `C:\`):
    - **If relative** (starts with `.`, e.g. `.n1`) → worktrees cannot be used because config and memory paths would resolve inside the worktree instead of the main checkout. Report to the user: "Worktree isolation requires externalized state (absolute N1_HOME). Run `/n1:n1-init` to migrate, or re-run with `--branch` for branch isolation." **STOP.**
@@ -288,7 +298,8 @@ Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Create
    a. Compute the main checkout root:
       ```bash
       MAIN_CHECKOUT=$(git rev-parse --show-toplevel)
-      WORKTREE_PATH="$MAIN_CHECKOUT/.claude/worktrees/<ID>"
+      WT_ROOT=$(n1_worktree_root)
+      WORKTREE_PATH="$MAIN_CHECKOUT/$WT_ROOT/<ID>"
       ```
    b. Create branch (idempotent) and record review base:
       ```bash
@@ -307,7 +318,7 @@ Used when `USE_WORKTREE` is true (`worktree.mode: "worktree"` in config). Create
       ```bash
       git worktree add "$WORKTREE_PATH" <TARGET>
       ```
-      If this fails because the directory already exists (e.g., from a crashed prior run), manually remove `<main-checkout>/.claude/worktrees/<ID>/` or run `/n1:n1-clean` to clean up stale worktrees, then retry.
+      If this fails because the directory already exists (e.g., from a crashed prior run), manually remove `<main-checkout>/<worktree-root>/<ID>/` or run `/n1:n1-clean` to clean up stale worktrees, then retry.
    e. Set `WORKTREE_PATH` and `BRANCH` for use in Gate 1's `Workspace:` line. Do not print a report here — Gate 1 surfaces these values after analysis.
 
 **PROCEDURE: Ensure Dependencies (`<ID>`)**
@@ -347,11 +358,12 @@ Idempotent, marker-guarded. Called by implementation and defensively by qa/revie
 2. **Memory move:** if `$N1_HOME/memory/<oldId>/` exists AND `$N1_HOME/memory/<newId>/` does NOT → filesystem-move the directory `<oldId>/` → `<newId>/` (`$N1_HOME/` is gitignored or outside the repo, so a plain `mv` / `Move-Item`, NOT `git mv`). If `$N1_HOME/memory/<newId>/` already exists, skip the move and report — the `<newId>` memory is authoritative (resume/collision guard).
 3. **Frontmatter fix:** if `$N1_HOME/memory/<newId>/overview.md` exists (true only when an overview was already written under the slug and just moved — in the clean path it does not exist yet), rewrite its `ticket: <oldId>` → `ticket: <newId>` and its `# <oldId>: <Title>` heading → `# <newId>: <Title>`.
 4. **Branch rename:** compute `<oldBranch>` and `<newBranch>` from `git.branchPattern` (config). If a local branch `<oldBranch>` exists AND `<newBranch>` does NOT → `git branch -m <oldBranch> <newBranch>` (rename preserves commits; N1 has not pushed yet). If `<newBranch>` already exists, skip the rename.
-5. **Worktree move:** if `EXTERNAL_WORKTREE` is true → skip (external worktrees are not relocated). Otherwise, if `.claude/worktrees/<oldId>/` exists → compute `MAIN_CHECKOUT=$(git rev-parse --show-toplevel)` and run `git worktree move $MAIN_CHECKOUT/.claude/worktrees/<oldId> $MAIN_CHECKOUT/.claude/worktrees/<newId>`. In branch mode, no worktree exists — skip silently.
+5. **Worktree move:** if `EXTERNAL_WORKTREE` is true → skip (external worktrees are not relocated). Otherwise, if `<worktree-root>/<oldId>/` exists → compute `MAIN_CHECKOUT=$(git rev-parse --show-toplevel); WT_ROOT=$(n1_worktree_root)` and run `git worktree move $MAIN_CHECKOUT/$WT_ROOT/<oldId> $MAIN_CHECKOUT/$WT_ROOT/<newId>`. In branch mode, no worktree exists — skip silently.
 6. Report: "Migrated memory + branch `<oldId>` → `<newId>`." (append "+ worktree" if a worktree was moved)
 7. **Update active-run pointer:**
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/config.sh"
    n1_active_run_write "$newId" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
    ```
 
@@ -381,7 +393,8 @@ When Claude Code compacts the conversation context, the session-start hook fires
      - `<TICKET_URL>` from ORCHESTRATOR STATE (omit line if empty)
 5. If the ORCHESTRATOR STATE block is missing (no active run), re-resolve N1_HOME and re-read config.json via Bash before continuing:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/config.sh"
    N1_HOME=$(n1_home)
    cat "$N1_HOME/config.json"
    ```
@@ -394,12 +407,14 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists:
 
 - **If exists:** Read the overview frontmatter to determine current step. Also read the pipeline type:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/validation.sh"
   TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
   ```
   When `TYPE` is `"investigation"`, the pipeline runs the shortened investigation flow (see Step 3b and Planning Need Routing below) — skip workspace isolation (no branch or worktree needed for investigation tasks). When `EXTERNAL_WORKTREE` is true, skip workspace isolation entirely — the external checkout is reused (set `WORKTREE_PATH` and `BRANCH` from git as described in Isolation Mode Resolution above). Otherwise, run the appropriate workspace isolation procedure: **Ensure Worktree(`<ID>`)** when `USE_WORKTREE` is true, or **Ensure Working Branch(`<ID>`)** otherwise (see Workspace Isolation above). This covers resuming from a session that ended without cleanup. Then resume from where work left off: read the dependency files for the current step (see dependency map below) and continue. **Also read the loop counters** (`qa_fix_cycle`, `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, and `ci_fix_cycle` if present) so bounded loops resume at their true count, not zero (see Loop-Counter Durability below). Read each via:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/frontmatter.sh"
   n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
   ```
 
@@ -423,7 +438,8 @@ Read `pipeline.json` under `steps[]` for dependency declarations.
 **Dependency integrity guard (applies to every step).** Before spawning a step's agent or sub-skill, run:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/validation.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md analysis.md
 ```
 
@@ -451,13 +467,14 @@ QE=$(n1_autonomy_val 'qualityEscalations')
 
 Applies whenever the environment variable `N1_HEADLESS` equals `1` (the run was launched by `n1-story-run` or another non-interactive parent). There is no user to answer prompts.
 
-At any point where a step would call AskUserQuestion or otherwise **wait for the user** (plan checkpoint, acceptance gate fallback, quality-gate exhaustion on security/architecture/public-API findings, brainstorm escalation below margin, error-recovery "report to user"), do this instead:
+At any point where a step would ask the user or otherwise **wait for the user** (plan checkpoint, acceptance gate fallback, quality-gate exhaustion on security/architecture/public-API findings, brainstorm escalation below margin, error-recovery "report to user"), do this instead:
 
 1. Append to `## Escalations` in `$N1_HOME/memory/$ID/overview.md`:
    `- [headless] <step>: <the exact question or decision that needed a human>, options: <options>`
 2. Set frontmatter `step: escalated`:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/frontmatter.sh"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "escalated"
    ```
 3. Run the telemetry failure path from **Error Recovery** (emit `outcome: "failed"` for the current step, merge), clear the active-run pointer, print `HEADLESS ESCALATION: <one line>` and **end the run**. Do not retry, do not continue to later steps.
@@ -473,7 +490,8 @@ Prepare a rules block to inject into an agent spawn prompt. The block is empty w
 **Parameters:** `{agent_name}` (e.g. `"developer"`, `"solution-architect"`), `{changed_files_source}` (optional signal key to read changed files from, e.g. `"diff_surface"` from `implementation.md`)
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 RULES_BLOCK=""
 if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
@@ -494,7 +512,7 @@ When `$RULES_BLOCK` is non-empty, append it to the agent's spawn prompt.
 Between gates, emit nothing. Do not announce the step being dispatched, the agent being spawned, the model resolved, or the routing decision taken — the pipeline shape is stated once in Gate 1. Memory files carry context between steps; the orchestrator does not.
 
 Four categories may still surface between gates, and nothing else:
-1. **Blocking prompts** — any AskUserQuestion. You cannot answer a prompt you cannot see.
+1. **Blocking prompts** — any user prompt. You cannot answer a prompt you cannot see.
 2. **Warnings and escalations** — anything that changes what "done" will mean, or stops the run.
 3. **Fix-loop iterations** — one line per cycle: `<ID> · <loop-name> fix cycle <N>/<MAX>`. Keeps a long run from reading as hung.
 4. **The three gates** — defined below.
@@ -600,7 +618,8 @@ Step 3 (Brainstorm) is **INTERACTIVE** by default — Superpowers handles user i
 
 **Step start:**
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "<step_name>" <N> "${N1_HOME}/memory/$ID/telemetry" started_at=now
 ```
 
@@ -637,25 +656,25 @@ Each step section in the pipeline below should emit its start marker before spaw
 
 ### 1. REQUIREMENTS ANALYSIS
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/ticket.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/ticket.md`.
 
 ### 2. ANALYSIS
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/analysis.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/analysis.md`.
 
 ### 3. BRAINSTORM
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/brainstorm.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/brainstorm.md`.
 
 ### 3b. INVESTIGATION DELIVERABLE (investigation mode only)
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/investigation-deliverable.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/investigation-deliverable.md`.
 
 This step only runs when `TYPE` is `"investigation"` (read from overview.md frontmatter via `n1_read_type "$N1_HOME/memory/$ID/overview.md"`). After this step, the pipeline terminates (no plan, implementation, QA, review, or PR steps).
 
 ### Estimation
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/estimation.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/estimation.md`.
 
 ### Planning Need Routing
 
@@ -671,11 +690,11 @@ The orchestrator does NOT make its own judgment — the brainstormer already eva
 
 ### 4. PLAN (plan path only)
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/plan.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/plan.md`.
 
 ### 4b. PLAN REVIEW (Cross-Context Review)
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/plan-review.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/plan-review.md`.
 
 ### 4c. Estimation (after plan)
 
@@ -689,7 +708,8 @@ Emit **Gate 2** unconditionally (see `## Output Gates § Gate 2 — Pre-Implemen
 - Read risk line from `analysis.md` signals (`blast_radius`, `complexity_delta`)
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 PLAN_APPROVAL=$(n1_plan_approval_required)
 ```
 
@@ -702,7 +722,8 @@ After emitting Gate 2, present the approval prompt:
 
 After the user approves, record it for resume and compaction recovery:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "plan_approved" "true"
 ```
 
@@ -712,7 +733,7 @@ n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "plan_approved" "true"
 
 Before dispatching the implementer, emit exactly one liveness line: `<ID> · implementing — <N> files` (where `<N>` comes from `FILES_CHANGED` already in context from Gate 1 or analysis signals). This is the single named exception to inter-gate silence — it fires once per run, not once per step, and must not be generalised.
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/implementation.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/implementation.md`.
 
 ### 5b. RUNTIME CROSS-REPO DETECTION (post-implementation)
 
@@ -721,8 +742,9 @@ Before dispatching the implementer, emit exactly one liveness line: `<ID> · imp
 When `relatedProjects.enabled` is `true` in config, scan the implementation diff for unregistered cross-repo references:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/related.sh"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 
 # State files — the prompt response and the telemetry merge run in LATER Bash
@@ -777,8 +799,9 @@ On the user's response to "Add to related projects? (yes/no/select)":
 - **"yes"** — add all detected slugs:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/related.sh"
 XREPO_RT_FILE="$N1_HOME/memory/$ID/xrepo-runtime.tsv"
 XREPO_RT_ADDED_FILE="$N1_HOME/memory/$ID/xrepo-runtime-added"
 
@@ -813,7 +836,8 @@ After handling the response, `$XREPO_RT_ADDED_FILE` holds every slug that was ad
 **Collect telemetry metadata for implementation step:**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 XREPO_RT_FILE="$N1_HOME/memory/$ID/xrepo-runtime.tsv"
 XREPO_RT_ADDED_FILE="$N1_HOME/memory/$ID/xrepo-runtime-added"
@@ -838,11 +862,11 @@ No separate emit is added here — the implementation step's existing end event 
 
 ### 6. QA
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/qa.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/qa.md`.
 
 ### 7. REVIEW
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/review.md`. That step references `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/review-core.md` for shared diff-surface classification and reviewer scope rules.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/review.md`. That step references `<N1_ROOT>/skills/n1-start/review-core.md` for shared diff-surface classification and reviewer scope rules.
 
 Autonomous decisions made anywhere in the pipeline are recorded per `skills/n1-start/ledger.md` (Decision Ledger in overview.md, rendered into the PR body).
 
@@ -867,27 +891,27 @@ No separate emit is added here — the review step's existing end event carries 
 
 ### 8. FIX (if review failed)
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/fix.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/fix.md`.
 
 ### 9. LOCAL TESTING (conditional)
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/local-testing.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/local-testing.md`.
 
 ### 10. PR CREATION
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/pr.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/pr.md`.
 
 ### 11. CI WATCH (conditional)
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/ci.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/ci.md`.
 
 ### 11b. FINISH WORK (conditional)
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/finish.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/finish.md`.
 
 ### 11c. INVESTIGATION DELIVERABLE (conditional)
 
-**Execute step:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/steps/investigation-deliverable.md`.
+**Execute step:** Read and follow `<N1_ROOT>/skills/n1-start/steps/investigation-deliverable.md`.
 
 ### 12. FINALIZE MEMORY
 
@@ -907,7 +931,8 @@ Update overview.md:
 
 2. Run the merge script:
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-merge.sh" "$N1_RUN_ID" "${N1_HOME}/memory/$ID/telemetry" 2>&1 || echo "⚠ Telemetry merge failed" >&2
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "${N1_HOME}/memory/$ID/telemetry" 2>&1 || echo "⚠ Telemetry merge failed" >&2
    ```
    After the merge, remove the lock only if the merged output exists and is non-empty:
    ```bash
@@ -917,7 +942,8 @@ Update overview.md:
 
 After finalizing, clear the active-run pointer:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 n1_active_run_clear
 ```
 

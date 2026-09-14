@@ -3,7 +3,8 @@
 
 **Telemetry (if enabled):** Emit `started_at` for step 9 (`review`) before spawning reviewers. This applies to both the initial review and any re-review pass after a fix cycle:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "review" 9 "${N1_HOME}/memory/$ID/telemetry" started_at=now
 ```
 
@@ -13,7 +14,7 @@ Marker-guarded no-op on the normal path.
 
 > **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step. Reviewers and the developer (fix mode) run what they need; the orchestrator only reads their returned findings and routes them.**
 
-**Shared review core:** Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = the recorded branch point when available, else the `git.defaultBranch` value from `$N1_HOME/config.json`:
+**Shared review core:** Read and follow `<N1_ROOT>/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = the recorded branch point when available, else the `git.defaultBranch` value from `$N1_HOME/config.json`:
 ```bash
 BP_FILE="$N1_HOME/memory/<ID>/branch-point"
 BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || echo "<git.defaultBranch from config>" )
@@ -28,8 +29,9 @@ Prepare review context (curated per reviewer, not one identical bundle):
 
 Generate the cold-review inputs first (the reviewer must not see the author's narrative):
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/treestate.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/memory.sh"
+source "$N1_ROOT/lib/treestate.sh"
 MEM="$N1_HOME/memory/$ID"
 {
   echo "# Review Spec (generated — acceptance criteria and chosen approach only)"
@@ -49,8 +51,9 @@ TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
 **Related projects context (code-reviewer only):** when `relatedProjects.enabled` is `true`, build the registry block that the code-reviewer's Cross-Repo References check requires:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/related.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/related.sh"
 
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 XREPO_REVIEW_CONTEXT=""
@@ -85,7 +88,8 @@ fi
 - **code-reviewer also receives** the paths `$MEM/review-spec.md` and, when it exists, `$MEM/plan.md`. It does **NOT** receive `implementation.md` or `brainstorm.md`: the reviewer is a cold second pair of eyes and must derive what changed from the diff, not from the author's account. Add the directive: **"You are a cold second pair of eyes. Review the code that is actually there against the spec. Do not assume intent the code does not demonstrate. Identify changed files with `git diff --name-only <BASE_BRANCH>...HEAD`."**
 - **code-reviewer also receives** `testCoverage.tier` value (same value read in Step 6) — for Test Quality evaluation calibration. Also read `qa_verdict_unverified` from overview.md frontmatter:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/frontmatter.sh"
   QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified")
   ```
   When `QA_UNVERIFIED=true`, append this directive to the code-reviewer prompt (immediately after the `testCoverage.tier` line): **"QA verdict is unverified (evidence missing from qa.md). Treat the QA pass as unconfirmed when evaluating Test Quality — apply additional scrutiny to any test coverage claims."**
@@ -107,8 +111,9 @@ After ALL return, merge findings:
 **Fingerprint recording:** After merging all findings, record fingerprints for all confirmed Critical and High findings:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/fingerprints.sh"
+source "$N1_ROOT/lib/frontmatter.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
 CYCLE=${CYCLE:-1}
@@ -124,8 +129,9 @@ n1_fingerprint_append "$FP_FILE" "$FP" "<finding_id>" "<severity>" "active" "$CY
 **Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `review_fix_cycle > 0`:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/fingerprints.sh"
+source "$N1_ROOT/lib/frontmatter.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
 CYCLE=${CYCLE:-0}
@@ -164,13 +170,15 @@ After merging review findings, check code-reviewer output for `[TQ-N]` findings 
    - The qa-engineer updated `$N1_HOME/memory/<ID>/qa.md` itself (verify non-empty as in Step 6; fallback-write the returned summary if not)
    - Run via Bash:
      ```bash
-     source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+     N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+     source "$N1_ROOT/lib/frontmatter.sh"
      n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"
      ```
 4. After QA fixes TQ findings, proceed to Step 8. No re-review needed — TQ findings are non-blocking.
 5. **Bounded:** `tq.maxFixAttempts` (config, default 2) — a separate counter from the Step 6 QA bug-fix loop so QA exhaustion never blocks TQ cleanup. Before spawning, check the bound:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/config.sh"
    TQ_MAX=$(n1_config_val '.tq.maxFixAttempts' '2')
    # exhausted when tq_fix_cycle (overview.md frontmatter) >= TQ_MAX
    ```
@@ -188,6 +196,6 @@ If combined verdict remains FAIL after Step 7b, proceed to Step 8 (FIX). Note fo
 
 **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 
-If `QE` is `ask`: compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then: "{PREAMBLE} After `review.maxFixAttempts` (default 3) review cycles, these findings remain unresolved: [list]. Please advise."
+If `QE` is `ask`: compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then: "{PREAMBLE} After `review.maxFixAttempts` (default 3) review cycles, these findings remain unresolved: [list]. Please advise."
 
 **On PASS verdict:** Treat the review as PASS and proceed to the next pipeline step.

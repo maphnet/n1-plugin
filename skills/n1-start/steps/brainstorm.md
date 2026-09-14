@@ -3,7 +3,8 @@
 
 **Telemetry (if enabled):** Emit `started_at` for step 3 (`brainstorm`) before any routing or agent spawning:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/memory/$ID/telemetry" started_at=now
 ```
 
@@ -12,7 +13,8 @@ n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/m
 **Investigation mode** (`TYPE == "investigation"` from overview.md frontmatter): route by `BRAINSTORM_MODE`, with one override — if overview.md frontmatter has `investigate_interactive: true` (set by the `--investigate` flag), force `BRAINSTORM_MODE=interactive` for this run:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 INVESTIGATE_INTERACTIVE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive")
 BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
 if [ "$INVESTIGATE_INTERACTIVE" = "true" ]; then
@@ -20,16 +22,16 @@ if [ "$INVESTIGATE_INTERACTIVE" = "true" ]; then
 fi
 ```
 
-- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The subagent absorbs the brainstormer's turn boundary — when the Agent tool returns, the orchestrator sees a clean result and continues.
+- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The subagent absorbs the brainstormer's turn boundary — when its result comes back, the orchestrator continues.
 
-  Spawn via Agent tool with `subagent_type: "n1:solution-architect"` (the SA has Read/Grep/Glob/Bash/WebSearch — everything the autonomous brainstormer needs). Prompt the subagent:
+  Dispatch persona `solution-architect` (it has Read/Grep/Glob/Bash/WebSearch — everything the autonomous brainstormer needs) with this prompt, then wait for it:
 
-  "You are the autonomous brainstormer. Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/autonomous-brainstorm.md` exactly. Inputs: `$N1_HOME/memory/$ID/ticket.md`, `$N1_HOME/memory/$ID/analysis.md`. Output: write the design to `$N1_HOME/memory/$ID/brainstorm.md`. Investigation focus: this is an investigation task — explore the question and research findings, not implementation approaches. Focus on validating or challenging the analysis findings, exploring alternative explanations, and identifying gaps in the investigation. The output should be research-focused, not design-focused. After writing brainstorm.md, report back: the `planning_need` value (plan or direct) and, if scope changed materially, an updated `context:` block."
+  "You are the autonomous brainstormer. Read and follow `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md` exactly. Inputs: `$N1_HOME/memory/$ID/ticket.md`, `$N1_HOME/memory/$ID/analysis.md`. Output: write the design to `$N1_HOME/memory/$ID/brainstorm.md`. Investigation focus: this is an investigation task — explore the question and research findings, not implementation approaches. Focus on validating or challenging the analysis findings, exploring alternative explanations, and identifying gaps in the investigation. The output should be research-focused, not design-focused. After writing brainstorm.md, report back: the `planning_need` value (plan or direct) and, if scope changed materially, an updated `context:` block."
 
   Pass the test-coverage-tier directive and `$RULES_BLOCK` if applicable.
 
   After the subagent returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update (Post-Brainstorm Enrichment stays skipped for investigation).
-- **`BRAINSTORM_MODE` == `interactive`:** Use the interactive brainstormer (`REQUIRED SUB-SKILL: superpowers:brainstorming`) exactly as in the non-investigation interactive path below — including the N1-OVERRIDE block — but ADD the investigation focus override (see Investigation mode section below) to the brainstorming prompt, and SKIP the bug directive and the test-coverage-tier directive (investigation output is research, not a design with a Testing section). Post-Brainstorm Enrichment stays skipped for investigation.
+- **`BRAINSTORM_MODE` == `interactive`:** Use the interactive brainstormer (`REQUIRED SUB-SKILL: invoke skill `brainstorming``) exactly as in the non-investigation interactive path below — including the N1-OVERRIDE block — but ADD the investigation focus override (see Investigation mode section below) to the brainstorming prompt, and SKIP the bug directive and the test-coverage-tier directive (investigation output is research, not a design with a Testing section). Post-Brainstorm Enrichment stays skipped for investigation.
 
 **Non-investigation mode** (normal task): route by autonomy config:
 
@@ -45,21 +47,21 @@ TEST_TIER="${TEST_TIER:-maintain}"
 
 Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `changed_files_source` — brainstorm runs before implementation; `CHANGED_FILES` will be empty). Capture result as `$RULES_BLOCK`.
 
-- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The subagent absorbs the brainstormer's turn boundary — when the Agent tool returns, the orchestrator sees a clean result and continues. This replaces the prior in-context skill-fragment approach that intermittently caused the orchestrator to stop after brainstorming completed.
+- **`BRAINSTORM_MODE` == `auto`:** Spawn a subagent to run the autonomous brainstormer. The subagent absorbs the brainstormer's turn boundary — when its result comes back, the orchestrator continues. This replaces the prior in-context skill-fragment approach that intermittently caused the orchestrator to stop after brainstorming completed.
 
-  Spawn via Agent tool with `subagent_type: "n1:solution-architect"` (the SA has Read/Grep/Glob/Bash/WebSearch — everything the autonomous brainstormer needs). Prompt the subagent:
+  Dispatch persona `solution-architect` (it has Read/Grep/Glob/Bash/WebSearch — everything the autonomous brainstormer needs) with this prompt, then wait for it:
 
-  "You are the autonomous brainstormer. Read and follow `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/autonomous-brainstorm.md` exactly. Inputs: `$N1_HOME/memory/$ID/ticket.md`, `$N1_HOME/memory/$ID/analysis.md`. Output: write the design to `$N1_HOME/memory/$ID/brainstorm.md`. Batch ALL A-tier and inconclusive-dominance questions into ONE message (do not ask one at a time); write [auto]/[asked] ledger rows per `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/ledger.md`; if all A-tier questions are resolved, mark none as deferred. For each A-tier question, include a final option 'Decide for me -- research and apply recommendation'. When selected, re-run web search with broader queries and apply the best-evidenced answer without asking a follow-up. Record as [auto-decided] with rungs_tried per skills/n1-start/ledger.md. testCoverage.tier is `{TEST_TIER}`. After writing brainstorm.md, report back: the `planning_need` value (plan or direct) and, if scope changed materially, an updated `context:` block."
+  "You are the autonomous brainstormer. Read and follow `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md` exactly. Inputs: `$N1_HOME/memory/$ID/ticket.md`, `$N1_HOME/memory/$ID/analysis.md`. Output: write the design to `$N1_HOME/memory/$ID/brainstorm.md`. Batch ALL A-tier and inconclusive-dominance questions into ONE message (do not ask one at a time); write [auto]/[asked] ledger rows per `<N1_ROOT>/skills/n1-start/ledger.md`; if all A-tier questions are resolved, mark none as deferred. For each A-tier question, include a final option 'Decide for me -- research and apply recommendation'. When selected, re-run web search with broader queries and apply the best-evidenced answer without asking a follow-up. Record as [auto-decided] with rungs_tried per skills/n1-start/ledger.md. testCoverage.tier is `{TEST_TIER}`. After writing brainstorm.md, report back: the `planning_need` value (plan or direct) and, if scope changed materially, an updated `context:` block."
 
   When `$RULES_BLOCK` is non-empty, append it to the subagent prompt.
 
   After the subagent returns, skip the `REQUIRED SUB-SKILL` block below and proceed directly to the overview update and Planning Need Evaluation (Post-Brainstorm Enrichment still applies).
-- **`BRAINSTORM_MODE` == `interactive` (default):** Delegate brainstorming to a subagent using a batched question-relay loop. **Behaviour change:** this converts the `superpowers:brainstorming` iterative dialogue into at most two batched rounds — a stated fidelity trade on genuinely exploratory tickets, not a blocker.
+- **`BRAINSTORM_MODE` == `interactive` (default):** Delegate brainstorming to a subagent using a batched question-relay loop. **Behaviour change:** this converts the `brainstorming` skill's iterative dialogue into at most two batched rounds — a stated fidelity trade on genuinely exploratory tickets, not a blocker.
 
   **Relay loop (cap: 2 rounds):**
 
-  **Round 1:** Spawn `n1:solution-architect` as a subagent with this contract:
-  - Run `superpowers:brainstorming` against `ticket.md` + `analysis.md`
+  **Round 1:** Dispatch persona `solution-architect` with this contract:
+  - Invoke skill `brainstorming` against `ticket.md` + `analysis.md`
   - Apply the design focus and override directives listed below for the ticket type
   - **If ticket type is `bug`:** Tell brainstorming: "This is a bug. The analysis includes a Bug Investigation section with the likely root cause and affected code path. Use these findings to ask informed questions about the fix approach rather than generic questions."
   - **Project testing policy:** `testCoverage.tier is {TEST_TIER}` (substitute the actual value). QA behavior by tier: `maintain` = fix broken existing tests only, no new tests added; `minimal` = up to 3 focused behavioral tests per feature for acceptance criteria only; `standard` = edge cases and error paths included. When designing the Testing section, default your proposals to match this tier. Only propose new tests if this specific change introduces risk that existing coverage does not address and the risk clearly justifies an exception to the project's testing policy.
@@ -68,16 +70,16 @@ Run SKILL.md § Rules Injection with `agent_name=solution-architect` (no `change
   - **If no user questions are needed:** write `brainstorm.md` and return the standard compact block (`planning_need:`, updated `context:`). Relay ends.
 
   If the subagent returns a `QUESTIONS:` block:
-  - Raise all questions in a single `AskUserQuestion` (max 4 items; chain beyond 4 using the same rule as `steps/analysis.md:596`).
+  - Raise all questions in a single user prompt (max 4 items; chain beyond 4 using the same rule as `steps/analysis.md:596`).
   - Accept "use recommended" as a global answer.
-  - **Round 2:** Re-spawn the same subagent with the original inputs plus the user's answers appended. The subagent writes `brainstorm.md` and returns the compact block. Do not spawn a third round regardless of output.
+  - **Round 2:** Dispatch persona `solution-architect` again with the original inputs plus the user's answers appended. The subagent writes `brainstorm.md` and returns the compact block. Do not spawn a third round regardless of output.
 
   The user sees: the batched questions and nothing else. The exploration transcript stays inside the subagent. This matches the existing relay pattern at `steps/implementation.md:191`.
 
   **Apply these directives to the subagent regardless of mode (lifted from the existing interactive path below):**
 
 <N1-OVERRIDE>
-These overrides take precedence over superpowers:brainstorming's checklist AND its HARD-GATE for steps 5-9.
+These overrides take precedence over the brainstorming skill's checklist AND its HARD-GATE for steps 5-9.
 The HARD-GATE ("Do NOT invoke any implementation skill... until the user has approved") is SUSPENDED inside this N1 pipeline — user approval is NOT required to proceed past brainstorming. Steps 1-4 (explore context, clarifying questions, propose approaches) run normally.
 
 **ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, `cat`, `sed -n`, or otherwise open project source files in this step — Step 1 is satisfied by `analysis.md`.** If a design question needs a fact that `analysis.md` lacks (how a name is generated, which script owns cleanup, what a template contains), re-spawn `solution-architect` with that specific question ("Answer only: <question>. Return file:line evidence, ≤200 words.") and feed the answer into the conversation. Reading `$N1_HOME/**` memory files and `rules/` is fine.
@@ -105,7 +107,8 @@ After step 7 completes, IMMEDIATELY execute these post-brainstorm procedures
 
 1. Update overview.md: mark `[x] Brainstorm` checkbox, set `step: brainstorm` in frontmatter:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/frontmatter.sh"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "brainstorm"
    ```
 2. Record key decisions from the design in overview.md's `## Key Decisions` section
@@ -168,7 +171,8 @@ Present the design checkpoint to the user. Before presenting, extract two pieces
 
 2. **Input quality signal** — read the `description_quality` signal from `$N1_HOME/memory/<ID>/ticket.md`:
    ```bash
-   source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source "$N1_ROOT/lib/signals.sh"
    DESC_QUALITY=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "description_quality")
    ```
    If the file is missing or the signal is absent, treat quality as unknown.
@@ -205,14 +209,16 @@ If `ACCEPTANCE_GATE` is `auto`: auto-confirm unconditionally without waiting for
 `| brainstorm | acceptance | A | [auto] | Confirm design and proceed? | Auto-confirmed design | Wait for user | acceptanceGate=auto (autonomy.mode=hands-off) | --- |`
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "auto-decided" "---"
 ```
 
 Then continue directly to Planning Need Evaluation.
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "asked" "codebase|web"
 ```
 
@@ -247,12 +253,14 @@ Record the `planning_need` value (`plan` or `direct`). The orchestrator uses thi
 **Persist to overview.md frontmatter** so the implementation step can read it back:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNING_NEED"
 ```
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_record_decision planning-need-direct "$( [ "$PLANNING_NEED" = "direct" ] && echo true || echo false )" \
   '{"signal":"brainstorm.design_clarity","eq":"high"}' "planning_need=$PLANNING_NEED"
 ```
@@ -260,7 +268,8 @@ n1_record_decision planning-need-direct "$( [ "$PLANNING_NEED" = "direct" ] && e
 **Persist brainstorm signals:**
 After `planning_need` is determined, assess and persist signals:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/signals.sh"
 if [ "$PLANNING_NEED" = "direct" ]; then
     DESIGN_CLARITY="high"
 else
@@ -293,7 +302,8 @@ n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NE
 
 **Compact brainstorm memory:**
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/memory.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/memory.sh"
 n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,key decisions,approach,acceptance criteria,testing"
 ```
 

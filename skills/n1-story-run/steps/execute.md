@@ -14,7 +14,7 @@ STATUS=$(n1_story_child_status "$OVERVIEW" 0)
 - `merged` -> mark row `merged`, record PR via `n1_story_child_pr_url`, advance (section 7).
 - `awaiting-merge` -> go to section 5.
 - Otherwise, if `## Runs` has a row for `KEY` with a PID and `kill -0 <PID>` succeeds -> re-attach: go to section 3 with that PID.
-- Busy guard: if `$SUB_HOME/active-run.json` exists and its `ticketId` != `KEY` -> AskUserQuestion "Repo <REPO> has an active N1 run for <other>. **Wait & retry** / **Launch anyway** / **Pause story**."
+- Busy guard: if `$SUB_HOME/active-run.json` exists and its `ticketId` != `KEY` -> ask the user: "Repo <REPO> has an active N1 run for <other>. **Wait & retry** / **Launch anyway** / **Pause story**."
 
 ## 2. Launch
 ```bash
@@ -29,7 +29,7 @@ sleep "$POLL"; kill -0 "$PID" 2>/dev/null && ALIVE=1 || ALIVE=0
 STEP=$(n1_read_frontmatter "$OVERVIEW" step)
 ```
 Print `  · <KEY> step: <STEP>` only when `STEP` changed since the last poll. On timeout: `kill -TERM -- -"$PID" 2>/dev/null; sleep 5; kill -KILL -- -"$PID" 2>/dev/null`, set outcome `timeout`, go to section 6.
-When the process exits, `EXIT=$(tail -1 "$LOG" | grep -q '"is_error":true' && echo 1 || echo 0)`; if the process was launched via `bash -c` and its exit code is available from the background task result, prefer that.
+When the process exits, take `EXIT` from the background task's exit code. If the harness does not report one, derive it from N1's own artifacts, which exist on both hosts: `EXIT=0` when `n1_read_frontmatter "$OVERVIEW" step` is `done`, `pr`, `escalated`, or a `## Pending` block exists; otherwise `EXIT=1`. Do not parse the child's stdout log — its format differs per host.
 
 ## 4. Classify
 ```bash
@@ -42,7 +42,7 @@ Poll every `MERGE_POLL` minutes (one Bash call per poll, `sleep $((MERGE_POLL*60
 ```bash
 STATE=$(cd "$REPO" && gh pr view "$PR_URL" --json state,mergedAt -q '.state')
 ```
-- `MERGED` -> run the finish child: `cd "$REPO" && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous claude -p "/n1:n1-finish $KEY" --permission-mode bypassPermissions --output-format stream-json --verbose > "$STORY_MEM/runs/$KEY.finish.jsonl" 2>&1` (background, monitor as section 3 with a 30-minute cap). Regardless of the finish child's outcome, the subtask is `merged`; a failed finish is noted in the Runs row (`finish: failed`) but does not pause the story. -> section 7.
+- `MERGED` -> run the finish child: `FINISH_CMD="cd \"$REPO\" && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous $(n1_headless_cmd n1-finish "$KEY" "" "$STORY_MEM/runs/$KEY.finish.jsonl")"`, run `bash -c "$FINISH_CMD"` in the background and monitor as section 3 with a 30-minute cap. Regardless of the finish child's outcome, the subtask is `merged`; a failed finish is noted in the Runs row (`finish: failed`) but does not pause the story. -> section 7.
 - `CLOSED` -> outcome `failed`, reason "PR closed without merge" -> section 6.
 - Timeout -> outcome `awaiting-merge` (kept), reason "PR <PR_URL> not merged after <MERGE_TIMEOUT> minutes" -> section 6.
 

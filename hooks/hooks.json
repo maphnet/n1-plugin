@@ -4,56 +4,37 @@
       {
         "matcher": "startup|resume|clear",
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"",
-            "async": true
-          }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"", "async": true }
         ]
       },
       {
         "matcher": "compact",
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\""
-          }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"" }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Task|Agent",
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/enforce-agent-model.sh\""
-          }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/enforce-agent-policy.sh\"" }
         ]
       }
     ],
     "SubagentStart": [
       {
-        "matcher": "n1:*",
+        "matcher": "n1[:-].*",
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-start.sh\"",
-            "async": true
-          }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-start.sh\"", "async": true }
         ]
       }
     ],
     "Stop": [],
     "SubagentStop": [
       {
-        "matcher": "n1:*",
+        "matcher": "n1[:-].*",
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-stop.sh\"",
-            "async": true
-          }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-stop.sh\"", "async": true }
         ]
       }
     ]

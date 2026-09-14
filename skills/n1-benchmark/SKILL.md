@@ -1,6 +1,6 @@
 ---
 name: n1-benchmark
-description: "Benchmark N1 as an orchestrator across plugin versions: counts human interventions (answers and corrections) per pipeline run from telemetry plus Claude Code transcripts, adds telemetry quality metrics, persists snapshots under ~/.n1/benchmark/, and reports deltas against the previous snapshot and a pinned baseline. Use when asked how N1 is trending, whether a version regressed, or to run the benchmark."
+description: "Benchmark N1 as an orchestrator across plugin versions: counts human interventions (answers and corrections) per pipeline run from telemetry plus host transcripts (Claude Code projects or Codex rollouts), adds telemetry quality metrics, persists snapshots under ~/.n1/benchmark/, and reports deltas against the previous snapshot and a pinned baseline. Use when asked how N1 is trending, whether a version regressed, or to run the benchmark."
 argument-hint: "[--baseline <version>] [--by week] [--since YYYY-MM-DD] [--force]"
 model: sonnet
 effort: medium
@@ -15,10 +15,13 @@ All deterministic work is done by `scripts/benchmark.py`. This skill only drives
 ## 1. Resolve paths
 
 ```bash
-SCRIPT="${CLAUDE_PLUGIN_ROOT}/scripts/benchmark.py"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+SCRIPT="$N1_ROOT/scripts/benchmark.py"
 OUT="${HOME}/.n1/benchmark"
 WORK=$(mktemp -d)
-PLUGIN_VERSION=$(python3 -c "import json;print(json.load(open('${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json'))['version'])")
+PLUGIN_VERSION=$(n1_plugin_version)
+N1_HOST_NAME=$(n1_host)
 ```
 
 If `~/.n1` does not exist, tell the user N1 is not configured and stop.
@@ -34,7 +37,7 @@ python3 "$SCRIPT" baseline set <version> --out "$OUT"
 ## 3. Collect
 
 ```bash
-python3 "$SCRIPT" collect --out "$OUT" --ambiguous-out "$WORK/ambiguous.json" [--since DATE] [--force]
+python3 "$SCRIPT" collect --out "$OUT" --host "$N1_HOST_NAME" --ambiguous-out "$WORK/ambiguous.json" [--since DATE] [--force]
 ```
 
 Read `$WORK/ambiguous.json`. It contains `ambiguous`, a list of `{id, text, prev_assistant}`.
@@ -43,7 +46,7 @@ Read `$WORK/ambiguous.json`. It contains `ambiguous`, a list of `{id, text, prev
 
 If the list is empty, write `[]` to `$WORK/labels.json` and skip to step 5.
 
-Otherwise split the list into batches of 30. For each batch dispatch ONE Agent call with `subagent_type: general-purpose`, `model: haiku`, and this prompt, substituting the batch as JSON:
+Otherwise split the list into batches of 30. For each batch dispatch ONE general-purpose subagent (HOST ROUTING: dispatch a general-purpose subagent; model `haiku` on Claude Code, the default subagent model on Codex) with this prompt, substituting the batch as JSON:
 
 ```
 You label single human messages from a coding-assistant session. For each item you get the human's message (`text`) and the assistant message that preceded it (`prev_assistant`).

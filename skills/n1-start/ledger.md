@@ -44,16 +44,16 @@ Section skeleton written on first entry:
 
 ## Resolution Ladder
 
-Before issuing any AskUserQuestion (excluding unconditional gates), the asking step MUST attempt resolution in this order:
+Before issuing any user prompt (excluding unconditional gates), the asking step MUST attempt resolution in this order:
 
 1. **Codebase search** -- Read/Grep/Glob for evidence. If found, resolve inline and do NOT ask.
 2. **Web search** -- WebSearch for docs, best practices, API references. If found, resolve inline and do NOT ask.
 3. **Prescribed lookup** -- When the answer is observable on a host the agent cannot reach, note the command and a reasonable default. Resolve inline.
 4. **Telemetry/memory** -- Check `$N1_HOME/memory/<ID>/` files and telemetry data for prior decisions on the same question. If found, resolve inline.
 
-Only after all applicable rungs fail should the step escalate to AskUserQuestion. The `rungs_tried` ledger cell records which rungs were attempted (comma-separated).
+Only after all applicable rungs fail should the step escalate to a user prompt. The `rungs_tried` ledger cell records which rungs were attempted (comma-separated).
 
-**"Decide for me" option:** Design and scope category AskUserQuestion calls (not mechanical, not unconditional gates) MUST include a final option: `"Decide for me -- research and apply recommendation"`. When selected:
+**"Decide for me" option:** Design and scope category user prompts (not mechanical, not unconditional gates) MUST include a final option: `"Decide for me -- research and apply recommendation"`. When selected:
 1. Re-run the resolution ladder with an emphasis on web search (broader queries, multiple sources).
 2. Apply the recommendation from the research.
 3. Record as `[auto-decided]` with tag `[auto-decided]` and reason starting with `decide-for-me:`.

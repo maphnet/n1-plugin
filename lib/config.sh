@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # N1 shared helpers: N1_HOME resolution, JSON config, model resolution, JSON escaping
+# shellcheck source=host.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host.sh"
 
 n1_home() {
     local home
@@ -139,6 +141,57 @@ n1_resolve_tier() {
     esac
 }
 
+n1_codex_default() {
+    # Usage: n1_codex_default <key> — value of [agents].<key> in the Codex CLI config.toml
+    local f="${CODEX_HOME:-$HOME/.codex}/config.toml"
+    [ -f "$f" ] || return 0
+    awk -v key="$1" '
+        /^[[:space:]]*\[/ { sec=$0; gsub(/[[:space:]]/, "", sec) }
+        sec=="[agents]" && $1==key { if (match($0, /"[^"]*"/)) print substr($0, RSTART+1, RLENGTH-2); exit }
+    ' "$f"
+}
+
+_n1_model_override() {
+    # Usage: _n1_model_override <persona> — models.<persona> from config for the current host, or empty.
+    # String = legacy Claude-only value; object = {"claude-code": m, "codex": m | {"model": m, "reasoning_effort": e}}.
+    local persona="$1" host config_file
+    host=$(n1_host); config_file=$(n1_config_file)
+    [ -f "$config_file" ] || return 0
+    if command -v jq >/dev/null 2>&1; then
+        jq -r --arg p "$persona" --arg h "$host" '
+            .models[$p] as $e |
+            if ($e|type) == "string" then (if $h == "claude-code" then $e else empty end)
+            elif ($e|type) == "object" then ($e[$h] | if type == "object" then (.model // empty) else (. // empty) end)
+            else empty end' "$config_file" 2>/dev/null || true
+    elif [ "$host" = "claude-code" ]; then
+        n1_config_val ".models.${persona}" "$config_file"
+    fi
+}
+
+n1_model_for() {
+    # Usage: n1_model_for <persona> — the model to spawn this persona with on the current host.
+    local persona="$1" v
+    v=$(_n1_model_override "$persona")
+    if [ -n "$v" ]; then printf '%s' "$v"; return; fi
+    if [ "$(n1_host)" = "codex" ]; then n1_codex_default default_subagent_model; return; fi
+    local agent_file base=""
+    agent_file="$(n1_plugin_root)/agents/${persona}.md"
+    [ -f "$agent_file" ] && base=$(awk 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && /^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/\r/, ""); printf "%s", $0; exit }' "$agent_file")
+    printf '%s' "${base:-sonnet}"
+}
+
+n1_reasoning_effort_for() {
+    # Usage: n1_reasoning_effort_for <persona> — Codex reasoning effort for a spawn; empty on Claude Code.
+    [ "$(n1_host)" = "codex" ] || return 0
+    local persona="$1" config_file v=""
+    config_file=$(n1_config_file)
+    if [ -f "$config_file" ] && command -v jq >/dev/null 2>&1; then
+        v=$(jq -r --arg p "$persona" '.models[$p].codex.reasoning_effort? // empty' "$config_file" 2>/dev/null || true)
+    fi
+    [ -n "$v" ] && { printf '%s' "$v"; return; }
+    n1_codex_default default_subagent_reasoning_effort
+}
+
 n1_resolve_model() {
     local agent_name="$1"
     local context="${2:-}"
@@ -146,35 +199,34 @@ n1_resolve_model() {
     local config_file
     config_file=$(n1_config_file)
 
-    # 1. Config override (always wins)
-    if [ -f "$config_file" ]; then
-        if command -v jq >/dev/null 2>&1; then
-            override=$(jq -r ".models[\"${agent_name}\"] // empty" "$config_file" 2>/dev/null || true)
-        else
-            override=$(n1_config_val ".models.${agent_name}" "$config_file")
-        fi
-    fi
+    # 1. Config override (always wins); host-keyed objects resolve to the current host's value
+    override=$(_n1_model_override "$agent_name")
     if [ -n "$override" ]; then
         printf '%s' "$override"
+        return
+    fi
+    # Codex has no opus/sonnet/haiku tier vocabulary: no signal-driven tiering there.
+    if [ "$(n1_host)" = "codex" ]; then
+        n1_model_for "$agent_name"
         return
     fi
 
     # Get base model from agent frontmatter
     local base_model=""
-    local agent_file="${CLAUDE_PLUGIN_ROOT}/agents/${agent_name}.md"
+    local agent_file="$(n1_plugin_root)/agents/${agent_name}.md"
     if [ -f "$agent_file" ]; then
         base_model=$(awk 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && /^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/\r/, ""); printf "%s", $0; exit }' "$agent_file")
     fi
     base_model="${base_model:-sonnet}"
 
     # 2. Signal-driven escalation/downgrade (condition-gated)
-    local pipeline_file="${CLAUDE_PLUGIN_ROOT}/pipeline.json"
+    local pipeline_file="$(n1_plugin_root)/pipeline.json"
     if [ -f "$pipeline_file" ] && [ -n "$context" ] && command -v jq >/dev/null 2>&1; then
         local trigger_key="${agent_name}:${context}"
         local mem_dir="${N1_HOME:+${N1_HOME}/memory/${ID}}"
         local overview_file="${mem_dir:+${mem_dir}/overview.md}"
 
-        type n1_eval_signal_gate >/dev/null 2>&1 || source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh" 2>/dev/null || true
+        type n1_eval_signal_gate >/dev/null 2>&1 || source "$(n1_plugin_root)/lib/signals.sh" 2>/dev/null || true
 
         local section trigger_tier trigger_cond
         for section in escalation_triggers downgrade_triggers; do
@@ -190,7 +242,7 @@ n1_resolve_model() {
 
             # Evaluate condition; requires memory dir
             if [ -n "$mem_dir" ] && [ -d "$mem_dir" ]; then
-                type n1_record_decision >/dev/null 2>&1 || source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh" 2>/dev/null || true
+                type n1_record_decision >/dev/null 2>&1 || source "$(n1_plugin_root)/lib/telemetry.sh" 2>/dev/null || true
                 local dec_id="${section%_triggers}:${trigger_key}"   # e.g. escalation:developer:implementation
                 if n1_eval_signal_gate "$mem_dir" "$overview_file" "$trigger_cond"; then
                     n1_record_decision "$dec_id" true "$trigger_cond" "tier=${trigger_tier}" 2>/dev/null || true
@@ -207,7 +259,7 @@ n1_resolve_model() {
     if [ -f "$pipeline_file" ] && [ -n "$N1_HOME" ] && [ -n "$ID" ]; then
         local overview_file="${N1_HOME}/memory/${ID}/overview.md"
         if [ -f "$overview_file" ]; then
-            source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh" 2>/dev/null || true
+            source "$(n1_plugin_root)/lib/frontmatter.sh" 2>/dev/null || true
             local wf_type
             wf_type=$(n1_read_frontmatter "$overview_file" "type" 2>/dev/null || true)
             if [ -n "$wf_type" ]; then
@@ -325,27 +377,9 @@ n1_plan_approval_required() {
     [ "$v" = "true" ] && printf 'true' || printf 'false'
 }
 
-n1_codex_available() {
-    local enabled
-    enabled=$(n1_codex_val 'enabled')
-    [ "$enabled" = "true" ] || return 1
-    codex --version >/dev/null 2>&1 || return 1
-    return 0
-}
-
-n1_codex_preflight() {
-    local base_branch="$1"
-    n1_codex_available || return 1
-    if ! git rev-parse --verify "$base_branch" >/dev/null 2>&1; then
-        echo "base branch '$base_branch' not resolvable" >&2
-        return 1
-    fi
-    return 0
-}
-
 # Detect if running inside a linked git worktree NOT managed by N1.
 # Returns 0 (true) when: git-dir diverges from git-common-dir (linked worktree)
-# AND the worktree toplevel is NOT under .claude/worktrees/ (not N1-managed).
+# AND the worktree toplevel is NOT under the host worktree root (n1_worktree_root).
 # Returns 1 (false) otherwise.
 n1_is_external_worktree() {
     local git_dir git_common_dir toplevel
@@ -358,11 +392,12 @@ n1_is_external_worktree() {
     [ "$git_dir" != "$git_common_dir" ] || return 1
     # It is a linked worktree — check if N1-managed
     toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
-    # If path contains /.claude/worktrees/, it is N1-managed
+    # Under the host's N1 worktree root → N1-managed
+    local wt_root; wt_root=$(n1_worktree_root)
     case "$toplevel" in
-        */.claude/worktrees/*) return 1 ;;
+        */"${wt_root}"/*) return 1 ;;
     esac
-    # Linked worktree, not under .claude/worktrees/ — external
+    # Linked worktree, not under the host worktree root — external
     return 0
 }
 

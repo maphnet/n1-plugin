@@ -17,7 +17,8 @@ Three-phase on-demand skill: **fetch → verify → act**. Fetches all open revi
 ## N1_HOME Resolution
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -28,7 +29,8 @@ Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/$ID/`.
 ## Model Resolution
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 n1_resolve_model <agent-name>
 ```
 
@@ -61,7 +63,7 @@ if [ -z "$WORKTREE_PATH" ]; then
     echo "Warning: could not extract ticket ID segment from branch '${BRANCH}' — worktree path may be incorrect" >&2
     _WT_SLUG=$(echo "$BRANCH" | tr '/' '-')
   fi
-  WORKTREE_PATH="${MAIN_CHECKOUT}/.claude/worktrees/${_WT_SLUG}"
+  WORKTREE_PATH="${MAIN_CHECKOUT}/$(n1_worktree_root)/${_WT_SLUG}"
 fi
 ```
 
@@ -193,7 +195,7 @@ Workspace: The worktree may have been removed after PR creation. Resolve your wo
 - If `<WORKTREE_PATH>` exists, cd there.
 - Otherwise, in `<MAIN_CHECKOUT>`: run `git fetch origin <BRANCH> && git checkout <BRANCH>`.
   If the main checkout has uncommitted changes, create a fresh worktree:
-  `git worktree add <MAIN_CHECKOUT>/.claude/worktrees/<ID> <BRANCH>`
+  `git worktree add <MAIN_CHECKOUT>/<worktree-root>/<ID> <BRANCH>`
 Never work on the default branch.
 
 Review comments to fix (each verified against the codebase as technically valid):

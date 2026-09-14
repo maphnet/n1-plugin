@@ -15,7 +15,8 @@ Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
 
 **If mode is `"smoke"`:** Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped -- smoke tests deferred to n1-finish post-deploy". Emit telemetry:
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"smoke_deferred","skip_reason":"smoke_mode"}'
 ```
 Skip to Step 10 (PR CREATION).
@@ -49,7 +50,8 @@ fi
   - Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — QA dedup (all Runner commands are pytest)".
   - Emit telemetry:
     ```bash
-    source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+    N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+    source "$N1_ROOT/lib/telemetry.sh"
     n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 9 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"skipped","skip_reason":"qa_dedup"}'
     ```
   - Skip to Step 10 (PR CREATION).
@@ -167,7 +169,8 @@ Spawn the developer agent with:
 After the agent returns:
 - The agent wrote `$N1_HOME/memory/<ID>/local-testing.md` itself. Verify it:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/validation.sh"
   n1_verify_dependencies "$N1_HOME/memory/$ID" local-testing.md
   ```
   If missing/empty (agent failed to write), write the returned compact summary block to `local-testing.md` as a fallback and note the gap in overview's `## Key Decisions`.
@@ -240,7 +243,8 @@ After the agent returns:
 - Update overview: `[x] Local Testing`, set `step: local-testing`
 - Emit step-end telemetry:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/telemetry.sh"
   n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=pass loop_iteration=null metadata="$LOCAL_TESTING_METADATA"
   ```
 - Proceed to Step 10 (PR CREATION)
@@ -252,7 +256,7 @@ After the agent returns:
 - Do NOT enter the fix loop — these are environment issues, not code bugs
 - Report the failure with full error output
 
-Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then: "{PREAMBLE} Infrastructure/startup failure — not a code bug. Options:"
+Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then: "{PREAMBLE} Infrastructure/startup failure — not a code bug. Options:"
   - "1 — Fix environment manually, type 'continue' to re-test"
   - "2 — Skip local testing, proceed to PR"
   - "3 — Abort"
@@ -279,7 +283,8 @@ Pass to developer:
 After developer returns:
 - Run via Bash (durable across resume):
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/frontmatter.sh"
   n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "local_test_fix_cycle"
   ```
 - Emit one fix-loop iteration line (exempt from inter-gate silence per D2): `<ID> · local-test fix cycle <N>/<MAX>`
@@ -290,7 +295,7 @@ After developer returns:
 
 **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 
-Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then prompt: "{PREAMBLE} After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
+Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then prompt: "{PREAMBLE} After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
   - "1 — Fix manually, type 'continue' to re-test"
   - "2 — Skip local testing, proceed to PR"
   - "3 — Provide guidance for another fix attempt"

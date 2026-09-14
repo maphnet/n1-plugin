@@ -19,7 +19,8 @@ Estimate task complexity and delivery time for a ticket or task description. Run
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -44,7 +45,8 @@ Same as n1-start — the user provides one of:
 ### Detect input type:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/validation.sh"
 TYPE=$(n1_detect_input_type "<user-input>" "$N1_HOME/config.json")
 ```
 
@@ -55,7 +57,8 @@ Returns `ticket`, `file`, or `braindump`. If the helper returns `error-tracker`,
 When spawning any agent, resolve its model via Bash:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 n1_resolve_model <agent-name>
 ```
 
@@ -96,7 +99,8 @@ Same as n1-start Step 1, with these differences:
 After agent returns:
 - The agent wrote `$N1_HOME/memory/$ID/ticket.md` itself. Verify it:
   ```bash
-  source "${CLAUDE_PLUGIN_ROOT}/lib/validation.sh"
+  N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+  source "$N1_ROOT/lib/validation.sh"
   n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md
   ```
   If missing/empty (agent failed to write), write the returned compact block to `ticket.md` as a fallback and note the gap in overview's `## Key Decisions`: "product-analyst failed to write ticket.md; stub written from compact return -- downstream context is degraded."
@@ -111,7 +115,7 @@ Same as n1-start Step 2. After the agent returns:
 
 ### 3. BRAINSTORM
 
-Read and follow the autonomous brainstormer at `${CLAUDE_PLUGIN_ROOT}/skills/n1-start/autonomous-brainstorm.md`. Estimation does not require interactive design exploration — the autonomous brainstormer generates approaches, scores them, and selects autonomously. No Skill invocation, no turn boundary.
+Read and follow the autonomous brainstormer at `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md`. Estimation does not require interactive design exploration — the autonomous brainstormer generates approaches, scores them, and selects autonomously. No Skill invocation, no turn boundary.
 
 The autonomous brainstormer reads `ticket.md` and `analysis.md` from `$N1_HOME/memory/$ID/` and writes the design to `$N1_HOME/memory/$ID/brainstorm.md`.
 

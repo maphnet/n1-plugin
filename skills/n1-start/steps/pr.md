@@ -36,9 +36,10 @@ Update overview: `[x] PR`, set `step: pr`
 
 **Emit quality outcomes (if telemetry enabled):**
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/fingerprints.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/fingerprints.sh"
 QA_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
 REVIEW_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
 QA_FIRST=$( [ "${QA_FIX:-0}" = "0" ] && echo "true" || echo "false" )

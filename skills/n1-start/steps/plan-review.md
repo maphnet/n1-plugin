@@ -14,7 +14,8 @@ Run `n1_config_val '.planReview.reviewPlan'` (default: `true`).
 **Rule injection for plan review:**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 PLAN_RULES_BLOCK=""
 if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then

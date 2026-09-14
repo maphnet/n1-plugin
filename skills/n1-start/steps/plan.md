@@ -5,12 +5,13 @@ The single Step-2 `analysis.md` (broad codebase analysis with its one research r
 
 Resolve model for `planner` (see Model Resolution above).
 
-The planner runs `superpowers:writing-plans` in an isolated subagent context. This is deliberate: the writing-plans skill ends with an "Execution Handoff" step that asks the user which execution mode to use, and when invoked in-context that prompt intermittently leaks to the user even though N1 predetermines the execution mode. A dispatched subagent has no interactive channel — any such prompt returns to the orchestrator as text and is absorbed here, never shown to the user. The planner also lacks `Bash`, so it cannot chain into implementation or commit.
+The planner runs the `writing-plans` skill in an isolated subagent context. This is deliberate: the writing-plans skill ends with an "Execution Handoff" step that asks the user which execution mode to use, and when invoked in-context that prompt intermittently leaks to the user even though N1 predetermines the execution mode. A dispatched subagent has no interactive channel — any such prompt returns to the orchestrator as text and is absorbed here, never shown to the user. The planner also lacks `Bash`, so it cannot chain into implementation or commit.
 
 Inject matching rules before spawning:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 RULES_BLOCK=""
 if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then

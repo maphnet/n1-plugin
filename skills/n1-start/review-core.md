@@ -27,7 +27,8 @@ Record every skip explicitly in `review.md` (e.g. `"⚠ security-reviewer skippe
 Resolve gate rules for each reviewer:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/rules.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 CR_RULES_BLOCK=""
 SEC_RULES_BLOCK=""

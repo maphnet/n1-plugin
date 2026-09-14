@@ -14,6 +14,8 @@
 #
 # The orchestrator bridges these two formats via n1_write_signals.
 
+type n1_plugin_root >/dev/null 2>&1 || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host.sh"
+
 # n1_read_signal <file> <signal_name>
 # Returns the value for the given key from the <!-- n1:signals --> block,
 # or empty string if the key or block is not found.
@@ -175,7 +177,7 @@ n1_eval_signal_gate() {
             fi
         fi
     elif [ -n "$fm" ]; then
-        source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh" 2>/dev/null || true
+        source "$(n1_plugin_root)/lib/frontmatter.sh" 2>/dev/null || true
         actual=$(n1_read_frontmatter "$overview" "$fm" 2>/dev/null || true)
     fi
 

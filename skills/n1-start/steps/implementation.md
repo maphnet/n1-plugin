@@ -7,14 +7,14 @@ In branch mode this is a no-op. When a worktree is active it lazily installs
 `worktree.setup` into the worktree on first need (marker-guarded, so it runs at
 most once per worktree).
 
-**Execution mode is predetermined:** Do NOT present execution options to the user. Do NOT invoke superpowers:executing-plans. Always use superpowers:subagent-driven-development regardless of what the plan document or writing-plans suggests.
+**Execution mode is predetermined:** Do NOT present execution options to the user. Do NOT invoke the `executing-plans` skill. Always use the `subagent-driven-development` skill regardless of what the plan document or writing-plans suggests.
 
 ### Standard developer spawn directives
 
 Apply these to every `developer` agent spawn below. The only variable is the **Input** (specified per-path):
 - **Workspace directive:** When `WORKTREE_PATH` is set, pass: "Your working directory is `$WORKTREE_PATH`. All file reads, writes, edits, bash commands, and git operations MUST target files within this directory."
 - **Scratch artifact policy:** "Throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo."
-- **Hard stops:** Do NOT call `superpowers:finishing-a-development-branch`. Do NOT push, open PRs, or delete branches.
+- **Hard stops:** Do NOT invoke the `finishing-a-development-branch` skill. Do NOT push, open PRs, or delete branches.
 - **Escalation rules:** Pass the Confidence-Based Escalation protocol (section below).
 - **Rules block:** When `$RULES_BLOCK` is non-empty, append it to the agent's prompt.
 - **Output path:** `$N1_HOME/memory/<ID>/implementation.md` — instruct the developer to write the implementation summary there after all changes are complete.
@@ -25,9 +25,10 @@ Apply these to every `developer` agent spawn below. The only variable is the **I
 Before the normal planning_need routing, check runtime signals for a simple-task bypass:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/signals.sh"
+source "$N1_ROOT/lib/config.sh"
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
 # Prefer brainstorm signals (post-design, scope-aware) over analysis (pre-design estimate).
 # Brainstorm may not exist when skipped (e.g. bug with known root cause).
@@ -55,7 +56,8 @@ Log the gate decision to overview.md `## Key Decisions`:
 
 Record the decision for telemetry (both outcomes):
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/telemetry.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
 GATE_RESULT=$( [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHANGED:-999}" -lt 3 ] && echo true || echo false )
 n1_record_decision simplicity-gate "$GATE_RESULT" \
   '{"all":[{"signal":"brainstorm.blast_radius","fallback":"analysis.blast_radius","eq":"low"},{"signal":"brainstorm.files_changed","fallback":"analysis.files_changed","lt":3}]}' \
@@ -73,7 +75,8 @@ n1_record_decision simplicity-gate "$GATE_RESULT" \
 **Read the execution path:**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
 PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need")
 ```
 
@@ -86,7 +89,8 @@ Route based on `PLANNING_NEED`:
 **Spawn agent:** developer
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
 echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
 ```
@@ -118,7 +122,8 @@ Log the routing decision to overview.md `## Key Decisions`:
 **Spawn agent:** developer
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
 echo "DEVELOPER_MODEL=$DEVELOPER_MODEL"
 ```
@@ -135,11 +140,11 @@ Spawn the developer agent with the Standard developer spawn directives above. In
 
 Resolve model for `implementer` and for `developer` (SDD subagent model).
 
-The implementer runs `superpowers:subagent-driven-development` in an isolated subagent context. This is deliberate: the SDD Skill creates a turn boundary on completion, and an in-context invocation intermittently causes the orchestrator to stop and yield to the user instead of continuing to QA. A dispatched subagent absorbs this boundary — when the Agent returns, the orchestrator sees a clean tool-call return and continues. (Same pattern as the planner wrapping `writing-plans`.)
+The implementer runs the `subagent-driven-development` skill in an isolated subagent context. This is deliberate: the SDD Skill creates a turn boundary on completion, and an in-context invocation intermittently causes the orchestrator to stop and yield to the user instead of continuing to QA. A dispatched subagent absorbs this boundary — when its result comes back, the orchestrator continues. (Same pattern as the planner wrapping `writing-plans`.)
 
 Spawn the implementer agent with:
 - **Plan path:** `$N1_HOME/memory/<ID>/plan.md` (or `$N1_HOME/memory/<ID>/brainstorm.md` when no plan.md exists). Instruct: "Read the plan once to enumerate tasks and derive success criteria; when dispatching each SDD task subagent, pass that task's own text + success criteria — do NOT paste the whole plan into every task subagent."
-- **Before passing plan content:** If plan.md contains ANY execution-skill directive in its header — whether it names `superpowers:executing-plans`, `superpowers:subagent-driven-development`, or both — IGNORE it. The authoritative execution skill is always superpowers:subagent-driven-development.
+- **Before passing plan content:** If plan.md contains ANY execution-skill directive in its header — whether it names `executing-plans`, `subagent-driven-development`, or both — IGNORE it. The authoritative execution skill is always `subagent-driven-development`.
 - **Define success criteria before spawning.** For each plan task, transform it into a verifiable goal. Example: "Add input validation" → "Write tests for empty, oversized, and malformed input, then make them pass."
 - **Developer persona constraints** — SDD's implementer subagents do NOT load `agents/developer.md`, so pass these as role guidance (mirroring the canonical persona — keep the two in sync):
   - **Think Before Coding** — state assumptions explicitly; if uncertain, stop and report rather than guessing.
@@ -152,8 +157,8 @@ Spawn the implementer agent with:
   - If a change requires architectural decisions, report it as "needs escalation" instead of implementing; do not refactor surrounding code.
   - **Scratch vs. committed test artifacts** — throwaway tests under `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/` (gitignored), never into the repo's test suite. Tests verifying the committed change still go into the repo. When unsure, default to scratch.
 - **SDD overrides (IMPORTANT):**
-  - **Do NOT call `superpowers:finishing-a-development-branch` under any circumstance.** SDD's flow ends by invoking it — it would present merge/PR/discard options that collide with N1's own QA → Review → PR pipeline. STOP at the last completed task.
-  - **Workspace isolation is already satisfied** — N1 set up the working branch or worktree. When `WORKTREE_PATH` is set, SDD subagents work in `$WORKTREE_PATH`. In branch mode, they work in the current directory on the feature branch. Treat SDD's `superpowers:using-git-worktrees` prerequisite as ALREADY MET: do NOT create a new worktree or switch branches.
+  - **Do NOT invoke the `finishing-a-development-branch` skill under any circumstance.** SDD's flow ends by invoking it — it would present merge/PR/discard options that collide with N1's own QA → Review → PR pipeline. STOP at the last completed task.
+  - **Workspace isolation is already satisfied** — N1 set up the working branch or worktree. When `WORKTREE_PATH` is set, SDD subagents work in `$WORKTREE_PATH`. In branch mode, they work in the current directory on the feature branch. Treat SDD's `using-git-worktrees` prerequisite as ALREADY MET: do NOT create a new worktree or switch branches.
   - Skip the final whole-implementation code review — N1's Review stage (Step 7) handles this.
   - Run in CONTINUOUS mode: do NOT pause between tasks to ask for user approval or feedback.
 - If config has a model override for developer, instruct: "Use model `<model>` for ALL implementer subagents." Set `CLAUDE_CODE_SUBAGENT_MODEL` environment variable to `<model>` if possible; fall back to the text instruction if not.
@@ -169,8 +174,9 @@ If the agent returned **DONE:**
 
 **Compute and persist implementation signals:**
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/signals.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/signals.sh"
+source "$N1_ROOT/lib/config.sh"
 BP_FILE="$N1_HOME/memory/$ID/branch-point"
 BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
 BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "HEAD")

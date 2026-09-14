@@ -16,7 +16,8 @@ Create a PR from the current feature branch. Spawns tech-writer for PR content, 
 ## N1_HOME Resolution
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 ```
 
@@ -25,7 +26,8 @@ If empty — N1 not configured; warn the user. Config: `$N1_HOME/config.json`. M
 ## Model Resolution
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
 n1_resolve_model <agent-name>
 ```
 
@@ -111,8 +113,9 @@ Proceed to Step 3.
 **Collect inferred-criteria context:**
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/lib/frontmatter.sh"
-source "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/config.sh"
 DQ=$(n1_read_frontmatter "$N1_HOME/memory/$ID/ticket.md" "description_quality" 2>/dev/null || echo "adequate")
 [ -z "$DQ" ] && DQ="adequate"
 BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
@@ -173,7 +176,7 @@ Ready mode: same with `PR created:` (not bolded).
 > **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** after the PR exists, any user request that changes code, tests, docs, or config on the branch (rename a flag, tweak a message, "also handle X", address a review comment) is implemented by the **developer agent in fix mode** — never by the orchestrator with Edit/Write/`sed`, and never committed by the orchestrator. This holds even for one-line changes.
 
 Procedure for a follow-up request:
-1. Resolve the workspace: read `worktreePath` from `$N1_HOME/active-run.json` (via `jq -r '.worktreePath // empty'`). If the recorded path exists and is not under `/.claude/worktrees/` (external worktree), use it directly. Otherwise, use `<main-checkout>/.claude/worktrees/<ID>` (the worktree is still present — n1-pr no longer removes it).
+1. Resolve the workspace: read `worktreePath` from `$N1_HOME/active-run.json` (via `jq -r '.worktreePath // empty'`). If the recorded path exists and is not under the worktree root (`n1_worktree_root`) (external worktree), use it directly. Otherwise, use `<main-checkout>/<worktree-root>/<ID>` (the worktree is still present — n1-pr no longer removes it).
 2. Resolve model for `developer`. Spawn developer with: the user's request verbatim, the branch name and worktree path, `$N1_HOME/memory/<ID>/implementation.md` path, and the directive: "Implement exactly this follow-up on the existing branch. Update any docs that reference the changed behaviour (README, CLI help). Run the relevant tests. Commit with an imperative message and push to `<branch>`. Append a `## Follow-up <N>` section to `implementation.md` (idempotent). Return: commit SHAs + one-line summaries."
 3. If the change touches public behaviour (CLI flags, API, config keys): spawn `code-reviewer` on `git diff <pre-follow-up SHA>..HEAD` and route any Critical/High finding back to the developer (max 2 cycles).
 4. Post a tracker comment via `mcp__<tracker.mcp>__<operations.addComment>`: `Follow-up pushed to PR: <one-line summary>` (warn, don't block, on failure).
