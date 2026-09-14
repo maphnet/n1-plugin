@@ -260,7 +260,7 @@ Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core
   - "1 — Fix environment manually, type 'continue' to re-test"
   - "2 — Skip local testing, proceed to PR"
   - "3 — Abort"
-- If 1: wait for user, then re-run 9c from the beginning. **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+- If 1: wait for user, then re-run 9c from the beginning. **Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
 - If 2: update overview (`[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — environment failure"), proceed to Step 10
 - If 3: stop
 
@@ -293,7 +293,7 @@ After developer returns:
 
 **Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`. Also update `## Escalations` with key decision: `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)`.
 
-**Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
+**Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
 
 Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then prompt: "{PREAMBLE} After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
   - "1 — Fix manually, type 'continue' to re-test"

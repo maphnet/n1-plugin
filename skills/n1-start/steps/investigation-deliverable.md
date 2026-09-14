@@ -313,7 +313,7 @@ Call `tracker.operations.addComment` via tracker MCP -- Jira: with `cloudId`, `i
 
 **Phase 4 -- Discussion**
 
-**Emit Gate 3 — investigation variant** (see `SKILL.md § Gate 3 — Done/Tested Summary`):
+**Emit Gate 3 — investigation variant** (see `procedures/output-gates.md § Gate 3 — Done/Tested Summary`):
 
 The investigation deliverable IS the done summary. Adopt the `=== <ID> — done ===` frame. Content stays — only the frame changes.
 
@@ -351,7 +351,7 @@ Investigation done. Create a tracker ticket for this?
 1. Create the ticket via tracker MCP using the same mechanics as steps/ticket.md brain-dump creation (tagging config, createIssue call shapes, assign-to-creator, URL extraction), with content derived from the investigation:
    - `summary` = the investigation title (from `investigation.md` heading, or `ticket.md` Title).
    - `description` = the `## Summary` section of `investigation.md`, then `## Findings` (key findings), then `## Recommendations` — copied from `investigation.md`.
-2. The returned ticket ID is the final `<ID>`. Run **Reconcile Memory ID & Branch(`<provisional>`, `<ticketID>`)** (SKILL.md procedure) to move `$N1_HOME/memory/<provisional>/` to the real ID.
+2. The returned ticket ID is the final `<ID>`. Run **Reconcile Memory ID & Branch(`<provisional>`, `<ticketID>`)** (see `procedures/workspace-isolation.md`) to move `$N1_HOME/memory/<provisional>/` to the real ID.
 3. Run the existing tracker-enrichment idempotency check and comment logic against the NEW ticket only if enrichment has not already run this session (the description already contains the findings — skip the description append, add no duplicate comment).
 4. Report: "Created ticket **[<ID>](<ticket URL>)**: <title>"
 5. Continue to the **Continuation offer** below (same as convert path step 5).

@@ -23,7 +23,35 @@ See [README.md](../README.md) for user-facing documentation: installation, quick
 
 N1 is a plugin for Claude Code and Codex that orchestrates the full development cycle (ticket read, analysis, brainstorm, plan, implement, QA, review, [local testing], PR). It uses a **hybrid delegation model**: specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while [Superpowers](https://github.com/obra/superpowers) ^5.0 sub-skills handle interactive steps (brainstorming, planning, implementation dispatch via SDD). It is a **thin controller** (~5-10K tokens per skill): skills load only the memory files they need, spawn agents or invoke Superpowers, and write results back to per-ticket memory.
 
-**n1-start skill layout (v2.12.0):** `skills/n1-start/SKILL.md` is a thin dispatcher; each of the 16 pipeline step bodies lives in `skills/n1-start/steps/<step>.md` (one file per step name). Shared review logic (diff-surface classification, reviewer selection) lives in `skills/n1-start/review-core.md`, referenced by both `steps/review.md` and `skills/n1-review/SKILL.md`.
+**n1-start skill layout:** `skills/n1-start/SKILL.md` is a thin dispatcher (<6 KB); each of the 16 pipeline step bodies lives in `skills/n1-start/steps/<step>.md`. Shared orchestrator logic (workspace isolation, telemetry, output gates, resume) lives in `skills/n1-start/procedures/<name>.md`, referenced by steps on demand. Shared review logic lives in `skills/n1-start/review-core.md`.
+
+## Skill Sub-File Architecture
+
+Skills exceeding 6 KB are split into a thin dispatcher + on-demand sub-files:
+
+```
+skills/<name>/
+  SKILL.md              # Dispatcher (<6 KB)
+  steps/
+    01-<step-name>.md   # Step file (<15 KB each)
+    02-<step-name>.md
+  procedures/           # Optional: shared content referenced by >=2 steps
+    <procedure-name>.md
+  templates/            # Optional: template content
+  references/           # Optional: reference docs (e.g., n1-finish)
+```
+
+Skills under 6 KB remain in their existing `skills/<name>/SKILL.md` form without sub-files.
+
+**Dispatcher contract (SKILL.md):** Frontmatter + trigger/purpose, numbered step index with one-line descriptions, execution instructions (`Read steps/01-<name>.md and execute`), and minimal global context that every step needs. Hard budget: 6 KB (6,144 bytes). Target: 4-5 KB.
+
+**Step file contract:** Self-contained for its phase — purpose header, full instructions, bash preamble when containing `$N1_ROOT` blocks. Hard budget: 15 KB per file.
+
+**Procedures:** Shared content referenced by 2+ steps within one skill. Loaded by the step that needs it, never by the dispatcher. Content used by only one step stays inline.
+
+**Reference implementations:** `n1-init` (15 step files, dispatcher-only architecture) and `n1-start` (16 step files + 10 procedures for shared orchestrator logic).
+
+**Size enforcement:** `tests/test_skill_size.sh` asserts all SKILL.md files are under 6 KB in CI.
 
 ## Stack
 

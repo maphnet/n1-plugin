@@ -92,7 +92,7 @@ if n1_parse_type_arg "$USER_INPUT" 2>/dev/null; then
     TYPE_OVERRIDE=$(n1_parse_type_arg "$USER_INPUT")
 fi
 
-# --investigate flag forces the investigation type (see SKILL.md Investigate flag detection)
+# --investigate flag forces the investigation type (see procedures/input-parsing.md)
 if [ "$INVESTIGATE_FLAG" = "true" ]; then
     TYPE_OVERRIDE="investigation"
 fi
@@ -129,7 +129,7 @@ if [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/m
 
 If `IS_STORY` is `true` and `N1_HEADLESS` is not `1`: print "**<ID>** is a story with <SUBTASK_COUNT> subtasks — handing off to n1-story-run." Then invoke the `n1:n1-story-run` skill with argument `<ID>` and **STOP this pipeline** (no worktree, no product-analyst). The memory directory already created is reused as story memory.
 
-If `IS_STORY` is `true` and `N1_HEADLESS=1`: apply SKILL.md § Headless Guard with the message "Ticket is a story; run /n1:n1-story-run <ID> interactively."
+If `IS_STORY` is `true` and `N1_HEADLESS=1`: apply `procedures/autonomy-headless.md § Headless Guard` with the message "Ticket is a story; run /n1:n1-story-run <ID> interactively."
 
 **Workspace isolation (ticket and error-tracker modes)**
 

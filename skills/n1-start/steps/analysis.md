@@ -111,7 +111,7 @@ For each relevant project:
 fi
 ```
 
-Run SKILL.md § Rules Injection with `agent_name=solution-architect`, no `changed_files_source` — analysis runs before implementation; CHANGED_FILES will be empty, matching rules by agent name only.
+Run `procedures/rules-injection.md` with `agent_name=solution-architect`, no `changed_files_source` — analysis runs before implementation; CHANGED_FILES will be empty, matching rules by agent name only.
 
 The `CACHE_STATE` variable (`cold`, `stale`, or `fresh`) determines the dispatch path below. When `analysisCache.enabled` is `false`, `CACHE_STATE` stays `cold` and the step always runs full analysis. When `analysisCache` is absent from config, the cache defaults to enabled.
 
@@ -390,7 +390,7 @@ If `CONTEXT_BLOCK` is non-empty:
    TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
    ```
 
-4. **Print Gate 1** (see `SKILL.md § Gate 1 — Task Orientation`). Populate the template fields:
+4. **Print Gate 1** (see `procedures/output-gates.md § Gate 1 — Task Orientation`). Populate the template fields:
    - `<ID>` = current ticket ID
    - `<TITLE>` = ticket title from overview.md heading
    - `<CONTEXT_BLOCK>` = `CONTEXT_BLOCK` extracted above
@@ -505,11 +505,11 @@ done < "$XREPO_PENDING_FILE"
 - **"select"** — present each pending slug individually; apply `n1_related_add` + the `[asked]` ledger row above only for the approved ones; skip the rest (no ledger row for skipped).
 - **"no"** — add nothing; append one `[asked]` ledger row per pending slug recording the decline (`Chosen` = `Not added`, `Alternatives` = `Added to related projects`, `Reason` = `User declined on prompt`).
 
-**Headless:** under `N1_HEADLESS=1`, do not prompt — apply SKILL.md § Headless Guard (record the pending slugs as an escalation and continue).
+**Headless:** under `N1_HEADLESS=1`, do not prompt — apply `procedures/autonomy-headless.md § Headless Guard` (record the pending slugs as an escalation and continue).
 
 **Cross-repo telemetry metadata (if telemetry enabled AND `relatedProjects.enabled` is `true`):**
 
-This block owns the step-2 (`analysis`) end event when cross-repo awareness is on — see the Telemetry Step Markers table in SKILL.md. When `relatedProjects.enabled` is `false`, skip the whole block; the orchestrator emits the standard end event per the table.
+This block owns the step-2 (`analysis`) end event when cross-repo awareness is on — see the Telemetry Step Markers table in `procedures/telemetry.md`. When `relatedProjects.enabled` is `false`, skip the whole block; the orchestrator emits the standard end event per the table.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
