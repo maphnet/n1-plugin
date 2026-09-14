@@ -1,30 +1,17 @@
 # Decision Ledger
 
-Shared reference for every step that resolves a decision autonomously (or asks the user under an autonomy gate). The ledger is the after-the-fact review artifact: the human reviews accumulated autonomous decisions at the PR checkpoint instead of being interrupted mid-run.
-
-## Location
-
-`## Decision Ledger` section in `$N1_HOME/memory/<ID>/overview.md`. Create the section (with the table header) on first write; append rows afterwards.
-
-## Entry Format
-
-One markdown table row per decision:
+**Location:** `## Decision Ledger` table in `$N1_HOME/memory/<ID>/overview.md`. Create on first write; append rows.
 
 ```
 | <step> | <category> | <tier> | <tag> | <question> | <chosen> | <alternatives> | <reason> | <rungs_tried> |
 ```
 
-- **step** — pipeline step name (`ticket`, `brainstorm`, `qa`, `review`, `fix`, `local-testing`, `pr`, `start`)
-- **category** — `design` | `mechanical` | `quality` | `scope`
-- **tier** — `A` (blocking-grade impact), `B` (significant), `C` (routine). Quality escalations resolved autonomously are always `A`.
-- **tag** — `[auto]` (decided autonomously), `[auto-decided]` (clear recommendation, no viable alternative, decided without asking), or `[asked]` (human answered)
-- **question** — what was being decided, one clause
-- **chosen** — the selected option, one clause
-- **alternatives** — rejected options, comma-separated (or `—`)
-- **reason** — why, one clause. NEVER empty: every autonomous skip or selection records a reason (the `noTestReason` principle).
-- **rungs_tried** -- resolution ladder rungs attempted before asking: `codebase` (Read/Grep/Glob), `web` (WebSearch), `prescribed` (command prescription), `telemetry` (telemetry/memory lookup), `---` (not applicable, e.g. for `[auto]` decisions that did not need a ladder). Comma-separated. Required for `[asked]` rows; `---` for `[auto]` rows and B-auto `[auto-decided]` rows (clear recommendation with no viable alternative, no ladder search needed); list actual rungs for "Decide for me" `[auto-decided]` rows (the SA/brainstormer does run codebase + web search before applying the recommendation).
-
-Section skeleton written on first entry:
+- **step**: ticket, brainstorm, qa, review, fix, local-testing, pr, start
+- **category**: `design` | `mechanical` | `quality` | `scope`
+- **tier**: `A` blocking-grade, `B` significant, `C` routine. Quality escalations always `A`.
+- **tag**: `[auto]` autonomous; `[auto-decided]` clear recommendation; `[asked]` human answered
+- **question/chosen**: one clause each. **reason**: never empty. **alternatives**: comma-sep or `—`.
+- **rungs_tried**: `codebase`, `web`, `prescribed`, `telemetry`, `---`. Required `[asked]`; `---` for `[auto]`; list for "Decide for me" `[auto-decided]`.
 
 ```markdown
 ## Decision Ledger
@@ -35,40 +22,22 @@ Section skeleton written on first entry:
 
 ## Rules
 
-1. **Append-only within a run.** Fix cycles and re-runs never rewrite or delete past rows.
-2. **Every writer records a reason.** An entry without a reason is a bug.
-3. **`[asked]` entries too.** When an autonomy gate WOULD have auto-decided but tier/margin forced a question, record the human's answer with tag `[asked]` — the PR reviewer sees which decisions had human eyes.
-4. **Escape pipes.** Replace any `|` inside cell text with `/` before writing the row.
-5. **Keep cells short.** One clause each; details live in the step's own memory file.
-6. **Backward compatibility.** Existing rows written before v2.90.0 lack the 9th column. Consumers (tech-writer, n1-telemetry) treat a missing 9th cell as `---`.
+1. Append-only. 2. Every entry has a reason. 3. `[asked]`: record human's answer. 4. Escape `|` as `/`. 5. One clause per cell. 6. Pre-v2.90.0 rows: missing 9th cell = `---`.
 
 ## Resolution Ladder
 
-Before issuing any user prompt (excluding unconditional gates), the asking step MUST attempt resolution in this order:
-
-1. **Codebase search** -- Read/Grep/Glob for evidence. If found, resolve inline and do NOT ask.
-2. **Web search** -- WebSearch for docs, best practices, API references. If found, resolve inline and do NOT ask.
-3. **Prescribed lookup** -- When the answer is observable on a host the agent cannot reach, note the command and a reasonable default. Resolve inline.
-4. **Telemetry/memory** -- Check `$N1_HOME/memory/<ID>/` files and telemetry data for prior decisions on the same question. If found, resolve inline.
-
-Only after all applicable rungs fail should the step escalate to a user prompt. The `rungs_tried` ledger cell records which rungs were attempted (comma-separated).
-
-**"Decide for me" option:** Design and scope category user prompts (not mechanical, not unconditional gates) MUST include a final option: `"Decide for me -- research and apply recommendation"`. When selected:
-1. Re-run the resolution ladder with an emphasis on web search (broader queries, multiple sources).
-2. Apply the recommendation from the research.
-3. Record as `[auto-decided]` with tag `[auto-decided]` and reason starting with `decide-for-me:`.
-4. Do NOT ask a follow-up question.
+Before any user prompt (not unconditional gates): 1→Codebase search, 2→Web search, 3→Prescribed lookup + default, 4→Telemetry/memory check. Found at any rung → resolve inline, no ask. After all fail: escalate with "Decide for me" option. "Decide for me" → web search, apply, record `[auto-decided]`.
 
 ## Writers
 
-| Step | When it writes | `rungs_tried` |
-|------|----------------|---------------|
-| start (branch/stash preamble) | `mechanicalPrompts: "auto"` resolved a dirty-tree/foreign-branch prompt | `---` (mechanical, no ladder needed) |
-| ticket | `mechanicalPrompts: "auto"` auto-created (or auto-skipped) the tracker ticket | `---` (mechanical, no ladder needed) |
-| brainstorm | Autonomous brainstormer selected an approach or resolved B/B-auto/C-tier questions; B-auto decisions recorded as `[auto-decided]`; A-tier answers recorded as `[asked]`; `[asked]` rows populate `rungs_tried` per the Resolution Ladder protocol | Comma-separated rungs attempted before any `[asked]` escalation; `---` for `[auto]` and `[auto-decided]` rows |
-| qa / review / fix / local-testing | `qualityEscalations: "auto-accept"` accepted a recommendation at loop exhaustion (always tier `A`) | `---` (auto-accept path, no ladder needed) |
-| pr | Reviewer skips (security-reviewer gated out) when they were autonomy-influenced | `---` (skip decisions are mechanical) |
+| Step | When | `rungs_tried` |
+|------|------|---------------|
+| start | `mechanicalPrompts: "auto"` branch/stash | `---` |
+| ticket | auto-created/skipped tracker ticket | `---` |
+| brainstorm | SA resolved; A-tier answers `[asked]` | `---` for `[auto]`; list for `[asked]` |
+| qa/review/fix/local-testing | `qualityEscalations: "auto-accept"` at exhaustion (always A) | `---` |
+| pr | reviewer skips autonomy-influenced | `---` |
 
 ## PR Rendering
 
-The tech-writer receives the overview.md path (it already does) and renders the ledger as a `## Decisions` section in the PR body — tier A first, then B, then C; `[auto]` entries before `[asked]` within a tier. See `agents/tech-writer.md`.
+Tech-writer renders ledger as `## Decisions` — tier A first, then B, C; `[auto]` before `[asked]` within tier.
