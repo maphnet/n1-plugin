@@ -377,7 +377,6 @@ Config keys: `release.enabled` (boolean, default `false`), `release.tagPrefix` (
 | code-reviewer | opus | medium | Read, Grep, Glob | Review (parallel) |
 | security-reviewer | opus | medium | Read, Grep, Glob | Review (parallel) |
 | qa-engineer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | QA (tier-aware: maintain/minimal/standard) |
-| intake-agent | haiku | low | Read, Grep, Glob, Bash | Ticket/content intake |
 | local-test-planner | sonnet | medium | Read, Grep, Glob, Bash | Local testing (plan creation) |
 | tech-writer | sonnet | medium | Read, Grep, Edit, Write, Glob | Doc update, PR content |
 
