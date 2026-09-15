@@ -39,8 +39,7 @@ The canonical set of top-level config keys. Used by the completeness check to de
 
 ```
 worktree, tracker, git, ticketTagging, observability, estimation,
-localTesting, finishWork, release, testCoverage, telemetry,
-analysisCache, rules, escalation, autonomy, review, ciChecks, planReview, memory, models
+localTesting, finishWork, release, telemetry, analysisCache, rules, autonomy, models
 ```
 
 ### Targeted Upgrade
@@ -55,14 +54,12 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 6. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
 7. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
 8. `release` → **Release Configuration** (fresh-setup portion)
-9. `testCoverage` → **Test Coverage Configuration** (fresh-setup portion)
-10. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
-11. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
-12. `rules` → **Rules Configuration** (fresh-setup portion)
-13. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
-14. `escalation` → **Escalation Defaults** (writes defaults silently)
-15. `autonomy` → **Autonomy Configuration** (fresh-setup: offer hands-off / interactive, write single `mode` key)
-16. `review`, `ciChecks`, `planReview`, `memory`, `models` → write defaults silently (see **Write Configuration and Structure** for default values)
+9. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
+10. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
+11. `rules` → **Rules Configuration** (fresh-setup portion)
+12. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
+13. `autonomy` → **Autonomy Configuration** (fresh-setup: offer hands-off / interactive, write single `mode` key)
+14. `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
 

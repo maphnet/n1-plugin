@@ -4,6 +4,8 @@
 
 Create all files:
 
+**Code-default keys (NOT written to config):** `testCoverage`, `review`, `ciChecks`, `planReview`, `escalation`, `memory` -- these have accessor functions in `lib/config.sh` with hardcoded defaults. Existing configs with these keys still work (values are read if present, never stripped).
+
 **`$N1_HOME/config.json`** — assembled from sections above (where `$N1_HOME` was set during Fresh Setup or Migration):
 ```json
 {
@@ -38,9 +40,6 @@ Create all files:
   "release": {
     "enabled": false
   },
-  "testCoverage": {
-    "tier": "maintain"
-  },
   "telemetry": {
     "enabled": false
   },
@@ -54,24 +53,6 @@ Create all files:
     "enabled": false,
     "maxSnapshotAge": "72h",
     "projects": []
-  },
-  "escalation": {
-    "checkpoints": ["pr"],
-    "alwaysAskOn": ["security", "architecture", "public-api"]
-  },
-  "review": { ... },
-  "ciChecks": {
-    "enabled": true,
-    "maxFixAttempts": 3,
-    "confidenceThreshold": 0.7
-  },
-  "planReview": {
-    "reviewPlan": true,
-    "requirePlanApproval": false
-  },
-  "memory": {
-    "ticketContext": true,
-    "decisions": true
   },
   "models": {}
 }
