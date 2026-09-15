@@ -1,7 +1,7 @@
 
 > **After the implementer subagent returns, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
-Run **Ensure Dependencies(`<ID>`)** before spawning. Spawn directives: `WORKTREE_PATH` set → "Work in `$WORKTREE_PATH`." Scratch: `$N1_HOME/memory/<ID>/benchmarks/`. No `finishing-a-development-branch`, no push, no PRs. Output: `$N1_HOME/memory/<ID>/implementation.md` (format below). Append `$RULES_BLOCK`. Escalation: see below.
+Run **Ensure Dependencies(`<ID>`)** before spawning. Spawn directives: `WORKTREE_PATH` set → "Work in `$WORKTREE_PATH`." Scratch: `$N1_HOME/memory/<ID>/benchmarks/`. No finish/branch-delete skills, no push, no PRs. Output: `$N1_HOME/memory/<ID>/implementation.md` (format below). Append `$RULES_BLOCK`. Escalation: see below.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
@@ -24,7 +24,7 @@ Run `procedures/rules-injection.md`: `agent_name=developer`.
 
 **ANY fails:** `PLANNING_NEED=direct` → spawn developer, brainstorm.md, "Direct Implementation." `PLANNING_NEED=plan`/absent → plan.md; absent → Plan path. Top-level headers >2 → Plan path; ≤2 no cross-deps → developer, plan.md, "Direct, sequential"; else Plan path.
 
-**Plan path:** spawn **implementer**. Input plan.md or brainstorm.md: "Enumerate tasks; pass each to SDD subagents." Always `subagent-driven-development`. Constraints: Think Before Coding; Simplicity First; Surgical Changes; Goal-Driven; existing patterns; test+commit per change; BLOCKED on architectural; SDD overrides: no `finishing-a-development-branch`, CONTINUOUS. Pass `WORKTREE_PATH`, output path, escalation, `$RULES_BLOCK`.
+**Plan path:** spawn **implementer**. Input plan.md or brainstorm.md: "Enumerate tasks; dispatch developer per task." Always `n1-implement`. Constraints: Think Before Coding; Simplicity First; Surgical Changes; Goal-Driven; existing patterns; test+commit per change; BLOCKED on architectural; no finish/branch-delete skills, CONTINUOUS. Pass `WORKTREE_PATH`, output path, escalation, `$RULES_BLOCK`.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')

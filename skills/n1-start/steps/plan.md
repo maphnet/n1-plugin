@@ -1,7 +1,7 @@
 
 **Spawn agent:** planner. Resolve model for `planner`.
 
-Runs `writing-plans` skill in isolated subagent (prevents interactive prompts leaking to user; subagent lacks Bash so cannot chain into implementation or commit).
+Runs `n1-plan` skill in isolated subagent (prevents interactive prompts leaking to user; subagent lacks Bash so cannot chain into implementation or commit).
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
