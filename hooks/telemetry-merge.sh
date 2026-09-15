@@ -118,6 +118,20 @@ if command -v jq >/dev/null 2>&1; then
         SESSION_TRANSCRIPT=$(jq -rs 'first(.[] | select(.session_transcript_path) | .session_transcript_path) // empty' "$AGENTS_FILE" 2>/dev/null || true)
     fi
 
+    # --- Fallback: derive orchestrator transcript from subagent path ---
+    if [ -z "$SESSION_TRANSCRIPT" ] && [ -f "$AGENTS_FILE" ]; then
+        DERIVED_ORCH=$(jq -rs '
+            [.[] | select(.transcript_path) | .transcript_path |
+             select(contains("/subagents/"))] | first // empty
+        ' "$AGENTS_FILE" 2>/dev/null || true)
+        if [ -n "$DERIVED_ORCH" ]; then
+            # Strip /subagents/agent-<id>.jsonl to get session dir, then append .jsonl
+            SESS_DIR="${DERIVED_ORCH%/subagents/*}"
+            CANDIDATE="${SESS_DIR}.jsonl"
+            [ -f "$CANDIDATE" ] && SESSION_TRANSCRIPT="$CANDIDATE"
+        fi
+    fi
+
     # --- Parse each transcript file ---
     AGENTS_JSON=$(echo "$AGENTS_RAW" | jq --argjson steps "$STEPS_JSON" --argjson smap "$STATIC_MAP" '
         [.[] | . as $agent |
