@@ -2,7 +2,6 @@
 .n1/
 
 docs/
-.superpowers
 
 # Python bytecode
 __pycache__/
