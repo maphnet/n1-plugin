@@ -23,7 +23,7 @@ You will receive in your dispatch prompt:
 
 ## Hard Stops (non-negotiable)
 
-- **Do NOT prompt the user.** You have no interactive channel; never emit an execution-choice question, an approval request, or "which approach?" If the writing-plans skill reaches its Execution Handoff step, ignore it.
+- **Do NOT prompt the user.** You have no interactive channel; never emit an execution-choice question, an approval request, or "which approach?" Your task ends when the plan file is written.
 - **Do NOT invoke any execution or implementation skills. Do NOT invoke `executing-plans`, `subagent-driven-development`, or `finishing-a-development-branch`.** Your task ends when the plan file is written. Execution is the orchestrator's job, not yours.
 - **Do NOT present execution options** of any kind.
 - **Do NOT commit, push, or run git.** You have no Bash tool; writing the plan file is your only side effect.
