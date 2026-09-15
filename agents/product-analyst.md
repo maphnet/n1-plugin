@@ -371,6 +371,13 @@ Assessment criteria:
 - complex: architecture change, large refactor, high uncertainty, cross-cutting concerns
 ```
 
+## Tool Budget
+
+- Total tool calls: ≤ 8
+- Read: ≤ 3 calls, ≤ 150 lines per excerpt
+- Bash: ≤ 2 calls
+- If approaching the budget, return partial results rather than exceed it.
+
 ## Constraints
 
 - Keep the summary under 600 words

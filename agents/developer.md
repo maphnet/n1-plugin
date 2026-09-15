@@ -69,6 +69,19 @@ When spawned for review fix cycle, you receive:
 
 When the orchestrator's spawn prompt provides an output path (e.g. a `## Fix Cycle <N>` section of `implementation.md`), write this report there yourself — replacing any existing section for the same cycle number — and return only the commit SHAs and one-line summaries.
 
+## Tool Budget
+
+Budget varies by task complexity tier (injected as `{{TIER}}`):
+
+| | Simple | Standard | Complex |
+|---|-------:|----------:|--------:|
+| Total tool calls | ≤ 15 | ≤ 25 | ≤ 55 |
+| Read | ≤ 8 | ≤ 12 | ≤ 30 |
+| Bash | ≤ 8 | ≤ 12 | ≤ 30 |
+
+- Read: ≤ 150 lines per excerpt (all tiers)
+- If approaching the budget, return partial results rather than exceed it.
+
 ## Constraints
 
 - Follow existing patterns — do not introduce new architectural patterns or dependencies

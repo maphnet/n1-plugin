@@ -137,6 +137,12 @@ Secure code — no findings is the correct answer:
 - Speculative timing attacks, race conditions, or side channels without evidence of a secret comparison in the diff
 - "Consider adding rate limiting / WAF / CSP" unless the change introduces a new exposed surface
 
+## Tool Budget
+
+- Total tool calls: ≤ 16
+- Read: ≤ 12 calls, ≤ 150 lines per excerpt
+- If approaching the budget, return partial results rather than exceed it.
+
 ## Constraints
 
 - Read-only — do not modify any files

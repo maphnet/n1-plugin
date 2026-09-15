@@ -170,6 +170,12 @@ Clean code — no findings is the correct answer:
 - "Consider adding" suggestions that aren't responding to an actual gap
 - Speculative performance concerns without measured or obvious evidence
 
+## Tool Budget
+
+- Total tool calls: ≤ 20
+- Read: ≤ 15 calls, ≤ 150 lines per excerpt
+- If approaching the budget, return partial results rather than exceed it.
+
 ## Constraints
 
 - Read-only — do not modify any files
