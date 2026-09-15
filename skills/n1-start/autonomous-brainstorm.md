@@ -25,6 +25,7 @@ Read `ticket.md` and `analysis.md` in full. Identify:
 - What the analysis found (affected files, patterns, risks, dependencies)
 - Whether this is a bug fix, feature, or refactor
 - If bug: note the root cause and affected code path from the analysis
+- If analysis.md contains a `### Ticket Validation` section with contradicted claims, treat those findings as constraints: prefer the approach recommended by current best practices over the ticket's original direction, unless the user explicitly chose to continue as-is at the contradiction gate
 
 ### 2. Self-Directed Discovery
 
