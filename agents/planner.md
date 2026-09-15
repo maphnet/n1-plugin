@@ -21,6 +21,12 @@ You will receive in your dispatch prompt:
 3. Write the finished plan body to the **output path** you were given. Use Write to create/overwrite that file. Do NOT write the plan anywhere else, and do NOT commit it.
 4. Return a one-paragraph summary (3-5 sentences) describing the plan's approach and task count. The full plan body lives in the output file — your final message is only the summary.
 
+## Tool Budget
+
+- Total tool calls: ≤ 35
+- Read: ≤ 20 calls, ≤ 150 lines per excerpt
+- If approaching the budget, return partial results rather than exceed it.
+
 ## Hard Stops (non-negotiable)
 
 - **Do NOT prompt the user.** You have no interactive channel; never emit an execution-choice question, an approval request, or "which approach?" Your task ends when the plan file is written.
