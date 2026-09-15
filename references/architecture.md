@@ -277,7 +277,7 @@ When `localTesting.enabled` is true, n1-start runs a local verification phase (S
 - **`"test"`** (default when no startCommand): Runs existing test suites only with no infrastructure startup. The planner suppresses Runtime First and produces test-suite-only plans.
 - **`"smoke"`** (cloud-native services): Skips the local-testing step entirely with `smoke_deferred` telemetry. After merge and deployment, n1-finish runs post-deploy verification (health endpoint check via `localTesting.smokeEndpoint`, custom commands via `localTesting.smokeTests`).
 
-Bounded fix loop (live/test modes): `localTesting.maxFixAttempts` (default 3). Off by default; configured by `n1-init`.
+Bounded fix loop (live/test modes): `localTesting.maxFixAttempts` (default 3). On by default; configured by `n1-init`.
 
 Local testing owns all live-app verification -- starting services, running e2e suites, hitting real endpoints. QA owns the unit test suite. These scopes are independently defined; neither is conditional on the other being enabled.
 

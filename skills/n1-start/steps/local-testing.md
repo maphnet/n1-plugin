@@ -1,9 +1,9 @@
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
-Run `n1_config_val '.localTesting.enabled'` (default: `false`).
+Run `n1_config_val '.localTesting.enabled'` (default: `true`).
 
-> The gate key (`localTesting.enabled`) and its default (`false`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
+> The gate key (`localTesting.enabled`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
 
 **If `localTesting.enabled` is `false`:** Skip to Step 10 (PR CREATION).
 

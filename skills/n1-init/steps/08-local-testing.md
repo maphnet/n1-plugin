@@ -2,17 +2,17 @@
 
 ## Local Testing Configuration
 
-Ask whether N1 should run local end-to-end tests after implementation and review, before creating a PR. **Default is No.**
+Ask whether N1 should run local end-to-end tests after implementation and review, before creating a PR. **Default is Yes.**
 
 ```
 Enable local testing?
 After implementation + review, N1 can start your app locally and exercise the changed flows before creating a PR.
 Requires the app to be startable from the command line.
-1 — Yes
-2 — No (default)
+1 — Yes (default)
+2 — No
 ```
 
-**If 2 (No) or default:**
+**If 2 (No):**
 ```json
 {
   "localTesting": {
@@ -21,7 +21,7 @@ Requires the app to be startable from the command line.
 }
 ```
 
-**If 1 (Yes):**
+**If 1 (Yes) or default:**
 
 Select the testing mode:
 ```

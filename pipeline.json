@@ -125,7 +125,7 @@
   "gates": [
     { "name": "estimation",    "config_key": "estimation.enabled",     "default": false, "skips": ["estimation"] },
     { "name": "plan_review",   "config_key": "planReview.reviewPlan",  "default": true,  "skips": ["plan-review"] },
-    { "name": "local_testing", "config_key": "localTesting.enabled",   "default": false, "skips": ["local-testing"] },
+    { "name": "local_testing", "config_key": "localTesting.enabled",   "default": true, "skips": ["local-testing"] },
     { "name": "ci",            "config_key": "ciChecks.enabled",       "default": true,  "skips": ["ci"] },
     { "name": "finish",        "config_key": "finishWork.enabled",     "default": false, "skips": ["finish"] },
     { "name": "release",       "config_key": "release.enabled",        "default": false, "skips": ["release"] }

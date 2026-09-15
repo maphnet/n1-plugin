@@ -31,7 +31,7 @@ Create all files:
     "opusFromSize": "M"
   },
   "localTesting": {
-    "enabled": false,
+    "enabled": true,
     "mode": "test"
   },
   "finishWork": {

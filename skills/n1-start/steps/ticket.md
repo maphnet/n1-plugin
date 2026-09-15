@@ -58,5 +58,5 @@ Missing/empty: compact fallback, log. Capture ticket URL. Extract `tier:` defaul
 ```bash
 TIER=$(json_val '.testCoverage.tier' "${N1_HOME}/config.json"); EST=$(json_val '.estimation.enabled' "${N1_HOME}/config.json")
 LT=$(json_val '.localTesting.enabled' "${N1_HOME}/config.json"); PR=$(json_val '.planReview.reviewPlan' "${N1_HOME}/config.json")
-echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"'"${TIER:-maintain}"'","estimation_enabled":'"${EST:-false}"',"local_testing_enabled":'"${LT:-false}"',"plan_review_enabled":'"${PR:-true}"'}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
+echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"'"${TIER:-maintain}"'","estimation_enabled":'"${EST:-false}"',"local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":'"${PR:-true}"'}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
 ```
