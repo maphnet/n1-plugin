@@ -6,6 +6,8 @@ If agent token data is available in run records:
 - Total tokens per run (avg, p50, p90)
 - Tokens saved by downgrades (estimated: difference between frontier and downgraded model costs)
 - Orchestrator output tokens (avg per type)
+- Cache creation tokens per run (avg, p50, p90) — from `summary.total_cache_creation_tokens` (field added in v3.8.0; treat absence as 0 for older records)
+- Cache creation share: `total_cache_creation_tokens / (total_input_tokens + total_cache_read_tokens + total_cache_creation_tokens)` — indicates how much of the token budget goes to populating the cache vs actual input
 
 ## Analysis: Section 5 — Compaction Events
 

@@ -393,6 +393,7 @@ class MetricsTest(unittest.TestCase):
                                  "brainstorm_interactions", "autonomous_interventions",
                                  "fix_cycles", "review_pass_first_try",
                                  "duration_min", "orchestrator_output_tokens", "compactions",
+                                 "cache_creation_tokens",
                                  "questions_per_run", "brainstorm_questions",
                                  "recommended_followed_share", "decide_for_me_share",
                                  "inherited_share",

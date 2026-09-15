@@ -537,6 +537,14 @@ class CompactionsMetric(Metric):
         return float(val) if isinstance(val, (int, float)) else None
 
 
+class CacheCreationTokensMetric(Metric):
+    name, unit, direction = "cache_creation_tokens", "tokens", "lower"
+
+    def compute(self, run_record, turns):
+        val = (run_record.get("summary") or {}).get("total_cache_creation_tokens")
+        return float(val) if isinstance(val, (int, float)) else None
+
+
 class QuestionMetric(Metric):
     """Questions asked per run, optionally filtered by step or resolution."""
     unit = "count"
@@ -608,6 +616,7 @@ METRICS = [
     DurationMetric(),
     OrchestratorTokensMetric(),
     CompactionsMetric(),
+    CacheCreationTokensMetric(),
     QuestionMetric("questions_per_run"),
     QuestionMetric("brainstorm_questions", only_steps={"brainstorm"}),
     QuestionShareMetric("recommended_followed_share", "auto-decided"),
