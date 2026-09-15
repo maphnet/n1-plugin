@@ -2,7 +2,7 @@
 
 1. **Local branch (branch mode, merged PR):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`.
 2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it.
-3. **Worktree:** If the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, read `worktree.cleanup` from config. If it is `"after-pr"` or `"after-merge"`, remove the worktree: switch to the main checkout first (`MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn, point at `/n1:n1-clean`.
+3. **Worktree:** If the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, read `worktree.cleanup` from config. If it is `"after-pr"` or `"after-merge"`, the PR has already been merged — both values mean **remove the worktree now**: switch to the main checkout first (`MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn "Worktree removal failed: `<error>`", point at `/n1:n1-clean`.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish
@@ -38,7 +38,7 @@ PR: <url> — merged (<method>, by <auto-merge|reviewer>)
 Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
 Smoke: <passed | failed (<details>) | skipped (not configured) | skipped (deploy failed) | n/a (mode is not smoke)>
 Ticket: <ID> → <done status> / left open (<reason>) / tracker not configured
-Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | nothing to do>
+Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | worktree kept (<reason>) — run /n1:n1-clean | nothing to do>
 Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
 ```
 
