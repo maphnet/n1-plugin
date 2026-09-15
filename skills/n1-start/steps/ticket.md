@@ -1,8 +1,13 @@
-<!-- n1:step-snippet-exception: two sequential agent spawns with interspersed type resolution and tracker MCP calls -->
+<!-- n1:step-snippet-exception: agent spawn with interspersed type resolution and tracker MCP calls -->
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
-**Phase 1: intake-agent.** Spawn mode: **Ticket** (`<prefix>-<number>`): detect error-tracker via `observability.providers[*].urlPattern` → `ET_CONFIGURED`; `mode=ticket ticketId trackerMcp operations trackerType ticketMdPath`; error fields only if `ET_CONFIGURED`. **File**: `mode=file filePath ticketMdPath=$N1_HOME/scratch/intake-raw.md`. **Brain dump**: `mode=text content ticketMdPath`. **Error tracker**: `mode=error-tracker issueId issueUrl`+error fields; provisional `<ID>=sentry-<issueId>`.
+**Spawn product-analyst.** Detect mode and pass all fetch params:
+- **Ticket** (`<prefix>-<number>`): detect error-tracker via `observability.providers[*].urlPattern` → `ET_CONFIGURED`; params: `mode=ticket ticketId trackerMcp operations trackerType ticketMdPath`; add error fields only if `ET_CONFIGURED`.
+- **File**: `mode=file filePath ticketMdPath`.
+- **Brain dump**: `mode=text content ticketMdPath`.
+- **Error tracker**: `mode=error-tracker issueId issueUrl` + error fields; provisional `<ID>=sentry-<issueId>`.
+- Always pass: `enrichmentEnabled cloudId` (Jira only).
 
 ```bash
 INTAKE_RESULT=$(echo "$AGENT_OUTPUT" | grep -m1 '^intake-result: ' | sed 's/^intake-result: //')
@@ -24,13 +29,11 @@ ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1
 SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p'); IS_STORY=false
 case "$ISSUE_TYPE" in story|epic) IS_STORY=true ;; esac
 [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md" && IS_STORY=true
-ORIGINAL_STATUS=$(grep -m1 '^\*\*Status:\*\*' "$N1_HOME/memory/$ID/ticket.md" | sed 's/^\*\*Status:\*\* //')
+ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"]*\)".*/\1/p')
 ```
 `IS_STORY=true`+`N1_HEADLESS!=1`: handoff → `n1:n1-story-run <ID>`, STOP. `IS_STORY=true`+`N1_HEADLESS=1`: `procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree** or **Ensure Working Branch**.
 
-**Phase 2: product-analyst.** Gate: `ticketEnrichment.enabled!==false` AND `editTicket`. Spawn: `mode ticketId trackerMcp operations enrichmentEnabled cloudId ticketMdPath`. Output: write `ticketMdPath`; return `tier:` `title:` `ambiguities:` `n1:signals`.
-
-**ID-Final:** no memory file/branch until `<ID>` final. Scratch→memory: `mv scratch/intake-raw.md memory/$ID/ticket.md`.
+**ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 
 **Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): `MP=$(n1_autonomy_val 'mechanicalPrompts')`. Skip if `INVESTIGATE_FLAG=true`+braindump. `MP=auto`: create+ledger. `MP=ask`: "Create ticket? 1—Yes 2—No". Yes: `createIssue`, final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL.
 
