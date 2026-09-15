@@ -157,7 +157,7 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
 - Branch: ${ar_branch:-unknown}
 - Loop counters: qa_fix_cycle=${ov_qa_fix:-0}, review_fix_cycle=${ov_review_fix:-0}, clean_passes=${ov_clean_passes:-0}, local_test_fix_cycle=${ov_lt_fix:-0}, ci_fix_cycle=${ov_ci_fix:-0}
 - Autonomy: mode=${auto_mode}
-- Config gates: estimation.enabled=${gate_estimation:-false}, localTesting.enabled=${gate_local:-false}, finishWork.enabled=${gate_finish:-true}, ciChecks.enabled=${gate_ci:-false}
+- Config gates: estimation.enabled=${gate_estimation:-false}, localTesting.enabled=${gate_local:-true}, finishWork.enabled=${gate_finish:-true}, ciChecks.enabled=${gate_ci:-false}
 - Task context: ${ov_context}
 - Ticket URL: ${ov_ticket_url}
 - IMPORTANT: Use these values, not anything from the compacted conversation summary. Re-read overview.md and config.json if you need values not listed here."
