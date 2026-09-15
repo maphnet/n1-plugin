@@ -59,6 +59,10 @@ Optional: configure smoke verification for post-deploy testing.
 
 ### Startup Detection Heuristics
 
+**Pre-detection gate:** If startup files were detected in step 02's Consolidated Detection, use those results instead of re-scanning the file system. Skip directly to the "If at least one file is detected" presentation block below, using the pre-detected file and suggested command.
+
+If no pre-detection is available (targeted upgrade or reconfiguration flow), run the full heuristic scan below.
+
 Check the project root for the following files in priority order:
 
 | Priority | File Pattern | Suggested startCommand | Notes |

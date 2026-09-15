@@ -2,6 +2,12 @@
 
 ## Observability Configuration
 
+### Pre-detection gate
+
+If observability candidates were detected in step 02's Consolidated Detection, skip Steps 1--4 (Discovery, Classification, Environment inference, Confidence scoring) and proceed directly to Step 5 (Present to user) using the pre-detected candidate list with their confidence scores and inferred environments.
+
+If no pre-detection is available (targeted upgrade or reconfiguration flow), run the full discovery flow starting from Step 1.
+
 Detect available observability MCP servers via dynamic discovery — scan all connected MCP servers, classify by observability category, infer environments from server names, and present a confidence-ranked selection list.
 
 ### Step 1 — Discovery
