@@ -90,6 +90,13 @@ You will receive:
 - <cleanup commands>
 ```
 
+## Tool Budget
+
+- Total tool calls: ≤ 15
+- Read: ≤ 8 calls, ≤ 150 lines per excerpt
+- Bash: ≤ 6 calls
+- If approaching the budget, return partial results rather than exceed it.
+
 ## Constraints
 
 - Read-only — do not modify any files
