@@ -2,6 +2,25 @@
 
 ## Tracker Setup
 
+### Pre-detection gate
+
+If a tracker type was detected in step 02's Consolidated Detection:
+
+- **Jira detected (MCP connected):** Present as a confirmation rather than an open question:
+  ```
+  Detected Jira via Atlassian MCP.
+  1 -- Use Jira
+  2 -- Use a different tracker
+  3 -- No tracker
+  ```
+  If 1 -> skip to **Select project** below (MCP connectivity already verified).
+  If 2 -> fall through to the full tracker question below.
+  If 3 -> set `tracker.type` to `"none"`, `tracker.mcp` to `null`, skip remaining tracker setup.
+
+- **YouTrack detected:** Same confirmation pattern -- confirm or override.
+
+- **Ambiguous (both detected) / None detected / No pre-detection available (targeted upgrade):** Fall through to the full tracker question below.
+
 Ask: **"Which issue tracker do you use?"**
 
 ```

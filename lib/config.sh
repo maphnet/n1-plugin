@@ -377,6 +377,86 @@ n1_plan_approval_required() {
     [ "$v" = "true" ] && printf 'true' || printf 'false'
 }
 
+n1_plan_review_enabled() {
+    # Prints true/false. Default: true (plan review always runs unless explicitly disabled).
+    # Cannot use n1_config_val here: jq's `// empty` treats boolean false as falsy,
+    # returning empty string for both absent AND false. Use null-check instead.
+    local file; file=$(n1_config_file)
+    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
+        local v; v=$(jq -r 'if .planReview.reviewPlan == null then "absent" else (.planReview.reviewPlan | tostring) end' "$file" 2>/dev/null || true)
+        [ "$v" = "false" ] && { printf 'false'; return; }
+        [ "$v" = "true" ] && { printf 'true'; return; }
+    fi
+    printf 'true'
+}
+
+n1_test_coverage_tier() {
+    # Prints maintain/minimal/standard. Default: maintain.
+    local v; v=$(n1_config_val '.testCoverage.tier')
+    printf '%s' "${v:-maintain}"
+}
+
+n1_review_min_clean_passes() {
+    # Prints integer. Default: 1.
+    local v; v=$(n1_config_val '.review.minCleanPasses')
+    printf '%s' "${v:-1}"
+}
+
+n1_ci_checks_val() {
+    # Usage: n1_ci_checks_val <key>
+    # Keys: enabled, maxFixAttempts, confidenceThreshold
+    local key="$1"
+    # For boolean keys (enabled), n1_config_val's jq `// empty` treats false as falsy
+    # and returns empty. Use direct jq query for the enabled key.
+    local file; file=$(n1_config_file)
+    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
+        local v; v=$(jq -r "if .ciChecks.${key} == null then \"absent\" else (.ciChecks.${key} | tostring) end" "$file" 2>/dev/null || true)
+        if [ "$v" != "absent" ]; then printf '%s' "$v"; return; fi
+    else
+        local v; v=$(n1_config_val ".ciChecks.${key}")
+        if [ -n "$v" ]; then printf '%s' "$v"; return; fi
+    fi
+    case "$key" in
+        enabled)             printf 'true' ;;
+        maxFixAttempts)      printf '3' ;;
+        confidenceThreshold) printf '0.7' ;;
+        *)                   printf '' ;;
+    esac
+}
+
+n1_escalation_val() {
+    # Usage: n1_escalation_val <key>
+    # Keys: alwaysAskOn, checkpoints
+    local key="$1"
+    local v; v=$(n1_config_val ".escalation.${key}")
+    if [ -n "$v" ]; then printf '%s' "$v"; return; fi
+    case "$key" in
+        alwaysAskOn)  printf '["security","architecture","public-api"]' ;;
+        checkpoints)  printf '["pr"]' ;;
+        *)            printf '' ;;
+    esac
+}
+
+n1_memory_val() {
+    # Usage: n1_memory_val <key>
+    # Keys: ticketContext, decisions
+    # Boolean keys — same jq `// empty` caveat as n1_ci_checks_val.
+    local key="$1"
+    local file; file=$(n1_config_file)
+    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
+        local v; v=$(jq -r "if .memory.${key} == null then \"absent\" else (.memory.${key} | tostring) end" "$file" 2>/dev/null || true)
+        if [ "$v" != "absent" ]; then printf '%s' "$v"; return; fi
+    else
+        local v; v=$(n1_config_val ".memory.${key}")
+        if [ -n "$v" ]; then printf '%s' "$v"; return; fi
+    fi
+    case "$key" in
+        ticketContext) printf 'true' ;;
+        decisions)     printf 'true' ;;
+        *)             printf '' ;;
+    esac
+}
+
 # Detect if running inside a linked git worktree NOT managed by N1.
 # Returns 0 (true) when: git-dir diverges from git-common-dir (linked worktree)
 # AND the worktree toplevel is NOT under the host worktree root (n1_worktree_root).

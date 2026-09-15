@@ -1,64 +1,4 @@
-<!-- Purpose: Configure test coverage tier, autonomy mode, review, CI checks, telemetry, analysis cache, and plan review. -->
-
-## Test Coverage Configuration
-
-Ask what level of test work the QA agent should do. **Default is maintain** — fix and update existing tests, no new test creation.
-
-```
-Test coverage tier controls how much test work the QA agent does:
-  maintain — Fix broken tests, update tests for changed functionality. No new tests. (default)
-  minimal  — Acceptance-criteria-only behavioral tests (1-3 per feature)
-  standard — Behavioral tests + edge cases + error paths (capped)
-
-Select test coverage tier:
-1 — maintain (default)
-2 — minimal
-3 — standard
-```
-
-**If 1 (maintain) or default:**
-```json
-{
-  "testCoverage": {
-    "tier": "maintain"
-  }
-}
-```
-
-**If 2 (minimal):**
-```json
-{
-  "testCoverage": {
-    "tier": "minimal"
-  }
-}
-```
-
-**If 3 (standard):**
-```json
-{
-  "testCoverage": {
-    "tier": "standard"
-  }
-}
-```
-
-### On reconfiguration (n1-init re-run):
-
-If `testCoverage` already exists in the current config, show current state and offer:
-```
-Current test coverage tier: <current value>
-1 — Keep current
-2 — maintain
-3 — minimal
-4 — standard
-```
-- **1** → leave unchanged.
-- **2** → set `tier: "maintain"`.
-- **3** → set `tier: "minimal"`.
-- **4** → set `tier: "standard"`.
-
-If `testCoverage` is absent from the current config, run the fresh-setup flow above.
+<!-- Purpose: Configure autonomy mode, telemetry, and analysis cache. -->
 
 ## Autonomy Configuration
 
@@ -93,38 +33,6 @@ If `autonomy` already exists in the current config:
 - If it contains only `"mode"`: show current value and re-ask (two options as above).
 - If it contains legacy sub-keys (no `"mode"` key): show a migration note —
   `"Your config uses legacy autonomy keys. Reconfiguring will write the new single-key format."` — then re-ask.
-
-## Review Configuration
-
-Use `minCleanPasses: 1` by default. **Do NOT ask** the user about this unless they explicitly requested review customization when invoking n1-init.
-
-```json
-{
-  "review": {
-    "minCleanPasses": 1
-  }
-}
-```
-
-## CI Checks Configuration
-
-Use defaults. **Do NOT ask** the user about this unless they explicitly requested CI customization when invoking n1-init.
-
-- `enabled: true` — CI watch runs automatically after PR creation in n1-start
-- `maxFixAttempts: 3` — developer agent gets 3 cycles to fix CI failures before escalating to user
-- `confidenceThreshold: 0.7` — for checks that don't match any known category, developer agent must exceed this confidence to auto-fix
-
-```json
-{
-  "ciChecks": {
-    "enabled": true,
-    "maxFixAttempts": 3,
-    "confidenceThreshold": 0.7
-  }
-}
-```
-
-Categories use built-in defaults (lint, typecheck, test, build, security, infra — all `auto-fix`). Teams can override by adding a `categories` block after running n1-init.
 
 ## Telemetry Configuration
 
@@ -236,18 +144,3 @@ Current analysis cache:
 
 If `analysisCache` is absent from the current config, run the fresh-setup flow above.
 
-## Plan Review Configuration
-
-Use defaults. **Do NOT ask** the user about this unless they explicitly requested plan review customization when invoking n1-init.
-
-- `reviewPlan: true` — after plan creation, solution-architect is re-spawned in fresh context to review the plan against specific adversarial criteria with codebase access
-- `requirePlanApproval: false` — if the plan review passes (clean or self-fixed), proceed to implementation without a user checkpoint
-
-```json
-{
-  "planReview": {
-    "reviewPlan": true,
-    "requirePlanApproval": false
-  }
-}
-```

@@ -58,7 +58,7 @@ Execute steps in order. Read each step file and follow its instructions before p
 9. **Finish & Release** — finish work and release configuration
    Read `<N1_ROOT>/skills/n1-init/steps/09-finish-release.md`
 
-10. **Quality & Pipeline Config** — test coverage, autonomy, review, CI, telemetry, cache, plan review
+10. **Quality & Pipeline Config** — autonomy, telemetry, analysis cache
     Read `<N1_ROOT>/skills/n1-init/steps/10-quality-config.md`
 
 11. **Rules** — generate starter rules, convention migration
@@ -78,7 +78,7 @@ Execute steps in order. Read each step file and follow its instructions before p
 
 ## Escalation Defaults
 
-No questions — write the `escalation` block defaults silently (`checkpoints` and `alwaysAskOn`, see **Write Configuration and Structure**). Escalations are always surfaced interactively in the terminal.
+Escalation values (`checkpoints`, `alwaysAskOn`) are code defaults in `lib/config.sh` -- n1-init does not write them. Existing configs with these keys still work (read if present).
 
 ## Expected Config Keys
 
@@ -86,6 +86,5 @@ The canonical set of top-level config keys. Used by step 01 for completeness che
 
 ```
 worktree, tracker, git, ticketTagging, observability, estimation,
-localTesting, finishWork, release, testCoverage, telemetry,
-analysisCache, rules, escalation, autonomy, review, ciChecks, planReview, memory, models
+localTesting, finishWork, release, telemetry, analysisCache, rules, autonomy, models
 ```
