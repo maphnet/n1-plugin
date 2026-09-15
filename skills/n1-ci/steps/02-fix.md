@@ -29,7 +29,18 @@ After developer returns for `unknown` checks:
 
 **Batch all fixable failures** into one developer agent spawn. Resolve model for `developer`.
 
-Pass: failed checks with categories and run IDs (from Step 5a), the PR branch name, the main checkout path, `git diff $(git merge-base origin/<default-branch> HEAD)..HEAD`, memory files (`plan.md`, `implementation.md`) if available. Scratch-artifact policy: throwaway benchmarks/spikes go under `$N1_HOME/scratch/{benchmarks,tests}/` (gitignored), never in the repo test suite.
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+DIFF_CONTENT=$(git diff $(git merge-base origin/$DEFAULT_BRANCH HEAD)..HEAD)
+DIFF_BYTES=${#DIFF_CONTENT}
+if [ "$DIFF_BYTES" -gt 30000 ]; then
+  DIFF_CONTENT="${DIFF_CONTENT:0:30000}
+[truncated: first 30KB of ${DIFF_BYTES}B shown]"
+fi
+```
+
+Pass: failed checks with categories and run IDs (from Step 5a), the PR branch name, the main checkout path, `$DIFF_CONTENT` (capped above), memory files (`plan.md`, `implementation.md`) if available. Scratch-artifact policy: throwaway benchmarks/spikes go under `$N1_HOME/scratch/{benchmarks,tests}/` (gitignored), never in the repo test suite.
 
 **Developer instructions:**
 
