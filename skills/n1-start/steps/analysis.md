@@ -64,9 +64,11 @@ ESCALATED=$(echo "$AGENT_OUTPUT" | grep -m1 '^LITE_ESCALATED:'); [ -n "$ESCALATE
 SELF_RESOLVED=$(grep -c '<!-- n1:resolved:' "$N1_HOME/memory/$ID/analysis.md" 2>/dev/null | head -1); SELF_RESOLVED="${SELF_RESOLVED:-0}"
 [ "$SELF_RESOLVED" -gt 0 ] && n1_write_signals "$N1_HOME/memory/$ID/analysis.md" "self_resolved=$SELF_RESOLVED"
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
-[ "$TYPE" != "investigation" ] && n1_compact_memory "$N1_HOME/memory/$ID/analysis.md" "conclusions,affected files,blast radius,risks,industry standards,bug investigation,tier"
+[ "$TYPE" != "investigation" ] && n1_compact_memory "$N1_HOME/memory/$ID/analysis.md" "conclusions,affected files,blast radius,risks,industry standards,bug investigation,ticket validation,tier"
 BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius"); FILES_CHANGED_A=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")
 SECURITY=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "security_relevant"); HAS_ROOT_CAUSE=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "has_bug_root_cause")
+CONTRADICTIONS=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "ticket_contradictions"); CONTRADICTIONS="${CONTRADICTIONS:-0}"
+[ "$CONTRADICTIONS" -gt 0 ] && echo "Ticket contradictions found: $CONTRADICTIONS"
 SIMPLE_PATH=false
 if [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHANGED_A:-999}" -lt 3 ] && [ "$SECURITY" != "true" ]; then
     if [ "$TYPE" = "task" ] || [ "$TYPE" = "chore" ] || { [ "$TYPE" = "bug" ] && [ "$HAS_ROOT_CAUSE" = "true" ]; }; then
@@ -92,6 +94,25 @@ if [ -n "$XREPO_SUGGESTS" ]; then
 fi
 [ -s "$XREPO_PENDING_FILE" ] && { printf '\nSA detected cross-repo integrations:\n'; awk -F'\t' '{printf "- %s: %s\n",$1,$2}' "$XREPO_PENDING_FILE"; printf '\nAdd? (yes/no/select)\n'; }
 ```
+
+**Contradiction gate:** When `CONTRADICTIONS` > 0, present the `### Ticket Validation` section from analysis.md to the user:
+
+```
+SA found {CONTRADICTIONS} ticket claim(s) that conflict with current best practices:
+
+{Ticket Validation section content}
+
+Options:
+1. Continue as-is — proceed with the ticket's original direction
+2. Redirect (Recommended — SA found web-validated contradictions with cited sources) — update the approach based on these findings before continuing
+```
+
+Record the decision: append a ledger row to overview.md: `| analysis | scope | A | [asked] | Ticket contradictions found: {CONTRADICTIONS} | {user choice} | {other option} | {user reasoning or "acknowledged"} | codebase,web |`.
+
+When `CONTRADICTIONS` = 0: skip silently, no gate. When web search was unavailable (all claims "unable to verify"): skip silently.
+
+**Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md` Headless Guard.
+
 Missing/empty: re-prompt once; fallback write summary. DRIFT: delete snapshot. Extract `tier:` → write frontmatter. `CONTEXT_BLOCK` → replace `## Context`; **Print Gate 1** (`SIMPLE_PATH=true`: pipeline shows `analysis → developer → qa → review → pr (simple-path)`). `SELF_RESOLVED>0`: `[auto]` ledger. Update overview: `[x] Analysis`, `step: analysis`.
 
 Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":**

@@ -48,6 +48,13 @@ You will receive:
 
    If web tools are unavailable, skip and note it — never fail.
 
+   **c) Ticket claim validation:** Extract technical claims from the ticket — library/tool choices, architecture assertions, performance claims, stated constraints, version requirements. For each non-trivial claim, search for current best practices and verify against authoritative sources (same corroboration rules as 5a). Classify each claim as:
+   - **Confirmed** — corroborated by >=2 sources (cite URLs)
+   - **Contradicted** — current best practices or facts disagree (cite URLs, state what the sources recommend instead)
+   - **Unable to verify** — web search returned no clear answer (do NOT count as contradiction)
+
+   Focus on claims that would change the implementation approach if wrong. Skip obvious/trivial assertions. If the ticket contains no technical claims worth validating, note "No technical claims to validate" and move on.
+
 6. **Bug investigation (when type is `bug`):** Trace the defect through the codebase:
    - Identify the code path where the bug manifests (entry point → failure point)
    - Search for error messages, exception patterns, or symptoms described in the ticket
@@ -83,6 +90,10 @@ You will receive:
 
 ### Integration Points
 - <component/API/service> — <how the task connects to it>
+
+### Ticket Validation
+- <claim> — <confirmed|contradicted|unable to verify> — <source URLs> — <if contradicted: what sources recommend instead>
+(or "No technical claims to validate")
 
 ### Data Flow
 <existing data flow relevant to the task>
@@ -145,7 +156,7 @@ The orchestrator passes you output paths. You write your artifacts yourself and 
 
 **Returned text (to orchestrator):**
 ```
-n1:signals blast_radius=<low|medium|high> security_relevant=<true|false> files_changed=<number> complexity_delta=<simple|standard|complex> has_bug_root_cause=<true|false> cross_repo_explored=<true|false>
+n1:signals blast_radius=<low|medium|high> security_relevant=<true|false> files_changed=<number> complexity_delta=<simple|standard|complex> has_bug_root_cause=<true|false> cross_repo_explored=<true|false> ticket_contradictions=<number>
 tier: <simple|standard|complex> [confirmed|revised from <previous>]
 context: |
   <2-8 lines of plain prose, 50-100 words>
@@ -162,6 +173,7 @@ Signal values:
 - `complexity_delta`: the final tier from your Tier Assessment (`simple`, `standard`, or `complex`)
 - `has_bug_root_cause`: `true` only for bug-type tickets where a specific root cause was identified in Bug Investigation; `false` for all other ticket types and for bugs where root cause is unresolved
 - `cross_repo_explored`: `true` if any related project's code was read during analysis; `false` otherwise (including when no related projects were provided)
+- `ticket_contradictions`: count of claims classified as "Contradicted" in Ticket Validation (integer, 0 when no contradictions or no claims to validate)
 
 Do NOT return the full analysis report — it is in the file you wrote. Return only the compact block above.
 
