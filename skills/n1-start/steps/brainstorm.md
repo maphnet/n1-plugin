@@ -18,15 +18,7 @@ Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
 **`BRAINSTORM_MODE=auto`:** dispatch SA — "Read `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md`. Inputs: ticket.md, analysis.md. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions ONE message 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`."
 
-**`BRAINSTORM_MODE=interactive`:** relay loop (cap 2 rounds). Dispatch SA: invoke `brainstorming` against ticket.md+analysis.md. Single prompt max 4 questions. Round 2: inputs+answers; write brainstorm.md.
-
-<N1-OVERRIDE>
-Overrides brainstorming skill's checklist AND HARD-GATE (steps 5-9). HARD-GATE SUSPENDED — no user approval needed. Steps 1-4 normal.
-
-**GUARDRAIL:** do NOT Read/Grep/Glob project source files — Step 1 satisfied by `analysis.md`. Re-spawn SA for missing facts ("Answer only: <question>. ≤200 words."). `$N1_HOME/**` and `rules/` OK.
-
-All questions in ONE message + recommended answer. Accept "use recommended" globally. Step 5: present chosen design, no approval prompts, write spec. Step 6: write `$N1_HOME/memory/<ID>/brainstorm.md`; NOT docs/superpowers/specs/; do NOT commit. Step 7: self-review. Steps 8-9: SKIP.
-</N1-OVERRIDE>
+**`BRAINSTORM_MODE=interactive`:** relay loop (cap 2 rounds). Dispatch SA: invoke `n1-brainstorm` against ticket.md+analysis.md. Single prompt max 4 questions. **GUARDRAIL:** do NOT Read/Grep/Glob project source files — `analysis.md` is sufficient; re-spawn SA for missing facts only. Round 2: inputs+answers; write `$N1_HOME/memory/<ID>/brainstorm.md`; do NOT commit.
 
 Bug: use root cause findings. Investigation: explore question. Append `$RULES_BLOCK`.
 

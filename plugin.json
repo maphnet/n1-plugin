@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "n1",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "AI-driven development orchestrator. No one writes the code.",
   "author": {
     "name": "N1 Team"
@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "N1",
     "shortDescription": "Ticket-to-PR development orchestrator",
-    "longDescription": "N1 runs the full development cycle (ticket, analysis, brainstorm, plan, implement, QA, review, PR) with specialized agent personas and Superpowers skills. Install superpowers first and enable [features] multi_agent = true.",
+    "longDescription": "N1 runs the full development cycle (ticket, analysis, brainstorm, plan, implement, QA, review, PR) with specialized agent personas and native skills. Enable [features] multi_agent = true in Codex config.",
     "developerName": "N1 Team",
     "category": "Developer Tools",
     "capabilities": [

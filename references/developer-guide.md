@@ -21,7 +21,7 @@ See [README.md](../README.md) for user-facing documentation: installation, quick
 
 ## What This Is
 
-N1 is a plugin for Claude Code and Codex that orchestrates the full development cycle (ticket read, analysis, brainstorm, plan, implement, QA, review, [local testing], PR). It uses a **hybrid delegation model**: specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while [Superpowers](https://github.com/obra/superpowers) ^5.0 sub-skills handle interactive steps (brainstorming, planning, implementation dispatch via SDD). It is a **thin controller** (~5-10K tokens per skill): skills load only the memory files they need, spawn agents or invoke Superpowers, and write results back to per-ticket memory.
+N1 is a plugin for Claude Code and Codex that orchestrates the full development cycle (ticket read, analysis, brainstorm, plan, implement, QA, review, [local testing], PR). It uses a **hybrid delegation model**: specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native N1 skills handle interactive steps (brainstorming, planning, implementation dispatch). It is a **thin controller** (~5-10K tokens per skill): skills load only the memory files they need, spawn agents, and write results back to per-ticket memory.
 
 **n1-start skill layout:** `skills/n1-start/SKILL.md` is a thin dispatcher (<6 KB); each of the 16 pipeline step bodies lives in `skills/n1-start/steps/<step>.md`. Shared orchestrator logic (workspace isolation, telemetry, output gates, resume) lives in `skills/n1-start/procedures/<name>.md`, referenced by steps on demand. Shared review logic lives in `skills/n1-start/review-core.md`.
 
@@ -57,7 +57,6 @@ Skills under 6 KB remain in their existing `skills/<name>/SKILL.md` form without
 
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
 - **Plugin manifests:** `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` (Claude Code), `plugin.json` + `.agents/plugins/marketplace.json` (Codex); bump all four with `scripts/bump-version.sh`
-- **Dependency:** Superpowers plugin >=5.0
 - **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/agent_profiles.py` (Codex persona TOML generator), `lib/transcript_codex.py` (Codex rollout parser), `lib/config.sh` (codex/model resolution), `lib/signals.sh` (signal read/write/gate evaluation), `lib/step.sh` (per-step begin/end helpers: telemetry, frontmatter, signal persistence, decision records), `lib/context.sh` (context-persistence: write/read TIER/TYPE/DESC_QUALITY/LITE_MODE to `ticket-context.sh` so downstream bash snippets can source it instead of re-deriving from frontmatter), `lib/memory.sh` (compaction), `lib/cache.sh` (analysis snapshot I/O and freshness check), `lib/rules.sh` (rules directory resolution, file parsing, agent filtering, injection rendering, deny hook generation), `lib/story.sh` (story orchestrator: service→repo lookup, model pick, toposort, child status/launch)
 
 ## Plugin Development
@@ -75,7 +74,7 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 
 - A `file://` marketplace install copies from committed git **HEAD** into a cache, not the working tree. Refreshing it requires a `version` bump (all four manifests via `scripts/bump-version.sh`) followed by `claude plugin marketplace update n1-plugin` + `claude plugin update n1-plugin@n1-plugin`.
 - **Version bumps are mandatory for releases.** Any change that consumers should pick up requires a semver bump in **both** files. Without a bump, `plugin marketplace update` sees no change and consumers stay on the old version.
-- Cross-marketplace dependencies (e.g. superpowers from `claude-plugins-official`) require `"marketplace"` in the dependency entry and `"allowCrossMarketplaceDependenciesOn"` in `marketplace.json`.
+- Cross-marketplace dependencies require `"marketplace"` in the dependency entry and `"allowCrossMarketplaceDependenciesOn"` in `marketplace.json`.
 - `marketplace.json` lives at the repo root (`.claude-plugin/marketplace.json`) so `/plugin marketplace add maphnet/n1-plugin` can find it.
 - The `git-subdir` source URL must be the full HTTPS URL (`https://github.com/maphnet/n1-plugin`), not the short `owner/repo` form — the short form resolves to SSH (`git@github.com:`) which fails without configured keys.
 
@@ -95,7 +94,7 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 
 ## Conventions
 
-- **Skill authoring:** Always use `/writing-skills` skill when creating or modifying skills (available in Superpowers <=5.x; removed in v6)
+- **Skill authoring:** Always use `/writing-skills` skill when creating or modifying skills
 - Skills: `skills/<name>/SKILL.md` — auto-discovered, invoked as `/n1:<skill-name>`
 - Agents: `agents/<name>.md` — frontmatter requires `name`, `description`, `model`; optional `tools` (comma-separated allowlist of tool identifiers). Agents are dispatched as file-based subagents (by name), so Claude Code **enforces** this allowlist at runtime — it is a real capability boundary, not advisory. MCP tools must be named `mcp__<server>__<tool>`; a human label like "Tracker MCP" grants nothing. Omit `tools` entirely to inherit the orchestrator's full tool set — required when an agent needs config-dynamic tracker MCP tools whose names vary by tracker (e.g. product-analyst)
 - Hooks: `hooks/hooks.json` — event declarations, scripts in `hooks/`
@@ -104,5 +103,5 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 - No Co-Authored-By trailers in commits
 - **Timestamps:** Never let the model invent a timestamp — it has no clock and will hallucinate. Date-only needs (spec/plan filenames `YYYY-MM-DD`) use the harness-injected `currentDate`. Precise time (time-of-day, durations) must come from the `date` command, e.g. `date -u +%Y-%m-%dT%H:%M:%SZ`. Don't add timestamp fields unless something actually reads them — file mtime already records "last modified".
 - **Test & benchmark artifacts:** Tests/benchmarks that verify committed implementation (unit, integration, e2e tied to acceptance criteria) go in the repo and run in CI. Throwaway probes that only answer a current question (approach micro-benchmarks, repro scripts, viability spikes) go under `$N1_HOME/` (external, never committed) — per-ticket `$N1_HOME/memory/<ID>/{benchmarks,tests}/`, or `$N1_HOME/scratch/{benchmarks,tests}/` when there is no ticket memory. When unsure, default to scratch. Bound into the `solution-architect`, `developer`, and `qa-engineer` personas; concrete paths are passed by the skills at spawn time.
-- **Design specs:** `docs/superpowers/specs/` is gitignored. Design specs produced by brainstorming are working documents — leave them untracked, do not commit or force-add.
+- **Design specs:** Design specs produced by brainstorming are written to per-ticket memory (`$N1_HOME/memory/<ID>/brainstorm.md`) — they are working documents, not committed artifacts.
 - **Agent spawns pass memory-file paths:** Skills pass the absolute path to each memory file (e.g. `$MEMORY_DIR/ticket.md`) so agents Read them directly. Exception: estimation inline data and the `## Key Decisions`/`## Escalations` slices of overview.md stay inlined. Read-only agents (code-reviewer, security-reviewer, solution-architect) never write memory files; qa-engineer writes `qa.md` itself; developer fix cycles write/replace `## Fix Cycle <N>` sections in `implementation.md` — idempotent upsert, never duplicate.

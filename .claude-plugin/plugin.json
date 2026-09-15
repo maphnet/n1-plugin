@@ -4,13 +4,6 @@
   "author": {
     "name": "N1 Team"
   },
-  "version": "3.5.0",
-  "license": "MIT",
-  "dependencies": [
-    {
-      "name": "superpowers",
-      "version": ">=6",
-      "marketplace": "claude-plugins-official"
-    }
-  ]
+  "version": "3.6.0",
+  "license": "MIT"
 }

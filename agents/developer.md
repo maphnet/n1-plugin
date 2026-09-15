@@ -121,6 +121,6 @@ When spawned for direct implementation (bypassing SDD), you receive:
 - Follow existing patterns — do not introduce new architectural patterns or dependencies
 - Every change must have a corresponding test (or verify existing tests cover it)
 - Commit each logical change separately (atomic commits)
-- Do NOT invoke the `finishing-a-development-branch` skill or any pipeline-control skills
+- Do NOT invoke `finishing-a-development-branch`, `executing-plans`, or `subagent-driven-development`. Do NOT invoke any pipeline-control skills
 - Do NOT push, open PRs, or delete branches
 - If a change requires architectural decisions beyond the brainstorm spec, return BLOCKED

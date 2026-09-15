@@ -104,12 +104,10 @@ CODEX_CFG="${CODEX_HOME:-$HOME/.codex}/config.toml"
    ```
    **STOP.**
 
-3. **Superpowers present.** If `$brainstorming` is not in your skill list, tell the user: "N1 needs the Superpowers plugin: run `codex plugin add superpowers`, restart Codex, then re-run `$n1-init`." **STOP.**
-
-4. **Persona files.** `ls .codex/agents/n1-*.toml 2>/dev/null | wc -l` must be 11 (one per spawnable persona). If it is 0, the hook could not write into this project: tell the user the path and **STOP**. Otherwise add the generated files to the project `.gitignore` if missing:
+3. **Persona files.** `ls .codex/agents/n1-*.toml 2>/dev/null | wc -l` must be 11 (one per spawnable persona). If it is 0, the hook could not write into this project: tell the user the path and **STOP**. Otherwise add the generated files to the project `.gitignore` if missing:
    ```bash
    grep -qF '.codex/agents/n1-*.toml' .gitignore 2>/dev/null || { [ -s .gitignore ] && [ -n "$(tail -c1 .gitignore)" ] && echo >> .gitignore; printf '# N1 generated Codex personas\n.codex/agents/n1-*.toml\n' >> .gitignore; }
    ```
    Log: "Added `.codex/agents/n1-*.toml` to .gitignore." (or "already ignored").
 
-5. **Default subagent model.** Read `DEF_MODEL=$(n1_codex_default default_subagent_model)` and `DEF_EFFORT=$(n1_codex_default default_subagent_reasoning_effort)`. If `DEF_MODEL` is empty, tell the user: "Codex has no `[agents] default_subagent_model`; every N1 persona will inherit the session model, which is usually the most expensive one. Set it in ~/.codex/config.toml or pick per-persona models below." Continue to **Agent Model Configuration**, which on Codex is always offered (not only on request).
+4. **Default subagent model.** Read `DEF_MODEL=$(n1_codex_default default_subagent_model)` and `DEF_EFFORT=$(n1_codex_default default_subagent_reasoning_effort)`. If `DEF_MODEL` is empty, tell the user: "Codex has no `[agents] default_subagent_model`; every N1 persona will inherit the session model, which is usually the most expensive one. Set it in ~/.codex/config.toml or pick per-persona models below." Continue to **Agent Model Configuration**, which on Codex is always offered (not only on request).

@@ -38,7 +38,7 @@ HOST ROUTING (host: claude-code — authoritative for how N1 skills reach the ha
 - Dispatch a general-purpose subagent: Agent tool with subagent_type \"general-purpose\".
 - Ask the user: AskUserQuestion tool (max 4 questions per call).
 - Load the tool if deferred: ToolSearch with select:<tool>.
-- Invoke skill <x>: Skill tool with superpowers:<x>. N1 skills: /n1:n1-<skill>.
+- Invoke skill <x>: Skill tool with n1:<x>.
 - <N1_ROOT> in skill text means the N1 PLUGIN ROOT above.
 - Full table: ${N1_ROOT_DIR}/references/host-routing.md"
 fi

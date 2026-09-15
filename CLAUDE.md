@@ -9,7 +9,7 @@ Russian is prohibited in any committed file.
 
 ## What This Is
 
-N1 is a plugin for Claude Code 2.1+ and Codex CLI 0.154+ that orchestrates the full development cycle using a **hybrid delegation model**: specialized agent personas handle autonomous work, while [Superpowers](https://github.com/obra/superpowers) ^5.0 sub-skills handle interactive steps. It is a **thin controller** (~5-10K tokens per skill).
+N1 is a plugin for Claude Code 2.1+ and Codex CLI 0.154+ that orchestrates the full development cycle using a **hybrid delegation model**: specialized agent personas handle autonomous work, while native N1 skills handle interactive steps. It is a **thin controller** (~5-10K tokens per skill).
 
 See [references/architecture.md](references/architecture.md) for pipeline internals, signal-driven gating, type registry, and all subsystem details.
 See [references/developer-guide.md](references/developer-guide.md) for project structure, plugin development workflow, and authoring conventions.
@@ -17,7 +17,6 @@ See [references/developer-guide.md](references/developer-guide.md) for project s
 ## Stack
 
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
-- **Dependency:** Superpowers plugin >=5.0
 - **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/config.sh`, `lib/signals.sh`, `lib/step.sh` (per-step begin/end helpers), `lib/context.sh` (context-persistence: write/read TIER/TYPE/DESC_QUALITY/LITE_MODE/SIMPLE_PATH across bash snippets), `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`, `lib/story.sh`, `lib/related.sh`
 - **Host layer:** skill text is host-neutral; per-host syntax lives in `references/host-routing.md` and is injected by the session-start hook as HOST ROUTING. `tests/test_host_neutral_skills.sh` rejects host literals in `skills/` and `agents/`.
 
@@ -43,7 +42,7 @@ Do NOT install N1 as a user-scope plugin for local development.
 - **Skill authoring:** Always use `/writing-skills` skill when creating or modifying skills. Never name a host tool (Agent, AskUserQuestion, ToolSearch, Skill, spawn_agent) in skill text; write "dispatch persona", "ask the user", "invoke skill" and let HOST ROUTING resolve it.
 - **Timestamps:** Never invent a timestamp. Date-only: use harness-injected `currentDate`. Time: `date -u +%Y-%m-%dT%H:%M:%SZ`. Don't add timestamp fields unless something reads them.
 - **Test/benchmark artifacts:** committed tests go in repo; throwaway probes go under `$N1_HOME/` (per-ticket `memory/<ID>/{benchmarks,tests}/` or `scratch/{benchmarks,tests}/`)
-- **Design specs:** `docs/superpowers/specs/` is gitignored — do not commit or force-add
+- **Design specs:** Design specs produced by brainstorming are written to per-ticket memory (`$N1_HOME/memory/<ID>/brainstorm.md`) — working documents, not committed artifacts
 - **Agent spawns pass memory-file paths:** Skills pass absolute paths so agents `Read` files directly. Read-only agents (code-reviewer, security-reviewer) never write memory; solution-architect writes `analysis.md` + snapshot (via Bash, ref #44657); qa-engineer writes `qa.md`; developer writes `## Fix Cycle <N>` sections in `implementation.md` (idempotent upsert)
 
 ## N1_HOME Resolution
