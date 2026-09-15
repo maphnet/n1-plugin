@@ -211,7 +211,6 @@ N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation
 | code-reviewer | opus | medium | Adversarial code quality review |
 | security-reviewer | opus | medium | Security vulnerability review (OWASP, CWE) |
 | qa-engineer | sonnet | medium | Test design and implementation |
-| intake-agent | haiku | low | Ticket/content intake |
 | local-test-planner | sonnet | medium | Local test plan creation |
 | tech-writer | sonnet | medium | PR content generation |
 

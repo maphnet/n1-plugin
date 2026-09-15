@@ -15,7 +15,7 @@ check "AskUserQuestion literal" 'AskUserQuestion'
 check "ToolSearch literal" 'ToolSearch'
 check "Agent tool / subagent_type literal" 'Agent tool|subagent_type|when the Agent returns'
 check "Skill tool / superpowers: prefix" 'Skill tool|superpowers:'
-check "persona namespace literal" '"n1:[a-z-]+"|`n1:(solution-architect|developer|planner|implementer|qa-engineer|code-reviewer|security-reviewer|tech-writer|product-analyst|intake-agent|local-test-planner)`'
+check "persona namespace literal" '"n1:[a-z-]+"|`n1:(solution-architect|developer|planner|implementer|qa-engineer|code-reviewer|security-reviewer|tech-writer|product-analyst|local-test-planner)`'
 
 # Every fenced bash block that uses $N1_ROOT must start with the preamble (each snippet is its own shell).
 python3 - <<'PY' || FAIL=1
