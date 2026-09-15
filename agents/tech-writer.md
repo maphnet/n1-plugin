@@ -212,6 +212,13 @@ Local testing: PASS — N/N automated scenarios passed
 
 - Copy the `### AC Coverage` table from `review.md` verbatim under a `#### Acceptance criteria` sub-heading. Do not re-evaluate it.
 
+## Tool Budget
+
+- Total tool calls: ≤ 12
+- Read: ≤ 8 calls, ≤ 150 lines per excerpt
+- Bash: ≤ 6 calls
+- If approaching the budget, return partial results rather than exceed it.
+
 ## Constraints
 
 - Title must be under 70 characters
