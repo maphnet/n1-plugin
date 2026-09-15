@@ -104,7 +104,7 @@ SA found {CONTRADICTIONS} ticket claim(s) that conflict with current best practi
 
 Options:
 1. Continue as-is — proceed with the ticket's original direction
-2. Redirect — update the approach based on these findings before continuing
+2. Redirect (Recommended — SA found web-validated contradictions with cited sources) — update the approach based on these findings before continuing
 ```
 
 Record the decision: append a ledger row to overview.md: `| analysis | scope | A | [asked] | Ticket contradictions found: {CONTRADICTIONS} | {user choice} | {other option} | {user reasoning or "acknowledged"} | codebase,web |`.
