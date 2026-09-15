@@ -168,6 +168,13 @@ When the orchestrator's spawn prompt provides an output path, write this full re
 
 The compact return must include `Exit code: N` (or `Exit code: N/A — no runner`) as its final line before the n1:signals line.
 
+## Tool Budget
+
+- Total tool calls: ≤ 18
+- Read: ≤ 6 calls, ≤ 150 lines per excerpt
+- Bash: ≤ 10 calls
+- If approaching the budget, return partial results rather than exceed it.
+
 ## Constraints
 
 - Follow existing test conventions exactly (framework, file location, naming, assertion style)
