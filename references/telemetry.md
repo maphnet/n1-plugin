@@ -31,7 +31,7 @@ Optional local-first telemetry gated on `telemetry.enabled` in `$N1_HOME/config.
 
 Hooks use `matcher: "n1:*"` — zero overhead for non-N1 sessions. All collection is async and non-blocking.
 
-**Schema version:** Current version is **2** (question events added in v2.2). Version 1 records lack the `orchestrator` field; consumers should treat its absence as "not collected".
+**Schema version:** Current version is **3** (question events added in v2.2). Version 1 records lack the `orchestrator` field; consumers should treat its absence as "not collected".
 
 **Orchestrator telemetry** (schema v2+):
 
@@ -52,9 +52,13 @@ The merged record includes an `orchestrator` field with per-step tool call and t
 | `orchestrator.totals` | object | Rollup across all steps + unattributed |
 | `orchestrator.parse_error` | string\|null | Error string if transcript could not be parsed |
 
-Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `orchestrator_tool_calls`.
+Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `orchestrator_tool_calls`, `total_cache_creation_tokens`.
 
 **Session transcript discovery:** The agent-stop hook writes `session_transcript_path` (the raw parent session transcript path from the harness payload) alongside the resolved per-agent `transcript_path`. The merge script reads the first `session_transcript_path` from the raw agents file. If no agent events exist, `orchestrator` is `null`.
+
+**Orchestrator transcript fallback:** When no agent event carries `session_transcript_path` (runs before the field was introduced), the merge script derives the parent transcript path from any subagent transcript path that contains `/subagents/`. It strips the subagent suffix to recover the session directory and checks for `<session-dir>.jsonl`. This fallback runs only when primary resolution fails.
+
+**Agent parse_error values:** `transcript_not_found` — agent completed but its transcript file is missing; `transcript_parse_failed` — file exists but jq could not parse it; `agent_never_finished` — no stop event was recorded (agent crashed or run was abandoned).
 
 ## Decision events (schema v2.1)
 

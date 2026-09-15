@@ -118,6 +118,20 @@ if command -v jq >/dev/null 2>&1; then
         SESSION_TRANSCRIPT=$(jq -rs 'first(.[] | select(.session_transcript_path) | .session_transcript_path) // empty' "$AGENTS_FILE" 2>/dev/null || true)
     fi
 
+    # --- Fallback: derive orchestrator transcript from subagent path ---
+    if [ -z "$SESSION_TRANSCRIPT" ] && [ -f "$AGENTS_FILE" ]; then
+        DERIVED_ORCH=$(jq -rs '
+            [.[] | select(.transcript_path) | .transcript_path |
+             select(contains("/subagents/"))] | first // empty
+        ' "$AGENTS_FILE" 2>/dev/null || true)
+        if [ -n "$DERIVED_ORCH" ]; then
+            # Strip /subagents/agent-<id>.jsonl to get session dir, then append .jsonl
+            SESS_DIR="${DERIVED_ORCH%/subagents/*}"
+            CANDIDATE="${SESS_DIR}.jsonl"
+            [ -f "$CANDIDATE" ] && SESSION_TRANSCRIPT="$CANDIDATE"
+        fi
+    fi
+
     # --- Parse each transcript file ---
     AGENTS_JSON=$(echo "$AGENTS_RAW" | jq --argjson steps "$STEPS_JSON" --argjson smap "$STATIC_MAP" '
         [.[] | . as $agent |
@@ -203,6 +217,14 @@ if command -v jq >/dev/null 2>&1; then
             AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" '
                 .[$idx].parse_error = "transcript_not_found"
             ')
+        else
+            # No transcript path at all — check if agent ever completed
+            COMPLETED=$(echo "$AGENTS_JSON" | jq -r ".[$i].completed_at // empty")
+            if [ -z "$COMPLETED" ]; then
+                AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" '
+                    .[$idx].parse_error = "agent_never_finished"
+                ')
+            fi
         fi
     done
 
@@ -297,6 +319,7 @@ if command -v jq >/dev/null 2>&1; then
             total_input_tokens: ([$agents[].input_tokens | select(. != null)] | add // 0),
             total_output_tokens: ([$agents[].output_tokens | select(. != null)] | add // 0),
             total_cache_read_tokens: ([$agents[].cache_read_tokens | select(. != null)] | add // 0),
+            total_cache_creation_tokens: ([$agents[].cache_creation_tokens | select(. != null)] | add // 0),
             cache_efficiency: (
                 ([$agents[].cache_read_tokens | select(. != null)] | add // 0) as $cr |
                 ([$agents[].input_tokens | select(. != null)] | add // 0) as $it |
