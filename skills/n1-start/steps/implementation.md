@@ -33,7 +33,8 @@ BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_REF=$( [ -f "$BP_FILE" ] && cat
 BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "HEAD")
 LINES_CHANGED=$(git diff --stat "$BASE" 2>/dev/null | tail -1 | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
 NEW_FILES=$(git diff --name-status "$BASE" 2>/dev/null | grep -c '^A' || echo "0"); CHANGED_FILES=$(git diff --name-only "$BASE" 2>/dev/null || true)
-echo "$CHANGED_FILES" | grep -qvE '\.(md|txt|json|ya?ml|toml|cfg|ini|conf|env)$' && DIFF_SURFACE="code" || DIFF_SURFACE="config"
+source "$N1_ROOT/lib/classify.sh"
+_surf=$(n1_classify_doc_config_only "$CHANGED_FILES"); [ "$_surf" = "true" ] && DIFF_SURFACE="config" || DIFF_SURFACE="code"
 n1_write_signals "$N1_HOME/memory/$ID/implementation.md" "diff_surface=$DIFF_SURFACE" "lines_changed=$LINES_CHANGED" "new_files_count=$NEW_FILES"
 n1_step_end "implementation" 7 "success"
 ```

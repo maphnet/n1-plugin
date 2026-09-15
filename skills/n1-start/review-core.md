@@ -5,12 +5,18 @@ Used by `steps/review.md` and `n1-review`. Caller must define `<BASE_BRANCH>`.
 ## Diff Surface Classification
 
 ```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 BASE=$(git merge-base "<BASE_BRANCH>" HEAD)
 CHANGED=$(git diff --name-only "$BASE" HEAD)
+source "$N1_ROOT/lib/classify.sh"
+DOC_CONFIG_ONLY=$(n1_classify_doc_config_only "$CHANGED")
+SECURITY_HINT=$(n1_classify_security_hint_any "$CHANGED")
+echo "DOC_CONFIG_ONLY=${DOC_CONFIG_ONLY}"
+echo "SECURITY_HINT=${SECURITY_HINT}"
 ```
 
-- **DOC_CONFIG_ONLY** — true iff every changed path matches only `*.md`, `*.txt`, `*.yml`/`*.yaml`, `.gitignore`, `LICENSE`, `CHANGELOG*`.
-- **SECURITY_RELEVANT** — true iff any path or diff touches: auth, crypto, input validation, secrets, network/HTTP, (de)serialization, file/path handling, SQL/query, shell/command execution. **Bias toward true when uncertain.**
+- **DOC_CONFIG_ONLY** (pre-computed) — `$DOC_CONFIG_ONLY`. When `true`, every changed file is docs or config.
+- **SECURITY_RELEVANT** — use `$SECURITY_HINT` as starting signal; inspect diff content for final verdict. True iff any path or diff touches: auth, crypto, input validation, secrets, network/HTTP, (de)serialization, file/path handling, SQL/query, shell/command execution. **Bias toward true when uncertain.**
 
 Reviewer selection: `code-reviewer` always runs. `security-reviewer` runs iff `SECURITY_RELEVANT`. Record each skip in `review.md` + Decision Ledger row.
 
