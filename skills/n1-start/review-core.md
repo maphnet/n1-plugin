@@ -8,6 +8,11 @@ Used by `steps/review.md` and `n1-review`. Caller must define `<BASE_BRANCH>`.
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 BASE=$(git merge-base "<BASE_BRANCH>" HEAD)
 CHANGED=$(git diff --name-only "$BASE" HEAD)
+FILE_COUNT=$(echo "$CHANGED" | wc -l)
+if [ "$FILE_COUNT" -gt 200 ]; then
+  CHANGED="$(echo "$CHANGED" | head -n 200)
+[truncated: showing first 200 of $FILE_COUNT files]"
+fi
 source "$N1_ROOT/lib/classify.sh"
 DOC_CONFIG_ONLY=$(n1_classify_doc_config_only "$CHANGED")
 SECURITY_HINT=$(n1_classify_security_hint_any "$CHANGED")

@@ -160,7 +160,12 @@ Check review count:
 ### Step 1: Fetch PR diff
 
 ```bash
-gh pr diff <PR_NUMBER>
+PR_DIFF=$(gh pr diff <PR_NUMBER>)
+DIFF_BYTES=${#PR_DIFF}
+if [ "$DIFF_BYTES" -gt 50000 ]; then
+  PR_DIFF="${PR_DIFF:0:50000}
+[truncated: first 50KB of ${DIFF_BYTES}B shown]"
+fi
 ```
 
 Also fetch PR description:
@@ -175,7 +180,7 @@ gh pr view <PR_NUMBER>
 Resolve models for both agents.
 
 Provide:
-- PR diff as the code to review
+- $PR_DIFF (already capped) as the code to review
 - PR description as the requirements
 
 **Wait for ALL agents to complete before proceeding.**

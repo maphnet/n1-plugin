@@ -42,9 +42,14 @@ source "$N1_ROOT/lib/frontmatter.sh"; n1_increment_counter "$N1_HOME/memory/$ID/
 
 **Full-suite regression check** (once at PASS): detect: `package.json scripts.test`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod`, `Makefile test`. First match wins; none → "Full-suite check skipped." Found:
 ```bash
-<discovered-test-command> 2>&1; FULL_SUITE_EXIT=$?
+FULL_SUITE_OUTPUT=$(<discovered-test-command> 2>&1); FULL_SUITE_EXIT=$?
+FULL_SUITE_LINES=$(echo "$FULL_SUITE_OUTPUT" | wc -l)
+if [ "$FULL_SUITE_LINES" -gt 100 ]; then
+  FULL_SUITE_OUTPUT="[truncated: showing last 100 of $FULL_SUITE_LINES lines]
+$(echo "$FULL_SUITE_OUTPUT" | tail -n 100)"
+fi
 ```
-Append to `## Fix Cycle <N>`: `**Full-suite:** exit <FULL_SUITE_EXIT> — PASS|FAIL`. Exit 0: proceed. Non-zero: `MP=$(n1_autonomy_val 'mechanicalPrompts')`. `MP==auto` + first attempt: spawn developer to fix, re-run once. Else: ask "Fix regression or proceed?"
+Append to `## Fix Cycle <N>`: `**Full-suite:** exit <FULL_SUITE_EXIT> — PASS|FAIL`. When spawning developer for regression fix, pass `$FULL_SUITE_OUTPUT` (already capped) as the failure output. Exit 0: proceed. Non-zero: `MP=$(n1_autonomy_val 'mechanicalPrompts')`. `MP==auto` + first attempt: spawn developer to fix, re-run once. Else: ask "Fix regression or proceed?"
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
