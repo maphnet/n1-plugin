@@ -131,6 +131,13 @@ tier: <simple|standard|complex> [confirmed|revised from <previous>]
 reason: <one-line reason for confirmation or revision>
 ```
 
+## Tool Budget
+
+- Total tool calls: ≤ 35
+- Read: ≤ 18 calls, ≤ 150 lines per excerpt
+- Bash: ≤ 18 calls
+- If approaching the budget, return partial results rather than exceed it.
+
 ## Constraints
 
 - **Write boundary:** write ONLY to the paths the orchestrator provides (analysis.md, the snapshot file, the project map, and any related project's map path given to you — peer map paths live under `~/.n1/<slug>/cache/`, outside this project's `$N1_HOME`). Do not modify any project/repo files.
