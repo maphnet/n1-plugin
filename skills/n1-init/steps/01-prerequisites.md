@@ -12,7 +12,24 @@ Check for N1 configuration in priority order:
 
 1. **New-format config:** Resolve N1_HOME by running the preamble line from `references/host-routing.md` followed by `source "$N1_ROOT/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
    - **If exists:** Load the config and check for missing top-level keys against the **Expected Config Keys** list in the dispatcher SKILL.md. Then branch:
-     - **If no missing keys:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Ask: "Reconfigure? **1** — Yes / **2** — No". If no — **STOP.** If yes — continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
+     - **If no missing keys:** Check whether the user's invocation includes the word "reconfigure" (e.g., `/n1-init reconfigure`).
+       - **If "reconfigure" is present:** Continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
+       - **Otherwise:** Print a status summary and **STOP** — do not ask any questions:
+
+         ```
+         N1 is configured for this project.
+
+           State: <$N1_HOME path>
+           Tracker: <tracker.type> (<tracker.projectKey>) | None
+           PR mode: <git.prMode>
+           Autonomy: <autonomy.mode>
+           Worktree cleanup: <worktree.cleanup>
+           Telemetry: <telemetry.enabled>
+           Local testing: <localTesting.enabled> (<localTesting.mode>)
+
+         To reconfigure, run: /n1-init reconfigure
+         ```
+         **STOP.**
      - **If missing keys found:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Then show:
 
        ```
