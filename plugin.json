@@ -12,7 +12,7 @@
   "interface": {
     "displayName": "N1",
     "shortDescription": "Ticket-to-PR development orchestrator",
-    "longDescription": "N1 runs the full development cycle (ticket, analysis, brainstorm, plan, implement, QA, review, PR) with specialized agent personas and Superpowers skills. Install superpowers first and enable [features] multi_agent = true.",
+    "longDescription": "N1 runs the full development cycle (ticket, analysis, brainstorm, plan, implement, QA, review, PR) with specialized agent personas and native skills. Enable [features] multi_agent = true in Codex config.",
     "developerName": "N1 Team",
     "category": "Developer Tools",
     "capabilities": [
