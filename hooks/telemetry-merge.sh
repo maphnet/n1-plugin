@@ -203,6 +203,14 @@ if command -v jq >/dev/null 2>&1; then
             AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" '
                 .[$idx].parse_error = "transcript_not_found"
             ')
+        else
+            # No transcript path at all — check if agent ever completed
+            COMPLETED=$(echo "$AGENTS_JSON" | jq -r ".[$i].completed_at // empty")
+            if [ -z "$COMPLETED" ]; then
+                AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" '
+                    .[$idx].parse_error = "agent_never_finished"
+                ')
+            fi
         fi
     done
 
@@ -297,6 +305,7 @@ if command -v jq >/dev/null 2>&1; then
             total_input_tokens: ([$agents[].input_tokens | select(. != null)] | add // 0),
             total_output_tokens: ([$agents[].output_tokens | select(. != null)] | add // 0),
             total_cache_read_tokens: ([$agents[].cache_read_tokens | select(. != null)] | add // 0),
+            total_cache_creation_tokens: ([$agents[].cache_creation_tokens | select(. != null)] | add // 0),
             cache_efficiency: (
                 ([$agents[].cache_read_tokens | select(. != null)] | add // 0) as $cr |
                 ([$agents[].input_tokens | select(. != null)] | add // 0) as $it |
