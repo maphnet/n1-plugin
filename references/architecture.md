@@ -68,7 +68,7 @@ Each step reads ONLY its declared dependencies:
 | Step | Reads | Writes |
 |------|-------|--------|
 | ticket | — | `ticket.md` (+ `<!-- n1:signals -->` block: `task_type`, `has_acceptance_criteria`, `description_quality`). For tracker tickets: parent context (`### Parent Context`) appended when the ticket has a parent; current ticket's non-parent links (`### Linked Tickets`) appended when qualifying links exist (blockers, relates-to, depends-on). |
-| analysis | `ticket.md` | `analysis.md` (+ signals: `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`) |
+| analysis | `ticket.md` | `analysis.md` (+ signals: `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`, `ticket_contradictions`) |
 | brainstorm | `ticket.md`, `analysis.md` | `brainstorm.md` (+ signals: `planning_need`, `design_clarity`, `approach_count`) |
 | plan | `ticket.md`, `brainstorm.md`, `analysis.md` | `plan.md` |
 | plan-review | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` | `plan.md` (in-place fixes) |
@@ -125,7 +125,7 @@ Steps emit runtime signals stored as `<!-- n1:signals -->` blocks in memory file
 | Step | Signals | Stored in |
 |------|---------|-----------|
 | ticket | `task_type`, `has_acceptance_criteria`, `description_quality` | ticket.md |
-| analysis | `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`, `self_resolved` | analysis.md |
+| analysis | `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`, `self_resolved`, `ticket_contradictions` | analysis.md |
 | brainstorm | `planning_need`, `design_clarity`, `approach_count`, `files_changed`, `blast_radius` | brainstorm.md |
 | implementation | `diff_surface`, `lines_changed`, `new_files_count` | implementation.md |
 | qa | `tests_added`, `tests_broken`, `coverage_change` | qa.md |
