@@ -10,7 +10,7 @@ description: "Use before any creative work in N1 sessions — creating features,
 **Inputs (provided by caller):**
 - `ticket.md` path — the ticket requirements
 - `analysis.md` path — codebase analysis from the solution architect
-- Output path — where to write the design (NOT `docs/superpowers/specs/`)
+- Output path — where to write the design (do NOT write to the Superpowers specs directory — use only the output path provided by the caller)
 
 **GUARDRAIL:** Do NOT Read/Grep/Glob project source files. Step 1 is satisfied by `analysis.md`. Re-spawn the solution-architect persona for missing facts only ("Answer only: \<question\>. ≤200 words.").
 
