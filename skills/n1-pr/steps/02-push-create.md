@@ -4,6 +4,52 @@
 
 `prMode` already resolved (only `"draft"` or `"ready"` reaches here).
 
+### Conflict check and rebase
+
+Before pushing, verify the branch is compatible with `${DEFAULT_BRANCH}`:
+
+```bash
+git fetch origin ${DEFAULT_BRANCH}
+```
+
+Check if rebase is needed:
+```bash
+git merge-base --is-ancestor origin/${DEFAULT_BRANCH} HEAD
+```
+
+- Exit 0 → branch already includes all of `${DEFAULT_BRANCH}`; skip rebase.
+- Exit 1 → rebase needed:
+
+```bash
+git rebase origin/${DEFAULT_BRANCH}
+```
+
+**If rebase succeeds (exit 0):** Branch is clean. Proceed to push using `--force-with-lease` (required because rebase rewrites history):
+
+```bash
+git push --force-with-lease -u origin ${CURRENT_BRANCH}
+```
+
+**If rebase fails (conflicts detected):**
+
+```bash
+git rebase --abort
+```
+
+List the conflicting files (from `git status` or the rebase output), print a clear message:
+
+```
+Rebase conflicts detected — push halted.
+Resolve the following conflicts manually, then re-run /n1:n1-pr:
+  <list conflicting files>
+```
+
+**STOP — do not create the PR.**
+
+### No-rebase path
+
+When `merge-base` exit 0 (already up to date), push normally:
+
 ```bash
 git push -u origin ${CURRENT_BRANCH}
 ```
