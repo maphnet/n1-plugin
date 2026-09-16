@@ -48,7 +48,26 @@ Read N1 memory if available:
 
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer (if SECURITY_RELEVANT)
 
-Resolve models for code-reviewer and security-reviewer.
+Before reviewer resolution, read `qa_verdict_unverified` from overview and verify the completed QA report. Set `REVIEW_ASTRA_CONTEXT=final-whole-branch-review` only when `qa_verdict_unverified` is not `true`, `qa.md` contains `Verdict: PASS`, and it contains a `### Evidence` section. Otherwise leave it empty; advisory PR review and review-loop runs without verified QA must omit the third resolver argument.
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/frontmatter.sh"
+QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified")
+REVIEW_ASTRA_CONTEXT=""
+if [ "$QA_UNVERIFIED" != true ] && grep -q '^Verdict: PASS' "$N1_HOME/memory/$ID/qa.md" && grep -q '^### Evidence' "$N1_HOME/memory/$ID/qa.md"; then
+    REVIEW_ASTRA_CONTEXT=final-whole-branch-review
+fi
+if [ -n "$REVIEW_ASTRA_CONTEXT" ]; then
+    IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review "$REVIEW_ASTRA_CONTEXT")
+    IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review "$REVIEW_ASTRA_CONTEXT")
+else
+    IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review)
+    IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review)
+fi
+```
+
+Pass each selected reviewer its resolved model/effort pair.
 
 Prepare shared review context:
 - What was implemented (from memory or commit messages)
@@ -68,7 +87,7 @@ After ALL reviewers return, merge their raw findings into a single list ordered 
 
 **Spawn agent:** code-reviewer (with adversarial verification prompt)
 
-Resolve model for `code-reviewer`.
+Resolve the adversarial verifier with the same verified-QA gate and model/effort pair. When `REVIEW_ASTRA_CONTEXT` is nonempty, call `n1_resolve_agent code-reviewer review "$REVIEW_ASTRA_CONTEXT"`; otherwise call `n1_resolve_agent code-reviewer review` with no third argument. This prevents advisory PR review and unverified review-loop runs from authorizing the exceptional route.
 
 **Adversarial kill mandate:** The verification agent's job is to **disprove** each finding, not confirm it. Default disposition is FALSE POSITIVE — a finding survives only if the verifier fails to refute it after genuinely trying.
 
@@ -104,7 +123,7 @@ Work with **confirmed findings only** (false positives are discarded).
 
 **Spawn agent:** developer
 
-Resolve model for `developer`.
+Resolve developer through `n1_resolve_agent developer review` (no Astra context), split its tab-separated model/effort pair, and pass both to the spawn.
 
 Pass to developer:
 - Confirmed findings (Critical + High only)

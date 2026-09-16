@@ -10,7 +10,7 @@ n1_step_begin "implementation" 7
 TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
 BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "blast_radius" 2>/dev/null); BLAST="${BLAST:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")}"
 FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "files_changed" 2>/dev/null); FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")}"
-DEVELOPER_MODEL=$(n1_resolve_model developer implementation)
+IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer implementation)
 PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need")
 # Fallback simplicity gate: fires if simple-path gate (analysis.md) did not already route directly.
 # Primary routing is done earlier by the simple-path gate in analysis.md.
@@ -20,9 +20,9 @@ n1_record_decision simplicity-gate "$GATE_RESULT" '{"all":[{"signal":"brainstorm
 
 Run `procedures/rules-injection.md`: `agent_name=developer`.
 
-**Simplicity gate PASS** (all: `TIER==simple`, `BLAST==low`, `FILES_CHANGED<3`): spawn developer `$DEVELOPER_MODEL`, input brainstorm.md or plan.md, "Direct Implementation mode." → QA.
+**Simplicity gate PASS** (all: `TIER==simple`, `BLAST==low`, `FILES_CHANGED<3`): spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`, input brainstorm.md or plan.md, "Direct Implementation mode." → QA.
 
-**ANY fails:** `PLANNING_NEED=direct` → spawn developer, brainstorm.md, "Direct Implementation." `PLANNING_NEED=plan`/absent → plan.md; absent → Plan path. Top-level headers >2 → Plan path; ≤2 no cross-deps → developer, plan.md, "Direct, sequential"; else Plan path.
+**ANY fails:** `PLANNING_NEED=direct` → spawn developer with the resolved model/effort pair, brainstorm.md, "Direct Implementation." `PLANNING_NEED=plan`/absent → plan.md; absent → Plan path. Top-level headers >2 → Plan path; ≤2 no cross-deps → developer with the resolved pair, plan.md, "Direct, sequential"; else Plan path.
 
 **Plan path:** spawn **implementer**. Input plan.md or brainstorm.md: "Enumerate tasks; dispatch developer per task." Always `n1-implement`. Constraints: Think Before Coding; Simplicity First; Surgical Changes; Goal-Driven; existing patterns; test+commit per change; BLOCKED on architectural; no finish/branch-delete skills, CONTINUOUS. Pass `WORKTREE_PATH`, output path, escalation, `$RULES_BLOCK`.
 

@@ -23,7 +23,7 @@ if [ "$N1_HOST_NAME" = "codex" ]; then
     HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 
 HOST ROUTING (host: codex — authoritative for how N1 skills reach the harness):
-- Dispatch persona <name>: spawn_agent with agent_type \"n1-<name>\", fork_turns \"none\", task_name, message = the prompt, model and reasoning_effort from N1 model resolution. Wait for it: wait_agent (timeout_ms 300000-600000). Fix loops: keep the agent open and send_input the next cycle.
+- Dispatch persona <name>: run n1_resolve_agent <name> <step-context> [astra-context] from lib/config.sh; split its tab-separated model/effort result and pass both to spawn_agent. Its tab-separated model/effort result is authoritative. Omit the third argument unless a workflow has verified a canonical Astra context. Spawn with agent_type \"n1-<name>\", fork_turns \"none\", task_name, and message = the prompt. Wait for it: wait_agent (timeout_ms 300000-600000). Fix loops: keep the agent open and send_input the next cycle.
 - Dispatch a general-purpose subagent: spawn_agent without agent_type, fork_turns \"none\".
 - Ask the user: end the turn with a plain message listing numbered options. There is no question tool.
 - Load the tool if deferred: skip, all tools are preloaded.

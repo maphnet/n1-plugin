@@ -22,7 +22,7 @@ source "$N1_ROOT/lib/config.sh"; N1_HOME=$(n1_home)
 
 Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/<ID>/`.
 
-**Prerequisites:** `N1_HOME` empty → tell user N1 not configured, offer `/n1:n1-init`. **Model Resolution:** `n1_resolve_model <agent-name> [context]`.
+**Prerequisites:** `N1_HOME` empty → tell user N1 not configured, offer `/n1:n1-init`. **Model Resolution:** dispatches use `n1_resolve_agent <agent-name> [context] [astra-context]`, split its tab-separated model/effort result, and pass both values to the host spawn. `n1_resolve_model` remains the model-only compatibility helper.
 
 ## Procedures (read on demand)
 

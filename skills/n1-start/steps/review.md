@@ -36,8 +36,10 @@ Run **Ensure Dependencies(`<ID>`)** before reviewers. > **ORCHESTRATOR GUARDRAIL
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/frontmatter.sh"
 QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified")
+IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review)
+IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review)
 ```
-`QA_UNVERIFIED=true`: add "QA verdict unverified." qa-facts hollow tests: `[TQ-N]` (Medium) unless pure refactor. Append `$XREPO_REVIEW_CONTEXT`.
+`QA_UNVERIFIED=true`: add "QA verdict unverified." qa-facts hollow tests: `[TQ-N]` (Medium) unless pure refactor. Append `$XREPO_REVIEW_CONTEXT`. Spawn every selected reviewer with its resolved model and effort pair; ordinary review supplies no Astra context.
 
 After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard, increment `review_discarded_count`, re-run; 2nd fail→§ Autonomy Gate. Combine: `$MEM/review.md`, prefix `[CR-N]`/`[SEC-N]`. **FAIL** if Critical/High/`[RULE-N]`. Partial: retry once.
 
@@ -54,7 +56,7 @@ For each confirmed Critical/High: `n1_fingerprint_append "$FP_FILE" "$(n1_finger
 
 ### 7b. TQ FIX LOOP
 
-No `[TQ-N]` Medium+ → skip. Else spawn **qa-engineer**: TQ findings, qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5." Bounded `tq.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate.
+No `[TQ-N]` Medium+ → skip. Else resolve `qa-engineer` through `n1_resolve_agent qa-engineer review`, split the tab-separated pair, and spawn **qa-engineer** with both values: TQ findings, qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5." Bounded `tq.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate.
 
 **FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 3). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
 
