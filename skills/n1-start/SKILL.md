@@ -7,28 +7,37 @@ model: sonnet
 
 # N1 Core Orchestrator
 
-Use HOST ROUTING for questions, personas, and skills. Accept ticket ID or brain dump; orchestrate analyst through tech-writer.
+**Host vocabulary:** "ask the user" = host question mechanism from HOST ROUTING. "Dispatch persona `<name>`" and "invoke skill `<x>`" follow HOST ROUTING.
+
+Accepts ticket ID or brain dump. Orchestrates full development cycle: product-analyst, solution-architect, developer, qa-engineer, code-reviewer, security-reviewer, tech-writer.
 
 ## N1_HOME Resolution
+
+Run at start of every run before any config or memory access:
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/config.sh"; N1_HOME=$(n1_home)
 ```
 
-Config is `$N1_HOME/config.json`; memory is `$N1_HOME/memory/<ID>/`. Empty N1_HOME: offer init. Dispatch via `n1_resolve_agent <agent-name> [context] [astra-context]`, split model/effort, and pass both; `n1_resolve_model` is compatibility-only.
+Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/<ID>/`.
+
+**Prerequisites:** `N1_HOME` empty → tell user N1 not configured, offer `/n1:n1-init`. **Model Resolution:** dispatches use `n1_resolve_agent <agent-name> [context] [astra-context]`, split its tab-separated model/effort result, and pass both values to the host spawn. `n1_resolve_model` remains the model-only compatibility helper.
 
 ## Procedures (read on demand)
 
-Telemetry, input, workspace, resume, gates, autonomy, rules, cross-repo, recovery, finalize: read the matching procedure on demand.
+Telemetry Init: `procedures/telemetry.md` | Input Parsing: `procedures/input-parsing.md` | Workspace Isolation: `procedures/workspace-isolation.md` | Resume: `procedures/resume.md` | Output Gates: `procedures/output-gates.md` | Autonomy & Headless: `procedures/autonomy-headless.md` | Rules Injection: `procedures/rules-injection.md` | Cross-Repo: `procedures/cross-repo.md` | Error Recovery: `procedures/error-recovery.md` | Finalize Memory: `procedures/finalize.md`
 
 ## Startup Sequence
 
-1. telemetry; 2. input; 3. resume/fresh start; 4. workspace (skip investigation or completed resume).
+1. `procedures/telemetry.md` — init telemetry.
+2. `procedures/input-parsing.md` — parse input.
+3. `procedures/resume.md` — check for existing run; resume or fresh start.
+4. `procedures/workspace-isolation.md` — set up workspace (skip for investigation; skip on resume if done).
 
 ## Pipeline Steps
 
-Brainstorm defaults interactive; Gate 2 awaits configured approval.
+Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). Gate 2 pauses for plan approval when `requirePlanApproval` enabled.
 
 | Step | File | Notes |
 |------|------|-------|

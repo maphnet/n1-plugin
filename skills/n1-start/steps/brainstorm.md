@@ -17,20 +17,20 @@ IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect bra
 
 Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
-> **ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, `cat`, `sed -n`, or otherwise open project source files.**
->
-> **ORCHESTRATOR GUARDRAIL (experiments):** delegate experiments; do not run inline.
+**Investigation auto:** dispatch SA, autonomous brainstormer, investigation focus, write brainstorm.md, report `planning_need`.
 
-**Investigation auto:** dispatch SA for investigation and `planning_need`. **Auto:** read autonomous-brainstorm.md; use ticket+analysis; write brainstorm.md, tier, batch A questions once, report planning_need, append `$RULES_BLOCK`. **Interactive:** ≤2 SA rounds, max four questions; use ticket+analysis and re-spawn for facts; write brainstorm.md, never commit.
+**`BRAINSTORM_MODE=auto`:** dispatch SA — "Read `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md`. Inputs: ticket.md, analysis.md. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions ONE message 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`."
 
-### Architecture Adjudication
+**`BRAINSTORM_MODE=interactive`:** relay loop (cap 2 rounds). Dispatch SA: invoke `n1-brainstorm` against ticket.md+analysis.md. Single prompt max 4 questions. **GUARDRAIL:** do NOT Read/Grep/Glob project source files — `analysis.md` is sufficient; re-spawn SA for missing facts only. Round 2: inputs+answers; write `$N1_HOME/memory/<ID>/brainstorm.md`; do NOT commit.
 
-Only when the prompt names at least two named designs and analysis.md shows cross-cutting consequences in two components. Label the spawn; otherwise use ordinary no-third-argument resolution.
+### Architecture Adjudication (narrow exception)
+
+Use this branch only when the prompt explicitly asks the solution architect to choose between at least two named designs **and** `analysis.md` identifies cross-cutting consequences in at least two components. Label the spawn prompt `Architecture adjudication`. Otherwise retain the ordinary no-third-argument resolution above, including routine analysis, missing-fact re-spawns, interactive brainstorming, and plan review.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/config.sh"
-# Set only after reading prompt and analysis.
+# Set either value to true only after reading the user prompt and analysis.md.
 PROMPT_NAMES_TWO_DESIGNS=false
 ANALYSIS_HAS_TWO_CROSS_CUTTING_COMPONENTS=false
 if [ "$PROMPT_NAMES_TWO_DESIGNS" = true ] && [ "$ANALYSIS_HAS_TWO_CROSS_CUTTING_COMPONENTS" = true ]; then
@@ -39,11 +39,13 @@ if [ "$PROMPT_NAMES_TWO_DESIGNS" = true ] && [ "$ANALYSIS_HAS_TWO_CROSS_CUTTING_
 fi
 ```
 
-Bug uses root cause; investigation explores question; append `$RULES_BLOCK`. Replace overview Context from `context:` and mark Brainstorm complete.
+Bug: use root cause findings. Investigation: explore question. Append `$RULES_BLOCK`.
+
+After: parse `context:`; if updated replace `## Context` in overview.md. Update: `[x] Brainstorm`, `step: brainstorm`.
 
 ### User Gate
 
-Skip investigation. Read `DESC_QUALITY`; checkpoint design, AC, scope.
+Skip when investigation mode. Read `DESC_QUALITY`. Present checkpoint: design saved, AC list, scope.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
@@ -61,8 +63,10 @@ ANALYSIS_BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius"
 n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NEED" "design_clarity=$DESIGN_CLARITY" "approach_count=$APPROACH_COUNT" "files_changed=$BRAINSTORM_FILES" "blast_radius=$BRAINSTORM_BLAST"
 n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,key decisions,approach,acceptance criteria,testing"
 ```
-`auto`: confirm+ledger; `ask`: wait/amend AC; headless uses guard. `direct` is specified independent work; otherwise `plan`.
+`auto`: auto-confirm, `[auto]` ledger. `ask`: wait; amend → update AC. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+
+`direct`: changes specified, independent, no design decisions, no test strategy. `plan`: coordination, open questions, new abstractions, security/API/cross-cutting. Default `plan`.
 
 ### Post-Brainstorm Enrichment
 
-Gate: ticket ID, enabled enrichment, editTicket, addComment. Idempotently append refined AC/scope/approach and post summary; non-blocking.
+Gate: ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent: skip if `*Refined after design review — N1*`). Post design summary comment. Non-blocking.

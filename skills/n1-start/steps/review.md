@@ -26,9 +26,11 @@ fi
 echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED"
 ```
 
-Run **Ensure Dependencies(`<ID>`)** before reviewers. > **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step.**
+Run **Ensure Dependencies(`<ID>`)** before reviewers. > **ORCHESTRATOR GUARDRAIL (review): do not run tests.**
 
-Read review-core.md with BASE_BRANCH. Parallel code-reviewer and (when relevant) security-reviewer receive ticket, QA facts, base, decisions/escalations. Code review gets review-spec+plan, diff names, tier, not implementation/brainstorm; security gets ticket, changed files, diff.
+**Shared review core:** read `<N1_ROOT>/skills/n1-start/review-core.md` with `BASE_BRANCH`.
+
+**Spawn PARALLEL:** code-reviewer + security-reviewer (if SECURITY_RELEVANT). Shared: ticket.md, qa-facts.md, base branch, `## Key Decisions`+`## Escalations` inline. Code-reviewer: review-spec.md+plan.md, NOT implementation.md/brainstorm.md; "cold second pair of eyes"; `git diff --name-only <BASE_BRANCH>...HEAD`; tier. Security-reviewer: ticket.md + changed-file list + diff only.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
@@ -37,7 +39,9 @@ QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdic
 IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review)
 IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review)
 ```
-Unverified QA is noted; hollow tests are `[TQ-N]` unless refactor. Append XREPO context; use resolved pairs and no Astra. After all, tree-freeze; failure discards, increments, reruns, then autonomy gate. Combine review.md with prefixes; fail Critical/High/RULE; retry partial once.
+`QA_UNVERIFIED=true`: add "QA verdict unverified." qa-facts hollow tests: `[TQ-N]` (Medium) unless pure refactor. Append `$XREPO_REVIEW_CONTEXT`. Spawn every selected reviewer with its resolved model and effort pair; ordinary review supplies no Astra context.
+
+After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard, increment `review_discarded_count`, re-run; 2nd fail→§ Autonomy Gate. Combine: `$MEM/review.md`, prefix `[CR-N]`/`[SEC-N]`. **FAIL** if Critical/High/`[RULE-N]`. Partial: retry once.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')

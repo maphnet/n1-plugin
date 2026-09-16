@@ -2,7 +2,12 @@
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
-**Spawn product-analyst.** Pass ticket mode with tracker params and error fields only when configured; file mode with filePath; text mode with content; or error-tracker mode with issue ID/URL and provisional `sentry-<issueId>`. Always pass ticketMdPath, enrichmentEnabled, and Jira cloudId.
+**Spawn product-analyst.** Detect mode and pass all fetch params:
+- **Ticket** (`<prefix>-<number>`): detect error-tracker via `observability.providers[*].urlPattern` → `ET_CONFIGURED`; params: `mode=ticket ticketId trackerMcp operations trackerType ticketMdPath`; add error fields only if `ET_CONFIGURED`.
+- **File**: `mode=file filePath ticketMdPath`.
+- **Brain dump**: `mode=text content ticketMdPath`.
+- **Error tracker**: `mode=error-tracker issueId issueUrl` + error fields; provisional `<ID>=sentry-<issueId>`.
+- Always pass: `enrichmentEnabled cloudId` (Jira only).
 
 ```bash
 INTAKE_RESULT=$(echo "$AGENT_OUTPUT" | grep -m1 '^intake-result: ' | sed 's/^intake-result: //')
@@ -26,7 +31,11 @@ case "$ISSUE_TYPE" in story|epic) IS_STORY=true ;; esac
 [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md" && IS_STORY=true
 ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"]*\)".*/\1/p')
 ```
-Story: interactive handoff to `n1:n1-story-run <ID>` and stop; headless uses its guard. Non-investigation uses workspace isolation. Do not create memory/branch before final ID; analyst writes ticket.md to ticketMdPath. For eligible tracker creation, auto creates+ledgers or asks; on yes create, finalize ID, reconcile memory/branch, assign, and record URL.
+`IS_STORY=true`+`N1_HEADLESS!=1`: handoff → `n1:n1-story-run <ID>`, STOP. `IS_STORY=true`+`N1_HEADLESS=1`: `procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree** or **Ensure Working Branch**.
+
+**ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
+
+**Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): `MP=$(n1_autonomy_val 'mechanicalPrompts')`. Skip if `INVESTIGATE_FLAG=true`+braindump. `MP=auto`: create+ledger. `MP=ask`: "Create ticket? 1—Yes 2—No". Yes: `createIssue`, final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
@@ -44,7 +53,7 @@ n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type_matched_by" "$TYPE_
 [ -n "$ORIGINAL_STATUS" ] && [ "$ORIGINAL_STATUS" != "Not specified" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status" "$ORIGINAL_STATUS"
 n1_write_context
 ```
-Missing output: fallback/log. Capture URL/tier, rename, create overview; investigation uses its variant.
+Missing/empty: compact fallback, log. Capture ticket URL. Extract `tier:` default `standard`. Run `/rename $SESSION_NAME`. **Create overview.md**: frontmatter `ticket tier step *_fix_cycle`, heading, `## Context` (pending), `## Progress`, `## Key Decisions`, `## Escalations`. `INVESTIGATION_DETECTED=true`: investigation progress variant.
 
 ```bash
 TIER=$(json_val '.testCoverage.tier' "${N1_HOME}/config.json"); EST=$(json_val '.estimation.enabled' "${N1_HOME}/config.json")

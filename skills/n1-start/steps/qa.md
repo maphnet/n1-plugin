@@ -11,7 +11,7 @@ n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summar
 n1_verify_dependencies "$N1_HOME/memory/$ID" qa.md
 ```
 
-Run **Ensure Dependencies(`<ID>`)** before spawning. > **ORCHESTRATOR GUARDRAIL (qa): do not run tests, coverage, or lint commands in this step.**
+Run **Ensure Dependencies(`<ID>`)** before spawning. > **ORCHESTRATOR GUARDRAIL (qa): do not run tests.**
 
 Run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_source=diff_surface` from `implementation.md`.
 

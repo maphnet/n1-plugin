@@ -1,11 +1,9 @@
 
-> Continue to FINALIZE MEMORY; do not summarize or yield.
+> **After this step completes, IMMEDIATELY continue to the next pipeline step (FINALIZE MEMORY) — do NOT write a summary message or yield to the user.**
 
 Do not read full reports — n1-pr extracts what it needs via `grep`; tech-writer reads files directly.
 
-> **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** route follow-ups to designated skills or agents.
-
-Resolve prMode: git.prMode, else draftPR false→ready, else draft.
+Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"ready"`; else → `"draft"`.
 
 **REQUIRED SUB-SKILL:** `n1:n1-pr`. Pass: `docUpdateMode: "autonomous"`.
 
