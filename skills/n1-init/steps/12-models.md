@@ -12,13 +12,25 @@ N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c '
 def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$N1_ROOT/agents/<name>.md")
 ```
 
-**On Codex (`HOST` = `codex`):** frontmatter models (opus/sonnet/haiku) do not apply. Show the table of personas with the current value of `n1_model_for <persona>` (config `models.<persona>.codex`, else `DEF_MODEL`) and `n1_reasoning_effort_for <persona>`, then ask:
+**On Codex (`HOST` = `codex`):** resolve every displayed persona through the combined runtime contract, rather than a flat CLI default:
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+n1_resolve_agent <persona> <step-context>
+```
+
+Its tab-separated result is the model and reasoning effort to display. With no explicit override, frontmatter roles map through the shared tier policy: Opus roles resolve to `gpt-5.6-sol`, Sonnet roles resolve to `gpt-5.6-terra`, and Haiku roles resolve to `gpt-5.6-luna`. The resulting effort has a medium effort floor. This is a resolved policy, not a claim that frontmatter model names are passed unchanged to Codex.
+
+For the customization prompt, show each persona's resolved model/effort pair for its ordinary step context, then ask:
 
 ```
-Persona models for Codex (default: <DEF_MODEL> / <DEF_EFFORT>):
+Persona models for Codex (resolved defaults shown per persona):
   1 — Keep defaults for all personas
-  2 — Override some (enter `persona=model[/effort]`, e.g. code-reviewer=gpt-5.6/high)
+  2 — Override some (enter `persona=model[/effort]`, e.g. code-reviewer=gpt-5.6-sol/high)
 ```
+
+An explicit `low` effort is accepted as input only so N1 can surface the policy conflict: it warns and resolves to `medium`; never promise that it will run at low. An explicit `gpt-6-astra` override is opt-in but dormant unless a runtime workflow supplies one of the canonical authorized contexts; configuration alone never selects Astra.
 
 Store overrides as host-keyed objects, preserving any Claude value:
 

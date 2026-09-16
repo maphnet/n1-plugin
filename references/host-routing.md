@@ -8,7 +8,7 @@ changes syntax; skills never name host tools directly (enforced by
 
 | Skill text says | Claude Code | Codex |
 |---|---|---|
-| dispatch persona `<name>` with `<prompt>` (model `<m>`) | `Agent` tool, `subagent_type: "n1:<name>"`, `prompt`, `model: <m>` | `spawn_agent` with `agent_type: "n1-<name>"`, `fork_turns: "none"`, `task_name`, `message: <prompt>`, `model: <m>`, `reasoning_effort` from N1 model resolution |
+| dispatch persona `<name>` with `<prompt>` | resolve with `n1_resolve_agent <name> <step-context> [astra-context]`, then use its tab-separated `model<TAB>effort` result with `Agent`, `subagent_type: "n1:<name>"`, `prompt`, `model: <m>` | resolve with `n1_resolve_agent <name> <step-context> [astra-context]`, then use its tab-separated `model<TAB>effort` result with `spawn_agent`, `agent_type: "n1-<name>"`, `fork_turns: "none"`, `task_name`, `message: <prompt>`, `model: <m>`, `reasoning_effort: <effort>` |
 | dispatch a general-purpose subagent | `Agent` tool, `subagent_type: "general-purpose"` | `spawn_agent` without `agent_type`, `fork_turns: "none"` |
 | wait for it | the tool call returns the result inline | `wait_agent` (bounded `timeout_ms`, 5-10 minutes); the final answer arrives in the mailbox |
 | fix loop: next cycle for the same agent | dispatch a fresh persona | keep the agent open; `send_input` with the new findings; `close_agent` only if the session offers it |
@@ -33,9 +33,32 @@ N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c '
 On Claude Code the token is substituted before the model sees it. On Codex the literal
 survives, the variable is empty in the shell, and `host.json` supplies the root.
 
-## Model names
+## Model routing
 
 `models.<persona>` in `$N1_HOME/config.json` is a string (legacy, Claude only) or an object
-keyed by host: `{"claude-code": "opus", "codex": "gpt-5.6"}`; the `codex` value may be
-`{"model": "...", "reasoning_effort": "..."}`. Resolution: `n1_model_for <persona>`,
-`n1_reasoning_effort_for <persona>` in `lib/config.sh`.
+keyed by host: `{"claude-code": "opus", "codex": "gpt-5.6-terra"}`; the `codex` value may be
+`{"model": "...", "reasoning_effort": "..."}`. Dispatchers call
+`n1_resolve_agent <persona> [step_context] [astra_context]` in `lib/config.sh` and split its
+tab-separated `model<TAB>effort` return. `n1_resolve_model` remains a model-only compatibility
+helper; it is not the dispatch interface.
+
+For models, precedence is exactly **override > escalation > downgrade > task type > baseline**.
+Known frontmatter roles use the shared host translation: Claude retains `opus`, `sonnet`, and
+`haiku`; Codex maps them to `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` respectively.
+Known roles never use Codex's CLI default; an unknown persona falls back to that default (or the
+legacy host fallback when it is absent).
+
+On Codex, effort precedence is **explicit persona/host effort > global Codex default > persona
+frontmatter > `medium`**. The final policy floor is `medium`: `low` is accepted only to warn and
+clamp to `medium`, and an unsupported value likewise warns and resolves to `medium`.
+
+`gpt-6-astra` is an opt-in explicit override, never an automatic tier result. It is retained only
+when the caller has verified one of these exact contexts: `final-whole-branch-review`,
+`architecture-adjudication`, or `failed-fix-escalation` (the last requires `review_fix_cycle >=
+2`). Missing, malformed, or ineligible context warns and continues through ordinary tier
+resolution.
+
+Generated Codex profiles are context-free generated profiles: for the same persona and
+configuration, they have exact baseline model/effort parity with context-free runtime resolution.
+Runtime may differ only when a declared escalation, downgrade, task-type override, or eligible
+explicit Astra override applies.

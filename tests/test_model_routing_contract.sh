@@ -32,6 +32,28 @@ has "implementation uses the combined resolver" "n1_resolve_agent developer impl
 has "review uses the combined resolver" "n1_resolve_agent code-reviewer review" skills/n1-start/steps/review.md
 has "n1-start documents combined dispatch resolution" "n1_resolve_agent <agent-name> [context] [astra-context]" skills/n1-start/SKILL.md
 
+# Documentation is part of the executable routing contract: users and maintainers must
+# see the same tier, effort, exception, and parity boundaries the resolver enforces.
+has "init documents the Opus-to-Sol baseline" 'Opus roles resolve to `gpt-5.6-sol`' skills/n1-init/steps/12-models.md
+has "init documents the Sonnet-to-Terra baseline" 'Sonnet roles resolve to `gpt-5.6-terra`' skills/n1-init/steps/12-models.md
+has "init documents the Haiku-to-Luna baseline" 'Haiku roles resolve to `gpt-5.6-luna`' skills/n1-init/steps/12-models.md
+has "init documents the Codex medium effort floor" "medium effort floor" skills/n1-init/steps/12-models.md
+has "init documents explicit low clamping with a warning" 'warns and resolves to `medium`' skills/n1-init/steps/12-models.md
+has "host routing documents exact model precedence" "override > escalation > downgrade > task type > baseline" references/host-routing.md
+has "host routing documents effort precedence" "explicit persona/host effort > global Codex default" references/host-routing.md
+has "host routing documents effort fallback and floor" "frontmatter >" references/host-routing.md
+has "host routing names final review Astra context" "final-whole-branch-review" references/host-routing.md
+has "host routing names architecture Astra context" "architecture-adjudication" references/host-routing.md
+has "host routing names failed-fix Astra context" "failed-fix-escalation" references/host-routing.md
+has "host routing says Astra is opt-in" "opt-in" references/host-routing.md
+has "host routing distinguishes baseline profile parity" "context-free generated profiles" references/host-routing.md
+has "architecture defines exact baseline parity" "exact same model and effort" references/architecture.md
+has "architecture lists contextual differences" "eligible explicit Astra override" references/architecture.md
+has "architecture names the NP-132 boundary" "NP-132" references/architecture.md
+has "architecture excludes empirical validation from this policy" "empirical validation" references/architecture.md
+has "README frames the mapping as workload policy" "N1 workload policy" README.md
+has "README rejects cross-vendor quality equivalence" "do not demonstrate cross-vendor quality equivalence" README.md
+
 workflow_files=(hooks/session-start.sh skills/n1-review/steps/01-analyze.md skills/n1-start/steps/fix.md skills/n1-start/steps/brainstorm.md skills/n1-start/steps/plan-review.md skills/n1-start/steps/implementation.md skills/n1-start/steps/review.md skills/n1-start/SKILL.md)
 if rg -n --fixed-strings "gpt-6-astra" "${workflow_files[@]}"; then
     fail "workflow files do not hard-code the Astra model"
