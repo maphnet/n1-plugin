@@ -49,12 +49,15 @@ ASSIGN_TO_CREATOR=$(n1_config_val '.tracker.assignToCreator')
 
 ## Step 4: Light Analysis
 
-Spawn the `solution-architect` agent with **low effort** for a quick codebase pass focused on the ticket scope.
+Spawn the `solution-architect` agent for a quick codebase pass focused on the ticket scope.
 
 Resolve model:
 ```bash
-MODEL=$(n1_resolve_model 'solution-architect' 'light')
+IFS=$'\t' read -r MODEL EFFORT < <(n1_resolve_agent 'solution-architect' 'light')
 ```
+
+Pass both `MODEL` and `EFFORT` to the spawn. The Codex effort policy may clamp the resolved
+effort to its medium floor.
 
 Spawn with these instructions:
 - Scope: the ticket title and description from Step 1

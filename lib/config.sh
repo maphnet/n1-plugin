@@ -151,6 +151,61 @@ n1_codex_default() {
     ' "$f"
 }
 
+_n1_agent_frontmatter() {
+    # Usage: _n1_agent_frontmatter <persona> <model|effort>
+    local persona="$1" key="$2" agent_file
+    agent_file="$(n1_plugin_root)/agents/${persona}.md"
+    [ -f "$agent_file" ] || return 0
+    awk -v key="$key" 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && $0 ~ "^" key ":[[:space:]]*" { sub("^" key ":[[:space:]]*", ""); gsub(/\r/, ""); print; exit }' "$agent_file"
+}
+
+n1_translate_model() {
+    # Usage: n1_translate_model <host> <neutral opus|sonnet|haiku role>
+    local host="$1" role="$2" pipeline_file value=""
+    pipeline_file="$(n1_plugin_root)/pipeline.json"
+    if [ -f "$pipeline_file" ] && command -v jq >/dev/null 2>&1; then
+        value=$(jq -r --arg h "$host" --arg r "$role" '.model_policy.host_mappings[$h][$r] // empty' "$pipeline_file" 2>/dev/null || true)
+    fi
+    [ -n "$value" ] && { printf '%s' "$value"; return; }
+    case "$host:$role" in
+        claude-code:opus|claude-code:sonnet|claude-code:haiku) printf '%s' "$role" ;;
+        codex:opus) printf 'gpt-5.6-sol' ;;
+        codex:sonnet) printf 'gpt-5.6-terra' ;;
+        codex:haiku) printf 'gpt-5.6-luna' ;;
+        *) printf '%s' "$role" ;;
+    esac
+}
+
+_n1_known_role() {
+    local role
+    role=$(_n1_agent_frontmatter "$1" model)
+    case "$role" in opus|sonnet|haiku) printf '%s' "$role";; esac
+}
+
+_n1_astra_eligible() {
+    local context="${1:-}" minimum="2" pipeline_file overview cycle
+    case "$context" in
+        final-whole-branch-review|architecture-adjudication) return 0 ;;
+        failed-fix-escalation) ;;
+        *) return 1 ;;
+    esac
+    pipeline_file="$(n1_plugin_root)/pipeline.json"
+    if [ -f "$pipeline_file" ] && command -v jq >/dev/null 2>&1; then
+        minimum=$(jq -r '.model_policy.exceptional_models["gpt-6-astra"].eligible_contexts["failed-fix-escalation"].minimum // 2' "$pipeline_file" 2>/dev/null || printf 2)
+    fi
+    overview="${N1_HOME:-}/memory/${ID:-}/overview.md"
+    [ -f "$overview" ] || return 1
+    type n1_read_frontmatter >/dev/null 2>&1 || source "$(n1_plugin_root)/lib/frontmatter.sh" 2>/dev/null || true
+    cycle=$(n1_read_frontmatter "$overview" review_fix_cycle 2>/dev/null || true)
+    [[ "$cycle" =~ ^[0-9]+$ ]] && [[ "$minimum" =~ ^[0-9]+$ ]] && [ "$cycle" -ge "$minimum" ]
+}
+
+_n1_warn_ineligible_astra() {
+    local persona="$1" context="${2:-none}"
+    [ -n "$context" ] || context=none
+    printf "N1: ineligible gpt-6-astra override for %s in context '%s'; using normal tier policy.\n" "$persona" "$context" >&2
+}
+
 _n1_model_override() {
     # Usage: _n1_model_override <persona> — models.<persona> from config for the current host, or empty.
     # String = legacy Claude-only value; object = {"claude-code": m, "codex": m | {"model": m, "reasoning_effort": e}}.
@@ -170,14 +225,28 @@ _n1_model_override() {
 
 n1_model_for() {
     # Usage: n1_model_for <persona> — the model to spawn this persona with on the current host.
-    local persona="$1" v
+    local persona="$1" v role
+    role=$(_n1_known_role "$persona")
+    if [ -n "$role" ]; then n1_resolve_model "$persona"; return; fi
     v=$(_n1_model_override "$persona")
     if [ -n "$v" ]; then printf '%s' "$v"; return; fi
     if [ "$(n1_host)" = "codex" ]; then n1_codex_default default_subagent_model; return; fi
-    local agent_file base=""
-    agent_file="$(n1_plugin_root)/agents/${persona}.md"
-    [ -f "$agent_file" ] && base=$(awk 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && /^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/\r/, ""); printf "%s", $0; exit }' "$agent_file")
-    printf '%s' "${base:-sonnet}"
+    printf 'sonnet'
+}
+
+_n1_clamp_codex_effort() {
+    local persona="$1" requested="${2:-}" order="low medium high xhigh max ultra" minimum="medium" pipeline_file
+    pipeline_file="$(n1_plugin_root)/pipeline.json"
+    if [ -f "$pipeline_file" ] && command -v jq >/dev/null 2>&1; then
+        order=$(jq -r '.model_policy.codex_effort.order // ["low","medium","high","xhigh","max","ultra"] | join(" ")' "$pipeline_file" 2>/dev/null || printf '%s' "$order")
+        minimum=$(jq -r '.model_policy.codex_effort.minimum // "medium"' "$pipeline_file" 2>/dev/null || printf '%s' "$minimum")
+    fi
+    [ -n "$requested" ] || { printf '%s' "$minimum"; return; }
+    if [ "$requested" = "low" ]; then
+        printf "N1: Codex effort 'low' for %s is below policy floor '%s'; using %s.\n" "$persona" "$minimum" "$minimum" >&2
+        printf '%s' "$minimum"; return
+    fi
+    case " $order " in *" $requested "*) printf '%s' "$requested";; *) printf "N1: unsupported Codex effort '%s' for %s; using %s.\n" "$requested" "$persona" "$minimum" >&2; printf '%s' "$minimum";; esac
 }
 
 n1_reasoning_effort_for() {
@@ -188,13 +257,15 @@ n1_reasoning_effort_for() {
     if [ -f "$config_file" ] && command -v jq >/dev/null 2>&1; then
         v=$(jq -r --arg p "$persona" '.models[$p].codex.reasoning_effort? // empty' "$config_file" 2>/dev/null || true)
     fi
-    [ -n "$v" ] && { printf '%s' "$v"; return; }
-    n1_codex_default default_subagent_reasoning_effort
+    [ -n "$v" ] || v=$(n1_codex_default default_subagent_reasoning_effort)
+    [ -n "$v" ] || v=$(_n1_agent_frontmatter "$persona" effort)
+    _n1_clamp_codex_effort "$persona" "$v"
 }
 
 n1_resolve_model() {
     local agent_name="$1"
     local context="${2:-}"
+    local astra_context="${3:-}"
     local override=""
     local config_file
     config_file=$(n1_config_file)
@@ -202,22 +273,19 @@ n1_resolve_model() {
     # 1. Config override (always wins); host-keyed objects resolve to the current host's value
     override=$(_n1_model_override "$agent_name")
     if [ -n "$override" ]; then
-        printf '%s' "$override"
-        return
-    fi
-    # Codex has no opus/sonnet/haiku tier vocabulary: no signal-driven tiering there.
-    if [ "$(n1_host)" = "codex" ]; then
-        n1_model_for "$agent_name"
-        return
+        if [ "$(n1_host)" != "codex" ] || [ "$override" != "gpt-6-astra" ]; then printf '%s' "$override"; return; fi
+        if _n1_astra_eligible "$astra_context"; then printf '%s' "$override"; return; fi
+        _n1_warn_ineligible_astra "$agent_name" "$astra_context"
     fi
 
     # Get base model from agent frontmatter
-    local base_model=""
-    local agent_file="$(n1_plugin_root)/agents/${agent_name}.md"
-    if [ -f "$agent_file" ]; then
-        base_model=$(awk 'NR==1 && /^---$/ { in_fm=1; next } in_fm && /^---$/ { exit } in_fm && /^model:/ { sub(/^model:[[:space:]]*/, ""); gsub(/\r/, ""); printf "%s", $0; exit }' "$agent_file")
+    local base_model host
+    host=$(n1_host)
+    base_model=$(_n1_known_role "$agent_name")
+    if [ -z "$base_model" ]; then
+        if [ "$host" = "codex" ]; then n1_codex_default default_subagent_model; else printf 'sonnet'; fi
+        return
     fi
-    base_model="${base_model:-sonnet}"
 
     # 2. Signal-driven escalation/downgrade (condition-gated)
     local pipeline_file="$(n1_plugin_root)/pipeline.json"
@@ -236,7 +304,7 @@ n1_resolve_model() {
             trigger_cond=$(jq -c ".${section}[\"${trigger_key}\"].condition // empty" "$pipeline_file" 2>/dev/null || true)
             if [ -z "$trigger_cond" ] || [ "$trigger_cond" = '""' ]; then
                 # No condition — apply unconditionally
-                n1_resolve_tier "$trigger_tier" "$base_model"
+                n1_translate_model "$host" "$(n1_resolve_tier "$trigger_tier" "$base_model")"
                 return
             fi
 
@@ -246,7 +314,7 @@ n1_resolve_model() {
                 local dec_id="${section%_triggers}:${trigger_key}"   # e.g. escalation:developer:implementation
                 if n1_eval_signal_gate "$mem_dir" "$overview_file" "$trigger_cond"; then
                     n1_record_decision "$dec_id" true "$trigger_cond" "tier=${trigger_tier}" 2>/dev/null || true
-                    n1_resolve_tier "$trigger_tier" "$base_model"
+                    n1_translate_model "$host" "$(n1_resolve_tier "$trigger_tier" "$base_model")"
                     return
                 else
                     n1_record_decision "$dec_id" false "$trigger_cond" "tier=${trigger_tier}" 2>/dev/null || true
@@ -270,7 +338,7 @@ n1_resolve_model() {
                     profile_tier=$(jq -r ".types[\"${wf_type}\"].step_overrides[\"${step_name}\"].model_tier // empty" "$pipeline_file" 2>/dev/null || true)
                 fi
                 if [ -n "$profile_tier" ]; then
-                    n1_resolve_tier "$profile_tier" "$base_model"
+                    n1_translate_model "$host" "$(n1_resolve_tier "$profile_tier" "$base_model")"
                     return
                 fi
             fi
@@ -278,7 +346,15 @@ n1_resolve_model() {
     fi
 
     # 4. Agent frontmatter default
-    printf '%s' "$base_model"
+    n1_translate_model "$host" "$base_model"
+}
+
+n1_resolve_agent() {
+    local persona="$1" step_context="${2:-}" astra_context="${3:-}"
+    local model effort
+    model=$(n1_resolve_model "$persona" "$step_context" "$astra_context")
+    effort=$(n1_reasoning_effort_for "$persona")
+    printf '%s\t%s\n' "$model" "$effort"
 }
 
 

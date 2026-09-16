@@ -1,5 +1,34 @@
 {
   "version": 2,
+  "model_policy": {
+    "role_order": ["haiku", "sonnet", "opus"],
+    "host_mappings": {
+      "claude-code": {
+        "opus": "opus",
+        "sonnet": "sonnet",
+        "haiku": "haiku"
+      },
+      "codex": {
+        "opus": "gpt-5.6-sol",
+        "sonnet": "gpt-5.6-terra",
+        "haiku": "gpt-5.6-luna"
+      }
+    },
+    "codex_effort": {
+      "order": ["low", "medium", "high", "xhigh", "max", "ultra"],
+      "minimum": "medium"
+    },
+    "exceptional_models": {
+      "gpt-6-astra": {
+        "opt_in": true,
+        "eligible_contexts": {
+          "final-whole-branch-review": {"caller_must_verify": "implementation-verification-passed"},
+          "architecture-adjudication": {"caller_must_verify": "competing-cross-cutting-designs"},
+          "failed-fix-escalation": {"frontmatter_counter": "review_fix_cycle", "minimum": 2}
+        }
+      }
+    }
+  },
   "downgrade_triggers": {
     "solution-architect:analysis": {
       "condition": { "any": [

@@ -58,12 +58,14 @@ If `MP` is `ask`: warn the user and wait for confirmation: "Subtask linking requ
 
 ## Step 4: Analysis
 
-Spawn the `solution-architect` agent with **standard effort** for a deeper codebase analysis.
+Spawn the `solution-architect` agent for a deeper codebase analysis.
 
 Resolve model:
 ```bash
-MODEL=$(n1_resolve_model 'solution-architect' 'standard')
+IFS=$'\t' read -r MODEL EFFORT < <(n1_resolve_agent 'solution-architect' 'standard')
 ```
+
+Pass both `MODEL` and `EFFORT` to the spawn.
 
 Spawn with these instructions:
 - Scope: the story goal, requirements, and rough breakdown from Step 1

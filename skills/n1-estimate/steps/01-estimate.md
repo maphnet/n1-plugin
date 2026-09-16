@@ -24,15 +24,16 @@ Returns `ticket`, `file`, or `braindump`. If the helper returns `error-tracker`,
 
 ## Model Resolution
 
-When spawning any agent, resolve its model via Bash:
+When spawning any agent, resolve its model and reasoning effort together via Bash:
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/config.sh"
-n1_resolve_model <agent-name>
+n1_resolve_agent <agent-name> [step-context]
 ```
 
-Returns the config override if set, otherwise the agent's frontmatter default.
+Split the tab-separated result and pass both values to the host spawn. This estimation
+workflow does not supply an Astra context.
 
 ## Memory
 

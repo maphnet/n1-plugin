@@ -2,8 +2,16 @@
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"
-n1_step_begin "fix" 10; DEVELOPER_MODEL=$(n1_resolve_model developer fix); QE=$(n1_autonomy_val 'qualityEscalations')
+source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/frontmatter.sh"
+n1_step_begin "fix" 10
+REVIEW_FIX_CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
+[[ "$REVIEW_FIX_CYCLE" =~ ^[0-9]+$ ]] || REVIEW_FIX_CYCLE=0
+FIX_ASTRA_CONTEXT=""
+# failed-fix-escalation is legal only when review_fix_cycle >= 2; the counter is
+# incremented after each completed failed-review repair, so this is attempt three.
+if [ "$REVIEW_FIX_CYCLE" -ge 2 ]; then FIX_ASTRA_CONTEXT=failed-fix-escalation; fi
+IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer fix "$FIX_ASTRA_CONTEXT")
+QE=$(n1_autonomy_val 'qualityEscalations')
 ```
 
 ```bash
@@ -15,7 +23,7 @@ echo "$PRE_FIX_SHA" > "$N1_HOME/memory/$ID/pre-fix-sha"
 
 Run **Ensure Dependencies(`<ID>`)** before spawning.
 
-**FAIL:** spawn developer `$DEVELOPER_MODEL`; pass Critical+High findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
+**FAIL:** spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
 
 **Security findings** (`[SEC-N]` or security CVE title): append "Fix the entire CLASS — search all variants and fix in one pass."
 

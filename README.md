@@ -216,6 +216,28 @@ N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation
 
 Defaults come from agent frontmatter; `models.*` in config is an explicit override that also disables signal-based tier adjustments for that agent.
 
+#### Codex tier policy
+
+The table above remains the Claude role baseline. On Codex, N1 translates those roles through a
+workload policy and resolves every effort at `medium` or above:
+
+| Claude role baseline | Codex default | Effort |
+|---|---|---|
+| Opus-role | `gpt-5.6-sol` | `medium+` |
+| Sonnet-role | `gpt-5.6-terra` | `medium+` |
+| Haiku/minimal | `gpt-5.6-luna` | `medium+` |
+
+An explicit non-Astra Codex override wins over routing rules. `low` effort is accepted so N1 can
+warn about the conflict, then clamps to `medium`. `gpt-6-astra` is opt-in and never selected by a
+tier rule: a configured override is used only for the verified runtime contexts
+`final-whole-branch-review`, `architecture-adjudication`, or `failed-fix-escalation` (after two
+persisted failed fix cycles).
+
+The [OpenAI Codex model positioning](https://developers.openai.com/codex/models/) and
+[pricing](https://developers.openai.com/codex/pricing/) pages support differentiated workload and
+cost routing. Opus/Sonnet/Haiku to Sol/Terra/Luna is nevertheless an N1 workload policy; those
+sources do not demonstrate cross-vendor quality equivalence.
+
 ### Per-Ticket Memory
 
 Per-ticket memory lives in `~/.n1/<project>/memory/<ticket-id>/` (externalized, never inside the project tree) with semantic-named files and an explicit dependency map:

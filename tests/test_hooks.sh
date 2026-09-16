@@ -23,7 +23,7 @@ assert_eq "second call silent" "" "$OUT2"
 # session-start throttle: last_checked untouched when gh fails
 mkdir -p "$T/ghbin"; printf '#!/usr/bin/env bash\nexit 1\n' > "$T/ghbin/gh"; chmod +x "$T/ghbin/gh"
 MEM2="$N1_HOME/memory/T-10"; mkdir -p "$MEM2"
-printf -- '---\nstep: pr\nawaiting: merge\npr: 42\ncreated: 2026-09-01T00:00:00Z\nlast_checked: 2026-01-01T00:00:00Z\n---\n' > "$MEM2/overview.md"
+printf -- '---\nstep: pr\nawaiting: merge\npr: 42\ncreated: 2099-01-01T00:00:00Z\nlast_checked: 2026-01-01T00:00:00Z\n---\n' > "$MEM2/overview.md"
 echo '{"source":"startup"}' | PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "last_checked unchanged on gh failure" "last_checked: 2026-01-01T00:00:00Z" "$(grep '^last_checked:' "$MEM2/overview.md")"
 printf '#!/usr/bin/env bash\necho MERGED\n' > "$T/ghbin/gh"
@@ -33,14 +33,14 @@ echo '{"source":"startup"}' | PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/sessi
 # --- enforce-agent-policy (both hosts) -------------------------------------
 FX="$REPO_ROOT/tests/fixtures/hooks"
 cat > "$N1_HOME/config.json" <<'EOF'
-{"models":{"developer":{"claude-code":"opus","codex":"gpt-5.6"}}}
+{"models":{"developer":{"claude-code":"opus","codex":"gpt-6-astra"}}}
 EOF
 POLICY="$REPO_ROOT/hooks/enforce-agent-policy.sh"
 OUT=$(N1_HOST=claude-code bash "$POLICY" < "$FX/claude/pretooluse-spawn.json")
 assert_eq "claude spawn override model" "opus" "$(echo "$OUT" | jq -r .hookSpecificOutput.updatedInput.model)"
 OUT=$(N1_HOST=codex bash "$POLICY" < "$FX/codex/pretooluse-spawn.json")
-assert_eq "codex spawn override model" "gpt-5.6" "$(echo "$OUT" | jq -r .hookSpecificOutput.updatedInput.model)"
-assert_eq "codex spawn override keeps task_name" "fix-1" "$(echo "$OUT" | jq -r .hookSpecificOutput.updatedInput.task_name)"
+assert_eq "codex resolver-selected model passes through Astra config" "" "$OUT"
+case "$OUT" in *gpt-6-astra*) assert_eq "codex hook never injects Astra" absent "$OUT";; *) assert_eq "codex hook never injects Astra" absent absent;; esac
 set +e
 N1_HOST=claude-code bash "$POLICY" < "$FX/claude/pretooluse-persona-denied.json" 2>"$T/err"; RC=$?
 set -e
@@ -82,7 +82,7 @@ OUT=$(echo "$PAYLOAD" | N1_HOST=codex CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CODEX_HOME
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
 case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent"*'agent_type "n1-<name>"'*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
-assert_eq "codex persona TOMLs generated in cwd" "11" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
+assert_eq "codex persona TOMLs generated in cwd" "10" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'
 {"ticketId":"T-30","runId":"n1-run-c","worktreePath":null,"branch":"T-30"}

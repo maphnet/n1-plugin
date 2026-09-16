@@ -13,7 +13,7 @@ Run `n1_config_val '.planReview.reviewPlan'` (default: `true`).
 
 **Spawn agent:** solution-architect (fresh context — CCR)
 
-Resolve model for `solution-architect` using **Sonnet as the fallback default for this plan-review pass** — this pass is grep-heavy assumption/standards checking, not open-ended reasoning. The `models.solution-architect` config override still takes precedence; only the default changes here (the Step-2 analysis pass keeps its Opus default). Resolve via `n1_resolve_model solution-architect sonnet`. Spawn with:
+Resolve the context-free `solution-architect` baseline through `n1_resolve_agent solution-architect plan-review`, split its tab-separated model/effort pair, and pass both values to the spawn. This yields the declared role mapping on Codex and preserves the Claude baseline unless an actual declared rule or legal override changes it. Do not pass an Astra context for ordinary plan review. Spawn with:
 - The paths to its inputs — instruct the reviewer: "Read these files yourself before reviewing: `$N1_HOME/memory/<ID>/ticket.md`, `$N1_HOME/memory/<ID>/analysis.md`, `$N1_HOME/memory/<ID>/brainstorm.md`, and `$N1_HOME/memory/<ID>/plan.md` (the plan under review — you will fix issues in this file in-place). Their content is NOT inlined here."
 - Codebase access (Read, Grep, Glob)
 - Review-oriented instructions (NOT generative — this is a review, not a second plan):

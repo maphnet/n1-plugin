@@ -7,9 +7,10 @@ Line 1 of every file is `# n1-fingerprint: <hash>` over (plugin version, plugin 
 persona file bytes, resolved model, resolved reasoning effort); an unchanged fingerprint
 means the file is left untouched, so repeated session starts are no-ops.
 
-Model policy mirrors lib/config.sh n1_model_for on the codex host:
+Model policy mirrors the context-free lib/config.sh n1_resolve_agent baseline:
   config.json models.<persona>.codex  -> "model" | {"model": ..., "reasoning_effort": ...}
-  else ~/.codex/config.toml [agents] default_subagent_model / default_subagent_reasoning_effort.
+  known frontmatter roles -> pipeline.json model_policy.host_mappings.codex
+  unknown roles -> ~/.codex/config.toml [agents] default_subagent_model.
 
 Usage: agent_profiles.py --plugin-root DIR --out DIR [--config FILE] [--codex-config FILE] [--version V]
 Prints: written=<n> unchanged=<n>
@@ -25,6 +26,13 @@ from pathlib import Path
 
 # Any of these in a persona's tools list means it may modify the workspace.
 WRITE_TOOLS = {"Edit", "Write", "Bash", "NotebookEdit", "MultiEdit"}
+FALLBACK_CODEX_MAPPINGS = {
+    "opus": "gpt-5.6-sol",
+    "sonnet": "gpt-5.6-terra",
+    "haiku": "gpt-5.6-luna",
+}
+FALLBACK_EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max", "ultra")
+FALLBACK_EFFORT_MINIMUM = "medium"
 
 
 def parse_frontmatter(text: str) -> dict:
@@ -72,17 +80,63 @@ def codex_defaults(codex_config: str) -> dict:
     return out
 
 
-def resolve_model(config: dict, persona: str, defaults: dict):
+def load_model_policy(plugin_root: str) -> dict:
+    """Load the shared policy, or allow callers to use the safe built-in fallback."""
+    try:
+        document = json.loads(Path(plugin_root, "pipeline.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    policy = document.get("model_policy") if isinstance(document, dict) else None
+    return policy if isinstance(policy, dict) else {}
+
+
+def _codex_mapping(policy: dict, role: str) -> str | None:
+    mappings = policy.get("host_mappings") if isinstance(policy, dict) else None
+    codex = mappings.get("codex") if isinstance(mappings, dict) else None
+    model = codex.get(role) if isinstance(codex, dict) else None
+    return model if isinstance(model, str) and model else FALLBACK_CODEX_MAPPINGS.get(role)
+
+
+def _effort_policy(policy: dict) -> tuple[tuple[str, ...], str]:
+    value = policy.get("codex_effort") if isinstance(policy, dict) else None
+    order = value.get("order") if isinstance(value, dict) else None
+    minimum = value.get("minimum") if isinstance(value, dict) else None
+    valid_order = tuple(item for item in order if isinstance(item, str) and item) if isinstance(order, list) else ()
+    return valid_order or FALLBACK_EFFORT_ORDER, minimum if isinstance(minimum, str) and minimum else FALLBACK_EFFORT_MINIMUM
+
+
+def _clamp_effort(persona: str, requested, policy: dict) -> str:
+    order, minimum = _effort_policy(policy)
+    if not isinstance(requested, str) or not requested:
+        return minimum
+    if requested == "low":
+        print(f"N1: Codex effort 'low' for {persona} is below policy floor '{minimum}'; using {minimum}.", file=sys.stderr)
+        return minimum
+    if requested not in order:
+        print(f"N1: unsupported Codex effort '{requested}' for {persona}; using {minimum}.", file=sys.stderr)
+        return minimum
+    return requested
+
+
+def resolve_profile(config: dict, persona: str, defaults: dict, frontmatter: dict, policy: dict) -> tuple[str | None, str]:
+    """Resolve the model/effort pair available without runtime-only context."""
     entry = ((config or {}).get("models") or {}).get(persona)
-    model = effort = None
+    override = effort = None
     if isinstance(entry, dict):
         codex = entry.get("codex")
         if isinstance(codex, str):
-            model = codex
+            override = codex
         elif isinstance(codex, dict):
-            model = codex.get("model")
+            override = codex.get("model")
             effort = codex.get("reasoning_effort")
-    return model or defaults.get("default_subagent_model"), effort or defaults.get("default_subagent_reasoning_effort")
+    role = frontmatter.get("model") if isinstance(frontmatter, dict) else None
+    mapped_model = _codex_mapping(policy, role) if isinstance(role, str) else None
+    if override == "gpt-6-astra":
+        print(f"N1: ineligible gpt-6-astra override for {persona} in context 'profile'; using normal tier policy.", file=sys.stderr)
+        override = None
+    model = override if isinstance(override, str) and override else mapped_model or defaults.get("default_subagent_model")
+    requested_effort = effort or defaults.get("default_subagent_reasoning_effort") or frontmatter.get("effort")
+    return model, _clamp_effort(persona, requested_effort, policy)
 
 
 def fingerprint(version: str, plugin_root: str, persona_bytes: bytes, model, effort) -> str:
@@ -132,6 +186,7 @@ def main(argv=None) -> int:
         except (OSError, ValueError):
             config = {}
     defaults = codex_defaults(a.codex_config)
+    policy = load_model_policy(a.plugin_root)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -142,7 +197,7 @@ def main(argv=None) -> int:
         fm = parse_frontmatter(data.decode("utf-8", "replace"))
         if not fm.get("name"):
             continue  # shared rubrics (research-standards.md) are not spawnable personas
-        model, effort = resolve_model(config, persona, defaults)
+        model, effort = resolve_profile(config, persona, defaults, fm, policy)
         fp = fingerprint(a.version, a.plugin_root, data, model, effort)
         target = out / f"n1-{persona}.toml"
         if target.is_file():

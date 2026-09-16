@@ -9,10 +9,10 @@ personas declare (CODEX_TOOL_CLASS); unmapped Codex tools (shell, update_plan, M
 and read-only personas rely on sandbox_mode = "read-only" in their generated TOML.
 Denial: exit 2, reason on stderr.
 
-Case 2 - spawn model override. tool_name is a spawn tool (Task/Agent on Claude,
-spawn_agent on Codex) targeting an N1 persona: rewrite `model` from config
-`models.<persona>` (string = Claude only; object keyed by host). Same contract as the
-former enforce-agent-model.py (dogfood finding I14).
+Case 2 - Claude spawn model override. For Claude spawn tools targeting an N1 persona,
+rewrite `model` from config `models.<persona>` (string = Claude only; object keyed by
+host). Codex model/effort pairs are authoritative from `n1_resolve_agent`; the hook
+never independently rewrites them, so it cannot reintroduce a rejected Astra override.
 
 Fail-open otherwise: exit 0, no output.
 
@@ -91,6 +91,11 @@ def restriction(payload: dict, plugin_root: str, host: str) -> int:
 
 
 def spawn_override(payload: dict, config: dict, host: str) -> int:
+    # Codex dispatch must preserve the model selected by n1_resolve_agent. In
+    # particular, a configured Astra override can be rejected by its contextual
+    # eligibility policy and must not be injected again here.
+    if host == "codex":
+        return 0
     if payload.get("tool_name") not in SPAWN_TOOLS:
         return 0
     tool_input = payload.get("tool_input") or {}

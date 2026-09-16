@@ -10,6 +10,7 @@ bounds. `docs/` is gitignored, so this schema lives beside the data file.
 | Field | Type | Description |
 |-------|------|-------------|
 | `version` | int | Schema version. |
+| `model_policy` | object | Host mappings, Codex effort floor, and exceptional-model eligibility used by model resolution. |
 | `downgrade_triggers` | object | Signal conditions that downgrade an agent's model tier (`<agent>:<step>` → `{condition, tier}`). |
 | `escalation_triggers` | object | Signal conditions that escalate an agent's model tier (`<agent>:<step>` → `{condition, tier}`). |
 | `types` | object | Pipeline type registry: per-type step sequence, detection rules, and optional `step_overrides`. |
@@ -18,6 +19,15 @@ bounds. `docs/` is gitignored, so this schema lives beside the data file.
 | `signal_routing` | array | Signal-driven routing rules that skip steps based on analysis signals (not config keys). |
 | `gates` | array | The config gates that skip a step. |
 | `loops` | array | The bounded fix loops. |
+
+## `model_policy`
+
+`model_policy` keeps model roles neutral until host translation. `host_mappings` maps the
+`opus`, `sonnet`, and `haiku` roles for each host; Codex resolves them to
+`gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`. `codex_effort` defines the accepted
+order and a `medium` minimum. `exceptional_models.gpt-6-astra` is opt-in only and declares
+the canonical contexts a caller must verify before an explicit Astra override is retained.
+Dispatchers use `n1_resolve_agent` to receive the final `model<TAB>effort` pair.
 
 ## `steps[]`
 
