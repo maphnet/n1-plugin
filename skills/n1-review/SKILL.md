@@ -30,15 +30,17 @@ All config reads use `$N1_HOME/config.json`. All memory paths use `$N1_HOME/memo
 
 ## Model Resolution
 
-When spawning any agent, resolve its model via Bash:
+When spawning any agent, resolve its model and reasoning effort together via Bash:
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/config.sh"
-n1_resolve_model <agent-name>
+n1_resolve_agent <agent-name> [step-context] [astra-context]
 ```
 
-Returns the config override if set, otherwise the agent's frontmatter default.
+Split the tab-separated result and pass both values to the host spawn. Omit the optional
+Astra context unless the calling workflow has verified a canonical eligible context.
+`n1_resolve_model` remains the model-only compatibility helper.
 
 ## Steps
 

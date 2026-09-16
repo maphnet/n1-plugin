@@ -29,8 +29,11 @@ If empty — N1 not configured; warn the user. Config: `$N1_HOME/config.json`. M
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/config.sh"
-n1_resolve_model <agent-name>
+n1_resolve_agent <agent-name> [step-context]
 ```
+
+Split the tab-separated model/effort result and pass both values to the host spawn. CI fix
+dispatches do not supply an Astra context; `n1_resolve_model` is compatibility-only.
 
 ## Steps
 

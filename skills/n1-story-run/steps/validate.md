@@ -32,7 +32,7 @@ fi
 Build `EDGES` (lines `A>B`, A before B):
 1. **Story description:** if `STORY_DESC` contains a numbered list where items include subtask keys, add edges between consecutive listed keys.
 2. **Tracker links:** for each subtask with `deps`, add `<dep>><key>`.
-3. **Gap fill:** if after 1-2 the graph leaves any pending subtask with neither predecessor nor successor AND there are >= 2 pending subtasks, spawn `solution-architect` (model `n1_resolve_model solution-architect standard`) with all subtask keys/titles/services/descriptions and ask only for: `DEPENDENCIES:` lines of the form `A>B: <reason>`, plus `FLAGS:` lines `KEY: <security|public-api|schema-migration|contract>` when a subtask's output is consumed by another subtask in a different service (`contract`) or touches auth/secrets (`security`), external API (`public-api`), DB schema (`schema-migration`). Parse both blocks; add edges; keep reasons.
+3. **Gap fill:** if after 1-2 the graph leaves any pending subtask with neither predecessor nor successor AND there are >= 2 pending subtasks, resolve `solution-architect` with `n1_resolve_agent solution-architect standard`, split its tab-separated model/effort pair, and pass both values to the spawn. Ask only for `DEPENDENCIES:` lines of the form `A>B: <reason>`, plus `FLAGS:` lines `KEY: <security|public-api|schema-migration|contract>` when a subtask's output is consumed by another subtask in a different service (`contract`) or touches auth/secrets (`security`), external API (`public-api`), DB schema (`schema-migration`). Parse both blocks; add edges; keep reasons.
 ```bash
 ORDER=$(n1_story_toposort "$PENDING_KEYS_CSV" "$EDGES") || { echo "Dependency cycle: $(n1_story_toposort "$PENDING_KEYS_CSV" "$EDGES" 2>&1 >/dev/null)"; }
 ```
