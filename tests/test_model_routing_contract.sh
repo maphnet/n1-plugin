@@ -48,7 +48,7 @@ has "host routing names failed-fix Astra context" "failed-fix-escalation" refere
 has "host routing says Astra is opt-in" "opt-in" references/host-routing.md
 has "host routing distinguishes baseline profile parity" "context-free generated profiles" references/host-routing.md
 has "architecture defines exact baseline parity" "exact same model and effort" references/architecture.md
-has "architecture lists contextual differences" "eligible explicit Astra override" references/architecture.md
+has "architecture lists all and only contextual differences" "The only permitted runtime/profile differences are a declared escalation, downgrade, task-type override, or eligible explicit Astra override." references/architecture.md
 has "architecture names the NP-132 boundary" "NP-132" references/architecture.md
 has "architecture excludes empirical validation from this policy" "empirical validation" references/architecture.md
 has "README frames the mapping as workload policy" "N1 workload policy" README.md

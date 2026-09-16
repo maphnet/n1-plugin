@@ -4,7 +4,7 @@
 
 Use default models from agent frontmatter. **Do NOT ask** about model customization unless the user explicitly requested it when invoking n1-init.
 
-If the user did request customization, derive the defaults table by reading the `model:` field from each agent's frontmatter in `<N1_ROOT>/agents/*.md`, display it, and accept per-agent overrides (valid values: opus, sonnet, haiku) — only store overrides that differ from the frontmatter default.
+**On Claude Code only:** if the user requested customization, derive the defaults table by reading the `model:` field from each agent's frontmatter in `<N1_ROOT>/agents/*.md`, display it, and accept per-agent overrides (valid values: opus, sonnet, haiku) — only store overrides that differ from the frontmatter default.
 
 To read an agent's default model from frontmatter:
 ```bash
@@ -22,7 +22,7 @@ n1_resolve_agent <persona> <step-context>
 
 Its tab-separated result is the model and reasoning effort to display. With no explicit override, frontmatter roles map through the shared tier policy: Opus roles resolve to `gpt-5.6-sol`, Sonnet roles resolve to `gpt-5.6-terra`, and Haiku roles resolve to `gpt-5.6-luna`. The resulting effort has a medium effort floor. This is a resolved policy, not a claim that frontmatter model names are passed unchanged to Codex.
 
-For the customization prompt, show each persona's resolved model/effort pair for its ordinary step context, then ask:
+For the customization prompt, show each persona's resolved model/effort pair for its ordinary step context. Codex accepts a host-keyed `<persona>=<Codex model>[/effort]` override; it is evaluated by the same resolver, rather than against the Claude-only `opus`/`sonnet`/`haiku` validation. Then ask:
 
 ```
 Persona models for Codex (resolved defaults shown per persona):
