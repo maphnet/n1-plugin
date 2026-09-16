@@ -34,3 +34,7 @@ printf '{"layer":"envelope_close","run_id":"%s","n1_version":"%s","ticket_id":"%
 
 # Trigger merge
 bash "${SCRIPT_DIR}/telemetry-merge.sh" "$N1_LOCK_RUN_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
+
+# Remove lock if merge succeeded (mirrors finalize.md pattern)
+MERGED="${N1_LOCK_TELEM_DIR}/runs/${N1_LOCK_RUN_ID}.jsonl"
+[ -s "$MERGED" ] && rm -f "${N1_LOCK_TELEM_DIR}/telemetry.lock"

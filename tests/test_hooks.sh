@@ -107,6 +107,7 @@ assert_eq "stop hook writes envelope_close" "envelope_close" "$(echo "$STOP_LINE
 assert_eq "stop hook final_outcome abandoned" "abandoned" "$(echo "$STOP_LINE" | jq -r .final_outcome 2>/dev/null)"
 assert_eq "stop hook type from overview" "task" "$(echo "$STOP_LINE" | jq -r .type 2>/dev/null)"
 assert_eq "stop hook tier from overview" "standard" "$(echo "$STOP_LINE" | jq -r .estimated_tier 2>/dev/null)"
+assert_eq "stop hook removes lock after merge" "false" "$([ -f "$STOP_TELEM/telemetry.lock" ] && echo true || echo false)"
 
 # session-stop: no lock -> silent exit, no crash
 NO_LOCK_MEM="$N1_HOME/memory/T-NOLOCK"

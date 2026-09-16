@@ -628,6 +628,18 @@ class OrchestratorInputTokensMetric(Metric):
         return float(v) if isinstance(v, (int, float)) else None
 
 
+class OrchestratorCostRatioMetric(Metric):
+    """Fraction of input tokens consumed by the orchestrator vs all agents (0-1)."""
+    name, unit, direction = "orchestrator_cost_ratio", "ratio", "lower"
+
+    def compute(self, run_record, turns):
+        orch = run_record.get("_orch_input_tokens")
+        total = run_record.get("_total_input_tokens")
+        if not isinstance(orch, (int, float)) or not isinstance(total, (int, float)):
+            return None
+        return round(orch / total, 4) if total > 0 else None
+
+
 INTERACTIVE_STEPS = frozenset({"brainstorm"})
 
 METRICS = [
@@ -655,6 +667,7 @@ METRICS = [
     OrchestratorApiCallsMetric(),
     OrchestratorBashCallsMetric(),
     OrchestratorInputTokensMetric(),
+    OrchestratorCostRatioMetric(),
 ]
 TURN_METRICS = [m for m in METRICS if isinstance(m, TurnCountMetric)]
 
@@ -675,6 +688,7 @@ def compute_run_metrics(cache: dict) -> None:
     run_record["_orch_bash_calls"] = (totals.get("tools_used") or {}).get("Bash")
     run_record["_orch_input_tokens"] = totals.get("input_tokens")
     run_record["_orch_output_tokens"] = totals.get("output_tokens")
+    run_record["_total_input_tokens"] = (run_record.get("summary") or {}).get("total_input_tokens")
     turns = cache.get("turns") or []
     linked = cache.get("link_method", "heuristic") in ("run_record", "agent_event", "heuristic")
     turn_arg = turns if linked else None
@@ -767,33 +781,32 @@ def aggregate(caches, by: str) -> dict:
             metrics[m.name] = {"n": len(vals), "mean": round(statistics.fmean(vals), 3),
                                "median": round(statistics.median(vals), 3),
                                "ci": list(bootstrap_ci(vals))}
+        # Gate activation rates for this group's eligible runs
+        gate_stats: dict = {}
+        for c in eligible:
+            rr = c.get("run_record") or {}
+            for dec in (rr.get("decisions") or []):
+                did = dec.get("id", "")
+                if not did:
+                    continue
+                res = dec.get("result", False)
+                if did not in gate_stats:
+                    gate_stats[did] = {"true": 0, "total": 0}
+                gate_stats[did]["total"] += 1
+                if res:
+                    gate_stats[did]["true"] += 1
+        gate_activation_rates = {
+            did: round(100 * v["true"] / v["total"], 1) if v["total"] else None
+            for did, v in gate_stats.items()
+        }
         out[key] = {
             "n_runs": len(eligible), "n_all": len(members),
             "sufficient": len(eligible) >= MIN_SAMPLE,
             "metrics": metrics,
             "abandon_rate": (1 - len(eligible) / len(members)) if members else None,
             "run_ids": sorted(c["run_id"] for c in eligible),
+            "gate_activation_rates": gate_activation_rates,
         }
-    # Gate activation rates across all runs in all groups
-    gate_stats: dict = {}
-    for c in caches:
-        rr = c.get("run_record") or {}
-        for dec in (rr.get("decisions") or []):
-            did = dec.get("id", "")
-            if not did:
-                continue
-            res = dec.get("result", False)
-            if did not in gate_stats:
-                gate_stats[did] = {"true": 0, "total": 0}
-            gate_stats[did]["total"] += 1
-            if res:
-                gate_stats[did]["true"] += 1
-    gate_activation_rates = {
-        did: round(100 * v["true"] / v["total"], 1) if v["total"] else None
-        for did, v in gate_stats.items()
-    }
-    for key in out:
-        out[key]["gate_activation_rates"] = gate_activation_rates
     return out
 
 
