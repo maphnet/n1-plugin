@@ -34,7 +34,7 @@ Optional post-PR review dispatched via `codex exec` after PR creation in the n1-
 4. `N1_HEADLESS != 1`
 5. PR URL is available from prior step
 
-When triggered: prompts the user, then runs `codex exec` and posts findings via `gh pr comment`. On failure, findings fall back to `$N1_HOME/memory/<ID>/cross-host-review.md`.
+When triggered: if `autonomy.mechanicalPrompts` is `auto` (hands-off mode), skips the user prompt and runs automatically, appending a Decision Ledger row. Otherwise, prompts the user first. Either path runs `codex exec` and posts findings via `gh pr comment`. On failure, findings fall back to `$N1_HOME/memory/<ID>/cross-host-review.md`.
 
 **Config key** (in `crossHostReview` block):
 - `crossHostReview.enabled` (boolean, default `true`) -- master gate. Set to `false` to suppress the prompt entirely.

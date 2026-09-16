@@ -57,7 +57,43 @@ If `codex_auth` is `no`, skip silently.
 
 ### Prompt
 
-All checks passed. Ask the user:
+All checks passed.
+
+**Autonomy gate:**
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+MECHANICAL=$(n1_autonomy_val 'mechanicalPrompts')
+echo "mechanical=$MECHANICAL"
+```
+
+If `mechanical` is `auto`:
+
+Check whether unattended execution is explicitly permitted:
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"
+N1_HOME=$(n1_home)
+N1_CONFIG="$N1_HOME/config.json"
+if [ -f "$N1_CONFIG" ] && command -v jq >/dev/null 2>&1; then
+  ALLOW_UNATTENDED=$(jq -r 'if .crossHostReview.allowUnattended == true then "true" else "false" end' "$N1_CONFIG" 2>/dev/null || echo "false")
+else
+  ALLOW_UNATTENDED="false"
+fi
+echo "allow_unattended=$ALLOW_UNATTENDED"
+```
+
+If `allow_unattended` is `false`: skip the review silently and continue the pipeline. The `--dangerously-bypass-approvals-and-sandbox` flag required for unattended execution is not enabled by default; set `crossHostReview.allowUnattended: true` in config to opt in.
+
+If `allow_unattended` is `true`: skip the user prompt, proceed with the review automatically, and append a Decision Ledger row inside the `## Decision Ledger` table in `$N1_HOME/memory/$ID/overview.md` (insert before the next `##` section; create the table if absent):
+
+```
+| pr | cross-host-review | B | [auto] | Cross-host Codex review: auto-triggered in hands-off mode | yes | — | autonomy.mechanicalPrompts=auto + crossHostReview.allowUnattended=true | --- |
+```
+
+Otherwise: ask the user:
 
 > Codex CLI is available. Would you like a cross-host review of this PR? (yes/no)
 
@@ -65,7 +101,7 @@ If the user declines, continue the pipeline silently.
 
 ### Dispatch
 
-If the user accepts:
+If the user accepts **or** (`mechanical` is `auto` and `allow_unattended` is `true`):
 
 ```bash
 PR_NUMBER="<the PR number from step 4>"
@@ -88,12 +124,11 @@ Parse `CODEX_OUTPUT`. If `CODEX_RC` is non-zero or `CODEX_OUTPUT` is empty, warn
 
 ### Post findings
 
-If `CODEX_OUTPUT` is non-empty, post as a PR comment. Pipe via stdin using `--body-file -` to prevent shell expansion of untrusted Codex output. Wrap in a fenced code block to prevent Markdown injection:
+If `CODEX_OUTPUT` is non-empty, post as a PR comment. Pipe via stdin using `--body-file -` to prevent shell expansion of Codex output. Post as rendered markdown — Codex output is already markdown-structured:
 
 ```bash
-# Pipe body via stdin to avoid shell interpolation of untrusted CODEX_OUTPUT.
-# Fenced code block prevents Markdown rendering of attacker-influenced content.
-printf '## Cross-Host Review (Codex)\n\n```text\n%s\n```\n' "$CODEX_OUTPUT" | \
+# Pipe body via stdin to avoid shell interpolation of CODEX_OUTPUT.
+printf '## Cross-Host Review (Codex)\n\n%s\n' "$CODEX_OUTPUT" | \
   gh pr comment "$PR_NUMBER" --body-file -
 ```
 
