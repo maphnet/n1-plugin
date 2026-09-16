@@ -23,6 +23,8 @@ changes syntax; skills never name host tools directly (enforced by
 | persona tool restriction | native `tools:` frontmatter, duplicated by `hooks/enforce-agent-policy.py` | `hooks/enforce-agent-policy.py` (denies `apply_patch` and agent tools outside the list) plus `sandbox_mode = "read-only"` for read-only personas |
 | hook trust | none | once per plugin version via `/hooks`; headless children pass `--dangerously-bypass-hook-trust` |
 
+> **BLOCKING DISPATCH REQUIREMENT (pipeline steps):** All persona dispatches within pipeline step files MUST be blocking (foreground). Do NOT dispatch pipeline step agents asynchronously or in the background. The agent tool call must return its result inline before the orchestrator reads any output files or proceeds to the next instruction. Fabricating a completion event or checking for output before the tool call returns is a critical protocol violation that discards specialist work.
+
 ## Bash snippet preamble
 
 Every skill bash snippet that needs plugin files starts with this line; `lib/config.sh` sources `lib/host.sh`:

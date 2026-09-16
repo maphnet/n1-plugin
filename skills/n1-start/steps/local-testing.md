@@ -111,6 +111,8 @@ Spawn the local-test-planner agent with:
 - <cleanup commands>
 ```
 
+> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the local-test-planner agent has written its output.
+
 After the agent returns:
 - Write its output to `$N1_HOME/memory/<ID>/local-test-plan.md`
 
@@ -172,6 +174,8 @@ Spawn the developer agent with:
 
 - Output-path directive: "Write your full Local Testing Report to `$N1_HOME/memory/<ID>/local-testing.md` yourself, as a full overwrite (never append). Return to the orchestrator ONLY this compact block:
   `Verdict: PASS|FAIL` / `Failure class: infra|code-bug|none` / per-scenario one-liners (`<name>: PASS|FAIL — <detail>`) / cleanup status. Do NOT return the full report."
+
+> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the developer agent has written its output.
 
 After the agent returns:
 - The agent wrote `$N1_HOME/memory/<ID>/local-testing.md` itself. Verify it:
@@ -286,6 +290,8 @@ Pass to developer:
   - "Atomic commits per fix"
   - "Same escalation rules as implementation — high blast radius + low confidence → ask user"
 - Output-path directive: "After applying fixes, record your 'Fixes Applied' report (your standard Fix Cycle output format) in `$N1_HOME/memory/<ID>/implementation.md` yourself, under a `## Local-Test Fix Cycle <N>` heading where `<N>` is the current `local_test_fix_cycle` value. If a `## Local-Test Fix Cycle <N>` section for this N already exists, REPLACE it (idempotent upsert — safe on re-run), never duplicate it. Return to the orchestrator ONLY: the list of commit SHAs with one-line summaries, and `Findings fixed: N/M`."
+
+**Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
 
 After developer returns:
 - Run via Bash (durable across resume):

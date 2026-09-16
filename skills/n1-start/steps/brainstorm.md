@@ -28,7 +28,15 @@ Only when prompt explicitly names ≥2 designs AND `analysis.md` shows cross-cut
 Bug: use root cause findings. Investigation: explore question. Append `$RULES_BLOCK`.
 **ORCHESTRATOR GUARDRAIL (experiments):** do not run ad-hoc experiments, benchmarks, or probes inline — delegate to the developer or qa-engineer agent.
 
+**Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
+
 After: parse `context:`; if updated replace `## Context` in overview.md. Update: `[x] Brainstorm`, `step: brainstorm`.
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/validation.sh"
+n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md || { echo "ERROR: brainstorm.md not written by SA — aborting" >&2; exit 1; }
+```
 
 ### User Gate
 
