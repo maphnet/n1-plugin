@@ -26,13 +26,13 @@ HOST=$(n1_host)
 N1_CONFIG="$N1_HOME/config.json"
 if [ -f "$N1_CONFIG" ] && command -v jq >/dev/null 2>&1; then
   GATE=$(jq -r 'if .crossHostReview.enabled == null then "absent" else (.crossHostReview.enabled | tostring) end' "$N1_CONFIG" 2>/dev/null || echo "absent")
+  AUTO_TRIAGE=$(jq -r 'if .crossHostReview.autoTriage == true then "true" else "false" end' "$N1_CONFIG" 2>/dev/null || echo "false")
 else
   GATE="absent"
+  AUTO_TRIAGE="false"
 fi
 # absent = default true (opt-out model); any other value is taken literally
 [ "$GATE" = "absent" ] && GATE="true"
-
-AUTO_TRIAGE=$(jq -r 'if .crossHostReview.autoTriage == true then "true" else "false" end' "$N1_CONFIG" 2>/dev/null || echo "false")
 echo "host=$HOST"
 echo "crossHostReview_enabled=$GATE"
 echo "crossHostReview_autoTriage=$AUTO_TRIAGE"

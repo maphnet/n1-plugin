@@ -506,7 +506,7 @@ n1_cross_host_review_val() {
     local key="$1"
     local file; file=$(n1_config_file)
     if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
-        local v; v=$(jq -r "if .crossHostReview.${key} == null then \"absent\" else (.crossHostReview.${key} | tostring) end" "$file" 2>/dev/null || true)
+        local v; v=$(jq -r --arg k "$key" 'if .crossHostReview[$k] == null then "absent" else (.crossHostReview[$k] | tostring) end' "$file" 2>/dev/null || true)
         if [ "$v" != "absent" ]; then printf '%s' "$v"; return; fi
     else
         local v; v=$(n1_config_val ".crossHostReview.${key}")
