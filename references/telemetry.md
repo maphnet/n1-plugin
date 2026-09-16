@@ -31,7 +31,7 @@ Optional local-first telemetry gated on `telemetry.enabled` in `$N1_HOME/config.
 
 Hooks use `matcher: "n1:*"` — zero overhead for non-N1 sessions. All collection is async and non-blocking.
 
-**Schema version:** Current version is **3** (question events added in v2.2). Version 1 records lack the `orchestrator` field; consumers should treat its absence as "not collected".
+**Schema version:** Current version is **4**. Version 4 adds `host`, `cli_version`, `parser_schema_version`, `usage_status`, `usage_scope`, `session_linkage`, and per-agent `host`/`usage_status` fields. Codex runs use session-total usage (last `token_usage_record` per session); Claude runs use per-agent summation. Missing usage is `null` with `usage_status: "unknown"` (never zero). Version 3 records lack these fields; consumers should treat their absence as "not collected".
 
 **Orchestrator telemetry** (schema v2+):
 
