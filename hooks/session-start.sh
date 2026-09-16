@@ -181,15 +181,23 @@ fi
 tracker_mcp=$(n1_config_val '.tracker.mcp' "$CONFIG_FILE")
 tracker_type=$(n1_config_val '.tracker.type' "$CONFIG_FILE")
 tracker_ops=$(n1_config_ops '.tracker.operations' "$CONFIG_FILE")
+tracker_version_mcp=$(n1_config_val '.tracker.versionMcp' "$CONFIG_FILE")
 
 if [ -n "$tracker_mcp" ]; then
+    if [ -n "$tracker_version_mcp" ]; then
+        tracker_version_line="
+- Version MCP server: ${tracker_version_mcp} — use prefix mcp__${tracker_version_mcp}__ for version operations: createVersion, releaseVersion, listVersions, getIssueLinks
+- NEVER use any other MCP server for tracker operations (standard ops: ${tracker_mcp}; version ops: ${tracker_version_mcp})"
+    else
+        tracker_version_line="
+- NEVER use any other MCP server for tracker operations, even if other tracker-like servers are visible in the tool list"
+    fi
     context="${context}
 
 TRACKER ROUTING (from N1 config — authoritative, do not override):
 - Type: ${tracker_type}
 - MCP server: ${tracker_mcp}
-- All tracker MCP tool calls MUST use prefix: mcp__${tracker_mcp}__
-- NEVER use any other MCP server for tracker operations, even if other tracker-like servers are visible in the tool list
+- All standard tracker MCP tool calls MUST use prefix: mcp__${tracker_mcp}__${tracker_version_line}
 - Operations: ${tracker_ops}"
 fi
 

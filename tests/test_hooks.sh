@@ -94,6 +94,24 @@ case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review
 rm -f "$N1_HOME/active-run.json"
 unset N1_HOST_FILE
 
+# --- session-start: TRACKER ROUTING includes versionMcp when configured ----
+export N1_HOST_FILE="$T/host2.json"
+cat > "$N1_HOME/config.json" <<'EOF'
+{"tracker":{"type":"jira","mcp":"plugin_atlassian_atlassian","versionMcp":"publius-jc-mcp","operations":{"getJiraIssue":"getIssue"}}}
+EOF
+OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"publius-jc-mcp"*) assert_eq "versionMcp appears in TRACKER ROUTING" ok ok;; *) assert_eq "versionMcp appears in TRACKER ROUTING" ok "$CTX";; esac
+case "$CTX" in *"mcp__publius-jc-mcp__"*) assert_eq "versionMcp prefix in TRACKER ROUTING" ok ok;; *) assert_eq "versionMcp prefix in TRACKER ROUTING" ok "$CTX";; esac
+# without versionMcp the old NEVER directive is still present
+cat > "$N1_HOME/config.json" <<'EOF'
+{"tracker":{"type":"jira","mcp":"plugin_atlassian_atlassian","operations":{"getJiraIssue":"getIssue"}}}
+EOF
+OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"NEVER use any other MCP server"*) assert_eq "no versionMcp keeps NEVER directive" ok ok;; *) assert_eq "no versionMcp keeps NEVER directive" ok "$CTX";; esac
+unset N1_HOST_FILE
+
 # --- session-stop: writes abandon envelope_close when lock exists ----------
 STOP_TICK="T-STOP"
 STOP_MEM="$N1_HOME/memory/$STOP_TICK"
