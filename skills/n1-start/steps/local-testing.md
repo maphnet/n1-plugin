@@ -111,6 +111,8 @@ Spawn the local-test-planner agent with:
 - <cleanup commands>
 ```
 
+> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the local-test-planner agent has written its output.
+
 After the agent returns:
 - Write its output to `$N1_HOME/memory/<ID>/local-test-plan.md`
 
@@ -172,6 +174,8 @@ Spawn the developer agent with:
 
 - Output-path directive: "Write your full Local Testing Report to `$N1_HOME/memory/<ID>/local-testing.md` yourself, as a full overwrite (never append). Return to the orchestrator ONLY this compact block:
   `Verdict: PASS|FAIL` / `Failure class: infra|code-bug|none` / per-scenario one-liners (`<name>: PASS|FAIL — <detail>`) / cleanup status. Do NOT return the full report."
+
+> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the developer agent has written its output.
 
 After the agent returns:
 - The agent wrote `$N1_HOME/memory/<ID>/local-testing.md` itself. Verify it:

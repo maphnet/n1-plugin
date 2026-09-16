@@ -114,6 +114,21 @@ assert_contains "plan-review: n1_verify_dependencies" \
 assert_contains "plan-review: wait directive" \
     "skills/n1-start/steps/plan-review.md" \
     "Wait for the persona to return its result before proceeding"
+assert_contains "investigation-deliverable: wait directive" \
+    "skills/n1-start/steps/investigation-deliverable.md" \
+    "Wait for the persona to return its result before proceeding"
+assert_contains "investigation-deliverable: post-dispatch n1_verify_dependencies" \
+    "skills/n1-start/steps/investigation-deliverable.md" \
+    "n1_verify_dependencies"
+assert_contains "qa: wait directive" \
+    "skills/n1-start/steps/qa.md" \
+    "Wait for the persona to return its result before proceeding"
+assert_contains "qa: upstream implementation.md dependency check" \
+    "skills/n1-start/steps/qa.md" \
+    'n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md'
+assert_contains "local-testing: planner wait directive" \
+    "skills/n1-start/steps/local-testing.md" \
+    "Wait for the persona to return its result before proceeding"
 
 echo
 echo "Passed: $PASS  Failed: $FAIL"

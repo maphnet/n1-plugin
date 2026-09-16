@@ -52,7 +52,15 @@ Spawn solution-architect with:
 - "Ground every finding in evidence (file:line or URL). Note uncertainty explicitly."
 - "Scratch policy: write throwaway tests/benchmarks to `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/`."
 
+> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the solution-architect agent has written its output.
+
 After agent returns: write output to `$N1_HOME/memory/<ID>/investigation.md`. Update overview: `[x] Investigation deliverable`, set `step: investigation-deliverable`.
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/validation.sh"
+n1_verify_dependencies "$N1_HOME/memory/$ID" investigation.md
+```
 
 **Extract and persist signals:**
 ```bash

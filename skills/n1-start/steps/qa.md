@@ -8,7 +8,7 @@ n1_step_begin "qa" 8
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
 [ -n "$SIGNAL_LINE" ] && { PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //'); n1_write_signals "$N1_HOME/memory/$ID/qa.md" $PAIRS; }
 n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summary,completed tasks,files changed,test results,decisions"
-n1_verify_dependencies "$N1_HOME/memory/$ID" qa.md
+n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md
 ```
 
 Run **Ensure Dependencies(`<ID>`)** before spawning. > **ORCHESTRATOR GUARDRAIL (qa): do not run tests, coverage, or lint commands in this step**
@@ -16,6 +16,8 @@ Run **Ensure Dependencies(`<ID>`)** before spawning. > **ORCHESTRATOR GUARDRAIL 
 Run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_source=diff_surface` from `implementation.md`.
 
 **Spawn qa-engineer** (context `qa`; tier from `testCoverage.tier`, default `maintain`). Inputs: ticket.md, implementation.md, plan/brainstorm.md; Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
+
+> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the qa-engineer agent has written its output.
 
 qa.md missing/empty: write returned summary as fallback, `QA_DEGRADED=1`.
 
