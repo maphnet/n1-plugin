@@ -168,7 +168,8 @@ Set config:
       "updateArticle": "updateConfluencePage",
       "createVersion": "jcm_createVersion",
       "releaseVersion": "jcm_releaseVersion",
-      "listVersions": "jcm_listVersions"
+      "listVersions": "jcm_listVersions",
+      "getIssueLinks": "jcm_getIssueLinks"
     },
     "statuses": {
       "todo": "<detected or manual>",
