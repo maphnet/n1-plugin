@@ -57,7 +57,24 @@ If `codex_auth` is `no`, skip silently.
 
 ### Prompt
 
-All checks passed. Ask the user:
+All checks passed.
+
+**Autonomy gate:**
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"
+MECHANICAL=$(n1_autonomy_val 'mechanicalPrompts')
+echo "mechanical=$MECHANICAL"
+```
+
+If `mechanical` is `auto`: skip the user prompt, proceed with the review automatically, and append a Decision Ledger row to `$N1_HOME/memory/$ID/overview.md` under `## Decision Ledger`:
+
+```
+| pr | cross-host-review | B | [auto] | Cross-host Codex review: auto-triggered in hands-off mode | yes | — | autonomy.mechanicalPrompts=auto | --- |
+```
+
+Otherwise: ask the user:
 
 > Codex CLI is available. Would you like a cross-host review of this PR? (yes/no)
 
