@@ -7,6 +7,8 @@ Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"re
 
 **REQUIRED SUB-SKILL:** `n1:n1-pr`. Pass: `docUpdateMode: "autonomous"`.
 
+> **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** do not add post-PR actions inline (CI watch, finish, smoke) — these are separate pipeline steps invoked after this step completes.
+
 After PR created: record `## Pending` section in `$N1_HOME/memory/$ID/overview.md` (idempotent upsert):
 ```markdown
 ## Pending

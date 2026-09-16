@@ -13,54 +13,19 @@ Run `n1_config_val '.planReview.reviewPlan'` (default: `true`).
 
 **Spawn agent:** solution-architect (fresh context — CCR)
 
-Resolve the context-free `solution-architect` baseline through `n1_resolve_agent solution-architect plan-review`, split its tab-separated model/effort pair, and pass both values to the spawn. This yields the declared role mapping on Codex and preserves the Claude baseline unless an actual declared rule or legal override changes it. Do not pass an Astra context for ordinary plan review. Spawn with:
-- The paths to its inputs — instruct the reviewer: "Read these files yourself before reviewing: `$N1_HOME/memory/<ID>/ticket.md`, `$N1_HOME/memory/<ID>/analysis.md`, `$N1_HOME/memory/<ID>/brainstorm.md`, and `$N1_HOME/memory/<ID>/plan.md` (the plan under review — you will fix issues in this file in-place). Their content is NOT inlined here."
-- Codebase access (Read, Grep, Glob)
-- Review-oriented instructions (NOT generative — this is a review, not a second plan):
+Resolve via `n1_resolve_agent solution-architect plan-review`, split tab-separated model/effort pair, pass both. No Astra context. Spawn with codebase access (Read, Grep, Glob); instruct: "Read these files before reviewing: ticket.md, analysis.md, brainstorm.md, plan.md (the plan — fix issues in-place). NOT generative — this is a review."
 
-```
-You are reviewing an existing implementation plan. Do NOT rewrite or restructure the plan.
-Your job is to find specific issues in these categories:
+Review categories (find issues, fix in-place):
+1. **Assumption validation** — Do referenced files, functions, APIs exist? Use Grep/Read.
+2. **Scope drift** — Each task traces to a ticket requirement?
+3. **Missing edge cases** — Failure modes, error paths, data states not addressed.
+4. **Ordering/dependency risks** — Correct sequence? Hidden inter-task dependencies?
+5. **Blast radius** — Minimal changes? Same result with fewer files?
+6. **Standards validation** — Aligns with `analysis.md § Industry Standards`? Single targeted lookup per `agents/research-standards.md` only for uncovered standards; fitness gate; cite URLs. Skip lookup if web unavailable.
 
-1. ASSUMPTION VALIDATION — Does the plan rely on assumptions about the codebase
-   that aren't verified? Use Grep/Read to check: do the referenced files, functions,
-   patterns, and APIs actually exist as described?
+If issues: fix in-place, state changes. If clean: "Plan validated, no issues found."
 
-2. SCOPE DRIFT — Compare the plan against the ticket. Does it solve what was asked,
-   or has it drifted beyond scope? Flag any tasks that don't trace back to a ticket
-   requirement.
-
-3. MISSING EDGE CASES — Are there failure modes, error paths, or data states the
-   plan doesn't address but should?
-
-4. ORDERING/DEPENDENCY RISKS — Are implementation steps in the right order? Are
-   there hidden dependencies between tasks that could cause issues if executed
-   in the listed sequence?
-
-5. BLAST RADIUS — Does the plan touch more files or systems than necessary? Could
-   the same result be achieved with fewer changes?
-
-6. STANDARDS VALIDATION — Does the plan align with the industry standards and best
-   practices already recorded in the `Industry Standards & Best Practices` section
-   of `analysis.md`? Validate the plan against those recorded standards first —
-   do NOT re-run a full research round. Only if the plan hinges on a standard that
-   `analysis.md` does not cover may you do a single targeted lookup per
-   agents/research-standards.md (>=2 independent trusted sources, cite the URL).
-   Apply the fitness gate — prefer decisive standards over contestable practices,
-   and do not flag a "best practice" the plan correctly omitted as over-engineering
-   for this scope. If web tools are unavailable, validate against the recorded
-   standards only and note that no new lookup was performed.
-
-If you find issues: fix them in-place in the plan file. State what you changed and why.
-If the plan is clean: state "Plan validated, no issues found."
-
-Output format:
-## Plan Review Result
-**Verdict:** CLEAN | FIXED
-**Changes:** (list of fixes applied, or "None")
-**Verified assumptions:** (list of codebase claims you confirmed via Grep/Read)
-**Verified standards:** (list of best-practice/standard claims confirmed via web, with cited URLs; or "None")
-```
+Output: `## Plan Review Result` / `**Verdict:** CLEAN | FIXED` / `**Changes:**` / `**Verified assumptions:**` / `**Verified standards:**`
 
 #### After CCR returns:
 

@@ -25,7 +25,7 @@ Run **Ensure Dependencies(`<ID>`)** before spawning.
 
 **FAIL:** spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
 
-**Security findings** (`[SEC-N]` or security CVE title): append "Fix the entire CLASS — search all variants and fix in one pass."
+**Security findings** (`[SEC-N]`/CVE): append "Fix the entire CLASS — search all variants and fix in one pass."
 
 After developer returns:
 ```bash
@@ -41,20 +41,7 @@ echo "$FIX_CHANGED" > "$N1_HOME/memory/$ID/fix-changed-files"
 ```
 Emit: `<ID> · review fix cycle <N>/<MAX>`. Return to Step 7. Bound: `review.maxFixAttempts` (default 2).
 
-**Escalation:** `QE==auto-accept` AND not security/architecture/public-API: take recommended action, append Decision Ledger row `| fix | quality | A | [auto] | <ambiguity> | Accept developer resolution, proceed | Ask, Abort | qualityEscalations=auto-accept | --- |`. Otherwise: resolution ladder (codebase→web→command+default→prior decisions). If all fail:
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "asked" "codebase|web|command|prior-decisions"
-```
-**Preamble:** `"{Title}: {Core Ask}."` Bug+root-cause: prepend. Ask: "{PREAMBLE} Ambiguity: [details]. 1. <recommended> (Recommended) 2. <alt> 3. Decide for me"
-
-"Decide for me": web search, apply, then:
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"
-n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "fix" "quality" "auto-decided" "codebase|web|command|prior-decisions"
-```
+**Escalation:** `QE==auto-accept`+non-security/architecture/public-API: take recommended, A-tier `[auto]` ledger. Otherwise: resolution ladder (codebase→web→command→prior decisions). Fail all: emit `n1_emit_question_event ... "fix" "quality" "asked" "codebase|web|command|prior-decisions"`. Preamble: `"{Title}: {Core Ask}."` Bug: prepend root-cause. Ask: "{PREAMBLE} Ambiguity: [...]. 1.<recommended> 2.<alt> 3.Decide for me." "Decide for me"→web+apply, emit `"auto-decided"`.
 
 **PASS verdict:**
 ```bash
@@ -63,14 +50,11 @@ source "$N1_ROOT/lib/frontmatter.sh"; n1_increment_counter "$N1_HOME/memory/$ID/
 ```
 `clean_passes < MIN_CLEAN` (default 1) → back to Step 7. `clean_passes >= MIN_CLEAN` → proceed.
 
-**Full-suite regression check** (once at PASS): detect: `package.json scripts.test`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod`, `Makefile test`. First match wins; none → "Full-suite check skipped." Found:
+**Full-suite regression check** (once at PASS): detect `package.json`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod`, `Makefile` (first match). None→skip. Found:
 ```bash
 FULL_SUITE_OUTPUT=$(<discovered-test-command> 2>&1); FULL_SUITE_EXIT=$?
-FULL_SUITE_LINES=$(echo "$FULL_SUITE_OUTPUT" | wc -l)
-if [ "$FULL_SUITE_LINES" -gt 100 ]; then
-  FULL_SUITE_OUTPUT="[truncated: showing last 100 of $FULL_SUITE_LINES lines]
+FULL_SUITE_LINES=$(echo "$FULL_SUITE_OUTPUT" | wc -l); [ "$FULL_SUITE_LINES" -gt 100 ] && FULL_SUITE_OUTPUT="[truncated: showing last 100 of $FULL_SUITE_LINES lines]
 $(echo "$FULL_SUITE_OUTPUT" | tail -n 100)"
-fi
 ```
 Append to `## Fix Cycle <N>`: `**Full-suite:** exit <FULL_SUITE_EXIT> — PASS|FAIL`. When spawning developer for regression fix, pass `$FULL_SUITE_OUTPUT` (already capped) as the failure output. Exit 0: proceed. Non-zero: `MP=$(n1_autonomy_val 'mechanicalPrompts')`. `MP==auto` + first attempt: spawn developer to fix, re-run once. Else: ask "Fix regression or proceed?"
 

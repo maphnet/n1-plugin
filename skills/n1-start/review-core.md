@@ -35,21 +35,8 @@ CR_RULES_BLOCK=""
 SEC_RULES_BLOCK=""
 if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
     CHANGED=$(git diff --name-only "$BASE" HEAD 2>/dev/null)
-    CR_GATE_FILES=""
-    while IFS= read -r rf; do
-        [ -z "$rf" ] && continue
-        enf=$(n1_rule_field "$rf" "enforcement")
-        [ "$enf" = "gate" ] && CR_GATE_FILES="${CR_GATE_FILES} ${rf}"
-    done < <(n1_rules_for_agent "code-reviewer" "$CHANGED" "$RULES_DIR")
-    if [ -n "$CR_GATE_FILES" ]; then CR_RULES_BLOCK=$(n1_rules_render $CR_GATE_FILES); fi
-    SEC_GATE_FILES=""
-    while IFS= read -r rf; do
-        [ -z "$rf" ] && continue
-        enf=$(n1_rule_field "$rf" "enforcement")
-        topic=$(n1_rule_field "$rf" "topic")
-        [ "$enf" = "gate" ] && [ "$topic" = "security" ] && SEC_GATE_FILES="${SEC_GATE_FILES} ${rf}"
-    done < <(n1_rules_for_agent "security-reviewer" "$CHANGED" "$RULES_DIR")
-    if [ -n "$SEC_GATE_FILES" ]; then SEC_RULES_BLOCK=$(n1_rules_render $SEC_GATE_FILES); fi
+    CR_GATE_FILES=$(n1_rules_for_agent "code-reviewer" "$CHANGED" "$RULES_DIR" | while IFS= read -r rf; do [ -z "$rf" ] && continue; [ "$(n1_rule_field "$rf" "enforcement")" = "gate" ] && printf '%s ' "$rf"; done); [ -n "$CR_GATE_FILES" ] && CR_RULES_BLOCK=$(n1_rules_render $CR_GATE_FILES)
+    SEC_GATE_FILES=$(n1_rules_for_agent "security-reviewer" "$CHANGED" "$RULES_DIR" | while IFS= read -r rf; do [ -z "$rf" ] && continue; [ "$(n1_rule_field "$rf" "enforcement")" = "gate" ] && [ "$(n1_rule_field "$rf" "topic")" = "security" ] && printf '%s ' "$rf"; done); [ -n "$SEC_GATE_FILES" ] && SEC_RULES_BLOCK=$(n1_rules_render $SEC_GATE_FILES)
 fi
 ```
 

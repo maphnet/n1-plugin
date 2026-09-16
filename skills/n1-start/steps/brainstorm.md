@@ -17,29 +17,16 @@ IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect bra
 
 Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
-**Investigation auto:** dispatch SA, autonomous brainstormer, investigation focus, write brainstorm.md, report `planning_need`.
+**`BRAINSTORM_MODE=auto`:** dispatch SA — "Read `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md`. Inputs: ticket.md, analysis.md. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`." **Investigation auto:** same, investigation focus.
 
-**`BRAINSTORM_MODE=auto`:** dispatch SA — "Read `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md`. Inputs: ticket.md, analysis.md. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions ONE message 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`."
-
-**`BRAINSTORM_MODE=interactive`:** relay loop (cap 2 rounds). Dispatch SA: invoke `n1-brainstorm` against ticket.md+analysis.md. Single prompt max 4 questions. **GUARDRAIL:** do NOT Read/Grep/Glob project source files — `analysis.md` is sufficient; re-spawn SA for missing facts only. Round 2: inputs+answers; write `$N1_HOME/memory/<ID>/brainstorm.md`; do NOT commit.
+**`BRAINSTORM_MODE=interactive`:** relay loop (cap 2 rounds). Dispatch SA: invoke `n1-brainstorm` against ticket.md+analysis.md. Single prompt max 4 questions. **ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, `cat`, `sed -n`, or otherwise open project source files** — `analysis.md` is sufficient; re-spawn SA for missing facts only. Round 2: inputs+answers; write `$N1_HOME/memory/<ID>/brainstorm.md`; do NOT commit.
 
 ### Architecture Adjudication (narrow exception)
 
-Use this branch only when the prompt explicitly asks the solution architect to choose between at least two named designs **and** `analysis.md` identifies cross-cutting consequences in at least two components. Label the spawn prompt `Architecture adjudication`. Otherwise retain the ordinary no-third-argument resolution above, including routine analysis, missing-fact re-spawns, interactive brainstorming, and plan review.
-
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-# Set either value to true only after reading the user prompt and analysis.md.
-PROMPT_NAMES_TWO_DESIGNS=false
-ANALYSIS_HAS_TWO_CROSS_CUTTING_COMPONENTS=false
-if [ "$PROMPT_NAMES_TWO_DESIGNS" = true ] && [ "$ANALYSIS_HAS_TWO_CROSS_CUTTING_COMPONENTS" = true ]; then
-    BRAINSTORM_ASTRA_CONTEXT=architecture-adjudication
-    IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect brainstorm "$BRAINSTORM_ASTRA_CONTEXT")
-fi
-```
+Only when prompt explicitly names ≥2 designs AND `analysis.md` shows cross-cutting consequences in ≥2 components. Set `BRAINSTORM_ASTRA_CONTEXT=architecture-adjudication` and re-resolve SA: `IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect brainstorm "$BRAINSTORM_ASTRA_CONTEXT")`. All other cases (routine, missing-fact, interactive, plan review): no Astra context.
 
 Bug: use root cause findings. Investigation: explore question. Append `$RULES_BLOCK`.
+**ORCHESTRATOR GUARDRAIL (experiments):** do not run ad-hoc experiments, benchmarks, or probes inline — delegate to the developer or qa-engineer agent.
 
 After: parse `context:`; if updated replace `## Context` in overview.md. Update: `[x] Brainstorm`, `step: brainstorm`.
 
@@ -65,8 +52,6 @@ n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,ke
 ```
 `auto`: auto-confirm, `[auto]` ledger. `ask`: wait; amend → update AC. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
-`direct`: changes specified, independent, no design decisions, no test strategy. `plan`: coordination, open questions, new abstractions, security/API/cross-cutting. Default `plan`.
+`direct`: specified+independent+no design+no test strategy. `plan`: coordination/open questions/new abstractions/security/API/cross-cutting. Default `plan`.
 
-### Post-Brainstorm Enrichment
-
-Gate: ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent: skip if `*Refined after design review — N1*`). Post design summary comment. Non-blocking.
+**Post-Brainstorm Enrichment:** ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent if `*Refined after design review — N1*`). Post design summary. Non-blocking.
