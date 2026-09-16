@@ -42,7 +42,7 @@ def _detect_host() -> str:
         return "codex"
     # 3. host.json when no Claude root is set
     if not os.environ.get("CLAUDE_PLUGIN_ROOT"):
-        host_file = Path.home() / ".n1" / "host.json"
+        host_file = Path(os.environ.get("N1_HOST_FILE", str(Path.home() / ".n1" / "host.json")))
         if host_file.is_file():
             try:
                 data = json.loads(host_file.read_text(encoding="utf-8"))
@@ -420,7 +420,15 @@ def main() -> int:
         record["summary"]["total_output_tokens"] = codex_usage["output_tokens"]
         record["summary"]["total_cache_read_tokens"] = codex_usage["cached_input_tokens"]
         record["summary"]["total_reasoning_tokens"] = codex_usage["reasoning_tokens"]
+        record["summary"]["total_cache_creation_tokens"] = codex_usage.get("cache_creation_tokens")
         record["summary"]["codex_model"] = codex_usage["model"]
+    elif codex_usage:
+        # Codex run but usage unavailable — null, not zero
+        record["summary"]["total_input_tokens"] = None
+        record["summary"]["total_output_tokens"] = None
+        record["summary"]["total_cache_read_tokens"] = None
+        record["summary"]["total_cache_creation_tokens"] = None
+        record["summary"]["total_reasoning_tokens"] = None
 
     # Inject linkage fields
     if codex_linkage:

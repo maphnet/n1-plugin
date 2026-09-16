@@ -412,7 +412,9 @@ if command -v jq >/dev/null 2>&1; then
             SUMMARY=$(echo "$SUMMARY" | jq '
                 .total_input_tokens = null |
                 .total_output_tokens = null |
-                .total_cache_read_tokens = null
+                .total_cache_read_tokens = null |
+                .total_cache_creation_tokens = null |
+                .total_reasoning_tokens = null
             ')
         fi
     fi
@@ -479,7 +481,8 @@ else
         echo "telemetry-merge: jq not available, merged via python fallback" >&2
     else
         # Neither jq nor python — write a minimal record with raw file references
-        echo "{\"schema_version\":4,\"run_id\":\"${RUN_ID}\",\"host\":\"${HOST}\",\"project\":\"${PROJECT_NAME}\",\"n1_version\":\"${N1_VERSION}\",\"ticket_id\":\"${TICKET_ID}\",\"parse_error\":\"jq_not_available\",\"raw_steps\":\"${STEPS_FILE}\",\"raw_agents\":\"${AGENTS_FILE}\"}" > "$OUT_FILE"
+        json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+        echo "{\"schema_version\":4,\"run_id\":\"$(json_escape "$RUN_ID")\",\"host\":\"$(json_escape "$HOST")\",\"project\":\"$(json_escape "$PROJECT_NAME")\",\"n1_version\":\"$(json_escape "$N1_VERSION")\",\"ticket_id\":\"$(json_escape "$TICKET_ID")\",\"parse_error\":\"jq_not_available\",\"raw_steps\":\"$(json_escape "$STEPS_FILE")\",\"raw_agents\":\"$(json_escape "$AGENTS_FILE")\"}" > "$OUT_FILE"
         echo "telemetry-merge: jq and python not available, wrote minimal record" >&2
     fi
 fi
