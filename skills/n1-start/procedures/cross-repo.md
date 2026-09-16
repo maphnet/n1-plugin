@@ -29,19 +29,7 @@ if [ "$RELATED_ENABLED" = "true" ]; then
 fi
 ```
 
-**Interactive (non-auto).** Re-read `$XREPO_RT_FILE`. **"yes":**
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/related.sh"; XREPO_RT_FILE="$N1_HOME/memory/$ID/xrepo-runtime.tsv"; XREPO_RT_ADDED_FILE="$N1_HOME/memory/$ID/xrepo-runtime-added"
-while IFS=$'\t' read -r det_slug det_signal; do [ -z "$det_slug" ] && continue
-    det_cell=$(printf '%s' "$det_signal" | tr '|' '/' | cut -c1-80)
-    n1_related_add "$N1_HOME/config.json" "$det_slug" "auto-detected: $det_signal" "manual"
-    grep -q '^## Decision Ledger' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null || printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$N1_HOME/memory/$ID/overview.md"
-    printf '| implementation | scope | B | [asked] | New integration %s in diff | Added | — | User approved | codebase |\n' "$det_slug" >> "$N1_HOME/memory/$ID/overview.md"
-    printf '%s\n' "$det_slug" >> "$XREPO_RT_ADDED_FILE"
-done < "$XREPO_RT_FILE"
-```
-**"select":** add approved + ledger. **"no":** `[asked]` row per slug.
+**Interactive (non-auto).** Re-read `$XREPO_RT_FILE`. **"yes":** `n1_related_add`+B-tier `[asked]` ledger+`$XREPO_RT_ADDED_FILE` per slug. **"select":** add approved+ledger. **"no":** `[asked]` row.
 
 **Telemetry for implementation step-end:**
 ```bash

@@ -40,22 +40,6 @@ n1_step_end "implementation" 7 "success"
 ```
 BLOCKED: Confidence-Based Escalation. Re-spawn after decision.
 
-**Confidence-Based Escalation:** high confidence → proceed. Low+low blast → proceed, log `## Key Decisions`. Low+high blast → ESCALATE:
-```
-**Decision:** <what> **Options:** A. <opt> — <tradeoff>  B. <opt> — <tradeoff>
-**Recommendation:** <opt> because <reason>. Which?
-```
-Always escalate: security, new architectural patterns, public API changes.
+**Confidence-Based Escalation:** high confidence → proceed. Low+low blast → proceed, log `## Key Decisions`. Low+high blast → ESCALATE: present `**Decision:**`, `**Options:** A/B` with tradeoffs, `**Recommendation:**`. Always escalate: security, new architectural patterns, public API changes.
 
-**implementation.md format:**
-```markdown
-## Implementation Summary
-### Completed Tasks
-- Task 1: <description> — <result>
-### Files Changed
-- <file> — <what changed>
-### Test Results
-<output summary>
-### Decisions Made
-- <decision>: <choice> (reason: <why>)
-```
+**implementation.md format:** `## Implementation Summary` / `### Completed Tasks` / `### Files Changed` / `### Test Results` / `### Decisions Made`
