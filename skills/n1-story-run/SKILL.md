@@ -16,7 +16,7 @@ Runs every open subtask of a story sequentially through `n1-start`, each in its 
 ## N1_HOME Resolution
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/config.sh"
 source "$N1_ROOT/lib/story.sh"
 source "$N1_ROOT/lib/frontmatter.sh"

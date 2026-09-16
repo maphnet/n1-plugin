@@ -73,7 +73,7 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 
 5. If any accepted rules have `enforcement: deny`:
    ```bash
-   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
    source "$N1_ROOT/lib/rules.sh"
    HOOK_DIR="$N1_HOME/hooks"
    mkdir -p "$HOOK_DIR"

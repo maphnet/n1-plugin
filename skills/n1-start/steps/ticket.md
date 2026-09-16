@@ -10,7 +10,7 @@ INTAKE_RESULT=$(echo "$AGENT_OUTPUT" | grep -m1 '^intake-result: ' | sed 's/^int
 Empty: `{"title":null,"tags":[],"type":"task"}`. Parse `TITLE TAGS TYPE CLOUD_ID LINKED_ERROR`. `LINKED_ERROR` → `TYPE=bug`, `LINKED_ERROR_URL`.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/validation.sh"
 TYPE_OVERRIDE=""; n1_parse_type_arg "$USER_INPUT" 2>/dev/null && TYPE_OVERRIDE=$(n1_parse_type_arg "$USER_INPUT")
 [ "$INVESTIGATE_FLAG" = "true" ] && TYPE_OVERRIDE="investigation"
@@ -33,7 +33,7 @@ ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"
 **Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): skip if `INVESTIGATE_FLAG=true`+braindump. `MP=auto`→create+ledger. `MP=ask`→"Create ticket? Yes/No". Yes→`createIssue`, final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/validation.sh"; source "$N1_ROOT/lib/context.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')

@@ -39,7 +39,7 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
 4. **Read tracker config** (run via Bash):
 
    ```bash
-   N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
    source "$N1_ROOT/lib/config.sh"
    TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
    PROJECT_KEY=$(n1_config_val ".tracker.projectKey" "$N1_HOME/config.json")
