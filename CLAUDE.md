@@ -37,6 +37,19 @@ Do NOT install N1 as a user-scope plugin for local development.
 - Test on a separate repo before committing; `/reload-plugins` to pick up edits
 - Dogfooding: use N1 skills on the N1 repo itself
 
+## Telemetry Analyzer
+
+`scripts/telemetry_analyzer.py` surfaces per-run pipeline performance from merged telemetry run records. It scans all projects under `~/.n1/*/` by default and produces JSON reports with per-run metrics (steps, agents, durations, tokens, tool calls, web searches), anomaly detection, and cross-run aggregation by tier/step.
+
+**Usage:** `python3 scripts/telemetry_analyzer.py collect [--last N] [--projects P1,P2] [--deep] [--out FILE]`
+
+- `--last N` — analyze the N most recent runs (default 20)
+- `--projects` — comma-separated project names to filter
+- `--deep` — parse Claude Code transcripts for Bash command subtype classification (slower)
+- `--out` — write JSON report to file
+
+The script reuses `load_runs`/`read_jsonl` from `scripts/benchmark.py` via `importlib.util`. The skill `n1-telemetry-analyzer` drives it and formats output as Markdown tables.
+
 ## Conventions
 
 - **Skill authoring:** Always use `/writing-skills` skill when creating or modifying skills. Never name a host tool (Agent, AskUserQuestion, ToolSearch, Skill, spawn_agent) in skill text; write "dispatch persona", "ask the user", "invoke skill" and let HOST ROUTING resolve it.
