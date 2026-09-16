@@ -276,7 +276,7 @@ CFG
     assert_eq "legacy string applies on claude" "sonnet" "$(N1_HOST=claude-code n1_model_for developer)"
     assert_eq "legacy string ignored on codex -> codex default" "gpt-5.6-terra" "$(N1_HOST=codex n1_model_for developer)"
     assert_eq "no entry on claude -> frontmatter" "opus" "$(N1_HOST=claude-code n1_model_for security-reviewer)"
-    assert_eq "no entry on codex -> codex default" "gpt-5.6-terra" "$(N1_HOST=codex n1_model_for security-reviewer)"
+    assert_eq "no entry on codex -> translated known role" "gpt-5.6-sol" "$(N1_HOST=codex n1_model_for security-reviewer)"
     assert_eq "nested codex model" "gpt-5.6-sol" "$(N1_HOST=codex n1_model_for qa-engineer)"
     assert_eq "nested codex effort" "high" "$(N1_HOST=codex n1_reasoning_effort_for qa-engineer)"
     assert_eq "default codex effort" "medium" "$(N1_HOST=codex n1_reasoning_effort_for developer)"
@@ -286,6 +286,49 @@ CFG
 # Restore n1_config_file that test_autonomy_preset unset.
 n1_config_file() { printf '%s' "$(n1_home)/config.json"; }
 test_host_models
+
+# ---------------------------------------------------------------------------
+# Tier-aware Codex routing. These cases exercise the real resolver in isolated
+# N1/Codex homes so host defaults cannot leak between cases.
+# ---------------------------------------------------------------------------
+codex_case() {
+    # $1 label, $2 config JSON, $3 TOML, $4 persona, $5 context, $6 Astra context,
+    # $7 expected model, $8 expected effort, $9 expected stderr substring
+    local label="$1" config="$2" toml="$3" persona="$4" context="$5" astra="$6"
+    local expected_model="$7" expected_effort="$8" expected_err="$9" tmp result err
+    tmp=$(mktemp -d)
+    mkdir -p "$tmp/home" "$tmp/codex"
+    printf '%s\n' "$config" > "$tmp/home/config.json"
+    printf '%b\n' "$toml" > "$tmp/codex/config.toml"
+    result=$(N1_HOST=codex N1_HOME="$tmp/home" ID=CASE CODEX_HOME="$tmp/codex" \
+        n1_resolve_agent "$persona" "$context" "$astra" 2>"$tmp/err") || true
+    err=$(<"$tmp/err")
+    rm -rf "$tmp"
+    assert_eq "$label model" "$expected_model" "${result%%$'\t'*}"
+    assert_eq "$label effort" "$expected_effort" "${result#*$'\t'}"
+    if [ -n "$expected_err" ]; then
+        case "$err" in *"$expected_err"*) assert_eq "$label warning" "$expected_err" "$expected_err";; *) assert_eq "$label warning" "$expected_err" "$err";; esac
+    fi
+}
+
+test_tier_aware_codex() {
+    local empty='{"models":{}}' defaults='[agents]\ndefault_subagent_model = "gpt-5.6-terra"\ndefault_subagent_reasoning_effort = "medium"'
+    codex_case "Opus baseline" "$empty" "$defaults" planner "" "" gpt-5.6-sol medium ""
+    codex_case "architect Opus baseline" "$empty" "$defaults" solution-architect "" "" gpt-5.6-sol medium ""
+    codex_case "reviewer Opus baseline" "$empty" "$defaults" code-reviewer "" "" gpt-5.6-sol medium ""
+    codex_case "Sonnet baseline" "$empty" "$defaults" developer "" "" gpt-5.6-terra medium ""
+    codex_case "QA Sonnet baseline" "$empty" "$defaults" qa-engineer "" "" gpt-5.6-terra medium ""
+    codex_case "Sonnet low frontmatter clamps" "$empty" '[agents]\ndefault_subagent_model = "gpt-5.6-terra"' product-analyst "" "" gpt-5.6-terra medium "below policy floor 'medium'"
+    assert_eq "minimal tier translates to Luna" "gpt-5.6-luna" "$(N1_HOST=codex n1_translate_model codex "$(n1_resolve_tier minimal sonnet)")"
+    codex_case "non-Astra override" '{"models":{"developer":{"codex":{"model":"custom-model","reasoning_effort":"high"}}}}' "$defaults" developer implementation "" custom-model high ""
+    codex_case "explicit low clamps" '{"models":{"developer":{"codex":{"reasoning_effort":"low"}}}}' "$defaults" developer "" "" gpt-5.6-terra medium "below policy floor 'medium'"
+    codex_case "unknown effort clamps" '{"models":{"developer":{"codex":{"reasoning_effort":"odd"}}}}' "$defaults" developer "" "" gpt-5.6-terra medium "unsupported Codex effort 'odd'"
+    codex_case "ineligible Astra falls back" '{"models":{"developer":{"codex":"gpt-6-astra"}}}' "$defaults" developer "" "" gpt-5.6-terra medium "ineligible gpt-6-astra override"
+    codex_case "eligible final review retains Astra" '{"models":{"developer":{"codex":"gpt-6-astra"}}}' "$defaults" developer review final-whole-branch-review gpt-6-astra medium ""
+    codex_case "eligible architecture retains Astra" '{"models":{"developer":{"codex":"gpt-6-astra"}}}' "$defaults" developer brainstorm architecture-adjudication gpt-6-astra medium ""
+    codex_case "unknown role uses CLI default" "$empty" "$defaults" no-such-persona "" "" gpt-5.6-terra medium ""
+}
+test_tier_aware_codex
 
 echo "---"
 echo "$PASS passed, $FAIL failed"
