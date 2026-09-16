@@ -14,7 +14,7 @@ Check for N1 configuration in priority order:
    - **If exists:** Load the config and check for missing top-level keys against the **Expected Config Keys** list in the dispatcher SKILL.md. Then branch:
      - **If no missing keys:** Check whether the user's invocation includes the word "reconfigure" (e.g., `/n1-init reconfigure`).
        - **If "reconfigure" is present:** Continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
-       - **Otherwise:** Print a status summary and **STOP** — do not ask any questions:
+       - **Otherwise:** Run the **Operation Gap Check** below before printing status. Then print the status summary and **STOP** — do not ask any questions:
 
          ```
          N1 is configured for this project.
@@ -83,6 +83,75 @@ Skip keys that are already present in the config. Preserve all existing keys and
 **Special case:** If `rules` is among the missing keys, run **Analyze Repository** first (rules starter generation needs detection results). Otherwise skip Analyze Repository and CLAUDE.md enrichment.
 
 After all missing sections are processed, merge results into the existing `config.json` at the top level and show the summary (same format as **Confirm**, but listing only the added sections).
+
+### Operation Gap Check
+
+Runs when the config has all expected top-level keys but may be missing operations added in newer versions. Only applies when `tracker.type` is `"jira"` or `"youtrack"` (skip for `"none"` or absent tracker).
+
+Detect the following gaps using `jq`:
+
+```bash
+CFG="$N1_HOME/config.json"
+TRACKER_TYPE=$(jq -r '.tracker.type // empty' "$CFG")
+HAS_GET_ISSUE_LINKS=$(jq -r '.tracker.operations.getIssueLinks // empty' "$CFG")
+HAS_VERSION_MCP=$(jq -r '.tracker.versionMcp // empty' "$CFG")
+```
+
+**Gap: `tracker.operations.getIssueLinks` missing**
+
+Applies when `HAS_GET_ISSUE_LINKS` is empty and `TRACKER_TYPE` is `"jira"` or `"youtrack"`.
+
+- **If Jira and `tracker.versionMcp` is also missing:** Inform the user:
+  ```
+  Config is missing tracker.operations.getIssueLinks (added in N1 3.x).
+  This operation also requires tracker.versionMcp (the jc-mcp server name).
+  Without it, linked-issue data will be silently omitted from story analysis.
+
+  1 — Add getIssueLinks (I will provide my versionMcp server name)
+  2 — Skip
+  ```
+  - **If 1:** Ask: **"What is your jc-mcp MCP server name? (e.g. publius-jc-mcp)"**. Set `tracker.versionMcp` and `tracker.operations.getIssueLinks`:
+    ```bash
+    jq --arg vmcp "$VERSION_MCP" \
+       '.tracker.versionMcp = $vmcp | .tracker.operations.getIssueLinks = "jcm_getIssueLinks"' \
+       "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+    ```
+    Log: "Added tracker.versionMcp and tracker.operations.getIssueLinks."
+  - **If 2:** Continue.
+
+- **If Jira and `tracker.versionMcp` is already present:** Inform the user:
+  ```
+  Config is missing tracker.operations.getIssueLinks (added in N1 3.x).
+  Without it, linked-issue data will be silently omitted from story analysis.
+
+  1 — Add getIssueLinks
+  2 — Skip
+  ```
+  - **If 1:** Patch:
+    ```bash
+    jq '.tracker.operations.getIssueLinks = "jcm_getIssueLinks"' \
+       "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+    ```
+    Log: "Added tracker.operations.getIssueLinks."
+  - **If 2:** Continue.
+
+- **If YouTrack:** Inform the user:
+  ```
+  Config is missing tracker.operations.getIssueLinks (added in N1 3.x).
+  Without it, linked-issue data will be silently omitted from story analysis.
+
+  1 — Add getIssueLinks
+  2 — Skip
+  ```
+  - **If 1:** Patch:
+    ```bash
+    jq '.tracker.operations.getIssueLinks = "get_issue_links"' \
+       "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+    ```
+    Log: "Added tracker.operations.getIssueLinks."
+  - **If 2:** Continue.
+
+If no gaps are found, proceed silently.
 
 ### Migration Flow (existing `.n1/n1.config.json`)
 
