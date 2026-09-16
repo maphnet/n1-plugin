@@ -48,7 +48,7 @@ Do NOT install N1 as a user-scope plugin for local development.
 - `--deep` — parse Claude Code transcripts for Bash command subtype classification (slower)
 - `--out` — write JSON report to file
 
-The script reuses `load_runs`/`read_jsonl` from `scripts/benchmark.py` via `importlib.util`. The skill `n1-telemetry-analyzer` drives it and formats output as Markdown tables.
+The script reuses `load_runs`/`read_jsonl` from `scripts/benchmark.py` via `importlib.util`. The project-local skill at `.claude/skills/n1-telemetry-analyzer/` drives it and formats output as Markdown tables — available only when working inside this repo, not shipped to plugin users.
 
 ## Conventions
 
