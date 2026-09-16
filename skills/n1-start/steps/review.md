@@ -26,6 +26,24 @@ fi
 echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED"
 ```
 
+### Incremental Re-Review (cycle >= 2)
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"; source "$N1_ROOT/lib/config.sh"; N1_HOME=$(n1_home)
+CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}
+INCREMENTAL="false"
+if [ "$CYCLE" -ge 2 ] && [ -f "$N1_HOME/memory/$ID/fix-changed-files" ]; then
+  INCREMENTAL="true"
+  FIX_FILES=$(cat "$N1_HOME/memory/$ID/fix-changed-files")
+fi
+echo "CYCLE=$CYCLE INCREMENTAL=$INCREMENTAL"
+```
+
+When `INCREMENTAL=true`: pass `$FIX_FILES` as the file scope to both code-reviewer and security-reviewer instead of the full `git diff --name-only <BASE_BRANCH>...HEAD`. Instruct reviewers: "This is an incremental re-review after fix cycle. Focus on the following files only: [list]. Check for regressions introduced by the fix and verify that prior Critical/High findings were addressed." The reviewer still reads surrounding context as needed but confines its finding scope to the listed files.
+
+When `INCREMENTAL=false` (cycle 0 or 1): full-scope review as today — no change to existing behavior.
+
 Run **Ensure Dependencies(`<ID>`)** before reviewers. > **ORCHESTRATOR GUARDRAIL (review): do not run tests.**
 
 **Shared review core:** read `<N1_ROOT>/skills/n1-start/review-core.md` with `BASE_BRANCH`.

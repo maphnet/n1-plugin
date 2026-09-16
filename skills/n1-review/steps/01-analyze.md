@@ -62,6 +62,8 @@ Spawn the selected reviewers simultaneously (code-reviewer always; security-revi
 
 **Wait for ALL agents/commands to complete before proceeding.**
 
+**Incremental re-review (cycle >= 2):** When the internal review-fix cycle counter is >= 2 and `$N1_HOME/memory/$ID/fix-changed-files` exists, scope both reviewers to only the files listed in that file. Instruct reviewers: "Incremental re-review after fix cycle. Scope: [file list]. Check for fix regressions and verify prior findings were addressed." Cycle 0 or 1: full-scope review (no change).
+
 ### Phase 3: Verify Findings (False-Positive Elimination)
 
 After ALL reviewers return, merge their raw findings into a single list ordered by priority. Findings carry their source prefix: `[CR-N]` from code-reviewer, `[SEC-N]` from security-reviewer.
