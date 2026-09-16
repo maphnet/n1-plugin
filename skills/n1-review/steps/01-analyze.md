@@ -66,6 +66,8 @@ Spawn the selected reviewers simultaneously (code-reviewer always; security-revi
 
 After ALL reviewers return, merge their raw findings into a single list ordered by priority. Findings carry their source prefix: `[CR-N]` from code-reviewer, `[SEC-N]` from security-reviewer.
 
+**Zero-findings fast path:** If the merged findings list is empty (zero findings from all reviewers), skip Phase 3 entirely. Record in the review output: `"Verification: skipped (zero findings)."` Proceed directly to Phase 4 clean-pass handling.
+
 **Spawn agent:** code-reviewer (with adversarial verification prompt)
 
 Resolve model for `code-reviewer`.
