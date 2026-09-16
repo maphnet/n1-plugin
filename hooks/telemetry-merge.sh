@@ -29,6 +29,8 @@ TICKET_ID=$(basename "$MEMORY_DIR")
 # Derive project name
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/config.sh"
+source "${SCRIPT_DIR}/../lib/host.sh"
+HOST=$(n1_host)
 N1_HOME=$(n1_home)
 if [ -n "$N1_HOME" ]; then
     PROJECT_NAME=$(basename "$N1_HOME")
@@ -132,6 +134,20 @@ if command -v jq >/dev/null 2>&1; then
         fi
     fi
 
+    # --- Codex usage extraction via telemetry_codex.py ---
+    CODEX_USAGE_JSON=""
+    CODEX_LINKAGE_JSON=""
+    if [ "$HOST" = "codex" ] && [ -n "$SESSION_TRANSCRIPT" ] && [ -f "$SESSION_TRANSCRIPT" ]; then
+        PY_CODEX=""
+        for cand in python3 python; do
+            if command -v "$cand" >/dev/null 2>&1; then PY_CODEX="$cand"; break; fi
+        done
+        if [ -n "$PY_CODEX" ]; then
+            CODEX_USAGE_JSON=$("$PY_CODEX" "${SCRIPT_DIR}/../lib/telemetry_codex.py" extract-usage "$SESSION_TRANSCRIPT" 2>/dev/null || echo '{}')
+            CODEX_LINKAGE_JSON=$("$PY_CODEX" "${SCRIPT_DIR}/../lib/telemetry_codex.py" extract-linkage "$SESSION_TRANSCRIPT" 2>/dev/null || echo '{}')
+        fi
+    fi
+
     # --- Parse each transcript file ---
     AGENTS_JSON=$(echo "$AGENTS_RAW" | jq --argjson steps "$STEPS_JSON" --argjson smap "$STATIC_MAP" '
         [.[] | . as $agent |
@@ -165,71 +181,93 @@ if command -v jq >/dev/null 2>&1; then
                 tool_calls: null,
                 tools_used: null,
                 parse_error: null,
+                host: null,
+                usage_status: null,
                 _transcript_path: $agent.transcript_path
             }
         ]
     ' 2>/dev/null || echo "[]")
 
-    AGENT_COUNT=$(echo "$AGENTS_JSON" | jq 'length')
-    for i in $(seq 0 $((AGENT_COUNT - 1))); do
-        TPATH=$(echo "$AGENTS_JSON" | jq -r ".[$i]._transcript_path // empty")
-        AID=$(echo "$AGENTS_JSON" | jq -r ".[$i].agent_id // empty")
-        # Prefer the subagent's own transcript over the parent session transcript
-        # (events recorded before the agent-stop hook resolved per-agent paths).
-        case "$TPATH" in
-            *"/subagents/"*) : ;;
-            *)  if [ -n "$TPATH" ] && [ -n "$AID" ]; then
-                    CAND="${TPATH%.jsonl}/subagents/agent-${AID}.jsonl"
-                    [ -f "$CAND" ] && TPATH="$CAND"
-                fi ;;
-        esac
-        if [ -n "$TPATH" ] && [ -f "$TPATH" ]; then
-            TRANSCRIPT_DATA=$(jq -s '
-                [.[] | select(.type == "assistant" and .message)] |
-                {
-                    model: (map(.message.model // empty) | first // null),
-                    input_tokens: (map(.message.usage.input_tokens // 0) | add // 0),
-                    output_tokens: (map(.message.usage.output_tokens // 0) | add // 0),
-                    cache_read_tokens: (map(.message.usage.cache_read_input_tokens // 0) | add // 0),
-                    cache_creation_tokens: (map(.message.usage.cache_creation_input_tokens // 0) | add // 0),
-                    api_calls: length,
-                    tool_calls: ([.[] | .message.content[]? | select(.type == "tool_use")] | length),
-                    tools_used: ([.[] | .message.content[]? | select(.type == "tool_use") | .name] | group_by(.) | map({(.[0]): length}) | add // {})
-                }
-            ' "$TPATH" 2>/dev/null || echo '{"parse_error":"transcript_parse_failed"}')
+    if [ "$HOST" != "codex" ]; then
+        AGENT_COUNT=$(echo "$AGENTS_JSON" | jq 'length')
+        for i in $(seq 0 $((AGENT_COUNT - 1))); do
+            TPATH=$(echo "$AGENTS_JSON" | jq -r ".[$i]._transcript_path // empty")
+            AID=$(echo "$AGENTS_JSON" | jq -r ".[$i].agent_id // empty")
+            # Prefer the subagent's own transcript over the parent session transcript
+            # (events recorded before the agent-stop hook resolved per-agent paths).
+            case "$TPATH" in
+                *"/subagents/"*) : ;;
+                *)  if [ -n "$TPATH" ] && [ -n "$AID" ]; then
+                        CAND="${TPATH%.jsonl}/subagents/agent-${AID}.jsonl"
+                        [ -f "$CAND" ] && TPATH="$CAND"
+                    fi ;;
+            esac
+            if [ -n "$TPATH" ] && [ -f "$TPATH" ]; then
+                TRANSCRIPT_DATA=$(jq -s '
+                    [.[] | select(.type == "assistant" and .message)] |
+                    {
+                        model: (map(.message.model // empty) | first // null),
+                        input_tokens: (map(.message.usage.input_tokens // 0) | add // 0),
+                        output_tokens: (map(.message.usage.output_tokens // 0) | add // 0),
+                        cache_read_tokens: (map(.message.usage.cache_read_input_tokens // 0) | add // 0),
+                        cache_creation_tokens: (map(.message.usage.cache_creation_input_tokens // 0) | add // 0),
+                        api_calls: length,
+                        tool_calls: ([.[] | .message.content[]? | select(.type == "tool_use")] | length),
+                        tools_used: ([.[] | .message.content[]? | select(.type == "tool_use") | .name] | group_by(.) | map({(.[0]): length}) | add // {})
+                    }
+                ' "$TPATH" 2>/dev/null || echo '{"parse_error":"transcript_parse_failed"}')
 
-            AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" --argjson td "$TRANSCRIPT_DATA" '
-                .[$idx] |= (
-                    if $td.parse_error then . + {parse_error: $td.parse_error}
-                    else . + {
-                        model: $td.model,
-                        input_tokens: $td.input_tokens,
-                        output_tokens: $td.output_tokens,
-                        cache_read_tokens: $td.cache_read_tokens,
-                        cache_creation_tokens: $td.cache_creation_tokens,
-                        api_calls: $td.api_calls,
-                        tool_calls: $td.tool_calls,
-                        tools_used: $td.tools_used
-                    } end
-                )
-            ')
-        elif [ -n "$TPATH" ]; then
-            AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" '
-                .[$idx].parse_error = "transcript_not_found"
-            ')
-        else
-            # No transcript path at all — check if agent ever completed
-            COMPLETED=$(echo "$AGENTS_JSON" | jq -r ".[$i].completed_at // empty")
-            if [ -z "$COMPLETED" ]; then
-                AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" '
-                    .[$idx].parse_error = "agent_never_finished"
+                AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" --argjson td "$TRANSCRIPT_DATA" '
+                    .[$idx] |= (
+                        if $td.parse_error then . + {parse_error: $td.parse_error}
+                        else . + {
+                            model: $td.model,
+                            input_tokens: $td.input_tokens,
+                            output_tokens: $td.output_tokens,
+                            cache_read_tokens: $td.cache_read_tokens,
+                            cache_creation_tokens: $td.cache_creation_tokens,
+                            api_calls: $td.api_calls,
+                            tool_calls: $td.tool_calls,
+                            tools_used: $td.tools_used
+                        } end
+                    )
                 ')
+            elif [ -n "$TPATH" ]; then
+                AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" '
+                    .[$idx].parse_error = "transcript_not_found"
+                ')
+            else
+                # No transcript path at all — check if agent ever completed
+                COMPLETED=$(echo "$AGENTS_JSON" | jq -r ".[$i].completed_at // empty")
+                if [ -z "$COMPLETED" ]; then
+                    AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" '
+                        .[$idx].parse_error = "agent_never_finished"
+                    ')
+                fi
             fi
-        fi
-    done
+        done
+    else
+        # Codex: per-agent usage unavailable; mark all agents as unknown
+        AGENT_COUNT=$(echo "$AGENTS_JSON" | jq 'length')
+        for i in $(seq 0 $((AGENT_COUNT - 1))); do
+            AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --argjson idx "$i" '
+                .[$idx].usage_status = "unknown" | .[$idx].host = "codex"
+            ')
+        done
+    fi
 
     # Remove internal _transcript_path field
     AGENTS_JSON=$(echo "$AGENTS_JSON" | jq '[.[] | del(._transcript_path)]')
+
+    # Inject host and usage_status for Claude runs
+    if [ "$HOST" != "codex" ]; then
+        AGENTS_JSON=$(echo "$AGENTS_JSON" | jq --arg h "$HOST" '
+            [.[] | .host = $h |
+             .usage_status = (if .parse_error then "unknown"
+                             elif .input_tokens != null then "complete"
+                             else "unknown" end)]
+        ')
+    fi
 
     # --- Parse orchestrator (parent session) transcript ---
     ORCHESTRATOR_JSON="null"
@@ -338,6 +376,47 @@ if command -v jq >/dev/null 2>&1; then
         }
     ')
 
+    # Determine usage scope and status
+    if [ -n "$CODEX_USAGE_JSON" ] && [ "$CODEX_USAGE_JSON" != "{}" ]; then
+        USAGE_SCOPE=$(echo "$CODEX_USAGE_JSON" | jq -r '.usage_scope // "session-total"')
+        USAGE_STATUS=$(echo "$CODEX_USAGE_JSON" | jq -r '.usage_status // "unknown"')
+        CLI_VERSION=$(echo "$CODEX_USAGE_JSON" | jq -r '.cli_version // empty')
+    else
+        USAGE_SCOPE="per-agent"
+        HAS_TOKENS=$(echo "$AGENTS_JSON" | jq '[.[] | select(.input_tokens != null)] | length')
+        if [ "$HAS_TOKENS" -gt 0 ]; then USAGE_STATUS="complete"; else USAGE_STATUS="unknown"; fi
+        CLI_VERSION=""
+    fi
+
+    # Build session linkage
+    if [ -n "$CODEX_LINKAGE_JSON" ] && [ "$CODEX_LINKAGE_JSON" != "{}" ]; then
+        SESSION_LINKAGE="$CODEX_LINKAGE_JSON"
+    else
+        SESSION_LINKAGE=$(jq -n --arg sid "$(echo "$RUN_ENVELOPE" | jq -r '.session_id // empty')" \
+            '{session_id: $sid, parent_id: null, fork_of: null, reused_from: null}')
+    fi
+
+    # Override summary for Codex session-total usage
+    if [ -n "$CODEX_USAGE_JSON" ] && [ "$CODEX_USAGE_JSON" != "{}" ]; then
+        CODEX_HAS_USAGE=$(echo "$CODEX_USAGE_JSON" | jq '.input_tokens != null')
+        if [ "$CODEX_HAS_USAGE" = "true" ]; then
+            SUMMARY=$(echo "$SUMMARY" | jq --argjson cu "$CODEX_USAGE_JSON" '
+                .total_input_tokens = $cu.input_tokens |
+                .total_output_tokens = $cu.output_tokens |
+                .total_cache_read_tokens = $cu.cached_input_tokens |
+                .total_reasoning_tokens = $cu.reasoning_tokens |
+                .codex_model = $cu.model
+            ')
+        else
+            # Usage unknown — null, not zero
+            SUMMARY=$(echo "$SUMMARY" | jq '
+                .total_input_tokens = null |
+                .total_output_tokens = null |
+                .total_cache_read_tokens = null
+            ')
+        fi
+    fi
+
     # --- Assemble final record ---
     jq -n -c \
         --argjson envelope "$RUN_ENVELOPE" \
@@ -347,13 +426,24 @@ if command -v jq >/dev/null 2>&1; then
         --argjson decisions "$DECISIONS_JSON" \
         --argjson outcomes "$OUTCOMES_JSON" \
         --argjson orchestrator "$ORCHESTRATOR_JSON" \
+        --argjson linkage "$SESSION_LINKAGE" \
         --arg run_id "$RUN_ID" \
         --arg n1_version "$N1_VERSION" \
         --arg project "$PROJECT_NAME" \
         --arg session_transcript "${SESSION_TRANSCRIPT:-}" \
+        --arg host "$HOST" \
+        --arg cli_version "$CLI_VERSION" \
+        --arg usage_status "$USAGE_STATUS" \
+        --arg usage_scope "$USAGE_SCOPE" \
         '{
-            schema_version: 3,
+            schema_version: 4,
             run_id: $run_id,
+            host: $host,
+            cli_version: (if $cli_version == "" then null else $cli_version end),
+            parser_schema_version: 4,
+            usage_status: $usage_status,
+            usage_scope: $usage_scope,
+            session_linkage: $linkage,
             session_id: ($envelope.session_id // null),
             session_transcript_path: (if $session_transcript == "" then null else $session_transcript end),
             n1_version: $n1_version,
@@ -385,11 +475,11 @@ else
         fi
     done
     if [ -n "$PY" ] && "$PY" "${SCRIPT_DIR}/telemetry-merge.py" "$RUN_ID" "$TELEM_DIR" \
-            --n1-version "$N1_VERSION" --project "$PROJECT_NAME" 2>/dev/null; then
+            --n1-version "$N1_VERSION" --project "$PROJECT_NAME" --host "$HOST" 2>/dev/null; then
         echo "telemetry-merge: jq not available, merged via python fallback" >&2
     else
         # Neither jq nor python — write a minimal record with raw file references
-        echo "{\"schema_version\":3,\"run_id\":\"${RUN_ID}\",\"project\":\"${PROJECT_NAME}\",\"n1_version\":\"${N1_VERSION}\",\"ticket_id\":\"${TICKET_ID}\",\"parse_error\":\"jq_not_available\",\"raw_steps\":\"${STEPS_FILE}\",\"raw_agents\":\"${AGENTS_FILE}\"}" > "$OUT_FILE"
+        echo "{\"schema_version\":4,\"run_id\":\"${RUN_ID}\",\"host\":\"${HOST}\",\"project\":\"${PROJECT_NAME}\",\"n1_version\":\"${N1_VERSION}\",\"ticket_id\":\"${TICKET_ID}\",\"parse_error\":\"jq_not_available\",\"raw_steps\":\"${STEPS_FILE}\",\"raw_agents\":\"${AGENTS_FILE}\"}" > "$OUT_FILE"
         echo "telemetry-merge: jq and python not available, wrote minimal record" >&2
     fi
 fi
