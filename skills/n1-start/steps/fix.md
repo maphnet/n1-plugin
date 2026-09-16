@@ -6,6 +6,13 @@ source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"
 n1_step_begin "fix" 10; DEVELOPER_MODEL=$(n1_resolve_model developer fix); QE=$(n1_autonomy_val 'qualityEscalations')
 ```
 
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"; N1_HOME=$(n1_home)
+PRE_FIX_SHA=$(git rev-parse HEAD)
+echo "$PRE_FIX_SHA" > "$N1_HOME/memory/$ID/pre-fix-sha"
+```
+
 Run **Ensure Dependencies(`<ID>`)** before spawning.
 
 **FAIL:** spawn developer `$DEVELOPER_MODEL`; pass Critical+High findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
@@ -16,7 +23,15 @@ After developer returns:
 ```bash
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 ```
-Emit: `<ID> · review fix cycle <N>/<MAX>`. Return to Step 7. Bound: `review.maxFixAttempts` (default 3).
+
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/config.sh"; N1_HOME=$(n1_home)
+PRE_FIX_SHA=$(cat "$N1_HOME/memory/$ID/pre-fix-sha" 2>/dev/null || echo "HEAD~1")
+FIX_CHANGED=$(git diff --name-only "$PRE_FIX_SHA" HEAD)
+echo "$FIX_CHANGED" > "$N1_HOME/memory/$ID/fix-changed-files"
+```
+Emit: `<ID> · review fix cycle <N>/<MAX>`. Return to Step 7. Bound: `review.maxFixAttempts` (default 2).
 
 **Escalation:** `QE==auto-accept` AND not security/architecture/public-API: take recommended action, append Decision Ledger row `| fix | quality | A | [auto] | <ambiguity> | Accept developer resolution, proceed | Ask, Abort | qualityEscalations=auto-accept | --- |`. Otherwise: resolution ladder (codebase→web→command+default→prior decisions). If all fail:
 ```bash
