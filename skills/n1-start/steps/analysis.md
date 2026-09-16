@@ -32,9 +32,7 @@ echo "LITE_MODE=$LITE_MODE CACHE_STATE=$CACHE_STATE"
 
 Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
-**Spawn SA** (context `analysis`): scratch `$N1_HOME/memory/<ID>/tests/`; unknown A=`<!-- n1:unknown: -->` B=codebase→web→cmd C=silent; investigation→analyze question; lite→touched files+callers ≤300w, `LITE_ESCALATED:<reason>` if ≥3/cross-module/security/API. Write analysis.md (Bash heredoc); return `n1:signals tier: [SNAPSHOT_DRIFT:]`+summary. Cold/stale+cache+non-lite: write project map `<PROJECT_MAP_PATH>` (## Modules, ## API Surface, ## Exports & Shared Types, ## Integration Points, ## Key Files; 300-500 tokens). Append `$RULES_BLOCK`.
-
-**Cold/stale:** use `agents/research-standards.md`. Cache: `## [PROJECT]`+`## [TICKET]`; persist [PROJECT] via `n1_snapshot_write`.
+**Spawn SA** (context `analysis`): scratch `$N1_HOME/memory/<ID>/tests/`; unknowns use codebase→web→cmd; investigation analyzes its question; lite→touched files+callers ≤300w, `LITE_ESCALATED:<reason>` if ≥3/cross-module/security/API. Write analysis.md; return `n1:signals`, tier, optional `SNAPSHOT_DRIFT`, summary, `$RULES_BLOCK`. Cold/stale+cache+non-lite writes a 300–500-token project map (Modules, API, Exports/Types, Integration, Key Files), uses `agents/research-standards.md`, and caches `[PROJECT]`/`[TICKET]` with `n1_snapshot_write`.
 
 **Fresh:**
 ```bash
@@ -44,7 +42,7 @@ SNAPSHOT_BODY=$(n1_snapshot_read_body "$SNAPSHOT_PATH"); SNAPSHOT_SHA=$(n1_read_
 ```
 Spawn SA: "SNAPSHOT (age:{SNAPSHOT_AGE_RAW} sha:{SNAPSHOT_SHA}): {SNAPSHOT_BODY}\n\nAnalyze ticket. No re-scan. Flag SNAPSHOT_DRIFT:<desc>. Write [TICKET]. {directives}"
 
-**Observability** (skip if LITE): append provider sources; bugs: `### Observability Findings`; append `$RELATED_CONTEXT`.
+**Observability** (skip if LITE): append provider sources, bug findings, `$RELATED_CONTEXT`.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
@@ -95,27 +93,9 @@ fi
 [ -s "$XREPO_PENDING_FILE" ] && { printf '\nSA detected cross-repo integrations:\n'; awk -F'\t' '{printf "- %s: %s\n",$1,$2}' "$XREPO_PENDING_FILE"; printf '\nAdd? (yes/no/select)\n'; }
 ```
 
-**Contradiction gate:** When `CONTRADICTIONS` > 0, present the `### Ticket Validation` section from analysis.md to the user:
+**Contradiction gate:** if `CONTRADICTIONS>0` and claims are verified, show `### Ticket Validation` and ask: Continue as-is, or Redirect (Recommended, with cited sources). Record `| analysis | scope | A | [asked] | Ticket contradictions found: {CONTRADICTIONS} | {user choice} | {other option} | {reasoning} | codebase,web |`. Otherwise skip. Headless uses `procedures/autonomy-headless.md` Headless Guard. Missing output re-prompts once then writes summary; drift deletes snapshot; write tier/context, print Gate 1, ledger self-resolution, and mark Analysis complete.
 
-```
-SA found {CONTRADICTIONS} ticket claim(s) that conflict with current best practices:
-
-{Ticket Validation section content}
-
-Options:
-1. Continue as-is — proceed with the ticket's original direction
-2. Redirect (Recommended — SA found web-validated contradictions with cited sources) — update the approach based on these findings before continuing
-```
-
-Record the decision: append a ledger row to overview.md: `| analysis | scope | A | [asked] | Ticket contradictions found: {CONTRADICTIONS} | {user choice} | {other option} | {user reasoning or "acknowledged"} | codebase,web |`.
-
-When `CONTRADICTIONS` = 0: skip silently, no gate. When web search was unavailable (all claims "unable to verify"): skip silently.
-
-**Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md` Headless Guard.
-
-Missing/empty: re-prompt once; fallback write summary. DRIFT: delete snapshot. Extract `tier:` → write frontmatter. `CONTEXT_BLOCK` → replace `## Context`; **Print Gate 1** (`SIMPLE_PATH=true`: pipeline shows `analysis → developer → qa → review → pr (simple-path)`). `SELF_RESOLVED>0`: `[auto]` ledger. Update overview: `[x] Analysis`, `step: analysis`.
-
-Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":**
+Interactive non-auto XREPO approval (`yes`):
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/related.sh"; XREPO_PENDING_FILE="$N1_HOME/memory/$ID/xrepo-pending.tsv"
@@ -126,7 +106,7 @@ while IFS=$'\t' read -r xr_slug xr_reason; do [ -z "$xr_slug" ] && continue
     printf '| analysis | scope | B | [asked] | New integration with %s detected by SA | Added | Not added | User approved: %s | codebase |\n' "$xr_slug" "$xr_reason_cell" >> "$N1_HOME/memory/$ID/overview.md"
 done < "$XREPO_PENDING_FILE"
 ```
-**"select":** add approved. **"no":** `[asked]` row. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+`select`: add approved; `no`: `[asked]` row; headless uses its guard.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
@@ -152,13 +132,4 @@ if [ "${N1_HEADLESS:-0}" = "1" ] && [ -n "${N1_STORY_ID:-}" ] && [ "$UNKNOWN_COU
     # Decide for me: "decide-for-me" "codebase,web,prescribed"
 fi
 ```
-`UNKNOWN_COUNT=0`: skip. Inherited: emit `[auto]` telemetry+ledger, `### Clarifications`. **Preamble:** `"{Title}: {Core Ask}."` Bug+root-cause: prepend. **Batch** (max 4):
-```
-{PREAMBLE} During analysis, {UNKNOWN_COUNT} unresolved:
-
-1. <unknown> — tried: codebase, web — <why>
-   (Recommended) <recommended>
-
-Answer / "skip" / "Decide for me" / "use recommended" = accept all.
-```
-"Decide for me": search+apply `[auto-decided]`. After: `### Clarifications`.
+`UNKNOWN_COUNT=0`: skip. Inherited unknowns emit `[auto]` telemetry/ledger and `### Clarifications`. Otherwise ask a batch of ≤4 with tried sources and recommendation; answer, skip, Decide for me, or use recommended applies all. Decide-for-me searches and records `[auto-decided]`.

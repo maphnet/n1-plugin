@@ -2,14 +2,7 @@
 
 ## Post-Compaction Recovery
 
-After compaction, ORCHESTRATOR STATE block is injected into `additionalContext` by the session-start hook.
-
-**Must:**
-1. Read ORCHESTRATOR STATE — it is marked "authoritative, overrides any compacted summary."
-2. Use those values for all decisions — tracker type, MCP prefix, worktree, step routing, loop counters.
-3. Do NOT rely on compacted summary for config/routing values.
-4. If `Task context:` non-empty: print **Gate 1** (resume variant from `procedures/output-gates.md § Gate 1`).
-5. If ORCHESTRATOR STATE missing: re-resolve N1_HOME:
+Session-start injects authoritative ORCHESTRATOR STATE; use it, never compacted config/routing values. Nonempty Task context prints resume Gate 1. If missing, re-resolve N1_HOME:
    ```bash
    N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
    source "$N1_ROOT/lib/config.sh"
@@ -27,13 +20,13 @@ N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c '
 source "$N1_ROOT/lib/validation.sh"
 TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
 ```
-`TYPE=="investigation"`: skip workspace isolation. Else run workspace isolation. Read loop counters:
+Investigation skips workspace isolation; otherwise run it. Read counters:
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/frontmatter.sh"
 n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
 ```
-(Repeat for `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, `ci_fix_cycle`.) Print Gate 1 (resume variant). Read `## Context`:
+Repeat for tq/review/clean/local-test/ci counters; print Gate 1 and read Context:
 ```bash
 CONTEXT_SECTION=$(sed -n '/^## Context$/,/^## /{/^## Context$/d;/^## /d;p}' "$N1_HOME/memory/$ID/overview.md")
 ```
@@ -43,9 +36,7 @@ If empty: skip Gate 1 silently. Else populate template from frontmatter and prin
 
 ## Loop-Counter Durability
 
-Loop counters live in overview frontmatter (`qa_fix_cycle`, `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, `ci_fix_cycle`). Increment in file as loop turns; read back on resume.
-
-Overview is single source of truth. Each step writes output file FIRST, then updates `step:`/checkbox LAST. Resume: step is done only if overview says so. Artifact writes are full overwrites — idempotent.
+Overview frontmatter is authoritative for counters and completed steps. Write artifacts before step/checkbox updates; overwrites are idempotent.
 
 **Dependency integrity guard:**
 ```bash

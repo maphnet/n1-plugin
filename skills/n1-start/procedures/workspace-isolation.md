@@ -11,13 +11,7 @@ elif [ "$BRANCH_FLAG" = "true" ] || [ "$WORKTREE_MODE" = "branch" ]; then USE_WO
 else USE_WORKTREE=true; fi
 ```
 
-| Condition | Isolation |
-|---|---|
-| `worktree.mode: external` or auto-detected | External — reuse checkout |
-| `--branch` or `worktree.mode: branch` | Branch in current checkout |
-| Default | Worktree |
-
-`EXTERNAL_WORKTREE=true`: skip Ensure Worktree/Branch; set `WORKTREE_PATH=$(git rev-parse --show-toplevel)`, `BRANCH=$(git branch --show-current)`, record branch-point; `n1_active_run_write`. Procedures are **idempotent**.
+External mode reuses checkout; --branch/branch mode uses current checkout; default uses worktree. External sets root/branch, records branch-point, and writes active run; all procedures are idempotent.
 
 ## Ensure Working Branch (`<ID>`)
 
@@ -38,7 +32,7 @@ git worktree add "$WORKTREE_PATH" <TARGET>
 
 ## Ensure Dependencies (`<ID>`)
 
-Idempotent, marker-guarded. `USE_WORKTREE=false`→return. `SETUP=$(n1_config_val '.worktree.setup')`; empty→return. `.n1-deps-installed` exists→return. `cd "$WORKTREE_PATH" && eval "$SETUP"`; success→`touch ".n1-deps-installed"`; fail→recovery.
+Idempotent, marker-guarded. `USE_WORKTREE=false`→return. `SETUP=$(n1_config_val '.worktree.setup')`; empty→return. `.n1-deps-installed` exists→return. `cd "$WORKTREE_PATH" && eval "$SETUP"`; success→`touch ".n1-deps-installed"`; fail→recovery. Do NOT diagnose or repair the environment inline.
 
 ## Reconcile Memory ID & Branch (`<oldId>`, `<newId>`)
 
