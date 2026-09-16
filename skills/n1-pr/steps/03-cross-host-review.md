@@ -63,7 +63,7 @@ All checks passed.
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/config.sh"
 MECHANICAL=$(n1_autonomy_val 'mechanicalPrompts')
 echo "mechanical=$MECHANICAL"
 ```
@@ -82,7 +82,7 @@ If the user declines, continue the pipeline silently.
 
 ### Dispatch
 
-If the user accepts:
+If the user accepts **or** `mechanical` is `auto`:
 
 ```bash
 PR_NUMBER="<the PR number from step 4>"
