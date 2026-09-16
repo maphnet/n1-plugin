@@ -71,13 +71,17 @@ If the user accepts:
 PR_NUMBER="<the PR number from step 4>"
 PR_URL="<the PR URL from step 4>"
 
-# Capture stderr separately to avoid leaking internal paths or warnings into the PR comment.
-# Capture exit code explicitly; do not use || true (it masks failures).
+# -o writes only the final agent message to a file; stdout gets the full session
+# transcript (hooks, tool calls, reasoning) which can be 100s of KB — discard it.
 CODEX_STDERR=$(mktemp)
-CODEX_OUTPUT=$(codex exec "Review PR ${PR_URL} for correctness, code quality, and potential bugs. Focus on logic errors, edge cases, and maintainability. Output your findings as a structured list." \
-  --dangerously-bypass-approvals-and-sandbox 2>"$CODEX_STDERR")
+CODEX_OUTPUT_FILE=$(mktemp)
+codex exec "Review PR ${PR_URL} for correctness, code quality, and potential bugs. Focus on logic errors, edge cases, and maintainability. Output your findings as a structured list." \
+  --dangerously-bypass-approvals-and-sandbox \
+  -o "$CODEX_OUTPUT_FILE" \
+  2>"$CODEX_STDERR" >/dev/null
 CODEX_RC=$?
-rm -f "$CODEX_STDERR"
+CODEX_OUTPUT=$(<"$CODEX_OUTPUT_FILE")
+rm -f "$CODEX_STDERR" "$CODEX_OUTPUT_FILE"
 ```
 
 Parse `CODEX_OUTPUT`. If `CODEX_RC` is non-zero or `CODEX_OUTPUT` is empty, warn inline ("Codex review did not produce output or failed") and continue the pipeline.
