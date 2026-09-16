@@ -56,6 +56,6 @@ For each confirmed Critical/High: `n1_fingerprint_append "$FP_FILE" "$(n1_finger
 
 No `[TQ-N]` Medium+ → skip. Else spawn **qa-engineer**: TQ findings, qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5." Bounded `tq.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate.
 
-**FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 3). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
+**FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
 
 **PASS:** proceed.

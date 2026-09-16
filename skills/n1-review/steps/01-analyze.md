@@ -144,7 +144,7 @@ fi
 
 On non-convergence (blocking count for cycle N is not less than cycle N-1), escalate to the user rather than burning remaining cycles. Context: "Review findings are not converging."
 
-Maximum 3 review-fix cycles before escalating to user.
+Maximum 2 review-fix cycles before escalating to user.
 
 **If no Critical or High confirmed findings (clean pass):**
 

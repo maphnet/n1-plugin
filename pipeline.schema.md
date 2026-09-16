@@ -67,10 +67,10 @@ Each entry: `{name, trigger_step, trigger_outcome, fix_step, retry_step, counter
 | `retry_step` | string | Step re-run after a fix. |
 | `counter` | string | Frontmatter counter tracked in `overview.md`. |
 | `max_config_key` | string | Dotted config key for the bound. |
-| `max_default` | int | Bound when the key is absent (all four default to 3). |
+| `max_default` | int | Bound when the key is absent (qa, local-testing, and ci default to 3; review defaults to 2). |
 
 `review.maxFixAttempts` is a config key introduced by N1-6 so all four loops are
-uniform; before N1-6 the review loop bound was hardcoded `3`.
+uniform; before N1-6 the review loop bound was hardcoded `3`, now defaults to `2`.
 
 ## Consumers
 

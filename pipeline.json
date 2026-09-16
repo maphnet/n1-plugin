@@ -132,7 +132,7 @@
   ],
   "loops": [
     { "name": "qa_fix",            "trigger_step": "qa",            "trigger_outcome": "fail", "fix_step": "fix",            "retry_step": "qa",            "counter": "qa_fix_cycle",         "max_config_key": "qa.maxFixAttempts",           "max_default": 3 },
-    { "name": "review_fix",        "trigger_step": "review",        "trigger_outcome": "fail", "fix_step": "fix",            "retry_step": "review",        "counter": "review_fix_cycle",     "max_config_key": "review.maxFixAttempts",       "max_default": 3 },
+    { "name": "review_fix",        "trigger_step": "review",        "trigger_outcome": "fail", "fix_step": "fix",            "retry_step": "review",        "counter": "review_fix_cycle",     "max_config_key": "review.maxFixAttempts",       "max_default": 2 },
     { "name": "local_testing_fix", "trigger_step": "local-testing", "trigger_outcome": "fail", "fix_step": "local-test-fix", "retry_step": "local-testing", "counter": "local_test_fix_cycle", "max_config_key": "localTesting.maxFixAttempts", "max_default": 3 },
     { "name": "ci_fix",            "trigger_step": "ci",            "trigger_outcome": "fail", "fix_step": null,             "retry_step": "ci",            "counter": "ci_fix_cycle",         "max_config_key": "ciChecks.maxFixAttempts",     "max_default": 3 }
   ]

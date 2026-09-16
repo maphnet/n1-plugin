@@ -16,7 +16,7 @@ After developer returns:
 ```bash
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 ```
-Emit: `<ID> · review fix cycle <N>/<MAX>`. Return to Step 7. Bound: `review.maxFixAttempts` (default 3).
+Emit: `<ID> · review fix cycle <N>/<MAX>`. Return to Step 7. Bound: `review.maxFixAttempts` (default 2).
 
 **Escalation:** `QE==auto-accept` AND not security/architecture/public-API: take recommended action, append Decision Ledger row `| fix | quality | A | [auto] | <ambiguity> | Accept developer resolution, proceed | Ask, Abort | qualityEscalations=auto-accept | --- |`. Otherwise: resolution ladder (codebase→web→command+default→prior decisions). If all fail:
 ```bash
