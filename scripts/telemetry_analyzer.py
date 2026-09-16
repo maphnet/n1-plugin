@@ -201,12 +201,13 @@ def extract_totals(run: dict) -> dict:
     """
     summary = run.get("summary") or {}
 
-    # Count web searches from agent tools_used maps
+    # Agent and orchestrator tools_used are from separate transcripts
+    # (agent sessions vs orchestrator session), so summing is correct.
     web_searches = 0
     for a in (run.get("agents") or []):
         tools = a.get("tools_used") or {}
         web_searches += tools.get("WebSearch", 0)
-    # Also count from orchestrator steps (list of dicts) and unattributed
+    # Orchestrator steps (list of dicts) and unattributed
     orch = run.get("orchestrator") or {}
     for step_data in (orch.get("steps") or []):
         if isinstance(step_data, dict):
@@ -351,9 +352,9 @@ def aggregate_runs(reports: list[dict]) -> dict:
         durations = [r["total_duration_s"] for r in tier_reports
                      if r.get("total_duration_s") is not None]
         input_tokens = [r["totals"]["input_tokens"] for r in tier_reports
-                        if r.get("totals", {}).get("input_tokens")]
+                        if r.get("totals", {}).get("input_tokens") is not None]
         tool_calls = [r["totals"]["tool_calls"] for r in tier_reports
-                      if r.get("totals", {}).get("tool_calls")]
+                      if r.get("totals", {}).get("tool_calls") is not None]
         cache_effs = [r["totals"]["cache_efficiency"] for r in tier_reports
                       if r.get("totals", {}).get("cache_efficiency") is not None]
         agent_counts = [r["totals"]["agent_spawns"] for r in tier_reports]
@@ -376,7 +377,7 @@ def aggregate_runs(reports: list[dict]) -> dict:
             if s.get("duration_s") is not None:
                 step_durations.setdefault(name, []).append(s["duration_s"])
             tokens_in = s.get("tokens", {}).get("input", 0)
-            if tokens_in:
+            if tokens_in is not None:
                 step_tokens.setdefault(name, []).append(tokens_in)
 
     step_stats = {}
@@ -427,9 +428,13 @@ def classify_bash_command(command: str) -> str:
         return "other"
     # Strip leading env vars, sudo, nice, etc.
     cmd = command.strip()
-    for prefix in ("sudo ", "nice ", "nohup ", "env "):
-        if cmd.startswith(prefix):
-            cmd = cmd[len(prefix):]
+    changed = True
+    while changed:
+        changed = False
+        for prefix in ("sudo ", "nice ", "nohup ", "env "):
+            if cmd.startswith(prefix):
+                cmd = cmd[len(prefix):]
+                changed = True
     # Get the first word
     word = cmd.split()[0] if cmd.split() else "other"
     # Strip path prefix (e.g., /usr/bin/git -> git)
