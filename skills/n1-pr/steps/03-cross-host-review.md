@@ -8,7 +8,7 @@ Skip this step entirely (no output) when ANY of these conditions is true:
 - Host is not `claude-code` (check via bash snippet below)
 - `crossHostReview.enabled` is explicitly `false` in config (default: `true` when absent)
 - `codex` CLI is not installed (`command -v codex` fails)
-- Codex auth is not available (`codex auth status` exits non-zero AND `OPENAI_API_KEY` env var is empty)
+- Codex auth is not available (`OPENAI_API_KEY` env var is empty AND `codex auth status` exits non-zero AND `~/.codex/auth.json` has no tokens)
 
 ### Gate checks
 
@@ -49,6 +49,11 @@ Auth check (only if above checks pass):
 if [ -n "${OPENAI_API_KEY:-}" ]; then
   echo "codex_auth=yes"
 elif codex auth status >/dev/null 2>&1; then
+  echo "codex_auth=yes"
+elif _auth_file="${CODEX_HOME:-$HOME/.codex}/auth.json" && \
+     [ -f "$_auth_file" ] && \
+     jq -e '.tokens != null and (.tokens | length) > 0' "$_auth_file" >/dev/null 2>&1; then
+  # ChatGPT-based auth: codex auth status exits non-zero but tokens are present
   echo "codex_auth=yes"
 else
   echo "codex_auth=no"
