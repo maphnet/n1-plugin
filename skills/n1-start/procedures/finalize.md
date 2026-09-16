@@ -6,7 +6,10 @@ Update overview.md: all checkboxes checked; `step: done`; add `docs_updated` fie
 
 **Telemetry (if enabled):**
 ```bash
-echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$FINAL_OUTCOME"'","estimated_tier":"'"$ESTIMATED_TIER"'"}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/frontmatter.sh"
+RESOLVED_TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || true)
+echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$FINAL_OUTCOME"'","estimated_tier":"'"$ESTIMATED_TIER"'","type":"'"$RESOLVED_TYPE"'"}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
 ```
 `$FINAL_OUTCOME`: `pr_created`, `escalated`, or `failed`. `$ESTIMATED_TIER`: estimation tier or empty.
 
