@@ -22,3 +22,19 @@ Codex is not used for plan review (Step 4b) — the CCR solution-architect with 
 - **Codex-aware review delegation (v2.11.0):** When Codex is active (enabled, available, and the diff is not doc/config-only), Codex owns whole-diff general correctness and the Claude `code-reviewer` narrows to Test Quality `[TQ-N]` + design-intent only; when Codex is inactive, `code-reviewer` reverts to full scope. `security-reviewer` and Codex are gated by diff surface: doc/config-only diffs skip both (code-reviewer still runs), and `security-reviewer` runs only on security-relevant diffs (biased to run when uncertain). Every skipped reviewer is recorded in `review.md`. Applies to both `n1-start` Step 7 and `n1-review` Phase 2.
 
 **CCR vs brainstorm spec review (N1-42 investigation):** The plan-review CCR step and brainstorm spec review serve complementary purposes. CCR validates the *implementation plan* against codebase reality (assumption checking, scope drift, ordering risks, blast radius) — it reads actual source files via Grep/Read. Brainstorm spec review validates the *design spec* against user intent (completeness, consistency, ambiguity). Both are retained.
+
+### Cross-Host PR Review (v3.12.0)
+
+Optional post-PR review dispatched via `codex exec` after PR creation in the n1-pr pipeline. Claude Code -> Codex direction only (v1).
+
+**Trigger conditions** (all must be true):
+1. `crossHostReview.enabled != false` (default `true`; opt-out)
+2. Host is `claude-code` (via `n1_host()`)
+3. `codex` CLI is installed and authenticated at runtime
+4. `N1_HEADLESS != 1`
+5. PR URL is available from prior step
+
+When triggered: prompts the user, then runs `codex exec` and posts findings via `gh pr comment`. On failure, findings fall back to `$N1_HOME/memory/<ID>/cross-host-review.md`.
+
+**Config key** (in `crossHostReview` block):
+- `crossHostReview.enabled` (boolean, default `true`) -- master gate. Set to `false` to suppress the prompt entirely.
