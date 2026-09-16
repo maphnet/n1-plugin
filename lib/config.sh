@@ -500,6 +500,27 @@ n1_ci_checks_val() {
     esac
 }
 
+n1_cross_host_review_val() {
+    # Usage: n1_cross_host_review_val <key>
+    # Keys: enabled, autoTriage, maxFixAttempts, allowUnattended
+    local key="$1"
+    local file; file=$(n1_config_file)
+    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
+        local v; v=$(jq -r "if .crossHostReview.${key} == null then \"absent\" else (.crossHostReview.${key} | tostring) end" "$file" 2>/dev/null || true)
+        if [ "$v" != "absent" ]; then printf '%s' "$v"; return; fi
+    else
+        local v; v=$(n1_config_val ".crossHostReview.${key}")
+        if [ -n "$v" ]; then printf '%s' "$v"; return; fi
+    fi
+    case "$key" in
+        enabled)          printf 'true' ;;
+        autoTriage)       printf 'false' ;;
+        maxFixAttempts)   printf '1' ;;
+        allowUnattended)  printf 'false' ;;
+        *)                printf '' ;;
+    esac
+}
+
 n1_escalation_val() {
     # Usage: n1_escalation_val <key>
     # Keys: alwaysAskOn, checkpoints
