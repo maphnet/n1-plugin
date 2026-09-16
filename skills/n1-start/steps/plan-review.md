@@ -1,6 +1,13 @@
 
 Run `n1_config_val '.planReview.reviewPlan'` (default: `true`).
 
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
+GATE_ENABLED=$(n1_config_val '.planReview.reviewPlan' 2>/dev/null || echo 'true')
+n1_record_decision plan-review-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"planReview.reviewPlan"}' "enabled=${GATE_ENABLED:-true}"
+```
+
 > The gate key (`planReview.reviewPlan`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
 
 **If `planReview.reviewPlan` is `false`:** skip to checkpoint logic below.
