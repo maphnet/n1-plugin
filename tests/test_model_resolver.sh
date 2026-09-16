@@ -335,8 +335,20 @@ codex_runtime_case() {
 
 test_codex_runtime_precedence() {
     local empty='{"models":{}}' defaults='[agents]\ndefault_subagent_model = "flat-default"\ndefault_subagent_reasoning_effort = "medium"'
-    assert_eq "Opus downgrade translates to Terra" gpt-5.6-terra "$(N1_HOST=codex n1_translate_model codex "$(n1_resolve_tier downgrade opus)")"
-    assert_eq "Sonnet downgrade translates to Luna" gpt-5.6-luna "$(N1_HOST=codex n1_translate_model codex "$(n1_resolve_tier downgrade sonnet)")"
+    # These deliberately exercise resolver exits rather than composing the
+    # tier and translation helpers, so a skipped downgrade trigger is caught.
+    codex_runtime_case "Opus runtime downgrade translates to Terra" "$empty" "$defaults" solution-architect analysis '---\ntype: chore\n---' '' '' gpt-5.6-terra medium
+    local isolated record
+    isolated=$(mktemp -d)
+    mkdir -p "$isolated/plugin" "$isolated/home" "$isolated/codex"
+    ln -s "$REPO_ROOT/agents" "$isolated/plugin/agents"
+    jq '.downgrade_triggers["developer:forced-downgrade"] = {"tier":"downgrade"}' "$REPO_ROOT/pipeline.json" > "$isolated/plugin/pipeline.json"
+    printf '%s\n' "$empty" > "$isolated/home/config.json"
+    printf '%b\n' "$defaults" > "$isolated/codex/config.toml"
+    record=$(CLAUDE_PLUGIN_ROOT="$isolated/plugin" N1_HOST=codex N1_HOME="$isolated/home" ID=CASE CODEX_HOME="$isolated/codex" n1_resolve_agent developer forced-downgrade 2>"$isolated/err") || true
+    assert_eq "Sonnet runtime downgrade translates to Luna" $'gpt-5.6-luna\tmedium' "$record"
+    assert_eq "Sonnet runtime downgrade has no warning" "" "$(<"$isolated/err")"
+    rm -rf "$isolated"
     codex_runtime_case "high blast escalation" "$empty" "$defaults" developer implementation '---\ntype: task\n---' '<!-- n1:signals\nblast_radius: high\n-->' '' gpt-5.6-sol medium
     codex_runtime_case "escalation beats downgrade" "$empty" "$defaults" code-reviewer review '---\ntype: chore\n---' '<!-- n1:signals\nsecurity_relevant: true\nblast_radius: low\n-->' '<!-- n1:signals\nlines_changed: 1\n-->' gpt-5.6-sol medium
     codex_runtime_case "type override runs without signal" "$empty" "$defaults" code-reviewer review '---\ntype: chore\n---' '' '' gpt-5.6-terra medium
