@@ -30,7 +30,7 @@ Optional post-PR review dispatched via `codex exec` after PR creation in the n1-
 **Trigger conditions** (all must be true):
 1. `crossHostReview.enabled != false` (default `true`; opt-out)
 2. Host is `claude-code` (via `n1_host()`)
-3. `codex` CLI is installed and authenticated at runtime
+3. `codex` CLI is installed and authenticated at runtime (`codex login status` exits zero)
 4. `N1_HEADLESS != 1`
 5. PR URL is available from prior step
 

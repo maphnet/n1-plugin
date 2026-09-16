@@ -8,7 +8,7 @@ Skip this step entirely (no output) when ANY of these conditions is true:
 - Host is not `claude-code` (check via bash snippet below)
 - `crossHostReview.enabled` is explicitly `false` in config (default: `true` when absent)
 - `codex` CLI is not installed (`command -v codex` fails)
-- Codex auth is not available (`codex auth status` exits non-zero AND `OPENAI_API_KEY` env var is empty)
+- Codex auth is not available (`codex login status` exits non-zero)
 
 ### Gate checks
 
@@ -46,9 +46,7 @@ If `headless` is `1`, skip silently.
 Auth check (only if above checks pass):
 
 ```bash
-if [ -n "${OPENAI_API_KEY:-}" ]; then
-  echo "codex_auth=yes"
-elif codex auth status >/dev/null 2>&1; then
+if codex login status >/dev/null 2>&1; then
   echo "codex_auth=yes"
 else
   echo "codex_auth=no"
@@ -73,13 +71,17 @@ If the user accepts:
 PR_NUMBER="<the PR number from step 4>"
 PR_URL="<the PR URL from step 4>"
 
-# Capture stderr separately to avoid leaking internal paths or warnings into the PR comment.
-# Capture exit code explicitly; do not use || true (it masks failures).
+# -o writes only the final agent message to a file; stdout gets the full session
+# transcript (hooks, tool calls, reasoning) which can be 100s of KB — discard it.
 CODEX_STDERR=$(mktemp)
-CODEX_OUTPUT=$(codex exec "Review PR ${PR_URL} for correctness, code quality, and potential bugs. Focus on logic errors, edge cases, and maintainability. Output your findings as a structured list." \
-  --dangerously-bypass-approvals-and-sandbox 2>"$CODEX_STDERR")
+CODEX_OUTPUT_FILE=$(mktemp)
+codex exec "Review PR ${PR_URL} for correctness, code quality, and potential bugs. Focus on logic errors, edge cases, and maintainability. Output your findings as a structured list." \
+  --dangerously-bypass-approvals-and-sandbox \
+  -o "$CODEX_OUTPUT_FILE" \
+  2>"$CODEX_STDERR" >/dev/null
 CODEX_RC=$?
-rm -f "$CODEX_STDERR"
+CODEX_OUTPUT=$(<"$CODEX_OUTPUT_FILE")
+rm -f "$CODEX_STDERR" "$CODEX_OUTPUT_FILE"
 ```
 
 Parse `CODEX_OUTPUT`. If `CODEX_RC` is non-zero or `CODEX_OUTPUT` is empty, warn inline ("Codex review did not produce output or failed") and continue the pipeline.
