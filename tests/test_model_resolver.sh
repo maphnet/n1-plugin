@@ -304,11 +304,81 @@ codex_case() {
         n1_resolve_agent "$persona" "$context" "$astra" 2>"$tmp/err") || true
     err=$(<"$tmp/err")
     rm -rf "$tmp"
+    assert_eq "$label combined record" "$expected_model"$'\t'"$expected_effort" "$result"
     assert_eq "$label model" "$expected_model" "${result%%$'\t'*}"
     assert_eq "$label effort" "$expected_effort" "${result#*$'\t'}"
     if [ -n "$expected_err" ]; then
         case "$err" in *"$expected_err"*) assert_eq "$label warning" "$expected_err" "$expected_err";; *) assert_eq "$label warning" "$expected_err" "$err";; esac
+    else
+        assert_eq "$label has no warning" "" "$err"
     fi
+}
+
+codex_runtime_case() {
+    # $1 label $2 config $3 TOML $4 persona $5 context $6 overview $7 analysis
+    # $8 implementation $9 expected model ${10} expected effort
+    local label="$1" config="$2" toml="$3" persona="$4" context="$5" overview="$6" analysis="$7" implementation="$8"
+    local expected_model="$9" expected_effort="${10}" tmp record err
+    tmp=$(mktemp -d)
+    mkdir -p "$tmp/home/memory/CASE" "$tmp/codex"
+    printf '%s\n' "$config" > "$tmp/home/config.json"
+    printf '%b\n' "$toml" > "$tmp/codex/config.toml"
+    printf '%b\n' "$overview" > "$tmp/home/memory/CASE/overview.md"
+    [ -z "$analysis" ] || printf '%b\n' "$analysis" > "$tmp/home/memory/CASE/analysis.md"
+    [ -z "$implementation" ] || printf '%b\n' "$implementation" > "$tmp/home/memory/CASE/implementation.md"
+    record=$(N1_HOST=codex N1_HOME="$tmp/home" ID=CASE CODEX_HOME="$tmp/codex" n1_resolve_agent "$persona" "$context" 2>"$tmp/err") || true
+    err=$(<"$tmp/err")
+    rm -rf "$tmp"
+    assert_eq "$label combined record" "$expected_model"$'\t'"$expected_effort" "$record"
+    assert_eq "$label has no warning" "" "$err"
+}
+
+test_codex_runtime_precedence() {
+    local empty='{"models":{}}' defaults='[agents]\ndefault_subagent_model = "flat-default"\ndefault_subagent_reasoning_effort = "medium"'
+    assert_eq "Opus downgrade translates to Terra" gpt-5.6-terra "$(N1_HOST=codex n1_translate_model codex "$(n1_resolve_tier downgrade opus)")"
+    assert_eq "Sonnet downgrade translates to Luna" gpt-5.6-luna "$(N1_HOST=codex n1_translate_model codex "$(n1_resolve_tier downgrade sonnet)")"
+    codex_runtime_case "high blast escalation" "$empty" "$defaults" developer implementation '---\ntype: task\n---' '<!-- n1:signals\nblast_radius: high\n-->' '' gpt-5.6-sol medium
+    codex_runtime_case "escalation beats downgrade" "$empty" "$defaults" code-reviewer review '---\ntype: chore\n---' '<!-- n1:signals\nsecurity_relevant: true\nblast_radius: low\n-->' '<!-- n1:signals\nlines_changed: 1\n-->' gpt-5.6-sol medium
+    codex_runtime_case "type override runs without signal" "$empty" "$defaults" code-reviewer review '---\ntype: chore\n---' '' '' gpt-5.6-terra medium
+}
+
+test_n1_model_for_astra_policy() {
+    local tmp model err
+    tmp=$(mktemp -d)
+    mkdir -p "$tmp/home" "$tmp/codex"
+    printf '%s\n' '{"models":{"developer":{"codex":"gpt-6-astra"}}}' > "$tmp/home/config.json"
+    model=$(N1_HOST=codex N1_HOME="$tmp/home" ID=CASE CODEX_HOME="$tmp/codex" n1_model_for developer 2>"$tmp/err") || true
+    err=$(<"$tmp/err")
+    rm -rf "$tmp"
+    assert_eq "n1_model_for rejects context-free Astra" "gpt-5.6-terra" "$model"
+    case "$err" in *"ineligible gpt-6-astra override"*) assert_eq "n1_model_for warns on rejected Astra" present present;; *) assert_eq "n1_model_for warns on rejected Astra" present "$err";; esac
+}
+
+test_astra_cycles_and_missing_defaults() {
+    local tmp record err cycle model
+    tmp=$(mktemp -d)
+    mkdir -p "$tmp/home/memory/CASE" "$tmp/codex"
+    record=$(N1_HOST=codex N1_HOME="$tmp/home" ID=CASE CODEX_HOME="$tmp/codex" n1_resolve_agent planner 2>"$tmp/err") || true
+    assert_eq "missing config and defaults use known mapping" $'gpt-5.6-sol\tmedium' "$record"
+    assert_eq "missing config and defaults have no warning" "" "$(<"$tmp/err")"
+    printf '%s\n' '{"models":{"developer":{"codex":"gpt-6-astra"}}}' > "$tmp/home/config.json"
+    for cycle in 0 1 2; do
+        printf -- '---\nreview_fix_cycle: %s\n---\n' "$cycle" > "$tmp/home/memory/CASE/overview.md"
+        model=$(N1_HOST=codex N1_HOME="$tmp/home" ID=CASE CODEX_HOME="$tmp/codex" n1_resolve_model developer fix failed-fix-escalation 2>"$tmp/err") || true
+        err=$(<"$tmp/err")
+        if [ "$cycle" -lt 2 ]; then
+            assert_eq "failed-fix cycle $cycle falls back" gpt-5.6-terra "$model"
+            case "$err" in *"ineligible gpt-6-astra override"*) assert_eq "failed-fix cycle $cycle warns" present present;; *) assert_eq "failed-fix cycle $cycle warns" present "$err";; esac
+        else
+            assert_eq "failed-fix cycle 2 accepts Astra" gpt-6-astra "$model"
+            assert_eq "failed-fix cycle 2 has no warning" "" "$err"
+        fi
+    done
+    printf '%s\n' '{"models":{}}' > "$tmp/home/config.json"
+    model=$(N1_HOST=codex N1_HOME="$tmp/home" ID=CASE CODEX_HOME="$tmp/codex" n1_resolve_model developer review final-whole-branch-review 2>"$tmp/err") || true
+    assert_eq "eligibility alone does not select Astra" gpt-5.6-terra "$model"
+    assert_eq "eligibility alone has no warning" "" "$(<"$tmp/err")"
+    rm -rf "$tmp"
 }
 
 test_tier_aware_codex() {
@@ -322,13 +392,19 @@ test_tier_aware_codex() {
     assert_eq "minimal tier translates to Luna" "gpt-5.6-luna" "$(N1_HOST=codex n1_translate_model codex "$(n1_resolve_tier minimal sonnet)")"
     codex_case "non-Astra override" '{"models":{"developer":{"codex":{"model":"custom-model","reasoning_effort":"high"}}}}' "$defaults" developer implementation "" custom-model high ""
     codex_case "explicit low clamps" '{"models":{"developer":{"codex":{"reasoning_effort":"low"}}}}' "$defaults" developer "" "" gpt-5.6-terra medium "below policy floor 'medium'"
+    codex_case "global low clamps" "$empty" '[agents]\ndefault_subagent_model = "flat-default"\ndefault_subagent_reasoning_effort = "low"' developer "" "" gpt-5.6-terra medium "below policy floor 'medium'"
+    codex_case "global high remains high" "$empty" '[agents]\ndefault_subagent_model = "flat-default"\ndefault_subagent_reasoning_effort = "high"' developer "" "" gpt-5.6-terra high ""
     codex_case "unknown effort clamps" '{"models":{"developer":{"codex":{"reasoning_effort":"odd"}}}}' "$defaults" developer "" "" gpt-5.6-terra medium "unsupported Codex effort 'odd'"
     codex_case "ineligible Astra falls back" '{"models":{"developer":{"codex":"gpt-6-astra"}}}' "$defaults" developer "" "" gpt-5.6-terra medium "ineligible gpt-6-astra override"
+    codex_case "unknown Astra context falls back" '{"models":{"developer":{"codex":"gpt-6-astra"}}}' "$defaults" developer review unknown-context gpt-5.6-terra medium "ineligible gpt-6-astra override"
     codex_case "eligible final review retains Astra" '{"models":{"developer":{"codex":"gpt-6-astra"}}}' "$defaults" developer review final-whole-branch-review gpt-6-astra medium ""
     codex_case "eligible architecture retains Astra" '{"models":{"developer":{"codex":"gpt-6-astra"}}}' "$defaults" developer brainstorm architecture-adjudication gpt-6-astra medium ""
     codex_case "unknown role uses CLI default" "$empty" "$defaults" no-such-persona "" "" gpt-5.6-terra medium ""
 }
 test_tier_aware_codex
+test_codex_runtime_precedence
+test_n1_model_for_astra_policy
+test_astra_cycles_and_missing_defaults
 
 echo "---"
 echo "$PASS passed, $FAIL failed"

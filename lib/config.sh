@@ -226,10 +226,10 @@ _n1_model_override() {
 n1_model_for() {
     # Usage: n1_model_for <persona> — the model to spawn this persona with on the current host.
     local persona="$1" v role
-    v=$(_n1_model_override "$persona")
-    if [ -n "$v" ]; then printf '%s' "$v"; return; fi
     role=$(_n1_known_role "$persona")
     if [ -n "$role" ]; then n1_resolve_model "$persona"; return; fi
+    v=$(_n1_model_override "$persona")
+    if [ -n "$v" ]; then printf '%s' "$v"; return; fi
     if [ "$(n1_host)" = "codex" ]; then n1_codex_default default_subagent_model; return; fi
     printf 'sonnet'
 }
