@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "n1",
-      "version": "3.15.2",
+      "version": "3.16.0",
       "source": {
         "source": "local",
         "path": "./"
@@ -17,5 +17,6 @@
       },
       "category": "Developer Tools"
     }
-  ]
+  ],
+  "version": "3.16.0"
 }
