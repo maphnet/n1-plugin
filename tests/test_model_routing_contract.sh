@@ -19,6 +19,7 @@ has "Codex session routing uses the combined resolver" "n1_resolve_agent <name> 
 has "Codex session routing treats the combined result as authoritative" "tab-separated model/effort result is authoritative" hooks/session-start.sh
 has "final review names its canonical Astra context" "final-whole-branch-review" skills/n1-review/steps/01-analyze.md
 has "final review requires verified QA evidence" "Verdict: PASS" skills/n1-review/steps/01-analyze.md
+has "final review recognizes the documented verdict heading" "grep -q '^### Verdict: PASS'" skills/n1-review/steps/01-analyze.md
 advisory_has "advisory review uses the combined resolver" "n1_resolve_agent code-reviewer review"
 advisory_has "advisory review explicitly omits Astra context" "Advisory PR review always omits the third Astra-context argument"
 advisory_has "advisory verifier uses the combined resolver" 'Resolve the adversarial verifier with `n1_resolve_agent code-reviewer review`'
@@ -39,6 +40,7 @@ has "init documents the Sonnet-to-Terra baseline" 'Sonnet roles resolve to `gpt-
 has "init documents the Haiku-to-Luna baseline" 'Haiku roles resolve to `gpt-5.6-luna`' skills/n1-init/steps/12-models.md
 has "init documents the Codex medium effort floor" "medium effort floor" skills/n1-init/steps/12-models.md
 has "init documents explicit low clamping with a warning" 'warns and resolves to `medium`' skills/n1-init/steps/12-models.md
+has "init presents neutral recommendation for equivalent Codex choices" "No recommendation. The options are equivalent given the available evidence; select based on team preference." skills/n1-init/steps/12-models.md
 has "host routing documents exact model precedence" "override > escalation > downgrade > task type > baseline" references/host-routing.md
 has "host routing documents effort precedence" "explicit persona/host effort > global Codex default" references/host-routing.md
 has "host routing documents effort fallback and floor" "frontmatter >" references/host-routing.md

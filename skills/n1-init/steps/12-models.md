@@ -26,6 +26,7 @@ For the customization prompt, show each persona's resolved model/effort pair for
 
 ```
 Persona models for Codex (resolved defaults shown per persona):
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
   1 — Keep defaults for all personas
   2 — Override some (enter `persona=model[/effort]`, e.g. code-reviewer=gpt-5.6-sol/high)
 ```

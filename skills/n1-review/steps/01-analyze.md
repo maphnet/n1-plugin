@@ -55,7 +55,7 @@ N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c '
 source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/frontmatter.sh"
 QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified")
 REVIEW_ASTRA_CONTEXT=""
-if [ "$QA_UNVERIFIED" != true ] && grep -q '^Verdict: PASS' "$N1_HOME/memory/$ID/qa.md" && grep -q '^### Evidence' "$N1_HOME/memory/$ID/qa.md"; then
+if [ "$QA_UNVERIFIED" != true ] && grep -q '^### Verdict: PASS' "$N1_HOME/memory/$ID/qa.md" && grep -q '^### Evidence' "$N1_HOME/memory/$ID/qa.md"; then
     REVIEW_ASTRA_CONTEXT=final-whole-branch-review
 fi
 if [ -n "$REVIEW_ASTRA_CONTEXT" ]; then

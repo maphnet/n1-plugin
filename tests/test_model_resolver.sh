@@ -366,6 +366,18 @@ test_n1_model_for_astra_policy() {
     case "$err" in *"ineligible gpt-6-astra override"*) assert_eq "n1_model_for warns on rejected Astra" present present;; *) assert_eq "n1_model_for warns on rejected Astra" present "$err";; esac
 }
 
+test_claude_astra_override_preserves_host_precedence() {
+    local tmp model err
+    tmp=$(mktemp -d)
+    mkdir -p "$tmp/home"
+    printf '%s\n' '{"models":{"developer":{"claude-code":"gpt-6-astra"}}}' > "$tmp/home/config.json"
+    model=$(N1_HOST=claude-code N1_HOME="$tmp/home" ID=CASE n1_resolve_model developer review 2>"$tmp/err") || true
+    err=$(<"$tmp/err")
+    rm -rf "$tmp"
+    assert_eq "Claude Astra override keeps host precedence" "gpt-6-astra" "$model"
+    assert_eq "Claude Astra override has no Codex eligibility warning" "" "$err"
+}
+
 test_astra_cycles_and_missing_defaults() {
     local tmp record err cycle model
     tmp=$(mktemp -d)
@@ -416,6 +428,7 @@ test_tier_aware_codex() {
 test_tier_aware_codex
 test_codex_runtime_precedence
 test_n1_model_for_astra_policy
+test_claude_astra_override_preserves_host_precedence
 test_astra_cycles_and_missing_defaults
 
 echo "---"

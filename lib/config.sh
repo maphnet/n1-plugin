@@ -273,7 +273,7 @@ n1_resolve_model() {
     # 1. Config override (always wins); host-keyed objects resolve to the current host's value
     override=$(_n1_model_override "$agent_name")
     if [ -n "$override" ]; then
-        if [ "$override" != "gpt-6-astra" ]; then printf '%s' "$override"; return; fi
+        if [ "$(n1_host)" != "codex" ] || [ "$override" != "gpt-6-astra" ]; then printf '%s' "$override"; return; fi
         if _n1_astra_eligible "$astra_context"; then printf '%s' "$override"; return; fi
         _n1_warn_ineligible_astra "$agent_name" "$astra_context"
     fi
