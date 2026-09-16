@@ -24,11 +24,13 @@ git merge-base --is-ancestor origin/${DEFAULT_BRANCH} HEAD
 git rebase origin/${DEFAULT_BRANCH}
 ```
 
-**If rebase succeeds (exit 0):** Branch is clean. Proceed to push using `--force-with-lease` (required because rebase rewrites history):
+**If rebase succeeds (exit 0):** Branch is clean. Push using `--force-with-lease` (required because rebase rewrites history):
 
 ```bash
 git push --force-with-lease -u origin ${CURRENT_BRANCH}
 ```
+
+Then proceed to **Create PR** below.
 
 **If rebase fails (conflicts detected):**
 
@@ -53,6 +55,12 @@ When `merge-base` exit 0 (already up to date), push normally:
 ```bash
 git push -u origin ${CURRENT_BRANCH}
 ```
+
+Then proceed to **Create PR** below.
+
+### Create PR
+
+After a successful push (either path above):
 
 Draft: `gh pr create --title "<title>" --body "<body>" --base ${DEFAULT_BRANCH} --draft`
 Ready: same without `--draft`.
