@@ -27,6 +27,8 @@ N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c '
 source "$N1_ROOT/lib/telemetry.sh"
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/fingerprints.sh"
+source "$N1_ROOT/lib/validation.sh"
+n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — cannot create PR" >&2; exit 1; }
 QA_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
 REVIEW_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
 QA_FIRST=$( [ "${QA_FIX:-0}" = "0" ] && echo "true" || echo "false" )

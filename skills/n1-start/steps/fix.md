@@ -2,8 +2,9 @@
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/frontmatter.sh"; source "$N1_ROOT/lib/validation.sh"
 n1_step_begin "fix" 10
+n1_verify_dependencies "$N1_HOME/memory/$ID" review.md || { echo "ERROR: review.md missing — cannot fix without findings" >&2; exit 1; }
 REVIEW_FIX_CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
 [[ "$REVIEW_FIX_CYCLE" =~ ^[0-9]+$ ]] || REVIEW_FIX_CYCLE=0
 FIX_ASTRA_CONTEXT=""
@@ -24,6 +25,8 @@ echo "$PRE_FIX_SHA" > "$N1_HOME/memory/$ID/pre-fix-sha"
 Run **Ensure Dependencies(`<ID>`)** before spawning.
 
 **FAIL:** spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
+
+**Wait for the developer persona to return its result before proceeding. Do NOT increment the fix cycle counter or check for output until the agent tool call completes.**
 
 **Security findings** (`[SEC-N]`/CVE): append "Fix the entire CLASS — search all variants and fix in one pass."
 
