@@ -10,11 +10,18 @@ pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1"; FAIL=1; }
 has() { rg -q --fixed-strings "$2" "$3" && pass "$1" || fail "$1"; }
 not_has() { ! rg -q --fixed-strings "$2" "$3" && pass "$1" || fail "$1"; }
+advisory_has() {
+    awk '/^## Advisory Mode Steps 1-3/{in_advisory=1} in_advisory' skills/n1-review/steps/01-analyze.md |
+        rg -q --fixed-strings "$2" && pass "$1" || fail "$1"
+}
 
 has "Codex session routing uses the combined resolver" "n1_resolve_agent <name> <step-context> [astra-context]" hooks/session-start.sh
 has "Codex session routing treats the combined result as authoritative" "tab-separated model/effort result is authoritative" hooks/session-start.sh
 has "final review names its canonical Astra context" "final-whole-branch-review" skills/n1-review/steps/01-analyze.md
 has "final review requires verified QA evidence" "Verdict: PASS" skills/n1-review/steps/01-analyze.md
+advisory_has "advisory review uses the combined resolver" "n1_resolve_agent code-reviewer review"
+advisory_has "advisory review explicitly omits Astra context" "Advisory PR review always omits the third Astra-context argument"
+advisory_has "advisory verifier uses the combined resolver" 'Resolve the adversarial verifier with `n1_resolve_agent code-reviewer review`'
 has "failed fix names its canonical Astra context" "failed-fix-escalation" skills/n1-start/steps/fix.md
 has "failed fix requires two prior failures" "review_fix_cycle >= 2" skills/n1-start/steps/fix.md
 has "architecture adjudication names its canonical context" "architecture-adjudication" skills/n1-start/steps/brainstorm.md

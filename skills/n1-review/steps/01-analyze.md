@@ -191,7 +191,7 @@ gh pr view <PR_NUMBER>
 
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer
 
-Resolve models for both agents.
+Advisory PR review always omits the third Astra-context argument. Resolve each selected reviewer through `n1_resolve_agent code-reviewer review` or `n1_resolve_agent security-reviewer review`, split the tab-separated model/effort pair, and pass both values to its spawn.
 
 Provide:
 - PR diff as the code to review
@@ -204,5 +204,7 @@ Provide:
 Same adversarial verification process as Review Loop Phase 3:
 
 **Spawn agent:** code-reviewer (with adversarial verification prompt)
+
+Resolve the adversarial verifier with `n1_resolve_agent code-reviewer review`, split its tab-separated model/effort pair, and pass both values to the spawn. Advisory PR review always omits the third Astra-context argument.
 
 Same adversarial kill mandate and context asymmetry as Phase 3 above: pass only the claim (title, file:line, one-line description), not the original reasoning. The verifier's job is to disprove each finding — survivors are confirmed.
