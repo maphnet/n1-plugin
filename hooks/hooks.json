@@ -29,7 +29,7 @@
         ]
       }
     ],
-    "Stop": [],
+    "Stop": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-stop.sh\""}],
     "SubagentStop": [
       {
         "matcher": "n1[:-].*",
