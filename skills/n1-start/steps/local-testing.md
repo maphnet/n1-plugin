@@ -291,6 +291,8 @@ Pass to developer:
   - "Same escalation rules as implementation — high blast radius + low confidence → ask user"
 - Output-path directive: "After applying fixes, record your 'Fixes Applied' report (your standard Fix Cycle output format) in `$N1_HOME/memory/<ID>/implementation.md` yourself, under a `## Local-Test Fix Cycle <N>` heading where `<N>` is the current `local_test_fix_cycle` value. If a `## Local-Test Fix Cycle <N>` section for this N already exists, REPLACE it (idempotent upsert — safe on re-run), never duplicate it. Return to the orchestrator ONLY: the list of commit SHAs with one-line summaries, and `Findings fixed: N/M`."
 
+**Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
+
 After developer returns:
 - Run via Bash (durable across resume):
   ```bash
