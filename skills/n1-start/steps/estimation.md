@@ -1,6 +1,13 @@
 
 **Gate:** `n1_config_val '.estimation.enabled'` returns exactly `true`. Otherwise skip silently.
 
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
+GATE_ENABLED=$(n1_config_val '.estimation.enabled' 2>/dev/null || echo 'false')
+n1_record_decision estimation-gate "$( [ "${GATE_ENABLED:-false}" = "true" ] && echo true || echo false )" '{"config":"estimation.enabled"}' "enabled=${GATE_ENABLED:-false}"
+```
+
 **When:** direct tasks — after Planning Need Routing routes to direct, before IMPLEMENT. Plan tasks — after Plan Review (4b).
 
 **Procedure:**

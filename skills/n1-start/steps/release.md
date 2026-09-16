@@ -1,6 +1,13 @@
 
 Run `n1_config_val '.release.enabled'` (default: `false`).
 
+```bash
+N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/telemetry.sh"
+GATE_ENABLED=$(n1_config_val '.release.enabled' 2>/dev/null || echo 'false')
+n1_record_decision release-gate "$( [ "${GATE_ENABLED:-false}" = "true" ] && echo true || echo false )" '{"config":"release.enabled"}' "enabled=${GATE_ENABLED:-false}"
+```
+
 > The gate key (`release.enabled`) and its default (`false`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
 
 **If `release.enabled` is `false`:** skip silently to FINALIZE MEMORY.

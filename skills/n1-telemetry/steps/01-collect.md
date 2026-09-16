@@ -59,3 +59,24 @@ For each threshold in the system, report:
 - If outcome is SAME or BETTER: recommend **keep** (threshold is well-calibrated)
 - If threshold rarely triggers (<10% of runs) AND the floor is met: recommend **loosen** (threshold is too conservative)
 - If insufficient data (<5 runs with this decision): report "insufficient data"
+
+### Gate Activation Rates
+
+For each unique decision ID found in `decisions[]` across the last 50 runs:
+
+- **Activation rate** = (runs where `result == true`) / (runs containing this decision ID)
+- **Coverage** = (runs containing this decision ID) / total_runs
+
+Report as a table:
+
+| Gate | Activation Rate | Coverage | Status |
+|------|----------------|----------|--------|
+| lite-analysis-gate | X% | Y% | normal |
+| estimation-gate | X% | Y% | ⚠ low — removal candidate |
+| ... | | | |
+
+**Removal candidates:** Gates with activation_rate < 5% AND coverage ≥ 50% (present in at least half of runs). Print:
+
+> "The following gates fired in fewer than 5% of runs over the last 50 — consider removing or tightening their triggering condition: [comma-separated list]"
+
+If no gates meet this criterion, print: "All gates above 5% activation threshold."

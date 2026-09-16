@@ -94,4 +94,25 @@ case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review
 rm -f "$N1_HOME/active-run.json"
 unset N1_HOST_FILE
 
+# --- session-stop: writes abandon envelope_close when lock exists ----------
+STOP_TICK="T-STOP"
+STOP_MEM="$N1_HOME/memory/$STOP_TICK"
+STOP_TELEM="$STOP_MEM/telemetry"
+mkdir -p "$STOP_TELEM/raw/steps" "$STOP_TELEM/runs"
+echo '{"run_id":"run-stop-test","n1_version":"3.14.1"}' > "$STOP_TELEM/telemetry.lock"
+printf -- '---\ntype: task\ntier: standard\nstep: implementation\n---\n' > "$STOP_MEM/overview.md"
+N1_HOME="$N1_HOME" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" </dev/null 2>/dev/null || true
+STOP_LINE=$(grep '"envelope_close"' "$STOP_TELEM/raw/steps/run-stop-test.jsonl" 2>/dev/null | tail -1)
+assert_eq "stop hook writes envelope_close" "envelope_close" "$(echo "$STOP_LINE" | jq -r .layer 2>/dev/null)"
+assert_eq "stop hook final_outcome abandoned" "abandoned" "$(echo "$STOP_LINE" | jq -r .final_outcome 2>/dev/null)"
+assert_eq "stop hook type from overview" "task" "$(echo "$STOP_LINE" | jq -r .type 2>/dev/null)"
+assert_eq "stop hook tier from overview" "standard" "$(echo "$STOP_LINE" | jq -r .estimated_tier 2>/dev/null)"
+assert_eq "stop hook removes lock after merge" "false" "$([ -f "$STOP_TELEM/telemetry.lock" ] && echo true || echo false)"
+
+# session-stop: no lock -> silent exit, no crash
+NO_LOCK_MEM="$N1_HOME/memory/T-NOLOCK"
+mkdir -p "$NO_LOCK_MEM"
+N1_HOME="$N1_HOME" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" </dev/null 2>/dev/null
+assert_eq "stop hook no lock exits clean" "0" "$?"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
