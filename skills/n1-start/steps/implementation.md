@@ -4,7 +4,7 @@
 Run **Ensure Dependencies(`<ID>`)** before spawning. Spawn directives: `WORKTREE_PATH` set → "Work in `$WORKTREE_PATH`." Scratch: `$N1_HOME/memory/<ID>/benchmarks/`. No finish/branch-delete skills, no push, no PRs. Output: `$N1_HOME/memory/<ID>/implementation.md` (format below). Append `$RULES_BLOCK`. Escalation: see below.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/validation.sh"
 n1_step_begin "implementation" 7
 n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md || { echo "ERROR: analysis.md missing — cannot implement" >&2; exit 1; }
@@ -24,7 +24,7 @@ Run `procedures/rules-injection.md`: `agent_name=developer`.
 **Codex headless dispatch:** When `n1_host` returns `codex`, the implementation persona is dispatched as a blocking headless child via `n1_headless_cmd` instead of the normal persona dispatch (which uses `spawn_agent + wait_agent` and times out on long-running tasks). Generate the command and run it via Bash:
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/host.sh"; source "$N1_ROOT/lib/config.sh"
 IS_CODEX=$( [ "$(n1_host)" = "codex" ] && echo true || echo false )
 echo "IS_CODEX=$IS_CODEX"
@@ -33,7 +33,7 @@ echo "IS_CODEX=$IS_CODEX"
 When `IS_CODEX=true`, use this pattern instead of persona dispatch for **both** the simplicity-gate-PASS developer and the Plan-path implementer:
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/host.sh"; source "$N1_ROOT/lib/config.sh"
 IMPL_LOG="$N1_HOME/memory/$ID/impl-run.jsonl"
 PLAN_FILE="$N1_HOME/memory/$ID/plan.md"
@@ -59,7 +59,7 @@ When `IS_CODEX=false` (Claude Code), use the normal persona dispatch as describe
 **Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"
 BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
 BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "HEAD")

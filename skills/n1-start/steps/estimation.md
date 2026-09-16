@@ -2,7 +2,7 @@
 **Gate:** `n1_config_val '.estimation.enabled'` returns exactly `true`. Otherwise skip silently.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/telemetry.sh"; source "$N1_ROOT/lib/validation.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md || { echo "ERROR: analysis.md missing — cannot estimate" >&2; exit 1; }
 GATE_ENABLED=$(n1_config_val '.estimation.enabled' 2>/dev/null || echo 'false')

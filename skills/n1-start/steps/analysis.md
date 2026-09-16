@@ -5,7 +5,7 @@
 `moveStatus` → In Progress (skip if absent; warn and continue).
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/cache.sh"; source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/context.sh"
 CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json"); CACHE_ENABLED="${CACHE_ENABLED:-true}"
 SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME"); CACHE_STATE="cold"
@@ -37,7 +37,7 @@ Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
 **Fresh:**
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/step.sh"
 SNAPSHOT_BODY=$(n1_snapshot_read_body "$SNAPSHOT_PATH"); SNAPSHOT_SHA=$(n1_read_frontmatter "$SNAPSHOT_PATH" "git_sha_short"); SNAPSHOT_AGE_RAW=$(n1_read_frontmatter "$SNAPSHOT_PATH" "generated_at")
 ```
@@ -46,7 +46,7 @@ Spawn SA: "SNAPSHOT (age:{SNAPSHOT_AGE_RAW} sha:{SNAPSHOT_SHA}): {SNAPSHOT_BODY}
 **Observability** (skip if LITE): append providers; bugs→`### Observability Findings`; append `$RELATED_CONTEXT`.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/validation.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/cache.sh"; source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/context.sh"; source "$N1_ROOT/lib/memory.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md; n1_read_context
 CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json"); CACHE_ENABLED="${CACHE_ENABLED:-true}"
@@ -84,7 +84,7 @@ Missing/empty: re-prompt once; fallback. DRIFT: delete snapshot. Write frontmatt
 Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":** add all + ledger rows (use `n1_related_add`+`n1_record_decision` per slug). **"select":** add approved. **"no":** `[asked]` row. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/story.sh"; source "$N1_ROOT/lib/frontmatter.sh"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")

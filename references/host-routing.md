@@ -16,7 +16,7 @@ changes syntax; skills never name host tools directly (enforced by
 | ask the user | `AskUserQuestion` tool (max 4 questions per call) | end the turn with a plain message listing numbered options; there is no question tool |
 | load the tool if deferred | `ToolSearch` with `select:<tool>` | skip: all tools are preloaded |
 | invoke skill `<x>` | `/n1:n1-<skill>` | `$n1-<skill>` |
-| `<N1_ROOT>` | value of `N1 PLUGIN ROOT` (Claude also expands `${CLAUDE_PLUGIN_ROOT}` inside bash snippets) | value of `N1 PLUGIN ROOT` (read at runtime from `~/.n1/host.json`) |
+| `<N1_ROOT>` | value of `N1 PLUGIN ROOT` (`${CLAUDE_PLUGIN_ROOT}` env var, set by the harness) | value of `N1 PLUGIN ROOT` (`${PLUGIN_ROOT}` env var set by Codex; `~/.n1/host.json` as last-resort fallback) |
 | worktree root | `worktree.root` from config, else `.claude/worktrees` | `worktree.root` from config, else `.codex/worktrees` |
 | headless child run | `claude -p "/n1:<skill> <args>" --model <m> --permission-mode bypassPermissions --output-format stream-json --verbose` | `codex exec --cd <repo> -c model="<m>" --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust '$<skill> <args>'` |
 | persona definitions | `agents/<name>.md` shipped in the plugin | `.codex/agents/n1-<name>.toml` generated at session start from the same files; never edit them |
@@ -30,11 +30,12 @@ changes syntax; skills never name host tools directly (enforced by
 Every skill bash snippet that needs plugin files starts with this line; `lib/config.sh` sources `lib/host.sh`:
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 ```
 
-On Claude Code the token is substituted before the model sees it. On Codex the literal
-survives, the variable is empty in the shell, and `host.json` supplies the root.
+On Claude Code, `${CLAUDE_PLUGIN_ROOT}` is set by the harness and resolves directly. On Codex,
+`${PLUGIN_ROOT}` is set by the harness and takes the `:-` fallback slot. `host.json` is the
+last-resort fallback when neither variable is set (e.g. dry-run or external invocation).
 
 ## Model routing
 

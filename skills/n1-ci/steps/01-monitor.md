@@ -52,7 +52,7 @@ If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP
 Poll via `lib/poll.sh` (internal 30s loop, 8-minute chunks):
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/poll.sh"
 n1_wait_ci_checks <PR#> <remaining-minutes>
 ```

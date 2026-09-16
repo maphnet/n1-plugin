@@ -4,7 +4,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
-PREAMBLE='N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c '"'"'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])'"'"')'
+PREAMBLE='N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c '"'"'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])'"'"')'
 check() { # <label> <extended-regex>
     local hits
     hits=$(grep -rnE "$2" skills agents 2>/dev/null | grep -vF "$PREAMBLE" || true)
@@ -20,7 +20,7 @@ check "persona namespace literal" '"n1:[a-z-]+"|`n1:(solution-architect|develope
 # Every fenced bash block that uses $N1_ROOT must start with the preamble (each snippet is its own shell).
 python3 - <<'PY' || FAIL=1
 import re, sys, pathlib
-PRE = 'N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c \'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])\')'
+PRE = 'N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c \'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])\')'
 bad = []
 for path in list(pathlib.Path("skills").rglob("*.md")) + list(pathlib.Path("agents").glob("*.md")):
     text = path.read_text(encoding="utf-8")

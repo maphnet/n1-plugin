@@ -2,7 +2,7 @@
 Run `n1_config_val '.ciChecks.enabled'` (default: `true`).
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/telemetry.sh"
 GATE_ENABLED=$(n1_config_val '.ciChecks.enabled' 2>/dev/null || echo 'true')
 n1_record_decision ci-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"ciChecks.enabled"}' "enabled=${GATE_ENABLED:-true}"
