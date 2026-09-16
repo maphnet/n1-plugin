@@ -17,6 +17,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Import telemetry_codex for Codex usage extraction and schema version
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+import telemetry_codex
+
 STATIC_MAP = {
     "product-analyst": ["ticket"],
     "planner": ["plan"],
@@ -24,6 +28,29 @@ STATIC_MAP = {
     "security-reviewer": ["review"],
     "tech-writer": ["pr"],
 }
+
+
+def _detect_host() -> str:
+    """Detect host — mirrors n1_host() in lib/host.sh."""
+    import os
+    # 1. Explicit override
+    h = os.environ.get("N1_HOST", "")
+    if h:
+        return h
+    # 2. Codex-only env vars
+    if os.environ.get("PLUGIN_DATA") or os.environ.get("CODEX_HOME"):
+        return "codex"
+    # 3. host.json when no Claude root is set
+    if not os.environ.get("CLAUDE_PLUGIN_ROOT"):
+        host_file = Path.home() / ".n1" / "host.json"
+        if host_file.is_file():
+            try:
+                data = json.loads(host_file.read_text(encoding="utf-8"))
+                if data.get("host") == "codex":
+                    return "codex"
+            except (OSError, json.JSONDecodeError):
+                pass
+    return "claude-code"
 
 
 def persona_of(agent_type: str) -> str:
@@ -250,7 +277,10 @@ def main() -> int:
     ap.add_argument("telemetry_dir")
     ap.add_argument("--n1-version", default="")
     ap.add_argument("--project", default="")
+    ap.add_argument("--host", default="")
     args = ap.parse_args()
+
+    host = args.host if args.host else _detect_host()
 
     telem = Path(args.telemetry_dir)
     steps_file = telem / "raw" / "steps" / f"{args.run_id}.jsonl"
@@ -266,6 +296,7 @@ def main() -> int:
     for a in agents_raw:
         entry = {
             "agent_id": a["agent_id"], "agent_type": a["agent_type"],
+            "host": host,
             "step": correlate_step(a, steps),
             "started_at": a["started_at"], "completed_at": a["completed_at"],
             "duration_s": a["duration_s"],
@@ -273,8 +304,11 @@ def main() -> int:
             "cache_read_tokens": None, "cache_creation_tokens": None,
             "api_calls": None, "tool_calls": None, "tools_used": None,
             "parse_error": None,
+            "usage_status": "unknown",
         }
-        if a.get("transcript_path"):
+        if host == "codex":
+            pass  # Codex: session-total usage injected into summary; per-agent unknown
+        elif a.get("transcript_path"):
             # Retro-fix for events recorded before the agent-stop hook learned to
             # resolve per-agent transcripts: prefer the subagent's own file when present.
             tpath = a["transcript_path"]
@@ -287,6 +321,7 @@ def main() -> int:
                 entry["parse_error"] = parsed["parse_error"]
             else:
                 entry.update(parsed)
+                entry["usage_status"] = "complete"
         agents.append(entry)
 
     session_transcript = None
@@ -298,6 +333,13 @@ def main() -> int:
     orchestrator = None
     if session_transcript:
         orchestrator = parse_orchestrator_transcript(session_transcript, steps)
+
+    # --- Codex usage extraction (session-total strategy) ---
+    codex_usage = None
+    codex_linkage = None
+    if host == "codex" and session_transcript:
+        codex_usage = telemetry_codex.extract_usage(session_transcript)
+        codex_linkage = telemetry_codex.extract_linkage(session_transcript)
 
     envelope = {}
     for ev in step_events:
@@ -336,13 +378,27 @@ def main() -> int:
         "orchestrator_tool_calls": orch_totals["tool_calls"] if orch_totals else None,
     }
 
+    # Determine usage scope and status
+    if codex_usage:
+        usage_scope = codex_usage["usage_scope"]
+        usage_status = codex_usage["usage_status"]
+    else:
+        any_parsed = any(a.get("input_tokens") is not None for a in agents)
+        usage_scope = "per-agent"
+        usage_status = "complete" if any_parsed else "unknown"
+
     record = {
-        "schema_version": 3,
+        "schema_version": telemetry_codex.SCHEMA_VERSION,
         "run_id": args.run_id,
         "session_id": envelope.get("session_id"),
         "session_transcript_path": session_transcript,
         "n1_version": args.n1_version,
         "project": args.project,
+        "host": host,
+        "cli_version": codex_usage["cli_version"] if codex_usage else None,
+        "parser_schema_version": telemetry_codex.SCHEMA_VERSION,
+        "usage_status": usage_status,
+        "usage_scope": usage_scope,
         "ticket_id": envelope.get("ticket_id"),
         "branch": envelope.get("branch"),
         "started_at": envelope.get("started_at"),
@@ -357,6 +413,24 @@ def main() -> int:
         "outcomes": outcomes,
         "summary": summary,
     }
+
+    # For Codex runs, inject session-total usage into summary.
+    if codex_usage and codex_usage["input_tokens"] is not None:
+        record["summary"]["total_input_tokens"] = codex_usage["input_tokens"]
+        record["summary"]["total_output_tokens"] = codex_usage["output_tokens"]
+        record["summary"]["total_cache_read_tokens"] = codex_usage["cached_input_tokens"]
+        record["summary"]["total_reasoning_tokens"] = codex_usage["reasoning_tokens"]
+        record["summary"]["codex_model"] = codex_usage["model"]
+
+    # Inject linkage fields
+    if codex_linkage:
+        record["session_linkage"] = codex_linkage
+    else:
+        record["session_linkage"] = {
+            "session_id": envelope.get("session_id"),
+            "parent_id": None, "fork_of": None, "reused_from": None,
+        }
+
     (out_dir / f"{args.run_id}.jsonl").write_text(
         json.dumps(record, separators=(",", ":")) + "\n", encoding="utf-8")
     return 0
