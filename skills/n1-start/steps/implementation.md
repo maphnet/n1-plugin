@@ -12,6 +12,7 @@ TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier")
 BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "blast_radius" 2>/dev/null); BLAST="${BLAST:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")}"
 FILES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/brainstorm.md" "files_changed" 2>/dev/null); FILES_CHANGED="${FILES_CHANGED:-$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "files_changed")}"
 IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer implementation)
+IFS=$'\t' read -r IMPLEMENTER_MODEL IMPLEMENTER_EFFORT < <(n1_resolve_agent implementer implementation)
 PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need")
 # Fallback simplicity gate: fires if simple-path gate (analysis.md) did not already route directly.
 # Primary routing is done earlier by the simple-path gate in analysis.md.
@@ -19,42 +20,13 @@ GATE_RESULT=$( [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHAN
 n1_record_decision simplicity-gate "$GATE_RESULT" '{"all":[{"signal":"brainstorm.blast_radius","fallback":"analysis.blast_radius","eq":"low"},{"signal":"brainstorm.files_changed","fallback":"analysis.files_changed","lt":3}]}' "tier=$TIER"
 ```
 
-Run `procedures/rules-injection.md`: `agent_name=developer`.
+Run `procedures/rules-injection.md`: `agent_name=developer` for direct routes and `agent_name=implementer` for the Plan path. Dispatch prompts always retain the selected persona, resolved model/effort, input-file path, `WORKTREE_PATH`, output path, escalation rules, `$RULES_BLOCK`, constraints, and required result format.
 
-**Codex headless dispatch:** When `n1_host` returns `codex`, the implementation persona is dispatched as a blocking headless child via `n1_headless_cmd` instead of the normal persona dispatch (which uses `spawn_agent + wait_agent` and times out on long-running tasks). Generate the command and run it via Bash:
+**Simplicity gate PASS** (all: `TIER==simple`, `BLAST==low`, `FILES_CHANGED<3`): dispatch **developer** persona with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`, brainstorm.md or plan.md, and "Direct Implementation mode." → QA.
 
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/host.sh"; source "$N1_ROOT/lib/config.sh"
-IS_CODEX=$( [ "$(n1_host)" = "codex" ] && echo true || echo false )
-echo "IS_CODEX=$IS_CODEX"
-```
+**ANY fails:** `PLANNING_NEED=direct` → dispatch **developer** persona with the resolved model/effort pair, brainstorm.md, "Direct Implementation." `PLANNING_NEED=plan`/absent → plan.md; absent → Plan path. Top-level headers >2 → Plan path; ≤2 no cross-deps → dispatch developer with the resolved pair, plan.md, "Direct, sequential"; else Plan path.
 
-When `IS_CODEX=true`, use this pattern instead of persona dispatch for **both** the simplicity-gate-PASS developer and the Plan-path implementer:
-
-```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/host.sh"; source "$N1_ROOT/lib/config.sh"
-IMPL_LOG="$N1_HOME/memory/$ID/impl-run.jsonl"
-PLAN_FILE="$N1_HOME/memory/$ID/plan.md"
-[ -f "$PLAN_FILE" ] || PLAN_FILE="$N1_HOME/memory/$ID/brainstorm.md"
-IMPL_OUTPUT="$N1_HOME/memory/$ID/implementation.md"
-IMPL_ARGS="$ID plan=$PLAN_FILE output=$IMPL_OUTPUT"
-IMPL_CMD=$(n1_headless_cmd n1-implement "$IMPL_ARGS" "$DEVELOPER_MODEL" "$IMPL_LOG" "$WORKTREE_PATH")
-echo "IMPL_CMD=$IMPL_CMD"
-```
-
-Run `bash -c "$IMPL_CMD"` — this blocks until the child exits (no timeout). Then read the result: `tail -20 "$IMPL_LOG"`. Check exit code: if non-zero and `$IMPL_OUTPUT` does not exist, the child crashed — escalate to the user. The child runs the full `n1-implement` skill, which handles task dispatch, review, and fix loops internally.
-
-The args string includes the plan file path and output path because `n1-implement` expects these in its dispatch prompt (see `skills/n1-implement/SKILL.md` Input section). The worktree path is handled by the `--cd` flag in `n1_headless_cmd`.
-
-When `IS_CODEX=false` (Claude Code), use the normal persona dispatch as described below (unchanged).
-
-**Simplicity gate PASS** (all: `TIER==simple`, `BLAST==low`, `FILES_CHANGED<3`): On Codex (`IS_CODEX=true`), use the headless dispatch pattern above with `n1-implement` skill and the brainstorm.md or plan.md as input. On Claude Code, dispatch developer persona with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`, input brainstorm.md or plan.md, "Direct Implementation mode." → QA.
-
-**ANY fails:** `PLANNING_NEED=direct` → spawn developer with the resolved model/effort pair, brainstorm.md, "Direct Implementation." `PLANNING_NEED=plan`/absent → plan.md; absent → Plan path. Top-level headers >2 → Plan path; ≤2 no cross-deps → developer with the resolved pair, plan.md, "Direct, sequential"; else Plan path.
-
-**Plan path:** On Codex (`IS_CODEX=true`), use the headless dispatch pattern above — the child runs `n1-implement` with plan.md as input, blocking until complete. On Claude Code, dispatch **implementer** persona. Input plan.md or brainstorm.md: "Enumerate tasks; dispatch developer per task." Always `n1-implement`. Constraints: Think Before Coding; Simplicity First; Surgical Changes; Goal-Driven; existing patterns; test+commit per change; BLOCKED on architectural; no finish/branch-delete skills, CONTINUOUS. Pass `WORKTREE_PATH`, output path, escalation, `$RULES_BLOCK`.
+**Plan path:** dispatch **implementer** persona with `$IMPLEMENTER_MODEL` and `$IMPLEMENTER_EFFORT`. Input plan.md or brainstorm.md: "Enumerate tasks; dispatch developer per task." Always invoke `n1-implement`. Constraints: Think Before Coding; Simplicity First; Surgical Changes; Goal-Driven; existing patterns; test+commit per change; BLOCKED on architectural; no finish/branch-delete skills, CONTINUOUS. Pass `WORKTREE_PATH`, output path, escalation, `$RULES_BLOCK`, and the implementation-result format.
 
 **Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
 

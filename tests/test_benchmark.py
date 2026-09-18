@@ -397,7 +397,9 @@ class MetricsTest(unittest.TestCase):
                                  "questions_per_run", "brainstorm_questions",
                                  "recommended_followed_share", "decide_for_me_share",
                                  "inherited_share",
-                                 "bash_calls_per_run", "api_calls_per_run"])
+                                 "bash_calls_per_run", "api_calls_per_run",
+                                 "orchestrator_api_calls_per_run", "orchestrator_bash_calls_per_run",
+                                 "orchestrator_input_tokens_per_run", "orchestrator_cost_ratio"])
         self.assertTrue(all(m.direction in ("lower", "higher") for m in bm.METRICS))
 
 

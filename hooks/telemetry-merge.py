@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Python fallback for telemetry-merge.sh — used when jq is unavailable.
+"""Shared accounting implementation for telemetry-merge.sh.
 
-Replicates the jq pipeline: pair step events, pair agent events, correlate
+Pair step events, pair agent events, correlate
 agents to steps (static map + temporal), parse agent transcripts for token
 usage, and write the unified run record to <telemetry_dir>/runs/<run_id>.jsonl.
 
@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,29 +30,6 @@ STATIC_MAP = {
     "security-reviewer": ["review"],
     "tech-writer": ["pr"],
 }
-
-
-def _detect_host() -> str:
-    """Detect host — mirrors n1_host() in lib/host.sh."""
-    import os
-    # 1. Explicit override
-    h = os.environ.get("N1_HOST", "")
-    if h:
-        return h
-    # 2. Codex-only env vars
-    if os.environ.get("PLUGIN_DATA") or os.environ.get("CODEX_HOME"):
-        return "codex"
-    # 3. host.json when no Claude root is set
-    if not os.environ.get("CLAUDE_PLUGIN_ROOT"):
-        host_file = Path(os.environ.get("N1_HOST_FILE", str(Path.home() / ".n1" / "host.json")))
-        if host_file.is_file():
-            try:
-                data = json.loads(host_file.read_text(encoding="utf-8"))
-                if data.get("host") == "codex":
-                    return "codex"
-            except (OSError, json.JSONDecodeError):
-                pass
-    return "claude-code"
 
 
 def persona_of(agent_type: str) -> str:
@@ -70,7 +49,9 @@ def _read_jsonl(path: Path) -> list[dict]:
         if not line:
             continue
         try:
-            records.append(json.loads(line))
+            record = json.loads(line)
+            if isinstance(record, dict):
+                records.append(record)
         except json.JSONDecodeError:
             continue
     return records
@@ -90,7 +71,8 @@ def _duration(start: str | None, end: str | None) -> float | None:
     s, e = _epoch(start), _epoch(end)
     if s is None or e is None:
         return None
-    return e - s
+    duration = e - s
+    return int(duration) if duration.is_integer() else duration
 
 
 def pair_steps(events: list[dict]) -> list[dict]:
@@ -160,14 +142,15 @@ def parse_transcript(path: str) -> dict:
         usage = {"model": None, "input_tokens": 0, "output_tokens": 0,
                  "cache_read_tokens": 0, "cache_creation_tokens": 0,
                  "api_calls": 0, "tool_calls": 0, "tools_used": {}}
-        for rec in _read_jsonl(p):
-            if rec.get("type") != "assistant" or not rec.get("message"):
-                continue
+        for rec in _assistant_records(p):
             msg = rec["message"]
             usage["api_calls"] += 1
             if usage["model"] is None and msg.get("model"):
                 usage["model"] = msg["model"]
             u = msg.get("usage") or {}
+            if any(not isinstance(u.get(k), int) or u[k] < 0 for k in (
+                    'input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')):
+                return {'parse_error': 'usage_unavailable'}
             usage["input_tokens"] += u.get("input_tokens") or 0
             usage["output_tokens"] += u.get("output_tokens") or 0
             usage["cache_read_tokens"] += u.get("cache_read_input_tokens") or 0
@@ -177,9 +160,27 @@ def parse_transcript(path: str) -> dict:
                     usage["tool_calls"] += 1
                     name = block.get("name", "?")
                     usage["tools_used"][name] = usage["tools_used"].get(name, 0) + 1
+        if not usage['api_calls']:
+            return {'parse_error': 'usage_unavailable'}
         return usage
     except OSError:
         return {"parse_error": "transcript_parse_failed"}
+
+
+def _assistant_records(path: Path):
+    # Streaming records can repeat a message ID with updated usage/content.
+    # Keep the last usage and union tool blocks by ID, once per message.
+    messages = {}
+    for index, rec in enumerate(_read_jsonl(path)):
+        msg = rec.get('message')
+        if rec.get('type') != 'assistant' or not isinstance(msg, dict):
+            continue
+        key = msg.get('id') or index
+        previous = messages.get(key, {}).get('message', {})
+        tools = {block.get('id'): block for block in previous.get('content', []) + (msg.get('content') or [])
+                 if isinstance(block, dict) and block.get('type') == 'tool_use'}
+        messages[key] = {**rec, 'message': {**msg, 'content': list(tools.values())}}
+    return messages.values()
 
 
 def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict:
@@ -189,15 +190,16 @@ def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict:
                 "parse_error": "orchestrator_transcript_not_found"}
     try:
         messages = []
-        for rec in _read_jsonl(p):
-            if rec.get("type") != "assistant" or not rec.get("message"):
-                continue
+        for rec in _assistant_records(p):
             msg = rec["message"]
             tools = []
             for block in msg.get("content") or []:
                 if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") != "Agent":
                     tools.append(block.get("name", "?"))
             u = msg.get("usage") or {}
+            if any(not isinstance(u.get(k), int) or u[k] < 0 for k in (
+                    'input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')):
+                return {'steps': [], 'unattributed': None, 'totals': None, 'parse_error': 'usage_unavailable'}
             messages.append({
                 "ts": rec.get("timestamp", ""),
                 "input_tokens": u.get("input_tokens") or 0,
@@ -264,6 +266,8 @@ def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict:
             "tools_used": all_tools,
         }
 
+        if not messages:
+            return {'steps': [], 'unattributed': None, 'totals': None, 'parse_error': 'usage_unavailable'}
         return {"steps": step_entries, "unattributed": unattributed,
                 "totals": totals, "parse_error": None}
     except OSError:
@@ -280,8 +284,6 @@ def main() -> int:
     ap.add_argument("--host", default="")
     args = ap.parse_args()
 
-    host = args.host if args.host else _detect_host()
-
     telem = Path(args.telemetry_dir)
     steps_file = telem / "raw" / "steps" / f"{args.run_id}.jsonl"
     agents_file = telem / "raw" / "agents" / f"{args.run_id}.jsonl"
@@ -289,6 +291,15 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     step_events = _read_jsonl(steps_file)
+    envelope_open = {}
+    for ev in step_events:
+        if ev.get('layer') == 'envelope':
+            envelope_open = {**ev, **envelope_open}
+    envelope_close = next((ev for ev in step_events if ev.get("layer") == "envelope_close"), {})
+    # The opening envelope is the run's immutable identity. A later hook may
+    # add completion data, but cannot relabel the host/session it started on.
+    envelope = {**envelope_close, **envelope_open}
+    host = envelope.get("host") or "unknown"
     steps = pair_steps(step_events)
     agents_raw = pair_agents(_read_jsonl(agents_file))
 
@@ -316,37 +327,67 @@ def main() -> int:
                 candidate = Path(tpath.replace("\\\\", "\\")).with_suffix("") / "subagents" / f"agent-{a['agent_id']}.jsonl"
                 if candidate.is_file():
                     tpath = str(candidate)
+                else:
+                    # The old hook recorded the parent for every child. Never
+                    # count that same parent again when the child file is lost.
+                    entry['parse_error'] = 'agent_transcript_unresolved' if Path(tpath).is_file() else 'transcript_not_found'
+                    agents.append(entry)
+                    continue
             parsed = parse_transcript(tpath)
             if "parse_error" in parsed and len(parsed) == 1:
                 entry["parse_error"] = parsed["parse_error"]
             else:
                 entry.update(parsed)
                 entry["usage_status"] = "complete"
+        elif not a.get("completed_at"):
+            entry["parse_error"] = "agent_never_finished"
         agents.append(entry)
 
-    session_transcript = None
+    session_transcript = envelope.get("session_transcript_path")
+    if session_transcript is None:
+        session_transcript = next((ev.get("session_transcript_path") for ev in step_events
+                                   if ev.get("layer") == "session" and ev.get("session_transcript_path")), None)
     for ev in _read_jsonl(agents_file):
-        if ev.get("session_transcript_path"):
+        if session_transcript is None and ev.get("session_transcript_path"):
             session_transcript = ev["session_transcript_path"]
             break
+    if session_transcript is None:
+        # A session-start hook is not required to locate a trusted Codex thread.
+        # Exact ID only: cwd/time-based matching can attribute a concurrent run.
+        thread_id = envelope.get('session_id')
+        if host == 'codex' and thread_id:
+            db = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'state_5.sqlite'
+            try:
+                conn = sqlite3.connect(db.resolve().as_uri() + '?mode=ro', uri=True)
+                try:
+                    row = conn.execute('SELECT rollout_path FROM threads WHERE id = ?', (thread_id,)).fetchone()
+                    if row:
+                        session_transcript = row[0]
+                finally:
+                    conn.close()
+            except sqlite3.Error:
+                pass
+    if session_transcript is None:
+        for a in agents_raw:
+            tpath = a.get("transcript_path") or ""
+            marker = "/subagents/"
+            normalized = tpath.replace("\\", "/")
+            if marker in normalized:
+                candidate = Path(normalized.split(marker, 1)[0] + ".jsonl")
+                if candidate.is_file():
+                    session_transcript = str(candidate)
+                    break
 
     orchestrator = None
-    if session_transcript:
+    if session_transcript and host == 'claude-code':
         orchestrator = parse_orchestrator_transcript(session_transcript, steps)
 
     # --- Codex usage extraction (session-total strategy) ---
     codex_usage = None
     codex_linkage = None
     if host == "codex" and session_transcript:
-        codex_usage = telemetry_codex.extract_usage(session_transcript)
+        codex_usage = telemetry_codex.extract_usage_tree(session_transcript)
         codex_linkage = telemetry_codex.extract_linkage(session_transcript)
-
-    envelope = {}
-    for ev in step_events:
-        if ev.get("layer") == "envelope":
-            envelope = {**ev, **envelope}
-        elif ev.get("layer") == "envelope_close":
-            envelope = {**envelope, **ev}
 
     def _sum(vals):
         return sum(v for v in vals if v is not None)
@@ -358,14 +399,16 @@ def main() -> int:
     total_cache = _sum(a["cache_read_tokens"] for a in agents)
     orch_totals = (orchestrator or {}).get("totals")
     summary = {
-        "total_duration_s": _sum(s["duration_s"] for s in steps),
+        "total_duration_s": _duration(envelope.get("started_at"), envelope.get("completed_at")),
+        "total_step_duration_s": _sum(s["duration_s"] for s in steps) if any(s["duration_s"] is not None for s in steps) else None,
         "total_input_tokens": total_in,
         "total_output_tokens": _sum(a["output_tokens"] for a in agents),
         "total_cache_read_tokens": total_cache,
+        "total_cache_creation_tokens": _sum(a["cache_creation_tokens"] for a in agents),
         "cache_efficiency": round(total_cache / (total_in + total_cache), 2) if (total_in + total_cache) > 0 else 0,
         "agent_spawns": len(agents),
-        "steps_completed": sum(1 for s in steps if s["outcome"] in ("pass", "skip")),
-        "steps_skipped": sum(1 for s in steps if s["outcome"] == "skip"),
+        "steps_completed": sum(1 for s in steps if s["outcome"] in ("pass", "skip", "success", "skipped")),
+        "steps_skipped": sum(1 for s in steps if s["outcome"] in ("skip", "skipped")),
         "review_fix_cycles": max((s["loop_iteration"] or 0 for s in steps if s["step"] == "fix"), default=0),
         "qa_fix_cycles": sum(1 for s in steps if s["step"] == "qa" and (s["loop_iteration"] or 0) > 0),
         "review_blocking_count": next((int(o["outcomes"].get("review_blocking_count", 0)) for o in outcomes if "outcomes" in o), None),
@@ -392,7 +435,7 @@ def main() -> int:
         "run_id": args.run_id,
         "session_id": envelope.get("session_id"),
         "session_transcript_path": session_transcript,
-        "n1_version": args.n1_version,
+        "n1_version": envelope.get('n1_version') or args.n1_version,
         "project": args.project,
         "host": host,
         "cli_version": codex_usage["cli_version"] if codex_usage else None,
@@ -421,6 +464,7 @@ def main() -> int:
         record["summary"]["total_cache_read_tokens"] = codex_usage["cached_input_tokens"]
         record["summary"]["total_reasoning_tokens"] = codex_usage["reasoning_tokens"]
         record["summary"]["total_cache_creation_tokens"] = codex_usage.get("cache_creation_tokens")
+        record["summary"]["total_tokens"] = codex_usage.get("total_tokens")
         record["summary"]["codex_model"] = codex_usage["model"]
     elif codex_usage:
         # Codex run but usage unavailable — null, not zero
@@ -429,6 +473,36 @@ def main() -> int:
         record["summary"]["total_cache_read_tokens"] = None
         record["summary"]["total_cache_creation_tokens"] = None
         record["summary"]["total_reasoning_tokens"] = None
+        record["summary"]["total_tokens"] = None
+
+    # Comparable totals: input includes fresh, cached-read and cached-write
+    # input on both hosts. Reasoning is already included in output.
+    if host == 'claude-code':
+        components = [orch_totals, *agents]
+        fields = ('input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens')
+        for field in fields:
+            values = [(component or {}).get(field) for component in components]
+            summary['total_' + field] = sum(values) if all(isinstance(v, (int, float)) for v in values) else None
+        input_parts = [summary['total_' + field] for field in ('input_tokens', 'cache_read_tokens', 'cache_creation_tokens')]
+        summary['total_uncached_input_tokens'] = summary['total_input_tokens']
+        summary['total_input_tokens'] = sum(input_parts) if all(v is not None for v in input_parts) else None
+        record['usage_scope'] = 'session-tree' if orch_totals else 'per-agent'
+        record['usage_status'] = 'complete' if all(summary['total_' + f] is not None for f in fields) else (
+            'partial' if orch_totals or any(a.get('input_tokens') is not None for a in agents) else 'unknown')
+    elif host != 'codex' or not codex_usage:
+        for field in ('input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens', 'reasoning_tokens'):
+            summary['total_' + field] = None
+        record['usage_status'] = 'unknown'
+    if host != 'codex' or not codex_usage:
+        values = [summary['total_input_tokens'], summary['total_output_tokens']]
+        summary['total_tokens'] = sum(values) if all(v is not None for v in values) else None
+    total_in = summary['total_input_tokens']
+    total_cache = summary['total_cache_read_tokens']
+    summary['cache_efficiency'] = round(total_cache / total_in, 2) if total_in and total_cache is not None else None
+    record['usage_coverage'] = {k: codex_usage.get(k) for k in (
+        'session_count', 'missing_session_count', 'discovery_status', 'headless_coverage')} if codex_usage else {
+            'headless_coverage': 'unknown', 'discovery_status': 'hook-recorded'}
+    record['root_usage'] = codex_usage.get('root_usage') if codex_usage else orch_totals
 
     # Inject linkage fields
     if codex_linkage:
@@ -439,8 +513,10 @@ def main() -> int:
             "parent_id": None, "fork_of": None, "reused_from": None,
         }
 
-    (out_dir / f"{args.run_id}.jsonl").write_text(
-        json.dumps(record, separators=(",", ":")) + "\n", encoding="utf-8")
+    output = out_dir / f"{args.run_id}.jsonl"
+    temporary = out_dir / f".{args.run_id}.{os.getpid()}.tmp"
+    temporary.write_text(json.dumps(record, separators=(",", ":")) + "\n", encoding="utf-8")
+    temporary.replace(output)
     return 0
 
 

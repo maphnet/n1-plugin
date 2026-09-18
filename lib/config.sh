@@ -351,6 +351,7 @@ n1_resolve_model() {
 
 n1_resolve_agent() {
     local persona="$1" step_context="${2:-}" astra_context="${3:-}"
+    [ "$(n1_host)" != unknown ] || { echo 'N1: unknown host; cannot resolve dispatch configuration' >&2; return 1; }
     local model effort
     model=$(n1_resolve_model "$persona" "$step_context" "$astra_context")
     effort=$(n1_reasoning_effort_for "$persona")

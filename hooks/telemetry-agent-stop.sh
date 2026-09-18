@@ -4,11 +4,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/config.sh"
 source "${SCRIPT_DIR}/../lib/telemetry.sh"
+[ "$(n1_host)" != codex ] || trap 'printf "{}\n"' EXIT
 
 N1_HOME=$(n1_home)
-n1_read_lock "$N1_HOME/memory" || exit 0
-
 INPUT=$(cat)
+N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
+export N1_SESSION_ID="${N1_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+n1_read_lock "$N1_HOME/memory" || exit 0
 
 AGENT_ID=$(printf '%s' "$INPUT" | n1_hook_field agent_id)
 AGENT_TYPE=$(printf '%s' "$INPUT" | n1_hook_field agent_type)

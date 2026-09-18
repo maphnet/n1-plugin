@@ -18,20 +18,27 @@ Optional local-first telemetry gated on `telemetry.enabled` in `$N1_HOME/config.
 | `hooks/telemetry-merge.sh` | Post-run merge — pair events, parse transcripts, produce unified JSONL record |
 
 **Data layout** (in `$N1_HOME/memory/<ID>/telemetry/`):
-- `telemetry.lock` — JSON lock: `{"run_id":"...","n1_version":"..."}` (ticket_id derived from parent directory name)
+- `locks/<run_id>.json` — run identity: host, session ID, transcript path, run ID, version, and ticket ID
+- `telemetry.lock` — compatibility pointer to the latest run; never authoritative for cross-session routing
 - `raw/steps/<run_id>.jsonl` — orchestrator step events
 - `raw/agents/<run_id>.jsonl` — hook agent events
 - `runs/<run_id>.jsonl` — merged unified record (query target)
 
 **Event enrichment:** Every JSONL event (steps and agents) contains `n1_version` and `ticket_id`. This ensures even interrupted runs (where the merge script never executes) produce groupable, version-tagged data.
 
-**Lock discovery:** Hooks resolve `N1_HOME` via the standard preamble and glob for `${N1_HOME}/memory/*/telemetry/telemetry.lock`, taking the most recent by mtime when multiple exist. No lock = silent exit (zero overhead for non-telemetry runs).
+**Lock discovery:** Hooks match the payload session ID and explicit manifest host to a run lock. Missing identity never selects another session's latest run. `n1_run_begin` captures the opening envelope; merging uses that host even when invoked later by another harness. Session-start facts live under `~/.n1/sessions/<session_id>.json`; shared `host.json` is only plugin discovery.
 
 **ID reconciliation:** Telemetry directories live inside `$N1_HOME/memory/<ID>/`, so the existing Reconcile Memory ID & Branch procedure moves them automatically when a provisional ID is replaced with a tracker ticket ID.
 
-Hooks use `matcher: "n1:*"` — zero overhead for non-N1 sessions. All collection is async and non-blocking.
+Claude hooks filter N1 persona names. Codex hooks validate persona names in the script. Completion merges synchronously; both `Stop` handlers and explicit pipeline finalization use the same merger. Python 3 is required; failure retains the run lock for retry.
 
-**Schema version:** Current version is **4**. Version 4 adds `host`, `cli_version`, `parser_schema_version`, `usage_status`, `usage_scope`, `session_linkage`, and per-agent `host`/`usage_status` fields. Codex runs use session-total usage (last `token_usage_record` per session); Claude runs use per-agent summation. Missing usage is `null` with `usage_status: "unknown"` (never zero). Version 3 records lack these fields; consumers should treat their absence as "not collected".
+**Schema version:** Version **5** corrects v4 accounting. Codex 0.154 `token_usage_record.payload.usage` is per-request; prefer the final cumulative `thread_token_usage`. Request-only fallback requires stable response IDs for deduplication. Legacy cumulative records and `event_msg.token_count.info.total_token_usage` remain supported. Cache-write and reasoning-output fields are preserved; reasoning is already part of output.
+
+Tree totals include the parent and each explicit descendant once. Codex follows read-only `state_5.sqlite` `thread_spawn_edges`, never proximity or working-directory guesses. `root_usage`, `usage_scope`, and `usage_coverage` distinguish a root-only capture from known tree coverage. Unavailable discovery, missing child logs, and unknown independent headless descendants remain explicit. Claude totals include parent plus recorded agent transcripts; duplicate message IDs are counted once. Complete means the indicated coverage has all required fields, not that unregistered headless work was discovered.
+
+Summary input includes fresh input, cache reads, and cache writes on both hosts. `total_tokens` is input plus output. Claude `total_uncached_input_tokens` retains the fresh-input subtotal; agent and orchestrator detail retain native Claude fields. Missing components make the corresponding total `null`, never zero. `total_duration_s` is envelope elapsed time; `total_step_duration_s` is summed step duration and may differ because steps overlap or waits occur outside them. Session usage covers the session lifetime, not only the pipeline envelope interval.
+
+Historical v4 values may have been mislabeled or request-only; do not use them as equivalent benchmarks. Backfill requires an exact verified rollout path, labels reconstruction, and preserves incomplete status. No historical data is rewritten automatically.
 
 **Orchestrator telemetry** (schema v2+):
 
@@ -54,7 +61,11 @@ The merged record includes an `orchestrator` field with per-step tool call and t
 
 Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `orchestrator_tool_calls`, `total_cache_creation_tokens`.
 
-**Session transcript discovery:** The agent-stop hook writes `session_transcript_path` (the raw parent session transcript path from the harness payload) alongside the resolved per-agent `transcript_path`. The merge script reads the first `session_transcript_path` from the raw agents file. If no agent events exist, `orchestrator` is `null`.
+**Session transcript discovery:** The opening envelope captures the path from session-start facts. Completion can supply it without agent events; agent events provide a legacy fallback. Codex can resolve an exact captured thread ID through its read-only state database. Missing paths produce unknown usage.
+
+**Lifecycle support:** [Official Codex hook documentation](https://developers.openai.com/codex/hooks/) documents `Stop` completion and JSON output. The adapter returns `{}` on success. Local validation targets CLI 0.154.0. Manifest registration/trust is NP-145's scope: a declared hook does not prove the plugin registry delivers it. Explicit `n1-start` finalization is available even when hook delivery is absent; interrupted sessions with no delivered completion remain pending rather than claiming completion.
+
+Recovery never guesses that a different concurrent session has become stale. Resume with the captured run identity, or explicitly run `bash hooks/telemetry-merge.sh <run_id> <telemetry_dir>` against the intended interrupted run. Multiple unfinished runs in one session require `N1_RUN_ID`; hooks with only an ambiguous session identity leave them pending.
 
 **Orchestrator transcript fallback:** When no agent event carries `session_transcript_path` (runs before the field was introduced), the merge script derives the parent transcript path from any subagent transcript path that contains `/subagents/`. It strips the subagent suffix to recover the session directory and checks for `<session-dir>.jsonl`. This fallback runs only when primary resolution fails.
 

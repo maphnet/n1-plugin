@@ -8,17 +8,18 @@ assert_contains() { case "$3" in *"$2"*) echo "PASS: $1"; PASS=$((PASS+1));; *) 
 assert_not_contains() { case "$3" in *"$2"*) echo "FAIL: $1 (unexpected=[$2] in=[$3])"; FAIL=$((FAIL+1));; *) echo "PASS: $1"; PASS=$((PASS+1));; esac; }
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-unset N1_HOST PLUGIN_DATA PLUGIN_ROOT CODEX_HOME CLAUDE_PLUGIN_ROOT N1_STORY_PLUGIN_DIR N1_HOME
+unset N1_HOST PLUGIN_DATA PLUGIN_ROOT CODEX_HOME CODEX_THREAD_ID CODEX_SESSION_ID CLAUDE_PLUGIN_ROOT N1_STORY_PLUGIN_DIR N1_HOME
 export N1_HOST_FILE="$T/host.json"
 source "$REPO_ROOT/lib/config.sh"   # sources lib/host.sh
 
 # --- detection order
-assert_eq "default is claude-code" "claude-code" "$(n1_host)"
+assert_eq "unidentified host is explicit" "unknown" "$(n1_host)"
 assert_eq "N1_HOST env wins" "codex" "$(N1_HOST=codex n1_host)"
 assert_eq "PLUGIN_DATA implies codex" "codex" "$(PLUGIN_DATA=/x n1_host)"
-assert_eq "CODEX_HOME implies codex" "codex" "$(CODEX_HOME=/x n1_host)"
+assert_eq "CODEX_HOME is configuration, not identity" "unknown" "$(CODEX_HOME=/x n1_host)"
 printf '{"host":"codex","pluginRoot":"%s","version":"9.9.9"}\n' "$REPO_ROOT" > "$N1_HOST_FILE"
-assert_eq "host.json codex when no CLAUDE_PLUGIN_ROOT" "codex" "$(n1_host)"
+assert_eq "shared host.json cannot select host" "unknown" "$(n1_host)"
+assert_eq "thread identity implies codex" "codex" "$(CODEX_THREAD_ID=thread-a n1_host)"
 assert_eq "host.json ignored when CLAUDE_PLUGIN_ROOT set" "claude-code" "$(CLAUDE_PLUGIN_ROOT=/y n1_host)"
 
 # --- plugin root
@@ -53,16 +54,29 @@ assert_eq "worktree root from config, trailing slash stripped" ".wt" "$(N1_HOST=
 
 # --- headless command
 CMD=$(N1_HOST=claude-code n1_headless_cmd n1-start NP-1 opus /tmp/o.jsonl)
-assert_contains "claude cmd shape" 'claude -p "/n1:n1-start NP-1" --model opus --permission-mode bypassPermissions --output-format stream-json --verbose > "/tmp/o.jsonl" 2>&1' "$CMD"
+assert_contains "claude cmd shape" 'claude -p /n1:n1-start\ NP-1 --model opus --permission-mode bypassPermissions --output-format stream-json --verbose > /tmp/o.jsonl 2>&1' "$CMD"
 CMD=$(N1_HOST=claude-code N1_STORY_PLUGIN_DIR=/dev/n1 n1_headless_cmd n1-start NP-1 opus /tmp/o.jsonl)
-assert_contains "claude cmd plugin-dir" '--plugin-dir "/dev/n1"' "$CMD"
+assert_contains "claude cmd plugin-dir" '--plugin-dir /dev/n1' "$CMD"
 CMD=$(N1_HOST=claude-code n1_headless_cmd n1-finish NP-1 "" /tmp/o.jsonl)
 assert_not_contains "claude cmd omits empty model" '--model' "$CMD"
 CMD=$(N1_HOST=codex n1_headless_cmd n1-start NP-1 gpt-5.6 /tmp/o.jsonl /repo)
-assert_contains "codex cmd shape" "codex exec --cd \"/repo\" -c model=\"gpt-5.6\" --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust '\$n1-start NP-1' > \"/tmp/o.jsonl\" 2>&1" "$CMD"
+assert_contains "codex cmd shape" 'codex exec --cd /repo -m gpt-5.6 --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust \$n1-start\ NP-1 > /tmp/o.jsonl 2>&1' "$CMD"
 CMD=$(N1_HOST=codex n1_headless_cmd n1-finish NP-1 "" /tmp/o.jsonl)
 assert_not_contains "codex cmd omits empty model" '-c model' "$CMD"
 assert_not_contains "codex cmd omits --cd without repo" '--cd' "$CMD"
+
+# Execute the generated shell against a local stub: quoting and propagation,
+# including text that would execute if the command builder quoted unsafely.
+mkdir "$T/bin"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@"\n' > "$T/bin/codex"
+chmod +x "$T/bin/codex"
+printf 'Persona: developer\nWorkspace constraints and output: implementation.md\n' > "$T/brief"
+CMD=$(N1_HOST=codex n1_headless_cmd n1-start 'NP-1 $(false) "literal"' model-x "$T/output" '/repo with spaces' high "$T/brief")
+PATH="$T/bin:$PATH" bash -c "$CMD"
+assert_contains "resolved effort reaches CLI" 'model_reasoning_effort="high"' "$(< "$T/output")"
+assert_contains "brief reaches CLI" 'Persona: developer' "$(< "$T/output")"
+assert_contains "workspace is one argument" '/repo with spaces' "$(< "$T/output")"
+assert_contains "args remain literal" 'NP-1 $(false) "literal"' "$(< "$T/output")"
 
 # --- external worktree detection honours the host worktree root
 echo '{}' > "$N1_HOME/config.json"   # reset: clear worktree.root override from prior test

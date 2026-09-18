@@ -17,7 +17,8 @@ echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VE
 N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "${N1_HOME}/memory/$ID/telemetry" 2>&1 || echo "⚠ Telemetry merge failed" >&2
 MERGED="${N1_HOME}/memory/$ID/telemetry/runs/$N1_RUN_ID.jsonl"
-[ -s "$MERGED" ] && rm -f "${N1_HOME}/memory/$ID/telemetry/telemetry.lock"
+source "$N1_ROOT/lib/telemetry.sh"
+[ -s "$MERGED" ] && n1_remove_run_lock "${N1_HOME}/memory/$ID/telemetry" "$N1_RUN_ID"
 ```
 
 Clear active-run:

@@ -4,6 +4,41 @@
 _N1_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_N1_LIB_DIR}/config.sh"
 
+# Capture immutable routing identity before any pipeline work. The compatibility
+# lock is only a pointer; hooks select the per-run lock by session identity.
+n1_run_begin() {
+    local ticket="$1" tdir host session facts transcript
+    tdir="${N1_HOME}/memory/$ticket/telemetry"
+    host=$(n1_host); session=$(n1_session_id)
+    facts=$(n1_session_file 2>/dev/null || true)
+    transcript="${N1_TRANSCRIPT_PATH:-}"
+    if [ -f "$facts" ]; then
+        [ "$host" != unknown ] || host=$(n1_hook_field host < "$facts")
+        [ -n "$transcript" ] || transcript=$(n1_hook_field transcript_path < "$facts")
+    fi
+    export N1_HOST="${host:-unknown}" N1_SESSION_ID="$session"
+    N1_VERSION=$(n1_plugin_version)
+    N1_RUN_ID="$(date -u +n1-run-%Y%m%dT%H%M%SZ)-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
+    export N1_RUN_ID N1_VERSION
+    python3 - "$tdir" "$N1_RUN_ID" "$N1_VERSION" "$ticket" "$N1_HOST" "$session" "$transcript" <<'PY'
+import json, os, pathlib, sys
+from datetime import datetime, timezone
+tdir = pathlib.Path(sys.argv[1])
+run, version, ticket, host, session, transcript = sys.argv[2:]
+for sub in ('raw/steps', 'raw/agents', 'runs', 'locks'):
+    (tdir / sub).mkdir(parents=True, exist_ok=True)
+identity = dict(run_id=run, n1_version=version, ticket_id=ticket,
+                host=host, session_id=session or None,
+                session_transcript_path=transcript or None)
+identity['parent_session_id'] = os.environ.get('N1_PARENT_SESSION_ID') or None
+payload = json.dumps(identity) + '\n'
+(tdir / 'locks' / (run + '.json')).write_text(payload)
+(tdir / 'telemetry.lock').write_text(payload)
+identity.update(layer='envelope', started_at=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'))
+(tdir / 'raw/steps' / (run + '.jsonl')).write_text(json.dumps(identity) + '\n')
+PY
+}
+
 n1_emit_step_event() {
     local run_id="$1" version="$2" ticket_id="$3" step="$4" step_number="$5" telem_dir="$6"
     shift 6
@@ -37,8 +72,23 @@ n1_emit_step_event() {
 
 n1_read_lock() {
     local memory_dir="$1"
-    local lock_file
-    lock_file=$(ls -t "${memory_dir}"/*/telemetry/telemetry.lock 2>/dev/null | head -1) || true
+    local lock_file="" candidate session owner run host selected_run=""
+    session=$(n1_session_id); host=$(n1_host)
+    # Identity-less hooks must not guess another session's most recent run.
+    [ -n "$session" ] || [ -n "${N1_RUN_ID:-}" ] || return 1
+    for candidate in "${memory_dir}"/*/telemetry/locks/*.json "${memory_dir}"/*/telemetry/telemetry.lock; do
+        [ -f "$candidate" ] || continue
+        owner=$(n1_hook_field session_id < "$candidate")
+        run=$(n1_hook_field run_id < "$candidate")
+        [ -z "${N1_RUN_ID:-}" ] || [ "$run" = "$N1_RUN_ID" ] || continue
+        [ -z "$session" ] || [ "$owner" = "$session" ] || continue
+        [ "$(n1_hook_field host < "$candidate")" = "$host" ] || continue
+        # Multiple unfinished pipelines in one thread are ambiguous to a hook.
+        # Require an explicit run ID rather than attributing to the newest one.
+        [ -z "$selected_run" ] || [ "$selected_run" = "$run" ] || return 1
+        selected_run="$run"
+        lock_file="$candidate"
+    done
     [ -n "$lock_file" ] || return 1
 
     local lock_content
@@ -53,8 +103,19 @@ n1_read_lock() {
     fi
     [ -n "$N1_LOCK_RUN_ID" ] || return 1
 
+    N1_LOCK_FILE="$lock_file"
     N1_LOCK_TELEM_DIR=$(dirname "$lock_file")
+    [ "$(basename "$N1_LOCK_TELEM_DIR")" != locks ] || N1_LOCK_TELEM_DIR=$(dirname "$N1_LOCK_TELEM_DIR")
     N1_LOCK_TICKET_ID=$(basename "$(dirname "$N1_LOCK_TELEM_DIR")")
+}
+
+n1_remove_run_lock() {
+    local tdir="$1" run="$2" pointer="$1/telemetry.lock"
+    case "$run" in ''|*[!a-zA-Z0-9_-]*) return 1;; esac
+    rm -f "$tdir/locks/$run.json"
+    if [ -f "$pointer" ] && [ "$(n1_hook_field run_id < "$pointer")" = "$run" ]; then
+        rm -f "$pointer"
+    fi
 }
 
 # n1_emit_outcome <run_id> <n1_version> <ticket_id> <telemetry_dir> [key=value ...]
@@ -98,7 +159,6 @@ n1_merge_pending() {
 
     local merged_file="${N1_LOCK_TELEM_DIR}/runs/${N1_LOCK_RUN_ID}.jsonl"
     local saved_run_id="$N1_LOCK_RUN_ID"
-    local lock_file="${N1_LOCK_TELEM_DIR}/telemetry.lock"
 
     if [ ! -s "$merged_file" ]; then
         local merge_script
@@ -107,11 +167,7 @@ n1_merge_pending() {
     fi
 
     # Remove lock only if merged output exists and lock still belongs to the stale run
-    if [ -s "$merged_file" ] && [ -f "$lock_file" ]; then
-        local current_run_id
-        current_run_id=$(grep -o '"run_id"[[:space:]]*:[[:space:]]*"[^"]*"' "$lock_file" 2>/dev/null | head -1 | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/' || true)
-        [ "$current_run_id" = "$saved_run_id" ] && rm -f "$lock_file"
-    fi
+    [ ! -s "$merged_file" ] || n1_remove_run_lock "$N1_LOCK_TELEM_DIR" "$saved_run_id"
 }
 
 # n1_record_decision <decision_id> <result:true|false> [<condition_json>] [key=value ...]
@@ -121,11 +177,12 @@ n1_record_decision() {
     shift 2; [ $# -gt 0 ] && shift
     [ -n "${N1_HOME:-}" ] && [ -n "${ID:-}" ] || return 0
     local tdir="${N1_HOME}/memory/${ID}/telemetry"
-    [ -f "${tdir}/telemetry.lock" ] || return 0
+    n1_read_lock "${N1_HOME}/memory" || return 0
+    [ "$N1_LOCK_TICKET_ID" = "$ID" ] || return 0
     command -v jq >/dev/null 2>&1 || return 0
     local run_id version
-    run_id=$(jq -r '.run_id // empty' "${tdir}/telemetry.lock" 2>/dev/null); [ -n "$run_id" ] || return 0
-    version=$(jq -r '.n1_version // empty' "${tdir}/telemetry.lock" 2>/dev/null)
+    run_id="$N1_LOCK_RUN_ID"
+    version="$N1_LOCK_VERSION"
 
     type n1_read_signal >/dev/null 2>&1 || source "$(dirname "${BASH_SOURCE[0]}")/signals.sh"
     local signals="{}" mem_dir="${N1_HOME}/memory/${ID}"

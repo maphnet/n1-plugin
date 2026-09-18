@@ -5,7 +5,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected=[$2] actual=[$3])"; FAIL=$((FAIL+1)); fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-export N1_HOME="$T/home"; export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+unset N1_HOST CODEX_THREAD_ID CODEX_SESSION_ID
+export N1_HOME="$T/home" N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 mkdir -p "$N1_HOME"
 cat > "$N1_HOME/config.json" <<'EOF'
 {"planReview":{"requirePlanApproval":true},"autonomy":{"brainstorm":"auto","acceptanceGate":"auto"}}
@@ -24,10 +25,10 @@ assert_eq "second call silent" "" "$OUT2"
 mkdir -p "$T/ghbin"; printf '#!/usr/bin/env bash\nexit 1\n' > "$T/ghbin/gh"; chmod +x "$T/ghbin/gh"
 MEM2="$N1_HOME/memory/T-10"; mkdir -p "$MEM2"
 printf -- '---\nstep: pr\nawaiting: merge\npr: 42\ncreated: 2099-01-01T00:00:00Z\nlast_checked: 2026-01-01T00:00:00Z\n---\n' > "$MEM2/overview.md"
-echo '{"source":"startup"}' | PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-throttle","source":"startup"}' | N1_HOST=claude-code PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "last_checked unchanged on gh failure" "last_checked: 2026-01-01T00:00:00Z" "$(grep '^last_checked:' "$MEM2/overview.md")"
 printf '#!/usr/bin/env bash\necho MERGED\n' > "$T/ghbin/gh"
-echo '{"source":"startup"}' | PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-throttle","source":"startup"}' | N1_HOST=claude-code PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 [ "$(grep '^last_checked:' "$MEM2/overview.md")" != "last_checked: 2026-01-01T00:00:00Z" ] && { echo "PASS: last_checked advanced on success"; PASS=$((PASS+1)); } || { echo "FAIL: last_checked advanced on success"; FAIL=$((FAIL+1)); }
 
 # --- enforce-agent-policy (both hosts) -------------------------------------
@@ -60,11 +61,15 @@ assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
 
 # --- telemetry hooks accept the Codex persona prefix -----------------------
 MEM3="$N1_HOME/memory/T-20/telemetry"; mkdir -p "$MEM3"
-echo '{"run_id":"n1-run-x","n1_version":"3.0.0"}' > "$MEM3/telemetry.lock"
+mkdir -p "$MEM3/locks"
+echo '{"run_id":"n1-run-codex","n1_version":"3.0.0","host":"codex","session_id":"01a094f8"}' > "$MEM3/locks/n1-run-codex.json"
 N1_HOST=codex bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/codex/subagent-start.json"
-assert_eq "codex agent start recorded" "n1-developer" "$(jq -r .agent_type "$MEM3/raw/agents/n1-run-x.jsonl")"
+assert_eq "codex agent start recorded" "n1-developer" "$(jq -r .agent_type "$MEM3/raw/agents/n1-run-codex.jsonl")"
+env -u N1_HOST bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/codex/subagent-start.json"
+assert_eq "identity-less hook does not claim Codex lock" "1" "$(wc -l < "$MEM3/raw/agents/n1-run-codex.jsonl")"
+echo '{"run_id":"n1-run-claude","n1_version":"3.0.0","host":"claude-code","session_id":"s-claude-1"}' > "$MEM3/locks/n1-run-claude.json"
 N1_HOST=claude-code bash "$REPO_ROOT/hooks/telemetry-agent-start.sh" < "$FX/claude/subagent-start.json"
-assert_eq "claude agent start recorded" "2" "$(wc -l < "$MEM3/raw/agents/n1-run-x.jsonl")"
+assert_eq "claude agent start recorded" "n1:developer" "$(jq -r .agent_type "$MEM3/raw/agents/n1-run-claude.jsonl")"
 
 # --- session-start: host.json, routing block, codex TOML generation --------
 export N1_HOST_FILE="$T/host.json"
@@ -81,7 +86,7 @@ PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/codex/session-start.json")
 OUT=$(echo "$PAYLOAD" | N1_HOST=codex CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CODEX_HOME="$T/codexhome" bash "$REPO_ROOT/hooks/session-start.sh")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
-case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent"*'agent_type "n1-<name>"'*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
+case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent schema"*"agent_type only if supported"*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
 assert_eq "codex persona TOMLs generated in cwd" "10" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'
@@ -117,9 +122,11 @@ STOP_TICK="T-STOP"
 STOP_MEM="$N1_HOME/memory/$STOP_TICK"
 STOP_TELEM="$STOP_MEM/telemetry"
 mkdir -p "$STOP_TELEM/raw/steps" "$STOP_TELEM/runs"
-echo '{"run_id":"run-stop-test","n1_version":"3.14.1"}' > "$STOP_TELEM/telemetry.lock"
+mkdir -p "$STOP_TELEM/locks"
+echo '{"run_id":"run-stop-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop"}' > "$STOP_TELEM/locks/run-stop-test.json"
+echo '{"run_id":"run-stop-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop"}' > "$STOP_TELEM/telemetry.lock"
 printf -- '---\ntype: task\ntier: standard\nstep: implementation\n---\n' > "$STOP_MEM/overview.md"
-N1_HOME="$N1_HOME" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" </dev/null 2>/dev/null || true
+echo '{"session_id":"s-stop","transcript_path":"/tmp/stop.jsonl"}' | N1_HOST=claude-code N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
 STOP_LINE=$(grep '"envelope_close"' "$STOP_TELEM/raw/steps/run-stop-test.jsonl" 2>/dev/null | tail -1)
 assert_eq "stop hook writes envelope_close" "envelope_close" "$(echo "$STOP_LINE" | jq -r .layer 2>/dev/null)"
 assert_eq "stop hook final_outcome abandoned" "abandoned" "$(echo "$STOP_LINE" | jq -r .final_outcome 2>/dev/null)"
@@ -130,7 +137,7 @@ assert_eq "stop hook removes lock after merge" "false" "$([ -f "$STOP_TELEM/tele
 # session-stop: no lock -> silent exit, no crash
 NO_LOCK_MEM="$N1_HOME/memory/T-NOLOCK"
 mkdir -p "$NO_LOCK_MEM"
-N1_HOME="$N1_HOME" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" </dev/null 2>/dev/null
+echo '{"session_id":"s-no-lock"}' | N1_HOST=claude-code N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null
 assert_eq "stop hook no lock exits clean" "0" "$?"
 
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

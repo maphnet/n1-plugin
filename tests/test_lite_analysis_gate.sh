@@ -90,7 +90,8 @@ assert_eq "T12: missing ticket.md never fires" "false" "$r"
 # Telemetry: the condition's signal reference is snapshotted into the event.
 # ---------------------------------------------------------------------------
 fixture simple task adequate
-echo '{"run_id":"run-lite","n1_version":"2.100.0"}' > "$MEM/telemetry/telemetry.lock"
+export N1_HOST=claude-code N1_SESSION_ID=test-session
+echo '{"run_id":"run-lite","n1_version":"2.100.0","host":"claude-code","session_id":"test-session"}' > "$MEM/telemetry/telemetry.lock"
 n1_record_decision lite-analysis-gate true "$COND" "tier=simple" "type=task" "quality=adequate"
 
 LINE=$(tail -1 "$MEM/telemetry/raw/steps/run-lite.jsonl" 2>/dev/null)

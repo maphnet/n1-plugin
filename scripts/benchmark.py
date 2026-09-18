@@ -688,7 +688,13 @@ def compute_run_metrics(cache: dict) -> None:
     run_record["_orch_bash_calls"] = (totals.get("tools_used") or {}).get("Bash")
     run_record["_orch_input_tokens"] = totals.get("input_tokens")
     run_record["_orch_output_tokens"] = totals.get("output_tokens")
-    run_record["_total_input_tokens"] = (run_record.get("summary") or {}).get("total_input_tokens")
+    # v4 combined incomparable host scopes and could label a final request as
+    # complete session usage. Keep those records, but do not benchmark totals.
+    comparable = (run_record.get("parser_schema_version") or 0) >= 5 and run_record.get("usage_status") == "complete"
+    run_record["_total_input_tokens"] = (run_record.get("summary") or {}).get("total_input_tokens") if comparable else None
+    if comparable and run_record.get('host') == 'claude-code' and totals:
+        values = [totals.get(k) for k in ('input_tokens', 'cache_read_tokens', 'cache_creation_tokens')]
+        run_record['_orch_input_tokens'] = sum(values) if all(v is not None for v in values) else None
     turns = cache.get("turns") or []
     linked = cache.get("link_method", "heuristic") in ("run_record", "agent_event", "heuristic")
     turn_arg = turns if linked else None

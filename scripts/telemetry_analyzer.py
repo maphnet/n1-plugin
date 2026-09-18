@@ -217,11 +217,15 @@ def extract_totals(run: dict) -> dict:
     web_searches += (unattr.get("tools_used") or {}).get("WebSearch", 0)
 
     return {
-        "input_tokens": summary.get("total_input_tokens", 0),
-        "output_tokens": summary.get("total_output_tokens", 0),
-        "cache_read_tokens": summary.get("total_cache_read_tokens", 0),
+        "input_tokens": summary.get("total_input_tokens"),
+        "usage_status": run.get("usage_status", "unknown"),
+        "usage_scope": run.get("usage_scope", "unknown"),
+        "parser_schema_version": run.get("parser_schema_version"),
+        "usage_coverage": run.get("usage_coverage"),
+        "output_tokens": summary.get("total_output_tokens"),
+        "cache_read_tokens": summary.get("total_cache_read_tokens"),
         "cache_efficiency": summary.get("cache_efficiency"),
-        "tool_calls": summary.get("orchestrator_tool_calls", 0),
+        "tool_calls": summary.get("orchestrator_tool_calls"),
         "web_searches": web_searches,
         "agent_spawns": summary.get("agent_spawns", len(run.get("agents") or [])),
     }
@@ -233,10 +237,7 @@ def compute_duration(run: dict) -> float | None:
     completed = parse_ts(run.get("completed_at"))
     if started and completed:
         return round(completed - started, 1)
-    # Fallback: sum step durations
-    steps = run.get("steps") or []
-    durations = [s.get("duration_s") for s in steps if s.get("duration_s") is not None]
-    return round(sum(durations), 1) if durations else None
+    return None
 
 
 def extract_run_report(run: dict) -> dict:
@@ -260,6 +261,7 @@ def extract_run_report(run: dict) -> dict:
         "tier": run.get("estimated_tier"),
         "started_at": run.get("started_at"),
         "total_duration_s": compute_duration(run),
+        "total_step_duration_s": (run.get('summary') or {}).get('total_step_duration_s'),
         "final_outcome": run.get("final_outcome"),
         "fix_cycles": fix_cycles,
         "steps": extract_steps(run),

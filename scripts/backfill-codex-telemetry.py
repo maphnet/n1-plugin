@@ -2,7 +2,7 @@
 """Backfill existing merged telemetry records with Codex usage data.
 
 Reads existing merged records from $N1_HOME/memory/*/telemetry/runs/*.jsonl,
-re-processes any that lack v4 fields using the telemetry_codex module, and
+re-processes records that predate the current parser using telemetry_codex, and
 writes updated records. Labels all reconstructed fields.
 
 Usage:
@@ -28,13 +28,15 @@ def find_codex_session(record: dict) -> Path | None:
     if stp:
         p = Path(stp)
         if p.is_file():
-            # Verify it's a Codex rollout (has session_meta type)
+            # Verify it is a Codex rollout without trusting its old host field.
             try:
                 with open(p, encoding="utf-8", errors="replace") as fh:
-                    first = fh.readline().strip()
-                    if first:
-                        rec = json.loads(first)
-                        if rec.get("type") == "session_meta":
+                    for line in fh:
+                        try:
+                            rec = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(rec, dict) and rec.get("type") == "session_meta":
                             return p
             except (OSError, json.JSONDecodeError):
                 pass
@@ -43,22 +45,26 @@ def find_codex_session(record: dict) -> Path | None:
 
 def backfill_record(record: dict, session_path: Path) -> dict | None:
     """Backfill a record with Codex usage and linkage. Returns updated record or None."""
-    if record.get("schema_version", 0) >= telemetry_codex.SCHEMA_VERSION:
-        if record.get("usage_status") not in (None, "unknown"):
-            return None  # Already backfilled
+    if (record.get("parser_schema_version") or 0) >= telemetry_codex.SCHEMA_VERSION:
+        return None
 
-    usage = telemetry_codex.extract_usage(str(session_path))
+    usage = telemetry_codex.extract_usage_tree(str(session_path))
     linkage = telemetry_codex.extract_linkage(str(session_path))
+    if not linkage.get('session_id'):
+        return None
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     record["schema_version"] = telemetry_codex.SCHEMA_VERSION
-    record["host"] = record.get("host") or "codex"
+    record["host"] = "codex"
     record["cli_version"] = usage["cli_version"]
     record["parser_schema_version"] = telemetry_codex.SCHEMA_VERSION
     record["usage_status"] = usage["usage_status"]
     record["usage_scope"] = usage["usage_scope"]
     record["session_linkage"] = linkage
+    record['root_usage'] = usage.get('root_usage')
+    record["usage_coverage"] = {key: usage.get(key) for key in (
+        "session_count", "missing_session_count", "discovery_status", "headless_coverage")}
 
     # Update summary with session-total usage if available
     summary = record.get("summary") or {}
@@ -67,12 +73,21 @@ def backfill_record(record: dict, session_path: Path) -> dict | None:
         summary["total_output_tokens"] = usage["output_tokens"]
         summary["total_cache_read_tokens"] = usage["cached_input_tokens"]
         summary["total_reasoning_tokens"] = usage["reasoning_tokens"]
+        summary["total_cache_creation_tokens"] = usage["cache_creation_tokens"]
+        summary["total_tokens"] = usage["total_tokens"]
         summary["codex_model"] = usage["model"]
     else:
         # Mark as unknown — do not fabricate zero
-        for k in ("total_input_tokens", "total_output_tokens", "total_cache_read_tokens"):
-            if summary.get(k) == 0:
-                summary[k] = None
+        for k in ("total_input_tokens", "total_output_tokens", "total_cache_read_tokens",
+                  "total_cache_creation_tokens", "total_reasoning_tokens", "total_tokens"):
+            summary[k] = None
+    total_input = summary.get("total_input_tokens")
+    total_cache = summary.get("total_cache_read_tokens")
+    summary["cache_efficiency"] = (
+        round(total_cache / total_input, 2)
+        if isinstance(total_input, (int, float)) and total_input > 0
+        and isinstance(total_cache, (int, float)) else None
+    )
     record["summary"] = summary
 
     # Label as backfilled

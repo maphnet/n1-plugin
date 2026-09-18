@@ -32,7 +32,7 @@ TRANSCRIPT
 
 # Write step events (minimal envelope)
 cat > "$TELEM_DIR/raw/steps/$RUN_ID.jsonl" <<STEPS
-{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"TEST-1","session_id":"sess-001"}
+{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"TEST-1","session_id":"sess-001","host":"claude-code"}
 {"layer":"step","step":"analysis","step_number":1,"started_at":"2026-09-01T10:00:00Z"}
 {"layer":"step","step":"analysis","step_number":1,"completed_at":"2026-09-01T10:05:00Z","outcome":"pass"}
 {"layer":"envelope_close","completed_at":"2026-09-01T10:10:00Z","final_outcome":"pr_created"}
@@ -52,17 +52,25 @@ cat > "$TELEM_DIR/raw/agents/$RUN_ID.jsonl" <<AGENTS
 AGENTS
 
 # --- Run the merge ---
+export N1_HOST="claude-code"
 bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID" "$TELEM_DIR"
+unset N1_HOST
 
 OUT="$TELEM_DIR/runs/$RUN_ID.jsonl"
 
 # --- Gap 1: total_cache_creation_tokens present and correct ---
 CACHE_CREATION=$(jq '.summary.total_cache_creation_tokens' "$OUT")
-assert_eq "Gap1: total_cache_creation_tokens present" "450" "$CACHE_CREATION"
+assert_eq "Gap1: missing agents leave cache total unknown" "null" "$CACHE_CREATION"
 # 300 + 150 = 450 from the two transcript entries
 
 TOTAL_INPUT=$(jq '.summary.total_input_tokens' "$OUT")
-assert_eq "Gap1: total_input_tokens still works" "1800" "$TOTAL_INPUT"
+assert_eq "Gap1: missing agents leave input total unknown" "null" "$TOTAL_INPUT"
+
+ELAPSED=$(jq '.summary.total_duration_s' "$OUT")
+assert_eq "Duration: envelope elapsed time is used" "600" "$ELAPSED"
+
+STEP_DURATION=$(jq '.summary.total_step_duration_s' "$OUT")
+assert_eq "Duration: summed steps remain separately visible" "300" "$STEP_DURATION"
 
 # --- Gap 2: orchestrator resolved via subagent path derivation ---
 ORCH_ERROR=$(jq -r '.orchestrator.parse_error // "null"' "$OUT")
@@ -113,7 +121,7 @@ CODEX_TRANSCRIPT
 
 # Write step events
 cat > "$TELEM_DIR2/raw/steps/$RUN_ID2.jsonl" <<STEPS2
-{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"TEST-2","session_id":"codex-s1"}
+{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"TEST-2","session_id":"codex-s1","host":"codex","session_transcript_path":"$CODEX_SESS"}
 {"layer":"step","step":"analysis","step_number":1,"started_at":"2026-09-01T10:00:00Z"}
 {"layer":"step","step":"analysis","step_number":1,"completed_at":"2026-09-01T10:05:00Z","outcome":"pass"}
 {"layer":"envelope_close","completed_at":"2026-09-01T10:10:00Z","final_outcome":"pr_created"}
@@ -125,8 +133,8 @@ cat > "$TELEM_DIR2/raw/agents/$RUN_ID2.jsonl" <<AGENTS2
 {"event":"stop","agent_id":"agent-c1","agent_type":"n1-developer","completed_at":"2026-09-01T10:03:00Z","transcript_path":"$CODEX_SESS","session_transcript_path":"$CODEX_SESS"}
 AGENTS2
 
-# Force Codex host detection
-export N1_HOST="codex"
+# A later process may identify as Claude; immutable run identity still wins.
+export N1_HOST="claude-code"
 bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID2" "$TELEM_DIR2"
 unset N1_HOST
 
@@ -134,7 +142,7 @@ OUT2="$TELEM_DIR2/runs/$RUN_ID2.jsonl"
 
 # Schema v4
 SCHEMA_V=$(jq '.schema_version' "$OUT2")
-assert_eq "Codex: schema_version is 4" "4" "$SCHEMA_V"
+assert_eq "Codex: schema_version is 5" "5" "$SCHEMA_V"
 
 # Host field
 HOST_V=$(jq -r '.host' "$OUT2")
@@ -146,7 +154,7 @@ assert_eq "Codex: usage_scope is session-total" "session-total" "$SCOPE_V"
 
 # Usage status
 STATUS_V=$(jq -r '.usage_status' "$OUT2")
-assert_eq "Codex: usage_status is complete" "complete" "$STATUS_V"
+assert_eq "Codex: missing usage fields make status partial" "partial" "$STATUS_V"
 
 # Session-total usage (last record wins: 5000/300/3000/50)
 CODEX_INPUT=$(jq '.summary.total_input_tokens' "$OUT2")
@@ -176,17 +184,17 @@ bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID" "$TELEM_DIR"
 unset N1_HOST
 
 SCHEMA_V3=$(jq '.schema_version' "$OUT")
-assert_eq "Claude v4: schema_version is 4" "4" "$SCHEMA_V3"
+assert_eq "Claude: schema_version is 5" "5" "$SCHEMA_V3"
 
 HOST_V3=$(jq -r '.host' "$OUT")
 assert_eq "Claude v4: host is claude-code" "claude-code" "$HOST_V3"
 
 SCOPE_V3=$(jq -r '.usage_scope' "$OUT")
-assert_eq "Claude v4: usage_scope is per-agent" "per-agent" "$SCOPE_V3"
+assert_eq "Claude v4: usage_scope includes parent" "session-tree" "$SCOPE_V3"
 
 # Existing Claude token values still correct
 TOTAL_INPUT_V4=$(jq '.summary.total_input_tokens' "$OUT")
-assert_eq "Claude v4: total_input_tokens unchanged" "1800" "$TOTAL_INPUT_V4"
+assert_eq "Claude v4: total_input_tokens unknown with missing agents" "null" "$TOTAL_INPUT_V4"
 
 # ==== Test 4: Missing Codex usage — null not zero ====
 RUN_ID4="test-run-004"
@@ -203,7 +211,7 @@ cat > "$CODEX_EMPTY" <<'EMPTY_TRANSCRIPT'
 EMPTY_TRANSCRIPT
 
 cat > "$TELEM_DIR4/raw/steps/$RUN_ID4.jsonl" <<STEPS4
-{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"TEST-4","session_id":"empty-s1"}
+{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"TEST-4","session_id":"empty-s1","host":"codex","session_transcript_path":"$CODEX_EMPTY"}
 {"layer":"envelope_close","completed_at":"2026-09-01T10:10:00Z","final_outcome":"pr_created"}
 STEPS4
 

@@ -1,16 +1,19 @@
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"", "timeout": 30 } ] }
+      { "hooks": [ { "type": "command", "command": "N1_HOST=codex bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"", "timeout": 30 } ] }
     ],
     "PreToolUse": [
-      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/enforce-agent-policy.sh\"", "timeout": 10 } ] }
+      { "hooks": [ { "type": "command", "command": "N1_HOST=codex bash \"${CLAUDE_PLUGIN_ROOT}/hooks/enforce-agent-policy.sh\"", "timeout": 10 } ] }
     ],
     "SubagentStart": [
-      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-start.sh\"", "timeout": 10 } ] }
+      { "hooks": [ { "type": "command", "command": "N1_HOST=codex bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-start.sh\"", "timeout": 10 } ] }
     ],
     "SubagentStop": [
-      { "hooks": [ { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-stop.sh\"", "timeout": 10 } ] }
+      { "hooks": [ { "type": "command", "command": "N1_HOST=codex bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-stop.sh\"", "timeout": 10 } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "N1_HOST=codex bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-stop.sh\"", "timeout": 30 } ] }
     ]
   }
 }

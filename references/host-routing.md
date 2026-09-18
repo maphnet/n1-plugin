@@ -8,13 +8,13 @@ changes syntax; skills never name host tools directly (enforced by
 
 | Skill text says | Claude Code | Codex |
 |---|---|---|
-| dispatch persona `<name>` with `<prompt>` | resolve with `n1_resolve_agent <name> <step-context> [astra-context]`, then use its tab-separated `model<TAB>effort` result with `Agent`, `subagent_type: "n1:<name>"`, `prompt`, `model: <m>` | resolve with `n1_resolve_agent <name> <step-context> [astra-context]`, then use its tab-separated `model<TAB>effort` result with `spawn_agent`, `agent_type: "n1-<name>"`, `fork_turns: "none"`, `task_name`, `message: <prompt>`, `model: <m>`, `reasoning_effort: <effort>` |
+| dispatch persona `<name>` with `<prompt>` | resolve with `n1_resolve_agent <name> <step-context> [astra-context]`, then use its tab-separated `model<TAB>effort` result with `Agent`, `subagent_type: "n1:<name>"`, `prompt`, `model: <m>` | resolve with `n1_resolve_agent <name> <step-context> [astra-context]`; its tab-separated model/effort result is authoritative. Inspect the available `spawn_agent` schema at dispatch time. Only pass `agent_type` when that field is supported; then use `"n1-<name>"` to select the generated persona profile. Otherwise, read `agents/<name>.md` and embed its complete instructions plus the resolved model/effort in the fork-none message. Pass model/effort fields when supported, otherwise retain them in that message. In either route preserve the complete prompt (persona brief, workspace, constraints, and result contract). |
 | dispatch a general-purpose subagent | `Agent` tool, `subagent_type: "general-purpose"` | `spawn_agent` without `agent_type`, `fork_turns: "none"` |
-| wait for it | the tool call returns the result inline | `wait_agent` (bounded `timeout_ms`, 5-10 minutes); the final answer arrives in the mailbox |
-| dispatch long-running implementation persona | `Agent` tool (blocking, same as any persona) | headless child: `n1_headless_cmd n1-implement "<ID> plan=<plan-file> output=<output-file>" <model> <outfile> [repo]` via Bash — blocks until child exits, no timeout ceiling; see `skills/n1-start/steps/implementation.md` |
-| fix loop: next cycle for the same agent | dispatch a fresh persona | keep the agent open; `send_input` with the new findings; `close_agent` only if the session offers it |
-| ask the user | `AskUserQuestion` tool (max 4 questions per call) | end the turn with a plain message listing numbered options; there is no question tool |
-| load the tool if deferred | `ToolSearch` with `select:<tool>` | skip: all tools are preloaded |
+| wait for it | a dispatch may return inline or queued/running; wait for its mailbox/result completion before proceeding | `wait_agent` with a bounded `timeout_ms` (5-10 minutes). On timeout, wait again for the same worker; never dispatch a replacement because a wait timed out. A dispatch may return queued or running; wait for its mailbox/result completion before proceeding. |
+| dispatch a headless child | `n1_headless_cmd <skill> <args> <model> <outfile> [repo] [effort] [brief-file]` via Bash | `n1_headless_cmd <skill> <args> <model> <outfile> [repo] [effort] [brief-file]` via Bash. This is transport only: retain the selected persona, model/effort, workspace, constraints, brief, and result contract. |
+| fix loop: next cycle for the same agent | dispatch a fresh persona | If the active host exposes `followup_task` or `send_message`, use the available same-worker continuation with the new findings; otherwise dispatch a fresh persona. Do not use `send_input` unless it is actually exposed. |
+| ask the user | Use an available question tool within its advertised constraints; otherwise end the turn with numbered plain-text options. | Use an available question tool within its advertised constraints; otherwise end the turn with numbered plain-text options. |
+| load the tool if deferred | Use a tool-discovery facility only when it is available; otherwise use the tools already exposed to the session. | Use a tool-discovery facility only when it is available; otherwise use the tools already exposed to the session. |
 | invoke skill `<x>` | `/n1:n1-<skill>` | `$n1-<skill>` |
 | `<N1_ROOT>` | value of `N1 PLUGIN ROOT` (`${CLAUDE_PLUGIN_ROOT}` env var, set by the harness) | value of `N1 PLUGIN ROOT` (`${PLUGIN_ROOT}` env var set by Codex; `~/.n1/host.json` as last-resort fallback) |
 | worktree root | `worktree.root` from config, else `.claude/worktrees` | `worktree.root` from config, else `.codex/worktrees` |
@@ -23,9 +23,18 @@ changes syntax; skills never name host tools directly (enforced by
 | persona tool restriction | native `tools:` frontmatter, duplicated by `hooks/enforce-agent-policy.py` | `hooks/enforce-agent-policy.py` (denies `apply_patch` and agent tools outside the list) plus `sandbox_mode = "read-only"` for read-only personas |
 | hook trust | none | once per plugin version via `/hooks`; headless children pass `--dangerously-bypass-hook-trust` |
 
-> **BLOCKING DISPATCH REQUIREMENT (pipeline steps):** All persona dispatches within pipeline step files MUST be blocking (foreground). Do NOT dispatch pipeline step agents asynchronously or in the background. The agent tool call must return its result inline before the orchestrator reads any output files or proceeds to the next instruction. Fabricating a completion event or checking for output before the tool call returns is a critical protocol violation that discards specialist work.
+> **BLOCKING DISPATCH REQUIREMENT (pipeline steps):** All persona dispatches within pipeline step files MUST remain foreground from the orchestrator's perspective. Do NOT continue to the next pipeline instruction until the dispatched worker has completed and its result is available, whether completion is returned inline or delivered through a native mailbox/wait mechanism. Fabricating a completion event or checking for output before completion is a critical protocol violation that discards specialist work.
 
 ## Bash snippet preamble
+
+Capabilities are checked against the active tool schema, not just the host name.
+Codex CLI 0.154.0 supports `exec -c model_reasoning_effort=...`; other harnesses
+may expose native model/effort arguments. Including model/effort in a message is
+context only and cannot enforce runtime configuration. If neither native
+arguments nor an equivalent configured profile/transport can preserve the pair,
+report the unsupported capability before dispatching. `send_message` can reach a
+running worker but may not restart an idle one; use `followup_task` for that when
+exposed. A wait timeout is not worker completion or permission to restart it.
 
 Every skill bash snippet that needs plugin files starts with this line; `lib/config.sh` sources `lib/host.sh`:
 

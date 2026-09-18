@@ -111,18 +111,18 @@ test_child_cmd() {
     unset N1_STORY_PLUGIN_DIR
     local cmd; cmd=$(N1_HOST=claude-code n1_story_child_cmd /repos/inf INF-12 opus STORY-1 /tmp/log.jsonl)
     case "$cmd" in
-        *'cd "/repos/inf"'*'N1_HEADLESS=1'*'N1_AUTONOMY_PRESET=autonomous'*'N1_STORY_ID="STORY-1"'*'claude -p "/n1:n1-start INF-12"'*'--model opus'*'--permission-mode bypassPermissions'*'--output-format stream-json --verbose'*'> "/tmp/log.jsonl" 2>&1'*)
+        *'cd "/repos/inf"'*'N1_HEADLESS=1'*'N1_AUTONOMY_PRESET=autonomous'*'N1_STORY_ID="STORY-1"'*'claude -p /n1:n1-start\ INF-12'*'--model opus'*'--permission-mode bypassPermissions'*'--output-format stream-json --verbose'*'> /tmp/log.jsonl 2>&1'*)
             assert_eq "cmd: full shape (claude)" "ok" "ok" ;;
         *) assert_eq "cmd: full shape (claude)" "ok" "$cmd" ;;
     esac
     case "$cmd" in *--plugin-dir*) assert_eq "cmd: no plugin-dir by default" "absent" "present" ;; *) assert_eq "cmd: no plugin-dir by default" "absent" "absent" ;; esac
     export N1_STORY_PLUGIN_DIR=/dev/n1-plugin
     cmd=$(N1_HOST=claude-code n1_story_child_cmd /repos/inf INF-12 sonnet STORY-1 /tmp/log.jsonl)
-    case "$cmd" in *'--plugin-dir "/dev/n1-plugin"'*) assert_eq "cmd: plugin-dir when env set" "ok" "ok" ;; *) assert_eq "cmd: plugin-dir when env set" "ok" "$cmd" ;; esac
+    case "$cmd" in *'--plugin-dir /dev/n1-plugin'*) assert_eq "cmd: plugin-dir when env set" "ok" "ok" ;; *) assert_eq "cmd: plugin-dir when env set" "ok" "$cmd" ;; esac
     unset N1_STORY_PLUGIN_DIR
     cmd=$(N1_HOST=codex n1_story_child_cmd /repos/inf INF-12 gpt-5.6 STORY-1 /tmp/log.jsonl)
     case "$cmd" in
-        *'cd "/repos/inf"'*'N1_HEADLESS=1'*'N1_STORY_ID="STORY-1"'*'codex exec'*'-c model="gpt-5.6"'*"--dangerously-bypass-hook-trust '\$n1-start INF-12'"*'> "/tmp/log.jsonl" 2>&1'*)
+        *'cd "/repos/inf"'*'N1_HEADLESS=1'*'N1_STORY_ID="STORY-1"'*'codex exec'*'-m gpt-5.6'*'--dangerously-bypass-hook-trust \$n1-start\ INF-12'*'> /tmp/log.jsonl 2>&1'*)
             assert_eq "cmd: full shape (codex)" "ok" "ok" ;;
         *) assert_eq "cmd: full shape (codex)" "ok" "$cmd" ;;
     esac

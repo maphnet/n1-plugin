@@ -9,11 +9,24 @@ INPUT=$(cat)
 # Both hosts send the SessionStart reason as `source` (startup|resume|clear|compact).
 TRIGGER=$(printf '%s' "$INPUT" | n1_hook_field source)
 HOOK_CWD=$(printf '%s' "$INPUT" | n1_hook_field cwd)
+N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
+export N1_SESSION_ID="${N1_SESSION_ID:-${CODEX_THREAD_ID:-}}"
+N1_TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | n1_hook_field transcript_path)
+export N1_TRANSCRIPT_PATH
 
 # --- Host facts: recorded for skill preambles and injected as routing context ---
 N1_HOST_NAME=$(n1_host)
 N1_ROOT_DIR=$(n1_plugin_root)
 N1_VERSION_STR=$(n1_plugin_version)
+# Per-session facts survive separate shell calls without consulting mutable
+# global host identity. The shared file below is plugin discovery only.
+SESSION_FILE=$(n1_session_file 2>/dev/null || true)
+if [ -n "$SESSION_FILE" ]; then
+    mkdir -p "$(dirname "$SESSION_FILE")"
+    printf '{"host":"%s","session_id":"%s","transcript_path":"%s","pluginRoot":"%s"}\n' \
+        "$(escape_json_val "$N1_HOST_NAME")" "$(escape_json_val "$N1_SESSION_ID")" \
+        "$(escape_json_val "$N1_TRANSCRIPT_PATH")" "$(escape_json_val "$N1_ROOT_DIR")" > "$SESSION_FILE"
+fi
 HOST_FILE=$(n1_host_file)
 mkdir -p "$(dirname "$HOST_FILE")" 2>/dev/null || true
 printf '{"host":"%s","pluginRoot":"%s","version":"%s"}\n' \
@@ -23,14 +36,14 @@ if [ "$N1_HOST_NAME" = "codex" ]; then
     HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 
 HOST ROUTING (host: codex — authoritative for how N1 skills reach the harness):
-- Dispatch persona <name>: run n1_resolve_agent <name> <step-context> [astra-context] from lib/config.sh; split its tab-separated model/effort result and pass both to spawn_agent. Its tab-separated model/effort result is authoritative. Omit the third argument unless a workflow has verified a canonical Astra context. Spawn with agent_type \"n1-<name>\", fork_turns \"none\", task_name, and message = the prompt. Wait for it: wait_agent (timeout_ms 300000-600000). For long-running implementation dispatch, use headless child instead: n1_headless_cmd from lib/host.sh generates a blocking codex exec command with no timeout — see implementation.md step. Fix loops: keep the agent open and send_input the next cycle.
+- Dispatch persona <name>: run n1_resolve_agent <name> <step-context> [astra-context]; its tab-separated model/effort result is authoritative. Inspect the available spawn_agent schema at dispatch time: pass agent_type only if supported; otherwise read agents/<name>.md and embed its complete instructions plus the resolved model/effort in the fork-none message. Pass model/effort fields only when supported, otherwise retain them in that message; preserve workspace, constraints, and output contract. Direct work dispatches developer; planned implementation dispatches implementer. A dispatch may return queued or running; wait for its mailbox/result completion before proceeding. A wait timeout never starts a replacement. Fix loops use followup_task or send_message when exposed; use send_input only when it is actually exposed.
 - Dispatch a general-purpose subagent: spawn_agent without agent_type, fork_turns \"none\".
-- Ask the user: end the turn with a plain message listing numbered options. There is no question tool.
-- Load the tool if deferred: skip, all tools are preloaded.
+- Ask the user: use an available question tool within its documented constraints; otherwise ask in a plain final message.
+- Load deferred tools through the discovery capability exposed by this harness, if any.
 - Invoke skill <x>: \$<x>. Skill references written /n1:n1-<skill> are invoked as \$n1-<skill>.
 - <N1_ROOT> in skill text means the N1 PLUGIN ROOT above. Persona definitions are .codex/agents/n1-*.toml (generated at session start, never edit).
 - Full table: ${N1_ROOT_DIR}/references/host-routing.md"
-else
+elif [ "$N1_HOST_NAME" = "claude-code" ]; then
     HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 
 HOST ROUTING (host: claude-code — authoritative for how N1 skills reach the harness):
@@ -41,7 +54,14 @@ HOST ROUTING (host: claude-code — authoritative for how N1 skills reach the ha
 - Invoke skill <x>: Skill tool with n1:<x>.
 - <N1_ROOT> in skill text means the N1 PLUGIN ROOT above.
 - Full table: ${N1_ROOT_DIR}/references/host-routing.md"
+else
+    HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
+HOST ROUTING: unknown. Establish the host from the active harness before dispatch; shared host.json is discovery only."
 fi
+HOST_BLOCK+="
+N1 RUN IDENTITY: export N1_HOST=${N1_HOST_NAME}; export N1_SESSION_ID=${N1_SESSION_ID}. Carry these values into each helper shell. Session facts: ${SESSION_FILE:-unavailable}."
+HOST_BLOCK+="
+DISPATCH LIMITS: Model/effort text in a prompt does not enforce runtime configuration. If native arguments or a configured equivalent cannot preserve the resolved pair, report the unsupported capability before dispatching. send_message may not wake an idle worker; use a supported continuation that does."
 
 # Codex cannot ship agents: materialise persona TOMLs in the project (idempotent, fingerprinted).
 if [ "$N1_HOST_NAME" = "codex" ] && [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
@@ -82,7 +102,9 @@ telem_enabled=$(n1_config_val '.telemetry.enabled' "$CONFIG_FILE")
 if [ "$telem_enabled" = "true" ]; then
     source "${SCRIPT_DIR}/../lib/telemetry.sh"
     n1_memory_dir=$(n1_home)
-    [ -n "$n1_memory_dir" ] && n1_merge_pending "${n1_memory_dir}/memory" 2>/dev/null || true
+    if [ "${TRIGGER:-}" = startup ] && [ -n "$n1_memory_dir" ]; then
+        n1_merge_pending "${n1_memory_dir}/memory" 2>/dev/null || true
+    fi
     if [ "${TRIGGER:-}" = "compact" ] && [ -n "${n1_memory_dir:-}" ]; then
         if n1_read_lock "${n1_memory_dir}/memory" 2>/dev/null; then
             n1_emit_compaction "$N1_LOCK_RUN_ID" "$N1_LOCK_VERSION" "$N1_LOCK_TICKET_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
