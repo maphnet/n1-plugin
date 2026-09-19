@@ -21,6 +21,8 @@ printf '{"host":"codex","pluginRoot":"%s","version":"9.9.9"}\n' "$REPO_ROOT" > "
 assert_eq "shared host.json cannot select host" "unknown" "$(n1_host)"
 assert_eq "thread identity implies codex" "codex" "$(CODEX_THREAD_ID=thread-a n1_host)"
 assert_eq "host.json ignored when CLAUDE_PLUGIN_ROOT set" "claude-code" "$(CLAUDE_PLUGIN_ROOT=/y n1_host)"
+assert_eq "N1_HOST=unknown falls through to CLAUDE_PLUGIN_ROOT (NP-155)" "claude-code" "$(N1_HOST=unknown CLAUDE_PLUGIN_ROOT=/y n1_host)"
+assert_eq "N1_HOST=unknown falls through to CODEX_THREAD_ID (NP-155)" "codex" "$(N1_HOST=unknown CODEX_THREAD_ID=t n1_host)"
 
 # --- plugin root
 assert_eq "root from CLAUDE_PLUGIN_ROOT" "/y" "$(CLAUDE_PLUGIN_ROOT=/y n1_plugin_root)"

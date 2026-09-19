@@ -58,8 +58,13 @@ else
     HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 HOST ROUTING: unknown. Establish the host from the active harness before dispatch; shared host.json is discovery only."
 fi
-HOST_BLOCK+="
+if [ "$N1_HOST_NAME" = "unknown" ]; then
+    HOST_BLOCK+="
+N1 RUN IDENTITY: export N1_SESSION_ID=${N1_SESSION_ID}. N1_HOST could not be determined at startup — do NOT export it; each bash snippet detects the host from CLAUDE_PLUGIN_ROOT or CODEX_THREAD_ID at runtime. Session facts: ${SESSION_FILE:-unavailable}."
+else
+    HOST_BLOCK+="
 N1 RUN IDENTITY: export N1_HOST=${N1_HOST_NAME}; export N1_SESSION_ID=${N1_SESSION_ID}. Carry these values into each helper shell. Session facts: ${SESSION_FILE:-unavailable}."
+fi
 HOST_BLOCK+="
 DISPATCH LIMITS: Model/effort text in a prompt does not enforce runtime configuration. If native arguments or a configured equivalent cannot preserve the resolved pair, report the unsupported capability before dispatching. send_message may not wake an idle worker; use a supported continuation that does."
 

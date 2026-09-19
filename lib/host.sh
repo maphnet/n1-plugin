@@ -20,7 +20,7 @@ _n1_host_json_get() {
 n1_host() {
     # Hook manifests set N1_HOST explicitly. Shared discovery files and config
     # locations are not evidence of which concurrent session is calling us.
-    case "${N1_HOST:-}" in codex|claude-code|unknown) printf '%s' "$N1_HOST"; return;; esac
+    case "${N1_HOST:-}" in codex|claude-code) printf '%s' "$N1_HOST"; return;; esac
     if [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${PLUGIN_DATA:-}" ]; then printf 'codex'; return; fi
     if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then printf 'claude-code'; return; fi
     printf 'unknown'
