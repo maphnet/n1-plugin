@@ -56,10 +56,38 @@ Only runs after a **successful release** (built-in flow success or custom proced
    - Read `.github/workflows/` contents.
    - Classify into one of the five categories.
 3. **Category 5** (release-triggered deployment exists):
-   ```
-   Deployment pipeline: <filename> — triggered on release, targets <environment>.
-   ```
-   Done — no action needed.
+   Report: "Deployment pipeline: `<filename>` — triggered on release, targets `<environment>` (if detectable)."
+
+   Read `release.deployWatch.enabled` from config (default `false`).
+
+   **If `release.deployWatch.enabled` is `true`:**
+
+   a. Resolve the commit SHA for the just-created tag:
+      ```bash
+      git rev-parse <TAG>^{commit}
+      ```
+
+   b. Registration grace — poll until at least one run appears (up to 5 minutes):
+      ```bash
+      gh run list --commit <sha> --json databaseId,name,status,conclusion,url
+      ```
+      When `release.deployWatch.workflowName` is set, add `--workflow "<workflowName>"`.
+      Sleep 30s between polls.
+      After 5 minutes with no runs: report "No deployment workflow triggered — deploy watch timed out waiting for run registration." Continue to close-out.
+
+   c. Watch until all runs reach `status: completed`, up to `release.deployWatch.timeoutMinutes` (default `30`) minutes:
+      Poll the same `gh run list` command. Sleep 30s between polls.
+
+   d. Outcomes:
+      - All runs with `conclusion: success` (or `neutral`/`skipped`): report "Deployment succeeded." Done.
+      - Any run with `conclusion: failure` or `cancelled`: fetch failure logs:
+        ```bash
+        gh run view <databaseId> --log-failed 2>&1 | head -200
+        ```
+        Report the failed run URL and log excerpt. **STOP — do not proceed.**
+      - Timeout (`timeoutMinutes` elapsed, runs still in progress): report still-running URLs. Suggest re-checking manually. **STOP.**
+
+   **If `release.deployWatch.enabled` is `false` or absent:** report "Deploy watch not configured." Done.
 4. **Categories 1-4** — present findings and ask:
    ```
    No release-triggered deployment pipeline detected.
