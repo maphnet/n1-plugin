@@ -69,7 +69,7 @@ Each step reads ONLY its declared dependencies:
 |------|-------|--------|
 | ticket | — | `ticket.md` (+ `<!-- n1:signals -->` block: `task_type`, `has_acceptance_criteria`, `description_quality`). For tracker tickets: parent context (`### Parent Context`) appended when the ticket has a parent; current ticket's non-parent links (`### Linked Tickets`) appended when qualifying links exist (blockers, relates-to, depends-on). |
 | analysis | `ticket.md` | `analysis.md` (+ signals: `blast_radius`, `security_relevant`, `files_changed`, `complexity_delta`, `has_bug_root_cause`, `ticket_contradictions`) |
-| brainstorm | `ticket.md`, `analysis.md` | `brainstorm.md` (+ signals: `planning_need`, `design_clarity`, `approach_count`) |
+| brainstorm | `ticket.md`, `analysis.md`, `investigation.md` (optional) | `brainstorm.md` (+ signals: `planning_need`, `design_clarity`, `approach_count`) |
 | plan | `ticket.md`, `brainstorm.md`, `analysis.md` | `plan.md` |
 | plan-review | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` | `plan.md` (in-place fixes) |
 | estimation | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` (if exists) | `overview.md` (estimation section) |

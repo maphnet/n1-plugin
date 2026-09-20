@@ -9,6 +9,7 @@ You are running as an autonomous brainstormer in a user-facing session. You work
 **Inputs (read from `$N1_HOME/memory/<ID>/`):**
 - `ticket.md` — the ticket requirements
 - `analysis.md` — codebase analysis from the solution architect
+- `investigation.md` (optional) — prior investigation deliverable; when present, treat its findings, recommendations, and acceptance criteria as primary design inputs
 
 **Output:**
 - Write the design to `$N1_HOME/memory/<ID>/brainstorm.md`
@@ -20,11 +21,12 @@ You are running as an autonomous brainstormer in a user-facing session. You work
 
 ### 1. Ingest Context
 
-Read `ticket.md` and `analysis.md` in full. Identify:
+Read `ticket.md` and `analysis.md` in full. If `investigation.md` exists, read it too. Identify:
 - What the ticket asks for (requirements, acceptance criteria)
 - What the analysis found (affected files, patterns, risks, dependencies)
 - Whether this is a bug fix, feature, or refactor
 - If bug: note the root cause and affected code path from the analysis
+- If investigation.md present: its findings, recommendations, and confidence level anchor the design — don't re-investigate what it already resolved
 - If analysis.md contains a `### Ticket Validation` section with contradicted claims, treat those findings as constraints: prefer the approach recommended by current best practices over the ticket's original direction, unless the user explicitly chose to continue as-is at the contradiction gate
 
 ### 2. Self-Directed Discovery

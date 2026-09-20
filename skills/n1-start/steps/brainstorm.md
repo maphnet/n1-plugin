@@ -12,13 +12,14 @@ TEST_TIER=$(n1_config_val '.testCoverage.tier' 2>/dev/null); TEST_TIER="${TEST_T
 # Ordinary analysis, autonomous, interactive, and missing-fact re-spawns have no
 # Astra context. Dispatch the coherent model/effort pair together.
 IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect brainstorm)
+HAS_INVESTIGATION=false; [ -s "$N1_HOME/memory/$ID/investigation.md" ] && HAS_INVESTIGATION=true
 ```
 
 Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
-**`BRAINSTORM_MODE=auto`:** dispatch SA — "Read `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md`. Inputs: ticket.md, analysis.md. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`." **Investigation auto:** same, investigation focus.
+**`BRAINSTORM_MODE=auto`:** dispatch SA — "Read `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md`. Inputs: ticket.md, analysis.md{if HAS_INVESTIGATION: , investigation.md}. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`." **Investigation auto:** same, investigation focus.
 
-**`BRAINSTORM_MODE=interactive`:** relay loop (cap 2 rounds). Dispatch SA: invoke `n1-brainstorm` against ticket.md+analysis.md. Single prompt max 4 questions. **ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, `cat`, `sed -n`, or otherwise open project source files** — `analysis.md` is sufficient; re-spawn SA for missing facts only. Round 2: inputs+answers; write `$N1_HOME/memory/<ID>/brainstorm.md`; do NOT commit.
+**`BRAINSTORM_MODE=interactive`:** relay loop (cap 2 rounds). Dispatch SA: invoke `n1-brainstorm` against ticket.md+analysis.md{if HAS_INVESTIGATION: +investigation.md}. Single prompt max 4 questions. **ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, `cat`, `sed -n`, or otherwise open project source files** — `analysis.md` is sufficient; re-spawn SA for missing facts only. Round 2: inputs+answers; write `$N1_HOME/memory/<ID>/brainstorm.md`; do NOT commit.
 
 ### Architecture Adjudication (narrow exception)
 
