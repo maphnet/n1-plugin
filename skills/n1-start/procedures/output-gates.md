@@ -78,4 +78,4 @@ After dispatching any agent persona, the orchestrator MUST idle until the agent 
 - Do NOT poll for status, check files, or run bash commands
 - Do NOT emit progress messages or summaries
 
-The host runtime (Claude Code Agent tool / Codex wait_agent) handles completion notification. On timeout (Codex only), re-issue the wait for the same agent — never dispatch a replacement or read ahead.
+The host runtime dispatch mechanism handles completion notification. On timeout (Codex only), re-issue the wait for the same agent — never dispatch a replacement or read ahead.

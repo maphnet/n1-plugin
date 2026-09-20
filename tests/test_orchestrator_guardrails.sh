@@ -89,19 +89,19 @@ assert_contains "implementation: pre-dispatch n1_verify_dependencies" \
     "n1_verify_dependencies"
 assert_contains "implementation: wait directive" \
     "skills/n1-start/steps/implementation.md" \
-    "Wait for the persona to return its result before proceeding"
+    "Wait contract applies"
 assert_contains "review: pre-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/review.md" \
     "n1_verify_dependencies"
 assert_contains "review: wait directive" \
     "skills/n1-start/steps/review.md" \
-    "Wait for ALL reviewer personas to return"
+    "Wait contract applies"
 assert_contains "fix: pre-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/fix.md" \
     "n1_verify_dependencies"
 assert_contains "fix: wait directive" \
     "skills/n1-start/steps/fix.md" \
-    "Wait for the developer persona to return"
+    "Wait contract applies"
 assert_contains "pr: n1_verify_dependencies" \
     "skills/n1-start/steps/pr.md" \
     "n1_verify_dependencies"
@@ -122,7 +122,7 @@ assert_contains "investigation-deliverable: post-dispatch n1_verify_dependencies
     "n1_verify_dependencies"
 assert_contains "qa: wait directive" \
     "skills/n1-start/steps/qa.md" \
-    "Wait for the persona to return its result before proceeding"
+    "Wait contract applies"
 assert_contains "qa: upstream implementation.md dependency check" \
     "skills/n1-start/steps/qa.md" \
     'n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md'
