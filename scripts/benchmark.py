@@ -89,6 +89,22 @@ def count_tool_calls(path: Path):
     return bash_calls, api_calls
 
 
+def count_tool_calls_codex(path: Path):
+    """Read a Codex rollout transcript JSONL and count tool_call events.
+
+    Returns (bash_calls, api_calls):
+      bash_calls — tool_call events whose tool name is "shell"
+      api_calls  — all tool_call events
+    """
+    bash_calls, api_calls = 0, 0
+    for ev in transcript_codex.iter_events(Path(path)):
+        if ev["kind"] == "tool_call":
+            api_calls += 1
+            if ev.get("tool") == "shell":
+                bash_calls += 1
+    return bash_calls, api_calls
+
+
 def load_runs(n1_root: Path):
     """Load merged run records from <n1_root>/*/memory/*/telemetry/runs/*.jsonl.
 
@@ -367,6 +383,7 @@ def build_run_cache(run: dict, projects_dir: Path) -> dict:
     eligible = is_eligible(run)
     cache = {
         "run_id": run["run_id"], "n1_version": run.get("n1_version") or "",
+        "host": run.get("host") or "unknown",
         "project": run.get("project"), "ticket_id": run.get("ticket_id"),
         "started_at": run.get("started_at"), "completed_at": run.get("completed_at"),
         "final_outcome": run.get("final_outcome"), "eligible": eligible,
@@ -678,7 +695,11 @@ def compute_run_metrics(cache: dict) -> None:
     # Pre-compute tool call counts so BashCallsMetric / ApiCallsMetric can read them.
     transcript_path = cache.get("transcript_path")
     if transcript_path and Path(transcript_path).is_file():
-        bash_c, api_c = count_tool_calls(Path(transcript_path))
+        host = run_record.get("host") or "unknown"
+        if host == "codex":
+            bash_c, api_c = count_tool_calls_codex(Path(transcript_path))
+        else:
+            bash_c, api_c = count_tool_calls(Path(transcript_path))
         run_record["_bash_calls"] = bash_c
         run_record["_api_calls"] = api_c
     # Orchestrator metrics from merged run record
@@ -748,13 +769,15 @@ def version_key(v: str):
 
 
 def group_key(cache: dict, by: str) -> str:
+    host = cache.get("host") or "unknown"
     if by == "week":
         ts = parse_ts(cache.get("started_at"))
         if ts is None:
-            return "unknown"
+            return f"{host}/unknown"
         iso = dt.datetime.fromtimestamp(ts, dt.timezone.utc).isocalendar()
-        return f"{iso[0]}-W{iso[1]:02d}"
-    return cache.get("n1_version") or "unknown"
+        return f"{host}/{iso[0]}-W{iso[1]:02d}"
+    version = cache.get("n1_version") or "unknown"
+    return f"{host}/{version}"
 
 
 def bootstrap_ci(values, seed=0, n=1000, alpha=0.05):
@@ -805,8 +828,13 @@ def aggregate(caches, by: str) -> dict:
             did: round(100 * v["true"] / v["total"], 1) if v["total"] else None
             for did, v in gate_stats.items()
         }
+        n_unlinked = sum(1 for c in eligible if c.get("link_method") == "unlinked")
+        quality_coverage = round((len(eligible) - n_unlinked) / len(eligible), 3) if eligible else None
         out[key] = {
             "n_runs": len(eligible), "n_all": len(members),
+            "n_incomplete": len(members) - len(eligible),
+            "n_unlinked": n_unlinked,
+            "quality_coverage": quality_coverage,
             "sufficient": len(eligible) >= MIN_SAMPLE,
             "metrics": metrics,
             "abandon_rate": (1 - len(eligible) / len(members)) if members else None,
@@ -923,11 +951,20 @@ def delta(cur: dict, ref: dict) -> dict:
     return {"abs": a, "pct": pct, "significant": bool(significant)}
 
 
+def _group_sort_key(key: str, by: str):
+    """Sort key for a partition string of the form 'host/version-or-week'."""
+    host, _, rest = key.partition("/")
+    if by == "week":
+        return (host, rest)
+    return (host, version_key(rest))
+
+
 def _sorted_groups(snapshot: dict):
-    keys = [k for k in snapshot["groups"] if k != "unknown"]
-    if snapshot.get("by") == "week":
-        return sorted(keys) + (["unknown"] if "unknown" in snapshot["groups"] else [])
-    return sorted(keys, key=version_key) + (["unknown"] if "unknown" in snapshot["groups"] else [])
+    keys = list(snapshot["groups"])
+    by = snapshot.get("by", "version")
+    unknown_keys = [k for k in keys if k.endswith("/unknown") or k == "unknown"]
+    known_keys = [k for k in keys if k not in unknown_keys]
+    return sorted(known_keys, key=lambda k: _group_sort_key(k, by)) + sorted(unknown_keys)
 
 
 def _sufficient_groups(snapshot: dict):
@@ -991,27 +1028,43 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     lines.append("")
 
     # Per-group table
-    header = ["group", "runs"] + [m.name for m in METRICS] + ["abandon_rate"]
-    lines.append("## Per-version metrics" if snapshot.get("by") == "version" else "## Per-week metrics")
+    header = ["partition (host/version)", "runs", "incomplete", "unlinked", "quality_cov"] + [m.name for m in METRICS] + ["abandon_rate"]
+    lines.append("## Per-partition metrics (host/version)" if snapshot.get("by") == "version" else "## Per-partition metrics (host/week)")
     lines.append("")
     lines.append("| " + " | ".join(header) + " |")
     lines.append("|" + "---|" * len(header))
-    prev_key = None
+    prev_key_by_host: dict = {}  # host -> last sufficient key, to avoid cross-host deltas
     for key in _sorted_groups(snapshot):
-        row = [key, f"{g[key]['n_runs']}/{g[key]['n_all']}" + ("" if g[key]["sufficient"] else " (insufficient)")]
+        grp = g[key]
+        host_part = key.partition("/")[0]
+        prev_key = prev_key_by_host.get(host_part)
+        suffix = "" if grp["sufficient"] else " (insufficient, n<5)"
+        qcov = grp.get("quality_coverage")
+        row = [
+            key,
+            f"{grp['n_runs']}/{grp['n_all']}{suffix}",
+            str(grp.get("n_incomplete", 0)),
+            str(grp.get("n_unlinked", 0)),
+            f"{qcov:.0%}" if qcov is not None else "n/a",
+        ]
         for m in METRICS:
-            cell = _fmt_stat(g[key]["metrics"].get(m.name))
-            if g[key]["sufficient"] and prev_key and g[key]["metrics"].get(m.name) and g[prev_key]["metrics"].get(m.name):
-                d = delta(g[key]["metrics"][m.name], g[prev_key]["metrics"][m.name])
+            cell = _fmt_stat(grp["metrics"].get(m.name))
+            if grp["sufficient"] and prev_key and grp["metrics"].get(m.name) and g[prev_key]["metrics"].get(m.name):
+                d = delta(grp["metrics"][m.name], g[prev_key]["metrics"][m.name])
                 cell += f" {_fmt_delta(d, m.direction)}"
             row.append(cell)
-        ar = g[key].get("abandon_rate")
+        ar = grp.get("abandon_rate")
         row.append(f"{ar:.0%}" if ar is not None else "n/a")
         lines.append("| " + " | ".join(row) + " |")
-        if g[key]["sufficient"]:
-            prev_key = key
+        if grp["sufficient"]:
+            prev_key_by_host[host_part] = key
     lines.append("")
-    lines.append("Cells: mean [95% bootstrap CI] (n). Deltas compare against the previous sufficient group.")
+    lines.append("Cells: mean [95% bootstrap CI] (n). Deltas compare against the previous sufficient partition of the same host.")
+    # Note unknown partitions
+    unknown_keys = [k for k in _sorted_groups(snapshot) if k.endswith("/unknown") or k == "unknown"]
+    if unknown_keys:
+        total_unknown = sum(g[k]["n_all"] for k in unknown_keys)
+        lines.append(f"Note: {total_unknown} run(s) in unknown-host or unknown-version partitions: {', '.join(unknown_keys)}.")
     lines.append("")
 
     # Baseline comparison table
