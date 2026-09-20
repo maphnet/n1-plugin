@@ -72,6 +72,12 @@ need "routing carries the complete persona prompt and result contract" "$ROUTING
 need "routing documents headless effort and brief parameters" "$ROUTING" \
   '[effort] [brief-file]'
 
+# Fork prohibition: Claude Code block must explicitly forbid fork subagents.
+need_re "session injection prohibits fork subagent type" \
+  'never.*fork' "$SESSION_START"
+need "host-routing table documents fork prohibition" "$ROUTING" \
+  'Never use subagent_type "fork"'
+
 echo
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
