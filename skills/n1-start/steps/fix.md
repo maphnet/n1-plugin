@@ -24,7 +24,7 @@ Run **Ensure Dependencies(`<ID>`)** before spawning.
 
 **FAIL:** spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
 
-**Wait for the developer persona to return its result before proceeding. Do NOT increment the fix cycle counter or check for output until the agent tool call completes.**
+**Wait contract applies** (see `procedures/output-gates.md § Wait Contract`).
 
 **Security findings** (`[SEC-N]`/CVE): append "Fix the entire CLASS — search all variants and fix in one pass."
 

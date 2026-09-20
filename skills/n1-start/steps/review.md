@@ -43,7 +43,7 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 ```
 `QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Append `$XREPO_REVIEW_CONTEXT`. Spawn reviewers; no Astra context.
 
-**Wait for ALL reviewer personas to return their results before proceeding. Do NOT read ahead or combine findings until all agent tool calls complete.**
+**Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewer personas return their results before combining findings.
 
 After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Combine: `$MEM/review.md`, prefix `[CR-N]`/`[SEC-N]`. **FAIL** if Critical/High/`[RULE-N]`. Partial: retry once.
 

@@ -69,3 +69,13 @@ PR: <url>
 Rules: 1) Verbatim commands/results from qa.md/local-testing.md. 2) Skipped steps printed. 3) `PR:` is Gate 3's final field.
 
 **Investigation-mode:** use `=== <ID> — done ===`; print Background, Summary, Metrics, Findings (capped), Recommendations, Next Steps from `investigation.md`. Full text pointer if Findings exceed budget.
+
+### Wait Contract
+
+After dispatching any agent persona, the orchestrator MUST idle until the agent tool call returns its result. During the wait:
+- Do NOT read ahead to subsequent pipeline steps
+- Do NOT re-read the plan, analysis, or skill text
+- Do NOT poll for status, check files, or run bash commands
+- Do NOT emit progress messages or summaries
+
+The host runtime (Claude Code Agent tool / Codex wait_agent) handles completion notification. On timeout (Codex only), re-issue the wait for the same agent — never dispatch a replacement or read ahead.

@@ -17,7 +17,7 @@ Run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_so
 
 **Spawn qa-engineer** (context `qa`; tier from `testCoverage.tier`, default `maintain`). Inputs: ticket.md, implementation.md, plan/brainstorm.md; Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
 
-> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the qa-engineer agent has written its output.
+> **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until the qa-engineer persona returns.
 
 qa.md missing/empty: write returned summary as fallback, `QA_DEGRADED=1`.
 

@@ -27,7 +27,7 @@ Run `procedures/rules-injection.md`: `agent_name=developer` for direct routes an
 
 **Plan path:** dispatch **implementer** persona with `$IMPLEMENTER_MODEL` and `$IMPLEMENTER_EFFORT`. Input plan.md or brainstorm.md: "Enumerate tasks; dispatch developer per task." Always invoke `n1-implement`. Constraints: Think Before Coding; Simplicity First; Surgical Changes; Goal-Driven; existing patterns; test+commit per change; BLOCKED on architectural; no finish/branch-delete skills, CONTINUOUS. Pass `WORKTREE_PATH`, output path, escalation, `$RULES_BLOCK`, and the implementation-result format.
 
-**Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
+**Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until the persona returns its result.
 
 ```bash
 source "$N1_ROOT/lib/preamble.sh"
