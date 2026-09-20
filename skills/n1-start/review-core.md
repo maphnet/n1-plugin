@@ -23,7 +23,34 @@ echo "SECURITY_HINT=${SECURITY_HINT}"
 - **DOC_CONFIG_ONLY** (pre-computed) — `$DOC_CONFIG_ONLY`. When `true`, every changed file is docs or config.
 - **SECURITY_RELEVANT** — use `$SECURITY_HINT` as starting signal; inspect diff content for final verdict. True iff any path or diff touches: auth, crypto, input validation, secrets, network/HTTP, (de)serialization, file/path handling, SQL/query, shell/command execution. **Bias toward true when uncertain.**
 
-Reviewer selection: `code-reviewer` always runs. `security-reviewer` runs iff `SECURITY_RELEVANT`. Record each skip in `review.md` + Decision Ledger row.
+Reviewer selection: `code-reviewer` runs unless `REVIEW_TIER=SKIP`. When `REVIEW_TIER=NARROW`, code-reviewer scope is TQ-only (test quality findings only — no correctness, design, or architecture review). `security-reviewer` runs iff `SECURITY_RELEVANT`. Record each skip/narrow decision in `review.md` + Decision Ledger row.
+
+## Review Tier
+
+```bash
+source "$N1_ROOT/lib/preamble.sh"
+LINES_CHANGED=$(n1_read_signal "$N1_HOME/memory/$ID/implementation.md" "lines_changed")
+LINES_CHANGED=${LINES_CHANGED:-0}
+ALL_LOW_RISK=$(n1_classify_all_low_risk "$CHANGED")
+SKIP_DOC_CONFIG=$(n1_review_skip_doc_config)
+NARROW_THRESHOLD=$(n1_review_narrow_threshold)
+[ "$(n1_host)" = "codex" ] && NARROW_THRESHOLD=$(n1_review_narrow_threshold_codex)
+if [ "$DOC_CONFIG_ONLY" = "true" ] && [ "$SKIP_DOC_CONFIG" = "true" ]; then
+  REVIEW_TIER="SKIP"
+elif [ "$LINES_CHANGED" -le "$NARROW_THRESHOLD" ] && [ "$SECURITY_HINT" != "true" ] && [ "$ALL_LOW_RISK" = "true" ]; then
+  REVIEW_TIER="NARROW"
+else
+  REVIEW_TIER="FULL"
+fi
+n1_record_decision "review-tier" "$([ "$REVIEW_TIER" = "FULL" ] && echo true || echo false)" "" "tier=$REVIEW_TIER" "lines_changed=$LINES_CHANGED" "doc_config_only=$DOC_CONFIG_ONLY" "security_hint=$SECURITY_HINT" "all_low_risk=$ALL_LOW_RISK" "threshold=$NARROW_THRESHOLD"
+echo "REVIEW_TIER=$REVIEW_TIER LINES_CHANGED=$LINES_CHANGED ALL_LOW_RISK=$ALL_LOW_RISK"
+```
+
+- **REVIEW_TIER=SKIP**: `DOC_CONFIG_ONLY=true` and `review.skipDocConfigOnly` is `true`. Skip code-reviewer entirely.
+- **REVIEW_TIER=NARROW**: `lines_changed` within threshold, not security-relevant, all files are low-risk (deps/style/test/ci). Code-reviewer runs TQ-only scope.
+- **REVIEW_TIER=FULL**: All other diffs. Full code-reviewer scope.
+
+Record the tier decision in Decision Ledger on every run.
 
 ## Gate Rule Injection
 
