@@ -198,3 +198,21 @@ n1_classify_security_hint_any() {
     done <<< "$paths"
     echo false
 }
+
+# n1_classify_all_low_risk <newline-separated-paths> -> stdout: true|false
+# true iff every path classifies as deps, style, test, or ci. Empty input -> false (safe default).
+n1_classify_all_low_risk() {
+    local paths="$1"
+    [ -z "$paths" ] && { echo false; return; }
+    local f cat found=false
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        found=true
+        cat=$(n1_classify_path "$f")
+        case "$cat" in
+            deps|style|test|ci) ;;
+            *) echo false; return ;;
+        esac
+    done <<< "$paths"
+    [ "$found" = true ] && echo true || echo false
+}
