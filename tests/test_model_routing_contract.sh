@@ -8,11 +8,11 @@ FAIL=0
 
 pass() { echo "PASS: $1"; }
 fail() { echo "FAIL: $1"; FAIL=1; }
-has() { rg -q --fixed-strings "$2" "$3" && pass "$1" || fail "$1"; }
-not_has() { ! rg -q --fixed-strings "$2" "$3" && pass "$1" || fail "$1"; }
+has() { grep -qF "$2" "$3" && pass "$1" || fail "$1"; }
+not_has() { ! grep -qF "$2" "$3" && pass "$1" || fail "$1"; }
 advisory_has() {
     awk '/^## Advisory Mode Steps 1-3/{in_advisory=1} in_advisory' skills/n1-review/steps/01-analyze.md |
-        rg -q --fixed-strings "$2" && pass "$1" || fail "$1"
+        grep -qF "$2" && pass "$1" || fail "$1"
 }
 
 has "Codex session routing uses the combined resolver" "n1_resolve_agent <name> <step-context> [astra-context]" hooks/session-start.sh
@@ -26,7 +26,7 @@ advisory_has "advisory verifier uses the combined resolver" 'Resolve the adversa
 has "failed fix names its canonical Astra context" "failed-fix-escalation" skills/n1-start/steps/fix.md
 has "failed fix requires two prior failures" "review_fix_cycle >= 2" skills/n1-start/steps/fix.md
 has "architecture adjudication names its canonical context" "architecture-adjudication" skills/n1-start/steps/brainstorm.md
-has "architecture adjudication requires competing cross-cutting designs" "at least two named designs" skills/n1-start/steps/brainstorm.md
+has "architecture adjudication requires competing cross-cutting designs" "≥2 designs" skills/n1-start/steps/brainstorm.md
 has "plan review uses its normal step context" "n1_resolve_agent solution-architect plan-review" skills/n1-start/steps/plan-review.md
 not_has "plan review has no false fallback-model claim" "fallback default for this plan-review" skills/n1-start/steps/plan-review.md
 has "implementation uses the combined resolver" "n1_resolve_agent developer implementation" skills/n1-start/steps/implementation.md
@@ -57,7 +57,7 @@ has "README frames the mapping as workload policy" "N1 workload policy" README.m
 has "README rejects cross-vendor quality equivalence" "do not demonstrate cross-vendor quality equivalence" README.md
 
 workflow_files=(hooks/session-start.sh skills/n1-review/steps/01-analyze.md skills/n1-start/steps/fix.md skills/n1-start/steps/brainstorm.md skills/n1-start/steps/plan-review.md skills/n1-start/steps/implementation.md skills/n1-start/steps/review.md skills/n1-start/SKILL.md)
-if rg -n --fixed-strings "gpt-6-astra" "${workflow_files[@]}"; then
+if grep -rnF "gpt-6-astra" "${workflow_files[@]}"; then
     fail "workflow files do not hard-code the Astra model"
 else
     pass "workflow files do not hard-code the Astra model"
