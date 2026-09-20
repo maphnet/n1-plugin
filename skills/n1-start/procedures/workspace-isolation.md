@@ -3,8 +3,7 @@
 ## Isolation Mode Resolution
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/preamble.sh"
 WORKTREE_MODE=$(n1_config_val '.worktree.mode'); EXTERNAL_WORKTREE=false
 if [ "$WORKTREE_MODE" = "external" ] || n1_is_external_worktree; then EXTERNAL_WORKTREE=true; USE_WORKTREE=false
 elif [ "$BRANCH_FLAG" = "true" ] || [ "$WORKTREE_MODE" = "branch" ]; then USE_WORKTREE=false
@@ -44,8 +43,7 @@ Idempotent, marker-guarded. `USE_WORKTREE=false`→return. `SETUP=$(n1_config_va
 
 `oldId==newId`→return. Move memory dir, rewrite `ticket:` frontmatter, `git branch -m`, `git worktree move`. Update active-run:
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"
+source "$N1_ROOT/lib/preamble.sh"
 n1_active_run_write "$newId" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
 ```
 

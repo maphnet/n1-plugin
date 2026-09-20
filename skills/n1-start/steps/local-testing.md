@@ -4,8 +4,7 @@
 Run `n1_config_val '.localTesting.enabled'` (default: `true`).
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
+source "$N1_ROOT/lib/preamble.sh"
 GATE_ENABLED=$(n1_config_val '.localTesting.enabled' 2>/dev/null || echo 'true')
 n1_record_decision local-testing-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"localTesting.enabled"}' "enabled=${GATE_ENABLED:-true}"
 ```
@@ -22,8 +21,7 @@ Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
 
 **If mode is `"smoke"`:** Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped -- smoke tests deferred to n1-finish post-deploy". Emit telemetry:
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
+source "$N1_ROOT/lib/preamble.sh"
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"smoke_deferred","skip_reason":"smoke_mode"}'
 ```
 Skip to Step 10 (PR CREATION).
@@ -57,8 +55,7 @@ fi
   - Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — QA dedup (all Runner commands are pytest)".
   - Emit telemetry:
     ```bash
-    N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-    source "$N1_ROOT/lib/telemetry.sh"
+    source "$N1_ROOT/lib/preamble.sh"
     n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 9 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"skipped","skip_reason":"qa_dedup"}'
     ```
   - Skip to Step 10 (PR CREATION).
@@ -180,8 +177,7 @@ Spawn the developer agent with:
 After the agent returns:
 - The agent wrote `$N1_HOME/memory/<ID>/local-testing.md` itself. Verify it:
   ```bash
-  N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-  source "$N1_ROOT/lib/validation.sh"
+  source "$N1_ROOT/lib/preamble.sh"
   n1_verify_dependencies "$N1_HOME/memory/$ID" local-testing.md
   ```
   If missing/empty (agent failed to write), write the returned compact summary block to `local-testing.md` as a fallback and note the gap in overview's `## Key Decisions`.
@@ -254,8 +250,7 @@ After the agent returns:
 - Update overview: `[x] Local Testing`, set `step: local-testing`
 - Emit step-end telemetry:
   ```bash
-  N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-  source "$N1_ROOT/lib/telemetry.sh"
+  source "$N1_ROOT/lib/preamble.sh"
   n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=pass loop_iteration=null metadata="$LOCAL_TESTING_METADATA"
   ```
 - Proceed to Step 10 (PR CREATION)
@@ -296,8 +291,7 @@ Pass to developer:
 After developer returns:
 - Run via Bash (durable across resume):
   ```bash
-  N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-  source "$N1_ROOT/lib/frontmatter.sh"
+  source "$N1_ROOT/lib/preamble.sh"
   n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "local_test_fix_cycle"
   ```
 - Emit one fix-loop iteration line (exempt from inter-gate silence per D2): `<ID> · local-test fix cycle <N>/<MAX>`
