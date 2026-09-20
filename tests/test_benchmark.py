@@ -675,30 +675,34 @@ class ReportTest(unittest.TestCase):
         self.assertIsNone(bm.delta(stat(3.0, 2.0, 4.0), stat(0.0, 0.0, 0.0))["pct"])
 
     def test_baseline_selection(self):
-        snap = snap_with({"2.70.0": group(5, 4, 6), "2.80.0": group(2, 1, 3), "2.81.0": group(3, 2, 4, sufficient=False, n=2)})
-        self.assertEqual(bm.pick_baseline_group(snap, {"version": "2.70.0"})[0], "2.70.0")
+        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3), "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
+        self.assertEqual(bm.pick_baseline_group(snap, {"version": "claude-code/2.70.0"})[0], "claude-code/2.70.0")
         key, note = bm.pick_baseline_group(snap, None)
-        self.assertEqual(key, "2.70.0")
+        self.assertEqual(key, "claude-code/2.70.0")
         self.assertIn("oldest", note)
         key, note = bm.pick_baseline_group(snap, {"version": "9.9.9"})
-        self.assertEqual(key, "2.70.0")
+        self.assertEqual(key, "claude-code/2.70.0")
         self.assertIn("not found", note)
-        self.assertEqual(bm.latest_sufficient(snap), "2.80.0")
+        self.assertEqual(bm.latest_sufficient(snap), "claude-code/2.80.0")
 
     def test_render_contains_sections(self):
-        snap = snap_with({"2.70.0": group(5, 4, 6), "2.80.0": group(2, 1, 3), "2.81.0": group(3, 2, 4, sufficient=False, n=2)})
+        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3), "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
         snap["unlinked"] = [{"run_id": "r9", "project": "p", "ticket_id": "T-9", "reason": "no transcript matched"}]
-        prev = snap_with({"2.80.0": group(2.5, 1, 3)}, sid="20260901T000000Z")
+        prev = snap_with({"claude-code/2.80.0": group(2.5, 1, 3)}, sid="20260901T000000Z")
         caches = {"r1": {"run_id": "r1", "n1_version": "2.80.0", "eligible": True, "project": "p", "ticket_id": "T-1",
                          "transcript_path": "/t/r1.jsonl", "metrics": {"corrections": 3.0},
                          "turns": [{"label": "correction", "reason": "wrong file"}, {"label": "correction", "reason": "wrong file"},
                                    {"label": "correction", "reason": "bad plan"}]}}
-        text = bm.render_report(snap, prev, "2.70.0", "pinned", caches)
-        self.assertIn("2.80.0 vs baseline 2.70.0", text)
+        text = bm.render_report(snap, prev, "claude-code/2.70.0", "pinned", caches)
+        self.assertIn("claude-code/2.80.0 vs baseline claude-code/2.70.0", text)
         self.assertIn("interventions", text)
-        self.assertIn("| 2.81.0 |", text)
+        # partition table uses compound keys
+        self.assertIn("Per-partition metrics", text)
+        self.assertIn("quality_cov", text)
+        self.assertIn("| claude-code/2.81.0 |", text)
+        self.assertIn("(insufficient, n<5)", text)
         self.assertIn("Insufficient sample", text)
-        self.assertIn("2.81.0 (2 runs)", text)
+        self.assertIn("claude-code/2.81.0 (2 runs)", text)
         self.assertIn("Unlinked runs", text)
         self.assertIn("r9", text)
         self.assertIn("Worst runs", text)
@@ -708,6 +712,20 @@ class ReportTest(unittest.TestCase):
         self.assertIn("Tool efficiency", text)
         self.assertIn("bash_calls_per_run", text)
         self.assertIn("api_calls_per_run", text)
+
+    def test_render_cross_host_no_delta(self):
+        # claude-code and codex partitions must not produce cross-host deltas.
+        # Without per-host isolation, codex/2.80.0 would inherit claude-code/2.80.0 as
+        # its prev_key and emit a spurious delta cell.
+        snap = snap_with({"claude-code/2.80.0": group(2, 1, 3), "codex/2.80.0": group(4, 3, 5)})
+        text = bm.render_report(snap, None, "claude-code/2.80.0", "pinned", {})
+        self.assertIn("same host", text)
+        # table row for codex is the first codex partition — no prior same-host entry to delta against
+        table_rows = [l for l in text.splitlines() if l.startswith("| codex/2.80.0")]
+        self.assertTrue(table_rows, "codex/2.80.0 table row missing from rendered output")
+        # delta markers ("better"/"worse") appear only when a prior same-host partition exists
+        self.assertNotIn("better", table_rows[0])
+        self.assertNotIn("worse", table_rows[0])
 
     def test_cmd_report_writes_file(self):
         d = TempDirs()
