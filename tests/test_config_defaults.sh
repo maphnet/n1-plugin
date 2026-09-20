@@ -27,6 +27,9 @@ echo '{}' > "$N1_HOME/config.json"
 assert_eq "T1: plan_review_enabled default" "true" "$(n1_plan_review_enabled)"
 assert_eq "T2: test_coverage_tier default" "maintain" "$(n1_test_coverage_tier)"
 assert_eq "T3: review_min_clean_passes default" "1" "$(n1_review_min_clean_passes)"
+assert_eq "T3b: review_narrow_threshold default" "50" "$(n1_review_narrow_threshold)"
+assert_eq "T3c: review_skip_doc_config default" "true" "$(n1_review_skip_doc_config)"
+assert_eq "T3d: review_narrow_threshold_codex default" "100" "$(n1_review_narrow_threshold_codex)"
 assert_eq "T4: ci_checks enabled default" "true" "$(n1_ci_checks_val enabled)"
 assert_eq "T5: ci_checks maxFixAttempts default" "3" "$(n1_ci_checks_val maxFixAttempts)"
 assert_eq "T6: ci_checks confidenceThreshold default" "0.7" "$(n1_ci_checks_val confidenceThreshold)"
@@ -38,12 +41,15 @@ assert_eq "T9: memory decisions default" "true" "$(n1_memory_val decisions)"
 export N1_HOME="$TMPDIR_TEST/override"
 mkdir -p "$N1_HOME"
 cat > "$N1_HOME/config.json" <<'CONF'
-{"planReview":{"reviewPlan":false},"testCoverage":{"tier":"standard"},"review":{"minCleanPasses":2},"ciChecks":{"enabled":false,"maxFixAttempts":5,"confidenceThreshold":0.9},"escalation":{"checkpoints":["pr","merge"]},"memory":{"ticketContext":false,"decisions":false}}
+{"planReview":{"reviewPlan":false},"testCoverage":{"tier":"standard"},"review":{"minCleanPasses":2,"narrowThreshold":30,"skipDocConfigOnly":false,"narrowThresholdCodexMode":75},"ciChecks":{"enabled":false,"maxFixAttempts":5,"confidenceThreshold":0.9},"escalation":{"checkpoints":["pr","merge"]},"memory":{"ticketContext":false,"decisions":false}}
 CONF
 
 assert_eq "T10: plan_review_enabled override" "false" "$(n1_plan_review_enabled)"
 assert_eq "T11: test_coverage_tier override" "standard" "$(n1_test_coverage_tier)"
 assert_eq "T12: review_min_clean_passes override" "2" "$(n1_review_min_clean_passes)"
+assert_eq "T12b: review_narrow_threshold override" "30" "$(n1_review_narrow_threshold)"
+assert_eq "T12c: review_skip_doc_config override" "false" "$(n1_review_skip_doc_config)"
+assert_eq "T12d: review_narrow_threshold_codex override" "75" "$(n1_review_narrow_threshold_codex)"
 assert_eq "T13: ci_checks enabled override" "false" "$(n1_ci_checks_val enabled)"
 assert_eq "T14: ci_checks maxFixAttempts override" "5" "$(n1_ci_checks_val maxFixAttempts)"
 assert_eq "T15: ci_checks confidenceThreshold override" "0.9" "$(n1_ci_checks_val confidenceThreshold)"

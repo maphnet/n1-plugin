@@ -479,6 +479,30 @@ n1_review_min_clean_passes() {
     printf '%s' "${v:-1}"
 }
 
+n1_review_narrow_threshold() {
+    # Prints integer. Default: 50.
+    local v; v=$(n1_config_val '.review.narrowThreshold')
+    printf '%s' "${v:-50}"
+}
+
+n1_review_skip_doc_config() {
+    # Prints true/false. Default: true.
+    # Cannot use n1_config_val here: jq's `// empty` treats boolean false as falsy.
+    local file; file=$(n1_config_file)
+    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
+        local v; v=$(jq -r 'if .review.skipDocConfigOnly == null then "absent" else (.review.skipDocConfigOnly | tostring) end' "$file" 2>/dev/null || true)
+        [ "$v" = "false" ] && { printf 'false'; return; }
+        [ "$v" = "true" ] && { printf 'true'; return; }
+    fi
+    printf 'true'
+}
+
+n1_review_narrow_threshold_codex() {
+    # Prints integer. Default: 100. Used when Codex is the active host.
+    local v; v=$(n1_config_val '.review.narrowThresholdCodexMode')
+    printf '%s' "${v:-100}"
+}
+
 n1_ci_checks_val() {
     # Usage: n1_ci_checks_val <key>
     # Keys: enabled, maxFixAttempts, confidenceThreshold

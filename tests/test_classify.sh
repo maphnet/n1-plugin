@@ -208,4 +208,27 @@ assert_eq "files: code line" "src/main.py code" "$(echo "$OUT" | head -1)"
 assert_eq "files: docs line" "README.md docs" "$(echo "$OUT" | sed -n 2p)"
 assert_eq "files: deps line" "package.json deps" "$(echo "$OUT" | tail -1)"
 
+# --- n1_classify_all_low_risk ---
+assert_eq "alr: all deps" "true" "$(n1_classify_all_low_risk "package.json
+yarn.lock")"
+assert_eq "alr: all test" "true" "$(n1_classify_all_low_risk "tests/test_foo.py
+conftest.py")"
+assert_eq "alr: all ci" "true" "$(n1_classify_all_low_risk ".github/workflows/ci.yml")"
+assert_eq "alr: all style" "true" "$(n1_classify_all_low_risk ".eslintrc.json
+src/app.css")"
+assert_eq "alr: mixed low-risk" "true" "$(n1_classify_all_low_risk "package.json
+.github/workflows/ci.yml
+tests/test_bar.py
+.prettierrc")"
+assert_eq "alr: includes code" "false" "$(n1_classify_all_low_risk "package.json
+src/main.py")"
+assert_eq "alr: includes docs" "false" "$(n1_classify_all_low_risk "README.md
+package.json")"
+assert_eq "alr: includes config" "false" "$(n1_classify_all_low_risk ".gitignore
+package.json")"
+assert_eq "alr: includes build" "false" "$(n1_classify_all_low_risk "Dockerfile
+package.json")"
+assert_eq "alr: empty input" "false" "$(n1_classify_all_low_risk "")"
+assert_eq "alr: single code file" "false" "$(n1_classify_all_low_risk "src/app.ts")"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

@@ -33,6 +33,8 @@ Run **Ensure Dependencies(`<ID>`)** before reviewers. > **ORCHESTRATOR GUARDRAIL
 
 **Shared review core:** `review-core.md` with `BASE_BRANCH`.
 
+**Review tier gate:** If `REVIEW_TIER=SKIP`: record `"Review skipped: DOC_CONFIG_ONLY diff, code-reviewer not needed."` in `$MEM/review.md`, write `## Review` with `PASS (skipped — doc/config only)` to overview, run `n1_step_end "review" 9 "success"`, and proceed to next step. If `REVIEW_TIER=NARROW`: spawn code-reviewer with scope restricted to TQ findings only — instruct: "Scope: test quality (TQ) findings only. Do NOT review for correctness, design, architecture, or style. Report only [TQ-N] findings for test coverage gaps, hollow tests, and test quality issues." If `REVIEW_TIER=FULL`: current behavior (full code-reviewer scope).
+
 **Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff.
 
 ```bash
