@@ -49,6 +49,7 @@ elif [ "$N1_HOST_NAME" = "claude-code" ]; then
 HOST ROUTING (host: claude-code — authoritative for how N1 skills reach the harness):
 - Dispatch persona <name>: Agent tool with subagent_type \"n1:<name>\", prompt, model from N1 model resolution. Wait for it: the tool call returns the result inline. Fix loops: dispatch a fresh persona per cycle.
 - Dispatch a general-purpose subagent: Agent tool with subagent_type \"general-purpose\".
+- never use subagent_type \"fork\". All dispatches use typed personas or general-purpose subagents with fresh context.
 - Ask the user: AskUserQuestion tool (max 4 questions per call).
 - Load the tool if deferred: ToolSearch with select:<tool>.
 - Invoke skill <x>: Skill tool with n1:<x>.
