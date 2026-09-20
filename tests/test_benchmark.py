@@ -464,6 +464,51 @@ class CountToolCallsTest(unittest.TestCase):
         self.assertIsNone(cache["metrics"]["api_calls_per_run"])
 
 
+def codex_tool_record(ts, name, tool_type="function_call"):
+    return {"timestamp": ts, "type": "response_item", "payload": {"type": tool_type, "name": name}}
+
+
+class CountToolCallsCodexTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+
+    def write(self, records):
+        p = self.d.tmp / "rollout.jsonl"
+        write_jsonl(p, records)
+        return p
+
+    def test_counts_shell_and_total(self):
+        p = self.write([
+            codex_tool_record("2026-09-01T10:01:00Z", "shell"),
+            codex_tool_record("2026-09-01T10:01:01Z", "read_file"),
+            codex_tool_record("2026-09-01T10:01:02Z", "shell"),
+            codex_tool_record("2026-09-01T10:01:03Z", "memory_search", tool_type="custom_tool_call"),
+        ])
+        bash, api = bm.count_tool_calls_codex(p)
+        self.assertEqual(bash, 2)
+        self.assertEqual(api, 4)
+
+    def test_non_response_item_records_ignored(self):
+        p = self.write([
+            {"type": "session_meta", "payload": {"cwd": "/foo"}},
+            codex_tool_record("2026-09-01T10:01:00Z", "shell"),
+        ])
+        bash, api = bm.count_tool_calls_codex(p)
+        self.assertEqual(bash, 1)
+        self.assertEqual(api, 1)
+
+    def test_compute_run_metrics_dispatches_to_codex_counter(self):
+        p = self.write([
+            codex_tool_record("2026-09-01T10:01:00Z", "shell"),
+            codex_tool_record("2026-09-01T10:01:01Z", "read_file"),
+        ])
+        run = {**make_run(), "host": "codex"}
+        cache = {"run_record": run, "turns": [], "transcript_path": str(p)}
+        bm.compute_run_metrics(cache)
+        self.assertEqual(cache["metrics"]["bash_calls_per_run"], 1.0)
+        self.assertEqual(cache["metrics"]["api_calls_per_run"], 2.0)
+
+
 class ApplyLabelsTest(unittest.TestCase):
     def test_applies_valid_labels_and_falls_back(self):
         cache = {"turns": [
@@ -482,8 +527,8 @@ class ApplyLabelsTest(unittest.TestCase):
         self.assertEqual(cache["turns"][0]["reason"], "user said wrong file")
 
 
-def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01T10:00:00Z", link="heuristic"):
-    return {"run_id": run_id, "n1_version": version, "eligible": eligible, "started_at": started,
+def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01T10:00:00Z", link="heuristic", host="unknown"):
+    return {"run_id": run_id, "n1_version": version, "host": host, "eligible": eligible, "started_at": started,
             "link_method": link if eligible else "skipped", "project": "p", "ticket_id": "T",
             "metrics": {"interventions": interventions, "answers": interventions, "corrections": 0.0,
                         "brainstorm_interactions": 0.0, "autonomous_interventions": interventions,
@@ -498,9 +543,31 @@ class AggregateTest(unittest.TestCase):
         self.assertEqual(sorted(vs, key=bm.version_key), ["", "unknown", "2.9.0", "2.10.0", "2.52.3", "2.52.17"])
 
     def test_group_keys(self):
-        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1), "version"), "2.80.0")
-        self.assertEqual(bm.group_key(cache_for("", "a", 1), "version"), "unknown")
-        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1), "week"), "2026-W36")
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="claude-code"), "version"), "claude-code/2.80.0")
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="codex"), "version"), "codex/2.80.0")
+        self.assertEqual(bm.group_key(cache_for("", "a", 1), "version"), "unknown/unknown")
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="claude-code"), "week"), "claude-code/2026-W36")
+
+    def test_group_keys_unknown_host_partitioned_separately(self):
+        caches = [cache_for("2.80.0", f"a{i}", 1.0, host="claude-code") for i in range(5)]
+        caches += [cache_for("2.80.0", "u1", 1.0, host="unknown")]
+        agg = bm.aggregate(caches, "version")
+        self.assertIn("claude-code/2.80.0", agg)
+        self.assertIn("unknown/2.80.0", agg)
+        self.assertEqual(agg["claude-code/2.80.0"]["n_runs"], 5)
+        self.assertEqual(agg["unknown/2.80.0"]["n_runs"], 1)
+
+    def test_sorted_groups_no_cross_host_bleeding(self):
+        """claude-code keys sort before codex keys; unknown appended last."""
+        snap = snap_with({
+            "codex/2.80.0": group(2, 1, 3),
+            "claude-code/2.80.0": group(2, 1, 3),
+            "unknown/2.80.0": group(2, 1, 3, sufficient=False, n=1),
+        })
+        keys = bm._sorted_groups(snap)
+        self.assertEqual(keys[0], "claude-code/2.80.0")
+        self.assertEqual(keys[1], "codex/2.80.0")
+        self.assertEqual(keys[2], "unknown/2.80.0")
 
     def test_bootstrap_ci_is_deterministic_and_brackets_mean(self):
         lo, hi = bm.bootstrap_ci([1, 2, 3, 4, 10])
@@ -514,16 +581,27 @@ class AggregateTest(unittest.TestCase):
         caches += [cache_for("2.80.0", "x", None, eligible=False)]
         caches += [cache_for("2.81.0", "b1", 3.0), cache_for("2.81.0", "b2", None, link="unlinked")]
         agg = bm.aggregate(caches, "version")
-        g = agg["2.80.0"]
+        g = agg["unknown/2.80.0"]
         self.assertEqual((g["n_runs"], g["n_all"], g["sufficient"]), (5, 6, True))
         self.assertEqual(g["metrics"]["interventions"]["n"], 5)
         self.assertEqual(g["metrics"]["interventions"]["mean"], 2.0)
         self.assertEqual(g["metrics"]["interventions"]["median"], 2.0)
         self.assertIsNone(g["metrics"]["orchestrator_output_tokens"])
         self.assertAlmostEqual(g["abandon_rate"], 1 / 6)
-        h = agg["2.81.0"]
+        h = agg["unknown/2.81.0"]
         self.assertFalse(h["sufficient"])
         self.assertEqual(h["metrics"]["interventions"]["n"], 1)
+
+    def test_aggregate_partition_stats(self):
+        caches = [cache_for("3.0.0", f"r{i}", 1.0, host="claude-code") for i in range(5)]
+        caches += [cache_for("3.0.0", "u1", None, eligible=False, host="claude-code")]
+        caches += [cache_for("3.0.0", "u2", 2.0, link="unlinked", host="claude-code")]
+        agg = bm.aggregate(caches, "version")
+        g = agg["claude-code/3.0.0"]
+        self.assertEqual(g["n_incomplete"], 1)
+        self.assertEqual(g["n_unlinked"], 1)
+        # quality_coverage = (6 eligible - 1 unlinked) / 6 eligible
+        self.assertAlmostEqual(g["quality_coverage"], 5 / 6, places=2)
 
 
 class FinalizeTest(unittest.TestCase):
@@ -548,7 +626,7 @@ class FinalizeTest(unittest.TestCase):
         self.assertEqual(snap["judge_fallbacks"], 1)
         self.assertEqual(snap["plugin_version"], "2.83.0")
         self.assertEqual(snap["rubric_version"], bm.RUBRIC_VERSION)
-        g = snap["groups"]["2.80.0"]
+        g = snap["groups"]["unknown/2.80.0"]
         self.assertEqual(g["metrics"]["corrections"]["mean"], 1.0)
         self.assertFalse(g["sufficient"])
         cache = bm.load_cache(self.d.out)["n1-run-1"]
@@ -584,7 +662,8 @@ def snap_with(groups, sid="20260905T000000Z"):
 
 def group(mean_interventions, lo, hi, sufficient=True, n=5):
     metrics = {m.name: stat(mean_interventions if m.name == "interventions" else 1.0, lo, hi, n) for m in bm.METRICS}
-    return {"n_runs": n, "n_all": n, "sufficient": sufficient, "metrics": metrics, "abandon_rate": 0.0, "run_ids": []}
+    return {"n_runs": n, "n_all": n, "n_incomplete": 0, "n_unlinked": 0, "quality_coverage": 1.0,
+            "sufficient": sufficient, "metrics": metrics, "abandon_rate": 0.0, "run_ids": []}
 
 
 class ReportTest(unittest.TestCase):
@@ -596,30 +675,34 @@ class ReportTest(unittest.TestCase):
         self.assertIsNone(bm.delta(stat(3.0, 2.0, 4.0), stat(0.0, 0.0, 0.0))["pct"])
 
     def test_baseline_selection(self):
-        snap = snap_with({"2.70.0": group(5, 4, 6), "2.80.0": group(2, 1, 3), "2.81.0": group(3, 2, 4, sufficient=False, n=2)})
-        self.assertEqual(bm.pick_baseline_group(snap, {"version": "2.70.0"})[0], "2.70.0")
+        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3), "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
+        self.assertEqual(bm.pick_baseline_group(snap, {"version": "claude-code/2.70.0"})[0], "claude-code/2.70.0")
         key, note = bm.pick_baseline_group(snap, None)
-        self.assertEqual(key, "2.70.0")
+        self.assertEqual(key, "claude-code/2.70.0")
         self.assertIn("oldest", note)
         key, note = bm.pick_baseline_group(snap, {"version": "9.9.9"})
-        self.assertEqual(key, "2.70.0")
+        self.assertEqual(key, "claude-code/2.70.0")
         self.assertIn("not found", note)
-        self.assertEqual(bm.latest_sufficient(snap), "2.80.0")
+        self.assertEqual(bm.latest_sufficient(snap), "claude-code/2.80.0")
 
     def test_render_contains_sections(self):
-        snap = snap_with({"2.70.0": group(5, 4, 6), "2.80.0": group(2, 1, 3), "2.81.0": group(3, 2, 4, sufficient=False, n=2)})
+        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3), "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
         snap["unlinked"] = [{"run_id": "r9", "project": "p", "ticket_id": "T-9", "reason": "no transcript matched"}]
-        prev = snap_with({"2.80.0": group(2.5, 1, 3)}, sid="20260901T000000Z")
+        prev = snap_with({"claude-code/2.80.0": group(2.5, 1, 3)}, sid="20260901T000000Z")
         caches = {"r1": {"run_id": "r1", "n1_version": "2.80.0", "eligible": True, "project": "p", "ticket_id": "T-1",
                          "transcript_path": "/t/r1.jsonl", "metrics": {"corrections": 3.0},
                          "turns": [{"label": "correction", "reason": "wrong file"}, {"label": "correction", "reason": "wrong file"},
                                    {"label": "correction", "reason": "bad plan"}]}}
-        text = bm.render_report(snap, prev, "2.70.0", "pinned", caches)
-        self.assertIn("2.80.0 vs baseline 2.70.0", text)
+        text = bm.render_report(snap, prev, "claude-code/2.70.0", "pinned", caches)
+        self.assertIn("claude-code/2.80.0 vs baseline claude-code/2.70.0", text)
         self.assertIn("interventions", text)
-        self.assertIn("| 2.81.0 |", text)
+        # partition table uses compound keys
+        self.assertIn("Per-partition metrics", text)
+        self.assertIn("quality_cov", text)
+        self.assertIn("| claude-code/2.81.0 |", text)
+        self.assertIn("(insufficient, n<5)", text)
         self.assertIn("Insufficient sample", text)
-        self.assertIn("2.81.0 (2 runs)", text)
+        self.assertIn("claude-code/2.81.0 (2 runs)", text)
         self.assertIn("Unlinked runs", text)
         self.assertIn("r9", text)
         self.assertIn("Worst runs", text)
@@ -629,6 +712,20 @@ class ReportTest(unittest.TestCase):
         self.assertIn("Tool efficiency", text)
         self.assertIn("bash_calls_per_run", text)
         self.assertIn("api_calls_per_run", text)
+
+    def test_render_cross_host_no_delta(self):
+        # claude-code and codex partitions must not produce cross-host deltas.
+        # Without per-host isolation, codex/2.80.0 would inherit claude-code/2.80.0 as
+        # its prev_key and emit a spurious delta cell.
+        snap = snap_with({"claude-code/2.80.0": group(2, 1, 3), "codex/2.80.0": group(4, 3, 5)})
+        text = bm.render_report(snap, None, "claude-code/2.80.0", "pinned", {})
+        self.assertIn("same host", text)
+        # table row for codex is the first codex partition — no prior same-host entry to delta against
+        table_rows = [l for l in text.splitlines() if l.startswith("| codex/2.80.0")]
+        self.assertTrue(table_rows, "codex/2.80.0 table row missing from rendered output")
+        # delta markers ("better"/"worse") appear only when a prior same-host partition exists
+        self.assertNotIn("better", table_rows[0])
+        self.assertNotIn("worse", table_rows[0])
 
     def test_cmd_report_writes_file(self):
         d = TempDirs()
