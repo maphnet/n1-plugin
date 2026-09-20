@@ -5,7 +5,7 @@ Used by `steps/review.md` and `n1-review`. Caller must define `<BASE_BRANCH>`.
 ## Diff Surface Classification
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/preamble.sh"
 BASE=$(git merge-base "<BASE_BRANCH>" HEAD)
 CHANGED=$(git diff --name-only "$BASE" HEAD)
 FILE_COUNT=$(echo "$CHANGED" | wc -l)
@@ -28,7 +28,7 @@ Reviewer selection: `code-reviewer` always runs. `security-reviewer` runs iff `S
 ## Gate Rule Injection
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source "$N1_ROOT/lib/preamble.sh"
 source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 CR_RULES_BLOCK=""

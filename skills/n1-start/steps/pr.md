@@ -23,8 +23,7 @@ created: <same timestamp>
 Update overview: `[x] PR`, set `step: pr`.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
+source "$N1_ROOT/lib/preamble.sh"
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/fingerprints.sh"
 source "$N1_ROOT/lib/validation.sh"

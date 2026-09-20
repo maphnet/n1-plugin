@@ -5,8 +5,8 @@
 Gate: `relatedProjects.enabled=true`. Scan implementation diff.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/related.sh"
+source "$N1_ROOT/lib/preamble.sh"
+source "$N1_ROOT/lib/related.sh"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 XREPO_RT_FILE="$N1_HOME/memory/$ID/xrepo-runtime.tsv"; XREPO_RT_ADDED_FILE="$N1_HOME/memory/$ID/xrepo-runtime-added"
 rm -f "$XREPO_RT_FILE" "$XREPO_RT_ADDED_FILE"
@@ -33,8 +33,8 @@ fi
 
 **Telemetry for implementation step-end:**
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"; RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
+source "$N1_ROOT/lib/preamble.sh"
+RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 XREPO_RT_FILE="$N1_HOME/memory/$ID/xrepo-runtime.tsv"; XREPO_RT_ADDED_FILE="$N1_HOME/memory/$ID/xrepo-runtime-added"
 XREPO_RT_DETECTED=""; XREPO_RT_ADDED=""
 [ "$RELATED_ENABLED" = "true" ] && { [ -s "$XREPO_RT_FILE" ] && XREPO_RT_DETECTED=$(awk -F'\t' 'NF {print $1}' "$XREPO_RT_FILE" | tr '\n' ',' | sed 's/,$//'); [ -s "$XREPO_RT_ADDED_FILE" ] && XREPO_RT_ADDED=$(tr '\n' ',' < "$XREPO_RT_ADDED_FILE" | sed 's/,$//');}

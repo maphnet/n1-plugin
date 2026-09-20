@@ -2,8 +2,8 @@
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/validation.sh"
+source "$N1_ROOT/lib/preamble.sh"
+source "$N1_ROOT/lib/memory.sh"
 n1_step_begin "qa" 8
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
 [ -n "$SIGNAL_LINE" ] && { PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //'); n1_write_signals "$N1_HOME/memory/$ID/qa.md" $PAIRS; }
@@ -17,13 +17,13 @@ Run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_so
 
 **Spawn qa-engineer** (context `qa`; tier from `testCoverage.tier`, default `maintain`). Inputs: ticket.md, implementation.md, plan/brainstorm.md; Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
 
-> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the qa-engineer agent has written its output.
+> **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until the qa-engineer persona returns.
 
 qa.md missing/empty: write returned summary as fallback, `QA_DEGRADED=1`.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/frontmatter.sh"; source "$N1_ROOT/lib/memory.sh"
+source "$N1_ROOT/lib/preamble.sh"
+source "$N1_ROOT/lib/memory.sh"
 NEW_FUNC_UNTESTED=$(echo "${SIGNAL_LINE}" | grep -o 'new_functionality_untested=[^ ]*' | cut -d= -f2)
 BLOCK_UNTESTED=$(n1_config_val '.qa.blockUntestedFeatures' 'false')
 if ! grep -q "^### Evidence" "$N1_HOME/memory/$ID/qa.md" || [ "${QA_DEGRADED:-0}" = "1" ]; then
@@ -44,8 +44,8 @@ fi
 `NEW_FUNC_UNTESTED=true`: B-tier ledger row. `BLOCK_UNTESTED=true`: verdict FAIL. `QA_DEGRADED=1`: print `⚠ QA evidence missing`.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/step.sh"; source "$N1_ROOT/lib/config.sh"; source "$N1_ROOT/lib/signals.sh"; source "$N1_ROOT/lib/frontmatter.sh"; source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/breakcheck.sh"
+source "$N1_ROOT/lib/preamble.sh"
+source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/breakcheck.sh"
 BC_MODE=$(n1_config_val '.qa.breakCheck' 'bugs'); BC_MAX=$(n1_config_val '.qa.breakCheckMaxTests' '5')
 TASK_TYPE=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "task_type")
 TESTS_ADDED=$(n1_read_signal "$N1_HOME/memory/$ID/qa.md" "tests_added"); TESTS_ADDED=${TESTS_ADDED:-0}

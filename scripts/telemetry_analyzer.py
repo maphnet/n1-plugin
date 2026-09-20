@@ -77,8 +77,20 @@ def build_parser():
                          help="Comma-separated list of project slugs to include (default: all)")
     collect.add_argument("--deep", action="store_true",
                          help="Parse transcripts for Bash command subtype classification")
+    collect.add_argument("--attribution", action="store_true",
+                         help="Compute per-step token attribution breakdown")
     collect.add_argument("--out", type=str, default=None,
                          help="Output file path (default: stdout + $N1_HOME/reports/)")
+
+    compare = sub.add_parser("compare", help="Compare two telemetry runs")
+    compare.add_argument("--n1-root", default=os.path.expanduser("~/.n1"),
+                         help="Root directory containing N1 project dirs")
+    compare.add_argument("--run1", required=True,
+                         help="First run ID to compare")
+    compare.add_argument("--run2", required=True,
+                         help="Second run ID to compare")
+    compare.add_argument("--out", type=str, default=None,
+                         help="Output file path")
     return p
 
 
@@ -267,6 +279,54 @@ def extract_run_report(run: dict) -> dict:
         "steps": extract_steps(run),
         "agents": extract_agents(run),
         "totals": extract_totals(run),
+    }
+
+
+def extract_attribution(report: dict) -> dict:
+    """Compute per-step token share and tool-call breakdown.
+
+    Returns a dict with by_step percentages, orchestrator overhead
+    (unattributed tokens), and dispatch count.
+    """
+    totals = report.get("totals", {})
+    total_input = totals.get("input_tokens") or 0
+    total_output = totals.get("output_tokens") or 0
+
+    by_step = {}
+    attributed_input = 0
+    attributed_output = 0
+    dispatch_count = 0
+
+    for s in report.get("steps", []):
+        step_input = s.get("tokens", {}).get("input", 0)
+        step_output = s.get("tokens", {}).get("output", 0)
+        attributed_input += step_input
+        attributed_output += step_output
+        tools = s.get("tools", {})
+        # Count agent dispatches (Agent, Task, spawn_agent tool calls)
+        step_dispatches = sum(tools.get(t, 0) for t in ("Agent", "Task", "spawn_agent"))
+        dispatch_count += step_dispatches
+        by_step[s["name"]] = {
+            "input_tokens": step_input,
+            "output_tokens": step_output,
+            "input_share_pct": round(step_input / total_input * 100, 1) if total_input else 0,
+            "output_share_pct": round(step_output / total_output * 100, 1) if total_output else 0,
+            "tool_calls": tools,
+            "agent_dispatches": step_dispatches,
+        }
+
+    unattributed_input = max(0, total_input - attributed_input)
+    unattributed_output = max(0, total_output - attributed_output)
+
+    return {
+        "by_step": by_step,
+        "orchestrator_overhead": {
+            "unattributed_input_tokens": unattributed_input,
+            "unattributed_output_tokens": unattributed_output,
+            "unattributed_input_pct": round(unattributed_input / total_input * 100, 1) if total_input else 0,
+            "unattributed_output_pct": round(unattributed_output / total_output * 100, 1) if total_output else 0,
+        },
+        "total_agent_dispatches": dispatch_count,
     }
 
 
@@ -517,6 +577,8 @@ def cmd_collect(args):
     for run in selected:
         report = extract_run_report(run)
         report["anomalies"] = detect_anomalies(report)
+        if args.attribution:
+            report["attribution"] = extract_attribution(report)
         if args.deep:
             enrich_with_deep(report, run)
         reports.append(report)
@@ -530,6 +592,7 @@ def cmd_collect(args):
         "analyzed_runs": len(reports),
         "malformed_lines": malformed,
         "deep_mode": args.deep,
+        "attribution_mode": args.attribution,
         "aggregation": aggregation,
         "runs": reports,
     }
@@ -547,6 +610,113 @@ def cmd_collect(args):
     print(output)
 
 
+# ---------------------------------------------------------------- compare command
+
+def _diff_numeric(val_a, val_b) -> dict | None:
+    """Compute absolute and percentage difference between two numeric values."""
+    if val_a is None or val_b is None:
+        return None
+    diff = val_b - val_a
+    pct = round(diff / val_a * 100, 1) if val_a != 0 else None
+    return {"a": val_a, "b": val_b, "diff": diff, "diff_pct": pct}
+
+
+def _diff_reports(report_a: dict, report_b: dict) -> dict:
+    """Produce a differential comparison of two run reports."""
+    totals_a = report_a.get("totals", {})
+    totals_b = report_b.get("totals", {})
+
+    diff = {
+        "run_a": {"run_id": report_a.get("run_id"), "ticket_id": report_a.get("ticket_id"),
+                  "project": report_a.get("project"), "tier": report_a.get("tier")},
+        "run_b": {"run_id": report_b.get("run_id"), "ticket_id": report_b.get("ticket_id"),
+                  "project": report_b.get("project"), "tier": report_b.get("tier")},
+        "totals": {
+            "input_tokens": _diff_numeric(totals_a.get("input_tokens"), totals_b.get("input_tokens")),
+            "output_tokens": _diff_numeric(totals_a.get("output_tokens"), totals_b.get("output_tokens")),
+            "cache_read_tokens": _diff_numeric(totals_a.get("cache_read_tokens"), totals_b.get("cache_read_tokens")),
+            "cache_efficiency": _diff_numeric(totals_a.get("cache_efficiency"), totals_b.get("cache_efficiency")),
+            "tool_calls": _diff_numeric(totals_a.get("tool_calls"), totals_b.get("tool_calls")),
+            "agent_spawns": _diff_numeric(totals_a.get("agent_spawns"), totals_b.get("agent_spawns")),
+        },
+        "duration": _diff_numeric(report_a.get("total_duration_s"), report_b.get("total_duration_s")),
+    }
+
+    # Per-step comparison where steps match by name
+    steps_a = {s["name"]: s for s in report_a.get("steps", [])}
+    steps_b = {s["name"]: s for s in report_b.get("steps", [])}
+    all_steps = sorted(set(list(steps_a.keys()) + list(steps_b.keys())))
+    step_diffs = {}
+    for name in all_steps:
+        sa = steps_a.get(name, {})
+        sb = steps_b.get(name, {})
+        step_diffs[name] = {
+            "duration": _diff_numeric(sa.get("duration_s"), sb.get("duration_s")),
+            "input_tokens": _diff_numeric(
+                (sa.get("tokens") or {}).get("input"),
+                (sb.get("tokens") or {}).get("input"),
+            ),
+            "present_in": ("both" if name in steps_a and name in steps_b
+                           else "a_only" if name in steps_a else "b_only"),
+        }
+    diff["by_step"] = step_diffs
+
+    # Attribution comparison if both have it
+    attr_a = report_a.get("attribution")
+    attr_b = report_b.get("attribution")
+    if attr_a and attr_b:
+        diff["attribution"] = {
+            "total_agent_dispatches": _diff_numeric(
+                attr_a.get("total_agent_dispatches"),
+                attr_b.get("total_agent_dispatches"),
+            ),
+            "unattributed_input_pct": _diff_numeric(
+                (attr_a.get("orchestrator_overhead") or {}).get("unattributed_input_pct"),
+                (attr_b.get("orchestrator_overhead") or {}).get("unattributed_input_pct"),
+            ),
+        }
+
+    return diff
+
+
+def cmd_compare(args):
+    """Load two runs by ID, extract reports, and produce a diff."""
+    n1_root = Path(args.n1_root)
+    if not n1_root.is_dir():
+        print(json.dumps({"error": f"N1 root not found: {n1_root}"}), file=sys.stderr)
+        sys.exit(1)
+
+    runs, _ = load_runs(n1_root)
+    runs_by_id = {r.get("run_id"): r for r in runs if r.get("run_id")}
+
+    run_a = runs_by_id.get(args.run1)
+    run_b = runs_by_id.get(args.run2)
+    if not run_a:
+        print(json.dumps({"error": f"Run not found: {args.run1}"}), file=sys.stderr)
+        sys.exit(1)
+    if not run_b:
+        print(json.dumps({"error": f"Run not found: {args.run2}"}), file=sys.stderr)
+        sys.exit(1)
+
+    report_a = extract_run_report(run_a)
+    report_a["attribution"] = extract_attribution(report_a)
+    report_b = extract_run_report(run_b)
+    report_b["attribution"] = extract_attribution(report_b)
+
+    result = {
+        "generated_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "comparison": _diff_reports(report_a, report_b),
+    }
+
+    output = json.dumps(result, indent=2, default=str)
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(output, encoding="utf-8")
+        print(f"Report written to {out_path}", file=sys.stderr)
+    print(output)
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -557,6 +727,8 @@ def main():
         sys.exit(1)
     if args.command == "collect":
         cmd_collect(args)
+    elif args.command == "compare":
+        cmd_compare(args)
 
 
 if __name__ == "__main__":

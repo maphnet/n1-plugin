@@ -4,8 +4,7 @@ Read `telemetry.enabled` from `$N1_HOME/config.json` (default `false`).
 
 **If `true`:**
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/telemetry.sh"
+source "$N1_ROOT/lib/preamble.sh"
 n1_run_begin "$ID"
 n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
 ```

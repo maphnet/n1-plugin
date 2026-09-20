@@ -11,8 +11,7 @@ After compaction, ORCHESTRATOR STATE block is injected into `additionalContext` 
 4. If `Task context:` non-empty: print **Gate 1** (resume variant from `procedures/output-gates.md § Gate 1`).
 5. If ORCHESTRATOR STATE missing: re-resolve N1_HOME:
    ```bash
-   N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-   source "$N1_ROOT/lib/config.sh"
+   source "$N1_ROOT/lib/preamble.sh"
    N1_HOME=$(n1_home)
    cat "$N1_HOME/config.json"
    ```
@@ -23,14 +22,12 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists.
 
 **Exists:** read step from frontmatter.
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/validation.sh"
+source "$N1_ROOT/lib/preamble.sh"
 TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
 ```
 `TYPE=="investigation"`: skip workspace isolation. Else run workspace isolation. Read loop counters:
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/preamble.sh"
 n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
 ```
 (Repeat for `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, `ci_fix_cycle`.) Print Gate 1 (resume variant). Read `## Context`:
@@ -49,8 +46,7 @@ Overview is single source of truth. Each step writes output file FIRST, then upd
 
 **Dependency integrity guard:**
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/validation.sh"
+source "$N1_ROOT/lib/preamble.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md analysis.md
 ```
 (Pass declared dependency files for current step.) Missing/empty dependency → STOP and report.

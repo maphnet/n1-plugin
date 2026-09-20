@@ -20,13 +20,17 @@ check "persona namespace literal" '"n1:[a-z-]+"|`n1:(solution-architect|develope
 # Every fenced bash block that uses $N1_ROOT must start with the preamble (each snippet is its own shell).
 python3 - <<'PY' || FAIL=1
 import re, sys, pathlib
-PRE = 'N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c \'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])\')'
+OLD_PRE = 'N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c \'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])\')'
+NEW_PRE = 'source "$N1_ROOT/lib/preamble.sh"'
+def has_preamble(body):
+    stripped = body.lstrip()
+    return stripped.startswith(OLD_PRE) or stripped.startswith(NEW_PRE)
 bad = []
 for path in list(pathlib.Path("skills").rglob("*.md")) + list(pathlib.Path("agents").glob("*.md")):
     text = path.read_text(encoding="utf-8")
     for m in re.finditer(r"```(?:bash|sh)\n(.*?)```", text, re.S):
         body = m.group(1)
-        if "$N1_ROOT" in body and not body.lstrip().startswith(PRE):
+        if "$N1_ROOT" in body and not has_preamble(body):
             bad.append(f"{path}:{text[:m.start()].count(chr(10)) + 2}")
 if bad:
     print("FAIL: bash snippets using $N1_ROOT without the preamble:"); print("\n".join(bad)); sys.exit(1)

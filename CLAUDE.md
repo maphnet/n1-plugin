@@ -43,9 +43,12 @@ Do NOT install N1 as a user-scope plugin for local development.
 
 **Usage:** `python3 scripts/telemetry_analyzer.py collect [--last N] [--projects P1,P2] [--deep] [--out FILE]`
 
+Subcommands: `collect` (per-run metrics and anomalies), `compare <run-id-a> <run-id-b>` (differential report between two runs).
+
 - `--last N` — analyze the N most recent runs (default 20)
 - `--projects` — comma-separated project names to filter
 - `--deep` — parse Claude Code transcripts for Bash command subtype classification (slower)
+- `--attribution` — break down token usage by step category with unattributed overhead
 - `--out` — write JSON report to file
 
 The script reuses `load_runs`/`read_jsonl` from `scripts/benchmark.py` via `importlib.util`. The project-local skill at `.claude/skills/n1-telemetry-analyzer/` drives it and formats output as Markdown tables — available only when working inside this repo, not shipped to plugin users.
@@ -67,7 +70,7 @@ Resolution priority (all paths go through `n1_home()` in `lib/config.sh`):
 3. `git config n1.home` — legacy backward compat; expand `~`; WSL `wslpath` conversion
 4. In-repo `.n1/` fallback
 
-**Skills:** start bash snippets with the preamble from `references/host-routing.md`, then `source "$N1_ROOT/lib/config.sh"` and `N1_HOME=$(n1_home)`.
+**Skills:** start bash snippets with `source "$N1_ROOT/lib/preamble.sh"` — this provides `N1_ROOT`, sources `lib/config.sh` and other helpers, and sets `N1_HOME`. The preamble template is in `references/host-routing.md`.
 
 Config: `$N1_HOME/config.json`
 
