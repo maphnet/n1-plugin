@@ -14,6 +14,11 @@ N1 is a plugin for Claude Code 2.1+ and Codex CLI 0.154+ that orchestrates the f
 See [references/architecture.md](references/architecture.md) for pipeline internals, signal-driven gating, type registry, and all subsystem details.
 See [references/developer-guide.md](references/developer-guide.md) for project structure, plugin development workflow, and authoring conventions.
 
+When you need tracker MCP operation names or routing → `references/architecture.md § Tracker Routing`
+When you need observability provider config → `references/architecture.md § Observability`
+When you need cross-repo project setup → `references/architecture.md § Cross-Repo Awareness`
+When you need the Telemetry Analyzer CLI → `references/developer-guide.md § Telemetry Analyzer`
+
 ## Stack
 
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
