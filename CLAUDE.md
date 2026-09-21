@@ -37,22 +37,6 @@ Do NOT install N1 as a user-scope plugin for local development.
 - Test on a separate repo before committing; `/reload-plugins` to pick up edits
 - Dogfooding: use N1 skills on the N1 repo itself
 
-## Telemetry Analyzer
-
-`scripts/telemetry_analyzer.py` surfaces per-run pipeline performance from merged telemetry run records. It scans all projects under `~/.n1/*/` by default and produces JSON reports with per-run metrics (steps, agents, durations, tokens, tool calls, web searches), anomaly detection, and cross-run aggregation by tier/step.
-
-**Usage:** `python3 scripts/telemetry_analyzer.py collect [--last N] [--projects P1,P2] [--deep] [--out FILE]`
-
-Subcommands: `collect` (per-run metrics and anomalies), `compare <run-id-a> <run-id-b>` (differential report between two runs).
-
-- `--last N` — analyze the N most recent runs (default 20)
-- `--projects` — comma-separated project names to filter
-- `--deep` — parse Claude Code transcripts for Bash command subtype classification (slower)
-- `--attribution` — break down token usage by step category with unattributed overhead
-- `--out` — write JSON report to file
-
-The script reuses `load_runs`/`read_jsonl` from `scripts/benchmark.py` via `importlib.util`. The project-local skill at `.claude/skills/n1-telemetry-analyzer/` drives it and formats output as Markdown tables — available only when working inside this repo, not shipped to plugin users.
-
 ## Conventions
 
 - **Skill authoring:** Always use `/writing-skills` skill when creating or modifying skills. Never name a host tool (Agent, AskUserQuestion, ToolSearch, Skill, spawn_agent) in skill text; write "dispatch persona", "ask the user", "invoke skill" and let HOST ROUTING resolve it.
@@ -73,62 +57,6 @@ Resolution priority (all paths go through `n1_home()` in `lib/config.sh`):
 **Skills:** start bash snippets with `source "$N1_ROOT/lib/preamble.sh"` — this provides `N1_ROOT`, sources `lib/config.sh` and other helpers, and sets `N1_HOME`. The preamble template is in `references/host-routing.md`.
 
 Config: `$N1_HOME/config.json`
-
-## Tracker Routing
-
-Tool names constructed as `mcp__<tracker.mcp>__<operation>` — never hardcoded.
-
-| Tracker | type | mcp value | Key operations |
-|---------|------|-----------|---------------|
-| Jira | `jira` | `plugin_atlassian_atlassian` | `getJiraIssue`, `transitionJiraIssue`, `addCommentToJiraIssue`, `getTransitionsForJiraIssue`, `atlassianUserInfo` (getCurrentUser), `editJiraIssue` (assign, editTicket), `createConfluencePage` (createArticle), `getConfluencePage` (getArticle), `updateConfluencePage` (updateArticle) |
-| Jira (versions) | `jira` | `<tracker.versionMcp>` | `jcm_createVersion` (createVersion), `jcm_releaseVersion` (releaseVersion), `jcm_listVersions` (listVersions), `jcm_getIssueLinks` (getIssueLinks) — routed via `tracker.versionMcp` (user-specific jc-mcp server name, e.g. `publius-jc-mcp`) |
-| YouTrack | `youtrack` | `youtrack` | `get_issue`, `update_issue` (moveStatus, editTicket), `add_issue_comment`, `get_issue_comments`, `get_current_user` (getCurrentUser), `change_issue_assignee` (assign), `create_article` (createArticle), `get_article` (getArticle), `update_article` (updateArticle), `get_issue_links` (getIssueLinks) |
-
-### Knowledge Base
-
-Optional KB article support for on-demand publishing. Gated on `kb.enabled` in `$N1_HOME/config.json` (default `false`). Configured by `n1-init` during tracker setup — Jira detects Confluence spaces, YouTrack detects `create_article` tool availability.
-
-KB operations use the abstract names (`createArticle`, `getArticle`, `updateArticle`) in the tracker operations map. No dedicated skill — the model uses KB ops directly when the user asks to publish content.
-
-**Config:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `kb.enabled` | boolean | `false` | Master gate |
-| `kb.spaceId` | string | — | Confluence space ID (Jira only) |
-| `kb.spaceKey` | string | — | Confluence space key for display (Jira only) |
-
-Jira also requires `tracker.cloudId` (detected during tracker setup) for all Confluence operations. YouTrack uses `tracker.projectKey` — no extra config needed.
-
-The session-start hook injects KB ROUTING context when enabled, providing the model with space/project defaults for KB calls.
-
-### Observability
-
-Optional multi-provider observability integration for querying logs, errors, and traces during investigations and on-demand. Config-driven via `observability` block in `$N1_HOME/config.json`. Flat provider map: each provider is a self-contained entry with free-text `instructions` and optional `env` tag. Supports MCP tools, kubectl, CLI tools, and HTTP APIs. When `observability` is `null` or absent, the feature is fully disabled.
-
-| Provider | Example mcp value | Key operations |
-|----------|-------------------|----------------|
-| Sentry | `publius-sentry` | `search_sentry_issues` (searchIssues) |
-| Loki | `publius-loki-mcp` | `loki_query` (query), `loki_label_names` (labelNames), `loki_label_values` (labelValues) |
-| Langfuse | `publius-dev-langfuse-mcp` | `find_exceptions` (findExceptions), `fetch_traces` (fetchTraces), `get_session_details` (getSessionDetails) |
-| kubectl | — | — (instructions-based, no MCP) |
-
-**Config:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `observability.default` | string | — | Environment name for pipeline auto-enrichment |
-| `observability.providers` | object | — | Provider name → `{ "instructions": "...", "env?": "...", "mcp?": "...", "operations?": { ... } }` |
-
-Each provider requires `instructions` (free-text). Optional: `env` (ties to environment), `mcp` (MCP server name), `operations` (operation map), `context` (kube context), `urlPattern`, `orgSlug`, `projectSlug`. Provider activation: global providers (no `env`) always active; env-tagged providers active when `env` matches `observability.default`.
-
-The session-start hook injects OBSERVABILITY ROUTING context when configured, providing the model with provider names, env tags, and access details.
-
-### Cross-Repo Awareness
-
-Optional cross-repo exploration during analysis and investigation. Gated on `relatedProjects.enabled` in `$N1_HOME/config.json` (default `false`). See [references/architecture.md](references/architecture.md) for details.
-
-The session-start hook injects RELATED PROJECTS ROUTING context when configured, providing the model with related project slugs, reasons, and repo paths.
 
 ## Escalation Safety
 
