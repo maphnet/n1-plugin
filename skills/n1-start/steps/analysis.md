@@ -14,6 +14,7 @@ TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier"); TYPE=$(n1_
 DESC_QUALITY=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "description_quality"); LITE_MODE=false
 [ "$TIER" = "simple" ] && { [ "$DESC_QUALITY" = "adequate" ] || [ "$DESC_QUALITY" = "weak" ]; } && { [ "$TYPE" = "task" ] || [ "$TYPE" = "chore" ]; } && LITE_MODE=true
 n1_record_decision lite-analysis-gate "$LITE_MODE" '{"all":[{"frontmatter":"tier","eq":"simple"},{"signal":"ticket.description_quality","neq":"empty"},{"signal":"ticket.description_quality","neq":"skeletal"},{"any":[{"frontmatter":"type","eq":"task"},{"frontmatter":"type","eq":"chore"}]}]}' "tier=$TIER" "type=$TYPE" "quality=$DESC_QUALITY"
+IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect analysis)
 n1_write_context
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json"); PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME"); RELATED_CONTEXT=""
 if [ "$RELATED_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then
@@ -31,7 +32,7 @@ echo "LITE_MODE=$LITE_MODE CACHE_STATE=$CACHE_STATE"
 
 Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
-**Spawn SA** (context `analysis`): scratch `$N1_HOME/memory/<ID>/tests/`; unknowns: A=tag, B=codebase→web→cmd, C=silent; lite→touched files+callers ≤300w, `LITE_ESCALATED:<reason>` if ≥3/cross-module/security/API. Write analysis.md; return `n1:signals tier: [SNAPSHOT_DRIFT:]`+summary. Cold/stale+cache+non-lite: write project map `<PROJECT_MAP_PATH>` (## Modules, ## API Surface, ## Exports & Shared Types, ## Integration Points, ## Key Files; 300-500 tokens). Append `$RULES_BLOCK`.
+**Spawn SA** with `$SA_MODEL` and `$SA_EFFORT` (context `analysis`): scratch `$N1_HOME/memory/<ID>/tests/`; unknowns: A=tag, B=codebase→web→cmd, C=silent; lite→touched files+callers ≤300w, `LITE_ESCALATED:<reason>` if ≥3/cross-module/security/API. Write analysis.md; return `n1:signals tier: [SNAPSHOT_DRIFT:]`+summary. Cold/stale+cache+non-lite: write project map `<PROJECT_MAP_PATH>` (## Modules, ## API Surface, ## Exports & Shared Types, ## Integration Points, ## Key Files; 300-500 tokens). Append `$RULES_BLOCK`.
 
 **Cold/stale:** use `research-standards.md`. Cache: `## [PROJECT]`+`## [TICKET]`; persist [PROJECT] via `n1_snapshot_write`.
 

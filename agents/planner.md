@@ -2,7 +2,7 @@
 name: planner
 description: "Use during the PLAN step to produce a detailed implementation plan in isolation. Invokes the n1-plan skill on the provided spec + analysis, writes the plan to a given path, and returns a short summary. Never prompts the user; never implements."
 model: opus
-effort: medium
+effort: high
 tools: Read, Grep, Glob, Write, Edit, Skill, WebSearch, WebFetch
 ---
 

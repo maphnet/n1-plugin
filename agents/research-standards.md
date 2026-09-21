@@ -1,6 +1,6 @@
 ---
 model: sonnet
-effort: medium
+effort: low
 ---
 
 # Research Standards (shared rubric)

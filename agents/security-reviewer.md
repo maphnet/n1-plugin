@@ -2,7 +2,7 @@
 name: security-reviewer
 description: "Use after code changes to find security vulnerabilities, data-exposure, and auth/authz gaps. Returns CWE-tagged findings ranked by exploitability. Read-only — cannot modify code."
 model: opus
-effort: medium
+effort: high
 tools: Read, Grep, Glob
 ---
 

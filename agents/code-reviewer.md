@@ -1,8 +1,8 @@
 ---
 name: code-reviewer
 description: "Use after code changes to find correctness, design-quality, and convention issues. Returns severity-ranked findings with file:line. Read-only — cannot modify code; not a style checker."
-model: opus
-effort: medium
+model: sonnet
+effort: high
 tools: Read, Grep, Glob
 ---
 
