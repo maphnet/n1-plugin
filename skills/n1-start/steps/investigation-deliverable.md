@@ -239,10 +239,11 @@ When `IMPLEMENTABLE!=true`: "What next? 1 — Close ticket [/ 2 — Restore to o
    source "$N1_ROOT/lib/preamble.sh"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "task"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "brainstorm"
+   n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "direct"
    ```
    Replace investigation checklist with normal pipeline checklist (carry over completed boxes). Crash-safe: tracker updates first, frontmatter writes last.
 5. **Continuation offer:** "Continue to implementation now? 1 — Yes / 2 — No"
-   - Yes: run workspace isolation (Ensure Worktree or Ensure Working Branch), proceed to SKILL.md § Planning Need Routing using `planning_need` signal from brainstorm.md (default `deep` if absent).
+   - Yes: run workspace isolation (Ensure Worktree or Ensure Working Branch). Investigation served as brainstorm — do NOT re-run Step 3. Proceed directly to SKILL.md § Planning Need Routing using `planning_need` from overview.md frontmatter (set above; default `direct`).
    - No: report "Run `/n1:n1-start <ID>` to continue."
 
 **If: Close ticket:** apply close logic. Comment: "Investigation completed. Findings documented."
