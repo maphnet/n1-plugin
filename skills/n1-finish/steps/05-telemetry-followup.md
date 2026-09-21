@@ -28,7 +28,7 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
 2. **Read plugin version** (run via Bash):
 
    ```bash
-   MAIN_CHECKOUT=$(git worktree list --porcelain | grep '^worktree' | head -1 | sed 's/^worktree //')
+   MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")
    PLUGIN_VERSION=$(grep '"version"' "${MAIN_CHECKOUT}/.claude-plugin/plugin.json" | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
    ```
 
