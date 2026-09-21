@@ -297,6 +297,12 @@ RELATED PROJECTS ROUTING (from N1 config — explore these repos when tasks invo
     fi
 fi
 
+context="${context}
+
+RESPONSE FORMATTING:
+For complex multi-part responses: lead with a one-line summary, chunk into
+labeled sections, bold the decision or action in each. Short answers stay plain."
+
 # Append orchestrator state (populated only on compact trigger with active run)
 if [ -n "${N1_COMPACT_STATE:-}" ]; then
     context="${context}${N1_COMPACT_STATE}"
