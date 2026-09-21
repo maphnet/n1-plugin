@@ -15,7 +15,7 @@ Run **Ensure Dependencies(`<ID>`)** before spawning. > **ORCHESTRATOR GUARDRAIL 
 
 Run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_source=diff_surface` from `implementation.md`.
 
-**Spawn qa-engineer** (context `qa`; tier from `testCoverage.tier`, default `maintain`). Inputs: ticket.md, implementation.md, plan/brainstorm.md; Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
+**Spawn qa-engineer** (context `qa`; tier from `testCoverage.tier`, default `maintain`). Inputs: ticket.md, implementation.md, plan/brainstorm.md, `$N1_HOME/memory/$ID/analysis.md` (codebase analysis; use file:line references and key excerpts for targeted reads); Key Decisions+Escalations inline; `$RULES_BLOCK`. Output: `qa.md`; return `Verdict: PASS|FAIL`, `Bugs found:`, `TQ-relevant notes:`, summary, `n1:signals`.
 
 > **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until the qa-engineer persona returns.
 

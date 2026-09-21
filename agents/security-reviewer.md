@@ -23,18 +23,21 @@ You will receive:
 - brainstorm.md — scope and approach decisions
 - implementation.md — what was built, files changed
 - qa.md — test coverage report (if available)
+- analysis.md — codebase analysis with file:line references (when provided)
 - Base branch name for diff context
 
 ## Process
 
 1. **Read CLAUDE.md** for security-relevant conventions (auth patterns, data handling rules, API security requirements).
 
-2. **Triage changed files by security relevance:**
+2. **If `analysis.md` is provided, read it** for file:line references and affected-file context. Use `Read` with `offset`/`limit` for files already referenced in analysis.md instead of full-file reads.
+
+3. **Triage changed files by security relevance:**
    - **High:** auth, API endpoints, data handling, config, middleware, database queries, file operations
    - **Medium:** business logic, validation, error handling
    - **Low:** UI components, documentation, tests
 
-3. **Deep review high-relevance files.** Use Grep to scan for dangerous patterns:
+4. **Deep review high-relevance files.** Use Grep to scan for dangerous patterns:
    - `eval`, `exec`, `spawn`, `Function(` — code injection
    - Raw SQL strings, string concatenation in queries — SQL injection
    - `innerHTML`, `dangerouslySetInnerHTML`, `document.write` — XSS
@@ -43,7 +46,7 @@ You will receive:
    - Disabled CSRF tokens, missing auth middleware — access control gaps
    - `JSON.parse` without try/catch, `pickle.loads` — insecure deserialization
 
-4. **Check security boundaries:**
+5. **Check security boundaries:**
    - Input validation at every system boundary (user input, external APIs, file uploads)
    - Output encoding appropriate to context (HTML, URL, SQL, shell)
    - Authentication checks on all protected endpoints
@@ -52,7 +55,7 @@ You will receive:
    - Error messages not leaking internal details (stack traces, paths, versions)
    - Dependency versions (check for known CVEs if version files changed)
 
-5. **Categorize and output** findings with CWE references.
+6. **Categorize and output** findings with CWE references.
 
 ## Output Format
 

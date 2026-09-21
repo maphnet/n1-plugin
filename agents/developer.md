@@ -99,17 +99,19 @@ When spawned for direct implementation (bypassing SDD), you receive:
 - Brainstorm file path (design specification)
 - Output file path for implementation summary
 - Workspace directives (worktree path when worktree isolation is used)
+- Path to `analysis.md` — codebase analysis by solution-architect (when provided)
 
 ## Process (Direct Implementation)
 
-1. **Read the brainstorm file** to understand the full task scope.
-2. **Define verifiable success criteria** from the brainstorm's acceptance criteria.
-3. **Implement changes** following existing codebase patterns.
-4. **Write or update tests** to cover changes.
-5. **Run the test suite** to verify nothing is broken.
-6. **Commit each logical change** separately with descriptive messages.
-7. **Write the implementation summary** to the output path.
-8. **Return DONE** with task count and commit list, or **BLOCKED** with blocker details.
+1. **If `analysis.md` is provided, read it first** for file:line references and affected-file context. Use `Read` with `offset`/`limit` for files already referenced in analysis.md instead of full-file reads.
+2. **Read the brainstorm file** to understand the full task scope.
+3. **Define verifiable success criteria** from the brainstorm's acceptance criteria.
+4. **Implement changes** following existing codebase patterns.
+5. **Write or update tests** to cover changes.
+6. **Run the test suite** to verify nothing is broken.
+7. **Commit each logical change** separately with descriptive messages.
+8. **Write the implementation summary** to the output path.
+9. **Return DONE** with task count and commit list, or **BLOCKED** with blocker details.
 
 ## Output Format (Direct Implementation)
 
