@@ -128,7 +128,7 @@ test_c() {
 {
   "models": {
     "developer": "sonnet",
-    "code-reviewer": "opus",
+    "code-reviewer": "sonnet",
     "solution-architect": "haiku"
   }
 }
@@ -148,21 +148,21 @@ JSON
         done
     )
 
-    # developer (sonnet) and code-reviewer (opus) match defaults → pruned.
-    # solution-architect (haiku) differs from default opus → kept.
+    # developer (sonnet) and code-reviewer (sonnet) match defaults → pruned.
+    # solution-architect (haiku) differs from default sonnet → kept.
     local dev_val reviewer_val architect_val
     dev_val=$(jq -r '.models.developer // empty' "$CFG")
     reviewer_val=$(jq -r '."models"["code-reviewer"] // empty' "$CFG")
     architect_val=$(jq -r '."models"["solution-architect"] // empty' "$CFG")
 
     assert_eq "prune removes developer=sonnet (matches default)" "" "$dev_val"
-    assert_eq "prune removes code-reviewer=opus (matches default)" "" "$reviewer_val"
-    assert_eq "prune keeps solution-architect=haiku (differs from default opus)" "haiku" "$architect_val"
+    assert_eq "prune removes code-reviewer=sonnet (matches default)" "" "$reviewer_val"
+    assert_eq "prune keeps solution-architect=haiku (differs from default sonnet)" "haiku" "$architect_val"
 
     # Confirm prune lines appeared in output.
     local pruned_dev pruned_reviewer
     pruned_dev=$(echo "$pruned_output" | grep -c "pruned models.developer=sonnet" || true)
-    pruned_reviewer=$(echo "$pruned_output" | grep -c "pruned models.code-reviewer=opus" || true)
+    pruned_reviewer=$(echo "$pruned_output" | grep -c "pruned models.code-reviewer=sonnet" || true)
     assert_eq "prune emitted log for developer" "1" "$pruned_dev"
     assert_eq "prune emitted log for code-reviewer" "1" "$pruned_reviewer"
 }
@@ -193,12 +193,8 @@ JSON
 }
 
 # ---------------------------------------------------------------------------
-# Test (d): analysis downgrade covers every ticket the lite-analysis gate
-# accepts. The gate fires on tier=simple + quality in {adequate,weak} +
-# type in {task,chore}, and its design assumes the architect is downgraded on
-# all of them. `chore` is downgraded by types.chore.step_overrides and
-# `adequate` by the downgrade trigger, which left simple+task+weak running at
-# the frontier base model with the narrowest scope directive.
+# Test (d): SA baseline is sonnet — all analysis cases resolve to sonnet.
+# Downgrade triggers for SA were removed (sonnet is already the target tier).
 # ---------------------------------------------------------------------------
 test_d() {
     local tmpdir
@@ -232,12 +228,8 @@ JSON
     _case LITE-1 simple   task  adequate sonnet
     _case LITE-2 simple   chore weak     sonnet
     _case LITE-3 simple   task  weak     sonnet
-
-    # Guardrails: the widened trigger must not downgrade tickets the gate
-    # rejects. A weak description on a non-simple ticket, or on an
-    # investigation, still needs the frontier architect.
-    _case KEEP-1 complex  task  weak     opus
-    _case KEEP-2 standard task  weak     opus
+    _case KEEP-1 complex  task  weak     sonnet
+    _case KEEP-2 standard task  weak     sonnet
 
     unset -f _case
     n1_config_file() { echo "$(n1_home)/config.json"; }
@@ -337,7 +329,7 @@ test_codex_runtime_precedence() {
     local empty='{"models":{}}' defaults='[agents]\ndefault_subagent_model = "flat-default"\ndefault_subagent_reasoning_effort = "medium"'
     # These deliberately exercise resolver exits rather than composing the
     # tier and translation helpers, so a skipped downgrade trigger is caught.
-    codex_runtime_case "Opus runtime downgrade translates to Terra" "$empty" "$defaults" solution-architect analysis '---\ntype: chore\n---' '' '' gpt-5.6-terra medium
+    codex_runtime_case "Sonnet baseline translates to Terra" "$empty" "$defaults" solution-architect analysis '---\ntype: chore\n---' '' '' gpt-5.6-terra medium
     local isolated record
     isolated=$(mktemp -d)
     mkdir -p "$isolated/plugin" "$isolated/home" "$isolated/codex"
@@ -383,7 +375,7 @@ test_astra_cycles_and_missing_defaults() {
     tmp=$(mktemp -d)
     mkdir -p "$tmp/home/memory/CASE" "$tmp/codex"
     record=$(N1_HOST=codex N1_HOME="$tmp/home" ID=CASE CODEX_HOME="$tmp/codex" n1_resolve_agent planner 2>"$tmp/err") || true
-    assert_eq "missing config and defaults use known mapping" $'gpt-5.6-sol\tmedium' "$record"
+    assert_eq "missing config and defaults use known mapping" $'gpt-5.6-sol\thigh' "$record"
     assert_eq "missing config and defaults have no warning" "" "$(<"$tmp/err")"
     printf '%s\n' '{"models":{"developer":{"codex":"gpt-6-astra"}}}' > "$tmp/home/config.json"
     for cycle in 0 1 2; do
@@ -408,8 +400,8 @@ test_astra_cycles_and_missing_defaults() {
 test_tier_aware_codex() {
     local empty='{"models":{}}' defaults='[agents]\ndefault_subagent_model = "gpt-5.6-terra"\ndefault_subagent_reasoning_effort = "medium"'
     codex_case "Opus baseline" "$empty" "$defaults" planner "" "" gpt-5.6-sol medium ""
-    codex_case "architect Opus baseline" "$empty" "$defaults" solution-architect "" "" gpt-5.6-sol medium ""
-    codex_case "reviewer Opus baseline" "$empty" "$defaults" code-reviewer "" "" gpt-5.6-sol medium ""
+    codex_case "architect Sonnet baseline" "$empty" "$defaults" solution-architect "" "" gpt-5.6-terra medium ""
+    codex_case "reviewer Sonnet baseline" "$empty" "$defaults" code-reviewer "" "" gpt-5.6-terra medium ""
     codex_case "Sonnet baseline" "$empty" "$defaults" developer "" "" gpt-5.6-terra medium ""
     codex_case "QA Sonnet baseline" "$empty" "$defaults" qa-engineer "" "" gpt-5.6-terra medium ""
     codex_case "Sonnet low frontmatter clamps" "$empty" '[agents]\ndefault_subagent_model = "gpt-5.6-terra"' product-analyst "" "" gpt-5.6-terra medium "below policy floor 'medium'"

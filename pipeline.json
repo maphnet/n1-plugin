@@ -30,27 +30,6 @@
     }
   },
   "downgrade_triggers": {
-    "solution-architect:analysis": {
-      "condition": { "any": [
-        { "all": [
-          { "signal": "ticket.description_quality", "eq": "adequate" },
-          { "frontmatter": "type", "neq": "investigation" }
-        ]},
-        { "all": [
-          { "signal": "ticket.description_quality", "eq": "weak" },
-          { "frontmatter": "tier", "eq": "simple" },
-          { "frontmatter": "type", "eq": "task" }
-        ]}
-      ]},
-      "tier": "downgrade"
-    },
-    "code-reviewer:review": {
-      "condition": { "all": [
-        { "signal": "analysis.blast_radius", "eq": "low" },
-        { "signal": "implementation.lines_changed", "lt": 50 }
-      ]},
-      "tier": "downgrade"
-    },
     "planner:plan": {
       "condition": { "all": [
         { "signal": "brainstorm.design_clarity", "eq": "high" },
@@ -94,19 +73,13 @@
                  "implementation", "qa", "review",
                  "local-testing", "pr", "ci", "finish", "release"],
       "detect": { "type_field": "bug", "tags": ["bug"] },
-      "step_overrides": {
-        "analysis": { "model_tier": "downgrade" },
-        "review": { "model_tier": "standard" }
-      }
+      "step_overrides": {}
     },
     "chore": {
       "steps": ["ticket", "analysis", "implementation", "qa", "review",
                  "pr", "ci", "finish", "release"],
       "detect": { "type_field": "chore", "tags": ["chore", "config", "deps"] },
-      "step_overrides": {
-        "analysis": { "model_tier": "downgrade" },
-        "review": { "model_tier": "downgrade" }
-      }
+      "step_overrides": {}
     }
   },
   "steps": [

@@ -1,10 +1,11 @@
 
-**Spawn agent:** planner. Resolve model for `planner`.
+**Spawn agent:** planner.
 
 Runs `n1-plan` skill in isolated subagent (prevents interactive prompts leaking to user; subagent lacks Bash so cannot chain into implementation or commit).
 
 ```bash
 source "$N1_ROOT/lib/preamble.sh"
+IFS=$'\t' read -r PLANNER_MODEL PLANNER_EFFORT < <(n1_resolve_agent planner plan)
 source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 RULES_BLOCK=""
@@ -21,7 +22,7 @@ source "$N1_ROOT/lib/preamble.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md analysis.md || { echo "ERROR: upstream artifacts missing — cannot plan" >&2; exit 1; }
 ```
 
-Spawn with:
+Spawn with `$PLANNER_MODEL` and `$PLANNER_EFFORT`:
 - Inputs: "Read these files yourself: `$N1_HOME/memory/<ID>/ticket.md`, `$N1_HOME/memory/<ID>/brainstorm.md`, `$N1_HOME/memory/<ID>/analysis.md`. Content NOT inlined. `analysis.md` contains codebase context — use instead of re-exploring."
 - Output path: `$N1_HOME/memory/<ID>/plan.md` — write there and nowhere else; do NOT commit.
 - "Do NOT include any `REQUIRED SUB-SKILL` execution directive in the plan body."
