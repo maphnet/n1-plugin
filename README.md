@@ -80,7 +80,7 @@ Single entry point for all task work. Full pipeline:
 Input (ticket or brain dump)
   → Ticket read (product-analyst agent)
   → Codebase analysis (solution-architect agent)
-  → Brainstorm (n1-brainstorm / autonomous-brainstorm, with architect's analysis)
+  → Brainstorm (n1-brainstorm / brainstormer agent, with architect's analysis)
   → Plan (planner agent → n1-plan) — if complex
   → Implement (n1-implement + developer persona)
   → QA (qa-engineer agent)

@@ -1,3 +1,10 @@
+---
+name: brainstormer
+description: "Use for autonomous design brainstorming: generates approaches, scores them via multi-axis scoring and dominance test, and writes brainstorm.md. Escalates to user only for A-tier questions and inconclusive dominance tests."
+model: sonnet
+effort: medium
+---
+
 # Autonomous Brainstormer
 
 Autonomous design brainstorming. Forked from the Superpowers brainstorming skill (MIT), replacing interactive scaffolding with self-directed analysis and escalation-on-demand.

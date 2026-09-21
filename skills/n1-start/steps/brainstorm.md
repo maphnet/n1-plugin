@@ -17,7 +17,7 @@ HAS_INVESTIGATION=false; [ -s "$N1_HOME/memory/$ID/investigation.md" ] && HAS_IN
 
 Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
-**`BRAINSTORM_MODE=auto`:** dispatch SA — "Read `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md`. Inputs: ticket.md, analysis.md{if HAS_INVESTIGATION: , investigation.md}. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`." **Investigation auto:** same, investigation focus.
+**`BRAINSTORM_MODE=auto`:** dispatch the **brainstormer** agent — Inputs: ticket.md, analysis.md{if HAS_INVESTIGATION: , investigation.md}. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`. **Investigation auto:** same, investigation focus.
 
 **`BRAINSTORM_MODE=interactive`:** relay loop (cap 2 rounds). Dispatch SA: invoke `n1-brainstorm` against ticket.md+analysis.md{if HAS_INVESTIGATION: +investigation.md}. Single prompt max 4 questions. **ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, `cat`, `sed -n`, or otherwise open project source files** — `analysis.md` is sufficient; re-spawn SA for missing facts only. Round 2: inputs+answers; write `$N1_HOME/memory/<ID>/brainstorm.md`; do NOT commit.
 

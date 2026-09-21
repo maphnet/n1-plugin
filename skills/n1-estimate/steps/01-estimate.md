@@ -86,7 +86,7 @@ Same as n1-start Step 2. After the agent returns:
 
 ### 3. BRAINSTORM
 
-Read and follow the autonomous brainstormer at `<N1_ROOT>/skills/n1-start/autonomous-brainstorm.md`. Estimation does not require interactive design exploration — the autonomous brainstormer generates approaches, scores them, and selects autonomously. No Skill invocation, no turn boundary.
+Dispatch the **brainstormer** agent. Estimation does not require interactive design exploration — the brainstormer generates approaches, scores them, and selects autonomously. No Skill invocation, no turn boundary.
 
 The autonomous brainstormer reads `ticket.md` and `analysis.md` from `$N1_HOME/memory/$ID/` and writes the design to `$N1_HOME/memory/$ID/brainstorm.md`.
 

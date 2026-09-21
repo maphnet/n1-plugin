@@ -6,7 +6,7 @@ Skills are lightweight controllers that delegate all heavy work:
 
 | N1 Skill | Delegates To | Purpose |
 |----------|-------------|---------|
-| n1-start | product-analyst, solution-architect, planner, implementer, qa-engineer agents + n1-brainstorm, n1-plan | Full pipeline. Brainstorm step uses autonomous-brainstorm.md when `BRAINSTORM_MODE` is `auto`; n1-brainstorm in interactive mode (investigation included — `--investigate` forces interactive). Implementation: Claude Code uses an implementer agent wrapping n1-implement; Codex dispatches via `n1_headless_cmd` directly (blocking `codex exec`, no timeout). |
+| n1-start | product-analyst, solution-architect, planner, implementer, qa-engineer agents + n1-brainstorm, n1-plan | Full pipeline. Brainstorm step uses brainstormer agent when `BRAINSTORM_MODE` is `auto`; n1-brainstorm in interactive mode (investigation included — `--investigate` forces interactive). Implementation: Claude Code uses an implementer agent wrapping n1-implement; Codex dispatches via `n1_headless_cmd` directly (blocking `codex exec`, no timeout). |
 | n1-review | code-reviewer, security-reviewer, developer agents | Review + fix loop |
 | n1-pr | tech-writer agent + inline git/gh/MCP | Doc update, push, create PR, update tracker |
 | n1-ci | developer agent + inline gh CLI | Post-PR CI watch, classify failures, fix loop |
