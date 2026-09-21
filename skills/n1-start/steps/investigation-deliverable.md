@@ -41,6 +41,11 @@ Spawn solution-architect with:
 ### Recommendations
 - <recommendation>
 
+### Validation
+- <recommendation summary> — ✓/⚠/✗ <evidence summary> (<url>, <url>)
+...
+Validation confidence: <high|medium|low> (<N>/<M> recommendations corroborated)
+
 ### Next Steps
 - <action item>
 
@@ -50,6 +55,7 @@ Spawn solution-architect with:
 
 - "Compute Metrics from actual work: files analyzed = distinct files Read/Grepped; confidence = findings-with-evidence / total; complexity uses XS-XL; implementable = recommendations describe concrete code changes."
 - "Ground every finding in evidence (file:line or URL). Note uncertainty explicitly."
+- "After completing Recommendations, add a ### Validation section (before ### Next Steps). For each recommendation: run web search using the research-standards.md rubric (corroborate ≥2 sources from trusted tiers; cite URLs; fitness gate — skip if no relevant standards exist). For each recommendation report: status (✓ Supported / ⚠ Mixed / ✗ Contradicted), 1-line evidence summary, source URLs. End Validation with one line: 'Validation confidence: <high|medium|low> (<N>/<M> recommendations corroborated)'. If web tools unavailable, write 'Validation: skipped — web tools unavailable'."
 - "Scratch policy: write throwaway tests/benchmarks to `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/`."
 
 > **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the solution-architect agent has written its output.
@@ -79,13 +85,17 @@ UNKNOWNS_RESOLVED="${UNKNOWNS_ANSWERED}/${UNKNOWNS_TOTAL}"
 
 SELF_RESOLVED=$(grep -c '<!-- n1:resolved:' "$INV_FILE" 2>/dev/null || echo "0")
 
+VALIDATION_CONF=$(grep -oE 'Validation confidence: [a-z]+' "$INV_FILE" | head -1 | sed 's/.*: //')
+[ -n "$VALIDATION_CONF" ] || VALIDATION_CONF="none"
+
 n1_write_signals "$INV_FILE" \
     "confidence=$CONFIDENCE" \
     "implementable=$IMPLEMENTABLE" \
     "unknowns_resolved=$UNKNOWNS_RESOLVED" \
     "findings_count=$FINDINGS_COUNT" \
     "recommendations_count=$RECOMMENDATIONS_COUNT" \
-    "self_resolved=$SELF_RESOLVED"
+    "self_resolved=$SELF_RESOLVED" \
+    "validation_confidence=$VALIDATION_CONF"
 
 UNKNOWNS=$(grep -oE '<!-- n1:unknown: [^>]+ -->' "$INV_FILE" | sed 's/<!-- n1:unknown: //;s/ -->//')
 UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null || echo "0")
@@ -185,7 +195,7 @@ Post comment: `**Investigation Results (N1)**\n**Question:** ...\n**Summary:** .
 
 **Phase 4 — Discussion**
 
-**Emit Gate 3 — investigation variant** (see `procedures/output-gates.md § Gate 3`). Use `=== <ID> — done ===` frame. Content = six sections (Background, Summary, Metrics, Findings, Recommendations, Next Steps). When spawning the Phase 1 agent, add to compact-return contract: "Return Gate 3 block as your compact return — six sections formatted inside `=== <ID> — done ===` markers. Orchestrator prints verbatim." If agent doesn't return pre-formatted block: read investigation.md and emit six sections inside frame.
+**Emit Gate 3 — investigation variant** (see `procedures/output-gates.md § Gate 3`). Use `=== <ID> — done ===` frame. Content = seven sections (Background, Summary, Metrics, Findings, Recommendations, Validation, Next Steps). When spawning the Phase 1 agent, add to compact-return contract: "Return Gate 3 block as your compact return — seven sections formatted inside `=== <ID> — done ===` markers; for Validation show summary line only: 'Validation confidence: <level> (<N>/<M> recommendations corroborated)'. Orchestrator prints verbatim." If agent doesn't return pre-formatted block: read investigation.md and emit seven sections inside frame.
 
 **Findings budget:** cap at 20 lines. If over, print first 15 then `(full investigation: $N1_HOME/memory/<ID>/investigation.md)`. Omit `### References` and `### Clarifications` from chat output.
 
