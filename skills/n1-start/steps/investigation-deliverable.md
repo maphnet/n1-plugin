@@ -12,7 +12,7 @@ Spawn solution-architect with:
 - Path to `$N1_HOME/memory/<ID>/ticket.md` — read yourself (investigation question).
 - Path to `$N1_HOME/memory/<ID>/analysis.md` — read yourself (codebase analysis; treat `### Clarifications` answers as resolved).
 - Path to `$N1_HOME/memory/<ID>/brainstorm.md` (if exists) — read yourself (additional research).
-- Directive: "Synthesize analysis into a structured investigation deliverable. Do NOT propose implementation changes. For NEW unknowns (not already in `### Clarifications` or `<!-- n1:resolved: -->` in analysis.md): A=blocking → `<!-- n1:unknown: -->`, B=significant → explore (Read/Grep/Glob) first; if resolved mark `<!-- n1:resolved: -->`; else escalate to A. Default to B. Write in this exact format:"
+- Directive: "Investigate the question from ticket.md. Before synthesizing: inventory your available tools (Bash commands, MCP tools, web search) and collect real evidence relevant to the investigation question — run diagnostic commands, query available APIs or observability tools, check system state, fetch metrics, read logs. Use whatever tools you have that can produce evidence; do not limit yourself to codebase files. Then validate collected data against web search (documented thresholds, best practices, known standards) to contextualize it. Synthesize all evidence into a structured investigation deliverable. Do NOT propose implementation changes. Findings based solely on documentation or inference without collected evidence must be marked `(unverified)`. For NEW unknowns (not already in `### Clarifications` or `<!-- n1:resolved: -->` in analysis.md): A=blocking → `<!-- n1:unknown: -->`, B=significant → explore (Read/Grep/Glob/Bash/MCP) first; if resolved mark `<!-- n1:resolved: -->`; else escalate to A. Default to B. Write in this exact format:"
 
 ```markdown
 ## Investigation: <title>
@@ -28,15 +28,16 @@ Spawn solution-architect with:
 
 ### Metrics
 - **Files analyzed:** <count>
+- **Evidence sources:** <types used, e.g. codebase, commands, observability, web>
 - **Blast radius:** <low|medium|high>
-- **Confidence:** <high|medium|low> (<N>/<M> findings verified with file:line evidence)
+- **Confidence:** <high|medium|low> (<N>/<M> findings verified with collected evidence)
 - **Complexity assessment:** <XS|S|M|L|XL>
 - **Implementable:** <yes|no> — <one-line reason>
 - **Risk factors:** <none | comma-separated>
 - **Unknowns resolved:** <N>/<M> (<K> deferred)
 
 ### Findings
-- <finding with evidence (file:line)>
+- <finding with evidence (file:line, command output, query result, or URL)>
 
 ### Recommendations
 - <recommendation>
@@ -50,11 +51,11 @@ Validation confidence: <high|medium|low> (<N>/<M> recommendations corroborated)
 - <action item>
 
 ### References
-- <file:line or URL>
+- <file:line, command, or URL>
 ```
 
-- "Compute Metrics from actual work: files analyzed = distinct files Read/Grepped; confidence = findings-with-evidence / total; complexity uses XS-XL; implementable = recommendations describe concrete code changes."
-- "Ground every finding in evidence (file:line or URL). Note uncertainty explicitly."
+- "Compute Metrics from actual work: files analyzed = distinct files Read/Grepped; evidence sources = categories of tools actually used (codebase, commands, observability, web); confidence = findings-with-collected-evidence / total; complexity uses XS-XL; implementable = recommendations describe concrete changes."
+- "Ground every finding in collected evidence (file:line, command output, query result, or URL). Note uncertainty explicitly. Mark findings without collected evidence as `(unverified)`."
 - "After completing Recommendations, add a ### Validation section (before ### Next Steps). For each recommendation: run web search using the research-standards.md rubric (corroborate ≥2 sources from trusted tiers; cite URLs; fitness gate — skip if no relevant standards exist). For each recommendation report: status (✓ Supported / ⚠ Mixed / ✗ Contradicted), 1-line evidence summary, source URLs. End Validation with one line: 'Validation confidence: <high|medium|low> (<N>/<M> recommendations corroborated)'. If web tools unavailable, write 'Validation: skipped — web tools unavailable'."
 - "Scratch policy: write throwaway tests/benchmarks to `$N1_HOME/memory/<ID>/benchmarks/` or `$N1_HOME/memory/<ID>/tests/`."
 
