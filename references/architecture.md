@@ -73,9 +73,9 @@ Each step reads ONLY its declared dependencies:
 | plan | `ticket.md`, `brainstorm.md`, `analysis.md` | `plan.md` |
 | plan-review | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` | `plan.md` (in-place fixes) |
 | estimation | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` (if exists) | `overview.md` (estimation section) |
-| implementation | `brainstorm.md`, `plan.md`, `analysis.md` (fallback for simplicity gate when brainstorm skipped) | `implementation.md` (+ signals: `diff_surface`, `lines_changed`, `new_files_count`) |
-| qa | `ticket.md`, `implementation.md`, `plan.md` | `qa.md` (+ signals: `tests_added`, `tests_broken`, `coverage_change`) |
-| review | `ticket.md`, `review-spec.md` (generated from brainstorm AC + chosen approach), `plan.md` (if any), `qa-facts.md` (generated from qa.md evidence) | `review.md`, `review-spec.md`, `qa-facts.md` |
+| implementation | `brainstorm.md`, `plan.md`, `analysis.md` | `implementation.md` (+ signals: `diff_surface`, `lines_changed`, `new_files_count`) |
+| qa | `ticket.md`, `implementation.md`, `plan.md`, `analysis.md` | `qa.md` (+ signals: `tests_added`, `tests_broken`, `coverage_change`) |
+| review | `ticket.md`, `review-spec.md` (generated from brainstorm AC + chosen approach), `plan.md` (if any), `qa-facts.md` (generated from qa.md evidence), `analysis.md` | `review.md`, `review-spec.md`, `qa-facts.md` |
 | local-test-analysis | `ticket.md`, `implementation.md`, `plan.md` or `brainstorm.md`, codebase | `local-test-plan.md` |
 | local-test-execution | `local-test-plan.md`, `implementation.md` | `local-testing.md` |
 | local-test-fix | `local-testing.md`, `local-test-plan.md`, `implementation.md` | code fixes, then re-execution |
