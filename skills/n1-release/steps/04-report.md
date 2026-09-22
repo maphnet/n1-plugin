@@ -58,9 +58,9 @@ Only runs after a **successful release** (built-in flow success or custom proced
 3. **Category 5** (release-triggered deployment exists):
    Report: "Deployment pipeline: `<filename>` — triggered on release, targets `<environment>` (if detectable)."
 
-   Read `release.deployWatch.enabled` from config (default `false`).
+   Read `release.deployWatch.enabled` from config (default `true`).
 
-   **If `release.deployWatch.enabled` is `true`:**
+   **If `release.deployWatch.enabled` is `true` or absent:**
 
    a. Resolve the commit SHA for the just-created tag:
       ```bash
@@ -87,7 +87,7 @@ Only runs after a **successful release** (built-in flow success or custom proced
         Report the failed run URL and log excerpt. **STOP — do not proceed.**
       - Timeout (`timeoutMinutes` elapsed, runs still in progress): report still-running URLs. Suggest re-checking manually. **STOP.**
 
-   **If `release.deployWatch.enabled` is `false` or absent:** report "Deploy watch not configured." Done.
+   **If `release.deployWatch.enabled` is explicitly `false`:** report "Deploy watch disabled." Done.
 4. **Categories 1-4** — present findings and ask:
    ```
    No release-triggered deployment pipeline detected.
