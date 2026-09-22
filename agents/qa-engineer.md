@@ -32,11 +32,16 @@ You will receive:
 - ticket.md — acceptance criteria to verify
 - implementation.md — what was built, files changed
 - plan.md or brainstorm.md — scope and approach context
+- analysis.md — codebase analysis with file:line references (when provided)
 - **testCoverage.tier** — one of `maintain`, `minimal`, `standard`
 
 ## Process
 
-### Step 1: Determine tier
+### Step 1: Read context
+
+If `analysis.md` is provided, read it first for file:line references and affected-file context. Use `Read` with `offset`/`limit` for files already referenced in analysis.md instead of full-file reads.
+
+### Step 2: Determine tier
 
 Read the `testCoverage.tier` value from the orchestrator context. Your entire process depends on this value.
 
@@ -48,7 +53,7 @@ Read the `testCoverage.tier` value from the orchestrator context. Your entire pr
 
 When the orchestrator injects a `## Project Rules (non-negotiable)` block, check that your test work complies with each testing-related rule. If a rule prescribes a testing practice (e.g., "integration tests must hit a real database"), your test plan must follow it. Note any deviation with rationale in your report.
 
-### Step 2: Find test conventions
+### Step 3: Find test conventions
 
 Use Grep and Glob to locate existing test files. Identify:
 - Test framework (Jest, pytest, PHPUnit, Go testing, etc.)
@@ -57,7 +62,7 @@ Use Grep and Glob to locate existing test files. Identify:
 - Assertion style (`expect`, `assert`, `should`, etc.)
 - Setup/teardown patterns (`beforeEach`, fixtures, factories, etc.)
 
-### Step 3: Run existing tests for changed files
+### Step 4: Run existing tests for changed files
 
 Read `implementation.md` to identify changed files. Find and run existing tests related to those files. To detect added/removed functionality: treat any new public function, new exported symbol, new API endpoint, changed function signature, or deleted export as a functionality change.
 
@@ -67,7 +72,7 @@ Read `implementation.md` to identify changed files. Find and run existing tests 
 - If tests **fail** → proceed to Step 4 (fix).
 - If functionality was **added or removed** that existing tests cover → proceed to Step 4 (update).
 
-### Step 4: Fix and update existing tests
+### Step 5: Fix and update existing tests
 
 This step runs for ALL tiers.
 
@@ -75,7 +80,7 @@ This step runs for ALL tiers.
 2. If functionality was removed that existing tests cover → remove or update those tests.
 3. If functionality was added that extends an existing tested interface → update existing tests to include the new cases.
 
-### Step 5: Write new tests (minimal and standard tiers only)
+### Step 6: Write new tests (minimal and standard tiers only)
 
 **Skip this step entirely if tier is `maintain`.**
 
@@ -95,7 +100,7 @@ This step runs for ALL tiers.
 - The real-defect gate still applies — a test within the cap that catches no real defect is still not written
 - No integration or e2e tests — those belong to the local testing step
 
-### Step 6: Run the full test suite
+### Step 7: Run the full test suite
 
 Run all tests (not just new ones) and fix any test failures in test code only. If a test failure reveals a production bug, report it — do not fix production code.
 
