@@ -40,7 +40,7 @@ exposed. A wait timeout is not worker completion or permission to restart it.
 Every skill bash snippet that needs plugin files starts with this line; `lib/config.sh` sources `lib/host.sh`:
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 ```
 
 On Claude Code, `${CLAUDE_PLUGIN_ROOT}` is set by the harness and resolves directly. On Codex,

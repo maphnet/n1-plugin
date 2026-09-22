@@ -9,7 +9,7 @@
 
 # Resolve plugin root — N1_ROOT must be set by the harness or discoverable
 N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"
-[ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+[ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 
 source "$N1_ROOT/lib/config.sh"
 source "$N1_ROOT/lib/step.sh"       # also loads telemetry.sh, frontmatter.sh, signals.sh
