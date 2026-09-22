@@ -39,7 +39,7 @@ Read the `release` block via `n1_config_val`, applying defaults when keys are ab
 | `.release.procedure` | `null` | |
 | `.release.draft` | `false` | |
 | `.release.deploymentCheck` | `true` | |
-| `.release.deployWatch.enabled` | `false` | Watch the deployment pipeline triggered by the release |
+| `.release.deployWatch.enabled` | `true` | Watch the deployment pipeline triggered by the release |
 | `.release.deployWatch.workflowName` | `null` | Filter to a specific workflow file name (e.g. `deploy.yml`) |
 | `.release.deployWatch.timeoutMinutes` | `30` | Maximum minutes to watch before timing out |
 | `.release.trackerRelease.versionName` | `"{serviceName} {version}"` | |

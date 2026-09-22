@@ -363,7 +363,7 @@ Two modes: built-in gh flow (`procedure: null`) creates an annotated git tag and
 
 Idempotent: `gh release view` check before creating; existing tag/release causes a skip. Tracker comment ("Released as vX.Y.Z") posted best-effort when a ticket can be inferred from the branch name.
 
-Config keys: `release.enabled` (boolean, default `false`), `release.tagPrefix` (string, default `"v"`), `release.procedure` (string|null, default `null`), `release.draft` (boolean, default `false`), `release.deployWatch.enabled` (boolean, default `false`), `release.deployWatch.workflowName` (string|null, default `null`), `release.deployWatch.timeoutMinutes` (number, default `30`).
+Config keys: `release.enabled` (boolean, default `false`), `release.tagPrefix` (string, default `"v"`), `release.procedure` (string|null, default `null`), `release.draft` (boolean, default `false`), `release.deployWatch.enabled` (boolean, default `true`), `release.deployWatch.workflowName` (string|null, default `null`), `release.deployWatch.timeoutMinutes` (number, default `30`).
 
 ## Agent Personas
 
