@@ -49,6 +49,8 @@ n1_write_context
 ```
 Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/rename $SESSION_NAME`. **Create overview.md**: frontmatter (ticket, tier, step, fix_cycles), heading, `## Context` (pending), `## Progress`, `## Key Decisions`, `## Escalations`. `INVESTIGATION_DETECTED=true`: investigation variant.
 
+**Ticket URL** (mode=ticket): call `mcp__<trackerMcp>__get_instance_url` (format=json) → extract `base_url`. YouTrack: `TICKET_URL=<base_url>/issue/<ID>`. Jira: `TICKET_URL=<base_url>/browse/<ID>`. On failure: skip silently. `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" "$TICKET_URL"`.
+
 ```bash
 TIER=$(json_val '.testCoverage.tier' "${N1_HOME}/config.json"); EST=$(json_val '.estimation.enabled' "${N1_HOME}/config.json")
 LT=$(json_val '.localTesting.enabled' "${N1_HOME}/config.json"); PR=$(json_val '.planReview.reviewPlan' "${N1_HOME}/config.json")

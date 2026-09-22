@@ -62,13 +62,14 @@ Tested:
 
   <STEP>: SKIPPED — <reason>
 
+Ticket: <TICKET_URL — omit if empty>
 PR: <url>
 ===
 ```
 
-Rules: 1) Verbatim commands/results from qa.md/local-testing.md. 2) Skipped steps printed. 3) `PR:` is Gate 3's final field.
+Rules: 1) Verbatim commands/results from qa.md/local-testing.md. 2) Skipped steps printed. 3) `Ticket:` omitted when `ticket_url` is empty. 4) `PR:` is Gate 3's final field.
 
-**Investigation-mode:** use `=== <ID> — done ===`; print Background, Summary, Metrics, Findings (capped), Recommendations, Next Steps from `investigation.md`. Full text pointer if Findings exceed budget.
+**Investigation-mode:** use `=== <ID> — done ===`; print Background, Summary, Metrics, Findings (capped), Recommendations, Next Steps from `investigation.md`. Append `Ticket: <TICKET_URL>` (omit if empty). Full text pointer if Findings exceed budget.
 
 ### Wait Contract
 
