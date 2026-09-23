@@ -14,7 +14,7 @@
    ```
    If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate). Set frontmatter:
    ```bash
-   N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+   source ~/.n1/preamble.sh
    source "$N1_ROOT/lib/frontmatter.sh"
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "done"
    ```
@@ -22,8 +22,7 @@
 
    Also clear the active-run pointer on successful completion (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY):
    ```bash
-   N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-   source "$N1_ROOT/lib/config.sh"
+   source ~/.n1/preamble.sh
    n1_active_run_clear
    ```
 

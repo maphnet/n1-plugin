@@ -83,8 +83,7 @@ Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is n
 **`.gitignore` configuration** — detect existing coverage, then ask the user:
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
+source ~/.n1/preamble.sh
 WT_ROOT=$(n1_worktree_root)   # host default from HOST ROUTING, or worktree.root from config
 ```
 

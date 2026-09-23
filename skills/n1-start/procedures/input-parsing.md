@@ -4,13 +4,13 @@ Input types: ticket ID, tracker URL, error-tracker URL (matches `urlPattern`), f
 
 **Tracker URL normalization:**
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 EXTRACTED=$(n1_extract_ticket_from_url "<user-input>" "$N1_HOME/config.json") && USER_INPUT="$EXTRACTED" || USER_INPUT="<user-input>"
 ```
 
 **Detect input type:**
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 n1_detect_input_type "$USER_INPUT" "$N1_HOME/config.json"
 ```
 Returns: `ticket`, `error-tracker`, `file`, `braindump`.

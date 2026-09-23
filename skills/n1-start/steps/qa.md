@@ -2,7 +2,7 @@
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"
 n1_step_begin "qa" 8
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
@@ -22,7 +22,7 @@ Run `procedures/rules-injection.md`: `agent_name=qa-engineer`, `changed_files_so
 qa.md missing/empty: write returned summary as fallback, `QA_DEGRADED=1`.
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"
 NEW_FUNC_UNTESTED=$(echo "${SIGNAL_LINE}" | grep -o 'new_functionality_untested=[^ ]*' | cut -d= -f2)
 BLOCK_UNTESTED=$(n1_config_val '.qa.blockUntestedFeatures' 'false')
@@ -44,7 +44,7 @@ fi
 `NEW_FUNC_UNTESTED=true`: B-tier ledger row. `BLOCK_UNTESTED=true`: verdict FAIL. `QA_DEGRADED=1`: print `⚠ QA evidence missing`.
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/breakcheck.sh"
 BC_MODE=$(n1_config_val '.qa.breakCheck' 'bugs'); BC_MAX=$(n1_config_val '.qa.breakCheckMaxTests' '5')
 TASK_TYPE=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "task_type")

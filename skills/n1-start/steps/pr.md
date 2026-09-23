@@ -23,7 +23,7 @@ created: <same timestamp>
 Update overview: `[x] PR`, set `step: pr`.
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/fingerprints.sh"
 source "$N1_ROOT/lib/validation.sh"

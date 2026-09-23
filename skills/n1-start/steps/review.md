@@ -2,7 +2,7 @@
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/treestate.sh"; source "$N1_ROOT/lib/related.sh"
 n1_step_begin "review" 9
 n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — aborting review step" >&2; exit 1; }
@@ -38,7 +38,7 @@ Run **Ensure Dependencies(`<ID>`)** before reviewers. > **ORCHESTRATOR GUARDRAIL
 **Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md` (codebase analysis; use file:line references for targeted reads), Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff.
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified")
 IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review)
 IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review)
@@ -50,7 +50,7 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Combine: `$MEM/review.md`, prefix `[CR-N]`/`[SEC-N]`. **FAIL** if Critical/High/`[RULE-N]`. Partial: retry once.
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }

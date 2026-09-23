@@ -2,7 +2,7 @@
 **Gate:** `n1_config_val '.estimation.enabled'` returns exactly `true`. Otherwise skip silently.
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md || { echo "ERROR: analysis.md missing — cannot estimate" >&2; exit 1; }
 GATE_ENABLED=$(n1_config_val '.estimation.enabled' 2>/dev/null || echo 'false')
 n1_record_decision estimation-gate "$( [ "${GATE_ENABLED:-false}" = "true" ] && echo true || echo false )" '{"config":"estimation.enabled"}' "enabled=${GATE_ENABLED:-false}"

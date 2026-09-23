@@ -5,7 +5,7 @@
 Gate: `relatedProjects.enabled=true`. Scan implementation diff.
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/related.sh"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 XREPO_RT_FILE="$N1_HOME/memory/$ID/xrepo-runtime.tsv"; XREPO_RT_ADDED_FILE="$N1_HOME/memory/$ID/xrepo-runtime-added"
@@ -33,7 +33,7 @@ fi
 
 **Telemetry for implementation step-end:**
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 XREPO_RT_FILE="$N1_HOME/memory/$ID/xrepo-runtime.tsv"; XREPO_RT_ADDED_FILE="$N1_HOME/memory/$ID/xrepo-runtime-added"
 XREPO_RT_DETECTED=""; XREPO_RT_ADDED=""

@@ -84,7 +84,7 @@ If N1 memory exists: update `overview.md` (mark PR done, add URL), add `docs_upd
 
 Read ticket URL:
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" 2>/dev/null || echo "")
 ```
 

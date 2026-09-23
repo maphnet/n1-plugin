@@ -32,6 +32,21 @@ mkdir -p "$(dirname "$HOST_FILE")" 2>/dev/null || true
 printf '{"host":"%s","pluginRoot":"%s","version":"%s"}\n' \
     "$(escape_json_val "$N1_HOST_NAME")" "$(escape_json_val "$N1_ROOT_DIR")" "$(escape_json_val "$N1_VERSION_STR")" > "$HOST_FILE" 2>/dev/null || true
 
+# Stable plugin-root shim for skill snippets: `source ~/.n1/preamble.sh` (NP-192).
+# Generated (not symlinked — Git Bash/MSYS `ln -s` silently deep-copies) next to host.json
+# so N1_HOST_FILE redirects keep tests isolated; last session start wins. Never fails the hook.
+SHIM="$(dirname "$HOST_FILE")/preamble.sh"
+ROOT_POSIX="$N1_ROOT_DIR"
+if command -v cygpath >/dev/null 2>&1; then
+    ROOT_POSIX=$(cygpath -u "$N1_ROOT_DIR" 2>/dev/null) || true
+    [ -n "$ROOT_POSIX" ] || ROOT_POSIX=$N1_ROOT_DIR
+fi
+SHIM_TMP="${SHIM}.$$.tmp"
+{
+    printf 'N1_ROOT=%q\n' "$ROOT_POSIX"
+    printf 'source "$N1_ROOT/lib/preamble.sh"\n'
+} > "$SHIM_TMP" 2>/dev/null && mv -f "$SHIM_TMP" "$SHIM" 2>/dev/null || rm -f "$SHIM_TMP" 2>/dev/null || true
+
 if [ "$N1_HOST_NAME" = "codex" ]; then
     HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 

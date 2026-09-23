@@ -78,6 +78,8 @@ OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (claude)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
 assert_eq "host.json pluginRoot" "$REPO_ROOT" "$(jq -r .pluginRoot "$N1_HOST_FILE")"
+assert_eq "preamble shim written next to host.json" "N1_ROOT=$REPO_ROOT
+source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$T/preamble.sh" 2>/dev/null)"
 case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
 case "$CTX" in *"HOST ROUTING (host: claude-code"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
 echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
@@ -98,6 +100,45 @@ CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review"*) assert_eq "compaction state restore on source=compact" ok ok;; *) assert_eq "compaction state restore on source=compact" ok "$CTX";; esac
 rm -f "$N1_HOME/active-run.json"
 unset N1_HOST_FILE
+
+# --- session-start: plugin-root preamble shim generation (NP-192) ------------
+RL="$T/rootlink"; mkdir -p "$RL"
+echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "shim written for first root" "N1_ROOT=$REPO_ROOT" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
+OTHER_ROOT="$T/otherroot"; mkdir -p "$OTHER_ROOT/lib"
+echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$OTHER_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "shim rewritten for a different plugin root" "N1_ROOT=$OTHER_ROOT" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
+assert_eq "no shim tmp files left behind" "" "$(ls "$RL"/*.tmp 2>/dev/null)"
+RO="$T/rodir"; mkdir -p "$RO"; chmod 555 "$RO"
+RC=0; echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RO/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || RC=$?
+chmod 755 "$RO"
+assert_eq "hook exits 0 when shim dir is unwritable" "0" "$RC"
+CYGDIR="$T/cygbin"; mkdir -p "$CYGDIR"
+cat > "$CYGDIR/cygpath" <<'CYGEOF'
+#!/usr/bin/env bash
+[ "$1" = "-u" ] && echo "/c/fake/root"
+CYGEOF
+chmod +x "$CYGDIR/cygpath"
+echo '{"session_id":"s-root","source":"startup"}' | PATH="$CYGDIR:$PATH" N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "shim uses cygpath-converted POSIX root when cygpath is present" "N1_ROOT=/c/fake/root" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
+
+# --- session-start: shim round-trip for a plugin root with special characters (NP-192/CR-1,TQ-1) ---
+SPECIAL_ROOT="$T/it's a \$root dir"; mkdir -p "$SPECIAL_ROOT/lib"
+printf '#!/usr/bin/env bash\n# minimal stub — no-op, real N1_ROOT resolution already done by the shim\n' > "$SPECIAL_ROOT/lib/preamble.sh"
+SPECIAL_HOST_DIR="$T/specialhost"; mkdir -p "$SPECIAL_HOST_DIR"
+echo '{"session_id":"s-special","source":"startup"}' | N1_HOST_FILE="$SPECIAL_HOST_DIR/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$SPECIAL_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+RESOLVED=$(bash -c "source \"$SPECIAL_HOST_DIR/preamble.sh\"; printf '%s' \"\$N1_ROOT\"" 2>/dev/null)
+assert_eq "shim resolves special-character root exactly" "$SPECIAL_ROOT" "$RESOLVED"
+
+# cygpath exits 0 with empty output must leave the shim containing the original root (CR-1)
+EMPTYCYG="$T/emptycygbin"; mkdir -p "$EMPTYCYG"
+cat > "$EMPTYCYG/cygpath" <<'CYGEOF2'
+#!/usr/bin/env bash
+exit 0
+CYGEOF2
+chmod +x "$EMPTYCYG/cygpath"
+echo '{"session_id":"s-root","source":"startup"}' | PATH="$EMPTYCYG:$PATH" N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "shim falls back to original root when cygpath outputs nothing" "N1_ROOT=$REPO_ROOT" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
 
 # --- session-start: TRACKER ROUTING includes versionMcp when configured ----
 export N1_HOST_FILE="$T/host2.json"

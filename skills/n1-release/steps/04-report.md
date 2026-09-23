@@ -99,9 +99,7 @@ Only runs after a **successful release** (built-in flow success or custom proced
    ```
    - **2 (No)** → set `release.deploymentCheck` to `false` in `$N1_HOME/config.json` via:
      ```bash
-     N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-     source "$N1_ROOT/lib/config.sh"
-     N1_HOME=$(n1_home)
+     source ~/.n1/preamble.sh
      jq '.release.deploymentCheck = false' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
      ```
      Report: "Deployment check disabled for this project. Re-enable via n1-init or by setting `release.deploymentCheck: true` in config."

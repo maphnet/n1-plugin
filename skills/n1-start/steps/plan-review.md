@@ -2,7 +2,7 @@
 Run `n1_config_val '.planReview.reviewPlan'` (default: `true`).
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 n1_verify_dependencies "$N1_HOME/memory/$ID" plan.md || { echo "ERROR: plan.md missing — cannot review plan" >&2; exit 1; }
 GATE_ENABLED=$(n1_config_val '.planReview.reviewPlan' 2>/dev/null || echo 'true')
 n1_record_decision plan-review-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"planReview.reviewPlan"}' "enabled=${GATE_ENABLED:-true}"
@@ -42,8 +42,7 @@ Output: `## Plan Review Result` / `**Verdict:** CLEAN | FIXED` / `**Changes:**` 
 
 **Step result (step mode):**
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
-source "$N1_ROOT/lib/config.sh"
+source ~/.n1/preamble.sh
 EST=$(n1_config_val '.estimation.enabled')
 if [ "${EST:-false}" = "true" ]; then
     NEXT="estimation"

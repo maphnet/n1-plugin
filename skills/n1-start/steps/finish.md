@@ -4,7 +4,7 @@
 Run `n1_config_val '.finishWork.enabled'` (default: `false`).
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/preamble.sh
 GATE_ENABLED=$(n1_config_val '.finishWork.enabled' 2>/dev/null || echo 'false')
 n1_record_decision finish-gate "$( [ "${GATE_ENABLED:-false}" = "true" ] && echo true || echo false )" '{"config":"finishWork.enabled"}' "enabled=${GATE_ENABLED:-false}"
 ```
