@@ -38,7 +38,8 @@ printf '{"host":"%s","pluginRoot":"%s","version":"%s"}\n' \
 SHIM="$(dirname "$HOST_FILE")/preamble.sh"
 ROOT_POSIX="$N1_ROOT_DIR"
 if command -v cygpath >/dev/null 2>&1; then
-    ROOT_POSIX=$(cygpath -u "$N1_ROOT_DIR" 2>/dev/null) || ROOT_POSIX=$N1_ROOT_DIR
+    ROOT_POSIX=$(cygpath -u "$N1_ROOT_DIR" 2>/dev/null) || true
+    [ -n "$ROOT_POSIX" ] || ROOT_POSIX=$N1_ROOT_DIR
 fi
 SHIM_TMP="${SHIM}.$$.tmp"
 {

@@ -122,6 +122,24 @@ chmod +x "$CYGDIR/cygpath"
 echo '{"session_id":"s-root","source":"startup"}' | PATH="$CYGDIR:$PATH" N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "shim uses cygpath-converted POSIX root when cygpath is present" "N1_ROOT=/c/fake/root" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
 
+# --- session-start: shim round-trip for a plugin root with special characters (NP-192/CR-1,TQ-1) ---
+SPECIAL_ROOT="$T/it's a \$root dir"; mkdir -p "$SPECIAL_ROOT/lib"
+printf '#!/usr/bin/env bash\n# minimal stub — no-op, real N1_ROOT resolution already done by the shim\n' > "$SPECIAL_ROOT/lib/preamble.sh"
+SPECIAL_HOST_DIR="$T/specialhost"; mkdir -p "$SPECIAL_HOST_DIR"
+echo '{"session_id":"s-special","source":"startup"}' | N1_HOST_FILE="$SPECIAL_HOST_DIR/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$SPECIAL_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+RESOLVED=$(bash -c "source \"$SPECIAL_HOST_DIR/preamble.sh\"; printf '%s' \"\$N1_ROOT\"" 2>/dev/null)
+assert_eq "shim resolves special-character root exactly" "$SPECIAL_ROOT" "$RESOLVED"
+
+# cygpath exits 0 with empty output must leave the shim containing the original root (CR-1)
+EMPTYCYG="$T/emptycygbin"; mkdir -p "$EMPTYCYG"
+cat > "$EMPTYCYG/cygpath" <<'CYGEOF2'
+#!/usr/bin/env bash
+exit 0
+CYGEOF2
+chmod +x "$EMPTYCYG/cygpath"
+echo '{"session_id":"s-root","source":"startup"}' | PATH="$EMPTYCYG:$PATH" N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "shim falls back to original root when cygpath outputs nothing" "N1_ROOT=$REPO_ROOT" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
+
 # --- session-start: TRACKER ROUTING includes versionMcp when configured ----
 export N1_HOST_FILE="$T/host2.json"
 cat > "$N1_HOME/config.json" <<'EOF'
