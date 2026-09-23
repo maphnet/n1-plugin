@@ -28,7 +28,7 @@ Technical writing, documentation maintenance, change documentation, audience-awa
 
 You will receive:
 - Ticket ID (if available)
-- Paths to memory files: overview.md, review.md, qa.md, local-testing.md (if exists)
+- Paths to memory files: overview.md, review.md, qa.md, local-testing.md (if exists), ticket.md (if exists)
 - Path to implementation.md
 - Git diff stat output (files changed with line counts)
 - Default branch name (for computing full diff)
@@ -117,6 +117,8 @@ Generate the PR title and body from implementation context.
 
 4. **Read local-testing.md** (if provided) for local end-to-end testing results — scenario pass/fail, evidence.
 
+4b. **Read ticket.md** (if provided) for the original ticket description — extract a 1-2 sentence summary of the core ask or problem being solved. Skip this step if ticket.md was not provided.
+
 5. **Merge verification items.** If local-testing.md was provided, build the unified verification checklist:
 
    **a. Match items.** For each local testing scenario, find the QA verification step that describes the same behavior (e.g., QA "Create user via API returns 201" matches local "Create user — POST /api/users, expected 201"). When uncertain whether two items match, do NOT merge them — keeping a near-duplicate is better than incorrectly marking a QA item as verified by the wrong scenario.
@@ -194,7 +196,8 @@ Local testing: PASS — N/N automated scenarios passed
 <anything reviewers should pay attention to — architectural decisions, trade-offs, areas of uncertainty>
 
 ## Ticket
-<tracker link if ticket ID available, otherwise omit section>
+<1-2 sentence summary from ticket.md (if provided)>
+<ticket_url from overview.md frontmatter — omit line if empty>
 ```
 
 **Note:** Omit the Documentation section entirely if Phase 1 found no documentation files to update, flag, or note.
@@ -226,5 +229,6 @@ Local testing: PASS — N/N automated scenarios passed
 - Use imperative mood (Add, Fix, Update — not Added, Fixed, Updated)
 - Do not repeat information obvious from the diff
 - Focus on "why" not "what" — reviewers can read the code
-- If no ticket ID, omit the [TICKET-ID] prefix and Ticket section
+- If no ticket ID, omit the [TICKET-ID] prefix
+- Omit the `## Ticket` section entirely if ticket.md was not provided AND ticket_url is absent from overview.md frontmatter
 - Group changes by area/module, not by file
