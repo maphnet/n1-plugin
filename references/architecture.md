@@ -17,7 +17,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
 | n1-ticket | solution-architect agent + inline context capture, web research, tracker MCP | Create a single backlog ticket (Task/Bug) from conversation context |
 | n1-story | solution-architect agent + inline context capture, interactive discovery, tracker MCP | Create a story with subtask tickets from conversation context |
-| n1-story-run | headless child per subtask (`n1_headless_cmd`: `claude -p` or `codex exec`) (n1-start, n1-finish), solution-architect (order gap-fill), tracker MCP | Implement a whole story: validate → sequential subtask pipelines in each subtask's repo → summary comment |
+| n1-queue | headless child per ticket (`n1_headless_cmd`: `claude -p` or `codex exec`) (n1-start), tracker MCP | Run a batch of tickets (by tag or story subtasks) through the pipeline sequentially without merging; background runner |
 | n1-rules | (inline: lib/rules.sh) | List, add, validate project rules; regenerate deny hook |
 
 Agent spawns use N1's own agent definitions. Each gets fresh context — the orchestrator never accumulates full history.
@@ -425,13 +425,13 @@ Every autonomous decision appends a row to the `## Decision Ledger` table in ove
 
 Cross-session resume: the pr step writes a `## Pending` block (`awaiting: merge`) to overview.md; `hooks/session-start.sh` scans these (capped at 5 `gh pr view` calls, 30-min throttle via `last_checked`, 14-day expiry, fail-open) and suggests `/n1:n1-finish` when the PR was merged externally.
 
-## Story Orchestration
+## Queue Orchestration
 
-`/n1:n1-story-run <STORY-ID>` (also reached when `/n1:n1-start` is given a Story/Epic or a parent with subtasks) runs every open subtask through `n1-start` sequentially. Each subtask runs as a **headless child process** launched from the subtask's repository using the host's headless command from `n1_headless_cmd` (Claude: `claude -p "/n1:n1-start <ID>" --model <m> --permission-mode bypassPermissions`; Codex: `codex exec --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust '$n1-start <ID>'`). The repo is found by matching the subtask's `service | title` prefix against `ticketTagging.service` in `~/.n1/*/config.json` and reading that config's `repoPath` (written by n1-init). A dependent subtask starts only after its predecessor's PR is merged; the orchestrator polls `gh pr view` and runs a headless `n1-finish` on merge.
+`/n1:n1-queue` runs tickets through `n1-start` sequentially via the background bash runner. Two modes: `--tag <tag>` searches the tracker for tickets tagged for batch work; `--story <ID>` runs the subtasks of a story. Also reached when `/n1:n1-start` is given a Story/Epic or a parent with subtasks (handoff to `n1:n1-queue --story <ID>`). The skill handles intake and preview; `scripts/n1-queue-run.sh` handles execution.
 
-Env contract: `N1_AUTONOMY_PRESET=autonomous` makes `n1_autonomy_val` return the fully autonomous profile (`brainstorm=auto`, `mechanicalPrompts=auto`, `qualityEscalations=auto-accept`, `tailChain=suggest`, `acceptanceGate=auto`, `escalationMargin=0.05`) and disables the plan checkpoint. `N1_HEADLESS=1` auto-resolves ordinary prompts by taking the recommended option (with a Decision Ledger row); prompts on the stop list (`escalation.alwaysAskOn` categories plus the release gate) and prompts with no recommended option become a recorded escalation (`## Escalations`, `step: escalated`) and end the child. Escalation moves the ticket to `tracker.statuses.blocked` (when configured) and posts an idempotent `N1 [headless]` comment with a `n1-esc:<ID>:<step>` marker; resume moves it back to `inProgress`. `N1_STORY_ID` is recorded in the child's overview frontmatter. `N1_STORY_PLUGIN_DIR` (optional) passes `--plugin-dir` to each Claude Code child (ignored on Codex), allowing story runs against a local plugin build.
+Env contract: `N1_AUTONOMY_PRESET=autonomous` makes `n1_autonomy_val` return the fully autonomous profile. `N1_HEADLESS=1` auto-resolves ordinary prompts by taking the recommended option; prompts on the stop list become a recorded escalation and end the child. Escalation moves the ticket to `tracker.statuses.blocked` (when configured) and posts an idempotent `N1 [headless]` comment. `N1_STORY_ID` is recorded in the child's overview frontmatter. `N1_STORY_PLUGIN_DIR` (optional) passes `--plugin-dir` to each Claude Code child.
 
-Model per subtask: sonnet by default; opus when size ≥ `story.opusFromSize` (default M) or a risk flag (`security`, `public-api`, `schema-migration`, `contract`) is set. Outcomes read from the child's overview.md: `merged`, `awaiting-merge`, `escalated`, `failed`. Any escalation pauses the story (comment on the story, `step: paused`); re-running the command resumes. On completion a `N1 Story Summary` comment is posted grouped by service with PR links. Helpers: `lib/story.sh`; defaults: `defaults/story.json`. Release remains manual.
+Model per ticket: sonnet by default; opus when size >= `queue.opusFromSize` (default M) or a risk flag is set. Outcomes: `pr`, `escalated`, `failed`. Helpers: `lib/queue.sh`; defaults: `defaults/queue.json`. Release remains manual.
 
 ### Queue Runner
 

@@ -22,7 +22,7 @@ When you need the Telemetry Analyzer CLI → `references/developer-guide.md § T
 ## Stack
 
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
-- **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/config.sh`, `lib/signals.sh`, `lib/step.sh` (per-step begin/end helpers), `lib/context.sh` (context-persistence: write/read TIER/TYPE/DESC_QUALITY/LITE_MODE/SIMPLE_PATH across bash snippets), `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`, `lib/story.sh`, `lib/related.sh`
+- **Shared shell helpers:** `lib/host.sh` (host detection, plugin root, headless command), `lib/config.sh`, `lib/signals.sh`, `lib/step.sh` (per-step begin/end helpers), `lib/context.sh` (context-persistence: write/read TIER/TYPE/DESC_QUALITY/LITE_MODE/SIMPLE_PATH across bash snippets), `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`, `lib/queue.sh`, `lib/related.sh`
 - **Host layer:** skill text is host-neutral; per-host syntax lives in `references/host-routing.md` and is injected by the session-start hook as HOST ROUTING. `tests/test_host_neutral_skills.sh` rejects host literals in `skills/` and `agents/`.
 
 ## Plugin Development

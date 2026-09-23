@@ -25,7 +25,7 @@ case "$ISSUE_TYPE" in story|epic) IS_STORY=true ;; esac
 [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md" && IS_STORY=true
 ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"]*\)".*/\1/p')
 ```
-`IS_STORY=true`: non-headless→handoff `n1:n1-story-run <ID>`, STOP; headless→`procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree** or **Ensure Working Branch**.
+`IS_STORY=true`: non-headless→handoff `n1:n1-queue --story <ID>`, STOP; headless→`procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree** or **Ensure Working Branch**.
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 

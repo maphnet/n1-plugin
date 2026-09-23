@@ -55,7 +55,7 @@ codex plugin marketplace add ~/dev/n1-plugin && codex plugin add n1@n1   # Codex
 /n1:n1-review #340                 # advisory review of a PR
 /n1:n1-pr                          # finalize branch: docs, push, create PR
 /n1:n1-finish                      # verify/merge PR, watch deploy, close ticket
-/n1:n1-story-run STORY-12          # implement a whole story: subtasks run one by one through n1-start in their own repos, then a summary is posted on the story. --dry-run shows the plan only.
+/n1:n1-queue --story STORY-12       # run story subtasks through the pipeline one by one without merging. Also: --tag <tag>, --dry-run, --status.
 ```
 
 ## Skills
@@ -70,7 +70,7 @@ codex plugin marketplace add ~/dev/n1-plugin && codex plugin add n1@n1   # Codex
 | /n1:n1-pr | Finalize branch: docs, push, create PR |
 | /n1:n1-review | Code review loop or advisory review of a PR |
 | /n1:n1-start | Full pipeline orchestrator — ticket to merged PR |
-| /n1:n1-story-run | Implement a whole story: subtasks run one by one through n1-start in their own repos, then a summary is posted on the story. `--dry-run` shows the plan only. |
+| /n1:n1-queue | Run a batch of tracker tickets (by tag or story subtasks) through the pipeline one after another without merging. `--tag`, `--story`, `--dry-run`, `--status`. |
 
 ### `/n1:n1-start` — Core Orchestrator
 
