@@ -16,7 +16,7 @@ Launches a batch of tracker tickets through `n1-start` sequentially via a backgr
 ## Preamble
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 ```
 
@@ -31,7 +31,7 @@ Parse arguments: `--tag <tag>` (tag mode), `--story <ID>` (story mode, accept tr
 ## Tracker gate
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 TRACKER_MCP=$(n1_config_val '.tracker.mcp'); TRACKER_TYPE=$(n1_config_val '.tracker.type')
 SEARCH_OP=$(n1_config_val '.tracker.operations.search'); READ_OP=$(n1_config_val '.tracker.operations.readTicket')

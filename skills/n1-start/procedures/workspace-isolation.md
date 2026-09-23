@@ -3,7 +3,7 @@
 ## Isolation Mode Resolution
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 WORKTREE_MODE=$(n1_config_val '.worktree.mode'); EXTERNAL_WORKTREE=false
 if [ "$WORKTREE_MODE" = "external" ] || n1_is_external_worktree; then EXTERNAL_WORKTREE=true; USE_WORKTREE=false
 elif [ "$BRANCH_FLAG" = "true" ] || [ "$WORKTREE_MODE" = "branch" ]; then USE_WORKTREE=false
@@ -43,7 +43,7 @@ Idempotent, marker-guarded. `USE_WORKTREE=false`→return. `SETUP=$(n1_config_va
 
 `oldId==newId`→return. Move memory dir, rewrite `ticket:` frontmatter, `git branch -m`, `git worktree move`. Update active-run:
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 n1_active_run_write "$newId" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
 ```
 

@@ -6,7 +6,7 @@ Read this file only when `procedures/workspace-isolation.md` instructs you to (w
 
 Before any user prompt, write pending marker:
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" "<one-line description>"
 ```
 After answer: `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" ""`.

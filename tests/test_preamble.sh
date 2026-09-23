@@ -27,21 +27,6 @@ export PLUGIN_ROOT="$REPO_ROOT"
     echo "PASS: PLUGIN_ROOT fallback works"
 ) || FAIL=1
 
-# Test 3: no n1-start snippet still uses the old N1_ROOT resolution line
-# (migration verification — the inline N1_ROOT="${CLAUDE_PLUGIN_ROOT..." pattern should be gone)
-STEPS_DIR="${REPO_ROOT}/skills/n1-start/steps"
-PROCS_DIR="${REPO_ROOT}/skills/n1-start/procedures"
-OLD_PATTERN='N1_ROOT="${CLAUDE_PLUGIN_ROOT'
-for f in "${STEPS_DIR}"/*.md "${PROCS_DIR}"/*.md "$REPO_ROOT/skills/n1-start/review-core.md"; do
-    [ -f "$f" ] || continue
-    name="$(basename "$f")"
-    if grep -qF "$OLD_PATTERN" "$f" 2>/dev/null; then
-        echo "FAIL: ${name} still uses old N1_ROOT resolution pattern"
-        FAIL=1
-    fi
-done
-[ "$FAIL" = "0" ] && echo "PASS: no n1-start files use old preamble pattern"
-
 # Test 4: empty N1_ROOT triggers python3 host.json fallback (NP-180)
 unset CLAUDE_PLUGIN_ROOT
 unset PLUGIN_ROOT

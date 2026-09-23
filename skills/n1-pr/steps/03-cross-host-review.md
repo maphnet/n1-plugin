@@ -13,7 +13,7 @@ Skip this step entirely (no output) when ANY of these conditions is true:
 ### Gate checks
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source ~/.n1/root/lib/preamble.sh
 source "$N1_ROOT/lib/host.sh"
 source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
@@ -65,8 +65,7 @@ All checks passed.
 **Autonomy gate:**
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
+source ~/.n1/root/lib/preamble.sh
 MECHANICAL=$(n1_autonomy_val 'mechanicalPrompts')
 echo "mechanical=$MECHANICAL"
 ```
@@ -76,9 +75,7 @@ If `mechanical` is `auto`:
 Check whether unattended execution is explicitly permitted:
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-N1_HOME=$(n1_home)
+source ~/.n1/root/lib/preamble.sh
 N1_CONFIG="$N1_HOME/config.json"
 if [ -f "$N1_CONFIG" ] && command -v jq >/dev/null 2>&1; then
   ALLOW_UNATTENDED=$(jq -r 'if .crossHostReview.allowUnattended == true then "true" else "false" end' "$N1_CONFIG" 2>/dev/null || echo "false")
@@ -153,9 +150,7 @@ If `crossHostReview_autoTriage` is `true`, continue to severity parsing.
 Parse `CODEX_OUTPUT` for severity markers. This is best-effort — Codex output format is not standardized. The safe default when parsing fails is to route all findings to human review.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-N1_HOME=$(n1_home)
+source ~/.n1/root/lib/preamble.sh
 
 MAX_FIX_ATTEMPTS=$(n1_cross_host_review_val 'maxFixAttempts')
 echo "maxFixAttempts=$MAX_FIX_ATTEMPTS"
@@ -178,8 +173,7 @@ If there are no High+ findings, skip to Triage Reply.
 Resolve model for developer:
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
+source ~/.n1/root/lib/preamble.sh
 IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer fix)
 ```
 
@@ -225,7 +219,7 @@ Output format:
 After developer returns:
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source ~/.n1/root/lib/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "cross_host_fix_cycle"
 ```

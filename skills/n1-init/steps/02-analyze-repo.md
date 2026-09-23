@@ -136,8 +136,7 @@ If approved (1), append to CLAUDE.md. If edit (3) — ask what to change first.
 Detect the host once; the rest of n1-init reads `HOST` where behaviour differs.
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
+source ~/.n1/root/lib/preamble.sh
 HOST=$(n1_host)
 HOST_FILE=$(n1_host_file)
 CODEX_CFG="${CODEX_HOME:-$HOME/.codex}/config.toml"

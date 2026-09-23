@@ -17,9 +17,7 @@ Three-phase on-demand skill: **fetch → verify → act**. Fetches all open revi
 ## N1_HOME Resolution
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-N1_HOME=$(n1_home)
+source ~/.n1/root/lib/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.
@@ -29,8 +27,7 @@ Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/$ID/`.
 ## Model Resolution
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
+source ~/.n1/root/lib/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 

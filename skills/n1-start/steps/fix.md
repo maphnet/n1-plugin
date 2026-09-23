@@ -1,7 +1,7 @@
 <!-- n1:step-snippet-exception: FAIL/PASS branching: separate asked/auto-decided telemetry, PASS-only counter and step_end -->
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 n1_step_begin "fix" 10
 n1_verify_dependencies "$N1_HOME/memory/$ID" review.md || { echo "ERROR: review.md missing — cannot fix without findings" >&2; exit 1; }
 REVIEW_FIX_CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
@@ -15,7 +15,7 @@ QE=$(n1_autonomy_val 'qualityEscalations')
 ```
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 PRE_FIX_SHA=$(git rev-parse HEAD)
 echo "$PRE_FIX_SHA" > "$N1_HOME/memory/$ID/pre-fix-sha"
 ```
@@ -34,7 +34,7 @@ n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 ```
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 PRE_FIX_SHA=$(cat "$N1_HOME/memory/$ID/pre-fix-sha" 2>/dev/null || echo "HEAD~1")
 FIX_CHANGED=$(git diff --name-only "$PRE_FIX_SHA" HEAD)
 echo "$FIX_CHANGED" > "$N1_HOME/memory/$ID/fix-changed-files"
@@ -45,7 +45,7 @@ Emit: `<ID> · review fix cycle <N>/<MAX>`. Return to Step 7. Bound: `review.max
 
 **PASS verdict:**
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "clean_passes"
 ```
 `clean_passes < MIN_CLEAN` (default 1) → back to Step 7. `clean_passes >= MIN_CLEAN` → proceed.
@@ -59,6 +59,6 @@ $(echo "$FULL_SUITE_OUTPUT" | tail -n 100)"
 Append to `## Fix Cycle <N>`: `**Full-suite:** exit <FULL_SUITE_EXIT> — PASS|FAIL`. When spawning developer for regression fix, pass `$FULL_SUITE_OUTPUT` (already capped) as the failure output. Exit 0: proceed. Non-zero: `MP=$(n1_autonomy_val 'mechanicalPrompts')`. `MP==auto` + first attempt: spawn developer to fix, re-run once. Else: ask "Fix regression or proceed?"
 
 ```bash
-source "$N1_ROOT/lib/preamble.sh"
+source ~/.n1/root/lib/preamble.sh
 n1_step_end "fix" 10 "success"
 ```

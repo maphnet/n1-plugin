@@ -17,9 +17,7 @@ Create a story with subtask tickets from the current conversation context and/or
 ## N1_HOME Resolution
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-source "$N1_ROOT/lib/config.sh"
-N1_HOME=$(n1_home)
+source ~/.n1/root/lib/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not configured for this project. Run `/n1:n1-init` to set it up." **STOP.**

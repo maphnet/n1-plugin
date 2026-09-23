@@ -202,8 +202,8 @@ When an old `.n1/n1.config.json` is detected:
       Then optionally remove the `.n1/` directory (ask user or leave it — the `.gitignore` entry was already addressed in step 3g above)
    i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs). Run only when `HOST` is `claude-code`; skip entries whose value is an object (host-keyed).
       ```bash
-      N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
-      source "$N1_ROOT/lib/config.sh"; [ "$(n1_host)" = "claude-code" ] || exit 0
+      source ~/.n1/root/lib/preamble.sh
+      [ "$(n1_host)" = "claude-code" ] || exit 0
       CFG="$HOME/.n1/$PROJECT_NAME/config.json"
       for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)
         def=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x&&/^model:/{sub(/^model:[ \t]*/,"");gsub(/\r/,"");print;exit}' "$f")
