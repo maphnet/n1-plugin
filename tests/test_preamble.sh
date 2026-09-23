@@ -58,5 +58,21 @@ else
     echo "SKIP: empty-env fallback (no ~/.n1/host.json)"
 fi
 
+# Test 5 (NP-192 AC): a skill snippet run verbatim in a clean shell sources the libs
+# through the hook-maintained ~/.n1/root symlink (temp HOME, never touches the real ~/.n1).
+PROBE_HOME=$(mktemp -d)
+echo '{"session_id":"s-probe","source":"startup"}' | env -u N1_HOST_FILE HOME="$PROBE_HOME" N1_STATE_DIR="$PROBE_HOME/.n1" \
+    N1_HOME="$PROBE_HOME/proj" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+    bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+PROBE_OUT=$(cd "$PROBE_HOME" && env -u N1_ROOT -u CLAUDE_PLUGIN_ROOT -u PLUGIN_ROOT -u N1_HOST_FILE \
+    HOME="$PROBE_HOME" N1_HOME="$PROBE_HOME/proj" \
+    bash -c 'source ~/.n1/root/lib/preamble.sh && type n1_step_begin >/dev/null && echo "$N1_ROOT|$N1_HOME"' 2>&1) || true
+if [ "$PROBE_OUT" = "$REPO_ROOT|$PROBE_HOME/proj" ]; then
+    echo "PASS: clean-shell snippet resolves N1_ROOT and N1_HOME via ~/.n1/root"
+else
+    echo "FAIL: clean-shell probe got '$PROBE_OUT'"; FAIL=1
+fi
+rm -rf "$PROBE_HOME"
+
 echo ""
 exit "$FAIL"

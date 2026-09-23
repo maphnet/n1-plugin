@@ -78,6 +78,7 @@ OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (claude)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
 assert_eq "host.json pluginRoot" "$REPO_ROOT" "$(jq -r .pluginRoot "$N1_HOST_FILE")"
+assert_eq "root symlink next to host.json -> plugin root" "$REPO_ROOT" "$(readlink "$T/root" || true)"
 case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
 case "$CTX" in *"HOST ROUTING (host: claude-code"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
 echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
@@ -98,6 +99,21 @@ CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review"*) assert_eq "compaction state restore on source=compact" ok ok;; *) assert_eq "compaction state restore on source=compact" ok "$CTX";; esac
 rm -f "$N1_HOME/active-run.json"
 unset N1_HOST_FILE
+
+# --- session-start: plugin-root symlink refresh and guards (NP-192) ----------
+RL="$T/rootlink"; mkdir -p "$RL/stale"; ln -sfn "$RL/stale" "$RL/root"
+echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "stale root symlink refreshed" "$REPO_ROOT" "$(readlink "$RL/root" || true)"
+RD="$T/realdir"; mkdir -p "$RD/root"
+RC=0; echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RD/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>"$T/rootwarn" || RC=$?
+assert_eq "hook exits 0 when root is a real directory" "0" "$RC"
+assert_eq "real directory not replaced" "dir" "$([ -d "$RD/root" ] && [ ! -L "$RD/root" ] && echo dir || echo other)"
+assert_eq "nothing linked inside the real directory" "" "$(ls -A "$RD/root")"
+case "$(cat "$T/rootwarn")" in *"real directory"*) assert_eq "real-dir warning on stderr" ok ok;; *) assert_eq "real-dir warning on stderr" ok "$(cat "$T/rootwarn")";; esac
+RO="$T/rodir"; mkdir -p "$RO"; chmod 555 "$RO"
+RC=0; echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RO/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || RC=$?
+chmod 755 "$RO"
+assert_eq "hook exits 0 when ln fails" "0" "$RC"
 
 # --- session-start: TRACKER ROUTING includes versionMcp when configured ----
 export N1_HOST_FILE="$T/host2.json"

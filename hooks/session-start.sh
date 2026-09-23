@@ -32,6 +32,16 @@ mkdir -p "$(dirname "$HOST_FILE")" 2>/dev/null || true
 printf '{"host":"%s","pluginRoot":"%s","version":"%s"}\n' \
     "$(escape_json_val "$N1_HOST_NAME")" "$(escape_json_val "$N1_ROOT_DIR")" "$(escape_json_val "$N1_VERSION_STR")" > "$HOST_FILE" 2>/dev/null || true
 
+# Stable plugin-root path for skill snippets: `source ~/.n1/root/lib/preamble.sh` (NP-192).
+# Lives next to host.json so N1_HOST_FILE redirects keep tests isolated; last session start
+# wins, like host.json. Never fails the hook; never writes into a real directory.
+ROOT_LINK="$(dirname "$HOST_FILE")/root"
+if [ -d "$ROOT_LINK" ] && [ ! -L "$ROOT_LINK" ]; then
+    echo "N1: $ROOT_LINK is a real directory; not replacing it with the plugin-root symlink" >&2
+else
+    ln -sfn "$N1_ROOT_DIR" "$ROOT_LINK" 2>/dev/null || true
+fi
+
 if [ "$N1_HOST_NAME" = "codex" ]; then
     HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 
