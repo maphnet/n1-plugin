@@ -1,11 +1,9 @@
 ---
 name: n1-run
-description: "Load N1 project config and run a coding task directly — escape hatch from the full n1-pipeline."
+description: "Load N1 project config and run a prompt with full project context — escape hatch from the full n1-pipeline."
 ---
 
 # N1 Run
-
-**Announce at start:** "I'm using the n1-run skill to run a coding task."
 
 ## N1_HOME Resolution
 
@@ -18,44 +16,17 @@ echo "N1_HOME=$N1_HOME"
 
 If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not configured. Run `/n1:n1-init` first." **STOP.**
 
-## Load Context
+## Load Config
 
 ```bash
 N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/config.sh"
-source "$N1_ROOT/lib/rules.sh"
 N1_HOME=$(n1_home)
-RULES_DIR=$(n1_rules_dir)
-RULES_BLOCK=""
-if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
-    MATCHING_RULES=$(n1_rules_for_agent "developer" "" "$RULES_DIR")
-    [ -n "$MATCHING_RULES" ] && RULES_BLOCK=$(n1_rules_render $MATCHING_RULES)
-fi
-RESOLVE=$(n1_resolve_agent "developer" 2>/dev/null || echo "sonnet	normal")
-AGENT_MODEL=$(printf '%s' "$RESOLVE" | cut -f1)
-AGENT_EFFORT=$(printf '%s' "$RESOLVE" | cut -f2)
-echo "N1_HOME=$N1_HOME"
-echo "AGENT_MODEL=$AGENT_MODEL"
-echo "AGENT_EFFORT=$AGENT_EFFORT"
-[ -n "$RULES_BLOCK" ] && printf '%s\n' "$RULES_BLOCK"
+cat "$N1_HOME/config.json" 2>/dev/null || echo "{}"
 ```
 
-## Dispatch
+## Execute
 
-Dispatch persona `developer` with the following brief:
+You now have N1 project context loaded. Apply the user's prompt directly — you have full tool access including MCP. Choose the appropriate approach (direct execution, persona dispatch, MCP queries, research, analysis) based on what the prompt actually asks for.
 
-```
-N1 project context:
-- N1_HOME: <N1_HOME from above>
-- Model: <AGENT_MODEL> / Effort: <AGENT_EFFORT>
-
-<RULES_BLOCK — include verbatim if non-empty, omit section entirely if empty>
-
-Task:
-<user's prompt verbatim — do not transform, summarize, or interpret>
-```
-
-Return the developer persona's output directly to the user.
-
-> **Note:** The developer persona has access to `Read`, `Edit`, `Write`, `Bash`, `Grep`, and `Glob`.
-> It does not have access to tracker or observability MCP tools. If your task requires those, use `/n1:n1-start` instead.
+Do not force a developer subagent or any specific persona unless the task is clearly an implementation task that benefits from one.
