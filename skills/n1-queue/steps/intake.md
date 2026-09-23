@@ -37,6 +37,10 @@ fi
 - No matching config -> ask the user: **Enter path**, **Skip** (Status `skip`, reason "no repo"), **Cancel**.
 - Matched config but empty `REPO` -> ask for path, validate, backfill.
 
+## Story check (tag mode only)
+
+For each candidate call `mcp__<TRACKER_MCP>__<LINKS_OP>` (skip when `LINKS_OP` is empty). If the candidate is the parent of any `subtask` link whose target is not done -> exclude with reason `story: run with --story <ID>`. A tagged story is never expanded into the queue; the user runs it explicitly in story mode.
+
 ## Blocker check
 
 For each candidate call `mcp__<TRACKER_MCP>__<LINKS_OP>` (when `LINKS_OP` is empty, i.e. config predates the `getIssueLinks` operation, skip link checks and rely on the description grep; say so in the preview). A candidate whose inbound dependency (`depends on`, `is blocked by`) points at ANY ticket that is not done -> excluded with reason `blocked by <ID>`.
@@ -63,6 +67,6 @@ If no size field, default to `sonnet`.
 
 Build two lists:
 - **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`
-- **Excluded**: `Ticket`, `Reason` (blocked, description too thin, skip, done-before-run)
+- **Excluded**: `Ticket`, `Reason` (blocked, story, description too thin, skip, done-before-run)
 
 If no candidates: "No actionable tickets found." **STOP.**
