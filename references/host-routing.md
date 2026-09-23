@@ -37,15 +37,13 @@ report the unsupported capability before dispatching. `send_message` can reach a
 running worker but may not restart an idle one; use `followup_task` for that when
 exposed. A wait timeout is not worker completion or permission to restart it.
 
-Every skill bash snippet that needs plugin files starts with this line; `lib/config.sh` sources `lib/host.sh`:
+Every skill bash snippet that needs plugin files starts with this line. Each fenced block runs in a fresh shell, so every block repeats it:
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+source ~/.n1/root/lib/preamble.sh
 ```
 
-On Claude Code, `${CLAUDE_PLUGIN_ROOT}` is set by the harness and resolves directly. On Codex,
-`${PLUGIN_ROOT}` is set by the harness and takes the `:-` fallback slot. `host.json` is the
-last-resort fallback when neither variable is set (e.g. dry-run or external invocation).
+`~/.n1/root` is a symlink to the plugin root. `hooks/session-start.sh` refreshes it next to `~/.n1/host.json` on every startup, resume, clear and compact, on both hosts; the last session start wins, as with `host.json`. The preamble sets `N1_ROOT` (`${CLAUDE_PLUGIN_ROOT}`, then `${PLUGIN_ROOT}`, then `pluginRoot` from `host.json`). It sources `lib/config.sh` (which sources `lib/host.sh`), `lib/step.sh` and `lib/validation.sh`, and sets `N1_HOME`. Specialized libs are sourced after it as `source "$N1_ROOT/lib/<lib>.sh"`. Never resolve `N1_ROOT` inline; `tests/test_host_neutral_skills.sh` rejects it.
 
 ## Model routing
 

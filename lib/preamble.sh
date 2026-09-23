@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # N1 common preamble — resolves N1_ROOT, sources core libs, sets N1_HOME.
 #
-# Usage in skill bash snippets:
-#   source "$N1_ROOT/lib/preamble.sh"
+# Usage in skill bash snippets (~/.n1/root is the plugin-root symlink kept by hooks/session-start.sh):
+#   source ~/.n1/root/lib/preamble.sh
 #
 # Snippets needing specialized libs (memory, treestate, breakcheck, classify,
 # related, poll, context) still source those explicitly after this line.

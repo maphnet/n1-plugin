@@ -59,7 +59,7 @@ Resolution priority (all paths go through `n1_home()` in `lib/config.sh`):
 3. `git config n1.home` — legacy backward compat; expand `~`; WSL `wslpath` conversion
 4. In-repo `.n1/` fallback
 
-**Skills:** start bash snippets with `source "$N1_ROOT/lib/preamble.sh"` — this provides `N1_ROOT`, sources `lib/config.sh` and other helpers, and sets `N1_HOME`. The preamble template is in `references/host-routing.md`.
+**Skills:** start every bash snippet with `source ~/.n1/root/lib/preamble.sh`. `~/.n1/root` is the plugin-root symlink maintained by `hooks/session-start.sh`. The preamble provides `N1_ROOT`, sources `lib/config.sh` and other helpers, and sets `N1_HOME`. See `references/host-routing.md § Bash snippet preamble`.
 
 Config: `$N1_HOME/config.json`
 
