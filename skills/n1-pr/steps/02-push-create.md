@@ -82,6 +82,12 @@ If N1 memory exists: update `overview.md` (mark PR done, add URL), add `docs_upd
 
 ## Step 7: Report
 
+Read ticket URL:
+```bash
+source "$N1_ROOT/lib/preamble.sh"
+TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" 2>/dev/null || echo "")
+```
+
 Draft mode (**bolded** URL to surface draft state):
 ```
 **PR created (draft):** <PR_URL>
@@ -89,6 +95,7 @@ PR #: <number>
 Title: <title>
 Base: <default branch>
 Tracker: <status updated / not configured / failed>
+<Ticket: <TICKET_URL> — omit line if empty>
 CHECKPOINT: Ready for Tech Lead review.
 ```
 
