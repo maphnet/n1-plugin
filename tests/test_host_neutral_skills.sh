@@ -15,14 +15,14 @@ check "ToolSearch literal" 'ToolSearch'
 check "Agent tool / subagent_type literal" 'Agent tool|subagent_type|when the Agent returns'
 check "Skill tool / superpowers: prefix" 'Skill tool|superpowers:'
 check "persona namespace literal" '"n1:[a-z-]+"|`n1:(solution-architect|developer|planner|implementer|qa-engineer|code-reviewer|security-reviewer|tech-writer|product-analyst|local-test-planner)`'
-# NP-192: N1_ROOT is never resolved inline; snippets source the hook-maintained ~/.n1/root symlink.
-check "inline N1_ROOT resolution (use: source ~/.n1/root/lib/preamble.sh)" 'N1_ROOT="\$\{CLAUDE_PLUGIN_ROOT|source "\$N1_ROOT/lib/preamble\.sh"'
+# NP-192: N1_ROOT is never resolved inline; snippets source the hook-generated ~/.n1/preamble.sh shim.
+check "inline N1_ROOT resolution (use: source ~/.n1/preamble.sh)" 'N1_ROOT="\$\{CLAUDE_PLUGIN_ROOT|source "\$N1_ROOT/lib/preamble\.sh"|~/\.n1/root'
 
 # Every fenced bash block that uses $N1_ROOT or the preamble must start with the preamble
 # (each snippet is its own fresh shell).
 python3 - <<'PY' || FAIL=1
 import re, sys, pathlib
-PRE = 'source ~/.n1/root/lib/preamble.sh'
+PRE = 'source ~/.n1/preamble.sh'
 bad = []
 for path in list(pathlib.Path("skills").rglob("*.md")) + list(pathlib.Path("agents").glob("*.md")):
     text = path.read_text(encoding="utf-8")

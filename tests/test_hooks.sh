@@ -78,7 +78,8 @@ OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (claude)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
 assert_eq "host.json pluginRoot" "$REPO_ROOT" "$(jq -r .pluginRoot "$N1_HOST_FILE")"
-assert_eq "root symlink next to host.json -> plugin root" "$REPO_ROOT" "$(readlink "$T/root" || true)"
+assert_eq "preamble shim written next to host.json" "N1_ROOT=$REPO_ROOT
+source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$T/preamble.sh" 2>/dev/null)"
 case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
 case "$CTX" in *"HOST ROUTING (host: claude-code"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
 echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
@@ -100,20 +101,26 @@ case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review
 rm -f "$N1_HOME/active-run.json"
 unset N1_HOST_FILE
 
-# --- session-start: plugin-root symlink refresh and guards (NP-192) ----------
-RL="$T/rootlink"; mkdir -p "$RL/stale"; ln -sfn "$RL/stale" "$RL/root"
+# --- session-start: plugin-root preamble shim generation (NP-192) ------------
+RL="$T/rootlink"; mkdir -p "$RL"
 echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-assert_eq "stale root symlink refreshed" "$REPO_ROOT" "$(readlink "$RL/root" || true)"
-RD="$T/realdir"; mkdir -p "$RD/root"
-RC=0; echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RD/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>"$T/rootwarn" || RC=$?
-assert_eq "hook exits 0 when root is a real directory" "0" "$RC"
-assert_eq "real directory not replaced" "dir" "$([ -d "$RD/root" ] && [ ! -L "$RD/root" ] && echo dir || echo other)"
-assert_eq "nothing linked inside the real directory" "" "$(ls -A "$RD/root")"
-case "$(cat "$T/rootwarn")" in *"real directory"*) assert_eq "real-dir warning on stderr" ok ok;; *) assert_eq "real-dir warning on stderr" ok "$(cat "$T/rootwarn")";; esac
+assert_eq "shim written for first root" "N1_ROOT=$REPO_ROOT" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
+OTHER_ROOT="$T/otherroot"; mkdir -p "$OTHER_ROOT/lib"
+echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$OTHER_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "shim rewritten for a different plugin root" "N1_ROOT=$OTHER_ROOT" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
+assert_eq "no shim tmp files left behind" "" "$(ls "$RL"/*.tmp 2>/dev/null)"
 RO="$T/rodir"; mkdir -p "$RO"; chmod 555 "$RO"
 RC=0; echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RO/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || RC=$?
 chmod 755 "$RO"
-assert_eq "hook exits 0 when ln fails" "0" "$RC"
+assert_eq "hook exits 0 when shim dir is unwritable" "0" "$RC"
+CYGDIR="$T/cygbin"; mkdir -p "$CYGDIR"
+cat > "$CYGDIR/cygpath" <<'CYGEOF'
+#!/usr/bin/env bash
+[ "$1" = "-u" ] && echo "/c/fake/root"
+CYGEOF
+chmod +x "$CYGDIR/cygpath"
+echo '{"session_id":"s-root","source":"startup"}' | PATH="$CYGDIR:$PATH" N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "shim uses cygpath-converted POSIX root when cygpath is present" "N1_ROOT=/c/fake/root" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
 
 # --- session-start: TRACKER ROUTING includes versionMcp when configured ----
 export N1_HOST_FILE="$T/host2.json"
