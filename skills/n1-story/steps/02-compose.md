@@ -129,4 +129,4 @@ Report the full summary:
 ...
 ```
 
-Then mention: "Run `/n1:n1-story-run <STORY_ID>` to implement all subtasks in order, or `/n1:n1-start <ID>` on a single subtask."
+Then mention: "Run `/n1:n1-queue --story <STORY_ID>` to implement all subtasks in order, or `/n1:n1-start <ID>` on a single subtask."

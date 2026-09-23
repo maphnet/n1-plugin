@@ -76,6 +76,7 @@ Auto-map detected statuses to N1 workflow slots by matching common names:
 - **inProgress**: "In Progress", "In Development", "Active", "In Work"
 - **codeReview**: "Code Review" — if no exact match found, fall back to the `inProgress` value (N1 uses this after PR creation; the tracker's "Review"/"QA" columns are reserved for human QA outside the orchestrator)
 - **done**: "Done", "Closed", "Resolved", "Fixed", "Complete", "Completed" — if no match found, run the **Done Fallback Picker** after the main confirmation (see below)
+- **blocked**: "Blocked", "On Hold", "Waiting", "Impeded" — if no match found, omit from config
 - **released**: "Released", "Deployed", "Live" — if no match found, omit from config (runtime falls back to `done`)
 
 Show the detected mapping for confirmation. When `done` was not auto-matched, omit it from the table:
@@ -85,6 +86,7 @@ Detected workflow statuses:
   inProgress → In Progress
   codeReview → Code Review (or In Progress if no Code Review status)
   done       → Done        ← include only when a match was found
+  blocked    → Blocked     ← include only when a match was found
   released   → Released    ← include only when a match was found
 
 Correct? 1 — Yes / 2 — No, let me specify manually
@@ -176,6 +178,7 @@ Set config:
       "inProgress": "<detected or manual>",
       "codeReview": "<detected or inProgress fallback>",
       "done": "<detected or manual — omit key entirely when absent>",
+      "blocked": "<detected or omit key entirely when absent>",
       "released": "<detected or omit key entirely when absent>"
     }
   }
@@ -249,6 +252,7 @@ Set config:
       "inProgress": "<detected or manual>",
       "codeReview": "<detected or inProgress fallback>",
       "done": "<detected or manual — omit key entirely when absent>",
+      "blocked": "<detected or omit key entirely when absent>",
       "released": "<detected or omit key entirely when absent>"
     }
   }

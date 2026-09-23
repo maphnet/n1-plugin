@@ -1,0 +1,12 @@
+{
+  "tag": "n1-auto",
+  "maxTickets": 10,
+  "pollSeconds": 60,
+  "subtaskTimeoutMinutes": 180,
+  "opusFromSize": "M",
+  "designPath": "docs/design/",
+  "taskSizing": {
+    "maxSize": "L",
+    "warnOnLargeTask": true
+  }
+}

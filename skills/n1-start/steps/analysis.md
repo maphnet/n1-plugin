@@ -85,7 +85,7 @@ Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":** add all + ledg
 
 ```bash
 source "$N1_ROOT/lib/preamble.sh"
-source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/story.sh"
+source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/queue.sh"
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 UNKNOWNS=$(grep -oE '<!-- n1:unknown: [^>]+ -->' "$N1_HOME/memory/$ID/analysis.md" | sed 's/<!-- n1:unknown: //;s/ -->//'); UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null | head -1); UNKNOWN_COUNT="${UNKNOWN_COUNT:-0}"

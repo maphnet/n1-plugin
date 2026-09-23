@@ -1,4 +1,6 @@
 
+**If `N1_STOP_AT` is `ci`** (set by the queue runner): skip to FINALIZE MEMORY. The queue never merges.
+
 Run `n1_config_val '.finishWork.enabled'` (default: `false`).
 
 ```bash
@@ -7,10 +9,10 @@ GATE_ENABLED=$(n1_config_val '.finishWork.enabled' 2>/dev/null || echo 'false')
 n1_record_decision finish-gate "$( [ "${GATE_ENABLED:-false}" = "true" ] && echo true || echo false )" '{"config":"finishWork.enabled"}' "enabled=${GATE_ENABLED:-false}"
 ```
 
-> The gate key (`finishWork.enabled`) and its default (`false`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
+> Gate key matches `pipeline.json` `gates[]`.
 
-**If `finishWork.enabled` is `false`:** skip silently to FINALIZE MEMORY.
+**If `false`:** skip to FINALIZE MEMORY.
 
-**REQUIRED SUB-SKILL:** Use n1:n1-finish to verify/perform the merge, watch the deployment, and close the ticket.
+**REQUIRED SUB-SKILL:** Use n1:n1-finish to verify/merge, deploy, close ticket.
 
-> **After `n1:n1-finish` returns, IMMEDIATELY continue to FINALIZE MEMORY with the finish result noted -- do NOT write a summary message or yield to the user.**
+> **After n1-finish returns, continue to FINALIZE MEMORY — no summary, no yield.**
