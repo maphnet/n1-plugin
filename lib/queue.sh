@@ -195,3 +195,24 @@ n1_queue_pending_rows() {
     }' "$file"
 }
 
+n1_queue_decision_counts() {
+    # Usage: n1_queue_decision_counts <queue.md>
+    # Prints: plan_decisions<TAB>autonomous_decisions<TAB>escalations
+    # plan_decisions  = Decision Ledger rows matching "^| preview | edit |"
+    # autonomous_decisions = sum of "^| [^|]* | headless |" lines in each non-pending/skip/done-before-run ticket's overview.md
+    # escalations     = Plan rows with Status "escalated"
+    local file="$1"
+    local plan_decisions; plan_decisions=$(grep -c '^| preview | edit |' "$file" 2>/dev/null || true)
+    local auto_decisions=0 escalations=0
+    while IFS=$'\t' read -r ticket n1home status; do
+        case "$status" in pending|skip|done-before-run) continue ;; esac
+        [ "$status" = "escalated" ] && escalations=$((escalations+1))
+        local overview="$n1home/memory/$ticket/overview.md"
+        if [ -f "$overview" ]; then
+            local cnt; cnt=$(grep -c '^| [^|]* | headless |' "$overview" 2>/dev/null || true)
+            auto_decisions=$((auto_decisions+cnt))
+        fi
+    done < <(awk -F'|' '{for(i=1;i<=NF;i++) gsub(/^[[:space:]]+|[[:space:]]+$/,"",$i); if($2~/^[0-9]+$/ && NF>=9) printf "%s\t%s\t%s\n",$3,$6,$8}' "$file")
+    printf '%s\t%s\t%s\n' "$plan_decisions" "$auto_decisions" "$escalations"
+}
+

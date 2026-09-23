@@ -313,12 +313,52 @@ EOF
     assert_eq "busy: message" "0" "$?"
 }
 
+# --- n1_queue_decision_counts ------------------------------------------------
+test_decision_counts() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+
+    # Overview for T-A: 2 headless rows + 1 non-headless
+    mkdir -p "$tmp/n1home/memory/T-A" "$tmp/n1home/memory/T-B" "$tmp/n1home/memory/T-C"
+    printf '| implementation | headless | detail |\n| implementation | headless | detail |\n| implementation | developer | detail |\n' \
+        > "$tmp/n1home/memory/T-A/overview.md"
+    # Overview for T-B (escalated): 1 headless row
+    printf '| qa | headless | blocked |\n' > "$tmp/n1home/memory/T-B/overview.md"
+    # Overview for T-C (pending): 5 headless rows — must NOT count
+    printf '| implementation | headless | x |\n%.0s' {1..5} > "$tmp/n1home/memory/T-C/overview.md"
+
+    cat > "$tmp/queue.md" <<EOF
+---
+queue_id: test-dc
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-A | Fix A | /r | $tmp/n1home | sonnet | pr | |
+| 2 | T-B | Fix B | /r | $tmp/n1home | sonnet | escalated | |
+| 3 | T-C | Fix C | /r | $tmp/n1home | sonnet | pending | |
+
+## Decision Ledger
+| Step | Decision | Detail |
+|------|----------|--------|
+| preview | edit | change 1 |
+| preview | edit | change 2 |
+| preview | skip | no change |
+
+## Runs
+EOF
+
+    local out; out=$(n1_queue_decision_counts "$tmp/queue.md")
+    assert_eq "decision_counts: 2 plan 3 auto 1 esc" "$(printf '2\t3\t1')" "$out"
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
 test_child_status
 test_row_status
 test_pending_rows
+test_decision_counts
 test_runner_three_strikes
 test_runner_all_pr
 test_busy_guard
