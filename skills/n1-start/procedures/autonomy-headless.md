@@ -22,9 +22,24 @@ QE=$(n1_autonomy_val 'qualityEscalations')
 
 ## Headless Guard
 
-Applies whenever the environment variable `N1_HEADLESS` equals `1` (the run was launched by `n1-story-run` or another non-interactive parent). There is no user to answer prompts.
+Applies whenever the environment variable `N1_HEADLESS` equals `1` (the run was launched by `n1-queue` or another non-interactive parent). There is no user to answer prompts.
 
-At any point where a step would ask the user or otherwise **wait for the user** (plan checkpoint, acceptance gate fallback, quality-gate exhaustion on security/architecture/public-API findings, brainstorm escalation below margin, error-recovery "report to user"), do this instead:
+At any point where a step would ask the user or otherwise **wait for the user**, classify the prompt against the **stop list** before escalating.
+
+**Stop list:** the categories in `n1_escalation_val 'alwaysAskOn'` (default: `security`, `architecture`, `public-api`) plus the release confirmation gate (always unconditional).
+
+**If the prompt is NOT on the stop list AND the step has a recommended option** (the option marked "(Recommended)" or listed first as default): take the recommended option silently. Log it:
+
+```bash
+source "$N1_ROOT/lib/preamble.sh"
+OVERVIEW="$N1_HOME/memory/$ID/overview.md"
+grep -q '^## Decision Ledger' "$OVERVIEW" 2>/dev/null || printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$OVERVIEW"
+printf '| %s | headless | %s | [auto] | %s | %s | %s | headless: not on stop list | --- |\n' "$STEP" "$TIER" "$QUESTION" "$RECOMMENDED" "$ALTERNATIVES" >> "$OVERVIEW"
+```
+
+Then continue the run — do not escalate, do not end.
+
+**If the prompt IS on the stop list, is the release gate, or has no recommended option**, escalate:
 
 1. Append to `## Escalations` in `$N1_HOME/memory/$ID/overview.md`:
    `- [headless] <step>: <the exact question or decision that needed a human>, options: <options>`
