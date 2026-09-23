@@ -39,7 +39,9 @@ fi
 
 ## Story check (tag mode only)
 
-For each candidate call `mcp__<TRACKER_MCP>__<LINKS_OP>` (skip when `LINKS_OP` is empty). If the candidate is the parent of any `subtask` link whose target is not done -> exclude with reason `story: run with --story <ID>`. A tagged story is never expanded into the queue; the user runs it explicitly in story mode.
+A tagged story is never expanded into the queue; the user runs it explicitly in story mode. Exclusion reason: `story: run with --story <ID>`.
+- **Jira:** subtasks are not issue links. If the candidate's type (from `READ_OP`) is `Story` or `Epic`, search JQL `parent = <KEY> AND statusCategory != Done`, maxResults 1. Any hit -> exclude.
+- **YouTrack:** call `mcp__<TRACKER_MCP>__<LINKS_OP>` (skip when `LINKS_OP` is empty). If the candidate is the parent of any `subtask` link whose target is not done -> exclude.
 
 ## Blocker check
 
