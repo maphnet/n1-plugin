@@ -24,7 +24,7 @@ Status classification: a status whose lowercase name is one of `done`, `closed`,
 
 For each candidate in story mode:
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 SERVICE=$(n1_story_parse_service "$TITLE")
 if [ -n "$SERVICE" ]; then
@@ -58,7 +58,7 @@ For each remaining candidate, assess the description: if the description is empt
 ## Model per ticket
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 MODEL=$(n1_story_pick_model "$SIZE")
 ```

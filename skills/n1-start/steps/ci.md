@@ -2,7 +2,7 @@
 Run `n1_config_val '.ciChecks.enabled'` (default: `true`).
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 GATE_ENABLED=$(n1_config_val '.ciChecks.enabled' 2>/dev/null || echo 'true')
 n1_record_decision ci-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"ciChecks.enabled"}' "enabled=${GATE_ENABLED:-true}"
 ```

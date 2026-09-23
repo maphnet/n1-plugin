@@ -16,7 +16,7 @@ Accepts ticket ID or brain dump. Orchestrates full development cycle: product-an
 Run at start of every run before any config or memory access:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 ```
 
 Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/<ID>/`.

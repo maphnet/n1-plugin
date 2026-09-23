@@ -1,7 +1,7 @@
 # Report (--status)
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 source "$N1_ROOT/lib/frontmatter.sh"
 ```
@@ -9,7 +9,7 @@ source "$N1_ROOT/lib/frontmatter.sh"
 If a specific queue ID was given: `QUEUE_FILE="$N1_HOME/queue/<id>/queue.md"`.
 Otherwise: find the most recently modified `queue.md` under `$N1_HOME/queue/`:
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 QUEUE_FILE=$(find "$N1_HOME/queue" -name queue.md -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
 ```
 
@@ -23,7 +23,7 @@ Read frontmatter `step` and `queue_id`. Print:
 After printing the Plan table, compute and print decision counts, then write `telemetry.json`:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 QUEUE_DIR=$(dirname "$QUEUE_FILE")
 QUEUE_ID=$(n1_read_frontmatter "$QUEUE_FILE" queue_id)
@@ -43,7 +43,7 @@ printf '{"queue_id":"%s","run_id":"%s","step":"%s","plan_decisions":%s,"autonomo
 In story mode, when `step` is `done` or `halted`:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 STORY_ID=$(n1_read_frontmatter "$QUEUE_FILE" story_id)
 QUEUE_ID=$(n1_read_frontmatter "$QUEUE_FILE" queue_id)

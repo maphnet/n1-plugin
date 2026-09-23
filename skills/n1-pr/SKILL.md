@@ -16,7 +16,7 @@ Create a PR from the current feature branch. Spawns tech-writer for PR content, 
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 ```
 
 If empty — N1 not configured; warn the user. Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/$ID/`.
@@ -24,7 +24,7 @@ If empty — N1 not configured; warn the user. Config: `$N1_HOME/config.json`. M
 ## Model Resolution
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 

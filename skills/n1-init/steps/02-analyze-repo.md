@@ -136,7 +136,7 @@ If approved (1), append to CLAUDE.md. If edit (3) — ask what to change first.
 Detect the host once; the rest of n1-init reads `HOST` where behaviour differs.
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 HOST=$(n1_host)
 HOST_FILE=$(n1_host_file)
 CODEX_CFG="${CODEX_HOME:-$HOME/.codex}/config.toml"

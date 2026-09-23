@@ -73,7 +73,7 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 
 5. If any accepted rules have `enforcement: deny`:
    ```bash
-   source ~/.n1/root/lib/preamble.sh
+   source ~/.n1/preamble.sh
    source "$N1_ROOT/lib/rules.sh"
    HOOK_DIR="$N1_HOME/hooks"
    mkdir -p "$HOOK_DIR"

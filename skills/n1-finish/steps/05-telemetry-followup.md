@@ -39,7 +39,7 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
 4. **Read tracker config** (run via Bash):
 
    ```bash
-   source ~/.n1/root/lib/preamble.sh
+   source ~/.n1/preamble.sh
    TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
    PROJECT_KEY=$(n1_config_val ".tracker.projectKey" "$N1_HOME/config.json")
    TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")

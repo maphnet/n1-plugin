@@ -7,7 +7,7 @@ Discover and configure related projects — other N1-managed repositories that t
 ### Step 1 — Enumerate candidates
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 # Derive both candidate self-slugs (remote-URL and directory-name), each sanitized the same way.
 # n1_home() resolves N1_HOME by matching whichever slug has an existing ~/.n1/<slug>/ dir,
 # so we must skip a peer that matches EITHER to avoid adding self when the two slugs differ.
@@ -54,7 +54,7 @@ For each candidate, search the current repo for references. Classify matches by 
 Search implementation:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/related.sh"
 N1_HOME=$(n1_home)
 CANDIDATES_FILE="$N1_HOME/cache/init-candidates.tsv"
@@ -156,7 +156,7 @@ Do you want to manually specify related projects? (List N1 project slugs, or ski
 `config.json` already exists at this point (written by `## Write Configuration and Structure`). Resolve `N1_HOME`, source `lib/related.sh`, call `n1_related_add` for each approved project, then update `enabled` — all in one block:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 CFG="$N1_HOME/config.json"
 source "$N1_ROOT/lib/related.sh"
 # For each approved project (auto-added high-confidence or user-confirmed medium-confidence):

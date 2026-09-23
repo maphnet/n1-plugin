@@ -19,7 +19,7 @@ Estimate task complexity and delivery time for a ticket or task description. Run
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.

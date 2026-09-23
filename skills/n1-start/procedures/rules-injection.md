@@ -7,7 +7,7 @@ Prepares a rules block to inject into an agent spawn prompt. The block is empty 
 **Parameters:** `{agent_name}` (e.g. `"developer"`, `"solution-architect"`), `{changed_files_source}` (optional signal key to read changed files from, e.g. `"diff_surface"` from `implementation.md`)
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
 RULES_BLOCK=""

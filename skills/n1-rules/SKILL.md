@@ -19,7 +19,7 @@ Manage project rules — authored, checkable conventions that drive review gates
 ## Preamble
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/rules.sh"
 
 N1_HOME=$(n1_home)

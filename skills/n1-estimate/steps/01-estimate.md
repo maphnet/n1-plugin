@@ -15,7 +15,7 @@ Same as n1-start — the user provides one of:
 ### Detect input type:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/validation.sh"
 TYPE=$(n1_detect_input_type "<user-input>" "$N1_HOME/config.json")
 ```
@@ -27,7 +27,7 @@ Returns `ticket`, `file`, or `braindump`. If the helper returns `error-tracker`,
 When spawning any agent, resolve its model and reasoning effort together via Bash:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 
@@ -69,7 +69,7 @@ Same as n1-start Step 1, with these differences:
 After agent returns:
 - The agent wrote `$N1_HOME/memory/$ID/ticket.md` itself. Verify it:
   ```bash
-  source ~/.n1/root/lib/preamble.sh
+  source ~/.n1/preamble.sh
   source "$N1_ROOT/lib/validation.sh"
   n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md
   ```

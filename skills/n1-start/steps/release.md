@@ -2,7 +2,7 @@
 Run `n1_config_val '.release.enabled'` (default: `false`).
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 GATE_ENABLED=$(n1_config_val '.release.enabled' 2>/dev/null || echo 'false')
 n1_record_decision release-gate "$( [ "${GATE_ENABLED:-false}" = "true" ] && echo true || echo false )" '{"config":"release.enabled"}' "enabled=${GATE_ENABLED:-false}"
 ```

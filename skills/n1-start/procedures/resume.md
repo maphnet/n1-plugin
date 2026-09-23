@@ -10,7 +10,7 @@ After compaction, ORCHESTRATOR STATE block is injected into `additionalContext` 
 3. If `Task context:` non-empty: print **Gate 1** (resume variant from `procedures/output-gates.md § Gate 1`).
 4. If ORCHESTRATOR STATE missing: re-resolve N1_HOME:
    ```bash
-   source ~/.n1/root/lib/preamble.sh
+   source ~/.n1/preamble.sh
    cat "$N1_HOME/config.json"
    ```
 
@@ -20,14 +20,14 @@ Check if `$N1_HOME/memory/<input>/overview.md` exists.
 
 **Exists:** read step from frontmatter.
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
 ```
 Step `escalated` + non-headless: print `## Escalations`, move ticket to `inProgress` (if `tracker.statuses.blocked` set), reset step per `procedures/autonomy-headless.md`.
 
 `TYPE=="investigation"`: skip workspace isolation. Else run workspace isolation. Read loop counters:
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
 ```
 (Repeat for `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, `ci_fix_cycle`.) Print Gate 1 (resume variant). Read `## Context`:
@@ -46,7 +46,7 @@ Overview is single source of truth. Step writes output FIRST, then updates `step
 
 **Dependency integrity guard:**
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 n1_verify_dependencies "$N1_HOME/memory/$ID" ticket.md analysis.md
 ```
 Missing/empty dependency → STOP and report.

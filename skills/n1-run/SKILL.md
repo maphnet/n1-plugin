@@ -8,7 +8,7 @@ description: "Run a prompt with N1 project context — escape hatch from the ful
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 echo "N1_HOME=$N1_HOME"
 ```
 

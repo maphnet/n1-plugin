@@ -52,7 +52,7 @@ If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP
 Poll via `lib/poll.sh` (internal 30s loop, 8-minute chunks):
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/poll.sh"
 n1_wait_ci_checks <PR#> <remaining-minutes>
 ```

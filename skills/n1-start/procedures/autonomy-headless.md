@@ -31,7 +31,7 @@ At any point where a step would ask the user or otherwise **wait for the user**,
 **If the prompt is NOT on the stop list AND the step has a recommended option** (the option marked "(Recommended)" or listed first as default): take the recommended option silently. Log it:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 OVERVIEW="$N1_HOME/memory/$ID/overview.md"
 grep -q '^## Decision Ledger' "$OVERVIEW" 2>/dev/null || printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$OVERVIEW"
 printf '| %s | headless | %s | [auto] | %s | %s | %s | headless: not on stop list | --- |\n' "$STEP" "$TIER" "$QUESTION" "$RECOMMENDED" "$ALTERNATIVES" >> "$OVERVIEW"
@@ -56,7 +56,7 @@ Then continue the run — do not escalate, do not end.
       The last line is an idempotency marker. Before posting on YouTrack, fetch comments via `mcp__<tracker.mcp>__<operations.getComments>` and skip if any comment contains `n1-esc:<ID>:<step>`. On Jira, skip the duplicate check (no listed getComments op) and post directly.
 3. Set frontmatter `step: escalated`:
    ```bash
-   source ~/.n1/root/lib/preamble.sh
+   source ~/.n1/preamble.sh
    n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "escalated"
    ```
 4. Run the telemetry failure path from **Error Recovery** (emit `outcome: "failed"` for the current step, merge), clear the active-run pointer, print `HEADLESS ESCALATION: <one line>` and **end the run**. Do not retry, do not continue to later steps.

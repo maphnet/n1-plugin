@@ -83,7 +83,7 @@ Note: The `.n1/decisions/` directory is removed — it was unused in v1 and is n
 **`.gitignore` configuration** — detect existing coverage, then ask the user:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 WT_ROOT=$(n1_worktree_root)   # host default from HOST ROUTING, or worktree.root from config
 ```
 

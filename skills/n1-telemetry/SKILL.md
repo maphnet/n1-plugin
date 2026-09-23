@@ -15,7 +15,7 @@ Aggregate decision-to-outcome correlations across pipeline runs and produce thre
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 ```
 
 If `N1_HOME` is empty, tell the user N1 is not configured and stop.

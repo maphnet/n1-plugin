@@ -19,7 +19,7 @@ Three-phase code review: **find → verify → report**. Specialized agents hunt
 Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.
@@ -31,7 +31,7 @@ All config reads use `$N1_HOME/config.json`. All memory paths use `$N1_HOME/memo
 When spawning any agent, resolve its model and reasoning effort together via Bash:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 n1_resolve_agent <agent-name> [step-context] [astra-context]
 ```
 

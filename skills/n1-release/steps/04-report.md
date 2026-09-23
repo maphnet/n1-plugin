@@ -99,7 +99,7 @@ Only runs after a **successful release** (built-in flow success or custom proced
    ```
    - **2 (No)** → set `release.deploymentCheck` to `false` in `$N1_HOME/config.json` via:
      ```bash
-     source ~/.n1/root/lib/preamble.sh
+     source ~/.n1/preamble.sh
      jq '.release.deploymentCheck = false' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
      ```
      Report: "Deployment check disabled for this project. Re-enable via n1-init or by setting `release.deploymentCheck: true` in config."

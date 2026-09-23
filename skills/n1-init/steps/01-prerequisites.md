@@ -202,7 +202,7 @@ When an old `.n1/n1.config.json` is detected:
       Then optionally remove the `.n1/` directory (ask user or leave it — the `.gitignore` entry was already addressed in step 3g above)
    i. Prune any `models.<agent>` entries in the migrated config that equal the agent's frontmatter default (removes stale hardcoded values from old configs). Run only when `HOST` is `claude-code`; skip entries whose value is an object (host-keyed).
       ```bash
-      source ~/.n1/root/lib/preamble.sh
+      source ~/.n1/preamble.sh
       [ "$(n1_host)" = "claude-code" ] || exit 0
       CFG="$HOME/.n1/$PROJECT_NAME/config.json"
       for f in "$N1_ROOT"/agents/*.md; do a=$(basename "$f" .md)

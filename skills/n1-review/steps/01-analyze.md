@@ -51,7 +51,7 @@ Read N1 memory if available:
 Before reviewer resolution, read `qa_verdict_unverified` from overview and verify the completed QA report. Set `REVIEW_ASTRA_CONTEXT=final-whole-branch-review` only when `qa_verdict_unverified` is not `true`, `qa.md` contains `Verdict: PASS`, and it contains a `### Evidence` section. Otherwise leave it empty; advisory PR review and review-loop runs without verified QA must omit the third resolver argument.
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified")
 REVIEW_ASTRA_CONTEXT=""
@@ -143,7 +143,7 @@ After developer fixes are applied, increment the internal cycle counter and go b
 Also record each confirmed Critical/High finding's fingerprint after every review pass (BEFORE the convergence check):
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 # For each confirmed Critical/High finding:
@@ -154,7 +154,7 @@ n1_fingerprint_append "$FP_FILE" "$FP" "<finding_id>" "<severity>" "active" "<cy
 **Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `cycle > 0`:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 CYCLE=<current review_fix_cycle value>

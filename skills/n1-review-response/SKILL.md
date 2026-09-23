@@ -17,7 +17,7 @@ Three-phase on-demand skill: **fetch → verify → act**. Fetches all open revi
 ## N1_HOME Resolution
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 ```
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.
@@ -27,7 +27,7 @@ Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/$ID/`.
 ## Model Resolution
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 n1_resolve_agent <agent-name> [step-context]
 ```
 

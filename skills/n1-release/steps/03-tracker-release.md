@@ -36,7 +36,7 @@ If 2: read user input and use it as `SERVICE`.
 
 Persist to config when `ticketTagging.service` was absent:
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 jq --arg s "$SERVICE" '.ticketTagging.service = $s' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
 ```
 
@@ -63,7 +63,7 @@ Read `tracker.versionMcp` from config. If null or absent:
 
 On accept (option 1 or 2 with input): set `VERSION_MCP` to the server name. Persist to config:
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 jq --arg m "$VERSION_MCP" '.tracker.versionMcp = $m' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
 ```
 

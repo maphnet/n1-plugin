@@ -22,7 +22,7 @@ Initialize N1 for the current project. This creates the externalized N1 state di
 Resolve N1_HOME at the start. Use this preamble in every bash block that needs `$N1_ROOT`:
 
 ```bash
-source ~/.n1/root/lib/preamble.sh
+source ~/.n1/preamble.sh
 ```
 
 ## Steps
