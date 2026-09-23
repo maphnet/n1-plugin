@@ -1,8 +1,6 @@
 ---
 name: n1-run
 description: "Load N1 project config and run a coding task directly — escape hatch from the full n1-pipeline."
-model: sonnet
-effort: low
 ---
 
 # N1 Run
