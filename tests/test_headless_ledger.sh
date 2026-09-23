@@ -64,6 +64,53 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 6: escalation procedure contains idempotency marker pattern
+# ---------------------------------------------------------------------------
+if grep -q 'n1-esc:' "$HEADLESS_FILE"; then
+    pass "T6: procedure contains 'n1-esc:' idempotency marker"
+else
+    fail "T6: procedure missing 'n1-esc:' idempotency marker"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 7: escalation procedure references tracker.statuses.blocked
+# ---------------------------------------------------------------------------
+if grep -q 'tracker.statuses.blocked' "$HEADLESS_FILE"; then
+    pass "T7: procedure references 'tracker.statuses.blocked'"
+else
+    fail "T7: procedure missing 'tracker.statuses.blocked'"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 8: escalation comment includes resume instruction
+# ---------------------------------------------------------------------------
+if grep -q 'Resume: /n1:n1-start' "$HEADLESS_FILE"; then
+    pass "T8: procedure contains 'Resume: /n1:n1-start'"
+else
+    fail "T8: procedure missing 'Resume: /n1:n1-start'"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 9: tracker init contains blocked status slot
+# ---------------------------------------------------------------------------
+TRACKER_INIT="${PLUGIN_ROOT}/skills/n1-init/steps/03-tracker.md"
+if grep -q '"blocked"' "$TRACKER_INIT"; then
+    pass "T9: tracker init contains '\"blocked\"' config slot"
+else
+    fail "T9: tracker init missing '\"blocked\"' config slot"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 10: resume.md mentions escalated step handling
+# ---------------------------------------------------------------------------
+RESUME_FILE="${PLUGIN_ROOT}/skills/n1-start/procedures/resume.md"
+if grep -q 'escalated' "$RESUME_FILE"; then
+    pass "T10: resume.md mentions 'escalated'"
+else
+    fail "T10: resume.md missing 'escalated'"
+fi
+
+# ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
 echo ""

@@ -68,7 +68,7 @@ Config: `$N1_HOME/config.json`
 Always escalate: security, architecture, public API changes.
 Release is never automatic — n1-release confirmation gate is unconditional.
 `tailChain` is `suggest` in all autonomy modes — release must be triggered manually.
-Headless runs (`N1_HEADLESS=1`) never auto-resolve unconditional gates — they pause with a recorded escalation.
+Headless runs (`N1_HEADLESS=1`) never auto-resolve unconditional gates — they pause with a recorded escalation and a tracker comment.
 
 ## Git
 
