@@ -1,4 +1,4 @@
-# Report (--status)
+# Report (--status, --watch)
 
 If a specific queue ID was given: `QUEUE_FILE="$N1_HOME/queue/<id>/queue.md"`.
 Otherwise: find the most recently modified `queue.md` under `$N1_HOME/queue/`:
@@ -47,6 +47,33 @@ printf 'Decisions: plan=%s autonomous=%s escalations=%s\n' "$PD" "$AD" "$ES"
 printf '{"queue_id":"%s","run_id":"%s","step":"%s","plan_decisions":%s,"autonomous_decisions":%s,"escalations":%s}\n' \
     "$QUEUE_ID" "$RUN_ID" "$STEP" "$PD" "$AD" "$ES" > "$QUEUE_DIR/telemetry.json"
 ```
+
+## Adopt watch (--watch only)
+
+After the status table, check whether the run is still live:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/frontmatter.sh"
+PID=$(n1_read_frontmatter "$QUEUE_FILE" pid); STEP=$(n1_read_frontmatter "$QUEUE_FILE" step)
+case "$STEP" in
+    done|halted) echo "watch:no step:$STEP" ;;
+    *) if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+           echo "watch:yes dir:$(dirname "$QUEUE_FILE") run_id:$(n1_read_frontmatter "$QUEUE_FILE" run_id) pid:$PID"
+       else echo "watch:no runner not running"; fi ;;
+esac
+```
+
+On `watch:no`: print "Not watching queue <id>: <reason>." On `watch:yes`: follow the `background event watch (n1-queue)` row in `<N1_ROOT>/references/host-routing.md`. Where supported, watch the event log in the background and relay matching lines, running exactly this (no start line: only events after the snapshot above; a cursor this session left earlier wins):
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_watch "<dir>" "<run_id>" "<pid>"
+```
+
+Relay each printed line verbatim, then print "Watching queue <id> (run <run_id>) in this session." Where unsupported, print "No in-session watch on this host; use `--status <id>`."
 
 ## Story summary comment
 
