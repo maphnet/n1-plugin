@@ -165,7 +165,7 @@ n1_queue_child_cmd() {
     if [ "$(n1_host)" = claude-code ]; then
         local settings
         settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" \
-            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_STOP_AT:"ci",N1_QUEUE_RUN_ID:$run,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent},worktree:{bgIsolation:"none"}}')
+            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_STOP_AT:"ci",N1_QUEUE_RUN_ID:$run,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
         n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
         return
     fi
