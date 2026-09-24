@@ -98,10 +98,22 @@ test_sessions_independent() {
     assert_eq "sessions: separate cursors" "1 1" "$(cat "$q/.watch-R1.sessA" 2>/dev/null) $(cat "$q/.watch-R1.sessB" 2>/dev/null)"
 }
 
+test_rejects_bad_input_and_sanitizes() {
+    local q out; q=$(newq q5)
+    out=$(watch 2 "$q" "../R1" "$$" 0 2>&1)
+    has "input: path-like run_id rejected" "bad run or session id" "$out"
+    out=$(watch 2 "$q" R1 "-1" 0 2>&1)
+    has "input: non-numeric pid rejected" "bad runner pid" "$out"
+    ev "$q" R1 halted reason="$(printf 'a\033[31mb')"
+    out=$(watch 5 "$q" R1 "$$" 0)
+    has "sanitize: control chars replaced" "halted: a [31mb. Watch ended." "$out"
+}
+
 test_run_id_filter_and_finish
 test_adopt_from_eof_and_resume
 test_runner_dead
 test_sessions_independent
+test_rejects_bad_input_and_sanitizes
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -354,7 +354,10 @@ n1_queue_watch() {
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
     local ev t out pr s reason
     q="${dir##*/}"
-    sid=$(n1_session_id); cursor="$dir/.watch-$run.${sid:-nosession}"
+    sid=$(n1_session_id); sid="${sid:-nosession}"
+    case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
+    case "$pid" in ''|*[!0-9]*) echo "n1-queue: bad runner pid" >&2; return 1 ;; esac
+    cursor="$dir/.watch-$run.$sid"
     if [ -f "$cursor" ]; then seen=$(cat "$cursor")
     elif [ -n "$from" ]; then seen="$from"
     elif [ -f "$events" ]; then seen=$(wc -l < "$events")
@@ -363,6 +366,7 @@ n1_queue_watch() {
     poll=$(n1_queue_val pollSeconds)
     while true; do
         # Liveness is sampled before reading, so events written just before the runner exits are relayed first.
+        # ponytail: kill -0 can't tell a recycled pid from the runner; compare /proc start time if that bites.
         alive=0; kill -0 "$pid" 2>/dev/null && alive=1
         total=0; [ -f "$events" ] && total=$(wc -l < "$events"); total="${total//[[:space:]]/}"
         if [ "$total" -gt "$seen" ]; then
@@ -382,7 +386,7 @@ n1_queue_watch() {
                 fromjson? | objects | select(.run_id == $run)
                 | select(.event == "escalated" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
-                | map(tostring | gsub("[\n\u001f]"; " ")) | join("\u001f")' 2>/dev/null)
+                | map(tostring | gsub("[\u0000-\u001f\u007f]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
             seen="$total"
         fi
         if [ "$alive" = 0 ]; then
