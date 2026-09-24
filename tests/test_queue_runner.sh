@@ -825,7 +825,7 @@ mk_status_queue() { # <tmp> <host> — a 3-row queue.md + events.jsonl + overvie
     local tmp="$1" host="$2"
     mkdir -p "$tmp/h/memory/T-2" "$tmp/h/memory/T-4"
     printf -- '---\nstep: review\n---\n' > "$tmp/h/memory/T-2/overview.md"
-    printf -- '---\nstep: escalated\n---\n' > "$tmp/h/memory/T-4/overview.md"
+    printf -- '---\nstep: escalated\n---\n\n## Escalations\n\n- [headless] qa: first blocker\n- [headless] implementation: second blocker\n' > "$tmp/h/memory/T-4/overview.md"
     {
         printf -- '---\nhost: %s\n---\n' "$host"
         printf '## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
@@ -864,7 +864,7 @@ FAKEEOF
     assert_eq "status: T-2 step from overview.md" "review" "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $3}')"
     assert_eq "status: T-3 awaiting-human" "awaiting-human" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $2}')"
     assert_eq "status: T-3 attach command" "claude attach 11112222" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
-    assert_eq "status: T-4 escalated step from overview.md" "escalated" "$(echo "$out" | awk -F'\t' '$1=="T-4"{print $3}')"
+    assert_eq "status: T-4 escalated step from last headless Escalations line" "implementation" "$(echo "$out" | awk -F'\t' '$1=="T-4"{print $3}')"
     assert_eq "status: cost always em dash" "4" "$(echo "$out" | awk -F'\t' '$5=="\xe2\x80\x94"' | wc -l | tr -d ' ')"
 }
 
@@ -884,6 +884,13 @@ FAKEEOF
         "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $2}')"
     assert_eq "status(codex): T-3 no attach (no bg sessions)" "" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
     assert_eq "status(codex): T-1 pr elapsed" "1m" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $4}')"
+}
+
+test_escalated_step_fallback() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    printf -- '---\nstep: escalated\n---\n\n## Escalations\n\n- no headless prefix here\n' > "$tmp/o.md"
+    assert_eq "escalated step: falls back when no headless line" "escalated" \
+        "$(_n1_queue_escalated_step "$tmp/o.md")"
 }
 
 test_status_table_pre_np197_fixture() {
@@ -950,6 +957,7 @@ test_fmt_elapsed
 test_status_table_pre_np197_fixture
 test_status_table_claude_code
 test_status_table_codex
+test_escalated_step_fallback
 test_queue_event
 test_escalation_text
 test_desktop_notify

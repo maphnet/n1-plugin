@@ -399,11 +399,32 @@ n1_queue_status_table() {
                     [ -n "$pr" ] || pr=$(_n1_queue_run_pr "$file" "$ticket")
                 else
                     step=$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" step)
+                    [ "$step" = escalated ] && step=$(_n1_queue_escalated_step "$n1h/memory/$ticket/overview.md")
                 fi
                 ;;
         esac
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ticket" "$state" "$step" "$elapsed" "$cost" "$pr" "$attach"
     done < <(awk -F'|' '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 ~ /^[0-9]+$/ && NF >= 9 { printf "%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7, $8 }' "$file")
+}
+
+_n1_queue_escalated_step() {
+    # Usage: _n1_queue_escalated_step <overview.md> — step name from the last
+    # "- [headless] <step>: ..." line in the ## Escalations section, falling
+    # back to "escalated" when none is found (frontmatter step is overwritten
+    # to "escalated" by the headless escalation, losing the original step).
+    local file="$1" step
+    [ -f "$file" ] || { echo escalated; return 0; }
+    step=$(awk '
+        /^## Escalations/ { f = 1; next }
+        /^## / { f = 0 }
+        f && /^- \[headless\] [^:]+:/ {
+            line = $0
+            sub(/^- \[headless\] /, "", line)
+            sub(/:.*/, "", line)
+            last = line
+        }
+        END { print last }' "$file")
+    [ -n "$step" ] && echo "$step" || echo escalated
 }
 
 _n1_queue_run_pr() {
