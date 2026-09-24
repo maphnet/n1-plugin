@@ -19,6 +19,12 @@ Read frontmatter `step` and `queue_id`. Print:
 - `Step: <step>` (plan/run/done/halted)
 - The `## Plan` table from queue.md
 - For each ticket in the Plan with status `pr`, `escalated`, or `failed`: read `$N1_HOME_COL/memory/<TICKET>/overview.md` and extract `## Escalations` content (if any). Print escalations grouped by ticket.
+- Rows with status `awaiting-human` are background children waiting for an answer (their sessions are still alive). Print each resume command:
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_awaiting_hints "$QUEUE_FILE"
+```
 
 After printing the Plan table, compute and print decision counts, then write `telemetry.json`:
 

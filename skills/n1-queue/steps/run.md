@@ -36,16 +36,18 @@ started: <date -u +%Y-%m-%dT%H:%M:%SZ>
 (preview edits from the preview step)
 
 ## Runs
-| Ticket | Started | Exit | Outcome | PR |
-|--------|---------|------|---------|----|
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
 ```
 
 Launch the runner:
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
 QUEUE_FILE="$QUEUE_DIR/queue.md"
+n1_write_frontmatter "$QUEUE_FILE" host "$(n1_host)"
 nohup bash "$N1_ROOT/scripts/n1-queue-run.sh" "$QUEUE_FILE" > "$QUEUE_DIR/runner.log" 2>&1 &
 RUNNER_PID=$!
 echo "pid:$RUNNER_PID"
