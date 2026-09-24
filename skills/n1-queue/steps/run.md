@@ -53,6 +53,6 @@ RUNNER_PID=$!
 echo "pid:$RUNNER_PID"
 ```
 
-Print: "Queue <QUEUE_ID> started (<N> tickets, pid <PID>). Each ticket stops after PR + CI; nothing is merged. Check: `/n1:n1-queue --status <QUEUE_ID>`."
+Print: "Queue <QUEUE_ID> started (<N> tickets, pid <PID>). Each ticket stops after PR + CI; nothing is merged. You get a notification when a ticket needs you, when the queue halts, and once when it finishes (`queue.notify`: desktop, ntfy, command, none). Check: `/n1:n1-queue --status <QUEUE_ID>`."
 
 **End the turn.** Do not poll, do not sleep.

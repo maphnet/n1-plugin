@@ -25,6 +25,7 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 n1_queue_awaiting_hints "$QUEUE_FILE"
 ```
+- The full transition history (starts, escalations, outcomes with wall-clock durations, halts) is in `<queue-dir>/events.jsonl`, one JSON object per line. Read it when the Plan table alone does not explain what happened.
 
 After printing the Plan table, compute and print decision counts, then write `telemetry.json`:
 
