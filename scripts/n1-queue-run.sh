@@ -216,7 +216,6 @@ run_bg() {
         WORKING=0
         while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
             STATE=$(n1_queue_bg_state "$AGENTS" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
-                    echo "DBG tick NUM=$NUM TICKET=$TICKET STATE=$STATE WORKED=${WORKED[NUM]:-0}" >&2
             case "$STATE" in
                 working)
                     [ "$STATUS" = "awaiting-human" ] && n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
