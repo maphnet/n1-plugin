@@ -111,6 +111,69 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 11: procedure references N1_UNATTENDED ask-mode gate
+# ---------------------------------------------------------------------------
+if grep -q 'N1_UNATTENDED' "$HEADLESS_FILE"; then
+    pass "T11: procedure references N1_UNATTENDED"
+else
+    fail "T11: procedure missing N1_UNATTENDED reference"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 12: ask-mode branch marker present
+# ---------------------------------------------------------------------------
+if grep -q 'ask-mode' "$HEADLESS_FILE"; then
+    pass "T12: procedure contains 'ask-mode' branch marker"
+else
+    fail "T12: procedure missing 'ask-mode' branch marker"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 13: ask-mode question includes an explicit stop option
+# ---------------------------------------------------------------------------
+if grep -q 'Stop this ticket' "$HEADLESS_FILE"; then
+    pass "T13: procedure contains 'Stop this ticket' option"
+else
+    fail "T13: procedure missing 'Stop this ticket' option"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 14: ask-mode answers are tagged [asked] in the Decision Ledger
+# ---------------------------------------------------------------------------
+if grep -q '\[asked\]' "$HEADLESS_FILE"; then
+    pass "T14: procedure contains '[asked]' ledger tag"
+else
+    fail "T14: procedure missing '[asked]' ledger tag"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 15: deterministic blocked-status resolution snippet present
+# ---------------------------------------------------------------------------
+if grep -q "n1_config_val '.tracker.statuses.blocked'" "$HEADLESS_FILE"; then
+    pass "T15: procedure resolves tracker.statuses.blocked via config"
+else
+    fail "T15: procedure missing deterministic blocked-status resolution"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 16 (TQ-1): blocked-status snippet prints BLOCKED_STATUS to output
+# ---------------------------------------------------------------------------
+if grep -q "printf 'BLOCKED_STATUS=" "$HEADLESS_FILE"; then
+    pass "T16: blocked-status snippet prints BLOCKED_STATUS"
+else
+    fail "T16: blocked-status snippet does not print BLOCKED_STATUS"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 17 (TQ-1): ask-mode ledger snippet defines OVERVIEW before appending
+# ---------------------------------------------------------------------------
+if grep -B5 '\[asked\]' "$HEADLESS_FILE" | grep -q 'OVERVIEW="\$N1_HOME/memory/\$ID/overview.md"'; then
+    pass "T17: ask-mode ledger snippet defines OVERVIEW before appending"
+else
+    fail "T17: ask-mode ledger snippet missing OVERVIEW definition"
+fi
+
+# ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
 echo ""
