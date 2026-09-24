@@ -9,6 +9,7 @@
 # Prints nothing (exit 0) whenever there is no active queue or anything looks off —
 # a statusline must never emit a partial/garbled line or a nonzero exit.
 set -uo pipefail
+exec 2>/dev/null # a statusline must stay silent on errors
 
 input=$(cat)
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
@@ -37,6 +38,7 @@ done
 [ -n "$queue_md" ] || exit 0
 
 fm() { # fm <file> <key>
+    [ -f "$1" ] || return 0
     awk -v key="$2" '
         NR==1 && /^---$/ { in_fm=1; next }
         in_fm && /^---$/ { exit }

@@ -823,18 +823,21 @@ test_fmt_elapsed() {
 # --- n1_queue_status_table ----------------------------------------------------
 mk_status_queue() { # <tmp> <host> — a 3-row queue.md + events.jsonl + overview.md fixture
     local tmp="$1" host="$2"
-    mkdir -p "$tmp/h/memory/T-2"
+    mkdir -p "$tmp/h/memory/T-2" "$tmp/h/memory/T-4"
     printf -- '---\nstep: review\n---\n' > "$tmp/h/memory/T-2/overview.md"
+    printf -- '---\nstep: escalated\n---\n' > "$tmp/h/memory/T-4/overview.md"
     {
         printf -- '---\nhost: %s\n---\n' "$host"
         printf '## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
         printf '| 1 | T-1 | A | /r | %s/h | sonnet | pr | |\n' "$tmp"
         printf '| 2 | T-2 | B | /r | %s/h | sonnet | in-progress | |\n' "$tmp"
         printf '| 3 | T-3 | C | /r | %s/h | sonnet | awaiting-human | |\n' "$tmp"
+        printf '| 4 | T-4 | D | /r | %s/h | sonnet | escalated | |\n' "$tmp"
         printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n'
         printf '| T-1 | 2020-01-01T00:00:00Z | | pr | https://x/pr/1 | 00000001 |\n'
         printf '| T-2 | %s | | | | 0000abcd |\n' "$(date -u -d '-5 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-5M +%Y-%m-%dT%H:%M:%SZ)"
         printf '| T-3 | %s | | | | 11112222 |\n' "$(date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)"
+        printf '| T-4 | 2020-01-01T00:00:00Z | | escalated | | |\n'
     } > "$tmp/q.md"
     printf '{"ts":"2020-01-01T00:01:00Z","queue":"q","run_id":"r","event":"ticket_finished","ticket":"T-1","outcome":"pr","pr":"https://x/pr/1","session":"00000001","duration_s":60,"reason":""}\n' \
         > "$tmp/events.jsonl"
@@ -861,7 +864,8 @@ FAKEEOF
     assert_eq "status: T-2 step from overview.md" "review" "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $3}')"
     assert_eq "status: T-3 awaiting-human" "awaiting-human" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $2}')"
     assert_eq "status: T-3 attach command" "claude attach 11112222" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
-    assert_eq "status: cost always em dash" "3" "$(echo "$out" | awk -F'\t' '$5=="\xe2\x80\x94"' | wc -l | tr -d ' ')"
+    assert_eq "status: T-4 escalated step from overview.md" "escalated" "$(echo "$out" | awk -F'\t' '$1=="T-4"{print $3}')"
+    assert_eq "status: cost always em dash" "4" "$(echo "$out" | awk -F'\t' '$5=="\xe2\x80\x94"' | wc -l | tr -d ' ')"
 }
 
 test_status_table_codex() {

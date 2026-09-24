@@ -397,6 +397,8 @@ n1_queue_status_table() {
                 if [ "$status" = pr ]; then
                     pr=$(n1_queue_child_pr_url "$n1h/memory/$ticket/overview.md")
                     [ -n "$pr" ] || pr=$(_n1_queue_run_pr "$file" "$ticket")
+                else
+                    step=$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" step)
                 fi
                 ;;
         esac

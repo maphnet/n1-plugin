@@ -1,11 +1,5 @@
 # Report (--status)
 
-```bash
-source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/queue.sh"
-source "$N1_ROOT/lib/frontmatter.sh"
-```
-
 If a specific queue ID was given: `QUEUE_FILE="$N1_HOME/queue/<id>/queue.md"`.
 Otherwise: find the most recently modified `queue.md` under `$N1_HOME/queue/`:
 ```bash
@@ -17,7 +11,6 @@ If no queue file found: "No queue runs found." **STOP.**
 
 Read frontmatter `step` and `queue_id`. Print:
 - `Step: <step>` (plan/run/done/halted)
-- The `## Plan` table from queue.md
 - For each ticket in the Plan with status `pr`, `escalated`, or `failed`: read `$N1_HOME_COL/memory/<TICKET>/overview.md` and extract `## Escalations` content (if any). Print escalations grouped by ticket.
 - Rows with status `awaiting-human` are background children waiting for an answer (their sessions are still alive). Print each resume command:
 ```bash
@@ -37,7 +30,7 @@ printf 'Ticket\tState\tStep\tElapsed\tCost\tPR\tAttach\n'
 n1_queue_status_table "$QUEUE_FILE" "$QUEUE_DIR/events.jsonl"
 ```
 
-After printing the Plan table, compute and print decision counts, then write `telemetry.json`:
+After printing the merged status table, compute and print decision counts, then write `telemetry.json`:
 
 ```bash
 source ~/.n1/preamble.sh

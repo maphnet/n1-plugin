@@ -98,14 +98,10 @@ test_timing() {
     for _ in $(seq 1 "$n"); do run_statusline "$home" >/dev/null; done
     t1=$(date +%s%N)
     avg_ms=$(( (t1 - t0) / 1000000 / n ))
-    echo "info: n1-queue-statusline.sh averaged ${avg_ms}ms over $n runs"
-    # ponytail: 50ms is the ticket's target; slower dev machines/CI runners get 150ms so this
-    # assertion doesn't flake. Tighten back to 50 once CI hardware is known to be fast enough.
-    if [ "$avg_ms" -lt 50 ]; then
-        assert_eq "timing: under 50ms budget" "yes" "yes"
-    else
-        assert_eq "timing: under 150ms fallback budget" "yes" "$([ "$avg_ms" -lt 150 ] && echo yes || echo no)"
-    fi
+    # ponytail: 50ms is the ticket's target; WSL/CI timing noise pushes the hard fail to 100ms
+    # so this assertion doesn't flake. Tighten back to 50 once host timing is known to be fast.
+    echo "info: n1-queue-statusline.sh averaged ${avg_ms}ms over $n runs (target: 50ms)"
+    assert_eq "timing: under 100ms hard budget" "yes" "$([ "$avg_ms" -lt 100 ] && echo yes || echo no)"
 }
 
 test_active_queue
