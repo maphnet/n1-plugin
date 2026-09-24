@@ -158,7 +158,114 @@ run_sync() {
     done
 }
 
-run_sync
+# launch_bg <pending-row> — start the row's background session. A launch refused for the
+# bypass-permissions disclaimer halts the queue (every later launch would fail the same way).
+launch_bg() {
+    local NUM TICKET REPO N1H MODEL CMD OUT SID STARTED
+    IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$1"
+    n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+    STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
+    OUT=$(bash -c "$CMD" 2>&1)
+    if SID=$(n1_queue_parse_launch "$OUT"); then
+        echo "| $TICKET | $STARTED | | | | $SID |" >> "$QUEUE"
+        echo "[$NUM] $TICKET launched ($SID)"
+        return
+    fi
+    echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
+    if [ "$SID" = "bypass-permissions-disclaimer" ]; then
+        n1_queue_row_status "$QUEUE" "$NUM" "failed" "$SID"
+        n1_write_frontmatter "$QUEUE" step halted
+        strip_pid
+        echo "HALTED: background sessions refuse bypassPermissions until its disclaimer is accepted once interactively (run: claude --dangerously-skip-permissions). Launch output: $OUT"
+        exit 2
+    fi
+    echo "[$NUM] $TICKET launch failed: $OUT"
+    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "$SID"
+}
+
+# run_bg — background sessions, still sequential: launch the next pending ticket only when
+# no launched child is working. blocked -> awaiting-human (no strike) and the queue moves on.
+# Working time is capped by subtaskTimeoutMinutes; at end of queue, parked rows are polled
+# for up to subtaskTimeoutMinutes after the last park, then left awaiting-human (never relaunched).
+run_bg() {
+    local POLL AGENTS WORKING ROW NUM TICKET REPO N1H MODEL STATUS STATE OUTCOME
+    # ponytail: WORKED/SINCE_PARK live only in this process's memory. If the runner
+    # crashes and restarts (busy guard lets a new run start once the old pid is dead),
+    # both budgets reset to 0 even though the background sessions survived the crash —
+    # a ticket already 170 of 180 minutes in gets a fresh 180. Add persisted elapsed-time
+    # tracking (e.g. derive from the Runs row's Started timestamp) if crash-resume timing
+    # accuracy matters; no test or AC currently requires it.
+    local SINCE_PARK=0 AGENT_FAILS=0
+    local -a WORKED=()
+    POLL=$(n1_queue_val pollSeconds)
+    while true; do
+        # An unreadable session list skips the tick: never treat a CLI hiccup as dead children.
+        if ! AGENTS=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) || ! printf '%s' "$AGENTS" | jq -e . >/dev/null 2>&1; then
+            AGENT_FAILS=$((AGENT_FAILS + 1))
+            if [ "$AGENT_FAILS" -ge 10 ]; then
+                n1_write_frontmatter "$QUEUE" step halted
+                strip_pid
+                echo "HALTED: background session list unreadable for 10 polls in a row"
+                exit 2
+            fi
+            sleep "$POLL"
+            continue
+        fi
+        AGENT_FAILS=0
+        WORKING=0
+        while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
+            STATE=$(n1_queue_bg_state "$AGENTS" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
+                    echo "DBG tick NUM=$NUM TICKET=$TICKET STATE=$STATE WORKED=${WORKED[NUM]:-0}" >&2
+            case "$STATE" in
+                working)
+                    [ "$STATUS" = "awaiting-human" ] && n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+                    WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
+                    if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
+                    bash -c "$(n1_bg_cmd stop "$(n1_queue_session_id "$QUEUE" "$TICKET")")" >/dev/null 2>&1
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+                    ;;
+                blocked)
+                    if [ "$STATUS" != "awaiting-human" ]; then
+                        n1_queue_row_status "$QUEUE" "$NUM" "awaiting-human"
+                        SINCE_PARK=0
+                        echo "[$NUM] $TICKET -> awaiting-human"
+                    fi
+                    ;;
+                done)
+                    OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0)
+                    [ "$OUTCOME" = "running" ] && OUTCOME="failed"
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
+                    ;;
+                *) finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" ;;
+            esac
+        done < <(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')
+
+        if [ "$WORKING" = 0 ]; then
+            ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
+            if [ -n "$ROW" ]; then
+                launch_bg "$ROW"
+            else
+                # Nothing pending: finish when nothing is parked, or the awaiting wait expired.
+                [ -n "$(n1_queue_pending_rows "$QUEUE" 'awaiting-human')" ] || break
+                if [ "$SINCE_PARK" -ge "$TIMEOUT_SECS" ]; then
+                    echo "awaiting-human rows left for the user; queue done"
+                    break
+                fi
+            fi
+        fi
+        SINCE_PARK=$((SINCE_PARK + POLL))
+        # ponytail: a session not yet listed one poll after launch reads as failed; raise pollSeconds if the supervisor is slower.
+        sleep "$POLL"
+    done
+}
+
+# Claude Code children run as background sessions; Codex (and stub-driven tests) stay synchronous.
+if [ "$(n1_host)" = "claude-code" ] && [ -z "${N1_QUEUE_CHILD_STUB:-}" ]; then
+    run_bg
+else
+    run_sync
+fi
 
 # --- Done --------------------------------------------------------------------
 n1_write_frontmatter "$QUEUE" step done

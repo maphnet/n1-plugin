@@ -73,7 +73,7 @@ test_pick_model() {
     assert_eq "model: threshold L, M -> sonnet" "sonnet" "$(n1_story_pick_model M)"
     assert_eq "model: threshold L, L -> opus" "opus" "$(n1_story_pick_model L)"
     assert_eq "val: config override" "L" "$(n1_queue_val opusFromSize)"
-    assert_eq "val: default fallback" "60" "$(n1_queue_val pollSeconds)"
+    assert_eq "val: default fallback" "30" "$(n1_queue_val pollSeconds)"
     unset -f n1_config_file
 }
 
@@ -385,6 +385,173 @@ EOF
     rm -rf "$tmp"
 }
 
+# --- Background-session (claude-code) runner path ----------------------------
+# mk_bg <tmp> <queue-id> <ticket:states>... — queue.md (host: claude-code) plus a fake
+# claude and a no-op sleep in <tmp>/bin. States are space-separated, one per poll of
+# that session; the last state repeats. Timeout 1 min, poll 30 s -> 2 polls.
+mk_bg() {
+    local tmp="$1" qid="$2" n=0 spec t; shift 2
+    mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
+    cat > "$tmp/bin/claude" <<'FAKEEOF'
+#!/usr/bin/env bash
+# Fake claude CLI for background-session tests. State lives in $FAKE_DIR.
+D="$FAKE_DIR"
+case "$1" in
+    --bg)
+        all="$*"; name=""; settings=""; prompt=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --name) name="$2"; shift ;;
+                --settings) settings="$2"; shift ;;
+                --model|--permission-mode|--plugin-dir) shift ;;
+                --bg) ;;
+                *) prompt="$1" ;;
+            esac
+            shift
+        done
+        echo "launch $name" >> "$D/events"
+        printf '%s\n' "$all" > "$D/args.$name"
+        printf '%s\n' "$settings" > "$D/settings.$name"
+        if [ -f "$D/refuse" ]; then
+            echo "Bypass Permissions mode requires accepting the disclaimer first. Run claude --dangerously-skip-permissions once."
+            exit 1
+        fi
+        printf '%s\n' "$prompt" > "$D/prompt.$name"
+        n=$(( $(cat "$D/seq" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/seq"
+        printf 'backgrounded \xc2\xb7 %08x \xc2\xb7 %s\n' "$n" "$name"
+        ;;
+    agents)
+        out=""
+        for f in "$D"/prompt.*; do
+            [ -f "$f" ] || continue
+            name="${f##*/prompt.}"; t=$(cat "$f"); t="${t##* }"
+            c=$(( $(cat "$D/poll.$name" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$D/poll.$name"
+            read -r -a seq < "$D/states.$t"
+            i=$(( c < ${#seq[@]} ? c - 1 : ${#seq[@]} - 1 ))
+            st="${seq[$i]}"
+            echo "state $name $st" >> "$D/events"
+            if [ "$st" = done ]; then
+                mkdir -p "$FAKE_N1H/memory/$t"
+                printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' > "$FAKE_N1H/memory/$t/overview.md"
+            fi
+            out="$out${out:+,}{\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
+        done
+        echo "[$out]"
+        ;;
+    stop) echo "$2" >> "$D/stopped" ;;
+esac
+FAKEEOF
+    printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
+    chmod +x "$tmp/bin/claude" "$tmp/bin/sleep"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1}}' > "$tmp/n1home/config.json"
+    {
+        printf -- '---\nstep: plan\nqueue_id: %s\nhost: claude-code\n---\n## Plan\n' "$qid"
+        printf '| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
+        for spec in "$@"; do
+            n=$((n + 1)); t="${spec%%:*}"
+            printf '%s\n' "${spec#*:}" > "$tmp/fake/states.$t"
+            printf '| %s | %s | Fix %s | %s | %s | sonnet | pending | |\n' "$n" "$t" "$t" "$tmp" "$tmp/n1home"
+        done
+        printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n'
+    } > "$tmp/queue.md"
+}
+
+run_bg_queue() { # <tmp> — runs the runner with the fakes first on PATH; prints its exit code
+    local rc=0
+    env -u N1_QUEUE_CHILD_STUB FAKE_DIR="$1/fake" FAKE_N1H="$1/n1home" N1_HOME="$1/n1home" PATH="$1/bin:$PATH" \
+        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$1/queue.md" > "$1/output.txt" 2>&1 || rc=$?
+    echo "$rc"
+}
+
+line_of() { grep -n -F -- "$2" "$1" | head -1 | cut -d: -f1; }
+
+test_bg_sequential() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working working done" "T-B:done"
+    assert_eq "bg-seq: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-seq: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "bg-seq: pid removed" "" "$(n1_read_frontmatter "$tmp/queue.md" pid)"
+    assert_eq "bg-seq: T-A pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-seq: T-B pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    local a_done b_launch
+    a_done=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1 done")
+    b_launch=$(line_of "$tmp/fake/events" "launch n1-bgq-T-B-2")
+    assert_eq "bg-seq: T-B launched only after T-A finished" "yes" \
+        "$([ -n "$a_done" ] && [ -n "$b_launch" ] && [ "$b_launch" -gt "$a_done" ] && echo yes || echo no)"
+    assert_eq "bg-seq: launch flags" "yes" \
+        "$(case "$(cat "$tmp/fake/args.n1-bgq-T-A-1")" in *"--model sonnet --permission-mode bypassPermissions --settings "*) echo yes ;; *) echo no ;; esac)"
+    assert_eq "bg-seq: prompt" "/n1:n1-start T-A" "$(cat "$tmp/fake/prompt.n1-bgq-T-A-1")"
+    assert_eq "bg-seq: settings env + isolation" "1,autonomous,ci,claude-code,none" \
+        "$(jq -r '[.env.N1_HEADLESS,.env.N1_AUTONOMY_PRESET,.env.N1_STOP_AT,.env.N1_HOST,.worktree.bgIsolation]|join(",")' "$tmp/fake/settings.n1-bgq-T-A-1")"
+    assert_eq "bg-seq: run id in settings" "$(n1_read_frontmatter "$tmp/queue.md" run_id)" \
+        "$(jq -r .env.N1_QUEUE_RUN_ID "$tmp/fake/settings.n1-bgq-T-A-1")"
+    assert_eq "bg-seq: session id stored" "00000001" "$(n1_queue_session_id "$tmp/queue.md" T-A)"
+    assert_eq "bg-seq: PR url recorded" "https://x/pr/1" \
+        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
+    local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 7) print }' "$tmp/queue.md")
+    assert_eq "bg-seq: Runs rows have 6 cells" "" "$bad"
+    rm -rf "$tmp"
+}
+
+test_bg_awaiting() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done" "T-B:working done"
+    assert_eq "bg-await: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await: T-A parked message" "1" "$(grep -c 'T-A -> awaiting-human' "$tmp/output.txt" || true)"
+    local a_block b_launch a_done
+    a_block=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1 blocked")
+    b_launch=$(line_of "$tmp/fake/events" "launch n1-bgq-T-B-2")
+    a_done=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1 done")
+    assert_eq "bg-await: T-B launched while T-A parked" "yes" \
+        "$([ -n "$a_block" ] && [ -n "$b_launch" ] && [ -n "$a_done" ] && [ "$a_block" -lt "$b_launch" ] && [ "$b_launch" -lt "$a_done" ] && echo yes || echo no)"
+    assert_eq "bg-await: T-A pr after answer" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-await: T-B pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-await: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "bg-await: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    rm -rf "$tmp"
+}
+
+test_bg_awaiting_timeout() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked"
+    assert_eq "bg-await-to: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await-to: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "bg-await-to: row stays awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-await-to: no retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-await-to: session not stopped" "no" "$([ -f "$tmp/fake/stopped" ] && echo yes || echo no)"
+    assert_eq "bg-await-to: single launch" "1" "$(grep -c '^launch' "$tmp/fake/events" || true)"
+    assert_eq "bg-await-to: resume hint" "T-A: claude attach 00000001" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
+    rm -rf "$tmp"
+}
+
+test_bg_working_timeout() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working"
+    assert_eq "bg-wto: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-wto: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-wto: row 2 failed" "failed" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-wto: row 2 reason" "deferred-retry (timeout)" "$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "bg-wto: no row 3" "" "$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "bg-wto: retry uses a new session name" "yes" "$([ -f "$tmp/fake/settings.n1-bgq-T-A-2" ] && echo yes || echo no)"
+    assert_eq "bg-wto: both sessions stopped" "00000001,00000002" "$(paste -sd, "$tmp/fake/stopped")"
+    rm -rf "$tmp"
+}
+
+test_bg_disclaimer() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done" "T-B:done"
+    touch "$tmp/fake/refuse"
+    assert_eq "bg-disc: exit 2" "2" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-disc: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "bg-disc: pid removed" "" "$(n1_read_frontmatter "$tmp/queue.md" pid)"
+    assert_eq "bg-disc: row 1 failed" "failed" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-disc: row 1 reason" "bypass-permissions-disclaimer" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "bg-disc: row 2 untouched" "pending" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-disc: single launch attempt" "1" "$(grep -c '^launch' "$tmp/fake/events" || true)"
+    assert_eq "bg-disc: fix hint printed" "yes" "$(grep -q 'dangerously-skip-permissions' "$tmp/output.txt" && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 test_busy_guard() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
 
@@ -456,6 +623,11 @@ test_decision_counts
 test_runner_three_strikes
 test_runner_all_pr
 test_runner_codex_host
+test_bg_sequential
+test_bg_awaiting
+test_bg_awaiting_timeout
+test_bg_working_timeout
+test_bg_disclaimer
 test_busy_guard
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
