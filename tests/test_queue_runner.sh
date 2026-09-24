@@ -154,14 +154,23 @@ test_bg_helpers() {
     assert_eq "launch: generic failure" "bg-launch-failed" \
         "$(n1_queue_parse_launch 'error: unknown option --bg')"
 
-    local j='{"agents":[{"name":"a","state":"working"},{"name":"b","state":"blocked","waitingFor":"input"},{"name":"c","state":"done"},{"name":"d","state":"stopped"},{"name":"e","state":"failed"}]}'
-    assert_eq "bgstate: working" "working" "$(n1_queue_bg_state "$j" a)"
-    assert_eq "bgstate: blocked" "blocked" "$(n1_queue_bg_state "$j" b)"
-    assert_eq "bgstate: done" "done" "$(n1_queue_bg_state "$j" c)"
-    assert_eq "bgstate: stopped -> failed" "failed" "$(n1_queue_bg_state "$j" d)"
-    assert_eq "bgstate: failed" "failed" "$(n1_queue_bg_state "$j" e)"
-    assert_eq "bgstate: missing -> failed" "failed" "$(n1_queue_bg_state "$j" zz)"
-    assert_eq "bgstate: bare array" "blocked" "$(n1_queue_bg_state '[{"name":"a","state":"blocked"}]' a)"
+    local j='{"agents":[{"kind":"background","id":"aaaaaaaa","sessionId":"aaaaaaaa-0000-0000-0000-000000000000","name":"a","state":"working"},{"kind":"background","id":"bbbbbbbb","sessionId":"bbbbbbbb-0000-0000-0000-000000000000","name":"b","state":"blocked","waitingFor":"input"},{"kind":"background","id":"cccccccc","sessionId":"cccccccc-0000-0000-0000-000000000000","name":"c","state":"done"},{"kind":"background","id":"dddddddd","sessionId":"dddddddd-0000-0000-0000-000000000000","name":"d","state":"stopped"},{"kind":"background","id":"eeeeeeee","sessionId":"eeeeeeee-0000-0000-0000-000000000000","name":"e","state":"failed"}]}'
+    assert_eq "bgstate: working" "working" "$(n1_queue_bg_state "$j" aaaaaaaa)"
+    assert_eq "bgstate: blocked" "blocked" "$(n1_queue_bg_state "$j" bbbbbbbb)"
+    assert_eq "bgstate: done" "done" "$(n1_queue_bg_state "$j" cccccccc)"
+    assert_eq "bgstate: stopped -> failed" "failed" "$(n1_queue_bg_state "$j" dddddddd)"
+    assert_eq "bgstate: failed" "failed" "$(n1_queue_bg_state "$j" eeeeeeee)"
+    assert_eq "bgstate: missing -> working" "working" "$(n1_queue_bg_state "$j" zzzzzzzz)"
+    assert_eq "bgstate: bare array" "blocked" "$(n1_queue_bg_state '[{"id":"bbbbbbbb","state":"blocked"}]' bbbbbbbb)"
+
+    # Stale record with the same name but a different id must not shadow the live child.
+    local jstale='{"agents":[{"kind":"background","id":"11111111","sessionId":"11111111-0000","name":"n1-q-T-1-1","state":"done"},{"kind":"background","id":"22222222","sessionId":"22222222-0000","name":"n1-q-T-1-1","state":"working"}]}'
+    assert_eq "bgstate: stale same-name record ignored" "working" "$(n1_queue_bg_state "$jstale" 22222222)"
+
+    # Not listed on the first poll (supervisor lag), appears later as done.
+    assert_eq "bgstate: missing then done" "working" "$(n1_queue_bg_state '{"agents":[]}' 33333333)"
+    assert_eq "bgstate: missing then done (appears)" "done" \
+        "$(n1_queue_bg_state '{"agents":[{"id":"33333333","state":"done"}]}' 33333333)"
 
     local cc cx
     cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
@@ -418,6 +427,7 @@ case "$1" in
         fi
         printf '%s\n' "$prompt" > "$D/prompt.$name"
         n=$(( $(cat "$D/seq" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/seq"
+        printf '%08x' "$n" > "$D/id.$name"
         printf 'backgrounded \xc2\xb7 %08x \xc2\xb7 %s\n' "$n" "$name"
         ;;
     agents)
@@ -434,7 +444,8 @@ case "$1" in
                 mkdir -p "$FAKE_N1H/memory/$t"
                 printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' > "$FAKE_N1H/memory/$t/overview.md"
             fi
-            out="$out${out:+,}{\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
+            sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
+            out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
         done
         echo "[$out]"
         ;;

@@ -215,7 +215,7 @@ run_bg() {
         AGENT_FAILS=0
         WORKING=0
         while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
-            STATE=$(n1_queue_bg_state "$AGENTS" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
+            STATE=$(n1_queue_bg_state "$AGENTS" "$(n1_queue_session_id "$QUEUE" "$TICKET")")
             case "$STATE" in
                 working)
                     [ "$STATUS" = "awaiting-human" ] && n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
@@ -254,7 +254,6 @@ run_bg() {
             fi
         fi
         SINCE_PARK=$((SINCE_PARK + POLL))
-        # ponytail: a session not yet listed one poll after launch reads as failed; raise pollSeconds if the supervisor is slower.
         sleep "$POLL"
     done
 }

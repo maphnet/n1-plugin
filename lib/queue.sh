@@ -244,13 +244,20 @@ n1_queue_parse_launch() {
 }
 
 n1_queue_bg_state() {
-    # Usage: n1_queue_bg_state <agents-json> <session-name>
-    # Prints working | blocked | done | failed for the session with that name in the
-    # background-session list. failed, stopped, unknown and missing all map to failed.
+    # Usage: n1_queue_bg_state <agents-json> <session-id>
+    # Prints working | blocked | done | failed for the background session launched with that
+    # id (the short 8-hex id from launch, matched against .id or a .sessionId prefix; restricted
+    # to objects that carry .state, since interactive sessions have neither). Names are reused
+    # across runs (queue.md rows restart numbering each run), so matching by id — not name —
+    # is required to avoid picking up a stale session from an earlier run. missing (not listed
+    # yet, e.g. supervisor lag right after launch) maps to working so the timeout budget still
+    # bounds it; failed, stopped and any other state map to failed.
     local st
-    st=$(printf '%s' "$1" | jq -r --arg n "$2" '[.. | objects | select(.name? == $n)][0].state // "missing"' 2>/dev/null)
+    st=$(printf '%s' "$1" | jq -r --arg sid "$2" \
+        '[.. | objects | select(has("state")) | select(.id == $sid or ((.sessionId // "") | startswith($sid)))][0].state // "missing"' 2>/dev/null)
     case "$st" in
         working|blocked|done) printf '%s' "$st" ;;
+        missing) printf 'working' ;;
         *) printf 'failed' ;;
     esac
 }
