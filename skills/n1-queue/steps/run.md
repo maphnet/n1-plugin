@@ -1,6 +1,6 @@
 # Run
 
-Busy guard first: if `$QUEUE_DIR/queue.md` exists and its frontmatter `pid` is alive, print "Queue <QUEUE_ID> is already running (pid <pid>). Check: `/n1:n1-queue --status <QUEUE_ID>`." **STOP.**
+Busy guard first: if `$QUEUE_DIR/queue.md` exists and its frontmatter `pid` is alive, print "Queue <QUEUE_ID> is already running (pid <pid>). Check: <queue watch hint>." **STOP.**
 
 ```bash
 source ~/.n1/preamble.sh
@@ -53,6 +53,6 @@ RUNNER_PID=$!
 echo "pid:$RUNNER_PID"
 ```
 
-Print: "Queue <QUEUE_ID> started (<N> tickets, pid <PID>). Each ticket stops after PR + CI; nothing is merged. You get a notification when a ticket needs you, when the queue halts, and once when it finishes (`queue.notify`: desktop, ntfy, command, none). Check: `/n1:n1-queue --status <QUEUE_ID>`."
+Print: "Queue <QUEUE_ID> started (<N> tickets, pid <PID>). Each ticket stops after PR + CI; nothing is merged. You get a notification when a ticket needs you, when the queue halts, and once when it finishes (`queue.notify`: desktop, ntfy, command, none). Check: <queue watch hint>."
 
 **End the turn.** Do not poll, do not sleep.
