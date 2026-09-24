@@ -15,6 +15,10 @@ assert_eq() {
     fi
 }
 
+plan_cell() { # <queue.md> <row#> <col: 8=Status 9=Reason>
+    awk -F'|' -v n="$2" -v c="$3" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 == n && NF >= 9 { print $c }' "$1"
+}
+
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 : "${N1_HOME:=}"; : "${ID:=}"; export N1_HOME ID
 source "${REPO_ROOT}/lib/config.sh"
@@ -69,7 +73,7 @@ test_pick_model() {
     assert_eq "model: threshold L, M -> sonnet" "sonnet" "$(n1_story_pick_model M)"
     assert_eq "model: threshold L, L -> opus" "opus" "$(n1_story_pick_model L)"
     assert_eq "val: config override" "L" "$(n1_queue_val opusFromSize)"
-    assert_eq "val: default fallback" "60" "$(n1_queue_val pollSeconds)"
+    assert_eq "val: default fallback" "30" "$(n1_queue_val pollSeconds)"
     unset -f n1_config_file
 }
 
@@ -139,6 +143,68 @@ EOF
 }
 
 
+# --- Background-session helpers ----------------------------------------------
+test_bg_helpers() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+
+    assert_eq "launch: session id" "a1b2c3d4" \
+        "$(n1_queue_parse_launch $'Starting session\nbackgrounded \xc2\xb7 a1b2c3d4 \xc2\xb7 n1-q-T-1-1')"
+    assert_eq "launch: disclaimer" "bypass-permissions-disclaimer" \
+        "$(n1_queue_parse_launch 'Accept the disclaimer first: run claude --dangerously-skip-permissions')"
+    assert_eq "launch: generic failure" "bg-launch-failed" \
+        "$(n1_queue_parse_launch 'error: unknown option --bg')"
+
+    local j='{"agents":[{"kind":"background","id":"aaaaaaaa","sessionId":"aaaaaaaa-0000-0000-0000-000000000000","name":"a","state":"working"},{"kind":"background","id":"bbbbbbbb","sessionId":"bbbbbbbb-0000-0000-0000-000000000000","name":"b","state":"blocked","waitingFor":"input"},{"kind":"background","id":"cccccccc","sessionId":"cccccccc-0000-0000-0000-000000000000","name":"c","state":"done"},{"kind":"background","id":"dddddddd","sessionId":"dddddddd-0000-0000-0000-000000000000","name":"d","state":"stopped"},{"kind":"background","id":"eeeeeeee","sessionId":"eeeeeeee-0000-0000-0000-000000000000","name":"e","state":"failed"}]}'
+    assert_eq "bgstate: working" "working" "$(n1_queue_bg_state "$j" aaaaaaaa)"
+    assert_eq "bgstate: blocked" "blocked" "$(n1_queue_bg_state "$j" bbbbbbbb)"
+    assert_eq "bgstate: done" "done" "$(n1_queue_bg_state "$j" cccccccc)"
+    assert_eq "bgstate: stopped -> failed" "failed" "$(n1_queue_bg_state "$j" dddddddd)"
+    assert_eq "bgstate: failed" "failed" "$(n1_queue_bg_state "$j" eeeeeeee)"
+    assert_eq "bgstate: missing" "missing" "$(n1_queue_bg_state "$j" 0f0f0f0f)"
+    assert_eq "bgstate: bare array" "blocked" "$(n1_queue_bg_state '[{"id":"bbbbbbbb","state":"blocked"}]' bbbbbbbb)"
+
+    # Stale record with the same name but a different id must not shadow the live child.
+    local jstale='{"agents":[{"kind":"background","id":"11111111","sessionId":"11111111-0000","name":"n1-q-T-1-1","state":"done"},{"kind":"background","id":"22222222","sessionId":"22222222-0000","name":"n1-q-T-1-1","state":"working"}]}'
+    assert_eq "bgstate: stale same-name record ignored" "working" "$(n1_queue_bg_state "$jstale" 22222222)"
+
+    # Not listed on the first poll (supervisor lag), appears later as done.
+    assert_eq "bgstate: missing then done" "missing" "$(n1_queue_bg_state '{"agents":[]}' 33333333)"
+    assert_eq "bgstate: missing then done (appears)" "done" \
+        "$(n1_queue_bg_state '{"agents":[{"id":"33333333","state":"done"}]}' 33333333)"
+
+    # SEC-1: an empty or malformed session id must never match any listed session via startswith("").
+    assert_eq "bgstate: empty sid -> failed" "failed" "$(n1_queue_bg_state "$j" "")"
+    assert_eq "bgstate: non-hex sid -> failed" "failed" "$(n1_queue_bg_state "$j" zzzzzzzz)"
+
+    local cc cx
+    cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    assert_eq "child_cmd: claude-code bg launch" "yes" "$(case "$cc" in "cd /r && claude --bg --name n1-q-T-1-1 --model sonnet --permission-mode bypassPermissions --settings "*bgIsolation*"/n1:n1-start\ T-1"*) echo yes ;; *) echo "no: $cc" ;; esac)"
+    cx=$(unset N1_QUEUE_CHILD_STUB; N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
+    assert_eq "child_cmd: codex unchanged" "yes" "$(case "$cx" in *'N1_QUEUE_RUN_ID="RUN1"'*"codex exec"*) case "$cx" in *--bg*) echo no ;; *) echo yes ;; esac ;; *) echo "no: $cx" ;; esac)"
+
+    cat > "$tmp/q.md" <<'EOF'
+---
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | /h | sonnet | pr | |
+| 2 | T-2 | B | /r | /h | sonnet | awaiting-human | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+| T-1 | s | | pr | u | 00000001 |
+| T-2 | s | | | | 0000abcd |
+EOF
+    assert_eq "session_id: last Runs row" "0000abcd" "$(n1_queue_session_id "$tmp/q.md" T-2)"
+    assert_eq "session_id: unknown ticket" "" "$(n1_queue_session_id "$tmp/q.md" T-9)"
+    assert_eq "rows: status filter + status field" "2	T-2	/r	/h	sonnet	awaiting-human" \
+        "$(n1_queue_pending_rows "$tmp/q.md" 'awaiting-human')"
+    assert_eq "awaiting hints" "T-2: claude attach 0000abcd" "$(n1_queue_awaiting_hints "$tmp/q.md")"
+}
+
 # --- Integration: runner -----------------------------------------------------
 test_runner_three_strikes() {
     local tmp; tmp=$(mktemp -d)
@@ -186,8 +252,8 @@ queue_id: test-q
 | 3 | T-C | Fix C | /repo | N1HOME_PLACEHOLDER | sonnet | pending | |
 
 ## Runs
-| Ticket | Started | Exit | Outcome | PR |
-|--------|---------|------|---------|----|
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
 EOF
     sed -i "s|N1HOME_PLACEHOLDER|$tmp/n1home|g" "$tmp/queue.md"
 
@@ -223,9 +289,9 @@ EOF
     assert_eq "runner: T-C row 4 reason" "deferred-retry (timeout)" "$rd"
     local r5; r5=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$2)} $2=="5"' "$tmp/queue.md")
     assert_eq "runner: no row 5" "" "$r5"
-    # Runs rows have exactly 5 cells (no phantom trailing cell)
-    local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 6) print }' "$tmp/queue.md")
-    assert_eq "runner: Runs rows have 5 cells" "" "$bad"
+    # Runs rows have exactly 7 cells incl. Session (no phantom trailing cell)
+    local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 7) print }' "$tmp/queue.md")
+    assert_eq "runner: Runs rows have 7 cells" "" "$bad"
 
     local halted_msg; halted_msg=$(grep -c "HALTED" "$tmp/output.txt" || true)
     assert_eq "runner: HALTED message printed" "1" "$halted_msg"
@@ -268,8 +334,8 @@ queue_id: test-q2
 | 2 | T-Y | Do Y | /repo | N1HOME_PLACEHOLDER | sonnet | pending | |
 
 ## Runs
-| Ticket | Started | Exit | Outcome | PR |
-|--------|---------|------|---------|----|
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
 EOF
     sed -i "s|N1HOME_PLACEHOLDER|$tmp/n1home|g" "$tmp/queue.md"
 
@@ -289,6 +355,247 @@ EOF
     assert_eq "runner-allpr: pid removed" "" "$pid"
 
     unset N1_QUEUE_CHILD_STUB
+    rm -rf "$tmp"
+}
+
+# Real (unstubbed) Codex path: host comes from queue.md frontmatter even though
+# CLAUDE_PLUGIN_ROOT is exported (the runner forces it for path resolution).
+test_runner_codex_host() {
+    local tmp; tmp=$(mktemp -d)
+    mkdir -p "$tmp/bin" "$tmp/n1home/memory"
+    cat > "$tmp/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+for a; do last="$a"; done
+t="${last##* }"
+mkdir -p "$FAKE_N1H/memory/$t"
+printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/7\n' > "$FAKE_N1H/memory/$t/overview.md"
+EOF
+    printf '#!/bin/sh\necho called >> "$FAKE_N1H/claude-called"\n' > "$tmp/bin/claude"
+    chmod +x "$tmp/bin/codex" "$tmp/bin/claude"
+    cat > "$tmp/queue.md" <<EOF
+---
+step: plan
+queue_id: test-cx
+host: codex
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-X | Do X | $tmp | $tmp/n1home | sonnet | pending | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    local rc=0
+    env -u N1_QUEUE_CHILD_STUB FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
+    assert_eq "codex-host: exit 0" "0" "$rc"
+    assert_eq "codex-host: T-X pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "codex-host: claude never called" "no" "$([ -f "$tmp/n1home/claude-called" ] && echo yes || echo no)"
+    assert_eq "codex-host: Runs row exit/outcome/pr" "0|pr|https://x/pr/7" \
+        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-X/ { for (i=4;i<=6;i++) gsub(/ /,"",$i); print $4 "|" $5 "|" $6 }' "$tmp/queue.md")"
+    rm -rf "$tmp"
+}
+
+# --- Background-session (claude-code) runner path ----------------------------
+# mk_bg <tmp> <queue-id> <ticket:states>... — queue.md (host: claude-code) plus a fake
+# claude and a no-op sleep in <tmp>/bin. States are space-separated, one per poll of
+# that session; the last state repeats. Timeout 1 min, poll 30 s -> 2 polls.
+mk_bg() {
+    local tmp="$1" qid="$2" n=0 spec t; shift 2
+    mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
+    cat > "$tmp/bin/claude" <<'FAKEEOF'
+#!/usr/bin/env bash
+# Fake claude CLI for background-session tests. State lives in $FAKE_DIR.
+D="$FAKE_DIR"
+case "$1" in
+    --bg)
+        all="$*"; name=""; settings=""; prompt=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --name) name="$2"; shift ;;
+                --settings) settings="$2"; shift ;;
+                --model|--permission-mode|--plugin-dir) shift ;;
+                --bg) ;;
+                *) prompt="$1" ;;
+            esac
+            shift
+        done
+        echo "launch $name" >> "$D/events"
+        printf '%s\n' "$all" > "$D/args.$name"
+        printf '%s\n' "$settings" > "$D/settings.$name"
+        if [ -f "$D/refuse" ]; then
+            echo "Bypass Permissions mode requires accepting the disclaimer first. Run claude --dangerously-skip-permissions once."
+            exit 1
+        fi
+        printf '%s\n' "$prompt" > "$D/prompt.$name"
+        n=$(( $(cat "$D/seq" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/seq"
+        printf '%08x' "$n" > "$D/id.$name"
+        printf 'backgrounded \xc2\xb7 %08x \xc2\xb7 %s\n' "$n" "$name"
+        ;;
+    agents)
+        out=""
+        for f in "$D"/prompt.*; do
+            [ -f "$f" ] || continue
+            name="${f##*/prompt.}"; t=$(cat "$f"); t="${t##* }"
+            c=$(( $(cat "$D/poll.$name" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$D/poll.$name"
+            read -r -a seq < "$D/states.$t"
+            i=$(( c < ${#seq[@]} ? c - 1 : ${#seq[@]} - 1 ))
+            st="${seq[$i]}"
+            echo "state $name $st" >> "$D/events"
+            if [ "$st" = done ]; then
+                mkdir -p "$FAKE_N1H/memory/$t"
+                printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' > "$FAKE_N1H/memory/$t/overview.md"
+            fi
+            sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
+            out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
+        done
+        echo "[$out]"
+        ;;
+    stop) echo "$2" >> "$D/stopped" ;;
+esac
+FAKEEOF
+    printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
+    chmod +x "$tmp/bin/claude" "$tmp/bin/sleep"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1}}' > "$tmp/n1home/config.json"
+    {
+        printf -- '---\nstep: plan\nqueue_id: %s\nhost: claude-code\n---\n## Plan\n' "$qid"
+        printf '| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
+        for spec in "$@"; do
+            n=$((n + 1)); t="${spec%%:*}"
+            printf '%s\n' "${spec#*:}" > "$tmp/fake/states.$t"
+            printf '| %s | %s | Fix %s | %s | %s | sonnet | pending | |\n' "$n" "$t" "$t" "$tmp" "$tmp/n1home"
+        done
+        printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n'
+    } > "$tmp/queue.md"
+}
+
+run_bg_queue() { # <tmp> — runs the runner with the fakes first on PATH; prints its exit code
+    local rc=0
+    env -u N1_QUEUE_CHILD_STUB FAKE_DIR="$1/fake" FAKE_N1H="$1/n1home" N1_HOME="$1/n1home" PATH="$1/bin:$PATH" \
+        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$1/queue.md" > "$1/output.txt" 2>&1 || rc=$?
+    echo "$rc"
+}
+
+line_of() { grep -n -F -- "$2" "$1" | head -1 | cut -d: -f1; }
+
+test_bg_sequential() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working working done" "T-B:done"
+    assert_eq "bg-seq: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-seq: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "bg-seq: pid removed" "" "$(n1_read_frontmatter "$tmp/queue.md" pid)"
+    assert_eq "bg-seq: T-A pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-seq: T-B pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    local a_done b_launch
+    a_done=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1 done")
+    b_launch=$(line_of "$tmp/fake/events" "launch n1-bgq-T-B-2")
+    assert_eq "bg-seq: T-B launched only after T-A finished" "yes" \
+        "$([ -n "$a_done" ] && [ -n "$b_launch" ] && [ "$b_launch" -gt "$a_done" ] && echo yes || echo no)"
+    assert_eq "bg-seq: launch flags" "yes" \
+        "$(case "$(cat "$tmp/fake/args.n1-bgq-T-A-1")" in *"--model sonnet --permission-mode bypassPermissions --settings "*) echo yes ;; *) echo no ;; esac)"
+    assert_eq "bg-seq: prompt" "/n1:n1-start T-A" "$(cat "$tmp/fake/prompt.n1-bgq-T-A-1")"
+    assert_eq "bg-seq: settings env + isolation" "1,autonomous,ci,claude-code,none" \
+        "$(jq -r '[.env.N1_HEADLESS,.env.N1_AUTONOMY_PRESET,.env.N1_STOP_AT,.env.N1_HOST,.worktree.bgIsolation]|join(",")' "$tmp/fake/settings.n1-bgq-T-A-1")"
+    assert_eq "bg-seq: run id in settings" "$(n1_read_frontmatter "$tmp/queue.md" run_id)" \
+        "$(jq -r .env.N1_QUEUE_RUN_ID "$tmp/fake/settings.n1-bgq-T-A-1")"
+    assert_eq "bg-seq: session id stored" "00000001" "$(n1_queue_session_id "$tmp/queue.md" T-A)"
+    assert_eq "bg-seq: PR url recorded" "https://x/pr/1" \
+        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
+    local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 7) print }' "$tmp/queue.md")
+    assert_eq "bg-seq: Runs rows have 7 cells" "" "$bad"
+    rm -rf "$tmp"
+}
+
+test_bg_awaiting() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done" "T-B:working done"
+    assert_eq "bg-await: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await: T-A parked message" "1" "$(grep -c 'T-A -> awaiting-human' "$tmp/output.txt" || true)"
+    local a_block b_launch a_done
+    a_block=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1 blocked")
+    b_launch=$(line_of "$tmp/fake/events" "launch n1-bgq-T-B-2")
+    a_done=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1 done")
+    assert_eq "bg-await: T-B launched while T-A parked" "yes" \
+        "$([ -n "$a_block" ] && [ -n "$b_launch" ] && [ -n "$a_done" ] && [ "$a_block" -lt "$b_launch" ] && [ "$b_launch" -lt "$a_done" ] && echo yes || echo no)"
+    assert_eq "bg-await: T-A pr after answer" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-await: T-B pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-await: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "bg-await: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    rm -rf "$tmp"
+}
+
+test_bg_awaiting_timeout() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked"
+    assert_eq "bg-await-to: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await-to: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "bg-await-to: row stays awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-await-to: no retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-await-to: session not stopped" "no" "$([ -f "$tmp/fake/stopped" ] && echo yes || echo no)"
+    assert_eq "bg-await-to: single launch" "1" "$(grep -c '^launch' "$tmp/fake/events" || true)"
+    assert_eq "bg-await-to: resume hint" "T-A: claude attach 00000001" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
+    rm -rf "$tmp"
+}
+
+test_bg_working_timeout() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working"
+    assert_eq "bg-wto: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-wto: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-wto: row 2 failed" "failed" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-wto: row 2 reason" "deferred-retry (timeout)" "$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "bg-wto: no row 3" "" "$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "bg-wto: retry uses a new session name" "yes" "$([ -f "$tmp/fake/settings.n1-bgq-T-A-2" ] && echo yes || echo no)"
+    assert_eq "bg-wto: both sessions stopped" "00000001,00000002" "$(paste -sd, "$tmp/fake/stopped")"
+    rm -rf "$tmp"
+}
+
+test_bg_missing_grace() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq
+    # subtaskTimeoutMinutes large enough that the working-timeout path never preempts
+    # the missing-session grace (BG_POLL_GRACE=10 polls) below.
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":600}}' > "$tmp/n1home/config.json"
+    # The defer-once retry (row 2) launches for real; give it a states file so it
+    # resolves immediately instead of chaining another grace period.
+    printf 'done\n' > "$tmp/fake/states.T-X"
+    cat > "$tmp/queue.md" <<EOF
+---
+step: plan
+queue_id: bgq
+host: claude-code
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-X | Fix X | $tmp | $tmp/n1home | sonnet | in-progress | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+| T-X | | | | | ffffffff |
+EOF
+    assert_eq "bg-miss: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-miss: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-miss: row 1 reason" "bg-session-not-listed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "bg-miss: row 2 pr (retry succeeds)" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    rm -rf "$tmp"
+}
+
+test_bg_disclaimer() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done" "T-B:done"
+    touch "$tmp/fake/refuse"
+    assert_eq "bg-disc: exit 2" "2" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-disc: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "bg-disc: pid removed" "" "$(n1_read_frontmatter "$tmp/queue.md" pid)"
+    assert_eq "bg-disc: row 1 failed" "failed" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-disc: row 1 reason" "bypass-permissions-disclaimer" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "bg-disc: row 2 untouched" "pending" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-disc: single launch attempt" "1" "$(grep -c '^launch' "$tmp/fake/events" || true)"
+    assert_eq "bg-disc: fix hint printed" "yes" "$(grep -q 'dangerously-skip-permissions' "$tmp/output.txt" && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
@@ -358,9 +665,17 @@ test_pick_model
 test_child_status
 test_row_status
 test_pending_rows
+test_bg_helpers
 test_decision_counts
 test_runner_three_strikes
 test_runner_all_pr
+test_runner_codex_host
+test_bg_sequential
+test_bg_awaiting
+test_bg_awaiting_timeout
+test_bg_working_timeout
+test_bg_missing_grace
+test_bg_disclaimer
 test_busy_guard
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"

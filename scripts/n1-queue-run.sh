@@ -13,6 +13,12 @@ source "$N1_ROOT/lib/queue.sh"
 QUEUE="$1"
 [ -f "$QUEUE" ] || { echo "queue file not found: $QUEUE" >&2; exit 1; }
 
+# --- Host --------------------------------------------------------------------
+# Fixed at queue creation (run.md). CLAUDE_PLUGIN_ROOT is forced above for path
+# resolution, so auto-detection here would report claude-code on both hosts.
+QUEUE_HOST=$(n1_read_frontmatter "$QUEUE" host)
+[ -z "$QUEUE_HOST" ] || export N1_HOST="$QUEUE_HOST"
+
 # --- Run ID ------------------------------------------------------------------
 RUN_ID=$(n1_read_frontmatter "$QUEUE" run_id)
 if [ -z "$RUN_ID" ]; then
@@ -30,52 +36,34 @@ n1_write_frontmatter "$QUEUE" pid "$$"
 n1_write_frontmatter "$QUEUE" step run
 
 TIMEOUT_SECS=$(( $(n1_queue_val subtaskTimeoutMinutes) * 60 ))
+# Shared grace limit: consecutive unreadable-agents-list polls (halts the run) and
+# consecutive missing-from-list polls for one session (fails that row).
+BG_POLL_GRACE=10
 CONSECUTIVE_FAIL=0
+QUEUE_ID=$(n1_read_frontmatter "$QUEUE" queue_id)
+QUEUE_ID="${QUEUE_ID:-queue}"
 
-# --- Main loop ---------------------------------------------------------------
-while true; do
-    # Re-read pending rows each iteration (defer-once may have appended rows)
-    ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
-    [ -n "$ROW" ] || break
+strip_pid() {
+    awk 'NR==1 && /^---$/ { in_fm=1; print; next }
+         in_fm && /^---$/ { in_fm=0; print; next }
+         in_fm && /^pid:/ { next }
+         { print }' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
+}
 
-    IFS=$'\t' read -r NUM TICKET REPO N1H MODEL <<< "$ROW"
-
-    # Write-ahead: mark in-progress
-    n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
-
-    STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    # Append a Runs row at end of file (Runs section is always last)
-    echo "| $TICKET | $STARTED | | | |" >> "$QUEUE"
-
-    OVERVIEW="$N1H/memory/$TICKET/overview.md"
-    QUEUE_ID=$(n1_read_frontmatter "$QUEUE" queue_id)
-    QUEUE_ID="${QUEUE_ID:-queue}"
-    LOG_DIR="$N1H/queue/$QUEUE_ID/logs"
-    mkdir -p "$LOG_DIR"
-    LOG="$LOG_DIR/${TICKET}.${RUN_ID}.log"
-
-    CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "$LOG")
-    # Child command already redirects its own output into $LOG; append so wrapper errors (cd failure) land there too.
-    timeout -k 30 "$TIMEOUT_SECS" bash -c "$CMD" >>"$LOG" 2>&1
-    EXIT=$?
-
-    OUTCOME=$(n1_queue_child_status "$OVERVIEW" "$EXIT")
-    # If still "running" after exit, treat as failed
-    [ "$OUTCOME" = "running" ] && OUTCOME="failed"
-    # Timeout
-    [ "$EXIT" = "124" ] && OUTCOME="failed"
-    REASON=""
-    case "$EXIT" in 124|137) REASON="timeout" ;; esac
+# finalize <num> <ticket> <repo> <n1-home> <model> <outcome> <exit> [reason]
+# Records a terminal outcome: Runs + Plan rows, defer-once, three-strikes (may exit 2).
+finalize() {
+    local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" OUTCOME="$6" EXIT="$7" REASON="${8:-}"
+    local OVERVIEW="$N1H/memory/$TICKET/overview.md" EXISTING_REASON PR_URL="" NEXT_NUM TITLE
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
     EXISTING_REASON=$(awk -F'|' -v num="$NUM" '{
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
         if ($2 == num) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $9); print $9 }
     }' "$QUEUE")
 
-    PR_URL=""
     [ "$OUTCOME" = "pr" ] && PR_URL=$(n1_queue_child_pr_url "$OVERVIEW")
 
-    # Update Runs row (best-effort: last row matching ticket in ## Runs section)
+    # Update Runs row (last row matching ticket in ## Runs); the Session cell is kept.
     awk -v tk="$TICKET" -v ex="$EXIT" -v oc="$OUTCOME" -v pr="$PR_URL" '
     { lines[NR] = $0; n = NR }
     /^## Runs/ { runs_start = NR }
@@ -88,7 +76,7 @@ while true; do
                 split(lines[i], c, "|")
                 c[4] = " " ex " "; c[5] = " " oc " "; c[6] = " " pr " "
                 out = ""
-                for (j = 1; j <= 6; j++) out = out c[j] "|"
+                for (j = 1; j <= 7; j++) out = out c[j] "|"
                 lines[i] = out; done = 1
             }
         }
@@ -104,28 +92,24 @@ while true; do
     fi
 
     # Defer-once: first failure -> deferred + new pending row; second stays failed
-    if [ "$OUTCOME" = "failed" ]; then
-        if [ "$EXISTING_REASON" != "deferred-retry" ]; then
-            n1_queue_row_status "$QUEUE" "$NUM" "deferred"
-            # Find next row number
-            NEXT_NUM=$(awk -F'|' '
-                { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2) }
-                $2 ~ /^[0-9]+$/ { max = $2 }
-                END { print max + 1 }
-            ' "$QUEUE")
-            # Get the Title from the original row
-            TITLE=$(awk -F'|' -v num="$NUM" '{
-                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
-                if ($2 == num) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $4); print $4 }
-            }' "$QUEUE")
-            # Append new pending row before the blank line or end of Plan table
-            awk -v row="| $NEXT_NUM | $TICKET | $TITLE | $REPO | $N1H | $MODEL | pending | deferred-retry |" '
-                /^## Plan/ { in_plan=1 }
-                in_plan && /^$/ && !added { print row; added=1 }
-                { print }
-                END { if (in_plan && !added) print row }
-            ' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
-        fi
+    if [ "$OUTCOME" = "failed" ] && [ "$EXISTING_REASON" != "deferred-retry" ]; then
+        n1_queue_row_status "$QUEUE" "$NUM" "deferred"
+        NEXT_NUM=$(awk -F'|' '
+            { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2) }
+            $2 ~ /^[0-9]+$/ { max = $2 }
+            END { print max + 1 }
+        ' "$QUEUE")
+        TITLE=$(awk -F'|' -v num="$NUM" '{
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+            if ($2 == num) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $4); print $4 }
+        }' "$QUEUE")
+        # Append new pending row before the blank line or end of Plan table
+        awk -v row="| $NEXT_NUM | $TICKET | $TITLE | $REPO | $N1H | $MODEL | pending | deferred-retry |" '
+            /^## Plan/ { in_plan=1 }
+            in_plan && /^$/ && !added { print row; added=1 }
+            { print }
+            END { if (in_plan && !added) print row }
+        ' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
     fi
 
     # Three-strikes counter
@@ -135,23 +119,170 @@ while true; do
     esac
     if [ "$CONSECUTIVE_FAIL" -ge 3 ]; then
         n1_write_frontmatter "$QUEUE" step halted
-        # Remove pid
-        awk 'NR==1 && /^---$/ { in_fm=1; print; next }
-             in_fm && /^---$/ { in_fm=0; print; next }
-             in_fm && /^pid:/ { next }
-             { print }' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
+        strip_pid
         echo "HALTED after 3 consecutive non-success"
         exit 2
     fi
 
     echo "[$NUM] $TICKET -> $OUTCOME $PR_URL"
-done
+}
+
+# run_sync — one synchronous headless child at a time (Codex; stub-driven tests).
+run_sync() {
+    local ROW NUM TICKET REPO N1H MODEL STARTED LOG_DIR LOG CMD EXIT OUTCOME REASON
+    while true; do
+        # Re-read pending rows each iteration (defer-once may have appended rows)
+        ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
+        [ -n "$ROW" ] || break
+        IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$ROW"
+
+        # Write-ahead: mark in-progress; Runs section is always last
+        n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+        STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
+
+        LOG_DIR="$N1H/queue/$QUEUE_ID/logs"
+        mkdir -p "$LOG_DIR"
+        LOG="$LOG_DIR/${TICKET}.${RUN_ID}.log"
+
+        CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "$LOG")
+        # Child command already redirects its own output into $LOG; append so wrapper errors (cd failure) land there too.
+        timeout -k 30 "$TIMEOUT_SECS" bash -c "$CMD" >>"$LOG" 2>&1
+        EXIT=$?
+
+        OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" "$EXIT")
+        # Still "running" after exit, or timeout -> failed
+        [ "$OUTCOME" = "running" ] && OUTCOME="failed"
+        [ "$EXIT" = "124" ] && OUTCOME="failed"
+        REASON=""
+        case "$EXIT" in 124|137) REASON="timeout" ;; esac
+
+        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" "$EXIT" "$REASON"
+    done
+}
+
+# launch_bg <pending-row> — start the row's background session. A launch refused for the
+# bypass-permissions disclaimer halts the queue (every later launch would fail the same way).
+launch_bg() {
+    local NUM TICKET REPO N1H MODEL CMD OUT SID STARTED
+    IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$1"
+    n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+    STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
+    OUT=$(bash -c "$CMD" 2>&1)
+    if SID=$(n1_queue_parse_launch "$OUT"); then
+        echo "| $TICKET | $STARTED | | | | $SID |" >> "$QUEUE"
+        echo "[$NUM] $TICKET launched ($SID)"
+        return
+    fi
+    echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
+    if [ "$SID" = "bypass-permissions-disclaimer" ]; then
+        n1_queue_row_status "$QUEUE" "$NUM" "failed" "$SID"
+        n1_write_frontmatter "$QUEUE" step halted
+        strip_pid
+        echo "HALTED: background sessions refuse bypassPermissions until its disclaimer is accepted once interactively (run: claude --dangerously-skip-permissions). Launch output: $OUT"
+        exit 2
+    fi
+    echo "[$NUM] $TICKET launch failed: $OUT"
+    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "$SID"
+}
+
+# run_bg — background sessions, still sequential: launch the next pending ticket only when
+# no launched child is working. blocked -> awaiting-human (no strike) and the queue moves on.
+# Working time is capped by subtaskTimeoutMinutes; at end of queue, parked rows are polled
+# for up to subtaskTimeoutMinutes after the last park, then left awaiting-human (never relaunched).
+run_bg() {
+    local POLL AGENTS WORKING ROW NUM TICKET REPO N1H MODEL STATUS STATE OUTCOME SID
+    # ponytail: WORKED/SINCE_PARK live only in this process's memory. If the runner
+    # crashes and restarts (busy guard lets a new run start once the old pid is dead),
+    # both budgets reset to 0 even though the background sessions survived the crash —
+    # a ticket already 170 of 180 minutes in gets a fresh 180. Add persisted elapsed-time
+    # tracking (e.g. derive from the Runs row's Started timestamp) if crash-resume timing
+    # accuracy matters; no test or AC currently requires it.
+    local SINCE_PARK=0 AGENT_FAILS=0
+    local -a WORKED=()
+    local -a MISSING=()
+    POLL=$(n1_queue_val pollSeconds)
+    while true; do
+        # An unreadable session list skips the tick: never treat a CLI hiccup as dead children.
+        if ! AGENTS=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) || ! printf '%s' "$AGENTS" | jq -e . >/dev/null 2>&1; then
+            AGENT_FAILS=$((AGENT_FAILS + 1))
+            if [ "$AGENT_FAILS" -ge "$BG_POLL_GRACE" ]; then
+                n1_write_frontmatter "$QUEUE" step halted
+                strip_pid
+                echo "HALTED: background session list unreadable for $BG_POLL_GRACE polls in a row"
+                exit 2
+            fi
+            sleep "$POLL"
+            continue
+        fi
+        AGENT_FAILS=0
+        WORKING=0
+        while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
+            SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
+            STATE=$(n1_queue_bg_state "$AGENTS" "$SID")
+            case "$STATE" in
+                missing)
+                    MISSING[NUM]=$(( ${MISSING[NUM]:-0} + 1 ))
+                    if [ "${MISSING[NUM]}" -ge "$BG_POLL_GRACE" ]; then
+                        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "bg-session-not-listed"
+                        continue
+                    fi
+                    WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
+                    if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
+                    [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+                    ;;
+                working)
+                    MISSING[NUM]=0
+                    [ "$STATUS" = "awaiting-human" ] && n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+                    WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
+                    if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
+                    [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+                    ;;
+                blocked)
+                    if [ "$STATUS" != "awaiting-human" ]; then
+                        n1_queue_row_status "$QUEUE" "$NUM" "awaiting-human"
+                        SINCE_PARK=0
+                        echo "[$NUM] $TICKET -> awaiting-human"
+                    fi
+                    ;;
+                done)
+                    OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0)
+                    [ "$OUTCOME" = "running" ] && OUTCOME="failed"
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
+                    ;;
+                failed|*) finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" ;;
+            esac
+        done < <(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')
+
+        if [ "$WORKING" = 0 ]; then
+            ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
+            if [ -n "$ROW" ]; then
+                launch_bg "$ROW"
+            else
+                # Nothing pending: finish when nothing is parked, or the awaiting wait expired.
+                [ -n "$(n1_queue_pending_rows "$QUEUE" 'awaiting-human')" ] || break
+                if [ "$SINCE_PARK" -ge "$TIMEOUT_SECS" ]; then
+                    echo "awaiting-human rows left for the user; queue done"
+                    break
+                fi
+            fi
+        fi
+        SINCE_PARK=$((SINCE_PARK + POLL))
+        sleep "$POLL"
+    done
+}
+
+# Claude Code children run as background sessions; Codex (and stub-driven tests) stay synchronous.
+if [ "$(n1_host)" = "claude-code" ] && [ -z "${N1_QUEUE_CHILD_STUB:-}" ]; then
+    run_bg
+else
+    run_sync
+fi
 
 # --- Done --------------------------------------------------------------------
 n1_write_frontmatter "$QUEUE" step done
-# Remove pid
-awk 'NR==1 && /^---$/ { in_fm=1; print; next }
-     in_fm && /^---$/ { in_fm=0; print; next }
-     in_fm && /^pid:/ { next }
-     { print }' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
+strip_pid
 exit 0

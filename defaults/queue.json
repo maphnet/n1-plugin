@@ -1,7 +1,7 @@
 {
   "tag": "n1-auto",
   "maxTickets": 10,
-  "pollSeconds": 60,
+  "pollSeconds": 30,
   "subtaskTimeoutMinutes": 180,
   "opusFromSize": "M",
   "designPath": "docs/design/",

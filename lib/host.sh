@@ -106,6 +106,30 @@ n1_headless_cmd() {
     printf '> %q 2>&1' "$out"
 }
 
+n1_bg_launch_cmd() {
+    # Usage: n1_bg_launch_cmd <name> <skill> <args> <model> <repo> <settings-json>
+    # Claude Code background session (queue children). The session supervisor, not
+    # this shell, owns the session env, so N1 vars travel inside <settings-json>.
+    # The command's stdout carries "backgrounded · <id> · <name>".
+    local name="$1" skill="$2" args="$3" model="$4" repo="$5" settings="$6"
+    local cmd=(claude --bg --name "$name")
+    [ -z "$model" ] || cmd+=(--model "$model")
+    cmd+=(--permission-mode bypassPermissions --settings "$settings")
+    [ -z "${N1_STORY_PLUGIN_DIR:-}" ] || cmd+=(--plugin-dir "$N1_STORY_PLUGIN_DIR")
+    cmd+=("/n1:$skill $args")
+    printf 'cd %q && ' "$repo"
+    printf '%q ' "${cmd[@]}"
+}
+
+n1_bg_cmd() {
+    # Usage: n1_bg_cmd agents | stop <id> | attach <id> — background-session control (Claude Code).
+    case "$1" in
+        agents) printf 'claude agents --json --all' ;;
+        stop|attach) printf 'claude %s %q' "$1" "$2" ;;
+        *) return 1 ;;
+    esac
+}
+
 n1_hook_field() {
     # Usage: printf '%s' "$PAYLOAD" | n1_hook_field <name> — top-level string field or empty.
     # Field names are identical on both hosts, so one path serves both.
