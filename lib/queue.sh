@@ -138,7 +138,7 @@ n1_queue_child_status() {
     local step; step=$(n1_read_frontmatter "$overview" "step")
     # pr/ci/done all mean stop-at-CI success
     case "$step" in pr|ci|done) printf 'pr'; return ;; esac
-    if [ "$step" = "escalated" ] || awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF' "$overview" | grep -q .; then
+    if [ "$step" = "escalated" ] || [ -n "$(n1_queue_escalation_text "$overview")" ]; then
         printf 'escalated'; return
     fi
     [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
@@ -289,3 +289,78 @@ n1_queue_awaiting_hints() {
     done < <(n1_queue_pending_rows "$file" 'awaiting-human')
 }
 
+n1_queue_event() {
+    # Usage: n1_queue_event <events.jsonl> <queue_id> <run_id> <event> [key=value]...
+    # Appends one JSON line. Every line carries the same 10 keys (ts, queue, run_id, event,
+    # ticket, outcome, pr, session, duration_s, reason); absent ones are "" (duration_s: null).
+    # Best-effort: never fails the caller.
+    local file="$1" q="$2" run="$3" ev="$4" kv; shift 4
+    local -a args=()
+    for kv in "$@"; do args+=(--arg "${kv%%=*}" "${kv#*=}"); done
+    jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg queue "$q" --arg run_id "$run" --arg event "$ev" \
+        ${args[@]+"${args[@]}"} \
+        '$ARGS.named | {ts, queue, run_id, event,
+            ticket: (.ticket // ""), outcome: (.outcome // ""), pr: (.pr // ""), session: (.session // ""),
+            duration_s: ((.duration_s // "") | (tonumber? // null)), reason: (.reason // "")}' \
+        >> "$file" 2>/dev/null || true
+    return 0
+}
+
+n1_queue_escalation_text() {
+    # Usage: n1_queue_escalation_text <overview.md> — first "## Escalations" entry, or empty.
+    [ -f "$1" ] || return 0
+    awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF {sub(/^[-*][[:space:]]*/,""); print; exit}' "$1"
+}
+
+
+n1_queue_digest() {
+    # Usage: n1_queue_digest <n1-home> — one status line for the queue active in the last 24h,
+    # preferring one with a ticket that needs you; prints nothing when none qualifies.
+    # Reads only <n1-home>/queue/*/events.jsonl (latest run per queue, latest event per ticket);
+    # non-JSON lines are skipped.
+    local f
+    for f in "$1"/queue/*/events.jsonl; do [ -f "$f" ] && cat "$f"; done 2>/dev/null | jq -nrR '
+        [inputs | fromjson? | objects] | group_by(.queue) | map(
+            .[-1] as $end
+            | ([.[] | select(.run_id == $end.run_id and .ticket != "")] | group_by(.ticket) | map(.[-1])) as $t
+            | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
+            | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
+            | ([$t[] | select(.event == "ticket_finished" and .outcome == "failed")] | length) as $failed
+            | ([$t[] | select(.event == "ticket_started" or .event == "unblocked") | .ticket]) as $running
+            | {needs: ($needs | length), ts: $end.ts,
+               line: ("Queue \($end.queue): " + ([
+                   (if $pr > 0 then "\($pr) PR" else empty end),
+                   (if ($needs | length) > 0 then "\($needs | length) needs you (\($needs | join(", ")))" else empty end),
+                   (if $failed > 0 then "\($failed) failed" else empty end),
+                   (if ($running | length) > 0 then "running \($running | join(", "))" else empty end),
+                   (if $end.event == "queue_done" then "done" elif $end.event == "halted" then "halted" else empty end)
+               ] | if length == 0 then ["started"] else . end | join(", ")))})
+        | map(select(.ts >= (now - 86400 | todate)))
+        | sort_by([(.needs > 0), .ts]) | last | .line // empty' 2>/dev/null
+    return 0
+}
+
+n1_notify() {
+    # Usage: n1_notify <needs-you|done|info> <text> — best-effort out-of-session alert.
+    # Backend from queue.notify: desktop (default) | ntfy (queue.ntfyTopic) | command
+    # (queue.notifyCommand gets {"ts","kind","text"} on stdin) | none. Never fails the caller.
+    local kind="$1" text="$2" title="N1 queue: $1" backend val
+    backend=$(n1_queue_val notify)
+    case "${backend:-desktop}" in
+        none) ;;
+        command)
+            val=$(n1_queue_val notifyCommand)
+            [ -z "$val" ] || jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg kind "$kind" --arg text "$text" \
+                '{ts:$ts,kind:$kind,text:$text}' 2>/dev/null | timeout 10 bash -c "$val" >/dev/null 2>&1 ;;
+        ntfy)
+            val=$(n1_queue_val ntfyTopic)
+            case "$val" in ""|*://*) ;; *) val="https://ntfy.sh/$val" ;; esac
+            [ -z "$val" ] || timeout 10 curl -fsS -H "Title: $title" \
+                -H "Priority: $([ "$kind" = needs-you ] && echo high || echo default)" \
+                -d "$text" "$val" >/dev/null 2>&1 ;;
+        *)
+            n1_desktop_notify "$title" "$text" \
+                || echo "n1_notify: no desktop notifier available; skipped ($kind: $text)" >&2 ;;
+    esac
+    return 0
+}

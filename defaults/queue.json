@@ -3,6 +3,9 @@
   "maxTickets": 10,
   "pollSeconds": 30,
   "subtaskTimeoutMinutes": 180,
+  "notify": "desktop",
+  "ntfyTopic": "",
+  "notifyCommand": "",
   "opusFromSize": "M",
   "designPath": "docs/design/",
   "taskSizing": {

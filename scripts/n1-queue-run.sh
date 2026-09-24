@@ -50,11 +50,39 @@ strip_pid() {
          { print }' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
 }
 
+EVENTS="$(dirname "$QUEUE")/events.jsonl"
+# ponytail: STARTED_AT/PARKED are in-memory; after a runner crash-restart duration_s is null and
+# a re-parked ticket may notify twice. Persist them in queue.md if that ever matters.
+declare -a STARTED_AT=() PARKED=()
+
+ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
+
+# escalate <ticket> <n1-home> — escalated event + needs-you notification (with resume hint).
+escalate() {
+    local sid q
+    sid=$(n1_queue_session_id "$QUEUE" "$1")
+    q=$(n1_queue_escalation_text "$2/memory/$1/overview.md")
+    ev escalated ticket="$1" session="$sid" reason="$q"
+    n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}${sid:+ (resume: $(n1_bg_cmd attach "$sid"))}"
+}
+
+# halt <message> — record, notify, and stop the runner (exit 2).
+halt() {
+    n1_write_frontmatter "$QUEUE" step halted
+    strip_pid
+    ev halted reason="$1"
+    n1_notify needs-you "Queue $QUEUE_ID halted: ${1:0:200}"
+    echo "$1"
+    exit 2
+}
+
+ev queue_started
+
 # finalize <num> <ticket> <repo> <n1-home> <model> <outcome> <exit> [reason]
 # Records a terminal outcome: Runs + Plan rows, defer-once, three-strikes (may exit 2).
 finalize() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" OUTCOME="$6" EXIT="$7" REASON="${8:-}"
-    local OVERVIEW="$N1H/memory/$TICKET/overview.md" EXISTING_REASON PR_URL="" NEXT_NUM TITLE
+    local OVERVIEW="$N1H/memory/$TICKET/overview.md" EXISTING_REASON PR_URL="" NEXT_NUM TITLE EV_OUTCOME="$OUTCOME" DUR=""
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
     EXISTING_REASON=$(awk -F'|' -v num="$NUM" '{
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
@@ -93,6 +121,7 @@ finalize() {
 
     # Defer-once: first failure -> deferred + new pending row; second stays failed
     if [ "$OUTCOME" = "failed" ] && [ "$EXISTING_REASON" != "deferred-retry" ]; then
+        EV_OUTCOME="deferred"
         n1_queue_row_status "$QUEUE" "$NUM" "deferred"
         NEXT_NUM=$(awk -F'|' '
             { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2) }
@@ -112,16 +141,21 @@ finalize() {
         ' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
     fi
 
+    # Events + notifications before three-strikes (which may exit). PR successes notify only
+    # through the end-of-queue digest.
+    [ "$OUTCOME" = "escalated" ] && [ -z "${PARKED[NUM]:-}" ] && escalate "$TICKET" "$N1H"
+    [ -n "${STARTED_AT[NUM]:-}" ] && DUR=$(( $(date +%s) - STARTED_AT[NUM] ))
+    ev ticket_finished ticket="$TICKET" outcome="$EV_OUTCOME" pr="$PR_URL" \
+        session="$(n1_queue_session_id "$QUEUE" "$TICKET")" duration_s="$DUR" reason="$REASON"
+    [ "$EV_OUTCOME" = "failed" ] && n1_notify info "$TICKET failed${REASON:+ ($REASON)}"
+
     # Three-strikes counter
     case "$OUTCOME" in
         failed|escalated) CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)) ;;
         pr) CONSECUTIVE_FAIL=0 ;;
     esac
     if [ "$CONSECUTIVE_FAIL" -ge 3 ]; then
-        n1_write_frontmatter "$QUEUE" step halted
-        strip_pid
-        echo "HALTED after 3 consecutive non-success"
-        exit 2
+        halt "HALTED after 3 consecutive non-success"
     fi
 
     echo "[$NUM] $TICKET -> $OUTCOME $PR_URL"
@@ -140,6 +174,8 @@ run_sync() {
         n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
         STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
+        STARTED_AT[NUM]=$(date +%s)
+        ev ticket_started ticket="$TICKET"
 
         LOG_DIR="$N1H/queue/$QUEUE_ID/logs"
         mkdir -p "$LOG_DIR"
@@ -168,20 +204,19 @@ launch_bg() {
     IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$1"
     n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
     STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    STARTED_AT[NUM]=$(date +%s)
     CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
     OUT=$(bash -c "$CMD" 2>&1)
     if SID=$(n1_queue_parse_launch "$OUT"); then
         echo "| $TICKET | $STARTED | | | | $SID |" >> "$QUEUE"
+        ev ticket_started ticket="$TICKET" session="$SID"
         echo "[$NUM] $TICKET launched ($SID)"
         return
     fi
     echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
     if [ "$SID" = "bypass-permissions-disclaimer" ]; then
         n1_queue_row_status "$QUEUE" "$NUM" "failed" "$SID"
-        n1_write_frontmatter "$QUEUE" step halted
-        strip_pid
-        echo "HALTED: background sessions refuse bypassPermissions until its disclaimer is accepted once interactively (run: claude --dangerously-skip-permissions). Launch output: $OUT"
-        exit 2
+        halt "HALTED: background sessions refuse bypassPermissions until its disclaimer is accepted once interactively (run: claude --dangerously-skip-permissions). Launch output: $OUT"
     fi
     echo "[$NUM] $TICKET launch failed: $OUT"
     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "$SID"
@@ -208,10 +243,7 @@ run_bg() {
         if ! AGENTS=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) || ! printf '%s' "$AGENTS" | jq -e . >/dev/null 2>&1; then
             AGENT_FAILS=$((AGENT_FAILS + 1))
             if [ "$AGENT_FAILS" -ge "$BG_POLL_GRACE" ]; then
-                n1_write_frontmatter "$QUEUE" step halted
-                strip_pid
-                echo "HALTED: background session list unreadable for $BG_POLL_GRACE polls in a row"
-                exit 2
+                halt "HALTED: background session list unreadable for $BG_POLL_GRACE polls in a row"
             fi
             sleep "$POLL"
             continue
@@ -235,7 +267,10 @@ run_bg() {
                     ;;
                 working)
                     MISSING[NUM]=0
-                    [ "$STATUS" = "awaiting-human" ] && n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+                    if [ "$STATUS" = "awaiting-human" ]; then
+                        n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+                        ev unblocked ticket="$TICKET" session="$SID"
+                    fi
                     WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
                     if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
                     [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
@@ -246,6 +281,8 @@ run_bg() {
                         n1_queue_row_status "$QUEUE" "$NUM" "awaiting-human"
                         SINCE_PARK=0
                         echo "[$NUM] $TICKET -> awaiting-human"
+                        PARKED[NUM]=1
+                        escalate "$TICKET" "$N1H"
                     fi
                     ;;
                 done)
@@ -283,6 +320,10 @@ else
 fi
 
 # --- Done --------------------------------------------------------------------
+count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }
+DIGEST="$(count_rows pr) PR / $(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"
+ev queue_done reason="$DIGEST"
+n1_notify done "Queue $QUEUE_ID: $DIGEST"
 n1_write_frontmatter "$QUEUE" step done
 strip_pid
 exit 0
