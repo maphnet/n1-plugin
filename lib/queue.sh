@@ -340,6 +340,64 @@ n1_queue_digest() {
     return 0
 }
 
+n1_queue_watch() {
+    # Usage: n1_queue_watch <queue_dir> <run_id> <runner_pid> [from_line]
+    # Session-side relay for one queue run. Every queue.pollSeconds, prints one line per new
+    # escalated / ticket_finished / halted / queue_done event in <queue_dir>/events.jsonl whose
+    # run_id is <run_id> (never queue id alone: a relaunch appends to the same file).
+    # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
+    # identical command after a host timeout resumes with no gap and no replay. Without that
+    # cursor it starts at line <from_line> (default: current end of file).
+    # Final lines end with "Watch ended.": on halted, queue_done, or runner pid gone; the
+    # cursor is removed and it returns 0. Otherwise it polls until killed.
+    # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
+    local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
+    local ev t out pr s reason
+    q="${dir##*/}"
+    sid=$(n1_session_id); sid="${sid:-nosession}"
+    case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
+    case "$pid" in ''|*[!0-9]*) echo "n1-queue: bad runner pid" >&2; return 1 ;; esac
+    cursor="$dir/.watch-$run.$sid"
+    if [ -f "$cursor" ]; then seen=$(cat "$cursor")
+    elif [ -n "$from" ]; then seen="$from"
+    elif [ -f "$events" ]; then seen=$(wc -l < "$events")
+    else seen=0; fi
+    seen="${seen//[[:space:]]/}"; case "$seen" in ''|*[!0-9]*) seen=0 ;; esac
+    poll=$(n1_queue_val pollSeconds)
+    while true; do
+        # Liveness is sampled before reading, so events written just before the runner exits are relayed first.
+        # ponytail: kill -0 can't tell a recycled pid from the runner; compare /proc start time if that bites.
+        alive=0; kill -0 "$pid" 2>/dev/null && alive=1
+        total=0; [ -f "$events" ] && total=$(wc -l < "$events"); total="${total//[[:space:]]/}"
+        if [ "$total" -gt "$seen" ]; then
+            while IFS=$'\x1f' read -r ev t out pr s reason; do
+                case "$ev" in
+                    escalated)
+                        printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
+                            "${s:+ (resume: $(n1_bg_cmd attach "$s"))}" ;;
+                    ticket_finished)
+                        printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
+                    halted|queue_done)
+                        [ "$ev" = halted ] && ev=halted || ev=finished
+                        printf 'n1-queue %s: %s%s. Watch ended.\n' "$q" "$ev" "${reason:+: $reason}"
+                        rm -f "$cursor"; return 0 ;;
+                esac
+            done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
+                fromjson? | objects | select(.run_id == $run)
+                | select(.event == "escalated" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | [.event, .ticket, .outcome, .pr, .session, .reason]
+                | map(tostring | gsub("[\u0000-\u001f\u007f]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
+            seen="$total"
+        fi
+        if [ "$alive" = 0 ]; then
+            printf 'n1-queue %s: runner (pid %s) is gone without a finish or halt event. Watch ended.\n' "$q" "$pid"
+            rm -f "$cursor"; return 0
+        fi
+        printf '%s\n' "$seen" > "$cursor" 2>/dev/null
+        sleep "${poll:-30}"
+    done
+}
+
 n1_fmt_elapsed() {
     # Usage: n1_fmt_elapsed <seconds> — "<1m" | "Nm" | "NhMm". Empty/non-numeric prints nothing.
     local s="$1"

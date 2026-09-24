@@ -1,7 +1,7 @@
 ---
 name: n1-queue
-description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another without merging. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--dry-run] [--status [<id>]]"
-argument-hint: "[--tag <tag>] [--story <ID>] [--dry-run] [--status [<id>]]"
+description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another without merging. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--dry-run] [--status [<id>]] [--watch [<id>]]"
+argument-hint: "[--tag <tag>] [--story <ID>] [--dry-run] [--status [<id>]] [--watch [<id>]]"
 model: sonnet
 ---
 
@@ -24,7 +24,7 @@ If `N1_HOME` is empty: "N1 is not configured for this project. Run `/n1:n1-init`
 
 ## Input
 
-Parse arguments: `--tag <tag>` (tag mode), `--story <ID>` (story mode, accept tracker URLs via `n1_extract_ticket_from_url`), `--dry-run`, `--status [<id>]`.
+Parse arguments: `--tag <tag>` (tag mode), `--story <ID>` (story mode, accept tracker URLs via `n1_extract_ticket_from_url`), `--dry-run`, `--status [<id>]`, `--watch [<id>]` (status, then relay this run's events in this session).
 
 `QUEUE_ID` = the tag (tag mode) or the story ID (story mode). Default tag: `n1_queue_val tag` (i.e. `n1-auto`). `QUEUE_DIR="$N1_HOME/queue/$QUEUE_ID"`; `mkdir -p "$QUEUE_DIR"`.
 
@@ -44,7 +44,7 @@ If `TRACKER_MCP` is empty: "No tracker configured. Run `/n1:n1-init`." **STOP.**
 
 ## Steps
 
-1. **Status check.** If `--status`: read and follow `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.**
+1. **Status check.** If `--status` or `--watch`: read and follow `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.**
 2. **INTAKE** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/intake.md`. Produces the candidate list.
 3. **PREVIEW** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/preview.md`. User confirms or cancels.
 4. **RUN** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md`. Writes queue.md, launches runner, ends the turn.
