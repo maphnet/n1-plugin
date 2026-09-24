@@ -160,7 +160,7 @@ test_bg_helpers() {
     assert_eq "bgstate: done" "done" "$(n1_queue_bg_state "$j" cccccccc)"
     assert_eq "bgstate: stopped -> failed" "failed" "$(n1_queue_bg_state "$j" dddddddd)"
     assert_eq "bgstate: failed" "failed" "$(n1_queue_bg_state "$j" eeeeeeee)"
-    assert_eq "bgstate: missing -> working" "working" "$(n1_queue_bg_state "$j" zzzzzzzz)"
+    assert_eq "bgstate: missing" "missing" "$(n1_queue_bg_state "$j" 0f0f0f0f)"
     assert_eq "bgstate: bare array" "blocked" "$(n1_queue_bg_state '[{"id":"bbbbbbbb","state":"blocked"}]' bbbbbbbb)"
 
     # Stale record with the same name but a different id must not shadow the live child.
@@ -168,9 +168,13 @@ test_bg_helpers() {
     assert_eq "bgstate: stale same-name record ignored" "working" "$(n1_queue_bg_state "$jstale" 22222222)"
 
     # Not listed on the first poll (supervisor lag), appears later as done.
-    assert_eq "bgstate: missing then done" "working" "$(n1_queue_bg_state '{"agents":[]}' 33333333)"
+    assert_eq "bgstate: missing then done" "missing" "$(n1_queue_bg_state '{"agents":[]}' 33333333)"
     assert_eq "bgstate: missing then done (appears)" "done" \
         "$(n1_queue_bg_state '{"agents":[{"id":"33333333","state":"done"}]}' 33333333)"
+
+    # SEC-1: an empty or malformed session id must never match any listed session via startswith("").
+    assert_eq "bgstate: empty sid -> failed" "failed" "$(n1_queue_bg_state "$j" "")"
+    assert_eq "bgstate: non-hex sid -> failed" "failed" "$(n1_queue_bg_state "$j" zzzzzzzz)"
 
     local cc cx
     cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
@@ -285,9 +289,9 @@ EOF
     assert_eq "runner: T-C row 4 reason" "deferred-retry (timeout)" "$rd"
     local r5; r5=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$2)} $2=="5"' "$tmp/queue.md")
     assert_eq "runner: no row 5" "" "$r5"
-    # Runs rows have exactly 6 cells incl. Session (no phantom trailing cell)
+    # Runs rows have exactly 7 cells incl. Session (no phantom trailing cell)
     local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 7) print }' "$tmp/queue.md")
-    assert_eq "runner: Runs rows have 6 cells" "" "$bad"
+    assert_eq "runner: Runs rows have 7 cells" "" "$bad"
 
     local halted_msg; halted_msg=$(grep -c "HALTED" "$tmp/output.txt" || true)
     assert_eq "runner: HALTED message printed" "1" "$halted_msg"
@@ -500,7 +504,7 @@ test_bg_sequential() {
     assert_eq "bg-seq: PR url recorded" "https://x/pr/1" \
         "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
     local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 7) print }' "$tmp/queue.md")
-    assert_eq "bg-seq: Runs rows have 6 cells" "" "$bad"
+    assert_eq "bg-seq: Runs rows have 7 cells" "" "$bad"
     rm -rf "$tmp"
 }
 
@@ -545,6 +549,38 @@ test_bg_working_timeout() {
     assert_eq "bg-wto: no row 3" "" "$(plan_cell "$tmp/queue.md" 3 8)"
     assert_eq "bg-wto: retry uses a new session name" "yes" "$([ -f "$tmp/fake/settings.n1-bgq-T-A-2" ] && echo yes || echo no)"
     assert_eq "bg-wto: both sessions stopped" "00000001,00000002" "$(paste -sd, "$tmp/fake/stopped")"
+    rm -rf "$tmp"
+}
+
+test_bg_missing_grace() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq
+    # subtaskTimeoutMinutes large enough that the working-timeout path never preempts
+    # the missing-session grace (BG_POLL_GRACE=10 polls) below.
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":600}}' > "$tmp/n1home/config.json"
+    # The defer-once retry (row 2) launches for real; give it a states file so it
+    # resolves immediately instead of chaining another grace period.
+    printf 'done\n' > "$tmp/fake/states.T-X"
+    cat > "$tmp/queue.md" <<EOF
+---
+step: plan
+queue_id: bgq
+host: claude-code
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-X | Fix X | $tmp | $tmp/n1home | sonnet | in-progress | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+| T-X | | | | | ffffffff |
+EOF
+    assert_eq "bg-miss: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-miss: row 1 deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-miss: row 1 reason" "bg-session-not-listed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "bg-miss: row 2 pr (retry succeeds)" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
     rm -rf "$tmp"
 }
 
@@ -638,6 +674,7 @@ test_bg_sequential
 test_bg_awaiting
 test_bg_awaiting_timeout
 test_bg_working_timeout
+test_bg_missing_grace
 test_bg_disclaimer
 test_busy_guard
 

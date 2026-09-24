@@ -169,7 +169,7 @@ n1_queue_child_cmd() {
         n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
         return
     fi
-    printf 'cd "%s" && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STOP_AT=ci N1_QUEUE_RUN_ID="%s" %s' \
+    printf 'cd %q && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STOP_AT=ci N1_QUEUE_RUN_ID="%s" %s' \
         "$repo" "$run_id" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
 }
 
@@ -245,19 +245,25 @@ n1_queue_parse_launch() {
 
 n1_queue_bg_state() {
     # Usage: n1_queue_bg_state <agents-json> <session-id>
-    # Prints working | blocked | done | failed for the background session launched with that
-    # id (the short 8-hex id from launch, matched against .id or a .sessionId prefix; restricted
-    # to objects that carry .state, since interactive sessions have neither). Names are reused
-    # across runs (queue.md rows restart numbering each run), so matching by id — not name —
-    # is required to avoid picking up a stale session from an earlier run. missing (not listed
-    # yet, e.g. supervisor lag right after launch) maps to working so the timeout budget still
-    # bounds it; failed, stopped and any other state map to failed.
-    local st
-    st=$(printf '%s' "$1" | jq -r --arg sid "$2" \
+    # Prints working | blocked | done | missing | failed for the background session launched
+    # with that id (the short 8-hex id from launch, matched against .id or a .sessionId prefix;
+    # restricted to objects that carry .state, since interactive sessions have neither). Names
+    # are reused across runs (queue.md rows restart numbering each run), so matching by id —
+    # not name — is required to avoid picking up a stale session from an earlier run. missing
+    # (not listed yet, e.g. supervisor lag right after launch) is reported as-is; callers treat
+    # it as working until a grace count of consecutive misses runs out. An empty/malformed
+    # session id (never a valid 8-hex launch id) never reaches the jq lookup — it would match
+    # any session via startswith("") — and fails immediately. failed, stopped and any other
+    # state map to failed.
+    local sid="$2" st
+    case "$sid" in
+        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) : ;;
+        *) printf 'failed'; return ;;
+    esac
+    st=$(printf '%s' "$1" | jq -r --arg sid "$sid" \
         '[.. | objects | select(has("state")) | select(.id == $sid or ((.sessionId // "") | startswith($sid)))][0].state // "missing"' 2>/dev/null)
     case "$st" in
-        working|blocked|done) printf '%s' "$st" ;;
-        missing) printf 'working' ;;
+        working|blocked|done|missing) printf '%s' "$st" ;;
         *) printf 'failed' ;;
     esac
 }

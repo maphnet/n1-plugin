@@ -36,6 +36,9 @@ n1_write_frontmatter "$QUEUE" pid "$$"
 n1_write_frontmatter "$QUEUE" step run
 
 TIMEOUT_SECS=$(( $(n1_queue_val subtaskTimeoutMinutes) * 60 ))
+# Shared grace limit: consecutive unreadable-agents-list polls (halts the run) and
+# consecutive missing-from-list polls for one session (fails that row).
+BG_POLL_GRACE=10
 CONSECUTIVE_FAIL=0
 QUEUE_ID=$(n1_read_frontmatter "$QUEUE" queue_id)
 QUEUE_ID="${QUEUE_ID:-queue}"
@@ -189,7 +192,7 @@ launch_bg() {
 # Working time is capped by subtaskTimeoutMinutes; at end of queue, parked rows are polled
 # for up to subtaskTimeoutMinutes after the last park, then left awaiting-human (never relaunched).
 run_bg() {
-    local POLL AGENTS WORKING ROW NUM TICKET REPO N1H MODEL STATUS STATE OUTCOME
+    local POLL AGENTS WORKING ROW NUM TICKET REPO N1H MODEL STATUS STATE OUTCOME SID
     # ponytail: WORKED/SINCE_PARK live only in this process's memory. If the runner
     # crashes and restarts (busy guard lets a new run start once the old pid is dead),
     # both budgets reset to 0 even though the background sessions survived the crash —
@@ -198,15 +201,16 @@ run_bg() {
     # accuracy matters; no test or AC currently requires it.
     local SINCE_PARK=0 AGENT_FAILS=0
     local -a WORKED=()
+    local -a MISSING=()
     POLL=$(n1_queue_val pollSeconds)
     while true; do
         # An unreadable session list skips the tick: never treat a CLI hiccup as dead children.
         if ! AGENTS=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) || ! printf '%s' "$AGENTS" | jq -e . >/dev/null 2>&1; then
             AGENT_FAILS=$((AGENT_FAILS + 1))
-            if [ "$AGENT_FAILS" -ge 10 ]; then
+            if [ "$AGENT_FAILS" -ge "$BG_POLL_GRACE" ]; then
                 n1_write_frontmatter "$QUEUE" step halted
                 strip_pid
-                echo "HALTED: background session list unreadable for 10 polls in a row"
+                echo "HALTED: background session list unreadable for $BG_POLL_GRACE polls in a row"
                 exit 2
             fi
             sleep "$POLL"
@@ -215,13 +219,26 @@ run_bg() {
         AGENT_FAILS=0
         WORKING=0
         while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
-            STATE=$(n1_queue_bg_state "$AGENTS" "$(n1_queue_session_id "$QUEUE" "$TICKET")")
+            SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
+            STATE=$(n1_queue_bg_state "$AGENTS" "$SID")
             case "$STATE" in
+                missing)
+                    MISSING[NUM]=$(( ${MISSING[NUM]:-0} + 1 ))
+                    if [ "${MISSING[NUM]}" -ge "$BG_POLL_GRACE" ]; then
+                        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "bg-session-not-listed"
+                        continue
+                    fi
+                    WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
+                    if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
+                    [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+                    ;;
                 working)
+                    MISSING[NUM]=0
                     [ "$STATUS" = "awaiting-human" ] && n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
                     WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
                     if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
-                    bash -c "$(n1_bg_cmd stop "$(n1_queue_session_id "$QUEUE" "$TICKET")")" >/dev/null 2>&1
+                    [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
                     ;;
                 blocked)
@@ -236,7 +253,7 @@ run_bg() {
                     [ "$OUTCOME" = "running" ] && OUTCOME="failed"
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                     ;;
-                *) finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" ;;
+                failed|*) finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" ;;
             esac
         done < <(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')
 
