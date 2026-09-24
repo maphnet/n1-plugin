@@ -269,6 +269,13 @@ test_notify_backends() {
     local rc=0; n1_notify info "x" || rc=$?
     assert_eq "notify: failing command is fail-open" "0" "$rc"
 
+    printf '{"queue":{"notify":"command","notifyCommand":"sleep 30"}}' > "$TEST_CONFIG"
+    local start end elapsed
+    start=$(date +%s); rc=0; n1_notify info "x" || rc=$?; end=$(date +%s)
+    elapsed=$((end - start))
+    assert_eq "notify: hanging command is fail-open" "0" "$rc"
+    assert_eq "notify: hanging command bounded by timeout" "yes" "$([ "$elapsed" -lt 20 ] && echo yes || echo no)"
+
     printf '{"queue":{"notify":"none","notifyCommand":"cat >> %s/none"}}' "$tmp" > "$TEST_CONFIG"
     n1_notify info "x"
     assert_eq "notify: none is a no-op" "no" "$([ -f "$tmp/none" ] && echo yes || echo no)"
