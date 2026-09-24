@@ -313,6 +313,33 @@ n1_queue_escalation_text() {
 }
 
 
+n1_queue_digest() {
+    # Usage: n1_queue_digest <n1-home> — one status line for the queue active in the last 24h,
+    # preferring one with a ticket that needs you; prints nothing when none qualifies.
+    # Reads only <n1-home>/queue/*/events.jsonl (latest run per queue, latest event per ticket);
+    # non-JSON lines are skipped.
+    local f
+    for f in "$1"/queue/*/events.jsonl; do [ -f "$f" ] && cat "$f"; done 2>/dev/null | jq -nrR '
+        [inputs | fromjson? | objects] | group_by(.queue) | map(
+            .[-1] as $end
+            | ([.[] | select(.run_id == $end.run_id and .ticket != "")] | group_by(.ticket) | map(.[-1])) as $t
+            | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
+            | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
+            | ([$t[] | select(.event == "ticket_finished" and .outcome == "failed")] | length) as $failed
+            | ([$t[] | select(.event == "ticket_started" or .event == "unblocked") | .ticket]) as $running
+            | {needs: ($needs | length), ts: $end.ts,
+               line: ("Queue \($end.queue): " + ([
+                   (if $pr > 0 then "\($pr) PR" else empty end),
+                   (if ($needs | length) > 0 then "\($needs | length) needs you (\($needs | join(", ")))" else empty end),
+                   (if $failed > 0 then "\($failed) failed" else empty end),
+                   (if ($running | length) > 0 then "running \($running | join(", "))" else empty end),
+                   (if $end.event == "queue_done" then "done" elif $end.event == "halted" then "halted" else empty end)
+               ] | if length == 0 then ["started"] else . end | join(", ")))})
+        | map(select(.ts >= (now - 86400 | todate)))
+        | sort_by([(.needs > 0), .ts]) | last | .line // empty' 2>/dev/null
+    return 0
+}
+
 n1_notify() {
     # Usage: n1_notify <needs-you|done|info> <text> — best-effort out-of-session alert.
     # Backend from queue.notify: desktop (default) | ntfy (queue.ntfyTopic) | command

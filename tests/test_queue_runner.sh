@@ -776,6 +776,35 @@ EOF
     assert_eq "decision_counts: 2 plan 3 auto 1 esc" "$(printf '2\t3\t1')" "$out"
 }
 
+# --- n1_queue_digest ---------------------------------------------------------
+test_queue_digest() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    assert_eq "digest: no queues -> nothing" "" "$(n1_queue_digest "$tmp")"
+    mkdir -p "$tmp/queue/q1" "$tmp/queue/q2" "$tmp/queue/q3"
+    local e1="$tmp/queue/q1/events.jsonl" e2="$tmp/queue/q2/events.jsonl"
+    # q2: an older failed run is ignored; the latest run finished with one PR
+    n1_queue_event "$e2" q2 R0 ticket_finished ticket=T-8 outcome=failed
+    n1_queue_event "$e2" q2 R1 queue_started
+    n1_queue_event "$e2" q2 R1 ticket_started ticket=T-9
+    n1_queue_event "$e2" q2 R1 ticket_finished ticket=T-9 outcome=pr
+    n1_queue_event "$e2" q2 R1 queue_done reason="1 PR / 0 awaiting / 0 failed"
+    assert_eq "digest: finished queue" "Queue q2: 1 PR, done" "$(n1_queue_digest "$tmp")"
+    # q1: running, one needs you; wins over q2; a corrupt line is tolerated
+    n1_queue_event "$e1" q1 R1 queue_started
+    n1_queue_event "$e1" q1 R1 ticket_started ticket=T-1
+    n1_queue_event "$e1" q1 R1 ticket_finished ticket=T-1 outcome=pr
+    n1_queue_event "$e1" q1 R1 ticket_started ticket=T-2
+    echo 'not json {' >> "$e1"
+    n1_queue_event "$e1" q1 R1 escalated ticket=T-2
+    n1_queue_event "$e1" q1 R1 ticket_started ticket=T-3
+    assert_eq "digest: needs-you queue preferred" "Queue q1: 1 PR, 1 needs you (T-2), running T-3" "$(n1_queue_digest "$tmp")"
+    # q3: stale (older than 24h) never shows, even with an escalation
+    rm -rf "$tmp/queue/q1" "$tmp/queue/q2"
+    printf '{"ts":"2020-01-01T00:00:00Z","queue":"q3","run_id":"R1","event":"escalated","ticket":"T-5","outcome":"","pr":"","session":"","duration_s":null,"reason":""}\n' \
+        > "$tmp/queue/q3/events.jsonl"
+    assert_eq "digest: stale queue hidden" "" "$(n1_queue_digest "$tmp")"
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
@@ -784,6 +813,7 @@ test_row_status
 test_pending_rows
 test_bg_helpers
 test_decision_counts
+test_queue_digest
 test_queue_event
 test_escalation_text
 test_desktop_notify

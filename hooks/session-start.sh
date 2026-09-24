@@ -377,6 +377,16 @@ ${directive}"
     fi
 fi
 
+# --- Queue digest (fail-open; local events.jsonl only — no network, no LLM) ---
+if [ -n "$n1_root" ] && [ -d "${n1_root}/queue" ]; then
+    queue_line=$( source "${SCRIPT_DIR}/../lib/queue.sh" && n1_queue_digest "$n1_root" ) 2>/dev/null || queue_line=""
+    if [ -n "$queue_line" ]; then
+        context="${context}
+
+N1 QUEUE STATUS: ${queue_line}
+Mention this to the user when relevant (details: /n1:n1-queue --status). Do not act without being asked."
+    fi
+fi
 
 escaped_context=$(escape_json_val "$context")
 
