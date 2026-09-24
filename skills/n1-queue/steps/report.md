@@ -27,6 +27,16 @@ n1_queue_awaiting_hints "$QUEUE_FILE"
 ```
 - The full transition history (starts, escalations, outcomes with wall-clock durations, halts) is in `<queue-dir>/events.jsonl`, one JSON object per line. Read it when the Plan table alone does not explain what happened.
 
+Print a merged status table (deterministic; print its output verbatim, no reformatting):
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+source "$N1_ROOT/lib/frontmatter.sh"
+QUEUE_DIR=$(dirname "$QUEUE_FILE")
+printf 'Ticket\tState\tStep\tElapsed\tCost\tPR\tAttach\n'
+n1_queue_status_table "$QUEUE_FILE" "$QUEUE_DIR/events.jsonl"
+```
+
 After printing the Plan table, compute and print decision counts, then write `telemetry.json`:
 
 ```bash
