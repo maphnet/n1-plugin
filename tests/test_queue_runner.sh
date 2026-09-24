@@ -139,6 +139,55 @@ EOF
 }
 
 
+# --- Background-session helpers ----------------------------------------------
+test_bg_helpers() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+
+    assert_eq "launch: session id" "a1b2c3d4" \
+        "$(n1_queue_parse_launch $'Starting session\nbackgrounded \xc2\xb7 a1b2c3d4 \xc2\xb7 n1-q-T-1-1')"
+    assert_eq "launch: disclaimer" "bypass-permissions-disclaimer" \
+        "$(n1_queue_parse_launch 'Accept the disclaimer first: run claude --dangerously-skip-permissions')"
+    assert_eq "launch: generic failure" "bg-launch-failed" \
+        "$(n1_queue_parse_launch 'error: unknown option --bg')"
+
+    local j='{"agents":[{"name":"a","state":"working"},{"name":"b","state":"blocked","waitingFor":"input"},{"name":"c","state":"done"},{"name":"d","state":"stopped"},{"name":"e","state":"failed"}]}'
+    assert_eq "bgstate: working" "working" "$(n1_queue_bg_state "$j" a)"
+    assert_eq "bgstate: blocked" "blocked" "$(n1_queue_bg_state "$j" b)"
+    assert_eq "bgstate: done" "done" "$(n1_queue_bg_state "$j" c)"
+    assert_eq "bgstate: stopped -> failed" "failed" "$(n1_queue_bg_state "$j" d)"
+    assert_eq "bgstate: failed" "failed" "$(n1_queue_bg_state "$j" e)"
+    assert_eq "bgstate: missing -> failed" "failed" "$(n1_queue_bg_state "$j" zz)"
+    assert_eq "bgstate: bare array" "blocked" "$(n1_queue_bg_state '[{"name":"a","state":"blocked"}]' a)"
+
+    local cc cx
+    cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    assert_eq "child_cmd: claude-code bg launch" "yes" "$(case "$cc" in "cd /r && claude --bg --name n1-q-T-1-1 --model sonnet --permission-mode bypassPermissions --settings "*bgIsolation*"/n1:n1-start\ T-1"*) echo yes ;; *) echo "no: $cc" ;; esac)"
+    cx=$(unset N1_QUEUE_CHILD_STUB; N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
+    assert_eq "child_cmd: codex unchanged" "yes" "$(case "$cx" in *'N1_QUEUE_RUN_ID="RUN1"'*"codex exec"*) case "$cx" in *--bg*) echo no ;; *) echo yes ;; esac ;; *) echo "no: $cx" ;; esac)"
+
+    cat > "$tmp/q.md" <<'EOF'
+---
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | /h | sonnet | pr | |
+| 2 | T-2 | B | /r | /h | sonnet | awaiting-human | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+| T-1 | s | | pr | u | 00000001 |
+| T-2 | s | | | | 0000abcd |
+EOF
+    assert_eq "session_id: last Runs row" "0000abcd" "$(n1_queue_session_id "$tmp/q.md" T-2)"
+    assert_eq "session_id: unknown ticket" "" "$(n1_queue_session_id "$tmp/q.md" T-9)"
+    assert_eq "rows: status filter + status field" "2	T-2	/r	/h	sonnet	awaiting-human" \
+        "$(n1_queue_pending_rows "$tmp/q.md" 'awaiting-human')"
+    assert_eq "awaiting hints" "T-2: claude attach 0000abcd" "$(n1_queue_awaiting_hints "$tmp/q.md")"
+}
+
 # --- Integration: runner -----------------------------------------------------
 test_runner_three_strikes() {
     local tmp; tmp=$(mktemp -d)
@@ -358,6 +407,7 @@ test_pick_model
 test_child_status
 test_row_status
 test_pending_rows
+test_bg_helpers
 test_decision_counts
 test_runner_three_strikes
 test_runner_all_pr

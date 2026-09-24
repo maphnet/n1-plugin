@@ -152,12 +152,21 @@ n1_queue_child_pr_url() {
 }
 
 n1_queue_child_cmd() {
-    # Usage: n1_queue_child_cmd <repoPath> <ticket-id> <model> <run-id> <log-path>
-    # Like n1_story_child_cmd but with queue-specific env vars.
-    # Test hook: when N1_QUEUE_CHILD_STUB is set, the command is "$N1_QUEUE_CHILD_STUB" <ticket> <overview-path>.
-    local repo="$1" id="$2" model="$3" run_id="$4" log="$5"
+    # Usage: n1_queue_child_cmd <repoPath> <ticket-id> <model> <run-id> <log-path> [session-name]
+    # codex: synchronous headless child writing <log-path>.
+    # claude-code: background-session launch named <session-name>; stdout carries the
+    # session id (see n1_queue_parse_launch). <log-path> is unused there.
+    # Test hook: when N1_QUEUE_CHILD_STUB is set, the command is "$N1_QUEUE_CHILD_STUB" <ticket>.
+    local repo="$1" id="$2" model="$3" run_id="$4" log="$5" name="${6:-}"
     if [ -n "${N1_QUEUE_CHILD_STUB:-}" ]; then
         printf '"%s" "%s"' "$N1_QUEUE_CHILD_STUB" "$id"
+        return
+    fi
+    if [ "$(n1_host)" = claude-code ]; then
+        local settings
+        settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" \
+            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_STOP_AT:"ci",N1_QUEUE_RUN_ID:$run,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent},worktree:{bgIsolation:"none"}}')
+        n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
         return
     fi
     printf 'cd "%s" && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STOP_AT=ci N1_QUEUE_RUN_ID="%s" %s' \
@@ -181,16 +190,17 @@ n1_queue_row_status() {
 }
 
 n1_queue_pending_rows() {
-    # Usage: n1_queue_pending_rows <queue.md>
-    # Prints: #<TAB>Ticket<TAB>Repo<TAB>N1 Home<TAB>Model for rows with Status "pending".
-    local file="$1"
-    awk -F'|' '
+    # Usage: n1_queue_pending_rows <queue.md> [status-regex]
+    # Prints: #<TAB>Ticket<TAB>Repo<TAB>N1 Home<TAB>Model<TAB>Status for Plan rows whose
+    # Status matches <status-regex> (anchored; default "pending").
+    local file="$1" re="${2:-pending}"
+    awk -F'|' -v re="$re" '
     {
         for (i = 1; i <= NF; i++) {
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
         }
-        if ($8 == "pending" && $2 ~ /^[0-9]+$/) {
-            printf "%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7
+        if ($8 ~ ("^(" re ")$") && $2 ~ /^[0-9]+$/) {
+            printf "%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7, $8
         }
     }' "$file"
 }
@@ -214,5 +224,55 @@ n1_queue_decision_counts() {
         fi
     done < <(awk -F'|' '{for(i=1;i<=NF;i++) gsub(/^[[:space:]]+|[[:space:]]+$/,"",$i); if($2~/^[0-9]+$/ && NF>=9) printf "%s\t%s\t%s\n",$3,$6,$8}' "$file")
     printf '%s\t%s\t%s\n' "$plan_decisions" "$auto_decisions" "$escalations"
+}
+
+n1_queue_parse_launch() {
+    # Usage: n1_queue_parse_launch <launch-output>
+    # Prints the session id from "backgrounded · <id> · <name>" (exit 0). Otherwise prints a
+    # failure reason (exit 1): bypass-permissions-disclaimer when the output asks for the
+    # one-time interactive consent, bg-launch-failed for anything else.
+    local id
+    id=$(printf '%s\n' "$1" | sed -n 's/.*backgrounded[^0-9a-f]*\([0-9a-f]\{8\}\).*/\1/p' | head -1)
+    if [ -n "$id" ]; then printf '%s' "$id"; return 0; fi
+    # ponytail: consent detection is a keyword match; tighten once a real refusal message is captured.
+    if printf '%s' "$1" | grep -qiE 'dangerously-skip-permissions|disclaimer'; then
+        printf 'bypass-permissions-disclaimer'
+    else
+        printf 'bg-launch-failed'
+    fi
+    return 1
+}
+
+n1_queue_bg_state() {
+    # Usage: n1_queue_bg_state <agents-json> <session-name>
+    # Prints working | blocked | done | failed for the session with that name in the
+    # background-session list. failed, stopped, unknown and missing all map to failed.
+    local st
+    st=$(printf '%s' "$1" | jq -r --arg n "$2" '[.. | objects | select(.name? == $n)][0].state // "missing"' 2>/dev/null)
+    case "$st" in
+        working|blocked|done) printf '%s' "$st" ;;
+        *) printf 'failed' ;;
+    esac
+}
+
+n1_queue_session_id() {
+    # Usage: n1_queue_session_id <queue.md> <ticket> — Session cell of the ticket's last Runs row.
+    awk -F'|' -v tk="$2" '
+        /^## Runs/ { f = 1; next }
+        f {
+            t = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", t)
+            if (t == tk) { s = $7; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); id = s }
+        }
+        END { print id }' "$1"
+}
+
+n1_queue_awaiting_hints() {
+    # Usage: n1_queue_awaiting_hints <queue.md>
+    # Prints "<ticket>: <resume command>" for each Plan row waiting on a human answer.
+    local file="$1" t sid
+    while IFS=$'\t' read -r _ t _ _ _ _; do
+        sid=$(n1_queue_session_id "$file" "$t")
+        if [ -n "$sid" ]; then printf '%s: %s\n' "$t" "$(n1_bg_cmd attach "$sid")"; fi
+    done < <(n1_queue_pending_rows "$file" 'awaiting-human')
 }
 

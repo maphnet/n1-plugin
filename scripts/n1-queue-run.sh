@@ -38,7 +38,7 @@ while true; do
     ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
     [ -n "$ROW" ] || break
 
-    IFS=$'\t' read -r NUM TICKET REPO N1H MODEL <<< "$ROW"
+    IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$ROW"
 
     # Write-ahead: mark in-progress
     n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
