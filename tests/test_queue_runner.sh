@@ -316,6 +316,7 @@ WEOF
     chmod +x "$tmp/wrapper.sh"
 
     mkdir -p "$tmp/n1home/memory"
+    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
 
     cat > "$tmp/queue.md" <<'EOF'
 ---
@@ -374,6 +375,19 @@ EOF
     local halted_msg; halted_msg=$(grep -c "HALTED" "$tmp/output.txt" || true)
     assert_eq "runner: HALTED message printed" "1" "$halted_msg"
 
+    assert_eq "events-3s: sequence" \
+        "queue_started,ticket_started,ticket_finished,ticket_started,escalated,ticket_finished,ticket_started,ticket_finished,ticket_started,ticket_finished,halted" \
+        "$(jq -r .event "$tmp/events.jsonl" | paste -sd, -)"
+    assert_eq "events-3s: outcomes" "pr,escalated,deferred,failed" \
+        "$(jq -r 'select(.event=="ticket_finished") | .outcome' "$tmp/events.jsonl" | paste -sd, -)"
+    assert_eq "events-3s: escalation text" "blocked" \
+        "$(jq -r 'select(.event=="escalated") | .reason' "$tmp/events.jsonl")"
+    assert_eq "events-3s: uniform schema" "true" "$(jq -s 'all(keys | length == 10)' "$tmp/events.jsonl")"
+    assert_eq "notify-3s: needs-you (esc), info (final fail), needs-you (halt); none for pr/deferred" \
+        "needs-you,info,needs-you" "$(jq -r .kind "$tmp/notes" | paste -sd, -)"
+    assert_eq "notify-3s: halt text" "yes" \
+        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -q '^Queue test-q halted: ' && echo yes || echo no)"
+
     unset N1_QUEUE_CHILD_STUB
     rm -rf "$tmp"
 }
@@ -384,6 +398,7 @@ test_runner_all_pr() {
     cat > "$tmp/stub.sh" <<'STUBEOF'
 #!/usr/bin/env bash
 TICKET="$1"
+sleep 1
 mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
 printf -- '---\nstep: pr\n---\n# T\n\n## Pending\nawaiting: merge\npr_url: https://x/pr/42\n' > "$N1_QUEUE_OVERVIEW"
 exit 0
@@ -399,6 +414,7 @@ WEOF
     chmod +x "$tmp/wrapper.sh"
 
     mkdir -p "$tmp/n1home/memory"
+    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
 
     cat > "$tmp/queue.md" <<'EOF'
 ---
@@ -432,6 +448,17 @@ EOF
     local pid; pid=$(n1_read_frontmatter "$tmp/queue.md" pid)
     assert_eq "runner-allpr: pid removed" "" "$pid"
 
+    assert_eq "events-allpr: sequence" "queue_started,ticket_started,ticket_finished,ticket_started,ticket_finished,queue_done" \
+        "$(jq -r .event "$tmp/events.jsonl" | paste -sd, -)"
+    assert_eq "events-allpr: pr url" "https://x/pr/42" \
+        "$(jq -r 'select(.event=="ticket_finished") | .pr' "$tmp/events.jsonl" | head -1)"
+    assert_eq "events-allpr: runner wall-clock duration >= 1s" "true" \
+        "$(jq -s '[.[] | select(.event=="ticket_finished") | .duration_s >= 1] | all' "$tmp/events.jsonl")"
+    assert_eq "events-allpr: queue_done digest" "2 PR / 0 awaiting / 0 failed" \
+        "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
+    assert_eq "notify-allpr: exactly one done, no per-PR notify" "done|Queue test-q2: 2 PR / 0 awaiting / 0 failed" \
+        "$(jq -r '.kind + "|" + .text' "$tmp/notes" | paste -sd, -)"
+
     unset N1_QUEUE_CHILD_STUB
     rm -rf "$tmp"
 }
@@ -441,6 +468,7 @@ EOF
 test_runner_codex_host() {
     local tmp; tmp=$(mktemp -d)
     mkdir -p "$tmp/bin" "$tmp/n1home/memory"
+    echo '{"queue":{"notify":"none"}}' > "$tmp/n1home/config.json"
     cat > "$tmp/bin/codex" <<'EOF'
 #!/usr/bin/env bash
 for a; do last="$a"; done
@@ -536,7 +564,7 @@ esac
 FAKEEOF
     printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
     chmod +x "$tmp/bin/claude" "$tmp/bin/sleep"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1}}' > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
     {
         printf -- '---\nstep: plan\nqueue_id: %s\nhost: claude-code\n---\n## Plan\n' "$qid"
         printf '| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
@@ -601,6 +629,13 @@ test_bg_awaiting() {
     assert_eq "bg-await: T-B pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
     assert_eq "bg-await: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
     assert_eq "bg-await: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "events-await: T-A lifecycle" "ticket_started,escalated,unblocked,ticket_finished" \
+        "$(jq -r 'select(.ticket=="T-A") | .event' "$tmp/events.jsonl" | paste -sd, -)"
+    assert_eq "events-await: session on ticket_started" "00000001" \
+        "$(jq -r 'select(.ticket=="T-A" and .event=="ticket_started") | .session' "$tmp/events.jsonl")"
+    assert_eq "notify-await: needs-you then done" "needs-you,done" "$(jq -r .kind "$tmp/notes" | paste -sd, -)"
+    assert_eq "notify-await: attach hint" "yes" \
+        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF '(resume: claude attach 00000001)' && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
@@ -614,6 +649,8 @@ test_bg_awaiting_timeout() {
     assert_eq "bg-await-to: session not stopped" "no" "$([ -f "$tmp/fake/stopped" ] && echo yes || echo no)"
     assert_eq "bg-await-to: single launch" "1" "$(grep -c '^launch' "$tmp/fake/events" || true)"
     assert_eq "bg-await-to: resume hint" "T-A: claude attach 00000001" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
+    assert_eq "events-await-to: digest counts awaiting" "0 PR / 1 awaiting / 0 failed" \
+        "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
     rm -rf "$tmp"
 }
 
@@ -635,7 +672,7 @@ test_bg_missing_grace() {
     mk_bg "$tmp" bgq
     # subtaskTimeoutMinutes large enough that the working-timeout path never preempts
     # the missing-session grace (BG_POLL_GRACE=10 polls) below.
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":600}}' > "$tmp/n1home/config.json"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":600,"notify":"none"}}' > "$tmp/n1home/config.json"
     # The defer-once retry (row 2) launches for real; give it a states file so it
     # resolves immediately instead of chaining another grace period.
     printf 'done\n' > "$tmp/fake/states.T-X"
@@ -674,6 +711,8 @@ test_bg_disclaimer() {
     assert_eq "bg-disc: row 2 untouched" "pending" "$(plan_cell "$tmp/queue.md" 2 8)"
     assert_eq "bg-disc: single launch attempt" "1" "$(grep -c '^launch' "$tmp/fake/events" || true)"
     assert_eq "bg-disc: fix hint printed" "yes" "$(grep -q 'dangerously-skip-permissions' "$tmp/output.txt" && echo yes || echo no)"
+    assert_eq "events-disc: halted recorded" "halted" "$(jq -r .event "$tmp/events.jsonl" | tail -1)"
+    assert_eq "notify-disc: one needs-you" "needs-you" "$(jq -r .kind "$tmp/notes" | paste -sd, -)"
     rm -rf "$tmp"
 }
 
