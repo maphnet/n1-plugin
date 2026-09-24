@@ -237,6 +237,52 @@ test_escalation_text() {
     assert_eq "esc-text: missing file" "" "$(n1_queue_escalation_text "$tmp/none.md")"
 }
 
+# --- n1_desktop_notify / n1_notify -------------------------------------------
+test_desktop_notify() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mkdir -p "$tmp/bin"; ln -s "$(command -v timeout)" "$tmp/bin/timeout"
+    printf '#!/bin/sh\nexit 1\n' > "$tmp/bin/notify-send"            # present but broken
+    printf '#!/bin/sh\necho "$@" > "%s/osa"\n' "$tmp" > "$tmp/bin/osascript"
+    chmod +x "$tmp/bin/notify-send" "$tmp/bin/osascript"
+    local rc=0; ( PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
+    assert_eq "desktop: falls through broken backend" "0" "$rc"
+    assert_eq "desktop: osascript used" "yes" "$([ -f "$tmp/osa" ] && echo yes || echo no)"
+    rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
+    rc=0; ( PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
+    assert_eq "desktop: none available -> 1" "1" "$rc"
+}
+
+test_notify_backends() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    local TEST_CONFIG="$tmp/config.json"
+    n1_config_file() { echo "$TEST_CONFIG"; }
+
+    assert_eq "notify: default backend desktop" "desktop" "$(n1_queue_val notify)"
+
+    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}' "$tmp" > "$TEST_CONFIG"
+    n1_notify needs-you "T-1 needs you"
+    n1_notify done "Queue q: 1 PR / 0 awaiting / 0 failed"
+    assert_eq "notify: command gets JSON on stdin" "needs-you|T-1 needs you" "$(head -1 "$tmp/notes" | jq -r '.kind + "|" + .text')"
+    assert_eq "notify: one line per call" "2" "$(wc -l < "$tmp/notes" | tr -d ' ')"
+
+    printf '{"queue":{"notify":"command","notifyCommand":"exit 7"}}' > "$TEST_CONFIG"
+    local rc=0; n1_notify info "x" || rc=$?
+    assert_eq "notify: failing command is fail-open" "0" "$rc"
+
+    printf '{"queue":{"notify":"none","notifyCommand":"cat >> %s/none"}}' "$tmp" > "$TEST_CONFIG"
+    n1_notify info "x"
+    assert_eq "notify: none is a no-op" "no" "$([ -f "$tmp/none" ] && echo yes || echo no)"
+
+    # desktop with no notifier on PATH: skip line on stderr, rc 0
+    mkdir -p "$tmp/bin"; local c
+    for c in jq timeout date; do ln -s "$(command -v "$c")" "$tmp/bin/$c"; done
+    printf '{"queue":{"notify":"desktop"}}' > "$TEST_CONFIG"
+    rc=0; ( PATH="$tmp/bin"; n1_notify needs-you "T-2 needs you" ) 2> "$tmp/err" || rc=$?
+    assert_eq "notify: desktop skip rc 0" "0" "$rc"
+    assert_eq "notify: desktop skip logged" "yes" "$(grep -q 'no desktop notifier available; skipped (needs-you: T-2 needs you)' "$tmp/err" && echo yes || echo no)"
+    unset -f n1_config_file
+}
+
 # --- Integration: runner -----------------------------------------------------
 test_runner_three_strikes() {
     local tmp; tmp=$(mktemp -d)
@@ -701,6 +747,8 @@ test_bg_helpers
 test_decision_counts
 test_queue_event
 test_escalation_text
+test_desktop_notify
+test_notify_backends
 test_runner_three_strikes
 test_runner_all_pr
 test_runner_codex_host

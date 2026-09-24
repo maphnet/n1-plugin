@@ -130,6 +130,27 @@ n1_bg_cmd() {
     esac
 }
 
+n1_desktop_notify() {
+    # Usage: n1_desktop_notify <title> <body> — first desktop notifier that actually runs wins
+    # (on PATH is not enough: WSL interop can be present but disabled). Returns 1 if none works.
+    local t="$1" b="$2"
+    if command -v notify-send >/dev/null 2>&1 && timeout 10 notify-send "$t" "$b" >/dev/null 2>&1; then return 0; fi
+    if command -v osascript >/dev/null 2>&1 && timeout 10 osascript \
+        -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' \
+        "$t" "$b" >/dev/null 2>&1; then return 0; fi
+    if command -v powershell.exe >/dev/null 2>&1 && N1_NT="$t" N1_NB="$b" WSLENV="N1_NT:N1_NB${WSLENV:+:$WSLENV}" \
+        timeout 10 powershell.exe -NoProfile -NonInteractive -Command '
+            [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+            $x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+            $n = $x.GetElementsByTagName("text")
+            $n.Item(0).AppendChild($x.CreateTextNode($env:N1_NT)) > $null
+            $n.Item(1).AppendChild($x.CreateTextNode($env:N1_NB)) > $null
+            $app = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe"
+            [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show([Windows.UI.Notifications.ToastNotification]::new($x))
+        ' >/dev/null 2>&1; then return 0; fi
+    return 1
+}
+
 n1_hook_field() {
     # Usage: printf '%s' "$PAYLOAD" | n1_hook_field <name> — top-level string field or empty.
     # Field names are identical on both hosts, so one path serves both.

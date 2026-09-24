@@ -312,3 +312,28 @@ n1_queue_escalation_text() {
     awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF {sub(/^[-*][[:space:]]*/,""); print; exit}' "$1"
 }
 
+
+n1_notify() {
+    # Usage: n1_notify <needs-you|done|info> <text> — best-effort out-of-session alert.
+    # Backend from queue.notify: desktop (default) | ntfy (queue.ntfyTopic) | command
+    # (queue.notifyCommand gets {"ts","kind","text"} on stdin) | none. Never fails the caller.
+    local kind="$1" text="$2" title="N1 queue: $1" backend val
+    backend=$(n1_queue_val notify)
+    case "${backend:-desktop}" in
+        none) ;;
+        command)
+            val=$(n1_queue_val notifyCommand)
+            [ -z "$val" ] || jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg kind "$kind" --arg text "$text" \
+                '{ts:$ts,kind:$kind,text:$text}' 2>/dev/null | timeout 10 bash -c "$val" >/dev/null 2>&1 ;;
+        ntfy)
+            val=$(n1_queue_val ntfyTopic)
+            case "$val" in ""|*://*) ;; *) val="https://ntfy.sh/$val" ;; esac
+            [ -z "$val" ] || timeout 10 curl -fsS -H "Title: $title" \
+                -H "Priority: $([ "$kind" = needs-you ] && echo high || echo default)" \
+                -d "$text" "$val" >/dev/null 2>&1 ;;
+        *)
+            n1_desktop_notify "$title" "$text" \
+                || echo "n1_notify: no desktop notifier available; skipped ($kind: $text)" >&2 ;;
+    esac
+    return 0
+}
