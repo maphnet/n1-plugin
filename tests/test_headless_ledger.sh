@@ -156,6 +156,24 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 16 (TQ-1): blocked-status snippet prints BLOCKED_STATUS to output
+# ---------------------------------------------------------------------------
+if grep -q "printf 'BLOCKED_STATUS=" "$HEADLESS_FILE"; then
+    pass "T16: blocked-status snippet prints BLOCKED_STATUS"
+else
+    fail "T16: blocked-status snippet does not print BLOCKED_STATUS"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 17 (TQ-1): ask-mode ledger snippet defines OVERVIEW before appending
+# ---------------------------------------------------------------------------
+if grep -B5 '\[asked\]' "$HEADLESS_FILE" | grep -q 'OVERVIEW="\$N1_HOME/memory/\$ID/overview.md"'; then
+    pass "T17: ask-mode ledger snippet defines OVERVIEW before appending"
+else
+    fail "T17: ask-mode ledger snippet missing OVERVIEW definition"
+fi
+
+# ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
 echo ""

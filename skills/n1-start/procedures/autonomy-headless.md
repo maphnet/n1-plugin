@@ -48,8 +48,9 @@ Then continue the run — do not escalate, do not end.
    source ~/.n1/preamble.sh
    BLOCKED_STATUS=$(n1_config_val '.tracker.statuses.blocked')
    TRACKER_TYPE=$(n1_config_val '.tracker.type')
+   printf 'BLOCKED_STATUS=%s\nTRACKER_TYPE=%s\n' "$BLOCKED_STATUS" "$TRACKER_TYPE"
    ```
-   - If `BLOCKED_STATUS` is empty: outcome is `skipped:no-blocked-status`; do not move.
+   - Read `BLOCKED_STATUS=` from the command output above (never from memory or config recall); if it is empty: outcome is `skipped:no-blocked-status`; do not move.
    - Otherwise the move is **mandatory** (not best-effort — this differs from the comment below): on Jira, call `mcp__<tracker.mcp>__<operations.getTransitions>` first to find the transition ID targeting `BLOCKED_STATUS`, then call `mcp__<tracker.mcp>__<operations.moveStatus>`; on other trackers call `moveStatus` directly with `BLOCKED_STATUS`. Do not overwrite the existing `original_status` frontmatter. Outcome is `moved` on success, `failed:<error>` on any tool-call error.
 2. Append to `## Escalations` in `$N1_HOME/memory/$ID/overview.md`, including the resolved outcome:
    ```bash
@@ -81,7 +82,10 @@ Then continue the run — do not escalate, do not end.
    c. On answer **"Stop this ticket"**: run the same exit steps as the non-ask branch above (`step: escalated`, telemetry failure path, end run). The ticket stays in the blocked status; a human re-runs `/n1:n1-start <ID>` manually later.
    d. On any other answer: move the ticket via `moveStatus` to `n1_config_val '.tracker.statuses.inProgress'` (skip the move if that status is unset; do not touch `original_status` frontmatter). Append a Decision Ledger row:
       ```bash
-      printf '| %s | headless | %s | [asked] | %s | %s | %s | headless: ask-mode answer | codebase,web |\n' "$STEP" "$TIER" "$QUESTION" "$ANSWER" "$ALTERNATIVES" >> "$OVERVIEW"
+      source ~/.n1/preamble.sh
+      OVERVIEW="$N1_HOME/memory/$ID/overview.md"
+      grep -q '^## Decision Ledger' "$OVERVIEW" 2>/dev/null || printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$OVERVIEW"
+      printf '| %s | headless | %s | [asked] | %s | %s | %s | headless: ask-mode answer | --- |\n' "$STEP" "$TIER" "$QUESTION" "$ANSWER" "$ALTERNATIVES" >> "$OVERVIEW"
       ```
       Then continue the current step with the chosen answer. `step:` frontmatter is unchanged, so this is a normal in-step continuation, not a resume.
 
