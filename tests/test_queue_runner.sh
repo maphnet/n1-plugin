@@ -812,6 +812,138 @@ test_queue_digest() {
     assert_eq "digest: stale queue hidden" "" "$(n1_queue_digest "$tmp")"
 }
 
+test_fmt_elapsed() {
+    assert_eq "elapsed: sub-minute" "<1m" "$(n1_fmt_elapsed 30)"
+    assert_eq "elapsed: minutes" "5m" "$(n1_fmt_elapsed 300)"
+    assert_eq "elapsed: hours+minutes" "1h5m" "$(n1_fmt_elapsed 3900)"
+    assert_eq "elapsed: empty input" "" "$(n1_fmt_elapsed '')"
+    assert_eq "elapsed: non-numeric input" "" "$(n1_fmt_elapsed abc)"
+}
+
+# --- n1_queue_status_table ----------------------------------------------------
+mk_status_queue() { # <tmp> <host> — a 3-row queue.md + events.jsonl + overview.md fixture
+    local tmp="$1" host="$2"
+    mkdir -p "$tmp/h/memory/T-2" "$tmp/h/memory/T-4"
+    printf -- '---\nstep: review\n---\n' > "$tmp/h/memory/T-2/overview.md"
+    printf -- '---\nstep: escalated\n---\n\n## Escalations\n\n- [headless] qa: first blocker\n- [headless] implementation: second blocker\n' > "$tmp/h/memory/T-4/overview.md"
+    {
+        printf -- '---\nhost: %s\n---\n' "$host"
+        printf '## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
+        printf '| 1 | T-1 | A | /r | %s/h | sonnet | pr | |\n' "$tmp"
+        printf '| 2 | T-2 | B | /r | %s/h | sonnet | in-progress | |\n' "$tmp"
+        printf '| 3 | T-3 | C | /r | %s/h | sonnet | awaiting-human | |\n' "$tmp"
+        printf '| 4 | T-4 | D | /r | %s/h | sonnet | escalated | |\n' "$tmp"
+        printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n'
+        printf '| T-1 | 2020-01-01T00:00:00Z | | pr | https://x/pr/1 | 00000001 |\n'
+        printf '| T-2 | %s | | | | 0000abcd |\n' "$(date -u -d '-5 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-5M +%Y-%m-%dT%H:%M:%SZ)"
+        printf '| T-3 | %s | | | | 11112222 |\n' "$(date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)"
+        printf '| T-4 | 2020-01-01T00:00:00Z | | escalated | | |\n'
+    } > "$tmp/q.md"
+    printf '{"ts":"2020-01-01T00:01:00Z","queue":"q","run_id":"r","event":"ticket_finished","ticket":"T-1","outcome":"pr","pr":"https://x/pr/1","session":"00000001","duration_s":60,"reason":""}\n' \
+        > "$tmp/events.jsonl"
+}
+
+test_status_table_claude_code() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp" claude-code
+    mkdir -p "$tmp/bin"
+    cat > "$tmp/bin/claude" <<'FAKEEOF'
+#!/usr/bin/env bash
+case "$1" in
+    agents) echo '{"agents":[{"id":"0000abcd","state":"working"},{"id":"11112222","state":"blocked"}]}' ;;
+    attach) echo "attached $2" ;;
+esac
+FAKEEOF
+    chmod +x "$tmp/bin/claude"
+    local out
+    out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
+    assert_eq "status: T-1 terminal state" "pr" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $2}')"
+    assert_eq "status: T-1 elapsed from events.jsonl" "1m" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $4}')"
+    assert_eq "status: T-1 PR" "https://x/pr/1" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $6}')"
+    assert_eq "status: T-2 live-overridden state" "in-progress" "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $2}')"
+    assert_eq "status: T-2 step from overview.md" "review" "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $3}')"
+    assert_eq "status: T-3 awaiting-human" "awaiting-human" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $2}')"
+    assert_eq "status: T-3 attach command" "claude attach 11112222" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
+    assert_eq "status: T-4 escalated step from last headless Escalations line" "implementation" "$(echo "$out" | awk -F'\t' '$1=="T-4"{print $3}')"
+    assert_eq "status: cost always em dash" "4" "$(echo "$out" | awk -F'\t' '$5=="\xe2\x80\x94"' | wc -l | tr -d ' ')"
+}
+
+test_status_table_codex() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp" codex
+    # a `claude` that fails the test if invoked on the codex path
+    mkdir -p "$tmp/bin"
+    cat > "$tmp/bin/claude" <<'FAKEEOF'
+#!/usr/bin/env bash
+echo "claude should not be called on codex host" >&2
+exit 1
+FAKEEOF
+    chmod +x "$tmp/bin/claude"
+    local out; out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
+    assert_eq "status(codex): T-2 uses Plan status, no agents call" "in-progress" \
+        "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $2}')"
+    assert_eq "status(codex): T-3 no attach (no bg sessions)" "" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
+    assert_eq "status(codex): T-1 pr elapsed" "1m" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $4}')"
+}
+
+test_escalated_step_fallback() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    printf -- '---\nstep: escalated\n---\n\n## Escalations\n\n- no headless prefix here\n' > "$tmp/o.md"
+    assert_eq "escalated step: falls back when no headless line" "escalated" \
+        "$(_n1_queue_escalated_step "$tmp/o.md")"
+}
+
+test_status_table_pre_np197_fixture() {
+    # copy of a real pre-NP-197 queue.md (no `host` frontmatter, no Session column
+    # in Runs); events.jsonl absent — must degrade to Plan status without crashing
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    cat > "$tmp/queue.md" <<'FIXTUREEOF'
+---
+queue_id: n1-auto
+mode: tag
+story_id:
+step: done
+started: 2026-09-23T19:59:00Z
+run_id: 20260923T195909Z
+---
+# Queue n1-auto
+
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | TP-6 | Add short_url field to link responses | /home/maphsky/dev/test-project | /home/maphsky/.n1/test-project | sonnet | pr | |
+| 2 | TP-7 | Replace X-API-Key header auth with hashed Bearer tokens | /home/maphsky/dev/test-project | /home/maphsky/.n1/test-project | sonnet | pr | |
+| 3 | TP-8 | Generated slugs must be 8 characters long | /home/maphsky/dev/test-project | /home/maphsky/.n1/test-project | sonnet | deferred | |
+| 4 | TP-8 | Generated slugs must be 8 characters long | /home/maphsky/dev/test-project | /home/maphsky/.n1/test-project | sonnet | escalated | deferred-retry |
+
+## Excluded
+| Ticket | Reason |
+|--------|--------|
+| TP-9 | blocked by TP-6 |
+| TP-10 | story: run with --story TP-10 |
+
+## Decision Ledger
+| Step | Decision | Detail |
+|------|----------|--------|
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR |
+|--------|---------|------|---------|----|
+| TP-6 | 2026-09-23T19:59:09Z | 0 | pr | https://github.com/maphnet/test-project/pull/3 |
+| TP-7 | 2026-09-23T20:21:28Z | 0 | pr | https://github.com/maphnet/test-project/pull/4 |
+| TP-8 | 2026-09-23T20:51:22Z | 0 | failed |  |
+| TP-8 | 2026-09-23T20:53:57Z | 0 | escalated |  |
+FIXTUREEOF
+    chmod 444 "$tmp/queue.md"
+    local out rc=0
+    out=$(N1_HOST=codex n1_queue_status_table "$tmp/queue.md" "$tmp/nonexistent-events.jsonl") || rc=$?
+    assert_eq "pre-NP-197 fixture: exits 0" "0" "$rc"
+    assert_eq "pre-NP-197 fixture: TP-6 status from Plan" "pr" \
+        "$(echo "$out" | awk -F'\t' '$1=="TP-6"{print $2}')"
+    assert_eq "pre-NP-197 fixture: TP-6 PR from Runs" "https://github.com/maphnet/test-project/pull/3" \
+        "$(echo "$out" | awk -F'\t' '$1=="TP-6"{print $6}')"
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
@@ -821,6 +953,11 @@ test_pending_rows
 test_bg_helpers
 test_decision_counts
 test_queue_digest
+test_fmt_elapsed
+test_status_table_pre_np197_fixture
+test_status_table_claude_code
+test_status_table_codex
+test_escalated_step_fallback
 test_queue_event
 test_escalation_text
 test_desktop_notify

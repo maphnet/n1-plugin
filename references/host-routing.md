@@ -24,6 +24,7 @@ changes syntax; skills never name host tools directly (enforced by
 | persona definitions | `agents/<name>.md` shipped in the plugin | `.codex/agents/n1-<name>.toml` generated at session start from the same files; never edit them |
 | persona tool restriction | native `tools:` frontmatter, duplicated by `hooks/enforce-agent-policy.py` | `hooks/enforce-agent-policy.py` (denies `apply_patch` and agent tools outside the list) plus `sandbox_mode = "read-only"` for read-only personas |
 | hook trust | none | once per plugin version via `/hooks`; headless children pass `--dangerously-bypass-hook-trust` |
+| queue watch hint | watch via `claude agents` (live per-ticket state) or `/n1:n1-queue --status` | watch via `/n1:n1-queue --status` |
 
 > **BLOCKING DISPATCH REQUIREMENT (pipeline steps):** All persona dispatches within pipeline step files MUST remain foreground from the orchestrator's perspective. Do NOT continue to the next pipeline instruction until the dispatched worker has completed and its result is available, whether completion is returned inline or delivered through a native mailbox/wait mechanism. Fabricating a completion event or checking for output before completion is a critical protocol violation that discards specialist work.
 
