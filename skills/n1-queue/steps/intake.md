@@ -68,7 +68,7 @@ If no size field, default to `sonnet`.
 ## Output
 
 Build two lists:
-- **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`
+- **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration)
 - **Excluded**: `Ticket`, `Reason` (blocked, story, description too thin, skip, done-before-run)
 
 If no candidates: "No actionable tickets found." **STOP.**
