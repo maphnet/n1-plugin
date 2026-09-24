@@ -7,9 +7,10 @@
 # Snippets needing specialized libs (memory, treestate, breakcheck, classify,
 # related, poll, context) still source those explicitly after this line.
 
-# Resolve plugin root — a preset valid N1_ROOT (from the ~/.n1/preamble.sh shim) wins;
-# otherwise fall back to the harness env vars, then host.json.
+# Resolve plugin root — a preset valid N1_ROOT (from the per-session preamble) wins;
+# otherwise the harness env vars, then this session's preamble file, then host.json (last resort).
 [ -n "${N1_ROOT:-}" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT="${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-}}"
+[ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(_f="${N1_STATE_DIR:-$HOME/.n1}/sessions/${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:-}}}.preamble.sh"; [ -f "$_f" ] && eval "$(head -1 "$_f")" && printf '%s' "$N1_ROOT")
 [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 
 source "$N1_ROOT/lib/config.sh"

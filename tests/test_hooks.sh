@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected=[$2] actual=[$3])"; FAIL=$((FAIL+1)); fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-unset N1_HOST CODEX_THREAD_ID CODEX_SESSION_ID
+unset N1_HOST CODEX_THREAD_ID CODEX_SESSION_ID CLAUDE_CODE_SESSION_ID N1_SESSION_ID
 export N1_HOME="$T/home" N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 mkdir -p "$N1_HOME"
 cat > "$N1_HOME/config.json" <<'EOF'
@@ -78,8 +78,10 @@ OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (claude)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
 assert_eq "host.json pluginRoot" "$REPO_ROOT" "$(jq -r .pluginRoot "$N1_HOST_FILE")"
-assert_eq "preamble shim written next to host.json" "N1_ROOT=$REPO_ROOT
-source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$T/preamble.sh" 2>/dev/null)"
+TRAMPOLINE="source $N1_STATE_DIR/sessions/\"\${N1_SESSION_ID:-\${CLAUDE_CODE_SESSION_ID:-\${CODEX_THREAD_ID:?N1: no session id in env; restart the session}}}.preamble.sh\""
+assert_eq "constant trampoline written next to host.json" "$TRAMPOLINE" "$(cat "$T/preamble.sh" 2>/dev/null)"
+assert_eq "per-session preamble written for the payload session id" "N1_ROOT=$REPO_ROOT
+source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$N1_STATE_DIR/sessions/s-claude-1.preamble.sh" 2>/dev/null)"
 case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
 case "$CTX" in *"HOST ROUTING (host: claude-code"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
 echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
@@ -103,12 +105,15 @@ unset N1_HOST_FILE
 
 # --- session-start: plugin-root preamble shim generation (NP-192) ------------
 RL="$T/rootlink"; mkdir -p "$RL"
+SP="$N1_STATE_DIR/sessions/s-root.preamble.sh"
 echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-assert_eq "shim written for first root" "N1_ROOT=$REPO_ROOT" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
+assert_eq "shim written for first root" "N1_ROOT=$REPO_ROOT" "$(head -1 "$SP" 2>/dev/null)"
+TRAMP1=$(cat "$RL/preamble.sh")
 OTHER_ROOT="$T/otherroot"; mkdir -p "$OTHER_ROOT/lib"
 echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$OTHER_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-assert_eq "shim rewritten for a different plugin root" "N1_ROOT=$OTHER_ROOT" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
-assert_eq "no shim tmp files left behind" "" "$(ls "$RL"/*.tmp 2>/dev/null)"
+assert_eq "shim rewritten for a different plugin root" "N1_ROOT=$OTHER_ROOT" "$(head -1 "$SP" 2>/dev/null)"
+assert_eq "trampoline byte-identical across roots" "$TRAMP1" "$(cat "$RL/preamble.sh")"
+assert_eq "no shim tmp files left behind" "" "$(ls "$RL"/*.tmp "$N1_STATE_DIR/sessions"/*.tmp 2>/dev/null)"
 RO="$T/rodir"; mkdir -p "$RO"; chmod 555 "$RO"
 RC=0; echo '{"session_id":"s-root","source":"startup"}' | N1_HOST_FILE="$RO/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || RC=$?
 chmod 755 "$RO"
@@ -120,14 +125,14 @@ cat > "$CYGDIR/cygpath" <<'CYGEOF'
 CYGEOF
 chmod +x "$CYGDIR/cygpath"
 echo '{"session_id":"s-root","source":"startup"}' | PATH="$CYGDIR:$PATH" N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-assert_eq "shim uses cygpath-converted POSIX root when cygpath is present" "N1_ROOT=/c/fake/root" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
+assert_eq "shim uses cygpath-converted POSIX root when cygpath is present" "N1_ROOT=/c/fake/root" "$(head -1 "$SP" 2>/dev/null)"
 
 # --- session-start: shim round-trip for a plugin root with special characters (NP-192/CR-1,TQ-1) ---
 SPECIAL_ROOT="$T/it's a \$root dir"; mkdir -p "$SPECIAL_ROOT/lib"
 printf '#!/usr/bin/env bash\n# minimal stub — no-op, real N1_ROOT resolution already done by the shim\n' > "$SPECIAL_ROOT/lib/preamble.sh"
 SPECIAL_HOST_DIR="$T/specialhost"; mkdir -p "$SPECIAL_HOST_DIR"
 echo '{"session_id":"s-special","source":"startup"}' | N1_HOST_FILE="$SPECIAL_HOST_DIR/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$SPECIAL_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-RESOLVED=$(bash -c "source \"$SPECIAL_HOST_DIR/preamble.sh\"; printf '%s' \"\$N1_ROOT\"" 2>/dev/null)
+RESOLVED=$(CLAUDE_CODE_SESSION_ID=s-special bash -c "source \"$SPECIAL_HOST_DIR/preamble.sh\"; printf '%s' \"\$N1_ROOT\"" 2>/dev/null)
 assert_eq "shim resolves special-character root exactly" "$SPECIAL_ROOT" "$RESOLVED"
 
 # cygpath exits 0 with empty output must leave the shim containing the original root (CR-1)
@@ -138,7 +143,34 @@ exit 0
 CYGEOF2
 chmod +x "$EMPTYCYG/cygpath"
 echo '{"session_id":"s-root","source":"startup"}' | PATH="$EMPTYCYG:$PATH" N1_HOST_FILE="$RL/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-assert_eq "shim falls back to original root when cygpath outputs nothing" "N1_ROOT=$REPO_ROOT" "$(head -1 "$RL/preamble.sh" 2>/dev/null)"
+assert_eq "shim falls back to original root when cygpath outputs nothing" "N1_ROOT=$REPO_ROOT" "$(head -1 "$SP" 2>/dev/null)"
+
+# --- session-start: concurrent sessions keep their own root and host (NP-204) ---
+# A (claude-code, root R1) starts, B (codex, root R2) starts, A compacts: each still resolves its own.
+CS="$T/concurrent"; mkdir -p "$CS"; R2="$T/root2"; mkdir -p "$R2/lib"
+printf 'N1_R2_MARK=1\n' > "$R2/lib/preamble.sh"
+resolve() { # <env assignments...> — source the trampoline like a snippet would
+    env "$@" bash -c "source \"$CS/preamble.sh\" && printf '%s' \"\$N1_ROOT\"" 2>/dev/null
+}
+echo '{"session_id":"s-a","source":"startup"}' | N1_HOST_FILE="$CS/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+echo '{"session_id":"s-b","source":"startup"}' | N1_HOST_FILE="$CS/host.json" N1_HOST=codex CODEX_THREAD_ID=s-b CLAUDE_PLUGIN_ROOT="$R2" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "session A resolves its own root after B started" "$REPO_ROOT" "$(resolve CLAUDE_CODE_SESSION_ID=s-a)"
+assert_eq "session B (codex) resolves its own root" "$R2" "$(resolve CODEX_THREAD_ID=s-b)"
+echo '{"session_id":"s-a","source":"compact"}' | N1_HOST_FILE="$CS/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "session B unaffected by A's compact" "$R2" "$(resolve CODEX_THREAD_ID=s-b)"
+assert_eq "explicit N1_SESSION_ID wins over the harness id" "$R2" "$(resolve N1_SESSION_ID=s-b CLAUDE_CODE_SESSION_ID=s-a)"
+assert_eq "session B host recorded per session" "codex" "$(jq -r .host "$N1_STATE_DIR/sessions/s-b.json")"
+assert_eq "session A host recorded per session" "claude-code" "$(jq -r .host "$N1_STATE_DIR/sessions/s-a.json")"
+RC=0; ERR=$(bash -c "source \"$CS/preamble.sh\"" 2>&1) || RC=$?
+assert_eq "no session id in env fails loudly" "127" "$RC"
+case "$ERR" in *"N1: no session id"*) assert_eq "no-session-id message" ok ok;; *) assert_eq "no-session-id message" ok "$ERR";; esac
+RC=0; bash -c "CLAUDE_CODE_SESSION_ID=s-nope source \"$CS/preamble.sh\"" 2>/dev/null || RC=$?
+assert_eq "unknown session id fails instead of using another root" "1" "$RC"
+# stale session files are pruned after 7 days; fresh ones survive
+touch -d '10 days ago' "$N1_STATE_DIR/sessions/s-old.json" "$N1_STATE_DIR/sessions/s-old.preamble.sh"
+echo '{"session_id":"s-a","source":"resume"}' | N1_HOST_FILE="$CS/host.json" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "stale session files pruned" "" "$(ls "$N1_STATE_DIR/sessions"/s-old.* 2>/dev/null)"
+assert_eq "fresh session files kept" "2" "$(ls "$N1_STATE_DIR/sessions"/s-b.* 2>/dev/null | wc -l | tr -d ' ')"
 
 # --- session-start: TRACKER ROUTING includes versionMcp when configured ----
 export N1_HOST_FILE="$T/host2.json"

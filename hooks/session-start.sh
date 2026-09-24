@@ -32,20 +32,33 @@ mkdir -p "$(dirname "$HOST_FILE")" 2>/dev/null || true
 printf '{"host":"%s","pluginRoot":"%s","version":"%s"}\n' \
     "$(escape_json_val "$N1_HOST_NAME")" "$(escape_json_val "$N1_ROOT_DIR")" "$(escape_json_val "$N1_VERSION_STR")" > "$HOST_FILE" 2>/dev/null || true
 
-# Stable plugin-root shim for skill snippets: `source ~/.n1/preamble.sh` (NP-192).
-# Generated (not symlinked — Git Bash/MSYS `ln -s` silently deep-copies) next to host.json
-# so N1_HOST_FILE redirects keep tests isolated; last session start wins. Never fails the hook.
-SHIM="$(dirname "$HOST_FILE")/preamble.sh"
+# Plugin-root preamble for skill snippets: `source ~/.n1/preamble.sh` (NP-192, NP-204).
+# Two generated files (not symlinked — Git Bash/MSYS `ln -s` silently deep-copies):
+#   sessions/<sid>.preamble.sh — this session's own root; concurrent sessions never share it.
+#   preamble.sh (next to host.json, so N1_HOST_FILE redirects keep tests isolated) — a
+#     one-line trampoline whose content never varies between sessions or versions: it
+#     dispatches on the session id in the shell env, so rewrites by other sessions are
+#     byte-identical. No id or no file fails loudly instead of running another version.
+# Never fails the hook.
 ROOT_POSIX="$N1_ROOT_DIR"
 if command -v cygpath >/dev/null 2>&1; then
     ROOT_POSIX=$(cygpath -u "$N1_ROOT_DIR" 2>/dev/null) || true
     [ -n "$ROOT_POSIX" ] || ROOT_POSIX=$N1_ROOT_DIR
 fi
+SESSIONS_DIR="${N1_STATE_DIR:-$HOME/.n1}/sessions"
+if [ -n "$SESSION_FILE" ]; then
+    PRE="${SESSION_FILE%.json}.preamble.sh"; PRE_TMP="${PRE}.$$.tmp"
+    {
+        printf 'N1_ROOT=%q\n' "$ROOT_POSIX"
+        printf 'source "$N1_ROOT/lib/preamble.sh"\n'
+    } > "$PRE_TMP" 2>/dev/null && mv -f "$PRE_TMP" "$PRE" 2>/dev/null || rm -f "$PRE_TMP" 2>/dev/null || true
+    # Stale session facts: a live session re-touches its files on every SessionStart.
+    find "$SESSIONS_DIR" -maxdepth 1 -type f \( -name '*.json' -o -name '*.preamble.sh' \) -mtime +7 -delete 2>/dev/null || true
+fi
+SHIM="$(dirname "$HOST_FILE")/preamble.sh"
 SHIM_TMP="${SHIM}.$$.tmp"
-{
-    printf 'N1_ROOT=%q\n' "$ROOT_POSIX"
-    printf 'source "$N1_ROOT/lib/preamble.sh"\n'
-} > "$SHIM_TMP" 2>/dev/null && mv -f "$SHIM_TMP" "$SHIM" 2>/dev/null || rm -f "$SHIM_TMP" 2>/dev/null || true
+printf 'source %q/"${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:?N1: no session id in env; restart the session}}}.preamble.sh"\n' "$SESSIONS_DIR" \
+    > "$SHIM_TMP" 2>/dev/null && mv -f "$SHIM_TMP" "$SHIM" 2>/dev/null || rm -f "$SHIM_TMP" 2>/dev/null || true
 
 if [ "$N1_HOST_NAME" = "codex" ]; then
     HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}

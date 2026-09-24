@@ -4,6 +4,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAIL=0
+unset N1_SESSION_ID CLAUDE_CODE_SESSION_ID CODEX_THREAD_ID N1_STATE_DIR
 
 # Test 1: preamble.sh sources cleanly with CLAUDE_PLUGIN_ROOT set
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
@@ -54,7 +55,7 @@ done
 echo '{"session_id":"s-probe","source":"startup"}' | env -i HOME="$PROBE_HOME" PATH="$NOPY_BIN" \
     N1_STATE_DIR="$PROBE_HOME/.n1" N1_HOME="$PROBE_HOME/proj" N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
     bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
-PROBE_OUT=$(cd "$PROBE_HOME" && env -i HOME="$PROBE_HOME" PATH="$NOPY_BIN" N1_HOME="$PROBE_HOME/proj" \
+PROBE_OUT=$(cd "$PROBE_HOME" && env -i HOME="$PROBE_HOME" PATH="$NOPY_BIN" N1_HOME="$PROBE_HOME/proj" CLAUDE_CODE_SESSION_ID=s-probe \
     bash -c 'source ~/.n1/preamble.sh && type n1_step_begin >/dev/null && echo "$N1_ROOT|$N1_HOME"' 2>&1) || true
 if [ "$PROBE_OUT" = "$REPO_ROOT|$PROBE_HOME/proj" ]; then
     echo "PASS: clean-shell snippet resolves N1_ROOT and N1_HOME via ~/.n1/preamble.sh without python3"
@@ -62,6 +63,19 @@ else
     echo "FAIL: clean-shell probe got '$PROBE_OUT'"; FAIL=1
 fi
 rm -rf "$PROBE_HOME"
+
+# Test 5b (NP-204): direct `source lib/preamble.sh` with no harness env resolves through
+# this session's preamble file before host.json
+SESS_HOME=$(mktemp -d); mkdir -p "$SESS_HOME/sessions"
+printf 'N1_ROOT=%q\nsource "$N1_ROOT/lib/preamble.sh"\n' "$REPO_ROOT" > "$SESS_HOME/sessions/s-direct.preamble.sh"
+(
+    unset CLAUDE_PLUGIN_ROOT PLUGIN_ROOT
+    export N1_STATE_DIR="$SESS_HOME" CLAUDE_CODE_SESSION_ID=s-direct
+    source "$REPO_ROOT/lib/preamble.sh" 2>/dev/null
+    [ "$N1_ROOT" = "$REPO_ROOT" ] || { echo "FAIL: session-file fallback N1_ROOT='$N1_ROOT'"; exit 1; }
+    echo "PASS: no-env fallback resolves via sessions/<sid>.preamble.sh"
+) || FAIL=1
+rm -rf "$SESS_HOME"
 
 # Test 6 (NP-192): a preset valid N1_ROOT (as the shim sets it) wins over CLAUDE_PLUGIN_ROOT
 OTHER_ROOT=$(mktemp -d); mkdir -p "$OTHER_ROOT/lib"; cp "$REPO_ROOT/lib"/*.sh "$OTHER_ROOT/lib/"
