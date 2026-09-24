@@ -812,6 +812,68 @@ test_queue_digest() {
     assert_eq "digest: stale queue hidden" "" "$(n1_queue_digest "$tmp")"
 }
 
+test_fmt_elapsed() {
+    assert_eq "elapsed: sub-minute" "<1m" "$(n1_fmt_elapsed 30)"
+    assert_eq "elapsed: minutes" "5m" "$(n1_fmt_elapsed 300)"
+    assert_eq "elapsed: hours+minutes" "1h5m" "$(n1_fmt_elapsed 3900)"
+    assert_eq "elapsed: empty input" "" "$(n1_fmt_elapsed '')"
+    assert_eq "elapsed: non-numeric input" "" "$(n1_fmt_elapsed abc)"
+}
+
+# --- n1_queue_status_table ----------------------------------------------------
+mk_status_queue() { # <tmp> <host> — a 3-row queue.md + events.jsonl + overview.md fixture
+    local tmp="$1" host="$2"
+    mkdir -p "$tmp/h/memory/T-2"
+    printf -- '---\nstep: review\n---\n' > "$tmp/h/memory/T-2/overview.md"
+    {
+        printf -- '---\nhost: %s\n---\n' "$host"
+        printf '## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
+        printf '| 1 | T-1 | A | /r | %s/h | sonnet | pr | |\n' "$tmp"
+        printf '| 2 | T-2 | B | /r | %s/h | sonnet | in-progress | |\n' "$tmp"
+        printf '| 3 | T-3 | C | /r | %s/h | sonnet | awaiting-human | |\n' "$tmp"
+        printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n'
+        printf '| T-1 | 2020-01-01T00:00:00Z | | pr | https://x/pr/1 | 00000001 |\n'
+        printf '| T-2 | %s | | | | 0000abcd |\n' "$(date -u -d '-5 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-5M +%Y-%m-%dT%H:%M:%SZ)"
+        printf '| T-3 | %s | | | | 11112222 |\n' "$(date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$tmp/q.md"
+    printf '{"ts":"2020-01-01T00:01:00Z","queue":"q","run_id":"r","event":"ticket_finished","ticket":"T-1","outcome":"pr","pr":"https://x/pr/1","session":"00000001","duration_s":60,"reason":""}\n' \
+        > "$tmp/events.jsonl"
+}
+
+test_status_table_claude_code() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp" claude-code
+    mkdir -p "$tmp/bin"
+    cat > "$tmp/bin/claude" <<'FAKEEOF'
+#!/usr/bin/env bash
+case "$1" in
+    agents) echo '{"agents":[{"id":"0000abcd","state":"working"},{"id":"11112222","state":"blocked"}]}' ;;
+    attach) echo "attached $2" ;;
+esac
+FAKEEOF
+    chmod +x "$tmp/bin/claude"
+    local out
+    out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
+    assert_eq "status: T-1 terminal state" "pr" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $2}')"
+    assert_eq "status: T-1 elapsed from events.jsonl" "1m" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $4}')"
+    assert_eq "status: T-1 PR" "https://x/pr/1" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $6}')"
+    assert_eq "status: T-2 live-overridden state" "in-progress" "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $2}')"
+    assert_eq "status: T-2 step from overview.md" "review" "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $3}')"
+    assert_eq "status: T-3 awaiting-human" "awaiting-human" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $2}')"
+    assert_eq "status: T-3 attach command" "claude attach 11112222" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
+    assert_eq "status: cost always em dash" "3" "$(echo "$out" | awk -F'\t' '$5=="\xe2\x80\x94"' | wc -l | tr -d ' ')"
+}
+
+test_status_table_codex() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp" codex
+    local out; out=$(n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
+    assert_eq "status(codex): T-2 uses Plan status, no agents call" "in-progress" \
+        "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $2}')"
+    assert_eq "status(codex): T-3 no attach (no bg sessions)" "" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
+    assert_eq "status(codex): T-1 pr elapsed" "1m" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $4}')"
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
@@ -821,6 +883,9 @@ test_pending_rows
 test_bg_helpers
 test_decision_counts
 test_queue_digest
+test_fmt_elapsed
+test_status_table_claude_code
+test_status_table_codex
 test_queue_event
 test_escalation_text
 test_desktop_notify

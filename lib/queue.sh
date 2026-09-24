@@ -340,6 +340,99 @@ n1_queue_digest() {
     return 0
 }
 
+n1_fmt_elapsed() {
+    # Usage: n1_fmt_elapsed <seconds> — "<1m" | "Nm" | "NhMm". Empty/non-numeric prints nothing.
+    local s="$1"
+    case "$s" in ''|*[!0-9]*) return 0 ;; esac
+    if [ "$s" -lt 60 ]; then
+        printf '<1m'
+    elif [ "$s" -lt 3600 ]; then
+        printf '%dm' "$((s / 60))"
+    else
+        printf '%dh%dm' "$((s / 3600))" "$(((s % 3600) / 60))"
+    fi
+}
+
+n1_queue_status_table() {
+    # Usage: n1_queue_status_table <queue.md> <events.jsonl>
+    # Prints one tab-separated row per Plan row: Ticket State Step Elapsed Cost PR Attach.
+    # On claude-code, live-overrides State for in-progress/awaiting-human rows from
+    # `claude agents --json --all` via n1_queue_bg_state (same missing/failed degradation
+    # it already applies; no second failure path). On codex, Plan Status + events.jsonl are
+    # already the full state (children run synchronously, one at a time).
+    local file="$1" events="$2" host agents_json now
+    host=$(n1_read_frontmatter "$file" host)
+    [ -n "$host" ] || host=$(n1_host)
+    if [ "$host" = claude-code ]; then
+        agents_json=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null)
+    fi
+    now=$(date +%s)
+
+    while IFS=$'\t' read -r num ticket repo n1h model status; do
+        local state="$status" step="" elapsed="" cost="—" pr="" attach="" sid
+        case "$status" in
+            in-progress|awaiting-human)
+                sid=$(n1_queue_session_id "$file" "$ticket")
+                if [ "$host" = claude-code ] && [ -n "$sid" ]; then
+                    local bgs; bgs=$(n1_queue_bg_state "$agents_json" "$sid")
+                    case "$bgs" in
+                        working) state=in-progress ;;
+                        blocked) state=awaiting-human ;;
+                        missing|failed) state="$bgs" ;;
+                        done) : ;;  # runner hasn't finalized yet; keep the Plan status as-is
+                    esac
+                fi
+                step=$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" step)
+                local started; started=$(n1_queue_session_started "$file" "$ticket")
+                if [ -n "$started" ]; then
+                    local started_epoch
+                    started_epoch=$(date -u -d "$started" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$started" +%s 2>/dev/null || echo 0)
+                    [ "$started_epoch" -gt 0 ] && elapsed=$(n1_fmt_elapsed "$((now - started_epoch))")
+                fi
+                [ "$state" = awaiting-human ] && [ -n "$sid" ] && [ "$host" = claude-code ] && attach=$(n1_bg_cmd attach "$sid")
+                ;;
+            pr|failed|deferred|escalated)
+                local dur; dur=$(_n1_queue_event_duration "$events" "$ticket")
+                [ -n "$dur" ] && elapsed=$(n1_fmt_elapsed "$dur")
+                if [ "$status" = pr ]; then
+                    pr=$(n1_queue_child_pr_url "$n1h/memory/$ticket/overview.md")
+                    [ -n "$pr" ] || pr=$(_n1_queue_run_pr "$file" "$ticket")
+                fi
+                ;;
+        esac
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ticket" "$state" "$step" "$elapsed" "$cost" "$pr" "$attach"
+    done < <(awk -F'|' '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 ~ /^[0-9]+$/ && NF >= 9 { printf "%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7, $8 }' "$file")
+}
+
+_n1_queue_run_pr() {
+    # Usage: _n1_queue_run_pr <queue.md> <ticket> — PR cell of the ticket's last Runs row.
+    awk -F'|' -v tk="$2" '
+        /^## Runs/ { f = 1; next }
+        f {
+            t = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", t)
+            if (t == tk) { p = $6; gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); pr = p }
+        }
+        END { print pr }' "$1"
+}
+
+_n1_queue_event_duration() {
+    # Usage: _n1_queue_event_duration <events.jsonl> <ticket> — last ticket_finished duration_s.
+    local file="$1" ticket="$2"
+    [ -f "$file" ] || return 0
+    jq -nr --arg t "$ticket" '[inputs | objects | select(.event == "ticket_finished" and .ticket == $t) | .duration_s // empty] | last // empty' "$file" 2>/dev/null
+}
+
+n1_queue_session_started() {
+    # Usage: n1_queue_session_started <queue.md> <ticket> — Started cell of the ticket's last Runs row.
+    awk -F'|' -v tk="$2" '
+        /^## Runs/ { f = 1; next }
+        f {
+            t = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", t)
+            if (t == tk) { s = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); ts = s }
+        }
+        END { print ts }' "$1"
+}
+
 n1_notify() {
     # Usage: n1_notify <needs-you|done|info> <text> — best-effort out-of-session alert.
     # Backend from queue.notify: desktop (default) | ntfy (queue.ntfyTopic) | command
