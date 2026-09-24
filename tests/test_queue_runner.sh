@@ -15,6 +15,10 @@ assert_eq() {
     fi
 }
 
+plan_cell() { # <queue.md> <row#> <col: 8=Status 9=Reason>
+    awk -F'|' -v n="$2" -v c="$3" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 == n && NF >= 9 { print $c }' "$1"
+}
+
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 : "${N1_HOME:=}"; : "${ID:=}"; export N1_HOME ID
 source "${REPO_ROOT}/lib/config.sh"
@@ -235,8 +239,8 @@ queue_id: test-q
 | 3 | T-C | Fix C | /repo | N1HOME_PLACEHOLDER | sonnet | pending | |
 
 ## Runs
-| Ticket | Started | Exit | Outcome | PR |
-|--------|---------|------|---------|----|
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
 EOF
     sed -i "s|N1HOME_PLACEHOLDER|$tmp/n1home|g" "$tmp/queue.md"
 
@@ -272,9 +276,9 @@ EOF
     assert_eq "runner: T-C row 4 reason" "deferred-retry (timeout)" "$rd"
     local r5; r5=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$2)} $2=="5"' "$tmp/queue.md")
     assert_eq "runner: no row 5" "" "$r5"
-    # Runs rows have exactly 5 cells (no phantom trailing cell)
-    local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 6) print }' "$tmp/queue.md")
-    assert_eq "runner: Runs rows have 5 cells" "" "$bad"
+    # Runs rows have exactly 6 cells incl. Session (no phantom trailing cell)
+    local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 7) print }' "$tmp/queue.md")
+    assert_eq "runner: Runs rows have 6 cells" "" "$bad"
 
     local halted_msg; halted_msg=$(grep -c "HALTED" "$tmp/output.txt" || true)
     assert_eq "runner: HALTED message printed" "1" "$halted_msg"
@@ -317,8 +321,8 @@ queue_id: test-q2
 | 2 | T-Y | Do Y | /repo | N1HOME_PLACEHOLDER | sonnet | pending | |
 
 ## Runs
-| Ticket | Started | Exit | Outcome | PR |
-|--------|---------|------|---------|----|
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
 EOF
     sed -i "s|N1HOME_PLACEHOLDER|$tmp/n1home|g" "$tmp/queue.md"
 
@@ -338,6 +342,46 @@ EOF
     assert_eq "runner-allpr: pid removed" "" "$pid"
 
     unset N1_QUEUE_CHILD_STUB
+    rm -rf "$tmp"
+}
+
+# Real (unstubbed) Codex path: host comes from queue.md frontmatter even though
+# CLAUDE_PLUGIN_ROOT is exported (the runner forces it for path resolution).
+test_runner_codex_host() {
+    local tmp; tmp=$(mktemp -d)
+    mkdir -p "$tmp/bin" "$tmp/n1home/memory"
+    cat > "$tmp/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+for a; do last="$a"; done
+t="${last##* }"
+mkdir -p "$FAKE_N1H/memory/$t"
+printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/7\n' > "$FAKE_N1H/memory/$t/overview.md"
+EOF
+    printf '#!/bin/sh\necho called >> "$FAKE_N1H/claude-called"\n' > "$tmp/bin/claude"
+    chmod +x "$tmp/bin/codex" "$tmp/bin/claude"
+    cat > "$tmp/queue.md" <<EOF
+---
+step: plan
+queue_id: test-cx
+host: codex
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-X | Do X | $tmp | $tmp/n1home | sonnet | pending | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    local rc=0
+    env -u N1_QUEUE_CHILD_STUB FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
+    assert_eq "codex-host: exit 0" "0" "$rc"
+    assert_eq "codex-host: T-X pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "codex-host: claude never called" "no" "$([ -f "$tmp/n1home/claude-called" ] && echo yes || echo no)"
+    assert_eq "codex-host: Runs row exit/outcome/pr" "0|pr|https://x/pr/7" \
+        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-X/ { for (i=4;i<=6;i++) gsub(/ /,"",$i); print $4 "|" $5 "|" $6 }' "$tmp/queue.md")"
     rm -rf "$tmp"
 }
 
@@ -411,6 +455,7 @@ test_bg_helpers
 test_decision_counts
 test_runner_three_strikes
 test_runner_all_pr
+test_runner_codex_host
 test_busy_guard
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
