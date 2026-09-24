@@ -867,11 +867,70 @@ FAKEEOF
 test_status_table_codex() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     mk_status_queue "$tmp" codex
-    local out; out=$(n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
+    # a `claude` that fails the test if invoked on the codex path
+    mkdir -p "$tmp/bin"
+    cat > "$tmp/bin/claude" <<'FAKEEOF'
+#!/usr/bin/env bash
+echo "claude should not be called on codex host" >&2
+exit 1
+FAKEEOF
+    chmod +x "$tmp/bin/claude"
+    local out; out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
     assert_eq "status(codex): T-2 uses Plan status, no agents call" "in-progress" \
         "$(echo "$out" | awk -F'\t' '$1=="T-2"{print $2}')"
     assert_eq "status(codex): T-3 no attach (no bg sessions)" "" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
     assert_eq "status(codex): T-1 pr elapsed" "1m" "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $4}')"
+}
+
+test_status_table_pre_np197_fixture() {
+    # copy of a real pre-NP-197 queue.md (no `host` frontmatter, no Session column
+    # in Runs); events.jsonl absent — must degrade to Plan status without crashing
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    cat > "$tmp/queue.md" <<'FIXTUREEOF'
+---
+queue_id: n1-auto
+mode: tag
+story_id:
+step: done
+started: 2026-09-23T19:59:00Z
+run_id: 20260923T195909Z
+---
+# Queue n1-auto
+
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | TP-6 | Add short_url field to link responses | /home/maphsky/dev/test-project | /home/maphsky/.n1/test-project | sonnet | pr | |
+| 2 | TP-7 | Replace X-API-Key header auth with hashed Bearer tokens | /home/maphsky/dev/test-project | /home/maphsky/.n1/test-project | sonnet | pr | |
+| 3 | TP-8 | Generated slugs must be 8 characters long | /home/maphsky/dev/test-project | /home/maphsky/.n1/test-project | sonnet | deferred | |
+| 4 | TP-8 | Generated slugs must be 8 characters long | /home/maphsky/dev/test-project | /home/maphsky/.n1/test-project | sonnet | escalated | deferred-retry |
+
+## Excluded
+| Ticket | Reason |
+|--------|--------|
+| TP-9 | blocked by TP-6 |
+| TP-10 | story: run with --story TP-10 |
+
+## Decision Ledger
+| Step | Decision | Detail |
+|------|----------|--------|
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR |
+|--------|---------|------|---------|----|
+| TP-6 | 2026-09-23T19:59:09Z | 0 | pr | https://github.com/maphnet/test-project/pull/3 |
+| TP-7 | 2026-09-23T20:21:28Z | 0 | pr | https://github.com/maphnet/test-project/pull/4 |
+| TP-8 | 2026-09-23T20:51:22Z | 0 | failed |  |
+| TP-8 | 2026-09-23T20:53:57Z | 0 | escalated |  |
+FIXTUREEOF
+    chmod 444 "$tmp/queue.md"
+    local out rc=0
+    out=$(N1_HOST=codex n1_queue_status_table "$tmp/queue.md" "$tmp/nonexistent-events.jsonl") || rc=$?
+    assert_eq "pre-NP-197 fixture: exits 0" "0" "$rc"
+    assert_eq "pre-NP-197 fixture: TP-6 status from Plan" "pr" \
+        "$(echo "$out" | awk -F'\t' '$1=="TP-6"{print $2}')"
+    assert_eq "pre-NP-197 fixture: TP-6 PR from Runs" "https://github.com/maphnet/test-project/pull/3" \
+        "$(echo "$out" | awk -F'\t' '$1=="TP-6"{print $6}')"
 }
 
 test_parse_service
@@ -884,6 +943,7 @@ test_bg_helpers
 test_decision_counts
 test_queue_digest
 test_fmt_elapsed
+test_status_table_pre_np197_fixture
 test_status_table_claude_code
 test_status_table_codex
 test_queue_event

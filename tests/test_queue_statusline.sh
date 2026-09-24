@@ -66,6 +66,24 @@ test_no_active_queue() {
     assert_eq "terminal step (halted): empty output" "" "$(run_statusline "$home")"
 }
 
+test_empty_stdin() {
+    local home; home=$(mktemp -d); trap 'rm -rf "$home"' RETURN
+    mk_active_queue "$home"
+    local out rc=0
+    out=$(printf '' | N1_HOME="$home" bash "$SCRIPT") || rc=$?
+    assert_eq "empty stdin: empty output" "" "$out"
+    assert_eq "empty stdin: exit 0" "0" "$rc"
+}
+
+test_invalid_json_stdin() {
+    local home; home=$(mktemp -d); trap 'rm -rf "$home"' RETURN
+    mk_active_queue "$home"
+    local out rc=0
+    out=$(printf 'not json {' | N1_HOME="$home" bash "$SCRIPT") || rc=$?
+    assert_eq "invalid JSON stdin: empty output" "" "$out"
+    assert_eq "invalid JSON stdin: exit 0" "0" "$rc"
+}
+
 test_no_n1_home_resolvable() {
     local out
     out=$(printf '{"cwd":"/nonexistent-cwd-for-n1-test"}' | env -u N1_HOME bash "$SCRIPT")
@@ -93,6 +111,8 @@ test_timing() {
 test_active_queue
 test_needs_you_segment
 test_no_active_queue
+test_empty_stdin
+test_invalid_json_stdin
 test_no_n1_home_resolvable
 test_timing
 
