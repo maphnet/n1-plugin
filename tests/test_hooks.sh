@@ -188,7 +188,7 @@ EOF
 OUT=$(N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"NEVER use any other MCP server"*) assert_eq "no versionMcp keeps NEVER directive" ok ok;; *) assert_eq "no versionMcp keeps NEVER directive" ok "$CTX";; esac
-unset N1_HOST_FILE
+export N1_HOST_FILE="$T/host.json"
 
 # --- session-stop: writes abandon envelope_close when lock exists ----------
 STOP_TICK="T-STOP"
