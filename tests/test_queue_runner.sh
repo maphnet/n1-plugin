@@ -210,6 +210,33 @@ EOF
     assert_eq "awaiting hints" "T-2: claude attach 0000abcd" "$(n1_queue_awaiting_hints "$tmp/q.md")"
 }
 
+# --- n1_queue_event / n1_queue_escalation_text ------------------------------
+test_queue_event() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    local f="$tmp/events.jsonl"
+    n1_queue_event "$f" q1 R1 ticket_finished ticket=T-1 outcome=pr pr=https://x/pr/1 duration_s=42 reason='a=b'
+    n1_queue_event "$f" q1 R1 queue_started
+    assert_eq "event: two lines" "2" "$(wc -l < "$f" | tr -d ' ')"
+    assert_eq "event: uniform 10 keys" "true" "$(jq -s 'all(keys | length == 10)' "$f")"
+    assert_eq "event: fields" "q1|R1|ticket_finished|T-1|pr|42|a=b" \
+        "$(head -1 "$f" | jq -r '[.queue,.run_id,.event,.ticket,.outcome,(.duration_s|tostring),.reason]|join("|")')"
+    assert_eq "event: duration number" "number" "$(head -1 "$f" | jq -r '.duration_s|type')"
+    assert_eq "event: missing duration null" "null" "$(tail -1 "$f" | jq -r '.duration_s')"
+    assert_eq "event: missing ticket empty" "" "$(tail -1 "$f" | jq -r '.ticket')"
+    assert_eq "event: ts format" "yes" "$(tail -1 "$f" | jq -r .ts | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' && echo yes || echo no)"
+    local rc=0; n1_queue_event "$tmp/no/such/dir/e.jsonl" q1 R1 x || rc=$?
+    assert_eq "event: unwritable path is fail-open" "0" "$rc"
+}
+
+test_escalation_text() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n\n- Which DB should we use?\n- second\n\n## Notes\nx\n' > "$tmp/o.md"
+    assert_eq "esc-text: first entry" "Which DB should we use?" "$(n1_queue_escalation_text "$tmp/o.md")"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Escalations\n\n## Notes\nx\n' > "$tmp/o2.md"
+    assert_eq "esc-text: empty section" "" "$(n1_queue_escalation_text "$tmp/o2.md")"
+    assert_eq "esc-text: missing file" "" "$(n1_queue_escalation_text "$tmp/none.md")"
+}
+
 # --- Integration: runner -----------------------------------------------------
 test_runner_three_strikes() {
     local tmp; tmp=$(mktemp -d)
@@ -672,6 +699,8 @@ test_row_status
 test_pending_rows
 test_bg_helpers
 test_decision_counts
+test_queue_event
+test_escalation_text
 test_runner_three_strikes
 test_runner_all_pr
 test_runner_codex_host

@@ -138,7 +138,7 @@ n1_queue_child_status() {
     local step; step=$(n1_read_frontmatter "$overview" "step")
     # pr/ci/done all mean stop-at-CI success
     case "$step" in pr|ci|done) printf 'pr'; return ;; esac
-    if [ "$step" = "escalated" ] || awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF' "$overview" | grep -q .; then
+    if [ "$step" = "escalated" ] || [ -n "$(n1_queue_escalation_text "$overview")" ]; then
         printf 'escalated'; return
     fi
     [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
@@ -287,5 +287,28 @@ n1_queue_awaiting_hints() {
         sid=$(n1_queue_session_id "$file" "$t")
         if [ -n "$sid" ]; then printf '%s: %s\n' "$t" "$(n1_bg_cmd attach "$sid")"; fi
     done < <(n1_queue_pending_rows "$file" 'awaiting-human')
+}
+
+n1_queue_event() {
+    # Usage: n1_queue_event <events.jsonl> <queue_id> <run_id> <event> [key=value]...
+    # Appends one JSON line. Every line carries the same 10 keys (ts, queue, run_id, event,
+    # ticket, outcome, pr, session, duration_s, reason); absent ones are "" (duration_s: null).
+    # Best-effort: never fails the caller.
+    local file="$1" q="$2" run="$3" ev="$4" kv; shift 4
+    local -a args=()
+    for kv in "$@"; do args+=(--arg "${kv%%=*}" "${kv#*=}"); done
+    jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg queue "$q" --arg run_id "$run" --arg event "$ev" \
+        ${args[@]+"${args[@]}"} \
+        '$ARGS.named | {ts, queue, run_id, event,
+            ticket: (.ticket // ""), outcome: (.outcome // ""), pr: (.pr // ""), session: (.session // ""),
+            duration_s: ((.duration_s // "") | (tonumber? // null)), reason: (.reason // "")}' \
+        >> "$file" 2>/dev/null || true
+    return 0
+}
+
+n1_queue_escalation_text() {
+    # Usage: n1_queue_escalation_text <overview.md> — first "## Escalations" entry, or empty.
+    [ -f "$1" ] || return 0
+    awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF {sub(/^[-*][[:space:]]*/,""); print; exit}' "$1"
 }
 
