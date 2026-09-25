@@ -2,6 +2,16 @@
 
 > **Polling discipline:** merge-waiting uses `n1_wait_pr_merged` from `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call. Re-invoke until it prints a terminal state or the `waitForMergeMinutes` budget is spent. Never poll one-`gh`-call-per-model-turn.
 
+**Merge permission.** Decide once, before evaluating the PR state:
+
+```bash
+source ~/.n1/preamble.sh
+if n1_merge_allowed; then echo "merge:allowed"; else echo "merge:denied"; fi
+[ -n "${N1_QUEUE_RUN_ID:-}" ] && echo "queue-run:yes"
+```
+
+`merge:denied` together with `queue-run:yes` → report "Queue run: merging is disabled (`queue.mergeOnFinish` is not `true`). The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b. The PreToolUse hook would deny the merge command anyway.
+
 Evaluate the PR state:
 
 1. **`MERGED`** → capture the merge commit SHA (`.mergeCommit.oid`). Go to Step 3.
@@ -72,7 +82,7 @@ Evaluate the PR state:
       **Pagination:** `first:100` threads covers virtually all PRs. If `reviewThreads.pageInfo.hasNextPage` is true, log: "PR has >100 review threads; only the first 100 were checked."
 
       **API failure:** warn and proceed to sub-item c. Comment check is advisory; never blocks merge due to API errors. Log: "Could not fetch PR review comments — skipping comment check."
-   c. If `mergeOnFinish` is `true` → initiate the merge (once, not per poll):
+   c. If the merge permission printed `merge:allowed` → initiate the merge (once, not per poll). On `merge:denied`, skip to sub-item d and wait for the reviewer's merge:
       ```bash
       gh pr merge <n> --auto --<mergeMethod> --delete-branch
       ```
