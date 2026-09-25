@@ -144,6 +144,21 @@ assert_contains "finish: runs in skip mode" \
 assert_contains "finalize: pr_skipped outcome" \
     "skills/n1-start/procedures/finalize.md" \
     '`pr_skipped`'
+assert_contains "n1-finish: no PR + skip routes to Step 2b" \
+    "skills/n1-finish/steps/01-resolve-target.md" \
+    'go to Step 2b (local merge)'
+assert_contains "n1-finish: Step 2b exists" \
+    "skills/n1-finish/steps/02-merge.md" \
+    '## Step 2b: Local Merge'
+assert_contains "n1-finish: Step 2b uses git-common-dir (NP-166)" \
+    "skills/n1-finish/steps/02-merge.md" \
+    'MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")'
+assert_contains "n1-finish: local-merge tracker comment" \
+    "skills/n1-finish/steps/04-close-ticket.md" \
+    'Merged locally into <defaultBranch>, push pending.'
+assert_contains "n1-finish: local merge report label" \
+    "skills/n1-finish/steps/06-cleanup.md" \
+    'by <auto-merge|reviewer|local merge>'
 
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

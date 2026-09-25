@@ -1,14 +1,14 @@
 # Step 6: Cleanup & Memory
 
-1. **Local branch (branch mode, merged PR):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`.
-2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it.
+1. **Local branch (branch mode, merged PR):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`. Local-merge path: already on `<defaultBranch>` — skip `git pull` (the merge is local-only and unpushed); `-d` refusing after a squash is expected — keep the branch and note it.
+2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it. Local-merge path: n/a (nothing was pushed).
 3. **Worktree:** If the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, read `worktree.cleanup` from config. If it is `"after-pr"` or `"after-merge"`, the PR has already been merged — both values mean **remove the worktree now**: switch to the main checkout first (`MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn "Worktree removal failed: `<error>`", point at `/n1:n1-clean`.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish
-   - **Merged:** <sha> (<method>, by <auto-merge|reviewer>)
-   - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged)>
-   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
+   - **Merged:** <sha> (<method>, by <auto-merge|reviewer|local merge>)
+   - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged) | n/a (local merge)>
+   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered | skipped (local merge)>
    - **Smoke:** <passed | failed (<details>) | skipped (not configured) | skipped (deploy failed) | n/a>
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    ```
@@ -33,8 +33,8 @@
 ```
 Finish complete.
 
-PR: <url> — merged (<method>, by <auto-merge|reviewer>)
-Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered>
+PR: <url | none (prMode: skip — push pending: git push origin <defaultBranch>)> — merged (<method>, by <auto-merge|reviewer|local merge>)
+Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered | skipped (local merge)>
 Smoke: <passed | failed (<details>) | skipped (not configured) | skipped (deploy failed) | n/a (mode is not smoke)>
 Ticket: <ID> → <done status> / left open (<reason>) / tracker not configured
 Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | worktree kept (<reason>) — run /n1:n1-clean | nothing to do>
