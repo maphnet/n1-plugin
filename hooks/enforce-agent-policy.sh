@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook: N1 agent policy (persona tool restriction + config model override) on both hosts.
+# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, queue merge gate) on both hosts.
 # Delegates to enforce-agent-policy.py; fail-open unless the script denies (exit 2).
 set -euo pipefail
 
@@ -8,9 +8,13 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 
 INPUT=$(cat)
 
-# Fast path: only payloads that mention an N1 persona (spawn target or running agent) matter.
+# Fast path: persona payloads always go to Python; merge/push-shaped commands only inside
+# queue children (Case 3, NP-212). Broad globs on purpose: Python does the exact token parse.
+# The gh branch matches "erge" (not "merge") — case matters in a bash `case` glob, and
+# GitHub's enablePullRequestAutoMerge mutation has a capital M.
 case "$INPUT" in
     *'"n1:'* | *'"n1-'*) : ;;
+    *gh*erge* | *git*push* | *git*merge*) [ -n "${N1_QUEUE_RUN_ID:-}" ] || exit 0 ;;
     *) exit 0 ;;
 esac
 
