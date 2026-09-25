@@ -99,7 +99,7 @@ Tracker MCP tool names are never hardcoded — they're resolved at runtime from 
 
 When `ticketTagging.enabled` is true, `n1-start` prefixes created tickets with `ticketTagging.service` (`{service} | title`) and adds a `**Service:**` line to the description. Off by default; configured by `n1-init`. Creation only — existing tickets are never re-tagged.
 
-When `tracker.assignToCreator` is not `false` (default ON), `n1-start` assigns tickets it creates to the currently-authenticated tracker user via the `getCurrentUser` + `assign` operations. Creation only; non-fatal on failure; silently skipped when those operations are absent (legacy configs). Configured by `n1-init`.
+When `tracker.assignToCreator` is not `false` (default ON), tickets are assigned to the currently-authenticated tracker user via the `getCurrentUser` + `assign` operations, at two points: creation time (`n1-ticket`/`n1-story`, writing `ticket.md`) and, for every ticket entering `n1-start` (including queue-picked or pre-existing tickets), the unassigned-ticket guard in `analysis.md` Step 2 — which never steals an existing assignee. Non-fatal on failure; silently skipped when those operations are absent (legacy configs). Configured by `n1-init`.
 
 On brain-dump/file runs where the user opts to create a ticket, `n1-start` adopts the **created ticket ID** as the per-ticket memory `<ID>` and worktree name. An ID-Final invariant blocks any memory/worktree write until that ID is known; if state was already written under the provisional slug, the idempotent `Reconcile Memory ID & Branch` procedure moves the memory folder (inside `$N1_HOME/memory/`) and renames the worktree directory to the ticket-ID-based names.
 
