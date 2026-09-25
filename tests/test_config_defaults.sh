@@ -56,5 +56,13 @@ assert_eq "T15: ci_checks confidenceThreshold override" "0.9" "$(n1_ci_checks_va
 assert_eq "T16: memory ticketContext override" "false" "$(n1_memory_val ticketContext)"
 assert_eq "T17: memory decisions override" "false" "$(n1_memory_val decisions)"
 
+# ---- Test group 3: n1_config_val direct calls (regression for NP-213) ----
+mkdir -p "$TMPDIR_TEST/nullcase"
+echo '{"explicitNull": null}' > "$TMPDIR_TEST/nullcase/config.json"
+
+assert_eq "T18: config_val explicit false (direct, not via wrapper)" "false" "$(n1_config_val '.ciChecks.enabled')"
+assert_eq "T19: config_val absent key still empty" "" "$(n1_config_val '.doesNotExist.enabled')"
+assert_eq "T20: config_val explicit null still empty" "" "$(n1_config_val '.explicitNull' "$TMPDIR_TEST/nullcase/config.json")"
+
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

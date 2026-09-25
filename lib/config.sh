@@ -72,7 +72,7 @@ n1_config_val() {
     local path="$1" file="${2:-$(n1_config_file)}"
     [ -f "$file" ] || return 0
     if command -v jq >/dev/null 2>&1; then
-        jq -r "${path} // empty" "$file" 2>/dev/null || true
+        jq -r "if (${path}) == null then empty else (${path}) end" "$file" 2>/dev/null || true
         return
     fi
     local stripped="${path#.}"
