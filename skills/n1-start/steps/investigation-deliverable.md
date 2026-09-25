@@ -152,7 +152,7 @@ n1_write_signals "$INV_FILE" "unknowns_resolved=${UNKNOWNS_ANSWERED}/${UNKNOWNS_
 
 **Phase 3 — Tracker Enrichment**
 
-**Gate** (skip if any fails): tracker ticket ID exists; `ticketEnrichment.enabled !== false`; `tracker.operations.editTicket` OR `tracker.operations.addComment` exists.
+**Gate** (skip if any fails): tracker ticket ID exists; (`ticketEnrichment.enabled !== false` OR `N1_QUEUE_RUN_ID` is set); `tracker.operations.editTicket` OR `tracker.operations.addComment` exists.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -163,7 +163,8 @@ TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
 TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
 KB_ENABLED=$(n1_config_val ".kb.enabled" "$N1_HOME/config.json")
 HAS_CREATE_ARTICLE=$(n1_config_val ".tracker.operations.createArticle" "$N1_HOME/config.json")
-echo "ENRICHMENT_ENABLED=$ENRICHMENT_ENABLED HAS_EDIT=$HAS_EDIT HAS_COMMENT=$HAS_COMMENT KB_ENABLED=$KB_ENABLED HAS_CREATE_ARTICLE=$HAS_CREATE_ARTICLE"
+QUEUE_RUN=$([ -n "$N1_QUEUE_RUN_ID" ] && echo "true" || echo "false")
+echo "ENRICHMENT_ENABLED=$ENRICHMENT_ENABLED HAS_EDIT=$HAS_EDIT HAS_COMMENT=$HAS_COMMENT KB_ENABLED=$KB_ENABLED HAS_CREATE_ARTICLE=$HAS_CREATE_ARTICLE QUEUE_RUN=$QUEUE_RUN"
 ```
 
 **3-i. KB auto-publish** (gate: `kb.enabled==true` AND `tracker.operations.createArticle` exists):
@@ -195,6 +196,8 @@ Post comment: `**Investigation Results (N1)**\n**Question:** ...\n**Summary:** .
 
 **Phase 4 — Discussion**
 
+**Queue gate:** if `N1_QUEUE_RUN_ID` is set, skip Phase 4 entirely — no chat-frame output, no discussion wait — and proceed directly to Phase 5. There is no synchronous user to discuss with in a queue run.
+
 **Emit Gate 3 — investigation variant** (see `procedures/output-gates.md § Gate 3`). Use `=== <ID> — done ===` frame. Content = seven sections (Background, Summary, Metrics, Findings, Recommendations, Validation, Next Steps). When spawning the Phase 1 agent, add to compact-return contract: "Return Gate 3 block as your compact return — seven sections formatted inside `=== <ID> — done ===` markers; for Validation show summary line only: 'Validation confidence: <level> (<N>/<M> recommendations corroborated)'. Orchestrator prints verbatim." If agent doesn't return pre-formatted block: read investigation.md and emit seven sections inside frame.
 
 **Findings budget:** cap at 20 lines. If over, print first 15 then `(full investigation: $N1_HOME/memory/<ID>/investigation.md)`. Omit `### References` and `### Clarifications` from chat output.
@@ -205,6 +208,29 @@ Post comment: `**Investigation Results (N1)**\n**Question:** ...\n**Summary:** .
 **Phase 5 — Post-Investigation Routing**
 
 **Gate:** skip if no tracker configured. If tracker configured but no tracker ticket (brain-dump investigate mode): run Brain-dump variant.
+
+**Queue gate:** if `N1_QUEUE_RUN_ID` is set, skip the Brain-dump variant and the interactive menu below entirely. Force the restore action unconditionally, regardless of `IMPLEMENTABLE`:
+- If `ORIGINAL_STATUS` is non-empty: apply **Restore logic** below, posting the same "Investigation completed. Ticket restored to original status." comment on success.
+- If `ORIGINAL_STATUS` is empty: apply **Leave-as-is** — no status change.
+
+No follow-up ticket creation, no ticket-type conversion, no close — restore-only. Read `ORIGINAL_STATUS` and log a Decision Ledger row:
+
+```bash
+source ~/.n1/preamble.sh
+OVERVIEW="$N1_HOME/memory/$ID/overview.md"
+ORIGINAL_STATUS=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status")
+TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
+HAS_MOVE=$(n1_config_val ".tracker.operations.moveStatus" "$N1_HOME/config.json")
+grep -q '^## Decision Ledger' "$OVERVIEW" 2>/dev/null || printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$OVERVIEW"
+if [ -n "$ORIGINAL_STATUS" ] && [ -n "$TRACKER_MCP" ] && [ -n "$HAS_MOVE" ]; then
+    CHOSEN="Restore to original status ($ORIGINAL_STATUS)"
+else
+    CHOSEN="Leave as-is (no original_status captured)"
+fi
+printf '| investigation-deliverable | scope | B | [auto] | Post-investigation routing under queue run | %s | Create follow-up ticket / Convert to implementation / Close / Leave as-is | queue: N1_QUEUE_RUN_ID set -- unconditional restore, no interactive menu | --- |\n' "$CHOSEN" >> "$OVERVIEW"
+```
+
+Then let the step end normally — do not wait for the user. Skip the rest of Phase 5 below.
 
 **Brain-dump variant** (when `investigate_interactive: true` AND `<ID>` is a provisional slug):
 
