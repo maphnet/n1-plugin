@@ -25,6 +25,20 @@ TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
 ```
 Step `escalated` + non-headless: print `## Escalations`, move ticket to `inProgress` (if `tracker.statuses.blocked` set), reset step per `procedures/autonomy-headless.md`.
 
+**Busy guard** (mirrors `scripts/n1-queue-run.sh:29-36`): detect a second, still-running `n1-start` on the same ticket. A live pid equal to `$$` is this same session resuming (e.g. post-compaction) and is never a conflict — only a live pid that differs from `$$` is a genuine concurrent run.
+```bash
+EXISTING_PID=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" pid)
+if [ -n "$EXISTING_PID" ] && [ "$EXISTING_PID" != "$$" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+    # Interactive: warn and let the user decide (overview.md may race); headless has no user to ask, so refuse.
+    if [ "${N1_HEADLESS:-}" = "1" ]; then
+        echo "n1-start already running for $ID (pid $EXISTING_PID); refusing (headless)."
+        exit 3
+    fi
+    echo "Warning: n1-start already running for $ID (pid $EXISTING_PID); overview.md may race. Continue anyway."
+fi
+n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" pid "$$"
+```
+
 `TYPE=="investigation"`: skip workspace isolation. Else run workspace isolation. Read loop counters:
 ```bash
 source ~/.n1/preamble.sh
