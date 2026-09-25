@@ -277,7 +277,7 @@ n1_queue_parse_launch() {
     # failure reason (exit 1): bypass-permissions-disclaimer when the output asks for the
     # one-time interactive consent, bg-launch-failed for anything else.
     local id
-    id=$(printf '%s\n' "$1" | sed -n 's/.*backgrounded[^0-9a-f]*\([0-9a-f]\{8\}\).*/\1/p' | head -1)
+    id=$(printf '%s\n' "$1" | sed 's/\x1b\[[0-9;]*m//g' | sed -n 's/.*backgrounded[^0-9a-f]*\([0-9a-f]\{8\}\).*/\1/p' | head -1)
     if [ -n "$id" ]; then printf '%s' "$id"; return 0; fi
     # ponytail: consent detection is a keyword match; tighten once a real refusal message is captured.
     if printf '%s' "$1" | grep -qiE 'dangerously-skip-permissions|disclaimer'; then
