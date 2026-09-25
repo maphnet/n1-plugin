@@ -219,8 +219,10 @@ No follow-up ticket creation, no ticket-type conversion, no close — restore-on
 source ~/.n1/preamble.sh
 OVERVIEW="$N1_HOME/memory/$ID/overview.md"
 ORIGINAL_STATUS=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status")
+TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
+HAS_MOVE=$(n1_config_val ".tracker.operations.moveStatus" "$N1_HOME/config.json")
 grep -q '^## Decision Ledger' "$OVERVIEW" 2>/dev/null || printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$OVERVIEW"
-if [ -n "$ORIGINAL_STATUS" ]; then
+if [ -n "$ORIGINAL_STATUS" ] && [ -n "$TRACKER_MCP" ] && [ -n "$HAS_MOVE" ]; then
     CHOSEN="Restore to original status ($ORIGINAL_STATUS)"
 else
     CHOSEN="Leave as-is (no original_status captured)"

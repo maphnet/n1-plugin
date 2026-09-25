@@ -41,11 +41,13 @@ fi
 pass "extract Decision Ledger bash block from $SKILL"
 
 # The extracted block sources ~/.n1/preamble.sh (host plumbing, irrelevant
-# here) and calls n1_read_frontmatter. Strip the preamble line and provide
-# the real lib function directly so the test exercises the real logic.
+# here) and calls n1_read_frontmatter/n1_config_val. Strip the preamble line
+# and provide the real lib functions directly so the test exercises the real
+# logic.
 BLOCK="${BLOCK//source ~\/.n1\/preamble.sh/:}"
 source "$REPO_ROOT/lib/frontmatter.sh"
-export -f n1_read_frontmatter
+source "$REPO_ROOT/lib/config.sh"
+export -f n1_read_frontmatter n1_config_val n1_config_file n1_home
 
 run_block() {
     local n1_home="$1" id="$2"
@@ -55,13 +57,16 @@ run_block() {
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-# --- case 1: ORIGINAL_STATUS present -> Restore ---
+# --- case 1: ORIGINAL_STATUS present + tracker capable -> Restore ---
 mkdir -p "$WORK/case1/memory/T-1"
 cat > "$WORK/case1/memory/T-1/overview.md" <<'EOF'
 ---
 original_status: In Progress
 ---
 # Overview
+EOF
+cat > "$WORK/case1/config.json" <<'EOF'
+{"tracker": {"mcp": "youtrack", "operations": {"moveStatus": "update_issue"}}}
 EOF
 run_block "$WORK/case1" "T-1"
 OUT1=$(cat "$WORK/case1/memory/T-1/overview.md")
@@ -109,6 +114,27 @@ if [ "$ROW_COUNT" -eq 2 ]; then
     pass "case1: a new row is appended on each run (not deduped away)"
 else
     fail "case1: a new row is appended on each run (got $ROW_COUNT rows)"
+fi
+
+# --- case 4: ORIGINAL_STATUS present but tracker can't move status ->
+# ledger must NOT claim a restore that Restore-logic's own gate would refuse
+# to perform (CR-1: audit-integrity — Chosen must match what actually runs).
+mkdir -p "$WORK/case4/memory/T-4"
+cat > "$WORK/case4/memory/T-4/overview.md" <<'EOF'
+---
+original_status: In Progress
+---
+# Overview
+EOF
+cat > "$WORK/case4/config.json" <<'EOF'
+{"tracker": {"mcp": "youtrack", "operations": {}}}
+EOF
+run_block "$WORK/case4" "T-4"
+OUT4=$(cat "$WORK/case4/memory/T-4/overview.md")
+if echo "$OUT4" | grep -qF 'Leave as-is (no original_status captured)'; then
+    pass "case4: no moveStatus op -> ledger does not claim restore"
+else
+    fail "case4: no moveStatus op -> ledger does not claim restore"
 fi
 
 echo "$PASS passed, $FAIL failed"
