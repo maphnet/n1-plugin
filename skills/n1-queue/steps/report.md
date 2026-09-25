@@ -48,6 +48,21 @@ printf '{"queue_id":"%s","run_id":"%s","step":"%s","plan_decisions":%s,"autonomo
     "$QUEUE_ID" "$RUN_ID" "$STEP" "$PD" "$AD" "$ES" > "$QUEUE_DIR/telemetry.json"
 ```
 
+## Release queue tags
+
+Tag mode only (the helper prints nothing otherwise). Releases the tag for handed-off rows (`failed`, plus `pr`/`escalated` rows whose child-side release did not confirm):
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+printf 'TAG=%s\n' "$(n1_read_frontmatter "$QUEUE_FILE" queue_id)"
+n1_queue_release_rows "$QUEUE_FILE"
+```
+
+For each printed `<ticket>\t<n1-home>` line, read and follow `<N1_ROOT>/skills/n1-queue/procedures/release-tag.md` with `ID=<ticket>`, `TAG` from the output above, `OVERVIEW=<n1-home>/memory/<ticket>/overview.md`. Then print, omitting empty lines:
+- `Queue tag released: <tickets with removed/absent>`
+- `Queue tag still attached (release failed): <ticket>: <reason>` — one line per `failed:*`/`skipped:*` ticket.
+
 ## Adopt watch (--watch only)
 
 After the status table, check whether the run is still live:

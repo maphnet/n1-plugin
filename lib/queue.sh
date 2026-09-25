@@ -156,6 +156,8 @@ n1_queue_child_cmd() {
     # codex: synchronous headless child writing <log-path>.
     # claude-code: background-session launch named <session-name>; stdout carries the
     # session id (see n1_queue_parse_launch). <log-path> is unused there.
+    # Caller env N1_QUEUE_TAG (tag mode only, else empty) is forwarded so the child can
+    # release the queue tag on handoff (NP-199).
     # Test hook: when N1_QUEUE_CHILD_STUB is set, the command is "$N1_QUEUE_CHILD_STUB" <ticket>.
     local repo="$1" id="$2" model="$3" run_id="$4" log="$5" name="${6:-}"
     if [ -n "${N1_QUEUE_CHILD_STUB:-}" ]; then
@@ -164,13 +166,13 @@ n1_queue_child_cmd() {
     fi
     if [ "$(n1_host)" = claude-code ]; then
         local settings
-        settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" \
-            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_STOP_AT:"ci",N1_QUEUE_RUN_ID:$run,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
+        settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" \
+            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_STOP_AT:"ci",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
         n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
         return
     fi
-    printf 'cd %q && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STOP_AT=ci N1_QUEUE_RUN_ID="%s" %s' \
-        "$repo" "$run_id" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
+    printf 'cd %q && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_STOP_AT=ci N1_QUEUE_RUN_ID="%s" N1_QUEUE_TAG=%q %s' \
+        "$repo" "$run_id" "${N1_QUEUE_TAG:-}" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
 }
 
 n1_queue_row_status() {
@@ -204,6 +206,48 @@ n1_queue_pending_rows() {
             printf "%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7, $8
         }
     }' "$file"
+}
+
+n1_queue_already_run() {
+    # Usage: n1_queue_already_run <overview.md>
+    # Exit 0 and print the stamped queue_run_id when a previous queue run handled this
+    # ticket and did not confirm the tag release (stale tag -> exclude from intake).
+    # Exit 1 when never queued, or when the tag was released and a human re-added it.
+    local ov="$1" run
+    run=$(n1_read_frontmatter "$ov" queue_run_id)
+    [ -n "$run" ] || return 1
+    [ "$(n1_read_frontmatter "$ov" queue_tag_removed)" = true ] && return 1
+    printf '%s' "$run"
+}
+
+n1_queue_release_rows() {
+    # Usage: n1_queue_release_rows <queue.md>
+    # Prints unique "<ticket>\t<n1-home>" for tag-mode Plan rows with a handoff outcome
+    # (pr, escalated, failed) whose overview.md lacks queue_tag_removed: true.
+    local q="$1" t h
+    [ "$(n1_read_frontmatter "$q" mode)" = tag ] || return 0
+    n1_queue_pending_rows "$q" 'pr|escalated|failed' | cut -f2,4 | sort -u |
+        while IFS=$'\t' read -r t h; do
+            [ "$(n1_read_frontmatter "$h/memory/$t/overview.md" queue_tag_removed)" = true ] ||
+                printf '%s\t%s\n' "$t" "$h"
+        done
+}
+
+n1_queue_release_cmd() {
+    # Usage: n1_queue_release_cmd <queue_id> <repo> <log-path>
+    # Automatic tag-release backstop (NP-199 CCR fix): report.md's release wiring
+    # only runs on --status/--watch, which nothing guarantees a human will trigger
+    # after a queue run. The runner (scripts/n1-queue-run.sh) calls this to fire a
+    # fresh headless "/n1:n1-queue --status <queue_id>" re-invocation, so the report
+    # step's release-tag section runs unattended too.
+    # Test hook: when N1_QUEUE_RELEASE_STUB is set, the command is
+    # "$N1_QUEUE_RELEASE_STUB" <queue_id>.
+    local id="$1" repo="$2" log="$3"
+    if [ -n "${N1_QUEUE_RELEASE_STUB:-}" ]; then
+        printf '"%s" "%s"' "$N1_QUEUE_RELEASE_STUB" "$id"
+        return
+    fi
+    n1_headless_cmd n1-queue "--status $id" sonnet "$log" "$repo"
 }
 
 n1_queue_decision_counts() {
