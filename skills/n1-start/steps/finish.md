@@ -12,7 +12,7 @@ echo "finish-gate:${GATE_ENABLED}"
 
 **If `finish-gate:false`:** skip to FINALIZE MEMORY.
 
-`prMode: "skip"` uses the local-merge path.
+With `prMode: "skip"`, n1-finish takes the local-merge path.
 
 **REQUIRED SUB-SKILL:** Use n1:n1-finish to verify/merge, deploy, close ticket.
 
