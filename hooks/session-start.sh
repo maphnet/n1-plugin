@@ -141,7 +141,7 @@ fi
 N1_COMPACT_STATE=""
 if [ "${TRIGGER:-}" = "compact" ]; then
     n1_root=$(n1_home)
-    ar_file="${n1_root:+${n1_root}/active-run.json}"
+    ar_file=$(n1_active_run_file 2>/dev/null || true)   # this session's pointer (NP-206)
     if [ -n "$ar_file" ] && [ -f "$ar_file" ]; then
         ar_ticket=""
         ar_run_id=""

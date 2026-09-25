@@ -179,6 +179,7 @@ n1_queue_row_status() {
     # whose first cell equals <row-number>.
     # Row shape: | # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
     local file="$1" row_num="$2" status="$3" reason="${4:-}"
+    local tmp; tmp=$(mktemp "${file}.XXXXXX")
     awk -v num="$row_num" -v st="$status" -v rsn="$reason" 'BEGIN { FS="|"; OFS="|" } {
         f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
         if (f2 == num && NF >= 9) {
@@ -186,7 +187,7 @@ n1_queue_row_status() {
             if (rsn != "") $9 = " " rsn " "
         }
         print
-    }' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+    }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
 }
 
 n1_queue_pending_rows() {

@@ -20,6 +20,8 @@ n1_write_frontmatter() {
     local file="$1" key="$2" value="$3"
     [ -f "$file" ] || return 1
     head -1 "$file" | grep -q '^---$' || return 1
+    # Unique temp per call (NP-206): concurrent writers never share a temp inode.
+    local tmp; tmp=$(mktemp "${file}.XXXXXX")
     awk -v key="$key" -v val="$value" '
         NR==1 && /^---$/ { in_fm=1; print; next }
         in_fm && /^---$/ {
@@ -28,7 +30,7 @@ n1_write_frontmatter() {
         }
         in_fm && $0 ~ "^" key ":" { print key ": " val; replaced=1; next }
         { print }
-    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+    ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
 }
 
 n1_increment_counter() {

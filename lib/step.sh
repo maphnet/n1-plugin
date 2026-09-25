@@ -69,10 +69,11 @@ n1_step_end() {
         local display_name
         display_name=$(_n1_step_display_name "$step_name")
         if [ -n "$display_name" ]; then
-            # Portable in-place sed: write to tmp then rename
+            # Portable in-place sed via a unique temp (NP-206), then rename
+            local tmp; tmp=$(mktemp "${overview}.XXXXXX")
             sed "s/- \[ \] ${display_name}/- [x] ${display_name}/" \
-                "$overview" > "${overview}.step.tmp" \
-                && mv "${overview}.step.tmp" "$overview"
+                "$overview" > "$tmp" \
+                && mv "$tmp" "$overview" || { rm -f "$tmp"; false; }
         fi
     fi
 

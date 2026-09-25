@@ -613,25 +613,40 @@ escape_json_val() {
     printf '%s' "$s"
 }
 
+# Per-session active-run pointer (NP-206): $N1_HOME/active-run.<session_id>.json so concurrent
+# sessions in one project never read each other's ticket/worktree/branch. No (or unsafe)
+# session id -> unkeyed active-run.json. Read mode (no arg) falls back to the unkeyed file when
+# this session's keyed file is absent (writer shell lacked the id); `write` always keys.
+n1_active_run_file() {
+    local home sid
+    home=$(n1_home)
+    [ -n "$home" ] || return 1
+    sid=$(n1_session_id)
+    case "$sid" in *[!a-zA-Z0-9_-]*) sid="" ;; esac   # same rule as n1_session_file
+    if [ -n "$sid" ] && { [ "${1:-}" = write ] || [ -f "${home}/active-run.${sid}.json" ]; }; then
+        printf '%s' "${home}/active-run.${sid}.json"
+    else
+        printf '%s' "${home}/active-run.json"
+    fi
+}
+
 n1_active_run_write() {
     local ticket_id="$1" run_id="$2" worktree_path="${3:-null}" branch="${4:-}"
-    local home
-    home=$(n1_home)
-    [ -n "$home" ] || return 0
+    local file
+    file=$(n1_active_run_file write) || return 0
     local wt_val="null"
     [ "$worktree_path" != "null" ] && [ -n "$worktree_path" ] && wt_val="\"$(escape_json_val "$worktree_path")\""
     local esc_ticket esc_run esc_branch
     esc_ticket=$(escape_json_val "$ticket_id")
     esc_run=$(escape_json_val "$run_id")
     esc_branch=$(escape_json_val "$branch")
-    cat > "${home}/active-run.json" <<AREOF
+    cat > "$file" <<AREOF
 {"ticketId":"${esc_ticket}","runId":"${esc_run}","worktreePath":${wt_val},"branch":"${esc_branch}"}
 AREOF
 }
 
 n1_active_run_clear() {
-    local home
-    home=$(n1_home)
-    [ -n "$home" ] || return 0
-    rm -f "${home}/active-run.json"
+    local file
+    file=$(n1_active_run_file) || return 0
+    rm -f "$file"
 }

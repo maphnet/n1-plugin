@@ -69,6 +69,7 @@ n1_write_signals() {
 
     if grep -q '^<!-- n1:signals$' "$file" 2>/dev/null; then
         # Block exists — update matching keys, preserve others, append new keys
+        local tmp; tmp=$(mktemp "${file}.XXXXXX")
         awk -v pfile="$tmpairs" '
             BEGIN {
                 while ((getline line < pfile) > 0) {
@@ -104,7 +105,7 @@ n1_write_signals() {
                 print; next
             }
             { print }
-        ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
     else
         # No block — append a new one
         printf '\n<!-- n1:signals\n' >> "$file"
