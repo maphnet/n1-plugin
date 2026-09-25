@@ -92,6 +92,11 @@ test_release_wiring() {
         "$(grep -q 'release-tag.md' "$s/n1-start/procedures/autonomy-headless.md" && grep -q 'to re-queue this ticket' "$s/n1-start/procedures/autonomy-headless.md" && echo yes || echo no)"
     assert_eq "wiring: PR step releases tag" "yes" \
         "$(grep -q 'release-tag.md' "$s/n1-pr/steps/02-push-create.md" && echo yes || echo no)"
+    # Non-queue PR runs must not fall back to the config default tag (CR-1).
+    assert_eq "wiring: PR step tag has no config fallback" "yes" \
+        "$(grep -qF '"${N1_QUEUE_TAG:-}"' "$s/n1-pr/steps/02-push-create.md" && ! grep -q 'n1_queue_val' "$s/n1-pr/steps/02-push-create.md" && echo yes || echo no)"
+    assert_eq "wiring: PR step skips release on empty tag" "yes" \
+        "$(grep -q 'Empty `TAG` -> skip' "$s/n1-pr/steps/02-push-create.md" && echo yes || echo no)"
 }
 
 # --- NP-199: already-run exclusion and tag release list -----------------------
