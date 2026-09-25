@@ -77,6 +77,71 @@ test_pick_model() {
     unset -f n1_config_file
 }
 
+# --- NP-199: already-run exclusion and tag release list -----------------------
+test_already_run() {
+    local tmp; tmp=$(mktemp -d)
+    local ov="$tmp/overview.md"
+    assert_eq "already-run: no overview -> include" "1" \
+        "$(n1_queue_already_run "$ov" >/dev/null && echo 0 || echo 1)"
+    printf -- '---\nstep: implement\n---\n' > "$ov"
+    assert_eq "already-run: manual run, never queued -> include" "1" \
+        "$(n1_queue_already_run "$ov" >/dev/null && echo 0 || echo 1)"
+    printf -- '---\nstep: implement\nqueue_run_id: R1\n---\n' > "$ov"
+    assert_eq "already-run: queued, flag absent (release failed) -> exclude" "R1" \
+        "$(n1_queue_already_run "$ov" || echo include)"
+    printf -- '---\nstep: pr\nqueue_run_id: R1\nqueue_tag_removed: false\n---\n' > "$ov"
+    assert_eq "already-run: queued, flag false -> exclude" "R1" \
+        "$(n1_queue_already_run "$ov" || echo include)"
+    printf -- '---\nstep: pr\nqueue_run_id: R1\nqueue_tag_removed: true\n---\n' > "$ov"
+    assert_eq "already-run: tag released then re-added by human -> include" "1" \
+        "$(n1_queue_already_run "$ov" >/dev/null && echo 0 || echo 1)"
+    rm -rf "$tmp"
+}
+
+test_release_rows() {
+    local tmp; tmp=$(mktemp -d)
+    mkdir -p "$tmp/h/memory/T-2" "$tmp/h/memory/T-3"
+    printf -- '---\nstep: pr\nqueue_tag_removed: true\n---\n' > "$tmp/h/memory/T-2/overview.md"
+    printf -- '---\nstep: escalated\n---\n' > "$tmp/h/memory/T-3/overview.md"
+    cat > "$tmp/q.md" <<EOF
+---
+mode: tag
+queue_id: n1-auto
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | $tmp/h | sonnet | deferred | |
+| 2 | T-2 | B | /r | $tmp/h | sonnet | pr | |
+| 3 | T-3 | C | /r | $tmp/h | sonnet | escalated | |
+| 4 | T-4 | D | /r | $tmp/h | sonnet | pending | |
+| 5 | T-5 | E | /r | $tmp/h | sonnet | awaiting-human | |
+| 6 | T-1 | A | /r | $tmp/h | sonnet | failed | deferred-retry |
+| 7 | T-6 | F | /r | $tmp/h | sonnet | skip | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    assert_eq "release-rows: pr/escalated/failed not yet released, deduped" \
+        "$(printf 'T-1\t%s/h,T-3\t%s/h' "$tmp" "$tmp")" \
+        "$(n1_queue_release_rows "$tmp/q.md" | paste -sd, -)"
+    sed -i 's/^mode: tag$/mode: story/' "$tmp/q.md"
+    assert_eq "release-rows: story mode -> none" "" "$(n1_queue_release_rows "$tmp/q.md")"
+    rm -rf "$tmp"
+}
+
+# NP-199 (CCR fix): the automatic tag-release backstop (Task 2) needs a stubbable
+# command builder, the same test-hook pattern n1_queue_child_cmd already uses.
+test_release_cmd() {
+    local out
+    out=$(N1_QUEUE_RELEASE_STUB=/tmp/release-stub.sh n1_queue_release_cmd n1-auto /r /tmp/log)
+    assert_eq "release_cmd: stub hook" '"/tmp/release-stub.sh" "n1-auto"' "$out"
+    out=$(unset N1_QUEUE_RELEASE_STUB; N1_HOST=codex n1_queue_release_cmd n1-auto /r /tmp/log)
+    assert_eq "release_cmd: codex real command shape" "yes" \
+        "$(case "$out" in *"codex exec"*'--status'*'n1-auto'*) echo yes ;; *) echo "no: $out" ;; esac)"
+}
+
 # --- n1_queue_child_status ---------------------------------------------------
 test_child_status() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
@@ -186,6 +251,13 @@ test_bg_helpers() {
     cx=$(unset N1_QUEUE_CHILD_STUB; N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
     assert_eq "child_cmd: codex unchanged" "yes" "$(case "$cx" in *'N1_QUEUE_RUN_ID="RUN1"'*"codex exec"*) case "$cx" in *--bg*) echo no ;; *) echo yes ;; esac ;; *) echo "no: $cx" ;; esac)"
     assert_eq "child_cmd: codex has no N1_UNATTENDED" "no" "$(case "$cx" in *N1_UNATTENDED*) echo yes ;; *) echo no ;; esac)"
+
+    cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_QUEUE_TAG=n1-auto N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    assert_eq "child_cmd: claude-code forwards N1_QUEUE_TAG" "yes" \
+        "$(case "$cc" in *'N1_QUEUE_TAG'*'n1-auto'*) echo yes ;; *) echo "no: $cc" ;; esac)"
+    cx=$(unset N1_QUEUE_CHILD_STUB; N1_QUEUE_TAG=n1-auto N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
+    assert_eq "child_cmd: codex forwards N1_QUEUE_TAG" "yes" \
+        "$(case "$cx" in *'N1_QUEUE_TAG=n1-auto '*"codex exec"*) echo yes ;; *) echo "no: $cx" ;; esac)"
 
     cat > "$tmp/q.md" <<'EOF'
 ---
@@ -950,6 +1022,9 @@ test_pick_model
 test_child_status
 test_row_status
 test_pending_rows
+test_already_run
+test_release_rows
+test_release_cmd
 test_bg_helpers
 test_decision_counts
 test_queue_digest
