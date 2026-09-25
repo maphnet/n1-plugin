@@ -467,6 +467,31 @@ n1_plan_review_enabled() {
     printf 'true'
 }
 
+n1_merge_allowed() {
+    # Exit 0 = this run may merge its PR / branch; exit 1 = it must stop before merging.
+    # Queue children (N1_QUEUE_RUN_ID, exported by lib/queue.sh) use queue.mergeOnFinish only,
+    # so unattended runs never inherit interactive auto-merge. Everyone else needs
+    # finishWork.enabled AND finishWork.mergeOnFinish. Absent keys mean false; n1_config_val's
+    # `// empty` merges absent with false, which is harmless because false is the default.
+    if [ -n "${N1_QUEUE_RUN_ID:-}" ]; then
+        [ "$(n1_config_val '.queue.mergeOnFinish')" = "true" ]
+        return
+    fi
+    [ "$(n1_config_val '.finishWork.enabled')" = "true" ] \
+        && [ "$(n1_config_val '.finishWork.mergeOnFinish')" = "true" ]
+}
+
+n1_finish_enabled() {
+    # Exit 0 = the pipeline continues into n1-finish (n1-start finish step, n1-ci chaining).
+    # Queue children enter only when they may merge; otherwise they stop after PR + CI.
+    # Interactive runs follow finishWork.enabled (n1-finish then merges or waits for the human merge).
+    if [ -n "${N1_QUEUE_RUN_ID:-}" ]; then
+        n1_merge_allowed
+        return
+    fi
+    [ "$(n1_config_val '.finishWork.enabled')" = "true" ]
+}
+
 n1_test_coverage_tier() {
     # Prints maintain/minimal/standard. Default: maintain.
     local v; v=$(n1_config_val '.testCoverage.tier')
