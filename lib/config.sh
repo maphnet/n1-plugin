@@ -456,8 +456,8 @@ n1_plan_approval_required() {
 
 n1_plan_review_enabled() {
     # Prints true/false. Default: true (plan review always runs unless explicitly disabled).
-    # Cannot use n1_config_val here: jq's `// empty` treats boolean false as falsy,
-    # returning empty string for both absent AND false. Use null-check instead.
+    # n1_config_val (NP-213) already null-checks and distinguishes explicit false from
+    # absent; this local jq call is kept for the tri-state "absent" fallback text below.
     local file; file=$(n1_config_file)
     if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
         local v; v=$(jq -r 'if .planReview.reviewPlan == null then "absent" else (.planReview.reviewPlan | tostring) end' "$file" 2>/dev/null || true)
@@ -487,7 +487,8 @@ n1_review_narrow_threshold() {
 
 n1_review_skip_doc_config() {
     # Prints true/false. Default: true.
-    # Cannot use n1_config_val here: jq's `// empty` treats boolean false as falsy.
+    # n1_config_val (NP-213) already null-checks and distinguishes explicit false from
+    # absent; this local jq call is kept for the tri-state "absent" fallback text below.
     local file; file=$(n1_config_file)
     if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
         local v; v=$(jq -r 'if .review.skipDocConfigOnly == null then "absent" else (.review.skipDocConfigOnly | tostring) end' "$file" 2>/dev/null || true)
@@ -507,8 +508,8 @@ n1_ci_checks_val() {
     # Usage: n1_ci_checks_val <key>
     # Keys: enabled, maxFixAttempts, confidenceThreshold
     local key="$1"
-    # For boolean keys (enabled), n1_config_val's jq `// empty` treats false as falsy
-    # and returns empty. Use direct jq query for the enabled key.
+    # n1_config_val (NP-213) already null-checks; this local jq call is kept for the
+    # tri-state "absent" fallback distinguishing null from explicit false below.
     local file; file=$(n1_config_file)
     if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
         local v; v=$(jq -r "if .ciChecks.${key} == null then \"absent\" else (.ciChecks.${key} | tostring) end" "$file" 2>/dev/null || true)
@@ -562,7 +563,7 @@ n1_escalation_val() {
 n1_memory_val() {
     # Usage: n1_memory_val <key>
     # Keys: ticketContext, decisions
-    # Boolean keys — same jq `// empty` caveat as n1_ci_checks_val.
+    # Boolean keys — same tri-state "absent" fallback pattern as n1_ci_checks_val.
     local key="$1"
     local file; file=$(n1_config_file)
     if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
