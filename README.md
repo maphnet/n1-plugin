@@ -167,7 +167,7 @@ Tracker routing is config-driven via `~/.n1/<project>/config.json` (auto-derived
 
 Created tickets can optionally be tagged with a service name. When `ticketTagging.enabled` is set (off by default; configured by `n1-init`), N1-created tickets get a `{service} | <title>` summary prefix and a `**Service:** <service>` line in the description.
 
-Tickets N1 creates are auto-assigned to you (the authenticated tracker user) by default. Set `tracker.assignToCreator` to `false` (or answer No during `n1-init`) to disable. Applies to created tickets only; never changes the assignee of existing tickets.
+Tickets N1 creates are auto-assigned to you (the authenticated tracker user) by default; `n1-start` also assigns unassigned tickets to you on pickup (e.g. via `n1-queue`). Set `tracker.assignToCreator` to `false` (or answer No during `n1-init`) to disable. Never steals an existing assignee from a ticket.
 
 ## Error Tracking Support
 
