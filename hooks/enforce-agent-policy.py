@@ -19,8 +19,8 @@ when config queue.mergeOnFinish is not true: deny shell commands that merge - `g
 `gh api .../pulls/N/merge` or the mergePullRequest/enablePullRequestAutoMerge mutations, and
 `git merge`/`git push` targeting git.defaultBranch (default "main"). The command is split into
 simple commands on &&, ||, ;, |, & and parentheses (shlex, so `cd x && gh pr merge` is caught)
-and `sh|bash|zsh -c` bodies are parsed recursively. Unreadable config fails closed (deny);
-unparseable commands fail open.
+and `sh|bash|zsh -c` bodies are parsed recursively. Unreadable config and unparseable commands
+both fail closed (deny) -- unparseable commands fall back to a regex scan of the raw text.
 
 Fail-open otherwise: exit 0, no output.
 
@@ -42,12 +42,16 @@ CODEX_TOOL_CLASS = {
     "web_search": "WebSearch",
 }
 
-SHELL_PUNCT = set("();<>|&")
-ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+SHELL_PUNCT = set("();<>|&\n")
 GH_MERGE_API = re.compile(r"(^|/)pulls/\d+/merge/?$")
 GH_MERGE_MUTATIONS = ("mergePullRequest", "enablePullRequestAutoMerge")
 GH_GLOBAL_VALUE_OPTS = {"-R", "--repo", "--hostname"}
 PUSH_VALUE_OPTS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+WRAP_PROGS = ("bash", "sh", "zsh")
+# SEC-3 fallback when shlex can't tokenize the command at all (unbalanced quotes,
+# e.g. a heredoc body with an apostrophe): deny in queue runs if the raw text looks
+# merge-shaped, instead of failing open.
+_FAIL_CLOSED_RE = re.compile(r"\bgh\b.*\bmerge\b|\bgit\b.*\b(?:push|merge)\b", re.S)
 
 
 def persona_of(agent_type: str):
@@ -140,17 +144,33 @@ def _dict(value):
 
 
 def _segments(command: str):
-    """argv of each simple command in a shell string. Chain, pipe and subshell operators split
-    commands; redirections (with their fd number and target) are dropped. Raises ValueError on
-    unbalanced quotes."""
-    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+    """argv of each simple command in a shell string. Chain, pipe, subshell and newline
+    operators split commands; redirections (with their fd number and target) are dropped.
+    Raises ValueError on unbalanced quotes."""
+    command = command.replace("\\\n", "")  # line continuations join, they don't separate
+    lex = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n")
+    lex.whitespace = " \t\r"  # newline is punctuation now, not whitespace to swallow
     lex.whitespace_split = True
+    lex.commenters = ""  # '#' is not a comment char in the way these commands actually run
     segs, seg, skip = [], [], False
     for tok in lex:
         if skip:
             skip = False
             continue
         if tok and set(tok) <= SHELL_PUNCT:
+            if tok.startswith("<(") or tok.startswith(">("):
+                # process substitution opens a new context; never treat as a redirect to skip
+                if seg:
+                    segs.append(seg)
+                seg = []
+                continue
+            if any(c in tok for c in ";&|"):
+                # a control-operator char always ends the segment, even joined with a redirect
+                # (e.g. ";>", "&&") or a duplication redirect (e.g. "2>&1", handled below).
+                if seg:
+                    segs.append(seg)
+                seg = []
+                continue
             if "<" in tok or ">" in tok:
                 if seg and seg[-1].isdigit():
                     seg.pop()
@@ -176,9 +196,11 @@ def _branch(cwd: str) -> str:
 
 
 def _gh_merges(args) -> bool:
-    # Skip gh's own global options (e.g. `gh --repo owner/repo pr merge 123`) so the
-    # subcommand check below isn't fooled by an option sitting in args[0]/args[1].
-    i = 0
+    # Strip gh's own global options wherever they sit (e.g. `gh --repo owner/repo pr merge 123`
+    # or `gh pr -R owner/repo merge 123` -- gh accepts -R/--repo/--hostname attached to the `pr`
+    # command group too, not just before it) so the subcommand check below isn't fooled by an
+    # option sitting between `pr` and `merge`.
+    out, i = [], 0
     while i < len(args):
         tok = args[i]
         if tok in GH_GLOBAL_VALUE_OPTS:
@@ -188,8 +210,9 @@ def _gh_merges(args) -> bool:
         elif tok.startswith("-R") and tok != "-R":
             i += 1
         else:
-            break
-    args = args[i:]
+            out.append(tok)
+            i += 1
+    args = out
     if args[:2] == ["pr", "merge"]:
         return True
     if args[:1] == ["api"]:
@@ -238,26 +261,33 @@ def _git_merges(argv, cwd: str, default: str) -> bool:
 
 
 def _merge_action(command: str, cwd: str, default: str, depth: int = 0) -> str:
-    """First merge-shaped simple command in a shell string (as text), else ''."""
+    """First merge-shaped simple command in a shell string (as text), else ''.
+
+    Scans every position of each segment for gh/git/bash/sh/zsh, not just the first word --
+    this is what lets it see past shell keywords (until/if/then/{/!), wrapper commands
+    (env, sudo, timeout N, ...) and env assignments without needing an explicit skip-list
+    for each: whatever precedes the program name is simply not where the match is."""
     for seg in _segments(command):
-        k = 0
-        while k < len(seg) and ENV_ASSIGN.match(seg[k]):
-            k += 1
-        argv = seg[k:]
-        if not argv:
+        if not seg:
             continue
-        prog = os.path.basename(argv[0])
-        if prog == "cd":
-            cwd = os.path.join(cwd, os.path.expanduser(argv[1] if len(argv) > 1 else "~"))
-        elif prog in ("bash", "sh", "zsh"):
-            flags = [n for n, a in enumerate(argv[1:-1], 1)
-                     if a.startswith("-") and not a.startswith("--") and "c" in a]
-            if flags and depth < 2:
-                hit = _merge_action(argv[flags[0] + 1], cwd, default, depth + 1)
-                if hit:
-                    return hit
-        elif (prog == "gh" and _gh_merges(argv[1:])) or (prog == "git" and _git_merges(argv, cwd, default)):
-            return " ".join(argv)
+        if os.path.basename(seg[0]) == "cd":
+            cwd = os.path.join(cwd, os.path.expanduser(seg[1] if len(seg) > 1 else "~"))
+            continue
+        for k, tok in enumerate(seg):
+            prog = os.path.basename(tok)
+            argv = seg[k:]
+            if prog in WRAP_PROGS:
+                flags = [n for n, a in enumerate(argv[1:-1], 1)
+                         if a.startswith("-") and not a.startswith("--") and "c" in a]
+                if flags and depth < 2:
+                    hit = _merge_action(argv[flags[0] + 1], cwd, default, depth + 1)
+                    if hit:
+                        return hit
+                break
+            if prog == "gh" and _gh_merges(argv[1:]):
+                return " ".join(argv)
+            if prog == "git" and _git_merges(argv, cwd, default):
+                return " ".join(argv)
     return ""
 
 
@@ -280,7 +310,10 @@ def merge_deny(payload: dict, config: dict) -> int:
     try:
         hit = _merge_action(command, cwd, default)
     except ValueError:
-        return 0
+        # shlex couldn't tokenize this (e.g. unbalanced quotes from a heredoc body with an
+        # apostrophe). Fail closed in queue runs: deny if the raw text looks merge-shaped.
+        hit = "(unparseable command)" if (_FAIL_CLOSED_RE.search(command)
+                                           or any(m in command for m in GH_MERGE_MUTATIONS)) else ""
     if not hit:
         return 0
     sys.stderr.write(f"N1: merge denied in queue run {run_id} -- queue.mergeOnFinish is not true; "

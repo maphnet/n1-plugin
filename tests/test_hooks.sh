@@ -112,7 +112,22 @@ assert_eq "queue merge on: gh pr merge allowed"     0 "$(gate claude-code RUN1 "
 assert_eq "queue merge on: codex push main allowed" 0 "$(gate codex RUN1 "$GR" 'git push origin main')"
 echo '{' > "$N1_HOME/config.json"
 assert_eq "queue: broken config fails closed"       2 "$(gate claude-code RUN1 "$WT" 'gh pr merge 12')"
-assert_eq "queue: unparseable command fails open"   0 "$(gate claude-code RUN1 "$WT" "gh pr merge 'unterminated")"
+echo '{"git":{"defaultBranch":"main"}}' > "$N1_HOME/config.json"
+# SEC-1: newline is a command separator, not whitespace -- the ordinary shape of every N1
+# skill snippet (source ~/.n1/preamble.sh on its own line, command below).
+assert_eq "queue: multi-line command denied"        2 "$(gate claude-code RUN1 "$WT" "$(printf 'source ~/.n1/preamble.sh\ngh pr merge 12')")"
+assert_eq "queue: cd-then-newline-merge denied"     2 "$(gate claude-code RUN1 "$WT" "$(printf 'cd /tmp\ngh pr merge 12')")"
+# SEC-2: shell keywords and wrapper commands no longer hide gh/git past position 0.
+assert_eq "queue: until-wrapped merge denied"       2 "$(gate claude-code RUN1 "$WT" 'until gh pr merge 12 --squash; do sleep 30; done')"
+assert_eq "queue: if-wrapped merge denied"          2 "$(gate claude-code RUN1 "$WT" 'if gh pr checks 12; then gh pr merge 12; fi')"
+assert_eq "queue: timeout-wrapped merge denied"     2 "$(gate claude-code RUN1 "$WT" 'timeout 60 gh pr merge 12')"
+# SEC-3: unparseable commands (shlex ValueError, e.g. unbalanced quotes from a heredoc body
+# with an apostrophe) now fail closed via a regex fallback instead of failing open.
+assert_eq "queue: heredoc-with-apostrophe merge denied" 2 "$(gate claude-code RUN1 "$WT" "git commit -m 'It's broken' && gh pr merge 12")"
+assert_eq "queue: unparseable non-merge command fails open" 0 "$(gate claude-code RUN1 "$WT" "echo 'unterminated")"
+# SEC-5: gh -R/--repo attached to the pr command group (between pr and merge), not just before it.
+assert_eq "queue: gh pr -R merge denied"            2 "$(gate claude-code RUN1 "$WT" 'gh pr -R o/r merge 12')"
+assert_eq "queue: gh pr --repo= merge denied"       2 "$(gate claude-code RUN1 "$WT" 'gh pr --repo=o/r merge 12')"
 rm -f "$N1_HOME/config.json"
 
 # --- telemetry hooks accept the Codex persona prefix -----------------------

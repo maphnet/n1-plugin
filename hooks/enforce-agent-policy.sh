@@ -12,10 +12,20 @@ INPUT=$(cat)
 # queue children (Case 3, NP-212). Broad globs on purpose: Python does the exact token parse.
 # The gh branch matches "erge" (not "merge") — case matters in a bash `case` glob, and
 # GitHub's enablePullRequestAutoMerge mutation has a capital M.
+# SEC-4: this glob is a raw substring match and can itself be evaded by quote-split
+# obfuscation (`g''h pr m''erge 12`), which contains neither "gh" nor "git" as a substring.
+# Queue children are the security-relevant path, so skip the cheap filter there entirely and
+# always forward to Python; non-queue sessions keep the cheap filter unchanged.
 case "$INPUT" in
     *'"n1:'* | *'"n1-'*) : ;;
-    *gh*erge* | *git*push* | *git*merge*) [ -n "${N1_QUEUE_RUN_ID:-}" ] || exit 0 ;;
-    *) exit 0 ;;
+    *)
+        if [ -z "${N1_QUEUE_RUN_ID:-}" ]; then
+            case "$INPUT" in
+                *gh*erge* | *git*push* | *git*merge*) : ;;
+                *) exit 0 ;;
+            esac
+        fi
+        ;;
 esac
 
 CONFIG_FILE=$(n1_config_file)

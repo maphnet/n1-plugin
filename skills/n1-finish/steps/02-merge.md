@@ -7,7 +7,7 @@
 ```bash
 source ~/.n1/preamble.sh
 if n1_merge_allowed; then echo "merge:allowed"; else echo "merge:denied"; fi
-[ -n "${N1_QUEUE_RUN_ID:-}" ] && echo "queue-run:yes"
+if [ -n "${N1_QUEUE_RUN_ID:-}" ]; then echo "queue-run:yes"; fi
 ```
 
 `merge:denied` together with `queue-run:yes` → report "Queue run: merging is disabled (`queue.mergeOnFinish` is not `true`). The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b. The PreToolUse hook would deny the merge command anyway.
