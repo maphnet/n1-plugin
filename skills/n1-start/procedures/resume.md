@@ -25,12 +25,13 @@ TYPE=$(n1_read_type "$N1_HOME/memory/$ID/overview.md")
 ```
 Step `escalated` + non-headless: print `## Escalations`, move to `inProgress` (if `tracker.statuses.blocked` set), reset step per `procedures/autonomy-headless.md`.
 
-**Busy guard** (self-pid never conflicts):
 ```bash
+source ~/.n1/preamble.sh
 n1_busy_guard "$N1_HOME/memory/$ID/overview.md" "$ID"
 ```
+Exit 3 (headless): STOP.
 
-`TYPE=="investigation"`: skip workspace isolation. Else run workspace isolation. Read loop counters:
+`TYPE=="investigation"`: skip workspace isolation; else run it. Read loop counters:
 ```bash
 source ~/.n1/preamble.sh
 n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"

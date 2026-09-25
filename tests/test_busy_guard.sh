@@ -24,13 +24,14 @@ assert_eq "b: exit 0" 0 "$RC"
 assert_eq "b: no warning" "" "$OUT"
 assert_eq "b: pid rewritten" "$$" "$(n1_read_frontmatter "$OV" pid)"
 
-# (c) live, different pid, interactive -> warning, exit 0, pid untouched by guard's own write path
+# (c) live, different pid, interactive -> warning, exit 0, pid last-writer-wins rewritten to self ($$)
 sleep 30 & OTHER=$!
 n1_write_frontmatter "$OV" pid "$OTHER"
 unset N1_HEADLESS
 OUT=$(n1_busy_guard "$OV" T-1 2>&1); RC=$?
 assert_eq "c: exit 0" 0 "$RC"
 assert_eq "c: warns" "1" "$(echo "$OUT" | grep -c 'already running')"
+assert_eq "c: pid rewritten to self" "$$" "$(n1_read_frontmatter "$OV" pid)"
 
 # (c-headless) live, different pid, headless -> refuses, exit 3
 n1_write_frontmatter "$OV" pid "$OTHER"
