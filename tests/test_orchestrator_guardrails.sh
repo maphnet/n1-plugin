@@ -131,5 +131,19 @@ assert_contains "local-testing: planner wait directive" \
     "Wait for the persona to return its result before proceeding"
 
 echo
+# NP-202 — prMode "skip" local-merge path must not silently disappear again
+assert_contains "pr: prMode skip short-circuit" \
+    "skills/n1-start/steps/pr.md" \
+    '**If `prMode` is `"skip"`**'
+assert_contains "ci: prMode skip guard" \
+    "skills/n1-start/steps/ci.md" \
+    '**If `prMode` is `"skip"`**'
+assert_contains "finish: runs in skip mode" \
+    "skills/n1-start/steps/finish.md" \
+    'n1-finish takes the local-merge path'
+assert_contains "finalize: pr_skipped outcome" \
+    "skills/n1-start/procedures/finalize.md" \
+    '`pr_skipped`'
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
