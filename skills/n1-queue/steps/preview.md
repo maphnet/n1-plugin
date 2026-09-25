@@ -1,9 +1,20 @@
 # Preview
 
+Resolve the merge mode for each distinct N1 Home among the candidates (the same value run.md writes to the `N1 Home` column):
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+for h in <distinct N1 Home paths>; do printf '%s=%s\n' "$h" "$(N1_HOME="$h" n1_queue_val mergeOnFinish)"; done
+```
+
+`MERGE_MODE` is `Merge after CI: disabled (queue.mergeOnFinish=false)` when every line ends in `false`, or `Merge after CI: enabled (queue.mergeOnFinish=true)` when every line ends in `true`. When the homes disagree, it is `Merge after CI: ` followed by `<repo> enabled|disabled`, separated by `; `.
+
 Print the plan table:
 
 ```
 ## Queue <QUEUE_ID>
+Each ticket stops after PR + CI. <MERGE_MODE>
 | # | Ticket | Title | Repo | Model | Reason |
 |---|--------|-------|------|-------|--------|
 | 1 | ... |

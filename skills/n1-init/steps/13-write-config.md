@@ -64,7 +64,7 @@ REPO_PATH=$(git rev-parse --show-toplevel)
 ```
 Store it as-is (WSL-native path on WSL). Do not store worktree paths — if the current directory is a worktree (`git rev-parse --git-common-dir` differs from `.git`), use `dirname "$(git rev-parse --git-common-dir)"` instead.
 
-**`queue`** keys `tag`, `maxTickets`, `subtaskTimeoutMinutes` fall back to `defaults/queue.json`; set them in config.json only to override.
+**`queue`** keys `tag`, `maxTickets`, `subtaskTimeoutMinutes`, `mergeOnFinish` (default `false`; `true` lets queue children merge after CI) fall back to `defaults/queue.json`; set them in config.json only to override.
 
 The `models` object is empty by default — agent model defaults come from agent frontmatter. Only store per-agent overrides here.
 

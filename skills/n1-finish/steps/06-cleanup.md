@@ -79,7 +79,7 @@ Every path is safe to re-run: already-merged PR skips the merge; already-closed 
 ## Integration
 
 **Called by:**
-- **n1-start** — step `finish` (after CI watch), gated on `finishWork.enabled`
+- **n1-start** — step `finish` (after CI watch), gated on `n1_finish_enabled` (queue children: `queue.mergeOnFinish`; interactive: `finishWork.enabled`)
 - **Standalone** — `/n1:n1-finish`, `/n1:n1-finish TRID-510`, `/n1:n1-finish #123`
 
 **Invokes:**

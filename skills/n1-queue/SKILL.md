@@ -9,7 +9,7 @@ model: sonnet
 
 **Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
-Launches a batch of tracker tickets through `n1-start` sequentially via a background bash runner. Each ticket stops after PR + CI; nothing is merged. The skill handles intake and preview; the runner (`scripts/n1-queue-run.sh`) handles execution.
+Launches a batch of tracker tickets through `n1-start` sequentially via a background bash runner. Each ticket stops after PR + CI and merges only when `queue.mergeOnFinish` is `true` (default `false`, independent of `finishWork.mergeOnFinish`). A PreToolUse hook enforces this, and the preview states the effective merge mode before Start. The skill handles intake and preview; the runner (`scripts/n1-queue-run.sh`) handles execution.
 
 **Announce at start:** "I'm using the n1-queue skill to process queue <QUEUE_ID>."
 
