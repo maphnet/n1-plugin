@@ -101,6 +101,10 @@ OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","s
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review"*) assert_eq "compaction state restore on source=compact" ok ok;; *) assert_eq "compaction state restore on source=compact" ok "$CTX";; esac
 rm -f "$N1_HOME/active-run.json"
+# --- session-start: prMode "skip" is a valid value and is not migrated (NP-202) ---
+echo '{"telemetry":{"enabled":false},"git":{"prMode":"skip"}}' > "$N1_HOME/config.json"
+echo '{"session_id":"s-prmode","source":"startup"}' | N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "session-start keeps prMode skip" "skip" "$(jq -r .git.prMode "$N1_HOME/config.json")"
 unset N1_HOST_FILE
 
 # --- session-start: plugin-root preamble shim generation (NP-192) ------------
