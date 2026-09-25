@@ -11,7 +11,9 @@ source "$REPO_ROOT/lib/config.sh"
 source "$REPO_ROOT/lib/frontmatter.sh"
 
 # --- static guard: no fixed-name temp files in swept RMW helpers ---
-SWEPT=("$REPO_ROOT/lib/frontmatter.sh" "$REPO_ROOT/lib/step.sh")
+SWEPT=("$REPO_ROOT/lib/frontmatter.sh" "$REPO_ROOT/lib/step.sh" "$REPO_ROOT/lib/signals.sh" \
+       "$REPO_ROOT/lib/memory.sh" "$REPO_ROOT/lib/related.sh" "$REPO_ROOT/lib/queue.sh" \
+       "$REPO_ROOT/scripts/n1-queue-run.sh")
 FIXED=$(grep -nE '\$\{?[A-Za-z_]+\}?(\.step)?\.tmp"' "${SWEPT[@]}" || true)
 assert_eq "no fixed .tmp names in swept helpers" "" "$FIXED"
 

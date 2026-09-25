@@ -37,6 +37,7 @@ n1_compact_memory() {
     #   - Level-2 and level-3 headings (## / ###) are independent section boundaries;
     #     each is evaluated against keep patterns regardless of nesting.
     #     Level-4+ headings (####...) inherit the keep status of their nearest ##/### ancestor.
+    local tmp; tmp=$(mktemp "${file}.XXXXXX")
     awk -v kfile="$tmpkeep" '
     BEGIN {
         while ((getline line < kfile) > 0) {
@@ -106,20 +107,20 @@ n1_compact_memory() {
         printf "%s", out_body
         if (out_sig != "") printf "%s", out_sig
     }
-    ' "$file" > "${file}.tmp"
+    ' "$file" > "$tmp"
 
     # Safety net: abort compaction if output < 20% of input
     local in_size out_size
     in_size=$(wc -c < "$file")
-    out_size=$(wc -c < "${file}.tmp")
+    out_size=$(wc -c < "$tmp")
     if [ "$in_size" -gt 0 ] && [ $((out_size * 100 / in_size)) -lt 20 ]; then
         echo "n1_compact_memory: output is ${out_size}/${in_size} bytes (<20%), aborting compaction" >&2
-        rm -f "${file}.tmp" "${file}.full.md"
+        rm -f "$tmp" "${file}.full.md"
         rm -f "$tmpkeep"
         return 1
     fi
 
-    mv "${file}.tmp" "$file"
+    mv "$tmp" "$file"
 
     rm -f "$tmpkeep"
 }
@@ -141,6 +142,7 @@ n1_append_key_decision() {
     [ -f "$file" ] || return 1
     [ -n "$text" ] || return 1
 
+    local tmp; tmp=$(mktemp "${file}.XXXXXX")
     awk -v entry="- ${text}" '
     BEGIN {
         found_section = 0
@@ -224,7 +226,7 @@ n1_append_key_decision() {
             }
         }
     }
-    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+    ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
 }
 
 # n1_extract_sections <file> <heading_regex>...
