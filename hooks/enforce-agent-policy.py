@@ -19,8 +19,9 @@ when config queue.mergeOnFinish is not true: deny shell commands that merge - `g
 `gh api .../pulls/N/merge` or the mergePullRequest/enablePullRequestAutoMerge mutations, and
 `git merge`/`git push` targeting git.defaultBranch (default "main"). The command is split into
 simple commands on &&, ||, ;, |, & and parentheses (shlex, so `cd x && gh pr merge` is caught)
-and `sh|bash|zsh -c` bodies are parsed recursively. Unreadable config and unparseable commands
-both fail closed (deny) -- unparseable commands fall back to a regex scan of the raw text.
+and `sh|bash|zsh -c` bodies are parsed recursively. Heredoc bodies and `#` comments are stripped
+before tokenizing, since Bash never parses either of those as commands. Unreadable config and
+unparseable commands both fail closed (deny outright).
 
 Fail-open otherwise: exit 0, no output.
 
@@ -48,10 +49,8 @@ GH_MERGE_MUTATIONS = ("mergePullRequest", "enablePullRequestAutoMerge")
 GH_GLOBAL_VALUE_OPTS = {"-R", "--repo", "--hostname"}
 PUSH_VALUE_OPTS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 WRAP_PROGS = ("bash", "sh", "zsh")
-# SEC-3 fallback when shlex can't tokenize the command at all (unbalanced quotes,
-# e.g. a heredoc body with an apostrophe): deny in queue runs if the raw text looks
-# merge-shaped, instead of failing open.
-_FAIL_CLOSED_RE = re.compile(r"\bgh\b.*\bmerge\b|\bgit\b.*\b(?:push|merge)\b", re.S)
+HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
+DUP_REDIRECT_TOKENS = {"&>", ">&", "<&", "&>>"}
 
 
 def persona_of(agent_type: str):
@@ -143,15 +142,66 @@ def _dict(value):
     return value if isinstance(value, dict) else {}
 
 
+def _strip_heredocs(command: str) -> str:
+    """Drop heredoc body lines (and the terminator line) -- Bash never parses those as
+    commands. The marker line itself (e.g. `cat <<'EOF' && gh pr merge 12`) is kept as-is,
+    since anything chained after the redirect on that line still runs."""
+    lines = command.split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        out.append(lines[i])
+        m = HEREDOC_RE.search(lines[i])
+        if m:
+            term = m.group(2)
+            j = i + 1
+            while j < len(lines) and lines[j].strip() != term:
+                j += 1
+            i = j + 1  # skip body lines and the terminator line itself
+            continue
+        i += 1
+    return "\n".join(out)
+
+
+def _strip_comments(command: str) -> str:
+    """Drop real bash comments (# at the start of a word, outside quotes) to end of line.
+    A simple forward scan tracking quote state -- so an apostrophe inside a comment
+    (e.g. "# Don't wait") can't desync the parser the way lex.commenters='' would."""
+    out, quote, at_word_start, i, n = [], None, True, 0, len(command)
+    while i < n:
+        c = command[i]
+        if quote:
+            out.append(c)
+            if c == quote:
+                quote = None
+            i += 1
+            continue
+        if c in ("'", '"'):
+            quote = c
+            out.append(c)
+            at_word_start = False
+            i += 1
+            continue
+        if c == "#" and at_word_start:
+            j = command.find("\n", i)
+            i = n if j == -1 else j  # drop to end of line, keep the newline itself
+            continue
+        out.append(c)
+        at_word_start = c in " \t\n;&|()<>"
+        i += 1
+    return "".join(out)
+
+
 def _segments(command: str):
     """argv of each simple command in a shell string. Chain, pipe, subshell and newline
     operators split commands; redirections (with their fd number and target) are dropped.
     Raises ValueError on unbalanced quotes."""
     command = command.replace("\\\n", "")  # line continuations join, they don't separate
+    command = _strip_heredocs(command)
+    command = _strip_comments(command)
     lex = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n")
     lex.whitespace = " \t\r"  # newline is punctuation now, not whitespace to swallow
     lex.whitespace_split = True
-    lex.commenters = ""  # '#' is not a comment char in the way these commands actually run
+    lex.commenters = ""  # comments are already stripped above; don't let shlex guess at '#'
     segs, seg, skip = [], [], False
     for tok in lex:
         if skip:
@@ -164,9 +214,18 @@ def _segments(command: str):
                     segs.append(seg)
                 seg = []
                 continue
+            if tok in DUP_REDIRECT_TOKENS:
+                # duplication redirect (e.g. "2>&1" tokenizes as "2", ">&", "1"): pop the
+                # preceding fd number if present and skip the target, same as a plain redirect.
+                # Must be checked before the control-operator branch below, since these tokens
+                # contain "&" too.
+                if seg and seg[-1].isdigit():
+                    seg.pop()
+                skip = True
+                continue
             if any(c in tok for c in ";&|"):
-                # a control-operator char always ends the segment, even joined with a redirect
-                # (e.g. ";>", "&&") or a duplication redirect (e.g. "2>&1", handled below).
+                # a control-operator char always ends the segment, even joined with a plain
+                # redirect (e.g. ";>", "&&").
                 if seg:
                     segs.append(seg)
                 seg = []
@@ -283,7 +342,11 @@ def _merge_action(command: str, cwd: str, default: str, depth: int = 0) -> str:
                     hit = _merge_action(argv[flags[0] + 1], cwd, default, depth + 1)
                     if hit:
                         return hit
-                break
+                    break  # recursed into the -c body; nothing after this wrapper call matters
+                # no -c to recurse into (or depth limit hit): this token was just a value or a
+                # bare wrapper, not necessarily the program -- keep scanning the rest of the
+                # segment (SEC-12: e.g. `env -u sh gh pr merge 12`, "sh" is a flag value here).
+                continue
             if prog == "gh" and _gh_merges(argv[1:]):
                 return " ".join(argv)
             if prog == "git" and _git_merges(argv, cwd, default):
@@ -310,10 +373,11 @@ def merge_deny(payload: dict, config: dict) -> int:
     try:
         hit = _merge_action(command, cwd, default)
     except ValueError:
-        # shlex couldn't tokenize this (e.g. unbalanced quotes from a heredoc body with an
-        # apostrophe). Fail closed in queue runs: deny if the raw text looks merge-shaped.
-        hit = "(unparseable command)" if (_FAIL_CLOSED_RE.search(command)
-                                           or any(m in command for m in GH_MERGE_MUTATIONS)) else ""
+        # shlex still couldn't tokenize this even after heredoc/comment stripping (e.g. a
+        # genuinely unbalanced quote). Deny outright in queue runs rather than falling back to
+        # a second, regex-based parser over the raw text -- that fallback is itself evadable
+        # (SEC-13: quote-splitting like `g''h pr m''erge` defeats a substring/regex scan).
+        hit = "(unparseable command)"
     if not hit:
         return 0
     sys.stderr.write(f"N1: merge denied in queue run {run_id} -- queue.mergeOnFinish is not true; "
