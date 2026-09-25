@@ -42,6 +42,10 @@ BG_POLL_GRACE=10
 CONSECUTIVE_FAIL=0
 QUEUE_ID=$(n1_read_frontmatter "$QUEUE" queue_id)
 QUEUE_ID="${QUEUE_ID:-queue}"
+# Tag mode: QUEUE_ID is the tag; children release it on handoff (NP-199).
+N1_QUEUE_TAG=""
+[ "$(n1_read_frontmatter "$QUEUE" mode)" = tag ] && N1_QUEUE_TAG="$QUEUE_ID"
+export N1_QUEUE_TAG
 
 strip_pid() {
     awk 'NR==1 && /^---$/ { in_fm=1; print; next }
@@ -66,11 +70,26 @@ escalate() {
     n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}${sid:+ (resume: $(n1_bg_cmd attach "$sid"))}"
 }
 
+# release_backstop — NP-199: fires the automatic tag-release backstop (tag mode only,
+# only when a row still needs releasing) so a failed/escalated/halted-strike ticket's
+# tag is released even when nobody runs --status. Best-effort, blocking: nothing waits
+# on this runner process once it reaches here (run.md already ended the interactive
+# turn right after launching it).
+release_backstop() {
+    [ "$(n1_read_frontmatter "$QUEUE" mode)" = tag ] || return 0
+    [ -n "$(n1_queue_release_rows "$QUEUE")" ] || return 0
+    local rel_repo rel_log
+    rel_repo=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$5)} $2 ~ /^[0-9]+$/ {print $5; exit}' "$QUEUE")
+    rel_log="$(dirname "$QUEUE")/release.$RUN_ID.log"
+    timeout 300 bash -c "$(n1_queue_release_cmd "$QUEUE_ID" "$rel_repo" "$rel_log")" >>"$rel_log" 2>&1 || true
+}
+
 # halt <message> — record, notify, and stop the runner (exit 2).
 halt() {
     n1_write_frontmatter "$QUEUE" step halted
     strip_pid
     ev halted reason="$1"
+    release_backstop
     n1_notify needs-you "Queue $QUEUE_ID halted: ${1:0:200}"
     echo "$1"
     exit 2
@@ -83,6 +102,8 @@ ev queue_started
 finalize() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" OUTCOME="$6" EXIT="$7" REASON="${8:-}"
     local OVERVIEW="$N1H/memory/$TICKET/overview.md" EXISTING_REASON PR_URL="" NEXT_NUM TITLE EV_OUTCOME="$OUTCOME" DUR=""
+    # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
+    n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
     EXISTING_REASON=$(awk -F'|' -v num="$NUM" '{
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
@@ -172,6 +193,8 @@ run_sync() {
 
         # Write-ahead: mark in-progress; Runs section is always last
         n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+        # Re-queued ticket: forget the previous run's tag release (NP-199).
+        n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" queue_tag_removed false || true
         STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
         STARTED_AT[NUM]=$(date +%s)
@@ -203,6 +226,8 @@ launch_bg() {
     local NUM TICKET REPO N1H MODEL CMD OUT SID STARTED
     IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$1"
     n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+    # Re-queued ticket: forget the previous run's tag release (NP-199).
+    n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" queue_tag_removed false || true
     STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     STARTED_AT[NUM]=$(date +%s)
     CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
@@ -322,6 +347,7 @@ fi
 # --- Done --------------------------------------------------------------------
 count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }
 DIGEST="$(count_rows pr) PR / $(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"
+release_backstop
 ev queue_done reason="$DIGEST"
 n1_notify done "Queue $QUEUE_ID: $DIGEST"
 n1_write_frontmatter "$QUEUE" step done

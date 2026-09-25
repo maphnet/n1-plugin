@@ -542,6 +542,180 @@ EOF
     rm -rf "$tmp"
 }
 
+# NP-199: tag mode forwards N1_QUEUE_TAG, a re-queued ticket's release flag is reset at
+# launch, and finalize stamps queue_run_id into overview.md.
+test_runner_tag_release() {
+    local tmp; tmp=$(mktemp -d)
+
+    cat > "$tmp/stub.sh" <<'STUBEOF'
+#!/usr/bin/env bash
+TICKET="$1"
+printf '%s\n' "${N1_QUEUE_TAG:-}" > "$N1_QUEUE_SEEN.tag.$TICKET"
+grep '^queue_tag_removed:' "$N1_QUEUE_OVERVIEW" > "$N1_QUEUE_SEEN.flag.$TICKET" 2>/dev/null || true
+mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
+printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/7\n' > "$N1_QUEUE_OVERVIEW"
+exit 0
+STUBEOF
+    chmod +x "$tmp/stub.sh"
+
+    cat > "$tmp/wrapper.sh" <<WEOF
+#!/usr/bin/env bash
+TICKET="\$1"
+export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
+export N1_QUEUE_SEEN="$tmp/seen"
+exec "$tmp/stub.sh" "\$TICKET"
+WEOF
+    chmod +x "$tmp/wrapper.sh"
+
+    mkdir -p "$tmp/n1home/memory/T-R"
+    printf -- '---\nstep: pr\nqueue_run_id: OLD\nqueue_tag_removed: true\n---\n' > "$tmp/n1home/memory/T-R/overview.md"
+    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
+
+    cat > "$tmp/queue.md" <<EOF
+---
+step: plan
+queue_id: n1-auto
+mode: tag
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-R | Re-queued | /repo | $tmp/n1home | sonnet | pending | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+
+    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
+    export N1_HOME="$tmp/n1home"
+    # CCR fix: this fixture's stub leaves queue_tag_removed unset (it isn't testing
+    # release wiring), so the T-R "pr" row would otherwise trip the real automatic
+    # tag-release backstop added below. Stub it to a no-op, same as N1_QUEUE_CHILD_STUB.
+    export N1_QUEUE_RELEASE_STUB=/bin/true
+    local exit_code=0
+    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || exit_code=$?
+
+    assert_eq "tag-release: exit 0" "0" "$exit_code"
+    assert_eq "tag-release: child sees N1_QUEUE_TAG" "n1-auto" "$(cat "$tmp/seen.tag.T-R")"
+    assert_eq "tag-release: flag reset before child starts" "queue_tag_removed: false" "$(cat "$tmp/seen.flag.T-R")"
+    assert_eq "tag-release: finalize stamps queue_run_id" \
+        "$(n1_read_frontmatter "$tmp/queue.md" run_id)" \
+        "$(n1_read_frontmatter "$tmp/n1home/memory/T-R/overview.md" queue_run_id)"
+
+    unset N1_QUEUE_CHILD_STUB N1_QUEUE_RELEASE_STUB
+    rm -rf "$tmp"
+}
+
+# NP-199 (CCR fix): report.md's release wiring only runs on --status/--watch. Without
+# an automatic backstop, a failed tag-mode ticket's tag would stay attached until a
+# human happens to check. The runner must fire the backstop itself when the run ends.
+test_runner_auto_release_backstop() {
+    local tmp; tmp=$(mktemp -d)
+    cat > "$tmp/stub.sh" <<'STUBEOF'
+#!/usr/bin/env bash
+mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
+printf -- '---\nstep: implement\n---\n# T\n' > "$N1_QUEUE_OVERVIEW"
+exit 1
+STUBEOF
+    chmod +x "$tmp/stub.sh"
+    cat > "$tmp/wrapper.sh" <<WEOF
+#!/usr/bin/env bash
+TICKET="\$1"
+export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
+exec "$tmp/stub.sh" "\$TICKET"
+WEOF
+    chmod +x "$tmp/wrapper.sh"
+    mkdir -p "$tmp/n1home/memory/T-F"
+    cat > "$tmp/queue.md" <<EOF
+---
+step: plan
+queue_id: n1-auto
+mode: tag
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-F | Fails | /repo | $tmp/n1home | sonnet | pending | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    cat > "$tmp/release-seen.sh" <<WEOF2
+#!/usr/bin/env bash
+printf '%s\n' "\$1" > "$tmp/release-called"
+WEOF2
+    chmod +x "$tmp/release-seen.sh"
+    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
+    export N1_QUEUE_RELEASE_STUB="$tmp/release-seen.sh"
+    export N1_HOME="$tmp/n1home"
+    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" >/dev/null 2>&1 || true
+
+    assert_eq "auto-release: backstop fired for a failed tag-mode row" "n1-auto" \
+        "$(cat "$tmp/release-called" 2>/dev/null || echo "not called")"
+
+    unset N1_QUEUE_CHILD_STUB N1_QUEUE_RELEASE_STUB
+    rm -rf "$tmp"
+}
+
+# NP-199 (CCR fix): halt() exits the process directly (exit 2), bypassing the normal
+# "Done" tail — the backstop must also fire from inside halt() or a halted run's
+# tickets never get released either.
+test_runner_release_backstop_on_halt() {
+    local tmp; tmp=$(mktemp -d)
+    cat > "$tmp/stub.sh" <<'STUBEOF'
+#!/usr/bin/env bash
+mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
+printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$N1_QUEUE_OVERVIEW"
+exit 0
+STUBEOF
+    chmod +x "$tmp/stub.sh"
+    cat > "$tmp/wrapper.sh" <<WEOF
+#!/usr/bin/env bash
+TICKET="\$1"
+export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
+exec "$tmp/stub.sh"
+WEOF
+    chmod +x "$tmp/wrapper.sh"
+    mkdir -p "$tmp/n1home/memory"
+    printf '{"queue":{"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    cat > "$tmp/queue.md" <<EOF
+---
+step: plan
+queue_id: n1-auto
+mode: tag
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /repo | $tmp/n1home | sonnet | pending | |
+| 2 | T-2 | B | /repo | $tmp/n1home | sonnet | pending | |
+| 3 | T-3 | C | /repo | $tmp/n1home | sonnet | pending | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    cat > "$tmp/release-seen.sh" <<WEOF2
+#!/usr/bin/env bash
+printf '%s\n' "\$1" > "$tmp/release-called"
+WEOF2
+    chmod +x "$tmp/release-seen.sh"
+    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
+    export N1_QUEUE_RELEASE_STUB="$tmp/release-seen.sh"
+    export N1_HOME="$tmp/n1home"
+    local exit_code=0
+    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" >/dev/null 2>&1 || exit_code=$?
+
+    assert_eq "auto-release-halt: runner halted" "2" "$exit_code"
+    assert_eq "auto-release-halt: backstop still fired" "n1-auto" \
+        "$(cat "$tmp/release-called" 2>/dev/null || echo "not called")"
+
+    unset N1_QUEUE_CHILD_STUB N1_QUEUE_RELEASE_STUB
+    rm -rf "$tmp"
+}
+
 # Real (unstubbed) Codex path: host comes from queue.md frontmatter even though
 # CLAUDE_PLUGIN_ROOT is exported (the runner forces it for path resolution).
 test_runner_codex_host() {
@@ -1039,6 +1213,9 @@ test_desktop_notify
 test_notify_backends
 test_runner_three_strikes
 test_runner_all_pr
+test_runner_tag_release
+test_runner_auto_release_backstop
+test_runner_release_backstop_on_halt
 test_runner_codex_host
 test_bg_sequential
 test_bg_awaiting
