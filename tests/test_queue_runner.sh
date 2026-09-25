@@ -77,6 +77,23 @@ test_pick_model() {
     unset -f n1_config_file
 }
 
+# --- NP-199: release procedure wiring ------------------------------------------
+test_release_wiring() {
+    local s="$REPO_ROOT/skills"
+    assert_eq "wiring: release procedure exists" "yes" \
+        "$([ -f "$s/n1-queue/procedures/release-tag.md" ] && echo yes || echo no)"
+    assert_eq "wiring: procedure writes flag" "yes" \
+        "$(grep -q 'queue_tag_removed true' "$s/n1-queue/procedures/release-tag.md" 2>/dev/null && echo yes || echo no)"
+    assert_eq "wiring: intake uses already-run check" "yes" \
+        "$(grep -q 'n1_queue_already_run' "$s/n1-queue/steps/intake.md" && echo yes || echo no)"
+    assert_eq "wiring: report releases rows" "yes" \
+        "$(grep -q 'n1_queue_release_rows' "$s/n1-queue/steps/report.md" && grep -q 'release-tag.md' "$s/n1-queue/steps/report.md" && echo yes || echo no)"
+    assert_eq "wiring: headless escalation releases tag" "yes" \
+        "$(grep -q 'release-tag.md' "$s/n1-start/procedures/autonomy-headless.md" && grep -q 'to re-queue this ticket' "$s/n1-start/procedures/autonomy-headless.md" && echo yes || echo no)"
+    assert_eq "wiring: PR step releases tag" "yes" \
+        "$(grep -q 'release-tag.md' "$s/n1-pr/steps/02-push-create.md" && echo yes || echo no)"
+}
+
 # --- NP-199: already-run exclusion and tag release list -----------------------
 test_already_run() {
     local tmp; tmp=$(mktemp -d)
@@ -1196,6 +1213,7 @@ test_pick_model
 test_child_status
 test_row_status
 test_pending_rows
+test_release_wiring
 test_already_run
 test_release_rows
 test_release_cmd

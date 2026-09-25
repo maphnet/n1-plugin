@@ -73,8 +73,15 @@ If `tracker.mcp` is not null:
 
 1. **Move to code review:** `mcp__<tracker.mcp>__<operations.moveStatus>` with `tracker.statuses.codeReview`. Jira: get transition ID first via `getTransitions`. YouTrack: `update_issue` directly.
 2. **Add comment:** `mcp__<tracker.mcp>__<operations.addComment>` — body: `PR created: <PR_URL>`
+3. **Release queue tag:** a ticket with a PR is no longer pending for the queue, however the run started.
+   ```bash
+   source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/queue.sh"
+   printf 'TAG=%s\nOVERVIEW=%s\n' "${N1_QUEUE_TAG:-$(n1_queue_val tag)}" "$N1_HOME/memory/$ID/overview.md"
+   ```
+   Read and follow `<N1_ROOT>/skills/n1-queue/procedures/release-tag.md` with `ID`, `TAG`, `OVERVIEW` from the output above.
 
-Tracker failures: warn, don't block.
+Tracker failures (including tag release): warn, don't block.
 
 ## Step 6: Update Memory
 

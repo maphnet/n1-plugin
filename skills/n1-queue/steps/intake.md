@@ -8,7 +8,15 @@ Search via `mcp__<TRACKER_MCP>__<SEARCH_OP>`:
 - **YouTrack:** query `project: {PREFIX} tag: {<tag>} State: {<TODO_STATUS>}`, max results `n1_queue_val maxTickets`.
 - **Jira:** JQL `project = <PROJECT_KEY> AND labels = "<tag>" AND status = "<TODO_STATUS>"`, maxResults `n1_queue_val maxTickets`. Include `cloudId` when set.
 
-For each result, call `mcp__<TRACKER_MCP>__<READ_OP>` to get `key`, `title`, `description`, `status`, `size` (estimation field if available).
+**Already-run check.** Before reading each result, check whether a previous queue run already handled it and its tag release was not confirmed (a stale tag). A ticket whose tag was released and later re-added by a human passes this check (explicit re-queue):
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+if RUN=$(n1_queue_already_run "$N1_HOME/memory/<KEY>/overview.md"); then echo "EXCLUDE run:$RUN"; else echo KEEP; fi
+```
+`EXCLUDE` -> excluded with reason `already run: <run> (tag not released; /n1:n1-queue --status releases it)`; skip its `READ_OP` call.
+
+For each remaining result, call `mcp__<TRACKER_MCP>__<READ_OP>` to get `key`, `title`, `description`, `status`, `size` (estimation field if available).
 
 Repo and N1 Home for all candidates: current repo root (`git rev-parse --show-toplevel`) and `$N1_HOME`.
 
@@ -69,6 +77,6 @@ If no size field, default to `sonnet`.
 
 Build two lists:
 - **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration)
-- **Excluded**: `Ticket`, `Reason` (blocked, story, description too thin, skip, done-before-run)
+- **Excluded**: `Ticket`, `Reason` (already run, blocked, story, description too thin, skip, done-before-run)
 
 If no candidates: "No actionable tickets found." **STOP.**

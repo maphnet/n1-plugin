@@ -57,16 +57,24 @@ Then continue the run — do not escalate, do not end.
    source ~/.n1/preamble.sh
    printf -- '- [headless] %s: %s, options: %s (blocked-move: %s)\n' "$STEP" "$QUESTION" "$OPTIONS" "$MOVE_OUTCOME" >> "$N1_HOME/memory/$ID/overview.md"
    ```
-3. Post a comment via `mcp__<tracker.mcp>__<operations.addComment>` (best-effort — a failure here never blocks the escalation):
+3. **Release the queue tag** (best-effort, queue children only):
+   ```bash
+   source ~/.n1/preamble.sh
+   printf 'N1_QUEUE_TAG=%s\n' "${N1_QUEUE_TAG:-}"
+   ```
+   Empty -> skip (not launched by a tag-mode queue). Otherwise read and follow `<N1_ROOT>/skills/n1-queue/procedures/release-tag.md` with `ID`, `TAG=<N1_QUEUE_TAG>`, `OVERVIEW=$N1_HOME/memory/$ID/overview.md`; keep its `TAG_RELEASE` outcome for the comment.
+4. Post a comment via `mcp__<tracker.mcp>__<operations.addComment>` (best-effort — a failure here never blocks the escalation):
    ```
    N1 [headless] <step>: <one-line reason>
    <question(s) and options, one per line>
+   Queue tag removed — re-add "<tag>" to re-queue this ticket.
    Memory: $N1_HOME/memory/<ID>/
    Resume: /n1:n1-start <ID>
    n1-esc:<ID>:<step>
    ```
    The last line is an idempotency marker. Before posting on YouTrack, fetch comments via `mcp__<tracker.mcp>__<operations.getComments>` and skip if any comment contains `n1-esc:<ID>:<step>`. On Jira, skip the duplicate check (no listed getComments op) and post directly.
-4. Branch on `N1_UNATTENDED`:
+   Include the `Queue tag removed` line only when the release outcome is `removed`; omit it otherwise.
+5. Branch on `N1_UNATTENDED`:
 
    **Not `ask`** (Codex / `-p` children, or `N1_HEADLESS=1` alone) — escalate-and-exit, unchanged:
    a. Set frontmatter `step: escalated`:
