@@ -20,9 +20,10 @@ PR_URL=$(echo "$PR_INFO" | jq -r '.url')
 BRANCH=$(echo "$PR_INFO" | jq -r '.headRefName')
 PR_AUTHOR=$(echo "$PR_INFO" | jq -r '.author.login')
 REPO=$(gh repo view --json owner,name --jq '"\(.owner.login)/\(.name)"')
-MAIN_CHECKOUT=$(jq -r '.mainCheckout // empty' "$N1_HOME/active-run.json" 2>/dev/null)
+AR_FILE=$(n1_active_run_file)
+MAIN_CHECKOUT=$(jq -r '.mainCheckout // empty' "$AR_FILE" 2>/dev/null)
 if [ -z "$MAIN_CHECKOUT" ]; then MAIN_CHECKOUT=$(git rev-parse --show-toplevel); fi
-WORKTREE_PATH=$(jq -r '.worktreePath // empty' "$N1_HOME/active-run.json" 2>/dev/null)
+WORKTREE_PATH=$(jq -r '.worktreePath // empty' "$AR_FILE" 2>/dev/null)
 if [ -z "$WORKTREE_PATH" ]; then
   _WT_SLUG=$(echo "$BRANCH" | grep -oE '^[A-Za-z]+-[0-9]+')
   if [ -z "$_WT_SLUG" ]; then

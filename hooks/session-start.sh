@@ -106,15 +106,6 @@ fi
 
 CONFIG_FILE=$(n1_config_file)
 
-# Migrate prMode: "skip" → "ready" (one-time, idempotent)
-if [ -f "$CONFIG_FILE" ] && command -v jq >/dev/null 2>&1; then
-    current_pr_mode=$(jq -r '.git.prMode // empty' "$CONFIG_FILE" 2>/dev/null || true)
-    if [ "$current_pr_mode" = "skip" ]; then
-        jq '.git.prMode = "ready"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
-        echo "N1: PR skip mode removed — migrated to 'ready'. Every task now creates a PR." >&2
-    fi
-fi
-
 if [ ! -f "$CONFIG_FILE" ]; then
     context="N1 plugin is available but not configured for this project. Run /n1:n1-init to set up.
 
@@ -150,7 +141,7 @@ fi
 N1_COMPACT_STATE=""
 if [ "${TRIGGER:-}" = "compact" ]; then
     n1_root=$(n1_home)
-    ar_file="${n1_root:+${n1_root}/active-run.json}"
+    ar_file=$(n1_active_run_file 2>/dev/null || true)   # this session's pointer (NP-206)
     if [ -n "$ar_file" ] && [ -f "$ar_file" ]; then
         ar_ticket=""
         ar_run_id=""

@@ -48,10 +48,11 @@ N1_QUEUE_TAG=""
 export N1_QUEUE_TAG
 
 strip_pid() {
+    local tmp; tmp=$(mktemp "${QUEUE}.XXXXXX")
     awk 'NR==1 && /^---$/ { in_fm=1; print; next }
          in_fm && /^---$/ { in_fm=0; print; next }
          in_fm && /^pid:/ { next }
-         { print }' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
+         { print }' "$QUEUE" > "$tmp" && mv "$tmp" "$QUEUE" || { rm -f "$tmp"; false; }
 }
 
 EVENTS="$(dirname "$QUEUE")/events.jsonl"
@@ -113,6 +114,7 @@ finalize() {
     [ "$OUTCOME" = "pr" ] && PR_URL=$(n1_queue_child_pr_url "$OVERVIEW")
 
     # Update Runs row (last row matching ticket in ## Runs); the Session cell is kept.
+    local tmp; tmp=$(mktemp "${QUEUE}.XXXXXX")
     awk -v tk="$TICKET" -v ex="$EXIT" -v oc="$OUTCOME" -v pr="$PR_URL" '
     { lines[NR] = $0; n = NR }
     /^## Runs/ { runs_start = NR }
@@ -130,7 +132,7 @@ finalize() {
             }
         }
         for (i = 1; i <= n; i++) print lines[i]
-    }' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
+    }' "$QUEUE" > "$tmp" && mv "$tmp" "$QUEUE" || { rm -f "$tmp"; false; }
 
     # Update Plan row
     if [ -n "$REASON" ]; then
@@ -154,12 +156,13 @@ finalize() {
             if ($2 == num) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $4); print $4 }
         }' "$QUEUE")
         # Append new pending row before the blank line or end of Plan table
+        tmp=$(mktemp "${QUEUE}.XXXXXX")
         awk -v row="| $NEXT_NUM | $TICKET | $TITLE | $REPO | $N1H | $MODEL | pending | deferred-retry |" '
             /^## Plan/ { in_plan=1 }
             in_plan && /^$/ && !added { print row; added=1 }
             { print }
             END { if (in_plan && !added) print row }
-        ' "$QUEUE" > "${QUEUE}.tmp" && mv "${QUEUE}.tmp" "$QUEUE"
+        ' "$QUEUE" > "$tmp" && mv "$tmp" "$QUEUE" || { rm -f "$tmp"; false; }
     fi
 
     # Events + notifications before three-strikes (which may exit). PR successes notify only

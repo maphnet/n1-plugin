@@ -5,6 +5,8 @@ Do not read full reports — n1-pr extracts what it needs via `grep`; tech-write
 
 Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"ready"`; else → `"draft"`.
 
+**If `prMode` is `"skip"`**: skip n1-pr/push/`## Pending`; update overview, add ledger row, run telemetry, continue.
+
 **REQUIRED SUB-SKILL:** `n1:n1-pr`. Pass: `docUpdateMode: "autonomous"`.
 
 > **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** do not add post-PR actions inline (CI watch, finish, smoke) — these are separate pipeline steps invoked after this step completes.

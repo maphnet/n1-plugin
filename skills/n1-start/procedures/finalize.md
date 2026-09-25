@@ -10,7 +10,7 @@ source ~/.n1/preamble.sh
 RESOLVED_TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || true)
 echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$FINAL_OUTCOME"'","estimated_tier":"'"$ESTIMATED_TIER"'","type":"'"$RESOLVED_TYPE"'"}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
 ```
-`$FINAL_OUTCOME`: `pr_created`, `escalated`, or `failed`. `$ESTIMATED_TIER`: estimation tier or empty.
+`$FINAL_OUTCOME`: `pr_created`/`pr_skipped`/`escalated`/`failed`. `$ESTIMATED_TIER`: estimation tier or empty.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -32,4 +32,4 @@ n1_active_run_clear
 3. `$N1_HOME/memory/$ID/local-testing.md` — report (verbatim, or SKIPPED line)
 4. `$N1_HOME/memory/$ID/overview.md` — `## Pending` for PR URL; frontmatter `ticket_url` for tracker link
 
-Copy test commands and result lines verbatim. Every skipped step gets `SKIPPED — <reason>`. `Ticket:` omitted when `ticket_url` is empty. PR URL is Gate 3's final field. Investigation tickets: use investigation-mode variant.
+Copy test commands and result lines verbatim. Every skipped step gets `SKIPPED — <reason>`. `Ticket:` omitted when `ticket_url` is empty. PR URL is Gate 3's final field (or `PR: SKIPPED` if skipped). Investigation tickets: use investigation-mode variant.

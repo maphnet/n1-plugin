@@ -13,6 +13,8 @@ n1_record_decision finish-gate "$( [ "${GATE_ENABLED:-false}" = "true" ] && echo
 
 **If `false`:** skip to FINALIZE MEMORY.
 
+With `prMode: "skip"`, n1-finish takes the local-merge path.
+
 **REQUIRED SUB-SKILL:** Use n1:n1-finish to verify/merge, deploy, close ticket.
 
 > **After n1-finish returns, continue to FINALIZE MEMORY — no summary, no yield.**

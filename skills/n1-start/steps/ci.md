@@ -1,4 +1,6 @@
 
+**If `prMode` is `"skip"`**: no PR; skip ci gate/n1-ci; continue.
+
 Run `n1_config_val '.ciChecks.enabled'` (default: `true`).
 
 ```bash

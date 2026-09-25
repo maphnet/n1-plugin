@@ -54,7 +54,7 @@ Execute steps in order. Read each step file and follow its instructions before p
 1. **Resolve Target** — prerequisites check, PR lookup
    Read `<N1_ROOT>/skills/n1-finish/steps/01-resolve-target.md`
 
-2. **Merge State Machine** — evaluate PR state, comment check, merge, wait
+2. **Merge State Machine** — evaluate PR state, comment check, merge, wait; or Step 2b local merge when `prMode` is `"skip"` (no PR, no push)
    Read `<N1_ROOT>/skills/n1-finish/steps/02-merge.md`
 
 3. **Deploy Watch & Smoke** — watch deployment workflow, run smoke verification

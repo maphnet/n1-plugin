@@ -2,6 +2,8 @@
 
 (PR path only, when `deployWatch.enabled` is `true`)
 
+**Local-merge path (Step 2b):** skip this entire file — deploy `skipped (local merge)`, smoke `n/a`. Go to Step 4.
+
 If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipped (not configured)`.
 
 1. **Registration grace (up to 5 min):** poll for runs on the merge commit — separate commands, `sleep 30` between:
