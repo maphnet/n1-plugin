@@ -179,8 +179,16 @@ def _gh_merges(args) -> bool:
     # Skip gh's own global options (e.g. `gh --repo owner/repo pr merge 123`) so the
     # subcommand check below isn't fooled by an option sitting in args[0]/args[1].
     i = 0
-    while i < len(args) and args[i] in GH_GLOBAL_VALUE_OPTS:
-        i += 2
+    while i < len(args):
+        tok = args[i]
+        if tok in GH_GLOBAL_VALUE_OPTS:
+            i += 2
+        elif any(tok.startswith(o + "=") for o in GH_GLOBAL_VALUE_OPTS):
+            i += 1
+        elif tok.startswith("-R") and tok != "-R":
+            i += 1
+        else:
+            break
     args = args[i:]
     if args[:2] == ["pr", "merge"]:
         return True
