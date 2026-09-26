@@ -92,14 +92,14 @@ assert_eq "T30: queue merge allowed when queue.mergeOnFinish true" "allow" "$(N1
 assert_eq "T31: queue child enters n1-finish when merge allowed" "allow" "$(N1_QUEUE_RUN_ID=RUN1 mg n1_finish_enabled)"
 assert_eq "T32: queue key does not leak into interactive runs" "deny" "$(mg n1_merge_allowed)"
 
-# ---- Test group 4: one decision path in skills, CI and no-CI alike (NP-212) ----
+# ---- Test group 5: one decision path in skills, CI and no-CI alike (NP-212) ----
 SK="$SCRIPT_DIR/../skills"
 has() { grep -q -- "$2" "$1" && echo yes || echo no; }
-assert_eq "T30: n1-start finish gate calls n1_finish_enabled" "yes" "$(has "$SK/n1-start/steps/finish.md" 'n1_finish_enabled')"
-assert_eq "T31: n1-start finish gate no longer reads N1_STOP_AT" "no" "$(has "$SK/n1-start/steps/finish.md" 'N1_STOP_AT')"
-assert_eq "T32: n1-start finish gate no longer reads finishWork.enabled" "no" "$(has "$SK/n1-start/steps/finish.md" "n1_config_val '.finishWork.enabled'")"
-assert_eq "T33: n1-ci chaining calls n1_finish_enabled" "yes" "$(has "$SK/n1-ci/steps/01-monitor.md" 'n1_finish_enabled')"
-assert_eq "T34: n1-finish merge calls n1_merge_allowed" "yes" "$(has "$SK/n1-finish/steps/02-merge.md" 'n1_merge_allowed')"
+assert_eq "T33: n1-start finish gate calls n1_finish_enabled" "yes" "$(has "$SK/n1-start/steps/finish.md" 'n1_finish_enabled')"
+assert_eq "T34: n1-start finish gate no longer reads N1_STOP_AT" "no" "$(has "$SK/n1-start/steps/finish.md" 'N1_STOP_AT')"
+assert_eq "T35: n1-start finish gate no longer reads finishWork.enabled" "no" "$(has "$SK/n1-start/steps/finish.md" "n1_config_val '.finishWork.enabled'")"
+assert_eq "T36: n1-ci chaining calls n1_finish_enabled" "yes" "$(has "$SK/n1-ci/steps/01-monitor.md" 'n1_finish_enabled')"
+assert_eq "T37: n1-finish merge calls n1_merge_allowed" "yes" "$(has "$SK/n1-finish/steps/02-merge.md" 'n1_merge_allowed')"
 
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
