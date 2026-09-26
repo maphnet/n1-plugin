@@ -33,6 +33,21 @@ n1_write_frontmatter() {
     ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
 }
 
+n1_busy_guard() {
+    # Refuse/warn if another live process owns pid in file's frontmatter.
+    # Self-pid (resume in same session) never conflicts.
+    local file="$1" label="$2"
+    local pid; pid=$(n1_read_frontmatter "$file" pid)
+    if [ -n "$pid" ] && [ "$pid" != "$$" ] && kill -0 "$pid" 2>/dev/null; then
+        if [ "${N1_HEADLESS:-}" = "1" ]; then
+            echo "$label already running (pid $pid); refusing (headless)."
+            exit 3
+        fi
+        echo "Warning: $label already running (pid $pid); may race. Continue anyway."
+    fi
+    n1_write_frontmatter "$file" pid "$$"
+}
+
 n1_increment_counter() {
     local file="$1" key="$2"
     local current
