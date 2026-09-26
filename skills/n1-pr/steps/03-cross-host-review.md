@@ -3,7 +3,7 @@
 ## Step 9: Cross-Host Review (optional)
 
 Skip this step entirely (no output) when ANY of these conditions is true:
-- `N1_HEADLESS` is `1` AND `crossHostReview.autoTriage` is not `true` in config
+- Ticket `tier` in `$N1_HOME/memory/$ID/overview.md` is not `complex` (missing file or field counts as not complex)
 - PR URL is not available from prior steps
 - Host is not `claude-code` (check via bash snippet below)
 - `crossHostReview.enabled` is explicitly `false` in config (default: `true` when absent)
@@ -19,6 +19,9 @@ source "$N1_ROOT/lib/config.sh"
 N1_HOME=$(n1_home)
 
 HOST=$(n1_host)
+
+TIER=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "tier" 2>/dev/null || echo "")
+echo "tier=${TIER:-absent}"
 
 # NOTE: n1_config_val uses jq `// empty` which treats boolean false as falsy,
 # returning empty for both absent AND false. Use the null-check pattern instead
@@ -37,14 +40,12 @@ echo "host=$HOST"
 echo "crossHostReview_enabled=$GATE"
 echo "crossHostReview_autoTriage=$AUTO_TRIAGE"
 echo "codex_installed=$(command -v codex >/dev/null 2>&1 && echo yes || echo no)"
-echo "headless=${N1_HEADLESS:-0}"
 ```
 
+If `tier` is not `complex`, skip silently.
 If `host` is not `claude-code`, skip silently.
 If `crossHostReview_enabled` is `false`, skip silently.
 If `codex_installed` is `no`, skip silently.
-If `headless` is `1` AND `crossHostReview_autoTriage` is NOT `true`, skip silently.
-If `headless` is `1` AND `crossHostReview_autoTriage` is `true`, skip the interactive prompt but continue to the Dispatch section (triage mode — the Codex review runs automatically, and findings are triaged after posting).
 
 Auth check (only if above checks pass):
 
@@ -58,50 +59,17 @@ fi
 
 If `codex_auth` is `no`, skip silently.
 
-### Prompt
+### Auto-run
 
-All checks passed.
-
-**Autonomy gate:**
-
-```bash
-source ~/.n1/preamble.sh
-MECHANICAL=$(n1_autonomy_val 'mechanicalPrompts')
-echo "mechanical=$MECHANICAL"
-```
-
-If `mechanical` is `auto`:
-
-Check whether unattended execution is explicitly permitted:
-
-```bash
-source ~/.n1/preamble.sh
-N1_CONFIG="$N1_HOME/config.json"
-if [ -f "$N1_CONFIG" ] && command -v jq >/dev/null 2>&1; then
-  ALLOW_UNATTENDED=$(jq -r 'if .crossHostReview.allowUnattended == true then "true" else "false" end' "$N1_CONFIG" 2>/dev/null || echo "false")
-else
-  ALLOW_UNATTENDED="false"
-fi
-echo "allow_unattended=$ALLOW_UNATTENDED"
-```
-
-If `allow_unattended` is `false`: skip the review silently and continue the pipeline. The `--dangerously-bypass-approvals-and-sandbox` flag required for unattended execution is not enabled by default; set `crossHostReview.allowUnattended: true` in config to opt in.
-
-If `allow_unattended` is `true`: skip the user prompt, proceed with the review automatically, and append a Decision Ledger row inside the `## Decision Ledger` table in `$N1_HOME/memory/$ID/overview.md` (insert before the next `##` section; create the table if absent):
+All checks passed (tier is `complex`). Proceed automatically — no user prompt in any mode, including headless. Append a Decision Ledger row inside the `## Decision Ledger` table in `$N1_HOME/memory/$ID/overview.md` (insert before the next `##` section; create the table if absent):
 
 ```
-| pr | cross-host-review | B | [auto] | Cross-host Codex review: auto-triggered in hands-off mode | yes | — | autonomy.mechanicalPrompts=auto + crossHostReview.allowUnattended=true | --- |
+| pr | cross-host-review | B | [auto] | Cross-host Codex review: auto-triggered for complex ticket | yes | — | tier=complex | --- |
 ```
-
-Otherwise: ask the user:
-
-> Codex CLI is available. Would you like a cross-host review of this PR? (yes/no)
-
-If the user declines, continue the pipeline silently.
 
 ### Dispatch
 
-If the user accepts **or** (`mechanical` is `auto` and `allow_unattended` is `true`):
+All checks passed:
 
 ```bash
 PR_NUMBER="<the PR number from step 4>"

@@ -528,7 +528,7 @@ n1_ci_checks_val() {
 
 n1_cross_host_review_val() {
     # Usage: n1_cross_host_review_val <key>
-    # Keys: enabled, autoTriage, maxFixAttempts, allowUnattended
+    # Keys: enabled, autoTriage, maxFixAttempts
     local key="$1"
     local file; file=$(n1_config_file)
     if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
@@ -542,7 +542,6 @@ n1_cross_host_review_val() {
         enabled)          printf 'true' ;;
         autoTriage)       printf 'false' ;;
         maxFixAttempts)   printf '1' ;;
-        allowUnattended)  printf 'false' ;;
         *)                printf '' ;;
     esac
 }

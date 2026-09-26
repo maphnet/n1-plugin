@@ -31,10 +31,10 @@ Optional post-PR review dispatched via `codex exec` after PR creation in the n1-
 1. `crossHostReview.enabled != false` (default `true`; opt-out)
 2. Host is `claude-code` (via `n1_host()`)
 3. `codex` CLI is installed and authenticated at runtime (`codex login status` exits zero)
-4. `N1_HEADLESS != 1`
+4. Ticket `tier` is `complex` (overview.md frontmatter; absent = skip)
 5. PR URL is available from prior step
 
-When triggered: if `autonomy.mechanicalPrompts` is `auto` (hands-off mode), skips the user prompt and runs automatically, appending a Decision Ledger row. Otherwise, prompts the user first. Either path runs `codex exec` and posts findings via `gh pr comment`. On failure, findings fall back to `$N1_HOME/memory/<ID>/cross-host-review.md`.
+When triggered: never prompts — runs automatically in every mode, including headless, appending a Decision Ledger row. Runs `codex exec` and posts findings via `gh pr comment`. On failure, findings fall back to `$N1_HOME/memory/<ID>/cross-host-review.md`.
 
 **Config key** (in `crossHostReview` block):
-- `crossHostReview.enabled` (boolean, default `true`) -- master gate. Set to `false` to suppress the prompt entirely.
+- `crossHostReview.enabled` (boolean, default `true`) -- master gate. Set to `false` to disable the step regardless of tier.
