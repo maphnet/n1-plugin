@@ -26,7 +26,7 @@ n1_host() {
     printf 'unknown'
 }
 
-n1_session_id() { printf '%s' "${N1_SESSION_ID:-${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-}}}"; }
+n1_session_id() { printf '%s' "${N1_SESSION_ID:-${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}}}"; }
 
 n1_session_file() {
     local id; id=$(n1_session_id)
@@ -101,7 +101,7 @@ n1_headless_cmd() {
     fi
     # A headless child is a new session. Retain parent linkage, never inherit its
     # run/session identity. Native child discovery is separate from this edge.
-    printf 'env -u N1_SESSION_ID -u N1_RUN_ID -u N1_TRANSCRIPT_PATH -u CODEX_THREAD_ID -u CODEX_SESSION_ID N1_HOST=%q N1_PARENT_SESSION_ID=%q ' "$host" "$(n1_session_id)"
+    printf 'env -u N1_SESSION_ID -u N1_RUN_ID -u N1_TRANSCRIPT_PATH -u CODEX_THREAD_ID -u CODEX_SESSION_ID -u CLAUDE_CODE_SESSION_ID N1_HOST=%q N1_PARENT_SESSION_ID=%q ' "$host" "$(n1_session_id)"
     printf '%q ' "${cmd[@]}"
     printf '> %q 2>&1' "$out"
 }

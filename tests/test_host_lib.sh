@@ -8,7 +8,7 @@ assert_contains() { case "$3" in *"$2"*) echo "PASS: $1"; PASS=$((PASS+1));; *) 
 assert_not_contains() { case "$3" in *"$2"*) echo "FAIL: $1 (unexpected=[$2] in=[$3])"; FAIL=$((FAIL+1));; *) echo "PASS: $1"; PASS=$((PASS+1));; esac; }
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-unset N1_HOST PLUGIN_DATA PLUGIN_ROOT CODEX_HOME CODEX_THREAD_ID CODEX_SESSION_ID CLAUDE_PLUGIN_ROOT N1_STORY_PLUGIN_DIR N1_HOME
+unset N1_HOST PLUGIN_DATA PLUGIN_ROOT CODEX_HOME CODEX_THREAD_ID CODEX_SESSION_ID CLAUDE_PLUGIN_ROOT CLAUDE_CODE_SESSION_ID N1_STORY_PLUGIN_DIR N1_HOME
 export N1_HOST_FILE="$T/host.json"
 source "$REPO_ROOT/lib/config.sh"   # sources lib/host.sh
 
@@ -23,6 +23,13 @@ assert_eq "thread identity implies codex" "codex" "$(CODEX_THREAD_ID=thread-a n1
 assert_eq "host.json ignored when CLAUDE_PLUGIN_ROOT set" "claude-code" "$(CLAUDE_PLUGIN_ROOT=/y n1_host)"
 assert_eq "N1_HOST=unknown falls through to CLAUDE_PLUGIN_ROOT (NP-155)" "claude-code" "$(N1_HOST=unknown CLAUDE_PLUGIN_ROOT=/y n1_host)"
 assert_eq "N1_HOST=unknown falls through to CODEX_THREAD_ID (NP-155)" "codex" "$(N1_HOST=unknown CODEX_THREAD_ID=t n1_host)"
+
+# --- session id fallback (NP-211)
+assert_eq "N1_SESSION_ID wins over all" "a" "$(N1_SESSION_ID=a CODEX_THREAD_ID=b CODEX_SESSION_ID=c CLAUDE_CODE_SESSION_ID=d n1_session_id)"
+assert_eq "CODEX_THREAD_ID beats CODEX_SESSION_ID and CLAUDE_CODE_SESSION_ID" "b" "$(CODEX_THREAD_ID=b CODEX_SESSION_ID=c CLAUDE_CODE_SESSION_ID=d n1_session_id)"
+assert_eq "CODEX_SESSION_ID beats CLAUDE_CODE_SESSION_ID" "c" "$(CODEX_SESSION_ID=c CLAUDE_CODE_SESSION_ID=d n1_session_id)"
+assert_eq "CLAUDE_CODE_SESSION_ID is last fallback" "d" "$(CLAUDE_CODE_SESSION_ID=d n1_session_id)"
+assert_eq "no source yields empty" "" "$(n1_session_id)"
 
 # --- plugin root
 assert_eq "root from CLAUDE_PLUGIN_ROOT" "/y" "$(CLAUDE_PLUGIN_ROOT=/y n1_plugin_root)"
@@ -57,6 +64,7 @@ assert_eq "worktree root from config, trailing slash stripped" ".wt" "$(N1_HOST=
 # --- headless command
 CMD=$(N1_HOST=claude-code n1_headless_cmd n1-start NP-1 opus /tmp/o.jsonl)
 assert_contains "claude cmd shape" 'claude -p /n1:n1-start\ NP-1 --model opus --permission-mode bypassPermissions --output-format stream-json --verbose > /tmp/o.jsonl 2>&1' "$CMD"
+assert_contains "headless cmd scrubs CLAUDE_CODE_SESSION_ID (NP-211)" '-u CLAUDE_CODE_SESSION_ID' "$CMD"
 CMD=$(N1_HOST=claude-code N1_STORY_PLUGIN_DIR=/dev/n1 n1_headless_cmd n1-start NP-1 opus /tmp/o.jsonl)
 assert_contains "claude cmd plugin-dir" '--plugin-dir /dev/n1' "$CMD"
 CMD=$(N1_HOST=claude-code n1_headless_cmd n1-finish NP-1 "" /tmp/o.jsonl)
