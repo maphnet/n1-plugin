@@ -32,7 +32,7 @@ Read the `finishWork` block via `n1_config_val`, applying defaults when keys are
 
 | Key | Default |
 |-----|---------|
-| `.finishWork.mergeOnFinish` | `false` |
+| `.finishWork.mergeOnFinish` | `false` (takes effect only with `finishWork.enabled: true`; queue children use `queue.mergeOnFinish`, default `false`. Decided by `n1_merge_allowed`) |
 | `.finishWork.mergeMethod` | `"squash"` (`"squash"` \| `"merge"` \| `"rebase"`) |
 | `.finishWork.deployWatch.enabled` | `false` |
 | `.finishWork.deployWatch.workflowName` | `null` (watch all runs on the merge commit) |
@@ -45,7 +45,7 @@ Read the `finishWork` block via `n1_config_val`, applying defaults when keys are
 
 Also read `git.prMode` (fallback chain: `git.prMode` → `git.draftPR: false` = `"ready"` → `"draft"`), `git.defaultBranch`, `git.branchPattern`, `tracker.mcp`, `tracker.operations`, `tracker.statuses`.
 
-`finishWork.enabled` gates only the pipeline step — standalone invocation proceeds regardless. If `finishWork` is entirely absent, all defaults apply and the skill still works as a merge-verify + close command.
+`finishWork.enabled` gates only the pipeline step — standalone invocation proceeds regardless. If `finishWork` is entirely absent, all defaults apply and the skill still works as a merge-verify + close command. Whether this run may merge comes only from `n1_merge_allowed` (Step 2). Never infer it from config by hand.
 
 ## Steps
 

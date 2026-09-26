@@ -1,17 +1,16 @@
 
-**If `N1_STOP_AT` is `ci`** (set by the queue runner): skip to FINALIZE MEMORY. The queue never merges.
-
-Run `n1_config_val '.finishWork.enabled'` (default: `false`).
+**Finish gate.** `n1_finish_enabled` decides.
 
 ```bash
 source ~/.n1/preamble.sh
-GATE_ENABLED=$(n1_config_val '.finishWork.enabled' 2>/dev/null || echo 'false')
-n1_record_decision finish-gate "$( [ "${GATE_ENABLED:-false}" = "true" ] && echo true || echo false )" '{"config":"finishWork.enabled"}' "enabled=${GATE_ENABLED:-false}"
+if n1_finish_enabled; then GATE_ENABLED=true; else GATE_ENABLED=false; fi
+n1_record_decision finish-gate "$GATE_ENABLED" '{"config":"n1_finish_enabled"}' "enabled=${GATE_ENABLED}"
+echo "finish-gate:${GATE_ENABLED}"
 ```
 
-> Gate key matches `pipeline.json` `gates[]`.
+> Queue: `queue.mergeOnFinish` (a hook also blocks its merge commands). Interactive: `finishWork.enabled`.
 
-**If `false`:** skip to FINALIZE MEMORY.
+**If `finish-gate:false`:** skip to FINALIZE MEMORY.
 
 With `prMode: "skip"`, n1-finish takes the local-merge path.
 

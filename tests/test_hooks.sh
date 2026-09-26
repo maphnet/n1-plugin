@@ -59,6 +59,98 @@ assert_eq "claude Grep allowed for read-only persona" "0:" "$RC:$OUT"
 OUT=$(echo '{"tool_name":"Read","agent_type":"general-purpose","tool_input":{}}' | N1_HOST=claude-code bash "$POLICY"); RC=$?
 assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
 
+# --- enforce-agent-policy Case 3: queue merge gate (NP-212) -----------------
+GR="$T/gitrepo"; mkdir -p "$GR"
+git -C "$GR" init -q
+git -C "$GR" symbolic-ref HEAD refs/heads/main
+git -C "$GR" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+git -C "$GR" branch feature
+git -C "$GR" worktree add -q "$T/wt" feature
+WT="$T/wt"
+gate() { # gate <host> <queue-run-id> <cwd> <command> -> exit code of the hook
+    local payload rc
+    if [ "$1" = codex ]; then
+        payload=$(jq -cn --arg c "$4" --arg d "$3" '{session_id:"s",cwd:$d,hook_event_name:"PreToolUse",tool_name:"exec_command",tool_input:{cmd:$c}}')
+    else
+        payload=$(jq -cn --arg c "$4" --arg d "$3" '{session_id:"s",cwd:$d,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c}}')
+    fi
+    set +e
+    printf '%s' "$payload" | N1_HOST="$1" N1_QUEUE_RUN_ID="$2" bash "$POLICY" >/dev/null 2>"$T/gate.err"; rc=$?
+    set -e
+    echo "$rc"
+}
+# queue.mergeOnFinish absent + interactive auto-merge on: the exact incident config
+echo '{"git":{"defaultBranch":"main"},"finishWork":{"enabled":true,"mergeOnFinish":true}}' > "$N1_HOME/config.json"
+assert_eq "queue: gh pr merge denied"               2 "$(gate claude-code RUN1 "$WT" 'gh pr merge 12 --squash')"
+case "$(cat "$T/gate.err")" in *"queue.mergeOnFinish is not true"*) assert_eq "queue: deny reason names the key" ok ok;; *) assert_eq "queue: deny reason names the key" ok "$(cat "$T/gate.err")";; esac
+assert_eq "queue: chained gh pr merge denied"       2 "$(gate claude-code RUN1 "$WT" 'cd /tmp && gh pr merge 12 --auto --squash --delete-branch')"
+assert_eq "queue: unspaced chain denied"            2 "$(gate claude-code RUN1 "$WT" 'true;gh pr merge 12')"
+assert_eq "queue: gh api REST merge denied"         2 "$(gate claude-code RUN1 "$WT" 'gh api -X PUT repos/o/r/pulls/12/merge')"
+assert_eq "queue: gh api graphql merge denied"      2 "$(gate claude-code RUN1 "$WT" "gh api graphql -f query='mutation{mergePullRequest(input:{pullRequestId:\"x\"}){clientMutationId}}'")"
+assert_eq "queue: gh api graphql auto-merge denied" 2 "$(gate claude-code RUN1 "$WT" "gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:\"x\"}){clientMutationId}}'")"
+assert_eq "queue: push HEAD:main denied"            2 "$(gate claude-code RUN1 "$WT" 'git push origin HEAD:main')"
+# Known gap (raw text scan, no branch resolution): a push/merge that never names the default
+# branch in the command text isn't caught -- the skill-level n1_finish_enabled/n1_merge_allowed
+# gates are the primary control for this shape; the hook is the backstop for the common case
+# (the model naming the branch or PR explicitly). See the Case 3 docstring.
+assert_eq "queue: bare push (no branch named) is a known gap, not denied" 0 "$(gate claude-code RUN1 "$GR" 'git push 2>&1')"
+assert_eq "queue: git -C main merge denied"         2 "$(gate claude-code RUN1 "$WT" "git -C $GR merge --squash feature")"
+assert_eq "queue: cd main && git merge denied"      2 "$(gate claude-code RUN1 "$WT" "cd $GR && git merge --no-ff feature")"
+assert_eq "queue: feature push allowed"             0 "$(gate claude-code RUN1 "$WT" 'git push -u origin feature')"
+assert_eq "queue: bare push on feature allowed"     0 "$(gate claude-code RUN1 "$WT" 'git push')"
+# Accepted false positive (raw text scan doesn't know merge direction): merging main INTO a
+# feature branch is legitimate, but "git ... merge" matches regardless of direction.
+assert_eq "queue: merging main into feature is an accepted false-positive deny" 2 "$(gate claude-code RUN1 "$WT" 'git merge main')"
+assert_eq "queue: merge --abort is an accepted false-positive deny" 2 "$(gate claude-code RUN1 "$GR" 'git merge --abort')"
+assert_eq "queue: gh pr view allowed"               0 "$(gate claude-code RUN1 "$WT" 'gh pr view 12 --json state,mergeCommit')"
+assert_eq "queue: gh --repo global flag merge denied" 2 "$(gate claude-code RUN1 "$WT" 'gh --repo o/r pr merge 12')"
+assert_eq "queue: gh --repo global flag view allowed" 0 "$(gate claude-code RUN1 "$WT" 'gh --repo o/r pr view 12')"
+assert_eq "queue: gh -R attached flag merge denied"   2 "$(gate claude-code RUN1 "$WT" 'gh -Rowner/repo pr merge 123')"
+assert_eq "queue: gh --repo= attached flag merge denied" 2 "$(gate claude-code RUN1 "$WT" 'gh --repo=owner/repo pr merge 123')"
+assert_eq "queue: gh -R attached flag view allowed"   0 "$(gate claude-code RUN1 "$WT" 'gh -Rowner/repo pr view 123')"
+assert_eq "codex queue: gh pr merge denied"         2 "$(gate codex RUN1 "$WT" 'gh pr merge 12 --squash')"
+assert_eq "codex queue: bash -lc nested merge denied" 2 "$(gate codex RUN1 "$WT" "bash -lc 'cd x; gh pr merge 12'")"
+assert_eq "codex queue: push to main denied"        2 "$(gate codex RUN1 "$WT" 'git push origin feature:main')"
+assert_eq "interactive: hook does not gate merges"  0 "$(gate claude-code "" "$GR" 'gh pr merge 12 --squash')"
+assert_eq "interactive codex: hook does not gate"   0 "$(gate codex "" "$GR" 'git push origin HEAD:main')"
+echo '{"queue":{"mergeOnFinish":true}}' > "$N1_HOME/config.json"
+assert_eq "queue merge on: gh pr merge allowed"     0 "$(gate claude-code RUN1 "$WT" 'gh pr merge 12 --squash')"
+assert_eq "queue merge on: codex push main allowed" 0 "$(gate codex RUN1 "$GR" 'git push origin main')"
+echo '{' > "$N1_HOME/config.json"
+assert_eq "queue: broken config fails closed"       2 "$(gate claude-code RUN1 "$WT" 'gh pr merge 12')"
+echo '{"git":{"defaultBranch":"main"}}' > "$N1_HOME/config.json"
+# NP-212 review cycle 4: replaced the shlex-based tokenizing parser (heredocs, comments,
+# wrapper commands, redirects, shell keywords) with a raw case-insensitive text scan -- three
+# review cycles kept finding new bypasses in the parser faster than they closed old ones. The
+# tests below reflect the simpler, deliberately coarser design: obfuscation that used to defeat
+# the parser (multi-line commands, shell keywords, wrapper programs, heredocs, comments,
+# redirect tokenizer quirks) now trivially denies, since the whole raw string is scanned
+# regardless of shell structure. The trade-off is accepted false positives (a merge-shaped
+# string inside unrelated/prose text also denies) and one accepted gap (a push/merge that never
+# names a branch in the command text isn't caught -- see the "bare push" test above).
+assert_eq "queue: multi-line command denied"        2 "$(gate claude-code RUN1 "$WT" "$(printf 'source ~/.n1/preamble.sh\ngh pr merge 12')")"
+assert_eq "queue: cd-then-newline-merge denied"     2 "$(gate claude-code RUN1 "$WT" "$(printf 'cd /tmp\ngh pr merge 12')")"
+assert_eq "queue: until-wrapped merge denied"       2 "$(gate claude-code RUN1 "$WT" 'until gh pr merge 12 --squash; do sleep 30; done')"
+assert_eq "queue: if-wrapped merge denied"          2 "$(gate claude-code RUN1 "$WT" 'if gh pr checks 12; then gh pr merge 12; fi')"
+assert_eq "queue: timeout-wrapped merge denied"     2 "$(gate claude-code RUN1 "$WT" 'timeout 60 gh pr merge 12')"
+# No parser, nothing to fail to parse -- text with no merge-shaped substring is just allowed.
+assert_eq "queue: unrelated unbalanced-quote text allowed" 0 "$(gate claude-code RUN1 "$WT" "echo 'unterminated")"
+assert_eq "queue: gh pr -R merge denied"            2 "$(gate claude-code RUN1 "$WT" 'gh pr -R o/r merge 12')"
+assert_eq "queue: gh pr --repo= merge denied"       2 "$(gate claude-code RUN1 "$WT" 'gh pr --repo=o/r merge 12')"
+# Accepted false positive: prose in a heredoc body that quotes a push/merge command now denies
+# too, same as a real command -- this is the trade-off the simplification makes on purpose.
+assert_eq "queue: heredoc body prose is an accepted false-positive deny" 2 "$(gate claude-code RUN1 "$WT" "$(printf "cat > x.md <<'EOF'\n- Run git push origin main to publish, it's done\nEOF")")"
+assert_eq "queue: command after heredoc closes denied" 2 "$(gate claude-code RUN1 "$WT" "$(printf "cat > x.md <<'EOF'\nsome body text\nEOF\ngh pr merge 12")")"
+assert_eq "queue: merge after apostrophe comment denied" 2 "$(gate claude-code RUN1 "$WT" "$(printf "# Don't wait for review\ngh pr merge 12 --squash --admin\n# PR's merged")")"
+assert_eq "queue: push with 2>&1 redirect on default branch denied" 2 "$(gate claude-code RUN1 "$GR" 'git push origin main 2>&1')"
+assert_eq "queue: wrapper flag value not mistaken for -c stop" 2 "$(gate claude-code RUN1 "$WT" 'env -u sh gh pr merge 12')"
+# SEC-21: quotes/backslashes are stripped before the scan, the same way bash strips them before
+# running the command -- otherwise `g''h pr m''erge` contains neither "gh" nor "merge" as words.
+assert_eq "queue: quote-split gh/pr/merge denied"   2 "$(gate claude-code RUN1 "$WT" "g''h pr m''erge 12")"
+assert_eq "queue: backslash-split git denied"       2 "$(gate claude-code RUN1 "$GR" 'g\it push origin main')"
+assert_eq "queue: quote-split push branch denied"   2 "$(gate claude-code RUN1 "$GR" "git push origin ma''in")"
+rm -f "$N1_HOME/config.json"
+
 # --- telemetry hooks accept the Codex persona prefix -----------------------
 MEM3="$N1_HOME/memory/T-20/telemetry"; mkdir -p "$MEM3"
 mkdir -p "$MEM3/locks"

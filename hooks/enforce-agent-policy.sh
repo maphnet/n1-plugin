@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook: N1 agent policy (persona tool restriction + config model override) on both hosts.
+# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, queue merge gate) on both hosts.
 # Delegates to enforce-agent-policy.py; fail-open unless the script denies (exit 2).
 set -euo pipefail
 
@@ -8,10 +8,26 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 
 INPUT=$(cat)
 
-# Fast path: only payloads that mention an N1 persona (spawn target or running agent) matter.
+# Fast path: persona payloads always go to Python; merge/push-shaped commands only inside
+# queue children (Case 3, NP-212). Broad globs on purpose: Python does the real (word-boundary,
+# quote-stripped, case-insensitive) scan -- this glob only decides whether to invoke it.
+# The gh branch matches "erge" (not "merge") — case matters in a bash `case` glob, and
+# GitHub's enablePullRequestAutoMerge mutation has a capital M.
+# SEC-4: this glob is a raw substring match and can itself be evaded by quote-split
+# obfuscation (`g''h pr m''erge 12`), which contains neither "gh" nor "git" as a substring.
+# Queue children are the security-relevant path, so skip the cheap filter there entirely and
+# always forward to Python (which does its own quote-stripping, SEC-21); non-queue sessions
+# keep the cheap filter unchanged.
 case "$INPUT" in
     *'"n1:'* | *'"n1-'*) : ;;
-    *) exit 0 ;;
+    *)
+        if [ -z "${N1_QUEUE_RUN_ID:-}" ]; then
+            case "$INPUT" in
+                *gh*erge* | *git*push* | *git*merge*) : ;;
+                *) exit 0 ;;
+            esac
+        fi
+        ;;
 esac
 
 CONFIG_FILE=$(n1_config_file)

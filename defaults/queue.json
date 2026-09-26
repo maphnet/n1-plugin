@@ -8,6 +8,7 @@
   "notifyCommand": "",
   "opusFromSize": "M",
   "designPath": "docs/design/",
+  "mergeOnFinish": false,
   "taskSizing": {
     "maxSize": "L",
     "warnOnLargeTask": true
