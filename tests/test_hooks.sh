@@ -144,6 +144,11 @@ assert_eq "queue: command after heredoc closes denied" 2 "$(gate claude-code RUN
 assert_eq "queue: merge after apostrophe comment denied" 2 "$(gate claude-code RUN1 "$WT" "$(printf "# Don't wait for review\ngh pr merge 12 --squash --admin\n# PR's merged")")"
 assert_eq "queue: push with 2>&1 redirect on default branch denied" 2 "$(gate claude-code RUN1 "$GR" 'git push origin main 2>&1')"
 assert_eq "queue: wrapper flag value not mistaken for -c stop" 2 "$(gate claude-code RUN1 "$WT" 'env -u sh gh pr merge 12')"
+# SEC-21: quotes/backslashes are stripped before the scan, the same way bash strips them before
+# running the command -- otherwise `g''h pr m''erge` contains neither "gh" nor "merge" as words.
+assert_eq "queue: quote-split gh/pr/merge denied"   2 "$(gate claude-code RUN1 "$WT" "g''h pr m''erge 12")"
+assert_eq "queue: backslash-split git denied"       2 "$(gate claude-code RUN1 "$GR" 'g\it push origin main')"
+assert_eq "queue: quote-split push branch denied"   2 "$(gate claude-code RUN1 "$GR" "git push origin ma''in")"
 rm -f "$N1_HOME/config.json"
 
 # --- telemetry hooks accept the Codex persona prefix -----------------------

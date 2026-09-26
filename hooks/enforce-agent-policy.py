@@ -18,17 +18,23 @@ Case 3 - queue merge gate (NP-212). Only in queue children (env N1_QUEUE_RUN_ID 
 when config queue.mergeOnFinish is not true: deny Bash commands whose raw text names a merge
 action - `gh ... pr ... merge`, `gh ... api ...` mentioning merge/mergePullRequest/
 enablePullRequestAutoMerge, `git ... merge`, or `git ... push` naming git.defaultBranch (default
-"main"). This is a plain case-insensitive text scan over the whole command string, not a shell
-parser: three review cycles of increasingly precise shlex-based tokenizing (heredocs, comments,
-wrapper commands, shell keywords, redirects) kept opening new bypasses as fast as they closed old
-ones. A raw scan can't be evaded the same way chained/obfuscated shell syntax evaded a parser, and
-over-blocking inside a queue child (a merge-shaped string inside unrelated text, e.g. prose that
-quotes a push command) is an accepted trade-off - the ticket's AC prioritizes "cannot merge even
+"main"). This is a plain case-insensitive text scan over the whole command string (quotes and
+backslashes stripped first, the same way bash strips them before running the command, so
+`g''h pr m''erge` can't hide the words), not a shell parser: three review cycles of increasingly
+precise shlex-based tokenizing (heredocs, comments, wrapper commands, shell keywords, redirects)
+kept opening new bypasses as fast as they closed old ones. A raw scan isn't evaded by
+chained/obfuscated *static* shell syntax the way a parser was, and over-blocking inside a queue
+child (a merge-shaped string inside unrelated text, e.g. prose that quotes a push command) is an
+accepted trade-off - the ticket's AC prioritizes "cannot merge even
 if the model tries" over precision. Known gap: it does not resolve the current branch, so a bare
-`git push`/`git merge` that never names a branch in the command text is not caught - the
-skill-level n1_finish_enabled/n1_merge_allowed gates are the primary control for that shape, this
-hook is the backstop for the common case (the model naming the branch or PR explicitly).
-Unreadable config fails closed (deny).
+`git push` that never names the default branch in the command text is not caught (any `git ...
+merge` is denied outright regardless of a named branch - only the push check has this
+precondition) - the skill-level n1_finish_enabled/n1_merge_allowed gates are the primary control
+for that shape, this hook is the backstop for the common case (the model naming the branch or PR
+explicitly). Also does not catch a command whose merge/push words only exist after shell-side
+runtime string-building (base64, `eval`, variable/command substitution, git/gh aliases) -- no text
+scan can see those without executing them; that class is an accepted, documented limit, not a
+target for this hook. Unreadable config fails closed (deny).
 
 Fail-open otherwise: exit 0, no output.
 
@@ -49,14 +55,15 @@ CODEX_TOOL_CLASS = {
 }
 
 # Raw case-insensitive text scan (see Case 3 docstring above for why this replaced a shlex
-# parser). `\b` word boundaries keep "github"/"digit"/"mergeCommit" from matching.
-MERGE_RE = re.compile(
-    r"\bgh\b.*\bpr\b.*\bmerge\b"
-    r"|\bgh\b.*\bapi\b.*\b(?:merge|mergepullrequest|enablepullrequestautomerge)\b"
-    r"|\bgit\b.*\bmerge\b",
-    re.I | re.S,
-)
-PUSH_RE = re.compile(r"\bgit\b.*\bpush\b", re.I | re.S)
+# parser). `\b` word boundaries keep "github"/"digit"/"mergeCommit" from matching. Independent
+# per-word checks (not a single chained `\bgh\b.*\bpr\b.*\bmerge\b` pattern) -- Python's regex
+# engine doesn't memoize, so two greedy `.*` under re.S is quadratic-ish and denial-of-service-able
+# on a long, repetitive command (SEC-22); this stays linear in command length.
+MERGE_API_RE = re.compile(r"\b(?:merge|mergepullrequest|enablepullrequestautomerge)\b", re.I)
+
+
+def _has(command: str, word_re: str) -> bool:
+    return re.search(word_re, command, re.I) is not None
 
 
 def persona_of(agent_type: str):
@@ -164,11 +171,20 @@ def merge_deny(payload: dict, config: dict) -> int:
         command = " ".join(str(c) for c in command)
     if not isinstance(command, str) or not command:
         return 0
+    # Bash strips quotes/backslashes before a command runs; the scan must too, or
+    # `g''h pr m''erge 12` slips through with none of "gh"/"pr"/"merge" intact as words (SEC-21).
+    command = re.sub(r"[\"'\\]", "", command)
     default = str(_dict(config.get("git")).get("defaultBranch") or "main")
-    hit = MERGE_RE.search(command) or (
-        PUSH_RE.search(command) and re.search(r"\b%s\b" % re.escape(default), command)
+    is_merge = (
+        (_has(command, r"\bgh\b") and _has(command, r"\bpr\b") and _has(command, r"\bmerge\b"))
+        or (_has(command, r"\bgh\b") and _has(command, r"\bapi\b") and MERGE_API_RE.search(command))
+        or (_has(command, r"\bgit\b") and _has(command, r"\bmerge\b"))
     )
-    if not hit:
+    is_push_to_default = (
+        _has(command, r"\bgit\b") and _has(command, r"\bpush\b")
+        and _has(command, r"\b%s\b" % re.escape(default))
+    )
+    if not (is_merge or is_push_to_default):
         return 0
     sys.stderr.write(f"N1: merge denied in queue run {run_id} -- queue.mergeOnFinish is not true; "
                      f"the ticket stops after PR + CI\n")
