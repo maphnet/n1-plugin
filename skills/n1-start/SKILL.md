@@ -41,7 +41,7 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 | Step | File | Notes |
 |------|------|-------|
 | 1. REQUIREMENTS ANALYSIS | `steps/ticket.md` | |
-| 2. ANALYSIS | `steps/analysis.md` | moveStatus → In Progress |
+| 2. ANALYSIS | `steps/analysis.md` | moveStatus → In Progress; assign to creator if configured and unassigned |
 | Simple-Path Routing | — | `n1_read_context`; if `SIMPLE_PATH=true`: skip steps 3, 4, 4b, Gate 2 — jump to Estimation (if enabled) then Step 5 |
 | 3. BRAINSTORM | `steps/brainstorm.md` | interactive unless auto; skipped on simple-path |
 | 3b. INVESTIGATION DELIVERABLE | `steps/investigation-deliverable.md` | investigation mode only; terminates pipeline |
