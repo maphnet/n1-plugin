@@ -238,6 +238,8 @@ test_bg_helpers() {
 
     assert_eq "launch: session id" "a1b2c3d4" \
         "$(n1_queue_parse_launch $'Starting session\nbackgrounded \xc2\xb7 a1b2c3d4 \xc2\xb7 n1-q-T-1-1')"
+    assert_eq "launch: session id (ANSI-colored, NP-209)" "8aa56c97" \
+        "$(n1_queue_parse_launch $'backgrounded \xc2\xb7 \x1b[36m8aa56c97\x1b[39m \xc2\xb7 n1-n1-auto-NP-193-1')"
     assert_eq "launch: disclaimer" "bypass-permissions-disclaimer" \
         "$(n1_queue_parse_launch 'Accept the disclaimer first: run claude --dangerously-skip-permissions')"
     assert_eq "launch: generic failure" "bg-launch-failed" \
