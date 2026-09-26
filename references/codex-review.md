@@ -36,5 +36,9 @@ Optional post-PR review dispatched via `codex exec` after PR creation in the n1-
 
 When triggered: never prompts — runs automatically in every mode, including headless, appending a Decision Ledger row. Runs `codex exec` and posts findings via `gh pr comment`. On failure, findings fall back to `$N1_HOME/memory/<ID>/cross-host-review.md`.
 
-**Config key** (in `crossHostReview` block):
+**Security note:** auto-run executes Codex with `--dangerously-bypass-approvals-and-sandbox` (approvals and sandbox disabled) against PR content. Repos accepting untrusted PR contributors or comments should set `crossHostReview.enabled: false`.
+
+**Config keys** (in `crossHostReview` block):
 - `crossHostReview.enabled` (boolean, default `true`) -- master gate. Set to `false` to disable the step regardless of tier.
+- `crossHostReview.autoTriage` (boolean, default `false`) -- enables severity parsing and an unattended developer fix cycle that commits and pushes to the PR branch.
+- `crossHostReview.maxFixAttempts` (integer, default `1`) -- max fix-cycle passes when `autoTriage` is enabled.
