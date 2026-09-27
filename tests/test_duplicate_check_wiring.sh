@@ -16,4 +16,9 @@ check "procedure has Check section" "^## § Check" "$P"
 check "procedure has Apply Links section" "^## § Apply Links" "$P"
 check "architecture.md documents the procedure" "references/duplicate-check\.md" references/architecture.md
 
+check "n1-ticket runs the check before creation" "duplicate-check\.md. § Check" skills/n1-ticket/steps/02-create.md
+check "n1-ticket applies links after creation" "duplicate-check\.md. § Apply Links" skills/n1-ticket/steps/02-create.md
+check "n1-story runs the check at the tracker gate" "duplicate-check\.md. § Check" skills/n1-story/steps/01-collect.md
+check "n1-story applies links after story creation" "duplicate-check\.md. § Apply Links" skills/n1-story/steps/02-compose.md
+
 exit $FAIL

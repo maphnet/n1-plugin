@@ -1,4 +1,4 @@
-<!-- Purpose: Bug type detection, approval gate, create ticket, done (Steps 6-9). -->
+<!-- Purpose: Bug type detection, approval gate, duplicate check, create ticket, done (Steps 6-9). -->
 
 ## Step 6: Bug Type Detection
 
@@ -51,6 +51,10 @@ Options:
 2. **Edit** — user provides corrections inline; revise and re-present this gate (no loop limit)
 3. **Cancel** — abort without creating anything
 
+## Step 7.5: Duplicate Check
+
+Follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = approved title + description, and `SELF_ID` / `OVERVIEW` empty. **Stop** → cancel without creating anything. Keep the returned `DUP_LINKS` for Step 8.
+
 ## Step 8: Create Ticket
 
 **Resolve ticket tagging:**
@@ -97,6 +101,8 @@ Skip if ANY of: `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` is empty, `ASSIGN_
    - Jira: `cloudId`, `issueIdOrKey: <ticketId>`, `assignee_account_id: <account_id>`
    - YouTrack: `issueId: <ticketId>`, `assigneeLogin: <login>`
 3. On failure: warn, do not roll back.
+
+**Link matches:** if `DUP_LINKS` is non-empty, follow `<N1_ROOT>/references/duplicate-check.md` § Apply Links with `SOURCE_ID=<ticketId>`.
 
 ## Step 9: Done
 

@@ -84,6 +84,8 @@ Skip if ANY of: `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` is empty, `ASSIGN_
    - YouTrack: `issueId: <STORY_ID>`, `assigneeLogin: <login>`
 3. On failure: warn, do not roll back.
 
+**Link matches:** if `DUP_LINKS` is non-empty, follow `<N1_ROOT>/references/duplicate-check.md` § Apply Links with `SOURCE_ID=<STORY_ID>`.
+
 ## Step 9: Create Subtasks
 
 Create each subtask sequentially, linked to the parent story.

@@ -56,6 +56,8 @@ EST_ENABLED=$(n1_config_val '.estimation.writeToTracker')
 `| n1-story | mechanical | C | [auto] | jc-mcp not configured — proceed without subtask linking? | Continue without linking | Cancel | mechanicalPrompts=auto | --- |`
 If `MP` is `ask`: warn the user and wait for confirmation: "Subtask linking requires jc-mcp (`tracker.versionMcp`). Subtasks will be created as standalone tickets without a parent link. Configure jc-mcp via `/n1:n1-init` to enable linking. Continue anyway?" Soft gate — proceed if user accepts.
 
+**Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = story seed goal + known requirements (Step 1), and `SELF_ID` / `OVERVIEW` empty. **Stop** → cancel without creating anything. Keep the returned `DUP_LINKS` for Step 8.
+
 ## Step 4: Analysis
 
 Spawn the `solution-architect` agent for a deeper codebase analysis.
