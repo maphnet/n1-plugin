@@ -134,6 +134,13 @@ test_wiring() {
         "$(section "$step" '## Execute branch' | grep -qF 'bash -c "$DEPLOY_CMD"' && echo yes || echo no)"
     assert_eq "wiring: execute branch runs the verify" "yes" \
         "$(section "$step" '## Execute branch' | grep -qF 'bash -c "$VERIFY_CMD"' && echo yes || echo no)"
+    # Both commands run from a detached checkout of the merge SHA, never the current dir.
+    assert_eq "wiring: deploy checks out the merge SHA" "yes" \
+        "$(section "$step" '## Execute branch' | grep -qF 'git worktree add -q --detach "$DEPLOY_DIR" "<SHA>"' && echo yes || echo no)"
+    assert_eq "wiring: deploy and verify both run in the checkout" "2" \
+        "$(section "$step" '## Execute branch' | grep -c 'OUT=$(cd .*n1-deploy\|OUT=$(cd "$DEPLOY_DIR"' || true)"
+    assert_eq "wiring: deploy checkout is removed" "yes" \
+        "$(section "$step" '## Execute branch' | grep -qF 'git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>"' && echo yes || echo no)"
     assert_eq "wiring: execute branch asks first" "yes" \
         "$(section "$step" '## Execute branch' | grep -q 'Ask the user' && echo yes || echo no)"
     assert_eq "wiring: Step 4 enters the delivery step first" "yes" \

@@ -46,22 +46,34 @@ The queue runner reads `deploy_pending: true` and parks the row as `awaiting-hum
    2 — No, leave the ticket open
    ```
 3. **No** → run Runbook branch steps 1–3. This records the pending deploy so that `n1-finish <ID>` resumes here without merging again. Report "Deploy skipped. Run `n1-finish <ID>` when ready." **STOP.**
-4. **Yes** → deploy:
+4. **Yes** → deploy. Both commands run from a temporary detached checkout of `<SHA>` (never the current directory, which may be the feature worktree), so `./deploy.sh` or `rsync ./ …` ship exactly the merged revision. A checkout failure counts as a failed deploy.
    ```bash
    source ~/.n1/preamble.sh
-   DEPLOY_CMD=$(n1_config_val '.delivery.command')
-   OUT=$(bash -c "$DEPLOY_CMD" 2>&1); DEPLOY_EXIT=$?
+   DEPLOY_DIR="${TMPDIR:-/tmp}/n1-deploy-<ID>"
+   git worktree remove --force "$DEPLOY_DIR" 2>/dev/null || true
+   git fetch -q origin 2>/dev/null || true
+   if [ -n "<SHA>" ] && git worktree add -q --detach "$DEPLOY_DIR" "<SHA>"; then
+     DEPLOY_CMD=$(n1_config_val '.delivery.command')
+     OUT=$(cd "$DEPLOY_DIR" && bash -c "$DEPLOY_CMD" 2>&1); DEPLOY_EXIT=$?
+   else
+     OUT="Cannot check out merge SHA '<SHA>' for the deploy."; DEPLOY_EXIT=1
+   fi
    mkdir -p "$N1_HOME/memory/<ID>"
    printf '%s\n' "$OUT" > "$N1_HOME/memory/<ID>/deploy-output.log"
    printf '%s\n' "$OUT" | tail -100
    echo "deploy-exit:$DEPLOY_EXIT"
+   ```
+   Once the deploy (and the verify, when configured) has run — on every outcome of steps 5–7, before any **STOP** — remove the checkout:
+   ```bash
+   source ~/.n1/preamble.sh
+   git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>" 2>/dev/null || true
    ```
 5. **Non-zero `deploy-exit`** → run Runbook branch steps 1 and 3 (writes the runbook, marks the ticket deploy-pending, and adds the `- **Deploy:** pending (runbook: memory/<ID>/runbook.md)` line to overview.md). The deploy output stays local — it is not posted to the tracker; it was written to `memory/<ID>/deploy-output.log` above (may contain host/path/secret details). If a tracker is configured, add a comment: "Deploy failed (exit <N>) for <ID>; output kept locally in N1 memory." Report the output and "Fix the cause, then re-run `n1-finish <ID>`." Do not close the ticket. **STOP.**
 6. **Verify:** when `verify:` printed an empty value, record verify as `not configured` and go to step 7. Otherwise run:
    ```bash
    source ~/.n1/preamble.sh
    VERIFY_CMD=$(n1_config_val '.delivery.verifyCommand')
-   OUT=$(bash -c "$VERIFY_CMD" 2>&1); VERIFY_EXIT=$?
+   OUT=$(cd "${TMPDIR:-/tmp}/n1-deploy-<ID>" && bash -c "$VERIFY_CMD" 2>&1); VERIFY_EXIT=$?
    mkdir -p "$N1_HOME/memory/<ID>"
    printf '%s\n' "$OUT" > "$N1_HOME/memory/<ID>/deploy-output.log"
    printf '%s\n' "$OUT" | tail -100
