@@ -282,6 +282,12 @@ test_bg_helpers() {
     cx=$(unset N1_QUEUE_CHILD_STUB; N1_QUEUE_TAG=n1-auto N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
     assert_eq "child_cmd: codex forwards N1_QUEUE_TAG" "yes" \
         "$(case "$cx" in *'N1_QUEUE_TAG=n1-auto '*"codex exec"*) echo yes ;; *) echo "no: $cx" ;; esac)"
+    cc=$(unset N1_QUEUE_CHILD_STUB N1_STORY_PLUGIN_DIR; N1_QUEUE_DIR=/q/dir N1_HOST=claude-code n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log n1-q-T-1-1)
+    assert_eq "child_cmd: claude-code forwards N1_QUEUE_DIR" "yes" \
+        "$(case "$cc" in *'N1_QUEUE_DIR'*'/q/dir'*) echo yes ;; *) echo "no: $cc" ;; esac)"
+    cx=$(unset N1_QUEUE_CHILD_STUB; N1_QUEUE_DIR=/q/dir N1_HOST=codex n1_queue_child_cmd /r T-1 sonnet RUN1 /tmp/log)
+    assert_eq "child_cmd: codex forwards N1_QUEUE_DIR" "yes" \
+        "$(case "$cx" in *'N1_QUEUE_DIR=/q/dir '*"codex exec"*) echo yes ;; *) echo "no: $cx" ;; esac)"
 
     cat > "$tmp/q.md" <<'EOF'
 ---
@@ -575,6 +581,7 @@ test_runner_tag_release() {
 #!/usr/bin/env bash
 TICKET="$1"
 printf '%s\n' "${N1_QUEUE_TAG:-}" > "$N1_QUEUE_SEEN.tag.$TICKET"
+printf '%s\n' "${N1_QUEUE_DIR:-}" > "$N1_QUEUE_SEEN.dir.$TICKET"
 grep '^queue_tag_removed:' "$N1_QUEUE_OVERVIEW" > "$N1_QUEUE_SEEN.flag.$TICKET" 2>/dev/null || true
 mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
 printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/7\n' > "$N1_QUEUE_OVERVIEW"
@@ -622,6 +629,7 @@ EOF
 
     assert_eq "tag-release: exit 0" "0" "$exit_code"
     assert_eq "tag-release: child sees N1_QUEUE_TAG" "n1-auto" "$(cat "$tmp/seen.tag.T-R")"
+    assert_eq "queue-dir: child sees absolute N1_QUEUE_DIR" "$(cd "$tmp" && pwd)" "$(cat "$tmp/seen.dir.T-R")"
     assert_eq "tag-release: flag reset before child starts" "queue_tag_removed: false" "$(cat "$tmp/seen.flag.T-R")"
     assert_eq "tag-release: finalize stamps queue_run_id" \
         "$(n1_read_frontmatter "$tmp/queue.md" run_id)" \

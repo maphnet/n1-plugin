@@ -159,7 +159,8 @@ n1_queue_child_cmd() {
     # claude-code: background-session launch named <session-name>; stdout carries the
     # session id (see n1_queue_parse_launch). <log-path> is unused there.
     # Caller env N1_QUEUE_TAG (tag mode only, else empty) is forwarded so the child can
-    # release the queue tag on handoff (NP-199).
+    # release the queue tag on handoff (NP-199). Caller env N1_QUEUE_DIR (always set by the
+    # runner) is forwarded so the child can read its ## Decisions row (NP-203).
     # Test hook: when N1_QUEUE_CHILD_STUB is set, the command is "$N1_QUEUE_CHILD_STUB" <ticket>.
     local repo="$1" id="$2" model="$3" run_id="$4" log="$5" name="${6:-}"
     if [ -n "${N1_QUEUE_CHILD_STUB:-}" ]; then
@@ -168,13 +169,13 @@ n1_queue_child_cmd() {
     fi
     if [ "$(n1_host)" = claude-code ]; then
         local settings
-        settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" \
-            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
+        settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
+            '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_HOST:"claude-code",N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
         n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
         return
     fi
-    printf 'cd %q && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_QUEUE_RUN_ID="%s" N1_QUEUE_TAG=%q %s' \
-        "$repo" "$run_id" "${N1_QUEUE_TAG:-}" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
+    printf 'cd %q && N1_HEADLESS=1 N1_AUTONOMY_PRESET=autonomous N1_QUEUE_RUN_ID="%s" N1_QUEUE_TAG=%q N1_QUEUE_DIR=%q %s' \
+        "$repo" "$run_id" "${N1_QUEUE_TAG:-}" "${N1_QUEUE_DIR:-}" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
 }
 
 n1_queue_row_status() {

@@ -47,6 +47,11 @@ N1_QUEUE_TAG=""
 [ "$(n1_read_frontmatter "$QUEUE" mode)" = tag ] && N1_QUEUE_TAG="$QUEUE_ID"
 export N1_QUEUE_TAG
 
+# Absolute queue dir: children read their plan-time ## Decisions row from here (NP-203).
+# Unconditional (tag and story mode); story-mode children may run under a different N1_HOME.
+N1_QUEUE_DIR=$(cd "$(dirname "$QUEUE")" && pwd)
+export N1_QUEUE_DIR
+
 strip_pid() {
     local tmp; tmp=$(mktemp "${QUEUE}.XXXXXX")
     awk 'NR==1 && /^---$/ { in_fm=1; print; next }
