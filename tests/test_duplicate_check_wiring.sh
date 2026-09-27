@@ -23,4 +23,8 @@ check "n1-story applies links after story creation" "duplicate-check\.md. § App
 
 check "n1-start intake references the procedure" "duplicate-check\.md" skills/n1-start/steps/ticket.md
 
+check "n1-queue intake references the procedure" "duplicate-check\.md" skills/n1-queue/steps/intake.md
+check "n1-queue blocker check still present" "^## Blocker check" skills/n1-queue/steps/intake.md
+check "n1-queue blocker check still excludes blocked candidates" "excluded with reason .blocked by <ID>." skills/n1-queue/steps/intake.md
+
 exit $FAIL

@@ -63,6 +63,10 @@ Excluded tickets are left for a later run (no toposort).
 
 For each remaining candidate, assess the description: if the description is empty or has fewer than 30 words (whitespace-split), exclude with reason `description too thin`.
 
+## Duplicate check
+
+For each remaining candidate, follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue`, `TEXT` = candidate title + description, `SELF_ID=<KEY>`, and `OVERVIEW` empty. This check only informs. Matches annotate the candidate's Reason (e.g. `tag match · possible duplicate: <ID>`), and nothing is excluded, prompted, or linked. The blocker check above is independent and unchanged. The child's own n1-start intake repeats the check headlessly and records it.
+
 ## Model per ticket
 
 ```bash
