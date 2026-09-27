@@ -84,6 +84,60 @@ Current finish work:
 
 If `finishWork` is absent from the current config, run the fresh-setup flow above.
 
+## Delivery (SSH deploy)
+
+Ask whether changes reach a host through a deploy command after the merge. This covers infra or docs repos and services deployed over SSH. **Default is No.**
+
+```
+Does this project deploy to a host after merge (SSH or a similar command)?
+1 — No (default)
+2 — Yes: after each merge, N1 shows the deploy command, asks, runs it, and verifies
+```
+
+**If 1 (No) or default:** write nothing. An absent `delivery` block keeps today's behavior.
+
+**If 2 (Yes)**, ask:
+- "Deploy command? (the full command, e.g. `ssh myhost 'cd /srv/app && git pull && ./deploy.sh'`)". If the answer is empty, treat it as No.
+- "Verify command? Exit code 0 means the deploy worked. Press enter to skip (the deploy's own exit code is then the only check)."
+
+Then show this notice verbatim:
+```
+Note: queued runs (n1-queue) and headless runs never execute the deploy. They post a
+runbook to the ticket and leave it awaiting you; run n1-finish <ID> to deploy.
+There is no deny hook for ssh/scp/rsync in queued runs. The guard is the delivery step
+itself, so an agent in a queued run could still call ssh on its own.
+```
+
+Write the block, omitting `verifyCommand` when it is empty:
+```json
+{
+  "delivery": {
+    "mode": "ssh",
+    "command": "<deploy command>",
+    "verifyCommand": "<verify command>"
+  }
+}
+```
+
+### On reconfiguration (n1-init re-run):
+
+If `delivery` already exists in the current config, show the current state and offer:
+```
+Current delivery:
+  mode          → <mode>
+  command       → <command>
+  verifyCommand → <verifyCommand or none>
+
+1 — Keep current
+2 — Change settings (re-ask the questions above)
+3 — Remove (back to no deploy step)
+```
+- **1**: leave unchanged.
+- **2**: re-run the questions, show the notice, and overwrite the block.
+- **3**: delete the `delivery` block.
+
+If `delivery` is absent from the current config, run the fresh-setup flow above.
+
 ## Release Configuration
 
 Ask whether N1 should create a release (git tag + GitHub Release) after the pipeline completes. **Default is No.**

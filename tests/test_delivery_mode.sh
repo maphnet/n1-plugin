@@ -119,6 +119,9 @@ test_wiring() {
         "$(grep -qF 'deploy_merge_sha' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     assert_eq "wiring: SKILL.md documents delivery keys" "yes" \
         "$(grep -qF '.delivery.verifyCommand' "$s/n1-finish/SKILL.md" && echo yes || echo no)"
+    local init="$s/n1-init/steps/09-finish-release.md"
+    assert_eq "init: asks about delivery" "yes" "$(grep -qF '"mode": "ssh"' "$init" && echo yes || echo no)"
+    assert_eq "init: warns there is no ssh deny hook" "yes" "$(grep -qF 'no deny hook' "$init" && echo yes || echo no)"
     # Non-regression: the PR / local-merge / deploy-watch step files, and n1-start's finish
     # gate (nothing has merged yet when finish-gate is false, so there is nothing to deploy),
     # are not touched.
