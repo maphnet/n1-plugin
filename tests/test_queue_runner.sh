@@ -1510,6 +1510,12 @@ test_headless_plan_wiring() {
     assert_eq "headless-plan: logs [plan]" "yes" "$(grep -qF '[plan]' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: release gate excluded" "yes" "$(grep -q 'release confirmation gate never consults' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: ledger documents [plan]" "yes" "$(grep -qF '`[plan]`' "$l" && echo yes || echo no)"
+    assert_eq "headless-plan: verifies queue.md run_id matches N1_QUEUE_RUN_ID (SEC-L1)" "yes" \
+        "$(grep -q 'run_id 2>/dev/null)" = "\$N1_QUEUE_RUN_ID"' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: recomputes the content hash before honouring a pre-decision (SEC-1)" "yes" \
+        "$(grep -qF 'n1_queue_content_hash' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: falls through to escalation on hash mismatch (SEC-1)" "yes" \
+        "$(grep -qF 'MISMATCH' "$h" && echo yes || echo no)"
 }
 test_headless_plan_wiring
 
