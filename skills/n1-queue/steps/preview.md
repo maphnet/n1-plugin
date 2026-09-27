@@ -31,7 +31,7 @@ If `--dry-run`: print "Dry run -- nothing launched." **STOP** (do not write queu
 
 ## Plan-Resolve
 
-Runs for every candidate before the prompt below (and, from run.md § Saved plan, for re-planned rows only). It builds one `DECISIONS` row per candidate that run.md writes as `## Decisions`: `| <KEY> | <Touches> | <Order> | <Pre-Decision> | <Desc Checksum> | <Notes> |`. In every cell replace `|` and newlines with a space. Nothing is written under `$N1_HOME/memory/<KEY>/`: an `overview.md` there would make the child resume instead of start.
+Runs for every candidate before the prompt below (and, from run.md § Saved plan, for re-planned rows only). Every candidate reaching this section already passed intake's key validation (`^[A-Z][A-Z0-9_]*-[0-9]+$`), so `<KEY>` is safe to use in a path here. It builds one `DECISIONS` row per candidate that run.md writes as `## Decisions`: `| <KEY> | <Touches> | <Order> | <Pre-Decision> | <Desc Checksum> | <Notes> |`. In every cell replace `|` and newlines with a space (`n1_queue_decisions_write_row` does this automatically when a step calls it instead of writing the table directly). Nothing is written under `$N1_HOME/memory/<KEY>/`: an `overview.md` there would make the child resume instead of start.
 
 ### 1. Description snapshot
 
@@ -39,10 +39,11 @@ Write each candidate's description verbatim to `<QUEUE_DIR>/desc/<KEY>.txt` with
 
 ```bash
 source ~/.n1/preamble.sh
-cksum < "<QUEUE_DIR>/desc/<KEY>.txt" | cut -d' ' -f1
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_content_hash "<title>" "<QUEUE_DIR>/desc/<KEY>.txt"
 ```
 
-Record the number as Desc Checksum.
+Record the printed sha256 as Desc Checksum (NP-203 SEC-3: a checksum a headless child later trusts to authorize skipping an escalation must not be forgeable by trial and error the way a CRC32 `cksum` is).
 
 ### 2. Duplicates
 
