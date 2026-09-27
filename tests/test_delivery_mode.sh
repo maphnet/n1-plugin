@@ -57,6 +57,13 @@ test_action_no_jq() {
     printf '{\n  "delivery": {\n    "mode": "ssh",\n    "command": "true"\n  }\n}\n' > "$TEST_CONFIG"
     assert_eq "action: ssh + no jq -> runbook (not execute)" "runbook" \
         "$(PATH="$nopath" n1_delivery_action)"
+    # Compact JSON: the non-jq value parser cannot read it; must still fail closed.
+    printf '{"delivery":{"mode":"ssh","command":"true"}}\n' > "$TEST_CONFIG"
+    assert_eq "action: compact ssh + no jq -> runbook (not none)" "runbook" \
+        "$(PATH="$nopath" n1_delivery_action)"
+    printf '{"finishWork":{"enabled":true}}\n' > "$TEST_CONFIG"
+    assert_eq "action: no delivery block + no jq -> none" "none" \
+        "$(PATH="$nopath" n1_delivery_action)"
     rm -rf "$nopath"
 }
 

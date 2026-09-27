@@ -500,9 +500,14 @@ n1_delivery_action() {
     #   Also forced when jq is unavailable: the grep/awk config-value fallback mis-parses
     #   escaped quotes, so its output must never be executed (SEC-3).
     # execute: interactive runs ask, execute, verify.
+    # Without jq the fallback cannot read compact JSON, so any "delivery" key fails closed
+    # to runbook; none only when the config has no delivery block at all.
+    if ! command -v jq >/dev/null 2>&1; then
+        if grep -q '"delivery"[[:space:]]*:' "$(n1_config_file)" 2>/dev/null; then printf 'runbook'; else printf 'none'; fi
+        return 0
+    fi
     if [ "$(n1_config_val '.delivery.mode')" != "ssh" ]; then printf 'none'; return 0; fi
     if [ -n "${N1_QUEUE_RUN_ID:-}" ] || [ "${N1_HEADLESS:-}" = "1" ]; then printf 'runbook'; return 0; fi
-    if ! command -v jq >/dev/null 2>&1; then printf 'runbook'; return 0; fi
     printf 'execute'
 }
 
