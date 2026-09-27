@@ -102,10 +102,13 @@ Does this project deploy to a host after merge (SSH or a similar command)?
 
 Then show this notice verbatim:
 ```
-Note: queued runs (n1-queue) and headless runs never execute the deploy. They post a
-runbook to the ticket and leave it awaiting you; run n1-finish <ID> to deploy.
+Note: queued runs (n1-queue) and headless runs never execute the deploy. They write a
+runbook to N1 memory (not posted to the tracker) and leave the ticket awaiting you; run
+n1-finish <ID> to deploy.
 There is no deny hook for ssh/scp/rsync in queued runs. The guard is the delivery step
 itself, so an agent in a queued run could still call ssh on its own.
+Delivery commands must not contain secrets (passwords, tokens, keys) — the command text
+can end up in local logs and self-checks; use SSH keys / agent auth instead.
 ```
 
 Write the block, omitting `verifyCommand` when it is empty:

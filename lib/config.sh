@@ -497,9 +497,12 @@ n1_delivery_action() {
     # none: delivery.mode is not "ssh" (absent/empty/unknown) -> the step is a no-op.
     # runbook: queue children and headless runs never execute delivery.command; they leave
     #   a runbook for the human (no auto-resolved confirm prompt can approve a deploy).
+    #   Also forced when jq is unavailable: the grep/awk config-value fallback mis-parses
+    #   escaped quotes, so its output must never be executed (SEC-3).
     # execute: interactive runs ask, execute, verify.
     if [ "$(n1_config_val '.delivery.mode')" != "ssh" ]; then printf 'none'; return 0; fi
     if [ -n "${N1_QUEUE_RUN_ID:-}" ] || [ "${N1_HEADLESS:-}" = "1" ]; then printf 'runbook'; return 0; fi
+    if ! command -v jq >/dev/null 2>&1; then printf 'runbook'; return 0; fi
     printf 'execute'
 }
 

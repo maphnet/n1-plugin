@@ -22,7 +22,7 @@ Queue children and headless runs **never** run `delivery.command` or `delivery.v
    source ~/.n1/preamble.sh
    n1_delivery_runbook "<ID>" "<SHA>"
    ```
-2. When `tracker.mcp` is set, post the content of the printed runbook file as a comment via `mcp__<tracker.mcp>__<operations.addComment>`, prefixed with `N1: deploy pending.` When `operations.getComments` exists, skip the comment if an identical one is already present. If the tracker call fails, warn and continue; never block.
+2. When `tracker.mcp` is set, post a short comment via `mcp__<tracker.mcp>__<operations.addComment>`: `N1: Deploy pending — resume with /n1:n1-finish <ID> (runbook in N1 memory).` Never post the runbook content or the `delivery.command`/`delivery.verifyCommand` text itself — it may contain hosts, paths, or secrets, and the runbook is local-only. When `operations.getComments` exists, skip the comment if an identical one is already present. If the tracker call fails, warn and continue; never block.
 3. Add this line to the `## Finish` section of overview.md: `- **Deploy:** pending (runbook: memory/<ID>/runbook.md)`.
 4. Do **not** close the ticket. Skip the rest of Step 4 and Step 5 and go to Step 6.
 
@@ -30,7 +30,7 @@ The queue runner reads `deploy_pending: true` and parks the row as `awaiting-hum
 
 ## Execute branch (interactive runs only)
 
-1. Read the commands:
+1. Read the commands. Execution requires `jq` — `n1_delivery_action` already returns `runbook` (not `execute`) when `jq` is unavailable, so reaching this branch means `jq` is present and the values below are parsed safely.
    ```bash
    source ~/.n1/preamble.sh
    echo "command:$(n1_config_val '.delivery.command')"
@@ -51,19 +51,23 @@ The queue runner reads `deploy_pending: true` and parks the row as `awaiting-hum
    source ~/.n1/preamble.sh
    DEPLOY_CMD=$(n1_config_val '.delivery.command')
    OUT=$(bash -c "$DEPLOY_CMD" 2>&1); DEPLOY_EXIT=$?
+   mkdir -p "$N1_HOME/memory/<ID>"
+   printf '%s\n' "$OUT" > "$N1_HOME/memory/<ID>/deploy-output.log"
    printf '%s\n' "$OUT" | tail -100
    echo "deploy-exit:$DEPLOY_EXIT"
    ```
-5. **Non-zero `deploy-exit`** → run Runbook branch step 1. If a tracker is configured, add a comment: "Deploy failed (exit <N>) for <ID>: `<command>`" followed by the last 50 output lines. Report the output and "Fix the cause, then re-run `n1-finish <ID>`." Do not close the ticket. **STOP.**
+5. **Non-zero `deploy-exit`** → run Runbook branch steps 1 and 3 (writes the runbook, marks the ticket deploy-pending, and adds the `- **Deploy:** pending (runbook: memory/<ID>/runbook.md)` line to overview.md). The deploy output stays local — it is not posted to the tracker; it was written to `memory/<ID>/deploy-output.log` above (may contain host/path/secret details). If a tracker is configured, add a comment: "Deploy failed (exit <N>) for <ID>; output kept locally in N1 memory." Report the output and "Fix the cause, then re-run `n1-finish <ID>`." Do not close the ticket. **STOP.**
 6. **Verify:** when `verify:` printed an empty value, record verify as `not configured` and go to step 7. Otherwise run:
    ```bash
    source ~/.n1/preamble.sh
    VERIFY_CMD=$(n1_config_val '.delivery.verifyCommand')
    OUT=$(bash -c "$VERIFY_CMD" 2>&1); VERIFY_EXIT=$?
+   mkdir -p "$N1_HOME/memory/<ID>"
+   printf '%s\n' "$OUT" > "$N1_HOME/memory/<ID>/deploy-output.log"
    printf '%s\n' "$OUT" | tail -100
    echo "verify-exit:$VERIFY_EXIT"
    ```
-   A non-zero `verify-exit` is handled like step 5, with "Deploy verification failed (exit <N>)". **STOP.**
+   A non-zero `verify-exit` is handled like step 5 (same runbook + local-log + finish-line + tracker comment), with "Deploy verification failed (exit <N>) for <ID>; output kept locally in N1 memory." **STOP.**
 7. **Success:** clear the pending flag and record the result:
    ```bash
    source ~/.n1/preamble.sh

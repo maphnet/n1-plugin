@@ -44,6 +44,22 @@ test_action() {
     assert_eq "action: queue child without delivery -> none" "none" "$(N1_QUEUE_RUN_ID=R1 action '{}')"
 }
 
+# --- SEC-3: no jq -> runbook, never execute -----------------------------------
+test_action_no_jq() {
+    local nopath
+    nopath=$(mktemp -d)
+    for b in bash sh grep awk sed head tr; do
+        local real; real=$(command -v "$b")
+        [ -n "$real" ] && ln -s "$real" "$nopath/$b"
+    done
+    # Pretty-printed (one key per line), matching real config files — the non-jq
+    # fallback's awk section scan only balances braces across separate lines.
+    printf '{\n  "delivery": {\n    "mode": "ssh",\n    "command": "true"\n  }\n}\n' > "$TEST_CONFIG"
+    assert_eq "action: ssh + no jq -> runbook (not execute)" "runbook" \
+        "$(PATH="$nopath" n1_delivery_action)"
+    rm -rf "$nopath"
+}
+
 # --- n1_delivery_runbook: writes, never executes ------------------------------
 test_runbook_never_executes() {
     export N1_HOME="$TMP/home"
@@ -122,6 +138,24 @@ test_wiring() {
     local init="$s/n1-init/steps/09-finish-release.md"
     assert_eq "init: asks about delivery" "yes" "$(grep -qF '"mode": "ssh"' "$init" && echo yes || echo no)"
     assert_eq "init: warns there is no ssh deny hook" "yes" "$(grep -qF 'no deny hook' "$init" && echo yes || echo no)"
+    assert_eq "init: warns delivery commands must not contain secrets" "yes" \
+        "$(grep -qF 'must not contain secrets' "$init" && echo yes || echo no)"
+    # SEC-1/SEC-2: failure/pending tracker comments never carry command text or raw output.
+    assert_eq "wiring: deploy-failed comment has no command interpolation" "0" \
+        "$(section "$step" '## Execute branch' | grep -c '<command>' || true)"
+    assert_eq "wiring: deploy-failed comment says output kept locally" "yes" \
+        "$(section "$step" '## Execute branch' | grep -qF 'kept locally in N1 memory' && echo yes || echo no)"
+    assert_eq "wiring: pending comment has no command interpolation" "yes" \
+        "$(section "$step" '## Runbook branch' | grep -qF 'runbook in N1 memory' && echo yes || echo no)"
+    assert_eq "wiring: runbook branch never posts runbook content" "yes" \
+        "$(section "$step" '## Runbook branch' | grep -qF 'Never post the runbook content' && echo yes || echo no)"
+    assert_eq "wiring: failed-deploy path also updates overview Finish line" "yes" \
+        "$(section "$step" '## Execute branch' | grep -qF 'Runbook branch steps 1 and 3' && echo yes || echo no)"
+    # SEC-5: resume trusts deploy_merge_sha only after regex + ancestor validation.
+    assert_eq "wiring: resume validates SHA format" "yes" \
+        "$(grep -qF '^[0-9a-f]{7,40}$' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    assert_eq "wiring: resume validates SHA is an ancestor of the default branch" "yes" \
+        "$(grep -qF 'merge-base --is-ancestor' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     # Non-regression: the PR / local-merge / deploy-watch step files, and n1-start's finish
     # gate (nothing has merged yet when finish-gate is false, so there is nothing to deploy),
     # are not touched.
@@ -132,6 +166,7 @@ test_wiring() {
 
 test_wiring
 test_action
+test_action_no_jq
 test_runbook_never_executes
 test_gates_unchanged
 
