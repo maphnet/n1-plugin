@@ -129,13 +129,15 @@ _n1_word_overlap() {
 
 n1_queue_child_status() {
     # Usage: n1_queue_child_status <overview.md> <exit-code>
-    # Prints: pr | escalated | failed | running
+    # Prints: pr | escalated | failed | running | awaiting-deploy (NP-219)
     local overview="$1" exit_code="${2:-0}"
     if [ ! -f "$overview" ]; then
         [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
         return
     fi
     local step; step=$(n1_read_frontmatter "$overview" "step")
+    # NP-219: merged/PR'd delivery ticket whose deploy was left for an interactive n1-finish.
+    if [ "$(n1_read_frontmatter "$overview" deploy_pending)" = "true" ]; then printf 'awaiting-deploy'; return; fi
     # pr/ci/done all mean stop-at-CI success
     case "$step" in pr|ci|done) printf 'pr'; return ;; esac
     if [ "$step" = "escalated" ] || [ -n "$(n1_queue_escalation_text "$overview")" ]; then
@@ -206,6 +208,24 @@ n1_queue_pending_rows() {
             printf "%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7, $8
         }
     }' "$file"
+}
+
+n1_queue_deploy_pending() {
+    # Usage: n1_queue_deploy_pending <n1-home> <ticket>
+    # Exit 0 when the ticket's overview has deploy_pending: true (NP-219: a finished child
+    # whose deploy waits for an interactive `n1-finish <ticket>`; terminal for the runner).
+    [ "$(n1_read_frontmatter "$1/memory/$2/overview.md" deploy_pending)" = "true" ]
+}
+
+n1_queue_parked_rows() {
+    # Usage: n1_queue_parked_rows <queue.md>
+    # awaiting-human rows still parked on a live question (same columns as
+    # n1_queue_pending_rows). Pending-deploy rows are excluded: nothing will unblock them.
+    local num t r h m s
+    while IFS=$'\t' read -r num t r h m s; do
+        if n1_queue_deploy_pending "$h" "$t"; then continue; fi
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$num" "$t" "$r" "$h" "$m" "$s"
+    done < <(n1_queue_pending_rows "$1" 'awaiting-human')
 }
 
 n1_queue_already_run() {
@@ -326,9 +346,14 @@ n1_queue_session_id() {
 
 n1_queue_awaiting_hints() {
     # Usage: n1_queue_awaiting_hints <queue.md>
-    # Prints "<ticket>: <resume command>" for each Plan row waiting on a human answer.
-    local file="$1" t sid
-    while IFS=$'\t' read -r _ t _ _ _ _; do
+    # Prints "<ticket>: <resume command>" for each Plan row waiting on a human: an attach
+    # command for parked sessions, `n1-finish <ticket>` for pending deploys (NP-219).
+    local file="$1" t h sid
+    while IFS=$'\t' read -r _ t _ h _ _; do
+        if n1_queue_deploy_pending "$h" "$t"; then
+            printf '%s: n1-finish %s (deploy pending)\n' "$t" "$t"
+            continue
+        fi
         sid=$(n1_queue_session_id "$file" "$t")
         if [ -n "$sid" ]; then printf '%s: %s\n' "$t" "$(n1_bg_cmd attach "$sid")"; fi
     done < <(n1_queue_pending_rows "$file" 'awaiting-human')
@@ -493,6 +518,7 @@ n1_queue_status_table() {
                     [ "$started_epoch" -gt 0 ] && elapsed=$(n1_fmt_elapsed "$((now - started_epoch))")
                 fi
                 [ "$state" = awaiting-human ] && [ -n "$sid" ] && [ "$host" = claude-code ] && attach=$(n1_bg_cmd attach "$sid")
+                if n1_queue_deploy_pending "$n1h" "$ticket"; then attach="n1-finish $ticket"; fi
                 ;;
             pr|failed|deferred|escalated)
                 local dur; dur=$(_n1_queue_event_duration "$events" "$ticket")

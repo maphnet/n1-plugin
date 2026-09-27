@@ -12,7 +12,7 @@ If no queue file found: "No queue runs found." **STOP.**
 Read frontmatter `step` and `queue_id`. Print:
 - `Step: <step>` (plan/run/done/halted)
 - For each ticket in the Plan with status `pr`, `escalated`, or `failed`: read `$N1_HOME_COL/memory/<TICKET>/overview.md` and extract `## Escalations` content (if any). Print escalations grouped by ticket.
-- Rows with status `awaiting-human` are background children waiting for an answer (their sessions are still alive). Print each resume command:
+- Rows with status `awaiting-human` are background children waiting for an answer (their sessions are still alive), or tickets whose deploy is pending (Reason `awaiting-deploy`, resume with `n1-finish <ticket>`). Print each resume command:
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"

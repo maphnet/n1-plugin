@@ -103,6 +103,9 @@ ev queue_started
 finalize() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" OUTCOME="$6" EXIT="$7" REASON="${8:-}"
     local OVERVIEW="$N1H/memory/$TICKET/overview.md" EXISTING_REASON PR_URL="" NEXT_NUM TITLE EV_OUTCOME="$OUTCOME" DUR=""
+    # NP-219: a finished child with a pending deploy parks as awaiting-human (reason
+    # awaiting-deploy): no strike, no retry, never polled again.
+    if [ "$OUTCOME" = "awaiting-deploy" ]; then OUTCOME="awaiting-human"; REASON="awaiting-deploy"; EV_OUTCOME="awaiting-deploy"; fi
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
@@ -168,6 +171,7 @@ finalize() {
     # Events + notifications before three-strikes (which may exit). PR successes notify only
     # through the end-of-queue digest.
     [ "$OUTCOME" = "escalated" ] && [ -z "${PARKED[NUM]:-}" ] && escalate "$TICKET" "$N1H"
+    if [ "$EV_OUTCOME" = "awaiting-deploy" ]; then n1_notify needs-you "$TICKET: deploy pending (resume: n1-finish $TICKET)"; fi
     [ -n "${STARTED_AT[NUM]:-}" ] && DUR=$(( $(date +%s) - STARTED_AT[NUM] ))
     ev ticket_finished ticket="$TICKET" outcome="$EV_OUTCOME" pr="$PR_URL" \
         session="$(n1_queue_session_id "$QUEUE" "$TICKET")" duration_s="$DUR" reason="$REASON"
@@ -176,7 +180,7 @@ finalize() {
     # Three-strikes counter
     case "$OUTCOME" in
         failed|escalated) CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)) ;;
-        pr) CONSECUTIVE_FAIL=0 ;;
+        pr|awaiting-human) CONSECUTIVE_FAIL=0 ;;
     esac
     if [ "$CONSECUTIVE_FAIL" -ge 3 ]; then
         halt "HALTED after 3 consecutive non-success"
@@ -198,6 +202,8 @@ run_sync() {
         n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
         # Re-queued ticket: forget the previous run's tag release (NP-199).
         n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" queue_tag_removed false || true
+        # NP-219: a re-queued ticket must not inherit a previous run's pending deploy.
+        if n1_queue_deploy_pending "$N1H" "$TICKET"; then n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" deploy_pending false || true; fi
         STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
         STARTED_AT[NUM]=$(date +%s)
@@ -231,6 +237,8 @@ launch_bg() {
     n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
     # Re-queued ticket: forget the previous run's tag release (NP-199).
     n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" queue_tag_removed false || true
+    # NP-219: a re-queued ticket must not inherit a previous run's pending deploy.
+    if n1_queue_deploy_pending "$N1H" "$TICKET"; then n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" deploy_pending false || true; fi
     STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     STARTED_AT[NUM]=$(date +%s)
     CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
@@ -279,6 +287,7 @@ run_bg() {
         AGENT_FAILS=0
         WORKING=0
         while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
+            if [ "$STATUS" = "awaiting-human" ] && n1_queue_deploy_pending "$N1H" "$TICKET"; then continue; fi
             SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
             STATE=$(n1_queue_bg_state "$AGENTS" "$SID")
             case "$STATE" in
@@ -328,7 +337,7 @@ run_bg() {
                 launch_bg "$ROW"
             else
                 # Nothing pending: finish when nothing is parked, or the awaiting wait expired.
-                [ -n "$(n1_queue_pending_rows "$QUEUE" 'awaiting-human')" ] || break
+                [ -n "$(n1_queue_parked_rows "$QUEUE")" ] || break
                 if [ "$SINCE_PARK" -ge "$TIMEOUT_SECS" ]; then
                     echo "awaiting-human rows left for the user; queue done"
                     break

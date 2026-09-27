@@ -829,7 +829,8 @@ case "$1" in
             echo "state $name $st" >> "$D/events"
             if [ "$st" = done ]; then
                 mkdir -p "$FAKE_N1H/memory/$t"
-                printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' > "$FAKE_N1H/memory/$t/overview.md"
+                dp=""; [ -f "$D/deploy.$t" ] && dp=$'deploy_pending: true\n'
+                printf -- '---\nstep: pr\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$dp" > "$FAKE_N1H/memory/$t/overview.md"
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
             out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
@@ -1214,10 +1215,102 @@ FIXTUREEOF
         "$(echo "$out" | awk -F'\t' '$1=="TP-6"{print $6}')"
 }
 
+# --- NP-219: pending deploy -----------------------------------------------------
+test_child_status_deploy() {
+    local tmp; tmp=$(mktemp -d)
+    printf -- '---\nstep: pr\ndeploy_pending: true\n---\n' > "$tmp/ov.md"
+    assert_eq "child-status: deploy pending" "awaiting-deploy" "$(n1_queue_child_status "$tmp/ov.md" 0)"
+    printf -- '---\nstep: pr\ndeploy_pending: false\n---\n' > "$tmp/ov.md"
+    assert_eq "child-status: deploy done -> pr" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
+    printf -- '---\nstep: pr\n---\n' > "$tmp/ov.md"
+    assert_eq "child-status: no delivery -> pr (unchanged)" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
+    printf -- '---\nstep: escalated\n---\n' > "$tmp/ov.md"
+    assert_eq "child-status: no delivery -> escalated (unchanged)" "escalated" "$(n1_queue_child_status "$tmp/ov.md" 1)"
+    rm -rf "$tmp"
+}
+
+test_runner_deploy_pending() {
+    local tmp; tmp=$(mktemp -d)
+    cat > "$tmp/stub.sh" <<'STUBEOF'
+#!/usr/bin/env bash
+TICKET="$1"
+mkdir -p "$(dirname "$N1_QUEUE_OVERVIEW")"
+if [ "$TICKET" = T-D ]; then
+    printf -- '---\nstep: pr\ndeploy_pending: true\n---\n# T\n' > "$N1_QUEUE_OVERVIEW"
+else
+    sed -i.bak 's/^step: .*/step: pr/' "$N1_QUEUE_OVERVIEW"
+fi
+exit 0
+STUBEOF
+    chmod +x "$tmp/stub.sh"
+    cat > "$tmp/wrapper.sh" <<WEOF
+#!/usr/bin/env bash
+TICKET="\$1"
+export N1_QUEUE_OVERVIEW="$tmp/n1home/memory/\$TICKET/overview.md"
+exec "$tmp/stub.sh" "\$TICKET"
+WEOF
+    chmod +x "$tmp/wrapper.sh"
+    mkdir -p "$tmp/n1home/memory/T-P"
+    # Stale flag from an earlier run: the runner must reset it at launch.
+    printf -- '---\nstep: implement\ndeploy_pending: true\n---\n# T\n' > "$tmp/n1home/memory/T-P/overview.md"
+    printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
+    cat > "$tmp/queue.md" <<EOF
+---
+step: plan
+queue_id: test-dep
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-D | Deploy me | /repo | $tmp/n1home | sonnet | pending | |
+| 2 | T-P | Plain | /repo | $tmp/n1home | sonnet | pending | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    export N1_QUEUE_CHILD_STUB="$tmp/wrapper.sh"
+    export N1_HOME="$tmp/n1home"
+    local rc=0
+    bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
+    assert_eq "runner-deploy: exit 0" "0" "$rc"
+    assert_eq "runner-deploy: T-D awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "runner-deploy: T-D reason" "awaiting-deploy" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "runner-deploy: queue continued, T-P pr (stale flag reset)" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "runner-deploy: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "runner-deploy: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "runner-deploy: event outcome" "awaiting-deploy" \
+        "$(jq -r 'select(.event=="ticket_finished" and .ticket=="T-D") | .outcome' "$tmp/events.jsonl")"
+    assert_eq "runner-deploy: digest" "1 PR / 1 awaiting / 0 failed" \
+        "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
+    assert_eq "runner-deploy: needs-you notify with resume hint" "yes" \
+        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'n1-finish T-D' && echo yes || echo no)"
+    assert_eq "runner-deploy: hint" "T-D: n1-finish T-D (deploy pending)" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
+    unset N1_QUEUE_CHILD_STUB
+    rm -rf "$tmp"
+}
+
+test_bg_deploy_pending() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done" "T-B:done"
+    touch "$tmp/fake/deploy.T-A"
+    assert_eq "bg-deploy: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-deploy: T-A awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-deploy: T-A reason" "awaiting-deploy" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "bg-deploy: T-B pr (queue moved on)" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-deploy: finalized exactly once" "1" \
+        "$(jq -r 'select(.ticket=="T-A" and .event=="ticket_finished") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "bg-deploy: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "bg-deploy: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "bg-deploy: no parked wait message" "0" "$(grep -c 'awaiting-human rows left' "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
 test_child_status
+test_child_status_deploy
 test_row_status
 test_pending_rows
 test_release_wiring
@@ -1238,6 +1331,7 @@ test_desktop_notify
 test_notify_backends
 test_runner_three_strikes
 test_runner_all_pr
+test_runner_deploy_pending
 test_runner_tag_release
 test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
@@ -1245,6 +1339,7 @@ test_runner_codex_host
 test_bg_sequential
 test_bg_awaiting
 test_bg_awaiting_timeout
+test_bg_deploy_pending
 test_bg_working_timeout
 test_bg_missing_grace
 test_bg_disclaimer
