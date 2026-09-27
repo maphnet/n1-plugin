@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# NP-217: the shared duplicate-check procedure keeps its guards, and every call site references it.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+FAIL=0
+P=references/duplicate-check.md
+
+check() { # <label> <extended-regex> <file>
+    if grep -qE "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
+}
+
+check "procedure gates on operations.search" "tracker\.operations\.search" "$P"
+check "procedure guards operations.linkIssues independently" "tracker\.operations\.linkIssues" "$P"
+check "procedure caches result in overview frontmatter" "duplicate_check" "$P"
+check "procedure has Check section" "^## § Check" "$P"
+check "procedure has Apply Links section" "^## § Apply Links" "$P"
+check "architecture.md documents the procedure" "references/duplicate-check\.md" references/architecture.md
+
+exit $FAIL

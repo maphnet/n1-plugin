@@ -1,0 +1,100 @@
+# Procedure: Duplicate Check
+
+Searches the tracker for tickets that duplicate or relate to the work at hand. It classifies the hits inline and warns before effort is spent. Called from n1-ticket and n1-story (before creation), n1-start (intake), and n1-queue (intake, annotate only). Runs for every tier. Never dispatches a persona.
+
+**Parameters:**
+- `CONTEXT`: `create` (ticket not created yet), `start` (n1-start intake), or `queue` (n1-queue candidate)
+- `TEXT`: title + description of the ticket, story seed, or candidate
+- `SELF_ID`: the current ticket ID; empty in `create`
+- `OVERVIEW`: absolute overview.md path in `start`; empty otherwise
+
+**Returns:** `DUP_LINKS`, a list of `<HIT_ID>:<Duplicate|Relates>`, empty unless the user chose to link. On **Stop**, the caller follows its own stop instruction.
+
+## § Check
+
+### 1. Gate
+
+```bash
+source ~/.n1/preamble.sh
+OVERVIEW="<OVERVIEW or empty>"
+DONE=""; [ -n "$OVERVIEW" ] && DONE=$(n1_read_frontmatter "$OVERVIEW" duplicate_check)
+printf 'TRACKER_MCP=%s\nTRACKER_TYPE=%s\nPROJECT_KEY=%s\nCLOUD_ID=%s\n' "$(n1_config_val '.tracker.mcp')" "$(n1_config_val '.tracker.type')" "$(n1_config_val '.tracker.projectKey')" "$(n1_config_val '.tracker.cloudId')"
+printf 'SEARCH_OP=%s\nLINK_OP=%s\nCOMMENT_OP=%s\n' "$(n1_config_val '.tracker.operations.search')" "$(n1_config_val '.tracker.operations.linkIssues')" "$(n1_config_val '.tracker.operations.addComment')"
+printf 'DONE=%s\nHEADLESS=%s\nQE=%s\n' "$DONE" "${N1_HEADLESS:-}" "$(n1_autonomy_val 'qualityEscalations')"
+```
+
+Read every value from the command output above. **Skip silently** (no output, `DUP_LINKS` empty, return to the caller) if any of these hold:
+- `TRACKER_MCP` is empty (no tracker)
+- `SEARCH_OP` is empty (legacy config)
+- `DONE` is non-empty (already checked for this ticket; resumed run)
+
+### 2. Query
+
+From `TEXT`, extract 3-6 distinctive keywords: component, feature, file, command, or error names. Drop stopwords, generic verbs (add, fix, update, support, improve), the project key, and any `<service> |` tagging prefix. Quote multi-word keywords.
+
+Call `mcp__<TRACKER_MCP>__<SEARCH_OP>`, limited to 10 results:
+- **YouTrack:** query `project: <PROJECT_KEY> (<kw1> or <kw2> or <kw3> ...)`. YouTrack ANDs bare words, so the explicit `or` in parentheses is required.
+- **Jira:** JQL `project = <PROJECT_KEY> AND (text ~ "<kw1>" OR text ~ "<kw2>" OR ...) ORDER BY updated DESC`, `maxResults: 10`, and include `cloudId` when set.
+
+Remove `SELF_ID` from the hits. If the search call errors, skip silently. Write nothing so a later resume retries.
+
+### 3. Classify (inline)
+
+Classify each hit from the fields the search returned (summary, plus description or status when present). Do not read each hit separately.
+- **duplicate**: same problem or same outcome. Finishing one would finish the other.
+- **related**: overlapping component, feature, or root cause, but a different deliverable.
+- **unrelated**: keyword overlap only. When unsure, choose unrelated.
+
+Keep `MATCHES`: one row per duplicate/related hit, as `| <HIT_ID> | duplicate/related | <status> | <summary> | <one-line reason> |`.
+
+If `MATCHES` is empty, go to § 5 with `none`.
+
+### 4. Act
+
+Build the warning:
+
+```
+Possible duplicate/related tickets:
+| Ticket | Match | Status | Summary | Why |
+|--------|-------|--------|---------|-----|
+<MATCHES rows>
+```
+
+Link mapping: duplicate → link type `Duplicate`; related → link type `Relates`.
+
+Links are offered only when `LINK_OP` is non-empty and a tracker ticket exists or is about to be created. That means `CONTEXT=create`, or `CONTEXT=start` when `SELF_ID` is a tracker ticket (ticket mode, or a ticket was created at intake). If `LINK_OP` is empty, add this line under the table: `Linking unavailable: operations.linkIssues not configured.`
+
+Branch on the first rule that matches:
+
+1. **`CONTEXT=queue`:** no prompt, no link, no exclusion. Append ` · possible duplicate: <ID>` or ` · related: <ID>` to the candidate's Reason for each match. Return.
+2. **Unattended** (`HEADLESS=1`, or `QE=auto-accept`): no prompt. Choose **Continue** and do not link, because a tracker write needs a human decision. Print the warning. If `CONTEXT=start`, `HEADLESS=1`, `COMMENT_OP` is non-empty, and `SELF_ID` is a tracker ticket, post a best-effort comment via `mcp__<TRACKER_MCP>__<COMMENT_OP>` on `SELF_ID`:
+   ```
+   N1 duplicate check: possible duplicate/related tickets found; continued without linking.
+   <one line per match: HIT_ID (duplicate|related) - summary>
+   ```
+   A comment failure never blocks.
+3. **Interactive:** show the warning and ask the user:
+   1. **Continue**: proceed without linking. This is the default when unattended.
+   2. **Continue and link**: proceed and set `DUP_LINKS` to one `<HIT_ID>:<Duplicate|Relates>` per match. Omit this option when links are not offered (see above).
+   3. **Stop**: `create` → cancel without creating anything. `start` → record (§ 5), then end the run with: "Stopped: <SELF_ID> overlaps <HIT_IDs>. Close or link it in the tracker; `/n1:n1-start <SELF_ID>` resumes and skips this check."
+
+### 5. Record
+
+Only when `OVERVIEW` is non-empty. `<VALUE>` is `none`, or a comma list of `<HIT_ID>:<duplicate|related>`:
+
+```bash
+source ~/.n1/preamble.sh
+n1_write_frontmatter "<OVERVIEW>" "duplicate_check" "<VALUE>"
+```
+
+In `CONTEXT=start`, if `DUP_LINKS` is non-empty, run § Apply Links now with `SOURCE_ID=<SELF_ID>`. `create` callers run it after creation.
+
+## § Apply Links
+
+**Parameters:** `SOURCE_ID`, `DUP_LINKS`. Skip if either is empty or `LINK_OP` is empty.
+
+For each `<HIT_ID>:<TYPE>` in `DUP_LINKS`, call `mcp__<TRACKER_MCP>__<LINK_OP>`:
+- **YouTrack:** `issueId: <SOURCE_ID>`, `targetIssueId: <HIT_ID>`, `linkType: "<TYPE>"` (use the link type name the instance recognizes, e.g. `Duplicate` / `Relates`).
+- **Jira:** `cloudId`, `inwardIssue: { key: <HIT_ID> }`, `outwardIssue: { key: <SOURCE_ID> }`, `type: { name: "<TYPE>" }`.
+
+A link failure only warns (`Could not link <SOURCE_ID> → <HIT_ID>: <error>`). Continue with the rest and never roll back.
