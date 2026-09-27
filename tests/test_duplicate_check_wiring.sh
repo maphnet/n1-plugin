@@ -21,4 +21,6 @@ check "n1-ticket applies links after creation" "duplicate-check\.md. § Apply Li
 check "n1-story runs the check at the tracker gate" "duplicate-check\.md. § Check" skills/n1-story/steps/01-collect.md
 check "n1-story applies links after story creation" "duplicate-check\.md. § Apply Links" skills/n1-story/steps/02-compose.md
 
+check "n1-start intake references the procedure" "duplicate-check\.md" skills/n1-start/steps/ticket.md
+
 exit $FAIL

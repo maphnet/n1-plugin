@@ -35,7 +35,7 @@ STANDARD_PATH_FILES=(
   "$SKILL_DIR/procedures/finalize.md"
 )
 
-MAX_STANDARD_BYTES=82612   # 80 KB + 692 bytes for n1-start assign-to-creator guard (NP-190)
+MAX_STANDARD_BYTES=82896   # 80 KB + 692 bytes for n1-start assign-to-creator guard (NP-190) + 284 bytes for duplicate-check reference (NP-217)
 
 # Investigation path extends the standard path with one additional step file.
 INVESTIGATION_PATH_FILES=(
