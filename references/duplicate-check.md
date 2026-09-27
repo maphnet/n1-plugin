@@ -47,7 +47,7 @@ Classify each hit from its summary and status only. Do not read the description,
 - **related**: overlapping component, feature, or root cause, but a different deliverable.
 - **unrelated**: keyword overlap only. When unsure, choose unrelated.
 
-Keep `MATCHES`: one row per duplicate/related hit, as `| <HIT_ID> | duplicate/related | <status> | <summary> | <one-line reason> |`. Before adding a row, replace `|` and newlines in `<summary>` with a space and truncate it to 80 chars.
+Keep `MATCHES`: one row per duplicate/related hit, as `| <HIT_ID> | duplicate/related | <status> | <summary> | <one-line reason> |`. Before adding a row, replace `|` and newlines in every cell with a space and truncate `<summary>` to 80 chars.
 
 If `MATCHES` is empty, go to § 5 with `none`.
 
