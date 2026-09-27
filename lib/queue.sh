@@ -279,6 +279,52 @@ n1_queue_stale() {
     [ $(( $(date -u +%s) - epoch )) -gt $(( hours * 3600 )) ]
 }
 
+n1_queue_overlap_order() {
+    # Usage: printf '%s\t%s\n' <ticket> <touches> ... | n1_queue_overlap_order
+    # Prints "<ticket>\t<note>" in execution order (NP-203). Tickets whose comma-separated
+    # Touches share a token (case-insensitive) run lowest ticket number first; all other
+    # ordering keeps input order. Note: "after <ticket> (<token>)" for the nearest earlier
+    # overlapping ticket. A ticket with NO overlap relationship at all (it never blocks and
+    # is never blocked) can still get bumped ahead of its input position as a side effect of
+    # the ready-scan skipping a blocked, unrelated ticket; that case is flagged
+    # "moved up (unrelated overlap elsewhere)" so the plan table never shows a silent
+    # reorder with no explanation. All other unchanged slots print an empty note.
+    # ponytail: O(n^3) Kahn sort; fine at queue.maxTickets scale, index tokens if batches grow.
+    awk -F'\t' '
+    function num(k) { sub(/.*-/, "", k); return k + 0 }
+    function shared(a, b,    m, i, c, arr) {
+        m = split(list[a], arr, ",")
+        for (i = 1; i <= m; i++) { c = arr[i]; if (c != "" && ((b, c) in has)) return c }
+        return ""
+    }
+    {
+        n++; key[n] = $1; list[n] = ""
+        m = split(tolower($2), parts, ",")
+        for (i = 1; i <= m; i++) {
+            c = parts[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c)
+            if (c != "" && !((n, c) in has)) { has[n, c] = 1; list[n] = list[n] "," c }
+        }
+    }
+    END {
+        for (a = 1; a <= n; a++)
+            for (b = 1; b <= n; b++)
+                if (a != b && shared(a, b) != "") { related[a] = 1; related[b] = 1 }
+        for (out = 1; out <= n; out++) {
+            for (i = 1; i <= n; i++) {
+                if (done[i]) continue
+                ready = 1
+                for (j = 1; j <= n; j++)
+                    if (!done[j] && j != i && num(key[j]) < num(key[i]) && shared(i, j) != "") { ready = 0; break }
+                if (ready) break
+            }
+            done[i] = 1; seq[out] = i; note = ""
+            for (k = out - 1; k >= 1; k--) { c = shared(i, seq[k]); if (c != "") { note = "after " key[seq[k]] " (" c ")"; break } }
+            if (note == "" && !related[i] && out != i) note = "moved up (unrelated overlap elsewhere)"
+            printf "%s\t%s\n", key[i], note
+        }
+    }'
+}
+
 n1_queue_release_rows() {
     # Usage: n1_queue_release_rows <queue.md>
     # Prints unique "<ticket>\t<n1-home>" for tag-mode Plan rows with a handoff outcome
