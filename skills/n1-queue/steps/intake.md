@@ -65,7 +65,7 @@ For each remaining candidate, assess the description: if the description is empt
 
 ## Duplicate check
 
-For each remaining candidate, follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue`, `TEXT` = candidate title + description, `SELF_ID=<KEY>`, and `OVERVIEW` empty. This check only informs. Matches annotate the candidate's Reason (e.g. `tag match · possible duplicate: <ID>`), and nothing is excluded, prompted, or linked. The blocker check above is independent and unchanged. The child's own n1-start intake repeats the check headlessly and records it.
+For each remaining candidate, follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue`, `TEXT` = candidate title + description, `SELF_ID=<KEY>`, and `OVERVIEW` empty. This pass only informs. Matches annotate the candidate's Reason (e.g. `tag match · possible duplicate: <ID>`), and nothing is excluded, prompted, or linked here. Keep each flagged candidate's `MATCHES` rows and the Gate's `LINK_OP`: the preview resolves them interactively (`CONTEXT=queue-plan`), and queue children skip the check entirely. The blocker check above is independent and unchanged.
 
 ## Model per ticket
 

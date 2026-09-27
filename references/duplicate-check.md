@@ -1,9 +1,9 @@
 # Procedure: Duplicate Check
 
-Searches the tracker for tickets that duplicate or relate to the work at hand. It classifies the hits inline and warns before effort is spent. Called from n1-ticket and n1-story (before creation), n1-start (intake), and n1-queue (intake, annotate only). Runs for every tier. Never dispatches a persona.
+Searches the tracker for tickets that duplicate or relate to the work at hand. It classifies the hits inline and warns before effort is spent. Called from n1-ticket and n1-story (before creation), n1-start (intake), and n1-queue (intake annotates; preview resolves at plan time). Runs for every tier. Never dispatches a persona.
 
 **Parameters:**
-- `CONTEXT`: `create` (ticket not created yet), `start` (n1-start intake), or `queue` (n1-queue candidate)
+- `CONTEXT`: `create` (ticket not created yet), `start` (n1-start intake), `queue` (n1-queue intake, annotate only), or `queue-plan` (n1-queue preview, one flagged candidate; enters at § 4 with that candidate's `MATCHES` from the `queue` pass, no new search)
 - `TEXT`: title + description of the ticket, story seed, or candidate
 - `SELF_ID`: the current ticket ID; empty in `create`
 - `OVERVIEW`: absolute overview.md path in `start`; empty otherwise
@@ -20,13 +20,15 @@ OVERVIEW="<OVERVIEW or empty>"
 DONE=""; [ -n "$OVERVIEW" ] && DONE=$(n1_read_frontmatter "$OVERVIEW" duplicate_check)
 printf 'TRACKER_MCP=%s\nTRACKER_TYPE=%s\nPROJECT_KEY=%s\nCLOUD_ID=%s\n' "$(n1_config_val '.tracker.mcp')" "$(n1_config_val '.tracker.type')" "$(n1_config_val '.tracker.projectKey')" "$(n1_config_val '.tracker.cloudId')"
 printf 'SEARCH_OP=%s\nLINK_OP=%s\nCOMMENT_OP=%s\n' "$(n1_config_val '.tracker.operations.search')" "$(n1_config_val '.tracker.operations.linkIssues')" "$(n1_config_val '.tracker.operations.addComment')"
-printf 'DONE=%s\nHEADLESS=%s\nQE=%s\n' "$DONE" "${N1_HEADLESS:-}" "$(n1_autonomy_val 'qualityEscalations')"
+printf 'DONE=%s\nHEADLESS=%s\nQE=%s\nQUEUE_CHILD=%s\n' "$DONE" "${N1_HEADLESS:-}" "$(n1_autonomy_val 'qualityEscalations')" "${N1_QUEUE_RUN_ID:-}"
 ```
 
 Read every value from the command output above. **Skip silently** (no output, `DUP_LINKS` empty, return to the caller) if any of these hold:
 - `TRACKER_MCP` is empty (no tracker)
 - `SEARCH_OP` is empty (legacy config)
 - `DONE` is non-empty (already checked for this ticket; resumed run)
+
+**Queue child** (`QUEUE_CHILD` non-empty, i.e. launched by the n1-queue runner): no search, no prompt, no comment. The duplicate question was resolved at plan time (`CONTEXT=queue-plan`). Go straight to § 5 with `queue-plan` so a later interactive resume also skips.
 
 ### 2. Query
 
@@ -64,25 +66,31 @@ Possible duplicate/related tickets:
 
 Link mapping: duplicate → link type `Duplicate`; related → link type `Relates`.
 
-Links are offered only when `LINK_OP` is non-empty and a tracker ticket exists or is about to be created. That means `CONTEXT=create`, or `CONTEXT=start` when `SELF_ID` is a tracker ticket (ticket mode, or a ticket was created at intake). If `LINK_OP` is empty, add this line under the table: `Linking unavailable: operations.linkIssues not configured.`
+Links are offered only when `LINK_OP` is non-empty and a tracker ticket exists or is about to be created. That means `CONTEXT=create`, `CONTEXT=queue-plan` (candidates are tracker tickets), or `CONTEXT=start` when `SELF_ID` is a tracker ticket (ticket mode, or a ticket was created at intake). If `LINK_OP` is empty, add this line under the table: `Linking unavailable: operations.linkIssues not configured.`
 
 Branch on the first rule that matches:
 
-1. **`CONTEXT=queue`:** no prompt, no link, no exclusion. Append ` · possible duplicate: <ID>` or ` · related: <ID>` to the candidate's Reason for each match. Return.
-2. **Unattended** (`HEADLESS=1`, or `QE=auto-accept`): no prompt. Choose **Continue** and do not link, because a tracker write needs a human decision. Print the warning. If `CONTEXT=start`, `HEADLESS=1`, `COMMENT_OP` is non-empty, and `SELF_ID` is a tracker ticket, post a best-effort comment via `mcp__<TRACKER_MCP>__<COMMENT_OP>` on `SELF_ID`:
+1. **`CONTEXT=queue-plan`:** show the warning and ask the user (one question per candidate; name `SELF_ID` in it):
+   1. **Continue**: keep the candidate in the queue, no link.
+   2. **Continue and link**: keep it and run § Apply Links now with `SOURCE_ID=<SELF_ID>` and one `<HIT_ID>:<Duplicate|Relates>` per match. Omit this option when links are not offered (see above).
+   3. **Exclude from this queue run**: the caller moves the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)`.
+
+   Return `DUP_CHOICE` = `continue`, `link`, or `exclude`. Queue candidates have no `overview.md` and none is created here (it would make the child resume instead of start): § 5 does not run; the caller records the choice in the queue plan's `## Decisions` Notes cell.
+2. **`CONTEXT=queue`:** no prompt, no link, no exclusion. Append ` · possible duplicate: <ID>` or ` · related: <ID>` to the candidate's Reason for each match. Return.
+3. **Unattended** (`HEADLESS=1`, or `QE=auto-accept`): no prompt. Choose **Continue** and do not link, because a tracker write needs a human decision. Print the warning. If `CONTEXT=start`, `HEADLESS=1`, `COMMENT_OP` is non-empty, and `SELF_ID` is a tracker ticket, post a best-effort comment via `mcp__<TRACKER_MCP>__<COMMENT_OP>` on `SELF_ID`:
    ```
    N1 duplicate check: possible duplicate/related tickets found; continued without linking.
    <one line per match: HIT_ID (duplicate|related)>
    ```
    A comment failure never blocks.
-3. **Interactive:** show the warning and ask the user:
+4. **Interactive:** show the warning and ask the user:
    1. **Continue**: proceed without linking. This is the default when unattended.
    2. **Continue and link**: proceed and set `DUP_LINKS` to one `<HIT_ID>:<Duplicate|Relates>` per match. Omit this option when links are not offered (see above).
    3. **Stop**: `create` → cancel without creating anything. `start` → record (§ 5), then end the run with: "Stopped: <SELF_ID> overlaps <HIT_IDs>. Close or link it in the tracker; `/n1:n1-start <SELF_ID>` resumes and skips this check."
 
 ### 5. Record
 
-Only when `OVERVIEW` is non-empty. Before building `<VALUE>`, drop any `HIT_ID` that does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`. `<VALUE>` is `none`, or a comma list of `<HIT_ID>:<duplicate|related>`:
+Only when `OVERVIEW` is non-empty. Before building `<VALUE>`, drop any `HIT_ID` that does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`. `<VALUE>` is `none`, `queue-plan` (queue child; resolved at plan time), or a comma list of `<HIT_ID>:<duplicate|related>`:
 
 ```bash
 source ~/.n1/preamble.sh
