@@ -23,7 +23,7 @@ Queue children and headless runs **never** run `delivery.command` or `delivery.v
    n1_delivery_runbook "<ID>" "<SHA>"
    ```
 2. When `tracker.mcp` is set, post a short comment via `mcp__<tracker.mcp>__<operations.addComment>`: `N1: Deploy pending — resume with /n1:n1-finish <ID> (runbook in N1 memory).` Never post the runbook content or the `delivery.command`/`delivery.verifyCommand` text itself — it may contain hosts, paths, or secrets, and the runbook is local-only. When `operations.getComments` exists, skip the comment if an identical one is already present. If the tracker call fails, warn and continue; never block.
-3. Add this line to the `## Finish` section of overview.md: `- **Deploy:** pending (runbook: memory/<ID>/runbook.md)`.
+3. Add this line to the `## Finish` section of overview.md: `- **Delivery:** pending (runbook: memory/<ID>/runbook.md)`.
 4. Do **not** close the ticket. Skip the rest of Step 4 and Step 5 and go to Step 6.
 
 The queue runner reads `deploy_pending: true` and parks the row as `awaiting-human` (Reason `awaiting-deploy`). The queue then moves on to the next ticket.
@@ -68,7 +68,7 @@ The queue runner reads `deploy_pending: true` and parks the row as `awaiting-hum
    source ~/.n1/preamble.sh
    git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>" 2>/dev/null || true
    ```
-5. **Non-zero `deploy-exit`** → run Runbook branch steps 1 and 3 (writes the runbook, marks the ticket deploy-pending, and adds the `- **Deploy:** pending (runbook: memory/<ID>/runbook.md)` line to overview.md). The deploy output stays local — it is not posted to the tracker; it was written to `memory/<ID>/deploy-output.log` above (may contain host/path/secret details). If a tracker is configured, add a comment: "Deploy failed (exit <N>) for <ID>; output kept locally in N1 memory." Report the output and "Fix the cause, then re-run `n1-finish <ID>`." Do not close the ticket. **STOP.**
+5. **Non-zero `deploy-exit`** → run Runbook branch steps 1 and 3 (writes the runbook, marks the ticket deploy-pending, and adds the `- **Delivery:** pending (runbook: memory/<ID>/runbook.md)` line to overview.md). The deploy output stays local — it is not posted to the tracker; it was written to `memory/<ID>/deploy-output.log` above (may contain host/path/secret details). If a tracker is configured, add a comment: "Deploy failed (exit <N>) for <ID>; output kept locally in N1 memory." Report the output and "Fix the cause, then re-run `n1-finish <ID>`." Do not close the ticket. **STOP.**
 6. **Verify:** when `verify:` printed an empty value, record verify as `not configured` and go to step 7. Otherwise run:
    ```bash
    source ~/.n1/preamble.sh
@@ -85,4 +85,4 @@ The queue runner reads `deploy_pending: true` and parks the row as `awaiting-hum
    source ~/.n1/preamble.sh
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_pending false || true
    ```
-   Add this line to the `## Finish` section of overview.md: `- **Deploy:** succeeded (<verified | not verified>)`. Return to Step 4 and continue. Step 4's close comment gets the delivery suffix.
+   Add this line to the `## Finish` section of overview.md: `- **Delivery:** succeeded (<verified | not verified>)`. Return to Step 4 and continue. Step 4's close comment gets the delivery suffix.

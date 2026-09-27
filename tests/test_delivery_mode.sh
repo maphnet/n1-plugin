@@ -141,6 +141,13 @@ test_wiring() {
         "$(section "$step" '## Execute branch' | grep -c 'OUT=$(cd .*n1-deploy\|OUT=$(cd "$DEPLOY_DIR"' || true)"
     assert_eq "wiring: deploy checkout is removed" "yes" \
         "$(section "$step" '## Execute branch' | grep -qF 'git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>"' && echo yes || echo no)"
+    # Step 6's Finish rewrite and report carry the delivery outcome instead of dropping it.
+    assert_eq "wiring: cleanup Finish template has a Delivery line" "yes" \
+        "$(grep -qF -- '- **Delivery:** <pending (runbook: memory/<ID>/runbook.md)' "$s/n1-finish/steps/06-cleanup.md" && echo yes || echo no)"
+    assert_eq "wiring: cleanup report has a Delivery line" "yes" \
+        "$(grep -q '^Delivery: <pending' "$s/n1-finish/steps/06-cleanup.md" && echo yes || echo no)"
+    assert_eq "wiring: delivery step writes the Delivery line, not Deploy" "0" \
+        "$(grep -c '\*\*Deploy:\*\*' "$step" || true)"
     assert_eq "wiring: execute branch asks first" "yes" \
         "$(section "$step" '## Execute branch' | grep -q 'Ask the user' && echo yes || echo no)"
     assert_eq "wiring: Step 4 enters the delivery step first" "yes" \
