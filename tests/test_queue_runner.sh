@@ -1338,6 +1338,45 @@ test_bg_deploy_flag_cleared_mid_run() {
     rm -rf "$tmp"
 }
 
+# NP-203: plan-time ## Decisions lookup and staleness gate.
+test_decisions_and_stale() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    cat > "$tmp/q.md" <<EOF
+---
+step: planned
+planned_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | Fix A | /r | /h | sonnet | pending | |
+
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:queue | | security: pre-authorize | 3821 | dup:T-9:continue |
+| T-2 | r:queue,r:lib | after T-1 (r:queue) | | 42 | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    assert_eq "decisions: pre-decision cell" "security: pre-authorize" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f3)"
+    assert_eq "decisions: notes cell" "dup:T-9:continue" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f5)"
+    assert_eq "decisions: order cell" "after T-1 (r:queue)" "$(n1_queue_decisions_row "$tmp/q.md" T-2 | cut -f2)"
+    assert_eq "decisions: empty pre-decision stays empty" "" "$(n1_queue_decisions_row "$tmp/q.md" T-2 | cut -f3)"
+    assert_eq "decisions: checksum after empty cell" "42" "$(n1_queue_decisions_row "$tmp/q.md" T-2 | cut -f4)"
+    assert_eq "decisions: Plan/Runs rows never match" "" "$(n1_queue_decisions_row "$tmp/q.md" 1)"
+    assert_eq "decisions: unknown ticket" "" "$(n1_queue_decisions_row "$tmp/q.md" T-404)"
+    assert_eq "decisions: missing file" "" "$(n1_queue_decisions_row "$tmp/none.md" T-1)"
+
+    assert_eq "stale: fresh plan" "fresh" "$(n1_queue_stale "$tmp/q.md" && echo stale || echo fresh)"
+    n1_write_frontmatter "$tmp/q.md" planned_at "2020-01-01T00:00:00Z"
+    assert_eq "stale: old plan" "stale" "$(n1_queue_stale "$tmp/q.md" && echo stale || echo fresh)"
+    printf -- '---\nstep: planned\n---\n' > "$tmp/p.md"
+    assert_eq "stale: missing planned_at counts as stale" "stale" "$(n1_queue_stale "$tmp/p.md" && echo stale || echo fresh)"
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
@@ -1345,6 +1384,7 @@ test_child_status
 test_child_status_deploy
 test_row_status
 test_pending_rows
+test_decisions_and_stale
 test_release_wiring
 test_already_run
 test_release_rows

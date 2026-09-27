@@ -9,6 +9,7 @@
   "opusFromSize": "M",
   "designPath": "docs/design/",
   "mergeOnFinish": false,
+  "staleAfterHours": 24,
   "taskSizing": {
     "maxSize": "L",
     "warnOnLargeTask": true

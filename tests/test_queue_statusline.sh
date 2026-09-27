@@ -64,6 +64,9 @@ test_no_active_queue() {
 
     printf -- '---\nqueue_id: q1\nstep: halted\n---\n## Plan\n' > "$home/queue/q1/queue.md"
     assert_eq "terminal step (halted): empty output" "" "$(run_statusline "$home")"
+
+    printf -- '---\nqueue_id: q1\nstep: planned\n---\n## Plan\n' > "$home/queue/q1/queue.md"
+    assert_eq "saved plan (planned, not running): empty output" "" "$(run_statusline "$home")"
 }
 
 test_empty_stdin() {

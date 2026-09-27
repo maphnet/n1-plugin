@@ -251,6 +251,34 @@ n1_queue_already_run() {
     printf '%s' "$run"
 }
 
+n1_queue_decisions_row() {
+    # Usage: n1_queue_decisions_row <queue.md> <ticket>
+    # Prints Touches<TAB>Order<TAB>Pre-Decision<TAB>Desc Checksum<TAB>Notes for <ticket>'s row
+    # in the ## Decisions table (NP-203). Section-scoped: Plan/Runs rows never match.
+    # Fields may be empty: read them with cut -f<N>, not IFS=tab read (which collapses).
+    [ -f "$1" ] || return 0
+    awk -F'|' -v t="$2" '
+        /^## Decisions/ { f = 1; next }
+        /^## / { f = 0 }
+        f {
+            for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            if ($2 == t && NF >= 8) { printf "%s\t%s\t%s\t%s\t%s\n", $3, $4, $5, $6, $7; exit }
+        }' "$1"
+}
+
+n1_queue_stale() {
+    # Usage: n1_queue_stale <queue.md>
+    # Exit 0 when frontmatter planned_at is older than queue.staleAfterHours (default 24),
+    # or missing/unparseable (unknown age is treated as stale). Exit 1 when fresh (NP-203).
+    local at epoch hours
+    at=$(n1_read_frontmatter "$1" planned_at)
+    [ -n "$at" ] || return 0
+    epoch=$(date -u -d "$at" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$at" +%s 2>/dev/null) || return 0
+    hours=$(n1_queue_val staleAfterHours)
+    case "$hours" in ''|*[!0-9]*) hours=24 ;; esac
+    [ $(( $(date -u +%s) - epoch )) -gt $(( hours * 3600 )) ]
+}
+
 n1_queue_release_rows() {
     # Usage: n1_queue_release_rows <queue.md>
     # Prints unique "<ticket>\t<n1-home>" for tag-mode Plan rows with a handoff outcome
