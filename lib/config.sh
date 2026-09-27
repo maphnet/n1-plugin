@@ -492,6 +492,47 @@ n1_finish_enabled() {
     [ "$(n1_config_val '.finishWork.enabled')" = "true" ]
 }
 
+n1_delivery_action() {
+    # NP-219. Prints none | runbook | execute for the n1-finish delivery step.
+    # none: delivery.mode is not "ssh" (absent/empty/unknown) -> the step is a no-op.
+    # runbook: queue children and headless runs never execute delivery.command; they leave
+    #   a runbook for the human (no auto-resolved confirm prompt can approve a deploy).
+    # execute: interactive runs ask, execute, verify.
+    if [ "$(n1_config_val '.delivery.mode')" != "ssh" ]; then printf 'none'; return 0; fi
+    if [ -n "${N1_QUEUE_RUN_ID:-}" ] || [ "${N1_HEADLESS:-}" = "1" ]; then printf 'runbook'; return 0; fi
+    printf 'execute'
+}
+
+n1_delivery_runbook() {
+    # NP-219. Usage: n1_delivery_runbook <ID> [merge-sha]
+    # Writes $N1_HOME/memory/<ID>/runbook.md with the configured deploy/verify commands and
+    # sets overview.md deploy_pending: true (+ deploy_merge_sha when the merge already
+    # happened, so `n1-finish <ID>` skips straight to the deploy). NEVER executes either
+    # command. Prints the runbook path. Needs frontmatter.sh (loaded by the preamble).
+    local id="$1" sha="${2:-}" dir ov cmd verify
+    dir="$N1_HOME/memory/$id"; ov="$dir/overview.md"
+    mkdir -p "$dir"
+    cmd=$(n1_config_val '.delivery.command')
+    verify=$(n1_config_val '.delivery.verifyCommand')
+    {
+        printf '# Deploy runbook: %s\n\n' "$id"
+        if [ -n "$sha" ]; then
+            printf 'Merged at `%s`. The deploy is pending.\n\n' "$sha"
+        else
+            printf 'Not merged yet. `n1-finish %s` confirms (or performs) the merge first, then deploys.\n\n' "$id"
+        fi
+        printf 'Run interactively: `n1-finish %s`. It asks to confirm, runs the deploy, runs the verify command, and closes the ticket on success.\n\n' "$id"
+        printf 'Deploy command:\n\n```\n%s\n```\n' "$cmd"
+        if [ -n "$verify" ]; then
+            printf '\nVerify command:\n\n```\n%s\n```\n' "$verify"
+        fi
+    } > "$dir/runbook.md"
+    if [ ! -f "$ov" ]; then printf -- '---\n---\n' > "$ov"; fi
+    n1_write_frontmatter "$ov" deploy_pending true
+    if [ -n "$sha" ]; then n1_write_frontmatter "$ov" deploy_merge_sha "$sha"; fi
+    printf '%s\n' "$dir/runbook.md"
+}
+
 n1_test_coverage_tier() {
     # Prints maintain/minimal/standard. Default: maintain.
     local v; v=$(n1_config_val '.testCoverage.tier')
