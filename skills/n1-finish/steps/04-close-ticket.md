@@ -1,5 +1,7 @@
 # Step 4: Close Ticket
 
+**Delivery gate (before anything else in this step):** read `<N1_ROOT>/skills/n1-finish/steps/03b-ssh-deploy.md` and follow it. Continue below only when it says to return to Step 4. It is a no-op unless `delivery.mode` is `"ssh"`.
+
 **Hard-skip gates** — when either holds, skip immediately with the stated reason and go to Step 5:
 - `closeTicket` is `false` → "Ticket close skipped: closeTicket is false."
 - `tracker.mcp` is null → "Ticket close skipped: no tracker configured."
@@ -16,5 +18,6 @@
    - `"PR merged: <PR URL>"` (deploy not watched)
    - `"PR merged: <PR URL>. Deployment succeeded: <run URL>"` (deploy watched)
    - `"Merged locally into <defaultBranch>, push pending."` (local merge path)
+   When the delivery step deployed, append ` Deployed via delivery.command (<verified | not verified>).` to the chosen comment.
    When `operations.getComments` exists, check recent comments first and skip if an identical comment is already present (idempotent re-run); otherwise add best-effort once.
 3. Tracker failures: **warn, never block** — the merge already happened. Record the failure in the report.

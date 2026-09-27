@@ -96,6 +96,38 @@ test_gates_unchanged() {
     done
 }
 
+# --- Skill wiring ---------------------------------------------------------------
+section() { awk -v h="$2" 'index($0, h) == 1 {f=1; next} /^## /{f=0} f' "$1"; }
+
+test_wiring() {
+    local s="$REPO_ROOT/skills" step="$REPO_ROOT/skills/n1-finish/steps/03b-ssh-deploy.md"
+    assert_eq "wiring: delivery step exists" "yes" "$([ -f "$step" ] && echo yes || echo no)"
+    assert_eq "wiring: step branches on n1_delivery_action" "yes" "$(grep -q 'n1_delivery_action' "$step" && echo yes || echo no)"
+    assert_eq "wiring: runbook branch uses the helper" "yes" \
+        "$(section "$step" '## Runbook branch' | grep -q 'n1_delivery_runbook' && echo yes || echo no)"
+    assert_eq "wiring: runbook branch never runs a command" "0" \
+        "$(section "$step" '## Runbook branch' | grep -c 'bash -c' || true)"
+    assert_eq "wiring: execute branch runs the deploy" "yes" \
+        "$(section "$step" '## Execute branch' | grep -qF 'bash -c "$DEPLOY_CMD"' && echo yes || echo no)"
+    assert_eq "wiring: execute branch runs the verify" "yes" \
+        "$(section "$step" '## Execute branch' | grep -qF 'bash -c "$VERIFY_CMD"' && echo yes || echo no)"
+    assert_eq "wiring: execute branch asks first" "yes" \
+        "$(section "$step" '## Execute branch' | grep -q 'Ask the user' && echo yes || echo no)"
+    assert_eq "wiring: Step 4 enters the delivery step first" "yes" \
+        "$(sed -n '1,4p' "$s/n1-finish/steps/04-close-ticket.md" | grep -qF '03b-ssh-deploy.md' && echo yes || echo no)"
+    assert_eq "wiring: resume skips merge on recorded sha" "yes" \
+        "$(grep -qF 'deploy_merge_sha' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    assert_eq "wiring: SKILL.md documents delivery keys" "yes" \
+        "$(grep -qF '.delivery.verifyCommand' "$s/n1-finish/SKILL.md" && echo yes || echo no)"
+    # Non-regression: the PR / local-merge / deploy-watch step files, and n1-start's finish
+    # gate (nothing has merged yet when finish-gate is false, so there is nothing to deploy),
+    # are not touched.
+    assert_eq "non-regression: 02-merge has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-finish/steps/02-merge.md" || true)"
+    assert_eq "non-regression: 03-deploy has no delivery logic" "0" "$(grep -c 'delivery\.' "$s/n1-finish/steps/03-deploy.md" || true)"
+    assert_eq "non-regression: n1-start finish gate has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-start/steps/finish.md" || true)"
+}
+
+test_wiring
 test_action
 test_runbook_never_executes
 test_gates_unchanged

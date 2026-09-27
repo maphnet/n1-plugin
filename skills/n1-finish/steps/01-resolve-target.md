@@ -4,6 +4,13 @@
 
 - `gh auth status` — if not authenticated AND `prMode` (from Config Read) is not `"skip"`: "GitHub CLI is not authenticated. Run `gh auth login` first." **STOP.** The local-merge path needs no `gh`: when `prMode` is `"skip"` and `gh` is unauthenticated, skip the PR lookup below and go to Step 2b (local merge).
 - Resolve `<ID>`: explicit argument, else parse from the current branch name using `git.branchPattern` (same extraction as n1-pr Step 1). A `#123`/`123` argument selects a PR number directly instead.
+- **Pending deploy resume:** check whether a deploy is pending for `<ID>`:
+  ```bash
+  source ~/.n1/preamble.sh
+  OV="$N1_HOME/memory/<ID>/overview.md"
+  echo "deploy-pending:$(n1_read_frontmatter "$OV" deploy_pending) sha:$(n1_read_frontmatter "$OV" deploy_merge_sha)"
+  ```
+  If it prints `deploy-pending:true` with a non-empty `sha:`, the merge already happened (in a queue run, or before a declined or failed deploy). Skip the PR lookup, Step 2 and Step 3, and go to Step 4 with `<SHA>` set to that value. Step 4 runs the delivery gate first. Otherwise continue below.
 
 - **PR number argument** → `gh pr view <n> --json number,state,mergedAt,mergeCommit,url,headRefName,baseRefName`.
 - **No argument / ticket ID** → `gh pr view --json ...` (current branch), or `gh pr list --head <branch> --state all --json ...` when not on the branch.

@@ -10,7 +10,7 @@ effort: low
 
 ## Overview
 
-Complete the development cycle after the PR/CI stage: confirm the PR is merged (or merge it when `finishWork.mergeOnFinish` is enabled), optionally watch the deployment workflow triggered by the merge commit, move the tracker ticket to Done, and clean up the branch/worktree.
+Complete the development cycle after the PR/CI stage: confirm the PR is merged (or merge it when `finishWork.mergeOnFinish` is enabled), optionally watch the deployment workflow triggered by the merge commit, optionally deploy to the project's host with `delivery.command` (asks first, interactive runs only), move the tracker ticket to Done, and clean up the branch/worktree.
 
 The ticket is closed **only when the code is actually merged** — never on green-CI-but-open.
 
@@ -39,6 +39,9 @@ Read the `finishWork` block via `n1_config_val`, applying defaults when keys are
 | `.finishWork.deployWatch.timeoutMinutes` | `30` |
 | `.finishWork.closeTicket` | `true` |
 | `.finishWork.waitForMergeMinutes` | `10` |
+| `.delivery.mode` | `null` (`"ssh"` enables the delivery deploy at the start of Step 4; any other value is off) |
+| `.delivery.command` | `null` (project-owned deploy command, run with confirmation in interactive runs only) |
+| `.delivery.verifyCommand` | `null` (optional post-deploy check; exit code 0 = verified) |
 | `.localTesting.mode` | `null` (infer from startCommand) |
 | `.localTesting.smokeEndpoint` | `null` |
 | `.localTesting.smokeTests` | `[]` |
@@ -60,7 +63,7 @@ Execute steps in order. Read each step file and follow its instructions before p
 3. **Deploy Watch & Smoke** — watch deployment workflow, run smoke verification
    Read `<N1_ROOT>/skills/n1-finish/steps/03-deploy.md`
 
-4. **Close Ticket** — move tracker status to done, post comment
+4. **Close Ticket**: delivery deploy gate first (`03b-ssh-deploy.md`, no-op unless `delivery.mode` is `"ssh"`), then move the tracker status to done and post a comment
    Read `<N1_ROOT>/skills/n1-finish/steps/04-close-ticket.md`
 
 5. **Telemetry Follow-Up** — create follow-up ticket when feature warrants telemetry check
