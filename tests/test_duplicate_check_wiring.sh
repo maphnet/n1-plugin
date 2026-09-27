@@ -14,6 +14,9 @@ check "procedure guards operations.linkIssues independently" "tracker\.operation
 check "procedure caches result in overview frontmatter" "duplicate_check" "$P"
 check "procedure has Check section" "^## § Check" "$P"
 check "procedure has Apply Links section" "^## § Apply Links" "$P"
+check "procedure guards untrusted hit fields" "untrusted data" "$P"
+check "procedure classifies on summary/status, not description" "summary and status only" "$P"
+check "procedure headless comment is IDs and match type only" "HIT_ID \\(duplicate\\|related\\)>" "$P"
 check "architecture.md documents the procedure" "references/duplicate-check\.md" references/architecture.md
 
 check "n1-ticket runs the check before creation" "duplicate-check\.md. § Check" skills/n1-ticket/steps/02-create.md
