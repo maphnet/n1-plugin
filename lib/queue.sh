@@ -178,12 +178,22 @@ n1_queue_child_cmd() {
         "$repo" "$run_id" "${N1_QUEUE_TAG:-}" "${N1_QUEUE_DIR:-}" "$(n1_headless_cmd n1-start "$id" "$model" "$log")"
 }
 
+_n1_queue_sanitize_cell() {
+    # Usage: _n1_queue_sanitize_cell <text>
+    # Strips `|` and newlines so untrusted text (a ticket title, tracker status/reason, or
+    # plan-time free text) can never forge a table cell or spill into an adjacent Decisions
+    # row (NP-203 SEC-2/CR-2). Every write path into a queue.md table cell routes through this.
+    printf '%s' "$1" | tr '\n' ' ' | tr -d '|'
+}
+
 n1_queue_row_status() {
     # Usage: n1_queue_row_status <queue.md> <row-number> <status> [reason]
     # Rewrites the Status (and optionally Reason) cell of the Plan table row
-    # whose first cell equals <row-number>.
+    # whose first cell equals <row-number>. Cells are sanitized (NP-203 SEC-2).
     # Row shape: | # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-    local file="$1" row_num="$2" status="$3" reason="${4:-}"
+    local file="$1" row_num="$2" status reason
+    status=$(_n1_queue_sanitize_cell "$3")
+    reason=$(_n1_queue_sanitize_cell "${4:-}")
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
     awk -v num="$row_num" -v st="$status" -v rsn="$reason" 'BEGIN { FS="|"; OFS="|" } {
         f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
@@ -254,29 +264,74 @@ n1_queue_already_run() {
 n1_queue_decisions_row() {
     # Usage: n1_queue_decisions_row <queue.md> <ticket>
     # Prints Touches<TAB>Order<TAB>Pre-Decision<TAB>Desc Checksum<TAB>Notes for <ticket>'s row
-    # in the ## Decisions table (NP-203). Section-scoped: Plan/Runs rows never match.
-    # Fields may be empty: read them with cut -f<N>, not IFS=tab read (which collapses).
+    # in the ## Decisions table (NP-203). Fails closed (prints nothing) unless the file has
+    # exactly one "## Decisions" heading and exactly one matching row for <ticket> — an
+    # untrusted ticket title containing a "## Decisions" line or a forged extra row must
+    # never be trusted to authorize a pre-decision (SEC-2). Section-scoped: Plan/Runs rows
+    # never match. Fields may be empty: read them with cut -f<N>, not IFS=tab read (collapses).
     [ -f "$1" ] || return 0
+    [ "$(grep -c '^## Decisions$' "$1")" = 1 ] || return 0
     awk -F'|' -v t="$2" '
-        /^## Decisions/ { f = 1; next }
+        /^## Decisions$/ { f = 1; next }
         /^## / { f = 0 }
         f {
             for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
-            if ($2 == t && NF >= 8) { printf "%s\t%s\t%s\t%s\t%s\n", $3, $4, $5, $6, $7; exit }
-        }' "$1"
+            if ($2 == t && NF >= 8) { matches++; row = sprintf("%s\t%s\t%s\t%s\t%s", $3, $4, $5, $6, $7) }
+        }
+        END { if (matches == 1) print row }' "$1"
+}
+
+n1_queue_decisions_write_row() {
+    # Usage: n1_queue_decisions_write_row <queue.md> <ticket> <touches> <order> <predecision> <checksum> <notes>
+    # Replaces the ## Decisions row for <ticket> in place; every cell is sanitized (NP-203
+    # CR-2), the write-side counterpart of n1_queue_decisions_row's fail-closed read. No-op
+    # (returns 0) when the file, the section, or the row is missing.
+    local file="$1" ticket="$2"
+    local touches order predecision checksum notes
+    touches=$(_n1_queue_sanitize_cell "$3")
+    order=$(_n1_queue_sanitize_cell "$4")
+    predecision=$(_n1_queue_sanitize_cell "$5")
+    checksum=$(_n1_queue_sanitize_cell "$6")
+    notes=$(_n1_queue_sanitize_cell "$7")
+    local tmp; tmp=$(mktemp "${file}.XXXXXX")
+    awk -v t="$ticket" -v touches="$touches" -v order="$order" -v pd="$predecision" -v cksum="$checksum" -v notes="$notes" '
+        BEGIN { FS = "|" }
+        /^## Decisions$/ { f = 1; print; next }
+        /^## / { f = 0 }
+        f {
+            f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
+            if (f2 == t && NF >= 8) {
+                printf "| %s | %s | %s | %s | %s | %s |\n", f2, touches, order, pd, cksum, notes
+                next
+            }
+        }
+        { print }
+    ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_content_hash() {
+    # Usage: n1_queue_content_hash <title> <desc-file>
+    # Prints sha256(<title> + "\n" + contents of <desc-file>): sha256sum, shasum -a 256
+    # fallback (NP-203 SEC-3 — replaces cksum/CRC32, which is trivially forgeable). Shared by
+    # preview.md's Desc Checksum snapshot, run.md's staleness re-check, and the child-side
+    # TOCTOU guard in autonomy-headless.md, so all three agree on one definition of "changed".
+    { printf '%s\n' "$1"; cat "$2" 2>/dev/null; } | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1
 }
 
 n1_queue_stale() {
     # Usage: n1_queue_stale <queue.md>
     # Exit 0 when frontmatter planned_at is older than queue.staleAfterHours (default 24),
-    # or missing/unparseable (unknown age is treated as stale). Exit 1 when fresh (NP-203).
-    local at epoch hours
+    # missing/unparseable, or in the future (a future planned_at is clock skew or a forged
+    # timestamp, never grounds to treat the plan as fresh — NP-203 SEC-L3). Exit 1 when fresh.
+    local at epoch hours diff
     at=$(n1_read_frontmatter "$1" planned_at)
     [ -n "$at" ] || return 0
     epoch=$(date -u -d "$at" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$at" +%s 2>/dev/null) || return 0
     hours=$(n1_queue_val staleAfterHours)
     case "$hours" in ''|*[!0-9]*) hours=24 ;; esac
-    [ $(( $(date -u +%s) - epoch )) -gt $(( hours * 3600 )) ]
+    diff=$(( $(date -u +%s) - epoch ))
+    [ "$diff" -lt 0 ] && return 0
+    [ "$diff" -gt $(( hours * 3600 )) ]
 }
 
 n1_queue_overlap_order() {

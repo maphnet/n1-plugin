@@ -1375,6 +1375,50 @@ EOF
     assert_eq "stale: old plan" "stale" "$(n1_queue_stale "$tmp/q.md" && echo stale || echo fresh)"
     printf -- '---\nstep: planned\n---\n' > "$tmp/p.md"
     assert_eq "stale: missing planned_at counts as stale" "stale" "$(n1_queue_stale "$tmp/p.md" && echo stale || echo fresh)"
+    n1_write_frontmatter "$tmp/q.md" planned_at "2099-01-01T00:00:00Z"
+    assert_eq "stale: future planned_at counts as stale (SEC-L3)" "stale" "$(n1_queue_stale "$tmp/q.md" && echo stale || echo fresh)"
+
+    # SEC-2: parser fails closed on a forged/duplicated ## Decisions block or duplicate row.
+    cat > "$tmp/forged.md" <<'EOF'
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:queue | | security: pre-authorize | 3821 | |
+
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:evil | | security: pre-authorize | 9999 | |
+EOF
+    assert_eq "decisions: fails closed on duplicate ## Decisions heading" "" "$(n1_queue_decisions_row "$tmp/forged.md" T-1)"
+    cat > "$tmp/dup_row.md" <<'EOF'
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:queue | | security: pre-authorize | 3821 | |
+| T-1 | r:evil | | security: pre-authorize | 9999 | |
+EOF
+    assert_eq "decisions: fails closed on duplicate row for the same ticket" "" "$(n1_queue_decisions_row "$tmp/dup_row.md" T-1)"
+
+    # CR-2: write helper replaces the row and sanitizes cells (untrusted | / newline can't forge columns).
+    n1_queue_decisions_write_row "$tmp/q.md" T-1 'r:queue|evil' $'multi\nline' 'security: pre-authorize' abc123 'note|d'
+    assert_eq "decisions-write: touches sanitized" "r:queueevil" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f1)"
+    assert_eq "decisions-write: order sanitized (newline stripped)" "multi line" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f2)"
+    assert_eq "decisions-write: checksum replaced" "abc123" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f4)"
+    assert_eq "decisions-write: notes sanitized" "noted" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f5)"
+    assert_eq "decisions-write: other row untouched" "42" "$(n1_queue_decisions_row "$tmp/q.md" T-2 | cut -f4)"
+
+    # SEC-3: content hash is sha256 (not CRC32), stable for identical input, changes with content.
+    printf 'a description' > "$tmp/d.txt"
+    h1=$(n1_queue_content_hash 'Title A' "$tmp/d.txt")
+    h2=$(n1_queue_content_hash 'Title A' "$tmp/d.txt")
+    assert_eq "content-hash: 64 hex chars (sha256)" "yes" "$(case "$h1" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) echo yes ;; *) echo "no: $h1" ;; esac)"
+    assert_eq "content-hash: stable for identical input" "$h1" "$h2"
+    printf 'a different description' > "$tmp/d2.txt"
+    h3=$(n1_queue_content_hash 'Title A' "$tmp/d2.txt")
+    assert_eq "content-hash: changes with description" "yes" "$([ "$h1" != "$h3" ] && echo yes || echo no)"
+    h4=$(n1_queue_content_hash 'Title B' "$tmp/d.txt")
+    assert_eq "content-hash: changes with title" "yes" "$([ "$h1" != "$h4" ] && echo yes || echo no)"
 }
 
 
