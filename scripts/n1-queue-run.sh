@@ -287,7 +287,7 @@ run_bg() {
         AGENT_FAILS=0
         WORKING=0
         while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
-            if [ "$STATUS" = "awaiting-human" ] && n1_queue_deploy_pending "$N1H" "$TICKET"; then continue; fi
+            if [ "$STATUS" = "awaiting-human" ] && [ "$(n1_queue_row_reason "$QUEUE" "$NUM")" = "awaiting-deploy" ]; then continue; fi
             SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
             STATE=$(n1_queue_bg_state "$AGENTS" "$SID")
             case "$STATE" in

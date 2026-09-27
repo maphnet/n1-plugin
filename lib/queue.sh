@@ -217,13 +217,23 @@ n1_queue_deploy_pending() {
     [ "$(n1_read_frontmatter "$1/memory/$2/overview.md" deploy_pending)" = "true" ]
 }
 
+n1_queue_row_reason() {
+    # Usage: n1_queue_row_reason <queue.md> <num>
+    # Prints the Plan row's Reason cell. The runner keys terminal pending-deploy rows on the
+    # recorded Reason (awaiting-deploy), not on the mutable deploy_pending flag (NP-219).
+    awk -F'|' -v num="$2" '{
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+        if ($2 == num) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $9); print $9 }
+    }' "$1"
+}
+
 n1_queue_parked_rows() {
     # Usage: n1_queue_parked_rows <queue.md>
     # awaiting-human rows still parked on a live question (same columns as
     # n1_queue_pending_rows). Pending-deploy rows are excluded: nothing will unblock them.
     local num t r h m s
     while IFS=$'\t' read -r num t r h m s; do
-        if n1_queue_deploy_pending "$h" "$t"; then continue; fi
+        if [ "$(n1_queue_row_reason "$1" "$num")" = "awaiting-deploy" ]; then continue; fi
         printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$num" "$t" "$r" "$h" "$m" "$s"
     done < <(n1_queue_pending_rows "$1" 'awaiting-human')
 }

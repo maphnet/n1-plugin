@@ -830,6 +830,11 @@ case "$1" in
             if [ "$st" = done ]; then
                 mkdir -p "$FAKE_N1H/memory/$t"
                 dp=""; [ -f "$D/deploy.$t" ] && dp=$'deploy_pending: true\n'
+                # clear.<t>: an interactive n1-finish clears the flag after the first done poll.
+                if [ -f "$D/clear.$t" ]; then
+                    [ -f "$D/cleared.$t" ] && dp=$'deploy_pending: false\n'
+                    touch "$D/cleared.$t"
+                fi
                 printf -- '---\nstep: pr\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$dp" > "$FAKE_N1H/memory/$t/overview.md"
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
@@ -1306,6 +1311,25 @@ test_bg_deploy_pending() {
     rm -rf "$tmp"
 }
 
+test_bg_deploy_flag_cleared_mid_run() {
+    # An interactive n1-finish clears deploy_pending while the queue still runs: the row
+    # stays terminal (recorded Reason), no second finalize, no parked wait.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgc "T-A:working done" "T-B:working done"
+    touch "$tmp/fake/deploy.T-A" "$tmp/fake/clear.T-A"
+    assert_eq "bg-deploy-cleared: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-deploy-cleared: flag was cleared" "false" \
+        "$(n1_read_frontmatter "$tmp/n1home/memory/T-A/overview.md" deploy_pending)"
+    assert_eq "bg-deploy-cleared: T-A still awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-deploy-cleared: T-A reason kept" "awaiting-deploy" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "bg-deploy-cleared: finalized exactly once" "1" \
+        "$(jq -r 'select(.ticket=="T-A" and .event=="ticket_finished") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "bg-deploy-cleared: T-B pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-deploy-cleared: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "bg-deploy-cleared: no parked wait message" "0" "$(grep -c 'awaiting-human rows left' "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
 test_parse_service
 test_find_repo
 test_pick_model
@@ -1340,6 +1364,7 @@ test_bg_sequential
 test_bg_awaiting
 test_bg_awaiting_timeout
 test_bg_deploy_pending
+test_bg_deploy_flag_cleared_mid_run
 test_bg_working_timeout
 test_bg_missing_grace
 test_bg_disclaimer
