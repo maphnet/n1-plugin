@@ -1,6 +1,6 @@
 # Run
 
-Busy guard first (every entry point): if `$QUEUE_DIR/queue.md` exists and its frontmatter `pid` is alive, print "Queue <QUEUE_ID> is already running (pid <pid>). Check: <queue watch hint>." **STOP.**
+**Busy guard — always runs first, on every entry point, before § Saved plan or § Write plan below:** if `$QUEUE_DIR/queue.md` exists and its frontmatter `pid` is alive, print "Queue <QUEUE_ID> is already running (pid <pid>). Check: <queue watch hint>." **STOP.**
 
 ```bash
 source ~/.n1/preamble.sh

@@ -45,10 +45,10 @@ If `TRACKER_MCP` is empty: "No tracker configured. Run `/n1:n1-init`." **STOP.**
 ## Steps
 
 1. **Status check.** If `--status` or `--watch`: read and follow `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.**
-2. **Saved plan.** If `--run <queue-id>`: read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md` (it starts with § Saved plan). Skip steps 3-5.
+2. **Saved plan.** If `--run <queue-id>`: read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md` in full (the busy guard at the top always runs first; the saved-plan flow itself begins at § Saved plan). Skip steps 3-5.
 3. **INTAKE** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/intake.md`. Produces the candidate list.
 4. **PREVIEW** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/preview.md`. `--dry-run` stops there; otherwise Plan-Resolve records plan-time decisions and the user confirms or cancels.
-5. **RUN** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md` from § Write plan. Writes queue.md (`step: planned`); `--plan` stops there; bare launches the runner and ends the turn.
+5. **RUN** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md` in full (the busy guard at the top always runs first; this path's flow begins at § Write plan). Writes queue.md (`step: planned`); `--plan` stops there; bare launches the runner and ends the turn.
 
 ## Error Recovery
 
