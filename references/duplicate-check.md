@@ -28,7 +28,7 @@ Read every value from the command output above. **Skip silently** (no output, `D
 - `SEARCH_OP` is empty (legacy config)
 - `DONE` is non-empty (already checked for this ticket; resumed run)
 
-**Queue child** (`QUEUE_CHILD` non-empty, i.e. launched by the n1-queue runner): no search, no prompt, no comment. The duplicate question was resolved at plan time (`CONTEXT=queue-plan`). Go straight to § 5 with `queue-plan` so a later interactive resume also skips.
+**Queue child** (`QUEUE_CHILD` non-empty AND `HEADLESS=1`, i.e. launched by the n1-queue runner — both must hold, since `N1_QUEUE_RUN_ID` alone could be set by an interactive session pointed at a queue directory, SEC-L2): no search, no prompt, no comment. The duplicate question was resolved at plan time (`CONTEXT=queue-plan`). Go straight to § 5 with `queue-plan` so a later interactive resume also skips.
 
 ### 2. Query
 
