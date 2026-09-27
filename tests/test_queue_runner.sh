@@ -208,6 +208,18 @@ EOF
     n1_queue_row_status "$tmp/q.md" "1" "failed" "timeout"
     local r1; r1=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$9)} $2 ~ /^ *1 *$/ && NF>=9 {print $9}' "$tmp/q.md")
     assert_eq "row_status: reason set" "timeout" "$r1"
+
+    # SEC-3: literal backslash-escapes in a status/reason cell never split the row or forge a `|`.
+    n1_queue_row_status "$tmp/q.md" "1" 'st\n1' 'reason\n|inject\174'
+    assert_eq "row_status: literal \\n never splits the row" "1" "$(grep -c '^| 1 ' "$tmp/q.md")"
+    local r2; r2=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$9)} $2 ~ /^ *1 *$/ && NF>=9 {print $9}' "$tmp/q.md")
+    assert_eq "row_status: literal \\n and \\174 in reason never forge a pipe" "reasonninject174" "$r2"
+
+    # NP-203 SEC-4: n1_queue_row_title sanitizes the Title cell the same way.
+    n1_queue_row_title "$tmp/q.md" "2" 'evil title\n|inject\174'
+    local t1; t1=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$3)} $2 ~ /^ *2 *$/ && NF>=9 {print $3}' "$tmp/q.md")
+    assert_eq "row_title: sanitizes title (no split, no pipe)" "evil titleninject174" "$t1"
+    assert_eq "row_title: only touched row 2, row 1 untouched" "1" "$(grep -c '^| 2 ' "$tmp/q.md")"
 }
 
 # --- n1_queue_pending_rows ---------------------------------------------------
@@ -1340,7 +1352,7 @@ test_bg_deploy_flag_cleared_mid_run() {
 
 # NP-203: plan-time ## Decisions lookup and staleness gate.
 test_decisions_and_stale() {
-    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    local tmp rc out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     cat > "$tmp/q.md" <<EOF
 ---
 step: planned
@@ -1408,17 +1420,36 @@ EOF
     assert_eq "decisions-write: notes sanitized" "noted" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f5)"
     assert_eq "decisions-write: other row untouched" "42" "$(n1_queue_decisions_row "$tmp/q.md" T-2 | cut -f4)"
 
-    # SEC-3: content hash is sha256 (not CRC32), stable for identical input, changes with content.
+    # SEC-3: literal backslash-escapes (as awk -v would re-expand them) never split a row or forge a `|`.
+    n1_queue_decisions_write_row "$tmp/q.md" T-1 't\n1' 'o\1741' 'security: pre-authorize' cksum2 'note\n|inject\174'
+    assert_eq "decisions-write: literal \\n in touches doesn't split the row" "1" "$(grep -c '^| T-1 ' "$tmp/q.md")"
+    assert_eq "decisions-write: literal \\174 in order never becomes a pipe" "o1741" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f2)"
+    assert_eq "decisions-write: literal \\n and \\174 in notes never forge a pipe" "noteninject174" "$(n1_queue_decisions_row "$tmp/q.md" T-1 | cut -f5)"
+
+    # CR-5: write helper fails closed on a forged/duplicated ## Decisions heading, like the reader.
+    cp "$tmp/forged.md" "$tmp/forged_write.md"
+    rc=0; n1_queue_decisions_write_row "$tmp/forged_write.md" T-1 evil evil evil evil evil || rc=$?
+    assert_eq "decisions-write: fails closed (nonzero) on duplicate ## Decisions heading (CR-5)" "1" "$rc"
+    assert_eq "decisions-write: forged file left untouched on guard failure" "yes" \
+        "$(diff -q "$tmp/forged.md" "$tmp/forged_write.md" >/dev/null && echo yes || echo no)"
+
+    # SEC-1/SEC-3/SEC-5: content hash takes two file paths (never inline text), fails closed when either is missing.
+    printf 'Title A' > "$tmp/t.txt"
     printf 'a description' > "$tmp/d.txt"
-    h1=$(n1_queue_content_hash 'Title A' "$tmp/d.txt")
-    h2=$(n1_queue_content_hash 'Title A' "$tmp/d.txt")
+    h1=$(n1_queue_content_hash "$tmp/t.txt" "$tmp/d.txt")
+    h2=$(n1_queue_content_hash "$tmp/t.txt" "$tmp/d.txt")
     assert_eq "content-hash: 64 hex chars (sha256)" "yes" "$(case "$h1" in [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) echo yes ;; *) echo "no: $h1" ;; esac)"
     assert_eq "content-hash: stable for identical input" "$h1" "$h2"
     printf 'a different description' > "$tmp/d2.txt"
-    h3=$(n1_queue_content_hash 'Title A' "$tmp/d2.txt")
+    h3=$(n1_queue_content_hash "$tmp/t.txt" "$tmp/d2.txt")
     assert_eq "content-hash: changes with description" "yes" "$([ "$h1" != "$h3" ] && echo yes || echo no)"
-    h4=$(n1_queue_content_hash 'Title B' "$tmp/d.txt")
+    printf 'Title B' > "$tmp/t2.txt"
+    h4=$(n1_queue_content_hash "$tmp/t2.txt" "$tmp/d.txt")
     assert_eq "content-hash: changes with title" "yes" "$([ "$h1" != "$h4" ] && echo yes || echo no)"
+    rc=0; out=$(n1_queue_content_hash "$tmp/missing-title.txt" "$tmp/d.txt") || rc=$?
+    assert_eq "content-hash: fails closed (empty, nonzero) when title file is missing (SEC-5)" "1 " "$rc $out"
+    rc=0; out=$(n1_queue_content_hash "$tmp/t.txt" "$tmp/missing-desc.txt") || rc=$?
+    assert_eq "content-hash: fails closed (empty, nonzero) when desc file is missing (SEC-5)" "1 " "$rc $out"
 }
 
 
@@ -1459,6 +1490,16 @@ test_plan_wiring() {
     assert_eq "plan-wiring: preview snapshot uses the sha256 hash helper, not cksum" "yes" "$(has 'n1_queue_content_hash' "$s/steps/preview.md")"
     assert_eq "plan-wiring: preview.md no longer pipes through cksum" "no" "$(has 'cksum <' "$s/steps/preview.md")"
     assert_eq "plan-wiring: intake validates ticket keys before path use (SEC-L4)" "yes" "$(has '\^\[A-Z\]\[A-Z0-9_\]\*-\[0-9\]\+\$' "$s/steps/intake.md")"
+
+    # SEC-1: a ticket title is written to a file, never interpolated into a shell string.
+    assert_eq "plan-wiring: preview writes the title to a file before hashing" "yes" "$(has '\.title.*file-write mechanism|file-write mechanism.*\.title' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: preview no longer passes a bare <title> string to content_hash" "no" "$(has 'n1_queue_content_hash "<title>"' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: run.md writes the fresh title to a file before hashing" "yes" "$(has '\.title' "$s/steps/run.md")"
+    assert_eq "plan-wiring: run.md no longer passes a bare <title> string to content_hash" "no" "$(has 'n1_queue_content_hash "<title>"' "$s/steps/run.md")"
+
+    # SEC-4: initial Plan/Decisions rows are built through the sanitizing write helpers, not prose alone.
+    assert_eq "plan-wiring: write plan fills Title via n1_queue_row_title" "yes" "$(has 'n1_queue_row_title' "$s/steps/run.md")"
+    assert_eq "plan-wiring: write plan fills Decisions row via n1_queue_decisions_write_row" "yes" "$(has 'n1_queue_decisions_write_row' "$s/steps/run.md")"
 }
 
 test_parse_service
@@ -1517,6 +1558,14 @@ test_headless_plan_wiring() {
         "$(grep -qF 'n1_queue_content_hash' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: falls through to escalation on hash mismatch (SEC-1)" "yes" \
         "$(grep -qF 'MISMATCH' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: title and desc are written to files, never a bare shell string (SEC-1)" "yes" \
+        "$(grep -q 'n1_queue_content_hash "<current-title-file>" "<current-desc-file>"' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: requires both hashes non-empty before MATCH (SEC-5)" "yes" \
+        "$(grep -q '\[ -n "\$NEW_HASH" \] && \[ -n "\$OLD_HASH" \]' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: checks for post-plan human comments (SEC-2)" "yes" \
+        "$(grep -qF 'Comment check (SEC-2)' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: a post-plan comment falls through like MISMATCH (SEC-2)" "yes" \
+        "$(grep -q 'created after .planned_at.: treat this exactly like .MISMATCH' "$h" && echo yes || echo no)"
 }
 test_headless_plan_wiring
 

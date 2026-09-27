@@ -180,10 +180,12 @@ n1_queue_child_cmd() {
 
 _n1_queue_sanitize_cell() {
     # Usage: _n1_queue_sanitize_cell <text>
-    # Strips `|` and newlines so untrusted text (a ticket title, tracker status/reason, or
-    # plan-time free text) can never forge a table cell or spill into an adjacent Decisions
-    # row (NP-203 SEC-2/CR-2). Every write path into a queue.md table cell routes through this.
-    printf '%s' "$1" | tr '\n' ' ' | tr -d '|'
+    # Strips `|`, newlines and backslashes so untrusted text (a ticket title, tracker
+    # status/reason, or plan-time free text) can never forge a table cell or spill into an
+    # adjacent Decisions row (NP-203 SEC-2/CR-2), and can never survive as a `\n`/`\174`-style
+    # escape an awk -v assignment would later re-expand into a literal newline or `|` (SEC-3,
+    # defense in depth alongside the ENVIRON[]-based awk callers below).
+    printf '%s' "$1" | tr '\n' ' ' | tr -d '|\\'
 }
 
 n1_queue_row_status() {
@@ -191,16 +193,34 @@ n1_queue_row_status() {
     # Rewrites the Status (and optionally Reason) cell of the Plan table row
     # whose first cell equals <row-number>. Cells are sanitized (NP-203 SEC-2).
     # Row shape: | # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+    # Sanitized values are passed via ENVIRON[], never awk -v (NP-203 SEC-3): -v assignments
+    # undergo string-constant escape processing, so a sanitized value containing a literal
+    # `\n` or `\174` would still re-expand into a real newline/`|` inside awk.
     local file="$1" row_num="$2" status reason
     status=$(_n1_queue_sanitize_cell "$3")
     reason=$(_n1_queue_sanitize_cell "${4:-}")
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
-    awk -v num="$row_num" -v st="$status" -v rsn="$reason" 'BEGIN { FS="|"; OFS="|" } {
+    num="$row_num" st="$status" rsn="$reason" awk 'BEGIN { FS="|"; OFS="|"; num=ENVIRON["num"]; st=ENVIRON["st"]; rsn=ENVIRON["rsn"] } {
         f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
         if (f2 == num && NF >= 9) {
             $8 = " " st " "
             if (rsn != "") $9 = " " rsn " "
         }
+        print
+    }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_row_title() {
+    # Usage: n1_queue_row_title <queue.md> <row-number> <title>
+    # Rewrites the Title cell of the Plan table row whose first cell equals <row-number>
+    # (NP-203 SEC-4: lets run.md build the initial Plan table with sanitized, code-written
+    # cells instead of relying on prose-only sanitization of untrusted ticket titles).
+    local file="$1" row_num="$2" title
+    title=$(_n1_queue_sanitize_cell "$3")
+    local tmp; tmp=$(mktemp "${file}.XXXXXX")
+    num="$row_num" ti="$title" awk 'BEGIN { FS="|"; OFS="|"; num=ENVIRON["num"]; ti=ENVIRON["ti"] } {
+        f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
+        if (f2 == num && NF >= 9) { $3 = " " ti " " }
         print
     }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
 }
@@ -285,8 +305,12 @@ n1_queue_decisions_write_row() {
     # Usage: n1_queue_decisions_write_row <queue.md> <ticket> <touches> <order> <predecision> <checksum> <notes>
     # Replaces the ## Decisions row for <ticket> in place; every cell is sanitized (NP-203
     # CR-2), the write-side counterpart of n1_queue_decisions_row's fail-closed read. No-op
-    # (returns 0) when the file, the section, or the row is missing.
+    # (returns 0) when the file or the row is missing; fails closed (CR-5, mirrors the reader's
+    # own guard) unless the file has exactly one `^## Decisions$` heading — an untrusted title
+    # containing a forged heading line must never be allowed to redirect this write.
     local file="$1" ticket="$2"
+    [ -f "$file" ] || return 0
+    [ "$(grep -c '^## Decisions$' "$file")" = 1 ] || return 1
     local touches order predecision checksum notes
     touches=$(_n1_queue_sanitize_cell "$3")
     order=$(_n1_queue_sanitize_cell "$4")
@@ -294,8 +318,14 @@ n1_queue_decisions_write_row() {
     checksum=$(_n1_queue_sanitize_cell "$6")
     notes=$(_n1_queue_sanitize_cell "$7")
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
-    awk -v t="$ticket" -v touches="$touches" -v order="$order" -v pd="$predecision" -v cksum="$checksum" -v notes="$notes" '
-        BEGIN { FS = "|" }
+    # Sanitized values are passed via ENVIRON[], never awk -v (NP-203 SEC-3): see
+    # n1_queue_row_status for why -v's escape processing would undo the sanitizer.
+    t="$ticket" touches="$touches" order="$order" pd="$predecision" cksum="$checksum" notes="$notes" awk '
+        BEGIN {
+            FS = "|"
+            t=ENVIRON["t"]; touches=ENVIRON["touches"]; order=ENVIRON["order"]
+            pd=ENVIRON["pd"]; cksum=ENVIRON["cksum"]; notes=ENVIRON["notes"]
+        }
         /^## Decisions$/ { f = 1; print; next }
         /^## / { f = 0 }
         f {
@@ -310,12 +340,20 @@ n1_queue_decisions_write_row() {
 }
 
 n1_queue_content_hash() {
-    # Usage: n1_queue_content_hash <title> <desc-file>
-    # Prints sha256(<title> + "\n" + contents of <desc-file>): sha256sum, shasum -a 256
-    # fallback (NP-203 SEC-3 — replaces cksum/CRC32, which is trivially forgeable). Shared by
-    # preview.md's Desc Checksum snapshot, run.md's staleness re-check, and the child-side
-    # TOCTOU guard in autonomy-headless.md, so all three agree on one definition of "changed".
-    { printf '%s\n' "$1"; cat "$2" 2>/dev/null; } | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1
+    # Usage: n1_queue_content_hash <title-file> <desc-file>
+    # Prints sha256(contents of <title-file> + "\n" + contents of <desc-file>): sha256sum,
+    # shasum -a 256 fallback (NP-203 SEC-3 — replaces cksum/CRC32, which is trivially
+    # forgeable). Both arguments are files, never inline text (NP-203 SEC-1): a ticket title
+    # is untrusted tracker text, and interpolating it into a shell string executed by a
+    # headless child is command injection (CWE-78) — callers must write it to a file with
+    # the file-write mechanism first. Fails closed (SEC-5): prints nothing and returns 1
+    # when either file is missing, so a fetch failure never silently hashes as "unchanged".
+    # Shared by preview.md's Desc Checksum snapshot, run.md's staleness re-check, and the
+    # child-side TOCTOU guard in autonomy-headless.md, so all three agree on one definition
+    # of "changed".
+    [ -f "$1" ] || return 1
+    [ -f "$2" ] || return 1
+    { cat "$1"; printf '\n'; cat "$2"; } | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1
 }
 
 n1_queue_stale() {
