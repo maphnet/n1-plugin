@@ -77,4 +77,17 @@ PA=agents/product-analyst.md
 check "product-analyst ticket.md has Deployment Actions" "^### Deployment Actions" "$PA"
 check "product-analyst copies it verbatim" "Deployment Actions rule" "$PA"
 
+# --- n1-finish
+F2=skills/n1-finish/steps/02-merge.md
+check "finish Step 2 parses deployment actions" "deployment-actions\.md. § Parse" "$F2"
+check "finish Step 2 walks before-deploy items" "PHASE=before" "$F2"
+check "finish Step 2 queue/headless writes the runbook" "§ Runbook" "$F2"
+check "finish Step 2 aborted walk blocks the merge" "Merge blocked" "$F2"
+before "finish: deployment actions precede gh pr merge" "deployment-actions.md" "gh pr merge <n> --auto" "$F2"
+F4=skills/n1-finish/steps/04-close-ticket.md
+check "finish Step 4 walks after-deploy items" "PHASE=after" "$F4"
+check "finish Step 4 asks when no deploy was watched" "§ Unwatched Deploy" "$F4"
+check "finish Step 4 clears deploy_pending" "deploy_pending false" "$F4"
+before "finish: after-deploy follows the delivery gate" "03b-ssh-deploy.md" "deployment-actions.md" "$F4"
+
 exit $FAIL

@@ -82,7 +82,14 @@ Evaluate the PR state:
       **Pagination:** `first:100` threads covers virtually all PRs. If `reviewThreads.pageInfo.hasNextPage` is true, log: "PR has >100 review threads; only the first 100 were checked."
 
       **API failure:** warn and proceed to sub-item c. Comment check is advisory; never blocks merge due to API errors. Log: "Could not fetch PR review comments — skipping comment check."
-   c. If the merge permission printed `merge:allowed` → initiate the merge (once, not per poll). On `merge:denied`, skip to sub-item d and wait for the reviewer's merge:
+   c. **Deployment actions (before any merge, `merge:allowed` or `merge:denied`):** follow `<N1_ROOT>/references/deployment-actions.md` § Parse with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`.
+      - `fetch-failed:#<n>` → "Could not read the PR #<n> body, so its deployment actions are unknown. Re-run `/n1:n1-finish`." **STOP.**
+      - `unticked:0` → nothing to do; continue with the merge below.
+      - `mode:runbook` (queue child or headless run) with any unticked row → § Runbook with `ID=<ID>` and an empty `SHA`. Report "Deployment actions pending for <ID>; not merging. Resume with `n1-finish <ID>` (runbook in N1 memory)." **STOP.** A queue or headless run never merges ahead of these actions.
+      - `mode:walk` with `before` rows → § Walk with `PHASE=before`. `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
+      - `after` rows wait for Step 4.
+
+      Then, if the merge permission printed `merge:allowed` → initiate the merge (once, not per poll). On `merge:denied`, skip to sub-item d and wait for the reviewer's merge:
       ```bash
       gh pr merge <n> --auto --<mergeMethod> --delete-branch
       ```
