@@ -232,6 +232,31 @@ assert_eq "Missing usage: usage_status is unknown" "unknown" "$MISSING_STATUS"
 MISSING_INPUT=$(jq '.summary.total_input_tokens' "$OUT4")
 assert_eq "Missing usage: total_input_tokens is null" "null" "$MISSING_INPUT"
 
+# ==== Test 5: NP-236 — last envelope_close wins, not first ====
+RUN_ID5="test-run-005"
+TELEM_DIR5="$T/home/memory/TEST-5/telemetry"
+mkdir -p "$TELEM_DIR5/raw/steps" "$TELEM_DIR5/raw/agents"
+
+echo "{\"run_id\":\"$RUN_ID5\",\"n1_version\":\"3.12.0\"}" > "$TELEM_DIR5/telemetry.lock"
+
+# A stray/incorrect earlier "abandoned" close (e.g. session-stop firing mid-pause)
+# followed by the genuine later outcome — the later one must win.
+cat > "$TELEM_DIR5/raw/steps/$RUN_ID5.jsonl" <<STEPS5
+{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"TEST-5","session_id":"sess-005","host":"claude-code"}
+{"layer":"envelope_close","completed_at":"2026-09-01T10:05:00Z","final_outcome":"abandoned"}
+{"layer":"envelope_close","completed_at":"2026-09-01T10:10:00Z","final_outcome":"pr_created"}
+STEPS5
+
+: > "$TELEM_DIR5/raw/agents/$RUN_ID5.jsonl"
+
+export N1_HOST="claude-code"
+bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID5" "$TELEM_DIR5"
+unset N1_HOST
+
+OUT5="$TELEM_DIR5/runs/$RUN_ID5.jsonl"
+FINAL_OUTCOME5=$(jq -r '.final_outcome' "$OUT5")
+assert_eq "NP-236: last envelope_close wins over first" "pr_created" "$FINAL_OUTCOME5"
+
 echo "---"
 echo "$((PASS+FAIL)) tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
