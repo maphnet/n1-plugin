@@ -15,6 +15,13 @@ n1_read_lock "$N1_HOME/memory" || exit 0
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 OUTFILE="${N1_LOCK_TELEM_DIR}/raw/steps/${N1_LOCK_RUN_ID}.jsonl"
 mkdir -p "$(dirname "$OUTFILE")"
+
+# A pending (unmatched start) background agent means the orchestrator is only
+# waiting on it, not abandoned — skip both the abandoned-write and the
+# merge/lock-removal tail so the lock survives for the rest of the run.
+AGENTS_FILE="${N1_LOCK_TELEM_DIR}/raw/agents/${N1_LOCK_RUN_ID}.jsonl"
+if ! n1_run_has_pending_agent "$AGENTS_FILE"; then
+
 # Explicit pipeline finalization may already have recorded its outcome.
 if ! grep -q '"layer"[[:space:]]*:[[:space:]]*"envelope_close"' "$OUTFILE" 2>/dev/null; then
 
@@ -39,6 +46,8 @@ printf '{"layer":"envelope_close","run_id":"%s","n1_version":"%s","ticket_id":"%
     >> "$OUTFILE"
 fi
 
+fi
+
 # Parent usage is available even when no subagent hook was delivered.
 TRANSCRIPT=$(printf '%s' "$INPUT" | n1_hook_field transcript_path)
 if [ -n "$TRANSCRIPT" ]; then
@@ -46,9 +55,13 @@ if [ -n "$TRANSCRIPT" ]; then
         "$(escape_json_val "$N1_SESSION_ID")" "$(escape_json_val "$TRANSCRIPT")" >> "$OUTFILE"
 fi
 
+if ! n1_run_has_pending_agent "$AGENTS_FILE"; then
+
 # Trigger merge
 bash "${SCRIPT_DIR}/telemetry-merge.sh" "$N1_LOCK_RUN_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
 
 # Remove lock if merge succeeded (mirrors finalize.md pattern)
 MERGED="${N1_LOCK_TELEM_DIR}/runs/${N1_LOCK_RUN_ID}.jsonl"
 [ -s "$MERGED" ] && n1_remove_run_lock "$N1_LOCK_TELEM_DIR" "$N1_LOCK_RUN_ID"
+
+fi

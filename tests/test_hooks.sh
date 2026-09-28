@@ -336,6 +336,29 @@ mkdir -p "$NO_LOCK_MEM"
 echo '{"session_id":"s-no-lock"}' | N1_HOST=claude-code N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null
 assert_eq "stop hook no lock exits clean" "0" "$?"
 
+# --- session-stop: pending background agent -> no terminal envelope_close --
+PEND_TICK="T-STOP-PENDING"
+PEND_MEM="$N1_HOME/memory/$PEND_TICK"
+PEND_TELEM="$PEND_MEM/telemetry"
+mkdir -p "$PEND_TELEM/raw/steps" "$PEND_TELEM/raw/agents" "$PEND_TELEM/runs" "$PEND_TELEM/locks"
+echo '{"run_id":"run-pending-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-pending"}' > "$PEND_TELEM/locks/run-pending-test.json"
+echo '{"run_id":"run-pending-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-pending"}' > "$PEND_TELEM/telemetry.lock"
+printf -- '---\ntype: task\ntier: standard\nstep: implementation\n---\n' > "$PEND_MEM/overview.md"
+echo '{"run_id":"run-pending-test","layer":"agent","event":"start","agent_id":"a1","agent_type":"product-analyst"}' > "$PEND_TELEM/raw/agents/run-pending-test.jsonl"
+echo '{"session_id":"s-stop-pending","transcript_path":"/tmp/pending.jsonl"}' | N1_HOST=claude-code N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
+assert_eq "pending agent: no envelope_close written" "0" \
+    "$(grep -c '"envelope_close"' "$PEND_TELEM/raw/steps/run-pending-test.jsonl" 2>/dev/null)"
+assert_eq "pending agent: lock survives (not removed)" "true" \
+    "$([ -f "$PEND_TELEM/telemetry.lock" ] && echo true || echo false)"
+
+# same run, agent later completes (stop event added) -> abandoned write now fires normally
+echo '{"run_id":"run-pending-test","layer":"agent","event":"stop","agent_id":"a1","agent_type":"product-analyst"}' >> "$PEND_TELEM/raw/agents/run-pending-test.jsonl"
+echo '{"session_id":"s-stop-pending","transcript_path":"/tmp/pending.jsonl"}' | N1_HOST=claude-code N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
+assert_eq "agent resolved: abandoned write fires (regression)" "abandoned" \
+    "$(grep '"envelope_close"' "$PEND_TELEM/raw/steps/run-pending-test.jsonl" 2>/dev/null | tail -1 | jq -r .final_outcome 2>/dev/null)"
+assert_eq "agent resolved: lock removed after merge" "false" \
+    "$([ -f "$PEND_TELEM/telemetry.lock" ] && echo true || echo false)"
+
 # --- session-start: queue digest line (NP-194) --------------------------------
 QD="$N1_HOME/queue/hq"; mkdir -p "$QD"; NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 printf '{"ts":"%s","queue":"hq","run_id":"R1","event":"ticket_finished","ticket":"T-1","outcome":"pr","pr":"","session":"","duration_s":5,"reason":""}\n{"ts":"%s","queue":"hq","run_id":"R1","event":"escalated","ticket":"T-2","outcome":"","pr":"","session":"","duration_s":null,"reason":""}\n' "$NOW" "$NOW" > "$QD/events.jsonl"
