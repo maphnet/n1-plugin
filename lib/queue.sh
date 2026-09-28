@@ -763,6 +763,29 @@ n1_queue_session_started() {
         END { print ts }' "$1"
 }
 
+n1_queue_notify_check() {
+    # Usage: n1_queue_notify_check — prints a warning line when the configured
+    # queue.notify backend cannot deliver (NP-216: silent notification gaps).
+    # Prints nothing when the backend is usable. Mirrors n1_notify's backend logic.
+    local backend val
+    backend=$(n1_queue_val notify)
+    case "${backend:-desktop}" in
+        none) ;;
+        command)
+            val=$(n1_queue_val notifyCommand)
+            [ -n "$val" ] || echo "Warning: queue.notify=command but queue.notifyCommand is not set; notifications will be skipped." ;;
+        ntfy)
+            val=$(n1_queue_val ntfyTopic)
+            [ -n "$val" ] || echo "Warning: queue.notify=ntfy but queue.ntfyTopic is not set; notifications will be skipped." ;;
+        *)
+            if ! command -v notify-send >/dev/null 2>&1 && ! command -v osascript >/dev/null 2>&1 && ! command -v powershell.exe >/dev/null 2>&1; then
+                echo "Warning: queue.notify=desktop but no desktop notifier (notify-send/osascript/powershell.exe) is on PATH; notifications will be skipped."
+            fi
+            ;;
+    esac
+    return 0
+}
+
 n1_notify() {
     # Usage: n1_notify <needs-you|done|info> <text> — best-effort out-of-session alert.
     # Backend from queue.notify: desktop (default) | ntfy (queue.ntfyTopic) | command

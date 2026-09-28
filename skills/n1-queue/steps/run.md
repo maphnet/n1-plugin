@@ -139,7 +139,10 @@ n1_write_frontmatter "$QUEUE_FILE" owner_session "$(n1_session_id)"
 nohup bash "$N1_ROOT/scripts/n1-queue-run.sh" "$QUEUE_FILE" > "$QUEUE_DIR/runner.log" 2>&1 &
 RUNNER_PID=$!
 echo "pid:$RUNNER_PID run_id:$RUN_ID notify:$(n1_queue_val notify)"
+n1_queue_notify_check
 ```
+
+Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise).
 
 **Session watch.** Follow the `background event watch (n1-queue)` row in `<N1_ROOT>/references/host-routing.md`. Where the host supports it, watch the event log in the background and relay matching lines, running exactly this (absolute queue dir, printed run id and pid; `0` = from the start of this run):
 

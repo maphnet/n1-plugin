@@ -82,7 +82,13 @@ Record Pre-Decision as `<category>: <ask-at-runtime|pre-authorize|narrow>`, seve
 
 ## Prompt
 
-Print the plan table again (Reason now carries Order notes), plus `## Decisions` rows that have a Pre-Decision or Notes. Then ask the user:
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_notify_check
+```
+
+Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes), plus `## Decisions` rows that have a Pre-Decision or Notes. Then ask the user:
 - **Start** (bare) or **Save plan** (`--plan`) -> proceed to the run step.
 - **Edit** -> free text: remove tickets, reorder, change model (`KEY=opus|sonnet`). Apply changes (a removed ticket also loses its `DECISIONS` row), re-print the table, ask again. Log each edit as `| preview | edit | <text> |` in a pending Decision Ledger list.
 - **Cancel** -> **STOP.**
