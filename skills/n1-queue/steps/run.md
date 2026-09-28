@@ -93,20 +93,21 @@ step: planned
 |--------|---------|------|---------|----|---------|
 ```
 
-Then write `<QUEUE_DIR>/cells.tsv` with the file-write mechanism, one tab-separated line per Plan row: `<#>`, `<KEY>`, Reason (incl. order note), Touches, Order note, Pre-Decision (`<category>: <choice>` entries), Notes. Leave a field empty when it has no value; no tabs or newlines inside a field. Free text never goes inside a quoted shell argument (an apostrophe in "user's" would break it). Fill the cells through the sanitizing write helpers (each strips `|`, newlines and backslashes — NP-203 SEC-4/SEC-3); Title and Desc Checksum come from preview.md § Plan-Resolve 1's `desc/` files:
+Then write `<QUEUE_DIR>/cells.tsv` with the file-write mechanism, one tab-separated line per Plan row: `<#>`, `<KEY>`, Reason (incl. order note), Touches, Order note, Pre-Decision (`<category>: <choice>` entries), Notes. Leave a field empty when it has no value; no tabs or newlines inside a field (Notes is last, so a stray tab there stays in Notes). Free text never goes inside a quoted shell argument (an apostrophe in "user's" would break it). Fill the cells through the sanitizing write helpers (each strips `|`, newlines and backslashes — NP-203 SEC-4/SEC-3); Title and Desc Checksum come from preview.md § Plan-Resolve 1's `desc/` files:
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 QUEUE_FILE="$QUEUE_DIR/queue.md"
-while IFS= read -r line; do
+while IFS= read -r line || [ -n "$line" ]; do
     c() { printf '%s' "$line" | cut -f"$1"; }
     k=$(c 2)
     n1_queue_row_title "$QUEUE_FILE" "$(c 1)" "$(cat "$QUEUE_DIR/desc/$k.title")"
     n1_queue_row_status "$QUEUE_FILE" "$(c 1)" pending "$(c 3)"
     n1_queue_decisions_write_row "$QUEUE_FILE" "$k" "$(c 4)" "$(c 5)" "$(c 6)" \
-        "$(n1_queue_content_hash "$QUEUE_DIR/desc/$k.title" "$QUEUE_DIR/desc/$k.txt")" "$(c 7)"
+        "$(n1_queue_content_hash "$QUEUE_DIR/desc/$k.title" "$QUEUE_DIR/desc/$k.txt")" "$(c 7-)"
 done < "$QUEUE_DIR/cells.tsv"
+rm -f "$QUEUE_DIR/cells.tsv"
 ```
 
 Stamp the plan time:

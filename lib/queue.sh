@@ -180,12 +180,12 @@ n1_queue_child_cmd() {
 
 _n1_queue_sanitize_cell() {
     # Usage: _n1_queue_sanitize_cell <text>
-    # Strips `|`, newlines and backslashes so untrusted text (a ticket title, tracker
+    # Strips `|` and backslashes, turns newlines/tabs into spaces, so untrusted text (a ticket title, tracker
     # status/reason, or plan-time free text) can never forge a table cell or spill into an
     # adjacent Decisions row (NP-203 SEC-2/CR-2), and can never survive as a `\n`/`\174`-style
     # escape an awk -v assignment would later re-expand into a literal newline or `|` (SEC-3,
     # defense in depth alongside the ENVIRON[]-based awk callers below).
-    printf '%s' "$1" | tr '\n' ' ' | tr -d '|\\'
+    printf '%s' "$1" | tr '\n\t' '  ' | tr -d '|\\'
 }
 
 n1_queue_row_status() {
