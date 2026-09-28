@@ -42,13 +42,16 @@ check "n1-start intake references the procedure" "duplicate-check\.md" skills/n1
 check "n1-queue intake references the procedure" "duplicate-check\.md" skills/n1-queue/steps/intake.md
 check "n1-queue intake keeps the annotate-only pass" "CONTEXT=queue\`" skills/n1-queue/steps/intake.md
 
+check "n1-queue intake hands matches to plan-time resolution" "CONTEXT=queue-plan" skills/n1-queue/steps/intake.md
+check "n1-queue blocker check still present" "^## Blocker check" skills/n1-queue/steps/intake.md
+check "n1-queue blocker check still excludes blocked candidates" "excluded with reason .blocked by <ID>." skills/n1-queue/steps/intake.md
+
 check "NP-239: n1-finish resolves link op from linkIssues" "tracker\.operations\.linkIssues" skills/n1-finish/steps/05-telemetry-followup.md
 check "NP-239: n1-finish maps Relates to the relates to YouTrack command" "Map \`Relates\` .+ \`relates to\`" skills/n1-finish/steps/05-telemetry-followup.md
 check "NP-239: n1-finish warns instead of skipping silently on link failure" "Could not link .+ → .+:" skills/n1-finish/steps/05-telemetry-followup.md
 check "NP-239: investigation-deliverable resolves link op from linkIssues" "tracker\.operations\.linkIssues" skills/n1-start/steps/investigation-deliverable.md
 check "NP-239: n1-story subtask link uses the subtask of direction name" "subtask of" skills/n1-story/steps/02-compose.md
-check "n1-queue intake hands matches to plan-time resolution" "CONTEXT=queue-plan" skills/n1-queue/steps/intake.md
-check "n1-queue blocker check still present" "^## Blocker check" skills/n1-queue/steps/intake.md
-check "n1-queue blocker check still excludes blocked candidates" "excluded with reason .blocked by <ID>." skills/n1-queue/steps/intake.md
+check "NP-239 fix: n1-finish Jira link payload includes cloudId" "cloudId\`, \`inwardIssue" skills/n1-finish/steps/05-telemetry-followup.md
+check "NP-239 fix: investigation-deliverable Jira link payload includes cloudId" "cloudId\`, \`inwardIssue" skills/n1-start/steps/investigation-deliverable.md
 
 exit $FAIL
