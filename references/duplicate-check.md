@@ -81,7 +81,7 @@ Branch on the first rule that matches:
    ```
    N1 duplicate check: possible duplicate/related tickets found.
    Auto-linked (duplicate): <HIT_IDs, omit this line if none>
-   Continued without linking: <one line per remaining match: HIT_ID (duplicate|related)>
+   Continued without linking: <one line per remaining match: HIT_ID (duplicate|related), omit this line if none>
    ```
    A comment failure never blocks.
 4. **Interactive:**
