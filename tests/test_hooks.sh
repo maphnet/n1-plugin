@@ -31,6 +31,19 @@ printf '#!/usr/bin/env bash\necho MERGED\n' > "$T/ghbin/gh"
 echo '{"session_id":"s-throttle","source":"startup"}' | N1_HOST=claude-code PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 [ "$(grep '^last_checked:' "$MEM2/overview.md")" != "last_checked: 2026-01-01T00:00:00Z" ] && { echo "PASS: last_checked advanced on success"; PASS=$((PASS+1)); } || { echo "FAIL: last_checked advanced on success"; FAIL=$((FAIL+1)); }
 
+# session-start: awaiting-merge overview with missing created/pr/last_checked fields must not crash the hook (NP-232)
+MEM3="$N1_HOME/memory/T-11"; mkdir -p "$MEM3"
+printf -- '---\nstep: pr\nawaiting: merge\n---\n' > "$MEM3/overview.md"
+set +e
+OUT3=$(echo '{"session_id":"s-missing-fields","source":"startup"}' | N1_HOST=claude-code PATH="$T/ghbin:$PATH" bash "$REPO_ROOT/hooks/session-start.sh" 2>"$T/err3")
+RC3=$?
+set -e
+assert_eq "hook exits 0 with missing pending-merge fields" "0" "$RC3"
+CTX3=$(echo "$OUT3" | jq -e -r '.hookSpecificOutput.additionalContext' 2>/dev/null) || CTX3=""
+assert_eq "additionalContext non-empty with missing fields" "present" "$([ -n "$CTX3" ] && echo present || echo missing)"
+case "$CTX3" in *"never use subagent_type"*) assert_eq "fork prohibition text present" present present;; *) assert_eq "fork prohibition text present" present missing;; esac
+rm -rf "$MEM3"
+
 # --- enforce-agent-policy (both hosts) -------------------------------------
 FX="$REPO_ROOT/tests/fixtures/hooks"
 cat > "$N1_HOME/config.json" <<'EOF'

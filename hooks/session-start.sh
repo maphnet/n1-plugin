@@ -363,9 +363,9 @@ if [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2
         [ "$checked" -ge 5 ] && { pending_context="${pending_context}
 - (more pending tickets exist — scan capped at 5)"; break; }
         tid=$(basename "$(dirname "$ov")")
-        pr_num=$(grep -m1 '^pr: ' "$ov" | sed 's/^pr: //' | tr -d '[:space:]')
-        created=$(grep -m1 '^created: ' "$ov" | sed 's/^created: //' | tr -d '[:space:]')
-        last=$(grep -m1 '^last_checked: ' "$ov" | sed 's/^last_checked: //' | tr -d '[:space:]')
+        pr_num=$(grep -m1 '^pr: ' "$ov" | sed 's/^pr: //' | tr -d '[:space:]') || true
+        created=$(grep -m1 '^created: ' "$ov" | sed 's/^created: //' | tr -d '[:space:]') || true
+        last=$(grep -m1 '^last_checked: ' "$ov" | sed 's/^last_checked: //' | tr -d '[:space:]') || true
         # 14-day expiry
         created_epoch=$(date -d "$created" +%s 2>/dev/null || echo 0)
         if [ "$created_epoch" -gt 0 ] && [ $(( now_epoch - created_epoch )) -gt 1209600 ]; then
