@@ -43,6 +43,7 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
    TRACKER_MCP=$(n1_config_val ".tracker.mcp" "$N1_HOME/config.json")
    PROJECT_KEY=$(n1_config_val ".tracker.projectKey" "$N1_HOME/config.json")
    TRACKER_TYPE=$(n1_config_val ".tracker.type" "$N1_HOME/config.json")
+   LINK_OP=$(n1_config_val ".tracker.operations.linkIssues" "$N1_HOME/config.json")
    ```
 
 5. **Compose title:** `[Telemetry] <concise feature description> — check by <CHECK_DATE>`
@@ -79,16 +80,12 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
 
    Extract the new ticket ID and URL from the response. If the response does not include a URL, construct it from the tracker base URL and ticket ID.
 
-8. **Link to originating ticket** via tracker MCP (non-blocking — skip silently if the link operation is absent or fails):
+8. **Link to originating ticket** via `mcp__<tracker.mcp>__<LINK_OP>` (resolved from `tracker.operations.linkIssues`; non-blocking — warn and continue if the op is absent or the call fails, never skip silently):
 
-   - **YouTrack:** Call `mcp__<tracker.mcp>__add_issue_link` with:
-     ```json
-     { "issueId": "<new ticket ID>", "targetIssueId": "<ID>", "type": "Relates" }
-     ```
-   - **Jira:** Call `mcp__<tracker.mcp>__<operations.createIssueLink>` (from `tracker.operations` in config) with:
-     ```json
-     { "inwardIssue": { "key": "<ID>" }, "outwardIssue": { "key": "<new ticket ID>" }, "type": { "name": "Relates" } }
-     ```
+   - **YouTrack:** link calls run as YouTrack commands, which need the link's direction name, not the tracker-neutral type. Map `Relates` → `relates to`. Call with source = `<new ticket ID>`, target = `<ID>`, link type = `relates to`, using the tool's own argument names.
+   - **Jira:** call with `inwardIssue: { key: "<ID>" }`, `outwardIssue: { key: "<new ticket ID>" }`, `type: { name: "Relates" }`.
+
+   On failure (op absent, or the call errors): emit `> Warning: Could not link <new ticket ID> → <ID>: <error>` and continue to step 9.
 
 9. **Record idempotency marker:** Append to the `## Pending` section of `$N1_HOME/memory/<ID>/overview.md`:
    ```
