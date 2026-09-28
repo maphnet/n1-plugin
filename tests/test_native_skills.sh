@@ -30,4 +30,17 @@ check_size "skills/n1-brainstorm" 5120 "n1-brainstorm"
 check_size "skills/n1-plan" 4096 "n1-plan"
 check_size "skills/n1-implement" 8192 "n1-implement"
 
+# 3. Cross-host `codex exec` dispatch must never block on inherited stdin (NP-224)
+CODEX_LINE=$(grep -n 'codex exec' skills/n1-pr/steps/03-cross-host-review.md | head -1)
+if echo "$CODEX_LINE" | grep -q 'timeout '; then
+    echo "PASS: 03-cross-host-review codex exec is timeout-wrapped"
+else
+    echo "FAIL: 03-cross-host-review codex exec is missing a timeout wrapper"; FAIL=1
+fi
+if grep -A4 'codex exec' skills/n1-pr/steps/03-cross-host-review.md | grep -q '</dev/null'; then
+    echo "PASS: 03-cross-host-review codex exec redirects stdin from /dev/null"
+else
+    echo "FAIL: 03-cross-host-review codex exec is missing </dev/null"; FAIL=1
+fi
+
 exit $FAIL

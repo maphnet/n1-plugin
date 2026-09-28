@@ -63,14 +63,15 @@ assert_eq "worktree root from config, trailing slash stripped" ".wt" "$(N1_HOST=
 
 # --- headless command
 CMD=$(N1_HOST=claude-code n1_headless_cmd n1-start NP-1 opus /tmp/o.jsonl)
-assert_contains "claude cmd shape" 'claude -p /n1:n1-start\ NP-1 --model opus --permission-mode bypassPermissions --output-format stream-json --verbose > /tmp/o.jsonl 2>&1' "$CMD"
+assert_contains "claude cmd shape" 'claude -p /n1:n1-start\ NP-1 --model opus --permission-mode bypassPermissions --output-format stream-json --verbose < /dev/null > /tmp/o.jsonl 2>&1' "$CMD"
 assert_contains "headless cmd scrubs CLAUDE_CODE_SESSION_ID (NP-211)" '-u CLAUDE_CODE_SESSION_ID' "$CMD"
+assert_contains "headless cmd redirects stdin from /dev/null (NP-224)" '< /dev/null' "$CMD"
 CMD=$(N1_HOST=claude-code N1_STORY_PLUGIN_DIR=/dev/n1 n1_headless_cmd n1-start NP-1 opus /tmp/o.jsonl)
 assert_contains "claude cmd plugin-dir" '--plugin-dir /dev/n1' "$CMD"
 CMD=$(N1_HOST=claude-code n1_headless_cmd n1-finish NP-1 "" /tmp/o.jsonl)
 assert_not_contains "claude cmd omits empty model" '--model' "$CMD"
 CMD=$(N1_HOST=codex n1_headless_cmd n1-start NP-1 gpt-5.6 /tmp/o.jsonl /repo)
-assert_contains "codex cmd shape" 'codex exec --cd /repo -m gpt-5.6 --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust \$n1-start\ NP-1 > /tmp/o.jsonl 2>&1' "$CMD"
+assert_contains "codex cmd shape" 'codex exec --cd /repo -m gpt-5.6 --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust \$n1-start\ NP-1 < /dev/null > /tmp/o.jsonl 2>&1' "$CMD"
 CMD=$(N1_HOST=codex n1_headless_cmd n1-finish NP-1 "" /tmp/o.jsonl)
 assert_not_contains "codex cmd omits empty model" '-c model' "$CMD"
 assert_not_contains "codex cmd omits --cd without repo" '--cd' "$CMD"

@@ -103,7 +103,9 @@ n1_headless_cmd() {
     # run/session identity. Native child discovery is separate from this edge.
     printf 'env -u N1_SESSION_ID -u N1_RUN_ID -u N1_TRANSCRIPT_PATH -u CODEX_THREAD_ID -u CODEX_SESSION_ID -u CLAUDE_CODE_SESSION_ID N1_HOST=%q N1_PARENT_SESSION_ID=%q ' "$host" "$(n1_session_id)"
     printf '%q ' "${cmd[@]}"
-    printf '> %q 2>&1' "$out"
+    # No stdin redirect here would let `codex exec` inherit a never-closing pipe and
+    # hang forever (NP-224); callers that need their own timeout wrap this string themselves.
+    printf '< /dev/null > %q 2>&1' "$out"
 }
 
 n1_bg_launch_cmd() {

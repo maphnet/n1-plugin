@@ -79,16 +79,16 @@ PR_URL="<the PR URL from step 4>"
 # transcript (hooks, tool calls, reasoning) which can be 100s of KB — discard it.
 CODEX_STDERR=$(mktemp)
 CODEX_OUTPUT_FILE=$(mktemp)
-codex exec "Review PR ${PR_URL} for correctness, code quality, and potential bugs. Focus on logic errors, edge cases, and maintainability. Output your findings as a structured list." \
+timeout "${N1_CROSS_HOST_REVIEW_TIMEOUT:-600}" codex exec "Review PR ${PR_URL} for correctness, code quality, and potential bugs. Focus on logic errors, edge cases, and maintainability. Output your findings as a structured list." \
   --dangerously-bypass-approvals-and-sandbox \
   -o "$CODEX_OUTPUT_FILE" \
-  2>"$CODEX_STDERR" >/dev/null
+  </dev/null 2>"$CODEX_STDERR" >/dev/null
 CODEX_RC=$?
 CODEX_OUTPUT=$(<"$CODEX_OUTPUT_FILE")
 rm -f "$CODEX_STDERR" "$CODEX_OUTPUT_FILE"
 ```
 
-Parse `CODEX_OUTPUT`. If `CODEX_RC` is non-zero or `CODEX_OUTPUT` is empty, warn inline ("Codex review did not produce output or failed") and continue the pipeline.
+Parse `CODEX_OUTPUT`. If `CODEX_RC` is non-zero (including 124, meaning the `N1_CROSS_HOST_REVIEW_TIMEOUT`-second budget, default 600, was exceeded) or `CODEX_OUTPUT` is empty, warn inline ("Codex review did not produce output or failed") and continue the pipeline.
 
 ### Post findings
 
