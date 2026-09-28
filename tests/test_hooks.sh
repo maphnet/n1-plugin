@@ -183,7 +183,7 @@ OUT=$(echo "$PAYLOAD" | N1_HOST=codex CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CODEX_HOME
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
 case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent schema"*"agent_type only if supported"*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
-assert_eq "codex persona TOMLs generated in cwd" "10" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
+assert_eq "codex persona TOMLs generated in cwd" "$(grep -l '^name:' "$REPO_ROOT"/agents/*.md | wc -l | tr -d ' ')" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'
 {"ticketId":"T-30","runId":"n1-run-c","worktreePath":null,"branch":"T-30"}

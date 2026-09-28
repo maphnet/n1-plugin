@@ -1392,6 +1392,7 @@ run_id: 20260923T195909Z
 | TP-8 | 2026-09-23T20:51:22Z | 0 | failed |  |
 | TP-8 | 2026-09-23T20:53:57Z | 0 | escalated |  |
 FIXTUREEOF
+    sed "s|/home/maphsky/.n1/test-project|$tmp/n1home|g" "$tmp/queue.md" > "$tmp/q" && mv "$tmp/q" "$tmp/queue.md"
     chmod 444 "$tmp/queue.md"
     local out rc=0
     out=$(N1_HOST=codex n1_queue_status_table "$tmp/queue.md" "$tmp/nonexistent-events.jsonl") || rc=$?
