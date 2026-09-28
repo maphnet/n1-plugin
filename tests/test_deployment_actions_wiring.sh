@@ -105,5 +105,6 @@ check "release has Step 8b" "^# Step 8b: After-deploy Actions" "$R4"
 check "release asks when no deploy was watched" "§ Unwatched Deploy" "$R4"
 before "release: after-deploy follows the deploy watch" "Deployment succeeded" "PHASE=after" "$R4"
 check "release: disabled deploy watch still reaches Step 8b" 'Deploy watch disabled\." Go to Step 8b' "$R4"
+check "release: deploymentCheck false still reaches Step 8b" 'skip detection\. Go to Step 8b' "$R4"
 
 exit $FAIL

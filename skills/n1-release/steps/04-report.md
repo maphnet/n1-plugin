@@ -51,7 +51,7 @@ Release <TAG> already exists — nothing to do.
 
 Only runs after a **successful release** (built-in flow success or custom procedure completion). Skipped on idempotent skip.
 
-1. Read `release.deploymentCheck` — if `false`, skip entirely.
+1. Read `release.deploymentCheck` — if `false`, skip detection. Go to Step 8b.
 2. Run deployment pipeline detection per `references/ci-detection.md`:
    - Read `.github/workflows/` contents.
    - Classify into one of the five categories.
