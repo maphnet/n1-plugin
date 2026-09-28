@@ -111,6 +111,9 @@ finalize() {
     # NP-219: a finished child with a pending deploy parks as awaiting-human (reason
     # awaiting-deploy): no strike, no retry, never polled again.
     if [ "$OUTCOME" = "awaiting-deploy" ]; then OUTCOME="awaiting-human"; REASON="awaiting-deploy"; EV_OUTCOME="awaiting-deploy"; fi
+    # NP-216 AC3 safety net: every failed/deferred Runs row must carry a non-empty
+    # reason. Call sites should already pass one; this is the last line of defense.
+    [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="unspecified-failure"
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
@@ -229,6 +232,7 @@ run_sync() {
         [ "$EXIT" = "124" ] && OUTCOME="failed"
         REASON=""
         case "$EXIT" in 124|137) REASON="timeout" ;; esac
+        [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="child-exit-$EXIT"
 
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" "$EXIT" "$REASON"
     done
@@ -295,6 +299,15 @@ run_bg() {
             if [ "$STATUS" = "awaiting-human" ] && [ "$(n1_queue_row_reason "$QUEUE" "$NUM")" = "awaiting-deploy" ]; then continue; fi
             SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
             STATE=$(n1_queue_bg_state "$AGENTS" "$SID")
+            # NP-216: overview.md is ground truth, bg state is only a liveness hint — a
+            # finished child can report working/blocked/missing on a stale or vanished
+            # session. Reconcile before trusting STATE, so a done ticket is never timed
+            # out, retried, or parked awaiting-human.
+            OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0)
+            if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
+                finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
+                continue
+            fi
             case "$STATE" in
                 missing)
                     MISSING[NUM]=$(( ${MISSING[NUM]:-0} + 1 ))
@@ -328,11 +341,12 @@ run_bg() {
                     fi
                     ;;
                 done)
-                    OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0)
-                    [ "$OUTCOME" = "running" ] && OUTCOME="failed"
-                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
+                    # OUTCOME is "running" here (pr/escalated/awaiting-deploy already
+                    # finalized above): the bg session ended without the overview ever
+                    # reaching a terminal step.
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "child-exited-incomplete"
                     ;;
-                failed|*) finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" ;;
+                failed|*) finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "bg-state:$STATE" ;;
             esac
         done < <(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')
 
