@@ -261,7 +261,11 @@ When `IMPLEMENTABLE!=true`: "What next? 1 — Close ticket [/ 2 — Restore to o
 1. Derive title from first recommendation (~80 chars) or ask user.
 2. Construct description: `"Follows investigation <ID>\n\n## Summary\n...\n## Acceptance Criteria\n...\n## Scope\n...\n## Context\n..."` (Jira: plain bullets; YouTrack: checkboxes). Apply ticketTagging rules.
 3. Call createIssue via tracker MCP.
-4. **Link (mandatory):** call createIssueLink if configured (Jira: `linkType: "Relates"`; YouTrack: `linkType: "depends on"`). Fallback: `"Follows investigation <ID>"` in description.
+4. **Link:** if `tracker.operations.linkIssues` is configured (`LINK_OP=$(n1_config_val ".tracker.operations.linkIssues")`), call `mcp__<tracker.mcp>__<LINK_OP>` with source = `<newID>`, target = `<ID>`, using the tool's own argument names:
+   - **Jira:** `type: { name: "Relates" }`.
+   - **YouTrack:** `"depends on"` is already a valid YouTrack direction name — no remap needed.
+
+   If `linkIssues` is not configured, or the call fails, fall back to the `"Follows investigation <ID>"` line already present in the description (step 2) — do not block ticket creation.
 5. Add comment to original ticket: "Follow-up created: <newID> — <title>".
 6. Report: "Created follow-up **[<newID>](<url>)**: <title>, linked to <ID>."
 7. Post-action: ask what to do with investigation ticket (Close / Restore / Leave as-is). Apply close or restore logic below.
