@@ -107,7 +107,7 @@ In `CONTEXT=start`, if `DUP_LINKS` is non-empty, run § Apply Links now with `SO
 
 **Parameters:** `SOURCE_ID`, `DUP_LINKS`. Skip if either is empty or `LINK_OP` is empty.
 
-For each `<HIT_ID>:<TYPE>` in `DUP_LINKS`, call `mcp__<TRACKER_MCP>__<LINK_OP>`:
+Skip any entry whose `HIT_ID` does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`; its `TYPE` must be `Duplicate` or `Relates` (skip otherwise). For each remaining `<HIT_ID>:<TYPE>` in `DUP_LINKS`, call `mcp__<TRACKER_MCP>__<LINK_OP>`:
 - **YouTrack:** `issueId: <SOURCE_ID>`, `targetIssueId: <HIT_ID>`, `linkType: "<TYPE>"` (use the link type name the instance recognizes, e.g. `Duplicate` / `Relates`).
 - **Jira:** `cloudId`, `inwardIssue: { key: <HIT_ID> }`, `outwardIssue: { key: <SOURCE_ID> }`, `type: { name: "<TYPE>" }`.
 
