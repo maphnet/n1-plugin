@@ -20,6 +20,8 @@ BARE=$(grep -nE '(^|&&|[;(|])[[:space:]]*timeout[[:space:]]+[^-[:space:]]' "$BC"
 assert_eq "no bare timeout call sites" "" "$BARE"
 # breakcheck must classify the SIGKILL-escalated exit (137) as a timeout too.
 assert_eq "breakcheck accepts 137 as timeout" 1 "$(grep -c 'rc_rev" -eq 137' "$BC" || true)"
+# SEC-1: n1-queue-run.sh must force OUTCOME=failed for exit 137, not just 124.
+assert_eq "n1-queue-run.sh: 137 forces OUTCOME=failed" 1 "$(grep -c '124|137) OUTCOME="failed"' "$QR" || true)"
 
 # 2. Behavior: -k escalates to SIGKILL for the whole process group.
 PIDF=$(mktemp)
