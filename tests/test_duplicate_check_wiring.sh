@@ -32,6 +32,7 @@ check "queue child skip is recorded for resume" "queue-plan" "$P"
 check "queue child skip also requires N1_HEADLESS=1 (SEC-L2)" "QUEUE_CHILD.*non-empty AND \`HEADLESS=1\`" "$P"
 check "NP-230: YouTrack query uses explicit and with quoted keywords" "project: <PROJECT_KEY> and \\(" "$P"
 if grep -qE '\{kw1\} or \{kw2\}' "$P" 2>/dev/null; then echo "FAIL: NP-230: old brace-OR YouTrack query removed"; FAIL=1; else echo "PASS: NP-230: old brace-OR YouTrack query removed"; fi
+check "NP-230: retry once on YouTrack search error before skipping" "retry once with a simpler query" "$P"
 check "architecture.md documents the procedure" "references/duplicate-check\.md" references/architecture.md
 
 check "n1-ticket runs the check before creation" "duplicate-check\.md. § Check" skills/n1-ticket/steps/02-create.md
