@@ -65,4 +65,16 @@ check "tick flips exactly the chosen item" '^- \[x\] `npm run backfill -- --sinc
 check "tick leaves other items unticked" '^- \[ \] Manual: set secret STRIPE_KEY$' "$T/edited.md"
 [ "$(grep -c $'\r' "$T/edited.md" 2>/dev/null)" = "0" ] && echo "PASS: tick writes LF-only body" || { echo "FAIL: tick left CR"; FAIL=1; }
 
+# --- agents
+TW=agents/tech-writer.md
+check "tech-writer template has Deployment Actions" "^## Deployment Actions" "$TW"
+check "tech-writer template has Before deploy" "^### Before deploy" "$TW"
+check "tech-writer template has After deploy" "^### After deploy" "$TW"
+check "tech-writer scans the diff for vars/secrets" '\(vars\|secrets\)' "$TW"
+check "tech-writer never writes secret values" "Secret values never appear" "$TW"
+check "tech-writer omits the section when empty" "Omit .## Deployment Actions. entirely" "$TW"
+PA=agents/product-analyst.md
+check "product-analyst ticket.md has Deployment Actions" "^### Deployment Actions" "$PA"
+check "product-analyst copies it verbatim" "Deployment Actions rule" "$PA"
+
 exit $FAIL

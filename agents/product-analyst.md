@@ -339,6 +339,11 @@ Run this assessment AFTER the Fetch section has populated context data (step 1) 
 ### Technical Context
 <referenced code paths, APIs, schemas, or config mentioned in the requirements>
 
+### Deployment Actions
+<the source's "Deployment actions" section, lines copied verbatim — omit this section when the source has none>
+
+**Deployment Actions rule:** When the ticket description, file or brain dump contains a section headed "Deployment actions" (any heading level or bold label, case-insensitive), copy its lines verbatim under `### Deployment Actions`, the same way Acceptance Criteria are carried through. Do not distill, reword, reorder or add items. tech-writer turns them into the PR-body checklist.
+
 ### Key Comments (tracker mode only, last 5 meaningful)
 - @<author> (<date>): "<relevant quote or summary>"
 

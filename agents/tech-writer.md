@@ -154,6 +154,19 @@ Generate the PR title and body from implementation context.
 
 7. **Analyze diff stat** to understand the scope of changes (which areas of the codebase were touched).
 
+7b. **Deployment actions.** Build a Before deploy list and an After deploy list from two sources, then merge them:
+   - **ticket.md `### Deployment Actions`** (if present): keep each item's wording. Use the ticket's own before/after split when it has one. Otherwise put config, secrets and migrations under Before deploy, and backfills, cache warm-ups and one-off scripts under After deploy.
+   - **Diff scan** (same base as step 7). Collect names added in this branch:
+     ```bash
+     git diff <base>...HEAD -U0 | grep -E '^\+[^+]' | grep -oE '(vars|secrets)\.[A-Za-z_][A-Za-z0-9_]*|process\.env\.[A-Za-z_][A-Za-z0-9_]*|[Gg]etenv\(.[A-Za-z_][A-Za-z0-9_]*|environ(\.get\(|\[).[A-Za-z_][A-Za-z0-9_]*|ENV\[.[A-Za-z_][A-Za-z0-9_]*' | sort -u
+     git diff <base>...HEAD --name-only --diff-filter=A | grep -iE '(^|/)migrations?/' || true
+     ```
+     Strip each match to its bare name. Keep only names that are new in this branch, checked in one call: `for n in <names>; do git grep -qw -- "$n" <base> || echo "new:$n"; done`. Each new `secrets.X` (or any credential-like name) becomes `Manual: set secret X in <GitHub Actions secrets | the deploy environment>`. Each new `vars.X` becomes `Manual: set repository variable X`. Each new env var read becomes `Manual: set env var X in the deploy environment`. Each new migration file becomes `Manual: apply migration <file>`, unless the ticket gives the exact command. Diff-derived items go under Before deploy.
+   - **Merge:** drop a diff-derived item when a ticket item names the same resource.
+   - **Secret values never appear**, only names. Any secret-involving item is written as `Manual:`, even when the ticket gives a command. If a ticket item contains a literal secret value, rewrite it as `Manual: set secret <NAME> ...` without the value.
+   - **Format:** one action per `- [ ]` line, with no nested bullets. Each item is either a single backtick shell command (optionally followed by a short note) or text starting with `Manual:`. n1-finish and n1-release parse these lines and tick them `[x]` as they run.
+   - Both lists empty → no section. One list empty → omit that sub-heading.
+
 8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1.
 
 ## Output Format
@@ -173,6 +186,15 @@ Generate the PR title and body from implementation context.
 ## Changes
 - **<area/module>:** <what changed>
 - **<area/module>:** <what changed>
+
+## Deployment Actions
+
+### Before deploy
+- [ ] `<shell command>`
+- [ ] Manual: <step — names only, never secret values>
+
+### After deploy
+- [ ] `<shell command>`
 
 ## Verification
 
@@ -203,6 +225,8 @@ Local testing: PASS — N/N automated scenarios passed
 **Note:** Omit the Documentation section entirely if Phase 1 found no documentation files to update, flag, or note.
 
 **Note:** Omit the Decisions section entirely when overview.md has no `## Decision Ledger` rows. Tier A entries are never dropped for budget reasons.
+
+**Note:** Omit `## Deployment Actions` entirely when step 7b found no actions. Never drop or shorten an action to meet the 500-word budget.
 
 **Note:** The `## Verification` section is always included. When local-testing.md was provided, include the summary line at top and apply evidence/failure/manual-check annotations per the merge rules in step 5. When local-testing.md was NOT provided, omit the summary line and evidence/failure/manual-check annotations — list QA items as plain unchecked checkboxes. In both cases, after building the checklist, apply the machine-inferred annotation pass from step 5e when `brainstorm_gate_skipped` is `true` AND `description_quality` is `empty` or `skeletal`:
 
