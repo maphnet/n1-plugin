@@ -23,6 +23,7 @@ check "NP-234: auto-linked-duplicate notice line" "Auto-linked \\(duplicate\\): 
 check "NP-234: related hits are never auto-linked" "Do not link \`related\` hits" "$P"
 check "NP-234 CR-1: Stop still offered after all-duplicate auto-link" "no \`related\` rows remain\\), ask the user: \\*\\*Continue\\*\\* \\(default\\) or \\*\\*Stop\\*\\*" "$P"
 check "NP-234 SEC-1: Apply Links validates HIT_ID before use" "Skip any entry whose \`HIT_ID\` does not match \`\\^\\[A-Z\\]\\[A-Z0-9_\\]\\*-\\[0-9\\]\\+\\\$\`" "$P"
+check "NP-234 follow-up: YouTrack link types mapped to command names" "Map \`Duplicate\` .+ \`duplicates\` and \`Relates\` .+ \`relates to\`" "$P"
 check "procedure gate skips queue children (NP-203)" "N1_QUEUE_RUN_ID" "$P"
 check "procedure has plan-time queue branch" "CONTEXT=queue-plan" "$P"
 check "queue-plan branch offers exclusion" "Exclude from this queue run" "$P"

@@ -108,7 +108,7 @@ In `CONTEXT=start`, if `DUP_LINKS` is non-empty, run § Apply Links now with `SO
 **Parameters:** `SOURCE_ID`, `DUP_LINKS`. Skip if either is empty or `LINK_OP` is empty.
 
 Skip any entry whose `HIT_ID` does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`; its `TYPE` must be `Duplicate` or `Relates` (skip otherwise). For each remaining `<HIT_ID>:<TYPE>` in `DUP_LINKS`, call `mcp__<TRACKER_MCP>__<LINK_OP>`:
-- **YouTrack:** `issueId: <SOURCE_ID>`, `targetIssueId: <HIT_ID>`, `linkType: "<TYPE>"` (use the link type name the instance recognizes, e.g. `Duplicate` / `Relates`).
+- **YouTrack:** link calls run as YouTrack commands, which need the link's direction name, not the tracker-neutral `TYPE`. Map `Duplicate` → `duplicates` and `Relates` → `relates to`, then call with source = `<SOURCE_ID>`, target = `<HIT_ID>`, link type = the mapped name, using the tool's own argument names.
 - **Jira:** `cloudId`, `inwardIssue: { key: <HIT_ID> }`, `outwardIssue: { key: <SOURCE_ID> }`, `type: { name: "<TYPE>" }`.
 
 A link failure only warns (`Could not link <SOURCE_ID> → <HIT_ID>: <error>`). Continue with the rest and never roll back.
