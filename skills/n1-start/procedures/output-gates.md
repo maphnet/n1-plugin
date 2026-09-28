@@ -30,6 +30,8 @@ Workspace: <WORKTREE_PATH> (<BRANCH>)
 
 Resume/post-compaction: replace metadata with `Tier: <TIER> · Step: <CURRENT_STEP> · Files: ~<FILES_CHANGED>`. Absorbs: routing echoes, investigation-mode announcement, worktree-path lines, ticket URL.
 
+Headless (`N1_HEADLESS=1`): Gate 1 is not a stopping point — print it, then continue the run into the next pipeline step. Do not end the turn.
+
 ### Gate 2 — Pre-Implementation Brief
 
 Emitted: after plan, before implementation (plan path and `planning_need: direct`).

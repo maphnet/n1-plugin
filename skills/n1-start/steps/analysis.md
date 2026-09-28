@@ -82,7 +82,7 @@ Parse `XREPO_SUGGEST: <slug> <reason>` from `$AGENT_OUTPUT`. **Auto**: `n1_relat
 
 **Contradiction gate:** `CONTRADICTIONS > 0`: show `### Ticket Validation`; 1=Continue 2=Redirect(Recommended); log `[asked]` ledger row. Zero or all unverifiable: skip. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
-Missing/empty: re-prompt once; fallback. DRIFT: delete snapshot. Write frontmatter; `CONTEXT_BLOCK` → replace `## Context`. **Print Gate 1** (`SIMPLE_PATH=true`: `analysis → developer → qa → review → pr`). `SELF_RESOLVED>0`: `[auto]` ledger. Update overview: `[x] Analysis`, `step: analysis`.
+Missing/empty: re-prompt once; fallback. DRIFT: delete snapshot. Write frontmatter; `CONTEXT_BLOCK` → replace `## Context`. **Print Gate 1** (`SIMPLE_PATH=true`: `analysis → developer → qa → review → pr`). `SELF_RESOLVED>0`: `[auto]` ledger. Update overview: `[x] Analysis`, `step: analysis`. Headless: continue immediately past Gate 1 into the next step — do not end the turn.
 
 Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":** add all + ledger rows (use `n1_related_add`+`n1_record_decision` per slug). **"select":** add approved. **"no":** `[asked]` row. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
