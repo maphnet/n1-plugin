@@ -23,6 +23,12 @@ n1_host() {
     case "${N1_HOST:-}" in codex|claude-code) printf '%s' "$N1_HOST"; return;; esac
     if [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${PLUGIN_DATA:-}" ]; then printf 'codex'; return; fi
     if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then printf 'claude-code'; return; fi
+    local facts fallback
+    facts=$(n1_session_file 2>/dev/null || true)
+    if [ -n "$facts" ] && [ -f "$facts" ]; then
+        fallback=$(n1_hook_field host < "$facts")
+        [ -n "$fallback" ] && { printf '%s' "$fallback"; return; }
+    fi
     printf 'unknown'
 }
 
