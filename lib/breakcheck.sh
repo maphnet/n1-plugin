@@ -30,7 +30,7 @@ _n1_bc_json() {  # success error_kind error_msg verdict named_test log
 
 _n1_bc_run() {  # cmd log repo_dir → appends output to log, returns runner exit code
     local cmd="$1" log="$2" dir="$3"
-    ( cd "$dir" && timeout "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) >> "$log" 2>&1
+    ( cd "$dir" && timeout -k 30 "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) >> "$log" 2>&1
 }
 
 # _n1_bc_exclude_log <log_abs> <repo_dir_abs>
@@ -90,7 +90,7 @@ n1_break_check() {
         fi
     done <<< "$nontest"
     local rc_rev=0
-    ( cd "$dir" && timeout "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) > "$revert_log" 2>&1 || rc_rev=$?
+    ( cd "$dir" && timeout -k 30 "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) > "$revert_log" 2>&1 || rc_rev=$?
     cat "$revert_log" >> "$log"
 
     echo "=== restore ===" >> "$log"
@@ -111,7 +111,7 @@ n1_break_check() {
         _n1_bc_json false inconclusive "tree or suite not green after restore; inspect log" inconclusive "$name" "$log"
         rm -f "$revert_log"; return 0
     fi
-    if [ "$rc_rev" -eq 124 ]; then
+    if [ "$rc_rev" -eq 124 ] || [ "$rc_rev" -eq 137 ]; then  # 137 = SIGKILL after -k grace
         _n1_bc_json false timeout "reverted run exceeded timeout" inconclusive "$name" "$log"
         rm -f "$revert_log"; return 0
     fi
