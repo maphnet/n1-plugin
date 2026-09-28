@@ -186,6 +186,11 @@ test_child_status() {
     assert_eq "qstatus: missing file exit 1 -> failed" "failed" "$(n1_queue_child_status "$tmp/none.md" 1)"
     assert_eq "qstatus: missing file exit 0 -> running" "running" "$(n1_queue_child_status "$tmp/none.md" 0)"
     assert_eq "qstatus: ask-mode answered then done -> pr, not escalated" "pr" "$(n1_queue_child_status "$tmp/asked-done.md" 0)"
+
+    # NP-216 CR-1: strict mode (live-poll callers) ignores a stale/append-only
+    # ## Escalations entry unless step is explicitly "escalated".
+    assert_eq "qstatus strict: step escalated" "escalated" "$(n1_queue_child_status "$tmp/esc.md" 0 1)"
+    assert_eq "qstatus strict: escalations section but not step -> running" "running" "$(n1_queue_child_status "$tmp/esc2.md" 0 1)"
 }
 
 # --- n1_queue_row_status -----------------------------------------------------
@@ -1072,6 +1077,33 @@ test_bg_reconcile_missing() {
     rm -rf "$tmp"
 }
 
+test_bg_reconcile_working_stale_escalation() {
+    # CR-1 regression: a still-working child with a non-terminal step and a stale
+    # (append-only, ask-mode) ## Escalations entry must not be finalized as
+    # "escalated" mid-run — it should be reconciled as "pr" once it truly finishes.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working working done"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n' > "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "bg-recw-stale: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-recw-stale: row 1 pr (not escalated)" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+test_bg_blocked_first_tick_parks() {
+    # CR-2 second variant: bg state blocked on the first tick, before the child has
+    # written any ## Escalations entry, still parks as awaiting-human (unaffected).
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done"
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: implementation\n---\n# T\n' > "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "bg-blocked-first: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-blocked-first: parked message" "1" "$(grep -c 'T-A -> awaiting-human' "$tmp/output.txt" || true)"
+    assert_eq "bg-blocked-first: row 1 pr after answer" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
 test_bg_reason_child_exited_incomplete() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:done"
@@ -1677,6 +1709,8 @@ test_bg_working_timeout
 test_bg_missing_grace
 test_bg_reconcile_working
 test_bg_reconcile_missing
+test_bg_reconcile_working_stale_escalation
+test_bg_blocked_first_tick_parks
 test_bg_reason_child_exited_incomplete
 test_bg_reason_bg_state_catchall
 test_run_sync_reason_default
