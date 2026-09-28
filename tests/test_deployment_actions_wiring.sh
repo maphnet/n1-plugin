@@ -65,6 +65,48 @@ check "tick flips exactly the chosen item" '^- \[x\] `npm run backfill -- --sinc
 check "tick leaves other items unticked" '^- \[ \] Manual: set secret STRIPE_KEY$' "$T/edited.md"
 [ "$(grep -c $'\r' "$T/edited.md" 2>/dev/null)" = "0" ] && echo "PASS: tick writes LF-only body" || { echo "FAIL: tick left CR"; FAIL=1; }
 
+# --- behavior: § Command extraction (bytes identical for quotes and $; >2 backticks -> manual)
+TSV2="$T/cmd.tsv"
+printf '9\tafter\t`echo "$VAR value"`\n9\tafter\tRun `cmd1` then `cmd2`\n' > "$TSV2"
+run2() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV2\"|" -e "s|^K=.*|K=$2|")"; }
+
+out=$(run2 "## § Command" 1)
+check "command extraction reports shell" "^shell$" <(printf '%s\n' "$out")
+[ "$(cat "$TSV2.cmd" 2>/dev/null)" = 'echo "$VAR value"' ] \
+    && echo 'PASS: command bytes identical (quotes and $)' || { echo 'FAIL: command bytes differ'; FAIL=1; }
+
+out=$(run2 "## § Command" 2)
+check "command extraction falls back to manual for >2 backticks" "^manual$" <(printf '%s\n' "$out")
+
+# --- behavior: § Tick is phase-scoped, and reports tick-missing without editing when the item is not found in that phase
+cat > "$T/body-phase.md" <<'EOF'
+## Deployment Actions
+
+### Before deploy
+- [ ] `echo same`
+
+### After deploy
+- [ ] `echo same`
+EOF
+export GH_BODY="$T/body-phase.md" GH_EDITED="$T/edited-phase.md"
+rm -f "$T/edited-phase.md"
+TSV3="$T/phase.tsv"
+printf '8\tafter\t`echo same`\n' > "$TSV3"
+run3() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Tick" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV3\"|" -e 's|^K=.*|K=1|')"; }
+
+out=$(run3)
+check "tick is phase-scoped: reports success" "^ticked:#8$" <(printf '%s\n' "$out")
+[ "$(grep -A1 '^### After deploy' "$T/edited-phase.md" | tail -1)" = '- [x] `echo same`' ] \
+    && echo "PASS: tick is phase-scoped: flips only the after-deploy line" || { echo "FAIL: tick did not flip the after-deploy line"; FAIL=1; }
+[ "$(grep -A1 '^### Before deploy' "$T/edited-phase.md" | tail -1)" = '- [ ] `echo same`' ] \
+    && echo "PASS: tick is phase-scoped: before-deploy line untouched" || { echo "FAIL: tick flipped the wrong phase"; FAIL=1; }
+
+printf '8\tafter\t`echo different`\n' > "$TSV3"
+rm -f "$T/edited-phase.md"
+out=$(run3)
+check "tick detects no match" "^tick-missing:#8$" <(printf '%s\n' "$out")
+[ ! -f "$T/edited-phase.md" ] && echo "PASS: tick-missing never calls gh pr edit" || { echo "FAIL: tick-missing still edited the PR"; FAIL=1; }
+
 # --- agents
 TW=agents/tech-writer.md
 check "tech-writer template has Deployment Actions" "^## Deployment Actions" "$TW"

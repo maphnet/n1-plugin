@@ -15,7 +15,7 @@ Runs the deploy-time actions a PR declares in its body. Called from n1-finish (S
 - [ ] `<shell command>`
 ```
 
-One action per `- [ ]` line. An item containing backtick code is a **shell item**; its command is the first backtick span. Any other item is a **manual item** (normally starting `Manual:`). `- [x]` means done: it is never offered again. Secret values never appear, only names.
+One action per `- [ ]` line. An item is a **shell item** when it contains exactly two backticks; its command is the text between them, extracted by § Command. Any other backtick count is a **manual item** (normally starting `Manual:`). `- [x]` means done: it is never offered again. Secret values never appear, only names.
 
 The per-run working copy is a TSV file, one row per unticked item: `<PR>\t<before|after|drop>\t<item text>`. Rows are addressed by row number `K` (the `cat -n` number), so item text is never pasted into a shell command. Paths: n1-finish uses `$N1_HOME/scratch/deploy-actions-<PR>.tsv`; n1-release uses `$N1_HOME/scratch/release-actions.tsv`.
 
@@ -48,17 +48,17 @@ Inputs: `PHASE` (`before` or `after`) and `OUT`. Walk the rows whose second colu
 
 This is an unconditional gate. Ask the user for every item, never auto-resolve, never pick an option on the user's behalf, and never run an item the user has not confirmed in this run.
 
-- **Shell item:**
+- **Shell item** (item text has exactly two backticks): run § Command first, with `K=<row number>`, to extract the command into `"$OUT.cmd"`. Display the command with `cat "$OUT.cmd"` — never by re-typing the item text — then show:
   ```
   Deployment action (<before|after> deploy, PR #<N>): <item text>
-  Command: `<command>`
+  Command: <contents of "$OUT.cmd">
   Run this?
   1 — Yes
   2 — Skip
   3 — Abort
   ```
-  Yes → run the command from the repository directory and show its output. Exit 0 → § Tick. Non-zero → report the failure and ask `1 — Retry / 2 — Skip / 3 — Abort`.
-- **Manual item:**
+  Yes → run `bash "$OUT.cmd"` from the repository directory and show its output. Exit 0 → § Tick. Non-zero → report the failure and ask `1 — Retry / 2 — Skip / 3 — Abort`. Retry re-runs `bash "$OUT.cmd"` — the same file, never re-typed.
+- **Manual item** (any other backtick count):
   ```
   Deployment action (<before|after> deploy, PR #<N>): <item text>
   Done?
@@ -80,27 +80,59 @@ No counts as Abort.
 
 Result: `WALK=complete` or `WALK=aborted`.
 
-## § Tick
+## § Command
 
-Marks row `K` as done in its PR body. It runs only after a shell item exits 0 or the user confirms a manual item.
+Extracts row `K`'s command from `$OUT` into `"$OUT.cmd"`, so the bytes shown to the user and the bytes executed are always identical — the model never re-types the command. Applies the same rule as the contract: exactly two backticks → shell item; any other count → manual item.
 
 ```bash
 source ~/.n1/preamble.sh
 OUT="<TSV path>"
 K=<row number>
-N=$(sed -n "${K}p" "$OUT" | cut -f1)
 ITEM=$(sed -n "${K}p" "$OUT" | cut -f3-)
+NBT=$(printf '%s' "$ITEM" | tr -dc '`' | wc -c)
+if [ "$NBT" -eq 2 ]; then
+  printf '%s' "$ITEM" | awk -F'`' '{ printf "%s", $2 }' > "$OUT.cmd"
+  echo "shell"
+else
+  echo "manual"
+fi
+```
+
+## § Tick
+
+Marks row `K` as done in its PR body. It runs only after a shell item exits 0 or the user confirms a manual item. The match is scoped to the row's own phase: it only flips a line under the `### Before deploy` / `### After deploy` heading that matches column 2 of row `K` (`before` → `### Before deploy`, `after` → `### After deploy`).
+
+```bash
+source ~/.n1/preamble.sh
+set -o pipefail
+OUT="<TSV path>"
+K=<row number>
+N=$(sed -n "${K}p" "$OUT" | cut -f1)
+PHASE=$(sed -n "${K}p" "$OUT" | cut -f2)
+ITEM=$(sed -n "${K}p" "$OUT" | cut -f3-)
+HEADING="### After deploy"; [ "$PHASE" = "before" ] && HEADING="### Before deploy"
 # Re-fetch right before the edit. Ceiling: last write wins if the body changes between this fetch and the edit.
 if BODY=$(gh pr view "$N" --json body --jq .body 2>/dev/null); then
-  printf '%s\n' "$BODY" | tr -d '\r' \
-    | ITEM="$ITEM" awk '!d && $0 == ("- [ ] " ENVIRON["ITEM"]) { print "- [x] " ENVIRON["ITEM"]; d = 1; next } { print }' \
-    | gh pr edit "$N" --body-file - >/dev/null && echo "ticked:#$N" || echo "tick-failed:#$N"
+  NEW=$(printf '%s\n' "$BODY" | tr -d '\r' \
+    | ITEM="$ITEM" HEADING="$HEADING" awk '
+        /^## / { in_da = ($0 ~ /^## Deployment Actions[[:space:]]*$/); phase_ok = 0; print; next }
+        in_da && /^### / { phase_ok = (index($0, ENVIRON["HEADING"]) == 1); print; next }
+        in_da && phase_ok && !d && $0 == ("- [ ] " ENVIRON["ITEM"]) { print "- [x] " ENVIRON["ITEM"]; d = 1; next }
+        { print }
+        END { exit !d }')
+  if [ $? -eq 0 ]; then
+    printf '%s\n' "$NEW" | gh pr edit "$N" --body-file - >/dev/null && echo "ticked:#$N" || echo "tick-failed:#$N"
+  else
+    echo "tick-missing:#$N"
+  fi
 else
   echo "tick-failed:#$N"
 fi
 ```
 
 `tick-failed:#<N>` → report "The action ran, but PR #<N> could not be updated. Tick `<item>` by hand." Never re-run the action because of a failed tick.
+
+`tick-missing:#<N>` → the item text no longer matches its phase's section (edited or moved since § Parse ran). Never call `gh pr edit` in this case. Report "Item text changed in PR #<N>; tick it by hand."
 
 Note: concurrent PR-body edits are last-write-wins. If lost ticks are ever observed, add a compare-before-write check.
 
