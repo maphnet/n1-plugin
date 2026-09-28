@@ -220,7 +220,7 @@ n1_queue_row_title() {
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
     num="$row_num" ti="$title" awk 'BEGIN { FS="|"; OFS="|"; num=ENVIRON["num"]; ti=ENVIRON["ti"] } {
         f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
-        if (f2 == num && NF >= 9) { $3 = " " ti " " }
+        if (f2 == num && NF >= 9) { $4 = " " ti " " }
         print
     }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
 }
