@@ -128,9 +128,16 @@ _n1_word_overlap() {
 }
 
 n1_queue_child_status() {
-    # Usage: n1_queue_child_status <overview.md> <exit-code>
+    # Usage: n1_queue_child_status <overview.md> <exit-code> [strict]
     # Prints: pr | escalated | failed | running | awaiting-deploy (NP-219)
-    local overview="$1" exit_code="${2:-0}"
+    # strict=1 (NP-216 live-poll callers): only step:escalated counts as escalated.
+    # ## Escalations is an append-only log (lib/memory.sh) that also gets an entry
+    # in ask-mode while the child continues past the question — its mere presence
+    # is not proof of a terminal escalation for a still-running child. Post-exit
+    # callers (run_sync) keep the broader OR-check: a synchronous child that just
+    # escalated-and-exited sets step:escalated before exiting anyway, but the text
+    # check is kept there as a belt-and-suspenders fallback.
+    local overview="$1" exit_code="${2:-0}" strict="${3:-}"
     if [ ! -f "$overview" ]; then
         [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'
         return
@@ -140,7 +147,7 @@ n1_queue_child_status() {
     if [ "$(n1_read_frontmatter "$overview" deploy_pending)" = "true" ]; then printf 'awaiting-deploy'; return; fi
     # pr/ci/done all mean stop-at-CI success
     case "$step" in pr|ci|done) printf 'pr'; return ;; esac
-    if [ "$step" = "escalated" ] || [ -n "$(n1_queue_escalation_text "$overview")" ]; then
+    if [ "$step" = "escalated" ] || { [ "$strict" != "1" ] && [ -n "$(n1_queue_escalation_text "$overview")" ]; }; then
         printf 'escalated'; return
     fi
     [ "$exit_code" != "0" ] && printf 'failed' || printf 'running'

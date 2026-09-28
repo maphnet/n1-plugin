@@ -303,7 +303,7 @@ run_bg() {
             # finished child can report working/blocked/missing on a stale or vanished
             # session. Reconcile before trusting STATE, so a done ticket is never timed
             # out, retried, or parked awaiting-human.
-            OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0)
+            OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
             if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
