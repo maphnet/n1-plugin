@@ -73,11 +73,12 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    TAG_PREFIX=$(n1_config_val '.release.tagPrefix')
    TAG="${TAG_PREFIX}${VERSION}"
    ```
-3. **Previous tag**: resolve from local git tags first, fall back to gh:
+3. **Previous tag**: resolve from local git tags first, fall back to gh. Exclude `TAG` itself — a retry after a tag-created-but-release-creation-failed run would otherwise pick the just-created tag as its own previous tag, collapsing the scan range to empty:
    ```bash
-   PREV_TAG=$(git tag --list "${TAG_PREFIX}*" --sort=-version:refname | head -1)
+   PREV_TAG=$(git tag --list "${TAG_PREFIX}*" --sort=-version:refname | grep -v -x "$TAG" | head -1)
    if [ -z "$PREV_TAG" ]; then
      PREV_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
+     [ "$PREV_TAG" = "$TAG" ] && PREV_TAG=""
    fi
    # Show "(none — first release)" when nothing found
    ```
@@ -148,13 +149,23 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    ```
 
    Note: Sources C and D require `TAG` to exist, so their extraction runs after Step 5 (Execute) completes. The merge produces the final `RELEASE_TICKET_IDS` used by Steps 5b, 6, and 7.
-7. **Deployment actions** (runs now, before the Step 3 gate; the tag does not exist yet, so the range is `PREV_TAG..HEAD`). Collect the PR numbers:
+7. **Deployment actions** (runs now, before the Step 3 gate; the tag does not exist yet, so the range ends at the release target, not just `HEAD` — the tag itself is later created at `${MERGE_SHA:-HEAD}` in Step 5, and scanning `HEAD` would miss or misattribute commits when `MERGE_SHA` differs from `HEAD`). Collect the PR numbers:
    ```bash
    source ~/.n1/preamble.sh
    PREV_TAG="<PREV_TAG, or empty>"
+   MERGE_SHA="<MERGE_SHA, or empty>"
+   RELEASE_TARGET="${MERGE_SHA:-HEAD}"
    PRS=""
    if [ -n "$PREV_TAG" ]; then
-     PRS=$(git log "${PREV_TAG}..HEAD" --format=%s 2>/dev/null | grep -oE '\(#[0-9]+\)|Merge pull request #[0-9]+' | grep -oE '[0-9]+')
+     LOG=$(git log "${PREV_TAG}..${RELEASE_TARGET}" --format='%H%x09%s' 2>/dev/null)
+     PRS=$(printf '%s\n' "$LOG" | cut -f2- | grep -oE '\(#[0-9]+\)|Merge pull request #[0-9]+' | grep -oE '[0-9]+')
+     # Rebase merges and edited-squash titles carry no PR number in the subject; resolve those via the
+     # commit's merged PR lookup instead (same lookup used for pending-batch SHAs below).
+     while IFS=$'\t' read -r sha subject; do
+       [[ "$sha" =~ ^[0-9a-f]{7,40}$ ]] || continue
+       printf '%s' "$subject" | grep -qE '\(#[0-9]+\)|Merge pull request #[0-9]+' && continue
+       PRS="$PRS $(gh api "repos/{owner}/{repo}/commits/$sha/pulls" --jq '.[] | select(.merged_at) | .number' 2>/dev/null)"
+     done <<< "$LOG"
    fi
    # Pending batch: map each merged_sha to its PR (covers rebase merges and edited squash titles with no PR number).
    if [ -f "$N1_HOME/pending-releases.json" ]; then
@@ -165,4 +176,4 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    fi
    echo "release-prs:$(printf '%s\n' $PRS | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ')"
    ```
-   Then follow `<N1_ROOT>/references/deployment-actions.md` § Parse with `PRS=<release-prs>` and `OUT=$N1_HOME/scratch/release-actions.tsv`, then § Conflicts. The result feeds the Step 3 gate. An empty `release-prs` or `unticked:0` means no deployment-actions block. With no previous tag (first release), only the pending batch is scanned, because a full-history scan would fetch every PR body. Rebase-merged PRs outside the pending batch carry no PR number in the log and are not found.
+   Then follow `<N1_ROOT>/references/deployment-actions.md` § Parse with `PRS=<release-prs>` and `OUT=$N1_HOME/scratch/release-actions.tsv`, then § Conflicts. The result feeds the Step 3 gate. An empty `release-prs` or `unticked:0` means no deployment-actions block. With no previous tag (first release), only the pending batch is scanned, because a full-history scan would fetch every PR body.

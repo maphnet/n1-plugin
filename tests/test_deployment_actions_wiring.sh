@@ -183,6 +183,10 @@ check "release collects actions before the tag exists" "deployment-actions\.md. 
 check "release maps pending batch SHAs to PRs" "merged_sha" "$R1"
 check "release scans merge-commit PR refs too" "Merge pull request #" "$R1"
 check "release writes the shared TSV" "release-actions\.tsv" "$R1"
+check "release previous-tag resolution excludes the target tag itself" 'grep -v -x "\$TAG"' "$R1"
+check "release scan range uses the release target, not bare HEAD" 'RELEASE_TARGET="\$\{MERGE_SHA:-HEAD\}"' "$R1"
+check "release scan range is used for the git log scan" '\$\{PREV_TAG\}\.\.\$\{RELEASE_TARGET\}' "$R1"
+check "release resolves rebase/edited-squash commits via PR-for-commit lookup" 'commits/\$sha/pulls' "$R1"
 R2=skills/n1-release/steps/02-confirm-execute.md
 check "release gate renders conflicts" "§ Conflicts" "$R2"
 check "release gate offers editing actions" "4 — Edit deployment actions" "$R2"
