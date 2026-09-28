@@ -15,7 +15,7 @@ Runs the deploy-time actions a PR declares in its body. Called from n1-finish (S
 - [ ] `<shell command>`
 ```
 
-One action per `- [ ]` line. An item is a **shell item** when it contains exactly two backticks; its command is the text between them, extracted by § Command. Any other backtick count is a **manual item** (normally starting `Manual:`). `- [x]` means done: it is never offered again. Secret values never appear, only names.
+One action per `- [ ]` line. An item starting with `Manual:` is always a **manual item**. Otherwise it is a **shell item** only when it starts with a backtick, contains exactly two backticks, and the extracted command is non-empty; its command is the text between the backticks, extracted by § Command. Everything else is a **manual item**. `- [x]` means done: it is never offered again. Secret values never appear, only names.
 
 The per-run working copy is a TSV file, one row per unticked item: `<PR>\t<before|after|drop>\t<item text>`. Rows are addressed by row number `K` (the `cat -n` number), so item text is never pasted into a shell command. Paths: n1-finish uses `$N1_HOME/scratch/deploy-actions-<PR>.tsv`; n1-release uses `$N1_HOME/scratch/release-actions.tsv`.
 
@@ -28,7 +28,7 @@ source ~/.n1/preamble.sh
 PRS="<PR numbers, space-separated>"
 OUT="<TSV path>"
 if [ -n "${N1_QUEUE_RUN_ID:-}" ] || [ "${N1_HEADLESS:-}" = "1" ]; then echo "mode:runbook"; else echo "mode:walk"; fi
-mkdir -p "$(dirname "$OUT")"; : > "$OUT"
+mkdir -p "$(dirname "$OUT")"; : > "$OUT"; rm -f "$OUT.cmd"
 for n in $PRS; do
   if ! BODY=$(gh pr view "$n" --json body --jq .body 2>/dev/null); then echo "fetch-failed:#$n"; continue; fi
   printf '%s\n' "$BODY" | tr -d '\r' | awk -v pr="$n" '
@@ -48,7 +48,8 @@ Inputs: `PHASE` (`before` or `after`) and `OUT`. Walk the rows whose second colu
 
 This is an unconditional gate. Ask the user for every item, never auto-resolve, never pick an option on the user's behalf, and never run an item the user has not confirmed in this run.
 
-- **Shell item** (item text has exactly two backticks): run § Command first, with `K=<row number>`, to extract the command into `"$OUT.cmd"`. Display the command with `cat "$OUT.cmd"` — never by re-typing the item text — then show:
+- Run § Command first, with `K=<row number>`, to classify the item and (for a shell item) extract the command into `"$OUT.cmd"`. Treat the item as a **shell item** only when § Command printed `shell`; `manual` → the Manual item branch below.
+- **Shell item**: display the command with `cat "$OUT.cmd"` — never by re-typing the item text — then show:
   ```
   Deployment action (<before|after> deploy, PR #<N>): <item text>
   Command: <contents of "$OUT.cmd">
@@ -57,8 +58,14 @@ This is an unconditional gate. Ask the user for every item, never auto-resolve, 
   2 — Skip
   3 — Abort
   ```
-  Yes → run `bash "$OUT.cmd"` from the repository directory and show its output. Exit 0 → § Tick. Non-zero → report the failure and ask `1 — Retry / 2 — Skip / 3 — Abort`. Retry re-runs `bash "$OUT.cmd"` — the same file, never re-typed.
-- **Manual item** (any other backtick count):
+  Yes → run:
+  ```bash
+  source ~/.n1/preamble.sh
+  OUT="<TSV path>"
+  (cd "$(git rev-parse --show-toplevel)" && bash "$OUT.cmd")
+  ```
+  and show its output. Exit 0 → § Tick. Non-zero → report the failure and ask `1 — Retry / 2 — Skip / 3 — Abort`. Retry re-runs the same command — the same file, never re-typed.
+- **Manual item** (§ Command printed `manual`):
   ```
   Deployment action (<before|after> deploy, PR #<N>): <item text>
   Done?
@@ -82,16 +89,22 @@ Result: `WALK=complete` or `WALK=aborted`.
 
 ## § Command
 
-Extracts row `K`'s command from `$OUT` into `"$OUT.cmd"`, so the bytes shown to the user and the bytes executed are always identical — the model never re-types the command. Applies the same rule as the contract: exactly two backticks → shell item; any other count → manual item.
+Extracts row `K`'s command from `$OUT` into `"$OUT.cmd"`, so the bytes shown to the user and the bytes executed are always identical — the model never re-types the command. Applies the same rule as the contract: an item starting with `Manual:` is always a manual item; otherwise it is a shell item only when it starts with a backtick, contains exactly two backticks, and the extracted command is non-empty — any other case is a manual item.
 
 ```bash
 source ~/.n1/preamble.sh
 OUT="<TSV path>"
 K=<row number>
+rm -f "$OUT.cmd"
 ITEM=$(sed -n "${K}p" "$OUT" | cut -f3-)
 NBT=$(printf '%s' "$ITEM" | tr -dc '`' | wc -c)
-if [ "$NBT" -eq 2 ]; then
-  printf '%s' "$ITEM" | awk -F'`' '{ printf "%s", $2 }' > "$OUT.cmd"
+CMD=""
+case "$ITEM" in
+  'Manual:'*) ;;
+  '`'*) if [ "$NBT" -eq 2 ]; then CMD=$(printf '%s' "$ITEM" | awk -F'`' '{ printf "%s", $2 }'); fi ;;
+esac
+if [ -n "$CMD" ]; then
+  printf '%s' "$CMD" > "$OUT.cmd"
   echo "shell"
 else
   echo "manual"

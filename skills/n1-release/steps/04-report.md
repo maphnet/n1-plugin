@@ -110,6 +110,7 @@ Only runs after a **successful release** (built-in flow success or custom proced
 
 Runs only when `$N1_HOME/scratch/release-actions.tsv` has `after` rows, after a successful release, and when Step 8 did not STOP (a deploy failure or timeout ends the run before this step).
 
+- `mode:runbook` (§ Parse output; queue or headless run) → report the unticked `after` rows and leave them unticked; never walk.
 - Step 8 reported "Deployment succeeded." → follow `<N1_ROOT>/references/deployment-actions.md` § Walk with `PHASE=after` and `OUT=$N1_HOME/scratch/release-actions.tsv`.
 - No deploy was watched (`release.deploymentCheck` is `false`, deploy watch disabled, no workflow triggered, or Categories 1–4) → § Unwatched Deploy.
 

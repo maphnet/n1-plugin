@@ -78,6 +78,27 @@ check "command extraction reports shell" "^shell$" <(printf '%s\n' "$out")
 out=$(run2 "## § Command" 2)
 check "command extraction falls back to manual for >2 backticks" "^manual$" <(printf '%s\n' "$out")
 
+# --- behavior: § Command classification (SEC-7): Manual: prefix always manual; shell requires leading
+# backtick + exactly two backticks + non-empty command; shell classification followed by a manual item
+# leaves no stale .cmd file; empty backticks -> manual
+TSV5="$T/cmd2.tsv"
+printf '9\tafter\tManual: set env var `X`\n' > "$TSV5"
+printf '9\tafter\t`echo "$HOME" '"'"'q'"'"'`\n' >> "$TSV5"
+printf '9\tafter\t``\n' >> "$TSV5"
+run5() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Command" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV5\"|" -e "s|^K=.*|K=$1|")"; }
+
+out=$(run5 2)
+check "command: leading-backtick two-backtick item classified shell" "^shell$" <(printf '%s\n' "$out")
+[ "$(cat "$TSV5.cmd" 2>/dev/null)" = 'echo "$HOME" '"'"'q'"'"'' ] \
+    && echo 'PASS: command bytes identical for quotes and apostrophes' || { echo 'FAIL: command bytes differ (quotes/apostrophes)'; FAIL=1; }
+
+out=$(run5 1)
+check "command: Manual: prefix always classified manual" "^manual$" <(printf '%s\n' "$out")
+[ ! -f "$TSV5.cmd" ] && echo "PASS: shell-then-manual clears the .cmd file" || { echo "FAIL: .cmd file left behind after a manual item"; FAIL=1; }
+
+out=$(run5 3)
+check "command: empty backticks classified manual" "^manual$" <(printf '%s\n' "$out")
+
 # --- behavior: § Tick is phase-scoped, and reports tick-missing without editing when the item is not found in that phase
 cat > "$T/body-phase.md" <<'EOF'
 ## Deployment Actions
@@ -142,8 +163,10 @@ R2=skills/n1-release/steps/02-confirm-execute.md
 check "release gate renders conflicts" "§ Conflicts" "$R2"
 check "release gate offers editing actions" "4 — Edit deployment actions" "$R2"
 before "release: before-deploy walk precedes the tag" "PHASE=before" "git tag -a" "$R2"
+before "release: before-deploy runbook mode precedes the tag" "mode:runbook" "git tag -a" "$R2"
 R4=skills/n1-release/steps/04-report.md
 check "release has Step 8b" "^# Step 8b: After-deploy Actions" "$R4"
+check "release Step 8b handles runbook mode" "mode:runbook" "$R4"
 check "release asks when no deploy was watched" "§ Unwatched Deploy" "$R4"
 before "release: after-deploy follows the deploy watch" "Deployment succeeded" "PHASE=after" "$R4"
 check "release: disabled deploy watch still reaches Step 8b" 'Deploy watch disabled\." Go to Step 8b' "$R4"
