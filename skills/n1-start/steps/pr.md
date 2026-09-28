@@ -1,5 +1,5 @@
 
-> **After this step completes, IMMEDIATELY continue to the next pipeline step (FINALIZE MEMORY) — do NOT write a summary message or yield to the user.**
+> **After this step completes, IMMEDIATELY continue to the next pipeline step (FINALIZE MEMORY) — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
 Do not read full reports — n1-pr extracts what it needs via `grep`; tech-writer reads files directly.
 

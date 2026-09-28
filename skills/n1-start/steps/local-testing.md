@@ -1,5 +1,5 @@
 
-> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
 Run `n1_config_val '.localTesting.enabled'` (default: `true`).
 

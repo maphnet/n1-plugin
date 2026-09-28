@@ -1,6 +1,6 @@
 <!-- n1:step-snippet-exception: agent-dispatch boundaries across brainstorm mode routing and user gate -->
 
-> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
 ```bash
 source ~/.n1/preamble.sh

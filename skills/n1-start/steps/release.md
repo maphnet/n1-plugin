@@ -20,4 +20,4 @@ The n1-release skill works from the current branch and config. It:
 4. Creates an annotated git tag and GitHub Release (or walks through a custom procedure)
 5. Posts a tracker comment best-effort
 
-> **After `n1:n1-release` returns, IMMEDIATELY continue to FINALIZE MEMORY with the release result noted — do NOT write a summary message or yield to the user.**
+> **After `n1:n1-release` returns, IMMEDIATELY continue to FINALIZE MEMORY with the release result noted — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**

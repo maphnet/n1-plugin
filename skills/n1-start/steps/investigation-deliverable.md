@@ -1,6 +1,6 @@
 <!-- n1:step-snippet-exception: multi-phase investigation requires separate bash invocations for signals, telemetry, tracker enrichment, and routing -->
 
-> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+> **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
 > **ORCHESTRATOR GUARDRAIL (experiments):** user requests to run/test/benchmark/curl are handled by spawning **developer** in experiment mode: pass the exact question + worktree path + "Experiment mode: build/run/benchmark in `$N1_HOME/memory/<ID>/scratch/`; no production code changes; no commits; write `experiment-<N>.md` with ## Question, ## Setup, ## Runs, ## Result, ## Cleanup; run cleanup; return ≤15-line summary + file path." Orchestrator reads summary and continues.
 

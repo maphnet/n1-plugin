@@ -1,6 +1,6 @@
 <!-- n1:step-snippet-exception: agent-dispatch boundaries and output-dependent routing across cache/LITE/cross-repo gates -->
 
-> **After this step's agent returns, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user.**
+> **After this step's agent returns, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
 `moveStatus` → In Progress (skip if absent; warn and continue).
 

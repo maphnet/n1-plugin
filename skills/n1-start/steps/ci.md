@@ -20,4 +20,4 @@ n1_record_decision ci-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true
 - If user chose "skip" (CI still red) → continue to FINALIZE with CI status noted
 - If user is still providing guidance → wait (n1-ci handles the interaction)
 
-> **After `n1:n1-ci` returns, IMMEDIATELY continue to the next pipeline step (finish if enabled, otherwise FINALIZE MEMORY) -- do NOT write a summary message or yield to the user.**
+> **After `n1:n1-ci` returns, IMMEDIATELY continue to the next pipeline step (finish if enabled, otherwise FINALIZE MEMORY) -- do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
