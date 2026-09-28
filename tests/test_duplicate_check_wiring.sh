@@ -21,6 +21,7 @@ check "NP-234: duplicates auto-link in start, unattended" "MATCHES\` contains an
 check "NP-234: duplicates auto-link in start, interactive" "auto-link those without asking" "$P"
 check "NP-234: auto-linked-duplicate notice line" "Auto-linked \\(duplicate\\): <HIT_ID>" "$P"
 check "NP-234: related hits are never auto-linked" "Do not link \`related\` hits" "$P"
+check "NP-234 CR-1: Stop still offered after all-duplicate auto-link" "no \`related\` rows remain\\), ask the user: \\*\\*Continue\\*\\* \\(default\\) or \\*\\*Stop\\*\\*" "$P"
 check "procedure gate skips queue children (NP-203)" "N1_QUEUE_RUN_ID" "$P"
 check "procedure has plan-time queue branch" "CONTEXT=queue-plan" "$P"
 check "queue-plan branch offers exclusion" "Exclude from this queue run" "$P"

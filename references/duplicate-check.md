@@ -85,7 +85,7 @@ Branch on the first rule that matches:
    ```
    A comment failure never blocks.
 4. **Interactive:**
-   - `CONTEXT=start`, links offered, and `MATCHES` contains any `duplicate` rows: auto-link those without asking. Set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. If `MATCHES` still has `related` rows after removing the auto-linked ones, continue to the next bullet for those only. Otherwise proceed — no prompt, no Stop offered.
+   - `CONTEXT=start`, links offered, and `MATCHES` contains any `duplicate` rows: auto-link those without asking. Set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. If `MATCHES` still has `related` rows after removing the auto-linked ones, continue to the next bullet for those only. Otherwise (no `related` rows remain), ask the user: **Continue** (default) or **Stop** (record (§ 5), then end the run with: "Stopped: <SELF_ID> overlaps <HIT_IDs>. Close or link it in the tracker; `/n1:n1-start <SELF_ID>` resumes and skips this check.").
    - **Otherwise** (no `duplicate` rows, or `CONTEXT=create`, or links not offered, or only `related` rows remain after auto-linking): show the warning (the remaining `related` rows only, when some hits were already auto-linked) and ask the user:
      1. **Continue**: proceed without linking. This is the default when unattended.
      2. **Continue and link**: proceed and add to `DUP_LINKS` one `<HIT_ID>:<Duplicate|Relates>` per remaining match (excluding anything already auto-linked). Omit this option when links are not offered.
