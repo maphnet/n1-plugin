@@ -52,9 +52,9 @@ run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e '/preamble\.sh/d' -
 out=$(run "## § Parse")
 check "parse prints mode:walk interactively" "^mode:walk$" <(printf '%s\n' "$out")
 check "parse counts unticked items" "^unticked:2$" <(printf '%s\n' "$out")
-[ "$(sed -n 1p "$TSV" 2>/dev/null)" = "$(printf '7\tbefore\tManual: set secret STRIPE_KEY')" ] \
+[ "$(sed -n 1p "$TSV" 2>/dev/null)" = "$(printf '7\tbefore\tbefore\tManual: set secret STRIPE_KEY')" ] \
     && echo "PASS: parse row 1 (before, manual)" || { echo "FAIL: parse row 1"; FAIL=1; }
-[ "$(sed -n 2p "$TSV" 2>/dev/null)" = "$(printf '7\tafter\t`npm run backfill -- --since "2026-01-01"`')" ] \
+[ "$(sed -n 2p "$TSV" 2>/dev/null)" = "$(printf '7\tafter\tafter\t`npm run backfill -- --since "2026-01-01"`')" ] \
     && echo "PASS: parse row 2 (after, shell, CR stripped)" || { echo "FAIL: parse row 2"; FAIL=1; }
 out=$(export N1_HEADLESS=1; run "## § Parse")
 check "parse prints mode:runbook when headless" "^mode:runbook$" <(printf '%s\n' "$out")
@@ -67,7 +67,7 @@ check "tick leaves other items unticked" '^- \[ \] Manual: set secret STRIPE_KEY
 
 # --- behavior: § Command extraction (bytes identical for quotes and $; >2 backticks -> manual)
 TSV2="$T/cmd.tsv"
-printf '9\tafter\t`echo "$VAR value"`\n9\tafter\tRun `cmd1` then `cmd2`\n' > "$TSV2"
+printf '9\tafter\tafter\t`echo "$VAR value"`\n9\tafter\tafter\tRun `cmd1` then `cmd2`\n' > "$TSV2"
 run2() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV2\"|" -e "s|^K=.*|K=$2|")"; }
 
 out=$(run2 "## § Command" 1)
@@ -82,9 +82,9 @@ check "command extraction falls back to manual for >2 backticks" "^manual$" <(pr
 # backtick + exactly two backticks + non-empty command; shell classification followed by a manual item
 # leaves no stale .cmd file; empty backticks -> manual
 TSV5="$T/cmd2.tsv"
-printf '9\tafter\tManual: set env var `X`\n' > "$TSV5"
-printf '9\tafter\t`echo "$HOME" '"'"'q'"'"'`\n' >> "$TSV5"
-printf '9\tafter\t``\n' >> "$TSV5"
+printf '9\tafter\tafter\tManual: set env var `X`\n' > "$TSV5"
+printf '9\tafter\tafter\t`echo "$HOME" '"'"'q'"'"'`\n' >> "$TSV5"
+printf '9\tafter\tafter\t``\n' >> "$TSV5"
 run5() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Command" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV5\"|" -e "s|^K=.*|K=$1|")"; }
 
 out=$(run5 2)
@@ -112,7 +112,7 @@ EOF
 export GH_BODY="$T/body-phase.md" GH_EDITED="$T/edited-phase.md"
 rm -f "$T/edited-phase.md"
 TSV3="$T/phase.tsv"
-printf '8\tafter\t`echo same`\n' > "$TSV3"
+printf '8\tafter\tafter\t`echo same`\n' > "$TSV3"
 run3() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Tick" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV3\"|" -e 's|^K=.*|K=1|')"; }
 
 out=$(run3)
@@ -122,11 +122,35 @@ check "tick is phase-scoped: reports success" "^ticked:#8$" <(printf '%s\n' "$ou
 [ "$(grep -A1 '^### Before deploy' "$T/edited-phase.md" | tail -1)" = '- [ ] `echo same`' ] \
     && echo "PASS: tick is phase-scoped: before-deploy line untouched" || { echo "FAIL: tick flipped the wrong phase"; FAIL=1; }
 
-printf '8\tafter\t`echo different`\n' > "$TSV3"
+printf '8\tafter\tafter\t`echo different`\n' > "$TSV3"
 rm -f "$T/edited-phase.md"
 out=$(run3)
 check "tick detects no match" "^tick-missing:#8$" <(printf '%s\n' "$out")
 [ ! -f "$T/edited-phase.md" ] && echo "PASS: tick-missing never calls gh pr edit" || { echo "FAIL: tick-missing still edited the PR"; FAIL=1; }
+
+# --- behavior (finding 1): § Edit moves execution phase (column 3) only; § Tick still matches on the
+# original PR-body phase (column 2), so a before->after move at the gate still ticks the before-deploy line.
+cat > "$T/body-move.md" <<'EOF'
+## Deployment Actions
+
+### Before deploy
+- [ ] `echo moved`
+
+### After deploy
+EOF
+export GH_BODY="$T/body-move.md" GH_EDITED="$T/edited-move.md"
+rm -f "$T/edited-move.md"
+TSV4="$T/move.tsv"
+printf '8\tbefore\tbefore\t`echo moved`\n' > "$TSV4"
+edit4() { PATH="$T/bin:$PATH" bash -c "$(snippet "**Edit**" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV4\"|" -e 's|^K=.*|K=1|' -e 's|^P=.*|P=after|')"; }
+edit4
+[ "$(sed -n 1p "$TSV4")" = "$(printf '8\tbefore\tafter\t`echo moved`')" ] \
+    && echo "PASS: edit moves phase column only, orig phase untouched" || { echo "FAIL: edit did not preserve orig phase"; FAIL=1; }
+run4() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Tick" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV4\"|" -e 's|^K=.*|K=1|')"; }
+out=$(run4)
+check "tick after move still succeeds" "^ticked:#8$" <(printf '%s\n' "$out")
+[ "$(grep -A1 '^### Before deploy' "$T/edited-move.md" | tail -1)" = '- [x] `echo moved`' ] \
+    && echo "PASS: tick after move flips the Before deploy line (where the text actually lives)" || { echo "FAIL: tick after move did not flip Before deploy"; FAIL=1; }
 
 # --- agents
 TW=agents/tech-writer.md
