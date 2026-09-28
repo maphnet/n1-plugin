@@ -49,4 +49,10 @@ if n1_testparse_zero_tests "$T/go0.txt"; then echo "PASS: go zero tests"; PASS=$
 printf '\033[31mFAILED tests/test_x.py::test_colored\033[0m - boom\n' > "$T/ansi.txt"
 assert_eq "ansi stripped" "test_colored" "$(n1_testparse_failed_names "$T/ansi.txt")"
 
+printf 'PASS: adds positive\nFAIL: adds negative\n' > "$T/n1_bare.txt"
+assert_eq "n1 bare FAIL name" "adds negative" "$(n1_testparse_failed_names "$T/n1_bare.txt")"
+
+printf 'PASS: adds positive\nFAIL: adds negative (expected=[1] actual=[0])\n' > "$T/n1_detail.txt"
+assert_eq "n1 FAIL with detail" "adds negative" "$(n1_testparse_failed_names "$T/n1_detail.txt")"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
