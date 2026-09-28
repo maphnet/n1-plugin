@@ -38,7 +38,7 @@ Condition lines (informational -- no hard blocks):
 
 If 3 -> STOP.
 
-**Deployment actions block:** shown when `$N1_HOME/scratch/release-actions.tsv` (Step 2, sub-step 7) has `before` or `after` rows, or when a PR body could not be read. Render it per `<N1_ROOT>/references/deployment-actions.md` § Conflicts; otherwise omit both the block and option 4. On 4, apply the user's moves and drops per § Conflicts, then show this gate again. While conflicts are flagged, do not accept 1 until the user has resolved each flagged group through 4. Keeping both items as-is is a valid resolution.
+**Deployment actions block:** shown when `$N1_HOME/scratch/release-actions.tsv` (Step 2, sub-step 7) has `before` or `after` rows, or when a PR body could not be read, or when `pr-lookup-failed` (Step 2, sub-step 7) is non-zero. Render it per `<N1_ROOT>/references/deployment-actions.md` § Conflicts; otherwise omit both the block and option 4. If `pr-lookup-failed` is non-zero, prepend a warning line: "Could not resolve the PR for <N> commit(s) in the release range; their deployment actions may be missing. Check them by hand." On 4, apply the user's moves and drops per § Conflicts, then show this gate again. While conflicts are flagged, do not accept 1 until the user has resolved each flagged group through 4. Keeping both items as-is is a valid resolution.
 
 # Step 4: Idempotency Check
 

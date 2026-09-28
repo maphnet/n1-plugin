@@ -156,15 +156,22 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    MERGE_SHA="<MERGE_SHA, or empty>"
    RELEASE_TARGET="${MERGE_SHA:-HEAD}"
    PRS=""
+   PR_LOOKUP_FAILED=0
    if [ -n "$PREV_TAG" ]; then
      LOG=$(git log "${PREV_TAG}..${RELEASE_TARGET}" --format='%H%x09%s' 2>/dev/null)
      PRS=$(printf '%s\n' "$LOG" | cut -f2- | grep -oE '\(#[0-9]+\)|Merge pull request #[0-9]+' | grep -oE '[0-9]+')
      # Rebase merges and edited-squash titles carry no PR number in the subject; resolve those via the
      # commit's merged PR lookup instead (same lookup used for pending-batch SHAs below).
+     # ponytail: one API call per non-matching commit; add a cap/backoff if large ranges get slow.
      while IFS=$'\t' read -r sha subject; do
        [[ "$sha" =~ ^[0-9a-f]{7,40}$ ]] || continue
        printf '%s' "$subject" | grep -qE '\(#[0-9]+\)|Merge pull request #[0-9]+' && continue
-       PRS="$PRS $(gh api "repos/{owner}/{repo}/commits/$sha/pulls" --jq '.[] | select(.merged_at) | .number' 2>/dev/null)"
+       LOOKUP=$(gh api "repos/{owner}/{repo}/commits/$sha/pulls" --jq '.[] | select(.merged_at) | .number' 2>/dev/null)
+       if [ $? -eq 0 ]; then
+         PRS="$PRS $LOOKUP"
+       else
+         PR_LOOKUP_FAILED=$((PR_LOOKUP_FAILED + 1))
+       fi
      done <<< "$LOG"
    fi
    # Pending batch: map each merged_sha to its PR (covers rebase merges and edited squash titles with no PR number).
@@ -175,5 +182,6 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
      done
    fi
    echo "release-prs:$(printf '%s\n' $PRS | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ')"
+   [ "$PR_LOOKUP_FAILED" -gt 0 ] && echo "pr-lookup-failed:${PR_LOOKUP_FAILED} commit(s)"
    ```
-   Then follow `<N1_ROOT>/references/deployment-actions.md` § Parse with `PRS=<release-prs>` and `OUT=$N1_HOME/scratch/release-actions.tsv`, then § Conflicts. The result feeds the Step 3 gate. An empty `release-prs` or `unticked:0` means no deployment-actions block. With no previous tag (first release), only the pending batch is scanned, because a full-history scan would fetch every PR body.
+   Then follow `<N1_ROOT>/references/deployment-actions.md` § Parse with `PRS=<release-prs>` and `OUT=$N1_HOME/scratch/release-actions.tsv`, then § Conflicts. The result feeds the Step 3 gate. An empty `release-prs` or `unticked:0` means no deployment-actions block. With no previous tag (first release), only the pending batch is scanned, because a full-history scan would fetch every PR body. If `pr-lookup-failed` is non-zero, pass that count to the Step 3 gate so it can warn: "Could not resolve the PR for &lt;N&gt; commit(s) in the release range; their deployment actions may be missing. Check them by hand."

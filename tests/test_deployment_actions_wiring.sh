@@ -187,6 +187,45 @@ check "release previous-tag resolution excludes the target tag itself" 'grep -v 
 check "release scan range uses the release target, not bare HEAD" 'RELEASE_TARGET="\$\{MERGE_SHA:-HEAD\}"' "$R1"
 check "release scan range is used for the git log scan" '\$\{PREV_TAG\}\.\.\$\{RELEASE_TARGET\}' "$R1"
 check "release resolves rebase/edited-squash commits via PR-for-commit lookup" 'commits/\$sha/pulls' "$R1"
+
+# --- behavior: PREV_TAG resolution excludes TAG itself and resolves the true previous tag
+prev_tag_snippet() { # the ```bash block in R1 containing the PREV_TAG resolution
+    awk '
+    /^[ \t]*```bash/ { inblock=1; buf=""; next }
+    /^[ \t]*```/ { if (inblock && found) { printf "%s", buf }; inblock=0; found=0; next }
+    inblock { buf = buf $0 "\n"; if ($0 ~ /PREV_TAG=\$\(git tag --list/) found=1 }
+    ' "$R1"
+}
+SNIPPET="$(prev_tag_snippet)
+echo \"PREV_TAG=\$PREV_TAG\""
+REPO="$T/prevtag-repo"; mkdir -p "$REPO/bin"
+cat > "$REPO/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+    "release list") ;; # no releases -> empty
+esac
+EOF
+chmod +x "$REPO/bin/gh"
+git -C "$REPO" -c tag.gpgSign=false init -q -b main
+git -C "$REPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
+git -C "$REPO" -c tag.gpgSign=false tag v1.0.0
+git -C "$REPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m second
+git -C "$REPO" -c tag.gpgSign=false tag v1.1.0
+
+out=$(cd "$REPO" && PATH="$REPO/bin:$PATH" TAG_PREFIX="v" TAG="v1.1.0" bash -c "$SNIPPET")
+[ "$(echo "$out" | grep '^PREV_TAG=')" = "PREV_TAG=v1.0.0" ] \
+    && echo "PASS: PREV_TAG resolution excludes TAG and finds the true previous tag" || { echo "FAIL: PREV_TAG resolution"; FAIL=1; }
+
+REPO2="$T/prevtag-repo-first"; mkdir -p "$REPO2/bin"
+cp "$REPO/bin/gh" "$REPO2/bin/gh"
+git -C "$REPO2" -c tag.gpgSign=false init -q -b main
+git -C "$REPO2" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
+git -C "$REPO2" -c tag.gpgSign=false tag v1.1.0
+
+out=$(cd "$REPO2" && PATH="$REPO2/bin:$PATH" TAG_PREFIX="v" TAG="v1.1.0" bash -c "$SNIPPET")
+[ "$(echo "$out" | grep '^PREV_TAG=')" = "PREV_TAG=" ] \
+    && echo "PASS: PREV_TAG resolution empty on first release" || { echo "FAIL: PREV_TAG first-release case"; FAIL=1; }
+
 R2=skills/n1-release/steps/02-confirm-execute.md
 check "release gate renders conflicts" "§ Conflicts" "$R2"
 check "release gate offers editing actions" "4 — Edit deployment actions" "$R2"
