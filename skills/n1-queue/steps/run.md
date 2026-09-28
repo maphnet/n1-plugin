@@ -27,7 +27,7 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 
 `STALE=yes` (planned more than `STALE_HOURS` hours ago, or age unknown): re-validate every Plan row with Status `pending`:
 1. Call `mcp__<TRACKER_MCP>__<READ_OP>` for the ticket.
-2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed: <status>"`. Record the change.
+2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed"` (fixed literal: a status name can contain quotes). Record the new status in the change summary.
 3. Otherwise write the fresh title and description to `<QUEUE_DIR>/desc/<KEY>.title` and `<QUEUE_DIR>/desc/<KEY>.txt` (file-write, as in preview.md § Plan-Resolve 1 — never through a shell string, NP-203 SEC-1) and compare its hash with the saved one:
    ```bash
    source ~/.n1/preamble.sh
@@ -36,7 +36,7 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
    OLD=$(n1_queue_decisions_row "<QUEUE_DIR>/queue.md" "<KEY>" | cut -f4)
    if [ -n "$NEW" ] && [ -n "$OLD" ] && [ "$NEW" = "$OLD" ]; then echo SAME; else echo CHANGED; fi
    ```
-   `n1_queue_content_hash` fails closed (SEC-5): empty output on either side means "changed", never "no-op". `SAME`: no-op. `CHANGED`: re-plan this ticket only: intake.md § Blocker check, § Description quality and § Duplicate check (`CONTEXT=queue`) for it, then preview.md § Plan-Resolve 4 for it. Record what changed for this ticket, then update its `## Decisions` row via `n1_queue_decisions_write_row` and its Plan row (Status/Reason via `n1_queue_row_status`, `skip` when now excluded).
+   `n1_queue_content_hash` fails closed (SEC-5): empty output on either side means "changed", never "no-op". `SAME`: no-op. `CHANGED`: re-plan this ticket only: intake.md § Blocker check, § Description quality and § Duplicate check (`CONTEXT=queue`) for it, then preview.md § Plan-Resolve 4 for it. Record what changed for this ticket, then update its `## Decisions` row via `n1_queue_decisions_write_row` and its Plan row (Status/Reason via `n1_queue_row_status`, `skip` when now excluded), passing free text as in § Write plan: from a file-written `cells.tsv` line, never a quoted literal.
 
    **Re-run overlap order globally (CR-1: the runner executes Plan rows in physical row order, so a row-local reorder is not enough).** After every changed row above is updated, collect Touches for every remaining pending row (from its `## Decisions` row; the just-updated ticket's already-fresh value) and run:
    ```bash
@@ -93,18 +93,21 @@ step: planned
 |--------|---------|------|---------|----|---------|
 ```
 
-For each row `#` / `<KEY>` above, fill in its untrusted cells through the sanitizing write helpers (each strips `|`, newlines and backslashes — NP-203 SEC-4/SEC-3):
+Then write `<QUEUE_DIR>/cells.tsv` with the file-write mechanism, one tab-separated line per Plan row: `<#>`, `<KEY>`, Reason (incl. order note), Touches, Order note, Pre-Decision (`<category>: <choice>` entries), Notes. Leave a field empty when it has no value; no tabs or newlines inside a field. Free text never goes inside a quoted shell argument (an apostrophe in "user's" would break it). Fill the cells through the sanitizing write helpers (each strips `|`, newlines and backslashes — NP-203 SEC-4/SEC-3); Title and Desc Checksum come from preview.md § Plan-Resolve 1's `desc/` files:
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 QUEUE_FILE="$QUEUE_DIR/queue.md"
-n1_queue_row_title "$QUEUE_FILE" '<#>' '<title>'
-n1_queue_row_status "$QUEUE_FILE" '<#>' pending '<reason incl. order note>'
-n1_queue_decisions_write_row "$QUEUE_FILE" '<KEY>' '<touches>' '<order note or empty>' '<category: choice or empty>' '<cksum>' '<notes or empty>'
+while IFS= read -r line; do
+    c() { printf '%s' "$line" | cut -f"$1"; }
+    k=$(c 2)
+    n1_queue_row_title "$QUEUE_FILE" "$(c 1)" "$(cat "$QUEUE_DIR/desc/$k.title")"
+    n1_queue_row_status "$QUEUE_FILE" "$(c 1)" pending "$(c 3)"
+    n1_queue_decisions_write_row "$QUEUE_FILE" "$k" "$(c 4)" "$(c 5)" "$(c 6)" \
+        "$(n1_queue_content_hash "$QUEUE_DIR/desc/$k.title" "$QUEUE_DIR/desc/$k.txt")" "$(c 7)"
+done < "$QUEUE_DIR/cells.tsv"
 ```
-
-(Repeat the three calls once per Plan row.)
 
 Stamp the plan time:
 

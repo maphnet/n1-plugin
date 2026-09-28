@@ -226,6 +226,38 @@ EOF
     assert_eq "row_title: row 1 untouched" "1" "$(grep -cxF '| 1 | T-1 | Fix A | /r | /h | sonnet | stn1 | reasonninject174 |' "$tmp/q.md")"
 }
 
+# --- run.md § Write plan cell-fill snippet (NP-203): free text with quotes via cells.tsv ---
+test_write_plan_cells() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mkdir -p "$tmp/desc"
+    cat > "$tmp/queue.md" <<'EOF2'
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 |  | /r | /h | sonnet | pending |  |
+| 2 | T-2 |  | /r | /h | opus | pending |  |
+
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 |  |  |  |  |  |
+| T-2 |  |  |  |  |  |
+EOF2
+    printf "Fix the user's \"login\" \$(touch %s/pwned)" "$tmp" > "$tmp/desc/T-1.title"; printf 'd1' > "$tmp/desc/T-1.txt"
+    printf 'Plain B' > "$tmp/desc/T-2.title"; printf 'd2' > "$tmp/desc/T-2.txt"
+    printf "1\tT-1\ttag match · it's first\tr:lib\t\tsecurity: narrow\tnarrow:don't touch \"auth\"\n2\tT-2\t\t\tafter T-1 (r:lib)\t\t\n" > "$tmp/cells.tsv"
+    # Run the snippet exactly as run.md ships it (minus the preamble line).
+    local snip; snip=$(awk '/^while IFS= read -r line; do$/,/^done < "\$QUEUE_DIR\/cells.tsv"$/' "$REPO_ROOT/skills/n1-queue/steps/run.md")
+    QUEUE_DIR="$tmp" bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/queue.sh'; QUEUE_FILE=\"\$QUEUE_DIR/queue.md\"; $snip"
+    assert_eq "write-plan: title with quotes lands in Title cell" "Fix the user's \"login\" \$(touch $tmp/pwned)" "$(plan_cell "$tmp/queue.md" 1 4)"
+    assert_eq "write-plan: title never executed" "no" "$([ -e "$tmp/pwned" ] && echo yes || echo no)"
+    assert_eq "write-plan: reason with apostrophe" "tag match · it's first" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "write-plan: row 2 title" "Plain B" "$(plan_cell "$tmp/queue.md" 2 4)"
+    assert_eq "write-plan: notes with quotes" "narrow:don't touch \"auth\"" "$(n1_queue_decisions_row "$tmp/queue.md" T-1 | cut -f5)"
+    assert_eq "write-plan: empty touches stays empty, order kept" "	after T-1 (r:lib)" "$(n1_queue_decisions_row "$tmp/queue.md" T-2 | cut -f1,2)"
+    assert_eq "write-plan: checksum from desc files" "$(n1_queue_content_hash "$tmp/desc/T-2.title" "$tmp/desc/T-2.txt")" "$(n1_queue_decisions_row "$tmp/queue.md" T-2 | cut -f4)"
+}
+
 # --- n1_queue_pending_rows ---------------------------------------------------
 test_pending_rows() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
@@ -1506,6 +1538,7 @@ test_plan_wiring() {
     # SEC-4: initial Plan/Decisions rows are built through the sanitizing write helpers, not prose alone.
     assert_eq "plan-wiring: write plan fills Title via n1_queue_row_title" "yes" "$(has 'n1_queue_row_title' "$s/steps/run.md")"
     assert_eq "plan-wiring: write plan fills Decisions row via n1_queue_decisions_write_row" "yes" "$(has 'n1_queue_decisions_write_row' "$s/steps/run.md")"
+    assert_eq "plan-wiring: run.md passes no free text as a quoted literal" "no" "$(has "'<(title|reason|notes)[^>]*>'|changed: <status>" "$s/steps/run.md")"
 }
 
 test_parse_service
@@ -1515,6 +1548,7 @@ test_plan_wiring
 test_child_status
 test_child_status_deploy
 test_row_status
+test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
 test_overlap_order
