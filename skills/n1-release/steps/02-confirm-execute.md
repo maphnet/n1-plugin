@@ -21,10 +21,13 @@ Ready to release:
   Branch:          <CURRENT>
   <condition lines>
 
+<deployment actions block>
+
 Release as <SUGGESTED_VERSION>?
 1 — Yes
 2 — No (enter a different version)
 3 — Cancel
+4 — Edit deployment actions   (only when the block is shown)
 ```
 
 If the user picks 2, prompt: `Enter version:` and read their input as the new `VERSION`. Recompute `TAG = tagPrefix + VERSION`. Then proceed.
@@ -34,6 +37,8 @@ Condition lines (informational -- no hard blocks):
 - `No merge SHA found (standalone run — not post-finish)` -- not available
 
 If 3 -> STOP.
+
+**Deployment actions block:** shown when `$N1_HOME/scratch/release-actions.tsv` (Step 2, sub-step 7) has `before` or `after` rows, or when a PR body could not be read. Render it per `<N1_ROOT>/references/deployment-actions.md` § Conflicts; otherwise omit both the block and option 4. On 4, apply the user's moves and drops per § Conflicts, then show this gate again. While conflicts are flagged, do not accept 1 until the user has resolved each flagged group through 4. Keeping both items as-is is a valid resolution.
 
 # Step 4: Idempotency Check
 
@@ -53,6 +58,8 @@ git tag -l "${TAG}"
 If local tag exists but no GitHub release -> proceed to release creation (skip the tag step, create the release).
 
 # Step 5: Execute
+
+**Before-deploy actions first (both flows below):** when `release-actions.tsv` has `before` rows, follow `<N1_ROOT>/references/deployment-actions.md` § Walk with `PHASE=before` and `OUT=$N1_HOME/scratch/release-actions.tsv`. This runs before creating the tag or starting the custom procedure. `WALK=aborted` → "Release stopped before tagging: before-deploy actions are not complete. Nothing was tagged or pushed. Re-run `/n1:n1-release`; ticked actions are not repeated." **STOP.**
 
 ## Built-in flow (when `procedure` is null)
 

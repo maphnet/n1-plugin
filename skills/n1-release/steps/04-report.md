@@ -79,15 +79,15 @@ Only runs after a **successful release** (built-in flow success or custom proced
       Poll the same `gh run list` command. Sleep 30s between polls.
 
    d. Outcomes:
-      - All runs with `conclusion: success` (or `neutral`/`skipped`): report "Deployment succeeded." Done.
+      - All runs with `conclusion: success` (or `neutral`/`skipped`): report "Deployment succeeded." Go to Step 8b.
       - Any run with `conclusion: failure` or `cancelled`: fetch failure logs:
         ```bash
         gh run view <databaseId> --log-failed 2>&1 | head -200
         ```
-        Report the failed run URL and log excerpt. **STOP — do not proceed.**
-      - Timeout (`timeoutMinutes` elapsed, runs still in progress): report still-running URLs. Suggest re-checking manually. **STOP.**
+        Report the failed run URL and log excerpt. After-deploy actions are not run; report them as left unticked (Step 8b wording). **STOP — do not proceed.**
+      - Timeout (`timeoutMinutes` elapsed, runs still in progress): report still-running URLs. Suggest re-checking manually. After-deploy actions are not run; report them as left unticked (Step 8b wording). **STOP.**
 
-   **If `release.deployWatch.enabled` is explicitly `false`:** report "Deploy watch disabled." Done.
+   **If `release.deployWatch.enabled` is explicitly `false`:** report "Deploy watch disabled." Go to Step 8b.
 4. **Categories 1-4** — present findings and ask:
    ```
    No release-triggered deployment pipeline detected.
@@ -103,12 +103,21 @@ Only runs after a **successful release** (built-in flow success or custom proced
      jq '.release.deploymentCheck = false' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json"
      ```
      Report: "Deployment check disabled for this project. Re-enable via n1-init or by setting `release.deploymentCheck: true` in config."
-     Done.
+     Go to Step 8b.
    - **1 (Yes)** → follow the scaffolding options for the detected category per `references/ci-detection.md`. Inspect project context (existing workflows, Dockerfile, package manager, framework) and write the workflow conversationally. Commit the new/modified workflow file to the current branch. Report the file path and remind the user to review before pushing.
+
+# Step 8b: After-deploy Actions
+
+Runs only when `$N1_HOME/scratch/release-actions.tsv` has `after` rows, after a successful release, and when Step 8 did not STOP (a deploy failure or timeout ends the run before this step).
+
+- Step 8 reported "Deployment succeeded." → follow `<N1_ROOT>/references/deployment-actions.md` § Walk with `PHASE=after` and `OUT=$N1_HOME/scratch/release-actions.tsv`.
+- No deploy was watched (`release.deploymentCheck` is `false`, deploy watch disabled, no workflow triggered, or Categories 1–4) → § Unwatched Deploy.
+
+An aborted walk or skipped items never undo the release. Report any unticked rows: "After-deploy actions left unticked: <rows>. Run them by hand and tick them in the PR bodies. The next release only scans PRs merged after <TAG>."
 
 ## Idempotency
 
-Every path is safe to re-run: existing release causes a skip; existing tag skips tag creation; existing tracker comment is not duplicated (when comments are readable).
+Every path is safe to re-run: existing release causes a skip; existing tag skips tag creation; existing tracker comment is not duplicated (when comments are readable). Deployment actions: only unticked PR-body items are collected and executed items are ticked, so a re-run never repeats them.
 
 Tracker release operations are individually idempotent: existing versions are reused (not duplicated), fix versions already set are no-ops, and tickets already in the target status are skipped.
 
@@ -119,5 +128,5 @@ Tracker release operations are individually idempotent: existing versions are re
 - **Standalone** -- `/n1:n1-release`
 
 **Invokes:**
-- Inline: `gh` CLI (release view/create, auth status), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit), `references/ci-detection.md` (deployment pipeline detection)
+- Inline: `gh` CLI (release view/create, auth status, PR body read/edit), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit), `references/ci-detection.md` (deployment pipeline detection), `references/deployment-actions.md` (deployment actions)
 - No agent spawns -- thin controller, orchestration only

@@ -90,4 +90,20 @@ check "finish Step 4 asks when no deploy was watched" "§ Unwatched Deploy" "$F4
 check "finish Step 4 clears deploy_pending" "deploy_pending false" "$F4"
 before "finish: after-deploy follows the delivery gate" "03b-ssh-deploy.md" "deployment-actions.md" "$F4"
 
+# --- n1-release
+R1=skills/n1-release/steps/01-resolve-metadata.md
+check "release collects actions before the tag exists" "deployment-actions\.md. § Parse" "$R1"
+check "release maps pending batch SHAs to PRs" "merged_sha" "$R1"
+check "release scans merge-commit PR refs too" "Merge pull request #" "$R1"
+check "release writes the shared TSV" "release-actions\.tsv" "$R1"
+R2=skills/n1-release/steps/02-confirm-execute.md
+check "release gate renders conflicts" "§ Conflicts" "$R2"
+check "release gate offers editing actions" "4 — Edit deployment actions" "$R2"
+before "release: before-deploy walk precedes the tag" "PHASE=before" "git tag -a" "$R2"
+R4=skills/n1-release/steps/04-report.md
+check "release has Step 8b" "^# Step 8b: After-deploy Actions" "$R4"
+check "release asks when no deploy was watched" "§ Unwatched Deploy" "$R4"
+before "release: after-deploy follows the deploy watch" "Deployment succeeded" "PHASE=after" "$R4"
+check "release: disabled deploy watch still reaches Step 8b" 'Deploy watch disabled\." Go to Step 8b' "$R4"
+
 exit $FAIL
