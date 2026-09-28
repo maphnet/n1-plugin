@@ -160,7 +160,7 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    if [ -f "$N1_HOME/pending-releases.json" ]; then
      for s in $(jq -r '.pending[].merged_sha // empty' "$N1_HOME/pending-releases.json" 2>/dev/null); do
        [[ "$s" =~ ^[0-9a-f]{7,40}$ ]] || continue
-       PRS="$PRS $(gh pr list --state merged --search "$s" --json number --jq '.[].number' 2>/dev/null)"
+       PRS="$PRS $(gh api "repos/{owner}/{repo}/commits/$s/pulls" --jq '.[] | select(.merged_at) | .number' 2>/dev/null)"
      done
    fi
    echo "release-prs:$(printf '%s\n' $PRS | grep -E '^[0-9]+$' | sort -un | tr '\n' ' ')"

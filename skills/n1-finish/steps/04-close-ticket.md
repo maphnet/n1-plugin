@@ -2,7 +2,7 @@
 
 **Delivery gate (before anything else in this step):** read `<N1_ROOT>/skills/n1-finish/steps/03b-ssh-deploy.md` and follow it. Continue below only when it says to return to Step 4. It is a no-op unless `delivery.mode` is `"ssh"`.
 
-**After-deploy actions (after the delivery gate returns; PR path only, skipped on the local-merge path):** follow `<N1_ROOT>/references/deployment-actions.md` for the merged PR `<n>`. After a Step 1 pending-deploy resume, `<n>` is unknown; find it with `gh pr list --state merged --search <SHA> --json number --jq '.[0].number'`.
+**After-deploy actions (after the delivery gate returns; PR path only, skipped on the local-merge path):** follow `<N1_ROOT>/references/deployment-actions.md` for the merged PR `<n>`. After a Step 1 pending-deploy resume, `<n>` is unknown; find it with `gh api "repos/{owner}/{repo}/commits/<SHA>/pulls" --jq '[.[] | select(.merged_at)] | .[0].number'`.
 1. § Parse with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`. `unticked:0` → continue below. `fetch-failed` → warn "Could not read PR #<n>; after-deploy actions not checked." and continue below.
 2. **Deploy confirmed.** This means the Step 3 deploy status is `succeeded`, delivery is `succeeded`, or this run resumed a pending deploy in Step 1:
    - `mode:runbook` → § Runbook with `ID=<ID>` and `SHA=<SHA>`. Do not close the ticket. Skip the rest of Step 4 and Step 5, and go to Step 6.
