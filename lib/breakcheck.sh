@@ -125,7 +125,16 @@ n1_break_check() {
         rm -f "$revert_log"; return 0
     fi
     rm -f "$revert_log"
-    if printf '%s\n' "$failed_names" | grep -qxF -- "$name"; then
+    if n1_break_check_is_test_path "$name"; then
+        # File-level runner: the parsed failure names are per-check descriptions,
+        # not the file-level name itself, so any parsed failure (or a non-zero
+        # exit already known to be paired with parsed failures) counts as red.
+        if [ -n "$failed_names" ] || [ "$rc_rev" -ne 0 ]; then
+            _n1_bc_json true "" "" red-then-green "$name" "$log"
+        else
+            _n1_bc_json true "" "" never-red "$name" "$log"
+        fi
+    elif printf '%s\n' "$failed_names" | grep -qxF -- "$name"; then
         _n1_bc_json true "" "" red-then-green "$name" "$log"
     else
         _n1_bc_json true "" "" never-red "$name" "$log"
