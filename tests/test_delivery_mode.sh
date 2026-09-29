@@ -246,7 +246,43 @@ test_wiring() {
     assert_eq "non-regression: n1-start finish gate has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-start/steps/finish.md" || true)"
 }
 
+# --- NP-240: multi-step wiring ---------------------------------------------------
+test_wiring_multi_step() {
+    local step="$REPO_ROOT/skills/n1-finish/steps/03b-ssh-deploy.md" ms
+    ms=$(section "$step" '## Multi-step execute')
+    assert_eq "multi-step wiring: execute branch forks on the shape" "yes" \
+        "$(section "$step" '## Execute branch' | grep -qF 'n1_delivery_is_multi_step' && echo yes || echo no)"
+    assert_eq "multi-step wiring: section exists" "yes" "$([ -n "$ms" ] && echo yes || echo no)"
+    assert_eq "multi-step wiring: classifies with the helper" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'n1_delivery_step <K>' && echo yes || echo no)"
+    assert_eq "multi-step wiring: runs the extracted file, never re-typed text" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'bash "$CMDF"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: shows the command with cat" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'cat "$N1_HOME/memory/<ID>/deploy-step.cmd"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: per-step unconditional gate" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'ask the user for every step' && echo yes || echo no)"
+    assert_eq "multi-step wiring: runs in the merge-SHA checkout" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'git worktree add -q --detach "$DEPLOY_DIR" "<SHA>"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: checkout is removed" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: abort writes a remaining-steps runbook" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'n1_delivery_runbook "<ID>" "<SHA>" <K>' && echo yes || echo no)"
+    assert_eq "multi-step wiring: resume reads deploy_next_step" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'deploy_next_step' && echo yes || echo no)"
+    assert_eq "multi-step wiring: verify runs once" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'bash -c "$VERIFY_CMD"' && echo yes || echo no)"
+    assert_eq "multi-step wiring: failure comment keeps output local" "yes" \
+        "$(printf '%s' "$ms" | grep -qF 'kept locally in N1 memory' && echo yes || echo no)"
+    assert_eq "multi-step wiring: no command interpolation in comments" "0" \
+        "$(printf '%s' "$ms" | grep -c '<command>' || true)"
+    assert_eq "multi-step wiring: runbook branch forbids steps too" "yes" \
+        "$(section "$step" '## Runbook branch' | grep -qF 'delivery.steps' && echo yes || echo no)"
+    assert_eq "multi-step wiring: SKILL.md documents delivery.steps" "yes" \
+        "$(grep -qF '.delivery.steps' "$REPO_ROOT/skills/n1-finish/SKILL.md" && echo yes || echo no)"
+}
+
 test_wiring
+test_wiring_multi_step
 test_action
 test_action_no_jq
 test_runbook_never_executes

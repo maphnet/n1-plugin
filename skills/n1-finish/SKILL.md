@@ -10,7 +10,7 @@ effort: low
 
 ## Overview
 
-Complete the development cycle after the PR/CI stage: confirm the PR is merged (or merge it when `finishWork.mergeOnFinish` is enabled), optionally watch the deployment workflow triggered by the merge commit, optionally deploy to the project's host with `delivery.command` (asks first, interactive runs only), move the tracker ticket to Done, and clean up the branch/worktree.
+Complete the development cycle after the PR/CI stage: confirm the PR is merged (or merge it when `finishWork.mergeOnFinish` is enabled), optionally watch the deployment workflow triggered by the merge commit, optionally deploy to the project's host with `delivery.command` or the ordered `delivery.steps` list (asks first, interactive runs only), move the tracker ticket to Done, and clean up the branch/worktree.
 
 The ticket is closed **only when the code is actually merged** — never on green-CI-but-open.
 
@@ -41,6 +41,7 @@ Read the `finishWork` block via `n1_config_val`, applying defaults when keys are
 | `.finishWork.waitForMergeMinutes` | `10` |
 | `.delivery.mode` | `null` (`"ssh"` enables the delivery deploy at the start of Step 4; any other value is off) |
 | `.delivery.command` | `null` (project-owned deploy command, run with confirmation in interactive runs only) |
+| `.delivery.steps` | `null` (NP-240: ordered deploy steps, each `` `<command>` `` or `Manual: <text>`; used only when `.delivery.command` is empty; every step is confirmed before it runs, interactive runs only; resume point kept in overview `deploy_next_step`) |
 | `.delivery.verifyCommand` | `null` (optional post-deploy check; exit code 0 = verified) |
 | `.localTesting.mode` | `null` (infer from startCommand) |
 | `.localTesting.smokeEndpoint` | `null` |

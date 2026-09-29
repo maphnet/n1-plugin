@@ -30,6 +30,6 @@
    - `"PR merged: <PR URL>"` (deploy not watched)
    - `"PR merged: <PR URL>. Deployment succeeded: <run URL>"` (deploy watched)
    - `"Merged locally into <defaultBranch>, push pending."` (local merge path)
-   When the delivery step deployed, append ` Deployed via delivery.command (<verified | not verified>).` to the chosen comment.
+   When the delivery step deployed, append ` Deployed via delivery.<command | steps> (<verified | not verified>).` to the chosen comment.
    When `operations.getComments` exists, check recent comments first and skip if an identical comment is already present (idempotent re-run); otherwise add best-effort once.
 3. Tracker failures: **warn, never block** — the merge already happened. Record the failure in the report.
