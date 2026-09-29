@@ -511,17 +511,63 @@ n1_delivery_action() {
     printf 'execute'
 }
 
+n1_delivery_is_multi_step() {
+    # NP-240. Prints true when delivery is an ordered delivery.steps list (an array, even an
+    # empty one) and delivery.command is empty; false otherwise. command wins when both are
+    # set: a hand-edited dual config degrades to the older single-command path.
+    # Needs jq; prints false without it (n1_delivery_action already forces runbook then).
+    local f
+    f=$(n1_config_file)
+    if ! command -v jq >/dev/null 2>&1 || [ ! -f "$f" ]; then printf 'false'; return 0; fi
+    jq -r 'if ((.delivery.command // "") == "") and ((.delivery.steps | type) == "array")
+           then "true" else "false" end' "$f" 2>/dev/null || printf 'false'
+}
+
+n1_delivery_step() {
+    # NP-240. Usage: n1_delivery_step <index> <cmd-file>
+    # Classifies delivery.steps[index] with the references/deployment-actions.md grammar:
+    # "Manual:" prefix -> manual; starts with a backtick, exactly two backticks, non-empty
+    # command -> shell; anything else -> manual. Line 1: shell | manual | end; lines 2+:
+    # the item text. shell writes the extracted command to <cmd-file> so the bytes shown and
+    # the bytes run are identical. NEVER executes anything. Needs jq (execute branch only).
+    local idx="$1" out="$2" f n item nbt cmd=""
+    rm -f "$out"
+    case "$idx" in ''|*[!0-9]*) printf 'end\n'; return 0 ;; esac
+    if [ "$(n1_delivery_is_multi_step)" != "true" ]; then printf 'end\n'; return 0; fi
+    f=$(n1_config_file)
+    n=$(jq -r '.delivery.steps | length' "$f" 2>/dev/null)
+    case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    if [ "$idx" -ge "$n" ]; then printf 'end\n'; return 0; fi
+    item=$(jq -r --argjson i "$idx" '.delivery.steps[$i] | if type == "string" then . else tojson end' "$f" 2>/dev/null)
+    nbt=$(printf '%s' "$item" | tr -dc '`' | wc -c)
+    case "$item" in
+        'Manual:'*) ;;
+        '`'*) if [ "$nbt" -eq 2 ]; then cmd=$(printf '%s' "$item" | awk -F'`' '{ printf "%s", $2 }'); fi ;;
+    esac
+    if [ -n "$cmd" ]; then
+        printf '%s' "$cmd" > "$out"
+        printf 'shell\n%s\n' "$item"
+    else
+        printf 'manual\n%s\n' "$item"
+    fi
+}
+
 n1_delivery_runbook() {
-    # NP-219. Usage: n1_delivery_runbook <ID> [merge-sha]
+    # NP-219. Usage: n1_delivery_runbook <ID> [merge-sha] [first-step]
     # Writes $N1_HOME/memory/<ID>/runbook.md with the configured deploy/verify commands and
     # sets overview.md deploy_pending: true (+ deploy_merge_sha when the merge already
     # happened, so `n1-finish <ID>` skips straight to the deploy). NEVER executes either
     # command. Prints the runbook path. Needs frontmatter.sh (loaded by the preamble).
-    local id="$1" sha="${2:-}" dir ov cmd verify
+    # NP-240: with delivery.steps, lists the steps from index <first-step> (default 0) and
+    # records it as overview deploy_next_step, so a resumed walk starts there and steps
+    # that already ran are never offered again.
+    local id="$1" sha="${2:-}" first="${3:-0}" dir ov cmd verify multi
+    case "$first" in ''|*[!0-9]*) first=0 ;; esac
     dir="$N1_HOME/memory/$id"; ov="$dir/overview.md"
     mkdir -p "$dir"
     cmd=$(n1_config_val '.delivery.command')
     verify=$(n1_config_val '.delivery.verifyCommand')
+    multi=$(n1_delivery_is_multi_step)
     {
         printf '# Deploy runbook: %s\n\n' "$id"
         if [ -n "$sha" ]; then
@@ -529,8 +575,19 @@ n1_delivery_runbook() {
         else
             printf 'Not merged yet. `n1-finish %s` confirms (or performs) the merge first, then deploys.\n\n' "$id"
         fi
-        printf 'Run interactively: `n1-finish %s`. It asks to confirm, runs the deploy, runs the verify command, and closes the ticket on success.\n\n' "$id"
-        printf 'Deploy command:\n\n```\n%s\n```\n' "$cmd"
+        if [ "$multi" = "true" ]; then
+            printf 'Run interactively: `n1-finish %s`. It asks before each step, starting at step %s, runs the verify command, and closes the ticket on success.\n\n' "$id" "$((first + 1))"
+            printf 'Deploy steps (`Manual:` steps are done by hand; the others are shell commands):\n\n'
+            jq -r --argjson f "$first" '.delivery.steps | to_entries[] | select(.key >= $f)
+                | "\(.key + 1). \(.value | if type == "string" then . else tojson end)"' "$(n1_config_file)" 2>/dev/null
+        else
+            printf 'Run interactively: `n1-finish %s`. It asks to confirm, runs the deploy, runs the verify command, and closes the ticket on success.\n\n' "$id"
+            if [ -n "$cmd" ]; then
+                printf 'Deploy command:\n\n```\n%s\n```\n' "$cmd"
+            else
+                printf 'Deploy: not rendered here (jq is unavailable or delivery has no command). See `delivery` in the N1 config.json.\n'
+            fi
+        fi
         if [ -n "$verify" ]; then
             printf '\nVerify command:\n\n```\n%s\n```\n' "$verify"
         fi
@@ -538,6 +595,7 @@ n1_delivery_runbook() {
     if [ ! -f "$ov" ]; then printf -- '---\n---\n' > "$ov"; fi
     n1_write_frontmatter "$ov" deploy_pending true
     if [ -n "$sha" ]; then n1_write_frontmatter "$ov" deploy_merge_sha "$sha"; fi
+    if [ "$multi" = "true" ]; then n1_write_frontmatter "$ov" deploy_next_step "$first"; fi
     printf '%s\n' "$dir/runbook.md"
 }
 
