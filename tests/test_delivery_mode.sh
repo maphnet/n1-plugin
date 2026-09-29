@@ -222,6 +222,12 @@ test_wiring() {
     assert_eq "init: warns there is no ssh deny hook" "yes" "$(grep -qF 'no deny hook' "$init" && echo yes || echo no)"
     assert_eq "init: warns delivery commands must not contain secrets" "yes" \
         "$(grep -qF 'must not contain secrets' "$init" && echo yes || echo no)"
+    assert_eq "init: offers multi-step delivery" "yes" "$(grep -qF '"steps": [' "$init" && echo yes || echo no)"
+    assert_eq "init: empty command offers steps instead of a plain skip" "yes" \
+        "$(grep -qF 'No single deploy command?' "$init" && echo yes || echo no)"
+    assert_eq "init: step grammar explained" "yes" "$(grep -qF 'saved as a manual step' "$init" && echo yes || echo no)"
+    assert_eq "init: reconfiguration shows steps" "yes" "$(grep -qF 'steps         →' "$init" && echo yes || echo no)"
+    assert_eq "init: never writes both shapes" "yes" "$(grep -qF 'Never write both' "$init" && echo yes || echo no)"
     # SEC-1/SEC-2: failure/pending tracker comments never carry command text or raw output.
     assert_eq "wiring: deploy-failed comment has no command interpolation" "0" \
         "$(section "$step" '## Execute branch' | grep -c '<command>' || true)"
