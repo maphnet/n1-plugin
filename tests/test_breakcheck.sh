@@ -170,6 +170,7 @@ rm -rf "$T7" "$T8"
 n1_break_check_is_test_path "tests/test_app.py" && echo "PASS: tests/ path" && PASS=$((PASS+1)) || { echo "FAIL: tests/ path"; FAIL=$((FAIL+1)); }
 n1_break_check_is_test_path "src/calc.spec.ts" && echo "PASS: spec path" && PASS=$((PASS+1)) || { echo "FAIL: spec path"; FAIL=$((FAIL+1)); }
 n1_break_check_is_test_path "src/calc.ts" && { echo "FAIL: src path"; FAIL=$((FAIL+1)); } || { echo "PASS: src path"; PASS=$((PASS+1)); }
+n1_break_check_is_test_path "test_wiring.sh" && echo "PASS: bare .sh test path" && PASS=$((PASS+1)) || { echo "FAIL: bare .sh test path"; FAIL=$((FAIL+1)); }
 
 rm -rf "$T1" "$T2" "$T3" "$T4" "$T5" "$T6"
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
