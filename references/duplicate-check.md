@@ -35,10 +35,10 @@ Read every value from the command output above. **Skip silently** (no output, `D
 From `TEXT`, extract 3-6 distinctive keywords: component, feature, file, command, or error names. Drop stopwords, generic verbs (add, fix, update, support, improve), the project key, and any `<service> |` tagging prefix. Sanitize each keyword to `[A-Za-z0-9._/-]` plus inner spaces (strip `"`, `(`, `)`, `\`, `{`, `}`, and any other query operator); drop a keyword that sanitizes to empty. Quote multi-word keywords.
 
 Call `mcp__<TRACKER_MCP>__<SEARCH_OP>`, limited to 10 results:
-- **YouTrack:** query `project: <PROJECT_KEY> ({kw1} or {kw2} or {kw3} ...)`, each keyword braced (aligned with the queue intake precedent).
+- **YouTrack:** query `project: <PROJECT_KEY> and ("<kw1>" or "<kw2>" or "<kw3>" ...)`, each keyword double-quoted (bare juxtaposition against a parenthesized group and brace-quoting both 400 in YouTrack).
 - **Jira:** JQL `project = <PROJECT_KEY> AND (text ~ "<kw1>" OR text ~ "<kw2>" OR ...) ORDER BY updated DESC`, `maxResults: 10`, and include `cloudId` when set.
 
-Remove `SELF_ID` from the hits, then drop any hit whose ID does not start with `<PROJECT_KEY>-`. If the search call errors, skip silently. Write nothing so a later resume retries.
+Remove `SELF_ID` from the hits, then drop any hit whose ID does not start with `<PROJECT_KEY>-`. If the YouTrack search call errors, retry once with a simpler query `project: <PROJECT_KEY> <kw1>` (single strongest keyword, bare juxtaposition); if that also errors, skip silently. If the Jira search call errors, skip silently. Write nothing so a later resume retries.
 
 ### 3. Classify (inline)
 

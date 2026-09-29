@@ -14,7 +14,7 @@ n1_break_check_is_test_path() {
     esac
     local b; b=$(basename "$p")
     case "$b" in
-        test_*.py|*_test.py|*.test.*|*.spec.*|*_test.go|*Test.java|*Tests.cs|*_spec.rb) return 0 ;;
+        test_*.py|*_test.py|*.test.*|*.spec.*|*_test.go|*Test.java|*Tests.cs|*_spec.rb|test_*.sh|*_test.sh) return 0 ;;
     esac
     return 1
 }
@@ -30,7 +30,7 @@ _n1_bc_json() {  # success error_kind error_msg verdict named_test log
 
 _n1_bc_run() {  # cmd log repo_dir → appends output to log, returns runner exit code
     local cmd="$1" log="$2" dir="$3"
-    ( cd "$dir" && timeout "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) >> "$log" 2>&1
+    ( cd "$dir" && timeout -k 30 "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) >> "$log" 2>&1
 }
 
 # _n1_bc_exclude_log <log_abs> <repo_dir_abs>
@@ -90,7 +90,7 @@ n1_break_check() {
         fi
     done <<< "$nontest"
     local rc_rev=0
-    ( cd "$dir" && timeout "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) > "$revert_log" 2>&1 || rc_rev=$?
+    ( cd "$dir" && timeout -k 30 "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) > "$revert_log" 2>&1 || rc_rev=$?
     cat "$revert_log" >> "$log"
 
     echo "=== restore ===" >> "$log"
@@ -111,7 +111,7 @@ n1_break_check() {
         _n1_bc_json false inconclusive "tree or suite not green after restore; inspect log" inconclusive "$name" "$log"
         rm -f "$revert_log"; return 0
     fi
-    if [ "$rc_rev" -eq 124 ]; then
+    if [ "$rc_rev" -eq 124 ] || [ "$rc_rev" -eq 137 ]; then  # 137 = SIGKILL after -k grace
         _n1_bc_json false timeout "reverted run exceeded timeout" inconclusive "$name" "$log"
         rm -f "$revert_log"; return 0
     fi
@@ -125,7 +125,15 @@ n1_break_check() {
         rm -f "$revert_log"; return 0
     fi
     rm -f "$revert_log"
-    if printf '%s\n' "$failed_names" | grep -qxF -- "$name"; then
+    if n1_break_check_is_test_path "$name"; then
+        # File-level runner: the parsed failure names are per-check descriptions,
+        # not the file-level name itself, so any parsed failure counts as red.
+        if [ -n "$failed_names" ]; then
+            _n1_bc_json true "" "" red-then-green "$name" "$log"
+        else
+            _n1_bc_json true "" "" never-red "$name" "$log"
+        fi
+    elif printf '%s\n' "$failed_names" | grep -qxF -- "$name"; then
         _n1_bc_json true "" "" red-then-green "$name" "$log"
     else
         _n1_bc_json true "" "" never-red "$name" "$log"

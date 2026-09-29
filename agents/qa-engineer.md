@@ -159,7 +159,7 @@ Last output:
 
     {last ~10 lines of runner stdout/stderr from Step 6}
 
-{Rules: `Regression test:` appears exactly once on bug tickets and names the test that fails without the fix. One `New test:` line per test written in Step 5; omit when none. The test_name must be the identifier the runner prints on failure (pytest function name, jest/vitest `it` title, go Test function). Allowed substitute when no test suite exists: "No test suite exists — no runner invoked"}
+{Rules: `Regression test:` appears exactly once on bug tickets and names the test that fails without the fix. One `New test:` line per test written in Step 5; omit when none. The test_name must be the identifier the runner prints on failure (pytest function name, jest/vitest `it` title, go Test function). Allowed substitute when no test suite exists: "No test suite exists — no runner invoked". The `Runner command:` must exit non-zero when any sub-test fails — never a shape like `for f in ...; do cmd || echo "FAILED: $f"; done`, whose loop exit status masks the failures it logs. Use explicit accumulation instead, e.g. `f=0; for f in ...; do cmd || f=1; done; exit $f`.}
 
 ### Defects Found
 - {list of production bugs revealed by tests, or "None"}

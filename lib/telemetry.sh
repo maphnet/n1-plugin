@@ -109,6 +109,34 @@ n1_read_lock() {
     N1_LOCK_TICKET_ID=$(basename "$(dirname "$N1_LOCK_TELEM_DIR")")
 }
 
+# n1_run_has_pending_agent <agents_file>
+# True if a background agent's "start" event has no matching "stop" event yet —
+# i.e. the run is paused waiting on it, not abandoned. Missing/empty file => false.
+n1_run_has_pending_agent() {
+    local agents_file="$1"
+    [ -s "$agents_file" ] || return 1
+
+    if command -v jq >/dev/null 2>&1; then
+        local pending
+        pending=$(jq -s -r '
+            group_by(.agent_id) |
+            any(.[]; (map(select(.event == "start")) | length) > 0
+                and (map(select(.event == "stop")) | length) == 0)
+        ' "$agents_file" 2>/dev/null || echo false)
+        [ "$pending" = "true" ]
+    else
+        local started stopped id
+        started=$(grep '"event"[[:space:]]*:[[:space:]]*"start"' "$agents_file" 2>/dev/null | \
+            grep -o '"agent_id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/')
+        stopped=$(grep '"event"[[:space:]]*:[[:space:]]*"stop"' "$agents_file" 2>/dev/null | \
+            grep -o '"agent_id"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/')
+        for id in $started; do
+            printf '%s\n' "$stopped" | grep -qxF "$id" || return 0
+        done
+        return 1
+    fi
+}
+
 n1_remove_run_lock() {
     local tdir="$1" run="$2" pointer="$1/telemetry.lock"
     case "$run" in ''|*[!a-zA-Z0-9_-]*) return 1;; esac

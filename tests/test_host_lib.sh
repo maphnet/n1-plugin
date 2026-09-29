@@ -24,6 +24,15 @@ assert_eq "host.json ignored when CLAUDE_PLUGIN_ROOT set" "claude-code" "$(CLAUD
 assert_eq "N1_HOST=unknown falls through to CLAUDE_PLUGIN_ROOT (NP-155)" "claude-code" "$(N1_HOST=unknown CLAUDE_PLUGIN_ROOT=/y n1_host)"
 assert_eq "N1_HOST=unknown falls through to CODEX_THREAD_ID (NP-155)" "codex" "$(N1_HOST=unknown CODEX_THREAD_ID=t n1_host)"
 
+# --- session-facts fallback when no env var identifies the host (NP-228)
+export N1_STATE_DIR="$T/state"; mkdir -p "$N1_STATE_DIR/sessions"
+printf '{"host":"claude-code"}' > "$N1_STATE_DIR/sessions/sess-1.json"
+assert_eq "falls back to session facts host when no env identity (NP-228)" "claude-code" "$(N1_SESSION_ID=sess-1 n1_host)"
+printf '{"host":""}' > "$N1_STATE_DIR/sessions/sess-2.json"
+assert_eq "empty host field in session facts still yields unknown (NP-228)" "unknown" "$(N1_SESSION_ID=sess-2 n1_host)"
+assert_eq "missing session facts file yields unknown (NP-228)" "unknown" "$(N1_SESSION_ID=no-such-session n1_host)"
+unset N1_STATE_DIR
+
 # --- session id fallback (NP-211)
 assert_eq "N1_SESSION_ID wins over all" "a" "$(N1_SESSION_ID=a CODEX_THREAD_ID=b CODEX_SESSION_ID=c CLAUDE_CODE_SESSION_ID=d n1_session_id)"
 assert_eq "CODEX_THREAD_ID beats CODEX_SESSION_ID and CLAUDE_CODE_SESSION_ID" "b" "$(CODEX_THREAD_ID=b CODEX_SESSION_ID=c CLAUDE_CODE_SESSION_ID=d n1_session_id)"

@@ -19,8 +19,7 @@ n1_read_frontmatter() {
 n1_write_frontmatter() {
     local file="$1" key="$2" value="$3"
     [ -f "$file" ] || return 1
-    local cr=$'\r'
-    head -1 "$file" | grep -Eq "^---${cr}?\$" || return 1
+    head -1 "$file" | awk '/^---\r?$/ { found=1 } END { exit !found }' || return 1
     # Unique temp per call (NP-206): concurrent writers never share a temp inode.
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
     awk -v key="$key" -v val="$value" '

@@ -39,4 +39,7 @@ check "headless claude -p literal" 'claude -p'
 check "worktree directory literal" '\.claude/worktrees'
 check "manifest version read through plugin root" 'N1_ROOT/\.claude-plugin/plugin\.json|N1_ROOT>/\.claude-plugin'
 
+# NP-229: json_val is not defined anywhere in lib/; the real helper is n1_config_val.
+check "json_val is undefined (use n1_config_val)" '(^|[^a-zA-Z_])json_val([^a-zA-Z_]|$)'
+
 exit $FAIL

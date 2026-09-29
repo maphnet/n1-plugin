@@ -87,7 +87,7 @@ release_backstop() {
     local rel_repo rel_log
     rel_repo=$(awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/,"",$5)} $2 ~ /^[0-9]+$/ {print $5; exit}' "$QUEUE")
     rel_log="$(dirname "$QUEUE")/release.$RUN_ID.log"
-    timeout 300 bash -c "$(n1_queue_release_cmd "$QUEUE_ID" "$rel_repo" "$rel_log")" >>"$rel_log" 2>&1 || true
+    timeout -k 30 300 bash -c "$(n1_queue_release_cmd "$QUEUE_ID" "$rel_repo" "$rel_log")" >>"$rel_log" 2>&1 || true
 }
 
 # halt <message> — record, notify, and stop the runner (exit 2).
@@ -229,9 +229,8 @@ run_sync() {
         OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" "$EXIT")
         # Still "running" after exit, or timeout -> failed
         [ "$OUTCOME" = "running" ] && OUTCOME="failed"
-        [ "$EXIT" = "124" ] && OUTCOME="failed"
         REASON=""
-        case "$EXIT" in 124|137) REASON="timeout" ;; esac
+        case "$EXIT" in 124|137) OUTCOME="failed"; REASON="timeout" ;; esac
         [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="child-exit-$EXIT"
 
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" "$EXIT" "$REASON"

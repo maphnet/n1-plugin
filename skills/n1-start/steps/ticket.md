@@ -55,7 +55,8 @@ Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/renam
 **Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=start`, `TEXT` = title + description from ticket.md, `SELF_ID=<ID>`, `OVERVIEW=$N1_HOME/memory/<ID>/overview.md` (cached; skipped on resume and in queue children, which were resolved at plan time). **Stop** → end the run as the procedure says.
 
 ```bash
-TIER=$(json_val '.testCoverage.tier' "${N1_HOME}/config.json"); EST=$(json_val '.estimation.enabled' "${N1_HOME}/config.json")
-LT=$(json_val '.localTesting.enabled' "${N1_HOME}/config.json"); PR=$(json_val '.planReview.reviewPlan' "${N1_HOME}/config.json")
-echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"'"${TIER:-maintain}"'","estimation_enabled":'"${EST:-false}"',"local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":'"${PR:-true}"'}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
+source ~/.n1/preamble.sh
+CFG_TIER=$(n1_config_val '.testCoverage.tier' "${N1_HOME}/config.json"); EST=$(n1_config_val '.estimation.enabled' "${N1_HOME}/config.json")
+LT=$(n1_config_val '.localTesting.enabled' "${N1_HOME}/config.json"); PR=$(n1_config_val '.planReview.reviewPlan' "${N1_HOME}/config.json")
+echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"'"${CFG_TIER:-maintain}"'","estimation_enabled":'"${EST:-false}"',"local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":'"${PR:-true}"'}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
 ```

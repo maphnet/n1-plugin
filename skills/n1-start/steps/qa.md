@@ -35,7 +35,7 @@ if [ "${VERIFY_GATE}" = "true" ]; then
     RUNNER_CMD=$(grep "^Runner command:" "$N1_HOME/memory/$ID/qa.md" | sed 's/Runner command: //' | tr -d '`')
     if [ -z "$RUNNER_CMD" ]; then n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "QA verifyGate skipped: no 'Runner command:' in qa.md"
     else
-        VERIFY_LOG="$N1_HOME/memory/$ID/qa-verify.log"; eval "$RUNNER_CMD" > "$VERIFY_LOG" 2>&1; ACTUAL_EXIT=$?
+        VERIFY_LOG="$N1_HOME/memory/$ID/qa-verify.log"; env -i HOME="$HOME" PATH="$PATH" bash -c "$RUNNER_CMD" > "$VERIFY_LOG" 2>&1; ACTUAL_EXIT=$?
         REPORTED_EXIT=$(grep "^Exit code:" "$N1_HOME/memory/$ID/qa.md" | head -1 | grep -o '[0-9]*' | head -1)
         [ "$ACTUAL_EXIT" != "$REPORTED_EXIT" ] && { n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "QA verifyGate mismatch: reported ${REPORTED_EXIT}, actual ${ACTUAL_EXIT}. Log: $VERIFY_LOG"; n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified" "true"; QA_DEGRADED=1; }
     fi
@@ -52,12 +52,12 @@ TESTS_ADDED=$(n1_read_signal "$N1_HOME/memory/$ID/qa.md" "tests_added"); TESTS_A
 BP_FILE="$N1_HOME/memory/$ID/branch-point"; BC_BASE=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' 'main' )
 BC_LOG="$N1_HOME/memory/$ID/break-check.log"; BREAK_CHECK_TQ=""; BC_VERDICT="skipped"
 REG_LINE=$(grep -m1 '^Regression test:' "$N1_HOME/memory/$ID/qa.md" || true)
-REG_NAME=$(echo "$REG_LINE" | sed 's/^Regression test: *//; s/ *|.*//'); REG_CMD=$(echo "$REG_LINE" | sed 's/^[^|]*| *//' | tr -d '`')
+REG_NAME=$(echo "$REG_LINE" | sed 's/^Regression test: *//; s/ *|.*//' | tr -d '`'); REG_CMD=$(echo "$REG_LINE" | sed 's/^[^|]*| *//' | tr -d '`')
 if [ -z "$REG_NAME" ] || [ -z "$REG_CMD" ]; then BC_JSON='{"success":false,"error":{"kind":"inconclusive","message":"qa.md has no Regression test: line"},"verdict":"inconclusive"}'
 else BC_JSON=$(n1_break_check "$BC_BASE" "$REG_CMD" "$REG_NAME" "$BC_LOG" "<worktree dir>" || true); fi
 BC_VERDICT=$(echo "$BC_JSON" | jq -r '.verdict // "inconclusive"'); BC_MSG=$(echo "$BC_JSON" | jq -r '.error.message // empty')
 grep '^New test:' "$N1_HOME/memory/$ID/qa.md" | head -n "$BC_MAX" | while IFS= read -r line; do
-    N=$(echo "$line" | sed 's/^New test: *//; s/ *|.*//'); C=$(echo "$line" | sed 's/^[^|]*| *//' | tr -d '`')
+    N=$(echo "$line" | sed 's/^New test: *//; s/ *|.*//' | tr -d '`'); C=$(echo "$line" | sed 's/^[^|]*| *//' | tr -d '`')
     echo "$N $(n1_break_check "$BC_BASE" "$C" "$N" "$BC_LOG.$N" "<worktree dir>" 2>/dev/null | jq -r '.verdict // "inconclusive"')"
 done > "$N1_HOME/memory/$ID/break-check.new-tests"
 BREAK_CHECK_TQ=$(awk '$2 != "red-then-green" {print $1" ("$2")"}' "$N1_HOME/memory/$ID/break-check.new-tests")

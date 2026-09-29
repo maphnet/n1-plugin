@@ -295,7 +295,10 @@ def main() -> int:
     for ev in step_events:
         if ev.get('layer') == 'envelope':
             envelope_open = {**ev, **envelope_open}
-    envelope_close = next((ev for ev in step_events if ev.get("layer") == "envelope_close"), {})
+    envelope_close_events = [ev for ev in step_events if ev.get("layer") == "envelope_close"]
+    # A later record (e.g. a genuine outcome written after a stray/incorrect
+    # earlier one) reflects the true final state, so the last one wins.
+    envelope_close = envelope_close_events[-1] if envelope_close_events else {}
     # The opening envelope is the run's immutable identity. A later hook may
     # add completion data, but cannot relabel the host/session it started on.
     envelope = {**envelope_close, **envelope_open}

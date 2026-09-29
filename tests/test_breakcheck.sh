@@ -112,10 +112,65 @@ set +e; OUT=$(n1_break_check base "$CMD" test_extra "$T6/bc.log" "$T6"); RC=$?; 
 assert_eq "no-diff exit" "2" "$RC"
 assert_eq "no-diff kind" "no-diff" "$(echo "$OUT" | jq -r .error.kind)"
 
+make_shell_repo() {  # $1 = dir — shell-harness style runner ("check <description> <expr>")
+    git -C "$1" init -q; git -C "$1" config user.email t@t; git -C "$1" config user.name t
+    mkdir -p "$1/tests"
+    cat > "$1/app.sh" <<'EOF'
+add() { if [ "$1" -ge 0 ]; then echo $(( $1 + $2 )); else echo 0; fi; }  # bug: negatives collapse to 0
+EOF
+    cat > "$1/run_tests.sh" <<'EOF'
+#!/usr/bin/env bash
+FAIL=0
+check() { if eval "$2"; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi; }
+source ./app.sh
+source ./tests/test_wiring.sh
+exit $FAIL
+EOF
+    cat > "$1/tests/test_wiring.sh" <<'EOF'
+check "add positive" '[ "$(add 1 2)" = "3" ]'
+EOF
+    git -C "$1" add -A; git -C "$1" commit -qm base
+    git -C "$1" branch -q base
+}
+
+fix_shell_repo() {  # $1 = dir, $2 = check line to append (description differs from the file-level name)
+    cat > "$1/app.sh" <<'EOF'
+add() { echo $(( $1 + $2 )); }
+EOF
+    printf '%s\n' "$2" >> "$1/tests/test_wiring.sh"
+    git -C "$1" add -A; git -C "$1" commit -qm fix
+}
+
+SHELL_CMD='bash run_tests.sh'
+
+# Case 7: file-level shell-harness runner, check description differs from the file name,
+# genuinely red on base (bug clamps negatives) → red-then-green
+T7=$(mktemp -d); make_shell_repo "$T7"
+LINE7=$(cat <<'RAWEOF'
+check "add handles negatives" '[ "$(add -1 2)" = "1" ]'
+RAWEOF
+)
+fix_shell_repo "$T7" "$LINE7"
+OUT=$(n1_break_check base "$SHELL_CMD" tests/test_wiring.sh "$T7/bc.log" "$T7")
+assert_eq "shell-harness file-level verdict" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 8: same shape but hollow — would pass on base too → never-red
+T8=$(mktemp -d); make_shell_repo "$T8"
+LINE8=$(cat <<'RAWEOF'
+check "add handles two ones" '[ "$(add 1 1)" = "2" ]'
+RAWEOF
+)
+fix_shell_repo "$T8" "$LINE8"
+OUT=$(n1_break_check base "$SHELL_CMD" tests/test_wiring.sh "$T8/bc.log" "$T8")
+assert_eq "shell-harness hollow verdict" "never-red" "$(echo "$OUT" | jq -r .verdict)"
+
+rm -rf "$T7" "$T8"
+
 # Test path classifier
 n1_break_check_is_test_path "tests/test_app.py" && echo "PASS: tests/ path" && PASS=$((PASS+1)) || { echo "FAIL: tests/ path"; FAIL=$((FAIL+1)); }
 n1_break_check_is_test_path "src/calc.spec.ts" && echo "PASS: spec path" && PASS=$((PASS+1)) || { echo "FAIL: spec path"; FAIL=$((FAIL+1)); }
 n1_break_check_is_test_path "src/calc.ts" && { echo "FAIL: src path"; FAIL=$((FAIL+1)); } || { echo "PASS: src path"; PASS=$((PASS+1)); }
+n1_break_check_is_test_path "test_wiring.sh" && echo "PASS: bare .sh test path" && PASS=$((PASS+1)) || { echo "FAIL: bare .sh test path"; FAIL=$((FAIL+1)); }
 
 rm -rf "$T1" "$T2" "$T3" "$T4" "$T5" "$T6"
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
