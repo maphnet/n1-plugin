@@ -25,10 +25,13 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 
 `STALE=no`: go to § Launch.
 
-`STALE=yes` (planned more than `STALE_HOURS` hours ago, or age unknown): re-validate every Plan row with Status `pending`:
+`STALE=yes` (planned more than `STALE_HOURS` hours ago, or age unknown): re-validate every Plan row with Status `pending`, one row at a time, in this order (cheapest exclusion first, so a row headed for skip/exclude never pays for a later check on itself):
 1. Call `mcp__<TRACKER_MCP>__<READ_OP>` for the ticket.
-2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed"` (fixed literal: a status name can contain quotes). Record the new status in the change summary.
-3. Otherwise clear the row's scratch files first, so a failed write below never leaves the stale plan snapshot to hash as `SAME`:
+2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed"` (fixed literal: a status name can contain quotes). Record the new status in the change summary. Continue to the next row.
+3. **Blocker check (unconditional, every pending row that survived step 2):** follow intake.md § Blocker check for this ticket. Blocked -> `n1_queue_row_status "$QUEUE_FILE" <#> skip "blocked by <ID>"`, record in the change summary, continue to the next row.
+4. **Duplicate check (unconditional, every pending row that survived step 3, fresh search):** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue-plan`, `TEXT` = this ticket's title + description, `SELF_ID=<KEY>`, `OVERVIEW` empty. `DUP_CHOICE=exclude` -> move the row to Excluded with reason `duplicate: <HIT_IDs> (plan)`, drop its `## Decisions` row, continue to the next row. Otherwise (`continue` or `link`) record Notes `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>` via `n1_queue_decisions_write_row` and keep going.
+5. **Touches extraction (unconditional, every pending row that survived step 4):** follow preview.md § Plan-Resolve 3's Touches list only (not its `n1_queue_overlap_order` reorder call — that runs once, globally, after every row below). Write the row's `## Decisions` Touches cell immediately via `n1_queue_decisions_write_row`.
+6. Clear the row's scratch files first, so a failed write below never leaves the stale plan snapshot to hash as `SAME`:
    ```bash
    source ~/.n1/preamble.sh
    rm -f "<QUEUE_DIR>/desc/<KEY>.title" "<QUEUE_DIR>/desc/<KEY>.txt"
@@ -41,15 +44,15 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
    OLD=$(n1_queue_decisions_row "<QUEUE_DIR>/queue.md" "<KEY>" | cut -f4)
    if [ -n "$NEW" ] && [ -n "$OLD" ] && [ "$NEW" = "$OLD" ]; then echo SAME; else echo CHANGED; fi
    ```
-   `n1_queue_content_hash` fails closed (SEC-5): empty output on either side means "changed", never "no-op". `SAME`: no-op. `CHANGED`: re-plan this ticket only: intake.md § Blocker check, § Description quality and § Duplicate check (`CONTEXT=queue`) for it, then preview.md § Plan-Resolve 1 (brief when now Empty/Skeletal, then the snapshot) and § Plan-Resolve 4 for it. The row's new Desc Checksum is `n1_queue_content_hash` over the rewritten `desc/<KEY>.title`/`.txt`, so it stays post-brief like the original plan. Record what changed for this ticket, then update its `## Decisions` row via `n1_queue_decisions_write_row` and its Plan row (Status/Reason via `n1_queue_row_status`, `skip` when now excluded), passing free text as in § Write plan: from a file-written `cells.tsv` line, never a quoted literal.
+   `n1_queue_content_hash` fails closed (SEC-5): empty output on either side means "changed", never "no-op". This comparison now gates only the description-text-dependent work below (steps 3-5 above already ran unconditionally and are not gated by it). `SAME`: no-op. `CHANGED`: re-plan this ticket only: § Description quality, then preview.md § Plan-Resolve 1 (brief when now Empty/Skeletal, then the snapshot) and § Plan-Resolve 4 for it. The row's new Desc Checksum is `n1_queue_content_hash` over the rewritten `desc/<KEY>.title`/`.txt`, so it stays post-brief like the original plan. Record what changed for this ticket, then update its `## Decisions` row via `n1_queue_decisions_write_row` and its Plan row (Status/Reason via `n1_queue_row_status`, `skip` when now excluded), passing free text as in § Write plan: from a file-written `cells.tsv` line, never a quoted literal.
 
-   **Re-run overlap order globally (CR-1: the runner executes Plan rows in physical row order, so a row-local reorder is not enough).** After every changed row above is updated, collect Touches for every remaining pending row (from its `## Decisions` row; the just-updated ticket's already-fresh value) and run:
-   ```bash
-   source ~/.n1/preamble.sh
-   source "$N1_ROOT/lib/queue.sh"
-   printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap_order
-   ```
-   Rewrite the pending Plan rows (only — leave `skip`/`pr`/`escalated`/`failed`/`awaiting-human` rows exactly where they are) in the printed order and renumber their `#`. For each printed non-empty note, set that ticket's `## Decisions` Order cell (via `n1_queue_decisions_write_row`) and append ` · <note>` to its Reason. Record any reordering in the change summary below.
+**Re-run overlap order globally, after every row above is processed (CR-1: the runner executes Plan rows in physical row order, so a row-local reorder is not enough).** Collect Touches for every remaining pending row from its `## Decisions` row — always fresh, since step 5 above recomputes it for every pending row on every re-plan, independent of whether that row's hash came back `SAME` or `CHANGED` — and run:
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap_order
+```
+Rewrite the pending Plan rows (only — leave `skip`/`pr`/`escalated`/`failed`/`awaiting-human` rows exactly where they are) in the printed order and renumber their `#`. For each printed non-empty note, set that ticket's `## Decisions` Order cell (via `n1_queue_decisions_write_row`) and append ` · <note>` to its Reason. Record any reordering in the change summary below.
 
 Print "<N> ticket(s) changed since planning (<PLANNED_AT>): <KEY>: <what changed>; ..." or "Plan is older than <STALE_HOURS>h; no ticket changed." Compute `MERGE_MODE` with preview.md's first block over the Plan table's distinct `N1 Home` values, print the plan table, and ask the preview.md § Prompt question (Start / Edit / Cancel). On Start, refresh the timestamp, then go to § Launch:
 
