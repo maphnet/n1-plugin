@@ -35,7 +35,7 @@ if [ "${VERIFY_GATE}" = "true" ]; then
     RUNNER_CMD=$(grep "^Runner command:" "$N1_HOME/memory/$ID/qa.md" | sed 's/Runner command: //' | tr -d '`')
     if [ -z "$RUNNER_CMD" ]; then n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "QA verifyGate skipped: no 'Runner command:' in qa.md"
     else
-        VERIFY_LOG="$N1_HOME/memory/$ID/qa-verify.log"; eval "$RUNNER_CMD" > "$VERIFY_LOG" 2>&1; ACTUAL_EXIT=$?
+        VERIFY_LOG="$N1_HOME/memory/$ID/qa-verify.log"; env -i HOME="$HOME" PATH="$PATH" bash -c "$RUNNER_CMD" > "$VERIFY_LOG" 2>&1; ACTUAL_EXIT=$?
         REPORTED_EXIT=$(grep "^Exit code:" "$N1_HOME/memory/$ID/qa.md" | head -1 | grep -o '[0-9]*' | head -1)
         [ "$ACTUAL_EXIT" != "$REPORTED_EXIT" ] && { n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "QA verifyGate mismatch: reported ${REPORTED_EXIT}, actual ${ACTUAL_EXIT}. Log: $VERIFY_LOG"; n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified" "true"; QA_DEGRADED=1; }
     fi
