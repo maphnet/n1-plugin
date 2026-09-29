@@ -42,7 +42,7 @@ assert_contains "local-testing: QA dedup gate requires test mode" \
     'if [ -z "$NON_PYTEST" ] && [ "$LOCAL_TESTING_MODE" = "test" ]; then'
 assert_contains "qa: no inline test runs" \
     "skills/n1-start/steps/qa.md" \
-    "ORCHESTRATOR GUARDRAIL (qa): do not run tests, coverage, or lint commands in this step"
+    "ORCHESTRATOR GUARDRAIL (qa): do not run tests, coverage, or lint in this step"
 assert_contains "review: no inline test runs" \
     "skills/n1-start/steps/review.md" \
     "ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step"
