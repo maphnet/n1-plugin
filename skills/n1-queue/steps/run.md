@@ -29,24 +29,35 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 1. Call `mcp__<TRACKER_MCP>__<READ_OP>` for the ticket.
 2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed"` (fixed literal: a status name can contain quotes). Record the new status in the change summary. Continue to the next row.
 3. **Blocker check (unconditional, every pending row that survived step 2):** follow intake.md § Blocker check for this ticket. Blocked -> `n1_queue_row_status "$QUEUE_FILE" <#> skip "blocked by <ID>"`, record in the change summary, continue to the next row.
-4. **Duplicate check (unconditional, every pending row that survived step 3, fresh search):** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue-plan`, `TEXT` = this ticket's title + description, `SELF_ID=<KEY>`, `OVERVIEW` empty. `DUP_CHOICE=exclude` -> move the row to Excluded with reason `duplicate: <HIT_IDs> (plan)`, drop its `## Decisions` row, continue to the next row. Otherwise (`continue` or `link`) record Notes `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>` via `n1_queue_decisions_write_row` and keep going.
-5. **Touches extraction (unconditional, every pending row that survived step 4):** follow preview.md § Plan-Resolve 3's Touches list only (not its `n1_queue_overlap_order` reorder call — that runs once, globally, after every row below). Write the row's `## Decisions` Touches cell immediately via `n1_queue_decisions_write_row`.
-6. Clear the row's scratch files first, so a failed write below never leaves the stale plan snapshot to hash as `SAME`:
+4. **Before the duplicate check, read this row's current `## Decisions` values once (single read, reused through step 7 — `n1_queue_decisions_write_row` is a full-row replace, so every field it doesn't get must be carried forward from this read, never left blank):**
+   ```bash
+   source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/queue.sh"
+   ROW=$(n1_queue_decisions_row "$QUEUE_FILE" "<KEY>")
+   OLD_TOUCHES=$(printf '%s' "$ROW" | cut -f1)
+   OLD_ORDER=$(printf '%s' "$ROW" | cut -f2)
+   OLD_PREDECISION=$(printf '%s' "$ROW" | cut -f3)
+   OLD_CHECKSUM=$(printf '%s' "$ROW" | cut -f4)
+   OLD_NOTES=$(printf '%s' "$ROW" | cut -f5)
+   ```
+   Keep these five values (`OLD_TOUCHES`, `OLD_ORDER`, `OLD_PREDECISION`, `OLD_CHECKSUM`, `OLD_NOTES`) as this row's working values. Steps 5-7 below only update the ones they touch, carry the rest forward unchanged, and flush everything in exactly one `n1_queue_decisions_write_row` call at the end of step 7 (never a second call for the same row).
+5. **Duplicate check (unconditional, every pending row that survived step 4, fresh search):** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue-plan`, `TEXT` = this ticket's title + description, `SELF_ID=<KEY>`, `OVERVIEW` empty. `DUP_CHOICE=exclude` -> move the row to Excluded with reason `duplicate: <HIT_IDs> (plan)`, drop its `## Decisions` row, continue to the next row. Otherwise (`continue` or `link`) set `OLD_NOTES` to `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>` (not written yet) and keep going.
+6. **Touches extraction (unconditional, every pending row that survived step 5):** follow preview.md § Plan-Resolve 3's Touches list only (not its `n1_queue_overlap_order` reorder call — that runs once, globally, after every row below). Set `OLD_TOUCHES` to the result (not written yet).
+7. Clear the row's scratch files first, so a failed write below never leaves the stale plan snapshot to hash as `SAME`:
    ```bash
    source ~/.n1/preamble.sh
    rm -f "<QUEUE_DIR>/desc/<KEY>.title" "<QUEUE_DIR>/desc/<KEY>.txt"
    ```
-   Then write the fresh title and description to those same paths (file-write, as in preview.md § Plan-Resolve 1 — never through a shell string, NP-203 SEC-1) and compare its hash with the saved one:
+   Then write the fresh title and description to those same paths (file-write, as in preview.md § Plan-Resolve 1 — never through a shell string, NP-203 SEC-1) and compare its hash with the saved Desc Checksum from step 4's read:
    ```bash
    source ~/.n1/preamble.sh
    source "$N1_ROOT/lib/queue.sh"
    NEW=$(n1_queue_content_hash "<QUEUE_DIR>/desc/<KEY>.title" "<QUEUE_DIR>/desc/<KEY>.txt")
-   OLD=$(n1_queue_decisions_row "<QUEUE_DIR>/queue.md" "<KEY>" | cut -f4)
-   if [ -n "$NEW" ] && [ -n "$OLD" ] && [ "$NEW" = "$OLD" ]; then echo SAME; else echo CHANGED; fi
+   if [ -n "$NEW" ] && [ -n "$OLD_CHECKSUM" ] && [ "$NEW" = "$OLD_CHECKSUM" ]; then echo SAME; else echo CHANGED; fi
    ```
-   `n1_queue_content_hash` fails closed (SEC-5): empty output on either side means "changed", never "no-op". This comparison now gates only the description-text-dependent work below (steps 3-5 above already ran unconditionally and are not gated by it). `SAME`: no-op. `CHANGED`: re-plan this ticket only: § Description quality, then preview.md § Plan-Resolve 1 (brief when now Empty/Skeletal, then the snapshot) and § Plan-Resolve 4 for it. The row's new Desc Checksum is `n1_queue_content_hash` over the rewritten `desc/<KEY>.title`/`.txt`, so it stays post-brief like the original plan. Record what changed for this ticket, then update its `## Decisions` row via `n1_queue_decisions_write_row` and its Plan row (Status/Reason via `n1_queue_row_status`, `skip` when now excluded), passing free text as in § Write plan: from a file-written `cells.tsv` line, never a quoted literal.
+   `n1_queue_content_hash` fails closed (SEC-5): empty output on either side means "changed", never "no-op". This comparison now gates only the description-text-dependent work below (steps 3-6 above already ran unconditionally and are not gated by it). `SAME`: `OLD_CHECKSUM`, `OLD_ORDER` and `OLD_PREDECISION` stay exactly as read in step 4 (only `OLD_TOUCHES`/`OLD_NOTES` may have changed above). `CHANGED`: re-plan this ticket only: § Description quality, then preview.md § Plan-Resolve 1 (brief when now Empty/Skeletal, then the snapshot) and § Plan-Resolve 4 for it, updating `OLD_PREDECISION` and `OLD_CHECKSUM` with the results (the new checksum is `n1_queue_content_hash` over the rewritten `desc/<KEY>.title`/`.txt`, so it stays post-brief like the original plan); record what changed for this ticket. Either way, now issue exactly one `n1_queue_decisions_write_row "$QUEUE_FILE" "<KEY>" "$OLD_TOUCHES" "$OLD_ORDER" "$OLD_PREDECISION" "$OLD_CHECKSUM" "$OLD_NOTES"` call for this ticket, and update its Plan row (Status/Reason via `n1_queue_row_status`, `skip` when now excluded), passing free text as in § Write plan: from a file-written `cells.tsv` line, never a quoted literal.
 
-**Re-run overlap order globally, after every row above is processed (CR-1: the runner executes Plan rows in physical row order, so a row-local reorder is not enough).** Collect Touches for every remaining pending row from its `## Decisions` row — always fresh, since step 5 above recomputes it for every pending row on every re-plan, independent of whether that row's hash came back `SAME` or `CHANGED` — and run:
+**Re-run overlap order globally, after every row above is processed (CR-1: the runner executes Plan rows in physical row order, so a row-local reorder is not enough).** Collect Touches for every remaining pending row from its `## Decisions` row — always fresh, since step 6 above recomputes it for every pending row on every re-plan, independent of whether that row's hash came back `SAME` or `CHANGED` — and run:
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
