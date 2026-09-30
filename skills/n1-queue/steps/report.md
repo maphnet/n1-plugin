@@ -5,16 +5,16 @@
 `<ticket>` must match `^[A-Za-z][A-Za-z0-9_]*-[0-9]+$`; otherwise print "Invalid ticket id: <ticket>." **STOP.**
 ```bash
 source ~/.n1/preamble.sh
-printf 'ANSWER_FILE=%s/queue/.answer.txt\n' "$N1_HOME"
+AF="$N1_HOME/queue/.answer-<ticket>.txt"; rm -f "$AF"; printf 'ANSWER_FILE=%s\n' "$AF"
 ```
-Write `<text>` verbatim to `ANSWER_FILE` with the file-write mechanism (never through a shell string, SEC-1), then:
+Write `<text>` verbatim to the fresh `ANSWER_FILE` with the file-write mechanism (never through a shell string, SEC-1), then:
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
-n1_queue_answer "$N1_HOME" "<ticket>" "$N1_HOME/queue/.answer.txt"
+n1_queue_answer "$N1_HOME" "<ticket>" "$N1_HOME/queue/.answer-<ticket>.txt"
 ```
-Print its output verbatim. On failure add: "Not delivered; `--status` prints this ticket's attach command." **STOP.**
+Print its output verbatim (it deletes the answer file; on failure it prints the resume command). On failure add: "Not delivered." **STOP.**
 
 If a specific queue ID was given: `QUEUE_FILE="$N1_HOME/queue/<id>/queue.md"`.
 Otherwise: find the most recently modified `queue.md` under `$N1_HOME/queue/`:

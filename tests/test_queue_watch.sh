@@ -101,8 +101,11 @@ test_sessions_independent() {
 # N1-55: an escalation with a mirrored question file prints the full question; answer_delivered relays.
 test_question_mirror_and_answer_delivered() {
     local q out; q=$(newq q6)
-    printf '{"ticket":"T-1","step":"brainstorm","question":"Back-port the cron prompts?","options":["Back-port","Skip\\u001b[2J"],"recommended":"Back-port"}' \
+    printf '{"ticket":"T-1","step":"brainstorm","question":"Back-port the cron prompts?","options":["Back-port","Skip\\u001b[2J"],"recommended":"Back-port","rationale":"cron drift seen in 3 repos\\u202e"}' \
         > "$q/.question-T-1.json"
+    printf '{"ticket":"T-3","question":"Pick","options":["A","B","o3","o4","o5","o6","o7","o8","o9","o10","o11"],"recommended":"","rationale":"No recommendation. The options are equivalent given the available evidence; select based on team preference."}' \
+        > "$q/.question-T-3.json"
+    ev "$q" R1 escalated ticket=T-3 session=0000cafe reason="r"
     ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="truncated reason"
     ev "$q" R1 escalated ticket=T-2 session=0000beef reason="no file here"
     ev "$q" R1 answer_delivered ticket=T-1 session=0000abcd reason="Back-port"
@@ -113,6 +116,11 @@ test_question_mirror_and_answer_delivered() {
     has   "mirror: question" "  Q: Back-port the cron prompts?" "$out"
     has   "mirror: option" "  - Back-port" "$out"
     has   "mirror: recommended" "  Recommended: Back-port" "$out"
+    has   "mirror: recommended with rationale" "  Recommended: Back-port — cron drift seen in 3 repos" "$out"
+    lacks "mirror: bidi/C1 stripped" $'\u202e' "$out"
+    lacks "mirror: options capped at 10" "  - o11" "$out"
+    has   "mirror: no-recommendation rationale" \
+        $'  No recommendation. The options are equivalent given the available evidence; select based on team preference.\n  - A' "$out"
     lacks "mirror: control chars stripped" $'\e' "$out"
     lacks "mirror: truncated reason replaced" "needs you: truncated reason" "$out"
     has   "mirror: no file keeps one-liner" "n1-queue q6: T-2 needs you: no file here (resume: claude attach 0000beef)" "$out"

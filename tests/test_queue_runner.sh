@@ -1131,19 +1131,47 @@ test_bg_reason_bg_state_catchall() {
 test_bg_relay_marker() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked stopped missing working done"
-    touch "$tmp/.relay-T-A"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2,"notify":"none"}}' > "$tmp/n1home/config.json"
+    touch "$tmp/.relay-T-A" "$tmp/.question-T-A.json"
     run_bg_queue "$tmp" >/dev/null
     assert_eq "relay: fresh marker holds stopped/missing child" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "relay: resumed child unblocks and finishes" "ticket_started,escalated,unblocked,ticket_finished" \
         "$(jq -r 'select(.ticket=="T-A") | .event' "$tmp/events.jsonl" | paste -sd, -)"
+    assert_eq "relay: finalize removes marker + question file (CR-5)" "no" \
+        "$([ -e "$tmp/.relay-T-A" ] || [ -e "$tmp/.question-T-A.json" ] && echo yes || echo no)"
     rm -rf "$tmp"
 
+    # TTL boundary (TQ-1): just under 2 minutes holds, just past 2 minutes does not.
+    tmp=$(mktemp -d)
+    touch -d '-110 seconds' "$tmp/.relay-T-A"
+    assert_eq "relay: marker at 110s active" "yes" "$(n1_queue_relay_active "$tmp" T-A && echo yes || echo no)"
+    touch -d '-125 seconds' "$tmp/.relay-T-A"
+    assert_eq "relay: marker at 125s expired" "no" "$(n1_queue_relay_active "$tmp" T-A && echo yes || echo no)"
+    mk_bg "$tmp" bgq "T-A:blocked stopped"
+    touch -d '-125 seconds' "$tmp/.relay-T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "relay: just-expired marker -> normal finalize" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "relay: just-expired marker reason" "bg-state:failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+
+    # SEC-3: a marker kept fresh cannot hold a dead child past the subtask timeout.
     tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked stopped"
-    touch -t 200001010000 "$tmp/.relay-T-A"
+    touch -d '+1 hour' "$tmp/.relay-T-A"
     run_bg_queue "$tmp" >/dev/null
-    assert_eq "relay: stale marker -> normal finalize" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
-    assert_eq "relay: stale marker reason" "bg-state:failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "relay: refreshed marker still times out" "timeout" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+
+    # CR-1: a resumed child re-blocking on a new question before any poll sees it working is
+    # escalated again (question file newer than the relay marker).
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked stopped blocked working done"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":2,"notify":"none"}}' > "$tmp/n1home/config.json"
+    touch -d '-30 seconds' "$tmp/.relay-T-A"; touch "$tmp/.question-T-A.json"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "relay: re-block escalates twice" "ticket_started,escalated,escalated,unblocked,ticket_finished" \
+        "$(jq -r 'select(.ticket=="T-A") | .event' "$tmp/events.jsonl" | paste -sd, -)"
+    assert_eq "relay: re-block ends pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     rm -rf "$tmp"
 }
 
@@ -1330,7 +1358,7 @@ test_queue_answer() {
         printf -- '---\nqueue_id: q1\nrun_id: R1\nmode: tag\nhost: claude-code\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n| 1 | T-1 | Fix | %s | %s | sonnet | %s | |\n\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|---|---|---|---|---|---|\n| T-1 | x | | | | 0000abcd |\n' \
             "$tmp/repo" "$tmp/n1home" "$1" > "$q/queue.md"
         printf '{"ticket":"T-1","step":"brainstorm","question":"Back-port?","options":["Back-port","Skip"],"recommended":"Back-port"}' > "$q/.question-T-1.json"
-        : > "$q/events.jsonl"; rm -f "$tmp/log" "$tmp/prompt" "$tmp/fail-resume" "$q/.relay-T-1"
+        : > "$q/events.jsonl"; rm -f "$tmp/log" "$tmp/prompt" "$tmp/fail-resume" "$tmp/no-full" "$q/.relay-T-1"
         echo blocked > "$tmp/state"
     }
     cat > "$tmp/bin/claude" <<'FAKEEOF'
@@ -1338,7 +1366,8 @@ test_queue_answer() {
 L="$FAKE_DIR/log"
 case "$1" in
     agents) st=$(cat "$FAKE_DIR/state"); grep -q '^stop' "$L" 2>/dev/null && st=stopped
-            printf '[{"id":"0000abcd","sessionId":"0000abcd-1111-2222","state":"%s"}]\n' "$st" ;;
+            if [ -f "$FAKE_DIR/no-full" ]; then printf '[{"id":"0000abcd","state":"%s"}]\n' "$st"
+            else printf '[{"id":"0000abcd","sessionId":"0000abcd-1111-2222","state":"%s"}]\n' "$st"; fi ;;
     stop) echo "stop $2" >> "$L" ;;
     --bg) echo "resume $3" >> "$L"
           printf '%s' "$4" > "$FAKE_DIR/prompt"; [ ! -f "$FAKE_DIR/fail-resume" ] ;;
@@ -1346,7 +1375,7 @@ esac
 FAKEEOF
     printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
     chmod +x "$tmp/bin/claude" "$tmp/bin/sleep"
-    ans() { rc=0; out=$(FAKE_DIR="$tmp" PATH="$tmp/bin:$PATH" n1_queue_answer "$tmp/n1home" "$@" 2>&1) || rc=$?; }
+    ans() { [ -e "$tmp/ans.txt" ] || printf B > "$tmp/ans.txt"; rc=0; out=$(FAKE_DIR="$tmp" PATH="$tmp/bin:$PATH" n1_queue_answer "$tmp/n1home" "$@" 2>&1) || rc=$?; }
 
     # Happy path: hostile-looking answer reaches the child as one literal argv element.
     mkq awaiting-human
@@ -1357,6 +1386,7 @@ FAKEEOF
         "stop 0000abcd|resume 0000abcd-1111-2222" "$(paste -sd'|' "$tmp/log")"
     assert_eq "answer: prompt is prefixed literal answer" "[n1-queue answer] B; \$(touch $tmp/pwned) \"q\"" "$(cat "$tmp/prompt")"
     assert_eq "answer: never shell-interpolated" "no" "$([ -e "$tmp/pwned" ] && echo yes || echo no)"
+    assert_eq "answer: answer file deleted after read" "no" "$([ -e "$tmp/ans.txt" ] && echo yes || echo no)"
     assert_eq "answer: question file removed" "no" "$([ -e "$q/.question-T-1.json" ] && echo yes || echo no)"
     assert_eq "answer: relay marker written" "yes" "$([ -e "$q/.relay-T-1" ] && echo yes || echo no)"
     assert_eq "answer: answer_delivered event" "answer_delivered,T-1,0000abcd,R1" \
@@ -1391,7 +1421,25 @@ FAKEEOF
     assert_eq "answer: resume fail -> rc 1" "1" "$rc"
     assert_eq "answer: resume fail -> question kept" "yes" "$([ -e "$q/.question-T-1.json" ] && echo yes || echo no)"
     assert_eq "answer: resume fail -> no event" "" "$(cat "$q/events.jsonl")"
-    assert_eq "answer: resume fail -> attach hint" "yes" "$(case "$out" in *"claude attach 0000abcd"*) echo yes ;; *) echo no ;; esac)"
+    assert_eq "answer: resume fail -> interactive resume hint (session stopped)" "yes" \
+        "$(case "$out" in *"claude --resume 0000abcd-1111-2222"*) echo yes ;; *) echo no ;; esac)"
+    assert_eq "answer: resume fail -> no attach hint" "no" "$(case "$out" in *"claude attach"*) echo yes ;; *) echo no ;; esac)"
+    assert_eq "answer: resume fail -> answer file deleted" "no" "$([ -e "$tmp/ans.txt" ] && echo yes || echo no)"
+    # Retry after the failed resume: session already stopped -> resume only, no second stop.
+    rm -f "$tmp/fail-resume"
+    ans T-1 "$tmp/ans.txt"
+    assert_eq "answer: retry -> rc 0" "0" "$rc"
+    assert_eq "answer: retry -> resume only" "stop 0000abcd|resume 0000abcd-1111-2222|resume 0000abcd-1111-2222" \
+        "$(paste -sd'|' "$tmp/log")"
+
+    # Full session id unresolvable: refuse before any stop/resume, keep the question, attach hint.
+    mkq awaiting-human; touch "$tmp/no-full"
+    ans T-1 "$tmp/ans.txt"
+    assert_eq "answer: no sessionId -> rc 1" "1" "$rc"
+    assert_eq "answer: no sessionId -> no stop/resume" "no" "$([ -e "$tmp/log" ] && echo yes || echo no)"
+    assert_eq "answer: no sessionId -> question kept" "yes" "$([ -e "$q/.question-T-1.json" ] && echo yes || echo no)"
+    assert_eq "answer: no sessionId -> answer file deleted" "no" "$([ -e "$tmp/ans.txt" ] && echo yes || echo no)"
+    assert_eq "answer: no sessionId -> attach hint" "yes" "$(case "$out" in *"claude attach 0000abcd"*) echo yes ;; *) echo no ;; esac)"
     rm -rf "$tmp"
 }
 
@@ -2053,6 +2101,8 @@ test_answer_wiring() {
     assert_eq "answer-wiring: child accepts relayed answer" "yes" "$(grep -qF '[n1-queue answer] ' "$h" && echo yes || echo no)"
     assert_eq "answer-wiring: SKILL documents --answer" "yes" "$(grep -qF -- '--answer <ticket> <text>' "$s" && echo yes || echo no)"
     assert_eq "answer-wiring: report calls n1_queue_answer" "yes" "$(grep -qF 'n1_queue_answer "$N1_HOME"' "$r" && echo yes || echo no)"
+    assert_eq "answer-wiring: question schema carries rationale (RULE-1)" "yes" "$(grep -qF '"recommended","rationale"}' "$h" && grep -qF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$h" && echo yes || echo no)"
+    assert_eq "answer-wiring: per-ticket answer file cleared before write" "yes" "$(grep -qF 'AF="$N1_HOME/queue/.answer-<ticket>.txt"; rm -f "$AF"' "$r" && echo yes || echo no)"
     assert_eq "answer-wiring: answer written via file-write mechanism" "yes" "$(grep -qF 'file-write mechanism' "$r" && echo yes || echo no)"
 }
 test_answer_wiring

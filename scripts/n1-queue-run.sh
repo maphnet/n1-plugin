@@ -114,6 +114,7 @@ finalize() {
     # NP-216 AC3 safety net: every failed/deferred Runs row must carry a non-empty
     # reason. Call sites should already pass one; this is the last line of defense.
     [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="unspecified-failure"
+    rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET"
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
@@ -309,10 +310,17 @@ run_bg() {
             fi
             # N1-55: n1_queue_answer stops then bg-resumes a parked child. While its fresh relay
             # marker exists, a non-working/blocked reading is that gap, not a dead child: hold it
-            # as working (no finalize, no grace burn, no end-of-queue exit).
+            # as working (no finalize, no grace burn, no end-of-queue exit). The hold accrues
+            # WORKED, so a refreshed marker can't hold a dead child past the subtask timeout.
             case "$STATE" in
                 working|blocked) ;;
-                *) if n1_queue_relay_active "$N1_QUEUE_DIR" "$TICKET"; then WORKING=1; continue; fi ;;
+                *) if n1_queue_relay_active "$N1_QUEUE_DIR" "$TICKET"; then
+                       WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
+                       if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
+                       [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
+                       finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+                       continue
+                   fi ;;
             esac
             case "$STATE" in
                 missing)
@@ -343,6 +351,12 @@ run_bg() {
                         SINCE_PARK=0
                         echo "[$NUM] $TICKET -> awaiting-human"
                         PARKED[NUM]=1
+                        escalate "$TICKET" "$N1H"
+                    elif [ -e "$N1_QUEUE_DIR/.relay-$TICKET" ] && [ "$N1_QUEUE_DIR/.question-$TICKET.json" -nt "$N1_QUEUE_DIR/.relay-$TICKET" ]; then
+                        # N1-55: an answered child re-blocked on a new question before any poll saw
+                        # it working; dropping the marker escalates this question exactly once.
+                        rm -f "$N1_QUEUE_DIR/.relay-$TICKET"
+                        echo "[$NUM] $TICKET -> awaiting-human (new question)"
                         escalate "$TICKET" "$N1H"
                     fi
                     ;;

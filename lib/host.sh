@@ -130,14 +130,16 @@ n1_bg_launch_cmd() {
 }
 
 n1_bg_cmd() {
-    # Usage: n1_bg_cmd agents | stop <id> | attach <id> | resume <full-session-id> <prompt>
+    # Usage: n1_bg_cmd agents | stop <id> | attach <id> | reopen <full-session-id> | resume <full-session-id> <prompt>
     # Background-session control (Claude Code). resume (N1-55) continues a stopped session in the
     # background under the same id: full id + no other flags — passing --permission-mode/--settings/
     # --model here forks a new session id instead (verified live, N1-55 spike); the child's saved
-    # launch options are restored automatically.
+    # launch options are restored automatically. reopen <full-session-id> resumes a stopped
+    # session interactively (attach only reaches a running one).
     case "$1" in
         agents) printf 'claude agents --json --all' ;;
         stop|attach) printf 'claude %s %q' "$1" "$2" ;;
+        reopen) printf 'claude --resume %q' "$2" ;;
         resume) printf 'claude --bg --resume %q %q' "$2" "$3" ;;
         *) return 1 ;;
     esac
