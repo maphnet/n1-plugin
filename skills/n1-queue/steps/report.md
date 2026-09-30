@@ -12,7 +12,7 @@ Write `<text>` verbatim to the fresh `ANSWER_FILE` with the file-write mechanism
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
-n1_queue_answer "$N1_HOME" "<ticket>" "$N1_HOME/queue/.answer-<ticket>.txt"
+n1_queue_answer "$N1_HOME" "<ticket>"
 ```
 Print its output verbatim (it deletes the answer file; on failure it prints the resume command). On failure add: "Not delivered." **STOP.**
 

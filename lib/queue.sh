@@ -567,10 +567,11 @@ n1_queue_session_id() {
 }
 
 n1_queue_answer() {
-    # Usage: n1_queue_answer <n1-home> <ticket> <answer-file>
+    # Usage: n1_queue_answer <n1-home> <ticket>
     # N1-55: relays a main-thread answer to a queue child blocked on a question it mirrored to
     # <queue-dir>/.question-<ticket>.json: stop its session, then bg-resume it with
-    # "[n1-queue answer] <answer>". The answer is read from a file (never shell-interpolated) and
+    # "[n1-queue answer] <answer>". The answer is read from <n1-home>/queue/.answer-<ticket>.txt (never
+    # shell-interpolated; path derived only after the ticket id is validated, SEC-4) and
     # capped at 4000 chars. Resume requires the FULL sessionId and passes no other flags (spike
     # evidence, N1-55: --resume with --permission-mode/--settings/--model forks a new session id
     # instead of continuing the same one; a flag-less full-id resume restores the child's saved
@@ -579,9 +580,10 @@ n1_queue_answer() {
     # resume. A retry after a failed resume skips the stop (session already stopped).
     # The answer file is read then deleted first, on every path (never reused for another call);
     # on success the question file is removed.
-    local home="$1" t="$2" af="$3" qf dir row sid agents st full ans run i
-    ans=$(cat "$af" 2>/dev/null); rm -f "$af"
+    local home="$1" t="$2" af qf dir row sid agents st full ans run i
     case "$t" in ''|*[!A-Za-z0-9_-]*) echo "n1-queue: invalid ticket id" >&2; return 1 ;; esac
+    af="$home/queue/.answer-$t.txt"
+    ans=$(cat "$af" 2>/dev/null); rm -f "$af"
     qf=$(ls -t "$home"/queue/*/.question-"$t".json 2>/dev/null | head -1)
     [ -n "$qf" ] || { echo "n1-queue: no pending question for $t" >&2; return 1; }
     dir="${qf%/*}"
@@ -727,7 +729,7 @@ n1_queue_watch() {
                         # N1-55: a child in ask-mode mirrors its full question to .question-<ticket>.json.
                         qbody=""
                         case "$t" in ''|*[!A-Za-z0-9_-]*) ;; *) [ -f "$dir/.question-$t.json" ] && \
-                            qbody=$(jq -r 'def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]"; " ") | .[:1000];
+                            qbody=$(jq -r 'def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:1000];
                                 (.rationale // "" | s) as $r | (.recommended // "" | s) as $rec
                                 | "  Q: \(.question | s)",
                                   (select($rec == "" and $r != "") | "  \($r)"),
@@ -754,7 +756,7 @@ n1_queue_watch() {
                 fromjson? | objects | select(.run_id == $run)
                 | select(.event == "escalated" or .event == "answer_delivered" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
-                | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
+                | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
             seen="$total"
         fi
         if [ "$alive" = 0 ]; then

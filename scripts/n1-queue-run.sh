@@ -349,6 +349,7 @@ run_bg() {
                     if [ "$STATUS" != "awaiting-human" ]; then
                         n1_queue_row_status "$QUEUE" "$NUM" "awaiting-human"
                         SINCE_PARK=0
+                        rm -f "$N1_QUEUE_DIR/.relay-$TICKET"
                         echo "[$NUM] $TICKET -> awaiting-human"
                         PARKED[NUM]=1
                         escalate "$TICKET" "$N1H"
@@ -356,6 +357,7 @@ run_bg() {
                         # N1-55: an answered child re-blocked on a new question before any poll saw
                         # it working; dropping the marker escalates this question exactly once.
                         rm -f "$N1_QUEUE_DIR/.relay-$TICKET"
+                        SINCE_PARK=0
                         echo "[$NUM] $TICKET -> awaiting-human (new question)"
                         escalate "$TICKET" "$N1H"
                     fi
