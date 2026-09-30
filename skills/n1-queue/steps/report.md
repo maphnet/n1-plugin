@@ -1,4 +1,20 @@
-# Report (--status, --watch)
+# Report (--status, --watch, --answer)
+
+## Answer (--answer only)
+
+`<ticket>` must match `^[A-Za-z][A-Za-z0-9_]*-[0-9]+$`; otherwise print "Invalid ticket id: <ticket>." **STOP.**
+```bash
+source ~/.n1/preamble.sh
+printf 'ANSWER_FILE=%s/queue/.answer.txt\n' "$N1_HOME"
+```
+Write `<text>` verbatim to `ANSWER_FILE` with the file-write mechanism (never through a shell string, SEC-1), then:
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_answer "$N1_HOME" "<ticket>" "$N1_HOME/queue/.answer.txt"
+```
+Print its output verbatim. On failure add: "Not delivered; `--status` prints this ticket's attach command." **STOP.**
 
 If a specific queue ID was given: `QUEUE_FILE="$N1_HOME/queue/<id>/queue.md"`.
 Otherwise: find the most recently modified `queue.md` under `$N1_HOME/queue/`:

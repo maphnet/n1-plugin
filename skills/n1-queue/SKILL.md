@@ -1,7 +1,7 @@
 ---
 name: n1-queue
-description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another without merging. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]]"
-argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]]"
+description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another without merging. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
+argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
 model: sonnet
 ---
 
@@ -24,7 +24,7 @@ If `N1_HOME` is empty: "N1 is not configured for this project. Run `/n1:n1-init`
 
 ## Input
 
-Parse arguments: `--tag <tag>` (tag mode), `--story <ID>` (story mode, accept tracker URLs via `n1_extract_ticket_from_url`), `--plan` (plan and save, do not launch), `--run <queue-id>` (execute a saved plan), `--dry-run` (wins over `--plan`), `--status [<id>]`, `--watch [<id>]` (status, then relay this run's events in this session).
+Parse arguments: `--tag <tag>` (tag mode), `--story <ID>` (story mode, accept tracker URLs via `n1_extract_ticket_from_url`), `--plan` (plan and save, do not launch), `--run <queue-id>` (execute a saved plan), `--dry-run` (wins over `--plan`), `--status [<id>]`, `--watch [<id>]` (status, then relay this run's events in this session), --answer <ticket> <text> (relay an answer to a waiting queue child).
 
 `QUEUE_ID` = the `--run` argument, else the tag (tag mode) or the story ID (story mode). Default tag: `n1_queue_val tag` (i.e. `n1-auto`). A `--run` id must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`; otherwise print "Invalid queue id: <id>." **STOP.** `QUEUE_DIR="$N1_HOME/queue/$QUEUE_ID"`; `mkdir -p "$QUEUE_DIR"` except under `--run` (a saved plan's dir already exists).
 
@@ -44,7 +44,7 @@ If `TRACKER_MCP` is empty: "No tracker configured. Run `/n1:n1-init`." **STOP.**
 
 ## Steps
 
-1. **Status check.** If `--status` or `--watch`: read and follow `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.**
+1. **Status check.** If `--answer`: read and follow only § Answer in `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.** If `--status` or `--watch`: read and follow `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.**
 2. **Saved plan.** If `--run <queue-id>`: read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md` in full (the busy guard at the top always runs first; the saved-plan flow itself begins at § Saved plan). Skip steps 3-5.
 3. **INTAKE** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/intake.md`. Produces the candidate list.
 4. **PREVIEW** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/preview.md`. `--dry-run` stops there; otherwise Plan-Resolve records plan-time decisions and the user confirms or cancels.
