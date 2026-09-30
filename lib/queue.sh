@@ -689,9 +689,10 @@ n1_queue_digest() {
 
 n1_queue_watch() {
     # Usage: n1_queue_watch <queue_dir> <run_id> <runner_pid> [from_line]
-    # Session-side relay for one queue run. Every queue.pollSeconds, prints one line per new
-    # escalated / ticket_finished / halted / queue_done event in <queue_dir>/events.jsonl whose
-    # run_id is <run_id> (never queue id alone: a relaunch appends to the same file).
+    # Session-side relay for one queue run. Every queue.pollSeconds, prints new escalated (full
+    # mirrored question when present) / answer_delivered / ticket_finished / halted / queue_done
+    # events in <queue_dir>/events.jsonl whose run_id is <run_id> (never queue id alone: a
+    # relaunch appends to the same file).
     # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
     # identical command after a host timeout resumes with no gap and no replay. Without that
     # cursor it starts at line <from_line> (default: current end of file).
@@ -699,7 +700,7 @@ n1_queue_watch() {
     # cursor is removed and it returns 0. Otherwise it polls until killed.
     # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
-    local ev t out pr s reason
+    local ev t out pr s reason qbody
     q="${dir##*/}"
     sid=$(n1_session_id); sid="${sid:-nosession}"
     case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
@@ -720,8 +721,21 @@ n1_queue_watch() {
             while IFS=$'\x1f' read -r ev t out pr s reason; do
                 case "$ev" in
                     escalated)
-                        printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
-                            "${s:+ (resume: $(n1_bg_cmd attach "$s"))}" ;;
+                        # N1-55: a child in ask-mode mirrors its full question to .question-<ticket>.json.
+                        qbody=""
+                        case "$t" in ''|*[!A-Za-z0-9_-]*) ;; *) [ -f "$dir/.question-$t.json" ] && \
+                            qbody=$(jq -r 'def s: tostring | gsub("[\u0000-\u001f\u007f]"; " ") | .[:1000];
+                                "  Q: \(.question | s)", (.options[]? | "  - \(s)"), (.recommended // empty | "  Recommended: \(s)")' \
+                                "$dir/.question-$t.json" 2>/dev/null) ;; esac
+                        if [ -n "$qbody" ]; then
+                            printf 'n1-queue %s: %s needs you (answer: /n1:n1-queue --answer %s "<text>"%s):\n%s\n' \
+                                "$q" "$t" "$t" "${s:+; resume: $(n1_bg_cmd attach "$s")}" "$qbody"
+                        else
+                            printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
+                                "${s:+ (resume: $(n1_bg_cmd attach "$s"))}"
+                        fi ;;
+                    answer_delivered)
+                        printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t" ;;
                     ticket_finished)
                         printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
                     halted|queue_done)
@@ -731,7 +745,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
             seen="$total"

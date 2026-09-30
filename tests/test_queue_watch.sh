@@ -98,6 +98,27 @@ test_sessions_independent() {
     assert_eq "sessions: separate cursors" "1 1" "$(cat "$q/.watch-R1.sessA" 2>/dev/null) $(cat "$q/.watch-R1.sessB" 2>/dev/null)"
 }
 
+# N1-55: an escalation with a mirrored question file prints the full question; answer_delivered relays.
+test_question_mirror_and_answer_delivered() {
+    local q out; q=$(newq q6)
+    printf '{"ticket":"T-1","step":"brainstorm","question":"Back-port the cron prompts?","options":["Back-port","Skip\\u001b[2J"],"recommended":"Back-port"}' \
+        > "$q/.question-T-1.json"
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="truncated reason"
+    ev "$q" R1 escalated ticket=T-2 session=0000beef reason="no file here"
+    ev "$q" R1 answer_delivered ticket=T-1 session=0000abcd reason="Back-port"
+    ev "$q" R1 queue_done reason="done"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    has   "mirror: header with answer + attach" \
+        'n1-queue q6: T-1 needs you (answer: /n1:n1-queue --answer T-1 "<text>"; resume: claude attach 0000abcd):' "$out"
+    has   "mirror: question" "  Q: Back-port the cron prompts?" "$out"
+    has   "mirror: option" "  - Back-port" "$out"
+    has   "mirror: recommended" "  Recommended: Back-port" "$out"
+    lacks "mirror: control chars stripped" $'\e' "$out"
+    lacks "mirror: truncated reason replaced" "needs you: truncated reason" "$out"
+    has   "mirror: no file keeps one-liner" "n1-queue q6: T-2 needs you: no file here (resume: claude attach 0000beef)" "$out"
+    has   "relay: answer delivered line" "n1-queue q6: T-1 answer delivered, resuming." "$out"
+}
+
 test_rejects_bad_input_and_sanitizes() {
     local q out; q=$(newq q5)
     out=$(watch 2 "$q" "../R1" "$$" 0 2>&1)
@@ -113,6 +134,7 @@ test_run_id_filter_and_finish
 test_adopt_from_eof_and_resume
 test_runner_dead
 test_sessions_independent
+test_question_mirror_and_answer_delivered
 test_rejects_bad_input_and_sanitizes
 
 echo ""
