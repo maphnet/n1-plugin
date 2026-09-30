@@ -14,7 +14,7 @@ echo "N1_HOME=$N1_HOME"
 
 If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not configured. Run `/n1:n1-init` first." **STOP.**
 
-All config reads use `$N1_HOME/config.json`. All memory paths use `$N1_HOME/memory/$ID/`.
+All config reads use `n1_*_val` helpers (never cat config.json). All memory paths use `$N1_HOME/memory/$ID/`.
 
 ## Execute
 

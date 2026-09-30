@@ -19,7 +19,7 @@ Create a PR from the current feature branch. Spawns tech-writer for PR content, 
 source ~/.n1/preamble.sh
 ```
 
-If empty — N1 not configured; warn the user. Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/$ID/`.
+If empty — N1 not configured; warn the user. Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/$ID/`.
 
 ## Model Resolution
 

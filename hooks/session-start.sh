@@ -207,12 +207,12 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
 - Config gates: estimation.enabled=${gate_estimation:-false}, localTesting.enabled=${gate_local:-true}, finishWork.enabled=${gate_finish:-false}, ciChecks.enabled=${gate_ci:-true}
 - Task context: ${ov_context}
 - Ticket URL: ${ov_ticket_url}
-- IMPORTANT: Use these values, not anything from the compacted conversation summary. Re-read overview.md and config.json if you need values not listed here."
+- IMPORTANT: Use these values, not anything from the compacted conversation summary. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."
         fi
     fi
 fi
 
-context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (/n1:n1-start, /n1:n1-pr, /n1:n1-review, /n1:n1-ci) over alternatives.
+context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (/n1:n1-start, /n1:n1-pr, /n1:n1-review, /n1:n1-ci) over alternatives. When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), that is their explicit request to commit, push the feature branch, and create the PR — do not ask to confirm; this does not authorize merge, release, or pushing the default branch, and all escalation, release, headless, and error gates still apply.
 
 ${HOST_BLOCK}"
 

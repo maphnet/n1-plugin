@@ -2,6 +2,8 @@
 
 ## Step 4: Push and Create PR
 
+When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), that is their explicit request to commit, push the feature branch, and create the PR — do not ask to confirm; this does not authorize merge, release, or pushing the default branch, and all escalation, release, headless, and error gates still apply.
+
 `prMode` already resolved (only `"draft"` or `"ready"` reaches here).
 
 ### Conflict check and rebase

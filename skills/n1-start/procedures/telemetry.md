@@ -1,6 +1,6 @@
 # Procedure: Telemetry
 
-Read `telemetry.enabled` from `$N1_HOME/config.json` (default `false`).
+Read `n1_config_val '.telemetry.enabled'` (default `false`).
 
 **If `true`:**
 ```bash

@@ -24,7 +24,7 @@ source ~/.n1/preamble.sh
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.
 
-All config reads use `$N1_HOME/config.json`. All memory paths use `$N1_HOME/memory/$ID/`.
+All config reads use `n1_*_val` helpers (never cat config.json). All memory paths use `$N1_HOME/memory/$ID/`.
 
 ## Steps
 

@@ -42,4 +42,8 @@ check "manifest version read through plugin root" 'N1_ROOT/\.claude-plugin/plugi
 # NP-229: json_val is not defined anywhere in lib/; the real helper is n1_config_val.
 check "json_val is undefined (use n1_config_val)" '(^|[^a-zA-Z_])json_val([^a-zA-Z_]|$)'
 
+# N1-57: config is read key-by-key via n1_*_val helpers; dumping the whole file put dead keys
+# (escalation.checkpoints) in context and the model invented a push/PR confirmation gate.
+check "full config.json read (use n1_*_val helpers)" 'cat[[:space:]]+"?\$\{?N1_HOME\}?/config\.json'
+
 exit $FAIL

@@ -203,6 +203,7 @@ OUT=$(echo "$PAYLOAD" | N1_HOST=codex CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CODEX_HOME
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
 case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent schema"*"agent_type only if supported"*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
+case "$CTX" in *"that is their explicit request to commit, push the feature branch, and create the PR"*"does not authorize merge, release, or pushing the default branch"*) assert_eq "session context pre-authorizes push/PR (N1-57)" ok ok;; *) assert_eq "session context pre-authorizes push/PR (N1-57)" ok "$CTX";; esac
 assert_eq "codex persona TOMLs generated in cwd" "$(grep -l '^name:' "$REPO_ROOT"/agents/*.md | wc -l | tr -d ' ')" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'
@@ -212,6 +213,7 @@ mkdir -p "$N1_HOME/memory/T-30"; printf -- '---\nstep: review\ntype: task\n---\n
 OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | N1_HOST=claude-code CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review"*) assert_eq "compaction state restore on source=compact" ok ok;; *) assert_eq "compaction state restore on source=compact" ok "$CTX";; esac
+case "$CTX" in *"n1_*_val helpers, never cat config.json"*) assert_eq "compact hint points at n1_*_val helpers (N1-57)" ok ok;; *) assert_eq "compact hint points at n1_*_val helpers (N1-57)" ok "$CTX";; esac
 rm -f "$N1_HOME/active-run.json"
 # compaction restore reads this session's keyed pointer, not another session's (NP-206)
 echo '{"ticketId":"T-31","runId":"n1-run-o","worktreePath":null,"branch":"T-31"}' > "$N1_HOME/active-run.json"

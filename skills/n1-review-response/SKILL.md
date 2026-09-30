@@ -22,7 +22,7 @@ source ~/.n1/preamble.sh
 
 If `N1_HOME` is empty — N1 is not configured; warn the user.
 
-Config: `$N1_HOME/config.json`. Memory: `$N1_HOME/memory/$ID/`.
+Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/$ID/`.
 
 ## Model Resolution
 
