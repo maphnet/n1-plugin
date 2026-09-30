@@ -3,7 +3,7 @@
 
 Do not read full reports — n1-pr extracts what it needs via `grep`; tech-writer reads files directly.
 
-Invoking an N1 pipeline skill is the user's explicit authorization to commit, push, and create the PR — never pause to confirm; only the post-PR checkpoint pauses.
+When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), that is their explicit request to commit, push the feature branch, and create the PR — do not ask to confirm; this does not authorize merge, release, or pushing the default branch, and all escalation, release, headless, and error gates still apply.
 
 Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"ready"`; else → `"draft"`.
 

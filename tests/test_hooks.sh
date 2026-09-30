@@ -203,7 +203,7 @@ OUT=$(echo "$PAYLOAD" | N1_HOST=codex CLAUDE_PLUGIN_ROOT="$REPO_ROOT" CODEX_HOME
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (codex)" "codex" "$(jq -r .host "$N1_HOST_FILE")"
 case "$CTX" in *"HOST ROUTING (host: codex"*"spawn_agent schema"*"agent_type only if supported"*) assert_eq "codex routing block" ok ok;; *) assert_eq "codex routing block" ok "$CTX";; esac
-case "$CTX" in *"explicit authorization to commit, push, and create the PR"*"only the post-PR checkpoint pauses"*) assert_eq "session context pre-authorizes push/PR (N1-57)" ok ok;; *) assert_eq "session context pre-authorizes push/PR (N1-57)" ok "$CTX";; esac
+case "$CTX" in *"that is their explicit request to commit, push the feature branch, and create the PR"*"does not authorize merge, release, or pushing the default branch"*) assert_eq "session context pre-authorizes push/PR (N1-57)" ok ok;; *) assert_eq "session context pre-authorizes push/PR (N1-57)" ok "$CTX";; esac
 assert_eq "codex persona TOMLs generated in cwd" "$(grep -l '^name:' "$REPO_ROOT"/agents/*.md | wc -l | tr -d ' ')" "$(ls "$PROJ/.codex/agents"/n1-*.toml | wc -l | tr -d ' ')"
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'

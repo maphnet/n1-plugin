@@ -212,7 +212,7 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
     fi
 fi
 
-context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (/n1:n1-start, /n1:n1-pr, /n1:n1-review, /n1:n1-ci) over alternatives. Invoking an N1 pipeline skill is the user's explicit authorization to commit, push, and create the PR — never pause to confirm; only the post-PR checkpoint pauses.
+context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (/n1:n1-start, /n1:n1-pr, /n1:n1-review, /n1:n1-ci) over alternatives. When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), that is their explicit request to commit, push the feature branch, and create the PR — do not ask to confirm; this does not authorize merge, release, or pushing the default branch, and all escalation, release, headless, and error gates still apply.
 
 ${HOST_BLOCK}"
 
