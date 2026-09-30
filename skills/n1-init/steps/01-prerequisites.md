@@ -11,7 +11,16 @@ Check if CLAUDE.md exists in the project root:
 Check for N1 configuration in priority order:
 
 1. **New-format config:** Resolve N1_HOME by running the preamble line from `references/host-routing.md` followed by `source "$N1_ROOT/lib/config.sh" && n1_home`. If it returns a path, check if `$N1_HOME/config.json` exists.
-   - **If exists:** Load the config and check for missing top-level keys against the **Expected Config Keys** list in the dispatcher SKILL.md. Then branch:
+   - **If exists:** First prune dead keys that no code reads (idempotent, all hosts; prints only when something was removed):
+     ```bash
+     source ~/.n1/preamble.sh
+     CFG="$N1_HOME/config.json"
+     DEAD='del(.escalation.checkpoints, .escalation.channel, .memory.ticketContext, .memory.decisions, .story.designStorage, .story.designPath, .story.taskSizing, .loop.complexityTiers, .tracker.projectName, .tracker.site, .tracker.currentUser) | reduce ("escalation","memory","story","loop") as $k (.; if .[$k] == {} then del(.[$k]) else . end)'
+     if jq -e "($DEAD) != ." "$CFG" >/dev/null 2>&1; then
+       jq "$DEAD" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG" && echo "pruned dead config keys (escalation.checkpoints/channel, memory.*, story.*, loop.complexityTiers, tracker.projectName/site/currentUser)"
+     fi
+     ```
+     Then load the config and check for missing top-level keys against the **Expected Config Keys** list in the dispatcher SKILL.md. Then branch:
      - **If no missing keys:** Check whether the user's invocation includes the word "reconfigure" (e.g., `/n1-init reconfigure`).
        - **If "reconfigure" is present:** Continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
        - **Otherwise:** Run the **Operation Gap Check** below before printing status. Then print the status summary and **STOP** — do not ask any questions:
@@ -215,8 +224,17 @@ When an old `.n1/n1.config.json` is detected:
         fi
       done
       ```
-   j. Report: "Migrated N1 state to `~/.n1/$PROJECT_NAME/`. Config, memory, and telemetry moved."
-   k. Continue to **Analyze Repository** (skip the fresh setup sections that the migration already handled)
+   j. Prune dead config keys carried over from the old format (host-neutral, unlike step i's model-default comparison — runs unconditionally):
+      ```bash
+      source ~/.n1/preamble.sh
+      CFG="$HOME/.n1/$PROJECT_NAME/config.json"
+      DEAD='del(.escalation.checkpoints, .escalation.channel, .memory.ticketContext, .memory.decisions, .story.designStorage, .story.designPath, .story.taskSizing, .loop.complexityTiers, .tracker.projectName, .tracker.site, .tracker.currentUser) | reduce ("escalation","memory","story","loop") as $k (.; if .[$k] == {} then del(.[$k]) else . end)'
+      if jq -e "($DEAD) != ." "$CFG" >/dev/null 2>&1; then
+        jq "$DEAD" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG" && echo "pruned dead config keys (escalation.checkpoints/channel, memory.*, story.*, loop.complexityTiers, tracker.projectName/site/currentUser)"
+      fi
+      ```
+   k. Report: "Migrated N1 state to `~/.n1/$PROJECT_NAME/`. Config, memory, and telemetry moved."
+   l. Continue to **Analyze Repository** (skip the fresh setup sections that the migration already handled)
 
 4. **If 2 (No — decline migration):**
    a. Rename config file in place:
