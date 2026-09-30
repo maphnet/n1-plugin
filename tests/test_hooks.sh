@@ -49,6 +49,7 @@ assert_eq "hook exits 0 with missing pending-merge fields" "0" "$RC3"
 CTX3=$(echo "$OUT3" | jq -e -r '.hookSpecificOutput.additionalContext' 2>/dev/null) || CTX3=""
 assert_eq "additionalContext non-empty with missing fields" "present" "$([ -n "$CTX3" ] && echo present || echo missing)"
 case "$CTX3" in *"never use subagent_type"*) assert_eq "fork prohibition text present" present present;; *) assert_eq "fork prohibition text present" present missing;; esac
+case "$CTX3" in *"COMMIT ATTRIBUTION"*) assert_eq "commit attribution text present" present present;; *) assert_eq "commit attribution text present" present missing;; esac
 rm -rf "$MEM3"
 
 # --- enforce-agent-policy (both hosts) -------------------------------------

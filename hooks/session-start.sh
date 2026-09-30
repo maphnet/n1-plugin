@@ -95,7 +95,8 @@ else
 N1 RUN IDENTITY: export N1_HOST=${N1_HOST_NAME}; export N1_SESSION_ID=${N1_SESSION_ID}. Carry these values into each helper shell. Session facts: ${SESSION_FILE:-unavailable}."
 fi
 HOST_BLOCK+="
-DISPATCH LIMITS: Model/effort text in a prompt does not enforce runtime configuration. If native arguments or a configured equivalent cannot preserve the resolved pair, report the unsupported capability before dispatching. send_message may not wake an idle worker; use a supported continuation that does."
+DISPATCH LIMITS: Model/effort text in a prompt does not enforce runtime configuration. If native arguments or a configured equivalent cannot preserve the resolved pair, report the unsupported capability before dispatching. send_message may not wake an idle worker; use a supported continuation that does.
+COMMIT ATTRIBUTION: The harness attribution reminder (e.g. a Co-Authored-By trailer) yields to user instructions (any CLAUDE.md, global or project, or memory rule). If they forbid or change it, never pass it into a persona prompt and never apply it to your own commits."
 
 # Codex cannot ship agents: materialise persona TOMLs in the project (idempotent, fingerprinted).
 if [ "$N1_HOST_NAME" = "codex" ] && [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
