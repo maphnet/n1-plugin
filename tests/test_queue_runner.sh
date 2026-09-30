@@ -1126,6 +1126,27 @@ test_bg_reason_bg_state_catchall() {
     rm -rf "$tmp"
 }
 
+# N1-55: n1_queue_answer stops then bg-resumes a parked child; a fresh relay marker must keep the
+# runner from finalizing that gap (stopped -> failed, missing -> grace burn), a stale one must not.
+test_bg_relay_marker() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked stopped missing working done"
+    touch "$tmp/.relay-T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "relay: fresh marker holds stopped/missing child" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "relay: resumed child unblocks and finishes" "ticket_started,escalated,unblocked,ticket_finished" \
+        "$(jq -r 'select(.ticket=="T-A") | .event' "$tmp/events.jsonl" | paste -sd, -)"
+    rm -rf "$tmp"
+
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked stopped"
+    touch -t 200001010000 "$tmp/.relay-T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "relay: stale marker -> normal finalize" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "relay: stale marker reason" "bg-state:failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
 test_run_sync_reason_default() {
     local tmp; tmp=$(mktemp -d)
     mkdir -p "$tmp/n1home/memory/T-X"
@@ -2017,6 +2038,7 @@ test_bg_reconcile_working_stale_escalation
 test_bg_blocked_first_tick_parks
 test_bg_reason_child_exited_incomplete
 test_bg_reason_bg_state_catchall
+test_bg_relay_marker
 test_run_sync_reason_default
 test_notify_check
 test_bg_disclaimer

@@ -615,6 +615,12 @@ n1_queue_answer() {
     echo "n1-queue: answer delivered to $t (session $sid), resuming."
 }
 
+n1_queue_relay_active() {
+    # Usage: n1_queue_relay_active <queue-dir> <ticket> — exit 0 while n1_queue_answer's relay
+    # marker is under 2 minutes old (N1-55); older markers are ignored.
+    [ -n "$(find "$1/.relay-$2" -mmin -2 2>/dev/null)" ]
+}
+
 n1_queue_awaiting_hints() {
     # Usage: n1_queue_awaiting_hints <queue.md>
     # Prints "<ticket>: <resume command>" for each Plan row waiting on a human: an attach

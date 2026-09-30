@@ -307,6 +307,13 @@ run_bg() {
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
             fi
+            # N1-55: n1_queue_answer stops then bg-resumes a parked child. While its fresh relay
+            # marker exists, a non-working/blocked reading is that gap, not a dead child: hold it
+            # as working (no finalize, no grace burn, no end-of-queue exit).
+            case "$STATE" in
+                working|blocked) ;;
+                *) if n1_queue_relay_active "$N1_QUEUE_DIR" "$TICKET"; then WORKING=1; continue; fi ;;
+            esac
             case "$STATE" in
                 missing)
                     MISSING[NUM]=$(( ${MISSING[NUM]:-0} + 1 ))
