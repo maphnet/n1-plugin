@@ -1301,6 +1301,79 @@ mk_status_queue() { # <tmp> <host> — a 3-row queue.md + events.jsonl + overvie
         > "$tmp/events.jsonl"
 }
 
+# N1-55: main-thread answer relay (stop + bg-resume) for a child parked on a question.
+test_queue_answer() {
+    local tmp q out rc; tmp=$(mktemp -d)
+    q="$tmp/n1home/queue/q1"; mkdir -p "$q" "$tmp/bin" "$tmp/repo"
+    mkq() { # <status>
+        printf -- '---\nqueue_id: q1\nrun_id: R1\nmode: tag\nhost: claude-code\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n| 1 | T-1 | Fix | %s | %s | sonnet | %s | |\n\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|---|---|---|---|---|---|\n| T-1 | x | | | | 0000abcd |\n' \
+            "$tmp/repo" "$tmp/n1home" "$1" > "$q/queue.md"
+        printf '{"ticket":"T-1","step":"brainstorm","question":"Back-port?","options":["Back-port","Skip"],"recommended":"Back-port"}' > "$q/.question-T-1.json"
+        : > "$q/events.jsonl"; rm -f "$tmp/log" "$tmp/prompt" "$tmp/fail-resume" "$q/.relay-T-1"
+        echo blocked > "$tmp/state"
+    }
+    cat > "$tmp/bin/claude" <<'FAKEEOF'
+#!/usr/bin/env bash
+L="$FAKE_DIR/log"
+case "$1" in
+    agents) st=$(cat "$FAKE_DIR/state"); grep -q '^stop' "$L" 2>/dev/null && st=stopped
+            printf '[{"id":"0000abcd","sessionId":"0000abcd-1111-2222","state":"%s"}]\n' "$st" ;;
+    stop) echo "stop $2" >> "$L" ;;
+    --bg) echo "resume $3" >> "$L"
+          printf '%s' "$4" > "$FAKE_DIR/prompt"; [ ! -f "$FAKE_DIR/fail-resume" ] ;;
+esac
+FAKEEOF
+    printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
+    chmod +x "$tmp/bin/claude" "$tmp/bin/sleep"
+    ans() { rc=0; out=$(FAKE_DIR="$tmp" PATH="$tmp/bin:$PATH" n1_queue_answer "$tmp/n1home" "$@" 2>&1) || rc=$?; }
+
+    # Happy path: hostile-looking answer reaches the child as one literal argv element.
+    mkq awaiting-human
+    printf '%s' "B; \$(touch $tmp/pwned) \"q\"" > "$tmp/ans.txt"
+    ans T-1 "$tmp/ans.txt"
+    assert_eq "answer: rc 0" "0" "$rc"
+    assert_eq "answer: stop then resume (full session id)" \
+        "stop 0000abcd|resume 0000abcd-1111-2222" "$(paste -sd'|' "$tmp/log")"
+    assert_eq "answer: prompt is prefixed literal answer" "[n1-queue answer] B; \$(touch $tmp/pwned) \"q\"" "$(cat "$tmp/prompt")"
+    assert_eq "answer: never shell-interpolated" "no" "$([ -e "$tmp/pwned" ] && echo yes || echo no)"
+    assert_eq "answer: question file removed" "no" "$([ -e "$q/.question-T-1.json" ] && echo yes || echo no)"
+    assert_eq "answer: relay marker written" "yes" "$([ -e "$q/.relay-T-1" ] && echo yes || echo no)"
+    assert_eq "answer: answer_delivered event" "answer_delivered,T-1,0000abcd,R1" \
+        "$(jq -r '[.event,.ticket,.session,.run_id]|join(",")' "$q/events.jsonl")"
+
+    # Size cap: 5000 chars -> 4000 + marker.
+    mkq awaiting-human
+    head -c 5000 /dev/zero | tr '\0' x > "$tmp/ans.txt"
+    ans T-1 "$tmp/ans.txt"
+    # "[n1-queue answer] " (18) + 4000 + "... [truncated]" (15)
+    assert_eq "answer: capped at 4000 chars" "4033" "$(wc -c < "$tmp/prompt")"
+
+    # Refusals: no CLI side effects.
+    mkq awaiting-human; rm -f "$q/.question-T-1.json"
+    ans T-1 "$tmp/ans.txt"
+    assert_eq "answer: no question file -> rc 1" "1" "$rc"
+    assert_eq "answer: no question file -> no claude calls" "no" "$([ -e "$tmp/log" ] && echo yes || echo no)"
+    mkq in-progress
+    ans T-1 "$tmp/ans.txt"
+    assert_eq "answer: row not awaiting-human -> rc 1" "1" "$rc"
+    mkq awaiting-human; echo working > "$tmp/state"
+    ans T-1 "$tmp/ans.txt"
+    assert_eq "answer: working session -> rc 1" "1" "$rc"
+    assert_eq "answer: working session -> not stopped" "no" "$([ -e "$tmp/log" ] && echo yes || echo no)"
+    mkq awaiting-human
+    ans ../x "$tmp/ans.txt"
+    assert_eq "answer: bad ticket id -> rc 1" "1" "$rc"
+
+    # Resume failure: question kept for retry, no answer_delivered, attach hint printed.
+    mkq awaiting-human; touch "$tmp/fail-resume"
+    ans T-1 "$tmp/ans.txt"
+    assert_eq "answer: resume fail -> rc 1" "1" "$rc"
+    assert_eq "answer: resume fail -> question kept" "yes" "$([ -e "$q/.question-T-1.json" ] && echo yes || echo no)"
+    assert_eq "answer: resume fail -> no event" "" "$(cat "$q/events.jsonl")"
+    assert_eq "answer: resume fail -> attach hint" "yes" "$(case "$out" in *"claude attach 0000abcd"*) echo yes ;; *) echo no ;; esac)"
+    rm -rf "$tmp"
+}
+
 test_status_table_claude_code() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     mk_status_queue "$tmp" claude-code
@@ -1918,6 +1991,7 @@ test_fmt_elapsed
 test_status_table_pre_np197_fixture
 test_status_table_claude_code
 test_status_table_codex
+test_queue_answer
 test_escalated_step_fallback
 test_queue_event
 test_escalation_text
