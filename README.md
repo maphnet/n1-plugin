@@ -70,7 +70,7 @@ codex plugin marketplace add ~/dev/n1-plugin && codex plugin add n1@n1   # Codex
 | /n1:n1-pr | Finalize branch: docs, push, create PR |
 | /n1:n1-review | Code review loop or advisory review of a PR |
 | /n1:n1-start | Full pipeline orchestrator — ticket to merged PR |
-| /n1:n1-queue | Run a batch of tracker tickets (by tag or story subtasks) through the pipeline one after another without merging. `--tag`, `--story`, `--plan` (persist a reviewable plan), `--run <queue-id>` (execute a saved plan), `--dry-run`, `--status`, `--watch` (mirrors an escalated child's full pending question into the main thread), `--answer <ticket> <text>` (relays your reply back to the waiting child). |
+| /n1:n1-queue | Run a batch of tracker tickets (by tag or story subtasks) through the pipeline one after another without merging. `--tag`, `--story`, `--plan` (persist a reviewable plan), `--run <queue-id>` (execute a saved plan), `--dry-run`, `--status`, `--watch` (the watch also shows an escalated child's full pending question), `--answer <ticket> <text>` (relays your reply back to the waiting child). |
 
 ### `/n1:n1-start` — Core Orchestrator
 
