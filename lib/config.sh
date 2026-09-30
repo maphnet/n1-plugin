@@ -735,34 +735,13 @@ n1_cross_host_review_val() {
 
 n1_escalation_val() {
     # Usage: n1_escalation_val <key>
-    # Keys: alwaysAskOn, checkpoints
+    # Keys: alwaysAskOn
     local key="$1"
     local v; v=$(n1_config_val ".escalation.${key}")
     if [ -n "$v" ]; then printf '%s' "$v"; return; fi
     case "$key" in
         alwaysAskOn)  printf '["security","architecture","public-api"]' ;;
-        checkpoints)  printf '["pr"]' ;;
         *)            printf '' ;;
-    esac
-}
-
-n1_memory_val() {
-    # Usage: n1_memory_val <key>
-    # Keys: ticketContext, decisions
-    # Boolean keys — same tri-state "absent" fallback pattern as n1_ci_checks_val.
-    local key="$1"
-    local file; file=$(n1_config_file)
-    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
-        local v; v=$(jq -r "if .memory.${key} == null then \"absent\" else (.memory.${key} | tostring) end" "$file" 2>/dev/null || true)
-        if [ "$v" != "absent" ]; then printf '%s' "$v"; return; fi
-    else
-        local v; v=$(n1_config_val ".memory.${key}")
-        if [ -n "$v" ]; then printf '%s' "$v"; return; fi
-    fi
-    case "$key" in
-        ticketContext) printf 'true' ;;
-        decisions)     printf 'true' ;;
-        *)             printf '' ;;
     esac
 }
 

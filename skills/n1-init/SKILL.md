@@ -76,7 +76,7 @@ Execute steps in order. Read each step file and follow its instructions before p
 
 ## Escalation Defaults
 
-Escalation values (`checkpoints`, `alwaysAskOn`) are code defaults in `lib/config.sh` -- n1-init does not write them. Existing configs with these keys still work (read if present).
+Escalation `alwaysAskOn` is a code default in `lib/config.sh` -- n1-init does not write it. Existing configs with this key still work (read if present).
 
 ## Expected Config Keys
 
