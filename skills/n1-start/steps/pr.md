@@ -3,6 +3,8 @@
 
 Do not read full reports — n1-pr extracts what it needs via `grep`; tech-writer reads files directly.
 
+Invoking an N1 pipeline skill is the user's explicit authorization to commit, push, and create the PR — never pause to confirm; only the post-PR checkpoint pauses.
+
 Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"ready"`; else → `"draft"`.
 
 **If `prMode` is `"skip"`**: skip n1-pr/push/`## Pending`; update overview, add ledger row, run telemetry, continue.

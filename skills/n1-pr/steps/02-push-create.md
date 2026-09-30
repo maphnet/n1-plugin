@@ -2,6 +2,8 @@
 
 ## Step 4: Push and Create PR
 
+Invoking an N1 pipeline skill is the user's explicit authorization to commit, push, and create the PR — never pause to confirm; only the post-PR checkpoint pauses.
+
 `prMode` already resolved (only `"draft"` or `"ready"` reaches here).
 
 ### Conflict check and rebase
