@@ -207,7 +207,7 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
 - Config gates: estimation.enabled=${gate_estimation:-false}, localTesting.enabled=${gate_local:-true}, finishWork.enabled=${gate_finish:-false}, ciChecks.enabled=${gate_ci:-true}
 - Task context: ${ov_context}
 - Ticket URL: ${ov_ticket_url}
-- IMPORTANT: Use these values, not anything from the compacted conversation summary. Re-read overview.md and config.json if you need values not listed here."
+- IMPORTANT: Use these values, not anything from the compacted conversation summary. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."
         fi
     fi
 fi
