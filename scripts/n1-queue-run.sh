@@ -57,7 +57,7 @@ strip_pid() {
 EVENTS="$(dirname "$QUEUE")/events.jsonl"
 # ponytail: STARTED_AT/PARKED are in-memory; after a runner crash-restart duration_s is null and
 # a re-parked ticket may notify twice. Persist them in queue.md if that ever matters.
-declare -a STARTED_AT=() PARKED=()
+declare -a STARTED_AT=() PARKED=() DRAIN=()
 
 ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 
@@ -227,10 +227,30 @@ launch_bg() {
     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "$SID"
 }
 
+# drain_stop <agents-json> — stop and drop DRAIN sids once their bg session goes idle
+# (done/failed); a missing session is dropped without stopping (already gone). working/blocked
+# sessions are kept: right after a terminal overview step a child may still be in CI watch,
+# finish/merge, or memory finalize, and killing it mid-way would lose that work.
+drain_stop() {
+    local agents="$1" sid st
+    local -a keep=()
+    for sid in "${DRAIN[@]}"; do
+        st=$(n1_queue_bg_state "$agents" "$sid")
+        case "$st" in
+            done|failed) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 ;;
+            missing) ;;
+            *) keep+=("$sid") ;;
+        esac
+    done
+    DRAIN=("${keep[@]}")
+}
+
 # run_bg — background sessions, still sequential: launch the next pending ticket only when
 # no launched child is working. blocked -> awaiting-human (no strike) and the queue moves on.
 # Working time is capped by subtaskTimeoutMinutes; at end of queue, parked rows are polled
 # for up to subtaskTimeoutMinutes after the last park, then left awaiting-human (never relaunched).
+# A finished child (pr/escalated/awaiting-deploy) queues into DRAIN and is stopped only once
+# drain_stop sees it idle (done/failed) — not immediately on the terminal step.
 run_bg() {
     local POLL AGENTS WORKING ROW NUM TICKET REPO N1H MODEL STATUS STATE OUTCOME SID
     # ponytail: WORKED/SINCE_PARK live only in this process's memory. If the runner
@@ -254,6 +274,7 @@ run_bg() {
             continue
         fi
         AGENT_FAILS=0
+        drain_stop "$AGENTS"
         WORKING=0
         while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
             if [ "$STATUS" = "awaiting-human" ] && [ "$(n1_queue_row_reason "$QUEUE" "$NUM")" = "awaiting-deploy" ]; then continue; fi
@@ -265,7 +286,7 @@ run_bg() {
             # out, retried, or parked awaiting-human.
             OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
             if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
-                [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
+                [ -n "$SID" ] && DRAIN+=("$SID")
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
             fi
@@ -360,6 +381,17 @@ run_bg() {
         fi
         SINCE_PARK=$((SINCE_PARK + POLL))
         sleep "$POLL"
+    done
+    # End-of-run drain: give DRAIN sessions up to TIMEOUT_SECS to go idle before giving up.
+    local ELAPSED=0
+    while [ "${#DRAIN[@]}" -gt 0 ]; do
+        if AGENTS=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$AGENTS" | jq -e . >/dev/null 2>&1; then
+            drain_stop "$AGENTS"
+        fi
+        [ "${#DRAIN[@]}" -eq 0 ] && break
+        [ "$ELAPSED" -ge "$TIMEOUT_SECS" ] && { echo "still finishing up, left running: ${DRAIN[*]}"; break; }
+        sleep "$POLL"
+        ELAPSED=$((ELAPSED + POLL))
     done
 }
 
