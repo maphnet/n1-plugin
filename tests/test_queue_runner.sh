@@ -498,6 +498,14 @@ test_runner_three_strikes() {
     assert_eq "notify-3s: halt text" "yes" \
         "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -q '^Queue test-q halted: ' && echo yes || echo no)"
 
+    # N1-74: T-B's bg session is stopped on the success-path escalated finalize, and
+    # its resume hint points at n1-start (not a stale "claude attach" on a dead session).
+    assert_eq "3s: T-B session stopped" "yes" "$(grep -qx 00000002 "$tmp/fake/stopped" && echo yes || echo no)"
+    assert_eq "3s: escalated resume hint is n1-start" "yes" \
+        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'resume: n1-start T-B' && echo yes || echo no)"
+    assert_eq "3s: no stale attach hint for T-B" "0" \
+        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -c 'claude attach' || true)"
+
     rm -rf "$tmp"
 }
 
@@ -725,6 +733,8 @@ test_bg_sequential() {
         "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
     local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 7) print }' "$tmp/queue.md")
     assert_eq "bg-seq: Runs rows have 7 cells" "" "$bad"
+    # N1-74: success-path finalize must stop each finished child's bg session.
+    assert_eq "bg-seq: both sessions stopped" "00000001,00000002" "$(paste -sd, "$tmp/fake/stopped")"
     rm -rf "$tmp"
 }
 
@@ -825,7 +835,8 @@ test_bg_reconcile_working() {
     assert_eq "bg-recw: PR url recorded" "https://x/pr/9" \
         "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
     assert_eq "bg-recw: no deferred-retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
-    assert_eq "bg-recw: session never stopped" "" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
+    # N1-74: the bg session is stopped once the success-path finalize runs.
+    assert_eq "bg-recw: session stopped" "00000001" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
     rm -rf "$tmp"
 }
 
@@ -1562,6 +1573,8 @@ test_bg_deploy_pending() {
     assert_eq "bg-deploy: needs-you notify with resume hint" "yes" \
         "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'n1-finish T-A' && echo yes || echo no)"
     assert_eq "bg-deploy: hint" "T-A: n1-finish T-A (deploy pending)" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
+    # N1-74: both the awaiting-deploy and pr children are stopped on the success path.
+    assert_eq "bg-deploy: both sessions stopped" "00000001,00000002" "$(paste -sd, "$tmp/fake/stopped")"
     rm -rf "$tmp"
 }
 

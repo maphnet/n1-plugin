@@ -61,13 +61,19 @@ declare -a STARTED_AT=() PARKED=()
 
 ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 
-# escalate <ticket> <n1-home> — escalated event + needs-you notification (with resume hint).
+# escalate <ticket> <n1-home> [session-state] — escalated event + needs-you notification
+# (with resume hint). session-state "stopped" means the bg session was already stopped
+# (success-path finalize): hint n1-start instead of attach, which only reaches a running session.
 escalate() {
     local sid q
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md")
     ev escalated ticket="$1" session="$sid" reason="$q"
-    n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}${sid:+ (resume: $(n1_bg_cmd attach "$sid"))}"
+    if [ "${3:-}" = "stopped" ]; then
+        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer} (resume: n1-start $1)"
+    else
+        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}${sid:+ (resume: $(n1_bg_cmd attach "$sid"))}"
+    fi
 }
 
 # release_backstop — NP-199: fires the automatic tag-release backstop (tag mode only,
@@ -173,7 +179,7 @@ finalize() {
 
     # Events + notifications before three-strikes (which may exit). PR successes notify only
     # through the end-of-queue digest.
-    [ "$OUTCOME" = "escalated" ] && [ -z "${PARKED[NUM]:-}" ] && escalate "$TICKET" "$N1H"
+    [ "$OUTCOME" = "escalated" ] && [ -z "${PARKED[NUM]:-}" ] && escalate "$TICKET" "$N1H" stopped
     if [ "$EV_OUTCOME" = "awaiting-deploy" ]; then n1_notify needs-you "$TICKET: deploy pending (resume: n1-finish $TICKET)"; fi
     [ -n "${STARTED_AT[NUM]:-}" ] && DUR=$(( $(date +%s) - STARTED_AT[NUM] ))
     ev ticket_finished ticket="$TICKET" outcome="$EV_OUTCOME" pr="$PR_URL" \
@@ -259,6 +265,7 @@ run_bg() {
             # out, retried, or parked awaiting-human.
             OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
             if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
+                [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
             fi
