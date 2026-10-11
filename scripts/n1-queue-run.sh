@@ -234,7 +234,8 @@ launch_bg() {
 drain_stop() {
     local agents="$1" sid st
     local -a keep=()
-    for sid in "${DRAIN[@]}"; do
+    # ${a[@]+...}: an empty array is "unbound" under set -u before bash 4.4.
+    for sid in ${DRAIN[@]+"${DRAIN[@]}"}; do
         st=$(n1_queue_bg_state "$agents" "$sid")
         case "$st" in
             done|failed) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 ;;
@@ -242,7 +243,23 @@ drain_stop() {
             *) keep+=("$sid") ;;
         esac
     done
-    DRAIN=("${keep[@]}")
+    DRAIN=(${keep[@]+"${keep[@]}"})
+}
+
+# drain_wait — end of run: give DRAIN sessions up to subtaskTimeoutMinutes to go idle, then
+# leave the rest running. Runs after the digest so it never delays the queue-done notice.
+drain_wait() {
+    local agents waited=0 poll
+    poll=$(n1_queue_val pollSeconds)
+    while [ "${#DRAIN[@]}" -gt 0 ]; do
+        if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
+            drain_stop "$agents"
+        fi
+        [ "${#DRAIN[@]}" -eq 0 ] && break
+        [ "$waited" -ge "$TIMEOUT_SECS" ] && { echo "still finishing up, left running: ${DRAIN[*]}"; break; }
+        sleep "$poll"
+        waited=$((waited + poll))
+    done
 }
 
 # run_bg — background sessions, still sequential: launch the next pending ticket only when
@@ -382,17 +399,6 @@ run_bg() {
         SINCE_PARK=$((SINCE_PARK + POLL))
         sleep "$POLL"
     done
-    # End-of-run drain: give DRAIN sessions up to TIMEOUT_SECS to go idle before giving up.
-    local ELAPSED=0
-    while [ "${#DRAIN[@]}" -gt 0 ]; do
-        if AGENTS=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$AGENTS" | jq -e . >/dev/null 2>&1; then
-            drain_stop "$AGENTS"
-        fi
-        [ "${#DRAIN[@]}" -eq 0 ] && break
-        [ "$ELAPSED" -ge "$TIMEOUT_SECS" ] && { echo "still finishing up, left running: ${DRAIN[*]}"; break; }
-        sleep "$POLL"
-        ELAPSED=$((ELAPSED + POLL))
-    done
 }
 
 run_bg
@@ -405,4 +411,5 @@ ev queue_done reason="$DIGEST"
 n1_notify done "Queue $QUEUE_ID: $DIGEST"
 n1_write_frontmatter "$QUEUE" step done
 strip_pid
+drain_wait
 exit 0
