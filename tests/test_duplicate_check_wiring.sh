@@ -30,6 +30,7 @@ check "NP-234 follow-up: YouTrack link types mapped to command names" "Map \`Dup
 check "procedure gate skips queue children (NP-203)" "N1_QUEUE_RUN_ID" "$P"
 check "procedure has plan-time queue branch" "CONTEXT=queue-plan" "$P"
 check "queue-plan branch offers exclusion" "Exclude from this queue run" "$P"
+check "N1-78: queue-plan related-only matches skip the prompt" "no duplicate.* rows remain.*continue with no prompt" "$P"
 check "queue-plan branch never creates overview.md" "none is created" "$P"
 check "queue child skip is recorded for resume" "queue-plan" "$P"
 check "queue child skip also requires N1_HEADLESS=1 (SEC-L2)" "QUEUE_CHILD.*non-empty AND \`HEADLESS=1\`" "$P"
