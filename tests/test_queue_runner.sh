@@ -867,7 +867,7 @@ test_bg_drain_defers_until_idle() {
     # never stop a blocked one at all.
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:working working done" "T-B:blocked"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}' > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-A" "$tmp/n1home/memory/T-B"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-B/overview.md"
@@ -875,6 +875,15 @@ test_bg_drain_defers_until_idle() {
     assert_eq "drain: only the idle (done) session is stopped" "00000001" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
     assert_eq "drain: the still-blocked session is left running" "yes" \
         "$(grep -q 'left running' "$tmp/output.txt" && grep -qF 00000002 "$tmp/output.txt" && echo yes || echo no)"
+    # N1-76: a drained session that blocks is escalated exactly once, across the run's
+    # several polls (subtaskTimeoutMinutes=5 / pollSeconds=30 => T-B stays blocked for ~10 polls).
+    assert_eq "drain: T-B escalated exactly once" "1" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "drain: T-B needs-you notify uses the attach hint, not resume: n1-start" "1" \
+        "$(jq -r 'select(.kind == "needs-you") | .text' "$tmp/notes" | grep -c 'T-B needs you.*resume: claude attach')"
+    # N1-76: timeout break path also fires one leftover needs-you notify naming T-B.
+    assert_eq "drain: timeout break fires one leftover needs-you notify for T-B" "1" \
+        "$(jq -r 'select(.kind == "needs-you") | .text' "$tmp/notes" | grep -c '^still finishing up: T-B$')"
     rm -rf "$tmp"
 }
 

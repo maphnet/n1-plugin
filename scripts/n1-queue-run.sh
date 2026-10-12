@@ -57,7 +57,7 @@ strip_pid() {
 EVENTS="$(dirname "$QUEUE")/events.jsonl"
 # ponytail: STARTED_AT/PARKED are in-memory; after a runner crash-restart duration_s is null and
 # a re-parked ticket may notify twice. Persist them in queue.md if that ever matters.
-declare -a STARTED_AT=() PARKED=() DRAIN=()
+declare -a STARTED_AT=() PARKED=() DRAIN=() DRAIN_ESCALATED=()
 
 ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 
@@ -235,20 +235,42 @@ launch_bg() {
 # drain_stop <agents-json> — stop and drop DRAIN sids once their bg session goes idle
 # (done); missing/failed sessions are dropped without stopping (already gone). working/blocked
 # sessions are kept: right after a terminal overview step a child may still be in CI watch,
-# finish/merge, or memory finalize, and killing it mid-way would lose that work.
+# finish/merge, or memory finalize, and killing it mid-way would lose that work. A blocked
+# session is escalated once (DRAIN_ESCALATED dedupe) so a question raised post-finalize still
+# reaches the user instead of silently idling until drain_wait's timeout.
 drain_stop() {
-    local agents="$1" sid st
+    local agents="$1" entry sid ticket n1h st
     local -a keep=()
     # ${a[@]+...}: an empty array is "unbound" under set -u before bash 4.4.
-    for sid in ${DRAIN[@]+"${DRAIN[@]}"}; do
+    for entry in ${DRAIN[@]+"${DRAIN[@]}"}; do
+        IFS=$'\t' read -r sid ticket n1h <<<"$entry"
         st=$(n1_queue_bg_state "$agents" "$sid")
         case "$st" in
-            done) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 || keep+=("$sid") ;;
+            done) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 || keep+=("$entry") ;;
             missing|failed) ;;  # failed also covers stopped/unknown states: nothing safe to stop
-            *) keep+=("$sid") ;;
+            blocked)
+                if ! printf '%s\n' "${DRAIN_ESCALATED[@]+"${DRAIN_ESCALATED[@]}"}" | grep -qxF "$sid"; then
+                    DRAIN_ESCALATED+=("$sid")
+                    escalate "$ticket" "$n1h"
+                fi
+                keep+=("$entry")
+                ;;
+            *) keep+=("$entry") ;;
         esac
     done
     DRAIN=(${keep[@]+"${keep[@]}"})
+}
+
+# drain_leftover_notify <label> — one needs-you notification listing tickets still in DRAIN,
+# called from drain_wait's two break paths alongside the existing log line.
+drain_leftover_notify() {
+    local entry ticket
+    local -a tickets=()
+    for entry in ${DRAIN[@]+"${DRAIN[@]}"}; do
+        IFS=$'\t' read -r _ ticket _ <<<"$entry"
+        tickets+=("$ticket")
+    done
+    [ "${#tickets[@]}" -gt 0 ] && n1_notify needs-you "$1: ${tickets[*]}"
 }
 
 # drain_wait — end of run: give DRAIN sessions up to subtaskTimeoutMinutes to go idle, then
@@ -262,10 +284,10 @@ drain_wait() {
             fails=0; drain_stop "$agents"
         else
             fails=$((fails + 1))
-            [ "$fails" -ge "$BG_POLL_GRACE" ] && { echo "session list unreadable, left running: ${DRAIN[*]}"; break; }
+            [ "$fails" -ge "$BG_POLL_GRACE" ] && { echo "session list unreadable, left running: ${DRAIN[*]}"; drain_leftover_notify "still running after unreadable session list"; break; }
         fi
         [ "${#DRAIN[@]}" -eq 0 ] && break
-        [ "$waited" -ge "$TIMEOUT_SECS" ] && { echo "still finishing up, left running: ${DRAIN[*]}"; break; }
+        [ "$waited" -ge "$TIMEOUT_SECS" ] && { echo "still finishing up, left running: ${DRAIN[*]}"; drain_leftover_notify "still finishing up"; break; }
         sleep "$poll"
         waited=$((waited + poll))
     done
@@ -325,7 +347,7 @@ run_bg() {
             # out, retried, or parked awaiting-human.
             OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
             if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
-                [ -n "$SID" ] && DRAIN+=("$SID")
+                [ -n "$SID" ] && DRAIN+=("$SID"$'\t'"$TICKET"$'\t'"$N1H")
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
             fi
