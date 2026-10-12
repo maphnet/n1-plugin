@@ -1040,6 +1040,45 @@ test_bg_relay_marker() {
     rm -rf "$tmp"
 }
 
+# N1-77: the relay-hold timeout branch calls n1_queue_relay_active (a `find` on the marker
+# file) between the per-tick stale OUTCOME read and its timeout stop. A fake `find` flips
+# overview.md to a terminal step right after that call on the exact poll where the timeout
+# would fire, simulating the child finishing in the TOCTOU window. The row must land as "pr"
+# via DRAIN/finalize, never as a timed-out retry.
+test_bg_timeout_race_terminal_overview() {
+    local tmp real_find; tmp=$(mktemp -d); real_find=$(command -v find)
+    # Marker refreshed (SEC-3 style) so relay-active holds the child past the subtask timeout;
+    # "stopped" repeats forever so without the fix the child would be killed on poll 3.
+    mk_bg "$tmp" bgq "T-A:blocked stopped"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    touch -d '+1 hour' "$tmp/fake/relay.T-A"
+    cat > "$tmp/bin/find" <<FAKEEOF
+#!/usr/bin/env bash
+t=""
+case "\$1" in *.relay-*) t="\${1##*.relay-}" ;; esac
+c=0
+if [ -n "\$t" ]; then
+    cf="$tmp/fake/findcalls.\$t"
+    c=\$(( \$(cat "\$cf" 2>/dev/null || echo 0) + 1 )); echo "\$c" > "\$cf"
+fi
+"$real_find" "\$@"; rc=\$?
+if [ "\$t" = "T-A" ] && [ "\$c" = 3 ]; then
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/n1home/memory/T-A/overview.md"
+fi
+exit \$rc
+FAKEEOF
+    chmod +x "$tmp/bin/find"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "timeout-race: find seam fired exactly once at call 3" "3" \
+        "$(cat "$tmp/fake/findcalls.T-A" 2>/dev/null || echo 0)"
+    assert_eq "timeout-race: row finalizes as pr, not timed out" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "timeout-race: no retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "timeout-race: session never directly stopped (timeout path not taken)" "no" \
+        "$([ -f "$tmp/fake/stopped" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 test_notify_check() {
     assert_eq "notify-check: none is silent" "" \
         "$(N1_HOME="$(mktemp -d)" bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/frontmatter.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_val() { [ \"\$1\" = notify ] && echo none; }; n1_queue_notify_check")"
@@ -2105,6 +2144,7 @@ test_bg_blocked_first_tick_parks
 test_bg_reason_child_exited_incomplete
 test_bg_reason_bg_state_catchall
 test_bg_relay_marker
+test_bg_timeout_race_terminal_overview
 test_notify_check
 test_bg_disclaimer
 test_busy_guard

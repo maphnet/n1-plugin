@@ -271,6 +271,22 @@ drain_wait() {
     done
 }
 
+# timeout_stop <num> <ticket> <repo> <n1h> <model> <sid> — issue a timeout stop, but first
+# re-read overview.md: the stale per-tick OUTCOME (line ~313) can no longer reflect a child
+# that wrote step: pr in the gap between that read and this stop (TOCTOU, N1-77). A terminal
+# re-read routes to DRAIN/finalize with the real outcome instead of killing a finished child.
+timeout_stop() {
+    local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" SID="$6" OUTCOME
+    OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
+    if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
+        [ -n "$SID" ] && DRAIN+=("$SID")
+        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
+        return
+    fi
+    [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
+    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+}
+
 # run_bg — background sessions, still sequential: launch the next pending ticket only when
 # no launched child is working. blocked -> awaiting-human (no strike) and the queue moves on.
 # Working time is capped by subtaskTimeoutMinutes; at end of queue, parked rows are polled
@@ -325,8 +341,7 @@ run_bg() {
                 *) if n1_queue_relay_active "$N1_QUEUE_DIR" "$TICKET"; then
                        WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
                        if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
-                       [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
-                       finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+                       timeout_stop "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$SID"
                        continue
                    fi ;;
             esac
@@ -339,8 +354,7 @@ run_bg() {
                     fi
                     WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
                     if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
-                    [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
-                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+                    timeout_stop "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$SID"
                     ;;
                 working)
                     MISSING[NUM]=0
@@ -350,8 +364,7 @@ run_bg() {
                     fi
                     WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
                     if [ "${WORKED[NUM]}" -le "$TIMEOUT_SECS" ]; then WORKING=1; continue; fi
-                    [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
-                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+                    timeout_stop "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$SID"
                     ;;
                 blocked)
                     if [ "$STATUS" != "awaiting-human" ]; then
