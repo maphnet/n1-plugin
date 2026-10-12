@@ -249,28 +249,31 @@ drain_stop() {
             done) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 || keep+=("$entry") ;;
             missing|failed) ;;  # failed also covers stopped/unknown states: nothing safe to stop
             blocked)
-                if ! printf '%s\n' "${DRAIN_ESCALATED[@]+"${DRAIN_ESCALATED[@]}"}" | grep -qxF "$sid"; then
+                if ! printf '%s\n' "${DRAIN_ESCALATED[@]+"${DRAIN_ESCALATED[@]}"}" | grep -qxF -- "$sid"; then
                     DRAIN_ESCALATED+=("$sid")
                     escalate "$ticket" "$n1h"
                 fi
                 keep+=("$entry")
                 ;;
-            *) keep+=("$entry") ;;
+            *)  # back to working (question answered): re-arm so a later question escalates too
+                DRAIN_ESCALATED=($(printf '%s\n' "${DRAIN_ESCALATED[@]+"${DRAIN_ESCALATED[@]}"}" | grep -vxF -- "$sid"))
+                keep+=("$entry") ;;
         esac
     done
     DRAIN=(${keep[@]+"${keep[@]}"})
 }
 
-# drain_leftover_notify <label> — one needs-you notification listing tickets still in DRAIN,
-# called from drain_wait's two break paths alongside the existing log line.
-drain_leftover_notify() {
-    local entry ticket
-    local -a tickets=()
+# drain_leftover <log-reason> <notify-label> — drain_wait gave up: log the left-running sids and
+# send one needs-you notification naming their tickets.
+drain_leftover() {
+    local entry sid ticket
+    local -a sids=() tickets=()
     for entry in ${DRAIN[@]+"${DRAIN[@]}"}; do
-        IFS=$'\t' read -r _ ticket _ <<<"$entry"
-        tickets+=("$ticket")
+        IFS=$'\t' read -r sid ticket _ <<<"$entry"
+        sids+=("$sid"); tickets+=("$ticket")
     done
-    [ "${#tickets[@]}" -gt 0 ] && n1_notify needs-you "$1: ${tickets[*]}"
+    echo "$1, left running: ${sids[*]}"
+    n1_notify needs-you "$2: ${tickets[*]}"
 }
 
 # drain_wait — end of run: give DRAIN sessions up to subtaskTimeoutMinutes to go idle, then
@@ -284,10 +287,10 @@ drain_wait() {
             fails=0; drain_stop "$agents"
         else
             fails=$((fails + 1))
-            [ "$fails" -ge "$BG_POLL_GRACE" ] && { echo "session list unreadable, left running: ${DRAIN[*]}"; drain_leftover_notify "still running after unreadable session list"; break; }
+            [ "$fails" -ge "$BG_POLL_GRACE" ] && { drain_leftover "session list unreadable" "still running after unreadable session list"; break; }
         fi
         [ "${#DRAIN[@]}" -eq 0 ] && break
-        [ "$waited" -ge "$TIMEOUT_SECS" ] && { echo "still finishing up, left running: ${DRAIN[*]}"; drain_leftover_notify "still finishing up"; break; }
+        [ "$waited" -ge "$TIMEOUT_SECS" ] && { drain_leftover "still finishing up" "still finishing up"; break; }
         sleep "$poll"
         waited=$((waited + poll))
     done

@@ -887,6 +887,20 @@ test_bg_drain_defers_until_idle() {
     rm -rf "$tmp"
 }
 
+test_bg_drain_rearms_after_answer() {
+    # N1-76: blocked -> answered (working) -> blocked again escalates the second question too.
+    # The first state is consumed by run_bg's pre-finalize poll, before T-B enters DRAIN.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-B:working blocked working blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-B"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-B/overview.md"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "drain: re-blocked T-B escalated once per question" "2" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    rm -rf "$tmp"
+}
+
 test_bg_halt_drains() {
     # N1-74 [CR-1]: a halt (three escalated strikes) must still drain the session whose
     # finalize tripped it, not exit with it resident.
@@ -2142,6 +2156,7 @@ test_bg_working_timeout
 test_bg_missing_grace
 test_bg_reconcile_working
 test_bg_drain_defers_until_idle
+test_bg_drain_rearms_after_answer
 test_bg_halt_drains
 test_bg_drain_stop_retries_on_failure
 test_bg_reconcile_missing
