@@ -1065,11 +1065,15 @@ test_bg_relay_marker() {
 
 # N1-77: n1_queue_relay_active's `find` runs between the stale OUTCOME read and the timeout
 # stop; a fake find flips overview.md to step: pr there, on the poll where the timeout fires.
+# N1-76 follow-up: a 4th poll then reports "blocked" after the ticket already drained into
+# DRAIN via timeout_stop (not the run_bg per-row escalate), so the only way the escalation
+# below carries ticket=T-A is if DRAIN's timeout_stop push kept the sid<TAB>ticket<TAB>n1home
+# tuple shape the other DRAIN push and its consumers (drain_stop) expect.
 test_bg_timeout_race_terminal_overview() {
     local tmp real_find; tmp=$(mktemp -d); real_find=$(command -v find)
     # Marker refreshed (SEC-3 style) so relay-active holds the child past the subtask timeout;
-    # "stopped" repeats forever so without the fix the child would be killed on poll 3.
-    mk_bg "$tmp" bgq "T-A:blocked stopped"
+    # "stopped" repeats so without the fix the child would be killed on poll 3.
+    mk_bg "$tmp" bgq "T-A:stopped stopped stopped blocked"
     echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
     touch -d '+1 hour' "$tmp/fake/relay.T-A"
     cat > "$tmp/bin/find" <<FAKEEOF
@@ -1096,6 +1100,10 @@ FAKEEOF
     assert_eq "timeout-race: no retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
     assert_eq "timeout-race: session never directly stopped (timeout path not taken)" "no" \
         "$([ -f "$tmp/fake/stopped" ] && echo yes || echo no)"
+    assert_eq "timeout-race: drained child later blocked escalates exactly once" "1" \
+        "$(jq -r 'select(.event=="escalated") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "timeout-race: escalation carries the drained ticket" "T-A" \
+        "$(jq -r 'select(.event=="escalated") | .ticket' "$tmp/events.jsonl")"
     rm -rf "$tmp"
 }
 

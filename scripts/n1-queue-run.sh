@@ -301,7 +301,7 @@ timeout_stop() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" SID="$6" OUTCOME
     OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
     if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
-        [ -n "$SID" ] && DRAIN+=("$SID")
+        [ -n "$SID" ] && DRAIN+=("$SID"$'\t'"$TICKET"$'\t'"$N1H")
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
         return
     fi
