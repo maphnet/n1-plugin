@@ -251,11 +251,14 @@ drain_stop() {
 # leave the rest running. Runs after the digest (never delays the queue-done notice) but
 # before strip_pid, so the busy guard still holds while sessions drain.
 drain_wait() {
-    local agents waited=0 poll
+    local agents waited=0 poll fails=0
     poll=$(n1_queue_val pollSeconds)
     while [ "${#DRAIN[@]}" -gt 0 ]; do
         if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
-            drain_stop "$agents"
+            fails=0; drain_stop "$agents"
+        else
+            fails=$((fails + 1))
+            [ "$fails" -ge "$BG_POLL_GRACE" ] && { echo "session list unreadable, left running: ${DRAIN[*]}"; break; }
         fi
         [ "${#DRAIN[@]}" -eq 0 ] && break
         [ "$waited" -ge "$TIMEOUT_SECS" ] && { echo "still finishing up, left running: ${DRAIN[*]}"; break; }
