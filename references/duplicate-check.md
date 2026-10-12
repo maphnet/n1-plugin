@@ -8,7 +8,7 @@ Searches the tracker for tickets that duplicate or relate to the work at hand. I
 - `SELF_ID`: the current ticket ID; empty in `create`
 - `OVERVIEW`: absolute overview.md path in `start`; empty otherwise
 
-**Returns:** `DUP_LINKS`, a list of `<HIT_ID>:<Duplicate|Relates>` — includes every `duplicate` hit auto-linked in `CONTEXT=start` (every autonomy mode) plus any `related` hit the user chose to link. On **Stop**, the caller follows its own stop instruction.
+**Returns:** `DUP_LINKS`, a list of `<HIT_ID>:<Duplicate|Relates>` — includes every `duplicate` hit auto-linked in `CONTEXT=start` (every autonomy mode), every `related` hit auto-linked whenever links are offered (every autonomy mode, any `CONTEXT`), plus any `duplicate` hit the user chose to link via the interactive prompt. On **Stop**, the caller follows its own stop instruction.
 
 ## § Check
 
@@ -70,25 +70,30 @@ Links are offered only when `LINK_OP` is non-empty and a tracker ticket exists o
 
 Branch on the first rule that matches:
 
-1. **`CONTEXT=queue-plan`:** show the warning and ask the user (one question per candidate; name `SELF_ID` in it):
-   1. **Continue**: keep the candidate in the queue, no link.
-   2. **Continue and link**: keep it and run § Apply Links now with `SOURCE_ID=<SELF_ID>` and one `<HIT_ID>:<Duplicate|Relates>` per match. Omit this option when links are not offered (see above).
-   3. **Exclude from this queue run**: the caller moves the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)`.
+1. **`CONTEXT=queue-plan`:** split `MATCHES` into duplicate rows and related rows.
+   - **Related rows, when links are offered:** run § Apply Links now with `SOURCE_ID=<SELF_ID>` and one `<HIT_ID>:Relates` per related row; add `Auto-linked (related): <HIT_ID>[, <HIT_ID>...]` under the warning table. When links are not offered, leave them unlinked (the warning's `Linking unavailable` line already covers this).
+   - **If no duplicate rows remain:** show the warning (related rows only) and continue with no prompt. Return `DUP_CHOICE` = `link` when related rows were auto-linked above, otherwise `continue`.
+   - **If duplicate rows remain:** show the warning (duplicate rows only) and ask the user (one question per candidate; name `SELF_ID` in it):
+     1. **Continue**: keep the candidate in the queue, no link.
+     2. **Continue and link**: keep it and run § Apply Links now with `SOURCE_ID=<SELF_ID>` and one `<HIT_ID>:Duplicate` per remaining duplicate row. Omit this option when links are not offered (see above).
+     3. **Exclude from this queue run**: the caller moves the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)`.
 
-   Return `DUP_CHOICE` = `continue`, `link`, or `exclude`. Queue candidates have no `overview.md` and none is created here (it would make the child resume instead of start): § 5 does not run; the caller records the choice in the queue plan's `## Decisions` Notes cell.
+     Return `DUP_CHOICE` = `continue`, `link`, or `exclude`.
+
+   Queue candidates have no `overview.md` and none is created here (it would make the child resume instead of start): § 5 does not run; the caller records the choice in the queue plan's `## Decisions` Notes cell.
 2. **`CONTEXT=queue`:** no prompt, no link, no exclusion. Append ` · possible duplicate: <ID>` or ` · related: <ID>` to the candidate's Reason for each match. Return.
-3. **Unattended** (`HEADLESS=1`, or `QE=auto-accept`): no prompt. Print the warning. Do not link `related` hits — linking an uncertain relationship still needs a human decision. If `CONTEXT=start`, links are offered, and `MATCHES` contains any `duplicate` rows, set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. If `CONTEXT=start`, `HEADLESS=1`, `COMMENT_OP` is non-empty, and `SELF_ID` is a tracker ticket, post a best-effort comment via `mcp__<TRACKER_MCP>__<COMMENT_OP>` on `SELF_ID`:
+3. **Unattended** (`HEADLESS=1`, or `QE=auto-accept`): no prompt. Print the warning. If links are offered and `MATCHES` contains any `related` rows, also add `<HIT_ID>:Relates` to `DUP_LINKS` for each (`CONTEXT=start` applies it at § 5; `CONTEXT=create` callers apply it after creation) and add this line under the warning table: `Auto-linked (related): <HIT_ID>[, <HIT_ID>...]`. If `CONTEXT=start`, links are offered, and `MATCHES` contains any `duplicate` rows, set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. When links are not offered, nothing is linked — the warning's `Linking unavailable` line already covers that. If `CONTEXT=start`, `HEADLESS=1`, `COMMENT_OP` is non-empty, and `SELF_ID` is a tracker ticket, post a best-effort comment via `mcp__<TRACKER_MCP>__<COMMENT_OP>` on `SELF_ID`:
    ```
    N1 duplicate check: possible duplicate/related tickets found.
-   Auto-linked (duplicate): <HIT_IDs, omit this line if none>
+   Auto-linked: <HIT_ID> (duplicate|related)[, <HIT_ID> (duplicate|related)...], omit this line if none
    Continued without linking: <one line per remaining match: HIT_ID (duplicate|related), omit this line if none>
    ```
    A comment failure never blocks.
-4. **Interactive:**
-   - `CONTEXT=start`, links offered, and `MATCHES` contains any `duplicate` rows: auto-link those without asking. Set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. If `MATCHES` still has `related` rows after removing the auto-linked ones, continue to the next bullet for those only. Otherwise (no `related` rows remain), ask the user: **Continue** (default) or **Stop** (record (§ 5), then end the run with: "Stopped: <SELF_ID> overlaps <HIT_IDs>. Close or link it in the tracker; `/n1:n1-start <SELF_ID>` resumes and skips this check.").
-   - **Otherwise** (no `duplicate` rows, or `CONTEXT=create`, or links not offered, or only `related` rows remain after auto-linking): show the warning (the remaining `related` rows only, when some hits were already auto-linked) and ask the user:
+4. **Interactive:** first, when links are offered (`CONTEXT=start` or `create`) and `MATCHES` contains any `related` rows, auto-link those without asking: add `<HIT_ID>:Relates` to `DUP_LINKS` for each (`start` applies it at § 5; `create` callers apply it after creation), and add this line under the warning table: `Auto-linked (related): <HIT_ID>[, <HIT_ID>...]`. When links are not offered, leave `related` rows unlinked — the warning's `Linking unavailable` line already covers that. Either way, `related` rows never prompt.
+   - `CONTEXT=start`, links offered, and `MATCHES` contains any `duplicate` rows: auto-link those without asking. Set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. Ask the user: **Continue** (default) or **Stop** (record (§ 5), then end the run with: "Stopped: <SELF_ID> overlaps <HIT_IDs>. Close or link it in the tracker; `/n1:n1-start <SELF_ID>` resumes and skips this check.").
+   - **Otherwise** (no `duplicate` rows remain, or `CONTEXT=create`, or links not offered): if no `duplicate` rows remain, continue with no further prompt — the `related` handling above already resolved everything. Otherwise show the warning (`duplicate` rows only) and ask the user:
      1. **Continue**: proceed without linking. This is the default when unattended.
-     2. **Continue and link**: proceed and add to `DUP_LINKS` one `<HIT_ID>:<Duplicate|Relates>` per remaining match (excluding anything already auto-linked). Omit this option when links are not offered.
+     2. **Continue and link**: proceed and add to `DUP_LINKS` one `<HIT_ID>:Duplicate` per remaining `duplicate` match. Omit this option when links are not offered.
      3. **Stop**: `create` → cancel without creating anything. `start` → record (§ 5), then end the run with: "Stopped: <SELF_ID> overlaps <HIT_IDs>. Close or link it in the tracker; `/n1:n1-start <SELF_ID>` resumes and skips this check."
 
 ### 5. Record
