@@ -239,7 +239,7 @@ drain_stop() {
     for sid in ${DRAIN[@]+"${DRAIN[@]}"}; do
         st=$(n1_queue_bg_state "$agents" "$sid")
         case "$st" in
-            done) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 ;;
+            done) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 || keep+=("$sid") ;;
             missing|failed) ;;  # failed also covers stopped/unknown states: nothing safe to stop
             *) keep+=("$sid") ;;
         esac

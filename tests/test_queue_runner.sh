@@ -689,7 +689,14 @@ case "$1" in
         done
         echo "[$out]"
         ;;
-    stop) echo "$2" >> "$D/stopped" ;;
+    stop)
+        if [ -f "$D/stopfail.$2" ]; then
+            echo "$2" >> "$D/stopfail-log"
+            rm -f "$D/stopfail.$2"
+            exit 1
+        fi
+        echo "$2" >> "$D/stopped"
+        ;;
 esac
 FAKEEOF
     printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
@@ -881,6 +888,21 @@ test_bg_halt_drains() {
     assert_eq "halt-drain: halting child's session stopped" "yes" \
         "$(grep -qx 00000003 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)"
     assert_eq "halt-drain: pid stripped after drain" "" "$(n1_read_frontmatter "$tmp/queue.md" pid)"
+    rm -rf "$tmp"
+}
+
+test_bg_drain_stop_retries_on_failure() {
+    # N1-74 [CR-2]: a failed stop must not drop the sid from DRAIN — it's retried on the
+    # next tick instead of leaking a running session.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
+    touch "$tmp/fake/stopfail.00000001"
+    assert_eq "drain-retry: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "drain-retry: first stop attempt failed" "00000001" "$(cat "$tmp/fake/stopfail-log" 2>/dev/null || true)"
+    assert_eq "drain-retry: retried and eventually stopped" "00000001" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
     rm -rf "$tmp"
 }
 
@@ -2074,6 +2096,7 @@ test_bg_missing_grace
 test_bg_reconcile_working
 test_bg_drain_defers_until_idle
 test_bg_halt_drains
+test_bg_drain_stop_retries_on_failure
 test_bg_reconcile_missing
 test_bg_reconcile_working_stale_escalation
 test_bg_blocked_first_tick_parks
