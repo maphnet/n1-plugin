@@ -62,8 +62,8 @@ declare -a STARTED_AT=() PARKED=() DRAIN=()
 ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 
 # escalate <ticket> <n1-home> [session-state] — escalated event + needs-you notification
-# (with resume hint). session-state "stopped" means the bg session was already stopped
-# (success-path finalize): hint n1-start instead of attach, which only reaches a running session.
+# (with resume hint). session-state "stopped" means the bg session is draining (success-path
+# finalize; stopped once idle): hint n1-start, since attach only reaches a running session.
 escalate() {
     local sid q
     sid=$(n1_queue_session_id "$QUEUE" "$1")
@@ -93,11 +93,12 @@ release_backstop() {
 # halt <message> — record, notify, and stop the runner (exit 2).
 halt() {
     n1_write_frontmatter "$QUEUE" step halted
-    strip_pid
     ev halted reason="$1"
     release_backstop
     n1_notify needs-you "Queue $QUEUE_ID halted: ${1:0:200}"
     echo "$1"
+    drain_wait
+    strip_pid
     exit 2
 }
 
@@ -228,7 +229,7 @@ launch_bg() {
 }
 
 # drain_stop <agents-json> — stop and drop DRAIN sids once their bg session goes idle
-# (done/failed); a missing session is dropped without stopping (already gone). working/blocked
+# (done); missing/failed sessions are dropped without stopping (already gone). working/blocked
 # sessions are kept: right after a terminal overview step a child may still be in CI watch,
 # finish/merge, or memory finalize, and killing it mid-way would lose that work.
 drain_stop() {
@@ -238,8 +239,8 @@ drain_stop() {
     for sid in ${DRAIN[@]+"${DRAIN[@]}"}; do
         st=$(n1_queue_bg_state "$agents" "$sid")
         case "$st" in
-            done|failed) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 ;;
-            missing) ;;
+            done) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 ;;
+            missing|failed) ;;  # failed also covers stopped/unknown states: nothing safe to stop
             *) keep+=("$sid") ;;
         esac
     done
@@ -247,7 +248,8 @@ drain_stop() {
 }
 
 # drain_wait — end of run: give DRAIN sessions up to subtaskTimeoutMinutes to go idle, then
-# leave the rest running. Runs after the digest so it never delays the queue-done notice.
+# leave the rest running. Runs after the digest (never delays the queue-done notice) but
+# before strip_pid, so the busy guard still holds while sessions drain.
 drain_wait() {
     local agents waited=0 poll
     poll=$(n1_queue_val pollSeconds)
@@ -410,6 +412,6 @@ release_backstop
 ev queue_done reason="$DIGEST"
 n1_notify done "Queue $QUEUE_ID: $DIGEST"
 n1_write_frontmatter "$QUEUE" step done
-strip_pid
 drain_wait
+strip_pid
 exit 0

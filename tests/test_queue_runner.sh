@@ -869,6 +869,21 @@ test_bg_drain_defers_until_idle() {
     rm -rf "$tmp"
 }
 
+test_bg_halt_drains() {
+    # N1-74 [CR-1]: a halt (three escalated strikes) must still drain the session whose
+    # finalize tripped it, not exit with it resident.
+    local tmp t; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done" "T-B:done" "T-C:done"
+    for t in T-A T-B T-C; do
+        printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/fake/overview.$t"
+    done
+    assert_eq "halt-drain: exit 2" "2" "$(run_bg_queue "$tmp")"
+    assert_eq "halt-drain: halting child's session stopped" "yes" \
+        "$(grep -qx 00000003 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)"
+    assert_eq "halt-drain: pid stripped after drain" "" "$(n1_read_frontmatter "$tmp/queue.md" pid)"
+    rm -rf "$tmp"
+}
+
 test_bg_reconcile_missing() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:missing missing missing"
@@ -2058,6 +2073,7 @@ test_bg_working_timeout
 test_bg_missing_grace
 test_bg_reconcile_working
 test_bg_drain_defers_until_idle
+test_bg_halt_drains
 test_bg_reconcile_missing
 test_bg_reconcile_working_stale_escalation
 test_bg_blocked_first_tick_parks
