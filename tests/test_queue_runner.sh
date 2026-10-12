@@ -867,7 +867,7 @@ test_bg_drain_defers_until_idle() {
     # never stop a blocked one at all.
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:working working done" "T-B:blocked"
-    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}' > "$tmp/n1home/config.json"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-A" "$tmp/n1home/memory/T-B"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-B/overview.md"
@@ -875,6 +875,29 @@ test_bg_drain_defers_until_idle() {
     assert_eq "drain: only the idle (done) session is stopped" "00000001" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
     assert_eq "drain: the still-blocked session is left running" "yes" \
         "$(grep -q 'left running' "$tmp/output.txt" && grep -qF 00000002 "$tmp/output.txt" && echo yes || echo no)"
+    # N1-76: a drained session that blocks is escalated exactly once, across the run's
+    # several polls (subtaskTimeoutMinutes=5 / pollSeconds=30 => T-B stays blocked for ~10 polls).
+    assert_eq "drain: T-B escalated exactly once" "1" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "drain: T-B needs-you notify uses the attach hint, not resume: n1-start" "1" \
+        "$(jq -r 'select(.kind == "needs-you") | .text' "$tmp/notes" | grep -c 'T-B needs you.*resume: claude attach')"
+    # N1-76: timeout break path also fires one leftover needs-you notify naming T-B.
+    assert_eq "drain: timeout break fires one leftover needs-you notify for T-B" "1" \
+        "$(jq -r 'select(.kind == "needs-you") | .text' "$tmp/notes" | grep -c '^still finishing up: T-B$')"
+    rm -rf "$tmp"
+}
+
+test_bg_drain_rearms_after_answer() {
+    # N1-76: blocked -> answered (working) -> blocked again escalates the second question too.
+    # The first state is consumed by run_bg's pre-finalize poll, before T-B enters DRAIN.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-B:working blocked working blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-B"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-B/overview.md"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "drain: re-blocked T-B escalated once per question" "2" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
     rm -rf "$tmp"
 }
 
@@ -1042,11 +1065,15 @@ test_bg_relay_marker() {
 
 # N1-77: n1_queue_relay_active's `find` runs between the stale OUTCOME read and the timeout
 # stop; a fake find flips overview.md to step: pr there, on the poll where the timeout fires.
+# N1-76 follow-up: a 4th poll then reports "blocked" after the ticket already drained into
+# DRAIN via timeout_stop (not the run_bg per-row escalate), so the only way the escalation
+# below carries ticket=T-A is if DRAIN's timeout_stop push kept the sid<TAB>ticket<TAB>n1home
+# tuple shape the other DRAIN push and its consumers (drain_stop) expect.
 test_bg_timeout_race_terminal_overview() {
     local tmp real_find; tmp=$(mktemp -d); real_find=$(command -v find)
     # Marker refreshed (SEC-3 style) so relay-active holds the child past the subtask timeout;
-    # "stopped" repeats forever so without the fix the child would be killed on poll 3.
-    mk_bg "$tmp" bgq "T-A:blocked stopped"
+    # "stopped" repeats so without the fix the child would be killed on poll 3.
+    mk_bg "$tmp" bgq "T-A:stopped stopped stopped blocked"
     echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
     touch -d '+1 hour' "$tmp/fake/relay.T-A"
     cat > "$tmp/bin/find" <<FAKEEOF
@@ -1073,6 +1100,10 @@ FAKEEOF
     assert_eq "timeout-race: no retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
     assert_eq "timeout-race: session never directly stopped (timeout path not taken)" "no" \
         "$([ -f "$tmp/fake/stopped" ] && echo yes || echo no)"
+    assert_eq "timeout-race: drained child later blocked escalates exactly once" "1" \
+        "$(jq -r 'select(.event=="escalated") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "timeout-race: escalation carries the drained ticket" "T-A" \
+        "$(jq -r 'select(.event=="escalated") | .ticket' "$tmp/events.jsonl")"
     rm -rf "$tmp"
 }
 
@@ -2133,6 +2164,7 @@ test_bg_working_timeout
 test_bg_missing_grace
 test_bg_reconcile_working
 test_bg_drain_defers_until_idle
+test_bg_drain_rearms_after_answer
 test_bg_halt_drains
 test_bg_drain_stop_retries_on_failure
 test_bg_reconcile_missing
