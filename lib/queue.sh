@@ -901,7 +901,7 @@ n1_queue_watch() {
     # cursor is removed and it returns 0. Otherwise it polls until killed.
     # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
-    local ev t out pr s reason qbody b h r sha marker last
+    local ev t out pr s reason qbody b h r sha marker last hint
     q="${dir##*/}"
     sid=$(n1_session_id); sid="${sid:-nosession}"
     case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
@@ -948,12 +948,19 @@ n1_queue_watch() {
                                   (.options | arrays | .[:10] | .[] | "  - \(s)"),
                                   (select($rec != "") | "  Recommended: \($rec)\(if $r != "" then " — \($r)" else "" end)")' \
                                 "$dir/.question-$t.json" 2>/dev/null) ;; esac
+                        # N1-74: outcome=terminal means the session is drained and stopped (finalize's
+                        # stopped-path escalate): attach would reach nothing, so hint n1-start instead.
+                        if [ "$out" = terminal ]; then
+                            hint="; resume: n1-start $t"
+                        else
+                            hint="${s:+; resume: $(n1_bg_cmd attach "$s")}"
+                        fi
                         if [ -n "$qbody" ]; then
                             printf 'n1-queue %s: %s needs you (answer: /n1:n1-queue --answer %s "<text>"%s):\n%s\n' \
-                                "$q" "$t" "$t" "${s:+; resume: $(n1_bg_cmd attach "$s")}" "$qbody"
+                                "$q" "$t" "$t" "$hint" "$qbody"
                         else
                             printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
-                                "${s:+ (resume: $(n1_bg_cmd attach "$s"))}"
+                                "${hint:+ (${hint#; })}"
                         fi ;;
                     answer_delivered)
                         printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t" ;;

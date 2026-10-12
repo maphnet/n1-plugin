@@ -68,7 +68,11 @@ escalate() {
     local sid q
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md")
-    ev escalated ticket="$1" session="$sid" reason="$q"
+    if [ "${3:-}" = "stopped" ]; then
+        ev escalated ticket="$1" session="$sid" reason="$q" outcome=terminal
+    else
+        ev escalated ticket="$1" session="$sid" reason="$q"
+    fi
     if [ "${3:-}" = "stopped" ]; then
         n1_notify needs-you "$1 needs you: ${q:-waiting for an answer} (resume: n1-start $1)"
     else

@@ -54,6 +54,19 @@ test_run_id_filter_and_finish() {
     assert_eq "finish: cursor removed" "no" "$([ -e "$q/.watch-R1.sessA" ] && echo yes || echo no)"
 }
 
+test_escalated_terminal_outcome_hints_n1_start() {
+    # N1-74: outcome=terminal (finalize's stopped-path escalate) means the bg session is
+    # drained and stopped — attach would reach nothing, so the hint is n1-start, not attach.
+    local q; q=$(newq q7)
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="done" outcome=terminal
+    ev "$q" R1 escalated ticket=T-2 session=0000beef reason="still working"
+    ev "$q" R1 queue_done reason="0 PR"
+    local out; out=$(watch 10 "$q" R1 "$$" 0)
+    has   "terminal: n1-start hint" "n1-queue q7: T-1 needs you: done (resume: n1-start T-1)" "$out"
+    lacks "terminal: no attach hint for terminal escalation" "0000abcd" "$out"
+    has   "non-terminal: attach hint kept" "n1-queue q7: T-2 needs you: still working (resume: claude attach 0000beef)" "$out"
+}
+
 test_adopt_from_eof_and_resume() {
     local q out; q=$(newq q2)
     ev "$q" R1 escalated ticket=T-1 reason="seen in status table"
@@ -200,6 +213,7 @@ test_merge_ready_line() {
 }
 
 test_run_id_filter_and_finish
+test_escalated_terminal_outcome_hints_n1_start
 test_adopt_from_eof_and_resume
 test_runner_dead
 test_sessions_independent

@@ -492,6 +492,8 @@ test_runner_three_strikes() {
         "$(jq -r 'select(.event=="ticket_finished") | .outcome' "$tmp/events.jsonl" | paste -sd, -)"
     assert_eq "events-3s: escalation text" "blocked" \
         "$(jq -r 'select(.event=="escalated") | .reason' "$tmp/events.jsonl")"
+    assert_eq "events-3s: escalated event carries outcome=terminal (stopped-path)" "terminal" \
+        "$(jq -r 'select(.event=="escalated") | .outcome' "$tmp/events.jsonl")"
     assert_eq "events-3s: uniform schema" "true" "$(jq -s 'all(keys | length == 10)' "$tmp/events.jsonl")"
     assert_eq "notify-3s: needs-you (esc), info (final fail), needs-you (halt); none for pr/deferred" \
         "needs-you,info,needs-you" "$(jq -r .kind "$tmp/notes" | paste -sd, -)"
