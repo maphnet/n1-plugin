@@ -492,11 +492,21 @@ test_runner_three_strikes() {
         "$(jq -r 'select(.event=="ticket_finished") | .outcome' "$tmp/events.jsonl" | paste -sd, -)"
     assert_eq "events-3s: escalation text" "blocked" \
         "$(jq -r 'select(.event=="escalated") | .reason' "$tmp/events.jsonl")"
+    assert_eq "events-3s: escalated event carries outcome=terminal (stopped-path)" "terminal" \
+        "$(jq -r 'select(.event=="escalated") | .outcome' "$tmp/events.jsonl")"
     assert_eq "events-3s: uniform schema" "true" "$(jq -s 'all(keys | length == 10)' "$tmp/events.jsonl")"
     assert_eq "notify-3s: needs-you (esc), info (final fail), needs-you (halt); none for pr/deferred" \
         "needs-you,info,needs-you" "$(jq -r .kind "$tmp/notes" | paste -sd, -)"
     assert_eq "notify-3s: halt text" "yes" \
         "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -q '^Queue test-q halted: ' && echo yes || echo no)"
+
+    # N1-74: T-B's bg session is stopped on the success-path escalated finalize, and
+    # its resume hint points at n1-start (not a stale "claude attach" on a dead session).
+    assert_eq "3s: T-B session stopped" "yes" "$(grep -qx 00000002 "$tmp/fake/stopped" && echo yes || echo no)"
+    assert_eq "3s: escalated resume hint is n1-start" "yes" \
+        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'resume: n1-start T-B' && echo yes || echo no)"
+    assert_eq "3s: no stale attach hint for T-B" "0" \
+        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -c 'claude attach' || true)"
 
     rm -rf "$tmp"
 }
@@ -653,26 +663,42 @@ case "$1" in
             # the fake first reports the session stopped, i.e. after the runner saw the first block.
             [ "$st" = stopped ] && [ -f "$D/relay.$t" ] && mv "$D/relay.$t" "$D/../.relay-$t"
             if [ "$st" = done ]; then
-                mkdir -p "$FAKE_N1H/memory/$t"
-                dp=""; [ -f "$D/deploy.$t" ] && dp=$'deploy_pending: true\n'
-                # clear.<t>: an interactive n1-finish clears the flag after the first done poll.
-                if [ -f "$D/clear.$t" ]; then
-                    [ -f "$D/cleared.$t" ] && dp=$'deploy_pending: false\n'
-                    touch "$D/cleared.$t"
+                # N1-74: the runner now polls agents again after a ticket finalizes (draining
+                # the bg session until idle); cap done-poll writes so a later poll doesn't
+                # clobber what finalize already stamped onto overview.md (e.g. queue_run_id).
+                # clear.<t> wants a second write (the deploy-flag flip below); others want one.
+                wn=$(( $(cat "$D/wrote.$t" 2>/dev/null || echo 0) + 1 )); maxw=1
+                [ -f "$D/clear.$t" ] && maxw=2
+                if [ "$wn" -le "$maxw" ]; then
+                    echo "$wn" > "$D/wrote.$t"
+                    mkdir -p "$FAKE_N1H/memory/$t"
+                    dp=""; [ -f "$D/deploy.$t" ] && dp=$'deploy_pending: true\n'
+                    # clear.<t>: an interactive n1-finish clears the flag after the first done poll.
+                    if [ -f "$D/clear.$t" ]; then
+                        [ -f "$D/cleared.$t" ] && dp=$'deploy_pending: false\n'
+                        touch "$D/cleared.$t"
+                    fi
+                    # finish-step.<ticket>: overrides the terminal step (default pr) so a test
+                    # can simulate a bg session reporting done while overview never reached a
+                    # terminal step (NP-216).
+                    step="pr"; [ -f "$D/finish-step.$t" ] && step=$(cat "$D/finish-step.$t")
+                    if [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
+                    else printf -- '---\nstep: %s\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" "$dp" > "$FAKE_N1H/memory/$t/overview.md"; fi
                 fi
-                # finish-step.<ticket>: overrides the terminal step (default pr) so a test
-                # can simulate a bg session reporting done while overview never reached a
-                # terminal step (NP-216).
-                step="pr"; [ -f "$D/finish-step.$t" ] && step=$(cat "$D/finish-step.$t")
-                if [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
-                else printf -- '---\nstep: %s\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" "$dp" > "$FAKE_N1H/memory/$t/overview.md"; fi
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
             out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
         done
         echo "[$out]"
         ;;
-    stop) echo "$2" >> "$D/stopped" ;;
+    stop)
+        if [ -f "$D/stopfail.$2" ]; then
+            echo "$2" >> "$D/stopfail-log"
+            rm -f "$D/stopfail.$2"
+            exit 1
+        fi
+        echo "$2" >> "$D/stopped"
+        ;;
 esac
 FAKEEOF
     printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
@@ -725,6 +751,8 @@ test_bg_sequential() {
         "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
     local bad; bad=$(awk '/^## Runs/{f=1;next} f && /^\| T-/{ if (gsub(/\|/,"|") != 7) print }' "$tmp/queue.md")
     assert_eq "bg-seq: Runs rows have 7 cells" "" "$bad"
+    # N1-74: success-path finalize must stop each finished child's bg session.
+    assert_eq "bg-seq: both sessions stopped" "00000001,00000002" "$(paste -sd, "$tmp/fake/stopped")"
     rm -rf "$tmp"
 }
 
@@ -816,7 +844,9 @@ EOF
 
 test_bg_reconcile_working() {
     local tmp; tmp=$(mktemp -d)
-    mk_bg "$tmp" bgq "T-A:working working working"
+    # N1-74: one extra "working" poll after the overview reaches pr, then "done" — the
+    # runner must defer the stop until the bg session itself goes idle.
+    mk_bg "$tmp" bgq "T-A:working done"
     echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":0,"notify":"none"}}' > "$tmp/n1home/config.json"
     mkdir -p "$tmp/n1home/memory/T-A"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
@@ -825,7 +855,56 @@ test_bg_reconcile_working() {
     assert_eq "bg-recw: PR url recorded" "https://x/pr/9" \
         "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
     assert_eq "bg-recw: no deferred-retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
-    assert_eq "bg-recw: session never stopped" "" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
+    # N1-74: the bg session is stopped once the success-path finalize runs.
+    assert_eq "bg-recw: session stopped" "00000001" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
+    rm -rf "$tmp"
+}
+
+test_bg_drain_defers_until_idle() {
+    # N1-74 [SEC-1]: a child's overview can reach a terminal step while its bg session is
+    # still "working" (CI watch/finish/finalize) or "blocked" (a question is waiting) — the
+    # runner must not stop it until the session itself goes idle (done/failed), and must
+    # never stop a blocked one at all.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working working done" "T-B:blocked"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-A" "$tmp/n1home/memory/T-B"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-B/overview.md"
+    assert_eq "drain: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "drain: only the idle (done) session is stopped" "00000001" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
+    assert_eq "drain: the still-blocked session is left running" "yes" \
+        "$(grep -q 'left running' "$tmp/output.txt" && grep -qF 00000002 "$tmp/output.txt" && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_bg_halt_drains() {
+    # N1-74 [CR-1]: a halt (three escalated strikes) must still drain the session whose
+    # finalize tripped it, not exit with it resident.
+    local tmp t; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done" "T-B:done" "T-C:done"
+    for t in T-A T-B T-C; do
+        printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/fake/overview.$t"
+    done
+    assert_eq "halt-drain: exit 2" "2" "$(run_bg_queue "$tmp")"
+    assert_eq "halt-drain: halting child's session stopped" "yes" \
+        "$(grep -qx 00000003 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)"
+    assert_eq "halt-drain: pid stripped after drain" "" "$(n1_read_frontmatter "$tmp/queue.md" pid)"
+    rm -rf "$tmp"
+}
+
+test_bg_drain_stop_retries_on_failure() {
+    # N1-74 [CR-2]: a failed stop must not drop the sid from DRAIN — it's retried on the
+    # next tick instead of leaking a running session.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done"
+    echo '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"none"}}' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n' > "$tmp/n1home/memory/T-A/overview.md"
+    touch "$tmp/fake/stopfail.00000001"
+    assert_eq "drain-retry: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "drain-retry: first stop attempt failed" "00000001" "$(cat "$tmp/fake/stopfail-log" 2>/dev/null || true)"
+    assert_eq "drain-retry: retried and eventually stopped" "00000001" "$(cat "$tmp/fake/stopped" 2>/dev/null || true)"
     rm -rf "$tmp"
 }
 
@@ -1562,6 +1641,8 @@ test_bg_deploy_pending() {
     assert_eq "bg-deploy: needs-you notify with resume hint" "yes" \
         "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'n1-finish T-A' && echo yes || echo no)"
     assert_eq "bg-deploy: hint" "T-A: n1-finish T-A (deploy pending)" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
+    # N1-74: both the awaiting-deploy and pr children are stopped on the success path.
+    assert_eq "bg-deploy: both sessions stopped" "00000001,00000002" "$(paste -sd, "$tmp/fake/stopped")"
     rm -rf "$tmp"
 }
 
@@ -2015,6 +2096,9 @@ test_bg_deploy_flag_cleared_mid_run
 test_bg_working_timeout
 test_bg_missing_grace
 test_bg_reconcile_working
+test_bg_drain_defers_until_idle
+test_bg_halt_drains
+test_bg_drain_stop_retries_on_failure
 test_bg_reconcile_missing
 test_bg_reconcile_working_stale_escalation
 test_bg_blocked_first_tick_parks

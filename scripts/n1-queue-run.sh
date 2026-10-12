@@ -57,17 +57,27 @@ strip_pid() {
 EVENTS="$(dirname "$QUEUE")/events.jsonl"
 # ponytail: STARTED_AT/PARKED are in-memory; after a runner crash-restart duration_s is null and
 # a re-parked ticket may notify twice. Persist them in queue.md if that ever matters.
-declare -a STARTED_AT=() PARKED=()
+declare -a STARTED_AT=() PARKED=() DRAIN=()
 
 ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 
-# escalate <ticket> <n1-home> — escalated event + needs-you notification (with resume hint).
+# escalate <ticket> <n1-home> [session-state] — escalated event + needs-you notification
+# (with resume hint). session-state "stopped" means the bg session is draining (success-path
+# finalize; stopped once idle): hint n1-start, since attach only reaches a running session.
 escalate() {
     local sid q
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md")
-    ev escalated ticket="$1" session="$sid" reason="$q"
-    n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}${sid:+ (resume: $(n1_bg_cmd attach "$sid"))}"
+    if [ "${3:-}" = "stopped" ]; then
+        ev escalated ticket="$1" session="$sid" reason="$q" outcome=terminal
+    else
+        ev escalated ticket="$1" session="$sid" reason="$q"
+    fi
+    if [ "${3:-}" = "stopped" ]; then
+        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer} (resume: n1-start $1)"
+    else
+        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}${sid:+ (resume: $(n1_bg_cmd attach "$sid"))}"
+    fi
 }
 
 # release_backstop — NP-199: fires the automatic tag-release backstop (tag mode only,
@@ -87,11 +97,12 @@ release_backstop() {
 # halt <message> — record, notify, and stop the runner (exit 2).
 halt() {
     n1_write_frontmatter "$QUEUE" step halted
-    strip_pid
     ev halted reason="$1"
     release_backstop
     n1_notify needs-you "Queue $QUEUE_ID halted: ${1:0:200}"
     echo "$1"
+    drain_wait
+    strip_pid
     exit 2
 }
 
@@ -173,7 +184,7 @@ finalize() {
 
     # Events + notifications before three-strikes (which may exit). PR successes notify only
     # through the end-of-queue digest.
-    [ "$OUTCOME" = "escalated" ] && [ -z "${PARKED[NUM]:-}" ] && escalate "$TICKET" "$N1H"
+    [ "$OUTCOME" = "escalated" ] && [ -z "${PARKED[NUM]:-}" ] && escalate "$TICKET" "$N1H" stopped
     if [ "$EV_OUTCOME" = "awaiting-deploy" ]; then n1_notify needs-you "$TICKET: deploy pending (resume: n1-finish $TICKET)"; fi
     [ -n "${STARTED_AT[NUM]:-}" ] && DUR=$(( $(date +%s) - STARTED_AT[NUM] ))
     ev ticket_finished ticket="$TICKET" outcome="$EV_OUTCOME" pr="$PR_URL" \
@@ -221,10 +232,51 @@ launch_bg() {
     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "$SID"
 }
 
+# drain_stop <agents-json> — stop and drop DRAIN sids once their bg session goes idle
+# (done); missing/failed sessions are dropped without stopping (already gone). working/blocked
+# sessions are kept: right after a terminal overview step a child may still be in CI watch,
+# finish/merge, or memory finalize, and killing it mid-way would lose that work.
+drain_stop() {
+    local agents="$1" sid st
+    local -a keep=()
+    # ${a[@]+...}: an empty array is "unbound" under set -u before bash 4.4.
+    for sid in ${DRAIN[@]+"${DRAIN[@]}"}; do
+        st=$(n1_queue_bg_state "$agents" "$sid")
+        case "$st" in
+            done) bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 || keep+=("$sid") ;;
+            missing|failed) ;;  # failed also covers stopped/unknown states: nothing safe to stop
+            *) keep+=("$sid") ;;
+        esac
+    done
+    DRAIN=(${keep[@]+"${keep[@]}"})
+}
+
+# drain_wait — end of run: give DRAIN sessions up to subtaskTimeoutMinutes to go idle, then
+# leave the rest running. Runs after the digest (never delays the queue-done notice) but
+# before strip_pid, so the busy guard still holds while sessions drain.
+drain_wait() {
+    local agents waited=0 poll fails=0
+    poll=$(n1_queue_val pollSeconds)
+    while [ "${#DRAIN[@]}" -gt 0 ]; do
+        if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
+            fails=0; drain_stop "$agents"
+        else
+            fails=$((fails + 1))
+            [ "$fails" -ge "$BG_POLL_GRACE" ] && { echo "session list unreadable, left running: ${DRAIN[*]}"; break; }
+        fi
+        [ "${#DRAIN[@]}" -eq 0 ] && break
+        [ "$waited" -ge "$TIMEOUT_SECS" ] && { echo "still finishing up, left running: ${DRAIN[*]}"; break; }
+        sleep "$poll"
+        waited=$((waited + poll))
+    done
+}
+
 # run_bg — background sessions, still sequential: launch the next pending ticket only when
 # no launched child is working. blocked -> awaiting-human (no strike) and the queue moves on.
 # Working time is capped by subtaskTimeoutMinutes; at end of queue, parked rows are polled
 # for up to subtaskTimeoutMinutes after the last park, then left awaiting-human (never relaunched).
+# A finished child (pr/escalated/awaiting-deploy) queues into DRAIN and is stopped only once
+# drain_stop sees it idle (done/failed) — not immediately on the terminal step.
 run_bg() {
     local POLL AGENTS WORKING ROW NUM TICKET REPO N1H MODEL STATUS STATE OUTCOME SID
     # ponytail: WORKED/SINCE_PARK live only in this process's memory. If the runner
@@ -248,6 +300,7 @@ run_bg() {
             continue
         fi
         AGENT_FAILS=0
+        drain_stop "$AGENTS"
         WORKING=0
         while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
             if [ "$STATUS" = "awaiting-human" ] && [ "$(n1_queue_row_reason "$QUEUE" "$NUM")" = "awaiting-deploy" ]; then continue; fi
@@ -259,6 +312,7 @@ run_bg() {
             # out, retried, or parked awaiting-human.
             OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
             if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
+                [ -n "$SID" ] && DRAIN+=("$SID")
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
             fi
@@ -365,5 +419,6 @@ release_backstop
 ev queue_done reason="$DIGEST"
 n1_notify done "Queue $QUEUE_ID: $DIGEST"
 n1_write_frontmatter "$QUEUE" step done
+drain_wait
 strip_pid
 exit 0
