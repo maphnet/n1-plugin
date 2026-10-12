@@ -185,23 +185,26 @@ section() { awk -v h="$2" 'index($0, h) == 1 {f=1; next} /^## /{f=0} f' "$1"; }
 
 test_wiring() {
     local s="$REPO_ROOT/skills" step="$REPO_ROOT/skills/n1-finish/steps/03b-ssh-deploy.md"
+    local rb xb head4
+    rb=$(section "$step" '## Runbook branch')
+    xb=$(section "$step" '## Execute branch')
     assert_eq "wiring: delivery step exists" "yes" "$([ -f "$step" ] && echo yes || echo no)"
     assert_eq "wiring: step branches on n1_delivery_action" "yes" "$(grep -q 'n1_delivery_action' "$step" && echo yes || echo no)"
     assert_eq "wiring: runbook branch uses the helper" "yes" \
-        "$(section "$step" '## Runbook branch' | grep -q 'n1_delivery_runbook' && echo yes || echo no)"
+        "$(grep -q 'n1_delivery_runbook' <<<"$rb" && echo yes || echo no)"
     assert_eq "wiring: runbook branch never runs a command" "0" \
-        "$(section "$step" '## Runbook branch' | grep -c 'bash -c' || true)"
+        "$(grep -c 'bash -c' <<<"$rb" || true)"
     assert_eq "wiring: execute branch runs the deploy" "yes" \
-        "$(section "$step" '## Execute branch' | grep -qF 'bash -c "$DEPLOY_CMD"' && echo yes || echo no)"
+        "$(grep -qF 'bash -c "$DEPLOY_CMD"' <<<"$xb" && echo yes || echo no)"
     assert_eq "wiring: execute branch runs the verify" "yes" \
-        "$(section "$step" '## Execute branch' | grep -qF 'bash -c "$VERIFY_CMD"' && echo yes || echo no)"
+        "$(grep -qF 'bash -c "$VERIFY_CMD"' <<<"$xb" && echo yes || echo no)"
     # Both commands run from a detached checkout of the merge SHA, never the current dir.
     assert_eq "wiring: deploy checks out the merge SHA" "yes" \
-        "$(section "$step" '## Execute branch' | grep -qF 'git worktree add -q --detach "$DEPLOY_DIR" "<SHA>"' && echo yes || echo no)"
+        "$(grep -qF 'git worktree add -q --detach "$DEPLOY_DIR" "<SHA>"' <<<"$xb" && echo yes || echo no)"
     assert_eq "wiring: deploy and verify both run in the checkout" "2" \
-        "$(section "$step" '## Execute branch' | grep -c 'OUT=$(cd .*n1-deploy\|OUT=$(cd "$DEPLOY_DIR"' || true)"
+        "$(grep -c 'OUT=$(cd .*n1-deploy\|OUT=$(cd "$DEPLOY_DIR"' <<<"$xb" || true)"
     assert_eq "wiring: deploy checkout is removed" "yes" \
-        "$(section "$step" '## Execute branch' | grep -qF 'git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>"' && echo yes || echo no)"
+        "$(grep -qF 'git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>"' <<<"$xb" && echo yes || echo no)"
     # Step 6's Finish rewrite and report carry the delivery outcome instead of dropping it.
     assert_eq "wiring: cleanup Finish template has a Delivery line" "yes" \
         "$(grep -qF -- '- **Delivery:** <pending (runbook: memory/<ID>/runbook.md)' "$s/n1-finish/steps/06-cleanup.md" && echo yes || echo no)"
@@ -210,9 +213,10 @@ test_wiring() {
     assert_eq "wiring: delivery step writes the Delivery line, not Deploy" "0" \
         "$(grep -c '\*\*Deploy:\*\*' "$step" || true)"
     assert_eq "wiring: execute branch asks first" "yes" \
-        "$(section "$step" '## Execute branch' | grep -q 'Ask the user' && echo yes || echo no)"
+        "$(grep -q 'Ask the user' <<<"$xb" && echo yes || echo no)"
+    head4=$(sed -n '1,4p' "$s/n1-finish/steps/04-close-ticket.md")
     assert_eq "wiring: Step 4 enters the delivery step first" "yes" \
-        "$(sed -n '1,4p' "$s/n1-finish/steps/04-close-ticket.md" | grep -qF '03b-ssh-deploy.md' && echo yes || echo no)"
+        "$(grep -qF '03b-ssh-deploy.md' <<<"$head4" && echo yes || echo no)"
     assert_eq "wiring: resume skips merge on recorded sha" "yes" \
         "$(grep -qF 'deploy_merge_sha' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     assert_eq "wiring: SKILL.md documents delivery keys" "yes" \
@@ -230,15 +234,15 @@ test_wiring() {
     assert_eq "init: never writes both shapes" "yes" "$(grep -qF 'Never write both' "$init" && echo yes || echo no)"
     # SEC-1/SEC-2: failure/pending tracker comments never carry command text or raw output.
     assert_eq "wiring: deploy-failed comment has no command interpolation" "0" \
-        "$(section "$step" '## Execute branch' | grep -c '<command>' || true)"
+        "$(grep -c '<command>' <<<"$xb" || true)"
     assert_eq "wiring: deploy-failed comment says output kept locally" "yes" \
-        "$(section "$step" '## Execute branch' | grep -qF 'kept locally in N1 memory' && echo yes || echo no)"
+        "$(grep -qF 'kept locally in N1 memory' <<<"$xb" && echo yes || echo no)"
     assert_eq "wiring: pending comment has no command interpolation" "yes" \
-        "$(section "$step" '## Runbook branch' | grep -qF 'runbook in N1 memory' && echo yes || echo no)"
+        "$(grep -qF 'runbook in N1 memory' <<<"$rb" && echo yes || echo no)"
     assert_eq "wiring: runbook branch never posts runbook content" "yes" \
-        "$(section "$step" '## Runbook branch' | grep -qF 'Never post the runbook content' && echo yes || echo no)"
+        "$(grep -qF 'Never post the runbook content' <<<"$rb" && echo yes || echo no)"
     assert_eq "wiring: failed-deploy path also updates overview Finish line" "yes" \
-        "$(section "$step" '## Execute branch' | grep -qF 'Runbook branch steps 1 and 3' && echo yes || echo no)"
+        "$(grep -qF 'Runbook branch steps 1 and 3' <<<"$xb" && echo yes || echo no)"
     # SEC-5: resume trusts deploy_merge_sha only after regex + ancestor validation.
     assert_eq "wiring: resume validates SHA format" "yes" \
         "$(grep -qF '^[0-9a-f]{7,40}$' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
@@ -254,35 +258,37 @@ test_wiring() {
 
 # --- NP-240: multi-step wiring ---------------------------------------------------
 test_wiring_multi_step() {
-    local step="$REPO_ROOT/skills/n1-finish/steps/03b-ssh-deploy.md" ms
+    local step="$REPO_ROOT/skills/n1-finish/steps/03b-ssh-deploy.md" ms xb rb
     ms=$(section "$step" '## Multi-step execute')
+    xb=$(section "$step" '## Execute branch')
+    rb=$(section "$step" '## Runbook branch')
     assert_eq "multi-step wiring: execute branch forks on the shape" "yes" \
-        "$(section "$step" '## Execute branch' | grep -qF 'n1_delivery_is_multi_step' && echo yes || echo no)"
+        "$(grep -qF 'n1_delivery_is_multi_step' <<<"$xb" && echo yes || echo no)"
     assert_eq "multi-step wiring: section exists" "yes" "$([ -n "$ms" ] && echo yes || echo no)"
     assert_eq "multi-step wiring: classifies with the helper" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'n1_delivery_step <K>' && echo yes || echo no)"
+        "$(grep -qF 'n1_delivery_step <K>' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: runs the extracted file, never re-typed text" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'bash "$CMDF"' && echo yes || echo no)"
+        "$(grep -qF 'bash "$CMDF"' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: shows the command with cat" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'cat "$N1_HOME/memory/<ID>/deploy-step.cmd"' && echo yes || echo no)"
+        "$(grep -qF 'cat "$N1_HOME/memory/<ID>/deploy-step.cmd"' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: per-step unconditional gate" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'ask the user for every step' && echo yes || echo no)"
+        "$(grep -qF 'ask the user for every step' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: runs in the merge-SHA checkout" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'git worktree add -q --detach "$DEPLOY_DIR" "<SHA>"' && echo yes || echo no)"
+        "$(grep -qF 'git worktree add -q --detach "$DEPLOY_DIR" "<SHA>"' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: checkout is removed" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>"' && echo yes || echo no)"
+        "$(grep -qF 'git worktree remove --force "${TMPDIR:-/tmp}/n1-deploy-<ID>"' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: abort writes a remaining-steps runbook" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'n1_delivery_runbook "<ID>" "<SHA>" <K>' && echo yes || echo no)"
+        "$(grep -qF 'n1_delivery_runbook "<ID>" "<SHA>" <K>' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: resume reads deploy_next_step" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'deploy_next_step' && echo yes || echo no)"
+        "$(grep -qF 'deploy_next_step' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: verify runs once" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'bash -c "$VERIFY_CMD"' && echo yes || echo no)"
+        "$(grep -qF 'bash -c "$VERIFY_CMD"' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: failure comment keeps output local" "yes" \
-        "$(printf '%s' "$ms" | grep -qF 'kept locally in N1 memory' && echo yes || echo no)"
+        "$(grep -qF 'kept locally in N1 memory' <<<"$ms" && echo yes || echo no)"
     assert_eq "multi-step wiring: no command interpolation in comments" "0" \
-        "$(printf '%s' "$ms" | grep -c '<command>' || true)"
+        "$(grep -c '<command>' <<<"$ms" || true)"
     assert_eq "multi-step wiring: runbook branch forbids steps too" "yes" \
-        "$(section "$step" '## Runbook branch' | grep -qF 'delivery.steps' && echo yes || echo no)"
+        "$(grep -qF 'delivery.steps' <<<"$rb" && echo yes || echo no)"
     assert_eq "multi-step wiring: SKILL.md documents delivery.steps" "yes" \
         "$(grep -qF '.delivery.steps' "$REPO_ROOT/skills/n1-finish/SKILL.md" && echo yes || echo no)"
 }
