@@ -1040,11 +1040,8 @@ test_bg_relay_marker() {
     rm -rf "$tmp"
 }
 
-# N1-77: the relay-hold timeout branch calls n1_queue_relay_active (a `find` on the marker
-# file) between the per-tick stale OUTCOME read and its timeout stop. A fake `find` flips
-# overview.md to a terminal step right after that call on the exact poll where the timeout
-# would fire, simulating the child finishing in the TOCTOU window. The row must land as "pr"
-# via DRAIN/finalize, never as a timed-out retry.
+# N1-77: n1_queue_relay_active's `find` runs between the stale OUTCOME read and the timeout
+# stop; a fake find flips overview.md to step: pr there, on the poll where the timeout fires.
 test_bg_timeout_race_terminal_overview() {
     local tmp real_find; tmp=$(mktemp -d); real_find=$(command -v find)
     # Marker refreshed (SEC-3 style) so relay-active holds the child past the subtask timeout;

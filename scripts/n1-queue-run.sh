@@ -271,10 +271,7 @@ drain_wait() {
     done
 }
 
-# timeout_stop <num> <ticket> <repo> <n1h> <model> <sid> — issue a timeout stop, but first
-# re-read overview.md: the stale per-tick OUTCOME (line ~313) can no longer reflect a child
-# that wrote step: pr in the gap between that read and this stop (TOCTOU, N1-77). A terminal
-# re-read routes to DRAIN/finalize with the real outcome instead of killing a finished child.
+# timeout_stop <num> <ticket> <repo> <n1h> <model> <sid> — re-reads status first: the tick's OUTCOME is stale if the child reached step: pr since (N1-77).
 timeout_stop() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" SID="$6" OUTCOME
     OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
