@@ -8,7 +8,7 @@ Searches the tracker for tickets that duplicate or relate to the work at hand. I
 - `SELF_ID`: the current ticket ID; empty in `create`
 - `OVERVIEW`: absolute overview.md path in `start`; empty otherwise
 
-**Returns:** `DUP_LINKS`, a list of `<HIT_ID>:<Duplicate|Relates>` — includes every `duplicate` hit auto-linked in `CONTEXT=start` (every autonomy mode), every `related` hit auto-linked whenever links are offered (every autonomy mode, any `CONTEXT`), plus any `duplicate` hit the user chose to link via the interactive prompt. On **Stop**, the caller follows its own stop instruction.
+**Returns:** `DUP_LINKS`, a list of `<HIT_ID>:<Duplicate|Relates>` — includes every `duplicate` hit auto-linked in `CONTEXT=start` (every autonomy mode), every `related` hit auto-linked whenever links are offered in `CONTEXT=start` or `create` (every autonomy mode; `queue-plan` applies its related links directly, § 4), plus any `duplicate` hit the user chose to link via the interactive prompt. On **Stop**, the caller follows its own stop instruction.
 
 ## § Check
 
