@@ -231,6 +231,68 @@ check "apply aborts when the re-fetch fails" "^reconcile:aborted — PR body cha
 [ ! -f "$GH_EDITED" ] && echo "PASS: failed re-fetch never edits the PR" || { echo "FAIL: failed re-fetch edited the PR"; FAIL=1; }
 unset GH_BODY_FAIL
 
+# --- narrowed freeze: plain [x] lines outside Deployment Actions may be reworded,
+# only Deployment Actions checkboxes and annotated lines stay frozen verbatim
+ORIG_GH_BODY="$GH_BODY"
+NB="$T/narrow-body.md"
+printf '## Summary\n- old claim\n\n## Deployment Actions\n\n### Before deploy\n- [ ] Manual: set secret K\n\n## Verification\n- [x] `bash tests/test_reconcile_pr_body.sh` — 58 PASS\n- [x] works *(locally verified — curl 200)*\n' > "$NB"
+export GH_BODY="$NB"
+echo "$SHA1" > "$S"
+out=$(run "## § Check" 1); D=$(dir_of "$out")
+printf '## Summary\n- old claim\n\n## Deployment Actions\n\n### Before deploy\n- [ ] Manual: set secret K\n\n## Verification\n- [x] `bash tests/test_reconcile_pr_body.sh` — 78 PASS\n- [x] works *(locally verified — curl 200)*\n' > "$D/new-body.md"
+rm -f "$GH_EDITED"
+out=$(run "## § Apply" "" "$D")
+check "plain [x] line outside Deployment Actions may be reworded" "^reconcile:applied:#7$" <(printf '%s\n' "$out")
+[ -f "$GH_EDITED" ] && echo "PASS: reworded plain ticked line still triggers gh pr edit" || { echo "FAIL: gh pr edit not called for reworded plain ticked line"; FAIL=1; }
+
+# a *(locally verified — ...)* annotated line changed -> aborted
+echo "$SHA1" > "$S"
+out=$(run "## § Check" 1); D=$(dir_of "$out")
+printf '## Summary\n- old claim\n\n## Deployment Actions\n\n### Before deploy\n- [ ] Manual: set secret K\n\n## Verification\n- [x] `bash tests/test_reconcile_pr_body.sh` — 58 PASS\n- [x] works *(locally verified — curl 500)*\n' > "$D/new-body.md"
+out=$(run "## § Apply" "" "$D")
+check "apply aborts when an annotated verified line is changed" "^reconcile:aborted" <(printf '%s\n' "$out")
+
+# a ticked Deployment Actions line changed -> aborted
+export GH_BODY="$ORIG_GH_BODY"
+echo "$SHA1" > "$S"
+out=$(run "## § Check" 1); D=$(dir_of "$out")
+printf '## Summary\n- new claim\n\n## Deployment Actions\n\n### Before deploy\n- [x] `echo changed`\n- [ ] Manual: set secret K\n  - [ ] indented action\n\n## Verification\n- [x] works *(locally verified — curl 200)*\n' > "$D/new-body.md"
+out=$(run "## § Apply" "" "$D")
+check "apply aborts when a ticked Deployment Actions line is changed" "^reconcile:aborted" <(printf '%s\n' "$out")
+
+# a plain [x] line unticked -> tick count drops -> aborted with the unticked/dropped message
+export GH_BODY="$NB"
+echo "$SHA1" > "$S"
+out=$(run "## § Check" 1); D=$(dir_of "$out")
+printf '## Summary\n- old claim\n\n## Deployment Actions\n\n### Before deploy\n- [ ] Manual: set secret K\n\n## Verification\n- [ ] `bash tests/test_reconcile_pr_body.sh` — 58 PASS\n- [x] works *(locally verified — curl 200)*\n' > "$D/new-body.md"
+out=$(run "## § Apply" "" "$D")
+check "apply aborts when a plain ticked line is unticked" "^reconcile:aborted — revised body unticked or dropped checked items" <(printf '%s\n' "$out")
+
+# a plain [x] line removed entirely -> tick count drops -> aborted
+echo "$SHA1" > "$S"
+out=$(run "## § Check" 1); D=$(dir_of "$out")
+printf '## Summary\n- old claim\n\n## Deployment Actions\n\n### Before deploy\n- [ ] Manual: set secret K\n\n## Verification\n- [x] works *(locally verified — curl 200)*\n' > "$D/new-body.md"
+out=$(run "## § Apply" "" "$D")
+check "apply aborts when a plain ticked line is removed" "^reconcile:aborted — revised body unticked or dropped checked items" <(printf '%s\n' "$out")
+
+# --- stray </content> wrapper line
+export GH_BODY="$ORIG_GH_BODY"
+echo "$SHA1" > "$S"
+out=$(run "## § Check" 1); D=$(dir_of "$out")
+printf '## Summary\n- new claim\n\n## Deployment Actions\n\n### Before deploy\n- [x] `echo done`\n- [ ] Manual: set secret K\n  - [ ] indented action\n\n## Verification\n- [x] works *(locally verified — curl 200)*\n</content>\n' > "$D/new-body.md"
+rm -f "$GH_EDITED"
+out=$(run "## § Apply" "" "$D")
+check "apply strips a trailing </content> wrapper line" "^reconcile:applied:#7$" <(printf '%s\n' "$out")
+if grep -qxF '</content>' "$GH_EDITED"; then echo "FAIL: trailing </content> line was posted"; FAIL=1; else echo "PASS: trailing </content> line stripped before posting"; fi
+
+echo "$SHA1" > "$S"
+out=$(run "## § Check" 1); D=$(dir_of "$out")
+printf '## Summary\n- new claim\n</content>\nmore text\n\n## Deployment Actions\n\n### Before deploy\n- [x] `echo done`\n- [ ] Manual: set secret K\n  - [ ] indented action\n\n## Verification\n- [x] works *(locally verified — curl 200)*\n' > "$D/new-body.md"
+rm -f "$GH_EDITED"
+out=$(run "## § Apply" "" "$D")
+check "apply edits the PR when </content> appears mid-body" "^reconcile:applied:#7$" <(printf '%s\n' "$out")
+check "mid-body </content> line is preserved" '^</content>$' "$GH_EDITED"
+
 # --- tech-writer reconcile mode
 TW=agents/tech-writer.md
 check "tech-writer input declares mode create|reconcile" '^- `mode`: `create` \(default\) or `reconcile`' "$TW"
@@ -239,6 +301,9 @@ before "reconcile skip line precedes Phase 1 Step 1" "skip Phase 1 and Phase 2" 
 check "reconcile copies Deployment Actions verbatim, never regenerates" "Never regenerate it" "$TW"
 check "reconcile dedupes newly-detected deploy actions against the old body" "not already present" "$TW"
 check "reconcile preserves locally verified lines" "locally verified" "$TW"
+check "reconcile preservation rule scopes checkbox freeze to Deployment Actions" "inside .## Deployment Actions." "$TW"
+check "reconcile allows rewording stale plain ticked lines" "may be reworded when the diff makes their stated fact stale" "$TW"
+check "reconcile output has no wrapper tags" "no other wrapper tags" "$TW"
 check "reconcile passes unknown sections through" "outside the known set" "$TW"
 check "reconcile notes stale docs instead of editing" "not updated \(reconcile mode\)" "$TW"
 check "reconcile checks claims against the full diff" "full diff" "$TW"

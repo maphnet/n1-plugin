@@ -85,7 +85,7 @@ Wait for it to return. Do not read, edit, or echo the body text yourself. The bo
 
 ## § Apply
 
-Refuses a revised body that drops any `- [x]` line or any `## Deployment Actions` checkbox line from the old body (appending new unticked actions is fine). Re-fetches the live PR body right before posting and aborts if it no longer matches `old-body.md` (someone else edited the PR description mid-reconcile) or the re-fetch fails. Always removes `<D>`.
+Refuses a revised body that drops or changes any `## Deployment Actions` checkbox line, or any line carrying `*(locally verified — ...)*`, `*(local testing: FAILED — ...)*`, or `*(manual check)*` — that frozen set must be copied byte-for-byte (appending new unticked Deployment Actions is fine). Plain `- [x]` lines outside that frozen set may be reworded when the diff makes their facts stale, but the total count of `- [x]`/`- [X]` lines must not drop, so a plain ticked line can be reworded but never unticked or dropped. Re-fetches the live PR body right before posting and aborts if it no longer matches `old-body.md` (someone else edited the PR description mid-reconcile) or the re-fetch fails. Always removes `<D>`.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -94,11 +94,15 @@ D="<D from the reconcile:run line>"
 if [ ! -s "$D/new-body.md" ]; then
   echo "reconcile:failed:empty — PR body reconcile failed, body may be stale"
 else
-  tr -d '\r' < "$D/new-body.md" > "$D/new.lf"
-  MISSING=$(awk '/^## /{da = ($0 ~ /^## Deployment Actions[[:space:]]*$/)} /^[[:space:]]*- \[[xX]\] / || (da && /^[[:space:]]*- \[ \] /)' "$D/old-body.md" \
+  tr -d '\r' < "$D/new-body.md" | sed -e '${/^[[:space:]]*<\/content>[[:space:]]*$/d;}' > "$D/new.lf"
+  MISSING=$(awk '/^## /{da = ($0 ~ /^## Deployment Actions[[:space:]]*$/)} (da && /^[[:space:]]*- \[[ xX]\] /) || /\*\(locally verified —/ || /\*\(local testing: FAILED —/ || /\*\(manual check\)\*/' "$D/old-body.md" \
     | while IFS= read -r l; do grep -qxF -- "$l" "$D/new.lf" || printf '%s\n' "$l"; done)
+  OLD_TICKS=$(grep -cE '^[[:space:]]*- \[[xX]\] ' "$D/old-body.md")
+  NEW_TICKS=$(grep -cE '^[[:space:]]*- \[[xX]\] ' "$D/new.lf")
   if [ -n "$MISSING" ]; then
     echo "reconcile:aborted — revised body dropped preserved lines; PR body left unchanged:"; printf '%s\n' "$MISSING"
+  elif [ "$NEW_TICKS" -lt "$OLD_TICKS" ]; then
+    echo "reconcile:aborted — revised body unticked or dropped checked items; PR body left unchanged"
   elif ! CURRENT=$(gh pr view "$PR_NUMBER" --json body --jq .body 2>/dev/null); then
     echo "reconcile:aborted — PR body changed during reconcile; left unchanged"
   else
@@ -115,4 +119,4 @@ fi
 rm -rf "$D"
 ```
 
-Re-fetching and comparing the live body just before the edit catches someone else editing the PR description mid-reconcile; a changed or unreadable body aborts without writing. Report one line in the caller's final report: `PR body: reconciled` (`applied`, appending `— new deploy actions: <items>` when tech-writer listed any), `PR body: unchanged` (`skip`), or `PR body: may be stale — <reason>` (`failed`/`aborted`, listing the dropped lines or the concurrent-edit reason for `aborted`).
+A trailing `</content>` wrapper line (if tech-writer's output tool appended one) is stripped during normalization; a `</content>` line anywhere else in the body is left alone. Re-fetching and comparing the live body just before the edit catches someone else editing the PR description mid-reconcile; a changed or unreadable body aborts without writing. Report one line in the caller's final report: `PR body: reconciled` (`applied`, appending `— new deploy actions: <items>` when tech-writer listed any), `PR body: unchanged` (`skip`), or `PR body: may be stale — <reason>` (`failed`/`aborted`, listing the dropped lines, the unticked/dropped-item reason, or the concurrent-edit reason for `aborted`).
