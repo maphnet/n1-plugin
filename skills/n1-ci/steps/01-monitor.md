@@ -13,7 +13,19 @@ Not authenticated → "Run `gh auth login` first." **STOP.**
 - **Argument** (`#123` or `123`): strip `#`, use directly.
 - **No argument:** `gh pr view --json number,url,headRefName --jq '.number'`. No PR found → "No open PR found. Create one first or specify: `/n1:n1-ci #123`" **STOP.**
 
-Capture PR number and URL.
+Capture PR number and URL. Record the PR head at run start for the PR body reconcile — the run-start contract in `<N1_ROOT>/references/reconcile-pr-body.md`:
+
+```bash
+source ~/.n1/preamble.sh
+PR_NUMBER="<PR number>"
+mkdir -p "$N1_HOME/scratch"
+find "$N1_HOME/scratch" -maxdepth 1 -name 'reconcile-start-*' -mtime +1 -delete 2>/dev/null
+RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX")
+gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null || true
+echo "reconcile:start file=$RECONCILE_START_FILE"
+```
+
+Carry `$RECONCILE_START_FILE` forward into Step 4 / Step 7a (in 02-fix.md), the same way `<D>` is carried from `reconcile:run dir=`.
 
 ## Step 2: Read CI Check Config
 
@@ -44,7 +56,7 @@ If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP
 1. `sleep 15` (initial delay).
 2. `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` — separate command.
 3. Empty/no checks → `sleep 30`, re-poll (step 2).
-4. Nothing after 15 min → "No CI checks appeared after 15 minutes." **STOP.**
+4. Nothing after 15 min → run **Step 7a** (Reconcile PR Body, in 02-fix.md) before stopping — a prior fix cycle may already have pushed, then "No CI checks appeared after 15 minutes." **STOP.**
 5. Checks appear → Phase 2.
 
 ### Phase 2 — Poll until resolution (up to 30 min)
@@ -60,7 +72,7 @@ n1_wait_ci_checks <PR#> <remaining-minutes>
 Re-invoke while `pending` and budget remains:
 - `green` → **Step 4** (all green)
 - `red` → run `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` to enumerate failures, apply Phase 3 grace (up to 2 more `n1_wait_ci_checks` calls, `<max-minutes>` = 1), then **Step 4**
-- `pending` at budget exhaustion → report pending checks, ask "Wait longer or skip?" **STOP.**
+- `pending` at budget exhaustion → run **Step 7a** (Reconcile PR Body, in 02-fix.md) before stopping — a prior fix cycle may already have pushed, then report pending checks, ask "Wait longer or skip?" **STOP.**
 
 ### Phase 3 — Failure grace (max 60s)
 
@@ -73,6 +85,7 @@ Once failure detected but other checks still pending:
 
 All checks `conclusion: SUCCESS`/`NEUTRAL`/`SKIPPED`:
 - Report "All CI checks passed."
+- Run **Step 7a** (in 02-fix.md) now, before any finish chaining. n1-finish reads the PR body's Deployment Actions, so the body must match the pushed diff first. The later pass through Step 7 prints `reconcile:skip`.
 - **Finish chaining (pipeline only):** when invoked from n1-start, decide with the same helper as the n1-start finish gate (so CI and no-CI repos reach the same outcome):
   ```bash
   source ~/.n1/preamble.sh

@@ -26,6 +26,18 @@ On override: re-prompt for each overridden row's verdict (`ACTIONABLE` / `NON-AC
 
 Batch all ACTIONABLE comments into one developer agent spawn. Resolve model for `developer`.
 
+Before dispatching, record the PR head (the body reconcile after the fix compares against it):
+
+```bash
+source ~/.n1/preamble.sh
+PR_NUMBER="<PR_NUMBER from Step 1>"
+mkdir -p "$N1_HOME/scratch"
+find "$N1_HOME/scratch" -maxdepth 1 -name 'reconcile-start-*' -mtime +1 -delete 2>/dev/null
+RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX")
+gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null || true
+echo "reconcile:start file=$RECONCILE_START_FILE"
+```
+
 **Developer instructions:**
 
 ```
@@ -60,7 +72,7 @@ Output format:
 - Commit: <SHA>
 ```
 
-Wait for the developer agent to return before proceeding to 6b.
+Wait for the developer agent to return — even if it errors, times out, or returns empty output, still run the reconcile below before 6b; a partial fix may already be pushed. Then follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER`, `START_FILE="$RECONCILE_START_FILE"`, and, as the fix report, the developer's `## Review Fixes Applied` output (or a short note that the dispatch failed, if it did). It no-ops unless the fix pushed and never blocks. Add its `PR body:` line to the Step 7 final report, then proceed to 6b.
 
 ### 6b: Post Rejection Replies for NON-ACTIONABLE Comments
 
