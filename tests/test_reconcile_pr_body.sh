@@ -136,4 +136,8 @@ check "review-response records the PR head" "reconcile-start-" "$RR"
 before "review-response capture precedes developer dispatch" "reconcile-start-" "**Developer instructions:**" "$RR"
 before "review-response reconcile precedes 6b" "reconcile-pr-body.md" "### 6b" "$RR"
 
+# --- ad-hoc rule and docs
+check "HOST ROUTING covers ad-hoc pushes to an open PR" 'PR BODY RECONCILE:.*references/reconcile-pr-body\.md.*ADHOC=1' hooks/session-start.sh
+check "architecture.md documents the procedure" "references/reconcile-pr-body\.md" references/architecture.md
+
 exit $FAIL
