@@ -26,6 +26,15 @@ On override: re-prompt for each overridden row's verdict (`ACTIONABLE` / `NON-AC
 
 Batch all ACTIONABLE comments into one developer agent spawn. Resolve model for `developer`.
 
+Before dispatching, record the PR head (the body reconcile after the fix compares against it):
+
+```bash
+source ~/.n1/preamble.sh
+PR_NUMBER="<PR_NUMBER from Step 1>"
+mkdir -p "$N1_HOME/scratch"
+gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.sha" 2>/dev/null || true
+```
+
 **Developer instructions:**
 
 ```
@@ -60,7 +69,7 @@ Output format:
 - Commit: <SHA>
 ```
 
-Wait for the developer agent to return before proceeding to 6b.
+Wait for the developer agent to return. Then follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` and, as the fix report, the developer's `## Review Fixes Applied` output. It no-ops unless the fix pushed and never blocks. Add its `PR body:` line to the Step 7 final report, then proceed to 6b.
 
 ### 6b: Post Rejection Replies for NON-ACTIONABLE Comments
 

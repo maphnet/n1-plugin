@@ -13,7 +13,14 @@ Not authenticated → "Run `gh auth login` first." **STOP.**
 - **Argument** (`#123` or `123`): strip `#`, use directly.
 - **No argument:** `gh pr view --json number,url,headRefName --jq '.number'`. No PR found → "No open PR found. Create one first or specify: `/n1:n1-ci #123`" **STOP.**
 
-Capture PR number and URL.
+Capture PR number and URL. Record the PR head at run start for the PR body reconcile:
+
+```bash
+source ~/.n1/preamble.sh
+PR_NUMBER="<PR number>"
+mkdir -p "$N1_HOME/scratch"
+gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.sha" 2>/dev/null || true
+```
 
 ## Step 2: Read CI Check Config
 
@@ -73,6 +80,7 @@ Once failure detected but other checks still pending:
 
 All checks `conclusion: SUCCESS`/`NEUTRAL`/`SKIPPED`:
 - Report "All CI checks passed."
+- Run **Step 7a** (in 02-fix.md) now, before any finish chaining. n1-finish reads the PR body's Deployment Actions, so the body must match the pushed diff first. The later pass through Step 7 prints `reconcile:skip`.
 - **Finish chaining (pipeline only):** when invoked from n1-start, decide with the same helper as the n1-start finish gate (so CI and no-CI repos reach the same outcome):
   ```bash
   source ~/.n1/preamble.sh

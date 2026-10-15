@@ -98,6 +98,10 @@ Present remaining failures and fix history, then offer:
 
 ## Step 7: Report & Memory Update
 
+### Step 7a: Reconcile PR Body
+
+Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` from Step 1 and, as the fix report, every `## CI Fixes Applied` output from this run. It runs once per n1-ci run and no-ops unless the PR head moved since Step 1. Never blocks: on failure it warns and Step 7 continues. Add its `PR body:` line to the final report.
+
 ### Update overview.md (if memory exists):
 ```markdown
 ## CI Status

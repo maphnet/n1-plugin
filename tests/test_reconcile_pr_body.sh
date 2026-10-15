@@ -120,4 +120,20 @@ check "reconcile passes unknown sections through" "outside the known set" "$TW"
 check "reconcile notes stale docs instead of editing" "not updated \(reconcile mode\)" "$TW"
 check "reconcile checks claims against the full diff" "full diff" "$TW"
 
+# --- push-site wiring
+C1=skills/n1-ci/steps/01-monitor.md; C2=skills/n1-ci/steps/02-fix.md
+check "n1-ci records the run-start PR head" "reconcile-start-" "$C1"
+before "n1-ci reconciles before finish chaining" "Step 7a" "Finish chaining" "$C1"
+check "n1-ci Step 7a follows the procedure" "reconcile-pr-body\.md" "$C2"
+before "n1-ci reconcile precedes the final report" "### Step 7a" "### Final report" "$C2"
+CP=skills/n1-pr/steps/03-codex-review.md
+check "codex triage records the PR head" "reconcile-start-" "$CP"
+before "codex triage capture precedes developer dispatch" "reconcile-start-" "**Developer instructions:**" "$CP"
+before "codex triage reconcile follows the fix-cycle counter" "cross_host_fix_cycle" "reconcile-pr-body.md" "$CP"
+before "codex triage reconcile precedes Triage Reply" "reconcile-pr-body.md" "### Triage Reply" "$CP"
+RR=skills/n1-review-response/steps/02-resolve.md
+check "review-response records the PR head" "reconcile-start-" "$RR"
+before "review-response capture precedes developer dispatch" "reconcile-start-" "**Developer instructions:**" "$RR"
+before "review-response reconcile precedes 6b" "reconcile-pr-body.md" "### 6b" "$RR"
+
 exit $FAIL
