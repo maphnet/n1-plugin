@@ -108,4 +108,16 @@ out=$(run "## § Apply")
 check "apply refuses an empty body" "^reconcile:failed" <(printf '%s\n' "$out")
 [ ! -f "$GH_EDITED" ] && echo "PASS: empty body never edits the PR" || { echo "FAIL: empty body edited the PR"; FAIL=1; }
 
+# --- tech-writer reconcile mode
+TW=agents/tech-writer.md
+check "tech-writer input declares mode create|reconcile" '^- `mode`: `create` \(default\) or `reconcile`' "$TW"
+check "tech-writer has a Reconcile Mode section" "^## Reconcile Mode" "$TW"
+before "reconcile skip line precedes Phase 1 Step 1" "skip Phase 1 and Phase 2" "### Step 1: Extract Change Footprint" "$TW"
+check "reconcile copies Deployment Actions verbatim, never regenerates" "Never regenerate it" "$TW"
+check "reconcile dedupes newly-detected deploy actions against the old body" "not already present" "$TW"
+check "reconcile preserves locally verified lines" "locally verified" "$TW"
+check "reconcile passes unknown sections through" "outside the known set" "$TW"
+check "reconcile notes stale docs instead of editing" "not updated \(reconcile mode\)" "$TW"
+check "reconcile checks claims against the full diff" "full diff" "$TW"
+
 exit $FAIL
