@@ -135,7 +135,10 @@ source ~/.n1/preamble.sh
 IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer fix)
 PR_NUMBER="<the PR number from step 4>"
 mkdir -p "$N1_HOME/scratch"
-gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.sha" 2>/dev/null || true
+find "$N1_HOME/scratch" -maxdepth 1 -name 'reconcile-start-*' -mtime +1 -delete 2>/dev/null
+RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX")
+gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null || true
+echo "reconcile:start file=$RECONCILE_START_FILE"
 ```
 
 Dispatch developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`. Pass:
@@ -187,13 +190,13 @@ source "$N1_ROOT/lib/frontmatter.sh"
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "cross_host_fix_cycle"
 ```
 
-If `cross_host_fix_cycle` >= `maxFixAttempts`, proceed to Triage Reply with remaining unfixed findings routed to human review. Do NOT retry — default `maxFixAttempts=1` means a single pass.
+If `cross_host_fix_cycle` >= `maxFixAttempts`, proceed to **Reconcile PR Body** below with remaining unfixed findings routed to human review. Do NOT retry — default `maxFixAttempts=1` means a single pass.
 
-If the developer dispatch fails (error, timeout, empty output), log warning inline and route all High+ findings to human review. Do not block the pipeline.
+If the developer dispatch fails (error, timeout, empty output), log warning inline, route all High+ findings to human review, and still proceed to **Reconcile PR Body** below — the developer may have pushed a partial fix before failing. Do not block the pipeline.
 
 ### Reconcile PR Body
 
-Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` and, as the fix report, the developer's `## Codex Review Fixes` output. It no-ops unless the fix cycle pushed. Never blocks: continue to Triage Reply.
+Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER`, `START_FILE="$RECONCILE_START_FILE"`, and, as the fix report, the developer's `## Codex Review Fixes` output. It no-ops unless the fix cycle pushed. Never blocks: continue to Triage Reply.
 
 ### Triage Reply
 

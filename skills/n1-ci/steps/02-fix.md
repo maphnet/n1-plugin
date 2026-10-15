@@ -79,7 +79,7 @@ Output format:
 
 **After developer returns:**
 1. Handle `unknown` fixes below threshold (Step 5b flow)
-2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`.
+2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`. On "Abort", run **Step 7a** (Reconcile PR Body) before stopping — the developer may already have pushed fixes for other checks in this batch.
 3. Push if developer didn't: `git push`
 4. ```bash
    source ~/.n1/preamble.sh
@@ -100,7 +100,7 @@ Present remaining failures and fix history, then offer:
 
 ### Step 7a: Reconcile PR Body
 
-Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` from Step 1 and, as the fix report, every `## CI Fixes Applied` output from this run. It runs once per n1-ci run and no-ops unless the PR head moved since Step 1. Never blocks: on failure it warns and Step 7 continues. Add its `PR body:` line to the final report.
+Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` from Step 1, `START_FILE="$RECONCILE_START_FILE"` from Step 1, and, as the fix report, every `## CI Fixes Applied` output from this run. It runs once per n1-ci run and no-ops unless the PR head moved since Step 1. Never blocks: on failure it warns and Step 7 continues. Add its `PR body:` line to the final report.
 
 ### Update overview.md (if memory exists):
 ```markdown

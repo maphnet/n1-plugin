@@ -13,14 +13,19 @@ Not authenticated → "Run `gh auth login` first." **STOP.**
 - **Argument** (`#123` or `123`): strip `#`, use directly.
 - **No argument:** `gh pr view --json number,url,headRefName --jq '.number'`. No PR found → "No open PR found. Create one first or specify: `/n1:n1-ci #123`" **STOP.**
 
-Capture PR number and URL. Record the PR head at run start for the PR body reconcile:
+Capture PR number and URL. Record the PR head at run start for the PR body reconcile — the run-start contract in `<N1_ROOT>/references/reconcile-pr-body.md`:
 
 ```bash
 source ~/.n1/preamble.sh
 PR_NUMBER="<PR number>"
 mkdir -p "$N1_HOME/scratch"
-gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.sha" 2>/dev/null || true
+find "$N1_HOME/scratch" -maxdepth 1 -name 'reconcile-start-*' -mtime +1 -delete 2>/dev/null
+RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX")
+gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null || true
+echo "reconcile:start file=$RECONCILE_START_FILE"
 ```
+
+Carry `$RECONCILE_START_FILE` forward into Step 4 / Step 7a (in 02-fix.md), the same way `<D>` is carried from `reconcile:run dir=`.
 
 ## Step 2: Read CI Check Config
 
