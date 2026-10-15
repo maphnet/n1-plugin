@@ -18,6 +18,10 @@ before() { # <label> <fixed-a> <fixed-b> <file>: first occurrence of a precedes 
 snippet() { # first ```bash block after the heading line $1 in $P
     awk -v h="$1" 'index($0, h) == 1 {f = 1; next} f && /^```bash/ {b = 1; next} b && /^```/ {exit} b' "$P" 2>/dev/null
 }
+capture() { # run the run-start capture snippet, print the "reconcile:start file=" path
+    PATH="$T/bin:$PATH" N1_HOME="$T/home" bash -c "$(snippet '**Run-start contract.**' | sed -e '/preamble\.sh/d' -e 's|^PR_NUMBER=.*|PR_NUMBER="7"|')" \
+        | sed -n 's/^reconcile:start file=//p'
+}
 
 # --- procedure structure
 check "procedure has Check section" "^## § Check" "$P"
@@ -35,12 +39,18 @@ cat > "$T/bin/gh" <<'EOF'
 case "$1 $2" in
     "pr view")
         case "$*" in
-            *headRefOid*) echo "$GH_HEAD $GH_STATE ${GH_AUTHOR:-me}" ;;
+            *headRefOid*) [ "${GH_META_FAIL:-}" = 1 ] && exit 1; echo "$GH_HEAD $GH_STATE ${GH_AUTHOR:-me}" ;;
             *commits*) echo "aaaaaaa all pr commits" ;;
-            *body*) cat "$GH_BODY" ;;
+            *body*) [ "${GH_BODY_FAIL:-}" = 1 ] && exit 1; cat "$GH_BODY" ;;
         esac ;;
     "pr diff")
-        [ "${GH_DIFF_EMPTY:-}" = 1 ] || echo "diff --git a/x b/x" ;;
+        if [ "${GH_DIFF_EMPTY:-}" = 1 ]; then
+            :
+        elif [ "${GH_DIFF_BIG:-}" = 1 ]; then
+            printf 'diff --git a/x b/x\n'; head -c 40000 /dev/zero | tr '\0' 'x'; echo
+        else
+            echo "diff --git a/x b/x"
+        fi ;;
     "api user") echo "${GH_LOGIN:-me}" ;;
     "pr edit") while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && cp "$2" "$GH_EDITED"; shift; done ;;
     *)
@@ -54,8 +64,8 @@ printf '## Summary\r\n- old claim\r\n\r\n## Deployment Actions\r\n\r\n### Before
 SHA1="1111111111111111111111111111111111111111"; SHA2="2222222222222222222222222222222222222222"
 export N1_HOME="$T/home" GH_BODY="$T/body.md" GH_EDITED="$T/edited.md" GH_STATE=OPEN GH_HEAD="$SHA1" GH_AUTHOR=me GH_LOGIN=me
 unset GH_DIFF_EMPTY GH_COMPARE_FAIL
-S="$T/home/scratch/reconcile-start-7.sha"
-run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e '/preamble\.sh/d' -e 's|^PR_NUMBER=.*|PR_NUMBER="7"|' -e "s|^ADHOC=.*|ADHOC=\"${2:-}\"|" -e "s|^D=\"<D from the reconcile:run line>\"\$|D=\"${3:-}\"|")"; }
+S="$T/home/scratch/reconcile-start-7.testfile"
+run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e '/preamble\.sh/d' -e 's|^PR_NUMBER=.*|PR_NUMBER="7"|' -e "s|^ADHOC=.*|ADHOC=\"${2:-}\"|" -e "s|^D=\"<D from the reconcile:run line>\"\$|D=\"${3:-}\"|" -e "s|^START_FILE=.*|START_FILE=\"${4:-$S}\"|")"; }
 dir_of() { printf '%s\n' "$1" | sed -n 's/^reconcile:run dir=//p'; }
 
 echo "$SHA1" > "$S"
@@ -79,6 +89,7 @@ D=$(dir_of "$out")
 check "old body saved" '^- \[x\] `echo done`$' "$D/old-body.md"
 [ "$(grep -c $'\r' "$D/old-body.md" 2>/dev/null)" = "0" ] && echo "PASS: old body is LF-only" || { echo "FAIL: old body kept CR"; FAIL=1; }
 check "diff saved" "^diff --git" "$D/diff.patch"
+check "full diff saved untruncated" "^diff --git" "$D/diff-full.patch"
 check "commits since start come from compare" "^bbbbbbb new commit$" "$D/commits.txt"
 
 echo "$SHA1" > "$S"
@@ -102,6 +113,26 @@ out=$(run "## § Check")
 check "invalid start SHA is treated as missing" "^reconcile:skip$" <(printf '%s\n' "$out")
 rm -f "$S"
 
+# metadata fetch failure -> reconcile:failed:fetch, start file still consumed
+export GH_HEAD="$SHA1"
+echo "$SHA1" > "$S"
+export GH_META_FAIL=1
+out=$(run "## § Check")
+check "metadata fetch failure reports reconcile:failed:fetch" "^reconcile:failed:fetch" <(printf '%s\n' "$out")
+[ ! -f "$S" ] && echo "PASS: metadata fetch failure still consumes the start file" || { echo "FAIL: start file left behind after metadata fetch failure"; FAIL=1; }
+unset GH_META_FAIL
+
+# distinct per-run start files: two captures for the same PR produce distinct files;
+# § Check with one leaves the other intact
+F1=$(capture); F2=$(capture)
+[ -n "$F1" ] && [ -n "$F2" ] && [ "$F1" != "$F2" ] && [ -f "$F1" ] && [ -f "$F2" ] \
+    && echo "PASS: two captures for the same PR produce distinct files" \
+    || { echo "FAIL: captures did not produce distinct files"; FAIL=1; }
+export GH_HEAD="$SHA2"
+run "## § Check" "" "" "$F1" >/dev/null
+[ ! -f "$F1" ] && [ -f "$F2" ] && echo "PASS: check consumes only the file it was given" || { echo "FAIL: check touched the other run's start file"; FAIL=1; }
+rm -f "$F2"
+
 # (a) empty diff -> failed:fetch, no reconcile:run, no leftover scratch dir
 echo "$SHA1" > "$S"
 before_dirs=$(find "$T/home/scratch" -mindepth 1 -maxdepth 1 -type d | wc -l)
@@ -113,6 +144,18 @@ after_dirs=$(find "$T/home/scratch" -mindepth 1 -maxdepth 1 -type d | wc -l)
 [ "$before_dirs" = "$after_dirs" ] && echo "PASS: empty diff leaves no scratch dir" || { echo "FAIL: empty diff left a scratch dir"; FAIL=1; }
 unset GH_DIFF_EMPTY
 rm -f "$S"
+
+# (c) diff over 30KB -> diff.patch truncated, diff-full.patch complete
+echo "$SHA1" > "$S"
+export GH_DIFF_BIG=1
+out=$(run "## § Check")
+check "big diff still runs" "^reconcile:run" <(printf '%s\n' "$out")
+D=$(dir_of "$out")
+check "truncated diff carries the truncation marker" "truncated: first 30KB" "$D/diff.patch"
+[ "$(wc -c < "$D/diff.patch")" -le 30200 ] && echo "PASS: diff.patch stays near the 30KB cap" || { echo "FAIL: diff.patch exceeds the 30KB cap"; FAIL=1; }
+[ "$(wc -c < "$D/diff-full.patch")" -gt 30000 ] && echo "PASS: diff-full.patch keeps the untruncated diff" || { echo "FAIL: diff-full.patch was truncated"; FAIL=1; }
+unset GH_DIFF_BIG
+rm -rf "$D" "$S"
 
 # (b) compare fails -> commits.txt falls back to pr view commits
 echo "$SHA1" > "$S"
@@ -165,6 +208,29 @@ out=$(run "## § Apply" "" "$D")
 check "apply refuses an empty body" "^reconcile:failed" <(printf '%s\n' "$out")
 [ ! -f "$GH_EDITED" ] && echo "PASS: empty body never edits the PR" || { echo "FAIL: empty body edited the PR"; FAIL=1; }
 
+# (a) § Apply: the re-fetch returns a different body (concurrent edit) -> aborted, no edit
+echo "$SHA1" > "$S"
+out=$(run "## § Check" 1); D=$(dir_of "$out")
+printf '## Summary\n- new claim\n\n## Deployment Actions\n\n### Before deploy\n- [x] `echo done`\n- [ ] Manual: set secret K\n  - [ ] indented action\n\n## Verification\n- [x] works *(locally verified — curl 200)*\n' > "$D/new-body.md"
+cp "$T/body.md" "$T/body.orig.md"
+printf '## Summary\r\n- edited concurrently\r\n' > "$T/body.md"
+rm -f "$GH_EDITED"
+out=$(run "## § Apply" "" "$D")
+check "apply aborts when the PR body changed during reconcile" "^reconcile:aborted — PR body changed during reconcile" <(printf '%s\n' "$out")
+[ ! -f "$GH_EDITED" ] && echo "PASS: concurrent-edit abort never edits the PR" || { echo "FAIL: concurrent-edit abort edited the PR"; FAIL=1; }
+cp "$T/body.orig.md" "$T/body.md"
+
+# (b) § Apply: the re-fetch fails -> aborted, no edit
+echo "$SHA1" > "$S"
+out=$(run "## § Check" 1); D=$(dir_of "$out")
+printf '## Summary\n- new claim\n\n## Deployment Actions\n\n### Before deploy\n- [x] `echo done`\n- [ ] Manual: set secret K\n  - [ ] indented action\n\n## Verification\n- [x] works *(locally verified — curl 200)*\n' > "$D/new-body.md"
+export GH_BODY_FAIL=1
+rm -f "$GH_EDITED"
+out=$(run "## § Apply" "" "$D")
+check "apply aborts when the re-fetch fails" "^reconcile:aborted — PR body changed during reconcile" <(printf '%s\n' "$out")
+[ ! -f "$GH_EDITED" ] && echo "PASS: failed re-fetch never edits the PR" || { echo "FAIL: failed re-fetch edited the PR"; FAIL=1; }
+unset GH_BODY_FAIL
+
 # --- tech-writer reconcile mode
 TW=agents/tech-writer.md
 check "tech-writer input declares mode create|reconcile" '^- `mode`: `create` \(default\) or `reconcile`' "$TW"
@@ -183,15 +249,25 @@ check "n1-ci records the run-start PR head" "reconcile-start-" "$C1"
 before "n1-ci reconciles before finish chaining" "Step 7a" "Finish chaining" "$C1"
 check "n1-ci Step 7a follows the procedure" "reconcile-pr-body\.md" "$C2"
 before "n1-ci reconcile precedes the final report" "### Step 7a" "### Final report" "$C2"
+check "n1-ci NOT_BRANCH_CAUSED abort still runs Step 7a first" "Abort.*run \*\*Step 7a\*\*" "$C2"
 CP=skills/n1-pr/steps/03-codex-review.md
 check "codex triage records the PR head" "reconcile-start-" "$CP"
 before "codex triage capture precedes developer dispatch" "reconcile-start-" "**Developer instructions:**" "$CP"
 before "codex triage reconcile follows the fix-cycle counter" "cross_host_fix_cycle" "reconcile-pr-body.md" "$CP"
 before "codex triage reconcile precedes Triage Reply" "reconcile-pr-body.md" "### Triage Reply" "$CP"
+# (f) sentinel: the maxFixAttempts exit routes to Reconcile PR Body, not straight to Triage Reply
+check "codex triage maxFixAttempts exit routes to Reconcile PR Body" "proceed to \*\*Reconcile PR Body\*\* below" "$CP"
+if grep -qE "maxFixAttempts\`, proceed to Triage Reply" "$CP"; then
+    echo "FAIL: maxFixAttempts exit still jumps straight to Triage Reply"; FAIL=1
+else
+    echo "PASS: maxFixAttempts exit no longer jumps straight to Triage Reply"
+fi
+check "codex triage dispatch-failure exit also reconciles before Triage Reply" "still proceed to \*\*Reconcile PR Body\*\* below" "$CP"
 RR=skills/n1-review-response/steps/02-resolve.md
 check "review-response records the PR head" "reconcile-start-" "$RR"
 before "review-response capture precedes developer dispatch" "reconcile-start-" "**Developer instructions:**" "$RR"
 before "review-response reconcile precedes 6b" "reconcile-pr-body.md" "### 6b" "$RR"
+check "review-response reconciles even if the developer dispatch fails" "even if it errors, times out, or returns empty output, still run the reconcile" "$RR"
 
 # --- ad-hoc rule and docs
 check "HOST ROUTING covers ad-hoc pushes to an open PR" 'PR BODY RECONCILE:.*references/reconcile-pr-body\.md.*ADHOC=1' hooks/session-start.sh
