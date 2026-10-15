@@ -56,7 +56,7 @@ If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP
 1. `sleep 15` (initial delay).
 2. `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` — separate command.
 3. Empty/no checks → `sleep 30`, re-poll (step 2).
-4. Nothing after 15 min → "No CI checks appeared after 15 minutes." **STOP.**
+4. Nothing after 15 min → run **Step 7a** (Reconcile PR Body, in 02-fix.md) before stopping — a prior fix cycle may already have pushed, then "No CI checks appeared after 15 minutes." **STOP.**
 5. Checks appear → Phase 2.
 
 ### Phase 2 — Poll until resolution (up to 30 min)
@@ -72,7 +72,7 @@ n1_wait_ci_checks <PR#> <remaining-minutes>
 Re-invoke while `pending` and budget remains:
 - `green` → **Step 4** (all green)
 - `red` → run `gh pr checks <PR#> --json name,state,conclusion,detailsUrl` to enumerate failures, apply Phase 3 grace (up to 2 more `n1_wait_ci_checks` calls, `<max-minutes>` = 1), then **Step 4**
-- `pending` at budget exhaustion → report pending checks, ask "Wait longer or skip?" **STOP.**
+- `pending` at budget exhaustion → run **Step 7a** (Reconcile PR Body, in 02-fix.md) before stopping — a prior fix cycle may already have pushed, then report pending checks, ask "Wait longer or skip?" **STOP.**
 
 ### Phase 3 — Failure grace (max 60s)
 
