@@ -40,7 +40,7 @@ case "$1 $2" in
             *body*) cat "$GH_BODY" ;;
         esac ;;
     "pr diff") echo "diff --git a/x b/x" ;;
-    "api") echo "bbbbbbb new commit" ;;
+    "api "*) echo "bbbbbbb new commit" ;;
     "pr edit") while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && cp "$2" "$GH_EDITED"; shift; done ;;
 esac
 EOF
