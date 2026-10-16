@@ -140,16 +140,28 @@ test_question_mirror_and_answer_delivered() {
     has   "relay: answer delivered line" "n1-queue q6: T-1 answer delivered, resuming." "$out"
 }
 
-test_escalated_json_reason_fallback_blanked() {
-    # N1-60: once .question-<ticket>.json is gone, the escalated event's reason may still
-    # hold the packed JSON (durable-storage form). The plain-text fallback must never print
-    # that raw JSON; it must fall back to "waiting for an answer".
+test_escalated_json_reason_fallback_rendered() {
+    # N1-60 [CR-1]: once .question-<ticket>.json is gone, the escalated event's reason may
+    # still hold the packed JSON (durable-storage form). The fallback must render it the same
+    # way the live question-file branch does, never print the raw JSON.
     local q out; q=$(newq q8)
     ev "$q" R1 escalated ticket=T-1 session=0000abcd reason='{"question":"Pick a DB?","options":["A","B"]}'
     out=$(watch 2 "$q" R1 "$$" 0)
-    has   "json-reason fallback: generic wait message shown" \
-        "n1-queue q8: T-1 needs you: waiting for an answer" "$out"
+    has   "json-reason fallback: header with answer + attach" \
+        'n1-queue q8: T-1 needs you (answer: /n1:n1-queue --answer T-1 "<text>"; resume: claude attach 0000abcd):' "$out"
+    has   "json-reason fallback: question rendered" "  Q: Pick a DB?" "$out"
+    has   "json-reason fallback: option rendered" "  - A" "$out"
     lacks "json-reason fallback: raw JSON never printed" '{"question"' "$out"
+}
+
+test_escalated_plaintext_brace_reason_unchanged() {
+    # N1-60 [SEC-4]/[CR-3]: a plain-text reason that happens to start with "{" but is not a
+    # JSON question object must print unchanged, exactly as before N1-60.
+    local q out; q=$(newq q9)
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason='{not json, just text that starts with a brace'
+    out=$(watch 2 "$q" R1 "$$" 0)
+    has "plain-text brace reason: printed unchanged" \
+        'n1-queue q9: T-1 needs you: {not json, just text that starts with a brace (resume: claude attach 0000abcd)' "$out"
 }
 
 test_rejects_bad_input_and_sanitizes() {
@@ -230,7 +242,8 @@ test_adopt_from_eof_and_resume
 test_runner_dead
 test_sessions_independent
 test_question_mirror_and_answer_delivered
-test_escalated_json_reason_fallback_blanked
+test_escalated_json_reason_fallback_rendered
+test_escalated_plaintext_brace_reason_unchanged
 test_rejects_bad_input_and_sanitizes
 test_merge_ready_line
 

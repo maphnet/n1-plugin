@@ -801,6 +801,24 @@ test_bg_awaiting() {
     rm -rf "$tmp"
 }
 
+test_bg_awaiting_oversized_question() {
+    # N1-60 [SEC-1]/[CR-2]: a mirrored question file far bigger than execve's 128 KiB per-arg
+    # limit must still produce a valid, bounded escalated row (not a dropped/truncated one).
+    local tmp big; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done"
+    big=$(head -c 200000 /dev/zero | tr '\0' 'x')
+    { printf '{"question":"%s","options":["%s","%s"],"recommended":"A","rationale":"%s"}' \
+        "$big" "$big" "$big" "$big"; } > "$tmp/.question-T-A.json"
+    assert_eq "bg-await-big: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await-big: escalated row is valid JSON" "escalated" \
+        "$(jq -r 'select(.event=="escalated") | .event' "$tmp/events.jsonl")"
+    assert_eq "bg-await-big: reason is valid JSON, bounded" "2000,2000" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson) | "\(.question|length),\(.rationale|length)"' "$tmp/events.jsonl")"
+    assert_eq "bg-await-big: options capped at 10, each bounded" "2,2000" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson) | "\(.options|length),\(.options[0]|length)"' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
 test_bg_awaiting_timeout() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked"
@@ -2224,6 +2242,7 @@ test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
 test_bg_sequential
 test_bg_awaiting
+test_bg_awaiting_oversized_question
 test_bg_awaiting_timeout
 test_bg_deploy_pending
 test_bg_deploy_flag_cleared_mid_run
