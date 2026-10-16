@@ -77,3 +77,17 @@ payload=$(jq -nc '{session_id:"multi-pr",tool_name:"Bash",tool_input:{command:"g
 printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" > "$TMP/multi"
 jq -se 'length == 1 and (.[0].hookSpecificOutput.additionalContext | contains("pull/1") and contains("pull/2"))' "$TMP/multi" >/dev/null
 printf 'PASS: multiple PRs produce one structured hook response\n'
+payload=$(jq -nc '{session_id:"active-stop",tool_input:{command:"gh pr create"},tool_response:{stdout:"https://github.com/example/repo/pull/43"}}')
+printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" >/dev/null
+printf '{"session_id":"active-stop","stop_hook_active":true}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/active-stop"
+[ ! -s "$TMP/active-stop" ]
+jq -e '.reminded != true' "$N1_HOME/review-receipts/active-stop/example_repo_43.json" >/dev/null
+printf '{"session_id":"active-stop"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/next-stop"
+jq -e '.decision == "block"' "$TMP/next-stop" >/dev/null
+printf 'PASS: another Stop continuation does not consume an unsent reminder\n'
+payload=$(jq -nc '{session_id:"failed-tail",hook_event_name:"PostToolUseFailure",tool_input:{command:"gh pr create && false"},error:"Exit code 1\nhttps://github.com/example/repo/pull/44"}')
+printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" > "$TMP/failed-tail"
+jq -e '.outcome == "skipped" and .reason == "step-not-run"' "$N1_HOME/review-receipts/failed-tail/example_repo_44.json" >/dev/null
+jq -e '.hookSpecificOutput.hookEventName == "PostToolUseFailure"' "$TMP/failed-tail" >/dev/null
+jq -e '.hooks.PostToolUseFailure[] | select(.matcher == "Bash") | .hooks[] | select(.command | contains("pr-review-observe.sh"))' "$ROOT/hooks/hooks.json" >/dev/null
+printf 'PASS: failed command tail still observes its created PR\n'
