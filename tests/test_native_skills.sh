@@ -49,4 +49,36 @@ else
     echo "PASS: 03-codex-review runs on every PR (no tier/host gate)"
 fi
 
+# 4. N1-70: the PR report/CHECKPOINT lives at the end of step 3, not step 2,
+#    so the orchestrator never stops before the Codex review.
+P2=skills/n1-pr/steps/02-push-create.md
+P3=skills/n1-pr/steps/03-codex-review.md
+if grep -q 'CHECKPOINT:' "$P2"; then
+    echo "FAIL: 02-push-create still prints a CHECKPOINT"; FAIL=1
+else
+    echo "PASS: 02-push-create prints no CHECKPOINT"
+fi
+if grep -q '03-codex-review.md' <<<"$(grep -v '^[[:space:]]*$' "$P2" | tail -1)"; then
+    echo "PASS: 02-push-create ends with continuation to step 3"
+else
+    echo "FAIL: 02-push-create does not end with continuation to step 3"; FAIL=1
+fi
+LAST_CP=$(grep -n 'CHECKPOINT: Ready for Tech Lead review.' "$P3" | tail -1 | cut -d: -f1)
+TRIAGE_REPLY=$(grep -n '^### Triage Reply' "$P3" | head -1 | cut -d: -f1)
+if [ -n "$LAST_CP" ] && [ -n "$TRIAGE_REPLY" ] && [ "$LAST_CP" -gt "$TRIAGE_REPLY" ]; then
+    echo "PASS: 03-codex-review ends with the PR report CHECKPOINT"
+else
+    echo "FAIL: 03-codex-review is missing the final CHECKPOINT after Triage Reply"; FAIL=1
+fi
+if grep -qiE 'stop here|skip this step entirely' "$P3"; then
+    echo "FAIL: 03-codex-review has an early exit that bypasses the Report"; FAIL=1
+else
+    echo "PASS: 03-codex-review has no early exit before the Report"
+fi
+if grep -qF 'n1_record_decision codex-review false' "$P3" && grep -qF '"outcome=skipped"' "$P3"; then
+    echo "PASS: 03-codex-review records skipped codex-review decisions"
+else
+    echo "FAIL: 03-codex-review does not record skipped codex-review decisions"; FAIL=1
+fi
+
 exit $FAIL

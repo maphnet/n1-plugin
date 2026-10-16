@@ -1,9 +1,10 @@
-<!-- Purpose: Codex review of every PR via the Codex CLI after PR creation (Step 9). -->
+<!-- Purpose: Codex review of every PR via the Codex CLI after PR creation (Step 9), then the final PR report (Step 10). -->
 
 ## Step 9: Codex Review
 
-Skip this step entirely (no output) when ANY of these conditions is true:
-- PR URL is not available from prior steps
+If the PR URL is not available from prior steps, PR creation failed: end n1-pr without output, because there is no PR to review or report.
+
+Otherwise this file always ends at **Step 10: Report**, printed exactly once. The Codex review is skipped silently (no Codex output; jump to **Step 10: Report**) when ANY of these is true:
 - `crossHostReview.enabled` is explicitly `false` in config (default: `true` when absent)
 - `codex` CLI is not installed (`command -v codex` fails)
 - Codex auth is not available (`codex login status` exits non-zero)
@@ -29,25 +30,21 @@ else
 fi
 # absent = default true (opt-out model); any other value is taken literally
 [ "$GATE" = "absent" ] && GATE="true"
+CODEX_INSTALLED=$(command -v codex >/dev/null 2>&1 && echo yes || echo no)
+ID="<the ticket ID>"
+SKIP_REASON=""
+if [ "$GATE" = "false" ]; then SKIP_REASON="disabled"
+elif [ "$CODEX_INSTALLED" = "no" ]; then SKIP_REASON="not-installed"
+elif ! codex login status >/dev/null 2>&1; then SKIP_REASON="no-auth"
+fi
+[ -n "$SKIP_REASON" ] && n1_record_decision codex-review false '{"config":"crossHostReview.enabled"}' "outcome=skipped" "reason=$SKIP_REASON"
 echo "crossHostReview_enabled=$GATE"
 echo "crossHostReview_autoTriage=$AUTO_TRIAGE"
-echo "codex_installed=$(command -v codex >/dev/null 2>&1 && echo yes || echo no)"
+echo "codex_installed=$CODEX_INSTALLED"
+echo "codex_review_skip=${SKIP_REASON:-none}"
 ```
 
-If `crossHostReview_enabled` is `false`, skip silently.
-If `codex_installed` is `no`, skip silently.
-
-Auth check (only if above checks pass):
-
-```bash
-if codex login status >/dev/null 2>&1; then
-  echo "codex_auth=yes"
-else
-  echo "codex_auth=no"
-fi
-```
-
-If `codex_auth` is `no`, skip silently.
+If `codex_review_skip` is not `none`, jump to **Step 10: Report** and print nothing about Codex.
 
 ### Auto-run
 
@@ -99,7 +96,7 @@ Codex review: posted as PR comment (or: written to memory as fallback)
 
 ### Triage Gate
 
-If `crossHostReview_autoTriage` is NOT `true`, stop here (current behavior — findings posted, no triage).
+If `crossHostReview_autoTriage` is NOT `true`, jump to **Step 10: Report** (findings posted, no triage).
 
 If `crossHostReview_autoTriage` is `true`, continue to severity parsing.
 
@@ -224,3 +221,26 @@ Report result:
 Codex triage: posted as PR comment (or: written to memory as fallback)
 Summary: N findings triaged — X auto-fixed, Y dismissed, Z for human review
 ```
+
+## Step 10: Report
+
+Every path through Step 9 ends here: review ran, skipped, timed out, failed, or went through triage. Print this report exactly once. It is the end of n1-pr.
+
+Read ticket URL:
+```bash
+source ~/.n1/preamble.sh
+TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" 2>/dev/null || echo "")
+```
+
+Draft mode (**bolded** URL to surface draft state):
+```
+**PR created (draft):** <PR_URL>
+PR #: <number>
+Title: <title>
+Base: <default branch>
+Tracker: <status updated / not configured / failed>
+<Ticket: <TICKET_URL> — omit line if empty>
+CHECKPOINT: Ready for Tech Lead review.
+```
+
+Ready mode: same with `PR created:` (not bolded).
