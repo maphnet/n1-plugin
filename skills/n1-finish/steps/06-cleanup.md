@@ -89,4 +89,4 @@ Every path is safe to re-run: already-merged PR skips the merge; already-closed 
 
 **Invokes:**
 - Inline: `gh` CLI (pr view/checks/merge, run list/view), git, tracker MCP operations
-- No agent spawns — thin controller, orchestration only
+- Dispatches `post-deploy-verifier` only after a successful watched deployment; otherwise thin controller orchestration only

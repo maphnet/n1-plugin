@@ -26,6 +26,12 @@ source ~/.n1/preamble.sh
 
 If `N1_HOME` is empty — N1 is not configured; warn the user and STOP.
 
+Before resolving a target or reading any step, initialize the invocation-scoped verification artifact guard:
+
+```bash
+POST_DEPLOY_VERIFICATION_ARTIFACT=false
+```
+
 ## Config Read
 
 Read the `finishWork` block via `n1_config_val`, applying defaults when keys are absent:

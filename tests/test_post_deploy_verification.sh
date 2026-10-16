@@ -11,6 +11,13 @@ check() {
         echo "FAIL: $1"; FAIL=$((FAIL + 1))
     fi
 }
+check_absent() {
+    if grep -qE "$2" "$3"; then
+        echo "FAIL: $1"; FAIL=$((FAIL + 1))
+    else
+        echo "PASS: $1"; PASS=$((PASS + 1))
+    fi
+}
 check_fixed() {
     if grep -qF "$2" "$3"; then
         echo "PASS: $1"; PASS=$((PASS + 1))
@@ -65,6 +72,14 @@ check "README counts post-deploy verifier" 'post-deploy-verifier' "$README"
 # is a persona contract, while this test protects the controller hand-offs.
 check "Step 3b sources config helper" 'source "\$N1_ROOT/lib/config\.sh"' "$DEPLOY"
 check "Step 3b gates through post-deploy helper" 'n1_post_deploy_verification_enabled' "$DEPLOY"
+if awk '/^## Steps/{exit} /POST_DEPLOY_VERIFICATION_ARTIFACT=false/{found=1} END { exit !found }' "$FINISH"; then
+    echo "PASS: finish entry initializes verification artifact guard before routes"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: finish entry initializes verification artifact guard before routes"
+    FAIL=$((FAIL + 1))
+fi
+check_absent "deploy step does not initialize verification artifact guard" 'POST_DEPLOY_VERIFICATION_ARTIFACT=false' "$DEPLOY"
 check "verification dispatch requires actual successful deployment" 'All `conclusion: success`.*deploy status `succeeded`' "$DEPLOY"
 check "neutral and skipped deployments do not dispatch verification" 'neutral.*skipped.*non-`success`.*do not dispatch' "$DEPLOY"
 check "cancelled deployments are terminal without verification" 'cancelled.*not deployed.*do not dispatch|cancelled.*do not dispatch.*not deployed' "$DEPLOY"

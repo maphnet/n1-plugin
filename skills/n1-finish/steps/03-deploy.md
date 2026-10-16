@@ -2,7 +2,7 @@
 
 (PR path only, when `deployWatch.enabled` is `true`)
 
-Set `POST_DEPLOY_VERIFICATION_ARTIFACT=false` at the start of every finish invocation. It becomes `true` only after this invocation writes a canonical fallback artifact or validates a verifier artifact.
+`POST_DEPLOY_VERIFICATION_ARTIFACT` is initialized at the n1-finish entry point and becomes `true` only after this invocation writes a canonical fallback artifact or validates a verifier artifact.
 
 **Local-merge path (Step 2b):** skip this entire file — deploy `skipped (local merge)`, verification `n/a`. Go to Step 4. Do not dispatch post-deploy verification.
 
