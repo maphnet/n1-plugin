@@ -901,7 +901,7 @@ n1_queue_watch() {
     # cursor is removed and it returns 0. Otherwise it polls until killed.
     # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
-    local ev t out pr s reason qbody b h r sha marker last hint
+    local ev t out pr s reason qbody qrender b h r sha marker last hint
     q="${dir##*/}"
     sid=$(n1_session_id); sid="${sid:-nosession}"
     case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
@@ -939,15 +939,17 @@ n1_queue_watch() {
                 case "$ev" in
                     escalated)
                         # N1-55: a child in ask-mode mirrors its full question to .question-<ticket>.json.
-                        qbody=""
-                        case "$t" in ''|*[!A-Za-z0-9_-]*) ;; *) [ -f "$dir/.question-$t.json" ] && \
-                            qbody=$(jq -r 'def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:1000];
+                        # qrender is shared with the N1-60 fallback below so a packed-JSON reason
+                        # renders identically to the live question file.
+                        qrender='def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:1000];
                                 (.rationale // "" | s) as $r | (.recommended // "" | s) as $rec
                                 | "  Q: \(.question | s)",
                                   (select($rec == "" and $r != "") | "  \($r)"),
                                   (.options | arrays | .[:10] | .[] | "  - \(s)"),
-                                  (select($rec != "") | "  Recommended: \($rec)\(if $r != "" then " — \($r)" else "" end)")' \
-                                "$dir/.question-$t.json" 2>/dev/null) ;; esac
+                                  (select($rec != "") | "  Recommended: \($rec)\(if $r != "" then " — \($r)" else "" end)")'
+                        qbody=""
+                        case "$t" in ''|*[!A-Za-z0-9_-]*) ;; *) [ -f "$dir/.question-$t.json" ] && \
+                            qbody=$(jq -r "$qrender" "$dir/.question-$t.json" 2>/dev/null) ;; esac
                         # N1-74: outcome=terminal means the session is drained and stopped (finalize's
                         # stopped-path escalate): attach would reach nothing, so hint n1-start instead.
                         if [ "$out" = terminal ]; then
@@ -955,14 +957,17 @@ n1_queue_watch() {
                         else
                             hint="${s:+; resume: $(n1_bg_cmd attach "$s")}"
                         fi
+                        if [ -z "$qbody" ]; then
+                            # N1-60: reason may hold the full mirrored question (packed JSON) once
+                            # the question file is already gone; render it the same way, so the
+                            # user still sees the full question instead of a generic wait message.
+                            # SEC-4/CR-3: a real object-with-"question" check, not a '{' prefix guess.
+                            qbody=$(printf '%s' "$reason" | jq -R "fromjson? | objects | select(has(\"question\")) | ($qrender)" 2>/dev/null)
+                        fi
                         if [ -n "$qbody" ]; then
                             printf 'n1-queue %s: %s needs you (answer: /n1:n1-queue --answer %s "<text>"%s):\n%s\n' \
                                 "$q" "$t" "$t" "$hint" "$qbody"
                         else
-                            # N1-60: reason may hold the full mirrored question (JSON) once the
-                            # question file is already gone; that form is for durable storage
-                            # only, never for this plain-text fallback.
-                            case "$reason" in '{'*) reason="" ;; esac
                             printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
                                 "${hint:+ (${hint#; })}"
                         fi ;;
