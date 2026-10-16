@@ -140,6 +140,18 @@ test_question_mirror_and_answer_delivered() {
     has   "relay: answer delivered line" "n1-queue q6: T-1 answer delivered, resuming." "$out"
 }
 
+test_escalated_json_reason_fallback_blanked() {
+    # N1-60: once .question-<ticket>.json is gone, the escalated event's reason may still
+    # hold the packed JSON (durable-storage form). The plain-text fallback must never print
+    # that raw JSON; it must fall back to "waiting for an answer".
+    local q out; q=$(newq q8)
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason='{"question":"Pick a DB?","options":["A","B"]}'
+    out=$(watch 2 "$q" R1 "$$" 0)
+    has   "json-reason fallback: generic wait message shown" \
+        "n1-queue q8: T-1 needs you: waiting for an answer" "$out"
+    lacks "json-reason fallback: raw JSON never printed" '{"question"' "$out"
+}
+
 test_rejects_bad_input_and_sanitizes() {
     local q out; q=$(newq q5)
     out=$(watch 2 "$q" "../R1" "$$" 0 2>&1)
@@ -218,6 +230,7 @@ test_adopt_from_eof_and_resume
 test_runner_dead
 test_sessions_independent
 test_question_mirror_and_answer_delivered
+test_escalated_json_reason_fallback_blanked
 test_rejects_bad_input_and_sanitizes
 test_merge_ready_line
 
