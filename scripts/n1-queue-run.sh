@@ -78,14 +78,26 @@ escalate() {
         *) qfile="$N1_QUEUE_DIR/.question-$1.json" ;;
     esac
     if [ -n "$qfile" ] && [ -f "$qfile" ]; then
-        # SEC-1/CR-2: cap each field so the packed reason stays far under execve's
-        # per-arg limit (128 KiB) however large the mirrored question file is.
-        qfull=$(jq -cn 'input | objects | {
-            question: (.question // "" | tostring | .[:2000]),
-            options: ((.options // []) | arrays | .[:10] | map(tostring | .[:2000])),
-            recommended: (.recommended // "" | tostring | .[:2000]),
-            rationale: (.rationale // "" | tostring | .[:2000])
-        }' "$qfile" 2>/dev/null)
+        # SEC-1/CR-2/N1-60-follow-up: cap each field so the packed reason stays far
+        # under execve's per-arg limit (128 KiB) however large the mirrored question
+        # file is. Control/format chars are stripped before capping (same class the
+        # watch reader already strips at render time, lib/queue.sh) so a field full of
+        # single-byte control chars can't 6x-expand via \uXXXX JSON escaping. A second
+        # hard check rebuilds with a much smaller per-field cap if the first pass (at
+        # the normal 2000-char cap) still exceeds a 32 KiB budget — covers 4-byte UTF-8
+        # (emoji) content, which isn't a control char and isn't escaped by jq.
+        qfull=$(jq -cn '
+            def strip: tostring | gsub("[\u0000-\u001f\u007f-\u009f‎‏  ‪-‮⁦-⁩؜]"; " ");
+            def build($src; $n): $src | objects | {
+                question: (.question // "" | strip | .[:$n]),
+                options: ((.options // []) | arrays | .[:10] | map(strip | .[:$n])),
+                recommended: (.recommended // "" | strip | .[:$n]),
+                rationale: (.rationale // "" | strip | .[:$n])
+            };
+            (input) as $src
+            | (build($src; 2000)) as $full
+            | if ($full | tojson | utf8bytelength) > 32768 then build($src; 200) else $full end
+        ' "$qfile" 2>/dev/null)
         [ -n "$qfull" ] && reason="$qfull"
     fi
     if [ "${3:-}" = "stopped" ]; then

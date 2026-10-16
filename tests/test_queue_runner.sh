@@ -819,6 +819,60 @@ test_bg_awaiting_oversized_question() {
     rm -rf "$tmp"
 }
 
+# N1-60 follow-up: a field full of control characters (U+0001) JSON-encodes each char
+# as a 6-byte \u0001 escape, and a field full of 4-byte UTF-8 (emoji) is 4x its char
+# count in bytes — both can push the capped-at-2000-chars packed reason well past
+# execve's 128 KiB per-arg limit (~156 KiB and ~104 KiB respectively at 13 max-length
+# fields) unless the control chars are stripped before capping and a hard byte-size
+# fallback shrinks the per-field cap.
+mk_oversized_question() {
+    # Usage: mk_oversized_question <dir> <ticket> <char> — writes a .question-<ticket>.json
+    # with question/10-options/recommended/rationale all at the 2000-char cap, filled
+    # with 2000 repeats of <char> (may be a multi-byte literal). Built via a plain bash
+    # loop, not `yes | head` (SIGPIPE under pipefail, N1-75).
+    local dir="$1" ticket="$2" ch="$3" v="" opts i
+    for ((i = 0; i < 2000; i++)); do v+="$ch"; done
+    opts=""
+    for i in $(seq 1 10); do opts="$opts\"$v\","; done
+    opts="${opts%,}"
+    printf '{"question":"%s","options":[%s],"recommended":"%s","rationale":"%s"}' \
+        "$v" "$opts" "$v" "$v" > "$dir/.question-$ticket.json"
+}
+
+test_bg_awaiting_oversized_control_chars() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done"
+    mk_oversized_question "$tmp" T-A '\u0001'
+    assert_eq "bg-await-ctrl: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await-ctrl: escalated row is valid JSON" "escalated" \
+        "$(jq -r 'select(.event=="escalated") | .event' "$tmp/events.jsonl")"
+    assert_eq "bg-await-ctrl: packed reason is valid JSON" "ok" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson | if . then "ok" else "bad" end)' "$tmp/events.jsonl")"
+    assert_eq "bg-await-ctrl: control chars stripped, cap unaffected" "2000,2000" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson) | "\(.question|length),\(.rationale|length)"' "$tmp/events.jsonl")"
+    assert_eq "bg-await-ctrl: packed reason stays within the 32 KiB budget" "yes" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | (utf8bytelength < 32768 | if . then "yes" else "no" end))' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
+test_bg_awaiting_oversized_emoji() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done"
+    mk_oversized_question "$tmp" T-A "$(printf '\xf0\x9f\x98\x80')"
+    assert_eq "bg-await-emoji: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await-emoji: escalated row is valid JSON" "escalated" \
+        "$(jq -r 'select(.event=="escalated") | .event' "$tmp/events.jsonl")"
+    assert_eq "bg-await-emoji: packed reason is valid JSON" "ok" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson | if . then "ok" else "bad" end)' "$tmp/events.jsonl")"
+    # 4-byte UTF-8 at the normal 2000-char cap would still blow past the 32 KiB
+    # budget, so the fallback shrinks the per-field cap to 200.
+    assert_eq "bg-await-emoji: per-field cap shrunk by the byte-size fallback" "200,200" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson) | "\(.question|length),\(.rationale|length)"' "$tmp/events.jsonl")"
+    assert_eq "bg-await-emoji: packed reason stays within the 32 KiB budget" "yes" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | (utf8bytelength < 32768 | if . then "yes" else "no" end))' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
 test_bg_awaiting_timeout() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked"
@@ -2243,6 +2297,8 @@ test_runner_release_backstop_on_halt
 test_bg_sequential
 test_bg_awaiting
 test_bg_awaiting_oversized_question
+test_bg_awaiting_oversized_control_chars
+test_bg_awaiting_oversized_emoji
 test_bg_awaiting_timeout
 test_bg_deploy_pending
 test_bg_deploy_flag_cleared_mid_run
