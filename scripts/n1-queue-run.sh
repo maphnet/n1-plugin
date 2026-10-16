@@ -87,7 +87,7 @@ escalate() {
         # the normal 2000-char cap) still exceeds a 32 KiB budget — covers 4-byte UTF-8
         # (emoji) content, which isn't a control char and isn't escaped by jq.
         qfull=$(jq -cn '
-            def strip: tostring | gsub("[\u0000-\u001f\u007f-\u009f‎‏  ‪-‮⁦-⁩؜]"; " ");
+            def strip: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ");
             def build($src; $n): $src | objects | {
                 question: (.question // "" | strip | .[:$n]),
                 options: ((.options // []) | arrays | .[:10] | map(strip | .[:$n])),
