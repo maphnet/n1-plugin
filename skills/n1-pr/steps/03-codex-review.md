@@ -1,9 +1,10 @@
-<!-- Purpose: Codex review of every PR via the Codex CLI after PR creation (Step 9). -->
+<!-- Purpose: Codex review of every PR via the Codex CLI after PR creation (Step 9), then the final PR report (Step 10). -->
 
 ## Step 9: Codex Review
 
-Skip this step entirely (no output) when ANY of these conditions is true:
-- PR URL is not available from prior steps
+If the PR URL is not available from prior steps, PR creation failed: end n1-pr without output, because there is no PR to review or report.
+
+Otherwise this file always ends at **Step 10: Report**, printed exactly once. The Codex review is skipped silently (no Codex output; jump to **Step 10: Report**) when ANY of these is true:
 - `crossHostReview.enabled` is explicitly `false` in config (default: `true` when absent)
 - `codex` CLI is not installed (`command -v codex` fails)
 - Codex auth is not available (`codex login status` exits non-zero)
@@ -29,25 +30,21 @@ else
 fi
 # absent = default true (opt-out model); any other value is taken literally
 [ "$GATE" = "absent" ] && GATE="true"
+CODEX_INSTALLED=$(command -v codex >/dev/null 2>&1 && echo yes || echo no)
+ID="<the ticket ID>"
+SKIP_REASON=""
+if [ "$GATE" = "false" ]; then SKIP_REASON="disabled"
+elif [ "$CODEX_INSTALLED" = "no" ]; then SKIP_REASON="not-installed"
+elif ! codex login status >/dev/null 2>&1; then SKIP_REASON="no-auth"
+fi
+[ -n "$SKIP_REASON" ] && n1_record_decision codex-review false '{"config":"crossHostReview.enabled"}' "outcome=skipped" "reason=$SKIP_REASON"
 echo "crossHostReview_enabled=$GATE"
 echo "crossHostReview_autoTriage=$AUTO_TRIAGE"
-echo "codex_installed=$(command -v codex >/dev/null 2>&1 && echo yes || echo no)"
+echo "codex_installed=$CODEX_INSTALLED"
+echo "codex_review_skip=${SKIP_REASON:-none}"
 ```
 
-If `crossHostReview_enabled` is `false`, skip silently.
-If `codex_installed` is `no`, skip silently.
-
-Auth check (only if above checks pass):
-
-```bash
-if codex login status >/dev/null 2>&1; then
-  echo "codex_auth=yes"
-else
-  echo "codex_auth=no"
-fi
-```
-
-If `codex_auth` is `no`, skip silently.
+If `codex_review_skip` is not `none`, jump to **Step 10: Report** and print nothing about Codex.
 
 ### Auto-run
 
@@ -57,11 +54,13 @@ All checks passed. Proceed automatically — no user prompt in any mode, includi
 | pr | mechanical | B | [auto] | Codex review: auto-triggered for every PR | yes | — | — | --- |
 ```
 
-### Dispatch
+### Dispatch and post
 
-All checks passed:
+Run this as ONE bash command in the foreground. Never split it, background it, or move on before it returns. The Codex run, the outcome telemetry, and the PR comment (or memory fallback) all happen inside it, so the result lands even if nothing after this block runs.
 
 ```bash
+source ~/.n1/preamble.sh
+ID="<the ticket ID>"
 PR_NUMBER="<the PR number from step 4>"
 PR_URL="<the PR URL from step 4>"
 
@@ -69,43 +68,51 @@ PR_URL="<the PR URL from step 4>"
 # transcript (hooks, tool calls, reasoning) which can be 100s of KB — discard it.
 CODEX_STDERR=$(mktemp)
 CODEX_OUTPUT_FILE=$(mktemp)
-timeout -k 30 "${N1_CROSS_HOST_REVIEW_TIMEOUT:-600}" codex exec "Review PR ${PR_URL} for correctness, code quality, and potential bugs. Focus on logic errors, edge cases, and maintainability. Output your findings as a structured list." \
+timeout -k 30 "${N1_CROSS_HOST_REVIEW_TIMEOUT:-900}" codex exec -c model_reasoning_effort=medium "Review PR ${PR_URL} for correctness, code quality, and potential bugs. Focus on logic errors, edge cases, and maintainability. Review the diff only: do not run tests, builds, or linters, and do not spawn subagents. Output your findings as a structured list." \
   --dangerously-bypass-approvals-and-sandbox \
   -o "$CODEX_OUTPUT_FILE" \
   </dev/null 2>"$CODEX_STDERR" >/dev/null
 CODEX_RC=$?
 CODEX_OUTPUT=$(<"$CODEX_OUTPUT_FILE")
 rm -f "$CODEX_STDERR" "$CODEX_OUTPUT_FILE"
+
+case "$CODEX_RC" in
+  124|137) OUTCOME=timeout ;;
+  0) if [ -n "$CODEX_OUTPUT" ]; then OUTCOME=ran; else OUTCOME=failed; fi ;;
+  *) OUTCOME=failed ;;
+esac
+n1_record_decision codex-review "$([ "$OUTCOME" = ran ] && echo true || echo false)" '{"config":"crossHostReview.enabled"}' "outcome=$OUTCOME" "rc=$CODEX_RC"
+echo "codex_review_outcome=$OUTCOME"
+
+if [ "$OUTCOME" = ran ]; then
+  # Pipe body via stdin (--body-file -) to avoid shell interpolation of CODEX_OUTPUT.
+  if printf '## Codex Review\n\n%s\n' "$CODEX_OUTPUT" | gh pr comment "$PR_NUMBER" --body-file -; then
+    echo "Codex review: posted as PR comment"
+  else
+    mkdir -p "$N1_HOME/memory/$ID"
+    printf '## Codex Review\n\n%s\n' "$CODEX_OUTPUT" > "$N1_HOME/memory/$ID/codex-review.md"
+    echo "WARN: gh pr comment failed; Codex review written to $N1_HOME/memory/$ID/codex-review.md"
+  fi
+  # Triage runs in later shells; print the findings so they can be parsed there.
+  if [ "$(n1_cross_host_review_val autoTriage)" = "true" ]; then
+    printf -- '--- codex output ---\n%s\n' "$CODEX_OUTPUT"
+  fi
+else
+  echo "WARN: Codex review did not produce output or failed (outcome=$OUTCOME, rc=$CODEX_RC)"
+fi
 ```
 
-Parse `CODEX_OUTPUT`. If `CODEX_RC` is non-zero (including 124, meaning the `N1_CROSS_HOST_REVIEW_TIMEOUT`-second budget, default 600, was exceeded, or 137, meaning Codex ignored SIGTERM and its process group was killed after the 30-second grace) or `CODEX_OUTPUT` is empty, warn inline ("Codex review did not produce output or failed") and continue the pipeline.
-
-### Post findings
-
-If `CODEX_OUTPUT` is non-empty, post as a PR comment. Pipe via stdin using `--body-file -` to prevent shell expansion of Codex output. Post as rendered markdown — Codex output is already markdown-structured:
-
-```bash
-# Pipe body via stdin to avoid shell interpolation of CODEX_OUTPUT.
-printf '## Codex Review\n\n%s\n' "$CODEX_OUTPUT" | \
-  gh pr comment "$PR_NUMBER" --body-file -
-```
-
-If `gh pr comment` fails, write findings to `$N1_HOME/memory/<ID>/codex-review.md` as fallback and warn inline.
-
-Report result:
-```
-Codex review: posted as PR comment (or: written to memory as fallback)
-```
+Outcomes: `ran` means rc 0 with output. `timeout` means rc 124 (the `N1_CROSS_HOST_REVIEW_TIMEOUT`-second budget, default 900, was exceeded) or rc 137 (Codex ignored SIGTERM and its process group was killed after the 30-second grace). `failed` means any other rc or empty output. Non-`ran` outcomes only warn, and the pipeline continues.
 
 ### Triage Gate
 
-If `crossHostReview_autoTriage` is NOT `true`, stop here (current behavior — findings posted, no triage).
+If `codex_review_outcome` is not `ran`, or `crossHostReview_autoTriage` is NOT `true`, jump to **Step 10: Report** (no triage).
 
 If `crossHostReview_autoTriage` is `true`, continue to severity parsing.
 
 ### Severity Parsing
 
-Parse `CODEX_OUTPUT` for severity markers. This is best-effort — Codex output format is not standardized. The safe default when parsing fails is to route all findings to human review.
+Parse `CODEX_OUTPUT` (printed by the dispatch block after `--- codex output ---`) for severity markers. This is best-effort — Codex output format is not standardized. The safe default when parsing fails is to route all findings to human review.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -224,3 +231,26 @@ Report result:
 Codex triage: posted as PR comment (or: written to memory as fallback)
 Summary: N findings triaged — X auto-fixed, Y dismissed, Z for human review
 ```
+
+## Step 10: Report
+
+Every path through Step 9 ends here: review ran, skipped, timed out, failed, or went through triage. Print this report exactly once. It is the end of n1-pr.
+
+Read ticket URL:
+```bash
+source ~/.n1/preamble.sh
+TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" 2>/dev/null || echo "")
+```
+
+Draft mode (**bolded** URL to surface draft state):
+```
+**PR created (draft):** <PR_URL>
+PR #: <number>
+Title: <title>
+Base: <default branch>
+Tracker: <status updated / not configured / failed>
+<Ticket: <TICKET_URL> — omit line if empty>
+CHECKPOINT: Ready for Tech Lead review.
+```
+
+Ready mode: same with `PR created:` (not bolded).

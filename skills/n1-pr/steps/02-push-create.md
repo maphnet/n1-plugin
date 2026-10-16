@@ -1,4 +1,4 @@
-<!-- Purpose: Push and create PR, update tracker, update memory, report, post-PR follow-ups, integration (Steps 4-8). -->
+<!-- Purpose: Push and create PR, update tracker, update memory, post-PR follow-ups, integration (Steps 4-6, 8), then hand off to step 3, which prints the PR report. -->
 
 ## Step 4: Push and Create PR
 
@@ -88,27 +88,6 @@ Tracker failures (including tag release): warn, don't block.
 
 If N1 memory exists: update `overview.md` (mark PR done, add URL), add `docs_updated` list (file, confidence, action), set frontmatter `step: pr`.
 
-## Step 7: Report
-
-Read ticket URL:
-```bash
-source ~/.n1/preamble.sh
-TICKET_URL=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" 2>/dev/null || echo "")
-```
-
-Draft mode (**bolded** URL to surface draft state):
-```
-**PR created (draft):** <PR_URL>
-PR #: <number>
-Title: <title>
-Base: <default branch>
-Tracker: <status updated / not configured / failed>
-<Ticket: <TICKET_URL> — omit line if empty>
-CHECKPOINT: Ready for Tech Lead review.
-```
-
-Ready mode: same with `PR created:` (not bolded).
-
 ## Step 8: Post-PR Follow-ups
 
 > **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** after the PR exists, any user request that changes code, tests, docs, or config on the branch (rename a flag, tweak a message, "also handle X", address a review comment) is implemented by the **developer agent in fix mode** — never by the orchestrator with Edit/Write/`sed`, and never committed by the orchestrator. This holds even for one-line changes.
@@ -123,3 +102,7 @@ Procedure for a follow-up request:
 
 **Called by:** n1-start (after review loop + local testing), standalone `/n1:n1-pr`
 **Invokes:** n1 agent: tech-writer (Phase 1 doc update + Phase 2 PR content), developer (post-PR follow-ups); inline: git, gh, tracker MCP
+
+## Next: Step 3 (Codex Review & Report)
+
+The PR exists, but n1-pr is not finished. Do not print a report or CHECKPOINT here and do not return to the caller. Continue immediately with step 3: read `<N1_ROOT>/skills/n1-pr/steps/03-codex-review.md`
