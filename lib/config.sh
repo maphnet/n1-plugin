@@ -369,11 +369,7 @@ n1_plan_review_enabled() {
     # n1_config_val (NP-213) already null-checks and distinguishes explicit false from
     # absent; this local jq call is kept for the tri-state "absent" fallback text below.
     local file; file=$(n1_config_file)
-    if [ ! -f "$file" ] || ! command -v jq >/dev/null 2>&1; then
-        printf 'false'
-        return
-    fi
-    if [ -f "$file" ]; then
+    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
         local v; v=$(jq -r 'if .planReview.reviewPlan == null then "absent" else (.planReview.reviewPlan | tostring) end' "$file" 2>/dev/null || true)
         [ "$v" = "false" ] && { printf 'false'; return; }
         [ "$v" = "true" ] && { printf 'true'; return; }
