@@ -23,7 +23,7 @@ Check for N1 configuration in priority order:
      Then load the config and check for missing top-level keys against the **Expected Config Keys** list in the dispatcher SKILL.md. Then branch:
      - **If no missing keys:** Check whether the user's invocation includes the word "reconfigure" (e.g., `/n1-init reconfigure`).
        - **If "reconfigure" is present:** Continue to **Analyze Repository**, then walk all config sections using their "On reconfiguration" sub-flows.
-       - **Otherwise:** Run the **Operation Gap Check** below before printing status. Then print the status summary and **STOP** — do not ask any questions:
+       - **Otherwise:** Run the **Post-Deploy Verification Gap Check** and then the **Operation Gap Check** below before printing status. Then print the status summary and **STOP** — do not ask any questions:
 
          ```
          N1 is configured for this project.
@@ -161,6 +161,28 @@ Applies when `HAS_GET_ISSUE_LINKS` is empty and `TRACKER_TYPE` is `"jira"` or `"
   - **If 2:** Continue.
 
 If no gaps are found, proceed silently.
+
+### Post-Deploy Verification Gap Check
+
+This check explicitly detects `finishWork.postDeployVerification.enabled`: `finishWork` may exist while the nested key added later is absent.
+
+```bash
+CFG="$N1_HOME/config.json"
+HAS_POST_DEPLOY_VERIFICATION=$(jq -r 'if (.finishWork.postDeployVerification | type) == "object" and (.finishWork.postDeployVerification | has("enabled")) then "true" else "false" end' "$CFG")
+```
+
+When `HAS_POST_DEPLOY_VERIFICATION` is `false`, offer:
+
+```
+Post-deploy verification has not been configured.
+It can verify ticket acceptance criteria on development after a successful deployment.
+
+1 — Configure post-deploy verification
+2 — Keep the legacy fallback
+```
+
+- **1:** Run the **Post-deploy verification** questions in **Finish Work Configuration**. Preserve all other `finishWork` values.
+- **2:** Do not write the nested key. This preserves the legacy fallback: an explicit `localTesting.mode: "smoke"` can still enable verification.
 
 ### Migration Flow (existing `.n1/n1.config.json`)
 
