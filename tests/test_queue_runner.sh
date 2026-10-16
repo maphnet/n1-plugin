@@ -614,7 +614,8 @@ WEOF2
 # mk_bg <tmp> <queue-id> <ticket:states>... — queue.md plus a fake
 # claude and a no-op sleep in <tmp>/bin. States are space-separated, one per poll of
 # that session; the last state repeats. Timeout 1 min, poll 30 s -> 2 polls.
-# Optional per-ticket files in <tmp>/fake: finish-step.<t>, overview.<t> (full overview written on done), deploy.<t>, clear.<t>, relay.<t>.
+# Optional per-ticket files in <tmp>/fake: finish-step.<t>, overview.<t> (full overview written on done),
+# overview.<t>.<poll> (full overview written on that poll), deploy.<t>, clear.<t>, relay.<t>.
 mk_bg() {
     local tmp="$1" qid="$2" n=0 spec t; shift 2
     mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
@@ -662,7 +663,11 @@ case "$1" in
             # relay.<t>: an answer relay in flight; lands as the runner's marker (mtime kept) when
             # the fake first reports the session stopped, i.e. after the runner saw the first block.
             [ "$st" = stopped ] && [ -f "$D/relay.$t" ] && mv "$D/relay.$t" "$D/../.relay-$t"
-            if [ "$st" = done ]; then
+            if [ -f "$D/overview.$t.$c" ]; then
+                mkdir -p "$FAKE_N1H/memory/$t"
+                cp "$D/overview.$t.$c" "$FAKE_N1H/memory/$t/overview.md"
+                echo "overview $name $c" >> "$D/events"
+            elif [ "$st" = done ]; then
                 # N1-74: the runner now polls agents again after a ticket finalizes (draining
                 # the bg session until idle); cap done-poll writes so a later poll doesn't
                 # clobber what finalize already stamped onto overview.md (e.g. queue_run_id).
@@ -1438,15 +1443,54 @@ FIXTUREEOF
 }
 
 # N1-53: a bg child that ends at step pr with no PR URL is a failure, never a phantom pr.
-test_bg_pr_without_url() {
-    local tmp; tmp=$(mktemp -d)
+test_bg_pr_lifecycle() {
+    local tmp published next_launch step
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgn "T-A:working working done" "T-B:done"
+    printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/fake/overview.T-A.1"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/53\n' > "$tmp/fake/overview.T-A.2"
+    assert_eq "bg-pr: live PR step without URL stays running" "running" \
+        "$(n1_queue_child_status "$tmp/fake/overview.T-A.1" 0 1)"
+    assert_eq "bg-pr: delayed URL exit 0" "0" "$(run_bg_queue "$tmp")"
+    published=$(line_of "$tmp/fake/events" "overview n1-bgn-T-A-1 2")
+    next_launch=$(line_of "$tmp/fake/events" "launch n1-bgn-T-B-2")
+    assert_eq "bg-pr: next child waits for PR URL" "yes" \
+        "$([ -n "$published" ] && [ -n "$next_launch" ] && [ "$next_launch" -gt "$published" ] && echo yes || echo no)"
+    assert_eq "bg-pr: delayed URL finalizes as pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-pr: Runs records delayed URL" "https://x/pr/53" \
+        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
+    assert_eq "bg-pr: event records delayed URL exactly once" "pr,https://x/pr/53" \
+        "$(jq -r 'select(.event=="ticket_finished" and .ticket=="T-A") | [.outcome,.pr] | join(",")' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+
+    tmp=$(mktemp -d)
     mk_bg "$tmp" bgn "T-A:working done"
     printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/fake/overview.T-A"
+    cp "$tmp/fake/overview.T-A" "$tmp/fake/overview.T-A.1"
     assert_eq "bg-nourl: exit 0" "0" "$(run_bg_queue "$tmp")"
     assert_eq "bg-nourl: first row deferred" "deferred" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-nourl: first failure is incomplete exit" "child-exited-incomplete" "$(plan_cell "$tmp/queue.md" 1 9)"
     assert_eq "bg-nourl: no pr rows" "0" "$(n1_queue_pending_rows "$tmp/queue.md" pr | wc -l | tr -d ' ')"
     assert_eq "bg-nourl: retry failed" "failed" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-nourl: retry preserves failure reason" "deferred-retry (child-exited-incomplete)" "$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "bg-nourl: no second retry" "" "$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "bg-nourl: failure events retain outcomes and reasons" \
+        $'deferred,child-exited-incomplete\nfailed,deferred-retry (child-exited-incomplete)' \
+        "$(jq -r 'select(.event=="ticket_finished") | [.outcome,.reason] | join(",")' "$tmp/events.jsonl")"
     rm -rf "$tmp"
+
+    for step in ci done; do
+        tmp=$(mktemp -d)
+        mk_bg "$tmp" bgn "T-A:working done"
+        printf -- '---\nstep: %s\n---\n# T\n' "$step" > "$tmp/fake/overview.T-A.1"
+        cp "$tmp/fake/overview.T-A.1" "$tmp/fake/overview.T-A"
+        assert_eq "bg-pr: step $step exit 0" "0" "$(run_bg_queue "$tmp")"
+        assert_eq "bg-pr: step $step without URL still finalizes as pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+        assert_eq "bg-pr: step $step success event" "pr" \
+            "$(jq -r 'select(.event=="ticket_finished") | .outcome' "$tmp/events.jsonl")"
+        assert_eq "bg-pr: step $step has no retry" "" "$(plan_cell "$tmp/queue.md" 2 8)"
+        rm -rf "$tmp"
+    done
 }
 
 # N1-64: orchestrator self-answer is delivered through n1_queue_answer and logged as auto_resolved.
@@ -2117,7 +2161,7 @@ test_pick_model
 test_plan_wiring
 test_child_status
 test_child_status_deploy
-test_bg_pr_without_url
+test_bg_pr_lifecycle
 test_auto_resolve
 test_held_helpers
 test_bg_held_not_launched
