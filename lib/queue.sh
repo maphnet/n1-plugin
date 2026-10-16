@@ -988,7 +988,13 @@ n1_queue_watch() {
                 fromjson? | objects | select(.run_id == $run)
                 | select(.event == "escalated" or .event == "answer_delivered" or .event == "auto_resolved" or .event == "merged_to_unblock" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
-                | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
+                | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ")) as $arr
+                # N1-60 [CR-4]: a packed-question reason is already capped at write time
+                # (escalate(): 2000 chars/field, <=10 options); the 300-cap here is only
+                # for plain-text reasons and the other fields.
+                | (($arr[5] | fromjson? | objects | has("question")) // false) as $packed
+                | ($arr[0:5] | map(.[:300])) + [if $packed then $arr[5] else $arr[5][:300] end]
+                | join("\u001f")' 2>/dev/null)
             seen="$total"
         fi
         if [ "$alive" = 0 ]; then
