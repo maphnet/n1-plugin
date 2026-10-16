@@ -377,6 +377,30 @@ n1_plan_review_enabled() {
     printf 'true'
 }
 
+n1_post_deploy_verification_enabled() {
+    # Prints true/false. An explicit boolean owns the gate; only an absent key may
+    # fall back to legacy smoke mode. Invalid explicit values fail closed.
+    local file state
+    file=$(n1_config_file)
+    if [ ! -f "$file" ] || ! command -v jq >/dev/null 2>&1; then
+        printf 'false'
+        return
+    fi
+    state=$(jq -r '
+        if (.finishWork? | type) == "object"
+          and (.finishWork.postDeployVerification? | type) == "object"
+          and (.finishWork.postDeployVerification | has("enabled"))
+        then (.finishWork.postDeployVerification.enabled | if type == "boolean" then . else "invalid" end)
+        else "absent"
+        end
+    ' "$file" 2>/dev/null || printf 'invalid')
+    case "$state" in
+        true|false) printf '%s' "$state"; return ;;
+        invalid) printf 'false'; return ;;
+    esac
+    [ "$(n1_config_val '.localTesting.mode')" = "smoke" ] && printf 'true' || printf 'false'
+}
+
 n1_merge_allowed() {
     # Exit 0 = this run may merge its PR / branch; exit 1 = it must stop before merging.
     # Queue children (N1_QUEUE_RUN_ID, exported by lib/queue.sh) use queue.mergeOnFinish only,

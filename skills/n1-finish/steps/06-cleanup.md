@@ -9,12 +9,13 @@
    - **Merged:** <sha> (<method>, by <auto-merge|reviewer|local merge>)
    - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged) | n/a (local merge)>
    - **Deploy:** <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered | skipped (local merge)>
-   - **Smoke:** <passed | failed (<details>) | skipped (not configured) | skipped (deploy failed) | n/a>
+   - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
+   - **Verification details:** when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output); otherwise omit this line.
    - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    pr_url: <PR URL from the `## Pending` section being removed below; omit this line on the local-merge path, which has no PR>
    ```
-   If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate), carrying over the `- **Delivery:**` value that Step 4's delivery gate (`03b-ssh-deploy.md`) recorded — never drop or rewrite a pending/succeeded delivery as n/a. Set frontmatter:
+   If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate), carrying over the `- **Delivery:**` value that Step 4's delivery gate (`03b-ssh-deploy.md`) recorded — never drop or rewrite a pending/succeeded delivery as n/a. Only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, upsert the full validated verification table from this invocation's `post-deploy-verification.md` in `## Finish`; otherwise omit verification details and never read an existing artifact. Do not summarize away `PASS`, `FAIL`, or `SKIPPED` reasons. Set frontmatter:
    ```bash
    source ~/.n1/preamble.sh
    source "$N1_ROOT/lib/frontmatter.sh"
@@ -37,7 +38,8 @@ Finish complete.
 
 PR: <url | none (prMode: skip — push pending: git push origin <defaultBranch>)> — merged (<method>, by <auto-merge|reviewer|local merge>)
 Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered | skipped (local merge)>
-Smoke: <passed | failed (<details>) | skipped (not configured) | skipped (deploy failed) | n/a (mode is not smoke)>
+Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
+Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
 Ticket: <ID> → <done status> / left open (<reason>) / tracker not configured
 Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | worktree kept (<reason>) — run /n1:n1-clean | nothing to do>
@@ -87,4 +89,4 @@ Every path is safe to re-run: already-merged PR skips the merge; already-closed 
 
 **Invokes:**
 - Inline: `gh` CLI (pr view/checks/merge, run list/view), git, tracker MCP operations
-- No agent spawns — thin controller, orchestration only
+- Dispatches `post-deploy-verifier` only after a successful watched deployment; otherwise thin controller orchestration only

@@ -35,7 +35,10 @@ Create all files:
     "mode": "test"
   },
   "finishWork": {
-    "enabled": false
+    "enabled": false,
+    "postDeployVerification": {
+      "enabled": false
+    }
   },
   "release": {
     "enabled": false

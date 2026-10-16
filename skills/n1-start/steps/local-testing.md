@@ -18,7 +18,7 @@ echo "LOCAL_TESTING_MODE=$(n1_resolve_local_testing_mode "$(git rev-parse --show
 
 Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
 
-**If mode is `"smoke"`:** Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped -- smoke tests deferred to n1-finish post-deploy". Emit telemetry:
+**If mode is `"smoke"`:** Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped -- post-deploy verification follows its separate configuration". Emit telemetry:
 ```bash
 source ~/.n1/preamble.sh
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"smoke_deferred","skip_reason":"smoke_mode"}'

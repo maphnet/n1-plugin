@@ -18,6 +18,7 @@ Ticket tagging: payments-api / disabled
 Error tracking: Sentry (my-backend @ my-org) / disabled
 Estimation: enabled (default mapping) / enabled (custom mapping) / disabled
 Local testing: enabled / disabled
+Post-deploy verification: enabled / disabled (legacy smoke fallback when not configured)
 Test coverage: maintain / minimal / standard
 Telemetry: enabled / disabled
 Story workflow: enabled (article/ticket/file) / disabled
@@ -26,6 +27,7 @@ PR mode: draft / ready
 Created:
   ~/.n1/<project-name>/config.json
   ~/.n1/<project-name>/memory/
+  ~/.n1/<project-name>/dev-access.md (when post-deploy verification was enabled)
   N1_HOME auto-derived from repo name (no git config needed)
   .gitignore configured (${WT_ROOT}/ — global or project-level)
   .claude/settings.json updated (if pinning configured)

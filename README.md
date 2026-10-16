@@ -2,7 +2,7 @@
 
 AI-driven development orchestrator for Claude Code. No one writes the code.
 
-N1 is a Claude Code plugin that orchestrates the full development cycle using 11 specialized agent personas and native skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); native skills handle interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
+N1 is a Claude Code plugin that orchestrates the full development cycle using 12 specialized agent personas and native skills. Agents handle autonomous work (analysis, QA, review, fixes, PR content); native skills handle interactive steps (brainstorming, planning, implementation dispatch). Adds tracker integration, per-ticket memory, adaptive workflow routing, confidence-based escalation, parallel security review, and a mandatory review loop.
 
 ## Requirements
 
@@ -187,7 +187,7 @@ When enabled, estimation runs automatically in the `n1-start` pipeline (after pl
 
 ## How It Works
 
-N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 11 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native skills handle interactive steps (brainstorming, planning, implementation dispatch). Each agent gets fresh context with scoped tools, enforced at runtime by Claude Code's own agent allowlist.
+N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 12 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native skills handle interactive steps (brainstorming, planning, implementation dispatch). Each agent gets fresh context with scoped tools, enforced at runtime by Claude Code's own agent allowlist.
 
 ### Agent Personas
 
@@ -202,6 +202,7 @@ N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation
 | security-reviewer | opus | medium | Security vulnerability review (OWASP, CWE) |
 | qa-engineer | sonnet | medium | Test design and implementation |
 | local-test-planner | sonnet | medium | Local test plan creation |
+| post-deploy-verifier | sonnet | low | Acceptance-criterion verification after a successful deployment |
 | tech-writer | sonnet | medium | PR content generation |
 
 Defaults come from agent frontmatter; `models.*` in config is an explicit override that also disables signal-based tier adjustments for that agent.
