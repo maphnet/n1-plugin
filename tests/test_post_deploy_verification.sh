@@ -26,6 +26,9 @@ INIT_CONFIRM=skills/n1-init/steps/15-confirm.md
 FINISH=skills/n1-finish/SKILL.md
 ARCH=references/architecture.md
 README=README.md
+DEPLOY=skills/n1-finish/steps/03-deploy.md
+CLOSE=skills/n1-finish/steps/04-close-ticket.md
+CLEANUP=skills/n1-finish/steps/06-cleanup.md
 
 check "fresh config writes disabled nested default" '"postDeployVerification"[[:space:]]*:[[:space:]]*\{' "$INIT_CONFIG"
 if awk '
@@ -57,6 +60,30 @@ check "finish contract names verifier artifact inputs" 'post-deploy-verification
 check "architecture documents nested verification gate" 'postDeployVerification\.enabled' "$ARCH"
 check "architecture documents informational failure" 'informational|does not block.*close|does not prevent.*close' "$ARCH"
 check "README counts post-deploy verifier" 'post-deploy-verifier' "$README"
+
+# Finish lifecycle wiring. These are deliberately textual: the verifier itself
+# is a persona contract, while this test protects the controller hand-offs.
+check "Step 3b sources config helper" 'source "\$N1_ROOT/lib/config\.sh"' "$DEPLOY"
+check "Step 3b gates through post-deploy helper" 'n1_post_deploy_verification_enabled' "$DEPLOY"
+check "verification dispatch follows successful deployment" 'deploy status `succeeded`.*Step 3b|Step 3b.*deploy status `succeeded`' "$DEPLOY"
+check "failed deploy does not dispatch verification" 'failed.*STOP|STOP.*failed' "$DEPLOY"
+check "timed out deploy does not dispatch verification" 'Timeout.*STOP|STOP.*Timeout' "$DEPLOY"
+check "no-run path does not dispatch verification" 'none triggered.*Step 4' "$DEPLOY"
+check "local merge does not dispatch verification" 'Local-merge.*skip.*entire file' "$DEPLOY"
+check "disabled gate writes canonical skipped rows" 'SKIPPED \(disabled\).*every acceptance criterion|every acceptance criterion.*SKIPPED \(disabled\)' "$DEPLOY"
+check "deployment captures canonical PR diff" 'post-deploy-pr\.diff' "$DEPLOY"
+check "dispatch passes all six canonical paths" 'ticket\.md.*analysis\.md.*local-test-plan\.md.*post-deploy-pr\.diff.*config\.json.*dev-access\.md' "$DEPLOY"
+check "legacy smoke endpoint stays verifier input" 'smokeEndpoint' "$DEPLOY"
+check "legacy smoke commands stay verifier input" 'smokeTests' "$DEPLOY"
+check "missing dev access does not suppress legacy smoke" 'dev-access\.md.*smoke|smoke.*dev-access\.md' "$DEPLOY"
+check "missing diff writes skipped fallback" 'diff.*SKIPPED|SKIPPED.*diff' "$DEPLOY"
+check "missing verifier artifact writes skipped fallback" 'artifact.*SKIPPED|SKIPPED.*artifact' "$DEPLOY"
+check "tracker comment renders criterion table" 'verification.*table|table.*verification' "$CLOSE"
+check "tracker idempotency uses full rendered comment" 'identical.*full.*comment|full.*rendered.*comment' "$CLOSE"
+check "cleanup persists criterion table in Finish" '## Finish.*verification|verification.*## Finish' "$CLEANUP"
+check "final report prints criterion table" 'Verification.*table|table.*Verification' "$CLEANUP"
+check "verification failure still closes ticket" 'FAIL.*clos|clos.*FAIL' "$DEPLOY"
+check "verification skipped still closes ticket" 'SKIPPED.*clos|clos.*SKIPPED' "$DEPLOY"
 
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
