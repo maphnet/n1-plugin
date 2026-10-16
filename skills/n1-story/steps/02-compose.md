@@ -1,10 +1,12 @@
 <!-- Purpose: Approval gate, create story, create subtasks, done (Steps 7-10). -->
 
+**Pre-creation scope guard:** Follow `<N1_ROOT>/references/ticket-scope.md` before Step 7 and after every edit or removal. Only `SCOPE_TYPE=Story` may proceed to Steps 8-10. Task scope performs the standalone Task handoff and ends this flow; unresolved scope returns to analysis/discovery. Apply this guard before auto-selecting **Create all**, too.
+
 ## Step 7: Approval Gate
 
 **Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-select **Create all** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
 `| n1-story | mechanical | C | [auto] | Story approval gate | Create all | Edit, Remove, or Cancel | mechanicalPrompts=auto | --- |`
-If `MP` is `ask`: continue to the approval gate below.
+If `MP` is `ask`: continue to the approval gate below. In either mode, show the resulting **Type: Story** and child count before creation; Task handoffs show the standalone ticket preview instead.
 
 Present the story preview by asking the user (HOST ROUTING: ask the user):
 
@@ -34,8 +36,8 @@ Present the story preview by asking the user (HOST ROUTING: ask the user):
 
 Options:
 1. **Create all** — proceed with story + subtask creation
-2. **Edit items** — user specifies changes to individual subtasks; revise and re-present
-3. **Remove items** — user specifies subtasks to drop; revise and re-present
+2. **Edit items** — user specifies changes; revise, rerun the scope guard, then present the resulting ticket preview
+3. **Remove items** — user specifies subtasks to drop; revise, rerun the scope guard, then present the resulting ticket preview
 4. **Cancel** — abort without creating anything
 
 ## Step 8: Create Story

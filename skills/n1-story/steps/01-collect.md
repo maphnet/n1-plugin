@@ -16,17 +16,9 @@ Combine into a story seed:
 
 Present the story seed to the user for confirmation: "Here's the story scope I captured — does this look right?" If the user corrects anything, revise and re-present.
 
-## Step 2: Sanity Check
+## Step 2: Scope Routing
 
-Review the story seed. If it looks like a single atomic task with no meaningful subtask decomposition, suggest:
-
-**Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-proceed with the story (continue with Step 3). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
-`| n1-story | mechanical | C | [auto] | Single-task scope detected — use n1-ticket? | Proceed with story | Use n1-ticket instead | mechanicalPrompts=auto | --- |`
-If `MP` is `ask`: continue to the prompt below.
-
-"This looks like a single task rather than a multi-part story. Would you like to use `/n1:n1-ticket` instead?"
-
-Soft gate — if the user says no, proceed with a story.
+Read `<N1_ROOT>/references/ticket-scope.md` and classify the confirmed seed. `SCOPE_TYPE=Task`: perform its Task handoff now and end this flow. `SCOPE_TYPE=Story`: continue with Step 3. Unresolved scope: continue through analysis/discovery, then classify in Step 6 before approval. This rule applies in both automatic and interactive modes.
 
 ## Step 3: Tracker Gate
 
@@ -95,7 +87,7 @@ Rules:
 
 ## Step 6: Design
 
-Using the enriched context (story seed + analysis + discovery answers), structure the story:
+Using the enriched context (story seed + analysis + discovery answers), reclassify with `<N1_ROOT>/references/ticket-scope.md`. `SCOPE_TYPE=Task`: perform the Task handoff and end this flow. Resolve remaining unknowns before proceeding. For `SCOPE_TYPE=Story`, structure the story:
 
 **Story level:**
 - Title (imperative, concise)

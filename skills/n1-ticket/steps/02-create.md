@@ -22,11 +22,13 @@ If `GET_PROJECT_FIELDS_OP` is empty: skip bug type querying. Use the type from S
 
 The detected type is shown in the approval gate. The user can override it there.
 
+**Pre-creation scope guard:** Follow `<N1_ROOT>/references/ticket-scope.md` before Step 7 and after every edit or removal. Only `SCOPE_TYPE=Task` may proceed to standalone creation. Story scope performs the Story handoff and ends this flow; unresolved scope returns to analysis/discovery. Apply this guard before auto-selecting **Create**, too.
+
 ## Step 7: Approval Gate
 
 **Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-select **Create** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
 `| n1-ticket | mechanical | C | [auto] | Ticket approval gate | Create ticket | Edit or Cancel | mechanicalPrompts=auto | --- |`
-If `MP` is `ask`: continue to the approval gate below.
+If `MP` is `ask`: continue to the approval gate below. In either mode, show the resulting **Type: Task** (or **Bug** for a defect report) before creation.
 
 Present the ticket preview by asking the user (HOST ROUTING: ask the user):
 
@@ -48,7 +50,7 @@ Present the ticket preview by asking the user (HOST ROUTING: ask the user):
 
 Options:
 1. **Create** — proceed with ticket creation
-2. **Edit** — user provides corrections inline; revise and re-present this gate (no loop limit)
+2. **Edit** — user provides corrections inline; revise, rerun the scope guard, then present the resulting ticket preview (no loop limit)
 3. **Cancel** — abort without creating anything
 
 ## Step 7.5: Duplicate Check
