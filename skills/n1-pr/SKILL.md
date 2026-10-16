@@ -41,5 +41,5 @@ Execute steps in order. Read each step file and follow its instructions before p
 2. **Push & Create** — push and create PR, update tracker, update memory, post-PR follow-ups
    Read `<N1_ROOT>/skills/n1-pr/steps/02-push-create.md`
 
-3. **Codex Review & Report** — always runs after step 2: Codex review of the PR (only the review self-skips, on opt-out or missing CLI/auth), then the final PR report + CHECKPOINT. n1-pr is not done until this step prints its Report.
+3. **Codex Review & Report** — always runs after step 2: Codex review of the PR (only the review self-skips, on opt-out or missing CLI/auth), then the final PR report + CHECKPOINT. n1-pr is not done until the executable review runner records its outcome and this step prints its Report.
    Read `<N1_ROOT>/skills/n1-pr/steps/03-codex-review.md`

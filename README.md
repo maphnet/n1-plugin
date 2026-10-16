@@ -231,7 +231,7 @@ Throwaway investigative tests and benchmarks (one-off probes that answer a quest
 
 **Fixed checkpoints (always):**
 - After PR creation — Tech Lead reviews
-- After PR creation — Codex Review runs automatically on every PR (opt-out: `crossHostReview.enabled: false` in config), posting findings as a PR comment
+- After PR creation — Codex Review runs automatically on every PR (opt-out: `crossHostReview.enabled: false` in config), posting findings as a PR comment. Session receipts record skipped reviews too; a Stop check requests continuation when the review step was missed. The benchmark reports review coverage per PR.
 
 **Confidence-based (during implementation):**
 - Low confidence + High blast radius → stop and ask
