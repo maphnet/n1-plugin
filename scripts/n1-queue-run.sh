@@ -73,10 +73,20 @@ escalate() {
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md")
     reason="$q"
-    qfile="$N1_QUEUE_DIR/.question-$1.json"
-    if [ -f "$qfile" ]; then
-        qfull=$(jq -c '{question, options, recommended, rationale}' "$qfile" 2>/dev/null)
-        [ -n "$qfull" ] && [ "$qfull" != "null" ] && reason="$qfull"
+    case "$1" in
+        ''|*[!A-Za-z0-9_-]*) qfile="" ;;
+        *) qfile="$N1_QUEUE_DIR/.question-$1.json" ;;
+    esac
+    if [ -n "$qfile" ] && [ -f "$qfile" ]; then
+        # SEC-1/CR-2: cap each field so the packed reason stays far under execve's
+        # per-arg limit (128 KiB) however large the mirrored question file is.
+        qfull=$(jq -cn 'input | objects | {
+            question: (.question // "" | tostring | .[:2000]),
+            options: ((.options // []) | arrays | .[:10] | map(tostring | .[:2000])),
+            recommended: (.recommended // "" | tostring | .[:2000]),
+            rationale: (.rationale // "" | tostring | .[:2000])
+        }' "$qfile" 2>/dev/null)
+        [ -n "$qfull" ] && reason="$qfull"
     fi
     if [ "${3:-}" = "stopped" ]; then
         ev escalated ticket="$1" session="$sid" reason="$reason" outcome=terminal
