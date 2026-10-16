@@ -81,4 +81,20 @@ else
     echo "FAIL: 03-codex-review does not record skipped codex-review decisions"; FAIL=1
 fi
 
+# 5. N1-70: dispatch budget/effort/prompt, outcome telemetry, and codex+post in one bash fence
+for pat in 'N1_CROSS_HOST_REVIEW_TIMEOUT:-900' 'codex exec -c model_reasoning_effort=medium' 'do not run tests' '"outcome=$OUTCOME"'; do
+    if grep -qF "$pat" "$P3"; then
+        echo "PASS: 03-codex-review has '$pat'"
+    else
+        echo "FAIL: 03-codex-review missing '$pat'"; FAIL=1
+    fi
+done
+CX=$(grep -n 'codex exec' "$P3" | head -1 | cut -d: -f1)
+GH=$(grep -n 'gh pr comment' "$P3" | head -1 | cut -d: -f1)
+if [ -n "$CX" ] && [ -n "$GH" ] && [ "$GH" -gt "$CX" ] && ! grep -q '^```' <<<"$(sed -n "${CX},${GH}p" "$P3")"; then
+    echo "PASS: 03-codex-review runs codex and posts the comment in one bash block"
+else
+    echo "FAIL: 03-codex-review splits codex dispatch and comment posting across blocks"; FAIL=1
+fi
+
 exit $FAIL
