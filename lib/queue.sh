@@ -959,6 +959,10 @@ n1_queue_watch() {
                             printf 'n1-queue %s: %s needs you (answer: /n1:n1-queue --answer %s "<text>"%s):\n%s\n' \
                                 "$q" "$t" "$t" "$hint" "$qbody"
                         else
+                            # N1-60: reason may hold the full mirrored question (JSON) once the
+                            # question file is already gone; that form is for durable storage
+                            # only, never for this plain-text fallback.
+                            case "$reason" in '{'*) reason="" ;; esac
                             printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
                                 "${hint:+ (${hint#; })}"
                         fi ;;

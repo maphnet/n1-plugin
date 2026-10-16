@@ -764,7 +764,22 @@ test_bg_sequential() {
 test_bg_awaiting() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked blocked working done" "T-B:working done"
+    # N1-60: a mirrored question present when the ticket first parks must be packed into the
+    # escalated event's reason, durably, even though the file itself is later removed.
+    printf '{"ticket":"T-A","question":"Pick a DB?","options":["A","B"],"recommended":"A","rationale":"faster"}' \
+        > "$tmp/.question-T-A.json"
     assert_eq "bg-await: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "N1-60: escalated event carries full mirrored question" "Pick a DB?" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .question' "$tmp/events.jsonl")"
+    assert_eq "N1-60: escalated event carries options" "A,B" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .options | join(",")' "$tmp/events.jsonl")"
+    assert_eq "N1-60: escalated event carries recommended/rationale" "A|faster" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | "\(.recommended)|\(.rationale)"' "$tmp/events.jsonl")"
+    # Removing the mirrored question file (as the answer path does) does not touch the
+    # already-written durable record.
+    rm -f "$tmp/.question-T-A.json"
+    assert_eq "N1-60: record survives question-file removal" "Pick a DB?" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .question' "$tmp/events.jsonl")"
     assert_eq "bg-await: T-A parked message" "1" "$(grep -c 'T-A -> awaiting-human' "$tmp/output.txt" || true)"
     local a_block b_launch a_done
     a_block=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1 blocked")
@@ -1290,6 +1305,12 @@ FAKEEOF
 
     # Happy path: hostile-looking answer reaches the child as one literal argv element.
     mkq awaiting-human
+    # N1-60: seed the escalated event the runner would already have written (full question
+    # packed into reason, as escalate() in scripts/n1-queue-run.sh does) before --answer runs.
+    jq -nc '{ts:"t",queue:"q1",run_id:"R1",event:"escalated",ticket:"T-1",outcome:"",pr:"",
+        session:"0000abcd",duration_s:null,
+        reason:({question:"Back-port?",options:["Back-port","Skip"],recommended:"Back-port",rationale:""}|tostring)}' \
+        >> "$q/events.jsonl"
     printf '%s' "B; \$(touch $tmp/pwned) \"q\"" > "$af"
     ans T-1
     assert_eq "answer: rc 0" "0" "$rc"
@@ -1301,7 +1322,9 @@ FAKEEOF
     assert_eq "answer: question file removed" "no" "$([ -e "$q/.question-T-1.json" ] && echo yes || echo no)"
     assert_eq "answer: relay marker written" "yes" "$([ -e "$q/.relay-T-1" ] && echo yes || echo no)"
     assert_eq "answer: answer_delivered event" "answer_delivered,T-1,0000abcd,R1" \
-        "$(jq -r '[.event,.ticket,.session,.run_id]|join(",")' "$q/events.jsonl")"
+        "$(jq -r 'select(.event=="answer_delivered") | [.event,.ticket,.session,.run_id]|join(",")' "$q/events.jsonl")"
+    assert_eq "N1-60: full question survives --answer + file removal" "Back-port?" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .question' "$q/events.jsonl")"
 
     # Size cap: 5000 chars -> 4000 + marker.
     mkq awaiting-human
