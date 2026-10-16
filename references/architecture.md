@@ -478,7 +478,7 @@ Host backend: each child runs as a `claude --bg` background session (`n1_bg_laun
 Observability: the runner appends one JSON line per transition to `<queue-dir>/events.jsonl` (next to `queue.md` and `runner.log`; append-only across runs). Every line has the same keys: `ts`, `queue`, `run_id`, `event`, `ticket`, `outcome`, `pr`, `session`, `duration_s`, `reason`. The events are:
 - `queue_started`
 - `ticket_started` (with `session` for background children)
-- `escalated` (`reason` = first `## Escalations` entry, or a background session parking as `awaiting-human`)
+- `escalated` (`reason` = first `## Escalations` entry, or a background session parking as `awaiting-human`; N1-60: when the child mirrored a question to `.question-<ticket>.json`, `escalate()` packs that file's full content — question/options/recommended/rationale, each capped at 2000 chars, options capped at 10 — into `reason` as JSON via `jq -c`, so the question survives the file's later removal. `n1_queue_watch` detects this shape (`fromjson? | objects | has("question")`) and renders it the same way as the live file, falling back to the file when it's still present; the historical-replay path exempts a detected packed-question `reason` from the generic 300-char field cap applied to other fields)
 - `unblocked`
 - `auto_resolved` (N1-64: the orchestrating session answered a non-critical escalation; `reason` = the answer)
 - `merged_to_unblock` (N1-64: the orchestrating session merged `ticket`'s PR `pr` to release held tickets)
