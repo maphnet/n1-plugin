@@ -567,6 +567,43 @@ class AggregateTest(unittest.TestCase):
         # quality_coverage = (6 eligible - 1 unlinked) / 6 eligible
         self.assertAlmostEqual(g["quality_coverage"], 5 / 6, places=2)
 
+    def test_aggregate_codex_review_coverage_includes_all_prs_and_latest_outcome(self):
+        completed_without_decision = cache_for("3.1.0", "created", 1.0)
+        completed_without_decision["run_record"] = make_run(run_id="created", outcome="pr_created")
+        completed_legacy = cache_for("3.1.0", "legacy", 1.0)
+        completed_legacy["run_record"] = make_run(run_id="legacy", outcome="pr_created")
+        completed_legacy["run_record"]["decisions"] = [
+            {"id": "codex-review", "signals": {"outcome": "skipped", "reason": "disabled"}},
+        ]
+        incomplete_with_pr = cache_for("3.1.0", "incomplete", None, eligible=False)
+        incomplete_with_pr["run_record"] = make_run(run_id="incomplete", outcome=None)
+        incomplete_with_pr["run_record"]["decisions"] = [
+            {"id": "codex-review", "signals": {"pr_url": "https://example.test/pr/2", "outcome": "skipped",
+                                                     "reason": "step-not-run"}},
+            {"id": "codex-review", "signals": {"pr_url": "https://example.test/pr/2", "outcome": "ran"}},
+        ]
+        failed_review = cache_for("3.1.0", "failed", None, eligible=False)
+        failed_review["run_record"] = make_run(run_id="failed", outcome=None)
+        failed_review["run_record"]["decisions"] = [
+            {"id": "codex-review", "signals": {"pr_url": "https://example.test/pr/3", "outcome": "failed"}},
+        ]
+        timed_out_review = cache_for("3.1.0", "timeout", None, eligible=False)
+        timed_out_review["run_record"] = make_run(run_id="timeout", outcome=None)
+        timed_out_review["run_record"]["decisions"] = [
+            {"id": "codex-review", "signals": {"pr_url": "https://example.test/pr/4", "outcome": "timeout"}},
+        ]
+        unrelated_incomplete = cache_for("3.1.0", "no-pr", None, eligible=False)
+
+        review = bm.aggregate([completed_without_decision, completed_legacy, incomplete_with_pr,
+                               failed_review, timed_out_review, unrelated_incomplete], "version")["unknown/3.1.0"]["codex_review"]
+
+        self.assertEqual(review["pr_runs"], 5)
+        self.assertEqual(review["prs"], 5)
+        self.assertEqual(review["reviewed_runs"], 1)
+        self.assertEqual(review["reviewed_prs"], 1)
+        self.assertAlmostEqual(review["coverage_rate"], 1 / 5, places=3)
+        self.assertEqual(review["outcomes"], {"ran": 1, "skipped": 1, "failed": 1, "timeout": 1, "missing": 1})
+
 
 class FinalizeTest(unittest.TestCase):
     def setUp(self):
@@ -676,6 +713,22 @@ class ReportTest(unittest.TestCase):
         self.assertIn("Tool efficiency", text)
         self.assertIn("bash_calls_per_run", text)
         self.assertIn("api_calls_per_run", text)
+
+    def test_render_includes_codex_review_coverage(self):
+        snapshot = snap_with({"claude-code/2.80.0": group(2, 1, 3)})
+        snapshot["groups"]["claude-code/2.80.0"]["codex_review"] = {
+            "pr_runs": 3, "prs": 3, "reviewed_runs": 1, "reviewed_prs": 1,
+            "coverage_rate": 1 / 3,
+            "outcomes": {"ran": 1, "skipped": 1, "failed": 0, "timeout": 0, "missing": 1},
+        }
+
+        text = bm.render_report(snapshot, None, None, "", {})
+
+        self.assertIn("Codex review coverage", text)
+        self.assertIn("1/3", text)
+        self.assertIn("33%", text)
+        self.assertIn("ran 1", text)
+        self.assertIn("missing 1", text)
 
     def test_render_cross_host_no_delta(self):
         # claude-code and codex partitions must not produce cross-host deltas.

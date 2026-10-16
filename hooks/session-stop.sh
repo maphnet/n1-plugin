@@ -7,6 +7,13 @@ source "${SCRIPT_DIR}/../lib/telemetry.sh"
 
 N1_HOME=$(n1_home)
 INPUT=$(cat)
+# Run before telemetry's early exit: standalone PRs and disabled telemetry also
+# need receipts. A continuation block must preserve the current run lock.
+REVIEW_STOP=$(printf '%s' "$INPUT" | bash "${SCRIPT_DIR}/pr-review-stop.sh")
+if [ -n "$REVIEW_STOP" ]; then
+    printf '%s\n' "$REVIEW_STOP"
+    exit 0
+fi
 N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
 export N1_SESSION_ID="${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
 n1_read_lock "$N1_HOME/memory" || exit 0

@@ -764,6 +764,41 @@ def bootstrap_ci(values, seed=0, n=1000, alpha=0.05):
     return (round(lo, 3), round(hi, 3))
 
 
+CODEX_REVIEW_OUTCOMES = ("ran", "skipped", "failed", "timeout")
+
+
+def codex_review_prs(cache: dict):
+    """Return the latest Codex-review outcome for each PR established by a run.
+
+    A completed ``pr_created`` run establishes one PR even if its telemetry has
+    no Codex decision. New telemetry identifies PRs with ``pr_url``; older
+    telemetry has no URL and therefore maps to the completed run's one PR.
+    """
+    run = cache.get("run_record") or {}
+    decisions = [d for d in (run.get("decisions") or [])
+                 if isinstance(d, dict) and d.get("id") == "codex-review"]
+    with_url = []
+    without_url = []
+    for decision in decisions:
+        signals = decision.get("signals") or {}
+        pr_url = signals.get("pr_url") or decision.get("pr_url")
+        outcome = signals.get("outcome") or decision.get("outcome")
+        entry = {"pr_url": pr_url, "outcome": outcome if outcome in CODEX_REVIEW_OUTCOMES else "missing"}
+        (with_url if pr_url else without_url).append(entry)
+
+    # Assignment overwrites earlier records, making the terminal record win.
+    by_pr = {}
+    for entry in with_url:
+        by_pr[entry["pr_url"]] = entry
+    if by_pr:
+        return list(by_pr.values())
+    if run.get("final_outcome") == "pr_created":
+        if without_url:
+            return [without_url[-1]]
+        return [{"pr_url": None, "outcome": "missing"}]
+    return []
+
+
 def aggregate(caches, by: str) -> dict:
     groups = {}
     for c in caches:
@@ -801,6 +836,13 @@ def aggregate(caches, by: str) -> dict:
         }
         n_unlinked = sum(1 for c in eligible if c.get("link_method") == "unlinked")
         quality_coverage = round((len(eligible) - n_unlinked) / len(eligible), 3) if eligible else None
+        review_prs = [(c, pr) for c in members for pr in codex_review_prs(c)]
+        outcomes = {outcome: sum(1 for _, pr in review_prs if pr["outcome"] == outcome)
+                    for outcome in (*CODEX_REVIEW_OUTCOMES, "missing")}
+        reviewed_runs = {c.get("run_id") for c, pr in review_prs if pr["outcome"] == "ran"}
+        pr_runs = {c.get("run_id") for c, _ in review_prs}
+        reviewed_prs = outcomes["ran"]
+        pr_count = len(review_prs)
         out[key] = {
             "n_runs": len(eligible), "n_all": len(members),
             "n_incomplete": len(members) - len(eligible),
@@ -811,6 +853,12 @@ def aggregate(caches, by: str) -> dict:
             "abandon_rate": (1 - len(eligible) / len(members)) if members else None,
             "run_ids": sorted(c["run_id"] for c in eligible),
             "gate_activation_rates": gate_activation_rates,
+            "codex_review": {
+                "pr_runs": len(pr_runs), "prs": pr_count,
+                "reviewed_runs": len(reviewed_runs), "reviewed_prs": reviewed_prs,
+                "coverage_rate": round(reviewed_prs / pr_count, 3) if pr_count else None,
+                "outcomes": outcomes,
+            },
         }
     return out
 
@@ -1043,6 +1091,24 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     if unknown_keys:
         total_unknown = sum(g[k]["n_all"] for k in unknown_keys)
         lines.append(f"Note: {total_unknown} run(s) in unknown-host or unknown-version partitions: {', '.join(unknown_keys)}.")
+    lines.append("")
+
+    lines += ["## Codex review coverage", "",
+              "| group | PR runs | runs reviewed | PRs reviewed | coverage | outcomes |",
+              "|---|---|---|---|---|---|"]
+    for key in _sorted_groups(snapshot):
+        review = g[key].get("codex_review") or {}
+        pr_runs = review.get("pr_runs", 0)
+        prs = review.get("prs", 0)
+        reviewed_runs = review.get("reviewed_runs", 0)
+        reviewed_prs = review.get("reviewed_prs", 0)
+        rate = review.get("coverage_rate")
+        outcomes = review.get("outcomes") or {}
+        outcome_text = ", ".join(f"{name} {outcomes.get(name, 0)}"
+                                  for name in (*CODEX_REVIEW_OUTCOMES, "missing"))
+        lines.append(f"| {key} | {pr_runs} | {reviewed_runs}/{pr_runs} | {reviewed_prs}/{prs} | "
+                     f"{rate:.0%} | {outcome_text} |" if rate is not None else
+                     f"| {key} | {pr_runs} | {reviewed_runs}/{pr_runs} | {reviewed_prs}/{prs} | n/a | {outcome_text} |")
     lines.append("")
 
     # Baseline comparison table

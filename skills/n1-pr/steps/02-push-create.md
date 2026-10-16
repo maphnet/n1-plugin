@@ -67,7 +67,21 @@ After a successful push (either path above):
 Draft: `gh pr create --title "<title>" --body "<body>" --base ${DEFAULT_BRANCH} --draft`
 Ready: same without `--draft`.
 
-Capture and display PR URL.
+Capture the PR URL and register it immediately in the same command that creates the PR, before tracker updates. This also covers hosts where the PR observation hook is unavailable:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/codex-review.sh"
+# Use the resolved title/body/base and draft flag from prepare.
+PR_URL=$(gh pr create --title "$PR_TITLE" --body-file "$PR_BODY_FILE" --base "$DEFAULT_BRANCH")
+PR_RC=$?
+if [ "$PR_RC" -eq 0 ] && [ -n "$PR_URL" ]; then
+  n1_review_record "$PR_URL" skipped step-not-run false
+  printf '%s\n' "$PR_URL"
+fi
+```
+
+Include `--draft` when the resolved mode is draft. On failure, stop. The fallback receipt is replaced by the runner's terminal outcome in step 3.
 
 ## Step 5: Update Tracker (if configured)
 

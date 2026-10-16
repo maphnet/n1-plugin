@@ -31,13 +31,14 @@ check_size "skills/n1-plan" 4096 "n1-plan"
 check_size "skills/n1-implement" 8192 "n1-implement"
 
 # 3. Codex review `codex exec` dispatch must never block on inherited stdin (NP-224)
-CODEX_LINE=$(grep -n 'codex exec' skills/n1-pr/steps/03-codex-review.md | head -1)
+REVIEW_RUNNER=scripts/codex-pr-review.sh
+CODEX_LINE=$(grep -n 'codex exec' "$REVIEW_RUNNER" | head -1)
 if echo "$CODEX_LINE" | grep -q 'timeout '; then
     echo "PASS: 03-codex-review codex exec is timeout-wrapped"
 else
     echo "FAIL: 03-codex-review codex exec is missing a timeout wrapper"; FAIL=1
 fi
-if grep -A4 'codex exec' skills/n1-pr/steps/03-codex-review.md | grep -q '</dev/null'; then
+if grep -A4 'codex exec' "$REVIEW_RUNNER" | grep -q '</dev/null'; then
     echo "PASS: 03-codex-review codex exec redirects stdin from /dev/null"
 else
     echo "FAIL: 03-codex-review codex exec is missing </dev/null"; FAIL=1
@@ -75,23 +76,23 @@ if grep -qiE 'stop here|skip this step entirely' "$P3"; then
 else
     echo "PASS: 03-codex-review has no early exit before the Report"
 fi
-if grep -qF 'n1_record_decision codex-review false' "$P3" && grep -qF '"outcome=skipped"' "$P3"; then
+if grep -qF 'n1_record_decision codex-review' lib/codex-review.sh && grep -qF 'step-not-run' hooks/pr-review-observe.sh; then
     echo "PASS: 03-codex-review records skipped codex-review decisions"
 else
     echo "FAIL: 03-codex-review does not record skipped codex-review decisions"; FAIL=1
 fi
 
 # 5. N1-70: dispatch budget/effort/prompt, outcome telemetry, and codex+post in one bash fence
-for pat in 'N1_CROSS_HOST_REVIEW_TIMEOUT:-900' 'codex exec -c model_reasoning_effort=medium' 'do not run tests' '"outcome=$OUTCOME"'; do
-    if grep -qF "$pat" "$P3"; then
+for pat in 'N1_CROSS_HOST_REVIEW_TIMEOUT:-900' 'codex exec -c model_reasoning_effort=medium' 'do not run tests' 'n1_review_record'; do
+    if grep -qF "$pat" "$REVIEW_RUNNER"; then
         echo "PASS: 03-codex-review has '$pat'"
     else
         echo "FAIL: 03-codex-review missing '$pat'"; FAIL=1
     fi
 done
-CX=$(grep -n 'codex exec' "$P3" | head -1 | cut -d: -f1)
-GH=$(grep -n 'gh pr comment' "$P3" | head -1 | cut -d: -f1)
-if [ -n "$CX" ] && [ -n "$GH" ] && [ "$GH" -gt "$CX" ] && ! grep -q '^```' <<<"$(sed -n "${CX},${GH}p" "$P3")"; then
+CX=$(grep -n 'codex exec' "$REVIEW_RUNNER" | head -1 | cut -d: -f1)
+GH=$(grep -n 'gh pr comment' "$REVIEW_RUNNER" | head -1 | cut -d: -f1)
+if [ -n "$CX" ] && [ -n "$GH" ] && [ "$GH" -gt "$CX" ] && ! grep -q '^```' <<<"$(sed -n "${CX},${GH}p" "$REVIEW_RUNNER")"; then
     echo "PASS: 03-codex-review runs codex and posts the comment in one bash block"
 else
     echo "FAIL: 03-codex-review splits codex dispatch and comment posting across blocks"; FAIL=1

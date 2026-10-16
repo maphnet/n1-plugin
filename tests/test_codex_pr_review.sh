@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+export N1_HOME="$TMP/n1" N1_SESSION_ID=review-test
+mkdir -p "$N1_HOME" "$TMP/bin"
+printf '{}\n' > "$N1_HOME/config.json"
+export PATH="$TMP/bin:$PATH" REVIEW_LOG="$TMP/log"
+cat > "$TMP/bin/codex" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = login ]; then
+  case "${AUTH_MODE:-ok}" in hang) sleep 10;; fail) exit 1;; esac
+  exit 0
+fi
+printf 'review\n' >> "$REVIEW_LOG"
+[ "${REVIEW_MODE:-ok}" != hang ] || sleep 10
+[ "${REVIEW_MODE:-ok}" != fail ] || exit 1
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -o ]; then printf 'No findings.\n' > "$2"; break; fi
+  shift
+done
+SH
+cat > "$TMP/bin/gh" <<'SH'
+#!/usr/bin/env bash
+if [ "$2" = diff ]; then
+  [ "${DIFF_MODE:-ok}" != fail ] || exit 1
+  printf 'diff --git a/example.md b/example.md\n'
+  exit 0
+fi
+cat > "${REVIEW_LOG}.comment"
+[ "${POST_MODE:-ok}" != fail ]
+SH
+chmod +x "$TMP/bin/"*
+URL=https://github.com/example/repo/pull/42
+payload=$(jq -nc --arg u "$URL" '{session_id:"review-test",tool_name:"Bash",tool_input:{command:"gh pr create --title test"},tool_response:{stdout:$u,exit_code:0}}')
+printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" > "$TMP/observe"
+receipt="$N1_HOME/review-receipts/review-test/example_repo_42.json"
+jq -e '.outcome == "skipped" and .reason == "step-not-run" and (.processed | not)' "$receipt" >/dev/null
+printf '{"session_id":"review-test"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/stop"
+jq -e '.decision == "block"' "$TMP/stop" >/dev/null
+printf '{"session_id":"other"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/other"
+[ ! -s "$TMP/other" ]
+printf '{"session_id":"review-test","stop_hook_active":true}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/retry"
+[ ! -s "$TMP/retry" ]
+printf 'PASS: omitted step records skip and requests continuation once, isolated by session\n'
+for scenario in disabled no-auth auth-timeout ran failed timeout post-failed diff-unavailable; do
+  unset AUTH_MODE REVIEW_MODE POST_MODE DIFF_MODE
+  printf '{}\n' > "$N1_HOME/config.json"
+  case "$scenario" in
+    disabled) printf '{"crossHostReview":{"enabled":false}}\n' > "$N1_HOME/config.json";;
+    no-auth) export AUTH_MODE=fail;;
+    auth-timeout) export AUTH_MODE=hang;;
+    failed) export REVIEW_MODE=fail;;
+    timeout) export REVIEW_MODE=hang;;
+    post-failed) export POST_MODE=fail; rm -rf "$(dirname "$receipt")";;
+    diff-unavailable) export DIFF_MODE=fail;;
+  esac
+  N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=0.1 bash "$ROOT/scripts/codex-pr-review.sh" "$URL" > "$TMP/out"
+  expected=$scenario
+  case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; post-failed) expected=ran;; diff-unavailable) expected=failed;; esac
+  jq -e --arg expected "$expected" '.outcome == $expected and .processed' "$receipt" >/dev/null
+  if [ "$expected" = skipped ]; then jq -e --arg reason "$scenario" '.reason == $reason' "$receipt" >/dev/null; fi
+  if [ "$scenario" = ran ]; then rg -q '^## Codex Review' "${REVIEW_LOG}.comment"; fi
+  if [ "$scenario" = post-failed ]; then
+    jq -e '.comment == "saved"' "$receipt" >/dev/null
+    rg -q '^## Codex Review' "${receipt%.json}.md"
+  fi
+  if [ "$scenario" = diff-unavailable ]; then jq -e '.reason == "diff-unavailable"' "$receipt" >/dev/null; fi
+  if [ "$scenario" = failed ] || [ "$scenario" = timeout ]; then [ -f "${receipt%.json}.stderr.log" ]; fi
+  printf 'PASS: %s produces a terminal receipt\n' "$scenario"
+done
+printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" >/dev/null
+jq -e '.processed' "$receipt" >/dev/null
+printf 'PASS: observing the same PR preserves its completed receipt\n'
+payload=$(jq -nc '{session_id:"multi-pr",tool_name:"Bash",tool_input:{command:"gh pr create; gh pr create"},tool_response:{stdout:"https://github.com/example/repo/pull/1\nhttps://github.com/example/repo/pull/2",exit_code:0}}')
+printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" > "$TMP/multi"
+jq -se 'length == 1 and (.[0].hookSpecificOutput.additionalContext | contains("pull/1") and contains("pull/2"))' "$TMP/multi" >/dev/null
+printf 'PASS: multiple PRs produce one structured hook response\n'

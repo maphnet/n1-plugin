@@ -9,12 +9,12 @@ command -v timeout >/dev/null || { echo "SKIP: timeout missing"; exit 0; }
 
 BC="$REPO_ROOT/lib/breakcheck.sh"
 QR="$REPO_ROOT/scripts/n1-queue-run.sh"
-XR="$REPO_ROOT/skills/n1-pr/steps/03-codex-review.md"
+XR="$REPO_ROOT/scripts/codex-pr-review.sh"
 
 # 1. Static guard: every in-scope call site carries -k 30 ...
 assert_eq "breakcheck.sh: timeout -k 30 sites"        2 "$(grep -c 'timeout -k 30 ' "$BC" || true)"
 assert_eq "n1-queue-run.sh: timeout -k 30 sites"      1 "$(grep -c 'timeout -k 30 ' "$QR" || true)"
-assert_eq "03-codex-review.md: timeout -k 30 site" 1 "$(grep -c 'timeout -k 30 ' "$XR" || true)"
+assert_eq "codex-pr-review.sh: timeout -k 30 site" 1 "$(grep -c 'timeout -k 30 ' "$XR" || true)"
 # ... and no bare `timeout <duration>` invocation in command position remains.
 BARE=$(grep -nE '(^|&&|[;(|])[[:space:]]*timeout[[:space:]]+[^-[:space:]]' "$BC" "$QR" "$XR" || true)
 assert_eq "no bare timeout call sites" "" "$BARE"
