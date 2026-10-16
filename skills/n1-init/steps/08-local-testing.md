@@ -47,7 +47,7 @@ Select the testing mode:
 How should N1 test this project locally?
 1 -- Live: start infrastructure + app, run tests against live endpoints (services with Docker Compose, local dev servers)
 2 -- Test: run test suite only, no infrastructure startup (libraries, CLIs, SDKs)
-3 -- Smoke: skip pre-merge testing; run post-deploy verification in n1-finish (cloud-native services that cannot run locally)
+3 -- Smoke: skip pre-merge testing; configure post-deploy verification separately in n1-finish (cloud-native services that cannot run locally)
 ```
 
 **Mode suggestion heuristic:** Before presenting, check the project:
