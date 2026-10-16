@@ -115,7 +115,9 @@ Current finish work:
 - **2** → re-run the questions, overwrite the block.
 - **3** → set `enabled: false`, keep the other keys.
 
-If `finishWork.postDeployVerification.enabled` is absent, offer the **Post-deploy verification** questions above without re-asking merge or deploy-watch settings. **No** leaves the nested key absent so legacy smoke behavior continues; **Yes** writes the nested key and creates or updates `$N1_HOME/dev-access.md`.
+If `finishWork.postDeployVerification.enabled` is absent:
+- When `finishWork.deployWatch.enabled` is `true`, offer the **Post-deploy verification** questions above without re-asking merge or deploy-watch settings. **No** leaves the nested key absent so legacy smoke behavior continues; **Yes** writes the nested key and creates or updates `$N1_HOME/dev-access.md`.
+- When deploy watch is disabled or absent, do not offer post-deploy verification. Write `"postDeployVerification": { "enabled": false }` explicitly, and do not create `dev-access.md`; verification cannot run without deploy watch.
 
 If `finishWork` is absent from the current config, run the fresh-setup flow above.
 

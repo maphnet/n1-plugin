@@ -28,9 +28,22 @@ ARCH=references/architecture.md
 README=README.md
 
 check "fresh config writes disabled nested default" '"postDeployVerification"[[:space:]]*:[[:space:]]*\{' "$INIT_CONFIG"
-check "fresh config default is false" '"enabled"[[:space:]]*:[[:space:]]*false' "$INIT_CONFIG"
+if awk '
+    /"postDeployVerification"[[:space:]]*:/ { in_verification = 1; next }
+    in_verification && /"enabled"[[:space:]]*:[[:space:]]*false/ { found = 1; exit }
+    in_verification && /^[[:space:]]*}/ { in_verification = 0 }
+    END { exit !found }
+' "$INIT_CONFIG"; then
+    echo "PASS: fresh config disables post-deploy verification"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: fresh config disables post-deploy verification"
+    FAIL=$((FAIL + 1))
+fi
 check "init asks post-deploy verification separately from local testing" 'post-deploy verification' "$INIT_FINISH"
 check "opt-in is offered only after deploy watch" 'If deploy watch is Yes.*post-deploy verification' "$INIT_FINISH"
+check_fixed "reconfiguration offers opt-in only with deploy watch" 'When `finishWork.deployWatch.enabled` is `true`, offer the **Post-deploy verification** questions above' "$INIT_FINISH"
+check "reconfiguration disables verification without deploy watch" 'When deploy watch is disabled or absent.*postDeployVerification.*enabled.*false' "$INIT_FINISH"
 check "enabled setup creates dev-access template" 'dev-access\.md' "$INIT_FINISH"
 check "dev-access template records URL or entry point" 'URL.*entry point|entry point.*URL' "$INIT_FINISH"
 check "dev-access template requires non-secret setup" 'Non-secret' "$INIT_FINISH"
