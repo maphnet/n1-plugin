@@ -31,6 +31,6 @@
    - `"PR merged: <PR URL>. Deployment succeeded: <run URL>"` (deploy watched)
    - `"Merged locally into <defaultBranch>, push pending."` (local merge path)
    When the delivery step deployed, append ` Deployed via delivery.<command | steps> (<verified | not verified>).` to the chosen comment.
-   When Step 3b produced `$N1_HOME/memory/<ID>/post-deploy-verification.md`, append `\n\nPost-deploy verification:\n` and its validated per-criterion table (criterion, `PASS`/`FAIL`/`SKIPPED`, concise evidence, and reason). Do not include dev-access contents, credentials, raw commands, or raw command output. This table is informational: `FAIL` and `SKIPPED` still close the ticket normally.
+   Only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, append `\n\nPost-deploy verification:\n` and this invocation's validated per-criterion table from `$N1_HOME/memory/<ID>/post-deploy-verification.md` (criterion, `PASS`/`FAIL`/`SKIPPED`, concise evidence, and reason). Otherwise omit verification details. Do not include dev-access contents, credentials, raw commands, or raw command output. This table is informational: `FAIL` and `SKIPPED` still close the ticket normally.
    Render the complete comment, including the verification table, before idempotency. When `operations.getComments` exists, check recent comments first and skip only when an identical full rendered comment is already present (idempotent re-run); otherwise add best-effort once.
 3. Tracker failures: **warn, never block** — the merge already happened. Record the failure in the report.

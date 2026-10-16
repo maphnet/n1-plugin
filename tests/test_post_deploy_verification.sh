@@ -65,7 +65,9 @@ check "README counts post-deploy verifier" 'post-deploy-verifier' "$README"
 # is a persona contract, while this test protects the controller hand-offs.
 check "Step 3b sources config helper" 'source "\$N1_ROOT/lib/config\.sh"' "$DEPLOY"
 check "Step 3b gates through post-deploy helper" 'n1_post_deploy_verification_enabled' "$DEPLOY"
-check "verification dispatch follows successful deployment" 'deploy status `succeeded`.*Step 3b|Step 3b.*deploy status `succeeded`' "$DEPLOY"
+check "verification dispatch requires actual successful deployment" 'All `conclusion: success`.*deploy status `succeeded`' "$DEPLOY"
+check "neutral and skipped deployments do not dispatch verification" 'neutral.*skipped.*non-`success`.*do not dispatch' "$DEPLOY"
+check "cancelled deployments are terminal without verification" 'cancelled.*not deployed.*do not dispatch|cancelled.*do not dispatch.*not deployed' "$DEPLOY"
 check "failed deploy does not dispatch verification" 'failed.*STOP|STOP.*failed' "$DEPLOY"
 check "timed out deploy does not dispatch verification" 'Timeout.*STOP|STOP.*Timeout' "$DEPLOY"
 check "no-run path does not dispatch verification" 'none triggered.*Step 4' "$DEPLOY"
@@ -78,12 +80,19 @@ check "legacy smoke commands stay verifier input" 'smokeTests' "$DEPLOY"
 check "missing dev access does not suppress legacy smoke" 'dev-access\.md.*smoke|smoke.*dev-access\.md' "$DEPLOY"
 check "missing diff writes skipped fallback" 'diff.*SKIPPED|SKIPPED.*diff' "$DEPLOY"
 check "missing verifier artifact writes skipped fallback" 'artifact.*SKIPPED|SKIPPED.*artifact' "$DEPLOY"
+check "prior artifact is cleared before verifier dispatch" 'rm -f "\$VERIFICATION_PATH"' "$DEPLOY"
+check "only current invocation marks artifact available" 'POST_DEPLOY_VERIFICATION_ARTIFACT=true' "$DEPLOY"
 check "tracker comment renders criterion table" 'verification.*table|table.*verification' "$CLOSE"
+check "tracker skips stale verification artifact" 'POST_DEPLOY_VERIFICATION_ARTIFACT=true' "$CLOSE"
 check "tracker idempotency uses full rendered comment" 'identical.*full.*comment|full.*rendered.*comment' "$CLOSE"
 check "cleanup persists criterion table in Finish" '## Finish.*verification|verification.*## Finish' "$CLEANUP"
 check "final report prints criterion table" 'Verification.*table|table.*Verification' "$CLEANUP"
+check "cleanup skips stale verification artifact" 'POST_DEPLOY_VERIFICATION_ARTIFACT=true' "$CLEANUP"
 check "verification failure still closes ticket" 'FAIL.*clos|clos.*FAIL' "$DEPLOY"
 check "verification skipped still closes ticket" 'SKIPPED.*clos|clos.*SKIPPED' "$DEPLOY"
+check "verifier inherits dynamic observability tools" 'tools intentionally omitted.*observability MCP' agents/post-deploy-verifier.md
+check "verifier keeps read-only boundary with artifact exception" 'only to read.*read-only.*sole write' agents/post-deploy-verifier.md
+check "verifier uses investigation effort" '^effort: medium$' agents/post-deploy-verifier.md
 
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
