@@ -29,7 +29,8 @@ cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
     "release view") [ "${GH_RELEASE_EXISTS:-0}" = 1 ] ;;
-    "run list") [ -z "${GH_RUN_STATUS:-}" ] || printf '%s\n' "$GH_RUN_STATUS" ;;
+    "run list") case "$*" in *"--commit $(git rev-parse "v1.0.0^{commit}")"*"--json status"*) ;; *) exit 1 ;; esac
+        [ -z "${GH_RUN_STATUS:-}" ] || printf '%s\n' "$GH_RUN_STATUS" ;;
     *) exit 1 ;;
 esac
 EOF
@@ -41,7 +42,7 @@ git -C "$T/work" -c user.email=t@t -c user.name=t commit -q --allow-empty -m fir
 git -C "$T/work" -c user.email=t@t -c user.name=t tag -a v1.0.0 -m t   # annotated, like the built-in flow: exercises the ^{commit} peel
 
 verdict() { # <release-exists 0|1> [run-status]
-    (cd "$T/work" && export GH_RELEASE_EXISTS="$1" GH_RUN_STATUS="${2:-}" \
+    (cd "$T/work" && export N1_RELEASE_CHECK_WAIT=0 GH_RELEASE_EXISTS="$1" GH_RUN_STATUS="${2:-}" \
         && PATH="$T/bin:$PATH" TAG=v1.0.0 bash -c "$SNIPPET" 2>/dev/null)
 }
 
@@ -53,6 +54,9 @@ mkdir -p "$T/work/.github/workflows"
 printf 'on:\n  push:\n    tags: ["v*"]\njobs:\n  release:\n    runs-on: ubuntu-latest\n    steps:\n      - run: gh release create "$GITHUB_REF_NAME" --generate-notes\n' \
     > "$T/work/.github/workflows/release.yml"
 expect "release workflow still running -> no offer" "release:missing-workflow-running" "$(verdict 0 in_progress)"
+mkdir -p "$T/work/sub/dir"
+expect "scan is anchored at the repo root (run from a subdirectory)" "release:missing-workflow-running" \
+    "$(cd "$T/work/sub/dir" && export N1_RELEASE_CHECK_WAIT=0 GH_RELEASE_EXISTS=0 GH_RUN_STATUS=in_progress && PATH="$T/bin:$PATH" TAG=v1.0.0 bash -c "$SNIPPET" 2>/dev/null)"
 expect "release workflow queued -> no offer" "release:missing-workflow-running" "$(verdict 0 queued)"
 expect "release workflow finished, no Release -> offer" "release:missing-offer" "$(verdict 0 completed)"
 expect "release workflow, no runs -> offer" "release:missing-offer" "$(verdict 0)"
