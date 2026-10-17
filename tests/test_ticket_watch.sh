@@ -31,7 +31,8 @@ assert_eq "on: watch.enabled=false -> off" "" "$(n1_tw_on "$ID" seed)"
 # ---- n1_tw_seed ----
 cfg "$CFG_ON"
 printf '{"key":"T-1","updated":"%s","comments":[{"id":"100","authorAccountId":"me-1","author":"Me","body":"N1 enrichment","created":"%s","updated":"%s"}]}' "$T0" "$TC" "$TC" > "$T/issue0.json"
-n1_tw_seed "$ID" "$T/issue0.json" me-1
+printf '{"accountId":"me-1","displayName":"Me"}' > "$T/me.json"
+n1_tw_seed "$ID" "$T/issue0.json" "$T/me.json"
 assert_eq "seed: updated" "$T0" "$(jq -r .updated "$M/.ticket-watch")"
 assert_eq "seed: changelog_since = updated" "$T0" "$(jq -r .changelog_since "$M/.ticket-watch")"
 assert_eq "seed: me" "me-1" "$(jq -r .me "$M/.ticket-watch")"
@@ -39,11 +40,12 @@ assert_eq "seed: seen holds all comments" "[\"100@$TC\"]" "$(jq -c .seen "$M/.ti
 assert_eq "on: seeded -> active" "$ON_JC" "$(n1_tw_on "$ID")"
 cp "$M/.ticket-watch" "$T/cur0"
 echo 'not json' > "$T/bad.json"
-n1_tw_seed "$ID" "$T/bad.json" me-1; rc=$?
+n1_tw_seed "$ID" "$T/bad.json" "$T/me.json"; rc=$?
 assert_eq "seed: bad input rc 1" "1" "$rc"
 assert_eq "seed: bad input leaves cursor" "$(cat "$T/cur0")" "$(cat "$M/.ticket-watch")"
-n1_tw_seed "$ID" "$T/issue0.json" ""
-assert_eq "seed: empty me reuses cached me" "me-1" "$(jq -r .me "$M/.ticket-watch")"
+n1_tw_seed "$ID" "$T/issue0.json" "$T/bad.json"; rc=$?
+assert_eq "seed: unreadable me rc 1" "1" "$rc"
+assert_eq "seed: unreadable me leaves cursor" "$(cat "$T/cur0")" "$(cat "$M/.ticket-watch")"
 
 # ---- n1_tw_cmp ----
 printf '{"total":1,"issues":[{"key":"T-1","updated":"%s"}]}' "$T0" > "$T/p-same.json"
@@ -70,6 +72,7 @@ ext_log 8 "2026-10-17T10:40:00.000+0000" status Blocked false > "$T/log-blocked.
 ext_log 9 "2026-10-17T10:40:00.000+0000" status "In Review" false > "$T/log-review.json"
 ext_log 10 "2026-10-17T10:40:00.000+0000" description "New AC: CSV" false > "$T/log-desc.json"
 ext_log 11 "2026-10-17T10:10:00.000+0000" labels x true > "$T/log-p1.json"
+ext_log 13 "2026-10-17T10:45:00.000+0000" description "$(printf 'z%.0s' $(seq 600))" false > "$T/log-long.json"
 ext_log 12 "2026-10-17T10:20:00.000+0000" description y false > "$T/log-p2.json"
 
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-own.json")
@@ -91,6 +94,9 @@ reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-done.json")
 assert_eq "delta: external Done -> status_stop" "Done" "$(jq -r .status_stop <<<"$out")"
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-blocked.json")
 assert_eq "delta: external Blocked -> status_stop" "Blocked" "$(jq -r .status_stop <<<"$out")"
+printf '{"entries":[{"id":"20","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:40:00.000+0000","items":[{"field":"status","from":"In Progress","to":"Blocked"}]},{"id":"21","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:50:00.000+0000","items":[{"field":"status","from":"Blocked","to":"In Progress"}]}],"truncated":false}' > "$T/log-flip.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-flip.json")
+assert_eq "delta: flip and revert -> no status_stop" "null" "$(jq -r .status_stop <<<"$out")"
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-review.json")
 assert_eq "delta: other status -> no status_stop" "null" "$(jq -r .status_stop <<<"$out")"
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-desc.json")
@@ -109,6 +115,11 @@ assert_eq "delta: comments capped at 10" "10" "$(jq '.comments | length' <<<"$ou
 assert_eq "delta: dropped count" "2" "$(jq .dropped <<<"$out")"
 assert_eq "delta: body capped at 1500" "1500" "$(jq '.comments[0].body | length' <<<"$out")"
 
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-long.json")
+assert_eq "delta: changelog from/to capped at 500" "500" "$(jq '.changes[0].to | length' <<<"$out")"
+printf '{"entries":[{"id":"30","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:45:00.000+0000","items":[{"field":"labels","from":"a\u200bb\u00adc","to":"x"}]}],"truncated":false}' > "$T/log-inv.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-inv.json")
+assert_eq "delta: zero-width chars stripped" "a b c" "$(jq -r '.changes[0].from' <<<"$out")"
 reset; out=$(n1_tw_delta "$ID" "$T/bad.json" "$T/log-empty.json"); rc=$?
 assert_eq "delta: bad issue rc 1" "1" "$rc"
 assert_eq "delta: bad issue silent" "" "$out"

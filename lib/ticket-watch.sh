@@ -26,10 +26,10 @@ n1_tw_on() {
 }
 
 n1_tw_seed() {
-    # Usage: n1_tw_seed <ID> <issue.json> [me] — writes the cursor from a raw getIssue response.
-    # Empty me -> reuse the cursor's cached me. Bad input -> rc 1, cursor untouched.
-    local f="$N1_HOME/memory/$1/.ticket-watch" issue="$2" me="${3:-}" tmp
-    [ -n "$me" ] || me=$(jq -r '.me // empty' "$f" 2>/dev/null)
+    # Usage: n1_tw_seed <ID> <issue.json> <me.json> — writes the cursor from raw getIssue and
+    # getCurrentUser responses. Bad input -> rc 1, cursor untouched.
+    local f="$N1_HOME/memory/$1/.ticket-watch" issue="$2" me tmp
+    me=$(jq -r '.accountId // empty' "$3" 2>/dev/null)
     [ -n "$me" ] || return 1
     mkdir -p "${f%/*}" && tmp=$(mktemp "$f.XXXXXX") || return 1
     if jq -e --arg me "$me" '
@@ -71,7 +71,8 @@ n1_tw_delta() {
     res=$(jq -nc --slurpfile cur "$f" --slurpfile iss "$issue" \
         --arg done "$(n1_config_val '.tracker.statuses.done')" \
         --arg blocked "$(n1_config_val '.tracker.statuses.blocked')" '
-        def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f‎‏  ‪-‮⁦-⁩؜]"; " ") | .[:1500];
+        def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]"; " ") | .[:1500];
+        def t: s | .[:500];
         $cur[0] as $c | $iss[0] as $i | [inputs] as $pages
         | if ($c.me | type) != "string" or ($i.updated | type) != "string"
              or ($pages | all(.entries | type == "array") | not) then error("bad input") else . end
@@ -79,9 +80,10 @@ n1_tw_delta() {
         | [($i.comments // [])[] | select(.authorAccountId != $c.me)
            | select("\(.id)@\(.updated)" as $k | any($seen[]; . == $k) | not)] as $new
         | [$pages[].entries[] | select(.authorAccountId != $c.me)
-           | (.author // "" | s) as $a | .created as $t
-           | .items[] | {author: $a, created: $t, field: (.field // "" | s), from: (.from // "" | s), to: (.to // "" | s)}] as $items
-        | ([$items[] | select(.field == "status" and ((.to == $done and $done != "") or (.to == $blocked and $blocked != ""))) | .to] | last) as $stop
+           | (.author // "" | s) as $a | (.created | s) as $t
+           | .items[] | {author: $a, created: $t, field: (.field // "" | t), from: (.from // "" | t), to: (.to // "" | t)}] as $items
+        | ([$items[] | select(.field == "status")] | last) as $ls
+        | (if $ls != null and (($ls.to == $done and $done != "") or ($ls.to == $blocked and $blocked != "")) then $ls.to else null end) as $stop
         | (($pages | last // {}) | .truncated == true) as $trunc
         | ([$pages[].entries[].created] | last) as $lastc
         | {cursor: ($c + {
@@ -90,7 +92,7 @@ n1_tw_delta() {
               seen: [($i.comments // [])[] | "\(.id)@\(.updated)"]}),
            digest: (if ($new | length) == 0 and ($items | length) == 0 then null else
               {comments: [$new[:10][] | (.id | tostring) as $id
-                  | {id: ($id | s), author: (.author // "" | s), created, updated,
+                  | {id: ($id | s), author: (.author // "" | s), created: (.created | s), updated: (.updated | s),
                      edited: any($seen[]; startswith("\($id)@")), body: (.body // "" | s)}],
                dropped: ([($new | length) - 10, 0] | max),
                changes: $items[:10],
