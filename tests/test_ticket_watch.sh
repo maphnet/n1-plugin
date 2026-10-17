@@ -153,6 +153,21 @@ assert_eq "trunc: current non-stop -> none" "null" "$(jq -r .status_stop <<<"$ou
 printf '{"entries":[{"id":"50","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:40:00.000+0000","items":[{"field":"status","from":"In Progress","to":"Blocked"}]},{"id":"51","authorAccountId":"me-1","author":"Me","created":"2026-10-17T10:50:00.000+0000","items":[{"field":"status","from":"Blocked","to":"In Progress"}]}],"truncated":false}' > "$T/log-ownflip.json"
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-ownflip.json")
 assert_eq "status: own later transition -> no stop" "null" "$(jq -r .status_stop <<<"$out")"
+# [CR-1] a status stop inside the withheld (beyond-cap) entries waits for its own delivery
+jq -nc '{entries:([range(10) | {id:"\(60+.)", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:\(10+.):00.000+0000", items:[{field:"labels",from:"a",to:"b"}]}] + [{id:"70", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:30:00.000+0000", items:[{field:"status",from:"In Progress",to:"Blocked"}]}]), truncated:false}' > "$T/log-capstop.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-capstop.json")
+assert_eq "capstop: withheld status stop not fired" "null" "$(jq -r .status_stop <<<"$out")"
+jq -c '{entries:[.entries[-1]], truncated:false}' "$T/log-capstop.json" > "$T/log-capstop2.json"
+out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-capstop2.json")
+assert_eq "capstop: stop fires once delivered" "Blocked" "$(jq -r .status_stop <<<"$out")"
+assert_eq "capstop: status_by names the author" "Alice" "$(jq -r .status_by <<<"$out")"
+# [CR-2] truncated page must not stop on our own Blocked move
+printf '{"entries":[{"id":"80","authorAccountId":"me-1","author":"Me","created":"2026-10-17T10:40:00.000+0000","items":[{"field":"status","from":"In Progress","to":"Blocked"}]}],"truncated":true}' > "$T/log-ownblk.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-blk.json" "$T/log-ownblk.json")
+assert_eq "trunc: own Blocked in history -> no stop, no digest" "" "$out"
+# [CR-3] fallback stop without any status item reports an unknown actor
+reset; out=$(n1_tw_delta "$ID" "$T/issue-blk.json" "$T/log-p1.json")
+assert_eq "trunc: fallback stop status_by unknown" "unknown" "$(jq -r .status_by <<<"$out")"
 # ---- n1_tw_replan_reset ----
 A=$(_n1_step_display_name analysis); Q=$(_n1_step_display_name qa)
 printf -- '---\nstep: review\nqa_fix_cycle: 2\nreview_fix_cycle: 1\n---\n\n- [x] %s\n- [x] %s\n- [x] Unrelated checklist item\n' "$A" "$Q" > "$M/overview.md"

@@ -66,7 +66,7 @@ n1_tw_delta() {
     # own. rc 1 and cursor untouched on bad input. A truncated last page or any item past the cap (10
     # comments, ~10 changelog items by whole entries) stays pending: old updated kept, withheld comments
     # not marked seen, changelog_since stops at the last delivered entry. A truncated last page also
-    # checks the current getIssue status for Done/Blocked.
+    # checks the current getIssue status unless our own account set the latest status for Done/Blocked.
     local f="$N1_HOME/memory/$1/.ticket-watch" issue="$2" res tmp
     shift 2
     [ -f "$f" ] || return 1
@@ -89,13 +89,13 @@ n1_tw_delta() {
         | ([$pages[].entries[] | select(.authorAccountId != $c.me)] | map([.items[]] | length) | add // 0) as $total
         | [$sel.inc[] | (.author // "" | s) as $a | (.created | s) as $t
            | .items[] | {author: $a, created: $t, field: (.field // "" | t), from: (.from // "" | t), to: (.to // "" | t)}] as $items
-        | ([$pages[].entries[] | . as $e | $e.items[] | select(.field == "status")
-            | {by: $e.authorAccountId, to: (.to // "" | t)}] | last) as $ls
+        | ($total - ($items | length)) as $cwith
+        | ([$pages[].entries[] | . as $e | select($cwith == 0 or $e.created <= $sel.inc[-1].created) | $e.items[] | select(.field == "status")
+            | {by: $e.authorAccountId, name: ($e.author // "" | s), to: (.to // "" | t)}] | last) as $ls
         | (($pages | last // {}) | .truncated == true) as $trunc
-        | (if $trunc then ($i.status // "" | t)
+        | (if $trunc then (if $ls == null or $ls.by != $c.me then ($i.status // "" | t) else "" end)
            elif $ls != null and $ls.by != $c.me then $ls.to else "" end) as $st
         | (if ($st == $done and $done != "") or ($st == $blocked and $blocked != "") then $st else null end) as $stop
-        | ($total - ($items | length)) as $cwith
         | ($new[:10] | map("\(.id)@\(.updated)")) as $inc
         | ([$new[10:][] | .id | tostring]) as $wid
         | (($new | length) > 10 or $cwith > 0) as $held
@@ -113,6 +113,7 @@ n1_tw_delta() {
                pending: $held,
                changes: $items,
                status_stop: $stop,
+               status_by: (if $ls != null and $ls.name != "" and $ls.by != $c.me then $ls.name else "unknown" end),
                description_edited: any($items[]; .field == "description")} end)}
         ' "$@" </dev/null 2>/dev/null) || return 1
     [ -n "$res" ] || return 1
