@@ -171,7 +171,8 @@ Set config:
       "createVersion": "jcm_createVersion",
       "releaseVersion": "jcm_releaseVersion",
       "listVersions": "jcm_listVersions",
-      "getIssueLinks": "jcm_getIssueLinks"
+      "getIssueLinks": "jcm_getIssueLinks",
+      "getChangelog": "jcm_getIssueChangelog"
     },
     "statuses": {
       "todo": "<detected or manual>",
@@ -184,6 +185,8 @@ Set config:
   }
 }
 ```
+
+`getChangelog` is a jc-mcp op routed like version ops (`versionMcp`, else `mcp`); omit it when `VERSION_MCP` is null. It turns on the ticket watch (`skills/n1-start/procedures/ticket-watch.md`); `watch.enabled` (default true) turns it off.
 
 **Verify comment ops availability:** Confirm in the tool list (load the tools if deferred, per HOST ROUTING) that `mcp__plugin_atlassian_atlassian__addCommentToJiraIssue` and `mcp__plugin_atlassian_atlassian__getIssueComments` are visible in the tool list. If `getIssueComments` is absent, log: "Note: getComments op not found in Jira MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
 
@@ -258,6 +261,8 @@ Set config:
   }
 }
 ```
+
+YouTrack: `getChangelog` is not mapped (ticket watch off for YouTrack).
 
 **Verify comment ops availability:** Confirm in the tool list (load the tools if deferred, per HOST ROUTING) that `mcp__youtrack__add_issue_comment` and `mcp__youtrack__get_issue_comments` are visible in the tool list. If `get_issue_comments` is absent, log: "Note: getComments op not found in YouTrack MCP — comment reading (ticket intake, idempotent re-run checks) will be unavailable." Do not block setup.
 

@@ -42,6 +42,8 @@ Telemetry Init: `procedures/telemetry.md` | Input Parsing: `procedures/input-par
 
 Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). Gate 2 pauses for plan approval when `requirePlanApproval` enabled.
 
+**Ticket watch:** run `procedures/ticket-watch.md § Check` before Steps 5, 6, 10 and 11b.
+
 | Step | File | Notes |
 |------|------|-------|
 | 1. REQUIREMENTS ANALYSIS | `steps/ticket.md` | |
