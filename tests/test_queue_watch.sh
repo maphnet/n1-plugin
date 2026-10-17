@@ -140,6 +140,60 @@ test_question_mirror_and_answer_delivered() {
     has   "relay: answer delivered line" "n1-queue q6: T-1 answer delivered, resuming." "$out"
 }
 
+test_escalated_json_reason_fallback_rendered() {
+    # N1-60 [CR-1]: once .question-<ticket>.json is gone, the escalated event's reason may
+    # still hold the packed JSON (durable-storage form). The fallback must render it the same
+    # way the live question-file branch does, never print the raw JSON.
+    local q out; q=$(newq q8)
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason='{"question":"Pick a DB?","options":["A","B"]}'
+    out=$(watch 2 "$q" R1 "$$" 0)
+    has   "json-reason fallback: header with answer + attach" \
+        'n1-queue q8: T-1 needs you (answer: /n1:n1-queue --answer T-1 "<text>"; resume: claude attach 0000abcd):' "$out"
+    has   "json-reason fallback: question rendered" "  Q: Pick a DB?" "$out"
+    has   "json-reason fallback: option rendered" "  - A" "$out"
+    lacks "json-reason fallback: raw JSON never printed" '{"question"' "$out"
+}
+
+test_escalated_json_reason_fallback_over_300_chars_rendered() {
+    # N1-60 [CR-4]: the reader's 300-char cap must not truncate a packed-question reason
+    # before the fallback parses it — escalate() already caps at write time (2000/field,
+    # <=10 options), so a realistic packed question well over 300 chars must still parse
+    # and render in full, not print truncated raw JSON.
+    local q out question rationale reason
+    q=$(newq q10)
+    question="Which database engine should we standardize on for the new reporting service, given our existing Postgres footprint and the team's familiarity with it versus the operational wins of a managed columnar store?"
+    rationale="Postgres keeps operational overhead low and reuses existing expertise across the team, while a columnar store would need new tooling, new on-call runbooks, and a migration plan for existing reports."
+    reason=$(jq -nc --arg q "$question" --arg rat "$rationale" \
+        '{question: $q, options: ["Postgres","ClickHouse","BigQuery","Snowflake"], recommended: "Postgres", rationale: $rat}')
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="$reason"
+    out=$(watch 2 "$q" R1 "$$" 0)
+    has   "long json-reason fallback: question rendered in full" "  Q: $question" "$out"
+    has   "long json-reason fallback: option rendered" "  - ClickHouse" "$out"
+    has   "long json-reason fallback: recommended with rationale" "  Recommended: Postgres — $rationale" "$out"
+    lacks "long json-reason fallback: raw JSON never printed" '{"question"' "$out"
+}
+
+test_escalated_plaintext_brace_reason_unchanged() {
+    # N1-60 [SEC-4]/[CR-3]: a plain-text reason that happens to start with "{" but is not a
+    # JSON question object must print unchanged, exactly as before N1-60.
+    local q out; q=$(newq q9)
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason='{not json, just text that starts with a brace'
+    out=$(watch 2 "$q" R1 "$$" 0)
+    has "plain-text brace reason: printed unchanged" \
+        'n1-queue q9: T-1 needs you: {not json, just text that starts with a brace (resume: claude attach 0000abcd)' "$out"
+}
+
+test_escalated_plaintext_long_reason_capped_at_300() {
+    # N1-60 [CR-4]: a plain-text reason (not a packed question) must still be capped at
+    # 300 chars by the reader — only packed-question reasons are exempt from the cap.
+    local q out long; q=$(newq q11)
+    long=$(printf 'x%.0s' $(seq 1 400))
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="$long"
+    out=$(watch 2 "$q" R1 "$$" 0)
+    has   "long plain-text reason: capped prefix present" "needs you: ${long:0:300}" "$out"
+    lacks "long plain-text reason: not printed in full" "${long:0:301}" "$out"
+}
+
 test_rejects_bad_input_and_sanitizes() {
     local q out; q=$(newq q5)
     out=$(watch 2 "$q" "../R1" "$$" 0 2>&1)
@@ -218,6 +272,10 @@ test_adopt_from_eof_and_resume
 test_runner_dead
 test_sessions_independent
 test_question_mirror_and_answer_delivered
+test_escalated_json_reason_fallback_rendered
+test_escalated_json_reason_fallback_over_300_chars_rendered
+test_escalated_plaintext_brace_reason_unchanged
+test_escalated_plaintext_long_reason_capped_at_300
 test_rejects_bad_input_and_sanitizes
 test_merge_ready_line
 

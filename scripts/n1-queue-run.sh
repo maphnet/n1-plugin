@@ -64,14 +64,46 @@ ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 # escalate <ticket> <n1-home> [session-state] — escalated event + needs-you notification
 # (with resume hint). session-state "stopped" means the bg session is draining (success-path
 # finalize; stopped once idle): hint n1-start, since attach only reaches a running session.
+# N1-60: when the child has mirrored a question to .question-<ticket>.json, that file's full
+# content (question/options/recommended/rationale) is packed into the event's reason field so
+# it survives the file's later removal by n1_queue_answer/the child on resume. events.jsonl's
+# reason field is already free text; this just widens what it can hold, as JSON, via jq -c.
 escalate() {
-    local sid q
+    local sid q qfile qfull reason
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md")
+    reason="$q"
+    case "$1" in
+        ''|*[!A-Za-z0-9_-]*) qfile="" ;;
+        *) qfile="$N1_QUEUE_DIR/.question-$1.json" ;;
+    esac
+    if [ -n "$qfile" ] && [ -f "$qfile" ]; then
+        # SEC-1/CR-2/N1-60-follow-up: cap each field so the packed reason stays far
+        # under execve's per-arg limit (128 KiB) however large the mirrored question
+        # file is. Control/format chars are stripped before capping (same class the
+        # watch reader already strips at render time, lib/queue.sh) so a field full of
+        # single-byte control chars can't 6x-expand via \uXXXX JSON escaping. A second
+        # hard check rebuilds with a much smaller per-field cap if the first pass (at
+        # the normal 2000-char cap) still exceeds a 32 KiB budget — covers 4-byte UTF-8
+        # (emoji) content, which isn't a control char and isn't escaped by jq.
+        qfull=$(jq -cn '
+            def strip: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ");
+            def build($src; $n): $src | objects | {
+                question: (.question // "" | strip | .[:$n]),
+                options: ((.options // []) | arrays | .[:10] | map(strip | .[:$n])),
+                recommended: (.recommended // "" | strip | .[:$n]),
+                rationale: (.rationale // "" | strip | .[:$n])
+            };
+            (input) as $src
+            | (build($src; 2000)) as $full
+            | if ($full | tojson | utf8bytelength) > 32768 then build($src; 200) else $full end
+        ' "$qfile" 2>/dev/null)
+        [ -n "$qfull" ] && reason="$qfull"
+    fi
     if [ "${3:-}" = "stopped" ]; then
-        ev escalated ticket="$1" session="$sid" reason="$q" outcome=terminal
+        ev escalated ticket="$1" session="$sid" reason="$reason" outcome=terminal
     else
-        ev escalated ticket="$1" session="$sid" reason="$q"
+        ev escalated ticket="$1" session="$sid" reason="$reason"
     fi
     if [ "${3:-}" = "stopped" ]; then
         n1_notify needs-you "$1 needs you: ${q:-waiting for an answer} (resume: n1-start $1)"

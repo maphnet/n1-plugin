@@ -901,7 +901,7 @@ n1_queue_watch() {
     # cursor is removed and it returns 0. Otherwise it polls until killed.
     # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
-    local ev t out pr s reason qbody b h r sha marker last hint
+    local ev t out pr s reason qbody qrender b h r sha marker last hint
     q="${dir##*/}"
     sid=$(n1_session_id); sid="${sid:-nosession}"
     case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
@@ -939,21 +939,30 @@ n1_queue_watch() {
                 case "$ev" in
                     escalated)
                         # N1-55: a child in ask-mode mirrors its full question to .question-<ticket>.json.
-                        qbody=""
-                        case "$t" in ''|*[!A-Za-z0-9_-]*) ;; *) [ -f "$dir/.question-$t.json" ] && \
-                            qbody=$(jq -r 'def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:1000];
+                        # qrender is shared with the N1-60 fallback below so a packed-JSON reason
+                        # renders identically to the live question file.
+                        qrender='def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:1000];
                                 (.rationale // "" | s) as $r | (.recommended // "" | s) as $rec
                                 | "  Q: \(.question | s)",
                                   (select($rec == "" and $r != "") | "  \($r)"),
                                   (.options | arrays | .[:10] | .[] | "  - \(s)"),
-                                  (select($rec != "") | "  Recommended: \($rec)\(if $r != "" then " — \($r)" else "" end)")' \
-                                "$dir/.question-$t.json" 2>/dev/null) ;; esac
+                                  (select($rec != "") | "  Recommended: \($rec)\(if $r != "" then " — \($r)" else "" end)")'
+                        qbody=""
+                        case "$t" in ''|*[!A-Za-z0-9_-]*) ;; *) [ -f "$dir/.question-$t.json" ] && \
+                            qbody=$(jq -r "$qrender" "$dir/.question-$t.json" 2>/dev/null) ;; esac
                         # N1-74: outcome=terminal means the session is drained and stopped (finalize's
                         # stopped-path escalate): attach would reach nothing, so hint n1-start instead.
                         if [ "$out" = terminal ]; then
                             hint="; resume: n1-start $t"
                         else
                             hint="${s:+; resume: $(n1_bg_cmd attach "$s")}"
+                        fi
+                        if [ -z "$qbody" ]; then
+                            # N1-60: reason may hold the full mirrored question (packed JSON) once
+                            # the question file is already gone; render it the same way, so the
+                            # user still sees the full question instead of a generic wait message.
+                            # SEC-4/CR-3: a real object-with-"question" check, not a '{' prefix guess.
+                            qbody=$(printf '%s' "$reason" | jq -R "fromjson? | objects | select(has(\"question\")) | ($qrender)" 2>/dev/null)
                         fi
                         if [ -n "$qbody" ]; then
                             printf 'n1-queue %s: %s needs you (answer: /n1:n1-queue --answer %s "<text>"%s):\n%s\n' \
@@ -979,7 +988,13 @@ n1_queue_watch() {
                 fromjson? | objects | select(.run_id == $run)
                 | select(.event == "escalated" or .event == "answer_delivered" or .event == "auto_resolved" or .event == "merged_to_unblock" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
-                | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:300]) | join("\u001f")' 2>/dev/null)
+                | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ")) as $arr
+                # N1-60 [CR-4]: a packed-question reason is already capped at write time
+                # (escalate(): 2000 chars/field, <=10 options); the 300-cap here is only
+                # for plain-text reasons and the other fields.
+                | (($arr[5] | fromjson? | objects | has("question")) // false) as $packed
+                | ($arr[0:5] | map(.[:300])) + [if $packed then $arr[5] else $arr[5][:300] end]
+                | join("\u001f")' 2>/dev/null)
             seen="$total"
         fi
         if [ "$alive" = 0 ]; then

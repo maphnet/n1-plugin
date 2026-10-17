@@ -764,7 +764,22 @@ test_bg_sequential() {
 test_bg_awaiting() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked blocked working done" "T-B:working done"
+    # N1-60: a mirrored question present when the ticket first parks must be packed into the
+    # escalated event's reason, durably, even though the file itself is later removed.
+    printf '{"ticket":"T-A","question":"Pick a DB?","options":["A","B"],"recommended":"A","rationale":"faster"}' \
+        > "$tmp/.question-T-A.json"
     assert_eq "bg-await: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "N1-60: escalated event carries full mirrored question" "Pick a DB?" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .question' "$tmp/events.jsonl")"
+    assert_eq "N1-60: escalated event carries options" "A,B" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .options | join(",")' "$tmp/events.jsonl")"
+    assert_eq "N1-60: escalated event carries recommended/rationale" "A|faster" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | "\(.recommended)|\(.rationale)"' "$tmp/events.jsonl")"
+    # Removing the mirrored question file (as the answer path does) does not touch the
+    # already-written durable record.
+    rm -f "$tmp/.question-T-A.json"
+    assert_eq "N1-60: record survives question-file removal" "Pick a DB?" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .question' "$tmp/events.jsonl")"
     assert_eq "bg-await: T-A parked message" "1" "$(grep -c 'T-A -> awaiting-human' "$tmp/output.txt" || true)"
     local a_block b_launch a_done
     a_block=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1 blocked")
@@ -783,6 +798,78 @@ test_bg_awaiting() {
     assert_eq "notify-await: needs-you then done" "needs-you,done" "$(jq -r .kind "$tmp/notes" | paste -sd, -)"
     assert_eq "notify-await: attach hint" "yes" \
         "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF '(resume: claude attach 00000001)' && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_bg_awaiting_oversized_question() {
+    # N1-60 [SEC-1]/[CR-2]: a mirrored question file far bigger than execve's 128 KiB per-arg
+    # limit must still produce a valid, bounded escalated row (not a dropped/truncated one).
+    local tmp big; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done"
+    big=$(head -c 200000 /dev/zero | tr '\0' 'x')
+    { printf '{"question":"%s","options":["%s","%s"],"recommended":"A","rationale":"%s"}' \
+        "$big" "$big" "$big" "$big"; } > "$tmp/.question-T-A.json"
+    assert_eq "bg-await-big: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await-big: escalated row is valid JSON" "escalated" \
+        "$(jq -r 'select(.event=="escalated") | .event' "$tmp/events.jsonl")"
+    assert_eq "bg-await-big: reason is valid JSON, bounded" "2000,2000" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson) | "\(.question|length),\(.rationale|length)"' "$tmp/events.jsonl")"
+    assert_eq "bg-await-big: options capped at 10, each bounded" "2,2000" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson) | "\(.options|length),\(.options[0]|length)"' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
+# N1-60 follow-up: a field full of control characters (U+0001) JSON-encodes each char
+# as a 6-byte \u0001 escape, and a field full of 4-byte UTF-8 (emoji) is 4x its char
+# count in bytes — both can push the capped-at-2000-chars packed reason well past
+# execve's 128 KiB per-arg limit (~156 KiB and ~104 KiB respectively at 13 max-length
+# fields) unless the control chars are stripped before capping and a hard byte-size
+# fallback shrinks the per-field cap.
+mk_oversized_question() {
+    # Usage: mk_oversized_question <dir> <ticket> <char> — writes a .question-<ticket>.json
+    # with question/10-options/recommended/rationale all at the 2000-char cap, filled
+    # with 2000 repeats of <char> (may be a multi-byte literal). Built via a plain bash
+    # loop, not `yes | head` (SIGPIPE under pipefail, N1-75).
+    local dir="$1" ticket="$2" ch="$3" v="" opts i
+    for ((i = 0; i < 2000; i++)); do v+="$ch"; done
+    opts=""
+    for i in $(seq 1 10); do opts="$opts\"$v\","; done
+    opts="${opts%,}"
+    printf '{"question":"%s","options":[%s],"recommended":"%s","rationale":"%s"}' \
+        "$v" "$opts" "$v" "$v" > "$dir/.question-$ticket.json"
+}
+
+test_bg_awaiting_oversized_control_chars() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done"
+    mk_oversized_question "$tmp" T-A '\u0001'
+    assert_eq "bg-await-ctrl: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await-ctrl: escalated row is valid JSON" "escalated" \
+        "$(jq -r 'select(.event=="escalated") | .event' "$tmp/events.jsonl")"
+    assert_eq "bg-await-ctrl: packed reason is valid JSON" "ok" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson | if . then "ok" else "bad" end)' "$tmp/events.jsonl")"
+    assert_eq "bg-await-ctrl: control chars stripped, cap unaffected" "2000,2000" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson) | "\(.question|length),\(.rationale|length)"' "$tmp/events.jsonl")"
+    assert_eq "bg-await-ctrl: packed reason stays within the 32 KiB budget" "yes" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | (utf8bytelength < 32768 | if . then "yes" else "no" end))' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
+test_bg_awaiting_oversized_emoji() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done"
+    mk_oversized_question "$tmp" T-A "$(printf '\xf0\x9f\x98\x80')"
+    assert_eq "bg-await-emoji: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-await-emoji: escalated row is valid JSON" "escalated" \
+        "$(jq -r 'select(.event=="escalated") | .event' "$tmp/events.jsonl")"
+    assert_eq "bg-await-emoji: packed reason is valid JSON" "ok" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson | if . then "ok" else "bad" end)' "$tmp/events.jsonl")"
+    # 4-byte UTF-8 at the normal 2000-char cap would still blow past the 32 KiB
+    # budget, so the fallback shrinks the per-field cap to 200.
+    assert_eq "bg-await-emoji: per-field cap shrunk by the byte-size fallback" "200,200" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson) | "\(.question|length),\(.rationale|length)"' "$tmp/events.jsonl")"
+    assert_eq "bg-await-emoji: packed reason stays within the 32 KiB budget" "yes" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | (utf8bytelength < 32768 | if . then "yes" else "no" end))' "$tmp/events.jsonl")"
     rm -rf "$tmp"
 }
 
@@ -1290,6 +1377,12 @@ FAKEEOF
 
     # Happy path: hostile-looking answer reaches the child as one literal argv element.
     mkq awaiting-human
+    # N1-60: seed the escalated event the runner would already have written (full question
+    # packed into reason, as escalate() in scripts/n1-queue-run.sh does) before --answer runs.
+    jq -nc '{ts:"t",queue:"q1",run_id:"R1",event:"escalated",ticket:"T-1",outcome:"",pr:"",
+        session:"0000abcd",duration_s:null,
+        reason:({question:"Back-port?",options:["Back-port","Skip"],recommended:"Back-port",rationale:""}|tostring)}' \
+        >> "$q/events.jsonl"
     printf '%s' "B; \$(touch $tmp/pwned) \"q\"" > "$af"
     ans T-1
     assert_eq "answer: rc 0" "0" "$rc"
@@ -1301,7 +1394,9 @@ FAKEEOF
     assert_eq "answer: question file removed" "no" "$([ -e "$q/.question-T-1.json" ] && echo yes || echo no)"
     assert_eq "answer: relay marker written" "yes" "$([ -e "$q/.relay-T-1" ] && echo yes || echo no)"
     assert_eq "answer: answer_delivered event" "answer_delivered,T-1,0000abcd,R1" \
-        "$(jq -r '[.event,.ticket,.session,.run_id]|join(",")' "$q/events.jsonl")"
+        "$(jq -r 'select(.event=="answer_delivered") | [.event,.ticket,.session,.run_id]|join(",")' "$q/events.jsonl")"
+    assert_eq "N1-60: full question survives --answer + file removal" "Back-port?" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .question' "$q/events.jsonl")"
 
     # Size cap: 5000 chars -> 4000 + marker.
     mkq awaiting-human
@@ -2201,6 +2296,9 @@ test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
 test_bg_sequential
 test_bg_awaiting
+test_bg_awaiting_oversized_question
+test_bg_awaiting_oversized_control_chars
+test_bg_awaiting_oversized_emoji
 test_bg_awaiting_timeout
 test_bg_deploy_pending
 test_bg_deploy_flag_cleared_mid_run
