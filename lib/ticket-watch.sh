@@ -57,3 +57,48 @@ n1_tw_cmp() {
     [ -n "$out" ] && printf '%s\n' "$out"
     return 0
 }
+
+n1_tw_delta() {
+    # Usage: n1_tw_delta <ID> <issue.json> [changelog-page.json...]
+    # External delta = comments with an unseen (id, updated) key and changelog items, both by
+    # authors != me. Persists the advanced cursor BEFORE printing, so one change never fires twice
+    # (pause/resume, re-plan). Prints one compact JSON digest, or nothing when every change is our
+    # own. rc 1 and cursor untouched on bad input. A truncated last page keeps the old updated, so
+    # the next probe re-hits and the paging continues from changelog_since.
+    local f="$N1_HOME/memory/$1/.ticket-watch" issue="$2" res tmp
+    shift 2
+    [ -f "$f" ] || return 1
+    res=$(jq -nc --slurpfile cur "$f" --slurpfile iss "$issue" \
+        --arg done "$(n1_config_val '.tracker.statuses.done')" \
+        --arg blocked "$(n1_config_val '.tracker.statuses.blocked')" '
+        def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f‎‏  ‪-‮⁦-⁩؜]"; " ") | .[:1500];
+        $cur[0] as $c | $iss[0] as $i | [inputs] as $pages
+        | if ($c.me | type) != "string" or ($i.updated | type) != "string"
+             or ($pages | all(.entries | type == "array") | not) then error("bad input") else . end
+        | ($c.seen // []) as $seen
+        | [($i.comments // [])[] | select(.authorAccountId != $c.me)
+           | select("\(.id)@\(.updated)" as $k | any($seen[]; . == $k) | not)] as $new
+        | [$pages[].entries[] | select(.authorAccountId != $c.me)
+           | (.author // "" | s) as $a | .created as $t
+           | .items[] | {author: $a, created: $t, field: (.field // "" | s), from: (.from // "" | s), to: (.to // "" | s)}] as $items
+        | ([$items[] | select(.field == "status" and ((.to == $done and $done != "") or (.to == $blocked and $blocked != ""))) | .to] | last) as $stop
+        | (($pages | last // {}) | .truncated == true) as $trunc
+        | ([$pages[].entries[].created] | last) as $lastc
+        | {cursor: ($c + {
+              updated: (if $trunc then $c.updated else $i.updated end),
+              changelog_since: ($lastc // $c.changelog_since),
+              seen: [($i.comments // [])[] | "\(.id)@\(.updated)"]}),
+           digest: (if ($new | length) == 0 and ($items | length) == 0 then null else
+              {comments: [$new[:10][] | (.id | tostring) as $id
+                  | {id: ($id | s), author: (.author // "" | s), created, updated,
+                     edited: any($seen[]; startswith("\($id)@")), body: (.body // "" | s)}],
+               dropped: ([($new | length) - 10, 0] | max),
+               changes: $items[:10],
+               status_stop: $stop,
+               description_edited: any($items[]; .field == "description")} end)}
+        ' "$@" </dev/null 2>/dev/null) || return 1
+    [ -n "$res" ] || return 1
+    tmp=$(mktemp "$f.XXXXXX") || return 1
+    if jq -c '.cursor' <<<"$res" > "$tmp"; then mv "$tmp" "$f"; else rm -f "$tmp"; return 1; fi
+    jq -c '.digest // empty' <<<"$res"
+}

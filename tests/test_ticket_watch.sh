@@ -56,7 +56,66 @@ out=$(n1_tw_cmp "$ID" "$T/bad.json"); rc=$?
 assert_eq "cmp: garbage rc 1" "1" "$rc"
 assert_eq "cmp: garbage silent" "" "$out"
 
-# @@DELTA@@  (Task 2 inserts delta tests here)
+# ---- n1_tw_delta ----
+reset() { cp "$T/cur0" "$M/.ticket-watch"; }
+c_own=$(printf '{"id":"100","authorAccountId":"me-1","author":"Me","body":"N1 enrichment","created":"%s","updated":"%s"}' "$TC" "$TC")
+printf '{"updated":"%s","comments":[%s,{"id":"101","authorAccountId":"me-1","author":"Me","body":"N1 PR link","created":"%s","updated":"%s"}]}' "$T1" "$c_own" "$T1" "$T1" > "$T/issue-own.json"
+printf '{"entries":[{"id":"1","authorAccountId":"me-1","author":"Me","created":"2026-10-17T10:30:00.000+0000","items":[{"field":"status","from":"To Do","to":"In Progress"}]}],"truncated":false}' > "$T/log-own.json"
+printf '{"entries":[],"truncated":false}' > "$T/log-empty.json"
+printf '{"updated":"%s","comments":[%s,{"id":"200","authorAccountId":"al-2","author":"Alice","body":"Please also export CSV x\\u001b[2Jy","created":"%s","updated":"%s"}]}' "$T1" "$c_own" "$T1" "$T1" > "$T/issue-ext.json"
+printf '{"updated":"2026-10-17T12:00:00.000+0000","comments":[%s,{"id":"200","authorAccountId":"al-2","author":"Alice","body":"Edited ask","created":"%s","updated":"2026-10-17T12:00:00.000+0000"}]}' "$c_own" "$T1" > "$T/issue-edit.json"
+ext_log() { printf '{"entries":[{"id":"%s","authorAccountId":"al-2","author":"Alice","created":"%s","items":[{"field":"%s","from":"a","to":"%s"}]}],"truncated":%s}' "$1" "$2" "$3" "$4" "$5"; }
+ext_log 7 "2026-10-17T10:40:00.000+0000" status Done false > "$T/log-done.json"
+ext_log 8 "2026-10-17T10:40:00.000+0000" status Blocked false > "$T/log-blocked.json"
+ext_log 9 "2026-10-17T10:40:00.000+0000" status "In Review" false > "$T/log-review.json"
+ext_log 10 "2026-10-17T10:40:00.000+0000" description "New AC: CSV" false > "$T/log-desc.json"
+ext_log 11 "2026-10-17T10:10:00.000+0000" labels x true > "$T/log-p1.json"
+ext_log 12 "2026-10-17T10:20:00.000+0000" description y false > "$T/log-p2.json"
+
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-own.json")
+assert_eq "delta: own-only -> silent" "" "$out"
+assert_eq "delta: own-only advances updated" "$T1" "$(jq -r .updated "$M/.ticket-watch")"
+assert_eq "delta: own-only advances changelog_since" "2026-10-17T10:30:00.000+0000" "$(jq -r .changelog_since "$M/.ticket-watch")"
+assert_eq "delta: own comment recorded as seen" "2" "$(jq '.seen | length' "$M/.ticket-watch")"
+
+reset; out=$(n1_tw_delta "$ID" "$T/issue-ext.json" "$T/log-empty.json")
+assert_eq "delta: external comment surfaced" "200" "$(jq -r '.comments[0].id' <<<"$out")"
+assert_eq "delta: own comment excluded" "1" "$(jq '.comments | length' <<<"$out")"
+assert_eq "delta: new comment not edited" "false" "$(jq -r '.comments[0].edited' <<<"$out")"
+assert_eq "delta: control chars stripped" "Please also export CSV x [2Jy" "$(jq -r '.comments[0].body' <<<"$out")"
+assert_eq "delta: idempotent second call" "" "$(n1_tw_delta "$ID" "$T/issue-ext.json" "$T/log-empty.json")"
+out=$(n1_tw_delta "$ID" "$T/issue-edit.json" "$T/log-empty.json")
+assert_eq "delta: edited comment flagged" "true" "$(jq -r '.comments[0].edited' <<<"$out")"
+
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-done.json")
+assert_eq "delta: external Done -> status_stop" "Done" "$(jq -r .status_stop <<<"$out")"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-blocked.json")
+assert_eq "delta: external Blocked -> status_stop" "Blocked" "$(jq -r .status_stop <<<"$out")"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-review.json")
+assert_eq "delta: other status -> no status_stop" "null" "$(jq -r .status_stop <<<"$out")"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-desc.json")
+assert_eq "delta: external description -> description_edited" "true" "$(jq -r .description_edited <<<"$out")"
+
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-p1.json" "$T/log-p2.json")
+assert_eq "delta: two pages merged" "2" "$(jq '.changes | length' <<<"$out")"
+assert_eq "delta: since = last page's last created" "2026-10-17T10:20:00.000+0000" "$(jq -r .changelog_since "$M/.ticket-watch")"
+reset; n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-p1.json" >/dev/null
+assert_eq "delta: truncated last page keeps old updated" "$T0" "$(jq -r .updated "$M/.ticket-watch")"
+assert_eq "delta: truncated last page still advances since" "2026-10-17T10:10:00.000+0000" "$(jq -r .changelog_since "$M/.ticket-watch")"
+
+jq -n --arg u "$T1" '{updated:$u, comments:[range(12) | {id:"\(300+.)", authorAccountId:"al-2", author:"Alice", body:("b" * 2000), created:$u, updated:$u}]}' > "$T/issue-many.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-many.json" "$T/log-empty.json")
+assert_eq "delta: comments capped at 10" "10" "$(jq '.comments | length' <<<"$out")"
+assert_eq "delta: dropped count" "2" "$(jq .dropped <<<"$out")"
+assert_eq "delta: body capped at 1500" "1500" "$(jq '.comments[0].body | length' <<<"$out")"
+
+reset; out=$(n1_tw_delta "$ID" "$T/bad.json" "$T/log-empty.json"); rc=$?
+assert_eq "delta: bad issue rc 1" "1" "$rc"
+assert_eq "delta: bad issue silent" "" "$out"
+assert_eq "delta: bad issue leaves cursor byte-identical" "$(cat "$T/cur0")" "$(cat "$M/.ticket-watch")"
+reset; n1_tw_delta "$ID" "$T/issue-own.json" "$T/bad.json" >/dev/null; rc=$?
+assert_eq "delta: bad changelog page rc 1" "1" "$rc"
+assert_eq "delta: bad page leaves cursor" "$(cat "$T/cur0")" "$(cat "$M/.ticket-watch")"
 # @@REPLAN@@ (Task 3 inserts replan tests here)
 
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
