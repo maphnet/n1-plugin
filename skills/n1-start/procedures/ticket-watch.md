@@ -13,11 +13,11 @@ source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"
 n1_tw_on "$ID" seed; jq -r '.me // empty' "$N1_HOME/memory/$ID/.ticket-watch" 2>/dev/null
 ```
 
-No output: skip this section. Otherwise the first line is `<WATCH_MCP>\t<CHANGELOG_OP>`. If no second line (cached `me`) is printed, call `mcp__<WATCH_MCP>__jcm_getCurrentUser` and use its `accountId` as `ME`; else `ME` is empty. Call `mcp__<WATCH_MCP>__jcm_getIssue` for `<ID>` and write the raw response to `M/.tw-issue.json`. Then:
+No output: skip this section. Otherwise the first line is `<WATCH_MCP>\t<CHANGELOG_OP>`. If no second line (cached `me`) is printed, call `mcp__<WATCH_MCP>__jcm_getCurrentUser` and substitute its `accountId` literally for `<ME>` in the next snippet; else substitute an empty string. Call `mcp__<WATCH_MCP>__jcm_getIssue` for `<ID>` and write the raw response to `M/.tw-issue.json`. Then:
 
 ```bash
 source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"
-n1_tw_seed "$ID" "$N1_HOME/memory/$ID/.tw-issue.json" "$ME" || echo "ticket-watch: seed failed, watch off"
+n1_tw_seed "$ID" "$N1_HOME/memory/$ID/.tw-issue.json" "<ME>" || echo "ticket-watch: seed failed, watch off"
 rm -f "$N1_HOME/memory/$ID/.tw-issue.json"
 ```
 
