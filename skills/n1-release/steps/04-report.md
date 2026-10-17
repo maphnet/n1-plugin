@@ -30,6 +30,7 @@ On custom procedure completion:
 Release procedure complete.
 
 Steps completed: <N>/<total>
+Release: <release URL> / created <release URL> / missing (declined) / missing (create failed) / not yet created (workflow still running) / missing (tag not on origin)
 Ticket: <ID> — comment posted / no ticket inferred / tracker not configured
 ```
 

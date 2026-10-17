@@ -35,6 +35,8 @@ If the user picks 2, prompt: `Enter version:` and read their input as the new `V
 Condition lines (informational -- no hard blocks):
 - `Merge SHA: <sha>` -- found in overview.md
 - `No merge SHA found (standalone run — not post-finish)` -- not available
+- `GitHub Release: will be created` -- built-in flow, or the custom `procedure` text contains `gh release create`
+- `GitHub Release: will NOT be created by this procedure (checked afterwards; you may be offered one)` -- custom `procedure` without `gh release create`
 
 If 3 -> STOP.
 
@@ -109,3 +111,39 @@ Report the release URL from `gh release view "${TAG}" --json url --jq '.url'` on
      ```
 
 4. **On abort** at any step -> report which step was abandoned, remind the user of what ran and what didn't, leave cleanup to the user.
+
+### Release check (custom flow)
+
+Runs after the walk completes; skipped when the walk was aborted. A custom procedure can push a tag without creating a GitHub Release, so verify the outcome:
+
+```bash
+# Prints one verdict: release:exists | release:missing-no-remote-tag | release:missing-workflow-running | release:missing-offer
+WF="$(git rev-parse --show-toplevel 2>/dev/null)/.github/workflows"
+if gh release view "${TAG}" &>/dev/null; then echo "release:exists"
+elif [ -z "$(git ls-remote --tags origin "refs/tags/${TAG}" 2>/dev/null)" ]; then echo "release:missing-no-remote-tag"
+else
+  SHA=$(git rev-parse -q --verify "refs/tags/${TAG}^{commit}" 2>/dev/null)
+  V=release:missing-offer
+  if [ -n "$SHA" ] && grep -rqE 'gh release create|action-gh-release|actions/create-release' "$WF" 2>/dev/null; then
+    for i in 1 2 3; do  # the run may not be registered yet right after the tag push
+      if gh run list --commit "$SHA" --json status --jq '.[].status' 2>/dev/null | grep -qE 'in_progress|queued|waiting|pending|requested'; then V=release:missing-workflow-running; break; fi
+      [ "$i" -lt 3 ] && sleep "${N1_RELEASE_CHECK_WAIT:-10}"
+    done
+  fi
+  echo "$V"
+fi
+```
+
+Known ceiling: the SHA resolves from the local tag only; if the tag was created elsewhere and not fetched, the workflow check is skipped and the offer appears.
+
+- `release:exists` → take the URL from `gh release view "${TAG}" --json url --jq '.url'` for the report.
+- `release:missing-no-remote-tag` → tell the user: "No GitHub Release for `<TAG>`, and the tag was not found on origin (or origin is unreachable). If the tag is not pushed yet, push it (`git push origin "<TAG>"`), then run `gh release create "<TAG>" --generate-notes --verify-tag`." No offer: `--verify-tag` fails without the remote tag. `git ls-remote` failures (no `origin`, network) land here too, hence the "or unreachable" wording; `gh` auth is already checked in Step 1 of the skill.
+- `release:missing-workflow-running` → tell the user: "No GitHub Release for `<TAG>` yet; a workflow that creates Releases is still running on the tag commit. Re-check with `gh release view "<TAG>"`." No offer.
+- `release:missing-offer` → ask the user (no autonomy setting skips this ask):
+  ```
+  No GitHub Release exists for <TAG>; the procedure did not create one.
+  Create it with `gh release create "<TAG>" --generate-notes --verify-tag`?
+  1 — Create
+  2 — Skip
+  ```
+  On 1, run `gh release create "${TAG}" --generate-notes --verify-tag` (add `--draft` when `release.draft` is true) and report the URL. If it fails, report the error and leave it to the user. On 2, record `missing (declined)`; this is not a failure.
