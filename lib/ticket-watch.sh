@@ -63,8 +63,10 @@ n1_tw_delta() {
     # External delta = comments with an unseen (id, updated) key and changelog items, both by
     # authors != me. Persists the advanced cursor BEFORE printing, so one change never fires twice
     # (pause/resume, re-plan). Prints one compact JSON digest, or nothing when every change is our
-    # own. rc 1 and cursor untouched on bad input. A truncated last page keeps the old updated, so
-    # the next probe re-hits and the paging continues from changelog_since.
+    # own. rc 1 and cursor untouched on bad input. A truncated last page or any item past the cap (10
+    # comments, ~10 changelog items by whole entries) stays pending: old updated kept, withheld comments
+    # not marked seen, changelog_since stops at the last delivered entry. A truncated last page also
+    # checks the current getIssue status for Done/Blocked.
     local f="$N1_HOME/memory/$1/.ticket-watch" issue="$2" res tmp
     shift 2
     [ -f "$f" ] || return 1
@@ -79,23 +81,37 @@ n1_tw_delta() {
         | ($c.seen // []) as $seen
         | [($i.comments // [])[] | select(.authorAccountId != $c.me)
            | select("\(.id)@\(.updated)" as $k | any($seen[]; . == $k) | not)] as $new
-        | [$pages[].entries[] | select(.authorAccountId != $c.me)
-           | (.author // "" | s) as $a | (.created | s) as $t
+        | ([$pages[].entries[] | select(.authorAccountId != $c.me)]
+           | reduce .[] as $e ({inc: [], n: 0, full: false};
+               ([$e.items[]] | length) as $k
+               | if .full or (.inc | length) > 0 and .n + $k > 10 then .full = true
+                 else {inc: (.inc + [$e]), n: (.n + $k), full: false} end)) as $sel
+        | ([$pages[].entries[] | select(.authorAccountId != $c.me)] | map([.items[]] | length) | add // 0) as $total
+        | [$sel.inc[] | (.author // "" | s) as $a | (.created | s) as $t
            | .items[] | {author: $a, created: $t, field: (.field // "" | t), from: (.from // "" | t), to: (.to // "" | t)}] as $items
-        | ([$items[] | select(.field == "status")] | last) as $ls
-        | (if $ls != null and (($ls.to == $done and $done != "") or ($ls.to == $blocked and $blocked != "")) then $ls.to else null end) as $stop
+        | ([$pages[].entries[] | . as $e | $e.items[] | select(.field == "status")
+            | {by: $e.authorAccountId, to: (.to // "" | t)}] | last) as $ls
         | (($pages | last // {}) | .truncated == true) as $trunc
-        | ([$pages[].entries[].created] | last) as $lastc
+        | (if $trunc then ($i.status // "" | t)
+           elif $ls != null and $ls.by != $c.me then $ls.to else "" end) as $st
+        | (if ($st == $done and $done != "") or ($st == $blocked and $blocked != "") then $st else null end) as $stop
+        | ($total - ($items | length)) as $cwith
+        | ($new[:10] | map("\(.id)@\(.updated)")) as $inc
+        | ([$new[10:][] | .id | tostring]) as $wid
+        | (($new | length) > 10 or $cwith > 0) as $held
         | {cursor: ($c + {
-              updated: (if $trunc then $c.updated else $i.updated end),
-              changelog_since: ($lastc // $c.changelog_since),
-              seen: [($i.comments // [])[] | "\(.id)@\(.updated)"]}),
-           digest: (if ($new | length) == 0 and ($items | length) == 0 then null else
+              updated: (if $trunc or $held then $c.updated else $i.updated end),
+              changelog_since: (if $cwith > 0 then $sel.inc[-1].created else ([$pages[].entries[].created] | last) // $c.changelog_since end),
+              seen: ([($i.comments // [])[] | "\(.id)@\(.updated)" as $k
+                      | select(.authorAccountId == $c.me or any($seen[]; . == $k) or any($inc[]; . == $k)) | $k]
+                     + [$seen[] | select(. as $k | any($wid[]; . as $w | $k | startswith($w + "@")))])}),
+           digest: (if ($new | length) == 0 and ($items | length) == 0 and $stop == null then null else
               {comments: [$new[:10][] | (.id | tostring) as $id
                   | {id: ($id | s), author: (.author // "" | s), created: (.created | s), updated: (.updated | s),
                      edited: any($seen[]; startswith("\($id)@")), body: (.body // "" | s)}],
-               dropped: ([($new | length) - 10, 0] | max),
-               changes: $items[:10],
+               dropped: (([($new | length) - 10, 0] | max) + $cwith),
+               pending: $held,
+               changes: $items,
                status_stop: $stop,
                description_edited: any($items[]; .field == "description")} end)}
         ' "$@" </dev/null 2>/dev/null) || return 1

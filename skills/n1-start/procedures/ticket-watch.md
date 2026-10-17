@@ -52,4 +52,4 @@ source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"; M="$N1_HOME/mem
 n1_tw_delta "$ID" "$M/.tw-issue.json" "$M"/.tw-log-*.json; rm -f "$M/.tw-issue.json" "$M"/.tw-log-*.json
 ```
 
-No output: only our own writes changed the ticket (cursor advanced). Continue. Output: the JSON digest; read `procedures/ticket-watch-react.md` and go to its § React. The cursor has already advanced, so this delta never fires again.
+No output: only our own writes changed the ticket (cursor advanced). Continue. Output: the JSON digest; read `procedures/ticket-watch-react.md` and go to its § React. The cursor has already advanced past the delivered items, so they never fire again. When the digest has `pending: true`, the remainder (items past the 10-item caps, or pages past the 5-page limit) is delivered at the next check point.

@@ -127,6 +127,32 @@ assert_eq "delta: bad issue leaves cursor byte-identical" "$(cat "$T/cur0")" "$(
 reset; n1_tw_delta "$ID" "$T/issue-own.json" "$T/bad.json" >/dev/null; rc=$?
 assert_eq "delta: bad changelog page rc 1" "1" "$rc"
 assert_eq "delta: bad page leaves cursor" "$(cat "$T/cur0")" "$(cat "$M/.ticket-watch")"
+# ---- N1-89 follow-up 1: caps keep the remainder pending ----
+reset; out=$(n1_tw_delta "$ID" "$T/issue-many.json" "$T/log-empty.json")
+assert_eq "cap: withheld comments not seen" "0" "$(jq '[.seen[] | select(startswith("310@") or startswith("311@"))] | length' "$M/.ticket-watch")"
+assert_eq "cap: delivered comments seen" "1" "$(jq '[.seen[] | select(startswith("300@"))] | length' "$M/.ticket-watch")"
+assert_eq "cap: withheld keeps old updated" "$T0" "$(jq -r .updated "$M/.ticket-watch")"
+assert_eq "cap: pending flag" "true" "$(jq .pending <<<"$out")"
+out=$(n1_tw_delta "$ID" "$T/issue-many.json" "$T/log-empty.json")
+assert_eq "cap: remainder delivered next check" "2" "$(jq '.comments | length' <<<"$out")"
+assert_eq "cap: remainder first id" "310" "$(jq -r '.comments[0].id' <<<"$out")"
+assert_eq "cap: drained advances updated" "$T1" "$(jq -r .updated "$M/.ticket-watch")"
+jq -nc '{entries:[range(12) | {id:"\(40+.)", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:\(10+.):00.000+0000", items:[{field:"labels",from:"a",to:"b"}]}], truncated:false}' > "$T/log-12.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-12.json")
+assert_eq "cap: changes capped at 10" "10" "$(jq '.changes | length' <<<"$out")"
+assert_eq "cap: changelog_since stops at last delivered" "2026-10-17T11:19:00.000+0000" "$(jq -r .changelog_since "$M/.ticket-watch")"
+assert_eq "cap: changelog withheld keeps updated" "$T0" "$(jq -r .updated "$M/.ticket-watch")"
+assert_eq "cap: changelog dropped count" "2" "$(jq .dropped <<<"$out")"
+# truncated last page: current status decides
+jq '.status="Blocked"' "$T/issue-own.json" > "$T/issue-blk.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-blk.json" "$T/log-p1.json")
+assert_eq "trunc: current Blocked -> status_stop" "Blocked" "$(jq -r .status_stop <<<"$out")"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-p1.json")
+assert_eq "trunc: current non-stop -> none" "null" "$(jq -r .status_stop <<<"$out")"
+# later own-account transition cancels an external stop
+printf '{"entries":[{"id":"50","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:40:00.000+0000","items":[{"field":"status","from":"In Progress","to":"Blocked"}]},{"id":"51","authorAccountId":"me-1","author":"Me","created":"2026-10-17T10:50:00.000+0000","items":[{"field":"status","from":"Blocked","to":"In Progress"}]}],"truncated":false}' > "$T/log-ownflip.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-ownflip.json")
+assert_eq "status: own later transition -> no stop" "null" "$(jq -r .status_stop <<<"$out")"
 # ---- n1_tw_replan_reset ----
 A=$(_n1_step_display_name analysis); Q=$(_n1_step_display_name qa)
 printf -- '---\nstep: review\nqa_fix_cycle: 2\nreview_fix_cycle: 1\n---\n\n- [x] %s\n- [x] %s\n- [x] Unrelated checklist item\n' "$A" "$Q" > "$M/overview.md"
