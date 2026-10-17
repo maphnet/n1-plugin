@@ -266,12 +266,24 @@ test_merge_ready_line() {
     unset GH_JSON
 }
 
+# N1-89: ticket-watch events written by a child are relayed.
+test_ticket_watch_events_relayed() {
+    local q out; q=$(newq q_tw)
+    ev "$q" R1 ticket_comment ticket=T-1 reason="Alice: please also cover CSV"
+    ev "$q" R1 ticket_replan ticket=T-1 reason="description edited by Alice"
+    ev "$q" R1 queue_done reason="done"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    has "N1-89: ticket_comment relayed" "T-1 has a new external ticket comment: Alice: please also cover CSV" "$out"
+    has "N1-89: ticket_replan relayed" "T-1 re-planned after an external ticket change: description edited by Alice" "$out"
+}
+
 test_run_id_filter_and_finish
 test_escalated_terminal_outcome_hints_n1_start
 test_adopt_from_eof_and_resume
 test_runner_dead
 test_sessions_independent
 test_question_mirror_and_answer_delivered
+test_ticket_watch_events_relayed
 test_escalated_json_reason_fallback_rendered
 test_escalated_json_reason_fallback_over_300_chars_rendered
 test_escalated_plaintext_brace_reason_unchanged
