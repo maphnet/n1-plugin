@@ -116,6 +116,19 @@ assert_eq "delta: bad issue leaves cursor byte-identical" "$(cat "$T/cur0")" "$(
 reset; n1_tw_delta "$ID" "$T/issue-own.json" "$T/bad.json" >/dev/null; rc=$?
 assert_eq "delta: bad changelog page rc 1" "1" "$rc"
 assert_eq "delta: bad page leaves cursor" "$(cat "$T/cur0")" "$(cat "$M/.ticket-watch")"
-# @@REPLAN@@ (Task 3 inserts replan tests here)
+# ---- n1_tw_replan_reset ----
+A=$(_n1_step_display_name analysis); Q=$(_n1_step_display_name qa)
+printf -- '---\nstep: review\nqa_fix_cycle: 2\nreview_fix_cycle: 1\n---\n\n- [x] %s\n- [x] %s\n- [x] Unrelated checklist item\n' "$A" "$Q" > "$M/overview.md"
+assert_eq "replan: first reset prints 1" "1" "$(n1_tw_replan_reset "$ID")"
+assert_eq "replan: step back to ticket" "ticket" "$(n1_read_frontmatter "$M/overview.md" step)"
+assert_eq "replan: qa_fix_cycle zeroed" "0" "$(n1_read_frontmatter "$M/overview.md" qa_fix_cycle)"
+assert_eq "replan: review_fix_cycle zeroed" "0" "$(n1_read_frontmatter "$M/overview.md" review_fix_cycle)"
+assert_eq "replan: analysis box unticked" "1" "$(grep -c -- "- \[ \] $A" "$M/overview.md")"
+assert_eq "replan: qa box unticked" "1" "$(grep -c -- "- \[ \] $Q" "$M/overview.md")"
+assert_eq "replan: unrelated box kept" "1" "$(grep -c -- '- \[x\] Unrelated checklist item' "$M/overview.md")"
+assert_eq "replan: second reset prints 2" "2" "$(n1_tw_replan_reset "$ID")"
+n1_tw_replan_reset "$ID" >/dev/null; rc=$?
+assert_eq "replan: cap of 2 -> rc 1" "1" "$rc"
+assert_eq "replan: cap leaves count at 2" "2" "$(n1_read_frontmatter "$M/overview.md" replan_count)"
 
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

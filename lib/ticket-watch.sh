@@ -102,3 +102,23 @@ n1_tw_delta() {
     if jq -c '.cursor' <<<"$res" > "$tmp"; then mv "$tmp" "$f"; else rm -f "$tmp"; return 1; fi
     jq -c '.digest // empty' <<<"$res"
 }
+
+n1_tw_replan_reset() {
+    # Usage: n1_tw_replan_reset <ID> — prepares overview.md for an autonomous re-plan from Step 1.
+    # Prints the new replan_count; rc 1 with no change once the per-run cap (2) is used.
+    local o="$N1_HOME/memory/$1/overview.md" n k s name tmp
+    [ -f "$o" ] || return 1
+    n=$(n1_read_frontmatter "$o" replan_count); case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    [ "$n" -ge 2 ] && return 1
+    for k in qa_fix_cycle tq_fix_cycle review_fix_cycle clean_passes local_test_fix_cycle ci_fix_cycle; do
+        [ -n "$(n1_read_frontmatter "$o" "$k")" ] && n1_write_frontmatter "$o" "$k" 0
+    done
+    n1_write_frontmatter "$o" step ticket
+    n1_write_frontmatter "$o" replan_count "$((n + 1))"
+    for s in ticket analysis brainstorm plan plan-review estimation implementation qa review fix local-testing pr ci finish; do
+        name=$(_n1_step_display_name "$s"); [ -n "$name" ] || continue
+        tmp=$(mktemp "$o.XXXXXX") || return 1
+        sed "s/- \[x\] ${name}/- [ ] ${name}/" "$o" > "$tmp" && mv "$tmp" "$o" || rm -f "$tmp"
+    done
+    printf '%s\n' "$((n + 1))"
+}
