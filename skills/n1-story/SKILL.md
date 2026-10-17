@@ -1,6 +1,6 @@
 ---
 name: n1-story
-description: "Create a story with subtask tickets from conversation context: /n1:n1-story [description]"
+description: "Use when creating backlog tickets from an initiative or conversation whose scope may require a Story and child tickets."
 argument-hint: "[description or brain dump text]"
 model: sonnet
 effort: medium
@@ -10,9 +10,9 @@ effort: medium
 
 **Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
-Create a story with subtask tickets from the current conversation context and/or a provided description. All tickets are created as backlog items — no status transitions, no branch creation.
+Choose ticket structure from the confirmed scope: one atomic change in one repository becomes a standalone Task; meaningful decomposition or required cross-repository work becomes a Story with child tickets. All tickets are created as backlog items — no status transitions, no branch creation.
 
-**Announce at start:** "I'm using the n1-story skill to create a story with subtasks."
+**Announce at start:** "I'm using the n1-story skill to determine the scope and create backlog tickets."
 
 ## N1_HOME Resolution
 
