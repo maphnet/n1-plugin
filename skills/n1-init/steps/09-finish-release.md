@@ -263,8 +263,12 @@ Use {{RELEASE_TAG}}, {{VERSION}}, {{MERGE_SHA}}, {{TICKET_ID}} as placeholders.
 Example:
 1. Build: `npm run build`
 2. Push tag: `git push origin {{RELEASE_TAG}}`
-3. Deploy to prod: `ssh prod@example.com "cd /app && git pull && pm2 restart all"`
-4. Verify: `curl -f https://example.com/healthz`
+3. Create GitHub Release: `gh release create "{{RELEASE_TAG}}" --generate-notes --verify-tag`
+4. Deploy to prod: `ssh prod@example.com "cd /app && git pull && pm2 restart all"`
+5. Verify: `curl -f https://example.com/healthz`
+
+A custom procedure must include a release-creation step (like step 3) unless a workflow
+creates the Release. Without one, /n1:n1-release checks afterwards and offers to create it.
 
 Waiting for your procedure:
 ```

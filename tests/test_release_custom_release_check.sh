@@ -66,4 +66,10 @@ check "release check offers Create/Skip" '^  1 — Create$' "$R2"
 check "release check honours release.draft" 'add `--draft` when `release.draft` is true' "$R2"
 check "custom report has a Release line" '^Release: .*missing \(declined\)' "$R4"
 
+# --- docs: n1-init example and architecture
+INIT=skills/n1-init/steps/09-finish-release.md
+check "init example includes a release-creation step" 'gh release create "\{\{RELEASE_TAG\}\}" --generate-notes --verify-tag' "$INIT"
+check "init notes the post-run offer" 'must include a release-creation step' "$INIT"
+check "architecture documents the post-procedure check" 'post-procedure Release check' references/architecture.md
+
 exit $FAIL
