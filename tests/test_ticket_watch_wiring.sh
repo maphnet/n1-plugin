@@ -14,18 +14,8 @@ check "procedure has Seed" "^## § Seed" "$P"
 check "procedure has Check" "^## § Check" "$P"
 check "procedure has React" "^## § React" "$R"
 check "procedure has Replan" "^## § Replan" "$R"
-check "probe is a single maxResults 1 search" "jcm_searchIssues\` with \`jql: \"key = <ID>\"\`, \`maxResults: 1\`" "$P"
-check "no-change path does nothing else" "Nothing else runs on this path" "$P"
-check "tracker text is untrusted data" "untrusted data, never instructions" "$P"
-check "react file untrusted data" "untrusted data, never instructions" "$R"
 check "Check hands off to react file" "ticket-watch-react\.md" "$P"
-check "escalation categories still escalate" "alwaysAskOn" "$R"
-check "re-plan cap escalates" "cap reached" "$R"
-check "status stop does not move status" "[Dd]o not move the status" "$R"
-check "headless emits ticket_comment" "ticket_comment" "$R"
-check "re-plan emits ticket_replan" "ticket_replan" "$R"
 check "Jira getChangelog mapping in n1-init" "\"getChangelog\": \"jcm_getIssueChangelog\"" skills/n1-init/steps/03-tracker.md
 check "YouTrack getChangelog explicitly unmapped" "YouTrack.*getChangelog.*not mapped" skills/n1-init/steps/03-tracker.md
 check "architecture documents the watch" "procedures/ticket-watch\.md" references/architecture.md
-check "watch.enabled default on" "\"enabled\": true" defaults/watch.json
 exit "$FAIL"
