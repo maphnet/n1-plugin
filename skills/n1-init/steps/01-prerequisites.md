@@ -104,6 +104,10 @@ CFG="$N1_HOME/config.json"
 TRACKER_TYPE=$(jq -r '.tracker.type // empty' "$CFG")
 HAS_GET_ISSUE_LINKS=$(jq -r '.tracker.operations.getIssueLinks // empty' "$CFG")
 HAS_VERSION_MCP=$(jq -r '.tracker.versionMcp // empty' "$CFG")
+ASSIGN_TO_CREATOR=$(jq -r '.tracker.assignToCreator | if . == null then "true" else tostring end' "$CFG")
+HAS_GET_USER=$(jq -r '.tracker.operations.getCurrentUser // empty' "$CFG")
+HAS_ASSIGN=$(jq -r '.tracker.operations.assign // empty' "$CFG")
+READ_OP=$(jq -r '.tracker.operations.readTicket // empty' "$CFG")
 ```
 
 **Gap: `tracker.operations.getIssueLinks` missing**
@@ -159,6 +163,37 @@ Applies when `HAS_GET_ISSUE_LINKS` is empty and `TRACKER_TYPE` is `"jira"` or `"
     ```
     Log: "Added tracker.operations.getIssueLinks."
   - **If 2:** Continue.
+
+**Gap: `getCurrentUser` and/or `assign` missing**
+
+Applies when `ASSIGN_TO_CREATOR` is not `false`, `TRACKER_TYPE` is `"jira"` or `"youtrack"`, and `HAS_GET_USER` or `HAS_ASSIGN` is empty. (Without them, n1-start, n1-ticket and n1-story cannot assign tickets and now print a warning.)
+
+Infer the operation names deterministically (never guess):
+
+| Condition | getCurrentUser | assign |
+|---|---|---|
+| `TRACKER_TYPE` is `youtrack` | `get_current_user` | `change_issue_assignee` |
+| `TRACKER_TYPE` is `jira` and `READ_OP` starts with `jcm_` (jc-mcp) | `jcm_getCurrentUser` | `jcm_editIssue` |
+| `TRACKER_TYPE` is `jira` and `READ_OP` is `getJiraIssue` (Atlassian) | `atlassianUserInfo` | `editJiraIssue` |
+| anything else | cannot infer | cannot infer |
+
+- **If a row matched:** set `G` and `A` to that row's names, list only the missing ones in `<missing>`, and inform the user:
+  ```
+  tracker.assignToCreator is on but the config is missing tracker.operations.<missing>.
+  Without it, new and entered tickets are not assigned to you.
+
+  1 — Add <missing> (<G> / <A>)
+  2 — Skip
+  ```
+  - **If 1:** Patch. Only empty or absent keys are filled; every other key and any present value is left untouched:
+    ```bash
+    jq --arg g "$G" --arg a "$A" \
+       '.tracker.operations.getCurrentUser |= (if . == null or . == "" then $g else . end) | .tracker.operations.assign |= (if . == null or . == "" then $a else . end)' \
+       "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+    ```
+    Log: "Added tracker.operations.<missing>."
+  - **If 2:** Continue.
+- **If no row matched:** print "Config is missing tracker.operations.<missing> and cannot infer operation names; set them manually in config.json (or set tracker.assignToCreator to false)." and continue without writing.
 
 If no gaps are found, proceed silently.
 
