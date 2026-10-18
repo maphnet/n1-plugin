@@ -144,7 +144,7 @@ else
 fi
 
 # 8. N1-94 SEC-2 / CR-3: developer never pushes; orchestrator path gate; validator scope pins
-if grep -qF 'Do NOT push' "$P3" && grep -qF 'push:blocked' "$P3" && grep -qF 'allowed.txt' "$P3"; then
+if grep -qF 'Do NOT push' "$P3" && grep -qF 'push:blocked' "$P3" && grep -qF 'codex-push-gate.sh' "$P3"; then
     echo "PASS: 03-codex-review gates the push on allowed paths"
 else
     echo "FAIL: 03-codex-review push gate missing"; FAIL=1

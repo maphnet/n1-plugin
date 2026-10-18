@@ -60,10 +60,11 @@ find "$N1_HOME/scratch" -maxdepth 1 -name 'codex-validate-*' -mtime +1 -exec rm 
 case "$PR_NUMBER" in ''|*[!0-9]*) echo "validate:diff unavailable"; PR_NUMBER="";; esac
 VALIDATE_DIR=$(mktemp -d "$N1_HOME/scratch/codex-validate-$PR_NUMBER.XXXXXX") || { echo "validate:diff unavailable"; VALIDATE_DIR=""; }
 if [ -n "$PR_NUMBER" ] && [ -n "$VALIDATE_DIR" ] && timeout -k 5 30 gh pr diff "$PR_NUMBER" > "$VALIDATE_DIR/pr.diff" 2>/dev/null && [ -s "$VALIDATE_DIR/pr.diff" ]; then
-  grep '^+++ b/' "$VALIDATE_DIR/pr.diff" | sed 's|^+++ b/||' > "$VALIDATE_DIR/allowed.txt"
+  timeout -k 5 30 gh pr diff "$PR_NUMBER" --name-only > "$VALIDATE_DIR/allowed.txt" 2>/dev/null
   echo "validate:diff file=$VALIDATE_DIR/pr.diff"
 else
   echo "validate:diff unavailable"
+  case "$VALIDATE_DIR" in "$N1_HOME"/scratch/codex-validate-*) rm -rf "$VALIDATE_DIR";; esac
 fi
 echo "code_reviewer_model=$CODE_REVIEWER_MODEL code_reviewer_effort=$CODE_REVIEWER_EFFORT"
 ```
@@ -126,9 +127,11 @@ PR_NUMBER="<the PR number from step 4>"
 case "$PR_NUMBER" in ''|*[!0-9]*) echo "reconcile:bad-pr-number"; exit 1;; esac
 mkdir -p "$N1_HOME/scratch"
 find "$N1_HOME/scratch" -maxdepth 1 -name 'reconcile-start-*' -mtime +1 -delete 2>/dev/null
-RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX")
-gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null || true
-echo "reconcile:start file=$RECONCILE_START_FILE"
+RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX") && HEAD_REF_FILE=$(mktemp "$N1_HOME/scratch/reconcile-head-$PR_NUMBER.XXXXXX") \
+  && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null \
+  && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName > "$HEAD_REF_FILE" 2>/dev/null \
+  && [ -s "$RECONCILE_START_FILE" ] && [ -s "$HEAD_REF_FILE" ] \
+  && echo "reconcile:start file=$RECONCILE_START_FILE headref=$HEAD_REF_FILE" || echo "reconcile:start unavailable"
 ```
 
 Dispatch developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`. Pass:
@@ -173,29 +176,21 @@ Output format:
 
 **Wait for the developer persona to return its result before proceeding.**
 
-After developer returns, gate the push on the changed paths and count the cycle:
+After developer returns, count the cycle and gate the push. The gate script fails closed and prints exactly one `push:` status line:
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
-n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "cross_host_fix_cycle"
 VALIDATE_DIR="<the VALIDATE_DIR path from validate:diff>"
 RECONCILE_START_FILE="<the path from reconcile:start>"
-BAD=$(git diff --name-only "$(cat "$RECONCILE_START_FILE")"..HEAD | grep -vxFf "$VALIDATE_DIR/allowed.txt"; git diff --name-only "$(cat "$RECONCILE_START_FILE")"..HEAD | grep -E '^\.github/|\.gitlab-ci|Jenkinsfile|\.env|credentials')
-if [ -n "$BAD" ]; then
-  echo "push:blocked paths=$(echo "$BAD" | sort -u | tr '\n' ' ')"
-elif git push; then
-  echo "push:ok"
-else
-  echo "push:rejected"
-fi
+HEAD_REF_FILE="<the headref path from reconcile:start>"
+echo "cross_host_fix_cycle=$(n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "cross_host_fix_cycle")"
+bash "$N1_ROOT/scripts/codex-push-gate.sh" "$RECONCILE_START_FILE" "$VALIDATE_DIR/allowed.txt" "$(cat "$HEAD_REF_FILE" 2>/dev/null)"
 ```
 
-If the output says `push:blocked`, do not push: route all fixed findings to human review and list the out-of-scope paths in the triage reply.
+If the output says `push:none`, `push:blocked` (out-of-scope paths, or `gate-unavailable`) or `push:rejected`, nothing reached the PR: route the affected findings to human review and list any blocked paths in the triage reply. `push:ok` means the fix is on the PR.
 
 If `cross_host_fix_cycle` >= `maxFixAttempts`, proceed to **Reconcile PR Body** below with remaining unfixed findings routed to human review. Do NOT retry — default `maxFixAttempts=1` means a single pass.
-
-If the output says `push:rejected`, route its Fixed findings to human review (the fix is not on the PR) and continue.
 
 If the developer dispatch fails (error, timeout, empty output), log warning inline, route all confirmed findings to human review, and still proceed to **Reconcile PR Body** below — the developer may have committed a partial fix before failing (nothing is pushed unless the gate above ran). Do not block the pipeline.
 
@@ -225,7 +220,7 @@ source ~/.n1/preamble.sh
 PR_NUMBER="<the PR number from step 4>"
 case "$PR_NUMBER" in ''|*[!0-9]*) echo "triage:bad-pr-number"; exit 1;; esac
 mkdir -p "$N1_HOME/scratch"
-TRIAGE_FILE=$(mktemp "$N1_HOME/scratch/codex-triage-$PR_NUMBER.XXXXXX")
+TRIAGE_FILE=$(mktemp "$N1_HOME/scratch/codex-triage-$PR_NUMBER.XXXXXX") || { echo "triage:file-unavailable"; exit 1; }
 echo "triage:file=$TRIAGE_FILE"
 ```
 
@@ -238,9 +233,11 @@ TRIAGE_FILE="<the path from triage:file=>"
 gh pr comment "$PR_NUMBER" --body-file "$TRIAGE_FILE" && echo "triage:posted" || echo "triage:comment-failed"
 rm -f "$TRIAGE_FILE"
 VALIDATE_DIR="<the VALIDATE_DIR path from validate:diff, or empty>"
-[ -n "$VALIDATE_DIR" ] && rm -rf "$VALIDATE_DIR"
+case "$VALIDATE_DIR" in "$N1_HOME"/scratch/codex-validate-*) rm -rf "$VALIDATE_DIR";; esac
 RECONCILE_START_FILE="<the path from reconcile:start, or empty>"
 [ -n "$RECONCILE_START_FILE" ] && rm -f "$RECONCILE_START_FILE"
+HEAD_REF_FILE="<the headref path from reconcile:start, or empty>"
+[ -n "$HEAD_REF_FILE" ] && rm -f "$HEAD_REF_FILE"
 ```
 
 If the output says `triage:comment-failed`, write the same triage text to `$N1_HOME/memory/$ID/codex-triage.md` with the file-write mechanism (the file is removed above, so write it from the same text) and warn inline.
