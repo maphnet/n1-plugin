@@ -108,6 +108,7 @@ ASSIGN_TO_CREATOR=$(jq -r '.tracker.assignToCreator | if . == null then "true" e
 HAS_GET_USER=$(jq -r '.tracker.operations.getCurrentUser // empty' "$CFG")
 HAS_ASSIGN=$(jq -r '.tracker.operations.assign // empty' "$CFG")
 READ_OP=$(jq -r '.tracker.operations.readTicket // empty' "$CFG")
+HAS_ADD_TO_SPRINT=$(jq -r '.tracker.operations.addToSprint // empty' "$CFG")
 ```
 
 **Gap: `tracker.operations.getIssueLinks` missing**
@@ -194,6 +195,25 @@ Infer the operation names deterministically (never guess):
     Log: "Added tracker.operations.<missing>."
   - **If 2:** Continue.
 - **If no row matched:** print "Config is missing tracker.operations.<missing> and cannot infer operation names; set them manually in config.json (or set tracker.assignToCreator to false)." and continue without writing.
+
+**Gap: `tracker.operations.addToSprint` missing**
+
+Applies when `TRACKER_TYPE` is `"jira"`, `HAS_ADD_TO_SPRINT` is empty, and the tool list (load the tool if deferred, per HOST ROUTING) exposes `mcp__<server>__jcm_addToActiveSprint`, where `<server>` is `tracker.versionMcp` else `tracker.mcp`. Not exposed → skip silently. Otherwise inform the user:
+```
+Config is missing tracker.operations.addToSprint.
+Without it, tickets moved to In Progress are not added to the active sprint.
+Kanban boards are skipped safely.
+
+1 — Add addToSprint (jcm_addToActiveSprint) (Recommended: the tool list exposes jcm_addToActiveSprint on <server>)
+2 — Skip
+```
+- **If 1:** Patch (only when empty):
+  ```bash
+  jq '.tracker.operations.addToSprint |= (if . == null or . == "" then "jcm_addToActiveSprint" else . end)' \
+     "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+  ```
+  Log: "Added tracker.operations.addToSprint."
+- **If 2:** Continue.
 
 If no gaps are found, proceed silently.
 
