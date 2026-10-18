@@ -198,13 +198,13 @@ Infer the operation names deterministically (never guess):
 
 **Gap: `tracker.operations.addToSprint` missing**
 
-Applies when `TRACKER_TYPE` is `"jira"`, `HAS_ADD_TO_SPRINT` is empty, and (`HAS_VERSION_MCP` is set or `READ_OP` starts with `jcm_`). Inform the user:
+Applies when `TRACKER_TYPE` is `"jira"`, `HAS_ADD_TO_SPRINT` is empty, and the tool list (load the tool if deferred, per HOST ROUTING) exposes `mcp__<server>__jcm_addToActiveSprint`, where `<server>` is `tracker.versionMcp` else `tracker.mcp`. Not exposed → skip silently. Otherwise inform the user:
 ```
 Config is missing tracker.operations.addToSprint.
 Without it, tickets moved to In Progress are not added to the active sprint.
-Requires a jc-mcp with jcm_addToActiveSprint; on an older jc-mcp the call fails with a non-fatal warning. Kanban boards are skipped safely.
+Kanban boards are skipped safely.
 
-1 — Add addToSprint (jcm_addToActiveSprint) (Recommended: Kanban boards return skipped, so it is safe; Scrum boards need it)
+1 — Add addToSprint (jcm_addToActiveSprint) (Recommended: the tool list exposes jcm_addToActiveSprint on <server>)
 2 — Skip
 ```
 - **If 1:** Patch (only when empty):
