@@ -143,4 +143,18 @@ else
     echo "FAIL: 03-codex-review triage reply splices text into shell"; FAIL=1
 fi
 
+# 8. N1-94 SEC-2 / CR-3: developer never pushes; orchestrator path gate; validator scope pins
+if grep -qF 'Do NOT push' "$P3" && grep -qF 'push:blocked' "$P3" && grep -qF 'allowed.txt' "$P3"; then
+    echo "PASS: 03-codex-review gates the push on allowed paths"
+else
+    echo "FAIL: 03-codex-review push gate missing"; FAIL=1
+fi
+for pat in 'Scope override' 'do not run git' 'UNVERIFIED' 'authoritative'; do
+    if grep -qF -- "$pat" "$P3"; then
+        echo "PASS: 03-codex-review validator has '$pat'"
+    else
+        echo "FAIL: 03-codex-review validator missing '$pat'"; FAIL=1
+    fi
+done
+
 exit $FAIL
