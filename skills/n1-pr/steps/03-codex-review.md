@@ -256,7 +256,7 @@ Summary: N findings triaged — X auto-fixed, V dismissed by validator, Y dismis
 
 ## Step 10: Report
 
-If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings: N1 already fixed what the validator confirmed. List remaining human-review items as informational only.
+If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings, whether or not triage ran. List any unfixed Codex items as informational only.
 
 Every path through Step 9 ends here: review ran, skipped, timed out, failed, or went through triage. Print this report exactly once. It is the end of n1-pr.
 

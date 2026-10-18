@@ -27,6 +27,22 @@ eq "start not ancestor" "push:blocked paths=gate-unavailable" "$(git rev-parse H
 eq "fork pr" "push:blocked paths=fork-pr" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/fork")"
 eq "repo mismatch" "push:blocked paths=gate-unavailable" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/other")"
 eq "missing repo file" "push:blocked paths=gate-unavailable" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/nope")"
+# URL normalization (empty diff -> push:none proves the repo check passed)
+HEADSHA=$(git rev-parse HEAD); echo "$HEADSHA" > "$TMP/head"
+for u in git@github.com:acme/repo.git https://host/Acme/Repo/; do
+  git remote set-url origin "$u"
+  eq "url $u accepted" "push:none" "$(bash "$G" "$TMP/head" "$TMP/allowed" feat "$TMP/repo")"
+done
+git remote set-url origin https://host/acme/repo-evil
+eq "evil url rejected" "push:blocked paths=gate-unavailable" "$(bash "$G" "$TMP/head" "$TMP/allowed" feat "$TMP/repo")"
+git remote set-url origin git@github.com:acme/repo.git
+git config remote.origin.pushurl https://host/other/repo.git
+eq "pushurl mismatch rejected" "push:blocked paths=gate-unavailable" "$(bash "$G" "$TMP/head" "$TMP/allowed" feat "$TMP/repo")"
+git config --unset remote.origin.pushurl
+git remote set-url origin "$TMP/o/acme/repo.git"
+git remote rename origin gone
+eq "missing origin rejected" "push:blocked paths=gate-unavailable" "$(bash "$G" "$TMP/head" "$TMP/allowed" feat "$TMP/repo")"
+git remote rename gone origin
 echo b2 >> b.txt; git commit -qam outside
 eq "path outside allowed" "push:blocked paths=b.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo")"
 git reset -q --hard HEAD~1
@@ -39,6 +55,12 @@ git reset -q --hard HEAD~2
 echo q > tmpf.txt; git add tmpf.txt; git commit -qm addf; git rm -q tmpf.txt; git commit -qm rmf
 eq "add-then-remove forbidden file" "push:blocked paths=tmpf.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo")"
 git reset -q --hard HEAD~2
+BASE=$(git rev-parse HEAD)
+git checkout -q -b side; echo s > s.txt; git add s.txt; git commit -qm side
+git checkout -q feat; echo a3 >> a.txt; git commit -qam mainline
+git merge -q --no-ff --no-commit side; echo evil > b.txt; git add -A; git commit -qm merge
+eq "merge commit out-of-scope path" "push:blocked paths=b.txt s.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo")"
+git reset -q --hard "$BASE"; git branch -q -D side
 echo a2 >> a.txt; git commit -qam fix
 printf '#!/bin/sh\nsleep 30\n' > "$TMP/w/.git/hooks/pre-push"; chmod +x "$TMP/w/.git/hooks/pre-push"
 eq "hanging push times out" "push:rejected" "$(N1_CODEX_PUSH_TIMEOUT=2 bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo")"
