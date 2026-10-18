@@ -136,4 +136,11 @@ else
     echo "FAIL: 03-codex-review Triage Reply lacks validator dismissals"; FAIL=1
 fi
 
+# 7. N1-94 SEC-1: untrusted triage text reaches the PR only through a file
+if grep -qF -- '--body-file "$TRIAGE_FILE"' "$P3" && ! grep -qE 'TRIAGE_BODY=|printf .*\$TRIAGE_BODY' "$P3"; then
+    echo "PASS: 03-codex-review posts triage via --body-file, never via shell variable"
+else
+    echo "FAIL: 03-codex-review triage reply splices text into shell"; FAIL=1
+fi
+
 exit $FAIL

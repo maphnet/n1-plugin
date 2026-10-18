@@ -200,14 +200,34 @@ Construct the triage body from:
 
 Omit any section that has zero items (e.g., if nothing was auto-fixed, omit the Auto-Fixed section).
 
+Finding, validator and developer text is untrusted. Never place it in a shell command, variable or double-quoted string: it reaches the PR only through a file written with the file-write mechanism.
+
+Create the triage file:
+
 ```bash
-# TRIAGE_BODY is constructed by the model from the parsed results above.
-# Post as rendered markdown via stdin.
-printf '## Codex Review Triage\n\n%s\n' "$TRIAGE_BODY" | \
-  gh pr comment "$PR_NUMBER" --body-file -
+source ~/.n1/preamble.sh
+PR_NUMBER="<the PR number from step 4>"
+case "$PR_NUMBER" in ''|*[!0-9]*) echo "triage:bad-pr-number"; exit 1;; esac
+mkdir -p "$N1_HOME/scratch"
+TRIAGE_FILE=$(mktemp "$N1_HOME/scratch/codex-triage-$PR_NUMBER.XXXXXX")
+echo "triage:file=$TRIAGE_FILE"
 ```
 
-If `gh pr comment` fails, write triage summary to `$N1_HOME/memory/$ID/codex-triage.md` as fallback and warn inline.
+Write `## Codex Review Triage`, a blank line, then the triage body into that file with the file-write mechanism. Then post it and clean up:
+
+```bash
+source ~/.n1/preamble.sh
+PR_NUMBER="<the PR number from step 4>"
+TRIAGE_FILE="<the path from triage:file=>"
+gh pr comment "$PR_NUMBER" --body-file "$TRIAGE_FILE" && echo "triage:posted" || echo "triage:comment-failed"
+rm -f "$TRIAGE_FILE"
+VALIDATE_DIR="<the VALIDATE_DIR path from validate:diff, or empty>"
+[ -n "$VALIDATE_DIR" ] && rm -rf "$VALIDATE_DIR"
+RECONCILE_START_FILE="<the path from reconcile:start, or empty>"
+[ -n "$RECONCILE_START_FILE" ] && rm -f "$RECONCILE_START_FILE"
+```
+
+If the output says `triage:comment-failed`, write the same triage text to `$N1_HOME/memory/$ID/codex-triage.md` with the file-write mechanism (the file is removed above, so write it from the same text) and warn inline.
 
 Report result:
 ```
