@@ -644,6 +644,7 @@ n1_ci_checks_val() {
 n1_cross_host_review_val() {
     # Usage: n1_cross_host_review_val <key>
     # Keys: enabled, autoTriage, maxFixAttempts
+    # Defaults: enabled=true, autoTriage=true (explicit false opts out, N1-94), maxFixAttempts=1
     local key="$1"
     local file; file=$(n1_config_file)
     if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
@@ -655,7 +656,7 @@ n1_cross_host_review_val() {
     fi
     case "$key" in
         enabled)          printf 'true' ;;
-        autoTriage)       printf 'false' ;;
+        autoTriage)       printf 'true' ;;
         maxFixAttempts)   printf '1' ;;
         *)                printf '' ;;
     esac

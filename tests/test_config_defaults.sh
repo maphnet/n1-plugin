@@ -124,5 +124,21 @@ assert_eq "T45: n1-start finish gate no longer reads finishWork.enabled" "no" "$
 assert_eq "T46: n1-ci chaining calls n1_finish_enabled" "yes" "$(has "$SK/n1-ci/steps/01-monitor.md" 'n1_finish_enabled')"
 assert_eq "T47: n1-finish merge calls n1_merge_allowed" "yes" "$(has "$SK/n1-finish/steps/02-merge.md" 'n1_merge_allowed')"
 
+# ---- Test group 7: cross-host review defaults (N1-94) ----
+export N1_HOME="$TMPDIR_TEST/xhr"
+mkdir -p "$N1_HOME"
+echo '{}' > "$N1_HOME/config.json"
+assert_eq "T50: crossHostReview autoTriage defaults true" "true" "$(n1_cross_host_review_val autoTriage)"
+assert_eq "T51: crossHostReview enabled defaults true" "true" "$(n1_cross_host_review_val enabled)"
+assert_eq "T52: crossHostReview maxFixAttempts defaults 1" "1" "$(n1_cross_host_review_val maxFixAttempts)"
+
+export N1_HOME="$TMPDIR_TEST/xhr-missing"
+assert_eq "T53: autoTriage defaults true without config" "true" "$(n1_cross_host_review_val autoTriage)"
+
+export N1_HOME="$TMPDIR_TEST/xhr"
+echo '{"crossHostReview":{"autoTriage":false,"maxFixAttempts":2}}' > "$N1_HOME/config.json"
+assert_eq "T54: autoTriage explicit false opts out" "false" "$(n1_cross_host_review_val autoTriage)"
+assert_eq "T55: maxFixAttempts override" "2" "$(n1_cross_host_review_val maxFixAttempts)"
+
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

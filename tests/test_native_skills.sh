@@ -98,4 +98,69 @@ else
     echo "FAIL: 03-codex-review splits codex dispatch and comment posting across blocks"; FAIL=1
 fi
 
+# 6. N1-94: Codex findings are validated by a read-only reviewer before developer fixes
+first_line() { grep -n -m1 -E -- "$1" "$P3" | cut -d: -f1; }
+SEV=$(first_line '^### Severity Parsing'); VAL=$(first_line '^### Validation')
+FIX=$(first_line '^### Fix Cycle'); TR=$(first_line '^### Triage Reply')
+CRV=$(first_line 'n1_resolve_agent code-reviewer review')
+if [ -n "$SEV" ] && [ -n "$VAL" ] && [ -n "$FIX" ] && [ "$SEV" -lt "$VAL" ] && [ "$VAL" -lt "$FIX" ]; then
+    echo "PASS: 03-codex-review has Validation between Severity Parsing and Fix Cycle"
+else
+    echo "FAIL: 03-codex-review Validation section missing or misplaced"; FAIL=1
+fi
+if [ -n "$CRV" ] && [ -n "$VAL" ] && [ -n "$FIX" ] && [ "$CRV" -gt "$VAL" ] && [ "$CRV" -lt "$FIX" ]; then
+    echo "PASS: 03-codex-review Validation dispatches code-reviewer"
+else
+    echo "FAIL: 03-codex-review Validation does not resolve code-reviewer"; FAIL=1
+fi
+for pat in 'Critical, High, or Medium' 'CONFIRMED | INVALID' '<CONFIRMED_FINDINGS>' 'on by default' 'gh pr diff' 'nothing to triage'; do
+    if grep -qF -- "$pat" "$P3"; then
+        echo "PASS: 03-codex-review has '$pat'"
+    else
+        echo "FAIL: 03-codex-review missing '$pat'"; FAIL=1
+    fi
+done
+if grep -qF 'HIGH_PLUS' "$P3"; then
+    echo "FAIL: 03-codex-review developer still receives unvalidated High+ findings"; FAIL=1
+else
+    echo "PASS: 03-codex-review developer receives only confirmed findings"
+fi
+if grep -qiE 'ask the user|wait for (the )?user' "$P3"; then
+    echo "FAIL: 03-codex-review triage prompts the user"; FAIL=1
+else
+    echo "PASS: 03-codex-review triage never prompts the user"
+fi
+if [ -n "$TR" ] && sed -n "${TR},\$p" "$P3" | grep -qF 'Dismissed by validator'; then
+    echo "PASS: 03-codex-review Triage Reply lists validator dismissals"
+else
+    echo "FAIL: 03-codex-review Triage Reply lacks validator dismissals"; FAIL=1
+fi
+
+# 7. N1-94 SEC-1: untrusted triage text reaches the PR only through a file
+if grep -qF -- '--body-file "$TRIAGE_FILE"' "$P3" && ! grep -qE 'TRIAGE_BODY=|printf .*\$TRIAGE_BODY' "$P3"; then
+    echo "PASS: 03-codex-review posts triage via --body-file, never via shell variable"
+else
+    echo "FAIL: 03-codex-review triage reply splices text into shell"; FAIL=1
+fi
+
+# 8. N1-94 SEC-2 / CR-3: developer never pushes; orchestrator path gate; validator scope pins
+if grep -qF 'Do NOT push' "$P3" && grep -qF 'push:blocked' "$P3" && grep -qF 'codex-push-gate.sh' "$P3"; then
+    echo "PASS: 03-codex-review gates the push on allowed paths"
+else
+    echo "FAIL: 03-codex-review push gate missing"; FAIL=1
+fi
+for pat in 'Scope override' 'do not run git' 'UNVERIFIED' 'authoritative'; do
+    if grep -qF -- "$pat" "$P3"; then
+        echo "PASS: 03-codex-review validator has '$pat'"
+    else
+        echo "FAIL: 03-codex-review validator missing '$pat'"; FAIL=1
+    fi
+done
+
+if grep -q 'qualityEscalations' skills/n1-pr/steps/03-codex-review.md && grep -q 'auto-accept' skills/n1-pr/steps/03-codex-review.md && grep -q 'never end with an offer or question to fix Codex findings' skills/n1-pr/steps/03-codex-review.md && grep -q 'never close Gate 3 with an offer or question to fix Codex findings' skills/n1-start/procedures/output-gates.md; then
+    echo "PASS: 03-codex-review fixes all findings under auto-accept and never offers"
+else
+    echo "FAIL: 03-codex-review missing qualityEscalations auto-accept / no-offer rule"; FAIL=1
+fi
+
 exit $FAIL
