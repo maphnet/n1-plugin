@@ -98,4 +98,42 @@ else
     echo "FAIL: 03-codex-review splits codex dispatch and comment posting across blocks"; FAIL=1
 fi
 
+# 6. N1-94: Codex findings are validated by a read-only reviewer before developer fixes
+first_line() { grep -n -m1 -E -- "$1" "$P3" | cut -d: -f1; }
+SEV=$(first_line '^### Severity Parsing'); VAL=$(first_line '^### Validation')
+FIX=$(first_line '^### Fix Cycle'); TR=$(first_line '^### Triage Reply')
+CRV=$(first_line 'n1_resolve_agent code-reviewer review')
+if [ -n "$SEV" ] && [ -n "$VAL" ] && [ -n "$FIX" ] && [ "$SEV" -lt "$VAL" ] && [ "$VAL" -lt "$FIX" ]; then
+    echo "PASS: 03-codex-review has Validation between Severity Parsing and Fix Cycle"
+else
+    echo "FAIL: 03-codex-review Validation section missing or misplaced"; FAIL=1
+fi
+if [ -n "$CRV" ] && [ -n "$VAL" ] && [ -n "$FIX" ] && [ "$CRV" -gt "$VAL" ] && [ "$CRV" -lt "$FIX" ]; then
+    echo "PASS: 03-codex-review Validation dispatches code-reviewer"
+else
+    echo "FAIL: 03-codex-review Validation does not resolve code-reviewer"; FAIL=1
+fi
+for pat in 'Critical, High, or Medium' 'CONFIRMED | INVALID' '<CONFIRMED_FINDINGS>' 'on by default' 'gh pr diff' 'nothing to triage'; do
+    if grep -qF -- "$pat" "$P3"; then
+        echo "PASS: 03-codex-review has '$pat'"
+    else
+        echo "FAIL: 03-codex-review missing '$pat'"; FAIL=1
+    fi
+done
+if grep -qF 'HIGH_PLUS' "$P3"; then
+    echo "FAIL: 03-codex-review developer still receives unvalidated High+ findings"; FAIL=1
+else
+    echo "PASS: 03-codex-review developer receives only confirmed findings"
+fi
+if grep -qiE 'ask the user|wait for (the )?user' "$P3"; then
+    echo "FAIL: 03-codex-review triage prompts the user"; FAIL=1
+else
+    echo "PASS: 03-codex-review triage never prompts the user"
+fi
+if [ -n "$TR" ] && sed -n "${TR},\$p" "$P3" | grep -qF 'Dismissed by validator'; then
+    echo "PASS: 03-codex-review Triage Reply lists validator dismissals"
+else
+    echo "FAIL: 03-codex-review Triage Reply lacks validator dismissals"; FAIL=1
+fi
+
 exit $FAIL
