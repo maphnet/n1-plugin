@@ -28,6 +28,10 @@ git reset -q --hard HEAD~1
 echo z >> .github/ci.yml; git commit -qam ci
 eq "denylisted path even if allowed" "push:blocked paths=.github/ci.yml" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat)"
 git reset -q --hard HEAD~1
+git mv b.txt c.txt; git commit -qm rename; printf 'a.txt\nc.txt\n' > "$TMP/allowed-c"
+eq "rename source not hidden" "push:blocked paths=b.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-c" feat)"
+git reset -q --hard HEAD~2
+echo a2 >> a.txt; git commit -qam fix
 eq "in-scope change pushes" "push:ok" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat)"
 eq "remote ref updated" "$(git rev-parse HEAD)" "$(git -C "$TMP/origin.git" rev-parse feat)"
 exit $FAIL

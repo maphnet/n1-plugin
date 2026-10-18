@@ -126,12 +126,12 @@ IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent develope
 PR_NUMBER="<the PR number from step 4>"
 case "$PR_NUMBER" in ''|*[!0-9]*) echo "reconcile:bad-pr-number"; exit 1;; esac
 mkdir -p "$N1_HOME/scratch"
-find "$N1_HOME/scratch" -maxdepth 1 -name 'reconcile-start-*' -mtime +1 -delete 2>/dev/null
+find "$N1_HOME/scratch" -maxdepth 1 \( -name 'reconcile-start-*' -o -name 'reconcile-head-*' \) -mtime +1 -delete 2>/dev/null
 RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX") && HEAD_REF_FILE=$(mktemp "$N1_HOME/scratch/reconcile-head-$PR_NUMBER.XXXXXX") \
   && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null \
   && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName > "$HEAD_REF_FILE" 2>/dev/null \
   && [ -s "$RECONCILE_START_FILE" ] && [ -s "$HEAD_REF_FILE" ] \
-  && echo "reconcile:start file=$RECONCILE_START_FILE headref=$HEAD_REF_FILE" || echo "reconcile:start unavailable"
+  && echo "reconcile:start file=$RECONCILE_START_FILE headref=$HEAD_REF_FILE" || { rm -f "${RECONCILE_START_FILE:-}" "${HEAD_REF_FILE:-}"; echo "reconcile:start unavailable"; }
 ```
 
 Dispatch developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`. Pass:
