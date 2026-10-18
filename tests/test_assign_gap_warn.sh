@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N1-95: assign-to-creator gap warning helper, skill wiring, and n1-init backfill.
+# Assign-to-creator gap warning helper, skill wiring, and n1-init backfill.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source lib/config.sh

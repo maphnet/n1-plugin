@@ -747,11 +747,7 @@ n1_active_run_clear() {
 }
 
 n1_assign_gap_warn() {
-    # Usage: n1_assign_gap_warn   (no args)
-    # N1-95: warn (one stdout line) when assign-to-creator is effectively on but
-    # tracker.operations.getCurrentUser and/or assign is unconfigured. Silent when
-    # assignToCreator is false, no tracker is configured, or nothing is missing.
-    # Always returns 0; fail-open like n1_config_val.
+    # Usage: n1_assign_gap_warn   (no args; always returns 0, fail-open like n1_config_val)
     local ttype atc missing=""
     ttype=$(n1_config_val ".tracker.type")
     case "$ttype" in ""|none) return 0 ;; esac

@@ -182,7 +182,7 @@ Infer the operation names deterministically (never guess):
   tracker.assignToCreator is on but the config is missing tracker.operations.<missing>.
   Without it, new and entered tickets are not assigned to you.
 
-  1 — Add <missing> (<G> / <A>)
+  1 — Add <missing> (<G> / <A>) (Recommended: assignToCreator is on, so without it tickets are not assigned to you)
   2 — Skip
   ```
   - **If 1:** Patch. Only empty or absent keys are filled; every other key and any present value is left untouched:
