@@ -745,3 +745,17 @@ n1_active_run_clear() {
     file=$(n1_active_run_file) || return 0
     rm -f "$file"
 }
+
+n1_assign_gap_warn() {
+    # Usage: n1_assign_gap_warn   (no args; always returns 0, fail-open like n1_config_val)
+    local ttype atc missing=""
+    ttype=$(n1_config_val ".tracker.type")
+    case "$ttype" in ""|none) return 0 ;; esac
+    atc=$(n1_config_val ".tracker.assignToCreator")
+    [ "$atc" = "false" ] && return 0
+    [ -n "$(n1_config_val ".tracker.operations.getCurrentUser")" ] || missing="getCurrentUser"
+    [ -n "$(n1_config_val ".tracker.operations.assign")" ] || missing="${missing:+$missing and }assign"
+    [ -n "$missing" ] || return 0
+    printf 'Warning: tracker.assignToCreator is on but config lacks tracker.operations.%s; tickets will not be assigned. Run /n1:n1-init to add it, or set tracker.assignToCreator to false.\n' "$missing"
+    return 0
+}

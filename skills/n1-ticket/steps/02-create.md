@@ -94,7 +94,7 @@ DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
 
 **Assign to creator** (if configured):
 
-Skip if ANY of: `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` is empty, `ASSIGN_OP` is empty.
+Skip if ANY of: `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` is empty, `ASSIGN_OP` is empty (warning already shown at compose).
 
 1. Call `mcp__<TRACKER_MCP>__<GET_USER_OP>` (no args).
    - Jira: extract `account_id`

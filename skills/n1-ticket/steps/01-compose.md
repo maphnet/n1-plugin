@@ -37,7 +37,9 @@ CREATE_ISSUE_OP=$(n1_config_val '.tracker.operations.createIssue')
 GET_USER_OP=$(n1_config_val '.tracker.operations.getCurrentUser')
 ASSIGN_OP=$(n1_config_val '.tracker.operations.assign')
 ASSIGN_TO_CREATOR=$(n1_config_val '.tracker.assignToCreator')
+n1_assign_gap_warn
 ```
+Relay any `Warning:` line printed above to the user once; the warning is not repeated at creation.
 
 ## Step 4: Light Analysis
 
