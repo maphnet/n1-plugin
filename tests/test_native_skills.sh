@@ -157,4 +157,10 @@ for pat in 'Scope override' 'do not run git' 'UNVERIFIED' 'authoritative'; do
     fi
 done
 
+if grep -q 'qualityEscalations' skills/n1-pr/steps/03-codex-review.md && grep -q 'auto-accept' skills/n1-pr/steps/03-codex-review.md && grep -q 'never end with an offer or question to fix Codex findings' skills/n1-pr/steps/03-codex-review.md; then
+    echo "PASS: 03-codex-review fixes all findings under auto-accept and never offers"
+else
+    echo "FAIL: 03-codex-review missing qualityEscalations auto-accept / no-offer rule"; FAIL=1
+fi
+
 exit $FAIL

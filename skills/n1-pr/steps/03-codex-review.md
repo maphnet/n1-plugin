@@ -33,17 +33,19 @@ source ~/.n1/preamble.sh
 
 MAX_FIX_ATTEMPTS=$(n1_cross_host_review_val 'maxFixAttempts')
 echo "maxFixAttempts=$MAX_FIX_ATTEMPTS"
+QE=$(n1_autonomy_val 'qualityEscalations')
+echo "qualityEscalations=$QE"
 ```
 
 Scan the findings for severity indicators. Look for patterns (case-insensitive): `Critical`, `High`, `Medium`, `Low`, as well as formatted variants like `**High**`, `**High - <title>**`, `### High`, `[HIGH]`, `Severity: High`. Use the marker that labels a finding (its heading or severity line), not words inside the finding body.
 
 Classify findings into two groups:
-- **Fix candidates** (Critical, High, or Medium severity) — validated below, then auto-fixed if confirmed
-- **Human-review findings** (Low or unclassified) — flagged for human review
+- If `qualityEscalations=auto-accept` (hands-off): **every finding is a fix candidate**, whatever its severity (including Low and unclassified). Severity does not gate; the validator decides.
+- Otherwise: **fix candidates** are Critical, High, or Medium findings, validated below, then auto-fixed if confirmed; **human-review findings** are Low or unclassified, flagged for human review.
 
 If the output reports no findings at all (for example a bare `No findings.`), there is nothing to triage: jump to **Step 10: Report** without posting a triage comment. Triage is on by default, so this keeps clean reviews from getting a noise comment.
 
-If severity markers are absent but the output does contain findings, treat ALL findings as unclassified and route to human review. Skip validation and the fix cycle and proceed directly to the triage reply.
+If severity markers are absent but the output does contain findings, treat ALL findings as unclassified. With `qualityEscalations=auto-accept`, send them all through Validation. Otherwise route them to human review, skip validation and the fix cycle, and proceed directly to the triage reply.
 
 ### Validation
 
@@ -126,12 +128,13 @@ IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent develope
 PR_NUMBER="<the PR number from step 4>"
 case "$PR_NUMBER" in ''|*[!0-9]*) echo "reconcile:bad-pr-number"; exit 1;; esac
 mkdir -p "$N1_HOME/scratch"
-find "$N1_HOME/scratch" -maxdepth 1 \( -name 'reconcile-start-*' -o -name 'reconcile-head-*' \) -mtime +1 -delete 2>/dev/null
-RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX") && HEAD_REF_FILE=$(mktemp "$N1_HOME/scratch/reconcile-head-$PR_NUMBER.XXXXXX") \
+find "$N1_HOME/scratch" -maxdepth 1 \( -name 'reconcile-start-*' -o -name 'reconcile-head-*' -o -name 'reconcile-repo-*' \) -mtime +1 -delete 2>/dev/null
+RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX") && HEAD_REF_FILE=$(mktemp "$N1_HOME/scratch/reconcile-head-$PR_NUMBER.XXXXXX") && REPO_FILE=$(mktemp "$N1_HOME/scratch/reconcile-repo-$PR_NUMBER.XXXXXX") \
   && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null \
   && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName > "$HEAD_REF_FILE" 2>/dev/null \
-  && [ -s "$RECONCILE_START_FILE" ] && [ -s "$HEAD_REF_FILE" ] \
-  && echo "reconcile:start file=$RECONCILE_START_FILE headref=$HEAD_REF_FILE" || { rm -f "${RECONCILE_START_FILE:-}" "${HEAD_REF_FILE:-}"; echo "reconcile:start unavailable"; }
+  && timeout -k 5 30 gh pr view "$PR_NUMBER" --json isCrossRepository,headRepositoryOwner,headRepository --jq 'if .isCrossRepository then "fork" else (.headRepositoryOwner.login + "/" + .headRepository.name) end' > "$REPO_FILE" 2>/dev/null \
+  && [ -s "$RECONCILE_START_FILE" ] && [ -s "$HEAD_REF_FILE" ] && [ -s "$REPO_FILE" ] \
+  && echo "reconcile:start file=$RECONCILE_START_FILE headref=$HEAD_REF_FILE repo=$REPO_FILE" || { rm -f "${RECONCILE_START_FILE:-}" "${HEAD_REF_FILE:-}" "${REPO_FILE:-}"; echo "reconcile:start unavailable"; }
 ```
 
 Dispatch developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`. Pass:
@@ -184,11 +187,12 @@ source "$N1_ROOT/lib/frontmatter.sh"
 VALIDATE_DIR="<the VALIDATE_DIR path from validate:diff>"
 RECONCILE_START_FILE="<the path from reconcile:start>"
 HEAD_REF_FILE="<the headref path from reconcile:start>"
+REPO_FILE="<the repo path from reconcile:start>"
 echo "cross_host_fix_cycle=$(n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "cross_host_fix_cycle")"
-bash "$N1_ROOT/scripts/codex-push-gate.sh" "$RECONCILE_START_FILE" "$VALIDATE_DIR/allowed.txt" "$(cat "$HEAD_REF_FILE" 2>/dev/null)"
+bash "$N1_ROOT/scripts/codex-push-gate.sh" "$RECONCILE_START_FILE" "$VALIDATE_DIR/allowed.txt" "$(cat "$HEAD_REF_FILE" 2>/dev/null)" "$REPO_FILE"
 ```
 
-If the output says `push:none`, `push:blocked` (out-of-scope paths, or `gate-unavailable`) or `push:rejected`, nothing reached the PR: route the affected findings to human review and list any blocked paths in the triage reply. `push:ok` means the fix is on the PR.
+If the output says `push:none`, `push:blocked` (out-of-scope paths in any outgoing commit, `fork-pr`, or `gate-unavailable`) or `push:rejected`, nothing reached the PR: route the affected findings to human review and list any blocked paths in the triage reply. `push:ok` means the fix is on the PR.
 
 If `cross_host_fix_cycle` >= `maxFixAttempts`, proceed to **Reconcile PR Body** below with remaining unfixed findings routed to human review. Do NOT retry — default `maxFixAttempts=1` means a single pass.
 
@@ -206,7 +210,7 @@ Construct the triage body from:
 - **Auto-Fixed** — findings the developer successfully fixed and pushed (from developer output, action=Fixed)
 - **Dismissed by validator** — findings the code-reviewer marked `INVALID`, each with its evidence and reason
 - **Dismissed by developer** — confirmed findings the developer evaluated and dismissed (from developer output, action=Dismissed), with reasoning
-- **For Human Review** — Low and unclassified findings, fix candidates without a validator verdict (diff fetch, dispatch or parse failure), and confirmed findings the developer could not fix or push
+- **For Human Review** — Low and unclassified findings (unless `qualityEscalations=auto-accept`, where they were validated and fixed like any other), fix candidates without a validator verdict (diff fetch, dispatch or parse failure), and confirmed findings the developer could not fix or push
 - **Summary** — "N findings triaged: X auto-fixed, V dismissed by validator, Y dismissed by developer, Z for human review"
 
 Omit any section that has zero items (e.g., if nothing was auto-fixed, omit the Auto-Fixed section).
@@ -238,6 +242,8 @@ RECONCILE_START_FILE="<the path from reconcile:start, or empty>"
 [ -n "$RECONCILE_START_FILE" ] && rm -f "$RECONCILE_START_FILE"
 HEAD_REF_FILE="<the headref path from reconcile:start, or empty>"
 [ -n "$HEAD_REF_FILE" ] && rm -f "$HEAD_REF_FILE"
+REPO_FILE="<the repo path from reconcile:start, or empty>"
+[ -n "$REPO_FILE" ] && rm -f "$REPO_FILE"
 ```
 
 If the output says `triage:comment-failed`, write the same triage text to `$N1_HOME/memory/$ID/codex-triage.md` with the file-write mechanism (the file is removed above, so write it from the same text) and warn inline.
@@ -249,6 +255,8 @@ Summary: N findings triaged — X auto-fixed, V dismissed by validator, Y dismis
 ```
 
 ## Step 10: Report
+
+If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings: N1 already fixed what the validator confirmed. List remaining human-review items as informational only.
 
 Every path through Step 9 ends here: review ran, skipped, timed out, failed, or went through triage. Print this report exactly once. It is the end of n1-pr.
 
