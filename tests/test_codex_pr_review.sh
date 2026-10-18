@@ -44,11 +44,12 @@ printf '{"session_id":"other"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/o
 printf '{"session_id":"review-test","stop_hook_active":true}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/retry"
 [ ! -s "$TMP/retry" ]
 printf 'PASS: omitted step records skip and requests continuation once, isolated by session\n'
-for scenario in disabled no-auth auth-timeout ran failed timeout post-failed diff-unavailable; do
+for scenario in disabled no-auth auth-timeout ran ran-optout failed timeout post-failed diff-unavailable; do
   unset AUTH_MODE REVIEW_MODE POST_MODE DIFF_MODE
   printf '{}\n' > "$N1_HOME/config.json"
   case "$scenario" in
     disabled) printf '{"crossHostReview":{"enabled":false}}\n' > "$N1_HOME/config.json";;
+    ran-optout) printf '{"crossHostReview":{"autoTriage":false}}\n' > "$N1_HOME/config.json";;
     no-auth) export AUTH_MODE=fail;;
     auth-timeout) export AUTH_MODE=hang;;
     failed) export REVIEW_MODE=fail;;
@@ -58,10 +59,19 @@ for scenario in disabled no-auth auth-timeout ran failed timeout post-failed dif
   esac
   N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=0.1 bash "$ROOT/scripts/codex-pr-review.sh" "$URL" > "$TMP/out"
   expected=$scenario
-  case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; post-failed) expected=ran;; diff-unavailable) expected=failed;; esac
+  case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; post-failed|ran-optout) expected=ran;; diff-unavailable) expected=failed;; esac
   jq -e --arg expected "$expected" '.outcome == $expected and .processed' "$receipt" >/dev/null
   if [ "$expected" = skipped ]; then jq -e --arg reason "$scenario" '.reason == $reason' "$receipt" >/dev/null; fi
   if [ "$scenario" = ran ]; then rg -q '^## Codex Review' "${REVIEW_LOG}.comment"; fi
+  if [ "$scenario" = ran ]; then
+    grep -qx -- '--- codex output ---' "$TMP/out"
+    grep -qx 'crossHostReview_autoTriage=true' "$TMP/out"
+  fi
+  if [ "$scenario" = ran-optout ]; then
+    # `! grep` does not trip set -e, so fail explicitly.
+    if grep -qx -- '--- codex output ---' "$TMP/out"; then echo 'FAIL: autoTriage=false still prints findings'; exit 1; fi
+    grep -qx 'crossHostReview_autoTriage=false' "$TMP/out"
+  fi
   if [ "$scenario" = post-failed ]; then
     jq -e '.comment == "saved"' "$receipt" >/dev/null
     rg -q '^## Codex Review' "${receipt%.json}.md"
