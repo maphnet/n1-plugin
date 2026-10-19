@@ -2182,6 +2182,18 @@ test_brief_wiring() {
 }
 
 
+# N1-61: placeholder titles and form-dump descriptions are repaired at intake.
+test_form_repair_wiring() {
+    local pa="$REPO_ROOT/agents/product-analyst.md" m='*Normalized by N1*'
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "repair: product-analyst has the Title & Form Repair section" "yes" "$(_hasF '### Title & Form Repair' "$pa")"
+    assert_eq "repair: product-analyst writes the Normalized marker" "yes" "$(_hasF "$m" "$pa")"
+    assert_eq "repair: Normalized counts as already enriched" "yes" "$(_hasF "\`$m\` (Title & Form Repair" "$pa")"
+    assert_eq "repair: title and description go in one editTicket call" "yes" "$(_hasF '`issueIdOrKey`, `summary`, `description`' "$pa")"
+    assert_eq "repair: queue children drop the title part" "yes" "$(_hasF 'On `CHAIN`, drop the title part' "$pa")"
+    assert_eq "repair: Normalized block uses plain bullets" "0" "$(grep -A8 -F "$m" "$pa" | grep -cF -- '- [ ]' || true)"
+}
+
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
 test_overlap_order() {
     local out
@@ -2272,6 +2284,7 @@ test_desc_hash_chain
 test_title_vague
 test_desc_chain_wiring
 test_brief_wiring
+test_form_repair_wiring
 test_overlap_order
 test_release_wiring
 test_already_run
