@@ -136,7 +136,8 @@ Skip if `ADOPT_KEYS` is empty or `VERSION_MCP` is empty. Adopted tickets keep th
    If the call errors because the type name is unknown, read the available type names the error lists, set `SUBTASK_TYPE` to the one matching `sub-?task` (case-insensitive), and repeat the same call once. No match: handle it as an error (last bullet below).
 3. **Handle the result.** Never abort. Step 10 always runs.
    - `ok: true`: for each key in `keys`, report "  Adopted **[<KEY>]** as <issueType> under <STORY_ID>".
-   - `ok: false` with a non-empty `failed`: warn per entry "⚠ Could not adopt <KEY>: <reason>". If `status` is `COMPLETE`, report the other `ADOPT_KEYS` as adopted; otherwise list them as unconfirmed ("confirm with `jcm_getIssue <KEY>`") and do not report them as adopted.
+   - `ok: false` with a non-empty `failed`: warn per entry "⚠ Could not adopt <KEY>: <reason>". If `status` is `COMPLETE` and `invalidOrInaccessibleIssueCount` is 0 or absent, report the other `ADOPT_KEYS` as adopted; otherwise list them as unconfirmed ("confirm with `jcm_getIssue <KEY>`") and do not report them as adopted.
+   - `ok: false` with `status` `COMPLETE`, empty `failed`, and `invalidOrInaccessibleIssueCount` > 0: "⚠ N key(s) were invalid or inaccessible" and list the `ADOPT_KEYS` not in `failed` as unconfirmed ("confirm with `jcm_getIssue <KEY>`"); do not report them as adopted.
    - `ok: false` with `status` `RUNNING`, `ENQUEUED`, or `CANCEL_REQUESTED`: "⚠ Move still <status> (task <taskId>); confirm later with `jcm_getIssue <KEY>`". The keys are pending, not adopted.
    - `ok: false` with `message` and no `status` (the user declined the tool's confirmation): "Adoption declined; <keys> not moved under <STORY_ID>."
    - Any other `ok: false`, or an error (a cross-project key, an unknown type after the retry, or a jc-mcp older than 0.9.0 that rejects `issueKeys`): "⚠ Could not adopt <keys>: <error or message>. Convert them manually or upgrade jc-mcp (0.9.0 or newer)."
@@ -162,6 +163,6 @@ Report the full summary:
 - <KEY> — <reason, or "pending: <status>">
 ```
 
-Omit **Adopted** or **Not adopted** when it would be empty.
+Omit **Subtasks**, **Adopted** or **Not adopted** when it would be empty.
 
 Then mention: "Run `/n1:n1-queue --story <STORY_ID>` to implement all subtasks in order, or `/n1:n1-start <ID>` on a single subtask."

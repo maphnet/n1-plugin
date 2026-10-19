@@ -38,6 +38,7 @@ Check for N1 configuration in priority order:
 
          To reconfigure, run: /n1-init reconfigure
          ```
+         For Jira projects with `tracker.versionMcp` set, add after the block: "Adopting existing tickets in n1-story needs jc-mcp 0.9.0 or newer (`issueKeys` input)."
          **STOP.**
      - **If missing keys found:** Tell the user: "N1 is already configured for this project (state at `$N1_HOME`). Current config:" then show the config. Then show:
 
