@@ -56,7 +56,7 @@ If `MP` is `ask`: warn the user and wait for confirmation: "Subtask linking requ
 - A key that does not match `^<PROJECT_KEY>-[0-9]+$`: tell the user "<KEY> is outside <PROJECT_KEY>; bulk move needs the same project" and drop it.
 - `VERSION_MCP` is empty or null: warn "Adopting existing tickets requires jc-mcp (`tracker.versionMcp`); <keys> will not be adopted." and clear `ADOPT_KEYS`. Do not prompt, in either `mechanicalPrompts` mode, and never create new tickets for them.
 
-**Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = story seed goal + known requirements (Step 1), and `SELF_ID` / `OVERVIEW` empty. **Stop** → cancel without creating anything. Keep the returned `DUP_LINKS` for Step 8. A hit that is in `ADOPT_KEYS` is the user's explicit adopt, not a duplicate: drop it from `DUP_LINKS`.
+**Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = story seed goal + known requirements (Step 1), and `SELF_ID` / `OVERVIEW` empty. Remove every `ADOPT_KEYS` entry from the search hits before classifying, as § Check does for `SELF_ID`, so an adopted key never triggers the prompt. **Stop** → cancel without creating anything. Keep the returned `DUP_LINKS` for Step 8. A hit that is in `ADOPT_KEYS` is the user's explicit adopt, not a duplicate: drop it from `DUP_LINKS`.
 
 ## Step 4: Analysis
 

@@ -37,7 +37,7 @@ Present the story preview by asking the user (HOST ROUTING: ask the user):
 - <KEY> — <summary, only if already known>
 ```
 
-Omit the Adopt section when `ADOPT_KEYS` is empty.
+Omit the Adopt section when `ADOPT_KEYS` is empty. Omit the Subtasks section when there are no new subtasks.
 
 Options:
 1. **Create all** — proceed with story + subtask creation, then adopt `ADOPT_KEYS`

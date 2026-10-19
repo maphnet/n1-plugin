@@ -58,5 +58,7 @@ check "scope guard counts adopted keys" 'Adopted keys \(`ADOPT_KEYS`\) count as 
 check "Step 10 reports adopted keys" '^\*\*Adopted:\*\*' "$C"
 check "Step 10 reports not-adopted keys" '^\*\*Not adopted:\*\*' "$C"
 check "n1-init states the jc-mcp minimum version" 'jc-mcp 0\.9\.0 or newer' skills/n1-init/steps/03-tracker.md
+check "duplicate check excludes adopt keys before the prompt" 'Remove every `ADOPT_KEYS` entry from the search hits before classifying' "$K"
+check "preview omits Subtasks when no new subtasks" 'Omit the Subtasks section when there are no new subtasks' "$C"
 
 exit $FAIL
