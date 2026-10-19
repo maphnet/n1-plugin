@@ -20,11 +20,17 @@ cat > "$T/bin/gh" <<'EOF'
 n=$(( $(cat "$GH_COUNT" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$GH_COUNT"
 [ "$n" -le "${GH_FAIL_FIRST:-0}" ] && { echo "net/http: TLS handshake timeout" >&2; exit 1; }
 [ "$1 $2" = "run list" ] || exit 1
-ev="" wf=""
+ev="" wf="" commit=""
 while [ $# -gt 0 ]; do
-    case "$1" in --event) ev="$2" ;; --workflow) wf="$2" ;; esac
+    case "$1" in --event) ev="$2" ;; --workflow) wf="$2" ;; --commit) commit="$2" ;; esac
     shift
 done
+[ "$commit" = abc123 ] || { echo "[]"; exit 0; }
+# $GH_SEQ: call N (counting from the first non-failing call) answers with fixture file $GH_SEQ/N, else the last one.
+if [ -n "${GH_SEQ:-}" ]; then
+    i=$(( n - ${GH_FAIL_FIRST:-0} )); [ -f "$GH_SEQ/$i" ] || i=$(ls "$GH_SEQ" | wc -l)
+    GH_RUNS=$(cat "$GH_SEQ/$i")
+fi
 jq -c --arg ev "$ev" --arg wf "$wf" \
     '[.[] | select(($ev == "" or .event == $ev) and ($wf == "" or .workflowName == $wf)) | {status, conclusion, url}]' <<<"$GH_RUNS"
 EOF
@@ -71,5 +77,28 @@ expect "flaky gh (TLS timeouts, then ok) is retried to a terminal result" "succe
 
 out=$(watch 0 "[$REL_OK,$REL_FAIL]" 0 0 "Deploy Prod")
 expect "workflow filter ignores other release workflows" "success" "$(first "$out")"
+
+seq() { # <grace> <max-minutes> <runs-json>... -> helper stdout; the Nth fixture answers the Nth gh call
+    local g="$1" m="$2"; shift 2
+    rm -rf "$T/seq" "$T/count"; mkdir "$T/seq"
+    local i=0; for j in "$@"; do i=$((i + 1)); printf '%s' "$j" > "$T/seq/$i"; done
+    GH_SEQ="$T/seq" GH_RUNS="[]" GH_COUNT="$T/count" PATH="$T/bin:$PATH" \
+        bash -c 'source lib/poll.sh; n1_wait_release_runs abc123 "$@"' _ "$g" "$m"
+}
+NOTIFY_OK='{"event":"release","workflowName":"Notify","status":"completed","conclusion":"success","url":"'$R'/6"}'
+
+out=$(seq 0 1 "[$NOTIFY_OK]" "[$NOTIFY_OK,$REL_RUNNING]" "[$NOTIFY_OK,$REL_OK]")
+expect "late-registering deploy run: first all-complete sighting is not success" "success" "$(first "$out")"
+has_line "success reflects the late deploy run" "success $R/3" "$out"
+
+out=$(seq 0 0 "[$NOTIFY_OK]" "[$NOTIFY_OK,$REL_RUNNING]")
+expect "late deploy run still running at chunk end -> pending" "pending" "$(first "$out")"
+has_line "pending lists the late deploy run" "in_progress $R/2" "$out"
+
+out=$(seq 0 1 "[$NOTIFY_OK]" "[$NOTIFY_OK,$REL_FAIL]")
+expect "late run failing -> failed" "failed" "$(first "$out")"
+
+out=$(watch 0 "[$REL_SKIP]" 0 0)
+expect "every release run skipped -> none" "none" "$(first "$out")"
 
 exit $FAIL

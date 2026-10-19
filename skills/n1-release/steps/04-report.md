@@ -39,13 +39,13 @@ Record the outcome as `DEPLOY` for the Step 9 `Deployment:` line.
       git rev-parse <TAG>^{commit}
       ```
 
-   b. Watch the release-triggered runs in the foreground. First call: `<grace>` = `5`, `<remaining-minutes>` = `release.deployWatch.timeoutMinutes` (default `30`). When `release.deployWatch.workflowName` is set, pass it quoted as the last argument.
+   b. Watch the release-triggered runs in the foreground. First call: `<grace>` = `5`, `<remaining-minutes>` = `release.deployWatch.timeoutMinutes` (default `30`). When `release.deployWatch.workflowName` is set, pass it single-quoted as the last argument. When the release triggers several workflows, recommend setting `release.deployWatch.workflowName` so the watch follows the deploy workflow only.
       ```bash
       source ~/.n1/preamble.sh
       source "$N1_ROOT/lib/poll.sh"
-      n1_wait_release_runs <sha> <grace> <remaining-minutes> ["<workflowName>"]
+      n1_wait_release_runs <sha> <grace> <remaining-minutes> ['<workflowName>']
       ```
-      The helper counts only `release`-event runs on the tag commit (push-triggered runs on the same commit are ignored), retries failed `gh` calls such as TLS timeouts, and returns within 8 minutes. Never background it and never end the turn while it prints `pending` or `unknown`: re-invoke with `<grace>` = `0` and `<remaining-minutes>` reduced by 8 per prior call, until it prints `none`, `success` or `failed`, or the budget is spent.
+      The helper counts only `release`-event runs on the tag commit (push-triggered runs on the same commit are ignored), retries failed `gh` calls such as TLS timeouts, and returns within 8 minutes. Never background it and never end the turn while it prints `pending` or `unknown`: re-invoke with `<remaining-minutes>` reduced by 8 per prior call, until it prints `none`, `success` or `failed`, or the budget is spent. `<grace>` = `0` on re-invocation only after a prior `pending`; after a prior `unknown` keep `5` (grace starts once gh answers). A `none` right after a prior `pending` means the runs vanished transiently: treat it as `unknown` and re-invoke; never report "not triggered" once runs were seen.
 
    c. Outcomes. The first output line is the token; after `pending`, `success` and `failed`, each further line is `<conclusion-or-status> <run URL>`.
       - `success`: report "Deployment succeeded." with the run URLs. `DEPLOY` = `succeeded — <run URL>`. Go to Step 8b.
@@ -53,10 +53,10 @@ Record the outcome as `DEPLOY` for the Step 9 `Deployment:` line.
         ```bash
         gh run view <run-id> --log-failed 2>&1 | head -200
         ```
-        Report the failed run URL and log excerpt. `DEPLOY` = `FAILED — <run URL>`. After-deploy actions are not run; report them as left unticked (Step 8b wording). Skip Step 8b; go to Step 9.
+        Report the failed run URL and log excerpt. `DEPLOY` = `FAILED — <run URL>`. After-deploy actions are not run; report the `after` rows (if any) as left unticked (Step 8b wording). Skip Step 8b; go to Step 9.
       - `none`: report "No deployment workflow triggered by this release (draft release, or no `release`-event run registered within 5 minutes)." `DEPLOY` = `not triggered`. Go to Step 8b.
-      - Budget spent, last token `pending`: report the still-running run URLs and suggest re-checking with `gh run watch <run-id>`. `DEPLOY` = `timed out (still running) — <run URL>`. After-deploy actions are not run; report them as left unticked (Step 8b wording). Skip Step 8b; go to Step 9.
-      - Budget spent, last token `unknown`: report "Could not verify the deployment: GitHub was unreachable (gh errors). This is not a deploy failure; re-check with `gh run list --event release --commit <sha>`." `DEPLOY` = `could not verify (gh errors)`. After-deploy actions are not run; report them as left unticked (Step 8b wording). Skip Step 8b; go to Step 9.
+      - Budget spent, last token `pending`: report the still-running run URLs and suggest re-checking with `gh run watch <run-id>`. `DEPLOY` = `timed out (still running) — <run URL>`. After-deploy actions are not run; report the `after` rows (if any) as left unticked (Step 8b wording). Skip Step 8b; go to Step 9.
+      - Budget spent, last token `unknown`: report "Could not verify the deployment: GitHub was unreachable (gh errors). This is not a deploy failure; re-check with `gh run list --event release --commit <sha>`." `DEPLOY` = `could not verify (gh errors)`. After-deploy actions are not run; report the `after` rows (if any) as left unticked (Step 8b wording). Skip Step 8b; go to Step 9.
 
    **If `release.deployWatch.enabled` is explicitly `false`:** report "Deploy watch disabled." Go to Step 8b. `DEPLOY` = `watch disabled`.
 4. **Categories 1-4** — `DEPLOY` = `not configured`. Present findings and ask:

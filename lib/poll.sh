@@ -62,21 +62,43 @@ n1_wait_release_runs() {
     local chunk_end=$(( start + POLL_CHUNK_SECONDS ))
     [ "$deadline" -lt "$chunk_end" ] && chunk_end=$deadline
     local fmt='.[] | "\(if (.conclusion // "") == "" then .status else .conclusion end) \(.url)"'
-    local ok_seen=0 runs="" json counts total bad running
+    local ok_seen=0 runs="" json counts total bad running total2 bad2 running2
+    _n1_release_counts() { # <json> -> "total<TAB>bad<TAB>running", empty when gh/jq gave no array
+        jq -r 'select(type == "array") | [length,
+            ([.[] | select(.status == "completed" and .conclusion != "success"
+                and .conclusion != "neutral" and .conclusion != "skipped")] | length),
+            ([.[] | select(.status != "completed")] | length)] | @tsv' <<<"$1" 2>/dev/null
+    }
     while :; do
         json=$(gh run list --event release --commit "$sha" ${workflow:+--workflow "$workflow"} \
             --json status,conclusion,url 2>/dev/null) || json=""
-        counts=$(jq -r 'select(type == "array") | [length,
-            ([.[] | select(.status == "completed" and .conclusion != "success"
-                and .conclusion != "neutral" and .conclusion != "skipped")] | length),
-            ([.[] | select(.status != "completed")] | length)] | @tsv' <<<"$json" 2>/dev/null) || counts=""
+        counts=$(_n1_release_counts "$json") || counts=""
         if [ -n "$counts" ]; then
             ok_seen=1
             IFS=$'\t' read -r total bad running <<<"$counts"
             if [ "$total" -gt 0 ]; then
                 runs=$json
                 [ "$bad" -gt 0 ] && { printf 'failed\n'; jq -r "$fmt" <<<"$runs"; return 0; }
-                [ "$running" -eq 0 ] && { printf 'success\n'; jq -r "$fmt" <<<"$runs"; return 0; }
+                if [ "$running" -eq 0 ]; then
+                    # First all-complete sighting: a later workflow may not have registered yet. Confirm once.
+                    sleep 30
+                    json=$(gh run list --event release --commit "$sha" ${workflow:+--workflow "$workflow"} \
+                        --json status,conclusion,url 2>/dev/null) || json=""
+                    counts=$(_n1_release_counts "$json") || counts=""
+                    if [ -n "$counts" ]; then
+                        IFS=$'\t' read -r total2 bad2 running2 <<<"$counts"
+                        if [ "$total2" -ge "$total" ]; then
+                            runs=$json
+                            [ "$bad2" -gt 0 ] && { printf 'failed\n'; jq -r "$fmt" <<<"$runs"; return 0; }
+                            if [ "$running2" -eq 0 ]; then
+                                if jq -e 'all(.[]; .conclusion == "skipped")' <<<"$runs" >/dev/null; then
+                                    printf 'none\n'; return 0
+                                fi
+                                printf 'success\n'; jq -r "$fmt" <<<"$runs"; return 0
+                            fi
+                        fi
+                    fi
+                fi
             elif [ -z "$runs" ] && [ "$(date +%s)" -ge "$grace_end" ]; then
                 printf 'none\n'; return 0
             fi
