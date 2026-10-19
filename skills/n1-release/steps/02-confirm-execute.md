@@ -81,7 +81,7 @@ gh release create "${TAG}" --generate-notes --verify-tag
 
 On success, capture the release URL for the final report: `gh release view "${TAG}" --json url --jq '.url'`.
 
-Release created. **NOT done — continue to Step 3 (`03-tracker-release.md`), then Step 4 (`04-report.md`).** In `04-report.md`, the deploy check (Step 8) and the final report (Step 9) are mandatory; do not report or end the turn here.
+Release created. **NOT done — continue with `03-tracker-release.md`, then `04-report.md`.** In `04-report.md`, the deploy check and the final report are mandatory; do not report or end the turn here.
 
 ## Custom procedure flow (when `procedure` is set)
 
@@ -152,4 +152,4 @@ Known ceiling: the SHA resolves from the local tag only; if the tag was created 
 
 ### Hand-off (custom flow)
 
-Runs when the walk completed, whatever the Release-check verdict; an aborted walk ends at step 4 above. Procedure walk complete. **NOT done — continue to Step 3 (`03-tracker-release.md`), then Step 4 (`04-report.md`).** In `04-report.md`, the deploy check (Step 8) and the final report (Step 9) are mandatory; do not report or end the turn here.
+Runs when the walk completed, whatever the Release-check verdict; an aborted walk ends at step 4 above. Procedure walk complete. **NOT done — continue with `03-tracker-release.md`, then `04-report.md`.** In `04-report.md`, the deploy check and the final report are mandatory; do not report or end the turn here.
