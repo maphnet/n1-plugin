@@ -19,7 +19,7 @@ Take the ticket's title and description exactly as fetched from the tracker for 
 
 ## After the write
 
-Run this step only when the tracker description write succeeded. Re-fetch the ticket with the tracker read operation as the very next tracker call after the write. The tracker may normalize markup, so never hash the text you sent. Write the fetched title and description to `$N1_HOME/memory/<ID>/.desc-post.title` and `$N1_HOME/memory/<ID>/.desc-post.txt` the same way. N1 never writes the title, so any difference between the pre-write and post-write title is a human edit made in the window and must not be recorded. Then:
+Run this step only when the tracker description write succeeded. Re-fetch the ticket with the tracker read operation as the very next tracker call after the write. The tracker may normalize markup, so never hash the text you sent. Write the fetched title and description to `$N1_HOME/memory/<ID>/.desc-post.title` and `$N1_HOME/memory/<ID>/.desc-post.txt` the same way. N1 writes a title only at queue plan time, before the snapshot (`skills/n1-queue/steps/preview.md` § Plan-Resolve 1), never in a child, so any difference between the pre-write and post-write title is a human edit made in the window and must not be recorded. Then:
 
 ```bash
 source ~/.n1/preamble.sh

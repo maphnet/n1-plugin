@@ -2192,6 +2192,15 @@ test_form_repair_wiring() {
     assert_eq "repair: title and description go in one editTicket call" "yes" "$(_hasF '`issueIdOrKey`, `summary`, `description`' "$pa")"
     assert_eq "repair: queue children drop the title part" "yes" "$(_hasF 'On `CHAIN`, drop the title part' "$pa")"
     assert_eq "repair: Normalized block uses plain bullets" "0" "$(grep -A8 -F "$m" "$pa" | grep -cF -- '- [ ]' || true)"
+    local q="$REPO_ROOT/skills/n1-queue/steps" d="$REPO_ROOT/references/desc-hash-chain.md" r s
+    assert_eq "repair: queue intake treats Normalized as Adequate" "yes" "$(_hasF "\`$m\`" "$q/intake.md")"
+    assert_eq "repair: queue preview applies the product-analyst rules" "yes" "$(_hasF 'product-analyst.md` § Title & Form Repair' "$q/preview.md")"
+    assert_eq "repair: repaired candidates are re-fetched before the snapshot" "yes" "$(_hasF 'Re-fetch each briefed candidate and each repaired one' "$q/preview.md")"
+    r=$(line_of "$q/preview.md" '**Repair (every candidate' || true)
+    s=$(line_of "$q/preview.md" 'n1_queue_content_hash' || true)
+    assert_eq "repair: repair runs before the Desc Checksum" "yes" "$([ -n "$r" ] && [ -n "$s" ] && [ "$r" -lt "$s" ] && echo yes || echo no)"
+    assert_eq "repair: hash chain no longer claims N1 never writes the title" "no" "$(_hasF 'N1 never writes the title' "$d")"
+    assert_eq "repair: hash chain names plan time as the only title write" "yes" "$(_hasF 'only at queue plan time' "$d")"
 }
 
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.

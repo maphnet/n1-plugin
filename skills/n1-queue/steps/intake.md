@@ -63,7 +63,7 @@ Excluded tickets are left for a later run (no toposort). Before § Output, a hel
 
 ## Description quality
 
-For each remaining candidate, grade the description with the product-analyst tiers (`<N1_ROOT>/agents/product-analyst.md` § Description Quality Assessment, table C): Empty, Skeletal, Weak, Adequate. A description that already carries `*Briefed by N1 (queue plan)*`, `*Structured by N1*` or `*Restructured by N1*` counts as Adequate here, so it is never briefed twice. Keep the tier with the candidate for preview.md § Plan-Resolve 1. Length alone never excludes.
+For each remaining candidate, grade the description with the product-analyst tiers (`<N1_ROOT>/agents/product-analyst.md` § Description Quality Assessment, table C): Empty, Skeletal, Weak, Adequate. A description that already carries `*Briefed by N1 (queue plan)*`, `*Structured by N1*`, `*Restructured by N1*` or `*Normalized by N1*` counts as Adequate here, so it is never briefed twice. Keep the tier with the candidate for preview.md § Plan-Resolve 1. Length alone never excludes.
 
 Exclude only a candidate with nothing to work from: an Empty description and a vague title. For each Empty candidate, write its title to `<QUEUE_DIR>/desc/<KEY>.title` with the file-write mechanism (never through a shell string, NP-203 SEC-1), then:
 
