@@ -35,7 +35,7 @@ Detection happens in the orchestrator after the ticket step via `n1_resolve_type
 `/n1:n1-ticket` and `/n1:n1-story` create backlog tickets from conversation context and/or a brain dump argument. Both are single-file skills with no persistent memory — the tracker is the source of truth.
 
 - **n1-ticket:** Captures context → light analysis (solution-architect, low effort) → optional web research → bug type detection → approval gate → creates one Task or Bug ticket.
-- **n1-story:** Captures context → deeper analysis (solution-architect, standard effort) → interactive discovery of unknowns → designs subtask decomposition → approval gate → creates a Story ticket with linked subtasks.
+- **n1-story:** Captures context → deeper analysis (solution-architect, standard effort) → interactive discovery of unknowns → designs subtask decomposition (existing ticket keys can be adopted as sub-tasks) → approval gate → creates a Story ticket with linked subtasks and converts adopted tickets under it in one `jcm_convertIssueType` call (Jira with jc-mcp >= 0.9.0).
 
 Neither command transitions ticket status or creates branches. Both mention `/n1:n1-start <ID>` as the next step.
 
