@@ -61,7 +61,10 @@ DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
 
 **Create the story ticket:**
 
-- **Jira:**
+- **Jira, `CREATE_ISSUE_OP` starts with `jcm_`** (jc-mcp; see `<N1_ROOT>/references/ticket-scope.md` § Create-call parameters):
+  1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `projectKey: <PROJECT_KEY>`, `issueType: "Story"`, `summary`, `description: DESC_ESCAPED`. No `cloudId`.
+
+- **Jira, any other op:**
   1. Resolve `cloudId`:
      ```bash
      CLOUD_ID=$(n1_config_val '.tracker.cloudId')

@@ -87,6 +87,20 @@ followup = Path('skills/n1-finish/steps/05-telemetry-followup.md').read_text()
 check('telemetry follow-up drops the ad hoc issuetype shape', '"issuetype"' not in followup)
 check('telemetry follow-up stays a Task', 'type Task' in followup)
 
+def section(text, start, end):
+    i = text.find(start)
+    j = text.find(end, i + 1) if i >= 0 else -1
+    return text[i:j] if 0 <= i < j else ''
+
+ticket_create = section(Path('skills/n1-ticket/steps/02-create.md').read_text(),
+                        '**Create the ticket:**', '**Assign to creator**')
+check('n1-ticket has a jc-mcp create branch',
+      'starts with `jcm_`' in ticket_create and '`issueType`' in ticket_create)
+check('n1-ticket keeps the Atlassian create branch', '`issueTypeName`' in ticket_create)
+story_create = section(story, '**Create the story ticket:**', '## Step 9')
+check('n1-story Story creation has a jc-mcp branch',
+      'starts with `jcm_`' in story_create and 'issueType: "Story"' in story_create)
+
 if failures:
     raise SystemExit(1)
 print('ALL TICKET SCOPE CONTRACTS PASSED')
