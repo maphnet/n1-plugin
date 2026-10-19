@@ -60,6 +60,18 @@ check('jc-mcp shape uses issueType without cloudId',
       'starts with `jcm_`' in scope and '`issueType`' in scope and 'No `cloudId`' in scope)
 check('Atlassian shape keeps issueTypeName', '`issueTypeName`' in scope)
 
+def line_with(text, needle):
+    return next((line for line in text.splitlines() if needle in line), '')
+
+start_ticket = Path('skills/n1-start/steps/ticket.md').read_text()
+check('n1-start brain-dump creation cites the scope rule',
+      'references/ticket-scope.md' in line_with(start_ticket, '**Tracker ticket creation**'))
+inv = Path('skills/n1-start/steps/investigation-deliverable.md').read_text()
+check('investigation brain-dump creation cites the scope rule',
+      'references/ticket-scope.md' in line_with(inv, 'same mechanics as steps/ticket.md'))
+check('investigation follow-up creation cites the scope rule',
+      'references/ticket-scope.md' in line_with(inv, 'Call createIssue via tracker MCP'))
+
 if failures:
     raise SystemExit(1)
 print('ALL TICKET SCOPE CONTRACTS PASSED')
