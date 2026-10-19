@@ -72,6 +72,21 @@ check('investigation brain-dump creation cites the scope rule',
 check('investigation follow-up creation cites the scope rule',
       'references/ticket-scope.md' in line_with(inv, 'Call createIssue via tracker MCP'))
 
+# Every skill file that creates tracker tickets must cite the shared rule.
+CREATE_MARKERS = ('createIssue', 'CREATE_ISSUE_OP', 'create_issue', 'createJiraIssue', 'jcm_createIssue')
+# n1-init maps op names into config; it never creates a ticket. Do not add call sites here.
+NOT_CALL_SITES = {'skills/n1-init/steps/03-tracker.md'}
+for path in sorted(Path('skills').rglob('*.md')):
+    rel = path.as_posix()
+    text = path.read_text()
+    if rel in NOT_CALL_SITES or not any(m in text for m in CREATE_MARKERS):
+        continue
+    check(f'{rel} cites the shared scope rule', 'references/ticket-scope.md' in text)
+
+followup = Path('skills/n1-finish/steps/05-telemetry-followup.md').read_text()
+check('telemetry follow-up drops the ad hoc issuetype shape', '"issuetype"' not in followup)
+check('telemetry follow-up stays a Task', 'type Task' in followup)
+
 if failures:
     raise SystemExit(1)
 print('ALL TICKET SCOPE CONTRACTS PASSED')

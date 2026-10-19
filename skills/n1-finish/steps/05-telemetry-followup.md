@@ -74,10 +74,7 @@ Skip for: documentation updates, chore/version-bump-only commits, non-behavioral
      { "project": "<PROJECT_KEY>", "summary": "<title>", "description": "<body>" }
      ```
    - **Jira** (`tracker.type == "jira"`):
-     Call `mcp__<tracker.mcp>__createJiraIssue` with:
-     ```json
-     { "projectKey": "<PROJECT_KEY>", "summary": "<title>", "description": "<body>", "issuetype": { "name": "Task" } }
-     ```
+     Call `mcp__<tracker.mcp>__<CREATE_ISSUE_OP>` (`CREATE_ISSUE_OP=$(n1_config_val '.tracker.operations.createIssue')`, default `createJiraIssue`) with project `<PROJECT_KEY>`, summary `<title>`, description `<body>`, and type Task (fixed: a telemetry check is one atomic follow-up), using the parameter names in `<N1_ROOT>/references/ticket-scope.md` § Create-call parameters.
 
    Extract the new ticket ID and URL from the response. If the response does not include a URL, construct it from the tracker base URL and ticket ID.
 
