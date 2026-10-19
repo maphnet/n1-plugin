@@ -47,3 +47,46 @@ n1_wait_ci_checks() {
         sleep 30
     done
 }
+
+n1_wait_release_runs() {
+    # Usage: n1_wait_release_runs <sha> <grace-minutes> <max-minutes> [workflow-name]
+    # Watches release-event workflow runs on <sha>. Push/workflow_run runs on the same commit
+    # are ignored. A failed or unparseable gh call (TLS timeout) is "no information": it is
+    # retried, never read as "no runs" or as a deploy failure.
+    # Prints: "none" | "unknown" | "pending" | "success" | "failed";
+    # after pending/success/failed, one "<conclusion-or-status> <url>" line per run.
+    local sha="$1" grace_minutes="${2:-0}" max_minutes="${3:-30}" workflow="${4:-}"
+    local start; start=$(date +%s)
+    local grace_end=$(( start + grace_minutes * 60 ))
+    local deadline=$(( start + max_minutes * 60 ))
+    local chunk_end=$(( start + POLL_CHUNK_SECONDS ))
+    [ "$deadline" -lt "$chunk_end" ] && chunk_end=$deadline
+    local fmt='.[] | "\(if (.conclusion // "") == "" then .status else .conclusion end) \(.url)"'
+    local ok_seen=0 runs="" json counts total bad running
+    while :; do
+        json=$(gh run list --event release --commit "$sha" ${workflow:+--workflow "$workflow"} \
+            --json status,conclusion,url 2>/dev/null) || json=""
+        counts=$(jq -r 'select(type == "array") | [length,
+            ([.[] | select(.status == "completed" and .conclusion != "success"
+                and .conclusion != "neutral" and .conclusion != "skipped")] | length),
+            ([.[] | select(.status != "completed")] | length)] | @tsv' <<<"$json" 2>/dev/null) || counts=""
+        if [ -n "$counts" ]; then
+            ok_seen=1
+            IFS=$'\t' read -r total bad running <<<"$counts"
+            if [ "$total" -gt 0 ]; then
+                runs=$json
+                [ "$bad" -gt 0 ] && { printf 'failed\n'; jq -r "$fmt" <<<"$runs"; return 0; }
+                [ "$running" -eq 0 ] && { printf 'success\n'; jq -r "$fmt" <<<"$runs"; return 0; }
+            elif [ -z "$runs" ] && [ "$(date +%s)" -ge "$grace_end" ]; then
+                printf 'none\n'; return 0
+            fi
+        fi
+        if [ "$(date +%s)" -ge "$chunk_end" ]; then
+            if [ -n "$runs" ]; then printf 'pending\n'; jq -r "$fmt" <<<"$runs"
+            elif [ "$ok_seen" = 1 ]; then printf 'none\n'
+            else printf 'unknown\n'; fi
+            return 0
+        fi
+        sleep 30
+    done
+}
