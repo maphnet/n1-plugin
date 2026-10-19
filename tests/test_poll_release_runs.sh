@@ -109,13 +109,21 @@ out=$(seq 0 1 "[$REL_OK]" "")
 expect "confirmation poll failed -> not success" "pending" "$(first "$out")"
 
 out=$(seq 1 2 "[$REL_SKIP]")
-expect "all skipped, resolved only after grace -> none" "none" "$(first "$out")"
+expect "all skipped, resolved only after grace -> skipped" "skipped" "$(first "$out")"
 expect "all skipped before grace end keeps polling" "4" "$(cat "$T/count")"
 
 out=$(seq 0 1 "[$NOTIFY_OK]" "[$NOTIFY_OK,$REL_FAIL]")
 expect "late run failing -> failed" "failed" "$(first "$out")"
 
 out=$(watch 0 "[$REL_SKIP]" 0 1)
-expect "every release run skipped -> none" "none" "$(first "$out")"
+expect "every release run skipped -> skipped, not none" "skipped" "$(first "$out")"
+has_line "skipped lists the run URL" "skipped $R/4" "$out"
+
+out=$(seq 5 1 "[]" "")
+expect "stale empty answer then gh errors until chunk end -> unknown, not none" "unknown" "$(first "$out")"
+
+out=$(watch 4 "[]" 2 8)
+expect "outage before the first answer does not consume grace -> none" "none" "$(first "$out")"
+expect "grace counted from the first gh answer (5 outage calls + 4 grace polls)" "9" "$(cat "$T/count")"
 
 exit $FAIL

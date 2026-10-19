@@ -251,6 +251,8 @@ before "release: final report follows the deploy watch" "# Step 8: Deployment Ch
 before "release: final report follows after-deploy actions" "# Step 8b: After-deploy Actions" "# Step 9: Final Report" "$R4"
 check "release: final report states the deployment conclusion" '^Deployment: <DEPLOY>' "$R4"
 check "release: draft or missing Release skips the grace wait" 'No GitHub Release was published' "$R4"
+check "release: all-skipped runs are reported as nothing deployed" 'all jobs were skipped' "$R4"
+check "release: workflow-created Release is still watched" 'not triggered \(all runs skipped\)' "$R4"
 check "release: no-deploy case is reported" 'No deployment workflow triggered by this release' "$R4"
 check "release: gh errors are not a deploy failure" 'This is not a deploy failure' "$R4"
 check "release: SKILL.md forbids stopping after step 2" 'do not stop after step 2' skills/n1-release/SKILL.md

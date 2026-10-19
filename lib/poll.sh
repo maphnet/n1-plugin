@@ -61,22 +61,25 @@ n1_wait_release_runs() {
     # Watches release-event workflow runs on <sha>. Push/workflow_run runs on the same commit
     # are ignored. A failed or unparseable gh call (TLS timeout) is "no information": it is
     # retried, never read as "no runs" or as a deploy failure.
-    # Prints: "none" | "unknown" | "pending" | "success" | "failed";
-    # after pending/success/failed, one "<conclusion-or-status> <url>" line per run.
+    # Grace starts at the first successful gh answer, so outages do not consume it.
+    # "none" = an empty answer at/after grace end; "skipped" = every run skipped (nothing deployed);
+    # "unknown" = absence not confirmed (gh errors, or the chunk ended inside grace).
+    # Prints: "none" | "unknown" | "pending" | "success" | "failed" | "skipped";
+    # after pending/success/failed/skipped, one "<conclusion-or-status> <url>" line per run.
     local sha="$1" grace_minutes="${2:-0}" max_minutes="${3:-30}" workflow="${4:-}"
     local start; start=$(date +%s)
-    local grace_end=$(( start + grace_minutes * 60 ))
+    local grace_end=""
     local deadline=$(( start + max_minutes * 60 ))
     local chunk_end=$(( start + POLL_CHUNK_SECONDS ))
     [ "$deadline" -lt "$chunk_end" ] && chunk_end=$deadline
     local fmt='.[] | "\(if (.conclusion // "") == "" then .status else .conclusion end) \(.url)"'
-    local ok_seen=0 runs="" json counts total bad running total2 bad2 running2
+    local runs="" json counts total bad running total2 bad2 running2
     while :; do
         json=$(gh run list --event release --commit "$sha" ${workflow:+--workflow "$workflow"} \
             --json status,conclusion,url 2>/dev/null) || json=""
         counts=$(_n1_release_counts "$json") || counts=""
         if [ -n "$counts" ]; then
-            ok_seen=1
+            [ -z "$grace_end" ] && grace_end=$(( $(date +%s) + grace_minutes * 60 ))
             IFS=$'\t' read -r total bad running <<<"$counts"
             if [ "$total" -gt 0 ]; then
                 runs=$json
@@ -95,8 +98,8 @@ n1_wait_release_runs() {
                             [ "$bad2" -gt 0 ] && { printf 'failed\n'; jq -r "$fmt" <<<"$runs"; return 0; }
                             if [ "$running2" -eq 0 ]; then
                                 if jq -e 'all(.[]; .conclusion == "skipped")' <<<"$runs" >/dev/null; then
-                                    # all skipped: none only once grace is over, else keep looping
-                                    [ "$(date +%s)" -ge "$grace_end" ] && { printf 'none\n'; return 0; }
+                                    # all skipped: terminal only once grace is over, else keep looping
+                                    [ "$(date +%s)" -ge "$grace_end" ] && { printf 'skipped\n'; jq -r "$fmt" <<<"$runs"; return 0; }
                                 else
                                     printf 'success\n'; jq -r "$fmt" <<<"$runs"; return 0
                                 fi
@@ -110,7 +113,6 @@ n1_wait_release_runs() {
         fi
         if [ "$(date +%s)" -ge "$chunk_end" ]; then
             if [ -n "$runs" ]; then printf 'pending\n'; jq -r "$fmt" <<<"$runs"
-            elif [ "$ok_seen" = 1 ]; then printf 'none\n'
             else printf 'unknown\n'; fi
             return 0
         fi
