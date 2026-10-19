@@ -273,6 +273,7 @@ Optional two-phase enrichment that writes structured content back to the tracker
 - **Phase 1** (product-analyst, Step 1): quality assessment (Empty / Skeletal / Weak / Adequate) → silent append for empty/skeletal descriptions, silent rewrite for weak descriptions. Idempotency markers: `*Structured by N1*` / `*Restructured by N1*`.
 - **Phase 2** (orchestrator, after Step 3 Brainstorm): appends refined acceptance criteria and scope boundaries to description, posts a design summary comment. Idempotency marker: `*Refined after design review — N1*`.
 - **Queue plan brief** (n1-queue Plan-Resolve 1, before any child runs): Empty/Skeletal candidates get a short brief (core ask + 2-4 acceptance criteria) marked `*Briefed by N1 (queue plan)*`. This is not an idempotency marker, so product-analyst still runs Phase 1 in full on briefed tickets.
+- **Title & form repair** (product-analyst, before Phase 1. n1-queue Plan-Resolve 1 applies it by reference, before the Desc Checksum): a placeholder summary (`error`, `bug`, `todo`, ...) or a ≤2-word summary that an embedded `Title:` line beats is replaced via `editTicket`. A raw form dump (`Type:`/`Title:`/`Area:`/`Details:`) gets an appended Core Ask + acceptance criteria block marked `*Normalized by N1*`, which counts as already enriched. Queue children never write the title (desc hash chain).
 
 Both phases are non-blocking — MCP failures are logged and skipped. Freshly created tickets (brain-dump/file/error-tracker modes) skip Phase 1 (adequate by construction).
 
