@@ -48,6 +48,18 @@ check('Task route reuses standalone creation', 'skills/n1-ticket/steps/02-create
 check('Story route reuses story collection', 'skills/n1-story/steps/01-collect.md' in scope)
 check('Task preview reports the actual type', '**Type:** <Task or Bug>' in Path('skills/n1-ticket/steps/02-create.md').read_text())
 
+# N1-97: one shared rule for free-form creation sites and the Jira param shape.
+check('free-form creation section exists', '## Free-form creation' in scope)
+check('create-call parameters section exists', '## Create-call parameters' in scope)
+check('explicit user-named type wins', 'user explicitly names' in scope and 'wins' in scope)
+check('free-form defects become Bugs', 'Bug for a defect report' in scope)
+check('free-form unknown scope defaults to Task', 'default to Task' in scope)
+check('free-form sections precede handoffs',
+      0 <= scope.find('## Free-form creation') < scope.find('## Create-call parameters') < scope.find('## Handoffs'))
+check('jc-mcp shape uses issueType without cloudId',
+      'starts with `jcm_`' in scope and '`issueType`' in scope and 'No `cloudId`' in scope)
+check('Atlassian shape keeps issueTypeName', '`issueTypeName`' in scope)
+
 if failures:
     raise SystemExit(1)
 print('ALL TICKET SCOPE CONTRACTS PASSED')

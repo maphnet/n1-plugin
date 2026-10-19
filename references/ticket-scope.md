@@ -15,6 +15,25 @@ Use the confirmed scope to choose ticket structure, independently of the invoked
 
 Re-evaluate against the latest confirmed scope before approval and after every edit or removal. If required facts remain unknown, resolve them through the collection flow's analysis/discovery before any tracker write. In automatic mode resolve from available evidence; ask for missing facts that cannot be established. In interactive mode clarify scope, rather than offering to retain an inappropriate ticket structure. A confirmed scope change can change the resulting type.
 
+## Free-form creation
+
+Applies to tracker create calls outside `n1-ticket`/`n1-story` that choose a type: n1-start brain-dump creation, investigation follow-ups, and n1-run or ad hoc requests. (n1-finish telemetry follow-ups are always Task and use only § Create-call parameters.) The handoffs below do not apply here; only pick the type:
+
+- An issue type the user explicitly names (e.g. "create a Story") wins over every rule below.
+- Bug for a defect report.
+- Otherwise use the `SCOPE_TYPE` table above: Task for atomic single-repository work; Story only for multiple repositories or meaningful decomposition.
+- Unknown scope: default to Task, note the assumption in the description, and do not block creation. These sites have no collection flow to resolve scope.
+
+Pass the type using the parameter names in § Create-call parameters.
+
+## Create-call parameters
+
+The type argument depends on the configured create op (`CREATE_ISSUE_OP=$(n1_config_val '.tracker.operations.createIssue')`):
+
+- **Jira, op starts with `jcm_`** (jc-mcp): `projectKey`, `issueType`, `summary`, `description` (plus `parentKey` for a child). No `cloudId`.
+- **Jira, any other op** (Atlassian Rovo `createJiraIssue`): `cloudId` (`n1_config_val '.tracker.cloudId'`, else the `id` from `getAccessibleAtlassianResources`), `projectKey`, `issueTypeName`, `summary`, `description`.
+- **YouTrack:** `project`, `summary`, `description`, using the tool's own argument names.
+
 ## Handoffs
 
 Carry the confirmed goal, title/description, acceptance criteria, repository requirements, `SCOPE_TYPE`, analysis/discovery results, tracker settings, and any completed duplicate check with `DUP_LINKS`. Reuse confirmations and completed work still valid for the current scope; initialize any missing tracker operations in the destination's tracker gate. Execute the remaining collection steps in order, including analysis/discovery not already completed for that scope. Skip a completed duplicate search only when its scope is unchanged. The destination still runs its creation approval gate for the resulting type.
