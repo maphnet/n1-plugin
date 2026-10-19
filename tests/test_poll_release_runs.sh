@@ -34,11 +34,14 @@ fi
 jq -c --arg ev "$ev" --arg wf "$wf" \
     '[.[] | select(($ev == "" or .event == $ev) and ($wf == "" or .workflowName == $wf)) | {status, conclusion, url}]' <<<"$GH_RUNS"
 EOF
-printf '#!/usr/bin/env bash\n:\n' > "$T/bin/sleep"   # no-op: the 30s poll interval must not slow the test
-chmod +x "$T/bin/gh" "$T/bin/sleep"
+# Fake clock: sleep advances $CLOCK_OFF instead of waiting; date +%s reads real time plus the offset.
+printf '#!/usr/bin/env bash\necho $(( $(cat "$CLOCK_OFF" 2>/dev/null || echo 0) + ${1%%.*} )) > "$CLOCK_OFF"\n' > "$T/bin/sleep"
+printf '#!/usr/bin/env bash\necho $(( $(/bin/date +%%s) + $(cat "$CLOCK_OFF" 2>/dev/null || echo 0) ))\n' > "$T/bin/date"
+chmod +x "$T/bin/gh" "$T/bin/sleep" "$T/bin/date"
+export CLOCK_OFF="$T/off"
 
 watch() { # <fail-first> <runs-json> <grace> <max-minutes> [workflow] -> helper stdout
-    rm -f "$T/count"
+    rm -f "$T/count" "$T/off"
     GH_FAIL_FIRST="$1" GH_RUNS="$2" GH_COUNT="$T/count" PATH="$T/bin:$PATH" \
         bash -c 'source lib/poll.sh; n1_wait_release_runs abc123 "$@"' _ "${@:3}"
 }
@@ -61,7 +64,7 @@ out=$(watch 0 "[$PUSH_DONE,$REL_RUNNING]" 0 0)
 expect "release run in progress at chunk end -> pending" "pending" "$(first "$out")"
 has_line "pending lists the running run URL" "in_progress $R/2" "$out"
 
-out=$(watch 0 "[$REL_OK,$REL_SKIP]" 0 0)
+out=$(watch 0 "[$REL_OK,$REL_SKIP]" 0 1)
 expect "all release runs success/skipped -> success" "success" "$(first "$out")"
 has_line "success lists the run URL" "success $R/3" "$out"
 
@@ -72,33 +75,47 @@ has_line "failed lists the failed run URL" "failure $R/5" "$out"
 out=$(watch 999 "[$REL_FAIL]" 0 0)
 expect "gh failing throughout -> unknown, never failed" "unknown" "$(first "$out")"
 
-out=$(watch 2 "[$REL_OK]" 0 1)
+out=$(watch 2 "[$REL_OK]" 0 5)
 expect "flaky gh (TLS timeouts, then ok) is retried to a terminal result" "success" "$(first "$out")"
 
-out=$(watch 0 "[$REL_OK,$REL_FAIL]" 0 0 "Deploy Prod")
+out=$(watch 0 "[$REL_OK,$REL_FAIL]" 0 1 "Deploy Prod")
 expect "workflow filter ignores other release workflows" "success" "$(first "$out")"
 
 seq() { # <grace> <max-minutes> <runs-json>... -> helper stdout; the Nth fixture answers the Nth gh call
     local g="$1" m="$2"; shift 2
-    rm -rf "$T/seq" "$T/count"; mkdir "$T/seq"
+    rm -rf "$T/seq" "$T/count" "$T/off"; mkdir "$T/seq"
     local i=0; for j in "$@"; do i=$((i + 1)); printf '%s' "$j" > "$T/seq/$i"; done
     GH_SEQ="$T/seq" GH_RUNS="[]" GH_COUNT="$T/count" PATH="$T/bin:$PATH" \
         bash -c 'source lib/poll.sh; n1_wait_release_runs abc123 "$@"' _ "$g" "$m"
 }
 NOTIFY_OK='{"event":"release","workflowName":"Notify","status":"completed","conclusion":"success","url":"'$R'/6"}'
 
-out=$(seq 0 1 "[$NOTIFY_OK]" "[$NOTIFY_OK,$REL_RUNNING]" "[$NOTIFY_OK,$REL_OK]")
+out=$(seq 0 5 "[$NOTIFY_OK]" "[$NOTIFY_OK,$REL_RUNNING]" "[$NOTIFY_OK,$REL_OK]")
 expect "late-registering deploy run: first all-complete sighting is not success" "success" "$(first "$out")"
 has_line "success reflects the late deploy run" "success $R/3" "$out"
 
-out=$(seq 0 0 "[$NOTIFY_OK]" "[$NOTIFY_OK,$REL_RUNNING]")
+out=$(seq 0 1 "[$NOTIFY_OK]" "[$NOTIFY_OK,$REL_RUNNING]")
 expect "late deploy run still running at chunk end -> pending" "pending" "$(first "$out")"
 has_line "pending lists the late deploy run" "in_progress $R/2" "$out"
+
+out=$(seq 0 0 "[$NOTIFY_OK]")
+expect "no room for the confirmation poll before chunk end -> pending, not success" "pending" "$(first "$out")"
+has_line "pending lists the runs seen" "success $R/6" "$out"
+
+out=$(seq 0 1 "[$REL_OK]" "[]")
+expect "confirmation poll shrank to [] -> not success" "pending" "$(first "$out")"
+
+out=$(seq 0 1 "[$REL_OK]" "")
+expect "confirmation poll failed -> not success" "pending" "$(first "$out")"
+
+out=$(seq 1 2 "[$REL_SKIP]")
+expect "all skipped, resolved only after grace -> none" "none" "$(first "$out")"
+expect "all skipped before grace end keeps polling" "4" "$(cat "$T/count")"
 
 out=$(seq 0 1 "[$NOTIFY_OK]" "[$NOTIFY_OK,$REL_FAIL]")
 expect "late run failing -> failed" "failed" "$(first "$out")"
 
-out=$(watch 0 "[$REL_SKIP]" 0 0)
+out=$(watch 0 "[$REL_SKIP]" 0 1)
 expect "every release run skipped -> none" "none" "$(first "$out")"
 
 exit $FAIL

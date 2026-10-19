@@ -48,6 +48,14 @@ n1_wait_ci_checks() {
     done
 }
 
+# <json> -> "total<TAB>bad<TAB>running", empty when gh/jq gave no array
+_n1_release_counts() {
+    jq -r 'select(type == "array") | [length,
+        ([.[] | select(.status == "completed" and .conclusion != "success"
+            and .conclusion != "neutral" and .conclusion != "skipped")] | length),
+        ([.[] | select(.status != "completed")] | length)] | @tsv' <<<"$1" 2>/dev/null
+}
+
 n1_wait_release_runs() {
     # Usage: n1_wait_release_runs <sha> <grace-minutes> <max-minutes> [workflow-name]
     # Watches release-event workflow runs on <sha>. Push/workflow_run runs on the same commit
@@ -63,12 +71,6 @@ n1_wait_release_runs() {
     [ "$deadline" -lt "$chunk_end" ] && chunk_end=$deadline
     local fmt='.[] | "\(if (.conclusion // "") == "" then .status else .conclusion end) \(.url)"'
     local ok_seen=0 runs="" json counts total bad running total2 bad2 running2
-    _n1_release_counts() { # <json> -> "total<TAB>bad<TAB>running", empty when gh/jq gave no array
-        jq -r 'select(type == "array") | [length,
-            ([.[] | select(.status == "completed" and .conclusion != "success"
-                and .conclusion != "neutral" and .conclusion != "skipped")] | length),
-            ([.[] | select(.status != "completed")] | length)] | @tsv' <<<"$1" 2>/dev/null
-    }
     while :; do
         json=$(gh run list --event release --commit "$sha" ${workflow:+--workflow "$workflow"} \
             --json status,conclusion,url 2>/dev/null) || json=""
@@ -79,8 +81,9 @@ n1_wait_release_runs() {
             if [ "$total" -gt 0 ]; then
                 runs=$json
                 [ "$bad" -gt 0 ] && { printf 'failed\n'; jq -r "$fmt" <<<"$runs"; return 0; }
-                if [ "$running" -eq 0 ]; then
-                    # First all-complete sighting: a later workflow may not have registered yet. Confirm once.
+                if [ "$running" -eq 0 ] && [ $(( $(date +%s) + 30 )) -lt "$chunk_end" ]; then
+                    # First all-complete sighting: a later workflow may not have registered yet. Confirm once
+                    # (skipped when the chunk ends first: the chunk-end check then reports pending).
                     sleep 30
                     json=$(gh run list --event release --commit "$sha" ${workflow:+--workflow "$workflow"} \
                         --json status,conclusion,url 2>/dev/null) || json=""
@@ -92,9 +95,11 @@ n1_wait_release_runs() {
                             [ "$bad2" -gt 0 ] && { printf 'failed\n'; jq -r "$fmt" <<<"$runs"; return 0; }
                             if [ "$running2" -eq 0 ]; then
                                 if jq -e 'all(.[]; .conclusion == "skipped")' <<<"$runs" >/dev/null; then
-                                    printf 'none\n'; return 0
+                                    # all skipped: none only once grace is over, else keep looping
+                                    [ "$(date +%s)" -ge "$grace_end" ] && { printf 'none\n'; return 0; }
+                                else
+                                    printf 'success\n'; jq -r "$fmt" <<<"$runs"; return 0
                                 fi
-                                printf 'success\n'; jq -r "$fmt" <<<"$runs"; return 0
                             fi
                         fi
                     fi
