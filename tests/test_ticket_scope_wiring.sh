@@ -101,6 +101,14 @@ story_create = section(story, '**Create the story ticket:**', '## Step 9')
 check('n1-story Story creation has a jc-mcp branch',
       'starts with `jcm_`' in story_create and 'issueType: "Story"' in story_create)
 
+hook = Path('hooks/session-start.sh').read_text()
+hb_start = hook.find('HOST_BLOCK="')
+hb_end = hook.find('CONFIG_FILE=$(n1_config_file)', hb_start)
+host_block = hook[hb_start:hb_end] if 0 <= hb_start < hb_end else ''
+check('HOST ROUTING routes free-form creation to the scope rule',
+      'TICKET CREATION:' in host_block and 'references/ticket-scope.md' in host_block)
+check('HOST ROUTING honors a user-named type', 'a user-named type wins' in host_block)
+
 if failures:
     raise SystemExit(1)
 print('ALL TICKET SCOPE CONTRACTS PASSED')
