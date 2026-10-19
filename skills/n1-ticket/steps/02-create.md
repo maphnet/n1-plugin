@@ -4,7 +4,7 @@
 
 If Step 1 classified the type as `Bug`:
 
-**Jira:** Use `issueTypeName: "Bug"` directly — Jira natively supports Bug as an issue type.
+**Jira:** Bug is a native issue type; pass it as the type in Step 8 (parameter name per the configured create op, see `<N1_ROOT>/references/ticket-scope.md` § Create-call parameters).
 
 **YouTrack:** Query project issue types to check Bug availability:
 
@@ -80,7 +80,10 @@ DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
 
 **Create the ticket:**
 
-- **Jira:**
+- **Jira, `CREATE_ISSUE_OP` starts with `jcm_`** (jc-mcp; see `<N1_ROOT>/references/ticket-scope.md` § Create-call parameters):
+  1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `projectKey: <PROJECT_KEY>`, `issueType` (`"Bug"` if type is Bug, `"Task"` otherwise), `summary`, `description`. No `cloudId`.
+
+- **Jira, any other op:**
   1. Resolve `cloudId`:
      ```bash
      CLOUD_ID=$(n1_config_val '.tracker.cloudId')
@@ -90,7 +93,7 @@ DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
   3. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName`, `summary`, `description`.
 
 - **YouTrack:**
-  1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description`.
+  1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description`; if Step 6 verified Bug, also set the project's "Type" field to Bug.
 
 **Assign to creator** (if configured):
 

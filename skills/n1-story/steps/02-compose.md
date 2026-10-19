@@ -61,7 +61,10 @@ DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
 
 **Create the story ticket:**
 
-- **Jira:**
+- **Jira, `CREATE_ISSUE_OP` starts with `jcm_`** (jc-mcp; see `<N1_ROOT>/references/ticket-scope.md` § Create-call parameters):
+  1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `projectKey: <PROJECT_KEY>`, `issueType: "Story"`, `summary`, `description: DESC_ESCAPED`. No `cloudId`.
+
+- **Jira, any other op:**
   1. Resolve `cloudId`:
      ```bash
      CLOUD_ID=$(n1_config_val '.tracker.cloudId')
@@ -104,8 +107,9 @@ For each subtask:
      ```
 
 2. **Create the subtask:**
-   - **Jira (with jc-mcp):** If `VERSION_MCP` is available, call `mcp__<VERSION_MCP>__jcm_createIssue` with: `projectKey: <PROJECT_KEY>`, `issueType: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`, `parentKey: <STORY_ID>`.
-   - **Jira (without jc-mcp):** If `VERSION_MCP` is empty, call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`. Warn after creation: "⚠ Subtask <SUBTASK_ID> created without parent link (jc-mcp not configured)."
+   - **Jira, `CREATE_ISSUE_OP` starts with `jcm_`:** call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `projectKey: <PROJECT_KEY>`, `issueType: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`, `parentKey: <STORY_ID>`.
+   - **Jira, other op, `VERSION_MCP` non-empty:** call `mcp__<VERSION_MCP>__jcm_createIssue` with: `projectKey: <PROJECT_KEY>`, `issueType: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`, `parentKey: <STORY_ID>` (no `cloudId`).
+   - **Jira, other op, `VERSION_MCP` empty:** call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName: "Task"`, `summary`, `description: SUBTASK_DESC_ESCAPED`. Warn after creation: "⚠ Subtask <SUBTASK_ID> created without parent link (jc-mcp not configured)."
    - **YouTrack:** Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description: SUBTASK_DESC_ESCAPED`. Then link to the story: call `mcp__<TRACKER_MCP>__<LINK_OP>` with source = `<subtask_id>`, target = `<STORY_ID>`, link type = `subtask of` (the YouTrack direction name for subtask → parent), using the tool's own argument names. On failure: warn "Could not link <subtask_id> → <STORY_ID>: <error>" and continue — do not block subtask creation.
 
 3. **Assign to creator** (if configured): same pattern as story assignment, substituting `<subtask_id>` for the issue identifier.

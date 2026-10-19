@@ -236,7 +236,7 @@ Then let the step end normally — do not wait for the user. Skip the rest of Ph
 
 Ask: `"Investigation done. Create a tracker ticket? 1 — Yes / 2 — No"`
 - **2 (No):** report path to investigation.md and end.
-- **1 (Yes):** create ticket via same mechanics as steps/ticket.md brain-dump creation (summary = investigation title; description = Summary + Findings + Recommendations from investigation.md). The returned ID is final. Run Reconcile Memory ID & Branch. Skip duplicate description append (already contains findings). Report `"Created ticket **[<ID>](<url>)**: <title>"`. Continue to Continuation offer.
+- **1 (Yes):** create ticket via same mechanics as steps/ticket.md brain-dump creation (summary = investigation title; description = Summary + Findings + Recommendations from investigation.md; type per `<N1_ROOT>/references/ticket-scope.md` § Free-form creation). The returned ID is final. Run Reconcile Memory ID & Branch. Skip duplicate description append (already contains findings). Report `"Created ticket **[<ID>](<url>)**: <title>"`. Continue to Continuation offer.
 
 Read signals:
 ```bash
@@ -260,7 +260,7 @@ When `IMPLEMENTABLE!=true`: "What next? 1 — Close ticket [/ 2 — Restore to o
 **If: Create new implementation ticket:**
 1. Derive title from first recommendation (~80 chars) or ask user.
 2. Construct description: `"Follows investigation <ID>\n\n## Summary\n...\n## Acceptance Criteria\n...\n## Scope\n...\n## Context\n..."` (Jira: plain bullets; YouTrack: checkboxes). Apply ticketTagging rules.
-3. Call createIssue via tracker MCP.
+3. Call createIssue via tracker MCP with the type per `<N1_ROOT>/references/ticket-scope.md` § Free-form creation (parameters per § Create-call parameters).
 4. **Link:** if `tracker.operations.linkIssues` is configured (`LINK_OP=$(n1_config_val ".tracker.operations.linkIssues")`), call `mcp__<tracker.mcp>__<LINK_OP>`:
    - **Jira:** call with `cloudId`, `inwardIssue: { key: "<ID>" }`, `outwardIssue: { key: "<newID>" }`, `type: { name: "Relates" }`.
    - **YouTrack:** source = `<newID>`, target = `<ID>`, link type = `"depends on"` (already a valid YouTrack direction name — no remap needed), using the tool's own argument names.

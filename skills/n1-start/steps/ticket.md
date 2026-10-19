@@ -29,7 +29,7 @@ ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 
-**Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): skip if `INVESTIGATE_FLAG=true`+braindump. `MP=auto`→create+ledger. `MP=ask`→"Create ticket? Yes/No". Yes→`createIssue`, final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL.
+**Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): skip if `INVESTIGATE_FLAG=true`+braindump. `MP=auto`→create+ledger. `MP=ask`→"Create ticket? Yes/No". Yes→`createIssue`, final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL. Type: `<N1_ROOT>/references/ticket-scope.md` § Free-form creation.
 
 ```bash
 source ~/.n1/preamble.sh
