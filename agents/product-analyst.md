@@ -254,7 +254,7 @@ Gate: the same as § Description Quality Assessment & Enrichment below (`enrichm
 
 `*Briefed by N1 (queue plan)*` (n1-queue's plan-time brief) is not an idempotency marker; grade briefed tickets normally.
 
-**Stale-write guard:** the description writes in this section and in Title & Form Repair replace the whole field, so re-fetch the ticket immediately before each write. If its title or description differs from the copy the new text was built from, skip the write (log "⚠ Write skipped: ticket changed") and proceed.
+**Stale-write guard:** the description writes in this section and in Title & Form Repair replace the whole field, so re-fetch the ticket immediately before each write. If its title or description differs from the copy the new text was built from (that copy includes any field this run's earlier repair already wrote), skip the write (log "⚠ Write skipped: ticket changed") and proceed.
 
 **Queue children:** wrap every tracker description update below (Title & Form Repair step 4, Empty/Skeletal step 3, Weak step 2) in `references/desc-hash-chain.md` under the plugin root (`source ~/.n1/preamble.sh` sets `$N1_ROOT`): run § Gate, then § Before the write on the description you fetched, § After the write once the update succeeds. § Gate is a no-op outside queue runs.
 
