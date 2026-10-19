@@ -73,7 +73,7 @@ HOST ROUTING (authoritative for how N1 skills reach Claude Code):
 N1 RUN IDENTITY: export N1_SESSION_ID=${N1_SESSION_ID}. Carry it into each helper shell. Session facts: ${SESSION_FILE:-unavailable}.
 COMMIT ATTRIBUTION: The harness attribution reminder (e.g. a Co-Authored-By trailer) yields to user instructions (any CLAUDE.md, global or project, or memory rule). If they forbid or change it, never pass it into a persona prompt and never apply it to your own commits.
 PR BODY RECONCILE: after you push to an already-open PR outside an N1 skill run, follow ${N1_ROOT_DIR}/references/reconcile-pr-body.md with ADHOC=1 so the PR description matches the new diff.
-TICKET CREATION: when you create a tracker ticket outside an N1 skill (free-form request, n1-run), pick the type per ${N1_ROOT_DIR}/references/ticket-scope.md section Free-form creation (Task for atomic single-repo work, Bug for defects); a user-named type wins."
+TICKET CREATION: when you create a tracker ticket outside n1-ticket/n1-story (free-form request, n1-run, ad hoc), pick the type per ${N1_ROOT_DIR}/references/ticket-scope.md section Free-form creation (Task for atomic single-repo work, Bug for defects); a user-named type wins."
 
 CONFIG_FILE=$(n1_config_file)
 
