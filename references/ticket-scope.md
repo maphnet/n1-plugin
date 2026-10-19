@@ -28,11 +28,11 @@ Pass the type using the parameter names in § Create-call parameters.
 
 ## Create-call parameters
 
-The type argument depends on the configured create op (`CREATE_ISSUE_OP=$(n1_config_val '.tracker.operations.createIssue')`; empty means `createJiraIssue`):
+The type argument depends on the configured create op (`CREATE_ISSUE_OP=$(n1_config_val '.tracker.operations.createIssue')`):
 
 - **Jira, op starts with `jcm_`** (jc-mcp): `projectKey`, `issueType`, `summary`, `description` (plus `parentKey` for a child). No `cloudId`.
 - **Jira, any other op** (Atlassian Rovo `createJiraIssue`): `cloudId` (`n1_config_val '.tracker.cloudId'`, else the `id` from `getAccessibleAtlassianResources`), `projectKey`, `issueTypeName`, `summary`, `description`.
-- **YouTrack:** `project`, `summary`, `description`, using the tool's own argument names. For a non-default type, set the project's enum field named "Type" to it, as in `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` Step 6 (verify via `getProjectFields` when configured); if the value is unavailable or unverifiable, create with the default type.
+- **YouTrack:** `project`, `summary`, `description`, using the tool's own argument names. For a non-default type, set the project's enum field named "Type" to it in the create call (verify the value via `getProjectFields` when configured, as in `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` Step 6); if the value is unavailable or unverifiable, create with the default type.
 
 ## Handoffs
 

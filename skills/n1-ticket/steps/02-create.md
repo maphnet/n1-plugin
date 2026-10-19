@@ -93,7 +93,7 @@ DESC_ESCAPED=$(escape_json_val "$DESCRIPTION")
   3. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `cloudId`, `projectKey: <PROJECT_KEY>`, `issueTypeName`, `summary`, `description`.
 
 - **YouTrack:**
-  1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description`.
+  1. Call `mcp__<TRACKER_MCP>__<CREATE_ISSUE_OP>` with: `project: <PROJECT_KEY>`, `summary`, `description`; if Step 6 verified Bug, also set the project's "Type" field to Bug.
 
 **Assign to creator** (if configured):
 
