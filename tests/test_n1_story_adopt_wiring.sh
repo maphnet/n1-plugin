@@ -57,5 +57,6 @@ check "preview lists adopted tickets" '^### Adopt existing tickets' "$C"
 check "scope guard counts adopted keys" 'Adopted keys \(`ADOPT_KEYS`\) count as children' "$C"
 check "Step 10 reports adopted keys" '^\*\*Adopted:\*\*' "$C"
 check "Step 10 reports not-adopted keys" '^\*\*Not adopted:\*\*' "$C"
+check "n1-init states the jc-mcp minimum version" 'jc-mcp 0\.9\.0 or newer' skills/n1-init/steps/03-tracker.md
 
 exit $FAIL

@@ -133,6 +133,8 @@ Call `mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources`.
 
 Look in the tool list (load the tool if deferred, per HOST ROUTING) for a tool matching `jcm_createVersion`. Extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`).
 
+Requires jc-mcp 0.9.0 or newer. From 0.9.0, `jcm_convertIssueType` (used by `/n1:n1-story` to adopt existing tickets) takes `issueKeys`; older servers take `issueKey`. Tell the user this minimum whenever `VERSION_MCP` is set (found or entered). The tool list does not show the server version, so this is a stated requirement, not a check.
+
 - **Found:** set `VERSION_MCP` to the detected server name. If the tool list also exposes `mcp__<VERSION_MCP>__jcm_addToActiveSprint`, add `"addToSprint": "jcm_addToActiveSprint"` to the Jira `operations` block below; otherwise leave it unset (YouTrack and other Jira MCPs never set it). The manual-entry path below leaves it unset; the Operation Gap Check backfills it.
 - **Not found:** prompt:
   ```
