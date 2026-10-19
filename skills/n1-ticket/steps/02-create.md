@@ -4,7 +4,7 @@
 
 If Step 1 classified the type as `Bug`:
 
-**Jira:** Use `issueTypeName: "Bug"` directly — Jira natively supports Bug as an issue type.
+**Jira:** Bug is a native issue type; pass it as the type in Step 8 (parameter name per the configured create op, see `<N1_ROOT>/references/ticket-scope.md` § Create-call parameters).
 
 **YouTrack:** Query project issue types to check Bug availability:
 
