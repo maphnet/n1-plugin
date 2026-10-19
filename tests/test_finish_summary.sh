@@ -24,9 +24,13 @@ assert_contains "ticket url unavailable" 'URL unavailable (<reason>)'
 assert_contains "pr line" 'PR: <url'
 assert_contains "next tickets none" 'Next tickets: <ID title [status]; ... | none | lookup failed (<reason>)>'
 assert_contains "lookup op" 'tracker.operations.getIssueLinks'
+assert_contains "links via versionMcp" '`tracker.versionMcp` when set, else `tracker.mcp`'
+assert_contains "jira blocks direction" 'Blocks-type entries with `outwardIssue`'
+assert_contains "youtrack blocks direction" 'relation `blocks` (not `is blocked by`)'
+assert_contains "non-complete exits" 'Non-complete exits keep their stop message below and do NOT print it'
 assert_contains "next manual" 'Next (manual): /n1:n1-release'
 
-if grep -qF "Work complete. If you're ready" "$FILE"; then
+if grep -qF "Work complete" "$FILE"; then
     echo "FAIL: auto branch still prints Work complete"; FAIL=$((FAIL+1))
 else
     echo "PASS: auto branch has no Work complete print"; PASS=$((PASS+1))

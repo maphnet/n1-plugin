@@ -50,7 +50,7 @@ Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never 
 
 - **Ticket URL:** overview frontmatter `ticket_url` (`n1_read_frontmatter`); absent → `URL unavailable (<reason>)`.
 - **PR URL:** Step 1's `gh pr view` url; fallback overview `pr_url` / `## Pending`.
-- **Next tickets:** call `tracker.operations.getIssueLinks` on `tracker.mcp`; entries of a Blocks link type with `outwardIssue` are tickets this one blocks. Use title/status from the entry when present, else `readTicket` per link. No such links → `none`. Op not configured or call error → `lookup failed (<reason>)`; warn only, never block.
+- **Next tickets:** call `tracker.operations.getIssueLinks` on `tracker.versionMcp` when set, else `tracker.mcp`, for `<ID>`. Tickets this one blocks: Jira — Blocks-type entries with `outwardIssue`; YouTrack — relation `blocks` (not `is blocked by`). Use title/status from the entry when present, else `readTicket` per link. No such links → `none`. Op not configured or call error → `lookup failed (<reason>)`; warn only, never block.
 - Print this summary on every completion path (including already-merged / already-closed re-runs and the runbook-pending path), before release routing in both `mechanicalPrompts` modes. Non-complete exits keep their stop message below and do NOT print it.
 
 <!-- tailChain has no effect here: n1-release is never invoked automatically regardless of autonomy mode (NP-71). The steps below are always interactive/suggestion-only. -->
