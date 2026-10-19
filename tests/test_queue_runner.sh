@@ -2199,6 +2199,8 @@ test_form_repair_wiring() {
     assert_eq "repair: repair runs before the Desc Checksum" "yes" "$([ -n "$r" ] && [ -n "$s" ] && [ "$r" -lt "$s" ] && echo yes || echo no)"
     assert_eq "repair: hash chain no longer claims N1 never writes the title" "no" "$(_hasF 'N1 never writes the title' "$d")"
     assert_eq "repair: queue repair re-fetches and skips a changed ticket" "yes" "$(_hasF 'repair skipped (changed)' "$q/preview.md")"
+    assert_eq "repair: product-analyst guards whole-field writes" "yes" "$(_hasF '**Stale-write guard:**' "$pa")"
+    assert_eq "repair: queue brief re-fetches and skips a changed ticket" "yes" "$(_hasF 'brief skipped (changed)' "$q/preview.md")"
 }
 
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
