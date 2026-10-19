@@ -43,6 +43,8 @@ for skill, collect, create in [('n1-story', '01-collect.md', '02-compose.md'),
 story = Path('skills/n1-story/steps/02-compose.md').read_text()
 check('genuine Story still uses Story creation payload', 'issueTypeName: "Story"' in story)
 check('genuine Story still creates linked Jira children', 'parentKey: <STORY_ID>' in story)
+check('n1-story subtasks keep the VERSION_MCP jc-mcp parent-link fallback',
+      'VERSION_MCP' in story and 'parentKey: <STORY_ID>' in story)
 check('genuine Story still links YouTrack children', 'link type = `subtask of`' in story)
 check('Task route reuses standalone creation', 'skills/n1-ticket/steps/02-create.md' in scope)
 check('Story route reuses story collection', 'skills/n1-story/steps/01-collect.md' in scope)
