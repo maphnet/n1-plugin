@@ -239,4 +239,22 @@ before "release: after-deploy follows the deploy watch" "Deployment succeeded" "
 check "release: disabled deploy watch still reaches Step 8b" 'Deploy watch disabled\." Go to Step 8b' "$R4"
 check "release: deploymentCheck false still reaches Step 8b" 'skip detection\. Go to Step 8b' "$R4"
 
+# --- N1-71: release must not end after step 2; the deploy watch concludes before the final report
+[ "$(grep -cF 'NOT done — continue with `03-tracker-release.md`, then `04-report.md`' "$R2")" -ge 2 ] \
+    && echo "PASS: release: built-in and custom flows hand off instead of ending" \
+    || { echo "FAIL: release: hand-off missing from built-in or custom flow"; FAIL=1; }
+if grep -qF 'Report the release URL' "$R2"; then echo "FAIL: release: step 2 still ends with a terminal report"; FAIL=1; else echo "PASS: release: step 2 has no terminal report"; fi
+check "release: deploy watch uses the poll helper" 'n1_wait_release_runs' "$R4"
+if grep -qF 'Sleep 30s between polls' "$R4"; then echo "FAIL: release: improvised sleep loop still present"; FAIL=1; else echo "PASS: release: no improvised sleep loop"; fi
+check "release: watch must not be backgrounded" 'Never background it' "$R4"
+before "release: final report follows the deploy watch" "# Step 8: Deployment Check" "# Step 9: Final Report" "$R4"
+before "release: final report follows after-deploy actions" "# Step 8b: After-deploy Actions" "# Step 9: Final Report" "$R4"
+check "release: final report states the deployment conclusion" '^Deployment: <DEPLOY>' "$R4"
+check "release: draft or missing Release skips the grace wait" 'No GitHub Release was published' "$R4"
+check "release: all-skipped runs are reported as nothing deployed" 'all jobs were skipped' "$R4"
+check "release: workflow-created Release is still watched" 'not triggered \(all runs skipped\)' "$R4"
+check "release: no-deploy case is reported" 'No deployment workflow triggered by this release' "$R4"
+check "release: gh errors are not a deploy failure" 'This is not a deploy failure' "$R4"
+check "release: SKILL.md forbids stopping after step 2" 'do not stop after step 2' skills/n1-release/SKILL.md
+
 exit $FAIL

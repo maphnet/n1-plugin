@@ -79,7 +79,9 @@ gh release create "${TAG}" --generate-notes --verify-tag
 # Add --draft if release.draft is true
 ```
 
-Report the release URL from `gh release view "${TAG}" --json url --jq '.url'` on success.
+On success, capture the release URL for the final report: `gh release view "${TAG}" --json url --jq '.url'`.
+
+Release created. **NOT done — continue with `03-tracker-release.md`, then `04-report.md`.** In `04-report.md`, the deploy check and the final report are mandatory; do not report or end the turn here.
 
 ## Custom procedure flow (when `procedure` is set)
 
@@ -147,3 +149,7 @@ Known ceiling: the SHA resolves from the local tag only; if the tag was created 
   2 — Skip
   ```
   On 1, run `gh release create "${TAG}" --generate-notes --verify-tag` (add `--draft` when `release.draft` is true) and report the URL. If it fails, report the error and leave it to the user. On 2, record `missing (declined)`; this is not a failure.
+
+### Hand-off (custom flow)
+
+Runs when the walk completed, whatever the Release-check verdict; an aborted walk ends at step 4 above. Procedure walk complete. **NOT done — continue with `03-tracker-release.md`, then `04-report.md`.** In `04-report.md`, the deploy check and the final report are mandatory; do not report or end the turn here.

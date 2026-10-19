@@ -64,5 +64,5 @@ Execute steps in order. Read each step file and follow its instructions before p
 3. **Tracker Release Operations** — create/release Jira version, set fix version, move tickets (Jira only)
    Read `<N1_ROOT>/skills/n1-release/steps/03-tracker-release.md`
 
-4. **Report & Deployment Check** — tracker comment, release report, deployment pipeline detection
+4. **Deployment Check & Final Report** — tracker comment, deploy watch, final report with the deployment conclusion (mandatory; do not stop after step 2)
    Read `<N1_ROOT>/skills/n1-release/steps/04-report.md`
