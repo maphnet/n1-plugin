@@ -59,6 +59,9 @@ check('free-form sections precede handoffs',
 check('jc-mcp shape uses issueType without cloudId',
       'starts with `jcm_`' in scope and '`issueType`' in scope and 'No `cloudId`' in scope)
 check('Atlassian shape keeps issueTypeName', '`issueTypeName`' in scope)
+check('YouTrack shape names a type mechanism', 'enum field named "Type"' in scope)
+check('n1-ticket Step 6 does not hard-code issueTypeName Bug',
+      'issueTypeName: "Bug"' not in Path('skills/n1-ticket/steps/02-create.md').read_text())
 
 def line_with(text, needle):
     return next((line for line in text.splitlines() if needle in line), '')

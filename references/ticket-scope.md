@@ -22,17 +22,17 @@ Applies to tracker create calls outside `n1-ticket`/`n1-story` that choose a typ
 - An issue type the user explicitly names (e.g. "create a Story") wins over every rule below.
 - Bug for a defect report.
 - Otherwise use the `SCOPE_TYPE` table above: Task for atomic single-repository work; Story only for multiple repositories or meaningful decomposition.
-- Unknown scope: default to Task, note the assumption in the description, and do not block creation. These sites have no collection flow to resolve scope.
+- Unknown scope: default to Task (overrides the table's Unknown row for free-form sites), note the assumption in the description, and do not block creation. These sites have no collection flow to resolve scope.
 
 Pass the type using the parameter names in § Create-call parameters.
 
 ## Create-call parameters
 
-The type argument depends on the configured create op (`CREATE_ISSUE_OP=$(n1_config_val '.tracker.operations.createIssue')`):
+The type argument depends on the configured create op (`CREATE_ISSUE_OP=$(n1_config_val '.tracker.operations.createIssue')`; empty means `createJiraIssue`):
 
 - **Jira, op starts with `jcm_`** (jc-mcp): `projectKey`, `issueType`, `summary`, `description` (plus `parentKey` for a child). No `cloudId`.
 - **Jira, any other op** (Atlassian Rovo `createJiraIssue`): `cloudId` (`n1_config_val '.tracker.cloudId'`, else the `id` from `getAccessibleAtlassianResources`), `projectKey`, `issueTypeName`, `summary`, `description`.
-- **YouTrack:** `project`, `summary`, `description`, using the tool's own argument names.
+- **YouTrack:** `project`, `summary`, `description`, using the tool's own argument names. For a non-default type, set the project's enum field named "Type" to it, as in `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` Step 6 (verify via `getProjectFields` when configured); if the value is unavailable or unverifiable, create with the default type.
 
 ## Handoffs
 
