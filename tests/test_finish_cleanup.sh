@@ -101,6 +101,51 @@ git -C "$M" checkout -q main; git -C "$M" merge -q --no-ff -m m10 f10; git -C "$
 assert_eq "C10: branch mode deleted" "worktree:none,branch:deleted" "$(git -C "$M" checkout -q main; run "$M" f10 after-merge "$(tip f10)")"
 assert_eq "C10: re-run is a no-op" "worktree:none,branch:none" "$(run "$M" f10 after-merge "")"
 
+# C12: cwd ends in the main checkout after removal (no pipe/subshell), unchanged when kept.
+new_wt "$T/ext12" f12; git -C "$M" merge -q --no-ff -m m12 f12
+cd "$T/ext12"; n1_finish_cleanup f12 after-merge "$(tip f12)" main >/dev/null; assert_eq "C12: cwd is main after removal" "$(cd "$M" && pwd -P)" "$(pwd -P)"
+new_wt "$T/ext12b" f12b; echo d > "$T/ext12b/d"
+cd "$T/ext12b"; n1_finish_cleanup f12b after-merge "" main >/dev/null; assert_eq "C12: cwd unchanged when kept" "$(cd "$T/ext12b" && pwd -P)" "$(pwd -P)"
+cd "$T"
+
+# C13: modes: empty -> after-merge, after-pr removes, unknown -> manual.
+new_wt "$T/ext13" f13; git -C "$M" merge -q --no-ff -m m13 f13
+assert_eq "C13: empty mode defaults to after-merge" "worktree:removed,branch:deleted" "$(run "$T/ext13" f13 "" "$(tip f13)")"
+new_wt "$T/ext14" f14; git -C "$M" merge -q --no-ff -m m14 f14
+assert_eq "C14: after-pr removes" "worktree:removed,branch:deleted" "$(run "$T/ext14" f14 after-pr "$(tip f14)")"
+new_wt "$T/ext15" f15; git -C "$M" merge -q --no-ff -m m15 f15
+assert_eq "C15: unknown mode keeps both" "worktree:kept (manual),branch:kept (manual)" "$(run "$T/ext15" f15 bogus "$(tip f15)")"
+
+# C16: manual on a plain checkout keeps the branch.
+git -C "$M" checkout -q -b f16; git -C "$M" commit -q --allow-empty -m f16
+git -C "$M" checkout -q main; git -C "$M" merge -q --no-ff -m m16 f16
+assert_eq "C16: plain checkout manual keeps branch" "worktree:none,branch:kept (manual)" "$(run "$M" f16 manual "")"
+assert_eq "C16: branch kept" yes "$(has_branch f16)"
+
+# C17: N1-managed worktree with unmerged commits and no OID: force-removed, branch kept.
+WT17="$M/$(n1_worktree_root)/N1-17"; new_wt "$WT17" f17
+assert_eq "C17: N1-managed unmerged, no oid" "worktree:removed,branch:kept (not merged)" "$(run "$WT17" f17 after-merge "")"
+
+# C18: gitignored files keep an external worktree (never silently deleted).
+new_wt "$T/ext18" f18; git -C "$M" merge -q --no-ff -m m18 f18
+echo ".env" > "$T/ext18/.gitignore"; git -C "$T/ext18" add .gitignore; git -C "$T/ext18" commit -q -m ign
+git -C "$M" merge -q f18; echo secret > "$T/ext18/.env"
+assert_eq "C18: ignored files keep worktree" "worktree:kept (ignored files),branch:kept (worktree kept)" "$(run "$T/ext18" f18 after-merge "$(tip f18)")"
+assert_eq "C18: .env intact" yes "$(has_dir "$T/ext18")"
+
+# C19: separate-git-dir main checkout: branch ops hit the right repo.
+git init -q -b main --separate-git-dir "$T/sep.git" "$T/sepmain"
+git -C "$T/sepmain" commit -q --allow-empty -m init
+git -C "$T/sepmain" worktree add -q -b f19 "$T/ext19" main; git -C "$T/ext19" commit -q --allow-empty -m f19
+git -C "$T/sepmain" merge -q --no-ff -m m19 f19
+assert_eq "C19: separate-git-dir removed + deleted" "worktree:removed,branch:deleted" "$( (cd "$T/ext19" && n1_finish_cleanup f19 after-merge "" main) | paste -sd, -)"
+
+# C20: never kills a set -e caller; always prints tokens (too few args, outside a repo).
+OUT20=$(bash -c 'set -euo pipefail; source "$1/lib/config.sh"; cd "$2"; n1_finish_cleanup; echo rc:$?' _ "$SCRIPT_DIR/.." "$T" | paste -sd, -)
+assert_eq "C20: outside a repo, no args" "worktree:none,branch:none,rc:0" "$OUT20"
+OUT20=$(bash -c 'set -euo pipefail; source "$1/lib/config.sh"; cd "$2"; n1_finish_cleanup f1; echo rc:$?' _ "$SCRIPT_DIR/.." "$M" | paste -sd, -)
+assert_eq "C20: in a repo, too few args" "worktree:none,branch:none,rc:0" "$OUT20"
+
 # Static: Step 6 delegates to the helper and no longer exempts external worktrees.
 R="$SCRIPT_DIR/.."; STEP6="$R/skills/n1-finish/steps/06-cleanup.md"
 yn() { "$@" && echo yes || echo no; }

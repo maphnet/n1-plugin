@@ -26,6 +26,8 @@ source ~/.n1/preamble.sh
 ID="<ID>"; case "$ID" in *[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
 DB="<defaultBranch>"; LOCAL=<0|1>; HR="<headRefName>"   # HR: the PR's head branch (local merge: the merged feature branch; empty if none)
 case "$HR" in *[!A-Za-z0-9._/-]*) echo headref:invalid; exit 1;; esac
+case "$DB" in ""|-*|*[!A-Za-z0-9._/-]*) echo db:invalid; exit 1;; esac
+case "$LOCAL" in 0|1) ;; *) echo local:invalid; exit 1;; esac
 OV="$N1_HOME/memory/$ID/overview.md"
 if [ -n "$ID" ] && [ -f "$OV" ]; then
   TMP=$(mktemp "$OV.XXXXXX")
@@ -42,12 +44,12 @@ case "$PR" in *[!0-9]*) echo pr:invalid; exit 1;; esac
 [ -n "$PR" ] && OID=$(gh pr view "$PR" --json state,headRefOid -q 'select(.state=="MERGED").headRefOid' 2>/dev/null)   # empty unless merged
 BR=$(git rev-parse --abbrev-ref HEAD)
 if [ ! -f "$(git rev-parse --show-toplevel)/.git" ]; then   # plain checkout (a linked worktree never checks out the default branch)
-  [ "$BR" = "$DB" ] || [ "$BR" != "$HR" ] || { git checkout "$DB" && { [ "$LOCAL" = 1 ] || git pull; } || echo checkout:failed; }
+  [ "$BR" = "$DB" ] || [ "$BR" != "$HR" ] || { git checkout "$DB" -- && { [ "$LOCAL" = 1 ] || git pull; } || echo checkout:failed; }
 fi
 n1_finish_cleanup "$HR" "$(n1_config_val '.worktree.cleanup')" "$OID" "$DB"
 ```
 
-Tokens (from `n1_finish_cleanup` in `lib/config.sh`; print them verbatim in the Report's `Cleanup:` line): `worktree:removed | none | kept-other | kept (<dirty|unmerged|manual>) | remove-failed (<error>)` and `branch:deleted | none | kept (<worktree kept|manual|not merged>)`. `kept-other` → the current checkout is another ticket's; nothing was removed (the PR's own branch is still deleted when possible). `checkout:failed` → warn that the default branch could not be checked out or pulled. N1-managed worktrees (under `/$(n1_worktree_root)/`) are removed with `--force` when `worktree.cleanup` is `after-merge`/`after-pr`; external worktrees (Orca etc.) are removed only when the tree is clean and HEAD is in the merged PR head (`OID`, else the local default branch), never forced. The branch uses `git branch -d`, falling back to `-D` only when its tip equals the merged PR's `OID` (squash/rebase merge). `worktree.cleanup: manual` keeps both. Kept external worktrees are the user's to remove (do not suggest `/n1:n1-clean`); `remove-failed` on an N1-managed one → warn and point at `/n1:n1-clean`.
+Tokens (from `n1_finish_cleanup` in `lib/config.sh`; print them verbatim in the Report's `Cleanup:` line): `worktree:removed | none | kept-other | kept (<dirty|ignored files|unmerged|manual>) | remove-failed (<error>)` and `branch:deleted | none | kept (<worktree kept|manual|not merged>)`. `kept-other` → the current checkout is another ticket's; nothing was removed (the PR's own branch is still deleted when possible). `checkout:failed` → warn that the default branch could not be checked out or pulled. N1-managed worktrees (under `/$(n1_worktree_root)/`) are removed with `--force` when `worktree.cleanup` is `after-merge`/`after-pr`; external worktrees (Orca etc.) are removed only when the tree is clean (ignored files such as `.env` count: `kept (ignored files)`) and HEAD is in the merged PR head (`OID`, else the local default branch), never forced. The branch uses `git branch -d`, falling back to `-D` only when its tip equals the merged PR's `OID` (squash/rebase merge). `worktree.cleanup: manual` (or any unrecognised value) keeps both, on a plain checkout too. `kept (unmerged)` with a PR may mean the PR-head lookup failed (`OID` empty). `checkout:failed` implies `branch:kept`. Kept external worktrees are the user's to remove (do not suggest `/n1:n1-clean`); `remove-failed` on an N1-managed one → warn and point at `/n1:n1-clean`; on an external one → warn with the error only.
 
 ## Report (final message)
 

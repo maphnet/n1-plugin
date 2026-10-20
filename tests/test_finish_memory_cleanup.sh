@@ -45,7 +45,7 @@ wt() { # <cleanup value> <name>
 wt after-merge feat
 grep -qx 'worktree:removed' <<<"$OUT"; chk "worktree after-merge: removed status" $?
 chk "worktree after-merge: directory gone" $([ ! -d "$T/repo/.claude/worktrees/feat" ]; echo $?)
-grep -qxE 'branch:(deleted|kept)' <<<"$OUT"; chk "worktree after-merge: branch status printed" $?
+grep -qx 'branch:deleted' <<<"$OUT"; chk "worktree after-merge: branch status printed" $?
 wt manual keep
 grep -qx 'worktree:kept (manual)' <<<"$OUT"; chk "worktree manual: kept status" $?
 chk "worktree manual: directory stays" $([ -d "$T/repo/.claude/worktrees/keep" ]; echo $?)

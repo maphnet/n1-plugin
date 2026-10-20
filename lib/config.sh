@@ -706,31 +706,37 @@ n1_is_external_worktree() {
 # never forced. Branch: -d; -D only when the tip equals the merged PR head oid (squash/rebase).
 # After a removal the shell is left in the main checkout.
 n1_finish_cleanup() {
-    local branch="$1" mode="${2:-after-merge}" oid="$3" def="$4"
-    local gd gcd main top err cur keep=""
-    gd=$(cd "$(git rev-parse --git-dir)" && pwd -P) || return 0
-    gcd=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
-    main=$(dirname "$gcd")
-    if [ "$gd" != "$gcd" ]; then
-        top=$(git rev-parse --show-toplevel); cur=$(git rev-parse --abbrev-ref HEAD)
+    local branch="${1:-}" mode="${2:-after-merge}" oid="${3:-}" def="${4:-}"
+    local gd gcd main top err cur st keep="" force=""
+    gd=$(cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
+        && gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
+        && main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] \
+        || { echo worktree:none; echo branch:none; return 0; }
+    local G=(git --git-dir="$gcd")
+    case "$mode" in after-merge|after-pr) ;; *) keep="manual" ;; esac
+    if [ "$gd" = "$gcd" ]; then echo "worktree:none"
+    else
+        top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""; cur=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || cur=""
         if [ "$cur" != "$branch" ]; then echo "worktree:kept-other"
-        elif [ "$mode" != after-merge ] && [ "$mode" != after-pr ]; then keep="manual"
-        elif n1_is_external_worktree; then
-            if [ -n "$(git status --porcelain 2>/dev/null)" ]; then keep="dirty"
-            elif ! git merge-base --is-ancestor HEAD "${oid:-$def}" 2>/dev/null; then keep="unmerged"
-            elif err=$(cd "$main" && git worktree remove "$top" 2>&1); then echo "worktree:removed"
-            else keep="remove-failed"; fi
-        elif err=$(cd "$main" && git worktree remove "$top" --force 2>&1); then echo "worktree:removed"
-        else keep="remove-failed"; fi
-        if [ "$keep" = remove-failed ]; then echo "worktree:remove-failed (${err%%$'\n'*})"
-        elif [ -n "$keep" ]; then echo "worktree:kept ($keep)"; fi
-        [ -z "$keep" ] && [ "$cur" = "$branch" ] && cd "$main"
-    else echo "worktree:none"; fi
+        elif [ -n "$keep" ]; then echo "worktree:kept (manual)"
+        else
+            # Only a positive match under the main checkout's N1 worktree root is N1-managed; everything else is external (never forced).
+            case "$top" in "$main/$(n1_worktree_root)"/*) force="--force" ;; esac
+            if [ -z "$force" ]; then
+                if ! st=$(git status --porcelain --ignored 2>/dev/null) || [ -n "$(grep -v '^!!' <<<"$st")" ]; then keep="dirty"
+                elif [ -n "$st" ]; then keep="ignored files"
+                elif ! git merge-base --is-ancestor HEAD "${oid:-refs/heads/$def}" 2>/dev/null; then keep="unmerged"; fi
+            fi
+            if [ -n "$keep" ]; then echo "worktree:kept ($keep)"
+            elif err=$(cd / && "${G[@]}" worktree remove $force "$top" 2>&1); then echo "worktree:removed"; cd "$main" 2>/dev/null || true
+            else keep="remove-failed"; echo "worktree:remove-failed (${err%%$'\n'*})"; fi
+        fi
+    fi
     if [ -n "$keep" ]; then echo "branch:kept ($([ "$keep" = manual ] && echo manual || echo worktree kept))"
-    elif [ -z "$branch" ] || [ "$branch" = "$def" ] || ! git -C "$main" rev-parse -q --verify "refs/heads/$branch" >/dev/null; then echo "branch:none"
-    elif git -C "$main" branch -d -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
-    elif [ -n "$oid" ] && [ "$(git -C "$main" rev-parse -q --verify "refs/heads/$branch")" = "$oid" ] \
-        && git -C "$main" branch -D -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
+    elif [ -z "$branch" ] || [ "$branch" = "$def" ] || ! "${G[@]}" rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1; then echo "branch:none"
+    elif "${G[@]}" branch -d -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
+    elif [ -n "$oid" ] && [ "$("${G[@]}" rev-parse -q --verify "refs/heads/$branch" 2>/dev/null)" = "$oid" ] \
+        && "${G[@]}" branch -D -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
     else echo "branch:kept (not merged)"; fi
     return 0
 }
