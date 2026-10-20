@@ -1637,11 +1637,22 @@ test_held_user_merge() {
     assert_eq "user-merge: open PR -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md")"
     assert_eq "user-merge: open PR -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
 
-    fakegh 'exit 1'; mkq
-    assert_eq "user-merge: gh error -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md")"
+    fakegh 'echo "boom: rate limited" >&2; echo "second line" >&2; exit 1'; mkq
+    assert_eq "user-merge: gh error -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>"$tmp/err")"
     assert_eq "user-merge: gh error -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
+    assert_eq "user-merge: first gh stderr line surfaced (CR-5)" "boom: rate limited" "$(cat "$tmp/err")"
 
-    fakegh 'echo MERGED'; mkq
+    fakegh 'echo CLOSED'; mkq
+    assert_eq "user-merge: closed PR -> chain skipped (CR-4)" "0" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md")"
+    assert_eq "user-merge: closed PR -> T-2 skip" "skip|blocked by T-1 (PR closed)" "$(plan_cell "$tmp/q.md" 2 8)|$(plan_cell "$tmp/q.md" 2 9)"
+    assert_eq "user-merge: closed PR -> T-3 skip" "skip" "$(plan_cell "$tmp/q.md" 3 8)"
+
+    fakegh 'case "$*" in *"-- https://github.com/o/r/pull/5") echo MERGED;; *) echo OPEN;; esac'; mkq
+    sed -i 's#pr_url: .*#pr_url: https://evil.example/o/r/pull/5#' "$tmp/h/memory/T-1/overview.md"
+    assert_eq "user-merge: non-GitHub pr_url -> not merged (SEC-2)" "held" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" >/dev/null; plan_cell "$tmp/q.md" 2 8)"
+    sed -i 's#pr_url: .*#pr_url: https://github.com/o/r/pull/5#' "$tmp/h/memory/T-1/overview.md"
+
+    fakegh 'case "$*" in *"-- https://github.com/o/r/pull/5") echo MERGED;; *) echo OPEN;; esac'; mkq
     assert_eq "user-merge: merged -> released row still counted" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>/dev/null)"
     assert_eq "user-merge: T-2 released" "pending|released: T-1 merged" "$(plan_cell "$tmp/q.md" 2 8)|$(plan_cell "$tmp/q.md" 2 9)"
     assert_eq "user-merge: T-3 waits on T-2" "held" "$(plan_cell "$tmp/q.md" 3 8)"
@@ -1682,6 +1693,7 @@ test_bg_held_user_merge() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgm "T-A:working done" "T-B:done"
     n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
     git init -q -b main "$tmp/origin"
     git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
     git init -q -b work "$tmp"

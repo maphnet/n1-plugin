@@ -278,9 +278,11 @@ n1_queue_held_sweep() {
     # Prints how many held rows still wait or were just released; a released row is counted so
     # the runner does not stop before launching it. Blocker status is re-read per row, so a
     # chain in plan order resolves in one call; the runner sweeps every idle tick.
+    # A blocker PR the user CLOSED unmerged skips the row like a failed blocker.
     # Trust: pr_url is child-written; this only reads PR state and never merges, so a forged
-    # URL can at worst release a held row early.
-    local q="$1" num t b st h r url n=0
+    # URL can at worst release a held row early. Non-GitHub-PR URLs count as not merged (SEC-2).
+    # The first gh stderr line goes to the runner's stderr (runner.log), not /dev/null.
+    local q="$1" num t b st h r url state n=0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         case "$st" in
@@ -290,10 +292,16 @@ n1_queue_held_sweep() {
             pr)
                 IFS=$'\t' read -r h r < <(n1_queue_pending_rows "$q" pr \
                     | awk -F'\t' -v b="$b" '$2 == b { h = $4; r = $3 } END { printf "%s\t%s\n", h, r }')
-                url=$(n1_queue_child_pr_url "$h/memory/$b/overview.md")
-                if [ -n "$url" ] \
-                    && [ "$(gh pr view "$url" --json state -q .state </dev/null 2>/dev/null)" = MERGED ] \
-                    && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
+                url=$(n1_queue_child_pr_url "$h/memory/$b/overview.md"); state=""
+                if [[ "$url" =~ ^https://github\.com/[^/]+/[^/]+/pull/[0-9]+$ ]]; then
+                    # gh stdout -> fd 3 (captured), gh stderr -> first line to our stderr.
+                    state=$( { gh pr view --json state -q .state -- "$url" </dev/null 2>&1 >&3 3>&- | head -n1 >&2; } 3>&1 )
+                fi
+                if [ "$state" = CLOSED ]; then
+                    n1_queue_row_status "$q" "$num" skip "blocked by $b (PR closed)"
+                    continue
+                fi
+                if [ "$state" = MERGED ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
                     n1_queue_row_status "$q" "$num" pending "released: $b merged"
                 fi ;;
         esac
