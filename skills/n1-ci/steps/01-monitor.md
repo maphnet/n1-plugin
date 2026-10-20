@@ -30,7 +30,7 @@ Carry `$RECONCILE_START_FILE` forward into Step 4 / Step 7a (in 02-fix.md), the 
 ## Step 2: Read CI Check Config
 
 From config:
-- `maxFixAttempts` — fixed: `3`
+- `MAX_FIX` — fixed start value `3` (raised only by Step 6b, ceiling `6`); `ci_fix_cycle` counter lives in overview.md
 - `confidenceThreshold` — fixed: `0.7`
 - `categories` — default: built-in map below
 

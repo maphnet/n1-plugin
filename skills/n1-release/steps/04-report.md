@@ -35,11 +35,11 @@ Record the outcome as `DEPLOY` for the Step 9 `Deployment:` line.
       git rev-parse <TAG>^{commit}
       ```
 
-   b. Watch the release-triggered runs in the foreground. First call: `<grace>` = `5`, `<remaining-minutes>` = `30`. When `finishWork.deployWatch.workflowName` (read via `n1_config_val '.finishWork.deployWatch.workflowName'`) is set, pass it single-quoted as the last argument. When the release triggers several workflows, recommend setting `finishWork.deployWatch.workflowName` so the watch follows the deploy workflow only.
+   b. Watch the release-triggered runs in the foreground. First call: `<grace>` = `5`, `<remaining-minutes>` = `30`. Do not pass a workflow filter: `finishWork.deployWatch.workflowName` targets the n1-finish merge-commit deploy and would hide release-triggered runs.
       ```bash
       source ~/.n1/preamble.sh
       source "$N1_ROOT/lib/poll.sh"
-      n1_wait_release_runs <sha> <grace> <remaining-minutes> ['<workflowName>']
+      n1_wait_release_runs <sha> <grace> <remaining-minutes>
       ```
       The helper counts only `release`-event runs on the tag commit (push-triggered runs on the same commit are ignored), retries failed `gh` calls such as TLS timeouts, and returns within 8 minutes (a pending result may come slightly earlier, when the 30-second confirmation would overrun the chunk). Never background it and never end the turn while it prints `pending` or `unknown`: re-invoke with `<remaining-minutes>` reduced by 8 per prior call, until it prints `none`, `success`, `failed` or `skipped`, or the budget is spent. `<grace>` = `0` on re-invocation only after a prior `pending`; after a prior `unknown` keep `5` (grace starts once gh answers). A `none` right after a prior `pending` means the runs vanished transiently: treat it as `unknown` and re-invoke; never report "not triggered" once runs were seen. Confirmed all-skipped runs print `skipped`, which is terminal.
 
