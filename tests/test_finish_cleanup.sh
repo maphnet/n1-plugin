@@ -35,4 +35,21 @@ for pass in 1 2; do
     grep -q 'branch:none' <<<"$OUT" && grep -q 'worktree:none' <<<"$OUT"; chk "run $pass: branch/worktree status printed" $?
 done
 chk "no leftover temp files" $([ -z "$(ls "$T/home/memory/T-1" | grep -v '^overview.md$')" ]; echo $?)
+
+# Linked worktree under the N1 worktree root: removed for after-merge, kept for never.
+wt() { # <cleanup value> <name>
+    printf '{"worktree":{"cleanup":"%s"}}\n' "$1" > "$T/home/config.json"
+    git -C "$T/repo" worktree add -q -b "$2" "$T/repo/.claude/worktrees/$2"
+    OUT=$(cd "$T/repo/.claude/worktrees/$2" && N1_ROOT="$REPO" N1_HOME="$T/home" bash -c "$SNIP" 2>&1)
+}
+wt after-merge feat
+grep -qx 'worktree:removed' <<<"$OUT"; chk "worktree after-merge: removed status" $?
+chk "worktree after-merge: directory gone" $([ ! -d "$T/repo/.claude/worktrees/feat" ]; echo $?)
+grep -qxE 'branch:(deleted|kept)' <<<"$OUT"; chk "worktree after-merge: branch status printed" $?
+wt never keep
+grep -qx 'worktree:kept' <<<"$OUT"; chk "worktree never: kept status" $?
+chk "worktree never: directory stays" $([ -d "$T/repo/.claude/worktrees/keep" ]; echo $?)
+# Empty ID must not abort cleanup; memory block is skipped.
+OUT=$(cd "$T/repo" && N1_ROOT="$REPO" N1_HOME="$T/home" bash -c "${SNIP//T-1/}" 2>&1)
+grep -q 'memory:none' <<<"$OUT" && grep -q 'branch:none' <<<"$OUT"; chk "empty ID: cleanup continues without memory" $?
 exit $FAIL
