@@ -34,11 +34,6 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 n1_queue_awaiting_hints "$QUEUE_FILE"
 ```
-- Escalations the orchestrator answered itself (N1-64); print verbatim:
-```bash
-source ~/.n1/preamble.sh
-jq -r 'select(.event=="auto_resolved") | "\(.ticket): auto-resolved: \(.reason)"' "$(dirname "$QUEUE_FILE")/events.jsonl" 2>/dev/null
-```
 - The full transition history (starts, escalations, outcomes with wall-clock durations, halts) is in `<queue-dir>/events.jsonl`, one JSON object per line. Read it when the merged status table below does not explain what happened.
 
 Print a merged status table (deterministic; print its output verbatim, no reformatting):

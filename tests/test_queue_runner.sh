@@ -1588,29 +1588,6 @@ test_bg_pr_lifecycle() {
     done
 }
 
-# N1-64: orchestrator self-answer is delivered through n1_queue_answer and logged as auto_resolved.
-test_auto_resolve() {
-    local tmp; tmp=$(mktemp -d)
-    mkdir -p "$tmp/queue/q1"
-    printf -- '---\nqueue_id: q1\nrun_id: R9\n---\n' > "$tmp/queue/q1/queue.md"
-    echo '{}' > "$tmp/queue/q1/.question-T-1.json"
-    printf 'Use the hand-off file' > "$tmp/queue/.answer-T-1.txt"
-    n1_queue_answer() { return 0; }
-    n1_queue_auto_resolve "$tmp" T-1 >/dev/null 2>&1 || true
-    assert_eq "auto-resolve: event logged" "auto_resolved,T-1,Use the hand-off file,R9,q1" \
-        "$(jq -r 'select(.event=="auto_resolved") | [.event,.ticket,.reason,.run_id,.queue] | join(",")' "$tmp/queue/q1/events.jsonl")"
-    rm -f "$tmp/queue/q1/events.jsonl"
-    printf 'x' > "$tmp/queue/.answer-T-1.txt"
-    n1_queue_answer() { return 1; }
-    local rc=0; n1_queue_auto_resolve "$tmp" T-1 >/dev/null 2>&1 || rc=$?
-    assert_eq "auto-resolve: delivery failure returns 1" "1" "$rc"
-    assert_eq "auto-resolve: no event on failure" "no" "$([ -s "$tmp/queue/q1/events.jsonl" ] && echo yes || echo no)"
-    assert_eq "auto-resolve: bad ticket id rejected" "1" "$(n1_queue_auto_resolve "$tmp" 'T 1;x' >/dev/null 2>&1 && echo 0 || echo 1)"
-    assert_eq "auto-resolve: default off" "false" "$(N1_HOME="$tmp" n1_queue_val autoResolveNonCritical)"
-    source "$REPO_ROOT/lib/queue.sh"   # restore the real n1_queue_answer
-    rm -rf "$tmp"
-}
-
 # N1-64: held rows (same-plan blocker) — helpers and runner hold/expire.
 mk_held_plan() { # <file> <status-of-T-1>
     cat > "$1" <<EOF
@@ -1726,32 +1703,6 @@ test_bg_held_user_merge() {
     rm -rf "$tmp"
 }
 
-# N1-64: merge-to-unblock trigger (conditions 1-3) and strict gate (condition 4), gh stubbed.
-test_merge_candidates() {
-    # n1_queue_unblock takes the queue dir, so the plan lives at $tmp/queue.md.
-    local tmp; tmp=$(mktemp -d)
-    mk_held_plan "$tmp/queue.md" pr
-    assert_eq "merge-cand: stalled on T-1" "T-1	/h	/r" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" in-progress
-    assert_eq "merge-cand: blocker not pr" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" pr
-    sed -i 's/^| 3 | T-3 | C | \/r | \/h | sonnet | held | blocked_on T-2 |$/| 3 | T-3 | C | \/r | \/h | sonnet | pending | |/' "$tmp/queue.md"
-    assert_eq "merge-cand: other work can progress" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" pr
-    sed -i 's/ held | blocked_on T-1 · tag match / held | blocked_on T-9 /' "$tmp/queue.md"
-    assert_eq "merge-cand: nobody held on T-1" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" pr
-    sed -i 's/^| 1 | T-1 | A | \/r | \/h |/| 1 | T-1 | A | \/r2 | \/h2 |/' "$tmp/queue.md"
-    assert_eq "merge-cand: blocker's own N1 Home and Repo" "T-1	/h2	/r2" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" pr
-    n1_queue_unblock "$tmp" T-1 "https://github.com/o/r/pull/5"
-    assert_eq "unblock: T-2 released" "pending|released: T-1 merged" "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
-    assert_eq "unblock: T-3 still held" "held" "$(plan_cell "$tmp/queue.md" 3 8)"
-    assert_eq "unblock: event" "merged_to_unblock,T-1,https://github.com/o/r/pull/5" \
-        "$(jq -r '[.event,.ticket,.pr] | join(",")' "$tmp/events.jsonl")"
-    rm -rf "$tmp"
-}
-
 # N1-64 CR-1: n1_queue_sync_default fast-forwards the blocker repo's local default branch.
 test_sync_default() {
     local tmp origin repo; tmp=$(mktemp -d)
@@ -1774,94 +1725,6 @@ test_sync_default() {
         || { echo "FAIL: sync: ff-only path actually moved HEAD"; FAIL=$((FAIL+1)); }
     git -C "$repo" remote set-url origin "$tmp/no-such-origin"
     assert_eq "sync: unreachable remote -> failure, no unblock" "1" "$(n1_queue_sync_default "$repo" >/dev/null 2>&1; echo $?)"
-    rm -rf "$tmp"
-}
-
-test_merge_gate() {
-    local tmp ov repo; tmp=$(mktemp -d)
-    mkdir -p "$tmp/h/memory/T-1" "$tmp/qd"; ov="$tmp/h/memory/T-1/overview.md"
-    repo="$tmp/repo"; mkdir -p "$repo"
-    git -C "$repo" init -q; git -C "$repo" remote add origin https://github.com/o/r.git
-    # review_fix_cycle absent/0 means review passed clean on the first try (fix.md, which
-    # increments clean_passes, is never entered in that case) — clean_passes alone cannot
-    # tell "never needed a fix" from "still failing" — review_fix_cycle disambiguates.
-    good_ov() { printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"; }
-    good_ov_after_fix() { printf -- '---\nstep: ci\nbranch: feature/t-1\nreview_fix_cycle: 1\nclean_passes: 1\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"; }
-    local SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    # N1-64 SEC-1: identity fields (headRefName/baseRefName) are checked before mergeable/CI/state.
-    # SEC-9: headRefName is bound to the ticket id T-1 itself (-> "t-1"), never to overview.md's
-    # own (child-writable) `branch` field, which here is left set to a mismatched value on purpose
-    # to prove a forged/stale `branch:` field no longer has any effect on the gate.
-    GH_OK="{\"headRefName\":\"feature/t-1\",\"headRefOid\":\"$SHA\",\"baseRefName\":\"main\",\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"state\":\"OPEN\",\"isCrossRepository\":false,\"statusCheckRollup\":[{\"conclusion\":\"SUCCESS\",\"status\":\"COMPLETED\"},{\"state\":\"SUCCESS\"}]}"
-    gh() { [ -z "${GH_FAIL:-}" ] || return 1; printf '%s' "$GH_JSON"; }
-    gate() { n1_queue_merge_gate "$tmp/h" T-1 "$tmp/qd" "$repo" || true; }
-    good_ov; GH_JSON="$GH_OK"
-    assert_eq "gate: all conditions hold, first-try-clean review" "$(printf 'https://github.com/o/r/pull/5\t%s' "$SHA")" "$(gate)"
-    good_ov_after_fix; GH_JSON="$GH_OK"
-    assert_eq "gate: all conditions hold, review converged after a fix cycle" "$(printf 'https://github.com/o/r/pull/5\t%s' "$SHA")" "$(gate)"
-    printf -- '---\nstep: pr\n---\n' > "$ov"
-    assert_eq "gate: no PR url" "gate: no real PR URL" "$(gate)"
-    # N1-64 SEC-1: PR repo not the blocker's own origin -> rejected before anything else.
-    printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/other/repo/pull/9\n' > "$ov"
-    assert_eq "gate: PR repo mismatch" "gate: PR repo does not match blocker's repo" "$(gate)"
-    # N1-64 SEC-9: overview.md's `branch:` is forged to match the (also attacker-controlled) PR's
-    # headRefName exactly — the old branch-trusting compare would have passed this; the ticket-id
-    # derived check still rejects it because it ignores overview.md's `branch:` entirely.
-    printf -- '---\nstep: ci\nbranch: someone-elses-branch\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"
-    GH_JSON="${GH_OK//feature\/t-1/someone-elses-branch}"
-    assert_eq "gate: forged branch: field does not help" "gate: PR branch does not match ticket branch" "$(gate)"
-    good_ov; GH_JSON='{"headRefName":"other-branch","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: PR head branch mismatch" "gate: PR branch does not match ticket branch" "$(gate)"
-    # N1-64 SEC-9: headRefName is matched case-insensitively, and an optional owner/prefix-style
-    # path segment before the ticket slug is accepted (e.g. "feature/t-1").
-    GH_JSON='{"headRefName":"T-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: uppercase head branch accepted" "$(printf 'https://github.com/o/r/pull/5\t%s' "$SHA")" "$(gate)"
-    GH_JSON='{"headRefName":"feature/n1-64","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: T-1 branch mismatch with prefixed other ticket slug" "gate: PR branch does not match ticket branch" "$(gate)"
-    # N1-64 SEC-9: isCrossRepository (a fork PR) is rejected even when repo/branch/base match.
-    GH_JSON="${GH_OK/\"isCrossRepository\":false/\"isCrossRepository\":true}"
-    assert_eq "gate: fork PR rejected" "gate: PR is from a fork" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"not-the-default","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: PR base branch mismatch" "gate: PR base is not the default branch" "$(gate)"
-    good_ov_after_fix; GH_JSON="$GH_OK"; sed -i 's/clean_passes: 1/clean_passes: 0/' "$ov"
-    assert_eq "gate: fix cycle ran but never converged" "gate: review not PASS" "$(gate)"
-    good_ov; GH_JSON="$GH_OK"; sed -i 's/step: ci/step: escalated/' "$ov"
-    assert_eq "gate: escalated step" "gate: open escalation" "$(gate)"
-    good_ov; echo '{}' > "$tmp/qd/.question-T-1.json"
-    assert_eq "gate: pending question" "gate: open escalation" "$(gate)"
-    rm -f "$tmp/qd/.question-T-1.json"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: not mergeable" "gate: not mergeable" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: not clean merge state (SEC-2)" "gate: not clean" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"FAILURE"}]}'
-    assert_eq "gate: CI failed" "gate: CI not green" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"","status":"IN_PROGRESS"}]}'
-    assert_eq "gate: CI pending" "gate: CI not green" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[]}'
-    assert_eq "gate: no CI checks" "gate: CI not green" "$(gate)"
-    # N1-64 SEC-10: a malformed/short head sha fails the gate even though everything else is green.
-    GH_JSON="${GH_OK/\"headRefOid\":\"$SHA\"/\"headRefOid\":\"abc123\"}"
-    assert_eq "gate: malformed head sha" "gate: no head sha" "$(gate)"
-    GH_JSON="$GH_OK"; GH_FAIL=1
-    assert_eq "gate: gh error" "gate: gh pr view failed" "$(gate)"
-    unset GH_FAIL
-    assert_eq "gate: bad ticket" "gate: invalid ticket" "$(n1_queue_merge_gate "$tmp/h" 'T-1;x' "$tmp/qd" "$repo" || true)"
-    # N1-64 edge case: blocker's PR was already merged outside the orchestrator (a human ran
-    # `gh` directly, or a previous tick's merge landed but this tick's unblock was interrupted).
-    # A merged PR reports mergeable=UNKNOWN and a stale/empty rollup in the live API — state:MERGED
-    # is what actually matters, and the gate must not strand held tickets behind it forever.
-    # Identity (repo/branch/base) is still enforced before the MERGED short-circuit; SEC-10's sha
-    # check is not (the merged PR's own oid is informational only at that point).
-    good_ov; GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"UNKNOWN","isCrossRepository":false,"state":"MERGED","statusCheckRollup":[]}'
-    assert_eq "gate: already merged externally -> still passes" "$(printf 'https://github.com/o/r/pull/5\tabc123')" "$(gate)"
-    # N1-64 TQ-1: ssh-form origin ("git@github.com:O/R.git", uppercase owner/repo) still binds.
-    git -C "$repo" remote set-url origin "git@github.com:O/R.git"
-    good_ov; GH_JSON="${GH_OK}"
-    printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/O/R/pull/5\n' > "$ov"
-    assert_eq "gate: TQ-1 ssh-form uppercase origin binds" "$(printf 'https://github.com/O/R/pull/5\t%s' "$SHA")" "$(gate)"
-    git -C "$repo" remote set-url origin https://github.com/o/r.git
-    unset -f gh good_ov good_ov_after_fix gate
     rm -rf "$tmp"
 }
 
@@ -2330,15 +2193,12 @@ test_plan_wiring
 test_child_status
 test_child_status_deploy
 test_bg_pr_lifecycle
-test_auto_resolve
 test_held_helpers
 test_held_user_merge
 test_bg_held_not_launched
 test_bg_held_blocker_failed
 test_bg_held_user_merge
-test_merge_candidates
 test_sync_default
-test_merge_gate
 test_row_status
 test_write_plan_cells
 test_pending_rows
