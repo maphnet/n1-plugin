@@ -107,6 +107,11 @@ for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push ori
          "git push origin \$(git branch --show-current)" "git push origin refs/heads/main-x:refs/heads/main-x"; do
     assert_eq "queue headless: allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
 done
+# CR-11: no working Python -> queue-child Bash fails closed; other payloads stay fail-open
+mkdir -p "$T/nopy"; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; cp "$T/nopy/python3" "$T/nopy/python"; chmod +x "$T/nopy/"*
+assert_eq "no python: queue headless Bash denied" 2 "$(PATH="$T/nopy:$PATH" policy_rc "${Q[@]}" -- "gh pr view 1")"
+assert_eq "no python: non-queue Bash allowed" 0 "$(PATH="$T/nopy:$PATH" policy_rc -- "gh pr view 1")"
+rm -rf "$T/nopy"
 # bare push while the cwd is on the default branch (config git.defaultBranch honored)
 echo '{"git":{"defaultBranch":"trunk"}}' > "$N1_HOME/config.json"
 git -C "$T" init -q -b trunk 2>/dev/null || { git -C "$T" init -q; git -C "$T" symbolic-ref HEAD refs/heads/trunk; }

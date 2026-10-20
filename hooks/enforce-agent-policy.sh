@@ -9,15 +9,14 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 INPUT=$(cat)
 
 # Fast path: persona payloads always go to Python. The merge deny (Case 3) applies only to
-# headless queue children, so forward every payload there unfiltered (SEC-4: a substring glob
-# is evaded by quote-split obfuscation; Python strips quotes first). Everything else exits here.
+# Bash calls in headless queue children; key on the tool name, never the command text (SEC-4:
+# a substring glob on the command is evaded by quote-split obfuscation). Everything else exits.
+QUEUE_CHILD=""
+[ -n "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" = "1" ] && QUEUE_CHILD=1
 case "$INPUT" in
     *'"n1:'*) : ;;
-    *)
-        if [ -z "${N1_QUEUE_RUN_ID:-}" ] || [ "${N1_HEADLESS:-}" != "1" ]; then
-            exit 0
-        fi
-        ;;
+    *'"Bash"'*) [ -n "$QUEUE_CHILD" ] || exit 0 ;;
+    *) exit 0 ;;
 esac
 
 CONFIG_FILE=$(n1_config_file)
@@ -33,6 +32,13 @@ for cand in python3 python; do
     fi
 done
 if [ -z "$PY" ]; then
+    # Fail closed: without Python the queue merge deny cannot run (CR-11).
+    case "$INPUT" in
+        *'"Bash"'*) if [ -n "$QUEUE_CHILD" ]; then
+            echo "N1: Bash denied in queue run ${N1_QUEUE_RUN_ID} -- no Python interpreter for the merge-deny check" >&2
+            exit 2
+        fi ;;
+    esac
     # Warn once per session instead of silently skipping enforcement.
     SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
     N1_ROOT_DIR=$(n1_home 2>/dev/null || true)
