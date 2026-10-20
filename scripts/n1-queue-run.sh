@@ -453,10 +453,13 @@ run_bg() {
                 launch_bg "$ROW"
                 HELD_WAIT=0
             else
-                # N1-64: held rows (same-plan blocker) are never launched here; the orchestrating
-                # session releases them after merging the blocker (n1_queue_unblock).
+                # N1-64/N1-114: held rows (same-plan blocker) are never launched directly; the
+                # sweep releases one to pending once the user merges its blocker's PR.
                 HELD=$(n1_queue_held_sweep "$QUEUE")
-                if [ -n "$(n1_queue_parked_rows "$QUEUE")" ]; then
+                if [ -n "$(n1_queue_pending_rows "$QUEUE")" ]; then
+                    # N1-114: the sweep just released a row; the next tick launches it, whatever the held timeout says.
+                    HELD_WAIT=0
+                elif [ -n "$(n1_queue_parked_rows "$QUEUE")" ]; then
                     # Parked rows wait on the human; the parked wait below bounds held rows too.
                     HELD_WAIT=0
                     if [ "$SINCE_PARK" -ge "$TIMEOUT_SECS" ]; then

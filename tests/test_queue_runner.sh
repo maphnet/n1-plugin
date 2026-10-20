@@ -1651,10 +1651,44 @@ test_held_helpers() {
     rm -rf "$tmp"
 }
 
+# N1-114: a user merge of the blocker's PR releases its held rows (runner-side sweep).
+test_held_user_merge() {
+    local tmp P; tmp=$(mktemp -d); P="$tmp/bin:$PATH"
+    mkdir -p "$tmp/bin" "$tmp/h/memory/T-1"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$tmp/h/memory/T-1/overview.md"
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    git -C "$tmp/repo" checkout -q -b work
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m blocker
+    mkq() { mk_held_plan "$tmp/q.md" pr; sed -i "s#| /r | /h |#| $tmp/repo | $tmp/h |#g" "$tmp/q.md"; }
+    fakegh() { printf '#!/bin/sh\n%s\n' "$1" > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"; }
+
+    fakegh 'echo OPEN'; mkq
+    assert_eq "user-merge: open PR -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md")"
+    assert_eq "user-merge: open PR -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
+
+    fakegh 'exit 1'; mkq
+    assert_eq "user-merge: gh error -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md")"
+    assert_eq "user-merge: gh error -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
+
+    fakegh 'echo MERGED'; mkq
+    assert_eq "user-merge: merged -> released row still counted" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>/dev/null)"
+    assert_eq "user-merge: T-2 released" "pending|released: T-1 merged" "$(plan_cell "$tmp/q.md" 2 8)|$(plan_cell "$tmp/q.md" 2 9)"
+    assert_eq "user-merge: T-3 waits on T-2" "held" "$(plan_cell "$tmp/q.md" 3 8)"
+    assert_eq "user-merge: local default synced" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp/repo" rev-parse main)"
+
+    git -C "$tmp/repo" remote set-url origin "$tmp/no-such-origin"; mkq
+    assert_eq "user-merge: sync failure -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>/dev/null)"
+    assert_eq "user-merge: sync failure -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
+    rm -rf "$tmp"
+}
+
 test_bg_held_not_launched() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgh "T-A:working done" "T-B:done"
     n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    printf '#!/bin/sh\necho OPEN\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
     assert_eq "bg-held: exit 0" "0" "$(run_bg_queue "$tmp")"
     assert_eq "bg-held: blocker pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "bg-held: T-B never launched" "0" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
@@ -1671,6 +1705,24 @@ test_bg_held_blocker_failed() {
     assert_eq "bg-held-fail: exit 0" "0" "$(run_bg_queue "$tmp")"
     assert_eq "bg-held-fail: T-B skipped" "blocked by T-A (failed)" "$(plan_cell "$tmp/queue.md" 2 9)"
     assert_eq "bg-held-fail: T-B never launched" "0" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
+    rm -rf "$tmp"
+}
+
+# N1-114: the user merges the blocker's PR -> the runner releases and launches the held ticket.
+test_bg_held_user_merge() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgm "T-A:working done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git init -q -b work "$tmp"
+    git -C "$tmp" remote add origin "$tmp/origin"
+    printf '#!/bin/sh\ncase "$*" in *"pr view"*"--json state"*) echo MERGED ;; esac\n' > "$tmp/bin/gh"
+    chmod +x "$tmp/bin/gh"
+    assert_eq "bg-held-merge: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-held-merge: T-B launched once" "1" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
+    assert_eq "bg-held-merge: T-B finished pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-held-merge: local main synced" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp" rev-parse main)"
     rm -rf "$tmp"
 }
 
@@ -2280,8 +2332,10 @@ test_child_status_deploy
 test_bg_pr_lifecycle
 test_auto_resolve
 test_held_helpers
+test_held_user_merge
 test_bg_held_not_launched
 test_bg_held_blocker_failed
+test_bg_held_user_merge
 test_merge_candidates
 test_sync_default
 test_merge_gate

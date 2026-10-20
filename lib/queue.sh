@@ -293,17 +293,33 @@ n1_queue_ticket_home() {
 n1_queue_held_sweep() {
     # Usage: n1_queue_held_sweep <queue.md>
     # N1-64: a held row whose blocker ended without a PR (failed/escalated/skip) or is not in the
-    # plan can never run: mark it skip. Prints how many held rows still wait (blocker pending,
-    # in progress, parked, held, or pr awaiting the orchestrator's merge). Blocker status is re-read
-    # per row, so a chain in plan order resolves in one call; the runner sweeps every idle tick,
-    # which catches a blocker listed after its dependent on the next tick.
-    local q="$1" num t b st n=0
+    # plan can never run: mark it skip. N1-114: when the blocker is at pr and the USER has merged
+    # its PR (gh state MERGED), fast-forward the blocker repo's local default branch (children
+    # branch from it) and release the row to pending. A gh error, a missing pr_url or a sync
+    # failure leaves it held for the next tick (bounded by the runner's held timeout).
+    # Prints how many held rows still wait or were just released; a released row is counted so
+    # the runner does not stop before launching it. Blocker status is re-read per row, so a
+    # chain in plan order resolves in one call; the runner sweeps every idle tick.
+    # Trust: pr_url is child-written; this only reads PR state and never merges, so a forged
+    # URL can at worst release a held row early.
+    local q="$1" num t b st h r url n=0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         case "$st" in
-            failed|escalated|skip|'') n1_queue_row_status "$q" "$num" skip "blocked by ${b:-?} (${st:-not in plan})" ;;
-            *) n=$((n + 1)) ;;
+            failed|escalated|skip|'')
+                n1_queue_row_status "$q" "$num" skip "blocked by ${b:-?} (${st:-not in plan})"
+                continue ;;
+            pr)
+                IFS=$'\t' read -r h r < <(n1_queue_pending_rows "$q" pr \
+                    | awk -F'\t' -v b="$b" '$2 == b { h = $4; r = $3 } END { printf "%s\t%s\n", h, r }')
+                url=$(n1_queue_child_pr_url "$h/memory/$b/overview.md")
+                if [ -n "$url" ] \
+                    && [ "$(gh pr view "$url" --json state -q .state </dev/null 2>/dev/null)" = MERGED ] \
+                    && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
+                    n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                fi ;;
         esac
+        n=$((n + 1))
     done < <(n1_queue_pending_rows "$q" held)
     printf '%s' "$n"
 }
@@ -413,9 +429,9 @@ n1_queue_merge_gate() {
 
 n1_queue_sync_default() {
     # Usage: n1_queue_sync_default <repo>
-    # N1-64 (CR-1): after the orchestrating session merges a blocking child's PR, fast-forward
-    # the blocker repo's LOCAL default branch before releasing held rows. Children branch from
-    # the local default (workspace-isolation.md § Ensure Worktree: `git branch <TARGET> $DEFAULT`),
+    # N1-64 (CR-1) / N1-114: after the user merges a blocking child's PR, n1_queue_held_sweep
+    # fast-forwards the blocker repo's LOCAL default branch before releasing held rows. Children
+    # branch from the local default (workspace-isolation.md § Ensure Worktree: `git branch <TARGET> $DEFAULT`),
     # so a stale local default hands a freshly-released ticket a
     # branch-point missing the commit that was just merged. Reads git.defaultBranch from the
     # repo's own N1 Home (caller sets N1_HOME to the blocker's home); falls back to "main".
