@@ -30,7 +30,7 @@ Always-on local-first telemetry (no config key). Captures per-step timing, per-a
 
 **ID reconciliation:** Telemetry directories live inside `$N1_HOME/memory/<ID>/`, so the existing Reconcile Memory ID & Branch procedure moves them automatically when a provisional ID is replaced with a tracker ticket ID.
 
-Hooks filter N1 persona names. Completion merges synchronously; both `Stop` handlers and explicit pipeline finalization use the same merger. Python 3 is required; failure retains the run lock for retry.
+Hooks filter N1 persona names. Explicit finalization or error recovery writes the terminal envelope and merges synchronously. A `Stop` records its transcript, then retains only the selected run when this session's active-run pointer names that exact run and no terminal envelope exists. Cleanup still merges a run with no active pointer (or an already-terminal run). Python 3 is required; failure retains the run lock for retry.
 
 **Schema version:** Version **5** corrects v4 accounting. Legacy cumulative records and `event_msg.token_count.info.total_token_usage` remain supported. Cache-write and reasoning-output fields are preserved; reasoning is already part of output. Pre-4.0 records with `host: codex` are read as-is with no special handling — the schema no longer distinguishes hosts.
 
@@ -63,7 +63,7 @@ Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `o
 
 **Session transcript discovery:** The opening envelope captures the path from session-start facts. Completion can supply it without agent events; agent events provide a legacy fallback. Missing paths produce unknown usage.
 
-**Lifecycle support:** `Stop` hook completion with JSON output. Manifest registration/trust is NP-145's scope: a declared hook does not prove the plugin registry delivers it. Explicit `n1-start` finalization is available even when hook delivery is absent; interrupted sessions with no delivered completion remain pending rather than claiming completion.
+**Lifecycle support:** `Stop` is a turn hook, not session completion: it records parent transcript data but does not close a matching active run. Explicit `n1-start` finalization or error recovery provides the terminal envelope and completion. Startup remains the recovery path for interrupted runs that retain their locks. There is no `SessionEnd` handler or idle-expiry mechanism. Manifest registration/trust is NP-145's scope: a declared hook does not prove the plugin registry delivers it.
 
 Recovery never guesses that a different concurrent session has become stale. Resume with the captured run identity, or explicitly run `bash hooks/telemetry-merge.sh <run_id> <telemetry_dir>` against the intended interrupted run. Multiple unfinished runs in one session require `N1_RUN_ID`; hooks with only an ambiguous session identity leave them pending.
 
