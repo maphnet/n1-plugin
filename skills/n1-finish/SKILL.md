@@ -40,7 +40,11 @@ if [ -n "$ID" ]; then
   echo "deploy-pending:$DP sha:$SHA sha-valid:$V"; [ "$DP$V" = truetrue ] && R=true
 fi
 gh auth status >/dev/null 2>&1 && G=ok || G=unauthenticated; echo "gh:$G"
-[ "$R$G" = falseok ] && { gh pr view ${PR:+"$PR"} --json number,state,mergedAt,mergeCommit,url,headRefName,baseRefName || echo pr:none; }
+B=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); echo "branch=$B"; F=number,state,mergedAt,mergeCommit,url,headRefName,baseRefName
+if [ "$R$G" = falseok ]; then
+  if [ -z "$PR" ] && [ -n "$ID" ] && ! grep -qiF -- "$ID" <<<"$B"; then gh pr list --state all --limit 100 --json $F --jq "map(select(.headRefName|ascii_downcase|contains(\"${ID,,}\")))|first//empty" | grep . || echo pr:none
+  else gh pr view ${PR:+"$PR"} --json $F || echo pr:none; fi
+fi
 RA=()
 [ "$(c finishWork.deployWatch.enabled)" = true ] && RA+=("$S/steps/03-deploy.md")
 [ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md")
@@ -49,7 +53,7 @@ RA=()
 echo "read-also: ${RA[*]}"
 ```
 
-`n1-home:missing` → N1 is not configured: warn and STOP. `id:invalid` → STOP. Empty `id=` → resolve it from `git.branchPattern`, then run Step 1's check. Read the `read-also:` files in parallel in the next turn with its other calls.
+`n1-home:missing` → N1 is not configured: warn and STOP. `id:invalid` → STOP. Empty `id=` → resolve it from `git.branchPattern`, then run Step 1's check.
 
 ## Config Read
 
@@ -66,9 +70,9 @@ Defaults when keys are absent:
 | `.finishWork.closeTicket` | `true` |
 | `.finishWork.waitForMergeMinutes` | `10` |
 | `.delivery.mode` | `null` (`"ssh"` enables the delivery deploy at the start of Step 4; any other value is off) |
-| `.delivery.command` | `null` (project deploy command, confirmed first, interactive only) |
-| `.delivery.steps` | `null` (ordered steps, each `` `<command>` `` or `Manual: <text>`; used only when `.delivery.command` is empty; each confirmed first, interactive only; resume point: overview `deploy_next_step`) |
-| `.delivery.verifyCommand` | `null` (optional post-deploy check; exit 0 = verified) |
+| `.delivery.command` | `null` (see `steps/03b-ssh-deploy.md`) |
+| `.delivery.steps` | `null` (ordered steps; used only when `.delivery.command` is empty; see `steps/03b-ssh-deploy.md`) |
+| `.delivery.verifyCommand` | `null` (optional post-deploy check) |
 | `.localTesting.mode` | `null` (infer from startCommand) |
 | `.localTesting.smokeEndpoint` | `null` |
 | `.localTesting.smokeTests` | `[]` |
@@ -79,11 +83,11 @@ Post-deploy verification dispatches only after a successful deployment, reads `t
 
 ## Steps
 
-Follow the files read at entry, in order. Read any other file from `<N1_ROOT>/skills/n1-finish/` only when its step applies.
+Follow the files read at entry, in order.
 
 1. Resolve Target: `steps/01-resolve-target.md`
 2. Merge State Machine (Step 2b local merge when `prMode` is `"skip"`): `steps/02-merge.md`
-3. Deploy Watch & Verification: `steps/03-deploy.md`, listed in `read-also:` only when `deployWatch.enabled` is `true`; otherwise deploy is `skipped (not configured)` and no verification is dispatched
-4. Close Ticket: `steps/04-close-ticket.md`, after the delivery gate `steps/03b-ssh-deploy.md` (listed in `read-also:` only when `delivery.mode` is `"ssh"`; otherwise a no-op)
+3. Deploy Watch & Verification: `steps/03-deploy.md`, only when listed in `read-also:`; otherwise deploy is `skipped (not configured)` and no verification is dispatched
+4. Close Ticket: `steps/04-close-ticket.md`, after the delivery gate `steps/03b-ssh-deploy.md` (only when listed in `read-also:`)
 5. Telemetry Follow-Up: `steps/05-telemetry-followup.md`
 6. Cleanup & Report: `steps/06-cleanup.md`

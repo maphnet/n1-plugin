@@ -29,17 +29,19 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/home/memory/T-1" "$T/repo"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
-case "$1" in auth) exit ${GHAUTH:-0} ;; pr) echo PRVIEW-CALLED ;; esac
+case "$1" in auth) exit ${GHAUTH:-0} ;; pr) case "$2" in list) echo PRLIST-CALLED ;; *) echo PRVIEW-CALLED ;; esac ;; esac
 EOF
 chmod +x "$T/bin/gh"
 git -C "$T/repo" init -q -b main
 git -C "$T/repo" -c user.name=t -c user.email=t@t -c commit.gpgSign=false commit -q --allow-empty -m init
 SHA=$(git -C "$T/repo" rev-parse HEAD)
+git -C "$T/repo" checkout -q -b me/T-1-feature
 echo "ticket body marker" > "$T/home/memory/T-1/ticket.md"
 
 run() { # <config-json> <overview frontmatter lines>
     printf '%s\n' "$1" > "$T/home/config.json"
     printf -- '---\n%s\n---\n# T-1\n' "$2" > "$T/home/memory/T-1/overview.md"
+    git -C "$T/repo" checkout -q "${BRN:-me/T-1-feature}"
     OUT=$(cd "$T/repo" && N1_ROOT="$REPO" N1_HOME="$T/home" N1_HEADLESS="${HL:-}" PATH="$T/bin:$PATH" bash -c "$ENTRY" 2>&1)
 }
 
@@ -107,7 +109,6 @@ deploy_merge_sha: $SIDE"
 has "resume: non-ancestor sha rejected" "sha-valid:false"
 
 # 8. ID handling: derived from branch, invalid rejected.
-git -C "$T/repo" checkout -q -b "me/T-1-feature"
 TID= run '{"tracker":{"prefix":"T"}}' 'deploy_pending: false'
 has "id: derived from branch" "id=T-1"
 has "id: derived id reads overview" "deploy-pending:false"
@@ -116,5 +117,17 @@ TID='x;rm -rf' run '{"tracker":{"prefix":"T"}}' 'deploy_pending: false'
 has "id: invalid rejected" "id:invalid"
 TPR='12;x' run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
 has "pr: non-digit dropped" "PRVIEW-CALLED"
+
+
+# 9. ID given while on another branch: PR found by head branch, not the current branch's PR.
+BRN=main run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "other branch: branch printed" "branch=main"
+has "other branch: lookup by head branch" "PRLIST-CALLED"
+lacks "other branch: no gh pr view" "PRVIEW-CALLED"
+BRN=main TPR=5 run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "other branch: PR number uses gh pr view" "PRVIEW-CALLED"
+run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "ticket branch: branch printed" "branch=me/T-1-feature"
+lacks "ticket branch: no head-branch lookup" "PRLIST-CALLED"
 
 exit $FAIL

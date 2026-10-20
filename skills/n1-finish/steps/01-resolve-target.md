@@ -1,6 +1,6 @@
 # Step 1: Resolve Target
 
-**Already run at entry:** the SKILL.md entry call printed `gh:` (auth status), the pending-deploy check below (`deploy-pending:` line, when `<ID>` was known) and the PR lookup (`gh pr view` JSON, or `pr:none`). Apply the rules below to those lines. Run a check here on its own only when the entry call skipped it (`id=` was empty at entry and is resolved afterwards, or `gh pr list --head <branch>` when not on the branch).
+**Already run at entry:** the SKILL.md entry call printed `gh:` (auth status), the pending-deploy check below (`deploy-pending:` line, when `<ID>` was known) and the current `branch=` and the PR lookup (JSON, or `pr:none`; when `<ID>` was given while on another branch the entry looked the PR up by head branch). Apply the rules below to those lines. Run a lookup here on its own only when the entry call skipped it (`id=` was empty at entry and is resolved afterwards) or printed `pr:none`.
 
 ## Prerequisites
 
@@ -24,7 +24,7 @@
   If it prints `deploy-pending:true` with `sha-valid:true`, the merge already happened (in a queue run, or before a declined or failed deploy). Skip the PR lookup, Step 2 and Step 3, and go to Step 4 with `<SHA>` set to that value. Step 4 runs the delivery gate first. If `deploy-pending:true` but `sha-valid:false` (SHA missing, malformed, or not an ancestor of the default branch), do not trust the recorded SHA — fall back to the normal PR/merge lookup below as if nothing were pending.
 
 - **PR number argument** → `gh pr view <n> --json number,state,mergedAt,mergeCommit,url,headRefName,baseRefName`.
-- **No argument / ticket ID** → `gh pr view --json ...` (current branch), or `gh pr list --head <branch> --state all --json ...` when not on the branch.
+- **No argument / ticket ID** → the entry's lookup; only on `pr:none` retry manually with `gh pr list --head <branch> --state all --json ...`.
 - **No PR found:**
   - `prMode` is `"skip"` → go to Step 2b (local merge) in `02-merge.md`.
   - Otherwise → "No PR found for this branch — run /n1:n1-pr first." **STOP.**
