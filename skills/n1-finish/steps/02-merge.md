@@ -1,110 +1,21 @@
 # Step 2: Merge State Machine
 
-> **Polling discipline:** merge-waiting uses `n1_wait_pr_merged` from `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call. Re-invoke until it prints a terminal state or the 10-minute budget is spent (queue runs only). Never poll one-`gh`-call-per-model-turn, and never use scheduled wakeups for this wait. Run each call with the maximum command timeout (600000 ms): the default is shorter than one chunk.
+N1 never merges a PR: the human merges, then re-runs n1-finish.
 
-**Merge permission.** Decide once, before evaluating the PR state. The entry call already printed `merge:allowed`/`merge:denied` and `queue-run:yes`; run this snippet only when those lines are missing:
-
-```bash
-source ~/.n1/preamble.sh
-if n1_merge_allowed; then echo "merge:allowed"; else echo "merge:denied"; fi
-if [ -n "${N1_QUEUE_RUN_ID:-}" ]; then echo "queue-run:yes"; fi
-```
-
-`merge:denied` together with `queue-run:yes` → report "Queue run: merging is disabled (`queue.mergeOnFinish` is not `true`). The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b. The PreToolUse hook would deny the merge command anyway.
+**Queue runs.** When the entry printed `queue-run:yes`, report "Queue run: N1 never merges. The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b.
 
 Evaluate the PR state:
 
 1. **`MERGED`** → capture the merge commit SHA (`.mergeCommit.oid`). Go to Step 3.
 2. **`CLOSED`** (not merged) → report "PR #<n> was closed without merging — nothing to finish. The ticket stays open." **STOP.**
-3. **`OPEN`:**
-   **merge:denied (interactive):** run only sub-item c's deployment-actions parse and before walk, then report "PR #<n> is open. Merge it, then re-run /n1:n1-finish." **STOP.** Sub-items a, b and d run only on merge:allowed.
-   a. Check CI: `gh pr checks <n> --json name,state,conclusion`. If any check has `conclusion: FAILURE` → "CI is red on PR #<n> — run /n1:n1-ci first." **STOP.**
-   b. **PR comment check:** fetch unresolved review threads and pending change requests via a single GraphQL call:
-      ```bash
-      gh api graphql -f query='
-        query($owner:String!,$repo:String!,$pr:Int!) {
-          repository(owner:$owner,name:$repo) {
-            pullRequest(number:$pr) {
-              reviewThreads(first:100) {
-                nodes {
-                  isResolved
-                  comments(first:10) {
-                    nodes { author{login} body path line createdAt }
-                  }
-                }
-              }
-              reviews(first:50,states:[CHANGES_REQUESTED]) {
-                nodes { author{login} body state createdAt }
-              }
-              latestOpinionatedReviews(first:50) {
-                nodes { author{login} state }
-              }
-            }
-          }
-        }
-      ' -f owner="<owner>" -f repo="<repo>" -F pr=<n>
-      ```
-      Extract `<owner>` and `<repo>` from `gh repo view --json owner,name --jq '.owner.login,.name'`.
+3. **`OPEN`:** **Deployment actions:** follow `<N1_ROOT>/references/deployment-actions.md` § Parse (already read at entry; do not re-read) with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`.
+   - `fetch-failed:#<n>` → "Could not read the PR #<n> body, so its deployment actions are unknown. Re-run `/n1:n1-finish`." **STOP.**
+   - `unticked:0` → nothing to do.
+   - `mode:runbook` (headless run) with any unticked row → § Runbook with `ID=<ID>` and an empty `SHA`. Report "Deployment actions pending for <ID>. Resume with `n1-finish <ID>` (runbook in N1 memory)." **STOP.**
+   - `mode:walk` with `before` rows → § Walk with `PHASE=before`. `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
+   - `after` rows wait for Step 4.
 
-      **What counts as unresolved:**
-      - Review threads where `isResolved: false`
-      - `CHANGES_REQUESTED` reviews from authors whose `latestOpinionatedReviews` entry is NOT `APPROVED`
-
-      **When nothing is found:** skip silently, proceed to sub-item c.
-
-      **When unresolved items exist,** analyze each inline (no agent spawn):
-      1. Read the comment text and the referenced file/line (if inline thread).
-      2. Check current code via `git show HEAD:<path>` at the referenced line range to see if the concern was already addressed.
-      3. Produce a per-comment recommendation:
-         - **Fix** — valid concern not yet addressed. Reasoning explains what needs to change.
-         - **Skip** — already addressed in code, outdated (file/line no longer exists), or stylistic nitpick with no functional impact. Reasoning explains why it is safe to skip.
-
-      Present grouped by reviewer:
-      ```
-      PR #<n> has unresolved reviewer feedback:
-
-      @reviewer1 (CHANGES_REQUESTED):
-        1. [path/to/file.ts:25] "Consider using a map here instead of forEach"
-           -> Skip: stylistic preference, current implementation is correct.
-        2. [path/to/file.ts:89] "This doesn't handle the null case"
-           -> Fix: the null guard is still missing at line 89.
-
-      @dependabot:
-        3. [package.json:15] "Upgrade lodash to fix CVE-2024-XXXX"
-           -> Fix: dependency is still at the vulnerable version.
-
-      Recommendation: <M> comment(s) to address, <K> to skip.
-      ```
-
-      Ask inline — "Proceed with merge? (yes / no — fix first)"
-      - **yes** → record in memory (`overview.md` `## Finish`): `Comments: <N> unresolved, user approved merge`. Proceed to sub-item c.
-      - **no** → "Address the comments, push, then re-run `/n1:n1-finish`." **STOP.**
-
-      **Pagination:** `first:100` threads covers virtually all PRs. If `reviewThreads.pageInfo.hasNextPage` is true, log: "PR has >100 review threads; only the first 100 were checked."
-
-      **API failure:** warn and proceed to sub-item c. Comment check is advisory; never blocks merge due to API errors. Log: "Could not fetch PR review comments — skipping comment check."
-   c. **Deployment actions (before any merge, `merge:allowed` or `merge:denied`):** follow `<N1_ROOT>/references/deployment-actions.md` § Parse (already read at entry; do not re-read) with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`.
-      - `fetch-failed:#<n>` → "Could not read the PR #<n> body, so its deployment actions are unknown. Re-run `/n1:n1-finish`." **STOP.**
-      - `unticked:0` → nothing to do; continue with the merge below.
-      - `mode:runbook` (queue child or headless run) with any unticked row → § Runbook with `ID=<ID>` and an empty `SHA`. Report "Deployment actions pending for <ID>; not merging. Resume with `n1-finish <ID>` (runbook in N1 memory)." **STOP.** A queue or headless run never merges ahead of these actions.
-      - `mode:walk` with `before` rows → § Walk with `PHASE=before`. `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
-      - `after` rows wait for Step 4.
-
-      Then, if the merge permission printed `merge:allowed` → initiate the merge (once, not per poll):
-      ```bash
-      gh pr merge <n> --auto --<mergeMethod> --delete-branch
-      ```
-      `--auto` respects branch protection (required approvals, checks, merge queues). If the command itself is rejected (e.g. auto-merge disabled on the repo and checks pending), retry once with the direct form `gh pr merge <n> --<mergeMethod> --delete-branch`; if that is also rejected, before treating the failure as fatal re-check `gh pr view <n> --json state` — if the PR is `MERGED`, treat the merge as successful and continue to Step 3; otherwise report GitHub's error verbatim and **STOP.**
-   d. Bounded wait for merged state — up to 10 minutes total:
-      ```bash
-      source ~/.n1/preamble.sh
-      source "$N1_ROOT/lib/poll.sh"
-      n1_wait_pr_merged <n> <remaining-minutes>
-      ```
-      Repeat the call (subtracting elapsed minutes) while it prints `open` and budget remains.
-      - Prints `merged <sha>` → capture SHA, go to Step 3.
-      - Prints `closed` → treat as Step 2 case 2 (closed without merging).
-      - Budget exhausted, still `open` → "PR #<n> is not merged yet — waiting on reviewer approval. Re-run `/n1:n1-finish` after the merge; the command is idempotent." **STOP.**
+   Then report "PR #<n> is open. Merge it, then re-run /n1:n1-finish." **STOP.**
 
 ## Step 2b: Local Merge (no-PR path, `prMode == "skip"` only)
 

@@ -4,26 +4,6 @@
 
 POLL_CHUNK_SECONDS=480   # 8 min — safely under the 10-min Bash tool ceiling
 
-n1_wait_pr_merged() {
-    # Usage: n1_wait_pr_merged <pr-number> <max-minutes>
-    # Prints: "merged <sha>" | "open" | "closed"
-    local pr="$1" max_minutes="${2:-10}"
-    local deadline=$(( $(date +%s) + max_minutes * 60 ))
-    local chunk_end=$(( $(date +%s) + POLL_CHUNK_SECONDS ))
-    [ "$deadline" -lt "$chunk_end" ] && chunk_end=$deadline
-    while :; do
-        local state sha
-        state=$(gh pr view "$pr" --json state,mergeCommit \
-            --jq '.state + " " + (.mergeCommit.oid // "")' 2>/dev/null) || state=""
-        case "$state" in
-            MERGED*) sha="${state#MERGED }"; printf 'merged %s\n' "$sha"; return 0 ;;
-            CLOSED*) printf 'closed\n'; return 0 ;;
-        esac
-        [ "$(date +%s)" -ge "$chunk_end" ] && { printf 'open\n'; return 0; }
-        sleep 30
-    done
-}
-
 n1_wait_ci_checks() {
     # Usage: n1_wait_ci_checks <pr-number> <max-minutes>
     # Prints: "green" | "red" | "pending"

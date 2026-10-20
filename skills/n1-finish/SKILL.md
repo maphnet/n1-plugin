@@ -47,7 +47,7 @@ P=$(c git.prMode); [ -n "$P" ] || { [ "$(c git.draftPR)" = false ] && P=ready ||
 echo "id=$ID prMode=$P mechanicalPrompts=$(n1_autonomy_val mechanicalPrompts)"
 for k in finishWork.{mergeMethod,deployWatch.workflowName} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} release.enabled; do echo "$k=$(c $k)"; done
 echo "tracker.operations=$(n1_config_ops .tracker.operations)"
-n1_merge_allowed && echo merge:allowed || echo merge:denied; [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
+[ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
 RA=()
 [ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md")
 [ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && RA+=("$S/references/done-status-recovery.md")
@@ -76,7 +76,7 @@ Defaults:
 
 Post-deploy verification dispatches only after a successful deployment (`ticket.md` → `post-deploy-verification.md`; `steps/03-deploy.md`); never blocks closure.
 
-Interactive runs never merge a PR: the human merges, then runs n1-finish. Only n1_merge_allowed (queue children) permits merging; prMode skip merges locally (Step 2b).
+N1 never merges a PR: the human merges, then runs n1-finish. prMode skip merges locally (Step 2b).
 
 ## Steps
 

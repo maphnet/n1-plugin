@@ -49,7 +49,7 @@ run() { # <config-json> <overview frontmatter lines>
 # 1. Typical run: deploy watch off, no delivery, done status configured.
 run '{"git":{"defaultBranch":"main"},"tracker":{"mcp":"jira","statuses":{"done":"Done"}}}' 'deploy_pending: false'
 has "typical: gh pr view runs" "PRVIEW-CALLED"
-has "typical: merge permission printed" "merge:denied"
+lacks "typical: no merge permission line (N1-114)" "merge:denied"
 has "typical: gh auth printed" "gh:ok"
 has "typical: read-also lists ticket.md" "$T/home/memory/T-1/ticket.md"
 has "typical: read-also lists overview.md" "$T/home/memory/T-1/overview.md"

@@ -107,7 +107,6 @@ Every path is safe to re-run: already-merged PR skips the merge; already-closed 
 ## Integration
 
 **Called by:**
-- **n1-start** — step `finish` (after CI watch), gated on `n1_merge_allowed` (queue children with `queue.mergeOnFinish` only)
 - **Standalone** — `/n1:n1-finish`, `/n1:n1-finish TRID-510`, `/n1:n1-finish #123`
 
 **Invokes:**

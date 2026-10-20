@@ -75,31 +75,19 @@ echo '{"finishWork":{"postDeployVerification":{"enabled":"true"}},"localTesting"
 assert_eq "T27: invalid explicit value fails closed" "false" "$(post_deploy_gate)"
 
 # ---- Test group 5: merge gate (NP-212, N1-113: interactive runs never merge) ----
-mg() { if "$@"; then echo allow; else echo deny; fi; }
 export N1_HOME="$TMPDIR_TEST/merge"
 mkdir -p "$N1_HOME"
 unset N1_QUEUE_RUN_ID
 
-echo '{}' > "$N1_HOME/config.json"
-assert_eq "T31: merge_allowed default deny" "deny" "$(mg n1_merge_allowed)"
-
-echo '{"finishWork":{"enabled":true,"mergeOnFinish":true}}' > "$N1_HOME/config.json"
-assert_eq "T33: legacy interactive keys never grant merge" "deny" "$(mg n1_merge_allowed)"
-assert_eq "T35: queue ignores finishWork.mergeOnFinish (incident)" "deny" "$(N1_QUEUE_RUN_ID=RUN1 mg n1_merge_allowed)"
-
-echo '{"queue":{"mergeOnFinish":true}}' > "$N1_HOME/config.json"
-assert_eq "T40: queue merge allowed when queue.mergeOnFinish true" "allow" "$(N1_QUEUE_RUN_ID=RUN1 mg n1_merge_allowed)"
-assert_eq "T42: queue key does not leak into interactive runs" "deny" "$(mg n1_merge_allowed)"
 assert_eq "T32: n1_finish_enabled removed" "no" "$(declare -F n1_finish_enabled >/dev/null && echo yes || echo no)"
+assert_eq "T31: n1_merge_allowed removed (N1-114)" "no" "$(declare -F n1_merge_allowed >/dev/null && echo yes || echo no)"
 
 # ---- Test group 6: one decision path in skills (NP-212) ----
 SK="$SCRIPT_DIR/../skills"
 has() { grep -q -- "$2" "$1" && echo yes || echo no; }
-assert_eq "T43: n1-start finish gate calls n1_merge_allowed" "yes" "$(has "$SK/n1-start/steps/finish.md" 'n1_merge_allowed')"
 assert_eq "T44: n1-start finish gate no longer reads N1_STOP_AT" "no" "$(has "$SK/n1-start/steps/finish.md" 'N1_STOP_AT')"
 assert_eq "T45: n1-start finish step tells the user to run n1-finish" "yes" "$(has "$SK/n1-start/steps/finish.md" '/n1:n1-finish')"
-assert_eq "T46: n1-ci chaining calls n1_merge_allowed" "yes" "$(has "$SK/n1-ci/steps/01-monitor.md" 'n1_merge_allowed')"
-assert_eq "T47: n1-finish merge calls n1_merge_allowed" "yes" "$(has "$SK/n1-finish/steps/02-merge.md" 'n1_merge_allowed')"
+assert_eq "T46: n1-ci never chains into n1-finish (N1-114)" "no" "$(has "$SK/n1-ci/steps/01-monitor.md" 'chain:yes')"
 
 # ---- Test group 7: cross-host review defaults (N1-94) ----
 export N1_HOME="$TMPDIR_TEST/xhr"
