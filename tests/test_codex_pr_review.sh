@@ -143,6 +143,10 @@ printf '{"pr_url":"%s","processed":true}\n' "$PR_LIST_URLS" > "$N1_HOME/review-r
 bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"mixed"}' > "$TMP/mixed"
 [ ! -s "$TMP/mixed" ]
 printf 'PASS: any processed receipt wins over an unprocessed one from another session\n'
+: > "${REVIEW_LOG}.list"
+N1_SESSION_ID=mixed bash -c 'command() { [ "${2:-}" = timeout ] && return 1; builtin command "$@"; }; source "$1/lib/codex-review.sh"; n1_review_check_run' _ "$ROOT" >/dev/null
+[ ! -s "${REVIEW_LOG}.list" ]
+printf 'PASS: no timeout binary skips the PR lookup instead of running gh unbounded\n'
 git -C "$WT" update-ref -d refs/remotes/origin/feature/T-1
 printf '{"ticketId":"T-1","runId":"r","worktreePath":"%s","branch":"feature/T-1"}\n' "$WT" > "$N1_HOME/active-run.unpushed.json"
 : > "${REVIEW_LOG}.list"
