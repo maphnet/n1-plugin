@@ -1650,6 +1650,7 @@ test_held_user_merge() {
     fakegh 'case "$*" in *"-- https://github.com/o/r/pull/5") echo MERGED;; *) echo OPEN;; esac'; mkq
     sed -i 's#pr_url: .*#pr_url: https://evil.example/o/r/pull/5#' "$tmp/h/memory/T-1/overview.md"
     assert_eq "user-merge: non-GitHub pr_url -> not merged (SEC-2)" "held" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" >/dev/null; plan_cell "$tmp/q.md" 2 8)"
+    fakegh 'echo MERGED'; mkq
     sed -i 's#pr_url: .*#pr_url: https://github.com/o$x/r/pull/5#' "$tmp/h/memory/T-1/overview.md"
     assert_eq "user-merge: owner outside [A-Za-z0-9._-] -> not merged (SEC-5c2)" "held" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" >/dev/null; plan_cell "$tmp/q.md" 2 8)"
     sed -i 's#pr_url: .*#pr_url: https://github.com/o/r/pull/5#' "$tmp/h/memory/T-1/overview.md"
