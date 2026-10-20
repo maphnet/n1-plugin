@@ -38,9 +38,6 @@ Create all files:
   "release": {
     "enabled": false
   },
-  "telemetry": {
-    "enabled": false
-  },
   "rules": {
     "location": "private"
   },

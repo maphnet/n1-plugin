@@ -53,7 +53,7 @@ Execute steps in order. Read each step file and follow its instructions before p
 9. **Finish & Release** — finish work and release configuration
    Read `<N1_ROOT>/skills/n1-init/steps/09-finish-release.md`
 
-10. **Quality & Pipeline Config** — autonomy, telemetry, analysis cache
+10. **Quality & Pipeline Config** — autonomy, analysis cache
     Read `<N1_ROOT>/skills/n1-init/steps/10-quality-config.md`
 
 11. **Rules** — generate starter rules, convention migration
@@ -81,5 +81,5 @@ The canonical set of top-level config keys. Used by step 01 for completeness che
 
 ```
 worktree, tracker, git, ticketTagging, observability,
-localTesting, finishWork, release, telemetry, analysisCache, rules, autonomy, models
+localTesting, finishWork, release, analysisCache, rules, autonomy, models
 ```

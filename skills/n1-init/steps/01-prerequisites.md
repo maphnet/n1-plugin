@@ -32,7 +32,6 @@ Check for N1 configuration in priority order:
            Tracker: <tracker.type> (<tracker.projectKey>) | None
            PR mode: <git.prMode>
            Autonomy: <autonomy.mode>
-           Telemetry: <telemetry.enabled>
            Local testing: <localTesting.enabled> (<localTesting.mode>)
 
          To reconfigure, run: /n1-init reconfigure
@@ -65,7 +64,7 @@ The canonical set of top-level config keys. Used by the completeness check to de
 
 ```
 worktree, tracker, git, ticketTagging, observability,
-localTesting, finishWork, release, telemetry, analysisCache, rules, autonomy, models
+localTesting, finishWork, release, analysisCache, rules, autonomy, models
 ```
 
 ### Targeted Upgrade
@@ -79,7 +78,6 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 6. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
 7. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
 8. `release` → **Release Configuration** (fresh-setup portion)
-9. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
 10. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
 11. `rules` → **Rules Configuration** (fresh-setup portion)
 12. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)

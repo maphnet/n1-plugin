@@ -31,6 +31,8 @@ DEAD=(
   'Branch in current checkout'
   'Ensure Working Branch'
   'kept (manual)'
+  telemetry.enabled
+  telem_enabled
 )
 for k in "${DEAD[@]}"; do
   HITS=$(grep -rnF -- "$k" skills lib hooks scripts defaults pipeline.json | grep -v "^$PRUNE:" || true)

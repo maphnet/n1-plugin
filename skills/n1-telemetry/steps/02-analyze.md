@@ -81,7 +81,7 @@ If no question events are found across any runs, report: "No question telemetry 
 
 If the data shows brainstorm is not the dominant compaction source, Stage 2 is not justified — investigate the actual dominant step instead.
 
-**Note:** This procedure requires `telemetry.enabled: true` in config and at least one full pipeline run that produced `started_at`/`completed_at` step events for `brainstorm`. If brainstorm step events are missing, the compaction-to-step attribution cannot be performed.
+**Note:** This procedure requires at least one full pipeline run that produced `started_at`/`completed_at` step events for `brainstorm`. If brainstorm step events are missing, the compaction-to-step attribution cannot be performed.
 
 ## Local Testing Effectiveness
 

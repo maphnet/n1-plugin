@@ -17,7 +17,6 @@ Error tracking: Sentry (my-backend @ my-org) / disabled
 Local testing: enabled / disabled
 Post-deploy verification: enabled / disabled (legacy smoke fallback when not configured)
 Test coverage: maintain / minimal / standard
-Telemetry: enabled / disabled
 Story workflow: enabled (article/ticket/file) / disabled
 PR mode: draft / ready
 
