@@ -1707,6 +1707,32 @@ test_bg_held_user_merge() {
     rm -rf "$tmp"
 }
 
+# N1-114 TQ-1: the user merges on the very tick the held wait runs out (HELD_WAIT >= timeout:
+# 1 min, 30 s poll -> third idle sweep). The released row must still launch, not expire.
+test_bg_held_merge_at_timeout() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgt "T-A:working done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git init -q -b work "$tmp"
+    git -C "$tmp" remote add origin "$tmp/origin"
+    cat > "$tmp/bin/gh" <<EOF
+#!/bin/sh
+case "\$*" in *"pr view"*"--json state"*)
+    n=\$((\$(cat "$tmp/ghcalls" 2>/dev/null || echo 0) + 1)); echo \$n > "$tmp/ghcalls"
+    [ \$n -ge 3 ] && echo MERGED || echo OPEN ;;
+esac
+EOF
+    chmod +x "$tmp/bin/gh"
+    assert_eq "bg-held-timeout: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-held-timeout: merged on the timeout tick" "3" "$(cat "$tmp/ghcalls")"
+    assert_eq "bg-held-timeout: T-B launched once" "1" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
+    assert_eq "bg-held-timeout: T-B finished pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    rm -rf "$tmp"
+}
+
 # N1-64 CR-1: n1_queue_sync_default fast-forwards the blocker repo's local default branch.
 test_sync_default() {
     local tmp origin repo; tmp=$(mktemp -d)
@@ -2159,6 +2185,7 @@ test_held_user_merge
 test_bg_held_not_launched
 test_bg_held_blocker_failed
 test_bg_held_user_merge
+test_bg_held_merge_at_timeout
 test_sync_default
 test_row_status
 test_write_plan_cells
