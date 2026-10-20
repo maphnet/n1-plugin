@@ -87,6 +87,13 @@ DENY_CMDS=(
     "gh api -X PUT repos/o/r/pulls/12/merge"
     "git push origin main" "git push origin HEAD:main" "git push origin HEAD:refs/heads/main"
     "git -C dir push origin main" "git push -u origin +main" "git push --all origin" "git push origin feature:main"
+    "gh.exe pr merge 1" "git --config-env k=V push origin main" "env A=1 timeout 5 gh pr merge 1"
+    "bash -c 'gh pr merge 1'" "echo 1 | xargs gh pr merge" "(gh pr merge 1)"
+    "gh api -X POST repos/o/r/merges -f base=main -f head=x" "curl -X PUT https://api.github.com/repos/o/r/pulls/1/merge"
+    "gh api graphql -f query='mutation { enqueuePullRequest(input:{}) { x } }'"
+    "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=x"
+    "git push --mir origin" "git push --al origin" "git push --branches origin" "git push origin 'refs/heads/*:refs/heads/*'"
+    "git push origin :" "git push origin \$(git rev-parse HEAD):main" "git push origin HEAD@{0}:main" "gh -R {owner}/{repo} pr merge 1"
 )
 for c in "${DENY_CMDS[@]}"; do
     assert_eq "queue headless: denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
@@ -94,7 +101,10 @@ for c in "${DENY_CMDS[@]}"; do
     assert_eq "not queue: allowed: $c" 0 "$(policy_rc N1_HEADLESS=1 -- "$c")"
 done
 for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push origin maphskiy/feature" \
-         "git push -u origin HEAD" "gh pr view 12" "gh pr create --title 'merge main into x'" "gh api repos/o/r/pulls/12"; do
+         "git push -u origin HEAD" "gh pr view 12" "gh pr create --title 'merge main into x'" "gh api repos/o/r/pulls/12" \
+         'grep -rn "gh pr merge" skills/' 'git commit -m "Drop gh pr merge from finish"' \
+         'git commit -m "document git push origin main"' "git push gh feature" "grep -rn mergePullRequest lib/" \
+         "git push origin \$(git branch --show-current)" "git push origin refs/heads/main-x:refs/heads/main-x"; do
     assert_eq "queue headless: allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
 done
 # bare push while the cwd is on the default branch (config git.defaultBranch honored)

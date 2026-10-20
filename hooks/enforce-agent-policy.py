@@ -10,14 +10,23 @@ from config `models.<persona>` (string, or a legacy host-keyed object read throu
 "claude-code" key).
 
 Case 3 - queue merge deny (N1-114). Unconditional, no config gate: only in headless queue children
-(env N1_QUEUE_RUN_ID set and N1_HEADLESS=1), deny Bash `gh pr merge`, `gh api` calls naming
-mergePullRequest/enablePullRequestAutoMerge/pulls/<n>/merge, and `git push` targeting
-git.defaultBranch (default "main"): a refspec `[refs/heads/]<default>` or `<src>:<default>`,
-`--all`/`--mirror`, or a bare/HEAD push while the payload cwd is on the default branch. `git merge`
-is NOT denied (N1-45). Quotes/backslashes are stripped first (bash does the same, so
-`g''h pr m''erge` is caught), then the command is split into simple commands and tokenized -
-linear in command length (SEC-22). Known gaps: runtime string-building (eval, base64, variables,
-aliases) and a bare push after `cd` into another checkout on the default branch.
+(env N1_QUEUE_RUN_ID set and N1_HEADLESS=1), deny Bash `gh pr merge`; `gh api`/curl/wget when the
+command anywhere names a merge API (mergePullRequest, enablePullRequestAutoMerge, mergeBranch,
+enqueuePullRequest, repos/<o>/<r>/merges, pulls/<n>/merge, git/refs/heads/<default>) - anywhere, so a
+heredoc query body counts, but only with an HTTP-capable command present, so `grep mergePullRequest`
+passes; and `git push` targeting git.defaultBranch (default "main"): a refspec
+`[refs/heads/]<default>` or `<src>:<default>`, `*` or `:` refspecs, `--all`/`--mirror`/`--branches`
+(or prefixes), or a bare/HEAD push while the payload cwd is on the default branch. `git merge` is
+NOT denied (N1-45). Not a shell parser: quotes/backslashes are stripped (bash does the same, so
+`g''h pr m''erge` is caught), `$(`/`<(`/backtick become command-position markers, `${`/`@{`/parens
+are blanked, the command is split on ; & | newline, and gh/git/curl/wget count only at command
+position (segment start, after VAR=x, wrappers like env/sudo/xargs/timeout N, `sh -c`). A chunk
+runs to segment end; a nested one runs until the next nested one - each token lands in at most two
+chunks, so the scan is linear in command length (SEC-22). Known gaps: runtime string-building (eval,
+base64, variables, aliases), wrappers with value flags (`sudo -u x gh`), other HTTP clients, chunks
+nested three deep, a bare push after `cd` into another checkout on the default branch; known false
+positives: heredoc/backtick text whose line starts with gh/git, and grep for a merge API in the
+same command as `gh api`.
 
 Fail-open otherwise: exit 0, no output.
 
@@ -33,10 +42,17 @@ import sys
 from pathlib import Path
 
 SPAWN_TOOLS = {"Task", "Agent", "spawn_agent"}
-SEGMENT_RE = re.compile(r"[;&|\n()`{}<>]")
-MERGE_API_RE = re.compile(r"mergepullrequest|enablepullrequestautomerge|/pulls/[^/\s]+/merge\b", re.I)
+SEGMENT_RE = re.compile(r"[;&|\n]")
+MERGE_API = (r"mergepullrequest|enablepullrequestautomerge|mergebranch|enqueuepullrequest"
+             r"|\brepos/[^/\s]+/[^/\s]+/merges\b|/pulls/[^/\s]+/merge\b")
+SUBST = "\x00"  # command-position marker for $( <( >( and backticks
+ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+DURATION_RE = re.compile(r"[0-9.]+[smhd]?$")
+PROGRAMS = {"gh", "git", "curl", "wget"}
+WRAPPERS = {"env", "command", "exec", "sudo", "time", "nohup", "xargs", "timeout", "sh", "bash",
+            "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
 GH_VALUE_FLAGS = {"-R", "--repo"}
-GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
+GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
 PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 
@@ -137,16 +153,20 @@ def _current_branch(cwd):
 
 
 def _is_merge(tokens, api_hit, default, cwd):
-    """One simple command starting at a gh/git token (ends before the next gh/git token)."""
+    """One chunk starting at a gh/git/curl/wget token in command position."""
+    if tokens[0] in ("curl", "wget"):
+        return api_hit
     pos, git_cwd = _positionals(tokens[1:], GH_VALUE_FLAGS if tokens[0] == "gh" else GIT_VALUE_FLAGS)
     if tokens[0] == "gh":
         return pos[:2] == ["pr", "merge"] or (pos[:1] == ["api"] and api_hit)
     if pos[:1] != ["push"]:
         return False
     args = tokens[tokens.index("push") + 1:]
-    if "--all" in args or "--mirror" in args:
+    if any(len(a) > 3 and any(f.startswith(a) for f in ("--all", "--mirror", "--branches")) for a in args):
         return True
     refs, _ = _positionals(args, PUSH_VALUE_FLAGS)
+    if any("*" in r or r.lstrip("+") == ":" for r in refs[1:]):
+        return True
     target = re.compile(r"(?:^|:)(?:refs/heads/)?%s$" % re.escape(default), re.I)
     if any(target.search(r.lstrip("+")) for r in refs[1:]):
         return True
@@ -158,19 +178,38 @@ def _is_merge(tokens, api_hit, default, cwd):
 
 
 def _commands(command):
-    """Token lists, one per gh/git invocation; each token is visited once (linear, SEC-22)."""
+    """Token lists, one per gh/git/curl/wget in command position (outer + latest nested; linear, SEC-22)."""
+    command = re.sub(r"[$<>]\(|`", f" {SUBST} ", command)
+    command = re.sub(r"[$@]\{|[()<>]", " ", command)
     for segment in SEGMENT_RE.split(command):
-        chunk = None
+        outer = inner = None
+        at_cmd, wrapped = True, False
         for tok in segment.split():
-            name = tok.rsplit("/", 1)[-1]
-            if name in ("gh", "git"):
-                if chunk:
-                    yield chunk
-                chunk = [name]
-            elif chunk is not None:
-                chunk.append(tok)
-        if chunk:
-            yield chunk
+            if tok == SUBST:
+                at_cmd, wrapped = True, False
+                continue
+            if at_cmd:
+                name = tok.rsplit("/", 1)[-1].lower()
+                name = name[:-4] if name.endswith(".exe") else name
+                if name in PROGRAMS:
+                    if outer is None:
+                        outer = [name]
+                    else:
+                        if inner:
+                            yield inner
+                        inner = [name]
+                    at_cmd = False
+                    continue
+                if name in WRAPPERS:
+                    wrapped = True
+                else:
+                    at_cmd = bool(ASSIGN_RE.match(tok)) or (wrapped and (tok.startswith("-") or bool(DURATION_RE.match(tok))))
+            for chunk in (outer, inner):
+                if chunk is not None:
+                    chunk.append(tok)
+        for chunk in (outer, inner):
+            if chunk:
+                yield chunk
 
 
 def merge_deny(payload: dict, config: dict) -> int:
@@ -188,7 +227,8 @@ def merge_deny(payload: dict, config: dict) -> int:
     git_cfg = config.get("git")
     default = str((git_cfg if isinstance(git_cfg, dict) else {}).get("defaultBranch") or "main")
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
-    api_hit = MERGE_API_RE.search(command) is not None
+    api_re = re.compile(r"%s|git/refs/heads/%s(?![\w.-])" % (MERGE_API, re.escape(default)), re.I)
+    api_hit = api_re.search(command) is not None
     if not any(_is_merge(c, api_hit, default, cwd) for c in _commands(command)):
         return 0
     sys.stderr.write(f"N1: merge denied in queue run {run_id} -- N1 never merges; "
