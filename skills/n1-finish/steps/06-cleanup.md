@@ -2,7 +2,7 @@
 
 1. **Local branch (branch mode, merged PR):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`. Local-merge path: already on `<defaultBranch>` — skip `git pull` (the merge is local-only and unpushed); `-d` refusing after a squash is expected — keep the branch and note it.
 2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it. Local-merge path: n/a (nothing was pushed).
-3. **Worktree:** If the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, use `worktree.cleanup` (printed at entry). If it is `"after-pr"` or `"after-merge"`, the PR has already been merged — both values mean **remove the worktree now**: switch to the main checkout first (`MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn "Worktree removal failed: `<error>`", point at `/n1:n1-clean`.
+3. **Worktree:** If the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, use `worktree.cleanup` (read at entry). If it is `"after-pr"` or `"after-merge"`, the PR has already been merged — both values mean **remove the worktree now**: switch to the main checkout first (`MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn "Worktree removal failed: `<error>`", point at `/n1:n1-clean`.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish
@@ -19,23 +19,37 @@
 
 ## One Cleanup Call
 
-On successful completion, run items 4, 1 and 3 as a single Bash call, in that order: memory first (absolute `$N1_HOME` paths), worktree removal last. Issue the Report's `getIssueLinks` lookup in parallel in the same turn. The `## Finish` block's `- **Delivery:**` value comes from this run's delivery gate outcome (03b rewrites overview after entry printed it); fall back to the printed overview only when the gate did not run. Append the item 1 branch commands and the item 3 worktree commands (`cd "$MAIN_CHECKOUT"` before `git worktree remove`) after the memory part, each printing its own outcome for the report:
+On successful completion, run items 4, 1 and 3 as a single Bash call: memory first (absolute `$N1_HOME` paths), then the worktree, then the branch (the branch cannot be deleted while a linked worktree still has it checked out, so worktree removal precedes `git branch -d`). Issue the Report's `getIssueLinks` lookup in parallel in the same turn. The `## Finish` block's `- **Delivery:**` value comes from this run's delivery gate outcome (03b rewrites overview after entry read it); fall back to the overview read at entry only when the gate did not run. Each part is independent (`;`, never `&&`) and prints its own status line for the Report's `Cleanup:` field. Set `LOCAL=1` on the local-merge path (skip `git pull`), else `0`. Pick a heredoc delimiter that does not occur in the block (change `N1_FINISH_BLOCK_9c1e` if it does).
 
 ```bash
 source ~/.n1/preamble.sh
-OV="$N1_HOME/memory/<ID>/overview.md"
+ID="<ID>"; case "$ID" in ''|*[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
+DB="<defaultBranch>"; LOCAL=<0|1>
+OV="$N1_HOME/memory/$ID/overview.md"
 if [ -f "$OV" ]; then
   TMP=$(mktemp "$OV.XXXXXX")
   awk '/^## /{s=/^## (Finish|Pending)\r?$/} !s' "$OV" > "$TMP" && mv "$TMP" "$OV"
-  cat >> "$OV" <<'N1_FINISH'
+  cat >> "$OV" <<'N1_FINISH_BLOCK_9c1e'
 <the rendered ## Finish block from item 4>
-N1_FINISH
+N1_FINISH_BLOCK_9c1e
   n1_write_frontmatter "$OV" step done
   n1_active_run_clear
+  echo memory:done
+else echo memory:none; fi
+BR=$(git rev-parse --abbrev-ref HEAD); TOP=$(git rev-parse --show-toplevel)
+MAIN_CHECKOUT=$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd -P)")
+if [ -f "$TOP/.git" ]; then   # linked worktree: never checkout the default branch here
+  W=$(n1_config_val '.worktree.cleanup'); RM=0
+  case "$TOP" in */"$(n1_worktree_root)"/*) { [ "$W" = after-pr ] || [ "$W" = after-merge ]; } && RM=1;; esac
+  if [ "$RM" = 1 ]; then cd "$MAIN_CHECKOUT" && git worktree remove "$TOP" --force && echo worktree:removed || echo worktree:kept; else echo worktree:kept; fi
+else
+  [ "$BR" = "$DB" ] || { git checkout "$DB"; [ "$LOCAL" = 1 ] || git pull; }
+  echo worktree:none
 fi
-<item 1 branch commands>
-<item 3 worktree commands>
+if [ "$BR" != "$DB" ] && [ "$BR" != HEAD ]; then git branch -d "$BR" >/dev/null 2>&1 && echo branch:deleted || echo branch:kept; else echo branch:none; fi
 ```
+
+`worktree:kept` after a failed removal → warn "Worktree removal failed", point at `/n1:n1-clean`. `branch:kept` → note that `-d` refused (never `-D`). An external worktree (`n1_is_external_worktree`) is outside `/$(n1_worktree_root)/`, so it stays `worktree:kept`.
 
 ## Report (final message)
 
