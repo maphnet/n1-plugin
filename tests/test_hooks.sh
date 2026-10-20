@@ -291,7 +291,7 @@ CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"NEVER use any other MCP server"*) assert_eq "no versionMcp keeps NEVER directive" ok ok;; *) assert_eq "no versionMcp keeps NEVER directive" ok "$CTX";; esac
 export N1_HOST_FILE="$T/host.json"
 
-# --- session-stop: writes abandon envelope_close when lock exists ----------
+# --- session-stop: active matching pointer retains the selected run ----------
 STOP_TICK="T-STOP"
 STOP_MEM="$N1_HOME/memory/$STOP_TICK"
 STOP_TELEM="$STOP_MEM/telemetry"
@@ -299,14 +299,70 @@ mkdir -p "$STOP_TELEM/raw/steps" "$STOP_TELEM/runs"
 mkdir -p "$STOP_TELEM/locks"
 echo '{"run_id":"run-stop-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop"}' > "$STOP_TELEM/locks/run-stop-test.json"
 echo '{"run_id":"run-stop-test","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop"}' > "$STOP_TELEM/telemetry.lock"
-printf -- '---\ntype: task\ntier: standard\nstep: implementation\n---\n' > "$STOP_MEM/overview.md"
+printf -- '---\ntype: task\ntier: standard\nstep: done\n---\n' > "$STOP_MEM/overview.md"
+echo '{"ticketId":"T-STOP","runId":"run-stop-test"}' > "$N1_HOME/active-run.s-stop.json"
 echo '{"session_id":"s-stop","transcript_path":"/tmp/stop.jsonl"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
-STOP_LINE=$(grep '"envelope_close"' "$STOP_TELEM/raw/steps/run-stop-test.jsonl" 2>/dev/null | tail -1)
-assert_eq "stop hook writes envelope_close" "envelope_close" "$(echo "$STOP_LINE" | jq -r .layer 2>/dev/null)"
-assert_eq "stop hook final_outcome abandoned" "abandoned" "$(echo "$STOP_LINE" | jq -r .final_outcome 2>/dev/null)"
-assert_eq "stop hook type from overview" "task" "$(echo "$STOP_LINE" | jq -r .type 2>/dev/null)"
-assert_eq "stop hook tier from overview" "standard" "$(echo "$STOP_LINE" | jq -r .estimated_tier 2>/dev/null)"
-assert_eq "stop hook removes lock after merge" "false" "$([ -f "$STOP_TELEM/telemetry.lock" ] && echo true || echo false)"
+assert_eq "active pointer: no envelope_close written" "0" \
+    "$(grep -c '"envelope_close"' "$STOP_TELEM/raw/steps/run-stop-test.jsonl" 2>/dev/null)"
+assert_eq "active pointer: transcript recorded" "/tmp/stop.jsonl" \
+    "$(tail -1 "$STOP_TELEM/raw/steps/run-stop-test.jsonl" | jq -r .session_transcript_path 2>/dev/null)"
+assert_eq "active pointer: compatibility lock survives" "true" \
+    "$([ -f "$STOP_TELEM/telemetry.lock" ] && echo true || echo false)"
+assert_eq "active pointer: run lock survives" "true" \
+    "$([ -f "$STOP_TELEM/locks/run-stop-test.json" ] && echo true || echo false)"
+
+# Repeated Stops keep their transcript records and the selected run remains available to decisions.
+echo '{"session_id":"s-stop","transcript_path":"/tmp/stop-later.jsonl"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
+assert_eq "active pointer: repeated Stop records both transcripts" "2" \
+    "$(grep -c '"layer":"session"' "$STOP_TELEM/raw/steps/run-stop-test.jsonl" 2>/dev/null)"
+N1_HOME="$N1_HOME" N1_SESSION_ID=s-stop ID="$STOP_TICK" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" \
+    bash -c 'source "$1/lib/config.sh"; source "$1/lib/telemetry.sh"; n1_record_decision late-review true' bash "$REPO_ROOT"
+assert_eq "active pointer: later decision uses retained run" "late-review" \
+    "$(tail -1 "$STOP_TELEM/raw/steps/run-stop-test.jsonl" | jq -r .id 2>/dev/null)"
+
+# Pointer-owned paused, escalated, and failed states also survive Stop; overview is not terminal state.
+for STOP_STATE in paused escalated failed; do
+    STATE_TICK="T-STOP-${STOP_STATE}"
+    STATE_TELEM="$N1_HOME/memory/$STATE_TICK/telemetry"
+    mkdir -p "$STATE_TELEM/raw/steps" "$STATE_TELEM/runs" "$STATE_TELEM/locks"
+    echo "{\"run_id\":\"run-stop-${STOP_STATE}\",\"n1_version\":\"3.14.1\",\"host\":\"claude-code\",\"session_id\":\"s-stop-${STOP_STATE}\"}" > "$STATE_TELEM/locks/run-stop-${STOP_STATE}.json"
+    echo "{\"run_id\":\"run-stop-${STOP_STATE}\",\"n1_version\":\"3.14.1\",\"host\":\"claude-code\",\"session_id\":\"s-stop-${STOP_STATE}\"}" > "$STATE_TELEM/telemetry.lock"
+    printf -- '---\nstep: %s\n---\n' "$STOP_STATE" > "$N1_HOME/memory/$STATE_TICK/overview.md"
+    echo "{\"ticketId\":\"$STATE_TICK\",\"runId\":\"run-stop-${STOP_STATE}\"}" > "$N1_HOME/active-run.s-stop-${STOP_STATE}.json"
+    echo "{\"session_id\":\"s-stop-${STOP_STATE}\"}" | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
+    assert_eq "active pointer: $STOP_STATE state retains lock" "true" \
+        "$([ -f "$STATE_TELEM/telemetry.lock" ] && echo true || echo false)"
+done
+
+# A mismatched pointer and a foreign session's pointer cannot retain this selected lock.
+MISMATCH_TICK="T-STOP-MISMATCH"
+MISMATCH_MEM="$N1_HOME/memory/$MISMATCH_TICK"
+MISMATCH_TELEM="$MISMATCH_MEM/telemetry"
+mkdir -p "$MISMATCH_TELEM/raw/steps" "$MISMATCH_TELEM/runs" "$MISMATCH_TELEM/locks"
+echo '{"run_id":"run-stop-mismatch","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-mismatch"}' > "$MISMATCH_TELEM/locks/run-stop-mismatch.json"
+echo '{"run_id":"run-stop-mismatch","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-mismatch"}' > "$MISMATCH_TELEM/telemetry.lock"
+echo '{"ticketId":"T-STOP-MISMATCH","runId":"other-run"}' > "$N1_HOME/active-run.s-stop-mismatch.json"
+echo '{"ticketId":"T-STOP-MISMATCH","runId":"run-stop-mismatch"}' > "$N1_HOME/active-run.s-foreign.json"
+echo '{"session_id":"s-stop-mismatch"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
+assert_eq "mismatched pointer: abandoned close written" "abandoned" \
+    "$(grep '"envelope_close"' "$MISMATCH_TELEM/raw/steps/run-stop-mismatch.jsonl" | tail -1 | jq -r .final_outcome 2>/dev/null)"
+assert_eq "mismatched pointer: locks removed" "false" \
+    "$([ -f "$MISMATCH_TELEM/telemetry.lock" ] && echo true || echo false)"
+
+# A terminal envelope wins over a residual matching pointer and is never duplicated.
+TERM_TICK="T-STOP-TERMINAL"
+TERM_MEM="$N1_HOME/memory/$TERM_TICK"
+TERM_TELEM="$TERM_MEM/telemetry"
+mkdir -p "$TERM_TELEM/raw/steps" "$TERM_TELEM/runs" "$TERM_TELEM/locks"
+echo '{"run_id":"run-stop-terminal","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-terminal"}' > "$TERM_TELEM/locks/run-stop-terminal.json"
+echo '{"run_id":"run-stop-terminal","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-terminal"}' > "$TERM_TELEM/telemetry.lock"
+echo '{"layer":"envelope_close","final_outcome":"success"}' > "$TERM_TELEM/raw/steps/run-stop-terminal.jsonl"
+echo '{"ticketId":"T-STOP-TERMINAL","runId":"run-stop-terminal"}' > "$N1_HOME/active-run.s-stop-terminal.json"
+echo '{"session_id":"s-stop-terminal"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
+assert_eq "terminal pointer: close is not duplicated" "1" \
+    "$(grep -c '"envelope_close"' "$TERM_TELEM/raw/steps/run-stop-terminal.jsonl" 2>/dev/null)"
+assert_eq "terminal pointer: locks removed" "false" \
+    "$([ -f "$TERM_TELEM/telemetry.lock" ] && echo true || echo false)"
 
 # session-stop: no lock -> silent exit, no crash
 NO_LOCK_MEM="$N1_HOME/memory/T-NOLOCK"
@@ -329,7 +385,7 @@ assert_eq "pending agent: no envelope_close written" "0" \
 assert_eq "pending agent: lock survives (not removed)" "true" \
     "$([ -f "$PEND_TELEM/telemetry.lock" ] && echo true || echo false)"
 
-# same run, agent later completes (stop event added) -> abandoned write now fires normally
+# same run, agent later completes (stop event added) -> no pointer cleanup fires normally
 echo '{"run_id":"run-pending-test","layer":"agent","event":"stop","agent_id":"a1","agent_type":"product-analyst"}' >> "$PEND_TELEM/raw/agents/run-pending-test.jsonl"
 echo '{"session_id":"s-stop-pending","transcript_path":"/tmp/pending.jsonl"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
 assert_eq "agent resolved: abandoned write fires (regression)" "abandoned" \
