@@ -281,8 +281,9 @@ n1_queue_held_sweep() {
     # A blocker PR the user CLOSED unmerged skips the row like a failed blocker.
     # Trust: pr_url is child-written; this only reads PR state and never merges, so a forged
     # URL can at worst release a held row early. Non-GitHub-PR URLs count as not merged (SEC-2).
+    # Only a merge into the blocker repo's default branch releases; any other base stays held.
     # The first gh stderr line goes to the runner's stderr (runner.log), not /dev/null.
-    local q="$1" num t b st h r url state n=0
+    local q="$1" num t b st h r url state base d n=0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         case "$st" in
@@ -292,16 +293,18 @@ n1_queue_held_sweep() {
             pr)
                 IFS=$'\t' read -r h r < <(n1_queue_pending_rows "$q" pr \
                     | awk -F'\t' -v b="$b" '$2 == b { h = $4; r = $3 } END { printf "%s\t%s\n", h, r }')
-                url=$(n1_queue_child_pr_url "$h/memory/$b/overview.md"); state=""
+                url=$(n1_queue_child_pr_url "$h/memory/$b/overview.md"); state=""; base=""
                 if [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]]; then
                     # gh stdout -> fd 3 (captured), gh stderr -> first line to our stderr.
-                    state=$( { gh pr view --json state -q .state -- "$url" </dev/null 2>&1 >&3 3>&- | head -n1 >&2; } 3>&1 )
+                    state=$( { gh pr view --json state,baseRefName -q '.state + " " + .baseRefName' -- "$url" </dev/null 2>&1 >&3 3>&- | head -n1 >&2; } 3>&1 )
+                    base=${state#* }; state=${state%% *}
                 fi
                 if [ "$state" = CLOSED ]; then
                     n1_queue_row_status "$q" "$num" skip "blocked by $b (PR closed)"
                     continue
                 fi
-                if [ "$state" = MERGED ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
+                d=$(N1_HOME="$h" n1_config_val '.git.defaultBranch' 2>/dev/null); d="${d:-main}"
+                if [ "$state" = MERGED ] && [ "$base" = "$d" ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
                     n1_queue_row_status "$q" "$num" pending "released: $b merged"
                 fi ;;
         esac
