@@ -28,6 +28,12 @@ if [ "$2" = diff ]; then
   printf 'diff --git a/example.md b/example.md\n'
   exit 0
 fi
+if [ "$1" = pr ] && [ "$2" = list ]; then
+  printf '%s\n' "$*" >> "${REVIEW_LOG}.list"
+  [ "${LIST_MODE:-ok}" != fail ] || exit 1
+  [ -z "${PR_LIST_URLS:-}" ] || printf '%s\n' "$PR_LIST_URLS"
+  exit 0
+fi
 cat > "${REVIEW_LOG}.comment"
 [ "${POST_MODE:-ok}" != fail ]
 SH
@@ -101,3 +107,40 @@ jq -e '.outcome == "skipped" and .reason == "step-not-run"' "$N1_HOME/review-rec
 jq -e '.hookSpecificOutput.hookEventName == "PostToolUseFailure"' "$TMP/failed-tail" >/dev/null
 jq -e '.hooks.PostToolUseFailure[] | select(.matcher == "Bash") | .hooks[] | select(.command | contains("pr-review-observe.sh"))' "$ROOT/hooks/hooks.json" >/dev/null
 printf 'PASS: failed command tail still observes its created PR\n'
+# N1-115: PR on the active run's branch with no receipt (PostToolUse missed it) is caught at Stop.
+unset AUTH_MODE REVIEW_MODE POST_MODE DIFF_MODE
+printf '{}\n' > "$N1_HOME/config.json"
+printf '{"ticketId":"T-1","runId":"r","worktreePath":"%s","branch":"feature/T-1"}\n' "$TMP" > "$N1_HOME/active-run.run-stop.json"
+export PR_LIST_URLS=https://github.com/example/repo/pull/50
+bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"run-stop"}' > "$TMP/run-stop"
+jq -e '.decision == "block" and (.reason | contains("pull/50"))' "$TMP/run-stop" >/dev/null
+jq -e '.outcome == "skipped" and .reason == "step-not-run" and (.processed | not)' "$N1_HOME/review-receipts/run-stop/example_repo_50.json" >/dev/null
+grep -q -- '--head feature/T-1' "${REVIEW_LOG}.list"
+bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"run-stop"}' > "$TMP/run-stop-2"
+[ ! -s "$TMP/run-stop-2" ]
+printf 'PASS: Stop records and blocks once for an unreceipted PR on the run branch\n'
+check_run() { N1_SESSION_ID="$1" bash -c 'source "$1/lib/codex-review.sh"; n1_review_check_run' _ "$ROOT"; }
+[ "$(check_run run-stop)" = "$PR_LIST_URLS" ]
+N1_SESSION_ID=run-stop bash -c 'source "$1/lib/codex-review.sh"; n1_review_record "$2" ran "" true' _ "$ROOT" "$PR_LIST_URLS"
+[ -z "$(check_run run-stop)" ]
+printf 'PASS: run check lists the PR until a processed receipt exists\n'
+printf '{"ticketId":"T-1","runId":"r","worktreePath":"%s","branch":"feature/T-1"}\n' "$TMP" > "$N1_HOME/active-run.resumed.json"
+bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"resumed"}' > "$TMP/resumed"
+[ ! -s "$TMP/resumed" ]
+[ ! -e "$N1_HOME/review-receipts/resumed" ]
+printf 'PASS: a processed receipt from another session satisfies the run check\n'
+printf '{"ticketId":"T-2","runId":"r","worktreePath":null,"branch":"feature/T-2"}\n' > "$N1_HOME/active-run.offline.json"
+LIST_MODE=fail bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"offline"}' > "$TMP/offline"
+[ ! -s "$TMP/offline" ]
+[ ! -e "$N1_HOME/review-receipts/offline" ]
+printf '{"ticketId":"T-3","runId":"r","worktreePath":null,"branch":"main"}\n' > "$N1_HOME/active-run.default.json"
+: > "${REVIEW_LOG}.list"
+bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"default"}' > "$TMP/default"
+[ ! -s "$TMP/default" ]
+[ ! -s "${REVIEW_LOG}.list" ]
+printf '{"ticketId":"T-4","runId":"r","worktreePath":null,"branch":"feature/T-4"}\n' > "$N1_HOME/active-run.json"
+: > "${REVIEW_LOG}.list"
+bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"unkeyed"}' > "$TMP/unkeyed"
+[ ! -s "$TMP/unkeyed" ] && [ ! -s "${REVIEW_LOG}.list" ]
+bash "$ROOT/hooks/session-stop.sh" <<<'{"session_id":"offline"}' >/dev/null
+printf 'PASS: gh failure, default-branch and unkeyed-pointer runs fail open with no block and no gh call\n'
