@@ -94,6 +94,10 @@ DENY_CMDS=(
     "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=x"
     "git push --mir origin" "git push --al origin" "git push --branches origin" "git push origin 'refs/heads/*:refs/heads/*'"
     "git push origin :" "git push origin \$(git rev-parse HEAD):main" "git push origin HEAD@{0}:main" "gh -R {owner}/{repo} pr merge 1"
+    "git push --repo=origin HEAD:main" "git push --repo origin HEAD:main" "git push --repo=origin main"
+    ">/tmp/merge.log gh pr merge 12" "> /tmp/m gh pr merge 12" "2>/tmp/e gh pr merge 12" ">>/tmp/m gh pr merge 12"
+    "</dev/null gh pr merge 12" "&>/tmp/m gh pr merge 12" "2>&1 gh pr merge 12" ">\$HOME/m git push origin main"
+    "echo x >/tmp/f; >/tmp/m gh pr merge 1" "echo >\$(gh pr merge 1)"
 )
 for c in "${DENY_CMDS[@]}"; do
     assert_eq "queue headless: denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
@@ -104,7 +108,9 @@ for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push ori
          "git push -u origin HEAD" "gh pr view 12" "gh pr create --title 'merge main into x'" "gh api repos/o/r/pulls/12" \
          'grep -rn "gh pr merge" skills/' 'git commit -m "Drop gh pr merge from finish"' \
          'git commit -m "document git push origin main"' "git push gh feature" "grep -rn mergePullRequest lib/" \
-         "git push origin \$(git branch --show-current)" "git push origin refs/heads/main-x:refs/heads/main-x"; do
+         "git push origin \$(git branch --show-current)" "git push origin refs/heads/main-x:refs/heads/main-x" \
+         "git push --repo=origin feature" "git push --repo origin HEAD:feature" "echo x >/tmp/f" \
+         "echo x 2>&1 >/tmp/f" ">/tmp/f echo gh pr merge" "gh pr view 1 >/tmp/f 2>&1"; do
     assert_eq "queue headless: allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
 done
 # CR-11: no working Python -> queue-child Bash fails closed; other payloads stay fail-open

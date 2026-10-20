@@ -47,6 +47,9 @@ MERGE_API = (r"mergepullrequest|enablepullrequestautomerge|mergebranch|enqueuepu
              r"|\brepos/[^/\s]+/[^/\s]+/merges\b|/pulls/[^/\s]+/merge\b")
 SUBST = "\x00"  # command-position marker for $( <( >( and backticks
 ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+# Redirection + operand (>f, > f, 2>f, >>f, <f, &>f, 2>&1, >|f) so the next word keeps command
+# position; (?<!...) anchors fd digits to a run start (linear); >( <( $( stay for SUBST.
+REDIR_RE = re.compile(r"(?<![\d&])(?:\d*|&)(?:>>?|<)(?!\()\|?[ \t]*&?(?:[^\s;&|()<>`$]|\$(?!\())*")
 DURATION_RE = re.compile(r"[0-9.]+[smhd]?$")
 PROGRAMS = {"gh", "git", "curl", "wget"}
 WRAPPERS = {"env", "command", "exec", "sudo", "time", "nohup", "xargs", "timeout", "sh", "bash",
@@ -165,12 +168,15 @@ def _is_merge(tokens, api_hit, default, cwd):
     if any(len(a) > 3 and any(f.startswith(a) for f in ("--all", "--mirror", "--branches")) for a in args):
         return True
     refs, _ = _positionals(args, PUSH_VALUE_FLAGS)
-    if any("*" in r or r.lstrip("+") == ":" for r in refs[1:]):
+    # --repo names the remote, so every positional is a refspec (Codex High)
+    if not any(a == "--repo" or a.startswith(("--rep=", "--repo=")) for a in args):
+        refs = refs[1:]
+    if any("*" in r or r.lstrip("+") == ":" for r in refs):
         return True
     target = re.compile(r"(?:^|:)(?:refs/heads/)?%s$" % re.escape(default), re.I)
-    if any(target.search(r.lstrip("+")) for r in refs[1:]):
+    if any(target.search(r.lstrip("+")) for r in refs):
         return True
-    if not all(r in ("HEAD", "@") for r in refs[1:]):
+    if not all(r in ("HEAD", "@") for r in refs):
         return False
     base = cwd or os.getcwd()
     branch = _current_branch(os.path.join(base, git_cwd) if git_cwd else base)
@@ -179,6 +185,7 @@ def _is_merge(tokens, api_hit, default, cwd):
 
 def _commands(command):
     """Token lists, one per gh/git/curl/wget in command position (outer + latest nested; linear, SEC-22)."""
+    command = REDIR_RE.sub(" ", command)
     command = re.sub(r"[$<>]\(|`", f" {SUBST} ", command)
     command = re.sub(r"[$@]\{|[()<>]", " ", command)
     for segment in SEGMENT_RE.split(command):
