@@ -2,7 +2,7 @@
 
 > **Polling discipline:** merge-waiting uses `n1_wait_pr_merged` from `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call. Re-invoke until it prints a terminal state or the `waitForMergeMinutes` budget is spent. Never poll one-`gh`-call-per-model-turn.
 
-**Merge permission.** Decide once, before evaluating the PR state:
+**Merge permission.** Decide once, before evaluating the PR state. The entry call already printed `merge:allowed`/`merge:denied` and `queue-run:yes`; run this snippet only when those lines are missing:
 
 ```bash
 source ~/.n1/preamble.sh
@@ -82,7 +82,7 @@ Evaluate the PR state:
       **Pagination:** `first:100` threads covers virtually all PRs. If `reviewThreads.pageInfo.hasNextPage` is true, log: "PR has >100 review threads; only the first 100 were checked."
 
       **API failure:** warn and proceed to sub-item c. Comment check is advisory; never blocks merge due to API errors. Log: "Could not fetch PR review comments — skipping comment check."
-   c. **Deployment actions (before any merge, `merge:allowed` or `merge:denied`):** follow `<N1_ROOT>/references/deployment-actions.md` § Parse with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`.
+   c. **Deployment actions (before any merge, `merge:allowed` or `merge:denied`):** follow `<N1_ROOT>/references/deployment-actions.md` § Parse (already read at entry; do not re-read) with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`.
       - `fetch-failed:#<n>` → "Could not read the PR #<n> body, so its deployment actions are unknown. Re-run `/n1:n1-finish`." **STOP.**
       - `unticked:0` → nothing to do; continue with the merge below.
       - `mode:runbook` (queue child or headless run) with any unticked row → § Runbook with `ID=<ID>` and an empty `SHA`. Report "Deployment actions pending for <ID>; not merging. Resume with `n1-finish <ID>` (runbook in N1 memory)." **STOP.** A queue or headless run never merges ahead of these actions.

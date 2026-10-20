@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# N1-110: n1-finish 06-cleanup.md cleanup call: memory rewrite is idempotent and keeps the
+# Decision Ledger. Runs in a throwaway repo on the default branch, so no worktree/branch side effects.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+REPO=$PWD
+FAIL=0
+ok() { echo "PASS: $1"; }
+no() { echo "FAIL: $1"; FAIL=1; }
+unset N1_RUN_ID N1_SESSION_ID N1_QUEUE_RUN_ID
+
+SNIP=$(awk '/^```bash/{b=1;next} b&&/^```/{exit} b' skills/n1-finish/steps/06-cleanup.md \
+    | sed -e 's#^source ~/.n1/preamble.sh$#source "$N1_ROOT/lib/preamble.sh"#' -e 's/<ID>/T-1/' -e 's/<defaultBranch>/main/' -e 's/<0|1>/1/' -e 's/<headRefName>/${HR_TEST:-main}/' \
+          -e 's/^<the rendered ## Finish block from item 4>$/## Finish\n- **Merged:** abc1234/')
+
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/home/memory/T-1" "$T/repo"
+git -C "$T/repo" init -q -b main
+git -C "$T/repo" -c user.name=t -c user.email=t@t -c commit.gpgSign=false commit -q --allow-empty -m init
+OV="$T/home/memory/T-1/overview.md"
+printf -- '---\nstep: finish\n---\n# T-1\n## Pending\n- pr_url: x\n## Finish\n- **Merged:** old\n## Decision Ledger\n| a | b |\n' > "$OV"
+
+run() { OUT=$(cd "$T/repo" && N1_ROOT="$REPO" N1_HOME="$T/home" bash -c "$SNIP" 2>&1); }
+chk() { # <label> <cond-exit>
+    if [ "$2" = 0 ]; then ok "$1"; else no "$1"; fi
+}
+for pass in 1 2; do
+    run
+    grep -q '^## Pending' "$OV"; chk "run $pass: Pending removed" $((! $? ))
+    chk "run $pass: Finish exactly once" $([ "$(grep -c '^## Finish' "$OV")" = 1 ]; echo $?)
+    grep -q 'Merged:\*\* abc1234' "$OV"; chk "run $pass: new Finish content" $?
+    grep -q '^## Decision Ledger' "$OV" && grep -q '^| a | b |' "$OV"; chk "run $pass: Ledger survives" $?
+    grep -q '^step: done' "$OV"; chk "run $pass: step done" $?
+    grep -q 'memory:done' <<<"$OUT"; chk "run $pass: memory status printed" $?
+    grep -q 'branch:none' <<<"$OUT" && grep -q 'worktree:none' <<<"$OUT"; chk "run $pass: branch/worktree status printed" $?
+done
+chk "no leftover temp files" $([ -z "$(ls "$T/home/memory/T-1" | grep -v '^overview.md$')" ]; echo $?)
+
+# Linked worktree under the N1 worktree root: removed for after-merge, kept for never.
+wt() { # <cleanup value> <name>
+    printf '{"worktree":{"cleanup":"%s"}}\n' "$1" > "$T/home/config.json"
+    git -C "$T/repo" worktree add -q -b "$2" "$T/repo/.claude/worktrees/$2"
+    OUT=$(cd "$T/repo/.claude/worktrees/$2" && HR_TEST="${HR:-$2}" N1_ROOT="$REPO" N1_HOME="$T/home" bash -c "$SNIP" 2>&1)
+}
+wt after-merge feat
+grep -qx 'worktree:removed' <<<"$OUT"; chk "worktree after-merge: removed status" $?
+chk "worktree after-merge: directory gone" $([ ! -d "$T/repo/.claude/worktrees/feat" ]; echo $?)
+grep -qxE 'branch:(deleted|kept)' <<<"$OUT"; chk "worktree after-merge: branch status printed" $?
+wt never keep
+grep -qx 'worktree:kept' <<<"$OUT"; chk "worktree never: kept status" $?
+chk "worktree never: directory stays" $([ -d "$T/repo/.claude/worktrees/keep" ]; echo $?)
+# Linked worktree of another ticket (branch differs from the finished PR's head): untouched.
+HR=other-pr wt after-merge mine; HR=
+grep -qx 'worktree:kept-other' <<<"$OUT"; chk "other ticket worktree: kept-other status" $?
+chk "other ticket worktree: directory stays" $([ -d "$T/repo/.claude/worktrees/mine" ]; echo $?)
+chk "other ticket worktree: its branch stays" $(git -C "$T/repo" rev-parse --verify -q mine >/dev/null; echo $?)
+# Invalid head ref is rejected before anything runs.
+OUT=$(cd "$T/repo" && HR_TEST='a;b' N1_ROOT="$REPO" N1_HOME="$T/home" bash -c "$SNIP" 2>&1)
+grep -q 'headref:invalid' <<<"$OUT"; chk "invalid head ref rejected" $?
+# Empty ID must not abort cleanup; memory block is skipped.
+OUT=$(cd "$T/repo" && N1_ROOT="$REPO" N1_HOME="$T/home" bash -c "${SNIP//T-1/}" 2>&1)
+grep -q 'memory:none' <<<"$OUT" && grep -q 'branch:none' <<<"$OUT"; chk "empty ID: cleanup continues without memory" $?
+exit $FAIL

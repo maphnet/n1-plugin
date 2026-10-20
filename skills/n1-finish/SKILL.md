@@ -10,74 +10,87 @@ effort: low
 
 ## Overview
 
-Complete the development cycle after the PR/CI stage: confirm the PR is merged (or merge it when `finishWork.mergeOnFinish` is enabled), optionally watch the deployment workflow triggered by the merge commit, optionally verify ticket acceptance criteria after a successful deployment, optionally deploy to the project's host with `delivery.command` or the ordered `delivery.steps` list (asks first, interactive runs only), move the tracker ticket to Done, and clean up the branch/worktree.
+Confirm or perform the PR merge, optionally watch the deployment and deliver to the project's host (asks first, interactive only), close the ticket, and clean up.
 
 The ticket is closed **only when the code is actually merged** — never on green-CI-but-open.
 
 **Announce at start:** "I'm using the n1-finish skill to finish work on this task."
 
-## N1_HOME Resolution
+## Entry (one Bash call + reads)
 
-Resolve the N1 state directory at the start of every run. Run via Bash:
+Fill `ID` (argument, else derived from the PR or branch) and `PR` (digits of a `#123`/`123` argument, else empty), then run via Bash. **In the same turn**, read these in parallel, not via Bash: `<N1_ROOT>/skills/n1-finish/steps/` files `01-resolve-target.md`, `02-merge.md`, `04-close-ticket.md`, `05-telemetry-followup.md`, `06-cleanup.md`, and `<N1_ROOT>/references/deployment-actions.md`.
 
 ```bash
 source ~/.n1/preamble.sh
-```
-
-If `N1_HOME` is empty — N1 is not configured; warn the user and STOP.
-
-Before resolving a target or reading any step, initialize the invocation-scoped verification artifact guard:
-
-```bash
+[ -n "$N1_HOME" ] || { echo n1-home:missing; exit 1; }
 POST_DEPLOY_VERIFICATION_ARTIFACT=false
+ID="<ID>"; PR="<PR>"; c() { n1_config_val ".$1"; }; S="$N1_ROOT/skills/n1-finish"
+[[ "$PR" =~ ^[0-9]*$ ]] || PR=
+TP=$(c tracker.prefix); B=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); F=number,state,mergedAt,mergeCommit,url,headRefName,baseRefName
+tid() { grep -oiE "$TP-[0-9]+" | head -1 | tr a-z A-Z; }
+[ -n "$ID" ] || [ -n "$PR" ] || [ -z "$TP" ] || ID=$(tid <<<"$B")
+case "$ID" in *[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
+gh auth status >/dev/null 2>&1 && G=ok || G=unauthenticated; R=false
+look() { X="(^|[^a-z0-9])${ID,,}([^0-9]|$)"
+  if [ -z "$PR" ] && [ -n "$ID" ] && ! grep -qiE "$X" <<<"$B"; then J=$(gh pr list --state all --limit 300 --json $F | jq -rc --arg x "$X" 'map(select(.headRefName|ascii_downcase|test($x)))|map(select(.state=="OPEN")) as $o|map(select(.state=="MERGED")) as $m|if length==1 then .[0] elif ($o|length)==1 then $o[0] elif ($o|length)==0 and ($m|length)==1 then $m[0] elif length==0 then empty else "pr:ambiguous "+(map(.number|tostring)|join(" ")) end')
+  else J=$(gh pr view ${PR:+"$PR"} --json $F); fi; echo "${J:-pr:none}"; }
+[ -z "$PR" ] || [ "$G" != ok ] || { look; [ -n "$ID" ] || [ -z "$TP" ] || ID=$(jq -r '.headRefName//empty' <<<"$J" 2>/dev/null | tid); }
+M="$N1_HOME/memory/$ID"
+if [ -n "$ID" ]; then
+  DP=$(n1_read_frontmatter "$M/overview.md" deploy_pending); SHA=$(n1_read_frontmatter "$M/overview.md" deploy_merge_sha); DB=$(c git.defaultBranch); V=false
+  [[ "$SHA" =~ ^[0-9a-f]{7,40}$ ]] && git merge-base --is-ancestor "$SHA" "${DB:-main}" 2>/dev/null && V=true
+  echo "deploy-pending:$DP sha:$SHA sha-valid:$V"; [ "$DP$V" = truetrue ] && R=true
+fi
+[ -n "$PR" ] || [ "$R$G" != falseok ] || look
+echo "gh:$G branch=$B"
+P=$(c git.prMode); [ -n "$P" ] || { [ "$(c git.draftPR)" = false ] && P=ready || P=draft; }
+echo "id=$ID prMode=$P mechanicalPrompts=$(n1_autonomy_val mechanicalPrompts)"
+for k in finishWork.{mergeMethod,waitForMergeMinutes,closeTicket,deployWatch.enabled} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} worktree.cleanup release.enabled; do echo "$k=$(c $k)"; done
+echo "tracker.operations=$(n1_config_ops .tracker.operations)"
+n1_merge_allowed && echo merge:allowed || echo merge:denied; [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
+RA=()
+[ "$(c finishWork.deployWatch.enabled)" = true ] && RA+=("$S/steps/03-deploy.md")
+[ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md")
+[ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && [ "$(c finishWork.closeTicket)" != false ] && RA+=("$S/references/done-status-recovery.md")
+[ -z "$ID" ] || for f in ticket overview; do [ -f "$M/$f.md" ] && RA+=("$M/$f.md"); done
+echo "read-also: ${RA[*]}"
 ```
+
+`n1-home:missing` → warn and STOP. `id:invalid` → STOP. Empty `id=` → resolve it from `git.branchPattern`, then run Step 1's check.
 
 ## Config Read
 
-Read the `finishWork` block via `n1_config_val`, applying defaults when keys are absent:
+Defaults:
 
 | Key | Default |
 |-----|---------|
-| `.finishWork.mergeOnFinish` | `false` (takes effect only with `finishWork.enabled: true`; queue children use `queue.mergeOnFinish`, default `false`. Decided by `n1_merge_allowed`) |
+| `.finishWork.mergeOnFinish` | `false` (needs `finishWork.enabled: true`; queue children use `queue.mergeOnFinish`; see `n1_merge_allowed`) |
 | `.finishWork.mergeMethod` | `"squash"` (`"squash"` \| `"merge"` \| `"rebase"`) |
 | `.finishWork.deployWatch.enabled` | `false` |
 | `.finishWork.deployWatch.workflowName` | `null` (watch all runs on the merge commit) |
 | `.finishWork.deployWatch.timeoutMinutes` | `30` |
-| `.finishWork.postDeployVerification.enabled` | `false`; an absent key falls back to explicit `localTesting.mode: "smoke"`; explicit `false` takes precedence over the legacy smoke fallback |
+| `.finishWork.postDeployVerification.enabled` | `false`; absent → explicit `localTesting.mode: "smoke"` (legacy smoke); explicit `false` wins |
 | `.finishWork.closeTicket` | `true` |
 | `.finishWork.waitForMergeMinutes` | `10` |
-| `.delivery.mode` | `null` (`"ssh"` enables the delivery deploy at the start of Step 4; any other value is off) |
-| `.delivery.command` | `null` (project-owned deploy command, run with confirmation in interactive runs only) |
-| `.delivery.steps` | `null` (NP-240: ordered deploy steps, each `` `<command>` `` or `Manual: <text>`; used only when `.delivery.command` is empty; every step is confirmed before it runs, interactive runs only; resume point kept in overview `deploy_next_step`) |
-| `.delivery.verifyCommand` | `null` (optional post-deploy check; exit code 0 = verified) |
+| `.delivery.mode` | `null` (`"ssh"` enables the Step 4 delivery deploy; else off) |
+| `.delivery.command` | `null` (see `steps/03b-ssh-deploy.md`) |
+| `.delivery.steps` | `null` (ordered; used only when `.delivery.command` is empty; see `steps/03b-ssh-deploy.md`) |
+| `.delivery.verifyCommand` | `null` (optional post-deploy check) |
 | `.localTesting.mode` | `null` (infer from startCommand) |
 | `.localTesting.smokeEndpoint` | `null` |
 | `.localTesting.smokeTests` | `[]` |
 
-Post-deploy verification dispatches only after a successful deployment. It receives the absolute paths for `ticket.md`, `analysis.md`, optional `local-test-plan.md`, `post-deploy-pr.diff`, `config.json`, and `dev-access.md`, and writes `post-deploy-verification.md`. Its `PASS`, `FAIL`, or `SKIPPED` results are informational: failures do not prevent normal ticket closure.
+Post-deploy verification dispatches only after a successful deployment (`ticket.md` → `post-deploy-verification.md`; `steps/03-deploy.md`); never blocks closure.
 
-Also read `git.prMode` (fallback chain: `git.prMode` → `git.draftPR: false` = `"ready"` → `"draft"`), `git.defaultBranch`, `git.branchPattern`, `tracker.mcp`, `tracker.operations`, `tracker.statuses`.
-
-`finishWork.enabled` gates only the pipeline step — standalone invocation proceeds regardless. If `finishWork` is entirely absent, all defaults apply and the skill still works as a merge-verify + close command. Whether this run may merge comes only from `n1_merge_allowed` (Step 2). Never infer it from config by hand.
+`finishWork.enabled` gates only the pipeline step; standalone runs ignore it. Merge permission comes only from `n1_merge_allowed`.
 
 ## Steps
 
-Execute steps in order. Read each step file and follow its instructions before proceeding to the next.
+Follow the files read at entry, in order.
 
-1. **Resolve Target** — prerequisites check, PR lookup
-   Read `<N1_ROOT>/skills/n1-finish/steps/01-resolve-target.md`
-
-2. **Merge State Machine** — evaluate PR state, comment check, merge, wait; or Step 2b local merge when `prMode` is `"skip"` (no PR, no push)
-   Read `<N1_ROOT>/skills/n1-finish/steps/02-merge.md`
-
-3. **Deploy Watch & Verification** — watch deployment workflow, then run post-deploy verification after success
-   Read `<N1_ROOT>/skills/n1-finish/steps/03-deploy.md`
-
-4. **Close Ticket**: delivery deploy gate first (`03b-ssh-deploy.md`, no-op unless `delivery.mode` is `"ssh"`), then move the tracker status to done and post a comment
-   Read `<N1_ROOT>/skills/n1-finish/steps/04-close-ticket.md`
-
-5. **Telemetry Follow-Up** — create follow-up ticket when feature warrants telemetry check
-   Read `<N1_ROOT>/skills/n1-finish/steps/05-telemetry-followup.md`
-
-6. **Cleanup & Report** — branch/worktree cleanup, memory update, final report, release routing
-   Read `<N1_ROOT>/skills/n1-finish/steps/06-cleanup.md`
+1. Resolve Target: `steps/01-resolve-target.md`
+2. Merge State Machine (Step 2b local merge when `prMode` is `"skip"`): `steps/02-merge.md`
+3. Deploy Watch & Verification: `steps/03-deploy.md`, only when in `read-also:`; else deploy is `skipped (not configured)`, no verification
+4. Close Ticket: `steps/04-close-ticket.md`, after the delivery gate `steps/03b-ssh-deploy.md` (when in `read-also:`)
+5. Telemetry Follow-Up: `steps/05-telemetry-followup.md`
+6. Cleanup & Report: `steps/06-cleanup.md`

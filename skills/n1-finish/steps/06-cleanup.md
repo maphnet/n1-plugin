@@ -1,8 +1,8 @@
 # Step 6: Cleanup & Memory
 
-1. **Local branch (branch mode, merged PR):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`. Local-merge path: already on `<defaultBranch>` — skip `git pull` (the merge is local-only and unpushed); `-d` refusing after a squash is expected — keep the branch and note it.
+1. **Local branch (branch mode, merged PR; runs last in § One Cleanup Call, after the worktree):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`. Local-merge path: already on `<defaultBranch>` — skip `git pull` (the merge is local-only and unpushed); `-d` refusing after a squash is expected — keep the branch and note it.
 2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it. Local-merge path: n/a (nothing was pushed).
-3. **Worktree:** If the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, read `worktree.cleanup` from config. If it is `"after-pr"` or `"after-merge"`, the PR has already been merged — both values mean **remove the worktree now**: switch to the main checkout first (`MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn "Worktree removal failed: `<error>`", point at `/n1:n1-clean`.
+3. **Worktree (runs before the branch delete in § One Cleanup Call):** Only when the current branch is the finished PR's head branch (`HEAD_REF`, the PR's `headRefName`; an unrelated ticket's worktree is never touched, status `worktree:kept-other`). If the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, use `worktree.cleanup` (read at entry). If it is `"after-pr"` or `"after-merge"`, the PR has already been merged — both values mean **remove the worktree now**: switch to the main checkout first (`MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn "Worktree removal failed: `<error>`", point at `/n1:n1-clean`.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish
@@ -15,21 +15,43 @@
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    pr_url: <PR URL from the `## Pending` section being removed below; omit this line on the local-merge path, which has no PR>
    ```
-   If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate), carrying over the `- **Delivery:**` value that Step 4's delivery gate (`03b-ssh-deploy.md`) recorded — never drop or rewrite a pending/succeeded delivery as n/a. Only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, upsert the full validated verification table from this invocation's `post-deploy-verification.md` in `## Finish`; otherwise omit verification details and never read an existing artifact. Do not summarize away `PASS`, `FAIL`, or `SKIPPED` reasons. Set frontmatter:
-   ```bash
-   source ~/.n1/preamble.sh
-   source "$N1_ROOT/lib/frontmatter.sh"
-   n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "step" "done"
-   ```
-   Also delete the `## Pending` section from overview.md if present (the merge is no longer pending). If finish exits without a merge (timeout paths), instead set `step` to `finish` (not `done`) and update only its `last_checked` line with `date -u +%Y-%m-%dT%H:%M:%SZ`.
+   If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate), carrying over the `- **Delivery:**` value that Step 4's delivery gate (`03b-ssh-deploy.md`) recorded — never drop or rewrite a pending/succeeded delivery as n/a. Only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, upsert the full validated verification table from this invocation's `post-deploy-verification.md` in `## Finish`; otherwise omit verification details and never read an existing artifact. Do not summarize away `PASS`, `FAIL`, or `SKIPPED` reasons. Also delete the `## Pending` section (the merge is no longer pending), set frontmatter `step: done`, and clear the active-run pointer (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY). If finish exits without a merge (timeout paths), instead set `step` to `finish` (not `done`) and update only its `last_checked` line with `date -u +%Y-%m-%dT%H:%M:%SZ`. Standalone without memory: skip silently.
 
-   Also clear the active-run pointer on successful completion (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY):
-   ```bash
-   source ~/.n1/preamble.sh
-   n1_active_run_clear
-   ```
+## One Cleanup Call
 
-   Standalone without memory: skip silently.
+On successful completion, run items 4, 1 and 3 as a single Bash call: memory first (absolute `$N1_HOME` paths), then the worktree, then the branch (the branch cannot be deleted while a linked worktree still has it checked out, so worktree removal precedes `git branch -d`). Issue the Report's `getIssueLinks` lookup in parallel in the same turn. The `## Finish` block's `- **Delivery:**` value comes from this run's delivery gate outcome (03b rewrites overview after entry read it); fall back to the overview read at entry only when the gate did not run. Each part is independent (`;`, never `&&`) and prints its own status line for the Report's `Cleanup:` field. Set `LOCAL=1` on the local-merge path (skip `git pull`), else `0`. Pick a heredoc delimiter that does not occur in the block (change `N1_FINISH_BLOCK_9c1e` if it does).
+
+```bash
+source ~/.n1/preamble.sh
+ID="<ID>"; case "$ID" in *[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
+DB="<defaultBranch>"; LOCAL=<0|1>; HR="<headRefName>"   # HR: the PR's head branch (local merge: the merged feature branch; empty if none)
+case "$HR" in *[!A-Za-z0-9._/-]*) echo headref:invalid; exit 1;; esac
+OV="$N1_HOME/memory/$ID/overview.md"
+if [ -n "$ID" ] && [ -f "$OV" ]; then
+  TMP=$(mktemp "$OV.XXXXXX")
+  awk '/^## /{s=/^## (Finish|Pending)\r?$/} !s' "$OV" > "$TMP" && mv "$TMP" "$OV"
+  cat >> "$OV" <<'N1_FINISH_BLOCK_9c1e'
+<the rendered ## Finish block from item 4>
+N1_FINISH_BLOCK_9c1e
+  n1_write_frontmatter "$OV" step done
+  n1_active_run_clear
+  echo memory:done
+else echo memory:none; fi
+BR=$(git rev-parse --abbrev-ref HEAD); TOP=$(git rev-parse --show-toplevel)
+MAIN_CHECKOUT=$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd -P)")
+if [ -f "$TOP/.git" ]; then   # linked worktree: never checkout the default branch here
+  W=$(n1_config_val '.worktree.cleanup'); RM=0
+  case "$TOP" in */"$(n1_worktree_root)"/*) { [ "$W" = after-pr ] || [ "$W" = after-merge ]; } && RM=1;; esac
+  if [ "$BR" != "$HR" ]; then echo worktree:kept-other
+  elif [ "$RM" = 1 ]; then cd "$MAIN_CHECKOUT" && git worktree remove "$TOP" --force && echo worktree:removed || echo worktree:remove-failed; else echo worktree:kept; fi
+else
+  [ "$BR" = "$DB" ] || [ "$BR" != "$HR" ] || { git checkout "$DB" && { [ "$LOCAL" = 1 ] || git pull; } || echo checkout:failed; }
+  echo worktree:none
+fi
+if [ -n "$HR" ] && [ "$HR" != "$DB" ]; then git branch -d -- "$HR" >/dev/null 2>&1 && echo branch:deleted || echo branch:kept; else echo branch:none; fi
+```
+
+`worktree:kept-other` → the current checkout is another ticket's; nothing was removed or checked out (the PR's own local branch is still deleted with `-d` when possible). `worktree:remove-failed` → warn "Worktree removal failed", point at `/n1:n1-clean`. `checkout:failed` → warn that the default branch could not be checked out or pulled. `branch:kept` → note that `-d` refused (never `-D`). An external worktree (`n1_is_external_worktree`) is outside `/$(n1_worktree_root)/`, so it stays `worktree:kept`.
 
 ## Report (final message)
 
@@ -50,11 +72,11 @@ Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never 
 
 - **Ticket URL:** overview frontmatter `ticket_url` (`n1_read_frontmatter`); absent → `URL unavailable (<reason>)`.
 - **PR URL:** Step 1's `gh pr view` url; fallback overview `pr_url` / `## Pending`.
-- **Next tickets:** call `tracker.operations.getIssueLinks` on `tracker.versionMcp` when set, else `tracker.mcp`, for `<ID>`. Tickets this one blocks: Jira — Blocks-type entries with `outwardIssue`; YouTrack — relation `blocks` (not `is blocked by`). Use title/status from the entry when present, else `readTicket` per link. No such links → `none`. Op not configured or call error → `lookup failed (<reason>)`; warn only, never block.
+- **Next tickets:** call `tracker.operations.getIssueLinks` on `tracker.versionMcp` when set, else `tracker.mcp`, for `<ID>`. Tickets this one blocks: Jira — Blocks-type entries with `outwardIssue`; YouTrack — relation `blocks` (not `is blocked by`). Use title/status from the entry when present, else `readTicket` per link. No such links → `none`. Op not configured or call error → `lookup failed (<reason>)`; warn only, never block. Issue it in parallel with the cleanup call (§ One Cleanup Call).
 - Print this summary on every completion path (including already-merged / already-closed re-runs and the runbook-pending path), before release routing in both `mechanicalPrompts` modes. Non-complete exits keep their stop message below and do NOT print it.
 
 <!-- tailChain has no effect here: n1-release is never invoked automatically regardless of autonomy mode (NP-71). The steps below are always interactive/suggestion-only. -->
-**Release routing (when `release.enabled` is `true` and the merge succeeded):** after printing the report, read the autonomy setting via Bash (source `lib/config.sh` first):
+**Release routing (when `release.enabled` is `true` and the merge succeeded):** after printing the report, use the `mechanicalPrompts` value printed at entry; only when it is missing, read it via Bash (source `lib/config.sh` first):
 
 ```bash
 MP=$(n1_autonomy_val 'mechanicalPrompts')
