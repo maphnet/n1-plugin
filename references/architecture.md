@@ -10,7 +10,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-review | code-reviewer, security-reviewer, developer agents | Review + fix loop |
 | n1-pr | tech-writer agent + inline git/gh/MCP | Doc update, push, create PR, update tracker |
 | n1-ci | developer agent + inline gh CLI | Post-PR CI watch, classify failures, fix loop |
-| n1-finish | (inline: gh + tracker MCP) | Merge verify/auto-merge, deploy watch, ticket close, worktree cleanup |
+| n1-finish | (inline: gh + tracker MCP) | Merge verify, deploy watch, ticket close, worktree cleanup |
 | n1-release | (inline: gh + git + tracker MCP) | Git tag, GitHub Release (or custom procedure), tracker comment |
 | n1-init | (inline: analysis + prompts) | Project setup wizard (v2: migration flow) |
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
