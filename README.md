@@ -43,7 +43,7 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 /n1:n1-review                      # review current branch (fix loop)
 /n1:n1-review #340                 # advisory review of a PR
 /n1:n1-pr                          # finalize branch: docs, push, create PR
-/n1:n1-finish                      # verify/merge PR, watch deploy, close ticket
+/n1:n1-finish                      # verify PR is merged, watch deploy, close ticket
 /n1:n1-queue --story STORY-12       # run story subtasks through the pipeline one by one (each ticket stops after PR + CI; N1 never merges, held tickets start once you merge their blocker). Also: --tag <tag>, --plan, --run <queue-id>, --dry-run, --status, --watch, --answer <ticket> <text>.
 ```
 
@@ -53,7 +53,7 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 |-------|-------------|
 | /n1:n1-benchmark | Benchmark orchestrator autonomy across versions (interventions per run, quality metrics, baseline deltas) |
 | /n1:n1-clean | Remove git worktree for a ticket after work is done or abandoned |
-| /n1:n1-finish | Verify/merge PR, watch deploy, close ticket |
+| /n1:n1-finish | Verify the PR is merged (the human merges; prMode: skip merges locally), watch deploy, close ticket |
 | /n1:n1-init | Set up N1 for your project (tracker, models, flags) |
 | /n1:n1-pr | Finalize branch: docs, push, create PR |
 | /n1:n1-review | Code review loop or advisory review of a PR |
@@ -106,7 +106,7 @@ Completes the cycle after PR/CI: verifies the PR is merged (it never merges a PR
 - Configure via `/n1:n1-init` or the `finishWork` block in `~/.n1/<project>/config.json`
 
 ```
-/n1:n1-finish            # verify/merge current branch's PR, close ticket
+/n1:n1-finish            # verify current branch's PR is merged, close ticket
 /n1:n1-finish TRID-510   # target a specific ticket
 /n1:n1-finish #123       # target a specific PR number
 ```
