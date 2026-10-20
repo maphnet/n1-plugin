@@ -19,7 +19,7 @@ See [README.md](../README.md) for user-facing documentation: installation, quick
 
 N1 is a plugin for Claude Code that orchestrates the full development cycle (ticket read, analysis, brainstorm, plan, implement, QA, review, [local testing], PR). It uses a **hybrid delegation model**: specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native N1 skills handle interactive steps (brainstorming, planning, implementation dispatch). It is a **thin controller** (~5-10K tokens per skill): skills load only the memory files they need, spawn agents, and write results back to per-ticket memory.
 
-**n1-start skill layout:** `skills/n1-start/SKILL.md` is a thin dispatcher (<6 KB); each of the 16 pipeline step bodies lives in `skills/n1-start/steps/<step>.md`. Shared orchestrator logic (workspace isolation, telemetry, output gates, resume) lives in `skills/n1-start/procedures/<name>.md`, referenced by steps on demand. Shared review logic lives in `skills/n1-start/review-core.md`.
+**n1-start skill layout:** `skills/n1-start/SKILL.md` is a thin dispatcher (<6 KB); each of the 15 pipeline step bodies lives in `skills/n1-start/steps/<step>.md`. Shared orchestrator logic (workspace isolation, telemetry, output gates, resume) lives in `skills/n1-start/procedures/<name>.md`, referenced by steps on demand. Shared review logic lives in `skills/n1-start/review-core.md`.
 
 ## Skill Sub-File Architecture
 
@@ -45,7 +45,7 @@ Skills under 6 KB remain in their existing `skills/<name>/SKILL.md` form without
 
 **Procedures:** Shared content referenced by 2+ steps within one skill. Loaded by the step that needs it, never by the dispatcher. Content used by only one step stays inline.
 
-**Reference implementations:** `n1-init` (15 step files, dispatcher-only architecture) and `n1-start` (16 step files + 11 procedures for shared orchestrator logic).
+**Reference implementations:** `n1-init` (14 step files, dispatcher-only architecture) and `n1-start` (15 step files + 11 procedures for shared orchestrator logic).
 
 **Size enforcement:** `tests/test_skill_size.sh` asserts all SKILL.md files are under 6 KB in CI.
 
@@ -102,4 +102,4 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 - **Timestamps:** Never let the model invent a timestamp — it has no clock and will hallucinate. Date-only needs (spec/plan filenames `YYYY-MM-DD`) use the harness-injected `currentDate`. Precise time (time-of-day, durations) must come from the `date` command, e.g. `date -u +%Y-%m-%dT%H:%M:%SZ`. Don't add timestamp fields unless something actually reads them — file mtime already records "last modified".
 - **Test & benchmark artifacts:** Tests/benchmarks that verify committed implementation (unit, integration, e2e tied to acceptance criteria) go in the repo and run in CI. Throwaway probes that only answer a current question (approach micro-benchmarks, repro scripts, viability spikes) go under `$N1_HOME/` (external, never committed) — per-ticket `$N1_HOME/memory/<ID>/{benchmarks,tests}/`, or `$N1_HOME/scratch/{benchmarks,tests}/` when there is no ticket memory. When unsure, default to scratch. Bound into the `solution-architect`, `developer`, and `qa-engineer` personas; concrete paths are passed by the skills at spawn time.
 - **Design specs:** Design specs produced by brainstorming are written to per-ticket memory (`$N1_HOME/memory/<ID>/brainstorm.md`) — they are working documents, not committed artifacts.
-- **Agent spawns pass memory-file paths:** Skills pass the absolute path to each memory file (e.g. `$MEMORY_DIR/ticket.md`) so agents Read them directly. Exception: estimation inline data and the `## Key Decisions`/`## Escalations` slices of overview.md stay inlined. Read-only agents (code-reviewer, security-reviewer, solution-architect) never write memory files; qa-engineer writes `qa.md` itself; developer fix cycles write/replace `## Fix Cycle <N>` sections in `implementation.md` — idempotent upsert, never duplicate.
+- **Agent spawns pass memory-file paths:** Skills pass the absolute path to each memory file (e.g. `$MEMORY_DIR/ticket.md`) so agents Read them directly. Exception: the `## Key Decisions`/`## Escalations` slices of overview.md stay inlined. Read-only agents (code-reviewer, security-reviewer, solution-architect) never write memory files; qa-engineer writes `qa.md` itself; developer fix cycles write/replace `## Fix Cycle <N>` sections in `implementation.md` — idempotent upsert, never duplicate.

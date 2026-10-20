@@ -40,7 +40,6 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 /n1:n1-start https://myorg.sentry.io/issues/12345  # from a Sentry error
 
 # 3. Or use skills standalone
-/n1:n1-estimate TRID-510           # estimate a ticket
 /n1:n1-review                      # review current branch (fix loop)
 /n1:n1-review #340                 # advisory review of a PR
 /n1:n1-pr                          # finalize branch: docs, push, create PR
@@ -54,7 +53,6 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 |-------|-------------|
 | /n1:n1-benchmark | Benchmark orchestrator autonomy across versions (interventions per run, quality metrics, baseline deltas) |
 | /n1:n1-clean | Remove git worktree for a ticket after work is done or abandoned |
-| /n1:n1-estimate | Estimate task complexity and delivery time |
 | /n1:n1-finish | Verify/merge PR, watch deploy, close ticket |
 | /n1:n1-init | Set up N1 for your project (tracker, models, flags) |
 | /n1:n1-pr | Finalize branch: docs, push, create PR |
@@ -78,7 +76,7 @@ Input (ticket or brain dump)
   → Fix loop (developer agent, if needed)
   → PR (n1:n1-pr → tech-writer agent)
   → Tracker update
-  → Finish (n1:n1-finish, if finishWork.enabled) — merge verify, deploy watch, ticket close
+  → Stop after PR + CI: merge the PR, then run /n1:n1-finish
 ```
 
 - **Agent personas:** 12 specialized agents with scoped tools and configurable models
@@ -102,9 +100,9 @@ Spawns tech-writer agent for doc updates and PR content, pushes, creates PR via 
 
 ### `/n1:n1-finish` — Finish Work
 
-Completes the cycle after PR/CI: verifies the PR is merged (or merges it when `finishWork.mergeOnFinish` is enabled), optionally watches the deployment workflow triggered by the merge commit, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
+Completes the cycle after PR/CI: verifies the PR is merged (it merges only in queue runs with `queue.mergeOnFinish`, or locally for `git.prMode: skip`), always watches the deployment workflow on the merge commit when a push-triggered workflow exists, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
 
-- Standalone and idempotent — works with or without the `finishWork.enabled` pipeline gate
+- Standalone and idempotent
 - Configure via `/n1:n1-init` or the `finishWork` block in `~/.n1/<project>/config.json`
 
 ```
@@ -122,19 +120,9 @@ Interactive wizard:
 3. Configures tracker (Jira / YouTrack / None)
 4. Sets up git defaults and review policy
 5. Detects and configures error tracking (Sentry)
-6. Configures estimation (off by default — complexity tier → delivery time)
-7. Configures agent models (defaults or custom per-agent)
-8. Creates `~/.n1/<project>/` state directory (v1 projects: offers migration from `.n1/`)
-9. Adds `.claude/worktrees/` to `.gitignore`
-
-### `/n1:n1-estimate` — Task Estimation
-
-Estimates task complexity and delivery time. Runs the analysis pipeline (ticket read → codebase analysis → brainstorm), classifies complexity into a tier (XS–XL), and maps to a time estimate.
-
-- Writes estimate to tracker ticket (description + time field) when enabled
-- Reuses existing analysis if the ticket was previously analyzed
-- No branch creation or status transitions — read-only analysis
-- Configure via `/n1:n1-init` or set `estimation.enabled: true` in `~/.n1/<project>/config.json`
+6. Configures agent models (defaults or custom per-agent)
+7. Creates `~/.n1/<project>/` state directory (v1 projects: offers migration from `.n1/`)
+8. Adds `.claude/worktrees/` to `.gitignore`
 
 ### `/n1:n1-clean` — Worktree Cleanup
 
@@ -169,22 +157,6 @@ Error tracking is optional and independent of tracker integration. When configur
 
 Sentry issues can optionally be promoted to tracker tickets (Jira/YouTrack) during the pipeline, or worked standalone with `sentry-<issueId>` as the working identifier.
 
-## Estimation
-
-Optional complexity classification that maps tasks to delivery time estimates. Off by default — enable via `n1-init` or set `estimation.enabled: true` in `~/.n1/<project>/config.json`.
-
-| Tier | Default Time | Characteristics |
-|------|-------------|-----------------|
-| XS | 30m | Config change, typo, single-line fix |
-| S | 2h | Single file, clear scope, no migrations |
-| M | 6h | 2-5 files, may need tests, straightforward |
-| L | 2d | Multiple files, migrations, new tests |
-| XL | 5d | Cross-cutting, architectural, multi-subsystem |
-
-Times represent total delivery (including QA/review), not just coding. Default mapping is overridable per-project via `estimation.mapping` in config.
-
-When enabled, estimation runs automatically in the `n1-start` pipeline (after plan when `planning_need: plan`, after brainstorm when `planning_need: direct`) and writes to the tracker's time field (Jira `originalEstimate`, YouTrack `Estimation`). Use `/n1:n1-estimate` standalone to estimate without running the full pipeline.
-
 ## How It Works
 
 N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation model: 12 specialized agent personas handle autonomous work (analysis, QA, review, fixes, PR content), while native skills handle interactive steps (brainstorming, planning, implementation dispatch). Each agent gets fresh context with scoped tools, enforced at runtime by Claude Code's own agent allowlist.
@@ -217,7 +189,6 @@ Per-ticket memory lives in `~/.n1/<project>/memory/<ticket-id>/` (externalized, 
 | analysis | `ticket.md` | `analysis.md` |
 | brainstorm | `ticket.md`, `analysis.md` | `brainstorm.md` |
 | plan | `ticket.md`, `brainstorm.md`, `analysis.md` | `plan.md` |
-| estimation | `ticket.md`, `analysis.md`, `brainstorm.md`, `plan.md` (if exists) | `overview.md` |
 | implementation | `brainstorm.md`, `plan.md` | `implementation.md` |
 | qa | `ticket.md`, `implementation.md`, `plan.md` | `qa.md` |
 | review | `ticket.md`, `brainstorm.md`, `implementation.md`, `qa.md` | `review.md` |

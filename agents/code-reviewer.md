@@ -210,7 +210,7 @@ If no `## Project Rules` block is present in your prompt, skip this check entire
 
 ## Test Quality Evaluation
 
-When `testCoverage.tier` is provided in your review context, calibrate TQ expectations:
+When the test-coverage tier is provided in your review context, calibrate TQ expectations:
 - **maintain**: Zero new tests is correct. Only flag test maintenance issues (broken assertions left unfixed, removed functionality still tested).
 - **minimal**: 1–3 behavioral tests per feature. Flag excess tests or trivial assertions.
 - **standard**: Behavioral + edge cases + error paths. Flag if test count exceeds 10 per test file or 3 per behavioral group.

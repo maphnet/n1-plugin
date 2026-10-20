@@ -65,7 +65,6 @@ Config: read keys via `n1_*_val` helpers; never cat config.json.
 
 Always escalate: security, architecture, public API changes.
 Release is never automatic — n1-release confirmation gate is unconditional.
-`tailChain` is `suggest` in all autonomy modes — release must be triggered manually.
 Headless runs (`N1_HEADLESS=1`) never auto-resolve unconditional gates — they pause with a recorded escalation and a tracker comment.
 
 ## Git
@@ -74,4 +73,4 @@ Headless runs (`N1_HEADLESS=1`) never auto-resolve unconditional gates — they 
 - Commit style: imperative mood, English
 - No Co-Authored-By trailers
 - **Version bump mandatory on every task branch:** run `scripts/bump-version.sh <new>` (updates the two manifests: `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`; `tests/test_manifests.sh` asserts they match). Commit as `chore: bump version to <new> (<ID>)`.
-- **Workspace isolation:** worktree at `<main-checkout>/.claude/worktrees/<ID>/` (default). `n1-pr` performs `git push -u origin <branch>`; `n1-finish` removes the worktree (external ones only when clean and merged), then the local branch, after merge when `worktree.cleanup` is `"after-merge"` or `"after-pr"` (alias).
+- **Workspace isolation:** worktree at `<main-checkout>/.claude/worktrees/<ID>/` (default). `n1-pr` performs `git push -u origin <branch>`; `n1-finish` removes the worktree (external ones only when clean and merged), then the local branch, after a successful finish.

@@ -77,7 +77,7 @@ DEAD=(
   tracker.statuses.backlog
 )
 for k in "${DEAD[@]}"; do
-  HITS=$(grep -rnF -- "$k" skills lib hooks scripts defaults pipeline.json | grep -v "^$PRUNE:" || true)
+  HITS=$(grep -rnF -- "$k" skills lib hooks scripts defaults pipeline.json references README.md CLAUDE.md | grep -v "^$PRUNE:" || true)
   if [ -z "$HITS" ]; then ok "removed: $k"; else no "still referenced: $k"; echo "$HITS"; fi
 done
 

@@ -33,7 +33,7 @@ You will receive:
 - implementation.md — what was built, files changed
 - plan.md or brainstorm.md — scope and approach context
 - analysis.md — codebase analysis with file:line references (when provided)
-- **testCoverage.tier** — one of `maintain`, `minimal`, `standard`
+- **test-coverage tier** — one of `maintain`, `minimal`, `standard`
 
 ## Process
 
@@ -43,7 +43,7 @@ If `analysis.md` is provided, read it first for file:line references and affecte
 
 ### Step 2: Determine tier
 
-Read the `testCoverage.tier` value from the orchestrator context. Your entire process depends on this value.
+Read the test-coverage tier from the orchestrator context. Your entire process depends on this value.
 
 - **maintain** — No new test creation. Fix broken tests, update tests for changed functionality. If all existing tests pass and no functionality changed, report "No test work needed" with PASS verdict.
 - **minimal** — Everything in maintain, plus 1–3 focused unit tests per feature. Test the function/module that implements each acceptance criterion at the unit level. No integration, no e2e.
