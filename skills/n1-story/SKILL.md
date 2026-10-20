@@ -26,8 +26,8 @@ If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not config
 
 Execute steps in order. Read each step file and follow its instructions before proceeding to the next.
 
-1. **Collect** — context capture, sanity check, tracker gate, analysis, discovery, design
+1. **Collect** — context capture, sanity check, tracker gate, analysis, discovery, design (existing keys may be adopted as sub-tasks)
    Read `<N1_ROOT>/skills/n1-story/steps/01-collect.md`
 
-2. **Compose** — approval gate, create story, create subtasks, done
+2. **Compose** — approval gate, create story, create subtasks, adopt existing tickets, done
    Read `<N1_ROOT>/skills/n1-story/steps/02-compose.md`
