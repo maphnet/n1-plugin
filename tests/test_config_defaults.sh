@@ -74,7 +74,7 @@ assert_eq "T26: explicit non-smoke mode remains off" "false" "$(post_deploy_gate
 echo '{"finishWork":{"postDeployVerification":{"enabled":"true"}},"localTesting":{"mode":"smoke"}}' > "$N1_HOME/config.json"
 assert_eq "T27: invalid explicit value fails closed" "false" "$(post_deploy_gate)"
 
-# ---- Test group 5: merge gate (NP-212, N1-113: interactive runs never merge) ----
+# ---- Test group 5: merge gate helpers removed (N1-114: N1 never merges) ----
 export N1_HOME="$TMPDIR_TEST/merge"
 mkdir -p "$N1_HOME"
 unset N1_QUEUE_RUN_ID

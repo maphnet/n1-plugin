@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N1-110: n1-finish entry call. One Bash call prints config, merge permission, the
+# N1-110: n1-finish entry call. One Bash call prints config, the
 # pending-deploy check, the PR and only the step files that apply.
 set -uo pipefail
 cd "$(dirname "$0")/.."
