@@ -29,7 +29,8 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/home/memory/T-1" "$T/repo"
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
-case "$1" in auth) exit ${GHAUTH:-0} ;; pr) case "$2" in list) echo PRLIST-CALLED ;; *) echo PRVIEW-CALLED ;; esac ;; esac
+D='[{"number":7,"state":"OPEN","headRefName":"me/T-1-feature"}]'
+case "$1" in auth) exit ${GHAUTH:-0} ;; pr) case "$2" in list) echo "${GHLIST:-$D}" ;; *) echo "{\"number\":1,\"headRefName\":\"${GHHEAD:-me/T-1-feature}\",\"note\":\"PRVIEW-CALLED\"}" ;; esac ;; esac
 EOF
 chmod +x "$T/bin/gh"
 git -C "$T/repo" init -q -b main
@@ -122,16 +123,48 @@ has "pr: non-digit dropped" "PRVIEW-CALLED"
 # 9. ID given while on another branch: PR found by head branch, not the current branch's PR.
 BRN=main run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
 has "other branch: branch printed" "branch=main"
-has "other branch: lookup by head branch" "PRLIST-CALLED"
+has "other branch: lookup by head branch" '"number":7'
 lacks "other branch: no gh pr view" "PRVIEW-CALLED"
 BRN=main TPR=5 run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
 has "other branch: PR number uses gh pr view" "PRVIEW-CALLED"
 run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
 has "ticket branch: branch printed" "branch=me/T-1-feature"
-lacks "ticket branch: no head-branch lookup" "PRLIST-CALLED"
+lacks "ticket branch: no head-branch lookup" '"number":7'
 # 10. Ticket ID is a prefix of another ID (T-1 vs T-10): not treated as the ticket branch.
 git -C "$T/repo" branch me/T-10-feature
 BRN=me/T-10-feature run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
-has "prefix id: head-branch lookup" "PRLIST-CALLED"
+has "prefix id: head-branch lookup" '"number":7'
+
+
+# 11. Ambiguity: single match, open preferred, merged fallback, ambiguous.
+L='{"number":%s,"state":"%s","headRefName":"me/T-1-%s"}'
+mk() { printf '['; local i=0 a; for a in "$@"; do [ $i -gt 0 ] && printf ','; printf "$L" $((i+20)) "${a%%:*}" "${a#*:}"; i=$((i+1)); done; printf ']'; }
+GHLIST=$(mk CLOSED:a) BRN=main run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "lookup: single match selected" '"number":20'
+GHLIST=$(mk CLOSED:a OPEN:b CLOSED:c) BRN=main run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "lookup: single OPEN preferred" '"number":21'
+GHLIST=$(mk CLOSED:a MERGED:b) BRN=main run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "lookup: single MERGED preferred over closed" '"number":21'
+GHLIST=$(mk OPEN:a OPEN:b) BRN=main run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "lookup: several OPEN is ambiguous" 'pr:ambiguous 20 21'
+GHLIST=$(mk MERGED:a MERGED:b) BRN=main run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "lookup: several MERGED is ambiguous" 'pr:ambiguous 20 21'
+GHLIST='[]' BRN=main run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "lookup: no match" 'pr:none'
+
+# 12. PR argument beats a pending deploy of the current branch's ticket; ID derives from the PR head.
+BRN=me/T-1-feature TPR=5 run '{"git":{"defaultBranch":"main"}}' "deploy_pending: true
+deploy_merge_sha: $SHA"
+has "pr arg: PR looked up despite pending deploy" "PRVIEW-CALLED"
+BRN=main TID= TPR=5 run '{"tracker":{"prefix":"T"},"git":{"defaultBranch":"main"}}' "deploy_pending: true
+deploy_merge_sha: $SHA"
+has "pr arg: id derived from PR head" "id=T-1"
+has "pr arg: pending check runs for PR ticket" "deploy-pending:true"
+# Current branch is another ticket (T-2): its pending deploy is not read; PR's ticket (T-1) is.
+git -C "$T/repo" branch me/T-2-x
+mkdir -p "$T/home/memory/T-2"; printf -- '---\ndeploy_pending: true\ndeploy_merge_sha: %s\n---\n' "$SHA" > "$T/home/memory/T-2/overview.md"
+BRN=me/T-2-x TID= TPR=5 run '{"tracker":{"prefix":"T"},"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "pr arg on other ticket branch: PR ticket id" "id=T-1"
+lacks "pr arg on other ticket branch: no foreign resume" "deploy-pending:true"
 
 exit $FAIL
