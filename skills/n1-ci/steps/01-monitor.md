@@ -30,11 +30,9 @@ Carry `$RECONCILE_START_FILE` forward into Step 4 / Step 7a (in 02-fix.md), the 
 ## Step 2: Read CI Check Config
 
 From config:
-- `n1_config_val '.ciChecks.maxFixAttempts'` — default: `3`
-- `n1_config_val '.ciChecks.confidenceThreshold'` — default: `0.7`
+- `maxFixAttempts` — fixed: `3`
+- `confidenceThreshold` — fixed: `0.7`
 - `categories` — default: built-in map below
-
-If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP.**
 
 **Default categories** (when config has no `ciChecks.categories`):
 

@@ -24,40 +24,27 @@ export N1_HOME="$TMPDIR_TEST/empty"
 mkdir -p "$N1_HOME"
 echo '{}' > "$N1_HOME/config.json"
 
-assert_eq "T1: plan_review_enabled default" "true" "$(n1_plan_review_enabled)"
-export N1_HOME="$TMPDIR_TEST/missing-config"
-assert_eq "T1b: plan_review_enabled defaults true without config" "true" "$(n1_plan_review_enabled)"
-export N1_HOME="$TMPDIR_TEST/empty"
-assert_eq "T1c: plan_review_enabled defaults true without jq" "true" "$(PATH="$TMPDIR_TEST/no-jq" n1_plan_review_enabled)"
-assert_eq "T2: test_coverage_tier default" "maintain" "$(n1_test_coverage_tier)"
-assert_eq "T3: review_min_clean_passes default" "1" "$(n1_review_min_clean_passes)"
 assert_eq "T3b: review_narrow_threshold default" "50" "$(n1_review_narrow_threshold)"
 assert_eq "T3c: review_skip_doc_config default" "true" "$(n1_review_skip_doc_config)"
-assert_eq "T4: ci_checks enabled default" "true" "$(n1_ci_checks_val enabled)"
-assert_eq "T5: ci_checks maxFixAttempts default" "3" "$(n1_ci_checks_val maxFixAttempts)"
-assert_eq "T6: ci_checks confidenceThreshold default" "0.7" "$(n1_ci_checks_val confidenceThreshold)"
+mkdir -p "$TMPDIR_TEST/override"
+echo '{"escalation":{"alwaysAskOn":["security"]}}' > "$TMPDIR_TEST/override/config.json"
+assert_eq "T5: escalation alwaysAskOn is a constant" '["security","architecture","public-api"]' "$(N1_HOME="$TMPDIR_TEST/override" n1_escalation_val alwaysAskOn)"
 
 # ---- Test group 2: Config overrides take precedence ----
 export N1_HOME="$TMPDIR_TEST/override"
 mkdir -p "$N1_HOME"
 cat > "$N1_HOME/config.json" <<'CONF'
-{"planReview":{"reviewPlan":false},"testCoverage":{"tier":"standard"},"review":{"minCleanPasses":2,"narrowThreshold":30,"skipDocConfigOnly":false},"ciChecks":{"enabled":false,"maxFixAttempts":5,"confidenceThreshold":0.9}}
+{"review":{"narrowThreshold":30,"skipDocConfigOnly":false}}
 CONF
 
-assert_eq "T10: plan_review_enabled override" "false" "$(n1_plan_review_enabled)"
-assert_eq "T11: test_coverage_tier override" "standard" "$(n1_test_coverage_tier)"
-assert_eq "T12: review_min_clean_passes override" "2" "$(n1_review_min_clean_passes)"
 assert_eq "T12b: review_narrow_threshold override" "30" "$(n1_review_narrow_threshold)"
 assert_eq "T12c: review_skip_doc_config override" "false" "$(n1_review_skip_doc_config)"
-assert_eq "T13: ci_checks enabled override" "false" "$(n1_ci_checks_val enabled)"
-assert_eq "T14: ci_checks maxFixAttempts override" "5" "$(n1_ci_checks_val maxFixAttempts)"
-assert_eq "T15: ci_checks confidenceThreshold override" "0.9" "$(n1_ci_checks_val confidenceThreshold)"
 
 # ---- Test group 3: n1_config_val direct calls (regression for NP-213) ----
 mkdir -p "$TMPDIR_TEST/nullcase"
 echo '{"explicitNull": null}' > "$TMPDIR_TEST/nullcase/config.json"
 
-assert_eq "T18: config_val explicit false (direct, not via wrapper)" "false" "$(n1_config_val '.ciChecks.enabled')"
+assert_eq "T18: config_val explicit false (direct, not via wrapper)" "false" "$(n1_config_val '.review.skipDocConfigOnly')"
 assert_eq "T19: config_val absent key still empty" "" "$(n1_config_val '.doesNotExist.enabled')"
 assert_eq "T20: config_val explicit null still empty" "" "$(n1_config_val '.explicitNull' "$TMPDIR_TEST/nullcase/config.json")"
 

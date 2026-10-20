@@ -30,7 +30,7 @@ Release as <SUGGESTED_VERSION>?
 4 — Edit deployment actions   (only when the block is shown)
 ```
 
-If the user picks 2, prompt: `Enter version:` and read their input as the new `VERSION`. Recompute `TAG = tagPrefix + VERSION`. Then proceed.
+If the user picks 2, prompt: `Enter version:` and read their input as the new `VERSION`. Recompute `TAG = v + VERSION`. Then proceed.
 
 Condition lines (informational -- no hard blocks):
 - `Merge SHA: <sha>` -- found in overview.md

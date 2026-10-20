@@ -73,7 +73,7 @@ Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never 
 - **Next tickets:** call `tracker.operations.getIssueLinks` on `tracker.versionMcp` when set, else `tracker.mcp`, for `<ID>`. Tickets this one blocks: Jira — Blocks-type entries with `outwardIssue`; YouTrack — relation `blocks` (not `is blocked by`). Use title/status from the entry when present, else `readTicket` per link. No such links → `none`. Op not configured or call error → `lookup failed (<reason>)`; warn only, never block. Issue it in parallel with the cleanup call (§ One Cleanup Call).
 - Print this summary on every completion path (including already-merged / already-closed re-runs and the runbook-pending path), before release routing in both `mechanicalPrompts` modes. Non-complete exits keep their stop message below and do NOT print it.
 
-<!-- tailChain has no effect here: n1-release is never invoked automatically regardless of autonomy mode (NP-71). The steps below are always interactive/suggestion-only. -->
+<!-- n1-release is never invoked automatically regardless of autonomy mode (NP-71). The steps below are always interactive/suggestion-only. -->
 **Release routing (when `release.enabled` is `true` and the merge succeeded):** after printing the report, use the `mechanicalPrompts` value printed at entry; only when it is missing, read it via Bash (source `lib/config.sh` first):
 
 ```bash

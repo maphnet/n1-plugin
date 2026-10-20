@@ -132,11 +132,8 @@ n1_related_add() {
     existing=$(jq -r --arg s "$slug" '.relatedProjects.projects // [] | .[] | select(.slug == $s) | .slug' "$config_file" 2>/dev/null)
     [ -z "$existing" ] || return 0
 
-    local ts
-    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
     local tmp; tmp=$(mktemp "${config_file}.XXXXXX")
-    jq --arg s "$slug" --arg r "$reason" --arg src "$source" --arg t "$ts" \
-        '.relatedProjects.projects += [{"slug": $s, "reason": $r, "source": $src, "confirmedAt": $t}]' \
+    jq --arg s "$slug" --arg r "$reason" --arg src "$source" \
+        '.relatedProjects.projects += [{"slug": $s, "reason": $r, "source": $src}]' \
         "$config_file" > "$tmp" && mv "$tmp" "$config_file" || { rm -f "$tmp"; false; }
 }

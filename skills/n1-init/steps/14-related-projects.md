@@ -162,7 +162,7 @@ source "$N1_ROOT/lib/related.sh"
 # For each approved project (auto-added high-confidence or user-confirmed medium-confidence):
 n1_related_add "$CFG" "$slug" "$reason" "$source"
 # source = "auto" for high-confidence auto-added; "manual" for user-confirmed
-# n1_related_add is idempotent (skips if slug already present) and stamps confirmedAt
+# n1_related_add is idempotent (skips if slug already present)
 count=$(jq '.relatedProjects.projects | length' "$CFG")
 enabled=$( [ "$count" -gt 0 ] && echo true || echo false )
 jq --argjson e "$enabled" '.relatedProjects.enabled = $e' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"

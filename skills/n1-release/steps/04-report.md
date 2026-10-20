@@ -115,9 +115,9 @@ Ticket: <ID> — comment posted / no ticket inferred / tracker not configured
 
 ```
 Tracker release:
-  Version:     "<VERSION_NAME>" -- created and released / already existed / skipped (jc-mcp not configured) / skipped (createVersion disabled)
-  Fix version: set on <IDs> / skipped (setFixVersion disabled) / skipped (jc-mcp not configured)
-  Tickets:     <N> moved to "<target>" / skipped (moveTickets disabled) / skipped (no status configured)
+  Version:     "<VERSION_NAME>" -- created and released / already existed / skipped (jc-mcp not configured)
+  Fix version: set on <IDs> / skipped (jc-mcp not configured)
+  Tickets:     <N> moved to "<target>" / skipped (no status configured)
 ```
 
 On idempotent skip:

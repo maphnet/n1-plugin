@@ -1,18 +1,6 @@
 
 **If `prMode` is `"skip"`**: no PR; skip ci gate/n1-ci; continue.
 
-Run `n1_config_val '.ciChecks.enabled'` (default: `true`).
-
-```bash
-source ~/.n1/preamble.sh
-GATE_ENABLED=$(n1_config_val '.ciChecks.enabled' 2>/dev/null || echo 'true')
-n1_record_decision ci-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"ciChecks.enabled"}' "enabled=${GATE_ENABLED:-true}"
-```
-
-> The gate key (`ciChecks.enabled`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
-
-**If `ciChecks.enabled` is `false`:** Skip to FINALIZE MEMORY.
-
 **REQUIRED SUB-SKILL:** Use n1:n1-ci to monitor CI checks and fix failures. Pass it the PR number from the PR creation step above.
 
 **After n1-ci returns:**

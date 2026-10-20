@@ -19,7 +19,7 @@ Only when a check is classified `escalate` (needs the user) may the orchestrator
 ### Step 5b: Unknown Category Confidence Check
 
 After developer returns for `unknown` checks:
-- confidence >= `confidenceThreshold` → accept fix
+- confidence >= `0.7` → accept fix
 - confidence < threshold → present to user with logs and analysis:
   "1 — Accept fix / 2 — Provide guidance / 3 — Skip this check"
 
@@ -86,13 +86,13 @@ Output format:
    source "$N1_ROOT/lib/frontmatter.sh"
    n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "ci_fix_cycle"
    ```
-5. `ci_fix_cycle` < `maxFixAttempts` → back to **Step 3** (in 01-monitor.md)
-6. `ci_fix_cycle` >= `maxFixAttempts` → **Step 6b**
+5. `ci_fix_cycle` < `3` → back to **Step 3** (in 01-monitor.md)
+6. `ci_fix_cycle` >= `3` → **Step 6b**
 
 ### Step 6b: Max Attempts Exhausted
 
 Present remaining failures and fix history, then offer:
-1. Provide guidance → spawn developer with guidance, increment max by 1 (hard ceiling: 2x`maxFixAttempts`), log extension, back to Step 3
+1. Provide guidance → spawn developer with guidance, increment max by 1 (hard ceiling: `6`), log extension, back to Step 3
 2. Skip CI → Step 7 with failing status
 3. Fix manually → wait for "continue", back to Step 3 (reset counter)
 

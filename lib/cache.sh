@@ -83,9 +83,7 @@ n1_snapshot_check_freshness() {
     fi
 
     # TTL check
-    local ttl_str
-    ttl_str=$(n1_config_val ".analysisCache.ttl" "$config_file")
-    ttl_str="${ttl_str:-4h}"
+    local ttl_str=4h
     local ttl_seconds
     ttl_seconds=$(n1_parse_ttl "$ttl_str")
     local generated_epoch now_epoch
@@ -138,9 +136,7 @@ n1_snapshot_check_freshness() {
         structural_patterns="$structural_raw"
     fi
 
-    local neutral_threshold
-    neutral_threshold=$(n1_config_val ".analysisCache.neutralThreshold" "$config_file")
-    neutral_threshold="${neutral_threshold:-15}"
+    local neutral_threshold=15
 
     local structural_count=0 neutral_count=0
     while IFS= read -r changed_file; do

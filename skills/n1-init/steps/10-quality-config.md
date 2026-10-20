@@ -70,8 +70,6 @@ Use detected files plus the defaults from `defaults/analysis-cache.json` to popu
 {
   "analysisCache": {
     "enabled": true,
-    "ttl": "4h",
-    "neutralThreshold": 15,
     "structuralFiles": ["<detected patterns + defaults>"]
   }
 }
@@ -83,8 +81,6 @@ If `analysisCache` already exists in the current config, show current state and 
 ```
 Current analysis cache:
   enabled → <true/false>
-  ttl → <value>
-  neutralThreshold → <value>
   structuralFiles → <count> patterns
 
 1 — Keep current

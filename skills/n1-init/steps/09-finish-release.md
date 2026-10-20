@@ -205,7 +205,6 @@ Write:
 {
   "release": {
     "enabled": true,
-    "tagPrefix": "v",
     "procedure": null,
     "deploymentCheck": "<from deployment pipeline awareness answer>"
   }
@@ -214,9 +213,6 @@ Write:
 
 **If 2 (Custom):**
 
-Ask: "Tag prefix? (default: v)"
-
-Then:
 ```
 Paste your release procedure as markdown.
 Use {{RELEASE_TAG}}, {{VERSION}}, {{MERGE_SHA}}, {{TICKET_ID}} as placeholders.
@@ -239,7 +235,6 @@ Write:
 {
   "release": {
     "enabled": true,
-    "tagPrefix": "<from answer, default v>",
     "procedure": "<verbatim paste>",
     "deploymentCheck": "<from deployment pipeline awareness answer>"
   }
@@ -250,21 +245,18 @@ Write:
 
 **Only runs when `release.enabled` is `true` AND `tracker.type` is `"jira"`.** Skip this section entirely otherwise.
 
-When conditions are met, write the `trackerRelease` block to the `release` config with default sub-flags:
+When conditions are met, write the `trackerRelease` block to the `release` config:
 ```json
 {
   "release": {
     "trackerRelease": {
-      "versionName": "{serviceName} {version}",
-      "moveTickets": true,
-      "setFixVersion": true,
-      "createVersion": true
+      "versionName": "{serviceName} {version}"
     }
   }
 }
 ```
 
-No questions asked -- tracker release operations are on by default for Jira projects. Users can disable individual operations in config.json after init. Missing infrastructure (e.g., `versionMcp`) is configured inline by `/n1:n1-release` on first run.
+No questions asked -- tracker release operations always run for Jira projects. Missing infrastructure (e.g., `versionMcp`) is configured inline by `/n1:n1-release` on first run.
 
 ### Deployment Pipeline Awareness
 

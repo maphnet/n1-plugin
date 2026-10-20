@@ -42,6 +42,31 @@ DEAD=(
   deployWatch.enabled
   deployWatch.timeoutMinutes
   release.deployWatch
+  testCoverage.tier
+  review.minCleanPasses
+  minCleanPasses
+  ciChecks.enabled
+  ciChecks.maxFixAttempts
+  ciChecks.confidenceThreshold
+  n1_ci_checks_val
+  escalation.alwaysAskOn
+  '.escalation.${key}'
+  planReview.reviewPlan
+  n1_plan_review_enabled
+  n1_test_coverage_tier
+  n1_review_min_clean_passes
+  maxSnapshotAge
+  analysisCache.ttl
+  analysisCache.neutralThreshold
+  tagPrefix
+  trackerRelease.moveTickets
+  trackerRelease.createVersion
+  trackerRelease.setFixVersion
+  trackerRelease.enabled
+  tailChain
+  confirmedAt
+  rules.json
+  gate_ci
 )
 for k in "${DEAD[@]}"; do
   HITS=$(grep -rnF -- "$k" skills lib hooks scripts defaults pipeline.json | grep -v "^$PRUNE:" || true)

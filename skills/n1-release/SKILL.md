@@ -32,16 +32,12 @@ Read the `release` block via `n1_config_val`, applying defaults when keys are ab
 | Key | Default | Description |
 |-----|---------|-------------|
 | `.release.enabled` | `false` | |
-| `.release.tagPrefix` | `"v"` | |
 | `.release.versionSource` | `null` | Optional `{"file":"...","jq":"..."}` — auto-detects common files when absent |
 | `.release.procedure` | `null` | |
 | `.release.draft` | `false` | |
 | `.release.deploymentCheck` | `true` | |
 | `.finishWork.deployWatch.workflowName` | `null` | Filter to a specific workflow file name (e.g. `deploy.yml`); shared with n1-finish |
 | `.release.trackerRelease.versionName` | `"{serviceName} {version}"` | |
-| `.release.trackerRelease.moveTickets` | `true` | |
-| `.release.trackerRelease.setFixVersion` | `true` | |
-| `.release.trackerRelease.createVersion` | `true` | |
 
 Also read `git.defaultBranch`, `git.branchPattern`, `tracker.mcp`, `tracker.operations`, `tracker.prefix`, `tracker.projectKey`, `tracker.statuses`, `ticketTagging.service`.
 

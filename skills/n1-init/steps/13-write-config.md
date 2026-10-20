@@ -4,7 +4,7 @@
 
 Create all files:
 
-**Code-default keys (NOT written to config):** `testCoverage`, `review`, `ciChecks`, `planReview`, `escalation`, `memory` -- these have accessor functions in `lib/config.sh` with hardcoded defaults. Existing configs with these keys still work (values are read if present, never stripped).
+**Code-default keys (NOT written to config):** `testCoverage`, `review`, `ciChecks`, `planReview`, `escalation`, `memory` -- these have accessor functions in `lib/config.sh` with hardcoded defaults. Keys made fixed constants by N1-113 are ignored when present.
 
 **`$N1_HOME/config.json`** — assembled from sections above (where `$N1_HOME` was set during Fresh Setup or Migration):
 ```json
@@ -45,7 +45,6 @@ Create all files:
   },
   "relatedProjects": {
     "enabled": false,
-    "maxSnapshotAge": "72h",
     "projects": []
   },
   "models": {}

@@ -282,7 +282,6 @@ n1_autonomy_val() {
             brainstorm)         printf 'auto';        return ;;
             mechanicalPrompts)  printf 'auto';        return ;;
             qualityEscalations) printf 'auto-accept'; return ;;
-            tailChain)          printf 'suggest';     return ;;
             acceptanceGate)     printf 'auto';        return ;;
             escalationMargin)   printf '0.05';        return ;;
         esac
@@ -300,7 +299,6 @@ n1_autonomy_val() {
                     brainstorm)         printf 'auto';        return ;;
                     mechanicalPrompts)  printf 'auto';        return ;;
                     qualityEscalations) printf 'auto-accept'; return ;;
-                    tailChain)          printf 'suggest';     return ;;
                     acceptanceGate)     printf 'auto';        return ;;
                     escalationMargin)   printf '0.05';        return ;;
                 esac
@@ -310,7 +308,6 @@ n1_autonomy_val() {
                     brainstorm)         printf 'interactive'; return ;;
                     mechanicalPrompts)  printf 'ask';         return ;;
                     qualityEscalations) printf 'block';       return ;;
-                    tailChain)          printf 'suggest';     return ;;
                     acceptanceGate)     printf 'ask';         return ;;
                     escalationMargin)   printf '0.15';        return ;;
                 esac
@@ -331,7 +328,6 @@ n1_autonomy_val() {
         brainstorm)         printf 'auto' ;;
         mechanicalPrompts)  printf 'auto' ;;
         qualityEscalations) printf 'auto-accept' ;;
-        tailChain)          printf 'suggest' ;;
         acceptanceGate)     printf 'auto' ;;
         escalationMargin)   printf '0.05' ;;
         *)                  printf '' ;;
@@ -363,19 +359,6 @@ n1_plan_approval_required() {
     local v; v=$(n1_config_val '.planReview.requirePlanApproval')
     [ "$v" = "true" ] && printf 'true' || printf 'false'
     [ "$v" = "true" ]
-}
-
-n1_plan_review_enabled() {
-    # Prints true/false. Default: true (plan review always runs unless explicitly disabled).
-    # n1_config_val (NP-213) already null-checks and distinguishes explicit false from
-    # absent; this local jq call is kept for the tri-state "absent" fallback text below.
-    local file; file=$(n1_config_file)
-    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
-        local v; v=$(jq -r 'if .planReview.reviewPlan == null then "absent" else (.planReview.reviewPlan | tostring) end' "$file" 2>/dev/null || true)
-        [ "$v" = "false" ] && { printf 'false'; return; }
-        [ "$v" = "true" ] && { printf 'true'; return; }
-    fi
-    printf 'true'
 }
 
 n1_post_deploy_verification_enabled() {
@@ -516,18 +499,6 @@ n1_delivery_runbook() {
     printf '%s\n' "$dir/runbook.md"
 }
 
-n1_test_coverage_tier() {
-    # Prints maintain/minimal/standard. Default: maintain.
-    local v; v=$(n1_config_val '.testCoverage.tier')
-    printf '%s' "${v:-maintain}"
-}
-
-n1_review_min_clean_passes() {
-    # Prints integer. Default: 1.
-    local v; v=$(n1_config_val '.review.minCleanPasses')
-    printf '%s' "${v:-1}"
-}
-
 n1_review_narrow_threshold() {
     # Prints integer. Default: 50.
     local v; v=$(n1_config_val '.review.narrowThreshold')
@@ -602,28 +573,6 @@ n1_copy_worktree_files() {
     printf '%s' "$n"
 }
 
-n1_ci_checks_val() {
-    # Usage: n1_ci_checks_val <key>
-    # Keys: enabled, maxFixAttempts, confidenceThreshold
-    local key="$1"
-    # n1_config_val (NP-213) already null-checks; this local jq call is kept for the
-    # tri-state "absent" fallback distinguishing null from explicit false below.
-    local file; file=$(n1_config_file)
-    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
-        local v; v=$(jq -r "if .ciChecks.${key} == null then \"absent\" else (.ciChecks.${key} | tostring) end" "$file" 2>/dev/null || true)
-        if [ "$v" != "absent" ]; then printf '%s' "$v"; return; fi
-    else
-        local v; v=$(n1_config_val ".ciChecks.${key}")
-        if [ -n "$v" ]; then printf '%s' "$v"; return; fi
-    fi
-    case "$key" in
-        enabled)             printf 'true' ;;
-        maxFixAttempts)      printf '3' ;;
-        confidenceThreshold) printf '0.7' ;;
-        *)                   printf '' ;;
-    esac
-}
-
 n1_cross_host_review_val() {
     # Usage: n1_cross_host_review_val <key>
     # Keys: enabled, autoTriage, maxFixAttempts
@@ -646,12 +595,8 @@ n1_cross_host_review_val() {
 }
 
 n1_escalation_val() {
-    # Usage: n1_escalation_val <key>
-    # Keys: alwaysAskOn
-    local key="$1"
-    local v; v=$(n1_config_val ".escalation.${key}")
-    if [ -n "$v" ]; then printf '%s' "$v"; return; fi
-    case "$key" in
+    # Usage: n1_escalation_val alwaysAskOn -- fixed stop list (N1-113).
+    case "$1" in
         alwaysAskOn)  printf '["security","architecture","public-api"]' ;;
         *)            printf '' ;;
     esac
