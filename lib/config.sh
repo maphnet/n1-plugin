@@ -358,10 +358,11 @@ n1_emit_autonomy_deprecation_note() {
 }
 
 n1_plan_approval_required() {
-    # Prints true/false. The autonomous env preset always disables the plan checkpoint.
-    if [ "${N1_AUTONOMY_PRESET:-}" = "autonomous" ]; then printf 'false'; return; fi
+    # Prints true/false; exit code agrees (0 only when true). The autonomous env preset always disables the plan checkpoint.
+    if [ "${N1_AUTONOMY_PRESET:-}" = "autonomous" ]; then printf 'false'; return 1; fi
     local v; v=$(n1_config_val '.planReview.requirePlanApproval')
     [ "$v" = "true" ] && printf 'true' || printf 'false'
+    [ "$v" = "true" ]
 }
 
 n1_plan_review_enabled() {
