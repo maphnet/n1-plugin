@@ -110,5 +110,5 @@ Every path is safe to re-run: already-merged PR skips the merge; already-closed 
 - **Standalone** — `/n1:n1-finish`, `/n1:n1-finish TRID-510`, `/n1:n1-finish #123`
 
 **Invokes:**
-- Inline: `gh` CLI (pr view/checks/merge, run list/view), git, tracker MCP operations
+- Inline: `gh` CLI (pr view/checks, run list/view), git, tracker MCP operations
 - Dispatches `post-deploy-verifier` only after a successful watched deployment; otherwise thin controller orchestration only

@@ -615,7 +615,7 @@ WEOF2
 # claude and a no-op sleep in <tmp>/bin. States are space-separated, one per poll of
 # that session; the last state repeats. Timeout 1 min, poll 30 s -> 2 polls.
 # Optional per-ticket files in <tmp>/fake: finish-step.<t>, overview.<t> (full overview written on done),
-# overview.<t>.<poll> (full overview written on that poll), deploy.<t>, clear.<t>, relay.<t>.
+# overview.<t>.<poll> (full overview written on that poll), relay.<t>.
 mk_bg() {
     local tmp="$1" qid="$2" n=0 spec t; shift 2
     mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
@@ -671,24 +671,16 @@ case "$1" in
                 # N1-74: the runner now polls agents again after a ticket finalizes (draining
                 # the bg session until idle); cap done-poll writes so a later poll doesn't
                 # clobber what finalize already stamped onto overview.md (e.g. queue_run_id).
-                # clear.<t> wants a second write (the deploy-flag flip below); others want one.
-                wn=$(( $(cat "$D/wrote.$t" 2>/dev/null || echo 0) + 1 )); maxw=1
-                [ -f "$D/clear.$t" ] && maxw=2
-                if [ "$wn" -le "$maxw" ]; then
+                wn=$(( $(cat "$D/wrote.$t" 2>/dev/null || echo 0) + 1 ))
+                if [ "$wn" -le 1 ]; then
                     echo "$wn" > "$D/wrote.$t"
                     mkdir -p "$FAKE_N1H/memory/$t"
-                    dp=""; [ -f "$D/deploy.$t" ] && dp=$'deploy_pending: true\n'
-                    # clear.<t>: an interactive n1-finish clears the flag after the first done poll.
-                    if [ -f "$D/clear.$t" ]; then
-                        [ -f "$D/cleared.$t" ] && dp=$'deploy_pending: false\n'
-                        touch "$D/cleared.$t"
-                    fi
                     # finish-step.<ticket>: overrides the terminal step (default pr) so a test
                     # can simulate a bg session reporting done while overview never reached a
                     # terminal step (NP-216).
                     step="pr"; [ -f "$D/finish-step.$t" ] && step=$(cat "$D/finish-step.$t")
                     if [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
-                    else printf -- '---\nstep: %s\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" "$dp" > "$FAKE_N1H/memory/$t/overview.md"; fi
+                    else printf -- '---\nstep: %s\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" > "$FAKE_N1H/memory/$t/overview.md"; fi
                 fi
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
@@ -1728,61 +1720,18 @@ test_sync_default() {
     rm -rf "$tmp"
 }
 
-# --- NP-219: pending deploy -----------------------------------------------------
+# --- child status (NP-219 deploy flag no longer a queue outcome) ---
 test_child_status_deploy() {
     local tmp; tmp=$(mktemp -d)
-    printf -- '---\nstep: pr\ndeploy_pending: true\n---\n' > "$tmp/ov.md"
-    assert_eq "child-status: deploy pending" "awaiting-deploy" "$(n1_queue_child_status "$tmp/ov.md" 0)"
+    # N1-114: deploy_pending is not a queue outcome (queue children never run n1-finish).
+    printf -- '---\nstep: pr\ndeploy_pending: true\n---\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ov.md"
+    assert_eq "child-status: deploy_pending ignored -> pr" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
     printf -- '---\nstep: pr\ndeploy_pending: false\n---\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ov.md"
     assert_eq "child-status: deploy done -> pr" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
     printf -- '---\nstep: pr\n---\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ov.md"
     assert_eq "child-status: no delivery -> pr (unchanged)" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
     printf -- '---\nstep: escalated\n---\n' > "$tmp/ov.md"
     assert_eq "child-status: no delivery -> escalated (unchanged)" "escalated" "$(n1_queue_child_status "$tmp/ov.md" 1)"
-    rm -rf "$tmp"
-}
-
-test_bg_deploy_pending() {
-    local tmp; tmp=$(mktemp -d)
-    mk_bg "$tmp" bgq "T-A:working done" "T-B:done"
-    touch "$tmp/fake/deploy.T-A"
-    assert_eq "bg-deploy: exit 0" "0" "$(run_bg_queue "$tmp")"
-    assert_eq "bg-deploy: T-A awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
-    assert_eq "bg-deploy: T-A reason" "awaiting-deploy" "$(plan_cell "$tmp/queue.md" 1 9)"
-    assert_eq "bg-deploy: T-B pr (queue moved on)" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
-    assert_eq "bg-deploy: finalized exactly once" "1" \
-        "$(jq -r 'select(.ticket=="T-A" and .event=="ticket_finished") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
-    assert_eq "bg-deploy: event outcome" "awaiting-deploy" \
-        "$(jq -r 'select(.event=="ticket_finished" and .ticket=="T-A") | .outcome' "$tmp/events.jsonl")"
-    assert_eq "bg-deploy: digest" "1 PR / 1 awaiting / 0 failed" \
-        "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
-    assert_eq "bg-deploy: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
-    assert_eq "bg-deploy: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
-    assert_eq "bg-deploy: no parked wait message" "0" "$(grep -c 'awaiting-human rows left' "$tmp/output.txt" || true)"
-    assert_eq "bg-deploy: needs-you notify with resume hint" "yes" \
-        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'n1-finish T-A' && echo yes || echo no)"
-    assert_eq "bg-deploy: hint" "T-A: n1-finish T-A (deploy pending)" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
-    # N1-74: both the awaiting-deploy and pr children are stopped on the success path.
-    assert_eq "bg-deploy: both sessions stopped" "00000001,00000002" "$(paste -sd, "$tmp/fake/stopped")"
-    rm -rf "$tmp"
-}
-
-test_bg_deploy_flag_cleared_mid_run() {
-    # An interactive n1-finish clears deploy_pending while the queue still runs: the row
-    # stays terminal (recorded Reason), no second finalize, no parked wait.
-    local tmp; tmp=$(mktemp -d)
-    mk_bg "$tmp" bgc "T-A:working done" "T-B:working done"
-    touch "$tmp/fake/deploy.T-A" "$tmp/fake/clear.T-A"
-    assert_eq "bg-deploy-cleared: exit 0" "0" "$(run_bg_queue "$tmp")"
-    assert_eq "bg-deploy-cleared: flag was cleared" "false" \
-        "$(n1_read_frontmatter "$tmp/n1home/memory/T-A/overview.md" deploy_pending)"
-    assert_eq "bg-deploy-cleared: T-A still awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
-    assert_eq "bg-deploy-cleared: T-A reason kept" "awaiting-deploy" "$(plan_cell "$tmp/queue.md" 1 9)"
-    assert_eq "bg-deploy-cleared: finalized exactly once" "1" \
-        "$(jq -r 'select(.ticket=="T-A" and .event=="ticket_finished") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
-    assert_eq "bg-deploy-cleared: T-B pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
-    assert_eq "bg-deploy-cleared: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
-    assert_eq "bg-deploy-cleared: no parked wait message" "0" "$(grep -c 'awaiting-human rows left' "$tmp/output.txt" || true)"
     rm -rf "$tmp"
 }
 
@@ -2236,8 +2185,6 @@ test_bg_awaiting_oversized_question
 test_bg_awaiting_oversized_control_chars
 test_bg_awaiting_oversized_emoji
 test_bg_awaiting_timeout
-test_bg_deploy_pending
-test_bg_deploy_flag_cleared_mid_run
 test_bg_working_timeout
 test_bg_missing_grace
 test_bg_reconcile_working

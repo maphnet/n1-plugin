@@ -197,7 +197,7 @@ The caller reached its after-deploy point with `after` rows, but no deploy was w
 
 ## § Runbook
 
-n1-finish only, for queue and headless runs. It never executes an item. It writes the unticked items into the ticket's runbook and marks the ticket deploy-pending. The queue runner then parks the ticket as `awaiting-human` (Reason `awaiting-deploy`), the same handling as the SSH-delivery runbook.
+n1-finish only, for headless runs. It never executes an item. It writes the unticked items into the ticket's runbook and marks the ticket deploy-pending, the same handling as the SSH-delivery runbook.
 
 ```bash
 source ~/.n1/preamble.sh

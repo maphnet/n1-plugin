@@ -21,7 +21,7 @@
   fi
   echo "deploy-pending:$PENDING sha:$SHA sha-valid:$SHA_VALID"
   ```
-  If it prints `deploy-pending:true` with `sha-valid:true`, the merge already happened (in a queue run, or before a declined or failed deploy). Skip the PR lookup, Step 2 and Step 3, and go to Step 4 with `<SHA>` set to that value. Step 4 runs the delivery gate first. If `deploy-pending:true` but `sha-valid:false` (SHA missing, malformed, or not an ancestor of the default branch), do not trust the recorded SHA — fall back to the normal PR/merge lookup below as if nothing were pending.
+  If it prints `deploy-pending:true` with `sha-valid:true`, the merge already happened (before a declined or failed deploy, or in a headless run). Skip the PR lookup, Step 2 and Step 3, and go to Step 4 with `<SHA>` set to that value. Step 4 runs the delivery gate first. If `deploy-pending:true` but `sha-valid:false` (SHA missing, malformed, or not an ancestor of the default branch), do not trust the recorded SHA — fall back to the normal PR/merge lookup below as if nothing were pending.
 
 - **PR number argument** → `gh pr view <n> --json number,state,mergedAt,mergeCommit,url,headRefName,baseRefName`.
 - **No argument / ticket ID** → the entry's lookup (several head-branch matches: a single OPEN PR wins, else a single MERGED one). On `pr:ambiguous <numbers>`, ask the user which PR to finish (list the numbers), then continue with `gh pr view <n>`; never guess. Only on `pr:none` retry manually with `gh pr list --head <branch> --state all --json ...`.
