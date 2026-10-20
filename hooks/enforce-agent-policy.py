@@ -24,7 +24,7 @@ accepted trade-off - the ticket's AC prioritizes "cannot merge even
 if the model tries" over precision. Known gap: it does not resolve the current branch, so a bare
 `git push` that never names the default branch in the command text is not caught (any `git ...
 merge` is denied outright regardless of a named branch - only the push check has this
-precondition) - the skill-level n1_finish_enabled/n1_merge_allowed gates are the primary control
+precondition) - the skill-level n1_merge_allowed gate is the primary control
 for that shape, this hook is the backstop for the common case (the model naming the branch or PR
 explicitly). Also does not catch a command whose merge/push words only exist after shell-side
 runtime string-building (base64, `eval`, variable/command substitution, git/gh aliases) -- no text

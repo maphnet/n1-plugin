@@ -73,7 +73,7 @@ Each entry: `{name, trigger_step, trigger_outcome, fix_step, retry_step, counter
 | `fix_step` | string \| null | Step that performs the fix. `null` for `ci_fix` (n1-ci owns its loop internally). |
 | `retry_step` | string | Step re-run after a fix. |
 | `counter` | string | Frontmatter counter tracked in `overview.md`. |
-| `max_config_key` | string | Dotted config key for the bound. |
+| `max_config_key` | string \| null | Dotted config key for the bound; `null` means the bound is the constant `max_default`. |
 | `max_default` | int | Bound when the key is absent (qa, local-testing, and ci default to 3; review defaults to 2). |
 
 `review.maxFixAttempts` is a config key introduced by N1-6 so all four loops are

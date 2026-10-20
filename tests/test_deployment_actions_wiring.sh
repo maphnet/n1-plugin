@@ -212,7 +212,7 @@ git -C "$REPO" -c tag.gpgSign=false tag v1.0.0
 git -C "$REPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m second
 git -C "$REPO" -c tag.gpgSign=false tag v1.1.0
 
-out=$(cd "$REPO" && PATH="$REPO/bin:$PATH" TAG_PREFIX="v" TAG="v1.1.0" bash -c "$SNIPPET")
+out=$(cd "$REPO" && PATH="$REPO/bin:$PATH" TAG="v1.1.0" bash -c "$SNIPPET")
 [ "$(echo "$out" | grep '^PREV_TAG=')" = "PREV_TAG=v1.0.0" ] \
     && echo "PASS: PREV_TAG resolution excludes TAG and finds the true previous tag" || { echo "FAIL: PREV_TAG resolution"; FAIL=1; }
 
@@ -222,7 +222,7 @@ git -C "$REPO2" -c tag.gpgSign=false init -q -b main
 git -C "$REPO2" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
 git -C "$REPO2" -c tag.gpgSign=false tag v1.1.0
 
-out=$(cd "$REPO2" && PATH="$REPO2/bin:$PATH" TAG_PREFIX="v" TAG="v1.1.0" bash -c "$SNIPPET")
+out=$(cd "$REPO2" && PATH="$REPO2/bin:$PATH" TAG="v1.1.0" bash -c "$SNIPPET")
 [ "$(echo "$out" | grep '^PREV_TAG=')" = "PREV_TAG=" ] \
     && echo "PASS: PREV_TAG resolution empty on first release" || { echo "FAIL: PREV_TAG first-release case"; FAIL=1; }
 
@@ -236,7 +236,6 @@ check "release has Step 8b" "^# Step 8b: After-deploy Actions" "$R4"
 check "release Step 8b handles runbook mode" "mode:runbook" "$R4"
 check "release asks when no deploy was watched" "§ Unwatched Deploy" "$R4"
 before "release: after-deploy follows the deploy watch" "Deployment succeeded" "PHASE=after" "$R4"
-check "release: disabled deploy watch still reaches Step 8b" 'Deploy watch disabled\." Go to Step 8b' "$R4"
 check "release: deploymentCheck false still reaches Step 8b" 'skip detection\. Go to Step 8b' "$R4"
 
 # --- N1-71: release must not end after step 2; the deploy watch concludes before the final report

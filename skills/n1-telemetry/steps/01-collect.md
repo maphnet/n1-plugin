@@ -8,7 +8,7 @@ Scan all run records across projects:
 RUNS=$(find "${N1_HOME}/memory" -path "*/telemetry/runs/*.jsonl" -type f 2>/dev/null)
 ```
 
-If no run records found, report: "No telemetry data found. Run some tasks with `telemetry.enabled: true` to generate data." and stop.
+If no run records found, report: "No telemetry data found. Run some N1 tasks to generate data." and stop.
 
 For each JSONL file, read all lines and parse:
 - `decision` events: `{"event":"decision","step":"...","action":"skip|downgrade|escalate","reason":"...","signals":{...}}` — historical only: emitted by runs before v2.76.0; current runs no longer produce them
@@ -72,7 +72,7 @@ Report as a table:
 | Gate | Activation Rate | Coverage | Status |
 |------|----------------|----------|--------|
 | lite-analysis-gate | X% | Y% | normal |
-| estimation-gate | X% | Y% | ⚠ low — removal candidate |
+| finish-gate | X% | Y% | ⚠ low — removal candidate |
 | ... | | | |
 
 **Removal candidates:** Gates with activation_rate < 5% AND coverage ≥ 50% (present in at least half of runs). Print:

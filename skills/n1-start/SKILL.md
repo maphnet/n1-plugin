@@ -1,7 +1,7 @@
 ---
 name: n1-start
 description: "Core orchestrator. Start working on a task: /n1:n1-start TRID-510 or /n1:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
-argument-hint: "<ticket-id or brain dump> [--branch] [--investigate]"
+argument-hint: "<ticket-id or brain dump> [--investigate]"
 model: sonnet
 ---
 
@@ -48,11 +48,10 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 |------|------|-------|
 | 1. REQUIREMENTS ANALYSIS | `steps/ticket.md` | |
 | 2. ANALYSIS | `steps/analysis.md` | moveStatus → In Progress; assign to creator if configured and unassigned; addToSprint if configured |
-| Simple-Path Routing | — | `n1_read_context`; if `SIMPLE_PATH=true`: skip steps 3, 4, 4b, Gate 2 — jump to Estimation (if enabled) then Step 5 |
+| Simple-Path Routing | — | `n1_read_context`; if `SIMPLE_PATH=true`: skip steps 3, 4, 4b, Gate 2 — jump to Step 5 |
 | 3. BRAINSTORM | `steps/brainstorm.md` | interactive unless auto; skipped on simple-path |
 | 3b. INVESTIGATION DELIVERABLE | `steps/investigation-deliverable.md` | investigation mode only; terminates pipeline |
-| Estimation | `steps/estimation.md` | run after brainstorm (direct) or after plan |
-| Planning Need Routing | — | `plan` → Step 4; `direct` → Estimation then Step 5 |
+| Planning Need Routing | — | `plan` → Step 4; `direct` → Step 5 |
 | 4. PLAN | `steps/plan.md` | plan path only; skipped on simple-path |
 | 4b. PLAN REVIEW | `steps/plan-review.md` | skipped on simple-path |
 | Gate 2 | — | emit Gate 2; if `n1_plan_approval_required`: await user approval |

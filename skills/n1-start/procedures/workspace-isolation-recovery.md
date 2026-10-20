@@ -2,7 +2,7 @@
 
 Read this file only when `procedures/workspace-isolation.md` instructs you to (workspace creation fails or unexpected condition encountered).
 
-## Ensure Working Branch — Prompt Texts
+## Pending Prompt Marker
 
 Before any user prompt, write pending marker:
 ```bash
@@ -10,38 +10,6 @@ source ~/.n1/preamble.sh
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" "<one-line description>"
 ```
 After answer: `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pending_prompt" ""`.
-
-**Dirty working tree prompt** (on DEFAULT or TARGET exists, with uncommitted changes):
-```
-You have uncommitted changes. How should I proceed?
-1 — Stash changes and switch to '<TARGET>' (run `git stash pop` to restore later)
-2 — Carry changes to '<TARGET>' (switch with dirty tree)
-3 — Abort — commit or stash manually first
-```
-Option 1: `git stash push -m "n1: stashed before switching to <TARGET>"`, then switch. Report: "Stashed uncommitted changes. Run `git stash pop` when done."
-
-**Foreign branch prompt** (on a branch that is neither TARGET nor DEFAULT, clean tree):
-```
-You're on branch '<CURRENT>', not the default ('<DEFAULT>').
-1 — Create '<TARGET>' from here
-2 — Switch to '<DEFAULT>' and branch '<TARGET>' from there
-3 — Keep working on '<CURRENT>'
-```
-
-**Combined prompt** (foreign branch + dirty):
-```
-You're on branch '<CURRENT>' (not '<DEFAULT>') and have uncommitted changes.
-1 — Stash changes, switch to '<DEFAULT>', branch '<TARGET>' from there (run `git stash pop` to restore later)
-2 — Create '<TARGET>' from '<CURRENT>', carrying uncommitted changes
-3 — Abort — handle manually
-```
-
-**Mechanical-prompt autonomy (MP=auto) defaults:**
-- Dirty tree → option 1 (stash + switch). Ledger: `| start | mechanical | C | [auto] | Dirty tree before branch switch | Stash and switch | Carry, Abort | mechanicalPrompts=auto; stash is reversible | --- |`
-- Foreign branch → option 2 (switch to DEFAULT, branch from there). Ledger: `| start | mechanical | B | [auto] | On '<CURRENT>' not default | Branch from default | Branch from here, Stay | default base avoids accidental stacked branches | --- |`
-- Combined → option 1 (stash + switch to DEFAULT + branch). Ledger: `| start | mechanical | B | [auto] | Foreign branch + dirty tree | Stash, branch from default | Carry from here, Abort | mechanicalPrompts=auto; both actions reversible | --- |`
-
-The destructive option (Abort) is never auto-selected.
 
 ## Ensure Worktree — Failure Recovery
 

@@ -7,21 +7,16 @@ Show summary:
 N1 is ready.
 
 State directory: ~/.n1/<project-name>/
-Worktree mode: worktree
 Worktree setup: <command or "none">
-Worktree cleanup: after-merge
 
 Tracker: Jira (TRID) / YouTrack / None
 Default branch: main
 Branch pattern: {prefix}-{id}
 Ticket tagging: payments-api / disabled
 Error tracking: Sentry (my-backend @ my-org) / disabled
-Estimation: enabled (default mapping) / enabled (custom mapping) / disabled
 Local testing: enabled / disabled
 Post-deploy verification: enabled / disabled (legacy smoke fallback when not configured)
 Test coverage: maintain / minimal / standard
-Telemetry: enabled / disabled
-Story workflow: enabled (article/ticket/file) / disabled
 PR mode: draft / ready
 
 Created:

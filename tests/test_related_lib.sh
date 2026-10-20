@@ -105,11 +105,10 @@ test_related_projects() {
 {
   "relatedProjects": {
     "enabled": true,
-    "maxSnapshotAge": "72h",
     "projects": [
-      {"slug": "assistant", "reason": "API provider", "source": "auto", "confirmedAt": "2026-09-09T00:00:00Z"},
-      {"slug": "ingestion", "reason": "gRPC consumer", "source": "manual", "confirmedAt": "2026-09-08T00:00:00Z"},
-      {"slug": "ghost", "reason": "no repoPath", "source": "manual", "confirmedAt": "2026-09-07T00:00:00Z"}
+      {"slug": "assistant", "reason": "API provider", "source": "auto"},
+      {"slug": "ingestion", "reason": "gRPC consumer", "source": "manual"},
+      {"slug": "ghost", "reason": "no repoPath", "source": "manual"}
     ]
   }
 }

@@ -25,7 +25,7 @@ case "$ISSUE_TYPE" in story|epic) IS_STORY=true ;; esac
 [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md" && IS_STORY=true
 ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"]*\)".*/\1/p')
 ```
-`IS_STORY=true`: non-headless→handoff `n1:n1-queue --story <ID>`, STOP; headless→`procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree** or **Ensure Working Branch**.
+`IS_STORY=true`: non-headless→handoff `n1:n1-queue --story <ID>`, STOP; headless→`procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree**.
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 
@@ -56,7 +56,6 @@ Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/renam
 
 ```bash
 source ~/.n1/preamble.sh
-CFG_TIER=$(n1_config_val '.testCoverage.tier' "${N1_HOME}/config.json"); EST=$(n1_config_val '.estimation.enabled' "${N1_HOME}/config.json")
-LT=$(n1_config_val '.localTesting.enabled' "${N1_HOME}/config.json"); PR=$(n1_config_val '.planReview.reviewPlan' "${N1_HOME}/config.json")
-echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"'"${CFG_TIER:-maintain}"'","estimation_enabled":'"${EST:-false}"',"local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":'"${PR:-true}"'}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
+LT=$(n1_config_val '.localTesting.enabled' "${N1_HOME}/config.json")
+echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"maintain","local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":true}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
 ```

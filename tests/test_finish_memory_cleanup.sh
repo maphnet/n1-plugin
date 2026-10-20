@@ -36,21 +36,18 @@ for pass in 1 2; do
 done
 chk "no leftover temp files" $([ -z "$(ls "$T/home/memory/T-1" | grep -v '^overview.md$')" ]; echo $?)
 
-# Linked worktree under the N1 worktree root: removed for after-merge, kept for never.
-wt() { # <cleanup value> <name>
-    printf '{"worktree":{"cleanup":"%s"}}\n' "$1" > "$T/home/config.json"
-    git -C "$T/repo" worktree add -q -b "$2" "$T/repo/.claude/worktrees/$2"
-    OUT=$(cd "$T/repo/.claude/worktrees/$2" && HR_TEST="${HR:-$2}" N1_ROOT="$REPO" N1_HOME="$T/home" bash -c "$SNIP" 2>&1)
+# Linked worktree under the N1 worktree root: always removed after a successful finish.
+wt() { # <name>
+    echo '{}' > "$T/home/config.json"
+    git -C "$T/repo" worktree add -q -b "$1" "$T/repo/.claude/worktrees/$1"
+    OUT=$(cd "$T/repo/.claude/worktrees/$1" && HR_TEST="${HR:-$1}" N1_ROOT="$REPO" N1_HOME="$T/home" bash -c "$SNIP" 2>&1)
 }
-wt after-merge feat
-grep -qx 'worktree:removed' <<<"$OUT"; chk "worktree after-merge: removed status" $?
-chk "worktree after-merge: directory gone" $([ ! -d "$T/repo/.claude/worktrees/feat" ]; echo $?)
-grep -qx 'branch:deleted' <<<"$OUT"; chk "worktree after-merge: branch status printed" $?
-wt manual keep
-grep -qx 'worktree:kept (manual)' <<<"$OUT"; chk "worktree manual: kept status" $?
-chk "worktree manual: directory stays" $([ -d "$T/repo/.claude/worktrees/keep" ]; echo $?)
+wt feat
+grep -qx 'worktree:removed' <<<"$OUT"; chk "worktree: removed status" $?
+chk "worktree: directory gone" $([ ! -d "$T/repo/.claude/worktrees/feat" ]; echo $?)
+grep -qx 'branch:deleted' <<<"$OUT"; chk "worktree: branch status printed" $?
 # Linked worktree of another ticket (branch differs from the finished PR's head): untouched.
-HR=other-pr wt after-merge mine; HR=
+HR=other-pr wt mine; HR=
 grep -qx 'worktree:kept-other' <<<"$OUT"; chk "other ticket worktree: kept-other status" $?
 chk "other ticket worktree: directory stays" $([ -d "$T/repo/.claude/worktrees/mine" ]; echo $?)
 chk "other ticket worktree: its branch stays" $(git -C "$T/repo" rev-parse --verify -q mine >/dev/null; echo $?)

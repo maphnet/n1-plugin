@@ -79,7 +79,7 @@ n1_config_val() {
     local section="${stripped%%.*}"
     local key="${stripped#*.}"
     # Value pattern matches quoted strings AND unquoted scalars (true/false/numbers/null),
-    # so boolean gates like estimation.enabled work without jq.
+    # so boolean gates like localTesting.enabled work without jq.
     local val_re="\"${key}\"[[:space:]]*:[[:space:]]*\(\"[^\"]*\"\|[-0-9a-zA-Z.]\{1,\}\)"
     if [ "$section" = "$key" ]; then
         grep -o "$val_re" "$file" 2>/dev/null \
@@ -282,7 +282,6 @@ n1_autonomy_val() {
             brainstorm)         printf 'auto';        return ;;
             mechanicalPrompts)  printf 'auto';        return ;;
             qualityEscalations) printf 'auto-accept'; return ;;
-            tailChain)          printf 'suggest';     return ;;
             acceptanceGate)     printf 'auto';        return ;;
             escalationMargin)   printf '0.05';        return ;;
         esac
@@ -300,7 +299,6 @@ n1_autonomy_val() {
                     brainstorm)         printf 'auto';        return ;;
                     mechanicalPrompts)  printf 'auto';        return ;;
                     qualityEscalations) printf 'auto-accept'; return ;;
-                    tailChain)          printf 'suggest';     return ;;
                     acceptanceGate)     printf 'auto';        return ;;
                     escalationMargin)   printf '0.05';        return ;;
                 esac
@@ -310,7 +308,6 @@ n1_autonomy_val() {
                     brainstorm)         printf 'interactive'; return ;;
                     mechanicalPrompts)  printf 'ask';         return ;;
                     qualityEscalations) printf 'block';       return ;;
-                    tailChain)          printf 'suggest';     return ;;
                     acceptanceGate)     printf 'ask';         return ;;
                     escalationMargin)   printf '0.15';        return ;;
                 esac
@@ -331,7 +328,6 @@ n1_autonomy_val() {
         brainstorm)         printf 'auto' ;;
         mechanicalPrompts)  printf 'auto' ;;
         qualityEscalations) printf 'auto-accept' ;;
-        tailChain)          printf 'suggest' ;;
         acceptanceGate)     printf 'auto' ;;
         escalationMargin)   printf '0.05' ;;
         *)                  printf '' ;;
@@ -365,19 +361,6 @@ n1_plan_approval_required() {
     [ "$v" = "true" ]
 }
 
-n1_plan_review_enabled() {
-    # Prints true/false. Default: true (plan review always runs unless explicitly disabled).
-    # n1_config_val (NP-213) already null-checks and distinguishes explicit false from
-    # absent; this local jq call is kept for the tri-state "absent" fallback text below.
-    local file; file=$(n1_config_file)
-    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
-        local v; v=$(jq -r 'if .planReview.reviewPlan == null then "absent" else (.planReview.reviewPlan | tostring) end' "$file" 2>/dev/null || true)
-        [ "$v" = "false" ] && { printf 'false'; return; }
-        [ "$v" = "true" ] && { printf 'true'; return; }
-    fi
-    printf 'true'
-}
-
 n1_post_deploy_verification_enabled() {
     # Prints true/false. An explicit boolean owns the gate; only an absent key may
     # fall back to legacy smoke mode. Invalid explicit values fail closed.
@@ -403,28 +386,10 @@ n1_post_deploy_verification_enabled() {
 }
 
 n1_merge_allowed() {
-    # Exit 0 = this run may merge its PR / branch; exit 1 = it must stop before merging.
-    # Queue children (N1_QUEUE_RUN_ID, exported by lib/queue.sh) use queue.mergeOnFinish only,
-    # so unattended runs never inherit interactive auto-merge. Everyone else needs
-    # finishWork.enabled AND finishWork.mergeOnFinish. Absent keys mean false; n1_config_val's
-    # `// empty` merges absent with false, which is harmless because false is the default.
-    if [ -n "${N1_QUEUE_RUN_ID:-}" ]; then
-        [ "$(n1_config_val '.queue.mergeOnFinish')" = "true" ]
-        return
-    fi
-    [ "$(n1_config_val '.finishWork.enabled')" = "true" ] \
-        && [ "$(n1_config_val '.finishWork.mergeOnFinish')" = "true" ]
-}
-
-n1_finish_enabled() {
-    # Exit 0 = the pipeline continues into n1-finish (n1-start finish step, n1-ci chaining).
-    # Queue children enter only when they may merge; otherwise they stop after PR + CI.
-    # Interactive runs follow finishWork.enabled (n1-finish then merges or waits for the human merge).
-    if [ -n "${N1_QUEUE_RUN_ID:-}" ]; then
-        n1_merge_allowed
-        return
-    fi
-    [ "$(n1_config_val '.finishWork.enabled')" = "true" ]
+    # Exit 0 = this run may merge its PR / branch and chains into n1-finish; exit 1 = it stops after PR + CI.
+    # Only queue children (N1_QUEUE_RUN_ID, exported by lib/queue.sh) with queue.mergeOnFinish=true.
+    # Interactive runs never merge: the human merges, then runs /n1:n1-finish (N1-113).
+    [ -n "${N1_QUEUE_RUN_ID:-}" ] && [ "$(n1_config_val '.queue.mergeOnFinish')" = "true" ]
 }
 
 n1_delivery_action() {
@@ -534,18 +499,6 @@ n1_delivery_runbook() {
     printf '%s\n' "$dir/runbook.md"
 }
 
-n1_test_coverage_tier() {
-    # Prints maintain/minimal/standard. Default: maintain.
-    local v; v=$(n1_config_val '.testCoverage.tier')
-    printf '%s' "${v:-maintain}"
-}
-
-n1_review_min_clean_passes() {
-    # Prints integer. Default: 1.
-    local v; v=$(n1_config_val '.review.minCleanPasses')
-    printf '%s' "${v:-1}"
-}
-
 n1_review_narrow_threshold() {
     # Prints integer. Default: 50.
     local v; v=$(n1_config_val '.review.narrowThreshold')
@@ -620,28 +573,6 @@ n1_copy_worktree_files() {
     printf '%s' "$n"
 }
 
-n1_ci_checks_val() {
-    # Usage: n1_ci_checks_val <key>
-    # Keys: enabled, maxFixAttempts, confidenceThreshold
-    local key="$1"
-    # n1_config_val (NP-213) already null-checks; this local jq call is kept for the
-    # tri-state "absent" fallback distinguishing null from explicit false below.
-    local file; file=$(n1_config_file)
-    if [ -f "$file" ] && command -v jq >/dev/null 2>&1; then
-        local v; v=$(jq -r "if .ciChecks.${key} == null then \"absent\" else (.ciChecks.${key} | tostring) end" "$file" 2>/dev/null || true)
-        if [ "$v" != "absent" ]; then printf '%s' "$v"; return; fi
-    else
-        local v; v=$(n1_config_val ".ciChecks.${key}")
-        if [ -n "$v" ]; then printf '%s' "$v"; return; fi
-    fi
-    case "$key" in
-        enabled)             printf 'true' ;;
-        maxFixAttempts)      printf '3' ;;
-        confidenceThreshold) printf '0.7' ;;
-        *)                   printf '' ;;
-    esac
-}
-
 n1_cross_host_review_val() {
     # Usage: n1_cross_host_review_val <key>
     # Keys: enabled, autoTriage, maxFixAttempts
@@ -664,12 +595,8 @@ n1_cross_host_review_val() {
 }
 
 n1_escalation_val() {
-    # Usage: n1_escalation_val <key>
-    # Keys: alwaysAskOn
-    local key="$1"
-    local v; v=$(n1_config_val ".escalation.${key}")
-    if [ -n "$v" ]; then printf '%s' "$v"; return; fi
-    case "$key" in
+    # Usage: n1_escalation_val alwaysAskOn -- fixed stop list (N1-113).
+    case "$1" in
         alwaysAskOn)  printf '["security","architecture","public-api"]' ;;
         *)            printf '' ;;
     esac
@@ -700,25 +627,23 @@ n1_is_external_worktree() {
 }
 
 # N1-112: n1-finish Step 6 worktree + local-branch cleanup; prints status tokens, one per line, always returns 0.
-# Usage: n1_finish_cleanup <branch> <cleanup-mode> <merged-pr-head-oid|""> <defaultBranch>   (run from the feature checkout)
+# Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch>   (run from the feature checkout)
 # A branch checked out in a worktree cannot be deleted, so the worktree goes first. N1-managed worktrees
 # are force-removed; external ones only when clean and HEAD is in the merged result (oid, else <defaultBranch>),
 # never forced. Branch: tip must be an ancestor of the merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
 # After a removal the shell is left in the main checkout.
 n1_finish_cleanup() {
-    local branch="${1:-}" mode="${2:-after-merge}" oid="${3:-}" def="${4:-}"
+    local branch="${1:-}" oid="${2:-}" def="${3:-}"
     local gd gcd main top err cur st keep="" force=""
     gd=$(cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
         && gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
         && main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] \
         || { echo worktree:none; echo branch:none; return 0; }
     local G=(git --git-dir="$gcd")
-    case "$mode" in after-merge|after-pr) ;; *) keep="manual" ;; esac
     if [ "$gd" = "$gcd" ]; then echo "worktree:none"
     else
         top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""; cur=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || cur=""
         if [ "$cur" != "$branch" ]; then echo "worktree:kept-other"
-        elif [ -n "$keep" ]; then echo "worktree:kept (manual)"
         else
             # Only a positive match under the main checkout's N1 worktree root is N1-managed; everything else is external (never forced).
             case "$top" in "$main/$(n1_worktree_root)"/*) force="--force" ;; esac
@@ -732,7 +657,7 @@ n1_finish_cleanup() {
             else keep="remove-failed"; echo "worktree:remove-failed (${err%%$'\n'*})"; fi
         fi
     fi
-    if [ -n "$keep" ]; then echo "branch:kept ($([ "$keep" = manual ] && echo manual || echo worktree kept))"
+    if [ -n "$keep" ]; then echo "branch:kept (worktree kept)"
     elif [ -z "$branch" ] || [ "$branch" = "$def" ] || ! "${G[@]}" rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1; then echo "branch:none"
     elif ! "${G[@]}" merge-base --is-ancestor "refs/heads/$branch" "${oid:-refs/heads/$def}" >/dev/null 2>&1; then echo "branch:kept (not merged)"
     elif "${G[@]}" branch -d -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"

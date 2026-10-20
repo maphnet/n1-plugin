@@ -7,7 +7,7 @@
 2. **Deploy confirmed.** This means the Step 3 deploy status is `succeeded`, delivery is `succeeded`, or this run resumed a pending deploy in Step 1:
    - `mode:runbook` → § Runbook with `ID=<ID>` and `SHA=<SHA>`. Do not close the ticket. Skip the rest of Step 4 and Step 5, and go to Step 6.
    - `mode:walk` → § Walk with `PHASE=before` for any still-unticked `before` rows (the PR merged without them), then § Walk with `PHASE=after`. The PR is already merged: an aborted `PHASE=before` walk (including "No" to "Continue anyway?") only stops offering before-deploy items — it does not skip the `PHASE=after` walk that follows.
-3. **Deploy not watched** (`none triggered` or `skipped (not configured)`): `mode:runbook` → leave the rows unticked for n1-release or a later run, and continue below. `mode:walk` → § Unwatched Deploy.
+3. **Deploy not watched** (`none triggered` or `skipped (no deploy workflow)`): `mode:runbook` → leave the rows unticked for n1-release or a later run, and continue below. `mode:walk` → § Unwatched Deploy.
 4. After any walk, complete or aborted, clear the pending flag and continue below. After-deploy actions never block the ticket close; unticked rows stay in the PR body.
    ```bash
    source ~/.n1/preamble.sh
@@ -15,11 +15,10 @@
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_pending false || true
    ```
 
-**Hard-skip gates** — when either holds, skip immediately with the stated reason and go to Step 5:
-- `closeTicket` is `false` → "Ticket close skipped: closeTicket is false."
+**Hard-skip gate** — when it holds, skip immediately with the stated reason and go to Step 5:
 - `tracker.mcp` is null → "Ticket close skipped: no tracker configured."
 
-**Runtime recovery** — when the hard-skip gates pass but `tracker.statuses.done` is absent from config: follow `<N1_ROOT>/skills/n1-finish/references/done-status-recovery.md` (listed in `read-also:` at entry in this case) for the full detection and prompt procedure.
+**Runtime recovery** — when the hard-skip gate passes but `tracker.statuses.done` is absent from config: follow `<N1_ROOT>/skills/n1-finish/references/done-status-recovery.md` (listed in `read-also:` at entry in this case) for the full detection and prompt procedure.
 
 **When `tracker.statuses.done` was already present in config, or after successful recovery above, proceed:**
 

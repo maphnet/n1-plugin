@@ -47,16 +47,13 @@ Execute steps in order. Read each step file and follow its instructions before p
 6. **Observability** — MCP server discovery, provider configuration
    Read `<N1_ROOT>/skills/n1-init/steps/06-observability.md`
 
-7. **Estimation** — complexity estimation and delivery time
-   Read `<N1_ROOT>/skills/n1-init/steps/07-estimation.md`
-
 8. **Local Testing** — mode selection, startup detection
    Read `<N1_ROOT>/skills/n1-init/steps/08-local-testing.md`
 
 9. **Finish & Release** — finish work and release configuration
    Read `<N1_ROOT>/skills/n1-init/steps/09-finish-release.md`
 
-10. **Quality & Pipeline Config** — autonomy, telemetry, analysis cache
+10. **Quality & Pipeline Config** — autonomy, analysis cache
     Read `<N1_ROOT>/skills/n1-init/steps/10-quality-config.md`
 
 11. **Rules** — generate starter rules, convention migration
@@ -76,13 +73,13 @@ Execute steps in order. Read each step file and follow its instructions before p
 
 ## Escalation Defaults
 
-Escalation `alwaysAskOn` is a code default in `lib/config.sh` -- n1-init does not write it. Existing configs with this key still work (read if present).
+Escalation `alwaysAskOn` is a fixed constant in `lib/config.sh` (`n1_escalation_val`).
 
 ## Expected Config Keys
 
 The canonical set of top-level config keys. Used by step 01 for completeness checks and by targeted upgrade logic.
 
 ```
-worktree, tracker, git, ticketTagging, observability, estimation,
-localTesting, finishWork, release, telemetry, analysisCache, rules, autonomy, models
+worktree, tracker, git, ticketTagging, observability,
+localTesting, finishWork, release, analysisCache, autonomy, models
 ```

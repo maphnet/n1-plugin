@@ -34,7 +34,7 @@ for peer_cfg in "${HOME}"/.n1/*/config.json; do
     # readable for cross-repo context, but with no tracker/ticketTagging/rules to corroborate
     # an automatic match. Such peers stay candidates but are never auto-added (see Step 2).
     peer_bare=true
-    if jq -e '(.tracker // .ticketTagging // .rules) != null' "$peer_cfg" >/dev/null 2>&1; then
+    if jq -e '(.tracker // .ticketTagging) != null' "$peer_cfg" >/dev/null 2>&1; then
         peer_bare=false
     fi
     printf '%s\t%s\t%s\t%s\n' "$peer_slug" "$peer_service" "$peer_repo" "$peer_bare" >> "$CANDIDATES_FILE"
@@ -162,7 +162,7 @@ source "$N1_ROOT/lib/related.sh"
 # For each approved project (auto-added high-confidence or user-confirmed medium-confidence):
 n1_related_add "$CFG" "$slug" "$reason" "$source"
 # source = "auto" for high-confidence auto-added; "manual" for user-confirmed
-# n1_related_add is idempotent (skips if slug already present) and stamps confirmedAt
+# n1_related_add is idempotent (skips if slug already present)
 count=$(jq '.relatedProjects.projects | length' "$CFG")
 enabled=$( [ "$count" -gt 0 ] && echo true || echo false )
 jq --argjson e "$enabled" '.relatedProjects.enabled = $e' "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"

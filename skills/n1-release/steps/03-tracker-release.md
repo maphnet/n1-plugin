@@ -85,7 +85,7 @@ VERSION_NAME=$(echo "$TRACKER_RELEASE_VERSION_NAME" | sed "s/{serviceName}/$SERV
 
 ## 5b-1. Create & release version
 
-Gate: `trackerRelease.createVersion` is `true` AND `VERSION_MCP` is non-empty. If `VERSION_MCP` is empty (user skipped in 5b-0), skip with `"Version creation skipped: jc-mcp not configured."`.
+Gate: `VERSION_MCP` is non-empty. If `VERSION_MCP` is empty (user skipped in 5b-0), skip with `"Version creation skipped: jc-mcp not configured."`.
 
 1. `mcp__<versionMcp>__<operations.listVersions>` with `projectKey` -- check if `VERSION_NAME` already exists.
 2. If not found: `mcp__<versionMcp>__<operations.createVersion>` with `projectKey`, `name=VERSION_NAME`, `releaseDate=<today's date>`.
@@ -95,7 +95,7 @@ Report: `"Version \"<VERSION_NAME>\" -- created and released"` or `"Version \"<V
 
 ## 5b-2. Set fix version on tickets
 
-Gate: `trackerRelease.setFixVersion` is `true` AND `VERSION_MCP` is non-empty (version must have been created or already exist in Jira for fixVersion to work). If `VERSION_MCP` is empty (user skipped in 5b-0), skip with `"Fix version skipped: jc-mcp not configured."`.
+Gate: `VERSION_MCP` is non-empty (version must have been created or already exist in Jira for fixVersion to work). If `VERSION_MCP` is empty (user skipped in 5b-0), skip with `"Fix version skipped: jc-mcp not configured."`.
 
 For each ticket in `RELEASE_TICKET_IDS`:
 
@@ -103,11 +103,9 @@ For each ticket in `RELEASE_TICKET_IDS`:
 
 Idempotent: adding an already-set fix version is a no-op in Jira.
 
-Report: `"Fix version set on <ID1>, <ID2>, ..."` or `"Fix version: skipped (setFixVersion disabled)"`.
+Report: `"Fix version set on <ID1>, <ID2>, ..."`.
 
 ## 5b-3. Move tickets to released status
-
-Gate: `trackerRelease.moveTickets` is `true`.
 
 Resolve target status: `tracker.statuses.released`.
 
@@ -133,4 +131,4 @@ For each ticket in `RELEASE_TICKET_IDS`:
 3. If the ticket is already in the target status -- skip silently (idempotent).
 4. If no matching transition exists -- warn: `"Could not transition <ID>: no transition to '<target>' available -- continuing."`.
 
-Report: `"<N> ticket(s) moved to \"<target>\""` or `"Ticket transition: skipped (moveTickets disabled)"`.
+Report: `"<N> ticket(s) moved to \"<target>\""`.

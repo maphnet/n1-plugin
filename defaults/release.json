@@ -1,13 +1,9 @@
 {
   "enabled": false,
-  "tagPrefix": "v",
   "procedure": null,
   "draft": false,
   "deploymentCheck": true,
   "trackerRelease": {
-    "versionName": "{serviceName} {version}",
-    "moveTickets": true,
-    "setFixVersion": true,
-    "createVersion": true
+    "versionName": "{serviceName} {version}"
   }
 }

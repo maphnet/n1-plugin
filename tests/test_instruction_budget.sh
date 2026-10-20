@@ -16,7 +16,6 @@ STANDARD_PATH_FILES=(
   "$SKILL_DIR/steps/ticket.md"
   "$SKILL_DIR/steps/analysis.md"
   "$SKILL_DIR/steps/brainstorm.md"
-  "$SKILL_DIR/steps/estimation.md"
   "$SKILL_DIR/steps/plan.md"
   "$SKILL_DIR/steps/plan-review.md"
   "$SKILL_DIR/steps/implementation.md"

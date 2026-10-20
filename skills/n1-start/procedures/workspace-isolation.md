@@ -4,23 +4,15 @@
 
 ```bash
 source ~/.n1/preamble.sh
-WORKTREE_MODE=$(n1_config_val '.worktree.mode'); EXTERNAL_WORKTREE=false
-if [ "$WORKTREE_MODE" = "external" ] || n1_is_external_worktree; then EXTERNAL_WORKTREE=true; USE_WORKTREE=false
-elif [ "$BRANCH_FLAG" = "true" ] || [ "$WORKTREE_MODE" = "branch" ]; then USE_WORKTREE=false
-else USE_WORKTREE=true; fi
+if n1_is_external_worktree; then EXTERNAL_WORKTREE=true; USE_WORKTREE=false; else EXTERNAL_WORKTREE=false; USE_WORKTREE=true; fi
 ```
 
 | Condition | Isolation |
 |---|---|
-| `worktree.mode: external` or auto-detected | External — reuse checkout |
-| `--branch` or `worktree.mode: branch` | Branch in current checkout |
+| External linked worktree (auto-detected) | Reuse checkout |
 | Default | Worktree |
 
-`EXTERNAL_WORKTREE=true`: skip Ensure Worktree/Branch; set `WORKTREE_PATH`, `BRANCH`, record branch-point; `n1_active_run_write`. Idempotent.
-
-## Ensure Working Branch (`<ID>`)
-
-1. Target=`git.branchPattern`+`<ID>` (lowercase, illegal→`-`). 2. Read `CURRENT`, `DEFAULT`, `DIRTY`. 3. `CURRENT==TARGET`→reuse; target exists+clean→checkout; `CURRENT==DEFAULT`+clean→`git checkout -b <TARGET>`; dirty/foreign: `MP=auto`→stash/switch+ledger; `MP=ask`→`procedures/workspace-isolation-recovery.md`. 4. Record branch-point if absent. 5. Report.
+`EXTERNAL_WORKTREE=true`: skip Ensure Worktree; set `WORKTREE_PATH`, `BRANCH`, record branch-point; `n1_active_run_write`. Idempotent.
 
 ## Ensure Worktree (`<ID>`)
 

@@ -1,6 +1,6 @@
 ### Telemetry
 
-Optional local-first telemetry gated on `telemetry.enabled` in `$N1_HOME/config.json` (default `false`). When enabled, captures per-step timing, per-agent performance, and token consumption for offline efficiency analysis.
+Always-on local-first telemetry (no config key). Captures per-step timing, per-agent performance, and token consumption for offline efficiency analysis.
 
 **Two-layer collection:**
 

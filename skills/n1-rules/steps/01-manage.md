@@ -147,6 +147,4 @@ deny:                   # only for deny rules
 {body}
 ```
 
-If `rules` is not set in config, write `"rules": { "enabled": true }` to config.
-
 **9. If enforcement is `deny`:** proceed to step file 02-deny-hooks.md for deny hook generation and registration.

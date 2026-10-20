@@ -18,7 +18,7 @@ The ticket is closed **only when the code is actually merged** — never on gree
 
 ## Entry (one Bash call + reads)
 
-Fill `ID` (argument, else derived from the PR or branch) and `PR` (digits of a `#123`/`123` argument, else empty), then run via Bash. **In the same turn**, read these in parallel, not via Bash: `<N1_ROOT>/skills/n1-finish/steps/` files `01-resolve-target.md`, `02-merge.md`, `04-close-ticket.md`, `05-telemetry-followup.md`, `06-cleanup.md`, and `<N1_ROOT>/references/deployment-actions.md`.
+Fill `ID` (argument, else derived from the PR or branch) and `PR` (digits of a `#123`/`123` argument, else empty), then run via Bash. **In the same turn**, read these in parallel, not via Bash: `<N1_ROOT>/skills/n1-finish/steps/` files `01-resolve-target.md`, `02-merge.md`, `03-deploy.md`, `04-close-ticket.md`, `05-telemetry-followup.md`, `06-cleanup.md`, and `<N1_ROOT>/references/deployment-actions.md`.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -45,13 +45,12 @@ fi
 echo "gh:$G branch=$B"
 P=$(c git.prMode); [ -n "$P" ] || { [ "$(c git.draftPR)" = false ] && P=ready || P=draft; }
 echo "id=$ID prMode=$P mechanicalPrompts=$(n1_autonomy_val mechanicalPrompts)"
-for k in finishWork.{mergeMethod,waitForMergeMinutes,closeTicket,deployWatch.enabled} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} worktree.cleanup release.enabled; do echo "$k=$(c $k)"; done
+for k in finishWork.{mergeMethod,deployWatch.workflowName} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} release.enabled; do echo "$k=$(c $k)"; done
 echo "tracker.operations=$(n1_config_ops .tracker.operations)"
 n1_merge_allowed && echo merge:allowed || echo merge:denied; [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
 RA=()
-[ "$(c finishWork.deployWatch.enabled)" = true ] && RA+=("$S/steps/03-deploy.md")
 [ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md")
-[ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && [ "$(c finishWork.closeTicket)" != false ] && RA+=("$S/references/done-status-recovery.md")
+[ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && RA+=("$S/references/done-status-recovery.md")
 [ -z "$ID" ] || for f in ticket overview; do [ -f "$M/$f.md" ] && RA+=("$M/$f.md"); done
 echo "read-also: ${RA[*]}"
 ```
@@ -64,14 +63,9 @@ Defaults:
 
 | Key | Default |
 |-----|---------|
-| `.finishWork.mergeOnFinish` | `false` (needs `finishWork.enabled: true`; queue children use `queue.mergeOnFinish`; see `n1_merge_allowed`) |
 | `.finishWork.mergeMethod` | `"squash"` (`"squash"` \| `"merge"` \| `"rebase"`) |
-| `.finishWork.deployWatch.enabled` | `false` |
 | `.finishWork.deployWatch.workflowName` | `null` (watch all runs on the merge commit) |
-| `.finishWork.deployWatch.timeoutMinutes` | `30` |
 | `.finishWork.postDeployVerification.enabled` | `false`; absent → explicit `localTesting.mode: "smoke"` (legacy smoke); explicit `false` wins |
-| `.finishWork.closeTicket` | `true` |
-| `.finishWork.waitForMergeMinutes` | `10` |
 | `.delivery.mode` | `null` (`"ssh"` enables the Step 4 delivery deploy; else off) |
 | `.delivery.command` | `null` (see `steps/03b-ssh-deploy.md`) |
 | `.delivery.steps` | `null` (ordered; used only when `.delivery.command` is empty; see `steps/03b-ssh-deploy.md`) |
@@ -82,7 +76,7 @@ Defaults:
 
 Post-deploy verification dispatches only after a successful deployment (`ticket.md` → `post-deploy-verification.md`; `steps/03-deploy.md`); never blocks closure.
 
-`finishWork.enabled` gates only the pipeline step; standalone runs ignore it. Merge permission comes only from `n1_merge_allowed`.
+Interactive runs never merge a PR: the human merges, then runs n1-finish. Only n1_merge_allowed (queue children) permits merging; prMode skip merges locally (Step 2b).
 
 ## Steps
 
@@ -90,7 +84,7 @@ Follow the files read at entry, in order.
 
 1. Resolve Target: `steps/01-resolve-target.md`
 2. Merge State Machine (Step 2b local merge when `prMode` is `"skip"`): `steps/02-merge.md`
-3. Deploy Watch & Verification: `steps/03-deploy.md`, only when in `read-also:`; else deploy is `skipped (not configured)`, no verification
+3. Deploy Watch & Verification: `steps/03-deploy.md` (PR path; pre-check first)
 4. Close Ticket: `steps/04-close-ticket.md`, after the delivery gate `steps/03b-ssh-deploy.md` (when in `read-also:`)
 5. Telemetry Follow-Up: `steps/05-telemetry-followup.md`
 6. Cleanup & Report: `steps/06-cleanup.md`

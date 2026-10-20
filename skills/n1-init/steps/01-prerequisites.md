@@ -15,9 +15,9 @@ Check for N1 configuration in priority order:
      ```bash
      source ~/.n1/preamble.sh
      CFG="$N1_HOME/config.json"
-     DEAD='del(.escalation.checkpoints, .escalation.channel, .memory.ticketContext, .memory.decisions, .story.designStorage, .story.designPath, .story.taskSizing, .loop.complexityTiers, .tracker.projectName, .tracker.site, .tracker.currentUser) | reduce ("escalation","memory","story","loop") as $k (.; if .[$k] == {} then del(.[$k]) else . end)'
+     DEAD='del(.escalation.checkpoints, .escalation.channel, .escalation.alwaysAskOn, .memory.ticketContext, .memory.decisions, .story.designStorage, .story.designPath, .story.taskSizing, .story.enabled, .story.opusFromSize, .loop.complexityTiers, .tracker.projectName, .tracker.site, .tracker.currentUser, .tracker.statuses.backlog, .codex.enabled, .codexReview.enabled, .rules.enabled, .rules.location, .estimation, .telemetry.enabled, .testCoverage.tier, .review.minCleanPasses, .ciChecks.enabled, .ciChecks.maxFixAttempts, .ciChecks.confidenceThreshold, .planReview.reviewPlan, .relatedProjects.maxSnapshotAge, .relatedProjects.projects[]?.confirmedAt, .analysisCache.ttl, .analysisCache.neutralThreshold, .release.tagPrefix, .release.deployWatch, .release.trackerRelease.enabled, .release.trackerRelease.moveTickets, .release.trackerRelease.createVersion, .release.trackerRelease.setFixVersion, .finishWork.enabled, .finishWork.mergeOnFinish, .finishWork.waitForMergeMinutes, .finishWork.closeTicket, .finishWork.deployWatch.enabled, .finishWork.deployWatch.timeoutMinutes, .worktree.mode, .worktree.cleanup, .autonomy.tailChain, .qa.blockUntestedFeatures, .qa.verifyGate) | reduce (["finishWork","deployWatch"],["release","trackerRelease"],["tracker","statuses"]) as $p (.; if getpath($p) == {} then delpaths([$p]) else . end) | reduce ("escalation","memory","story","loop","codex","codexReview","rules","telemetry","testCoverage","review","ciChecks","planReview","relatedProjects","qa") as $k (.; if .[$k] == {} then del(.[$k]) else . end)'
      if jq -e "($DEAD) != ." "$CFG" >/dev/null 2>&1; then
-       jq "$DEAD" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG" && echo "pruned dead config keys (escalation.checkpoints/channel, memory.*, story.*, loop.complexityTiers, tracker.projectName/site/currentUser)"
+       jq "$DEAD" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG" && echo "pruned dead config keys (N1 prune list)"
      fi
      ```
      Then load the config and check for missing top-level keys against the **Expected Config Keys** list in the dispatcher SKILL.md. Then branch:
@@ -32,8 +32,6 @@ Check for N1 configuration in priority order:
            Tracker: <tracker.type> (<tracker.projectKey>) | None
            PR mode: <git.prMode>
            Autonomy: <autonomy.mode>
-           Worktree cleanup: <worktree.cleanup>
-           Telemetry: <telemetry.enabled>
            Local testing: <localTesting.enabled> (<localTesting.mode>)
 
          To reconfigure, run: /n1-init reconfigure
@@ -65,8 +63,8 @@ Check for N1 configuration in priority order:
 The canonical set of top-level config keys. Used by the completeness check to detect missing sections. When adding a new config section to n1-init, add its key here.
 
 ```
-worktree, tracker, git, ticketTagging, observability, estimation,
-localTesting, finishWork, release, telemetry, analysisCache, rules, autonomy, models
+worktree, tracker, git, ticketTagging, observability,
+localTesting, finishWork, release, analysisCache, autonomy, models
 ```
 
 ### Targeted Upgrade
@@ -77,20 +75,15 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 2. `git` → **Git Configuration**
 3. `ticketTagging` → **Ticket Tagging Configuration** (fresh-setup portion)
 4. `observability` → **Observability Configuration** (fresh-setup portion)
-5. `estimation` → **Estimation Configuration** (fresh-setup portion)
-6. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
-7. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
-8. `release` → **Release Configuration** (fresh-setup portion)
-9. `telemetry` → **Telemetry Configuration** (fresh-setup portion)
-10. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
-11. `rules` → **Rules Configuration** (fresh-setup portion)
-12. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
-13. `autonomy` → **Autonomy Configuration** (fresh-setup: offer hands-off / interactive, write single `mode` key)
-14. `models` → write defaults silently (see **Write Configuration and Structure** for default values)
+5. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
+6. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
+7. `release` → **Release Configuration** (fresh-setup portion)
+8. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
+9. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
+10. `autonomy` → **Autonomy Configuration** (fresh-setup: offer hands-off / interactive, write single `mode` key)
+11. `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
-
-**Special case:** If `rules` is among the missing keys, run **Analyze Repository** first (rules starter generation needs detection results). Otherwise skip Analyze Repository and CLAUDE.md enrichment.
 
 After all missing sections are processed, merge results into the existing `config.json` at the top level and show the summary (same format as **Confirm**, but listing only the added sections).
 
@@ -305,9 +298,9 @@ When an old `.n1/n1.config.json` is detected:
       ```bash
       source ~/.n1/preamble.sh
       CFG="$HOME/.n1/$PROJECT_NAME/config.json"
-      DEAD='del(.escalation.checkpoints, .escalation.channel, .memory.ticketContext, .memory.decisions, .story.designStorage, .story.designPath, .story.taskSizing, .loop.complexityTiers, .tracker.projectName, .tracker.site, .tracker.currentUser) | reduce ("escalation","memory","story","loop") as $k (.; if .[$k] == {} then del(.[$k]) else . end)'
+      DEAD='del(.escalation.checkpoints, .escalation.channel, .escalation.alwaysAskOn, .memory.ticketContext, .memory.decisions, .story.designStorage, .story.designPath, .story.taskSizing, .story.enabled, .story.opusFromSize, .loop.complexityTiers, .tracker.projectName, .tracker.site, .tracker.currentUser, .tracker.statuses.backlog, .codex.enabled, .codexReview.enabled, .rules.enabled, .rules.location, .estimation, .telemetry.enabled, .testCoverage.tier, .review.minCleanPasses, .ciChecks.enabled, .ciChecks.maxFixAttempts, .ciChecks.confidenceThreshold, .planReview.reviewPlan, .relatedProjects.maxSnapshotAge, .relatedProjects.projects[]?.confirmedAt, .analysisCache.ttl, .analysisCache.neutralThreshold, .release.tagPrefix, .release.deployWatch, .release.trackerRelease.enabled, .release.trackerRelease.moveTickets, .release.trackerRelease.createVersion, .release.trackerRelease.setFixVersion, .finishWork.enabled, .finishWork.mergeOnFinish, .finishWork.waitForMergeMinutes, .finishWork.closeTicket, .finishWork.deployWatch.enabled, .finishWork.deployWatch.timeoutMinutes, .worktree.mode, .worktree.cleanup, .autonomy.tailChain, .qa.blockUntestedFeatures, .qa.verifyGate) | reduce (["finishWork","deployWatch"],["release","trackerRelease"],["tracker","statuses"]) as $p (.; if getpath($p) == {} then delpaths([$p]) else . end) | reduce ("escalation","memory","story","loop","codex","codexReview","rules","telemetry","testCoverage","review","ciChecks","planReview","relatedProjects","qa") as $k (.; if .[$k] == {} then del(.[$k]) else . end)'
       if jq -e "($DEAD) != ." "$CFG" >/dev/null 2>&1; then
-        jq "$DEAD" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG" && echo "pruned dead config keys (escalation.checkpoints/channel, memory.*, story.*, loop.complexityTiers, tracker.projectName/site/currentUser)"
+        jq "$DEAD" "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG" && echo "pruned dead config keys (N1 prune list)"
       fi
       ```
    k. Report: "Migrated N1 state to `~/.n1/$PROJECT_NAME/`. Config, memory, and telemetry moved."

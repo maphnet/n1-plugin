@@ -68,14 +68,13 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    ```
    Read user input as `VERSION`. If user declines, STOP.
 
-2. **TAG**: concatenate `tagPrefix + VERSION`:
+2. **TAG**:
    ```bash
-   TAG_PREFIX=$(n1_config_val '.release.tagPrefix')
-   TAG="${TAG_PREFIX}${VERSION}"
+   TAG="v$VERSION"
    ```
 3. **Previous tag**: resolve from local git tags first, fall back to gh. Exclude `TAG` itself — a retry after a tag-created-but-release-creation-failed run would otherwise pick the just-created tag as its own previous tag, collapsing the scan range to empty:
    ```bash
-   PREV_TAG=$(git tag --list "${TAG_PREFIX}*" --sort=-version:refname | grep -v -x "$TAG" | head -1)
+   PREV_TAG=$(git tag --list "v*" --sort=-version:refname | grep -v -x "$TAG" | head -1)
    if [ -z "$PREV_TAG" ]; then
      PREV_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
      [ "$PREV_TAG" = "$TAG" ] && PREV_TAG=""

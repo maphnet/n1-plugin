@@ -4,7 +4,7 @@
 
 Create all files:
 
-**Code-default keys (NOT written to config):** `testCoverage`, `review`, `ciChecks`, `planReview`, `escalation`, `memory` -- these have accessor functions in `lib/config.sh` with hardcoded defaults. Existing configs with these keys still work (values are read if present, never stripped).
+**Code-default keys (NOT written to config):** `testCoverage`, `review`, `ciChecks`, `planReview`, `escalation`, `memory` -- these have accessor functions in `lib/config.sh` with hardcoded defaults. Keys made fixed constants by N1-113 are ignored when present.
 
 **`$N1_HOME/config.json`** — assembled from sections above (where `$N1_HOME` was set during Fresh Setup or Migration):
 ```json
@@ -12,9 +12,7 @@ Create all files:
   "version": "2.0.0",
   "repoPath": "<absolute git toplevel, see below>",
   "worktree": {
-    "mode": "worktree",
-    "setup": "<detected or null>",
-    "cleanup": "after-merge"
+    "setup": "<detected or null>"
   },
   "tracker": { ... },
   "git": {
@@ -24,18 +22,11 @@ Create all files:
   },
   "ticketTagging": { ... },
   "observability": null,
-  "estimation": {
-    "enabled": false
-  },
-  "story": {
-    "opusFromSize": "M"
-  },
   "localTesting": {
     "enabled": true,
     "mode": "test"
   },
   "finishWork": {
-    "enabled": false,
     "postDeployVerification": {
       "enabled": false
     }
@@ -43,18 +34,11 @@ Create all files:
   "release": {
     "enabled": false
   },
-  "telemetry": {
-    "enabled": false
-  },
-  "rules": {
-    "location": "private"
-  },
   "kb": {
     "enabled": false
   },
   "relatedProjects": {
     "enabled": false,
-    "maxSnapshotAge": "72h",
     "projects": []
   },
   "models": {}

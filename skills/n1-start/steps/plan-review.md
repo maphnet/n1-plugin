@@ -1,18 +1,8 @@
 
-Run `n1_config_val '.planReview.reviewPlan'` (default: `true`).
-
 ```bash
 source ~/.n1/preamble.sh
 n1_verify_dependencies "$N1_HOME/memory/$ID" plan.md || { echo "ERROR: plan.md missing — cannot review plan" >&2; exit 1; }
-GATE_ENABLED=$(n1_config_val '.planReview.reviewPlan' 2>/dev/null || echo 'true')
-n1_record_decision plan-review-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"planReview.reviewPlan"}' "enabled=${GATE_ENABLED:-true}"
 ```
-
-> The gate key (`planReview.reviewPlan`) and its default (`true`) are declared in `pipeline.json` `gates[]` — this inline read must match that declaration.
-
-**If `planReview.reviewPlan` is `false`:** skip to checkpoint logic below.
-
-**If `planReview.reviewPlan` is `true`:**
 
 **Spawn reviewer:**
 
@@ -43,11 +33,5 @@ Output: `## Plan Review Result` / `**Verdict:** CLEAN | FIXED` / `**Changes:**` 
 **Step result (step mode):**
 ```bash
 source ~/.n1/preamble.sh
-EST=$(n1_config_val '.estimation.enabled')
-if [ "${EST:-false}" = "true" ]; then
-    NEXT="estimation"
-else
-    NEXT="implementation"
-fi
-n1_emit_step_result "plan-review" "pass" "$NEXT" "null"
+n1_emit_step_result "plan-review" "pass" "implementation" "null"
 ```

@@ -2,36 +2,12 @@
 
 ## Finish Work Configuration
 
-Ask whether N1 should run a finish step after CI: verify/perform the PR merge, optionally watch the deployment, and close the tracker ticket. **Default is No.**
+Interactive runs stop at PR + CI; the human merges, then runs n1-finish to watch the deployment and close the tracker ticket.
 
-Only ask when a tracker is configured — without one, finish work has nothing useful to do beyond merge verification; write `"finishWork": { "enabled": false, "postDeployVerification": { "enabled": false } }` silently.
+Only ask when a tracker is configured — without one, write `"finishWork": { "postDeployVerification": { "enabled": false } }` silently.
 
-```
-Enable the finish step in the automated pipeline?
-After CI passes, N1 can verify the PR merge, watch the deployment, and close the ticket.
-1 — Yes
-2 — No (default)
-```
+Ask:
 
-**If 2 (No) or default:**
-```json
-{
-  "finishWork": {
-    "enabled": false,
-    "postDeployVerification": { "enabled": false }
-  }
-}
-```
-
-**If 1 (Yes)**, ask the follow-ups:
-
-```
-Auto-merge the PR on finish?
-1 — No, a reviewer merges (default)
-2 — Yes, N1 merges via gh pr merge --auto (branch protection still applies)
-```
-
-If auto-merge is Yes:
 ```
 Merge method?
 1 — squash (default)
@@ -39,16 +15,11 @@ Merge method?
 3 — rebase
 ```
 
-```
-Watch the automated deployment after merge?
-Requires a GitHub Actions workflow triggered by pushes to the default branch.
-1 — No (default)
-2 — Yes
-```
+The method applies to queue merges and the `prMode: "skip"` local merge.
 
-If deploy watch is Yes: "Workflow name to watch? (enter = watch all runs on the merge commit)"
+Ask: "Deploy workflow name to watch? (enter = watch all runs on the merge commit)"
 
-If deploy watch is Yes, ask the post-deploy verification question separately from local testing:
+Ask the post-deploy verification question separately from local testing:
 
 ```
 Enable post-deploy verification after a successful deployment?
@@ -77,23 +48,17 @@ If **Yes**, create the editable local-only `$N1_HOME/dev-access.md` template. As
 
 If **No**, set `postDeployVerification.enabled` to `false` and do not create `dev-access.md`. This choice does not change `localTesting`; an older config that leaves this nested key absent retains its legacy smoke fallback.
 
-Write the block (omit `deployWatch.workflowName` when empty; `closeTicket` defaults to true — no question):
+Write the block (omit `deployWatch` when the workflow name is empty):
 ```json
 {
   "finishWork": {
-    "enabled": true,
-    "mergeOnFinish": "<from auto-merge question>",
-    "mergeMethod": "<from merge-method question, \"squash\" when not asked>",
+    "mergeMethod": "<from merge-method question>",
     "deployWatch": {
-      "enabled": "<from deploy-watch question>",
-      "workflowName": "<name or null>",
-      "timeoutMinutes": 30
+      "workflowName": "<name>"
     },
     "postDeployVerification": {
-      "enabled": "<from post-deploy verification question, false when deploy watch is disabled>"
-    },
-    "closeTicket": true,
-    "waitForMergeMinutes": 10
+      "enabled": "<from post-deploy verification question>"
+    }
   }
 }
 ```
@@ -103,21 +68,17 @@ Write the block (omit `deployWatch.workflowName` when empty; `closeTicket` defau
 If `finishWork` already exists in the current config, show current state and offer:
 ```
 Current finish work:
-  enabled       → <true/false>
-  mergeOnFinish → <true/false>
-  deployWatch   → <true/false>
+  mergeMethod → <squash/merge/rebase>
+  deployWatch.workflowName → <name/all runs>
 
 1 — Keep current
-2 — Enable / change settings (re-ask the questions above)
-3 — Disable
+2 — Change settings (re-ask the questions above)
 ```
 - **1** → leave unchanged.
 - **2** → re-run the questions, overwrite the block.
-- **3** → set `enabled: false`, keep the other keys.
 
 If `finishWork.postDeployVerification.enabled` is absent:
-- When `finishWork.deployWatch.enabled` is `true`, offer the **Post-deploy verification** questions above without re-asking merge or deploy-watch settings. **No** leaves the nested key absent so legacy smoke behavior continues; **Yes** writes the nested key and creates or updates `$N1_HOME/dev-access.md`.
-- When deploy watch is disabled or absent, do not offer post-deploy verification. Write `"postDeployVerification": { "enabled": false }` explicitly, and do not create `dev-access.md`; verification cannot run without deploy watch.
+On reconfiguration, offer the **Post-deploy verification** questions above without re-asking merge or deploy-watch settings. **No** leaves the nested key absent so legacy smoke behavior continues; **Yes** writes the nested key and creates or updates `$N1_HOME/dev-access.md`.
 
 If `finishWork` is absent from the current config, run the fresh-setup flow above.
 
@@ -244,7 +205,6 @@ Write:
 {
   "release": {
     "enabled": true,
-    "tagPrefix": "v",
     "procedure": null,
     "deploymentCheck": "<from deployment pipeline awareness answer>"
   }
@@ -253,9 +213,6 @@ Write:
 
 **If 2 (Custom):**
 
-Ask: "Tag prefix? (default: v)"
-
-Then:
 ```
 Paste your release procedure as markdown.
 Use {{RELEASE_TAG}}, {{VERSION}}, {{MERGE_SHA}}, {{TICKET_ID}} as placeholders.
@@ -278,7 +235,6 @@ Write:
 {
   "release": {
     "enabled": true,
-    "tagPrefix": "<from answer, default v>",
     "procedure": "<verbatim paste>",
     "deploymentCheck": "<from deployment pipeline awareness answer>"
   }
@@ -289,21 +245,18 @@ Write:
 
 **Only runs when `release.enabled` is `true` AND `tracker.type` is `"jira"`.** Skip this section entirely otherwise.
 
-When conditions are met, write the `trackerRelease` block to the `release` config with default sub-flags:
+When conditions are met, write the `trackerRelease` block to the `release` config:
 ```json
 {
   "release": {
     "trackerRelease": {
-      "versionName": "{serviceName} {version}",
-      "moveTickets": true,
-      "setFixVersion": true,
-      "createVersion": true
+      "versionName": "{serviceName} {version}"
     }
   }
 }
 ```
 
-No questions asked -- tracker release operations are on by default for Jira projects. Users can disable individual operations in config.json after init. Missing infrastructure (e.g., `versionMcp`) is configured inline by `/n1:n1-release` on first run.
+No questions asked -- tracker release operations always run for Jira projects. Missing infrastructure (e.g., `versionMcp`) is configured inline by `/n1:n1-release` on first run.
 
 ### Deployment Pipeline Awareness
 

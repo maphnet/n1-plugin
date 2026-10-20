@@ -30,11 +30,9 @@ Carry `$RECONCILE_START_FILE` forward into Step 4 / Step 7a (in 02-fix.md), the 
 ## Step 2: Read CI Check Config
 
 From config:
-- `n1_config_val '.ciChecks.maxFixAttempts'` — default: `3`
-- `n1_config_val '.ciChecks.confidenceThreshold'` — default: `0.7`
+- `MAX_FIX` — fixed start value `3` (raised only by Step 6b, ceiling `6`); `ci_fix_cycle` counter lives in overview.md
+- `confidenceThreshold` — fixed: `0.7`
 - `categories` — default: built-in map below
-
-If `ciChecks.enabled` is explicitly `false` → "CI checks are disabled." **STOP.**
 
 **Default categories** (when config has no `ciChecks.categories`):
 
@@ -89,7 +87,7 @@ All checks `conclusion: SUCCESS`/`NEUTRAL`/`SKIPPED`:
 - **Finish chaining (pipeline only):** when invoked from n1-start, decide with the same helper as the n1-start finish gate (so CI and no-CI repos reach the same outcome):
   ```bash
   source ~/.n1/preamble.sh
-  if n1_finish_enabled; then echo "chain:yes"; else echo "chain:no"; fi
+  if n1_merge_allowed; then echo "chain:yes"; else echo "chain:no"; fi
   ```
   `chain:yes` → continue into n1:n1-finish. `chain:no` → do not chain. Standalone runs never chain. Never chain into release.
 - Go to **Step 7** (in 02-fix.md).

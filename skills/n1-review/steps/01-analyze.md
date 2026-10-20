@@ -160,10 +160,7 @@ Maximum 2 review-fix cycles before escalating to user.
 
 Review is clean. Medium and Low findings are included in the final report as suggestions but do not trigger a fix cycle.
 
-Check review count:
-- `n1_config_val '.review.minCleanPasses'` (default: 1) — minimum consecutive clean passes required
-- If this is clean pass N and N < minCleanPasses → go back to **Phase 2**
-- If N >= minCleanPasses → **PASS**
+- One clean pass → **PASS**
 
 ## Advisory Mode Steps 1-3
 

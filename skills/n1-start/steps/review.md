@@ -54,7 +54,7 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }
-TQ_MAX=$(n1_config_val '.tq.maxFixAttempts' '2')
+TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"
 n1_step_end "review" 9 "success"
 ```

@@ -11,11 +11,11 @@ Rules are checkable conventions — violations block reviews or deny tool calls.
 2 — No, skip rules for now
 ```
 
-**If 2 (No) or skip:** Write `"rules": { "enabled": true }` to config and move on. No rules directory created.
+**If 2 (No) or skip:** Move on. No rules directory created.
 
 **If 1 (Yes):**
 
-1. Set `RULES_DIR="$N1_HOME/rules"`. Write `"rules": { "enabled": true }` to config.
+1. Set `RULES_DIR="$N1_HOME/rules"`.
 
 2. Create the rules directory: `mkdir -p "$RULES_DIR"`
 
@@ -112,7 +112,7 @@ This could become a rule. Extract it?
 
 ### On reconfiguration (n1-init re-run):
 
-If `rules` already exists in the current config:
+If `$N1_HOME/rules/` exists:
 
 ```
 Current rules:
@@ -134,4 +134,4 @@ Rules now always live in $N1_HOME/rules/.
 ```
 If 1: move all `.rule.md` files, regenerate deny hook at new location, deregister old hook path.
 
-If `rules` is absent from the current config, run the fresh-setup flow above. Run **Analyze Repository** first if it has not already been run this session (rules starter generation needs detection results).
+If `$N1_HOME/rules/` is absent, run the fresh-setup flow above. Run **Analyze Repository** first if it has not already been run this session (rules starter generation needs detection results).

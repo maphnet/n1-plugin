@@ -94,7 +94,7 @@ Auto-detect the appropriate setup command for new worktrees based on the project
 
 Silently derive the setup command from the detection table above — do NOT prompt.
 Store the derived value as `worktree.setup` in config (store `null` when the table
-yields no command). Store `"after-merge"` as `worktree.cleanup` (default).
+yields no command).
 
 The command is reported (not asked) in the init summary — see the summary block below,
 which already prints `Worktree setup: <command or "none">`. Non-standard projects

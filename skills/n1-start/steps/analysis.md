@@ -23,7 +23,7 @@ IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect ana
 n1_write_context
 RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json"); PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME"); RELATED_CONTEXT=""
 if [ "$RELATED_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then
-    MAX_AGE=$(n1_config_val ".relatedProjects.maxSnapshotAge" "$N1_HOME/config.json"); MAX_AGE="${MAX_AGE:-72h}"; RELATED_LINES=""
+    MAX_AGE=72h; RELATED_LINES=""
     while IFS=$'\t' read -r slug reason repo_path; do [ -z "$slug" ] && continue
         RELATED_LINES="${RELATED_LINES}
 - ${slug} (${reason}): map=$(n1_project_map_check_freshness "$(n1_related_project_map "$slug")" "$MAX_AGE" || echo cold) mapPath=$(n1_related_project_map "$slug") repo=${repo_path}"

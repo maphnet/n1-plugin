@@ -94,17 +94,14 @@ EOF
 fi
 
 # Merge any stale telemetry from interrupted runs; emit compaction marker if triggered
-telem_enabled=$(n1_config_val '.telemetry.enabled' "$CONFIG_FILE")
-if [ "$telem_enabled" = "true" ]; then
-    source "${SCRIPT_DIR}/../lib/telemetry.sh"
-    n1_memory_dir=$(n1_home)
-    if [ "${TRIGGER:-}" = startup ] && [ -n "$n1_memory_dir" ]; then
-        n1_merge_pending "${n1_memory_dir}/memory" 2>/dev/null || true
-    fi
-    if [ "${TRIGGER:-}" = "compact" ] && [ -n "${n1_memory_dir:-}" ]; then
-        if n1_read_lock "${n1_memory_dir}/memory" 2>/dev/null; then
-            n1_emit_compaction "$N1_LOCK_RUN_ID" "$N1_LOCK_VERSION" "$N1_LOCK_TICKET_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
-        fi
+source "${SCRIPT_DIR}/../lib/telemetry.sh"
+n1_memory_dir=$(n1_home)
+if [ "${TRIGGER:-}" = startup ] && [ -n "$n1_memory_dir" ]; then
+    n1_merge_pending "${n1_memory_dir}/memory" 2>/dev/null || true
+fi
+if [ "${TRIGGER:-}" = "compact" ] && [ -n "${n1_memory_dir:-}" ]; then
+    if n1_read_lock "${n1_memory_dir}/memory" 2>/dev/null; then
+        n1_emit_compaction "$N1_LOCK_RUN_ID" "$N1_LOCK_VERSION" "$N1_LOCK_TICKET_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
     fi
 fi
 
@@ -159,10 +156,7 @@ if [ "${TRIGGER:-}" = "compact" ]; then
 
             auto_mode=$(n1_config_val '.autonomy.mode' "$CONFIG_FILE")
             auto_mode="${auto_mode:-hands-off (default)}"
-            gate_estimation=$(n1_config_val '.estimation.enabled' "$CONFIG_FILE")
             gate_local=$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")
-            gate_finish=$(n1_config_val '.finishWork.enabled' "$CONFIG_FILE")
-            gate_ci=$(n1_config_val '.ciChecks.enabled' "$CONFIG_FILE")
 
             N1_COMPACT_STATE="
 ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any compacted summary):
@@ -175,7 +169,7 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
 - Branch: ${ar_branch:-unknown}
 - Loop counters: qa_fix_cycle=${ov_qa_fix:-0}, review_fix_cycle=${ov_review_fix:-0}, clean_passes=${ov_clean_passes:-0}, local_test_fix_cycle=${ov_lt_fix:-0}, ci_fix_cycle=${ov_ci_fix:-0}
 - Autonomy: mode=${auto_mode}
-- Config gates: estimation.enabled=${gate_estimation:-false}, localTesting.enabled=${gate_local:-true}, finishWork.enabled=${gate_finish:-false}, ciChecks.enabled=${gate_ci:-true}
+- Config gates: localTesting.enabled=${gate_local:-true}
 - Task context: ${ov_context}
 - Ticket URL: ${ov_ticket_url}
 - IMPORTANT: Use these values, not anything from the compacted conversation summary. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."

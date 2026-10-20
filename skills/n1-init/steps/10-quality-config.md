@@ -1,4 +1,4 @@
-<!-- Purpose: Configure autonomy mode, telemetry, and analysis cache. -->
+<!-- Purpose: Configure autonomy mode and analysis cache. -->
 
 ## Autonomy Configuration
 
@@ -33,53 +33,6 @@ If `autonomy` already exists in the current config:
 - If it contains only `"mode"`: show current value and re-ask (two options as above).
 - If it contains legacy sub-keys (no `"mode"` key): show a migration note —
   `"Your config uses legacy autonomy keys. Reconfiguring will write the new single-key format."` — then re-ask.
-
-## Telemetry Configuration
-
-Ask whether N1 should collect local telemetry for pipeline efficiency analysis. **Default is No.**
-
-```
-Enable telemetry?
-Collects per-step timing, agent performance, and token usage into per-ticket telemetry directories for offline analysis.
-Data stays local — no external transmission.
-1 — Yes
-2 — No (default)
-```
-
-**If 2 (No) or default:**
-```json
-{
-  "telemetry": {
-    "enabled": false
-  }
-}
-```
-
-**If 1 (Yes):**
-```json
-{
-  "telemetry": {
-    "enabled": true
-  }
-}
-```
-
-### On reconfiguration (n1-init re-run):
-
-If `telemetry` already exists in the current config, show current state and offer:
-```
-Current telemetry:
-  enabled → <true/false>
-
-1 — Keep current
-2 — Enable
-3 — Disable
-```
-- **1** → leave unchanged.
-- **2** → set `enabled: true`.
-- **3** → set `enabled: false`.
-
-If `telemetry` is absent from the current config, run the fresh-setup flow above.
 
 ## Analysis Cache Configuration
 
@@ -117,8 +70,6 @@ Use detected files plus the defaults from `defaults/analysis-cache.json` to popu
 {
   "analysisCache": {
     "enabled": true,
-    "ttl": "4h",
-    "neutralThreshold": 15,
     "structuralFiles": ["<detected patterns + defaults>"]
   }
 }
@@ -130,8 +81,6 @@ If `analysisCache` already exists in the current config, show current state and 
 ```
 Current analysis cache:
   enabled → <true/false>
-  ttl → <value>
-  neutralThreshold → <value>
   structuralFiles → <count> patterns
 
 1 — Keep current

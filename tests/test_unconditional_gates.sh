@@ -23,10 +23,7 @@ fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 MOCK_CONFIG=$(mktemp /tmp/n1-test-config-XXXXXX.json)
 cat > "$MOCK_CONFIG" <<'EOF'
 {
-  "autonomy": { "mode": "hands-off" },
-  "escalation": {
-    "alwaysAskOn": ["security", "architecture", "public-api"]
-  }
+  "autonomy": { "mode": "hands-off" }
 }
 EOF
 
@@ -55,25 +52,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 3: hands-off mode -> tailChain = suggest (never auto)
-# ---------------------------------------------------------------------------
-val=$(n1_autonomy_val 'tailChain')
-if [ "$val" = "suggest" ]; then
-    pass "T3: autonomy.mode=hands-off -> tailChain=suggest"
-else
-    fail "T3: expected suggest, got '${val}'"
-fi
-
-# ---------------------------------------------------------------------------
-# Test 4: escalation.alwaysAskOn is in 'escalation' block, NOT in 'autonomy'
+# Test 4: alwaysAskOn is a fixed constant (n1_escalation_val), NOT in 'autonomy'
 # The unconditional gates must NOT be routable through n1_autonomy_val.
 # ---------------------------------------------------------------------------
-escalation_security=$(n1_config_val '.escalation.alwaysAskOn' "$MOCK_CONFIG" 2>/dev/null || true)
+escalation_list=$(n1_escalation_val alwaysAskOn)
 autonomy_security=$(n1_config_val '.autonomy.alwaysAskOn' "$MOCK_CONFIG" 2>/dev/null || true)
-if [ -z "$autonomy_security" ]; then
-    pass "T4: security/architecture/public-api gates live in 'escalation' block, not 'autonomy'"
+if [[ "$escalation_list" == *security* ]] && [ -z "$autonomy_security" ]; then
+    pass "T4: security/architecture/public-api gates are a fixed constant, not in 'autonomy'"
 else
-    fail "T4: autonomy.alwaysAskOn should be absent, got '${autonomy_security}'"
+    fail "T4: expected constant list with security and no autonomy.alwaysAskOn, got '${escalation_list}' / '${autonomy_security}'"
 fi
 
 # ---------------------------------------------------------------------------
@@ -102,10 +89,7 @@ fi
 # ---------------------------------------------------------------------------
 cat > "$MOCK_CONFIG" <<'EOF'
 {
-  "autonomy": { "mode": "interactive" },
-  "escalation": {
-    "alwaysAskOn": ["security", "architecture", "public-api"]
-  }
+  "autonomy": { "mode": "interactive" }
 }
 EOF
 val=$(n1_autonomy_val 'mechanicalPrompts')

@@ -8,7 +8,7 @@ n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/m
 INVESTIGATE_INTERACTIVE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive")
 BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm'); [ "$INVESTIGATE_INTERACTIVE" = "true" ] && BRAINSTORM_MODE=interactive
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
-TEST_TIER=$(n1_config_val '.testCoverage.tier' 2>/dev/null); TEST_TIER="${TEST_TIER:-maintain}"
+TEST_TIER=maintain
 # Dispatch the coherent model/effort pair together.
 IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect brainstorm)
 HAS_INVESTIGATION=false; [ -s "$N1_HOME/memory/$ID/investigation.md" ] && HAS_INVESTIGATION=true

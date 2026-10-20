@@ -1,6 +1,6 @@
 # Step 2: Merge State Machine
 
-> **Polling discipline:** merge-waiting uses `n1_wait_pr_merged` from `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call. Re-invoke until it prints a terminal state or the `waitForMergeMinutes` budget is spent. Never poll one-`gh`-call-per-model-turn, and never use scheduled wakeups for this wait. Run each call with the maximum command timeout (600000 ms): the default is shorter than one chunk.
+> **Polling discipline:** merge-waiting uses `n1_wait_pr_merged` from `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call. Re-invoke until it prints a terminal state or the 10-minute budget is spent (queue runs only). Never poll one-`gh`-call-per-model-turn, and never use scheduled wakeups for this wait. Run each call with the maximum command timeout (600000 ms): the default is shorter than one chunk.
 
 **Merge permission.** Decide once, before evaluating the PR state. The entry call already printed `merge:allowed`/`merge:denied` and `queue-run:yes`; run this snippet only when those lines are missing:
 
@@ -17,6 +17,7 @@ Evaluate the PR state:
 1. **`MERGED`** → capture the merge commit SHA (`.mergeCommit.oid`). Go to Step 3.
 2. **`CLOSED`** (not merged) → report "PR #<n> was closed without merging — nothing to finish. The ticket stays open." **STOP.**
 3. **`OPEN`:**
+   **merge:denied (interactive):** run only sub-item c's deployment-actions parse and before walk, then report "PR #<n> is open. Merge it, then re-run /n1:n1-finish." **STOP.** Sub-items a, b and d run only on merge:allowed.
    a. Check CI: `gh pr checks <n> --json name,state,conclusion`. If any check has `conclusion: FAILURE` → "CI is red on PR #<n> — run /n1:n1-ci first." **STOP.**
    b. **PR comment check:** fetch unresolved review threads and pending change requests via a single GraphQL call:
       ```bash
@@ -89,12 +90,12 @@ Evaluate the PR state:
       - `mode:walk` with `before` rows → § Walk with `PHASE=before`. `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
       - `after` rows wait for Step 4.
 
-      Then, if the merge permission printed `merge:allowed` → initiate the merge (once, not per poll). On `merge:denied`, skip to sub-item d and wait for the reviewer's merge:
+      Then, if the merge permission printed `merge:allowed` → initiate the merge (once, not per poll):
       ```bash
       gh pr merge <n> --auto --<mergeMethod> --delete-branch
       ```
       `--auto` respects branch protection (required approvals, checks, merge queues). If the command itself is rejected (e.g. auto-merge disabled on the repo and checks pending), retry once with the direct form `gh pr merge <n> --<mergeMethod> --delete-branch`; if that is also rejected, before treating the failure as fatal re-check `gh pr view <n> --json state` — if the PR is `MERGED`, treat the merge as successful and continue to Step 3; otherwise report GitHub's error verbatim and **STOP.**
-   d. Bounded wait for merged state — up to `waitForMergeMinutes` total:
+   d. Bounded wait for merged state — up to 10 minutes total:
       ```bash
       source ~/.n1/preamble.sh
       source "$N1_ROOT/lib/poll.sh"

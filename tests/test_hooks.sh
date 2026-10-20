@@ -97,8 +97,8 @@ assert_eq "queue: gh api graphql merge denied"      2 "$(gate RUN1 "$WT" "gh api
 assert_eq "queue: gh api graphql auto-merge denied" 2 "$(gate RUN1 "$WT" "gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:\"x\"}){clientMutationId}}'")"
 assert_eq "queue: push HEAD:main denied"            2 "$(gate RUN1 "$WT" 'git push origin HEAD:main')"
 # Known gap (raw text scan, no branch resolution): a push/merge that never names the default
-# branch in the command text isn't caught -- the skill-level n1_finish_enabled/n1_merge_allowed
-# gates are the primary control for this shape; the hook is the backstop for the common case
+# branch in the command text isn't caught -- the skill-level n1_merge_allowed
+# gate is the primary control for this shape; the hook is the backstop for the common case
 # (the model naming the branch or PR explicitly). See the Case 3 docstring.
 assert_eq "queue: bare push (no branch named) is a known gap, not denied" 0 "$(gate RUN1 "$GR" 'git push 2>&1')"
 assert_eq "queue: git -C main merge denied"         2 "$(gate RUN1 "$WT" "git -C $GR merge --squash feature")"
@@ -173,7 +173,7 @@ assert_eq "per-session preamble written for the payload session id" "N1_ROOT=$RE
 source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$N1_STATE_DIR/sessions/s-claude-1.preamble.sh" 2>/dev/null)"
 case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
 case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code)"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
-echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
+echo '{}' > "$N1_HOME/config.json"
 PROJ="$T/proj"; mkdir -p "$PROJ"
 PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/claude/session-start.json")
 OUT=$(echo "$PAYLOAD" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
@@ -199,7 +199,7 @@ CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"Active ticket: T-30"*) assert_eq "compaction restore uses session-keyed active-run" ok ok;; *) assert_eq "compaction restore uses session-keyed active-run" ok "$CTX";; esac
 rm -f "$N1_HOME/active-run.json" "$N1_HOME/active-run.s1.json"
 # --- session-start: prMode "skip" is a valid value and is not migrated (NP-202) ---
-echo '{"telemetry":{"enabled":false},"git":{"prMode":"skip"}}' > "$N1_HOME/config.json"
+echo '{"git":{"prMode":"skip"}}' > "$N1_HOME/config.json"
 echo '{"session_id":"s-prmode","source":"startup"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "session-start keeps prMode skip" "skip" "$(jq -r .git.prMode "$N1_HOME/config.json")"
 unset N1_HOST_FILE
@@ -356,17 +356,17 @@ has_offer() {
   ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"$LTP\",\"source\":\"startup\"}" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext)
   case "$ctx" in *"LOCAL TESTING OFFER"*) echo yes;; *) echo no;; esac
 }
-echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
+echo '{}' > "$N1_HOME/config.json"
 assert_eq "enable offer injected when live is off and compose exists" "yes" "$(has_offer)"
-echo '{"telemetry":{"enabled":false},"localTesting":{"autoLive":true}}' > "$N1_HOME/config.json"
+echo '{"localTesting":{"autoLive":true}}' > "$N1_HOME/config.json"
 assert_eq "no enable offer when live already resolves" "no" "$(has_offer)"
-echo '{"telemetry":{"enabled":false},"localTesting":{"enabled":false,"autoLive":true}}' > "$N1_HOME/config.json"
+echo '{"localTesting":{"enabled":false,"autoLive":true}}' > "$N1_HOME/config.json"
 assert_eq "enable offer when localTesting disabled" "yes" "$(has_offer)"
-echo '{"telemetry":{"enabled":false},"localTesting":{"mode":"test"}}' > "$N1_HOME/config.json"
+echo '{"localTesting":{"mode":"test"}}' > "$N1_HOME/config.json"
 assert_eq "no enable offer when mode explicitly set to test" "no" "$(has_offer)"
-echo '{"telemetry":{"enabled":false},"localTesting":{"enabled":false,"mode":"test"}}' > "$N1_HOME/config.json"
+echo '{"localTesting":{"enabled":false,"mode":"test"}}' > "$N1_HOME/config.json"
 assert_eq "no enable offer even when disabled, if mode explicitly set (never overwrite a deliberate choice)" "no" "$(has_offer)"
-rm "$LTP/compose.yaml"; echo '{"telemetry":{"enabled":false}}' > "$N1_HOME/config.json"
+rm "$LTP/compose.yaml"; echo '{}' > "$N1_HOME/config.json"
 assert_eq "no enable offer without a compose file" "no" "$(has_offer)"
 
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

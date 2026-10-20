@@ -1,6 +1,6 @@
 # Step 6: Cleanup & Memory
 
-1. **Local branch (runs last in § One Cleanup Call, after the worktree):** branch mode: if on the feature branch, `git checkout <defaultBranch> && git pull` first (local merge: skip `git pull`). Then `git branch -d`, with `-D` only when the tip equals the merged PR head (see tokens below); otherwise keep it and report why.
+1. **Local branch (runs last in § One Cleanup Call, after the worktree):** plain checkout (not a linked worktree): if on the feature branch, `git checkout <defaultBranch> && git pull` first (local merge: skip `git pull`). Then `git branch -d`, with `-D` only when the tip equals the merged PR head (see tokens below); otherwise keep it and report why.
 2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it. Local-merge path: n/a (nothing was pushed).
 3. **Worktree (runs before the branch delete in § One Cleanup Call):** only when the current branch is the finished PR's head branch (`HEAD_REF`); an unrelated ticket's worktree is never touched. Removal rules are in the paragraph below the block.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
@@ -8,7 +8,7 @@
    ## Finish
    - **Merged:** <sha> (<method>, by <auto-merge|reviewer|local merge>)
    - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged) | n/a (local merge)>
-   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered | skipped (local merge)>
+   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow) | none triggered | skipped (local merge)>
    - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
    - **Verification details:** when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output); otherwise omit this line.
    - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
@@ -46,10 +46,10 @@ BR=$(git rev-parse --abbrev-ref HEAD)
 if [ ! -f "$(git rev-parse --show-toplevel)/.git" ]; then   # plain checkout (a linked worktree never checks out the default branch)
   [ "$BR" = "$DB" ] || [ "$BR" != "$HR" ] || { git checkout "$DB" -- && { [ "$LOCAL" = 1 ] || git pull; } || echo checkout:failed; }
 fi
-n1_finish_cleanup "$HR" "$(n1_config_val '.worktree.cleanup')" "$OID" "$DB"
+n1_finish_cleanup "$HR" "$OID" "$DB"
 ```
 
-Tokens (from `n1_finish_cleanup` in `lib/config.sh`; print them verbatim in the Report's `Cleanup:` line): `worktree:removed | none | kept-other | kept (<dirty|ignored files|unmerged|manual>) | remove-failed (<error>)` and `branch:deleted | none | kept (<worktree kept|manual|not merged>)`. `kept-other` → the current checkout is another ticket's; nothing was removed (the PR's own branch is still deleted when possible). `checkout:failed` → warn that the default branch could not be checked out or pulled. N1-managed worktrees (under `<main checkout>/$(n1_worktree_root)/`) are removed with `--force` when `worktree.cleanup` is `after-merge`/`after-pr`; external worktrees (Orca etc.) are removed only when the tree is clean (ignored files such as `.env` count: `kept (ignored files)`) and HEAD is in the merged PR head (`OID`, else the local default branch), never forced. The branch uses `git branch -d`, falling back to `-D` only when its tip equals the merged PR's `OID` (squash/rebase merge). `worktree.cleanup: manual` (or any unrecognised value) keeps both, on a plain checkout too. `kept (unmerged)` with a PR may mean the PR-head lookup failed (`OID` empty). `checkout:failed` implies `branch:kept`; so does a branch still checked out in another worktree (reported as `not merged`). Kept external worktrees are the user's to remove (do not suggest `/n1:n1-clean`); `remove-failed` on an N1-managed one → warn and point at `/n1:n1-clean`; on an external one → warn with the error only.
+Tokens (from `n1_finish_cleanup` in `lib/config.sh`; print them verbatim in the Report's `Cleanup:` line): `worktree:removed | none | kept-other | kept (<dirty|ignored files|unmerged>) | remove-failed (<error>)` and `branch:deleted | none | kept (<worktree kept|not merged>)`. `kept-other` → the current checkout is another ticket's; nothing was removed (the PR's own branch is still deleted when possible). `checkout:failed` → warn that the default branch could not be checked out or pulled. N1-managed worktrees (under `<main checkout>/$(n1_worktree_root)/`) are removed with `--force`; external worktrees (Orca etc.) are removed only when the tree is clean (ignored files such as `.env` count: `kept (ignored files)`) and HEAD is in the merged PR head (`OID`, else the local default branch), never forced. The branch uses `git branch -d`, falling back to `-D` only when its tip equals the merged PR's `OID` (squash/rebase merge). `kept (unmerged)` with a PR may mean the PR-head lookup failed (`OID` empty). `checkout:failed` implies `branch:kept`; so does a branch still checked out in another worktree (reported as `not merged`). Kept external worktrees are the user's to remove (do not suggest `/n1:n1-clean`); `remove-failed` on an N1-managed one → warn and point at `/n1:n1-clean`; on an external one → warn with the error only.
 
 ## Report (final message)
 
@@ -59,7 +59,7 @@ Finish complete: <ID> (<ticket title>)
 Done: <1-2 lines from ticket title + PR summary>
 Ticket: <ID> → <done status | left open (<reason>) | tracker not configured> — <ticket URL | URL unavailable (<reason>)>
 PR: <url | none (prMode: skip — push pending: git push origin <defaultBranch>)> — merged (<method>, by <auto-merge|reviewer|local merge>)
-Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered | skipped (local merge)>
+Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow) | none triggered | skipped (local merge)>
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
@@ -73,7 +73,7 @@ Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never 
 - **Next tickets:** call `tracker.operations.getIssueLinks` on `tracker.versionMcp` when set, else `tracker.mcp`, for `<ID>`. Tickets this one blocks: Jira — Blocks-type entries with `outwardIssue`; YouTrack — relation `blocks` (not `is blocked by`). Use title/status from the entry when present, else `readTicket` per link. No such links → `none`. Op not configured or call error → `lookup failed (<reason>)`; warn only, never block. Issue it in parallel with the cleanup call (§ One Cleanup Call).
 - Print this summary on every completion path (including already-merged / already-closed re-runs and the runbook-pending path), before release routing in both `mechanicalPrompts` modes. Non-complete exits keep their stop message below and do NOT print it.
 
-<!-- tailChain has no effect here: n1-release is never invoked automatically regardless of autonomy mode (NP-71). The steps below are always interactive/suggestion-only. -->
+<!-- n1-release is never invoked automatically regardless of autonomy mode (NP-71). The steps below are always interactive/suggestion-only. -->
 **Release routing (when `release.enabled` is `true` and the merge succeeded):** after printing the report, use the `mechanicalPrompts` value printed at entry; only when it is missing, read it via Bash (source `lib/config.sh` first):
 
 ```bash
@@ -107,7 +107,7 @@ Every path is safe to re-run: already-merged PR skips the merge; already-closed 
 ## Integration
 
 **Called by:**
-- **n1-start** — step `finish` (after CI watch), gated on `n1_finish_enabled` (queue children: `queue.mergeOnFinish`; interactive: `finishWork.enabled`)
+- **n1-start** — step `finish` (after CI watch), gated on `n1_merge_allowed` (queue children with `queue.mergeOnFinish` only)
 - **Standalone** — `/n1:n1-finish`, `/n1:n1-finish TRID-510`, `/n1:n1-finish #123`
 
 **Invokes:**
