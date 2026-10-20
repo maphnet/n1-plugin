@@ -699,6 +699,42 @@ n1_is_external_worktree() {
     return 0
 }
 
+# N1-112: n1-finish Step 6 worktree + local-branch cleanup; prints status tokens, one per line, always returns 0.
+# Usage: n1_finish_cleanup <branch> <cleanup-mode> <merged-pr-head-oid|""> <defaultBranch>   (run from the feature checkout)
+# A branch checked out in a worktree cannot be deleted, so the worktree goes first. N1-managed worktrees
+# are force-removed; external ones only when clean and HEAD is in the merged result (oid, else <defaultBranch>),
+# never forced. Branch: -d; -D only when the tip equals the merged PR head oid (squash/rebase).
+# After a removal the shell is left in the main checkout.
+n1_finish_cleanup() {
+    local branch="$1" mode="${2:-after-merge}" oid="$3" def="$4"
+    local gd gcd main top err cur keep=""
+    gd=$(cd "$(git rev-parse --git-dir)" && pwd -P) || return 0
+    gcd=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
+    main=$(dirname "$gcd")
+    if [ "$gd" != "$gcd" ]; then
+        top=$(git rev-parse --show-toplevel); cur=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$cur" != "$branch" ]; then echo "worktree:kept-other"
+        elif [ "$mode" != after-merge ] && [ "$mode" != after-pr ]; then keep="manual"
+        elif n1_is_external_worktree; then
+            if [ -n "$(git status --porcelain 2>/dev/null)" ]; then keep="dirty"
+            elif ! git merge-base --is-ancestor HEAD "${oid:-$def}" 2>/dev/null; then keep="unmerged"
+            elif err=$(cd "$main" && git worktree remove "$top" 2>&1); then echo "worktree:removed"
+            else keep="remove-failed"; fi
+        elif err=$(cd "$main" && git worktree remove "$top" --force 2>&1); then echo "worktree:removed"
+        else keep="remove-failed"; fi
+        if [ "$keep" = remove-failed ]; then echo "worktree:remove-failed (${err%%$'\n'*})"
+        elif [ -n "$keep" ]; then echo "worktree:kept ($keep)"; fi
+        [ -z "$keep" ] && [ "$cur" = "$branch" ] && cd "$main"
+    else echo "worktree:none"; fi
+    if [ -n "$keep" ]; then echo "branch:kept ($([ "$keep" = manual ] && echo manual || echo worktree kept))"
+    elif [ -z "$branch" ] || [ "$branch" = "$def" ] || ! git -C "$main" rev-parse -q --verify "refs/heads/$branch" >/dev/null; then echo "branch:none"
+    elif git -C "$main" branch -d -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
+    elif [ -n "$oid" ] && [ "$(git -C "$main" rev-parse -q --verify "refs/heads/$branch")" = "$oid" ] \
+        && git -C "$main" branch -D -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
+    else echo "branch:kept (not merged)"; fi
+    return 0
+}
+
 escape_json_val() {
     local s="$1"
     s="${s//\\/\\\\}"
