@@ -57,16 +57,18 @@ _n1_release_counts() {
 }
 
 n1_wait_release_runs() {
-    # Usage: n1_wait_release_runs <sha> <grace-minutes> <max-minutes> [workflow-name]
-    # Watches release-event workflow runs on <sha>. Push/workflow_run runs on the same commit
-    # are ignored. A failed or unparseable gh call (TLS timeout) is "no information": it is
+    # Usage: n1_wait_release_runs <sha> <grace-minutes> <max-minutes> [workflow-name] [event]
+    # Watches <event>-event workflow runs on <sha>; event defaults to "release" (push/workflow_run
+    # runs on the same commit are then ignored), "any" watches every event (n1-finish merge commit).
+    # A failed or unparseable gh call (TLS timeout) is "no information": it is
     # retried, never read as "no runs" or as a deploy failure.
     # Grace starts at the first successful gh answer, so outages do not consume it.
     # "none" = an empty answer at/after grace end; "skipped" = every run skipped (nothing deployed);
     # "unknown" = absence not confirmed (gh errors, or the chunk ended inside grace).
     # Prints: "none" | "unknown" | "pending" | "success" | "failed" | "skipped";
     # after pending/success/failed/skipped, one "<conclusion-or-status> <url>" line per run.
-    local sha="$1" grace_minutes="${2:-0}" max_minutes="${3:-30}" workflow="${4:-}"
+    local sha="$1" grace_minutes="${2:-0}" max_minutes="${3:-30}" workflow="${4:-}" event="${5:-release}"
+    [ "$event" = any ] && event=""
     local start; start=$(date +%s)
     local grace_end=""
     local deadline=$(( start + max_minutes * 60 ))
@@ -75,7 +77,7 @@ n1_wait_release_runs() {
     local fmt='.[] | "\(if (.conclusion // "") == "" then .status else .conclusion end) \(.url)"'
     local runs="" json counts total bad running total2 bad2 running2
     while :; do
-        json=$(gh run list --event release --commit "$sha" ${workflow:+--workflow "$workflow"} \
+        json=$(gh run list ${event:+--event "$event"} --commit "$sha" ${workflow:+--workflow "$workflow"} \
             --json status,conclusion,url 2>/dev/null) || json=""
         counts=$(_n1_release_counts "$json") || counts=""
         if [ -n "$counts" ]; then
@@ -88,7 +90,7 @@ n1_wait_release_runs() {
                     # First all-complete sighting: a later workflow may not have registered yet. Confirm once
                     # (skipped when the chunk ends first: the chunk-end check then reports pending).
                     sleep 30
-                    json=$(gh run list --event release --commit "$sha" ${workflow:+--workflow "$workflow"} \
+                    json=$(gh run list ${event:+--event "$event"} --commit "$sha" ${workflow:+--workflow "$workflow"} \
                         --json status,conclusion,url 2>/dev/null) || json=""
                     counts=$(_n1_release_counts "$json") || counts=""
                     if [ -n "$counts" ]; then

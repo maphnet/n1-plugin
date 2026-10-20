@@ -126,4 +126,18 @@ out=$(watch 4 "[]" 2 8)
 expect "outage before the first answer does not consume grace -> none" "none" "$(first "$out")"
 expect "grace counted from the first gh answer (5 outage calls + 4 grace polls)" "9" "$(cat "$T/count")"
 
+# N1-111: optional 5th argument selects the event; `any` drops the filter (n1-finish watches merge-commit push runs).
+out=$(watch 0 "[$PUSH_DONE]" 0 1 '' any)
+expect "event any: push run on the merge commit counts -> success" "success" "$(first "$out")"
+has_line "event any lists the push run URL" "success $R/1" "$out"
+
+out=$(watch 0 "[$PUSH_DONE,$REL_FAIL]" 0 1 '' push)
+expect "event push ignores release runs on the same commit" "success" "$(first "$out")"
+
+out=$(watch 0 "[$PUSH_DONE,$REL_FAIL]" 0 1 '' any)
+expect "event any: a failed run of any event -> failed" "failed" "$(first "$out")"
+
+out=$(watch 0 "[$PUSH_DONE]" 0 0)
+expect "no event argument still filters to release runs" "none" "$(first "$out")"
+
 exit $FAIL
