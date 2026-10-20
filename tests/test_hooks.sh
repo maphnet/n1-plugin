@@ -70,10 +70,42 @@ assert_eq "claude Grep allowed for read-only persona" "0:" "$RC:$OUT"
 OUT=$(echo '{"tool_name":"Read","agent_type":"general-purpose","tool_input":{}}' | bash "$POLICY"); RC=$?
 assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
 
-# --- enforce-agent-policy: no merge gate (N1-114: N1 never merges; Case 3 removed, closes N1-45) ---
-P='{"session_id":"s","cwd":"/tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git merge-base HEAD origin/main"}}'
-RC=0; printf '%s' "$P" | N1_QUEUE_RUN_ID=RUN1 bash "$POLICY" >/dev/null 2>&1 || RC=$?
-assert_eq "queue: merge-shaped command not denied by the hook" 0 "$RC"
+# --- enforce-agent-policy: queue merge deny (N1-114: unconditional in headless queue children) ---
+policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
+    local envs=() cmd
+    while [ "$1" != "--" ]; do envs+=("$1"); shift; done; cmd=$2
+    local p; p=$(jq -cn --arg c "$cmd" --arg cwd "$T" '{session_id:"s",cwd:$cwd,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c}}')
+    local rc=0; printf '%s' "$p" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "${envs[@]}" bash "$POLICY" >/dev/null 2>&1 || rc=$?
+    echo "$rc"
+}
+Q=(N1_QUEUE_RUN_ID=RUN1 N1_HEADLESS=1)
+DENY_CMDS=(
+    "gh pr merge 12" "gh pr merge --auto --squash 12" "gh -R x/y pr merge 12" "gh pr -R x/y merge 12"
+    "g''h pr m''erge 12" "/usr/bin/gh pr merge 12" "cd /tmp && gh pr merge 12" "echo \$(gh pr merge 12)"
+    "gh api graphql -f query='mutation { mergePullRequest(input:{}) { clientMutationId } }'"
+    "gh api graphql -F query=@- <<< 'mutation { enablePullRequestAutoMerge(input:{}) { x } }'"
+    "gh api -X PUT repos/o/r/pulls/12/merge"
+    "git push origin main" "git push origin HEAD:main" "git push origin HEAD:refs/heads/main"
+    "git -C dir push origin main" "git push -u origin +main" "git push --all origin" "git push origin feature:main"
+)
+for c in "${DENY_CMDS[@]}"; do
+    assert_eq "queue headless: denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+    assert_eq "not headless: allowed: $c" 0 "$(policy_rc N1_QUEUE_RUN_ID=RUN1 -- "$c")"
+    assert_eq "not queue: allowed: $c" 0 "$(policy_rc N1_HEADLESS=1 -- "$c")"
+done
+for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push origin maphskiy/feature" \
+         "git push -u origin HEAD" "gh pr view 12" "gh pr create --title 'merge main into x'" "gh api repos/o/r/pulls/12"; do
+    assert_eq "queue headless: allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
+done
+# bare push while the cwd is on the default branch (config git.defaultBranch honored)
+echo '{"git":{"defaultBranch":"trunk"}}' > "$N1_HOME/config.json"
+git -C "$T" init -q -b trunk 2>/dev/null || { git -C "$T" init -q; git -C "$T" symbolic-ref HEAD refs/heads/trunk; }
+assert_eq "queue headless: bare push on default branch denied" 2 "$(policy_rc "${Q[@]}" -- "git push")"
+assert_eq "queue headless: push to configured default denied" 2 "$(policy_rc "${Q[@]}" -- "git push origin trunk")"
+assert_eq "queue headless: push main allowed when default is trunk" 0 "$(policy_rc "${Q[@]}" -- "git push origin main")"
+git -C "$T" symbolic-ref HEAD refs/heads/feature
+assert_eq "queue headless: bare push on feature branch allowed" 0 "$(policy_rc "${Q[@]}" -- "git push")"
+rm -rf "$T/.git"
 rm -f "$N1_HOME/config.json"
 
 # --- telemetry hooks accept the Claude Code persona prefix -----------------
