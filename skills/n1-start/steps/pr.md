@@ -13,6 +13,15 @@ Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"re
 
 > **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** do not add post-PR actions inline (CI watch, finish, smoke) — these are separate pipeline steps invoked after this step completes.
 
+**Post-condition (skip when `prMode` is `"skip"`):** every open PR on this branch must have a Codex receipt from n1-pr step 3; a hand-written `gh pr create` does not count.
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/codex-review.sh"
+MISSING=$(n1_review_check_run)
+[ -z "$MISSING" ] || { echo "ERROR: n1-pr Codex step not run for: $MISSING" >&2; exit 1; }
+```
+On exit 1, do not continue: run n1-pr step 3 (`skills/n1-pr/steps/03-codex-review.md`) for each listed PR, then re-run this check.
+
 After PR created: record `## Pending` section in `$N1_HOME/memory/$ID/overview.md` (idempotent upsert):
 ```markdown
 ## Pending

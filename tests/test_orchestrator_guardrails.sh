@@ -58,6 +58,14 @@ assert_contains "n1-pr: follow-up routing" \
     "skills/n1-pr/steps/02-push-create.md" \
     "ORCHESTRATOR GUARDRAIL (post-PR follow-ups)"
 
+# N1-115 — n1-pr bypass caught before FINALIZE and before the active-run pointer is cleared
+assert_contains "pr step: n1-pr Codex post-condition" \
+    "skills/n1-start/steps/pr.md" \
+    'MISSING=$(n1_review_check_run)'
+assert_contains "finalize: run check before active-run clear" \
+    "skills/n1-start/procedures/finalize.md" \
+    "n1_review_check_run >/dev/null"
+
 # Task 5 — brainstorm
 assert_contains "brainstorm: no source reads" \
     "skills/n1-start/steps/brainstorm.md" \
