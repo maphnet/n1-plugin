@@ -4,14 +4,17 @@
 
 **Local-merge path (Step 2b):** skip this entire file — deploy `skipped (local merge)`, verification `n/a`. Go to Step 4. Do not dispatch post-deploy verification.
 
-**Pre-check (no deploy workflow).** Fill `<workflowName>` from the entry's `finishWork.deployWatch.workflowName` (empty when unset):
+**Pre-check (no deploy workflow).** Fill `<workflowName>` from the entry's `finishWork.deployWatch.workflowName` (empty when unset) and `<sha>` with the merge commit SHA. Workflows are read at that commit, not the checkout:
 ```bash
-WN='<workflowName>'; WF=$(git rev-parse --show-toplevel 2>/dev/null)/.github/workflows
-if [ -n "$WN" ] || [ "$WF" = /.github/workflows ]; then echo precheck:watch
-elif [ ! -d "$WF" ]; then echo precheck:none
-else grep -qsE '(^|[^[:alnum:]_-])(push|workflow_run)([^[:alnum:]_-]|$)' "$WF"/*.y*ml; [ $? = 1 ] && echo precheck:none || echo precheck:watch; fi
+WN='<workflowName>'; S='<sha>'
+git cat-file -e "$S^{commit}" 2>/dev/null || git fetch -q origin "$S" 2>/dev/null
+L=$(git ls-tree --name-only "$S" .github/workflows/ 2>/dev/null); R=$?; F=$(grep -E '\.ya?ml$' <<<"$L")
+C=$(for f in $F; do git show "$S:$f" || exit 1; done 2>/dev/null); X=$?
+if [ -n "$WN" ] || [ $R != 0 ] || [ $X != 0 ]; then echo precheck:watch
+elif [ -z "$F" ]; then echo precheck:none
+else grep -qE '(^|[^[:alnum:]_-])(push|workflow_run)([^[:alnum:]_-]|$)' <<<"$C"; [ $? = 1 ] && echo precheck:none || echo precheck:watch; fi
 ```
-`precheck:none` → deploy status `skipped (no deploy workflow)`; no helper call, no post-deploy verification; go to Step 4. Only `push`/`workflow_run` triggers are recognised; a grep error or an empty workflows dir prints `precheck:watch`. Repos that deploy via another trigger set `finishWork.deployWatch.workflowName`, which forces the watch. Path/branch filters and reusable workflows are not parsed; those fall back to the grace below.
+`precheck:none` → deploy status `skipped (no deploy workflow)`; no helper call, no post-deploy verification; go to Step 4. Only `push`/`workflow_run` triggers are recognised; an unavailable SHA or any git/grep error prints `precheck:watch`. Repos that deploy via another trigger set `finishWork.deployWatch.workflowName`, which forces the watch. Path/branch filters and reusable workflows are not parsed; those fall back to the grace below.
 
 1. **Watch the merge-commit runs (5-minute registration grace, then up to 30 minutes total)** in one foreground call per chunk. First call: `<grace>` = `5`, `<remaining-minutes>` = `30`. Pass `workflowName` single-quoted as the fourth argument when set, else `''`. The fifth argument is always `any`: runs of every event on the merge commit count.
    ```bash
