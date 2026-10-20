@@ -25,31 +25,27 @@ qa.md missing/empty: write returned summary as fallback, `QA_DEGRADED=1`.
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"
 NEW_FUNC_UNTESTED=$(echo "${SIGNAL_LINE}" | grep -o 'new_functionality_untested=[^ ]*' | cut -d= -f2)
-BLOCK_UNTESTED=$(n1_config_val '.qa.blockUntestedFeatures' 'false')
 if ! grep -q "^### Evidence" "$N1_HOME/memory/$ID/qa.md" || [ "${QA_DEGRADED:-0}" = "1" ]; then
     QA_DEGRADED=1; n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified" "true"
     n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "QA degraded: unevidenced verdict"
 fi
-VERIFY_GATE=$(n1_config_val '.qa.verifyGate' 'true')
-if [ "${VERIFY_GATE}" = "true" ]; then
-    RUNNER_CMD=$(grep "^Runner command:" "$N1_HOME/memory/$ID/qa.md" | sed 's/Runner command: //' | tr -d '`')
-    if [ -z "$RUNNER_CMD" ]; then n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "QA verifyGate skipped: no 'Runner command:' in qa.md"
-    else
-        VERIFY_LOG="$N1_HOME/memory/$ID/qa-verify.log"; env -i HOME="$HOME" PATH="$PATH" bash -c "$RUNNER_CMD" > "$VERIFY_LOG" 2>&1; ACTUAL_EXIT=$?
-        REPORTED_EXIT=$(grep "^Exit code:" "$N1_HOME/memory/$ID/qa.md" | head -1 | grep -o '[0-9]*' | head -1)
-        [ "$ACTUAL_EXIT" != "$REPORTED_EXIT" ] && { n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "QA verifyGate mismatch: reported ${REPORTED_EXIT}, actual ${ACTUAL_EXIT}. Log: $VERIFY_LOG"; n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified" "true"; QA_DEGRADED=1; }
-    fi
+RUNNER_CMD=$(grep "^Runner command:" "$N1_HOME/memory/$ID/qa.md" | sed 's/Runner command: //' | tr -d '`')
+if [ -z "$RUNNER_CMD" ]; then n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "QA verifyGate skipped: no 'Runner command:' in qa.md"
+else
+    VERIFY_LOG="$N1_HOME/memory/$ID/qa-verify.log"; env -i HOME="$HOME" PATH="$PATH" bash -c "$RUNNER_CMD" > "$VERIFY_LOG" 2>&1; ACTUAL_EXIT=$?
+    REPORTED_EXIT=$(grep "^Exit code:" "$N1_HOME/memory/$ID/qa.md" | head -1 | grep -o '[0-9]*' | head -1)
+    [ "$ACTUAL_EXIT" != "$REPORTED_EXIT" ] && { n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "QA verifyGate mismatch: reported ${REPORTED_EXIT}, actual ${ACTUAL_EXIT}. Log: $VERIFY_LOG"; n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdict_unverified" "true"; QA_DEGRADED=1; }
 fi
 ```
-`NEW_FUNC_UNTESTED=true`: B-tier ledger row. `BLOCK_UNTESTED=true`: verdict FAIL. `QA_DEGRADED=1`: print `⚠ QA evidence missing`.
+`NEW_FUNC_UNTESTED=true`: B-tier ledger row. `QA_DEGRADED=1`: print `⚠ QA evidence missing`.
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/breakcheck.sh"
-BC_MODE=$(n1_config_val '.qa.breakCheck' 'bugs'); BC_MAX=$(n1_config_val '.qa.breakCheckMaxTests' '5')
+BC_MODE=$(n1_config_val '.qa.breakCheck'); BC_MODE=${BC_MODE:-bugs}; BC_MAX=$(n1_config_val '.qa.breakCheckMaxTests'); BC_MAX=${BC_MAX:-5}
 TASK_TYPE=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "task_type")
 TESTS_ADDED=$(n1_read_signal "$N1_HOME/memory/$ID/qa.md" "tests_added"); TESTS_ADDED=${TESTS_ADDED:-0}
-BP_FILE="$N1_HOME/memory/$ID/branch-point"; BC_BASE=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' 'main' )
+BP_FILE="$N1_HOME/memory/$ID/branch-point"; BC_DEF=$(n1_config_val '.git.defaultBranch'); BC_BASE=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || echo "${BC_DEF:-main}" )
 BC_LOG="$N1_HOME/memory/$ID/break-check.log"; BREAK_CHECK_TQ=""; BC_VERDICT="skipped"
 REG_LINE=$(grep -m1 '^Regression test:' "$N1_HOME/memory/$ID/qa.md" || true)
 REG_NAME=$(echo "$REG_LINE" | sed 's/^Regression test: *//; s/ *|.*//' | tr -d '`'); REG_CMD=$(echo "$REG_LINE" | sed 's/^[^|]*| *//' | tr -d '`')
