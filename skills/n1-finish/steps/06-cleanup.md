@@ -1,8 +1,8 @@
 # Step 6: Cleanup & Memory
 
-1. **Local branch (branch mode, merged PR; runs last in § One Cleanup Call, after the worktree):** if currently on the feature branch: `git checkout <defaultBranch> && git pull`. Then `git branch -d <branch>` — safe delete only; if `-d` refuses (unmerged from the local default's perspective, e.g. squash merge before pull), leave the branch and note why. Never `-D`. Local-merge path: already on `<defaultBranch>` — skip `git pull` (the merge is local-only and unpushed); `-d` refusing after a squash is expected — keep the branch and note it.
+1. **Local branch (runs last in § One Cleanup Call, after the worktree):** branch mode: if on the feature branch, `git checkout <defaultBranch> && git pull` first (local merge: skip `git pull`). Then `git branch -d`, with `-D` only when the tip equals the merged PR head (see tokens below); otherwise keep it and report why.
 2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it. Local-merge path: n/a (nothing was pushed).
-3. **Worktree (runs before the branch delete in § One Cleanup Call):** Only when the current branch is the finished PR's head branch (`HEAD_REF`, the PR's `headRefName`; an unrelated ticket's worktree is never touched, status `worktree:kept-other`). If the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, use `worktree.cleanup` (read at entry). If it is `"after-pr"` or `"after-merge"`, the PR has already been merged — both values mean **remove the worktree now**: switch to the main checkout first (`MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")`), then `git worktree remove <path> --force`. Success → "Worktree `<ID>` removed." Failure → warn "Worktree removal failed: `<error>`", point at `/n1:n1-clean`.
+3. **Worktree (runs before the branch delete in § One Cleanup Call):** only when the current branch is the finished PR's head branch (`HEAD_REF`); an unrelated ticket's worktree is never touched. Removal rules are in the paragraph below the block.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish
@@ -37,21 +37,17 @@ N1_FINISH_BLOCK_9c1e
   n1_active_run_clear
   echo memory:done
 else echo memory:none; fi
-BR=$(git rev-parse --abbrev-ref HEAD); TOP=$(git rev-parse --show-toplevel)
-MAIN_CHECKOUT=$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd -P)")
-if [ -f "$TOP/.git" ]; then   # linked worktree: never checkout the default branch here
-  W=$(n1_config_val '.worktree.cleanup'); RM=0
-  case "$TOP" in */"$(n1_worktree_root)"/*) { [ "$W" = after-pr ] || [ "$W" = after-merge ]; } && RM=1;; esac
-  if [ "$BR" != "$HR" ]; then echo worktree:kept-other
-  elif [ "$RM" = 1 ]; then cd "$MAIN_CHECKOUT" && git worktree remove "$TOP" --force && echo worktree:removed || echo worktree:remove-failed; else echo worktree:kept; fi
-else
+PR="<PR number; empty on local merge>"; OID=""
+case "$PR" in *[!0-9]*) echo pr:invalid; exit 1;; esac
+[ -n "$PR" ] && OID=$(gh pr view "$PR" --json state,headRefOid -q 'select(.state=="MERGED").headRefOid' 2>/dev/null)   # empty unless merged
+BR=$(git rev-parse --abbrev-ref HEAD)
+if [ ! -f "$(git rev-parse --show-toplevel)/.git" ]; then   # plain checkout (a linked worktree never checks out the default branch)
   [ "$BR" = "$DB" ] || [ "$BR" != "$HR" ] || { git checkout "$DB" && { [ "$LOCAL" = 1 ] || git pull; } || echo checkout:failed; }
-  echo worktree:none
 fi
-if [ -n "$HR" ] && [ "$HR" != "$DB" ]; then git branch -d -- "$HR" >/dev/null 2>&1 && echo branch:deleted || echo branch:kept; else echo branch:none; fi
+n1_finish_cleanup "$HR" "$(n1_config_val '.worktree.cleanup')" "$OID" "$DB"
 ```
 
-`worktree:kept-other` → the current checkout is another ticket's; nothing was removed or checked out (the PR's own local branch is still deleted with `-d` when possible). `worktree:remove-failed` → warn "Worktree removal failed", point at `/n1:n1-clean`. `checkout:failed` → warn that the default branch could not be checked out or pulled. `branch:kept` → note that `-d` refused (never `-D`). An external worktree (`n1_is_external_worktree`) is outside `/$(n1_worktree_root)/`, so it stays `worktree:kept`.
+Tokens (from `n1_finish_cleanup` in `lib/config.sh`; print them verbatim in the Report's `Cleanup:` line): `worktree:removed | none | kept-other | kept (<dirty|unmerged|manual>) | remove-failed (<error>)` and `branch:deleted | none | kept (<worktree kept|manual|not merged>)`. `kept-other` → the current checkout is another ticket's; nothing was removed (the PR's own branch is still deleted when possible). `checkout:failed` → warn that the default branch could not be checked out or pulled. N1-managed worktrees (under `/$(n1_worktree_root)/`) are removed with `--force` when `worktree.cleanup` is `after-merge`/`after-pr`; external worktrees (Orca etc.) are removed only when the tree is clean and HEAD is in the merged PR head (`OID`, else the local default branch), never forced. The branch uses `git branch -d`, falling back to `-D` only when its tip equals the merged PR's `OID` (squash/rebase merge). `worktree.cleanup: manual` keeps both. Kept external worktrees are the user's to remove (do not suggest `/n1:n1-clean`); `remove-failed` on an N1-managed one → warn and point at `/n1:n1-clean`.
 
 ## Report (final message)
 
@@ -65,7 +61,7 @@ Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | non
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
-Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | worktree kept (<reason>) — run /n1:n1-clean | nothing to do>
+Cleanup: <the status tokens, e.g. worktree:removed, branch:deleted | worktree:kept (dirty), branch:kept (worktree kept) | worktree:none, branch:none>
 Next tickets: <ID title [status]; ... | none | lookup failed (<reason>)>
 Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
 ```

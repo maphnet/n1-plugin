@@ -101,5 +101,13 @@ git -C "$M" checkout -q main; git -C "$M" merge -q --no-ff -m m10 f10; git -C "$
 assert_eq "C10: branch mode deleted" "worktree:none,branch:deleted" "$(git -C "$M" checkout -q main; run "$M" f10 after-merge "$(tip f10)")"
 assert_eq "C10: re-run is a no-op" "worktree:none,branch:none" "$(run "$M" f10 after-merge "")"
 
+# Static: Step 6 delegates to the helper and no longer exempts external worktrees.
+R="$SCRIPT_DIR/.."; STEP6="$R/skills/n1-finish/steps/06-cleanup.md"
+yn() { "$@" && echo yes || echo no; }
+assert_eq "S1: step 6 calls n1_finish_cleanup" yes "$(yn grep -qF 'n1_finish_cleanup "$HR"' "$STEP6")"
+assert_eq "S2: step 6 has no inline worktree remove / -D" no "$(yn grep -qE 'git worktree remove|git branch -D' "$STEP6")"
+assert_eq "S3: step 6 fetches headRefOid in the cleanup block" yes "$(yn grep -qF 'headRefOid' "$STEP6")"
+assert_eq "S4: architecture.md drops external exemption" no "$(yn grep -qF 'Does not apply to external worktrees' "$R/references/architecture.md")"
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
