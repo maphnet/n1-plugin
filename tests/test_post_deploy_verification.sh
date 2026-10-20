@@ -109,5 +109,23 @@ check "verifier inherits dynamic observability tools" 'tools intentionally omitt
 check "verifier keeps read-only boundary with artifact exception" 'only to read.*read-only.*sole write' agents/post-deploy-verifier.md
 check "verifier uses investigation effort" '^effort: medium$' agents/post-deploy-verifier.md
 
+# N1-111: deploy watch is one bounded blocking wait per call, never one model turn per poll.
+MERGE=skills/n1-finish/steps/02-merge.md
+check_fixed "deploy watch uses the poll helper for every event" "n1_wait_release_runs <sha> <grace> <remaining-minutes> '<workflowName>' any" "$DEPLOY"
+check_fixed "short-timeout grace leaves room before the deadline" '`timeoutMinutes − 1` (minimum `0`)' "$DEPLOY"
+check_fixed "mixed success and skipped is not a succeeded deploy" 'token `success` and every run line is `success`' "$DEPLOY"
+check_absent "deploy watch has no hand-polled sleep loop" 'sleep 30' "$DEPLOY"
+check_fixed "deploy watch must not be backgrounded" 'Never background it' "$DEPLOY"
+check_fixed "deploy watch forbids scheduled wakeups and per-poll turns" 'Do not use scheduled wakeups or one model turn per poll' "$DEPLOY"
+check "unreachable gh stops with the re-run message" 'unknown.*re-run `/n1:n1-finish`' "$DEPLOY"
+check_fixed "merge wait forbids scheduled wakeups" 'never use scheduled wakeups' "$MERGE"
+check_fixed "deploy watch runs with the maximum command timeout" 'maximum command timeout (600000 ms)' "$DEPLOY"
+check_fixed "merge wait runs with the maximum command timeout" 'maximum command timeout (600000 ms)' "$MERGE"
+if grep -rqF ScheduleWakeup skills/n1-finish; then
+    echo "FAIL: n1-finish names no wakeup tool"; FAIL=$((FAIL + 1))
+else
+    echo "PASS: n1-finish names no wakeup tool"; PASS=$((PASS + 1))
+fi
+
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

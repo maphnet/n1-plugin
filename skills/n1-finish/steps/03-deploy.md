@@ -8,22 +8,25 @@
 
 If `deployWatch.enabled` is `false` → skip to Step 4 with deploy status `skipped (not configured)`. Do not dispatch post-deploy verification.
 
-1. **Registration grace (up to 5 min):** poll for runs on the merge commit — separate commands, `sleep 30` between:
+1. **Watch the merge-commit runs (5-minute registration grace, then up to `timeoutMinutes` total)** in one foreground call per chunk. First call: `<grace>` = `5`, or `timeoutMinutes − 1` (minimum `0`) when `timeoutMinutes` is below 6, so absence can be confirmed before the deadline, `<remaining-minutes>` = `deployWatch.timeoutMinutes` (default `30`). Pass `workflowName` single-quoted as the fourth argument when set, else `''`. The fifth argument is always `any`: runs of every event on the merge commit count.
    ```bash
-   gh run list --commit <sha> --json databaseId,name,status,conclusion,url
+   source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/poll.sh"
+   n1_wait_release_runs <sha> <grace> <remaining-minutes> '<workflowName>' any
    ```
-   When `workflowName` is set, add `--workflow "<workflowName>"`.
-   - No runs after 5 min → deploy status `none triggered` ("no deployment workflow ran for this merge" — when `workflowName` is set, name it). This is not a failure — continue to Step 4. Do not dispatch post-deploy verification.
-2. **Watch until completion (up to `timeoutMinutes` total):** poll the same command; runs are done when every run has `status: completed`.
+   The helper retries failed `gh` calls (TLS timeouts) as no information, never as "no runs" or a deploy failure, and returns within 8 minutes. Run every call with the maximum command timeout (600000 ms): the default is shorter than one chunk and would kill the wait. Never background it and never end the turn while it prints `pending` or `unknown`: re-invoke with `<remaining-minutes>` reduced by 8 per prior call, until it prints `none`, `success`, `failed` or `skipped`, or the budget is spent. `<grace>` = `0` on re-invocation only after a prior `pending`; after a prior `unknown` keep `5`. A `none` right after a prior `pending` means the runs vanished transiently: treat it as `unknown` and re-invoke. Do not use scheduled wakeups or one model turn per poll for this wait.
+2. **Read the result:** the first output line is the token; after `pending`, `success`, `failed` and `skipped`, each further line is `<conclusion-or-status> <run URL>`.
 3. Outcomes:
-   - **All `conclusion: success`** → deploy status `succeeded`. Run Step 3b before Step 4.
-   - **Any `failure`** → fetch logs: `gh run view <databaseId> --log-failed 2>&1 | head -200`. Report the failed run + URL. Add tracker comment (when tracker configured): "Deployment failed after merging <PR URL>: <run URL>". **Do not close the ticket. STOP.** Do not dispatch post-deploy verification.
-   - **Any `cancelled`, `neutral`, `skipped`, or other non-`success` conclusion** → deploy status `not deployed (<conclusion>)`. Report the affected run URLs, do not dispatch post-deploy verification, and continue to Step 4. Completed non-success runs are terminal; do not keep polling them.
-   - **Timeout with runs still in progress** → report the still-running run URLs; "Deploy still running — re-run `/n1:n1-finish` to resume watching." **STOP.** Do not dispatch post-deploy verification.
+   - **All `conclusion: success`** (token `success` and every run line is `success`) → deploy status `succeeded`. Run Step 3b before Step 4.
+   - **Any `failure`** (token `failed` with a `failure` or `timed_out` run line) → fetch logs: `gh run view <run-id> --log-failed 2>&1 | head -200` (`<run-id>` is the number at the end of the run URL). Report the failed run + URL. Add tracker comment (when tracker configured): "Deployment failed after merging <PR URL>: <run URL>". **Do not close the ticket. STOP.** Do not dispatch post-deploy verification.
+   - **Any `cancelled`, `neutral`, `skipped`, or other non-`success` conclusion** (token `failed` without a `failure`/`timed_out` line, token `skipped`, or token `success` with any `neutral`/`skipped` run line beside the successes) → deploy status `not deployed (<conclusion>)`. Report the affected run URLs, do not dispatch post-deploy verification, and continue to Step 4. Completed non-success runs are terminal; do not keep polling them. If any run line is still `in_progress`, `queued`, `waiting` or `pending`, the deploy is still running: report those run URLs; "Deploy still running — re-run `/n1:n1-finish` to resume watching." **STOP.**
+   - **Token `none`** → deploy status `none triggered` ("no deployment workflow ran for this merge" — when `workflowName` is set, name it). This is not a failure — continue to Step 4. Do not dispatch post-deploy verification.
+   - **Timeout with runs still in progress** (budget spent, last token `pending`) → report the still-running run URLs; "Deploy still running — re-run `/n1:n1-finish` to resume watching." **STOP.** Do not dispatch post-deploy verification.
+   - **Budget spent, last token `unknown`** (including a `none` that followed a `pending`) → deploy status `could not verify (gh unreachable)`; this is not a deploy failure. "Could not verify the deploy — re-run `/n1:n1-finish` to resume watching." **STOP.** Do not dispatch post-deploy verification.
 
 # Step 3b: Post-Deploy Verification
 
-Run this section only after Step 3 records deploy status `succeeded`. A verifier `FAIL` or `SKIPPED` is informational and still proceeds to Step 4; `FAIL` and `SKIPPED` do not prevent Step 4 from closing the ticket. Only the deployment failure and timeout exits above stop before closure.
+Run this section only after Step 3 records deploy status `succeeded`. A verifier `FAIL` or `SKIPPED` is informational and still proceeds to Step 4; `FAIL` and `SKIPPED` do not prevent Step 4 from closing the ticket. Only the deployment failure, timeout and could-not-verify exits above stop before closure.
 
 Set the canonical memory paths. All paths passed to the verifier are absolute, including optional files that do not exist: `ticket.md`, `analysis.md`, `local-test-plan.md`, `post-deploy-pr.diff`, `config.json`, and `dev-access.md`.
 
