@@ -59,9 +59,9 @@ lacks "typical: skips 03b" "=== steps/03b-ssh-deploy"
 lacks "typical: skips done-status recovery" "=== references/done-status-recovery"
 if grep -qxF '(missing)' <<<"$OUT"; then no "typical: every printed file exists"; else ok "typical: every printed file exists"; fi
 
-lacks "typical: no headless flag" "headless:yes"
+if grep -qxF "headless:yes" <<<"$OUT"; then no "typical: no headless flag"; else ok "typical: no headless flag"; fi
 HL=1 run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
-has "headless: flag printed" "headless:yes"
+if grep -qxF "headless:yes" <<<"$OUT"; then ok "headless: flag printed"; else no "headless: flag printed"; fi
 HL=
 
 # 2. Conditional files: deploy watch on, ssh delivery, done status absent.
