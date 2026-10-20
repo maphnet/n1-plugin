@@ -8,7 +8,8 @@ PASS=0; FAIL=0
 ok() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 no() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
-HITS=$(grep -rnE "n1_config_val +['\"][^'\"]+['\"] +'" skills agents lib hooks scripts || true)
+# A 2nd arg that starts with a quote counts unless it is a path or variable ("$N1_HOME/config.json").
+HITS=$(grep -rnE "n1_config_val +['\"][^'\"]+['\"] +['\"]" skills agents lib hooks scripts | grep -vE "n1_config_val +['\"][^'\"]+['\"] +\"[\$/~]" || true)
 if [ -z "$HITS" ]; then ok "n1_config_val 2nd arg is never a literal"; else no "n1_config_val literal 2nd arg (use \${VAR:-default}):"; echo "$HITS"; fi
 
 PRUNE=skills/n1-init/steps/01-prerequisites.md
@@ -75,9 +76,10 @@ DEAD=(
   codex.enabled
   codexReview.enabled
   tracker.statuses.backlog
+  'branch mode'
 )
 for k in "${DEAD[@]}"; do
-  HITS=$(grep -rnF -- "$k" skills lib hooks scripts defaults pipeline.json references README.md CLAUDE.md | grep -v "^$PRUNE:" || true)
+  HITS=$(grep -rnF -- "$k" skills agents lib hooks scripts defaults pipeline.json references README.md CLAUDE.md | grep -v "^$PRUNE:" || true)
   if [ -z "$HITS" ]; then ok "removed: $k"; else no "still referenced: $k"; echo "$HITS"; fi
 done
 

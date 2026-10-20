@@ -11,7 +11,7 @@ if [ -n "$WN" ] || [ "$WF" = /.github/workflows ]; then echo precheck:watch
 elif [ ! -d "$WF" ]; then echo precheck:none
 else grep -qsE '(^|[^[:alnum:]_-])(push|workflow_run)([^[:alnum:]_-]|$)' "$WF"/*.y*ml; [ $? = 1 ] && echo precheck:none || echo precheck:watch; fi
 ```
-`precheck:none` → deploy status `skipped (no deploy workflow)`; no helper call, no post-deploy verification; go to Step 4. A grep error or an empty workflows dir prints `precheck:watch` (never a false skip). Path/branch filters and reusable workflows are not parsed; those fall back to the grace below.
+`precheck:none` → deploy status `skipped (no deploy workflow)`; no helper call, no post-deploy verification; go to Step 4. Only `push`/`workflow_run` triggers are recognised; a grep error or an empty workflows dir prints `precheck:watch`. Repos that deploy via another trigger set `finishWork.deployWatch.workflowName`, which forces the watch. Path/branch filters and reusable workflows are not parsed; those fall back to the grace below.
 
 1. **Watch the merge-commit runs (5-minute registration grace, then up to 30 minutes total)** in one foreground call per chunk. First call: `<grace>` = `5`, `<remaining-minutes>` = `30`. Pass `workflowName` single-quoted as the fourth argument when set, else `''`. The fifth argument is always `any`: runs of every event on the merge commit count.
    ```bash

@@ -3,7 +3,7 @@
 # Run: bash tests/test_deploy_precheck.sh
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SNIP=$(awk '/^```bash/{b=1;next} b&&/^```/{exit} b' "$REPO/skills/n1-finish/steps/03-deploy.md")
+SNIP=$(awk '/^\*\*Pre-check/{p=1} p&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$REPO/skills/n1-finish/steps/03-deploy.md")
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 PASS=0; FAIL=0
 chk() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 -- expected '$2', got '$3'"; FAIL=$((FAIL+1)); fi; }
@@ -20,6 +20,17 @@ printf 'on:\n  push:\n    branches: [main]\n' > "$T/r/.github/workflows/deploy.y
 chk "push trigger -> watch" "precheck:watch" "$(pc '')"
 rm "$T/r/.github/workflows/deploy.yaml"; printf 'on:\n  workflow_run:\n    workflows: [CI]\n' > "$T/r/.github/workflows/cd.yml"
 chk "workflow_run trigger -> watch" "precheck:watch" "$(pc '')"
+rm "$T/r/.github/workflows/"*; printf 'on: push\n' > "$T/r/.github/workflows/a.yml"
+chk "on: push -> watch" "precheck:watch" "$(pc '')"
+printf 'on: [push]\n' > "$T/r/.github/workflows/a.yml"
+chk "on: [push] -> watch" "precheck:watch" "$(pc '')"
+rm "$T/r/.github/workflows/"*; printf 'on: push\n' > "$T/r/.github/workflows/a.yaml"
+chk ".yaml file -> watch" "precheck:watch" "$(pc '')"
+# Accepted false positive: any word 'push' counts (watch is the safe side).
+rm "$T/r/.github/workflows/"*; printf 'on: [workflow_dispatch]\njobs:\n  t:\n    steps:\n      - run: git push\n' > "$T/r/.github/workflows/a.yml"
+chk "run: git push under manual trigger -> watch (accepted false positive)" "precheck:watch" "$(pc '')"
+printf 'on: [workflow_dispatch]\n' > "$T/r/.github/workflows/a.yml"
+chk "manual-only trigger -> none" "precheck:none" "$(pc '')"
 rm "$T/r/.github/workflows/"*; chk "empty workflows dir -> watch (unknown)" "precheck:watch" "$(pc '')"
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

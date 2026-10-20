@@ -44,7 +44,7 @@ Emit: `<ID> · review fix cycle <N>/<MAX>`. Return to Step 7. Bound: `review.max
 source ~/.n1/preamble.sh
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "clean_passes"
 ```
-`clean_passes < MIN_CLEAN` (default 1) → back to Step 7. `clean_passes >= MIN_CLEAN` → proceed.
+`clean_passes < 1` → back to Step 7. `clean_passes >= 1` → proceed.
 
 **Full-suite regression check** (once at PASS): detect `package.json`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod`, `Makefile` (first match). None→skip. Found:
 ```bash

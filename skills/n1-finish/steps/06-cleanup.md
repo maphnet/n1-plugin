@@ -1,6 +1,6 @@
 # Step 6: Cleanup & Memory
 
-1. **Local branch (runs last in § One Cleanup Call, after the worktree):** branch mode: if on the feature branch, `git checkout <defaultBranch> && git pull` first (local merge: skip `git pull`). Then `git branch -d`, with `-D` only when the tip equals the merged PR head (see tokens below); otherwise keep it and report why.
+1. **Local branch (runs last in § One Cleanup Call, after the worktree):** plain checkout (not a linked worktree): if on the feature branch, `git checkout <defaultBranch> && git pull` first (local merge: skip `git pull`). Then `git branch -d`, with `-D` only when the tip equals the merged PR head (see tokens below); otherwise keep it and report why.
 2. **Remote branch:** `--delete-branch` already handled it on the auto-merge path; on the reviewer-merge path leave remote deletion to the repo's settings — do not force it. Local-merge path: n/a (nothing was pushed).
 3. **Worktree (runs before the branch delete in § One Cleanup Call):** only when the current branch is the finished PR's head branch (`HEAD_REF`); an unrelated ticket's worktree is never touched. Removal rules are in the paragraph below the block.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
