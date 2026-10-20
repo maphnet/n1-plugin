@@ -112,6 +112,8 @@ check "verifier uses investigation effort" '^effort: medium$' agents/post-deploy
 # N1-111: deploy watch is one bounded blocking wait per call, never one model turn per poll.
 MERGE=skills/n1-finish/steps/02-merge.md
 check_fixed "deploy watch uses the poll helper for every event" "n1_wait_release_runs <sha> <grace> <remaining-minutes> '<workflowName>' any" "$DEPLOY"
+check_fixed "short-timeout grace leaves room before the deadline" '`timeoutMinutes − 1` (minimum `0`)' "$DEPLOY"
+check_fixed "mixed success and skipped is not a succeeded deploy" 'token `success` and every run line is `success`' "$DEPLOY"
 check_absent "deploy watch has no hand-polled sleep loop" 'sleep 30' "$DEPLOY"
 check_fixed "deploy watch must not be backgrounded" 'Never background it' "$DEPLOY"
 check_fixed "deploy watch forbids scheduled wakeups and per-poll turns" 'Do not use scheduled wakeups or one model turn per poll' "$DEPLOY"
