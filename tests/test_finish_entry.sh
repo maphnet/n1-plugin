@@ -73,8 +73,6 @@ has "conditional: lists 03-deploy" "steps/03-deploy.md"
 has "conditional: lists 03b" "steps/03b-ssh-deploy.md"
 has "conditional: lists done-status recovery" "references/done-status-recovery.md"
 SZ=$(wc -c <<<"$OUT"); if [ "$SZ" -lt 20000 ]; then ok "conditional: output $SZ bytes < 20000"; else no "conditional: output $SZ bytes < 20000"; fi
-run '{"finishWork":{"closeTicket":false},"tracker":{"mcp":"jira"}}' 'deploy_pending: false'
-lacks "closeTicket=false: no done-status recovery" "done-status-recovery.md"
 
 # 3. Pending-deploy resume with a valid recorded SHA skips the PR lookup.
 run '{"git":{"defaultBranch":"main"}}' "deploy_pending: true

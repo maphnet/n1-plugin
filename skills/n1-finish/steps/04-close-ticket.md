@@ -15,11 +15,10 @@
    n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" deploy_pending false || true
    ```
 
-**Hard-skip gates** — when either holds, skip immediately with the stated reason and go to Step 5:
-- `closeTicket` is `false` → "Ticket close skipped: closeTicket is false."
+**Hard-skip gate** — when it holds, skip immediately with the stated reason and go to Step 5:
 - `tracker.mcp` is null → "Ticket close skipped: no tracker configured."
 
-**Runtime recovery** — when the hard-skip gates pass but `tracker.statuses.done` is absent from config: follow `<N1_ROOT>/skills/n1-finish/references/done-status-recovery.md` (listed in `read-also:` at entry in this case) for the full detection and prompt procedure.
+**Runtime recovery** — when the hard-skip gate passes but `tracker.statuses.done` is absent from config: follow `<N1_ROOT>/skills/n1-finish/references/done-status-recovery.md` (listed in `read-also:` at entry in this case) for the full detection and prompt procedure.
 
 **When `tracker.statuses.done` was already present in config, or after successful recovery above, proceed:**
 

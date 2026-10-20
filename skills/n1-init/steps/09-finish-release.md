@@ -2,42 +2,20 @@
 
 ## Finish Work Configuration
 
-Ask whether N1 should run a finish step after CI: verify/perform the PR merge, optionally watch the deployment, and close the tracker ticket. **Default is No.**
+Interactive runs stop at PR + CI; the human merges, then runs n1-finish to watch the deployment and close the tracker ticket.
 
-Only ask when a tracker is configured — without one, finish work has nothing useful to do beyond merge verification; write `"finishWork": { "enabled": false, "postDeployVerification": { "enabled": false } }` silently.
+Only ask when a tracker is configured — without one, write `"finishWork": { "postDeployVerification": { "enabled": false } }` silently.
 
-```
-Enable the finish step in the automated pipeline?
-After CI passes, N1 can verify the PR merge, watch the deployment, and close the ticket.
-1 — Yes
-2 — No (default)
-```
+Ask:
 
-**If 2 (No) or default:**
-```json
-{
-  "finishWork": {
-    "enabled": false,
-    "postDeployVerification": { "enabled": false }
-  }
-}
-```
-
-**If 1 (Yes)**, ask the follow-ups:
-
-```
-Auto-merge the PR on finish?
-1 — No, a reviewer merges (default)
-2 — Yes, N1 merges via gh pr merge --auto (branch protection still applies)
-```
-
-If auto-merge is Yes:
 ```
 Merge method?
 1 — squash (default)
 2 — merge
 3 — rebase
 ```
+
+The method applies to queue merges and the `prMode: "skip"` local merge.
 
 ```
 Watch the automated deployment after merge?
@@ -77,13 +55,11 @@ If **Yes**, create the editable local-only `$N1_HOME/dev-access.md` template. As
 
 If **No**, set `postDeployVerification.enabled` to `false` and do not create `dev-access.md`. This choice does not change `localTesting`; an older config that leaves this nested key absent retains its legacy smoke fallback.
 
-Write the block (omit `deployWatch.workflowName` when empty; `closeTicket` defaults to true — no question):
+Write the block (omit `deployWatch.workflowName` when empty):
 ```json
 {
   "finishWork": {
-    "enabled": true,
-    "mergeOnFinish": "<from auto-merge question>",
-    "mergeMethod": "<from merge-method question, \"squash\" when not asked>",
+    "mergeMethod": "<from merge-method question>",
     "deployWatch": {
       "enabled": "<from deploy-watch question>",
       "workflowName": "<name or null>",
@@ -91,9 +67,7 @@ Write the block (omit `deployWatch.workflowName` when empty; `closeTicket` defau
     },
     "postDeployVerification": {
       "enabled": "<from post-deploy verification question, false when deploy watch is disabled>"
-    },
-    "closeTicket": true,
-    "waitForMergeMinutes": 10
+    }
   }
 }
 ```
@@ -103,17 +77,14 @@ Write the block (omit `deployWatch.workflowName` when empty; `closeTicket` defau
 If `finishWork` already exists in the current config, show current state and offer:
 ```
 Current finish work:
-  enabled       → <true/false>
-  mergeOnFinish → <true/false>
-  deployWatch   → <true/false>
+  mergeMethod → <squash/merge/rebase>
+  deployWatch → <true/false>
 
 1 — Keep current
-2 — Enable / change settings (re-ask the questions above)
-3 — Disable
+2 — Change settings (re-ask the questions above)
 ```
 - **1** → leave unchanged.
 - **2** → re-run the questions, overwrite the block.
-- **3** → set `enabled: false`, keep the other keys.
 
 If `finishWork.postDeployVerification.enabled` is absent:
 - When `finishWork.deployWatch.enabled` is `true`, offer the **Post-deploy verification** questions above without re-asking merge or deploy-watch settings. **No** leaves the nested key absent so legacy smoke behavior continues; **Yes** writes the nested key and creates or updates `$N1_HOME/dev-access.md`.

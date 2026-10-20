@@ -97,8 +97,8 @@ assert_eq "queue: gh api graphql merge denied"      2 "$(gate RUN1 "$WT" "gh api
 assert_eq "queue: gh api graphql auto-merge denied" 2 "$(gate RUN1 "$WT" "gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:\"x\"}){clientMutationId}}'")"
 assert_eq "queue: push HEAD:main denied"            2 "$(gate RUN1 "$WT" 'git push origin HEAD:main')"
 # Known gap (raw text scan, no branch resolution): a push/merge that never names the default
-# branch in the command text isn't caught -- the skill-level n1_finish_enabled/n1_merge_allowed
-# gates are the primary control for this shape; the hook is the backstop for the common case
+# branch in the command text isn't caught -- the skill-level n1_merge_allowed
+# gate is the primary control for this shape; the hook is the backstop for the common case
 # (the model naming the branch or PR explicitly). See the Case 3 docstring.
 assert_eq "queue: bare push (no branch named) is a known gap, not denied" 0 "$(gate RUN1 "$GR" 'git push 2>&1')"
 assert_eq "queue: git -C main merge denied"         2 "$(gate RUN1 "$WT" "git -C $GR merge --squash feature")"

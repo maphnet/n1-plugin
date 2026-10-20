@@ -33,6 +33,12 @@ DEAD=(
   'kept (manual)'
   telemetry.enabled
   telem_enabled
+  n1_finish_enabled
+  finishWork.enabled
+  finishWork.mergeOnFinish
+  waitForMergeMinutes
+  closeTicket
+  gate_finish
 )
 for k in "${DEAD[@]}"; do
   HITS=$(grep -rnF -- "$k" skills lib hooks scripts defaults pipeline.json | grep -v "^$PRUNE:" || true)

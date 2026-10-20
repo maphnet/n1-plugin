@@ -89,7 +89,7 @@ All checks `conclusion: SUCCESS`/`NEUTRAL`/`SKIPPED`:
 - **Finish chaining (pipeline only):** when invoked from n1-start, decide with the same helper as the n1-start finish gate (so CI and no-CI repos reach the same outcome):
   ```bash
   source ~/.n1/preamble.sh
-  if n1_finish_enabled; then echo "chain:yes"; else echo "chain:no"; fi
+  if n1_merge_allowed; then echo "chain:yes"; else echo "chain:no"; fi
   ```
   `chain:yes` → continue into n1:n1-finish. `chain:no` → do not chain. Standalone runs never chain. Never chain into release.
 - Go to **Step 7** (in 02-fix.md).

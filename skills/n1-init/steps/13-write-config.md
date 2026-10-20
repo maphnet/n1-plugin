@@ -30,7 +30,6 @@ Create all files:
     "mode": "test"
   },
   "finishWork": {
-    "enabled": false,
     "postDeployVerification": {
       "enabled": false
     }

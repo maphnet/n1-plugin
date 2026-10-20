@@ -33,9 +33,9 @@ SSH_CFG='{"delivery":{"mode":"ssh","command":"true"}}'
 # --- n1_delivery_action -------------------------------------------------------
 test_action() {
     assert_eq "action: empty config -> none" "none" "$(action '{}')"
-    assert_eq "action: PR project (prMode ready) -> none" "none" "$(action '{"git":{"prMode":"ready"},"finishWork":{"enabled":true}}')"
+    assert_eq "action: PR project (prMode ready) -> none" "none" "$(action '{"git":{"prMode":"ready"}}')"
     assert_eq "action: prMode skip without delivery -> none" "none" \
-        "$(action '{"git":{"prMode":"skip"},"finishWork":{"enabled":true,"mergeOnFinish":true}}')"
+        "$(action '{"git":{"prMode":"skip"}}')"
     assert_eq "action: empty mode -> none" "none" "$(action '{"delivery":{"mode":"","command":"true"}}')"
     assert_eq "action: unknown mode -> none" "none" "$(action '{"delivery":{"mode":"rsync","command":"true"}}')"
     assert_eq "action: ssh interactive -> execute" "execute" "$(action "$SSH_CFG")"
@@ -61,7 +61,7 @@ test_action_no_jq() {
     printf '{"delivery":{"mode":"ssh","command":"true"}}\n' > "$TEST_CONFIG"
     assert_eq "action: compact ssh + no jq -> runbook (not none)" "runbook" \
         "$(PATH="$nopath" n1_delivery_action)"
-    printf '{"finishWork":{"enabled":true}}\n' > "$TEST_CONFIG"
+    printf '{"git":{"prMode":"ready"}}\n' > "$TEST_CONFIG"
     assert_eq "action: no delivery block + no jq -> none" "none" \
         "$(PATH="$nopath" n1_delivery_action)"
     rm -rf "$nopath"
@@ -162,18 +162,15 @@ test_runbook_steps() {
 # --- Non-regression: merge/finish gates ignore the delivery block -------------
 gate() {
     echo "$1" > "$TEST_CONFIG"
-    local m=0 f=0
-    if n1_merge_allowed; then m=1; fi
-    if n1_finish_enabled; then f=1; fi
-    echo "$m$f"
+    if n1_merge_allowed; then echo 1; else echo 0; fi
 }
 
 test_gates_unchanged() {
     local base with
     for base in '{}' \
-        '{"finishWork":{"enabled":true,"mergeOnFinish":true}}' \
-        '{"git":{"prMode":"skip"},"finishWork":{"enabled":true,"mergeOnFinish":true},"queue":{"mergeOnFinish":true}}' \
-        '{"git":{"prMode":"ready"},"finishWork":{"enabled":false}}'; do
+        '{"queue":{"mergeOnFinish":true}}' \
+        '{"git":{"prMode":"skip"},"queue":{"mergeOnFinish":true}}' \
+        '{"git":{"prMode":"ready"}}'; do
         with=$(echo "$base" | jq -c '. + {"delivery":{"mode":"ssh","command":"true"}}')
         assert_eq "gates unchanged (interactive): $base" "$(gate "$base")" "$(gate "$with")"
         assert_eq "gates unchanged (queue): $base" "$(N1_QUEUE_RUN_ID=R1 gate "$base")" "$(N1_QUEUE_RUN_ID=R1 gate "$with")"

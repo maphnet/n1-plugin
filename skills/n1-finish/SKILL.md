@@ -45,13 +45,13 @@ fi
 echo "gh:$G branch=$B"
 P=$(c git.prMode); [ -n "$P" ] || { [ "$(c git.draftPR)" = false ] && P=ready || P=draft; }
 echo "id=$ID prMode=$P mechanicalPrompts=$(n1_autonomy_val mechanicalPrompts)"
-for k in finishWork.{mergeMethod,waitForMergeMinutes,closeTicket,deployWatch.enabled} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} release.enabled; do echo "$k=$(c $k)"; done
+for k in finishWork.{mergeMethod,deployWatch.enabled} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} release.enabled; do echo "$k=$(c $k)"; done
 echo "tracker.operations=$(n1_config_ops .tracker.operations)"
 n1_merge_allowed && echo merge:allowed || echo merge:denied; [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
 RA=()
 [ "$(c finishWork.deployWatch.enabled)" = true ] && RA+=("$S/steps/03-deploy.md")
 [ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md")
-[ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && [ "$(c finishWork.closeTicket)" != false ] && RA+=("$S/references/done-status-recovery.md")
+[ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && RA+=("$S/references/done-status-recovery.md")
 [ -z "$ID" ] || for f in ticket overview; do [ -f "$M/$f.md" ] && RA+=("$M/$f.md"); done
 echo "read-also: ${RA[*]}"
 ```
@@ -64,14 +64,11 @@ Defaults:
 
 | Key | Default |
 |-----|---------|
-| `.finishWork.mergeOnFinish` | `false` (needs `finishWork.enabled: true`; queue children use `queue.mergeOnFinish`; see `n1_merge_allowed`) |
 | `.finishWork.mergeMethod` | `"squash"` (`"squash"` \| `"merge"` \| `"rebase"`) |
 | `.finishWork.deployWatch.enabled` | `false` |
 | `.finishWork.deployWatch.workflowName` | `null` (watch all runs on the merge commit) |
 | `.finishWork.deployWatch.timeoutMinutes` | `30` |
 | `.finishWork.postDeployVerification.enabled` | `false`; absent → explicit `localTesting.mode: "smoke"` (legacy smoke); explicit `false` wins |
-| `.finishWork.closeTicket` | `true` |
-| `.finishWork.waitForMergeMinutes` | `10` |
 | `.delivery.mode` | `null` (`"ssh"` enables the Step 4 delivery deploy; else off) |
 | `.delivery.command` | `null` (see `steps/03b-ssh-deploy.md`) |
 | `.delivery.steps` | `null` (ordered; used only when `.delivery.command` is empty; see `steps/03b-ssh-deploy.md`) |
@@ -82,7 +79,7 @@ Defaults:
 
 Post-deploy verification dispatches only after a successful deployment (`ticket.md` → `post-deploy-verification.md`; `steps/03-deploy.md`); never blocks closure.
 
-`finishWork.enabled` gates only the pipeline step; standalone runs ignore it. Merge permission comes only from `n1_merge_allowed`.
+Interactive runs never merge a PR: the human merges, then runs n1-finish. Only n1_merge_allowed (queue children) permits merging; prMode skip merges locally (Step 2b).
 
 ## Steps
 
