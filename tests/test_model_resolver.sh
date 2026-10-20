@@ -173,12 +173,19 @@ test_autonomy_preset() {
 { "autonomy": { "brainstorm": "interactive", "qualityEscalations": "block", "tailChain": "suggest", "acceptanceGate": "ask" },
   "planReview": { "requirePlanApproval": true } }
 JSON
-    local TEST_CONFIG="${tmpdir}/config.json"
+    local TEST_CONFIG="${tmpdir}/config.json" rc
     n1_config_file() { echo "$TEST_CONFIG"; }
 
     unset N1_AUTONOMY_PRESET
     assert_eq "preset off: brainstorm from config" "interactive" "$(n1_autonomy_val brainstorm)"
     assert_eq "preset off: plan approval from config" "true" "$(n1_plan_approval_required)"
+    if n1_plan_approval_required >/dev/null; then rc=0; else rc=1; fi
+    assert_eq "preset off: plan approval true exits 0" "0" "$rc"
+    echo '{ "planReview": { "requirePlanApproval": false } }' > "${tmpdir}/off.json"
+    TEST_CONFIG="${tmpdir}/off.json"
+    if n1_plan_approval_required >/dev/null; then rc=0; else rc=1; fi
+    assert_eq "plan approval false exits nonzero" "1" "$rc"
+    TEST_CONFIG="${tmpdir}/config.json"
 
     export N1_AUTONOMY_PRESET=autonomous
     assert_eq "preset: brainstorm" "auto" "$(n1_autonomy_val brainstorm)"
@@ -188,6 +195,8 @@ JSON
     assert_eq "preset: acceptanceGate" "auto" "$(n1_autonomy_val acceptanceGate)"
     assert_eq "preset: escalationMargin" "0.05" "$(n1_autonomy_val escalationMargin)"
     assert_eq "preset: plan approval forced false" "false" "$(n1_plan_approval_required)"
+    if n1_plan_approval_required >/dev/null; then rc=0; else rc=1; fi
+    assert_eq "preset: plan approval exits nonzero" "1" "$rc"
     unset N1_AUTONOMY_PRESET
     unset -f n1_config_file
 }
