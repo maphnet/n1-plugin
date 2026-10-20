@@ -293,7 +293,7 @@ n1_queue_held_sweep() {
                 IFS=$'\t' read -r h r < <(n1_queue_pending_rows "$q" pr \
                     | awk -F'\t' -v b="$b" '$2 == b { h = $4; r = $3 } END { printf "%s\t%s\n", h, r }')
                 url=$(n1_queue_child_pr_url "$h/memory/$b/overview.md"); state=""
-                if [[ "$url" =~ ^https://github\.com/[^/]+/[^/]+/pull/[0-9]+$ ]]; then
+                if [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]]; then
                     # gh stdout -> fd 3 (captured), gh stderr -> first line to our stderr.
                     state=$( { gh pr view --json state -q .state -- "$url" </dev/null 2>&1 >&3 3>&- | head -n1 >&2; } 3>&1 )
                 fi
