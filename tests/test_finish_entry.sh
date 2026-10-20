@@ -129,5 +129,9 @@ has "other branch: PR number uses gh pr view" "PRVIEW-CALLED"
 run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
 has "ticket branch: branch printed" "branch=me/T-1-feature"
 lacks "ticket branch: no head-branch lookup" "PRLIST-CALLED"
+# 10. Ticket ID is a prefix of another ID (T-1 vs T-10): not treated as the ticket branch.
+git -C "$T/repo" branch me/T-10-feature
+BRN=me/T-10-feature run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+has "prefix id: head-branch lookup" "PRLIST-CALLED"
 
 exit $FAIL

@@ -42,7 +42,7 @@ fi
 gh auth status >/dev/null 2>&1 && G=ok || G=unauthenticated; echo "gh:$G"
 B=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); echo "branch=$B"; F=number,state,mergedAt,mergeCommit,url,headRefName,baseRefName
 if [ "$R$G" = falseok ]; then
-  if [ -z "$PR" ] && [ -n "$ID" ] && ! grep -qiF -- "$ID" <<<"$B"; then gh pr list --state all --limit 100 --json $F --jq "map(select(.headRefName|ascii_downcase|contains(\"${ID,,}\")))|first//empty" | grep . || echo pr:none
+  X="(^|[^a-z0-9])${ID,,}([^0-9]|$)"; if [ -z "$PR" ] && [ -n "$ID" ] && ! grep -qiE "$X" <<<"$B"; then gh pr list --state all --limit 100 --json $F --jq "map(select(.headRefName|ascii_downcase|test(\"$X\")))|first//empty" | grep . || echo pr:none
   else gh pr view ${PR:+"$PR"} --json $F || echo pr:none; fi
 fi
 RA=()
