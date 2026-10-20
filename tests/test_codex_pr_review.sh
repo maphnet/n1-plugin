@@ -62,7 +62,7 @@ for scenario in disabled no-auth auth-timeout ran ran-optout failed timeout post
   case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; post-failed|ran-optout) expected=ran;; diff-unavailable) expected=failed;; esac
   jq -e --arg expected "$expected" '.outcome == $expected and .processed' "$receipt" >/dev/null
   if [ "$expected" = skipped ]; then jq -e --arg reason "$scenario" '.reason == $reason' "$receipt" >/dev/null; fi
-  if [ "$scenario" = ran ]; then rg -q '^## Codex Review' "${REVIEW_LOG}.comment"; fi
+  if [ "$scenario" = ran ]; then grep -Eq '^## Codex Review' "${REVIEW_LOG}.comment"; fi
   if [ "$scenario" = ran ]; then
     grep -qx -- '--- codex output ---' "$TMP/out"
     grep -qx 'crossHostReview_autoTriage=true' "$TMP/out"
@@ -74,7 +74,7 @@ for scenario in disabled no-auth auth-timeout ran ran-optout failed timeout post
   fi
   if [ "$scenario" = post-failed ]; then
     jq -e '.comment == "saved"' "$receipt" >/dev/null
-    rg -q '^## Codex Review' "${receipt%.json}.md"
+    grep -Eq '^## Codex Review' "${receipt%.json}.md"
   fi
   if [ "$scenario" = diff-unavailable ]; then jq -e '.reason == "diff-unavailable"' "$receipt" >/dev/null; fi
   if [ "$scenario" = failed ] || [ "$scenario" = timeout ]; then [ -f "${receipt%.json}.stderr.log" ]; fi
