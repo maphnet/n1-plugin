@@ -7,9 +7,7 @@ Show summary:
 N1 is ready.
 
 State directory: ~/.n1/<project-name>/
-Worktree mode: worktree
 Worktree setup: <command or "none">
-Worktree cleanup: after-merge
 
 Tracker: Jira (TRID) / YouTrack / None
 Default branch: main

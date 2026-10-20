@@ -415,8 +415,8 @@ n1_queue_sync_default() {
     # Usage: n1_queue_sync_default <repo>
     # N1-64 (CR-1): after the orchestrating session merges a blocking child's PR, fast-forward
     # the blocker repo's LOCAL default branch before releasing held rows. Children branch from
-    # the local default when it is clean (workspace-isolation.md § Ensure Branch: CURRENT==DEFAULT
-    # -> `git checkout -b <TARGET>`), so a stale local default hands a freshly-released ticket a
+    # the local default (workspace-isolation.md § Ensure Worktree: `git branch <TARGET> $DEFAULT`),
+    # so a stale local default hands a freshly-released ticket a
     # branch-point missing the commit that was just merged. Reads git.defaultBranch from the
     # repo's own N1 Home (caller sets N1_HOME to the blocker's home); falls back to "main".
     # ponytail: single fetch+ff-only, no retry/backoff; add one if flaky CI networks make this noisy.

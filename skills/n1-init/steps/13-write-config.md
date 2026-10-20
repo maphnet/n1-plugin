@@ -12,9 +12,7 @@ Create all files:
   "version": "2.0.0",
   "repoPath": "<absolute git toplevel, see below>",
   "worktree": {
-    "mode": "worktree",
-    "setup": "<detected or null>",
-    "cleanup": "after-merge"
+    "setup": "<detected or null>"
   },
   "tracker": { ... },
   "git": {

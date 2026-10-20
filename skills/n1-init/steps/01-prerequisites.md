@@ -32,7 +32,6 @@ Check for N1 configuration in priority order:
            Tracker: <tracker.type> (<tracker.projectKey>) | None
            PR mode: <git.prMode>
            Autonomy: <autonomy.mode>
-           Worktree cleanup: <worktree.cleanup>
            Telemetry: <telemetry.enabled>
            Local testing: <localTesting.enabled> (<localTesting.mode>)
 

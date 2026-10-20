@@ -24,6 +24,13 @@ DEAD=(
   07-estimation
   gate_estimation
   estimation_enabled
+  worktree.mode
+  worktree.cleanup
+  BRANCH_FLAG
+  '[--branch]'
+  'Branch in current checkout'
+  'Ensure Working Branch'
+  'kept (manual)'
 )
 for k in "${DEAD[@]}"; do
   HITS=$(grep -rnF -- "$k" skills lib hooks scripts defaults pipeline.json | grep -v "^$PRUNE:" || true)

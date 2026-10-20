@@ -17,13 +17,6 @@ Returns: `ticket`, `error-tracker`, `file`, `braindump`.
 
 **Error tracker URL:** extract last numeric segment after `/issues/` (e.g. `...sentry.io/issues/12345` → `12345`). Parse fail → brain-dump mode with warning. Provisional ID: `sentry-<issueId>`.
 
-**Branch flag:**
-```bash
-BRANCH_FLAG=false
-case "$RAW_INPUT" in *--branch*) BRANCH_FLAG=true ;; esac
-```
-Strip `--branch` from input before parsing.
-
 **Investigate flag:**
 ```bash
 INVESTIGATE_FLAG=false

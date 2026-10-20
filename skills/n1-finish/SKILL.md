@@ -45,7 +45,7 @@ fi
 echo "gh:$G branch=$B"
 P=$(c git.prMode); [ -n "$P" ] || { [ "$(c git.draftPR)" = false ] && P=ready || P=draft; }
 echo "id=$ID prMode=$P mechanicalPrompts=$(n1_autonomy_val mechanicalPrompts)"
-for k in finishWork.{mergeMethod,waitForMergeMinutes,closeTicket,deployWatch.enabled} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} worktree.cleanup release.enabled; do echo "$k=$(c $k)"; done
+for k in finishWork.{mergeMethod,waitForMergeMinutes,closeTicket,deployWatch.enabled} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} release.enabled; do echo "$k=$(c $k)"; done
 echo "tracker.operations=$(n1_config_ops .tracker.operations)"
 n1_merge_allowed && echo merge:allowed || echo merge:denied; [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
 RA=()
