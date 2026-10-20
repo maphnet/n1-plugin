@@ -28,10 +28,6 @@ Record the outcome as `DEPLOY` for the Step 9 `Deployment:` line.
 3. **Category 5** (release-triggered deployment exists):
    Report: "Deployment pipeline: `<filename>` — triggered on release, targets `<environment>` (if detectable)."
 
-   Read `release.deployWatch.enabled` from config (default `true`).
-
-   **If `release.deployWatch.enabled` is `true` or absent:**
-
    a0. No `release` event can fire when the built-in flow created a draft (`release.draft` is `true`), or when the custom-flow Release line is `missing (declined)`, `missing (create failed)` or `missing (tag not on origin)`. A `not yet created (workflow still running)` Release is watched normally (a PAT or GitHub App token fires `release` events; the grace covers the wait for publication). Do not wait out the 5-minute grace: report "No GitHub Release was published, so no release-triggered deployment can run." `DEPLOY` = `not triggered`. Go to Step 8b.
 
    a. Resolve the commit SHA for the just-created tag:
@@ -39,7 +35,7 @@ Record the outcome as `DEPLOY` for the Step 9 `Deployment:` line.
       git rev-parse <TAG>^{commit}
       ```
 
-   b. Watch the release-triggered runs in the foreground. First call: `<grace>` = `5`, `<remaining-minutes>` = `release.deployWatch.timeoutMinutes` (default `30`). When `release.deployWatch.workflowName` is set, pass it single-quoted as the last argument. When the release triggers several workflows, recommend setting `release.deployWatch.workflowName` so the watch follows the deploy workflow only.
+   b. Watch the release-triggered runs in the foreground. First call: `<grace>` = `5`, `<remaining-minutes>` = `30`. When `finishWork.deployWatch.workflowName` (read via `n1_config_val '.finishWork.deployWatch.workflowName'`) is set, pass it single-quoted as the last argument. When the release triggers several workflows, recommend setting `finishWork.deployWatch.workflowName` so the watch follows the deploy workflow only.
       ```bash
       source ~/.n1/preamble.sh
       source "$N1_ROOT/lib/poll.sh"
@@ -58,8 +54,6 @@ Record the outcome as `DEPLOY` for the Step 9 `Deployment:` line.
       - `none`: report "No deployment workflow triggered by this release (draft release, or no `release`-event run registered within 5 minutes)." `DEPLOY` = `not triggered`. Go to Step 8b.
       - Budget spent, last token `pending`: report the still-running run URLs and suggest re-checking with `gh run watch <run-id>`. `DEPLOY` = `timed out (still running) — <run URL>`. After-deploy actions are not run; report the `after` rows (if any) as left unticked (Step 8b wording). Skip Step 8b; go to Step 9.
       - Budget spent, last token `none` that followed a `pending` (treated as `unknown`), or last token `unknown`: report "Could not verify the deployment: GitHub was unreachable (gh errors). This is not a deploy failure; re-check with `gh run list --event release --commit <sha>`." `DEPLOY` = `could not verify (gh errors)`. After-deploy actions are not run; report the `after` rows (if any) as left unticked (Step 8b wording). Skip Step 8b; go to Step 9.
-
-   **If `release.deployWatch.enabled` is explicitly `false`:** report "Deploy watch disabled." Go to Step 8b. `DEPLOY` = `watch disabled`.
 4. **Categories 1-4** — `DEPLOY` = `not configured`. Present findings and ask:
    ```
    No release-triggered deployment pipeline detected.
@@ -84,7 +78,7 @@ Runs only when `$N1_HOME/scratch/release-actions.tsv` has `after` rows, after a 
 
 - `mode:runbook` (§ Parse output; queue or headless run) → report the unticked `after` rows and leave them unticked; never walk.
 - Step 8 reported "Deployment succeeded." → follow `<N1_ROOT>/references/deployment-actions.md` § Walk with `PHASE=after` and `OUT=$N1_HOME/scratch/release-actions.tsv`.
-- No deploy was watched (`release.deploymentCheck` is `false`, deploy watch disabled, no workflow triggered, no Release published, or Categories 1–4) → § Unwatched Deploy.
+- No deploy was watched (`release.deploymentCheck` is `false`, no workflow triggered, no Release published, or Categories 1–4) → § Unwatched Deploy.
 
 An aborted walk or skipped items never undo the release. Report any unticked rows: "After-deploy actions left unticked: <rows>. Run them by hand and tick them in the PR bodies. The next release only scans PRs merged after <TAG>."
 
@@ -115,7 +109,7 @@ Deployment: <DEPLOY>
 Ticket: <ID> — comment posted / no ticket inferred / tracker not configured
 ```
 
-`<DEPLOY>` is one of: `succeeded — <run URL>`, `FAILED — <run URL>`, `timed out (still running) — <run URL>`, `could not verify (gh errors)`, `not triggered`, `watch disabled`, `not configured`.
+`<DEPLOY>` is one of: `succeeded — <run URL>`, `FAILED — <run URL>`, `timed out (still running) — <run URL>`, `could not verify (gh errors)`, `not triggered`, `not configured`.
 
 **Tracker release summary** (appended to report when `tracker.type` is `"jira"` and Step 5b ran):
 

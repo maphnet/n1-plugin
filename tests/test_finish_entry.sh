@@ -58,7 +58,7 @@ lacks "typical: does not cat ticket body" "ticket body marker"
 SZ=$(wc -c <<<"$OUT"); if [ "$SZ" -lt 20000 ]; then ok "typical: output $SZ bytes < 20000"; else no "typical: output $SZ bytes < 20000"; fi
 has "typical: id printed" "id=T-1"
 has "typical: prMode derived draft" "prMode=draft"
-lacks "typical: skips 03-deploy" "steps/03-deploy.md"
+lacks "typical: 03-deploy not in read-also (read at entry)" "steps/03-deploy.md"
 lacks "typical: skips 03b" "steps/03b-ssh-deploy.md"
 lacks "typical: skips done-status recovery" "done-status-recovery.md"
 
@@ -68,8 +68,7 @@ if grep -qxF "headless:yes" <<<"$OUT"; then ok "headless: flag printed"; else no
 HL=
 
 # 2. Conditional files: deploy watch on, ssh delivery, done status absent.
-run '{"finishWork":{"deployWatch":{"enabled":true}},"delivery":{"mode":"ssh"},"tracker":{"mcp":"jira"}}' 'deploy_pending: false'
-has "conditional: lists 03-deploy" "steps/03-deploy.md"
+run '{"delivery":{"mode":"ssh"},"tracker":{"mcp":"jira"}}' 'deploy_pending: false'
 has "conditional: lists 03b" "steps/03b-ssh-deploy.md"
 has "conditional: lists done-status recovery" "references/done-status-recovery.md"
 SZ=$(wc -c <<<"$OUT"); if [ "$SZ" -lt 20000 ]; then ok "conditional: output $SZ bytes < 20000"; else no "conditional: output $SZ bytes < 20000"; fi

@@ -8,7 +8,7 @@
    ## Finish
    - **Merged:** <sha> (<method>, by <auto-merge|reviewer|local merge>)
    - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged) | n/a (local merge)>
-   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered | skipped (local merge)>
+   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow) | none triggered | skipped (local merge)>
    - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
    - **Verification details:** when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output); otherwise omit this line.
    - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
@@ -59,7 +59,7 @@ Finish complete: <ID> (<ticket title>)
 Done: <1-2 lines from ticket title + PR summary>
 Ticket: <ID> → <done status | left open (<reason>) | tracker not configured> — <ticket URL | URL unavailable (<reason>)>
 PR: <url | none (prMode: skip — push pending: git push origin <defaultBranch>)> — merged (<method>, by <auto-merge|reviewer|local merge>)
-Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered | skipped (local merge)>
+Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow) | none triggered | skipped (local merge)>
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>

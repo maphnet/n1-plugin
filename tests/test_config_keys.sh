@@ -39,6 +39,9 @@ DEAD=(
   waitForMergeMinutes
   closeTicket
   gate_finish
+  deployWatch.enabled
+  deployWatch.timeoutMinutes
+  release.deployWatch
 )
 for k in "${DEAD[@]}"; do
   HITS=$(grep -rnF -- "$k" skills lib hooks scripts defaults pipeline.json | grep -v "^$PRUNE:" || true)

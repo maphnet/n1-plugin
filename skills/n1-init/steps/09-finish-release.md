@@ -17,16 +17,9 @@ Merge method?
 
 The method applies to queue merges and the `prMode: "skip"` local merge.
 
-```
-Watch the automated deployment after merge?
-Requires a GitHub Actions workflow triggered by pushes to the default branch.
-1 — No (default)
-2 — Yes
-```
+Ask: "Deploy workflow name to watch? (enter = watch all runs on the merge commit)"
 
-If deploy watch is Yes: "Workflow name to watch? (enter = watch all runs on the merge commit)"
-
-If deploy watch is Yes, ask the post-deploy verification question separately from local testing:
+Ask the post-deploy verification question separately from local testing:
 
 ```
 Enable post-deploy verification after a successful deployment?
@@ -55,18 +48,16 @@ If **Yes**, create the editable local-only `$N1_HOME/dev-access.md` template. As
 
 If **No**, set `postDeployVerification.enabled` to `false` and do not create `dev-access.md`. This choice does not change `localTesting`; an older config that leaves this nested key absent retains its legacy smoke fallback.
 
-Write the block (omit `deployWatch.workflowName` when empty):
+Write the block (omit `deployWatch` when the workflow name is empty):
 ```json
 {
   "finishWork": {
     "mergeMethod": "<from merge-method question>",
     "deployWatch": {
-      "enabled": "<from deploy-watch question>",
-      "workflowName": "<name or null>",
-      "timeoutMinutes": 30
+      "workflowName": "<name>"
     },
     "postDeployVerification": {
-      "enabled": "<from post-deploy verification question, false when deploy watch is disabled>"
+      "enabled": "<from post-deploy verification question>"
     }
   }
 }
@@ -78,7 +69,7 @@ If `finishWork` already exists in the current config, show current state and off
 ```
 Current finish work:
   mergeMethod → <squash/merge/rebase>
-  deployWatch → <true/false>
+  deployWatch.workflowName → <name/all runs>
 
 1 — Keep current
 2 — Change settings (re-ask the questions above)
@@ -87,8 +78,7 @@ Current finish work:
 - **2** → re-run the questions, overwrite the block.
 
 If `finishWork.postDeployVerification.enabled` is absent:
-- When `finishWork.deployWatch.enabled` is `true`, offer the **Post-deploy verification** questions above without re-asking merge or deploy-watch settings. **No** leaves the nested key absent so legacy smoke behavior continues; **Yes** writes the nested key and creates or updates `$N1_HOME/dev-access.md`.
-- When deploy watch is disabled or absent, do not offer post-deploy verification. Write `"postDeployVerification": { "enabled": false }` explicitly, and do not create `dev-access.md`; verification cannot run without deploy watch.
+On reconfiguration, offer the **Post-deploy verification** questions above without re-asking merge or deploy-watch settings. **No** leaves the nested key absent so legacy smoke behavior continues; **Yes** writes the nested key and creates or updates `$N1_HOME/dev-access.md`.
 
 If `finishWork` is absent from the current config, run the fresh-setup flow above.
 

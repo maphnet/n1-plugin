@@ -90,7 +90,7 @@ Evaluate the PR state:
       - `mode:walk` with `before` rows → § Walk with `PHASE=before`. `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
       - `after` rows wait for Step 4.
 
-      Then, if the merge permission printed `merge:allowed` → initiate the merge (once, not per poll).:
+      Then, if the merge permission printed `merge:allowed` → initiate the merge (once, not per poll):
       ```bash
       gh pr merge <n> --auto --<mergeMethod> --delete-branch
       ```

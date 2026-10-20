@@ -51,9 +51,7 @@ else
     FAIL=$((FAIL + 1))
 fi
 check "init asks post-deploy verification separately from local testing" 'post-deploy verification' "$INIT_FINISH"
-check "opt-in is offered only after deploy watch" 'If deploy watch is Yes.*post-deploy verification' "$INIT_FINISH"
-check_fixed "reconfiguration offers opt-in only with deploy watch" 'When `finishWork.deployWatch.enabled` is `true`, offer the **Post-deploy verification** questions above' "$INIT_FINISH"
-check "reconfiguration disables verification without deploy watch" 'When deploy watch is disabled or absent.*postDeployVerification.*enabled.*false' "$INIT_FINISH"
+check_fixed "reconfiguration offers post-deploy verification" 'On reconfiguration, offer the **Post-deploy verification** questions above' "$INIT_FINISH"
 check "enabled setup creates dev-access template" 'dev-access\.md' "$INIT_FINISH"
 check "dev-access template records URL or entry point" 'URL.*entry point|entry point.*URL' "$INIT_FINISH"
 check "dev-access template requires non-secret setup" 'Non-secret' "$INIT_FINISH"
@@ -112,7 +110,6 @@ check "verifier uses investigation effort" '^effort: medium$' agents/post-deploy
 # N1-111: deploy watch is one bounded blocking wait per call, never one model turn per poll.
 MERGE=skills/n1-finish/steps/02-merge.md
 check_fixed "deploy watch uses the poll helper for every event" "n1_wait_release_runs <sha> <grace> <remaining-minutes> '<workflowName>' any" "$DEPLOY"
-check_fixed "short-timeout grace leaves room before the deadline" '`timeoutMinutes − 1` (minimum `0`)' "$DEPLOY"
 check_fixed "mixed success and skipped is not a succeeded deploy" 'token `success` and every run line is `success`' "$DEPLOY"
 check_absent "deploy watch has no hand-polled sleep loop" 'sleep 30' "$DEPLOY"
 check_fixed "deploy watch must not be backgrounded" 'Never background it' "$DEPLOY"

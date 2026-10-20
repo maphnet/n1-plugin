@@ -52,7 +52,7 @@ How should N1 test this project locally?
 
 **Mode suggestion heuristic:** Before presenting, check the project:
 - If Startup Detection (below) would find a match (docker-compose, Makefile with run targets, package.json with dev/start, manage.py, Procfile) -> suggest `1 -- Live (Recommended)` with reason: "Detected `<file>` -- this project appears locally runnable."
-- If `finishWork.deployWatch.enabled` is `true` in config AND no startup mechanism detected -> suggest `3 -- Smoke (Recommended)` with reason: "No local startup detected but deploy watch is configured -- smoke testing after deploy may be appropriate."
+- If .github/workflows/ exists AND no startup mechanism detected -> suggest `3 -- Smoke (Recommended)` with reason: "No local startup detected but the repo has CI workflows (deploy watch is always on) -- smoke testing after deploy may be appropriate."
 - Otherwise -> suggest `2 -- Test (Recommended)` with reason: "No local startup mechanism detected."
 
 Write the selected mode:
