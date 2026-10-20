@@ -28,7 +28,7 @@ n1_review_record() {
     fi
 }
 
-# N1-115: deterministic backstop for a PR created outside n1-pr (PostToolUse missed it).
+# Deterministic backstop for a PR created outside n1-pr (PostToolUse missed it).
 # Prints each PR on the active run's branch lacking a processed receipt in any session, and
 # records this session's skipped/step-not-run receipt so the Stop loop blocks once.
 # Fail open: no pointer, empty/default branch, no gh, offline -> prints nothing, returns 0.
@@ -39,9 +39,11 @@ n1_review_check_run() {
     case "$run" in */active-run.json) return 0 ;; esac
     branch=$(jq -r '.branch // empty' "$run" 2>/dev/null) || return 0
     case "$branch" in ""|main|master|HEAD) return 0 ;; esac
+    wt=$(jq -r '.worktreePath // empty' "$run" 2>/dev/null) || wt=""
+    # No PR can exist before the first push; skip the network call (git error: fail open).
+    [ -n "$(git -C "${wt:-.}" for-each-ref --count=1 --format=x "refs/remotes/*/$branch" 2>/dev/null)" ] || return 0
     command -v gh >/dev/null 2>&1 || return 0
     if command -v timeout >/dev/null 2>&1; then tmo="timeout 10"; fi   # macOS without coreutils: unbounded but stdin-closed
-    wt=$(jq -r '.worktreePath // empty' "$run" 2>/dev/null) || wt=""
     while IFS= read -r url; do
         receipt=$(n1_review_receipt "$url") || continue
         # Receipts are per session; a resumed run counts any session's processed receipt.
