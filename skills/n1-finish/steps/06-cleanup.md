@@ -34,17 +34,24 @@
 ## Report (final message)
 
 ```
-Finish complete.
+Finish complete: <ID> (<ticket title>)
 
+Done: <1-2 lines from ticket title + PR summary>
+Ticket: <ID> → <done status | left open (<reason>) | tracker not configured> — <ticket URL | URL unavailable (<reason>)>
 PR: <url | none (prMode: skip — push pending: git push origin <defaultBranch>)> — merged (<method>, by <auto-merge|reviewer|local merge>)
 Deploy: <succeeded <run url> | failed <run url> | skipped (not configured) | none triggered | skipped (local merge)>
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
-Ticket: <ID> → <done status> / left open (<reason>) / tracker not configured
 Cleanup: <branch deleted | branch kept (<reason>) | worktree removed | worktree kept (<reason>) — run /n1:n1-clean | nothing to do>
+Next tickets: <ID title [status]; ... | none | lookup failed (<reason>)>
 Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never runs releases automatically.
 ```
+
+- **Ticket URL:** overview frontmatter `ticket_url` (`n1_read_frontmatter`); absent → `URL unavailable (<reason>)`.
+- **PR URL:** Step 1's `gh pr view` url; fallback overview `pr_url` / `## Pending`.
+- **Next tickets:** call `tracker.operations.getIssueLinks` on `tracker.versionMcp` when set, else `tracker.mcp`, for `<ID>`. Tickets this one blocks: Jira — Blocks-type entries with `outwardIssue`; YouTrack — relation `blocks` (not `is blocked by`). Use title/status from the entry when present, else `readTicket` per link. No such links → `none`. Op not configured or call error → `lookup failed (<reason>)`; warn only, never block.
+- Print this summary on every completion path (including already-merged / already-closed re-runs and the runbook-pending path), before release routing in both `mechanicalPrompts` modes. Non-complete exits keep their stop message below and do NOT print it.
 
 <!-- tailChain has no effect here: n1-release is never invoked automatically regardless of autonomy mode (NP-71). The steps below are always interactive/suggestion-only. -->
 **Release routing (when `release.enabled` is `true` and the merge succeeded):** after printing the report, read the autonomy setting via Bash (source `lib/config.sh` first):
@@ -53,11 +60,7 @@ Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never 
 MP=$(n1_autonomy_val 'mechanicalPrompts')
 ```
 
-**If `MP` is `auto`:** skip the question below and instead print:
-
-```
-Work complete. If you're ready to publish a release, run /n1:n1-release.
-```
+**If `MP` is `auto`:** skip the question below (the report's `Next (manual)` line already points at `/n1:n1-release`).
 
 Write a Decision Ledger row to overview.md:
 `| finish | mechanical | C | [auto] | Release now? | Suggest /n1:n1-release | Ask user | mechanicalPrompts=auto | --- |`
