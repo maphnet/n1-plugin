@@ -1,6 +1,6 @@
 # Step 4: Close Ticket
 
-**Delivery gate (before anything else in this step):** read `<N1_ROOT>/skills/n1-finish/steps/03b-ssh-deploy.md` and follow it. Continue below only when it says to return to Step 4. It is a no-op unless `delivery.mode` is `"ssh"`.
+**Delivery gate (before anything else in this step):** follow `<N1_ROOT>/skills/n1-finish/steps/03b-ssh-deploy.md` (printed at entry when `delivery.mode` is `"ssh"`). Continue below only when it says to return to Step 4. It is a no-op unless `delivery.mode` is `"ssh"`.
 
 **After-deploy actions (after the delivery gate returns; PR path only, skipped on the local-merge path):** follow `<N1_ROOT>/references/deployment-actions.md` for the merged PR `<n>`. After a Step 1 pending-deploy resume, `<n>` is unknown; find it with `gh api "repos/{owner}/{repo}/commits/<SHA>/pulls" --jq '[.[] | select(.merged_at)] | .[0].number'`.
 1. § Parse with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`. `unticked:0` → continue below. `fetch-failed` → warn "Could not read PR #<n>; after-deploy actions not checked." and continue below.
@@ -18,9 +18,11 @@
 - `closeTicket` is `false` → "Ticket close skipped: closeTicket is false."
 - `tracker.mcp` is null → "Ticket close skipped: no tracker configured."
 
-**Runtime recovery** — when the hard-skip gates pass but `tracker.statuses.done` is absent from config: read `<N1_ROOT>/skills/n1-finish/references/done-status-recovery.md` for the full detection and prompt procedure.
+**Runtime recovery** — when the hard-skip gates pass but `tracker.statuses.done` is absent from config: follow `<N1_ROOT>/skills/n1-finish/references/done-status-recovery.md` (printed at entry in this case) for the full detection and prompt procedure.
 
 **When `tracker.statuses.done` was already present in config, or after successful recovery above, proceed:**
+
+**Call batching:** make the tracker calls below in two turns, each issued in parallel. Turn 1 (read-only): Jira `getTransitions`, plus `getComments` when `operations.getComments` exists. Turn 2: the status move and `addComment` together, after rendering the comment and running its idempotency check against the Turn 1 comments. Judge each result on its own (item 3): a failed move never cancels the comment.
 
 1. **Move status** via the operations map:
    - Jira: `mcp__<tracker.mcp>__<operations.getTransitions>` → find the transition whose target status equals `tracker.statuses.done` → `mcp__<tracker.mcp>__<operations.moveStatus>` with that transition ID.

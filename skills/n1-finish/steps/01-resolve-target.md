@@ -1,5 +1,7 @@
 # Step 1: Resolve Target
 
+**Already run at entry:** the SKILL.md entry call printed `gh:` (auth status), the pending-deploy check below (`deploy-pending:` line, when `<ID>` was known) and the PR lookup (`gh pr view` JSON, or `pr:none`). Apply the rules below to those lines. Run a check here on its own only when the entry call skipped it (`<ID>` resolved afterwards, or `gh pr list --head <branch>` when not on the branch).
+
 ## Prerequisites
 
 - `gh auth status` — if not authenticated AND `prMode` (from Config Read) is not `"skip"`: "GitHub CLI is not authenticated. Run `gh auth login` first." **STOP.** The local-merge path needs no `gh`: when `prMode` is `"skip"` and `gh` is unauthenticated, skip the PR lookup below and go to Step 2b (local merge).

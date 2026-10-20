@@ -2,7 +2,7 @@
 
 > **Polling discipline:** merge-waiting uses `n1_wait_pr_merged` from `lib/poll.sh` — an internal 30s loop bounded to 8-minute chunks per Bash call. Re-invoke until it prints a terminal state or the `waitForMergeMinutes` budget is spent. Never poll one-`gh`-call-per-model-turn.
 
-**Merge permission.** Decide once, before evaluating the PR state:
+**Merge permission.** Decide once, before evaluating the PR state. The entry call already printed `merge:allowed`/`merge:denied` and `queue-run:yes`; run this snippet only when those lines are missing:
 
 ```bash
 source ~/.n1/preamble.sh
