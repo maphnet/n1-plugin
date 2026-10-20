@@ -1,6 +1,6 @@
 # Step 1: Resolve Target
 
-**Already run at entry:** the SKILL.md entry call printed `gh:` (auth status), the pending-deploy check below (`deploy-pending:` line, when `<ID>` was known) and the PR lookup (`gh pr view` JSON, or `pr:none`). Apply the rules below to those lines. Run a check here on its own only when the entry call skipped it (`<ID>` resolved afterwards, or `gh pr list --head <branch>` when not on the branch).
+**Already run at entry:** the SKILL.md entry call printed `gh:` (auth status), the pending-deploy check below (`deploy-pending:` line, when `<ID>` was known) and the PR lookup (`gh pr view` JSON, or `pr:none`). Apply the rules below to those lines. Run a check here on its own only when the entry call skipped it (`id=` was empty at entry and is resolved afterwards, or `gh pr list --head <branch>` when not on the branch).
 
 ## Prerequisites
 
@@ -9,6 +9,7 @@
 - **Pending deploy resume:** check whether a deploy is pending for `<ID>`, and validate the recorded SHA before trusting it (it is untrusted frontmatter, not a fresh git query):
   ```bash
   source ~/.n1/preamble.sh
+  case "<ID>" in *[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
   OV="$N1_HOME/memory/<ID>/overview.md"
   PENDING="$(n1_read_frontmatter "$OV" deploy_pending)"
   SHA="$(n1_read_frontmatter "$OV" deploy_merge_sha)"

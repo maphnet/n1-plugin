@@ -1,6 +1,6 @@
 # Step 5a: Telemetry Follow-Up Ticket
 
-`ticket.md` and `overview.md` (including `## Pending`) were printed by the entry call; use that text instead of reading them again (read them only when not printed, i.e. `<ID>` was empty at entry). The entry call also printed `headless:yes` when `N1_HEADLESS=1`: that satisfies the second hard-skip gate below without a Bash call.
+`ticket.md` and `overview.md` (including `## Pending`) were listed in the entry call's `read-also:` line; use the text already read instead of reading them again (read them only when not listed, i.e. `<ID>` was empty at entry). The entry call also printed `headless:yes` when `N1_HEADLESS=1`: that satisfies the second hard-skip gate below without a Bash call.
 
 **Hard-skip gates** — when either holds, skip immediately without warning and go to Step 6 (Cleanup & Report):
 - `tracker.mcp` is null or absent in `$N1_HOME/config.json`
