@@ -81,5 +81,5 @@ The canonical set of top-level config keys. Used by step 01 for completeness che
 
 ```
 worktree, tracker, git, ticketTagging, observability,
-localTesting, finishWork, release, analysisCache, rules, autonomy, models
+localTesting, finishWork, release, analysisCache, autonomy, models
 ```

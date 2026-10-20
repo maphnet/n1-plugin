@@ -105,7 +105,6 @@ test_related_projects() {
 {
   "relatedProjects": {
     "enabled": true,
-    "maxSnapshotAge": "72h",
     "projects": [
       {"slug": "assistant", "reason": "API provider", "source": "auto"},
       {"slug": "ingestion", "reason": "gRPC consumer", "source": "manual"},

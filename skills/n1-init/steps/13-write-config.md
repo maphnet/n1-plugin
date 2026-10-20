@@ -22,9 +22,6 @@ Create all files:
   },
   "ticketTagging": { ... },
   "observability": null,
-  "story": {
-    "opusFromSize": "M"
-  },
   "localTesting": {
     "enabled": true,
     "mode": "test"
@@ -36,9 +33,6 @@ Create all files:
   },
   "release": {
     "enabled": false
-  },
-  "rules": {
-    "location": "private"
   },
   "kb": {
     "enabled": false

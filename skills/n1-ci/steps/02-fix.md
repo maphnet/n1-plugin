@@ -20,7 +20,7 @@ Only when a check is classified `escalate` (needs the user) may the orchestrator
 
 After developer returns for `unknown` checks:
 - confidence >= `0.7` → accept fix
-- confidence < threshold → present to user with logs and analysis:
+- confidence < `0.7` → present to user with logs and analysis:
   "1 — Accept fix / 2 — Provide guidance / 3 — Skip this check"
 
 ## Step 6: Fix Cycle

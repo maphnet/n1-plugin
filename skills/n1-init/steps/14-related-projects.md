@@ -34,7 +34,7 @@ for peer_cfg in "${HOME}"/.n1/*/config.json; do
     # readable for cross-repo context, but with no tracker/ticketTagging/rules to corroborate
     # an automatic match. Such peers stay candidates but are never auto-added (see Step 2).
     peer_bare=true
-    if jq -e '(.tracker // .ticketTagging // .rules) != null' "$peer_cfg" >/dev/null 2>&1; then
+    if jq -e '(.tracker // .ticketTagging) != null' "$peer_cfg" >/dev/null 2>&1; then
         peer_bare=false
     fi
     printf '%s\t%s\t%s\t%s\n' "$peer_slug" "$peer_service" "$peer_repo" "$peer_bare" >> "$CANDIDATES_FILE"
