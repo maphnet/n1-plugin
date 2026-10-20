@@ -75,14 +75,14 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 2. `git` → **Git Configuration**
 3. `ticketTagging` → **Ticket Tagging Configuration** (fresh-setup portion)
 4. `observability` → **Observability Configuration** (fresh-setup portion)
-6. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
-7. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
-8. `release` → **Release Configuration** (fresh-setup portion)
-10. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
-11. `rules` → **Rules Configuration** (fresh-setup portion)
-12. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
-13. `autonomy` → **Autonomy Configuration** (fresh-setup: offer hands-off / interactive, write single `mode` key)
-14. `models` → write defaults silently (see **Write Configuration and Structure** for default values)
+5. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
+6. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
+7. `release` → **Release Configuration** (fresh-setup portion)
+8. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
+9. `rules` → **Rules Configuration** (fresh-setup portion)
+10. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
+11. `autonomy` → **Autonomy Configuration** (fresh-setup: offer hands-off / interactive, write single `mode` key)
+12. `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
 
