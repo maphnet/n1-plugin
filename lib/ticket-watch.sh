@@ -134,7 +134,7 @@ n1_tw_replan_reset() {
     done
     n1_write_frontmatter "$o" step ticket
     n1_write_frontmatter "$o" replan_count "$((n + 1))"
-    for s in ticket analysis brainstorm plan plan-review estimation implementation qa review fix local-testing pr ci finish; do
+    for s in ticket analysis brainstorm plan plan-review implementation qa review fix local-testing pr ci finish; do
         name=$(_n1_step_display_name "$s"); [ -n "$name" ] || continue
         tmp=$(mktemp "$o.XXXXXX") || return 1
         sed "s/- \[x\] ${name}/- [ ] ${name}/" "$o" > "$tmp" && mv "$tmp" "$o" || rm -f "$tmp"

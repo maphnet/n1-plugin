@@ -79,7 +79,7 @@ n1_config_val() {
     local section="${stripped%%.*}"
     local key="${stripped#*.}"
     # Value pattern matches quoted strings AND unquoted scalars (true/false/numbers/null),
-    # so boolean gates like estimation.enabled work without jq.
+    # so boolean gates like localTesting.enabled work without jq.
     local val_re="\"${key}\"[[:space:]]*:[[:space:]]*\(\"[^\"]*\"\|[-0-9a-zA-Z.]\{1,\}\)"
     if [ "$section" = "$key" ]; then
         grep -o "$val_re" "$file" 2>/dev/null \

@@ -43,11 +43,5 @@ Output: `## Plan Review Result` / `**Verdict:** CLEAN | FIXED` / `**Changes:**` 
 **Step result (step mode):**
 ```bash
 source ~/.n1/preamble.sh
-EST=$(n1_config_val '.estimation.enabled')
-if [ "${EST:-false}" = "true" ]; then
-    NEXT="estimation"
-else
-    NEXT="implementation"
-fi
-n1_emit_step_result "plan-review" "pass" "$NEXT" "null"
+n1_emit_step_result "plan-review" "pass" "implementation" "null"
 ```

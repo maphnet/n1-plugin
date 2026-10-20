@@ -34,7 +34,7 @@
   },
   "types": {
     "task": {
-      "steps": ["ticket", "analysis", "brainstorm", "plan", "plan-review", "estimation",
+      "steps": ["ticket", "analysis", "brainstorm", "plan", "plan-review",
                  "implementation", "qa", "review", "local-testing", "pr", "ci", "finish", "release"],
       "detect": { "default": true }
     },
@@ -62,7 +62,6 @@
     { "name": "brainstorm",     "number": 3,  "agent": "solution-architect", "reads": ["ticket.md", "analysis.md", "investigation.md?"], "writes": ["brainstorm.md"] },
     { "name": "plan",           "number": 4,  "agent": "planner",               "reads": ["ticket.md", "brainstorm.md", "analysis.md"],          "writes": ["plan.md"] },
     { "name": "plan-review",    "number": 5,  "agent": "solution-architect",    "reads": ["ticket.md", "analysis.md", "brainstorm.md", "plan.md"], "writes": ["plan.md"] },
-    { "name": "estimation",     "number": 6,  "agent": "solution-architect",    "reads": ["ticket.md", "analysis.md", "brainstorm.md"],          "writes": ["overview.md"] },
     { "name": "implementation", "number": 7,  "agent": "developer",             "reads": ["brainstorm.md", "analysis.md"],                       "writes": ["implementation.md"] },
     { "name": "qa",             "number": 8,  "agent": "qa-engineer",           "reads": ["ticket.md", "implementation.md", "plan.md"],          "writes": ["qa.md"] },
     { "name": "review",         "number": 9,  "agent": "code-reviewer",         "reads": ["ticket.md", "brainstorm.md", "implementation.md", "qa.md"], "writes": ["review.md"] },
@@ -99,7 +98,6 @@
     }
   ],
   "gates": [
-    { "name": "estimation",    "config_key": "estimation.enabled",     "default": false, "skips": ["estimation"] },
     { "name": "plan_review",   "config_key": "planReview.reviewPlan",  "default": true,  "skips": ["plan-review"] },
     { "name": "local_testing", "config_key": "localTesting.enabled",   "default": true, "skips": ["local-testing"] },
     { "name": "ci",            "config_key": "ciChecks.enabled",       "default": true,  "skips": ["ci"] },

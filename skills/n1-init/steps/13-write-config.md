@@ -24,9 +24,6 @@ Create all files:
   },
   "ticketTagging": { ... },
   "observability": null,
-  "estimation": {
-    "enabled": false
-  },
   "story": {
     "opusFromSize": "M"
   },

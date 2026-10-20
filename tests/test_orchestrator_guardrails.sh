@@ -108,9 +108,6 @@ assert_contains "fix: wait directive" \
 assert_contains "pr: n1_verify_dependencies" \
     "skills/n1-start/steps/pr.md" \
     "n1_verify_dependencies"
-assert_contains "estimation: n1_verify_dependencies" \
-    "skills/n1-start/steps/estimation.md" \
-    "n1_verify_dependencies"
 assert_contains "plan-review: n1_verify_dependencies" \
     "skills/n1-start/steps/plan-review.md" \
     "n1_verify_dependencies"

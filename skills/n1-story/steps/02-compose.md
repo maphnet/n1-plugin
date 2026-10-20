@@ -119,17 +119,13 @@ For each subtask:
 
 3. **Assign to creator** (if configured): same pattern as story assignment, substituting `<subtask_id>` for the issue identifier.
 
-4. **Write estimate** (if `EST_ENABLED` is true and `EDIT_OP` is non-empty):
-   - **Jira:** Call `mcp__<TRACKER_MCP>__<EDIT_OP>` with the estimation field for the subtask's size.
-   - **YouTrack:** Call `mcp__<TRACKER_MCP>__<EDIT_OP>` with `issueId: <subtask_id>` and the estimation field.
-
-5. Report each subtask as created: "  Created **[<SUBTASK_ID>]**: <title>"
+4. Report each subtask as created: "  Created **[<SUBTASK_ID>]**: <title>"
 
 No per-subtask approval — all were approved in Step 7.
 
 ## Step 9b: Adopt Existing Tickets
 
-Skip if `ADOPT_KEYS` is empty or `VERSION_MCP` is empty. Adopted tickets keep their current assignee and estimate (no Step 9 sub-steps 3-4). Never create a ticket for a key that fails to adopt.
+Skip if `ADOPT_KEYS` is empty or `VERSION_MCP` is empty. Adopted tickets keep their current assignee (no Step 9 sub-step 3). Never create a ticket for a key that fails to adopt.
 
 1. **Type name:** set `SUBTASK_TYPE` to the sub-task type name the user gave in this run, else `Sub-task`.
 2. **Convert all keys in one call:** call `mcp__<VERSION_MCP>__jcm_convertIssueType` with: `issueKeys: <ADOPT_KEYS>`, `issueTypeName: <SUBTASK_TYPE>`, `parentKey: <STORY_ID>`.

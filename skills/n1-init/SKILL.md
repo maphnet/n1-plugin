@@ -47,9 +47,6 @@ Execute steps in order. Read each step file and follow its instructions before p
 6. **Observability** — MCP server discovery, provider configuration
    Read `<N1_ROOT>/skills/n1-init/steps/06-observability.md`
 
-7. **Estimation** — complexity estimation and delivery time
-   Read `<N1_ROOT>/skills/n1-init/steps/07-estimation.md`
-
 8. **Local Testing** — mode selection, startup detection
    Read `<N1_ROOT>/skills/n1-init/steps/08-local-testing.md`
 
@@ -83,6 +80,6 @@ Escalation `alwaysAskOn` is a code default in `lib/config.sh` -- n1-init does no
 The canonical set of top-level config keys. Used by step 01 for completeness checks and by targeted upgrade logic.
 
 ```
-worktree, tracker, git, ticketTagging, observability, estimation,
+worktree, tracker, git, ticketTagging, observability,
 localTesting, finishWork, release, telemetry, analysisCache, rules, autonomy, models
 ```

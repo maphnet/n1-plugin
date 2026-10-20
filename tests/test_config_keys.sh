@@ -16,6 +16,14 @@ DEAD=(
   qa.blockUntestedFeatures
   qa.verifyGate
   BLOCK_UNTESTED
+  estimation.enabled
+  .estimation.
+  '"estimation"'
+  n1-estimate
+  steps/estimation.md
+  07-estimation
+  gate_estimation
+  estimation_enabled
 )
 for k in "${DEAD[@]}"; do
   HITS=$(grep -rnF -- "$k" skills lib hooks scripts defaults pipeline.json | grep -v "^$PRUNE:" || true)

@@ -34,7 +34,6 @@ _n1_step_display_name() {
         analysis)                  printf '%s' "Analysis" ;;
         brainstorm)                printf '%s' "Brainstorm" ;;
         plan)                      printf '%s' "Plan" ;;
-        estimation)                printf '%s' "Estimation" ;;
         implementation)            printf '%s' "Implementation" ;;
         qa)                        printf '%s' "QA" ;;
         review)                    printf '%s' "Review" ;;

@@ -2129,7 +2129,7 @@ test_desc_chain_wiring() {
     local r="$REPO_ROOT" f d="$REPO_ROOT/references/desc-hash-chain.md" pa="$REPO_ROOT/agents/product-analyst.md"
     _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
     for f in agents/product-analyst.md skills/n1-start/steps/brainstorm.md \
-             skills/n1-start/steps/investigation-deliverable.md skills/n1-start/steps/estimation.md; do
+             skills/n1-start/steps/investigation-deliverable.md; do
         assert_eq "chain-wiring: $f routes its description write through desc-hash-chain.md" "yes" "$(_hasF 'references/desc-hash-chain.md' "$r/$f")"
     done
     assert_eq "chain-wiring: product-analyst wires both write paths (Empty/Skeletal step 3, Weak step 2)" "yes" "$(_hasF 'Empty/Skeletal step 3, Weak step 2' "$pa")"

@@ -72,7 +72,7 @@ Report as a table:
 | Gate | Activation Rate | Coverage | Status |
 |------|----------------|----------|--------|
 | lite-analysis-gate | X% | Y% | normal |
-| estimation-gate | X% | Y% | ⚠ low — removal candidate |
+| finish-gate | X% | Y% | ⚠ low — removal candidate |
 | ... | | | |
 
 **Removal candidates:** Gates with activation_rate < 5% AND coverage ≥ 50% (present in at least half of runs). Print:

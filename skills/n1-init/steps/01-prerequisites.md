@@ -65,7 +65,7 @@ Check for N1 configuration in priority order:
 The canonical set of top-level config keys. Used by the completeness check to detect missing sections. When adding a new config section to n1-init, add its key here.
 
 ```
-worktree, tracker, git, ticketTagging, observability, estimation,
+worktree, tracker, git, ticketTagging, observability,
 localTesting, finishWork, release, telemetry, analysisCache, rules, autonomy, models
 ```
 
@@ -77,7 +77,6 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 2. `git` → **Git Configuration**
 3. `ticketTagging` → **Ticket Tagging Configuration** (fresh-setup portion)
 4. `observability` → **Observability Configuration** (fresh-setup portion)
-5. `estimation` → **Estimation Configuration** (fresh-setup portion)
 6. `localTesting` → **Local Testing Configuration** (fresh-setup portion)
 7. `finishWork` → **Finish Work Configuration** (fresh-setup portion)
 8. `release` → **Release Configuration** (fresh-setup portion)

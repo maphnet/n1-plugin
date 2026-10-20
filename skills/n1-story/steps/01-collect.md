@@ -40,7 +40,6 @@ ASSIGN_TO_CREATOR=$(n1_config_val '.tracker.assignToCreator')
 LINK_OP=$(n1_config_val '.tracker.operations.linkIssues')
 VERSION_MCP=$(n1_config_val '.tracker.versionMcp')
 EDIT_OP=$(n1_config_val '.tracker.operations.editTicket')
-EST_ENABLED=$(n1_config_val '.estimation.writeToTracker')
 n1_assign_gap_warn
 ```
 Relay any `Warning:` line printed above to the user once; it is not repeated for the story or its subtasks.

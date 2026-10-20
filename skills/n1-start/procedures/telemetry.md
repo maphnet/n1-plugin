@@ -22,7 +22,6 @@ Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_r
 | 3 | `brainstorm` | `{"planning_need":"plan\|direct"}` |
 | 4 | `plan` | `{}` |
 | 5 | `plan-review` | `{"verdict":"CLEAN\|FIXED"}` |
-| 6 | `estimation` | `{"tier":"XS\|S\|M\|L\|XL"}` |
 | 7 | `implementation` | `{"execution_path":"direct\|sdd"}` (+ cross_repo_runtime fields from cross-repo.md §5b) |
 | 8 | `qa` | `{"loop_iteration":<N>}` |
 | 9 | `review` | `{"findings_total":<N>,"findings_critical":<N>}` (+ cross_repo_xrepo_findings from cross-repo.md §7b) |
