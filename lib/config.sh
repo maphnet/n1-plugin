@@ -703,7 +703,7 @@ n1_is_external_worktree() {
 # Usage: n1_finish_cleanup <branch> <cleanup-mode> <merged-pr-head-oid|""> <defaultBranch>   (run from the feature checkout)
 # A branch checked out in a worktree cannot be deleted, so the worktree goes first. N1-managed worktrees
 # are force-removed; external ones only when clean and HEAD is in the merged result (oid, else <defaultBranch>),
-# never forced. Branch: -d; -D only when the tip equals the merged PR head oid (squash/rebase).
+# never forced. Branch: tip must be an ancestor of the merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
 # After a removal the shell is left in the main checkout.
 n1_finish_cleanup() {
     local branch="${1:-}" mode="${2:-after-merge}" oid="${3:-}" def="${4:-}"
@@ -734,6 +734,7 @@ n1_finish_cleanup() {
     fi
     if [ -n "$keep" ]; then echo "branch:kept ($([ "$keep" = manual ] && echo manual || echo worktree kept))"
     elif [ -z "$branch" ] || [ "$branch" = "$def" ] || ! "${G[@]}" rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1; then echo "branch:none"
+    elif ! "${G[@]}" merge-base --is-ancestor "refs/heads/$branch" "${oid:-refs/heads/$def}" >/dev/null 2>&1; then echo "branch:kept (not merged)"
     elif "${G[@]}" branch -d -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
     elif [ -n "$oid" ] && [ "$("${G[@]}" rev-parse -q --verify "refs/heads/$branch" 2>/dev/null)" = "$oid" ] \
         && "${G[@]}" branch -D -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"

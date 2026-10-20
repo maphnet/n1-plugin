@@ -83,6 +83,15 @@ assert_eq "C7: branch kept" yes "$(has_branch f7)"
 new_wt "$T/ext8" f8; git -C "$M" merge -q --no-ff -m m8 f8
 assert_eq "C8: local merge external removed" "worktree:removed,branch:deleted" "$(run "$T/ext8" f8 after-merge "")"
 
+# C21: tip has an extra commit (pushed upstream, so plain -d would pass) not in the merged PR head -> branch kept.
+new_wt "$T/ext21" f21; OID21=$(tip f21)
+echo more > "$T/ext21/g"; git -C "$T/ext21" add .; git -C "$T/ext21" commit -q -m extra21
+git init -q --bare "$T/remote21"; git -C "$M" remote add r21 "$T/remote21"
+git -C "$M" push -q r21 f21; git -C "$M" branch -q --set-upstream-to=r21/f21 f21
+git -C "$T/ext21" checkout -q --detach; git -C "$M" worktree remove --force "$T/ext21"
+assert_eq "C21: extra upstream commit not in merged oid -> kept" "worktree:none,branch:kept (not merged)" "$(run "$M" f21 after-merge "$OID21")"
+assert_eq "C21: branch kept" yes "$(has_branch f21)"
+
 # C9: removal failure (locked worktree) is reported, rc 0, branch kept.
 new_wt "$T/ext9" f9; git -C "$M" merge -q --no-ff -m m9 f9; git -C "$M" worktree lock "$T/ext9"
 OUT9=$(run "$T/ext9" f9 after-merge "$(tip f9)"); RC9=$?
