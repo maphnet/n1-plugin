@@ -22,7 +22,8 @@ printf 'CREATE_OP=%s\nLINK_OP=%s\nCOMMENT_OP=%s\n' "$(n1_config_val '.tracker.op
 
 Read every value from the output. `CREATE_OP` comes from `tracker.operations.createIssue`, `LINK_OP` from `tracker.operations.linkIssues`, `COMMENT_OP` from `tracker.operations.addComment`.
 
-- `QE` is not `auto-accept`, or `## Follow-ups` has no candidate lines: skip silently. Gate 3 prints no `Follow-ups:` line.
+- `QE` is not `auto-accept`, or `## Follow-ups` has no lines at all: skip silently. Gate 3 prints no `Follow-ups:` line.
+- Lines exist but none are open (resume, all marked): skip § 2 and § 3; go to § 4.
 - `TRACKER_MCP` is empty: file nothing. Every open candidate is unfiled and stays in overview.md. Go to § 4.
 - `CREATE_OP` empty: use `createJiraIssue` (Jira) or `create_issue` (YouTrack).
 - `<ID>` does not match `^[A-Z][A-Z0-9_]*-[0-9]+$` (provisional ID such as `sentry-123`, no tracker ticket yet): still create, but omit `Follow-up of <ID>.`, skip step 4 (link) and § 3 (comment); Gate 3 still reports.
@@ -31,7 +32,7 @@ Read every value from the output. `CREATE_OP` comes from `tracker.operations.cre
 
 Open candidates are the lines that do not start with `- [`. Process at most 5 per run (fixed cap); the rest are unfiled. Read `pr_url` from `## Pending`. For each open candidate, in order:
 
-1. **Duplicate check.** Follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT=<title> — <reason>`, `SELF_ID` and `OVERVIEW` empty. Hands-off takes its unattended branch, so there is no prompt. If `MATCHES` has a `duplicate` row, do not create. Rewrite the line as `- [<HIT_ID> existing] <title> | ...`, link `<HIT_ID>` Relates to `<ID>` as in step 4 (best effort), and go to the next candidate.
+1. **Duplicate check.** Follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT=<title> — <reason>`, `SELF_ID` and `OVERVIEW` empty. Hands-off takes its unattended branch, so there is no prompt. If `MATCHES` has a `duplicate` row, do not create. If `<HIT_ID>` does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`, skip the marker and link; otherwise rewrite the line as `- [<HIT_ID> existing] <title> | ...`, link `<HIT_ID>` Relates to `<ID>` as in step 4 (best effort), and go to the next candidate.
 2. **Create** via `mcp__<TRACKER_MCP>__<CREATE_OP>`:
    - summary = title
    - description = reason, then `Follow-up of <ID>.`, then `PR: <pr_url>` (omit when empty)
@@ -39,7 +40,7 @@ Open candidates are the lines that do not start with `- [`. Process at most 5 pe
    - parameter names per § Create-call parameters
 
    On failure, emit `> Warning: Follow-up not filed: <title>: <error>`, leave the line unmarked (a resume retries it), and continue.
-3. **Mark.** Drop the new key unless it matches `^[A-Z][A-Z0-9_]*-[0-9]+$`. Rewrite the line as `- [<KEY>] <title> | ...` with the file-write mechanism, only after the create call succeeds.
+3. **Mark.** If the new key does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`, emit `> Warning: Follow-up not filed: <title>: invalid key <KEY>`, leave the line unmarked, and continue. Otherwise rewrite the line as `- [<KEY>] <title> | ...` with the file-write mechanism, only after the create call succeeds.
 4. **Link** `<KEY>` Relates to `<ID>` via `mcp__<TRACKER_MCP>__<LINK_OP>`:
    - YouTrack: map `Relates` → `relates to`, source = `<KEY>`, target = `<ID>`, using the tool's own argument names.
    - Jira: `cloudId`, `inwardIssue: { key: "<ID>" }`, `outwardIssue: { key: "<KEY>" }`, `type: { name: "Relates" }`.

@@ -64,7 +64,7 @@ Tested:
 
   <STEP>: SKIPPED — <reason>
 
-Follow-ups: <KEY>, <KEY> (+N unfiled) — omit if none
+Follow-ups: <KEY>, <KEY> (existing: <HIT_ID>) (+N unfiled) — omit if § File skipped
 Ticket: <TICKET_URL — omit if empty>
 PR: <url>
 ===
