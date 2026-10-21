@@ -368,6 +368,7 @@ def main() -> int:
 
     compaction_events = [e['timestamp'] for e in step_events if e.get('event') == 'compaction']
     decisions = [e for e in step_events if e.get('event') == 'decision']
+    questions = [e for e in step_events if e.get('event') == 'question']
     outcomes = [e for e in step_events if e.get('event') == 'outcome']
     total_in = _sum(a["input_tokens"] for a in agents)
     total_cache = _sum(a["cache_read_tokens"] for a in agents)
@@ -423,6 +424,7 @@ def main() -> int:
         "steps": steps,
         "agents": agents,
         "decisions": decisions,
+        "questions": questions,
         "outcomes": outcomes,
         "summary": summary,
     }
