@@ -64,12 +64,13 @@ Tested:
 
   <STEP>: SKIPPED — <reason>
 
+Follow-ups: <KEY>, <KEY> (+N unfiled) — omit if none
 Ticket: <TICKET_URL — omit if empty>
 PR: <url>
 ===
 ```
 
-With `qualityEscalations=auto-accept`, never close Gate 3 with an offer or question to fix Codex findings; unfixed Codex items are informational only, whether or not triage ran.
+With `qualityEscalations=auto-accept`, never close Gate 3 with an offer or question to fix Codex findings or file follow-ups (filed by `followup-filing.md`); unfixed Codex items are informational only, whether or not triage ran.
 
 Rules: 1) Verbatim commands/results from qa.md/local-testing.md. 2) Skipped steps printed. 3) `Ticket:` omitted when `ticket_url` is empty. 4) `PR:` is Gate 3's final field.
 

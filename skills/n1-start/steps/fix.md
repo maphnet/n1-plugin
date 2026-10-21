@@ -28,6 +28,7 @@ After developer returns:
 ```bash
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 ```
+`QE==auto-accept`: append the developer's `Findings deferred` per `<N1_ROOT>/references/followup-filing.md` § Append (source `review`).
 
 ```bash
 source ~/.n1/preamble.sh

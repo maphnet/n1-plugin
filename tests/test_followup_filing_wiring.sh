@@ -34,4 +34,13 @@ check "Gate 3 line format" 'Follow-ups: <KEY>' "$P"
 check "procedure never blocks" 'Never blocks' "$P"
 check "architecture.md documents the procedure" 'references/followup-filing\.md' references/architecture.md
 
+check "review fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/fix.md
+check "review fix tags source review" 'source `review`' skills/n1-start/steps/fix.md
+check "QA fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/qa.md
+check "QA fix tags source qa" 'source `qa`' skills/n1-start/steps/qa.md
+check "finalize appends its own proposals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/procedures/finalize.md
+check "finalize runs File before Gate 3" 'followup-filing\.md` § File' skills/n1-start/procedures/finalize.md
+check "Gate 3 template carries Follow-ups line" 'Follow-ups: <KEY>' skills/n1-start/procedures/output-gates.md
+check "Gate 3 auto-accept never offers to file follow-ups" 'auto-accept.*file follow-ups' skills/n1-start/procedures/output-gates.md
+
 exit $FAIL
