@@ -104,7 +104,7 @@ When `ticketTagging.enabled` is true, `n1-start` prefixes created tickets with `
 
 **Follow-up filing.** `references/followup-filing.md` is a shared, model-driven procedure (N1-102). With `qualityEscalations=auto-accept` (hands-off), the review fix, QA fix, n1-pr Codex step, and FINALIZE MEMORY append proposed follow-ups to `## Follow-ups` in overview.md instead of offering them. n1-start FINALIZE MEMORY then files them before Gate 3:
 - runs the duplicate check (`CONTEXT=create`); a duplicate hit is linked, not recreated
-- creates each ticket under the ticket-scope rule, at most 5 per run
+- creates each ticket under the ticket-scope rule, at most 5 per ticket (resume-aware)
 - marks each line in place with `[<KEY>]`, which makes resume idempotent
 - links each ticket Relates to the current ticket
 - posts one tracker comment and adds a `Follow-ups:` line to Gate 3
