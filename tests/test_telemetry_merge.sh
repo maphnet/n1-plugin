@@ -35,6 +35,8 @@ cat > "$TELEM_DIR/raw/steps/$RUN_ID.jsonl" <<STEPS
 {"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"TEST-1","session_id":"sess-001","host":"claude-code"}
 {"layer":"step","step":"analysis","step_number":1,"started_at":"2026-09-01T10:00:00Z"}
 {"layer":"step","step":"analysis","step_number":1,"completed_at":"2026-09-01T10:05:00Z","outcome":"pass"}
+{"event":"question","run_id":"$RUN_ID","n1_version":"3.8.0","ticket_id":"TEST-1","layer":"question","step":"brainstorm","question_category":"design","resolution":"asked","rungs_tried":"codebase,web","timestamp":"2026-09-01T10:06:00Z"}
+{"event":"question","run_id":"$RUN_ID","n1_version":"3.8.0","ticket_id":"TEST-1","layer":"question","step":"plan","question_category":"scope","resolution":"auto","rungs_tried":"","timestamp":"2026-09-01T10:07:00Z"}
 {"layer":"envelope_close","completed_at":"2026-09-01T10:10:00Z","final_outcome":"pr_created"}
 STEPS
 
@@ -95,6 +97,14 @@ assert_eq "Gap3b: agent-2 parse_error is transcript_not_found" "transcript_not_f
 # agent-1 should have no error
 AGENT1_ERROR=$(jq -r '.agents[0].parse_error // "null"' "$OUT")
 assert_eq "Gap3b: agent-1 parse_error is null" "null" "$AGENT1_ERROR"
+
+# --- N1-101: question events reach the merged record ---
+assert_eq "N1-101: questions[] has both events" "2" "$(jq '.questions | length' "$OUT")"
+assert_eq "N1-101: question fields preserved" "brainstorm|design|asked|codebase,web|2026-09-01T10:06:00Z" \
+  "$(jq -r '.questions[0] | [.step,.question_category,.resolution,.rungs_tried,.timestamp] | join("|")' "$OUT")"
+assert_eq "N1-101: question lines do not become steps" "1" "$(jq '.steps | length' "$OUT")"
+assert_eq "N1-101: benchmark counts merged questions" "2.0" \
+  "$(cd "$REPO_ROOT/scripts" && python3 -c "import json,sys,benchmark; print(benchmark.QuestionMetric('q').compute(json.load(open(sys.argv[1])), []))" "$OUT")"
 
 # --- Backward compat: session_transcript_path in output ---
 SESS_PATH=$(jq -r '.session_transcript_path' "$OUT")
