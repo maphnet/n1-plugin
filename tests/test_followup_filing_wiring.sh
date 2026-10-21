@@ -43,4 +43,8 @@ check "finalize runs File before Gate 3" 'followup-filing\.md` § File' skills/n
 check "Gate 3 template carries Follow-ups line" 'Follow-ups: <KEY>' skills/n1-start/procedures/output-gates.md
 check "Gate 3 auto-accept never offers to file follow-ups" 'auto-accept.*file follow-ups' skills/n1-start/procedures/output-gates.md
 
+check "Codex step appends human-review items (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-pr/steps/03-codex-review.md
+check "Codex step tags source codex" 'source `codex`' skills/n1-pr/steps/03-codex-review.md
+check "Codex step auto-accept never offers to file follow-ups" 'auto-accept.*file follow-ups' skills/n1-pr/steps/03-codex-review.md
+
 exit $FAIL
