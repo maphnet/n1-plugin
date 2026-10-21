@@ -27,3 +27,29 @@ n1_review_record() {
             '{"config":"crossHostReview.enabled"}' "pr_url=$url" "outcome=$outcome" "reason=$reason" "comment=$comment"
     fi
 }
+
+# Deterministic backstop for a PR created outside n1-pr (PostToolUse missed it).
+# Prints each PR on the active run's branch lacking a processed receipt in any session, and
+# records this session's skipped/step-not-run receipt so the Stop loop blocks once.
+# Fail open: no pointer, empty/default branch, no gh, offline -> prints nothing, returns 0.
+n1_review_check_run() {
+    local run branch wt url receipt
+    run=$(n1_active_run_file) && [ -f "$run" ] || return 0
+    # Only this session's keyed pointer; the unkeyed fallback may belong to a crashed run.
+    case "$run" in */active-run.json) return 0 ;; esac
+    branch=$(jq -r '.branch // empty' "$run" 2>/dev/null) || return 0
+    case "$branch" in ""|main|master|HEAD) return 0 ;; esac
+    wt=$(jq -r '.worktreePath // empty' "$run" 2>/dev/null) || wt=""
+    # No PR can exist before the first push; skip the network call (git error: fail open).
+    [ -n "$(git -C "${wt:-.}" for-each-ref --count=1 --format=x "refs/remotes/*/$branch" 2>/dev/null)" ] || return 0
+    command -v gh >/dev/null 2>&1 || return 0
+    command -v timeout >/dev/null 2>&1 || return 0   # cannot bound the network call (macOS without coreutils): skip
+    while IFS= read -r url; do
+        receipt=$(n1_review_receipt "$url") || continue
+        # Receipts are per session; a resumed run counts any session's processed receipt.
+        jq -se 'any(.[]; .processed == true)' "$(n1_home)"/review-receipts/*/"${receipt##*/}" >/dev/null 2>&1 && continue
+        [ -f "$receipt" ] || n1_review_record "$url" skipped step-not-run false
+        printf '%s\n' "$url"
+    done < <(cd "${wt:-.}" 2>/dev/null && timeout 10 gh pr list --head "$branch" --json url -q '.[].url' </dev/null 2>/dev/null)
+    return 0
+}

@@ -17,6 +17,6 @@ while IFS= read -r url; do
     [ ! -f "$file" ] || continue
     n1_review_record "$url" skipped step-not-run false
     urls+=("$url")
-done < <(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // .error // empty' | rg -o 'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+' | sort -u)
+done < <(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // .error // empty' | grep -Eo 'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+' | sort -u)
 [ "${#urls[@]}" -gt 0 ] || exit 0
 jq -n --arg event "$EVENT" --arg urls "${urls[*]}" '{hookSpecificOutput:{hookEventName:$event,additionalContext:("N1: PRs " + $urls + " need Codex review. Read n1-pr step 3 and run the review runner before reporting completion.")}}'

@@ -10,6 +10,8 @@ sid=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
 export N1_SESSION_ID="$sid"
 N1_HOME=$(n1_home)
 [ -n "$N1_HOME" ] || exit 0
+# A PR created outside n1-pr has no PostToolUse receipt; find it via the run branch.
+n1_review_check_run >/dev/null || true
 urls=()
 for file in "$N1_HOME/review-receipts/$sid/"*.json; do
     [ -f "$file" ] || continue

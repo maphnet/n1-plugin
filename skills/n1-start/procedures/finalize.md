@@ -20,9 +20,11 @@ source "$N1_ROOT/lib/telemetry.sh"
 [ -s "$MERGED" ] && n1_remove_run_lock "${N1_HOME}/memory/$ID/telemetry" "$N1_RUN_ID"
 ```
 
-Clear active-run:
+Clear active-run (first record any run-branch PR still missing its Codex receipt, so the Stop hook enforces it after the pointer is gone):
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/codex-review.sh"
+n1_review_check_run >/dev/null
 n1_active_run_clear
 ```
 
