@@ -21,6 +21,14 @@ check "open candidate bounded by next heading and positively anchored" 'matching
 check "title strips all leading [ (unforgeable marker)" 'strip all leading `\[` characters' "$P"
 check "Append inserts inside the section" 'at the end of the `## Follow-ups` section, before the next' "$P"
 check "security candidates flagged" 'Security-relevant:' "$P"
+check "pending marker written before create" 'rewrite the line as `- \[pending\]' "$P"
+check "pending reconciled by tracker search on resume" 'pending` line met on resume.*search the tracker' "$P"
+check "pending reconcile runs for queue children" 'pending` reconcile below still runs' "$P"
+check "pending counts against the cap" 'count `pending`, `unlinked`' "$P"
+check "unlinked marker retried on resume" 'leave the line `unlinked` \(a resume retries it\)' "$P"
+check "done marker only after link succeeds" 'Only after the link succeeds' "$P"
+check "report never lists pending as a key" '`- \[pending\]` is never a key' "$P"
+check "report strips unlinked" 'strip ` unlinked`' "$P"
 
 check "review fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/fix.md
 check "QA fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/qa.md
