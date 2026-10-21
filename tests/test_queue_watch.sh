@@ -205,67 +205,6 @@ test_rejects_bad_input_and_sanitizes() {
     has "sanitize: control chars replaced" "halted: a [31mb. Watch ended." "$out"
 }
 
-# N1-64: merge-to-unblock readiness is re-checked every poll, independent of the event stream
-# (a blocker's gate can flip WAIT -> pass with no event, e.g. CI finishing).
-mk_merge_repo() { # <repo-dir>
-    mkdir -p "$1"
-    git -C "$1" init -q
-    git -C "$1" remote add origin https://github.com/o/r.git
-}
-
-mk_merge_queue() { # <queue.md> <repo> <home>
-    cat > "$1" <<EOF
----
-queue_id: q7
-run_id: R1
----
-## Plan
-| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
-|---|--------|-------|------|---------|-------|--------|--------|
-| 1 | T-1 | A | $2 | $3 | sonnet | pr | |
-| 2 | T-2 | B | $2 | $3 | sonnet | held | blocked_on T-1 |
-
-## Runs
-| Ticket | Started | Exit | Outcome | PR | Session |
-|--------|---------|------|---------|----|---------|
-EOF
-}
-
-mk_gh_stub() { # <bin-dir>
-    mkdir -p "$1"
-    cat > "$1/gh" <<'EOF'
-#!/usr/bin/env bash
-printf '%s' "${GH_JSON:-}"
-EOF
-    chmod +x "$1/gh"
-}
-
-test_merge_ready_line() {
-    local tmp q repo home bin out
-    tmp=$(mktemp -d); q=$(newq q7)
-    repo="$tmp/repo"; home="$tmp/mh"; bin="$tmp/bin"
-    mk_merge_repo "$repo"
-    mkdir -p "$home/memory/T-1"
-    mk_merge_queue "$q/queue.md" "$repo" "$home"
-    mk_gh_stub "$bin"
-    export GH_JSON='{"headRefName":"feature/t-1","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}]}'
-
-    # WAIT: overview.md has no pr_url yet -> gate fails -> nothing printed.
-    printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n' > "$home/memory/T-1/overview.md"
-    out=$(PATH="$bin:$PATH" watch 2 "$q" R1 "$$")
-    lacks "merge-ready: nothing while WAIT" "ready to merge-to-unblock" "$out"
-
-    # Gate flips WAIT -> pass with no queue event: only the overview.md content changed.
-    printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$home/memory/T-1/overview.md"
-    out=$(PATH="$bin:$PATH" watch 2 "$q" R1 "$$")
-    has "merge-ready: printed once gate passes" "n1-queue q7: T-1 ready to merge-to-unblock" "$out"
-
-    # Same sha, still ready: not reprinted on the next poll.
-    out=$(PATH="$bin:$PATH" watch 2 "$q" R1 "$$")
-    lacks "merge-ready: not reprinted while unchanged" "ready to merge-to-unblock" "$out"
-    unset GH_JSON
-}
-
 # N1-89: ticket-watch events written by a child are relayed.
 test_ticket_watch_events_relayed() {
     local q out; q=$(newq q_tw)
@@ -289,7 +228,6 @@ test_escalated_json_reason_fallback_over_300_chars_rendered
 test_escalated_plaintext_brace_reason_unchanged
 test_escalated_plaintext_long_reason_capped_at_300
 test_rejects_bad_input_and_sanitizes
-test_merge_ready_line
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

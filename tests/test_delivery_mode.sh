@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for NP-219 delivery mode: lib/config.sh helpers, negative execution,
-# merge-gate non-regression, and skill wiring.
+# and skill wiring.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -159,24 +159,6 @@ test_runbook_steps() {
         "$(n1_read_frontmatter "$TMP/home/memory/T-9/overview.md" deploy_next_step)"
 }
 
-# --- Non-regression: merge/finish gates ignore the delivery block -------------
-gate() {
-    echo "$1" > "$TEST_CONFIG"
-    if n1_merge_allowed; then echo 1; else echo 0; fi
-}
-
-test_gates_unchanged() {
-    local base with
-    for base in '{}' \
-        '{"queue":{"mergeOnFinish":true}}' \
-        '{"git":{"prMode":"skip"},"queue":{"mergeOnFinish":true}}' \
-        '{"git":{"prMode":"ready"}}'; do
-        with=$(echo "$base" | jq -c '. + {"delivery":{"mode":"ssh","command":"true"}}')
-        assert_eq "gates unchanged (interactive): $base" "$(gate "$base")" "$(gate "$with")"
-        assert_eq "gates unchanged (queue): $base" "$(N1_QUEUE_RUN_ID=R1 gate "$base")" "$(N1_QUEUE_RUN_ID=R1 gate "$with")"
-    done
-}
-
 # --- Skill wiring ---------------------------------------------------------------
 section() { awk -v h="$2" 'index($0, h) == 1 {f=1; next} /^## /{f=0} f' "$1"; }
 
@@ -245,9 +227,7 @@ test_wiring() {
         "$(grep -qF '^[0-9a-f]{7,40}$' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     assert_eq "wiring: resume validates SHA is an ancestor of the default branch" "yes" \
         "$(grep -qF 'merge-base --is-ancestor' "$s/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
-    # Non-regression: the PR / local-merge / deploy-watch step files, and n1-start's finish
-    # gate (nothing has merged yet when finish-gate is false, so there is nothing to deploy),
-    # are not touched.
+    # Non-regression: the PR / local-merge / deploy-watch step files and n1-start's finish step are not touched.
     assert_eq "non-regression: 02-merge has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-finish/steps/02-merge.md" || true)"
     assert_eq "non-regression: 03-deploy has no delivery logic" "0" "$(grep -c 'delivery\.' "$s/n1-finish/steps/03-deploy.md" || true)"
     assert_eq "non-regression: n1-start finish gate has no delivery logic" "0" "$(grep -c 'delivery' "$s/n1-start/steps/finish.md" || true)"
@@ -297,7 +277,6 @@ test_action_no_jq
 test_runbook_never_executes
 test_multi_step_helpers
 test_runbook_steps
-test_gates_unchanged
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

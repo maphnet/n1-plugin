@@ -37,6 +37,17 @@ DEAD=(
   n1_finish_enabled
   finishWork.enabled
   finishWork.mergeOnFinish
+  queue.mergeOnFinish
+  autoResolveNonCritical
+  n1_merge_allowed
+  n1_wait_pr_merged
+  n1_queue_merge_gate
+  n1_queue_merge_candidates
+  n1_queue_unblock
+  n1_queue_auto_resolve
+  n1_queue_ticket_home
+  n1_escalation_critical
+  merged_to_unblock
   waitForMergeMinutes
   closeTicket
   gate_finish
@@ -87,8 +98,8 @@ done
 mapfile -t SITES < <(grep -E "^ *DEAD='" "$PRUNE" | sed "s/^ *//")
 if [ "${#SITES[@]}" = 2 ] && [ "${SITES[0]}" = "${SITES[1]}" ]; then ok "prune list identical at both sites"; else no "prune list sites differ or missing (${#SITES[@]})"; fi
 eval "${SITES[0]}"
-IN='{"telemetry":{"enabled":true},"worktree":{"cleanup":"after-merge","mode":"external","setup":"npm ci"},"finishWork":{"enabled":true,"mergeOnFinish":false,"waitForMergeMinutes":10,"closeTicket":true,"mergeMethod":"squash","deployWatch":{"enabled":true,"timeoutMinutes":30,"workflowName":"deploy.yml"}},"qa":{"blockUntestedFeatures":false,"maxFixAttempts":3},"estimation":{"enabled":true},"rules":{"enabled":true},"codex":{"enabled":true},"release":{"enabled":true,"tagPrefix":"v","deployWatch":{"enabled":true},"trackerRelease":{"moveTickets":true,"createVersion":true,"setFixVersion":true}},"relatedProjects":{"maxSnapshotAge":"72h","projects":[{"slug":"a","confirmedAt":"x"}]},"queue":{"mergeOnFinish":true},"autonomy":{"mode":"hands-off","tailChain":"suggest"}}'
-WANT='{"worktree":{"setup":"npm ci"},"finishWork":{"mergeMethod":"squash","deployWatch":{"workflowName":"deploy.yml"}},"qa":{"maxFixAttempts":3},"release":{"enabled":true},"relatedProjects":{"projects":[{"slug":"a"}]},"queue":{"mergeOnFinish":true},"autonomy":{"mode":"hands-off"}}'
+IN='{"telemetry":{"enabled":true},"worktree":{"cleanup":"after-merge","mode":"external","setup":"npm ci"},"finishWork":{"enabled":true,"mergeOnFinish":false,"waitForMergeMinutes":10,"closeTicket":true,"mergeMethod":"squash","deployWatch":{"enabled":true,"timeoutMinutes":30,"workflowName":"deploy.yml"}},"qa":{"blockUntestedFeatures":false,"maxFixAttempts":3},"estimation":{"enabled":true},"rules":{"enabled":true},"codex":{"enabled":true},"release":{"enabled":true,"tagPrefix":"v","deployWatch":{"enabled":true},"trackerRelease":{"moveTickets":true,"createVersion":true,"setFixVersion":true}},"relatedProjects":{"maxSnapshotAge":"72h","projects":[{"slug":"a","confirmedAt":"x"}]},"queue":{"tag":"n1-auto","mergeOnFinish":true,"autoResolveNonCritical":true},"autonomy":{"mode":"hands-off","tailChain":"suggest"}}'
+WANT='{"worktree":{"setup":"npm ci"},"finishWork":{"mergeMethod":"squash","deployWatch":{"workflowName":"deploy.yml"}},"qa":{"maxFixAttempts":3},"release":{"enabled":true},"relatedProjects":{"projects":[{"slug":"a"}]},"queue":{"tag":"n1-auto"},"autonomy":{"mode":"hands-off"}}'
 GOT=$(jq -cS "$DEAD" <<<"$IN"); EXP=$(jq -cS . <<<"$WANT")
 if [ "$GOT" = "$EXP" ]; then ok "prune removes stopgaps, keeps live keys"; else no "prune result: $GOT"; fi
 if [ "$(jq -cS "$DEAD" <<<"$GOT")" = "$GOT" ]; then ok "prune idempotent"; else no "prune not idempotent"; fi

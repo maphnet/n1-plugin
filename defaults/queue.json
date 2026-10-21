@@ -8,8 +8,6 @@
   "notifyCommand": "",
   "opusFromSize": "M",
   "designPath": "docs/design/",
-  "mergeOnFinish": false,
-  "autoResolveNonCritical": false,
   "staleAfterHours": 24,
   "taskSizing": {
     "maxSize": "L",

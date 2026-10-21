@@ -9,51 +9,54 @@ Case 2 - spawn model override. For spawn tools targeting an N1 persona, rewrite 
 from config `models.<persona>` (string, or a legacy host-keyed object read through its
 "claude-code" key).
 
-Case 3 - queue merge gate (NP-212). Only in queue children (env N1_QUEUE_RUN_ID set) and only
-when config queue.mergeOnFinish is not true: deny Bash commands whose raw text names a merge
-action - `gh ... pr ... merge`, `gh ... api ...` mentioning merge/mergePullRequest/
-enablePullRequestAutoMerge, `git ... merge`, or `git ... push` naming git.defaultBranch (default
-"main"). This is a plain case-insensitive text scan over the whole command string (quotes and
-backslashes stripped first, the same way bash strips them before running the command, so
-`g''h pr m''erge` can't hide the words), not a shell parser: three review cycles of increasingly
-precise shlex-based tokenizing (heredocs, comments, wrapper commands, shell keywords, redirects)
-kept opening new bypasses as fast as they closed old ones. A raw scan isn't evaded by
-chained/obfuscated *static* shell syntax the way a parser was, and over-blocking inside a queue
-child (a merge-shaped string inside unrelated text, e.g. prose that quotes a push command) is an
-accepted trade-off - the ticket's AC prioritizes "cannot merge even
-if the model tries" over precision. Known gap: it does not resolve the current branch, so a bare
-`git push` that never names the default branch in the command text is not caught (any `git ...
-merge` is denied outright regardless of a named branch - only the push check has this
-precondition) - the skill-level n1_merge_allowed gate is the primary control
-for that shape, this hook is the backstop for the common case (the model naming the branch or PR
-explicitly). Also does not catch a command whose merge/push words only exist after shell-side
-runtime string-building (base64, `eval`, variable/command substitution, git/gh aliases) -- no text
-scan can see those without executing them; that class is an accepted, documented limit, not a
-target for this hook. Unreadable config fails closed (deny).
+Case 3 - queue merge deny (N1-114). Unconditional, no config gate: only in headless queue children
+(env N1_QUEUE_RUN_ID set and N1_HEADLESS=1), deny Bash `gh pr merge`; `gh api`/curl/wget when the
+command anywhere names a merge API (mergePullRequest, enablePullRequestAutoMerge, mergeBranch,
+enqueuePullRequest, repos/<o>/<r>/merges, pulls/<n>/merge, git/refs/heads/<default>) - anywhere, so a
+heredoc query body counts, but only with an HTTP-capable command present, so `grep mergePullRequest`
+passes; and `git push` targeting git.defaultBranch (default "main"): a refspec
+`[refs/heads/]<default>` or `<src>:<default>`, `*` or `:` refspecs, `--all`/`--mirror`/`--branches`
+(or prefixes), or a bare/HEAD push while the payload cwd is on the default branch. `git merge` is
+NOT denied (N1-45). Not a shell parser: quotes/backslashes are stripped (bash does the same, so
+`g''h pr m''erge` is caught), `$(`/`<(`/backtick become command-position markers, `${`/`@{`/parens
+are blanked, the command is split on ; & | newline, and gh/git/curl/wget count only at command
+position (segment start, after VAR=x, wrappers like env/sudo/xargs/timeout N, `sh -c`). A chunk
+runs to segment end; a nested one runs until the next nested one - each token lands in at most two
+chunks, so the scan is linear in command length (SEC-22). Known gaps: runtime string-building (eval,
+base64, variables, aliases), wrappers with value flags (`sudo -u x gh`), other HTTP clients, chunks
+nested three deep, a bare push after `cd` into another checkout on the default branch; known false
+positives: heredoc/backtick text whose line starts with gh/git, and grep for a merge API in the
+same command as `gh api`.
 
 Fail-open otherwise: exit 0, no output.
 
 Usage: enforce-agent-policy.py <config_file> <plugin_root>   (payload on stdin)
 """
 
+import functools
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 SPAWN_TOOLS = {"Task", "Agent", "spawn_agent"}
-
-# Raw case-insensitive text scan (see Case 3 docstring above for why this replaced a shlex
-# parser). `\b` word boundaries keep "github"/"digit"/"mergeCommit" from matching. Independent
-# per-word checks (not a single chained `\bgh\b.*\bpr\b.*\bmerge\b` pattern) -- Python's regex
-# engine doesn't memoize, so two greedy `.*` under re.S is quadratic-ish and denial-of-service-able
-# on a long, repetitive command (SEC-22); this stays linear in command length.
-MERGE_API_RE = re.compile(r"\b(?:merge|mergepullrequest|enablepullrequestautomerge)\b", re.I)
-
-
-def _has(command: str, word_re: str) -> bool:
-    return re.search(word_re, command, re.I) is not None
+SEGMENT_RE = re.compile(r"[;&|\n]")
+MERGE_API = (r"mergepullrequest|enablepullrequestautomerge|mergebranch|enqueuepullrequest"
+             r"|\brepos/[^/\s]+/[^/\s]+/merges\b|/pulls/[^/\s]+/merge\b")
+SUBST = "\x00"  # command-position marker for $( <( >( and backticks
+ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+# Redirection + operand (>f, > f, 2>f, >>f, <f, &>f, 2>&1, >|f) so the next word keeps command
+# position; (?<!...) anchors fd digits to a run start (linear); >( <( $( stay for SUBST.
+REDIR_RE = re.compile(r"(?<![\d&])(?:\d*|&)(?:>>?|<)(?!\()\|?[ \t]*&?(?:[^\s;&|()<>`$]|\$(?!\())*")
+DURATION_RE = re.compile(r"[0-9.]+[smhd]?$")
+PROGRAMS = {"gh", "git", "curl", "wget"}
+WRAPPERS = {"env", "command", "exec", "sudo", "time", "nohup", "xargs", "timeout", "sh", "bash",
+            "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
+GH_VALUE_FLAGS = {"-R", "--repo"}
+GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
+PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 
 def persona_of(agent_type: str):
@@ -127,43 +130,116 @@ def spawn_override(payload: dict, config: dict) -> int:
     return 0
 
 
-def _dict(value):
-    return value if isinstance(value, dict) else {}
+def _positionals(tokens, value_flags):
+    """(positional, flag-value) pairs: tokens not starting with '-', skipping values of value_flags."""
+    out, skip, cwd = [], False, None
+    for i, tok in enumerate(tokens):
+        if skip:
+            skip = False
+        elif tok in value_flags:
+            skip = True
+            if tok == "-C" and i + 1 < len(tokens):
+                cwd = tokens[i + 1]
+        elif not tok.startswith("-"):
+            out.append(tok)
+    return out, cwd
+
+
+@functools.lru_cache(maxsize=None)
+def _current_branch(cwd):
+    try:
+        r = subprocess.run(["git", "-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip() or None
+
+
+def _is_merge(tokens, api_hit, default, cwd):
+    """One chunk starting at a gh/git/curl/wget token in command position."""
+    if tokens[0] in ("curl", "wget"):
+        return api_hit
+    pos, git_cwd = _positionals(tokens[1:], GH_VALUE_FLAGS if tokens[0] == "gh" else GIT_VALUE_FLAGS)
+    if tokens[0] == "gh":
+        return pos[:2] == ["pr", "merge"] or (pos[:1] == ["api"] and api_hit)
+    if pos[:1] != ["push"]:
+        return False
+    args = tokens[tokens.index("push") + 1:]
+    if any(len(a) > 3 and any(f.startswith(a) for f in ("--all", "--mirror", "--branches")) for a in args):
+        return True
+    refs, _ = _positionals(args, PUSH_VALUE_FLAGS)
+    # --repo names the remote, so every positional is a refspec (Codex High)
+    if not any(a == "--repo" or a.startswith(("--rep=", "--repo=")) for a in args):
+        refs = refs[1:]
+    if any("*" in r or r.lstrip("+") == ":" for r in refs):
+        return True
+    target = re.compile(r"(?:^|:)(?:refs/heads/)?%s$" % re.escape(default), re.I)
+    if any(target.search(r.lstrip("+")) for r in refs):
+        return True
+    if not all(r in ("HEAD", "@") for r in refs):
+        return False
+    base = cwd or os.getcwd()
+    branch = _current_branch(os.path.join(base, git_cwd) if git_cwd else base)
+    return bool(branch) and branch.lower() == default.lower()
+
+
+def _commands(command):
+    """Token lists, one per gh/git/curl/wget in command position (outer + latest nested; linear, SEC-22)."""
+    command = REDIR_RE.sub(" ", command)
+    command = re.sub(r"[$<>]\(|`", f" {SUBST} ", command)
+    command = re.sub(r"[$@]\{|[()<>]", " ", command)
+    for segment in SEGMENT_RE.split(command):
+        outer = inner = None
+        at_cmd, wrapped = True, False
+        for tok in segment.split():
+            if tok == SUBST:
+                at_cmd, wrapped = True, False
+                continue
+            if at_cmd:
+                name = tok.rsplit("/", 1)[-1].lower()
+                name = name[:-4] if name.endswith(".exe") else name
+                if name in PROGRAMS:
+                    if outer is None:
+                        outer = [name]
+                    else:
+                        if inner:
+                            yield inner
+                        inner = [name]
+                    at_cmd = False
+                    continue
+                if name in WRAPPERS:
+                    wrapped = True
+                else:
+                    at_cmd = bool(ASSIGN_RE.match(tok)) or (wrapped and (tok.startswith("-") or bool(DURATION_RE.match(tok))))
+            for chunk in (outer, inner):
+                if chunk is not None:
+                    chunk.append(tok)
+        for chunk in (outer, inner):
+            if chunk:
+                yield chunk
 
 
 def merge_deny(payload: dict, config: dict) -> int:
-    # ponytail: a raw case-insensitive text scan over the whole command string, not a shell
-    # parser -- see the Case 3 docstring above for why. Over-blocking (a merge-shaped string
-    # inside unrelated text) is accepted by design; under-blocking a bare `git push`/`git merge`
-    # that never names a branch is a known, documented gap the skill-level gates cover instead.
     run_id = os.environ.get("N1_QUEUE_RUN_ID")
-    if not run_id:
+    if not run_id or os.environ.get("N1_HEADLESS") != "1":
         return 0
-    if _dict(config.get("queue")).get("mergeOnFinish") is True:
-        return 0
-    tool_input = _dict(payload.get("tool_input"))
+    tool_input = payload.get("tool_input")
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
     command = tool_input.get("command") or tool_input.get("cmd")
     if isinstance(command, list):
         command = " ".join(str(c) for c in command)
     if not isinstance(command, str) or not command:
         return 0
-    # Bash strips quotes/backslashes before a command runs; the scan must too, or
-    # `g''h pr m''erge 12` slips through with none of "gh"/"pr"/"merge" intact as words (SEC-21).
     command = re.sub(r"[\"'\\]", "", command)
-    default = str(_dict(config.get("git")).get("defaultBranch") or "main")
-    is_merge = (
-        (_has(command, r"\bgh\b") and _has(command, r"\bpr\b") and _has(command, r"\bmerge\b"))
-        or (_has(command, r"\bgh\b") and _has(command, r"\bapi\b") and MERGE_API_RE.search(command))
-        or (_has(command, r"\bgit\b") and _has(command, r"\bmerge\b"))
-    )
-    is_push_to_default = (
-        _has(command, r"\bgit\b") and _has(command, r"\bpush\b")
-        and _has(command, r"\b%s\b" % re.escape(default))
-    )
-    if not (is_merge or is_push_to_default):
+    git_cfg = config.get("git")
+    default = str((git_cfg if isinstance(git_cfg, dict) else {}).get("defaultBranch") or "main")
+    cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
+    api_re = re.compile(r"%s|git/refs/heads/%s(?![\w.-])" % (MERGE_API, re.escape(default)), re.I)
+    api_hit = api_re.search(command) is not None
+    if not any(_is_merge(c, api_hit, default, cwd) for c in _commands(command)):
         return 0
-    sys.stderr.write(f"N1: merge denied in queue run {run_id} -- queue.mergeOnFinish is not true; "
-                     f"the ticket stops after PR + CI\n")
+    sys.stderr.write(f"N1: merge denied in queue run {run_id} -- N1 never merges; "
+                     f"the ticket stops after PR + CI and a human merges\n")
     return 2
 
 
@@ -184,10 +260,7 @@ def main() -> int:
             config = {}
     if not isinstance(config, dict):
         config = {}
-    rc = restriction(payload, plugin_root)
-    if rc:
-        return rc
-    rc = merge_deny(payload, config)
+    rc = restriction(payload, plugin_root) or merge_deny(payload, config)
     if rc:
         return rc
     return spawn_override(payload, config)

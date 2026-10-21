@@ -145,9 +145,6 @@ ev queue_started
 finalize() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" OUTCOME="$6" EXIT="$7" REASON="${8:-}"
     local OVERVIEW="$N1H/memory/$TICKET/overview.md" EXISTING_REASON PR_URL="" NEXT_NUM TITLE EV_OUTCOME="$OUTCOME" DUR=""
-    # NP-219: a finished child with a pending deploy parks as awaiting-human (reason
-    # awaiting-deploy): no strike, no retry, never polled again.
-    if [ "$OUTCOME" = "awaiting-deploy" ]; then OUTCOME="awaiting-human"; REASON="awaiting-deploy"; EV_OUTCOME="awaiting-deploy"; fi
     # NP-216 AC3 safety net: every failed/deferred Runs row must carry a non-empty
     # reason. Call sites should already pass one; this is the last line of defense.
     [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="unspecified-failure"
@@ -217,7 +214,6 @@ finalize() {
     # Events + notifications before three-strikes (which may exit). PR successes notify only
     # through the end-of-queue digest.
     [ "$OUTCOME" = "escalated" ] && [ -z "${PARKED[NUM]:-}" ] && escalate "$TICKET" "$N1H" stopped
-    if [ "$EV_OUTCOME" = "awaiting-deploy" ]; then n1_notify needs-you "$TICKET: deploy pending (resume: n1-finish $TICKET)"; fi
     [ -n "${STARTED_AT[NUM]:-}" ] && DUR=$(( $(date +%s) - STARTED_AT[NUM] ))
     ev ticket_finished ticket="$TICKET" outcome="$EV_OUTCOME" pr="$PR_URL" \
         session="$(n1_queue_session_id "$QUEUE" "$TICKET")" duration_s="$DUR" reason="$REASON"
@@ -243,8 +239,6 @@ launch_bg() {
     n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
     # Re-queued ticket: forget the previous run's tag release (NP-199).
     n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" queue_tag_removed false || true
-    # NP-219: a re-queued ticket must not inherit a previous run's pending deploy.
-    if n1_queue_deploy_pending "$N1H" "$TICKET"; then n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" deploy_pending false || true; fi
     STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     STARTED_AT[NUM]=$(date +%s)
     CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
@@ -332,7 +326,7 @@ drain_wait() {
 timeout_stop() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" SID="$6" OUTCOME
     OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
-    if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
+    if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ]; then
         [ -n "$SID" ] && DRAIN+=("$SID"$'\t'"$TICKET"$'\t'"$N1H")
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
         return
@@ -345,7 +339,7 @@ timeout_stop() {
 # no launched child is working. blocked -> awaiting-human (no strike) and the queue moves on.
 # Working time is capped by subtaskTimeoutMinutes; at end of queue, parked rows are polled
 # for up to subtaskTimeoutMinutes after the last park, then left awaiting-human (never relaunched).
-# A finished child (pr/escalated/awaiting-deploy) queues into DRAIN and is stopped only once
+# A finished child (pr/escalated) queues into DRAIN and is stopped only once
 # drain_stop sees it idle (done/failed) — not immediately on the terminal step.
 run_bg() {
     local POLL AGENTS WORKING ROW NUM TICKET REPO N1H MODEL STATUS STATE OUTCOME SID
@@ -373,7 +367,6 @@ run_bg() {
         drain_stop "$AGENTS"
         WORKING=0
         while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
-            if [ "$STATUS" = "awaiting-human" ] && [ "$(n1_queue_row_reason "$QUEUE" "$NUM")" = "awaiting-deploy" ]; then continue; fi
             SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
             STATE=$(n1_queue_bg_state "$AGENTS" "$SID")
             # NP-216: overview.md is ground truth, bg state is only a liveness hint — a
@@ -381,7 +374,7 @@ run_bg() {
             # session. Reconcile before trusting STATE, so a done ticket is never timed
             # out, retried, or parked awaiting-human.
             OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
-            if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ] || [ "$OUTCOME" = "awaiting-deploy" ]; then
+            if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ]; then
                 [ -n "$SID" ] && DRAIN+=("$SID"$'\t'"$TICKET"$'\t'"$N1H")
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
@@ -438,7 +431,7 @@ run_bg() {
                     fi
                     ;;
                 done)
-                    # OUTCOME is "running" here (pr/escalated/awaiting-deploy already
+                    # OUTCOME is "running" here (pr/escalated already
                     # finalized above): the bg session ended without the overview ever
                     # reaching a terminal step.
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "child-exited-incomplete"
@@ -453,10 +446,13 @@ run_bg() {
                 launch_bg "$ROW"
                 HELD_WAIT=0
             else
-                # N1-64: held rows (same-plan blocker) are never launched here; the orchestrating
-                # session releases them after merging the blocker (n1_queue_unblock).
+                # N1-64/N1-114: held rows (same-plan blocker) are never launched directly; the
+                # sweep releases one to pending once the user merges its blocker's PR.
                 HELD=$(n1_queue_held_sweep "$QUEUE")
-                if [ -n "$(n1_queue_parked_rows "$QUEUE")" ]; then
+                if [ -n "$(n1_queue_pending_rows "$QUEUE")" ]; then
+                    # N1-114: the sweep just released a row; the next tick launches it, whatever the held timeout says.
+                    HELD_WAIT=0
+                elif [ -n "$(n1_queue_parked_rows "$QUEUE")" ]; then
                     # Parked rows wait on the human; the parked wait below bounds held rows too.
                     HELD_WAIT=0
                     if [ "$SINCE_PARK" -ge "$TIMEOUT_SECS" ]; then

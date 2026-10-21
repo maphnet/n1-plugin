@@ -129,7 +129,7 @@ _n1_word_overlap() {
 
 n1_queue_child_status() {
     # Usage: n1_queue_child_status <overview.md> <exit-code> [strict]
-    # Prints: pr | escalated | failed | running | awaiting-deploy (NP-219) — pr needs pr_url at step pr (N1-53)
+    # Prints: pr | escalated | failed | running — pr needs pr_url at step pr (N1-53)
     # strict=1 (NP-216 live-poll callers): only step:escalated counts as escalated.
     # ## Escalations is an append-only log (lib/memory.sh) that also gets an entry
     # in ask-mode while the child continues past the question — its mere presence
@@ -141,8 +141,6 @@ n1_queue_child_status() {
         return
     fi
     local step; step=$(n1_read_frontmatter "$overview" "step")
-    # NP-219: merged/PR'd delivery ticket whose deploy was left for an interactive n1-finish.
-    if [ "$(n1_read_frontmatter "$overview" deploy_pending)" = "true" ]; then printf 'awaiting-deploy'; return; fi
     # ci/done mean stop-at-CI success. skills/n1-pr/steps/02-push-create.md Step 6 sets
     # frontmatter step:pr and records pr_url in the same instruction, but as two separate,
     # non-atomic writes (N1-53): a live/bg-poll read of overview.md landing between them sees
@@ -241,17 +239,9 @@ n1_queue_pending_rows() {
     }' "$file"
 }
 
-n1_queue_deploy_pending() {
-    # Usage: n1_queue_deploy_pending <n1-home> <ticket>
-    # Exit 0 when the ticket's overview has deploy_pending: true (NP-219: a finished child
-    # whose deploy waits for an interactive `n1-finish <ticket>`; terminal for the runner).
-    [ "$(n1_read_frontmatter "$1/memory/$2/overview.md" deploy_pending)" = "true" ]
-}
-
 n1_queue_row_reason() {
     # Usage: n1_queue_row_reason <queue.md> <num>
-    # Prints the Plan row's Reason cell. The runner keys terminal pending-deploy rows on the
-    # recorded Reason (awaiting-deploy), not on the mutable deploy_pending flag (NP-219).
+    # Prints the Plan row's Reason cell.
     awk -F'|' -v num="$2" '{
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
         if ($2 == num) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $9); print $9 }
@@ -261,12 +251,8 @@ n1_queue_row_reason() {
 n1_queue_parked_rows() {
     # Usage: n1_queue_parked_rows <queue.md>
     # awaiting-human rows still parked on a live question (same columns as
-    # n1_queue_pending_rows). Pending-deploy rows are excluded: nothing will unblock them.
-    local num t r h m s
-    while IFS=$'\t' read -r num t r h m s; do
-        if [ "$(n1_queue_row_reason "$1" "$num")" = "awaiting-deploy" ]; then continue; fi
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$num" "$t" "$r" "$h" "$m" "$s"
-    done < <(n1_queue_pending_rows "$1" 'awaiting-human')
+    # n1_queue_pending_rows).
+    n1_queue_pending_rows "$1" 'awaiting-human'
 }
 
 n1_queue_blocker_of() {
@@ -282,28 +268,47 @@ n1_queue_ticket_status() {
         $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { s = $8 } END { print s }' "$1"
 }
 
-n1_queue_ticket_home() {
-    # Usage: n1_queue_ticket_home <queue.md> <ticket> — N1 Home of the ticket's LAST Plan row
-    # (SEC-3/CR-3: a cross-repo queue's escalation classifier must also check this project's own
-    # rules, not just the orchestrating session's).
-    awk -F'|' -v t="$2" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
-        $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { h = $6 } END { print h }' "$1"
-}
-
 n1_queue_held_sweep() {
     # Usage: n1_queue_held_sweep <queue.md>
     # N1-64: a held row whose blocker ended without a PR (failed/escalated/skip) or is not in the
-    # plan can never run: mark it skip. Prints how many held rows still wait (blocker pending,
-    # in progress, parked, held, or pr awaiting the orchestrator's merge). Blocker status is re-read
-    # per row, so a chain in plan order resolves in one call; the runner sweeps every idle tick,
-    # which catches a blocker listed after its dependent on the next tick.
-    local q="$1" num t b st n=0
+    # plan can never run: mark it skip. N1-114: when the blocker is at pr and the USER has merged
+    # its PR (gh state MERGED), fast-forward the blocker repo's local default branch (children
+    # branch from it) and release the row to pending. A gh error, a missing pr_url or a sync
+    # failure leaves it held for the next tick (bounded by the runner's held timeout).
+    # Prints how many held rows still wait or were just released; a released row is counted so
+    # the runner does not stop before launching it. Blocker status is re-read per row, so a
+    # chain in plan order resolves in one call; the runner sweeps every idle tick.
+    # A blocker PR the user CLOSED unmerged skips the row like a failed blocker.
+    # Trust: pr_url is child-written; this only reads PR state and never merges, so a forged
+    # URL can at worst release a held row early. Non-GitHub-PR URLs count as not merged (SEC-2).
+    # Only a merge into the blocker repo's default branch releases; any other base stays held.
+    # The first gh stderr line goes to the runner's stderr (runner.log), not /dev/null.
+    local q="$1" num t b st h r url state base d n=0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         case "$st" in
-            failed|escalated|skip|'') n1_queue_row_status "$q" "$num" skip "blocked by ${b:-?} (${st:-not in plan})" ;;
-            *) n=$((n + 1)) ;;
+            failed|escalated|skip|'')
+                n1_queue_row_status "$q" "$num" skip "blocked by ${b:-?} (${st:-not in plan})"
+                continue ;;
+            pr)
+                IFS=$'\t' read -r h r < <(n1_queue_pending_rows "$q" pr \
+                    | awk -F'\t' -v b="$b" '$2 == b { h = $4; r = $3 } END { printf "%s\t%s\n", h, r }')
+                url=$(n1_queue_child_pr_url "$h/memory/$b/overview.md"); state=""; base=""
+                if [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]]; then
+                    # gh stdout -> fd 3 (captured), gh stderr -> first line to our stderr.
+                    state=$( { gh pr view --json state,baseRefName -q '.state + " " + .baseRefName' -- "$url" </dev/null 2>&1 >&3 3>&- | head -n1 >&2; } 3>&1 )
+                    base=${state#* }; state=${state%% *}
+                fi
+                if [ "$state" = CLOSED ]; then
+                    n1_queue_row_status "$q" "$num" skip "blocked by $b (PR closed)"
+                    continue
+                fi
+                d=$(N1_HOME="$h" n1_config_val '.git.defaultBranch' 2>/dev/null); d="${d:-main}"
+                if [ "$state" = MERGED ] && [ "$base" = "$d" ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
+                    n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                fi ;;
         esac
+        n=$((n + 1))
     done < <(n1_queue_pending_rows "$q" held)
     printf '%s' "$n"
 }
@@ -317,105 +322,11 @@ n1_queue_held_expire() {
     done < <(n1_queue_pending_rows "$q" held)
 }
 
-n1_queue_merge_candidates() {
-    # Usage: n1_queue_merge_candidates <queue.md>
-    # N1-64 merge-to-unblock trigger, conditions 1-3: prints each ticket whose Plan Status is pr
-    # (a real PR, N1-53) that at least one held row waits on, but only while no row is pending
-    # or in-progress (the run cannot progress without it). Parked rows wait on the human and
-    # do not count as progress. Output: <ticket><TAB><blocker's N1 Home><TAB><blocker's Repo>
-    # (its last pr row), so cross-repo queues gate/finish against the blocker's own memory and
-    # repo, not the session's (SEC-1/CR-1: n1_queue_merge_gate needs the Repo to bind identity).
-    local q="$1" num t b
-    [ -z "$(n1_queue_pending_rows "$q" 'pending|in-progress')" ] || return 0
-    while IFS=$'\t' read -r num t _ _ _ _; do
-        b=$(n1_queue_blocker_of "$q" "$num")
-        [ -n "$b" ] && [ "$(n1_queue_ticket_status "$q" "$b")" = pr ] || continue
-        n1_queue_pending_rows "$q" pr | awk -F'\t' -v b="$b" '$2 == b { h = $4; r = $3 } END { printf "%s\t%s\t%s\n", b, h, r }'
-    done < <(n1_queue_pending_rows "$q" held) | sort -u
-}
-
-_n1_queue_repo_slug() {
-    # Usage: _n1_queue_repo_slug <repo-path> — lowercased "owner/repo" from that repo's origin
-    # remote, https or ssh form (SEC-1). Empty (and non-zero exit) when the repo/remote can't be read.
-    local repo="$1" url
-    url=$(git -C "$repo" remote get-url origin 2>/dev/null) || return 1
-    url="${url%.git}"
-    case "$url" in
-        *://*) url="${url#*://}"; url="${url#*/}" ;;
-        *:*) url="${url#*:}" ;;
-    esac
-    [ -n "$url" ] || return 1
-    printf '%s' "$url" | tr '[:upper:]' '[:lower:]'
-}
-
-n1_queue_merge_gate() {
-    # Usage: n1_queue_merge_gate <n1-home> <ticket> <queue-dir> <repo>
-    # N1-64 strict gate (condition 4) before the orchestrating session merges a blocking child PR.
-    # SEC-1/SEC-9 (CWE-345/441): a child-written overview.md (pr_url, branch) is untrusted data —
-    # before anything else, incl. the MERGED short-circuit, bind it to the blocker row: the URL's
-    # owner/repo must be <repo>'s own origin remote, and the PR's headRefName must match the
-    # ticket id <t> itself (lowercased, non-alnum -> "-", optional "owner/"-style path prefix) —
-    # never the child-writable overview.md `branch` field or a branchPattern template, both of
-    # which the child (or a forged PR) fully controls. baseRefName must be <repo>'s configured
-    # default branch, and isCrossRepository must be false (no merging a fork's PR). Then: real
-    # GitHub PR URL, review PASS, no open escalation (step escalated or a pending .question file),
-    # GitHub mergeable + a clean merge state (SEC-2: no TOCTOU merge queue/draft state), and every
-    # CI check green (no checks = not green).
-    # Review PASS: review_fix_cycle absent/0 means review passed clean on the first try — fix.md,
-    # which increments clean_passes, is only ever entered on a FAIL (skills/n1-start/steps/fix.md).
-    # clean_passes alone can't distinguish "never needed a fix" from "still failing", so a fix
-    # cycle is only required to have converged (clean_passes >= 1) when one was actually entered.
-    # Prints "<PR URL><TAB><head commit sha>" (exit 0; SEC-2: the caller merges with
-    # `--match-head-commit <sha>` so a late-arriving commit can't slip past the checks above) or
-    # "gate: <reason>" (exit 1). Any gh error means not met, EXCEPT an already-merged PR (state
-    # MERGED): a human or an interrupted earlier tick can merge a blocker outside this gate, and
-    # a merged PR's own mergeable/CI fields are stale or UNKNOWN — checked after identity so that
-    # case doesn't strand held tickets behind a PR that is already in.
-    local home="$1" t="$2" dir="$3" repo="$4" ov url owner_repo remote_slug tl head base rfc cp js oid
-    case "$t" in ''|*[!A-Za-z0-9_-]*) echo "gate: invalid ticket"; return 1 ;; esac
-    ov="$home/memory/$t/overview.md"
-    url=$(n1_queue_child_pr_url "$ov")
-    [[ "$url" =~ ^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/pull/[0-9]+$ ]] || { echo "gate: no real PR URL"; return 1; }
-    owner_repo=$(printf '%s/%s' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" | tr '[:upper:]' '[:lower:]')
-    remote_slug=$(_n1_queue_repo_slug "$repo")
-    [ -n "$remote_slug" ] && [ "$owner_repo" = "$remote_slug" ] \
-        || { echo "gate: PR repo does not match blocker's repo"; return 1; }
-    js=$(gh pr view "$url" --json headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,state,isCrossRepository 2>/dev/null) \
-        || { echo "gate: gh pr view failed"; return 1; }
-    [ "$(printf '%s' "$js" | jq -r '.isCrossRepository // false' 2>/dev/null)" = "false" ] \
-        || { echo "gate: PR is from a fork"; return 1; }
-    tl=$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
-    head=$(printf '%s' "$js" | jq -r '.headRefName // ""' 2>/dev/null | tr '[:upper:]' '[:lower:]')
-    [[ "$head" =~ ^([a-z0-9._-]+/)?${tl}$ ]] \
-        || { echo "gate: PR branch does not match ticket branch"; return 1; }
-    base=$(N1_HOME="$home" n1_config_val '.git.defaultBranch'); base="${base:-main}"
-    [ "$(printf '%s' "$js" | jq -r '.baseRefName // ""' 2>/dev/null)" = "$base" ] \
-        || { echo "gate: PR base is not the default branch"; return 1; }
-    rfc=$(n1_read_frontmatter "$ov" review_fix_cycle); [[ "$rfc" =~ ^[0-9]+$ ]] || rfc=0
-    cp=$(n1_read_frontmatter "$ov" clean_passes); [[ "$cp" =~ ^[0-9]+$ ]] || cp=0
-    [ "$rfc" -eq 0 ] || [ "$cp" -ge 1 ] || { echo "gate: review not PASS"; return 1; }
-    if [ "$(n1_read_frontmatter "$ov" step)" = escalated ] || [ -e "$dir/.question-$t.json" ]; then
-        echo "gate: open escalation"; return 1
-    fi
-    oid=$(printf '%s' "$js" | jq -r '.headRefOid // ""' 2>/dev/null)
-    if [ "$(printf '%s' "$js" | jq -r '.state // ""' 2>/dev/null)" = MERGED ]; then printf '%s\t%s' "$url" "$oid"; return 0; fi
-    [ "$(printf '%s' "$js" | jq -r '.mergeable // ""' 2>/dev/null)" = MERGEABLE ] || { echo "gate: not mergeable"; return 1; }
-    [ "$(printf '%s' "$js" | jq -r '.mergeStateStatus // ""' 2>/dev/null)" = CLEAN ] || { echo "gate: not clean"; return 1; }
-    printf '%s' "$js" | jq -e '(.statusCheckRollup // []) as $c | ($c | length) > 0
-        and ($c | all((.conclusion // .state // "") as $s | $s == "SUCCESS" or $s == "NEUTRAL" or $s == "SKIPPED"))' >/dev/null 2>&1 \
-        || { echo "gate: CI not green"; return 1; }
-    # SEC-10: the caller merges with --match-head-commit "$oid" — a malformed/empty sha would
-    # either break that command or (worse) be silently ignored by gh, defeating SEC-2's TOCTOU
-    # guard. Only the MERGED short-circuit above tolerates a stale/missing oid (informational).
-    [[ "$oid" =~ ^[0-9a-f]{40}$ ]] || { echo "gate: no head sha"; return 1; }
-    printf '%s\t%s' "$url" "$oid"
-}
-
 n1_queue_sync_default() {
     # Usage: n1_queue_sync_default <repo>
-    # N1-64 (CR-1): after the orchestrating session merges a blocking child's PR, fast-forward
-    # the blocker repo's LOCAL default branch before releasing held rows. Children branch from
-    # the local default (workspace-isolation.md § Ensure Worktree: `git branch <TARGET> $DEFAULT`),
+    # N1-64 (CR-1) / N1-114: after the user merges a blocking child's PR, n1_queue_held_sweep
+    # fast-forwards the blocker repo's LOCAL default branch before releasing held rows. Children
+    # branch from the local default (workspace-isolation.md § Ensure Worktree: `git branch <TARGET> $DEFAULT`),
     # so a stale local default hands a freshly-released ticket a
     # branch-point missing the commit that was just merged. Reads git.defaultBranch from the
     # repo's own N1 Home (caller sets N1_HOME to the blocker's home); falls back to "main".
@@ -432,22 +343,6 @@ n1_queue_sync_default() {
     else
         git -C "$repo" fetch origin "refs/heads/$d:refs/heads/$d" >&2 || { echo "n1-queue: sync: fetch origin $d:$d failed in $repo" >&2; return 1; }
     fi
-}
-
-n1_queue_unblock() {
-    # Usage: n1_queue_unblock <queue-dir> <blocker> <pr-url>
-    # N1-64: after the orchestrating session merged <blocker>'s PR, release every held row waiting
-    # on it (the runner launches it next tick) and log merged_to_unblock for the audit trail.
-    # ponytail: queue.md is rewritten by both runner and session (mktemp+mv); the runner is idle-
-    # sleeping at this point, add a lock file if a lost update is ever observed.
-    local dir="$1" b="$2" url="$3" q="$1/queue.md" num t
-    while IFS=$'\t' read -r num t _ _ _ _; do
-        if [ "$(n1_queue_blocker_of "$q" "$num")" = "$b" ]; then
-            n1_queue_row_status "$q" "$num" pending "released: $b merged"
-        fi
-    done < <(n1_queue_pending_rows "$q" held)
-    n1_queue_event "$dir/events.jsonl" "$(n1_read_frontmatter "$q" queue_id)" "$(n1_read_frontmatter "$q" run_id)" \
-        merged_to_unblock ticket="$b" pr="$url"
 }
 
 n1_queue_already_run() {
@@ -794,23 +689,6 @@ n1_queue_answer() {
     echo "n1-queue: answer delivered to $t (session $sid), resuming."
 }
 
-n1_queue_auto_resolve() {
-    # Usage: n1_queue_auto_resolve <n1-home> <ticket>
-    # N1-64: the orchestrating session's self-answer to a non-critical escalation
-    # (queue.autoResolveNonCritical=true, n1_escalation_critical said non-critical). Delivers the
-    # answer already file-written to <n1-home>/queue/.answer-<ticket>.txt through n1_queue_answer
-    # (same stop/resume path as --answer), then logs auto_resolved so every self-answer is auditable.
-    local home="$1" t="$2" qf dir ans
-    case "$t" in ''|*[!A-Za-z0-9_-]*) echo "n1-queue: invalid ticket id" >&2; return 1 ;; esac
-    qf=$(ls -t "$home"/queue/*/.question-"$t".json 2>/dev/null | head -1)
-    [ -n "$qf" ] || { echo "n1-queue: no pending question for $t" >&2; return 1; }
-    dir="${qf%/*}"
-    ans=$(cat "$home/queue/.answer-$t.txt" 2>/dev/null)
-    n1_queue_answer "$home" "$t" || return 1
-    n1_queue_event "$dir/events.jsonl" "$(n1_read_frontmatter "$dir/queue.md" queue_id)" \
-        "$(n1_read_frontmatter "$dir/queue.md" run_id)" auto_resolved ticket="$t" reason="${ans:0:120}"
-}
-
 n1_queue_relay_active() {
     # Usage: n1_queue_relay_active <queue-dir> <ticket> — exit 0 while n1_queue_answer's relay
     # marker is under 2 minutes old (N1-55); older markers are ignored.
@@ -820,13 +698,9 @@ n1_queue_relay_active() {
 n1_queue_awaiting_hints() {
     # Usage: n1_queue_awaiting_hints <queue.md>
     # Prints "<ticket>: <resume command>" for each Plan row waiting on a human: an attach
-    # command for parked sessions, `n1-finish <ticket>` for pending deploys (NP-219).
+    # command for parked sessions.
     local file="$1" t h sid
     while IFS=$'\t' read -r _ t _ h _ _; do
-        if n1_queue_deploy_pending "$h" "$t"; then
-            printf '%s: n1-finish %s (deploy pending)\n' "$t" "$t"
-            continue
-        fi
         sid=$(n1_queue_session_id "$file" "$t")
         if [ -n "$sid" ]; then printf '%s: %s\n' "$t" "$(n1_bg_cmd attach "$sid")"; fi
     done < <(n1_queue_pending_rows "$file" 'awaiting-human')
@@ -886,14 +760,10 @@ n1_queue_digest() {
 n1_queue_watch() {
     # Usage: n1_queue_watch <queue_dir> <run_id> <runner_pid> [from_line]
     # Session-side relay for one queue run. Every queue.pollSeconds, prints new escalated (full
-    # mirrored question when present) / answer_delivered / auto_resolved / merged_to_unblock /
+    # mirrored question when present) / answer_delivered /
     # ticket_finished / ticket_comment / ticket_replan / halted / queue_done
     # events in <queue_dir>/events.jsonl whose run_id is <run_id> (never queue id alone: a
     # relaunch appends to the same file).
-    # Also re-checks n1_queue_merge_gate for every n1_queue_merge_candidates row on every poll
-    # (N1-64), not just on a new event: "<ticket> ready to merge-to-unblock" once per (ticket,
-    # head sha or MERGED), so a blocker that flips from WAIT to pass between events (CI finishing
-    # with no event of its own) is still surfaced.
     # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
     # identical command after a host timeout resumes with no gap and no replay. Without that
     # cursor it starts at line <from_line> (default: current end of file).
@@ -901,7 +771,7 @@ n1_queue_watch() {
     # cursor is removed and it returns 0. Otherwise it polls until killed.
     # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
-    local ev t out pr s reason qbody qrender b h r sha marker last hint
+    local ev t out pr s reason qbody qrender hint
     q="${dir##*/}"
     sid=$(n1_session_id); sid="${sid:-nosession}"
     case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
@@ -917,22 +787,6 @@ n1_queue_watch() {
         # Liveness is sampled before reading, so events written just before the runner exits are relayed first.
         # ponytail: kill -0 can't tell a recycled pid from the runner; compare /proc start time if that bites.
         alive=0; kill -0 "$pid" 2>/dev/null && alive=1
-        # N1-64: a held row's blocker can go WAIT -> ready with no event (CI completing, or a
-        # merge-queue enqueue landing) between watch polls, so this re-checks the gate itself,
-        # every poll, independent of the event stream below. Deduped per (ticket, head sha or
-        # MERGED) via a small marker file, same pattern as the cursor above, so a gate that keeps
-        # passing (or a merge that already landed) isn't reprinted every poll.
-        while IFS=$'\t' read -r b h r; do
-            case "$b" in ''|*[!A-Za-z0-9_-]*) continue ;; esac
-            out=$(n1_queue_merge_gate "$h" "$b" "$dir" "$r") || continue
-            sha="${out##*$'\t'}"
-            marker="$dir/.merge-ready-$b"
-            last=""; [ -f "$marker" ] && last=$(cat "$marker" 2>/dev/null)
-            if [ "$last" != "$sha" ]; then
-                printf 'n1-queue %s: %s ready to merge-to-unblock\n' "$q" "$b"
-                printf '%s\n' "$sha" > "$marker" 2>/dev/null
-            fi
-        done < <(n1_queue_merge_candidates "$dir/queue.md" 2>/dev/null)
         total=0; [ -f "$events" ] && total=$(wc -l < "$events"); total="${total//[[:space:]]/}"
         if [ "$total" -gt "$seen" ]; then
             while IFS=$'\x1f' read -r ev t out pr s reason; do
@@ -973,10 +827,6 @@ n1_queue_watch() {
                         fi ;;
                     answer_delivered)
                         printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t" ;;
-                    auto_resolved)
-                        printf 'n1-queue %s: %s auto-resolved (non-critical): %s\n' "$q" "$t" "$reason" ;;
-                    merged_to_unblock)
-                        printf 'n1-queue %s: %s merged to unblock held tickets%s\n' "$q" "$t" "${pr:+ $pr}" ;;
                     ticket_comment)
                         printf 'n1-queue %s: %s has a new external ticket comment: %s\n' "$q" "$t" "$reason" ;;
                     ticket_replan)
@@ -990,7 +840,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "auto_resolved" or .event == "merged_to_unblock" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time
@@ -1055,7 +905,6 @@ n1_queue_status_table() {
                     [ "$started_epoch" -gt 0 ] && elapsed=$(n1_fmt_elapsed "$((now - started_epoch))")
                 fi
                 [ "$state" = awaiting-human ] && [ -n "$sid" ] && attach=$(n1_bg_cmd attach "$sid")
-                if n1_queue_deploy_pending "$n1h" "$ticket"; then attach="n1-finish $ticket"; fi
                 ;;
             pr|failed|deferred|escalated)
                 local dur; dur=$(_n1_queue_event_duration "$events" "$ticket")

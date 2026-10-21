@@ -13,9 +13,9 @@ echo "delivery:$(n1_delivery_action)"
 - `delivery:runbook` → Runbook branch.
 - `delivery:execute` → Execute branch.
 
-## Runbook branch (queue and headless runs, never executes)
+## Runbook branch (headless runs, never executes)
 
-Queue children and headless runs **never** run `delivery.command`, any `delivery.steps` item, or `delivery.verifyCommand`, not even to check something, and never run `ssh`, `scp` or `rsync` against the project host. The human deploys later with `n1-finish <ID>`.
+Headless runs **never** run `delivery.command`, any `delivery.steps` item, or `delivery.verifyCommand`, not even to check something, and never run `ssh`, `scp` or `rsync` against the project host. The human deploys later with `n1-finish <ID>`.
 
 1. Write the runbook and mark the ticket as deploy-pending:
    ```bash
@@ -26,8 +26,6 @@ Queue children and headless runs **never** run `delivery.command`, any `delivery
 2. When `tracker.mcp` is set, post a short comment via `mcp__<tracker.mcp>__<operations.addComment>`: `N1: Deploy pending — resume with /n1:n1-finish <ID> (runbook in N1 memory).` Never post the runbook content or the `delivery.command`/`delivery.steps`/`delivery.verifyCommand` text itself — it may contain hosts, paths, or secrets, and the runbook is local-only. When `operations.getComments` exists, skip the comment if an identical one is already present. If the tracker call fails, warn and continue; never block.
 3. Add this line to the `## Finish` section of overview.md: `- **Delivery:** pending (runbook: memory/<ID>/runbook.md)`.
 4. Do **not** close the ticket. Skip the rest of Step 4 and Step 5 and go to Step 6.
-
-The queue runner reads `deploy_pending: true` and parks the row as `awaiting-human` (Reason `awaiting-deploy`). The queue then moves on to the next ticket.
 
 ## Execute branch (interactive runs only)
 

@@ -615,7 +615,7 @@ WEOF2
 # claude and a no-op sleep in <tmp>/bin. States are space-separated, one per poll of
 # that session; the last state repeats. Timeout 1 min, poll 30 s -> 2 polls.
 # Optional per-ticket files in <tmp>/fake: finish-step.<t>, overview.<t> (full overview written on done),
-# overview.<t>.<poll> (full overview written on that poll), deploy.<t>, clear.<t>, relay.<t>.
+# overview.<t>.<poll> (full overview written on that poll), relay.<t>.
 mk_bg() {
     local tmp="$1" qid="$2" n=0 spec t; shift 2
     mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
@@ -671,24 +671,16 @@ case "$1" in
                 # N1-74: the runner now polls agents again after a ticket finalizes (draining
                 # the bg session until idle); cap done-poll writes so a later poll doesn't
                 # clobber what finalize already stamped onto overview.md (e.g. queue_run_id).
-                # clear.<t> wants a second write (the deploy-flag flip below); others want one.
-                wn=$(( $(cat "$D/wrote.$t" 2>/dev/null || echo 0) + 1 )); maxw=1
-                [ -f "$D/clear.$t" ] && maxw=2
-                if [ "$wn" -le "$maxw" ]; then
+                wn=$(( $(cat "$D/wrote.$t" 2>/dev/null || echo 0) + 1 ))
+                if [ "$wn" -le 1 ]; then
                     echo "$wn" > "$D/wrote.$t"
                     mkdir -p "$FAKE_N1H/memory/$t"
-                    dp=""; [ -f "$D/deploy.$t" ] && dp=$'deploy_pending: true\n'
-                    # clear.<t>: an interactive n1-finish clears the flag after the first done poll.
-                    if [ -f "$D/clear.$t" ]; then
-                        [ -f "$D/cleared.$t" ] && dp=$'deploy_pending: false\n'
-                        touch "$D/cleared.$t"
-                    fi
                     # finish-step.<ticket>: overrides the terminal step (default pr) so a test
                     # can simulate a bg session reporting done while overview never reached a
                     # terminal step (NP-216).
                     step="pr"; [ -f "$D/finish-step.$t" ] && step=$(cat "$D/finish-step.$t")
                     if [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
-                    else printf -- '---\nstep: %s\n%s---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" "$dp" > "$FAKE_N1H/memory/$t/overview.md"; fi
+                    else printf -- '---\nstep: %s\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" > "$FAKE_N1H/memory/$t/overview.md"; fi
                 fi
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
@@ -1588,29 +1580,6 @@ test_bg_pr_lifecycle() {
     done
 }
 
-# N1-64: orchestrator self-answer is delivered through n1_queue_answer and logged as auto_resolved.
-test_auto_resolve() {
-    local tmp; tmp=$(mktemp -d)
-    mkdir -p "$tmp/queue/q1"
-    printf -- '---\nqueue_id: q1\nrun_id: R9\n---\n' > "$tmp/queue/q1/queue.md"
-    echo '{}' > "$tmp/queue/q1/.question-T-1.json"
-    printf 'Use the hand-off file' > "$tmp/queue/.answer-T-1.txt"
-    n1_queue_answer() { return 0; }
-    n1_queue_auto_resolve "$tmp" T-1 >/dev/null 2>&1 || true
-    assert_eq "auto-resolve: event logged" "auto_resolved,T-1,Use the hand-off file,R9,q1" \
-        "$(jq -r 'select(.event=="auto_resolved") | [.event,.ticket,.reason,.run_id,.queue] | join(",")' "$tmp/queue/q1/events.jsonl")"
-    rm -f "$tmp/queue/q1/events.jsonl"
-    printf 'x' > "$tmp/queue/.answer-T-1.txt"
-    n1_queue_answer() { return 1; }
-    local rc=0; n1_queue_auto_resolve "$tmp" T-1 >/dev/null 2>&1 || rc=$?
-    assert_eq "auto-resolve: delivery failure returns 1" "1" "$rc"
-    assert_eq "auto-resolve: no event on failure" "no" "$([ -s "$tmp/queue/q1/events.jsonl" ] && echo yes || echo no)"
-    assert_eq "auto-resolve: bad ticket id rejected" "1" "$(n1_queue_auto_resolve "$tmp" 'T 1;x' >/dev/null 2>&1 && echo 0 || echo 1)"
-    assert_eq "auto-resolve: default off" "false" "$(N1_HOME="$tmp" n1_queue_val autoResolveNonCritical)"
-    source "$REPO_ROOT/lib/queue.sh"   # restore the real n1_queue_answer
-    rm -rf "$tmp"
-}
-
 # N1-64: held rows (same-plan blocker) — helpers and runner hold/expire.
 mk_held_plan() { # <file> <status-of-T-1>
     cat > "$1" <<EOF
@@ -1651,10 +1620,62 @@ test_held_helpers() {
     rm -rf "$tmp"
 }
 
+# N1-114: a user merge of the blocker's PR releases its held rows (runner-side sweep).
+test_held_user_merge() {
+    local tmp P; tmp=$(mktemp -d); P="$tmp/bin:$PATH"
+    mkdir -p "$tmp/bin" "$tmp/h/memory/T-1"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$tmp/h/memory/T-1/overview.md"
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    git -C "$tmp/repo" checkout -q -b work
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m blocker
+    mkq() { mk_held_plan "$tmp/q.md" pr; sed -i "s#| /r | /h |#| $tmp/repo | $tmp/h |#g" "$tmp/q.md"; }
+    fakegh() { printf '#!/bin/sh\n%s\n' "$1" > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"; }
+
+    fakegh 'echo OPEN'; mkq
+    assert_eq "user-merge: open PR -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md")"
+    assert_eq "user-merge: open PR -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
+
+    fakegh 'echo "boom: rate limited" >&2; echo "second line" >&2; exit 1'; mkq
+    assert_eq "user-merge: gh error -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>"$tmp/err")"
+    assert_eq "user-merge: gh error -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
+    assert_eq "user-merge: first gh stderr line surfaced (CR-5)" "boom: rate limited" "$(cat "$tmp/err")"
+
+    fakegh 'echo CLOSED'; mkq
+    assert_eq "user-merge: closed PR -> chain skipped (CR-4)" "0" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md")"
+    assert_eq "user-merge: closed PR -> T-2 skip" "skip|blocked by T-1 (PR closed)" "$(plan_cell "$tmp/q.md" 2 8)|$(plan_cell "$tmp/q.md" 2 9)"
+    assert_eq "user-merge: closed PR -> T-3 skip" "skip" "$(plan_cell "$tmp/q.md" 3 8)"
+
+    fakegh 'case "$*" in *"-- https://github.com/o/r/pull/5") echo MERGED main;; *) echo OPEN;; esac'; mkq
+    sed -i 's#pr_url: .*#pr_url: https://evil.example/o/r/pull/5#' "$tmp/h/memory/T-1/overview.md"
+    assert_eq "user-merge: non-GitHub pr_url -> not merged (SEC-2)" "held" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" >/dev/null; plan_cell "$tmp/q.md" 2 8)"
+    fakegh 'echo MERGED main'; mkq
+    sed -i 's#pr_url: .*#pr_url: https://github.com/o$x/r/pull/5#' "$tmp/h/memory/T-1/overview.md"
+    assert_eq "user-merge: owner outside [A-Za-z0-9._-] -> not merged (SEC-5c2)" "held" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" >/dev/null; plan_cell "$tmp/q.md" 2 8)"
+    sed -i 's#pr_url: .*#pr_url: https://github.com/o/r/pull/5#' "$tmp/h/memory/T-1/overview.md"
+
+    fakegh 'echo MERGED release/x'; mkq
+    assert_eq "user-merge: merged into non-default base -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>/dev/null)"
+    assert_eq "user-merge: merged into non-default base -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
+
+    fakegh 'case "$*" in *"-- https://github.com/o/r/pull/5") echo MERGED main;; *) echo OPEN;; esac'; mkq
+    assert_eq "user-merge: merged -> released row still counted" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>/dev/null)"
+    assert_eq "user-merge: T-2 released" "pending|released: T-1 merged" "$(plan_cell "$tmp/q.md" 2 8)|$(plan_cell "$tmp/q.md" 2 9)"
+    assert_eq "user-merge: T-3 waits on T-2" "held" "$(plan_cell "$tmp/q.md" 3 8)"
+    assert_eq "user-merge: local default synced" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp/repo" rev-parse main)"
+
+    git -C "$tmp/repo" remote set-url origin "$tmp/no-such-origin"; mkq
+    assert_eq "user-merge: sync failure -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>/dev/null)"
+    assert_eq "user-merge: sync failure -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
+    rm -rf "$tmp"
+}
+
 test_bg_held_not_launched() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgh "T-A:working done" "T-B:done"
     n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    printf '#!/bin/sh\necho OPEN\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
     assert_eq "bg-held: exit 0" "0" "$(run_bg_queue "$tmp")"
     assert_eq "bg-held: blocker pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "bg-held: T-B never launched" "0" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
@@ -1674,29 +1695,48 @@ test_bg_held_blocker_failed() {
     rm -rf "$tmp"
 }
 
-# N1-64: merge-to-unblock trigger (conditions 1-3) and strict gate (condition 4), gh stubbed.
-test_merge_candidates() {
-    # n1_queue_unblock takes the queue dir, so the plan lives at $tmp/queue.md.
+# N1-114: the user merges the blocker's PR -> the runner releases and launches the held ticket.
+test_bg_held_user_merge() {
     local tmp; tmp=$(mktemp -d)
-    mk_held_plan "$tmp/queue.md" pr
-    assert_eq "merge-cand: stalled on T-1" "T-1	/h	/r" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" in-progress
-    assert_eq "merge-cand: blocker not pr" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" pr
-    sed -i 's/^| 3 | T-3 | C | \/r | \/h | sonnet | held | blocked_on T-2 |$/| 3 | T-3 | C | \/r | \/h | sonnet | pending | |/' "$tmp/queue.md"
-    assert_eq "merge-cand: other work can progress" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" pr
-    sed -i 's/ held | blocked_on T-1 · tag match / held | blocked_on T-9 /' "$tmp/queue.md"
-    assert_eq "merge-cand: nobody held on T-1" "" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" pr
-    sed -i 's/^| 1 | T-1 | A | \/r | \/h |/| 1 | T-1 | A | \/r2 | \/h2 |/' "$tmp/queue.md"
-    assert_eq "merge-cand: blocker's own N1 Home and Repo" "T-1	/h2	/r2" "$(n1_queue_merge_candidates "$tmp/queue.md")"
-    mk_held_plan "$tmp/queue.md" pr
-    n1_queue_unblock "$tmp" T-1 "https://github.com/o/r/pull/5"
-    assert_eq "unblock: T-2 released" "pending|released: T-1 merged" "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
-    assert_eq "unblock: T-3 still held" "held" "$(plan_cell "$tmp/queue.md" 3 8)"
-    assert_eq "unblock: event" "merged_to_unblock,T-1,https://github.com/o/r/pull/5" \
-        "$(jq -r '[.event,.ticket,.pr] | join(",")' "$tmp/events.jsonl")"
+    mk_bg "$tmp" bgm "T-A:working done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git init -q -b work "$tmp"
+    git -C "$tmp" remote add origin "$tmp/origin"
+    printf '#!/bin/sh\ncase "$*" in *"pr view"*"--json state"*) echo MERGED main ;; esac\n' > "$tmp/bin/gh"
+    chmod +x "$tmp/bin/gh"
+    assert_eq "bg-held-merge: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-held-merge: T-B launched once" "1" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
+    assert_eq "bg-held-merge: T-B finished pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-held-merge: local main synced" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp" rev-parse main)"
+    rm -rf "$tmp"
+}
+
+# N1-114 TQ-1: the user merges on the very tick the held wait runs out (HELD_WAIT >= timeout:
+# 1 min, 30 s poll -> third idle sweep). The released row must still launch, not expire.
+test_bg_held_merge_at_timeout() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgt "T-A:working done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git init -q -b work "$tmp"
+    git -C "$tmp" remote add origin "$tmp/origin"
+    cat > "$tmp/bin/gh" <<EOF
+#!/bin/sh
+case "\$*" in *"pr view"*"--json state"*)
+    n=\$((\$(cat "$tmp/ghcalls" 2>/dev/null || echo 0) + 1)); echo \$n > "$tmp/ghcalls"
+    [ \$n -ge 3 ] && echo MERGED main || echo OPEN ;;
+esac
+EOF
+    chmod +x "$tmp/bin/gh"
+    assert_eq "bg-held-timeout: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-held-timeout: merged on the timeout tick" "3" "$(cat "$tmp/ghcalls")"
+    assert_eq "bg-held-timeout: T-B launched once" "1" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
+    assert_eq "bg-held-timeout: T-B finished pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
     rm -rf "$tmp"
 }
 
@@ -1725,149 +1765,18 @@ test_sync_default() {
     rm -rf "$tmp"
 }
 
-test_merge_gate() {
-    local tmp ov repo; tmp=$(mktemp -d)
-    mkdir -p "$tmp/h/memory/T-1" "$tmp/qd"; ov="$tmp/h/memory/T-1/overview.md"
-    repo="$tmp/repo"; mkdir -p "$repo"
-    git -C "$repo" init -q; git -C "$repo" remote add origin https://github.com/o/r.git
-    # review_fix_cycle absent/0 means review passed clean on the first try (fix.md, which
-    # increments clean_passes, is never entered in that case) — clean_passes alone cannot
-    # tell "never needed a fix" from "still failing" — review_fix_cycle disambiguates.
-    good_ov() { printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"; }
-    good_ov_after_fix() { printf -- '---\nstep: ci\nbranch: feature/t-1\nreview_fix_cycle: 1\nclean_passes: 1\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"; }
-    local SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    # N1-64 SEC-1: identity fields (headRefName/baseRefName) are checked before mergeable/CI/state.
-    # SEC-9: headRefName is bound to the ticket id T-1 itself (-> "t-1"), never to overview.md's
-    # own (child-writable) `branch` field, which here is left set to a mismatched value on purpose
-    # to prove a forged/stale `branch:` field no longer has any effect on the gate.
-    GH_OK="{\"headRefName\":\"feature/t-1\",\"headRefOid\":\"$SHA\",\"baseRefName\":\"main\",\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"state\":\"OPEN\",\"isCrossRepository\":false,\"statusCheckRollup\":[{\"conclusion\":\"SUCCESS\",\"status\":\"COMPLETED\"},{\"state\":\"SUCCESS\"}]}"
-    gh() { [ -z "${GH_FAIL:-}" ] || return 1; printf '%s' "$GH_JSON"; }
-    gate() { n1_queue_merge_gate "$tmp/h" T-1 "$tmp/qd" "$repo" || true; }
-    good_ov; GH_JSON="$GH_OK"
-    assert_eq "gate: all conditions hold, first-try-clean review" "$(printf 'https://github.com/o/r/pull/5\t%s' "$SHA")" "$(gate)"
-    good_ov_after_fix; GH_JSON="$GH_OK"
-    assert_eq "gate: all conditions hold, review converged after a fix cycle" "$(printf 'https://github.com/o/r/pull/5\t%s' "$SHA")" "$(gate)"
-    printf -- '---\nstep: pr\n---\n' > "$ov"
-    assert_eq "gate: no PR url" "gate: no real PR URL" "$(gate)"
-    # N1-64 SEC-1: PR repo not the blocker's own origin -> rejected before anything else.
-    printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/other/repo/pull/9\n' > "$ov"
-    assert_eq "gate: PR repo mismatch" "gate: PR repo does not match blocker's repo" "$(gate)"
-    # N1-64 SEC-9: overview.md's `branch:` is forged to match the (also attacker-controlled) PR's
-    # headRefName exactly — the old branch-trusting compare would have passed this; the ticket-id
-    # derived check still rejects it because it ignores overview.md's `branch:` entirely.
-    printf -- '---\nstep: ci\nbranch: someone-elses-branch\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$ov"
-    GH_JSON="${GH_OK//feature\/t-1/someone-elses-branch}"
-    assert_eq "gate: forged branch: field does not help" "gate: PR branch does not match ticket branch" "$(gate)"
-    good_ov; GH_JSON='{"headRefName":"other-branch","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: PR head branch mismatch" "gate: PR branch does not match ticket branch" "$(gate)"
-    # N1-64 SEC-9: headRefName is matched case-insensitively, and an optional owner/prefix-style
-    # path segment before the ticket slug is accepted (e.g. "feature/t-1").
-    GH_JSON='{"headRefName":"T-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: uppercase head branch accepted" "$(printf 'https://github.com/o/r/pull/5\t%s' "$SHA")" "$(gate)"
-    GH_JSON='{"headRefName":"feature/n1-64","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: T-1 branch mismatch with prefixed other ticket slug" "gate: PR branch does not match ticket branch" "$(gate)"
-    # N1-64 SEC-9: isCrossRepository (a fork PR) is rejected even when repo/branch/base match.
-    GH_JSON="${GH_OK/\"isCrossRepository\":false/\"isCrossRepository\":true}"
-    assert_eq "gate: fork PR rejected" "gate: PR is from a fork" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"not-the-default","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: PR base branch mismatch" "gate: PR base is not the default branch" "$(gate)"
-    good_ov_after_fix; GH_JSON="$GH_OK"; sed -i 's/clean_passes: 1/clean_passes: 0/' "$ov"
-    assert_eq "gate: fix cycle ran but never converged" "gate: review not PASS" "$(gate)"
-    good_ov; GH_JSON="$GH_OK"; sed -i 's/step: ci/step: escalated/' "$ov"
-    assert_eq "gate: escalated step" "gate: open escalation" "$(gate)"
-    good_ov; echo '{}' > "$tmp/qd/.question-T-1.json"
-    assert_eq "gate: pending question" "gate: open escalation" "$(gate)"
-    rm -f "$tmp/qd/.question-T-1.json"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: not mergeable" "gate: not mergeable" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"SUCCESS"}]}'
-    assert_eq "gate: not clean merge state (SEC-2)" "gate: not clean" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"FAILURE"}]}'
-    assert_eq "gate: CI failed" "gate: CI not green" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[{"conclusion":"","status":"IN_PROGRESS"}]}'
-    assert_eq "gate: CI pending" "gate: CI not green" "$(gate)"
-    GH_JSON='{"headRefName":"feature/t-1","headRefOid":"'"$SHA"'","baseRefName":"main","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","state":"OPEN","isCrossRepository":false,"statusCheckRollup":[]}'
-    assert_eq "gate: no CI checks" "gate: CI not green" "$(gate)"
-    # N1-64 SEC-10: a malformed/short head sha fails the gate even though everything else is green.
-    GH_JSON="${GH_OK/\"headRefOid\":\"$SHA\"/\"headRefOid\":\"abc123\"}"
-    assert_eq "gate: malformed head sha" "gate: no head sha" "$(gate)"
-    GH_JSON="$GH_OK"; GH_FAIL=1
-    assert_eq "gate: gh error" "gate: gh pr view failed" "$(gate)"
-    unset GH_FAIL
-    assert_eq "gate: bad ticket" "gate: invalid ticket" "$(n1_queue_merge_gate "$tmp/h" 'T-1;x' "$tmp/qd" "$repo" || true)"
-    # N1-64 edge case: blocker's PR was already merged outside the orchestrator (a human ran
-    # `gh` directly, or a previous tick's merge landed but this tick's unblock was interrupted).
-    # A merged PR reports mergeable=UNKNOWN and a stale/empty rollup in the live API — state:MERGED
-    # is what actually matters, and the gate must not strand held tickets behind it forever.
-    # Identity (repo/branch/base) is still enforced before the MERGED short-circuit; SEC-10's sha
-    # check is not (the merged PR's own oid is informational only at that point).
-    good_ov; GH_JSON='{"headRefName":"feature/t-1","headRefOid":"abc123","baseRefName":"main","mergeable":"UNKNOWN","isCrossRepository":false,"state":"MERGED","statusCheckRollup":[]}'
-    assert_eq "gate: already merged externally -> still passes" "$(printf 'https://github.com/o/r/pull/5\tabc123')" "$(gate)"
-    # N1-64 TQ-1: ssh-form origin ("git@github.com:O/R.git", uppercase owner/repo) still binds.
-    git -C "$repo" remote set-url origin "git@github.com:O/R.git"
-    good_ov; GH_JSON="${GH_OK}"
-    printf -- '---\nstep: ci\nbranch: feature/t-1\n---\n# T\n\n## Pending\npr_url: https://github.com/O/R/pull/5\n' > "$ov"
-    assert_eq "gate: TQ-1 ssh-form uppercase origin binds" "$(printf 'https://github.com/O/R/pull/5\t%s' "$SHA")" "$(gate)"
-    git -C "$repo" remote set-url origin https://github.com/o/r.git
-    unset -f gh good_ov good_ov_after_fix gate
-    rm -rf "$tmp"
-}
-
-# --- NP-219: pending deploy -----------------------------------------------------
+# --- child status (NP-219 deploy flag no longer a queue outcome) ---
 test_child_status_deploy() {
     local tmp; tmp=$(mktemp -d)
-    printf -- '---\nstep: pr\ndeploy_pending: true\n---\n' > "$tmp/ov.md"
-    assert_eq "child-status: deploy pending" "awaiting-deploy" "$(n1_queue_child_status "$tmp/ov.md" 0)"
+    # N1-114: deploy_pending is not a queue outcome (queue children never run n1-finish).
+    printf -- '---\nstep: pr\ndeploy_pending: true\n---\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ov.md"
+    assert_eq "child-status: deploy_pending ignored -> pr" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
     printf -- '---\nstep: pr\ndeploy_pending: false\n---\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ov.md"
     assert_eq "child-status: deploy done -> pr" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
     printf -- '---\nstep: pr\n---\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ov.md"
     assert_eq "child-status: no delivery -> pr (unchanged)" "pr" "$(n1_queue_child_status "$tmp/ov.md" 0)"
     printf -- '---\nstep: escalated\n---\n' > "$tmp/ov.md"
     assert_eq "child-status: no delivery -> escalated (unchanged)" "escalated" "$(n1_queue_child_status "$tmp/ov.md" 1)"
-    rm -rf "$tmp"
-}
-
-test_bg_deploy_pending() {
-    local tmp; tmp=$(mktemp -d)
-    mk_bg "$tmp" bgq "T-A:working done" "T-B:done"
-    touch "$tmp/fake/deploy.T-A"
-    assert_eq "bg-deploy: exit 0" "0" "$(run_bg_queue "$tmp")"
-    assert_eq "bg-deploy: T-A awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
-    assert_eq "bg-deploy: T-A reason" "awaiting-deploy" "$(plan_cell "$tmp/queue.md" 1 9)"
-    assert_eq "bg-deploy: T-B pr (queue moved on)" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
-    assert_eq "bg-deploy: finalized exactly once" "1" \
-        "$(jq -r 'select(.ticket=="T-A" and .event=="ticket_finished") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
-    assert_eq "bg-deploy: event outcome" "awaiting-deploy" \
-        "$(jq -r 'select(.event=="ticket_finished" and .ticket=="T-A") | .outcome' "$tmp/events.jsonl")"
-    assert_eq "bg-deploy: digest" "1 PR / 1 awaiting / 0 failed" \
-        "$(jq -r 'select(.event=="queue_done") | .reason' "$tmp/events.jsonl")"
-    assert_eq "bg-deploy: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
-    assert_eq "bg-deploy: step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
-    assert_eq "bg-deploy: no parked wait message" "0" "$(grep -c 'awaiting-human rows left' "$tmp/output.txt" || true)"
-    assert_eq "bg-deploy: needs-you notify with resume hint" "yes" \
-        "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" | grep -qF 'n1-finish T-A' && echo yes || echo no)"
-    assert_eq "bg-deploy: hint" "T-A: n1-finish T-A (deploy pending)" "$(n1_queue_awaiting_hints "$tmp/queue.md")"
-    # N1-74: both the awaiting-deploy and pr children are stopped on the success path.
-    assert_eq "bg-deploy: both sessions stopped" "00000001,00000002" "$(paste -sd, "$tmp/fake/stopped")"
-    rm -rf "$tmp"
-}
-
-test_bg_deploy_flag_cleared_mid_run() {
-    # An interactive n1-finish clears deploy_pending while the queue still runs: the row
-    # stays terminal (recorded Reason), no second finalize, no parked wait.
-    local tmp; tmp=$(mktemp -d)
-    mk_bg "$tmp" bgc "T-A:working done" "T-B:working done"
-    touch "$tmp/fake/deploy.T-A" "$tmp/fake/clear.T-A"
-    assert_eq "bg-deploy-cleared: exit 0" "0" "$(run_bg_queue "$tmp")"
-    assert_eq "bg-deploy-cleared: flag was cleared" "false" \
-        "$(n1_read_frontmatter "$tmp/n1home/memory/T-A/overview.md" deploy_pending)"
-    assert_eq "bg-deploy-cleared: T-A still awaiting-human" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
-    assert_eq "bg-deploy-cleared: T-A reason kept" "awaiting-deploy" "$(plan_cell "$tmp/queue.md" 1 9)"
-    assert_eq "bg-deploy-cleared: finalized exactly once" "1" \
-        "$(jq -r 'select(.ticket=="T-A" and .event=="ticket_finished") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
-    assert_eq "bg-deploy-cleared: T-B pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
-    assert_eq "bg-deploy-cleared: no retry row" "" "$(plan_cell "$tmp/queue.md" 3 8)"
-    assert_eq "bg-deploy-cleared: no parked wait message" "0" "$(grep -c 'awaiting-human rows left' "$tmp/output.txt" || true)"
     rm -rf "$tmp"
 }
 
@@ -2278,13 +2187,13 @@ test_plan_wiring
 test_child_status
 test_child_status_deploy
 test_bg_pr_lifecycle
-test_auto_resolve
 test_held_helpers
+test_held_user_merge
 test_bg_held_not_launched
 test_bg_held_blocker_failed
-test_merge_candidates
+test_bg_held_user_merge
+test_bg_held_merge_at_timeout
 test_sync_default
-test_merge_gate
 test_row_status
 test_write_plan_cells
 test_pending_rows
@@ -2322,8 +2231,6 @@ test_bg_awaiting_oversized_question
 test_bg_awaiting_oversized_control_chars
 test_bg_awaiting_oversized_emoji
 test_bg_awaiting_timeout
-test_bg_deploy_pending
-test_bg_deploy_flag_cleared_mid_run
 test_bg_working_timeout
 test_bg_missing_grace
 test_bg_reconcile_working

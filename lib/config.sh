@@ -385,13 +385,6 @@ n1_post_deploy_verification_enabled() {
     [ "$(n1_config_val '.localTesting.mode')" = "smoke" ] && printf 'true' || printf 'false'
 }
 
-n1_merge_allowed() {
-    # Exit 0 = this run may merge its PR / branch and chains into n1-finish; exit 1 = it stops after PR + CI.
-    # Only queue children (N1_QUEUE_RUN_ID, exported by lib/queue.sh) with queue.mergeOnFinish=true.
-    # Interactive runs never merge: the human merges, then runs /n1:n1-finish (N1-113).
-    [ -n "${N1_QUEUE_RUN_ID:-}" ] && [ "$(n1_config_val '.queue.mergeOnFinish')" = "true" ]
-}
-
 n1_delivery_action() {
     # NP-219. Prints none | runbook | execute for the n1-finish delivery step.
     # none: delivery.mode is not "ssh" (absent/empty/unknown) -> the step is a no-op.

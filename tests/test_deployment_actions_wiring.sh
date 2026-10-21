@@ -170,7 +170,6 @@ check "finish Step 2 parses deployment actions" "deployment-actions\.md. § Pars
 check "finish Step 2 walks before-deploy items" "PHASE=before" "$F2"
 check "finish Step 2 queue/headless writes the runbook" "§ Runbook" "$F2"
 check "finish Step 2 aborted walk blocks the merge" "Merge blocked" "$F2"
-before "finish: deployment actions precede gh pr merge" "deployment-actions.md" "gh pr merge <n> --auto" "$F2"
 F4=skills/n1-finish/steps/04-close-ticket.md
 check "finish Step 4 walks after-deploy items" "PHASE=after" "$F4"
 check "finish Step 4 asks when no deploy was watched" "§ Unwatched Deploy" "$F4"

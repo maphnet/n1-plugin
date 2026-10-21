@@ -43,8 +43,8 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 /n1:n1-review                      # review current branch (fix loop)
 /n1:n1-review #340                 # advisory review of a PR
 /n1:n1-pr                          # finalize branch: docs, push, create PR
-/n1:n1-finish                      # verify/merge PR, watch deploy, close ticket
-/n1:n1-queue --story STORY-12       # run story subtasks through the pipeline one by one (children merge only with queue.mergeOnFinish; the orchestrating session may still merge a blocker PR to release held rows). Also: --tag <tag>, --plan, --run <queue-id>, --dry-run, --status, --watch, --answer <ticket> <text>.
+/n1:n1-finish                      # verify PR is merged, watch deploy, close ticket
+/n1:n1-queue --story STORY-12       # run story subtasks through the pipeline one by one (each ticket stops after PR + CI; N1 never merges, held tickets start once you merge their blocker). Also: --tag <tag>, --plan, --run <queue-id>, --dry-run, --status, --watch, --answer <ticket> <text>.
 ```
 
 ## Skills
@@ -53,12 +53,12 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 |-------|-------------|
 | /n1:n1-benchmark | Benchmark orchestrator autonomy across versions (interventions per run, quality metrics, baseline deltas) |
 | /n1:n1-clean | Remove git worktree for a ticket after work is done or abandoned |
-| /n1:n1-finish | Verify/merge PR, watch deploy, close ticket |
+| /n1:n1-finish | Verify the PR is merged (the human merges; prMode: skip merges locally), watch deploy, close ticket |
 | /n1:n1-init | Set up N1 for your project (tracker, models, flags) |
 | /n1:n1-pr | Finalize branch: docs, push, create PR |
 | /n1:n1-review | Code review loop or advisory review of a PR |
 | /n1:n1-start | Full pipeline orchestrator — ticket to merged PR |
-| /n1:n1-queue | Run a batch of tracker tickets (by tag or story subtasks) through the pipeline one after another. Children merge only when `queue.mergeOnFinish` is set; the orchestrating session can still merge a blocker's PR (strict gate, no merge hook) to release rows held on it. `--tag`, `--story`, `--plan` (persist a reviewable plan), `--run <queue-id>` (execute a saved plan), `--dry-run`, `--status`, `--watch` (the watch also shows an escalated child's full pending question), `--answer <ticket> <text>` (relays your reply back to the waiting child). |
+| /n1:n1-queue | Run a batch of tracker tickets (by tag or story subtasks) through the pipeline one after another. Children never merge; held tickets start once you merge their blocker's PR. `--tag`, `--story`, `--plan` (persist a reviewable plan), `--run <queue-id>` (execute a saved plan), `--dry-run`, `--status`, `--watch` (the watch also shows an escalated child's full pending question), `--answer <ticket> <text>` (relays your reply back to the waiting child). |
 
 ### `/n1:n1-start` — Core Orchestrator
 
@@ -100,13 +100,13 @@ Spawns tech-writer agent for doc updates and PR content, pushes, creates PR via 
 
 ### `/n1:n1-finish` — Finish Work
 
-Completes the cycle after PR/CI: verifies the PR is merged (it merges only in queue runs with `queue.mergeOnFinish`, or locally for `git.prMode: skip`), always watches the deployment workflow on the merge commit when a push-triggered workflow exists, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
+Completes the cycle after PR/CI: verifies the PR is merged (it never merges a PR; it merges locally only for `git.prMode: skip`), always watches the deployment workflow on the merge commit when a push-triggered workflow exists, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
 
 - Standalone and idempotent
 - Configure via `/n1:n1-init` or the `finishWork` block in `~/.n1/<project>/config.json`
 
 ```
-/n1:n1-finish            # verify/merge current branch's PR, close ticket
+/n1:n1-finish            # verify current branch's PR is merged, close ticket
 /n1:n1-finish TRID-510   # target a specific ticket
 /n1:n1-finish #123       # target a specific PR number
 ```

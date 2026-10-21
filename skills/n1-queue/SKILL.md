@@ -1,6 +1,6 @@
 ---
 name: n1-queue
-description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children never merge unless queue.mergeOnFinish is set. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
+description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children stop after PR + CI and never merge. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
 argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>]"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-
 
 **Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
-Launches a batch of tracker tickets through `n1-start` sequentially via a background bash runner. Each ticket stops after PR + CI and merges only when `queue.mergeOnFinish` is `true` (default `false`). A PreToolUse hook enforces this, and the preview states the effective merge mode before Start. The orchestrating session merges a child's PR only to unblock held tickets when the run is stalled and a strict gate holds, and self-answers non-critical escalations when `queue.autoResolveNonCritical` is `true` (run.md § Session watch). The skill plans (intake, preview, plan-time decisions) and persists the plan to `queue.md`; the runner (`scripts/n1-queue-run.sh`) handles execution. Bare `n1-queue` plans then runs (one Start prompt between); `--plan` saves the plan and stops; `--run <queue-id>` executes a saved plan; `--dry-run` prints the plan and persists nothing.
+Launches a batch of tracker tickets through `n1-start` sequentially via a background bash runner. Each ticket stops after PR + CI; N1 never merges a PR, and a held ticket starts once the user merges its blocker's PR. The skill plans (intake, preview, plan-time decisions) and persists the plan to `queue.md`; the runner (`scripts/n1-queue-run.sh`) handles execution. Bare `n1-queue` plans then runs (one Start prompt between); `--plan` saves the plan and stops; `--run <queue-id>` executes a saved plan; `--dry-run` prints the plan and persists nothing.
 
 **Announce at start:** "I'm using the n1-queue skill to process queue <QUEUE_ID>."
 
