@@ -19,6 +19,8 @@ check "Gate 3 report validates keys" 'whose KEY matches the key regex' "$P"
 check "keys validated before use" '\^\[A-Z\]\[A-Z0-9_\]\*-\[0-9\]\+\$' "$P"
 check "open candidate bounded by next heading and positively anchored" 'matching `\^- ` that is not a marked line.*bounded by the next `\^## ` heading or EOF' "$P"
 check "title strips all leading [ (unforgeable marker)" 'strip all leading `\[` characters' "$P"
+check "Append inserts inside the section" 'at the end of the `## Follow-ups` section, before the next' "$P"
+check "security candidates flagged" 'Security-relevant:' "$P"
 
 check "review fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/fix.md
 check "QA fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/qa.md
