@@ -64,7 +64,7 @@ Tested:
 
   <STEP>: SKIPPED — <reason>
 
-Follow-ups: <KEY>, <KEY> (existing: <HIT_ID>) (+N unfiled) — omit if § File skipped
+Follow-ups: <KEY>, <KEY> (existing: <HIT_ID>) (+N unfiled) — omit if § File skipped; flag `Security-relevant` ones
 Ticket: <TICKET_URL — omit if empty>
 PR: <url>
 ===
@@ -74,7 +74,7 @@ With `qualityEscalations=auto-accept`, never close Gate 3 with an offer or quest
 
 Rules: 1) Verbatim commands/results from qa.md/local-testing.md. 2) Skipped steps printed. 3) `Ticket:` omitted when `ticket_url` is empty. 4) `PR:` is Gate 3's final field.
 
-**Investigation-mode:** use `=== <ID> — done ===`; print Background, Summary, Metrics, Findings (capped), Recommendations, Next Steps from `investigation.md`. Append `Ticket: <TICKET_URL>` (omit if empty). Full text pointer if Findings exceed budget.
+**Investigation-mode:** use `=== <ID> — done ===`; print Background, Summary, Metrics, Findings (capped), Recommendations, Next Steps from `investigation.md`. Append `Ticket: <TICKET_URL>` (omit if empty). Add the `Follow-ups:` line as in Gate 3. Full text pointer if Findings exceed budget.
 
 ### Wait Contract
 
