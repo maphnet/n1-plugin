@@ -439,7 +439,7 @@ Claude Code is the only host. Skill text still uses host-neutral verbs ("dispatc
 
 ## Question Notifier Hook
 
-`hooks/notify-question.sh` is a PreToolUse hook on `AskUserQuestion`. When an interactive run blocks on a question it calls `n1_desktop_notify "N1 <ID>" "Waiting for your answer after <step>"` (`<step>` is the last completed step from `overview.md`; omitted when empty), backgrounded so the question is never delayed. It stays silent for headless or queue children (`N1_HEADLESS=1`, `N1_QUEUE_RUN_ID`), when this session has no keyed active-run pointer (questions outside an N1 run), and when `notify.onQuestion` is `false` (default on; only `false` disables). It is advisory and fail-open: every path exits 0 with no output.
+`hooks/notify-question.sh` is a PreToolUse hook on `AskUserQuestion`. When an interactive run blocks on a question it calls `n1_desktop_notify "N1 <ID>" "Waiting for your answer after <step>"` (`<step>` is the last completed step from `overview.md`; omitted when empty), backgrounded so the question is never delayed. It stays silent for headless or queue children (`N1_HEADLESS=1`, `N1_QUEUE_RUN_ID`), when this session has no keyed active-run pointer (questions outside an N1 run), and when `notify.onQuestion` is `false` (default on; only `false` disables). It is advisory and fail-open: every path exits 0 with no output. On WSL, `n1_desktop_notify` finds `powershell.exe` on PATH or at its default `/mnt/c` location (`n1_powershell_path`), so hosts with `appendWindowsPath=false` still get the toast.
 
 ## Escalation Model
 
