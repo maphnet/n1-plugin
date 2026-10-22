@@ -256,7 +256,7 @@ Summary: N findings triaged — X auto-fixed, V dismissed by validator, Y dismis
 
 ## Step 10: Report
 
-If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings, whether or not triage ran. List any unfixed Codex items as informational only.
+If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings or file follow-ups, whether or not triage ran. List any unfixed Codex items as informational only, and append each For Human Review item per `<N1_ROOT>/references/followup-filing.md` § Append (source `codex`); n1-start FINALIZE MEMORY files them; outside n1-start, report them as unfiled.
 
 Every path through Step 9 ends here: review ran, skipped, timed out, failed, or went through triage. Print this report exactly once. It is the end of n1-pr.
 
