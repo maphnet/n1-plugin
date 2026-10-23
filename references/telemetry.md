@@ -58,8 +58,8 @@ The merged record includes an `orchestrator` field with per-step tool call and t
 | `orchestrator.steps[].context_start_tokens` | int\|null | Orchestrator context (input + cache_read + cache_creation) of the last main-thread message before the step's first message; the step's first message when none precedes it (v6) |
 | `orchestrator.steps[].context_end_tokens` | int\|null | Context of the step's last main-thread message (v6) |
 | `orchestrator.steps[].context_peak_tokens` | int\|null | Largest main-thread context within the step (v6) |
-| `orchestrator.steps[].compactions` | int | Compaction boundaries inside the step window. When > 0, end minus start is not growth (v6) |
-| `orchestrator.compactions[]` | array | Main-transcript `compact_boundary` records with `started_at <= timestamp <= completed_at` (no upper bound when `completed_at` is missing): `{timestamp, trigger: auto\|manual\|unknown, pre_tokens, post_tokens}` (v6) |
+| `orchestrator.steps[].compactions` | int | Compaction boundaries inside the step window. When > 0, end minus start is not growth. Steps without assistant messages have no `steps[]` entry, so `orchestrator.compactions[]` / `summary.compaction_count` is the authoritative count (v6) |
+| `orchestrator.compactions[]` | array | Main-transcript `compact_boundary` records with `started_at <= timestamp <= completed_at` (no upper bound when `completed_at` is missing; compared at 1-second resolution, timestamps truncated to `YYYY-MM-DDTHH:MM:SS`): `{timestamp, trigger: auto\|manual\|unknown, pre_tokens, post_tokens}` (v6) |
 | `orchestrator.unattributed` | object | Same shape as a step entry, for API calls outside any step window |
 | `orchestrator.totals` | object | Rollup across all steps + unattributed |
 | `orchestrator.parse_error` | string\|null | Error string if transcript could not be parsed |

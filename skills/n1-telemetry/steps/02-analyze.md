@@ -61,7 +61,7 @@ If no question events are found across any runs, report: "No question telemetry 
    - `orchestrator.compactions[]` (schema v6+): note `timestamp` and `trigger`. Raw `compaction` events no longer exist, and v<=5 `compaction_count` is a hook undercount, so skip those records for this analysis.
 
 2. For each compaction, classify which step was active when it fired (v6 also gives the per-step count directly as `orchestrator.steps[].compactions`):
-   - A compaction belongs to `brainstorm` if its `timestamp` falls between the brainstorm `started_at` and `completed_at`.
+   - A compaction belongs to `brainstorm` if its `timestamp` falls between the brainstorm `started_at` and `completed_at`. Compare at 1-second resolution (truncate timestamps to `YYYY-MM-DDTHH:MM:SS`) or use the per-step `compactions` value; do not raw-string compare.
    - Repeat for all other steps (analysis, plan, review, etc.).
 
 3. Aggregate across all runs:
