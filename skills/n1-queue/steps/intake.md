@@ -29,7 +29,8 @@ Call `mcp__<TRACKER_MCP>__<READ_OP>` for the story ID. Record `STORY_TITLE`.
 Enumerate subtasks (same logic as tag mode but via parent link):
 - **Jira:** call `mcp__<TRACKER_MCP>__<SEARCH_OP>` with JQL `parent = <STORY_ID> ORDER BY created ASC`. Include `cloudId`.
 - **YouTrack:** call `mcp__<TRACKER_MCP>__<LINKS_OP>` for the story ID; keep links of type `subtask` where the story is the parent; targets are the subtasks. Call `READ_OP` on each.
-- **Zero subtasks** (any status): print "no subtasks — run /n1:n1-start <STORY_ID>" and **STOP** (no queue is built).
+- **Search/links error or unparseable result**: report the error and **STOP** (not zero subtasks).
+- **Zero subtasks** (parsed empty result, any status): print "no subtasks — run /n1:n1-start <STORY_ID>" and **STOP** (no queue is built).
 
 Status classification: a status whose lowercase name is one of `done`, `closed`, `resolved`, `fixed`, `verified` -> `done-before-run`. Everything else -> candidate.
 
