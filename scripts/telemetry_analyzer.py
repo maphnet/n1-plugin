@@ -64,12 +64,7 @@ parse_ts = _bm.parse_ts
 
 # ---------------------------------------------------------------- argument parsing
 
-def _date_arg(v):
-    try:
-        dt.datetime.strptime(v, "%Y-%m-%d")
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"invalid date {v!r}, expected YYYY-MM-DD")
-    return v
+_date_arg = _bm.date_arg
 
 
 def build_parser():

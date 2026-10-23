@@ -1,3 +1,5 @@
+import contextlib
+import io
 import importlib.util
 import json
 import os
@@ -331,7 +333,10 @@ class CollectTest(unittest.TestCase):
         self.d.add_run(make_run(run_id="n1-run-undated", ticket="T-9", started=None))
         self.assertEqual(self.collect("--until", "2026-08-31")["runs_total"], 0)
         self.assertEqual(self.collect("--until", "2026-09-01")["runs_total"], 2)  # undated excluded
-        self.assertEqual(self.collect("--until", "garbage")["runs_total"], 3)  # malformed = no bound
+        for bad in ("garbage", "2026-02-30"):
+            with self.assertRaises(SystemExit) as cm, contextlib.redirect_stderr(io.StringIO()):
+                bm.main(["collect", "--until", bad])
+            self.assertEqual(cm.exception.code, 2)
 
     def test_missing_root_is_clean_exit(self):
         rc = bm.main(["collect", "--n1-root", str(self.d.tmp / "none"), "--projects-dir", str(self.d.projects),

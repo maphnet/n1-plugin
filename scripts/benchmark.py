@@ -1226,6 +1226,14 @@ COMMANDS["report"] = cmd_report
 
 # ------------------------------------------------------------------------ CLI
 
+def date_arg(v):
+    try:
+        dt.datetime.strptime(v, "%Y-%m-%d")
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid date {v!r}, expected YYYY-MM-DD")
+    return v
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="benchmark.py", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1238,8 +1246,8 @@ def build_parser():
     common(c)
     c.add_argument("--n1-root", default=os.path.expanduser("~/.n1"))
     c.add_argument("--projects-dir", default=os.path.expanduser("~/.claude/projects"))
-    c.add_argument("--since", default=None, help="YYYY-MM-DD; ignore runs started earlier")
-    c.add_argument("--until", default=None, help="YYYY-MM-DD (inclusive); ignore runs started later")
+    c.add_argument("--since", type=date_arg, default=None, help="YYYY-MM-DD; ignore runs started earlier")
+    c.add_argument("--until", type=date_arg, default=None, help="YYYY-MM-DD (inclusive); ignore runs started later")
     c.add_argument("--force", action="store_true", help="re-process cached runs")
     c.add_argument("--ambiguous-out", default=None, help="write ambiguous turns JSON here instead of stdout")
 
