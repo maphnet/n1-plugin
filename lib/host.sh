@@ -109,6 +109,13 @@ n1_bg_cmd() {
     esac
 }
 
+n1_powershell_path() {
+    # powershell.exe on PATH, else the WSL default (wsl.conf appendWindowsPath=false hides it from PATH).
+    command -v powershell.exe 2>/dev/null && return 0
+    local p="${N1_WSL_POWERSHELL:-/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe}"
+    [ -x "$p" ] && printf '%s\n' "$p"
+}
+
 n1_desktop_notify() {
     # Usage: n1_desktop_notify <title> <body> — first desktop notifier that actually runs wins
     # (on PATH is not enough: WSL interop can be present but disabled). Returns 1 if none works.
@@ -117,8 +124,9 @@ n1_desktop_notify() {
     if command -v osascript >/dev/null 2>&1 && timeout 10 osascript \
         -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' -e 'end run' \
         "$t" "$b" >/dev/null 2>&1; then return 0; fi
-    if command -v powershell.exe >/dev/null 2>&1 && N1_NT="$t" N1_NB="$b" WSLENV="N1_NT:N1_NB${WSLENV:+:$WSLENV}" \
-        timeout 10 powershell.exe -NoProfile -NonInteractive -Command '
+    local ps; ps=$(n1_powershell_path)
+    if [ -n "$ps" ] && N1_NT="$t" N1_NB="$b" WSLENV="N1_NT:N1_NB${WSLENV:+:$WSLENV}" \
+        timeout 10 "$ps" -NoProfile -NonInteractive -Command '
             [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
             $x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
             $n = $x.GetElementsByTagName("text")

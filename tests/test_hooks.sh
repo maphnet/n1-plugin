@@ -401,4 +401,37 @@ assert_eq "no enable offer even when disabled, if mode explicitly set (never ove
 rm "$LTP/compose.yaml"; echo '{}' > "$N1_HOME/config.json"
 assert_eq "no enable offer without a compose file" "no" "$(has_offer)"
 
+# --- notify-question hook (N1-103) --------------------------------------------
+NQ="$REPO_ROOT/hooks/notify-question.sh"
+NQBIN="$T/nqbin"; NQLOG="$T/nq.log"; mkdir -p "$NQBIN"
+printf '#!/usr/bin/env bash\nprintf "%%s|%%s\\n" "$1" "$2" >> "%s"\n' "$NQLOG" > "$NQBIN/notify-send"; chmod +x "$NQBIN/notify-send"
+mkdir -p "$N1_HOME/memory/Q-1"
+printf -- '---\nstep: analysis\n---\n' > "$N1_HOME/memory/Q-1/overview.md"
+echo '{}' > "$N1_HOME/config.json"
+nq() {  # nq [VAR=val ...] -> prints hook exit code; waits briefly for the backgrounded notifier
+  local rc=0; : > "$NQLOG"
+  echo '{"session_id":"s-nq","tool_name":"AskUserQuestion"}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID "$@" PATH="$NQBIN:$PATH" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
+  sleep 0.5; echo "$rc"
+}
+assert_eq "notify-question: no active run -> exit 0" "0" "$(nq)"
+assert_eq "notify-question: no active run -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
+echo '{"ticketId":"Q-1","runId":"r1","worktreePath":null,"branch":"b"}' > "$N1_HOME/active-run.s-nq.json"
+assert_eq "notify-question: active run -> exit 0" "0" "$(nq)"
+assert_eq "notify-question: active run -> one call naming ID and step" "N1 Q-1|Waiting for your answer after analysis" "$(cat "$NQLOG")"
+assert_eq "notify-question: no stdout" "" "$(cat "$T/nq.out")"
+assert_eq "notify-question: N1_HEADLESS=1 -> exit 0" "0" "$(nq N1_HEADLESS=1)"
+assert_eq "notify-question: N1_HEADLESS=1 -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
+assert_eq "notify-question: N1_QUEUE_RUN_ID -> exit 0" "0" "$(nq N1_QUEUE_RUN_ID=q1)"
+assert_eq "notify-question: N1_QUEUE_RUN_ID -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
+echo '{"notify":{"onQuestion":false}}' > "$N1_HOME/config.json"
+assert_eq "notify-question: onQuestion=false -> exit 0" "0" "$(nq)"
+assert_eq "notify-question: onQuestion=false -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
+echo '{}' > "$N1_HOME/config.json"
+rm "$N1_HOME/active-run.s-nq.json"; echo '{"ticketId":"Q-1"}' > "$N1_HOME/active-run.json"
+nq >/dev/null
+assert_eq "notify-question: unkeyed pointer ignored" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
+rm "$N1_HOME/active-run.json"
+assert_eq "hooks.json: AskUserQuestion matcher runs notify-question.sh" "1" \
+  "$(jq '[.hooks.PreToolUse[] | select(.matcher=="AskUserQuestion") | .hooks[].command | select(test("notify-question.sh"))] | length' "$REPO_ROOT/hooks/hooks.json")"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

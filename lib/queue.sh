@@ -986,8 +986,8 @@ n1_queue_notify_check() {
             val=$(n1_queue_val ntfyTopic)
             [ -n "$val" ] || echo "Warning: queue.notify=ntfy but queue.ntfyTopic is not set; notifications will be skipped." ;;
         *)
-            if ! command -v notify-send >/dev/null 2>&1 && ! command -v osascript >/dev/null 2>&1 && ! command -v powershell.exe >/dev/null 2>&1; then
-                echo "Warning: queue.notify=desktop but no desktop notifier (notify-send/osascript/powershell.exe) is on PATH; notifications will be skipped."
+            if ! command -v notify-send >/dev/null 2>&1 && ! command -v osascript >/dev/null 2>&1 && [ -z "$(n1_powershell_path)" ]; then
+                echo "Warning: queue.notify=desktop but no desktop notifier (notify-send/osascript/powershell.exe) was found; notifications will be skipped."
             fi
             ;;
     esac

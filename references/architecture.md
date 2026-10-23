@@ -437,6 +437,10 @@ Claude Code is the only host. Skill text still uses host-neutral verbs ("dispatc
 
 `hooks/session-start.sh` fires on session start/resume/clear/compact (payload field `source`). It resolves `N1_HOME` via `n1_home()` from `lib/config.sh` (env var → auto-derive from repo name → legacy git config → in-repo `.n1/`), then reads `$N1_HOME/config.json` and injects context telling Claude to prefer N1 skills. When a tracker is configured, it also injects a **TRACKER ROUTING** directive containing the tracker type, MCP server name, full operations map, and a negative instruction to never use any other MCP server. This keeps the correct MCP server name in the model's attention window throughout the session. After running `n1-init`, the user must `/clear` or restart to pick up the new config. It also records per-session facts to `~/.n1/sessions/<sid>.{json,preamble.sh}` (pruned after 7 days) and discovery facts to `~/.n1/host.json`, and injects `N1 PLUGIN ROOT` and HOST ROUTING.
 
+## Question Notifier Hook
+
+`hooks/notify-question.sh` is a PreToolUse hook on `AskUserQuestion`. When an interactive run blocks on a question it calls `n1_desktop_notify "N1 <ID>" "Waiting for your answer after <step>"` (`<step>` is the last completed step from `overview.md`; omitted when empty), backgrounded so the question is never delayed. It stays silent for headless or queue children (`N1_HEADLESS=1`, `N1_QUEUE_RUN_ID`), when this session has no keyed active-run pointer (questions outside an N1 run), and when `notify.onQuestion` is `false` (default on; only `false` disables). It is advisory and fail-open: every path exits 0 with no output. On WSL, `n1_desktop_notify` finds `powershell.exe` on PATH or at its default `/mnt/c` location (`n1_powershell_path`), so hosts with `appendWindowsPath=false` still get the toast.
+
 ## Escalation Model
 
 Fixed checkpoints: after PR creation (Tech Lead reviews). Plan checkpoint is off by default (`requirePlanApproval: false`) — the plan-review CCR step validates the plan automatically. Enable `requirePlanApproval: true` to restore the manual plan checkpoint.

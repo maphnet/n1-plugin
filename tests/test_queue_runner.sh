@@ -20,6 +20,7 @@ plan_cell() { # <queue.md> <row#> <col: 8=Status 9=Reason>
 }
 
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+export N1_WSL_POWERSHELL=/nonexistent  # never fire a real WSL toast from tests
 : "${N1_HOME:=}"; : "${ID:=}"; export N1_HOME ID
 source "${REPO_ROOT}/lib/config.sh"
 source "${REPO_ROOT}/lib/frontmatter.sh"
@@ -403,6 +404,9 @@ test_desktop_notify() {
     rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
     rc=0; ( PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
     assert_eq "desktop: none available -> 1" "1" "$rc"
+    printf '#!/bin/sh\necho "$N1_NT|$N1_NB" > "%s/ps"\n' "$tmp" > "$tmp/ps.exe"; chmod +x "$tmp/ps.exe"
+    rc=0; ( PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/ps.exe" n1_desktop_notify "Title" "Body" ) || rc=$?
+    assert_eq "desktop: WSL powershell off PATH used" "0|Title|Body" "$rc|$(cat "$tmp/ps" 2>/dev/null)"
 }
 
 test_notify_backends() {
