@@ -22,7 +22,7 @@ Check diff for imports/API calls/env vars/service names pointing to N1-registere
 fi
 CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}
 INCREMENTAL=false; [ "$CYCLE" -ge 2 ] && [ -f "$N1_HOME/memory/$ID/fix-changed-files" ] && { INCREMENTAL=true; FIX_FILES=$(cat "$N1_HOME/memory/$ID/fix-changed-files"); }
-echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED CYCLE=$CYCLE"
+QE=$(n1_autonomy_val 'qualityEscalations'); echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED CYCLE=$CYCLE QE=$QE"
 ```
 
 ### Incremental Re-Review (cycle >= 2)
@@ -65,4 +65,4 @@ No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, 
 
 **FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
 
-**PASS:** proceed.
+**PASS** + `QE=auto-accept` (hands-off soft policy, N1-116): write `## Deferred Soft Findings` in `$MEM/review.md` (replace if present), one `- [ID] file:line — title` per non-`[SEC-N]` Low, `[TQ-N]` Low, `[XREPO-N]` or unknown-severity finding (not fixed; the PR body lists them). `[SEC-N]` findings of any severity are never soft: they go to Step 8 as FAIL (full cycle + re-review). Any other non-TQ Medium → Step 8 SOFT-ONLY (one developer pass, no re-review); none → no soft pass, proceed (unchanged). Other modes: **PASS:** proceed. Critical/High/`[RULE-N]` always FAIL → Step 8 as above (unchanged).
