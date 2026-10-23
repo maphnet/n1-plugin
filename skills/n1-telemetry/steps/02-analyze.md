@@ -11,7 +11,7 @@ If agent token data is available in run records:
 
 ## Analysis: Section 5 — Compaction Events
 
-If compaction data is available in run records (`summary.compaction_count > 0`):
+If compaction data is available in run records (`summary.compaction_count > 0`; null means transcript unparsed, and v<=5 values undercount):
 - Runs with compaction: N out of total (X%)
 - Average compaction count per affected run
 - Compaction timing: correlate `compaction_timestamps` with step start/end times to determine which step was running when compaction fired
@@ -56,12 +56,12 @@ If no question events are found across any runs, report: "No question telemetry 
 
 **Procedure:**
 
-1. For each run JSONL file, extract two event streams:
-   - `step` events for `"step":"brainstorm"`: note `started_at` and `completed_at` timestamps.
-   - `compaction` events: note `timestamp`.
+1. From each run record, read:
+   - `steps[]` entries for `"step":"brainstorm"`: note `started_at` and `completed_at` timestamps.
+   - `orchestrator.compactions[]` (schema v6+): note `timestamp` and `trigger`. Raw `compaction` events no longer exist, and v<=5 `compaction_count` is a hook undercount, so skip those records for this analysis.
 
-2. For each compaction event, classify which step was active when it fired:
-   - A compaction belongs to `brainstorm` if its `timestamp` falls between the brainstorm `started_at` and `completed_at`.
+2. For each compaction, classify which step was active when it fired (v6 also gives the per-step count directly as `orchestrator.steps[].compactions`):
+   - A compaction belongs to `brainstorm` if its `timestamp` falls between the brainstorm `started_at` and `completed_at`. Compare at 1-second resolution (truncate timestamps to `YYYY-MM-DDTHH:MM:SS`) or use the per-step `compactions` value; do not raw-string compare.
    - Repeat for all other steps (analysis, plan, review, etc.).
 
 3. Aggregate across all runs:

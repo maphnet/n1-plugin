@@ -32,7 +32,7 @@ Always-on local-first telemetry (no config key). Captures per-step timing, per-a
 
 Hooks filter N1 persona names. Explicit finalization or error recovery writes the terminal envelope and merges synchronously. A `Stop` records its transcript, then retains only the selected run when this session's active-run pointer names that exact run and no terminal envelope exists. Cleanup still merges a run with no active pointer (or an already-terminal run). Python 3 is required; failure retains the run lock for retry.
 
-**Schema version:** Version **5** corrects v4 accounting. Legacy cumulative records and `event_msg.token_count.info.total_token_usage` remain supported. Cache-write and reasoning-output fields are preserved; reasoning is already part of output. Pre-4.0 records with `host: codex` are read as-is with no special handling — the schema no longer distinguishes hosts.
+**Schema version:** Version **6** derives compactions from `compact_boundary` records in the orchestrator (main session) transcript and adds per-step orchestrator context size. In v<=5, `compaction_count` came from a SessionStart(compact) hook gated by the run lock. That hook missed post-run compactions and counted subagent auto-compactions, so it is an undercount and not comparable with v6. Version **5** corrects v4 accounting. Legacy cumulative records and `event_msg.token_count.info.total_token_usage` remain supported. Cache-write and reasoning-output fields are preserved; reasoning is already part of output. Pre-4.0 records with `host: codex` are read as-is with no special handling — the schema no longer distinguishes hosts.
 
 Tree totals include the parent and each explicit descendant once. `root_usage`, `usage_scope`, and `usage_coverage` distinguish a root-only capture from known tree coverage. Unavailable discovery, missing child logs, and unknown independent headless descendants remain explicit. Claude totals include parent plus recorded agent transcripts; duplicate message IDs are counted once. Complete means the indicated coverage has all required fields, not that unregistered headless work was discovered.
 
@@ -55,11 +55,18 @@ The merged record includes an `orchestrator` field with per-step tool call and t
 | `orchestrator.steps[].api_calls` | int | Number of API calls during this step |
 | `orchestrator.steps[].tool_calls` | int | Number of tool calls (excluding Agent) during this step |
 | `orchestrator.steps[].tools_used` | object | Tool name → call count histogram |
+| `orchestrator.steps[].context_start_tokens` | int\|null | Orchestrator context (input + cache_read + cache_creation) of the last main-thread message before the step's first message; the step's first message when none precedes it (v6) |
+| `orchestrator.steps[].context_end_tokens` | int\|null | Context of the step's last main-thread message (v6) |
+| `orchestrator.steps[].context_peak_tokens` | int\|null | Largest main-thread context within the step (v6) |
+| `orchestrator.steps[].compactions` | int | Compaction boundaries inside the step window. When > 0, end minus start is not growth. Steps without assistant messages have no `steps[]` entry, so `orchestrator.compactions[]` / `summary.compaction_count` is the authoritative count (v6) |
+| `orchestrator.compactions[]` | array | Main-transcript `compact_boundary` records with `started_at <= timestamp <= completed_at` (no upper bound when `completed_at` is missing; compared at 1-second resolution, timestamps truncated to `YYYY-MM-DDTHH:MM:SS`): `{timestamp, trigger: auto\|manual\|unknown, pre_tokens, post_tokens}` (v6) |
 | `orchestrator.unattributed` | object | Same shape as a step entry, for API calls outside any step window |
 | `orchestrator.totals` | object | Rollup across all steps + unattributed |
 | `orchestrator.parse_error` | string\|null | Error string if transcript could not be parsed |
 
-Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `orchestrator_tool_calls`, `total_cache_creation_tokens`.
+Context fields and compaction boundaries skip `isSidechain` records. Token sums still include them.
+
+Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `orchestrator_tool_calls`, `total_cache_creation_tokens`. v6: `compaction_count`, `compaction_auto_count`, `compaction_manual_count`, and `compaction_timestamps` come from `orchestrator.compactions[]`. All four are `null` when the orchestrator transcript was not parsed. A boundary with an `unknown` trigger counts toward the total only.
 
 **Session transcript discovery:** The opening envelope captures the path from session-start facts. Completion can supply it without agent events; agent events provide a legacy fallback. Missing paths produce unknown usage.
 
