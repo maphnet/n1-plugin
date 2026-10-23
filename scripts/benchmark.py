@@ -410,7 +410,9 @@ def cmd_collect(args) -> int:
     since = parse_ts(f"{args.since}T00:00:00Z") if args.since else None
     if since is not None:
         runs = [r for r in runs if (parse_ts(r.get("started_at")) or 0) >= since]
-    until = parse_ts(f"{args.until}T00:00:00Z") + 86400 if args.until else None  # inclusive end-of-day
+    until = parse_ts(f"{args.until}T00:00:00Z") if args.until else None
+    if until is not None:
+        until += 86400  # inclusive end-of-day
     if until is not None:
         runs = [r for r in runs if (parse_ts(r.get("started_at")) or 0) < until]
     # Transcript parsing only understands Claude Code records; drop historical
