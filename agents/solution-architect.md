@@ -136,7 +136,13 @@ reason: <one-line reason for confirmation or revision>
 - Total tool calls: ≤ 35
 - Read: ≤ 18 calls, ≤ 150 lines per excerpt
 - Bash: ≤ 18 calls
-- If approaching the budget, return partial results rather than exceed it.
+- The budget is a context guard: at the limit, stop and return partial results, marking unverified claims `(unverified)`. A dispatch may state its own budget, which overrides this default.
+
+## Context Discipline
+
+- Aggregate probe output (jq/awk/wc/head); cap a single probe at ~100 lines / ~4 KB. Never cat whole telemetry, memory, or transcript files.
+- Never re-read a file already read.
+- Do not mine other tickets' `~/.n1` artifacts or `~/.claude` transcripts unless the dispatch asks.
 
 ## Constraints
 
