@@ -183,7 +183,7 @@ def extract_steps(run: dict) -> list[dict]:
             "name": s.get("step") or "unknown",
             "step_number": s.get("step_number"),
             "duration_s": s.get("duration_s"),
-            "outcome": s.get("outcome", "unknown"),
+            "outcome": s.get("outcome") or "unknown",
         }
         # Get tools from orchestrator breakdown if available
         # orchestrator.steps is a list of dicts, each with a "step" key
@@ -209,7 +209,7 @@ def extract_agents(run: dict) -> list[dict]:
     agents = []
     for a in raw_agents:
         agent = {
-            "type": a.get("agent_type", "unknown"),
+            "type": a.get("agent_type") or "unknown",
             "step": a.get("step") or "unknown",
             "duration_s": a.get("duration_s"),
             "model": a.get("model"),

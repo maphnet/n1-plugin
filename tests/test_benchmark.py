@@ -328,9 +328,10 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(res["runs_total"], 0)
 
     def test_until_is_inclusive_end_of_day(self):
+        self.d.add_run(make_run(run_id="n1-run-undated", ticket="T-9", started=None))
         self.assertEqual(self.collect("--until", "2026-08-31")["runs_total"], 0)
-        self.assertEqual(self.collect("--until", "2026-09-01")["runs_total"], 2)
-        self.assertEqual(self.collect("--until", "garbage")["runs_total"], 2)  # malformed = no bound
+        self.assertEqual(self.collect("--until", "2026-09-01")["runs_total"], 2)  # undated excluded
+        self.assertEqual(self.collect("--until", "garbage")["runs_total"], 3)  # malformed = no bound
 
     def test_missing_root_is_clean_exit(self):
         rc = bm.main(["collect", "--n1-root", str(self.d.tmp / "none"), "--projects-dir", str(self.d.projects),

@@ -408,13 +408,15 @@ def cmd_collect(args) -> int:
     out = Path(args.out)
     runs, malformed = load_runs(Path(args.n1_root))
     since = parse_ts(f"{args.since}T00:00:00Z") if args.since else None
-    if since is not None:
-        runs = [r for r in runs if (parse_ts(r.get("started_at")) or 0) >= since]
     until = parse_ts(f"{args.until}T00:00:00Z") if args.until else None
     if until is not None:
         until += 86400  # inclusive end-of-day
-    if until is not None:
-        runs = [r for r in runs if (parse_ts(r.get("started_at")) or 0) < until]
+    if since is not None or until is not None:
+        # Undated runs are excluded when any bound is set (matches telemetry_analyzer).
+        def in_window(r):
+            ts = parse_ts(r.get("started_at"))
+            return ts is not None and (since is None or ts >= since) and (until is None or ts < until)
+        runs = [r for r in runs if in_window(r)]
     # Transcript parsing only understands Claude Code records; drop historical
     # Codex runs instead of collecting them with garbage (zero turns/calls) metrics.
     skipped_host = sum(1 for r in runs if r.get("host") == "codex")

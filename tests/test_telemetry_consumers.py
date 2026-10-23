@@ -35,6 +35,14 @@ class TelemetryConsumersTest(unittest.TestCase):
         self.assertIn("unknown", agg["by_step"])
         analyzer._diff_reports(report, report)
 
+    def test_null_agent_fields_surface_as_unknown(self):
+        run = {"run_id": "r", "agents": [{"agent_type": None, "step": None, "duration_s": 2}],
+               "steps": [{"step": "x", "outcome": None}]}
+        report = analyzer.extract_run_report(run)
+        self.assertEqual(report["agents"][0]["type"], "unknown")
+        self.assertEqual(report["agents"][0]["step"], "unknown")
+        self.assertEqual(report["steps"][0]["outcome"], "unknown")
+
     def test_date_window_is_inclusive_and_applied_before_last(self):
         def r(ts):
             return {"started_at": ts}
