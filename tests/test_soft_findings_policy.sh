@@ -27,5 +27,10 @@ check "soft pass deferrals still filed" 'SOFT-ONLY.*Findings deferred' "$F"
 
 check "pipeline table names the soft pass" 'FIX \(if FAIL or soft pass\)' "$S"
 check "PR body lists deferred soft findings" '## Deferred Soft Findings.*## Review Notes' "$T"
+check "review FAIL definition includes [SEC-N]" 'FAIL.*or any `\[SEC-N\]`' "$R"
+check "fix FAIL spawn passes [SEC-N]" 'pass Critical\+High and all `\[SEC-N\]`' "$F"
+check "fix increment block labeled FAIL-only" 'FAIL-only \(SOFT-ONLY skips' "$F"
+check "fix Return to Step 7 labeled FAIL-only" 'FAIL-only: return to Step 7' "$F"
+check "tech-writer excludes [SEC-N] from bullets" 'Omit `\[SEC-N\]`' "$T"
 
 exit $FAIL

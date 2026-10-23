@@ -18,7 +18,7 @@ echo "$PRE_FIX_SHA" > "$N1_HOME/memory/$ID/pre-fix-sha"
 
 Run **Ensure Dependencies(`<ID>`)** before spawning.
 
-**FAIL** (unchanged): spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
+**FAIL** (unchanged): spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High and all `[SEC-N]` findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
 
 **SOFT-ONLY** (review PASS routed here; hands-off soft policy, N1-116): spawn developer the same way, passing only the non-TQ Medium findings as an explicit fix instruction (Low stays deferred), "Record under `## Fix Cycle <N> (soft)` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`, `Findings deferred`." After it returns: no `review_fix_cycle` increment, no re-review, no Return to Step 7; apply the `Findings deferred` Append line below, then go to **PASS verdict** (its `**Full-suite:**` line goes under the `(soft)` heading). A failed or partial soft pass never blocks: record it and proceed.
 
@@ -26,19 +26,21 @@ Run **Ensure Dependencies(`<ID>`)** before spawning.
 
 **Security findings** (`[SEC-N]`/CVE): append "Fix the entire CLASS — search all variants and fix in one pass."
 
-After developer returns (FAIL):
+After developer returns (FAIL or SOFT-ONLY): `qualityEscalations=auto-accept`: append the developer's `Findings deferred` per `<N1_ROOT>/references/followup-filing.md` § Append (source `review`).
+
+FAIL-only (SOFT-ONLY skips the rest of this section):
 ```bash
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 ```
-`qualityEscalations=auto-accept`: append the developer's `Findings deferred` per `<N1_ROOT>/references/followup-filing.md` § Append (source `review`).
 
+FAIL-only:
 ```bash
 source ~/.n1/preamble.sh
 PRE_FIX_SHA=$(cat "$N1_HOME/memory/$ID/pre-fix-sha" 2>/dev/null || echo "HEAD~1")
 FIX_CHANGED=$(git diff --name-only "$PRE_FIX_SHA" HEAD)
 echo "$FIX_CHANGED" > "$N1_HOME/memory/$ID/fix-changed-files"
 ```
-Emit: `<ID> · review fix cycle <N>/<MAX>`. Return to Step 7. Bound: `review.maxFixAttempts` (default 2).
+Emit: `<ID> · review fix cycle <N>/<MAX>`. FAIL-only: return to Step 7. Bound: `review.maxFixAttempts` (default 2).
 
 **Escalation:** `QE==auto-accept`+non-security/architecture/public-API: take recommended, A-tier `[auto]` ledger. Otherwise: resolution ladder (codebase→web→command→prior decisions). Fail all: emit `n1_emit_question_event ... "fix" "quality" "asked" "codebase|web|command|prior-decisions"`. Preamble: `"{Title}: {Core Ask}."` Bug: prepend root-cause. Ask: "{PREAMBLE} Ambiguity: [...]. 1.<recommended> 2.<alt> 3.Decide for me." "Decide for me"→web+apply, emit `"auto-decided"`.
 
