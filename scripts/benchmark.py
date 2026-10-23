@@ -532,6 +532,8 @@ class CompactionsMetric(Metric):
     name, unit, direction = "compactions", "count", "lower"
 
     def compute(self, run_record, turns):
+        if (run_record.get("parser_schema_version") or 0) < 6:
+            return None
         val = (run_record.get("summary") or {}).get("compaction_count")
         return float(val) if isinstance(val, (int, float)) else None
 

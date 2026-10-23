@@ -29,7 +29,7 @@ def make_run(run_id="n1-run-1", version="2.80.0", project="proj", ticket="T-1",
              started="2026-09-01T10:00:00Z", completed=_UNSET,
              outcome="pr_created", steps=_UNSET, outcomes=_UNSET, summary=_UNSET, orchestrator=_UNSET):
     return {
-        "schema_version": 2, "run_id": run_id, "session_id": None, "n1_version": version,
+        "schema_version": 2, "parser_schema_version": 6, "run_id": run_id, "session_id": None, "n1_version": version,
         "project": project, "ticket_id": ticket, "branch": ticket,
         "started_at": started,
         "completed_at": completed if completed is not _UNSET else "2026-09-01T11:00:00Z",
@@ -392,6 +392,14 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(m["duration_min"], 60.0)
         self.assertEqual(m["orchestrator_output_tokens"], 5000.0)
         self.assertEqual(m["compactions"], 2.0)
+
+    def test_compactions_requires_v6(self):
+        for version, expected in ((5, None), (6, 2.0)):
+            run = make_run()
+            run["parser_schema_version"] = version
+            cache = {"run_record": run, "turns": []}
+            bm.compute_run_metrics(cache)
+            self.assertEqual(cache["metrics"]["compactions"], expected)
 
     def test_missing_data_yields_none(self):
         run = make_run(outcomes=[], summary={}, orchestrator=None, completed=None)
