@@ -33,4 +33,7 @@ check "fix increment block labeled FAIL-only" 'FAIL-only \(the next two blocks; 
 check "fix Return to Step 7 labeled FAIL-only" 'FAIL-only: return to Step 7' "$F"
 check "tech-writer excludes [SEC-N] from bullets" 'Omit `\[SEC-N\]`' "$T"
 
+check "soft pass adds unfixed Medium to deferred list" 'Medium it left unfixed.*Deferred Soft Findings' "$F"
+check "deferred list takes only Low XREPO" 'Low `\[XREPO-N\]`' "$R"
+
 exit $FAIL
