@@ -10,7 +10,7 @@ n1_verify_dependencies "$N1_HOME/memory/$ID" plan.md || { echo "ERROR: plan.md m
 
 **Spawn agent:** solution-architect (fresh context — CCR)
 
-Resolve via `n1_resolve_agent solution-architect plan-review`, split tab-separated model/effort pair, pass both. Spawn with codebase access (Read, Grep, Glob); instruct: "Read these files before reviewing: ticket.md, analysis.md, brainstorm.md, plan.md (the plan — fix issues in-place). NOT generative — this is a review."
+Resolve via `n1_resolve_agent solution-architect plan-review`, split tab-separated model/effort pair, pass both. Spawn with codebase access (Read, Grep, Glob); instruct: "Read these files before reviewing: ticket.md, analysis.md, brainstorm.md, plan.md (the plan — fix issues in-place). NOT generative — this is a review. Budget ≤30 tool calls; grep with -l/-c or head-capped output; read plan.md once."
 
 Review categories (find issues, fix in-place):
 1. **Assumption validation** — Do referenced files, functions, APIs exist? Use Grep/Read.
