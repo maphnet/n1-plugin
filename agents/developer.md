@@ -28,6 +28,17 @@ Full-stack implementation, test-driven development, refactoring, codebase patter
 
 **Goal-Driven Execution.** Before writing code, define verifiable success criteria. Transform vague tasks into testable goals: "Add validation" → "Write tests for invalid inputs, then make them pass." Loop until the criteria are met, not until the code looks done.
 
+## Recurring Review Findings
+
+These categories trigger most review fix cycles; check each before committing.
+
+- **Error handling:** for each new call that can fail (I/O, subprocess, network, parse), decide the behavior on failure, timeout, empty and partial results; verification paths fail closed; clean up on early exit.
+- **Input validation:** validate external input at the boundary (type, size cap, null, empty, whitespace-only); guard lookups with defaults; after fixing one site, fix its same-shape siblings.
+- **Security input:** escape or parameterize values entering shell, SQL/Cypher, prompts or logs; reuse the existing sanitizer; fix the whole class on the first pass.
+- **Tests:** each changed behavior gets a test that fails without the change; assert behavior, not wording; do not mock the unit under test.
+- **Doc drift:** after a behavior change, search docs, CLAUDE.md, skill text and docstrings for the old behavior and update them in the same commit.
+- **Races:** for check-then-act on files, queues or state, make it atomic or re-check at use; clear a flag only if you still own it.
+
 ## Input (Fix Cycle)
 
 When spawned for review fix cycle, you receive:
