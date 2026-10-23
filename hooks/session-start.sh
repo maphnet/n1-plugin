@@ -12,8 +12,8 @@ HOOK_CWD=$(printf '%s' "$INPUT" | n1_hook_field cwd)
 N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
 export N1_SESSION_ID
 N1_TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | n1_hook_field transcript_path)
-AGENT_ID=$(printf '%s' "$INPUT" | n1_hook_field agent_id)   # CC 2.1.280 omits it on SessionStart; guard is forward-compatible
 export N1_TRANSCRIPT_PATH
+AGENT_ID=$(printf '%s' "$INPUT" | n1_hook_field agent_id)   # CC 2.1.280 omits it on SessionStart; guard is forward-compatible
 
 # --- Host facts: recorded for skill preambles and injected as routing context ---
 N1_HOST_NAME=$(n1_host)
@@ -156,7 +156,7 @@ if [ "${TRIGGER:-}" = "compact" ] && [ -z "$AGENT_ID" ]; then
 
             N1_COMPACT_STATE="
 (Scope: orchestrator session only. If you are a dispatched subagent/persona, ignore the ORCHESTRATOR STATE block below and continue your own task.)
-ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any compacted summary):
+ORCHESTRATOR STATE (orchestrator session only — restored after compaction; authoritative for the orchestrator, overrides its compacted summary):
 - N1_HOME: ${n1_root}
 - Active ticket: ${ar_ticket}
 - Run ID: ${ar_run_id}
@@ -169,7 +169,7 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
 - Config gates: localTesting.enabled=${gate_local:-true}
 - Task context: ${ov_context}
 - Ticket URL: ${ov_ticket_url}
-- IMPORTANT: Use these values, not anything from the compacted conversation summary. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."
+- IMPORTANT: Orchestrator only — use these values, not anything from the compacted conversation summary; a dispatched subagent keeps following its own task. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."
         fi
     fi
 fi
