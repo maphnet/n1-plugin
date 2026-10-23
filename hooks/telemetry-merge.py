@@ -18,7 +18,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 STATIC_MAP = {
     "product-analyst": ["ticket"],
@@ -179,7 +179,8 @@ def _assistant_records(path: Path):
     return messages.values()
 
 
-def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict:
+def parse_orchestrator_transcript(path: str, steps: list[dict],
+                                  run_start: str | None = None, run_end: str | None = None) -> dict:
     p = Path(path)
     if not p.is_file():
         return {"steps": [], "unattributed": None, "totals": None,
@@ -203,7 +204,29 @@ def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict:
                 "cache_read_tokens": u.get("cache_read_input_tokens") or 0,
                 "cache_creation_tokens": u.get("cache_creation_input_tokens") or 0,
                 "tools": tools,
+                "sidechain": bool(rec.get("isSidechain")),
+                "context": (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
+                           + (u.get("cache_creation_input_tokens") or 0),
             })
+
+        # Context fields describe the orchestrator's own window, so sidechain
+        # (subagent) records are skipped. prev_context = context just before.
+        own = sorted((m for m in messages if not m["sidechain"]), key=lambda m: m["ts"])
+        for i, m in enumerate(own):
+            m["prev_context"] = own[i - 1]["context"] if i else m["context"]
+
+        # Main-transcript compact_boundary records inside the run window. Post-run
+        # /compact belongs to the session, not this run.
+        compactions = []
+        for rec in _read_jsonl(p):
+            if rec.get("type") != "system" or rec.get("subtype") != "compact_boundary" or rec.get("isSidechain"):
+                continue
+            ts = rec.get("timestamp") or ""
+            if (run_start and ts[:19] < run_start[:19]) or (run_end and ts[:19] > run_end[:19]):
+                continue
+            meta = rec.get("compactMetadata") or {}
+            compactions.append({"timestamp": ts, "trigger": meta.get("trigger") or "unknown",
+                                "pre_tokens": meta.get("preTokens"), "post_tokens": meta.get("postTokens")})
 
         def _find_step(ts: str) -> str:
             for step in steps:
@@ -239,6 +262,16 @@ def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict:
                 del entry["step"]
                 unattributed = entry
             else:
+                ctx = sorted((m for m in msgs if not m["sidechain"]), key=lambda m: m["ts"])
+                entry.update({
+                    "context_start_tokens": ctx[0]["prev_context"] if ctx else None,
+                    "context_end_tokens": ctx[-1]["context"] if ctx else None,
+                    "context_peak_tokens": max((m["context"] for m in ctx), default=None),
+                    # Boundary timestamps carry milliseconds ("...:00.123Z") while step bounds are
+                    # whole seconds, and "Z" sorts after ".", so truncate to seconds before matching.
+                    "compactions": sum(1 for c in compactions
+                                       if _find_step(c["timestamp"][:19] + "Z") == step_name),
+                })
                 step_entries.append(entry)
 
         if unattributed is None:
@@ -265,7 +298,7 @@ def parse_orchestrator_transcript(path: str, steps: list[dict]) -> dict:
         if not messages:
             return {'steps': [], 'unattributed': None, 'totals': None, 'parse_error': 'usage_unavailable'}
         return {"steps": step_entries, "unattributed": unattributed,
-                "totals": totals, "parse_error": None}
+                "totals": totals, "compactions": compactions, "parse_error": None}
     except OSError:
         return {"steps": [], "unattributed": None, "totals": None,
                 "parse_error": "orchestrator_transcript_parse_failed"}
@@ -361,12 +394,13 @@ def main() -> int:
 
     orchestrator = None
     if session_transcript and host == 'claude-code':
-        orchestrator = parse_orchestrator_transcript(session_transcript, steps)
+        orchestrator = parse_orchestrator_transcript(session_transcript, steps,
+                                                     envelope.get("started_at"), envelope.get("completed_at"))
 
     def _sum(vals):
         return sum(v for v in vals if v is not None)
 
-    compaction_events = [e['timestamp'] for e in step_events if e.get('event') == 'compaction']
+    compactions = (orchestrator or {}).get("compactions")  # None = transcript not parsed (unknown, not 0)
     decisions = [e for e in step_events if e.get('event') == 'decision']
     questions = [e for e in step_events if e.get('event') == 'question']
     outcomes = [e for e in step_events if e.get('event') == 'outcome']
@@ -389,8 +423,10 @@ def main() -> int:
         "review_blocking_count": next((int(o["outcomes"].get("review_blocking_count", 0)) for o in outcomes if "outcomes" in o), None),
         "break_check_verdict": next((o["outcomes"].get("break_check_verdict") for o in outcomes if "outcomes" in o), None),
         "decision_count": len(decisions),
-        "compaction_count": len(compaction_events),
-        "compaction_timestamps": compaction_events,
+        "compaction_count": len(compactions) if compactions is not None else None,
+        "compaction_auto_count": sum(c["trigger"] == "auto" for c in compactions) if compactions is not None else None,
+        "compaction_manual_count": sum(c["trigger"] == "manual" for c in compactions) if compactions is not None else None,
+        "compaction_timestamps": [c["timestamp"] for c in compactions] if compactions is not None else None,
         "orchestrator_input_tokens": orch_totals["input_tokens"] if orch_totals else None,
         "orchestrator_output_tokens": orch_totals["output_tokens"] if orch_totals else None,
         "orchestrator_tool_calls": orch_totals["tool_calls"] if orch_totals else None,
