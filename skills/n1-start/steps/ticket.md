@@ -20,7 +20,8 @@ RESOLVED_TYPE=$(cat "$N1_HOME/memory/$ID/.resolved-type"); rm -f "$N1_HOME/memor
 INVESTIGATION_DETECTED=false
 [ "$RESOLVED_TYPE" = "investigation" ] && INVESTIGATION_DETECTED=true || { n1_title_hints_investigation "$TITLE" && echo "Hint: title looks like investigation; re-run with --type investigation; continuing as ${RESOLVED_TYPE}."; }
 ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]'); IS_STORY=false
-case "$ISSUE_TYPE" in epic) IS_STORY=true ;; esac
+SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p')
+case "$ISSUE_TYPE" in epic) IS_STORY=true ;; story) ;; *) [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md" && IS_STORY=true ;; esac
 ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"]*\)".*/\1/p')
 ```
 **Story children** (`ISSUE_TYPE=story` only): Jira: `mcp__<trackerMcp>__<operations.search>` JQL `parent = <ID>`, maxResults 1, `cloudId` when set. YouTrack: `operations.getIssueLinks`, any `subtask` link with `<ID>` as parent. Jira: non-empty `issues` list→`has`, parsed empty `issues` list→`none`. YouTrack: a parent `subtask` link→`has`, parsed links without one→`none`. Error, absent search/links op, missing `issues`, or unparseable→`unknown`. Never infer from `total` (jc-mcp's `/search/jql` omits it).
@@ -51,7 +52,7 @@ n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type_matched_by" "$TYPE_
 [ "$INVESTIGATE_FLAG" = "true" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive" "true"
 [ -n "${N1_STORY_ID:-}" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story" "$N1_STORY_ID"
 [ -n "$ORIGINAL_STATUS" ] && [ "$ORIGINAL_STATUS" != "Not specified" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status" "$ORIGINAL_STATUS"
-SC=$(tr -d '\\\r\n' < "$N1_HOME/memory/$ID/.story-convert" 2>/dev/null); rm -f "$N1_HOME/memory/$ID/.story-convert"; [ -n "$SC" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story_convert" "$SC"
+SC=$(tr -d '\\\r\n' 2>/dev/null < "$N1_HOME/memory/$ID/.story-convert"); rm -f "$N1_HOME/memory/$ID/.story-convert"; [ -n "$SC" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story_convert" "$SC"
 n1_write_context
 ```
 Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/rename $SESSION_NAME`. **Create overview.md**: frontmatter (ticket, tier, step, fix_cycles), heading, `## Context` (pending), `## Progress`, `## Key Decisions`, `## Escalations`. `INVESTIGATION_DETECTED=true`: investigation variant.

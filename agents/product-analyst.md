@@ -100,7 +100,10 @@ You will receive ONE of four input modes:
    - Fetch parent via `readTicket`. On failure: append `<!-- parent-context: fetch failed for <PARENT_ID> -->` and stop.
    - Extract `parentTitle`, `parentDescription`. Fetch parent's links for summaries. Append the same `### Parent Context` block as the Jira path.
 
-5. **Issue type:** `issue_type` = `issuetype.name` for Jira, the `Type` custom field value for YouTrack; `"unknown"` if unavailable.
+5. **Child subtask count:**
+   - Jira: `subtask_count` = length of `subtasks` array (0 if absent).
+   - YouTrack: count links of type `subtask` where current issue is parent (0 if none).
+   - `issue_type`: `issuetype.name` for Jira, the `Type` custom field value for YouTrack; `"unknown"` if unavailable.
 
 6. **Linked tickets for current ticket:**
    - Jira: from `issuelinks` in the `getJiraIssue` response. Keep: blocks, is blocked by, relates to, depends on, is depended on by. Exclude clones/is cloned by. For each qualifying link: relation, linked ticket `key`, linked ticket `fields.summary`. If none remain after filtering, skip. Append:
@@ -141,7 +144,7 @@ You will receive ONE of four input modes:
    - Extract title: the first imperative phrase or sentence (max 80 chars).
    - Infer type: "investigation" or "investigate" (word boundary) → `task`; "bug"/"error"/"crash"/"fix" → `bug`; otherwise → `task`.
    - Classify `is_investigation`: `true` only when the text's purpose is discovering unknowns (starts with "Investigate", "Research why", "Explore", etc.); `false` if investigation is merely mentioned.
-2. Set `is_investigation`, `issue_type="unknown"`, `tags=[]`.
+2. Set `is_investigation`, `issue_type="unknown"`, `subtask_count=0`, `tags=[]`.
 3. Write ticket.md with the raw text as description (see Ticket.md Format below).
 
 ### Fetch: File mode
@@ -150,13 +153,13 @@ You will receive ONE of four input modes:
 2. Extract title from the first markdown heading (`# ...`) if present, otherwise use filename without extension.
 3. Infer type using the same keyword heuristic as raw text mode.
 4. Classify `is_investigation`: same semantic rule as raw text mode.
-5. Set `issue_type="unknown"`, `tags=[]`.
+5. Set `issue_type="unknown"`, `subtask_count=0`, `tags=[]`.
 6. Write ticket.md with the file contents as description (see Ticket.md Format below).
 
 ### Fetch: Error tracker mode
 
 1. Fetch the issue: call `mcp__<errorTrackingMcp>__<operations.getIssue>` with the issue ID (and org/project slugs if required). Extract: error type/message, title, environment.
-2. Set `is_investigation=false`, `type="bug"`, `issue_type="unknown"`, `tags=[]`.
+2. Set `is_investigation=false`, `type="bug"`, `issue_type="unknown"`, `subtask_count=0`, `tags=[]`.
 3. Write ticket.md with the error summary as description (see Ticket.md Format below).
 
 ### Ticket.md Format
@@ -428,25 +431,25 @@ Emit this line in your compact return to the orchestrator **before** the `tier:`
 
 **Standard format:**
 ```
-intake-result: {"title": "<title>", "tags": [<tags as JSON array of strings>], "type": "<bug|task|feature|improvement>", "issue_type": "<raw tracker issue type, e.g. Story|Epic|Task|Bug>", "is_investigation": <true|false>, "original_status": "<raw status value, or empty string if not available>"}
+intake-result: {"title": "<title>", "tags": [<tags as JSON array of strings>], "type": "<bug|task|feature|improvement>", "issue_type": "<raw tracker issue type, e.g. Story|Epic|Task|Bug>", "subtask_count": <number>, "is_investigation": <true|false>, "original_status": "<raw status value, or empty string if not available>"}
 ```
 
 **Jira ticket mode** — add `cloudId`:
 ```
-intake-result: {"title": "<title>", "tags": [], "type": "<type>", "cloudId": "<resolved-cloud-id>", "issue_type": "<raw type>", "is_investigation": <true|false>, "original_status": "<raw status>"}
+intake-result: {"title": "<title>", "tags": [], "type": "<type>", "cloudId": "<resolved-cloud-id>", "issue_type": "<raw type>", "subtask_count": <N>, "is_investigation": <true|false>, "original_status": "<raw status>"}
 ```
 
 **When a linked error was detected** (step 7 of tracker ticket fetch) — include `linked_error`; set `type` to `"bug"` and `is_investigation` to `false`:
 ```
-intake-result: {"title": "<title>", "tags": [...], "type": "bug", "cloudId": "<cloud-id>", "issue_type": "<raw type>", "linked_error": {"provider": "<provider>", "issueId": "<id>", "issueUrl": "<url>"}, "is_investigation": false, "original_status": "<raw status>"}
+intake-result: {"title": "<title>", "tags": [...], "type": "bug", "cloudId": "<cloud-id>", "issue_type": "<raw type>", "subtask_count": <N>, "linked_error": {"provider": "<provider>", "issueId": "<id>", "issueUrl": "<url>"}, "is_investigation": false, "original_status": "<raw status>"}
 ```
 
 **When title cannot be extracted:**
 ```
-intake-result: {"title": null, "tags": [], "type": "task", "issue_type": "unknown", "is_investigation": false, "original_status": ""}
+intake-result: {"title": null, "tags": [], "type": "task", "issue_type": "unknown", "subtask_count": 0, "is_investigation": false, "original_status": ""}
 ```
 
-Text mode, file mode, and error-tracker mode emit `"issue_type": "unknown", "original_status": ""`.
+Text mode, file mode, and error-tracker mode emit `"issue_type": "unknown", "subtask_count": 0, "original_status": ""`.
 
 ## Signal Emission
 
