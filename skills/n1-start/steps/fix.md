@@ -16,9 +16,9 @@ PRE_FIX_SHA=$(git rev-parse HEAD)
 echo "$PRE_FIX_SHA" > "$N1_HOME/memory/$ID/pre-fix-sha"
 ```
 
-Run **Ensure Dependencies(`<ID>`)** before spawning.
+Run **Ensure Dependencies(`<ID>`)** before spawning. Run `procedures/rules-injection.md` (`agent_name=developer`); append `$RULES_BLOCK` to the developer prompt.
 
-**FAIL**: spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High (with `QE=auto-accept`, also all `[SEC-N]`) findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
+**FAIL**: spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High (with `QE=auto-accept`, also all `[SEC-N]`) findings plus every `[RULE-N]` finding (any severity), affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
 
 **SOFT-ONLY** (review PASS routed here; hands-off soft policy, N1-116): spawn developer the same way, passing only the non-TQ Medium findings as an explicit fix instruction (Low stays deferred), "Record under `## Fix Cycle <N> (soft)` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`, `Findings deferred`." After it returns: no `review_fix_cycle` increment, no re-review, no Return to Step 7; apply the `Findings deferred` Append line below and add each Medium it left unfixed (not `[SEC-N]`) to `## Deferred Soft Findings` in review.md, then go to **PASS verdict** (its `**Full-suite:**` line goes under the `(soft)` heading). A failed or partial soft pass never blocks: record it and proceed.
 

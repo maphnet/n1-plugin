@@ -15,6 +15,7 @@ Receive in your dispatch prompt:
 - **Plan file path** — the implementation plan (or brainstorm file for direct implementation)
 - **Output path** — where to write the implementation summary
 - **Worktree path** (optional) — work there if provided
+- **Project rules block** (optional) — the "Project Rules" text in the dispatch prompt
 - **Constraints** from the orchestrator (escalation rules, test tier, etc.)
 
 ## Process
@@ -42,6 +43,7 @@ For each task, in sequence:
 **d. Review the changes** (generate diff from BASE to HEAD; dispatch task reviewer with Task Review Template). Two verdicts required: spec compliance AND code quality.
 
 **e. Fix loop** (when review finds Critical/Important issues or spec gaps):
+- Every re-dispatch keeps the Project rules section of the brief.
 - Rounds 1-3: re-dispatch the same developer with the open findings verbatim.
 - Rounds 4-5: dispatch a fresh developer with the brief, the findings, and this framing: "A prior developer attempted this task; you own it now."
 - Each round: developer fixes, re-runs covering tests, appends fix report. Then dispatch scoped re-review (Re-Review Template) of the fix diff only.
@@ -83,6 +85,9 @@ Task N of M: [Task Name]
 - [Global constraints from the plan that bind this task]
 - Work in: [worktree path if set]
 - Scratch: [N1_HOME/memory/ID/benchmarks/] for throwaway probes
+
+**Project rules (copy the block from the dispatch prompt unchanged; omit if none):**
+[rules block]
 
 **Report contract:**
 Return one of: DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED
