@@ -235,6 +235,53 @@ OUT8="$TELEM_DIR8/runs/$RUN_ID8.jsonl"
 assert_eq "N1-106: unusable usage -> compaction_count null" "null" "$(jq '.summary.compaction_count' "$OUT8")"
 assert_eq "N1-106: unusable usage -> compaction_auto_count null" "null" "$(jq '.summary.compaction_auto_count' "$OUT8")"
 
+# ==== Test 9: N1-106 [:19] truncation - ms boundaries in the same second as run start / step bounds ====
+# Without truncation "...:00.500Z" < "...:00Z" ('.' < 'Z'), so a boundary in the run-start second
+# is dropped from the window and one in the step-start second is left unattributed.
+RUN_ID9="test-run-009"
+TELEM_DIR9="$T/home/memory/TEST-9/telemetry"
+mkdir -p "$TELEM_DIR9/raw/steps" "$TELEM_DIR9/raw/agents"
+TRANSCRIPT9="$T/sess-009.jsonl"
+cat > "$TRANSCRIPT9" <<'TRANSCRIPT'
+{"type":"assistant","timestamp":"2026-09-02T10:15:00Z","message":{"id":"p1","usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-09-02T10:10:00.500Z","compactMetadata":{"trigger":"manual","preTokens":6000,"postTokens":1500}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-09-02T10:20:00.500Z","compactMetadata":{"trigger":"auto","preTokens":7000,"postTokens":1500}}
+TRANSCRIPT
+cat > "$TELEM_DIR9/raw/steps/$RUN_ID9.jsonl" <<STEPS9
+{"layer":"envelope","started_at":"2026-09-02T10:10:00Z","ticket_id":"TEST-9","session_id":"sess-009","host":"claude-code","session_transcript_path":"$TRANSCRIPT9"}
+{"layer":"step","step":"review","step_number":1,"started_at":"2026-09-02T10:10:00Z"}
+{"layer":"step","step":"review","step_number":1,"completed_at":"2026-09-02T10:20:00Z","outcome":"pass"}
+{"layer":"envelope_close","completed_at":"2026-09-02T10:20:00Z","final_outcome":"pr_created"}
+STEPS9
+: > "$TELEM_DIR9/raw/agents/$RUN_ID9.jsonl"
+bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID9" "$TELEM_DIR9"
+OUT9="$TELEM_DIR9/runs/$RUN_ID9.jsonl"
+assert_eq "N1-106: ms boundaries in run-start/run-end/step seconds counted in window" "2" "$(jq '.summary.compaction_count' "$OUT9")"
+assert_eq "N1-106: ms boundaries attributed to the step" "2" \
+  "$(jq '.orchestrator.steps[] | select(.step=="review") | .compactions' "$OUT9")"
+
+# ==== Test 10: N1-106 malformed compact_boundary records (non-string timestamp, non-dict metadata) ====
+RUN_ID10="test-run-010"
+TELEM_DIR10="$T/home/memory/TEST-10/telemetry"
+mkdir -p "$TELEM_DIR10/raw/steps" "$TELEM_DIR10/raw/agents"
+TRANSCRIPT10="$T/sess-010.jsonl"
+cat > "$TRANSCRIPT10" <<'TRANSCRIPT'
+{"type":"assistant","timestamp":"2026-09-02T10:01:00Z","message":{"id":"q1","usage":{"input_tokens":100,"output_tokens":10,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"content":[]}}
+{"type":"system","subtype":"compact_boundary","timestamp":123,"compactMetadata":{"trigger":"auto"}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-09-02T10:05:00.000Z","compactMetadata":"x"}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-09-02T10:06:00.000Z","compactMetadata":{"trigger":"manual","preTokens":6000,"postTokens":1500}}
+TRANSCRIPT
+cat > "$TELEM_DIR10/raw/steps/$RUN_ID10.jsonl" <<STEPS10
+{"layer":"envelope","started_at":"2026-09-02T10:00:00Z","ticket_id":"TEST-10","session_id":"sess-010","host":"claude-code","session_transcript_path":"$TRANSCRIPT10"}
+{"layer":"envelope_close","completed_at":"2026-09-02T10:30:00Z","final_outcome":"pr_created"}
+STEPS10
+: > "$TELEM_DIR10/raw/agents/$RUN_ID10.jsonl"
+bash "$REPO_ROOT/hooks/telemetry-merge.sh" "$RUN_ID10" "$TELEM_DIR10"
+OUT10="$TELEM_DIR10/runs/$RUN_ID10.jsonl"
+# Non-string timestamp is skipped; non-dict metadata degrades to unknown trigger; valid one counted.
+assert_eq "N1-106: malformed boundaries do not crash merge; timestamp-123 skipped (count|manual|unknown-trigger)" "2|1|unknown" \
+  "$(jq -r '[.summary.compaction_count, .summary.compaction_manual_count, .orchestrator.compactions[0].trigger] | map(tostring) | join("|")' "$OUT10")"
+
 echo "---"
 echo "$((PASS+FAIL)) tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
