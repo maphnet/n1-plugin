@@ -316,6 +316,10 @@ fi
 # --- Pending-merge resume scan (fail-open: any error injects nothing) ---
 pending_context=""
 n1_root=$(n1_home)
+# On compact, subagent SessionStart events may lack agent_id: mark these blocks orchestrator-only
+scope_note=""
+[ "$TRIGGER" = "compact" ] && scope_note="(Scope: orchestrator session only. If you are a dispatched subagent/persona, ignore this and continue your own task.)
+"
 if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2>&1; then
     now_epoch=$(date +%s)
     checked=0
@@ -364,7 +368,7 @@ if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && comm
         directive="Surface these to the user as suggested next actions. Do not act without being asked."
         context="${context}
 
-PENDING N1 WORK (from overview.md Pending blocks):${pending_context}
+${scope_note}PENDING N1 WORK (from overview.md Pending blocks):${pending_context}
 ${directive}"
     fi
 fi
@@ -375,7 +379,7 @@ if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/queue" ]; then
     if [ -n "$queue_line" ]; then
         context="${context}
 
-N1 QUEUE STATUS: ${queue_line}
+${scope_note}N1 QUEUE STATUS: ${queue_line}
 Mention this to the user when relevant (details: /n1:n1-queue --status). Do not act without being asked."
     fi
 fi
