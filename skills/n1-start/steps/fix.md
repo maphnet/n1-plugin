@@ -18,7 +18,7 @@ echo "$PRE_FIX_SHA" > "$N1_HOME/memory/$ID/pre-fix-sha"
 
 Run **Ensure Dependencies(`<ID>`)** before spawning.
 
-**FAIL** (unchanged): spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High and all `[SEC-N]` findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
+**FAIL**: spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High (with `QE=auto-accept`, also all `[SEC-N]`) findings, affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
 
 **SOFT-ONLY** (review PASS routed here; hands-off soft policy, N1-116): spawn developer the same way, passing only the non-TQ Medium findings as an explicit fix instruction (Low stays deferred), "Record under `## Fix Cycle <N> (soft)` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`, `Findings deferred`." After it returns: no `review_fix_cycle` increment, no re-review, no Return to Step 7; apply the `Findings deferred` Append line below, then go to **PASS verdict** (its `**Full-suite:**` line goes under the `(soft)` heading). A failed or partial soft pass never blocks: record it and proceed.
 
@@ -28,7 +28,7 @@ Run **Ensure Dependencies(`<ID>`)** before spawning.
 
 After developer returns (FAIL or SOFT-ONLY): `qualityEscalations=auto-accept`: append the developer's `Findings deferred` per `<N1_ROOT>/references/followup-filing.md` § Append (source `review`).
 
-FAIL-only (SOFT-ONLY skips the rest of this section):
+FAIL-only (the next two blocks; SOFT-ONLY skips them):
 ```bash
 n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 ```
