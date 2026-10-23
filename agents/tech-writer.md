@@ -114,7 +114,7 @@ Generate the PR title and body from implementation context.
 
 1. **Read overview.md** for ticket title, key decisions made during implementation, any escalations, and the `## Decision Ledger` table (if present).
 
-2. **Read review.md** for review results — what was found and fixed during review.
+2. **Read review.md** for review results — what was found and fixed during review. If it has `## Deferred Soft Findings`, add to `## Review Notes` one line `Deferred soft findings (<count>, not fixed):` followed by one bullet per finding (`[ID] file:line — title`), at most 10, then `(+K more in review memory)`. Omit `[SEC-N]` and security-class findings (auth, crypto, input validation, secrets, network/HTTP, (de)serialization, file/path handling, SQL/query, shell/command execution) from the bullets: give only a count, `plus K security notes kept in review memory`, never file:line. This list is mandatory and exempt from Lean Output.
 
 3. **Read qa.md** for test coverage summary and verification steps.
 
