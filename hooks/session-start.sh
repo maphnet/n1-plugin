@@ -13,6 +13,7 @@ N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
 export N1_SESSION_ID
 N1_TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | n1_hook_field transcript_path)
 export N1_TRANSCRIPT_PATH
+AGENT_ID=$(printf '%s' "$INPUT" | n1_hook_field agent_id)   # CC 2.1.280 omits it on SessionStart; guard is forward-compatible
 
 # --- Host facts: recorded for skill preambles and injected as routing context ---
 N1_HOST_NAME=$(n1_host)
@@ -102,7 +103,7 @@ fi
 
 # --- Orchestrator state recovery on compaction ---
 N1_COMPACT_STATE=""
-if [ "${TRIGGER:-}" = "compact" ]; then
+if [ "${TRIGGER:-}" = "compact" ] && [ -z "$AGENT_ID" ]; then
     n1_root=$(n1_home)
     ar_file=$(n1_active_run_file 2>/dev/null || true)   # this session's pointer (NP-206)
     if [ -n "$ar_file" ] && [ -f "$ar_file" ]; then
@@ -154,7 +155,8 @@ if [ "${TRIGGER:-}" = "compact" ]; then
             gate_local=$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")
 
             N1_COMPACT_STATE="
-ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any compacted summary):
+(Scope: orchestrator session only. If you are a dispatched subagent/persona, ignore the ORCHESTRATOR STATE block below and continue your own task.)
+ORCHESTRATOR STATE (orchestrator session only — restored after compaction; authoritative for the orchestrator, overrides its compacted summary):
 - N1_HOME: ${n1_root}
 - Active ticket: ${ar_ticket}
 - Run ID: ${ar_run_id}
@@ -167,7 +169,7 @@ ORCHESTRATOR STATE (restored after compaction — authoritative, overrides any c
 - Config gates: localTesting.enabled=${gate_local:-true}
 - Task context: ${ov_context}
 - Ticket URL: ${ov_ticket_url}
-- IMPORTANT: Use these values, not anything from the compacted conversation summary. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."
+- IMPORTANT: Orchestrator only — use these values, not anything from the compacted conversation summary; a dispatched subagent keeps following its own task. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."
         fi
     fi
 fi
@@ -314,7 +316,11 @@ fi
 # --- Pending-merge resume scan (fail-open: any error injects nothing) ---
 pending_context=""
 n1_root=$(n1_home)
-if [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2>&1; then
+# On compact, subagent SessionStart events may lack agent_id: mark these blocks orchestrator-only
+scope_note=""
+[ "$TRIGGER" = "compact" ] && scope_note="(Scope: orchestrator session only. If you are a dispatched subagent/persona, ignore this and continue your own task.)
+"
+if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2>&1; then
     now_epoch=$(date +%s)
     checked=0
     for ov in "${n1_root}"/memory/*/overview.md; do
@@ -362,18 +368,18 @@ if [ -n "$n1_root" ] && [ -d "${n1_root}/memory" ] && command -v gh >/dev/null 2
         directive="Surface these to the user as suggested next actions. Do not act without being asked."
         context="${context}
 
-PENDING N1 WORK (from overview.md Pending blocks):${pending_context}
+${scope_note}PENDING N1 WORK (from overview.md Pending blocks):${pending_context}
 ${directive}"
     fi
 fi
 
 # --- Queue digest (fail-open; local events.jsonl only — no network, no LLM) ---
-if [ -n "$n1_root" ] && [ -d "${n1_root}/queue" ]; then
+if [ -z "$AGENT_ID" ] && [ -n "$n1_root" ] && [ -d "${n1_root}/queue" ]; then
     queue_line=$( source "${SCRIPT_DIR}/../lib/queue.sh" && n1_queue_digest "$n1_root" ) 2>/dev/null || queue_line=""
     if [ -n "$queue_line" ]; then
         context="${context}
 
-N1 QUEUE STATUS: ${queue_line}
+${scope_note}N1 QUEUE STATUS: ${queue_line}
 Mention this to the user when relevant (details: /n1:n1-queue --status). Do not act without being asked."
     fi
 fi

@@ -166,6 +166,16 @@ OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","s
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"ORCHESTRATOR STATE"*"Active ticket: T-30"*"Current step: review"*) assert_eq "compaction state restore on source=compact" ok ok;; *) assert_eq "compaction state restore on source=compact" ok "$CTX";; esac
 case "$CTX" in *"n1_*_val helpers, never cat config.json"*) assert_eq "compact hint points at n1_*_val helpers (N1-57)" ok ok;; *) assert_eq "compact hint points at n1_*_val helpers (N1-57)" ok "$CTX";; esac
+# N1-124: subagent compaction (agent_id present) must not get orchestrator state; scope note precedes header otherwise
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact","agent_id":"sub-1"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"ORCHESTRATOR STATE"*) assert_eq "no compaction restore when agent_id present (N1-124)" ok "$CTX";; *) assert_eq "no compaction restore when agent_id present (N1-124)" ok ok;; esac
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"orchestrator session only"*"ORCHESTRATOR STATE"*) assert_eq "scope note precedes ORCHESTRATOR STATE header (N1-124)" ok ok;; *) assert_eq "scope note precedes ORCHESTRATOR STATE header (N1-124)" ok "$CTX";; esac
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact","agent_type":"some-agent"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"Active ticket: T-30"*) assert_eq "agent_type alone still restores (N1-124)" ok ok;; *) assert_eq "agent_type alone still restores (N1-124)" ok "$CTX";; esac
 rm -f "$N1_HOME/active-run.json"
 # compaction restore reads this session's keyed pointer, not another session's (NP-206)
 echo '{"ticketId":"T-31","runId":"n1-run-o","worktreePath":null,"branch":"T-31"}' > "$N1_HOME/active-run.json"
@@ -375,6 +385,15 @@ printf '{"ts":"%s","queue":"hq","run_id":"R1","event":"ticket_finished","ticket"
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
 assert_eq "session-start: queue digest line" "1" \
     "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep -c '^N1 QUEUE STATUS: Queue hq: 1 PR, 1 needs you (T-2)$' || true)"
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"startup","agent_id":"sub-1"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+assert_eq "session-start: no queue digest when agent_id present (N1-124)" "0" \
+    "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep -c 'N1 QUEUE STATUS' || true)"
+OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+assert_eq "session-start: compact w/o agent_id -> queue line preceded by scope note (N1-124)" "1" \
+    "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep -A1 '^(Scope: orchestrator session only' | grep -c '^N1 QUEUE STATUS' || true)"
+OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
+assert_eq "session-start: startup queue line has no scope note (N1-124)" "0" \
+    "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep -c '^(Scope: orchestrator session only' || true)"
 printf 'garbage\n' > "$QD/events.jsonl"
 OUT=$(CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" < "$FX/claude/session-start.json")
 assert_eq "session-start: corrupt events -> no digest, valid JSON" "0" \
