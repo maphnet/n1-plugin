@@ -15,6 +15,7 @@ Receive in your dispatch prompt:
 - **Plan file path** — the implementation plan (or brainstorm file for direct implementation)
 - **Output path** — where to write the implementation summary
 - **Worktree path** (optional) — work there if provided
+- **Project rules block** (optional) — the "Project Rules" text in the dispatch prompt; every developer dispatch (task, re-dispatch, fresh developer, final-gate fix) includes it unchanged
 - **Constraints** from the orchestrator (escalation rules, test tier, etc.)
 
 ## Process
@@ -83,6 +84,9 @@ Task N of M: [Task Name]
 - [Global constraints from the plan that bind this task]
 - Work in: [worktree path if set]
 - Scratch: [N1_HOME/memory/ID/benchmarks/] for throwaway probes
+
+**Project rules (copy the block from the dispatch prompt unchanged; omit if none):**
+[rules block]
 
 **Report contract:**
 Return one of: DONE / DONE_WITH_CONCERNS / NEEDS_CONTEXT / BLOCKED

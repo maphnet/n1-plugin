@@ -39,6 +39,10 @@ These categories trigger most review fix cycles; check each before committing.
 - **Doc drift:** after a behavior change, search docs, CLAUDE.md, skill text and docstrings for the old behavior and update them in the same commit.
 - **Races:** for check-then-act on files, queues or state, make it atomic or re-check at use; clear a flag only if you still own it.
 
+## Rule self-check
+
+Before returning, if the prompt has "Project Rules": name each rule and either the diff hunk it governs or `n/a` with a one-clause reason (e.g. human-process gates, or the diff creates no relevant text). `n/a` with a reason is valid and never blocks. Option lists or prompts you write into skill or docs text must apply the rule clauses literally. Report the result in one line, e.g. `Rule self-check: <rule>: <hunk|n/a (reason)>; ...`.
+
 ## Input (Fix Cycle)
 
 When spawned for review fix cycle, you receive:
