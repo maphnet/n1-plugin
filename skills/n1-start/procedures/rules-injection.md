@@ -22,4 +22,4 @@ if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
 fi
 ```
 
-When `$RULES_BLOCK` is non-empty, append it to the agent's spawn prompt.
+When `$RULES_BLOCK` is non-empty, append it verbatim to the agent's spawn prompt; never paraphrase or summarize.

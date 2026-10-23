@@ -16,7 +16,7 @@ PRE_FIX_SHA=$(git rev-parse HEAD)
 echo "$PRE_FIX_SHA" > "$N1_HOME/memory/$ID/pre-fix-sha"
 ```
 
-Run **Ensure Dependencies(`<ID>`)** before spawning. Run `procedures/rules-injection.md` (`agent_name=developer`); append `$RULES_BLOCK` to the developer prompt.
+Run **Ensure Dependencies(`<ID>`)** before spawning. Run `procedures/rules-injection.md` (`agent_name=developer`); append `$RULES_BLOCK` to every developer prompt in this step (re-run the procedure if the block is not at hand).
 
 **FAIL**: spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass Critical+High (with `QE=auto-accept`, also all `[SEC-N]`) findings plus every `[RULE-N]` finding (any severity), affected files, "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
 
