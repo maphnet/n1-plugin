@@ -10,8 +10,8 @@ FAIL=0
 
 check() { # <file> <counter>
     local f="${STEPS}/$1" c="$2" inside prose
-    inside=$(awk '/^```/{b=!b; next} b' "$f" | grep -c "n1_increment_counter.*\"$c\"" || true)
-    prose=$(awk '/^```/{b=!b; next} !b' "$f" | grep -c "n1_increment_counter.*\"$c\"" || true)
+    inside=$(awk '/^[[:space:]]*```/{b=!b; next} b' "$f" | grep -c "n1_increment_counter.*\"$c\"" || true)
+    prose=$(awk '/^[[:space:]]*```/{b=!b; next} !b' "$f" | grep -c "n1_increment_counter.*\"$c\"" || true)
     if [ "$inside" -eq 0 ] && [ "$prose" -eq 1 ]; then echo "PASS: $1 $c"
     else echo "FAIL: $1 $c (in fence: $inside, in prose: $prose)"; FAIL=1; fi
 }
