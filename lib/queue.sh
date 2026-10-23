@@ -1018,3 +1018,17 @@ n1_notify() {
     esac
     return 0
 }
+
+n1_story_convert_decision() {
+    # Usage: n1_story_convert_decision <tracker_type> <children: has|none|unknown> <convert_mcp>
+    # N1-119: action for a Story at n1-start intake. Prints story | convert | single:<reason>.
+    # Anything but children=none keeps the Story: a failed child search never converts.
+    local tracker
+    tracker=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    [ "$2" = "none" ] || { printf 'story'; return 0; }
+    case "$tracker" in
+        youtrack) printf 'single:youtrack' ;;
+        jira) if [ -n "$3" ]; then printf 'convert'; else printf 'single:no-jc-mcp'; fi ;;
+        *) printf 'single:unsupported' ;;
+    esac
+}
