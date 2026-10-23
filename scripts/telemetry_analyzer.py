@@ -6,7 +6,7 @@ extracts per-run performance metrics, detects anomalies, and computes
 cross-run aggregations. Persists reports as JSON.
 
 Usage:
-  python3 scripts/telemetry_analyzer.py collect [--n1-root DIR] [--last N] [--projects P1,P2] [--deep] [--out FILE]
+  python3 scripts/telemetry_analyzer.py collect [--n1-root DIR] [--last N] [--projects P1,P2] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--deep] [--out FILE]
 
 The script never calls a model. All analysis is deterministic.
 Read-only with respect to ~/.n1/<project>/ and ~/.claude/projects/.
@@ -64,6 +64,9 @@ parse_ts = _bm.parse_ts
 
 # ---------------------------------------------------------------- argument parsing
 
+_date_arg = _bm.date_arg
+
+
 def build_parser():
     p = argparse.ArgumentParser(description="N1 telemetry analyzer")
     sub = p.add_subparsers(dest="command")
@@ -73,6 +76,10 @@ def build_parser():
                          help="Root directory containing N1 project dirs (default: ~/.n1)")
     collect.add_argument("--last", type=int, default=DEFAULT_LAST,
                          help=f"Number of most recent runs to analyze (default: {DEFAULT_LAST})")
+    collect.add_argument("--since", type=_date_arg, default=None,
+                         help="YYYY-MM-DD (UTC); ignore runs started earlier")
+    collect.add_argument("--until", type=_date_arg, default=None,
+                         help="YYYY-MM-DD (UTC, inclusive); ignore runs started later")
     collect.add_argument("--projects", type=str, default=None,
                          help="Comma-separated list of project slugs to include (default: all)")
     collect.add_argument("--deep", action="store_true",
@@ -132,11 +139,24 @@ def ticket_id_from_run(run: dict) -> str | None:
 
 
 def filter_and_select(runs: list[dict], last: int,
-                      projects: list[str] | None) -> list[dict]:
-    """Filter by project slugs, sort by started_at descending, take last N."""
+                      projects: list[str] | None,
+                      since: str | None = None,
+                      until: str | None = None) -> list[dict]:
+    """Filter by project slugs and UTC date window (--until inclusive), sort by
+    started_at descending, take last N. With a bound set, runs lacking a
+    parseable started_at are excluded."""
     if projects:
         proj_set = {p.lower() for p in projects}
         runs = [r for r in runs if (project_slug_from_run(r) or "").lower() in proj_set]
+
+    if since or until:
+        lo = parse_ts(f"{since}T00:00:00Z") if since else None
+        hi = parse_ts(f"{until}T00:00:00Z") + 86400 if until else None
+
+        def in_window(r):
+            ts = parse_ts(r.get("started_at"))
+            return ts is not None and (lo is None or ts >= lo) and (hi is None or ts < hi)
+        runs = [r for r in runs if in_window(r)]
 
     # Sort by started_at descending (most recent first)
     def sort_key(r):
@@ -155,10 +175,10 @@ def extract_steps(run: dict) -> list[dict]:
     steps = []
     for s in raw_steps:
         step = {
-            "name": s.get("step", "unknown"),
+            "name": s.get("step") or "unknown",
             "step_number": s.get("step_number"),
             "duration_s": s.get("duration_s"),
-            "outcome": s.get("outcome", "unknown"),
+            "outcome": s.get("outcome") or "unknown",
         }
         # Get tools from orchestrator breakdown if available
         # orchestrator.steps is a list of dicts, each with a "step" key
@@ -184,8 +204,8 @@ def extract_agents(run: dict) -> list[dict]:
     agents = []
     for a in raw_agents:
         agent = {
-            "type": a.get("agent_type", "unknown"),
-            "step": a.get("step", "unknown"),
+            "type": a.get("agent_type") or "unknown",
+            "step": a.get("step") or "unknown",
             "duration_s": a.get("duration_s"),
             "model": a.get("model"),
         }
@@ -430,7 +450,7 @@ def aggregate_runs(reports: list[dict]) -> dict:
     step_tokens: dict[str, list[int]] = {}
     for r in reports:
         for s in r.get("steps", []):
-            name = s.get("name", "unknown")
+            name = s.get("name") or "unknown"
             if s.get("duration_s") is not None:
                 step_durations.setdefault(name, []).append(s["duration_s"])
             tokens_in = s.get("tokens", {}).get("input", 0)
@@ -561,7 +581,7 @@ def cmd_collect(args):
         projects = [p.strip() for p in args.projects.split(",") if p.strip()]
 
     # Filter and select
-    selected = filter_and_select(runs, args.last, projects)
+    selected = filter_and_select(runs, args.last, projects, args.since, args.until)
     if not selected:
         print(json.dumps({"error": "No runs match the filter criteria",
                           "total_runs": len(runs), "malformed_lines": malformed}))

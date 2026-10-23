@@ -27,6 +27,37 @@ class TelemetryConsumersTest(unittest.TestCase):
     def test_step_duration_is_not_elapsed_duration(self):
         self.assertIsNone(analyzer.compute_duration({'steps': [{'duration_s': 40}]}))
 
+    def test_null_step_name_aggregates_and_compares(self):
+        run = {"run_id": "r", "steps": [{"step": None, "duration_s": 3}, {"step": "x", "duration_s": 1}]}
+        report = analyzer.extract_run_report(run)
+        self.assertEqual([s["name"] for s in report["steps"]], ["unknown", "x"])
+        agg = analyzer.aggregate_runs([report])
+        self.assertIn("unknown", agg["by_step"])
+        analyzer._diff_reports(report, report)
+
+    def test_null_agent_fields_surface_as_unknown(self):
+        run = {"run_id": "r", "agents": [{"agent_type": None, "step": None, "duration_s": 2}],
+               "steps": [{"step": "x", "outcome": None}]}
+        report = analyzer.extract_run_report(run)
+        self.assertEqual(report["agents"][0]["type"], "unknown")
+        self.assertEqual(report["agents"][0]["step"], "unknown")
+        self.assertEqual(report["steps"][0]["outcome"], "unknown")
+
+    def test_date_window_is_inclusive_and_applied_before_last(self):
+        def r(ts):
+            return {"started_at": ts}
+        runs = [r("2026-09-01T23:59:59Z"), r("2026-09-02T00:00:00Z"), r("2026-09-03T23:59:59Z"),
+                r("2026-09-04T00:00:00Z"), {}]
+        got = analyzer.filter_and_select(list(runs), 1, None, "2026-09-02", "2026-09-03")
+        self.assertEqual([x["started_at"] for x in got], ["2026-09-03T23:59:59Z"])
+        got = analyzer.filter_and_select(list(runs), 10, None, "2026-09-02", "2026-09-03")
+        self.assertEqual(len(got), 2)
+        self.assertEqual(len(analyzer.filter_and_select(list(runs), 10, None)), 5)
+
+    def test_malformed_date_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            analyzer.build_parser().parse_args(["collect", "--since", "09/02/2026"])
+
 
 if __name__ == "__main__":
     unittest.main()

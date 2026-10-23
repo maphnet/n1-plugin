@@ -6,7 +6,7 @@ plus telemetry-derived quality metrics. Persists per-run caches, snapshots,
 and reports under an output directory (default ~/.n1/benchmark/).
 
 Usage:
-  python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--force] [--ambiguous-out FILE]
+  python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--force] [--ambiguous-out FILE]
   python3 scripts/benchmark.py finalize --labels FILE [--out DIR] [--by version|week] [--plugin-version V] [--judge-model M]
   python3 scripts/benchmark.py report   [--out DIR] [--snapshot ID] [--by version|week]
   python3 scripts/benchmark.py baseline set <version> | show [--out DIR]
@@ -408,8 +408,15 @@ def cmd_collect(args) -> int:
     out = Path(args.out)
     runs, malformed = load_runs(Path(args.n1_root))
     since = parse_ts(f"{args.since}T00:00:00Z") if args.since else None
-    if since is not None:
-        runs = [r for r in runs if (parse_ts(r.get("started_at")) or 0) >= since]
+    until = parse_ts(f"{args.until}T00:00:00Z") if args.until else None
+    if until is not None:
+        until += 86400  # inclusive end-of-day
+    if since is not None or until is not None:
+        # Undated runs are excluded when any bound is set (matches telemetry_analyzer).
+        def in_window(r):
+            ts = parse_ts(r.get("started_at"))
+            return ts is not None and (since is None or ts >= since) and (until is None or ts < until)
+        runs = [r for r in runs if in_window(r)]
     # Transcript parsing only understands Claude Code records; drop historical
     # Codex runs instead of collecting them with garbage (zero turns/calls) metrics.
     skipped_host = sum(1 for r in runs if r.get("host") == "codex")
@@ -1219,6 +1226,14 @@ COMMANDS["report"] = cmd_report
 
 # ------------------------------------------------------------------------ CLI
 
+def date_arg(v):
+    try:
+        dt.datetime.strptime(v, "%Y-%m-%d")
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid date {v!r}, expected YYYY-MM-DD")
+    return v
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="benchmark.py", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1231,7 +1246,8 @@ def build_parser():
     common(c)
     c.add_argument("--n1-root", default=os.path.expanduser("~/.n1"))
     c.add_argument("--projects-dir", default=os.path.expanduser("~/.claude/projects"))
-    c.add_argument("--since", default=None, help="YYYY-MM-DD; ignore runs started earlier")
+    c.add_argument("--since", type=date_arg, default=None, help="YYYY-MM-DD; ignore runs started earlier")
+    c.add_argument("--until", type=date_arg, default=None, help="YYYY-MM-DD (inclusive); ignore runs started later")
     c.add_argument("--force", action="store_true", help="re-process cached runs")
     c.add_argument("--ambiguous-out", default=None, help="write ambiguous turns JSON here instead of stdout")
 
