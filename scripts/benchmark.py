@@ -6,7 +6,7 @@ plus telemetry-derived quality metrics. Persists per-run caches, snapshots,
 and reports under an output directory (default ~/.n1/benchmark/).
 
 Usage:
-  python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--force] [--ambiguous-out FILE]
+  python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--force] [--ambiguous-out FILE]
   python3 scripts/benchmark.py finalize --labels FILE [--out DIR] [--by version|week] [--plugin-version V] [--judge-model M]
   python3 scripts/benchmark.py report   [--out DIR] [--snapshot ID] [--by version|week]
   python3 scripts/benchmark.py baseline set <version> | show [--out DIR]
@@ -410,6 +410,9 @@ def cmd_collect(args) -> int:
     since = parse_ts(f"{args.since}T00:00:00Z") if args.since else None
     if since is not None:
         runs = [r for r in runs if (parse_ts(r.get("started_at")) or 0) >= since]
+    until = parse_ts(f"{args.until}T00:00:00Z") + 86400 if args.until else None  # inclusive end-of-day
+    if until is not None:
+        runs = [r for r in runs if (parse_ts(r.get("started_at")) or 0) < until]
     # Transcript parsing only understands Claude Code records; drop historical
     # Codex runs instead of collecting them with garbage (zero turns/calls) metrics.
     skipped_host = sum(1 for r in runs if r.get("host") == "codex")
@@ -1232,6 +1235,7 @@ def build_parser():
     c.add_argument("--n1-root", default=os.path.expanduser("~/.n1"))
     c.add_argument("--projects-dir", default=os.path.expanduser("~/.claude/projects"))
     c.add_argument("--since", default=None, help="YYYY-MM-DD; ignore runs started earlier")
+    c.add_argument("--until", default=None, help="YYYY-MM-DD (inclusive); ignore runs started later")
     c.add_argument("--force", action="store_true", help="re-process cached runs")
     c.add_argument("--ambiguous-out", default=None, help="write ambiguous turns JSON here instead of stdout")
 

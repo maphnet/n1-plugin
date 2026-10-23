@@ -327,6 +327,10 @@ class CollectTest(unittest.TestCase):
         res = self.collect("--since", "2026-09-02")
         self.assertEqual(res["runs_total"], 0)
 
+    def test_until_is_inclusive_end_of_day(self):
+        self.assertEqual(self.collect("--until", "2026-08-31")["runs_total"], 0)
+        self.assertEqual(self.collect("--until", "2026-09-01")["runs_total"], 2)
+
     def test_missing_root_is_clean_exit(self):
         rc = bm.main(["collect", "--n1-root", str(self.d.tmp / "none"), "--projects-dir", str(self.d.projects),
                       "--out", str(self.d.out)])
