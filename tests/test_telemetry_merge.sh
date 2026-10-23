@@ -237,7 +237,9 @@ assert_eq "N1-106: unusable usage -> compaction_auto_count null" "null" "$(jq '.
 
 # ==== Test 9: N1-106 [:19] truncation - ms boundaries in the same second as run start / step bounds ====
 # Without truncation "...:00.500Z" < "...:00Z" ('.' < 'Z'), so a boundary in the run-start second
-# is dropped from the window and one in the step-start second is left unattributed.
+# is dropped from the window and one in the step-start second is left unattributed. The start-second
+# boundary is the discriminating case; the end-second one pins 1-second resolution (up to 999 ms after
+# completed_at still counts).
 RUN_ID9="test-run-009"
 TELEM_DIR9="$T/home/memory/TEST-9/telemetry"
 mkdir -p "$TELEM_DIR9/raw/steps" "$TELEM_DIR9/raw/agents"
