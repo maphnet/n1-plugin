@@ -138,7 +138,7 @@ def parse_transcript(path: str) -> dict:
         usage = {"model": None, "input_tokens": 0, "output_tokens": 0,
                  "cache_read_tokens": 0, "cache_creation_tokens": 0,
                  "api_calls": 0, "tool_calls": 0, "tools_used": {}}
-        for rec in _assistant_records(p):
+        for rec in _assistant_records(_read_jsonl(p)):
             msg = rec["message"]
             usage["api_calls"] += 1
             if usage["model"] is None and msg.get("model"):
@@ -163,11 +163,11 @@ def parse_transcript(path: str) -> dict:
         return {"parse_error": "transcript_parse_failed"}
 
 
-def _assistant_records(path: Path):
+def _assistant_records(records: list[dict]):
     # Streaming records can repeat a message ID with updated usage/content.
     # Keep the last usage and union tool blocks by ID, once per message.
     messages = {}
-    for index, rec in enumerate(_read_jsonl(path)):
+    for index, rec in enumerate(records):
         msg = rec.get('message')
         if rec.get('type') != 'assistant' or not isinstance(msg, dict):
             continue
@@ -186,8 +186,9 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
         return {"steps": [], "unattributed": None, "totals": None,
                 "parse_error": "orchestrator_transcript_not_found"}
     try:
+        records = _read_jsonl(p)
         messages = []
-        for rec in _assistant_records(p):
+        for rec in _assistant_records(records):
             msg = rec["message"]
             tools = []
             for block in msg.get("content") or []:
@@ -198,7 +199,7 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                     'input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens')):
                 return {'steps': [], 'unattributed': None, 'totals': None, 'parse_error': 'usage_unavailable'}
             messages.append({
-                "ts": rec.get("timestamp", ""),
+                "ts": rec["timestamp"] if isinstance(rec.get("timestamp"), str) else "",
                 "input_tokens": u.get("input_tokens") or 0,
                 "output_tokens": u.get("output_tokens") or 0,
                 "cache_read_tokens": u.get("cache_read_input_tokens") or 0,
@@ -218,13 +219,16 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
         # Main-transcript compact_boundary records inside the run window. Post-run
         # /compact belongs to the session, not this run.
         compactions = []
-        for rec in _read_jsonl(p):
+        for rec in records:
             if rec.get("type") != "system" or rec.get("subtype") != "compact_boundary" or rec.get("isSidechain"):
                 continue
-            ts = rec.get("timestamp") or ""
+            ts = rec.get("timestamp")
+            if not isinstance(ts, str):
+                continue
             if (run_start and ts[:19] < run_start[:19]) or (run_end and ts[:19] > run_end[:19]):
                 continue
-            meta = rec.get("compactMetadata") or {}
+            meta = rec.get("compactMetadata")
+            meta = meta if isinstance(meta, dict) else {}
             compactions.append({"timestamp": ts, "trigger": meta.get("trigger") or "unknown",
                                 "pre_tokens": meta.get("preTokens"), "post_tokens": meta.get("postTokens")})
 
