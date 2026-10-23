@@ -114,7 +114,7 @@ Generate the PR title and body from implementation context.
 
 1. **Read overview.md** for ticket title, key decisions made during implementation, any escalations, and the `## Decision Ledger` table (if present).
 
-2. **Read review.md** for review results — what was found and fixed during review.
+2. **Read review.md** for review results — what was found and fixed during review. If it has `## Deferred Soft Findings`, add to `## Review Notes` one line `Deferred soft findings (<count>, not fixed):` followed by one bullet per finding (`[ID] file:line — title`).
 
 3. **Read qa.md** for test coverage summary and verification steps.
 
