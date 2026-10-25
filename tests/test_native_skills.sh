@@ -157,6 +157,15 @@ for pat in 'Scope override' 'do not run git' 'UNVERIFIED' 'authoritative'; do
     fi
 done
 
+# 9. N1-123 D1: the N1-116 soft-findings policy does not apply to Codex triage
+for f in "$P3" references/architecture.md; do
+    if grep -qF 'does not apply to Codex triage (N1-123)' "$f"; then
+        echo "PASS: $f records the N1-123 Codex triage decision"
+    else
+        echo "FAIL: $f missing the N1-123 Codex triage decision"; FAIL=1
+    fi
+done
+
 if grep -q 'qualityEscalations' skills/n1-pr/steps/03-codex-review.md && grep -q 'auto-accept' skills/n1-pr/steps/03-codex-review.md && grep -q 'never end with an offer or question to fix Codex findings' skills/n1-pr/steps/03-codex-review.md && grep -q 'never close Gate 3 with an offer or question to fix Codex findings' skills/n1-start/procedures/output-gates.md; then
     echo "PASS: 03-codex-review fixes all findings under auto-accept and never offers"
 else

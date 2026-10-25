@@ -46,6 +46,8 @@ Classify findings into two groups:
 - If `qualityEscalations=auto-accept` (hands-off): **every finding is a fix candidate**, whatever its severity (including Low and unclassified). Severity does not gate; the validator decides.
 - Otherwise: **fix candidates** are Critical, High, or Medium findings, validated below, then auto-fixed if confirmed; **human-review findings** are Low or unclassified, flagged for human review.
 
+The N1-116 soft-findings policy (Low deferred to PR notes, Medium fixed once without re-review) does not apply to Codex triage (N1-123). This loop already makes one fix pass with no re-review and never re-runs Codex. In addition, every candidate passes the validator and the fail-closed push gate, which soft-pass fixes do not. Codex findings carry no `[SEC-N]` ids, so a soft split would have no key for a security exclusion. Low findings stay fix candidates under auto-accept (N1-94).
+
 If the output reports no findings at all (for example a bare `No findings.`), there is nothing to triage: jump to **Step 10: Report** without posting a triage comment. Triage is on by default, so this keeps clean reviews from getting a noise comment.
 
 If severity markers are absent but the output does contain findings, treat ALL findings as unclassified. With `qualityEscalations=auto-accept`, send them all through Validation. Otherwise route them to human review, skip validation and the fix cycle, and proceed directly to the triage reply.
