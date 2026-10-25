@@ -30,7 +30,7 @@ if grep -qF 'cannot merge yet' "$F" && grep -qF 'after a resolve attempt in this
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
     | sed -e 's#^ *source ~/.n1/preamble.sh$#:#' -e 's/"<n>"/"${TN-7}"/' -e 's/"<head>"/"${TH-}"/' -e 's/"<mergeMethod>"/"${TMM-}"/' \
-          -e 's/"<id>"/"${TID-N1-T}"/' -e 's/"<dev>"/"${TDEV-0}"/' -e 's/"<old>"/"${TOLD-}"/' -e 's/"<new>"/"${TNEW-}"/'; }
+          -e 's/"<id>"/"${TID-N1-T}"/' -e 's/"<dev>"/"${TDEV-0}"/' -e 's/"<stop>"/"${TSTOP-}"/' -e 's/"<old>"/"${TOLD-}"/' -e 's/"<new>"/"${TNEW-}"/'; }
 PRE=$(block 1); MRG=$(block 2)
 if grep -qF 'gh pr checks' <<<"$PRE"; then ok "block 1 is the pre-check"; else no "block 1 is the pre-check"; fi
 if grep -qF 'gh pr merge' <<<"$MRG"; then ok "block 2 is the merge"; else no "block 2 is the merge"; fi
@@ -46,7 +46,7 @@ case "$1 $2" in
   "repo view") [ -z "${REPO_FAIL:-}" ] || exit 1; R='{"nameWithOwner":"o/r"}' ;;
   "api graphql") [ -z "${GQL_ERR:-}" ] || exit 1; R=${GQL:-$DG} ;;
   "pr merge") echo "$*" >> "$LOG"; [ "${MERGE_EXIT:-0}" = 0 ] || { echo "merge blocked by branch protection" >&2; exit 1; }; exit 0 ;;
-  "pr view") case "$*" in *headRefName*) R='{"headRefName":"feat","baseRefName":"main"}' ;; *headRefOid*) R="{\"headRefOid\":\"${HEADSHA:-}\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;; *) R=${VIEW:-} ;; esac ;;
+  "pr view") case "$*" in *headRefName*) R="{\"headRefName\":\"${HEADREF:-feat}\",\"baseRefName\":\"${BASEREF:-main}\",\"isCrossRepository\":${XREPO:-false}}" ;; *headRefOid*) R="{\"headRefOid\":\"${HEADSHA:-}\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;; *) R=${VIEW:-} ;; esac ;;
   *) exit 1 ;;
 esac
 if [ -n "$q" ]; then jq -r "$q" <<<"$R"; else echo "$R"; fi
@@ -186,22 +186,57 @@ done
 
 # Non-manifest conflict: developer round, then the block finishes the rebase.
 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res
-line "resolve: other conflict handed to the developer" "resolve:conflicts old=$OH files:src.txt"
+ST=$(gw rev-parse HEAD)
+line "resolve: other conflict handed to the developer" "resolve:conflicts old=$OH stop=$ST files:src.txt"
 if [ -d "$G/w/.git/rebase-merge" ]; then ok "resolve: rebase left in progress for the developer"; else no "resolve: rebase left in progress for the developer"; fi
 res
 has "resolve: a <dev>=0 call never touches an in-progress rebase" "resolve:skip rebase-in-progress"
 echo merged > "$G/w/src.txt"; gw add src.txt
-TDEV=1 res; NH=$(gw rev-parse HEAD)
+TDEV=1 TSTOP=$ST res; NH=$(gw rev-parse HEAD)
 line "resolve: developer round completes the rebase" "resolve:ready old=$OH new=$NH bumped=5.13.0"
 if [ "$(cat "$G/w/src.txt")" = merged ] && gw merge-base --is-ancestor origin/main HEAD; then ok "resolve: developer resolution kept on top of main"; else no "resolve: developer resolution kept on top of main"; fi
 
 # Escalation: every failure aborts the rebase, restores the reviewed head, pushes nothing.
-SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; gw add src.txt; TDEV=1 res
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; ST=$(gw rev-parse HEAD); gw add src.txt; TDEV=1 TSTOP=$ST res
 has "resolve: conflict markers left by the developer abort" "resolve:abort markers"
 intact "resolve: markers abort restores the reviewed head"
-SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; TDEV=1 res
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; ST=$(gw rev-parse HEAD); TDEV=1 TSTOP=$ST res
 has "resolve: file still unmerged after the developer round aborts" "resolve:abort conflicts files:src.txt"
 intact "resolve: unmerged abort restores the reviewed head"
+# Developer commits during the rebase are refused; staged markers are caught after the rebase finishes (whole range).
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; ST=$(gw rev-parse HEAD)
+printf '<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> pr\n' > "$G/w/src.txt"; gw add src.txt; gw commit -qm dev
+TDEV=1 TSTOP=$ST res
+has "resolve: developer commit rejected (scope)" "resolve:abort scope"
+intact "resolve: developer commit restores the reviewed head"
+# SEC-1: files outside the conflict set; CR-1: a skip on the <dev>=1 call aborts the rebase.
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; ST=$(gw rev-parse HEAD)
+echo merged > "$G/w/src.txt"; echo extra > "$G/w/extra.txt"; gw add src.txt extra.txt
+TDEV=1 TSTOP=$ST res
+has "resolve: out-of-scope file aborts" "resolve:abort scope files:extra.txt"
+intact "resolve: out-of-scope abort restores the reviewed head"
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; ST=$(gw rev-parse HEAD)
+echo merged > "$G/w/src.txt"; gw add src.txt; echo "$S" > "$PIN"
+TDEV=1 TSTOP=$ST res; echo "$OH" > "$PIN"
+has "resolve: <dev>=1 pin skip" "resolve:skip pin"
+intact "resolve: <dev>=1 skip aborts the rebase"
+# CR-3: a PR that changed more than the version in a manifest goes to the developer.
+SRC_PR=pr fx 5.10.0 5.12.0 5.11.0
+( cd "$G/w" && jq '.keywords=["k"]' .claude-plugin/plugin.json > p.tmp && mv p.tmp .claude-plugin/plugin.json && git commit -qam "pr keywords" && git push -q origin feat ); OH=$(gw rev-parse HEAD); echo "$OH" > "$PIN"
+res
+has "resolve: PR manifest edit beyond the version goes to the developer" "resolve:conflicts"
+gw rebase --abort >/dev/null 2>&1
+# SEC-4: leading-zero version components abort instead of mis-bumping.
+fx 5.10.0 5.08.0 5.11.0; res
+has "resolve: leading-zero version aborts" "resolve:abort version"
+# SEC-3: fork PR or head == base.
+fx 5.10.0 5.12.0 5.11.0; XREPO=true res
+has "resolve: fork PR skipped" "resolve:skip fork"
+HEADREF=main res
+has "resolve: head == base skipped" "resolve:skip fork"
+BASEREF=-x res
+has "resolve: option-like base skipped" "resolve:skip base"
+intact "resolve: fork/base skips change nothing"
 fx 5.11.0 5.12.0-rc.1 5.12.0; res
 has "resolve: non-X.Y.Z version aborts" "resolve:abort version"
 intact "resolve: version abort changes nothing"
@@ -235,6 +270,8 @@ echo "$S" > "$PIN"; TOLD=$OH TNEW=$NH psh; echo "$OH" > "$PIN"
 has "push: pin moved since resolve refused" "pin:moved"
 TOLD=$OH TNEW=$S psh
 has "push: local tip != new refused" "push:skip"
+XREPO=true TOLD=$OH TNEW=$NH psh
+has "push: fork PR refused" "push:skip"
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "push: refusals push nothing"; else no "push: refusals push nothing"; fi
 TOLD=$OH TNEW=$NH psh
 has "push: pin advanced to the rebased head" "pin:advanced ${NH:0:7}"

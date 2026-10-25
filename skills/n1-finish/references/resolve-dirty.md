@@ -4,43 +4,49 @@ Reached from Step 2 § 3.1 on the first `state:DIRTY` of an n1-finish run with `
 
 Each **STOP** below ends the run with the quoted message. Nothing is pushed before § Push, and every failure before it leaves the branch at the reviewed head.
 
-Version manifests (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) are resolved mechanically only when the repo has both plus `scripts/bump-version.sh` (N1's own layout; the script is not executable in git, so it is run with `bash`); elsewhere every conflict goes to the developer persona. A manifest conflict takes the base branch's side, then one `chore: bump version to <new> (<ID>)` commit sets a version strictly above the base's, in the same class (major / minor / patch) as the PR's original bump.
+Version manifests (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) are resolved mechanically only when the repo has both plus `scripts/bump-version.sh` (N1's own layout; the script is not executable in git, so it is run with `bash`); elsewhere every conflict goes to the developer persona. When the PR changed nothing but the version in the manifests, a manifest conflict takes the base branch's side; otherwise it goes to the developer persona. Then one `chore: bump version to <new> (<ID>)` commit sets a version strictly above the base's, in the same class (major / minor / patch) as the PR's original bump.
 
 ## § Resolve
 
-One shell call in the current checkout. `<n>` is the PR number, `<head>` the reviewed-head pin from 3.1, `<id>` the ticket ID, `<dev>` `0` on the first call and `1` after the developer round.
+One shell call in the current checkout. `<n>` is the PR number, `<head>` the reviewed-head pin from 3.1, `<id>` the ticket ID, `<dev>` `0` on the first call and `1` after the developer round, `<stop>` empty on the first call and the `stop=` SHA of `resolve:conflicts` after it.
 
 ```bash
 source ~/.n1/preamble.sh
 [ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo resolve:denied; exit 1; }
-N="<n>"; H="<head>"; ID="<id>"; DEV="<dev>"
+N="<n>"; H="<head>"; ID="<id>"; DEV="<dev>"; S0="<stop>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
-[[ "$H" =~ ^[0-9a-f]{40}$ ]] && [[ "$ID" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$DEV" =~ ^[01]$ ]] || { echo arg:invalid; exit 1; }
+[[ "$H" =~ ^[0-9a-f]{40}$ ]] && [[ "$ID" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$DEV" =~ ^[01]$ ]] && [[ "$S0" =~ ^([0-9a-f]{40})?$ ]] || { echo arg:invalid; exit 1; }
 PJ=.claude-plugin/plugin.json; MJ=.claude-plugin/marketplace.json; OLD=
-skip() { echo "resolve:skip $1"; exit 1; }
+skip() { if [ "$DEV" = 1 ] && RD=$(rip) && [ "$(cat "$RD/orig-head" 2>/dev/null)" = "$H" ]; then git rebase --abort >/dev/null 2>&1; fi; echo "resolve:skip $1"; exit 1; }
 abort() { git rebase --abort >/dev/null 2>&1; [ "$(git rev-parse HEAD)" = "$OLD" ] || git reset -q --hard "$OLD"; echo "resolve:abort $1 files:${2:-}"; exit 1; }
 rip() { local d p; for d in rebase-merge rebase-apply; do p=$(git rev-parse --git-path "$d"); [ -d "$p" ] && { echo "$p"; return 0; }; done; return 1; }
 unm() { git diff --name-only --diff-filter=U | tr '\n' ' ' | sed 's/ $//'; }
 ver() { git show "$1:$PJ" 2>/dev/null | jq -r '.version // empty' 2>/dev/null; }
-xyz() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
+xyz() { [[ "$1" =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}$ ]]; }
 gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]; }
-read -r BR BASE < <(gh pr view "$N" --json headRefName,baseRefName -q '.headRefName+" "+.baseRefName' 2>/dev/null)
+read -r BR BASE XR < <(gh pr view "$N" --json headRefName,baseRefName,isCrossRepository -q '[.headRefName,.baseRefName,(.isCrossRepository|tostring)]|join(" ")' 2>/dev/null)
 [ -n "$BR" ] && [ -n "$BASE" ] || skip pr-view
+[ "$XR" = false ] && [ "$BR" != "$BASE" ] || skip fork
+[[ "$BASE" != -* ]] && git check-ref-format --branch "$BASE" >/dev/null 2>&1 || skip base
 [ "$(n1_review_pin get "$N")" = "$H" ] || skip pin
 if RD=$(rip); then
   [ "$DEV" = 1 ] || skip rebase-in-progress
   [ "$(cat "$RD/head-name" 2>/dev/null)" = "refs/heads/$BR" ] || skip branch
   OLD=$(cat "$RD/orig-head" 2>/dev/null); [ "$OLD" = "$H" ] || skip rebase-not-ours
+  X=$({ git diff --name-only; git diff --cached --name-only; } | sort -u | grep -vxF -f <(git diff-tree --no-commit-id --name-only -r REBASE_HEAD) | tr '\n' ' ')
+  [ "$(git rev-parse HEAD)" = "$S0" ] && [ "$(cat "$RD/onto" 2>/dev/null)" = "$(git rev-parse "origin/$BASE")" ] && [ -z "$X" ] || abort scope "$X"
 else
   [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] || skip branch
   OLD=$(git rev-parse HEAD); [ "$OLD" = "$H" ] || skip local-tip
   [ -z "$(git status --porcelain --untracked-files=no)" ] || skip dirty
-  git fetch -q origin "$BASE" 2>/dev/null || skip fetch
+  git fetch -q origin -- "$BASE" 2>/dev/null || skip fetch
 fi
-VM=0; [ -f scripts/bump-version.sh ] && [ -f "$PJ" ] && [ -f "$MJ" ] && VM=1
+VM=0; PO=0; [ -f scripts/bump-version.sh ] && [ -f "$PJ" ] && [ -f "$MJ" ] && VM=1
 if [ "$VM" = 1 ]; then
-  B=$(ver "$(git merge-base "$OLD" "origin/$BASE")"); P=$(ver "$OLD"); M=$(ver "origin/$BASE")
+  MB=$(git merge-base "$OLD" "origin/$BASE"); B=$(ver "$MB"); P=$(ver "$OLD"); M=$(ver "origin/$BASE")
   xyz "$B" && xyz "$P" && xyz "$M" || abort version "$B/$P/$M"
+  nov() { { git show "$1:$PJ" | jq -S 'del(.version)'; git show "$1:$MJ" | jq -S 'del(.plugins[0].version)'; } 2>/dev/null; }
+  [ "$(nov "$MB")" = "$(nov "$OLD")" ] && PO=1
 fi
 [ -n "$RD" ] || git rebase -q "origin/$BASE" >/dev/null 2>&1
 i=0
@@ -48,16 +54,16 @@ while RD=$(rip); do
   i=$((i+1)); [ "$i" -le 20 ] || abort loop-cap "$(unm)"
   U=$(unm)
   if [ -n "$U" ]; then
-    if [ "$VM" = 1 ] && [ -z "$(git diff --name-only --diff-filter=U | grep -vxF -e "$PJ" -e "$MJ")" ]; then
+    if [ "$PO" = 1 ] && [ -z "$(git diff --name-only --diff-filter=U | grep -vxF -e "$PJ" -e "$MJ")" ]; then
       git checkout -q --ours -- $U && git add -- $U || abort checkout "$U"
     elif [ "$DEV" = 1 ]; then abort conflicts "$U"
-    else echo "resolve:conflicts old=$OLD files:$U"; exit 1
+    else echo "resolve:conflicts old=$OLD stop=$(git rev-parse HEAD) files:$U"; exit 1
     fi
   fi
-  git diff --cached -U0 | grep -qE '^\+(<<<<<<<|>>>>>>>)( |$)' && abort markers "$(git diff --cached --name-only | tr '\n' ' ')"
   if git diff --cached --quiet; then git rebase --skip >/dev/null 2>&1; else GIT_EDITOR=true git rebase --continue >/dev/null 2>&1; fi
 done
 git merge-base --is-ancestor "origin/$BASE" HEAD || abort not-rebased "$(unm)"
+git diff -U0 "origin/$BASE" HEAD | grep -qE '^\+(<<<<<<<|>>>>>>>)( |$)' && abort markers "$(git diff --name-only "origin/$BASE" HEAD | tr '\n' ' ')"
 [ -z "$(git status --porcelain --untracked-files=no)" ] || abort dirty
 NV=none
 if [ "$VM" = 1 ]; then
@@ -76,9 +82,9 @@ echo "resolve:ready old=$OLD new=$(git rev-parse HEAD) bumped=$NV"
 
 - `resolve:denied` → "Merge is not authorized in this run." **STOP.**
 - `pr:invalid` / `arg:invalid` → report it. **STOP.**
-- `resolve:skip <reason>` (wrong branch, uncommitted changes, local tip or pin not at the reviewed head, fetch failed, a rebase already in progress, already up to date) → "PR #<n> cannot merge yet (conflicts; auto-resolve skipped: <reason>). Fix that, then re-run `/n1:n1-finish`." **STOP.** Nothing was changed.
+- `resolve:skip <reason>` (wrong branch, fork PR or head branch equal to base, unusable base name, uncommitted changes, local tip or pin not at the reviewed head, fetch failed, a rebase already in progress, already up to date) → "PR #<n> cannot merge yet (conflicts; auto-resolve skipped: <reason>). Fix that, then re-run `/n1:n1-finish`." **STOP.** Nothing was changed (a rebase left by the developer round is aborted first).
 - `resolve:abort <reason> files:<list>` → "Could not resolve the conflicts of PR #<n> automatically (<reason>: <list>). The branch is back at the reviewed head and nothing was pushed. Rebase it onto the base branch yourself, then re-run `/n1:n1-finish`." Add the developer's `CANNOT_RESOLVE` reason when there is one. **STOP.**
-- `resolve:conflicts old=<sha> files:<list>` → § Developer.
+- `resolve:conflicts old=<sha> stop=<sha> files:<list>` → § Developer.
 - `resolve:ready old=<old> new=<new> bumped=<v|none>` → § Tests.
 
 ## § Developer
@@ -94,7 +100,7 @@ If a file cannot be resolved mechanically (the two sides change behavior in inco
 Output: ## Conflict Resolution, then one line per file: <file>: <resolution summary> | CANNOT_RESOLVE: <reason>; then the test command and its result.
 ```
 
-Then run § Resolve again with `<dev>` = `1`, whatever the developer reported: an unresolved file is still unmerged (or still has markers), so the block aborts and restores the reviewed head.
+Then run § Resolve again with `<dev>` = `1` and `<stop>` = the `stop=` SHA, whatever the developer reported: an unresolved file is still unmerged (or still has markers), so the block aborts and restores the reviewed head. The block also aborts (`scope`) when the developer committed, restarted the rebase onto another base, or changed files outside the picked commit's files.
 
 ## § Tests
 
@@ -110,8 +116,8 @@ source ~/.n1/preamble.sh
 N="<n>"; OLD="<old>"; NEW="<new>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
 [[ "$OLD" =~ ^[0-9a-f]{40}$ ]] && [[ "$NEW" =~ ^[0-9a-f]{40}$ ]] || { echo sha:invalid; exit 1; }
-BR=$(gh pr view "$N" --json headRefName -q .headRefName 2>/dev/null)
-[ -n "$BR" ] && [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] && [ "$(git rev-parse HEAD)" = "$NEW" ] || { echo push:skip; exit 1; }
+read -r BR BASE XR < <(gh pr view "$N" --json headRefName,baseRefName,isCrossRepository -q '[.headRefName,.baseRefName,(.isCrossRepository|tostring)]|join(" ")' 2>/dev/null)
+[ -n "$BR" ] && [ -n "$BASE" ] && [ "$XR" = false ] && [ "$BR" != "$BASE" ] && [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] && [ "$(git rev-parse HEAD)" = "$NEW" ] || { echo push:skip; exit 1; }
 [ "$(n1_review_pin get "$N")" = "$OLD" ] || { echo pin:moved; exit 1; }
 git push -q --force-with-lease="$BR:$OLD" origin "$BR" 2>&1 || { echo push:rejected; exit 1; }
 echo "pushed:${NEW:0:7}"
