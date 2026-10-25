@@ -18,8 +18,10 @@ if [ -n "$Q" ] && [ -n "$M" ] && [ "$Q" -lt "$M" ]; then ok "queue STOP precedes
 if grep -qF 'merge-on-finish:yes' "$F"; then ok "02-merge gates on merge-on-finish:yes"; else no "02-merge gates on merge-on-finish:yes"; fi
 W=$(grep -n 'Without `merge-on-finish:yes`' "$F" | head -1 | cut -d: -f1)
 if [ -n "$W" ] && [ -n "$M" ] && [ "$W" -lt "$M" ]; then ok "without-flag STOP precedes the merge"; else no "without-flag STOP precedes the merge"; fi
+P3=$(grep -n 'Could not read the reviewed-head pin' "$F" | head -1 | cut -d: -f1)
 P1=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); P2=$(grep -n 'differs from the reviewed head' "$F" | head -1 | cut -d: -f1)
 if [ -n "$P1" ] && [ -n "$P2" ] && [ -n "$M" ] && [ "$P1" -lt "$M" ] && [ "$P2" -lt "$M" ]; then ok "pin STOPs precede the merge"; else no "pin STOPs precede the merge"; fi
+if [ -n "$P3" ] && [ -n "$M" ] && [ "$P3" -lt "$M" ]; then ok "pin lookup-failure STOP precedes the merge"; else no "pin lookup-failure STOP precedes the merge"; fi
 
 # Nth bash block of 02-merge.md, placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "$F" \
@@ -58,6 +60,12 @@ has "pre: no unresolved threads" "threads:0"
 line "pre: reviewed-head pin printed" "pin:$S"
 rm -f "$PIN"; CHECKS='[]' pre
 line "pre: missing pin prints an empty pin" "pin:"
+has "pre: no Codex receipt -> codex:none" "codex:none"
+RC="$T/home/review-receipts/s1"; mkdir -p "$RC"
+echo '{"outcome":"skipped"}' > "$RC/o_r_7.json"; pre
+has "pre: skipped Codex receipt -> codex:not-ran" "codex:not-ran"
+echo '{"outcome":"ran"}' > "$RC/o_r_7.json"; pre
+has "pre: ran Codex receipt -> codex:ran" "codex:ran"
 echo "$S" > "$PIN"
 CHECKS='[{"bucket":"pass"},{"bucket":"fail"},{"bucket":"cancel"}]' pre
 has "pre: failed and cancelled counted" "checks:fail=2 pending=0"

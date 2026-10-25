@@ -19,6 +19,7 @@ Evaluate the PR state:
       C=$(gh pr checks "$N" --json bucket --jq '"checks:fail="+([.[]|select(.bucket=="fail" or .bucket=="cancel")]|length|tostring)+" pending="+([.[]|select(.bucket=="pending")]|length|tostring)' 2>&1)
       case "$C" in checks:*) echo "$C";; *"no checks reported"*) if grep -qsE 'pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml; then echo checks:expected; else echo checks:none; fi;; *) echo "checks:error ${C:0:200}";; esac
       R=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
+      echo "codex:$(cat "$N1_HOME"/review-receipts/*/"${R//\//_}_$N.json" 2>/dev/null | jq -rs 'if length==0 then "none" elif any(.[]; .outcome=="ran") then "ran" else "not-ran" end' 2>/dev/null)"
       gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){totalCount nodes{isResolved}}}}}' -f o="${R%/*}" -f r="${R#*/}" -F n="$N" --jq '.data.repository.pullRequest.reviewThreads|if .totalCount>(.nodes|length) then "threads:truncated" else "threads:"+([.nodes[]|select(.isResolved|not)]|length|tostring) end' 2>/dev/null || echo threads:error
       ```
       - `pr:invalid` → **STOP.**
@@ -29,8 +30,10 @@ Evaluate the PR state:
       - `checks:none` (no CI in this repo) or `checks:fail=0 pending=0` → continue.
       - `head:` empty → "Could not read the head commit of PR #<n>. Re-run `/n1:n1-finish`." **STOP.**
       - `pin:` empty (no reviewed-head pin: the PR was not created by n1-pr, or predates N1-141) → "No reviewed-head pin recorded for PR #<n>, so N1 will not merge it. Merge it yourself, then re-run `/n1:n1-finish`." **STOP.** Never fall back to the current head.
+      - `pin:unavailable` (the pin lookup failed) → "Could not read the reviewed-head pin for PR #<n>. Re-run `/n1:n1-finish`, or merge it yourself." **STOP.**
       - `pin:<sha>` not equal to `head:<sha>` → "PR #<n> head <first 7 of head> differs from the reviewed head <first 7 of pin>: commits were pushed after review. Review them (`/n1:n1-review`), then merge it yourself and re-run `/n1:n1-finish`." **STOP.** Otherwise keep the pin as `<head>` for 3.4.
       - `draft:true` → "PR #<n> is a draft. Mark it ready (`gh pr ready <n>`), then re-run `/n1:n1-finish`." **STOP.** `state:DIRTY` / `BLOCKED` / `BEHIND` → "PR #<n> cannot merge yet (conflicts / required review or checks missing / branch behind base). Fix that, then re-run `/n1:n1-finish`." **STOP.** Other states continue.
+      - `codex:not-ran` or `codex:none` (no Codex review of this PR ran; the pin only means "the head N1 pushed after local review") → print one informational line, "Note: no completed Codex review is recorded for PR #<n>; merging the head N1 pushed after local review." Do not stop.
       - `threads:0` → Step 6 `Comments:` is `no unresolved comments`.
       - `threads:error` / `threads:truncated` (API error, or more than 100 threads) / `threads:<k>` with `<k>` > 0 → ask the user:
         ```
