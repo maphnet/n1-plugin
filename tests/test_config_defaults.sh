@@ -82,6 +82,17 @@ unset N1_QUEUE_RUN_ID
 assert_eq "T32: n1_finish_enabled removed" "no" "$(declare -F n1_finish_enabled >/dev/null && echo yes || echo no)"
 assert_eq "T31: n1_merge_allowed removed (N1-114)" "no" "$(declare -F n1_merge_allowed >/dev/null && echo yes || echo no)"
 
+# ---- Test group 5b: mergeOnFinish strict boolean (N1-140) ----
+merge_gate() { printf '%s\n' "$1" > "$N1_HOME/config.json"; n1_finish_merge_enabled; }
+assert_eq "T33: mergeOnFinish absent -> false" "false" "$(merge_gate '{}')"
+assert_eq "T34: mergeOnFinish true -> true" "true" "$(merge_gate '{"finishWork":{"mergeOnFinish":true}}')"
+assert_eq "T35: mergeOnFinish false -> false" "false" "$(merge_gate '{"finishWork":{"mergeOnFinish":false}}')"
+assert_eq "T36: stale string \"true\" -> false" "false" "$(merge_gate '{"finishWork":{"mergeOnFinish":"true"}}')"
+assert_eq "T37: number 1 -> false" "false" "$(merge_gate '{"finishWork":{"mergeOnFinish":1}}')"
+assert_eq "T38: finishWork not an object -> false" "false" "$(merge_gate '{"finishWork":true}')"
+assert_eq "T39: invalid JSON -> false" "false" "$(merge_gate '{bad')"
+assert_eq "T40: missing config file -> false" "false" "$(N1_HOME="$TMPDIR_TEST/merge-missing" n1_finish_merge_enabled)"
+
 # ---- Test group 6: one decision path in skills (NP-212) ----
 SK="$SCRIPT_DIR/../skills"
 has() { grep -q -- "$2" "$1" && echo yes || echo no; }
