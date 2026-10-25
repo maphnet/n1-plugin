@@ -13,28 +13,30 @@ Evaluate the PR state:
       ```bash
       source ~/.n1/preamble.sh
       N="<n>"; case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
+      V=$(gh pr view "$N" --json headRefOid,isDraft,mergeStateStatus -q '"head:"+.headRefOid+" draft:"+(.isDraft|tostring)+" state:"+.mergeStateStatus' 2>/dev/null) || V="head: draft:false state:"
+      echo "$V"
       C=$(gh pr checks "$N" --json bucket --jq '"checks:fail="+([.[]|select(.bucket=="fail" or .bucket=="cancel")]|length|tostring)+" pending="+([.[]|select(.bucket=="pending")]|length|tostring)' 2>&1)
-      case "$C" in checks:*) echo "$C";; *"no checks reported"*) echo checks:none;; *) echo "checks:error ${C:0:200}";; esac
-      echo "head:$(gh pr view "$N" --json headRefOid -q .headRefOid 2>/dev/null)"
+      case "$C" in checks:*) echo "$C";; *"no checks reported"*) if grep -qs pull_request .github/workflows/*.y*ml; then echo checks:expected; else echo checks:none; fi;; *) echo "checks:error ${C:0:200}";; esac
       R=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
-      gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved}}}}}' -f o="${R%/*}" -f r="${R#*/}" -F n="$N" --jq '.data.repository.pullRequest|"threads:"+([.reviewThreads.nodes[]|select(.isResolved|not)]|length|tostring)' 2>/dev/null || echo threads:error
+      gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){totalCount nodes{isResolved}}}}}' -f o="${R%/*}" -f r="${R#*/}" -F n="$N" --jq '.data.repository.pullRequest.reviewThreads|if .totalCount>(.nodes|length) then "threads:truncated" else "threads:"+([.nodes[]|select(.isResolved|not)]|length|tostring) end' 2>/dev/null || echo threads:error
       ```
       - `pr:invalid` → **STOP.**
       - `checks:error <msg>` → "Could not read the CI checks of PR #<n> (<msg>). Re-run `/n1:n1-finish`, or merge it yourself." **STOP.**
       - `checks:fail=<k>` with `<k>` > 0 → "CI is failing on PR #<n> (<k> failed or cancelled checks). Fix CI, then re-run `/n1:n1-finish`." **STOP.**
       - `pending=<k>` with `<k>` > 0 → "CI is still running on PR #<n>. Re-run `/n1:n1-finish` when it finishes." **STOP.**
-      - `checks:none` (no CI on this PR) or `checks:fail=0 pending=0` → continue.
+      - `checks:expected` (no checks yet, but the repo has a `pull_request` workflow) → "CI has not started on PR #<n>; re-run when it reports." **STOP.**
+      - `checks:none` (no CI in this repo) or `checks:fail=0 pending=0` → continue.
       - `head:` empty → "Could not read the head commit of PR #<n>. Re-run `/n1:n1-finish`." **STOP.** Otherwise keep it as `<head>` for 3.4.
+      - `draft:true` → "PR #<n> is a draft. Mark it ready (`gh pr ready <n>`), then re-run `/n1:n1-finish`." **STOP.** `state:DIRTY` → "PR #<n> has merge conflicts. Resolve them, then re-run `/n1:n1-finish`." **STOP.**
       - `threads:0` → Step 6 `Comments:` is `no unresolved comments`.
-      - `threads:error` → warn "Review-thread check failed (API error); continuing without it." `Comments:` is `check skipped (API error)`.
-      - `threads:<k>` with `<k>` > 0 → ask the user:
+      - `threads:error` / `threads:truncated` (API error, or more than 100 threads) / `threads:<k>` with `<k>` > 0 → ask the user:
         ```
-        PR #<n> has <k> unresolved review threads. Proceed with merge?
+        PR #<n> has unresolved or unverifiable review threads (<k>, or "unknown" on error or truncation). Proceed with merge?
         No recommendation. The options are equivalent given the available evidence; select based on team preference.
         1 — Yes, merge anyway
         2 — No, stop (resolve the threads, then re-run /n1:n1-finish)
         ```
-        **1** → `Comments:` is `<k> unresolved, user approved merge`. **2** → "Merge stopped: PR #<n> has unresolved review threads." **STOP.**
+        **1** → `Comments:` is `<k> unresolved, user approved merge` (`unverified, user approved merge` when unknown). **2** → "Merge stopped: PR #<n> has unresolved review threads." **STOP.**
    2. **Deployment actions:** follow `<N1_ROOT>/references/deployment-actions.md` § Parse (already read at entry; do not re-read) with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`.
       - `fetch-failed:#<n>` → "Could not read the PR #<n> body, so its deployment actions are unknown. Re-run `/n1:n1-finish`." **STOP.**
       - `unticked:0` → nothing to do.
@@ -45,6 +47,7 @@ Evaluate the PR state:
    4. **With `merge-on-finish:yes`:** merge directly: no auto-merge, no remote-branch deletion (Step 6 leaves that to the repo settings), no retry. The key is the user's consent; do not ask again. One Bash call; `<head>` from 3.1, `<mergeMethod>` is the entry's `finishWork.mergeMethod` (empty means squash):
       ```bash
       source ~/.n1/preamble.sh
+      [ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo merge:denied; exit 1; }
       N="<n>"; H="<head>"; MM="<mergeMethod>"
       case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
       [[ "$H" =~ ^[0-9a-f]{40}$ ]] || { echo head:invalid; exit 1; }
@@ -53,6 +56,7 @@ Evaluate the PR state:
       gh pr merge "$N" "--$MM" --match-head-commit "$H" 2>&1; echo "merge-exit:$?"
       gh pr view "$N" --json state,mergeCommit -q '"state:"+.state+" sha:"+(.mergeCommit.oid // "")'
       ```
+      - `merge:denied` → "Merge is not authorized in this run." **STOP.**
       - `pr:invalid` / `head:invalid` / `method:invalid` → report it ("`finishWork.mergeMethod` must be squash, merge or rebase" for the last). **STOP.**
       - `state:MERGED sha:<oid>` → capture `<oid>` as the merge commit SHA. Step 6 uses `by n1-finish (mergeOnFinish)`. Go to Step 3.
       - Any other `state:` → report the `gh pr merge` output (branch protection, required reviews, conflicts, or a push since 3.1) and "PR #<n> was not merged. Merge it yourself, then re-run `/n1:n1-finish`." **STOP.** Never retry and never fall back to auto-merge.
