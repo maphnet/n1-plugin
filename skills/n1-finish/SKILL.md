@@ -1,6 +1,6 @@
 ---
 name: n1-finish
-description: "Finish work: verify the PR is merged (the human merges; prMode: skip merges locally), watch the automated deployment, close the tracker ticket, and clean up. Usage: /n1:n1-finish, /n1:n1-finish TRID-510, or /n1:n1-finish #123"
+description: "Finish work: verify the PR is merged (the human merges, or n1-finish with mergeOnFinish; prMode: skip merges locally), watch the automated deployment, close the tracker ticket, and clean up. Usage: /n1:n1-finish, /n1:n1-finish TRID-510, or /n1:n1-finish #123"
 argument-hint: "[ticket-id or PR#]"
 model: sonnet
 effort: low
@@ -10,7 +10,7 @@ effort: low
 
 ## Overview
 
-Verify the PR is merged (the human merges; `prMode: skip` merges locally), optionally watch the deployment and deliver to the project's host (asks first, interactive only), close the ticket, and clean up.
+Verify the PR is merged (the human merges, or n1-finish with `mergeOnFinish`; `prMode: skip` merges locally), optionally watch the deployment and deliver to the project's host (asks first, interactive only), close the ticket, and clean up.
 
 The ticket is closed **only when the code is actually merged** — never on green-CI-but-open.
 
@@ -48,6 +48,7 @@ echo "id=$ID prMode=$P mechanicalPrompts=$(n1_autonomy_val mechanicalPrompts)"
 for k in finishWork.{mergeMethod,deployWatch.workflowName} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} release.enabled; do echo "$k=$(c $k)"; done
 echo "tracker.operations=$(n1_config_ops .tracker.operations)"
 [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
+[ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] && echo merge-on-finish:yes
 RA=()
 [ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md")
 [ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && RA+=("$S/references/done-status-recovery.md")
@@ -64,6 +65,7 @@ Defaults:
 | Key | Default |
 |-----|---------|
 | `.finishWork.mergeMethod` | `"squash"` (`"squash"` \| `"merge"` \| `"rebase"`) |
+| `.finishWork.mergeOnFinish` | `false` (only JSON `true` makes Step 2 merge an open PR) |
 | `.finishWork.deployWatch.workflowName` | `null` (watch all runs on the merge commit) |
 | `.finishWork.postDeployVerification.enabled` | `false`; absent → explicit `localTesting.mode: "smoke"` (legacy smoke); explicit `false` wins |
 | `.delivery.mode` | `null` (`"ssh"` enables the Step 4 delivery deploy; else off) |
@@ -76,7 +78,7 @@ Defaults:
 
 Post-deploy verification dispatches only after a successful deployment (`ticket.md` → `post-deploy-verification.md`; `steps/03-deploy.md`); never blocks closure.
 
-N1 never merges a PR: the human merges, then runs n1-finish. prMode skip merges locally (Step 2b).
+N1 merges an open PR only when `mergeOnFinish` is `true` in an interactive run (entry prints `merge-on-finish:yes`); otherwise the human merges, then runs n1-finish. Queue and headless runs never merge. prMode skip merges locally (Step 2b).
 
 ## Steps
 
