@@ -1,5 +1,5 @@
 ---
-description: When presenting options, mark at most one (Recommended) with factual, tier-appropriate evidence
+description: Any option list (live decision or written into skill/docs/tool text) marks at most one (Recommended) with tier-appropriate evidence
 topic: process
 applies_to: [*]
 enforcement: gate
@@ -7,7 +7,7 @@ enforcement: gate
 
 ## Recommended-Option Rule
 
-When presenting two or more options for any decision, apply the following:
+This rule applies to any list of two or more options, both when you present them live and when you write them into skill files, docs, agent/persona prompts, or tool/question text that will later be shown to a user. Written options need the same `(Recommended)` label and rationale, or the verbatim "No recommendation" sentence, in the text itself.
 
 ### Tier Classification
 
@@ -40,6 +40,7 @@ Do not add a `(Recommended)` label in this case.
 ### Constraint Summary
 
 - At most one `(Recommended)` label per option-select.
+- Option lists written into skill, docs, or tool text follow the same rule as live decisions.
 - Tier 1 label requires external, verifiable evidence.
 - Tier 2 label requires internal, codebase-traceable evidence.
 - When evidence is absent or inconclusive, state "No recommendation" explicitly.
