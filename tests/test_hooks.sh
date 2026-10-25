@@ -64,7 +64,7 @@ set +e
 bash "$POLICY" < "$FX/claude/pretooluse-persona-denied.json" 2>"$T/err"; RC=$?
 set -e
 assert_eq "claude persona denial exit 2" "2" "$RC"
-assert_eq "claude persona denial reason" "N1: persona code-reviewer may not use tool Edit (allowed: Glob, Grep, Read)" "$(cat "$T/err")"
+assert_eq "claude persona denial reason" "N1: persona code-reviewer may not use tool Edit (allowed: Glob, Grep, Read, Write)" "$(cat "$T/err")"
 OUT=$(bash "$POLICY" < "$FX/claude/pretooluse-persona-allowed.json"); RC=$?
 assert_eq "claude Grep allowed for read-only persona" "0:" "$RC:$OUT"
 OUT=$(echo '{"tool_name":"Read","agent_type":"general-purpose","tool_input":{}}' | bash "$POLICY"); RC=$?
