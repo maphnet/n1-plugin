@@ -341,7 +341,7 @@ before "n1-ci reconcile precedes the final report" "### Step 7a" "### Final repo
 check "n1-ci NOT_BRANCH_CAUSED abort still runs Step 7a first" "Abort.*run \*\*Step 7a\*\*" "$C2"
 check "n1-ci no-checks-appeared STOP runs Step 7a first" "run \*\*Step 7a\*\*.*No CI checks appeared" "$C1"
 check "n1-ci pending-budget-exhaustion STOP runs Step 7a first" "run \*\*Step 7a\*\*.*Wait longer or skip" "$C1"
-CP=skills/n1-pr/steps/03-codex-review.md
+CP=skills/n1-pr/procedures/codex-triage.md
 check "codex triage records the PR head" "reconcile-start-" "$CP"
 before "codex triage capture precedes developer dispatch" "reconcile-start-" "**Developer instructions:**" "$CP"
 before "codex triage reconcile follows the fix-cycle counter" "cross_host_fix_cycle" "reconcile-pr-body.md" "$CP"
