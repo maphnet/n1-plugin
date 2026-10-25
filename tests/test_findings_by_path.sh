@@ -24,12 +24,12 @@ for A in "$CR" "$SR"; do
 done
 
 check "review removes stale reviewer files" 'rm -f "\$MEM/review-cr\.md" "\$MEM/review-sec\.md"' "$R"
-check "review spawns reviewers with output paths" 'output paths `\$MEM/review-cr\.md`' "$R"
+check "review spawns reviewers with output paths" 'output paths `\$N1_HOME/memory/\$ID/review-cr\.md`' "$R"
 check "review never reads reviewer files into context" 'never Read the reviewer files' "$R"
 check "review.md = header + cat of reviewer files" 'cat "\$MEM"/review-cr\.md "\$MEM"/review-sec\.md' "$R"
 check "review.md header starts with the verdict" '^### Verdict: <PASS\|FAIL>' "$R"
 check "missing reviewer file is Partial" 'missing/empty reviewer file' "$R"
-check "TQ loop passes review.md path" 'spawn qa-engineer: `\$MEM/review\.md` path' "$R"
+check "TQ loop passes review.md path" 'spawn qa-engineer: `\$N1_HOME/memory/\$ID/review\.md` path' "$R"
 refute "orchestrator no longer composes findings inline" 'Combine: `\$MEM/review\.md`, prefix' "$R"
 
 check "fix FAIL passes review.md path and scope" 'pass the `\$N1_HOME/memory/\$ID/review\.md` path and this scope' "$F"

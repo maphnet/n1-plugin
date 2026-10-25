@@ -33,7 +33,7 @@ Run **Ensure Dependencies(`<ID>`)** before reviewers. > **ORCHESTRATOR GUARDRAIL
 
 **Shared review core:** `review-core.md` with `BASE_BRANCH`.
 
-**Review tier gate:** If `REVIEW_TIER=SKIP`: record `"Review skipped: DOC_CONFIG_ONLY diff, code-reviewer not needed."` in `$MEM/review.md`, write `## Review` with `PASS (skipped — doc/config only)` to overview, run `n1_step_end "review" 9 "success"`, and proceed to next step. If `REVIEW_TIER=NARROW`: spawn code-reviewer with scope restricted to TQ findings only — instruct: "Scope: test quality (TQ) findings only. Do NOT review for correctness, design, architecture, or style. Report only [TQ-N] findings for test coverage gaps, hollow tests, and test quality issues." If `REVIEW_TIER=FULL`: current behavior (full code-reviewer scope).
+**Review tier gate:** If `REVIEW_TIER=SKIP`: record `"Review skipped: DOC_CONFIG_ONLY diff, code-reviewer not needed."` in `$N1_HOME/memory/$ID/review.md`, write `## Review` with `PASS (skipped — doc/config only)` to overview, run `n1_step_end "review" 9 "success"`, and proceed to next step. If `REVIEW_TIER=NARROW`: spawn code-reviewer with scope restricted to TQ findings only — instruct: "Scope: test quality (TQ) findings only. Do NOT review for correctness, design, architecture, or style. Report only [TQ-N] findings for test coverage gaps, hollow tests, and test quality issues." If `REVIEW_TIER=FULL`: current behavior (full code-reviewer scope).
 
 **Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md` (codebase analysis; targeted file:line reads), Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff.
 
@@ -43,21 +43,22 @@ QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdic
 IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review)
 IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review)
 ```
-`QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Append `$XREPO_REVIEW_CONTEXT`. Spawn reviewers with output paths `$MEM/review-cr.md` / `$MEM/review-sec.md`; each returns verdict, counts, index.
+`QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Append `$XREPO_REVIEW_CONTEXT`. Spawn reviewers with output paths `$N1_HOME/memory/$ID/review-cr.md` / `…/review-sec.md`; each returns verdict, counts, index.
 
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewer personas return their results before combining findings.
 
-After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm -f` the reviewer files)+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Combine the returned indexes in the block below (never Read the reviewer files). **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle is deferred, see below). Partial (incl. a missing/empty reviewer file in the `wc -c` output below): retry once.
+After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm -f` the reviewer files)+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Combine the returned indexes in the block below (never Read the reviewer files). **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle is deferred, see below). Partial (incl. a missing/empty reviewer file: the block below exits before combining): retry once.
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
-MEM="$N1_HOME/memory/$ID"; { cat <<'HDR'
+MEM="$N1_HOME/memory/$ID"; SEC=<true if security-reviewer was spawned, else false>
+for f in review-cr.md $([ "$SEC" = true ] && echo review-sec.md); do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
+{ cat <<'N1_REVIEW_HDR_EOF'
 ### Verdict: <PASS|FAIL>
-<summed counts, then every returned Index line>
-HDR
+<summed counts; skip/narrow/rule-compliance notes from review-core.md; every returned Index line>
+N1_REVIEW_HDR_EOF
 cat "$MEM"/review-cr.md "$MEM"/review-sec.md 2>/dev/null; } > "$MEM/review.md"
-wc -c "$MEM"/review-cr.md "$MEM"/review-sec.md 2>&1
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
@@ -67,8 +68,8 @@ For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`): `n1_fingerp
 
 ### 7b. TQ FIX LOOP
 
-No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"`, then `n1_resolve_agent qa-engineer review`+split; spawn qa-engineer: `$MEM/review.md` path (`[TQ-N]` only), qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5."
+No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"`, then `n1_resolve_agent qa-engineer review`+split; spawn qa-engineer: `$N1_HOME/memory/$ID/review.md` path (`[TQ-N]` only), qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5."
 
 **FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
 
-**PASS** + `QE=auto-accept` (hands-off soft policy, N1-116): after the verdict line append `## Deferred Soft Findings` to `$MEM/review.md` (replace if present), one `- [ID] file:line — title` per Low, `[TQ-N]` Low, Low `[XREPO-N]`, or unknown-severity finding, excluding `[SEC-N]`; Low `[SEC-N]` only when `review_fix_cycle>=1` (not fixed; the PR body lists them). A finding of any prefix in a `SECURITY_RELEVANT` class (review-core.md) counts as `[SEC-N]`. `[SEC-N]` findings of any severity are never soft: they go to Step 8 as FAIL (`review.maxFixAttempts` bounds Critical/High/Medium; a Low with `review_fix_cycle>=1` is recorded here, no further cycle). Any other non-TQ Medium → Step 8 SOFT-ONLY (one developer pass, no re-review); none → no soft pass, proceed (unchanged). Other modes: **PASS:** proceed. Critical/High/`[RULE-N]` always FAIL → Step 8 as above (unchanged).
+**PASS** + `QE=auto-accept` (hands-off soft policy, N1-116): after the verdict line append `## Deferred Soft Findings` to `$N1_HOME/memory/$ID/review.md` (replace if present), one `- [ID] file:line — title` per Low, `[TQ-N]` Low, Low `[XREPO-N]`, or unknown-severity finding, excluding `[SEC-N]`; Low `[SEC-N]` only when `review_fix_cycle>=1` (not fixed; the PR body lists them). A finding of any prefix in a `SECURITY_RELEVANT` class (review-core.md) counts as `[SEC-N]`. `[SEC-N]` findings of any severity are never soft: they go to Step 8 as FAIL (`review.maxFixAttempts` bounds Critical/High/Medium; a Low with `review_fix_cycle>=1` is recorded here, no further cycle). Any other non-TQ Medium → Step 8 SOFT-ONLY (one developer pass, no re-review); none → no soft pass, proceed (unchanged). Other modes: **PASS:** proceed. Critical/High/`[RULE-N]` always FAIL → Step 8 as above (unchanged).
