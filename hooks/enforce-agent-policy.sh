@@ -35,7 +35,7 @@ done
 if [ -z "$PY" ]; then
     # Fail closed for queue children only (CR-11); other sessions fail open with the warning below (N1-146).
     case "$INPUT" in
-        *'"Bash"'*) if [ -n "$QUEUE_CHILD" ]; then
+        *'"Bash"'*) if [ -n "$QUEUE_CHILD" ] && [ "$(n1_merge_authorized)" != true ]; then
             echo "N1: Bash denied in queue run ${N1_QUEUE_RUN_ID} -- no Python interpreter for the merge-deny check" >&2
             exit 2
         fi ;;
@@ -47,7 +47,7 @@ if [ -z "$PY" ]; then
     if [ ! -f "$MARKER" ]; then
         mkdir -p "$(dirname "$MARKER")" 2>/dev/null || true
         : > "$MARKER" 2>/dev/null || true
-        printf '{"systemMessage":"N1: agent model enforcement skipped (no Python interpreter)"}\n'
+        printf '{"systemMessage":"N1: agent policy (model enforcement and merge deny) skipped -- no Python interpreter"}\n'
     fi
     exit 0
 fi

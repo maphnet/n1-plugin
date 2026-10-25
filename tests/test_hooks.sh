@@ -18,7 +18,7 @@ for c in bash jq grep sed cat dirname basename printf head tr awk mv rm mkdir da
 INPUT='{"session_id":"s1","tool_name":"Agent","tool_input":{"subagent_type":"n1:developer"}}'
 OUT1=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
 OUT2=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
-assert_eq "warns once when python missing" "N1: agent model enforcement skipped (no Python interpreter)" "$(echo "$OUT1" | jq -r .systemMessage)"
+assert_eq "warns once when python missing" "N1: agent policy (model enforcement and merge deny) skipped -- no Python interpreter" "$(echo "$OUT1" | jq -r .systemMessage)"
 assert_eq "second call silent" "" "$OUT2"
 
 # session-start throttle: last_checked untouched when gh fails
@@ -187,6 +187,13 @@ for c in "gh pr merge 12" "git push origin main" "gh api -X PUT repos/o/r/pulls/
     cfg '{"finishWork":{"mergeOnFinish":"true"},"autonomy":{"fullAuto":true}}'
     assert_eq "string mergeOnFinish: interactive denied: $c" 2 "$(policy_rc -- "$c")"
 done
+# CR-2 (N1-146): no Python + authorized queue child -> persona Bash allowed (no-Python deny applies only when merges are not authorized)
+mkdir -p "$T/nopy"; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; cp "$T/nopy/python3" "$T/nopy/python"; chmod +x "$T/nopy/"*
+PP=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,agent_type:"n1:developer",tool_name:"Bash",tool_input:{command:"gh pr view 1"}}')
+nopy_rc() { local rc=0; printf '%s' "$PP" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "${Q[@]}" PATH="$T/nopy:$PATH" bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+cfg "$BOTH"; assert_eq "no python: authorized queue persona Bash allowed" 0 "$(nopy_rc)"
+cfg '{}'; assert_eq "no python: unauthorized queue persona Bash denied" 2 "$(nopy_rc)"
+rm -rf "$T/nopy"
 # Missing or invalid config must deny, never authorize (the shell predicate is false, so Python decides with config {})
 c="gh pr merge 12"
 rm -f "$N1_HOME/config.json"
