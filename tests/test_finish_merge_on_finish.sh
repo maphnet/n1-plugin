@@ -23,9 +23,10 @@ P1=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); P2=$
 if [ -n "$P1" ] && [ -n "$P2" ] && [ -n "$M" ] && [ "$P1" -lt "$M" ] && [ "$P2" -lt "$M" ]; then ok "pin STOPs precede the merge"; else no "pin STOPs precede the merge"; fi
 if [ -n "$P3" ] && [ -n "$M" ] && [ "$P3" -lt "$M" ]; then ok "pin lookup-failure STOP precedes the merge"; else no "pin lookup-failure STOP precedes the merge"; fi
 
-# Nth bash block of 02-merge.md, placeholders bound to env vars.
-block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "$F" \
-    | sed -e 's#^ *source ~/.n1/preamble.sh$#:#' -e 's/"<n>"/"${TN-7}"/' -e 's/"<head>"/"${TH-}"/' -e 's/"<mergeMethod>"/"${TMM-}"/'; }
+# Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
+block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
+    | sed -e 's#^ *source ~/.n1/preamble.sh$#:#' -e 's/"<n>"/"${TN-7}"/' -e 's/"<head>"/"${TH-}"/' -e 's/"<mergeMethod>"/"${TMM-}"/' \
+          -e 's/"<id>"/"${TID-N1-T}"/' -e 's/"<dev>"/"${TDEV-0}"/' -e 's/"<old>"/"${TOLD-}"/' -e 's/"<new>"/"${TNEW-}"/'; }
 PRE=$(block 1); MRG=$(block 2)
 if grep -qF 'gh pr checks' <<<"$PRE"; then ok "block 1 is the pre-check"; else no "block 1 is the pre-check"; fi
 if grep -qF 'gh pr merge' <<<"$MRG"; then ok "block 2 is the merge"; else no "block 2 is the merge"; fi
@@ -41,7 +42,7 @@ case "$1 $2" in
   "repo view") [ -z "${REPO_FAIL:-}" ] || exit 1; R='{"nameWithOwner":"o/r"}' ;;
   "api graphql") [ -z "${GQL_ERR:-}" ] || exit 1; R=${GQL:-$DG} ;;
   "pr merge") echo "$*" >> "$LOG"; [ "${MERGE_EXIT:-0}" = 0 ] || { echo "merge blocked by branch protection" >&2; exit 1; }; exit 0 ;;
-  "pr view") case "$*" in *headRefOid*) R="{\"headRefOid\":\"${HEADSHA:-}\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;; *) R=${VIEW:-} ;; esac ;;
+  "pr view") case "$*" in *headRefName*) R='{"headRefName":"feat","baseRefName":"main"}' ;; *headRefOid*) R="{\"headRefOid\":\"${HEADSHA:-}\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;; *) R=${VIEW:-} ;; esac ;;
   *) exit 1 ;;
 esac
 if [ -n "$q" ]; then jq -r "$q" <<<"$R"; else echo "$R"; fi
@@ -138,4 +139,83 @@ for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
   if [ -z "$ARGS" ]; then ok "merge: $g never calls gh pr merge"; else no "merge: $g called gh: $ARGS"; fi
 done
 
+# N1-144: references/resolve-dirty.md against a temp bare origin + clone (hermetic git config).
+RF=skills/n1-finish/references/resolve-dirty.md
+if grep -qiF 'dispatch persona developer' "$RF"; then ok "resolve-dirty dispatches the developer persona"; else no "resolve-dirty dispatches the developer persona"; fi
+RES=$(block 1 "$RF")
+if grep -qF 'git rebase' <<<"$RES"; then ok "resolve block 1 is the rebase"; else no "resolve block 1 is the rebase"; fi
+printf '[init]\n\tdefaultBranch = main\n' > "$T/gitconfig"
+export GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+G="$T/g"
+setv() { jq -n --arg v "$1" '{name:"n1",version:$v}' > .claude-plugin/plugin.json; jq -n --arg v "$1" '{plugins:[{name:"n1",version:$v}]}' > .claude-plugin/marketplace.json; }
+fx() { # <base-ver> <main-ver> <pr-ver>; SRC_PR / SRC_MAIN add conflicting src.txt commits. PR branch feat = reviewed head. PR version must differ from main's, else git sees identical changes and no manifest conflict arises. cp -p keeps bump-version.sh mode 100644 as in the real repo.
+  rm -rf "$G"; mkdir -p "$G"; git init -q --bare "$G/o.git"; git init -q "$G/w"
+  ( cd "$G/w" && mkdir -p .claude-plugin scripts && cp -p "$ROOT/scripts/bump-version.sh" scripts/ && setv "$1" && echo base > src.txt \
+    && git add -A && git commit -qm base && git remote add origin "$G/o.git" && git push -q origin main \
+    && git checkout -q -b feat && setv "$3" && git commit -qam "chore: bump version to $3 (N1-T)" \
+    && { [ -z "${SRC_PR:-}" ] || { echo "$SRC_PR" > src.txt && git commit -qam "pr change"; }; } && git push -q origin feat \
+    && git checkout -q main && setv "$2" && git commit -qam "main bump" \
+    && { [ -z "${SRC_MAIN:-}" ] || { echo "$SRC_MAIN" > src.txt && git commit -qam "main change"; }; } && git push -q origin main \
+    && git checkout -q feat ) || no "fixture $*"
+  OH=$(git -C "$G/w" rev-parse HEAD); echo "$OH" > "$PIN"
+}
+gw() { git -C "$G/w" "$@"; }
+res() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" TH="${TH-$OH}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; '"$RES" 2>&1); }
+intact() { # branch at the reviewed head, no rebase, clean tree, origin and pin unchanged
+  if [ "$(gw rev-parse HEAD)" = "$OH" ] && [ ! -d "$G/w/.git/rebase-merge" ] && [ -z "$(gw status --porcelain --untracked-files=no)" ] \
+     && [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "$1"; else no "$1"; fi
+}
+
+# Version-only conflict: rebase, take main's manifests, one re-bump commit above main (minor class).
+fx 5.10.0 5.12.0 5.11.0; res; NH=$(gw rev-parse HEAD)
+line "resolve: manifest-only conflict re-bumped above main" "resolve:ready old=$OH new=$NH bumped=5.13.0"
+if [ "$(gw log --format=%s origin/main..HEAD)" = "chore: bump version to 5.13.0 (N1-T)" ]; then ok "resolve: one bump commit on top of main"; else no "resolve: commits $(gw log --format=%s origin/main..HEAD | tr '\n' '|')"; fi
+if [ "$(jq -r .version "$G/w/.claude-plugin/plugin.json") $(jq -r '.plugins[0].version' "$G/w/.claude-plugin/marketplace.json")" = "5.13.0 5.13.0" ]; then ok "resolve: both manifests at 5.13.0"; else no "resolve: both manifests at 5.13.0"; fi
+if [ "$(gw diff --name-only origin/main HEAD | tr '\n' ' ')" = ".claude-plugin/marketplace.json .claude-plugin/plugin.json " ] && [ ! -d "$G/w/.git/rebase-merge" ]; then ok "resolve: only manifests differ from main, rebase finished"; else no "resolve: only manifests differ from main, rebase finished"; fi
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "resolve: nothing pushed, pin untouched"; else no "resolve: nothing pushed, pin untouched"; fi
+
+# Bump class follows the PR's original delta (patch, major); last row: identical bump on both sides is not a git conflict (the PR commit is dropped) but is still re-bumped above main.
+for c in "5.11.0 5.11.2 5.11.1 5.11.3" "5.11.0 5.12.0 6.0.0 6.0.0" "5.11.0 5.12.0 5.12.0 5.13.0"; do
+  set -- $c; fx "$1" "$2" "$3"; res
+  has "resolve: PR $3 (base $1) over main $2 -> $4" "bumped=$4"
+done
+
+# Non-manifest conflict: developer round, then the block finishes the rebase.
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res
+line "resolve: other conflict handed to the developer" "resolve:conflicts old=$OH files:src.txt"
+if [ -d "$G/w/.git/rebase-merge" ]; then ok "resolve: rebase left in progress for the developer"; else no "resolve: rebase left in progress for the developer"; fi
+res
+has "resolve: a <dev>=0 call never touches an in-progress rebase" "resolve:skip rebase-in-progress"
+echo merged > "$G/w/src.txt"; gw add src.txt
+TDEV=1 res; NH=$(gw rev-parse HEAD)
+line "resolve: developer round completes the rebase" "resolve:ready old=$OH new=$NH bumped=5.13.0"
+if [ "$(cat "$G/w/src.txt")" = merged ] && gw merge-base --is-ancestor origin/main HEAD; then ok "resolve: developer resolution kept on top of main"; else no "resolve: developer resolution kept on top of main"; fi
+
+# Escalation: every failure aborts the rebase, restores the reviewed head, pushes nothing.
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; gw add src.txt; TDEV=1 res
+has "resolve: conflict markers left by the developer abort" "resolve:abort markers"
+intact "resolve: markers abort restores the reviewed head"
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; TDEV=1 res
+has "resolve: file still unmerged after the developer round aborts" "resolve:abort conflicts files:src.txt"
+intact "resolve: unmerged abort restores the reviewed head"
+fx 5.11.0 5.12.0-rc.1 5.12.0; res
+has "resolve: non-X.Y.Z version aborts" "resolve:abort version"
+intact "resolve: version abort changes nothing"
+
+# Gating and preconditions: no git writes.
+fx 5.10.0 5.12.0 5.11.0
+for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
+  export "$g"; res; unset "${g%%=*}"
+  has "resolve: denied with $g" "resolve:denied"
+  intact "resolve: $g changes nothing"
+done
+gw checkout -q main; res; gw checkout -q feat
+has "resolve: wrong branch skipped" "resolve:skip branch"
+echo x >> "$G/w/src.txt"; res; gw checkout -q -- src.txt
+has "resolve: uncommitted changes skipped" "resolve:skip dirty"
+echo "$S" > "$PIN"; res
+has "resolve: pin not at the reviewed head skipped" "resolve:skip pin"
+TH=$S res
+has "resolve: local tip not at the reviewed head skipped" "resolve:skip local-tip"
+echo "$OH" > "$PIN"; intact "resolve: skips change nothing"
 exit $FAIL
