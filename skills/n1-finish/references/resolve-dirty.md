@@ -21,8 +21,8 @@ skip() { if [ "$DEV" = 1 ] && RD=$(rip) && [ "$(cat "$RD/orig-head" 2>/dev/null)
 abort() { git rebase --abort >/dev/null 2>&1; [ "$(git rev-parse HEAD)" = "$OLD" ] || git reset -q --hard "$OLD"; echo "resolve:abort $1 files:${2:-}"; exit 1; }
 rip() { local d p; for d in rebase-merge rebase-apply; do p=$(git rev-parse --git-path "$d"); [ -d "$p" ] && { echo "$p"; return 0; }; done; return 1; }
 snap() { { cat "$RD/n1-conflicts" "$RD/git-rebase-todo" "$RD/done"; git ls-files -s | awk -F'\t' 'NR==FNR{u[$0]=1;next} !($2 in u)' "$RD/n1-conflicts" -; } 2>/dev/null | git hash-object --stdin; }
-unm() { git diff --name-only --diff-filter=U | tr '\n' ' ' | sed 's/ $//'; }
-ver() { git show "$1:$PJ" 2>/dev/null | jq -r '.version // empty' 2>/dev/null; }
+unm() { git diff --no-color --name-only --diff-filter=U | tr '\n' ' ' | sed 's/ $//'; }
+ver() { git show --no-color "$1:$PJ" 2>/dev/null | jq -r '.version // empty' 2>/dev/null; }
 xyz() { [[ "$1" =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}$ ]]; }
 gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]; }
 read -r BR BASE XR < <(gh pr view "$N" --json headRefName,baseRefName,isCrossRepository -q '[.headRefName,.baseRefName,(.isCrossRepository|tostring)]|join(" ")' 2>/dev/null)
@@ -45,7 +45,7 @@ VM=0; PO=0; [ -f scripts/bump-version.sh ] && [ -f "$PJ" ] && [ -f "$MJ" ] && VM
 if [ "$VM" = 1 ]; then
   MB=$(git merge-base "$OLD" "origin/$BASE"); B=$(ver "$MB"); P=$(ver "$OLD"); M=$(ver "origin/$BASE")
   xyz "$B" && xyz "$P" && xyz "$M" || abort version "$B/$P/$M"
-  nov() { { git show "$1:$PJ" | jq -S 'del(.version)'; git show "$1:$MJ" | jq -S 'del(.plugins[0].version)'; } 2>/dev/null; }
+  nov() { { git show --no-color "$1:$PJ" | jq -S 'del(.version)'; git show --no-color "$1:$MJ" | jq -S 'del(.plugins[0].version)'; } 2>/dev/null; }
   [ "$(nov "$MB")" = "$(nov "$OLD")" ] && PO=1
 fi
 [ -n "$RD" ] || git rebase -q "origin/$BASE" >/dev/null 2>&1
@@ -54,16 +54,16 @@ while RD=$(rip); do
   i=$((i+1)); [ "$i" -le 20 ] || abort loop-cap "$(unm)"
   U=$(unm)
   if [ -n "$U" ]; then
-    if [ "$PO" = 1 ] && [ -z "$(git diff --name-only --diff-filter=U | grep -vxF -e "$PJ" -e "$MJ")" ]; then
+    if [ "$PO" = 1 ] && [ -z "$(git diff --no-color --name-only --diff-filter=U | grep -vxF -e "$PJ" -e "$MJ")" ]; then
       git checkout -q --ours -- $U && git add -- $U || abort checkout "$U"
     elif [ "$DEV" = 1 ]; then abort conflicts "$U"
-    else git diff --name-only --diff-filter=U > "$RD/n1-conflicts"; echo "resolve:conflicts old=$OLD stop=$(git rev-parse HEAD) snap=$(snap) files:$U"; exit 1
+    else git diff --no-color --name-only --diff-filter=U > "$RD/n1-conflicts"; echo "resolve:conflicts old=$OLD stop=$(git rev-parse HEAD) snap=$(snap) files:$U"; exit 1
     fi
   fi
-  if git diff --cached --quiet; then git rebase --skip >/dev/null 2>&1; else GIT_EDITOR=true git rebase --continue >/dev/null 2>&1; fi
+  if git diff --no-color --cached --quiet; then git rebase --skip >/dev/null 2>&1; else GIT_EDITOR=true git rebase --continue >/dev/null 2>&1; fi
 done
 git merge-base --is-ancestor "origin/$BASE" HEAD || abort not-rebased "$(unm)"
-git diff --text --no-textconv --no-ext-diff -U0 "origin/$BASE" HEAD | grep -qE '^\+(<<<<<<<|>>>>>>>)( |$)' && abort markers "$(git diff --name-only "origin/$BASE" HEAD | tr '\n' ' ')"
+git diff --no-color --text --no-textconv --no-ext-diff -U0 "origin/$BASE" HEAD | grep -qE '^\+(<<<<<<<|>>>>>>>)( |$)' && abort markers "$(git diff --no-color --name-only "origin/$BASE" HEAD | tr '\n' ' ')"
 [ -z "$(git status --porcelain --untracked-files=no)" ] || abort dirty
 NV=none
 if [ "$VM" = 1 ]; then

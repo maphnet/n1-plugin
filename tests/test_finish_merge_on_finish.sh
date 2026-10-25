@@ -209,6 +209,12 @@ printf '<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> pr\n' > "$G/w/src.txt"; gw add src.
 TDEV=1 TSTOP=$ST res
 has "resolve: developer commit rejected (scope)" "resolve:abort scope"
 intact "resolve: developer commit restores the reviewed head"
+# SEC-11: color.ui=always must not blind the marker scan.
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; ST=$(gw rev-parse HEAD); gw config color.ui always
+printf '<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> pr\n' > "$G/w/src.txt"; gw add src.txt
+TDEV=1 TSTOP=$ST res
+has "resolve: markers caught with color.ui=always" "resolve:abort markers"
+intact "resolve: color.ui=always markers abort restores the reviewed head"
 # SEC-1: files outside the conflict set; CR-1: a skip on the <dev>=1 call aborts the rebase.
 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; ST=$(gw rev-parse HEAD)
 echo merged > "$G/w/src.txt"; echo extra > "$G/w/extra.txt"; gw add src.txt extra.txt
