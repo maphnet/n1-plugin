@@ -40,6 +40,8 @@ else
   OLD=$(git rev-parse HEAD); [ "$OLD" = "$H" ] || skip local-tip
   [ -z "$(git status --porcelain --untracked-files=no)" ] || skip dirty
   git fetch -q origin -- "$BASE" 2>/dev/null || skip fetch
+  MB0=$(git merge-base "$OLD" "origin/$BASE" 2>/dev/null) && [ -z "$(git rev-list --merges "$MB0..$OLD")" ] || skip merges
+  [ -z "$(git ls-files -z --others --exclude-standard | tr -d '\0')" ] && [ -z "$(LC_ALL=C comm -z -12 <(git ls-files -z --others --ignored --exclude-standard | LC_ALL=C sort -z) <(git ls-tree -r -z --name-only "origin/$BASE" | LC_ALL=C sort -z) | tr -d '\0')" ] || skip local-files
 fi
 VM=0; PO=0; [ -f scripts/bump-version.sh ] && [ -f "$PJ" ] && [ -f "$MJ" ] && VM=1
 if [ "$VM" = 1 ]; then
@@ -82,7 +84,7 @@ echo "resolve:ready old=$OLD new=$(git rev-parse HEAD) bumped=$NV"
 
 - `resolve:denied` → "Merge is not authorized in this run." **STOP.**
 - `pr:invalid` / `arg:invalid` → report it. **STOP.**
-- `resolve:skip <reason>` (wrong branch, fork PR or head branch equal to base, unusable base name, uncommitted changes, local tip or pin not at the reviewed head, fetch failed, a rebase already in progress, already up to date) → "PR #<n> cannot merge yet (conflicts; auto-resolve skipped: <reason>). Fix that, then re-run `/n1:n1-finish`." **STOP.** Nothing was changed (a rebase left by the developer round is aborted first).
+- `resolve:skip <reason>` (wrong branch, fork PR or head branch equal to base, unusable base name, uncommitted changes, untracked files or ignored files the base branch tracks (`local-files`), merge commits in the PR history (`merges`), local tip or pin not at the reviewed head, fetch failed, a rebase already in progress, already up to date) → "PR #<n> cannot merge yet (conflicts; auto-resolve skipped: <reason>). Fix that, then re-run `/n1:n1-finish`." **STOP.** Nothing was changed (a rebase left by the developer round is aborted first).
 - `resolve:abort <reason> files:<list>` → "Could not resolve the conflicts of PR #<n> automatically (<reason>: <list>). The branch is back at the reviewed head and nothing was pushed. Rebase it onto the base branch yourself, then re-run `/n1:n1-finish`." Add the developer's `CANNOT_RESOLVE` reason when there is one. **STOP.**
 - `resolve:conflicts old=<sha> stop=<sha> snap=<sha> files:<list>` → § Developer.
 - `resolve:ready old=<old> new=<new> bumped=<v|none>` → § Tests.

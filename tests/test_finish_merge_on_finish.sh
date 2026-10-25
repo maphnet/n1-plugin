@@ -287,6 +287,17 @@ has "resolve: pin not at the reviewed head skipped" "resolve:skip pin"
 TH=$S res
 has "resolve: local tip not at the reviewed head skipped" "resolve:skip local-tip"
 echo "$OH" > "$PIN"; intact "resolve: skips change nothing"
+# Codex review: merge commits would be dropped by a plain rebase; ignored/untracked local files would be clobbered.
+fx 5.10.0 5.12.0 5.11.0; gw checkout -q -b side main~1 && echo s > "$G/w/s.txt" && gw add -A && gw commit -qm side && gw checkout -q feat && gw merge -q --no-ff -m merge side; OH=$(gw rev-parse HEAD); echo "$OH" > "$PIN"; git -C "$G/w" push -q origin feat; res
+has "resolve: merge commit in PR history skipped" "resolve:skip merges"
+intact "resolve: merges skip changes nothing"
+fx 5.10.0 5.12.0 5.11.0; echo keep.txt > "$G/w/.gitignore"; git -C "$G/w" add .gitignore; git -C "$G/w" commit -qm ign; OH=$(gw rev-parse HEAD); echo "$OH" > "$PIN"; git -C "$G/w" push -q origin feat
+git -C "$G/w" rm -q --cached keep.txt; git -C "$G/w" commit -qm untrack; OH=$(gw rev-parse HEAD); echo "$OH" > "$PIN"; git -C "$G/w" push -q origin feat; echo mine > "$G/w/keep.txt"; res
+has "resolve: ignored file tracked on the base skipped" "resolve:skip local-files"
+if [ "$(cat "$G/w/keep.txt")" = mine ]; then ok "resolve: ignored local file preserved"; else no "resolve: ignored local file preserved"; fi
+intact "resolve: local-files skip changes nothing"
+fx 5.10.0 5.12.0 5.11.0; echo u > "$G/w/untracked.txt"; res
+has "resolve: untracked file skipped" "resolve:skip local-files"
 # N1-144 § Push: pinned lease, pin advanced only for the pushed rebased head.
 PSH=$(block 2 "$RF"); CI=$(block 3 "$RF")
 if grep -qF -- '--force-with-lease=' <<<"$PSH" && ! grep -qE -- '--force( |$)|push -f' "$RF"; then ok "resolve push uses a pinned lease, never a bare force"; else no "resolve push uses a pinned lease, never a bare force"; fi
