@@ -401,7 +401,7 @@ n1_finish_merge_enabled() {
 n1_review_pin() {
     # N1-141 (SEC-5). The PR head that passed N1 review: one 40-hex SHA per PR in
     # $(n1_home)/review-pins/<owner>_<repo>_<pr>. n1-finish merges only that head.
-    #   get <pr>                  print the pin; nothing when missing; pin:unavailable on lookup failure
+    #   get <pr>                  print the bare pin; empty when missing; "unavailable" on any lookup failure
     #   set <pr>                  pin the PR's current head (n1-pr Step 9)
     #   advance <pr> <from> <to>  move the pin to <to> only when it is <from> (N1 fix-loop pushes)
     # set/advance print pin:set|advanced <sha7>, pin:kept or pin:unavailable and never fail the
@@ -410,16 +410,17 @@ n1_review_pin() {
     # shared by every worktree), i.e. a commit N1 itself pushed. A foreign push, or a run that
     # pushed nothing, leaves the pin behind (or unset) and n1-finish refuses to merge.
     # ponytail: the user's own commits pushed from this checkout (e.g. "Fix manually") are advanced
-    # too; per-commit provenance would need signed commits.
+    # too, and so is anything pulled into the checkout from others (git pull adopts it as reviewed);
+    # per-commit provenance would need signed commits.
     local op="${1:-}" pr="${2:-}" home repo file cur sha tmp="" br tip
     home=$(n1_home)
     repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null | tr / _)
     if [ -z "$home" ] || [[ ! "$pr" =~ ^[0-9]+$ ]]; then
-        [ "$op" = get ] || echo pin:unavailable
+        [ "$op" = get ] && echo unavailable || echo pin:unavailable
         return 0
     fi
     if [[ ! "$repo" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-        echo pin:unavailable
+        [ "$op" = get ] && echo unavailable || echo pin:unavailable
         return 0
     fi
     file="$home/review-pins/${repo}_$pr"

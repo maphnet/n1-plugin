@@ -154,7 +154,7 @@ You are fixing Codex review findings on an open pull request. An independent rev
 
 Workspace: resolve your working directory:
 - If `<worktree path>` exists, work there.
-- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && git checkout <branch>`.
+- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && { git rev-parse -q --verify refs/heads/<branch> >/dev/null || git branch <branch> "$(cat <start file>)"; } && git checkout <branch>` (`<start file>` is `$RECONCILE_START_FILE`: a missing local branch starts at the run-start head, never at origin's tip; if that fails, stop and report).
 Never work on the default branch.
 
 Findings to fix:

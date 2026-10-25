@@ -45,7 +45,7 @@ You are responding to PR review comments that have been verified as technically 
 
 Workspace: The worktree may have been removed after PR creation. Resolve your working directory:
 - If `<WORKTREE_PATH>` exists, cd there.
-- Otherwise, in `<MAIN_CHECKOUT>`: run `git fetch origin <BRANCH> && git checkout <BRANCH>`.
+- Otherwise, in `<MAIN_CHECKOUT>`: run `git fetch origin <BRANCH> && { git rev-parse -q --verify refs/heads/<BRANCH> >/dev/null || git branch <BRANCH> "$(cat <START_FILE>)"; } && git checkout <BRANCH>` (`<START_FILE>` is `$RECONCILE_START_FILE`: a missing local branch starts at the run-start head, never at origin's tip; if that fails, stop and report).
   If the main checkout has uncommitted changes, create a fresh worktree:
   `git worktree add <MAIN_CHECKOUT>/<worktree-root>/<ID> <BRANCH>`
 Never work on the default branch.
