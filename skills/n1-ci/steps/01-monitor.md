@@ -47,7 +47,7 @@ From config:
 
 ## Step 3: Poll for CI Checks
 
-**The poll command** (never print raw check JSON): `gh pr checks <PR#> --json name,bucket,link --jq '"total=\(length) pending=\([.[]|select(.bucket=="pending")]|length)", (.[]|select(.bucket=="fail" or .bucket=="cancel")|"FAIL\t\(.name)\t\(.link)")'` prints `total=<n> pending=<n>` plus one `FAIL<TAB>name<TAB>link` line per failed or cancelled check. No `total=` line (gh reports no checks) → none registered yet; `pending>0` → still running.
+**The poll command** (never print raw check JSON): `gh pr checks <PR#> --json name,bucket,link --jq '"total=\(length) pending=\([.[]|select(.bucket=="pending")]|length)", (.[]|select(.bucket=="fail" or .bucket=="cancel")|"FAIL\t\(.name|gsub("[\t\n\r]";" "))\t\(.link|gsub("[\t\n\r]";" "))")'` prints `total=<n> pending=<n>` plus one `FAIL<TAB>name<TAB>link` line per failed or cancelled check. No `total=` line (gh reports no checks) or `total=0` → none registered yet; `pending>0` → still running.
 
 > **Polling discipline:** Each poll is a **separate shell command**. NEVER combine into a bash loop. `sleep 30` between polls as a standalone command. Every poll result must be visible in reasoning context.
 
@@ -55,7 +55,7 @@ From config:
 
 1. `sleep 15` (initial delay).
 2. The poll command — separate command.
-3. Empty/no checks → `sleep 30`, re-poll (step 2).
+3. No checks or `total=0` → `sleep 30`, re-poll (step 2).
 4. Nothing after 15 min → run **Step 7a** (Reconcile PR Body, in 02-fix.md) before stopping — a prior fix cycle may already have pushed, then "No CI checks appeared after 15 minutes." **STOP.**
 5. Checks appear → Phase 2.
 
@@ -71,7 +71,7 @@ n1_wait_ci_checks <PR#> <remaining-minutes>
 
 Re-invoke while `pending` and budget remains:
 - `green` → **Step 4** (all green)
-- `red` → run the poll command to enumerate failures, apply Phase 3 grace (up to 2 more `n1_wait_ci_checks` calls, `<max-minutes>` = 1), then **Step 4**
+- `red` → run the poll command to enumerate failures, apply Phase 3 grace (`sleep 30` + the poll command, up to 2 times, reading `pending=`), then **Step 4**
 - `pending` at budget exhaustion → run **Step 7a** (Reconcile PR Body, in 02-fix.md) before stopping — a prior fix cycle may already have pushed, then report pending checks, ask "Wait longer or skip?" **STOP.**
 
 ### Phase 3 — Failure grace (max 60s)
@@ -83,7 +83,7 @@ Once failure detected but other checks still pending:
 
 ## Step 4: Evaluate Results
 
-`pending=0` and no `FAIL` lines:
+`total>0`, `pending=0` and no `FAIL` lines:
 - Report "All CI checks passed."
 - Run **Step 7a** (in 02-fix.md) now. n1-finish reads the PR body's Deployment Actions, so the body must match the pushed diff first. The later pass through Step 7 prints `reconcile:skip`.
 - **Finish chaining:** none here. n1-ci never merges a PR and never chains into n1-finish or release; n1-start's finish step chains n1-finish when `autonomy.fullAuto` is on (N1-146).

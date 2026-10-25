@@ -12,15 +12,15 @@ Match each failed check `name` against category patterns (case-insensitive subst
 
 ### Step 5a: Collect Run IDs (no log fetching here)
 
-Extract the run ID from each failed check's `link` (`/actions/runs/<run-id>/...`) and pair it with the check name and category. Do NOT run `gh run view --log-failed` in the orchestrator — failure logs are large and pull the orchestrator into diagnosing and fixing the failure itself. The developer agent fetches logs (Step 6).
+Take the run ID from each failed check's `link` only when it is `github.com/<owner>/<repo>/actions/runs/<id>...` with `<id>` matching `^[0-9]+$`; otherwise classify that check `escalate` and fetch no logs. Pair it with the check name and category. Do NOT run `gh run view --log-failed` in the orchestrator — failure logs are large and pull the orchestrator into diagnosing and fixing the failure itself. The developer agent fetches logs (Step 6).
 
-Only when a check is classified `escalate` (needs the user) may the orchestrator run `gh run view <run-id> --log-failed 2>&1 | tail -60` to show the user the failure excerpt.
+Only when a check is classified `escalate` (needs the user) with a valid run ID may the orchestrator run `gh run view <run-id> --log-failed 2>&1 | tail -60` to show the user the failure excerpt.
 
 ### Step 5b: Unknown Category Confidence Check
 
 After developer returns for `unknown` checks:
 - confidence >= `0.7` → accept fix
-- confidence < `0.7` → present to user with logs and analysis:
+- confidence < `0.7` → present to user with the one-line evidence and the report path:
   "1 — Accept fix / 2 — Provide guidance / 3 — Skip this check"
 
 ## Step 6: Fix Cycle
@@ -42,7 +42,7 @@ Workspace: The worktree may already have been removed after PR creation. Resolve
 Never work on the default branch.
 
 For each failed check (name, category, run ID):
-1. Fetch the logs yourself: `gh run view <run-id> --log-failed 2>&1 | head -500`
+1. Fetch the logs yourself, only if the run ID matches `^[0-9]+$` (else report the check `NOT_BRANCH_CAUSED: invalid run link`): `gh run view <run-id> --log-failed 2>&1 | head -500`
 2. Identify the root cause in the codebase
 3. Decide: is the failure caused by THIS branch's changes, or is it pre-existing / CI-side (e.g. lock drift that also fails on the default branch, flaky infra)? Check with `gh run list --branch <default-branch> --limit 5` when unsure.
    - Branch-caused → implement the minimal fix.
@@ -54,7 +54,7 @@ For "unknown" category checks: include a confidence assessment (0.0-1.0).
 
 Commit all fixes with descriptive messages. Push to the PR branch after committing.
 
-Write the full report below to `$N1_HOME/memory/<ID>/ci-fixes-<cycle>.md`. Return at most 15 lines: one line per check (`name | FIXED or NOT_BRANCH_CAUSED: <evidence, one line> | confidence if unknown`), the Summary block, and the report path.
+Write the full report below to `<report path>` (`$N1_HOME/memory/<ID>/ci-fixes-<cycle>.md`; with no ticket memory, `$N1_HOME/scratch/ci-fixes-<PR#>-<cycle>.md`, `mkdir -p` its dir first). Return at most 18 lines: one line per check (`name | FIXED or NOT_BRANCH_CAUSED: <evidence, one line> | confidence if unknown`), up to 10 checks then `+N more` (detail in the report), the Summary block, and the report path.
 
 Report format:
 ## CI Fixes Applied
@@ -92,7 +92,7 @@ Present remaining failures and fix history, then offer:
 
 ### Step 7a: Reconcile PR Body
 
-Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` from Step 1, `START_FILE="$RECONCILE_START_FILE"` from Step 1, and, as the fix report, every `## CI Fixes Applied` output from this run (bounded return; full report path in memory). It runs once per n1-ci run and no-ops unless the PR head moved since Step 1. Never blocks: on failure it warns and Step 7 continues. Add its `PR body:` line to the final report.
+Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` from Step 1, `START_FILE="$RECONCILE_START_FILE"` from Step 1, and, as the fix report, the developer's bounded return(s) plus the report path(s) from this run. It runs once per n1-ci run and no-ops unless the PR head moved since Step 1. Never blocks: on failure it warns and Step 7 continues. Add its `PR body:` line to the final report.
 
 ### Update overview.md (if memory exists):
 ```markdown
