@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# N1-141: per-PR reviewed-head pin (n1_review_pin) and its wiring in n1-pr and reconcile § Check.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+source lib/config.sh
+FAIL=0
+ok() { echo "PASS: $1"; }
+no() { echo "FAIL: $1"; FAIL=1; }
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else no "$1 (want '$2', got '$3')"; fi; }
+
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/bin"
+cat > "$T/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+  "repo view") [ -z "${REPO_FAIL:-}" ] || exit 1; echo "${REPO-o/r}" ;;
+  "pr view") echo "${HEADSHA:-}" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$T/bin/gh"
+export PATH="$T/bin:$PATH" N1_HOME="$T/home"
+unset HEADSHA REPO REPO_FAIL
+A=1111111111111111111111111111111111111111
+B=2222222222222222222222222222222222222222
+C=3333333333333333333333333333333333333333
+PIN="$T/home/review-pins/o_r_7"
+
+eq "get: no pin prints nothing" "" "$(n1_review_pin get 7)"
+eq "set: reports the pinned head" "pin:set 1111111" "$(HEADSHA=$A n1_review_pin set 7)"
+eq "set: file holds the head" "$A" "$(cat "$PIN" 2>/dev/null)"
+eq "get: roundtrip" "$A" "$(n1_review_pin get 7)"
+eq "set: invalid head -> unavailable" "pin:unavailable" "$(HEADSHA=abc n1_review_pin set 7)"
+eq "set: invalid head keeps the old pin" "$A" "$(cat "$PIN")"
+eq "set: empty head -> unavailable" "pin:unavailable" "$(HEADSHA= n1_review_pin set 7)"
+eq "advance: from != pin -> kept" "pin:kept" "$(n1_review_pin advance 7 "$C" "$B")"
+eq "advance: kept leaves the pin" "$A" "$(cat "$PIN")"
+eq "advance: from == pin -> advanced" "pin:advanced 2222222" "$(n1_review_pin advance 7 "$A" "$B")"
+eq "advance: pin moved to the new head" "$B" "$(cat "$PIN")"
+eq "advance: invalid target -> unavailable" "pin:unavailable" "$(n1_review_pin advance 7 "$B" zz)"
+eq "advance: invalid target keeps the pin" "$B" "$(cat "$PIN")"
+eq "advance: no pin -> kept" "pin:kept" "$(n1_review_pin advance 8 "" "$B")"
+[ ! -e "$T/home/review-pins/o_r_8" ] && ok "advance: no pin creates nothing" || no "advance: no pin created a file"
+eq "set: non-digit PR rejected" "pin:unavailable" "$(HEADSHA=$A n1_review_pin set '7;x')"
+eq "get: non-digit PR prints nothing" "" "$(n1_review_pin get '../7')"
+eq "set: repo lookup failure -> unavailable" "pin:unavailable" "$(REPO_FAIL=1 HEADSHA=$A n1_review_pin set 9)"
+eq "set: unsafe repo name rejected" "pin:unavailable" "$(REPO='o/r x' HEADSHA=$A n1_review_pin set 9)"
+eq "set: rejected inputs write nothing" "o_r_7" "$(ls "$T/home/review-pins")"
+echo junk > "$PIN"
+eq "get: corrupt pin prints nothing" "" "$(n1_review_pin get 7)"
+eq "advance: corrupt pin is never advanced" "pin:kept" "$(n1_review_pin advance 7 junk "$B")"
+eq "set: overwrites a corrupt pin" "pin:set 3333333" "$(HEADSHA=$C n1_review_pin set 7)"
+eq "no temp files left behind" "0" "$(find "$T/home/review-pins" -name '*.*' | wc -l | tr -d ' ')"
+n1_review_pin bogus 7 >/dev/null; eq "unknown op fails" "1" "$?"
+
+exit $FAIL
