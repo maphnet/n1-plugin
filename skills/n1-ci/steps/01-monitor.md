@@ -47,7 +47,7 @@ From config:
 
 ## Step 3: Poll for CI Checks
 
-**The poll command** (never print raw check JSON): `gh pr checks <PR#> --json name,state,conclusion,detailsUrl --jq '"total=\(length) pending=\([.[]|select(.state!="COMPLETED")]|length)", (.[]|select(.conclusion=="FAILURE")|"FAIL\t\(.name)\t\(.detailsUrl)")'` prints `total=<n> pending=<n>` plus one `FAIL<TAB>name<TAB>detailsUrl` line per failed check. Empty output → no checks yet (Phase 1) or pending (Phases 2-3).
+**The poll command** (never print raw check JSON): `gh pr checks <PR#> --json name,bucket,link --jq '"total=\(length) pending=\([.[]|select(.bucket=="pending")]|length)", (.[]|select(.bucket=="fail" or .bucket=="cancel")|"FAIL\t\(.name)\t\(.link)")'` prints `total=<n> pending=<n>` plus one `FAIL<TAB>name<TAB>link` line per failed or cancelled check. No `total=` line (gh reports no checks) → none registered yet; `pending>0` → still running.
 
 > **Polling discipline:** Each poll is a **separate shell command**. NEVER combine into a bash loop. `sleep 30` between polls as a standalone command. Every poll result must be visible in reasoning context.
 

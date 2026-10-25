@@ -12,7 +12,7 @@ Match each failed check `name` against category patterns (case-insensitive subst
 
 ### Step 5a: Collect Run IDs (no log fetching here)
 
-Extract the run ID from each failed check's `detailsUrl` (`/actions/runs/<run-id>/...`) and pair it with the check name and category. Do NOT run `gh run view --log-failed` in the orchestrator — failure logs are large and pull the orchestrator into diagnosing and fixing the failure itself. The developer agent fetches logs (Step 6).
+Extract the run ID from each failed check's `link` (`/actions/runs/<run-id>/...`) and pair it with the check name and category. Do NOT run `gh run view --log-failed` in the orchestrator — failure logs are large and pull the orchestrator into diagnosing and fixing the failure itself. The developer agent fetches logs (Step 6).
 
 Only when a check is classified `escalate` (needs the user) may the orchestrator run `gh run view <run-id> --log-failed 2>&1 | tail -60` to show the user the failure excerpt.
 

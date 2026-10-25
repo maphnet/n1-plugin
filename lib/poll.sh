@@ -13,9 +13,9 @@ n1_wait_ci_checks() {
     [ "$deadline" -lt "$chunk_end" ] && chunk_end=$deadline
     while :; do
         local counts
-        counts=$(gh pr checks "$pr" --json state,conclusion --jq \
-            '[([.[] | select(.conclusion == "FAILURE")] | length),
-              ([.[] | select(.state != "COMPLETED")] | length)] | @tsv' 2>/dev/null) || counts=""
+        counts=$(gh pr checks "$pr" --json bucket --jq \
+            '[([.[] | select(.bucket == "fail" or .bucket == "cancel")] | length),
+              ([.[] | select(.bucket == "pending")] | length)] | @tsv' 2>/dev/null) || counts=""
         if [ -n "$counts" ]; then
             local failed pending
             failed=$(printf '%s' "$counts" | cut -f1)
