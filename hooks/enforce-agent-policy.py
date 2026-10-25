@@ -96,18 +96,26 @@ def persona_tools(plugin_root: str, persona: str):
     return {t.strip() for t in m.group(1).split(",") if t.strip()}
 
 
-def _findings_path_ok(tool_input, persona, config_file="", cwd="") -> bool:
-    """Reviewer Write scope (SEC-1/SEC-4): realpath is memory/<ID>/review-<cr|sec>.md for this persona under $N1_HOME, ~/.n1/<slug> or the config dir. Fail closed."""
+def _findings_path_ok(payload, persona, config_file="") -> bool:
+    """Reviewer Write scope (SEC-1/SEC-4): realpath is <N1 home>/memory/<active ticket>/review-<cr|sec>.md for this persona. N1 home = $N1_HOME, else the config dir; ticket = this session's active-run file. Fail closed."""
+    tool_input = payload.get("tool_input")
     path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
     if not isinstance(path, str) or not path.strip():
         return False
-    roots = [re.escape(os.path.realpath(os.path.join(os.path.expanduser("~"), ".n1"))) + r"/[^/]+"]
-    if os.environ.get("N1_HOME"):
-        roots.append(re.escape(os.path.realpath(os.environ["N1_HOME"])))
-    if config_file:
-        roots.append(re.escape(os.path.realpath(os.path.join(cwd, os.path.dirname(config_file)))))
+    cwd = str(payload.get("cwd") or "")
+    home = os.environ.get("N1_HOME") or (os.path.dirname(os.path.join(cwd, config_file)) if config_file else "")
+    sid = payload.get("session_id")
+    if not home or not isinstance(sid, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", sid):
+        return False
+    home = os.path.realpath(os.path.join(cwd, home))
+    try:
+        ticket = json.loads(Path(home, f"active-run.{sid}.json").read_text(encoding="utf-8")).get("ticketId")
+    except (OSError, ValueError, AttributeError):
+        return False
+    if not isinstance(ticket, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*-[0-9]+", ticket):
+        return False
     suffix = {"code-reviewer": "cr", "security-reviewer": "sec"}[persona]
-    return re.fullmatch(r"(?:%s)/memory/[^/]+/review-%s\.md" % ("|".join(roots), suffix), os.path.realpath(path)) is not None
+    return os.path.realpath(path) == os.path.join(home, "memory", ticket, f"review-{suffix}.md")
 
 
 def restriction(payload: dict, plugin_root: str, config_file: str = "") -> int:
@@ -119,8 +127,8 @@ def restriction(payload: dict, plugin_root: str, config_file: str = "") -> int:
     if allowed is None or tool.startswith("mcp__"):
         return 0
     if tool in allowed:
-        if tool == "Write" and persona in REVIEWERS and not _findings_path_ok(payload.get("tool_input"), persona, config_file, str(payload.get("cwd") or "")):
-            sys.stderr.write(f"N1: persona {persona} may Write only its own memory/<ID>/review-(cr|sec).md under the N1 home\n")
+        if tool == "Write" and persona in REVIEWERS and not _findings_path_ok(payload, persona, config_file):
+            sys.stderr.write(f"N1: persona {persona} may Write only its own review-(cr|sec).md for the active ticket under the N1 home\n")
             return 2
         return 0
     sys.stderr.write(f"N1: persona {persona} may not use tool {tool} (allowed: {', '.join(sorted(allowed))})\n")

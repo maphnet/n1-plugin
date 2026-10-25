@@ -72,13 +72,15 @@ assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
 
 # reviewer Write is scoped to memory/<ID>/review-(cr|sec).md under the N1 home (SEC-1)
 mkdir -p "$N1_HOME/memory/T-9" "$N1_HOME/memory/T-8" "$T/wt"; ln -sf "$T/wt/f.txt" "$N1_HOME/memory/T-9/review-sec.md"
+echo '{"ticketId":"T-8"}' > "$N1_HOME/active-run.s-rev.json"
 rev_write_rc() {  # rev_write_rc <persona> <tool> <file_path>
-    local rc=0; jq -cn --arg a "n1:$1" --arg t "$2" --arg f "$3" '{agent_type:$a,tool_name:$t,tool_input:{file_path:$f}}' | bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+    local rc=0; jq -cn --arg a "n1:$1" --arg t "$2" --arg f "$3" '{agent_type:$a,tool_name:$t,session_id:"s-rev",tool_input:{file_path:$f}}' | bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
 }
 for P in code-reviewer security-reviewer; do
     OWN=cr; OTHER=sec; [ "$P" = security-reviewer ] && { OWN=sec; OTHER=cr; }
     assert_eq "$P Write to own review-$OWN.md allowed" 0 "$(rev_write_rc $P Write "$N1_HOME/memory/T-8/review-$OWN.md")"
     assert_eq "$P Write to other persona review-$OTHER.md denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-8/review-$OTHER.md")"
+    assert_eq "$P Write to another ticket's review-$OWN.md denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/review-$OWN.md")"
     assert_eq "$P Write to ~/.n1/preamble.sh denied" 2 "$(rev_write_rc $P Write "$HOME/.n1/preamble.sh")"
     assert_eq "$P Write to worktree file denied" 2 "$(rev_write_rc $P Write "$T/wt/f.txt")"
     assert_eq "$P Write to other memory file denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/config.json")"
@@ -91,14 +93,22 @@ done
 # production root ~/.n1/<slug> with N1_HOME unset (TQ-2); config-dir root (CR-7)
 rev_write_env_rc() {  # rev_write_env_rc <cwd> <file_path> <env...>
     local cwd=$1 f=$2; shift 2; local rc=0
-    jq -cn --arg c "$cwd" --arg f "$f" '{agent_type:"n1:code-reviewer",tool_name:"Write",cwd:$c,tool_input:{file_path:$f}}' | env "$@" bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+    jq -cn --arg c "$cwd" --arg f "$f" '{agent_type:"n1:code-reviewer",tool_name:"Write",session_id:"s-rev",cwd:$c,tool_input:{file_path:$f}}' | env "$@" bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
 }
-mkdir -p "$T/h/.n1/slug/memory/T-9" "$T/alt/memory/T-9"
-assert_eq "N1_HOME unset: ~/.n1/<slug> review-cr.md allowed" 0 "$(rev_write_env_rc "$T" "$T/h/.n1/slug/memory/T-9/review-cr.md" -u N1_HOME HOME="$T/h")"
+mkdir -p "$T/h/.n1/slug/memory/T-9" "$T/alt/memory/T-9" "$T/h/.n1/other/memory/T-9"
+echo '{"ticketId":"T-9"}' > "$T/h/.n1/slug/active-run.s-rev.json"; echo '{"ticketId":"T-9"}' > "$T/alt/active-run.s-rev.json"
+mkdir -p "$T/slug"; git -C "$T/slug" init -q
+assert_eq "N1_HOME unset: ~/.n1/<slug> review-cr.md allowed" 0 "$(cd "$T/slug" && rev_write_env_rc "$T" "$T/h/.n1/slug/memory/T-9/review-cr.md" -u N1_HOME HOME="$T/h")"
 assert_eq "N1_HOME unset: ~/.n1/preamble.sh denied" 2 "$(rev_write_env_rc "$T" "$T/h/.n1/preamble.sh" -u N1_HOME HOME="$T/h")"
 py_write_rc() {  # py_write_rc <config_file_arg> <cwd> <file_path>: call the hook script directly
-    local rc=0; jq -cn --arg c "$2" --arg f "$3" '{agent_type:"n1:code-reviewer",tool_name:"Write",cwd:$c,tool_input:{file_path:$f}}' | env -u N1_HOME HOME="$T/h" python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "$1" "$REPO_ROOT" >/dev/null 2>&1 || rc=$?; echo "$rc"
+    local rc=0; jq -cn --arg c "$2" --arg f "$3" '{agent_type:"n1:code-reviewer",tool_name:"Write",session_id:"s-rev",cwd:$c,tool_input:{file_path:$f}}' | env -u N1_HOME HOME="$T/h" python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "$1" "$REPO_ROOT" >/dev/null 2>&1 || rc=$?; echo "$rc"
 }
+assert_eq "another slug's memory dir denied" 2 "$(py_write_rc "$T/h/.n1/slug/config.json" "$T" "$T/h/.n1/other/memory/T-9/review-cr.md")"
+rm -f "$T/alt/active-run.s-rev.json"
+assert_eq "missing active-run file denied" 2 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/memory/T-9/review-cr.md")"
+echo '{"ticketId":"../x"}' > "$T/alt/active-run.s-rev.json"
+assert_eq "invalid ticketId denied" 2 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/memory/T-9/review-cr.md")"
+echo '{"ticketId":"T-9"}' > "$T/alt/active-run.s-rev.json"
 assert_eq "config-dir root allowed (absolute)" 0 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/memory/T-9/review-cr.md")"
 assert_eq "config-dir root allowed (relative, payload cwd)" 0 "$(py_write_rc "alt/config.json" "$T" "$T/alt/memory/T-9/review-cr.md")"
 assert_eq "config-dir root: non-findings file denied" 2 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/config.json")"
