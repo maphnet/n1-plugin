@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # N1-140: n1-finish Step 2 merge-on-finish snippets (pre-merge checks, merge) run against a fake gh.
 set -uo pipefail
+unset N1_QUEUE_RUN_ID N1_HEADLESS N1_RUN_ID
 cd "$(dirname "$0")/.."
 F=skills/n1-finish/steps/02-merge.md
 FAIL=0
@@ -65,9 +66,15 @@ DRAFT=true pre
 has "pre: draft reported" "draft:true"
 MSS=DIRTY pre
 has "pre: dirty reported" "state:DIRTY"
+MSS=BLOCKED pre
+has "pre: blocked reported" "state:BLOCKED"
 mkdir -p "$T/wf/.github/workflows" "$T/nowf"; echo "on: pull_request" > "$T/wf/.github/workflows/ci.yml"
+mkdir -p "$T/pu/.github/workflows"; echo "on: push" > "$T/pu/.github/workflows/ci.yml"
+for d in wf pu nowf; do git init -q "$T/$d"; done
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/wf" pre
 has "pre: no checks + pull_request workflow -> checks:expected" "checks:expected"
+CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/pu/.github" pre
+has "pre: push workflow, run from subdir -> checks:expected" "checks:expected"
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/nowf" pre
 has "pre: no checks, no workflow -> checks:none" "checks:none"
 TN='7;x' pre

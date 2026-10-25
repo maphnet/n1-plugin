@@ -7,7 +7,7 @@
    ```markdown
    ## Finish
    - **Merged:** <sha> (<method>, by <reviewer|n1-finish (mergeOnFinish)|local merge>)
-   - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged) | n/a (local merge)>
+   - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | unverified, user approved merge | n/a (already merged) | n/a (local merge)>
    - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow) | none triggered | skipped (local merge)>
    - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
    - **Verification details:** when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output); otherwise omit this line.
