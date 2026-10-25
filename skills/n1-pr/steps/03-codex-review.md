@@ -6,9 +6,12 @@ If no PR URL is available, PR creation failed: end n1-pr without a review report
 
 For every PR URL, execute this foreground command before the final report. It owns the gate, short auth timeout, review budget, PR comment, fallback and durable decision receipt. A PostToolUse hook independently records PR creation with `outcome=skipped reason=step-not-run`; the Stop hook requests continuation when the runner was omitted. Receipts live under `$N1_HOME/review-receipts/<session>/`, even without telemetry.
 
+It first pins the PR head that passed N1 review (`$N1_HOME/review-pins/`, whatever the Codex outcome); n1-finish merges only that head, and reconcile § Check advances the pin after N1's own fix-loop pushes. `pin:unavailable` is not an error here: n1-finish then refuses to merge.
+
 ```bash
 source ~/.n1/preamble.sh
 PR_URL="<the PR URL from step 4>"
+n1_review_pin set "${PR_URL##*/}"
 bash "$N1_ROOT/scripts/codex-pr-review.sh" "$PR_URL"
 ```
 
@@ -151,7 +154,7 @@ You are fixing Codex review findings on an open pull request. An independent rev
 
 Workspace: resolve your working directory:
 - If `<worktree path>` exists, work there.
-- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && git checkout <branch>`.
+- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && { git rev-parse -q --verify refs/heads/<branch> >/dev/null || git branch <branch> "$(cat <start file>)"; } && git checkout <branch>` (`<start file>` is `$RECONCILE_START_FILE`: a missing local branch starts at the run-start head, never at origin's tip; if that fails, stop and report).
 Never work on the default branch.
 
 Findings to fix:

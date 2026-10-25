@@ -15,9 +15,11 @@ Evaluate the PR state:
       N="<n>"; case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
       V=$(gh pr view "$N" --json headRefOid,isDraft,mergeStateStatus -q '"head:"+.headRefOid+" draft:"+(.isDraft|tostring)+" state:"+.mergeStateStatus' 2>/dev/null) || V="head: draft:false state:"
       echo "$V"
+      echo "pin:$(n1_review_pin get "$N")"
       C=$(gh pr checks "$N" --json bucket --jq '"checks:fail="+([.[]|select(.bucket=="fail" or .bucket=="cancel")]|length|tostring)+" pending="+([.[]|select(.bucket=="pending")]|length|tostring)' 2>&1)
       case "$C" in checks:*) echo "$C";; *"no checks reported"*) if grep -qsE 'pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml; then echo checks:expected; else echo checks:none; fi;; *) echo "checks:error ${C:0:200}";; esac
       R=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
+      echo "codex:$(cat "$N1_HOME"/review-receipts/*/"${R//\//_}_$N.json" 2>/dev/null | jq -rs 'if length==0 then "none" elif any(.[]; .outcome=="ran") then "ran" else "not-ran" end' 2>/dev/null)"
       gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){totalCount nodes{isResolved}}}}}' -f o="${R%/*}" -f r="${R#*/}" -F n="$N" --jq '.data.repository.pullRequest.reviewThreads|if .totalCount>(.nodes|length) then "threads:truncated" else "threads:"+([.nodes[]|select(.isResolved|not)]|length|tostring) end' 2>/dev/null || echo threads:error
       ```
       - `pr:invalid` → **STOP.**
@@ -26,8 +28,13 @@ Evaluate the PR state:
       - `pending=<k>` with `<k>` > 0 → "CI is still running on PR #<n>. Re-run `/n1:n1-finish` when it finishes." **STOP.**
       - `checks:expected` (no checks yet, but the repo has a `pull_request` workflow) → "CI has not started on PR #<n>; re-run when it reports, or merge it yourself, then re-run `/n1:n1-finish`." **STOP.**
       - `checks:none` (no CI in this repo) or `checks:fail=0 pending=0` → continue.
-      - `head:` empty → "Could not read the head commit of PR #<n>. Re-run `/n1:n1-finish`." **STOP.** Otherwise keep it as `<head>` for 3.4.
-      - `draft:true` → "PR #<n> is a draft. Mark it ready (`gh pr ready <n>`), then re-run `/n1:n1-finish`." **STOP.** `state:DIRTY` / `BLOCKED` / `BEHIND` → "PR #<n> cannot merge yet (conflicts / required review or checks missing / branch behind base). Fix that, then re-run `/n1:n1-finish`." **STOP.** Other states continue.
+      - `head:` empty → "Could not read the head commit of PR #<n>. Re-run `/n1:n1-finish`." **STOP.**
+      - `pin:` empty (no reviewed-head pin: the PR was not created by n1-pr, or predates N1-141) → "No reviewed-head pin recorded for PR #<n>, so N1 will not merge it. Merge it yourself, then re-run `/n1:n1-finish`." **STOP.** Never fall back to the current head.
+      - `pin:unavailable` (the pin lookup failed) → "Could not read the reviewed-head pin for PR #<n>. Re-run `/n1:n1-finish`, or merge it yourself." **STOP.**
+      - `pin:<sha>` not equal to `head:<sha>` → "PR #<n> head <first 7 of head> differs from the reviewed head <first 7 of pin>: commits were pushed after review. Review them (`/n1:n1-review`), then merge it yourself and re-run `/n1:n1-finish`." **STOP.** Otherwise keep the pin as `<head>` for 3.4.
+      - `draft:true` → "PR #<n> is a draft. Mark it ready (`gh pr ready <n>`), then re-run `/n1:n1-finish`." **STOP.** `state:BLOCKED` / `BEHIND`, or `state:DIRTY` after a resolve attempt in this run → "PR #<n> cannot merge yet (conflicts / required review or checks missing / branch behind base). Fix that, then re-run `/n1:n1-finish`." **STOP.** Other states continue.
+      - `state:DIRTY` (first in this run) → once every other line of this list has passed (threads answered), follow `<N1_ROOT>/skills/n1-finish/references/resolve-dirty.md` (read it now; it is not read at entry). It rebases the PR branch onto its base, re-bumps conflicting version manifests, hands other conflicts to the developer persona, pushes, advances the pin, waits for CI and re-runs this list. Each of its STOPs ends the run.
+      - `codex:not-ran` or `codex:none` (no Codex review of this PR ran; the pin only means "the head N1 pushed after local review") → print one informational line, "Note: no completed Codex review is recorded for PR #<n>; merging the head N1 pushed after local review." Do not stop.
       - `threads:0` → Step 6 `Comments:` is `no unresolved comments`.
       - `threads:error` / `threads:truncated` (API error, or more than 100 threads) / `threads:<k>` with `<k>` > 0 → ask the user:
         ```
@@ -44,7 +51,7 @@ Evaluate the PR state:
       - `mode:walk` with `before` rows → § Walk with `PHASE=before`. `WALK=aborted` → "Merge blocked: before-deploy actions are not complete. Re-run `/n1:n1-finish` when ready; ticked actions are not repeated." **STOP.**
       - `after` rows wait for Step 4.
    3. **Without `merge-on-finish:yes`:** report "PR #<n> is open. Merge it, then re-run /n1:n1-finish." **STOP.**
-   4. **With `merge-on-finish:yes`:** merge directly: no auto-merge, no remote-branch deletion (Step 6 leaves that to the repo settings), no retry. The key is the user's consent; do not ask again. One Bash call; `<head>` from 3.1, `<mergeMethod>` is the entry's `finishWork.mergeMethod` (empty means squash):
+   4. **With `merge-on-finish:yes`:** merge directly: no auto-merge, no remote-branch deletion (Step 6 leaves that to the repo settings), no retry. The key is the user's consent; do not ask again. One Bash call; `<head>` is the reviewed-head pin from 3.1 (the block re-checks it against the pin, and `--match-head-commit` makes GitHub refuse if the PR head moved since), `<mergeMethod>` is the entry's `finishWork.mergeMethod` (empty means squash):
       ```bash
       source ~/.n1/preamble.sh
       [ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo merge:denied; exit 1; }
@@ -52,12 +59,14 @@ Evaluate the PR state:
       case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
       [[ "$H" =~ ^[0-9a-f]{40}$ ]] || { echo head:invalid; exit 1; }
       case "${MM:-squash}" in squash|merge|rebase) MM=${MM:-squash};; *) echo method:invalid; exit 1;; esac
+      [ "$(n1_review_pin get "$N")" = "$H" ] || { echo pin:mismatch; exit 1; }
       echo "mergeOnFinish=true: merging PR #$N ($MM)"
       gh pr merge "$N" "--$MM" --match-head-commit "$H" 2>&1; echo "merge-exit:$?"
       gh pr view "$N" --json state,mergeCommit -q '"state:"+.state+" sha:"+(.mergeCommit.oid // "")'
       ```
       - `merge:denied` → "Merge is not authorized in this run." **STOP.**
       - `pr:invalid` / `head:invalid` / `method:invalid` → report it ("`finishWork.mergeMethod` must be squash, merge or rebase" for the last). **STOP.**
+      - `pin:mismatch` → "PR #<n> is not at the reviewed head, so N1 did not merge it. Re-run `/n1:n1-finish`." **STOP.**
       - `state:MERGED sha:<oid>` → capture `<oid>` as the merge commit SHA. Step 6 uses `by n1-finish (mergeOnFinish)`. Go to Step 3.
       - `merge-exit:0` with `state:OPEN` (merge queue) → "PR #<n> was queued for merge; re-run `/n1:n1-finish` once it merges." **STOP.** Not a failure.
       - Any other `state:` → report the `gh pr merge` output (branch protection, required reviews, conflicts, or a push since 3.1) and "PR #<n> was not merged. Merge it yourself, then re-run `/n1:n1-finish`." **STOP.** Never retry and never fall back to auto-merge.

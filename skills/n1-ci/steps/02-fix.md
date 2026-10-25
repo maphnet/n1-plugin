@@ -49,7 +49,7 @@ You are fixing CI failures on an open pull request.
 
 Workspace: The worktree may already have been removed after PR creation. Resolve your working directory first:
 - If `<worktree path>` exists, `cd` there.
-- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && git checkout <branch>` (create a fresh worktree with `git worktree add <main-checkout>/<worktree-root>/<ID> <branch>` if the main checkout has uncommitted changes).
+- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && { git rev-parse -q --verify refs/heads/<branch> >/dev/null || git branch <branch> "$(cat <start file>)"; } && git checkout <branch>` (`<start file>` is `$RECONCILE_START_FILE`: a missing local branch starts at the run-start head, never at origin's tip; if that fails, stop and report; create a fresh worktree with `git worktree add <main-checkout>/<worktree-root>/<ID> <branch>` after the same branch guard, if the main checkout has uncommitted changes).
 Never work on the default branch.
 
 For each failed check (name, category, run ID):

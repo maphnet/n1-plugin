@@ -100,7 +100,7 @@ Spawns tech-writer agent for doc updates and PR content, pushes, creates PR via 
 
 ### `/n1:n1-finish` — Finish Work
 
-Completes the cycle after PR/CI: verifies the PR is merged (it merges an open PR itself only when `finishWork.mergeOnFinish` is `true` in an interactive run, after CI and review-thread checks; it merges locally for `git.prMode: skip`), always watches the deployment workflow on the merge commit when a push-triggered workflow exists, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
+Completes the cycle after PR/CI: verifies the PR is merged (it merges an open PR itself only when `finishWork.mergeOnFinish` is `true` in an interactive run, after CI and review-thread checks, and only at the PR head n1-pr recorded as reviewed; it merges locally for `git.prMode: skip`), always watches the deployment workflow on the merge commit when a push-triggered workflow exists, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
 
 - Standalone and idempotent
 - Configure via `/n1:n1-init` or the `finishWork` block in `~/.n1/<project>/config.json`
