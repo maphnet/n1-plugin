@@ -3,11 +3,13 @@
 set -uo pipefail
 unset N1_QUEUE_RUN_ID N1_HEADLESS N1_RUN_ID
 cd "$(dirname "$0")/.."
+ROOT=$(pwd)
 F=skills/n1-finish/steps/02-merge.md
 FAIL=0
 ok() { echo "PASS: $1"; }
 no() { echo "FAIL: $1"; FAIL=1; }
 has() { if grep -qF -- "$2" <<<"$OUT"; then ok "$1"; else no "$1"; fi; }
+line() { if grep -qxF -- "$2" <<<"$OUT"; then ok "$1"; else no "$1"; fi; }
 
 # Static: no auto-merge, no remote-branch deletion; the queue STOP comes before the merge.
 if grep -qE -- '--auto|--delete-branch' "$F"; then no "02-merge has no --auto/--delete-branch"; else ok "02-merge has no --auto/--delete-branch"; fi
@@ -16,6 +18,8 @@ if [ -n "$Q" ] && [ -n "$M" ] && [ "$Q" -lt "$M" ]; then ok "queue STOP precedes
 if grep -qF 'merge-on-finish:yes' "$F"; then ok "02-merge gates on merge-on-finish:yes"; else no "02-merge gates on merge-on-finish:yes"; fi
 W=$(grep -n 'Without `merge-on-finish:yes`' "$F" | head -1 | cut -d: -f1)
 if [ -n "$W" ] && [ -n "$M" ] && [ "$W" -lt "$M" ]; then ok "without-flag STOP precedes the merge"; else no "without-flag STOP precedes the merge"; fi
+P1=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); P2=$(grep -n 'differs from the reviewed head' "$F" | head -1 | cut -d: -f1)
+if [ -n "$P1" ] && [ -n "$P2" ] && [ -n "$M" ] && [ "$P1" -lt "$M" ] && [ "$P2" -lt "$M" ]; then ok "pin STOPs precede the merge"; else no "pin STOPs precede the merge"; fi
 
 # Nth bash block of 02-merge.md, placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "$F" \
@@ -42,12 +46,19 @@ if [ -n "$q" ]; then jq -r "$q" <<<"$R"; else echo "$R"; fi
 EOF
 chmod +x "$T/bin/gh"
 S=0123456789abcdef0123456789abcdef01234567
+O=fedcba9876543210fedcba9876543210fedcba98
+export N1_HOME="$T/home" CFG="$ROOT/lib/config.sh"
+PIN="$T/home/review-pins/o_r_7"; mkdir -p "${PIN%/*}"; echo "$S" > "$PIN"
 
-pre() { OUT=$(cd "${WD:-$T}" && PATH="$T/bin:$PATH" HEADSHA=$S bash -c "$PRE" 2>&1); }
+pre() { OUT=$(cd "${WD:-$T}" && PATH="$T/bin:$PATH" HEADSHA=$S bash -c 'source "$CFG"; '"$PRE" 2>&1); }
 CHECKS='[{"bucket":"pass"},{"bucket":"skipping"}]' pre
 has "pre: green CI" "checks:fail=0 pending=0"
 has "pre: head sha printed" "head:$S"
 has "pre: no unresolved threads" "threads:0"
+line "pre: reviewed-head pin printed" "pin:$S"
+rm -f "$PIN"; CHECKS='[]' pre
+line "pre: missing pin prints an empty pin" "pin:"
+echo "$S" > "$PIN"
 CHECKS='[{"bucket":"pass"},{"bucket":"fail"},{"bucket":"cancel"}]' pre
 has "pre: failed and cancelled counted" "checks:fail=2 pending=0"
 CHECKS='[{"bucket":"pending"}]' pre
@@ -80,7 +91,7 @@ has "pre: no checks, no workflow -> checks:none" "checks:none"
 TN='7;x' pre
 has "pre: non-digit PR rejected" "pr:invalid"
 
-mrg() { : > "$T/log"; OUT=$(PATH="$T/bin:$PATH" LOG="$T/log" TH="${TH-$S}" bash -c 'n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; '"$MRG" 2>&1); ARGS=$(cat "$T/log"); }
+mrg() { : > "$T/log"; OUT=$(PATH="$T/bin:$PATH" LOG="$T/log" TH="${TH-$S}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; '"$MRG" 2>&1); ARGS=$(cat "$T/log"); }
 V="{\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"$S\"}}"
 VIEW=$V mrg
 has "merge: announces method" "mergeOnFinish=true: merging PR #7 (squash)"
@@ -102,6 +113,14 @@ if [ "$(wc -l <"$T/log")" = 1 ]; then ok "merge: no retry"; else no "merge: retr
 MERGE_EXIT=0 VIEW='{"state":"OPEN","mergeCommit":null}' mrg
 has "merge: queued shows exit 0 with state OPEN" "merge-exit:0"
 has "merge: queued state OPEN" "state:OPEN sha:"
+
+echo "$O" > "$PIN"; VIEW=$V mrg
+has "merge: head != pin refused" "pin:mismatch"
+if [ -z "$ARGS" ]; then ok "merge: head != pin never calls gh pr merge"; else no "merge: head != pin called gh: $ARGS"; fi
+rm -f "$PIN"; VIEW=$V mrg
+has "merge: missing pin refused" "pin:mismatch"
+if [ -z "$ARGS" ]; then ok "merge: missing pin never calls gh pr merge"; else no "merge: missing pin called gh: $ARGS"; fi
+echo "$S" > "$PIN"
 
 for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
   export "$g"; VIEW=$V mrg; unset "${g%%=*}"
