@@ -74,7 +74,7 @@ for d in wf pu nowf; do git init -q "$T/$d"; done
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/wf" pre
 has "pre: no checks + pull_request workflow -> checks:expected" "checks:expected"
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/pu/.github" pre
-has "pre: push workflow, run from subdir -> checks:expected" "checks:expected"
+has "pre: push-only workflow -> checks:none" "checks:none"
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/nowf" pre
 has "pre: no checks, no workflow -> checks:none" "checks:none"
 TN='7;x' pre
@@ -98,6 +98,10 @@ MERGE_EXIT=1 VIEW='{"state":"OPEN","mergeCommit":null}' mrg
 has "merge: gh error surfaced" "merge blocked by branch protection"
 has "merge: failure leaves state OPEN" "state:OPEN sha:"
 if [ "$(wc -l <"$T/log")" = 1 ]; then ok "merge: no retry"; else no "merge: retried"; fi
+
+MERGE_EXIT=0 VIEW='{"state":"OPEN","mergeCommit":null}' mrg
+has "merge: queued shows exit 0 with state OPEN" "merge-exit:0"
+has "merge: queued state OPEN" "state:OPEN sha:"
 
 for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
   export "$g"; VIEW=$V mrg; unset "${g%%=*}"

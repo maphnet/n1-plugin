@@ -91,6 +91,7 @@ assert_eq "T36: stale string \"true\" -> false" "false" "$(merge_gate '{"finishW
 assert_eq "T37: number 1 -> false" "false" "$(merge_gate '{"finishWork":{"mergeOnFinish":1}}')"
 assert_eq "T38: finishWork not an object -> false" "false" "$(merge_gate '{"finishWork":true}')"
 assert_eq "T39: invalid JSON -> false" "false" "$(merge_gate '{bad')"
+assert_eq "T41: valid object followed by garbage -> false" "false" "$(merge_gate '{"finishWork":{"mergeOnFinish":true}} garbage')"
 assert_eq "T40: missing config file -> false" "false" "$(N1_HOME="$TMPDIR_TEST/merge-missing" n1_finish_merge_enabled)"
 
 # ---- Test group 6: one decision path in skills (NP-212) ----

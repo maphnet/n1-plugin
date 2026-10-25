@@ -388,10 +388,10 @@ n1_post_deploy_verification_enabled() {
 n1_finish_merge_enabled() {
     # N1-140. Prints true only when finishWork.mergeOnFinish is the JSON boolean true.
     # Absent, false, strings ("true"), numbers, invalid JSON, a missing file or no jq: false.
-    local file
+    local file out
     file=$(n1_config_file)
     if [ -f "$file" ] && command -v jq >/dev/null 2>&1 \
-        && [ "$(jq -r '(.finishWork? | objects | .mergeOnFinish) == true' "$file" 2>/dev/null)" = "true" ]; then
+        && out=$(jq -r '(.finishWork? | objects | .mergeOnFinish) == true' "$file" 2>/dev/null) && [ "$out" = "true" ]; then
         printf 'true'
     else
         printf 'false'
