@@ -3,8 +3,9 @@
 # preserving ticked/verified lines and Deployment Actions; every push site wires it in.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+ROOT=$PWD
 FAIL=0
-P=references/reconcile-pr-body.md
+P=$PWD/references/reconcile-pr-body.md
 unset N1_QUEUE_RUN_ID N1_HEADLESS
 
 check() { # <label> <extended-regex> <file>
@@ -39,6 +40,7 @@ cat > "$T/bin/gh" <<'EOF'
 case "$1 $2" in
     "pr view")
         case "$*" in
+            *headRefName*) echo tb ;;
             *headRefOid*) [ "${GH_META_FAIL:-}" = 1 ] && exit 1; echo "$GH_HEAD $GH_STATE ${GH_AUTHOR:-me}" ;;
             *commits*) echo "aaaaaaa all pr commits" ;;
             *body*) [ "${GH_BODY_FAIL:-}" = 1 ] && exit 1; cat "$GH_BODY" ;;
@@ -66,7 +68,7 @@ SHA1="1111111111111111111111111111111111111111"; SHA2="2222222222222222222222222
 export N1_HOME="$T/home" GH_BODY="$T/body.md" GH_EDITED="$T/edited.md" GH_STATE=OPEN GH_HEAD="$SHA1" GH_AUTHOR=me GH_LOGIN=me
 unset GH_DIFF_EMPTY GH_COMPARE_FAIL
 S="$T/home/scratch/reconcile-start-7.testfile"
-run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e 's|^source ~/.n1/preamble.sh$|source lib/config.sh|' -e 's|^PR_NUMBER=.*|PR_NUMBER="7"|' -e "s|^ADHOC=.*|ADHOC=\"${2:-}\"|" -e "s|^D=\"<D from the reconcile:run line>\"\$|D=\"${3:-}\"|" -e "s|^START_FILE=.*|START_FILE=\"${4:-$S}\"|")"; }
+run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e 's|^source ~/.n1/preamble.sh$|source '"$ROOT"'/lib/config.sh|' -e 's|^PR_NUMBER=.*|PR_NUMBER="7"|' -e "s|^ADHOC=.*|ADHOC=\"${2:-}\"|" -e "s|^D=\"<D from the reconcile:run line>\"\$|D=\"${3:-}\"|" -e "s|^START_FILE=.*|START_FILE=\"${4:-$S}\"|")"; }
 dir_of() { printf '%s\n' "$1" | sed -n 's/^reconcile:run dir=//p'; }
 
 echo "$SHA1" > "$S"
@@ -93,7 +95,8 @@ check "diff saved" "^diff --git" "$D/diff.patch"
 check "full diff saved untruncated" "^diff --git" "$D/diff-full.patch"
 check "commits since start come from compare" "^bbbbbbb new commit$" "$D/commits.txt"
 
-# N1-141: § Check advances the reviewed-head pin only when the run started at the pinned head; never ad-hoc.
+# N1-141: § Check advances the reviewed-head pin only when the run started at the pinned head and N1 pushed the new head; never ad-hoc.
+git init -q "$T/repo"; echo "$SHA2" > "$T/repo/.git/refs/heads/tb"; cd "$T/repo"
 PIN="$T/home/review-pins/o_r_7"; mkdir -p "${PIN%/*}"
 SHA3="3333333333333333333333333333333333333333"
 echo "$SHA1" > "$PIN"; echo "$SHA1" > "$S"
@@ -104,10 +107,14 @@ echo "$SHA3" > "$PIN"; echo "$SHA1" > "$S"
 out=$(run "## § Check")
 check "check keeps a pin the run did not start from" "^pin:kept$" <(printf '%s\n' "$out")
 [ "$(cat "$PIN")" = "$SHA3" ] && echo "PASS: foreign-start pin unchanged" || { echo "FAIL: foreign-start pin changed"; FAIL=1; }
-echo "$SHA1" > "$PIN"
+echo "$SHA1" > "$PIN"; echo "$SHA1" > "$S"; echo "$SHA3" > "$T/repo/.git/refs/heads/tb"
+out=$(run "## § Check")
+check "check keeps the pin when the head is not N1's local tip" "^pin:kept$" <(printf '%s\n' "$out")
+[ "$(cat "$PIN")" = "$SHA1" ] && echo "PASS: foreign head leaves the pin" || { echo "FAIL: foreign head advanced the pin"; FAIL=1; }
+echo "$SHA2" > "$T/repo/.git/refs/heads/tb"
 out=$(run "## § Check" 1)
 [ "$(cat "$PIN")" = "$SHA1" ] && echo "PASS: ad-hoc never advances the pin" || { echo "FAIL: ad-hoc advanced the pin"; FAIL=1; }
-rm -f "$PIN" "$S"
+rm -f "$PIN" "$S"; cd "$ROOT"
 
 echo "$SHA1" > "$S"
 out=$(run "## § Check" 1)

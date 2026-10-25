@@ -22,7 +22,7 @@ Each run gets its own file (a per-PR name would collide across overlapping runs 
 
 Prints `reconcile:skip` when the PR is not open, when (not ad-hoc) there is no start SHA or the head did not move, or when (ad-hoc) the PR author isn't you. Otherwise it stages the inputs and prints `reconcile:run dir=<D>`.
 
-When a skill run moved the head of an open PR, it first runs `n1_review_pin advance` (N1-141): the reviewed-head pin that n1-finish merges follows the push only when the run started at the pinned head, so a push by anyone else before the run keeps the old pin and n1-finish refuses to merge. Ad-hoc runs never advance it. The `pin:advanced <sha7>` / `pin:kept` / `pin:unavailable` line is informational and never blocks.
+When a skill run moved the head of an open PR, it first runs `n1_review_pin advance` (N1-141): the reviewed-head pin that n1-finish merges follows the push only when the run started at the pinned head and the new head is the local tip of the PR branch (a commit N1 pushed), so a push by anyone else, before or during the run, or a run that pushed nothing, keeps the old pin and n1-finish refuses to merge. Ad-hoc runs never advance it. The `pin:advanced <sha7>` / `pin:kept` / `pin:unavailable` line is informational and never blocks.
 
 ```bash
 source ~/.n1/preamble.sh

@@ -401,18 +401,25 @@ n1_finish_merge_enabled() {
 n1_review_pin() {
     # N1-141 (SEC-5). The PR head that passed N1 review: one 40-hex SHA per PR in
     # $(n1_home)/review-pins/<owner>_<repo>_<pr>. n1-finish merges only that head.
-    #   get <pr>                  print the pin, or nothing
+    #   get <pr>                  print the pin; nothing when missing; pin:unavailable on lookup failure
     #   set <pr>                  pin the PR's current head (n1-pr Step 9)
     #   advance <pr> <from> <to>  move the pin to <to> only when it is <from> (N1 fix-loop pushes)
     # set/advance print pin:set|advanced <sha7>, pin:kept or pin:unavailable and never fail the
     # caller; a missing pin makes n1-finish refuse to merge (fail closed).
-    # ponytail: a human push landing during an N1 fix run is swallowed into the advance
-    # (window = one fix run); per-commit provenance would need signed commits.
-    local op="${1:-}" pr="${2:-}" home repo file cur sha tmp=""
+    # set/advance only pin a head equal to the local tip of the PR branch (refs/heads/<headRefName>,
+    # shared by every worktree), i.e. a commit N1 itself pushed. A foreign push, or a run that
+    # pushed nothing, leaves the pin behind (or unset) and n1-finish refuses to merge.
+    # ponytail: the user's own commits pushed from this checkout (e.g. "Fix manually") are advanced
+    # too; per-commit provenance would need signed commits.
+    local op="${1:-}" pr="${2:-}" home repo file cur sha tmp="" br tip
     home=$(n1_home)
     repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null | tr / _)
-    if [ -z "$home" ] || [[ ! "$pr" =~ ^[0-9]+$ ]] || [[ ! "$repo" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    if [ -z "$home" ] || [[ ! "$pr" =~ ^[0-9]+$ ]]; then
         [ "$op" = get ] || echo pin:unavailable
+        return 0
+    fi
+    if [[ ! "$repo" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+        echo pin:unavailable
         return 0
     fi
     file="$home/review-pins/${repo}_$pr"
@@ -424,6 +431,12 @@ n1_review_pin() {
         *) return 1 ;;
     esac
     [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo pin:unavailable; return 0; }
+    br=$(gh pr view "$pr" --json headRefName -q .headRefName 2>/dev/null)
+    tip=""; [ -z "$br" ] || tip=$(git rev-parse --verify -q "refs/heads/$br" 2>/dev/null)
+    if [ "$sha" != "$tip" ]; then
+        [ "$op" = set ] && echo pin:unavailable || echo pin:kept
+        return 0
+    fi
     if mkdir -p "${file%/*}" && tmp=$(mktemp "$file.XXXXXX") && printf '%s\n' "$sha" > "$tmp" && mv -f "$tmp" "$file"; then
         if [ "$op" = set ]; then echo "pin:set ${sha:0:7}"; else echo "pin:advanced ${sha:0:7}"; fi
     else
