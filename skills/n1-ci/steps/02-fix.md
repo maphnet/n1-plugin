@@ -29,18 +29,7 @@ After developer returns for `unknown` checks:
 
 **Batch all fixable failures** into one developer agent spawn. Resolve model for `developer`.
 
-```bash
-source ~/.n1/preamble.sh
-DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
-DIFF_CONTENT=$(git diff $(git merge-base origin/$DEFAULT_BRANCH HEAD)..HEAD)
-DIFF_BYTES=${#DIFF_CONTENT}
-if [ "$DIFF_BYTES" -gt 30000 ]; then
-  DIFF_CONTENT="${DIFF_CONTENT:0:30000}
-[truncated: first 30KB of ${DIFF_BYTES}B shown]"
-fi
-```
-
-Pass: failed checks with categories and run IDs (from Step 5a), the PR branch name, the main checkout path, `$DIFF_CONTENT` (capped above), memory files (`plan.md`, `implementation.md`) if available. Scratch-artifact policy: throwaway benchmarks/spikes go under `$N1_HOME/scratch/{benchmarks,tests}/` (gitignored), never in the repo test suite.
+Pass: failed checks with categories and run IDs (from Step 5a), the PR branch name, the main checkout path, the ticket ID and cycle number (`ci_fix_cycle`+1), memory files (`plan.md`, `implementation.md`) if available. Scratch-artifact policy: throwaway benchmarks/spikes go under `$N1_HOME/scratch/{benchmarks,tests}/` (gitignored), never in the repo test suite.
 
 **Developer instructions:**
 
@@ -58,13 +47,16 @@ For each failed check (name, category, run ID):
 3. Decide: is the failure caused by THIS branch's changes, or is it pre-existing / CI-side (e.g. lock drift that also fails on the default branch, flaky infra)? Check with `gh run list --branch <default-branch> --limit 5` when unsure.
    - Branch-caused → implement the minimal fix.
    - Pre-existing / CI-side → do NOT paper over it with unrelated changes; report it as `NOT_BRANCH_CAUSED` with evidence so the orchestrator can escalate.
-4. Run the relevant local check (lint, typecheck, test command) if possible before committing.
+4. Get the branch diff yourself: `git diff origin/<default-branch>...HEAD`.
+5. Run the relevant local check (lint, typecheck, test command) if possible before committing.
 
 For "unknown" category checks: include a confidence assessment (0.0-1.0).
 
 Commit all fixes with descriptive messages. Push to the PR branch after committing.
 
-Output format:
+Write the full report below to `$N1_HOME/memory/<ID>/ci-fixes-<cycle>.md`. Return at most 15 lines: one line per check (`name | FIXED or NOT_BRANCH_CAUSED: <evidence, one line> | confidence if unknown`), the Summary block, and the report path.
+
+Report format:
 ## CI Fixes Applied
 ### Check: <check name> (<category>)
 - **Root cause:** <cause>
@@ -100,7 +92,7 @@ Present remaining failures and fix history, then offer:
 
 ### Step 7a: Reconcile PR Body
 
-Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` from Step 1, `START_FILE="$RECONCILE_START_FILE"` from Step 1, and, as the fix report, every `## CI Fixes Applied` output from this run. It runs once per n1-ci run and no-ops unless the PR head moved since Step 1. Never blocks: on failure it warns and Step 7 continues. Add its `PR body:` line to the final report.
+Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` from Step 1, `START_FILE="$RECONCILE_START_FILE"` from Step 1, and, as the fix report, every `## CI Fixes Applied` output from this run (bounded return; full report path in memory). It runs once per n1-ci run and no-ops unless the PR head moved since Step 1. Never blocks: on failure it warns and Step 7 continues. Add its `PR body:` line to the final report.
 
 ### Update overview.md (if memory exists):
 ```markdown

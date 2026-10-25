@@ -76,7 +76,7 @@ Spawn the local-test-planner agent with:
 - Read `localTesting.startCommand` from config: `n1_config_val '.localTesting.startCommand'` (default: empty). If non-empty, include in the prompt: "The project has a configured start command: `<value>`. Use this as the app start command instead of auto-detecting."
 - Include the resolved mode in the prompt: "The local testing mode is `<LOCAL_TESTING_MODE>`. If mode is `test`, suppress Runtime First -- produce a test-suite-only plan with no infrastructure startup. If mode is `live`, enforce Runtime First as usual."
 - If `QA_RUNNER_CMDS` is set (from the QA dedup gate above), include in the prompt: "The QA step already ran these test commands: `<QA_RUNNER_CMDS value, one per line>`. Do not duplicate these as ad-hoc scenarios — design test scenarios that complement them (e.g. infrastructure checks, curl endpoints, CLI flows that QA did not exercise)."
-- Directive: "Output the plan in this exact structure:"
+- Directive: "Write the plan to `$N1_HOME/memory/<ID>/local-test-plan.md` in this exact structure. Return only that path plus a summary of at most 5 lines (Framework, Run command, automated scenario count, manual item count), not the plan:"
 
 ```markdown
 ## Local Test Plan
@@ -111,10 +111,9 @@ Spawn the local-test-planner agent with:
 
 > **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the local-test-planner agent has written its output.
 
-After the agent returns:
-- Write its output to `$N1_HOME/memory/<ID>/local-test-plan.md`
+After the agent returns: check `$N1_HOME/memory/<ID>/local-test-plan.md` exists; if missing, re-dispatch once, then follow the planner-failure path.
 
-**Edge case — no testable scenarios:** If the plan has no existing e2e suite (`### Existing E2E Tests` Framework is "None" and Run command is "N/A") AND zero ad-hoc test scenarios in `### Automated Test Scenarios`, auto-skip: Record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="no testable scenarios"`. Do not print here — Gate 3 will emit `Local Testing: SKIPPED — no testable scenarios` in the Done summary. Update overview: `[x] Local Testing`, set `step: local-testing`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10. If the plan has a valid e2e suite, do NOT auto-skip even if there are zero ad-hoc scenarios.
+**Edge case — no testable scenarios:** If the returned summary (or `grep` of the plan file) shows the plan has no existing e2e suite (`### Existing E2E Tests` Framework is "None" and Run command is "N/A") AND zero ad-hoc test scenarios in `### Automated Test Scenarios`, auto-skip: Record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="no testable scenarios"`. Do not print here — Gate 3 will emit `Local Testing: SKIPPED — no testable scenarios` in the Done summary. Update overview: `[x] Local Testing`, set `step: local-testing`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10. If the plan has a valid e2e suite, do NOT auto-skip even if there are zero ad-hoc scenarios.
 
 #### 9c. EXECUTION (developer)
 
