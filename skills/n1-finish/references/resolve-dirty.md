@@ -8,18 +8,19 @@ Version manifests (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.jso
 
 ## § Resolve
 
-One shell call in the current checkout. `<n>` is the PR number, `<head>` the reviewed-head pin from 3.1, `<id>` the ticket ID, `<dev>` `0` on the first call and `1` after the developer round, `<stop>` empty on the first call and the `stop=` SHA of `resolve:conflicts` after it.
+One shell call in the current checkout. `<n>` is the PR number, `<head>` the reviewed-head pin from 3.1, `<id>` the ticket ID, `<dev>` `0` on the first call and `1` after the developer round, `<stop>` and `<snap>` empty on the first call and the `stop=` and `snap=` values of `resolve:conflicts` after it.
 
 ```bash
 source ~/.n1/preamble.sh
 [ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo resolve:denied; exit 1; }
-N="<n>"; H="<head>"; ID="<id>"; DEV="<dev>"; S0="<stop>"
+N="<n>"; H="<head>"; ID="<id>"; DEV="<dev>"; S0="<stop>"; SN="<snap>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
-[[ "$H" =~ ^[0-9a-f]{40}$ ]] && [[ "$ID" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$DEV" =~ ^[01]$ ]] && [[ "$S0" =~ ^([0-9a-f]{40})?$ ]] || { echo arg:invalid; exit 1; }
+[[ "$H" =~ ^[0-9a-f]{40}$ ]] && [[ "$ID" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$DEV" =~ ^[01]$ ]] && [[ "$S0" =~ ^([0-9a-f]{40})?$ ]] && [[ "$SN" =~ ^([0-9a-f]{40})?$ ]] || { echo arg:invalid; exit 1; }
 PJ=.claude-plugin/plugin.json; MJ=.claude-plugin/marketplace.json; OLD=
 skip() { if [ "$DEV" = 1 ] && RD=$(rip) && [ "$(cat "$RD/orig-head" 2>/dev/null)" = "$H" ]; then git rebase --abort >/dev/null 2>&1; fi; echo "resolve:skip $1"; exit 1; }
 abort() { git rebase --abort >/dev/null 2>&1; [ "$(git rev-parse HEAD)" = "$OLD" ] || git reset -q --hard "$OLD"; echo "resolve:abort $1 files:${2:-}"; exit 1; }
 rip() { local d p; for d in rebase-merge rebase-apply; do p=$(git rev-parse --git-path "$d"); [ -d "$p" ] && { echo "$p"; return 0; }; done; return 1; }
+snap() { { cat "$RD/n1-conflicts" "$RD/git-rebase-todo" "$RD/done"; git ls-files -s | awk -F'\t' 'NR==FNR{u[$0]=1;next} !($2 in u)' "$RD/n1-conflicts" -; } 2>/dev/null | git hash-object --stdin; }
 unm() { git diff --name-only --diff-filter=U | tr '\n' ' ' | sed 's/ $//'; }
 ver() { git show "$1:$PJ" 2>/dev/null | jq -r '.version // empty' 2>/dev/null; }
 xyz() { [[ "$1" =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}$ ]]; }
@@ -33,8 +34,7 @@ if RD=$(rip); then
   [ "$DEV" = 1 ] || skip rebase-in-progress
   [ "$(cat "$RD/head-name" 2>/dev/null)" = "refs/heads/$BR" ] || skip branch
   OLD=$(cat "$RD/orig-head" 2>/dev/null); [ "$OLD" = "$H" ] || skip rebase-not-ours
-  X=$({ git diff --name-only; git diff --cached --name-only; } | sort -u | grep -vxF -f <(git diff-tree --no-commit-id --name-only -r REBASE_HEAD) | tr '\n' ' ')
-  [ "$(git rev-parse HEAD)" = "$S0" ] && [ "$(cat "$RD/onto" 2>/dev/null)" = "$(git rev-parse "origin/$BASE")" ] && [ -z "$X" ] || abort scope "$X"
+  [ "$(git rev-parse HEAD)" = "$S0" ] && [ "$(cat "$RD/onto" 2>/dev/null)" = "$(git rev-parse "origin/$BASE")" ] && [ -n "$SN" ] && [ "$(snap)" = "$SN" ] || abort scope
 else
   [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] || skip branch
   OLD=$(git rev-parse HEAD); [ "$OLD" = "$H" ] || skip local-tip
@@ -57,13 +57,13 @@ while RD=$(rip); do
     if [ "$PO" = 1 ] && [ -z "$(git diff --name-only --diff-filter=U | grep -vxF -e "$PJ" -e "$MJ")" ]; then
       git checkout -q --ours -- $U && git add -- $U || abort checkout "$U"
     elif [ "$DEV" = 1 ]; then abort conflicts "$U"
-    else echo "resolve:conflicts old=$OLD stop=$(git rev-parse HEAD) files:$U"; exit 1
+    else git diff --name-only --diff-filter=U > "$RD/n1-conflicts"; echo "resolve:conflicts old=$OLD stop=$(git rev-parse HEAD) snap=$(snap) files:$U"; exit 1
     fi
   fi
   if git diff --cached --quiet; then git rebase --skip >/dev/null 2>&1; else GIT_EDITOR=true git rebase --continue >/dev/null 2>&1; fi
 done
 git merge-base --is-ancestor "origin/$BASE" HEAD || abort not-rebased "$(unm)"
-git diff -U0 "origin/$BASE" HEAD | grep -qE '^\+(<<<<<<<|>>>>>>>)( |$)' && abort markers "$(git diff --name-only "origin/$BASE" HEAD | tr '\n' ' ')"
+git diff --text --no-textconv --no-ext-diff -U0 "origin/$BASE" HEAD | grep -qE '^\+(<<<<<<<|>>>>>>>)( |$)' && abort markers "$(git diff --name-only "origin/$BASE" HEAD | tr '\n' ' ')"
 [ -z "$(git status --porcelain --untracked-files=no)" ] || abort dirty
 NV=none
 if [ "$VM" = 1 ]; then
@@ -84,7 +84,7 @@ echo "resolve:ready old=$OLD new=$(git rev-parse HEAD) bumped=$NV"
 - `pr:invalid` / `arg:invalid` → report it. **STOP.**
 - `resolve:skip <reason>` (wrong branch, fork PR or head branch equal to base, unusable base name, uncommitted changes, local tip or pin not at the reviewed head, fetch failed, a rebase already in progress, already up to date) → "PR #<n> cannot merge yet (conflicts; auto-resolve skipped: <reason>). Fix that, then re-run `/n1:n1-finish`." **STOP.** Nothing was changed (a rebase left by the developer round is aborted first).
 - `resolve:abort <reason> files:<list>` → "Could not resolve the conflicts of PR #<n> automatically (<reason>: <list>). The branch is back at the reviewed head and nothing was pushed. Rebase it onto the base branch yourself, then re-run `/n1:n1-finish`." Add the developer's `CANNOT_RESOLVE` reason when there is one. **STOP.**
-- `resolve:conflicts old=<sha> stop=<sha> files:<list>` → § Developer.
+- `resolve:conflicts old=<sha> stop=<sha> snap=<sha> files:<list>` → § Developer.
 - `resolve:ready old=<old> new=<new> bumped=<v|none>` → § Tests.
 
 ## § Developer
@@ -100,7 +100,7 @@ If a file cannot be resolved mechanically (the two sides change behavior in inco
 Output: ## Conflict Resolution, then one line per file: <file>: <resolution summary> | CANNOT_RESOLVE: <reason>; then the test command and its result.
 ```
 
-Then run § Resolve again with `<dev>` = `1` and `<stop>` = the `stop=` SHA, whatever the developer reported: an unresolved file is still unmerged (or still has markers), so the block aborts and restores the reviewed head. The block also aborts (`scope`) when the developer committed, restarted the rebase onto another base, or changed files outside the picked commit's files.
+Then run § Resolve again with `<dev>` = `1` and `<stop>` = the `stop=` SHA and `<snap>` = the `snap=` value, whatever the developer reported: an unresolved file is still unmerged (or still has markers), so the block aborts and restores the reviewed head. The `snap=` value hashes the exact conflict list, the rebase todo and `done` files, and every staged entry outside the conflict list. The block aborts (`scope`) unless HEAD is still at `stop=`, the base is unchanged and that hash still matches: the developer may change only the conflict files, and any commit, todo edit, restarted rebase or edit, addition, deletion or rename of another path aborts.
 
 ## § Tests
 

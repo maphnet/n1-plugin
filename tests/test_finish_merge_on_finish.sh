@@ -30,7 +30,7 @@ if grep -qF 'cannot merge yet' "$F" && grep -qF 'after a resolve attempt in this
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
     | sed -e 's#^ *source ~/.n1/preamble.sh$#:#' -e 's/"<n>"/"${TN-7}"/' -e 's/"<head>"/"${TH-}"/' -e 's/"<mergeMethod>"/"${TMM-}"/' \
-          -e 's/"<id>"/"${TID-N1-T}"/' -e 's/"<dev>"/"${TDEV-0}"/' -e 's/"<stop>"/"${TSTOP-}"/' -e 's/"<old>"/"${TOLD-}"/' -e 's/"<new>"/"${TNEW-}"/'; }
+          -e 's/"<id>"/"${TID-N1-T}"/' -e 's/"<dev>"/"${TDEV-0}"/' -e 's/"<stop>"/"${TSTOP-}"/' -e 's/"<snap>"/"${TSNAP-$SN}"/' -e 's/"<old>"/"${TOLD-}"/' -e 's/"<new>"/"${TNEW-}"/'; }
 PRE=$(block 1); MRG=$(block 2)
 if grep -qF 'gh pr checks' <<<"$PRE"; then ok "block 1 is the pre-check"; else no "block 1 is the pre-check"; fi
 if grep -qF 'gh pr merge' <<<"$MRG"; then ok "block 2 is the merge"; else no "block 2 is the merge"; fi
@@ -154,17 +154,17 @@ G="$T/g"
 setv() { jq -n --arg v "$1" '{name:"n1",version:$v}' > .claude-plugin/plugin.json; jq -n --arg v "$1" '{plugins:[{name:"n1",version:$v}]}' > .claude-plugin/marketplace.json; }
 fx() { # <base-ver> <main-ver> <pr-ver>; SRC_PR / SRC_MAIN add conflicting src.txt commits. PR branch feat = reviewed head. PR version must differ from main's, else git sees identical changes and no manifest conflict arises. cp -p keeps bump-version.sh mode 100644 as in the real repo.
   rm -rf "$G"; mkdir -p "$G"; git init -q --bare "$G/o.git"; git init -q "$G/w"
-  ( cd "$G/w" && mkdir -p .claude-plugin scripts && cp -p "$ROOT/scripts/bump-version.sh" scripts/ && setv "$1" && echo base > src.txt \
+  ( cd "$G/w" && mkdir -p .claude-plugin scripts && cp -p "$ROOT/scripts/bump-version.sh" scripts/ && setv "$1" && echo base > src.txt && echo keep > keep.txt \
     && git add -A && git commit -qm base && git remote add origin "$G/o.git" && git push -q origin main \
     && git checkout -q -b feat && setv "$3" && git commit -qam "chore: bump version to $3 (N1-T)" \
-    && { [ -z "${SRC_PR:-}" ] || { echo "$SRC_PR" > src.txt && git commit -qam "pr change"; }; } && git push -q origin feat \
+    && { [ -z "${SRC_PR:-}" ] || { echo "$SRC_PR" > src.txt && { [ -z "${PR_SIDE:-}" ] || echo side > side.txt; } && git add -A && git commit -qm "pr change"; }; } && git push -q origin feat \
     && git checkout -q main && setv "$2" && git commit -qam "main bump" \
     && { [ -z "${SRC_MAIN:-}" ] || { echo "$SRC_MAIN" > src.txt && git commit -qam "main change"; }; } && git push -q origin main \
     && git checkout -q feat ) || no "fixture $*"
-  OH=$(git -C "$G/w" rev-parse HEAD); echo "$OH" > "$PIN"
+  OH=$(git -C "$G/w" rev-parse HEAD); echo "$OH" > "$PIN"; SN=
 }
 gw() { git -C "$G/w" "$@"; }
-res() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" TH="${TH-$OH}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; '"$RES" 2>&1); }
+res() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" TH="${TH-$OH}" TSNAP="${TSNAP-$SN}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; '"$RES" 2>&1); s=$(sed -n 's/.* snap=\([0-9a-f]*\) .*/\1/p' <<<"$OUT"); [ -z "$s" ] || SN=$s; }
 intact() { # branch at the reviewed head, no rebase, clean tree, origin and pin unchanged
   if [ "$(gw rev-parse HEAD)" = "$OH" ] && [ ! -d "$G/w/.git/rebase-merge" ] && [ -z "$(gw status --porcelain --untracked-files=no)" ] \
      && [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "$1"; else no "$1"; fi
@@ -187,7 +187,7 @@ done
 # Non-manifest conflict: developer round, then the block finishes the rebase.
 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res
 ST=$(gw rev-parse HEAD)
-line "resolve: other conflict handed to the developer" "resolve:conflicts old=$OH stop=$ST files:src.txt"
+line "resolve: other conflict handed to the developer" "resolve:conflicts old=$OH stop=$ST snap=$SN files:src.txt"
 if [ -d "$G/w/.git/rebase-merge" ]; then ok "resolve: rebase left in progress for the developer"; else no "resolve: rebase left in progress for the developer"; fi
 res
 has "resolve: a <dev>=0 call never touches an in-progress rebase" "resolve:skip rebase-in-progress"
@@ -213,13 +213,37 @@ intact "resolve: developer commit restores the reviewed head"
 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; ST=$(gw rev-parse HEAD)
 echo merged > "$G/w/src.txt"; echo extra > "$G/w/extra.txt"; gw add src.txt extra.txt
 TDEV=1 TSTOP=$ST res
-has "resolve: out-of-scope file aborts" "resolve:abort scope files:extra.txt"
+has "resolve: out-of-scope file aborts" "resolve:abort scope"
 intact "resolve: out-of-scope abort restores the reviewed head"
 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; res; ST=$(gw rev-parse HEAD)
 echo merged > "$G/w/src.txt"; gw add src.txt; echo "$S" > "$PIN"
 TDEV=1 TSTOP=$ST res; echo "$OH" > "$PIN"
 has "resolve: <dev>=1 pin skip" "resolve:skip pin"
 intact "resolve: <dev>=1 skip aborts the rebase"
+# N1-144 cycle 2: one invariant (snap= hash + HEAD == stop); each case aborts and restores the reviewed head.
+stopfx() { res; ST=$(gw rev-parse HEAD); }
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; stopfx
+echo merged > "$G/w/src.txt"; gw add src.txt; echo "exec true" >> "$G/w/.git/rebase-merge/git-rebase-todo"
+TDEV=1 TSTOP=$ST res
+has "resolve: rebase todo edit aborts" "resolve:abort scope"
+intact "resolve: todo edit restores the reviewed head"
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; stopfx
+cp "$G/w/keep.txt" "$G/w/src.txt"; gw add src.txt; gw rm -q keep.txt
+TDEV=1 TSTOP=$ST res
+has "resolve: staged rename/deletion of an out-of-scope file aborts" "resolve:abort scope"
+intact "resolve: rename/deletion restores the reviewed head"
+PR_SIDE=1 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; stopfx
+echo merged > "$G/w/src.txt"; echo evil > "$G/w/side.txt"; gw add src.txt side.txt
+TDEV=1 TSTOP=$ST res
+has "resolve: edit to a non-conflict file of the picked commit aborts" "resolve:abort scope"
+intact "resolve: non-conflict edit restores the reviewed head"
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; stopfx
+echo 'src.txt -diff' > "$G/w/.git/info/attributes"
+printf '<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> pr\n' > "$G/w/src.txt"; gw add src.txt
+TDEV=1 TSTOP=$ST res
+has "resolve: markers behind a -diff attribute are caught" "resolve:abort markers"
+intact "resolve: attribute-hidden markers restore the reviewed head"
+rm -f "$G/w/.git/info/attributes"
 # CR-3: a PR that changed more than the version in a manifest goes to the developer.
 SRC_PR=pr fx 5.10.0 5.12.0 5.11.0
 ( cd "$G/w" && jq '.keywords=["k"]' .claude-plugin/plugin.json > p.tmp && mv p.tmp .claude-plugin/plugin.json && git commit -qam "pr keywords" && git push -q origin feat ); OH=$(gw rev-parse HEAD); echo "$OH" > "$PIN"
