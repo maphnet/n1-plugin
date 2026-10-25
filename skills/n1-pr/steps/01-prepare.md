@@ -87,7 +87,7 @@ echo "pr:body-file=$PR_BODY_FILE"
 
 `pr:body-file unavailable` → stop: "PR body file unavailable — PR not created."
 
-**If PR title and body provided as input** (e.g. from n1-start): use the title directly, write the body to the `pr:body-file=` path with the file-write mechanism, skip tech-writer, and go to **Check the body file**.
+**If PR title and body provided as input:** write the title (one line) to `<the pr:body-file= path>.title` and the body to the `pr:body-file=` path with the file-write mechanism, skip tech-writer, and go to **Check the body file**.
 
 **Otherwise (standalone):**
 
@@ -108,18 +108,19 @@ BRAINSTORM_GATE_SKIPPED=false
 
 Spawn tech-writer with: ticket ID, paths to `overview.md`/`review.md`/`qa.md`/`local-testing.md` (if exists)/`ticket.md` (if exists), git diff stat, Phase 1 doc update report, `description_quality: $DQ`, `brainstorm_gate_skipped: $BRAINSTORM_GATE_SKIPPED`, `body_file: <the pr:body-file= path>`.
 
-It writes the body to `body_file` and returns the `### Title` plus one line `pr body written: <path>`.
+It writes the body to `body_file` and the title to `<body_file>.title`, and returns the `### Title` plus one line `pr body written: <path>`.
 
 **Check the body file:**
 
 ```bash
 source ~/.n1/preamble.sh
 PR_BODY_FILE="<the path from pr:body-file=>"
-[ -s "$PR_BODY_FILE" ] && echo "pr:body ok" || echo "pr:body missing"
+case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*) ;; *) echo "PR body path invalid"; exit 1;; esac
+[ -s "$PR_BODY_FILE" ] && [ -s "$PR_BODY_FILE.title" ] && echo "pr:body ok" || echo "pr:body missing"
 ```
 
-`pr:body missing` after tech-writer → dispatch tech-writer once more with the same inputs and re-run the check. If it is still missing (or missing on the input path) → stop: "PR body missing — PR not created." Otherwise `gh pr create --body-file` would create a PR with an empty body.
+`pr:body missing` after tech-writer → dispatch tech-writer once more with the same inputs plus `phase: 2` (skip Phase 1; the docs are already updated and committed) and re-run the check. If it is still missing (or missing on the input path) → stop: "PR body missing — PR not created." Otherwise `gh pr create --body-file` would create a PR with an empty body.
 
 **Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, skip the prompt — create PR as composed, append Decision Ledger row (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass.
 
-Otherwise: present the title and the body file contents, ask **"Create PR with this content? (yes/edit/cancel)"**. On `edit`, rewrite the body file with the file-write mechanism; title edits stay inline.
+Otherwise: present the title and the body file contents, ask **"Create PR with this content? (yes/edit/cancel)"**. On `edit`, rewrite the body file with the file-write mechanism; on a title edit, rewrite `$PR_BODY_FILE.title` the same way.

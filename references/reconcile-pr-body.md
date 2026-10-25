@@ -1,6 +1,6 @@
 # Procedure: Reconcile PR Body
 
-Rewrites an open PR's whole description after pushes made once the PR exists, so every claim matches the current diff. Called once at the end of a run by n1-ci (Step 4 / Step 7a), the n1-pr Codex triage fix cycle (Step 9), and n1-review-response (Step 6a). It is also used for ad-hoc pushes outside a skill run (HOST ROUTING `PR BODY RECONCILE`). It never commits or pushes; its only state change besides the PR body is advancing the reviewed-head pin in § Check. It never blocks: any failure prints a `reconcile:failed` or `reconcile:aborted` line, the PR body may be stale, and the caller continues. It needs no Decision Ledger row.
+Rewrites an open PR's whole description after pushes made once the PR exists, so every claim matches the current diff. Called once at the end of a run by n1-ci (Step 4 / Step 7a), the n1-pr Codex triage fix cycle (`skills/n1-pr/procedures/codex-triage.md`), and n1-review-response (Step 6a). It is also used for ad-hoc pushes outside a skill run (HOST ROUTING `PR BODY RECONCILE`). It never commits or pushes; its only state change besides the PR body is advancing the reviewed-head pin in § Check. It never blocks: any failure prints a `reconcile:failed` or `reconcile:aborted` line, the PR body may be stale, and the caller continues. It needs no Decision Ledger row.
 
 **Run-start contract.** Before its first developer dispatch, each calling site records the PR head in its own file and carries the path forward, the same way `<D>` is carried from the `reconcile:run dir=` line:
 

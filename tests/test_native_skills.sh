@@ -238,7 +238,7 @@ if grep -qF '`body_file`' "$TWR" && grep -qF 'pr body written: <body_file>' "$TW
 else
     echo "FAIL: tech-writer has no body_file output"; FAIL=1
 fi
-if grep -qF 'PR_BODY_FILE="<the path from pr:body-file=>"' "$P2" && grep -qF -- '--body-file "$PR_BODY_FILE"' "$P2"; then
+if grep -q '^PR_BODY_FILE=' "$P2" && grep -qF -- '--body-file "$PR_BODY_FILE"' "$P2"; then
     echo "PASS: 02-push-create defines and uses PR_BODY_FILE"
 else
     echo "FAIL: 02-push-create PR_BODY_FILE undefined or unused"; FAIL=1
@@ -248,10 +248,17 @@ if grep -qF '[ -s "$PR_BODY_FILE" ] ||' "$P2"; then
 else
     echo "FAIL: 02-push-create does not guard an empty PR body"; FAIL=1
 fi
-if grep -qF -- '--body "<body>"' "$P2"; then
-    echo "FAIL: 02-push-create still inlines the PR body"; FAIL=1
+if grep -rhE 'gh pr create' skills/n1-pr | grep -vE -- '--body-file' | grep -q .; then
+    echo "FAIL: a gh pr create line in skills/n1-pr does not use --body-file"; FAIL=1
+elif grep -rhE 'gh pr create.*--body([ =]|$)' skills/n1-pr | grep -q .; then
+    echo "FAIL: a gh pr create line in skills/n1-pr inlines --body"; FAIL=1
 else
-    echo "PASS: 02-push-create never inlines the PR body"
+    echo "PASS: every gh pr create in skills/n1-pr uses --body-file"
+fi
+if grep -qF 'case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*)' "$P1" && grep -qF 'case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*)' "$P2"; then
+    echo "PASS: PR_BODY_FILE path is validated before use"
+else
+    echo "FAIL: PR_BODY_FILE path not validated in 01/02"; FAIL=1
 fi
 
 exit $FAIL

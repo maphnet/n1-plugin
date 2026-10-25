@@ -37,11 +37,14 @@ You will receive:
 - `description_quality` — quality tier from the product-analyst signal (`empty`, `skeletal`, `weak`, `adequate`); defaults to `adequate` when absent
 - `brainstorm_gate_skipped` — `true` when the brainstorm User Gate was bypassed because `autonomy.brainstorm` is `"auto"`; defaults to `false` when absent
 - `mode`: `create` (default) or `reconcile`. Reconcile receives only the inputs listed under Reconcile Mode.
-- `body_file` (optional, Phase 2): absolute path for the PR body. When given, write the body there instead of returning it (Phase 2 step 8).
+- `body_file` (optional, Phase 2): absolute path for the PR body. When given, write the body there instead of returning it, and the one-line title to `<body_file>.title` (Phase 2 step 8).
+- `phase` (optional): `2` means skip Phase 1 and run Phase 2 only (retry after a missing body file). Default: both phases.
 
 ## Phase 1: Documentation Update
 
 **`mode: reconcile` → skip Phase 1 and Phase 2; go straight to Reconcile Mode.** Never edit, commit, or push repository files in reconcile mode.
+
+**`phase: 2` → skip Phase 1 entirely** (no doc scan, edits, or commits) and start at Phase 2, reusing the doc update report from your prompt if given.
 
 Discover and update documentation files affected by the code changes. This runs BEFORE PR content generation.
 
@@ -171,7 +174,7 @@ Generate the PR title and body from implementation context.
    - **Format:** one action per `- [ ]` line, with no nested bullets. Each item is either a single backtick shell command (optionally followed by a short note) or text starting with `Manual:`. n1-finish and n1-release parse these lines and tick them `[x]` as they run.
    - Both lists empty → no section. One list empty → omit that sub-heading.
 
-8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1. When `body_file` is given, write the body (body only: no title, no `## PR Content` wrapper, no other wrapper tags) to `body_file` with the Write tool and return only the title block plus `pr body written: <body_file>` (see Output Format). Without `body_file`, return title and body inline.
+8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1. When `body_file` is given, write the body (body only: no title, no `## PR Content` wrapper, no other wrapper tags) to `body_file` and the title (one line, no `###`) to `<body_file>.title`, both with the Write tool, and return only the title block plus `pr body written: <body_file>` (see Output Format). Without `body_file`, return title and body inline.
 
 ## Reconcile Mode
 
