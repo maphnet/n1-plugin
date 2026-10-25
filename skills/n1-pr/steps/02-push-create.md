@@ -68,7 +68,7 @@ After a successful push (either path above), create the PR from the body file an
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/codex-review.sh"
 PR_BODY_FILE="<the path from pr:body-file=>"
-case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*) ;; *) echo "PR body path invalid"; exit 1;; esac
+case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*/*) echo "PR body path invalid"; exit 1;; "$N1_HOME"/scratch/pr-body-*) ;; *) echo "PR body path invalid"; exit 1;; esac
 DEFAULT_BRANCH="<the default branch>"
 PR_MODE="<draft or ready, from prepare>"
 DRAFT_ARGS=(); [ "$PR_MODE" = "draft" ] && DRAFT_ARGS=(--draft)

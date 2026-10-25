@@ -115,7 +115,7 @@ It writes the body to `body_file` and the title to `<body_file>.title`, and retu
 ```bash
 source ~/.n1/preamble.sh
 PR_BODY_FILE="<the path from pr:body-file=>"
-case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*) ;; *) echo "PR body path invalid"; exit 1;; esac
+case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*/*) echo "PR body path invalid"; exit 1;; "$N1_HOME"/scratch/pr-body-*) ;; *) echo "PR body path invalid"; exit 1;; esac
 [ -s "$PR_BODY_FILE" ] && [ -s "$PR_BODY_FILE.title" ] && echo "pr:body ok" || echo "pr:body missing"
 ```
 

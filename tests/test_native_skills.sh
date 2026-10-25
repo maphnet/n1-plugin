@@ -255,8 +255,9 @@ elif grep -rhE 'gh pr create.*--body([ =]|$)' skills/n1-pr | grep -q .; then
 else
     echo "PASS: every gh pr create in skills/n1-pr uses --body-file"
 fi
-if grep -qF 'case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*)' "$P1" && grep -qF 'case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*)' "$P2"; then
-    echo "PASS: PR_BODY_FILE path is validated before use"
+GUARD='case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*/*) echo "PR body path invalid"; exit 1;; "$N1_HOME"/scratch/pr-body-*) ;;'
+if grep -qF "$GUARD" "$P1" && grep -qF "$GUARD" "$P2"; then
+    echo "PASS: PR_BODY_FILE path is validated before use (no subpath after prefix)"
 else
     echo "FAIL: PR_BODY_FILE path not validated in 01/02"; FAIL=1
 fi
