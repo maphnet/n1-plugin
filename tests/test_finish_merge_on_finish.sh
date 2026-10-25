@@ -182,6 +182,12 @@ intact() { # branch at the reviewed head, no rebase, clean tree, origin and pin 
 # Version-only conflict: rebase, take main's manifests, one re-bump commit above main (minor class).
 fx 5.10.0 5.12.0 5.11.0; res; NH=$(gw rev-parse HEAD)
 line "resolve: manifest-only conflict re-bumped above main" "resolve:ready old=$OH new=$NH bumped=5.13.0"
+# SEC-1 (N1-146): resolve-dirty stays interactive-only; queue/headless are denied even with both keys true.
+for e in "N1_QUEUE_RUN_ID=q-1" "N1_HEADLESS=1"; do
+  export "$e"; MERGE_KEY=true FA_KEY=true res; unset "${e%%=*}"
+  line "resolve: denied for $e with both keys" "resolve:denied"
+done
+if grep -qF 'merge conflicts; N1 does not resolve them unattended' "$F"; then ok "3.1: unattended DIRTY stops"; else no "3.1: unattended DIRTY stops"; fi
 if [ "$(gw log --format=%s origin/main..HEAD)" = "chore: bump version to 5.13.0 (N1-T)" ]; then ok "resolve: one bump commit on top of main"; else no "resolve: commits $(gw log --format=%s origin/main..HEAD | tr '\n' '|')"; fi
 if [ "$(jq -r .version "$G/w/.claude-plugin/plugin.json") $(jq -r '.plugins[0].version' "$G/w/.claude-plugin/marketplace.json")" = "5.13.0 5.13.0" ]; then ok "resolve: both manifests at 5.13.0"; else no "resolve: both manifests at 5.13.0"; fi
 if [ "$(gw diff --name-only origin/main HEAD | tr '\n' ' ')" = ".claude-plugin/marketplace.json .claude-plugin/plugin.json " ] && [ ! -d "$G/w/.git/rebase-merge" ]; then ok "resolve: only manifests differ from main, rebase finished"; else no "resolve: only manifests differ from main, rebase finished"; fi
