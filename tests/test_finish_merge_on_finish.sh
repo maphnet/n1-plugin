@@ -38,7 +38,7 @@ q=; p=; for a in "$@"; do if [ "$p" = --jq ] || [ "$p" = -q ]; then q=$a; fi; p=
 DG='{"data":{"repository":{"pullRequest":{"reviewThreads":{"totalCount":0,"nodes":[]}}}}}'
 case "$1 $2" in
   "pr checks") [ -z "${CHECKS_ERR:-}" ] || { echo "$CHECKS_ERR" >&2; exit 1; }; R=${CHECKS:-[]} ;;
-  "repo view") R='{"nameWithOwner":"o/r"}' ;;
+  "repo view") [ -z "${REPO_FAIL:-}" ] || exit 1; R='{"nameWithOwner":"o/r"}' ;;
   "api graphql") [ -z "${GQL_ERR:-}" ] || exit 1; R=${GQL:-$DG} ;;
   "pr merge") echo "$*" >> "$LOG"; [ "${MERGE_EXIT:-0}" = 0 ] || { echo "merge blocked by branch protection" >&2; exit 1; }; exit 0 ;;
   "pr view") case "$*" in *headRefOid*) R="{\"headRefOid\":\"${HEADSHA:-}\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;; *) R=${VIEW:-} ;; esac ;;
@@ -60,6 +60,8 @@ has "pre: no unresolved threads" "threads:0"
 line "pre: reviewed-head pin printed" "pin:$S"
 rm -f "$PIN"; CHECKS='[]' pre
 line "pre: missing pin prints an empty pin" "pin:"
+REPO_FAIL=1 CHECKS='[]' pre
+line "pre: pin lookup failure prints pin:unavailable" "pin:unavailable"
 has "pre: no Codex receipt -> codex:none" "codex:none"
 RC="$T/home/review-receipts/s1"; mkdir -p "$RC"
 echo '{"outcome":"skipped"}' > "$RC/o_r_7.json"; pre

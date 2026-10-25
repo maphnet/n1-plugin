@@ -30,7 +30,7 @@ tip $A
 PIN="$T/home/review-pins/o_r_7"
 
 eq "get: no pin prints nothing" "" "$(n1_review_pin get 7)"
-eq "get: repo lookup failure -> unavailable" "pin:unavailable" "$(REPO_FAIL=1 n1_review_pin get 7)"
+eq "get: repo lookup failure -> unavailable" "unavailable" "$(REPO_FAIL=1 n1_review_pin get 7)"
 tip $B; eq "set: head != local tip -> unavailable" "pin:unavailable" "$(HEADSHA=$A n1_review_pin set 7)"
 [ ! -e "$T/home/review-pins/o_r_7" ] && ok "set: foreign head writes no pin" || no "set: foreign head wrote a pin"
 tip $A
@@ -46,14 +46,14 @@ eq "advance: NOW != local tip (n1-ci pushed nothing, foreign push) -> kept" "pin
 eq "advance: kept leaves the pin" "$A" "$(n1_review_pin get 7)"
 tip $B
 eq "advance: from == pin and NOW == local tip -> advanced" "pin:advanced 2222222" "$(n1_review_pin advance 7 "$A" "$B")"
-eq "advance: no local branch -> kept" "pin:kept" "$(BRANCH= n1_review_pin advance 7 "$B" "$C")"
+echo "$C" > .git/refs/heads/other; eq "advance: PR branch missing locally, other branch at NOW -> kept" "pin:kept" "$(BRANCH=gone n1_review_pin advance 7 "$B" "$C")"; rm -f .git/refs/heads/other
 eq "advance: pin moved to the new head" "$B" "$(cat "$PIN")"
 eq "advance: invalid target -> unavailable" "pin:unavailable" "$(n1_review_pin advance 7 "$B" zz)"
 eq "advance: invalid target keeps the pin" "$B" "$(cat "$PIN")"
 eq "advance: no pin -> kept" "pin:kept" "$(n1_review_pin advance 8 "" "$B")"
 [ ! -e "$T/home/review-pins/o_r_8" ] && ok "advance: no pin creates nothing" || no "advance: no pin created a file"
 eq "set: non-digit PR rejected" "pin:unavailable" "$(HEADSHA=$A n1_review_pin set '7;x')"
-eq "get: non-digit PR prints nothing" "" "$(n1_review_pin get '../7')"
+eq "get: non-digit PR -> unavailable" "unavailable" "$(n1_review_pin get '../7')"
 eq "set: repo lookup failure -> unavailable" "pin:unavailable" "$(REPO_FAIL=1 HEADSHA=$A n1_review_pin set 9)"
 eq "set: unsafe repo name rejected" "pin:unavailable" "$(REPO='o/r x' HEADSHA=$A n1_review_pin set 9)"
 eq "set: rejected inputs write nothing" "o_r_7" "$(ls "$T/home/review-pins")"
