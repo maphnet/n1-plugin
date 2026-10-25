@@ -2,7 +2,7 @@
 
 ## Finish Work Configuration
 
-Interactive runs stop at PR + CI; the human merges, then runs n1-finish to watch the deployment and close the tracker ticket.
+Interactive runs stop at PR + CI; the human merges, then runs n1-finish to watch the deployment and close the tracker ticket. With `mergeOnFinish` on, n1-finish merges the open PR itself first.
 
 Only ask when a tracker is configured — without one, write `"finishWork": { "postDeployVerification": { "enabled": false } }` silently.
 
@@ -15,7 +15,18 @@ Merge method?
 3 — rebase
 ```
 
-The method applies to queue merges and the `prMode: "skip"` local merge.
+The method applies to the n1-finish merge (`mergeOnFinish`) and the `prMode: "skip"` local merge.
+
+Ask:
+
+```
+Let /n1:n1-finish merge the open PR?
+When on, n1-finish checks CI and unresolved review threads, merges with the method above,
+then watches the deployment and closes the ticket. Queued and headless runs never merge.
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
+1 — No (default): you merge, then run /n1:n1-finish
+2 — Yes
+```
 
 Ask: "Deploy workflow name to watch? (enter = watch all runs on the merge commit)"
 
@@ -48,11 +59,12 @@ If **Yes**, create the editable local-only `$N1_HOME/dev-access.md` template. As
 
 If **No**, set `postDeployVerification.enabled` to `false` and do not create `dev-access.md`. This choice does not change `localTesting`; an older config that leaves this nested key absent retains its legacy smoke fallback.
 
-Write the block (omit `deployWatch` when the workflow name is empty):
+Write the block (omit `deployWatch` when the workflow name is empty). `mergeOnFinish` is a JSON boolean (`true` for **2**, `false` for **1**), never a quoted string: n1-finish treats any non-boolean value as off.
 ```json
 {
   "finishWork": {
     "mergeMethod": "<from merge-method question>",
+    "mergeOnFinish": <true|false from merge-on-finish question>,
     "deployWatch": {
       "workflowName": "<name>"
     },
@@ -69,6 +81,7 @@ If `finishWork` already exists in the current config, show current state and off
 ```
 Current finish work:
   mergeMethod → <squash/merge/rebase>
+  mergeOnFinish → <true/false (absent = false)>
   deployWatch.workflowName → <name/all runs>
 
 1 — Keep current

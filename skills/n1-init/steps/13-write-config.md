@@ -27,6 +27,7 @@ Create all files:
     "mode": "test"
   },
   "finishWork": {
+    "mergeOnFinish": false,
     "postDeployVerification": {
       "enabled": false
     }
