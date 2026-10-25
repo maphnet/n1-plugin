@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, queue merge deny).
+# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, merge deny).
 # Delegates to enforce-agent-policy.py; fail-open unless the script denies (exit 2).
 set -euo pipefail
 
@@ -8,14 +8,15 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 
 INPUT=$(cat)
 
-# Fast path: persona payloads always go to Python. The merge deny (Case 3) applies only to
-# Bash calls in headless queue children; key on the tool name, never the command text (SEC-4:
-# a substring glob on the command is evaded by quote-split obfuscation). Everything else exits.
+# Fast path: persona payloads always go to Python. The merge deny (Case 3) applies to every Bash
+# call unless merges are authorized for this session (N1-146: n1_merge_authorized is a config
+# check). Key on the tool name and config, never the command text (SEC-4: a substring glob on
+# the command is evaded by quote-split obfuscation).
 QUEUE_CHILD=""
 [ -n "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" = "1" ] && QUEUE_CHILD=1
 case "$INPUT" in
     *'"n1:'*) : ;;
-    *'"Bash"'*) [ -n "$QUEUE_CHILD" ] || exit 0 ;;
+    *'"Bash"'*) [ "$(n1_merge_authorized)" != true ] || exit 0 ;;
     *) exit 0 ;;
 esac
 
@@ -32,7 +33,7 @@ for cand in python3 python; do
     fi
 done
 if [ -z "$PY" ]; then
-    # Fail closed: without Python the queue merge deny cannot run (CR-11).
+    # Fail closed for queue children only (CR-11); other sessions fail open with the warning below (N1-146).
     case "$INPUT" in
         *'"Bash"'*) if [ -n "$QUEUE_CHILD" ]; then
             echo "N1: Bash denied in queue run ${N1_QUEUE_RUN_ID} -- no Python interpreter for the merge-deny check" >&2

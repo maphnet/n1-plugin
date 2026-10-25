@@ -11,8 +11,8 @@ Case 2 - spawn model override. For spawn tools targeting an N1 persona, rewrite 
 from config `models.<persona>` (string, or a legacy host-keyed object read through its
 "claude-code" key).
 
-Case 3 - queue merge deny (N1-114). Unconditional, no config gate: only in headless queue children
-(env N1_QUEUE_RUN_ID set and N1_HEADLESS=1), deny Bash `gh pr merge`; `gh api`/curl/wget when the
+Case 3 - merge deny (N1-114, N1-146). Every session unless merge_authorized (finishWork.mergeOnFinish
+true, plus autonomy.fullAuto true when N1_QUEUE_RUN_ID is set or N1_HEADLESS=1), deny Bash `gh pr merge`; `gh api`/curl/wget when the
 command anywhere names a merge API (mergePullRequest, enablePullRequestAutoMerge, mergeBranch,
 enqueuePullRequest, repos/<o>/<r>/merges, pulls/<n>/merge, git/refs/heads/<default>) - anywhere, so a
 heredoc query body counts, but only with an HTTP-capable command present, so `grep mergePullRequest`
@@ -246,9 +246,21 @@ def _commands(command):
                 yield chunk
 
 
+def _is_true(config: dict, block: str, key: str) -> bool:
+    section = config.get(block)
+    return isinstance(section, dict) and section.get(key) is True
+
+
+def merge_authorized(config: dict) -> bool:
+    """Mirror of n1_merge_authorized (lib/config.sh, N1-146): mergeOnFinish true, plus fullAuto when unattended."""
+    if not _is_true(config, "finishWork", "mergeOnFinish"):
+        return False
+    unattended = bool(os.environ.get("N1_QUEUE_RUN_ID")) or os.environ.get("N1_HEADLESS") == "1"
+    return not unattended or _is_true(config, "autonomy", "fullAuto")
+
+
 def merge_deny(payload: dict, config: dict) -> int:
-    run_id = os.environ.get("N1_QUEUE_RUN_ID")
-    if not run_id or os.environ.get("N1_HEADLESS") != "1":
+    if merge_authorized(config):
         return 0
     tool_input = payload.get("tool_input")
     tool_input = tool_input if isinstance(tool_input, dict) else {}
@@ -265,8 +277,8 @@ def merge_deny(payload: dict, config: dict) -> int:
     api_hit = api_re.search(command) is not None
     if not any(_is_merge(c, api_hit, default, cwd) for c in _commands(command)):
         return 0
-    sys.stderr.write(f"N1: merge denied in queue run {run_id} -- N1 never merges; "
-                     f"the ticket stops after PR + CI and a human merges\n")
+    sys.stderr.write("N1: merge denied -- N1 merges only with finishWork.mergeOnFinish true "
+                     "(queue/headless runs also need autonomy.fullAuto true); otherwise a human merges\n")
     return 2
 
 
