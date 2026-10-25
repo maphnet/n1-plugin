@@ -53,8 +53,9 @@ After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm 
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 MEM="$N1_HOME/memory/$ID"; SEC=<true if security-reviewer was spawned, else false>
-for f in review-hdr.md review-cr.md $([ "$SEC" = true ] && echo review-sec.md); do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
-cat "$MEM"/review-hdr.md "$MEM"/review-cr.md $([ "$SEC" = true ] && echo "$MEM"/review-sec.md) > "$MEM/review.md"
+FILES=(review-hdr.md review-cr.md); [ "$SEC" = true ] && FILES+=(review-sec.md)
+for f in "${FILES[@]}"; do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
+( cd "$MEM" && cat "${FILES[@]}" ) > "$MEM/review.md"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
