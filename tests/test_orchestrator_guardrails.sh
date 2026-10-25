@@ -164,7 +164,7 @@ assert_contains "finish: release never chained" \
     'never n1-release'
 assert_contains "finish: no-chain path still tells the user" \
     "skills/n1-start/steps/finish.md" \
-    'Otherwise tell the user'
+    'Tell the user "Merge the PR'
 assert_contains "n1-ci: never chains into n1-finish or release" \
     "skills/n1-ci/steps/01-monitor.md" \
     'never chains into n1-finish or release'
