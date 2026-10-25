@@ -18,13 +18,13 @@ The ticket is closed **only when the code is actually merged** — never on gree
 
 ## Entry (one Bash call + reads)
 
-Fill `ID` (argument, else derived from the PR or branch) and `PR` (digits of a `#123`/`123` argument, else empty), then run via Bash. **In the same turn**, read these in parallel, not via Bash: `<N1_ROOT>/skills/n1-finish/steps/` files `01-resolve-target.md`, `02-merge.md`, `03-deploy.md`, `04-close-ticket.md`, `05-telemetry-followup.md`, `06-cleanup.md`, and `<N1_ROOT>/references/deployment-actions.md`.
+Fill `ID` (argument, else derived from the PR or branch) , `PR` (digits of a `#123`/`123` argument, else empty) and `CH` (`yes` if the arguments include `chained`), then run via Bash. **In the same turn**, read these in parallel, not via Bash: `<N1_ROOT>/skills/n1-finish/steps/` files `01-resolve-target.md`, `02-merge.md`, `03-deploy.md`, `04-close-ticket.md`, `05-telemetry-followup.md`, `06-cleanup.md`, and `<N1_ROOT>/references/deployment-actions.md`.
 
 ```bash
 source ~/.n1/preamble.sh
 [ -n "$N1_HOME" ] || { echo n1-home:missing; exit 1; }
 POST_DEPLOY_VERIFICATION_ARTIFACT=false
-ID="<ID>"; PR="<PR>"; c() { n1_config_val ".$1"; }; S="$N1_ROOT/skills/n1-finish"
+ID="<ID>"; PR="<PR>"; CH="<CH>"; c() { n1_config_val ".$1"; }; S="$N1_ROOT/skills/n1-finish"
 [[ "$PR" =~ ^[0-9]*$ ]] || PR=
 TP=$(c tracker.prefix); B=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); F=number,state,mergedAt,mergeCommit,url,headRefName,baseRefName
 tid() { grep -oiE "$TP-[0-9]+" | head -1 | tr a-z A-Z; }
@@ -48,7 +48,7 @@ echo "id=$ID prMode=$P mechanicalPrompts=$(n1_autonomy_val mechanicalPrompts)"
 for k in finishWork.{mergeMethod,deployWatch.workflowName} delivery.mode git.{defaultBranch,branchPattern} tracker.{mcp,versionMcp,statuses.done} release.enabled; do echo "$k=$(c $k)"; done
 echo "tracker.operations=$(n1_config_ops .tracker.operations)"
 [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
-[ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] && echo merge-on-finish:yes
+[ "$(n1_merge_authorized)" = true ] && echo merge-on-finish:yes; [ "$CH" != yes ] || echo chained:yes
 RA=()
 [ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md")
 [ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && RA+=("$S/references/done-status-recovery.md")
@@ -78,7 +78,7 @@ Defaults:
 
 Post-deploy verification dispatches only after a successful deployment (`ticket.md` → `post-deploy-verification.md`; `steps/03-deploy.md`); never blocks closure.
 
-N1 merges an open PR only when `mergeOnFinish` is `true` in an interactive run (entry prints `merge-on-finish:yes`); otherwise the human merges, then runs n1-finish. Queue and headless runs never merge. prMode skip merges locally (Step 2b).
+N1 merges an open PR only when the entry prints `merge-on-finish:yes` (`mergeOnFinish` `true`; queue and headless runs also need `autonomy.fullAuto`); otherwise the human merges, then runs n1-finish. prMode skip merges locally (Step 2b; a chained run only with `merge-on-finish:yes`).
 
 ## Steps
 

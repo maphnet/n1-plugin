@@ -12,7 +12,7 @@ One shell call in the current checkout. `<n>` is the PR number, `<head>` the rev
 
 ```bash
 source ~/.n1/preamble.sh
-[ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo resolve:denied; exit 1; }
+[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }
 N="<n>"; H="<head>"; ID="<id>"; DEV="<dev>"; S0="<stop>"; SN="<snap>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
 [[ "$H" =~ ^[0-9a-f]{40}$ ]] && [[ "$ID" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$DEV" =~ ^[01]$ ]] && [[ "$S0" =~ ^([0-9a-f]{40})?$ ]] && [[ "$SN" =~ ^([0-9a-f]{40})?$ ]] || { echo arg:invalid; exit 1; }
@@ -114,7 +114,7 @@ One shell call. `<old>` and `<new>` come from `resolve:ready`. The lease is pinn
 
 ```bash
 source ~/.n1/preamble.sh
-[ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo resolve:denied; exit 1; }
+[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }
 N="<n>"; OLD="<old>"; NEW="<new>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
 [[ "$OLD" =~ ^[0-9a-f]{40}$ ]] && [[ "$NEW" =~ ^[0-9a-f]{40}$ ]] || { echo sha:invalid; exit 1; }

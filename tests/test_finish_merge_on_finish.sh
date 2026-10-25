@@ -106,7 +106,7 @@ has "pre: no checks, no workflow -> checks:none" "checks:none"
 TN='7;x' pre
 has "pre: non-digit PR rejected" "pr:invalid"
 
-mrg() { : > "$T/log"; OUT=$(PATH="$T/bin:$PATH" LOG="$T/log" TH="${TH-$S}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; '"$MRG" 2>&1); ARGS=$(cat "$T/log"); }
+mrg() { : > "$T/log"; OUT=$(PATH="$T/bin:$PATH" LOG="$T/log" TH="${TH-$S}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$MRG" 2>&1); ARGS=$(cat "$T/log"); }
 V="{\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"$S\"}}"
 VIEW=$V mrg
 has "merge: announces method" "mergeOnFinish=true: merging PR #7 (squash)"
@@ -128,6 +128,15 @@ if [ "$(wc -l <"$T/log")" = 1 ]; then ok "merge: no retry"; else no "merge: retr
 MERGE_EXIT=0 VIEW='{"state":"OPEN","mergeCommit":null}' mrg
 has "merge: queued shows exit 0 with state OPEN" "merge-exit:0"
 has "merge: queued state OPEN" "state:OPEN sha:"
+# N1-146: the guard is the shared predicate; queue/headless merge only with fullAuto too.
+if grep -qF '[ "$(n1_merge_authorized)" = true ] || { echo merge:denied; exit 1; }' <<<"$MRG"; then ok "merge: guard is n1_merge_authorized"; else no "merge: guard is n1_merge_authorized"; fi
+N1_QUEUE_RUN_ID=q-1 N1_HEADLESS=1 VIEW=$V mrg
+has "merge: queue without fullAuto denied" "merge:denied"
+if [ -z "$ARGS" ]; then ok "merge: queue without fullAuto never calls gh pr merge"; else no "merge: queue denied called gh: $ARGS"; fi
+N1_QUEUE_RUN_ID=q-1 N1_HEADLESS=1 FA_KEY=true VIEW=$V mrg
+has "merge: queue + fullAuto + mergeOnFinish merges" "state:MERGED sha:$S"
+if grep -qF 'Run /n1:n1-finish <ID> to merge locally.' "$F"; then ok "2b: chained gate message"; else no "2b: chained gate message"; fi
+if grep -qF 'N1 [headless]' "$F"; then ok "threads: headless STOP posts a tracker comment"; else no "threads: headless STOP posts a tracker comment"; fi
 
 echo "$O" > "$PIN"; VIEW=$V mrg
 has "merge: head != pin refused" "pin:mismatch"
@@ -164,7 +173,7 @@ fx() { # <base-ver> <main-ver> <pr-ver>; SRC_PR / SRC_MAIN add conflicting src.t
   OH=$(git -C "$G/w" rev-parse HEAD); echo "$OH" > "$PIN"; SN=
 }
 gw() { git -C "$G/w" "$@"; }
-res() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" TH="${TH-$OH}" TSNAP="${TSNAP-$SN}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; '"$RES" 2>&1); s=$(sed -n 's/.* snap=\([0-9a-f]*\) .*/\1/p' <<<"$OUT"); [ -z "$s" ] || SN=$s; }
+res() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" TH="${TH-$OH}" TSNAP="${TSNAP-$SN}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$RES" 2>&1); s=$(sed -n 's/.* snap=\([0-9a-f]*\) .*/\1/p' <<<"$OUT"); [ -z "$s" ] || SN=$s; }
 intact() { # branch at the reviewed head, no rebase, clean tree, origin and pin unchanged
   if [ "$(gw rev-parse HEAD)" = "$OH" ] && [ ! -d "$G/w/.git/rebase-merge" ] && [ -z "$(gw status --porcelain --untracked-files=no)" ] \
      && [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "$1"; else no "$1"; fi
@@ -301,7 +310,7 @@ has "resolve: untracked file skipped" "resolve:skip local-files"
 # N1-144 § Push: pinned lease, pin advanced only for the pushed rebased head.
 PSH=$(block 2 "$RF"); CI=$(block 3 "$RF")
 if grep -qF -- '--force-with-lease=' <<<"$PSH" && ! grep -qE -- '--force( |$)|push -f' "$RF"; then ok "resolve push uses a pinned lease, never a bare force"; else no "resolve push uses a pinned lease, never a bare force"; fi
-psh() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; '"$PSH" 2>&1); }
+psh() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$PSH" 2>&1); }
 fx 5.10.0 5.12.0 5.11.0; res; NH=$(gw rev-parse HEAD)
 for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
   export "$g"; TOLD=$OH TNEW=$NH psh; unset "${g%%=*}"

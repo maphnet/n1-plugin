@@ -1,8 +1,8 @@
 # Step 2: Merge State Machine
 
-N1 merges an open PR only when the entry printed `merge-on-finish:yes` (`finishWork.mergeOnFinish` is `true`, interactive run, not a queue or headless run). Otherwise the human merges, then re-runs n1-finish.
+N1 merges an open PR only when the entry printed `merge-on-finish:yes` (`finishWork.mergeOnFinish` is `true`; a queue or headless run also needs `autonomy.fullAuto` `true`). Otherwise the human merges, then re-runs n1-finish.
 
-**Queue runs.** When the entry printed `queue-run:yes`, report "Queue run: N1 never merges. The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b.
+**Queue runs.** When the entry printed `queue-run:yes` without `merge-on-finish:yes`, report "Queue run: N1 merges only when `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true. The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b.
 
 Evaluate the PR state:
 
@@ -36,7 +36,7 @@ Evaluate the PR state:
       - `state:DIRTY` (first in this run) → once every other line of this list has passed (threads answered), follow `<N1_ROOT>/skills/n1-finish/references/resolve-dirty.md` (read it now; it is not read at entry). It rebases the PR branch onto its base, re-bumps conflicting version manifests, hands other conflicts to the developer persona, pushes, advances the pin, waits for CI and re-runs this list. Each of its STOPs ends the run.
       - `codex:not-ran` or `codex:none` (no Codex review of this PR ran; the pin only means "the head N1 pushed after local review") → print one informational line, "Note: no completed Codex review is recorded for PR #<n>; merging the head N1 pushed after local review." Do not stop.
       - `threads:0` → Step 6 `Comments:` is `no unresolved comments`.
-      - `threads:error` / `threads:truncated` (API error, or more than 100 threads) / `threads:<k>` with `<k>` > 0 → ask the user:
+      - `threads:error` / `threads:truncated` (API error, or more than 100 threads) / `threads:<k>` with `<k>` > 0 → with `headless:yes`, do not ask: add "PR #<n> has unresolved or unverifiable review threads; N1 did not merge it." under `## Escalations` in `$N1_HOME/memory/<ID>/overview.md`, post the same text as a tracker comment prefixed `N1 [headless]` (`addComment`, best-effort), and **STOP.** Otherwise ask the user:
         ```
         PR #<n> has unresolved or unverifiable review threads (<k>, or "unknown" on error or truncation). Proceed with merge?
         No recommendation. The options are equivalent given the available evidence; select based on team preference.
@@ -54,7 +54,7 @@ Evaluate the PR state:
    4. **With `merge-on-finish:yes`:** merge directly: no auto-merge, no remote-branch deletion (Step 6 leaves that to the repo settings), no retry. The key is the user's consent; do not ask again. One Bash call; `<head>` is the reviewed-head pin from 3.1 (the block re-checks it against the pin, and `--match-head-commit` makes GitHub refuse if the PR head moved since), `<mergeMethod>` is the entry's `finishWork.mergeMethod` (empty means squash):
       ```bash
       source ~/.n1/preamble.sh
-      [ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo merge:denied; exit 1; }
+      [ "$(n1_merge_authorized)" = true ] || { echo merge:denied; exit 1; }
       N="<n>"; H="<head>"; MM="<mergeMethod>"
       case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
       [[ "$H" =~ ^[0-9a-f]{40}$ ]] || { echo head:invalid; exit 1; }
@@ -72,6 +72,8 @@ Evaluate the PR state:
       - Any other `state:` → report the `gh pr merge` output (branch protection, required reviews, conflicts, or a push since 3.1) and "PR #<n> was not merged. Merge it yourself, then re-run `/n1:n1-finish`." **STOP.** Never retry and never fall back to auto-merge.
 
 ## Step 2b: Local Merge (no-PR path, `prMode == "skip"` only)
+
+**Chained runs:** when the entry printed `chained:yes` without `merge-on-finish:yes`, report "Branch <b> is not merged. Run /n1:n1-finish <ID> to merge locally." **STOP.** A manual run merges locally as below.
 
 1. **Worktree context:** if the current toplevel (`git rev-parse --show-toplevel`) contains `/$(n1_worktree_root)/`, resolve the main checkout (`MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")`) and run the default-branch git commands below from `$MAIN_CHECKOUT` — the default branch is checked out there, and `git checkout <defaultBranch>` inside the worktree fails with "already checked out". The clean-tree precondition then applies to the main checkout. Plain checkout: run everything from the current directory.
 2. **Preconditions:** `git status --porcelain` must be empty (dirty tree → "Commit or stash changes first." **STOP.**); the feature branch and `git.defaultBranch` must both exist locally.

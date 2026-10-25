@@ -23,7 +23,7 @@ done
 
 # Entry snippet = first bash block of SKILL.md, preamble pointed at this checkout.
 ENTRY=$(awk '/^```bash/{b=1;next} b&&/^```/{exit} b' "$SKILL" \
-    | sed -e 's#^source ~/.n1/preamble.sh$#source "$N1_ROOT/lib/preamble.sh"#' -e "s/<ID>/\${TID-T-1}/" -e 's/<PR>/\${TPR-}/')
+    | sed -e 's#^source ~/.n1/preamble.sh$#source "$N1_ROOT/lib/preamble.sh"#' -e "s/<ID>/\${TID-T-1}/" -e 's/<PR>/\${TPR-}/' -e 's/<CH>/\${TCH-}/')
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/home/memory/T-1" "$T/repo"
@@ -181,5 +181,19 @@ HL=
 N1_QUEUE_RUN_ID=q-1 run '{"finishWork":{"mergeOnFinish":true}}' 'deploy_pending: false'
 [ "$(flag)" = no ] && ok "mergeOnFinish: queue child -> no flag" || no "mergeOnFinish: queue child -> no flag"
 has "mergeOnFinish: queue child still flagged" "queue-run:yes"
+
+# 14. N1-146: unattended runs get the flag only when fullAuto is also true; chained token surfaces.
+BOTH='{"finishWork":{"mergeOnFinish":true},"autonomy":{"fullAuto":true}}'
+HL=1 run "$BOTH" 'deploy_pending: false'
+[ "$(flag)" = yes ] && ok "fullAuto: headless + both keys -> flag" || no "fullAuto: headless + both keys -> flag"
+HL=
+N1_QUEUE_RUN_ID=q-1 run "$BOTH" 'deploy_pending: false'
+[ "$(flag)" = yes ] && ok "fullAuto: queue child + both keys -> flag" || no "fullAuto: queue child + both keys -> flag"
+N1_QUEUE_RUN_ID=q-1 run '{"autonomy":{"fullAuto":true}}' 'deploy_pending: false'
+[ "$(flag)" = no ] && ok "fullAuto: queue child, fullAuto only -> no flag" || no "fullAuto: queue child, fullAuto only -> no flag"
+TCH=yes run '{}' 'deploy_pending: false'
+if grep -qxF "chained:yes" <<<"$OUT"; then ok "chained: token printed"; else no "chained: token printed"; fi
+run '{}' 'deploy_pending: false'
+lacks "chained: absent for a manual run" "chained:yes"
 
 exit $FAIL
