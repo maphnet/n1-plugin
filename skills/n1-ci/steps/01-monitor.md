@@ -10,7 +10,7 @@ Not authenticated → "Run `gh auth login` first." **STOP.**
 
 ## Step 1: Resolve PR Number
 
-- **Argument** (`#123` or `123`): strip `#`, use directly.
+- **Argument** (`#123` or `123`): strip `#`; it must match `^[0-9]+$`, else print "Invalid PR number" **STOP.** Otherwise use directly.
 - **No argument:** `gh pr view --json number,url,headRefName --jq '.number'`. No PR found → "No open PR found. Create one first or specify: `/n1:n1-ci #123`" **STOP.**
 
 Capture PR number and URL. Record the PR head at run start for the PR body reconcile — the run-start contract in `<N1_ROOT>/references/reconcile-pr-body.md`:
