@@ -7,7 +7,7 @@ source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/treestate.sh"; source "$N1
 n1_step_begin "review" 9
 n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — aborting review step" >&2; exit 1; }
 BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
-MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-cr.md" "$MEM/review-sec.md"
+MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-hdr.md" "$MEM/review-cr.md" "$MEM/review-sec.md"
 { echo "# Review Spec (generated)"; n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"; [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"; } > "$MEM/review-spec.md"
 { echo "# QA Facts (generated)"; n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"; [ -n "${BREAK_CHECK_TQ:-}" ] && { echo "## Hollow tests (break-check never-red)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'; }; } > "$MEM/qa-facts.md"
 TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
@@ -47,18 +47,14 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewer personas return their results before combining findings.
 
-After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm -f` the reviewer files)+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Combine the returned indexes in the block below (never Read the reviewer files). **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle is deferred, see below). Partial (incl. a missing/empty reviewer file: the block below exits before combining): retry once.
+After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm -f` the reviewer files)+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read the reviewer files). **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle: deferred, below). Partial (incl. missing/empty reviewer file): retry once.
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 MEM="$N1_HOME/memory/$ID"; SEC=<true if security-reviewer was spawned, else false>
-for f in review-cr.md $([ "$SEC" = true ] && echo review-sec.md); do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
-{ cat <<'N1_REVIEW_HDR_EOF'
-### Verdict: <PASS|FAIL>
-<summed counts; skip/narrow/rule-compliance notes from review-core.md; every returned Index line>
-N1_REVIEW_HDR_EOF
-cat "$MEM"/review-cr.md "$MEM"/review-sec.md 2>/dev/null; } > "$MEM/review.md"
+for f in review-hdr.md review-cr.md $([ "$SEC" = true ] && echo review-sec.md); do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
+cat "$MEM"/review-hdr.md "$MEM"/review-cr.md $([ "$SEC" = true ] && echo "$MEM"/review-sec.md) > "$MEM/review.md"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
