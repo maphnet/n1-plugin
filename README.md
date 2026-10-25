@@ -53,7 +53,7 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 |-------|-------------|
 | /n1:n1-benchmark | Benchmark orchestrator autonomy across versions (interventions per run, quality metrics, baseline deltas) |
 | /n1:n1-clean | Remove git worktree for a ticket after work is done or abandoned |
-| /n1:n1-finish | Verify the PR is merged (the human merges; prMode: skip merges locally), watch deploy, close ticket |
+| /n1:n1-finish | Verify the PR is merged (the human merges, or n1-finish with `finishWork.mergeOnFinish`; prMode: skip merges locally), watch deploy, close ticket |
 | /n1:n1-init | Set up N1 for your project (tracker, models, flags) |
 | /n1:n1-pr | Finalize branch: docs, push, create PR |
 | /n1:n1-review | Code review loop or advisory review of a PR |
@@ -100,7 +100,7 @@ Spawns tech-writer agent for doc updates and PR content, pushes, creates PR via 
 
 ### `/n1:n1-finish` — Finish Work
 
-Completes the cycle after PR/CI: verifies the PR is merged (it never merges a PR; it merges locally only for `git.prMode: skip`), always watches the deployment workflow on the merge commit when a push-triggered workflow exists, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
+Completes the cycle after PR/CI: verifies the PR is merged (it merges an open PR itself only when `finishWork.mergeOnFinish` is `true` in an interactive run, after CI and review-thread checks; it merges locally for `git.prMode: skip`), always watches the deployment workflow on the merge commit when a push-triggered workflow exists, moves the tracker ticket to Done, and cleans up the branch/worktree. The ticket is closed only when the code is actually merged — never on green-CI-but-open.
 
 - Standalone and idempotent
 - Configure via `/n1:n1-init` or the `finishWork` block in `~/.n1/<project>/config.json`

@@ -164,4 +164,22 @@ BRN=me/T-2-x TID= TPR=5 run '{"tracker":{"prefix":"T"},"git":{"defaultBranch":"m
 has "pr arg on other ticket branch: PR ticket id" "id=T-1"
 lacks "pr arg on other ticket branch: no foreign resume" "deploy-pending:true"
 
+# 13. mergeOnFinish flag (N1-140): only for a JSON true key, never in queue or headless runs.
+flag() { if grep -qxF "merge-on-finish:yes" <<<"$OUT"; then echo yes; else echo no; fi; }
+run '{"finishWork":{"mergeOnFinish":true}}' 'deploy_pending: false'
+[ "$(flag)" = yes ] && ok "mergeOnFinish: flag printed when true" || no "mergeOnFinish: flag printed when true"
+lacks "mergeOnFinish: still no merge:denied line" "merge:denied"
+run '{"git":{"defaultBranch":"main"}}' 'deploy_pending: false'
+[ "$(flag)" = no ] && ok "mergeOnFinish: absent -> no flag" || no "mergeOnFinish: absent -> no flag"
+run '{"finishWork":{"mergeOnFinish":false}}' 'deploy_pending: false'
+[ "$(flag)" = no ] && ok "mergeOnFinish: false -> no flag" || no "mergeOnFinish: false -> no flag"
+run '{"finishWork":{"mergeOnFinish":"true"}}' 'deploy_pending: false'
+[ "$(flag)" = no ] && ok "mergeOnFinish: stale string -> no flag" || no "mergeOnFinish: stale string -> no flag"
+HL=1 run '{"finishWork":{"mergeOnFinish":true}}' 'deploy_pending: false'
+[ "$(flag)" = no ] && ok "mergeOnFinish: headless -> no flag" || no "mergeOnFinish: headless -> no flag"
+HL=
+N1_QUEUE_RUN_ID=q-1 run '{"finishWork":{"mergeOnFinish":true}}' 'deploy_pending: false'
+[ "$(flag)" = no ] && ok "mergeOnFinish: queue child -> no flag" || no "mergeOnFinish: queue child -> no flag"
+has "mergeOnFinish: queue child still flagged" "queue-run:yes"
+
 exit $FAIL

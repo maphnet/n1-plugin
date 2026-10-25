@@ -166,7 +166,7 @@ assert_contains "n1-finish: local-merge tracker comment" \
     'Merged locally into <defaultBranch>, push pending.'
 assert_contains "n1-finish: local merge report label" \
     "skills/n1-finish/steps/06-cleanup.md" \
-    'by <reviewer|local merge>'
+    'by <reviewer|n1-finish (mergeOnFinish)|local merge>'
 
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

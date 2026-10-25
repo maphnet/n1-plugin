@@ -385,6 +385,19 @@ n1_post_deploy_verification_enabled() {
     [ "$(n1_config_val '.localTesting.mode')" = "smoke" ] && printf 'true' || printf 'false'
 }
 
+n1_finish_merge_enabled() {
+    # N1-140. Prints true only when finishWork.mergeOnFinish is the JSON boolean true.
+    # Absent, false, strings ("true"), numbers, invalid JSON, a missing file or no jq: false.
+    local file out
+    file=$(n1_config_file)
+    if [ -f "$file" ] && command -v jq >/dev/null 2>&1 \
+        && out=$(jq -r '(.finishWork? | objects | .mergeOnFinish) == true' "$file" 2>/dev/null) && [ "$out" = "true" ]; then
+        printf 'true'
+    else
+        printf 'false'
+    fi
+}
+
 n1_delivery_action() {
     # NP-219. Prints none | runbook | execute for the n1-finish delivery step.
     # none: delivery.mode is not "ssh" (absent/empty/unknown) -> the step is a no-op.

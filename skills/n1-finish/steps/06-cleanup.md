@@ -1,13 +1,13 @@
 # Step 6: Cleanup & Memory
 
 1. **Local branch (runs last in § One Cleanup Call, after the worktree):** plain checkout (not a linked worktree): if on the feature branch, `git checkout <defaultBranch> && git pull` first (local merge: skip `git pull`). Then `git branch -d`, with `-D` only when the tip equals the merged PR head (see tokens below); otherwise keep it and report why.
-2. **Remote branch:** On the reviewer-merge path leave remote deletion to the repo's settings — do not force it. Local-merge path: n/a (nothing was pushed).
+2. **Remote branch:** On the reviewer-merge and n1-finish-merge paths leave remote deletion to the repo's settings — do not force it. Local-merge path: n/a (nothing was pushed).
 3. **Worktree (runs before the branch delete in § One Cleanup Call):** only when the current branch is the finished PR's head branch (`HEAD_REF`); an unrelated ticket's worktree is never touched. Removal rules are in the paragraph below the block.
 4. **Memory** (when `$N1_HOME/memory/<ID>/` exists) — append to `overview.md`:
    ```markdown
    ## Finish
-   - **Merged:** <sha> (<method>, by <reviewer|local merge>)
-   - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | check skipped (API error) | n/a (already merged) | n/a (local merge)>
+   - **Merged:** <sha> (<method>, by <reviewer|n1-finish (mergeOnFinish)|local merge>)
+   - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | unverified, user approved merge | n/a (already merged) | n/a (local merge)>
    - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow) | none triggered | skipped (local merge)>
    - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
    - **Verification details:** when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output); otherwise omit this line.
@@ -58,7 +58,7 @@ Finish complete: <ID> (<ticket title>)
 
 Done: <1-2 lines from ticket title + PR summary>
 Ticket: <ID> → <done status | left open (<reason>) | tracker not configured> — <ticket URL | URL unavailable (<reason>)>
-PR: <url | none (prMode: skip — push pending: git push origin <defaultBranch>)> — merged (<method>, by <reviewer|local merge>)
+PR: <url | none (prMode: skip — push pending: git push origin <defaultBranch>)> — merged (<method>, by <reviewer|n1-finish (mergeOnFinish)|local merge>)
 Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow) | none triggered | skipped (local merge)>
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
