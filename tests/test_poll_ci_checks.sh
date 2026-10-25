@@ -31,5 +31,6 @@ expect "one fail -> red" red "$(run "$(b pass fail)")"
 expect "one cancel -> red" red "$(run "$(b pass cancel)")"
 expect "one pending -> pending" pending "$(run "$(b pass pending)")"
 expect "fail beats pending -> red" red "$(run "$(b fail pending)")"
+expect "no checks registered ([]) -> pending, never green" pending "$(run '[]')"
 expect "gh error -> pending, never green/red" pending "$(PATH="$T/bin:$PATH" GH_CHECKS='[]' bash -c 'source lib/poll.sh; gh() { return 1; }; n1_wait_ci_checks 1 0')"
 exit $FAIL
