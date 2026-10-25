@@ -167,7 +167,7 @@ for f in "$P3" references/architecture.md; do
 done
 
 # 10. N1-123 SEC-4: disclose soft-pass fixes as not cross-reviewed when Codex did not run
-for pat in '### Soft-Fix Notice' '^## Fix Cycle [0-9]+ \(soft\)' 'not cross-reviewed' '--body-file "$SOFTFIX_FILE"' 'softfix:comment-failed'; do
+for pat in '### Soft-Fix Notice' '^## Fix Cycle [0-9]+ \(soft\)' 'not cross-reviewed' '--body-file "$SOFTFIX_FILE"' 'softfix:comment-failed' 'softfix:reviewed' 'softfix:no-id' 'softfix:bad-pr-url' 'gh pr comment "$PR_URL"'; do
     if grep -qF -- "$pat" "$P3"; then
         echo "PASS: 03-codex-review soft-fix notice has '$pat'"
     else
@@ -180,6 +180,11 @@ if [ -n "$SF" ] && [ -n "$TG" ] && [ "$SF" -lt "$TG" ]; then
     echo "PASS: 03-codex-review soft-fix notice runs before the Triage Gate"
 else
     echo "FAIL: 03-codex-review soft-fix notice must precede the Triage Gate"; FAIL=1
+fi
+if grep -qF '## Fix Cycle <N> (soft)' skills/n1-start/steps/fix.md && grep -qF -- '^## Fix Cycle [0-9]+ \(soft\)' "$P3"; then
+    echo "PASS: soft Fix Cycle heading matches between fix.md and the notice grep"
+else
+    echo "FAIL: soft Fix Cycle heading drifted between fix.md and 03-codex-review.md"; FAIL=1
 fi
 if grep -qF 'Soft-fix disclosure (SEC-4, N1-123)' references/architecture.md; then
     echo "PASS: architecture.md documents the soft-fix disclosure and residual gap"
