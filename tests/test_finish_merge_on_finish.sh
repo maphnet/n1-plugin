@@ -53,7 +53,7 @@ O=fedcba9876543210fedcba9876543210fedcba98
 export N1_HOME="$T/home" CFG="$ROOT/lib/config.sh"
 PIN="$T/home/review-pins/o_r_7"; mkdir -p "${PIN%/*}"; echo "$S" > "$PIN"
 
-pre() { OUT=$(cd "${WD:-$T}" && PATH="$T/bin:$PATH" HEADSHA=$S bash -c 'source "$CFG"; '"$PRE" 2>&1); }
+pre() { OUT=$(cd "${WD:-$T}" && PATH="$T/bin:$PATH" HEADSHA=${HS-$S} bash -c 'source "$CFG"; '"$PRE" 2>&1); }
 CHECKS='[{"bucket":"pass"},{"bucket":"skipping"}]' pre
 has "pre: green CI" "checks:fail=0 pending=0"
 has "pre: head sha printed" "head:$S"
@@ -218,4 +218,68 @@ has "resolve: pin not at the reviewed head skipped" "resolve:skip pin"
 TH=$S res
 has "resolve: local tip not at the reviewed head skipped" "resolve:skip local-tip"
 echo "$OH" > "$PIN"; intact "resolve: skips change nothing"
+# N1-144 § Push: pinned lease, pin advanced only for the pushed rebased head.
+PSH=$(block 2 "$RF"); CI=$(block 3 "$RF")
+if grep -qF -- '--force-with-lease=' <<<"$PSH" && ! grep -qE -- '--force( |$)|push -f' "$RF"; then ok "resolve push uses a pinned lease, never a bare force"; else no "resolve push uses a pinned lease, never a bare force"; fi
+psh() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; '"$PSH" 2>&1); }
+fx 5.10.0 5.12.0 5.11.0; res; NH=$(gw rev-parse HEAD)
+for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
+  export "$g"; TOLD=$OH TNEW=$NH psh; unset "${g%%=*}"
+  has "push: denied with $g" "resolve:denied"
+done
+echo "$S" > "$PIN"; TOLD=$OH TNEW=$NH psh; echo "$OH" > "$PIN"
+has "push: pin moved since resolve refused" "pin:moved"
+TOLD=$OH TNEW=$S psh
+has "push: local tip != new refused" "push:skip"
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "push: refusals push nothing"; else no "push: refusals push nothing"; fi
+TOLD=$OH TNEW=$NH psh
+has "push: pin advanced to the rebased head" "pin:advanced ${NH:0:7}"
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$NH" ] && [ "$(cat "$PIN")" = "$NH" ]; then ok "push: origin and pin at the rebased head"; else no "push: origin and pin at the rebased head"; fi
+# 3.1 re-check after the push: pin == new head; the session-keyed Codex receipt is unaffected.
+HS=$NH pre
+line "pre: re-check after resolve sees pin == new head" "pin:$NH"
+has "pre: re-check head is the rebased head" "head:$NH"
+has "pre: Codex receipt survives the resolve push" "codex:ran"
+
+fx 5.10.0 5.12.0 5.11.0; res; NH=$(gw rev-parse HEAD)
+git clone -q "$G/o.git" "$G/x" && git -C "$G/x" checkout -q feat && echo other > "$G/x/other.txt" \
+  && git -C "$G/x" add other.txt && git -C "$G/x" commit -qm other && git -C "$G/x" push -q origin feat
+RFH=$(git -C "$G/o.git" rev-parse feat)
+TOLD=$OH TNEW=$NH psh
+has "push: lease rejects a remote moved since review" "push:rejected"
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$RFH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "push: rejected push leaves origin and pin"; else no "push: rejected push leaves origin and pin"; fi
+
+# N1-144 § CI wait: sequenced fake gh (one line per poll: <checks-json|ERR:msg>|<mergeStateStatus>).
+mkdir -p "$T/cibin"
+cat > "$T/cibin/gh" <<'EOF'
+#!/usr/bin/env bash
+q=; p=; for a in "$@"; do if [ "$p" = --jq ] || [ "$p" = -q ]; then q=$a; fi; p=$a; done
+n=$(cat "$CIN" 2>/dev/null || echo 0)
+[ "$1 $2" != "pr checks" ] || { n=$((n+1)); echo "$n" > "$CIN"; }
+L=$(sed -n "${n}p" "$CIS"); [ -n "$L" ] || L=$(tail -n1 "$CIS")
+case "$1 $2" in
+  "pr checks") R=${L%%|*}; case "$R" in ERR:*) echo "${R#ERR:}" >&2; exit 1;; esac ;;
+  "pr view") R="{\"mergeStateStatus\":\"${L##*|}\"}" ;;
+  *) exit 1 ;;
+esac
+jq -r "$q" <<<"$R"
+EOF
+chmod +x "$T/cibin/gh"
+ci() { printf '%s\n' "$@" > "$T/cis"; rm -f "$T/cin"; OUT=$(cd "${WD:-$T/wf}" && PATH="$T/cibin:$PATH" CIS="$T/cis" CIN="$T/cin" RESOLVE_CI_POLLS="${POLLS:-3}" RESOLVE_CI_SLEEP=0 bash -c "$CI" 2>&1); }
+PS='[{"bucket":"pass"}]'
+ci '[{"bucket":"pending"}]|BLOCKED' "$PS|CLEAN"
+line "ci: pending then pass" "ci:pass"
+line "ci: merge state read" "state:CLEAN"
+ci '[{"bucket":"pass"},{"bucket":"fail"}]|BLOCKED'
+line "ci: failure stops the wait" "ci:fail"
+ci '[{"bucket":"pending"}]|BLOCKED'
+line "ci: stuck pending times out" "ci:timeout"
+ci "$PS|UNKNOWN" "$PS|CLEAN"
+line "ci: UNKNOWN merge state waited out" "state:CLEAN"
+ci "$PS|UNKNOWN"
+line "ci: green checks with UNKNOWN to the end continue" "ci:pass"
+POLLS=1 ci "ERR:no checks reported on the 'feat' branch|CLEAN"
+line "ci: no checks + pull_request workflow counts as pending" "ci:timeout"
+POLLS=1 WD="$T/nowf" ci "ERR:no checks reported on the 'feat' branch|CLEAN"
+line "ci: no checks, no workflow passes" "ci:pass"
 exit $FAIL

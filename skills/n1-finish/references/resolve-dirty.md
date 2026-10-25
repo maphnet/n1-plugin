@@ -99,3 +99,64 @@ Then run § Resolve again with `<dev>` = `1`, whatever the developer reported: a
 ## § Tests
 
 After `resolve:ready`: run the project test suite in the current checkout, discovered as in Step 2b.3 (no test configuration found: note "no test suite detected" and continue). Non-zero exit → run `git reset -q --hard <old>` (nothing was pushed), report the failure output and "Tests fail after rebasing PR #<n> onto its base. The branch is back at the reviewed head. Resolve it yourself, then re-run `/n1:n1-finish`." **STOP.** Pass → § Push.
+
+## § Push
+
+One shell call. `<old>` and `<new>` come from `resolve:ready`. The lease is pinned to the reviewed head, so the push fails if anyone moved the remote branch since review.
+
+```bash
+source ~/.n1/preamble.sh
+[ "$(n1_finish_merge_enabled)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo resolve:denied; exit 1; }
+N="<n>"; OLD="<old>"; NEW="<new>"
+case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
+[[ "$OLD" =~ ^[0-9a-f]{40}$ ]] && [[ "$NEW" =~ ^[0-9a-f]{40}$ ]] || { echo sha:invalid; exit 1; }
+BR=$(gh pr view "$N" --json headRefName -q .headRefName 2>/dev/null)
+[ -n "$BR" ] && [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] && [ "$(git rev-parse HEAD)" = "$NEW" ] || { echo push:skip; exit 1; }
+[ "$(n1_review_pin get "$N")" = "$OLD" ] || { echo pin:moved; exit 1; }
+git push -q --force-with-lease="$BR:$OLD" origin "$BR" 2>&1 || { echo push:rejected; exit 1; }
+echo "pushed:${NEW:0:7}"
+n1_review_pin advance "$N" "$OLD" "$NEW"
+```
+
+- `resolve:denied` → "Merge is not authorized in this run." **STOP.** `pr:invalid` / `sha:invalid` → report it. **STOP.**
+- `push:skip` (branch or local tip changed since § Resolve) → "PR #<n> was rebased locally but not pushed: the checkout changed. Re-run `/n1:n1-finish`." **STOP.**
+- `pin:moved` → "The reviewed-head pin of PR #<n> changed during the resolve; nothing was pushed. Re-run `/n1:n1-finish`." **STOP.**
+- `push:rejected` → "The push of the rebased PR #<n> was rejected: the remote branch moved since review. The remote is unchanged; the local branch holds the rebased commits (`git reset --hard <old>` restores the reviewed head). Review the remote commits, then re-run `/n1:n1-finish`." **STOP.**
+- `pushed:` followed by `pin:kept` or `pin:unavailable` → "PR #<n> was pushed at <first 7 of new>, but the reviewed-head pin was not advanced, so N1 will not merge it. Review it (`/n1:n1-review`), then merge it yourself and re-run `/n1:n1-finish`." **STOP.**
+- `pin:advanced <sha7>` → § CI wait. Developer-resolved and version-only resolutions both advance the pin: N1 reviewed the rewrite here (mechanical bump, or the developer round plus tests), same as the n1-ci fix-push precedent.
+
+## § CI wait
+
+One shell call; run it with the maximum (10-minute) tool timeout: it polls for up to 8 minutes.
+
+```bash
+source ~/.n1/preamble.sh
+N="<n>"; case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
+WF=0; grep -qsE 'pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml && WF=1
+R=timeout; S=; CP=0
+for _ in $(seq "${RESOLVE_CI_POLLS:-24}"); do
+  sleep "${RESOLVE_CI_SLEEP:-20}"; CP=0
+  C=$(gh pr checks "$N" --json bucket --jq '"fail="+([.[]|select(.bucket=="fail" or .bucket=="cancel")]|length|tostring)+" pending="+([.[]|select(.bucket=="pending")]|length|tostring)' 2>&1)
+  case "$C" in
+    "fail=0 pending=0") CP=1 ;;
+    *"no checks reported"*) [ "$WF" = 1 ] || CP=1 ;;
+    "fail=0 "*) ;;
+    fail=[1-9]*) R=fail; break ;;
+  esac
+  [ "$CP" = 1 ] || continue
+  S=$(gh pr view "$N" --json mergeStateStatus -q .mergeStateStatus 2>/dev/null)
+  case "$S" in ""|UNKNOWN) ;; *) R=pass; break ;; esac
+done
+[ "$R" = timeout ] && [ "$CP" = 1 ] && R=pass
+echo "ci:$R"; echo "state:$S"
+```
+
+No checks yet with a `pull_request` workflow, and API errors, count as pending. Green checks with `mergeStateStatus` still `UNKNOWN` at the end count as `ci:pass` (3.1 treats `UNKNOWN` as continue; `--match-head-commit` in 3.4 is the backstop).
+
+- `ci:fail` → "CI is failing on PR #<n> after the conflict-resolution push. Fix CI, then re-run `/n1:n1-finish`." **STOP.**
+- `ci:timeout` → "CI still running after the resolve push; re-run `/n1:n1-finish`." **STOP.**
+- `ci:pass` → § Re-check.
+
+## § Re-check
+
+Run the 3.1 pre-merge block again and apply every line, with this run's resolve attempt counted: a second `state:DIRTY` is a **STOP** (another PR landed first). The pin now equals the pushed head, so `<head>` for 3.2 and 3.4 is `<new>`. A threads answer already given in this run carries over when the count is unchanged. The `codex:` line is unaffected (Codex receipts are per session, not per head) and no new Codex review is required.
