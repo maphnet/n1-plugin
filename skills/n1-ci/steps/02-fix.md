@@ -54,7 +54,7 @@ For "unknown" category checks: include a confidence assessment (0.0-1.0).
 
 Commit all fixes with descriptive messages. Push to the PR branch after committing.
 
-Write the full report below to `<report path>` (`$N1_HOME/memory/<ID>/ci-fixes-<cycle>.md`; with no ticket memory, `$N1_HOME/scratch/ci-fixes-<PR#>-<cycle>.md`, `mkdir -p` its dir first). Return at most 18 lines: one line per check (`name | FIXED or NOT_BRANCH_CAUSED: <evidence, one line> | confidence if unknown`), up to 10 checks then `+N more` (detail in the report), the Summary block, and the report path.
+Write the full report below to `<report path>` (the orchestrator passes it already expanded to an absolute path: `$N1_HOME/memory/<ID>/ci-fixes-<cycle>.md`; if `$ID` is unset or `$N1_HOME/memory/$ID` is absent, `$N1_HOME/scratch/ci-fixes-<PR#>-<cycle>.md`, `mkdir -p` its dir first). Return at most 18 lines: one line per check (`name | FIXED or NOT_BRANCH_CAUSED: <evidence, one line> | confidence if unknown`), up to 10 checks then `+N more` (detail in the report), the Summary block, and the report path.
 
 Report format:
 ## CI Fixes Applied
