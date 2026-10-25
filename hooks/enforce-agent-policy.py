@@ -5,6 +5,8 @@ Case 1 - persona tool restriction. The payload's `agent_type` names an N1 person
 (`n1:<p>`) and the persona's frontmatter has a `tools:` list: deny any tool outside it.
 This duplicates native enforcement as a backstop. Denial: exit 2, reason on stderr.
 
+Reviewer personas may Write only their findings file (see _findings_path_ok, SEC-1).
+
 Case 2 - spawn model override. For spawn tools targeting an N1 persona, rewrite `model`
 from config `models.<persona>` (string, or a legacy host-keyed object read through its
 "claude-code" key).
@@ -51,6 +53,7 @@ ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 # position; (?<!...) anchors fd digits to a run start (linear); >( <( $( stay for SUBST.
 REDIR_RE = re.compile(r"(?<![\d&])(?:\d*|&)(?:>>?|<)(?!\()\|?[ \t]*&?(?:[^\s;&|()<>`$]|\$(?!\())*")
 DURATION_RE = re.compile(r"[0-9.]+[smhd]?$")
+REVIEWERS = {"code-reviewer", "security-reviewer"}
 PROGRAMS = {"gh", "git", "curl", "wget"}
 WRAPPERS = {"env", "command", "exec", "sudo", "time", "nohup", "xargs", "timeout", "sh", "bash",
             "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
@@ -93,7 +96,29 @@ def persona_tools(plugin_root: str, persona: str):
     return {t.strip() for t in m.group(1).split(",") if t.strip()}
 
 
-def restriction(payload: dict, plugin_root: str) -> int:
+def _findings_path_ok(payload, persona, config_file="") -> bool:
+    """Reviewer Write scope (SEC-1/SEC-4): realpath is <N1 home>/memory/<active ticket>/review-<cr|sec>.md for this persona. N1 home = $N1_HOME, else the config dir; ticket = this session's active-run file. Fail closed."""
+    tool_input = payload.get("tool_input")
+    path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+    if not isinstance(path, str) or not path.strip():
+        return False
+    cwd = str(payload.get("cwd") or "")
+    home = os.environ.get("N1_HOME") or (os.path.dirname(os.path.join(cwd, config_file)) if config_file else "")
+    sid = payload.get("session_id")
+    if not home or not isinstance(sid, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", sid):
+        return False
+    home = os.path.realpath(os.path.join(cwd, home))
+    try:
+        ticket = json.loads(Path(home, f"active-run.{sid}.json").read_text(encoding="utf-8")).get("ticketId")
+    except (OSError, ValueError, AttributeError):
+        return False
+    if not isinstance(ticket, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*-[0-9]+", ticket):
+        return False
+    suffix = {"code-reviewer": "cr", "security-reviewer": "sec"}[persona]
+    return os.path.realpath(path) == os.path.join(home, "memory", ticket, f"review-{suffix}.md")
+
+
+def restriction(payload: dict, plugin_root: str, config_file: str = "") -> int:
     persona = persona_of(str(payload.get("agent_type") or ""))
     tool = str(payload.get("tool_name") or "")
     if not persona or not tool:
@@ -101,8 +126,10 @@ def restriction(payload: dict, plugin_root: str) -> int:
     allowed = persona_tools(plugin_root, persona)
     if allowed is None or tool.startswith("mcp__"):
         return 0
-    ok = tool in allowed
-    if ok:
+    if tool in allowed:
+        if tool == "Write" and persona in REVIEWERS and not _findings_path_ok(payload, persona, config_file):
+            sys.stderr.write(f"N1: persona {persona} may Write only its own review-(cr|sec).md for the active ticket under the N1 home\n")
+            return 2
         return 0
     sys.stderr.write(f"N1: persona {persona} may not use tool {tool} (allowed: {', '.join(sorted(allowed))})\n")
     return 2
@@ -260,7 +287,7 @@ def main() -> int:
             config = {}
     if not isinstance(config, dict):
         config = {}
-    rc = restriction(payload, plugin_root) or merge_deny(payload, config)
+    rc = restriction(payload, plugin_root, config_file) or merge_deny(payload, config)
     if rc:
         return rc
     return spawn_override(payload, config)

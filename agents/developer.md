@@ -46,13 +46,12 @@ Before returning, if the prompt has "Project Rules": name each rule and either t
 ## Input (Fix Cycle)
 
 When spawned for review fix cycle, you receive:
-- Confirmed review findings (Critical + High, tagged [CR-N] or [SEC-N])
-- List of affected files
+- Review findings, either inline (Critical + High, tagged [CR-N] or [SEC-N], with affected files) or as the path to `review.md` plus a scope filter; with a path, Read the file and fix only the findings the filter names (list in-scope findings you did not fix under `Findings deferred`)
 - Original ticket context (acceptance criteria)
 
 ## Process (Fix Cycle)
 
-1. **Read findings** and prioritize: Critical first, then High.
+1. **Read findings** (from `review.md` when given a path; in-scope only) and prioritize: Critical first, then High.
 2. **Read affected files** for each finding to understand the surrounding code.
 3. **Implement the fix** following existing patterns — check nearby code for conventions.
 4. **Write or update tests** to cover the fix.

@@ -34,6 +34,7 @@ You will receive:
 - plan.md or brainstorm.md — scope and approach context
 - analysis.md — codebase analysis with file:line references (when provided)
 - **test-coverage tier** — one of `maintain`, `minimal`, `standard`
+- TQ Fix Mode only: the path to `review.md`; Read it and act only on its `[TQ-N]` findings
 
 ## Process
 

@@ -64,11 +64,56 @@ set +e
 bash "$POLICY" < "$FX/claude/pretooluse-persona-denied.json" 2>"$T/err"; RC=$?
 set -e
 assert_eq "claude persona denial exit 2" "2" "$RC"
-assert_eq "claude persona denial reason" "N1: persona code-reviewer may not use tool Edit (allowed: Glob, Grep, Read)" "$(cat "$T/err")"
+assert_eq "claude persona denial reason" "N1: persona code-reviewer may not use tool Edit (allowed: Glob, Grep, Read, Write)" "$(cat "$T/err")"
 OUT=$(bash "$POLICY" < "$FX/claude/pretooluse-persona-allowed.json"); RC=$?
 assert_eq "claude Grep allowed for read-only persona" "0:" "$RC:$OUT"
 OUT=$(echo '{"tool_name":"Read","agent_type":"general-purpose","tool_input":{}}' | bash "$POLICY"); RC=$?
 assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
+
+# reviewer Write is scoped to memory/<ID>/review-(cr|sec).md under the N1 home (SEC-1)
+mkdir -p "$N1_HOME/memory/T-9" "$N1_HOME/memory/T-8" "$T/wt"; ln -sf "$T/wt/f.txt" "$N1_HOME/memory/T-9/review-sec.md"
+echo '{"ticketId":"T-8"}' > "$N1_HOME/active-run.s-rev.json"
+rev_write_rc() {  # rev_write_rc <persona> <tool> <file_path>
+    local rc=0; jq -cn --arg a "n1:$1" --arg t "$2" --arg f "$3" '{agent_type:$a,tool_name:$t,session_id:"s-rev",tool_input:{file_path:$f}}' | bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+}
+for P in code-reviewer security-reviewer; do
+    OWN=cr; OTHER=sec; [ "$P" = security-reviewer ] && { OWN=sec; OTHER=cr; }
+    assert_eq "$P Write to own review-$OWN.md allowed" 0 "$(rev_write_rc $P Write "$N1_HOME/memory/T-8/review-$OWN.md")"
+    assert_eq "$P Write to other persona review-$OTHER.md denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-8/review-$OTHER.md")"
+    assert_eq "$P Write to another ticket's review-$OWN.md denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/review-$OWN.md")"
+    assert_eq "$P Write to ~/.n1/preamble.sh denied" 2 "$(rev_write_rc $P Write "$HOME/.n1/preamble.sh")"
+    assert_eq "$P Write to worktree file denied" 2 "$(rev_write_rc $P Write "$T/wt/f.txt")"
+    assert_eq "$P Write to other memory file denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/config.json")"
+    assert_eq "$P Write via review-sec.md symlink denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/review-sec.md")"
+    assert_eq "$P Write via .. traversal denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/../../config.json")"
+    assert_eq "$P Write without file_path denied" 2 "$(rev_write_rc $P Write "")"
+    assert_eq "$P Edit still denied" 2 "$(rev_write_rc $P Edit "$N1_HOME/memory/T-9/review-cr.md")"
+    assert_eq "$P NotebookEdit still denied" 2 "$(rev_write_rc $P NotebookEdit "$N1_HOME/memory/T-9/review-cr.md")"
+done
+# production root ~/.n1/<slug> with N1_HOME unset (TQ-2); config-dir root (CR-7)
+rev_write_env_rc() {  # rev_write_env_rc <cwd> <file_path> <env...>
+    local cwd=$1 f=$2; shift 2; local rc=0
+    jq -cn --arg c "$cwd" --arg f "$f" '{agent_type:"n1:code-reviewer",tool_name:"Write",session_id:"s-rev",cwd:$c,tool_input:{file_path:$f}}' | env "$@" bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+}
+mkdir -p "$T/h/.n1/slug/memory/T-9" "$T/alt/memory/T-9" "$T/h/.n1/other/memory/T-9"
+echo '{"ticketId":"T-9"}' > "$T/h/.n1/slug/active-run.s-rev.json"; echo '{"ticketId":"T-9"}' > "$T/alt/active-run.s-rev.json"
+mkdir -p "$T/slug"; git -C "$T/slug" init -q
+assert_eq "N1_HOME unset: ~/.n1/<slug> review-cr.md allowed" 0 "$(cd "$T/slug" && rev_write_env_rc "$T" "$T/h/.n1/slug/memory/T-9/review-cr.md" -u N1_HOME HOME="$T/h")"
+assert_eq "N1_HOME unset: ~/.n1/preamble.sh denied" 2 "$(rev_write_env_rc "$T" "$T/h/.n1/preamble.sh" -u N1_HOME HOME="$T/h")"
+py_write_rc() {  # py_write_rc <config_file_arg> <cwd> <file_path>: call the hook script directly
+    local rc=0; jq -cn --arg c "$2" --arg f "$3" '{agent_type:"n1:code-reviewer",tool_name:"Write",session_id:"s-rev",cwd:$c,tool_input:{file_path:$f}}' | env -u N1_HOME HOME="$T/h" python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "$1" "$REPO_ROOT" >/dev/null 2>&1 || rc=$?; echo "$rc"
+}
+assert_eq "another slug's memory dir denied" 2 "$(py_write_rc "$T/h/.n1/slug/config.json" "$T" "$T/h/.n1/other/memory/T-9/review-cr.md")"
+rm -f "$T/alt/active-run.s-rev.json"
+assert_eq "missing active-run file denied" 2 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/memory/T-9/review-cr.md")"
+echo '{"ticketId":"../x"}' > "$T/alt/active-run.s-rev.json"
+assert_eq "invalid ticketId denied" 2 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/memory/T-9/review-cr.md")"
+echo '{"ticketId":"T-9"}' > "$T/alt/active-run.s-rev.json"
+assert_eq "config-dir root allowed (absolute)" 0 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/memory/T-9/review-cr.md")"
+assert_eq "config-dir root allowed (relative, payload cwd)" 0 "$(py_write_rc "alt/config.json" "$T" "$T/alt/memory/T-9/review-cr.md")"
+assert_eq "config-dir root: non-findings file denied" 2 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/config.json")"
+assert_eq "no config file: alt dir denied" 2 "$(py_write_rc "" "$T" "$T/alt/memory/T-9/review-cr.md")"
+assert_eq "developer Write unscoped" 0 "$(rev_write_rc developer Write "$T/wt/f.txt")"
 
 # --- enforce-agent-policy: queue merge deny (N1-114: unconditional in headless queue children) ---
 policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
