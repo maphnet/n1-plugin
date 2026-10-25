@@ -62,26 +62,27 @@ Then proceed to **Create PR** below.
 
 ### Create PR
 
-After a successful push (either path above):
-
-Draft: `gh pr create --title "<title>" --body "<body>" --base ${DEFAULT_BRANCH} --draft`
-Ready: same without `--draft`.
-
-Capture the PR URL and register it immediately in the same command that creates the PR, before tracker updates. This also covers hosts where the PR observation hook is unavailable:
+After a successful push (either path above), create the PR from the body file and register it in the same command, before tracker updates. This also covers hosts where the PR observation hook is unavailable. Put the title in single quotes, writing each `'` inside it as `'\''`:
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/codex-review.sh"
-# Use the resolved title/body/base and draft flag from prepare.
-PR_URL=$(gh pr create --title "$PR_TITLE" --body-file "$PR_BODY_FILE" --base "$DEFAULT_BRANCH")
+PR_TITLE='<the PR title from prepare>'
+PR_BODY_FILE="<the path from pr:body-file=>"
+DEFAULT_BRANCH="<the default branch>"
+PR_MODE="<draft or ready, from prepare>"
+DRAFT_ARGS=(); [ "$PR_MODE" = "draft" ] && DRAFT_ARGS=(--draft)
+[ -s "$PR_BODY_FILE" ] || { echo "PR body missing"; exit 1; }
+PR_URL=$(gh pr create --title "$PR_TITLE" --body-file "$PR_BODY_FILE" --base "$DEFAULT_BRANCH" "${DRAFT_ARGS[@]}")
 PR_RC=$?
 if [ "$PR_RC" -eq 0 ] && [ -n "$PR_URL" ]; then
   n1_review_record "$PR_URL" skipped step-not-run false
+  rm -f "$PR_BODY_FILE"
   printf '%s\n' "$PR_URL"
 fi
 ```
 
-Include `--draft` when the resolved mode is draft. On failure, stop. The fallback receipt is replaced by the runner's terminal outcome in step 3.
+On failure, stop. The fallback receipt is replaced by the runner's terminal outcome in step 3.
 
 ## Step 5: Update Tracker (if configured)
 

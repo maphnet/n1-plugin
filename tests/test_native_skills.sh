@@ -225,4 +225,33 @@ else
     echo "FAIL: 03-codex-review missing qualityEscalations auto-accept / no-offer rule"; FAIL=1
 fi
 
+# 9. N1-127: tech-writer writes the PR body to a file; 02 creates the PR from it
+P1=skills/n1-pr/steps/01-prepare.md
+TWR=agents/tech-writer.md
+if grep -qF 'PR_BODY_FILE=$(mktemp "$N1_HOME/scratch/pr-body-' "$P1" && grep -qF 'body_file:' "$P1"; then
+    echo "PASS: 01-prepare creates the PR body file and passes body_file"
+else
+    echo "FAIL: 01-prepare does not create/pass the PR body file"; FAIL=1
+fi
+if grep -qF '`body_file`' "$TWR" && grep -qF 'pr body written: <body_file>' "$TWR"; then
+    echo "PASS: tech-writer writes the PR body to body_file"
+else
+    echo "FAIL: tech-writer has no body_file output"; FAIL=1
+fi
+if grep -qF 'PR_BODY_FILE="<the path from pr:body-file=>"' "$P2" && grep -qF -- '--body-file "$PR_BODY_FILE"' "$P2"; then
+    echo "PASS: 02-push-create defines and uses PR_BODY_FILE"
+else
+    echo "FAIL: 02-push-create PR_BODY_FILE undefined or unused"; FAIL=1
+fi
+if grep -qF '[ -s "$PR_BODY_FILE" ] ||' "$P2"; then
+    echo "PASS: 02-push-create refuses an empty PR body"
+else
+    echo "FAIL: 02-push-create does not guard an empty PR body"; FAIL=1
+fi
+if grep -qF -- '--body "<body>"' "$P2"; then
+    echo "FAIL: 02-push-create still inlines the PR body"; FAIL=1
+else
+    echo "PASS: 02-push-create never inlines the PR body"
+fi
+
 exit $FAIL

@@ -37,6 +37,7 @@ You will receive:
 - `description_quality` — quality tier from the product-analyst signal (`empty`, `skeletal`, `weak`, `adequate`); defaults to `adequate` when absent
 - `brainstorm_gate_skipped` — `true` when the brainstorm User Gate was bypassed because `autonomy.brainstorm` is `"auto"`; defaults to `false` when absent
 - `mode`: `create` (default) or `reconcile`. Reconcile receives only the inputs listed under Reconcile Mode.
+- `body_file` (optional, Phase 2): absolute path for the PR body. When given, write the body there instead of returning it (Phase 2 step 8).
 
 ## Phase 1: Documentation Update
 
@@ -170,7 +171,7 @@ Generate the PR title and body from implementation context.
    - **Format:** one action per `- [ ]` line, with no nested bullets. Each item is either a single backtick shell command (optionally followed by a short note) or text starting with `Manual:`. n1-finish and n1-release parse these lines and tick them `[x]` as they run.
    - Both lists empty → no section. One list empty → omit that sub-heading.
 
-8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1.
+8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1. When `body_file` is given, write the body (body only: no title, no `## PR Content` wrapper, no other wrapper tags) to `body_file` with the Write tool and return only the title block plus `pr body written: <body_file>` (see Output Format). Without `body_file`, return title and body inline.
 
 ## Reconcile Mode
 
@@ -242,6 +243,17 @@ Local testing: PASS — N/N automated scenarios passed
 ## Ticket
 <1-2 sentence summary from ticket.md (if provided)>
 <ticket_url from overview.md frontmatter — omit line if empty>
+```
+
+**Note:** With `body_file`, the `### Body` content goes to that file and the reply is only:
+
+```markdown
+## PR Content
+
+### Title
+[TICKET-ID] <imperative mood summary, under 70 chars>
+
+pr body written: <body_file>
 ```
 
 **Note:** Omit the Documentation section entirely if Phase 1 found no documentation files to update, flag, or note.
