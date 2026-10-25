@@ -30,11 +30,16 @@ OUTCOME='<only the word after codex_review_outcome= (ran, skipped, timeout or fa
 [ "$OUTCOME" = ran ] && { echo "softfix:reviewed"; exit 0; }
 [ -n "${ID:-}" ] && [ -n "${N1_HOME:-}" ] || { echo "softfix:no-id"; exit 0; }
 IMPL="$N1_HOME/memory/$ID/implementation.md"
-grep -qE '^## Fix Cycle [0-9]+ \(soft\)' "$IMPL" 2>/dev/null || { echo "softfix:none"; exit 0; }
+[ -e "$IMPL" ] || { echo "softfix:none"; exit 0; }
+grep -qE '^## Fix Cycle [0-9]+ \(soft\)' "$IMPL" 2>/dev/null; RC=$?
+[ "$RC" -eq 1 ] && { echo "softfix:none"; exit 0; }
+[ "$RC" -eq 0 ] || { echo "softfix:unreadable"; exit 0; }
 PR_NUMBER=${PR_URL##*/}
 case "$PR_URL" in https://*/pull/*) ;; *) echo "softfix:bad-pr-url"; exit 0;; esac
 case "$PR_NUMBER" in ''|*[!0-9]*) echo "softfix:bad-pr-url"; exit 0;; esac
 case "$OUTCOME" in skipped|timeout|failed) ;; *) OUTCOME=unknown;; esac
+EXISTING=$(timeout -k 5 30 gh pr view "$PR_URL" --json comments --jq '[.comments[].body | select(startswith("## Soft-Pass Fixes Not Cross-Reviewed"))] | length' 2>/dev/null) || EXISTING=0
+[ "${EXISTING:-0}" -gt 0 ] 2>/dev/null && { echo "softfix:already-posted"; exit 0; }
 mkdir -p "$N1_HOME/scratch"
 SOFTFIX_FILE=$(mktemp "$N1_HOME/scratch/codex-softfix-$PR_NUMBER.XXXXXX") || { echo "softfix:comment-failed"; exit 0; }
 printf '%s\n\n%s\n' '## Soft-Pass Fixes Not Cross-Reviewed' "Codex review did not run (outcome: $OUTCOME). This branch contains soft-pass review fixes (one developer pass after a review PASS, with no re-review). They are not cross-reviewed: only the full test suite (and CI, if configured) checked them. Review those commits before merging." > "$SOFTFIX_FILE"
@@ -44,7 +49,7 @@ rm -f "$SOFTFIX_FILE"
 
 Paste only the outcome word, not the trailing `reason=` or `rc=` fields (the runner prints `codex_review_outcome=skipped reason=...`); anything outside the allow-list becomes `unknown`.
 
-If the output says `softfix:comment-failed`, `softfix:bad-pr-url` or `softfix:no-id`, warn inline that the soft-pass fixes are not cross-reviewed and continue. Every output continues to the Triage Gate.
+If the output says `softfix:comment-failed`, `softfix:bad-pr-url`, `softfix:no-id` or `softfix:unreadable` (implementation.md exists but could not be read, so disclosure status is unknown), warn inline that the soft-pass fixes may not be cross-reviewed and continue. `softfix:already-posted` means an earlier run already posted the notice; a failed comment lookup posts anyway. Every output continues to the Triage Gate.
 
 ### Triage Gate
 

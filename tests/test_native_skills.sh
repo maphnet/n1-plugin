@@ -167,7 +167,7 @@ for f in "$P3" references/architecture.md; do
 done
 
 # 10. N1-123 SEC-4: disclose soft-pass fixes as not cross-reviewed when Codex did not run
-for pat in '### Soft-Fix Notice' '^## Fix Cycle [0-9]+ \(soft\)' 'not cross-reviewed' '--body-file "$SOFTFIX_FILE"' 'softfix:comment-failed' 'softfix:reviewed' 'softfix:no-id' 'softfix:bad-pr-url' 'gh pr comment "$PR_URL"'; do
+for pat in '### Soft-Fix Notice' '^## Fix Cycle [0-9]+ \(soft\)' 'not cross-reviewed' '--body-file "$SOFTFIX_FILE"' 'softfix:comment-failed' 'softfix:reviewed' 'softfix:no-id' 'softfix:bad-pr-url' 'softfix:unreadable' 'softfix:already-posted' 'gh pr view "$PR_URL" --json comments' 'gh pr comment "$PR_URL"'; do
     if grep -qF -- "$pat" "$P3"; then
         echo "PASS: 03-codex-review soft-fix notice has '$pat'"
     else
