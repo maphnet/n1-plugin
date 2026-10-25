@@ -84,7 +84,7 @@ Once failure detected but other checks still pending:
 All checks `conclusion: SUCCESS`/`NEUTRAL`/`SKIPPED`:
 - Report "All CI checks passed."
 - Run **Step 7a** (in 02-fix.md) now. n1-finish reads the PR body's Deployment Actions, so the body must match the pushed diff first. The later pass through Step 7 prints `reconcile:skip`.
-- **Finish chaining:** none. n1-ci never merges a PR; the human merges, or n1-finish does with `finishWork.mergeOnFinish`. Never chain into n1-finish or release.
+- **Finish chaining:** none here. n1-ci never merges a PR and never chains into n1-finish or release; n1-start's finish step chains n1-finish when `autonomy.fullAuto` is on (N1-146).
 - Go to **Step 7** (in 02-fix.md).
 
 Any `conclusion: FAILURE` → collect failures, go to **Step 5** (in 02-fix.md).
