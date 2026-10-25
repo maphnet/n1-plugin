@@ -51,6 +51,7 @@ case "$1 $2" in
         else
             echo "diff --git a/x b/x"
         fi ;;
+    "repo view") echo "o/r" ;;
     "api user") echo "${GH_LOGIN:-me}" ;;
     "pr edit") while [ $# -gt 0 ]; do [ "$1" = "--body-file" ] && cp "$2" "$GH_EDITED"; shift; done ;;
     *)
@@ -65,7 +66,7 @@ SHA1="1111111111111111111111111111111111111111"; SHA2="2222222222222222222222222
 export N1_HOME="$T/home" GH_BODY="$T/body.md" GH_EDITED="$T/edited.md" GH_STATE=OPEN GH_HEAD="$SHA1" GH_AUTHOR=me GH_LOGIN=me
 unset GH_DIFF_EMPTY GH_COMPARE_FAIL
 S="$T/home/scratch/reconcile-start-7.testfile"
-run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e '/preamble\.sh/d' -e 's|^PR_NUMBER=.*|PR_NUMBER="7"|' -e "s|^ADHOC=.*|ADHOC=\"${2:-}\"|" -e "s|^D=\"<D from the reconcile:run line>\"\$|D=\"${3:-}\"|" -e "s|^START_FILE=.*|START_FILE=\"${4:-$S}\"|")"; }
+run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e 's|^source ~/.n1/preamble.sh$|source lib/config.sh|' -e 's|^PR_NUMBER=.*|PR_NUMBER="7"|' -e "s|^ADHOC=.*|ADHOC=\"${2:-}\"|" -e "s|^D=\"<D from the reconcile:run line>\"\$|D=\"${3:-}\"|" -e "s|^START_FILE=.*|START_FILE=\"${4:-$S}\"|")"; }
 dir_of() { printf '%s\n' "$1" | sed -n 's/^reconcile:run dir=//p'; }
 
 echo "$SHA1" > "$S"
@@ -91,6 +92,22 @@ check "old body saved" '^- \[x\] `echo done`$' "$D/old-body.md"
 check "diff saved" "^diff --git" "$D/diff.patch"
 check "full diff saved untruncated" "^diff --git" "$D/diff-full.patch"
 check "commits since start come from compare" "^bbbbbbb new commit$" "$D/commits.txt"
+
+# N1-141: § Check advances the reviewed-head pin only when the run started at the pinned head; never ad-hoc.
+PIN="$T/home/review-pins/o_r_7"; mkdir -p "${PIN%/*}"
+SHA3="3333333333333333333333333333333333333333"
+echo "$SHA1" > "$PIN"; echo "$SHA1" > "$S"
+out=$(run "## § Check")
+check "check advances the pin from the pinned head" "^pin:advanced 2222222$" <(printf '%s\n' "$out")
+[ "$(cat "$PIN")" = "$SHA2" ] && echo "PASS: pin now equals the new head" || { echo "FAIL: pin not advanced"; FAIL=1; }
+echo "$SHA3" > "$PIN"; echo "$SHA1" > "$S"
+out=$(run "## § Check")
+check "check keeps a pin the run did not start from" "^pin:kept$" <(printf '%s\n' "$out")
+[ "$(cat "$PIN")" = "$SHA3" ] && echo "PASS: foreign-start pin unchanged" || { echo "FAIL: foreign-start pin changed"; FAIL=1; }
+echo "$SHA1" > "$PIN"
+out=$(run "## § Check" 1)
+[ "$(cat "$PIN")" = "$SHA1" ] && echo "PASS: ad-hoc never advances the pin" || { echo "FAIL: ad-hoc advanced the pin"; FAIL=1; }
+rm -f "$PIN" "$S"
 
 echo "$SHA1" > "$S"
 out=$(run "## § Check" 1)

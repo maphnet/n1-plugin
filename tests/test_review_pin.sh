@@ -53,4 +53,11 @@ eq "set: overwrites a corrupt pin" "pin:set 3333333" "$(HEADSHA=$C n1_review_pin
 eq "no temp files left behind" "0" "$(find "$T/home/review-pins" -name '*.*' | wc -l | tr -d ' ')"
 n1_review_pin bogus 7 >/dev/null; eq "unknown op fails" "1" "$?"
 
+# Wiring: n1-pr pins before the Codex runner; reconcile § Check advances (N1 fix-loop pushes only).
+S3=skills/n1-pr/steps/03-codex-review.md; RP=references/reconcile-pr-body.md
+PS=$(grep -nF 'n1_review_pin set "${PR_URL##*/}"' "$S3" | head -1 | cut -d: -f1)
+CR=$(grep -nF 'codex-pr-review.sh" "$PR_URL"' "$S3" | head -1 | cut -d: -f1)
+if [ -n "$PS" ] && [ -n "$CR" ] && [ "$PS" -lt "$CR" ]; then ok "n1-pr pins the head before the Codex runner"; else no "n1-pr pins the head before the Codex runner"; fi
+if grep -qF 'n1_review_pin advance "$PR_NUMBER" "$START" "$NOW"' "$RP"; then ok "reconcile § Check advances the pin"; else no "reconcile § Check advances the pin"; fi
+
 exit $FAIL

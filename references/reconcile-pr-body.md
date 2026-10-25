@@ -1,6 +1,6 @@
 # Procedure: Reconcile PR Body
 
-Rewrites an open PR's whole description after pushes made once the PR exists, so every claim matches the current diff. Called once at the end of a run by n1-ci (Step 4 / Step 7a), the n1-pr Codex triage fix cycle (Step 9), and n1-review-response (Step 6a). It is also used for ad-hoc pushes outside a skill run (HOST ROUTING `PR BODY RECONCILE`). It never commits or pushes. It never blocks: any failure prints a `reconcile:failed` or `reconcile:aborted` line, the PR body may be stale, and the caller continues. It needs no Decision Ledger row.
+Rewrites an open PR's whole description after pushes made once the PR exists, so every claim matches the current diff. Called once at the end of a run by n1-ci (Step 4 / Step 7a), the n1-pr Codex triage fix cycle (Step 9), and n1-review-response (Step 6a). It is also used for ad-hoc pushes outside a skill run (HOST ROUTING `PR BODY RECONCILE`). It never commits or pushes; its only state change besides the PR body is advancing the reviewed-head pin in § Check. It never blocks: any failure prints a `reconcile:failed` or `reconcile:aborted` line, the PR body may be stale, and the caller continues. It needs no Decision Ledger row.
 
 **Run-start contract.** Before its first developer dispatch, each calling site records the PR head in its own file and carries the path forward, the same way `<D>` is carried from the `reconcile:run dir=` line:
 
@@ -22,6 +22,8 @@ Each run gets its own file (a per-PR name would collide across overlapping runs 
 
 Prints `reconcile:skip` when the PR is not open, when (not ad-hoc) there is no start SHA or the head did not move, or when (ad-hoc) the PR author isn't you. Otherwise it stages the inputs and prints `reconcile:run dir=<D>`.
 
+When a skill run moved the head of an open PR, it first runs `n1_review_pin advance` (N1-141): the reviewed-head pin that n1-finish merges follows the push only when the run started at the pinned head, so a push by anyone else before the run keeps the old pin and n1-finish refuses to merge. Ad-hoc runs never advance it. The `pin:advanced <sha7>` / `pin:kept` / `pin:unavailable` line is informational and never blocks.
+
 ```bash
 source ~/.n1/preamble.sh
 PR_NUMBER="<PR number>"
@@ -40,6 +42,7 @@ if ! META=$(gh pr view "$PR_NUMBER" --json headRefOid,state,author --jq '"\(.hea
   echo "reconcile:failed:fetch — PR body reconcile failed, body may be stale"
 else
   read -r NOW STATE AUTHOR <<<"$META"
+  [ -z "$ADHOC" ] && [ "${STATE:-}" = OPEN ] && [ -n "$START" ] && [ "$START" != "${NOW:-}" ] && n1_review_pin advance "$PR_NUMBER" "$START" "$NOW"
   if [ -n "$ADHOC" ] && [ "$AUTHOR" != "$(gh api user --jq .login 2>/dev/null)" ]; then
     echo "reconcile:skip — not your PR"
   elif [ "${STATE:-}" != "OPEN" ] || [ -z "${NOW:-}" ] || { [ -z "$ADHOC" ] && { [ -z "$START" ] || [ "$START" = "$NOW" ]; }; }; then
