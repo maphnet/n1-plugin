@@ -124,6 +124,9 @@ has() { grep -q -- "$2" "$1" && echo yes || echo no; }
 assert_eq "T44: n1-start finish gate no longer reads N1_STOP_AT" "no" "$(has "$SK/n1-start/steps/finish.md" 'N1_STOP_AT')"
 assert_eq "T45: n1-start finish step tells the user to run n1-finish" "yes" "$(has "$SK/n1-start/steps/finish.md" '/n1:n1-finish')"
 assert_eq "T46: n1-ci never chains into n1-finish (N1-114)" "no" "$(has "$SK/n1-ci/steps/01-monitor.md" 'chain:yes')"
+assert_eq "T76: n1-init offers autonomy.fullAuto" "yes" "$(has "$SK/n1-init/steps/10-quality-config.md" '"fullAuto"')"
+assert_eq "T77: fullAuto is not a dead key in the prune list" "no" "$(has "$SK/n1-init/steps/01-prerequisites.md" 'fullAuto')"
+assert_eq "T78: architecture documents autonomy.fullAuto" "yes" "$(has "$SCRIPT_DIR/../references/architecture.md" '| `fullAuto` |')"
 
 # ---- Test group 7: cross-host review defaults (N1-94) ----
 export N1_HOME="$TMPDIR_TEST/xhr"

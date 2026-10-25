@@ -22,7 +22,7 @@ Ask:
 ```
 Let /n1:n1-finish merge the open PR?
 When on, n1-finish checks CI and unresolved review threads, merges with the method above,
-then watches the deployment and closes the ticket. Queued and headless runs never merge.
+then watches the deployment and closes the ticket. Queued and headless runs merge only when `autonomy.fullAuto` is also true.
 No recommendation. The options are equivalent given the available evidence; select based on team preference.
 1 — No (default): you merge, then run /n1:n1-finish
 2 — Yes
