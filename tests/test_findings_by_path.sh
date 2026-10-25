@@ -5,6 +5,8 @@ cd "$(dirname "$0")/.."
 FAIL=0
 CR=agents/code-reviewer.md
 SR=agents/security-reviewer.md
+R=skills/n1-start/steps/review.md
+F=skills/n1-start/steps/fix.md
 
 check() { # <label> <extended-regex> <file>
     if grep -qE -- "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
@@ -20,6 +22,20 @@ for A in "$CR" "$SR"; do
     check "$A index covers every finding" 'One Index line per finding of every severity' "$A"
     refute "$A no longer claims Read-only" 'Read-only' "$A"
 done
+
+check "review removes stale reviewer files" 'rm -f "\$MEM/review-cr\.md" "\$MEM/review-sec\.md"' "$R"
+check "review spawns reviewers with output paths" 'output paths `\$MEM/review-cr\.md`' "$R"
+check "review never reads reviewer files into context" 'never Read the reviewer files' "$R"
+check "review.md = header + cat of reviewer files" 'cat "\$MEM"/review-cr\.md "\$MEM"/review-sec\.md' "$R"
+check "review.md header starts with the verdict" '^### Verdict: <PASS\|FAIL>' "$R"
+check "missing reviewer file is Partial" 'missing/empty reviewer file' "$R"
+check "TQ loop passes review.md path" 'spawn qa-engineer: `\$MEM/review\.md` path' "$R"
+refute "orchestrator no longer composes findings inline" 'Combine: `\$MEM/review\.md`, prefix' "$R"
+
+check "fix FAIL passes review.md path and scope" 'pass the `\$N1_HOME/memory/\$ID/review\.md` path and this scope' "$F"
+check "fix SOFT-ONLY passes review.md path" 'SOFT-ONLY.*review\.md. path' "$F"
+check "developer accepts a review.md path plus scope filter" 'path to `review\.md` plus a scope filter' agents/developer.md
+check "qa-engineer TQ Fix Mode reads review.md" 'TQ Fix Mode only: the path to `review\.md`' agents/qa-engineer.md
 
 refute "n1-review does not pass reviewer output paths" 'review-cr\.md|review-sec\.md' skills/n1-review
 

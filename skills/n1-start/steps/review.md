@@ -7,7 +7,7 @@ source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/treestate.sh"; source "$N1
 n1_step_begin "review" 9
 n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — aborting review step" >&2; exit 1; }
 BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
-MEM="$N1_HOME/memory/$ID"
+MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-cr.md" "$MEM/review-sec.md"
 { echo "# Review Spec (generated)"; n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"; [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"; } > "$MEM/review-spec.md"
 { echo "# QA Facts (generated)"; n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"; [ -n "${BREAK_CHECK_TQ:-}" ] && { echo "## Hollow tests (break-check never-red)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'; }; } > "$MEM/qa-facts.md"
 TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
@@ -43,15 +43,21 @@ QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdic
 IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review)
 IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review)
 ```
-`QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Append `$XREPO_REVIEW_CONTEXT`. Spawn reviewers.
+`QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Append `$XREPO_REVIEW_CONTEXT`. Spawn reviewers with output paths `$MEM/review-cr.md` / `$MEM/review-sec.md`; each returns verdict, counts, index.
 
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewer personas return their results before combining findings.
 
-After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Combine: `$MEM/review.md`, prefix `[CR-N]`/`[SEC-N]`. **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle is deferred, see below). Partial: retry once.
+After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm -f` the reviewer files)+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Combine the returned indexes in the block below (never Read the reviewer files). **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle is deferred, see below). Partial (incl. a missing/empty reviewer file in the `wc -c` output below): retry once.
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
+MEM="$N1_HOME/memory/$ID"; { cat <<'HDR'
+### Verdict: <PASS|FAIL>
+<summed counts, then every returned Index line>
+HDR
+cat "$MEM"/review-cr.md "$MEM"/review-sec.md 2>/dev/null; } > "$MEM/review.md"
+wc -c "$MEM"/review-cr.md "$MEM"/review-sec.md 2>&1
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
@@ -61,7 +67,7 @@ For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`): `n1_fingerp
 
 ### 7b. TQ FIX LOOP
 
-No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"`, then `n1_resolve_agent qa-engineer review`+split; spawn qa-engineer: TQ findings, qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5."
+No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"`, then `n1_resolve_agent qa-engineer review`+split; spawn qa-engineer: `$MEM/review.md` path (`[TQ-N]` only), qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5."
 
 **FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
 
