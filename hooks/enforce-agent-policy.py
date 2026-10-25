@@ -5,6 +5,8 @@ Case 1 - persona tool restriction. The payload's `agent_type` names an N1 person
 (`n1:<p>`) and the persona's frontmatter has a `tools:` list: deny any tool outside it.
 This duplicates native enforcement as a backstop. Denial: exit 2, reason on stderr.
 
+Reviewer personas may Write only their findings file (see _findings_path_ok, SEC-1).
+
 Case 2 - spawn model override. For spawn tools targeting an N1 persona, rewrite `model`
 from config `models.<persona>` (string, or a legacy host-keyed object read through its
 "claude-code" key).
@@ -51,6 +53,7 @@ ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 # position; (?<!...) anchors fd digits to a run start (linear); >( <( $( stay for SUBST.
 REDIR_RE = re.compile(r"(?<![\d&])(?:\d*|&)(?:>>?|<)(?!\()\|?[ \t]*&?(?:[^\s;&|()<>`$]|\$(?!\())*")
 DURATION_RE = re.compile(r"[0-9.]+[smhd]?$")
+REVIEWERS = {"code-reviewer", "security-reviewer"}
 PROGRAMS = {"gh", "git", "curl", "wget"}
 WRAPPERS = {"env", "command", "exec", "sudo", "time", "nohup", "xargs", "timeout", "sh", "bash",
             "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
@@ -93,6 +96,17 @@ def persona_tools(plugin_root: str, persona: str):
     return {t.strip() for t in m.group(1).split(",") if t.strip()}
 
 
+def _findings_path_ok(tool_input) -> bool:
+    """Reviewer Write scope (SEC-1): realpath is memory/<ID>/review-(cr|sec).md under $N1_HOME or ~/.n1/<slug>. Fail closed."""
+    path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+    if not isinstance(path, str) or not path.strip():
+        return False
+    roots = [re.escape(os.path.realpath(os.path.join(os.path.expanduser("~"), ".n1"))) + r"/[^/]+"]
+    if os.environ.get("N1_HOME"):
+        roots.append(re.escape(os.path.realpath(os.environ["N1_HOME"])))
+    return re.fullmatch(r"(?:%s)/memory/[^/]+/review-(?:cr|sec)\.md" % "|".join(roots), os.path.realpath(path)) is not None
+
+
 def restriction(payload: dict, plugin_root: str) -> int:
     persona = persona_of(str(payload.get("agent_type") or ""))
     tool = str(payload.get("tool_name") or "")
@@ -101,8 +115,10 @@ def restriction(payload: dict, plugin_root: str) -> int:
     allowed = persona_tools(plugin_root, persona)
     if allowed is None or tool.startswith("mcp__"):
         return 0
-    ok = tool in allowed
-    if ok:
+    if tool in allowed:
+        if tool == "Write" and persona in REVIEWERS and not _findings_path_ok(payload.get("tool_input")):
+            sys.stderr.write(f"N1: persona {persona} may Write only memory/<ID>/review-(cr|sec).md under the N1 home\n")
+            return 2
         return 0
     sys.stderr.write(f"N1: persona {persona} may not use tool {tool} (allowed: {', '.join(sorted(allowed))})\n")
     return 2

@@ -70,6 +70,24 @@ assert_eq "claude Grep allowed for read-only persona" "0:" "$RC:$OUT"
 OUT=$(echo '{"tool_name":"Read","agent_type":"general-purpose","tool_input":{}}' | bash "$POLICY"); RC=$?
 assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
 
+# reviewer Write is scoped to memory/<ID>/review-(cr|sec).md under the N1 home (SEC-1)
+mkdir -p "$N1_HOME/memory/T-9" "$T/wt"; ln -sf "$T/wt/f.txt" "$N1_HOME/memory/T-9/review-sec.md"
+rev_write_rc() {  # rev_write_rc <persona> <tool> <file_path>
+    local rc=0; jq -cn --arg a "n1:$1" --arg t "$2" --arg f "$3" '{agent_type:$a,tool_name:$t,tool_input:{file_path:$f}}' | bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+}
+for P in code-reviewer security-reviewer; do
+    assert_eq "$P Write to memory review-cr.md allowed" 0 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/review-cr.md")"
+    assert_eq "$P Write to ~/.n1/preamble.sh denied" 2 "$(rev_write_rc $P Write "$HOME/.n1/preamble.sh")"
+    assert_eq "$P Write to worktree file denied" 2 "$(rev_write_rc $P Write "$T/wt/f.txt")"
+    assert_eq "$P Write to other memory file denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/config.json")"
+    assert_eq "$P Write via review-sec.md symlink denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/review-sec.md")"
+    assert_eq "$P Write via .. traversal denied" 2 "$(rev_write_rc $P Write "$N1_HOME/memory/T-9/../../config.json")"
+    assert_eq "$P Write without file_path denied" 2 "$(rev_write_rc $P Write "")"
+    assert_eq "$P Edit still denied" 2 "$(rev_write_rc $P Edit "$N1_HOME/memory/T-9/review-cr.md")"
+    assert_eq "$P NotebookEdit still denied" 2 "$(rev_write_rc $P NotebookEdit "$N1_HOME/memory/T-9/review-cr.md")"
+done
+assert_eq "developer Write unscoped" 0 "$(rev_write_rc developer Write "$T/wt/f.txt")"
+
 # --- enforce-agent-policy: queue merge deny (N1-114: unconditional in headless queue children) ---
 policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
     local envs=() cmd
