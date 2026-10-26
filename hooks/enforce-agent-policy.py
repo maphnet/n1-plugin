@@ -69,7 +69,7 @@ GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--con
 UNIT_RE = re.compile(r"(&&|\|\||;|\n)")
 RUNNER_RE = re.compile(r"(?:^|/)(?:pytest|bats|jest|vitest)$")
 TESTS_DIR_RE = re.compile(r"(?:^|/)tests?/")
-PIPEFAIL_RE = re.compile(r"\bset\s+-[A-Za-z]*o\s+pipefail\b|PIPESTATUS")
+PIPEFAIL_RE = re.compile(r"\bset\b[^;&|\n]{0,200}\s-[A-Za-z]*o\s+pipefail\b|PIPESTATUS")
 PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 

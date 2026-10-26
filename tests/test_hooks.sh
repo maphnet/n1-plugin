@@ -204,6 +204,10 @@ PIPE_DENY=("evidence-N1-74|bash tests/run.sh 2>&1 | tail -2 && git add -A && git
            "pipe-amp|bash tests/run.sh |& tail -2 && git commit -m x"
            "pipefail-in-message|bash tests/run.sh | tail -2 && git commit -m 'add pipefail guard'")
 PIPE_OK=("pipefail-set|set -o pipefail; bash tests/run.sh 2>&1 | tail -2 && git commit -m x"
+         "pipefail-split|set -e -o pipefail; bash tests/run.sh | tail -2 && git commit -m x"
+         "pipefail-euo-split|set -eu -o pipefail; bash tests/run.sh | tail -2 && git commit -m x"
+         "pipefail-errexit|set -o errexit -o pipefail; bash tests/run.sh | tail -2 && git commit -m x"
+         "newline-sep|bash tests/run.sh | tail -2"$'\n'"git commit -m x"
          "pipefail-euo|set -euo pipefail; bash tests/run.sh | tail -2 && git commit -m x"
          "pipestatus|bash tests/run.sh | tail -2 && git commit -m x; echo \${PIPESTATUS[0]}"
          "no-commit|bash tests/run.sh | tail -5" "quoted-text|git commit -m 'pytest | tail -2 done'"
