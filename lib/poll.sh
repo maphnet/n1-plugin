@@ -13,15 +13,16 @@ n1_wait_ci_checks() {
     [ "$deadline" -lt "$chunk_end" ] && chunk_end=$deadline
     while :; do
         local counts
-        counts=$(gh pr checks "$pr" --json state,conclusion --jq \
-            '[([.[] | select(.conclusion == "FAILURE")] | length),
-              ([.[] | select(.state != "COMPLETED")] | length)] | @tsv' 2>/dev/null) || counts=""
+        counts=$(gh pr checks "$pr" --json bucket --jq \
+            '[([.[] | select(.bucket == "fail" or .bucket == "cancel")] | length),
+              ([.[] | select(.bucket == "pending")] | length), length] | @tsv' 2>/dev/null) || counts=""
         if [ -n "$counts" ]; then
-            local failed pending
+            local failed pending total
             failed=$(printf '%s' "$counts" | cut -f1)
             pending=$(printf '%s' "$counts" | cut -f2)
+            total=$(printf '%s' "$counts" | cut -f3)
             [ "$failed" -gt 0 ] 2>/dev/null && { printf 'red\n'; return 0; }
-            [ "$pending" -eq 0 ] 2>/dev/null && { printf 'green\n'; return 0; }
+            [ "$total" -gt 0 ] 2>/dev/null && [ "$pending" -eq 0 ] 2>/dev/null && { printf 'green\n'; return 0; }
         fi
         [ "$(date +%s)" -ge "$chunk_end" ] && { printf 'pending\n'; return 0; }
         sleep 30
