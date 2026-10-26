@@ -22,10 +22,19 @@ P3=$(grep -n 'Could not read the reviewed-head pin' "$F" | head -1 | cut -d: -f1
 P1=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); P2=$(grep -n 'differs from the reviewed head' "$F" | head -1 | cut -d: -f1)
 if [ -n "$P1" ] && [ -n "$P2" ] && [ -n "$M" ] && [ "$P1" -lt "$M" ] && [ "$P2" -lt "$M" ]; then ok "pin STOPs precede the merge"; else no "pin STOPs precede the merge"; fi
 if [ -n "$P3" ] && [ -n "$M" ] && [ "$P3" -lt "$M" ]; then ok "pin lookup-failure STOP precedes the merge"; else no "pin lookup-failure STOP precedes the merge"; fi
-# N1-144: first DIRTY routes to resolve-dirty.md; BLOCKED/BEHIND and a second DIRTY keep the STOP.
+# N1-144/N1-151: first DIRTY or BEHIND routes to resolve-dirty.md; BLOCKED and a second DIRTY/BEHIND keep the STOP.
 D=$(grep -n 'references/resolve-dirty.md' "$F" | head -1 | cut -d: -f1)
 if [ -n "$D" ] && [ -n "$M" ] && [ "$D" -lt "$M" ]; then ok "3.1 DIRTY points at resolve-dirty.md before the merge"; else no "3.1 DIRTY points at resolve-dirty.md before the merge"; fi
-if grep -qF 'cannot merge yet' "$F" && grep -qF 'after a resolve attempt in this run' "$F"; then ok "BLOCKED/BEHIND and second DIRTY keep the STOP"; else no "BLOCKED/BEHIND and second DIRTY keep the STOP"; fi
+if grep -qF 'cannot merge yet' "$F" && grep -qF 'after a resolve attempt in this run' "$F"; then ok "BLOCKED and second DIRTY/BEHIND keep the STOP"; else no "BLOCKED and second DIRTY/BEHIND keep the STOP"; fi
+if grep -qF '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F"; then ok "3.1: first BEHIND routes to resolve-dirty"; else no "3.1: first BEHIND routes to resolve-dirty"; fi
+if grep -qF '`state:BLOCKED` / `BEHIND`' "$F"; then no "3.1: BEHIND is not an unconditional STOP"; else ok "3.1: BEHIND is not an unconditional STOP"; fi
+if grep -qF 'a second `state:DIRTY` or `state:BEHIND` is a **STOP**' skills/n1-finish/references/resolve-dirty.md; then ok "resolve-dirty: second DIRTY/BEHIND stops"; else no "resolve-dirty: second DIRTY/BEHIND stops"; fi
+# N1-151 pinless: the pin line precedes DIRTY/BEHIND, routes to § Re-pin interactively, escalates unattended, no merge-by-hand.
+PE=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); DB=$(grep -n '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F" | head -1 | cut -d: -f1)
+if [ -n "$PE" ] && [ -n "$DB" ] && [ "$PE" -lt "$DB" ]; then ok "3.1: pinless line precedes DIRTY/BEHIND"; else no "3.1: pinless line precedes DIRTY/BEHIND"; fi
+PL=$(sed -n "${PE:-1}p" "$F")
+if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 does not pin unattended' <<<"$PL" && grep -qF 'every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md) is also added under `## Escalations` and posted as a `N1 [headless]`' "$F"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
+if grep -qF 'Merge it yourself' <<<"$PL"; then no "3.1: pinless has no merge-by-hand dead end"; else ok "3.1: pinless has no merge-by-hand dead end"; fi
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
@@ -182,16 +191,37 @@ intact() { # branch at the reviewed head, no rebase, clean tree, origin and pin 
 # Version-only conflict: rebase, take main's manifests, one re-bump commit above main (minor class).
 fx 5.10.0 5.12.0 5.11.0; res; NH=$(gw rev-parse HEAD)
 line "resolve: manifest-only conflict re-bumped above main" "resolve:ready old=$OH new=$NH bumped=5.13.0"
-# SEC-1 (N1-146): resolve-dirty stays interactive-only; queue/headless are denied even with both keys true.
-for e in "N1_QUEUE_RUN_ID=q-1" "N1_HEADLESS=1"; do
-  export "$e"; MERGE_KEY=true FA_KEY=true res; unset "${e%%=*}"
-  line "resolve: denied for $e with both keys" "resolve:denied"
-done
-if grep -qF 'merge conflicts; N1 does not resolve them unattended' "$F"; then ok "3.1: unattended DIRTY stops"; else no "3.1: unattended DIRTY stops"; fi
+# N1-151: unattended DIRTY routes to resolve-dirty; its writing blocks guard on n1_merge_authorized alone.
+if grep -qF 'Queue and headless runs follow it too' "$F"; then ok "3.1: unattended DIRTY routes to resolve-dirty"; else no "3.1: unattended DIRTY routes to resolve-dirty"; fi
+if [ "$(grep -cF '[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }' "$RF")" = 2 ]; then ok "resolve-dirty: both writing blocks guard on n1_merge_authorized"; else no "resolve-dirty: both writing blocks guard on n1_merge_authorized"; fi
+if grep -qF 'N1 [headless]' "$RF"; then ok "resolve-dirty: unattended STOPs post a tracker comment"; else no "resolve-dirty: unattended STOPs post a tracker comment"; fi
 if [ "$(gw log --format=%s origin/main..HEAD)" = "chore: bump version to 5.13.0 (N1-T)" ]; then ok "resolve: one bump commit on top of main"; else no "resolve: commits $(gw log --format=%s origin/main..HEAD | tr '\n' '|')"; fi
 if [ "$(jq -r .version "$G/w/.claude-plugin/plugin.json") $(jq -r '.plugins[0].version' "$G/w/.claude-plugin/marketplace.json")" = "5.13.0 5.13.0" ]; then ok "resolve: both manifests at 5.13.0"; else no "resolve: both manifests at 5.13.0"; fi
 if [ "$(gw diff --name-only origin/main HEAD | tr '\n' ' ')" = ".claude-plugin/marketplace.json .claude-plugin/plugin.json " ] && [ ! -d "$G/w/.git/rebase-merge" ]; then ok "resolve: only manifests differ from main, rebase finished"; else no "resolve: only manifests differ from main, rebase finished"; fi
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "resolve: nothing pushed, pin untouched"; else no "resolve: nothing pushed, pin untouched"; fi
+# N1-151: queue/headless runs resolve when n1_merge_authorized holds (fullAuto + mergeOnFinish); without fullAuto they stay denied.
+for e in "N1_QUEUE_RUN_ID=q-1" "N1_HEADLESS=1"; do
+  fx 5.10.0 5.12.0 5.11.0
+  export "$e"; FA_KEY=false res; unset "${e%%=*}"
+  line "resolve: denied for $e without fullAuto" "resolve:denied"
+  intact "resolve: $e without fullAuto changes nothing"
+  export "$e"; FA_KEY=true res; unset "${e%%=*}"; NH=$(gw rev-parse HEAD)
+  line "resolve: $e + fullAuto re-bumps the manifest conflict" "resolve:ready old=$OH new=$NH bumped=5.13.0"
+done
+# Non-manifest conflict unattended: developer round, then the rebase completes (accept-as-is policy).
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0
+N1_HEADLESS=1 FA_KEY=true res; ST=$(gw rev-parse HEAD)
+line "resolve: headless conflict handed to the developer" "resolve:conflicts old=$OH stop=$ST snap=$SN files:src.txt"
+# N1-151 BEHIND: base gained a non-conflicting commit; clean rebase, no re-bump while the PR version is above base.
+bfx() { fx 5.10.0 5.12.0 5.11.0
+  ( cd "$G/w" && git checkout -q main && git reset -q --hard HEAD~1 && echo o > other.txt && git add other.txt && git commit -qm "main other" && git push -q -f origin main && git checkout -q feat ) || no "behind fixture"; }
+bfx; res; NH=$(gw rev-parse HEAD)
+line "resolve: BEHIND PR rebased without a re-bump" "resolve:ready old=$OH new=$NH bumped=none"
+if gw merge-base --is-ancestor origin/main HEAD && [ "$(gw log --format=%s origin/main..HEAD | tr '\n' '|')" = "chore: bump version to 5.11.0 (N1-T)|" ]; then ok "resolve: BEHIND keeps the PR commits on top of base"; else no "resolve: BEHIND keeps the PR commits on top of base"; fi
+echo "$NH" > "$PIN"; TH=$NH res; echo "$OH" > "$PIN"
+has "resolve: already on top of base skipped" "resolve:skip up-to-date"
+bfx; N1_QUEUE_RUN_ID=q-1 FA_KEY=true res; NH=$(gw rev-parse HEAD)
+line "resolve: queue BEHIND + fullAuto rebased" "resolve:ready old=$OH new=$NH bumped=none"
 
 # Bump class follows the PR's original delta (patch, major); last row: identical bump on both sides is not a git conflict (the PR commit is dropped) but is still re-bumped above main.
 for c in "5.11.0 5.11.2 5.11.1 5.11.3" "5.11.0 5.12.0 6.0.0 6.0.0" "5.11.0 5.12.0 5.12.0 5.13.0"; do
@@ -353,6 +383,33 @@ has "push: hook decline shows the git error" "hook-says-no"
 if grep -qF "push:rejected" <<<"$OUT"; then no "push: hook decline is not push:rejected"; else ok "push: hook decline is not push:rejected"; fi
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$RFH" ] && [ "$(cat "$PIN")" = "$RFH" ]; then ok "push: failed push leaves origin and pin"; else no "push: failed push leaves origin and pin"; fi
 
+# N1-151: an unattended push with fullAuto + mergeOnFinish pushes and advances the pin.
+fx 5.10.0 5.12.0 5.11.0; N1_HEADLESS=1 FA_KEY=true res; NH=$(gw rev-parse HEAD)
+N1_HEADLESS=1 FA_KEY=true TOLD=$OH TNEW=$NH psh
+has "push: headless + fullAuto pushes" "pushed:${NH:0:7}"
+has "push: headless + fullAuto advances the pin" "pin:advanced ${NH:0:7}"
+# N1-151 § Re-pin (block 4): pin a pinless PR at its head only when local tip == remote head; interactive only; never overwrites.
+RP=$(block 4 "$RF")
+if grep -qF 'n1_review_pin set' <<<"$RP"; then ok "resolve block 4 is the re-pin"; else no "resolve block 4 is the re-pin"; fi
+if [ "$(grep -c '(Recommended' <<<"$(sed -n '/^## § Re-pin/,$p' "$RF")")" = 0 ] && grep -qF 'No recommendation. The options are equivalent' <<<"$(sed -n '/^## § Re-pin/,$p' "$RF")" && grep -qF 'never auto-resolve it' "$RF"; then ok "re-pin question is an unconditional gate with no recommendation"; else no "re-pin question is an unconditional gate with no recommendation"; fi
+rp() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" HEADSHA="${HS-$OH}" TH="${TH-$OH}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$RP" 2>&1); }
+fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"
+for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
+  export "$g"; FA_KEY=true rp; unset "${g%%=*}"
+  line "repin: denied with $g" "repin:denied"
+done
+gw checkout -q main; rp; gw checkout -q feat
+line "repin: wrong branch refused" "repin:branch"
+XREPO=true rp
+line "repin: fork PR refused" "repin:branch"
+gw commit -q --allow-empty -m local; rp; gw reset -q --hard "$OH"
+line "repin: local tip != remote head refused" "repin:tip"
+if [ ! -e "$PIN" ]; then ok "repin: refusals write no pin"; else no "repin: refusals write no pin"; fi
+rp
+line "repin: pinless PR pinned at its head" "pin:set ${OH:0:7}"
+if [ "$(cat "$PIN" 2>/dev/null)" = "$OH" ]; then ok "repin: pin file holds the head"; else no "repin: pin file holds the head"; fi
+rp
+line "repin: an existing pin is never overwritten" "repin:pinned"
 # N1-144 § CI wait: sequenced fake gh (one line per poll: <checks-json|ERR:msg>|<mergeStateStatus>).
 mkdir -p "$T/cibin"
 cat > "$T/cibin/gh" <<'EOF'
@@ -382,8 +439,20 @@ ci "$PS|UNKNOWN" "$PS|CLEAN"
 line "ci: UNKNOWN merge state waited out" "state:CLEAN"
 ci "$PS|UNKNOWN"
 line "ci: green checks with UNKNOWN to the end continue" "ci:pass"
-POLLS=1 ci "ERR:no checks reported on the 'feat' branch|CLEAN"
-line "ci: no checks + pull_request workflow counts as pending" "ci:timeout"
-POLLS=1 WD="$T/nowf" ci "ERR:no checks reported on the 'feat' branch|CLEAN"
-line "ci: no checks, no workflow passes" "ci:pass"
+NOCK="ERR:no checks reported on the 'feat' branch|CLEAN"
+POLLS=3 WD="$T/nowf" ci "$NOCK" "$PS|CLEAN"
+line "ci: no checks then checks passes on real checks" "ci:pass"
+if [ "$(cat "$T/cin")" = 2 ]; then ok "ci: no-checks poll 1 does not pass"; else no "ci: no-checks poll 1 does not pass"; fi
+POLLS=2 WD="$T/pu/.github" ci "$NOCK"
+line "ci: no checks within the grace count times out" "ci:timeout"
+POLLS=5 WD="$T/pu/.github" ci "$NOCK"
+line "ci: no checks for all grace polls passes (any CI, no pull_request workflow)" "ci:pass"
+if [ "$(cat "$T/cin")" = 3 ]; then ok "ci: grace is 3 polls"; else no "ci: grace is 3 polls"; fi
+POLLS=6 WD="$T/pu/.github" ci "$NOCK" "$NOCK" '[{"bucket":"pending"}]|CLEAN' "$NOCK"
+line "ci: no-check streak resets when checks appear" "ci:pass"
+if [ "$(cat "$T/cin")" = 6 ]; then ok "ci: grace restarts after a pending poll"; else no "ci: grace restarts after a pending poll"; fi
+POLLS=5 ci "$NOCK"
+line "ci: pull_request workflow never passes on no checks" "ci:timeout"
+POLLS=5 WD="$T/pu/.github" ci "$NOCK" "ERR:boom|CLEAN" "$NOCK" "ERR:boom|CLEAN" "$NOCK"
+line "ci: API errors interrupt the no-check streak" "ci:timeout"
 exit $FAIL

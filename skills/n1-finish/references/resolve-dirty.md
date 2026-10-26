@@ -1,8 +1,8 @@
-# Resolve a DIRTY PR (mergeOnFinish)
+# Resolve a DIRTY or BEHIND PR (mergeOnFinish)
 
-Reached from Step 2 § 3.1 on the first `state:DIRTY` of an n1-finish run with `merge-on-finish:yes`. Rebases the PR branch onto its base in the current checkout, resolves version-manifest conflicts mechanically, hands other conflicts to the developer persona, pushes with a pinned lease, advances the reviewed-head pin, waits for CI, then re-runs 3.1. One attempt per run. Queue and headless runs never reach this file, and every writing block re-checks that.
+Reached from Step 2 § 3.1 on the first `state:DIRTY` or `state:BEHIND` of an n1-finish run with `merge-on-finish:yes` (a BEHIND PR rebases cleanly; only the version re-bump may apply). Rebases the PR branch onto its base in the current checkout, resolves version-manifest conflicts mechanically, hands other conflicts to the developer persona, pushes with a pinned lease, advances the reviewed-head pin, waits for CI, then re-runs 3.1. One attempt per run. Queue and headless runs reach this file only when `n1_merge_authorized` holds (`finishWork.mergeOnFinish` and `autonomy.fullAuto` both true), and every writing block re-checks it. There, as in interactive runs, developer-resolved conflicts advance the pin after the project tests and CI pass, with no reviewer re-run (N1-151: extends N1-146 SEC-3 and deliberately reverses N1-146 SEC-1).
 
-Each **STOP** below ends the run with the quoted message. Nothing is pushed before § Push, and every failure before it leaves the branch at the reviewed head.
+Each **STOP** below ends the run with the quoted message; with `headless:yes` or `queue-run:yes`, also add that message under `## Escalations` in `$N1_HOME/memory/<ID>/overview.md` and post it as a tracker comment prefixed `N1 [headless]` (`addComment`, best-effort). Nothing is pushed before § Push, and every failure before it leaves the branch at the reviewed head.
 
 Version manifests (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) are resolved mechanically only when the repo has both plus `scripts/bump-version.sh` (N1's own layout; the script is not executable in git, so it is run with `bash`); elsewhere every conflict goes to the developer persona. When the PR changed nothing but the version in the manifests, a manifest conflict takes the base branch's side; otherwise it goes to the developer persona. Then one `chore: bump version to <new> (<ID>)` commit sets a version strictly above the base's, in the same class (major / minor / patch) as the PR's original bump.
 
@@ -12,7 +12,7 @@ One shell call in the current checkout. `<n>` is the PR number, `<head>` the rev
 
 ```bash
 source ~/.n1/preamble.sh
-[ "$(n1_merge_authorized)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo resolve:denied; exit 1; }
+[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }
 N="<n>"; H="<head>"; ID="<id>"; DEV="<dev>"; S0="<stop>"; SN="<snap>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
 [[ "$H" =~ ^[0-9a-f]{40}$ ]] && [[ "$ID" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$DEV" =~ ^[01]$ ]] && [[ "$S0" =~ ^([0-9a-f]{40})?$ ]] && [[ "$SN" =~ ^([0-9a-f]{40})?$ ]] || { echo arg:invalid; exit 1; }
@@ -84,7 +84,7 @@ echo "resolve:ready old=$OLD new=$(git rev-parse HEAD) bumped=$NV"
 
 - `resolve:denied` → "Merge is not authorized in this run." **STOP.**
 - `pr:invalid` / `arg:invalid` → report it. **STOP.**
-- `resolve:skip <reason>` (wrong branch, fork PR or head branch equal to base, unusable base name, uncommitted changes, untracked files or ignored files the base branch tracks (`local-files`), merge commits in the PR history (`merges`), local tip or pin not at the reviewed head, fetch failed, a rebase already in progress, already up to date) → "PR #<n> cannot merge yet (conflicts; auto-resolve skipped: <reason>). Fix that, then re-run `/n1:n1-finish`." **STOP.** Nothing was changed (a rebase left by the developer round is aborted first).
+- `resolve:skip <reason>` (wrong branch, fork PR or head branch equal to base, unusable base name, uncommitted changes, untracked files or ignored files the base branch tracks (`local-files`), merge commits in the PR history (`merges`), local tip or pin not at the reviewed head, fetch failed, a rebase already in progress, already up to date) → "PR #<n> cannot merge yet (conflicts or behind base; auto-resolve skipped: <reason>). Fix that, then re-run `/n1:n1-finish`." **STOP.** Nothing was changed (a rebase left by the developer round is aborted first).
 - `resolve:abort <reason> files:<list>` → "Could not resolve the conflicts of PR #<n> automatically (<reason>: <list>). The branch is back at the reviewed head and nothing was pushed. Rebase it onto the base branch yourself, then re-run `/n1:n1-finish`." Add the developer's `CANNOT_RESOLVE` reason when there is one. **STOP.**
 - `resolve:conflicts old=<sha> stop=<sha> snap=<sha> files:<list>` → § Developer.
 - `resolve:ready old=<old> new=<new> bumped=<v|none>` → § Tests.
@@ -114,7 +114,7 @@ One shell call. `<old>` and `<new>` come from `resolve:ready`. The lease is pinn
 
 ```bash
 source ~/.n1/preamble.sh
-[ "$(n1_merge_authorized)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo resolve:denied; exit 1; }
+[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }
 N="<n>"; OLD="<old>"; NEW="<new>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
 [[ "$OLD" =~ ^[0-9a-f]{40}$ ]] && [[ "$NEW" =~ ^[0-9a-f]{40}$ ]] || { echo sha:invalid; exit 1; }
@@ -142,15 +142,16 @@ One shell call; run it with the maximum (10-minute) tool timeout: it polls for u
 source ~/.n1/preamble.sh
 N="<n>"; case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
 WF=0; grep -qsE 'pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml && WF=1
-R=timeout; S=; CP=0
+R=timeout; S=; CP=0; NC=0
 for _ in $(seq "${RESOLVE_CI_POLLS:-24}"); do
   sleep "${RESOLVE_CI_SLEEP:-20}"; CP=0
   C=$(gh pr checks "$N" --json bucket --jq '"fail="+([.[]|select(.bucket=="fail" or .bucket=="cancel")]|length|tostring)+" pending="+([.[]|select(.bucket=="pending")]|length|tostring)' 2>&1)
   case "$C" in
-    "fail=0 pending=0") CP=1 ;;
-    *"no checks reported"*) [ "$WF" = 1 ] || CP=1 ;;
-    "fail=0 "*) ;;
+    "fail=0 pending=0") NC=0; CP=1 ;;
+    *"no checks reported"*) NC=$((NC+1)); [ "$WF" = 1 ] || [ "$NC" -lt 3 ] || CP=1 ;;
+    "fail=0 "*) NC=0 ;;
     fail=[1-9]*) R=fail; break ;;
+    *) NC=0 ;;
   esac
   [ "$CP" = 1 ] || continue
   S=$(gh pr view "$N" --json mergeStateStatus -q .mergeStateStatus 2>/dev/null)
@@ -160,7 +161,7 @@ done
 echo "ci:$R"; echo "state:$S"
 ```
 
-No checks yet with a `pull_request` workflow, and API errors, count as pending. Green checks with `mergeStateStatus` still `UNKNOWN` at the end count as `ci:pass` (3.1 treats `UNKNOWN` as continue; `--match-head-commit` in 3.4 is the backstop).
+No checks yet with a `pull_request` workflow, and API errors, count as pending. Without one, "no checks reported" passes only after 3 consecutive no-check polls (about 60 s), so push-triggered or external CI (commit status or checks API) can register first; any other poll (checks or API error) resets the count. Green checks with `mergeStateStatus` still `UNKNOWN` at the end count as `ci:pass` (3.1 treats `UNKNOWN` as continue; `--match-head-commit` in 3.4 is the backstop).
 
 - `ci:fail` → "CI is failing on PR #<n> after the conflict-resolution push. Fix CI, then re-run `/n1:n1-finish`." **STOP.**
 - `ci:timeout` → "CI still running after the resolve push; re-run `/n1:n1-finish`." **STOP.**
@@ -168,4 +169,38 @@ No checks yet with a `pull_request` workflow, and API errors, count as pending. 
 
 ## § Re-check
 
-Run the 3.1 pre-merge block again and apply every line, with this run's resolve attempt counted: a second `state:DIRTY` is a **STOP** (another PR landed first). The pin now equals the pushed head, so `<head>` for 3.2 and 3.4 is `<new>`. A threads answer already given in this run carries over when the count is unchanged. The `codex:` line is unaffected (Codex receipts are per session, not per head) and no new Codex review is required.
+Run the 3.1 pre-merge block again and apply every line, with this run's resolve attempt counted: a second `state:DIRTY` or `state:BEHIND` is a **STOP** (another PR landed first). The pin now equals the pushed head, so `<head>` for 3.2 and 3.4 is `<new>`. A threads answer already given in this run carries over when the count is unchanged. The `codex:` line is unaffected (Codex receipts are per session, not per head) and no new Codex review is required.
+
+## § Re-pin
+
+Reached only from the 3.1 `pin:` empty line of an interactive run; queue and headless runs escalate there and never pin. It pins the PR's current head once so a PR opened before N1-141 can merge; an existing pin is never replaced (N1-142 covers a pin that differs from the head). This question is an unconditional gate: always ask the user, even when `autonomy.mode` is `hands-off`, and never auto-resolve it. Ask the user:
+
+```
+PR #<n> has no reviewed-head pin, and N1 has no record of reviewing this head. Pinning <first 7 of head> treats it as reviewed, so N1 will merge it without a reviewer. Pin it?
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
+1 — Yes, pin it and continue (the block pins only when the local branch tip equals the remote PR head)
+2 — No, stop (review it with /n1:n1-review, then merge it yourself)
+```
+
+**2** → "Merge stopped: PR #<n> has no reviewed-head pin." **STOP.** **1** → one shell call; `<n>` is the PR number, `<head>` the `head:` SHA from 3.1:
+
+```bash
+source ~/.n1/preamble.sh
+[ "$(n1_merge_authorized)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo repin:denied; exit 1; }
+N="<n>"; H="<head>"
+case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
+[[ "$H" =~ ^[0-9a-f]{40}$ ]] || { echo head:invalid; exit 1; }
+P=$(n1_review_pin get "$N"); [ "$P" != unavailable ] || { echo pin:unavailable; exit 1; }
+[ -z "$P" ] || { echo repin:pinned; exit 1; }
+BR=$(gh pr view "$N" --json headRefName,isCrossRepository -q 'select(.isCrossRepository|not)|.headRefName' 2>/dev/null)
+[ -n "$BR" ] && [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] || { echo repin:branch; exit 1; }
+git fetch -q origin -- "$BR" 2>/dev/null || { echo repin:fetch; exit 1; }
+[ "$(git rev-parse HEAD)" = "$H" ] && [ "$(git rev-parse "origin/$BR")" = "$H" ] || { echo repin:tip; exit 1; }
+n1_review_pin set "$N"
+```
+
+- `pin:set <sha7>` → back to 3.1: skip the remaining `pin:` lines and continue with `<head>` as the pin.
+- `pr:invalid` / `head:invalid` → report it. **STOP.**
+- `repin:denied` → "N1 pins a PR only in an interactive run with `finishWork.mergeOnFinish` on." **STOP.**
+- `repin:pinned` → "PR #<n> already has a reviewed-head pin. Re-run `/n1:n1-finish`." **STOP.**
+- `pin:unavailable` / `repin:branch` / `repin:fetch` / `repin:tip` → "Could not pin PR #<n> (<result>): the PR branch must be checked out here, with its local tip equal to the remote head <first 7 of head>. Check it out at the PR head, then re-run `/n1:n1-finish`." **STOP.**
