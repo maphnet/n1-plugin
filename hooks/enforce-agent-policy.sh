@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, merge deny).
+# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, merge deny, pipe-mask deny).
 # Delegates to enforce-agent-policy.py; fail-open unless the script denies (exit 2).
 set -euo pipefail
 
@@ -47,7 +47,7 @@ if [ -z "$PY" ]; then
     if [ ! -f "$MARKER" ]; then
         mkdir -p "$(dirname "$MARKER")" 2>/dev/null || true
         : > "$MARKER" 2>/dev/null || true
-        printf '{"systemMessage":"N1: agent policy (model enforcement and merge deny) skipped -- no Python interpreter"}\n'
+        printf '{"systemMessage":"N1: agent policy (model enforcement, merge deny and pipe-mask check) skipped -- no Python interpreter"}\n'
     fi
     exit 0
 fi

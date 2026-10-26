@@ -31,10 +31,11 @@ positives: heredoc/backtick text whose line starts with gh/git, and grep for a m
 same command as `gh api`.
 
 Case 4 - pipe-masked test status (N1-159). Deny Bash where a test runner (tests/*.sh, pytest, bats,
-jest, vitest, npm test, go test, make test) is piped into tail/head/grep and a later unit chained by
-&& || ; or newline is `git commit`: the pipeline exit status is the filter's, so a red suite still
-commits. Every session, merge-authorized or not. Allowed when the command mentions `pipefail` or
-`PIPESTATUS`. Known gaps: `bash -c`, `$(...)`, subshells, variables/aliases, quoted separators.
+jest, vitest, npm test, go test, make test) is piped into tail/head/grep and `git commit` follows in the
+same `&&`-connected run: the pipeline exit status is the filter's, so a red suite still commits. Only
+`&&` gates the commit on that status; `||`, `;` and newline break the chain and are not denied. Every
+session, merge-authorized or not. Allowed when the command enables pipefail (`set -o pipefail`,
+`set -euo pipefail`) or mentions `PIPESTATUS`. Known gaps: `bash -c`, `$(...)`, subshells, variables/aliases, quoted separators.
 
 Fail-open otherwise: exit 0, no output.
 
@@ -65,8 +66,10 @@ WRAPPERS = {"env", "command", "exec", "sudo", "time", "nohup", "xargs", "timeout
             "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
 GH_VALUE_FLAGS = {"-R", "--repo"}
 GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
-UNIT_RE = re.compile(r"&&|\|\||;|\n")
-RUNNER_RE = re.compile(r"(?:^|/)tests?/[^\s]*\.sh$|(?:^|/)(?:pytest|bats|jest|vitest)$")
+UNIT_RE = re.compile(r"(&&|\|\||;|\n)")
+RUNNER_RE = re.compile(r"(?:^|/)(?:pytest|bats|jest|vitest)$")
+TESTS_DIR_RE = re.compile(r"(?:^|/)tests?/")
+PIPEFAIL_RE = re.compile(r"\bset\s+-[A-Za-z]*o\s+pipefail\b|PIPESTATUS")
 PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 
@@ -267,15 +270,20 @@ def merge_authorized(config: dict) -> bool:
     return not unattended or _is_true(config, "autonomy", "fullAuto")
 
 
-def merge_deny(payload: dict, config: dict) -> int:
-    if merge_authorized(config):
-        return 0
+def _command(payload):
     tool_input = payload.get("tool_input")
     tool_input = tool_input if isinstance(tool_input, dict) else {}
     command = tool_input.get("command") or tool_input.get("cmd")
     if isinstance(command, list):
         command = " ".join(str(c) for c in command)
-    if not isinstance(command, str) or not command:
+    return command if isinstance(command, str) else None
+
+
+def merge_deny(payload: dict, config: dict) -> int:
+    if merge_authorized(config):
+        return 0
+    command = _command(payload)
+    if not command:
         return 0
     command = re.sub(r"[\"'\\]", "", command)
     git_cfg = config.get("git")
@@ -305,7 +313,7 @@ def _is_runner(stage):
     if not w:
         return False
     name = w[0].rsplit("/", 1)[-1]
-    if RUNNER_RE.search(w[0]):
+    if RUNNER_RE.search(w[0]) or (w[0].endswith(".sh") and TESTS_DIR_RE.search(w[0])):
         return True
     if name.startswith("python") and w[1:3] == ["-m", "pytest"]:
         return True
@@ -318,24 +326,21 @@ def _is_commit(unit):
 
 
 def pipe_deny(payload: dict) -> int:
-    tool_input = payload.get("tool_input")
-    tool_input = tool_input if isinstance(tool_input, dict) else {}
-    command = tool_input.get("command") or tool_input.get("cmd")
-    if isinstance(command, list):
-        command = " ".join(str(c) for c in command)
-    if not isinstance(command, str) or "pipefail" in command or "PIPESTATUS" in command:
+    command = _command(payload)
+    if not command or PIPEFAIL_RE.search(command):
         return 0
-    units = UNIT_RE.split(REDIR_RE.sub(" ", command))
+    parts = UNIT_RE.split(REDIR_RE.sub(" ", command))
     masked = False
-    for unit in units:
-        if masked and _is_commit(unit):
+    for i in range(0, len(parts), 2):
+        if masked and _is_commit(parts[i]):
             sys.stderr.write("N1: commit denied -- a test runner piped into tail/head/grep hides its exit status; "
                              "prefix the command with 'set -o pipefail;' (or use PIPESTATUS)\n")
             return 2
-        stages = [st.lstrip("&") for st in unit.split("|")]
+        stages = [st.lstrip("&") for st in parts[i].split("|")]
         if len(stages) > 1 and any(_is_runner(st) for st in stages[:-1]):
             last = _words(stages[-1])
             masked = masked or (bool(last) and last[0].rsplit("/", 1)[-1] in ("tail", "head", "grep"))
+        masked = masked and i + 1 < len(parts) and parts[i + 1] == "&&"
     return 0
 
 
