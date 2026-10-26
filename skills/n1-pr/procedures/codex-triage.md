@@ -213,20 +213,20 @@ Write `## Codex Review Triage`, a blank line, then the triage body into that fil
 ```bash
 source ~/.n1/preamble.sh
 PR_NUMBER="<the PR number from step 4>"
+case "$PR_NUMBER" in ''|*[!0-9]*) echo "triage:bad-pr-number"; exit 1;; esac
 TRIAGE_FILE="<the path from triage:file=>"
-gh pr comment "$PR_NUMBER" --body-file "$TRIAGE_FILE" && echo "triage:posted" || echo "triage:comment-failed"
-rm -f "$TRIAGE_FILE"
+case "$TRIAGE_FILE" in "$N1_HOME"/scratch/codex-triage-"$PR_NUMBER".*/*) echo "triage:bad-path";; "$N1_HOME"/scratch/codex-triage-"$PR_NUMBER".*) gh pr comment "$PR_NUMBER" --body-file "$TRIAGE_FILE" && echo "triage:posted" || echo "triage:comment-failed"; rm -f "$TRIAGE_FILE";; *) echo "triage:bad-path";; esac
 VALIDATE_DIR="<the VALIDATE_DIR path from validate:diff, or empty>"
-case "$VALIDATE_DIR" in "$N1_HOME"/scratch/codex-validate-*) rm -rf "$VALIDATE_DIR";; esac
+case "$VALIDATE_DIR" in "$N1_HOME"/scratch/codex-validate-"$PR_NUMBER".*/*) ;; "$N1_HOME"/scratch/codex-validate-"$PR_NUMBER".*) rm -rf "$VALIDATE_DIR";; esac
 RECONCILE_START_FILE="<the path from reconcile:start, or empty>"
-[ -n "$RECONCILE_START_FILE" ] && rm -f "$RECONCILE_START_FILE"
+case "$RECONCILE_START_FILE" in "$N1_HOME"/scratch/reconcile-start-"$PR_NUMBER".*/*) ;; "$N1_HOME"/scratch/reconcile-start-"$PR_NUMBER".*) rm -f "$RECONCILE_START_FILE";; esac
 HEAD_REF_FILE="<the headref path from reconcile:start, or empty>"
-[ -n "$HEAD_REF_FILE" ] && rm -f "$HEAD_REF_FILE"
+case "$HEAD_REF_FILE" in "$N1_HOME"/scratch/reconcile-head-"$PR_NUMBER".*/*) ;; "$N1_HOME"/scratch/reconcile-head-"$PR_NUMBER".*) rm -f "$HEAD_REF_FILE";; esac
 REPO_FILE="<the repo path from reconcile:start, or empty>"
-[ -n "$REPO_FILE" ] && rm -f "$REPO_FILE"
+case "$REPO_FILE" in "$N1_HOME"/scratch/reconcile-repo-"$PR_NUMBER".*/*) ;; "$N1_HOME"/scratch/reconcile-repo-"$PR_NUMBER".*) rm -f "$REPO_FILE";; esac
 ```
 
-If the output says `triage:comment-failed`, write the same triage text to `$N1_HOME/memory/$ID/codex-triage.md` with the file-write mechanism (the file is removed above, so write it from the same text) and warn inline.
+If the output says `triage:comment-failed` or `triage:bad-path` (the `triage:file=` path is not a `$N1_HOME/scratch/codex-triage-<PR>.*` file; nothing was posted; the other cleanups still ran), write the same triage text to `$N1_HOME/memory/$ID/codex-triage.md` with the file-write mechanism (write it from the same text, not from the scratch file) and warn inline.
 
 Report result:
 ```

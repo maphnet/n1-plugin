@@ -262,4 +262,46 @@ else
     echo "FAIL: PR_BODY_FILE path not validated in 01/02"; FAIL=1
 fi
 
+# 11. N1-138: codex-triage scratch paths are prefix-checked (no subpath) before rm / --body-file
+CT=skills/n1-pr/procedures/codex-triage.md
+# Behavioral: run the "post it and clean up" snippet against a stub gh and decoy scratch files
+TT=$(mktemp -d); trap 'rm -rf "$TT"' EXIT
+mkdir -p "$TT/bin" "$TT/home/scratch"
+printf '#!/bin/bash\necho "$@" >> "$GH_LOG"\n' > "$TT/bin/gh"; chmod +x "$TT/bin/gh"
+awk '/Then post it and clean up:/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$CT" \
+    | sed -E -e '/^source ~\/\.n1\/preamble\.sh$/d' -e 's/^([A-Z_]+)="<.*>"$/\1="${V_\1}"/' > "$TT/post.sh"
+export N1_HOME="$TT/home" GH_LOG="$TT/gh.log"
+SC="$TT/home/scratch"
+mkfiles() { rm -rf "$SC"; mkdir -p "$SC/codex-validate-$1.v"; : > "$SC/codex-triage-$1.t"; : > "$SC/reconcile-start-$1.s"; : > "$SC/reconcile-head-$1.h"; : > "$SC/reconcile-repo-$1.r"; : > "$GH_LOG"; }
+runpost() { # <triage> <validate> <start> <head> <repo>
+    V_PR_NUMBER=7 V_TRIAGE_FILE="$1" V_VALIDATE_DIR="$2" V_RECONCILE_START_FILE="$3" V_HEAD_REF_FILE="$4" V_REPO_FILE="$5" PATH="$TT/bin:$PATH" bash "$TT/post.sh"
+}
+mkfiles 7
+out=$(runpost "$SC/codex-triage-7.t" "$SC/codex-validate-7.v" "$SC/reconcile-start-7.s" "$SC/reconcile-head-7.h" "$SC/reconcile-repo-7.r")
+if grep -q '^triage:posted$' <<<"$out" && grep -q 'pr comment 7 --body-file' "$GH_LOG" && [ -z "$(ls -A "$SC")" ]; then
+    echo "PASS: codex-triage posts and removes every matching scratch path"
+else echo "FAIL: codex-triage matching paths not posted+removed: $out"; FAIL=1; fi
+# same-family files from another PR, subpaths and out-of-prefix paths: nothing posted, nothing deleted
+mkfiles 8; : > "$TT/outside"
+out=$(runpost "$SC/codex-triage-8.t" "$SC/codex-validate-8.v" "$SC/reconcile-start-8.s" "$SC/reconcile-head-8.h" "$TT/outside")
+if grep -q '^triage:bad-path$' <<<"$out" && [ ! -s "$GH_LOG" ] && [ -e "$SC/codex-triage-8.t" ] && [ -d "$SC/codex-validate-8.v" ] && [ -e "$SC/reconcile-start-8.s" ] && [ -e "$SC/reconcile-head-8.h" ] && [ -e "$SC/reconcile-repo-8.r" ] && [ -e "$TT/outside" ]; then
+    echo "PASS: codex-triage leaves other-PR and out-of-prefix paths alone"
+else echo "FAIL: codex-triage touched other-PR paths: $out"; FAIL=1; fi
+# bad triage path must not block the unrelated cleanups
+mkfiles 7
+out=$(runpost "$SC/codex-triage-9.t" "$SC/codex-validate-7.v/sub" "$SC/reconcile-start-7.s" "$SC/reconcile-head-7.h" "$SC/reconcile-repo-7.r")
+if grep -q '^triage:bad-path$' <<<"$out" && [ ! -s "$GH_LOG" ] && [ ! -e "$SC/reconcile-start-7.s" ] && [ ! -e "$SC/reconcile-head-7.h" ] && [ ! -e "$SC/reconcile-repo-7.r" ] && [ -d "$SC/codex-validate-7.v" ]; then
+    echo "PASS: codex-triage bad triage path still cleans the guarded siblings, keeps subpaths"
+else echo "FAIL: codex-triage cleanup blocked or subpath removed: $out"; FAIL=1; fi
+# subpath under a matching triage dir: bad-path, nothing posted, file survives
+mkfiles 7; rm -f "$SC/codex-triage-7.t"; mkdir "$SC/codex-triage-7.t"; : > "$SC/codex-triage-7.t/x"
+out=$(runpost "$SC/codex-triage-7.t/x" "" "" "" "")
+if grep -q '^triage:bad-path$' <<<"$out" && [ ! -s "$GH_LOG" ] && [ -e "$SC/codex-triage-7.t/x" ]; then
+    echo "PASS: codex-triage rejects a subpath TRIAGE_FILE"
+else echo "FAIL: codex-triage accepted a subpath TRIAGE_FILE: $out"; FAIL=1; fi
+# no unguarded rm of a placeholder variable anywhere in the file
+if grep -nE '^[[:space:]]*(\[ -n .* \] && )?rm -r?f "\$(VALIDATE_DIR|RECONCILE_START_FILE|HEAD_REF_FILE|REPO_FILE|TRIAGE_FILE)"' "$CT" >/dev/null; then
+    echo "FAIL: an unguarded rm of a scratch placeholder remains in codex-triage"; FAIL=1
+else echo "PASS: no unguarded rm of scratch placeholders in codex-triage"; fi
+
 exit $FAIL
