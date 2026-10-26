@@ -1,0 +1,1 @@
+{"session_id":"s-rev","cwd":"/repo","prompt_id":"2d8008bf-03d5-45fa-b76b-7b9d5108a213","permission_mode":"bypassPermissions","agent_id":"a-rev","agent_type":"n1:code-reviewer","effort":{"level":"high"},"hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/n1home/memory/T-8/review-cr.md","content":"x"},"tool_use_id":"toolu_rev"}
