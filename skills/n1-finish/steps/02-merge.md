@@ -2,7 +2,7 @@
 
 N1 merges an open PR only when the entry printed `merge-on-finish:yes` (`finishWork.mergeOnFinish` is `true`; a queue or headless run also needs `autonomy.fullAuto` `true`). Otherwise the human merges, then re-runs n1-finish.
 
-With `headless:yes` or `queue-run:yes`, every **STOP** in Step 2 is also added under `## Escalations` and posted as a `N1 [headless]` tracker comment.
+With `headless:yes` or `queue-run:yes`, every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md) is also added under `## Escalations` and posted as a `N1 [headless]` tracker comment.
 
 **Queue runs.** When the entry printed `queue-run:yes` without `merge-on-finish:yes`, report "Queue run: N1 merges only when `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true. The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b.
 
@@ -19,7 +19,7 @@ Evaluate the PR state:
       echo "$V"
       echo "pin:$(n1_review_pin get "$N")"
       C=$(gh pr checks "$N" --json bucket --jq '"checks:fail="+([.[]|select(.bucket=="fail" or .bucket=="cancel")]|length|tostring)+" pending="+([.[]|select(.bucket=="pending")]|length|tostring)' 2>&1)
-      case "$C" in checks:*) echo "$C";; *"no checks reported"*) if grep -qsE 'push|pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml; then echo checks:expected; else echo checks:none; fi;; *) echo "checks:error ${C:0:200}";; esac
+      case "$C" in checks:*) echo "$C";; *"no checks reported"*) if grep -qsE 'pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml; then echo checks:expected; else echo checks:none; fi;; *) echo "checks:error ${C:0:200}";; esac
       R=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
       echo "codex:$(cat "$N1_HOME"/review-receipts/*/"${R//\//_}_$N.json" 2>/dev/null | jq -rs 'if length==0 then "none" elif any(.[]; .outcome=="ran") then "ran" else "not-ran" end' 2>/dev/null)"
       gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){totalCount nodes{isResolved}}}}}' -f o="${R%/*}" -f r="${R#*/}" -F n="$N" --jq '.data.repository.pullRequest.reviewThreads|if .totalCount>(.nodes|length) then "threads:truncated" else "threads:"+([.nodes[]|select(.isResolved|not)]|length|tostring) end' 2>/dev/null || echo threads:error
@@ -28,7 +28,7 @@ Evaluate the PR state:
       - `checks:error <msg>` → "Could not read the CI checks of PR #<n> (<msg>). Re-run `/n1:n1-finish`, or merge it yourself." **STOP.**
       - `checks:fail=<k>` with `<k>` > 0 → "CI is failing on PR #<n> (<k> failed or cancelled checks). Fix CI, then re-run `/n1:n1-finish`." **STOP.**
       - `pending=<k>` with `<k>` > 0 → "CI is still running on PR #<n>. Re-run `/n1:n1-finish` when it finishes." **STOP.**
-      - `checks:expected` (no checks yet, but the repo has a `push` or `pull_request` workflow) → "CI has not started on PR #<n>; re-run when it reports, or merge it yourself, then re-run `/n1:n1-finish`." **STOP.**
+      - `checks:expected` (no checks yet, but the repo has a `pull_request` workflow) → "CI has not started on PR #<n>; re-run when it reports, or merge it yourself, then re-run `/n1:n1-finish`." **STOP.**
       - `checks:none` (no CI in this repo) or `checks:fail=0 pending=0` → continue.
       - `head:` empty → "Could not read the head commit of PR #<n>. Re-run `/n1:n1-finish`." **STOP.**
       - `pin:` empty (no reviewed-head pin: the PR was not created by n1-pr, or predates N1-141) → with `headless:yes` or `queue-run:yes`: "No reviewed-head pin recorded for PR #<n>; N1 does not pin unattended." **STOP.** Otherwise follow `<N1_ROOT>/skills/n1-finish/references/resolve-dirty.md` § Re-pin (read it now; it is not read at entry): after the user confirms, it pins the current head and this list continues with `<head>` as the pin. Never pin without that confirmation.

@@ -33,7 +33,7 @@ if grep -qF 'a second `state:DIRTY` or `state:BEHIND` is a **STOP**' skills/n1-f
 PE=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); DB=$(grep -n '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F" | head -1 | cut -d: -f1)
 if [ -n "$PE" ] && [ -n "$DB" ] && [ "$PE" -lt "$DB" ]; then ok "3.1: pinless line precedes DIRTY/BEHIND"; else no "3.1: pinless line precedes DIRTY/BEHIND"; fi
 PL=$(sed -n "${PE:-1}p" "$F")
-if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 does not pin unattended' <<<"$PL" && grep -qF 'every **STOP** in Step 2 is also added under `## Escalations` and posted as a `N1 [headless]`' "$F"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
+if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 does not pin unattended' <<<"$PL" && grep -qF 'every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md) is also added under `## Escalations` and posted as a `N1 [headless]`' "$F"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
 if grep -qF 'Merge it yourself' <<<"$PL"; then no "3.1: pinless has no merge-by-hand dead end"; else ok "3.1: pinless has no merge-by-hand dead end"; fi
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
@@ -109,7 +109,7 @@ for d in wf pu nowf; do git init -q "$T/$d"; done
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/wf" pre
 has "pre: no checks + pull_request workflow -> checks:expected" "checks:expected"
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/pu/.github" pre
-has "pre: push-only workflow -> checks:expected" "checks:expected"
+has "pre: push-only workflow -> checks:none" "checks:none"
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/nowf" pre
 has "pre: no checks, no workflow -> checks:none" "checks:none"
 TN='7;x' pre
@@ -441,8 +441,17 @@ ci "$PS|UNKNOWN"
 line "ci: green checks with UNKNOWN to the end continue" "ci:pass"
 POLLS=1 ci "ERR:no checks reported on the 'feat' branch|CLEAN"
 line "ci: no checks + pull_request workflow counts as pending" "ci:timeout"
-POLLS=1 WD="$T/nowf" ci "ERR:no checks reported on the 'feat' branch|CLEAN"
-line "ci: no checks, no workflow passes" "ci:pass"
-POLLS=1 WD="$T/pu/.github" ci "ERR:no checks reported on the 'feat' branch|CLEAN"
-line "ci: no checks + push-only workflow counts as pending" "ci:timeout"
+NOCK="ERR:no checks reported on the 'feat' branch|CLEAN"
+POLLS=3 WD="$T/nowf" ci "$NOCK" "$PS|CLEAN"
+line "ci: no checks then checks passes on real checks" "ci:pass"
+if [ "$(cat "$T/cin")" = 2 ]; then ok "ci: no-checks poll 1 does not pass"; else no "ci: no-checks poll 1 does not pass"; fi
+POLLS=2 WD="$T/pu/.github" ci "$NOCK"
+line "ci: no checks within the grace count times out" "ci:timeout"
+POLLS=5 WD="$T/pu/.github" ci "$NOCK"
+line "ci: no checks for all grace polls passes (any CI, no pull_request workflow)" "ci:pass"
+if [ "$(cat "$T/cin")" = 3 ]; then ok "ci: grace is 3 polls"; else no "ci: grace is 3 polls"; fi
+POLLS=4 WD="$T/pu/.github" ci "$NOCK" "$NOCK" "$PS|CLEAN"
+line "ci: checks appearing end the grace" "ci:pass"
+POLLS=5 ci "$NOCK"
+line "ci: pull_request workflow never passes on no checks" "ci:timeout"
 exit $FAIL

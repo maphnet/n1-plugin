@@ -141,15 +141,15 @@ One shell call; run it with the maximum (10-minute) tool timeout: it polls for u
 ```bash
 source ~/.n1/preamble.sh
 N="<n>"; case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
-WF=0; grep -qsE 'push|pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml && WF=1
-R=timeout; S=; CP=0
+WF=0; grep -qsE 'pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml && WF=1
+R=timeout; S=; CP=0; NC=0
 for _ in $(seq "${RESOLVE_CI_POLLS:-24}"); do
   sleep "${RESOLVE_CI_SLEEP:-20}"; CP=0
   C=$(gh pr checks "$N" --json bucket --jq '"fail="+([.[]|select(.bucket=="fail" or .bucket=="cancel")]|length|tostring)+" pending="+([.[]|select(.bucket=="pending")]|length|tostring)' 2>&1)
   case "$C" in
-    "fail=0 pending=0") CP=1 ;;
-    *"no checks reported"*) [ "$WF" = 1 ] || CP=1 ;;
-    "fail=0 "*) ;;
+    "fail=0 pending=0") NC=0; CP=1 ;;
+    *"no checks reported"*) NC=$((NC+1)); [ "$WF" = 1 ] || [ "$NC" -lt 3 ] || CP=1 ;;
+    "fail=0 "*) NC=0 ;;
     fail=[1-9]*) R=fail; break ;;
   esac
   [ "$CP" = 1 ] || continue
@@ -160,7 +160,7 @@ done
 echo "ci:$R"; echo "state:$S"
 ```
 
-No checks yet with a `push` or `pull_request` workflow, and API errors, count as pending. Green checks with `mergeStateStatus` still `UNKNOWN` at the end count as `ci:pass` (3.1 treats `UNKNOWN` as continue; `--match-head-commit` in 3.4 is the backstop).
+No checks yet with a `pull_request` workflow, and API errors, count as pending. Without one, "no checks reported" passes only after 3 consecutive no-check polls (about 60 s), so push-triggered or external CI (commit status or checks API) can register first; any poll with checks resets the count. Green checks with `mergeStateStatus` still `UNKNOWN` at the end count as `ci:pass` (3.1 treats `UNKNOWN` as continue; `--match-head-commit` in 3.4 is the backstop).
 
 - `ci:fail` → "CI is failing on PR #<n> after the conflict-resolution push. Fix CI, then re-run `/n1:n1-finish`." **STOP.**
 - `ci:timeout` → "CI still running after the resolve push; re-run `/n1:n1-finish`." **STOP.**
