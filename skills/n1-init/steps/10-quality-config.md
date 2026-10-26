@@ -32,7 +32,7 @@ Then ask:
 ```
 Run /n1:n1-finish automatically after PR + CI (autonomy.fullAuto)?
 N1 still merges only with finishWork.mergeOnFinish: true; otherwise the chained finish stops on the open PR.
-Queue and headless runs merge only when both keys are true.
+Queue and headless runs merge only when both keys are true. Such merges include N1's own post-review CI-fix and Codex-triage fix commits; no reviewer re-checks them.
 1 — No (Recommended): matches the code default false of n1_fullauto_enabled (lib/config.sh) and of finishWork.mergeOnFinish (13-write-config.md).
 2 — Yes
 ```

@@ -38,3 +38,5 @@ n1_active_run_clear
 5. § File report line → `Follow-ups:` (omit if § File skipped)
 
 Copy test commands and result lines verbatim. Every skipped step gets `SKIPPED — <reason>`. `Ticket:` omitted when `ticket_url` is empty. PR URL is Gate 3's final field (or `PR: SKIPPED` if skipped). Investigation tickets: use investigation-mode variant.
+
+**Chain** (last, after Gate 3; do not yield first): if `source ~/.n1/preamble.sh; n1_fullauto_enabled` prints `true` and CI passed, had no checks, or was skipped (`prMode: "skip"`) — never after failed or escalated CI — invoke skill `n1-finish` with args `<ID> chained` (never n1-release).

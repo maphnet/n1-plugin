@@ -150,21 +150,27 @@ assert_contains "finish: skip mode points at the local merge" \
     "skills/n1-start/steps/finish.md" \
     'to merge locally'
 # N1-146 — fullAuto chains n1-finish after a successful PR + CI; never after failed CI, never release
-assert_contains "finish: chain gated on n1_fullauto_enabled" \
-    "skills/n1-start/steps/finish.md" \
+assert_contains "finalize: chain gated on n1_fullauto_enabled" \
+    "skills/n1-start/procedures/finalize.md" \
     'n1_fullauto_enabled'
-assert_contains "finish: fullAuto invokes n1-finish chained" \
-    "skills/n1-start/steps/finish.md" \
+assert_contains "finalize: fullAuto invokes n1-finish chained" \
+    "skills/n1-start/procedures/finalize.md" \
     'invoke skill `n1-finish` with args `<ID> chained`'
-assert_contains "finish: failed or escalated CI never chains" \
-    "skills/n1-start/steps/finish.md" \
+assert_contains "finalize: failed or escalated CI never chains" \
+    "skills/n1-start/procedures/finalize.md" \
     'never after failed or escalated CI'
-assert_contains "finish: release never chained" \
-    "skills/n1-start/steps/finish.md" \
+assert_contains "finalize: release never chained" \
+    "skills/n1-start/procedures/finalize.md" \
     'never n1-release'
 assert_contains "finish: no-chain path still tells the user" \
     "skills/n1-start/steps/finish.md" \
-    'Tell the user "Merge the PR'
+    'tell the user "Merge the PR'
+assert_contains "finish: chain runs after FINALIZE MEMORY" \
+    "skills/n1-start/steps/finish.md" \
+    'The chain runs last, after FINALIZE MEMORY.'
+assert_contains "finalize: chain is the last block, after Gate 3" \
+    "skills/n1-start/procedures/finalize.md" \
+    '**Chain** (last, after Gate 3; do not yield first)'
 assert_contains "n1-ci: never chains into n1-finish or release" \
     "skills/n1-ci/steps/01-monitor.md" \
     'never chains into n1-finish or release'

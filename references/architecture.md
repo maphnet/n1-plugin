@@ -454,7 +454,7 @@ Always escalate: security, architecture, public API changes.
 | Key | Values | Default | Description |
 |-----|--------|---------|-------------|
 | `mode` | `hands-off` \| `interactive` | `hands-off` (unset) | Single key controlling all autonomy behavior. `hands-off`: all mechanical prompts auto-resolve, brainstorm runs autonomously, acceptance gate auto-confirms. `interactive`: pipeline asks at every decision point. |
-| `fullAuto` | JSON boolean | `false` | N1-146. `true` chains n1-finish after PR + CI. Merging still needs `finishWork.mergeOnFinish: true`; queue/headless runs merge only when both are true. Strings, numbers and invalid JSON count as `false` (`n1_fullauto_enabled`). |
+| `fullAuto` | JSON boolean | `false` | N1-146. `true` chains n1-finish after PR + CI. Merging still needs `finishWork.mergeOnFinish: true`; queue/headless runs merge only when both are true; those merges include N1's own post-review CI-fix and Codex-triage fix commits (the reviewed-head pin advances over them and no reviewer re-checks them; accepted, N1-146 SEC-3). Strings, numbers and invalid JSON count as `false` (`n1_fullauto_enabled`). |
 
 Legacy keys (`brainstorm`, `mechanicalPrompts`, `qualityEscalations`, `acceptanceGate`, `escalationMargin`) are still accepted as a backward-compat fallback when `mode` is absent. A deprecation note is emitted at session start.
 
