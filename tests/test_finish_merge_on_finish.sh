@@ -35,6 +35,15 @@ if [ -n "$PE" ] && [ -n "$DB" ] && [ "$PE" -lt "$DB" ]; then ok "3.1: pinless li
 PL=$(sed -n "${PE:-1}p" "$F")
 if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 does not pin unattended' <<<"$PL" && grep -qF 'every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md) is also added under `## Escalations` and posted as a `N1 [headless]`' "$F"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
 if grep -qF 'Merge it yourself' <<<"$PL"; then no "3.1: pinless has no merge-by-hand dead end"; else ok "3.1: pinless has no merge-by-hand dead end"; fi
+# N1-157: a failed 3.4 merge with a DIRTY/BEHIND re-read resolves once (shared attempt with 3.1); a second conflict and every other failure STOP.
+R34=$(grep -n '`mss:DIRTY` or `mss:BEHIND` and no resolve attempt yet in this run' "$F" | head -1 | cut -d: -f1)
+if [ -n "$R34" ] && [ -n "$M" ] && [ "$R34" -gt "$M" ] && grep -qF 'references/resolve-dirty.md' <<<"$(sed -n "${R34}p" "$F")"; then ok "3.4: first conflict routes to resolve-dirty"; else no "3.4: first conflict routes to resolve-dirty"; fi
+if grep -qF '`mss:DIRTY` or `mss:BEHIND` after a resolve attempt in this run' "$F" && grep -qF 'has conflicts again after conflict resolution' "$F"; then ok "3.4: second conflict STOPs"; else no "3.4: second conflict STOPs"; fi
+if grep -qF 'Any other `state:` or `mss:`' "$F" && grep -qF 'Never retry and never fall back to auto-merge' "$F"; then ok "3.4: non-conflict failures STOP without retry"; else no "3.4: non-conflict failures STOP without retry"; fi
+if grep -qF 'no retry except the single resolve-then-retry below' "$F"; then ok "3.4: header names the single retry"; else no "3.4: header names the single retry"; fi
+if grep -qF 'after a resolve attempt in this run (from this list or from 3.4)' "$F"; then ok "3.1: a 3.4 resolve attempt counts"; else no "3.1: a 3.4 resolve attempt counts"; fi
+RD=skills/n1-finish/references/resolve-dirty.md
+if grep -qF 'or from § 3.4 after a failed merge whose re-read is `mss:DIRTY` or `mss:BEHIND`' "$RD" && grep -qF 'One attempt per run, shared by 3.1 and 3.4.' "$RD"; then ok "resolve-dirty: reachable from 3.4, one shared attempt"; else no "resolve-dirty: reachable from 3.4, one shared attempt"; fi
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
@@ -54,8 +63,10 @@ case "$1 $2" in
   "pr checks") [ -z "${CHECKS_ERR:-}" ] || { echo "$CHECKS_ERR" >&2; exit 1; }; R=${CHECKS:-[]} ;;
   "repo view") [ -z "${REPO_FAIL:-}" ] || exit 1; R='{"nameWithOwner":"o/r"}' ;;
   "api graphql") [ -z "${GQL_ERR:-}" ] || exit 1; R=${GQL:-$DG} ;;
-  "pr merge") echo "$*" >> "$LOG"; [ "${MERGE_EXIT:-0}" = 0 ] || { echo "merge blocked by branch protection" >&2; exit 1; }; exit 0 ;;
-  "pr view") case "$*" in *headRefName*) R="{\"headRefName\":\"${HEADREF:-feat}\",\"baseRefName\":\"${BASEREF:-main}\",\"isCrossRepository\":${XREPO:-false}}" ;; *headRefOid*) R="{\"headRefOid\":\"${HEADSHA:-}\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;; *) R=${VIEW:-} ;; esac ;;
+  "pr merge") echo "$*" >> "$LOG"; [ "${MERGE_EXIT:-0}" = 0 ] || { echo "${MERGE_ERR:-merge blocked by branch protection}" >&2; exit 1; }; exit 0 ;;
+  "pr view") case "$*" in *headRefName*) R="{\"headRefName\":\"${HEADREF:-feat}\",\"baseRefName\":\"${BASEREF:-main}\",\"isCrossRepository\":${XREPO:-false}}" ;; *headRefOid*) R="{\"headRefOid\":\"${HEADSHA:-}\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;;
+      *mergeStateStatus*) [ -z "${MSS_FAIL:-}" ] || exit 1; v=${MSS:-CLEAN}; if [ -s "${MSSQ:-}" ]; then v=$(head -n1 "$MSSQ"); [ "$(wc -l <"$MSSQ")" -le 1 ] || { tail -n +2 "$MSSQ" > "$MSSQ.t" && mv "$MSSQ.t" "$MSSQ"; }; fi; R="{\"mergeStateStatus\":\"$v\"}" ;;
+      *) R=${VIEW:-} ;; esac ;;
   *) exit 1 ;;
 esac
 if [ -n "$q" ]; then jq -r "$q" <<<"$R"; else echo "$R"; fi
@@ -137,6 +148,35 @@ if [ "$(wc -l <"$T/log")" = 1 ]; then ok "merge: no retry"; else no "merge: retr
 MERGE_EXIT=0 VIEW='{"state":"OPEN","mergeCommit":null}' mrg
 has "merge: queued shows exit 0 with state OPEN" "merge-exit:0"
 has "merge: queued state OPEN" "state:OPEN sha:"
+# N1-157: a failed merge re-reads mergeStateStatus (polling past UNKNOWN); a successful one does not.
+OPENV='{"state":"OPEN","mergeCommit":null}'
+MERGE_REREAD_SLEEP=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+line "merge: CLEAN for the whole budget is reported as CLEAN" "mss:CLEAN"
+printf 'CLEAN\nCLEAN\nDIRTY\n' > "$T/mssq"
+MSSQ="$T/mssq" MERGE_REREAD_SLEEP=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+line "merge: re-read polls past a stale CLEAN" "mss:DIRTY"
+MSS_FAIL=1 MERGE_REREAD_SLEEP=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+if grep -qx 'mss:' <<<"$OUT"; then ok "merge: failed re-read prints an empty mss"; else no "merge: failed re-read prints an empty mss"; fi
+MERGE_REREAD_POLLS=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+if grep -qx 'mss:' <<<"$OUT"; then ok "merge: zero polls prints an empty mss"; else no "merge: zero polls prints an empty mss"; fi
+printf 'DIRTY\n' > "$T/mssq"
+MSSQ="$T/mssq" MERGE_EXIT=1 MERGE_ERR="Pull Request has merge conflicts" VIEW=$OPENV mrg
+has "merge: conflict error surfaced" "Pull Request has merge conflicts"
+line "merge: conflict re-read is DIRTY" "mss:DIRTY"
+if [ "$(wc -l <"$T/log")" = 1 ]; then ok "merge: conflict does not retry inside the block"; else no "merge: conflict retried inside the block"; fi
+printf 'UNKNOWN\nUNKNOWN\nDIRTY\n' > "$T/mssq"
+MSSQ="$T/mssq" MERGE_REREAD_SLEEP=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+line "merge: re-read polls past UNKNOWN" "mss:DIRTY"
+printf 'UNKNOWN\n' > "$T/mssq"
+MSSQ="$T/mssq" MERGE_REREAD_POLLS=2 MERGE_REREAD_SLEEP=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+line "merge: UNKNOWN to the end is reported as UNKNOWN" "mss:UNKNOWN"
+MSS=BEHIND MERGE_EXIT=1 VIEW=$OPENV mrg
+line "merge: BEHIND re-read reported" "mss:BEHIND"
+MSS=BLOCKED MERGE_EXIT=1 VIEW=$OPENV mrg
+line "merge: branch-protection failure re-reads BLOCKED" "mss:BLOCKED"
+VIEW=$V mrg
+if grep -q '^mss:' <<<"$OUT"; then no "merge: success skips the re-read"; else ok "merge: success skips the re-read"; fi
+rm -f "$T/mssq"
 # N1-146: the guard is the shared predicate; queue/headless merge only with fullAuto too.
 if grep -qF '[ "$(n1_merge_authorized)" = true ] || { echo merge:denied; exit 1; }' <<<"$MRG"; then ok "merge: guard is n1_merge_authorized"; else no "merge: guard is n1_merge_authorized"; fi
 N1_QUEUE_RUN_ID=q-1 N1_HEADLESS=1 VIEW=$V mrg
@@ -222,6 +262,22 @@ echo "$NH" > "$PIN"; TH=$NH res; echo "$OH" > "$PIN"
 has "resolve: already on top of base skipped" "resolve:skip up-to-date"
 bfx; N1_QUEUE_RUN_ID=q-1 FA_KEY=true res; NH=$(gw rev-parse HEAD)
 line "resolve: queue BEHIND + fullAuto rebased" "resolve:ready old=$OH new=$NH bumped=none"
+# N1-157 AC: stale CLEAN at 3.1 -> merge conflict at 3.4 -> resolve-dirty -> one merge retry at the new pin.
+fx 5.10.0 5.12.0 5.11.0
+MSS=CLEAN HS=$OH pre
+has "stale: 3.1 reads a stale CLEAN" "state:CLEAN"
+printf 'DIRTY\n' > "$T/mssq"
+TH=$OH MSSQ="$T/mssq" MERGE_EXIT=1 MERGE_ERR="Pull Request has merge conflicts" VIEW='{"state":"OPEN","mergeCommit":null}' mrg
+has "stale: merge conflict reported" "Pull Request has merge conflicts"
+line "stale: failed merge re-reads DIRTY" "mss:DIRTY"
+res; NH=$(gw rev-parse HEAD)
+line "stale: resolve-dirty re-bumps the manifest conflict" "resolve:ready old=$OH new=$NH bumped=5.13.0"
+echo "$NH" > "$PIN" # resolve-dirty § Push advances the pin (not exercised here)
+TH=$NH VIEW=$V mrg
+has "stale: retried merge lands" "state:MERGED sha:$S"
+if [ "$ARGS" = "pr merge 7 --squash --match-head-commit $NH" ]; then ok "stale: retry pinned to the resolved head"; else no "stale: retry args: $ARGS"; fi
+if grep -q '^mss:' <<<"$OUT"; then no "stale: successful retry skips the re-read"; else ok "stale: successful retry skips the re-read"; fi
+rm -f "$T/mssq"; echo "$OH" > "$PIN"
 
 # Bump class follows the PR's original delta (patch, major); last row: identical bump on both sides is not a git conflict (the PR commit is dropped) but is still re-bumped above main.
 for c in "5.11.0 5.11.2 5.11.1 5.11.3" "5.11.0 5.12.0 6.0.0 6.0.0" "5.11.0 5.12.0 5.12.0 5.13.0"; do
