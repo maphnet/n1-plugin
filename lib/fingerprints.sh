@@ -38,6 +38,22 @@ n1_fingerprint_append() {
         "$fp" "$fid" "$severity" "$status" "$cycle" "$ts" >> "$jsonl_file"
 }
 
+n1_fingerprint_record() {
+    # Usage: n1_fingerprint_record <jsonl_file> <tsv_file> [cycle]
+    # TSV line: <id>\t<severity>\t<file>\t<title> (title = rest of line, may contain tabs).
+    # Reviewer text is read as data from the file, never placed in shell command text (N1-136).
+    # The TSV is removed after a successful pass so a stale file is never re-recorded under a later cycle.
+    # A trailing CR in the title is absorbed by n1_fingerprint_finding's whitespace normalization.
+    local jsonl_file="$1" tsv="$2" cycle="${3:-1}" id sev file title
+    [ -r "$tsv" ] || { echo "n1_fingerprint_record: cannot read $tsv" >&2; return 1; }
+    while IFS=$'\t' read -r id sev file title || [ -n "$id" ]; do
+        [ -n "$id" ] || continue
+        [ -n "$title" ] || { echo "n1_fingerprint_record: skipping malformed line for $id" >&2; continue; }
+        n1_fingerprint_append "$jsonl_file" "$(n1_fingerprint_finding "$file" "$title")" "$id" "$sev" active "$cycle"
+    done < "$tsv"
+    rm -f "$tsv"
+}
+
 n1_fingerprint_known() {
     # Usage: n1_fingerprint_known <jsonl_file> <fingerprint>
     # Exit 0 if fingerprint exists, 1 otherwise
