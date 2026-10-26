@@ -43,8 +43,8 @@ n1_fingerprint_record() {
     # TSV line: <id>\t<severity>\t<file>\t<title> (title = rest of line, may contain tabs).
     # Reviewer text is read as data from the file, never placed in shell command text (N1-136).
     # Empty fields are kept (an empty <file> hashes with an empty path); id and severity are validated.
-    # Returns non-zero if any row was skipped or failed to append; the TSV is then kept for inspection,
-    # and removed only on full success so a stale file is never re-recorded under a later cycle.
+    # Returns non-zero if any row was skipped or failed to append; the TSV is then renamed to
+    # <tsv>.rejected for inspection, and removed on full success, so it is never re-read under a later cycle.
     # A trailing CR in the title is absorbed by n1_fingerprint_finding's whitespace normalization.
     local jsonl_file="$1" tsv="$2" cycle="${3:-1}" line rest id sev file title rc=0 tab=$'\t'
     [ -r "$tsv" ] || { echo "n1_fingerprint_record: cannot read $tsv" >&2; return 1; }
@@ -58,7 +58,7 @@ n1_fingerprint_record() {
             || { echo "n1_fingerprint_record: skipping invalid line for '${id:0:20}'" >&2; rc=1; continue; }
         n1_fingerprint_append "$jsonl_file" "$(n1_fingerprint_finding "$file" "$title")" "$id" "$sev" active "$cycle" || rc=1
     done < "$tsv"
-    [ "$rc" -eq 0 ] && rm -f "$tsv"
+    if [ "$rc" -eq 0 ]; then rm -f "$tsv"; else mv -f "$tsv" "$tsv.rejected" || rc=1; fi
     return "$rc"
 }
 

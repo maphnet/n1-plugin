@@ -127,14 +127,17 @@ Pass to developer:
 
 After developer fixes are applied, increment the internal cycle counter and go back to **Phase 2**.
 
-Also record each confirmed Critical/High finding's fingerprint after every review pass (BEFORE the convergence check). First write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding: `<finding_id><TAB><severity><TAB><file><TAB><title>`. Never put a title or path in a shell command, variable or double-quoted string. Then run:
+Also record each confirmed Critical/High finding's fingerprint after every review pass (BEFORE the convergence check). First write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding (id bare, e.g. `CR-1`): `<finding_id><TAB><severity><TAB><file><TAB><title>`. Never put a title or path in a shell command, variable or double-quoted string. Then run:
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
-n1_fingerprint_record "$FP_FILE" "$N1_HOME/memory/$ID/fp-new.tsv" "<cycle>"
+n1_fingerprint_record "$FP_FILE" "$N1_HOME/memory/$ID/fp-new.tsv" "<cycle>" \
+    || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2
 ```
+
+FP_RECORD_FAILED counts as non-convergence: escalate.
 
 **Convergence guard (re-review cycles only):** After recording fingerprints, check convergence when `cycle > 0`:
 

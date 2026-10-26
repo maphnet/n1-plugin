@@ -47,7 +47,7 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewer personas return their results before combining findings.
 
-For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (never put a title or path in a shell command, variable or double-quoted string); the block below records it.
+For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
 
 After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm -f` the reviewer files)+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read the reviewer files). **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle: deferred, below). Partial (incl. missing/empty reviewer file): retry once.
 
@@ -59,12 +59,13 @@ FILES=(review-hdr.md review-cr.md); [ "$SEC" = true ] && FILES+=(review-sec.md)
 for f in "${FILES[@]}"; do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
 ( cd "$MEM" && cat "${FILES[@]}" ) > "$MEM/review.md"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
-[ -r "$MEM/fp-new.tsv" ] && n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE"
+[ -r "$MEM/fp-new.tsv" ] && n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE" \
+    || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
 n1_step_end "review" 9 "success"
 ```
-Non-convergence→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+Non-convergence or FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ### 7b. TQ FIX LOOP
 

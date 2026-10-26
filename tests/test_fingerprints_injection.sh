@@ -43,7 +43,7 @@ eq "malformed line warned" "1" "$(grep -c 'malformed' "$T/err")"
 
 n1_fingerprint_record "$T/fingerprints.jsonl" "$T/missing.tsv" 1 2>/dev/null
 eq "missing TSV fails closed" "1" "$?"
-eq "TSV kept when a row was skipped" "present" "$([ -e "$T/fp-new.tsv" ] && echo present || echo absent)"
+eq "TSV kept when a row was skipped as .rejected" "present:absent" "$([ -e "$T/fp-new.tsv.rejected" ] && echo present || echo absent):$([ -e "$T/fp-new.tsv" ] && echo present || echo absent)"
 printf 'CR-4\tHigh\td.sh\tok\n' > "$T/ok.tsv"
 n1_fingerprint_record "$T/ok.jsonl" "$T/ok.tsv" 1
 eq "clean record exits 0" "0" "$?"
@@ -59,12 +59,12 @@ n1_fingerprint_record "$T/fp2.jsonl" "$T/fp2.tsv" 1 2>/dev/null
 eq "invalid rows make record return non-zero" "1" "$?"
 eq "empty file field kept with correct title hash" "$(n1_fingerprint_finding '' 'No Path Title')" "$(fp_of "$T/fp2.jsonl" CR-5)"
 eq "invalid id/severity skipped" "1" "$(wc -l < "$T/fp2.jsonl" | tr -d ' ')"
-eq "TSV kept after skipped rows" "present" "$([ -e "$T/fp2.tsv" ] && echo present || echo absent)"
+eq "TSV kept after skipped rows as .rejected" "present:absent" "$([ -e "$T/fp2.tsv.rejected" ] && echo present || echo absent):$([ -e "$T/fp2.tsv" ] && echo present || echo absent)"
 printf 'CR-8\tHigh\ta.sh\tt\n' > "$T/fp3.tsv"
 mkdir -p "$T/ro" && : > "$T/ro/x"
 n1_fingerprint_record "$T/ro/x/f.jsonl" "$T/fp3.tsv" 1 2>/dev/null
 eq "unwritable JSONL returns non-zero" "1" "$?"
-eq "TSV kept after append failure" "present" "$([ -e "$T/fp3.tsv" ] && echo present || echo absent)"
+eq "TSV kept after append failure as .rejected" "present:absent" "$([ -e "$T/fp3.tsv.rejected" ] && echo present || echo absent):$([ -e "$T/fp3.tsv" ] && echo present || echo absent)"
 
 # Wiring: both call sites write findings by file and record via the helper.
 R=skills/n1-start/steps/review.md
