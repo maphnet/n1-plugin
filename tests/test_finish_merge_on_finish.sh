@@ -29,6 +29,12 @@ if grep -qF 'cannot merge yet' "$F" && grep -qF 'after a resolve attempt in this
 if grep -qF '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F"; then ok "3.1: first BEHIND routes to resolve-dirty"; else no "3.1: first BEHIND routes to resolve-dirty"; fi
 if grep -qF '`state:BLOCKED` / `BEHIND`' "$F"; then no "3.1: BEHIND is not an unconditional STOP"; else ok "3.1: BEHIND is not an unconditional STOP"; fi
 if grep -qF 'a second `state:DIRTY` or `state:BEHIND` is a **STOP**' skills/n1-finish/references/resolve-dirty.md; then ok "resolve-dirty: second DIRTY/BEHIND stops"; else no "resolve-dirty: second DIRTY/BEHIND stops"; fi
+# N1-151 pinless: the pin line precedes DIRTY/BEHIND, routes to § Re-pin interactively, escalates unattended, no merge-by-hand.
+PE=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); DB=$(grep -n '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F" | head -1 | cut -d: -f1)
+if [ -n "$PE" ] && [ -n "$DB" ] && [ "$PE" -lt "$DB" ]; then ok "3.1: pinless line precedes DIRTY/BEHIND"; else no "3.1: pinless line precedes DIRTY/BEHIND"; fi
+PL=$(sed -n "${PE:-1}p" "$F")
+if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 [headless]' <<<"$PL"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
+if grep -qF 'Merge it yourself' <<<"$PL"; then no "3.1: pinless has no merge-by-hand dead end"; else ok "3.1: pinless has no merge-by-hand dead end"; fi
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
@@ -387,6 +393,28 @@ N1_HEADLESS=1 FA_KEY=true TOLD=$OH TNEW=$NH psh
 has "push: headless + fullAuto pushes" "pushed:${NH:0:7}"
 has "push: headless + fullAuto advances the pin" "pin:advanced ${NH:0:7}"
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$NH" ] && [ "$(cat "$PIN")" = "$NH" ]; then ok "push: headless origin and pin at the rebased head"; else no "push: headless origin and pin at the rebased head"; fi
+# N1-151 § Re-pin (block 4): pin a pinless PR at its head only when local tip == remote head; interactive only; never overwrites.
+RP=$(block 4 "$RF")
+if grep -qF 'n1_review_pin set' <<<"$RP"; then ok "resolve block 4 is the re-pin"; else no "resolve block 4 is the re-pin"; fi
+if [ "$(grep -c '(Recommended' "$RF")" = 1 ]; then ok "re-pin question marks one (Recommended)"; else no "re-pin question marks one (Recommended)"; fi
+rp() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" HEADSHA="${HS-$OH}" TH="${TH-$OH}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$RP" 2>&1); }
+fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"
+for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
+  export "$g"; FA_KEY=true rp; unset "${g%%=*}"
+  line "repin: denied with $g" "repin:denied"
+done
+gw checkout -q main; rp; gw checkout -q feat
+line "repin: wrong branch refused" "repin:branch"
+XREPO=true rp
+line "repin: fork PR refused" "repin:branch"
+gw commit -q --allow-empty -m local; rp; gw reset -q --hard "$OH"
+line "repin: local tip != remote head refused" "repin:tip"
+if [ ! -e "$PIN" ]; then ok "repin: refusals write no pin"; else no "repin: refusals write no pin"; fi
+rp
+line "repin: pinless PR pinned at its head" "pin:set ${OH:0:7}"
+if [ "$(cat "$PIN" 2>/dev/null)" = "$OH" ]; then ok "repin: pin file holds the head"; else no "repin: pin file holds the head"; fi
+rp
+line "repin: an existing pin is never overwritten" "repin:pinned"
 # N1-144 § CI wait: sequenced fake gh (one line per poll: <checks-json|ERR:msg>|<mergeStateStatus>).
 mkdir -p "$T/cibin"
 cat > "$T/cibin/gh" <<'EOF'

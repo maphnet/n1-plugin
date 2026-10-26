@@ -169,3 +169,36 @@ No checks yet with a `pull_request` workflow, and API errors, count as pending. 
 ## § Re-check
 
 Run the 3.1 pre-merge block again and apply every line, with this run's resolve attempt counted: a second `state:DIRTY` or `state:BEHIND` is a **STOP** (another PR landed first). The pin now equals the pushed head, so `<head>` for 3.2 and 3.4 is `<new>`. A threads answer already given in this run carries over when the count is unchanged. The `codex:` line is unaffected (Codex receipts are per session, not per head) and no new Codex review is required.
+
+## § Re-pin
+
+Reached only from the 3.1 `pin:` empty line of an interactive run; queue and headless runs escalate there and never pin. It pins the PR's current head once so a PR opened before N1-141 can merge; an existing pin is never replaced (N1-142 covers a pin that differs from the head). Ask the user:
+
+```
+PR #<n> has no reviewed-head pin. Pin its current head <first 7 of head> as the reviewed head so N1 can merge it?
+1 — Yes, pin it and continue (Recommended): the block pins only when the local branch tip equals the remote PR head, the same check `n1_review_pin set` makes for n1-pr in skills/n1-pr/steps/03-codex-review.md
+2 — No, stop (review it with /n1:n1-review, then merge it yourself)
+```
+
+**2** → "Merge stopped: PR #<n> has no reviewed-head pin." **STOP.** **1** → one shell call; `<n>` is the PR number, `<head>` the `head:` SHA from 3.1:
+
+```bash
+source ~/.n1/preamble.sh
+[ "$(n1_merge_authorized)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo repin:denied; exit 1; }
+N="<n>"; H="<head>"
+case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
+[[ "$H" =~ ^[0-9a-f]{40}$ ]] || { echo head:invalid; exit 1; }
+P=$(n1_review_pin get "$N"); [ "$P" != unavailable ] || { echo pin:unavailable; exit 1; }
+[ -z "$P" ] || { echo repin:pinned; exit 1; }
+BR=$(gh pr view "$N" --json headRefName,isCrossRepository -q 'select(.isCrossRepository|not)|.headRefName' 2>/dev/null)
+[ -n "$BR" ] && [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] || { echo repin:branch; exit 1; }
+git fetch -q origin -- "$BR" 2>/dev/null || { echo repin:fetch; exit 1; }
+[ "$(git rev-parse HEAD)" = "$H" ] && [ "$(git rev-parse "origin/$BR")" = "$H" ] || { echo repin:tip; exit 1; }
+n1_review_pin set "$N"
+```
+
+- `pin:set <sha7>` → back to 3.1: skip the remaining `pin:` lines and continue with `<head>` as the pin.
+- `pr:invalid` / `head:invalid` → report it. **STOP.**
+- `repin:denied` → "N1 pins a PR only in an interactive run with `finishWork.mergeOnFinish` on." **STOP.**
+- `repin:pinned` → "PR #<n> already has a reviewed-head pin. Re-run `/n1:n1-finish`." **STOP.**
+- `pin:unavailable` / `repin:branch` / `repin:fetch` / `repin:tip` → "Could not pin PR #<n> (<result>): the PR branch must be checked out here, with its local tip equal to the remote head <first 7 of head>. Check it out at the PR head, then re-run `/n1:n1-finish`." **STOP.**
