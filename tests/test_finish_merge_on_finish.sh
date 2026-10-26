@@ -528,6 +528,8 @@ line "ci: API errors interrupt the no-check streak" "ci:timeout"
 PF=skills/n1-finish/references/repin.md
 if grep -qF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$PF" && ! grep -qF '(Recommended)' "$PF"; then ok "repin offer uses the verbatim no-recommendation form"; else no "repin offer uses the verbatim no-recommendation form"; fi
 if grep -qF 'Verdict: PASS' "$PF" && grep -qF '/n1:n1-review --full' "$PF"; then ok "repin pins only after a PASS full-tier re-review"; else no "repin pins only after a PASS full-tier re-review"; fi
+if grep -qE 'When `FULL_REVIEW` is not 1 .*fix-changed-files|FULL_REVIEW. is not 1' skills/n1-review/steps/01-analyze.md && grep -F 'Incremental re-review (cycle' skills/n1-review/steps/01-analyze.md | grep -qF 'FULL_REVIEW'; then ok "n1-review --full disables incremental scoping"; else no "n1-review --full disables incremental scoping"; fi
+if grep -F '**Re-pin** (' skills/n1-finish/steps/02-merge.md | grep -qF '/n1:n1-review --full'; then ok "02-merge re-pin summary names n1-review --full"; else no "02-merge re-pin summary names n1-review --full"; fi
 if grep -qF 'FULL_REVIEW=1' skills/n1-start/review-core.md && grep -qF 'FULL_REVIEW=1' skills/n1-review/steps/01-analyze.md; then ok "n1-review --full forces the FULL tier via review-core"; else no "n1-review --full forces the FULL tier via review-core"; fi
 PF1=$(block 1 "$PF"); PF2=$(block 2 "$PF")
 REPIN_WAIT_SLEEP=0; export REPIN_WAIT_SLEEP
@@ -552,6 +554,11 @@ gw checkout -q main; rp "$PF1"; gw checkout -q feat
 has "repin preflight: wrong branch skipped" "repin:skip branch"
 TH=$S rp "$PF1"
 has "repin preflight: local tip not at the PR head skipped" "repin:skip local-tip"
+echo ahead > "$G/w/ahead.txt"; gw add ahead.txt; gw commit -qm "local review fix"; AH=$(gw rev-parse HEAD)
+rp "$PF1"
+line "repin preflight: local tip ahead of the PR head accepted" "repin:ok head:$OH branch:feat"
+gw reset -q --hard "$OH"; TH=$AH rp "$PF1"
+has "repin preflight: local tip behind the PR head skipped" "repin:skip local-tip"
 echo x >> "$G/w/src.txt"; rp "$PF1"; gw checkout -q -- src.txt
 has "repin preflight: uncommitted changes skipped" "repin:skip dirty"
 XREPO=true rp "$PF1"

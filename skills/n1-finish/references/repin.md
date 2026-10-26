@@ -1,6 +1,6 @@
 # Re-pin a PR without a valid reviewed-head pin (mergeOnFinish)
 
-Reached from Step 2 § 3.1 when the reviewed-head pin is missing (`pin:` empty) or differs from the PR head, in an interactive n1-finish run with `merge-on-finish:yes`. Asks the user, re-reviews the checked-out PR branch with `/n1:n1-review`, pushes its fix commits with a lease pinned to the PR head, pins the new head with `n1_review_pin set`, waits for CI when it pushed, then re-runs 3.1. One attempt per run. Queue and headless runs never reach this file, and every writing block re-checks that.
+Reached from Step 2 § 3.1 when the reviewed-head pin is missing (`pin:` empty) or differs from the PR head, in an interactive n1-finish run with `merge-on-finish:yes`. Asks the user, re-reviews the checked-out PR branch with `/n1:n1-review --full`, pushes its fix commits with a lease pinned to the PR head, pins the new head with `n1_review_pin set`, waits for CI when it pushed, then re-runs 3.1. One attempt per run. Queue and headless runs never reach this file, and every writing block re-checks that.
 
 `<n>` is the PR number, `<head>` the `head:` SHA from 3.1, and `<message>` the 3.1 STOP message of the case that routed here. Each **STOP** below ends the run with the quoted message. The pin is written only after a review that ended `Verdict: PASS` on exactly the head being pinned; every other path leaves the pin as it was, so the merge stays blocked.
 
@@ -32,14 +32,14 @@ read -r BR BASE XR < <(gh pr view "$N" --json headRefName,baseRefName,isCrossRep
 [ -n "$BR" ] && [ -n "$BASE" ] || skip pr-view
 [ "$XR" = false ] && [ "$BR" != "$BASE" ] || skip fork
 [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] || skip branch
-[ "$(git rev-parse HEAD)" = "$H" ] || skip local-tip
+git merge-base --is-ancestor "$H" HEAD || skip local-tip
 [ -z "$(git status --porcelain --untracked-files=no)" ] || skip dirty
 echo "repin:ok head:$H branch:$BR"
 ```
 
 - `repin:denied` → "Merge is not authorized in this run." **STOP.**
 - `pr:invalid` / `head:invalid` → report it. **STOP.**
-- `repin:skip <reason>` (`pr-view`: PR lookup failed; `fork`: fork PR or head branch equal to base; `branch`: the current checkout is not the PR branch; `local-tip`: the local branch is not at the PR head, e.g. commits were pushed from elsewhere; `dirty`: uncommitted changes) → "PR #<n> cannot be re-pinned from this checkout (<reason>). Check out the PR branch at the PR head with a clean tree (pull it), then re-run `/n1:n1-finish`; or merge it yourself." **STOP.** Nothing was changed.
+- `repin:skip <reason>` (`pr-view`: PR lookup failed; `fork`: fork PR or head branch equal to base; `branch`: the current checkout is not the PR branch; `local-tip`: the local branch does not contain the PR head, e.g. commits were pushed from elsewhere (local commits on top of the PR head are fine); `dirty`: uncommitted changes) → "PR #<n> cannot be re-pinned from this checkout (<reason>). Check out the PR branch with the PR head in its history and a clean tree (pull it), then re-run `/n1:n1-finish`; or merge it yourself." **STOP.** Nothing was changed.
 - `repin:ok head:<sha> branch:<br>` → § Review.
 
 ## § Review
