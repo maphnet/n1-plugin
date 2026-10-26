@@ -1,4 +1,6 @@
 import importlib.util
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -116,6 +118,41 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(s["arms"]["candidate"]["pass_rate"], 0)
         self.assertEqual(s["paired"]["tasks"], [])
         self.assertEqual(s["args"], {"runs": "1"})
+
+
+class FixtureTest(unittest.TestCase):
+    def test_three_fixtures_per_persona(self):
+        for persona in ab.PERSONAS:
+            tasks = ab.load_fixtures(persona)
+            self.assertEqual(len(tasks), 3, persona)
+            for t in tasks:
+                self.assertTrue(t["prompt"].strip(), t["name"])
+                self.assertTrue((t["dir"] / "repo").is_dir(), t["name"])
+                self.assertTrue((t["dir"] / "check.sh").is_file(), t["name"])
+
+    def test_only_filters_by_name(self):
+        self.assertEqual([t["name"] for t in ab.load_fixtures("developer", only="dev-fix-bug")], ["dev-fix-bug"])
+
+    def test_check_fails_untouched_and_passes_with_solution(self):
+        for persona in ab.PERSONAS:
+            for t in ab.load_fixtures(persona):
+                with self.subTest(t["name"]), tempfile.TemporaryDirectory() as tmp:
+                    repo = Path(tmp) / "repo"
+                    ab.prepare_repo(t["dir"], repo)
+                    self.assertFalse(ab.run_check(t["dir"] / "check.sh", repo), "untouched repo must fail")
+                    shutil.copytree(str(t["dir"] / "solution"), str(repo), dirs_exist_ok=True)
+                    self.assertTrue(ab.run_check(t["dir"] / "check.sh", repo), "solution must pass")
+
+    def test_modified_source_fails_qa_and_review_checks(self):
+        for name, src in (("qa-fix-broken-test", "src/mathx.py"), ("cr-sql-injection", "db.py")):
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                task_dir = ab.FIXTURES / name
+                repo = Path(tmp) / "repo"
+                ab.prepare_repo(task_dir, repo)
+                shutil.copytree(str(task_dir / "solution"), str(repo), dirs_exist_ok=True)
+                with open(repo / src, "a", encoding="utf-8") as fh:
+                    fh.write("# edited\n")
+                self.assertFalse(ab.run_check(task_dir / "check.sh", repo))
 
 
 if __name__ == "__main__":

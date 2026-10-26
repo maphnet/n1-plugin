@@ -1,0 +1,1 @@
+{"persona": "qa-engineer", "prompt": "src/price.py `total()` was intentionally changed to apply tax (default 10%) and round to cents. test_price.py still expects the old untaxed sum and now fails (`python3 -m unittest discover`). Update the tests to match the new behavior, including a case with an explicit `tax=` argument. Do not modify anything under src/."}

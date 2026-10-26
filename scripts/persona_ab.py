@@ -134,3 +134,31 @@ def summarize(rows, rejected, args):
             "arms": compute_arm_stats(rows), "paired": compute_intersection_stats(rows),
             "total_cost_usd": round(sum(r["cost_usd"] for r in rows), 4),
             "tokens_total": {k: sum(r["tokens"][k] for r in rows) for k in TOKEN_KEYS}}
+
+
+GIT = ["git", "-c", "user.name=persona-ab", "-c", "user.email=persona-ab@localhost",
+       "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"]
+
+
+def load_fixtures(persona, root=FIXTURES, only=None):
+    tasks = []
+    for d in sorted(p for p in Path(root).iterdir() if (p / "task.json").is_file()):
+        spec = json.loads((d / "task.json").read_text(encoding="utf-8"))
+        if spec["persona"] == persona and (only is None or d.name == only):
+            tasks.append({"name": d.name, "dir": d, "prompt": spec["prompt"]})
+    return tasks
+
+
+def prepare_repo(task_dir, dest):
+    """Copy the fixture repo to dest and commit it so checks can diff against HEAD."""
+    shutil.copytree(str(Path(task_dir) / "repo"), str(dest), ignore=shutil.ignore_patterns("__pycache__"))
+    for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "fixture"]):
+        subprocess.run(GIT + cmd, cwd=dest, check=True, capture_output=True)
+
+
+def run_check(check, repo, timeout=120):
+    try:
+        return subprocess.run(["bash", str(check), str(repo)], capture_output=True,
+                              timeout=timeout).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False

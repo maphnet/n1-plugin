@@ -1,0 +1,1 @@
+{"persona": "developer", "prompt": "Add a `--shout` flag to greet.py. With `--shout` the greeting is printed in upper case (`python3 greet.py Bob --shout` prints `HELLO, BOB!`). Without it the output is unchanged (`Hello, Bob!`)."}

@@ -1,0 +1,1 @@
+{"persona": "developer", "prompt": "Bug report: `word_count` in text.py returns 1 for an empty string and miscounts text with repeated spaces, tabs or newlines (for example `word_count('a  b')` returns 3). Fix it so it returns the number of whitespace-separated words."}

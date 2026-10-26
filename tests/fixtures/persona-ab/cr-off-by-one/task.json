@@ -1,0 +1,1 @@
+{"persona": "code-reviewer", "prompt": "Review the code in this repository for defects. Do not modify any existing file. Write your findings to findings.md at the repo root, one finding per line, formatted `path:line - description`, where line is the line number of the defective code."}

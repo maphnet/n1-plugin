@@ -1,0 +1,1 @@
+{"persona": "qa-engineer", "prompt": "src/strutil.py has no tests. Add unit tests for `is_palindrome` in a new file test_strutil.py at the repo root (run with `python3 -m unittest discover`). Cover the case and space handling described in its docstring. Do not modify anything under src/."}
