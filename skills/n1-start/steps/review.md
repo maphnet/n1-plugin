@@ -47,6 +47,8 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewer personas return their results before combining findings.
 
+For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (never put a title or path in a shell command, variable or double-quoted string); the block below records it.
+
 After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm -f` the reviewer files)+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read the reviewer files). **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle: deferred, below). Partial (incl. missing/empty reviewer file): retry once.
 
 ```bash
@@ -57,11 +59,12 @@ FILES=(review-hdr.md review-cr.md); [ "$SEC" = true ] && FILES+=(review-sec.md)
 for f in "${FILES[@]}"; do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
 ( cd "$MEM" && cat "${FILES[@]}" ) > "$MEM/review.md"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
+[ -r "$MEM/fp-new.tsv" ] && n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE"
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
 n1_step_end "review" 9 "success"
 ```
-For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`): write `$MEM/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (never put a title or path in a shell command, variable or double-quoted string), then `n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE"`. Non-convergence→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+Non-convergence→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ### 7b. TQ FIX LOOP
 
@@ -69,4 +72,4 @@ No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, 
 
 **FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
 
-**PASS** + `QE=auto-accept` (hands-off soft policy, N1-116): after the verdict line append `## Deferred Soft Findings` to `$N1_HOME/memory/$ID/review.md` (replace if present), one `- [ID] file:line — title` per Low, `[TQ-N]` Low, Low `[XREPO-N]`, or unknown-severity finding, excluding `[SEC-N]`; Low `[SEC-N]` only when `review_fix_cycle>=1` (not fixed; the PR body lists them). A finding of any prefix in a `SECURITY_RELEVANT` class (review-core.md) counts as `[SEC-N]`. `[SEC-N]` findings of any severity are never soft: they go to Step 8 as FAIL (`review.maxFixAttempts` bounds Critical/High/Medium; a Low with `review_fix_cycle>=1` is recorded here, no further cycle). Any other non-TQ Medium → Step 8 SOFT-ONLY (one developer pass, no re-review); none → no soft pass, proceed (unchanged). Other modes: **PASS:** proceed. Critical/High/`[RULE-N]` always FAIL → Step 8 as above (unchanged).
+**PASS** + `QE=auto-accept` (hands-off soft policy, N1-116): after the verdict line append `## Deferred Soft Findings` to `$N1_HOME/memory/$ID/review.md` with the file-write mechanism, never a shell command (replace if present), one `- [ID] file:line — title` per Low, `[TQ-N]` Low, Low `[XREPO-N]`, or unknown-severity finding, excluding `[SEC-N]`; Low `[SEC-N]` only when `review_fix_cycle>=1` (not fixed; the PR body lists them). A finding of any prefix in a `SECURITY_RELEVANT` class (review-core.md) counts as `[SEC-N]`. `[SEC-N]` findings of any severity are never soft: they go to Step 8 as FAIL (`review.maxFixAttempts` bounds Critical/High/Medium; a Low with `review_fix_cycle>=1` is recorded here, no further cycle). Any other non-TQ Medium → Step 8 SOFT-ONLY (one developer pass, no re-review); none → no soft pass, proceed (unchanged). Other modes: **PASS:** proceed. Critical/High/`[RULE-N]` always FAIL → Step 8 as above (unchanged).
