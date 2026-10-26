@@ -518,4 +518,74 @@ POLLS=5 ci "$NOCK"
 line "ci: pull_request workflow never passes on no checks" "ci:timeout"
 POLLS=5 WD="$T/pu/.github" ci "$NOCK" "ERR:boom|CLEAN" "$NOCK" "ERR:boom|CLEAN" "$NOCK"
 line "ci: API errors interrupt the no-check streak" "ci:timeout"
+# N1-142: references/repin.md (missing or foreign pin -> re-review, lease push, re-pin), interactive only.
+PF=skills/n1-finish/references/repin.md
+if grep -qF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$PF" && ! grep -qF '(Recommended)' "$PF"; then ok "repin offer uses the verbatim no-recommendation form"; else no "repin offer uses the verbatim no-recommendation form"; fi
+if grep -qF 'Verdict: PASS' "$PF" && grep -qF '/n1:n1-review' "$PF"; then ok "repin pins only after a PASS re-review"; else no "repin pins only after a PASS re-review"; fi
+PF1=$(block 1 "$PF"); PF2=$(block 2 "$PF")
+if [ -n "$(block 3 "$PF")" ] && [ "$(block 3 "$PF")" = "$(block 3 "$RF")" ]; then ok "repin CI wait is the resolve-dirty CI wait verbatim"; else no "repin CI wait is the resolve-dirty CI wait verbatim"; fi
+if grep -qF -- '--force-with-lease="$BR:$H"' <<<"$PF2" && ! grep -qE -- '--force( |$)|push -f' "$PF"; then ok "repin push uses a lease on the PR head, never a bare force"; else no "repin push uses a lease on the PR head, never a bare force"; fi
+rp() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" TH="${TH-$OH}" HEADSHA="${HS-$OH}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$1" 2>&1); }
+
+# Gating (AC4): queue/headless are denied even with mergeOnFinish and fullAuto both true.
+fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"
+for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
+  export "$g"; FA_KEY=true rp "$PF1"
+  has "repin preflight: denied with $g" "repin:denied"
+  FA_KEY=true rp "$PF2"; unset "${g%%=*}"
+  has "repin push: denied with $g" "repin:denied"
+done
+if [ ! -f "$PIN" ] && [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ]; then ok "repin: denied runs push and pin nothing"; else no "repin: denied runs push and pin nothing"; fi
+
+# Preflight: PR branch checked out at the PR head, clean, not a fork.
+rp "$PF1"
+line "repin preflight: on the PR branch at the PR head" "repin:ok head:$OH branch:feat"
+gw checkout -q main; rp "$PF1"; gw checkout -q feat
+has "repin preflight: wrong branch skipped" "repin:skip branch"
+TH=$S rp "$PF1"
+has "repin preflight: local tip not at the PR head skipped" "repin:skip local-tip"
+echo x >> "$G/w/src.txt"; rp "$PF1"; gw checkout -q -- src.txt
+has "repin preflight: uncommitted changes skipped" "repin:skip dirty"
+XREPO=true rp "$PF1"
+has "repin preflight: fork PR skipped" "repin:skip fork"
+HEADREF=main rp "$PF1"
+has "repin preflight: head == base skipped" "repin:skip fork"
+TN='7;x' rp "$PF1"
+has "repin preflight: non-digit PR rejected" "pr:invalid"
+TH=abc rp "$PF1"
+has "repin preflight: bad head rejected" "head:invalid"
+
+# Missing pin, review made no fixes: nothing pushed, the PR head itself is pinned (AC2).
+rp "$PF2"
+has "repin push: set reported" "pin:set ${OH:0:7}"
+line "repin push: no fixes pins the PR head" "repin:done $OH"
+if [ "$(cat "$PIN")" = "$OH" ] && ! grep -qF 'pushed:' <<<"$OUT"; then ok "repin push: no fixes pushes nothing"; else no "repin push: no fixes pushes nothing"; fi
+
+# Foreign pin + a review-fix commit: lease push, then pin the new head (set overwrites the old pin).
+echo "$S" > "$PIN"; echo fix > "$G/w/fix.txt"; gw add fix.txt; gw commit -qm "review fix"; NH=$(gw rev-parse HEAD)
+HS=$NH rp "$PF2"
+has "repin push: review fixes pushed" "pushed:${NH:0:7}"
+line "repin push: new head pinned" "repin:done $NH"
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$NH" ] && [ "$(cat "$PIN")" = "$NH" ]; then ok "repin push: origin and pin at the reviewed head"; else no "repin push: origin and pin at the reviewed head"; fi
+
+# set refuses when the PR head on GitHub is not the local tip: the old pin stays, merge stays blocked.
+echo "$S" > "$PIN"; TH=$NH HS=$O rp "$PF2"
+line "repin push: PR head != local tip fails" "repin:failed"
+if [ "$(cat "$PIN")" = "$S" ]; then ok "repin push: failed set keeps the old pin"; else no "repin push: failed set keeps the old pin"; fi
+
+# Remote moved since 3.1: the lease rejects the push, nothing is pinned.
+fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"
+echo fix > "$G/w/fix.txt"; gw add fix.txt; gw commit -qm "review fix"; NH=$(gw rev-parse HEAD)
+git clone -q "$G/o.git" "$G/x" && git -C "$G/x" checkout -q feat && echo other > "$G/x/other.txt" \
+  && git -C "$G/x" add other.txt && git -C "$G/x" commit -qm other && git -C "$G/x" push -q origin feat
+RFH=$(git -C "$G/o.git" rev-parse feat)
+HS=$NH rp "$PF2"
+has "repin push: lease rejects a remote moved since 3.1" "push:rejected"
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$RFH" ] && [ ! -f "$PIN" ]; then ok "repin push: rejected push leaves origin and pins nothing"; else no "repin push: rejected push leaves origin and pins nothing"; fi
+
+# History rewritten during review (local tip not a descendant of the PR head): refused before any push.
+fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"; gw commit -q --amend -m amended
+rp "$PF2"
+has "repin push: rewritten history refused" "push:skip"
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ ! -f "$PIN" ]; then ok "repin push: rewrite refusal pushes and pins nothing"; else no "repin push: rewrite refusal pushes and pins nothing"; fi
 exit $FAIL
