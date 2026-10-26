@@ -38,7 +38,6 @@ Skip when investigation mode. Read `DESC_QUALITY`. Present checkpoint: design sa
 
 ```bash
 source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/memory.sh"
 ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate')
 if [ "$ACCEPTANCE_GATE" = "auto" ]; then n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "auto-decided" "---"
 else n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "asked" "codebase|web"; fi
@@ -50,7 +49,6 @@ BRAINSTORM_FILES=$(grep -oE '[a-zA-Z0-9_/.-]+\.(py|ts|tsx|js|jsx|go|rs|java|rb|s
 ANALYSIS_BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")
 [ "$BRAINSTORM_FILES" -le 2 ] && BRAINSTORM_BLAST="low" || { [ "$BRAINSTORM_FILES" -le 5 ] && BRAINSTORM_BLAST="${ANALYSIS_BLAST:-medium}" || BRAINSTORM_BLAST="${ANALYSIS_BLAST:-high}"; }
 n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NEED" "design_clarity=$DESIGN_CLARITY" "approach_count=$APPROACH_COUNT" "files_changed=$BRAINSTORM_FILES" "blast_radius=$BRAINSTORM_BLAST"
-n1_compact_memory "$N1_HOME/memory/$ID/brainstorm.md" "summary,design summary,key decisions,approach,acceptance criteria,testing"
 ```
 `auto`: auto-confirm, `[auto]` ledger. `ask`: wait; amend → update AC. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 

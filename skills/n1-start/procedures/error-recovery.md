@@ -14,6 +14,6 @@ Classify failure:
 
 This orchestrator is a **lightweight controller**: delegates heavy work to agents, loads only dependency files per step, writes to memory after each step, never accumulates full history.
 
-**Memory hygiene:** compact files that grow large (long `analysis.md`, multi-cycle `review.md`) before next step reads them — verbose stale notes cause context poisoning.
+**Memory hygiene:** do not rewrite memory files; pass paths and let readers extract the sections they need.
 
 **Resume:** treat files-changed lists and test results as hints; re-derive from `git` and test suite rather than trusting stale markdown.
