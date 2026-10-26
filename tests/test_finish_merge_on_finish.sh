@@ -453,4 +453,6 @@ line "ci: no-check streak resets when checks appear" "ci:pass"
 if [ "$(cat "$T/cin")" = 6 ]; then ok "ci: grace restarts after a pending poll"; else no "ci: grace restarts after a pending poll"; fi
 POLLS=5 ci "$NOCK"
 line "ci: pull_request workflow never passes on no checks" "ci:timeout"
+POLLS=5 WD="$T/pu/.github" ci "$NOCK" "ERR:boom|CLEAN" "$NOCK" "ERR:boom|CLEAN" "$NOCK"
+line "ci: API errors interrupt the no-check streak" "ci:timeout"
 exit $FAIL

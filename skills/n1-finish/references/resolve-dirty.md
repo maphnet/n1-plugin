@@ -151,6 +151,7 @@ for _ in $(seq "${RESOLVE_CI_POLLS:-24}"); do
     *"no checks reported"*) NC=$((NC+1)); [ "$WF" = 1 ] || [ "$NC" -lt 3 ] || CP=1 ;;
     "fail=0 "*) NC=0 ;;
     fail=[1-9]*) R=fail; break ;;
+    *) NC=0 ;;
   esac
   [ "$CP" = 1 ] || continue
   S=$(gh pr view "$N" --json mergeStateStatus -q .mergeStateStatus 2>/dev/null)
@@ -160,7 +161,7 @@ done
 echo "ci:$R"; echo "state:$S"
 ```
 
-No checks yet with a `pull_request` workflow, and API errors, count as pending. Without one, "no checks reported" passes only after 3 consecutive no-check polls (about 60 s), so push-triggered or external CI (commit status or checks API) can register first; any poll with checks resets the count. Green checks with `mergeStateStatus` still `UNKNOWN` at the end count as `ci:pass` (3.1 treats `UNKNOWN` as continue; `--match-head-commit` in 3.4 is the backstop).
+No checks yet with a `pull_request` workflow, and API errors, count as pending. Without one, "no checks reported" passes only after 3 consecutive no-check polls (about 60 s), so push-triggered or external CI (commit status or checks API) can register first; any other poll (checks or API error) resets the count. Green checks with `mergeStateStatus` still `UNKNOWN` at the end count as `ci:pass` (3.1 treats `UNKNOWN` as continue; `--match-head-commit` in 3.4 is the backstop).
 
 - `ci:fail` → "CI is failing on PR #<n> after the conflict-resolution push. Fix CI, then re-run `/n1:n1-finish`." **STOP.**
 - `ci:timeout` → "CI still running after the resolve push; re-run `/n1:n1-finish`." **STOP.**
