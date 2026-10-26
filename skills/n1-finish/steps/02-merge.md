@@ -63,8 +63,17 @@ Evaluate the PR state:
       case "${MM:-squash}" in squash|merge|rebase) MM=${MM:-squash};; *) echo method:invalid; exit 1;; esac
       [ "$(n1_review_pin get "$N")" = "$H" ] || { echo pin:mismatch; exit 1; }
       echo "mergeOnFinish=true: merging PR #$N ($MM)"
-      gh pr merge "$N" "--$MM" --match-head-commit "$H" 2>&1; echo "merge-exit:$?"
+      gh pr merge "$N" "--$MM" --match-head-commit "$H" 2>&1; E=$?; echo "merge-exit:$E"
       gh pr view "$N" --json state,mergeCommit -q '"state:"+.state+" sha:"+(.mergeCommit.oid // "")'
+      if [ "$E" != 0 ]; then
+        P=${MERGE_REREAD_POLLS:-5}
+        for i in $(seq "$P"); do
+          MS=$(gh pr view "$N" --json mergeStateStatus -q .mergeStateStatus 2>/dev/null)
+          [ "$MS" = UNKNOWN ] && [ "$i" -lt "$P" ] || break
+          sleep "${MERGE_REREAD_SLEEP:-3}"
+        done
+        echo "mss:$MS"
+      fi
       ```
       - `merge:denied` → "Merge is not authorized in this run." **STOP.**
       - `pr:invalid` / `head:invalid` / `method:invalid` → report it ("`finishWork.mergeMethod` must be squash, merge or rebase" for the last). **STOP.**
