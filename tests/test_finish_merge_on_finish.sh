@@ -281,8 +281,15 @@ intact "resolve: todo edit restores the reviewed head"
 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; stopfx
 cp "$G/w/keep.txt" "$G/w/src.txt"; gw add src.txt; gw rm -q keep.txt
 TDEV=1 TSTOP=$ST res
-has "resolve: staged rename/deletion of an out-of-scope file aborts" "resolve:abort scope"
-intact "resolve: rename/deletion restores the reviewed head"
+has "resolve: staged deletion of an out-of-scope file aborts" "resolve:abort scope"
+intact "resolve: staged deletion restores the reviewed head"
+# N1-148: a real staged rename (name-only diffs would miss it); git must report R, not D+A.
+PR_SIDE=1 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; stopfx
+echo merged > "$G/w/src.txt"; gw add src.txt; gw mv -f keep.txt side.txt
+if gw status --porcelain | grep -q '^R  keep.txt -> side.txt'; then ok "resolve: fixture stages a real rename"; else no "resolve: fixture stages a real rename"; fi
+TDEV=1 TSTOP=$ST res
+has "resolve: staged rename of an out-of-scope file aborts" "resolve:abort scope"
+intact "resolve: staged rename restores the reviewed head"
 PR_SIDE=1 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; stopfx
 echo merged > "$G/w/src.txt"; echo evil > "$G/w/side.txt"; gw add src.txt side.txt
 TDEV=1 TSTOP=$ST res
