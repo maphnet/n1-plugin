@@ -549,14 +549,14 @@ if [ ! -f "$PIN" ] && [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ]; then ok
 
 # Preflight: PR branch checked out at the PR head, clean, not a fork.
 rp "$PF1"
-line "repin preflight: on the PR branch at the PR head" "repin:ok head:$OH branch:feat"
+line "repin preflight: on the PR branch at the PR head" "repin:ok head:$OH branch:feat base:main"
 gw checkout -q main; rp "$PF1"; gw checkout -q feat
 has "repin preflight: wrong branch skipped" "repin:skip branch"
 TH=$S rp "$PF1"
 has "repin preflight: local tip not at the PR head skipped" "repin:skip local-tip"
 echo ahead > "$G/w/ahead.txt"; gw add ahead.txt; gw commit -qm "local review fix"; AH=$(gw rev-parse HEAD)
 rp "$PF1"
-line "repin preflight: local tip ahead of the PR head accepted" "repin:ok head:$OH branch:feat"
+line "repin preflight: local tip ahead of the PR head accepted" "repin:ok head:$OH branch:feat base:main"
 gw reset -q --hard "$OH"; TH=$AH rp "$PF1"
 has "repin preflight: local tip behind the PR head skipped" "repin:skip local-tip"
 echo x >> "$G/w/src.txt"; rp "$PF1"; gw checkout -q -- src.txt
@@ -619,4 +619,8 @@ fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"; gw commit -q --amend -m amended
 rp "$PF2"
 has "repin push: rewritten history refused" "push:skip"
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ ! -f "$PIN" ]; then ok "repin push: rewrite refusal pushes and pins nothing"; else no "repin push: rewrite refusal pushes and pins nothing"; fi
+# Re-pin binds the --full review to the PR base (fail closed).
+RPM=skills/n1-finish/references/repin.md; RVM=skills/n1-review/steps/01-analyze.md
+if grep -qF -- 'n1-review --full --base <base>' "$RPM" && grep -qF 'base:$BASE' "$RPM"; then ok "repin: passes the PR base to the review"; else no "repin: passes the PR base to the review"; fi
+if grep -qF 'git merge-base "origin/$PR_BASE" HEAD' "$RVM" && grep -qF 'base:unresolved' "$RVM" && grep -qF 'base:invalid' "$RVM"; then ok "n1-review --full: merge-base with PR base, fails closed"; else no "n1-review --full: merge-base with PR base, fails closed"; fi
 exit $FAIL

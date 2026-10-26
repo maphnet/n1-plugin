@@ -3,7 +3,7 @@
 ## Mode Detection
 
 - **No arguments + on a feature branch** → Review Loop mode
-- **`--full`** → Review Loop mode with `FULL_REVIEW=1` (forces the FULL tier with security-reviewer; used by n1-finish re-pin)
+- **`--full --base <ref>`** → Review Loop mode with `FULL_REVIEW=1` (forces the FULL tier with security-reviewer; used by n1-finish re-pin) and `PR_BASE=<ref>` (the PR's base branch). `--full` without a valid `--base` → "--full needs --base <PR base branch>." **STOP.**
 - **Called from n1-start** → Review Loop mode
 - **PR number provided** (e.g., `/n1:n1-review #340`) → Advisory mode
 
@@ -36,6 +36,13 @@ Compute the review base — prefer the branch point recorded by n1-start (pins t
 BP_FILE="$N1_HOME/memory/$ID/branch-point"
 REVIEW_BASE=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || git merge-base "$DEFAULT_BRANCH" HEAD )
 ```
+
+Under `FULL_REVIEW=1` ignore both and bind the review to the PR's actual base; fail closed (no fallback to the branch point or default branch):
+```bash
+[[ "$PR_BASE" =~ ^[A-Za-z0-9._/-]+$ && "$PR_BASE" != -* ]] || { echo base:invalid; exit 1; }
+git fetch -q origin "$PR_BASE" 2>/dev/null && REVIEW_BASE=$(git merge-base "origin/$PR_BASE" HEAD) && [ -n "$REVIEW_BASE" ] || { echo base:unresolved; exit 1; }
+```
+`base:invalid` / `base:unresolved` → "Cannot resolve the PR base for the --full review." **STOP.**
 
 Read N1 memory if available:
 - `$N1_HOME/memory/$ID/ticket.md` — original requirements

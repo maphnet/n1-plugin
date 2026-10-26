@@ -1,7 +1,7 @@
 ---
 name: n1-review
 description: "Code review with fix loop. No args = review current branch (fix cycle). With PR number = advisory review (report only)."
-argument-hint: "[PR# | --full]"
+argument-hint: "[PR# | --full --base <ref>]"
 model: opus
 effort: medium
 ---
