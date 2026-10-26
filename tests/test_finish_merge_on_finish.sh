@@ -175,7 +175,7 @@ fx() { # <base-ver> <main-ver> <pr-ver>; SRC_PR / SRC_MAIN add conflicting src.t
   ( cd "$G/w" && mkdir -p .claude-plugin scripts && cp -p "$ROOT/scripts/bump-version.sh" scripts/ && setv "$1" && echo base > src.txt && echo keep > keep.txt \
     && git add -A && git commit -qm base && git remote add origin "$G/o.git" && git push -q origin main \
     && git checkout -q -b feat && setv "$3" && git commit -qam "chore: bump version to $3 (N1-T)" \
-    && { [ -z "${SRC_PR:-}" ] || { echo "$SRC_PR" > src.txt && { [ -z "${PR_SIDE:-}" ] || echo side > side.txt; } && git add -A && git commit -qm "pr change"; }; } && git push -q origin feat \
+    && { [ -z "${SRC_PR:-}" ] || { echo "$SRC_PR" > src.txt && { [ -z "${PR_SIDE:-}" ] || echo keep > side.txt; } && git add -A && git commit -qm "pr change"; }; } && git push -q origin feat \
     && git checkout -q main && setv "$2" && git commit -qam "main bump" \
     && { [ -z "${SRC_MAIN:-}" ] || { echo "$SRC_MAIN" > src.txt && git commit -qam "main change"; }; } && git push -q origin main \
     && git checkout -q feat ) || no "fixture $*"
@@ -286,7 +286,7 @@ intact "resolve: staged deletion restores the reviewed head"
 # N1-148: a real staged rename (name-only diffs would miss it); git must report R, not D+A.
 PR_SIDE=1 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0; stopfx
 echo merged > "$G/w/src.txt"; gw add src.txt; gw mv -f keep.txt side.txt
-if gw status --porcelain | grep -q '^R  keep.txt -> side.txt'; then ok "resolve: fixture stages a real rename"; else no "resolve: fixture stages a real rename"; fi
+if grep -q '^R  keep.txt -> side.txt' <<< "$(gw status --porcelain)"; then ok "resolve: fixture stages a real rename"; else no "resolve: fixture stages a real rename"; fi
 TDEV=1 TSTOP=$ST res
 has "resolve: staged rename of an out-of-scope file aborts" "resolve:abort scope"
 intact "resolve: staged rename restores the reviewed head"
