@@ -1,8 +1,8 @@
 # Resolve a DIRTY PR (mergeOnFinish)
 
-Reached from Step 2 § 3.1 on the first `state:DIRTY` of an n1-finish run with `merge-on-finish:yes`. Rebases the PR branch onto its base in the current checkout, resolves version-manifest conflicts mechanically, hands other conflicts to the developer persona, pushes with a pinned lease, advances the reviewed-head pin, waits for CI, then re-runs 3.1. One attempt per run. Queue and headless runs never reach this file, and every writing block re-checks that.
+Reached from Step 2 § 3.1 on the first `state:DIRTY` of an n1-finish run with `merge-on-finish:yes`. Rebases the PR branch onto its base in the current checkout, resolves version-manifest conflicts mechanically, hands other conflicts to the developer persona, pushes with a pinned lease, advances the reviewed-head pin, waits for CI, then re-runs 3.1. One attempt per run. Queue and headless runs reach this file only when `n1_merge_authorized` holds (`finishWork.mergeOnFinish` and `autonomy.fullAuto` both true), and every writing block re-checks it. There, as in interactive runs, developer-resolved conflicts advance the pin after the project tests and CI pass, with no reviewer re-run (N1-151: extends N1-146 SEC-3 and deliberately reverses N1-146 SEC-1).
 
-Each **STOP** below ends the run with the quoted message. Nothing is pushed before § Push, and every failure before it leaves the branch at the reviewed head.
+Each **STOP** below ends the run with the quoted message; with `headless:yes` or `queue-run:yes`, also add that message under `## Escalations` in `$N1_HOME/memory/<ID>/overview.md` and post it as a tracker comment prefixed `N1 [headless]` (`addComment`, best-effort). Nothing is pushed before § Push, and every failure before it leaves the branch at the reviewed head.
 
 Version manifests (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) are resolved mechanically only when the repo has both plus `scripts/bump-version.sh` (N1's own layout; the script is not executable in git, so it is run with `bash`); elsewhere every conflict goes to the developer persona. When the PR changed nothing but the version in the manifests, a manifest conflict takes the base branch's side; otherwise it goes to the developer persona. Then one `chore: bump version to <new> (<ID>)` commit sets a version strictly above the base's, in the same class (major / minor / patch) as the PR's original bump.
 
@@ -12,7 +12,7 @@ One shell call in the current checkout. `<n>` is the PR number, `<head>` the rev
 
 ```bash
 source ~/.n1/preamble.sh
-[ "$(n1_merge_authorized)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo resolve:denied; exit 1; }
+[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }
 N="<n>"; H="<head>"; ID="<id>"; DEV="<dev>"; S0="<stop>"; SN="<snap>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
 [[ "$H" =~ ^[0-9a-f]{40}$ ]] && [[ "$ID" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$DEV" =~ ^[01]$ ]] && [[ "$S0" =~ ^([0-9a-f]{40})?$ ]] && [[ "$SN" =~ ^([0-9a-f]{40})?$ ]] || { echo arg:invalid; exit 1; }
@@ -114,7 +114,7 @@ One shell call. `<old>` and `<new>` come from `resolve:ready`. The lease is pinn
 
 ```bash
 source ~/.n1/preamble.sh
-[ "$(n1_merge_authorized)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo resolve:denied; exit 1; }
+[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }
 N="<n>"; OLD="<old>"; NEW="<new>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
 [[ "$OLD" =~ ^[0-9a-f]{40}$ ]] && [[ "$NEW" =~ ^[0-9a-f]{40}$ ]] || { echo sha:invalid; exit 1; }

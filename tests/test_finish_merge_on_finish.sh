@@ -182,16 +182,31 @@ intact() { # branch at the reviewed head, no rebase, clean tree, origin and pin 
 # Version-only conflict: rebase, take main's manifests, one re-bump commit above main (minor class).
 fx 5.10.0 5.12.0 5.11.0; res; NH=$(gw rev-parse HEAD)
 line "resolve: manifest-only conflict re-bumped above main" "resolve:ready old=$OH new=$NH bumped=5.13.0"
-# SEC-1 (N1-146): resolve-dirty stays interactive-only; queue/headless are denied even with both keys true.
-for e in "N1_QUEUE_RUN_ID=q-1" "N1_HEADLESS=1"; do
-  export "$e"; MERGE_KEY=true FA_KEY=true res; unset "${e%%=*}"
-  line "resolve: denied for $e with both keys" "resolve:denied"
-done
-if grep -qF 'merge conflicts; N1 does not resolve them unattended' "$F"; then ok "3.1: unattended DIRTY stops"; else no "3.1: unattended DIRTY stops"; fi
+# N1-151: unattended DIRTY routes to resolve-dirty; its writing blocks guard on n1_merge_authorized alone.
+if grep -qF 'does not resolve them unattended' "$F"; then no "3.1: unattended DIRTY routes to resolve-dirty"; else ok "3.1: unattended DIRTY routes to resolve-dirty"; fi
+if grep -qF 'Queue and headless runs never reach this file' "$RF"; then no "resolve-dirty: unattended entry documented"; else ok "resolve-dirty: unattended entry documented"; fi
+if [ "$(grep -cF '[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }' "$RF")" = 2 ]; then ok "resolve-dirty: both writing blocks guard on n1_merge_authorized"; else no "resolve-dirty: both writing blocks guard on n1_merge_authorized"; fi
+if grep -qF 'N1 [headless]' "$RF"; then ok "resolve-dirty: unattended STOPs post a tracker comment"; else no "resolve-dirty: unattended STOPs post a tracker comment"; fi
 if [ "$(gw log --format=%s origin/main..HEAD)" = "chore: bump version to 5.13.0 (N1-T)" ]; then ok "resolve: one bump commit on top of main"; else no "resolve: commits $(gw log --format=%s origin/main..HEAD | tr '\n' '|')"; fi
 if [ "$(jq -r .version "$G/w/.claude-plugin/plugin.json") $(jq -r '.plugins[0].version' "$G/w/.claude-plugin/marketplace.json")" = "5.13.0 5.13.0" ]; then ok "resolve: both manifests at 5.13.0"; else no "resolve: both manifests at 5.13.0"; fi
 if [ "$(gw diff --name-only origin/main HEAD | tr '\n' ' ')" = ".claude-plugin/marketplace.json .claude-plugin/plugin.json " ] && [ ! -d "$G/w/.git/rebase-merge" ]; then ok "resolve: only manifests differ from main, rebase finished"; else no "resolve: only manifests differ from main, rebase finished"; fi
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "resolve: nothing pushed, pin untouched"; else no "resolve: nothing pushed, pin untouched"; fi
+# N1-151: queue/headless runs resolve when n1_merge_authorized holds (fullAuto + mergeOnFinish); without fullAuto they stay denied.
+for e in "N1_QUEUE_RUN_ID=q-1" "N1_HEADLESS=1"; do
+  fx 5.10.0 5.12.0 5.11.0
+  export "$e"; FA_KEY=false res; unset "${e%%=*}"
+  line "resolve: denied for $e without fullAuto" "resolve:denied"
+  intact "resolve: $e without fullAuto changes nothing"
+  export "$e"; FA_KEY=true res; unset "${e%%=*}"; NH=$(gw rev-parse HEAD)
+  line "resolve: $e + fullAuto re-bumps the manifest conflict" "resolve:ready old=$OH new=$NH bumped=5.13.0"
+done
+# Non-manifest conflict unattended: developer round, then the rebase completes (accept-as-is policy).
+SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0
+N1_HEADLESS=1 FA_KEY=true res; ST=$(gw rev-parse HEAD)
+line "resolve: headless conflict handed to the developer" "resolve:conflicts old=$OH stop=$ST snap=$SN files:src.txt"
+echo merged > "$G/w/src.txt"; gw add src.txt
+N1_HEADLESS=1 FA_KEY=true TDEV=1 TSTOP=$ST res; NH=$(gw rev-parse HEAD)
+line "resolve: headless developer round completes the rebase" "resolve:ready old=$OH new=$NH bumped=5.13.0"
 
 # Bump class follows the PR's original delta (patch, major); last row: identical bump on both sides is not a git conflict (the PR commit is dropped) but is still re-bumped above main.
 for c in "5.11.0 5.11.2 5.11.1 5.11.3" "5.11.0 5.12.0 6.0.0 6.0.0" "5.11.0 5.12.0 5.12.0 5.13.0"; do
@@ -353,6 +368,12 @@ has "push: hook decline shows the git error" "hook-says-no"
 if grep -qF "push:rejected" <<<"$OUT"; then no "push: hook decline is not push:rejected"; else ok "push: hook decline is not push:rejected"; fi
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$RFH" ] && [ "$(cat "$PIN")" = "$RFH" ]; then ok "push: failed push leaves origin and pin"; else no "push: failed push leaves origin and pin"; fi
 
+# N1-151: an unattended push with fullAuto + mergeOnFinish pushes and advances the pin.
+fx 5.10.0 5.12.0 5.11.0; N1_HEADLESS=1 FA_KEY=true res; NH=$(gw rev-parse HEAD)
+N1_HEADLESS=1 FA_KEY=true TOLD=$OH TNEW=$NH psh
+has "push: headless + fullAuto pushes" "pushed:${NH:0:7}"
+has "push: headless + fullAuto advances the pin" "pin:advanced ${NH:0:7}"
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$NH" ] && [ "$(cat "$PIN")" = "$NH" ]; then ok "push: headless origin and pin at the rebased head"; else no "push: headless origin and pin at the rebased head"; fi
 # N1-144 § CI wait: sequenced fake gh (one line per poll: <checks-json|ERR:msg>|<mergeStateStatus>).
 mkdir -p "$T/cibin"
 cat > "$T/cibin/gh" <<'EOF'
