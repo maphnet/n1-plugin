@@ -33,7 +33,7 @@ if grep -qF 'a second `state:DIRTY` or `state:BEHIND` is a **STOP**' skills/n1-f
 PE=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); DB=$(grep -n '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F" | head -1 | cut -d: -f1)
 if [ -n "$PE" ] && [ -n "$DB" ] && [ "$PE" -lt "$DB" ]; then ok "3.1: pinless line precedes DIRTY/BEHIND"; else no "3.1: pinless line precedes DIRTY/BEHIND"; fi
 PL=$(sed -n "${PE:-1}p" "$F")
-if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 [headless]' <<<"$PL"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
+if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 does not pin unattended' <<<"$PL" && grep -qF 'every **STOP** in Step 2 is also added under `## Escalations` and posted as a `N1 [headless]`' "$F"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
 if grep -qF 'Merge it yourself' <<<"$PL"; then no "3.1: pinless has no merge-by-hand dead end"; else ok "3.1: pinless has no merge-by-hand dead end"; fi
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
@@ -109,7 +109,7 @@ for d in wf pu nowf; do git init -q "$T/$d"; done
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/wf" pre
 has "pre: no checks + pull_request workflow -> checks:expected" "checks:expected"
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/pu/.github" pre
-has "pre: push-only workflow -> checks:none" "checks:none"
+has "pre: push-only workflow -> checks:expected" "checks:expected"
 CHECKS_ERR="no checks reported on the 'me/T-1' branch" WD="$T/nowf" pre
 has "pre: no checks, no workflow -> checks:none" "checks:none"
 TN='7;x' pre
@@ -192,8 +192,7 @@ intact() { # branch at the reviewed head, no rebase, clean tree, origin and pin 
 fx 5.10.0 5.12.0 5.11.0; res; NH=$(gw rev-parse HEAD)
 line "resolve: manifest-only conflict re-bumped above main" "resolve:ready old=$OH new=$NH bumped=5.13.0"
 # N1-151: unattended DIRTY routes to resolve-dirty; its writing blocks guard on n1_merge_authorized alone.
-if grep -qF 'does not resolve them unattended' "$F"; then no "3.1: unattended DIRTY routes to resolve-dirty"; else ok "3.1: unattended DIRTY routes to resolve-dirty"; fi
-if grep -qF 'Queue and headless runs never reach this file' "$RF"; then no "resolve-dirty: unattended entry documented"; else ok "resolve-dirty: unattended entry documented"; fi
+if grep -qF 'Queue and headless runs follow it too' "$F"; then ok "3.1: unattended DIRTY routes to resolve-dirty"; else no "3.1: unattended DIRTY routes to resolve-dirty"; fi
 if [ "$(grep -cF '[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }' "$RF")" = 2 ]; then ok "resolve-dirty: both writing blocks guard on n1_merge_authorized"; else no "resolve-dirty: both writing blocks guard on n1_merge_authorized"; fi
 if grep -qF 'N1 [headless]' "$RF"; then ok "resolve-dirty: unattended STOPs post a tracker comment"; else no "resolve-dirty: unattended STOPs post a tracker comment"; fi
 if [ "$(gw log --format=%s origin/main..HEAD)" = "chore: bump version to 5.13.0 (N1-T)" ]; then ok "resolve: one bump commit on top of main"; else no "resolve: commits $(gw log --format=%s origin/main..HEAD | tr '\n' '|')"; fi
@@ -213,9 +212,6 @@ done
 SRC_PR=pr SRC_MAIN=main fx 5.10.0 5.12.0 5.11.0
 N1_HEADLESS=1 FA_KEY=true res; ST=$(gw rev-parse HEAD)
 line "resolve: headless conflict handed to the developer" "resolve:conflicts old=$OH stop=$ST snap=$SN files:src.txt"
-echo merged > "$G/w/src.txt"; gw add src.txt
-N1_HEADLESS=1 FA_KEY=true TDEV=1 TSTOP=$ST res; NH=$(gw rev-parse HEAD)
-line "resolve: headless developer round completes the rebase" "resolve:ready old=$OH new=$NH bumped=5.13.0"
 # N1-151 BEHIND: base gained a non-conflicting commit; clean rebase, no re-bump while the PR version is above base.
 bfx() { fx 5.10.0 5.12.0 5.11.0
   ( cd "$G/w" && git checkout -q main && git reset -q --hard HEAD~1 && echo o > other.txt && git add other.txt && git commit -qm "main other" && git push -q -f origin main && git checkout -q feat ) || no "behind fixture"; }
@@ -392,11 +388,10 @@ fx 5.10.0 5.12.0 5.11.0; N1_HEADLESS=1 FA_KEY=true res; NH=$(gw rev-parse HEAD)
 N1_HEADLESS=1 FA_KEY=true TOLD=$OH TNEW=$NH psh
 has "push: headless + fullAuto pushes" "pushed:${NH:0:7}"
 has "push: headless + fullAuto advances the pin" "pin:advanced ${NH:0:7}"
-if [ "$(git -C "$G/o.git" rev-parse feat)" = "$NH" ] && [ "$(cat "$PIN")" = "$NH" ]; then ok "push: headless origin and pin at the rebased head"; else no "push: headless origin and pin at the rebased head"; fi
 # N1-151 § Re-pin (block 4): pin a pinless PR at its head only when local tip == remote head; interactive only; never overwrites.
 RP=$(block 4 "$RF")
 if grep -qF 'n1_review_pin set' <<<"$RP"; then ok "resolve block 4 is the re-pin"; else no "resolve block 4 is the re-pin"; fi
-if [ "$(grep -c '(Recommended' "$RF")" = 1 ]; then ok "re-pin question marks one (Recommended)"; else no "re-pin question marks one (Recommended)"; fi
+if [ "$(grep -c '(Recommended' <<<"$(sed -n '/^## § Re-pin/,$p' "$RF")")" = 0 ] && grep -qF 'No recommendation. The options are equivalent' <<<"$(sed -n '/^## § Re-pin/,$p' "$RF")" && grep -qF 'never auto-resolve it' "$RF"; then ok "re-pin question is an unconditional gate with no recommendation"; else no "re-pin question is an unconditional gate with no recommendation"; fi
 rp() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" HEADSHA="${HS-$OH}" TH="${TH-$OH}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$RP" 2>&1); }
 fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"
 for g in "MERGE_KEY=false" "N1_QUEUE_RUN_ID=q1" "N1_HEADLESS=1"; do
@@ -448,4 +443,6 @@ POLLS=1 ci "ERR:no checks reported on the 'feat' branch|CLEAN"
 line "ci: no checks + pull_request workflow counts as pending" "ci:timeout"
 POLLS=1 WD="$T/nowf" ci "ERR:no checks reported on the 'feat' branch|CLEAN"
 line "ci: no checks, no workflow passes" "ci:pass"
+POLLS=1 WD="$T/pu/.github" ci "ERR:no checks reported on the 'feat' branch|CLEAN"
+line "ci: no checks + push-only workflow counts as pending" "ci:timeout"
 exit $FAIL

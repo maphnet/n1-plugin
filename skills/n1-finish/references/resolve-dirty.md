@@ -141,7 +141,7 @@ One shell call; run it with the maximum (10-minute) tool timeout: it polls for u
 ```bash
 source ~/.n1/preamble.sh
 N="<n>"; case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
-WF=0; grep -qsE 'pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml && WF=1
+WF=0; grep -qsE 'push|pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml && WF=1
 R=timeout; S=; CP=0
 for _ in $(seq "${RESOLVE_CI_POLLS:-24}"); do
   sleep "${RESOLVE_CI_SLEEP:-20}"; CP=0
@@ -160,7 +160,7 @@ done
 echo "ci:$R"; echo "state:$S"
 ```
 
-No checks yet with a `pull_request` workflow, and API errors, count as pending. Green checks with `mergeStateStatus` still `UNKNOWN` at the end count as `ci:pass` (3.1 treats `UNKNOWN` as continue; `--match-head-commit` in 3.4 is the backstop).
+No checks yet with a `push` or `pull_request` workflow, and API errors, count as pending. Green checks with `mergeStateStatus` still `UNKNOWN` at the end count as `ci:pass` (3.1 treats `UNKNOWN` as continue; `--match-head-commit` in 3.4 is the backstop).
 
 - `ci:fail` → "CI is failing on PR #<n> after the conflict-resolution push. Fix CI, then re-run `/n1:n1-finish`." **STOP.**
 - `ci:timeout` → "CI still running after the resolve push; re-run `/n1:n1-finish`." **STOP.**
@@ -172,11 +172,12 @@ Run the 3.1 pre-merge block again and apply every line, with this run's resolve 
 
 ## § Re-pin
 
-Reached only from the 3.1 `pin:` empty line of an interactive run; queue and headless runs escalate there and never pin. It pins the PR's current head once so a PR opened before N1-141 can merge; an existing pin is never replaced (N1-142 covers a pin that differs from the head). Ask the user:
+Reached only from the 3.1 `pin:` empty line of an interactive run; queue and headless runs escalate there and never pin. It pins the PR's current head once so a PR opened before N1-141 can merge; an existing pin is never replaced (N1-142 covers a pin that differs from the head). This question is an unconditional gate: always ask the user, even when `autonomy.mode` is `hands-off`, and never auto-resolve it. Ask the user:
 
 ```
-PR #<n> has no reviewed-head pin. Pin its current head <first 7 of head> as the reviewed head so N1 can merge it?
-1 — Yes, pin it and continue (Recommended): the block pins only when the local branch tip equals the remote PR head, the same check `n1_review_pin set` makes for n1-pr in skills/n1-pr/steps/03-codex-review.md
+PR #<n> has no reviewed-head pin, and N1 has no record of reviewing this head. Pinning <first 7 of head> treats it as reviewed, so N1 will merge it without a reviewer. Pin it?
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
+1 — Yes, pin it and continue (the block pins only when the local branch tip equals the remote PR head)
 2 — No, stop (review it with /n1:n1-review, then merge it yourself)
 ```
 

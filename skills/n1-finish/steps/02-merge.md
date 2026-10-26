@@ -2,6 +2,8 @@
 
 N1 merges an open PR only when the entry printed `merge-on-finish:yes` (`finishWork.mergeOnFinish` is `true`; a queue or headless run also needs `autonomy.fullAuto` `true`). Otherwise the human merges, then re-runs n1-finish.
 
+With `headless:yes` or `queue-run:yes`, every **STOP** in Step 2 is also added under `## Escalations` and posted as a `N1 [headless]` tracker comment.
+
 **Queue runs.** When the entry printed `queue-run:yes` without `merge-on-finish:yes`, report "Queue run: N1 merges only when `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true. The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b.
 
 Evaluate the PR state:
@@ -17,7 +19,7 @@ Evaluate the PR state:
       echo "$V"
       echo "pin:$(n1_review_pin get "$N")"
       C=$(gh pr checks "$N" --json bucket --jq '"checks:fail="+([.[]|select(.bucket=="fail" or .bucket=="cancel")]|length|tostring)+" pending="+([.[]|select(.bucket=="pending")]|length|tostring)' 2>&1)
-      case "$C" in checks:*) echo "$C";; *"no checks reported"*) if grep -qsE 'pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml; then echo checks:expected; else echo checks:none; fi;; *) echo "checks:error ${C:0:200}";; esac
+      case "$C" in checks:*) echo "$C";; *"no checks reported"*) if grep -qsE 'push|pull_request' "$(git rev-parse --show-toplevel)/.github/workflows/"*.y*ml; then echo checks:expected; else echo checks:none; fi;; *) echo "checks:error ${C:0:200}";; esac
       R=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
       echo "codex:$(cat "$N1_HOME"/review-receipts/*/"${R//\//_}_$N.json" 2>/dev/null | jq -rs 'if length==0 then "none" elif any(.[]; .outcome=="ran") then "ran" else "not-ran" end' 2>/dev/null)"
       gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){totalCount nodes{isResolved}}}}}' -f o="${R%/*}" -f r="${R#*/}" -F n="$N" --jq '.data.repository.pullRequest.reviewThreads|if .totalCount>(.nodes|length) then "threads:truncated" else "threads:"+([.nodes[]|select(.isResolved|not)]|length|tostring) end' 2>/dev/null || echo threads:error
@@ -26,17 +28,17 @@ Evaluate the PR state:
       - `checks:error <msg>` → "Could not read the CI checks of PR #<n> (<msg>). Re-run `/n1:n1-finish`, or merge it yourself." **STOP.**
       - `checks:fail=<k>` with `<k>` > 0 → "CI is failing on PR #<n> (<k> failed or cancelled checks). Fix CI, then re-run `/n1:n1-finish`." **STOP.**
       - `pending=<k>` with `<k>` > 0 → "CI is still running on PR #<n>. Re-run `/n1:n1-finish` when it finishes." **STOP.**
-      - `checks:expected` (no checks yet, but the repo has a `pull_request` workflow) → "CI has not started on PR #<n>; re-run when it reports, or merge it yourself, then re-run `/n1:n1-finish`." **STOP.**
+      - `checks:expected` (no checks yet, but the repo has a `push` or `pull_request` workflow) → "CI has not started on PR #<n>; re-run when it reports, or merge it yourself, then re-run `/n1:n1-finish`." **STOP.**
       - `checks:none` (no CI in this repo) or `checks:fail=0 pending=0` → continue.
       - `head:` empty → "Could not read the head commit of PR #<n>. Re-run `/n1:n1-finish`." **STOP.**
-      - `pin:` empty (no reviewed-head pin: the PR was not created by n1-pr, or predates N1-141) → with `headless:yes` or `queue-run:yes`, add "No reviewed-head pin recorded for PR #<n>; N1 does not pin unattended." under `## Escalations` in `$N1_HOME/memory/<ID>/overview.md`, post the same text as a tracker comment prefixed `N1 [headless]` (`addComment`, best-effort), and **STOP.** Otherwise follow `<N1_ROOT>/skills/n1-finish/references/resolve-dirty.md` § Re-pin (read it now; it is not read at entry): after the user confirms, it pins the current head and this list continues with `<head>` as the pin. Never pin without that confirmation.
+      - `pin:` empty (no reviewed-head pin: the PR was not created by n1-pr, or predates N1-141) → with `headless:yes` or `queue-run:yes`: "No reviewed-head pin recorded for PR #<n>; N1 does not pin unattended." **STOP.** Otherwise follow `<N1_ROOT>/skills/n1-finish/references/resolve-dirty.md` § Re-pin (read it now; it is not read at entry): after the user confirms, it pins the current head and this list continues with `<head>` as the pin. Never pin without that confirmation.
       - `pin:unavailable` (the pin lookup failed) → "Could not read the reviewed-head pin for PR #<n>. Re-run `/n1:n1-finish`, or merge it yourself." **STOP.**
       - `pin:<sha>` not equal to `head:<sha>` → "PR #<n> head <first 7 of head> differs from the reviewed head <first 7 of pin>: commits were pushed after review. Review them (`/n1:n1-review`), then merge it yourself and re-run `/n1:n1-finish`." **STOP.** Otherwise keep the pin as `<head>` for 3.4.
       - `draft:true` → "PR #<n> is a draft. Mark it ready (`gh pr ready <n>`), then re-run `/n1:n1-finish`." **STOP.** `state:BLOCKED`, or `state:DIRTY` / `BEHIND` after a resolve attempt in this run → "PR #<n> cannot merge yet (conflicts / required review or checks missing / branch behind base). Fix that, then re-run `/n1:n1-finish`." **STOP.** Other states continue.
       - `state:DIRTY` or `state:BEHIND` (first in this run) → once every other line of this list has passed (threads answered), follow `<N1_ROOT>/skills/n1-finish/references/resolve-dirty.md` (read it now unless already read in this run; it is not read at entry). It rebases the PR branch onto its base, re-bumps conflicting version manifests, hands other conflicts to the developer persona, pushes, advances the pin, waits for CI and re-runs this list. Queue and headless runs follow it too (`merge-on-finish:yes` there already requires `autonomy.fullAuto`). Each of its STOPs ends the run; in a headless or queue run it is also recorded as an escalation with a `N1 [headless]` tracker comment.
       - `codex:not-ran` or `codex:none` (no Codex review of this PR ran; the pin only means "the head N1 pushed after local review") → print one informational line, "Note: no completed Codex review is recorded for PR #<n>; merging the head N1 pushed after local review." Do not stop.
       - `threads:0` → Step 6 `Comments:` is `no unresolved comments`.
-      - `threads:error` / `threads:truncated` (API error, or more than 100 threads) / `threads:<k>` with `<k>` > 0 → with `headless:yes` or `queue-run:yes`, do not ask: add "PR #<n> has unresolved or unverifiable review threads; N1 did not merge it." under `## Escalations` in `$N1_HOME/memory/<ID>/overview.md`, post the same text as a tracker comment prefixed `N1 [headless]` (`addComment`, best-effort), and **STOP.** Otherwise ask the user:
+      - `threads:error` / `threads:truncated` (API error, or more than 100 threads) / `threads:<k>` with `<k>` > 0 → with `headless:yes` or `queue-run:yes`, do not ask: "PR #<n> has unresolved or unverifiable review threads; N1 did not merge it." **STOP.** Otherwise ask the user:
         ```
         PR #<n> has unresolved or unverifiable review threads (<k>, or "unknown" on error or truncation). Proceed with merge?
         No recommendation. The options are equivalent given the available evidence; select based on team preference.
