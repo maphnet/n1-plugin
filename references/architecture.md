@@ -156,7 +156,7 @@ Claude output is unchanged (`opus`/`sonnet`/`haiku`). The only permitted runtime
 
 ## Memory Compaction
 
-`n1_compact_memory` in `lib/memory.sh` archives full memory files to `<file>.full.md` and replaces originals with compacted versions keeping only high-signal sections. Applied after brainstorm (291K → <10K target), analysis (30-50% reduction), and implementation before review (40-60% reduction).
+Memory files are not compacted. N1-145 removed `n1_compact_memory` because its heading keep-list silently dropped `n1:unknown` tags and the Data Flow, Recommended Patterns and design Components that downstream personas read, while implementation.md compaction saved about 0%. Older runs may still have `<file>.full.md` copies on disk.
 
 ## Analysis Cache
 

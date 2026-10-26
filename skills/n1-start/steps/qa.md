@@ -3,11 +3,9 @@
 
 ```bash
 source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/memory.sh"
 n1_step_begin "qa" 8
 SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
 [ -n "$SIGNAL_LINE" ] && { PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //'); n1_write_signals "$N1_HOME/memory/$ID/qa.md" $PAIRS; }
-n1_compact_memory "$N1_HOME/memory/$ID/implementation.md" "implementation summary,completed tasks,files changed,test results,decisions"
 n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md
 ```
 
