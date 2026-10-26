@@ -61,7 +61,7 @@ FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
 n1_step_end "review" 9 "success"
 ```
-For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`): `n1_fingerprint_append "$FP_FILE" "$(n1_fingerprint_finding "<file>" "<title>")" "<id>" "<severity>" "active" "$CYCLE"`. Non-convergence→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`): write `$MEM/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (never put a title or path in a shell command, variable or double-quoted string), then `n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE"`. Non-convergence→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ### 7b. TQ FIX LOOP
 

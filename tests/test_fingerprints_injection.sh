@@ -45,4 +45,15 @@ n1_fingerprint_record "$T/fingerprints.jsonl" "$T/missing.tsv" 1 2>/dev/null
 eq "missing TSV fails closed" "1" "$?"
 eq "TSV consumed after recording" "absent" "$([ -e "$T/fp-new.tsv" ] && echo present || echo absent)"
 
+# Wiring: both call sites write findings by file and record via the helper.
+R=skills/n1-start/steps/review.md
+A=skills/n1-review/steps/01-analyze.md
+for S in "$R" "$A"; do
+    eq "$S has no double-quoted <file>/<title> placeholders" "0" "$(grep -cE '"<(file|title)>"' "$S")"
+    eq "$S records via n1_fingerprint_record" "1" "$(grep -cE 'n1_fingerprint_record "\$FP_FILE" ' "$S")"
+    eq "$S writes fp-new.tsv with the file-write mechanism" "1" "$(grep -cE 'fp-new\.tsv` with the file-write mechanism' "$S")"
+    eq "$S forbids titles in shell strings" "1" "$(grep -ciE 'never put a title or path in a shell command, variable or double-quoted string' "$S")"
+    eq "$S no longer calls n1_fingerprint_finding inline" "0" "$(grep -c 'n1_fingerprint_finding' "$S")"
+done
+
 exit $FAIL
