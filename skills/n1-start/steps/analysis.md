@@ -52,7 +52,7 @@ Spawn SA: "SNAPSHOT (age:{SNAPSHOT_AGE_RAW} sha:{SNAPSHOT_SHA}): {SNAPSHOT_BODY}
 
 ```bash
 source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/cache.sh"; source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/context.sh"; source "$N1_ROOT/lib/memory.sh"
+source "$N1_ROOT/lib/cache.sh"; source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/context.sh"
 n1_verify_dependencies "$N1_HOME/memory/$ID" analysis.md; n1_read_context
 CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json"); CACHE_ENABLED="${CACHE_ENABLED:-true}"
 SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME"); PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME"); CACHE_STATE="cold"

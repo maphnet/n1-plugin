@@ -39,7 +39,7 @@ fi
 
 ```bash
 source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/breakcheck.sh"
+source "$N1_ROOT/lib/breakcheck.sh"
 BC_MODE=$(n1_config_val '.qa.breakCheck'); BC_MODE=${BC_MODE:-bugs}; BC_MAX=$(n1_config_val '.qa.breakCheckMaxTests'); BC_MAX=${BC_MAX:-5}
 TASK_TYPE=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "task_type")
 TESTS_ADDED=$(n1_read_signal "$N1_HOME/memory/$ID/qa.md" "tests_added"); TESTS_ADDED=${TESTS_ADDED:-0}
