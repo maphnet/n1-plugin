@@ -87,12 +87,13 @@ Input (ticket or brain dump)
 
 ### `/n1:n1-review` — Code Review
 
-Two modes:
+Modes:
 
 | Mode | Trigger | Behavior |
 |------|---------|----------|
 | Review Loop | No args, on feature branch | code-reviewer + security-reviewer (parallel) → developer fixes → repeat until clean |
 | Advisory | `/n1:n1-review #340` | code-reviewer report only, no fixes |
+| Full | `/n1:n1-review --full` | review loop forced to FULL tier over the whole branch diff, no incremental scoping (used by n1-finish re-pin) |
 
 ### `/n1:n1-pr` — Pull Request Creation
 
