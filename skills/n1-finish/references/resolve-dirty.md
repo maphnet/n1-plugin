@@ -121,7 +121,7 @@ case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
 read -r BR BASE XR < <(gh pr view "$N" --json headRefName,baseRefName,isCrossRepository -q '[.headRefName,.baseRefName,(.isCrossRepository|tostring)]|join(" ")' 2>/dev/null)
 [ -n "$BR" ] && [ -n "$BASE" ] && [ "$XR" = false ] && [ "$BR" != "$BASE" ] && [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] && [ "$(git rev-parse HEAD)" = "$NEW" ] || { echo push:skip; exit 1; }
 [ "$(n1_review_pin get "$N")" = "$OLD" ] || { echo pin:moved; exit 1; }
-git push -q --force-with-lease="$BR:$OLD" origin "$BR" 2>&1 || { echo push:rejected; exit 1; }
+P=$(git push -q --force-with-lease="$BR:$OLD" origin "$BR" 2>&1) || { if grep -q 'stale info' <<<"$P"; then echo push:rejected; else echo push:failed; echo "$P"; fi; exit 1; }
 echo "pushed:${NEW:0:7}"
 n1_review_pin advance "$N" "$OLD" "$NEW"
 ```
@@ -130,6 +130,7 @@ n1_review_pin advance "$N" "$OLD" "$NEW"
 - `push:skip` (branch or local tip changed since § Resolve) → "PR #<n> was rebased locally but not pushed: the checkout changed. Re-run `/n1:n1-finish`." **STOP.**
 - `pin:moved` → "The reviewed-head pin of PR #<n> changed during the resolve; nothing was pushed. Re-run `/n1:n1-finish`." **STOP.**
 - `push:rejected` → "The push of the rebased PR #<n> was rejected: the remote branch moved since review. The remote is unchanged; the local branch holds the rebased commits (`git reset --hard <old>` restores the reviewed head). Review the remote commits, then re-run `/n1:n1-finish`." **STOP.**
+- `push:failed` (git's error follows the token) → "The push of the rebased PR #<n> failed (not a lease rejection): <the git error printed above>. The remote is unchanged; the local branch holds the rebased commits (`git reset --hard <old>` restores the reviewed head). Fix the cause (auth, network, hook or branch protection), then re-run `/n1:n1-finish`." **STOP.**
 - `pushed:` followed by `pin:kept` or `pin:unavailable` → "PR #<n> was pushed at <first 7 of new>, but the reviewed-head pin was not advanced, so N1 will not merge it. Review it (`/n1:n1-review`), then merge it yourself and re-run `/n1:n1-finish`." **STOP.**
 - `pin:advanced <sha7>` → § CI wait. Developer-resolved and version-only resolutions both advance the pin: N1 reviewed the rewrite here (mechanical bump, or the developer round plus tests), same as the n1-ci fix-push precedent.
 
