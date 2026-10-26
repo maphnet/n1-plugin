@@ -35,6 +35,15 @@ if [ -n "$PE" ] && [ -n "$DB" ] && [ "$PE" -lt "$DB" ]; then ok "3.1: pinless li
 PL=$(sed -n "${PE:-1}p" "$F")
 if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 does not pin unattended' <<<"$PL" && grep -qF 'every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md) is also added under `## Escalations` and posted as a `N1 [headless]`' "$F"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
 if grep -qF 'Merge it yourself' <<<"$PL"; then no "3.1: pinless has no merge-by-hand dead end"; else ok "3.1: pinless has no merge-by-hand dead end"; fi
+# N1-157: a failed 3.4 merge with a DIRTY/BEHIND re-read resolves once (shared attempt with 3.1); a second conflict and every other failure STOP.
+R34=$(grep -n '`mss:DIRTY` or `mss:BEHIND` and no resolve attempt yet in this run' "$F" | head -1 | cut -d: -f1)
+if [ -n "$R34" ] && [ -n "$M" ] && [ "$R34" -gt "$M" ] && grep -qF 'references/resolve-dirty.md' <<<"$(sed -n "${R34}p" "$F")"; then ok "3.4: first conflict routes to resolve-dirty"; else no "3.4: first conflict routes to resolve-dirty"; fi
+if grep -qF '`mss:DIRTY` or `mss:BEHIND` after a resolve attempt in this run' "$F" && grep -qF 'has conflicts again after conflict resolution' "$F"; then ok "3.4: second conflict STOPs"; else no "3.4: second conflict STOPs"; fi
+if grep -qF 'Any other `state:` or `mss:`' "$F" && grep -qF 'Never retry and never fall back to auto-merge' "$F"; then ok "3.4: non-conflict failures STOP without retry"; else no "3.4: non-conflict failures STOP without retry"; fi
+if grep -qF 'no retry except the single resolve-then-retry below' "$F"; then ok "3.4: header names the single retry"; else no "3.4: header names the single retry"; fi
+if grep -qF 'after a resolve attempt in this run (from this list or from 3.4)' "$F"; then ok "3.1: a 3.4 resolve attempt counts"; else no "3.1: a 3.4 resolve attempt counts"; fi
+RD=skills/n1-finish/references/resolve-dirty.md
+if grep -qF 'or from § 3.4 after a failed merge whose re-read is `mss:DIRTY` or `mss:BEHIND`' "$RD" && grep -qF 'One attempt per run, shared by 3.1 and 3.4.' "$RD"; then ok "resolve-dirty: reachable from 3.4, one shared attempt"; else no "resolve-dirty: reachable from 3.4, one shared attempt"; fi
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
