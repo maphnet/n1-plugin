@@ -68,7 +68,7 @@ SHA1="1111111111111111111111111111111111111111"; SHA2="2222222222222222222222222
 export N1_HOME="$T/home" GH_BODY="$T/body.md" GH_EDITED="$T/edited.md" GH_STATE=OPEN GH_HEAD="$SHA1" GH_AUTHOR=me GH_LOGIN=me
 unset GH_DIFF_EMPTY GH_COMPARE_FAIL
 S="$T/home/scratch/reconcile-start-7.testfile"
-run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e 's|^source ~/.n1/preamble.sh$|source '"$ROOT"'/lib/config.sh|' -e 's|^PR_NUMBER=.*|PR_NUMBER="7"|' -e "s|^ADHOC=.*|ADHOC=\"${2:-}\"|" -e "s|^D=\"<D from the reconcile:run line>\"\$|D=\"${3:-}\"|" -e "s|^START_FILE=.*|START_FILE=\"${4:-$S}\"|")"; }
+run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e 's|^source ~/.n1/preamble.sh$|source '"$ROOT"'/lib/config.sh|' -e 's|^PR_NUMBER=.*|PR_NUMBER="7"|' -e "s|^ADHOC=.*|ADHOC=\"${2:-}\"|" -e "s|^D=\"<D from the reconcile:run line>\"\$|D=\"${3:-}\"|" -e "s|^START_FILE=.*|START_FILE=\"${4-$S}\"|")"; }
 dir_of() { printf '%s\n' "$1" | sed -n 's/^reconcile:run dir=//p'; }
 
 echo "$SHA1" > "$S"
@@ -316,6 +316,38 @@ rm -f "$GH_EDITED"
 out=$(run "## § Apply" "" "$D")
 check "apply edits the PR when </content> appears mid-body" "^reconcile:applied:#7$" <(printf '%s\n' "$out")
 check "mid-body </content> line is preserved" '^</content>$' "$GH_EDITED"
+
+# --- N1-138: placeholder paths outside their mktemp prefix, or prefix + subpath, are refused before cat/rm/gh
+export GH_HEAD="$SHA2"
+DECOY="$T/decoy-start"; echo "$SHA1" > "$DECOY"
+mkdir -p "$T/home/scratch/reconcile-start-7.x"; SUBF="$T/home/scratch/reconcile-start-7.x/sub"; echo "$SHA1" > "$SUBF"
+for f in "$DECOY" "$SUBF"; do
+    out=$(run "## § Check" "" "" "$f"); rc=$?
+    if [ "$rc" -ne 0 ] && [ -f "$f" ] && [ "${out#*reconcile:run}" = "$out" ] && grep -q '^reconcile:failed:bad-path' <<<"$out"; then
+        echo "PASS: check refuses START_FILE $f and leaves it in place"
+    else
+        echo "FAIL: check used START_FILE $f"; FAIL=1
+    fi
+done
+out=$(run "## § Check" 1 "" "")
+check "ad-hoc check still runs with an empty START_FILE" "^reconcile:run" <(printf '%s\n' "$out")
+rm -rf "$(dir_of "$out")"
+
+mk_apply_dir() { mkdir -p "$1"; tr -d '\r' < "$GH_BODY" > "$1/old-body.md"; cp "$1/old-body.md" "$1/new-body.md"; }
+# positive control: the same fixture in a valid dir applies, so the refusals below come from the guard alone
+OK="$T/home/scratch/reconcile-7.ok"; mk_apply_dir "$OK"; rm -f "$GH_EDITED"
+out=$(run "## § Apply" "" "$OK")
+check "apply accepts a D inside reconcile-<PR>." "^reconcile:applied:#7$" <(printf '%s\n' "$out")
+[ ! -d "$OK" ] && echo "PASS: valid D is removed after apply" || { echo "FAIL: valid D left behind"; FAIL=1; }
+for d in "$T/decoy-dir" "$T/home/scratch/reconcile-7.x/sub" "$T/home/scratch/reconcile-start-7.y"; do
+    mk_apply_dir "$d"; rm -f "$GH_EDITED"
+    out=$(run "## § Apply" "" "$d"); rc=$?
+    if [ "$rc" -ne 0 ] && [ -d "$d" ] && [ ! -f "$GH_EDITED" ] && grep -q '^reconcile:failed:bad-path' <<<"$out"; then
+        echo "PASS: apply refuses D $d (no edit, no rm)"
+    else
+        echo "FAIL: apply used D $d"; FAIL=1
+    fi
+done
 
 # --- tech-writer reconcile mode
 TW=agents/tech-writer.md
