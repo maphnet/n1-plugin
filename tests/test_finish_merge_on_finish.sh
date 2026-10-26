@@ -345,6 +345,13 @@ RFH=$(git -C "$G/o.git" rev-parse feat)
 TOLD=$OH TNEW=$NH psh
 has "push: lease rejects a remote moved since review" "push:rejected"
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$RFH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "push: rejected push leaves origin and pin"; else no "push: rejected push leaves origin and pin"; fi
+# Non-lease failure (pre-receive hook declines; lease matches the remote tip) reports push:failed, not push:rejected.
+printf '#!/bin/sh\necho hook-says-no >&2\nexit 1\n' > "$G/o.git/hooks/pre-receive"; chmod +x "$G/o.git/hooks/pre-receive"
+echo "$RFH" > "$PIN"; TOLD=$RFH TNEW=$NH psh; rm -f "$G/o.git/hooks/pre-receive"
+has "push: hook decline reports push:failed" "push:failed"
+has "push: hook decline shows the git error" "hook-says-no"
+if grep -qF "push:rejected" <<<"$OUT"; then no "push: hook decline is not push:rejected"; else ok "push: hook decline is not push:rejected"; fi
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$RFH" ] && [ "$(cat "$PIN")" = "$RFH" ]; then ok "push: failed push leaves origin and pin"; else no "push: failed push leaves origin and pin"; fi
 
 # N1-144 § CI wait: sequenced fake gh (one line per poll: <checks-json|ERR:msg>|<mergeStateStatus>).
 mkdir -p "$T/cibin"
