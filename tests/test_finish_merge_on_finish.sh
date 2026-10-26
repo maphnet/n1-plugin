@@ -22,10 +22,13 @@ P3=$(grep -n 'Could not read the reviewed-head pin' "$F" | head -1 | cut -d: -f1
 P1=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); P2=$(grep -n 'differs from the reviewed head' "$F" | head -1 | cut -d: -f1)
 if [ -n "$P1" ] && [ -n "$P2" ] && [ -n "$M" ] && [ "$P1" -lt "$M" ] && [ "$P2" -lt "$M" ]; then ok "pin STOPs precede the merge"; else no "pin STOPs precede the merge"; fi
 if [ -n "$P3" ] && [ -n "$M" ] && [ "$P3" -lt "$M" ]; then ok "pin lookup-failure STOP precedes the merge"; else no "pin lookup-failure STOP precedes the merge"; fi
-# N1-144: first DIRTY routes to resolve-dirty.md; BLOCKED/BEHIND and a second DIRTY keep the STOP.
+# N1-144/N1-151: first DIRTY or BEHIND routes to resolve-dirty.md; BLOCKED and a second DIRTY/BEHIND keep the STOP.
 D=$(grep -n 'references/resolve-dirty.md' "$F" | head -1 | cut -d: -f1)
 if [ -n "$D" ] && [ -n "$M" ] && [ "$D" -lt "$M" ]; then ok "3.1 DIRTY points at resolve-dirty.md before the merge"; else no "3.1 DIRTY points at resolve-dirty.md before the merge"; fi
-if grep -qF 'cannot merge yet' "$F" && grep -qF 'after a resolve attempt in this run' "$F"; then ok "BLOCKED/BEHIND and second DIRTY keep the STOP"; else no "BLOCKED/BEHIND and second DIRTY keep the STOP"; fi
+if grep -qF 'cannot merge yet' "$F" && grep -qF 'after a resolve attempt in this run' "$F"; then ok "BLOCKED and second DIRTY/BEHIND keep the STOP"; else no "BLOCKED and second DIRTY/BEHIND keep the STOP"; fi
+if grep -qF '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F"; then ok "3.1: first BEHIND routes to resolve-dirty"; else no "3.1: first BEHIND routes to resolve-dirty"; fi
+if grep -qF '`state:BLOCKED` / `BEHIND`' "$F"; then no "3.1: BEHIND is not an unconditional STOP"; else ok "3.1: BEHIND is not an unconditional STOP"; fi
+if grep -qF 'a second `state:DIRTY` or `state:BEHIND` is a **STOP**' skills/n1-finish/references/resolve-dirty.md; then ok "resolve-dirty: second DIRTY/BEHIND stops"; else no "resolve-dirty: second DIRTY/BEHIND stops"; fi
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
@@ -207,6 +210,16 @@ line "resolve: headless conflict handed to the developer" "resolve:conflicts old
 echo merged > "$G/w/src.txt"; gw add src.txt
 N1_HEADLESS=1 FA_KEY=true TDEV=1 TSTOP=$ST res; NH=$(gw rev-parse HEAD)
 line "resolve: headless developer round completes the rebase" "resolve:ready old=$OH new=$NH bumped=5.13.0"
+# N1-151 BEHIND: base gained a non-conflicting commit; clean rebase, no re-bump while the PR version is above base.
+bfx() { fx 5.10.0 5.12.0 5.11.0
+  ( cd "$G/w" && git checkout -q main && git reset -q --hard HEAD~1 && echo o > other.txt && git add other.txt && git commit -qm "main other" && git push -q -f origin main && git checkout -q feat ) || no "behind fixture"; }
+bfx; res; NH=$(gw rev-parse HEAD)
+line "resolve: BEHIND PR rebased without a re-bump" "resolve:ready old=$OH new=$NH bumped=none"
+if gw merge-base --is-ancestor origin/main HEAD && [ "$(gw log --format=%s origin/main..HEAD | tr '\n' '|')" = "chore: bump version to 5.11.0 (N1-T)|" ]; then ok "resolve: BEHIND keeps the PR commits on top of base"; else no "resolve: BEHIND keeps the PR commits on top of base"; fi
+echo "$NH" > "$PIN"; TH=$NH res; echo "$OH" > "$PIN"
+has "resolve: already on top of base skipped" "resolve:skip up-to-date"
+bfx; N1_QUEUE_RUN_ID=q-1 FA_KEY=true res; NH=$(gw rev-parse HEAD)
+line "resolve: queue BEHIND + fullAuto rebased" "resolve:ready old=$OH new=$NH bumped=none"
 
 # Bump class follows the PR's original delta (patch, major); last row: identical bump on both sides is not a git conflict (the PR commit is dropped) but is still re-bumped above main.
 for c in "5.11.0 5.11.2 5.11.1 5.11.3" "5.11.0 5.12.0 6.0.0 6.0.0" "5.11.0 5.12.0 5.12.0 5.13.0"; do
