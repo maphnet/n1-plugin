@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -39,6 +40,12 @@ class ArmStatsTest(unittest.TestCase):
         self.assertIsNone(s["medians"]["output_tokens"])
         self.assertIsNone(s["medians"]["num_turns"])
 
+    def test_empty_arm_is_reported(self):
+        stats = ab.compute_arm_stats([row("t1", "baseline", True)])
+        self.assertEqual(stats["candidate"]["runs"], 0)
+        self.assertIsNone(stats["candidate"]["pass_rate"])
+        self.assertIsNone(stats["candidate"]["medians"]["output_tokens"])
+
     def test_arms_are_separate(self):
         stats = ab.compute_arm_stats([row("t1", "baseline", True, out=1), row("t1", "candidate", True, out=2)])
         self.assertEqual(stats["baseline"]["medians"]["output_tokens"], 1)
@@ -58,20 +65,27 @@ class IntersectionTest(unittest.TestCase):
 
     def test_empty_intersection(self):
         p = ab.compute_intersection_stats([row("t1", "baseline", False), row("t1", "candidate", True)])
-        self.assertEqual(p, {"tasks": [], "arms": {}})
+        self.assertEqual(p["tasks"], [])
+
+    def test_absent_arm_yields_empty_paired_set(self):
+        p = ab.compute_intersection_stats([row("t1", "baseline", True)])
+        self.assertEqual(p["tasks"], [])
+        self.assertIsNone(p["delta"]["output_tokens"])
+
+    def test_delta_is_candidate_minus_baseline(self):
+        p = ab.compute_intersection_stats([row("t1", "baseline", True, out=100), row("t1", "candidate", True, out=70)])
+        self.assertEqual(p["delta"]["output_tokens"], -30)
+        self.assertEqual(p["delta"]["num_turns"], 0)
 
 
 class ValidateRowTest(unittest.TestCase):
     def test_ok_row_with_matching_ids(self):
         self.assertIsNone(ab.validate_row({"session_id": "abc", "status": "ok", "raw": {"session_id": "abc"}}, "abc"))
 
-    def test_missing_or_empty_session_id_rejected(self):
+    def test_missing_empty_or_mismatched_session_id_rejected(self):
+        for sid in (None, "", "zzz"):
+            self.assertIsNotNone(ab.validate_row({"session_id": sid, "status": "error"}, "abc"))
         self.assertIsNotNone(ab.validate_row({"status": "error"}, "abc"))
-        self.assertIsNotNone(ab.validate_row({"session_id": None, "status": "error"}, "abc"))
-        self.assertIsNotNone(ab.validate_row({"session_id": "", "status": "error"}, "abc"))
-
-    def test_harness_id_mismatch_rejected(self):
-        self.assertIsNotNone(ab.validate_row({"session_id": "zzz", "status": "error"}, "abc"))
 
     def test_ok_row_without_claude_session_id_rejected(self):
         self.assertIsNotNone(ab.validate_row({"session_id": "abc", "status": "ok", "raw": {}}, "abc"))
@@ -95,11 +109,16 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(ab.strip_frontmatter("# Body\n"), ({}, "# Body\n"))
         self.assertEqual(ab.tools_arg({}), "default")
 
+    def test_crlf_frontmatter_is_stripped(self):
+        meta, body = ab.strip_frontmatter("---\r\nname: x\r\ntools: Read\r\n---\r\nBody\r\n")
+        self.assertEqual(meta["tools"], "Read")
+        self.assertEqual(body, "Body\n")
+
     def test_real_personas_parse(self):
         for name in ab.PERSONAS:
             meta, body = ab.strip_frontmatter((REPO / "agents" / f"{name}.md").read_text(encoding="utf-8"))
             self.assertEqual(meta["name"], name)
-            self.assertTrue(meta["tools"])
+            self.assertTrue(body.strip())
             self.assertFalse(body.startswith("---"))
 
     def test_token_split(self):
@@ -123,6 +142,35 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(s["arms"]["candidate"]["pass_rate"], 0)
         self.assertEqual(s["paired"]["tasks"], [])
         self.assertEqual(s["args"], {"runs": "1"})
+
+
+class ScrubEnvTest(unittest.TestCase):
+    def test_denylist_drops_secrets_keeps_auth_and_proxy(self):
+        env = {"AWS_ACCESS_KEY_ID": "x", "AZURE_CLIENT_ID": "x", "GOOGLE_APPLICATION_CREDENTIALS": "x",
+               "GH_TOKEN": "x", "GITHUB_TOKEN": "x", "DB_SECRET_KEY": "x", "NPM_TOKEN": "x", "N1_HOME": "x",
+               "ANTHROPIC_API_KEY": "k", "CLAUDE_CODE_OAUTH_TOKEN": "t", "HOME": "/h", "PATH": "/bin",
+               "HTTPS_PROXY": "p", "NO_PROXY": "n"}
+        self.assertEqual(set(ab.scrub_env(env)), {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "HOME",
+                                                  "PATH", "HTTPS_PROXY", "NO_PROXY"})
+
+
+class ProcessGroupTest(unittest.TestCase):
+    def test_timeout_kills_grandchildren(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pidfile = Path(tmp) / "pid"
+            script = Path(tmp) / "check.sh"
+            script.write_text(f'sleep 60 &\necho $! > {pidfile}\nwait\n')
+            self.assertFalse(ab.run_check(script, tmp, timeout=1))
+            pid = int(pidfile.read_text())
+            time.sleep(0.2)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+
+    def test_children_do_not_see_scrubbed_env(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"GITHUB_TOKEN": "leak"}):
+            script = Path(tmp) / "check.sh"
+            script.write_text('[ -z "$GITHUB_TOKEN" ]\n')
+            self.assertTrue(ab.run_check(script, tmp))
 
 
 class FixtureTest(unittest.TestCase):
@@ -199,18 +247,21 @@ class EndToEndTest(unittest.TestCase):
         if out:
             argv += ["--out", str(self.tmp / "out")]
         env = dict(env, FAKE_LOG=str(self.log))
+        stdout = io.StringIO()
         with mock.patch.dict(os.environ, env), contextlib.redirect_stderr(io.StringIO()), \
-                contextlib.redirect_stdout(io.StringIO()):
-            return ab.main(argv)
+                contextlib.redirect_stdout(stdout):
+            code = ab.main(argv)
+        self.run_dir = Path(stdout.getvalue().strip())
+        return code
 
     def test_writes_raw_and_summary(self):
         self.assertEqual(self.run_main({}), 0)
-        rows = [json.loads(l) for l in (self.tmp / "out" / "raw.jsonl").read_text().splitlines()]
+        rows = [json.loads(l) for l in (self.run_dir / "raw.jsonl").read_text().splitlines()]
         self.assertEqual(len(rows), 4)
         self.assertEqual({r["arm"] for r in rows}, {"baseline", "candidate"})
         self.assertTrue(all(r["session_id"] and r["status"] == "ok" and r["passed"] for r in rows))
         self.assertEqual(len({r["session_id"] for r in rows}), 4)
-        summary = json.loads((self.tmp / "out" / "summary.json").read_text())
+        summary = json.loads((self.run_dir / "summary.json").read_text())
         self.assertEqual(summary["arms"]["baseline"]["pass_rate"], 1.0)
         self.assertEqual(summary["paired"]["tasks"], ["t1"])
         self.assertEqual(summary["rejected"], 0)
@@ -229,15 +280,32 @@ class EndToEndTest(unittest.TestCase):
 
     def test_row_without_session_id_rejected(self):
         self.assertEqual(self.run_main({"FAKE_DROP_SID": "1"}), 2)
-        self.assertEqual((self.tmp / "out" / "raw.jsonl").read_text(), "")
-        summary = json.loads((self.tmp / "out" / "summary.json").read_text())
+        self.assertEqual((self.run_dir / "raw.jsonl").read_text(), "")
+        summary = json.loads((self.run_dir / "summary.json").read_text())
         self.assertEqual(summary["rejected"], 4)
 
     def test_defaults_to_n1_home_scratch(self):
         home = self.tmp / "n1home"
         self.assertEqual(self.run_main({"N1_HOME": str(home)}, out=False), 0)
-        self.assertTrue((home / "scratch" / "benchmarks" / "summary.json").is_file())
-        self.assertTrue((home / "scratch" / "benchmarks" / "raw.jsonl").is_file())
+        self.assertEqual(self.run_dir.parent, home / "scratch" / "benchmarks")
+        self.assertRegex(self.run_dir.name, r"^persona-ab-developer-\d{8}T\d{6}Z$")
+        self.assertTrue((self.run_dir / "summary.json").is_file())
+        self.assertTrue((self.run_dir / "raw.jsonl").is_file())
+
+    def test_differing_tools_or_effort_rejected(self):
+        for cand in ("---\nname: developer\ntools: Read\n---\nBODY\n", "BODY\n",
+                     "---\nname: developer\ntools: Read, Edit\neffort: high\n---\nBODY\n"):
+            other = self.tmp / "c.md"
+            other.write_text(cand)
+            with self.subTest(cand), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                ab.main(["--persona", "developer", "--baseline", str(self.persona), "--candidate", str(other),
+                         "--fixtures", str(self.tmp / "fx"), "--claude", str(self.fake), "--out", str(self.tmp / "out")])
+        self.assertFalse(self.log.exists())
+
+    def test_summary_written_when_run_raises(self):
+        with mock.patch.object(ab, "run_one", side_effect=OSError("boom")), self.assertRaises(OSError):
+            self.run_main({})
+        self.assertEqual(json.loads((next((self.tmp / "out").iterdir()) / "summary.json").read_text())["rejected"], 0)
 
     def test_no_out_and_no_n1_home_fails_fast(self):
         with mock.patch.dict(os.environ, {}), contextlib.redirect_stderr(io.StringIO()):

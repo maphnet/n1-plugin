@@ -4,7 +4,8 @@
 Runs two versions of one persona prompt (baseline vs candidate) on the fixture
 tasks in tests/fixtures/persona-ab/, --runs times each, with both arms shuffled
 together, and writes raw.jsonl + summary.json to --out (default
-$N1_HOME/scratch/benchmarks/).
+$N1_HOME/scratch/benchmarks/). Each invocation writes into its own
+subdirectory <out>/persona-ab-<persona>-<UTC stamp>/ and prints that path.
 
 What is measured: the persona body (frontmatter stripped) is appended to Claude
 Code's default system prompt via --append-system-prompt-file in a `claude -p`
@@ -16,7 +17,11 @@ share everything else.
 Isolation: --setting-sources "" --strict-mcp-config (no user settings, hooks,
 plugins or MCP servers) and cwd is a throwaway temp git repo. The agent's Bash
 tool is NOT sandboxed, so --dangerously-skip-permissions is acceptable only
-because the prompts and fixtures are trusted. ~/.claude/CLAUDE.md still loads;
+because the prompts and fixtures are trusted. Claude and the check scripts get
+a denylist-scrubbed environment (scrub_env: cloud creds, GitHub/other tokens,
+*_SECRET*, N1_*; ANTHROPIC_*/CLAUDE_* auth, HOME, PATH and proxy vars stay), and
+on timeout the whole process group is killed. raw.jsonl keeps each row's full
+claude JSON ("raw") on purpose: the ticket requires it for audit. ~/.claude/CLAUDE.md still loads;
 it is identical in both arms, so it adds noise but does not bias the delta.
 
 Makes real, paid claude calls (capped per run by --max-budget-usd). Failed or
@@ -29,16 +34,19 @@ Usage:
       --baseline agents/developer.md --candidate /tmp/developer-new.md [--runs 3]
 """
 import argparse
+import fnmatch
 import json
 import os
 import random
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -46,10 +54,36 @@ FIXTURES = REPO / "tests" / "fixtures" / "persona-ab"
 PERSONAS = ("developer", "qa-engineer", "code-reviewer")
 TOKEN_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")
 METRICS = TOKEN_KEYS + ("num_turns", "wall_ms", "cost_usd")
+ARMS = ("baseline", "candidate")
+SECRET_PATTERNS = ("AWS_*", "AZURE_*", "GOOGLE_*", "GH_TOKEN", "GITHUB_TOKEN", "*_SECRET*", "*_TOKEN", "N1_*")
+KEEP_PREFIXES = ("ANTHROPIC_", "CLAUDE_")
+
+
+def scrub_env(env):
+    """Copy of env without credential-like vars (denylist, so auth and proxy vars keep working)."""
+    return {k: v for k, v in env.items()
+            if k.startswith(KEEP_PREFIXES) or not any(fnmatch.fnmatchcase(k.upper(), pat) for pat in SECRET_PATTERNS)}
+
+
+def run_group(cmd, cwd, timeout, text=False):
+    """subprocess.run in its own session with a scrubbed env; SIGKILL the whole group on timeout."""
+    proc = subprocess.Popen(cmd, cwd=cwd, env=scrub_env(os.environ), stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=text, start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.communicate()
+        raise
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
 def strip_frontmatter(text):
     """Return (frontmatter as {key: value} for simple `key: value` lines, body)."""
+    text = text.replace("\r\n", "\n")
     if not text.startswith("---\n"):
         return {}, text
     end = text.find("\n---\n", 4)
@@ -107,18 +141,22 @@ def _metric(row, key):
 def compute_arm_stats(rows):
     """Per arm: runs, passed, pass_rate (passed/total), medians over passed runs only."""
     stats = {}
-    for arm in sorted({r["arm"] for r in rows}):
+    for arm in ARMS:
         arm_rows = [r for r in rows if r["arm"] == arm]
         passed = [r for r in arm_rows if r["passed"]]
         stats[arm] = {"runs": len(arm_rows), "passed": len(passed),
-                      "pass_rate": len(passed) / len(arm_rows),
+                      "pass_rate": len(passed) / len(arm_rows) if arm_rows else None,
                       "medians": {k: _median([_metric(r, k) for r in passed]) for k in METRICS}}
     return stats
 
 
 def compute_intersection_stats(rows):
-    """Medians per arm restricted to tasks that every arm ran and passed on every run."""
-    arms = sorted({r["arm"] for r in rows})
+    """Medians per arm restricted to tasks that every arm ran and passed on every run.
+
+    Medians are pooled over all intersection tasks and runs of an arm (not per task);
+    `delta` is candidate - baseline of those pooled medians (None if either is missing).
+    """
+    arms = ARMS
 
     def clean(task, arm):
         runs = [r for r in rows if r["task"] == task and r["arm"] == arm]
@@ -126,11 +164,14 @@ def compute_intersection_stats(rows):
 
     tasks = [t for t in sorted({r["task"] for r in rows}) if all(clean(t, a) for a in arms)]
     subset = [r for r in rows if r["task"] in tasks]
-    return {"tasks": tasks, "arms": {a: s["medians"] for a, s in compute_arm_stats(subset).items()}}
+    medians = {a: s["medians"] for a, s in compute_arm_stats(subset).items()}
+    delta = {k: None if medians["candidate"][k] is None or medians["baseline"][k] is None
+             else medians["candidate"][k] - medians["baseline"][k] for k in METRICS}
+    return {"tasks": tasks, "arms": medians, "delta": delta}
 
 
-def summarize(rows, rejected, args):
-    return {"args": args, "rejected": rejected,
+def summarize(rows, rejected, args, rejected_cost=0.0):
+    return {"args": args, "rejected": rejected, "rejected_cost_usd": round(rejected_cost, 4),
             "arms": compute_arm_stats(rows), "paired": compute_intersection_stats(rows),
             "total_cost_usd": round(sum(r["cost_usd"] for r in rows), 4),
             "tokens_total": {k: sum(r["tokens"][k] for r in rows) for k in TOKEN_KEYS}}
@@ -158,8 +199,7 @@ def prepare_repo(task_dir, dest):
 
 def run_check(check, repo, timeout=120):
     try:
-        return subprocess.run(["bash", str(check), str(repo)], capture_output=True,
-                              timeout=timeout).returncode == 0
+        return run_group(["bash", str(check), str(repo)], None, timeout).returncode == 0
     except subprocess.TimeoutExpired:
         return False
 
@@ -167,7 +207,7 @@ def run_check(check, repo, timeout=120):
 def run_claude(cmd, cwd, timeout):
     """Run claude; return (status, parsed JSON or None, stderr tail or None)."""
     try:
-        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        proc = run_group(cmd, cwd, timeout, text=True)
     except subprocess.TimeoutExpired:
         return "timeout", None, None
     err = proc.stderr[-500:] or None
@@ -236,25 +276,33 @@ def main(argv=None):
     tasks = load_fixtures(args.persona, args.fixtures, args.only)
     if not tasks:
         p.error(f"no fixtures for persona {args.persona}")
+    parsed = {arm: strip_frontmatter(path.read_text(encoding="utf-8"))
+              for arm, path in zip(ARMS, (args.baseline, args.candidate))}
+    for key, get in (("tools", tools_arg), ("effort", lambda m: m.get("effort"))):
+        if get(parsed["baseline"][0]) != get(parsed["candidate"][0]):
+            p.error(f"baseline and candidate differ in frontmatter {key}; the A/B must change only the persona text")
     out.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_dir = out / f"persona-ab-{args.persona}-{stamp}"
+    run_dir.mkdir()
 
     by_name = {t["name"]: t for t in tasks}
-    rows, rejected = [], 0
+    rows, rejected, rejected_cost = [], 0, 0.0
     prompts_dir = Path(tempfile.mkdtemp(prefix="persona-ab-prompts-"))
     try:
         arms = {}
-        for arm, path in (("baseline", args.baseline), ("candidate", args.candidate)):
-            meta, body = strip_frontmatter(path.read_text(encoding="utf-8"))
+        for arm, (meta, body) in parsed.items():
             prompt_file = prompts_dir / f"{arm}.md"
             prompt_file.write_text(body, encoding="utf-8")
             arms[arm] = (prompt_file, meta)
         queue = build_queue(list(by_name), list(arms), args.runs, args.seed)
-        with open(out / "raw.jsonl", "w", encoding="utf-8") as fh:
+        with open(run_dir / "raw.jsonl", "w", encoding="utf-8") as fh:
             for i, (name, arm, run) in enumerate(queue, 1):
                 row, sid = run_one(by_name[name], arm, run, arms[arm][0], arms[arm][1], args)
                 reason = validate_row(row, sid)
                 if reason:
                     rejected += 1
+                    rejected_cost += row["cost_usd"]
                     print(f"[{i}/{len(queue)}] REJECTED {name} {arm} run{run}: {reason}", file=sys.stderr)
                     continue
                 rows.append(row)
@@ -264,10 +312,9 @@ def main(argv=None):
                       f"passed={row['passed']} cost=${row['cost_usd']:.4f}", file=sys.stderr)
     finally:
         shutil.rmtree(str(prompts_dir), ignore_errors=True)
-
-    summary = summarize(rows, rejected, {k: str(v) for k, v in vars(args).items()})
-    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    print(out / "summary.json")
+        summary = summarize(rows, rejected, {k: str(v) for k, v in vars(args).items()}, rejected_cost)
+        (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        print(run_dir)
     return 2 if rejected else 0
 
 
