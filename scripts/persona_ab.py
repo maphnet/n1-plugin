@@ -162,3 +162,114 @@ def run_check(check, repo, timeout=120):
                               timeout=timeout).returncode == 0
     except subprocess.TimeoutExpired:
         return False
+
+
+def run_claude(cmd, cwd, timeout):
+    """Run claude; return (status, parsed JSON or None, stderr tail or None)."""
+    try:
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return "timeout", None, None
+    err = proc.stderr[-500:] or None
+    try:
+        data = json.loads(proc.stdout)
+    except ValueError:
+        return "error", None, err or proc.stdout[-500:]
+    if not isinstance(data, dict):
+        return "error", None, err
+    if proc.returncode != 0 or data.get("is_error"):
+        return "error", data, err
+    return "ok", data, None
+
+
+def run_one(task, arm, run, prompt_file, meta, args):
+    """One claude run in a throwaway repo; returns (row, harness session id)."""
+    sid = str(uuid.uuid4())
+    work = Path(tempfile.mkdtemp(prefix="persona-ab-"))
+    try:
+        repo = work / "repo"
+        prepare_repo(task["dir"], repo)
+        cmd = [args.claude, "-p", task["prompt"], "--output-format", "json", "--session-id", sid,
+               "--append-system-prompt-file", str(prompt_file), "--tools", tools_arg(meta),
+               "--model", args.model, "--max-budget-usd", str(args.max_budget_usd),
+               "--setting-sources", "", "--strict-mcp-config", "--dangerously-skip-permissions"]
+        if meta.get("effort"):
+            cmd += ["--effort", meta["effort"]]
+        start = time.monotonic()
+        status, data, err = run_claude(cmd, repo, args.timeout)
+        wall_ms = int((time.monotonic() - start) * 1000)
+        passed = status == "ok" and run_check(task["dir"] / "check.sh", repo)
+        data_or_empty = data or {}
+        row = {"task": task["name"], "persona": args.persona, "arm": arm, "run": run,
+               "session_id": sid, "status": status, "passed": passed, "tokens": token_split(data),
+               "num_turns": data_or_empty.get("num_turns"), "duration_ms": data_or_empty.get("duration_ms"),
+               "wall_ms": wall_ms, "cost_usd": float(data_or_empty.get("total_cost_usd") or 0),
+               "error": err, "raw": data}
+        return row, sid
+    finally:
+        shutil.rmtree(str(work), ignore_errors=True)
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description="Offline paired A/B eval for N1 persona prompts.")
+    p.add_argument("--persona", required=True, choices=PERSONAS)
+    p.add_argument("--baseline", required=True, type=Path, help="current persona prompt (.md)")
+    p.add_argument("--candidate", required=True, type=Path, help="changed persona prompt (.md)")
+    p.add_argument("--runs", type=int, default=3, help="runs per task per arm")
+    p.add_argument("--model", default="sonnet")
+    p.add_argument("--timeout", type=int, default=180, help="seconds per claude run")
+    p.add_argument("--max-budget-usd", type=float, default=1.0, help="spend cap per claude run")
+    p.add_argument("--only", help="run a single fixture by name")
+    p.add_argument("--seed", type=int, help="shuffle seed")
+    p.add_argument("--out", type=Path, help="output dir (default $N1_HOME/scratch/benchmarks)")
+    p.add_argument("--fixtures", type=Path, default=FIXTURES, help=argparse.SUPPRESS)
+    p.add_argument("--claude", default="claude", help=argparse.SUPPRESS)
+    args = p.parse_args(argv)
+
+    out = args.out
+    if out is None and os.environ.get("N1_HOME"):
+        out = Path(os.environ["N1_HOME"]) / "scratch" / "benchmarks"
+    if out is None:
+        p.error("set N1_HOME or pass --out")
+    if not shutil.which(args.claude):
+        p.error(f"claude binary not found: {args.claude}")
+    tasks = load_fixtures(args.persona, args.fixtures, args.only)
+    if not tasks:
+        p.error(f"no fixtures for persona {args.persona}")
+    out.mkdir(parents=True, exist_ok=True)
+
+    by_name = {t["name"]: t for t in tasks}
+    rows, rejected = [], 0
+    prompts_dir = Path(tempfile.mkdtemp(prefix="persona-ab-prompts-"))
+    try:
+        arms = {}
+        for arm, path in (("baseline", args.baseline), ("candidate", args.candidate)):
+            meta, body = strip_frontmatter(path.read_text(encoding="utf-8"))
+            prompt_file = prompts_dir / f"{arm}.md"
+            prompt_file.write_text(body, encoding="utf-8")
+            arms[arm] = (prompt_file, meta)
+        queue = build_queue(list(by_name), list(arms), args.runs, args.seed)
+        with open(out / "raw.jsonl", "w", encoding="utf-8") as fh:
+            for i, (name, arm, run) in enumerate(queue, 1):
+                row, sid = run_one(by_name[name], arm, run, arms[arm][0], arms[arm][1], args)
+                reason = validate_row(row, sid)
+                if reason:
+                    rejected += 1
+                    print(f"[{i}/{len(queue)}] REJECTED {name} {arm} run{run}: {reason}", file=sys.stderr)
+                    continue
+                rows.append(row)
+                fh.write(json.dumps(row) + "\n")
+                fh.flush()
+                print(f"[{i}/{len(queue)}] {name} {arm} run{run}: {row['status']} "
+                      f"passed={row['passed']} cost=${row['cost_usd']:.4f}", file=sys.stderr)
+    finally:
+        shutil.rmtree(str(prompts_dir), ignore_errors=True)
+
+    summary = summarize(rows, rejected, {k: str(v) for k, v in vars(args).items()})
+    (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    print(out / "summary.json")
+    return 2 if rejected else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

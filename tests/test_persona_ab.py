@@ -1,8 +1,13 @@
+import contextlib
 import importlib.util
+import io
+import json
+import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 SPEC = importlib.util.spec_from_file_location("persona_ab", REPO / "scripts" / "persona_ab.py")
@@ -153,6 +158,94 @@ class FixtureTest(unittest.TestCase):
                 with open(repo / src, "a", encoding="utf-8") as fh:
                     fh.write("# edited\n")
                 self.assertFalse(ab.run_check(task_dir / "check.sh", repo))
+
+
+FAKE_CLAUDE = """#!/usr/bin/env python3
+import json, os, sys
+argv = sys.argv[1:]
+sid = argv[argv.index("--session-id") + 1]
+with open(argv[argv.index("--append-system-prompt-file") + 1], encoding="utf-8") as fh:
+    prompt = fh.read()
+with open(os.environ["FAKE_LOG"], "a", encoding="utf-8") as fh:
+    fh.write(json.dumps({"argv": argv, "prompt": prompt, "cwd": os.getcwd()}) + "\\n")
+out = {"type": "result", "is_error": False, "session_id": sid, "num_turns": 2, "duration_ms": 5,
+       "total_cost_usd": 0.01, "usage": {"input_tokens": 1, "cache_read_input_tokens": 2,
+                                         "cache_creation_input_tokens": 3, "output_tokens": 4}}
+if os.environ.get("FAKE_DROP_SID"):
+    del out["session_id"]
+print(json.dumps(out))
+"""
+
+
+class EndToEndTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, str(self.tmp), True)
+        fx = self.tmp / "fx" / "t1"
+        (fx / "repo").mkdir(parents=True)
+        (fx / "task.json").write_text(json.dumps({"persona": "developer", "prompt": "do it"}))
+        (fx / "repo" / "a.txt").write_text("a\n")
+        (fx / "check.sh").write_text("exit 0\n")
+        self.fake = self.tmp / "claude"
+        self.fake.write_text(FAKE_CLAUDE)
+        self.fake.chmod(0o755)
+        self.persona = self.tmp / "p.md"
+        self.persona.write_text("---\nname: developer\ntools: Read, Edit\n---\nBODY\n")
+        self.log = self.tmp / "argv.jsonl"
+
+    def run_main(self, env, out=True):
+        argv = ["--persona", "developer", "--baseline", str(self.persona), "--candidate", str(self.persona),
+                "--runs", "2", "--seed", "1", "--fixtures", str(self.tmp / "fx"), "--claude", str(self.fake)]
+        if out:
+            argv += ["--out", str(self.tmp / "out")]
+        env = dict(env, FAKE_LOG=str(self.log))
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stderr(io.StringIO()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            return ab.main(argv)
+
+    def test_writes_raw_and_summary(self):
+        self.assertEqual(self.run_main({}), 0)
+        rows = [json.loads(l) for l in (self.tmp / "out" / "raw.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 4)
+        self.assertEqual({r["arm"] for r in rows}, {"baseline", "candidate"})
+        self.assertTrue(all(r["session_id"] and r["status"] == "ok" and r["passed"] for r in rows))
+        self.assertEqual(len({r["session_id"] for r in rows}), 4)
+        summary = json.loads((self.tmp / "out" / "summary.json").read_text())
+        self.assertEqual(summary["arms"]["baseline"]["pass_rate"], 1.0)
+        self.assertEqual(summary["paired"]["tasks"], ["t1"])
+        self.assertEqual(summary["rejected"], 0)
+        self.assertEqual(summary["total_cost_usd"], 0.04)
+        self.assertEqual(summary["tokens_total"]["output_tokens"], 16)
+        calls = [json.loads(l) for l in self.log.read_text().splitlines()]
+        self.assertEqual(len(calls), 4)
+        for c in calls:
+            a = c["argv"]
+            self.assertEqual(c["prompt"], "BODY\n")
+            self.assertEqual(a[a.index("--tools") + 1], "Read,Edit")
+            self.assertEqual(a[a.index("--setting-sources") + 1], "")
+            self.assertIn("--strict-mcp-config", a)
+            self.assertIn("--dangerously-skip-permissions", a)
+            self.assertNotEqual(Path(c["cwd"]).resolve(), REPO)
+
+    def test_row_without_session_id_rejected(self):
+        self.assertEqual(self.run_main({"FAKE_DROP_SID": "1"}), 2)
+        self.assertEqual((self.tmp / "out" / "raw.jsonl").read_text(), "")
+        summary = json.loads((self.tmp / "out" / "summary.json").read_text())
+        self.assertEqual(summary["rejected"], 4)
+
+    def test_defaults_to_n1_home_scratch(self):
+        home = self.tmp / "n1home"
+        self.assertEqual(self.run_main({"N1_HOME": str(home)}, out=False), 0)
+        self.assertTrue((home / "scratch" / "benchmarks" / "summary.json").is_file())
+        self.assertTrue((home / "scratch" / "benchmarks" / "raw.jsonl").is_file())
+
+    def test_no_out_and_no_n1_home_fails_fast(self):
+        with mock.patch.dict(os.environ, {}), contextlib.redirect_stderr(io.StringIO()):
+            os.environ.pop("N1_HOME", None)
+            with self.assertRaises(SystemExit):
+                ab.main(["--persona", "developer", "--baseline", str(self.persona),
+                         "--candidate", str(self.persona), "--claude", str(self.fake)])
+        self.assertFalse(self.log.exists())
 
 
 if __name__ == "__main__":
