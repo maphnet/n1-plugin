@@ -53,7 +53,7 @@ if grep -F 'Could not read the reviewed-head pin' "$F" | grep -qF 'repin.md'; th
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
-    | sed -e 's#^ *source ~/.n1/preamble.sh$#:#' -e 's/"<n>"/"${TN-7}"/' -e 's/"<head>"/"${TH-}"/' -e 's/"<mergeMethod>"/"${TMM-}"/' \
+    | sed -e 's#^ *source ~/.n1/preamble.sh$#:#' -e 's/"<n>"/"${TN-7}"/' -e 's/"<head>"/"${TH-}"/' -e 's/"<reviewed>"/"${TREV-}"/' -e 's/"<mergeMethod>"/"${TMM-}"/' \
           -e 's/"<id>"/"${TID-N1-T}"/' -e 's/"<dev>"/"${TDEV-0}"/' -e 's/"<stop>"/"${TSTOP-}"/' -e 's/"<snap>"/"${TSNAP-$SN}"/' -e 's/"<old>"/"${TOLD-}"/' -e 's/"<new>"/"${TNEW-}"/'; }
 PRE=$(block 1); MRG=$(block 2)
 if grep -qF 'gh pr checks' <<<"$PRE"; then ok "block 1 is the pre-check"; else no "block 1 is the pre-check"; fi
@@ -70,7 +70,7 @@ case "$1 $2" in
   "repo view") [ -z "${REPO_FAIL:-}" ] || exit 1; R='{"nameWithOwner":"o/r"}' ;;
   "api graphql") [ -z "${GQL_ERR:-}" ] || exit 1; R=${GQL:-$DG} ;;
   "pr merge") echo "$*" >> "$LOG"; [ "${MERGE_EXIT:-0}" = 0 ] || { echo "${MERGE_ERR:-merge blocked by branch protection}" >&2; exit 1; }; exit 0 ;;
-  "pr view") case "$*" in *headRefName*) R="{\"headRefName\":\"${HEADREF:-feat}\",\"baseRefName\":\"${BASEREF:-main}\",\"isCrossRepository\":${XREPO:-false}}" ;; *headRefOid*) R="{\"headRefOid\":\"${HEADSHA:-}\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;;
+  "pr view") case "$*" in *headRefName*) R="{\"headRefName\":\"${HEADREF:-feat}\",\"baseRefName\":\"${BASEREF:-main}\",\"isCrossRepository\":${XREPO:-false}}" ;; *headRefOid*) HV=${HEADSHA:-}; [ -n "${STALE_SHA:-}" ] && [ ! -e "$STALE_FILE" ] && : > "$STALE_FILE" && HV=$STALE_SHA; R="{\"headRefOid\":\"$HV\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;;
       *mergeStateStatus*) [ -z "${MSS_FAIL:-}" ] || exit 1; v=${MSS:-CLEAN}; if [ -s "${MSSQ:-}" ]; then v=$(head -n1 "$MSSQ"); [ "$(wc -l <"$MSSQ")" -le 1 ] || { tail -n +2 "$MSSQ" > "$MSSQ.t" && mv "$MSSQ.t" "$MSSQ"; }; fi; R="{\"mergeStateStatus\":\"$v\"}" ;;
       *) R=${VIEW:-} ;; esac ;;
   *) exit 1 ;;
@@ -527,11 +527,13 @@ line "ci: API errors interrupt the no-check streak" "ci:timeout"
 # N1-142: references/repin.md (missing or foreign pin -> re-review, lease push, re-pin), interactive only.
 PF=skills/n1-finish/references/repin.md
 if grep -qF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$PF" && ! grep -qF '(Recommended)' "$PF"; then ok "repin offer uses the verbatim no-recommendation form"; else no "repin offer uses the verbatim no-recommendation form"; fi
-if grep -qF 'Verdict: PASS' "$PF" && grep -qF '/n1:n1-review' "$PF"; then ok "repin pins only after a PASS re-review"; else no "repin pins only after a PASS re-review"; fi
+if grep -qF 'Verdict: PASS' "$PF" && grep -qF '/n1:n1-review --full' "$PF"; then ok "repin pins only after a PASS full-tier re-review"; else no "repin pins only after a PASS full-tier re-review"; fi
+if grep -qF 'FULL_REVIEW=1' skills/n1-start/review-core.md && grep -qF 'FULL_REVIEW=1' skills/n1-review/steps/01-analyze.md; then ok "n1-review --full forces the FULL tier via review-core"; else no "n1-review --full forces the FULL tier via review-core"; fi
 PF1=$(block 1 "$PF"); PF2=$(block 2 "$PF")
+REPIN_WAIT_SLEEP=0; export REPIN_WAIT_SLEEP
 if [ -n "$(block 3 "$PF")" ] && [ "$(block 3 "$PF")" = "$(block 3 "$RF")" ]; then ok "repin CI wait is the resolve-dirty CI wait verbatim"; else no "repin CI wait is the resolve-dirty CI wait verbatim"; fi
 if grep -qF -- '--force-with-lease="$BR:$H"' <<<"$PF2" && ! grep -qE -- '--force( |$)|push -f' "$PF"; then ok "repin push uses a lease on the PR head, never a bare force"; else no "repin push uses a lease on the PR head, never a bare force"; fi
-rp() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" TH="${TH-$OH}" HEADSHA="${HS-$OH}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$1" 2>&1); }
+rp() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" TH="${TH-$OH}" TREV="${TREV-${HS-$OH}}" HEADSHA="${HS-$OH}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$1" 2>&1); }
 
 # Gating (AC4): queue/headless are denied even with mergeOnFinish and fullAuto both true.
 fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"
@@ -575,9 +577,25 @@ line "repin push: new head pinned" "repin:done $NH"
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$NH" ] && [ "$(cat "$PIN")" = "$NH" ]; then ok "repin push: origin and pin at the reviewed head"; else no "repin push: origin and pin at the reviewed head"; fi
 
 # set refuses when the PR head on GitHub is not the local tip: the old pin stays, merge stays blocked.
-echo "$S" > "$PIN"; TH=$NH HS=$O rp "$PF2"
+echo "$S" > "$PIN"; TH=$NH TREV=$NH HS=$O rp "$PF2"
 line "repin push: PR head != local tip fails" "repin:failed"
 if [ "$(cat "$PIN")" = "$S" ]; then ok "repin push: failed set keeps the old pin"; else no "repin push: failed set keeps the old pin"; fi
+
+# GitHub lags after the push (first headRefOid read returns the old head): the bounded wait still pins the new head.
+fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN" "$T/stale"
+echo fix > "$G/w/fix.txt"; gw add fix.txt; gw commit -qm "review fix"; NH=$(gw rev-parse HEAD)
+STALE_SHA=$OH STALE_FILE="$T/stale" HS=$NH rp "$PF2"
+line "repin push: pin set after GitHub catches up" "repin:done $NH"
+if [ "$(cat "$PIN")" = "$NH" ]; then ok "repin push: lagging PR head still pinned"; else no "repin push: lagging PR head still pinned"; fi
+# A commit made after the review ended (HEAD != <reviewed>) is neither pushed nor pinned.
+fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"
+echo fix > "$G/w/fix.txt"; gw add fix.txt; gw commit -qm "reviewed"; RV=$(gw rev-parse HEAD)
+echo late > "$G/w/late.txt"; gw add late.txt; gw commit -qm "after review"; NH=$(gw rev-parse HEAD)
+TREV=$RV HS=$NH rp "$PF2"
+has "repin push: HEAD moved after the review refused" "push:skip"
+if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ ! -f "$PIN" ]; then ok "repin push: post-review commit pushes and pins nothing"; else no "repin push: post-review commit pushes and pins nothing"; fi
+TREV=zz rp "$PF2"
+has "repin push: bad reviewed sha rejected" "head:invalid"
 
 # Remote moved since 3.1: the lease rejects the push, nothing is pinned.
 fx 5.10.0 5.12.0 5.11.0; rm -f "$PIN"

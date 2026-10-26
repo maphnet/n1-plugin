@@ -44,34 +44,35 @@ echo "repin:ok head:$H branch:$BR"
 
 ## § Review
 
-Invoke skill `/n1:n1-review` with no arguments in the current checkout. That is its Review Loop: it reviews the branch against its base, fixes confirmed findings through the developer persona and commits them locally; it does not push.
+Invoke skill `/n1:n1-review --full` in the current checkout (the flag forces the FULL tier with security-reviewer, so a docs/config-only or low-risk diff is never skipped or narrowed). That is its Review Loop: it reviews the branch against its base, fixes confirmed findings through the developer persona and commits them locally; it does not push.
 
-- Its final report ends `Verdict: PASS` → § Push and pin.
+- Its final report ends `Verdict: PASS` → run `git rev-parse HEAD` in the checkout and keep it as `<reviewed>` (the head the review ended on), then § Push and pin.
 - `Verdict: FAIL`, a STOP inside the review, or no final report → "The re-review of PR #<n> did not pass, so N1 did not re-pin it. Any fix commits are local and unpushed. Fix the remaining findings, then re-run `/n1:n1-finish`; or merge it yourself." **STOP.**
 
 ## § Push and pin
 
-One shell call. The lease is pinned to the PR head from 3.1, so the push fails if anyone moved the remote branch since then; the review only adds commits, so the push is a fast-forward.
+One shell call (`<reviewed>` is the SHA kept in § Review). After a push it waits up to 20 s for GitHub to report the new head before pinning. The lease is pinned to the PR head from 3.1, so the push fails if anyone moved the remote branch since then; the review only adds commits, so the push is a fast-forward.
 
 ```bash
 source ~/.n1/preamble.sh
 [ "$(n1_merge_authorized)" = true ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] || { echo repin:denied; exit 1; }
-N="<n>"; H="<head>"
+N="<n>"; H="<head>"; REV="<reviewed>"
 case "$N" in ""|*[!0-9]*) echo pr:invalid; exit 1;; esac
-[[ "$H" =~ ^[0-9a-f]{40}$ ]] || { echo head:invalid; exit 1; }
+[[ "$H" =~ ^[0-9a-f]{40}$ ]] && [[ "$REV" =~ ^[0-9a-f]{40}$ ]] || { echo head:invalid; exit 1; }
 read -r BR BASE XR < <(gh pr view "$N" --json headRefName,baseRefName,isCrossRepository -q '[.headRefName,.baseRefName,(.isCrossRepository|tostring)]|join(" ")' 2>/dev/null)
 NEW=$(git rev-parse HEAD)
-[ -n "$BR" ] && [ "$XR" = false ] && [ "$BR" != "$BASE" ] && [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] && [ -z "$(git status --porcelain --untracked-files=no)" ] && git merge-base --is-ancestor "$H" "$NEW" || { echo push:skip; exit 1; }
+[ "$NEW" = "$REV" ] && [ -n "$BR" ] && [ "$XR" = false ] && [ "$BR" != "$BASE" ] && [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] && [ -z "$(git status --porcelain --untracked-files=no)" ] && git merge-base --is-ancestor "$H" "$NEW" || { echo push:skip; exit 1; }
 if [ "$NEW" != "$H" ]; then
   git push -q --force-with-lease="$BR:$H" origin "$BR" 2>&1 || { echo push:rejected; exit 1; }
   echo "pushed:${NEW:0:7}"
+  for _ in $(seq 10); do [ "$(gh pr view "$N" --json headRefOid -q .headRefOid 2>/dev/null)" = "$NEW" ] && break; sleep "${REPIN_WAIT_SLEEP:-2}"; done
 fi
 n1_review_pin set "$N"
 [ "$(n1_review_pin get "$N")" = "$NEW" ] && echo "repin:done $NEW" || echo repin:failed
 ```
 
 - `repin:denied` → "Merge is not authorized in this run." **STOP.** `pr:invalid` / `head:invalid` → report it. **STOP.**
-- `push:skip` (the checkout changed, the tree is dirty, or the review rewrote history so the local tip no longer descends from the PR head) → "PR #<n> was re-reviewed but not pushed: the checkout changed. Re-run `/n1:n1-finish`." **STOP.**
+- `push:skip` (the checkout changed, HEAD is not `<reviewed>`, the tree is dirty, or the review rewrote history so the local tip no longer descends from the PR head) → "PR #<n> was re-reviewed but not pushed: the checkout changed. Re-run `/n1:n1-finish`." **STOP.**
 - `push:rejected` → "The push of the review fixes for PR #<n> was rejected: the remote branch moved since the check. Nothing was pinned; the local branch holds the fix commits. Pull, then re-run `/n1:n1-finish`." **STOP.**
 - `repin:failed` → "Could not record the reviewed-head pin for PR #<n> (the PR head is not the local tip, or the pin write failed), so N1 will not merge it. Re-run `/n1:n1-finish`, or merge it yourself." **STOP.**
 - `repin:done <new>` after a `pushed:` line → § CI wait. `repin:done <new>` without one → § Re-check.

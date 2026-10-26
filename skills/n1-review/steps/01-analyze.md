@@ -3,6 +3,7 @@
 ## Mode Detection
 
 - **No arguments + on a feature branch** → Review Loop mode
+- **`--full`** → Review Loop mode with `FULL_REVIEW=1` (forces the FULL tier with security-reviewer; used by n1-finish re-pin)
 - **Called from n1-start** → Review Loop mode
 - **PR number provided** (e.g., `/n1:n1-review #340`) → Advisory mode
 
@@ -44,7 +45,7 @@ Read N1 memory if available:
 
 ### Phase 2: Find Bugs
 
-**Shared review core:** Read and follow `<N1_ROOT>/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = `${REVIEW_BASE}` (computed in Phase 1). It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT) and reviewer selection with skip-recording.
+**Shared review core:** Read and follow `<N1_ROOT>/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = `${REVIEW_BASE}` (computed in Phase 1) and `FULL_REVIEW` as set by Mode Detection. It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT) and reviewer selection with skip-recording.
 
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer (if SECURITY_RELEVANT)
 
