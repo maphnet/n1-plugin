@@ -65,7 +65,7 @@ case "$1 $2" in
   "api graphql") [ -z "${GQL_ERR:-}" ] || exit 1; R=${GQL:-$DG} ;;
   "pr merge") echo "$*" >> "$LOG"; [ "${MERGE_EXIT:-0}" = 0 ] || { echo "${MERGE_ERR:-merge blocked by branch protection}" >&2; exit 1; }; exit 0 ;;
   "pr view") case "$*" in *headRefName*) R="{\"headRefName\":\"${HEADREF:-feat}\",\"baseRefName\":\"${BASEREF:-main}\",\"isCrossRepository\":${XREPO:-false}}" ;; *headRefOid*) R="{\"headRefOid\":\"${HEADSHA:-}\",\"isDraft\":${DRAFT:-false},\"mergeStateStatus\":\"${MSS:-CLEAN}\"}" ;;
-      *mergeStateStatus*) v=${MSS:-CLEAN}; if [ -s "${MSSQ:-}" ]; then v=$(head -n1 "$MSSQ"); [ "$(wc -l <"$MSSQ")" -le 1 ] || { tail -n +2 "$MSSQ" > "$MSSQ.t" && mv "$MSSQ.t" "$MSSQ"; }; fi; R="{\"mergeStateStatus\":\"$v\"}" ;;
+      *mergeStateStatus*) [ -z "${MSS_FAIL:-}" ] || exit 1; v=${MSS:-CLEAN}; if [ -s "${MSSQ:-}" ]; then v=$(head -n1 "$MSSQ"); [ "$(wc -l <"$MSSQ")" -le 1 ] || { tail -n +2 "$MSSQ" > "$MSSQ.t" && mv "$MSSQ.t" "$MSSQ"; }; fi; R="{\"mergeStateStatus\":\"$v\"}" ;;
       *) R=${VIEW:-} ;; esac ;;
   *) exit 1 ;;
 esac
@@ -150,8 +150,15 @@ has "merge: queued shows exit 0 with state OPEN" "merge-exit:0"
 has "merge: queued state OPEN" "state:OPEN sha:"
 # N1-157: a failed merge re-reads mergeStateStatus (polling past UNKNOWN); a successful one does not.
 OPENV='{"state":"OPEN","mergeCommit":null}'
-MERGE_EXIT=1 VIEW=$OPENV mrg
-line "merge: failed merge re-reads the merge state" "mss:CLEAN"
+MERGE_REREAD_SLEEP=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+line "merge: CLEAN for the whole budget is reported as CLEAN" "mss:CLEAN"
+printf 'CLEAN\nCLEAN\nDIRTY\n' > "$T/mssq"
+MSSQ="$T/mssq" MERGE_REREAD_SLEEP=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+line "merge: re-read polls past a stale CLEAN" "mss:DIRTY"
+MSS_FAIL=1 MERGE_REREAD_SLEEP=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+if grep -qx 'mss:' <<<"$OUT"; then ok "merge: failed re-read prints an empty mss"; else no "merge: failed re-read prints an empty mss"; fi
+MERGE_REREAD_POLLS=0 MERGE_EXIT=1 VIEW=$OPENV mrg
+if grep -qx 'mss:' <<<"$OUT"; then ok "merge: zero polls prints an empty mss"; else no "merge: zero polls prints an empty mss"; fi
 printf 'DIRTY\n' > "$T/mssq"
 MSSQ="$T/mssq" MERGE_EXIT=1 MERGE_ERR="Pull Request has merge conflicts" VIEW=$OPENV mrg
 has "merge: conflict error surfaced" "Pull Request has merge conflicts"

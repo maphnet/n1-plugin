@@ -66,10 +66,10 @@ Evaluate the PR state:
       gh pr merge "$N" "--$MM" --match-head-commit "$H" 2>&1; E=$?; echo "merge-exit:$E"
       gh pr view "$N" --json state,mergeCommit -q '"state:"+.state+" sha:"+(.mergeCommit.oid // "")'
       if [ "$E" != 0 ]; then
-        P=${MERGE_REREAD_POLLS:-5}
+        P=${MERGE_REREAD_POLLS:-5}; MS=
         for i in $(seq "$P"); do
           MS=$(gh pr view "$N" --json mergeStateStatus -q .mergeStateStatus 2>/dev/null)
-          [ "$MS" = UNKNOWN ] && [ "$i" -lt "$P" ] || break
+          { [ "$MS" = UNKNOWN ] || [ "$MS" = CLEAN ]; } && [ "$i" -lt "$P" ] || break
           sleep "${MERGE_REREAD_SLEEP:-3}"
         done
         echo "mss:$MS"
@@ -82,7 +82,7 @@ Evaluate the PR state:
       - `merge-exit:0` with `state:OPEN` (merge queue) → "PR #<n> was queued for merge; re-run `/n1:n1-finish` once it merges." **STOP.** Not a failure.
       - `mss:DIRTY` or `mss:BEHIND` and no resolve attempt yet in this run (from 3.1 or here): the merge was refused for conflicts or a stale base. GitHub computes the merge state lazily, so 3.1 can read a stale `CLEAN`. Report the `gh pr merge` output, then follow `<N1_ROOT>/skills/n1-finish/references/resolve-dirty.md` (read it now unless already read in this run). Its § Re-check re-runs 3.1, then 3.2 (ticked actions are not repeated), then this step with `<head>` = the new pin. That is the single retry; never re-run this block with the old `<head>`.
       - `mss:DIRTY` or `mss:BEHIND` after a resolve attempt in this run → "PR #<n> has conflicts again after conflict resolution; another PR landed first. Re-run `/n1:n1-finish`." **STOP.**
-      - Any other `state:` or `mss:` (branch protection, required reviews, a push since 3.1, `UNKNOWN` after polling, or an empty re-read) → report the `gh pr merge` output and "PR #<n> was not merged. Merge it yourself, then re-run `/n1:n1-finish`." **STOP.** Never retry and never fall back to auto-merge.
+      - Any other `state:` or `mss:` (branch protection, required reviews, a push since 3.1, `UNKNOWN` or `CLEAN` after polling (a refused merge reading `CLEAN` is presumed stale), or an empty re-read) → report the `gh pr merge` output and "PR #<n> was not merged. Merge it yourself, then re-run `/n1:n1-finish`." **STOP.** Never retry and never fall back to auto-merge.
 
 ## Step 2b: Local Merge (no-PR path, `prMode == "skip"` only)
 
