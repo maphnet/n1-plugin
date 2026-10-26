@@ -262,4 +262,23 @@ else
     echo "FAIL: PR_BODY_FILE path not validated in 01/02"; FAIL=1
 fi
 
+# 11. N1-138: codex-triage scratch paths are prefix-checked (no subpath) before rm / --body-file
+CT=skills/n1-pr/procedures/codex-triage.md
+has_guard() { # <file> <fixed-string> <label>
+    if grep -qF -- "$2" "$1"; then echo "PASS: $3"; else echo "FAIL: $3"; FAIL=1; fi
+}
+TG='case "$TRIAGE_FILE" in "$N1_HOME"/scratch/codex-triage-*/*) echo "triage:bad-path"; exit 1;; "$N1_HOME"/scratch/codex-triage-*) ;; *) echo "triage:bad-path"; exit 1;; esac'
+has_guard "$CT" "$TG" "TRIAGE_FILE validated before posting"
+g=$(grep -nF -m1 -- "$TG" "$CT" | cut -d: -f1); p=$(grep -nF -m1 -- 'gh pr comment "$PR_NUMBER" --body-file "$TRIAGE_FILE"' "$CT" | cut -d: -f1)
+if [ -n "$g" ] && [ -n "$p" ] && [ "$g" -lt "$p" ]; then echo "PASS: TRIAGE_FILE guard precedes gh pr comment"; else echo "FAIL: TRIAGE_FILE guard missing or after gh pr comment"; FAIL=1; fi
+has_guard "$CT" 'case "$VALIDATE_DIR" in "$N1_HOME"/scratch/codex-validate-*/*) ;; "$N1_HOME"/scratch/codex-validate-*) rm -rf "$VALIDATE_DIR";; esac' "VALIDATE_DIR cleanup rejects subpaths"
+has_guard "$CT" 'case "$RECONCILE_START_FILE" in "$N1_HOME"/scratch/reconcile-start-*/*) ;; "$N1_HOME"/scratch/reconcile-start-*) rm -f "$RECONCILE_START_FILE";; esac' "RECONCILE_START_FILE cleanup is prefix-checked"
+has_guard "$CT" 'case "$HEAD_REF_FILE" in "$N1_HOME"/scratch/reconcile-head-*/*) ;; "$N1_HOME"/scratch/reconcile-head-*) rm -f "$HEAD_REF_FILE";; esac' "HEAD_REF_FILE cleanup is prefix-checked"
+has_guard "$CT" 'case "$REPO_FILE" in "$N1_HOME"/scratch/reconcile-repo-*/*) ;; "$N1_HOME"/scratch/reconcile-repo-*) rm -f "$REPO_FILE";; esac' "REPO_FILE cleanup is prefix-checked"
+if grep -qE '^\[ -n "\$(RECONCILE_START_FILE|HEAD_REF_FILE|REPO_FILE)" \] && rm' "$CT"; then
+    echo "FAIL: an unguarded [ -n ] && rm cleanup line remains in codex-triage"; FAIL=1
+else
+    echo "PASS: no unguarded [ -n ] && rm cleanup lines in codex-triage"
+fi
+
 exit $FAIL
