@@ -44,6 +44,12 @@ if grep -qF 'no retry except the single resolve-then-retry below' "$F"; then ok 
 if grep -qF 'after a resolve attempt in this run (from this list or from 3.4)' "$F"; then ok "3.1: a 3.4 resolve attempt counts"; else no "3.1: a 3.4 resolve attempt counts"; fi
 RD=skills/n1-finish/references/resolve-dirty.md
 if grep -qF 'or from § 3.4 after a failed merge whose re-read is `mss:DIRTY` or `mss:BEHIND`' "$RD" && grep -qF 'One attempt per run, shared by 3.1 and 3.4.' "$RD"; then ok "resolve-dirty: reachable from 3.4, one shared attempt"; else no "resolve-dirty: reachable from 3.4, one shared attempt"; fi
+# N1-142: empty or differing pin routes to repin.md (interactive, once per run); unattended stops; pin:unavailable keeps its STOP.
+RP=$(grep -n 'references/repin.md' "$F" | head -1 | cut -d: -f1)
+if [ -n "$RP" ] && [ -n "$M" ] && [ "$RP" -lt "$M" ]; then ok "3.1 pin lines route to repin.md before the merge"; else no "3.1 pin lines route to repin.md before the merge"; fi
+if grep -qF 'no valid reviewed-head pin; N1 does not re-review and re-pin unattended' "$F"; then ok "3.1: unattended re-pin escalates and stops"; else no "3.1: unattended re-pin escalates and stops"; fi
+if grep -qF 'after a re-pin attempt in this run' "$F"; then ok "3.1: second pin failure in a run keeps the STOP"; else no "3.1: second pin failure in a run keeps the STOP"; fi
+if grep -F 'Could not read the reviewed-head pin' "$F" | grep -qF 'repin.md'; then no "3.1: pin:unavailable is not offered a re-pin"; else ok "3.1: pin:unavailable is not offered a re-pin"; fi
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
