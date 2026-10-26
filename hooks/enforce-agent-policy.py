@@ -30,6 +30,12 @@ nested three deep, a bare push after `cd` into another checkout on the default b
 positives: heredoc/backtick text whose line starts with gh/git, and grep for a merge API in the
 same command as `gh api`.
 
+Case 4 - pipe-masked test status (N1-159). Deny Bash where a test runner (tests/*.sh, pytest, bats,
+jest, vitest, npm test, go test, make test) is piped into tail/head/grep and a later unit chained by
+&& || ; or newline is `git commit`: the pipeline exit status is the filter's, so a red suite still
+commits. Every session, merge-authorized or not. Allowed when the command mentions `pipefail` or
+`PIPESTATUS`. Known gaps: `bash -c`, `$(...)`, subshells, variables/aliases, quoted separators.
+
 Fail-open otherwise: exit 0, no output.
 
 Usage: enforce-agent-policy.py <config_file> <plugin_root>   (payload on stdin)
@@ -59,6 +65,8 @@ WRAPPERS = {"env", "command", "exec", "sudo", "time", "nohup", "xargs", "timeout
             "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
 GH_VALUE_FLAGS = {"-R", "--repo"}
 GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
+UNIT_RE = re.compile(r"&&|\|\||;|\n")
+RUNNER_RE = re.compile(r"(?:^|/)tests?/[^\s]*\.sh$|(?:^|/)(?:pytest|bats|jest|vitest)$")
 PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 
@@ -282,6 +290,55 @@ def merge_deny(payload: dict, config: dict) -> int:
     return 2
 
 
+def _words(stage):
+    """Command-position words of a pipeline stage: env assignments, wrappers, their flags/durations skipped."""
+    words = stage.split()
+    i = 0
+    while i < len(words) and (ASSIGN_RE.match(words[i]) or words[i] in WRAPPERS
+                              or (i and (words[i].startswith("-") or DURATION_RE.match(words[i])))):
+        i += 1
+    return words[i:]
+
+
+def _is_runner(stage):
+    w = _words(stage)
+    if not w:
+        return False
+    name = w[0].rsplit("/", 1)[-1]
+    if RUNNER_RE.search(w[0]):
+        return True
+    if name.startswith("python") and w[1:3] == ["-m", "pytest"]:
+        return True
+    return (name, w[1:2]) in {("npm", ["test"]), ("go", ["test"]), ("make", ["test"])} or w[:3] == ["npm", "run", "test"]
+
+
+def _is_commit(unit):
+    w = _words(unit)
+    return bool(w) and w[0].rsplit("/", 1)[-1] == "git" and _positionals(w[1:], GIT_VALUE_FLAGS)[0][:1] == ["commit"]
+
+
+def pipe_deny(payload: dict) -> int:
+    tool_input = payload.get("tool_input")
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    command = tool_input.get("command") or tool_input.get("cmd")
+    if isinstance(command, list):
+        command = " ".join(str(c) for c in command)
+    if not isinstance(command, str) or "pipefail" in command or "PIPESTATUS" in command:
+        return 0
+    units = UNIT_RE.split(REDIR_RE.sub(" ", command))
+    masked = False
+    for unit in units:
+        if masked and _is_commit(unit):
+            sys.stderr.write("N1: commit denied -- a test runner piped into tail/head/grep hides its exit status; "
+                             "prefix the command with 'set -o pipefail;' (or use PIPESTATUS)\n")
+            return 2
+        stages = [st.lstrip("&") for st in unit.split("|")]
+        if len(stages) > 1 and any(_is_runner(st) for st in stages[:-1]):
+            last = _words(stages[-1])
+            masked = masked or (bool(last) and last[0].rsplit("/", 1)[-1] in ("tail", "head", "grep"))
+    return 0
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read())
@@ -299,7 +356,7 @@ def main() -> int:
             config = {}
     if not isinstance(config, dict):
         config = {}
-    rc = restriction(payload, plugin_root, config_file) or merge_deny(payload, config)
+    rc = restriction(payload, plugin_root, config_file) or merge_deny(payload, config) or pipe_deny(payload)
     if rc:
         return rc
     return spawn_override(payload, config)

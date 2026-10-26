@@ -196,6 +196,28 @@ for c in "gh pr merge 12" "git push origin main" "gh api -X PUT repos/o/r/pulls/
     cfg '{"finishWork":{"mergeOnFinish":"true"},"autonomy":{"fullAuto":true}}'
     assert_eq "string mergeOnFinish: interactive denied: $c" 2 "$(policy_rc -- "$c")"
 done
+# N1-159: a test runner piped into tail/head/grep chained into git commit hides the suite status
+PIPE_DENY=("bash tests/run.sh 2>&1 | tail -2 && git add -A && git commit -m x"
+           "bash tests/test_manifests.sh | tail -2 && git add -A && git commit -m x"
+           "pytest | grep -c FAIL; git -C d commit -m x" "FOO=1 timeout 5 pytest -q | head -3 || git commit -m x")
+PIPE_OK=("set -o pipefail; bash tests/run.sh 2>&1 | tail -2 && git add -A && git commit -m x"
+         "bash tests/run.sh | tail -2 && git commit -m x; echo \${PIPESTATUS[0]}"
+         "bash tests/run.sh | tail -5" 'git commit -m "pytest | tail -2 done"' "pytest | grep -c FAIL"
+         "bash tests/run.sh | tee out.log && git commit -m x" "git commit -m x && bash tests/run.sh | tail -2")
+for c in "${PIPE_DENY[@]}"; do
+    cfg '{}'
+    assert_eq "pipe-mask: interactive denied: $c" 2 "$(policy_rc -- "$c")"
+    assert_eq "pipe-mask: queue denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+    cfg "$BOTH"
+    assert_eq "pipe-mask: merge-authorized still denied: $c" 2 "$(policy_rc -- "$c")"
+done
+for c in "${PIPE_OK[@]}"; do
+    cfg '{}'
+    assert_eq "pipe-mask: allowed: $c" 0 "$(policy_rc -- "$c")"
+    cfg "$BOTH"
+    assert_eq "pipe-mask: merge-authorized allowed: $c" 0 "$(policy_rc -- "$c")"
+done
+cfg "$BOTH"; assert_eq "pipe-mask: merge-authorized gh pr merge still allowed" 0 "$(policy_rc -- "gh pr merge 12")"
 # CR-2 (N1-146): no Python + authorized queue child -> persona Bash allowed (no-Python deny applies only when merges are not authorized)
 mkdir -p "$T/nopy"; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; cp "$T/nopy/python3" "$T/nopy/python"; chmod +x "$T/nopy/"*
 PP=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,agent_type:"n1:developer",tool_name:"Bash",tool_input:{command:"gh pr view 1"}}')
