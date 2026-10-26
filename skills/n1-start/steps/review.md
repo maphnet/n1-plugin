@@ -59,8 +59,8 @@ FILES=(review-hdr.md review-cr.md); [ "$SEC" = true ] && FILES+=(review-sec.md)
 for f in "${FILES[@]}"; do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
 ( cd "$MEM" && cat "${FILES[@]}" ) > "$MEM/review.md"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
-[ -r "$MEM/fp-new.tsv" ] && n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE" \
-    || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2
+if [ -r "$MEM/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE" \
+    || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
 n1_step_end "review" 9 "success"

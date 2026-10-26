@@ -58,7 +58,7 @@ n1_fingerprint_record() {
             || { echo "n1_fingerprint_record: skipping invalid line for '${id:0:20}'" >&2; rc=1; continue; }
         n1_fingerprint_append "$jsonl_file" "$(n1_fingerprint_finding "$file" "$title")" "$id" "$sev" active "$cycle" || rc=1
     done < "$tsv"
-    if [ "$rc" -eq 0 ]; then rm -f "$tsv"; else mv -f "$tsv" "$tsv.rejected" || rc=1; fi
+    if [ "$rc" -eq 0 ]; then rm -f "$tsv" || rc=1; else mv -f "$tsv" "$tsv.rejected" || rc=1; fi
     return "$rc"
 }
 

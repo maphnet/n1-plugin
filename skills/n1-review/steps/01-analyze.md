@@ -133,8 +133,8 @@ Also record each confirmed Critical/High finding's fingerprint after every revie
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
-n1_fingerprint_record "$FP_FILE" "$N1_HOME/memory/$ID/fp-new.tsv" "<cycle>" \
-    || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2
+if [ -r "$N1_HOME/memory/$ID/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$N1_HOME/memory/$ID/fp-new.tsv" "<cycle>" \
+    || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
 ```
 
 FP_RECORD_FAILED counts as non-convergence: escalate.
