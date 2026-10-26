@@ -78,7 +78,7 @@ Defaults:
 
 Post-deploy verification dispatches only after a successful deployment (`ticket.md` → `post-deploy-verification.md`; `steps/03-deploy.md`); never blocks closure.
 
-N1 merges an open PR only when the entry prints `merge-on-finish:yes` (`mergeOnFinish` `true`; queue and headless runs also need `autonomy.fullAuto`); otherwise the human merges, then runs n1-finish. prMode skip merges locally (Step 2b; a chained run only with `merge-on-finish:yes`).
+N1 merges an open PR only when the entry prints `merge-on-finish:yes` (`mergeOnFinish` `true`; queue and headless runs also need `autonomy.fullAuto`), only at the head n1-pr pinned as reviewed; otherwise the human merges, then runs n1-finish. prMode skip merges locally (Step 2b; a chained run only with `merge-on-finish:yes`).
 
 ## Steps
 

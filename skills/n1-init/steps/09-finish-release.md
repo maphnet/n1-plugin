@@ -2,7 +2,7 @@
 
 ## Finish Work Configuration
 
-Interactive runs stop at PR + CI; the human merges, then runs n1-finish to watch the deployment and close the tracker ticket. With `mergeOnFinish` on, n1-finish merges the open PR itself first.
+Interactive runs stop at PR + CI; the human merges, then runs n1-finish to watch the deployment and close the tracker ticket. With `mergeOnFinish` on, n1-finish merges the open PR itself first, but only at the head n1-pr pinned as reviewed; a missing pin or newer head stops it and the human merges.
 
 Only ask when a tracker is configured — without one, write `"finishWork": { "postDeployVerification": { "enabled": false } }` silently.
 
