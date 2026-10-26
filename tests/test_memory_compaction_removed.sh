@@ -5,8 +5,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1"; echo "--- expected"; echo "$2"; echo "--- actual"; echo "$3"; FAIL=$((FAIL+1)); fi; }
 
-# Wiring: nothing under skills/ agents/ lib/ hooks/ may reference compaction
-assert_eq "no n1_compact_memory references" "" "$(grep -rl 'n1_compact_memory' "$REPO_ROOT/skills" "$REPO_ROOT/agents" "$REPO_ROOT/lib" "$REPO_ROOT/hooks" || true)"
+# Wiring: nothing under skills/ agents/ lib/ hooks/ may reference compaction or its *.full.md output
+assert_eq "no compaction references" "" "$(grep -rlE 'n1_compact_memory|\.full\.md' "$REPO_ROOT/skills" "$REPO_ROOT/agents" "$REPO_ROOT/lib" "$REPO_ROOT/hooks" || true)"
 
 # Behavior: the real unknowns grep returns tags from every section
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
