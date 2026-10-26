@@ -114,6 +114,15 @@ assert_eq "config-dir root allowed (relative, payload cwd)" 0 "$(py_write_rc "al
 assert_eq "config-dir root: non-findings file denied" 2 "$(py_write_rc "$T/alt/config.json" "$T" "$T/alt/config.json")"
 assert_eq "no config file: alt dir denied" 2 "$(py_write_rc "" "$T" "$T/alt/memory/T-9/review-cr.md")"
 assert_eq "developer Write unscoped" 0 "$(rev_write_rc developer Write "$T/wt/f.txt")"
+# live-captured reviewer Write payload (N1-137): the real CC field set still scopes the Write
+RW="$FX/claude/pretooluse-reviewer-write.json"
+fx_write_rc() {  # fx_write_rc <file_path> [jq-filter]: captured payload with file_path (and optionally more) overridden
+    local rc=0; jq -c --arg f "$1" ".tool_input.file_path=\$f | ${2:-.}" "$RW" | bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+}
+assert_eq "captured payload: in-scope review-cr.md allowed" 0 "$(fx_write_rc "$N1_HOME/memory/T-8/review-cr.md")"
+assert_eq "captured payload: off-scope Write denied" 2 "$(fx_write_rc "$N1_HOME/memory/T-8/off-scope.md")"
+assert_eq "captured payload: unknown session_id denied" 2 "$(fx_write_rc "$N1_HOME/memory/T-8/review-cr.md" '.session_id="s-none"')"
+assert_eq "captured payload: other persona denied review-cr.md" 2 "$(fx_write_rc "$N1_HOME/memory/T-8/review-cr.md" '.agent_type="n1:security-reviewer"')"
 
 # --- enforce-agent-policy: merge deny (N1-146: every session unless n1_merge_authorized) ---
 policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
