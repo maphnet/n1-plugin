@@ -18,7 +18,7 @@ for c in bash jq grep sed cat dirname basename printf head tr awk mv rm mkdir da
 INPUT='{"session_id":"s1","tool_name":"Agent","tool_input":{"subagent_type":"n1:developer"}}'
 OUT1=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
 OUT2=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
-assert_eq "warns once when python missing" "N1: agent model enforcement skipped (no Python interpreter)" "$(echo "$OUT1" | jq -r .systemMessage)"
+assert_eq "warns once when python missing" "N1: agent policy (model enforcement and merge deny) skipped -- no Python interpreter" "$(echo "$OUT1" | jq -r .systemMessage)"
 assert_eq "second call silent" "" "$OUT2"
 
 # session-start throttle: last_checked untouched when gh fails
@@ -115,7 +115,7 @@ assert_eq "config-dir root: non-findings file denied" 2 "$(py_write_rc "$T/alt/c
 assert_eq "no config file: alt dir denied" 2 "$(py_write_rc "" "$T" "$T/alt/memory/T-9/review-cr.md")"
 assert_eq "developer Write unscoped" 0 "$(rev_write_rc developer Write "$T/wt/f.txt")"
 
-# --- enforce-agent-policy: queue merge deny (N1-114: unconditional in headless queue children) ---
+# --- enforce-agent-policy: merge deny (N1-146: every session unless n1_merge_authorized) ---
 policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
     local envs=() cmd
     while [ "$1" != "--" ]; do envs+=("$1"); shift; done; cmd=$2
@@ -146,8 +146,7 @@ DENY_CMDS=(
 )
 for c in "${DENY_CMDS[@]}"; do
     assert_eq "queue headless: denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
-    assert_eq "not headless: allowed: $c" 0 "$(policy_rc N1_QUEUE_RUN_ID=RUN1 -- "$c")"
-    assert_eq "not queue: allowed: $c" 0 "$(policy_rc N1_HEADLESS=1 -- "$c")"
+    assert_eq "interactive: denied: $c" 2 "$(policy_rc -- "$c")"
 done
 for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push origin maphskiy/feature" \
          "git push -u origin HEAD" "gh pr view 12" "gh pr create --title 'merge main into x'" "gh api repos/o/r/pulls/12" \
@@ -157,12 +156,60 @@ for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push ori
          "git push --repo=origin feature" "git push --repo origin HEAD:feature" "echo x >/tmp/f" \
          "echo x 2>&1 >/tmp/f" ">/tmp/f echo gh pr merge" "gh pr view 1 >/tmp/f 2>&1"; do
     assert_eq "queue headless: allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
+    assert_eq "interactive: allowed: $c" 0 "$(policy_rc -- "$c")"
 done
 # CR-11: no working Python -> queue-child Bash fails closed; other payloads stay fail-open
 mkdir -p "$T/nopy"; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; cp "$T/nopy/python3" "$T/nopy/python"; chmod +x "$T/nopy/"*
 assert_eq "no python: queue headless Bash denied" 2 "$(PATH="$T/nopy:$PATH" policy_rc "${Q[@]}" -- "gh pr view 1")"
 assert_eq "no python: non-queue Bash allowed" 0 "$(PATH="$T/nopy:$PATH" policy_rc -- "gh pr view 1")"
+assert_eq "no python: interactive merge fails open (warned)" 0 "$(PATH="$T/nopy:$PATH" policy_rc -- "gh pr merge 1")"
 rm -rf "$T/nopy"
+# N1-146: {mergeOnFinish, fullAuto} x {interactive, queue headless}; only JSON true counts
+cfg() { printf '%s\n' "$1" > "$N1_HOME/config.json"; }
+MOF='{"finishWork":{"mergeOnFinish":true}}'
+FA='{"autonomy":{"fullAuto":true}}'
+BOTH='{"finishWork":{"mergeOnFinish":true},"autonomy":{"fullAuto":true}}'
+for c in "gh pr merge 12" "git push origin main" "gh api -X PUT repos/o/r/pulls/12/merge"; do
+    cfg '{}'
+    assert_eq "neither key: interactive denied: $c" 2 "$(policy_rc -- "$c")"
+    assert_eq "neither key: queue denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+    cfg "$FA"
+    assert_eq "fullAuto only: interactive denied: $c" 2 "$(policy_rc -- "$c")"
+    assert_eq "fullAuto only: queue denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+    cfg "$MOF"
+    assert_eq "mergeOnFinish only: interactive allowed: $c" 0 "$(policy_rc -- "$c")"
+    assert_eq "mergeOnFinish only: queue denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+    assert_eq "mergeOnFinish only: headless (no queue) denied: $c" 2 "$(policy_rc N1_HEADLESS=1 -- "$c")"
+    assert_eq "mergeOnFinish only: queue id (not headless) denied: $c" 2 "$(policy_rc N1_QUEUE_RUN_ID=RUN1 -- "$c")"
+    cfg "$BOTH"
+    assert_eq "both keys: interactive allowed: $c" 0 "$(policy_rc -- "$c")"
+    assert_eq "both keys: queue allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
+    cfg '{"finishWork":{"mergeOnFinish":"true"},"autonomy":{"fullAuto":true}}'
+    assert_eq "string mergeOnFinish: interactive denied: $c" 2 "$(policy_rc -- "$c")"
+done
+# CR-2 (N1-146): no Python + authorized queue child -> persona Bash allowed (no-Python deny applies only when merges are not authorized)
+mkdir -p "$T/nopy"; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; cp "$T/nopy/python3" "$T/nopy/python"; chmod +x "$T/nopy/"*
+PP=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,agent_type:"n1:developer",tool_name:"Bash",tool_input:{command:"gh pr view 1"}}')
+nopy_rc() { local rc=0; printf '%s' "$PP" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "${Q[@]}" PATH="$T/nopy:$PATH" bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+cfg "$BOTH"; assert_eq "no python: authorized queue persona Bash allowed" 0 "$(nopy_rc)"
+cfg '{}'; assert_eq "no python: unauthorized queue persona Bash denied" 2 "$(nopy_rc)"
+rm -rf "$T/nopy"
+# Missing or invalid config must deny, never authorize (the shell predicate is false, so Python decides with config {})
+c="gh pr merge 12"
+rm -f "$N1_HOME/config.json"
+assert_eq "no config file: interactive denied" 2 "$(policy_rc -- "$c")"
+assert_eq "no config file: queue denied" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+cfg '{bad'
+assert_eq "invalid config: interactive denied" 2 "$(policy_rc -- "$c")"
+assert_eq "invalid config: queue denied" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+# The Python mirror decides on its own (the .sh fast exit is skipped when called directly)
+PAY=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr merge 12"}}')
+py_rc() { local rc=0; printf '%s' "$PAY" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "$@" python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "$N1_HOME/config.json" "$REPO_ROOT" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+cfg "$BOTH"; assert_eq "py: both keys, queue allowed" 0 "$(py_rc "${Q[@]}")"
+cfg "$MOF";  assert_eq "py: mergeOnFinish only, queue denied" 2 "$(py_rc "${Q[@]}")"
+cfg "$MOF";  assert_eq "py: mergeOnFinish only, interactive allowed" 0 "$(py_rc)"
+cfg '{"finishWork":{"mergeOnFinish":1}}'; assert_eq "py: number mergeOnFinish, interactive denied" 2 "$(py_rc)"
+rm -f "$N1_HOME/config.json"
 # bare push while the cwd is on the default branch (config git.defaultBranch honored)
 echo '{"git":{"defaultBranch":"trunk"}}' > "$N1_HOME/config.json"
 git -C "$T" init -q -b trunk 2>/dev/null || { git -C "$T" init -q; git -C "$T" symbolic-ref HEAD refs/heads/trunk; }

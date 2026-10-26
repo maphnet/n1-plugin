@@ -34,7 +34,7 @@ STANDARD_PATH_FILES=(
   "$SKILL_DIR/procedures/finalize.md"
 )
 
-MAX_STANDARD_BYTES=85010   # 80 KB + 692 bytes for n1-start assign-to-creator guard (NP-190) + 284 bytes for duplicate-check reference (NP-217) + 173 bytes for [plan] tag ledger docs (NP-203) + 318 bytes already over on main before NP-231 + 87 bytes for desc-hash-chain pointers (NP-231) + 336 bytes for orchestrator-only fork scope clause (NP-232) + 965 bytes for ID-reuse check + stale-branch archive (NP-235) + 182 bytes for PR-authorization sentence net of config-read trims (N1-57) + 147 bytes for scoped PR-authorization sentence rewrite (N1-57 review fix)
+MAX_STANDARD_BYTES=85446   # 80 KB + 692 bytes for n1-start assign-to-creator guard (NP-190) + 284 bytes for duplicate-check reference (NP-217) + 173 bytes for [plan] tag ledger docs (NP-203) + 318 bytes already over on main before NP-231 + 87 bytes for desc-hash-chain pointers (NP-231) + 336 bytes for orchestrator-only fork scope clause (NP-232) + 965 bytes for ID-reuse check + stale-branch archive (NP-235) + 182 bytes for PR-authorization sentence net of config-read trims (N1-57) + 147 bytes for scoped PR-authorization sentence rewrite (N1-57 review fix) + 249 bytes for the fullAuto chain branch in finish.md (N1-146) + 19 bytes for moving the chain after FINALIZE MEMORY (N1-146) + 134 bytes for chain moved into finalize.md and conditional tell-the-user (N1-146) + 34 bytes for PR-outcome guard on the chain (N1-146 CR-6)
 
 # Investigation path extends the standard path with one additional step file.
 INVESTIGATION_PATH_FILES=(

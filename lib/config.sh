@@ -398,6 +398,31 @@ n1_finish_merge_enabled() {
     fi
 }
 
+n1_fullauto_enabled() {
+    # N1-146. Prints true only when autonomy.fullAuto is the JSON boolean true (same rules as
+    # n1_finish_merge_enabled). fullAuto chains n1-finish after PR + CI; it never merges on its own.
+    local file out
+    file=$(n1_config_file)
+    if [ -f "$file" ] && command -v jq >/dev/null 2>&1 \
+        && out=$(jq -r '(.autonomy? | objects | .fullAuto) == true' "$file" 2>/dev/null) && [ "$out" = "true" ]; then
+        printf 'true'
+    else
+        printf 'false'
+    fi
+}
+
+n1_merge_authorized() {
+    # N1-146. The one merge predicate for n1-finish and the merge-deny hook (mirrored in
+    # hooks/enforce-agent-policy.py merge_authorized): mergeOnFinish true, and in an unattended
+    # run (N1_QUEUE_RUN_ID set or N1_HEADLESS=1) fullAuto true as well.
+    [ "$(n1_finish_merge_enabled)" = true ] || { printf 'false'; return; }
+    if [ -n "${N1_QUEUE_RUN_ID:-}" ] || [ "${N1_HEADLESS:-}" = 1 ]; then
+        n1_fullauto_enabled
+    else
+        printf 'true'
+    fi
+}
+
 n1_review_pin() {
     # N1-141 (SEC-5). The PR head that passed N1 review: one 40-hex SHA per PR in
     # $(n1_home)/review-pins/<owner>_<repo>_<pr>. n1-finish merges only that head.

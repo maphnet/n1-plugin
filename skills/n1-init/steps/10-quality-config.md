@@ -27,10 +27,22 @@ Neither option writes individual sub-keys (`brainstorm`, `mechanicalPrompts`, et
 
 Note in the summary output: security, architecture, and public-API escalations always block regardless of this setting, and releases are always manual.
 
+Then ask:
+
+```
+Run /n1:n1-finish automatically after PR + CI (autonomy.fullAuto)?
+N1 still merges only with finishWork.mergeOnFinish: true; otherwise the chained finish stops on the open PR.
+Queue and headless runs merge only when both keys are true. Such merges include N1's own post-review CI-fix and Codex-triage fix commits; no reviewer re-checks them.
+1 — No (Recommended): matches the code default false of n1_fullauto_enabled (lib/config.sh) and of finishWork.mergeOnFinish (13-write-config.md).
+2 — Yes
+```
+
+- **1** → add `"fullAuto": false` to the `autonomy` object. **2** → add `"fullAuto": true`. Always write a JSON boolean, never a string.
+
 ### On reconfiguration (n1-init re-run):
 
 If `autonomy` already exists in the current config:
-- If it contains only `"mode"`: show current value and re-ask (two options as above).
+- If it contains `"mode"` (with or without `"fullAuto"`): show the current values and re-ask both questions.
 - If it contains legacy sub-keys (no `"mode"` key): show a migration note —
   `"Your config uses legacy autonomy keys. Reconfiguring will write the new single-key format."` — then re-ask.
 

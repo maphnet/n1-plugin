@@ -20,6 +20,7 @@ Create all files:
     "branchPattern": "<from tracker setup or feature/{slug}>",
     "prMode": "<from PR Mode Configuration selection>"
   },
+  "autonomy": { "mode": "<from Autonomy Configuration>", "fullAuto": <from the step-10 selection, false by default> },
   "ticketTagging": { ... },
   "observability": null,
   "localTesting": {

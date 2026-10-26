@@ -58,7 +58,7 @@ Finish complete: <ID> (<ticket title>)
 
 Done: <1-2 lines from ticket title + PR summary>
 Ticket: <ID> → <done status | left open (<reason>) | tracker not configured> — <ticket URL | URL unavailable (<reason>)>
-PR: <url | none (prMode: skip — push pending: git push origin <defaultBranch>)> — merged (<method>, by <reviewer|n1-finish (mergeOnFinish)|local merge>)
+PR: <url | none (prMode: skip — push it yourself: !git push origin <defaultBranch>)> — merged (<method>, by <reviewer|n1-finish (mergeOnFinish)|local merge>)
 Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow) | none triggered | skipped (local merge)>
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
