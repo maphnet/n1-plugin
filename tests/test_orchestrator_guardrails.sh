@@ -159,6 +159,9 @@ assert_contains "finalize: fullAuto invokes n1-finish chained" \
 assert_contains "finalize: failed or escalated CI never chains" \
     "skills/n1-start/procedures/finalize.md" \
     'never after failed or escalated CI'
+assert_contains "finalize: chain only on a PR outcome (N1-146 CR-6)" \
+    "skills/n1-start/procedures/finalize.md" \
+    'only if `$FINAL_OUTCOME` is `pr_created`/`pr_skipped`'
 assert_contains "finalize: release never chained" \
     "skills/n1-start/procedures/finalize.md" \
     'never n1-release'
