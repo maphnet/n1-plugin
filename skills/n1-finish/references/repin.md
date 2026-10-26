@@ -1,6 +1,6 @@
 # Re-pin a PR without a valid reviewed-head pin (mergeOnFinish)
 
-Reached from Step 2 § 3.1 when the reviewed-head pin is missing (`pin:` empty) or differs from the PR head, in an interactive n1-finish run with `merge-on-finish:yes`. Asks the user, re-reviews the checked-out PR branch with `/n1:n1-review --full --base <base>`, pushes its fix commits with a lease pinned to the PR head, pins the new head with `n1_review_pin set`, waits for CI when it pushed, then re-runs 3.1. One attempt per run. Queue and headless runs never reach this file, and every writing block re-checks that.
+Reached from Step 2 § 3.1 when the reviewed-head pin differs from the PR head (a missing pin uses `resolve-dirty.md` § Re-pin instead), in an interactive n1-finish run with `merge-on-finish:yes`. Asks the user, re-reviews the checked-out PR branch with `/n1:n1-review --full --base <base>`, pushes its fix commits with a lease pinned to the PR head, pins the new head with `n1_review_pin set`, waits for CI when it pushed, then re-runs 3.1. One attempt per run. Queue and headless runs never reach this file, and every writing block re-checks that.
 
 `<n>` is the PR number, `<head>` the `head:` SHA from 3.1, and `<message>` the 3.1 STOP message of the case that routed here. Each **STOP** below ends the run with the quoted message. The pin is written only after a review that ended `Verdict: PASS` on exactly the head being pinned; every other path leaves the pin as it was, so the merge stays blocked.
 
