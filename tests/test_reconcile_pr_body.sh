@@ -320,8 +320,9 @@ check "mid-body </content> line is preserved" '^</content>$' "$GH_EDITED"
 # --- N1-138: placeholder paths outside their mktemp prefix, or prefix + subpath, are refused before cat/rm/gh
 export GH_HEAD="$SHA2"
 DECOY="$T/decoy-start"; echo "$SHA1" > "$DECOY"
+OTHERPR="$T/home/scratch/reconcile-start-8.z"; echo "$SHA1" > "$OTHERPR"
 mkdir -p "$T/home/scratch/reconcile-start-7.x"; SUBF="$T/home/scratch/reconcile-start-7.x/sub"; echo "$SHA1" > "$SUBF"
-for f in "$DECOY" "$SUBF"; do
+for f in "$DECOY" "$SUBF" "$OTHERPR"; do
     out=$(run "## § Check" "" "" "$f"); rc=$?
     if [ "$rc" -ne 0 ] && [ -f "$f" ] && [ "${out#*reconcile:run}" = "$out" ] && grep -q '^reconcile:failed:bad-path' <<<"$out"; then
         echo "PASS: check refuses START_FILE $f and leaves it in place"
@@ -332,6 +333,10 @@ done
 out=$(run "## § Check" 1 "" "")
 check "ad-hoc check still runs with an empty START_FILE" "^reconcile:run" <(printf '%s\n' "$out")
 rm -rf "$(dir_of "$out")"
+# ad-hoc runs never read START_FILE, so an out-of-prefix value must not block them
+out=$(run "## § Check" 1 "" "$DECOY")
+check "ad-hoc check ignores an out-of-prefix START_FILE" "^reconcile:run" <(printf '%s\n' "$out")
+rm -rf "$(dir_of "$out")"; [ -f "$DECOY" ] && echo "PASS: ad-hoc check leaves START_FILE alone" || { echo "FAIL: ad-hoc check deleted START_FILE"; FAIL=1; }
 
 mk_apply_dir() { mkdir -p "$1"; tr -d '\r' < "$GH_BODY" > "$1/old-body.md"; cp "$1/old-body.md" "$1/new-body.md"; }
 # positive control: the same fixture in a valid dir applies, so the refusals below come from the guard alone
@@ -339,7 +344,7 @@ OK="$T/home/scratch/reconcile-7.ok"; mk_apply_dir "$OK"; rm -f "$GH_EDITED"
 out=$(run "## § Apply" "" "$OK")
 check "apply accepts a D inside reconcile-<PR>." "^reconcile:applied:#7$" <(printf '%s\n' "$out")
 [ ! -d "$OK" ] && echo "PASS: valid D is removed after apply" || { echo "FAIL: valid D left behind"; FAIL=1; }
-for d in "$T/decoy-dir" "$T/home/scratch/reconcile-7.x/sub" "$T/home/scratch/reconcile-start-7.y"; do
+for d in "$T/decoy-dir" "$T/home/scratch/reconcile-7.x/sub" "$T/home/scratch/reconcile-start-7.y" "$T/home/scratch/reconcile-8.other"; do
     mk_apply_dir "$d"; rm -f "$GH_EDITED"
     out=$(run "## § Apply" "" "$d"); rc=$?
     if [ "$rc" -ne 0 ] && [ -d "$d" ] && [ ! -f "$GH_EDITED" ] && grep -q '^reconcile:failed:bad-path' <<<"$out"; then

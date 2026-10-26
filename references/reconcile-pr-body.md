@@ -29,10 +29,11 @@ source ~/.n1/preamble.sh
 PR_NUMBER="<PR number>"
 ADHOC="<1 for an ad-hoc push outside a skill run, else empty>"
 START_FILE="<F from the reconcile:start line, empty for ad-hoc>"
-case "$START_FILE" in "$N1_HOME"/scratch/reconcile-start-*/*) echo "reconcile:failed:bad-path — PR body reconcile failed, body may be stale"; exit 1;; ""|"$N1_HOME"/scratch/reconcile-start-*) ;; *) echo "reconcile:failed:bad-path — PR body reconcile failed, body may be stale"; exit 1;; esac
+case "$PR_NUMBER" in ''|*[!0-9]*) echo "reconcile:failed:bad-pr-number — PR body reconcile failed, body may be stale"; exit 1;; esac
 if [ -n "$ADHOC" ]; then
   START=""
 else
+  case "$START_FILE" in "$N1_HOME"/scratch/reconcile-start-"$PR_NUMBER".*/*) echo "reconcile:failed:bad-path — PR body reconcile failed, body may be stale"; exit 1;; ""|"$N1_HOME"/scratch/reconcile-start-"$PR_NUMBER".*) ;; *) echo "reconcile:failed:bad-path — PR body reconcile failed, body may be stale"; exit 1;; esac
   START=$(cat "$START_FILE" 2>/dev/null); rm -f "$START_FILE"
   case "$START" in
     [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) : ;;
@@ -73,7 +74,7 @@ else
 fi
 ```
 
-`reconcile:skip` → stop here silently (no dispatch, no edit). `reconcile:failed:bad-path` (`START_FILE` is not empty and is not a `$N1_HOME/scratch/reconcile-start-*` file) → warn and stop; nothing is read or deleted. `reconcile:failed:fetch` → warn and stop; the metadata fetch failure still consumes (reads and deletes) `START_FILE` above so it can't leak into a later run. The ad-hoc path never reads or deletes the start file, so it can't consume the file of an in-progress skill run on the same PR.
+`reconcile:skip` → stop here silently (no dispatch, no edit). `reconcile:failed:bad-path` (`START_FILE` is not empty and is not a `$N1_HOME/scratch/reconcile-start-<PR>.*` file; checked only on the non-ad-hoc path) → warn and stop; nothing is read or deleted. `reconcile:failed:fetch` → warn and stop; the metadata fetch failure still consumes (reads and deletes) `START_FILE` above so it can't leak into a later run. The ad-hoc path never reads or deletes the start file, so it can't consume the file of an in-progress skill run on the same PR.
 
 ## § Dispatch
 
@@ -89,13 +90,14 @@ Wait for it to return. Do not read, edit, or echo the body text yourself. The bo
 
 ## § Apply
 
-Refuses a revised body that drops or changes any `## Deployment Actions` checkbox line, or any line carrying `*(locally verified — ...)*`, `*(local testing: FAILED — ...)*`, or `*(manual check)*` — that frozen set must be copied byte-for-byte (appending new unticked Deployment Actions is fine). Plain `- [x]` lines outside that frozen set may be reworded when the diff makes their facts stale, but the total count of `- [x]`/`- [X]` lines must not drop, so a plain ticked line can be reworded but never unticked or dropped. Re-fetches the live PR body right before posting and aborts if it no longer matches `old-body.md` (someone else edited the PR description mid-reconcile) or the re-fetch fails. Always removes `<D>`, except a `<D>` outside `$N1_HOME/scratch/reconcile-<PR>.*` (or a subpath under it), which prints `reconcile:failed:bad-path` and is left untouched.
+Refuses a revised body that drops or changes any `## Deployment Actions` checkbox line, or any line carrying `*(locally verified — ...)*`, `*(local testing: FAILED — ...)*`, or `*(manual check)*` — that frozen set must be copied byte-for-byte (appending new unticked Deployment Actions is fine). Plain `- [x]` lines outside that frozen set may be reworded when the diff makes their facts stale, but the total count of `- [x]`/`- [X]` lines must not drop, so a plain ticked line can be reworded but never unticked or dropped. Re-fetches the live PR body right before posting and aborts if it no longer matches `old-body.md` (someone else edited the PR description mid-reconcile) or the re-fetch fails. Always removes `<D>`, except a `<D>` outside `$N1_HOME/scratch/reconcile-<PR>.*` for this PR number (or a subpath under it), which prints `reconcile:failed:bad-path` and is left untouched.
 
 ```bash
 source ~/.n1/preamble.sh
 PR_NUMBER="<PR number>"
 D="<D from the reconcile:run line>"
-case "$D" in "$N1_HOME"/scratch/reconcile-[0-9]*/*) echo "reconcile:failed:bad-path — PR body reconcile failed, body may be stale"; exit 1;; "$N1_HOME"/scratch/reconcile-[0-9]*) ;; *) echo "reconcile:failed:bad-path — PR body reconcile failed, body may be stale"; exit 1;; esac
+case "$PR_NUMBER" in ''|*[!0-9]*) echo "reconcile:failed:bad-pr-number — PR body reconcile failed, body may be stale"; exit 1;; esac
+case "$D" in "$N1_HOME"/scratch/reconcile-"$PR_NUMBER".*/*) echo "reconcile:failed:bad-path — PR body reconcile failed, body may be stale"; exit 1;; "$N1_HOME"/scratch/reconcile-"$PR_NUMBER".*) ;; *) echo "reconcile:failed:bad-path — PR body reconcile failed, body may be stale"; exit 1;; esac
 if [ ! -s "$D/new-body.md" ]; then
   echo "reconcile:failed:empty — PR body reconcile failed, body may be stale"
 else
