@@ -3,6 +3,7 @@
 ## Mode Detection
 
 - **No arguments + on a feature branch** → Review Loop mode
+- **`--full --base <ref>`** → Review Loop mode with `FULL_REVIEW=1` (forces the FULL tier with security-reviewer; used by n1-finish re-pin) and `PR_BASE=<ref>` (the PR's base branch). `--full` without a valid `--base` → "--full needs --base <PR base branch>." **STOP.**
 - **Called from n1-start** → Review Loop mode
 - **PR number provided** (e.g., `/n1:n1-review #340`) → Advisory mode
 
@@ -36,6 +37,13 @@ BP_FILE="$N1_HOME/memory/$ID/branch-point"
 REVIEW_BASE=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || git merge-base "$DEFAULT_BRANCH" HEAD )
 ```
 
+Under `FULL_REVIEW=1` ignore both and bind the review to the PR's actual base; fail closed (no fallback to the branch point or default branch):
+```bash
+[[ "$PR_BASE" =~ ^[A-Za-z0-9._/-]+$ && "$PR_BASE" != -* ]] || { echo base:invalid; exit 1; }
+git fetch -q origin "$PR_BASE" 2>/dev/null && REVIEW_BASE=$(git merge-base "origin/$PR_BASE" HEAD) && [ -n "$REVIEW_BASE" ] || { echo base:unresolved; exit 1; }
+```
+`base:invalid` / `base:unresolved` → "Cannot resolve the PR base for the --full review." **STOP.**
+
 Read N1 memory if available:
 - `$N1_HOME/memory/$ID/ticket.md` — original requirements
 - `$N1_HOME/memory/$ID/brainstorm.md` — scope and approach decisions
@@ -44,7 +52,7 @@ Read N1 memory if available:
 
 ### Phase 2: Find Bugs
 
-**Shared review core:** Read and follow `<N1_ROOT>/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = `${REVIEW_BASE}` (computed in Phase 1). It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT) and reviewer selection with skip-recording.
+**Shared review core:** Read and follow `<N1_ROOT>/skills/n1-start/review-core.md` with `<BASE_BRANCH>` = `${REVIEW_BASE}` (computed in Phase 1) and `FULL_REVIEW` as set by Mode Detection. It defines the diff-surface classification (DOC_CONFIG_ONLY, SECURITY_RELEVANT) and reviewer selection with skip-recording.
 
 **Spawn agents in PARALLEL:** code-reviewer + security-reviewer (if SECURITY_RELEVANT)
 
@@ -68,7 +76,7 @@ Spawn the selected reviewers simultaneously (code-reviewer always; security-revi
 
 **Wait for ALL agents/commands to complete before proceeding.**
 
-**Incremental re-review (cycle >= 2):** When the internal review-fix cycle counter is >= 2 and `$N1_HOME/memory/$ID/fix-changed-files` exists, scope both reviewers to only the files listed in that file. Instruct reviewers: "Incremental re-review after fix cycle. Scope: [file list]. Check for fix regressions and verify prior findings were addressed." Cycle 0 or 1: full-scope review (no change).
+**Incremental re-review (cycle >= 2):** When `FULL_REVIEW` is not 1 (under `--full` every cycle reviews the full `${REVIEW_BASE}..HEAD` diff; the file below is written only by n1-start, so it can be stale here), the internal review-fix cycle counter is >= 2 and `$N1_HOME/memory/$ID/fix-changed-files` exists, scope both reviewers to only the files listed in that file. Instruct reviewers: "Incremental re-review after fix cycle. Scope: [file list]. Check for fix regressions and verify prior findings were addressed." Cycle 0 or 1: full-scope review (no change).
 
 ### Phase 3: Verify Findings (False-Positive Elimination)
 

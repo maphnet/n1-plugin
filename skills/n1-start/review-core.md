@@ -49,6 +49,8 @@ echo "REVIEW_TIER=$REVIEW_TIER LINES_CHANGED=$LINES_CHANGED ALL_LOW_RISK=$ALL_LO
 - **REVIEW_TIER=NARROW**: `lines_changed` within threshold, not security-relevant, all files are low-risk (deps/style/test/ci). Code-reviewer runs TQ-only scope.
 - **REVIEW_TIER=FULL**: All other diffs. Full code-reviewer scope.
 
+**FULL_REVIEW=1** (only `n1-review --full` sets it): after the block above, set `REVIEW_TIER=FULL` and `SECURITY_RELEVANT=true` and record `tier=FULL forced`. Unset by default.
+
 Record the tier decision in Decision Ledger on every run.
 
 ## Gate Rule Injection
