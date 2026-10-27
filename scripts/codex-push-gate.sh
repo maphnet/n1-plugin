@@ -19,10 +19,17 @@ ORIGIN_REPO=$(printf '%s' "$URL" | awk -F/ '{print tolower($(NF-1) "/" $NF)}')
 [ "$ORIGIN_REPO" = "$(printf '%s' "$PR_REPO" | tr 'A-Z' 'a-z')" ] || blocked gate-unavailable
 LOGP=$(git -c core.quotePath=false log --no-renames --name-only --format= "$START"..HEAD 2>/dev/null) || blocked gate-unavailable
 DIFFP=$(git -c core.quotePath=false diff --no-renames --name-only "$START" HEAD 2>/dev/null) || blocked gate-unavailable
+# Net-added regular (100644) files only: symlinks and executables never qualify as siblings.
+ADDED=$(git -c core.quotePath=false diff --no-renames --diff-filter=A --raw "$START" HEAD 2>/dev/null | awk -F'\t' '$1 ~ /^:000000 100644 / {print $2}') || blocked gate-unavailable
+ALLOWED_DIRS=$(sed -n 's|/[^/]*$||p' "$ALLOWED_FILE" | sort -u)
 CHANGED=$(printf '%s\n%s\n' "$LOGP" "$DIFFP" | sed '/^$/d' | sort -u)
 [ -n "$CHANGED" ] || { echo "push:none"; exit 0; }
+# Deny first; then allowed.txt; then a new file in the exact dir of an allowed path (never root, never a dot component).
 BAD=$(while IFS= read -r p; do
-  grep -qxF -- "$p" "$ALLOWED_FILE" && ! grep -qE '^\.github/|\.gitlab-ci|Jenkinsfile|\.circleci/|azure-pipelines|(^|/)\.env|credentials|\.pem$' <<<"$p" || printf '%s\n' "$p"
+  grep -qE '^\.github/|\.gitlab-ci|Jenkinsfile|\.circleci/|azure-pipelines|(^|/)\.env|credentials|\.pem$' <<<"$p" && { printf '%s\n' "$p"; continue; }
+  grep -qxF -- "$p" "$ALLOWED_FILE" && continue
+  [[ $p == */* && /$p != */.* ]] && grep -qxF -- "$p" <<<"$ADDED" && grep -qxF -- "${p%/*}" <<<"$ALLOWED_DIRS" && continue
+  printf '%s\n' "$p"
 done <<<"$CHANGED")
 [ -z "$BAD" ] || blocked "$(sort -u <<<"$BAD" | tr '\n' ' ' | sed 's/ $//')"
 export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS=

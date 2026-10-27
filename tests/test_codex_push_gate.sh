@@ -61,10 +61,38 @@ git checkout -q feat; echo a3 >> a.txt; git commit -qam mainline
 git merge -q --no-ff --no-commit side; echo evil > b.txt; git add -A; git commit -qm merge
 eq "merge commit out-of-scope path" "push:blocked paths=b.txt s.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo")"
 git reset -q --hard "$BASE"; git branch -q -D side
+# N1-161: sibling new files. allowed-d adds a PR path in subdir d/ (the file need not exist locally).
+printf 'a.txt\n.github/ci.yml\nd/x.txt\n' > "$TMP/allowed-d"
+mkdir -p e; echo n > e/new.txt; git add e/new.txt; git commit -qm e
+eq "new file in a dir with no allowed path" "push:blocked paths=e/new.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+echo n > .github/new.yml; git add .github/new.yml; git commit -qm ci2
+eq "new CI file next to allowed CI file" "push:blocked paths=.github/new.yml" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+echo n > r.txt; git add r.txt; git commit -qm root
+eq "new root file" "push:blocked paths=r.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+mkdir -p d; echo n > d/.hidden; git add d/.hidden; git commit -qm hidden
+eq "new dot file in allowed dir" "push:blocked paths=d/.hidden" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+mkdir -p d/sub; echo n > d/sub/f.txt; git add d/sub/f.txt; git commit -qm sub
+eq "new file in a subdir of an allowed dir" "push:blocked paths=d/sub/f.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+mkdir -p d; printf '#!/bin/sh\n' > d/run.sh; chmod +x d/run.sh; ln -s ../a.txt d/ln; git add d/run.sh d/ln; git commit -qm modes
+eq "new exec file and symlink in allowed dir" "push:blocked paths=d/ln d/run.sh" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+mkdir -p d; echo n > d/tmp.txt; git add d/tmp.txt; git commit -qm addt; git rm -q d/tmp.txt; git commit -qm rmt
+eq "add-then-remove sibling stays blocked" "push:blocked paths=d/tmp.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
 echo a2 >> a.txt; git commit -qam fix
 printf '#!/bin/sh\nsleep 30\n' > "$TMP/w/.git/hooks/pre-push"; chmod +x "$TMP/w/.git/hooks/pre-push"
 eq "hanging push times out" "push:rejected" "$(N1_CODEX_PUSH_TIMEOUT=2 bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo")"
 rm "$TMP/w/.git/hooks/pre-push"
 eq "in-scope change pushes" "push:ok" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo")"
 eq "remote ref updated" "$(git rev-parse HEAD)" "$(git -C "$TMP/o/acme/repo.git" rev-parse feat)"
+mkdir -p d; echo n > d/new.txt; git add d/new.txt; git commit -qm sibling
+eq "new regular file next to an allowed path pushes" "push:ok" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+eq "sibling push updated remote" "$(git rev-parse HEAD)" "$(git -C "$TMP/o/acme/repo.git" rev-parse feat)"
+echo n > "d/with space.txt"; git add "d/with space.txt"; git commit -qm spaced
+eq "new file with a space in its name pushes" "push:ok" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
 exit $FAIL
