@@ -176,6 +176,11 @@ if grep -qF 'Do NOT push' "$TRI" 2>/dev/null && grep -qF 'push:blocked' "$TRI" &
 else
     echo "FAIL: codex-triage push gate missing"; FAIL=1
 fi
+if grep -qF 'codex-blocked-fix.patch' "$TRI" 2>/dev/null && grep -qF 'needs out-of-scope file' "$TRI" && grep -qF 'reset=<sha>' "$TRI" && grep -qF 'kept=<sha>' "$TRI"; then
+    echo "PASS: codex-triage passes the blocked-fix patch path and explains reset/kept and out-of-scope files"
+else
+    echo "FAIL: codex-triage lacks the blocked-fix patch path, reset/kept wording or out-of-scope dismissal"; FAIL=1
+fi
 for pat in 'Scope override' 'do not run git' 'UNVERIFIED' 'authoritative'; do
     if grep -qF -- "$pat" "$TRI" 2>/dev/null; then
         echo "PASS: codex-triage validator has '$pat'"
