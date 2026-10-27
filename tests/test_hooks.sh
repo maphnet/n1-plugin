@@ -18,7 +18,7 @@ for c in bash jq grep sed cat dirname basename printf head tr awk mv rm mkdir da
 INPUT='{"session_id":"s1","tool_name":"Agent","tool_input":{"subagent_type":"n1:developer"}}'
 OUT1=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
 OUT2=$(echo "$INPUT" | PATH="$FAKEBIN" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh")
-assert_eq "warns once when python missing" "N1: agent policy (model enforcement and merge deny) skipped -- no Python interpreter" "$(echo "$OUT1" | jq -r .systemMessage)"
+assert_eq "warns once when python missing" "N1: agent policy (model enforcement, merge deny and pipe-mask check) skipped -- no Python interpreter" "$(echo "$OUT1" | jq -r .systemMessage)"
 assert_eq "second call silent" "" "$OUT2"
 
 # session-start throttle: last_checked untouched when gh fails
@@ -196,6 +196,47 @@ for c in "gh pr merge 12" "git push origin main" "gh api -X PUT repos/o/r/pulls/
     cfg '{"finishWork":{"mergeOnFinish":"true"},"autonomy":{"fullAuto":true}}'
     assert_eq "string mergeOnFinish: interactive denied: $c" 2 "$(policy_rc -- "$c")"
 done
+# N1-159: a test runner piped into tail/head/grep and && chained into git commit hides the suite status
+PIPE_DENY=("evidence-N1-74|bash tests/run.sh 2>&1 | tail -2 && git add -A && git commit -m x"
+           "evidence-N1-75|bash tests/test_manifests.sh | tail -2 && git add -A && git commit -m x"
+           "pytest-env-wrapper|FOO=1 timeout 5 pytest -q | head -3 && git commit -m x"
+           "git-C-grep|pytest | grep -c FAIL && git -C d commit -m x"
+           "npm-test|npm test | tail -2 && git commit -m x"
+           "go-test|go test ./... | tail && git commit -m x"
+           "make-test|make test | tail && git commit -m x"
+           "py-pytest|python -m pytest | tail && git commit -m x"
+           "pipefail-late|bash tests/run.sh | tail -2 && git commit -m x; set -o pipefail"
+           "and-newline|bash tests/run.sh | tail -2 &&
+git commit -m x"
+           "pipe-amp|bash tests/run.sh |& tail -2 && git commit -m x"
+           "pipefail-in-message|bash tests/run.sh | tail -2 && git commit -m 'add pipefail guard'")
+PIPE_OK=("pipefail-set|set -o pipefail; bash tests/run.sh 2>&1 | tail -2 && git commit -m x"
+         "pipefail-split|set -e -o pipefail; bash tests/run.sh | tail -2 && git commit -m x"
+         "pipefail-euo-split|set -eu -o pipefail; bash tests/run.sh | tail -2 && git commit -m x"
+         "pipefail-errexit|set -o errexit -o pipefail; bash tests/run.sh | tail -2 && git commit -m x"
+         "newline-sep|bash tests/run.sh | tail -2"$'\n'"git commit -m x"
+         "pipefail-euo|set -euo pipefail; bash tests/run.sh | tail -2 && git commit -m x"
+         "pipestatus|bash tests/run.sh | tail -2 && git commit -m x; echo \${PIPESTATUS[0]}"
+         "no-commit|bash tests/run.sh | tail -5" "quoted-text|git commit -m 'pytest | tail -2 done'"
+         "no-chain|pytest | grep -c FAIL" "commit-first|git commit -m x && bash tests/run.sh | tail -2"
+         "or-chain|bash tests/run.sh | head -3 || git commit -m x"
+         "semicolon|bash tests/run.sh | tail -2; git commit -m x"
+         "non-runner|git log | head -3 && git commit -m x")
+for e in "${PIPE_DENY[@]}"; do
+    cfg '{}'
+    assert_eq "pipe-mask deny ${e%%|*}" 2 "$(policy_rc -- "${e#*|}")"
+    case "$e" in evidence*) cfg "$BOTH"; assert_eq "pipe-mask deny merge-authorized ${e%%|*}" 2 "$(policy_rc -- "${e#*|}")" ;; esac
+done
+for e in "${PIPE_OK[@]}"; do
+    cfg '{}'
+    assert_eq "pipe-mask allow ${e%%|*}" 0 "$(policy_rc -- "${e#*|}")"
+done
+# SEC-1/CR-3: long pathological word must stay linear
+LONG="bash $(printf 'tests/%.0s' $(seq 1 20000))x | tail -2 && git commit -m x"
+cfg '{}'; START=$SECONDS
+assert_eq "pipe-mask long word allowed" 0 "$(policy_rc -- "$LONG")"
+assert_eq "pipe-mask long word fast" 1 "$(( SECONDS - START < 5 ))"
+cfg "$BOTH"; assert_eq "pipe-mask gh pr merge allowed when authorized" 0 "$(policy_rc -- "gh pr merge 12")"
 # CR-2 (N1-146): no Python + authorized queue child -> persona Bash allowed (no-Python deny applies only when merges are not authorized)
 mkdir -p "$T/nopy"; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; cp "$T/nopy/python3" "$T/nopy/python"; chmod +x "$T/nopy/"*
 PP=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,agent_type:"n1:developer",tool_name:"Bash",tool_input:{command:"gh pr view 1"}}')

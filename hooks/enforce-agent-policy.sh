@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, merge deny).
+# PreToolUse hook: N1 agent policy (persona tool restriction, config model override, merge deny, pipe-mask deny).
 # Delegates to enforce-agent-policy.py; fail-open unless the script denies (exit 2).
 set -euo pipefail
 
@@ -8,15 +8,15 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 
 INPUT=$(cat)
 
-# Fast path: persona payloads always go to Python. The merge deny (Case 3) applies to every Bash
-# call unless merges are authorized for this session (N1-146: n1_merge_authorized is a config
-# check). Key on the tool name and config, never the command text (SEC-4: a substring glob on
-# the command is evaded by quote-split obfuscation).
+# Fast path: persona payloads and every Bash call go to Python (merge deny, Case 3; pipe-masked
+# test status deny, Case 4, N1-159, applies even when merges are authorized). Key on the tool
+# name, never the command text (SEC-4: a substring glob on the command is evaded by quote-split
+# obfuscation).
 QUEUE_CHILD=""
 [ -n "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" = "1" ] && QUEUE_CHILD=1
 case "$INPUT" in
     *'"n1:'*) : ;;
-    *'"Bash"'*) [ "$(n1_merge_authorized)" != true ] || exit 0 ;;
+    *'"Bash"'*) : ;;
     *) exit 0 ;;
 esac
 
@@ -47,7 +47,7 @@ if [ -z "$PY" ]; then
     if [ ! -f "$MARKER" ]; then
         mkdir -p "$(dirname "$MARKER")" 2>/dev/null || true
         : > "$MARKER" 2>/dev/null || true
-        printf '{"systemMessage":"N1: agent policy (model enforcement and merge deny) skipped -- no Python interpreter"}\n'
+        printf '{"systemMessage":"N1: agent policy (model enforcement, merge deny and pipe-mask check) skipped -- no Python interpreter"}\n'
     fi
     exit 0
 fi
