@@ -232,12 +232,6 @@ printf '| investigation-deliverable | scope | B | [auto] | Post-investigation ro
 
 Then let the step end normally — do not wait for the user. Skip the rest of Phase 5 below.
 
-**Brain-dump variant** (when `investigate_interactive: true` AND `<ID>` is a provisional slug):
-
-Ask: `"Investigation done. Create a tracker ticket? 1 — Yes / 2 — No"`
-- **2 (No):** report path to investigation.md and end.
-- **1 (Yes):** create ticket via same mechanics as steps/ticket.md brain-dump creation (summary = investigation title; description = Summary + Findings + Recommendations from investigation.md; type per `<N1_ROOT>/references/ticket-scope.md` § Free-form creation). The returned ID is final. Run Reconcile Memory ID & Branch. Skip duplicate description append (already contains findings). Report `"Created ticket **[<ID>](<url>)**: <title>"`. Continue to Continuation offer.
-
 Read signals:
 ```bash
 source ~/.n1/preamble.sh

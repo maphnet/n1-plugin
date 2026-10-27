@@ -12,7 +12,6 @@ Empty: `{"title":null,"tags":[],"type":"task"}`. Parse `TITLE TAGS TYPE CLOUD_ID
 ```bash
 source ~/.n1/preamble.sh
 TYPE_OVERRIDE=""; n1_parse_type_arg "$USER_INPUT" 2>/dev/null && TYPE_OVERRIDE=$(n1_parse_type_arg "$USER_INPUT")
-[ "$INVESTIGATE_FLAG" = "true" ] && TYPE_OVERRIDE="investigation"
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
 n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE" > "$N1_HOME/memory/$ID/.resolved-type" 2>/dev/null || true
@@ -31,11 +30,13 @@ n1_story_convert_decision "$(n1_config_val '.tracker.type')" "<has|none|unknown>
 ```
 `story`→`IS_STORY=true`. `single:<r>`→token `unconverted: <r>`. `convert`→`mcp__<versionMcp>__jcm_convertIssueType` `issueKeys:[<ID>]`, `issueTypeName:"Task"`. `ok:true`→token `converted`, then `operations.addComment` "N1: converted Story to Task, it has no sub-tasks. Running it as a single ticket." (ignore failure). Anything else (error, `RUNNING`, declined)→token `convert-failed: <message, one line, ≤80 chars>`. Write the token to `$N1_HOME/memory/<ID>/.story-convert` via the file-write mechanism, never a shell string. Never prompt or retry. Single/convert outcomes continue as a single ticket; `ISSUE_TYPE` not story: skip this block.
 
+`INVESTIGATION_DETECTED=true` with `N1_QUEUE_RUN_ID` unset and `N1_HEADLESS=1` not set: say "Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`." (no tracker ID: `/n1:n1-ticket` first) and STOP before overview.md.
+
 `IS_STORY=true`: non-headless→handoff `n1:n1-queue --story <ID>`, STOP; headless→`procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree**.
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 
-**Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): skip if `INVESTIGATE_FLAG=true`+braindump. `MP=auto`→create+ledger. `MP=ask`→"Create ticket? Yes/No". Yes→`createIssue`, final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL. Type: `<N1_ROOT>/references/ticket-scope.md` § Free-form creation.
+**Tracker ticket creation** (brain-dump/file/error-tracker+`createIssue`): `MP=auto`→create+ledger. `MP=ask`→"Create ticket? Yes/No". Yes→`createIssue`, final `<ID>`, **Reconcile Memory ID & Branch**, assign, record URL. Type: `<N1_ROOT>/references/ticket-scope.md` § Free-form creation.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -49,7 +50,6 @@ n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "pid" "$$"
 MAX=$(( 50 - ${#ID} - 1 )); SESSION_NAME="$ID${TITLE:+ ${TITLE:0:$MAX}}"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" "$RESOLVED_TYPE"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "type_matched_by" "$TYPE_MATCHED_BY"
-[ "$INVESTIGATE_FLAG" = "true" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive" "true"
 [ -n "${N1_STORY_ID:-}" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story" "$N1_STORY_ID"
 [ -n "$ORIGINAL_STATUS" ] && [ "$ORIGINAL_STATUS" != "Not specified" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "original_status" "$ORIGINAL_STATUS"
 SC=$(tr -d '\\\r\n' 2>/dev/null < "$N1_HOME/memory/$ID/.story-convert"); rm -f "$N1_HOME/memory/$ID/.story-convert"; [ -n "$SC" ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "story_convert" "$SC"

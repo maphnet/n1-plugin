@@ -72,8 +72,6 @@ start_ticket = Path('skills/n1-start/steps/ticket.md').read_text()
 check('n1-start brain-dump creation cites the scope rule',
       'references/ticket-scope.md' in line_with(start_ticket, '**Tracker ticket creation**'))
 inv = Path('skills/n1-start/steps/investigation-deliverable.md').read_text()
-check('investigation brain-dump creation cites the scope rule',
-      'references/ticket-scope.md' in line_with(inv, 'same mechanics as steps/ticket.md'))
 check('investigation follow-up creation cites the scope rule',
       'references/ticket-scope.md' in line_with(inv, 'Call createIssue via tracker MCP'))
 
