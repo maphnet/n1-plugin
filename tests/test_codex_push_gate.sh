@@ -102,6 +102,13 @@ mkdir -p d; echo n > d/CLAUDE.md; git add d/CLAUDE.md; git commit -qm claudemd
 printf 'd/x.md\n' > "$TMP/allowed-md"
 eq "loader basename not admitted as sibling" "push:blocked paths=d/CLAUDE.md" "$(bash "$G" "$TMP/start" "$TMP/allowed-md" feat "$TMP/repo")"
 git reset -q --hard "$BASE"
+printf 'd/package.json\nd/source.js\n' > "$TMP/allowed-cfg"
+mkdir -p d; echo '{}' > d/npm-shrinkwrap.json; git add d/npm-shrinkwrap.json; git commit -qm shrink
+eq "lockfile not admitted as sibling" "push:blocked paths=d/npm-shrinkwrap.json" "$(bash "$G" "$TMP/start" "$TMP/allowed-cfg" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+mkdir -p d; echo n > d/eslint.config.js; git add d/eslint.config.js; git commit -qm eslint
+eq "tool config not admitted as sibling" "push:blocked paths=d/eslint.config.js" "$(bash "$G" "$TMP/start" "$TMP/allowed-cfg" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
 mkdir -p d; echo n > d/AGENTS.override.md; git add d/AGENTS.override.md; git commit -qm agentsdot
 eq "dotted loader basename not admitted as sibling" "push:blocked paths=d/AGENTS.override.md" "$(bash "$G" "$TMP/start" "$TMP/allowed-md" feat "$TMP/repo")"
 git reset -q --hard "$BASE"
@@ -141,6 +148,11 @@ git reset -q --hard "$TIP"
 git -C "$TMP/o/acme/repo.git" update-ref -d refs/heads/feat
 eq "rejected push with remote ref missing: kept" "push:rejected kept=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
 eq "kept leaves HEAD at tip (remote ref missing)" "$TIP" "$(git rev-parse HEAD)"
+H="$TMP/o/acme/repo.git/hooks/pre-receive"; mv "$H" "$H.off"
+git push -q origin "$TIP":refs/heads/feat; echo more >> a.txt; git commit -qam later; git push -q origin HEAD:refs/heads/feat; git reset -q --hard "$TIP"
+mv "$H.off" "$H"
+eq "remote already contains tip: kept" "push:rejected kept=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
+eq "kept leaves HEAD at tip (remote has fix)" "$TIP" "$(git rev-parse HEAD)"
 git -C "$TMP/o/acme/repo.git" update-ref refs/heads/feat "$START"
 rm "$TMP/o/acme/repo.git/hooks/pre-receive"; rm -f "$TMP/fix.patch"
 git reset -q --hard "$BASE"

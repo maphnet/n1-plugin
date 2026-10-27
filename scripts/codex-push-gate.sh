@@ -11,6 +11,9 @@ recover() { # <status line> [remote]: with "remote", reset only if origin is kno
   if [ -n "${2:-}" ]; then
     r=$(timeout -k 5 20 git ls-remote "$(git remote get-url --push origin 2>/dev/null)" "refs/heads/$HEAD_REF" 2>/dev/null | cut -f1)
     [ -n "$r" ] && [ "$r" != "$tip" ] || { echo "$1 kept=$tip"; exit 0; }
+    # A different remote tip may still contain the fix (push accepted, then another writer advanced it): reset only if tip is provably absent.
+    timeout -k 5 20 git fetch -q "$(git remote get-url --push origin 2>/dev/null)" "refs/heads/$HEAD_REF" >/dev/null 2>&1 || { echo "$1 kept=$tip"; exit 0; }
+    git merge-base --is-ancestor "$tip" FETCH_HEAD 2>/dev/null; [ $? -eq 1 ] || { echo "$1 kept=$tip"; exit 0; }
   fi
   if { (umask 077; rm -f "$PATCH_FILE"; git -c diff.noprefix=false -c diff.mnemonicPrefix=false diff --binary --no-color --no-ext-diff --no-textconv "$START" HEAD > "$PATCH_FILE"); } 2>/dev/null && [ -s "$PATCH_FILE" ] && git reset -q --keep "$START" 2>/dev/null; then
     echo "$1 reset=$tip"
@@ -41,7 +44,8 @@ NONREG=$(git -c core.quotePath=false log -m --no-renames --raw --format= "$START
 # dir/ext of allowed paths: a sibling needs a dotted name whose extension matches an allowed path in the same dir.
 ALLOWED_DIR_EXTS=$(grep -E '/[^/]+\.[^/.]+$' "$ALLOWED_FILE" | sed -E 's|^(.*)/[^/]*\.([^/.]+)$|\1/\2|' | sort -u)
 # Sibling-only: basenames that a loader/tool auto-reads (agent instructions, compose, package manifests, test/import hooks).
-SIBDENY='(^|/)((CLAUDE|AGENTS|GEMINI)[^/]*\.md|(docker-)?compose[^/]*\.ya?ml|action\.ya?ml|(package|composer|deno)\.json|(pyproject|Cargo)\.toml|setup\.(py|cfg)|(conftest|__init__|sitecustomize|usercustomize)\.py|(tox|pytest)\.ini|[^/]*\.pth)$'
+SIBDENY='(^|/)((CLAUDE|AGENTS|GEMINI)[^/]*\.md|(docker-)?compose[^/]*\.ya?ml|action\.ya?ml|(package|composer|deno)\.json|(pyproject|Cargo)\.toml|setup\.(py|cfg)|(conftest|__init__|sitecustomize|usercustomize)\.py|(tox|pytest)\.ini|[^/]*\.pth|[^/]*-lock\.(json|ya?ml)|npm-shrinkwrap\.json|[^/]*\.lock|[^/]*\.config\.[^/]+|[^/]*rc\.[^/]+|(ts|js)config[^/]*\.json)$'
+# ponytail: denylist is best-effort; if it keeps growing, switch to an allowlist of safe sibling names.
 DENY='^\.github/|\.gitlab-ci|Jenkinsfile|\.circleci/|azure-pipelines|(^|/)\.env|credentials|\.pem$'
 CHANGED=$(printf '%s\n%s\n' "$LOGP" "$DIFFP" | sed '/^$/d' | sort -u)
 [ -n "$CHANGED" ] || { echo "push:none"; exit 0; }
