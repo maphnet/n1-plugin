@@ -29,6 +29,15 @@ line_has "ticket step redirects only interactive investigation" 'Interactive inv
 lacks "brain-dump investigation variant removed" "**Brain-dump variant**" skills/n1-start/steps/investigation-deliverable.md
 has "architecture points investigation to n1-refine" '/n1:n1-refine <ID> --investigate' references/architecture.md
 
+before "redirect precedes overview creation" 'Interactive investigation moved' '**Create overview.md**' skills/n1-start/steps/ticket.md
+has "write closes block with end line" '*End of Refined by N1*' skills/n1-refine/steps/03-write.md
+has "write replaces through end line" 'through the next `End of Refined by N1` line' skills/n1-refine/steps/03-write.md
+has "handoff has investigation form" '--type task' skills/n1-refine/steps/03-write.md
+has "stop list carve-out" 'A `[refined]` Decision (n1-refine block) never settles a stop-list prompt' skills/n1-start/procedures/autonomy-headless.md
+has "brainstormer points to stop list" 'autonomy-headless.md` § Stop list' agents/brainstormer.md
+has "n1-brainstorm points to stop list" 'autonomy-headless.md` § Stop list' skills/n1-brainstorm/SKILL.md
+has "queue child ignores post-plan comment block" 'planned_at' agents/product-analyst.md
+
 # --- Task 2: n1-start guard + ledger tag
 has "post-brainstorm enrichment skips refined tickets" 'skip the append if `*Refined by N1*`' skills/n1-start/steps/brainstorm.md
 has "post-brainstorm marker unchanged" '*Refined after design review — N1*' skills/n1-start/steps/brainstorm.md
@@ -40,19 +49,19 @@ has "tech-writer orders [refined] with [plan]" '`[plan]`/`[refined]` before `[as
 I=skills/n1-start/steps/investigation-deliverable.md
 has "caller mode block exists" '**Caller mode — n1-refine:**' "$I"
 before "caller mode precedes Phase 1" '**Caller mode — n1-refine:**' '**Phase 1 — Produce Findings**' "$I"
-line_has "caller mode remaps memory to refine/" '**Caller mode — n1-refine:**' 'memory/<ID>/refine/' "$I"
+line_has "caller mode remaps memory to refine/" '**Caller mode — n1-refine:**' '.../refine/' "$I"
 line_has "caller mode runs Phases 1-2 only" '**Caller mode — n1-refine:**' 'Run Phase 1 and Phase 2 only' "$I"
 lacks "no dangling Brain-dump variant refs" 'Brain-dump variant' "$I"
 
 # --- Task 4: product-analyst + queue intake markers
 PA=agents/product-analyst.md
-line_has "PA skip line lists refined marker after pinned sentence" 'already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment' '`*Refined by N1*`' "$PA"
+line_has "PA skip line lists refined marker after pinned sentence" 'already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment' '`Refined by N1`' "$PA"
 lacks "PA skip line never mentions Briefed refined" 'Briefed by N1 (queue plan)*` (n1-refine' "$PA"
 has "PA has refined block rule" '**Refined block rule:**' "$PA"
 line_has "PA copies decisions verbatim" '**Refined block rule:**' '`### Decisions`' "$PA"
 line_has "PA takes AC from the block only" '**Refined block rule:**' 'Take `### Acceptance Criteria` from the block only' "$PA"
 lacks "PA does not match the post-brainstorm marker" 'Refined after design review' "$PA"
-line_has "PA comment fallback needs the exact leading marker" '**Refined block rule:**' 'starts with exactly `*Refined by N1*`' "$PA"
+line_has "PA comment fallback needs the exact leading marker" '**Refined block rule:**' 'starts with that marker' "$PA"
 line_has "queue intake counts refined as Adequate" '`Normalized by N1` (with or without' '`*Refined by N1*`' skills/n1-queue/steps/intake.md
 has "architecture lists refined marker" '`*Refined by N1*`' references/architecture.md
 
@@ -98,7 +107,7 @@ has "decision line format" 'D<n> <topic>: <chosen>. Why: <reason>. Rejected: <al
 has "assumption line format" '<X> (default). If wrong: <what changes>.' "$W"
 before "block sections in order" '### Scope' '### Assumptions' "$W"
 has "write re-fetches before writing" 'Re-fetch the ticket immediately before the write' "$W"
-has "write replaces in place" 'replace from that line up to' "$W"
+has "write replaces in place" 'replace exactly the lines from it' "$W"
 has "single editTicket call" 'one `mcp__<TRACKER_MCP>__<EDIT_OP>` call' "$W"
 has "comment mode posts one comment" 'one `mcp__<TRACKER_MCP>__<COMMENT_OP>` call' "$W"
 has "comment recommended on others' tickets" '1 — Comment (Recommended)' "$W"

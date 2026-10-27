@@ -28,7 +28,7 @@ When `N1_UNATTENDED` also equals `ask` (set for Claude Code queue children), an 
 
 At any point where a step would ask the user or otherwise **wait for the user**, classify the prompt against the **stop list** before escalating.
 
-**Stop list:** the categories in `n1_escalation_val 'alwaysAskOn'` (default: `security`, `architecture`, `public-api`) plus the release confirmation gate (always unconditional).
+**Stop list:** the categories in `n1_escalation_val 'alwaysAskOn'` (default: `security`, `architecture`, `public-api`) plus the release confirmation gate (always unconditional). A `[refined]` Decision (n1-refine block) never settles a stop-list prompt: classify the prompt as usual and escalate unless the plan-time pre-decision below applies.
 
 **Plan-time pre-decision (queue children).** If the prompt is in a stop-list category (never the release gate) and the run was launched by n1-queue, check the answer the user already gave at queue plan time. The lookup only trusts a plan that is unambiguously this run's own: `N1_QUEUE_DIR` and `N1_QUEUE_RUN_ID` must both be set, and the plan file's own `run_id` must equal `N1_QUEUE_RUN_ID` (SEC-L1 — otherwise a stale or unrelated `queue.md` left in the same directory could authorize this run):
 

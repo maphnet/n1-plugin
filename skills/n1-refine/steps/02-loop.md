@@ -15,7 +15,7 @@ No recommendation. The options are equivalent given the available evidence; sele
 
 ## Step 2: Answer From Code First
 
-Collect open points: `### Decision Points` in analysis.md, `### Ambiguities` in refine/ticket.md, and `<!-- n1:unknown -->` markers in investigation.md when present. Resolve before asking:
+Collect open points: `### Decision Points` in analysis.md, `### Ambiguities` in refine/ticket.md, and `<!-- n1:unknown -->` markers in investigation.md when present, except those answered under its `### Clarifications` (a deferred one becomes an Assumption). Resolve before asking:
 - **C** — decide by convention; record as an Assumption.
 - **B** — decide from the cited evidence; record as a Decision whose Why names the file:line, or as an Assumption when the user may still overturn it.
 - **A** — ask in Step 3.

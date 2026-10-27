@@ -12,7 +12,7 @@ effort: medium
 
 Settle a ticket's decisions, scope, acceptance criteria and assumptions with the user, then write them back as one `*Refined by N1*` block. Optional and re-runnable: a re-run replaces the block in place. No branch, no worktree, no status change. All working files live in `$N1_HOME/memory/<ID>/refine/`; the ticket's `overview.md` is never created (n1-start would treat it as a resume).
 
-Run refine before `n1-queue --plan`: a later description edit fails the queue's description checksum closed.
+Run refine before `n1-queue --plan`: in a queue child, a refined block posted as a comment after the plan is ignored. Refined Decisions never pre-authorize stop-list (security, architecture, public-api) escalations.
 
 **Announce at start:** "I'm using the n1-refine skill to refine <ID>."
 
@@ -30,7 +30,7 @@ If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not config
 
 ```bash
 source ~/.n1/preamble.sh
-ARG="<argument without --investigate>"
+ARG='<argument without --investigate>'
 ID=$(n1_extract_ticket_from_url "$ARG" "$N1_HOME/config.json") || ID="$ARG"
 n1_detect_input_type "$ID" "$N1_HOME/config.json"
 ```

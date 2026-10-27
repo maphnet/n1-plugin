@@ -19,9 +19,11 @@ Build the block from the Step 2-5 results of `02-loop.md`. Plain bullets for bot
 
 ### Assumptions
 - <X> (default). If wrong: <what changes>.
+
+*End of Refined by N1*
 ```
 
-Acceptance Criteria: the ticket's criteria amended by the Decisions; this list is authoritative downstream.
+The last line closes the block; text outside the two marker lines belongs to people and is never replaced. Acceptance Criteria: the ticket's criteria amended by the Decisions; this list is authoritative downstream.
 
 ## Step 2: Preview
 
@@ -43,16 +45,16 @@ Drop Write when `EDIT_OP` is empty and Comment when `COMMENT_OP` is empty. Both 
 
 ## Step 3: Write
 
-**Write:** Re-fetch the ticket immediately before the write (`mcp__<TRACKER_MCP>__<READ_OP>`). If the description differs from `DESC_ORIG`, rebuild the new description from the fresh copy, show what changed, and return to Step 2; never overwrite blindly. Build the new description: if it has a line that is exactly `*Refined by N1*`, replace from that line up to (not including) the next line that starts with `*` and contains `N1`, or to the end; otherwise append a blank line and the block. Then make one `mcp__<TRACKER_MCP>__<EDIT_OP>` call carrying only the description (Jira: `cloudId`, `issueIdOrKey`, `description`; YouTrack: `issueId`, `description`) as structured tool arguments, never through a shell string. On failure: print the error and the block, and offer Comment.
+**Write:** Re-fetch the ticket immediately before the write (`mcp__<TRACKER_MCP>__<READ_OP>`). If the description differs from `DESC_ORIG`, rebuild the new description from the fresh copy, show what changed, and return to Step 2; never overwrite blindly. Build the new description: if it has a line `*Refined by N1*` (match regardless of `*` or `_` emphasis, whole line), replace exactly the lines from it through the next `End of Refined by N1` line (same emphasis rule), inclusive, and nothing else. A block with no end line (written before the end line existed): replace from the marker through the last `- ` line of its `### Assumptions` section. Otherwise append a blank line and the block. Show the full old and new description to the user as a diff before the call. Then make one `mcp__<TRACKER_MCP>__<EDIT_OP>` call carrying only the description (Jira: `cloudId`, `issueIdOrKey`, `description`; YouTrack: `issueId`, `description`) as structured tool arguments, never through a shell string. On failure: print the error and the block, and offer Comment.
 
 **Comment:** one `mcp__<TRACKER_MCP>__<COMMENT_OP>` call with the block as the comment body. A comment is never edited in place; a later re-run posts a new one. Downstream reads only the newest of the last 5 comments that starts with the marker, so re-run refine if later comments push it out.
 
 ## Step 4: Handoff
 
-Print, then end:
+Print, then end. When `INVESTIGATE=true`, the ticket is still investigation-typed, so print the `--type task` form of the Next line only, and add "Queue and headless runs would still run the investigation; retype the ticket first."
 
 ```
 Refined <ID> (<description|comment>). <verdict line>
-Next: /n1:n1-start <ID>
+Next: /n1:n1-start <ID>            (investigation-typed ticket: /n1:n1-start <ID> --type task)
 Or queue it: add it to a /n1:n1-queue batch (tag or story), then run --plan.
 ```

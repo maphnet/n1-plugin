@@ -35,7 +35,7 @@ Read `ticket.md` and `analysis.md` in full. If `investigation.md` exists, read i
 - If bug: note the root cause and affected code path from the analysis
 - If investigation.md present: its findings, recommendations, and confidence level anchor the design — don't re-investigate what it already resolved
 - If analysis.md contains a `### Ticket Validation` section with contradicted claims, treat those findings as constraints: prefer the approach recommended by current best practices over the ticket's original direction, unless the user explicitly chose to continue as-is at the contradiction gate
-- If ticket.md has `### Decisions` (from a `*Refined by N1*` block), each `D<n>` line is an answered A-tier question: never re-ask or contradict it, and append one `[refined]` ledger row per line (tier A, rungs `---`). If analysis.md marks one Contradicted, apply the contradiction rule above; never override it silently.
+- If ticket.md has `### Decisions` (from a `*Refined by N1*` block), each `D<n>` line is an answered A-tier question: never re-ask or contradict it, and append one `[refined]` ledger row per line (tier A, rungs `---`). If analysis.md marks one Contradicted, apply the contradiction rule above; never override it silently. Under `N1_HEADLESS=1` a stop-list topic is not settled by it: `skills/n1-start/procedures/autonomy-headless.md` § Stop list.
 
 ### 2. Self-Directed Discovery
 

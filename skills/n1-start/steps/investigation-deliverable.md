@@ -2,7 +2,7 @@
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
-> **Caller mode — n1-refine:** when n1-refine runs this step, every `$N1_HOME/memory/<ID>/` path below means `$N1_HOME/memory/<ID>/refine/`. Run Phase 1 and Phase 2 only. Skip all overview.md reads and writes (checklist, `step`, frontmatter), Decision Ledger rows, `ORIGINAL_STATUS`, telemetry events, Phase 3, Phase 4 and Phase 5. Then return to n1-refine with the `implementable` signal from investigation.md; the continue banner above does not apply.
+> **Caller mode — n1-refine:** when n1-refine runs this step, every `$N1_HOME/memory/<ID>/` or `$N1_HOME/memory/$ID/` path below (including `INV_FILE` and the analysis.md reads) means `.../refine/`. Run Phase 1 and Phase 2 only. Skip all overview.md reads and writes (checklist, `step`, frontmatter), Decision Ledger rows, `ORIGINAL_STATUS`, telemetry events, Phase 3, Phase 4 and Phase 5. Then return to n1-refine with the `implementable` signal from investigation.md; the continue banner above does not apply.
 
 > **ORCHESTRATOR GUARDRAIL (experiments):** user requests to run/test/benchmark/curl are handled by spawning **developer** in experiment mode: pass the exact question + worktree path + "Experiment mode: build/run/benchmark in `$N1_HOME/memory/<ID>/scratch/`; no production code changes; no commits; write `experiment-<N>.md` with ## Question, ## Setup, ## Runs, ## Result, ## Cleanup; run cleanup; return ≤15-line summary + file path." Orchestrator reads summary and continues.
 
