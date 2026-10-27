@@ -70,6 +70,8 @@ line_has "PA copies decisions verbatim" '**Refined block rule:**' '`### Decision
 line_has "PA takes AC from the block only" '**Refined block rule:**' 'Take `### Acceptance Criteria` from the block only' "$PA"
 lacks "PA does not match the post-brainstorm marker" 'Refined after design review' "$PA"
 line_has "PA comment fallback needs first line == marker" '**Refined block rule:**' 'FIRST LINE equals that marker' "$PA"
+line_has "PA most recent refined block wins" '**Refined block rule:**' 'The most recent refined block wins' "$PA"
+line_has "PA comment supersedes older description block" '**Refined block rule:**' 'created after the description' "$PA"
 line_has "queue intake counts refined as Adequate" '`Normalized by N1` (with or without' '`*Refined by N1*`' skills/n1-queue/steps/intake.md
 has "architecture lists refined marker" '`*Refined by N1*`' references/architecture.md
 

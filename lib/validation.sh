@@ -97,16 +97,20 @@ n1_read_type() {
 # Trailing-only `--type <name>` (the documented form `<ID> --type <name>`); a mid-text `--type` in a brain dump is not the flag.
 _N1_TYPE_ARG_RE='(^|[[:space:]])--type[[:space:]]+([^[:space:]]+)[[:space:]]*$'
 
-# n1_strip_type_arg <input> -> input without the trailing `--type <name>`, trimmed (so `N1-162 --type task` detects as a ticket).
+# n1_strip_type_arg <input> -> input without the trailing `--type <name>` (so `N1-162 --type task` detects as a ticket).
+# Whole-string match (not per line); only whitespace adjacent to the removed suffix is trimmed, the rest is verbatim.
 n1_strip_type_arg() {
-    printf '%s' "$1" | sed -E "s/[[:space:]]*${_N1_TYPE_ARG_RE}//; s/^[[:space:]]+//; s/[[:space:]]+\$//"
+    local s="$1"
+    if [[ "$s" =~ $_N1_TYPE_ARG_RE ]]; then
+        s="${s%"${BASH_REMATCH[0]}"}"
+        s="${s%"${s##*[![:space:]]}"}"
+    fi
+    printf '%s' "$s"
 }
 
 n1_parse_type_arg() {
-    local name
-    name=$(printf '%s' "$1" | sed -nE "s/.*${_N1_TYPE_ARG_RE}/\2/p" | head -n1)
-    [ -n "$name" ] || return 1
-    printf '%s' "$name"
+    [[ "$1" =~ $_N1_TYPE_ARG_RE ]] || return 1
+    printf '%s' "${BASH_REMATCH[2]}"
 }
 
 n1_resolve_type() {

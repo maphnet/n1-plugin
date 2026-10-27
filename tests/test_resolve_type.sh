@@ -82,6 +82,13 @@ assert_eq "mid-text --type is not the flag" "braindump||Add a --type flag to the
 assert_eq "valueless trailing --type untouched" "braindump||fix --type" "$(split "fix --type")"
 assert_eq "tab separator parsed and stripped" "ticket|task|N1-162" "$(split "$(printf 'N1-162\t--type\ttask')")"
 assert_eq "trailing --type after brain dump" "braindump|task|fix the page" "$(split "fix the page --type task")"
+ML=$'line one\n  indented --type bug\n    keep indent'
+assert_eq "interior --type line is not the flag" "" "$(n1_parse_type_arg "$ML" || true)"
+assert_eq "interior --type line leaves input unchanged" "$ML" "$(n1_strip_type_arg "$ML")"
+ML2=$'first\n  second indented\n\tthird'
+assert_eq "multiline indentation preserved on trailing flag" "$ML2" "$(n1_strip_type_arg "$ML2 --type task")"
+assert_eq "trailing --type after multiline parsed" "task" "$(n1_parse_type_arg "$ML2 --type task")"
+assert_eq "trailing --type on its own line parsed" "task" "$(n1_parse_type_arg "$ML2"$'\n--type task')"
 assert_eq "URL + --type survives normalization" "N1-162" "$(n1_extract_ticket_from_url "$(n1_strip_type_arg "https://x.atlassian.net/browse/N1-162 --type task")" "$T/config.json")"
 
 echo
