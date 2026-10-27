@@ -102,6 +102,15 @@ mkdir -p d; echo n > d/CLAUDE.md; git add d/CLAUDE.md; git commit -qm claudemd
 printf 'd/x.md\n' > "$TMP/allowed-md"
 eq "loader basename not admitted as sibling" "push:blocked paths=d/CLAUDE.md" "$(bash "$G" "$TMP/start" "$TMP/allowed-md" feat "$TMP/repo")"
 git reset -q --hard "$BASE"
+mkdir -p d; echo n > d/AGENTS.override.md; git add d/AGENTS.override.md; git commit -qm agentsdot
+eq "dotted loader basename not admitted as sibling" "push:blocked paths=d/AGENTS.override.md" "$(bash "$G" "$TMP/start" "$TMP/allowed-md" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+git checkout -q -b side; mkdir -p d; echo 1 > d/m.txt; git add d/m.txt; git commit -qm s1; git checkout -q feat
+mkdir -p d; echo 2 > d/m.txt; git add d/m.txt; git commit -qm s2; git merge -q side >/dev/null 2>&1
+rm -f d/m.txt; ln -s ../a.txt d/m.txt; git add d/m.txt; git commit -qm mergesym
+rm d/m.txt; echo n > d/m.txt; git add d/m.txt; git commit -qm mergereg
+eq "symlink recorded only by a merge stays blocked" "push:blocked paths=d/m.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"; git branch -q -D side
 mkdir -p d; ln -s ../a.txt d/sl.txt; git add d/sl.txt; git commit -qm sym1
 rm d/sl.txt; echo n > d/sl.txt; git add d/sl.txt; git commit -qm sym2
 eq "symlink in an intermediate commit stays blocked" "push:blocked paths=d/sl.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"

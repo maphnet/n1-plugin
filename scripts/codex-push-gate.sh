@@ -41,7 +41,7 @@ NONREG=$(git -c core.quotePath=false log -m --no-renames --raw --format= "$START
 # dir/ext of allowed paths: a sibling needs a dotted name whose extension matches an allowed path in the same dir.
 ALLOWED_DIR_EXTS=$(grep -E '/[^/]+\.[^/.]+$' "$ALLOWED_FILE" | sed -E 's|^(.*)/[^/]*\.([^/.]+)$|\1/\2|' | sort -u)
 # Sibling-only: basenames that a loader/tool auto-reads (agent instructions, compose, package manifests, test/import hooks).
-SIBDENY='(^|/)((CLAUDE|AGENTS|GEMINI)\.md|(docker-)?compose[^/]*\.ya?ml|action\.ya?ml|(package|composer|deno)\.json|(pyproject|Cargo)\.toml|setup\.(py|cfg)|(conftest|__init__|sitecustomize|usercustomize)\.py|(tox|pytest)\.ini|[^/]*\.pth)$'
+SIBDENY='(^|/)((CLAUDE|AGENTS|GEMINI)[^/]*\.md|(docker-)?compose[^/]*\.ya?ml|action\.ya?ml|(package|composer|deno)\.json|(pyproject|Cargo)\.toml|setup\.(py|cfg)|(conftest|__init__|sitecustomize|usercustomize)\.py|(tox|pytest)\.ini|[^/]*\.pth)$'
 DENY='^\.github/|\.gitlab-ci|Jenkinsfile|\.circleci/|azure-pipelines|(^|/)\.env|credentials|\.pem$'
 CHANGED=$(printf '%s\n%s\n' "$LOGP" "$DIFFP" | sed '/^$/d' | sort -u)
 [ -n "$CHANGED" ] || { echo "push:none"; exit 0; }
@@ -57,6 +57,7 @@ if [ -n "$BAD" ]; then
   # Denylisted content (credentials, CI) is never copied into the saved patch, but the commits still leave the branch.
   if [ -n "$PATCH_FILE" ]; then
     if grep -qE "$DENY" <<<"$BAD"; then
+      rm -f "$PATCH_FILE"
       tip=$(git rev-parse HEAD 2>/dev/null)
       if git reset -q --keep "$START" 2>/dev/null; then echo "$S reset=$tip"; else echo "$S kept=$tip"; fi
       exit 0
