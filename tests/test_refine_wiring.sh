@@ -72,6 +72,10 @@ lacks "PA does not match the post-brainstorm marker" 'Refined after design revie
 line_has "PA comment fallback needs first line == marker" '**Refined block rule:**' 'FIRST LINE equals that marker' "$PA"
 line_has "PA most recent refined block wins" '**Refined block rule:**' 'The most recent refined block wins' "$PA"
 line_has "PA comment supersedes older description block" '**Refined block rule:**' 'created after the description' "$PA"
+line_has "PA hash-checks the description block in a queue child (N1-164)" '**Refined block rule:**' 'desc-hash-chain.md` § Intake check prints `MATCH`' "$PA"
+line_has "PA ignores a description block edited after plan (N1-164)" '**Refined block rule:**' 'ignore the description block (treat it as absent)' "$PA"
+line_has "PA comment guard unchanged next to the hash check" '**Refined block rule:**' 'missing or unreadable, ignore the comment block' "$PA"
+line_has "PA budget counts the intake check" '§ Intake check' '2 file-writes' "$PA"
 line_has "queue intake counts refined as Adequate" '`Normalized by N1` (with or without' '`*Refined by N1*`' skills/n1-queue/steps/intake.md
 line_has "queue preview Brief skips refined descriptions" '**Brief (Empty/Skeletal only).**' 'carries no `Refined by N1` line' skills/n1-queue/steps/preview.md
 has "architecture lists refined marker" '`*Refined by N1*`' references/architecture.md
