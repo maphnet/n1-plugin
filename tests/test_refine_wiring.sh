@@ -105,4 +105,8 @@ has "comment recommended on others' tickets" '1 — Comment (Recommended)' "$W"
 has "handoff prints n1-start" '/n1:n1-start <ID>' "$W"
 has "architecture lists n1-refine" '| n1-refine |' references/architecture.md
 
+# --- Task 9: n1-ticket hint
+has "compose keeps the feasibility rating" 'Keep the feasibility rating for Step 9' skills/n1-ticket/steps/01-compose.md
+line_has "create hints refine on risky tickets" '/n1:n1-refine <TICKET_ID>' 'needs investigation' skills/n1-ticket/steps/02-create.md
+
 exit $FAIL
