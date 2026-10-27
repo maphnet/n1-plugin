@@ -201,6 +201,13 @@ PIPE_DENY=("evidence-N1-74|bash tests/run.sh 2>&1 | tail -2 && git add -A && git
            "evidence-N1-75|bash tests/test_manifests.sh | tail -2 && git add -A && git commit -m x"
            "pytest-env-wrapper|FOO=1 timeout 5 pytest -q | head -3 && git commit -m x"
            "git-C-grep|pytest | grep -c FAIL && git -C d commit -m x"
+           "npm-test|npm test | tail -2 && git commit -m x"
+           "go-test|go test ./... | tail && git commit -m x"
+           "make-test|make test | tail && git commit -m x"
+           "py-pytest|python -m pytest | tail && git commit -m x"
+           "pipefail-late|bash tests/run.sh | tail -2 && git commit -m x; set -o pipefail"
+           "and-newline|bash tests/run.sh | tail -2 &&
+git commit -m x"
            "pipe-amp|bash tests/run.sh |& tail -2 && git commit -m x"
            "pipefail-in-message|bash tests/run.sh | tail -2 && git commit -m 'add pipefail guard'")
 PIPE_OK=("pipefail-set|set -o pipefail; bash tests/run.sh 2>&1 | tail -2 && git commit -m x"

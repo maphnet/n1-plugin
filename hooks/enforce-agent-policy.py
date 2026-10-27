@@ -66,10 +66,10 @@ WRAPPERS = {"env", "command", "exec", "sudo", "time", "nohup", "xargs", "timeout
             "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
 GH_VALUE_FLAGS = {"-R", "--repo"}
 GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
-UNIT_RE = re.compile(r"(&&|\|\||;|\n)")
+UNIT_RE = re.compile(r"(&&\s*|\|\||;|\n)")
 RUNNER_RE = re.compile(r"(?:^|/)(?:pytest|bats|jest|vitest)$")
 TESTS_DIR_RE = re.compile(r"(?:^|/)tests?/")
-PIPEFAIL_RE = re.compile(r"\bset\b[^;&|\n]{0,200}\s-[A-Za-z]*o\s+pipefail\b|PIPESTATUS")
+PIPEFAIL_RE = re.compile(r"\bset\b[^;&|\n]{0,200}\s-[A-Za-z]*o\s+pipefail\b")
 PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 
@@ -317,7 +317,7 @@ def _is_runner(stage):
         return True
     if name.startswith("python") and w[1:3] == ["-m", "pytest"]:
         return True
-    return (name, w[1:2]) in {("npm", ["test"]), ("go", ["test"]), ("make", ["test"])} or w[:3] == ["npm", "run", "test"]
+    return (name, *w[1:2]) in {("npm", "test"), ("go", "test"), ("make", "test")} or w[:3] == ["npm", "run", "test"]
 
 
 def _is_commit(unit):
@@ -327,11 +327,15 @@ def _is_commit(unit):
 
 def pipe_deny(payload: dict) -> int:
     command = _command(payload)
-    if not command or PIPEFAIL_RE.search(command):
+    if not command or "PIPESTATUS" in command:
         return 0
     parts = UNIT_RE.split(REDIR_RE.sub(" ", command))
-    masked = False
+    masked = pipefail = False
     for i in range(0, len(parts), 2):
+        # pipefail only protects units after the `set -o pipefail` unit
+        if pipefail or PIPEFAIL_RE.search(parts[i]):
+            pipefail, masked = True, False
+            continue
         if masked and _is_commit(parts[i]):
             sys.stderr.write("N1: commit denied -- a test runner piped into tail/head/grep hides its exit status; "
                              "prefix the command with 'set -o pipefail;' (or use PIPESTATUS)\n")
@@ -340,7 +344,7 @@ def pipe_deny(payload: dict) -> int:
         if len(stages) > 1 and any(_is_runner(st) for st in stages[:-1]):
             last = _words(stages[-1])
             masked = masked or (bool(last) and last[0].rsplit("/", 1)[-1] in ("tail", "head", "grep"))
-        masked = masked and i + 1 < len(parts) and parts[i + 1] == "&&"
+        masked = masked and i + 1 < len(parts) and parts[i + 1].startswith("&&")
     return 0
 
 
