@@ -94,6 +94,11 @@ n1_read_type() {
     fi
 }
 
+# n1_strip_type_arg <input> -> input without `--type <name>`, trimmed (so `N1-162 --type task` detects as a ticket).
+n1_strip_type_arg() {
+    printf '%s' "$1" | sed -E 's/[[:space:]]*--type[[:space:]]+[^[:space:]]+//g; s/^[[:space:]]+//; s/[[:space:]]+$//'
+}
+
 n1_parse_type_arg() {
     local input="$1"
     case "$input" in

@@ -4,10 +4,12 @@ Input types: ticket ID, tracker URL, error-tracker URL (matches `urlPattern`), f
 
 **Moved flag:** user input containing `--investigate` → say "`--investigate` moved: run `/n1:n1-refine <ID> --investigate`." and STOP.
 
-**Tracker URL normalization:**
+**Type flag + URL normalization:** split `--type <name>` off first; remember `TYPE_OVERRIDE` (empty if none) for `steps/ticket.md`, and use the printed `USER_INPUT` below.
 ```bash
 source ~/.n1/preamble.sh
-EXTRACTED=$(n1_extract_ticket_from_url "<user-input>" "$N1_HOME/config.json") && USER_INPUT="$EXTRACTED" || USER_INPUT="<user-input>"
+RAW="<user-input>"; TYPE_OVERRIDE=$(n1_parse_type_arg "$RAW") || TYPE_OVERRIDE=""; USER_INPUT=$(n1_strip_type_arg "$RAW")
+EXTRACTED=$(n1_extract_ticket_from_url "$USER_INPUT" "$N1_HOME/config.json") && USER_INPUT="$EXTRACTED"
+echo "TYPE_OVERRIDE=$TYPE_OVERRIDE USER_INPUT=$USER_INPUT"
 ```
 
 **Detect input type:**

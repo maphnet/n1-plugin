@@ -11,13 +11,13 @@ Empty: `{"title":null,"tags":[],"type":"task"}`. Parse `TITLE TAGS TYPE CLOUD_ID
 
 ```bash
 source ~/.n1/preamble.sh
-TYPE_OVERRIDE=""; n1_parse_type_arg "$USER_INPUT" 2>/dev/null && TYPE_OVERRIDE=$(n1_parse_type_arg "$USER_INPUT")
+TYPE_OVERRIDE="<TYPE_OVERRIDE from input parsing, empty if none>"
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
 n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "$TYPE_OVERRIDE" > "$N1_HOME/memory/$ID/.resolved-type" 2>/dev/null || true
 RESOLVED_TYPE=$(cat "$N1_HOME/memory/$ID/.resolved-type"); rm -f "$N1_HOME/memory/$ID/.resolved-type"; TYPE_MATCHED_BY="$N1_TYPE_MATCHED_BY"
 INVESTIGATION_DETECTED=false
-[ "$RESOLVED_TYPE" = "investigation" ] && INVESTIGATION_DETECTED=true || { n1_title_hints_investigation "$TITLE" && echo "Hint: title looks like investigation; re-run with --type investigation; continuing as ${RESOLVED_TYPE}."; }
+[ "$RESOLVED_TYPE" = "investigation" ] && INVESTIGATION_DETECTED=true || { [ -z "$TYPE_OVERRIDE" ] && n1_title_hints_investigation "$TITLE" && echo "Hint: title looks like investigation; re-run with --type investigation; continuing as ${RESOLVED_TYPE}."; }
 ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]'); IS_STORY=false
 SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p')
 case "$ISSUE_TYPE" in epic) IS_STORY=true ;; story) ;; *) [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md" && IS_STORY=true ;; esac
