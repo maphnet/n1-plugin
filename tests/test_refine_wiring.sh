@@ -32,14 +32,21 @@ has "architecture points investigation to n1-refine" '/n1:n1-refine <ID> --inves
 before "redirect precedes overview creation" 'Interactive investigation moved' '**Create overview.md**' skills/n1-start/steps/ticket.md
 has "write closes block with end line" '*End of Refined by N1*' skills/n1-refine/steps/03-write.md
 has "write replaces through end line" 'through the next `End of Refined by N1` line' skills/n1-refine/steps/03-write.md
-has "handoff has investigation form" '--type task' skills/n1-refine/steps/03-write.md
+line_has "handoff investigation form keys on resolved type" 'resolved type is `investigation`' '`--investigate` on a Task-typed ticket does not count' skills/n1-refine/steps/03-write.md
+line_has "fallback boundary stops at blank line or heading" 'contiguous `- ` line directly under' 'first blank line or heading' skills/n1-refine/steps/03-write.md
+has "input-parsing strips --type before detection" 'n1_strip_type_arg "$RAW"' skills/n1-start/procedures/input-parsing.md
+before "type split precedes detection" 'n1_strip_type_arg' 'n1_detect_input_type' skills/n1-start/procedures/input-parsing.md
+has "ticket step reads saved override" 'TYPE_OVERRIDE="<TYPE_OVERRIDE from input parsing' skills/n1-start/steps/ticket.md
+lacks "ticket step no longer parses USER_INPUT" 'n1_parse_type_arg' skills/n1-start/steps/ticket.md
+line_has "title hint skipped on explicit override" 'n1_title_hints_investigation' '[ -z "$TYPE_OVERRIDE" ]' skills/n1-start/steps/ticket.md
 has "stop list carve-out" 'A `[refined]` Decision (n1-refine block) never settles a stop-list prompt' skills/n1-start/procedures/autonomy-headless.md
 has "brainstormer points to stop list" 'autonomy-headless.md` § Stop list' agents/brainstormer.md
 has "n1-brainstorm points to stop list" 'autonomy-headless.md` § Stop list' skills/n1-brainstorm/SKILL.md
 has "queue child ignores post-plan comment block" 'planned_at' agents/product-analyst.md
+line_has "unreadable planned_at fails closed" 'planned_at' 'missing or unreadable, ignore the comment block' agents/product-analyst.md
 
 # --- Task 2: n1-start guard + ledger tag
-has "post-brainstorm enrichment skips refined tickets" 'skip the append if `*Refined by N1*`' skills/n1-start/steps/brainstorm.md
+line_has "post-brainstorm enrichment skips refined tickets, emphasis-insensitive" 'skip the append if the description has a `*Refined by N1*` line' 'regardless of `*` or `_` emphasis' skills/n1-start/steps/brainstorm.md
 has "post-brainstorm marker unchanged" '*Refined after design review — N1*' skills/n1-start/steps/brainstorm.md
 has "ledger documents [refined]" '`[refined]` human answered in n1-refine' skills/n1-start/ledger.md
 has "ledger keeps [plan]" '`[plan]`' skills/n1-start/ledger.md
@@ -50,6 +57,7 @@ I=skills/n1-start/steps/investigation-deliverable.md
 has "caller mode block exists" '**Caller mode — n1-refine:**' "$I"
 before "caller mode precedes Phase 1" '**Caller mode — n1-refine:**' '**Phase 1 — Produce Findings**' "$I"
 line_has "caller mode remaps memory to refine/" '**Caller mode — n1-refine:**' '.../refine/' "$I"
+line_has "caller mode remaps the \$ID spelling too" '**Caller mode — n1-refine:**' '$N1_HOME/memory/$ID/' "$I"
 line_has "caller mode runs Phases 1-2 only" '**Caller mode — n1-refine:**' 'Run Phase 1 and Phase 2 only' "$I"
 lacks "no dangling Brain-dump variant refs" 'Brain-dump variant' "$I"
 
@@ -61,7 +69,7 @@ has "PA has refined block rule" '**Refined block rule:**' "$PA"
 line_has "PA copies decisions verbatim" '**Refined block rule:**' '`### Decisions`' "$PA"
 line_has "PA takes AC from the block only" '**Refined block rule:**' 'Take `### Acceptance Criteria` from the block only' "$PA"
 lacks "PA does not match the post-brainstorm marker" 'Refined after design review' "$PA"
-line_has "PA comment fallback needs the exact leading marker" '**Refined block rule:**' 'starts with that marker' "$PA"
+line_has "PA comment fallback needs first line == marker" '**Refined block rule:**' 'FIRST LINE equals that marker' "$PA"
 line_has "queue intake counts refined as Adequate" '`Normalized by N1` (with or without' '`*Refined by N1*`' skills/n1-queue/steps/intake.md
 has "architecture lists refined marker" '`*Refined by N1*`' references/architecture.md
 
@@ -79,6 +87,7 @@ has "refine requires a ticket ID" 'Run `/n1:n1-ticket` first' "$R/SKILL.md"
 has "refine documents queue-plan order" 'Run refine before `n1-queue --plan`' "$R/SKILL.md"
 has "fetch disables enrichment" 'enrichmentEnabled=false' "$R/steps/01-fetch.md"
 has "fetch writes under refine/" 'memory/<ID>/refine/ticket.md' "$R/steps/01-fetch.md"
+line_has "fetch re-run check is emphasis-insensitive" 'already contains a `*Refined by N1*` line' 'regardless of `*` or `_` emphasis' "$R/steps/01-fetch.md"
 has "fetch checks the author" 'getCurrentUser' "$R/steps/01-fetch.md"
 has "unknown author defaults to comment" 'WRITE_MODE=comment' "$R/steps/01-fetch.md"
 has "fetch reuses shared investigation step" 'skills/n1-start/steps/investigation-deliverable.md' "$R/steps/01-fetch.md"
@@ -88,6 +97,7 @@ lacks "refine never touches overview.md by path" 'memory/$ID/overview.md' "$R"
 
 # --- Task 7: decision loop
 L=skills/n1-refine/steps/02-loop.md
+line_has "loop skips unknowns already under Clarifications" 'n1:unknown' '### Clarifications' "$L"
 has "loop reuses contradiction signal" 'ticket_contradictions' "$L"
 has "loop caps a batch at 4 questions" 'at most 4 questions per message' "$L"
 has "loop rounds are uncapped" 'no round cap' "$L"

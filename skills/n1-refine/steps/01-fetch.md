@@ -19,7 +19,7 @@ echo "mcp=$TRACKER_MCP type=$TRACKER_TYPE cloud=$CLOUD_ID read=$READ_OP edit=$ED
 
 ## Step 2: Read Ticket and Author Check
 
-Call `mcp__<TRACKER_MCP>__<READ_OP>` (Jira: `cloudId`, `issueIdOrKey`; YouTrack: `issueId`). Keep the raw description as `DESC_ORIG` (`03-write.md` Step 3 compares against it) and the reporter's identity fields. If `DESC_ORIG` already contains `*Refined by N1*`, or after Step 3 refine/ticket.md carries `### Decisions` (a comment-mode block), this is a re-run: that block is the starting draft.
+Call `mcp__<TRACKER_MCP>__<READ_OP>` (Jira: `cloudId`, `issueIdOrKey`; YouTrack: `issueId`). Keep the raw description as `DESC_ORIG` (`03-write.md` Step 3 compares against it) and the reporter's identity fields. If `DESC_ORIG` already contains a `*Refined by N1*` line (match regardless of `*` or `_` emphasis, whole line), or after Step 3 refine/ticket.md carries `### Decisions` (a comment-mode block), this is a re-run: that block is the starting draft.
 
 When `GET_USER_OP` is set, call `mcp__<TRACKER_MCP>__<GET_USER_OP>`. Compare reporter and current user by account id, else email, else display name (the first field present on both sides):
 - `WRITE_MODE=description` — they match.

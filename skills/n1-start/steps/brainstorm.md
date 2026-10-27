@@ -53,4 +53,4 @@ n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NE
 
 `direct`: specified+independent+no design+no test strategy. `plan`: coordination/open questions/new abstractions/security/API/cross-cutting. Default `plan`.
 
-**Post-Brainstorm Enrichment:** ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent if `*Refined after design review — N1*`; skip the append if `*Refined by N1*`, still post the summary). Post design summary. Non-blocking (queue: <N1_ROOT>/references/desc-hash-chain.md).
+**Post-Brainstorm Enrichment:** ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent if `*Refined after design review — N1*`; skip the append if the description has a `*Refined by N1*` line (match regardless of `*` or `_` emphasis, whole line), still post the summary). Post design summary. Non-blocking (queue: <N1_ROOT>/references/desc-hash-chain.md).
