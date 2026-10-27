@@ -149,12 +149,30 @@ class ScrubEnvTest(unittest.TestCase):
         env = {"AWS_ACCESS_KEY_ID": "x", "AZURE_CLIENT_ID": "x", "GOOGLE_APPLICATION_CREDENTIALS": "x",
                "GH_TOKEN": "x", "GITHUB_TOKEN": "x", "DB_SECRET_KEY": "x", "NPM_TOKEN": "x", "N1_HOME": "x",
                "ANTHROPIC_API_KEY": "k", "CLAUDE_CODE_OAUTH_TOKEN": "t", "HOME": "/h", "PATH": "/bin",
-               "HTTPS_PROXY": "p", "NO_PROXY": "n"}
+               "HTTPS_PROXY": "p", "NO_PROXY": "n",
+               "OPENAI_API_KEY": "x", "DB_PASSWORD": "x", "GITLAB_PAT": "x", "SVC_CREDENTIALS": "x",
+               "SSH_AUTH_SOCK": "x", "DATABASE_URL": "x"}
         self.assertEqual(set(ab.scrub_env(env)), {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "HOME",
                                                   "PATH", "HTTPS_PROXY", "NO_PROXY"})
 
 
 class ProcessGroupTest(unittest.TestCase):
+    def test_interrupt_kills_group(self):
+        real = ab.subprocess.Popen.communicate
+        calls = []
+
+        def fake(self, *a, **kw):
+            if not calls:
+                calls.append(1)
+                raise KeyboardInterrupt
+            return real(self, *a, **kw)
+
+        with mock.patch.object(ab.subprocess.Popen, "communicate", fake), \
+                mock.patch.object(ab.os, "killpg", wraps=ab.os.killpg) as kp:
+            with self.assertRaises(KeyboardInterrupt):
+                ab.run_group(["sleep", "60"], ".", 30)
+        kp.assert_called_once()
+
     def test_timeout_kills_grandchildren(self):
         with tempfile.TemporaryDirectory() as tmp:
             pidfile = Path(tmp) / "pid"
@@ -283,6 +301,7 @@ class EndToEndTest(unittest.TestCase):
         self.assertEqual((self.run_dir / "raw.jsonl").read_text(), "")
         summary = json.loads((self.run_dir / "summary.json").read_text())
         self.assertEqual(summary["rejected"], 4)
+        self.assertEqual(summary["rejected_cost_usd"], 0.04)
 
     def test_defaults_to_n1_home_scratch(self):
         home = self.tmp / "n1home"

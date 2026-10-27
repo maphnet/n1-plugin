@@ -55,23 +55,25 @@ PERSONAS = ("developer", "qa-engineer", "code-reviewer")
 TOKEN_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")
 METRICS = TOKEN_KEYS + ("num_turns", "wall_ms", "cost_usd")
 ARMS = ("baseline", "candidate")
-SECRET_PATTERNS = ("AWS_*", "AZURE_*", "GOOGLE_*", "GH_TOKEN", "GITHUB_TOKEN", "*_SECRET*", "*_TOKEN", "N1_*")
+SECRET_PATTERNS = ("AWS_*", "AZURE_*", "GOOGLE_*", "GH_TOKEN", "GITHUB_TOKEN", "*_SECRET*", "*_TOKEN", "N1_*",
+                   "*_API_KEY", "*PASSWORD*", "*_PAT", "*_CREDENTIALS", "SSH_AUTH_SOCK", "DATABASE_URL")
 KEEP_PREFIXES = ("ANTHROPIC_", "CLAUDE_")
 
 
 def scrub_env(env):
-    """Copy of env without credential-like vars (denylist, so auth and proxy vars keep working)."""
+    """Copy of env without credential-like vars (denylist, so auth and proxy vars keep working).
+    Limit: HOME stays (claude auth needs it), so credential files under HOME remain reachable."""
     return {k: v for k, v in env.items()
             if k.startswith(KEEP_PREFIXES) or not any(fnmatch.fnmatchcase(k.upper(), pat) for pat in SECRET_PATTERNS)}
 
 
 def run_group(cmd, cwd, timeout, text=False):
-    """subprocess.run in its own session with a scrubbed env; SIGKILL the whole group on timeout."""
+    """subprocess.run in its own session with a scrubbed env; SIGKILL the whole group on timeout or any other exit (e.g. Ctrl-C)."""
     proc = subprocess.Popen(cmd, cwd=cwd, env=scrub_env(os.environ), stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=text, start_new_session=True)
     try:
         out, err = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    except BaseException:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
