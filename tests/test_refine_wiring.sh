@@ -56,4 +56,10 @@ line_has "PA comment fallback needs the exact leading marker" '**Refined block r
 line_has "queue intake counts refined as Adequate" '`Normalized by N1` (with or without' '`*Refined by N1*`' skills/n1-queue/steps/intake.md
 has "architecture lists refined marker" '`*Refined by N1*`' references/architecture.md
 
+# --- Task 5: design consumers
+has "SA treats refined decisions as resolved" '**Refined decisions:**' agents/solution-architect.md
+line_has "SA routes infeasible decisions to contradictions" '**Refined decisions:**' 'ticket_contradictions' agents/solution-architect.md
+line_has "brainstormer never re-asks refined decisions" '*Refined by N1*' '`[refined]`' agents/brainstormer.md
+line_has "n1-brainstorm never re-asks refined decisions" '**Refined decisions:**' '`[refined]`' skills/n1-brainstorm/SKILL.md
+
 exit $FAIL

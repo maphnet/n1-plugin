@@ -29,6 +29,8 @@ Generate up to 4 clarifying questions that cannot be answered from the provided 
 
 Only ask questions that materially affect the design. Skip questions answerable from `analysis.md`.
 
+**Refined decisions:** a `D<n>` line under ticket.md `### Decisions` is already answered: never ask or contradict it; append one `[refined]` Decision Ledger row per line (`skills/n1-start/ledger.md`).
+
 ### 3. Approach Generation
 
 Propose 2-3 approaches with tradeoffs. For each describe:
