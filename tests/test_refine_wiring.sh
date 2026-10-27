@@ -91,4 +91,18 @@ has "loop reclassifies scope" 'references/ticket-scope.md' "$L"
 has "loop prints readiness verdict" 'Executable without questions: no — N open' "$L"
 has "ticket-scope defines refine to story handoff" '**Story scope in n1-refine:**' references/ticket-scope.md
 
+# --- Task 8: write step
+W=skills/n1-refine/steps/03-write.md
+has "block starts with the marker" '*Refined by N1*' "$W"
+has "decision line format" 'D<n> <topic>: <chosen>. Why: <reason>. Rejected: <alt>.' "$W"
+has "assumption line format" '<X> (default). If wrong: <what changes>.' "$W"
+before "block sections in order" '### Scope' '### Assumptions' "$W"
+has "write re-fetches before writing" 'Re-fetch the ticket immediately before the write' "$W"
+has "write replaces in place" 'replace from that line up to' "$W"
+has "single editTicket call" 'one `mcp__<TRACKER_MCP>__<EDIT_OP>` call' "$W"
+has "comment mode posts one comment" 'one `mcp__<TRACKER_MCP>__<COMMENT_OP>` call' "$W"
+has "comment recommended on others' tickets" '1 — Comment (Recommended)' "$W"
+has "handoff prints n1-start" '/n1:n1-start <ID>' "$W"
+has "architecture lists n1-refine" '| n1-refine |' references/architecture.md
+
 exit $FAIL

@@ -16,6 +16,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
 | n1-ticket | solution-architect agent + inline context capture, web research, tracker MCP | Create a single backlog ticket (Task/Bug) from conversation context |
 | n1-story | solution-architect agent + inline context capture, interactive discovery, tracker MCP | Create a story with subtask tickets from conversation context |
+| n1-refine | product-analyst, solution-architect agents + inline decision loop, tracker MCP | Settle a ticket's decisions, scope, AC and assumptions with the user before the pipeline; writes one `*Refined by N1*` block (or a comment on another person's ticket); hosts interactive `--investigate` |
 | n1-queue | headless child per ticket (`n1_headless_cmd`: `claude -p`) (n1-start), tracker MCP | Run a batch of tickets (by tag or story subtasks) through the pipeline sequentially without merging; background runner |
 | n1-rules | (inline: lib/rules.sh) | List, add, validate project rules; regenerate deny hook |
 
