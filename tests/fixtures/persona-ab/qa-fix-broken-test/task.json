@@ -1,0 +1,1 @@
+{"persona": "qa-engineer", "prompt": "The test suite (`python3 -m unittest discover`) fails. The implementation in src/mathx.py is correct: double(x) returns 2 * x. Fix the test so it checks the correct behavior. Do not modify anything under src/."}

@@ -1,0 +1,1 @@
+{"persona": "developer", "prompt": "In calc.py, add a function `clamp(value, low, high)` that returns `value` limited to the inclusive range [low, high]. Raise ValueError if low > high. Keep `add` unchanged."}
