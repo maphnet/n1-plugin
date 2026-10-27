@@ -62,4 +62,19 @@ line_has "SA routes infeasible decisions to contradictions" '**Refined decisions
 line_has "brainstormer never re-asks refined decisions" '*Refined by N1*' '`[refined]`' agents/brainstormer.md
 line_has "n1-brainstorm never re-asks refined decisions" '**Refined decisions:**' '`[refined]`' skills/n1-brainstorm/SKILL.md
 
+# --- Task 6: n1-refine dispatcher + fetch
+R=skills/n1-refine
+has "refine skill named" 'name: n1-refine' "$R/SKILL.md"
+has "refine argument-hint" 'argument-hint: "<ticket-id> [--investigate]"' "$R/SKILL.md"
+has "refine requires a ticket ID" 'Run `/n1:n1-ticket` first' "$R/SKILL.md"
+has "refine documents queue-plan order" 'Run refine before `n1-queue --plan`' "$R/SKILL.md"
+has "fetch disables enrichment" 'enrichmentEnabled=false' "$R/steps/01-fetch.md"
+has "fetch writes under refine/" 'memory/<ID>/refine/ticket.md' "$R/steps/01-fetch.md"
+has "fetch checks the author" 'getCurrentUser' "$R/steps/01-fetch.md"
+has "unknown author defaults to comment" 'WRITE_MODE=comment' "$R/steps/01-fetch.md"
+has "fetch reuses shared investigation step" 'skills/n1-start/steps/investigation-deliverable.md' "$R/steps/01-fetch.md"
+has "fetch uses caller mode" 'Caller mode — n1-refine' "$R/steps/01-fetch.md"
+lacks "refine never writes frontmatter" 'n1_write_frontmatter' "$R"
+lacks "refine never touches overview.md by path" 'memory/$ID/overview.md' "$R"
+
 exit $FAIL
