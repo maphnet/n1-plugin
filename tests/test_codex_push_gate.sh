@@ -93,8 +93,14 @@ git reset -q --hard "$BASE"
 mkdir -p d; echo n > d/credentials.txt; git add d/credentials.txt; git commit -qm cred
 eq "deny regex beats sibling rule" "push:blocked paths=d/credentials.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
 rm -f "$TMP/fix.patch"
-eq "denylisted block with patch arg: kept, no patch" "push:blocked paths=d/credentials.txt kept=$(git rev-parse HEAD)" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo" "$TMP/fix.patch")"
+DTIP=$(git rev-parse HEAD)
+eq "denylisted block with patch arg: reset, no patch" "push:blocked paths=d/credentials.txt reset=$DTIP" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo" "$TMP/fix.patch")"
 eq "denylisted block: patch not written" "none" "$([ -e "$TMP/fix.patch" ] && echo exists || echo none)"
+eq "denylisted block: HEAD back at START" "$(cat "$TMP/start")" "$(git rev-parse HEAD)"
+git reset -q --hard "$BASE"
+mkdir -p d; echo n > d/CLAUDE.md; git add d/CLAUDE.md; git commit -qm claudemd
+printf 'd/x.md\n' > "$TMP/allowed-md"
+eq "loader basename not admitted as sibling" "push:blocked paths=d/CLAUDE.md" "$(bash "$G" "$TMP/start" "$TMP/allowed-md" feat "$TMP/repo")"
 git reset -q --hard "$BASE"
 mkdir -p d; ln -s ../a.txt d/sl.txt; git add d/sl.txt; git commit -qm sym1
 rm d/sl.txt; echo n > d/sl.txt; git add d/sl.txt; git commit -qm sym2
@@ -108,7 +114,7 @@ eq "no patch arg: HEAD untouched" "$TIP" "$(git rev-parse HEAD)"
 eq "blocked fix saved and reset" "push:blocked paths=b.txt reset=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
 eq "blocked reset lands on START" "$START" "$(git rev-parse HEAD)"
 eq "saved patch applies on START" "ok" "$([ -s "$TMP/fix.patch" ] && git apply --check "$TMP/fix.patch" && echo ok)"
-eq "saved patch is mode 600" "600" "$(stat -c %a "$TMP/fix.patch")"
+eq "saved patch is mode 600" "600" "$(stat -c %a "$TMP/fix.patch" 2>/dev/null || stat -f %Lp "$TMP/fix.patch")"
 git reset -q --hard "$TIP"; rm -f "$TMP/fix.patch"
 echo dirty >> b.txt
 eq "reset refused with overlapping local edit" "push:blocked paths=b.txt kept=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
