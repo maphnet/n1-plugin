@@ -2019,6 +2019,58 @@ EOF
     assert_eq "TQ-3: .desc-hashes untouched when the title changed" "$lines_before" "$(wc -l < "$f" | tr -d ' ')"
 }
 
+# N1-164: a description-mode Refined by N1 block edited after queue plan reads MISMATCH at intake.
+# Mirrors references/desc-hash-chain.md § Intake check (snippet lines asserted in test_desc_chain_wiring).
+test_refined_intake_check() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    local N1_HOME="$tmp/home" N1_QUEUE_DIR="$tmp/q" N1_QUEUE_RUN_ID="run-1"
+    local M="$tmp/home/memory/T-7" h0 h5 rc
+    mkdir -p "$N1_QUEUE_DIR" "$tmp/v" "$M"
+    printf 'Add retry to uploader' > "$tmp/v/title"
+    printf 'Retry failed uploads.\n\n*Refined by N1*\n### Scope\n- uploader only\n### Decisions\n- backoff: exponential [refined]\n### Acceptance Criteria\n- retries 3 times\n*End of Refined by N1*\n' > "$tmp/v/d0"
+    printf 'Retry failed uploads.\n\n*Refined by N1*\n### Scope\n- uploader only\n### Decisions\n- backoff: linear [refined]\n### Acceptance Criteria\n- retries 3 times\n*End of Refined by N1*\n' > "$tmp/v/dec"
+    printf 'Retry failed uploads.\n\n*Refined by N1*\n### Scope\n- uploader only\n### Decisions\n- backoff: exponential [refined]\n### Acceptance Criteria\n- retries 10 times\n*End of Refined by N1*\n' > "$tmp/v/ac"
+    printf 'Retry failed uploads.\n\n*Refined by N1*\n### Scope\n- uploader only\n### Decisions\n- backoff: exponential [refined]\n### Acceptance Criteria\n- retries 3 times\n*End of Refined by N1*\n\n*Estimated by N1*\n' > "$tmp/v/d5"
+    h0=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d0")
+    h5=$(n1_queue_content_hash "$tmp/v/title" "$tmp/v/d5")
+    cat > "$N1_QUEUE_DIR/queue.md" <<EOF
+---
+run_id: run-1
+step: run
+---
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-7 | | | | $h0 | |
+EOF
+    _intake_check() { # <title-file|""> <desc-file|"">: "" = that file-write failed
+        local NEW_HASH
+        if [ -n "$1" ]; then cp "$1" "$M/.guard-live.title"; fi
+        if [ -n "$2" ]; then cp "$2" "$M/.guard-live.txt"; fi
+        NEW_HASH=$(n1_queue_content_hash "$M/.guard-live.title" "$M/.guard-live.txt") || NEW_HASH=""
+        if [ -n "$NEW_HASH" ] && n1_desc_hash_is_trusted "T-7" "$NEW_HASH"; then echo MATCH; else echo MISMATCH; fi
+        rm -f "$M"/.guard-live.*
+    }
+
+    # AC2: block unchanged since plan is still used.
+    assert_eq "intake: refined block unchanged since plan -> MATCH" "MATCH" "$(_intake_check "$tmp/v/title" "$tmp/v/d0")"
+    assert_eq "intake: scratch files removed after the check" "0" "$(find "$M" -name '.guard-live.*' | wc -l | tr -d ' ')"
+    # AC1/AC4: post-plan edit inside the block is detected.
+    assert_eq "intake: Decision edited after plan -> MISMATCH" "MISMATCH" "$(_intake_check "$tmp/v/title" "$tmp/v/dec")"
+    assert_eq "intake: AC edited after plan -> MISMATCH" "MISMATCH" "$(_intake_check "$tmp/v/title" "$tmp/v/ac")"
+    printf 'Add retry to uploader v2' > "$tmp/v/title2"
+    assert_eq "intake: title edited after plan -> MISMATCH" "MISMATCH" "$(_intake_check "$tmp/v/title2" "$tmp/v/d0")"
+    # N1's own recorded write keeps the block trusted.
+    assert_eq "intake: unrecorded later text -> MISMATCH" "MISMATCH" "$(_intake_check "$tmp/v/title" "$tmp/v/d5")"
+    rc=0; n1_desc_hash_record T-7 "$h0" "$h5" || rc=$?
+    assert_eq "intake: N1 write recorded" "0" "$rc"
+    assert_eq "intake: N1's own recorded write -> MATCH" "MATCH" "$(_intake_check "$tmp/v/title" "$tmp/v/d5")"
+    # Fail closed (SEC-5).
+    assert_eq "intake: failed description file-write -> MISMATCH" "MISMATCH" "$(_intake_check "$tmp/v/title" "")"
+    assert_eq "intake: no queue run id -> MISMATCH" "MISMATCH" "$(N1_QUEUE_RUN_ID=""; _intake_check "$tmp/v/title" "$tmp/v/d0")"
+    assert_eq "intake: queue.md run_id mismatch -> MISMATCH" "MISMATCH" "$(N1_QUEUE_RUN_ID=run-9; _intake_check "$tmp/v/title" "$tmp/v/d0")"
+}
+
 # NP-231: vague-title heuristic behind the queue's "no usable content" exclusion.
 test_title_vague() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
@@ -2074,6 +2126,17 @@ test_desc_chain_wiring() {
     assert_eq "chain-wiring: guard clears live-fetch files before the hash" "yes" "$([ -n "$guard_clear_before" ] && [ -n "$guard_hash" ] && [ "$guard_clear_before" -lt "$guard_hash" ] && echo yes || echo no)"
     guard_clear_after=$(line_of "$h" 'rm -f "$M"/.guard-live.*' || true)
     assert_eq "chain-wiring: guard clears live-fetch files after computing NEW_HASH" "yes" "$([ -n "$guard_hash" ] && [ -n "$guard_clear_after" ] && [ "$guard_clear_after" -gt "$guard_hash" ] && echo yes || echo no)"
+
+    # N1-164: refined-block Intake check in desc-hash-chain.md.
+    assert_eq "chain-wiring: Intake check section exists" "yes" "$(_hasF '## Intake check (refined description block)' "$d")"
+    assert_eq "chain-wiring: Intake check hashes the live title/description from files (SEC-1)" "yes" "$(_hasF 'NEW_HASH=$(n1_queue_content_hash "$M/.guard-live.title" "$M/.guard-live.txt")' "$d")"
+    assert_eq "chain-wiring: Intake check decision line" "yes" "$(_hasF 'if [ -n "$NEW_HASH" ] && n1_desc_hash_is_trusted "<ID>" "$NEW_HASH"; then echo MATCH; else echo MISMATCH; fi' "$d")"
+    assert_eq "chain-wiring: Intake check MISMATCH ignores the description block" "yes" "$(_hasF 'ignore the description block (treat it as absent)' "$d")"
+    assert_eq "chain-wiring: Gate also clears stale .guard-live files" "1" "$(grep -cF 'rm -f "$M"/.desc-pre.* "$M"/.desc-post.* "$M"/.guard-live.*' "$d" 2>/dev/null || true)"
+    local intake_hash intake_rm
+    intake_hash=$(line_of "$d" 'NEW_HASH=$(n1_queue_content_hash "$M/.guard-live.title" "$M/.guard-live.txt")' || true)
+    intake_rm=$(line_of "$d" 'rm -f "$M"/.guard-live.*' || true)
+    assert_eq "chain-wiring: Intake check clears live files after computing NEW_HASH" "yes" "$([ -n "$intake_hash" ] && [ -n "$intake_rm" ] && [ "$intake_rm" -gt "$intake_hash" ] && echo yes || echo no)"
 }
 
 # NP-231: thin tickets get a plan-time brief instead of a word-count exclusion.
@@ -2203,6 +2266,7 @@ test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
 test_desc_hash_chain
+test_refined_intake_check
 test_title_vague
 test_desc_chain_wiring
 test_brief_wiring
