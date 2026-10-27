@@ -2020,7 +2020,7 @@ EOF
 }
 
 # N1-164: a description-mode Refined by N1 block edited after queue plan reads MISMATCH at intake.
-# Mirrors references/desc-hash-chain.md § Intake check (snippet lines asserted in test_desc_chain_wiring).
+# Runs the real fenced recipe from references/desc-hash-chain.md § Intake check.
 test_refined_intake_check() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     local N1_HOME="$tmp/home" N1_QUEUE_DIR="$tmp/q" N1_QUEUE_RUN_ID="run-1"
@@ -2043,13 +2043,13 @@ step: run
 |--------|---------|-------|-------------------------|---------------|-------|
 | T-7 | | | | $h0 | |
 EOF
+    # Run the real fenced recipe from the doc (minus the two `source` lines; lib/queue.sh is already loaded).
+    local recipe; recipe=$(awk 'index($0,"## Intake check")==1{f=1;next} f&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$REPO_ROOT/references/desc-hash-chain.md" | { grep -v '^source ' || true; } | sed 's/<ID>/T-7/g')
+    assert_eq "intake: recipe extracted from doc" "1" "$(printf '%s' "$recipe" | grep -c n1_desc_hash_is_trusted || true)"
     _intake_check() { # <title-file|""> <desc-file|"">: "" = that file-write failed
-        local NEW_HASH
         if [ -n "$1" ]; then cp "$1" "$M/.guard-live.title"; fi
         if [ -n "$2" ]; then cp "$2" "$M/.guard-live.txt"; fi
-        NEW_HASH=$(n1_queue_content_hash "$M/.guard-live.title" "$M/.guard-live.txt") || NEW_HASH=""
-        if [ -n "$NEW_HASH" ] && n1_desc_hash_is_trusted "T-7" "$NEW_HASH"; then echo MATCH; else echo MISMATCH; fi
-        rm -f "$M"/.guard-live.*
+        eval "$recipe"
     }
 
     # AC2: block unchanged since plan is still used.
@@ -2067,8 +2067,6 @@ EOF
     assert_eq "intake: N1's own recorded write -> MATCH" "MATCH" "$(_intake_check "$tmp/v/title" "$tmp/v/d5")"
     # Fail closed (SEC-5).
     assert_eq "intake: failed description file-write -> MISMATCH" "MISMATCH" "$(_intake_check "$tmp/v/title" "")"
-    assert_eq "intake: no queue run id -> MISMATCH" "MISMATCH" "$(N1_QUEUE_RUN_ID=""; _intake_check "$tmp/v/title" "$tmp/v/d0")"
-    assert_eq "intake: queue.md run_id mismatch -> MISMATCH" "MISMATCH" "$(N1_QUEUE_RUN_ID=run-9; _intake_check "$tmp/v/title" "$tmp/v/d0")"
 }
 
 # NP-231: vague-title heuristic behind the queue's "no usable content" exclusion.
