@@ -84,6 +84,28 @@ git reset -q --hard "$BASE"
 mkdir -p d; echo n > d/tmp.txt; git add d/tmp.txt; git commit -qm addt; git rm -q d/tmp.txt; git commit -qm rmt
 eq "add-then-remove sibling stays blocked" "push:blocked paths=d/tmp.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
 git reset -q --hard "$BASE"
+# N1-161: with PATCH_FILE, blocked/rejected fixes are saved and the branch reset to START
+START=$(cat "$TMP/start")
+echo b3 >> b.txt; git commit -qam outside2; TIP=$(git rev-parse HEAD)
+eq "no patch arg: blocked line unchanged" "push:blocked paths=b.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo")"
+eq "no patch arg: HEAD untouched" "$TIP" "$(git rev-parse HEAD)"
+eq "blocked fix saved and reset" "push:blocked paths=b.txt reset=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
+eq "blocked reset lands on START" "$START" "$(git rev-parse HEAD)"
+eq "saved patch applies on START" "ok" "$([ -s "$TMP/fix.patch" ] && git apply --check "$TMP/fix.patch" && echo ok)"
+git reset -q --hard "$TIP"; rm -f "$TMP/fix.patch"
+echo dirty >> b.txt
+eq "reset refused with overlapping local edit" "push:blocked paths=b.txt kept=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
+eq "kept leaves HEAD at tip" "$TIP" "$(git rev-parse HEAD)"
+git checkout -q -- b.txt; rm -f "$TMP/fix.patch"
+eq "fork pr with patch arg: no suffix" "push:blocked paths=fork-pr" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/fork" "$TMP/fix.patch")"
+eq "fork pr with patch arg: no patch, HEAD untouched" "$TIP" "$([ -e "$TMP/fix.patch" ] || git rev-parse HEAD)"
+git reset -q --hard "$BASE"
+echo a4 >> a.txt; git commit -qam infix; TIP=$(git rev-parse HEAD)
+printf '#!/bin/sh\nexit 1\n' > "$TMP/o/acme/repo.git/hooks/pre-receive"; chmod +x "$TMP/o/acme/repo.git/hooks/pre-receive"
+eq "rejected push saved and reset" "push:rejected reset=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
+eq "rejected reset lands on START" "$START" "$(git rev-parse HEAD)"
+rm "$TMP/o/acme/repo.git/hooks/pre-receive"; rm -f "$TMP/fix.patch"
+git reset -q --hard "$BASE"
 echo a2 >> a.txt; git commit -qam fix
 printf '#!/bin/sh\nsleep 30\n' > "$TMP/w/.git/hooks/pre-push"; chmod +x "$TMP/w/.git/hooks/pre-push"
 eq "hanging push times out" "push:rejected" "$(N1_CODEX_PUSH_TIMEOUT=2 bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo")"

@@ -1,9 +1,24 @@
 #!/usr/bin/env bash
 # Fail-closed push gate for Codex fix commits. Prints one status line, exits 0.
-# Usage: bash scripts/codex-push-gate.sh START_FILE ALLOWED_FILE HEAD_REF REPO_FILE
+# Usage: bash scripts/codex-push-gate.sh START_FILE ALLOWED_FILE HEAD_REF REPO_FILE [PATCH_FILE]
+# With PATCH_FILE, a path-blocked or rejected fix is saved there (git diff --binary START HEAD) and the
+# branch is reset --keep to START: the status line gains " reset=<old tip>", or " kept=<tip>" if not safe.
 set -uo pipefail
-START_FILE=${1:-}; ALLOWED_FILE=${2:-}; HEAD_REF=${3:-}; REPO_FILE=${4:-}
+START_FILE=${1:-}; ALLOWED_FILE=${2:-}; HEAD_REF=${3:-}; REPO_FILE=${4:-}; PATCH_FILE=${5:-}
 blocked() { echo "push:blocked paths=$1"; exit 0; }
+recover() { # <status line> [remote]: with "remote", reset only if origin is known not to hold the tip
+  local tip r; tip=$(git rev-parse HEAD 2>/dev/null)
+  if [ -n "${2:-}" ]; then
+    r=$(timeout -k 5 20 git ls-remote origin "refs/heads/$HEAD_REF" 2>/dev/null | cut -f1)
+    [ -n "$r" ] && [ "$r" != "$tip" ] || { echo "$1 kept=$tip"; exit 0; }
+  fi
+  if { git diff --binary "$START" HEAD > "$PATCH_FILE"; } 2>/dev/null && [ -s "$PATCH_FILE" ] && git reset -q --keep "$START" 2>/dev/null; then
+    echo "$1 reset=$tip"
+  else
+    echo "$1 kept=$tip"
+  fi
+  exit 0
+}
 START=$(cat "$START_FILE" 2>/dev/null) || START=""
 [[ $START =~ ^[0-9a-f]{40,64}$ ]] || blocked gate-unavailable
 [ -n "$START" ] && [ -s "$ALLOWED_FILE" ] && [ -n "$HEAD_REF" ] || blocked gate-unavailable
@@ -31,7 +46,13 @@ BAD=$(while IFS= read -r p; do
   [[ $p == */* && /$p != */.* ]] && grep -qxF -- "$p" <<<"$ADDED" && grep -qxF -- "${p%/*}" <<<"$ALLOWED_DIRS" && continue
   printf '%s\n' "$p"
 done <<<"$CHANGED")
-[ -z "$BAD" ] || blocked "$(sort -u <<<"$BAD" | tr '\n' ' ' | sed 's/ $//')"
+if [ -n "$BAD" ]; then
+  S="push:blocked paths=$(sort -u <<<"$BAD" | tr '\n' ' ' | sed 's/ $//')"
+  [ -z "$PATCH_FILE" ] || recover "$S"
+  echo "$S"; exit 0
+fi
 export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS=
 [ -z "${GIT_SSH_COMMAND:-}${GIT_SSH:-}$(git config --get core.sshCommand 2>/dev/null)" ] && export GIT_SSH_COMMAND="ssh -o BatchMode=yes"
-if timeout -k 5 "${N1_CODEX_PUSH_TIMEOUT:-90}" git push origin HEAD:"$HEAD_REF" >/dev/null 2>&1; then echo "push:ok"; else echo "push:rejected"; fi
+if timeout -k 5 "${N1_CODEX_PUSH_TIMEOUT:-90}" git push origin HEAD:"$HEAD_REF" >/dev/null 2>&1; then echo "push:ok"
+elif [ -n "$PATCH_FILE" ]; then recover push:rejected remote
+else echo "push:rejected"; fi
