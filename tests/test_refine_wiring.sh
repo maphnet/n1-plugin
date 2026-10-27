@@ -36,4 +36,12 @@ has "ledger documents [refined]" '`[refined]` human answered in n1-refine' skill
 has "ledger keeps [plan]" '`[plan]`' skills/n1-start/ledger.md
 has "tech-writer orders [refined] with [plan]" '`[plan]`/`[refined]` before `[asked]`' skills/n1-start/ledger.md
 
+# --- Task 3: shared investigation step caller mode
+I=skills/n1-start/steps/investigation-deliverable.md
+has "caller mode block exists" '**Caller mode — n1-refine:**' "$I"
+before "caller mode precedes Phase 1" '**Caller mode — n1-refine:**' '**Phase 1 — Produce Findings**' "$I"
+line_has "caller mode remaps memory to refine/" '**Caller mode — n1-refine:**' 'memory/<ID>/refine/' "$I"
+line_has "caller mode runs Phases 1-2 only" '**Caller mode — n1-refine:**' 'Run Phase 1 and Phase 2 only' "$I"
+lacks "no dangling Brain-dump variant refs" 'Brain-dump variant' "$I"
+
 exit $FAIL

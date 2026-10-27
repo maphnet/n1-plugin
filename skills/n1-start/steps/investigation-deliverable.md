@@ -2,6 +2,8 @@
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
+> **Caller mode — n1-refine:** when n1-refine runs this step, every `$N1_HOME/memory/<ID>/` path below means `$N1_HOME/memory/<ID>/refine/`. Run Phase 1 and Phase 2 only. Skip all overview.md reads and writes (checklist, `step`, frontmatter), Decision Ledger rows, `ORIGINAL_STATUS`, telemetry events, Phase 3, Phase 4 and Phase 5. Then return to n1-refine with the `implementable` signal from investigation.md; the continue banner above does not apply.
+
 > **ORCHESTRATOR GUARDRAIL (experiments):** user requests to run/test/benchmark/curl are handled by spawning **developer** in experiment mode: pass the exact question + worktree path + "Experiment mode: build/run/benchmark in `$N1_HOME/memory/<ID>/scratch/`; no production code changes; no commits; write `experiment-<N>.md` with ## Question, ## Setup, ## Runs, ## Result, ## Cleanup; run cleanup; return ≤15-line summary + file path." Orchestrator reads summary and continues.
 
 **Spawn agent:** solution-architect. Resolve model for `solution-architect`.
@@ -207,9 +209,9 @@ Post comment: `**Investigation Results (N1)**\n**Question:** ...\n**Summary:** .
 
 **Phase 5 — Post-Investigation Routing**
 
-**Gate:** skip if no tracker configured. If tracker configured but no tracker ticket (brain-dump investigate mode): run Brain-dump variant.
+**Gate:** skip if no tracker configured or no tracker ticket.
 
-**Queue gate:** if `N1_QUEUE_RUN_ID` is set, skip the Brain-dump variant and the interactive menu below entirely. Force the restore action unconditionally, regardless of `IMPLEMENTABLE`:
+**Queue gate:** if `N1_QUEUE_RUN_ID` is set, skip the interactive menu below entirely. Force the restore action unconditionally, regardless of `IMPLEMENTABLE`:
 - If `ORIGINAL_STATUS` is non-empty: apply **Restore logic** below, posting the same "Investigation completed. Ticket restored to original status." comment on success.
 - If `ORIGINAL_STATUS` is empty: apply **Leave-as-is** — no status change.
 
