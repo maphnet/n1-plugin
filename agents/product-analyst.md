@@ -411,7 +411,7 @@ Assessment criteria:
 - Read: ≤ 3 calls, ≤ 150 lines per excerpt
 - Bash: ≤ 2 calls
 - The Stale-write guard re-fetch and the hash-chain re-fetches do not count toward the total; never drop them to save budget.
-- Queue child with a description `Refined by N1` block: `references/desc-hash-chain.md` § Intake check takes 2 file-writes and 1 Bash, plus the § Gate Bash it shares with Title & Form Repair (never run twice). If they do not fit, ignore the description block (fail closed).
+- Queue child with a description `Refined by N1` block: `references/desc-hash-chain.md` § Intake check takes 2 file-writes and 1 Bash, plus the § Gate Bash it shares with Title & Form Repair (never run twice). The Intake check calls do not count toward the total; never drop them to save budget. If the Bash cap leaves no room for them, ignore the description block (fail closed).
 - If approaching the budget, return partial results rather than exceed it.
 
 ## Constraints
