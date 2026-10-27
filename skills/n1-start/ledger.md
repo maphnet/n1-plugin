@@ -9,9 +9,9 @@
 - **step**: ticket, brainstorm, qa, review, fix, local-testing, pr, start
 - **category**: `design` | `mechanical` | `quality` | `scope`
 - **tier**: `A` blocking-grade, `B` significant, `C` routine. Quality escalations always `A`.
-- **tag**: `[auto]` autonomous; `[auto-decided]` clear recommendation; `[asked]` human answered; `[plan]` human answered at queue plan time, applied by a queue child without re-asking
+- **tag**: `[auto]` autonomous; `[auto-decided]` clear recommendation; `[asked]` human answered; `[plan]` human answered at queue plan time, applied by a queue child without re-asking; `[refined]` human answered in n1-refine (ticket `### Decisions`), applied without re-asking
 - **question/chosen**: one clause each. **reason**: never empty. **alternatives**: comma-sep or `—`.
-- **rungs_tried**: `codebase`, `web`, `prescribed`, `telemetry`, `---`. Required `[asked]`; `---` for `[auto]` and `[plan]`; list for "Decide for me" `[auto-decided]`.
+- **rungs_tried**: `codebase`, `web`, `prescribed`, `telemetry`, `---`. Required `[asked]`; `---` for `[auto]`, `[plan]` and `[refined]`; list for "Decide for me" `[auto-decided]`.
 
 ```markdown
 ## Decision Ledger
@@ -34,10 +34,10 @@ Before any user prompt (not unconditional gates): 1→Codebase search, 2→Web s
 |------|------|---------------|
 | start | `mechanicalPrompts: "auto"` branch/stash | `---` |
 | ticket | auto-created/skipped tracker ticket | `---` |
-| brainstorm | SA resolved; A-tier answers `[asked]` | `---` for `[auto]`; list for `[asked]` |
+| brainstorm | SA resolved; A-tier answers `[asked]`; refined Decisions `[refined]` | `---` for `[auto]`; list for `[asked]` |
 | qa/review/fix/local-testing | `qualityEscalations: "auto-accept"` at exhaustion (always A) | `---` |
 | pr | reviewer skips autonomy-influenced | `---` |
 
 ## PR Rendering
 
-Tech-writer renders ledger as `## Decisions` — tier A first, then B, C; `[auto]` before `[plan]` before `[asked]` within tier.
+Tech-writer renders ledger as `## Decisions` — tier A first, then B, C; `[auto]` before `[plan]`/`[refined]` before `[asked]` within tier.

@@ -250,7 +250,7 @@ Gate: the same as § Description Quality Assessment & Enrichment below (`enrichm
 
 **Gate:** Run ONLY when ALL of: `enrichmentEnabled` is true, `operations.editTicket` exists, and the ticket was fetched successfully. If any condition fails, skip entirely — set Description Quality tier to "Skipped" in the output and proceed to distill.
 
-**Idempotency:** If the fetched description already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment — set tier to "Adequate (already enriched)" and proceed. `Normalized by N1` (Title & Form Repair, including one just written; match the text regardless of `*` or `_` emphasis) counts the same.
+**Idempotency:** If the fetched description already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment — set tier to "Adequate (already enriched)" and proceed. `Normalized by N1` (Title & Form Repair, including one just written; match the text regardless of `*` or `_` emphasis) counts the same. `Refined by N1` (n1-refine's block) counts the same, with the same emphasis rule.
 
 `*Briefed by N1 (queue plan)*` (n1-queue's plan-time brief) is not an idempotency marker; grade briefed tickets normally.
 
@@ -366,6 +366,8 @@ Run this assessment AFTER the Fetch section has populated context data (step 1) 
 <the source's "Deployment actions" section, lines copied verbatim — omit this section when the source has none>
 
 **Deployment Actions rule:** When the ticket description, file or brain dump contains a section headed "Deployment actions" (any heading level or bold label, case-insensitive), copy its lines verbatim under `### Deployment Actions`, the same way Acceptance Criteria are carried through. Do not distill, reword, reorder or add items. **Secret values never appear**: replace any literal secret value with `<redacted>`, keeping the name (the same rule tech-writer applies). tech-writer turns them into the PR-body checklist.
+
+**Refined block rule:** The most recent refined block wins. A description `Refined by N1` block (marker line matched regardless of `*` or `_` emphasis; the block ends at its `End of Refined by N1` line) is used, unless a qualifying comment block (below) was created after the description's last edit time (read from the tracker's description history or changelog; if that time is unreadable, the description block wins). Without a description block, use the newest qualifying comment block. A qualifying comment block is the newest fetched comment whose FIRST LINE equals that marker (same emphasis rule, whole line; any other comment never counts; only the last 5 comments are fetched; in a queue child, `N1_QUEUE_RUN_ID` set, read `planned_at` from this run's `$N1_QUEUE_DIR/queue.md` only and ignore a comment created at or after it (a `planned_at` later than now is unreadable); if `planned_at` or the comment timestamp is missing or unreadable, ignore the comment block), copy its `### Scope`, `### Decisions` and `### Assumptions` sections verbatim into ticket.md under the same headings, right after `### Acceptance Criteria`. Take `### Acceptance Criteria` from the block only; do not merge criteria from the rest of the description. Do not distill, reword, reorder or add items, and add no ` (inferred)` suffix.
 
 ### Key Comments (tracker mode only, last 5 meaningful)
 - @<author> (<date>): "<relevant quote or summary>"

@@ -55,6 +55,8 @@ You will receive:
 
    Focus on claims that would change the implementation approach if wrong. Skip obvious/trivial assertions. If the ticket contains no technical claims worth validating, note "No technical claims to validate" and move on.
 
+   **Refined decisions:** each `D<n>` line under ticket.md `### Decisions` (from a `*Refined by N1*` block) is a resolved A-tier answer: never re-raise it as an unknown. Validate it like a claim; one the code or sources make infeasible is Contradicted (counts in `ticket_contradictions`), with the reason.
+
 6. **Bug investigation (when type is `bug`):** Trace the defect through the codebase:
    - Identify the code path where the bug manifests (entry point → failure point)
    - Search for error messages, exception patterns, or symptoms described in the ticket

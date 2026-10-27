@@ -5,8 +5,7 @@
 ```bash
 source ~/.n1/preamble.sh
 n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/memory/$ID/telemetry" started_at=now
-INVESTIGATE_INTERACTIVE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "investigate_interactive")
-BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm'); [ "$INVESTIGATE_INTERACTIVE" = "true" ] && BRAINSTORM_MODE=interactive
+BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 TEST_TIER=maintain
 # Dispatch the coherent model/effort pair together.
@@ -54,4 +53,4 @@ n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NE
 
 `direct`: specified+independent+no design+no test strategy. `plan`: coordination/open questions/new abstractions/security/API/cross-cutting. Default `plan`.
 
-**Post-Brainstorm Enrichment:** ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent if `*Refined after design review — N1*`). Post design summary. Non-blocking (queue: <N1_ROOT>/references/desc-hash-chain.md).
+**Post-Brainstorm Enrichment:** ticket ID + `ticketEnrichment.enabled!==false` + `editTicket` + `addComment`. Append refined AC/scope/approach (idempotent if `*Refined after design review — N1*`; skip the append if the description has a `*Refined by N1*` line (match regardless of `*` or `_` emphasis, whole line), still post the summary). Post design summary. Non-blocking (queue: <N1_ROOT>/references/desc-hash-chain.md).

@@ -61,6 +61,7 @@ Spawn with these instructions:
 - Do NOT propose solutions — just map the landscape
 
 Fold the analysis findings into the ticket description as a "Technical Context" section.
+Keep the feasibility rating for Step 9 in `02-create.md`.
 
 ## Step 5: Light Discovery + Web Research
 

@@ -94,19 +94,23 @@ n1_read_type() {
     fi
 }
 
+# Trailing-only `--type <name>` (the documented form `<ID> --type <name>`); a mid-text `--type` in a brain dump is not the flag.
+_N1_TYPE_ARG_RE='(^|[[:space:]])--type[[:space:]]+([^[:space:]]+)[[:space:]]*$'
+
+# n1_strip_type_arg <input> -> input without the trailing `--type <name>` (so `N1-162 --type task` detects as a ticket).
+# Whole-string match (not per line); only whitespace adjacent to the removed suffix is trimmed, the rest is verbatim.
+n1_strip_type_arg() {
+    local s="$1"
+    if [[ "$s" =~ $_N1_TYPE_ARG_RE ]]; then
+        s="${s%"${BASH_REMATCH[0]}"}"
+        s="${s%"${s##*[![:space:]]}"}"
+    fi
+    printf '%s' "$s"
+}
+
 n1_parse_type_arg() {
-    local input="$1"
-    case "$input" in
-        *--type\ *)
-            local type_name="${input##*--type }"
-            type_name="${type_name%% *}"
-            printf '%s' "$type_name"
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    [[ "$1" =~ $_N1_TYPE_ARG_RE ]] || return 1
+    printf '%s' "${BASH_REMATCH[2]}"
 }
 
 n1_resolve_type() {

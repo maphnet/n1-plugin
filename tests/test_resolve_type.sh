@@ -68,6 +68,29 @@ n1_title_hints_investigation "Fix login" \
     && { echo "FAIL: hint false positive on fix"; FAIL=$((FAIL+1)); } \
     || { echo "PASS: hint no false positive on fix"; PASS=$((PASS+1)); }
 
+# N1-162: `<ID> --type <name>` splits into a ticket plus an override (input-parsing.md snippet)
+echo '{"tracker":{"prefix":"N1"}}' > "$T/config.json"
+split() { # <raw> -> "<detected>|<override>|<stripped>"
+    local raw="$1" ov st
+    ov=$(n1_parse_type_arg "$raw") || ov=""; st=$(n1_strip_type_arg "$raw")
+    printf '%s|%s|%s' "$(n1_detect_input_type "$st" "$T/config.json")" "$ov" "$st"
+}
+assert_eq "ID --type task -> ticket + override" "ticket|task|N1-162" "$(split "N1-162 --type task")"
+assert_eq "plain ID -> ticket, no override" "ticket||N1-162" "$(split "N1-162")"
+assert_eq "brain dump unaffected" "braindump||fix the login page" "$(split "fix the login page")"
+assert_eq "mid-text --type is not the flag" "braindump||Add a --type flag to the CLI" "$(split "Add a --type flag to the CLI")"
+assert_eq "valueless trailing --type untouched" "braindump||fix --type" "$(split "fix --type")"
+assert_eq "tab separator parsed and stripped" "ticket|task|N1-162" "$(split "$(printf 'N1-162\t--type\ttask')")"
+assert_eq "trailing --type after brain dump" "braindump|task|fix the page" "$(split "fix the page --type task")"
+ML=$'line one\n  indented --type bug\n    keep indent'
+assert_eq "interior --type line is not the flag" "" "$(n1_parse_type_arg "$ML" || true)"
+assert_eq "interior --type line leaves input unchanged" "$ML" "$(n1_strip_type_arg "$ML")"
+ML2=$'first\n  second indented\n\tthird'
+assert_eq "multiline indentation preserved on trailing flag" "$ML2" "$(n1_strip_type_arg "$ML2 --type task")"
+assert_eq "trailing --type after multiline parsed" "task" "$(n1_parse_type_arg "$ML2 --type task")"
+assert_eq "trailing --type on its own line parsed" "task" "$(n1_parse_type_arg "$ML2"$'\n--type task')"
+assert_eq "URL + --type survives normalization" "N1-162" "$(n1_extract_ticket_from_url "$(n1_strip_type_arg "https://x.atlassian.net/browse/N1-162 --type task")" "$T/config.json")"
+
 echo
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
