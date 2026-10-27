@@ -16,8 +16,8 @@ ab = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ab)
 
 
-def row(task, arm, passed, out=100, turns=3, wall=1000, cost=0.01):
-    return {"task": task, "arm": arm, "run": 0, "session_id": "s", "status": "ok", "passed": passed,
+def row(task, arm, passed, out=100, turns=3, wall=1000, cost=0.01, run=0):
+    return {"task": task, "arm": arm, "run": run, "session_id": "s", "status": "ok", "passed": passed,
             "tokens": {"input_tokens": 10, "cache_read_input_tokens": 20,
                        "cache_creation_input_tokens": 30, "output_tokens": out},
             "num_turns": turns, "wall_ms": wall, "cost_usd": cost}
@@ -54,14 +54,19 @@ class ArmStatsTest(unittest.TestCase):
 
 class IntersectionTest(unittest.TestCase):
     def test_only_tasks_every_arm_passed_every_run(self):
-        rows = [row("t1", "baseline", True), row("t1", "baseline", True),
-                row("t1", "candidate", True, out=500),
+        rows = [row("t1", "baseline", True), row("t1", "baseline", True, run=1),
+                row("t1", "candidate", True, out=500), row("t1", "candidate", True, out=500, run=1),
                 row("t2", "baseline", True), row("t2", "candidate", False),
                 row("t3", "baseline", True)]  # t3 never ran on candidate
-        p = ab.compute_intersection_stats(rows)
+        p = ab.compute_intersection_stats(rows, runs=2)
         self.assertEqual(p["tasks"], ["t1"])
         self.assertEqual(p["arms"]["baseline"]["output_tokens"], 100)
         self.assertEqual(p["arms"]["candidate"]["output_tokens"], 500)
+
+    def test_arm_with_fewer_runs_is_excluded(self):
+        rows = [row("t1", "baseline", True), row("t1", "baseline", True, run=1),
+                row("t1", "candidate", True)]  # candidate lost run 1
+        self.assertEqual(ab.compute_intersection_stats(rows, runs=2)["tasks"], [])
 
     def test_empty_intersection(self):
         p = ab.compute_intersection_stats([row("t1", "baseline", False), row("t1", "candidate", True)])
@@ -224,6 +229,29 @@ class FixtureTest(unittest.TestCase):
                 with open(repo / src, "a", encoding="utf-8") as fh:
                     fh.write("# edited\n")
                 self.assertFalse(ab.run_check(task_dir / "check.sh", repo))
+
+    def test_cr_check_requires_defect_description(self):
+        task_dir = ab.FIXTURES / "cr-sql-injection"
+        for text in ("db.py:6 - no defects found\n", "db.py:6 - looks fine\n"):
+            with self.subTest(text), tempfile.TemporaryDirectory() as tmp:
+                repo = Path(tmp) / "repo"
+                ab.prepare_repo(task_dir, repo)
+                (repo / "findings.md").write_text(text, encoding="utf-8")
+                self.assertFalse(ab.run_check(task_dir / "check.sh", repo))
+
+    def test_qa_check_kills_every_mutant(self):
+        # Dropping the tax= case / the space case from the suite leaves a mutant alive.
+        for name, drop in (("qa-update-test", "test_explicit_tax"), ("qa-missing-test", "test_ignores_case_and_spaces")):
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                task_dir = ab.FIXTURES / name
+                repo = Path(tmp) / "repo"
+                ab.prepare_repo(task_dir, repo)
+                shutil.copytree(str(task_dir / "solution"), str(repo), dirs_exist_ok=True)
+                test_file = next(repo.glob("test_*.py"))
+                src = test_file.read_text(encoding="utf-8")
+                self.assertIn(drop, src)
+                test_file.write_text(src.replace("def " + drop, "def _" + drop), encoding="utf-8")
+                self.assertFalse(ab.run_check(task_dir / "check.sh", repo), "weakened suite must fail")
 
 
 FAKE_CLAUDE = """#!/usr/bin/env python3

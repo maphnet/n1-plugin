@@ -152,8 +152,8 @@ def compute_arm_stats(rows):
     return stats
 
 
-def compute_intersection_stats(rows):
-    """Medians per arm restricted to tasks that every arm ran and passed on every run.
+def compute_intersection_stats(rows, runs=1):
+    """Medians per arm restricted to tasks where every arm has exactly runs 0..runs-1, all passed.
 
     Medians are pooled over all intersection tasks and runs of an arm (not per task);
     `delta` is candidate - baseline of those pooled medians (None if either is missing).
@@ -161,8 +161,8 @@ def compute_intersection_stats(rows):
     arms = ARMS
 
     def clean(task, arm):
-        runs = [r for r in rows if r["task"] == task and r["arm"] == arm]
-        return bool(runs) and all(r["passed"] for r in runs)
+        rs = [r for r in rows if r["task"] == task and r["arm"] == arm]
+        return sorted(r["run"] for r in rs) == list(range(runs)) and all(r["passed"] for r in rs)
 
     tasks = [t for t in sorted({r["task"] for r in rows}) if all(clean(t, a) for a in arms)]
     subset = [r for r in rows if r["task"] in tasks]
@@ -172,9 +172,9 @@ def compute_intersection_stats(rows):
     return {"tasks": tasks, "arms": medians, "delta": delta}
 
 
-def summarize(rows, rejected, args, rejected_cost=0.0):
+def summarize(rows, rejected, args, rejected_cost=0.0, runs=1):
     return {"args": args, "rejected": rejected, "rejected_cost_usd": round(rejected_cost, 4),
-            "arms": compute_arm_stats(rows), "paired": compute_intersection_stats(rows),
+            "arms": compute_arm_stats(rows), "paired": compute_intersection_stats(rows, runs),
             "total_cost_usd": round(sum(r["cost_usd"] for r in rows), 4),
             "tokens_total": {k: sum(r["tokens"][k] for r in rows) for k in TOKEN_KEYS}}
 
@@ -314,7 +314,7 @@ def main(argv=None):
                       f"passed={row['passed']} cost=${row['cost_usd']:.4f}", file=sys.stderr)
     finally:
         shutil.rmtree(str(prompts_dir), ignore_errors=True)
-        summary = summarize(rows, rejected, {k: str(v) for k, v in vars(args).items()}, rejected_cost)
+        summary = summarize(rows, rejected, {k: str(v) for k, v in vars(args).items()}, rejected_cost, args.runs)
         (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         print(run_dir)
     return 2 if rejected else 0
