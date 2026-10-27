@@ -75,10 +75,13 @@ split() { # <raw> -> "<detected>|<override>|<stripped>"
     ov=$(n1_parse_type_arg "$raw") || ov=""; st=$(n1_strip_type_arg "$raw")
     printf '%s|%s|%s' "$(n1_detect_input_type "$st" "$T/config.json")" "$ov" "$st"
 }
-assert_eq "raw ID with --type is a braindump (the old bug)" "braindump" "$(n1_detect_input_type "N1-162 --type task" "$T/config.json")"
 assert_eq "ID --type task -> ticket + override" "ticket|task|N1-162" "$(split "N1-162 --type task")"
 assert_eq "plain ID -> ticket, no override" "ticket||N1-162" "$(split "N1-162")"
 assert_eq "brain dump unaffected" "braindump||fix the login page" "$(split "fix the login page")"
+assert_eq "mid-text --type is not the flag" "braindump||Add a --type flag to the CLI" "$(split "Add a --type flag to the CLI")"
+assert_eq "valueless trailing --type untouched" "braindump||fix --type" "$(split "fix --type")"
+assert_eq "tab separator parsed and stripped" "ticket|task|N1-162" "$(split "$(printf 'N1-162\t--type\ttask')")"
+assert_eq "trailing --type after brain dump" "braindump|task|fix the page" "$(split "fix the page --type task")"
 assert_eq "URL + --type survives normalization" "N1-162" "$(n1_extract_ticket_from_url "$(n1_strip_type_arg "https://x.atlassian.net/browse/N1-162 --type task")" "$T/config.json")"
 
 echo

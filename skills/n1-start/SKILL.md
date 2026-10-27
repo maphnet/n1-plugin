@@ -1,7 +1,7 @@
 ---
 name: n1-start
 description: "Core orchestrator. Start working on a task: /n1:n1-start TRID-510 or /n1:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
-argument-hint: "<ticket-id or brain dump>"
+argument-hint: "<ticket-id or brain dump> [--type <name>]"
 model: sonnet
 ---
 
