@@ -84,6 +84,22 @@ git reset -q --hard "$BASE"
 mkdir -p d; echo n > d/tmp.txt; git add d/tmp.txt; git commit -qm addt; git rm -q d/tmp.txt; git commit -qm rmt
 eq "add-then-remove sibling stays blocked" "push:blocked paths=d/tmp.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
 git reset -q --hard "$BASE"
+mkdir -p d; echo n > d/conftest.py; git add d/conftest.py; git commit -qm conftest
+eq "new file with an extension not listed in that dir" "push:blocked paths=d/conftest.py" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+mkdir -p d; echo n > d/Makefile; git add d/Makefile; git commit -qm mk
+eq "new extensionless file in allowed dir" "push:blocked paths=d/Makefile" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
+mkdir -p d; echo n > d/credentials.txt; git add d/credentials.txt; git commit -qm cred
+eq "deny regex beats sibling rule" "push:blocked paths=d/credentials.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+rm -f "$TMP/fix.patch"
+eq "denylisted block with patch arg: kept, no patch" "push:blocked paths=d/credentials.txt kept=$(git rev-parse HEAD)" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo" "$TMP/fix.patch")"
+eq "denylisted block: patch not written" "none" "$([ -e "$TMP/fix.patch" ] && echo exists || echo none)"
+git reset -q --hard "$BASE"
+mkdir -p d; ln -s ../a.txt d/sl.txt; git add d/sl.txt; git commit -qm sym1
+rm d/sl.txt; echo n > d/sl.txt; git add d/sl.txt; git commit -qm sym2
+eq "symlink in an intermediate commit stays blocked" "push:blocked paths=d/sl.txt" "$(bash "$G" "$TMP/start" "$TMP/allowed-d" feat "$TMP/repo")"
+git reset -q --hard "$BASE"
 # N1-161: with PATCH_FILE, blocked/rejected fixes are saved and the branch reset to START
 START=$(cat "$TMP/start")
 echo b3 >> b.txt; git commit -qam outside2; TIP=$(git rev-parse HEAD)
@@ -92,6 +108,7 @@ eq "no patch arg: HEAD untouched" "$TIP" "$(git rev-parse HEAD)"
 eq "blocked fix saved and reset" "push:blocked paths=b.txt reset=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
 eq "blocked reset lands on START" "$START" "$(git rev-parse HEAD)"
 eq "saved patch applies on START" "ok" "$([ -s "$TMP/fix.patch" ] && git apply --check "$TMP/fix.patch" && echo ok)"
+eq "saved patch is mode 600" "600" "$(stat -c %a "$TMP/fix.patch")"
 git reset -q --hard "$TIP"; rm -f "$TMP/fix.patch"
 echo dirty >> b.txt
 eq "reset refused with overlapping local edit" "push:blocked paths=b.txt kept=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
@@ -104,6 +121,12 @@ echo a4 >> a.txt; git commit -qam infix; TIP=$(git rev-parse HEAD)
 printf '#!/bin/sh\nexit 1\n' > "$TMP/o/acme/repo.git/hooks/pre-receive"; chmod +x "$TMP/o/acme/repo.git/hooks/pre-receive"
 eq "rejected push saved and reset" "push:rejected reset=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
 eq "rejected reset lands on START" "$START" "$(git rev-parse HEAD)"
+rm -f "$TMP/fix.patch"
+git reset -q --hard "$TIP"
+git -C "$TMP/o/acme/repo.git" update-ref -d refs/heads/feat
+eq "rejected push with remote ref missing: kept" "push:rejected kept=$TIP" "$(bash "$G" "$TMP/start" "$TMP/allowed" feat "$TMP/repo" "$TMP/fix.patch")"
+eq "kept leaves HEAD at tip (remote ref missing)" "$TIP" "$(git rev-parse HEAD)"
+git -C "$TMP/o/acme/repo.git" update-ref refs/heads/feat "$START"
 rm "$TMP/o/acme/repo.git/hooks/pre-receive"; rm -f "$TMP/fix.patch"
 git reset -q --hard "$BASE"
 echo a2 >> a.txt; git commit -qam fix

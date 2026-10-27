@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fail-closed push gate for Codex fix commits. Prints one status line, exits 0.
 # Usage: bash scripts/codex-push-gate.sh START_FILE ALLOWED_FILE HEAD_REF REPO_FILE [PATCH_FILE]
-# With PATCH_FILE, a path-blocked or rejected fix is saved there (git diff --binary START HEAD) and the
+# With PATCH_FILE, a path-blocked or rejected fix is saved there (git diff --binary START HEAD, mode 600; not saved when a denylisted path matched: kept=) and the
 # branch is reset --keep to START: the status line gains " reset=<old tip>", or " kept=<tip>" if not safe.
 set -uo pipefail
 START_FILE=${1:-}; ALLOWED_FILE=${2:-}; HEAD_REF=${3:-}; REPO_FILE=${4:-}; PATCH_FILE=${5:-}
@@ -9,10 +9,10 @@ blocked() { echo "push:blocked paths=$1"; exit 0; }
 recover() { # <status line> [remote]: with "remote", reset only if origin is known not to hold the tip
   local tip r; tip=$(git rev-parse HEAD 2>/dev/null)
   if [ -n "${2:-}" ]; then
-    r=$(timeout -k 5 20 git ls-remote origin "refs/heads/$HEAD_REF" 2>/dev/null | cut -f1)
+    r=$(timeout -k 5 20 git ls-remote "$(git remote get-url --push origin 2>/dev/null)" "refs/heads/$HEAD_REF" 2>/dev/null | cut -f1)
     [ -n "$r" ] && [ "$r" != "$tip" ] || { echo "$1 kept=$tip"; exit 0; }
   fi
-  if { git diff --binary "$START" HEAD > "$PATCH_FILE"; } 2>/dev/null && [ -s "$PATCH_FILE" ] && git reset -q --keep "$START" 2>/dev/null; then
+  if { (umask 077; git -c diff.noprefix=false -c diff.mnemonicPrefix=false diff --binary --no-color --no-ext-diff --no-textconv "$START" HEAD > "$PATCH_FILE"); } 2>/dev/null && [ -s "$PATCH_FILE" ] && git reset -q --keep "$START" 2>/dev/null; then
     echo "$1 reset=$tip"
   else
     echo "$1 kept=$tip"
@@ -36,19 +36,27 @@ LOGP=$(git -c core.quotePath=false log --no-renames --name-only --format= "$STAR
 DIFFP=$(git -c core.quotePath=false diff --no-renames --name-only "$START" HEAD 2>/dev/null) || blocked gate-unavailable
 # Net-added regular (100644) files only: symlinks and executables never qualify as siblings.
 ADDED=$(git -c core.quotePath=false diff --no-renames --diff-filter=A --raw "$START" HEAD 2>/dev/null | awk -F'\t' '$1 ~ /^:000000 100644 / {print $2}') || blocked gate-unavailable
-ALLOWED_DIRS=$(sed -n 's|/[^/]*$||p' "$ALLOWED_FILE" | sort -u)
+# Outgoing commits that ever record a non-100644 mode (symlink/exec/gitlink/delete) for a path disqualify it as a sibling.
+NONREG=$(git -c core.quotePath=false log --no-renames --raw --format= "$START"..HEAD 2>/dev/null | awk -F'\t' 'NF>1 {split($1,a," "); if (a[2]!="100644") print $2}') || blocked gate-unavailable
+# dir<TAB>ext of allowed paths: a sibling needs a dotted name whose extension matches an allowed path in the same dir.
+ALLOWED_DIR_EXTS=$(grep -E '/[^/]+\.[^/.]+$' "$ALLOWED_FILE" | sed -E 's|^(.*)/[^/]*\.([^/.]+)$|\1\t\2|' | sort -u)
+DENY='^\.github/|\.gitlab-ci|Jenkinsfile|\.circleci/|azure-pipelines|(^|/)\.env|credentials|\.pem$'
 CHANGED=$(printf '%s\n%s\n' "$LOGP" "$DIFFP" | sed '/^$/d' | sort -u)
 [ -n "$CHANGED" ] || { echo "push:none"; exit 0; }
 # Deny first; then allowed.txt; then a new file in the exact dir of an allowed path (never root, never a dot component).
 BAD=$(while IFS= read -r p; do
-  grep -qE '^\.github/|\.gitlab-ci|Jenkinsfile|\.circleci/|azure-pipelines|(^|/)\.env|credentials|\.pem$' <<<"$p" && { printf '%s\n' "$p"; continue; }
+  grep -qE "$DENY" <<<"$p" && { printf '%s\n' "$p"; continue; }
   grep -qxF -- "$p" "$ALLOWED_FILE" && continue
-  [[ $p == */* && /$p != */.* ]] && grep -qxF -- "$p" <<<"$ADDED" && grep -qxF -- "${p%/*}" <<<"$ALLOWED_DIRS" && continue
+  [[ $p == */* && /$p != */.* ]] && grep -qxF -- "$p" <<<"$ADDED" && ! grep -qxF -- "$p" <<<"$NONREG" && [[ ${p##*/} == *.?* ]] && grep -qxF -- "${p%/*}"$'\t'"${p##*.}" <<<"$ALLOWED_DIR_EXTS" && continue
   printf '%s\n' "$p"
 done <<<"$CHANGED")
 if [ -n "$BAD" ]; then
   S="push:blocked paths=$(sort -u <<<"$BAD" | tr '\n' ' ' | sed 's/ $//')"
-  [ -z "$PATCH_FILE" ] || recover "$S"
+  # Denylisted content (credentials, CI) is never copied into the saved patch.
+  if [ -n "$PATCH_FILE" ]; then
+    if grep -qE "$DENY" <<<"$BAD"; then echo "$S kept=$(git rev-parse HEAD 2>/dev/null)"; exit 0; fi
+    recover "$S"
+  fi
   echo "$S"; exit 0
 fi
 export GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS=
