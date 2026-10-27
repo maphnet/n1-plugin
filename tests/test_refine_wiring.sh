@@ -77,4 +77,18 @@ has "fetch uses caller mode" 'Caller mode — n1-refine' "$R/steps/01-fetch.md"
 lacks "refine never writes frontmatter" 'n1_write_frontmatter' "$R"
 lacks "refine never touches overview.md by path" 'memory/$ID/overview.md' "$R"
 
+# --- Task 7: decision loop
+L=skills/n1-refine/steps/02-loop.md
+has "loop reuses contradiction signal" 'ticket_contradictions' "$L"
+has "loop caps a batch at 4 questions" 'at most 4 questions per message' "$L"
+has "loop rounds are uncapped" 'no round cap' "$L"
+has "loop offers Decide for me" 'Decide for me' "$L"
+has "loop parks into Assumptions" 'Park' "$L"
+has "loop carries the no-recommendation sentence" 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$L"
+has "loop recommendation needs codebase evidence" '(Recommended): <evidence, file:line>' "$L"
+has "loop runs duplicate check on widening" 'references/duplicate-check.md' "$L"
+has "loop reclassifies scope" 'references/ticket-scope.md' "$L"
+has "loop prints readiness verdict" 'Executable without questions: no — N open' "$L"
+has "ticket-scope defines refine to story handoff" '**Story scope in n1-refine:**' references/ticket-scope.md
+
 exit $FAIL
