@@ -44,4 +44,16 @@ line_has "caller mode remaps memory to refine/" '**Caller mode — n1-refine:**'
 line_has "caller mode runs Phases 1-2 only" '**Caller mode — n1-refine:**' 'Run Phase 1 and Phase 2 only' "$I"
 lacks "no dangling Brain-dump variant refs" 'Brain-dump variant' "$I"
 
+# --- Task 4: product-analyst + queue intake markers
+PA=agents/product-analyst.md
+line_has "PA skip line lists refined marker after pinned sentence" 'already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment' '`*Refined by N1*`' "$PA"
+lacks "PA skip line never mentions Briefed refined" 'Briefed by N1 (queue plan)*` (n1-refine' "$PA"
+has "PA has refined block rule" '**Refined block rule:**' "$PA"
+line_has "PA copies decisions verbatim" '**Refined block rule:**' '`### Decisions`' "$PA"
+line_has "PA takes AC from the block only" '**Refined block rule:**' 'Take `### Acceptance Criteria` from the block only' "$PA"
+lacks "PA does not match the post-brainstorm marker" 'Refined after design review' "$PA"
+line_has "PA comment fallback needs the exact leading marker" '**Refined block rule:**' 'starts with exactly `*Refined by N1*`' "$PA"
+line_has "queue intake counts refined as Adequate" '`Normalized by N1` (with or without' '`*Refined by N1*`' skills/n1-queue/steps/intake.md
+has "architecture lists refined marker" '`*Refined by N1*`' references/architecture.md
+
 exit $FAIL

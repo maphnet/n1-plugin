@@ -250,7 +250,7 @@ Gate: the same as § Description Quality Assessment & Enrichment below (`enrichm
 
 **Gate:** Run ONLY when ALL of: `enrichmentEnabled` is true, `operations.editTicket` exists, and the ticket was fetched successfully. If any condition fails, skip entirely — set Description Quality tier to "Skipped" in the output and proceed to distill.
 
-**Idempotency:** If the fetched description already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment — set tier to "Adequate (already enriched)" and proceed. `Normalized by N1` (Title & Form Repair, including one just written; match the text regardless of `*` or `_` emphasis) counts the same.
+**Idempotency:** If the fetched description already contains the marker `*Structured by N1*` or `*Restructured by N1*`, skip enrichment — set tier to "Adequate (already enriched)" and proceed. `Normalized by N1` (Title & Form Repair, including one just written; match the text regardless of `*` or `_` emphasis) counts the same. `*Refined by N1*` (n1-refine's block) counts the same; match that exact text only.
 
 `*Briefed by N1 (queue plan)*` (n1-queue's plan-time brief) is not an idempotency marker; grade briefed tickets normally.
 
@@ -366,6 +366,8 @@ Run this assessment AFTER the Fetch section has populated context data (step 1) 
 <the source's "Deployment actions" section, lines copied verbatim — omit this section when the source has none>
 
 **Deployment Actions rule:** When the ticket description, file or brain dump contains a section headed "Deployment actions" (any heading level or bold label, case-insensitive), copy its lines verbatim under `### Deployment Actions`, the same way Acceptance Criteria are carried through. Do not distill, reword, reorder or add items. **Secret values never appear**: replace any literal secret value with `<redacted>`, keeping the name (the same rule tech-writer applies). tech-writer turns them into the PR-body checklist.
+
+**Refined block rule:** When the description contains a `*Refined by N1*` block, or else the newest fetched comment whose text starts with exactly `*Refined by N1*` (any other comment never counts; only the last 5 comments are fetched), copy its `### Scope`, `### Decisions` and `### Assumptions` sections verbatim into ticket.md under the same headings, right after `### Acceptance Criteria`. Take `### Acceptance Criteria` from the block only; do not merge criteria from the rest of the description. Do not distill, reword, reorder or add items, and add no ` (inferred)` suffix.
 
 ### Key Comments (tracker mode only, last 5 meaningful)
 - @<author> (<date>): "<relevant quote or summary>"
