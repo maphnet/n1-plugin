@@ -49,12 +49,13 @@ n1_restore_run_identity() {
     case "$f" in */active-run."$sid".json) ;; *) return 0 ;; esac
     [ -f "$f" ] || return 0
     run=$(n1_hook_field runId < "$f")
-    case "$run" in n1-run-*) ;; *) return 0 ;; esac
+    case "$run" in n1-run-?*[!A-Za-z0-9._-]*|n1-run-) return 0 ;; n1-run-*) ;; *) return 0 ;; esac
     for lock in "${N1_HOME:-$(n1_home)}"/memory/*/telemetry/locks/"$run".json; do
         [ -f "$lock" ] || continue
         [ "$(n1_hook_field session_id < "$lock")" = "$sid" ] || continue
         N1_RUN_ID="$run"
         N1_VERSION=$(n1_hook_field n1_version < "$lock")
+        case "$N1_VERSION" in *[!0-9A-Za-z.+-]*) N1_VERSION="" ;; esac
         return 0
     done
     return 0
@@ -180,7 +181,7 @@ n1_emit_outcome() {
     for pair in "$@"; do
         local k="${pair%%=*}" v="${pair#*=}"
         $first || outcomes="${outcomes},"
-        outcomes="${outcomes}\"${k}\":\"${v}\""
+        outcomes="${outcomes}\"$(escape_json_val "$k")\":\"$(escape_json_val "$v")\""
         first=false
     done
     outcomes="${outcomes}}"
@@ -189,7 +190,7 @@ n1_emit_outcome() {
     local file="${tdir}/raw/steps/${run_id}.jsonl"
     mkdir -p "$(dirname "$file")"
     printf '{"event":"outcome","run_id":"%s","n1_version":"%s","ticket_id":"%s","outcomes":%s,"timestamp":"%s"}\n' \
-        "$run_id" "$version" "$ticket_id" "$outcomes" "$ts" >> "$file"
+        "$(escape_json_val "$run_id")" "$(escape_json_val "$version")" "$(escape_json_val "$ticket_id")" "$outcomes" "$ts" >> "$file"
 }
 
 n1_merge_pending() {
