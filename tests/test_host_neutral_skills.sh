@@ -50,9 +50,10 @@ if grep -qiE 'never.*fork' skills/n1-start/SKILL.md; then echo "PASS: n1-start d
 # N1-62: a piped source runs in a subshell and loses N1_HOME; the "not configured" check prints
 # N1_NOT_CONFIGURED in the same call as the source, and rules key off that marker.
 check "preamble is never piped" 'preamble\.sh[^|;&]*\|[^|]'
-check "not-configured rule keyed to \$N1_HOME (use N1_NOT_CONFIGURED)" 'N1_HOME. (is )?empty'
+check "not-configured rule keyed to \$N1_HOME (use N1_NOT_CONFIGURED)" 'N1_HOME.? (is )?empty'
 for s in start ticket story refine queue run review review-response clean release telemetry ci pr finish; do
-    if grep -q N1_NOT_CONFIGURED "skills/n1-$s/SKILL.md"; then echo "PASS: n1-$s prints N1_NOT_CONFIGURED"; else echo "FAIL: n1-$s prints N1_NOT_CONFIGURED"; FAIL=1; fi
+    # first ```bash fence containing the preamble source must itself print the marker
+    if awk '/^```bash/{b="";i=1;next} /^```/{if(i&&b~/source ~\/\.n1\/preamble\.sh/){r=(b~/N1_NOT_CONFIGURED/)?0:1; done=1; exit} i=0} i{b=b $0 "\n"} END{exit done?r:1}' "skills/n1-$s/SKILL.md"; then echo "PASS: n1-$s prints N1_NOT_CONFIGURED"; else echo "FAIL: n1-$s prints N1_NOT_CONFIGURED"; FAIL=1; fi
 done
 if grep -q 'never pipe the preamble' hooks/session-start.sh; then echo "PASS: session injection forbids piping the preamble"; else echo "FAIL: session injection forbids piping the preamble"; FAIL=1; fi
 
