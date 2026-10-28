@@ -78,6 +78,11 @@ line_has "PA comment guard unchanged next to the hash check" '**Refined block ru
 line_has "PA budget counts the intake check" '§ Intake check' '2 file-writes' "$PA"
 line_has "queue intake counts refined as Adequate" '`Normalized by N1` (with or without' '`*Refined by N1*`' skills/n1-queue/steps/intake.md
 line_has "queue preview Brief skips refined descriptions" '**Brief (Empty/Skeletal only).**' 'carries no `Refined by N1` line' skills/n1-queue/steps/preview.md
+line_has "queue intake reads comments before excluding Empty (N1-165)" 'read its comments once before the exclusion below' 'apply the same qualifier' skills/n1-queue/steps/intake.md
+line_has "queue intake honors a qualifying comment block (N1-165)" '`Normalized by N1` (with or without' 'qualifying `Refined by N1` comment block' skills/n1-queue/steps/intake.md
+line_has "queue preview Brief skips a qualifying comment block (N1-165)" '**Brief (Empty/Skeletal only).**' 'no qualifying comment block' skills/n1-queue/steps/preview.md
+has "desc-hash-chain emits the ignored-block line (N1-165)" 'Ignored refined block: <cause>' references/desc-hash-chain.md
+line_has "PA writes the ignored-block line on MISMATCH (N1-165)" '**Refined block rule:**' 'write the `Ignored refined block` line' "$PA"
 has "architecture lists refined marker" '`*Refined by N1*`' references/architecture.md
 
 # --- Task 5: design consumers
