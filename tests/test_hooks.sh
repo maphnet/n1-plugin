@@ -168,6 +168,11 @@ DENY_CMDS=(
     "chroot /srv/gh git push origin main" "chroot /x/git gh pr merge 1"
     "/usr/bin/time -o t gh pr merge 1" "time --format x gh pr merge 1" "xargs --process-slot-var V gh pr merge 1"
     "xargs -I {} gh pr merge {}" "xargs --eof gh pr merge 1" "xargs --max-lines gh pr merge 1" "xargs -iI git push origin main"
+    "sudo --login gh pr merge 1" "sudo --login git push origin main" "sudo --list --login-c x gh pr merge 1"
+    "doas -au git push origin main" "chroot +r git push origin main" "chroot -- -r git push origin main"
+    "sudo -Zu git push origin main" "env -u git push origin main" "sh --rcfile f -c 'gh pr merge 1'"
+    "sudo --login -u x gh pr merge 1" "doas -a x git push origin main" "chroot +r env -u x git push origin main"
+    "chroot -- -r env -u x git push origin main"
 )
 for c in "${DENY_CMDS[@]}"; do
     assert_eq "queue headless: denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
@@ -183,7 +188,9 @@ for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push ori
          "env -u FOO git status" "env -u FOO git push origin feature" "sudo -u x gh pr view 1" \
          "sudo -nu x git push origin feature" "timeout -s KILL 5 gh pr view 1" "nice -n 5 gh pr view 1" \
          "xargs -I X echo gh pr merge X" "sudo -u x echo gh pr merge 1" "env -u FOO" "env -S 'git status'" \
-         "bash -o pipefail -c 'git status'" "chroot --userspec x:y /r git status"; do
+         "bash -o pipefail -c 'git status'" "chroot --userspec x:y /r git status" \
+         "sudo --login git status" "sudo -u git git push origin feature" "doas -au git status" \
+         "chroot +r git status" "chroot -- -r gh pr view 1" "sudo -Zu git status"; do
     assert_eq "queue headless: allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
     assert_eq "interactive: allowed: $c" 0 "$(policy_rc -- "$c")"
 done

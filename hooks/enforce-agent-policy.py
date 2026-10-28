@@ -23,10 +23,13 @@ NOT denied (N1-45). Not a shell parser: quotes/backslashes are stripped (bash do
 `g''h pr m''erge` is caught), `$(`/`<(`/backtick become command-position markers, `${`/`@{`/parens
 are blanked, the command is split on ; & | newline, and gh/git/curl/wget count only at command
 position (segment start, after VAR=x, wrappers like env/sudo/xargs/timeout N/chroot NEWROOT, `sh -c`,
-skipping wrapper value flags in WRAPPER_VALUE_FLAGS: `env -u FOO`, `sudo -nu x`, `--unse FOO`). A chunk
-runs to segment end; a nested one runs until the next nested one - each token lands in at most two
-chunks, so the scan is linear in command length (SEC-22). Known gaps: runtime string-building (eval,
-base64, variables, aliases), wrapper options outside WRAPPER_VALUE_FLAGS (`env -S` is a command
+skipping wrapper value flags in WRAPPER_VALUE_FLAGS: `env -u FOO`, `sudo -nu x`, `--unse FOO`; getopt_long
+exact-then-unique-prefix, so `sudo --login gh` keeps gh). Backstop: the first gh/git/curl/wget eaten as a
+flag value or NEWROOT also starts a shadow chunk, so a table gap denies (`env -u git push origin main` is a
+known false positive). A chunk runs to segment end; a nested one runs until the next nested one; one shadow
+per segment - each token lands in at most three chunks, so the scan is linear in command length (SEC-22). Known gaps: runtime string-building (eval,
+base64, variables, aliases), a second eaten program in one segment after a genuine `-u git` (no second
+shadow), wrapper options outside WRAPPER_VALUE_FLAGS (`env -S` is a command
 string, deliberately not skipped, incl. its backslash-underscore separator), a `$(...)` as a wrapper flag value
 (`sudo -u "$(id -un)" gh ...`), wrappers outside WRAPPERS (busybox, flock, unshare), other HTTP
 clients, chunks nested three deep, a bare push after `cd` into another checkout on the default branch; known false
@@ -75,7 +78,7 @@ WRAPPER_VALUE_FLAGS = {
     "sudo": {"-u", "-g", "-h", "-p", "-r", "-t", "-T", "-U", "-D", "-R", "-C", "-a", "-c",
              "--auth-type", "--login-class", "--user", "--group", "--host", "--prompt", "--role", "--type",
              "--command-timeout", "--other-user", "--chdir", "--chroot", "--close-from"},
-    "doas": {"-u", "-C"},
+    "doas": {"-a", "-u", "-C"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
     "xargs": {"-I", "-E", "-L", "-d", "-a", "-s", "-n", "-P", "--arg-file", "--delimiter",
               "--max-args", "--max-procs", "--max-chars", "--process-slot-var"},
@@ -89,6 +92,9 @@ WRAPPER_VALUE_FLAGS = {
 }
 WRAPPER_VALUE_FLAGS["sh"] = WRAPPER_VALUE_FLAGS["bash"]
 LEADING_POSITIONALS = {"chroot": 1}  # NEWROOT precedes the command
+# No-value long options that collide with a value flag's prefix: getopt_long takes an exact match
+# first, then a unique prefix (`sudo --login gh` runs gh; `--login-c x` is --login-class).
+WRAPPER_NOVALUE_LONGS = {"sudo": {"--login", "--list"}}
 # Short options whose value is only ever attached (`-iR`, `-lN`, `-eEOF`), so the rest of a cluster is their value.
 ATTACHED_FLAGS = {"xargs": {"-i", "-l", "-e"}}
 GH_VALUE_FLAGS = {"-R", "--repo"}
@@ -215,15 +221,19 @@ def shell_operands(tok):
     return sum(c in "oO" for c in tok[1:]) if tok[0] in "-+" and not tok.startswith("--") else 0
 
 
-def _needs_value(flags, tok, attached=()):
-    """True when wrapper option tok takes the next token: an exact flag, an unambiguous --long prefix
-    (getopt_long; ambiguous ones error in the real tool), or a short cluster ending in a value letter
+def _needs_value(flags, tok, attached=(), novalue=()):
+    """True when wrapper option tok takes the next token: an exact flag, or a --long prefix that is
+    unique against flags + novalue (getopt_long: exact wins, then a unique prefix; ambiguous ones error
+    in the real tool, so they keep command position), or a short cluster ending in a value letter
     (`-iu FOO`, `sudo -nu x`; `-uFOO` carries its value). A letter in `attached` ends the scan: the rest
     of the cluster is its value (`xargs -iI git ...` runs git, so `-I` there must not skip)."""
     if tok in flags:
         return True
     if tok.startswith("--"):
-        return len(tok) > 2 and "=" not in tok and any(f.startswith(tok) for f in flags)
+        if len(tok) <= 2 or "=" in tok or tok in novalue:
+            return False
+        hits = [f for f in (*flags, *novalue) if f.startswith(tok)]
+        return len(hits) == 1 and hits[0] in flags
     for i, ch in enumerate(tok[1:], 1):
         if tok[0] + ch in flags:
             return i == len(tok) - 1
@@ -278,17 +288,26 @@ def _commands(command):
     for segment in SEGMENT_RE.split(command):
         outer = inner = None
         at_cmd, wrapper, skip, lead = True, None, 0, 0
+        # Backstop: the first gh/git/curl/wget eaten as a flag value or NEWROOT also starts a shadow
+        # chunk to segment end, so a wrong flag table fails toward deny (one per segment: linear).
+        # ponytail: only the first such token; a later one after a genuine `-u git` is not re-read.
+        shadow = None
         for tok in segment.split():
+            start = None
             if tok == SUBST:
                 at_cmd, wrapper, skip, lead = True, None, 0, 0
                 continue
             if at_cmd:
                 name = tok.rsplit("/", 1)[-1].lower()
                 name = name[:-4] if name.endswith(".exe") else name
-                if skip:
-                    skip -= 1  # operand of a wrapper value flag; the command still follows
-                elif lead and not tok.startswith(("-", "+")):
-                    lead -= 1  # chroot NEWROOT, never the program
+                if skip or (lead and not tok.startswith("-")):
+                    if skip:
+                        skip -= 1  # operand of a wrapper value flag; the command still follows
+                    else:
+                        lead -= 1  # chroot NEWROOT (`+r` included: only `-` starts an option)
+                    start = name if name in PROGRAMS and shadow is None else None
+                elif lead and tok == "--":
+                    skip, lead = 1, lead - 1  # after `--` the next word is NEWROOT whatever its prefix
                 elif name in PROGRAMS:
                     if outer is None:
                         outer = [name]
@@ -302,13 +321,16 @@ def _commands(command):
                     wrapper, lead = name, LEADING_POSITIONALS.get(name, 0)
                 elif wrapper and tok.startswith(("-", "+")):
                     skip = (shell_operands(tok) if wrapper in ("bash", "sh") else 0) or int(
-                        _needs_value(WRAPPER_VALUE_FLAGS.get(wrapper, ()), tok, ATTACHED_FLAGS.get(wrapper, ())))
+                        _needs_value(WRAPPER_VALUE_FLAGS.get(wrapper, ()), tok, ATTACHED_FLAGS.get(wrapper, ()),
+                                     WRAPPER_NOVALUE_LONGS.get(wrapper, ())))
                 elif not (wrapper and DURATION_RE.match(tok)):
                     at_cmd = bool(ASSIGN_RE.match(tok))
-            for chunk in (outer, inner):
+            for chunk in (outer, inner, shadow):
                 if chunk is not None:
                     chunk.append(tok)
-        for chunk in (outer, inner):
+            if start:
+                shadow = [start]
+        for chunk in (outer, inner, shadow):
             if chunk:
                 yield chunk
 
