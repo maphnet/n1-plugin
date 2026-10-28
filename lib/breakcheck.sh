@@ -67,7 +67,7 @@ _n1_bc_json() {  # success error_kind error_msg verdict named_test log
 
 _n1_bc_run() {  # cmd log repo_dir → appends output to log, returns runner exit code
     local cmd="$1" log="$2" dir="$3"
-    ( cd "$dir" && timeout -k 30 "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) >> "$log" 2>&1
+    ( cd "$dir" && timeout -k 30 "${N1_BREAKCHECK_TIMEOUT:-600}" env -u N1_RUN_ID bash -c "$cmd" </dev/null ) >> "$log" 2>&1
 }
 
 # _n1_bc_exclude_log <log_abs> <repo_dir_abs>
@@ -82,6 +82,12 @@ _n1_bc_exclude_log() {
     local exclude="$repo_abs/.git/info/exclude"
     grep -qxF "$rel" "$exclude" 2>/dev/null || echo "$rel" >> "$exclude"
 }
+
+_n1_bc_has() {  # <newline list> <name> → 0 when the list holds name, or name minus a trailing " (...)" (parsers strip it)
+    local key; key=$(sed 's/ ([^()]*)[[:space:]]*$//' <<< "$2")
+    grep -qxF -e "$2" -e "$key" <<< "$1"
+}
+_n1_bc_count() { awk 'NF{n++} END{print n+0}' <<< "$1"; }
 
 # n1_break_check <base_ref> <test_cmd> <test_name> <log_path> [<repo_dir>]
 n1_break_check() {
@@ -103,15 +109,18 @@ n1_break_check() {
         n1_break_check_is_test_path "$f" || printf '%s\n' "$f"
     done)
     if [ -z "$nontest" ]; then
-        _n1_bc_json false no-diff "no non-test files changed since ${base}; nothing to revert" inconclusive "$name" "$log"
+        _n1_bc_json false no-diff "no non-test files changed since ${base}; nothing to revert" no-diff "$name" "$log"
         return 2
     fi
 
     echo "=== baseline run (fix present) ===" >> "$log"
-    if ! _n1_bc_run "$cmd" "$log" "$dir"; then
+    local base_log; base_log=$(mktemp)
+    if ! _n1_bc_run "$cmd" "$base_log" "$dir"; then
+        cat "$base_log" >> "$log"; rm -f "$base_log"
         _n1_bc_json false inconclusive "baseline run is not green with the fix present" inconclusive "$name" "$log"
         return 0
     fi
+    cat "$base_log" >> "$log"
     # Clean build artefacts produced by the baseline run (e.g. __pycache__).
     git -C "$dir" clean -q -fd 2>/dev/null || true
 
@@ -127,7 +136,7 @@ n1_break_check() {
         fi
     done <<< "$nontest"
     local rc_rev=0
-    ( cd "$dir" && timeout -k 30 "${N1_BREAKCHECK_TIMEOUT:-600}" bash -c "$cmd" </dev/null ) > "$revert_log" 2>&1 || rc_rev=$?
+    ( cd "$dir" && timeout -k 30 "${N1_BREAKCHECK_TIMEOUT:-600}" env -u N1_RUN_ID bash -c "$cmd" </dev/null ) > "$revert_log" 2>&1 || rc_rev=$?
     cat "$revert_log" >> "$log"
 
     echo "=== restore ===" >> "$log"
@@ -141,8 +150,10 @@ n1_break_check() {
     git -C "$dir" clean -q -fd --exclude "$(basename "$log_abs")" 2>>"$log" || true
     n1_tree_is_clean "$dir" || restore_ok=false
 
-    local failed_names
+    local failed_names base_pass rev_pass
     failed_names=$(n1_testparse_failed_names "$revert_log")
+    base_pass=$(n1_testparse_passed_names "$base_log"); rev_pass=$(n1_testparse_passed_names "$revert_log")
+    rm -f "$base_log"
 
     if [ "$restore_ok" != "true" ]; then
         _n1_bc_json false inconclusive "tree or suite not green after restore; inspect log" inconclusive "$name" "$log"
@@ -170,8 +181,16 @@ n1_break_check() {
         else
             _n1_bc_json true "" "" never-red "$name" "$log"
         fi
-    elif printf '%s\n' "$failed_names" | grep -qxF -- "$name"; then
+    elif _n1_bc_has "$failed_names" "$name"; then
         _n1_bc_json true "" "" red-then-green "$name" "$log"
+    elif [ "$rc_rev" -ne 0 ] && _n1_bc_has "$base_pass" "$name" && ! _n1_bc_has "$rev_pass" "$name"; then
+        # PASS-set rule: the named test passed with the fix and not reverted; its FAIL text may differ
+        # from its PASS name. Only runners that print PASS lines reach here.
+        if [ $(( $(_n1_bc_count "$rev_pass") + $(_n1_bc_count "$failed_names") )) -lt "$(_n1_bc_count "$base_pass")" ]; then
+            _n1_bc_json false inconclusive "reverted run stopped before reporting every baseline test (aborted?)" inconclusive "$name" "$log"
+        else
+            _n1_bc_json true "" "" red-then-green "$name" "$log"
+        fi
     else
         _n1_bc_json true "" "" never-red "$name" "$log"
     fi

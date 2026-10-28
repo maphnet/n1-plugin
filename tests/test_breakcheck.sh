@@ -111,6 +111,7 @@ git -C "$T6" add -A; git -C "$T6" commit -qm tests-only
 set +e; OUT=$(n1_break_check base "$CMD" test_extra "$T6/bc.log" "$T6"); RC=$?; set -e
 assert_eq "no-diff exit" "2" "$RC"
 assert_eq "no-diff kind" "no-diff" "$(echo "$OUT" | jq -r .error.kind)"
+assert_eq "no-diff verdict" "no-diff" "$(echo "$OUT" | jq -r .verdict)"
 
 make_shell_repo() {  # $1 = dir — shell-harness style runner ("check <description> <expr>")
     git -C "$1" init -q; git -C "$1" config user.email t@t; git -C "$1" config user.name t
@@ -163,6 +164,41 @@ RAWEOF
 fix_shell_repo "$T8" "$LINE8"
 OUT=$(n1_break_check base "$SHELL_CMD" tests/test_wiring.sh "$T8/bc.log" "$T8")
 assert_eq "shell-harness hollow verdict" "never-red" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 8b: hollow test named by its PASS description → still never-red (PASS on both runs)
+OUT=$(n1_break_check base "$SHELL_CMD" "add handles two ones" "$T8/bc.log" "$T8")
+assert_eq "shell-harness hollow by name verdict" "never-red" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 9: FAIL text embeds a temp path and differs from the PASS name (N1-138) → red-then-green via PASS-set
+T9=$(mktemp -d); make_shell_repo "$T9"
+LINE9=$(cat <<'RAWEOF'
+if [ "$(add -1 2)" = "1" ]; then echo "PASS: add handles negatives"; else echo "FAIL: check used START_FILE $(mktemp -u)/decoy-start"; FAIL=1; fi
+RAWEOF
+)
+fix_shell_repo "$T9" "$LINE9"
+OUT=$(n1_break_check base "$SHELL_CMD" "add handles negatives" "$T9/bc.log" "$T9")
+assert_eq "FAIL text differs from PASS name verdict" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 10: reverted suite aborts after an unrelated FAIL, before the named test → inconclusive (not red)
+T10=$(mktemp -d); make_shell_repo "$T10"
+LINE10=$(cat <<'RAWEOF'
+check "add handles negatives" '[ "$(add -1 2)" = "1" ]'
+[ "$(add -1 0)" = "-1" ] || exit 3
+check "add negative identity" '[ "$(add -1 0)" = "-1" ]'
+RAWEOF
+)
+fix_shell_repo "$T10" "$LINE10"
+OUT=$(n1_break_check base "$SHELL_CMD" "add negative identity" "$T10/bc.log" "$T10")
+assert_eq "aborted reverted suite verdict" "inconclusive" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 11: a leaked N1_RUN_ID must not reach the test command
+T11=$(mktemp -d); make_repo "$T11"
+fix_repo "$T11" 'def test_add_negative():
+    assert add(-1, 2) == 1'
+OUT=$(export N1_RUN_ID=leak; n1_break_check base '[ -z "${N1_RUN_ID:-}" ] && python3 run_tests.py' test_add_negative "$T11/bc.log" "$T11")
+assert_eq "N1_RUN_ID unset for break-check runs" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+
+rm -rf "$T9" "$T10" "$T11"
 
 rm -rf "$T7" "$T8"
 
