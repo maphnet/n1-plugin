@@ -286,7 +286,7 @@ test_escape_ere() {
     # slug must not match an in-word occurrence, but must match a bounded one.
     local names pattern
     names=$(n1_related_escape_ere "loop")
-    pattern="(^|[^a-zA-Z0-9])(${names})([^a-zA-Z0-9]|\$)"
+    pattern="[^a-zA-Z0-9](${names})([^a-zA-Z0-9]|\$)"
 
     local got
     if printf '%s\n' "for (const x of xs) { doloopwork(x); }" | grep -qE "$pattern"; then
@@ -305,7 +305,7 @@ test_escape_ere() {
 
     # A metacharacter-bearing name must be matched literally, not as a regex.
     names=$(n1_related_escape_ere "app.core")
-    pattern="(^|[^a-zA-Z0-9])(${names})([^a-zA-Z0-9]|\$)"
+    pattern="[^a-zA-Z0-9](${names})([^a-zA-Z0-9]|\$)"
     if printf '%s\n' "require('appXcore/index')" | grep -qE "$pattern"; then
         got="match"
     else

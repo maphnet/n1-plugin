@@ -11,10 +11,10 @@ git cat-file -e "$S^{commit}" 2>/dev/null || git fetch -q origin "$S" 2>/dev/nul
 L=$(git ls-tree --name-only "$S" .github/workflows/ 2>/dev/null); R=$?; F=$(grep -E '\.ya?ml$' <<<"$L")
 C=$(for f in $F; do git show "$S:$f" || exit 1; done 2>/dev/null); X=$?
 if [ -n "$WN" ] || [ $R != 0 ] || [ $X != 0 ]; then echo precheck:watch
-elif [ -z "$F" ]; then echo precheck:none
-else grep -qE '(^|[^[:alnum:]_-])(push|workflow_run)([^[:alnum:]_-]|$)' <<<"$C"; [ $? = 1 ] && echo precheck:none || echo precheck:watch; fi
+elif [ -z "$F" ]; then echo precheck:none 0
+else set -- $F; N=$#; grep -qE '[^[:alnum:]_-](push|workflow_run)([^[:alnum:]_-]|$)' <<<"$C"; [ $? = 1 ] && echo precheck:none $N || echo precheck:watch; fi
 ```
-`precheck:none` → deploy status `skipped (no deploy workflow)`; no helper call, no post-deploy verification; go to Step 4. Only `push`/`workflow_run` triggers are recognised; an unavailable SHA or any git/grep error prints `precheck:watch`. Repos that deploy via another trigger set `finishWork.deployWatch.workflowName`, which forces the watch. Path/branch filters and reusable workflows are not parsed; those fall back to the grace below.
+`precheck:none <N>` (`<N>` = workflow files inspected) → deploy status `skipped (no deploy workflow: precheck:none, <N> workflows inspected)`; no helper call, no post-deploy verification; go to Step 4. Only `push`/`workflow_run` triggers are recognised; an unavailable SHA or any git/grep error prints `precheck:watch`. Repos that deploy via another trigger set `finishWork.deployWatch.workflowName`, which forces the watch. Path/branch filters and reusable workflows are not parsed; those fall back to the grace below.
 
 1. **Watch the merge-commit runs (5-minute registration grace, then up to 30 minutes total)** in one foreground call per chunk. First call: `<grace>` = `5`, `<remaining-minutes>` = `30`. Pass `workflowName` single-quoted as the fourth argument when set, else `''`. The fifth argument is always `any`: runs of every event on the merge commit count. Never narrow it to one event: `gh run list --event` takes a single event, and a deploy may run on `push` or on a `workflow_run` chained from CI (the pre-check accepts both). Runs are already scoped to the merge SHA, and `workflowName` narrows them by name.
    ```bash
