@@ -76,7 +76,7 @@ while IFS=$'\t' read -r c_slug c_service c_repo c_bare; do
     [ -z "$c_slug" ] && continue
     note=""
     # Escape ERE metacharacters and wrap with non-alphanumeric boundaries so short
-    # slugs (loop, api, web) do not match unrelated code. Mirrors lib/related.sh:113-116.
+    # slugs (loop, api, web) do not match unrelated code. Mirrors lib/related.sh:114-117.
     # `names` is the reusable escaped alternation; the boundary wrapper is per-site.
     names=$(n1_related_escape_ere "$c_slug")
     [ -n "$c_service" ] && names="${names}|$(n1_related_escape_ere "$c_service")"
