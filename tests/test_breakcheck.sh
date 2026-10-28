@@ -204,7 +204,18 @@ fix_repo "$T11" 'def test_add_negative():
 OUT=$(export N1_RUN_ID=leak; n1_break_check base '[ -z "${N1_RUN_ID:-}" ] && python3 run_tests.py' test_add_negative "$T11/bc.log" "$T11")
 assert_eq "N1_RUN_ID unset for break-check runs" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
 
-rm -rf "$T9" "$T10" "$T11"
+# Case 12: two unrelated FAIL diagnostics + abort hide that the named test never ran; counts match → inconclusive
+T12B=$(mktemp -d); make_shell_repo "$T12B"
+LINE12=$(cat <<'RAWEOF'
+if [ "$(add -1 0)" = "-1" ]; then echo "PASS: setup"; else echo "FAIL: diag one"; echo "FAIL: diag two"; exit 3; fi
+check "target" '[ "$(add -1 2)" = "1" ]'
+RAWEOF
+)
+fix_shell_repo "$T12B" "$LINE12"
+OUT=$(n1_break_check base "$SHELL_CMD" target "$T12B/bc.log" "$T12B")
+assert_eq "count-matching abort without target evidence verdict" "inconclusive" "$(echo "$OUT" | jq -r .verdict)"
+
+rm -rf "$T9" "$T10" "$T11" "$T12B"
 
 rm -rf "$T7" "$T8"
 
@@ -235,13 +246,15 @@ LMULTI="New test: x | a | b"
 assert_eq "parse: legacy multi-pipe → empty cmd" "" "$(n1_break_check_parse_line "$LMULTI" cmd 2>/dev/null)"
 assert_eq "parse: legacy multi-pipe warns" "1" "$(n1_break_check_parse_line "$LMULTI" cmd 2>&1 >/dev/null | grep -c ambiguous)"
 assert_eq "parse: legacy multi-pipe name kept" "x" "$(n1_break_check_parse_line "$LMULTI" name)"
-# _n1_bc_has: empty name never matches; parenthesized name matches stripped list entry
+# _n1_bc_has: empty name never matches; names match exactly (a parenthetical is part of the identity)
 _n1_bc_has $'a\n\nb' "" && r=match || r=none
 assert_eq "bc_has: empty name vs list with blank line" "none" "$r"
 _n1_bc_has "" "" && r=match || r=none
 assert_eq "bc_has: empty name vs empty list" "none" "$r"
 _n1_bc_has $'test_a\nb' "test_a (extra)" && r=match || r=none
-assert_eq "bc_has: parenthesized name matches stripped entry" "match" "$r"
+assert_eq "bc_has: parenthesized name does not match its stripped sibling" "none" "$r"
+_n1_bc_has $'renders (mobile)\nb' "renders (mobile)" && r=match || r=none
+assert_eq "bc_has: parenthesized name matches itself" "match" "$r"
 _n1_bc_has $'test_a\nb' " (extra)" && r=match || r=none
 assert_eq "bc_has: name stripping to empty does not match all" "none" "$r"
 

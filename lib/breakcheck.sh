@@ -85,13 +85,23 @@ _n1_bc_exclude_log() {
     grep -qxF "$rel" "$exclude" 2>/dev/null || echo "$rel" >> "$exclude"
 }
 
-_n1_bc_has() {  # <newline list> <name> → 0 when the list holds name, or name minus a trailing " (...)" (parsers strip it)
+_n1_bc_has() {  # <newline list> <name> → 0 when the list holds name exactly (parsers already strip runner suffixes)
     [ -n "$2" ] || return 1
-    local key; key=$(sed 's/ ([^()]*)[[:space:]]*$//' <<< "$2")
-    [ -n "$key" ] || key="$2"
-    grep -qxF -e "$2" -e "$key" <<< "$1"
+    grep -qxF -e "$2" <<< "$1"
 }
-_n1_bc_count() { awk 'NF{n++} END{print n+0}' <<< "$1"; }
+# _n1_bc_accounted <base_pass> <rev_pass> <failed> <name> → 0 when every baseline test that vanished from the
+# reverted run (other than name) has its own FAIL line and at least one FAIL line is unattributed (name's).
+_n1_bc_accounted() {
+    local n unexplained=0
+    while IFS= read -r n; do
+        [ -n "$n" ] && [ "$n" != "$4" ] || continue
+        _n1_bc_has "$2" "$n" || _n1_bc_has "$3" "$n" || return 1
+    done <<< "$1"
+    while IFS= read -r n; do
+        [ -n "$n" ] && ! _n1_bc_has "$1" "$n" && unexplained=1
+    done <<< "$3"
+    [ "$unexplained" -eq 1 ]
+}
 
 # n1_break_check <base_ref> <test_cmd> <test_name> <log_path> [<repo_dir>]
 n1_break_check() {
@@ -195,10 +205,10 @@ n1_break_check() {
     elif [ "$rc_rev" -ne 0 ] && _n1_bc_has "$base_pass" "$name" && ! _n1_bc_has "$rev_pass" "$name"; then
         # PASS-set rule: the named test passed with the fix and not reverted; its FAIL text may differ
         # from its PASS name. Only runners that print PASS lines reach here.
-        if [ $(( $(_n1_bc_count "$rev_pass") + $(_n1_bc_count "$failed_names") )) -lt "$(_n1_bc_count "$base_pass")" ]; then
-            _n1_bc_json false inconclusive "reverted run stopped before reporting every baseline test (aborted?)" inconclusive "$name" "$log"
-        else
+        if _n1_bc_accounted "$base_pass" "$rev_pass" "$failed_names" "$name"; then
             _n1_bc_json true "" "" red-then-green "$name" "$log"
+        else
+            _n1_bc_json false inconclusive "cannot establish that the named test ran and failed in the reverted run (aborted?)" inconclusive "$name" "$log"
         fi
     else
         _n1_bc_json true "" "" never-red "$name" "$log"
