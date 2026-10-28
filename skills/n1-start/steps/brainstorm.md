@@ -43,7 +43,7 @@ else n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNING_NEED"
 n1_record_decision planning-need-direct "$( [ "$PLANNING_NEED" = "direct" ] && echo true || echo false )" '{"signal":"brainstorm.design_clarity","eq":"high"}' "planning_need=$PLANNING_NEED"
 [ "$PLANNING_NEED" = "direct" ] && DESIGN_CLARITY="high" || DESIGN_CLARITY="medium"
-APPROACH_COUNT=$(grep -c -iE '^#{2,3}\s*(approach|option)\s' "$N1_HOME/memory/$ID/brainstorm.md" 2>/dev/null || echo "1")
+APPROACH_COUNT=$(grep -c -iE '^#{2,3}\s*(approach|option)\s' "$N1_HOME/memory/$ID/brainstorm.md" 2>/dev/null); [ "${APPROACH_COUNT:-0}" -gt 0 ] || APPROACH_COUNT=1
 BRAINSTORM_FILES=$(grep -oE '[a-zA-Z0-9_/.-]+\.(py|ts|tsx|js|jsx|go|rs|java|rb|sh|sql|yaml|yml|json|toml|md|css|html)' "$N1_HOME/memory/$ID/brainstorm.md" 2>/dev/null | sort -u | wc -l); BRAINSTORM_FILES=$((BRAINSTORM_FILES > 0 ? BRAINSTORM_FILES : 1))
 ANALYSIS_BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius")
 [ "$BRAINSTORM_FILES" -le 2 ] && BRAINSTORM_BLAST="low" || { [ "$BRAINSTORM_FILES" -le 5 ] && BRAINSTORM_BLAST="${ANALYSIS_BLAST:-medium}" || BRAINSTORM_BLAST="${ANALYSIS_BLAST:-high}"; }
