@@ -152,6 +152,28 @@ DENY_CMDS=(
     ">/tmp/merge.log gh pr merge 12" "> /tmp/m gh pr merge 12" "2>/tmp/e gh pr merge 12" ">>/tmp/m gh pr merge 12"
     "</dev/null gh pr merge 12" "&>/tmp/m gh pr merge 12" "2>&1 gh pr merge 12" ">\$HOME/m git push origin main"
     "echo x >/tmp/f; >/tmp/m gh pr merge 1" "echo >\$(gh pr merge 1)"
+    "env --chdir=/tmp/nice -u FOO gh pr merge 1" "env -C/tmp/nice -u FOO git push origin main" "sudo --chdir=/x/env -u x gh pr merge 1"
+    "env -u FOO git push origin main" "env --unset FOO git push origin main" "env --unse FOO git push origin main"
+    "env --u FOO git push origin main" "env -C /x git push origin main" "env --chdir /x gh pr merge 1"
+    "env -u FOO FOO2=1 git push origin main" "env -iu FOO git push origin main" "env -a x gh pr merge 1"
+    "env -u git gh pr merge 1" "env -S 'git push origin main'" "env --unset=FOO git push origin main" "env -i git push origin main"
+    "sudo -u x gh pr merge 1" "sudo -g x gh pr merge 1" "sudo --user x gh pr merge 1" "sudo -nu x gh pr merge 1"
+    "sudo -u x -g y gh pr merge 1" "sudo -ux gh pr merge 1" "doas -u x gh pr merge 1" "sudo env -u FOO git push origin main"
+    "timeout -s KILL 5 gh pr merge 1" "timeout --signal KILL -k 5 10 gh pr merge 1"
+    "xargs -I X gh pr merge X" "xargs -n 1 gh pr merge" "xargs -d x gh pr merge" "exec -a n gh pr merge 1"
+    "bash -o pipefail -c 'gh pr merge 1'" "bash --rcfile f -c 'gh pr merge 1'"
+    "nice -n 5 gh pr merge 1" "nice -5 gh pr merge 1" "ionice -c idle gh pr merge 1" "stdbuf -o L gh pr merge 1"
+    "setsid gh pr merge 1" "chroot /r gh pr merge 1" "chroot --userspec x:y /r gh pr merge 1"
+    "sudo -au git push origin main" "sudo -cu gh pr merge 1" "sudo -a x gh pr merge 1" "sudo --login-class x gh pr merge 1"
+    "bash -oc pipefail 'gh pr merge 1'" "bash -Oc extglob 'gh pr merge 1'" "bash -oO a b -c 'gh pr merge 1'" "sh +o posix -c 'gh pr merge 1'"
+    "chroot /srv/gh git push origin main" "chroot /x/git gh pr merge 1"
+    "/usr/bin/time -o t gh pr merge 1" "time --format x gh pr merge 1" "xargs --process-slot-var V gh pr merge 1"
+    "xargs -I {} gh pr merge {}" "xargs --eof gh pr merge 1" "xargs --max-lines gh pr merge 1" "xargs -iI git push origin main"
+    "sudo --login gh pr merge 1" "sudo --login git push origin main" "sudo --list --login-c x gh pr merge 1"
+    "doas -au git push origin main" "chroot +r git push origin main" "chroot -- -r git push origin main"
+    "sudo -Zu git push origin main" "env -u git push origin main" "sh --rcfile f -c 'gh pr merge 1'"
+    "sudo --login -u x gh pr merge 1" "doas -a x git push origin main" "chroot +r env -u x git push origin main"
+    "chroot -- -r env -u x git push origin main"
 )
 for c in "${DENY_CMDS[@]}"; do
     assert_eq "queue headless: denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
@@ -163,7 +185,14 @@ for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push ori
          'git commit -m "document git push origin main"' "git push gh feature" "grep -rn mergePullRequest lib/" \
          "git push origin \$(git branch --show-current)" "git push origin refs/heads/main-x:refs/heads/main-x" \
          "git push --repo=origin feature" "git push --repo origin HEAD:feature" "echo x >/tmp/f" \
-         "echo x 2>&1 >/tmp/f" ">/tmp/f echo gh pr merge" "gh pr view 1 >/tmp/f 2>&1"; do
+         "echo x 2>&1 >/tmp/f" ">/tmp/f echo gh pr merge" "gh pr view 1 >/tmp/f 2>&1" \
+         "env -u FOO git status" "env -u FOO git push origin feature" "sudo -u x gh pr view 1" \
+         "env --chdir=/tmp/nice -u FOO gh pr view 1" \
+         "sudo -nu x git push origin feature" "timeout -s KILL 5 gh pr view 1" "nice -n 5 gh pr view 1" \
+         "xargs -I X echo gh pr merge X" "sudo -u x echo gh pr merge 1" "env -u FOO" "env -S 'git status'" \
+         "bash -o pipefail -c 'git status'" "chroot --userspec x:y /r git status" \
+         "sudo --login git status" "sudo -u git git push origin feature" "doas -au git status" \
+         "chroot +r git status" "chroot -- -r gh pr view 1" "sudo -Zu git status"; do
     assert_eq "queue headless: allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
     assert_eq "interactive: allowed: $c" 0 "$(policy_rc -- "$c")"
 done
