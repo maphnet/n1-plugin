@@ -4,7 +4,7 @@
 
 ```bash
 source ~/.n1/preamble.sh
-n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "brainstorm" 3 "${N1_HOME}/memory/$ID/telemetry" started_at=now
+n1_step_begin "brainstorm" 3
 BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 TEST_TIER=maintain
@@ -24,11 +24,13 @@ Bug: use root cause findings. Investigation: explore question. Append `$RULES_BL
 
 **Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
 
-After: parse `context:`; if updated replace `## Context` in overview.md. Update: `[x] Brainstorm`, `step: brainstorm`.
+After: parse `context:`; if updated replace `## Context` in overview.md.
 
 ```bash
 source ~/.n1/preamble.sh
-n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md || { echo "ERROR: brainstorm.md not written by SA — aborting" >&2; exit 1; }
+PLANNING_NEED="<reported planning_need>"
+n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md || { n1_step_end "brainstorm" 3 failed; echo "ERROR: brainstorm.md not written by SA — aborting" >&2; exit 1; }
+n1_step_end "brainstorm" 3 success "{\"planning_need\":\"$PLANNING_NEED\"}"
 ```
 
 ### User Gate

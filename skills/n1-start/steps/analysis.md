@@ -5,6 +5,7 @@
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/cache.sh"; source "$N1_ROOT/lib/related.sh"; source "$N1_ROOT/lib/context.sh"
+n1_step_begin "analysis" 2
 CACHE_ENABLED=$(n1_config_val ".analysisCache.enabled" "$N1_HOME/config.json"); CACHE_ENABLED="${CACHE_ENABLED:-true}"
 SNAPSHOT_PATH=$(n1_snapshot_path "$N1_HOME"); CACHE_STATE="cold"
 [ "$CACHE_ENABLED" = "true" ] && CACHE_STATE=$(n1_snapshot_check_freshness "$SNAPSHOT_PATH" "$N1_HOME/config.json")
@@ -76,7 +77,7 @@ Parse `XREPO_SUGGEST: <slug> <reason>` from `$AGENT_OUTPUT`. **Auto**: `n1_relat
 
 **Contradiction gate:** `CONTRADICTIONS > 0`: show `### Ticket Validation`; 1=Continue 2=Redirect(Recommended); log `[asked]` ledger row. Zero or all unverifiable: skip. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
-Missing/empty: re-prompt once; fallback. DRIFT: delete snapshot. Write frontmatter; `CONTEXT_BLOCK` → replace `## Context`. **Print Gate 1** (`SIMPLE_PATH=true`: `analysis → developer → qa → review → pr`). `SELF_RESOLVED>0`: `[auto]` ledger. Update overview: `[x] Analysis`, `step: analysis`. Then `procedures/ticket-watch.md § Seed`. Headless: continue immediately past Gate 1 into the next step — do not end the turn.
+Missing/empty: re-prompt once; fallback. DRIFT: delete snapshot. Write frontmatter; `CONTEXT_BLOCK` → replace `## Context`. **Print Gate 1** (`SIMPLE_PATH=true`: `analysis → developer → qa → review → pr`). `SELF_RESOLVED>0`: `[auto]` ledger. Then `procedures/ticket-watch.md § Seed`. Headless: continue immediately past Gate 1 into the next step — do not end the turn.
 
 Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":** add all + ledger rows (use `n1_related_add`+`n1_record_decision` per slug). **"select":** add approved. **"no":** `[asked]` row. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
@@ -87,7 +88,8 @@ RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 UNKNOWNS=$(grep -oE '<!-- n1:unknown: [^>]+ -->' "$N1_HOME/memory/$ID/analysis.md" | sed 's/<!-- n1:unknown: //;s/ -->//'); UNKNOWN_COUNT=$(echo "$UNKNOWNS" | grep -c '.' 2>/dev/null | head -1); UNKNOWN_COUNT="${UNKNOWN_COUNT:-0}"
 if [ "$RELATED_ENABLED" = "true" ]; then XREPO_EXPLORED_BOOL=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "cross_repo_explored" 2>/dev/null || echo false); fi
+[ "$RELATED_ENABLED" = "true" ] || n1_step_end "analysis" 2 success
 ```
 
-When `RELATED_ENABLED=true`: read `cross_repo_explored` signal; extract comma-separated XREPO_PROJECTS from `### Cross-Repo Context`; count `XREPO_MAPS_GENERATED`+`XREPO_DISCOVERY_NEW` in `$AGENT_OUTPUT`; emit `n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "analysis" 2 "$N1_HOME/memory/$ID/telemetry" completed_at=now outcome=pass` with `metadata="{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL:-false},\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}}"`.
+When `RELATED_ENABLED=true`: read `cross_repo_explored` signal; extract comma-separated XREPO_PROJECTS from `### Cross-Repo Context`; count `XREPO_MAPS_GENERATED`+`XREPO_DISCOVERY_NEW` in `$AGENT_OUTPUT`; end the step: `n1_step_end "analysis" 2 success "{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL:-false},\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}}"`.
 `UNKNOWN_COUNT=0`: skip. Inherited→`[auto]` telemetry+ledger. Preamble: `"{Title}: {Core Ask}."` Bug: prepend root-cause. Batch (max 4): unknown — tried — why — (Recommended). Options: answer / "skip" / "Decide for me" / "use recommended" (all). "Decide for me"→search+apply `[auto-decided]`. After: `### Clarifications`.

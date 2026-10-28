@@ -5,6 +5,7 @@ Runs `n1-plan` skill in isolated subagent (prevents interactive prompts leaking 
 
 ```bash
 source ~/.n1/preamble.sh
+n1_step_begin "plan" 4
 IFS=$'\t' read -r PLANNER_MODEL PLANNER_EFFORT < <(n1_resolve_agent planner plan)
 source "$N1_ROOT/lib/rules.sh"
 RULES_DIR=$(n1_rules_dir)
@@ -19,7 +20,7 @@ fi
 
 ```bash
 source ~/.n1/preamble.sh
-n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md analysis.md || { echo "ERROR: upstream artifacts missing — cannot plan" >&2; exit 1; }
+n1_verify_dependencies "$N1_HOME/memory/$ID" brainstorm.md analysis.md || { n1_step_end "plan" 4 failed; echo "ERROR: upstream artifacts missing — cannot plan" >&2; exit 1; }
 ```
 
 Spawn with `$PLANNER_MODEL` and `$PLANNER_EFFORT`:
@@ -30,4 +31,8 @@ Spawn with `$PLANNER_MODEL` and `$PLANNER_EFFORT`:
 
 **Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
 
-After return: update overview `[x] Plan`, set `step: plan`. Record 2-3 sentence approach summary in `## Key Decisions`.
+After return: record 2-3 sentence approach summary in `## Key Decisions`, then:
+```bash
+source ~/.n1/preamble.sh
+n1_step_end "plan" 4 success
+```
