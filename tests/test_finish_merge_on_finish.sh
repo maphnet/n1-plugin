@@ -33,7 +33,7 @@ if grep -qF 'a second `state:DIRTY` or `state:BEHIND` is a **STOP**' skills/n1-f
 PE=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); DB=$(grep -n '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F" | head -1 | cut -d: -f1)
 if [ -n "$PE" ] && [ -n "$DB" ] && [ "$PE" -lt "$DB" ]; then ok "3.1: pinless line precedes DIRTY/BEHIND"; else no "3.1: pinless line precedes DIRTY/BEHIND"; fi
 PL=$(sed -n "${PE:-1}p" "$F")
-if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 does not pin unattended' <<<"$PL" && grep -qF 'every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md) is also added under `## Escalations` and posted as a `N1 [headless]`' "$F"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
+if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 does not pin unattended' <<<"$PL" && grep -qF 'every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md), except the 3.4 merge-queue outcome (`merge-exit:0` with `state:OPEN`), is also added under `## Escalations` and posted as a `N1 [headless]`' "$F"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
 if grep -qF 'Merge it yourself' <<<"$PL"; then no "3.1: pinless has no merge-by-hand dead end"; else ok "3.1: pinless has no merge-by-hand dead end"; fi
 # N1-157: a failed 3.4 merge with a DIRTY/BEHIND re-read resolves once (shared attempt with 3.1); a second conflict and every other failure STOP.
 R34=$(grep -n '`mss:DIRTY` or `mss:BEHIND` and no resolve attempt yet in this run' "$F" | head -1 | cut -d: -f1)
@@ -628,4 +628,7 @@ S1=skills/n1-finish/steps/01-resolve-target.md
 if grep -qF 'n1_finish_mark "<ID>"' "$S1"; then ok "01-resolve-target writes the n1-finish marker"; else no "01-resolve-target writes the n1-finish marker"; fi
 if grep -qF 'n1_active_run_clear_if n1-finish' "$S1" && grep -qF 'n1_active_run_clear_if n1-finish' "$F"; then ok "STOP clears the marker (01, 02)"; else no "STOP clears the marker (01, 02)"; fi
 if grep -qF 'n1_active_run_clear_if n1-finish' skills/n1-finish/steps/06-cleanup.md; then ok "06-cleanup clears the marker outside the overview guard"; else no "06-cleanup clears the marker outside the overview guard"; fi
+# N1-153/N1-154: merge-queue outcome is exempt from escalation; repin option 1 discloses pushing unpushed local commits.
+if grep -qF 'except the 3.4 merge-queue outcome (`merge-exit:0` with `state:OPEN`)' "$F"; then ok "02-merge: merge-queue outcome exempt from escalation"; else no "02-merge: merge-queue outcome exempt from escalation"; fi
+if grep -qF 'continue the merge (unpushed local commits are pushed and merged too)' skills/n1-finish/references/repin.md; then ok "repin: option 1 discloses unpushed commits"; else no "repin: option 1 discloses unpushed commits"; fi
 exit $FAIL

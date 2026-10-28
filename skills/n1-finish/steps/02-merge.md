@@ -2,7 +2,7 @@
 
 N1 merges an open PR only when the entry printed `merge-on-finish:yes` (`finishWork.mergeOnFinish` is `true`; a queue or headless run also needs `autonomy.fullAuto` `true`). Otherwise the human merges, then re-runs n1-finish.
 
-With `headless:yes` or `queue-run:yes`, every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md) is also added under `## Escalations` and posted as a `N1 [headless]` tracker comment.
+With `headless:yes` or `queue-run:yes`, every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md), except the 3.4 merge-queue outcome (`merge-exit:0` with `state:OPEN`), is also added under `## Escalations` and posted as a `N1 [headless]` tracker comment.
 
 **Queue runs.** When the entry printed `queue-run:yes` without `merge-on-finish:yes`, report "Queue run: N1 merges only when `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true. The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b.
 

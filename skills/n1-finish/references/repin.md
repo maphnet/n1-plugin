@@ -11,7 +11,7 @@ Ask the user:
 ```
 PR #<n> has no valid reviewed-head pin (head <first 7 of head>, pin <first 7 of pin, or "none">). Re-review the PR branch and re-pin it?
 No recommendation. The options are equivalent given the available evidence; select based on team preference.
-1 — Re-review the PR branch, then re-pin and continue the merge
+1 — Re-review the PR branch, then re-pin and continue the merge (unpushed local commits are pushed and merged too)
 2 — No, stop (merge it yourself, then re-run /n1:n1-finish)
 ```
 
