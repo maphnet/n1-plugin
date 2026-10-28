@@ -32,7 +32,7 @@ tid() { grep -oiE "$TP-[0-9]+" | head -1 | tr a-z A-Z; }
 case "$ID" in *[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
 gh auth status >/dev/null 2>&1 && G=ok || G=unauthenticated; R=false
 look() { X="(^|[^a-z0-9])${ID,,}([^0-9]|$)"
-  if [ -z "$PR" ] && [ -n "$ID" ] && ! grep -qiE "$X" <<<"$B"; then J=$(gh pr list --state all --limit 300 --json $F | jq -rc --arg x "$X" 'map(select(.headRefName|ascii_downcase|test($x)))|map(select(.state=="OPEN")) as $o|map(select(.state=="MERGED")) as $m|if length==1 then .[0] elif ($o|length)==1 then $o[0] elif ($o|length)==0 and ($m|length)==1 then $m[0] elif length==0 then empty else "pr:ambiguous "+(map(.number|tostring)|join(" ")) end')
+  if [ -z "$PR" ] && [ -n "$ID" ] && ! [[ ${B,,} =~ $X ]]; then J=$(gh pr list --state all --limit 300 --json $F | jq -rc --arg x "$X" 'map(select(.headRefName|ascii_downcase|test($x)))|map(select(.state=="OPEN")) as $o|map(select(.state=="MERGED")) as $m|if length==1 then .[0] elif ($o|length)==1 then $o[0] elif ($o|length)==0 and ($m|length)==1 then $m[0] elif length==0 then empty else "pr:ambiguous "+(map(.number|tostring)|join(" ")) end')
   else J=$(gh pr view ${PR:+"$PR"} --json $F); fi; echo "${J:-pr:none}"; }
 [ -z "$PR" ] || [ "$G" != ok ] || { look; [ -n "$ID" ] || [ -z "$TP" ] || ID=$(jq -r '.headRefName//empty' <<<"$J" 2>/dev/null | tid); }
 M="$N1_HOME/memory/$ID"

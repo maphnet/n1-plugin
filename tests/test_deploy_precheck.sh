@@ -53,7 +53,9 @@ rw; cm cleared
 chk "checkout has no workflows, merge SHA has push -> watch" "precheck:watch" "$(pc '' "$PUSHSHA")"
 chk "SHA missing -> watch" "precheck:watch" "$(pc '' 0123456789abcdef0123456789abcdef01234567)"
 chk "no workflows at SHA -> none" "precheck:none" "$(pc '')"
-# N1-169: ban the ugrep-unsafe `(^|[^` construct in shipped text (SKILL.md look() is a known unfixed site).
-chk "no (^|[^ in skills/ lib/" "" "$(command grep -rnF '(^|[^' "$REPO/skills" "$REPO/lib" --exclude=SKILL.md)"
+# N1-169: ban the ugrep-unsafe `(^|[^` construct in shipped text. SKILL.md look() keeps the literal for bash `=~` and jq (not grep), so it is excluded here and checked below.
+command grep -rnF '(^|[^' "$REPO/skills" "$REPO/lib" --exclude=SKILL.md >/dev/null 2>&1; chk "no (^|[^ in skills/ lib/ (grep exit 1 = no match)" "1" "$?"
+chk "SKILL.md: no grep line carries (^|[^" "" "$(command grep -rF '(^|[^' "$REPO/skills" --include=SKILL.md | command grep -w grep)"
+chk "n1-finish look() uses =~, not grep -qiE" "0" "$(command grep -c 'grep -qiE "\$X"' "$REPO/skills/n1-finish/SKILL.md")"
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
