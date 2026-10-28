@@ -22,11 +22,13 @@ passes; and `git push` targeting git.defaultBranch (default "main"): a refspec
 NOT denied (N1-45). Not a shell parser: quotes/backslashes are stripped (bash does the same, so
 `g''h pr m''erge` is caught), `$(`/`<(`/backtick become command-position markers, `${`/`@{`/parens
 are blanked, the command is split on ; & | newline, and gh/git/curl/wget count only at command
-position (segment start, after VAR=x, wrappers like env/sudo/xargs/timeout N, `sh -c`). A chunk
+position (segment start, after VAR=x, wrappers like env/sudo/xargs/timeout N/chroot NEWROOT, `sh -c`,
+skipping wrapper value flags in WRAPPER_VALUE_FLAGS: `env -u FOO`, `sudo -nu x`, `--unse FOO`). A chunk
 runs to segment end; a nested one runs until the next nested one - each token lands in at most two
 chunks, so the scan is linear in command length (SEC-22). Known gaps: runtime string-building (eval,
-base64, variables, aliases), wrappers with value flags (`sudo -u x gh`), other HTTP clients, chunks
-nested three deep, a bare push after `cd` into another checkout on the default branch; known false
+base64, variables, aliases), wrapper options outside WRAPPER_VALUE_FLAGS (`env -S` is a command
+string, deliberately not skipped), wrappers outside WRAPPERS (busybox, flock, unshare), other HTTP
+clients, chunks nested three deep, a bare push after `cd` into another checkout on the default branch; known false
 positives: heredoc/backtick text whose line starts with gh/git, and grep for a merge API in the
 same command as `gh api`.
 
@@ -62,8 +64,31 @@ REDIR_RE = re.compile(r"(?<![\d&])(?:\d*|&)(?:>>?|<)(?!\()\|?[ \t]*&?(?:[^\s;&|(
 DURATION_RE = re.compile(r"[0-9.]+[smhd]?$")
 REVIEWERS = {"code-reviewer", "security-reviewer"}
 PROGRAMS = {"gh", "git", "curl", "wget"}
-WRAPPERS = {"env", "command", "exec", "sudo", "time", "nohup", "xargs", "timeout", "sh", "bash",
+WRAPPERS = {"env", "command", "exec", "sudo", "doas", "time", "nohup", "xargs", "timeout", "sh", "bash",
+            "nice", "ionice", "stdbuf", "setsid", "chroot",
             "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
+# Wrapper options whose value is the next token (`env -u FOO git`). Exact per wrapper: a skipped real
+# program is a bypass. env -S is absent on purpose: its string expands into the command words.
+WRAPPER_VALUE_FLAGS = {
+    "env": {"-u", "--unset", "-C", "--chdir", "-a", "--argv0"},
+    "sudo": {"-u", "-g", "-h", "-p", "-r", "-t", "-T", "-U", "-D", "-R", "-C",
+             "--user", "--group", "--host", "--prompt", "--role", "--type",
+             "--command-timeout", "--other-user", "--chdir", "--chroot", "--close-from"},
+    "doas": {"-u", "-C"},
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "xargs": {"-I", "-E", "-L", "-d", "-a", "-s", "-n", "-P", "--arg-file", "--delimiter",
+              "--max-args", "--max-procs", "--max-chars"},
+    "exec": {"-a"},
+    "bash": {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"},
+    "nice": {"-n", "--adjustment"},
+    "ionice": {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid", "--pgid", "--uid"},
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+    "chroot": {"--userspec", "--groups"},
+}
+WRAPPER_VALUE_FLAGS["sh"] = WRAPPER_VALUE_FLAGS["bash"]
+LEADING_POSITIONALS = {"chroot": 1}  # NEWROOT precedes the command
+# Short options whose value is only ever attached (`-iR`, `-lN`, `-eEOF`), so the rest of a cluster is their value.
+ATTACHED_FLAGS = {"xargs": {"-i", "-l", "-e"}}
 GH_VALUE_FLAGS = {"-R", "--repo"}
 GIT_VALUE_FLAGS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
 UNIT_RE = re.compile(r"(&&\s*|\|\||;|\n)")
@@ -183,6 +208,23 @@ def _positionals(tokens, value_flags):
     return out, cwd
 
 
+def _needs_value(flags, tok, attached=()):
+    """True when wrapper option tok takes the next token: an exact flag, an unambiguous --long prefix
+    (getopt_long; ambiguous ones error in the real tool), or a short cluster ending in a value letter
+    (`-iu FOO`, `sudo -nu x`; `-uFOO` carries its value). A letter in `attached` ends the scan: the rest
+    of the cluster is its value (`xargs -iI git ...` runs git, so `-I` there must not skip)."""
+    if tok in flags:
+        return True
+    if tok.startswith("--"):
+        return len(tok) > 2 and "=" not in tok and any(f.startswith(tok) for f in flags)
+    for i, ch in enumerate(tok[1:], 1):
+        if tok[0] + ch in flags:
+            return i == len(tok) - 1
+        if tok[0] + ch in attached:
+            return False
+    return False
+
+
 @functools.lru_cache(maxsize=None)
 def _current_branch(cwd):
     try:
@@ -228,15 +270,17 @@ def _commands(command):
     command = re.sub(r"[$@]\{|[()<>]", " ", command)
     for segment in SEGMENT_RE.split(command):
         outer = inner = None
-        at_cmd, wrapped = True, False
+        at_cmd, wrapper, skip, lead = True, None, False, 0
         for tok in segment.split():
             if tok == SUBST:
-                at_cmd, wrapped = True, False
+                at_cmd, wrapper, skip, lead = True, None, False, 0
                 continue
             if at_cmd:
                 name = tok.rsplit("/", 1)[-1].lower()
                 name = name[:-4] if name.endswith(".exe") else name
-                if name in PROGRAMS:
+                if skip:
+                    skip = False  # operand of a wrapper value flag; the command still follows
+                elif name in PROGRAMS:
                     if outer is None:
                         outer = [name]
                     else:
@@ -245,10 +289,14 @@ def _commands(command):
                         inner = [name]
                     at_cmd = False
                     continue
-                if name in WRAPPERS:
-                    wrapped = True
-                else:
-                    at_cmd = bool(ASSIGN_RE.match(tok)) or (wrapped and (tok.startswith("-") or bool(DURATION_RE.match(tok))))
+                elif name in WRAPPERS:
+                    wrapper, lead = name, LEADING_POSITIONALS.get(name, 0)
+                elif wrapper and tok.startswith(("-", "+")):
+                    skip = _needs_value(WRAPPER_VALUE_FLAGS.get(wrapper, ()), tok, ATTACHED_FLAGS.get(wrapper, ()))
+                elif lead:
+                    lead -= 1  # chroot NEWROOT
+                elif not (wrapper and DURATION_RE.match(tok)):
+                    at_cmd = bool(ASSIGN_RE.match(tok))
             for chunk in (outer, inner):
                 if chunk is not None:
                     chunk.append(tok)
