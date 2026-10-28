@@ -439,15 +439,16 @@ n1_review_artifacts_ok() {
     # step 1 commits docs/version after review); review-sec.md is not required because "security
     # reviewer required" is not persisted. A same-ID re-run that skips review again can still pass on
     # an earlier run's event and artifacts. n1-finish's pin == head check stays the backstop.
-    local home="$1" f id rid steps
+    local home="$1" f id rid
+    local -a steps
     f=$(n1_active_run_file) && [ -f "$f" ] && command -v jq >/dev/null 2>&1 || return 0
     id=$(jq -r '.ticketId // empty' "$f" 2>/dev/null)
     [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] && [ "$id" != . ] && [ "$id" != .. ] || return 0
     rid=$(jq -r '.runId // empty' "$f" 2>/dev/null)
-    steps=$(ls "$home/memory/$id/telemetry/raw/steps/"*.jsonl 2>/dev/null)
-    if [ -n "$rid" ] && [ "$rid" != none ] && [ -n "$steps" ]; then
-        # shellcheck disable=SC2086
-        grep -qh '"layer":"step","step":"review"' $steps 2>/dev/null || { printf '%s' "$id"; return 1; }
+    steps=("$home/memory/$id/telemetry/raw/steps/"*.jsonl)
+    [ -e "${steps[0]}" ] || steps=()
+    if [ -n "$rid" ] && [ "$rid" != none ] && [ "${#steps[@]}" -gt 0 ]; then
+        grep -qh '"layer":"step","step":"review"' "${steps[@]}" 2>/dev/null || { printf '%s' "$id"; return 1; }
     fi
     if [ -s "$home/memory/$id/review-cr.md" ]; then
         [ "$(grep -m1 '^### Verdict:' "$home/memory/$id/review.md" 2>/dev/null)" = '### Verdict: PASS' ] && return 0

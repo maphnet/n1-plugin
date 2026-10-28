@@ -96,6 +96,11 @@ printf '{"ticketId":"T-1","runId":"r","worktreePath":null,"branch":"tb"}\n' > "$
 eq "guard: no review step event -> refused" "pin:refused no-review-artifacts T-1 (run the review step; do not hand-write the pin)" "$(HEADSHA=$A n1_review_pin set 11 2>/dev/null)"
 printf '{"run_id":"r0","layer":"step","step":"review","step_number":9}\n' >> "$R/telemetry/raw/steps/r0.jsonl"
 eq "guard: review event in an earlier run file (resume) allows the pin" "pin:set 1111111" "$(HEADSHA=$A n1_review_pin set 11)"
+# CR-1: a space in the N1 home path must not split the step-file list.
+SP="$T/home with space"; mkdir -p "$SP/memory/T-1/telemetry/raw/steps" "$SP/review-pins"
+cp "$R/review-cr.md" "$R/review.md" "$SP/memory/T-1/"; cp "$R/telemetry/raw/steps/r0.jsonl" "$SP/memory/T-1/telemetry/raw/steps/"
+cp "$T/home/active-run.json" "$SP/"
+eq "guard: space in N1 home with review event allows the pin" "pin:set 1111111" "$(N1_HOME="$SP" HEADSHA=$A n1_review_pin set 11)"
 rm -f "$P11"; printf '{"ticketId":"T-1","runId":"none","worktreePath":null,"branch":"tb"}\n' > "$T/home/active-run.json"
 rm -f "$R/telemetry/raw/steps/r0.jsonl"; printf '{"run_id":"r1","layer":"step","step":"qa"}\n' > "$R/telemetry/raw/steps/r1.jsonl"
 eq "guard: runId none skips the event anchor" "pin:set 1111111" "$(HEADSHA=$A n1_review_pin set 11)"
