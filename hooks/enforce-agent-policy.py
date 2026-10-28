@@ -27,7 +27,8 @@ skipping wrapper value flags in WRAPPER_VALUE_FLAGS: `env -u FOO`, `sudo -nu x`,
 runs to segment end; a nested one runs until the next nested one - each token lands in at most two
 chunks, so the scan is linear in command length (SEC-22). Known gaps: runtime string-building (eval,
 base64, variables, aliases), wrapper options outside WRAPPER_VALUE_FLAGS (`env -S` is a command
-string, deliberately not skipped), wrappers outside WRAPPERS (busybox, flock, unshare), other HTTP
+string, deliberately not skipped, incl. its backslash-underscore separator), a `$(...)` as a wrapper flag value
+(`sudo -u "$(id -un)" gh ...`), wrappers outside WRAPPERS (busybox, flock, unshare), other HTTP
 clients, chunks nested three deep, a bare push after `cd` into another checkout on the default branch; known false
 positives: heredoc/backtick text whose line starts with gh/git, and grep for a merge API in the
 same command as `gh api`.
@@ -71,15 +72,16 @@ WRAPPERS = {"env", "command", "exec", "sudo", "doas", "time", "nohup", "xargs", 
 # program is a bypass. env -S is absent on purpose: its string expands into the command words.
 WRAPPER_VALUE_FLAGS = {
     "env": {"-u", "--unset", "-C", "--chdir", "-a", "--argv0"},
-    "sudo": {"-u", "-g", "-h", "-p", "-r", "-t", "-T", "-U", "-D", "-R", "-C",
-             "--user", "--group", "--host", "--prompt", "--role", "--type",
+    "sudo": {"-u", "-g", "-h", "-p", "-r", "-t", "-T", "-U", "-D", "-R", "-C", "-a", "-c",
+             "--auth-type", "--login-class", "--user", "--group", "--host", "--prompt", "--role", "--type",
              "--command-timeout", "--other-user", "--chdir", "--chroot", "--close-from"},
     "doas": {"-u", "-C"},
     "timeout": {"-s", "--signal", "-k", "--kill-after"},
     "xargs": {"-I", "-E", "-L", "-d", "-a", "-s", "-n", "-P", "--arg-file", "--delimiter",
-              "--max-args", "--max-procs", "--max-chars"},
+              "--max-args", "--max-procs", "--max-chars", "--process-slot-var"},
     "exec": {"-a"},
-    "bash": {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"},
+    "bash": {"--rcfile", "--init-file"},  # -o/-O clusters: see shell_operands
+    "time": {"-o", "--output", "-f", "--format"},
     "nice": {"-n", "--adjustment"},
     "ionice": {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid", "--pgid", "--uid"},
     "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
@@ -208,6 +210,11 @@ def _positionals(tokens, value_flags):
     return out, cwd
 
 
+def shell_operands(tok):
+    """bash/dash take no attached values: every o/O in a -/+ cluster consumes one following word."""
+    return sum(c in "oO" for c in tok[1:]) if tok[0] in "-+" and not tok.startswith("--") else 0
+
+
 def _needs_value(flags, tok, attached=()):
     """True when wrapper option tok takes the next token: an exact flag, an unambiguous --long prefix
     (getopt_long; ambiguous ones error in the real tool), or a short cluster ending in a value letter
@@ -270,16 +277,18 @@ def _commands(command):
     command = re.sub(r"[$@]\{|[()<>]", " ", command)
     for segment in SEGMENT_RE.split(command):
         outer = inner = None
-        at_cmd, wrapper, skip, lead = True, None, False, 0
+        at_cmd, wrapper, skip, lead = True, None, 0, 0
         for tok in segment.split():
             if tok == SUBST:
-                at_cmd, wrapper, skip, lead = True, None, False, 0
+                at_cmd, wrapper, skip, lead = True, None, 0, 0
                 continue
             if at_cmd:
                 name = tok.rsplit("/", 1)[-1].lower()
                 name = name[:-4] if name.endswith(".exe") else name
                 if skip:
-                    skip = False  # operand of a wrapper value flag; the command still follows
+                    skip -= 1  # operand of a wrapper value flag; the command still follows
+                elif lead and not tok.startswith(("-", "+")):
+                    lead -= 1  # chroot NEWROOT, never the program
                 elif name in PROGRAMS:
                     if outer is None:
                         outer = [name]
@@ -292,9 +301,8 @@ def _commands(command):
                 elif name in WRAPPERS:
                     wrapper, lead = name, LEADING_POSITIONALS.get(name, 0)
                 elif wrapper and tok.startswith(("-", "+")):
-                    skip = _needs_value(WRAPPER_VALUE_FLAGS.get(wrapper, ()), tok, ATTACHED_FLAGS.get(wrapper, ()))
-                elif lead:
-                    lead -= 1  # chroot NEWROOT
+                    skip = (shell_operands(tok) if wrapper in ("bash", "sh") else 0) or int(
+                        _needs_value(WRAPPER_VALUE_FLAGS.get(wrapper, ()), tok, ATTACHED_FLAGS.get(wrapper, ())))
                 elif not (wrapper and DURATION_RE.match(tok)):
                     at_cmd = bool(ASSIGN_RE.match(tok))
             for chunk in (outer, inner):

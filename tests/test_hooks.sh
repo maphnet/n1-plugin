@@ -161,8 +161,12 @@ DENY_CMDS=(
     "timeout -s KILL 5 gh pr merge 1" "timeout --signal KILL -k 5 10 gh pr merge 1"
     "xargs -I X gh pr merge X" "xargs -n 1 gh pr merge" "xargs -d x gh pr merge" "exec -a n gh pr merge 1"
     "bash -o pipefail -c 'gh pr merge 1'" "bash --rcfile f -c 'gh pr merge 1'"
-    "nice -n 5 gh pr merge 1" "nice -5 gh pr merge 1" "ionice -c 2 -n 4 gh pr merge 1" "stdbuf -o L gh pr merge 1"
+    "nice -n 5 gh pr merge 1" "nice -5 gh pr merge 1" "ionice -c idle gh pr merge 1" "stdbuf -o L gh pr merge 1"
     "setsid gh pr merge 1" "chroot /r gh pr merge 1" "chroot --userspec x:y /r gh pr merge 1"
+    "sudo -au git push origin main" "sudo -cu gh pr merge 1" "sudo -a x gh pr merge 1" "sudo --login-class x gh pr merge 1"
+    "bash -oc pipefail 'gh pr merge 1'" "bash -Oc extglob 'gh pr merge 1'" "bash -oO a b -c 'gh pr merge 1'" "sh +o posix -c 'gh pr merge 1'"
+    "chroot /srv/gh git push origin main" "chroot /x/git gh pr merge 1"
+    "/usr/bin/time -o t gh pr merge 1" "time --format x gh pr merge 1" "xargs --process-slot-var V gh pr merge 1"
     "xargs -I {} gh pr merge {}" "xargs --eof gh pr merge 1" "xargs --max-lines gh pr merge 1" "xargs -iI git push origin main"
 )
 for c in "${DENY_CMDS[@]}"; do
