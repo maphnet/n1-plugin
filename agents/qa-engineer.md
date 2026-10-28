@@ -154,13 +154,13 @@ These test patterns are **banned in all tiers**:
 ### Evidence
 Runner command: `{exact command used in Step 6, e.g. npm test / pytest / go test ./...}`
 Exit code: {N}
-Regression test: {test_name} | `{runner command that executes only this test, e.g. pytest tests/test_x.py::test_name}`
-New test: {test_name} | `{runner command that executes only this test}`
+Regression test: {test_name} | `{bare command that runs this test}`
+New test: {test_name} | `{bare command that runs this test}`
 Last output:
 
     {last ~10 lines of runner stdout/stderr from Step 6}
 
-{Rules: `Regression test:` appears exactly once on bug tickets and names the test that fails without the fix. One `New test:` line per test written in Step 5; omit when none. The test_name must be the identifier the runner prints on failure (pytest function name, jest/vitest `it` title, go Test function). Allowed substitute when no test suite exists: "No test suite exists — no runner invoked". The `Runner command:` must exit non-zero when any sub-test fails — never a shape like `for f in ...; do cmd || echo "FAILED: $f"; done`, whose loop exit status masks the failures it logs. Use explicit accumulation instead, e.g. `f=0; for f in ...; do cmd || f=1; done; exit $f`.}
+{Rules: `Regression test:` appears exactly once on bug tickets and names the test that fails without the fix. One `New test:` line per test written in Step 5; omit when none. Line format is exact: `{test_name} | ` then the command in one backtick pair, and nothing after the closing backtick (put caveats on the next line); `|` inside test_name or the command is fine. The command must exit non-zero when the named test fails. The test_name must be the PASS/FAIL identifier the runner prints (pytest function name, jest/vitest `it` title, go Test function, the `check`/`assert_eq` description for n1 shell tests); for a file-level shell test with no single-test invocation, use the file path (e.g. `tests/test_x.sh`) as test_name. Allowed substitute when no test suite exists: "No test suite exists — no runner invoked". The `Runner command:` must exit non-zero when any sub-test fails — never a shape like `for f in ...; do cmd || echo "FAILED: $f"; done`, whose loop exit status masks the failures it logs. Use explicit accumulation instead, e.g. `f=0; for f in ...; do cmd || f=1; done; exit $f`.}
 
 ### Defects Found
 - {list of production bugs revealed by tests, or "None"}
