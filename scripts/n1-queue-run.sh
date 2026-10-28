@@ -140,10 +140,10 @@ halt() {
 
 ev queue_started
 
-# finalize <num> <ticket> <repo> <n1-home> <model> <outcome> <exit> [reason]
+# finalize <num> <ticket> <repo> <n1-home> <model> <outcome> <exit> [reason] [pr-url]
 # Records a terminal outcome: Runs + Plan rows, defer-once, three-strikes (may exit 2).
 finalize() {
-    local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" OUTCOME="$6" EXIT="$7" REASON="${8:-}"
+    local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" OUTCOME="$6" EXIT="$7" REASON="${8:-}" PR_FOUND="${9:-}"
     local OVERVIEW="$N1H/memory/$TICKET/overview.md" EXISTING_REASON PR_URL="" NEXT_NUM TITLE EV_OUTCOME="$OUTCOME" DUR=""
     # NP-216 AC3 safety net: every failed/deferred Runs row must carry a non-empty
     # reason. Call sites should already pass one; this is the last line of defense.
@@ -157,7 +157,7 @@ finalize() {
         if ($2 == num) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $9); print $9 }
     }' "$QUEUE")
 
-    [ "$OUTCOME" = "pr" ] && PR_URL=$(n1_queue_child_pr_url "$OVERVIEW")
+    [ "$OUTCOME" = "pr" ] && { PR_URL=$(n1_queue_child_pr_url "$OVERVIEW"); PR_URL="${PR_URL:-$PR_FOUND}"; }
 
     # Update Runs row (last row matching ticket in ## Runs); the Session cell is kept.
     local tmp; tmp=$(mktemp "${QUEUE}.XXXXXX")
@@ -433,8 +433,14 @@ run_bg() {
                 done)
                     # OUTCOME is "running" here (pr/escalated already
                     # finalized above): the bg session ended without the overview ever
-                    # reaching a terminal step.
-                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "child-exited-incomplete"
+                    # reaching a terminal step. N1-182: an off-script child may still have
+                    # opened a PR without recording pr_url; that is a pr, not a retry.
+                    OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO")
+                    if [ -n "$OPEN_PR" ]; then
+                        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
+                    else
+                        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "child-exited-incomplete"
+                    fi
                     ;;
                 failed|*) finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "bg-state:$STATE" ;;
             esac

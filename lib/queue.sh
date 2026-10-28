@@ -162,6 +162,24 @@ n1_queue_child_pr_url() {
     awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$overview"
 }
 
+n1_queue_child_open_pr() {
+    # Usage: n1_queue_child_open_pr <ticket> <n1-home> <repo-path> — URL of an open PR for the
+    # child's run branch, or nothing (N1-182). Called only when a bg child ended without
+    # recording pr_url (off-script child), never on hot polls. Branch: last telemetry envelope
+    # "branch", then the ticket id. Fail open: gh/timeout/network errors print nothing.
+    local t="$1" h="$2" repo="$3" b url seen=""
+    [ -d "$repo" ] || return 0
+    for b in "$(cat "$h/memory/$t/telemetry/raw/steps/"*.jsonl 2>/dev/null | grep -o '"layer":"envelope"[^}]*"branch":"[^"]*"' | sed 's/.*"branch":"//; s/"$//' | tail -1)" "$t"; do
+        [[ "$b" =~ ^[A-Za-z0-9._/][A-Za-z0-9._/-]*$ ]] && [ "$b" != "$seen" ] || continue
+        seen="$b"
+        url=$(cd "$repo" && timeout 10 gh pr list --head "$b" --state open --json url -q '.[0].url' </dev/null 2>/dev/null)
+        if [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]]; then
+            printf '%s' "$url"; return 0
+        fi
+    done
+    return 0
+}
+
 n1_queue_child_cmd() {
     # Usage: n1_queue_child_cmd <repoPath> <ticket-id> <model> <run-id> <log-path> [session-name]
     # Background-session launch named <session-name>; stdout carries the session id
