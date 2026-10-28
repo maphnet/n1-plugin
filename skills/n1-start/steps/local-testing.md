@@ -5,8 +5,10 @@ Run `n1_config_val '.localTesting.enabled'` (default: `true`).
 
 ```bash
 source ~/.n1/preamble.sh
+n1_step_begin "local-testing" 11
 GATE_ENABLED=$(n1_config_val '.localTesting.enabled' 2>/dev/null || echo 'true')
 n1_record_decision local-testing-gate "$( [ "${GATE_ENABLED:-true}" = "true" ] && echo true || echo false )" '{"config":"localTesting.enabled"}' "enabled=${GATE_ENABLED:-true}"
+[ "${GATE_ENABLED:-true}" = "true" ] || n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"disabled"}'
 echo "LOCAL_TESTING_MODE=$(n1_resolve_local_testing_mode "$(git rev-parse --show-toplevel)")"
 ```
 
@@ -18,10 +20,10 @@ echo "LOCAL_TESTING_MODE=$(n1_resolve_local_testing_mode "$(git rev-parse --show
 
 Capture the resolved mode as `LOCAL_TESTING_MODE` for use throughout this step.
 
-**If mode is `"smoke"`:** Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped -- post-deploy verification follows its separate configuration". Emit telemetry:
+**If mode is `"smoke"`:** Skip local testing entirely. Key decision: "Local Testing: skipped -- post-deploy verification follows its separate configuration". End the step:
 ```bash
 source ~/.n1/preamble.sh
-n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"smoke_deferred","skip_reason":"smoke_mode"}'
+n1_step_end "local-testing" 11 skipped '{"action_type":"smoke_deferred","skip_reason":"smoke_mode"}'
 ```
 Skip to Step 10 (PR CREATION).
 
@@ -30,7 +32,7 @@ Skip to Step 10 (PR CREATION).
 **Auto-skip conditions (even when enabled):**
 - If the diff against the default branch contains ONLY non-runtime files (`.md`, `.txt`, `.yml`/`.yaml` config, `.gitignore`, `LICENSE`, `CHANGELOG`) → skip with message: "Local testing skipped — documentation/config-only changes."
 - If `implementation.md` indicates no runtime-affecting code was modified → skip.
-- Log skip reason in overview under `## Key Decisions`.
+- Log skip reason in overview under `## Key Decisions`, then run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"auto_skip"}'`.
 
 **QA dedup gate (`test` mode only):** In `live` mode pytest-only QA does not cover infrastructure or live endpoints, so the gate never skips there; it still captures `QA_RUNNER_CMDS` for the planner. Run via Bash, substituting the resolved mode:
 ```bash
@@ -53,11 +55,11 @@ if [ -f "$QA_MD" ]; then
 fi
 ```
 - If `QA_DEDUP_SKIP=true`: mode is `test` and all Runner commands in qa.md are pytest — QA already covers the test surface.
-  - Skip local testing entirely. Update overview: `[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — QA dedup (test mode, all Runner commands are pytest)".
-  - Emit telemetry:
+  - Skip local testing entirely. Key decision: "Local Testing: skipped — QA dedup (test mode, all Runner commands are pytest)".
+  - End the step:
     ```bash
     source ~/.n1/preamble.sh
-    n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 9 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=skip loop_iteration=null metadata='{"action_type":"skipped","skip_reason":"qa_dedup"}'
+    n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"qa_dedup"}'
     ```
   - Skip to Step 10 (PR CREATION).
 - If `QA_DEDUP_SKIP=false`: mode is `live`, or at least one non-pytest Runner command exists — proceed to 9a. Capture the `QA_RUNNER_CMDS` value for injection into the planner prompt in 9a.
@@ -84,7 +86,7 @@ Spawn the local-test-planner agent with:
 
 After the agent returns, check the plan file is non-empty (`test -s`); if not, re-dispatch once. Still missing → auto-skip: record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="planner failed"`, update overview as in the edge case below with key decision "Local Testing: skipped (planner failed)", and skip to Step 10.
 
-**Edge case — no testable scenarios:** If the returned summary (or `grep` of the plan file) shows the plan has no existing e2e suite (`### Existing E2E Tests` Framework is "None" and Run command is "N/A") AND zero ad-hoc test scenarios in `### Automated Test Scenarios`, auto-skip: Record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="no testable scenarios"`. Do not print here — Gate 3 will emit `Local Testing: SKIPPED — no testable scenarios` in the Done summary. Update overview: `[x] Local Testing`, set `step: local-testing`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10. If the plan has a valid e2e suite, do NOT auto-skip even if there are zero ad-hoc scenarios.
+**Edge case — no testable scenarios:** If the returned summary (or `grep` of the plan file) shows the plan has no existing e2e suite (`### Existing E2E Tests` Framework is "None" and Run command is "N/A") AND zero ad-hoc test scenarios in `### Automated Test Scenarios`, auto-skip: Record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="no testable scenarios"`. Do not print here — Gate 3 will emit `Local Testing: SKIPPED — no testable scenarios` in the Done summary. Run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"<LOCAL_TESTING_SKIP_REASON>"}'`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10. If the plan has a valid e2e suite, do NOT auto-skip even if there are zero ad-hoc scenarios.
 
 #### 9c. EXECUTION (developer)
 
@@ -219,11 +221,10 @@ After the agent returns:
   ```
 
 **If verdict is PASS:**
-- Update overview: `[x] Local Testing`, set `step: local-testing`
-- Emit step-end telemetry:
+- End the step:
   ```bash
   source ~/.n1/preamble.sh
-  n1_emit_step_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "local-testing" 11 "${N1_HOME}/memory/$ID/telemetry" completed_at=now outcome=pass loop_iteration=null metadata="$LOCAL_TESTING_METADATA"
+  n1_step_end "local-testing" 11 success "$LOCAL_TESTING_METADATA"
   ```
 - Proceed to Step 10 (PR CREATION)
 
@@ -239,8 +240,8 @@ Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core
   - "2 — Skip local testing, proceed to PR"
   - "3 — Abort"
 - If 1: wait for user, then re-run 9c from the beginning. **Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
-- If 2: update overview (`[x] Local Testing`, set `step: local-testing`, key decision: "Local Testing: skipped — environment failure"), proceed to Step 10
-- If 3: stop
+- If 2: run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"env_failure"}'`, key decision: "Local Testing: skipped — environment failure", proceed to Step 10
+- If 3: run `n1_step_end "local-testing" 11 failed`, stop
 
 #### 9d. FIX LOOP (if local testing failed)
 
@@ -270,7 +271,7 @@ After developer returns:
 - Re-run FULL execution (Step 9c) — all scenarios, not just failed ones (catches regressions)
 - **Bounded loop:** read `local_test_fix_cycle` from overview frontmatter. Stop after `localTesting.maxFixAttempts` cycles (config, default 3). On exhaustion, escalate instead of looping forever. The bound and its default are declared in `pipeline.json` `loops[]` (`local_testing_fix`).
 
-**Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`. Also update `## Escalations` with key decision: `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)`.
+**Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`. Also update `## Escalations` with key decision: `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)`. Then run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"fix_exhausted"}'`.
 
 **Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
 
