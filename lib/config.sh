@@ -427,18 +427,32 @@ n1_review_artifacts_ok() {
     # N1-182. rc 0 when the active run's review step left its artifacts: a non-empty review-cr.md,
     # or review.md carrying the review-core SKIP record ("Review skipped"). Fails open (rc 0) with
     # no active-run pointer, no ticketId, an unsafe ticketId or no jq (standalone n1-pr, non-N1 use;
-    # same precedent as n1_review_check_run). rc 1 prints the ticket id.
+    # same precedent as n1_review_check_run). rc 1 (artifacts/event missing) or rc 2 (verdict not PASS)
+    # prints the ticket id.
+    # Also requires (SEC-3) a review step event in some run file of this ticket (n1_step_begin
+    # "review"), so a hand-written review-cr.md fails; any run file, not only the active runId's,
+    # because n1_run_begin mints a new runId on resume. With review-cr.md the combined review.md must
+    # open with "### Verdict: PASS" (SEC-1; review-hdr.md is first, the reviewers' own verdict lines
+    # follow); the "Review skipped" record needs no verdict. Fails open when the pointer's runId is
+    # empty/none or the ticket has no step telemetry at all.
     # ponytail: proves the review step ran for this ticket, not that it saw the PR head SHA (n1-pr
     # step 1 commits docs/version after review); review-sec.md is not required because "security
-    # reviewer required" is not persisted. A review-cr.md / "Review skipped" review.md left by an
-    # earlier run of the same ticket ID (same-ID re-run that skips review again) still passes; no
-    # reliable freshness anchor exists (ticket.md is refreshed by ticket-watch). n1-finish's
-    # pin == head check stays the backstop.
-    local home="$1" f id
+    # reviewer required" is not persisted. A same-ID re-run that skips review again can still pass on
+    # an earlier run's event and artifacts. n1-finish's pin == head check stays the backstop.
+    local home="$1" f id rid steps
     f=$(n1_active_run_file) && [ -f "$f" ] && command -v jq >/dev/null 2>&1 || return 0
     id=$(jq -r '.ticketId // empty' "$f" 2>/dev/null)
     [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] && [ "$id" != . ] && [ "$id" != .. ] || return 0
-    [ -s "$home/memory/$id/review-cr.md" ] && return 0
+    rid=$(jq -r '.runId // empty' "$f" 2>/dev/null)
+    steps=$(ls "$home/memory/$id/telemetry/raw/steps/"*.jsonl 2>/dev/null)
+    if [ -n "$rid" ] && [ "$rid" != none ] && [ -n "$steps" ]; then
+        # shellcheck disable=SC2086
+        grep -qh '"layer":"step","step":"review"' $steps 2>/dev/null || { printf '%s' "$id"; return 1; }
+    fi
+    if [ -s "$home/memory/$id/review-cr.md" ]; then
+        [ "$(grep -m1 '^### Verdict:' "$home/memory/$id/review.md" 2>/dev/null)" = '### Verdict: PASS' ] && return 0
+        printf '%s' "$id"; return 2
+    fi
     grep -qF 'Review skipped' "$home/memory/$id/review.md" 2>/dev/null && return 0
     printf '%s' "$id"
     return 1
@@ -460,12 +474,19 @@ n1_review_pin() {
     # ponytail: the user's own commits pushed from this checkout (e.g. "Fix manually") are advanced
     # too, and so is anything pulled into the checkout from others (git pull adopts it as reviewed);
     # per-commit provenance would need signed commits.
-    local op="${1:-}" pr="${2:-}" home repo file cur sha tmp="" br tip id
+    local op="${1:-}" pr="${2:-}" home repo file cur sha tmp="" br tip id rc
     home=$(n1_home)
-    if [ "$op" = set ] && [ "${3:-}" != --confirmed ] && [ -n "$home" ] && ! id=$(n1_review_artifacts_ok "$home"); then
-        echo "pin:refused no-review-artifacts $id (run the review step; do not hand-write the pin)"
-        echo "n1_review_pin: refused: no review-cr.md or skipped review.md in memory/$id for the active run" >&2
-        return 1
+    if [ "$op" = set ] && [ "${3:-}" != --confirmed ] && [ -n "$home" ]; then
+        id=$(n1_review_artifacts_ok "$home"); rc=$?
+        if [ "$rc" = 2 ]; then
+            echo "pin:refused review-failed $id (the review verdict is not PASS; fix and re-review)"
+            echo "n1_review_pin: refused: memory/$id/review.md does not open with '### Verdict: PASS'" >&2
+            return 1
+        elif [ "$rc" != 0 ]; then
+            echo "pin:refused no-review-artifacts $id (run the review step; do not hand-write the pin)"
+            echo "n1_review_pin: refused: no review-cr.md or skipped review.md in memory/$id for the active run" >&2
+            return 1
+        fi
     fi
     repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null | tr / _)
     if [ -z "$home" ] || [[ ! "$pr" =~ ^[0-9]+$ ]]; then
