@@ -19,6 +19,43 @@ n1_break_check_is_test_path() {
     return 1
 }
 
+_n1_bc_trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s\n' "${s%"${s##*[![:space:]]}"}"; }
+
+# n1_break_check_parse_line <qa.md "Regression test:"/"New test:" line> <name|cmd>
+# Contract: "<Kind> test: <name> | `<command>`". name = text before the first "| `"; command = text
+# inside that backtick pair; anything after the closing backtick is dropped (stderr warning in cmd mode).
+# Never splits on the last pipe (names and commands may contain "|"). No "| `" → legacy split on the
+# first "|" with backticks removed (bare commands exist in older qa.md files).
+n1_break_check_parse_line() {
+    local bt='`' rest="${1#*test:}" name cmd tail=""
+    case "$rest" in
+        *"| $bt"*"$bt"*)
+            name="${rest%%"| $bt"*}"; cmd="${rest#*"| $bt"}"
+            tail="${cmd#*"$bt"}"; cmd="${cmd%%"$bt"*}" ;;
+        *"|"*) name="${rest%%|*}"; cmd="${rest#*|}"; cmd="${cmd//"$bt"/}" ;;
+        *) name="$rest"; cmd="" ;;
+    esac
+    if [ "$2" = cmd ]; then
+        [ -z "${tail//[[:space:]]/}" ] || echo "break-check: ignoring text after the command: $(_n1_bc_trim "$tail")" >&2
+        _n1_bc_trim "$cmd"
+    else
+        _n1_bc_trim "${name//"$bt"/}"
+    fi
+}
+
+# n1_break_check_base <branch-point-file> <default-branch> [<repo_dir>]
+# Prints the recorded branch-point when it is an ancestor of HEAD; otherwise the merge-base of HEAD
+# with origin/<default> (then local <default>), else <default>.
+n1_break_check_base() {
+    local bp="" def="${2:-main}" dir="${3:-.}" mb=""
+    [ -f "$1" ] && bp=$(tr -d '[:space:]' < "$1")
+    if [ -n "$bp" ] && git -C "$dir" merge-base --is-ancestor "$bp" HEAD 2>/dev/null; then
+        printf '%s\n' "$bp"; return 0
+    fi
+    mb=$(git -C "$dir" merge-base HEAD "origin/$def" 2>/dev/null || git -C "$dir" merge-base HEAD "$def" 2>/dev/null) || mb=""
+    printf '%s\n' "${mb:-$def}"
+}
+
 _n1_bc_json() {  # success error_kind error_msg verdict named_test log
     local kind_json="null"
     if [ -n "$2" ]; then

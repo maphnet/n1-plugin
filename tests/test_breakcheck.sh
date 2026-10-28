@@ -172,5 +172,38 @@ n1_break_check_is_test_path "src/calc.spec.ts" && echo "PASS: spec path" && PASS
 n1_break_check_is_test_path "src/calc.ts" && { echo "FAIL: src path"; FAIL=$((FAIL+1)); } || { echo "PASS: src path"; PASS=$((PASS+1)); }
 n1_break_check_is_test_path "test_wiring.sh" && echo "PASS: bare .sh test path" && PASS=$((PASS+1)) || { echo "FAIL: bare .sh test path"; FAIL=$((FAIL+1)); }
 
+# Parse-line: qa.md Regression/New test line contract
+BT='`'
+L63="Regression test: ${BT}host: constant in an empty env${BT} | ${BT}bash tests/test_host_lib.sh${BT} (no isolated single-test invocation exists)"
+assert_eq "parse: N1-63 name" "host: constant in an empty env" "$(n1_break_check_parse_line "$L63" name)"
+assert_eq "parse: N1-63 cmd drops trailing prose" "bash tests/test_host_lib.sh" "$(n1_break_check_parse_line "$L63" cmd 2>/dev/null)"
+W=$(n1_break_check_parse_line "$L63" cmd 2>&1 >/dev/null || true)
+assert_eq "parse: trailing prose warns once" "1" "$(grep -c 'ignoring text after the command' <<< "$W")"
+L106="Regression test: N1-106: in-run counts total|auto|manual (hook event ignored) | ${BT}env -u N1_RUN_ID bash tests/test_telemetry_merge.sh${BT}"
+assert_eq "parse: pipe in name" "N1-106: in-run counts total|auto|manual (hook event ignored)" "$(n1_break_check_parse_line "$L106" name)"
+assert_eq "parse: pipe-name cmd" "env -u N1_RUN_ID bash tests/test_telemetry_merge.sh" "$(n1_break_check_parse_line "$L106" cmd)"
+LPIPE="New test: test_x | ${BT}pytest -q tests/test_x.py | tail -5${BT}"
+assert_eq "parse: pipe in cmd kept" "pytest -q tests/test_x.py | tail -5" "$(n1_break_check_parse_line "$LPIPE" cmd)"
+assert_eq "parse: no warning without trailing text" "" "$(n1_break_check_parse_line "$LPIPE" cmd 2>&1 >/dev/null)"
+LBARE="New test: tests/test_x.sh | bash tests/test_x.sh"
+assert_eq "parse: legacy bare name" "tests/test_x.sh" "$(n1_break_check_parse_line "$LBARE" name)"
+assert_eq "parse: legacy bare cmd" "bash tests/test_x.sh" "$(n1_break_check_parse_line "$LBARE" cmd)"
+assert_eq "parse: empty line → empty cmd" "" "$(n1_break_check_parse_line "" cmd)"
+
+# Base resolver: branch-point must be an ancestor of HEAD, else merge-base with the default branch
+T12=$(mktemp -d); make_repo "$T12"; B0=$(git -C "$T12" rev-parse HEAD)
+git -C "$T12" checkout -q -b side; git -C "$T12" commit -q --allow-empty -m side; SIDE=$(git -C "$T12" rev-parse HEAD)
+git -C "$T12" checkout -q -b feat base
+git -C "$T12" commit -q --allow-empty -m f1; F1=$(git -C "$T12" rev-parse HEAD)
+git -C "$T12" commit -q --allow-empty -m f2
+BP=$(mktemp)
+echo "$F1" > "$BP"
+assert_eq "base: ancestor branch-point kept" "$F1" "$(n1_break_check_base "$BP" base "$T12")"
+echo "$SIDE" > "$BP"
+assert_eq "base: non-ancestor falls back to merge-base" "$B0" "$(n1_break_check_base "$BP" base "$T12")"
+rm -f "$BP"
+assert_eq "base: missing file falls back to merge-base" "$B0" "$(n1_break_check_base "$BP" base "$T12")"
+rm -rf "$T12"
+
 rm -rf "$T1" "$T2" "$T3" "$T4" "$T5" "$T6"
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
