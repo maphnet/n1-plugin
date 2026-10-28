@@ -16,10 +16,11 @@ Launches a batch of tracker tickets through `n1-start` sequentially via a backgr
 
 ```bash
 source ~/.n1/preamble.sh
+[ -n "$N1_HOME" ] && echo "N1_HOME=$N1_HOME" || echo N1_NOT_CONFIGURED
 source "$N1_ROOT/lib/queue.sh"
 ```
 
-If `N1_HOME` is empty: "N1 is not configured for this project. Run `/n1:n1-init` to set it up." **STOP.**
+If the output shows `N1_NOT_CONFIGURED`: "N1 is not configured for this project. Run `/n1:n1-init` to set it up." **STOP.**
 
 ## Input
 

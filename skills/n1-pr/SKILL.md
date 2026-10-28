@@ -17,9 +17,10 @@ Create a PR from the current feature branch. Spawns tech-writer for PR content, 
 
 ```bash
 source ~/.n1/preamble.sh
+[ -n "$N1_HOME" ] && echo "N1_HOME=$N1_HOME" || echo N1_NOT_CONFIGURED
 ```
 
-If empty — N1 not configured; warn the user. Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/$ID/`.
+If the output shows `N1_NOT_CONFIGURED` — N1 not configured; warn the user. Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/$ID/`.
 
 ## Model Resolution
 

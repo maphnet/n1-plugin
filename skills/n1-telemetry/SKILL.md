@@ -16,9 +16,10 @@ Aggregate decision-to-outcome correlations across pipeline runs and produce thre
 
 ```bash
 source ~/.n1/preamble.sh
+[ -n "$N1_HOME" ] && echo "N1_HOME=$N1_HOME" || echo N1_NOT_CONFIGURED
 ```
 
-If `N1_HOME` is empty, tell the user N1 is not configured and stop.
+If the output shows `N1_NOT_CONFIGURED`, tell the user N1 is not configured and stop.
 
 ## Steps
 

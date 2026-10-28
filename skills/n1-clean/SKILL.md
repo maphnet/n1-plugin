@@ -19,13 +19,12 @@ Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
 source ~/.n1/preamble.sh
+[ -n "$N1_HOME" ] && echo "N1_HOME=$N1_HOME" || echo N1_NOT_CONFIGURED
 ```
 
-If `N1_HOME` is empty — N1 is not configured; warn the user.
+If the output shows `N1_NOT_CONFIGURED` → "N1 is not configured. Run `/n1:n1-init` first." **STOP.**
 
 All config reads use `n1_*_val` helpers (never cat config.json). All memory paths use `$N1_HOME/memory/$ID/`.
-
-- If `N1_HOME` is empty → "N1 is not configured. Run `/n1:n1-init` first." **STOP.**
 
 ## Step 1: Discover Worktrees
 
