@@ -124,6 +124,41 @@ assert_eq "captured payload: off-scope Write denied" 2 "$(fx_write_rc "$N1_HOME/
 assert_eq "captured payload: unknown session_id denied" 2 "$(fx_write_rc "$N1_HOME/memory/T-8/review-cr.md" '.session_id="s-none"')"
 assert_eq "captured payload: other persona denied review-cr.md" 2 "$(fx_write_rc "$N1_HOME/memory/T-8/review-cr.md" '.agent_type="n1:security-reviewer"')"
 
+# N1-174 (N1-135): a reviewer Write the hook cannot evaluate (no Python, script crash, malformed payload) is denied
+# in every session; other payloads keep their old outcome and the no-Python warning text is unchanged
+raw_rc() {  # raw_rc <payload> [env-assignments...]: raw stdin through the wrapper; stdout -> $T/raw-out, stderr -> $T/raw-err
+    local p=$1; shift; local rc=0
+    printf '%s' "$p" | env "$@" bash "$POLICY" >"$T/raw-out" 2>"$T/raw-err" || rc=$?; echo "$rc"
+}
+pyraw_rc() {  # pyraw_rc <payload>: raw stdin straight into the hook script
+    local rc=0; printf '%s' "$1" | python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "" "$REPO_ROOT" >/dev/null 2>&1 || rc=$?; echo "$rc"
+}
+DENY_MSG="N1: reviewer Write denied -- the agent policy hook could not evaluate it (no Python interpreter or hook error)"
+NOPY_WARN="N1: agent policy (model enforcement, merge deny and pipe-mask check) skipped -- no Python interpreter"
+for P in code-reviewer security-reviewer; do
+    PAYLOAD=$(jq -c --arg a "n1:$P" --arg s "s-nopy-$P" '.agent_type=$a | .session_id=$s' "$RW")
+    assert_eq "no python: $P Write denied" 2 "$(raw_rc "$PAYLOAD" PATH="$FAKEBIN")"
+    assert_eq "no python: $P Write denial names the cause" 1 "$(grep -cxF "$DENY_MSG" "$T/raw-err" || true)"
+    assert_eq "no python: $P Write leaves no warn-once marker" absent "$([ -e "$N1_HOME/.enforce-warned-s-nopy-$P" ] && echo present || echo absent)"
+done
+DEVW=$(jq -c '.agent_type="n1:developer" | .session_id="s-nopy-dev"' "$RW")
+assert_eq "no python: developer Write allowed" 0 "$(raw_rc "$DEVW" PATH="$FAKEBIN")"
+assert_eq "no python: developer Write keeps the warning" "$NOPY_WARN" "$(jq -r .systemMessage "$T/raw-out")"
+SPAWN='{"session_id":"s-nopy-spawn","tool_name":"Agent","tool_input":{"subagent_type":"n1:code-reviewer","agent_type":"n1:code-reviewer"}}'
+assert_eq "no python: reviewer spawn (tool_input.agent_type) allowed" 0 "$(raw_rc "$SPAWN" PATH="$FAKEBIN")"
+NULW=$(jq -c --arg f "$N1_HOME/memory/T-8/review-cr.md" '.tool_input.file_path=($f+"\u0000x")' "$RW")
+assert_eq "python crash (NUL in file_path): reviewer Write denied" 2 "$(raw_rc "$NULW")"
+assert_eq "python crash: denial names the cause" 1 "$(grep -cxF "$DENY_MSG" "$T/raw-err" || true)"
+assert_eq "python crash path: developer Write with NUL file_path allowed" 0 "$(raw_rc "$(printf '%s' "$NULW" | jq -c '.agent_type="n1:developer"')")"
+assert_eq "malformed JSON: code-reviewer Write denied" 2 "$(raw_rc '{"agent_type":"n1:code-reviewer","tool_name":"Write","tool_input":{"file_path":')"
+assert_eq "malformed JSON: security-reviewer Write (spaced) denied" 2 "$(raw_rc '{"agent_type": "n1:security-reviewer", "tool_name": "Write", ')"
+assert_eq "malformed JSON: reviewer Read allowed" 0 "$(raw_rc '{"agent_type":"n1:code-reviewer","tool_name":"Read",')"
+assert_eq "malformed JSON: developer Write allowed" 0 "$(raw_rc '{"agent_type":"n1:developer","tool_name":"Write",')"
+assert_eq "malformed JSON: escaped reviewer text in a value allowed" 0 \
+    "$(raw_rc '{"agent_type":"n1:developer","tool_name":"Write","tool_input":{"content":"\"agent_type\":\"n1:code-reviewer\"",')"
+assert_eq "py: malformed JSON exits 3" 3 "$(pyraw_rc '{"agent_type":')"
+assert_eq "py: non-object JSON exits 3" 3 "$(pyraw_rc '[]')"
+
 # --- enforce-agent-policy: merge deny (N1-146; N1-167: only unattended sessions and active N1 runs, unless n1_merge_authorized) ---
 policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
     local envs=() cmd

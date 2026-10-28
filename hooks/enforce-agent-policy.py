@@ -50,7 +50,9 @@ same `&&`-connected run: the pipeline exit status is the filter's, so a red suit
 session, merge-authorized or not. Allowed when the command enables pipefail (`set -o pipefail`,
 `set -euo pipefail`) or mentions `PIPESTATUS`. Known gaps: `bash -c`, `$(...)`, subshells, variables/aliases, quoted separators.
 
-Fail-open otherwise: exit 0, no output.
+Fail-open otherwise: exit 0, no output. An unparseable payload (malformed JSON or not an object) exits 3;
+the wrapper (enforce-agent-policy.sh) treats 3 like a crash or a missing interpreter: an n1:code-reviewer /
+n1:security-reviewer Write is denied, everything else passes (N1-174).
 
 Usage: enforce-agent-policy.py <config_file> <plugin_root>   (payload on stdin)
 """
@@ -517,10 +519,10 @@ def pipe_deny(payload: dict) -> int:
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read())
-    except ValueError:
-        return 0
+    except ValueError:  # includes UnicodeDecodeError
+        return 3  # unparseable: the wrapper denies a reviewer Write and allows the rest (N1-174)
     if not isinstance(payload, dict):
-        return 0
+        return 3
     config_file = sys.argv[1] if len(sys.argv) > 1 else ""
     plugin_root = sys.argv[2] if len(sys.argv) > 2 else ""
     config = {}
