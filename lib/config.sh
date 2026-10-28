@@ -795,6 +795,26 @@ n1_active_run_clear() {
     rm -f "$file"
 }
 
+# n1-finish marker (N1-167): keyed pointer with runId n1-finish so the merge-deny hook gates n1-finish
+# paths; an existing pointer (e.g. n1-start's) is kept. Prints marker:keyed|marker:unkeyed|marker:failed (rc 1).
+n1_finish_mark() {
+    local f
+    f=$(n1_active_run_file write) || f=""
+    case "$f" in ""|*/active-run.json) echo marker:unkeyed; return 0 ;; esac
+    [ -e "$f" ] || n1_active_run_write "$1" n1-finish null "" 2>/dev/null
+    [ -e "$f" ] || { echo marker:failed; return 1; }
+    echo marker:keyed
+}
+
+# Clear this session's keyed pointer only when its runId is $1 (never one another run wrote).
+n1_active_run_clear_if() {
+    local f
+    f=$(n1_active_run_file) || return 0
+    case "$f" in */active-run.json) return 0 ;; esac
+    grep -qF "\"runId\":\"$1\"" "$f" 2>/dev/null && rm -f "$f"
+    return 0
+}
+
 n1_assign_gap_warn() {
     # Usage: n1_assign_gap_warn   (no args; always returns 0, fail-open like n1_config_val)
     local ttype atc missing=""

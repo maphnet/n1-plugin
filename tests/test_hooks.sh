@@ -124,7 +124,7 @@ assert_eq "captured payload: off-scope Write denied" 2 "$(fx_write_rc "$N1_HOME/
 assert_eq "captured payload: unknown session_id denied" 2 "$(fx_write_rc "$N1_HOME/memory/T-8/review-cr.md" '.session_id="s-none"')"
 assert_eq "captured payload: other persona denied review-cr.md" 2 "$(fx_write_rc "$N1_HOME/memory/T-8/review-cr.md" '.agent_type="n1:security-reviewer"')"
 
-# --- enforce-agent-policy: merge deny (N1-146: every session unless n1_merge_authorized) ---
+# --- enforce-agent-policy: merge deny (N1-146; N1-167: only unattended sessions and active N1 runs, unless n1_merge_authorized) ---
 policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
     local envs=() cmd
     while [ "$1" != "--" ]; do envs+=("$1"); shift; done; cmd=$2
@@ -133,6 +133,10 @@ policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook ex
     echo "$rc"
 }
 Q=(N1_QUEUE_RUN_ID=RUN1 N1_HEADLESS=1)
+# N1-167: interactive sessions are gated only inside an N1 run (session "s" keyed active-run file)
+ar_on() { echo '{"ticketId":"N1-1"}' > "$N1_HOME/active-run.s.json"; }
+ar_off() { rm -f "$N1_HOME/active-run.s.json"; }
+ar_on
 DENY_CMDS=(
     "gh pr merge 12" "gh pr merge --auto --squash 12" "gh -R x/y pr merge 12" "gh pr -R x/y merge 12"
     "g''h pr m''erge 12" "/usr/bin/gh pr merge 12" "cd /tmp && gh pr merge 12" "echo \$(gh pr merge 12)"
@@ -299,6 +303,87 @@ git -C "$T" symbolic-ref HEAD refs/heads/feature
 assert_eq "queue headless: bare push on feature branch allowed" 0 "$(policy_rc "${Q[@]}" -- "git push")"
 rm -rf "$T/.git"
 rm -f "$N1_HOME/config.json"
+
+# N1-167 AC1: plain session (no active-run file, not unattended) is not gated
+ar_off
+for c in "gh pr merge 12" "git push origin HEAD:main" "gh api -X PUT repos/o/r/pulls/12/merge"; do
+    assert_eq "plain session: allowed: $c" 0 "$(policy_rc -- "$c")"
+    # AC3: unattended behaviour unchanged without an active-run file
+    assert_eq "plain session: queue headless still denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+    assert_eq "plain session: headless (no queue) still denied: $c" 2 "$(policy_rc N1_HEADLESS=1 -- "$c")"
+    assert_eq "plain session: queue id (not headless) still denied: $c" 2 "$(policy_rc N1_QUEUE_RUN_ID=RUN1 -- "$c")"
+done
+# Repo without N1 config or home: plain (Python called directly, no N1_HOME, no config path)
+NOHOME_RC=$(rc=0; printf '%s' "$PAY" | env -u N1_HOME -u N1_QUEUE_RUN_ID -u N1_HEADLESS python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "" "$REPO_ROOT" >/dev/null 2>&1 || rc=$?; echo "$rc")
+assert_eq "py: no N1 home, no config: allowed" 0 "$NOHOME_RC"
+# Only this session's valid keyed file counts; anything else reads as plain (allowed)
+ar_on; cfg '{}'
+sid_rc() {  # sid_rc <jq filter>: hook exit code for "gh pr merge 12" with a modified payload
+    local rc=0
+    jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr merge 12"}}' | jq -c "$1" \
+        | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS bash "$POLICY" >/dev/null 2>&1 || rc=$?
+    echo "$rc"
+}
+assert_eq "active run file, own session: denied" 2 "$(sid_rc '.')"
+assert_eq "active run file, missing session_id: allowed" 0 "$(sid_rc 'del(.session_id)')"
+assert_eq "active run file, unsafe session_id: allowed" 0 "$(sid_rc '.session_id="../s"')"
+assert_eq "other session's active run: allowed" 0 "$(sid_rc '.session_id="s-other"')"
+echo '{"ticketId":"../x"}' > "$N1_HOME/active-run.s.json"
+assert_eq "active run with invalid ticketId: still denied (SEC-3)" 2 "$(sid_rc '.')"
+: > "$N1_HOME/active-run.s.json"
+assert_eq "empty active-run file: still denied (SEC-3)" 2 "$(sid_rc '.')"
+# run pointer under another ~/.n1/<slug>/ than the cwd/config home (SEC-2); HOME is a temp dir
+ar_off; mkdir -p "$T/fakehome/.n1/other"
+echo '{"ticketId":"N1-1"}' > "$T/fakehome/.n1/other/active-run.s.json"
+assert_eq "pointer under other ~/.n1 slug: denied" 2 "$(policy_rc HOME="$T/fakehome" -- "gh pr merge 12")"
+assert_eq "no pointer anywhere (temp HOME): allowed" 0 "$(policy_rc HOME="$T/emptyhome" -- "gh pr merge 12")"
+rm -rf "$T/fakehome"
+ar_on
+# AC2: active run + git.directPush lifts default-branch pushes only, interactive only
+cfg '{"git":{"directPush":true}}'
+for c in "git push origin HEAD:main" "git push origin main" "git push -u origin main" "git push --follow-tags origin main" \
+         "git push --dry-run origin main" "git push -o ci.skip origin main" "git push --no-verify origin main"; do
+    assert_eq "active run + directPush: push allowed: $c" 0 "$(policy_rc -- "$c")"
+    assert_eq "directPush ignored for queue headless: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+    assert_eq "directPush ignored for headless (no queue): $c" 2 "$(policy_rc N1_HEADLESS=1 -- "$c")"
+done
+for c in "git push --all origin" "git push --mirror origin" "git push --mir origin" "git push origin '*'" "git push origin :" \
+         "git push -f origin main" "git push --force origin main" "git push --force-with-lease origin main" "git push --force-if-includes origin main" \
+         "git push --for origin main" "git push origin +main" "git push origin +HEAD:main" "git push -d origin main" "git push --delete origin main" \
+         "git push origin :main" "git push -fu origin main" \
+         "git -c remote.origin.mirror=true push origin main" "git -c remote.origin.push=+HEAD:main push origin main" "git -c REMOTE.origin.PUSH=x push origin main" \
+         "git --config-env=remote.origin.push=V push origin main" "GIT_CONFIG_COUNT=1 git push origin main" "GIT_CONFIG_PARAMETERS=x git push origin main" \
+         "env GIT_CONFIG_KEY_0=remote.o.push git push origin main" "git push --prune origin main" "git push --pr origin main"; do
+    assert_eq "active run + directPush: destructive push still denied: $c" 2 "$(policy_rc -- "$c")"
+done
+# Codex High: bare push follows repo remote.*.push|mirror config; explicit refspecs ignore it
+git -C "$T" init -q -b main 2>/dev/null; git -C "$T" symbolic-ref HEAD refs/heads/main
+assert_eq "directPush: bare push, no push config: allowed" 0 "$(policy_rc -- "git push origin")"
+git -C "$T" config remote.origin.mirror true
+assert_eq "directPush: bare push, remote.origin.mirror: denied" 2 "$(policy_rc -- "git push origin")"
+assert_eq "directPush: explicit refspec ignores mirror config: allowed" 0 "$(policy_rc -- "git push origin main")"
+git -C "$T" config --unset remote.origin.mirror
+git -C "$T" config remote.origin.push '+HEAD:main'
+assert_eq "directPush: bare push, remote.origin.push: denied" 2 "$(policy_rc -- "git push origin")"
+assert_eq "directPush: explicit refspec ignores push config: allowed" 0 "$(policy_rc -- "git push origin main")"
+rm -rf "$T/.git"
+for c in "gh pr merge 12" "gh api -X PUT repos/o/r/pulls/12/merge" "gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=x" \
+         "git push origin main && gh pr merge 12" "gh pr merge 12; git push origin main"; do
+    assert_eq "active run + directPush: merge still denied: $c" 2 "$(policy_rc -- "$c")"
+done
+ar_off
+assert_eq "directPush, no active run: queue headless still denied" 2 "$(policy_rc "${Q[@]}" -- "git push origin HEAD:main")"
+ar_on
+cfg '{"git":{"directPush":"true"}}'
+assert_eq "string directPush: active run push denied" 2 "$(policy_rc -- "git push origin HEAD:main")"
+# AC4: denial names the ! escape and asks for a separate command
+cfg '{}'
+MP=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,tool_name:"Bash",tool_input:{command:"git push origin HEAD:main"}}')
+printf '%s' "$MP" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS bash "$POLICY" >/dev/null 2>"$T/merge-err" || true
+assert_eq "deny message names the ! escape" yes "$(grep -qF 'prefixed with !' "$T/merge-err" && echo yes || echo no)"
+assert_eq "deny message asks for its own command" yes "$(grep -qF 'as its own command' "$T/merge-err" && echo yes || echo no)"
+ar_off
+rm -f "$N1_HOME/config.json" "$T/merge-err"
 
 # --- telemetry hooks accept the Claude Code persona prefix -----------------
 MEM3="$N1_HOME/memory/T-20/telemetry"; mkdir -p "$MEM3"
