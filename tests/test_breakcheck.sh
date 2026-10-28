@@ -70,12 +70,18 @@ fix_repo "$T2" 'def test_add_hollow():
 OUT=$(n1_break_check base "$CMD" test_add_hollow "$T2/bc.log" "$T2")
 assert_eq "hollow verdict" "never-red" "$(echo "$OUT" | jq -r .verdict)"
 
-# Case 3: named test missing → inconclusive (revert run is green or shows other names only)
+# Case 3: named test missing → never-red (revert run is green or shows other names only)
 T3=$(mktemp -d); make_repo "$T3"
 fix_repo "$T3" 'def test_add_negative():
     assert add(-1, 2) == 1'
 OUT=$(n1_break_check base "$CMD" test_does_not_exist "$T3/bc.log" "$T3")
 assert_eq "missing test verdict" "never-red" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 3b: empty command or name → inconclusive
+set +e; OUT=$(n1_break_check base "" test_x "$T3/bc.log" "$T3"); set -e
+assert_eq "empty cmd verdict" "inconclusive" "$(echo "$OUT" | jq -r .verdict)"
+set +e; OUT=$(n1_break_check base "$CMD" "" "$T3/bc.log" "$T3"); set -e
+assert_eq "empty name verdict" "inconclusive" "$(echo "$OUT" | jq -r .verdict)"
 
 # Case 4: syntax error on revert → inconclusive
 T4=$(mktemp -d); make_repo "$T4"

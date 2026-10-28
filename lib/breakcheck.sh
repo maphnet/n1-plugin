@@ -100,6 +100,11 @@ n1_break_check() {
     local log_abs; log_abs=$(realpath -m "$log")
     : > "$log"
 
+    if [ -z "${cmd//[[:space:]]/}" ] || [ -z "${name//[[:space:]]/}" ]; then
+        _n1_bc_json false inconclusive "empty command or test name" inconclusive "$name" "$log"
+        return 2
+    fi
+
     # Keep the log file invisible to git-status so tree-clean checks remain accurate.
     _n1_bc_exclude_log "$log_abs" "$dir_abs"
 
