@@ -26,7 +26,7 @@ n1_rule_field() {
             gsub(/[\[\]"]/, "")
             sub(/^'"'"'/, "")
             sub(/'"'"'$/, "")
-            gsub(/,[[:space:]]+/, ",")
+            if (key == "applies_to" || key == "paths") gsub(/,[[:space:]]+/, ",")
             gsub(/^[[:space:]]+|[[:space:]]+$/, "")
             printf "%s", $0
             exit
