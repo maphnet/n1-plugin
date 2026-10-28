@@ -17,16 +17,16 @@ Accepts ticket ID or brain dump and orchestrates the full development cycle thro
 
 ## N1_HOME Resolution
 
-Run at start of every run before any config or memory access:
+Run before any config or memory access:
 
 ```bash
 source ~/.n1/preamble.sh
-[ -n "$N1_HOME" ] && echo "N1_HOME=$N1_HOME" || echo N1_NOT_CONFIGURED
+[ -n "$N1_HOME" ] || echo N1_NOT_CONFIGURED
 ```
 
 Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/<ID>/`.
 
-**Prerequisites:** `N1_NOT_CONFIGURED` printed → tell user N1 not configured, offer `/n1:n1-init`. **Model Resolution:** dispatches use `n1_resolve_agent <agent-name> [context]`; pass its model (first tab-separated field) to the spawn.
+**Prerequisites:** `N1_NOT_CONFIGURED` → offer `/n1:n1-init`. **Model Resolution:** dispatches use `n1_resolve_agent <agent-name> [context]`; pass its model (first tab-separated field) to the spawn.
 
 ## Procedures (read on demand)
 
