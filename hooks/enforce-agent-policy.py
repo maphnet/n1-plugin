@@ -32,7 +32,7 @@ are blanked, the command is split on ; & | newline, and gh/git/curl/wget count o
 position (segment start, after VAR=x, wrappers like env/sudo/xargs/timeout N/chroot NEWROOT, `sh -c`,
 skipping wrapper value flags in WRAPPER_VALUE_FLAGS: `env -u FOO`, `sudo -nu x`, `--unse FOO`; getopt_long
 exact-then-unique-prefix, so `sudo --login gh` keeps gh). Backstop: the first gh/git/curl/wget eaten as a
-flag value or NEWROOT also starts a shadow chunk, so a table gap denies (`env -u git push origin main` is a
+flag value or NEWROOT also starts a shadow chunk (later gh/git/curl/wget words included, N1-174), so a table gap denies (`env -u git push origin main` is a
 known false positive). A chunk runs to segment end; a nested one runs until the next nested one; one shadow
 per segment - each token lands in at most three chunks, so the scan is linear in command length (SEC-22). Known gaps: runtime string-building (eval,
 base64, variables, aliases), a second eaten program in one segment after a genuine `-u git` (no second
@@ -388,6 +388,8 @@ def _commands(command):
                             yield inner
                         inner = head
                     at_cmd = False
+                    if shadow is not None:
+                        shadow.append(tok)  # outer/inner hold it via head; the shadow must too (N1-174)
                     continue
                 elif name in WRAPPERS:
                     wrapper, lead = name, LEADING_POSITIONALS.get(name, 0)

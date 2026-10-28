@@ -178,6 +178,7 @@ DENY_CMDS=(
     "sudo -Zu git push origin main" "env -u git push origin main" "sh --rcfile f -c 'gh pr merge 1'"
     "sudo --login -u x gh pr merge 1" "doas -a x git push origin main" "chroot +r env -u x git push origin main"
     "chroot -- -r env -u x git push origin main"
+    "env -u gh -R git pr merge 1"
 )
 for c in "${DENY_CMDS[@]}"; do
     assert_eq "queue headless: denied: $c" 2 "$(policy_rc "${Q[@]}" -- "$c")"
