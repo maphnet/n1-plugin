@@ -2,11 +2,6 @@
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
-```bash
-source ~/.n1/preamble.sh
-n1_step_begin "ticket" 1
-```
-
 **Spawn product-analyst.** Detect mode and params. Ticket: `mode=ticket ticketId trackerMcp operations trackerType ticketMdPath`; add error fields if `ET_CONFIGURED`. File: `mode=file filePath ticketMdPath`. Brain dump: `mode=text content ticketMdPath`. Error tracker: `mode=error-tracker issueId issueUrl`+error fields; provisional `<ID>=sentry-<issueId>`. Always: `enrichmentEnabled` (`ticketEnrichment.enabled != false`), `cloudId` (Jira only).
 
 ```bash
@@ -16,6 +11,7 @@ Empty: `{"title":null,"tags":[],"type":"task"}`. Parse `TITLE TAGS TYPE CLOUD_ID
 
 ```bash
 source ~/.n1/preamble.sh
+n1_step_begin "ticket" 1
 TYPE_OVERRIDE="<TYPE_OVERRIDE from input parsing, empty if none>"
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
