@@ -1581,7 +1581,8 @@ test_bg_pr_lifecycle() {
     mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
     printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
         > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
-    echo "https://github.com/o/r/pull/77" > "$tmp/fake/gh-pr"
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
+    printf 'https://github.com/o/r/pull/77\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/me/T-A)" > "$tmp/fake/gh-pr"
     assert_eq "bg-openpr: exit 0" "0" "$(run_bg_queue "$tmp")"
     assert_eq "bg-openpr: finalizes as pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "bg-openpr: no deferred-retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
@@ -1590,6 +1591,21 @@ test_bg_pr_lifecycle() {
     assert_eq "bg-openpr: event outcome pr" "pr,https://github.com/o/r/pull/77" \
         "$(jq -r 'select(.event=="ticket_finished" and .ticket=="T-A") | [.outcome,.pr] | join(",")' "$tmp/events.jsonl")"
     assert_eq "bg-openpr: asked gh for the envelope branch" "1" "$(grep -c -- '--head me/T-A' "$tmp/fake/gh-calls")"
+    assert_eq "bg-openpr: gh query drops fork PRs (SEC-2)" "1" "$(grep -c -- 'isCrossRepository' "$tmp/fake/gh-calls")"
+    rm -rf "$tmp"
+
+    # SEC-2/SEC-4: a PR whose head is not the local branch tip (stale PR of an earlier run) is not recorded.
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgs "T-A:working done"
+    printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/fake/overview.T-A"
+    cp "$tmp/fake/overview.T-A" "$tmp/fake/overview.T-A.1"
+    mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
+    printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
+        > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
+    printf 'https://github.com/o/r/pull/77\t%s\n' "0000000000000000000000000000000000000000" > "$tmp/fake/gh-pr"
+    assert_eq "bg-stalepr: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-stalepr: not recorded as pr" "" "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
     rm -rf "$tmp"
 
     # N1-182 unit: helper rejects non-PR output, falls back to the ticket id, fails open.
@@ -1598,6 +1614,17 @@ test_bg_pr_lifecycle() {
     echo "not a url" > "$tmp/fake/gh-pr"
     assert_eq "open-pr: non-PR output ignored" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp")"
     assert_eq "open-pr: no envelope -> asks for the ticket id" "1" "$(grep -c -- '--head T-Z' "$tmp/fake/gh-calls")"
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; git -C "$tmp" branch T-Z
+    printf 'https://github.com/o/r/pull/9\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/T-Z)" > "$tmp/fake/gh-pr"
+    assert_eq "open-pr: PR at local tip accepted" "https://github.com/o/r/pull/9" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp")"
+    printf 'https://github.com/o/r/pull/9\tdeadbeef\n' > "$tmp/fake/gh-pr"
+    assert_eq "open-pr: PR head != local tip ignored" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp")"
+    mkdir -p "$tmp/n1h/memory/T-Z/telemetry/raw/steps"
+    printf '{"layer":"envelope","branch":"old/T-Z"}\n' > "$tmp/n1h/memory/T-Z/telemetry/raw/steps/a.jsonl"; touch -d '2020-01-01' "$tmp/n1h/memory/T-Z/telemetry/raw/steps/a.jsonl"
+    printf '{"layer":"envelope","branch":"new/T-Z"}\n' > "$tmp/n1h/memory/T-Z/telemetry/raw/steps/b.jsonl"
+    : > "$tmp/fake/gh-calls"; PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp" >/dev/null
+    assert_eq "open-pr: only the newest run's envelope branch is asked" "0" "$(grep -c -- '--head old/T-Z' "$tmp/fake/gh-calls")"
+    assert_eq "open-pr: newest envelope branch is asked" "1" "$(grep -c -- '--head new/T-Z' "$tmp/fake/gh-calls")"
     assert_eq "open-pr: missing repo dir -> nothing" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp/nope")"
     printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/bin/gh"
     assert_eq "open-pr: gh failure -> nothing" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp")"
