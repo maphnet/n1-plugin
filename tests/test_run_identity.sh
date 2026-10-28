@@ -78,6 +78,8 @@ pointer sess-f n1-finish; test "$(restore sess-f)" = "||"
 mv "$R/home/memory/NP-R" "$R/home/memory/NP-R2"          # reconcile renamed the memory dir
 test "$(restore sess-r)" = "n1-run-restore|9.9.9|"
 pointer sess-t 'n1-run-a/../b'; test "$(restore sess-t)" = "||"   # traversal rejected
+pointer sess-t 'n1-run-"abc'; test "$(restore sess-t)" = "||"     # bad first suffix char (quote)
+pointer sess-t 'n1-run-/abc'; test "$(restore sess-t)" = "||"     # bad first suffix char (slash)
 mklock NP-V n1-run-badver sess-v; pointer sess-v n1-run-badver
 printf '{"run_id":"n1-run-badver","n1_version":"1\\"x","session_id":"sess-v"}\n' > "$R/home/memory/NP-V/telemetry/locks/n1-run-badver.json"
 test "$(restore sess-v)" = "n1-run-badver||"              # bad version dropped

@@ -49,7 +49,7 @@ n1_restore_run_identity() {
     case "$f" in */active-run."$sid".json) ;; *) return 0 ;; esac
     [ -f "$f" ] || return 0
     run=$(n1_hook_field runId < "$f")
-    case "$run" in n1-run-?*[!A-Za-z0-9._-]*|n1-run-) return 0 ;; n1-run-*) ;; *) return 0 ;; esac
+    case "$run" in n1-run-*[!A-Za-z0-9._-]*|n1-run-) return 0 ;; n1-run-*) ;; *) return 0 ;; esac
     for lock in "${N1_HOME:-$(n1_home)}"/memory/*/telemetry/locks/"$run".json; do
         [ -f "$lock" ] || continue
         [ "$(n1_hook_field session_id < "$lock")" = "$sid" ] || continue
