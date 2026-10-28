@@ -20,7 +20,7 @@ esac
 EOF
 chmod +x "$T/bin/gh"
 export PATH="$T/bin:$PATH" N1_HOME="$T/home"
-unset HEADSHA REPO REPO_FAIL BRANCH
+unset HEADSHA REPO REPO_FAIL BRANCH N1_SESSION_ID CLAUDE_CODE_SESSION_ID
 git init -q "$T/repo"; cd "$T/repo"
 tip() { echo "$1" > .git/refs/heads/tb; }   # local PR-branch tip (what N1 pushed)
 A=1111111111111111111111111111111111111111
@@ -64,10 +64,42 @@ tip $C; eq "set: overwrites a corrupt pin" "pin:set 3333333" "$(HEADSHA=$C n1_re
 eq "no temp files left behind" "0" "$(find "$T/home/review-pins" -name '*.*' | wc -l | tr -d ' ')"
 n1_review_pin bogus 7 >/dev/null; eq "unknown op fails" "1" "$?"
 
+# N1-182: set refuses without review artifacts for the active run; --confirmed, SKIP record and
+# review-cr.md pass; advance is never gated; no active-run ticket fails open.
+P11="$T/home/review-pins/o_r_11"; R="$T/home/memory/T-1"; tip $A
+printf '{"ticketId":"T-1","runId":"r","worktreePath":null,"branch":"tb"}\n' > "$T/home/active-run.json"
+out=$(HEADSHA=$A n1_review_pin set 11 2>"$T/err"); rc=$?
+eq "guard: no review artifacts -> refused" "pin:refused no-review-artifacts T-1 (run the review step; do not hand-write the pin)" "$out"
+eq "guard: refusal returns 1" "1" "$rc"
+[ -s "$T/err" ] && ok "guard: refusal explains on stderr" || no "guard: refusal explains on stderr"
+[ ! -e "$P11" ] && ok "guard: refusal writes no pin" || no "guard: refusal wrote a pin"
+eq "guard: --confirmed re-pin bypasses" "pin:set 1111111" "$(HEADSHA=$A n1_review_pin set 11 --confirmed)"
+rm -f "$P11"; mkdir -p "$R"
+printf 'Review skipped: DOC_CONFIG_ONLY diff\n' > "$R/review.md"
+eq "guard: SKIP review.md allows the pin" "pin:set 1111111" "$(HEADSHA=$A n1_review_pin set 11)"
+rm -f "$P11" "$R/review.md"; : > "$R/review-cr.md"
+eq "guard: empty review-cr.md still refused" "1" "$(HEADSHA=$A n1_review_pin set 11 >/dev/null 2>&1; echo $?)"
+printf 'verdict: PASS\n' > "$R/review-cr.md"
+eq "guard: review-cr.md allows the pin" "pin:set 1111111" "$(HEADSHA=$A n1_review_pin set 11)"
+rm -f "$R/review-cr.md"; tip $B
+eq "guard: advance is not gated" "pin:advanced 2222222" "$(n1_review_pin advance 11 "$A" "$B")"
+tip $A; rm -f "$P11"
+printf '{"ticketId":"","runId":""}\n' > "$T/home/active-run.json"
+eq "guard: active run without ticketId fails open" "pin:set 1111111" "$(HEADSHA=$A n1_review_pin set 11)"
+rm -f "$T/home/active-run.json" "$P11"
+eq "guard: no active-run pointer fails open" "pin:set 1111111" "$(HEADSHA=$A n1_review_pin set 11)"
+
 # Wiring: n1-pr pins before the Codex runner; reconcile § Check advances (N1 fix-loop pushes only).
 cd - >/dev/null; S3=skills/n1-pr/steps/03-codex-review.md
 PS=$(grep -nF 'n1_review_pin set "${PR_URL##*/}"' "$S3" | head -1 | cut -d: -f1)
 CR=$(grep -nF 'codex-pr-review.sh" "$PR_URL"' "$S3" | head -1 | cut -d: -f1)
 if [ -n "$PS" ] && [ -n "$CR" ] && [ "$PS" -lt "$CR" ]; then ok "n1-pr pins the head before the Codex runner"; else no "n1-pr pins the head before the Codex runner"; fi
+
+# N1-182: only the user-confirmed n1-finish re-pins bypass the review guard.
+for f in skills/n1-finish/references/repin.md skills/n1-finish/references/resolve-dirty.md; do
+    if grep -qxF 'n1_review_pin set "$N" --confirmed' "$f"; then ok "$f re-pins with --confirmed"; else no "$f re-pins with --confirmed"; fi
+done
+if grep -rnF -- '--confirmed' skills/n1-pr skills/n1-start | grep -q n1_review_pin; then no "n1-pr/n1-start never bypass the review guard"; else ok "n1-pr/n1-start never bypass the review guard"; fi
+if grep -qF 'pin:refused' "$S3"; then ok "n1-pr explains pin:refused"; else no "n1-pr explains pin:refused"; fi
 
 exit $FAIL
