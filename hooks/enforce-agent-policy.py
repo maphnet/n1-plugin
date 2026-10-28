@@ -298,7 +298,8 @@ def _commands(command):
                 at_cmd, wrapper, skip, lead = True, None, 0, 0
                 continue
             if at_cmd:
-                name = tok.rsplit("/", 1)[-1].lower()
+                # an option (incl. attached `--chdir=/x/nice`, `-C/x/env`) is never a program or wrapper
+                name = "" if tok.startswith(("-", "+")) else tok.rsplit("/", 1)[-1].lower()
                 name = name[:-4] if name.endswith(".exe") else name
                 if skip or (lead and not tok.startswith("-")):
                     if skip:

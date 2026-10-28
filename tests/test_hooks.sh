@@ -152,6 +152,7 @@ DENY_CMDS=(
     ">/tmp/merge.log gh pr merge 12" "> /tmp/m gh pr merge 12" "2>/tmp/e gh pr merge 12" ">>/tmp/m gh pr merge 12"
     "</dev/null gh pr merge 12" "&>/tmp/m gh pr merge 12" "2>&1 gh pr merge 12" ">\$HOME/m git push origin main"
     "echo x >/tmp/f; >/tmp/m gh pr merge 1" "echo >\$(gh pr merge 1)"
+    "env --chdir=/tmp/nice -u FOO gh pr merge 1" "env -C/tmp/nice -u FOO git push origin main" "sudo --chdir=/x/env -u x gh pr merge 1"
     "env -u FOO git push origin main" "env --unset FOO git push origin main" "env --unse FOO git push origin main"
     "env --u FOO git push origin main" "env -C /x git push origin main" "env --chdir /x gh pr merge 1"
     "env -u FOO FOO2=1 git push origin main" "env -iu FOO git push origin main" "env -a x gh pr merge 1"
@@ -186,6 +187,7 @@ for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push ori
          "git push --repo=origin feature" "git push --repo origin HEAD:feature" "echo x >/tmp/f" \
          "echo x 2>&1 >/tmp/f" ">/tmp/f echo gh pr merge" "gh pr view 1 >/tmp/f 2>&1" \
          "env -u FOO git status" "env -u FOO git push origin feature" "sudo -u x gh pr view 1" \
+         "env --chdir=/tmp/nice -u FOO gh pr view 1" \
          "sudo -nu x git push origin feature" "timeout -s KILL 5 gh pr view 1" "nice -n 5 gh pr view 1" \
          "xargs -I X echo gh pr merge X" "sudo -u x echo gh pr merge 1" "env -u FOO" "env -S 'git status'" \
          "bash -o pipefail -c 'git status'" "chroot --userspec x:y /r git status" \
