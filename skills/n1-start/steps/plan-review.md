@@ -29,9 +29,3 @@ Output: `## Plan Review Result` / `**Verdict:** CLEAN | FIXED` / `**Changes:**` 
 #### After CCR returns:
 
 - Record the CCR verdict: if verdict is FIXED, the plan file was updated in-place by the reviewer. Record the plan-review verdict and a one-line summary of changes in overview's `## Key Decisions` — durable traceability that survives a resume, rather than living only in transient orchestrator context.
-
-**Step result (step mode):**
-```bash
-source ~/.n1/preamble.sh
-n1_emit_step_result "plan-review" "pass" "implementation" "null"
-```
