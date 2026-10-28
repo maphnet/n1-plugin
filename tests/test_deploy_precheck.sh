@@ -8,7 +8,7 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 PASS=0; FAIL=0
 chk() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 -- expected '$2', got '$3'"; FAIL=$((FAIL+1)); fi; }
 git init -q "$T/r"; git -C "$T/r" config user.email t@t; git -C "$T/r" config user.name t
-# N1-169: ugrep (Claude Code's grep function) never matches a pattern with `(^|[^`; model it, exported into the snippet shell.
+# N1-169: ugrep (Claude Code's grep function) unreliably matches a pattern with `(^|[^` (input-dependent); model it, exported into the snippet shell.
 grep() { case "$*" in *'(^|[^'*) return 1 ;; *) command grep "$@" ;; esac; }
 export -f grep
 pcl() { # <workflowName> [sha] -> full precheck line, run in $T/r; sha defaults to HEAD

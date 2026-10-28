@@ -113,7 +113,7 @@ n1_related_detect_in_diff() {
         local names
         names=$(n1_related_escape_ere "$slug")
         [ -n "$service" ] && names="${names}|$(n1_related_escape_ere "$service")"
-        # No `^` branch: ugrep (Claude Code's grep function) never matches an anchor alternated with a negated class; diff lines start with +/-/space, so column 0 holds no name.
+        # No `^` branch: ugrep (Claude Code's grep function) unreliably matches an anchor alternated with a negated class (input-dependent); diff lines start with +/-/space, so column 0 holds no name.
         local pattern="[^a-zA-Z0-9](${names})([^a-zA-Z0-9]|\$)"
         if printf '%s\n' "$diff_text" | grep -iqE "$pattern"; then
             local signal

@@ -80,7 +80,7 @@ while IFS=$'\t' read -r c_slug c_service c_repo c_bare; do
     # `names` is the reusable escaped alternation; the boundary wrapper is per-site.
     names=$(n1_related_escape_ere "$c_slug")
     [ -n "$c_service" ] && names="${names}|$(n1_related_escape_ere "$c_service")"
-    # ponytail: no `^` branch (ugrep never matches an anchor alternated with a negated class), so a slug at column 0 is missed; upgrade path `command grep` or -P.
+    # ponytail: no `^` branch (ugrep unreliably matches an anchor alternated with a negated class), so a slug at column 0 is missed; upgrade path `command grep` or -P.
     pattern="[^a-zA-Z0-9](${names})([^a-zA-Z0-9]|\$)"
     # Search in source files (exclude node_modules, .git, vendor)
     matches=$(grep -rlE "$pattern" "$REPO_ROOT" \
