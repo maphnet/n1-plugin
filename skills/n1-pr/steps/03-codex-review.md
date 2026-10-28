@@ -29,7 +29,8 @@ ID='<the ticket ID>'
 PR_URL='<the PR URL from step 4>'
 OUTCOME='<only the word after codex_review_outcome= (ran, skipped, timeout or failed) from the last runner outcome line, or the receipt; else empty>'
 [ "$OUTCOME" = ran ] && { echo "softfix:reviewed"; exit 0; }
-[ -n "${ID:-}" ] && [ -n "${N1_HOME:-}" ] || { echo "softfix:no-id"; exit 0; }
+case "${ID:-}" in ''|*[!A-Za-z0-9_-]*) echo "softfix:no-id"; exit 0;; esac
+[ -n "${N1_HOME:-}" ] || { echo "softfix:no-id"; exit 0; }
 IMPL="$N1_HOME/memory/$ID/implementation.md"
 [ -e "$IMPL" ] || { echo "softfix:none"; exit 0; }
 grep -qE '^## Fix Cycle [0-9]+ \(soft\)' "$IMPL" 2>/dev/null; RC=$?
@@ -48,7 +49,7 @@ timeout -k 5 30 gh pr comment "$PR_URL" --body-file "$SOFTFIX_FILE" >/dev/null 2
 rm -f "$SOFTFIX_FILE"
 ```
 
-Paste the ticket ID too (`$ID` is undefined here, so a bare paste yields `softfix:no-id`). Paste only the outcome word, not the trailing `reason=` or `rc=` fields (the runner prints `codex_review_outcome=skipped reason=...`); anything outside the allow-list becomes `unknown`.
+Replace all three `<...>` placeholders; an unfilled or invalid ID prints `softfix:no-id` (warned). Paste only the outcome word, not the trailing `reason=` or `rc=` fields (the runner prints `codex_review_outcome=skipped reason=...`); anything outside the allow-list becomes `unknown`.
 
 If the output says `softfix:comment-failed`, `softfix:bad-pr-url`, `softfix:no-id` or `softfix:unreadable` (implementation.md exists but could not be read, so disclosure status is unknown), warn inline that the soft-pass fixes may not be cross-reviewed and continue. `softfix:already-posted` means an earlier run already posted the notice; a failed comment lookup posts anyway. Every output continues to the Triage Gate.
 
