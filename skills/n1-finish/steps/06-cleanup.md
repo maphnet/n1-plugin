@@ -39,6 +39,7 @@ N1_FINISH_BLOCK_9c1e
   n1_active_run_clear
   echo memory:done
 else echo memory:none; fi
+n1_active_run_clear_if n1-finish
 PR="<PR number; empty on local merge>"; OID=""
 case "$PR" in *[!0-9]*) echo pr:invalid; exit 1;; esac
 [ -n "$PR" ] && OID=$(gh pr view "$PR" --json state,headRefOid -q 'select(.state=="MERGED").headRefOid' 2>/dev/null)   # empty unless merged

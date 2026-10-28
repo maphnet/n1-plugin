@@ -623,4 +623,9 @@ if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ ! -f "$PIN" ]; then ok
 RPM=skills/n1-finish/references/repin.md; RVM=skills/n1-review/steps/01-analyze.md
 if grep -qF -- 'n1-review --full --base <base>' "$RPM" && grep -qF 'base:$BASE' "$RPM"; then ok "repin: passes the PR base to the review"; else no "repin: passes the PR base to the review"; fi
 if grep -qF 'git merge-base "origin/$PR_BASE" HEAD' "$RVM" && grep -qF 'base:unresolved' "$RVM" && grep -qF 'base:invalid' "$RVM"; then ok "n1-review --full: merge-base with PR base, fails closed"; else no "n1-review --full: merge-base with PR base, fails closed"; fi
+# N1-167: the n1-finish marker is written in Step 1 (covers PR path and Step 2b) and cleared on exit
+S1=skills/n1-finish/steps/01-resolve-target.md
+if grep -qF 'n1_finish_mark "<ID>"' "$S1"; then ok "01-resolve-target writes the n1-finish marker"; else no "01-resolve-target writes the n1-finish marker"; fi
+if grep -qF 'n1_active_run_clear_if n1-finish' "$S1" && grep -qF 'n1_active_run_clear_if n1-finish' "$F"; then ok "STOP clears the marker (01, 02)"; else no "STOP clears the marker (01, 02)"; fi
+if grep -qF 'n1_active_run_clear_if n1-finish' skills/n1-finish/steps/06-cleanup.md; then ok "06-cleanup clears the marker outside the overview guard"; else no "06-cleanup clears the marker outside the overview guard"; fi
 exit $FAIL

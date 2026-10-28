@@ -123,7 +123,7 @@ if [ "${TRIGGER:-}" = "compact" ] && [ -z "$AGENT_ID" ]; then
             ar_branch=$(grep -o '"branch"[[:space:]]*:[[:space:]]*"[^"]*"' "$ar_file" | sed 's/.*:[[:space:]]*"//' | sed 's/"$//' || true)
         fi
 
-        if [ -n "$ar_ticket" ]; then
+        if [ -n "$ar_ticket" ] && [ "$ar_run_id" != n1-finish ]; then   # n1-finish marker, not an n1-start run
             ov_file="${n1_root}/memory/${ar_ticket}/overview.md"
             ov_step=""
             ov_type=""

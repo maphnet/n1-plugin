@@ -2,6 +2,14 @@
 
 **Already run at entry:** the SKILL.md entry call printed `gh:` (auth status), the pending-deploy check below (`deploy-pending:` line, when `<ID>` was known; with a PR number argument the PR is looked up first and `<ID>` is derived from its head branch) and the current `branch=` and the PR lookup (JSON, or `pr:none`; when `<ID>` was given while on another branch the entry looked the PR up by head branch). Apply the rules below to those lines. Run a lookup here on its own only when the entry call skipped it (`id=` was empty at entry and is resolved afterwards) or printed `pr:none`.
 
+## Run marker (always first, before any merge or push)
+
+Mark this session as an N1 run so the merge-deny hook keeps gating it, on every path (PR, Step 2b, resume). It keeps an existing pointer. Must print `marker:keyed`; `marker:unkeyed` means no session id, so the hook cannot see it (report that); `marker:failed` is a **STOP** (marker not written). Every **STOP** in any step first runs `n1_active_run_clear_if n1-finish` (clears only the pointer this marker wrote; Step 6 does it on success).
+
+```bash
+source ~/.n1/preamble.sh; n1_finish_mark "<ID>"
+```
+
 ## Prerequisites
 
 - `gh auth status` — if not authenticated AND `prMode` (printed at entry) is not `"skip"`: "GitHub CLI is not authenticated. Run `gh auth login` first." **STOP.** The local-merge path needs no `gh`: when `prMode` is `"skip"` and `gh` is unauthenticated, skip the PR lookup below and go to Step 2b (local merge).

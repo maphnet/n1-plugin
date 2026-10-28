@@ -6,6 +6,8 @@ With `headless:yes` or `queue-run:yes`, every **STOP** in 3.1 and 3.4 (and in re
 
 **Queue runs.** When the entry printed `queue-run:yes` without `merge-on-finish:yes`, report "Queue run: N1 merges only when `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true. The ticket stops after PR + CI." **STOP.** This covers both the PR path and Step 2b.
 
+The Step 1 marker (`n1_finish_mark`) already gates this step and Step 2b; every **STOP** here clears it (`n1_active_run_clear_if n1-finish`).
+
 Evaluate the PR state:
 
 1. **`MERGED`** → capture the merge commit SHA (`.mergeCommit.oid`). Go to Step 3.
@@ -103,5 +105,5 @@ Evaluate the PR state:
    - `merge`: on `<defaultBranch>`: `git merge --no-ff <branch> -m "Merge branch '<branch>'"`
    - `rebase`: in the feature-branch directory: `git rebase <defaultBranch>`; then on `<defaultBranch>`: `git merge --ff-only <branch>`
 5. **Merge conflict** → `git merge --abort` (or `git rebase --abort` in the feature-branch directory), report the conflicting files, and in a plain checkout switch back to the feature branch. **STOP.**
-6. Capture the merge SHA: `git rev-parse HEAD` on `<defaultBranch>`. **No push.** Report: "Merged `<branch>` into `<defaultBranch>` locally. Push it yourself (for example `!git push origin <defaultBranch>`): N1's merge-deny hook blocks agent pushes to the default branch unless `finishWork.mergeOnFinish` is true."
+6. Capture the merge SHA: `git rev-parse HEAD` on `<defaultBranch>`. **No push.** Report: "Merged `<branch>` into `<defaultBranch>` locally. N1 does not push the default branch; push it yourself (`!git push origin <defaultBranch>`)."
 7. Skip Step 3 (`03-deploy.md`) — nothing is on the remote. Deploy status `skipped (local merge)`, smoke `n/a`. Go to Step 4; the tracker comment is the local-merge variant.

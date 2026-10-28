@@ -11,14 +11,21 @@ Case 2 - spawn model override. For spawn tools targeting an N1 persona, rewrite 
 from config `models.<persona>` (string, or a legacy host-keyed object read through its
 "claude-code" key).
 
-Case 3 - merge deny (N1-114, N1-146). Every session unless merge_authorized (finishWork.mergeOnFinish
-true, plus autonomy.fullAuto true when N1_QUEUE_RUN_ID is set or N1_HEADLESS=1), deny Bash `gh pr merge`; `gh api`/curl/wget when the
+Case 3 - merge deny (N1-114, N1-146, N1-167). Gates unattended sessions (N1_QUEUE_RUN_ID set or
+N1_HEADLESS=1) and sessions with an active N1 run (this session's keyed active-run file, _active_run);
+a plain session passes, and a missing/invalid session id or absent active-run file reads as plain (the file's
+mere existence counts, under N1 home or any ~/.n1/<slug>/ - _in_run). Unless
+merge_authorized (finishWork.mergeOnFinish true, plus autonomy.fullAuto true when unattended), deny
+Bash `gh pr merge`; `gh api`/curl/wget when the
 command anywhere names a merge API (mergePullRequest, enablePullRequestAutoMerge, mergeBranch,
 enqueuePullRequest, repos/<o>/<r>/merges, pulls/<n>/merge, git/refs/heads/<default>) - anywhere, so a
 heredoc query body counts, but only with an HTTP-capable command present, so `grep mergePullRequest`
 passes; and `git push` targeting git.defaultBranch (default "main"): a refspec
 `[refs/heads/]<default>` or `<src>:<default>`, `*` or `:` refspecs, `--all`/`--mirror`/`--branches`
-(or prefixes), or a bare/HEAD push while the payload cwd is on the default branch. `git merge` is
+(or prefixes), or a bare/HEAD push while the payload cwd is on the default branch. git.directPush
+true allows ordinary default-branch `git push` chunks in interactive N1 runs only (never merges, merge APIs,
+`--all`/`--mirror`/wildcard pushes, or force/delete pushes: `+ref`, `-f`, `--force*`, `-d`, `--delete`, `:ref`; a bare push when repo config has remote.*.push|mirror). The
+denial tells the user to run the command alone with the `!` prefix. `git merge` is
 NOT denied (N1-45). Not a shell parser: quotes/backslashes are stripped (bash does the same, so
 `g''h pr m''erge` is caught), `$(`/`<(`/backtick become command-position markers, `${`/`@{`/parens
 are blanked, the command is split on ; & | newline, and gh/git/curl/wget count only at command
@@ -49,6 +56,7 @@ Usage: enforce-agent-policy.py <config_file> <plugin_root>   (payload on stdin)
 """
 
 import functools
+import glob
 import json
 import os
 import re
@@ -140,24 +148,50 @@ def persona_tools(plugin_root: str, persona: str):
     return {t.strip() for t in m.group(1).split(",") if t.strip()}
 
 
-def _findings_path_ok(payload, persona, config_file="") -> bool:
-    """Reviewer Write scope (SEC-1/SEC-4): realpath is <N1 home>/memory/<active ticket>/review-<cr|sec>.md for this persona. N1 home = $N1_HOME, else the config dir; ticket = this session's active-run file. Fail closed."""
-    tool_input = payload.get("tool_input")
-    path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
-    if not isinstance(path, str) or not path.strip():
-        return False
+def _active_run(payload, config_file=""):
+    """(realpath N1 home, ticketId) from this session's keyed active-run file, else None (N1-167).
+    N1 home = $N1_HOME, else the config dir. Unkeyed active-run.json is ignored (shared across sessions)."""
     cwd = str(payload.get("cwd") or "")
     home = os.environ.get("N1_HOME") or (os.path.dirname(os.path.join(cwd, config_file)) if config_file else "")
     sid = payload.get("session_id")
     if not home or not isinstance(sid, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", sid):
-        return False
+        return None
     home = os.path.realpath(os.path.join(cwd, home))
     try:
         ticket = json.loads(Path(home, f"active-run.{sid}.json").read_text(encoding="utf-8")).get("ticketId")
     except (OSError, ValueError, AttributeError):
-        return False
+        return None
     if not isinstance(ticket, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*-[0-9]+", ticket):
+        return None
+    return home, ticket
+
+
+def _in_run(payload, config_file=""):
+    """merge_deny scope (SEC-2/SEC-3): this session's keyed active-run file exists under the resolved home or any
+    ~/.n1/<slug>/ (cwd-independent), whatever its contents. lexists: a dangling link still counts.
+    Cross-cwd only for ~/.n1/<slug> homes; a legacy git-config n1.home or in-repo .n1/ home is resolved from cwd (SEC-2)."""
+    sid = payload.get("session_id")
+    if not isinstance(sid, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", sid):
         return False
+    name = f"active-run.{sid}.json"
+    cwd = str(payload.get("cwd") or "")
+    home = os.environ.get("N1_HOME") or (os.path.dirname(os.path.join(cwd, config_file)) if config_file else "")
+    paths = glob.glob(os.path.join(glob.escape(os.path.expanduser("~/.n1")), "*", name))
+    if home:
+        paths.append(os.path.join(cwd, home, name))
+    return any(os.path.lexists(p) for p in paths)
+
+
+def _findings_path_ok(payload, persona, config_file="") -> bool:
+    """Reviewer Write scope (SEC-1/SEC-4): realpath is <N1 home>/memory/<active ticket>/review-<cr|sec>.md for this persona. N1 home and ticket from _active_run. Fail closed."""
+    tool_input = payload.get("tool_input")
+    path = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+    if not isinstance(path, str) or not path.strip():
+        return False
+    run = _active_run(payload, config_file)
+    if run is None:
+        return False
+    home, ticket = run
     suffix = {"code-reviewer": "cr", "security-reviewer": "sec"}[persona]
     return os.path.realpath(path) == os.path.join(home, "memory", ticket, f"review-{suffix}.md")
 
@@ -252,8 +286,35 @@ def _current_branch(cwd):
     return r.stdout.strip() or None
 
 
-def _is_merge(tokens, api_hit, default, cwd):
-    """One chunk starting at a gh/git/curl/wget token in command position."""
+def _repo_push_config(cwd):
+    """True unless git reports no remote.*.push|mirror in cwd (rc 1); lookup failure counts as set (N1-167 Codex High)."""
+    try:
+        r = subprocess.run(["git", "-C", cwd, "config", "--get-regexp", r"^remote\..*\.(push|mirror)$"],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return r.returncode != 1
+
+
+def _destructive_flag(a):
+    if a.startswith("--"):
+        n = a.split("=")[0]
+        return len(n) > 3 and any(f.startswith(n) or n.startswith(f) for f in ("--force", "--delete"))
+    return len(a) > 1 and a[0] == "-" and ("f" in a[1:] or "d" in a[1:])
+
+
+CONFIG_PUSH_RE = re.compile(r"remote\..*\.(push|mirror)", re.I)
+GIT_CONFIG_ENV_RE = re.compile(r"GIT_CONFIG_(COUNT|KEY_|VALUE_|PARAMETERS)", re.I)
+
+
+def _config_push(tokens):
+    """True when the chunk injects push config (-c/--config-env remote.*.push|mirror, GIT_CONFIG_* env), N1-167 SEC-1."""
+    return any(GIT_CONFIG_ENV_RE.match(t) or (CONFIG_PUSH_RE.match(t) and tokens[i - 1] in ("-c", "--config-env")) or
+               (t.startswith("--config-env=") and CONFIG_PUSH_RE.match(t[13:])) for i, t in enumerate(tokens))
+
+
+def _is_merge(tokens, api_hit, default, cwd, push_ok=False):
+    """One chunk starting at a gh/git/curl/wget token in command position. push_ok: git.directPush (N1-167)."""
     if tokens[0] in ("curl", "wget"):
         return api_hit
     pos, git_cwd = _positionals(tokens[1:], GH_VALUE_FLAGS if tokens[0] == "gh" else GIT_VALUE_FLAGS)
@@ -270,13 +331,20 @@ def _is_merge(tokens, api_hit, default, cwd):
         refs = refs[1:]
     if any("*" in r or r.lstrip("+") == ":" for r in refs):
         return True
+    base = cwd or os.getcwd()
+    push_dir = os.path.join(base, git_cwd) if git_cwd else base
+    # directPush (N1-167 SEC-4) lifts only ordinary pushes: force (+ref, -f, --force*) and delete (:ref, -d, --delete) stay denied
+    if push_ok and not (any(r.startswith(("+", ":")) for r in refs) or any(_destructive_flag(a) for a in args)
+                        or any(len(a) > 3 and "--prune".startswith(a) for a in args) or _config_push(tokens)
+                        # a bare push follows remote.*.push|mirror from repo config, so those stay denied (Codex High)
+                        or (not refs and _repo_push_config(push_dir))):
+        return False
     target = re.compile(r"(?:^|:)(?:refs/heads/)?%s$" % re.escape(default), re.I)
     if any(target.search(r.lstrip("+")) for r in refs):
         return True
     if not all(r in ("HEAD", "@") for r in refs):
         return False
-    base = cwd or os.getcwd()
-    branch = _current_branch(os.path.join(base, git_cwd) if git_cwd else base)
+    branch = _current_branch(push_dir)
     return bool(branch) and branch.lower() == default.lower()
 
 
@@ -292,6 +360,7 @@ def _commands(command):
         # chunk to segment end, so a wrong flag table fails toward deny (one per segment: linear).
         # ponytail: only the first such token; a later one after a genuine `-u git` is not re-read.
         shadow = None
+        envs = []  # GIT_CONFIG_* assignments before git (N1-167 SEC-1)
         for tok in segment.split():
             start = None
             if tok == SUBST:
@@ -310,12 +379,14 @@ def _commands(command):
                 elif lead and tok == "--":
                     skip, lead = 1, lead - 1  # after `--` the next word is NEWROOT whatever its prefix
                 elif name in PROGRAMS:
+                    # GIT_CONFIG_* assignments before git become -c pairs so _config_push sees them (SEC-1)
+                    head = [name] + [x for e in envs for x in ("-c", e)] * (name == "git")
                     if outer is None:
-                        outer = [name]
+                        outer = head
                     else:
                         if inner:
                             yield inner
-                        inner = [name]
+                        inner = head
                     at_cmd = False
                     continue
                 elif name in WRAPPERS:
@@ -325,6 +396,8 @@ def _commands(command):
                         _needs_value(WRAPPER_VALUE_FLAGS.get(wrapper, ()), tok, ATTACHED_FLAGS.get(wrapper, ()),
                                      WRAPPER_NOVALUE_LONGS.get(wrapper, ())))
                 elif not (wrapper and DURATION_RE.match(tok)):
+                    if ASSIGN_RE.match(tok) and GIT_CONFIG_ENV_RE.match(tok):
+                        envs.append(tok)
                     at_cmd = bool(ASSIGN_RE.match(tok))
             for chunk in (outer, inner, shadow):
                 if chunk is not None:
@@ -341,12 +414,16 @@ def _is_true(config: dict, block: str, key: str) -> bool:
     return isinstance(section, dict) and section.get(key) is True
 
 
+def _unattended() -> bool:
+    """Queue or headless run, read from the hook's own env (a command's `env -u` cannot change it)."""
+    return bool(os.environ.get("N1_QUEUE_RUN_ID")) or os.environ.get("N1_HEADLESS") == "1"
+
+
 def merge_authorized(config: dict) -> bool:
     """Mirror of n1_merge_authorized (lib/config.sh, N1-146): mergeOnFinish true, plus fullAuto when unattended."""
     if not _is_true(config, "finishWork", "mergeOnFinish"):
         return False
-    unattended = bool(os.environ.get("N1_QUEUE_RUN_ID")) or os.environ.get("N1_HEADLESS") == "1"
-    return not unattended or _is_true(config, "autonomy", "fullAuto")
+    return not _unattended() or _is_true(config, "autonomy", "fullAuto")
 
 
 def _command(payload):
@@ -358,8 +435,12 @@ def _command(payload):
     return command if isinstance(command, str) else None
 
 
-def merge_deny(payload: dict, config: dict) -> int:
+def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     if merge_authorized(config):
+        return 0
+    unattended = _unattended()
+    # N1-167: interactive sessions are gated only inside an active N1 run
+    if not unattended and not _in_run(payload, config_file):
         return 0
     command = _command(payload)
     if not command:
@@ -370,10 +451,14 @@ def merge_deny(payload: dict, config: dict) -> int:
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
     api_re = re.compile(r"%s|git/refs/heads/%s(?![\w.-])" % (MERGE_API, re.escape(default)), re.I)
     api_hit = api_re.search(command) is not None
-    if not any(_is_merge(c, api_hit, default, cwd) for c in _commands(command)):
+    push_ok = not unattended and _is_true(config, "git", "directPush")
+    if not any(_is_merge(c, api_hit, default, cwd, push_ok) for c in _commands(command)):
         return 0
-    sys.stderr.write("N1: merge denied -- N1 merges only with finishWork.mergeOnFinish true "
-                     "(queue/headless runs also need autonomy.fullAuto true); otherwise a human merges\n")
+    sys.stderr.write("N1: merge/default-branch push denied in an N1 run -- merges need finishWork.mergeOnFinish true "
+                     "(queue/headless runs also need autonomy.fullAuto true); default-branch pushes are also allowed by "
+                     "git.directPush true (interactive runs only). The user can run it themselves: the blocked command "
+                     "alone, prefixed with ! (e.g. \"! git push origin HEAD:main\"), as its own command, not chained "
+                     "with others\n")
     return 2
 
 
@@ -444,7 +529,7 @@ def main() -> int:
             config = {}
     if not isinstance(config, dict):
         config = {}
-    rc = restriction(payload, plugin_root, config_file) or merge_deny(payload, config) or pipe_deny(payload)
+    rc = restriction(payload, plugin_root, config_file) or merge_deny(payload, config, config_file) or pipe_deny(payload)
     if rc:
         return rc
     return spawn_override(payload, config)
