@@ -38,8 +38,31 @@ identity.update(layer='envelope', started_at=datetime.now(timezone.utc).isoforma
 PY
 }
 
+# Each Bash call is a fresh shell, so N1_RUN_ID/N1_VERSION set by n1_run_begin are gone in later
+# snippets. Restore them (plain assignment, NOT exported) from this session's keyed active-run
+# pointer + live lock. Fail-open: always returns 0, leaves vars unset on any mismatch.
+n1_restore_run_identity() {
+    [ -z "${N1_RUN_ID:-}" ] || return 0
+    local sid f run lock
+    sid=$(n1_session_id); [ -n "$sid" ] || return 0
+    f=$(n1_active_run_file 2>/dev/null) || return 0
+    case "$f" in */active-run."$sid".json) ;; *) return 0 ;; esac
+    [ -f "$f" ] || return 0
+    run=$(n1_hook_field runId < "$f")
+    case "$run" in n1-run-*) ;; *) return 0 ;; esac
+    for lock in "${N1_HOME:-$(n1_home)}"/memory/*/telemetry/locks/"$run".json; do
+        [ -f "$lock" ] || continue
+        [ "$(n1_hook_field session_id < "$lock")" = "$sid" ] || continue
+        N1_RUN_ID="$run"
+        N1_VERSION=$(n1_hook_field n1_version < "$lock")
+        return 0
+    done
+    return 0
+}
+
 n1_emit_step_event() {
     local run_id="$1" version="$2" ticket_id="$3" step="$4" step_number="$5" telem_dir="$6"
+    [ -n "$run_id" ] || return 0
     shift 6
 
     local started_at="" completed_at="" outcome="" loop_iteration="" metadata="{}"
@@ -150,6 +173,7 @@ n1_remove_run_lock() {
 # Expected keys: review_pass_first_try, qa_pass_first_try, fix_cycles_count, total_duration_s
 n1_emit_outcome() {
     local run_id="$1" version="$2" ticket_id="$3" tdir="$4"
+    [ -n "$run_id" ] || return 0
     shift 4
     local outcomes="{"
     local first=true
@@ -229,6 +253,7 @@ n1_record_decision() {
 n1_emit_question_event() {
     local run_id="$1" version="$2" ticket_id="$3" telem_dir="$4" step="$5"
     local category="$6" resolution="$7" rungs="${8:-}"
+    [ -n "$run_id" ] || return 0
     local ts
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     local file="${telem_dir}/raw/steps/${run_id}.jsonl"

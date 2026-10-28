@@ -19,3 +19,6 @@ source "$N1_ROOT/lib/validation.sh"
 source "$N1_ROOT/lib/containers.sh"
 
 N1_HOME=$(n1_home)
+
+# Restore run identity lost across Bash calls (N1-32); no-op when N1_RUN_ID is already set.
+n1_restore_run_identity || true
