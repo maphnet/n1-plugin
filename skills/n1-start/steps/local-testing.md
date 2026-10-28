@@ -217,14 +217,14 @@ After the agent returns:
   fi
 
   LOCAL_TESTING_METADATA="{\"action_type\":\"$ACTION_TYPE\",\"infra_started\":$INFRA_STARTED,\"app_started\":$APP_STARTED,\"services\":$SERVICES_JSON,\"scenario_types\":$SCENARIO_TYPES_JSON,\"qa_overlap_pct\":$QA_OVERLAP_PCT}"
-  echo "$LOCAL_TESTING_METADATA"
+  echo "$LOCAL_TESTING_METADATA" | tee "$N1_HOME/memory/$ID/.lt-metadata"
   ```
 
 **If verdict is PASS:**
 - End the step:
   ```bash
   source ~/.n1/preamble.sh
-  n1_step_end "local-testing" 11 success "$LOCAL_TESTING_METADATA"
+  n1_step_end "local-testing" 11 success "$(cat "$N1_HOME/memory/$ID/.lt-metadata" 2>/dev/null)"; rm -f "$N1_HOME/memory/$ID/.lt-metadata"
   ```
 - Proceed to Step 10 (PR CREATION)
 
@@ -271,13 +271,13 @@ After developer returns:
 - Re-run FULL execution (Step 9c) — all scenarios, not just failed ones (catches regressions)
 - **Bounded loop:** read `local_test_fix_cycle` from overview frontmatter. Stop after `localTesting.maxFixAttempts` cycles (config, default 3). On exhaustion, escalate instead of looping forever. The bound and its default are declared in `pipeline.json` `loops[]` (`local_testing_fix`).
 
-**Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`. Also update `## Escalations` with key decision: `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)`. Then run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"fix_exhausted"}'`.
+**Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`. Also update `## Escalations` with key decision: `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)`, then run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"fix_exhausted"}'`. Otherwise end only on option 2 below.
 
 **Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
 
 Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then prompt: "{PREAMBLE} After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
   - "1 — Fix manually, type 'continue' to re-test"
-  - "2 — Skip local testing, proceed to PR"
+  - "2 — Skip local testing, proceed to PR" (run the same skipped end as above)
   - "3 — Provide guidance for another fix attempt"
 - If 3: reset the counter ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci) and continue with user's guidance.
 
