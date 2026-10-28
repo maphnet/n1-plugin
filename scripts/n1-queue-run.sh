@@ -435,7 +435,7 @@ run_bg() {
                     # finalized above): the bg session ended without the overview ever
                     # reaching a terminal step. N1-182: an off-script child may still have
                     # opened a PR without recording pr_url; that is a pr, not a retry.
-                    OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO")
+                    OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
                     if [ -n "$OPEN_PR" ]; then
                         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
                     else

@@ -1625,6 +1625,9 @@ test_bg_pr_lifecycle() {
     : > "$tmp/fake/gh-calls"; PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp" >/dev/null || true
     assert_eq "open-pr: only the newest run's envelope branch is asked" "0" "$(grep -c -- '--head old/T-Z' "$tmp/fake/gh-calls")"
     assert_eq "open-pr: newest envelope branch is asked" "1" "$(grep -c -- '--head new/T-Z' "$tmp/fake/gh-calls")"
+    printf 'https://github.com/o/r/pull/9\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/T-Z)" > "$tmp/fake/gh-pr"
+    assert_eq "open-pr: envelope older than child start -> nothing" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp" "$(( $(date +%s) + 100 ))")"
+    assert_eq "open-pr: envelope newer than child start -> considered" "1" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp" "$(( $(date +%s) - 100 ))" | grep -c pull/9)"
     assert_eq "open-pr: missing repo dir -> nothing" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp/nope")"
     printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/bin/gh"
     assert_eq "open-pr: gh failure -> nothing" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp")"

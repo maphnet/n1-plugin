@@ -163,15 +163,19 @@ n1_queue_child_pr_url() {
 }
 
 n1_queue_child_open_pr() {
-    # Usage: n1_queue_child_open_pr <ticket> <n1-home> <repo-path> — URL of an open PR for the
+    # Usage: n1_queue_child_open_pr <ticket> <n1-home> <repo-path> [start-epoch] — URL of an open PR for the
     # child's run branch, or nothing (N1-182). Called only when a bg child ended without
     # recording pr_url (off-script child), never on hot polls. Branch: "branch" of the newest
     # telemetry envelope (the child's own run), then the ticket id. Only a same-repo PR (not a
     # fork PR on a guessable branch name) whose headRefOid equals the local tip of that branch
-    # counts, so a stale PR from an earlier run does not. Fail open: errors print nothing.
-    local t="$1" h="$2" repo="$3" b url oid tip out seen="" newest
+    # counts, so a stale PR from an earlier run does not. With start-epoch, an envelope file older
+    # than the child's launch belongs to an earlier run: print nothing. Fail open: errors print nothing.
+    local t="$1" h="$2" repo="$3" start="${4:-}" b url oid tip out seen="" newest
     [ -d "$repo" ] || return 0
     newest=$(ls -t "$h/memory/$t/telemetry/raw/steps/"*.jsonl 2>/dev/null | head -1)
+    if [ -n "$newest" ] && [[ "$start" =~ ^[0-9]+$ ]] && [ "$(stat -c %Y "$newest" 2>/dev/null || echo 0)" -lt "$start" ]; then
+        return 0
+    fi
     for b in "$([ -n "$newest" ] && grep -o '"layer":"envelope"[^}]*"branch":"[^"]*"' "$newest" 2>/dev/null | sed 's/.*"branch":"//; s/"$//' | tail -1)" "$t"; do
         [[ "$b" =~ ^[A-Za-z0-9._/][A-Za-z0-9._/-]*$ ]] && [ "$b" != "$seen" ] || continue
         seen="$b"
