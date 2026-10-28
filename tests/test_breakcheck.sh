@@ -225,6 +225,19 @@ LBARE="New test: tests/test_x.sh | bash tests/test_x.sh"
 assert_eq "parse: legacy bare name" "tests/test_x.sh" "$(n1_break_check_parse_line "$LBARE" name)"
 assert_eq "parse: legacy bare cmd" "bash tests/test_x.sh" "$(n1_break_check_parse_line "$LBARE" cmd)"
 assert_eq "parse: empty line → empty cmd" "" "$(n1_break_check_parse_line "" cmd)"
+LMULTI="New test: x | a | b"
+assert_eq "parse: legacy multi-pipe → empty cmd" "" "$(n1_break_check_parse_line "$LMULTI" cmd 2>/dev/null)"
+assert_eq "parse: legacy multi-pipe warns" "1" "$(n1_break_check_parse_line "$LMULTI" cmd 2>&1 >/dev/null | grep -c ambiguous)"
+assert_eq "parse: legacy multi-pipe name kept" "x" "$(n1_break_check_parse_line "$LMULTI" name)"
+# _n1_bc_has: empty name never matches; parenthesized name matches stripped list entry
+_n1_bc_has $'a\n\nb' "" && r=match || r=none
+assert_eq "bc_has: empty name vs list with blank line" "none" "$r"
+_n1_bc_has "" "" && r=match || r=none
+assert_eq "bc_has: empty name vs empty list" "none" "$r"
+_n1_bc_has $'test_a\nb' "test_a (extra)" && r=match || r=none
+assert_eq "bc_has: parenthesized name matches stripped entry" "match" "$r"
+_n1_bc_has $'test_a\nb' " (extra)" && r=match || r=none
+assert_eq "bc_has: name stripping to empty does not match all" "none" "$r"
 
 # Base resolver: branch-point must be an ancestor of HEAD, else merge-base with the default branch
 T12=$(mktemp -d); make_repo "$T12"; B0=$(git -C "$T12" rev-parse HEAD)

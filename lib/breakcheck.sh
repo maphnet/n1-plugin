@@ -27,15 +27,17 @@ _n1_bc_trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; printf '%s\n' "${s
 # Never splits on the last pipe (names and commands may contain "|"). No "| `" → legacy split on the
 # first "|" with backticks removed (bare commands exist in older qa.md files).
 n1_break_check_parse_line() {
-    local bt='`' rest="${1#*test:}" name cmd tail=""
+    local bt='`' rest="${1#*test:}" name cmd tail="" amb=""
     case "$rest" in
         *"| $bt"*"$bt"*)
             name="${rest%%"| $bt"*}"; cmd="${rest#*"| $bt"}"
             tail="${cmd#*"$bt"}"; cmd="${cmd%%"$bt"*}" ;;
-        *"|"*) name="${rest%%|*}"; cmd="${rest#*|}"; cmd="${cmd//"$bt"/}" ;;
+        *"|"*) name="${rest%%|*}"; cmd="${rest#*|}"; cmd="${cmd//"$bt"/}"
+            case "$cmd" in *"|"*) amb=1; cmd="" ;; esac ;;
         *) name="$rest"; cmd="" ;;
     esac
     if [ "$2" = cmd ]; then
+        [ -z "$amb" ] || echo "break-check: ambiguous legacy line (several '|', no backticked command); no command extracted" >&2
         [ -z "${tail//[[:space:]]/}" ] || echo "break-check: ignoring text after the command: $(_n1_bc_trim "$tail")" >&2
         _n1_bc_trim "$cmd"
     else
@@ -84,7 +86,9 @@ _n1_bc_exclude_log() {
 }
 
 _n1_bc_has() {  # <newline list> <name> → 0 when the list holds name, or name minus a trailing " (...)" (parsers strip it)
+    [ -n "$2" ] || return 1
     local key; key=$(sed 's/ ([^()]*)[[:space:]]*$//' <<< "$2")
+    [ -n "$key" ] || key="$2"
     grep -qxF -e "$2" -e "$key" <<< "$1"
 }
 _n1_bc_count() { awk 'NF{n++} END{print n+0}' <<< "$1"; }
