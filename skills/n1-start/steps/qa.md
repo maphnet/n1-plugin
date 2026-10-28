@@ -1,3 +1,4 @@
+<!-- n1:step-snippet-exception: loop-exit end block -->
 
 > **After this step completes, IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user. (Orchestrator-only: a fork ignores this.)**
 
@@ -57,4 +58,8 @@ done > "$N1_HOME/memory/$ID/break-check.new-tests"
 BREAK_CHECK_TQ=$(awk '$2 != "red-then-green" {print $1" ("$2")"}' "$N1_HOME/memory/$ID/break-check.new-tests")
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "break_check_verdict" "$BC_VERDICT"
 ```
-Append `## Break-check`. `BC_VERDICT != red-then-green` → `QA_RESULT=FAIL`. Non-bug: `BC_MODE==all`→blocking; else pass `BREAK_CHECK_TQ` to review. Update: `[x] QA`, `step: qa`. Maintain+PASS+"No test work needed"→skip fix loop. **FAIL:** `qa_fix_cycle` ≥ `qa.maxFixAttempts` (default 3) → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"`, then spawn developer ("Record `## QA Fix Cycle <N>`", N = new `qa_fix_cycle`). `qualityEscalations=auto-accept`: append the developer's `Findings deferred` per `<N1_ROOT>/references/followup-filing.md` § Append (source `qa`). **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+Append `## Break-check`. `BC_VERDICT != red-then-green` → `QA_RESULT=FAIL`. Non-bug: `BC_MODE==all`→blocking; else pass `BREAK_CHECK_TQ` to review. Maintain+PASS+"No test work needed"→skip fix loop. Loop exit only (PASS, or cap → § Autonomy Gate), once: run the final block below (`<success|failed>`). **FAIL:** `qa_fix_cycle` ≥ `qa.maxFixAttempts` (default 3) → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"`, then spawn developer ("Record `## QA Fix Cycle <N>`", N = new `qa_fix_cycle`). `qualityEscalations=auto-accept`: append the developer's `Findings deferred` per `<N1_ROOT>/references/followup-filing.md` § Append (source `qa`). **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+```bash
+source ~/.n1/preamble.sh
+n1_step_end "qa" 8 <success|failed> "{\"loop_iteration\":<qa_fix_cycle>}"
+```

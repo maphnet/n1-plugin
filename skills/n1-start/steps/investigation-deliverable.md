@@ -8,6 +8,12 @@
 
 **Spawn agent:** solution-architect. Resolve model for `solution-architect`.
 
+**Telemetry** (skip in n1-refine caller mode):
+```bash
+source ~/.n1/preamble.sh
+n1_step_begin "investigation-deliverable" 16
+```
+
 **Phase 1 — Produce Findings**
 
 Spawn solution-architect with:
@@ -63,7 +69,11 @@ Validation confidence: <high|medium|low> (<N>/<M> recommendations corroborated)
 
 > **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the solution-architect agent has written its output.
 
-After agent returns: write output to `$N1_HOME/memory/<ID>/investigation.md`. Update overview: `[x] Investigation deliverable`, set `step: investigation-deliverable`.
+After agent returns: write output to `$N1_HOME/memory/<ID>/investigation.md`. Then (skip in n1-refine caller mode):
+```bash
+source ~/.n1/preamble.sh
+n1_step_end "investigation-deliverable" 16 success
+```
 
 ```bash
 source ~/.n1/preamble.sh

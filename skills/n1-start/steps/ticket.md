@@ -11,6 +11,7 @@ Empty: `{"title":null,"tags":[],"type":"task"}`. Parse `TITLE TAGS TYPE CLOUD_ID
 
 ```bash
 source ~/.n1/preamble.sh
+n1_step_begin "ticket" 1
 TYPE_OVERRIDE="<TYPE_OVERRIDE from input parsing, empty if none>"
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
@@ -30,9 +31,9 @@ n1_story_convert_decision "$(n1_config_val '.tracker.type')" "<has|none|unknown>
 ```
 `story`→`IS_STORY=true`. `single:<r>`→token `unconverted: <r>`. `convert`→`mcp__<versionMcp>__jcm_convertIssueType` `issueKeys:[<ID>]`, `issueTypeName:"Task"`. `ok:true`→token `converted`, then `operations.addComment` "N1: converted Story to Task, it has no sub-tasks. Running it as a single ticket." (ignore failure). Anything else (error, `RUNNING`, declined)→token `convert-failed: <message, one line, ≤80 chars>`. Write the token to `$N1_HOME/memory/<ID>/.story-convert` via the file-write mechanism, never a shell string. Never prompt or retry. Single/convert outcomes continue as a single ticket; `ISSUE_TYPE` not story: skip this block.
 
-`INVESTIGATION_DETECTED=true` with `N1_QUEUE_RUN_ID` unset and `N1_HEADLESS=1` not set: say "Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`." (no tracker ID: `/n1:n1-ticket` first) and STOP before overview.md.
+`INVESTIGATION_DETECTED=true` with `N1_QUEUE_RUN_ID` unset and `N1_HEADLESS=1` not set: say "Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`." (no tracker ID: `/n1:n1-ticket` first) and STOP before overview.md (run `source ~/.n1/preamble.sh; n1_step_end "ticket" 1 skipped '{"skip_reason":"investigation_moved"}'` first).
 
-`IS_STORY=true`: non-headless→handoff `n1:n1-queue --story <ID>`, STOP; headless→`procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree**.
+`IS_STORY=true`: non-headless→handoff `n1:n1-queue --story <ID>` (end as above, `story_handoff`), STOP; headless→`procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree**.
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 
@@ -59,7 +60,7 @@ Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/renam
 
 **Ticket URL** (mode=ticket): call `mcp__<trackerMcp>__get_instance_url` (format=json) → extract `base_url`. YouTrack: `TICKET_URL=<base_url>/issue/<ID>`. Jira: `TICKET_URL=<base_url>/browse/<ID>`. On failure: skip silently. `n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "ticket_url" "$TICKET_URL"`.
 
-**Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=start`, `TEXT` = title + description from ticket.md, `SELF_ID=<ID>`, `OVERVIEW=$N1_HOME/memory/<ID>/overview.md` (cached; skipped on resume and in queue children — resolved at plan time). **Stop** → end the run as the procedure says.
+**Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=start`, `TEXT` = title + description from ticket.md, `SELF_ID=<ID>`, `OVERVIEW=$N1_HOME/memory/<ID>/overview.md` (cached; skipped on resume and in queue children — resolved at plan time). **Stop** → end as above (`duplicate`), then end the run as the procedure says.
 
 **Tracker status** (mandatory, before any analysis dispatch; interactive runs and queue children alike): `moveStatus` → In Progress (skip if absent; warn and continue).
 
@@ -72,4 +73,5 @@ source ~/.n1/preamble.sh
 ASSIGN_TO_CREATOR=$(n1_config_val ".tracker.assignToCreator"); GET_USER_OP=$(n1_config_val ".tracker.operations.getCurrentUser"); ASSIGN_OP=$(n1_config_val ".tracker.operations.assign"); READ_OP=$(n1_config_val ".tracker.operations.readTicket"); n1_assign_gap_warn
 LT=$(n1_config_val '.localTesting.enabled' "${N1_HOME}/config.json")
 echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"maintain","local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":true}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
+n1_step_end "ticket" 1 success
 ```

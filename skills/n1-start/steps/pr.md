@@ -5,7 +5,12 @@ Do not read full reports — n1-pr extracts what it needs via `grep`; tech-write
 
 Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"ready"`; else → `"draft"`.
 
-**If `prMode` is `"skip"`**: skip n1-pr/push/`## Pending`; update overview, add ledger row, run telemetry, continue.
+```bash
+source ~/.n1/preamble.sh
+n1_step_begin "pr" 12
+```
+
+**If `prMode` is `"skip"`**: skip n1-pr/push/`## Pending`; add ledger row, run the last block below (end `skipped`), continue.
 
 **REQUIRED SUB-SKILL:** `n1:n1-pr`. Pass: `docUpdateMode: "autonomous"`.
 
@@ -31,14 +36,12 @@ last_checked: <date -u +%Y-%m-%dT%H:%M:%SZ>
 created: <same timestamp>
 ```
 
-Update overview: `[x] PR`, set `step: pr`.
-
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/fingerprints.sh"
 source "$N1_ROOT/lib/validation.sh"
-n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — cannot create PR" >&2; exit 1; }
+n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { n1_step_end "pr" 12 failed; echo "ERROR: implementation.md missing — cannot create PR" >&2; exit 1; }
 QA_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle")
 REVIEW_FIX=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
 QA_FIRST=$( [ "${QA_FIX:-0}" = "0" ] && echo "true" || echo "false" )
@@ -57,6 +60,7 @@ n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetr
     "qa_fix_cycles=${QA_FIX:-0}" \
     "break_check_verdict=$BC_VERDICT" \
     "review_discarded_count=$DISCARDED"
+n1_step_end "pr" 12 "<success|skipped>"
 ```
 
 Gate 3 (emitted in FINALIZE MEMORY) carries `PR: <url>` — do not print CHECKPOINT here.

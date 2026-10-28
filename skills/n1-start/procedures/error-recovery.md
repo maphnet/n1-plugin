@@ -6,7 +6,7 @@ Classify failure:
 - **Transient** (tracker/MCP timeout, rate-limit, agent-spawn hiccup, network blip) → retry once or twice before escalating.
 - **Terminal or ambiguous** (logic error, repeated failure, unresolvable blocker):
   1. Note in `overview.md ## Escalations`.
-  2. **Telemetry:** emit final step event with `outcome: "failed"` and run merge script.
+  2. **Telemetry:** `n1_step_end <step_name> <N> failed`, then run merge script.
   3. Report to user: 20 words per line — what failed and where. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
   4. On next `/n1:n1-start <ID>`: resume from last successful step.
 

@@ -21,7 +21,6 @@ SCRIPT="$N1_ROOT/scripts/benchmark.py"
 OUT="${HOME}/.n1/benchmark"
 WORK=$(mktemp -d)
 PLUGIN_VERSION=$(n1_plugin_version)
-N1_HOST_NAME=$(n1_host)
 ```
 
 If `~/.n1` does not exist, tell the user N1 is not configured and stop.
@@ -37,7 +36,7 @@ python3 "$SCRIPT" baseline set <version> --out "$OUT"
 ## 3. Collect
 
 ```bash
-python3 "$SCRIPT" collect --out "$OUT" --host "$N1_HOST_NAME" --ambiguous-out "$WORK/ambiguous.json" [--since DATE] [--force]
+python3 "$SCRIPT" collect --out "$OUT" --ambiguous-out "$WORK/ambiguous.json" [--since DATE] [--force]
 ```
 
 Read `$WORK/ambiguous.json`. It contains `ambiguous`, a list of `{id, text, prev_assistant}`.

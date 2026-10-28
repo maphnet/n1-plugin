@@ -3,6 +3,7 @@ import io
 import importlib.util
 import json
 import os
+import shlex
 import sys
 import tempfile
 import unittest
@@ -772,6 +773,21 @@ class ReportTest(unittest.TestCase):
     def test_cmd_report_without_snapshots(self):
         d = TempDirs()
         self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
+
+
+class SkillInvocationTest(unittest.TestCase):
+    """N1-29: the n1-benchmark skill passed --host after N1-63 removed it, so
+    argparse exited before collect ran and no snapshot was written after Sep 5."""
+
+    def test_skill_collect_invocation_parses(self):
+        skill = (REPO / ".claude" / "skills" / "n1-benchmark" / "SKILL.md").read_text(encoding="utf-8")
+        line = next(l for l in skill.splitlines() if '"$SCRIPT" collect' in l)
+        rest = line.split('"$SCRIPT"', 1)[1].replace("DATE", "2026-01-01").replace("[", "").replace("]", "")
+        try:
+            args = bm.build_parser().parse_args(shlex.split(rest))
+        except SystemExit as e:
+            self.fail(f"SKILL.md collect invocation rejected by argparse (exit {e.code}): {line}")
+        self.assertEqual(args.cmd, "collect")
 
 
 if __name__ == "__main__":
