@@ -199,7 +199,7 @@ for f in "$TRI" references/architecture.md; do
 done
 
 # 10. N1-123 SEC-4: disclose soft-pass fixes as not cross-reviewed when Codex did not run
-for pat in '### Soft-Fix Notice' '^## Fix Cycle [0-9]+ \(soft\)' 'not cross-reviewed' '--body-file "$SOFTFIX_FILE"' 'softfix:comment-failed' 'softfix:reviewed' 'softfix:no-id' 'softfix:bad-pr-url' 'softfix:unreadable' 'softfix:already-posted' 'gh pr view "$PR_URL" --json comments' 'gh pr comment "$PR_URL"'; do
+for pat in '### Soft-Fix Notice' '^## Fix Cycle [0-9]+ \(soft\)' 'not cross-reviewed' '--body-file "$SOFTFIX_FILE"' 'softfix:comment-failed' 'softfix:reviewed' 'softfix:no-id' 'softfix:bad-pr-url' 'softfix:unreadable' 'softfix:already-posted' 'gh pr view "$PR_URL" --json comments' 'gh pr comment "$PR_URL"' "ID='<the ticket ID>'" 'from the last runner outcome line, or the receipt'; do
     if grep -qF -- "$pat" "$P3"; then
         echo "PASS: 03-codex-review soft-fix notice has '$pat'"
     else
@@ -223,6 +223,30 @@ if grep -qF 'Soft-fix disclosure (SEC-4, N1-123)' references/architecture.md; th
 else
     echo "FAIL: architecture.md missing the soft-fix disclosure"; FAIL=1
 fi
+# N1-132: run the Soft-Fix Notice fence; gh is stubbed to prove it is never reached
+SFT=$(mktemp -d)
+mkdir -p "$SFT/home/.n1" "$SFT/bin" "$SFT/n1/memory/N1-1"
+: > "$SFT/home/.n1/preamble.sh"
+printf '#!/bin/sh\ntouch "%s/gh-called"\n' "$SFT" > "$SFT/bin/gh"; chmod +x "$SFT/bin/gh"
+awk '/^### Soft-Fix Notice/{f=1} f&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$P3" > "$SFT/fence.sh"
+sf_run() { # $1=ID $2=OUTCOME
+    sed -e "s|^ID=.*|ID='$1'|" -e "s|^OUTCOME=.*|OUTCOME='$2'|" "$SFT/fence.sh" |
+        HOME="$SFT/home" N1_HOME="$SFT/n1" PATH="$SFT/bin:$PATH" bash 2>/dev/null
+}
+for c in "no-id|<the ticket ID>|skipped" "no-id|../x|skipped" "none|N1-1|skipped" "reviewed|N1-1|ran"; do
+    IFS='|' read -r want id oc <<< "$c"
+    if [ "$(sf_run "$id" "$oc")" = "softfix:$want" ]; then
+        echo "PASS: soft-fix fence ID='$id' OUTCOME=$oc -> softfix:$want"
+    else
+        echo "FAIL: soft-fix fence ID='$id' OUTCOME=$oc did not print softfix:$want"; FAIL=1
+    fi
+done
+if [ -e "$SFT/gh-called" ]; then
+    echo "FAIL: soft-fix fence reached gh on a no-network path"; FAIL=1
+else
+    echo "PASS: soft-fix fence never reaches gh on no-id/none/reviewed paths"
+fi
+rm -rf "$SFT"
 
 if grep -q 'qualityEscalations' skills/n1-pr/steps/03-codex-review.md && grep -q 'auto-accept' skills/n1-pr/steps/03-codex-review.md && grep -q 'never end with an offer or question to fix Codex findings' skills/n1-pr/steps/03-codex-review.md && grep -q 'never close Gate 3 with an offer or question to fix Codex findings' skills/n1-start/procedures/output-gates.md; then
     echo "PASS: 03-codex-review fixes all findings under auto-accept and never offers"
