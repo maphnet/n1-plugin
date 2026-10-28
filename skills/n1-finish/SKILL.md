@@ -22,7 +22,7 @@ Fill `ID` (argument, else derived from the PR or branch) , `PR` (digits of a `#1
 
 ```bash
 source ~/.n1/preamble.sh
-[ -n "$N1_HOME" ] || { echo n1-home:missing; exit 1; }
+[ -n "$N1_HOME" ] || { echo N1_NOT_CONFIGURED; exit 1; }
 POST_DEPLOY_VERIFICATION_ARTIFACT=false
 ID="<ID>"; PR="<PR>"; CH="<CH>"; c() { n1_config_val ".$1"; }; S="$N1_ROOT/skills/n1-finish"
 [[ "$PR" =~ ^[0-9]*$ ]] || PR=
@@ -56,7 +56,7 @@ RA=()
 echo "read-also: ${RA[*]}"
 ```
 
-`n1-home:missing` → warn and STOP. `id:invalid` → STOP. Empty `id=` → resolve it from `git.branchPattern`, then run Step 1's check.
+`N1_NOT_CONFIGURED` → warn and STOP. `id:invalid` → STOP. Empty `id=` → resolve it from `git.branchPattern`, then run Step 1's check.
 
 ## Config Read
 

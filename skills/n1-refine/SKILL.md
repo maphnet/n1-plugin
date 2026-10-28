@@ -20,9 +20,10 @@ Run refine before `n1-queue --plan`: in a queue child, a refined block posted as
 
 ```bash
 source ~/.n1/preamble.sh
+[ -n "$N1_HOME" ] && echo "N1_HOME=$N1_HOME" || echo N1_NOT_CONFIGURED
 ```
 
-If `N1_HOME` is empty — N1 is not configured. Tell the user: "N1 is not configured for this project. Run `/n1:n1-init` to set it up." **STOP.**
+If the output shows `N1_NOT_CONFIGURED` — N1 is not configured. Tell the user: "N1 is not configured for this project. Run `/n1:n1-init` to set it up." **STOP.**
 
 ## Input
 

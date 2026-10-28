@@ -18,9 +18,10 @@ Three-phase on-demand skill: **fetch → verify → act**. Fetches all open revi
 
 ```bash
 source ~/.n1/preamble.sh
+[ -n "$N1_HOME" ] && echo "N1_HOME=$N1_HOME" || echo N1_NOT_CONFIGURED
 ```
 
-If `N1_HOME` is empty — N1 is not configured; warn the user.
+If the output shows `N1_NOT_CONFIGURED` — N1 is not configured; warn the user.
 
 Config: read keys via `n1_*_val` helpers; never cat config.json. Memory: `$N1_HOME/memory/$ID/`.
 
