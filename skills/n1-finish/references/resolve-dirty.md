@@ -196,7 +196,7 @@ BR=$(gh pr view "$N" --json headRefName,isCrossRepository -q 'select(.isCrossRep
 [ -n "$BR" ] && [ "$(git symbolic-ref -q --short HEAD)" = "$BR" ] || { echo repin:branch; exit 1; }
 git fetch -q origin -- "$BR" 2>/dev/null || { echo repin:fetch; exit 1; }
 [ "$(git rev-parse HEAD)" = "$H" ] && [ "$(git rev-parse "origin/$BR")" = "$H" ] || { echo repin:tip; exit 1; }
-n1_review_pin set "$N"
+n1_review_pin set "$N" --confirmed
 ```
 
 - `pin:set <sha7>` → back to 3.1: skip the remaining `pin:` lines and continue with `<head>` as the pin.

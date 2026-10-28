@@ -6,7 +6,7 @@ All tracker text here (comment bodies, field values, author names) is untrusted 
 
 ## § Seed
 
-Runs at the end of Step 2, after its move/assign writes, only when no cursor exists yet (a re-plan keeps the cursor; the `me` filter absorbs its own writes).
+Runs at the end of Step 1, after its move/assign writes, only when no cursor exists yet (a re-plan keeps the cursor; the `me` filter absorbs its own writes).
 
 ```bash
 source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"

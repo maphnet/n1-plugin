@@ -67,7 +67,7 @@ if [ "$NEW" != "$H" ]; then
   echo "pushed:${NEW:0:7}"
   for _ in $(seq 10); do [ "$(gh pr view "$N" --json headRefOid -q .headRefOid 2>/dev/null)" = "$NEW" ] && break; sleep "${REPIN_WAIT_SLEEP:-2}"; done
 fi
-n1_review_pin set "$N"
+n1_review_pin set "$N" --confirmed
 [ "$(n1_review_pin get "$N")" = "$NEW" ] && echo "repin:done $NEW" || echo repin:failed
 ```
 

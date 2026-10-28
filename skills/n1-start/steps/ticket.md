@@ -61,8 +61,15 @@ Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/renam
 
 **Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=start`, `TEXT` = title + description from ticket.md, `SELF_ID=<ID>`, `OVERVIEW=$N1_HOME/memory/<ID>/overview.md` (cached; skipped on resume and in queue children — resolved at plan time). **Stop** → end the run as the procedure says.
 
+**Tracker status** (mandatory, before any analysis dispatch; interactive runs and queue children alike): `moveStatus` → In Progress (skip if absent; warn and continue).
+
+`tracker.operations.addToSprint` (`n1_config_val`; only here; skip silently if empty): call with `<ID>` on `tracker.versionMcp` else `tracker.mcp`. `ok:true` → one overview.md `## Progress` line (`skipped` → say skipped); `ok:false` or tool error → warning line there (`reason`/`message`). Never prompt; non-fatal.
+
+**Assign to creator** (if configured; never steal from an existing assignee): skip if ANY of `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` empty, `ASSIGN_OP` empty, or (when `READ_OP` set) `READ_OP` on `<ID>` shows a non-empty assignee. Else call `GET_USER_OP` then `ASSIGN_OP` (payload per `n1-ticket/steps/02-create.md` Step 8). Failure: log to overview.md `## Progress`, continue — non-fatal. Relay any `Warning:` line the snippet prints (missing assign ops).
+
 ```bash
 source ~/.n1/preamble.sh
+ASSIGN_TO_CREATOR=$(n1_config_val ".tracker.assignToCreator"); GET_USER_OP=$(n1_config_val ".tracker.operations.getCurrentUser"); ASSIGN_OP=$(n1_config_val ".tracker.operations.assign"); READ_OP=$(n1_config_val ".tracker.operations.readTicket"); n1_assign_gap_warn
 LT=$(n1_config_val '.localTesting.enabled' "${N1_HOME}/config.json")
 echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"maintain","local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":true}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
 ```

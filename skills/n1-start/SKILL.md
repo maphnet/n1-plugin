@@ -44,10 +44,12 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 
 **Ticket watch:** run `procedures/ticket-watch.md § Check` before Steps 5, 6, 10 and 11b.
 
+**Run each step file in order:** read and follow it; never do a step inline or replace its persona dispatch with your own work (simple-path skips only 3, 4, 4b).
+
 | Step | File | Notes |
 |------|------|-------|
-| 1. REQUIREMENTS ANALYSIS | `steps/ticket.md` | |
-| 2. ANALYSIS | `steps/analysis.md` | moveStatus → In Progress; assign to creator if configured and unassigned; addToSprint if configured |
+| 1. REQUIREMENTS ANALYSIS | `steps/ticket.md` | moveStatus → In Progress; assign to creator if configured and unassigned; addToSprint if configured |
+| 2. ANALYSIS | `steps/analysis.md` | |
 | Simple-Path Routing | — | `n1_read_context`; if `SIMPLE_PATH=true`: skip steps 3, 4, 4b, Gate 2 — jump to Step 5 |
 | 3. BRAINSTORM | `steps/brainstorm.md` | interactive unless auto; skipped on simple-path |
 | 3b. INVESTIGATION DELIVERABLE | `steps/investigation-deliverable.md` | investigation mode only; terminates pipeline |

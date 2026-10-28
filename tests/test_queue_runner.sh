@@ -623,6 +623,9 @@ WEOF2
 mk_bg() {
     local tmp="$1" qid="$2" n=0 spec t; shift 2
     mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
+    # N1-182: runner asks gh for an open PR of an incomplete child; default answer comes from
+    # $FAKE_DIR/gh-pr (absent -> no PR). Never reach the real gh from tests.
+    [ -e "$tmp/bin/gh" ] || { printf '#!/usr/bin/env bash\ncase "$1 $2" in "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;; *) exit 1 ;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"; }
     cat > "$tmp/bin/claude" <<'FAKEEOF'
 #!/usr/bin/env bash
 # Fake claude CLI for background-session tests. State lives in $FAKE_DIR.
@@ -1568,6 +1571,66 @@ test_bg_pr_lifecycle() {
     assert_eq "bg-nourl: failure events retain outcomes and reasons" \
         $'deferred,child-exited-incomplete\nfailed,deferred-retry (child-exited-incomplete)' \
         "$(jq -r 'select(.event=="ticket_finished") | [.outcome,.reason] | join(",")' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+
+    # N1-182: an off-script child that opened a PR but never wrote pr_url is a pr, not a retry.
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgn "T-A:working done"
+    printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/fake/overview.T-A"
+    cp "$tmp/fake/overview.T-A" "$tmp/fake/overview.T-A.1"
+    mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
+    printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
+        > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
+    printf 'https://github.com/o/r/pull/77\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/me/T-A)" > "$tmp/fake/gh-pr"
+    assert_eq "bg-openpr: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-openpr: finalizes as pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "bg-openpr: no deferred-retry row" "" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "bg-openpr: Runs records the PR" "https://github.com/o/r/pull/77" \
+        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
+    assert_eq "bg-openpr: event outcome pr" "pr,https://github.com/o/r/pull/77" \
+        "$(jq -r 'select(.event=="ticket_finished" and .ticket=="T-A") | [.outcome,.pr] | join(",")' "$tmp/events.jsonl")"
+    assert_eq "bg-openpr: asked gh for the envelope branch" "1" "$(grep -c -- '--head me/T-A' "$tmp/fake/gh-calls")"
+    assert_eq "bg-openpr: gh query drops fork PRs (SEC-2)" "1" "$(grep -c -- 'isCrossRepository' "$tmp/fake/gh-calls")"
+    rm -rf "$tmp"
+
+    # SEC-2/SEC-4: a PR whose head is not the local branch tip (stale PR of an earlier run) is not recorded.
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgs "T-A:working done"
+    printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/fake/overview.T-A"
+    cp "$tmp/fake/overview.T-A" "$tmp/fake/overview.T-A.1"
+    mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
+    printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
+        > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
+    printf 'https://github.com/o/r/pull/77\t%s\n' "0000000000000000000000000000000000000000" > "$tmp/fake/gh-pr"
+    assert_eq "bg-stalepr: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-stalepr: not recorded as pr" "" "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
+    rm -rf "$tmp"
+
+    # N1-182 unit: helper rejects non-PR output, falls back to the ticket id, fails open.
+    tmp=$(mktemp -d); mkdir -p "$tmp/bin" "$tmp/fake"
+    printf '#!/usr/bin/env bash\necho "$*" >> "%s/fake/gh-calls"; cat "%s/fake/gh-pr" 2>/dev/null\n' "$tmp" "$tmp" > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+    echo "not a url" > "$tmp/fake/gh-pr"
+    assert_eq "open-pr: non-PR output ignored" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp")"
+    assert_eq "open-pr: no envelope -> asks for the ticket id" "1" "$(grep -c -- '--head T-Z' "$tmp/fake/gh-calls")"
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; git -C "$tmp" branch T-Z
+    printf 'https://github.com/o/r/pull/9\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/T-Z)" > "$tmp/fake/gh-pr"
+    assert_eq "open-pr: PR at local tip accepted" "https://github.com/o/r/pull/9" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp")"
+    printf 'https://github.com/o/r/pull/9\tdeadbeef\n' > "$tmp/fake/gh-pr"
+    assert_eq "open-pr: PR head != local tip ignored" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp")"
+    mkdir -p "$tmp/n1h/memory/T-Z/telemetry/raw/steps"
+    printf '{"layer":"envelope","branch":"old/T-Z"}\n' > "$tmp/n1h/memory/T-Z/telemetry/raw/steps/a.jsonl"; touch -d '2020-01-01' "$tmp/n1h/memory/T-Z/telemetry/raw/steps/a.jsonl"
+    printf '{"layer":"envelope","branch":"new/T-Z"}\n' > "$tmp/n1h/memory/T-Z/telemetry/raw/steps/b.jsonl"
+    : > "$tmp/fake/gh-calls"; PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp" >/dev/null || true
+    assert_eq "open-pr: only the newest run's envelope branch is asked" "0" "$(grep -c -- '--head old/T-Z' "$tmp/fake/gh-calls")"
+    assert_eq "open-pr: newest envelope branch is asked" "1" "$(grep -c -- '--head new/T-Z' "$tmp/fake/gh-calls")"
+    printf 'https://github.com/o/r/pull/9\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/T-Z)" > "$tmp/fake/gh-pr"
+    assert_eq "open-pr: envelope older than child start -> nothing" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp" "$(( $(date +%s) + 100 ))")"
+    assert_eq "open-pr: envelope newer than child start -> considered" "1" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp" "$(( $(date +%s) - 100 ))" | grep -c pull/9)"
+    assert_eq "open-pr: missing repo dir -> nothing" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp/nope")"
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$tmp/bin/gh"
+    assert_eq "open-pr: gh failure -> nothing" "" "$(PATH="$tmp/bin:$PATH" n1_queue_child_open_pr T-Z "$tmp/n1h" "$tmp")"
     rm -rf "$tmp"
 
     for step in ci done; do
