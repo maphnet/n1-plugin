@@ -99,7 +99,7 @@ CJ2="$T/cyc2.jsonl"; printf 'CR-1\tHigh\ta.sh\tone\nCR-2\tCritical\tb.sh\ttwo\n'
 n1_fingerprint_check_convergence "$CJ2" 1; eq "lower count at cycle 1 is converging" "0" "$?"
 CJ3="$T/cyc3.jsonl"; : > "$CJ3"; n1_fingerprint_check_convergence "$CJ3" 1; eq "zero blockers (RULE-only FAIL) is converging" "0" "$?"
 n1_fingerprint_check_convergence "$CJ" 0; eq "cycle 0 is converging" "0" "$?"
-eq "review.md defaults CYCLE to 0" "1" "$(grep -c 'review_fix_cycle"); CYCLE=${CYCLE:-0}' skills/n1-start/steps/review.md)"
+eq "review.md defaults CYCLE to 0" "1" "$(grep -cF 'fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}' skills/n1-start/steps/review.md)"
 eq "review.md emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' skills/n1-start/steps/review.md)"
 eq "review.md no longer discards the verdict" "0" "$(grep -c 'check_convergence.*|| true' skills/n1-start/steps/review.md)"
 eq "01-analyze.md emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' skills/n1-review/steps/01-analyze.md)"
