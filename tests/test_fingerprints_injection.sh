@@ -87,4 +87,23 @@ for S in "$R" "$A"; do
     eq "$S no longer calls n1_fingerprint_finding inline" "0" "$(grep -c 'n1_fingerprint_finding' "$S")"
 done
 
+# N1-190: 0-based cycle buckets (pass 1 = 0, re-review N = N) and observable convergence verdict.
+printf 'CR-1\tHigh\ta.sh\tone\nCR-2\tCritical\tb.sh\ttwo\n' > "$T/c0.tsv"
+printf 'CR-3\tHigh\tc.sh\tthree\nCR-4\tHigh\td.sh\tfour\n' > "$T/c1eq.tsv"
+printf 'CR-5\tHigh\te.sh\tfive\n' > "$T/c1lo.tsv"
+CJ="$T/cyc.jsonl"; n1_fingerprint_record "$CJ" "$T/c0.tsv" 0; n1_fingerprint_record "$CJ" "$T/c1eq.tsv" 1
+eq "bucket 0 holds pass-1 blockers" "2" "$(n1_fingerprint_blocking_count_for_cycle "$CJ" 0)"
+eq "bucket 1 holds re-review blockers" "2" "$(n1_fingerprint_blocking_count_for_cycle "$CJ" 1)"
+n1_fingerprint_check_convergence "$CJ" 1; eq "equal counts at cycle 1 are non-converging" "1" "$?"
+CJ2="$T/cyc2.jsonl"; printf 'CR-1\tHigh\ta.sh\tone\nCR-2\tCritical\tb.sh\ttwo\n' > "$T/c0.tsv"; n1_fingerprint_record "$CJ2" "$T/c0.tsv" 0; n1_fingerprint_record "$CJ2" "$T/c1lo.tsv" 1
+n1_fingerprint_check_convergence "$CJ2" 1; eq "lower count at cycle 1 is converging" "0" "$?"
+CJ3="$T/cyc3.jsonl"; : > "$CJ3"; n1_fingerprint_check_convergence "$CJ3" 1; eq "zero blockers (RULE-only FAIL) is converging" "0" "$?"
+n1_fingerprint_check_convergence "$CJ" 0; eq "cycle 0 is converging" "0" "$?"
+eq "review.md defaults CYCLE to 0" "1" "$(grep -c 'review_fix_cycle"); CYCLE=${CYCLE:-0}' skills/n1-start/steps/review.md)"
+eq "review.md emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' skills/n1-start/steps/review.md)"
+eq "review.md no longer discards the verdict" "0" "$(grep -c 'check_convergence.*|| true' skills/n1-start/steps/review.md)"
+eq "01-analyze.md emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' skills/n1-review/steps/01-analyze.md)"
+eq "pr.md reads first-pass bucket 0" "1" "$(grep -c 'blocking_count_for_cycle "$FP_FILE" 0' skills/n1-start/steps/pr.md)"
+eq "telemetry.md lists only emitted fields" "0" "$(grep -cE 'findings_total|execution_path|cross_repo_xrepo|cross_repo_runtime' skills/n1-start/procedures/telemetry.md)"
+
 exit $FAIL

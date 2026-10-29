@@ -30,21 +30,3 @@ fi
 ```
 
 **Interactive (non-auto).** Re-read `$XREPO_RT_FILE`. **"yes":** `n1_related_add`+B-tier `[asked]` ledger+`$XREPO_RT_ADDED_FILE` per slug. **"select":** add approved+ledger. **"no":** `[asked]` row.
-
-**Telemetry for implementation step-end:**
-```bash
-source ~/.n1/preamble.sh
-RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
-XREPO_RT_FILE="$N1_HOME/memory/$ID/xrepo-runtime.tsv"; XREPO_RT_ADDED_FILE="$N1_HOME/memory/$ID/xrepo-runtime-added"
-XREPO_RT_DETECTED=""; XREPO_RT_ADDED=""
-[ "$RELATED_ENABLED" = "true" ] && { [ -s "$XREPO_RT_FILE" ] && XREPO_RT_DETECTED=$(awk -F'\t' 'NF {print $1}' "$XREPO_RT_FILE" | tr '\n' ',' | sed 's/,$//'); [ -s "$XREPO_RT_ADDED_FILE" ] && XREPO_RT_ADDED=$(tr '\n' ',' < "$XREPO_RT_ADDED_FILE" | sed 's/,$//');}
-IMPL_XREPO_METADATA="{\"cross_repo_runtime_detected\":\"${XREPO_RT_DETECTED}\",\"cross_repo_runtime_added\":\"${XREPO_RT_ADDED}\"}"
-```
-Merge `$IMPL_XREPO_METADATA` into implementation step-end metadata.
-
-## §7b Review Cross-Repo Telemetry
-
-Gate: `relatedProjects.enabled=true`.
-```bash
-XREPO_FINDINGS_COUNT=$(grep -c '^\- \*\*\[XREPO-' "$N1_HOME/memory/$ID/review.md" 2>/dev/null | head -1); XREPO_FINDINGS_COUNT="${XREPO_FINDINGS_COUNT:-0}"
-```

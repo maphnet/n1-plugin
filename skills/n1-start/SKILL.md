@@ -62,7 +62,6 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 | 5b. RUNTIME CROSS-REPO | `procedures/cross-repo.md §5b` | |
 | 6. QA | `steps/qa.md` | |
 | 7. REVIEW | `steps/review.md` | references `review-core.md`, `ledger.md` |
-| 7b. REVIEW CROSS-REPO TELEMETRY | `procedures/cross-repo.md §7b` | |
 | 8. FIX (if FAIL or soft pass) | `steps/fix.md` | |
 | 9. LOCAL TESTING | `steps/local-testing.md` | conditional |
 | 10. PR CREATION | `steps/pr.md` | |

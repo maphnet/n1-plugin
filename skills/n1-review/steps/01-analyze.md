@@ -155,13 +155,11 @@ source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
 CYCLE=<current review_fix_cycle value>
 if [ "$CYCLE" -gt 0 ]; then
-    if ! n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE"; then
-        # Non-convergence detected — escalate to user immediately
-    fi
+    n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || echo "NON_CONVERGING: cycle $CYCLE"
 fi
 ```
 
-On non-convergence (blocking count for cycle N is not less than cycle N-1), escalate to the user rather than burning remaining cycles. Context: "Review findings are not converging."
+On `NON_CONVERGING` (blocking count for cycle N is not less than cycle N-1), escalate to the user rather than burning remaining cycles. Context: "Review findings are not converging."
 
 Maximum 2 review-fix cycles before escalating to user.
 

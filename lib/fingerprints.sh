@@ -115,13 +115,15 @@ n1_fingerprint_blocking_count_for_cycle() {
 n1_fingerprint_check_convergence() {
     # Usage: n1_fingerprint_check_convergence <jsonl_file> <current_cycle>
     # Compares blocking count for cycle N vs cycle N-1.
-    # Exit 0 if converging (current cycle count < previous cycle count), exit 1 if not.
+    # Cycles are 0-based: pass 1 = bucket 0, re-review N = bucket N.
+    # Exit 0 if converging (current count < previous count, or current count is 0), exit 1 if not.
     local jsonl_file="$1" current_cycle="$2"
     [ -f "$jsonl_file" ] || return 0  # No history — converging by default
     local prev_cycle=$(( current_cycle - 1 ))
-    [ "$prev_cycle" -lt 1 ] && return 0  # First cycle, no prior to compare against
+    [ "$prev_cycle" -lt 0 ] && return 0  # Cycle 0 is the first pass, no prior to compare against
     local cur_count prev_count
     cur_count=$(n1_fingerprint_blocking_count_for_cycle "$jsonl_file" "$current_cycle")
+    [ "$cur_count" -eq 0 ] 2>/dev/null && return 0  # No blocking fingerprints is never non-converging
     prev_count=$(n1_fingerprint_blocking_count_for_cycle "$jsonl_file" "$prev_cycle")
     [ "$cur_count" -lt "$prev_count" ] 2>/dev/null && return 0
     return 1

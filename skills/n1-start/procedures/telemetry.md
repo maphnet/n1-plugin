@@ -14,16 +14,16 @@ Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_r
 
 | step_number | step_name | metadata fields |
 |-------------|-----------|-----------------|
-| 1 | `ticket` | `{}` |
+| 1 | `ticket` | `{}`; `{"skip_reason":"investigation_moved"}` on skip |
 | 2 | `analysis` | `{}`; cross_repo fields when `relatedProjects.enabled` (analysis.md) |
 | 3 | `brainstorm` | `{"planning_need":"plan\|direct"}` |
 | 4 | `plan` | `{}` |
 | 5 | `plan-review` | `{"verdict":"CLEAN\|FIXED"}` |
-| 7 | `implementation` | `{"execution_path":"direct\|sdd"}` (+ cross_repo_runtime fields from cross-repo.md §5b) |
+| 7 | `implementation` | `{}` |
 | 8 | `qa` | `{"loop_iteration":<N>}` |
-| 9 | `review` | `{"findings_total":<N>,"findings_critical":<N>}` (+ cross_repo_xrepo_findings from cross-repo.md §7b) |
-| 10 | `fix` | `{"loop_iteration":<N>}` |
-| 11 | `local-testing` | `{"action_type":"live\|test_only\|skipped\|smoke_deferred","infra_started":<bool>,"app_started":<bool>,"services":[...],"scenario_types":[...],"qa_overlap_pct":<int\|null>}` |
+| 9 | `review` | `{}` |
+| 10 | `fix` | `{}` |
+| 11 | `local-testing` | run: `{"action_type":"live\|test_only","infra_started":<bool>,"app_started":<bool>,"services":[...],"scenario_types":[...],"qa_overlap_pct":<int\|null>}`; skip: `{"action_type":"skipped\|smoke_deferred","skip_reason":"<reason>"}` |
 | 12 | `pr` | `{}` |
 | 13 | `ci` | `{}` |
 | 14 | `finish` | `{}` |
