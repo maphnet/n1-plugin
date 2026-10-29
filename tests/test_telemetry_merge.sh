@@ -297,12 +297,32 @@ mk_fc() { # id outcome-json-or-empty
     env -u N1_HOME bash "$REPO_ROOT/hooks/telemetry-merge.sh" "r-$1" "$d"
     FC_OUT="$d/runs/r-$1.jsonl"
 }
-for n in 0 1 3; do
-    mk_fc "FC-$n" "{\"review_fix_cycles\":\"$n\",\"qa_fix_cycles\":\"$n\"}"
-    assert_eq "N1-198: fix cycles $n from string outcome values" "$n|$n" \
-        "$(jq -r '"\(.summary.review_fix_cycles)|\(.summary.qa_fix_cycles)"' "$FC_OUT")"
+fc_pair() { jq -r '"\(.summary.review_fix_cycles)|\(.summary.qa_fix_cycles)"' "$FC_OUT"; }
+for pair in "0 0" "1 0" "0 3" "3 1"; do
+    set -- $pair; r=$1; q=$2
+    mk_fc "FC-$r-$q" "{\"review_fix_cycles\":\"$r\",\"qa_fix_cycles\":\"$q\"}"
+    assert_eq "N1-198: fix cycles from string outcome values ($r|$q)" "$r|$q" "$(fc_pair)"
 done
 assert_eq "N1-198: project derived from TELEM_DIR without N1_HOME" "fchome" "$(jq -r '.project' "$FC_OUT")"
+# N1_HOME pointing elsewhere must not override the path-derived project
+FCD="$T/fchome/memory/FC-HOME/telemetry"
+mkdir -p "$FCD/raw/steps" "$FCD/raw/agents"
+echo '{"run_id":"r-FC-HOME","n1_version":"5.0.0"}' > "$FCD/telemetry.lock"
+echo '{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"FC-HOME","session_id":"s","host":"claude-code"}' > "$FCD/raw/steps/r-FC-HOME.jsonl"
+: > "$FCD/raw/agents/r-FC-HOME.jsonl"
+N1_HOME="$T/otherproj" bash "$REPO_ROOT/hooks/telemetry-merge.sh" "r-FC-HOME" "$FCD"
+assert_eq "N1-198: TELEM_DIR path wins over N1_HOME for project" "fchome" "$(jq -r '.project' "$FCD/runs/r-FC-HOME.jsonl")"
+# max across multiple outcome events
+mk_fc "FC-MAX" '{"review_fix_cycles":"1","qa_fix_cycles":"1"}}
+{"event":"outcome","run_id":"r-FC-MAX","outcomes":{"review_fix_cycles":"3","qa_fix_cycles":"0"}'
+assert_eq "N1-198: fix cycles use max across outcome events" "3|1" "$(fc_pair)"
+# non-numeric values degrade to null without crashing the merge
+for bad in '"abc"' '""' '"1.5"' '"²"' '"-1"'; do
+    mk_fc "FC-BAD" "{\"review_fix_cycles\":$bad,\"qa_fix_cycles\":$bad}"
+    assert_eq "N1-198: non-numeric outcome value $bad -> null" "null|null" "$(fc_pair)"
+done
+mk_fc "FC-LIST" '["x"]'
+assert_eq "N1-198: non-dict outcomes -> null" "null|null" "$(fc_pair)"
 mk_fc "FC-NONE" ""
 assert_eq "N1-198: no outcome event -> fix cycles null" "null|null" \
     "$(jq -r '"\(.summary.review_fix_cycles)|\(.summary.qa_fix_cycles)"' "$FC_OUT")"

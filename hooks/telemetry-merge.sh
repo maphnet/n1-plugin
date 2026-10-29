@@ -20,12 +20,11 @@ import json, sys
 try: print(json.load(open(sys.argv[1], encoding="utf-8")).get("n1_version") or "")
 except (OSError, ValueError): pass
 ' "$LOCK_FILE" 2>/dev/null || true)
-PROJECT_NAME=""
-if [ -n "${N1_HOME:-}" ]; then
+# TELEM_DIR = <home>/memory/<ID>/telemetry; derive from the path (same as the analyzer), N1_HOME only as fallback
+ABS_TELEM=$(cd "$TELEM_DIR" 2>/dev/null && pwd || echo "$TELEM_DIR")
+PROJECT_NAME=$(basename "$(dirname "$(dirname "$(dirname "$ABS_TELEM")")")")
+if { [ -z "$PROJECT_NAME" ] || [ "$PROJECT_NAME" = "/" ] || [ "$PROJECT_NAME" = "." ]; } && [ -n "${N1_HOME:-}" ]; then
     PROJECT_NAME=$(basename "$N1_HOME")
-else
-    # TELEM_DIR = <home>/memory/<ID>/telemetry; N1_HOME is not exported to children
-    PROJECT_NAME=$(basename "$(dirname "$(dirname "$(dirname "$TELEM_DIR")")")")
 fi
 
 "$PY" "${SCRIPT_DIR}/telemetry-merge.py" "$RUN_ID" "$TELEM_DIR" \

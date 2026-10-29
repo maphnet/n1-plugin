@@ -62,7 +62,7 @@ print('PASS: fully attributed fixture reports 0% unattributed with cache fields'
 "
 
 # N1-198: --last defaults to 20 without a window; a window alone returns every in-window run
-MANY=$(mktemp -d); trap 'rm -rf "$TEST_DIR" "$MANY"' EXIT
+MANY="$TEST_DIR/many"
 mkdir -p "$MANY/p/memory/M-1/telemetry/runs"
 for i in $(seq 10 34); do
     echo "{\"schema_version\":6,\"run_id\":\"m$i\",\"started_at\":\"2026-09-02T10:00:${i}Z\"}" > "$MANY/p/memory/M-1/telemetry/runs/m$i.jsonl"
