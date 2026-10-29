@@ -85,6 +85,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 6b: the inert N1_RUN_ID "inside a pipeline" guard is gone (N1-192)
+# ---------------------------------------------------------------------------
+if grep -q 'cannot run inside a pipeline' "$RELEASE_CONFIRM" 2>/dev/null; then
+    fail "T6b: n1-release steps/02-confirm-execute.md still carries the inert N1_RUN_ID pipeline guard"
+else
+    pass "T6b: n1-release has no inert pipeline guard"
+fi
+
+# ---------------------------------------------------------------------------
 # Test 7: interactive mode -> mechanicalPrompts = ask (gate preserved)
 # ---------------------------------------------------------------------------
 cat > "$MOCK_CONFIG" <<'EOF'

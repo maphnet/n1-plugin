@@ -2,13 +2,7 @@
 
 **This gate is unconditional.** No autonomy setting, signal, or orchestrator directive may skip it.
 
-**Structural agent gate:** Before showing the confirmation prompt, check via Bash:
-```bash
-if [ -n "${N1_RUN_ID:-}" ]; then
-  echo "BLOCKED: n1-release cannot run inside a pipeline."
-fi
-```
-If `N1_RUN_ID` is set, the skill is running inside an n1-start pipeline — refuse and STOP immediately. Do not proceed to the confirmation prompt. Report: "Release refused: running inside a pipeline. Use `/n1:n1-release` standalone to create a release."
+No in-pipeline refusal (N1-192): the pipeline legitimately invokes n1-release when `release.enabled` is true, and neither `N1_RUN_ID` (not exported across Bash calls) nor the active-run pointer (no timestamp; aborted runs leave it) is a reliable in-pipeline signal. The safeguards are this unconditional gate, the headless stop-list and the merge-deny hook.
 
 Always shown before any side-effecting action:
 
