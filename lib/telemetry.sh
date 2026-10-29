@@ -41,6 +41,7 @@ PY
 # Each Bash call is a fresh shell, so N1_RUN_ID/N1_VERSION set by n1_run_begin are gone in later
 # snippets. Restore them (plain assignment, NOT exported) from this session's keyed active-run
 # pointer + live lock. Fail-open: always returns 0, leaves vars unset on any mismatch.
+# Ticket agreement is checked at use time: see n1_bind_run_to_ticket.
 n1_restore_run_identity() {
     [ -z "${N1_RUN_ID:-}" ] || return 0
     local sid f run lock
@@ -58,6 +59,39 @@ n1_restore_run_identity() {
         case "$N1_VERSION" in *[!0-9A-Za-z.+-]*) N1_VERSION="" ;; esac
         return 0
     done
+    return 0
+}
+
+# Run/ticket agreement, documented once here (N1-193). The restored N1_RUN_ID comes from the
+# session's active-run pointer, which the session's latest n1_run_begin overwrites; a second
+# ticket in one session would make an earlier ticket's snippets write under the wrong run.
+# ID-aware writers call this first. Ground truth is the lock path memory/$ID/telemetry/locks/<run>.json
+# (it follows reconcile renames; the pointer's ticketId does not):
+#   - run's lock under $ID: agree.
+#   - run's lock only under another ticket (pointer overwritten): re-resolve to the one run this
+#     session owns under $ID; none or several -> unset N1_RUN_ID/N1_VERSION so writers no-op.
+#   - run has no lock anywhere (FINALIZE removed it; late events): unchanged (fail-open).
+# n1_read_lock's ambient N1_RUN_ID filter then selects the same run. Hooks have no ambient id and
+# no ID and keep their session/ambiguity rules. Plain vars, never exported; always returns 0.
+n1_bind_run_to_ticket() {
+    [ -n "${N1_RUN_ID:-}" ] && [ -n "${ID:-}" ] || return 0
+    local mem="${N1_HOME:-$(n1_home)}/memory" sid lock="" run="" n=0
+    [ ! -f "$mem/$ID/telemetry/locks/$N1_RUN_ID.json" ] || return 0
+    for lock in "$mem"/*/telemetry/locks/"$N1_RUN_ID".json; do
+        [ -f "$lock" ] && break
+    done
+    [ -f "$lock" ] || return 0
+    sid=$(n1_session_id)
+    for lock in "$mem/$ID"/telemetry/locks/*.json; do
+        [ -f "$lock" ] && [ -n "$sid" ] || continue
+        [ "$(n1_hook_field session_id < "$lock")" = "$sid" ] || continue
+        run="${lock##*/}"; run="${run%.json}"; n=$((n + 1))
+    done
+    unset N1_RUN_ID N1_VERSION
+    [ "$n" = 1 ] || return 0
+    N1_RUN_ID="$run"
+    N1_VERSION=$(n1_hook_field n1_version < "$mem/$ID/telemetry/locks/$run.json")
+    case "$N1_VERSION" in *[!0-9A-Za-z.+-]*) N1_VERSION="" ;; esac
     return 0
 }
 
@@ -103,6 +137,7 @@ n1_read_lock() {
         [ -f "$candidate" ] || continue
         owner=$(n1_hook_field session_id < "$candidate")
         run=$(n1_hook_field run_id < "$candidate")
+        # In-snippet callers have the ambient id ticket-checked first (n1_bind_run_to_ticket).
         [ -z "${N1_RUN_ID:-}" ] || [ "$run" = "$N1_RUN_ID" ] || continue
         [ -z "$session" ] || [ "$owner" = "$session" ] || continue
         [ "$(n1_hook_field host < "$candidate")" = "$host" ] || continue
@@ -216,6 +251,7 @@ n1_record_decision() {
     local id="$1" result="$2" cond="${3:-}"
     shift 2; [ $# -gt 0 ] && shift
     [ -n "${N1_HOME:-}" ] && [ -n "${ID:-}" ] || return 0
+    n1_bind_run_to_ticket
     local tdir="${N1_HOME}/memory/${ID}/telemetry"
     n1_read_lock "${N1_HOME}/memory" || return 0
     [ "$N1_LOCK_TICKET_ID" = "$ID" ] || return 0
