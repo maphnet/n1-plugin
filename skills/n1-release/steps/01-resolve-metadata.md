@@ -11,7 +11,7 @@ CURRENT=$(git branch --show-current)
 DEFAULT=$(n1_config_val '.git.defaultBranch')
 ```
 
-- **`CURRENT == DEFAULT`** -- proceed silently.
+- **`CURRENT == DEFAULT`** -- run `git pull --ff-only` before any release step. If it fails (no upstream, diverged, network), STOP with: "Could not fast-forward the `<DEFAULT>` checkout, so the release is stopped to avoid releasing from a stale checkout. Resolve it and re-run."
 - **`CURRENT != DEFAULT`** -- ask:
   ```
   You're on branch `<CURRENT>`, not `<DEFAULT>`. Release from here?
