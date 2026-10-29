@@ -42,7 +42,7 @@ Anything other than `ticket` (brain dump, file, error-tracker URL): say "n1-refi
 
 Execute steps in order. Read each step file and follow its instructions before proceeding to the next.
 
-1. **Fetch** — tracker gate, author check, fetch, codebase analysis, optional investigation
+1. **Fetch** — tracker gate, fetch, codebase analysis, optional investigation
    Read `<N1_ROOT>/skills/n1-refine/steps/01-fetch.md`
 
 2. **Loop** — contradictions, tiering, question batches, scope widening, readiness verdict
