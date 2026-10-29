@@ -5,7 +5,7 @@
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
-OLD_PID=$(n1_read_frontmatter "$QUEUE_DIR/queue.md" pid 2>/dev/null); n1_queue_runner_alive "$OLD_PID" && echo "busy:$OLD_PID"
+OLD_PID=$(n1_read_frontmatter "$QUEUE_DIR/queue.md" pid 2>/dev/null); n1_queue_runner_alive "$OLD_PID" "$QUEUE_DIR/queue.md" && echo "busy:$OLD_PID"
 ```
 
 ## Saved plan (`--run <queue-id>` only)

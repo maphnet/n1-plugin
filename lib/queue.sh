@@ -754,12 +754,18 @@ n1_queue_relay_active() {
 }
 
 n1_queue_runner_alive() {
-    # Usage: n1_queue_runner_alive <pid> — N1-183: exit 0 when <pid> is a live queue runner. kill -0
-    # alone trusts a recycled pid; where /proc exists the cmdline must also name n1-queue-run.
+    # Usage: n1_queue_runner_alive <pid> [<queue.md>] — N1-183: exit 0 when <pid> is a live queue
+    # runner. kill -0 alone trusts a recycled pid; where /proc exists the NUL-split cmdline must carry
+    # an argument ending in scripts/n1-queue-run.sh and, when <queue.md> is given, that exact path as
+    # the next argument (a runner of another queue, or `less n1-queue-run.sh`, is not this runner).
     case "$1" in ''|*[!0-9]*) return 1 ;; esac
     kill -0 "$1" 2>/dev/null || return 1
     [ -r "/proc/$1/cmdline" ] || return 0
-    case "$(tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null)" in *n1-queue-run*) return 0 ;; esac
+    local arg hit=""
+    while IFS= read -r -d '' arg; do
+        if [ -n "$hit" ]; then { [ -z "${2:-}" ] || [ "$arg" = "$2" ]; } && return 0; return 1; fi
+        case "$arg" in */scripts/n1-queue-run.sh|scripts/n1-queue-run.sh) hit=1 ;; esac
+    done < "/proc/$1/cmdline" 2>/dev/null
     return 1
 }
 
@@ -767,7 +773,7 @@ n1_queue_interrupted() {
     # Usage: n1_queue_interrupted <queue.md> — N1-183: exit 0 when the run says step: run but its
     # runner is gone (killed with the launching session, crashed, or host restart).
     [ -f "$1" ] && [ "$(n1_read_frontmatter "$1" step)" = run ] || return 1
-    ! n1_queue_runner_alive "$(n1_read_frontmatter "$1" pid)"
+    ! n1_queue_runner_alive "$(n1_read_frontmatter "$1" pid)" "$1"
 }
 
 n1_queue_interrupted_note() {

@@ -27,14 +27,14 @@ fi
 # ponytail: stale-lock reclaim is rm + ln, not atomic; two runners reclaiming one crashed lock in the
 # same instant can both win. Switch to rename-based reclaim if that ever shows up.
 EXISTING_PID=$(n1_read_frontmatter "$QUEUE" pid)
-if n1_queue_runner_alive "$EXISTING_PID"; then
+if n1_queue_runner_alive "$EXISTING_PID" "$QUEUE"; then
     echo "queue already running (pid $EXISTING_PID)"
     exit 3
 fi
 LOCK="$QUEUE.lock"
 if ! ln -s "$$" "$LOCK" 2>/dev/null; then
     EXISTING_PID=$(readlink "$LOCK" 2>/dev/null)
-    if n1_queue_runner_alive "$EXISTING_PID"; then
+    if n1_queue_runner_alive "$EXISTING_PID" "$QUEUE"; then
         echo "queue already running (pid $EXISTING_PID)"
         exit 3
     fi
@@ -426,7 +426,7 @@ chain_merged() {
 # merges: n1-finish merges only at the reviewed pin, and the merge-deny hook still applies.
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
-    local marker csid fsid st agents out poll waited=0 fails=0 miss=0 asked="" why=finish-timeout
+    local marker csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 asked="" why=finish-timeout
     case "$TICKET" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
     chain_authorized "$N1H" || return 0
     marker="$N1_QUEUE_DIR/.chained-$TICKET"
@@ -436,7 +436,12 @@ chain_finish() {
     while true; do
         if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
             drain_stop "$agents"
-            case "$(n1_queue_bg_state "$agents" "$csid")" in working|blocked) ;; *) break ;; esac
+            [ -n "$csid" ] || break
+            case "$(n1_queue_bg_state "$agents" "$csid")" in
+                working|blocked) idle=0 ;;
+                missing) idle=$((idle + 1)); [ "$idle" -ge "$BG_POLL_GRACE" ] && break ;;
+                *) break ;;
+            esac
         fi
         [ "$waited" -ge "$TIMEOUT_SECS" ] && { chain_note "$NUM" "$TICKET" finish-child-busy; return 0; }
         sleep "$poll"; waited=$((waited + poll))

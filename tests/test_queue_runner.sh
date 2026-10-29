@@ -1245,7 +1245,8 @@ test_bg_disclaimer() {
 # start_fake_runner — sets FAKE_RUNNER_PID to a live process whose cmdline names n1-queue-run
 # (what n1_queue_runner_alive accepts as a runner). stop_fake_runner kills and reaps it.
 start_fake_runner() {
-    bash -c 'sleep 30; :' n1-queue-run >/dev/null 2>&1 &
+    # N1-185 SEC-2: argv is script + queue path, as the launcher starts the real runner.
+    bash -c 'sleep 30; :' "${1:-/x}/scripts/n1-queue-run.sh" "${2:-/x/queue.md}" >/dev/null 2>&1 &
     FAKE_RUNNER_PID=$!
     local i
     for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -1268,12 +1269,21 @@ test_queue_interrupted() {
     assert_eq "alive: dead pid" no "$(n1_queue_runner_alive "$dead" && echo yes || echo no)"
     assert_eq "alive: live pid that is not a runner (recycled)" no "$(n1_queue_runner_alive "$$" && echo yes || echo no)"
     assert_eq "alive: empty pid" no "$(n1_queue_runner_alive "" && echo yes || echo no)"
+    assert_eq "alive: runner of this queue" yes "$(n1_queue_runner_alive "$FAKE_RUNNER_PID" /x/queue.md && echo yes || echo no)"
+    assert_eq "alive: runner of another queue" no "$(n1_queue_runner_alive "$FAKE_RUNNER_PID" /y/queue.md && echo yes || echo no)"
+    # SEC-2: a process that merely mentions the script (pager, grep) is not a runner.
+    bash -c 'sleep 30; :' less /x/scripts/n1-queue-run.sh >/dev/null 2>&1 & local other=$!
+    assert_eq "alive: pager naming the script is not a runner" no "$(n1_queue_runner_alive "$other" /x/scripts/n1-queue-run.sh && echo yes || echo no)"
+    bash -c 'sleep 30; :' /x/n1-queue-run /x/queue.md >/dev/null 2>&1 & local other2=$!
+    assert_eq "alive: name without scripts/ suffix is not a runner" no "$(n1_queue_runner_alive "$other2" /x/queue.md && echo yes || echo no)"
+    kill "$other" "$other2" 2>/dev/null; wait "$other" "$other2" 2>/dev/null || true
     printf -- '---\nqueue_id: q1\nrun_id: R1\nstep: run\npid: %s\n---\n## Plan\n' "$dead" > "$tmp/queue.md"
     assert_eq "interrupted: step run + dead pid" yes "$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
     assert_eq "interrupted: note with one-command resume" \
         "interrupted: runner pid $dead is gone; resume: /n1:n1-queue --run q1" "$(n1_queue_interrupted_note "$tmp/queue.md")"
     n1_queue_interrupted_note "$tmp/queue.md" >/dev/null
     assert_eq "interrupted: event emitted once per run id" 1 "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl")"
+    stop_fake_runner; start_fake_runner "$REPO_ROOT" "$tmp/queue.md"
     n1_write_frontmatter "$tmp/queue.md" pid "$FAKE_RUNNER_PID"
     assert_eq "interrupted: live runner is not interrupted" no "$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
     n1_write_frontmatter "$tmp/queue.md" pid "$dead"
@@ -1348,7 +1358,7 @@ test_bg_launch_guard() {
 
 # N1-185 chain fixtures.
 chain_setup() { # <tmp> <fullAuto> <mergeOnFinish> — config with both flags; PR state OPEN
-    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"command","notifyCommand":"cat >> %s/notes"},"autonomy":{"fullAuto":%s},"finishWork":{"mergeOnFinish":%s}}\n' \
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":10,"notify":"command","notifyCommand":"cat >> %s/notes"},"autonomy":{"fullAuto":%s},"finishWork":{"mergeOnFinish":%s}}\n' \
         "$1" "$2" "$3" > "$1/n1home/config.json"
     echo OPEN > "$1/fake/gh-state"
 }
@@ -1415,6 +1425,21 @@ test_bg_chain_pr_closed() {
     assert_eq "chain-closed: exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "chain-closed: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
     assert_eq "chain-closed: reason recorded" "finish:pr-not-open" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# SEC-1: a child listed as missing (lagging agents list) is still busy for BG_POLL_GRACE polls; the
+# chained finish must start only once the child is really idle.
+test_bg_chain_missing_is_busy() {
+    local tmp last; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done missing missing missing working working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    assert_eq "chain-missing: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-missing: one finish launch" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    last=$(awk '/^launch n1-bgq-T-A-1-fin$/{exit} /^state n1-bgq-T-A-1 /{l=$0} END{print l}' "$tmp/fake/events")
+    assert_eq "chain-missing: finish waits until the child is idle" "state n1-bgq-T-A-1 done" "$last"
     rm -rf "$tmp"
 }
 
@@ -1525,7 +1550,7 @@ test_merge_wording() {
 
 test_busy_guard() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-    start_fake_runner
+    start_fake_runner "$REPO_ROOT" "$tmp/queue.md"
 
     cat > "$tmp/queue.md" <<EOF
 ---
@@ -1550,7 +1575,7 @@ EOF
 test_runner_lock() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgl "T-A:done"
-    start_fake_runner
+    start_fake_runner "$REPO_ROOT" "$tmp/queue.md"
     ln -s "$FAKE_RUNNER_PID" "$tmp/queue.md.lock"
     assert_eq "lock: live holder -> exit 3" 3 "$(run_bg_queue "$tmp")"
     assert_eq "lock: nothing launched while held" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgl-T-A-1')"
@@ -2700,6 +2725,7 @@ test_bg_chain_sync_ok
 test_bg_chain_pr_closed
 test_bg_chain_flags_off
 test_bg_chain_finish_stops
+test_bg_chain_missing_is_busy
 test_bg_chain_restart
 test_bg_chain_row_home
 test_lifecycle_wiring
