@@ -24,7 +24,7 @@ echo "$*" >> "$FAKE/calls"
 last="${@: -1}"
 case "$1" in
   ps) [ -n "${FAKE_PS_FAIL:-}" ] && exit 1; cat "$FAKE/containers" ;;
-  inspect) case "$3" in
+  inspect) [ -n "${FAKE_INSPECT_FAIL:-}" ] && exit 1; case "$3" in
              *Labels*) grep "^$last|" "$FAKE/labels" | cut -d'|' -f2- ;;
              *) echo "/name-$last" ;;
            esac ;;
@@ -43,8 +43,9 @@ source "$REPO_ROOT/lib/containers.sh"
 
 add() { printf '%s\n' "$@" >> "$FAKE/containers"; }
 own() { for c in "$@"; do add "$c"; echo "$c|${OWN_T:-T-1}|" >> "$FAKE/labels"; done; }   # container labeled n1.ticket
-mkdir -p "$T/wt/sub"; cd "$T/wt"                                                       # fake worktree root (not a git repo -> pwd -P)
-ROOT=$(pwd -P)
+mkdir -p "$T/wt/sub" "$T/wt/.claude/worktrees/OTHER/app" "$T/wt-2/app" "$T/wt0/x"; cd "$T/wt"
+git init -q "$T/wt"; git init -q "$T/wt/.claude/worktrees/OTHER"                       # this worktree + a nested other worktree
+ROOT=$(git rev-parse --show-toplevel)
 D="$N1_HOME/memory/T-1"
 lines() { paste -sd' ' "$1"; }
 
@@ -57,7 +58,10 @@ eq "S1: snapshot lists pre-existing containers" "aaa111 bbb222" "$(lines "$D/con
 own ccc333; add ggg777; echo "ggg777|T-9|" >> "$FAKE/labels"   # ggg777: another run's container, appears in the same window
 add hhh888; echo "hhh888||/elsewhere/stack" >> "$FAKE/labels"   # compose project outside the worktree
 add ddd444; echo "ddd444||$ROOT/sub" >> "$FAKE/labels"           # compose project inside the worktree
+add iii999; echo "iii999||$ROOT/.claude/worktrees/OTHER/app" >> "$FAKE/labels"   # SEC-3: another worktree nested under this root
+mkdir -p "${ROOT}0/x"; add mmm999; echo "mmm999||${ROOT}0/x" >> "$FAKE/labels"      # SEC-4: prefix boundary
 OUT=$(n1_containers_track T-1 local-testing)
+has "T15: unowned new containers are surfaced" "ignored 4 new" "$OUT"
 eq "T1: ledger has only the new containers" "ccc333 ddd444" "$(cut -f1 "$D/containers.tsv" | paste -sd' ')"
 eq "T2: ledger records names" "name-ccc333 name-ddd444" "$(cut -f2 "$D/containers.tsv" | paste -sd' ')"
 eq "T3: ledger records origin" "local-testing" "$(cut -f3 "$D/containers.tsv" | sort -u)"
@@ -65,8 +69,8 @@ eq "T4: restart policy set to no on new containers only (AC3)" "ccc333 ddd444" "
 has "T5: docker update uses --restart=no" "update --restart=no ccc333" "$(cat "$FAKE/calls")"
 has "T6: track prints a summary" "tracked 2" "$OUT"
 
-eq "T13: other run's / out-of-worktree containers not recorded (AC4)" "no" "$(grep -qE 'ggg777|hhh888' "$D/containers.tsv" && echo yes || echo no)"
-eq "T14: other run's / out-of-worktree containers not updated" "0" "$(grep -cE 'ggg777|hhh888' "$FAKE/updated" || true)"
+eq "T13: other run's / out-of-worktree containers not recorded (AC4)" "no" "$(grep -qE 'ggg777|hhh888|iii999|mmm999' "$D/containers.tsv" && echo yes || echo no)"
+eq "T14: other run's / out-of-worktree containers not updated" "0" "$(grep -cE 'ggg777|hhh888|iii999|mmm999' "$FAKE/updated" || true)"
 
 # ---- track is idempotent ----
 n1_containers_track T-1 >/dev/null
@@ -85,12 +89,12 @@ has "T11: update failure is surfaced" "could not set restart=no" "$OUT"
 eq "T12: update-failed container is still recorded" "3" "$(wc -l < "$D/containers.tsv" | tr -d ' ')"
 
 # ---- teardown: only tracked containers; unrelated survive (AC2, AC4) ----
-printf '%s\n' aaa111 bbb222 ccc333 eee555 ggg777 hhh888 > "$FAKE/containers"   # ddd444 vanished before teardown
+printf '%s\n' aaa111 bbb222 ccc333 eee555 ggg777 hhh888 iii999 mmm999 > "$FAKE/containers"   # ddd444 vanished before teardown
 OUT=$(n1_containers_teardown T-1); RC=$?
 eq "D1: teardown rc 0" "0" "$RC"
 eq "D2: stopped only live tracked containers" "ccc333 eee555" "$(lines "$FAKE/stopped")"
 eq "D3: removed only live tracked containers" "ccc333 eee555" "$(lines "$FAKE/removed")"
-eq "D4: unrelated containers untouched" "aaa111 bbb222 ggg777 hhh888" "$(lines "$FAKE/containers")"
+eq "D4: unrelated containers untouched" "aaa111 bbb222 ggg777 hhh888 iii999 mmm999" "$(lines "$FAKE/containers")"
 eq "D5: no prune / compose-down ever issued" "0" "$(grep -cE 'prune|^compose ' "$FAKE/calls" || true)"
 has "D6: rm uses -f -v" "rm -f -v ccc333" "$(cat "$FAKE/calls")"
 has "D7: teardown prints a summary" "removed 2" "$OUT"
@@ -115,14 +119,26 @@ OUT=$(FAKE_PS_FAIL=1 n1_containers_snapshot T-5)
 has "P1: failed snapshot says not tracking" "not tracking" "$OUT"
 eq "P2: failed snapshot leaves no baseline" "no" "$([ -e "$N1_HOME/memory/T-5/containers.before" ] && echo yes || echo no)"
 n1_containers_snapshot T-5 >/dev/null; own jjj000 >/dev/null; OWN_T=T-5 own kkk111
+SUM=$(cksum < "$N1_HOME/memory/T-5/containers.before")
 FAKE_PS_FAIL=1 n1_containers_track T-5 >/dev/null
 eq "P3: failed ps at track records nothing" "no" "$([ -s "$N1_HOME/memory/T-5/containers.tsv" ] && echo yes || echo no)"
-n1_containers_snapshot T-5 >/dev/null
-eq "P4: re-snapshot replaces the baseline" "1" "$(grep -c jjj000 "$N1_HOME/memory/T-5/containers.before")"
+eq "P4: failed ps at track leaves the baseline untouched" "$SUM" "$(cksum < "$N1_HOME/memory/T-5/containers.before")"
+n1_containers_track T-5 >/dev/null
+eq "P5: next track still records the owned container" "kkk111" "$(cut -f1 "$N1_HOME/memory/T-5/containers.tsv")"
+# ---- no git root: label only (SEC-3) ----
+n1_containers_snapshot T-6 >/dev/null; OWN_T=T-6 own nnn1; add ooo2; echo "ooo2||$ROOT/sub" >> "$FAKE/labels"
+(cd "$T/empty" && n1_containers_track T-6 >/dev/null)
+eq "G1: no git root records only labeled containers" "nnn1" "$(cut -f1 "$N1_HOME/memory/T-6/containers.tsv")"
+grep -vE 'nnn1|ooo2' "$FAKE/containers" > "$FAKE/c.tmp"; mv "$FAKE/c.tmp" "$FAKE/containers"   # drop G1 fixtures
+# ---- transient inspect failure is retried (CR-4) ----
+n1_containers_snapshot T-7 >/dev/null; OWN_T=T-7 own ppp3
+FAKE_INSPECT_FAIL=1 n1_containers_track T-7 >/dev/null
+n1_containers_track T-7 >/dev/null
+eq "R1: inspect failure retried on next track" "ppp3" "$(cut -f1 "$N1_HOME/memory/T-7/containers.tsv")"
 # ---- later starts: track again picks up only newer owned containers, no stale baseline (CR-2, SEC-2) ----
 OWN_T=T-5 own lll222
 n1_containers_track T-5 >/dev/null
-eq "L1: second track records the later-started container only" "lll222" "$(cut -f1 "$N1_HOME/memory/T-5/containers.tsv")"
+eq "L1: second track records the later-started container (after kkk111)" "kkk111 lll222" "$(cut -f1 "$N1_HOME/memory/T-5/containers.tsv" | paste -sd' ')"
 eq "L2: baseline advanced after track" "1" "$(grep -c lll222 "$N1_HOME/memory/T-5/containers.before")"
 
 # ---- docker missing: every helper is a no-op returning 0 ----

@@ -9,8 +9,8 @@
 #   n1_containers_teardown <ID>            stop + remove exactly the recorded containers (never prune, never project-wide down)
 #
 # Every function returns 0 when Docker is missing/unreachable (the feature must never fail a run that does not use Docker).
-# Ownership: track records only containers new since the snapshot AND owned by this run: label n1.ticket=<ID>, or compose working_dir inside the worktree
-# (git toplevel of the cwd). Containers of other sessions/stacks are never recorded, changed or removed. Plain `docker run` must pass --label n1.ticket=<ID>.
+# Ownership: track records only containers new since the snapshot AND owned by this run: label n1.ticket=<ID>, or compose working_dir whose git toplevel is this worktree
+# (no git root -> label only). Containers of other sessions/stacks are never recorded, changed or removed. Plain `docker run` must pass --label n1.ticket=<ID>.
 # track may be called again after later starts (idempotent); each call advances the baseline, so it never diffs against a stale snapshot.
 # Snapshot/track fail closed: if docker ps fails, no baseline is kept and nothing is tracked.
 
@@ -26,10 +26,11 @@ _n1_ct_list() { # sorted full ids; non-zero when docker ps fails
 }
 _n1_ct_owned() { # <cid> <ticket> <root>
     local l wd
-    l=$(docker inspect -f '{{index .Config.Labels "n1.ticket"}}|{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$1" 2>/dev/null) || return 1
+    l=$(docker inspect -f '{{index .Config.Labels "n1.ticket"}}|{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$1" 2>/dev/null) || return 2   # 2 = inspect failed, retry later
     wd="${l#*|}"
     [ "${l%%|*}" = "$2" ] && return 0
-    [ -n "$wd" ] && case "$wd" in "$3"|"$3"/*) return 0;; esac
+    # compose working_dir must belong to THIS worktree (its own git toplevel), not merely sit under it (other worktrees nest in the main checkout)
+    [ -n "$3" ] && [ -n "$wd" ] && [ "$(git -C "$wd" rev-parse --show-toplevel 2>/dev/null)" = "$3" ] && return 0
     return 1
 }
 
@@ -45,22 +46,28 @@ n1_containers_snapshot() {
 }
 
 n1_containers_track() {
-    local id="${1:-}" origin="${2:-local-testing}" d f cid name root now n=0
+    local id="${1:-}" origin="${2:-local-testing}" d f cid name root now keep n=0 skipped=0 rc
     d=$(_n1_ct_dir "$id") || { echo "containers: invalid id, not tracking"; return 0; }
     [ -f "$d/containers.before" ] || { echo "containers: no snapshot, nothing tracked"; return 0; }
     now=$(_n1_ct_list) || { echo "containers: docker unavailable, not tracking"; return 0; }
-    root=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+    root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""
+    keep="$now"
     f="$d/containers.tsv"; touch "$f"
     while IFS= read -r cid; do
         [ -n "$cid" ] || continue
         awk -F'\t' -v c="$cid" '$1==c{hit=1} END{exit !hit}' "$f" && continue
-        _n1_ct_owned "$cid" "$id" "$root" || continue
+        _n1_ct_owned "$cid" "$id" "$root"; rc=$?
+        if [ "$rc" -ne 0 ]; then
+            if [ "$rc" -eq 2 ]; then keep=$(grep -vxF -- "$cid" <<<"$keep"); else skipped=$((skipped + 1)); fi
+            continue
+        fi
         name=$(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null); name="${name#/}"
         docker update --restart=no "$cid" >/dev/null 2>&1 || echo "containers: could not set restart=no on ${name:-$cid}"
         printf '%s\t%s\t%s\n' "$cid" "${name:-?}" "$origin" >> "$f"
         n=$((n + 1))
     done < <(LC_ALL=C comm -13 "$d/containers.before" <(printf '%s\n' "$now"))
-    printf '%s\n' "$now" > "$d/containers.before"
+    printf '%s\n' "$keep" > "$d/containers.before"
+    [ "$skipped" -eq 0 ] || echo "containers: ignored $skipped new container(s) not owned by this run (missing --label n1.ticket=$id?)"
     echo "containers: tracked $n new"
     return 0
 }
