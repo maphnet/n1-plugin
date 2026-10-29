@@ -160,12 +160,12 @@ assert_eq "py: non-object JSON exits 3" 3 "$(pyraw_rc '[]')"
 # N1-174 SEC-1: stdin is parsed as bytes, so a non-ASCII payload under a C locale is not mistaken for malformed JSON
 NA=$(jq -c --arg f "$N1_HOME/memory/T-8/review-cr.md" '.tool_input.file_path=$f | .tool_input.content="caf\u00e9 \u2713"' "$RW")
 assert_eq "C locale: non-ASCII reviewer Write to its findings path allowed" 0 "$(raw_rc "$NA" LC_ALL=C LANG=C PYTHONUTF8=0 PYTHONCOERCECLOCALE=0 PYTHONIOENCODING=ascii)"
-# N1-174 SEC-2: the findings-path scope applies even when the persona file yields no tool list (empty plugin root)
-pyroot_rc() {  # pyroot_rc <file_path>: reviewer Write straight into the hook with an empty plugin root
-    local rc=0; jq -cn --arg c "$T" --arg f "$1" '{agent_type:"n1:code-reviewer",tool_name:"Write",session_id:"s-rev",cwd:$c,tool_input:{file_path:$f}}' | env -u N1_HOME HOME="$T/h" python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "$T/alt/config.json" "" >/dev/null 2>"$T/root-err" || rc=$?; echo "$rc"
+# N1-174 SEC-2: the findings-path scope applies even when the persona file yields no tool list (missing persona file)
+pyroot_rc() {  # pyroot_rc <file_path>: reviewer Write straight into the hook with a plugin root that has no agents dir
+    local rc=0; jq -cn --arg c "$T" --arg f "$1" '{agent_type:"n1:code-reviewer",tool_name:"Write",session_id:"s-rev",cwd:$c,tool_input:{file_path:$f}}' | env -u N1_HOME HOME="$T/h" python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "$T/alt/config.json" "$T/noroot" >/dev/null 2>"$T/root-err" || rc=$?; echo "$rc"
 }
-assert_eq "empty plugin root: reviewer Write outside findings path denied" 2 "$(pyroot_rc "$T/alt/config.json")"
-assert_eq "empty plugin root: reviewer Write to findings path allowed" 0 "$(pyroot_rc "$T/alt/memory/T-9/review-cr.md")"
+assert_eq "missing persona file: reviewer Write outside findings path denied" 2 "$(pyroot_rc "$T/alt/config.json")"
+assert_eq "missing persona file: reviewer Write to findings path allowed" 0 "$(pyroot_rc "$T/alt/memory/T-9/review-cr.md")"
 
 # --- enforce-agent-policy: merge deny (N1-146; N1-167: only unattended sessions and active N1 runs, unless n1_merge_authorized) ---
 policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
