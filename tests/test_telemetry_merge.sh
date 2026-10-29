@@ -284,6 +284,49 @@ OUT10="$TELEM_DIR10/runs/$RUN_ID10.jsonl"
 assert_eq "N1-106: malformed boundaries do not crash merge; timestamp-123 skipped (count|manual|unknown-trigger)" "2|1|unknown" \
   "$(jq -r '[.summary.compaction_count, .summary.compaction_manual_count, .orchestrator.compactions[0].trigger] | map(tostring) | join("|")' "$OUT10")"
 
+# ==== Test N1-198: fix cycles from outcome events (string values); project from TELEM_DIR ====
+mk_fc() { # id outcome-json-or-empty
+    local d="$T/fchome/memory/$1/telemetry"
+    mkdir -p "$d/raw/steps" "$d/raw/agents"
+    echo "{\"run_id\":\"r-$1\",\"n1_version\":\"5.0.0\"}" > "$d/telemetry.lock"
+    { echo '{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"'"$1"'","session_id":"s","host":"claude-code"}'
+      [ -z "$2" ] || echo "{\"event\":\"outcome\",\"run_id\":\"r-$1\",\"outcomes\":$2}"
+      echo '{"layer":"envelope_close","completed_at":"2026-09-01T10:10:00Z","final_outcome":"pr_created"}'
+    } > "$d/raw/steps/r-$1.jsonl"
+    : > "$d/raw/agents/r-$1.jsonl"
+    env -u N1_HOME bash "$REPO_ROOT/hooks/telemetry-merge.sh" "r-$1" "$d"
+    FC_OUT="$d/runs/r-$1.jsonl"
+}
+fc_pair() { jq -r '"\(.summary.review_fix_cycles)|\(.summary.qa_fix_cycles)"' "$FC_OUT"; }
+for pair in "0 0" "1 0" "0 3" "3 1"; do
+    set -- $pair; r=$1; q=$2
+    mk_fc "FC-$r-$q" "{\"review_fix_cycles\":\"$r\",\"qa_fix_cycles\":\"$q\"}"
+    assert_eq "N1-198: fix cycles from string outcome values ($r|$q)" "$r|$q" "$(fc_pair)"
+done
+assert_eq "N1-198: project derived from TELEM_DIR without N1_HOME" "fchome" "$(jq -r '.project' "$FC_OUT")"
+# N1_HOME pointing elsewhere must not override the path-derived project
+FCD="$T/fchome/memory/FC-HOME/telemetry"
+mkdir -p "$FCD/raw/steps" "$FCD/raw/agents"
+echo '{"run_id":"r-FC-HOME","n1_version":"5.0.0"}' > "$FCD/telemetry.lock"
+echo '{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"FC-HOME","session_id":"s","host":"claude-code"}' > "$FCD/raw/steps/r-FC-HOME.jsonl"
+: > "$FCD/raw/agents/r-FC-HOME.jsonl"
+N1_HOME="$T/otherproj" bash "$REPO_ROOT/hooks/telemetry-merge.sh" "r-FC-HOME" "$FCD"
+assert_eq "N1-198: TELEM_DIR path wins over N1_HOME for project" "fchome" "$(jq -r '.project' "$FCD/runs/r-FC-HOME.jsonl")"
+# max across multiple outcome events
+mk_fc "FC-MAX" '{"review_fix_cycles":"1","qa_fix_cycles":"1"}}
+{"event":"outcome","run_id":"r-FC-MAX","outcomes":{"review_fix_cycles":"3","qa_fix_cycles":"0"}'
+assert_eq "N1-198: fix cycles use max across outcome events" "3|1" "$(fc_pair)"
+# non-numeric values degrade to null without crashing the merge
+for bad in '"abc"' '""' '"1.5"' '"²"' '"-1"'; do
+    mk_fc "FC-BAD" "{\"review_fix_cycles\":$bad,\"qa_fix_cycles\":$bad}"
+    assert_eq "N1-198: non-numeric outcome value $bad -> null" "null|null" "$(fc_pair)"
+done
+mk_fc "FC-LIST" '["x"]'
+assert_eq "N1-198: non-dict outcomes -> null" "null|null" "$(fc_pair)"
+mk_fc "FC-NONE" ""
+assert_eq "N1-198: no outcome event -> fix cycles null" "null|null" \
+    "$(jq -r '"\(.summary.review_fix_cycles)|\(.summary.qa_fix_cycles)"' "$FC_OUT")"
+
 echo "---"
 echo "$((PASS+FAIL)) tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
