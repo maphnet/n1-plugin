@@ -58,14 +58,14 @@ MEM="$N1_HOME/memory/$ID"; SEC=<true if security-reviewer was spawned, else fals
 FILES=(review-hdr.md review-cr.md); [ "$SEC" = true ] && FILES+=(review-sec.md)
 for f in "${FILES[@]}"; do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
 ( cd "$MEM" && cat "${FILES[@]}" ) > "$MEM/review.md"
-FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-1}
+FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}
 if [ -r "$MEM/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE" \
     || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
-[ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || true; }
+[ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || echo "NON_CONVERGING: cycle $CYCLE"; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
 n1_step_end "review" 9 "success"
 ```
-Non-convergence or FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+NON_CONVERGING or FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ### 7b. TQ FIX LOOP
 

@@ -135,13 +135,14 @@ Pass to developer:
 
 After developer fixes are applied, increment the internal cycle counter and go back to **Phase 2**.
 
-Also record each confirmed Critical/High finding's fingerprint after every review pass (BEFORE the convergence check). First write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding (id bare, e.g. `CR-1`): `<finding_id><TAB><severity><TAB><file><TAB><title>`. Never put a title or path in a shell command, variable or double-quoted string. Then run:
+Also record each confirmed Critical/High finding's fingerprint after every review pass (BEFORE the convergence check). First write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding (id bare, e.g. `CR-1`): `<finding_id><TAB><severity><TAB><file><TAB><title>`. Never put a title or path in a shell command, variable or double-quoted string. `CYCLE` is 0 on the first review pass and increments by 1 after each developer fix. Then run:
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
-if [ -r "$N1_HOME/memory/$ID/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$N1_HOME/memory/$ID/fp-new.tsv" "<cycle>" \
+CYCLE=<0 on first pass, +1 per developer fix>
+if [ -r "$N1_HOME/memory/$ID/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$N1_HOME/memory/$ID/fp-new.tsv" "$CYCLE" \
     || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
 ```
 
@@ -153,15 +154,13 @@ FP_RECORD_FAILED counts as non-convergence: escalate.
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/fingerprints.sh"
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
-CYCLE=<current review_fix_cycle value>
+CYCLE=<same value as recorded above>
 if [ "$CYCLE" -gt 0 ]; then
-    if ! n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE"; then
-        # Non-convergence detected — escalate to user immediately
-    fi
+    n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || echo "NON_CONVERGING: cycle $CYCLE"
 fi
 ```
 
-On non-convergence (blocking count for cycle N is not less than cycle N-1), escalate to the user rather than burning remaining cycles. Context: "Review findings are not converging."
+On `NON_CONVERGING` (blocking count for cycle N is not less than cycle N-1), escalate to the user rather than burning remaining cycles. Context: "Review findings are not converging."
 
 Maximum 2 review-fix cycles before escalating to user.
 

@@ -226,12 +226,8 @@ Optional feature for exploring related projects' code during analysis and invest
 | Analysis | `cross_repo_projects` | string | Comma-separated slugs of explored projects |
 | Analysis | `cross_repo_maps_generated` | integer | On-demand cold-start maps generated |
 | Analysis | `cross_repo_discovery_new` | integer | Newly discovered relationships |
-| Implementation | `cross_repo_runtime_detected` | string | Slugs detected in diff but not in relatedProjects |
-| Implementation | `cross_repo_runtime_added` | string | Slugs auto-added (hands-off) or confirmed (interactive) |
-| Review | `cross_repo_xrepo_findings` | integer | Count of `[XREPO-N]` advisory findings |
 
-Note: when `relatedProjects.enabled` is `true`, the analysis step self-emits its completed step event carrying the four analysis fields (and the orchestrator does not emit a second one); when the feature is off, the orchestrator emits the standard analysis end event. Implementation and review fields are merged into their respective step-end events (not self-emitted by the agent).
-
+Note: when `relatedProjects.enabled` is `true`, the analysis step self-emits its completed step event carrying the four analysis fields (and the orchestrator does not emit a second one); when the feature is off, the orchestrator emits the standard analysis end event.
 ## Rules Layer
 
 Authored, checkable project conventions stored as `.rule.md` files with YAML frontmatter (`description`, `topic`, `applies_to`, `enforcement`, `paths`). Two enforcement rungs:
