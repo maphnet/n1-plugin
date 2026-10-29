@@ -1282,11 +1282,12 @@ test_queue_digest_chain_states() {
 
 test_busy_guard() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    start_fake_runner
 
     cat > "$tmp/queue.md" <<EOF
 ---
 step: run
-pid: $$
+pid: $FAKE_RUNNER_PID
 queue_id: test-q3
 ---
 ## Plan
@@ -1299,6 +1300,22 @@ EOF
     assert_eq "busy: exit 3" "3" "$exit_code"
     grep -q "already running" "$tmp/output.txt"
     assert_eq "busy: message" "0" "$?"
+    stop_fake_runner
+}
+
+# N1-82 (a): an atomic lock, so two runners started together cannot both pass the busy guard.
+test_runner_lock() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgl "T-A:done"
+    start_fake_runner
+    ln -s "$FAKE_RUNNER_PID" "$tmp/queue.md.lock"
+    assert_eq "lock: live holder -> exit 3" 3 "$(run_bg_queue "$tmp")"
+    assert_eq "lock: nothing launched while held" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgl-T-A-1')"
+    stop_fake_runner
+    assert_eq "lock: dead holder reclaimed -> exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "lock: launched after reclaim" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgl-T-A-1')"
+    assert_eq "lock: released at exit" no "$([ -L "$tmp/queue.md.lock" ] && echo yes || echo no)"
+    rm -rf "$tmp"
 }
 
 # --- n1_queue_decision_counts ------------------------------------------------
@@ -2432,6 +2449,7 @@ test_bg_disclaimer
 test_busy_guard
 test_queue_interrupted
 test_queue_digest_chain_states
+test_runner_lock
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {

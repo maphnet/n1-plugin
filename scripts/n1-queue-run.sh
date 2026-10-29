@@ -21,11 +21,27 @@ if [ -z "$RUN_ID" ]; then
 fi
 
 # --- Busy guard --------------------------------------------------------------
+# Frontmatter pid (older runners, and what --status reads) plus an atomic lock (N1-82): ln -s fails
+# when the link exists, so two runners started together cannot both pass (the old check-then-write
+# could). The link target is the holder's pid; a dead holder's lock is reclaimed.
+# ponytail: stale-lock reclaim is rm + ln, not atomic; two runners reclaiming one crashed lock in the
+# same instant can both win. Switch to rename-based reclaim if that ever shows up.
 EXISTING_PID=$(n1_read_frontmatter "$QUEUE" pid)
-if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+if n1_queue_runner_alive "$EXISTING_PID"; then
     echo "queue already running (pid $EXISTING_PID)"
     exit 3
 fi
+LOCK="$QUEUE.lock"
+if ! ln -s "$$" "$LOCK" 2>/dev/null; then
+    EXISTING_PID=$(readlink "$LOCK" 2>/dev/null)
+    if n1_queue_runner_alive "$EXISTING_PID"; then
+        echo "queue already running (pid $EXISTING_PID)"
+        exit 3
+    fi
+    rm -f "$LOCK"
+    ln -s "$$" "$LOCK" 2>/dev/null || { echo "queue already running (lock taken)"; exit 3; }
+fi
+trap '[ "$(readlink "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"' EXIT
 n1_write_frontmatter "$QUEUE" pid "$$"
 n1_write_frontmatter "$QUEUE" step run
 
