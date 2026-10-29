@@ -9,7 +9,7 @@ PASS=0; FAIL=0
 chk() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 -- expected '$2', got '$3'"; FAIL=$((FAIL+1)); fi; }
 git init -q "$T/r"; git -C "$T/r" config user.email t@t; git -C "$T/r" config user.name t
 # N1-169: ugrep (Claude Code's grep function) unreliably matches a pattern with `(^|[^` (input-dependent); model it, exported into the snippet shell.
-grep() { case "$*" in *'(^|[^'*) return 1 ;; *) command grep "$@" ;; esac; }
+grep() { case "$*" in *'(^|[^'*|*'(?:^|[^'*|*'([^'*']|^)'*) return 1 ;; *) command grep "$@" ;; esac; }
 export -f grep
 pcl() { # <workflowName> [sha] -> full precheck line, run in $T/r; sha defaults to HEAD
     local sha="${2:-$(git -C "$T/r" rev-parse HEAD 2>/dev/null)}" s="${SNIP//<workflowName>/$1}"
@@ -54,8 +54,9 @@ chk "checkout has no workflows, merge SHA has push -> watch" "precheck:watch" "$
 chk "SHA missing -> watch" "precheck:watch" "$(pc '' 0123456789abcdef0123456789abcdef01234567)"
 chk "no workflows at SHA -> none" "precheck:none" "$(pc '')"
 # N1-169: ban the ugrep-unsafe `(^|[^` construct in shipped text. SKILL.md look() keeps the literal for bash `=~` and jq (not grep), so it is excluded here and checked below.
-command grep -rnF '(^|[^' "$REPO/skills" "$REPO/lib" --exclude=SKILL.md >/dev/null 2>&1; chk "no (^|[^ in skills/ lib/ (grep exit 1 = no match)" "1" "$?"
-chk "SKILL.md: no grep line carries (^|[^" "" "$(command grep -rF '(^|[^' "$REPO/skills" --include=SKILL.md | command grep -w grep)"
+R='\((\?:)?\^\|\[\^|\(\[\^[^]]*\]\|\^\)'   # (^|[^  (?:^|[^  ([^x]|^)
+command grep -rnE -e "$R" "$REPO/skills" "$REPO/lib" --exclude=SKILL.md >/dev/null 2>&1; chk "no ugrep-unsafe alternation in skills/ lib/ (grep exit 1 = no match)" "1" "$?"
+chk "SKILL.md: no grep line carries it" "" "$(command grep -rE -e "$R" "$REPO/skills" --include=SKILL.md | command grep -w grep)"
 chk "n1-finish look() uses =~, not grep -qiE" "0" "$(command grep -c 'grep -qiE "\$X"' "$REPO/skills/n1-finish/SKILL.md")"
 printf '\nResults: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
