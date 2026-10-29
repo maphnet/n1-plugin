@@ -118,7 +118,7 @@ CFGEOF
     local result
     result=$(n1_related_projects "$cfg")
     local count
-    count=$(echo "$result" | grep -c '.' 2>/dev/null || echo 0)
+    count=$(echo "$result" | grep -c '.' 2>/dev/null || true)
     assert_eq "related: 2 projects with repoPath" "2" "$count"
     echo "$result" | grep -q "assistant" && assert_eq "related: has assistant" "1" "1" || assert_eq "related: has assistant" "1" "0"
     echo "$result" | grep -q "ingestion" && assert_eq "related: has ingestion" "1" "1" || assert_eq "related: has ingestion" "1" "0"
