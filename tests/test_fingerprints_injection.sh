@@ -105,5 +105,6 @@ eq "review.md no longer discards the verdict" "0" "$(grep -c 'check_convergence.
 eq "01-analyze.md emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' skills/n1-review/steps/01-analyze.md)"
 eq "pr.md reads first-pass bucket 0" "1" "$(grep -c 'blocking_count_for_cycle "$FP_FILE" 0' skills/n1-start/steps/pr.md)"
 eq "telemetry.md lists only emitted fields" "0" "$(grep -cE 'findings_total|execution_path|cross_repo_xrepo|cross_repo_runtime' skills/n1-start/procedures/telemetry.md)"
+eq "01-analyze.md states cycle starts at 0" "1" "$(grep -c 'CYCLE. is 0 on the first review pass' skills/n1-review/steps/01-analyze.md)"
 
 exit $FAIL
