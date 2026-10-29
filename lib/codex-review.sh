@@ -11,6 +11,7 @@ n1_review_receipt() {
 }
 
 n1_review_record() {
+    n1_bind_run_to_ticket   # caller's ID, before the local ID below shadows it (N1-193)
     local url="$1" outcome="$2" reason="${3:-}" processed="${4:-true}" comment="${5:-none}"
     local file tmp ID=""
     file=$(n1_review_receipt "$url") || return 1

@@ -69,15 +69,11 @@ Validation confidence: <high|medium|low> (<N>/<M> recommendations corroborated)
 
 > **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the solution-architect agent has written its output.
 
-After agent returns: write output to `$N1_HOME/memory/<ID>/investigation.md`. Then (skip in n1-refine caller mode):
+After agent returns: write output to `$N1_HOME/memory/<ID>/investigation.md`. Then verify it before closing the step (in n1-refine caller mode, drop both `n1_step_end` calls and keep only the verify):
 ```bash
 source ~/.n1/preamble.sh
+n1_verify_dependencies "$N1_HOME/memory/$ID" investigation.md || { n1_step_end "investigation-deliverable" 16 failed; echo "ERROR: investigation.md missing or empty — aborting" >&2; exit 1; }
 n1_step_end "investigation-deliverable" 16 success
-```
-
-```bash
-source ~/.n1/preamble.sh
-n1_verify_dependencies "$N1_HOME/memory/$ID" investigation.md
 ```
 
 **Extract and persist signals:**

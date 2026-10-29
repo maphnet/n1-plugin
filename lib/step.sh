@@ -2,7 +2,7 @@
 # N1 per-step choreography helpers
 #
 # n1_step_begin <step_name> <step_number>
-#   Emits telemetry started_at. No-op when N1_RUN_ID is absent.
+#   Emits telemetry started_at. No-op when N1_RUN_ID is absent after n1_bind_run_to_ticket.
 #
 # n1_step_end <step_name> <step_number> <outcome> [metadata_json]
 #   1. Writes step: <step_name> to overview.md frontmatter
@@ -49,6 +49,7 @@ _n1_step_display_name() {
 # n1_step_begin <step_name> <step_number>
 n1_step_begin() {
     local step_name="$1" step_number="$2"
+    n1_bind_run_to_ticket                 # restored run must belong to $ID (N1-193)
     [ -n "${N1_RUN_ID:-}" ] || return 0   # no-op if run context absent
     n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID:-}" \
         "$step_name" "$step_number" "${N1_HOME}/memory/${ID}/telemetry" \
@@ -91,6 +92,7 @@ n1_step_end() {
     fi
 
     # 3. Emit telemetry completed_at
+    n1_bind_run_to_ticket
     [ -n "${N1_RUN_ID:-}" ] || return 0
     local telem_args=(completed_at=now "outcome=$outcome")
     [ -n "$metadata_json" ] && telem_args+=("metadata=$metadata_json")
