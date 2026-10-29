@@ -16,5 +16,6 @@
 source "$N1_ROOT/lib/config.sh"
 source "$N1_ROOT/lib/step.sh"       # also loads telemetry.sh, frontmatter.sh, signals.sh
 source "$N1_ROOT/lib/validation.sh"
+source "$N1_ROOT/lib/containers.sh"
 
 N1_HOME=$(n1_home)

@@ -100,12 +100,12 @@ Spawn the developer agent with:
 - The value of `n1_config_val '.localTesting.teardownCommand'` as `<TEARDOWN>` (may be empty).
 - Directive: "Execute the local test plan. Follow this sequence strictly:"
   - "0. Environment check: before anything else, verify the interpreter and test runner work in the worktree (e.g. `python -m pytest --version`, `npm test -- --help`, or the project's equivalent). If dependencies are missing and the project defines a setup command (`worktree.setup` in `$N1_HOME/config.json`, passed to you as `<SETUP>`), run it ONCE. If the environment still does not work, write a report with `Result: ENV_FAILURE` and the exact stderr, run cleanup, and STOP — do not attempt scenarios and do not try to repair the environment further."
-  - "1. Infrastructure setup: run the start command from the plan. Poll readiness check with a 60s timeout. If infrastructure fails to start, report immediately with the error output, run cleanup (step 6), and STOP — do not attempt scenarios."
+  - "1. Infrastructure setup: first run `source ~/.n1/preamble.sh && n1_containers_snapshot <ID>`, then run the start command from the plan (`<ID>` is the ticket ID, expanded by the orchestrator like the other paths in this directive), then immediately run `source ~/.n1/preamble.sh && n1_containers_track <ID>` (also after a failed start, so partial starts are recorded; it records new containers owned by this run, i.e. compose projects in the worktree or containers started with `--label n1.ticket=<ID>` (add that label to every plain `docker run`), and sets `--restart=no`; others are ignored). Run the track call again after any later start (app, e2e tests), and once more before teardown. Never start containers with `--restart always` or `unless-stopped`; if `docker compose config` shows `restart: always`, note it in the report (the track call neutralizes it). Poll readiness check with a 60s timeout. If infrastructure fails to start, report immediately with the error output, run cleanup (step 6), and STOP — do not attempt scenarios."
   - "2. App startup: start the app in background. Poll the readiness signal with a 30s timeout. If app fails to start, capture stderr/stdout, report FAIL, run cleanup, and STOP."
   - "3. Existing e2e tests: if the plan has an 'Existing E2E Tests' section with a run command (not 'N/A' or 'None'), run that command. Record the full output. If no existing e2e suite, skip this step."
   - "4. Ad-hoc scenario execution: execute each scenario from 'Automated Test Scenarios' SEQUENTIALLY (not parallel — some may depend on prior state). Record PASS/FAIL per scenario with actual output. Continue through ALL scenarios even if some fail. If the plan says 'no ad-hoc scenarios needed', skip this step."
   - "5. Evidence capture: for each test/scenario, record HTTP response bodies and status codes, command stdout/stderr, relevant app log output, full error context for failures."
-  - "6. Cleanup: ALWAYS runs, on every attempt, even on failure (ENV_FAILURE, infrastructure or app startup failure, failing scenarios). Kill app process, tear down infrastructure, verify no orphan containers/processes. If `<TEARDOWN>` is non-empty, run it from the worktree root as part of cleanup; a failing teardown is recorded in the report's cleanup status, not treated as a test failure."
+  - "6. Cleanup: ALWAYS runs, on every attempt, even on failure (ENV_FAILURE, infrastructure or app startup failure, failing scenarios). Kill app process, tear down infrastructure, verify no orphan containers/processes. If `<TEARDOWN>` is non-empty, run it from the worktree root as part of cleanup; a failing teardown is recorded in the report's cleanup status, not treated as a test failure. Last, run `source ~/.n1/preamble.sh && n1_containers_teardown <ID>`: it stops and removes exactly the containers recorded in step 1 and nothing else; never run any `docker ... prune` command. A non-zero result is recorded in the report, not treated as a test failure."
 - Directive: "CONSTRAINTS — you MUST follow these:"
   - "Do NOT modify production code — only execute and observe"
   - "Do NOT write or modify tests"
@@ -118,6 +118,7 @@ Spawn the developer agent with:
 
 ### Infrastructure
 - **Status:** UP/DOWN (<details>)
+- **Containers:** <tracked container names and the teardown result printed by the helpers, or "none tracked">
 
 ### Application
 - **Status:** Running/Failed (<details>)
@@ -281,4 +282,4 @@ Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core
   - "3 — Provide guidance for another fix attempt"
 - If 3: reset the counter ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci) and continue with user's guidance.
 
-**Cleanup guarantee:** cleanup runs after EVERY execution attempt, including failed ones, and includes `localTesting.teardownCommand` when set. No orphan containers or processes between fix cycles.
+**Cleanup guarantee:** cleanup runs after EVERY execution attempt, including failed ones, and includes `localTesting.teardownCommand` when set. No orphan containers or processes between fix cycles. Started containers are recorded in `$N1_HOME/memory/<ID>/containers.tsv` and removed by `n1_containers_teardown`; `n1-finish` repeats it as a backstop.

@@ -22,7 +22,7 @@ When you need the Telemetry Analyzer CLI → `references/developer-guide.md § T
 ## Stack
 
 - **Runtime:** Bash (hooks), Markdown (skills, agents) — no npm, no Node.js
-- **Shared shell helpers:** `lib/host.sh` (plugin root, session id, headless/background commands), `lib/config.sh`, `lib/signals.sh`, `lib/step.sh` (per-step begin/end helpers), `lib/context.sh` (context-persistence: write/read TIER/TYPE/DESC_QUALITY/LITE_MODE/SIMPLE_PATH across bash snippets), `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`, `lib/queue.sh`, `lib/related.sh`, `lib/ticket-watch.sh` (ticket-watch gate/comparator/delta)
+- **Shared shell helpers:** `lib/host.sh` (plugin root, session id, headless/background commands), `lib/config.sh`, `lib/signals.sh`, `lib/step.sh` (per-step begin/end helpers), `lib/context.sh` (context-persistence: write/read TIER/TYPE/DESC_QUALITY/LITE_MODE/SIMPLE_PATH across bash snippets), `lib/memory.sh`, `lib/cache.sh`, `lib/rules.sh`, `lib/fingerprints.sh`, `lib/queue.sh`, `lib/related.sh`, `lib/containers.sh` (run-owned Docker container tracking/teardown), `lib/ticket-watch.sh` (ticket-watch gate/comparator/delta)
 - **Host layer:** skill text uses host-neutral verbs; the Claude Code mapping is the fixed HOST ROUTING block injected by hooks/session-start.sh. tests/test_host_neutral_skills.sh rejects hard-coded plugin/worktree roots and headless transports in skills/ and agents/.
 
 ## Plugin Development

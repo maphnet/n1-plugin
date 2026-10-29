@@ -90,6 +90,8 @@ You will receive:
 - <cleanup commands>
 ```
 
+Cleanup rules: N1 records and force-stops only containers carrying `--label n1.ticket=<ID>` or belonging to a compose project whose directory is in the worktree, so every `docker run` in the plan must include `--label n1.ticket=<ID>` and compose files must live in the worktree; the plan's cleanup may otherwise stay simple. Never emit prune commands (`docker system|container|volume|image|network prune`), and never set or recommend `restart: always` (or `unless-stopped`) in any compose override or `docker run` flag the plan provides.
+
 ## Tool Budget
 
 - Total tool calls: ≤ 15
