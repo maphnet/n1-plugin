@@ -204,12 +204,13 @@ def restriction(payload: dict, plugin_root: str, config_file: str = "") -> int:
     if not persona or not tool:
         return 0
     allowed = persona_tools(plugin_root, persona)
-    if allowed is None or tool.startswith("mcp__"):
+    if tool.startswith("mcp__"):
         return 0
-    if tool in allowed:
-        if tool == "Write" and persona in REVIEWERS and not _findings_path_ok(payload, persona, config_file):
-            sys.stderr.write(f"N1: persona {persona} may Write only its own review-(cr|sec).md for the active ticket under the N1 home\n")
-            return 2
+    if tool == "Write" and persona in REVIEWERS and (allowed is None or tool in allowed) \
+            and not _findings_path_ok(payload, persona, config_file):
+        sys.stderr.write(f"N1: persona {persona} may Write only its own review-(cr|sec).md for the active ticket under the N1 home\n")
+        return 2
+    if allowed is None or tool in allowed:
         return 0
     sys.stderr.write(f"N1: persona {persona} may not use tool {tool} (allowed: {', '.join(sorted(allowed))})\n")
     return 2
@@ -518,7 +519,7 @@ def pipe_deny(payload: dict) -> int:
 
 def main() -> int:
     try:
-        payload = json.loads(sys.stdin.read())
+        payload = json.loads(sys.stdin.buffer.read())
     except ValueError:  # includes UnicodeDecodeError
         return 3  # unparseable: the wrapper denies a reviewer Write and allows the rest (N1-174)
     if not isinstance(payload, dict):
