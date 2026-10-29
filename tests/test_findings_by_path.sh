@@ -41,4 +41,26 @@ check "qa-engineer TQ Fix Mode reads review.md" 'TQ Fix Mode only: the path to `
 
 refute "n1-review does not pass reviewer output paths" 'review-cr\.md|review-sec\.md' skills/n1-review
 
+# N1-158: run the combine lines of review.md against fake reviewer files.
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+COMBINE=$(sed -n '/^FILES=(review-hdr\.md/,/> "\$MEM\/review\.md"$/p' "$R")
+if [ "$(wc -l <<<"$COMBINE")" = 3 ]; then echo "PASS: combine block extracted"; else echo "FAIL: combine block extracted"; FAIL=1; fi
+combine() { # <SEC> -> exit code; stderr in $T/err
+    rm -f "$T/review.md"; MEM=$T SEC=$1 bash -c "$COMBINE" 2>"$T/err"
+}
+printf '### Verdict: PASS\n' > "$T/review-hdr.md"; printf '## CR findings\n' > "$T/review-cr.md"; printf '## SEC findings\n' > "$T/review-sec.md"
+combine true; rc=$?
+if [ $rc = 0 ] && [ "$(tr '\n' '|' < "$T/review.md")" = '### Verdict: PASS|## CR findings|## SEC findings|' ]; then echo "PASS: review.md = header, CR, SEC in order"; else echo "FAIL: review.md = header, CR, SEC in order"; FAIL=1; fi
+combine false; rc=$?
+if [ $rc = 0 ] && [ "$(tr '\n' '|' < "$T/review.md")" = '### Verdict: PASS|## CR findings|' ]; then echo "PASS: review.md omits SEC when not spawned"; else echo "FAIL: review.md omits SEC when not spawned"; FAIL=1; fi
+for m in review-hdr.md review-cr.md review-sec.md; do
+    cp "$T/$m" "$T/$m.bak"
+    for kind in missing empty; do
+        if [ $kind = missing ]; then rm "$T/$m"; else : > "$T/$m"; fi
+        combine true; rc=$?
+        if [ $rc = 1 ] && grep -qF "PARTIAL: $m missing/empty" "$T/err" && [ ! -e "$T/review.md" ]; then echo "PASS: $kind $m is PARTIAL, no review.md"; else echo "FAIL: $kind $m is PARTIAL, no review.md"; FAIL=1; fi
+        cp "$T/$m.bak" "$T/$m"
+    done
+done
+
 exit $FAIL
