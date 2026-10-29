@@ -189,6 +189,13 @@ n1_queue_child_open_pr() {
     return 0
 }
 
+_n1_queue_bg_settings() {
+    # Usage: _n1_queue_bg_settings <run-id> — --settings JSON shared by queue children and the runner's
+    # chained n1-finish sessions (N1-185), so both run as unattended queue runs (fullAuto required).
+    jq -cn --arg run "$1" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
+        '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}'
+}
+
 n1_queue_child_cmd() {
     # Usage: n1_queue_child_cmd <repoPath> <ticket-id> <model> <run-id> <log-path> [session-name]
     # Background-session launch named <session-name>; stdout carries the session id
@@ -196,11 +203,25 @@ n1_queue_child_cmd() {
     # Caller env N1_QUEUE_TAG (tag mode only, else empty) is forwarded so the child can
     # release the queue tag on handoff (NP-199). Caller env N1_QUEUE_DIR (always set by the
     # runner) is forwarded so the child can read its ## Decisions row (NP-203).
-    local repo="$1" id="$2" model="$3" run_id="$4" log="$5" name="${6:-}"
-    local settings
-    settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
-        '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
-    n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
+    local repo="$1" id="$2" model="$3" run_id="$4" name="${6:-}"
+    n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$(_n1_queue_bg_settings "$run_id")"
+}
+
+n1_queue_finish_cmd() {
+    # Usage: n1_queue_finish_cmd <repoPath> <ticket-id> <model> <run-id> <session-name>
+    # N1-185: background `n1-finish <ticket> chained` for the runner's fullAuto chain. Same settings env
+    # as a child, so n1-finish re-checks n1_merge_authorized as an unattended run and the merge-deny
+    # hook still applies. The runner itself never merges.
+    n1_bg_launch_cmd "$5" n1-finish "$2 chained" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
+}
+
+n1_queue_pr_state() {
+    # Usage: n1_queue_pr_state <pr-url> — N1-185: OPEN/MERGED/CLOSED for a GitHub PR URL. Prints
+    # nothing for any other URL (SEC-2 shape, as in n1_queue_held_sweep) or on a gh error; callers
+    # fail open to the plain pr stop.
+    [[ "$1" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || return 0
+    timeout 30 gh pr view --json state -q .state -- "$1" </dev/null 2>/dev/null
+    return 0
 }
 
 _n1_queue_sanitize_cell() {

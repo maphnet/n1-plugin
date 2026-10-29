@@ -245,6 +245,10 @@ finalize() {
     fi
 
     echo "[$NUM] $TICKET -> $OUTCOME $PR_URL"
+    # N1-185: one funnel for the three pr sites (reconcile, timeout_stop, open-PR rescue). stdin is the
+    # row loop's process substitution, so the chain's commands never read from it.
+    [ "$OUTCOME" = pr ] && chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$PR_URL" </dev/null
+    return 0
 }
 
 # live_row_sid <num> <ticket> <agents-json> — N1-82: id of a live (working/blocked) session this run
@@ -372,6 +376,110 @@ timeout_stop() {
     fi
     [ -n "$SID" ] && bash -c "$(n1_bg_cmd stop "$SID")" >/dev/null 2>&1
     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "timeout"
+}
+
+# --- fullAuto chain (N1-185) ---------------------------------------------------
+# chain_authorized <n1-home> — this row's config authorizes an unattended merge (mergeOnFinish AND
+# fullAuto). N1_QUEUE_RUN_ID makes n1_merge_authorized take its unattended branch: the runner exports
+# neither it nor N1_HEADLESS, and story-mode rows carry their own N1 Home.
+chain_authorized() {
+    [ "$(N1_HOME="$1" N1_QUEUE_RUN_ID="$RUN_ID" n1_merge_authorized)" = true ]
+}
+
+# chain_note <num> <ticket> <why> — the chain ended without a merge: row stays pr, reason recorded.
+chain_note() {
+    n1_queue_row_status "$QUEUE" "$1" pr "finish:$3"
+    echo "[$1] $2 chain: not merged ($3)"
+}
+
+# chain_merged <num> <ticket> <repo> <n1-home> <pr-url> — Runs Outcome merged + event, then fast-forward
+# the local default branch so the next child branches from the merge (Plan Status stays pr).
+chain_merged() {
+    local tmp; tmp=$(mktemp "${QUEUE}.XXXXXX")
+    awk -v tk="$2" '
+    { lines[NR] = $0; n = NR }
+    /^## Runs/ { rs = NR }
+    END {
+        for (i = n; rs && i > rs; i--) if (index(lines[i], "| " tk " |") > 0) {
+            split(lines[i], c, "|"); c[5] = " merged "; out = ""
+            for (j = 1; j <= 7; j++) out = out c[j] "|"
+            lines[i] = out; break
+        }
+        for (i = 1; i <= n; i++) print lines[i]
+    }' "$QUEUE" > "$tmp" && mv "$tmp" "$QUEUE" || rm -f "$tmp"
+    ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")"
+    N1_HOME="$4" n1_queue_sync_default "$3" </dev/null || echo "[$1] $2 merged; default-branch sync failed (held sweep retries)"
+    echo "[$1] $2 -> merged $5"
+}
+
+# chain_finish <num> <ticket> <repo> <n1-home> <model> <pr-url> — the deterministic fullAuto chain.
+# No-op unless chain_authorized. Waits for the child session to go idle (it may still run CI watch or
+# its own prose chain), skips when the PR is already MERGED or not OPEN, else launches a bg
+# `n1-finish <ticket> chained` session and waits for it. Blocking on purpose: the next child must
+# branch from the merged default branch. .chained-<ticket> (holds the run id) is written before the gh
+# check, so the chain is evaluated once per run, also across a runner restart. The runner never
+# merges: n1-finish merges only at the reviewed pin, and the merge-deny hook still applies.
+chain_finish() {
+    local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
+    local marker csid fsid st agents out poll waited=0 fails=0 miss=0 asked="" why=finish-timeout
+    case "$TICKET" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
+    chain_authorized "$N1H" || return 0
+    marker="$N1_QUEUE_DIR/.chained-$TICKET"
+    [ "$(cat "$marker" 2>/dev/null)" = "$RUN_ID" ] && return 0
+    poll=$(n1_queue_val pollSeconds)
+    csid=$(n1_queue_session_id "$QUEUE" "$TICKET")
+    while true; do
+        if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
+            drain_stop "$agents"
+            case "$(n1_queue_bg_state "$agents" "$csid")" in working|blocked) ;; *) break ;; esac
+        fi
+        [ "$waited" -ge "$TIMEOUT_SECS" ] && { chain_note "$NUM" "$TICKET" finish-child-busy; return 0; }
+        sleep "$poll"; waited=$((waited + poll))
+    done
+    printf '%s\n' "$RUN_ID" > "$marker" || return 0
+    case "$(n1_queue_pr_state "$URL")" in
+        MERGED) chain_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$URL"; return 0 ;;
+        OPEN) ;;
+        *) echo "[$NUM] $TICKET chain skipped: PR state unreadable or not open"; return 0 ;;
+    esac
+    out=$(bash -c "$(n1_queue_finish_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin")" 2>&1)
+    if ! fsid=$(n1_queue_parse_launch "$out"); then
+        chain_note "$NUM" "$TICKET" finish-launch-failed
+        return 0
+    fi
+    echo "[$NUM] $TICKET n1-finish chained ($fsid)"
+    waited=0
+    while [ "$waited" -le "$TIMEOUT_SECS" ]; do
+        if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
+            fails=0
+            st=$(n1_queue_bg_state "$agents" "$fsid")
+            case "$st" in
+                done|failed) why=finish-stopped; break ;;
+                missing) miss=$((miss + 1)); [ "$miss" -ge "$BG_POLL_GRACE" ] && { why=finish-not-listed; break; } ;;
+                blocked)
+                    if [ -z "$asked" ]; then
+                        asked=1
+                        ev escalated ticket="$TICKET" session="$fsid" reason="chained n1-finish needs you"
+                        n1_notify needs-you "$TICKET n1-finish needs you (resume: $(n1_bg_cmd attach "$fsid"))"
+                    fi ;;
+                *) asked=""; miss=0 ;;
+            esac
+        else
+            fails=$((fails + 1))
+            [ "$fails" -ge "$BG_POLL_GRACE" ] && { why=finish-agents-unreadable; break; }
+        fi
+        sleep "$poll"; waited=$((waited + poll))
+    done
+    if [ "$why" = finish-timeout ]; then
+        bash -c "$(n1_bg_cmd stop "$fsid")" >/dev/null 2>&1
+    else
+        DRAIN+=("$fsid"$'\t'"$TICKET"$'\t'"$N1H")
+    fi
+    if [ "$(n1_queue_pr_state "$URL")" = MERGED ]; then
+        chain_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$URL"
+    else
+        chain_note "$NUM" "$TICKET" "$why"
+    fi
 }
 
 # run_bg — background sessions, still sequential: launch the next pending ticket only when
@@ -526,6 +634,15 @@ run_bg() {
         sleep "$POLL"
     done
 }
+
+# N1-185: a chain owed from before a runner restart (row already pr, no .chained marker for this run).
+# Only rows this run finalized (finalize stamps queue_run_id on the overview): a pr row left over from an
+# earlier run, or from a run with the flags off, is never merged by a later run's sweep.
+while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _; do
+    OV="$N1H/memory/$TICKET/overview.md"
+    [ "$(n1_read_frontmatter "$OV" queue_run_id 2>/dev/null)" = "$RUN_ID" ] || continue
+    chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$OV")" </dev/null
+done < <(n1_queue_pending_rows "$QUEUE" pr)
 
 run_bg
 

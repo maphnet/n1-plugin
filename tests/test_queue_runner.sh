@@ -625,7 +625,16 @@ mk_bg() {
     mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
     # N1-182: runner asks gh for an open PR of an incomplete child; default answer comes from
     # $FAKE_DIR/gh-pr (absent -> no PR). Never reach the real gh from tests.
-    [ -e "$tmp/bin/gh" ] || { printf '#!/usr/bin/env bash\ncase "$1 $2" in "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;; *) exit 1 ;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"; }
+    # N1-185: pr view prints $FAKE_DIR/gh-state (OPEN/MERGED/CLOSED); absent -> exit 1 as before.
+    [ -e "$tmp/bin/gh" ] || { cat > "$tmp/bin/gh" <<'GHEOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+    "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
+    "pr view") cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
+    *) exit 1 ;;
+esac
+GHEOF
+        chmod +x "$tmp/bin/gh"; }
     cat > "$tmp/bin/claude" <<'FAKEEOF'
 #!/usr/bin/env bash
 # Fake claude CLI for background-session tests. State lives in $FAKE_DIR.
@@ -661,16 +670,21 @@ case "$1" in
         out=""
         for f in "$D"/prompt.*; do
             [ -f "$f" ] || continue
-            name="${f##*/prompt.}"; t=$(cat "$f"); t="${t##* }"
+            name="${f##*/prompt.}"; t=$(cat "$f"); t="${t% chained}"; t="${t##* }"
             c=$(( $(cat "$D/poll.$name" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$D/poll.$name"
-            read -r -a seq < "$D/states.$t"
+            # N1-185: a chained n1-finish session (<name>-fin) replays states.<t>.fin (default done).
+            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; esac
+            read -r -a seq 2>/dev/null < "$sf" || seq=(done)
             i=$(( c < ${#seq[@]} ? c - 1 : ${#seq[@]} - 1 ))
             st="${seq[$i]}"
             echo "state $name $st" >> "$D/events"
             # relay.<t>: an answer relay in flight; lands as the runner's marker (mtime kept) when
             # the fake first reports the session stopped, i.e. after the runner saw the first block.
             [ "$st" = stopped ] && [ -f "$D/relay.$t" ] && mv "$D/relay.$t" "$D/../.relay-$t"
-            if [ -f "$D/overview.$t.$c" ]; then
+            if [ "${name%-fin}" != "$name" ]; then
+                # N1-185: fin-merge.<t> makes the chained finish merge the PR when it is done.
+                [ "$st" = done ] && [ -f "$D/fin-merge.$t" ] && echo MERGED > "$D/gh-state"
+            elif [ -f "$D/overview.$t.$c" ]; then
                 mkdir -p "$FAKE_N1H/memory/$t"
                 cp "$D/overview.$t.$c" "$FAKE_N1H/memory/$t/overview.md"
                 echo "overview $name $c" >> "$D/events"
@@ -1328,6 +1342,128 @@ test_bg_launch_guard() {
     seed_live_session "$tmp" n1-bgq-T-A-1 T-A 0000000a
     assert_eq "guard-new-run: exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "guard-new-run: relaunched once" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
+    rm -rf "$tmp"
+}
+
+# N1-185 chain fixtures.
+chain_setup() { # <tmp> <fullAuto> <mergeOnFinish> — config with both flags; PR state OPEN
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"command","notifyCommand":"cat >> %s/notes"},"autonomy":{"fullAuto":%s},"finishWork":{"mergeOnFinish":%s}}\n' \
+        "$1" "$2" "$3" > "$1/n1home/config.json"
+    echo OPEN > "$1/fake/gh-state"
+}
+gh_overview() { # <file> <pr-number> — overview at step pr with a GitHub pr_url
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/%s\n' "$2" > "$1"
+}
+runs_outcome() { # <queue.md> <ticket> — Outcome cell of the ticket's last Runs row
+    awk -F'|' -v tk="$2" '/^## Runs/{f=1;next} f { t=$2; gsub(/ /,"",t); if (t == tk) { o=$5; gsub(/ /,"",o) } } END { print o }' "$1"
+}
+
+# AC1: fullAuto + mergeOnFinish -> runner chains n1-finish, records merged, next row waits for it.
+test_bg_chain_merges() {
+    local tmp fin_done b_launch; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done" "T-B:done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1; gh_overview "$tmp/fake/overview.T-B" 2
+    echo "working done" > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    assert_eq "chain: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain: one finish launch for T-A" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain: finish prompt" "/n1:n1-finish T-A chained" "$(cat "$tmp/fake/prompt.n1-bgq-T-A-1-fin")"
+    assert_eq "chain: finish session is an unattended queue run" "1,$(n1_read_frontmatter "$tmp/queue.md" run_id)" \
+        "$(jq -r '[.env.N1_HEADLESS,.env.N1_QUEUE_RUN_ID]|join(",")' "$tmp/fake/settings.n1-bgq-T-A-1-fin")"
+    assert_eq "chain: T-A Runs outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "chain: T-A Plan status stays pr" pr "$(plan_cell "$tmp/queue.md" 1 8)"
+    fin_done=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1-fin done")
+    b_launch=$(line_of "$tmp/fake/events" "launch n1-bgq-T-B-2")
+    assert_eq "chain: next row launches only after the finish ended" yes \
+        "$([ -n "$fin_done" ] && [ -n "$b_launch" ] && [ "$b_launch" -gt "$fin_done" ] && echo yes || echo no)"
+    # T-B's PR is already MERGED when its chain runs (the child chained itself): no second finish.
+    assert_eq "chain: no finish launch for an already-merged PR" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-B-2-fin')"
+    assert_eq "chain: T-B Runs outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-B)"
+    assert_eq "chain: merged events" "T-A,T-B" \
+        "$(jq -r 'select(.event == "ticket_finished" and .outcome == "merged") | .ticket' "$tmp/events.jsonl" | paste -sd,)"
+    assert_eq "chain: marker holds the run id" "$(n1_read_frontmatter "$tmp/queue.md" run_id)" "$(cat "$tmp/.chained-T-A")"
+    rm -rf "$tmp"
+}
+
+# AC2: either flag off -> behaviour unchanged (stops at PR, no finish session).
+test_bg_chain_flags_off() {
+    local tmp combo
+    for combo in "false true" "true false"; do
+        tmp=$(mktemp -d)
+        mk_bg "$tmp" bgq "T-A:working done"
+        chain_setup "$tmp" "${combo% *}" "${combo#* }"
+        gh_overview "$tmp/fake/overview.T-A" 1
+        echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+        assert_eq "chain-off ($combo): exit 0" 0 "$(run_bg_queue "$tmp")"
+        assert_eq "chain-off ($combo): no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+        assert_eq "chain-off ($combo): outcome pr" pr "$(runs_outcome "$tmp/queue.md" T-A)"
+        assert_eq "chain-off ($combo): PR left open" OPEN "$(cat "$tmp/fake/gh-state")"
+        rm -rf "$tmp"
+    done
+}
+
+# A finish that ends without merging (CI red, DIRTY, pin mismatch) leaves pr + reason, never retried.
+test_bg_chain_finish_stops() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo "working done" > "$tmp/fake/states.T-A.fin"
+    assert_eq "chain-stop: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-stop: one finish launch" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-stop: outcome pr" pr "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "chain-stop: Plan status pr" pr "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "chain-stop: reason recorded" "finish:finish-stopped" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "chain-stop: no merged event" "" \
+        "$(jq -r 'select(.outcome == "merged") | .ticket' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
+# AC5 + chain-owed sweep: a restarted runner never re-runs a pr row, runs a chain still owed, then
+# continues pending rows; a chain already made in this run is not made again.
+test_bg_chain_restart() {
+    local tmp marker
+    # no = chain owed; yes = chain already made this run; stale = pr row from an earlier run id.
+    for marker in no yes stale; do
+        tmp=$(mktemp -d)
+        mk_bg "$tmp" bgq "T-A:done" "T-B:done"
+        chain_setup "$tmp" true true
+        n1_write_frontmatter "$tmp/queue.md" run_id R1
+        n1_queue_row_status "$tmp/queue.md" 1 pr
+        echo '| T-A | 2026-01-01T00:00:00Z | | pr | https://github.com/o/r/pull/1 | 00000009 |' >> "$tmp/queue.md"
+        mkdir -p "$tmp/n1home/memory/T-A"; gh_overview "$tmp/n1home/memory/T-A/overview.md" 1
+        # finalize stamps queue_run_id on the overview; the sweep only chains rows stamped with this run id.
+        n1_write_frontmatter "$tmp/n1home/memory/T-A/overview.md" queue_run_id "$([ "$marker" = stale ] && echo R0 || echo R1)"
+        echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+        [ "$marker" = yes ] && echo R1 > "$tmp/.chained-T-A"
+        assert_eq "restart ($marker): exit 0" 0 "$(run_bg_queue "$tmp")"
+        assert_eq "restart ($marker): pr row never re-run" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
+        assert_eq "restart ($marker): pending row continues" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-B-2')"
+        if [ "$marker" = no ]; then
+            assert_eq "restart: owed chain runs once" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+            assert_eq "restart: owed chain merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+        else
+            assert_eq "restart ($marker): no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+            assert_eq "restart ($marker): row stays pr" pr "$(runs_outcome "$tmp/queue.md" T-A)"
+        fi
+        rm -rf "$tmp"
+    done
+}
+
+# The authorization predicate is evaluated with the ROW's own N1 Home, not the runner's: the runner's
+# home has both flags off, the row's home has both on, so only a per-row read launches the finish.
+test_bg_chain_row_home() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" false false
+    mkdir "$tmp/rowhome"; ln -s "$tmp/n1home/memory" "$tmp/rowhome/memory"
+    printf '{"autonomy":{"fullAuto":true},"finishWork":{"mergeOnFinish":true}}\n' > "$tmp/rowhome/config.json"
+    sed -i "s#| $tmp/n1home |#| $tmp/rowhome |#" "$tmp/queue.md"
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo "working done" > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    assert_eq "row-home: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "row-home: finish launched from the row's config" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "row-home: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
     rm -rf "$tmp"
 }
 
@@ -2503,6 +2639,11 @@ test_queue_digest_chain_states
 test_runner_lock
 test_live_by_name
 test_bg_launch_guard
+test_bg_chain_merges
+test_bg_chain_flags_off
+test_bg_chain_finish_stops
+test_bg_chain_restart
+test_bg_chain_row_home
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {
