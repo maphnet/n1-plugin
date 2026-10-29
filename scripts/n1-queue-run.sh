@@ -23,24 +23,37 @@ fi
 # --- Busy guard --------------------------------------------------------------
 # Frontmatter pid (older runners, and what --status reads) plus an atomic lock (N1-82): a noclobber
 # create fails when the file exists, so two runners started together cannot both pass (the old
-# check-then-write could). Portable to Git Bash/MSYS, where ln -s is unreliable. The file holds the
-# holder's pid; a dead holder's lock is reclaimed.
-# ponytail: stale-lock reclaim is rm + create, not atomic; two runners reclaiming one crashed lock in the
-# same instant can both win. Switch to rename-based reclaim if that ever shows up.
+# check-then-write could). Portable to Git Bash/MSYS, where ln -s is unreliable. The pid is written to a
+# private mktemp file and published with a hard link, which fails when the lock exists: the lock is never
+# visible empty. A dead holder's lock is reclaimed by renaming it away and verifying the renamed file is the
+# stale one we judged (a different pid means another runner reclaimed first: put it back and exit).
 EXISTING_PID=$(n1_read_frontmatter "$QUEUE" pid)
 if n1_queue_runner_alive "$EXISTING_PID" "$QUEUE"; then
     echo "queue already running (pid $EXISTING_PID)"
     exit 3
 fi
 LOCK="$QUEUE.lock"
-take_lock() { ( set -C; printf '%s\n' "$$" > "$LOCK" ) 2>/dev/null; }
+take_lock() {
+    local t rc; t=$(mktemp "$LOCK.XXXXXX") || return 1
+    printf '%s\n' "$$" > "$t" && ln "$t" "$LOCK" 2>/dev/null; rc=$?
+    rm -f "$t"; return $rc
+}
 if ! take_lock; then
     EXISTING_PID=$(cat "$LOCK" 2>/dev/null)
     if n1_queue_runner_alive "$EXISTING_PID" "$QUEUE"; then
         echo "queue already running (pid $EXISTING_PID)"
         exit 3
     fi
-    rm -f "$LOCK"
+    gone=$(mktemp "$LOCK.XXXXXX") || exit 3
+    if mv -f "$LOCK" "$gone" 2>/dev/null; then
+        if [ "$(cat "$gone" 2>/dev/null)" != "$EXISTING_PID" ]; then
+            ln "$gone" "$LOCK" 2>/dev/null
+            rm -f "$gone"
+            echo "queue already running (lock reclaimed by another runner)"
+            exit 3
+        fi
+    fi
+    rm -f "$gone"
     take_lock || { echo "queue already running (lock taken)"; exit 3; }
 fi
 trap '[ "$(cat "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"' EXIT
@@ -411,27 +424,62 @@ chain_merged() {
     }' "$QUEUE" > "$tmp" && mv "$tmp" "$QUEUE" || rm -f "$tmp"
     ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")"
     echo "[$1] $2 -> merged $5"
-    # One retry; a sync still failing is recorded on the row (Status stays pr): the next child may branch
-    # from a stale local default, and nothing else retries this sync for an unheld row.
+    chain_sync "$1" "$2" "$3" "$4"
+}
+
+# chain_sync <num> <ticket> <repo> <n1-home> — fast-forward the local default branch (one retry). A sync
+# still failing is recorded on the row (Status stays pr): the next child may branch from a stale local
+# default. chain_reconcile reruns it for an already-merged row, so a runner that died between recording
+# merged and syncing does not skip the sync for good (fast-forward is idempotent).
+chain_sync() {
     N1_HOME="$4" n1_queue_sync_default "$3" </dev/null || N1_HOME="$4" n1_queue_sync_default "$3" </dev/null || {
         n1_queue_row_status "$QUEUE" "$1" pr "finish:sync-failed"
         echo "[$1] $2 merged; local default-branch sync failed in $3 (next child may branch from a stale base)"
     }
 }
 
-# chain_reconcile <num> <ticket> <repo> <n1-home> <pr-url> <fin-name> <poll> — marker-hit path: wait (bounded)
-# for a live fin session, then record merged + sync the default branch if the PR merged and the row's
-# Runs Outcome does not say so yet.
+# chain_reconcile <num> <ticket> <repo> <n1-home> <pr-url> <fin-name> <poll> <marker-state> — marker-hit path:
+# wait (bounded) for a live fin session. A session that cannot be confirmed gone (still live at the timeout
+# and not stopped, or the agents list unreadable for BG_POLL_GRACE polls) halts the run rather than letting
+# the next ticket start while it may still merge. A merged PR gets Runs Outcome merged (once) and the sync
+# retried. Returns 10 when the marker says the launch was only intended (crash before launch was confirmed),
+# the PR is still OPEN and no fin session is live: the caller launches the owed finish.
 chain_reconcile() {
-    local agents waited=0 out
-    while [ "$waited" -le "$TIMEOUT_SECS" ]; do
-        agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1 || break
-        [ -n "$(n1_queue_live_by_name "$agents" "$6")" ] || break
+    local agents waited=0 absent=0 fails=0 fid="" out st
+    while true; do
+        if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
+            fails=0
+            fid=$(n1_queue_live_by_name "$agents" "$6")
+            if [ -z "$fid" ]; then
+                absent=$((absent + 1)); [ "$absent" -ge "$BG_POLL_GRACE" ] && break
+            else
+                absent=0
+            fi
+        else
+            fails=$((fails + 1))
+            [ "$fails" -ge "$BG_POLL_GRACE" ] && halt "chained n1-finish session $6 state unknown for $2 (agents list unreadable)"
+        fi
+        if [ "$waited" -ge "$TIMEOUT_SECS" ]; then
+            if [ -n "$fid" ]; then
+                bash -c "$(n1_bg_cmd stop "$fid")" >/dev/null 2>&1
+                if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1 \
+                    && [ -z "$(n1_queue_live_by_name "$agents" "$6")" ]; then
+                    break
+                fi
+                halt "chained n1-finish session $6 for $2 still live after the timeout; stop it and re-run"
+            fi
+            break
+        fi
         sleep "$7"; waited=$((waited + $7))
     done
     out=$(awk -F'|' -v tk="$2" '/^## Runs/{f=1;next} f { t=$2; gsub(/ /,"",t); if (t == tk) { o=$5; gsub(/ /,"",o) } } END { print o }' "$QUEUE")
-    [ "$out" = merged ] && return 0
-    [ "$(n1_queue_pr_state "$5")" = MERGED ] && chain_merged "$1" "$2" "$3" "$4" "$5"
+    if [ "$out" = merged ]; then
+        chain_sync "$1" "$2" "$3" "$4"
+        return 0
+    fi
+    st=$(n1_queue_pr_state "$5")
+    if [ "$st" = MERGED ]; then chain_merged "$1" "$2" "$3" "$4" "$5"; return 0; fi
+    [ "$8" = pending ] && [ "$st" = OPEN ] && return 10
     return 0
 }
 
@@ -439,8 +487,9 @@ chain_reconcile() {
 # No-op unless chain_authorized. Waits for the child session to go idle (it may still run CI watch or
 # its own prose chain), skips when the PR is already MERGED or not OPEN, else launches a bg
 # `n1-finish <ticket> chained` session and waits for it. Blocking on purpose: the next child must
-# branch from the merged default branch. .chained-<ticket> (holds the run id) is written before the gh
-# check, so the chain is evaluated once per run, also across a runner restart. The runner never
+# branch from the merged default branch. .chained-<ticket> (line 1 run id, line 2 pending|launched|done) is
+# written before the gh check, so the chain is evaluated once per run, also across a runner restart; a
+# restart finding it pending (launch intended, not confirmed) relaunches for a still-OPEN PR. The runner never
 # merges: n1-finish merges only at the reviewed pin, and the merge-deny hook still applies.
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
@@ -449,12 +498,14 @@ chain_finish() {
     chain_authorized "$N1H" || return 0
     marker="$N1_QUEUE_DIR/.chained-$TICKET"
     poll=$(n1_queue_val pollSeconds)
-    if [ "$(cat "$marker" 2>/dev/null)" = "$RUN_ID" ]; then
-        # Chain already made this run (restart): never launch a second finish, but reconcile an orphaned
-        # -fin session that merged after the previous runner died.
-        chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll"
-        return 0
-    fi
+    mark() { printf '%s\n%s\n' "$RUN_ID" "$1" > "$marker"; }
+    if [ "$(head -n1 "$marker" 2>/dev/null)" = "$RUN_ID" ]; then
+        # Chain already evaluated this run (restart): never launch a second finish for a confirmed launch;
+        # reconcile an orphaned -fin session. Only a marker still "pending" (crash between the marker and
+        # the confirmed launch) with an OPEN PR and no live session falls through to launch the owed finish.
+        chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll" "$(sed -n 2p "$marker" 2>/dev/null)"
+        [ $? -eq 10 ] || return 0
+    else
     csid=$(n1_queue_session_id "$QUEUE" "$TICKET")
     while true; do
         if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
@@ -469,19 +520,21 @@ chain_finish() {
         [ "$waited" -ge "$TIMEOUT_SECS" ] && { chain_note "$NUM" "$TICKET" finish-child-busy; return 0; }
         sleep "$poll"; waited=$((waited + poll))
     done
-    printf '%s\n' "$RUN_ID" > "$marker" || return 0
+    mark pending || return 0
+    fi
     st=$(n1_queue_pr_state "$URL")
     case "$st" in
-        MERGED) chain_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$URL"; return 0 ;;
+        MERGED) mark done; chain_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$URL"; return 0 ;;
         OPEN) ;;
-        '') chain_note "$NUM" "$TICKET" pr-state-unreadable; return 0 ;;
-        *) chain_note "$NUM" "$TICKET" pr-not-open; return 0 ;;
+        '') mark done; chain_note "$NUM" "$TICKET" pr-state-unreadable; return 0 ;;
+        *) mark done; chain_note "$NUM" "$TICKET" pr-not-open; return 0 ;;
     esac
     out=$(bash -c "$(n1_queue_finish_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin")" 2>&1)
     if ! fsid=$(n1_queue_parse_launch "$out"); then
-        chain_note "$NUM" "$TICKET" finish-launch-failed
+        mark done; chain_note "$NUM" "$TICKET" finish-launch-failed
         return 0
     fi
+    mark launched
     echo "[$NUM] $TICKET n1-finish chained ($fsid)"
     waited=0
     while [ "$waited" -le "$TIMEOUT_SECS" ]; do

@@ -1392,7 +1392,7 @@ test_bg_chain_merges() {
     assert_eq "chain: T-B Runs outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-B)"
     assert_eq "chain: merged events" "T-A,T-B" \
         "$(jq -r 'select(.event == "ticket_finished" and .outcome == "merged") | .ticket' "$tmp/events.jsonl" | paste -sd,)"
-    assert_eq "chain: marker holds the run id" "$(n1_read_frontmatter "$tmp/queue.md" run_id)" "$(cat "$tmp/.chained-T-A")"
+    assert_eq "chain: marker holds the run id and launch state" "$(n1_read_frontmatter "$tmp/queue.md" run_id),launched" "$(head -n2 "$tmp/.chained-T-A" | paste -sd,)"
     # $tmp is not a git repo, so the default-branch sync fails (also on its retry) and is recorded.
     assert_eq "chain: failed sync recorded on the row" "finish:sync-failed" "$(plan_cell "$tmp/queue.md" 1 9)"
     assert_eq "chain: runner never merges" 0 "$(grep -c '^pr merge' "$tmp/fake/gh-all" || true)"
@@ -1511,6 +1511,68 @@ test_bg_chain_restart() {
         fi
         rm -rf "$tmp"
     done
+}
+
+# Review fixes: reconcile (marker hit) state handling.
+chain_restart_setup() { # <tmp> <marker-state> — pr row of this run, marker with that state, no live fin session
+    mk_bg "$1" bgq "T-A:done"
+    chain_setup "$1" true true
+    n1_write_frontmatter "$1/queue.md" run_id R1
+    n1_queue_row_status "$1/queue.md" 1 pr
+    echo '| T-A | 2026-01-01T00:00:00Z | | pr | https://github.com/o/r/pull/1 | 00000009 |' >> "$1/queue.md"
+    mkdir -p "$1/n1home/memory/T-A"; gh_overview "$1/n1home/memory/T-A/overview.md" 1
+    n1_write_frontmatter "$1/n1home/memory/T-A/overview.md" queue_run_id R1
+    echo done > "$1/fake/states.T-A.fin"; touch "$1/fake/fin-merge.T-A"
+    printf 'R1\n%s\n' "$2" > "$1/.chained-T-A"
+}
+test_bg_chain_reconcile() {
+    local tmp
+    # Intended-but-unconfirmed launch + OPEN PR: the owed finish is launched (once).
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" pending
+    assert_eq "reconcile-pending: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "reconcile-pending: owed finish launched once" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "reconcile-pending: merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "reconcile-pending: marker confirmed" launched "$(sed -n 2p "$tmp/.chained-T-A")"
+    rm -rf "$tmp"
+    # Confirmed launch + OPEN PR: never a second finish.
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched
+    assert_eq "reconcile-launched: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "reconcile-launched: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    rm -rf "$tmp"
+    # Outcome already merged (runner died before the sync): the sync is retried and its failure recorded.
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched
+    echo MERGED > "$tmp/fake/gh-state"
+    printf '| T-A | 2026-01-01T00:00:00Z | | merged | https://github.com/o/r/pull/1 | 00000009 |\n' >> "$tmp/queue.md"
+    sed -i '/| T-A | 2026-01-01T00:00:00Z | | pr |/d' "$tmp/queue.md"
+    assert_eq "reconcile-sync: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "reconcile-sync: sync retried for a merged row" "finish:sync-failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+    # A -fin session that stays live past the timeout and cannot be stopped: halt, next ticket not launched.
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched
+    mk_bg "$tmp" bgq "T-A:done" "T-B:done"; chain_setup "$tmp" true true
+    n1_write_frontmatter "$tmp/queue.md" run_id R1
+    n1_queue_row_status "$tmp/queue.md" 1 pr
+    printf '/n1:n1-finish T-A chained\n' > "$tmp/fake/prompt.n1-bgq-T-A-1-fin"; echo 0000000f > "$tmp/fake/id.n1-bgq-T-A-1-fin"
+    echo working > "$tmp/fake/states.T-A.fin"
+    assert_eq "reconcile-live: halts (exit 2)" 2 "$(run_bg_queue "$tmp")"
+    assert_eq "reconcile-live: stop attempted" 1 "$(grep -c 0000000f "$tmp/fake/stopped" || true)"
+    assert_eq "reconcile-live: next ticket not launched" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-B-2')"
+    rm -rf "$tmp"
+}
+
+# Review fix: the runner lock is published atomically (never visible empty) and reclaimed by rename.
+test_runner_lock_atomic() {
+    local s="$REPO_ROOT/scripts/n1-queue-run.sh"
+    assert_eq "lock-atomic: published by hard link from a private mktemp file" yes \
+        "$(grep -q 'ln "$t" "$LOCK"' "$s" && grep -q 'mktemp "$LOCK.XXXXXX"' "$s" && echo yes || echo no)"
+    assert_eq "lock-atomic: no noclobber redirect (create + write were separate)" no \
+        "$(grep -q 'set -C' "$s" && echo yes || echo no)"
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgl "T-A:done"
+    : > "$tmp/queue.md.lock"
+    assert_eq "lock-atomic: empty lock reclaimed" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "lock-atomic: no leftover temp files" 0 "$(ls "$tmp" | grep -c '^queue.md.lock' || true)"
+    rm -rf "$tmp"
 }
 
 # The authorization predicate is evaluated with the ROW's own N1 Home, not the runner's: the runner's
@@ -2729,6 +2791,8 @@ test_bg_chain_flags_off
 test_bg_chain_finish_stops
 test_bg_chain_missing_is_busy
 test_bg_chain_restart
+test_bg_chain_reconcile
+test_runner_lock_atomic
 test_bg_chain_row_home
 test_lifecycle_wiring
 test_merge_wording
