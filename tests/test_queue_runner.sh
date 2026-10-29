@@ -628,6 +628,7 @@ mk_bg() {
     # N1-185: pr view prints $FAKE_DIR/gh-state (OPEN/MERGED/CLOSED); absent -> exit 1 as before.
     [ -e "$tmp/bin/gh" ] || { cat > "$tmp/bin/gh" <<'GHEOF'
 #!/usr/bin/env bash
+echo "$*" >> "$FAKE_DIR/gh-all"
 case "$1 $2" in
     "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
     "pr view") cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
@@ -1382,6 +1383,38 @@ test_bg_chain_merges() {
     assert_eq "chain: merged events" "T-A,T-B" \
         "$(jq -r 'select(.event == "ticket_finished" and .outcome == "merged") | .ticket' "$tmp/events.jsonl" | paste -sd,)"
     assert_eq "chain: marker holds the run id" "$(n1_read_frontmatter "$tmp/queue.md" run_id)" "$(cat "$tmp/.chained-T-A")"
+    # $tmp is not a git repo, so the default-branch sync fails (also on its retry) and is recorded.
+    assert_eq "chain: failed sync recorded on the row" "finish:sync-failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "chain: runner never merges" 0 "$(grep -c '^pr merge' "$tmp/fake/gh-all" || true)"
+    rm -rf "$tmp"
+}
+
+# A successful default-branch sync after the merge leaves no reason on the row.
+test_bg_chain_sync_ok() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    git init -q --bare -b main "$tmp/origin.git"
+    git -C "$tmp" init -q -b main; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i
+    git -C "$tmp" remote add origin "$tmp/origin.git"; git -C "$tmp" push -q origin main
+    assert_eq "chain-sync: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-sync: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "chain-sync: no reason" "" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# A PR that is no longer open when the child ends (closed) is skipped with a reason, no finish session.
+test_bg_chain_pr_closed() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    echo CLOSED > "$tmp/fake/gh-state"
+    gh_overview "$tmp/fake/overview.T-A" 1
+    assert_eq "chain-closed: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-closed: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-closed: reason recorded" "finish:pr-not-open" "$(plan_cell "$tmp/queue.md" 1 9)"
     rm -rf "$tmp"
 }
 
@@ -2640,6 +2673,8 @@ test_runner_lock
 test_live_by_name
 test_bg_launch_guard
 test_bg_chain_merges
+test_bg_chain_sync_ok
+test_bg_chain_pr_closed
 test_bg_chain_flags_off
 test_bg_chain_finish_stops
 test_bg_chain_restart

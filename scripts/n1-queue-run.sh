@@ -408,8 +408,13 @@ chain_merged() {
         for (i = 1; i <= n; i++) print lines[i]
     }' "$QUEUE" > "$tmp" && mv "$tmp" "$QUEUE" || rm -f "$tmp"
     ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")"
-    N1_HOME="$4" n1_queue_sync_default "$3" </dev/null || echo "[$1] $2 merged; default-branch sync failed (held sweep retries)"
     echo "[$1] $2 -> merged $5"
+    # One retry; a sync still failing is recorded on the row (Status stays pr): the next child may branch
+    # from a stale local default, and nothing else retries this sync for an unheld row.
+    N1_HOME="$4" n1_queue_sync_default "$3" </dev/null || N1_HOME="$4" n1_queue_sync_default "$3" </dev/null || {
+        n1_queue_row_status "$QUEUE" "$1" pr "finish:sync-failed"
+        echo "[$1] $2 merged; local default-branch sync failed in $3 (next child may branch from a stale base)"
+    }
 }
 
 # chain_finish <num> <ticket> <repo> <n1-home> <model> <pr-url> — the deterministic fullAuto chain.
@@ -437,10 +442,12 @@ chain_finish() {
         sleep "$poll"; waited=$((waited + poll))
     done
     printf '%s\n' "$RUN_ID" > "$marker" || return 0
-    case "$(n1_queue_pr_state "$URL")" in
+    st=$(n1_queue_pr_state "$URL")
+    case "$st" in
         MERGED) chain_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$URL"; return 0 ;;
         OPEN) ;;
-        *) echo "[$NUM] $TICKET chain skipped: PR state unreadable or not open"; return 0 ;;
+        '') chain_note "$NUM" "$TICKET" pr-state-unreadable; return 0 ;;
+        *) chain_note "$NUM" "$TICKET" pr-not-open; return 0 ;;
     esac
     out=$(bash -c "$(n1_queue_finish_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin")" 2>&1)
     if ! fsid=$(n1_queue_parse_launch "$out"); then
@@ -475,11 +482,12 @@ chain_finish() {
     else
         DRAIN+=("$fsid"$'\t'"$TICKET"$'\t'"$N1H")
     fi
-    if [ "$(n1_queue_pr_state "$URL")" = MERGED ]; then
-        chain_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$URL"
-    else
-        chain_note "$NUM" "$TICKET" "$why"
-    fi
+    st=$(n1_queue_pr_state "$URL")
+    case "$st" in
+        MERGED) chain_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" ;;
+        '') chain_note "$NUM" "$TICKET" pr-state-unreadable ;;
+        *) chain_note "$NUM" "$TICKET" "$why" ;;
+    esac
 }
 
 # run_bg — background sessions, still sequential: launch the next pending ticket only when
