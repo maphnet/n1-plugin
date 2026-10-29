@@ -406,12 +406,12 @@ Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (
 
 ## Agent Personas
 
-11 atomic agents (plus the shared `research-standards.md` rubric) with scoped tools and configurable models:
+12 atomic agents (plus the shared `research-standards.md` rubric) with scoped tools and configurable models:
 
 | Agent | Default Model | Effort | Tools | Pipeline Stage |
 |-------|---------------|--------|-------|----------------|
 | product-analyst | sonnet | low | inherits (needs dynamic tracker + error-tracking MCP) | Ticket read, Error intake, Description enrichment |
-| solution-architect | opus | medium | Read, Grep, Glob, Bash, WebSearch, WebFetch | Analysis, Bug investigation, Plan review (CCR) |
+| solution-architect | opus | medium | inherits (needs dynamic MCP and WebSearch, WebFetch) | Analysis, Bug investigation, Plan review (CCR) |
 | planner | opus | medium | Read, Grep, Glob, Write, Edit, Skill, WebSearch, WebFetch | Plan writing |
 | implementer | sonnet | medium | inherits (needs Skill for n1-implement, Agent for developer subagents) | Implementation (wraps n1-implement) |
 | developer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | Fix cycle, CI fix |
@@ -419,7 +419,9 @@ Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (
 | security-reviewer | opus | medium | Read, Grep, Glob, Write (hook-scoped to the findings file) | Review (parallel) |
 | qa-engineer | sonnet | medium | Read, Edit, Write, Bash, Grep, Glob | QA (tier-aware: maintain/minimal/standard) |
 | local-test-planner | sonnet | medium | Read, Grep, Glob, Bash | Local testing (plan creation) |
-| tech-writer | sonnet | medium | Read, Grep, Edit, Write, Glob | Doc update, PR content |
+| tech-writer | sonnet | medium | Read, Grep, Edit, Write, Glob, Bash | Doc update, PR content |
+
+**MCP tool scope.** Agents with an explicit `tools:` frontmatter list (developer, code-reviewer, qa-engineer, security-reviewer, planner, local-test-planner, tech-writer) get no MCP tool definitions in their system prompt: per the [sub-agents docs](https://code.claude.com/docs/en/sub-agents), "MCP tool definitions for excluded tools are not injected into the agent's system prompt". Agents without `tools:` (brainstormer, solution-architect, implementer, product-analyst, post-deploy-verifier) inherit everything, including all MCP servers, intentionally: brainstormer, solution-architect and product-analyst need dynamic MCP, implementer needs Skill and Agent. Never add `mcp__*` to a `tools:` list; `tests/test_agent_tools_no_mcp.sh` enforces this.
 
 Models default to agent frontmatter values, overridable via `models` section in `$N1_HOME/config.json`.
 
