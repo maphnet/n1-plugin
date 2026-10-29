@@ -84,7 +84,7 @@ Spawn the local-test-planner agent with:
 
 > **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the local-test-planner agent has written its output.
 
-After the agent returns, check the plan file is non-empty (`test -s`); if not, re-dispatch once. Still missing → auto-skip: record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="planner failed"`, update overview as in the edge case below with key decision "Local Testing: skipped (planner failed)", and skip to Step 10.
+After the agent returns, check the plan file is non-empty (`test -s`); if not, re-dispatch once. Still missing → auto-skip: record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="planner failed"`, update overview as in the edge case below with key decision "Local Testing: skipped (planner failed)", run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"planner_failed"}'`, and skip to Step 10.
 
 **Edge case — no testable scenarios:** If the returned summary (or `grep` of the plan file) shows the plan has no existing e2e suite (`### Existing E2E Tests` Framework is "None" and Run command is "N/A") AND zero ad-hoc test scenarios in `### Automated Test Scenarios`, auto-skip: Record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="no testable scenarios"`. Do not print here — Gate 3 will emit `Local Testing: SKIPPED — no testable scenarios` in the Done summary. Run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"<LOCAL_TESTING_SKIP_REASON>"}'`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10. If the plan has a valid e2e suite, do NOT auto-skip even if there are zero ad-hoc scenarios.
 
@@ -204,7 +204,7 @@ After the agent returns:
   fi
 
   # Compute qa_overlap_pct: fraction of QA runner commands also present in the local test plan
-  QA_RUNNER_COUNT=$(grep -c 'Runner command:' "$QA_MD" 2>/dev/null || echo 0)
+  QA_RUNNER_COUNT=$(grep -c 'Runner command:' "$QA_MD" 2>/dev/null || true); QA_RUNNER_COUNT=${QA_RUNNER_COUNT:-0}
   if [ "$QA_RUNNER_COUNT" -gt 0 ]; then
     MATCH_COUNT=0
     while IFS= read -r rcmd; do
