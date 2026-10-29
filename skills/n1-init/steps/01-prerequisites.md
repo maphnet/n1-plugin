@@ -103,6 +103,7 @@ HAS_GET_USER=$(jq -r '.tracker.operations.getCurrentUser // empty' "$CFG")
 HAS_ASSIGN=$(jq -r '.tracker.operations.assign // empty' "$CFG")
 READ_OP=$(jq -r '.tracker.operations.readTicket // empty' "$CFG")
 HAS_ADD_TO_SPRINT=$(jq -r '.tracker.operations.addToSprint // empty' "$CFG")
+HAS_GET_CHANGELOG=$(jq -r '.tracker.operations.getChangelog // empty' "$CFG")
 ```
 
 **Gap: `tracker.operations.getIssueLinks` missing**
@@ -208,6 +209,26 @@ Kanban boards are skipped safely.
   ```
   Log: "Added tracker.operations.addToSprint."
 - **If 2:** Continue.
+
+**Gap: `tracker.operations.getChangelog` missing**
+
+Applies when `HAS_GET_CHANGELOG` is empty. When `TRACKER_TYPE` is `"jira"` and the tool list (load the tool if deferred, per HOST ROUTING) exposes `mcp__<server>__jcm_getIssueChangelog`, where `<server>` is `tracker.versionMcp` else `tracker.mcp`, inform the user:
+```
+Config is missing tracker.operations.getChangelog.
+Without it, the ticket watch stays off.
+
+1 — Add getChangelog (jcm_getIssueChangelog) (Recommended: the tool list exposes jcm_getIssueChangelog on <server>)
+2 — Skip
+```
+- **If 1:** Patch (only when empty):
+  ```bash
+  jq '.tracker.operations.getChangelog |= (if . == null or . == "" then "jcm_getIssueChangelog" else . end)' \
+     "$CFG" > "$CFG.tmp" && mv "$CFG.tmp" "$CFG"
+  ```
+  Log: "Added tracker.operations.getChangelog."
+- **If 2:** Continue.
+
+Otherwise print one line, no prompt, no write: `getChangelog not mapped: <reason>; ticket watch stays off.` where `<reason>` is `tool jcm_getIssueChangelog not exposed on <server>` (Jira) or `no known changelog operation for <TRACKER_TYPE>` (other trackers).
 
 If no gaps are found, proceed silently.
 
