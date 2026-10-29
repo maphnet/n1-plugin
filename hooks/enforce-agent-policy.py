@@ -32,7 +32,7 @@ are blanked, the command is split on ; & | newline, and gh/git/curl/wget count o
 position (segment start, after VAR=x, wrappers like env/sudo/xargs/timeout N/chroot NEWROOT, `sh -c`,
 skipping wrapper value flags in WRAPPER_VALUE_FLAGS: `env -u FOO`, `sudo -nu x`, `--unse FOO`; getopt_long
 exact-then-unique-prefix, so `sudo --login gh` keeps gh). Backstop: the first gh/git/curl/wget eaten as a
-flag value or NEWROOT also starts a shadow chunk, so a table gap denies (`env -u git push origin main` is a
+flag value or NEWROOT also starts a shadow chunk (later gh/git/curl/wget words included, N1-174), so a table gap denies (`env -u git push origin main` is a
 known false positive). A chunk runs to segment end; a nested one runs until the next nested one; one shadow
 per segment - each token lands in at most three chunks, so the scan is linear in command length (SEC-22). Known gaps: runtime string-building (eval,
 base64, variables, aliases), a second eaten program in one segment after a genuine `-u git` (no second
@@ -50,7 +50,9 @@ same `&&`-connected run: the pipeline exit status is the filter's, so a red suit
 session, merge-authorized or not. Allowed when the command enables pipefail (`set -o pipefail`,
 `set -euo pipefail`) or mentions `PIPESTATUS`. Known gaps: `bash -c`, `$(...)`, subshells, variables/aliases, quoted separators.
 
-Fail-open otherwise: exit 0, no output.
+Fail-open otherwise: exit 0, no output. An unparseable payload (malformed JSON or not an object) exits 3;
+the wrapper (enforce-agent-policy.sh) treats 3 like a crash or a missing interpreter: an n1:code-reviewer /
+n1:security-reviewer Write is denied, everything else passes (N1-174).
 
 Usage: enforce-agent-policy.py <config_file> <plugin_root>   (payload on stdin)
 """
@@ -202,12 +204,13 @@ def restriction(payload: dict, plugin_root: str, config_file: str = "") -> int:
     if not persona or not tool:
         return 0
     allowed = persona_tools(plugin_root, persona)
-    if allowed is None or tool.startswith("mcp__"):
+    if tool.startswith("mcp__"):
         return 0
-    if tool in allowed:
-        if tool == "Write" and persona in REVIEWERS and not _findings_path_ok(payload, persona, config_file):
-            sys.stderr.write(f"N1: persona {persona} may Write only its own review-(cr|sec).md for the active ticket under the N1 home\n")
-            return 2
+    if tool == "Write" and persona in REVIEWERS and (allowed is None or tool in allowed) \
+            and not _findings_path_ok(payload, persona, config_file):
+        sys.stderr.write(f"N1: persona {persona} may Write only its own review-(cr|sec).md for the active ticket under the N1 home\n")
+        return 2
+    if allowed is None or tool in allowed:
         return 0
     sys.stderr.write(f"N1: persona {persona} may not use tool {tool} (allowed: {', '.join(sorted(allowed))})\n")
     return 2
@@ -388,6 +391,8 @@ def _commands(command):
                             yield inner
                         inner = head
                     at_cmd = False
+                    if shadow is not None:
+                        shadow.append(tok)  # outer/inner hold it via head; the shadow must too (N1-174)
                     continue
                 elif name in WRAPPERS:
                     wrapper, lead = name, LEADING_POSITIONALS.get(name, 0)
@@ -514,11 +519,11 @@ def pipe_deny(payload: dict) -> int:
 
 def main() -> int:
     try:
-        payload = json.loads(sys.stdin.read())
-    except ValueError:
-        return 0
+        payload = json.loads(sys.stdin.buffer.read())
+    except ValueError:  # includes UnicodeDecodeError
+        return 3  # unparseable: the wrapper denies a reviewer Write and allows the rest (N1-174)
     if not isinstance(payload, dict):
-        return 0
+        return 3
     config_file = sys.argv[1] if len(sys.argv) > 1 else ""
     plugin_root = sys.argv[2] if len(sys.argv) > 2 else ""
     config = {}
