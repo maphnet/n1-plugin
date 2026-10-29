@@ -504,7 +504,7 @@ OUT=$(echo "$PAYLOAD" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/s
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 assert_eq "host.json written (claude, configured)" "claude-code" "$(jq -r .host "$N1_HOST_FILE")"
 case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code)"*"subagent_type"*) assert_eq "claude routing block (configured)" ok ok;; *) assert_eq "claude routing block (configured)" ok "$CTX";; esac
-case "$CTX" in *"that is their explicit request to commit, push the feature branch, and create the PR"*"does not authorize merge, release, or pushing the default branch"*) assert_eq "session context pre-authorizes push/PR (N1-57)" ok ok;; *) assert_eq "session context pre-authorizes push/PR (N1-57)" ok "$CTX";; esac
+case "$CTX" in *"that is their explicit request to commit, push the feature branch, and create the PR"*"does not authorize merge (unless the fullAuto chain applies), release, or pushing the default branch"*) assert_eq "session context pre-authorizes push/PR (N1-57)" ok ok;; *) assert_eq "session context pre-authorizes push/PR (N1-57)" ok "$CTX";; esac
 # compaction restore fires on source=compact
 cat > "$N1_HOME/active-run.json" <<'AREOF'
 {"ticketId":"T-30","runId":"n1-run-c","worktreePath":null,"branch":"T-30"}

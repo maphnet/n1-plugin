@@ -171,6 +171,9 @@ assert_contains "finish: no-chain path still tells the user" \
 assert_contains "finish: chain runs after FINALIZE MEMORY" \
     "skills/n1-start/steps/finish.md" \
     'The chain runs last, after FINALIZE MEMORY.'
+assert_contains "finish: merge only through the fullAuto chain (N1-185)" \
+    "skills/n1-start/steps/finish.md" \
+    'Do not merge outside the fullAuto chain at the end of FINALIZE MEMORY; unless it will run, tell the user "Merge the PR'
 assert_contains "finalize: chain is the last block, after Gate 3" \
     "skills/n1-start/procedures/finalize.md" \
     '**Chain** (last, after Gate 3; do not yield first)'

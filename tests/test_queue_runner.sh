@@ -625,7 +625,17 @@ mk_bg() {
     mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
     # N1-182: runner asks gh for an open PR of an incomplete child; default answer comes from
     # $FAKE_DIR/gh-pr (absent -> no PR). Never reach the real gh from tests.
-    [ -e "$tmp/bin/gh" ] || { printf '#!/usr/bin/env bash\ncase "$1 $2" in "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;; *) exit 1 ;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"; }
+    # N1-185: pr view prints $FAKE_DIR/gh-state (OPEN/MERGED/CLOSED); absent -> exit 1 as before.
+    [ -e "$tmp/bin/gh" ] || { cat > "$tmp/bin/gh" <<'GHEOF'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_DIR/gh-all"
+case "$1 $2" in
+    "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
+    "pr view") cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
+    *) exit 1 ;;
+esac
+GHEOF
+        chmod +x "$tmp/bin/gh"; }
     cat > "$tmp/bin/claude" <<'FAKEEOF'
 #!/usr/bin/env bash
 # Fake claude CLI for background-session tests. State lives in $FAKE_DIR.
@@ -661,16 +671,21 @@ case "$1" in
         out=""
         for f in "$D"/prompt.*; do
             [ -f "$f" ] || continue
-            name="${f##*/prompt.}"; t=$(cat "$f"); t="${t##* }"
+            name="${f##*/prompt.}"; t=$(cat "$f"); t="${t% chained}"; t="${t##* }"
             c=$(( $(cat "$D/poll.$name" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$D/poll.$name"
-            read -r -a seq < "$D/states.$t"
+            # N1-185: a chained n1-finish session (<name>-fin) replays states.<t>.fin (default done).
+            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; esac
+            read -r -a seq 2>/dev/null < "$sf" || seq=(done)
             i=$(( c < ${#seq[@]} ? c - 1 : ${#seq[@]} - 1 ))
             st="${seq[$i]}"
             echo "state $name $st" >> "$D/events"
             # relay.<t>: an answer relay in flight; lands as the runner's marker (mtime kept) when
             # the fake first reports the session stopped, i.e. after the runner saw the first block.
             [ "$st" = stopped ] && [ -f "$D/relay.$t" ] && mv "$D/relay.$t" "$D/../.relay-$t"
-            if [ -f "$D/overview.$t.$c" ]; then
+            if [ "${name%-fin}" != "$name" ]; then
+                # N1-185: fin-merge.<t> makes the chained finish merge the PR when it is done.
+                [ "$st" = done ] && [ -f "$D/fin-merge.$t" ] && echo MERGED > "$D/gh-state"
+            elif [ -f "$D/overview.$t.$c" ]; then
                 mkdir -p "$FAKE_N1H/memory/$t"
                 cp "$D/overview.$t.$c" "$FAKE_N1H/memory/$t/overview.md"
                 echo "overview $name $c" >> "$D/events"
@@ -1227,13 +1242,384 @@ test_bg_disclaimer() {
     rm -rf "$tmp"
 }
 
+# start_fake_runner — sets FAKE_RUNNER_PID to a live process whose cmdline names n1-queue-run
+# (what n1_queue_runner_alive accepts as a runner). stop_fake_runner kills and reaps it.
+start_fake_runner() {
+    # N1-185 SEC-2: argv is script + queue path, as the launcher starts the real runner.
+    bash -c 'sleep 30; :' "${1:-/x}/scripts/n1-queue-run.sh" "${2:-/x/queue.md}" >/dev/null 2>&1 &
+    FAKE_RUNNER_PID=$!
+    local i
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        case "$(tr '\0' ' ' < "/proc/$FAKE_RUNNER_PID/cmdline" 2>/dev/null)" in *n1-queue-run*) return 0 ;; esac
+        [ -r "/proc/$FAKE_RUNNER_PID/cmdline" ] || return 0
+        sleep 0.2
+    done
+}
+stop_fake_runner() { kill "$FAKE_RUNNER_PID" 2>/dev/null || true; wait "$FAKE_RUNNER_PID" 2>/dev/null || true; }
+
+# count_x <file> <exact-line> — number of lines equal to <exact-line> (0 when the file is missing).
+count_x() { [ -f "$1" ] || { echo 0; return; }; grep -cxF -- "$2" "$1" || true; }
+
+# N1-183: runner liveness, interrupted detection, one-shot queue_interrupted event + resume line.
+test_queue_interrupted() {
+    local tmp dead; tmp=$(mktemp -d)
+    start_fake_runner
+    sleep 0 & dead=$!; wait "$dead"
+    assert_eq "alive: runner-named live pid" yes "$(n1_queue_runner_alive "$FAKE_RUNNER_PID" && echo yes || echo no)"
+    assert_eq "alive: dead pid" no "$(n1_queue_runner_alive "$dead" && echo yes || echo no)"
+    assert_eq "alive: live pid that is not a runner (recycled)" no "$(n1_queue_runner_alive "$$" && echo yes || echo no)"
+    assert_eq "alive: empty pid" no "$(n1_queue_runner_alive "" && echo yes || echo no)"
+    assert_eq "alive: runner of this queue" yes "$(n1_queue_runner_alive "$FAKE_RUNNER_PID" /x/queue.md && echo yes || echo no)"
+    assert_eq "alive: runner of another queue" no "$(n1_queue_runner_alive "$FAKE_RUNNER_PID" /y/queue.md && echo yes || echo no)"
+    # SEC-2: a process that merely mentions the script (pager, grep) is not a runner.
+    bash -c 'sleep 30; :' less /x/scripts/n1-queue-run.sh >/dev/null 2>&1 & local other=$!
+    assert_eq "alive: pager naming the script is not a runner" no "$(n1_queue_runner_alive "$other" /x/scripts/n1-queue-run.sh && echo yes || echo no)"
+    bash -c 'sleep 30; :' /x/n1-queue-run /x/queue.md >/dev/null 2>&1 & local other2=$!
+    assert_eq "alive: name without scripts/ suffix is not a runner" no "$(n1_queue_runner_alive "$other2" /x/queue.md && echo yes || echo no)"
+    kill "$other" "$other2" 2>/dev/null; wait "$other" "$other2" 2>/dev/null || true
+    printf -- '---\nqueue_id: q1\nrun_id: R1\nstep: run\npid: %s\n---\n## Plan\n' "$dead" > "$tmp/queue.md"
+    assert_eq "interrupted: step run + dead pid" yes "$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+    assert_eq "interrupted: note with one-command resume" \
+        "interrupted: runner pid $dead is gone; resume: /n1:n1-queue --run q1" "$(n1_queue_interrupted_note "$tmp/queue.md")"
+    n1_queue_interrupted_note "$tmp/queue.md" >/dev/null
+    assert_eq "interrupted: event emitted once per run id" 1 "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl")"
+    stop_fake_runner; start_fake_runner "$REPO_ROOT" "$tmp/queue.md"
+    n1_write_frontmatter "$tmp/queue.md" pid "$FAKE_RUNNER_PID"
+    assert_eq "interrupted: live runner is not interrupted" no "$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+    n1_write_frontmatter "$tmp/queue.md" pid "$dead"
+    n1_write_frontmatter "$tmp/queue.md" step done
+    assert_eq "interrupted: finished run is not interrupted" no "$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+    assert_eq "interrupted: no note when not interrupted" "" "$(n1_queue_interrupted_note "$tmp/queue.md")"
+    stop_fake_runner
+    rm -rf "$tmp"
+}
+
+# N1-185/N1-183: the digest counts merged tickets and labels an interrupted run.
+test_queue_digest_chain_states() {
+    local tmp ev; tmp=$(mktemp -d); mkdir -p "$tmp/queue/q1"; ev="$tmp/queue/q1/events.jsonl"
+    n1_queue_event "$ev" q1 R1 queue_started
+    n1_queue_event "$ev" q1 R1 ticket_finished ticket=T-A outcome=pr pr=u
+    n1_queue_event "$ev" q1 R1 ticket_finished ticket=T-A outcome=merged pr=u
+    n1_queue_event "$ev" q1 R1 queue_interrupted reason="runner pid 1 gone"
+    assert_eq "digest: merged count + interrupted label" "Queue q1: 1 merged, interrupted" "$(n1_queue_digest "$tmp")"
+    rm -rf "$tmp"
+}
+
+# seed_live_session <tmp> <name> <ticket> <id8> — a live bg session the fake claude lists (states.<ticket>).
+seed_live_session() {
+    printf '/n1:n1-start %s\n' "$3" > "$1/fake/prompt.$2"
+    printf '%s' "$4" > "$1/fake/id.$2"
+}
+
+test_live_by_name() {
+    local j='[{"kind":"background","id":"0000000a","name":"n1-q-T-A-1","state":"working"},{"kind":"background","id":"0000000b","name":"n1-q-T-B-2","state":"done"},{"kind":"background","id":"0000000c","name":"n1-q-T-C-3","state":"blocked"}]'
+    assert_eq "live-by-name: working" 0000000a "$(n1_queue_live_by_name "$j" n1-q-T-A-1)"
+    assert_eq "live-by-name: blocked" 0000000c "$(n1_queue_live_by_name "$j" n1-q-T-C-3)"
+    assert_eq "live-by-name: done is not live" "" "$(n1_queue_live_by_name "$j" n1-q-T-B-2)"
+    assert_eq "live-by-name: unknown name" "" "$(n1_queue_live_by_name "$j" n1-q-T-Z-9)"
+    assert_eq "live-by-name: bad json" "" "$(n1_queue_live_by_name 'not json' n1-q-T-A-1)"
+}
+
+# N1-82: a row this run already launched is adopted, never launched twice; another run's lock never blocks.
+test_bg_launch_guard() {
+    local tmp
+    # Restart between launch and the Session-cell write: in-progress row, empty Session, live session.
+    tmp=$(mktemp -d); mk_bg "$tmp" bgq "T-A:working done"
+    n1_write_frontmatter "$tmp/queue.md" run_id R1
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo R1 > "$tmp/.launch-1"
+    seed_live_session "$tmp" n1-bgq-T-A-1 T-A 0000000a
+    assert_eq "guard-orphan: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "guard-orphan: no second launch of the row" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
+    assert_eq "guard-orphan: no retry row launched" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-2')"
+    assert_eq "guard-orphan: adopted session" 0000000a "$(n1_queue_session_id "$tmp/queue.md" T-A)"
+    assert_eq "guard-orphan: row pr" pr "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "guard-orphan: lock removed on finalize" no "$([ -e "$tmp/.launch-1" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+    # Same run, pending row whose lock holds this run id and whose session is live: adopt, no launch.
+    tmp=$(mktemp -d); mk_bg "$tmp" bgq "T-A:working done"
+    n1_write_frontmatter "$tmp/queue.md" run_id R1
+    echo R1 > "$tmp/.launch-1"
+    seed_live_session "$tmp" n1-bgq-T-A-1 T-A 0000000a
+    assert_eq "guard-same-run: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "guard-same-run: two launches never both run" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
+    assert_eq "guard-same-run: adopted session" 0000000a "$(n1_queue_session_id "$tmp/queue.md" T-A)"
+    assert_eq "guard-same-run: row pr" pr "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+    # New run id: an older run's lock never blocks a relaunch, even with a same-name live session.
+    tmp=$(mktemp -d); mk_bg "$tmp" bgq "T-A:working done"
+    n1_write_frontmatter "$tmp/queue.md" run_id R2
+    echo R1 > "$tmp/.launch-1"
+    seed_live_session "$tmp" n1-bgq-T-A-1 T-A 0000000a
+    assert_eq "guard-new-run: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "guard-new-run: relaunched once" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
+    rm -rf "$tmp"
+}
+
+# N1-185 chain fixtures.
+chain_setup() { # <tmp> <fullAuto> <mergeOnFinish> — config with both flags; PR state OPEN
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":10,"notify":"command","notifyCommand":"cat >> %s/notes"},"autonomy":{"fullAuto":%s},"finishWork":{"mergeOnFinish":%s}}\n' \
+        "$1" "$2" "$3" > "$1/n1home/config.json"
+    echo OPEN > "$1/fake/gh-state"
+}
+gh_overview() { # <file> <pr-number> — overview at step pr with a GitHub pr_url
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/%s\n' "$2" > "$1"
+}
+runs_outcome() { # <queue.md> <ticket> — Outcome cell of the ticket's last Runs row
+    awk -F'|' -v tk="$2" '/^## Runs/{f=1;next} f { t=$2; gsub(/ /,"",t); if (t == tk) { o=$5; gsub(/ /,"",o) } } END { print o }' "$1"
+}
+
+# AC1: fullAuto + mergeOnFinish -> runner chains n1-finish, records merged, next row waits for it.
+test_bg_chain_merges() {
+    local tmp fin_done b_launch; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done" "T-B:done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1; gh_overview "$tmp/fake/overview.T-B" 2
+    echo "working done" > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    assert_eq "chain: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain: one finish launch for T-A" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain: finish prompt" "/n1:n1-finish T-A chained" "$(cat "$tmp/fake/prompt.n1-bgq-T-A-1-fin")"
+    assert_eq "chain: finish session is an unattended queue run" "1,$(n1_read_frontmatter "$tmp/queue.md" run_id)" \
+        "$(jq -r '[.env.N1_HEADLESS,.env.N1_QUEUE_RUN_ID]|join(",")' "$tmp/fake/settings.n1-bgq-T-A-1-fin")"
+    assert_eq "chain: T-A Runs outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "chain: T-A Plan status stays pr" pr "$(plan_cell "$tmp/queue.md" 1 8)"
+    fin_done=$(line_of "$tmp/fake/events" "state n1-bgq-T-A-1-fin done")
+    b_launch=$(line_of "$tmp/fake/events" "launch n1-bgq-T-B-2")
+    assert_eq "chain: next row launches only after the finish ended" yes \
+        "$([ -n "$fin_done" ] && [ -n "$b_launch" ] && [ "$b_launch" -gt "$fin_done" ] && echo yes || echo no)"
+    # T-B's PR is already MERGED when its chain runs (the child chained itself): no second finish.
+    assert_eq "chain: no finish launch for an already-merged PR" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-B-2-fin')"
+    assert_eq "chain: T-B Runs outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-B)"
+    assert_eq "chain: merged events" "T-A,T-B" \
+        "$(jq -r 'select(.event == "ticket_finished" and .outcome == "merged") | .ticket' "$tmp/events.jsonl" | paste -sd,)"
+    assert_eq "chain: marker holds the run id and launch state" "$(n1_read_frontmatter "$tmp/queue.md" run_id),launched" "$(head -n2 "$tmp/.chained-T-A" | paste -sd,)"
+    # $tmp is not a git repo, so the default-branch sync fails (also on its retry) and is recorded.
+    assert_eq "chain: failed sync recorded on the row" "finish:sync-failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "chain: runner never merges" 0 "$(grep -c '^pr merge' "$tmp/fake/gh-all" || true)"
+    rm -rf "$tmp"
+}
+
+# A successful default-branch sync after the merge leaves no reason on the row.
+test_bg_chain_sync_ok() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    git init -q --bare -b main "$tmp/origin.git"
+    git -C "$tmp" init -q -b main; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i
+    git -C "$tmp" remote add origin "$tmp/origin.git"; git -C "$tmp" push -q origin main
+    assert_eq "chain-sync: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-sync: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "chain-sync: no reason" "" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# A PR that is no longer open when the child ends (closed) is skipped with a reason, no finish session.
+test_bg_chain_pr_closed() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    echo CLOSED > "$tmp/fake/gh-state"
+    gh_overview "$tmp/fake/overview.T-A" 1
+    assert_eq "chain-closed: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-closed: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-closed: reason recorded" "finish:pr-not-open" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# SEC-1: a child listed as missing (lagging agents list) is still busy for BG_POLL_GRACE polls; the
+# chained finish must start only once the child is really idle.
+test_bg_chain_missing_is_busy() {
+    local tmp last; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done missing missing missing working working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    assert_eq "chain-missing: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-missing: one finish launch" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    last=$(awk '/^launch n1-bgq-T-A-1-fin$/{exit} /^state n1-bgq-T-A-1 /{l=$0} END{print l}' "$tmp/fake/events")
+    assert_eq "chain-missing: finish waits until the child is idle" "state n1-bgq-T-A-1 done" "$last"
+    rm -rf "$tmp"
+}
+
+# AC2: either flag off -> behaviour unchanged (stops at PR, no finish session).
+test_bg_chain_flags_off() {
+    local tmp combo
+    for combo in "false true" "true false"; do
+        tmp=$(mktemp -d)
+        mk_bg "$tmp" bgq "T-A:working done"
+        chain_setup "$tmp" "${combo% *}" "${combo#* }"
+        gh_overview "$tmp/fake/overview.T-A" 1
+        echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+        assert_eq "chain-off ($combo): exit 0" 0 "$(run_bg_queue "$tmp")"
+        assert_eq "chain-off ($combo): no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+        assert_eq "chain-off ($combo): outcome pr" pr "$(runs_outcome "$tmp/queue.md" T-A)"
+        assert_eq "chain-off ($combo): PR left open" OPEN "$(cat "$tmp/fake/gh-state")"
+        rm -rf "$tmp"
+    done
+}
+
+# A finish that ends without merging (CI red, DIRTY, pin mismatch) leaves pr + reason, never retried.
+test_bg_chain_finish_stops() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo "working done" > "$tmp/fake/states.T-A.fin"
+    assert_eq "chain-stop: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-stop: one finish launch" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-stop: outcome pr" pr "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "chain-stop: Plan status pr" pr "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "chain-stop: reason recorded" "finish:finish-stopped" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "chain-stop: no merged event" "" \
+        "$(jq -r 'select(.outcome == "merged") | .ticket' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
+# AC5 + chain-owed sweep: a restarted runner never re-runs a pr row, runs a chain still owed, then
+# continues pending rows; a chain already made in this run is not made again.
+test_bg_chain_restart() {
+    local tmp marker
+    # no = chain owed; yes = chain already made this run; stale = pr row from an earlier run id.
+    for marker in no yes stale; do
+        tmp=$(mktemp -d)
+        mk_bg "$tmp" bgq "T-A:done" "T-B:done"
+        chain_setup "$tmp" true true
+        n1_write_frontmatter "$tmp/queue.md" run_id R1
+        n1_queue_row_status "$tmp/queue.md" 1 pr
+        echo '| T-A | 2026-01-01T00:00:00Z | | pr | https://github.com/o/r/pull/1 | 00000009 |' >> "$tmp/queue.md"
+        mkdir -p "$tmp/n1home/memory/T-A"; gh_overview "$tmp/n1home/memory/T-A/overview.md" 1
+        # finalize stamps queue_run_id on the overview; the sweep only chains rows stamped with this run id.
+        n1_write_frontmatter "$tmp/n1home/memory/T-A/overview.md" queue_run_id "$([ "$marker" = stale ] && echo R0 || echo R1)"
+        echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+        # yes: the previous runner died while the -fin session ran; the orphan merged the PR meanwhile.
+        [ "$marker" = yes ] && { echo R1 > "$tmp/.chained-T-A"; echo MERGED > "$tmp/fake/gh-state"; }
+        assert_eq "restart ($marker): exit 0" 0 "$(run_bg_queue "$tmp")"
+        assert_eq "restart ($marker): pr row never re-run" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
+        assert_eq "restart ($marker): pending row continues" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-B-2')"
+        if [ "$marker" = yes ]; then
+            assert_eq "restart (yes): no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+            assert_eq "restart (yes): merge recorded" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+            assert_eq "restart (yes): merged event" 1 "$(jq -r 'select(.outcome == "merged") | .ticket' "$tmp/events.jsonl" | grep -c T-A)"
+        elif [ "$marker" = no ]; then
+            assert_eq "restart: owed chain runs once" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+            assert_eq "restart: owed chain merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+        else
+            assert_eq "restart ($marker): no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+            assert_eq "restart ($marker): row stays pr" pr "$(runs_outcome "$tmp/queue.md" T-A)"
+        fi
+        rm -rf "$tmp"
+    done
+}
+
+# Review fixes: reconcile (marker hit) state handling.
+chain_restart_setup() { # <tmp> <marker-state> — pr row of this run, marker with that state, no live fin session
+    mk_bg "$1" bgq "T-A:done"
+    chain_setup "$1" true true
+    n1_write_frontmatter "$1/queue.md" run_id R1
+    n1_queue_row_status "$1/queue.md" 1 pr
+    echo '| T-A | 2026-01-01T00:00:00Z | | pr | https://github.com/o/r/pull/1 | 00000009 |' >> "$1/queue.md"
+    mkdir -p "$1/n1home/memory/T-A"; gh_overview "$1/n1home/memory/T-A/overview.md" 1
+    n1_write_frontmatter "$1/n1home/memory/T-A/overview.md" queue_run_id R1
+    echo done > "$1/fake/states.T-A.fin"; touch "$1/fake/fin-merge.T-A"
+    printf 'R1\n%s\n' "$2" > "$1/.chained-T-A"
+}
+test_bg_chain_reconcile() {
+    local tmp
+    # Intended-but-unconfirmed launch + OPEN PR: the owed finish is launched (once).
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" pending
+    assert_eq "reconcile-pending: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "reconcile-pending: owed finish launched once" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "reconcile-pending: merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "reconcile-pending: marker confirmed" launched "$(sed -n 2p "$tmp/.chained-T-A")"
+    rm -rf "$tmp"
+    # Confirmed launch + OPEN PR: never a second finish.
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched
+    assert_eq "reconcile-launched: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "reconcile-launched: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    rm -rf "$tmp"
+    # Outcome already merged (runner died before the sync): the sync is retried and its failure recorded.
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched
+    echo MERGED > "$tmp/fake/gh-state"
+    printf '| T-A | 2026-01-01T00:00:00Z | | merged | https://github.com/o/r/pull/1 | 00000009 |\n' >> "$tmp/queue.md"
+    sed -i '/| T-A | 2026-01-01T00:00:00Z | | pr |/d' "$tmp/queue.md"
+    assert_eq "reconcile-sync: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "reconcile-sync: sync retried for a merged row" "finish:sync-failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+    # A -fin session that stays live past the timeout and cannot be stopped: halt, next ticket not launched.
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched
+    mk_bg "$tmp" bgq "T-A:done" "T-B:done"; chain_setup "$tmp" true true
+    n1_write_frontmatter "$tmp/queue.md" run_id R1
+    n1_queue_row_status "$tmp/queue.md" 1 pr
+    printf '/n1:n1-finish T-A chained\n' > "$tmp/fake/prompt.n1-bgq-T-A-1-fin"; echo 0000000f > "$tmp/fake/id.n1-bgq-T-A-1-fin"
+    echo working > "$tmp/fake/states.T-A.fin"
+    assert_eq "reconcile-live: halts (exit 2)" 2 "$(run_bg_queue "$tmp")"
+    assert_eq "reconcile-live: stop attempted" 1 "$(grep -c 0000000f "$tmp/fake/stopped" || true)"
+    assert_eq "reconcile-live: next ticket not launched" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-B-2')"
+    rm -rf "$tmp"
+}
+
+# Review fix: the runner lock is published atomically (never visible empty) and reclaimed by rename.
+test_runner_lock_atomic() {
+    local s="$REPO_ROOT/scripts/n1-queue-run.sh"
+    assert_eq "lock-atomic: published by hard link from a private mktemp file" yes \
+        "$(grep -q 'ln "$t" "$LOCK"' "$s" && grep -q 'mktemp "$LOCK.XXXXXX"' "$s" && echo yes || echo no)"
+    assert_eq "lock-atomic: no noclobber redirect (create + write were separate)" no \
+        "$(grep -q 'set -C' "$s" && echo yes || echo no)"
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgl "T-A:done"
+    : > "$tmp/queue.md.lock"
+    assert_eq "lock-atomic: empty lock reclaimed" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "lock-atomic: no leftover temp files" 0 "$(ls "$tmp" | grep -c '^queue.md.lock' || true)"
+    rm -rf "$tmp"
+}
+
+# The authorization predicate is evaluated with the ROW's own N1 Home, not the runner's: the runner's
+# home has both flags off, the row's home has both on, so only a per-row read launches the finish.
+test_bg_chain_row_home() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" false false
+    mkdir "$tmp/rowhome"; ln -s "$tmp/n1home/memory" "$tmp/rowhome/memory"
+    printf '{"autonomy":{"fullAuto":true},"finishWork":{"mergeOnFinish":true}}\n' > "$tmp/rowhome/config.json"
+    sed -i "s#| $tmp/n1home |#| $tmp/rowhome |#" "$tmp/queue.md"
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo "working done" > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    assert_eq "row-home: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "row-home: finish launched from the row's config" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "row-home: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    rm -rf "$tmp"
+}
+
+# N1-183: launcher wiring (setsid with nohup fallback, liveness busy guard, interrupted resume/status).
+test_lifecycle_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue"
+    has() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "wiring: runner launched with setsid" yes "$(has 'setsid bash "$N1_ROOT/scripts/n1-queue-run.sh"' "$s/steps/run.md")"
+    assert_eq "wiring: nohup fallback when setsid is absent" yes "$(has 'command -v setsid' "$s/steps/run.md")"
+    assert_eq "wiring: busy guard uses runner liveness" yes "$(has 'n1_queue_runner_alive "$OLD_PID"' "$s/steps/run.md")"
+    assert_eq "wiring: --run detects an interrupted run" yes "$(has 'INTERRUPTED=yes' "$s/steps/run.md")"
+    assert_eq "wiring: resume keeps the run id" yes "$(has 'if [ "<RESUME>" = 1 ]' "$s/steps/run.md")"
+    assert_eq "wiring: --status reports interrupted runs" yes "$(has 'n1_queue_interrupted_note "$QUEUE_FILE"' "$s/steps/report.md")"
+    assert_eq "wiring: SKILL.md documents resume" yes "$(has 'resumes an interrupted run' "$s/SKILL.md")"
+}
+
+# N1-185 AC3: run.md held-ticket wording (finish.md and session-start covered in test_orchestrator_guardrails.sh and test_hooks.sh).
+test_merge_wording() {
+    local has; has() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "wording: held tickets start on a user or chain merge" yes \
+        "$(has "merged (by the user, or by the runner's fullAuto chain)" "$REPO_ROOT/skills/n1-queue/steps/run.md")"
+}
+
 test_busy_guard() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    start_fake_runner "$REPO_ROOT" "$tmp/queue.md"
 
     cat > "$tmp/queue.md" <<EOF
 ---
 step: run
-pid: $$
+pid: $FAKE_RUNNER_PID
 queue_id: test-q3
 ---
 ## Plan
@@ -1246,6 +1632,22 @@ EOF
     assert_eq "busy: exit 3" "3" "$exit_code"
     grep -q "already running" "$tmp/output.txt"
     assert_eq "busy: message" "0" "$?"
+    stop_fake_runner
+}
+
+# N1-82 (a): an atomic lock, so two runners started together cannot both pass the busy guard.
+test_runner_lock() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgl "T-A:done"
+    start_fake_runner "$REPO_ROOT" "$tmp/queue.md"
+    printf '%s\n' "$FAKE_RUNNER_PID" > "$tmp/queue.md.lock"
+    assert_eq "lock: live holder -> exit 3" 3 "$(run_bg_queue "$tmp")"
+    assert_eq "lock: nothing launched while held" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgl-T-A-1')"
+    stop_fake_runner
+    assert_eq "lock: dead holder reclaimed -> exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "lock: launched after reclaim" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgl-T-A-1')"
+    assert_eq "lock: released at exit" no "$([ -e "$tmp/queue.md.lock" ] && echo yes || echo no)"
+    rm -rf "$tmp"
 }
 
 # --- n1_queue_decision_counts ------------------------------------------------
@@ -2377,6 +2779,23 @@ test_bg_timeout_race_terminal_overview
 test_notify_check
 test_bg_disclaimer
 test_busy_guard
+test_queue_interrupted
+test_queue_digest_chain_states
+test_runner_lock
+test_live_by_name
+test_bg_launch_guard
+test_bg_chain_merges
+test_bg_chain_sync_ok
+test_bg_chain_pr_closed
+test_bg_chain_flags_off
+test_bg_chain_finish_stops
+test_bg_chain_missing_is_busy
+test_bg_chain_restart
+test_bg_chain_reconcile
+test_runner_lock_atomic
+test_bg_chain_row_home
+test_lifecycle_wiring
+test_merge_wording
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {

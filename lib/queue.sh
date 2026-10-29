@@ -189,6 +189,13 @@ n1_queue_child_open_pr() {
     return 0
 }
 
+_n1_queue_bg_settings() {
+    # Usage: _n1_queue_bg_settings <run-id> — --settings JSON shared by queue children and the runner's
+    # chained n1-finish sessions (N1-185), so both run as unattended queue runs (fullAuto required).
+    jq -cn --arg run "$1" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
+        '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}'
+}
+
 n1_queue_child_cmd() {
     # Usage: n1_queue_child_cmd <repoPath> <ticket-id> <model> <run-id> <log-path> [session-name]
     # Background-session launch named <session-name>; stdout carries the session id
@@ -196,11 +203,25 @@ n1_queue_child_cmd() {
     # Caller env N1_QUEUE_TAG (tag mode only, else empty) is forwarded so the child can
     # release the queue tag on handoff (NP-199). Caller env N1_QUEUE_DIR (always set by the
     # runner) is forwarded so the child can read its ## Decisions row (NP-203).
-    local repo="$1" id="$2" model="$3" run_id="$4" log="$5" name="${6:-}"
-    local settings
-    settings=$(jq -cn --arg run "$run_id" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
-        '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}')
-    n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$settings"
+    local repo="$1" id="$2" model="$3" run_id="$4" name="${6:-}"
+    n1_bg_launch_cmd "$name" n1-start "$id" "$model" "$repo" "$(_n1_queue_bg_settings "$run_id")"
+}
+
+n1_queue_finish_cmd() {
+    # Usage: n1_queue_finish_cmd <repoPath> <ticket-id> <model> <run-id> <session-name>
+    # N1-185: background `n1-finish <ticket> chained` for the runner's fullAuto chain. Same settings env
+    # as a child, so n1-finish re-checks n1_merge_authorized as an unattended run and the merge-deny
+    # hook still applies. The runner itself never merges.
+    n1_bg_launch_cmd "$5" n1-finish "$2 chained" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
+}
+
+n1_queue_pr_state() {
+    # Usage: n1_queue_pr_state <pr-url> — N1-185: OPEN/MERGED/CLOSED for a GitHub PR URL. Prints
+    # nothing for any other URL (SEC-2 shape, as in n1_queue_held_sweep) or on a gh error; callers
+    # fail open to the plain pr stop.
+    [[ "$1" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || return 0
+    timeout 30 gh pr view --json state -q .state -- "$1" </dev/null 2>/dev/null
+    return 0
 }
 
 _n1_queue_sanitize_cell() {
@@ -662,6 +683,16 @@ n1_queue_session_id() {
         END { print id }' "$1"
 }
 
+n1_queue_live_by_name() {
+    # Usage: n1_queue_live_by_name <agents-json> <name> — N1-82: 8-hex id of a working/blocked
+    # background session with exactly that name, else nothing. Names repeat across runs, so the
+    # runner trusts a match only when its per-row launch lock holds the current run id.
+    printf '%s' "$1" | jq -r --arg n "$2" '
+        [.. | objects | select(has("state") and .name == $n and (.state == "working" or .state == "blocked"))][0] // empty
+        | ((.id // ((.sessionId // "")[:8])) | tostring) | select(test("^[0-9a-f]{8}$"))' 2>/dev/null
+    return 0
+}
+
 n1_queue_answer() {
     # Usage: n1_queue_answer <n1-home> <ticket>
     # N1-55: relays a main-thread answer to a queue child blocked on a question it mirrored to
@@ -722,6 +753,43 @@ n1_queue_relay_active() {
     [ -n "$(find "$1/.relay-$2" -mmin -2 2>/dev/null)" ]
 }
 
+n1_queue_runner_alive() {
+    # Usage: n1_queue_runner_alive <pid> [<queue.md>] — N1-183: exit 0 when <pid> is a live queue
+    # runner. kill -0 alone trusts a recycled pid; where /proc exists the NUL-split cmdline must carry
+    # an argument ending in scripts/n1-queue-run.sh and, when <queue.md> is given, that exact path as
+    # the next argument (a runner of another queue, or `less n1-queue-run.sh`, is not this runner).
+    case "$1" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$1" 2>/dev/null || return 1
+    [ -r "/proc/$1/cmdline" ] || return 0
+    local arg hit=""
+    while IFS= read -r -d '' arg; do
+        if [ -n "$hit" ]; then { [ -z "${2:-}" ] || [ "$arg" = "$2" ]; } && return 0; return 1; fi
+        case "$arg" in */scripts/n1-queue-run.sh|scripts/n1-queue-run.sh) hit=1 ;; esac
+    done < "/proc/$1/cmdline" 2>/dev/null
+    return 1
+}
+
+n1_queue_interrupted() {
+    # Usage: n1_queue_interrupted <queue.md> — N1-183: exit 0 when the run says step: run but its
+    # runner is gone (killed with the launching session, crashed, or host restart).
+    [ -f "$1" ] && [ "$(n1_read_frontmatter "$1" step)" = run ] || return 1
+    ! n1_queue_runner_alive "$(n1_read_frontmatter "$1" pid)" "$1"
+}
+
+n1_queue_interrupted_note() {
+    # Usage: n1_queue_interrupted_note <queue.md> — N1-183: for an interrupted run, append one
+    # queue_interrupted event per run id (later calls only print) and print the resume line.
+    # Prints nothing for a run that is not interrupted.
+    local q="$1" ev run qid pid
+    n1_queue_interrupted "$q" || return 0
+    ev="$(dirname "$q")/events.jsonl"
+    run=$(n1_read_frontmatter "$q" run_id); qid=$(n1_read_frontmatter "$q" queue_id); pid=$(n1_read_frontmatter "$q" pid)
+    if [ -z "$(jq -R --arg r "$run" 'fromjson? | select(.event == "queue_interrupted" and .run_id == $r)' "$ev" 2>/dev/null)" ]; then
+        n1_queue_event "$ev" "$qid" "$run" queue_interrupted reason="runner pid ${pid:-?} gone"
+    fi
+    printf 'interrupted: runner pid %s is gone; resume: /n1:n1-queue --run %s\n' "${pid:-?}" "$qid"
+}
+
 n1_queue_awaiting_hints() {
     # Usage: n1_queue_awaiting_hints <queue.md>
     # Prints "<ticket>: <resume command>" for each Plan row waiting on a human: an attach
@@ -770,14 +838,16 @@ n1_queue_digest() {
             | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "failed")] | length) as $failed
+            | ([$t[] | select(.event == "ticket_finished" and .outcome == "merged")] | length) as $merged
             | ([$t[] | select(.event == "ticket_started" or .event == "unblocked") | .ticket]) as $running
             | {needs: ($needs | length), ts: $end.ts,
                line: ("Queue \($end.queue): " + ([
                    (if $pr > 0 then "\($pr) PR" else empty end),
+                   (if $merged > 0 then "\($merged) merged" else empty end),
                    (if ($needs | length) > 0 then "\($needs | length) needs you (\($needs | join(", ")))" else empty end),
                    (if $failed > 0 then "\($failed) failed" else empty end),
                    (if ($running | length) > 0 then "running \($running | join(", "))" else empty end),
-                   (if $end.event == "queue_done" then "done" elif $end.event == "halted" then "halted" else empty end)
+                   (if $end.event == "queue_done" then "done" elif $end.event == "halted" then "halted" elif $end.event == "queue_interrupted" then "interrupted" else empty end)
                ] | if length == 0 then ["started"] else . end | join(", ")))})
         | map(select(.ts >= (now - 86400 | todate)))
         | sort_by([(.needs > 0), .ts]) | last | .line // empty' 2>/dev/null

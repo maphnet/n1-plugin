@@ -25,6 +25,14 @@ QUEUE_FILE=$(find "$N1_HOME/queue" -name queue.md -printf '%T@ %p\n' 2>/dev/null
 
 If no queue file found: "No queue runs found." **STOP.**
 
+Interrupted check (N1-183). Print its output verbatim. A printed line means the runner died mid-run: the `Step: run` below is stale, and the line gives the one resume command.
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_interrupted_note "$QUEUE_FILE"
+```
+
 Read frontmatter `step` and `queue_id`. Print:
 - `Step: <step>` (plan/run/done/halted)
 - For each ticket in the Plan with status `pr`, `escalated`, or `failed`: read `$N1_HOME_COL/memory/<TICKET>/overview.md` and extract `## Escalations` content (if any). Print escalations grouped by ticket.
