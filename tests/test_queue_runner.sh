@@ -1513,6 +1513,16 @@ test_lifecycle_wiring() {
     assert_eq "wiring: SKILL.md documents resume" yes "$(has 'resumes an interrupted run' "$s/SKILL.md")"
 }
 
+# N1-185 AC3: no prompt line tells a fullAuto run not to merge.
+test_merge_wording() {
+    local has; has() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "wording: finish.md has no bare 'Do not merge.'" no "$(has 'Do not merge.' "$REPO_ROOT/skills/n1-start/steps/finish.md")"
+    assert_eq "wording: session-start scopes the merge exclusion" yes \
+        "$(has 'does not authorize merge (unless the fullAuto chain applies)' "$REPO_ROOT/hooks/session-start.sh")"
+    assert_eq "wording: held tickets start on a user or chain merge" yes \
+        "$(has "merged (by the user, or by the runner's fullAuto chain)" "$REPO_ROOT/skills/n1-queue/steps/run.md")"
+}
+
 test_busy_guard() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     start_fake_runner
@@ -2693,6 +2703,7 @@ test_bg_chain_finish_stops
 test_bg_chain_restart
 test_bg_chain_row_home
 test_lifecycle_wiring
+test_merge_wording
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {
