@@ -74,8 +74,9 @@ def build_parser():
     collect = sub.add_parser("collect", help="Collect and analyze recent runs")
     collect.add_argument("--n1-root", default=os.path.expanduser("~/.n1"),
                          help="Root directory containing N1 project dirs (default: ~/.n1)")
-    collect.add_argument("--last", type=int, default=DEFAULT_LAST,
-                         help=f"Number of most recent runs to analyze (default: {DEFAULT_LAST})")
+    collect.add_argument("--last", type=int, default=None,
+                         help=f"Number of most recent runs to analyze (default: {DEFAULT_LAST}, "
+                              "or all runs in the window when --since/--until is set)")
     collect.add_argument("--since", type=_date_arg, default=None,
                          help="YYYY-MM-DD (UTC); ignore runs started earlier")
     collect.add_argument("--until", type=_date_arg, default=None,
@@ -138,7 +139,7 @@ def ticket_id_from_run(run: dict) -> str | None:
     return None
 
 
-def filter_and_select(runs: list[dict], last: int,
+def filter_and_select(runs: list[dict], last: int | None,
                       projects: list[str] | None,
                       since: str | None = None,
                       until: str | None = None) -> list[dict]:
@@ -164,7 +165,7 @@ def filter_and_select(runs: list[dict], last: int,
         return ts if ts is not None else 0
     runs.sort(key=sort_key, reverse=True)
 
-    return runs[:last]
+    return runs[:last]  # last=None keeps all
 
 
 # ---------------------------------------------------------------- per-run extraction
@@ -193,6 +194,8 @@ def extract_steps(run: dict) -> list[dict]:
         step["tokens"] = {
             "input": orch_step.get("input_tokens", 0),
             "output": orch_step.get("output_tokens", 0),
+            "cache_read": orch_step.get("cache_read_tokens", 0),
+            "cache_creation": orch_step.get("cache_creation_tokens", 0),
         }
         steps.append(step)
     return steps
@@ -243,7 +246,12 @@ def extract_totals(run: dict) -> dict:
     unattr = orch.get("unattributed") or {}
     web_searches += (unattr.get("tools_used") or {}).get("WebSearch", 0)
 
+    orch_totals = orch.get("totals") or {}
     return {
+        "orch_input_tokens": orch_totals.get("input_tokens", 0),
+        "orch_output_tokens": orch_totals.get("output_tokens", 0),
+        "orch_cache_read_tokens": orch_totals.get("cache_read_tokens", 0),
+        "orch_cache_creation_tokens": orch_totals.get("cache_creation_tokens", 0),
         "input_tokens": summary.get("total_input_tokens"),
         "usage_status": run.get("usage_status", "unknown"),
         "usage_scope": run.get("usage_scope", "unknown"),
@@ -304,8 +312,10 @@ def extract_attribution(report: dict) -> dict:
     (unattributed tokens), and dispatch count.
     """
     totals = report.get("totals", {})
-    total_input = totals.get("input_tokens") or 0
-    total_output = totals.get("output_tokens") or 0
+    # Orchestrator basis: numerator (steps) and denominator (orchestrator.totals) share a transcript
+    total_input = ((totals.get("orch_input_tokens") or 0) + (totals.get("orch_cache_read_tokens") or 0)
+                   + (totals.get("orch_cache_creation_tokens") or 0))
+    total_output = totals.get("orch_output_tokens") or 0
 
     by_step = {}
     attributed_input = 0
@@ -313,9 +323,13 @@ def extract_attribution(report: dict) -> dict:
     dispatch_count = 0
 
     for s in report.get("steps", []):
-        step_input = s.get("tokens", {}).get("input", 0)
-        step_output = s.get("tokens", {}).get("output", 0)
-        attributed_input += step_input
+        tk = s.get("tokens", {})
+        step_input = tk.get("input", 0)
+        step_cache_read = tk.get("cache_read", 0)
+        step_cache_creation = tk.get("cache_creation", 0)
+        step_total_input = step_input + step_cache_read + step_cache_creation
+        step_output = tk.get("output", 0)
+        attributed_input += step_total_input
         attributed_output += step_output
         tools = s.get("tools", {})
         # Count agent dispatches (Agent, Task, spawn_agent tool calls)
@@ -323,8 +337,11 @@ def extract_attribution(report: dict) -> dict:
         dispatch_count += step_dispatches
         by_step[s["name"]] = {
             "input_tokens": step_input,
+            "cache_read_tokens": step_cache_read,
+            "cache_creation_tokens": step_cache_creation,
+            "total_input_tokens": step_total_input,
             "output_tokens": step_output,
-            "input_share_pct": round(step_input / total_input * 100, 1) if total_input else 0,
+            "input_share_pct": round(step_total_input / total_input * 100, 1) if total_input else 0,
             "output_share_pct": round(step_output / total_output * 100, 1) if total_output else 0,
             "tool_calls": tools,
             "agent_dispatches": step_dispatches,
@@ -581,7 +598,10 @@ def cmd_collect(args):
         projects = [p.strip() for p in args.projects.split(",") if p.strip()]
 
     # Filter and select
-    selected = filter_and_select(runs, args.last, projects, args.since, args.until)
+    last = args.last
+    if last is None and not (args.since or args.until):
+        last = DEFAULT_LAST
+    selected = filter_and_select(runs, last, projects, args.since, args.until)
     if not selected:
         print(json.dumps({"error": "No runs match the filter criteria",
                           "total_runs": len(runs), "malformed_lines": malformed}))

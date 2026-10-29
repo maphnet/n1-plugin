@@ -54,6 +54,11 @@ class TelemetryConsumersTest(unittest.TestCase):
         self.assertEqual(len(got), 2)
         self.assertEqual(len(analyzer.filter_and_select(list(runs), 10, None)), 5)
 
+    def test_window_without_last_returns_all_in_window(self):
+        runs = [{"started_at": f"2026-09-02T00:00:{i:02d}Z"} for i in range(30)]
+        self.assertEqual(len(analyzer.filter_and_select(list(runs), None, None, "2026-09-02")), 30)
+        self.assertIsNone(analyzer.build_parser().parse_args(["collect", "--since", "2026-09-02"]).last)
+
     def test_malformed_date_is_rejected(self):
         with self.assertRaises(SystemExit):
             analyzer.build_parser().parse_args(["collect", "--since", "09/02/2026"])

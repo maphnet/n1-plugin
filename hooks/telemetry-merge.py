@@ -408,6 +408,11 @@ def main() -> int:
     decisions = [e for e in step_events if e.get('event') == 'decision']
     questions = [e for e in step_events if e.get('event') == 'question']
     outcomes = [e for e in step_events if e.get('event') == 'outcome']
+    def _outcome_max(key):
+        # Outcome values are strings; None = no outcome reported (unknown, not 0)
+        vals = [int(o["outcomes"][key]) for o in outcomes
+                if str((o.get("outcomes") or {}).get(key, "")).isdigit()]
+        return max(vals) if vals else None
     total_in = _sum(a["input_tokens"] for a in agents)
     total_cache = _sum(a["cache_read_tokens"] for a in agents)
     orch_totals = (orchestrator or {}).get("totals")
@@ -422,8 +427,8 @@ def main() -> int:
         "agent_spawns": len(agents),
         "steps_completed": sum(1 for s in steps if s["outcome"] in ("pass", "skip", "success", "skipped")),
         "steps_skipped": sum(1 for s in steps if s["outcome"] in ("skip", "skipped")),
-        "review_fix_cycles": max((s["loop_iteration"] or 0 for s in steps if s["step"] == "fix"), default=0),
-        "qa_fix_cycles": sum(1 for s in steps if s["step"] == "qa" and (s["loop_iteration"] or 0) > 0),
+        "review_fix_cycles": _outcome_max("review_fix_cycles"),
+        "qa_fix_cycles": _outcome_max("qa_fix_cycles"),
         "review_blocking_count": next((int(o["outcomes"].get("review_blocking_count", 0)) for o in outcomes if "outcomes" in o), None),
         "break_check_verdict": next((o["outcomes"].get("break_check_verdict") for o in outcomes if "outcomes" in o), None),
         "decision_count": len(decisions),

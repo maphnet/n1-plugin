@@ -284,6 +284,29 @@ OUT10="$TELEM_DIR10/runs/$RUN_ID10.jsonl"
 assert_eq "N1-106: malformed boundaries do not crash merge; timestamp-123 skipped (count|manual|unknown-trigger)" "2|1|unknown" \
   "$(jq -r '[.summary.compaction_count, .summary.compaction_manual_count, .orchestrator.compactions[0].trigger] | map(tostring) | join("|")' "$OUT10")"
 
+# ==== Test N1-198: fix cycles from outcome events (string values); project from TELEM_DIR ====
+mk_fc() { # id outcome-json-or-empty
+    local d="$T/fchome/memory/$1/telemetry"
+    mkdir -p "$d/raw/steps" "$d/raw/agents"
+    echo "{\"run_id\":\"r-$1\",\"n1_version\":\"5.0.0\"}" > "$d/telemetry.lock"
+    { echo '{"layer":"envelope","started_at":"2026-09-01T10:00:00Z","ticket_id":"'"$1"'","session_id":"s","host":"claude-code"}'
+      [ -z "$2" ] || echo "{\"event\":\"outcome\",\"run_id\":\"r-$1\",\"outcomes\":$2}"
+      echo '{"layer":"envelope_close","completed_at":"2026-09-01T10:10:00Z","final_outcome":"pr_created"}'
+    } > "$d/raw/steps/r-$1.jsonl"
+    : > "$d/raw/agents/r-$1.jsonl"
+    env -u N1_HOME bash "$REPO_ROOT/hooks/telemetry-merge.sh" "r-$1" "$d"
+    FC_OUT="$d/runs/r-$1.jsonl"
+}
+for n in 0 1 3; do
+    mk_fc "FC-$n" "{\"review_fix_cycles\":\"$n\",\"qa_fix_cycles\":\"$n\"}"
+    assert_eq "N1-198: fix cycles $n from string outcome values" "$n|$n" \
+        "$(jq -r '"\(.summary.review_fix_cycles)|\(.summary.qa_fix_cycles)"' "$FC_OUT")"
+done
+assert_eq "N1-198: project derived from TELEM_DIR without N1_HOME" "fchome" "$(jq -r '.project' "$FC_OUT")"
+mk_fc "FC-NONE" ""
+assert_eq "N1-198: no outcome event -> fix cycles null" "null|null" \
+    "$(jq -r '"\(.summary.review_fix_cycles)|\(.summary.qa_fix_cycles)"' "$FC_OUT")"
+
 echo "---"
 echo "$((PASS+FAIL)) tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -23,6 +23,9 @@ except (OSError, ValueError): pass
 PROJECT_NAME=""
 if [ -n "${N1_HOME:-}" ]; then
     PROJECT_NAME=$(basename "$N1_HOME")
+else
+    # TELEM_DIR = <home>/memory/<ID>/telemetry; N1_HOME is not exported to children
+    PROJECT_NAME=$(basename "$(dirname "$(dirname "$(dirname "$TELEM_DIR")")")")
 fi
 
 "$PY" "${SCRIPT_DIR}/telemetry-merge.py" "$RUN_ID" "$TELEM_DIR" \
