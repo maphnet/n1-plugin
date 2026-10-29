@@ -128,6 +128,9 @@ assert_contains "investigation-deliverable: wait directive" \
 assert_contains "investigation-deliverable: post-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/investigation-deliverable.md" \
     "n1_verify_dependencies"
+assert_contains "investigation-deliverable: verify before step_end (N1-186)" \
+    "skills/n1-start/steps/investigation-deliverable.md" \
+    'n1_verify_dependencies "$N1_HOME/memory/$ID" investigation.md || { n1_step_end "investigation-deliverable" 16 failed;'
 assert_contains "qa: wait directive" \
     "skills/n1-start/steps/qa.md" \
     "Wait contract applies"
