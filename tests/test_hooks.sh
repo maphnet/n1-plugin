@@ -345,12 +345,16 @@ for t in missing fails cfgfile pluginroot; do
     assert_eq "pre-python error ($t): ordinary Bash keeps the error code" 1 "$(xrc "$t" "$QB")"
     assert_eq "pre-python error ($t): developer Write keeps the error code" 1 "$(xrc "$t" "$DW")"
 done
+# TQ-2: the trap path never applies the merge-authorized carve-out (config.sh loaded in cfgfile, so the predicate exists)
+cfg "$BOTH"; assert_eq "pre-python error: authorized queue-child Bash still denied" 2 "$(xrc cfgfile "$QB" "${Q[@]}")"
+# SEC-1: a closed stderr must not replace the deny code
+assert_eq "pre-python error: deny survives closed stderr" 2 "$(printf '%s' "$QB" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "${Q[@]}" bash "$T/x-missing/hooks/enforce-agent-policy.sh" >/dev/null 2>&- && echo 0 || echo $?)"
 rm -rf "$T"/x-*
 # Unreadable stdin (a directory: cat fails with EISDIR): the tool is unknown, so a queue child is denied for any call
 stdin_dir_rc() { local rc=0; env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "$@" bash "$POLICY" <"$T" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
 assert_eq "unreadable stdin: queue child denied" 2 "$(stdin_dir_rc "${Q[@]}")"
 assert_eq "unreadable stdin: ordinary session keeps the error code" 1 "$(stdin_dir_rc)"
-# Python crash (interpreter probe passes, script exits 1 or 137): queue-child Bash denied unless merge-authorized (CR-2)
+# Python crash (interpreter probe passes, script exits 1 or 137): queue-child Bash denied even when merge-authorized
 mkdir -p "$T/crashpy"
 printf '#!/bin/sh\n[ "$1" = -c ] && { cat; echo; exit 0; }\nexit "${CRASH_RC:-1}"\n' > "$T/crashpy/python3"
 cp "$T/crashpy/python3" "$T/crashpy/python"; chmod +x "$T/crashpy/"*
@@ -359,7 +363,7 @@ for r in 1 137; do
     assert_eq "python crash rc $r: queue-child Bash denied" 2 "$(policy_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
     assert_eq "python crash rc $r: ordinary Bash allowed" 0 "$(policy_rc PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
     cfg "$BOTH"
-    assert_eq "python crash rc $r: authorized queue-child Bash allowed" 0 "$(policy_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+    assert_eq "python crash rc $r: authorized queue-child Bash still denied (pipe-mask check lost)" 2 "$(policy_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
 done
 cfg '{}'
 assert_eq "python crash: queue-child developer Write allowed" 0 "$(raw_rc "$DW" "${Q[@]}" PATH="$T/crashpy:$PATH")"

@@ -6,6 +6,7 @@
 # The EXIT trap below decides from env + raw stdin only. A hook timeout or SIGKILL still fails open
 # (residual risk, references/architecture.md).
 set -euo pipefail
+trap '' PIPE  # a closed stderr must not turn the deny into SIGPIPE (SEC-1)
 
 INPUT=""
 INPUT_READ=0
@@ -20,11 +21,12 @@ REVIEWER_KEY_RE='"agent_type"[[:space:]]*:[[:space:]]*"n1:(code|security)-review
 WRITE_KEY_RE='"tool_name"[[:space:]]*:[[:space:]]*"Write"'
 # fail_closed_check [--allow-authorized]: exit 2 for a call that must not pass unevaluated, else return.
 # A queue child whose stdin was never read is denied for any tool (the tool is unknown). --allow-authorized
-# (only after config.sh loaded: no Python, Python crash) keeps Bash for a merge-authorized queue child (CR-2);
-# the trap never passes it, since config.sh may be what failed.
+# (only after config.sh loaded: no Python) keeps Bash for a merge-authorized queue child (CR-2); the trap
+# and the Python-crash path never pass it (config.sh may be what failed; a crash must not drop the pipe-mask deny).
+# Deny writes end in || true so a dead stderr can never replace exit 2 (SEC-1).
 fail_closed_check() {
     if [[ $INPUT =~ $REVIEWER_KEY_RE ]] && [[ $INPUT =~ $WRITE_KEY_RE ]]; then
-        echo "N1: reviewer Write denied -- the agent policy hook could not evaluate it (no Python interpreter or hook error)" >&2
+        echo "N1: reviewer Write denied -- the agent policy hook could not evaluate it (no Python interpreter or hook error)" >&2 || true
         exit 2
     fi
     [ -n "$QUEUE_CHILD" ] || return 0
@@ -34,12 +36,12 @@ fail_closed_check() {
     if [ "${1:-}" = --allow-authorized ] && declare -F n1_merge_authorized >/dev/null && [ "$(n1_merge_authorized)" = true ]; then
         return 0
     fi
-    echo "N1: call denied in queue run ${N1_QUEUE_RUN_ID} -- the agent policy hook could not evaluate it (no Python interpreter or hook error)" >&2
+    echo "N1: call denied in queue run ${N1_QUEUE_RUN_ID} -- the agent policy hook could not evaluate it (no Python interpreter or hook error)" >&2 || true
     exit 2
 }
 # N1-195: any exit other than the deliberate 0/2 (a set -e failure, unreadable stdin) is re-checked;
 # otherwise the original code is kept, so ordinary calls still see a non-blocking error.
-trap '_rc=$?; if [ "$_rc" -ne 0 ] && [ "$_rc" -ne 2 ]; then fail_closed_check; fi; exit "$_rc"' EXIT
+trap '_rc=$?; set +e; if [ "$_rc" -ne 0 ] && [ "$_rc" -ne 2 ]; then fail_closed_check; fi; exit "$_rc"' EXIT
 
 INPUT=$(cat)
 INPUT_READ=1
@@ -95,5 +97,5 @@ case "$RC" in
     0) exit 0 ;;
     2) exit 2 ;;
 esac
-fail_closed_check --allow-authorized
+fail_closed_check
 exit 0
