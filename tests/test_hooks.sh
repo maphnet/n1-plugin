@@ -321,6 +321,50 @@ nopy_rc() { local rc=0; printf '%s' "$PP" | env -u N1_QUEUE_RUN_ID -u N1_HEADLES
 cfg "$BOTH"; assert_eq "no python: authorized queue persona Bash allowed" 0 "$(nopy_rc)"
 cfg '{}'; assert_eq "no python: unauthorized queue persona Bash denied" 2 "$(nopy_rc)"
 rm -rf "$T/nopy"
+# N1-195: wrapper errors before Python (failing config.sh source, n1_config_file, n1_plugin_root, unreadable stdin)
+# deny a reviewer Write and queue-child Bash via the EXIT trap; other calls keep the error code (non-blocking)
+mk_tree() {  # mk_tree <name> <config.sh body; empty = missing>: wrapper copy whose ../lib/config.sh is stubbed
+    mkdir -p "$T/x-$1/hooks" "$T/x-$1/lib"; cp "$POLICY" "$T/x-$1/hooks/"
+    [ -z "$2" ] || printf '%s\n' "$2" > "$T/x-$1/lib/config.sh"
+}
+mk_tree missing ""
+mk_tree fails "return 1"
+mk_tree cfgfile "source \"$REPO_ROOT/lib/config.sh\"; n1_config_file() { return 1; }"
+mk_tree pluginroot "source \"$REPO_ROOT/lib/config.sh\"; n1_plugin_root() { return 1; }"
+xrc() {  # xrc <tree> <payload> [env...]: payload through the stubbed wrapper copy; stderr -> $T/x-err
+    local w="$T/x-$1/hooks/enforce-agent-policy.sh" p=$2; shift 2; local rc=0
+    printf '%s' "$p" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "$@" bash "$w" >/dev/null 2>"$T/x-err" || rc=$?; echo "$rc"
+}
+QB=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr view 1"}}')
+RWC=$(jq -c . "$RW")
+DW=$(jq -c '.agent_type="n1:developer"' "$RW")
+for t in missing fails cfgfile pluginroot; do
+    assert_eq "pre-python error ($t): queue-child Bash denied" 2 "$(xrc "$t" "$QB" "${Q[@]}")"
+    assert_eq "pre-python error ($t): reviewer Write denied" 2 "$(xrc "$t" "$RWC")"
+    assert_eq "pre-python error ($t): reviewer Write denial names the cause" 1 "$(grep -cxF "$DENY_MSG" "$T/x-err" || true)"
+    assert_eq "pre-python error ($t): ordinary Bash keeps the error code" 1 "$(xrc "$t" "$QB")"
+    assert_eq "pre-python error ($t): developer Write keeps the error code" 1 "$(xrc "$t" "$DW")"
+done
+rm -rf "$T"/x-*
+# Unreadable stdin (a directory: cat fails with EISDIR): the tool is unknown, so a queue child is denied for any call
+stdin_dir_rc() { local rc=0; env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "$@" bash "$POLICY" <"$T" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+assert_eq "unreadable stdin: queue child denied" 2 "$(stdin_dir_rc "${Q[@]}")"
+assert_eq "unreadable stdin: ordinary session keeps the error code" 1 "$(stdin_dir_rc)"
+# Python crash (interpreter probe passes, script exits 1 or 137): queue-child Bash denied unless merge-authorized (CR-2)
+mkdir -p "$T/crashpy"
+printf '#!/bin/sh\n[ "$1" = -c ] && { cat; echo; exit 0; }\nexit "${CRASH_RC:-1}"\n' > "$T/crashpy/python3"
+cp "$T/crashpy/python3" "$T/crashpy/python"; chmod +x "$T/crashpy/"*
+for r in 1 137; do
+    cfg '{}'
+    assert_eq "python crash rc $r: queue-child Bash denied" 2 "$(policy_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+    assert_eq "python crash rc $r: ordinary Bash allowed" 0 "$(policy_rc PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+    cfg "$BOTH"
+    assert_eq "python crash rc $r: authorized queue-child Bash allowed" 0 "$(policy_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+done
+cfg '{}'
+assert_eq "python crash: queue-child developer Write allowed" 0 "$(raw_rc "$DW" "${Q[@]}" PATH="$T/crashpy:$PATH")"
+assert_eq "python crash: reviewer Write denied" 2 "$(raw_rc "$RWC" PATH="$T/crashpy:$PATH")"
+rm -rf "$T/crashpy"
 # Missing or invalid config must deny, never authorize (the shell predicate is false, so Python decides with config {})
 c="gh pr merge 12"
 rm -f "$N1_HOME/config.json"
