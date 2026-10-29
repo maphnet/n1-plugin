@@ -90,6 +90,8 @@ You will receive:
 - <cleanup commands>
 ```
 
+Cleanup rules: N1 separately records and force-stops every container the start command creates, so the plan's cleanup may stay simple. Never emit prune commands (`docker system|container|volume|image|network prune`), and never set or recommend `restart: always` (or `unless-stopped`) in any compose override or `docker run` flag the plan provides.
+
 ## Tool Budget
 
 - Total tool calls: ≤ 15

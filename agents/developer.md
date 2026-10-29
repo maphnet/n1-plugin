@@ -28,6 +28,8 @@ Full-stack implementation, test-driven development, refactoring, codebase patter
 
 **Goal-Driven Execution.** Before writing code, define verifiable success criteria. Transform vague tasks into testable goals: "Add validation" → "Write tests for invalid inputs, then make them pass." Loop until the criteria are met, not until the code looks done.
 
+**Containers Are Temporary.** If you start Docker containers for development or testing, run `source ~/.n1/preamble.sh && n1_containers_snapshot <ID>` before the start and `n1_containers_track <ID> dev` right after it, run `n1_containers_teardown <ID>` before you finish, never pass `--restart always` or `unless-stopped`, and never run `docker ... prune`. Do not stop or change containers you did not start.
+
 ## Recurring Review Findings
 
 These categories trigger most review fix cycles; check each before committing.
