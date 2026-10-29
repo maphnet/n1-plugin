@@ -42,6 +42,9 @@ PY
 # snippets. Restore them (plain assignment, NOT exported) from this session's keyed active-run
 # pointer + live lock. Fail-open: always returns 0, leaves vars unset on any mismatch.
 # Ticket agreement is checked at use time: see n1_bind_run_to_ticket.
+# Single allowlist for any run id taken from a pointer or a lock filename (N1-193).
+_n1_valid_run_id() { case "$1" in n1-run-*[!A-Za-z0-9._-]*|n1-run-) return 1 ;; n1-run-*) return 0 ;; *) return 1 ;; esac; }
+
 n1_restore_run_identity() {
     [ -z "${N1_RUN_ID:-}" ] || return 0
     local sid f run lock
@@ -50,7 +53,7 @@ n1_restore_run_identity() {
     case "$f" in */active-run."$sid".json) ;; *) return 0 ;; esac
     [ -f "$f" ] || return 0
     run=$(n1_hook_field runId < "$f")
-    case "$run" in n1-run-*[!A-Za-z0-9._-]*|n1-run-) return 0 ;; n1-run-*) ;; *) return 0 ;; esac
+    _n1_valid_run_id "$run" || return 0
     for lock in "${N1_HOME:-$(n1_home)}"/memory/*/telemetry/locks/"$run".json; do
         [ -f "$lock" ] || continue
         [ "$(n1_hook_field session_id < "$lock")" = "$sid" ] || continue
@@ -75,7 +78,7 @@ n1_restore_run_identity() {
 # no ID and keep their session/ambiguity rules. Plain vars, never exported; always returns 0.
 n1_bind_run_to_ticket() {
     [ -n "${N1_RUN_ID:-}" ] && [ -n "${ID:-}" ] || return 0
-    local mem="${N1_HOME:-$(n1_home)}/memory" sid lock="" run="" n=0
+    local mem="${N1_HOME:-$(n1_home)}/memory" sid lock="" run="" cand="" n=0
     [ ! -f "$mem/$ID/telemetry/locks/$N1_RUN_ID.json" ] || return 0
     for lock in "$mem"/*/telemetry/locks/"$N1_RUN_ID".json; do
         [ -f "$lock" ] && break
@@ -85,7 +88,9 @@ n1_bind_run_to_ticket() {
     for lock in "$mem/$ID"/telemetry/locks/*.json; do
         [ -f "$lock" ] && [ -n "$sid" ] || continue
         [ "$(n1_hook_field session_id < "$lock")" = "$sid" ] || continue
-        run="${lock##*/}"; run="${run%.json}"; n=$((n + 1))
+        cand="${lock##*/}"; cand="${cand%.json}"
+        _n1_valid_run_id "$cand" || continue
+        run="$cand"; n=$((n + 1))
     done
     unset N1_RUN_ID N1_VERSION
     [ "$n" = 1 ] || return 0
@@ -125,6 +130,13 @@ n1_emit_step_event() {
     json="${json}}"
 
     echo "$json" >> "$outfile"
+}
+
+# n1_emit_rebind <run_id> <ticket_id>: prints "<run>\t<version>" after the ticket agreement check
+# (empty run = drop the write). Subshell: caller's N1_RUN_ID/ID/N1_VERSION stay untouched.
+n1_emit_rebind() {
+    ( N1_RUN_ID="$1"; ID="$2"; N1_VERSION=""; n1_bind_run_to_ticket
+      printf '%s\t%s' "${N1_RUN_ID:-}" "${N1_VERSION:-}" )
 }
 
 n1_read_lock() {
@@ -210,6 +222,9 @@ n1_remove_run_lock() {
 n1_emit_outcome() {
     local run_id="$1" version="$2" ticket_id="$3" tdir="$4"
     [ -n "$run_id" ] || return 0
+    local rb; rb=$(n1_emit_rebind "$run_id" "$ticket_id")
+    [ -n "${rb%%$'\t'*}" ] || return 0
+    [ "${rb%%$'\t'*}" = "$run_id" ] || { run_id="${rb%%$'\t'*}"; version="${rb#*$'\t'}"; }
     shift 4
     local outcomes="{"
     local first=true
@@ -291,6 +306,9 @@ n1_emit_question_event() {
     local run_id="$1" version="$2" ticket_id="$3" telem_dir="$4" step="$5"
     local category="$6" resolution="$7" rungs="${8:-}"
     [ -n "$run_id" ] || return 0
+    local rb; rb=$(n1_emit_rebind "$run_id" "$ticket_id")
+    [ -n "${rb%%$'\t'*}" ] || return 0
+    [ "${rb%%$'\t'*}" = "$run_id" ] || { run_id="${rb%%$'\t'*}"; version="${rb#*$'\t'}"; }
     local ts
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     local file="${telem_dir}/raw/steps/${run_id}.jsonl"

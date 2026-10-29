@@ -116,6 +116,22 @@ test ! -e "$R/home/memory/NP-TD/telemetry/raw"
 LATE=$( ( N1_HOME="$R/home" N1_SESSION_ID=sess-2 N1_RUN_ID=n1-run-gone ID=NP-TA
           n1_bind_run_to_ticket; printf '%s' "${N1_RUN_ID:-}" ) )
 test "$LATE" = n1-run-gone                                        # no lock anywhere (late event): fail-open
+# SEC-1: a stray lock filename must not be adopted as a run id
+mklock NP-TE n1-run-te sess-2
+printf '{"session_id":"sess-2"}' > "$R/home/memory/NP-TE/telemetry/locks/foo bar.json"
+test "$(bind sess-2 NP-TE)" = "n1-run-tb|n1-run-te|n1-run-te"
+# CR-1: emitters given the stale run id write under the ticket's own run, never orphan
+EM=$(N1_ROOT="$ROOT" N1_HOME="$R/home" N1_SESSION_ID=sess-2 bash -c 'source "$1/lib/preamble.sh" >/dev/null 2>&1
+    n1_emit_outcome n1-run-tb v NP-TA "$2/memory/NP-TA/telemetry" a=b
+    n1_emit_question_event n1-run-tb v NP-TA "$2/memory/NP-TA/telemetry" s design auto
+    n1_emit_outcome n1-run-tb v NP-TC "$2/memory/NP-TC/telemetry" a=b' _ "$ROOT" "$R/home")
+test "$(grep -c . "$R/home/memory/NP-TA/telemetry/raw/steps/n1-run-ta.jsonl")" -ge 3
+test ! -e "$R/home/memory/NP-TA/telemetry/raw/steps/n1-run-tb.jsonl"
+test ! -e "$R/home/memory/NP-TC/telemetry/raw"
+# TQ-1: n1_record_decision also binds (n1_review_record not covered: needs a PR fixture)
+(unset N1_RUN_ID N1_VERSION; export N1_ROOT="$ROOT" N1_HOME="$R/home" N1_SESSION_ID=sess-2; source "$ROOT/lib/preamble.sh" >/dev/null 2>&1; ID=NP-TA
+  n1_record_decision d1 true >/dev/null 2>&1)
+grep -q '"event":"decision"' "$R/home/memory/NP-TA/telemetry/raw/steps/n1-run-ta.jsonl"
 echo 'PASS: bind run to ticket'
 
 # Backstop: empty run id writes no .jsonl
