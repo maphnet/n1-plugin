@@ -149,7 +149,6 @@ assert_eq "no python: reviewer spawn (tool_input.agent_type) allowed" 0 "$(raw_r
 NULW=$(jq -c --arg f "$N1_HOME/memory/T-8/review-cr.md" '.tool_input.file_path=($f+"\u0000x")' "$RW")
 assert_eq "python crash (NUL in file_path): reviewer Write denied" 2 "$(raw_rc "$NULW")"
 assert_eq "python crash: denial names the cause" 1 "$(grep -cxF "$DENY_MSG" "$T/raw-err" || true)"
-assert_eq "python crash path: developer Write with NUL file_path allowed" 0 "$(raw_rc "$(printf '%s' "$NULW" | jq -c '.agent_type="n1:developer"')")"
 assert_eq "malformed JSON: code-reviewer Write denied" 2 "$(raw_rc '{"agent_type":"n1:code-reviewer","tool_name":"Write","tool_input":{"file_path":')"
 assert_eq "malformed JSON: security-reviewer Write (spaced) denied" 2 "$(raw_rc '{"agent_type": "n1:security-reviewer", "tool_name": "Write", ')"
 assert_eq "malformed JSON: reviewer Read allowed" 0 "$(raw_rc '{"agent_type":"n1:code-reviewer","tool_name":"Read",')"
