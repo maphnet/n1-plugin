@@ -190,6 +190,7 @@ Runs when the input says `mode: reconcile`: an open PR received pushes after its
    - Plain `- [x]` lines outside `## Deployment Actions` and without one of those annotations may be reworded when the diff makes their stated fact stale (e.g. an updated test count), but must stay ticked and must not be removed unless the diff removed the thing they verify. Plain `- [ ]` items (same scope) may be reworded or removed freely.
    - Any `##` section outside the known set (Summary, Changes, Deployment Actions, Verification, Decisions, Documentation, Review Notes, Ticket), and `## Ticket` itself: copy byte-for-byte in the same position.
    - Keep the section order.
+   - Verbatim copying never carries a foreign ticket key. If the old body contains one, rewrite it per the ticket-key hygiene constraint, changing only those tokens; all other preservation rules still hold.
 4. Stale docs: do not edit them. Apply Phase 1 Steps 2-3 read-only, taking the changed paths from the `diff --git` headers in `diff`. For each doc the new commits plausibly made stale, add a bullet under `## Review Notes` (create the section if absent): `- <doc> may be stale — <why>; not updated (reconcile mode)`.
 5. Write the full revised body (body only: no title, no `## PR Content` wrapper, no other wrapper tags) to `output` with the Write tool. Return one line, `reconcile body written: <output>`, then at most 3 bullets naming what changed, plus a bullet listing any Deployment Actions items newly appended in step 3 (or "new deploy actions: none").
 
@@ -274,7 +275,7 @@ pr body written: <body_file>
 - [ ] <QA verification step>
 ```
 
-- Copy the `### AC Coverage` table from `review.md` verbatim under a `#### Acceptance criteria` sub-heading. Do not re-evaluate it.
+- Copy the `### AC Coverage` table from `review.md` verbatim under a `#### Acceptance criteria` sub-heading, except foreign ticket keys, which are rewritten per the ticket-key hygiene constraint. Do not re-evaluate it.
 
 ## Tool Budget
 
@@ -293,3 +294,4 @@ pr body written: <body_file>
 - If no ticket ID, omit the [TICKET-ID] prefix
 - Omit the `## Ticket` section entirely if ticket.md was not provided AND ticket_url is absent from overview.md frontmatter
 - Group changes by area/module, not by file
+- Ticket-key hygiene: the only ticket key that may appear in the PR title or body is the implementing ticket's own key (the `[TICKET-ID]` input). A key is any `[A-Z][A-Z0-9]+-[0-9]+` token (Jira, YouTrack, or any other tracker); non-ticket tokens such as `UTF-8` or `SHA-256` stay as they are. Rewrite every other key as a description, a de-hyphenated key (`VEL 1788`), or a plain tracker URL whose link text is not a raw key. This applies to every section, including `## Ticket`, `## Decisions`, `## Review Notes`, the AC Coverage table, and text copied from ticket.md, overview.md, or review.md. Never copy a foreign key, even from a section marked verbatim. If no ticket ID was given, every key is foreign.
