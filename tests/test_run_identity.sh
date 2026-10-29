@@ -141,3 +141,15 @@ n1_emit_outcome "" v NP-R "$R/tdir" a=b
 n1_emit_question_event "" v NP-R "$R/tdir" s design auto
 test -z "$(find "$R/tdir" -type f 2>/dev/null)"
 echo 'PASS: emitters drop events with empty run id'
+
+# --- n1_close_run binds to the ticket (N1-193 CR-1) ---
+export N1_SESSION_ID=thread-close N1_ROOT="$ROOT"
+ID=CL-A; n1_run_begin "$ID"; CA="$N1_RUN_ID"
+ID=CL-B; n1_run_begin "$ID"; CB="$N1_RUN_ID"
+ID=CL-A; N1_RUN_ID="$CB"   # pointer/ambient overwritten by ticket B
+FINAL_OUTCOME=pr_created ESTIMATED_TIER=simple n1_close_run
+grep -q '"layer":"envelope_close"' "$N1_HOME/memory/CL-A/telemetry/raw/steps/$CA.jsonl"
+if grep -q envelope_close "$N1_HOME/memory/CL-B/telemetry/raw/steps/$CB.jsonl"; then echo 'close landed in B' >&2; exit 1; fi
+test ! -f "$N1_HOME/memory/CL-A/telemetry/locks/$CA.json"
+test -f "$N1_HOME/memory/CL-B/telemetry/locks/$CB.json"
+echo 'PASS: n1_close_run closes the ticket own run'

@@ -139,6 +139,19 @@ n1_emit_rebind() {
       printf '%s\t%s' "${N1_RUN_ID:-}" "${N1_VERSION:-}" )
 }
 
+# n1_close_run: FINALIZE close for $ID (needs FINAL_OUTCOME, ESTIMATED_TIER): bind run to ticket, write
+# envelope_close, merge, drop the lock. Unbound run (no/ambiguous) -> no-op. Always returns 0.
+n1_close_run() {
+    n1_bind_run_to_ticket
+    [ -n "${N1_RUN_ID:-}" ] || return 0
+    local tdir="${N1_HOME}/memory/$ID/telemetry" t
+    t=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || true)
+    echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"${FINAL_OUTCOME:-}"'","estimated_tier":"'"${ESTIMATED_TIER:-}"'","type":"'"$t"'"}' >> "$tdir/raw/steps/$N1_RUN_ID.jsonl"
+    bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "$tdir" 2>&1 || echo "⚠ Telemetry merge failed" >&2
+    [ -s "$tdir/runs/$N1_RUN_ID.jsonl" ] && n1_remove_run_lock "$tdir" "$N1_RUN_ID"
+    return 0
+}
+
 n1_read_lock() {
     local memory_dir="$1"
     local lock_file="" candidate session owner run host selected_run=""

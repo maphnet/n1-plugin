@@ -7,18 +7,10 @@ Update overview.md: all checkboxes checked; `step: done`; add `docs_updated` fie
 **Telemetry:**
 ```bash
 source ~/.n1/preamble.sh
-RESOLVED_TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || true)
-[ -n "$N1_RUN_ID" ] && echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$FINAL_OUTCOME"'","estimated_tier":"'"$ESTIMATED_TIER"'","type":"'"$RESOLVED_TYPE"'"}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
+source "$N1_ROOT/lib/telemetry.sh"
+n1_close_run
 ```
 `$FINAL_OUTCOME`: `pr_created`/`pr_skipped`/`escalated`/`failed`. `$ESTIMATED_TIER`: overview tier or empty.
-
-```bash
-source ~/.n1/preamble.sh
-bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "${N1_HOME}/memory/$ID/telemetry" 2>&1 || echo "⚠ Telemetry merge failed" >&2
-MERGED="${N1_HOME}/memory/$ID/telemetry/runs/$N1_RUN_ID.jsonl"
-source "$N1_ROOT/lib/telemetry.sh"
-[ -s "$MERGED" ] && n1_remove_run_lock "${N1_HOME}/memory/$ID/telemetry" "$N1_RUN_ID"
-```
 
 Clear active-run (first record any run-branch PR still missing its Codex receipt, so the Stop hook enforces it after the pointer is gone):
 ```bash
