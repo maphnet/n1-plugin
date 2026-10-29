@@ -70,12 +70,18 @@ fix_repo "$T2" 'def test_add_hollow():
 OUT=$(n1_break_check base "$CMD" test_add_hollow "$T2/bc.log" "$T2")
 assert_eq "hollow verdict" "never-red" "$(echo "$OUT" | jq -r .verdict)"
 
-# Case 3: named test missing → inconclusive (revert run is green or shows other names only)
+# Case 3: named test missing → never-red (revert run is green or shows other names only)
 T3=$(mktemp -d); make_repo "$T3"
 fix_repo "$T3" 'def test_add_negative():
     assert add(-1, 2) == 1'
 OUT=$(n1_break_check base "$CMD" test_does_not_exist "$T3/bc.log" "$T3")
 assert_eq "missing test verdict" "never-red" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 3b: empty command or name → inconclusive
+set +e; OUT=$(n1_break_check base "" test_x "$T3/bc.log" "$T3"); set -e
+assert_eq "empty cmd verdict" "inconclusive" "$(echo "$OUT" | jq -r .verdict)"
+set +e; OUT=$(n1_break_check base "$CMD" "" "$T3/bc.log" "$T3"); set -e
+assert_eq "empty name verdict" "inconclusive" "$(echo "$OUT" | jq -r .verdict)"
 
 # Case 4: syntax error on revert → inconclusive
 T4=$(mktemp -d); make_repo "$T4"
@@ -111,6 +117,7 @@ git -C "$T6" add -A; git -C "$T6" commit -qm tests-only
 set +e; OUT=$(n1_break_check base "$CMD" test_extra "$T6/bc.log" "$T6"); RC=$?; set -e
 assert_eq "no-diff exit" "2" "$RC"
 assert_eq "no-diff kind" "no-diff" "$(echo "$OUT" | jq -r .error.kind)"
+assert_eq "no-diff verdict" "no-diff" "$(echo "$OUT" | jq -r .verdict)"
 
 make_shell_repo() {  # $1 = dir — shell-harness style runner ("check <description> <expr>")
     git -C "$1" init -q; git -C "$1" config user.email t@t; git -C "$1" config user.name t
@@ -164,6 +171,52 @@ fix_shell_repo "$T8" "$LINE8"
 OUT=$(n1_break_check base "$SHELL_CMD" tests/test_wiring.sh "$T8/bc.log" "$T8")
 assert_eq "shell-harness hollow verdict" "never-red" "$(echo "$OUT" | jq -r .verdict)"
 
+# Case 8b: hollow test named by its PASS description → still never-red (PASS on both runs)
+OUT=$(n1_break_check base "$SHELL_CMD" "add handles two ones" "$T8/bc.log" "$T8")
+assert_eq "shell-harness hollow by name verdict" "never-red" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 9: FAIL text embeds a temp path and differs from the PASS name (N1-138) → red-then-green via PASS-set
+T9=$(mktemp -d); make_shell_repo "$T9"
+LINE9=$(cat <<'RAWEOF'
+if [ "$(add -1 2)" = "1" ]; then echo "PASS: add handles negatives"; else echo "FAIL: check used START_FILE $(mktemp -u)/decoy-start"; FAIL=1; fi
+RAWEOF
+)
+fix_shell_repo "$T9" "$LINE9"
+OUT=$(n1_break_check base "$SHELL_CMD" "add handles negatives" "$T9/bc.log" "$T9")
+assert_eq "FAIL text differs from PASS name verdict" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 10: reverted suite aborts after an unrelated FAIL, before the named test → inconclusive (not red)
+T10=$(mktemp -d); make_shell_repo "$T10"
+LINE10=$(cat <<'RAWEOF'
+check "add handles negatives" '[ "$(add -1 2)" = "1" ]'
+[ "$(add -1 0)" = "-1" ] || exit 3
+check "add negative identity" '[ "$(add -1 0)" = "-1" ]'
+RAWEOF
+)
+fix_shell_repo "$T10" "$LINE10"
+OUT=$(n1_break_check base "$SHELL_CMD" "add negative identity" "$T10/bc.log" "$T10")
+assert_eq "aborted reverted suite verdict" "inconclusive" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 11: a leaked N1_RUN_ID must not reach the test command
+T11=$(mktemp -d); make_repo "$T11"
+fix_repo "$T11" 'def test_add_negative():
+    assert add(-1, 2) == 1'
+OUT=$(export N1_RUN_ID=leak; n1_break_check base '[ -z "${N1_RUN_ID:-}" ] && python3 run_tests.py' test_add_negative "$T11/bc.log" "$T11")
+assert_eq "N1_RUN_ID unset for break-check runs" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 12: two unrelated FAIL diagnostics + abort hide that the named test never ran; counts match → inconclusive
+T12B=$(mktemp -d); make_shell_repo "$T12B"
+LINE12=$(cat <<'RAWEOF'
+if [ "$(add -1 0)" = "-1" ]; then echo "PASS: setup"; else echo "FAIL: diag one"; echo "FAIL: diag two"; exit 3; fi
+check "target" '[ "$(add -1 2)" = "1" ]'
+RAWEOF
+)
+fix_shell_repo "$T12B" "$LINE12"
+OUT=$(n1_break_check base "$SHELL_CMD" target "$T12B/bc.log" "$T12B")
+assert_eq "count-matching abort without target evidence verdict" "inconclusive" "$(echo "$OUT" | jq -r .verdict)"
+
+rm -rf "$T9" "$T10" "$T11" "$T12B"
+
 rm -rf "$T7" "$T8"
 
 # Test path classifier
@@ -171,6 +224,54 @@ n1_break_check_is_test_path "tests/test_app.py" && echo "PASS: tests/ path" && P
 n1_break_check_is_test_path "src/calc.spec.ts" && echo "PASS: spec path" && PASS=$((PASS+1)) || { echo "FAIL: spec path"; FAIL=$((FAIL+1)); }
 n1_break_check_is_test_path "src/calc.ts" && { echo "FAIL: src path"; FAIL=$((FAIL+1)); } || { echo "PASS: src path"; PASS=$((PASS+1)); }
 n1_break_check_is_test_path "test_wiring.sh" && echo "PASS: bare .sh test path" && PASS=$((PASS+1)) || { echo "FAIL: bare .sh test path"; FAIL=$((FAIL+1)); }
+
+# Parse-line: qa.md Regression/New test line contract
+BT='`'
+L63="Regression test: ${BT}host: constant in an empty env${BT} | ${BT}bash tests/test_host_lib.sh${BT} (no isolated single-test invocation exists)"
+assert_eq "parse: N1-63 name" "host: constant in an empty env" "$(n1_break_check_parse_line "$L63" name)"
+assert_eq "parse: N1-63 cmd drops trailing prose" "bash tests/test_host_lib.sh" "$(n1_break_check_parse_line "$L63" cmd 2>/dev/null)"
+W=$(n1_break_check_parse_line "$L63" cmd 2>&1 >/dev/null || true)
+assert_eq "parse: trailing prose warns once" "1" "$(grep -c 'ignoring text after the command' <<< "$W")"
+L106="Regression test: N1-106: in-run counts total|auto|manual (hook event ignored) | ${BT}env -u N1_RUN_ID bash tests/test_telemetry_merge.sh${BT}"
+assert_eq "parse: pipe in name" "N1-106: in-run counts total|auto|manual (hook event ignored)" "$(n1_break_check_parse_line "$L106" name)"
+assert_eq "parse: pipe-name cmd" "env -u N1_RUN_ID bash tests/test_telemetry_merge.sh" "$(n1_break_check_parse_line "$L106" cmd)"
+LPIPE="New test: test_x | ${BT}pytest -q tests/test_x.py | tail -5${BT}"
+assert_eq "parse: pipe in cmd kept" "pytest -q tests/test_x.py | tail -5" "$(n1_break_check_parse_line "$LPIPE" cmd)"
+assert_eq "parse: no warning without trailing text" "" "$(n1_break_check_parse_line "$LPIPE" cmd 2>&1 >/dev/null)"
+LBARE="New test: tests/test_x.sh | bash tests/test_x.sh"
+assert_eq "parse: legacy bare name" "tests/test_x.sh" "$(n1_break_check_parse_line "$LBARE" name)"
+assert_eq "parse: legacy bare cmd" "bash tests/test_x.sh" "$(n1_break_check_parse_line "$LBARE" cmd)"
+assert_eq "parse: empty line → empty cmd" "" "$(n1_break_check_parse_line "" cmd)"
+LMULTI="New test: x | a | b"
+assert_eq "parse: legacy multi-pipe → empty cmd" "" "$(n1_break_check_parse_line "$LMULTI" cmd 2>/dev/null)"
+assert_eq "parse: legacy multi-pipe warns" "1" "$(n1_break_check_parse_line "$LMULTI" cmd 2>&1 >/dev/null | grep -c ambiguous)"
+assert_eq "parse: legacy multi-pipe name kept" "x" "$(n1_break_check_parse_line "$LMULTI" name)"
+# _n1_bc_has: empty name never matches; names match exactly (a parenthetical is part of the identity)
+_n1_bc_has $'a\n\nb' "" && r=match || r=none
+assert_eq "bc_has: empty name vs list with blank line" "none" "$r"
+_n1_bc_has "" "" && r=match || r=none
+assert_eq "bc_has: empty name vs empty list" "none" "$r"
+_n1_bc_has $'test_a\nb' "test_a (extra)" && r=match || r=none
+assert_eq "bc_has: parenthesized name does not match its stripped sibling" "none" "$r"
+_n1_bc_has $'renders (mobile)\nb' "renders (mobile)" && r=match || r=none
+assert_eq "bc_has: parenthesized name matches itself" "match" "$r"
+_n1_bc_has $'test_a\nb' " (extra)" && r=match || r=none
+assert_eq "bc_has: name stripping to empty does not match all" "none" "$r"
+
+# Base resolver: branch-point must be an ancestor of HEAD, else merge-base with the default branch
+T12=$(mktemp -d); make_repo "$T12"; B0=$(git -C "$T12" rev-parse HEAD)
+git -C "$T12" checkout -q -b side; git -C "$T12" commit -q --allow-empty -m side; SIDE=$(git -C "$T12" rev-parse HEAD)
+git -C "$T12" checkout -q -b feat base
+git -C "$T12" commit -q --allow-empty -m f1; F1=$(git -C "$T12" rev-parse HEAD)
+git -C "$T12" commit -q --allow-empty -m f2
+BP=$(mktemp)
+echo "$F1" > "$BP"
+assert_eq "base: ancestor branch-point kept" "$F1" "$(n1_break_check_base "$BP" base "$T12")"
+echo "$SIDE" > "$BP"
+assert_eq "base: non-ancestor falls back to merge-base" "$B0" "$(n1_break_check_base "$BP" base "$T12")"
+rm -f "$BP"
+assert_eq "base: missing file falls back to merge-base" "$B0" "$(n1_break_check_base "$BP" base "$T12")"
+rm -rf "$T12"
 
 rm -rf "$T1" "$T2" "$T3" "$T4" "$T5" "$T6"
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

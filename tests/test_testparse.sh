@@ -55,4 +55,11 @@ assert_eq "n1 bare FAIL name" "adds negative" "$(n1_testparse_failed_names "$T/n
 printf 'PASS: adds positive\nFAIL: adds negative (expected=[1] actual=[0])\n' > "$T/n1_detail.txt"
 assert_eq "n1 FAIL with detail" "adds negative" "$(n1_testparse_failed_names "$T/n1_detail.txt")"
 
+printf 'PASS: adds positive\nPASS: shows total|auto (hook ignored)\nFAIL: adds negative\n' > "$T/n1_pass.txt"
+assert_eq "n1 PASS names (trailing paren stripped, pipe kept)" "$(printf 'adds positive\nshows total|auto')" "$(n1_testparse_passed_names "$T/n1_pass.txt")"
+assert_eq "go PASS name" "TestAddPositive" "$(n1_testparse_passed_names "$T/go.txt")"
+assert_eq "TAP ok name (not ok excluded)" "adds positive" "$(n1_testparse_passed_names "$T/tap.txt")"
+assert_eq "jest ✓ name" "adds positive numbers" "$(n1_testparse_passed_names "$T/jest.txt")"
+assert_eq "pytest default prints no PASS names" "" "$(n1_testparse_passed_names "$T/pytest.txt")"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

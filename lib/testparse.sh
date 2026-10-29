@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lib/testparse.sh — extract failing test names and zero-test detection from runner output.
+# lib/testparse.sh — extract failing/passing test names and zero-test detection from runner output.
 # Supported: pytest, jest/vitest, node:test (TAP), mocha, go test, n1 shell test convention. Framework auto-detected per line.
 
 n1_testparse_strip_ansi() {
@@ -36,6 +36,27 @@ n1_testparse_failed_names() {
         # n1 shell test convention: "FAIL: test name (expected=... actual=...)"
         /^FAIL: / {
             line=$0; sub(/^FAIL: /, "", line); sub(/ \([^()]*\)[[:space:]]*$/, "", line); print line; next
+        }
+    ' | awk 'NF' | sort -u
+}
+
+# n1_testparse_passed_names <output_file>
+# Prints one passing test name per line for runners that print per-test PASS lines
+# (n1 shell "PASS: name", TAP "ok N - name", go -v "--- PASS: Name", jest/vitest/mocha "✓ name").
+# Empty output when the runner prints none (default pytest, jest summary-only, go without -v).
+n1_testparse_passed_names() {
+    local f="$1"
+    [ -f "$f" ] || return 0
+    n1_testparse_strip_ansi "$f" | awk '
+        /^[[:space:]]*(✓|√) / {
+            line=$0; sub(/^[[:space:]]*(✓|√) /, "", line); sub(/ \([0-9]+ ?ms\)[[:space:]]*$/, "", line); print line; next
+        }
+        /^[[:space:]]*ok [0-9]+ - / {
+            line=$0; sub(/^[[:space:]]*ok [0-9]+ - /, "", line); sub(/ #.*$/, "", line); print line; next
+        }
+        /^--- PASS: / { print $3; next }
+        /^PASS: / {
+            line=$0; sub(/^PASS: /, "", line); sub(/ \([^()]*\)[[:space:]]*$/, "", line); print line; next
         }
     ' | awk 'NF' | sort -u
 }
