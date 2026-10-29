@@ -21,10 +21,11 @@ if [ -z "$RUN_ID" ]; then
 fi
 
 # --- Busy guard --------------------------------------------------------------
-# Frontmatter pid (older runners, and what --status reads) plus an atomic lock (N1-82): ln -s fails
-# when the link exists, so two runners started together cannot both pass (the old check-then-write
-# could). The link target is the holder's pid; a dead holder's lock is reclaimed.
-# ponytail: stale-lock reclaim is rm + ln, not atomic; two runners reclaiming one crashed lock in the
+# Frontmatter pid (older runners, and what --status reads) plus an atomic lock (N1-82): a noclobber
+# create fails when the file exists, so two runners started together cannot both pass (the old
+# check-then-write could). Portable to Git Bash/MSYS, where ln -s is unreliable. The file holds the
+# holder's pid; a dead holder's lock is reclaimed.
+# ponytail: stale-lock reclaim is rm + create, not atomic; two runners reclaiming one crashed lock in the
 # same instant can both win. Switch to rename-based reclaim if that ever shows up.
 EXISTING_PID=$(n1_read_frontmatter "$QUEUE" pid)
 if n1_queue_runner_alive "$EXISTING_PID" "$QUEUE"; then
@@ -32,16 +33,17 @@ if n1_queue_runner_alive "$EXISTING_PID" "$QUEUE"; then
     exit 3
 fi
 LOCK="$QUEUE.lock"
-if ! ln -s "$$" "$LOCK" 2>/dev/null; then
-    EXISTING_PID=$(readlink "$LOCK" 2>/dev/null)
+take_lock() { ( set -C; printf '%s\n' "$$" > "$LOCK" ) 2>/dev/null; }
+if ! take_lock; then
+    EXISTING_PID=$(cat "$LOCK" 2>/dev/null)
     if n1_queue_runner_alive "$EXISTING_PID" "$QUEUE"; then
         echo "queue already running (pid $EXISTING_PID)"
         exit 3
     fi
     rm -f "$LOCK"
-    ln -s "$$" "$LOCK" 2>/dev/null || { echo "queue already running (lock taken)"; exit 3; }
+    take_lock || { echo "queue already running (lock taken)"; exit 3; }
 fi
-trap '[ "$(readlink "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"' EXIT
+trap '[ "$(cat "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"' EXIT
 n1_write_frontmatter "$QUEUE" pid "$$"
 n1_write_frontmatter "$QUEUE" step run
 
@@ -417,6 +419,22 @@ chain_merged() {
     }
 }
 
+# chain_reconcile <num> <ticket> <repo> <n1-home> <pr-url> <fin-name> <poll> — marker-hit path: wait (bounded)
+# for a live fin session, then record merged + sync the default branch if the PR merged and the row's
+# Runs Outcome does not say so yet.
+chain_reconcile() {
+    local agents waited=0 out
+    while [ "$waited" -le "$TIMEOUT_SECS" ]; do
+        agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1 || break
+        [ -n "$(n1_queue_live_by_name "$agents" "$6")" ] || break
+        sleep "$7"; waited=$((waited + $7))
+    done
+    out=$(awk -F'|' -v tk="$2" '/^## Runs/{f=1;next} f { t=$2; gsub(/ /,"",t); if (t == tk) { o=$5; gsub(/ /,"",o) } } END { print o }' "$QUEUE")
+    [ "$out" = merged ] && return 0
+    [ "$(n1_queue_pr_state "$5")" = MERGED ] && chain_merged "$1" "$2" "$3" "$4" "$5"
+    return 0
+}
+
 # chain_finish <num> <ticket> <repo> <n1-home> <model> <pr-url> — the deterministic fullAuto chain.
 # No-op unless chain_authorized. Waits for the child session to go idle (it may still run CI watch or
 # its own prose chain), skips when the PR is already MERGED or not OPEN, else launches a bg
@@ -430,8 +448,13 @@ chain_finish() {
     case "$TICKET" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
     chain_authorized "$N1H" || return 0
     marker="$N1_QUEUE_DIR/.chained-$TICKET"
-    [ "$(cat "$marker" 2>/dev/null)" = "$RUN_ID" ] && return 0
     poll=$(n1_queue_val pollSeconds)
+    if [ "$(cat "$marker" 2>/dev/null)" = "$RUN_ID" ]; then
+        # Chain already made this run (restart): never launch a second finish, but reconcile an orphaned
+        # -fin session that merged after the previous runner died.
+        chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll"
+        return 0
+    fi
     csid=$(n1_queue_session_id "$QUEUE" "$TICKET")
     while true; do
         if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then

@@ -1493,11 +1493,16 @@ test_bg_chain_restart() {
         # finalize stamps queue_run_id on the overview; the sweep only chains rows stamped with this run id.
         n1_write_frontmatter "$tmp/n1home/memory/T-A/overview.md" queue_run_id "$([ "$marker" = stale ] && echo R0 || echo R1)"
         echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
-        [ "$marker" = yes ] && echo R1 > "$tmp/.chained-T-A"
+        # yes: the previous runner died while the -fin session ran; the orphan merged the PR meanwhile.
+        [ "$marker" = yes ] && { echo R1 > "$tmp/.chained-T-A"; echo MERGED > "$tmp/fake/gh-state"; }
         assert_eq "restart ($marker): exit 0" 0 "$(run_bg_queue "$tmp")"
         assert_eq "restart ($marker): pr row never re-run" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
         assert_eq "restart ($marker): pending row continues" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-B-2')"
-        if [ "$marker" = no ]; then
+        if [ "$marker" = yes ]; then
+            assert_eq "restart (yes): no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+            assert_eq "restart (yes): merge recorded" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+            assert_eq "restart (yes): merged event" 1 "$(jq -r 'select(.outcome == "merged") | .ticket' "$tmp/events.jsonl" | grep -c T-A)"
+        elif [ "$marker" = no ]; then
             assert_eq "restart: owed chain runs once" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
             assert_eq "restart: owed chain merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
         else
@@ -1573,13 +1578,13 @@ test_runner_lock() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgl "T-A:done"
     start_fake_runner "$REPO_ROOT" "$tmp/queue.md"
-    ln -s "$FAKE_RUNNER_PID" "$tmp/queue.md.lock"
+    printf '%s\n' "$FAKE_RUNNER_PID" > "$tmp/queue.md.lock"
     assert_eq "lock: live holder -> exit 3" 3 "$(run_bg_queue "$tmp")"
     assert_eq "lock: nothing launched while held" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgl-T-A-1')"
     stop_fake_runner
     assert_eq "lock: dead holder reclaimed -> exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "lock: launched after reclaim" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgl-T-A-1')"
-    assert_eq "lock: released at exit" no "$([ -L "$tmp/queue.md.lock" ] && echo yes || echo no)"
+    assert_eq "lock: released at exit" no "$([ -e "$tmp/queue.md.lock" ] && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
