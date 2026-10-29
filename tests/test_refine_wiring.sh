@@ -100,8 +100,8 @@ has "refine documents queue-plan order" 'Run refine before `n1-queue --plan`' "$
 has "fetch disables enrichment" 'enrichmentEnabled=false' "$R/steps/01-fetch.md"
 has "fetch writes under refine/" 'memory/<ID>/refine/ticket.md' "$R/steps/01-fetch.md"
 line_has "fetch re-run check is emphasis-insensitive" 'already contains a `*Refined by N1*` line' 'regardless of `*` or `_` emphasis' "$R/steps/01-fetch.md"
-has "fetch checks the author" 'getCurrentUser' "$R/steps/01-fetch.md"
-has "unknown author defaults to comment" 'WRITE_MODE=comment' "$R/steps/01-fetch.md"
+lacks "no WRITE_MODE in refine" 'WRITE_MODE' "$R"
+lacks "no GET_USER_OP in refine" 'GET_USER_OP' "$R"
 has "fetch reuses shared investigation step" 'skills/n1-start/steps/investigation-deliverable.md' "$R/steps/01-fetch.md"
 has "fetch uses caller mode" 'Caller mode — n1-refine' "$R/steps/01-fetch.md"
 lacks "refine never writes frontmatter" 'n1_write_frontmatter' "$R"
@@ -132,7 +132,7 @@ has "write re-fetches before writing" 'Re-fetch the ticket immediately before th
 has "write replaces in place" 'replace exactly the lines from it' "$W"
 has "single editTicket call" 'one `mcp__<TRACKER_MCP>__<EDIT_OP>` call' "$W"
 has "comment mode posts one comment" 'one `mcp__<TRACKER_MCP>__<COMMENT_OP>` call' "$W"
-has "comment recommended on others' tickets" '1 — Comment (Recommended)' "$W"
+has "write recommended" '1 — Write (Recommended)' "$W"
 has "handoff prints n1-start" '/n1:n1-start <ID>' "$W"
 has "architecture lists n1-refine" '| n1-refine |' references/architecture.md
 

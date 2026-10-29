@@ -29,19 +29,11 @@ The last line closes the block; text outside the two marker lines belongs to peo
 
 Show the verdict line from `02-loop.md` Step 5, then the block, then ask the user.
 
-`WRITE_MODE=description`:
 1 — Write (Recommended): puts the block in the description, where `agents/product-analyst.md` § Idempotency detects it
 2 — Edit: say what to change
-3 — Comment: post the block as a comment instead
-4 — Cancel: write nothing
+3 — Cancel: write nothing
 
-`WRITE_MODE=comment`: first say "<reporter> reported this ticket, not you (or the author could not be checked)."
-1 — Comment (Recommended): leaves another person's description untouched (`01-fetch.md` Step 2 author check)
-2 — Write: replace the block in the description anyway
-3 — Edit: say what to change
-4 — Cancel: write nothing
-
-Drop Write when `EDIT_OP` is empty and Comment when `COMMENT_OP` is empty. Both empty: print the block and say "No tracker write available; paste it yourself." **STOP.** Edit: apply the change, redraft, show this preview again. Cancel: say "Nothing written." **STOP.**
+`EDIT_OP` empty: replace Write with "Comment: post the block as a comment" (no Recommended mark). `COMMENT_OP` also empty: print the block and say "No tracker write available; paste it yourself." **STOP.** Edit: apply the change, redraft, show this preview again. Cancel: say "Nothing written." **STOP.**
 
 ## Step 3: Write
 

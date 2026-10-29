@@ -1,4 +1,4 @@
-<!-- Purpose: tracker gate, author check, fetch, codebase analysis, optional investigation (Steps 1-5). -->
+<!-- Purpose: tracker gate, fetch, codebase analysis, optional investigation (Steps 1-5). -->
 
 ## Step 1: Tracker Gate
 
@@ -10,22 +10,17 @@ CLOUD_ID=$(n1_config_val '.tracker.cloudId')
 READ_OP=$(n1_config_val '.tracker.operations.readTicket')
 EDIT_OP=$(n1_config_val '.tracker.operations.editTicket')
 COMMENT_OP=$(n1_config_val '.tracker.operations.addComment')
-GET_USER_OP=$(n1_config_val '.tracker.operations.getCurrentUser')
 mkdir -p "$N1_HOME/memory/<ID>/refine"
-echo "mcp=$TRACKER_MCP type=$TRACKER_TYPE cloud=$CLOUD_ID read=$READ_OP edit=$EDIT_OP comment=$COMMENT_OP user=$GET_USER_OP"
+echo "mcp=$TRACKER_MCP type=$TRACKER_TYPE cloud=$CLOUD_ID read=$READ_OP edit=$EDIT_OP comment=$COMMENT_OP"
 ```
 
 `TRACKER_MCP` or `READ_OP` empty: say "No tracker configured. Run `/n1:n1-init` to set up a tracker." **STOP.** Keep the printed values for later steps.
 
-## Step 2: Read Ticket and Author Check
+## Step 2: Read Ticket
 
-Call `mcp__<TRACKER_MCP>__<READ_OP>` (Jira: `cloudId`, `issueIdOrKey`; YouTrack: `issueId`). Keep the raw description as `DESC_ORIG` (`03-write.md` Step 3 compares against it) and the reporter's identity fields. If `DESC_ORIG` already contains a `*Refined by N1*` line (match regardless of `*` or `_` emphasis, whole line), or after Step 3 refine/ticket.md carries `### Decisions` (a comment-mode block), this is a re-run: the most recent refined block (`agents/product-analyst.md` Refined block rule; a newer comment block supersedes the description block) is the starting draft.
+Call `mcp__<TRACKER_MCP>__<READ_OP>` (Jira: `cloudId`, `issueIdOrKey`; YouTrack: `issueId`). Keep the raw description as `DESC_ORIG` (`03-write.md` Step 3 compares against it). If `DESC_ORIG` already contains a `*Refined by N1*` line (match regardless of `*` or `_` emphasis, whole line), or after Step 3 refine/ticket.md carries `### Decisions` (a comment-mode block), this is a re-run: the most recent refined block (`agents/product-analyst.md` Refined block rule; a newer comment block supersedes the description block) is the starting draft.
 
-When `GET_USER_OP` is set, call `mcp__<TRACKER_MCP>__<GET_USER_OP>`. Compare reporter and current user by account id, else email, else display name (the first field present on both sides):
-- `WRITE_MODE=description` — they match.
-- `WRITE_MODE=comment` — they differ, either side is unreadable, or `GET_USER_OP` is empty.
-
-Hold `DESC_ORIG` and `WRITE_MODE` in this session; write no file for them.
+Hold `DESC_ORIG` in this session; write no file for it.
 
 ## Step 3: Fetch
 
