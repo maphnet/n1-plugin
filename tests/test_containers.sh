@@ -23,7 +23,7 @@ cat > "$FAKE/bin/docker" <<'EOF'
 echo "$*" >> "$FAKE/calls"
 last="${@: -1}"
 case "$1" in
-  ps) [ -n "${FAKE_PS_FAIL:-}" ] && exit 1; cat "$FAKE/containers" ;;
+  ps) [ -n "${FAKE_PS_FAIL:-}" ] && exit 1; [ -n "${FAKE_PS_TRUNC_FAIL:-}" ] && case "$*" in *--no-trunc*) exit 1;; esac; cat "$FAKE/containers" ;;
   inspect) [ -n "${FAKE_INSPECT_FAIL:-}" ] && exit 1; case "$3" in
              *Labels*) grep "^$last|" "$FAKE/labels" | cut -d'|' -f2- ;;
              *) echo "/name-$last" ;;
@@ -87,6 +87,24 @@ own eee555
 OUT=$(FAKE_UPDATE_FAIL=eee555 n1_containers_track T-1)
 has "T11: update failure is surfaced" "could not set restart=no" "$OUT"
 eq "T12: update-failed container is still recorded" "3" "$(wc -l < "$D/containers.tsv" | tr -d ' ')"
+
+# ---- failed restart=no is retried on the next track call ----
+: > "$FAKE/updated"
+n1_containers_track T-1 >/dev/null
+eq "R1: failed restart=no retried later" "eee555" "$(lines "$FAKE/updated")"
+n1_containers_track T-1 >/dev/null
+eq "R2: retried once it succeeded" "eee555" "$(lines "$FAKE/updated")"
+
+# ---- explicit label of another ticket wins over compose working_dir ----
+add xxx123; echo "xxx123|T-9|$ROOT/sub" >> "$FAKE/labels"
+n1_containers_track T-1 >/dev/null
+eq "O1: other ticket's label not recorded despite working_dir in worktree" "no" "$(grep -q xxx123 "$D/containers.tsv" && echo yes || echo no)"
+
+# ---- teardown: enumeration failure is incomplete, not success ----
+OUT=$(FAKE_PS_TRUNC_FAIL=1 n1_containers_teardown T-1); RC=$?
+eq "E1: enumeration failure -> rc 1" "1" "$RC"
+has "E2: enumeration failure reported" "teardown incomplete" "$OUT"
+eq "E3: nothing removed on enumeration failure" "0" "$(wc -l < "$FAKE/removed" | tr -d ' ')"
 
 # ---- teardown: only tracked containers; unrelated survive (AC2, AC4) ----
 printf '%s\n' aaa111 bbb222 ccc333 eee555 ggg777 hhh888 iii999 mmm999 > "$FAKE/containers"   # ddd444 vanished before teardown

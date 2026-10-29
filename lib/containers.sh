@@ -28,7 +28,7 @@ _n1_ct_owned() { # <cid> <ticket> <root>
     local l wd
     l=$(docker inspect -f '{{index .Config.Labels "n1.ticket"}}|{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$1" 2>/dev/null) || return 2   # 2 = inspect failed, retry later
     wd="${l#*|}"
-    [ "${l%%|*}" = "$2" ] && return 0
+    [ -n "${l%%|*}" ] && { [ "${l%%|*}" = "$2" ]; return; }   # explicit label: exact match only, another ticket's container is never ours
     # compose working_dir must belong to THIS worktree (its own git toplevel), not merely sit under it (other worktrees nest in the main checkout)
     [ -n "$3" ] && [ -n "$wd" ] && [ "$(git -C "$wd" rev-parse --show-toplevel 2>/dev/null)" = "$3" ] && return 0
     return 1
@@ -46,13 +46,23 @@ n1_containers_snapshot() {
 }
 
 n1_containers_track() {
-    local id="${1:-}" origin="${2:-local-testing}" d f cid name root now keep n=0 skipped=0 rc
+    local id="${1:-}" origin="${2:-local-testing}" d f p cid name root now keep n=0 skipped=0 rc
     d=$(_n1_ct_dir "$id") || { echo "containers: invalid id, not tracking"; return 0; }
     [ -f "$d/containers.before" ] || { echo "containers: no snapshot, nothing tracked"; return 0; }
     now=$(_n1_ct_list) || { echo "containers: docker unavailable, not tracking"; return 0; }
     root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""
     keep="$now"
     f="$d/containers.tsv"; touch "$f"
+    p="$d/containers.pending"   # ids whose restart=no failed; retried on every track call
+    if [ -s "$p" ]; then
+        while IFS= read -r cid; do
+            [ -n "$cid" ] || continue
+            grep -qxF -- "$cid" <<<"$now" || continue   # gone, drop
+            docker update --restart=no "$cid" >/dev/null 2>&1 && continue
+            printf '%s\n' "$cid" >> "$p.new"
+        done < "$p"
+        if [ -f "$p.new" ]; then mv -f "$p.new" "$p"; else rm -f "$p"; fi
+    fi
     while IFS= read -r cid; do
         [ -n "$cid" ] || continue
         awk -F'\t' -v c="$cid" '$1==c{hit=1} END{exit !hit}' "$f" && continue
@@ -62,7 +72,7 @@ n1_containers_track() {
             continue
         fi
         name=$(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null); name="${name#/}"
-        docker update --restart=no "$cid" >/dev/null 2>&1 || echo "containers: could not set restart=no on ${name:-$cid}"
+        docker update --restart=no "$cid" >/dev/null 2>&1 || { echo "containers: could not set restart=no on ${name:-$cid}, will retry"; printf '%s\n' "$cid" >> "$p"; }
         printf '%s\t%s\t%s\n' "$cid" "${name:-?}" "$origin" >> "$f"
         n=$((n + 1))
     done < <(LC_ALL=C comm -13 "$d/containers.before" <(printf '%s\n' "$now"))
@@ -78,7 +88,7 @@ n1_containers_teardown() {
     f="$d/containers.tsv"
     [ -s "$f" ] || { echo "containers: none tracked"; return 0; }
     _n1_ct_up || { echo "containers: docker unavailable, teardown skipped"; return 0; }
-    live=$(docker ps -aq --no-trunc 2>/dev/null)
+    live=$(docker ps -aq --no-trunc 2>/dev/null) || { echo "containers: could not list containers, teardown incomplete"; return 1; }
     while IFS=$'\t' read -r cid name _; do
         [ -n "$cid" ] || continue
         grep -qxF -- "$cid" <<<"$live" || continue   # already gone
