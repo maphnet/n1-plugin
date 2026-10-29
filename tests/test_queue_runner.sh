@@ -1500,6 +1500,19 @@ test_bg_chain_row_home() {
     rm -rf "$tmp"
 }
 
+# N1-183: launcher wiring (setsid with nohup fallback, liveness busy guard, interrupted resume/status).
+test_lifecycle_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue"
+    has() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "wiring: runner launched with setsid" yes "$(has 'setsid bash "$N1_ROOT/scripts/n1-queue-run.sh"' "$s/steps/run.md")"
+    assert_eq "wiring: nohup fallback when setsid is absent" yes "$(has 'command -v setsid' "$s/steps/run.md")"
+    assert_eq "wiring: busy guard uses runner liveness" yes "$(has 'n1_queue_runner_alive "$OLD_PID"' "$s/steps/run.md")"
+    assert_eq "wiring: --run detects an interrupted run" yes "$(has 'INTERRUPTED=yes' "$s/steps/run.md")"
+    assert_eq "wiring: resume keeps the run id" yes "$(has 'if [ "<RESUME>" = 1 ]' "$s/steps/run.md")"
+    assert_eq "wiring: --status reports interrupted runs" yes "$(has 'n1_queue_interrupted_note "$QUEUE_FILE"' "$s/steps/report.md")"
+    assert_eq "wiring: SKILL.md documents resume" yes "$(has 'resumes an interrupted run' "$s/SKILL.md")"
+}
+
 test_busy_guard() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     start_fake_runner
@@ -2679,6 +2692,7 @@ test_bg_chain_flags_off
 test_bg_chain_finish_stops
 test_bg_chain_restart
 test_bg_chain_row_home
+test_lifecycle_wiring
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {

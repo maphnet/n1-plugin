@@ -8,7 +8,7 @@ argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-
 
 **Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
-Launches a batch of tracker tickets through `n1-start` sequentially via a background bash runner. Each ticket stops after PR + CI; N1 never merges a PR unless `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true, and a held ticket starts once the user merges its blocker's PR. The skill plans (intake, preview, plan-time decisions) and persists the plan to `queue.md`; the runner (`scripts/n1-queue-run.sh`) handles execution. Bare `n1-queue` plans then runs (one Start prompt between); `--plan` saves the plan and stops; `--run <queue-id>` executes a saved plan; `--dry-run` prints the plan and persists nothing.
+Launches a batch of tracker tickets through `n1-start` sequentially via a background bash runner. Each ticket stops after PR + CI unless `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true, in which case the runner chains `n1-finish` (merge at the reviewed pin); N1 never merges otherwise, and a held ticket starts once the user merges its blocker's PR. The skill plans (intake, preview, plan-time decisions) and persists the plan to `queue.md`; the runner (`scripts/n1-queue-run.sh`) handles execution. Bare `n1-queue` plans then runs (one Start prompt between); `--plan` saves the plan and stops; `--run <queue-id>` executes a saved plan or resumes an interrupted run; `--dry-run` prints the plan and persists nothing.
 
 **Announce at start:** "I'm using the n1-queue skill to process queue <QUEUE_ID>."
 
