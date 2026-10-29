@@ -50,6 +50,17 @@ if [ -n "$RP" ] && [ -n "$M" ] && [ "$RP" -lt "$M" ]; then ok "3.1 pin lines rou
 if grep -qF 'no valid reviewed-head pin; N1 does not re-review and re-pin unattended' "$F"; then ok "3.1: unattended re-pin escalates and stops"; else no "3.1: unattended re-pin escalates and stops"; fi
 if grep -qF 'after a re-pin attempt in this run' "$F"; then ok "3.1: second pin failure in a run keeps the STOP"; else no "3.1: second pin failure in a run keeps the STOP"; fi
 if grep -F 'Could not read the reviewed-head pin' "$F" | grep -qF 'repin.md'; then no "3.1: pin:unavailable is not offered a re-pin"; else ok "3.1: pin:unavailable is not offered a re-pin"; fi
+# N1-158: 3.1 and 3.4 are first-match lists, so bullet order is behavior. First-match line numbers must ascend.
+L() { grep -nF -- "$1" "$F" | head -1 | cut -d: -f1; }
+asc() { # <label> <fixed-string>...: each string's first line exists and is below the previous one's
+  local lbl=$1 prev=0 n s; shift
+  for s in "$@"; do n=$(L "$s"); if [ -z "$n" ] || [ "$n" -le "$prev" ]; then no "$lbl (at: $s)"; return; fi; prev=$n; done
+  ok "$lbl"
+}
+asc "3.1 bullets: head, empty pin, unavailable, mismatch, re-pin, draft/BLOCKED, DIRTY, threads" \
+  '- `head:` empty' '- `pin:` empty' '- `pin:unavailable`' '- `pin:<sha>` not equal to `head:<sha>` →' '- **Re-pin** (' '- `draft:true`' '- `state:DIRTY` or `state:BEHIND` (first in this run)' '- `threads:error`'
+asc "3.4 bullets: pin, MERGED, queued, first conflict, second conflict, catch-all" \
+  '- `pin:mismatch`' '- `state:MERGED sha:' '- `merge-exit:0` with `state:OPEN`' '- `mss:DIRTY` or `mss:BEHIND` and no resolve attempt' '- `mss:DIRTY` or `mss:BEHIND` after a resolve attempt' '- Any other `state:` or `mss:`'
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
 block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
@@ -278,6 +289,10 @@ has "stale: merge conflict reported" "Pull Request has merge conflicts"
 line "stale: failed merge re-reads DIRTY" "mss:DIRTY"
 res; NH=$(gw rev-parse HEAD)
 line "stale: resolve-dirty re-bumps the manifest conflict" "resolve:ready old=$OH new=$NH bumped=5.13.0"
+# Retry with the old pin while the head advanced: refused, no merge call (a stale pin cannot authorize the new head).
+TH=$NH VIEW=$V mrg
+has "stale: retry refused while the pin is still the old head" "pin:mismatch"
+if [ -z "$ARGS" ]; then ok "stale: retry with the old pin never calls gh pr merge"; else no "stale: old-pin retry called gh: $ARGS"; fi
 echo "$NH" > "$PIN" # resolve-dirty § Push advances the pin (not exercised here)
 TH=$NH VIEW=$V mrg
 has "stale: retried merge lands" "state:MERGED sha:$S"
@@ -527,7 +542,14 @@ line "ci: API errors interrupt the no-check streak" "ci:timeout"
 # N1-142: references/repin.md (missing or foreign pin -> re-review, lease push, re-pin), interactive only.
 PF=skills/n1-finish/references/repin.md
 if grep -qF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$PF" && ! grep -qF '(Recommended)' "$PF"; then ok "repin offer uses the verbatim no-recommendation form"; else no "repin offer uses the verbatim no-recommendation form"; fi
-if grep -qF 'Verdict: PASS' "$PF" && grep -qF '/n1:n1-review --full' "$PF"; then ok "repin pins only after a PASS full-tier re-review"; else no "repin pins only after a PASS full-tier re-review"; fi
+# N1-158: routing, not wording: scope to the repin.md sections and its verdict bullets.
+sec() { awk -v h="$1" 'index($0,"## ")==1{b=(index($0,h)==1);next} b' "$PF"; }
+RV=$(sec '## § Review'); PP=$(sec '## § Push and pin')
+PB=$(grep -F -- '- Its final report ends `Verdict: PASS`' <<<"$RV"); FB=$(grep -F -- '- `Verdict: FAIL`' <<<"$RV")
+if grep -qF '/n1:n1-review --full' <<<"$RV" && grep -qF '§ Push and pin' <<<"$PB" && ! grep -qF '**STOP.**' <<<"$PB"; then ok "repin: PASS routes to § Push and pin after a full-tier re-review"; else no "repin: PASS routes to § Push and pin after a full-tier re-review"; fi
+if grep -qF '**STOP.**' <<<"$FB" && grep -qF 'STOP inside the review' <<<"$FB" && grep -qF 'no final report' <<<"$FB" && ! grep -qF '§ Push and pin' <<<"$FB"; then ok "repin: FAIL, STOP and no report end in STOP, never § Push and pin"; else no "repin: FAIL, STOP and no report end in STOP, never § Push and pin"; fi
+if [ -n "$PB" ] && [ -n "$FB" ] && [ "$(grep -nF -- '- Its final report ends `Verdict: PASS`' "$PF" | head -1 | cut -d: -f1)" -lt "$(grep -nF -- '- `Verdict: FAIL`' "$PF" | head -1 | cut -d: -f1)" ]; then ok "repin: PASS bullet precedes the FAIL bullet"; else no "repin: PASS bullet precedes the FAIL bullet"; fi
+if grep -qF 'n1_review_pin set' <<<"$PP" && ! grep -qF 'n1_review_pin set' <<<"$RV"; then ok "repin: the pin is written only in § Push and pin"; else no "repin: the pin is written only in § Push and pin"; fi
 if grep -qE 'When `FULL_REVIEW` is not 1 .*fix-changed-files|FULL_REVIEW. is not 1' skills/n1-review/steps/01-analyze.md && grep -F 'Incremental re-review (cycle' skills/n1-review/steps/01-analyze.md | grep -qF 'FULL_REVIEW'; then ok "n1-review --full disables incremental scoping"; else no "n1-review --full disables incremental scoping"; fi
 if grep -F '**Re-pin** (' skills/n1-finish/steps/02-merge.md | grep -qF '/n1:n1-review --full'; then ok "02-merge re-pin summary names n1-review --full"; else no "02-merge re-pin summary names n1-review --full"; fi
 if grep -qF 'FULL_REVIEW=1' skills/n1-start/review-core.md && grep -qF 'FULL_REVIEW=1' skills/n1-review/steps/01-analyze.md; then ok "n1-review --full forces the FULL tier via review-core"; else no "n1-review --full forces the FULL tier via review-core"; fi
