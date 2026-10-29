@@ -182,7 +182,8 @@ grep -q 'n1_containers_teardown' "$REPO_ROOT/skills/n1-finish/steps/06-cleanup.m
 # ---- N1-170: inherited GIT_DIR/GIT_WORK_TREE must not make a non-repo compose dir look owned ----
 n1_containers_snapshot T-N170 >/dev/null
 add ppp111; echo "ppp111||$T/empty" >> "$FAKE/labels"
-GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" n1_containers_track T-N170 >/dev/null
+OUT=$(GIT_DIR="$ROOT/.git" GIT_WORK_TREE="$ROOT" n1_containers_track T-N170)
+has "T16: tracking ran and surfaced the unowned container" "ignored 1 new" "$OUT"
 eq "T16: GIT_DIR/GIT_WORK_TREE leak does not claim a non-repo compose dir" "no" "$(grep -q ppp111 "$N1_HOME/memory/T-N170/containers.tsv" && echo yes || echo no)"
 
 [ "$FAIL" -eq 0 ] && echo "ALL PASSED" || echo "SOME FAILED"
