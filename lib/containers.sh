@@ -9,9 +9,10 @@
 #   n1_containers_teardown <ID>            stop + remove exactly the recorded containers (never prune, never project-wide down)
 #
 # Every function returns 0 when Docker is missing/unreachable (the feature must never fail a run that does not use Docker).
-# ponytail: a container started by someone else between snapshot and track is mis-tracked; add a compose-project label filter if it ever happens.
-# Re-snapshot (fix cycle / resume) intentionally overwrites containers.before: a stale baseline would mis-track containers the user started in between (worse for AC4);
-# containers already recorded in containers.tsv stay tracked, so only a start that crashed before its track call can leak (the n1-finish backstop cannot see those).
+# Ownership: track records only containers new since the snapshot AND owned by this run: label n1.ticket=<ID>, or compose working_dir inside the worktree
+# (git toplevel of the cwd). Containers of other sessions/stacks are never recorded, changed or removed. Plain `docker run` must pass --label n1.ticket=<ID>.
+# track may be called again after later starts (idempotent); each call advances the baseline, so it never diffs against a stale snapshot.
+# Snapshot/track fail closed: if docker ps fails, no baseline is kept and nothing is tracked.
 
 _n1_ct_dir() { # <ID> -> memory dir; fails on an unsafe id
     case "${1:-}" in ""|*[!A-Za-z0-9_-]*) return 1;; esac
@@ -19,29 +20,47 @@ _n1_ct_dir() { # <ID> -> memory dir; fails on an unsafe id
 }
 _n1_ct_up() { docker ps -aq >/dev/null 2>&1; }
 
+_n1_ct_list() { # sorted full ids; non-zero when docker ps fails
+    local out; out=$(docker ps -aq --no-trunc 2>/dev/null) || return 1
+    printf '%s\n' "$out" | LC_ALL=C sort
+}
+_n1_ct_owned() { # <cid> <ticket> <root>
+    local l wd
+    l=$(docker inspect -f '{{index .Config.Labels "n1.ticket"}}|{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$1" 2>/dev/null) || return 1
+    wd="${l#*|}"
+    [ "${l%%|*}" = "$2" ] && return 0
+    [ -n "$wd" ] && case "$wd" in "$3"|"$3"/*) return 0;; esac
+    return 1
+}
+
 n1_containers_snapshot() {
-    local d
+    local d list
     d=$(_n1_ct_dir "${1:-}") || { echo "containers: invalid id, not tracking"; return 0; }
+    rm -f "$d/containers.before" 2>/dev/null
     _n1_ct_up || { echo "containers: docker unavailable, not tracking"; return 0; }
-    mkdir -p "$d" && docker ps -aq --no-trunc 2>/dev/null | LC_ALL=C sort > "$d/containers.before"
+    list=$(_n1_ct_list) && mkdir -p "$d" && printf '%s\n' "$list" > "$d/containers.before" \
+        || { rm -f "$d/containers.before"; echo "containers: snapshot failed, not tracking"; return 0; }
     echo "containers: snapshot taken"
     return 0
 }
 
 n1_containers_track() {
-    local id="${1:-}" origin="${2:-local-testing}" d f cid name n=0
+    local id="${1:-}" origin="${2:-local-testing}" d f cid name root now n=0
     d=$(_n1_ct_dir "$id") || { echo "containers: invalid id, not tracking"; return 0; }
     [ -f "$d/containers.before" ] || { echo "containers: no snapshot, nothing tracked"; return 0; }
-    _n1_ct_up || { echo "containers: docker unavailable, not tracking"; return 0; }
+    now=$(_n1_ct_list) || { echo "containers: docker unavailable, not tracking"; return 0; }
+    root=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
     f="$d/containers.tsv"; touch "$f"
     while IFS= read -r cid; do
         [ -n "$cid" ] || continue
         awk -F'\t' -v c="$cid" '$1==c{hit=1} END{exit !hit}' "$f" && continue
+        _n1_ct_owned "$cid" "$id" "$root" || continue
         name=$(docker inspect -f '{{.Name}}' "$cid" 2>/dev/null); name="${name#/}"
         docker update --restart=no "$cid" >/dev/null 2>&1 || echo "containers: could not set restart=no on ${name:-$cid}"
         printf '%s\t%s\t%s\n' "$cid" "${name:-?}" "$origin" >> "$f"
         n=$((n + 1))
-    done < <(LC_ALL=C comm -13 "$d/containers.before" <(docker ps -aq --no-trunc 2>/dev/null | LC_ALL=C sort))
+    done < <(LC_ALL=C comm -13 "$d/containers.before" <(printf '%s\n' "$now"))
+    printf '%s\n' "$now" > "$d/containers.before"
     echo "containers: tracked $n new"
     return 0
 }
