@@ -1538,12 +1538,9 @@ test_lifecycle_wiring() {
     assert_eq "wiring: SKILL.md documents resume" yes "$(has 'resumes an interrupted run' "$s/SKILL.md")"
 }
 
-# N1-185 AC3: no prompt line tells a fullAuto run not to merge.
+# N1-185 AC3: run.md held-ticket wording (finish.md and session-start covered in test_orchestrator_guardrails.sh and test_hooks.sh).
 test_merge_wording() {
     local has; has() { grep -qF -- "$1" "$2" && echo yes || echo no; }
-    assert_eq "wording: finish.md has no bare 'Do not merge.'" no "$(has 'Do not merge.' "$REPO_ROOT/skills/n1-start/steps/finish.md")"
-    assert_eq "wording: session-start scopes the merge exclusion" yes \
-        "$(has 'does not authorize merge (unless the fullAuto chain applies)' "$REPO_ROOT/hooks/session-start.sh")"
     assert_eq "wording: held tickets start on a user or chain merge" yes \
         "$(has "merged (by the user, or by the runner's fullAuto chain)" "$REPO_ROOT/skills/n1-queue/steps/run.md")"
 }
