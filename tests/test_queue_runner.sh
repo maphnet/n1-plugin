@@ -1227,6 +1227,59 @@ test_bg_disclaimer() {
     rm -rf "$tmp"
 }
 
+# start_fake_runner — sets FAKE_RUNNER_PID to a live process whose cmdline names n1-queue-run
+# (what n1_queue_runner_alive accepts as a runner). stop_fake_runner kills and reaps it.
+start_fake_runner() {
+    bash -c 'sleep 30; :' n1-queue-run >/dev/null 2>&1 &
+    FAKE_RUNNER_PID=$!
+    local i
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        case "$(tr '\0' ' ' < "/proc/$FAKE_RUNNER_PID/cmdline" 2>/dev/null)" in *n1-queue-run*) return 0 ;; esac
+        [ -r "/proc/$FAKE_RUNNER_PID/cmdline" ] || return 0
+        sleep 0.2
+    done
+}
+stop_fake_runner() { kill "$FAKE_RUNNER_PID" 2>/dev/null || true; wait "$FAKE_RUNNER_PID" 2>/dev/null || true; }
+
+# count_x <file> <exact-line> — number of lines equal to <exact-line> (0 when the file is missing).
+count_x() { [ -f "$1" ] || { echo 0; return; }; grep -cxF -- "$2" "$1" || true; }
+
+# N1-183: runner liveness, interrupted detection, one-shot queue_interrupted event + resume line.
+test_queue_interrupted() {
+    local tmp dead; tmp=$(mktemp -d)
+    start_fake_runner
+    sleep 0 & dead=$!; wait "$dead"
+    assert_eq "alive: runner-named live pid" yes "$(n1_queue_runner_alive "$FAKE_RUNNER_PID" && echo yes || echo no)"
+    assert_eq "alive: dead pid" no "$(n1_queue_runner_alive "$dead" && echo yes || echo no)"
+    assert_eq "alive: live pid that is not a runner (recycled)" no "$(n1_queue_runner_alive "$$" && echo yes || echo no)"
+    assert_eq "alive: empty pid" no "$(n1_queue_runner_alive "" && echo yes || echo no)"
+    printf -- '---\nqueue_id: q1\nrun_id: R1\nstep: run\npid: %s\n---\n## Plan\n' "$dead" > "$tmp/queue.md"
+    assert_eq "interrupted: step run + dead pid" yes "$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+    assert_eq "interrupted: note with one-command resume" \
+        "interrupted: runner pid $dead is gone; resume: /n1:n1-queue --run q1" "$(n1_queue_interrupted_note "$tmp/queue.md")"
+    n1_queue_interrupted_note "$tmp/queue.md" >/dev/null
+    assert_eq "interrupted: event emitted once per run id" 1 "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl")"
+    n1_write_frontmatter "$tmp/queue.md" pid "$FAKE_RUNNER_PID"
+    assert_eq "interrupted: live runner is not interrupted" no "$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+    n1_write_frontmatter "$tmp/queue.md" pid "$dead"
+    n1_write_frontmatter "$tmp/queue.md" step done
+    assert_eq "interrupted: finished run is not interrupted" no "$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+    assert_eq "interrupted: no note when not interrupted" "" "$(n1_queue_interrupted_note "$tmp/queue.md")"
+    stop_fake_runner
+    rm -rf "$tmp"
+}
+
+# N1-185/N1-183: the digest counts merged tickets and labels an interrupted run.
+test_queue_digest_chain_states() {
+    local tmp ev; tmp=$(mktemp -d); mkdir -p "$tmp/queue/q1"; ev="$tmp/queue/q1/events.jsonl"
+    n1_queue_event "$ev" q1 R1 queue_started
+    n1_queue_event "$ev" q1 R1 ticket_finished ticket=T-A outcome=pr pr=u
+    n1_queue_event "$ev" q1 R1 ticket_finished ticket=T-A outcome=merged pr=u
+    n1_queue_event "$ev" q1 R1 queue_interrupted reason="runner pid 1 gone"
+    assert_eq "digest: merged count + interrupted label" "Queue q1: 1 merged, interrupted" "$(n1_queue_digest "$tmp")"
+    rm -rf "$tmp"
+}
+
 test_busy_guard() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
 
@@ -2377,6 +2430,8 @@ test_bg_timeout_race_terminal_overview
 test_notify_check
 test_bg_disclaimer
 test_busy_guard
+test_queue_interrupted
+test_queue_digest_chain_states
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {

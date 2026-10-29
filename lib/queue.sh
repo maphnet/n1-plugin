@@ -722,6 +722,37 @@ n1_queue_relay_active() {
     [ -n "$(find "$1/.relay-$2" -mmin -2 2>/dev/null)" ]
 }
 
+n1_queue_runner_alive() {
+    # Usage: n1_queue_runner_alive <pid> — N1-183: exit 0 when <pid> is a live queue runner. kill -0
+    # alone trusts a recycled pid; where /proc exists the cmdline must also name n1-queue-run.
+    case "$1" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$1" 2>/dev/null || return 1
+    [ -r "/proc/$1/cmdline" ] || return 0
+    case "$(tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null)" in *n1-queue-run*) return 0 ;; esac
+    return 1
+}
+
+n1_queue_interrupted() {
+    # Usage: n1_queue_interrupted <queue.md> — N1-183: exit 0 when the run says step: run but its
+    # runner is gone (killed with the launching session, crashed, or host restart).
+    [ -f "$1" ] && [ "$(n1_read_frontmatter "$1" step)" = run ] || return 1
+    ! n1_queue_runner_alive "$(n1_read_frontmatter "$1" pid)"
+}
+
+n1_queue_interrupted_note() {
+    # Usage: n1_queue_interrupted_note <queue.md> — N1-183: for an interrupted run, append one
+    # queue_interrupted event per run id (later calls only print) and print the resume line.
+    # Prints nothing for a run that is not interrupted.
+    local q="$1" ev run qid pid
+    n1_queue_interrupted "$q" || return 0
+    ev="$(dirname "$q")/events.jsonl"
+    run=$(n1_read_frontmatter "$q" run_id); qid=$(n1_read_frontmatter "$q" queue_id); pid=$(n1_read_frontmatter "$q" pid)
+    if [ -z "$(jq -R --arg r "$run" 'fromjson? | select(.event == "queue_interrupted" and .run_id == $r)' "$ev" 2>/dev/null)" ]; then
+        n1_queue_event "$ev" "$qid" "$run" queue_interrupted reason="runner pid ${pid:-?} gone"
+    fi
+    printf 'interrupted: runner pid %s is gone; resume: /n1:n1-queue --run %s\n' "${pid:-?}" "$qid"
+}
+
 n1_queue_awaiting_hints() {
     # Usage: n1_queue_awaiting_hints <queue.md>
     # Prints "<ticket>: <resume command>" for each Plan row waiting on a human: an attach
@@ -770,14 +801,16 @@ n1_queue_digest() {
             | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "failed")] | length) as $failed
+            | ([$t[] | select(.event == "ticket_finished" and .outcome == "merged")] | length) as $merged
             | ([$t[] | select(.event == "ticket_started" or .event == "unblocked") | .ticket]) as $running
             | {needs: ($needs | length), ts: $end.ts,
                line: ("Queue \($end.queue): " + ([
                    (if $pr > 0 then "\($pr) PR" else empty end),
+                   (if $merged > 0 then "\($merged) merged" else empty end),
                    (if ($needs | length) > 0 then "\($needs | length) needs you (\($needs | join(", ")))" else empty end),
                    (if $failed > 0 then "\($failed) failed" else empty end),
                    (if ($running | length) > 0 then "running \($running | join(", "))" else empty end),
-                   (if $end.event == "queue_done" then "done" elif $end.event == "halted" then "halted" else empty end)
+                   (if $end.event == "queue_done" then "done" elif $end.event == "halted" then "halted" elif $end.event == "queue_interrupted" then "interrupted" else empty end)
                ] | if length == 0 then ["started"] else . end | join(", ")))})
         | map(select(.ts >= (now - 86400 | todate)))
         | sort_by([(.needs > 0), .ts]) | last | .line // empty' 2>/dev/null
