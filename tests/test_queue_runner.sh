@@ -1280,6 +1280,57 @@ test_queue_digest_chain_states() {
     rm -rf "$tmp"
 }
 
+# seed_live_session <tmp> <name> <ticket> <id8> — a live bg session the fake claude lists (states.<ticket>).
+seed_live_session() {
+    printf '/n1:n1-start %s\n' "$3" > "$1/fake/prompt.$2"
+    printf '%s' "$4" > "$1/fake/id.$2"
+}
+
+test_live_by_name() {
+    local j='[{"kind":"background","id":"0000000a","name":"n1-q-T-A-1","state":"working"},{"kind":"background","id":"0000000b","name":"n1-q-T-B-2","state":"done"},{"kind":"background","id":"0000000c","name":"n1-q-T-C-3","state":"blocked"}]'
+    assert_eq "live-by-name: working" 0000000a "$(n1_queue_live_by_name "$j" n1-q-T-A-1)"
+    assert_eq "live-by-name: blocked" 0000000c "$(n1_queue_live_by_name "$j" n1-q-T-C-3)"
+    assert_eq "live-by-name: done is not live" "" "$(n1_queue_live_by_name "$j" n1-q-T-B-2)"
+    assert_eq "live-by-name: unknown name" "" "$(n1_queue_live_by_name "$j" n1-q-T-Z-9)"
+    assert_eq "live-by-name: bad json" "" "$(n1_queue_live_by_name 'not json' n1-q-T-A-1)"
+}
+
+# N1-82: a row this run already launched is adopted, never launched twice; another run's lock never blocks.
+test_bg_launch_guard() {
+    local tmp
+    # Restart between launch and the Session-cell write: in-progress row, empty Session, live session.
+    tmp=$(mktemp -d); mk_bg "$tmp" bgq "T-A:working done"
+    n1_write_frontmatter "$tmp/queue.md" run_id R1
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo R1 > "$tmp/.launch-1"
+    seed_live_session "$tmp" n1-bgq-T-A-1 T-A 0000000a
+    assert_eq "guard-orphan: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "guard-orphan: no second launch of the row" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
+    assert_eq "guard-orphan: no retry row launched" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-2')"
+    assert_eq "guard-orphan: adopted session" 0000000a "$(n1_queue_session_id "$tmp/queue.md" T-A)"
+    assert_eq "guard-orphan: row pr" pr "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "guard-orphan: lock removed on finalize" no "$([ -e "$tmp/.launch-1" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+    # Same run, pending row whose lock holds this run id and whose session is live: adopt, no launch.
+    tmp=$(mktemp -d); mk_bg "$tmp" bgq "T-A:working done"
+    n1_write_frontmatter "$tmp/queue.md" run_id R1
+    echo R1 > "$tmp/.launch-1"
+    seed_live_session "$tmp" n1-bgq-T-A-1 T-A 0000000a
+    assert_eq "guard-same-run: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "guard-same-run: two launches never both run" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
+    assert_eq "guard-same-run: adopted session" 0000000a "$(n1_queue_session_id "$tmp/queue.md" T-A)"
+    assert_eq "guard-same-run: row pr" pr "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+    # New run id: an older run's lock never blocks a relaunch, even with a same-name live session.
+    tmp=$(mktemp -d); mk_bg "$tmp" bgq "T-A:working done"
+    n1_write_frontmatter "$tmp/queue.md" run_id R2
+    echo R1 > "$tmp/.launch-1"
+    seed_live_session "$tmp" n1-bgq-T-A-1 T-A 0000000a
+    assert_eq "guard-new-run: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "guard-new-run: relaunched once" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1')"
+    rm -rf "$tmp"
+}
+
 test_busy_guard() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     start_fake_runner
@@ -2450,6 +2501,8 @@ test_busy_guard
 test_queue_interrupted
 test_queue_digest_chain_states
 test_runner_lock
+test_live_by_name
+test_bg_launch_guard
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {

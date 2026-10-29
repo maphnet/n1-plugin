@@ -662,6 +662,16 @@ n1_queue_session_id() {
         END { print id }' "$1"
 }
 
+n1_queue_live_by_name() {
+    # Usage: n1_queue_live_by_name <agents-json> <name> — N1-82: 8-hex id of a working/blocked
+    # background session with exactly that name, else nothing. Names repeat across runs, so the
+    # runner trusts a match only when its per-row launch lock holds the current run id.
+    printf '%s' "$1" | jq -r --arg n "$2" '
+        [.. | objects | select(has("state") and .name == $n and (.state == "working" or .state == "blocked"))][0] // empty
+        | ((.id // ((.sessionId // "")[:8])) | tostring) | select(test("^[0-9a-f]{8}$"))' 2>/dev/null
+    return 0
+}
+
 n1_queue_answer() {
     # Usage: n1_queue_answer <n1-home> <ticket>
     # N1-55: relays a main-thread answer to a queue child blocked on a question it mirrored to

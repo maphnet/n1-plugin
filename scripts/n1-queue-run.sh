@@ -164,7 +164,7 @@ finalize() {
     # NP-216 AC3 safety net: every failed/deferred Runs row must carry a non-empty
     # reason. Call sites should already pass one; this is the last line of defense.
     [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="unspecified-failure"
-    rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET"
+    rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM"
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
@@ -247,16 +247,39 @@ finalize() {
     echo "[$NUM] $TICKET -> $OUTCOME $PR_URL"
 }
 
-# launch_bg <pending-row> — start the row's background session. A launch refused for the
+# live_row_sid <num> <ticket> <agents-json> — N1-82: id of a live (working/blocked) session this run
+# already launched for the row (its .launch-<num> lock holds this run id), else nothing. A lock from
+# another run id never matches, so a relaunch under a new run id is never blocked.
+live_row_sid() {
+    [ "$(cat "$N1_QUEUE_DIR/.launch-$1" 2>/dev/null)" = "$RUN_ID" ] || return 0
+    n1_queue_live_by_name "$3" "n1-${QUEUE_ID}-$2-$1"
+}
+
+# launch_bg <pending-row> <agents-json> — start the row's background session. A launch refused for the
 # bypass-permissions disclaimer halts the queue (every later launch would fail the same way).
+# N1-82: the row's launch lock is written before launching; a row this run already launched whose
+# session is still live is adopted instead of launched a second time.
 launch_bg() {
     local NUM TICKET REPO N1H MODEL CMD OUT SID STARTED
     IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$1"
+    STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    STARTED_AT[NUM]=$(date +%s)
+    SID=$(live_row_sid "$NUM" "$TICKET" "${2:-}")
+    if [ -n "$SID" ]; then
+        n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+        echo "| $TICKET | $STARTED | | | | $SID |" >> "$QUEUE"
+        ev ticket_started ticket="$TICKET" session="$SID" reason="adopted live session"
+        echo "[$NUM] $TICKET already live ($SID); adopted, not relaunched"
+        return
+    fi
+    if ! printf '%s\n' "$RUN_ID" > "$N1_QUEUE_DIR/.launch-$NUM"; then
+        echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
+        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "launch-lock-unwritable"
+        return
+    fi
     n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
     # Re-queued ticket: forget the previous run's tag release (NP-199).
     n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" queue_tag_removed false || true
-    STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    STARTED_AT[NUM]=$(date +%s)
     CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
     OUT=$(bash -c "$CMD" 2>&1)
     if SID=$(n1_queue_parse_launch "$OUT"); then
@@ -384,6 +407,15 @@ run_bg() {
         WORKING=0
         while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
             SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
+            # N1-82: in-progress with no Session cell = the runner died between launch and the Runs
+            # write. Adopt the live session this run launched instead of failing and relaunching the row.
+            if [ -z "$SID" ]; then
+                SID=$(live_row_sid "$NUM" "$TICKET" "$AGENTS")
+                if [ -n "$SID" ]; then
+                    echo "| $TICKET | $(date -u +%Y-%m-%dT%H:%M:%SZ) | | | | $SID |" >> "$QUEUE"
+                    echo "[$NUM] $TICKET adopted live session ($SID)"
+                fi
+            fi
             STATE=$(n1_queue_bg_state "$AGENTS" "$SID")
             # NP-216: overview.md is ground truth, bg state is only a liveness hint — a
             # finished child can report working/blocked/missing on a stale or vanished
@@ -465,7 +497,7 @@ run_bg() {
         if [ "$WORKING" = 0 ]; then
             ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
             if [ -n "$ROW" ]; then
-                launch_bg "$ROW"
+                launch_bg "$ROW" "$AGENTS"
                 HELD_WAIT=0
             else
                 # N1-64/N1-114: held rows (same-plan blocker) are never launched directly; the
