@@ -338,13 +338,14 @@ xrc() {  # xrc <tree> <payload> [env...]: payload through the stubbed wrapper co
 QB=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr view 1"}}')
 RWC=$(jq -c . "$RW")
 DW=$(jq -c '.agent_type="n1:developer"' "$RW")
-for t in missing fails cfgfile pluginroot; do
+for t in missing fails cfgfile pluginroot; do  # each failure site must reach the trap
     assert_eq "pre-python error ($t): queue-child Bash denied" 2 "$(xrc "$t" "$QB" "${Q[@]}")"
-    assert_eq "pre-python error ($t): reviewer Write denied" 2 "$(xrc "$t" "$RWC")"
-    assert_eq "pre-python error ($t): reviewer Write denial names the cause" 1 "$(grep -cxF "$DENY_MSG" "$T/x-err" || true)"
-    assert_eq "pre-python error ($t): ordinary Bash keeps the error code" 1 "$(xrc "$t" "$QB")"
-    assert_eq "pre-python error ($t): developer Write keeps the error code" 1 "$(xrc "$t" "$DW")"
 done
+# trap behaviour is tree-independent: assert it once
+assert_eq "pre-python error: reviewer Write denied" 2 "$(xrc missing "$RWC")"
+assert_eq "pre-python error: reviewer Write denial names the cause" 1 "$(grep -cxF "$DENY_MSG" "$T/x-err" || true)"
+assert_eq "pre-python error: ordinary Bash keeps the error code" 1 "$(xrc missing "$QB")"
+assert_eq "pre-python error: developer Write keeps the error code" 1 "$(xrc missing "$DW")"
 # TQ-2: the trap path never applies the merge-authorized carve-out (config.sh loaded in cfgfile, so the predicate exists)
 cfg "$BOTH"; assert_eq "pre-python error: authorized queue-child Bash still denied" 2 "$(xrc cfgfile "$QB" "${Q[@]}")"
 # SEC-1: a closed stderr must not replace the deny code
