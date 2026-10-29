@@ -30,7 +30,7 @@ _n1_ct_owned() { # <cid> <ticket> <root>
     wd="${l#*|}"
     [ -n "${l%%|*}" ] && { [ "${l%%|*}" = "$2" ]; return; }   # explicit label: exact match only, another ticket's container is never ours
     # compose working_dir must belong to THIS worktree (its own git toplevel), not merely sit under it (other worktrees nest in the main checkout)
-    [ -n "$3" ] && [ -n "$wd" ] && [ "$(git -C "$wd" rev-parse --show-toplevel 2>/dev/null)" = "$3" ] && return 0
+    [ -n "$3" ] && [ -n "$wd" ] && [ "$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$wd" rev-parse --show-toplevel 2>/dev/null)" = "$3" ] && return 0
     return 1
 }
 
@@ -50,7 +50,7 @@ n1_containers_track() {
     d=$(_n1_ct_dir "$id") || { echo "containers: invalid id, not tracking"; return 0; }
     [ -f "$d/containers.before" ] || { echo "containers: no snapshot, nothing tracked"; return 0; }
     now=$(_n1_ct_list) || { echo "containers: docker unavailable, not tracking"; return 0; }
-    root=$(git rev-parse --show-toplevel 2>/dev/null) || root=""
+    root=$(env -u GIT_DIR -u GIT_WORK_TREE git rev-parse --show-toplevel 2>/dev/null) || root=""
     keep="$now"
     f="$d/containers.tsv"; touch "$f"
     p="$d/containers.pending"   # ids whose restart=no failed; retried on every track call
