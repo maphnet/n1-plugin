@@ -705,6 +705,8 @@ assert_eq "terminal pointer: close is not duplicated" "1" \
     "$(grep -c '"envelope_close"' "$TERM_TELEM/raw/steps/run-stop-terminal.jsonl" 2>/dev/null)"
 assert_eq "terminal pointer: locks removed" "false" \
     "$([ -f "$TERM_TELEM/telemetry.lock" ] && echo true || echo false)"
+assert_eq "terminal pointer: per-run lock removed" "false" \
+    "$([ -f "$TERM_TELEM/locks/run-stop-terminal.json" ] && echo true || echo false)"
 
 # session-stop: no lock -> silent exit, no crash
 NO_LOCK_MEM="$N1_HOME/memory/T-NOLOCK"

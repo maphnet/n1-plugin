@@ -73,7 +73,7 @@ n1_restore_run_identity() {
 #   - run's lock under $ID: agree.
 #   - run's lock only under another ticket (pointer overwritten): re-resolve to the one run this
 #     session owns under $ID; none or several -> unset N1_RUN_ID/N1_VERSION so writers no-op.
-#   - run has no lock anywhere (FINALIZE removed it; late events): unchanged (fail-open).
+#   - run has no lock anywhere (the Stop hook after FINALIZE removed it; late events): unchanged (fail-open).
 # n1_read_lock's ambient N1_RUN_ID filter then selects the same run. Hooks have no ambient id and
 # no ID and keep their session/ambiguity rules. Plain vars, never exported; always returns 0.
 n1_bind_run_to_ticket() {
@@ -140,7 +140,9 @@ n1_emit_rebind() {
 }
 
 # n1_close_run: FINALIZE close for $ID (needs FINAL_OUTCOME, ESTIMATED_TIER): bind run to ticket, write
-# envelope_close, merge, drop the lock. Unbound run (no/ambiguous) -> no-op. Always returns 0.
+# envelope_close, merge. The lock stays: Gate 3 and the chained n1-finish run after this, and the turn's
+# Stop hook sees the terminal envelope, re-merges them in (orchestrator.tail) and removes the lock (N1-229).
+# Unbound run (no/ambiguous) -> no-op. Always returns 0.
 n1_close_run() {
     n1_bind_run_to_ticket
     [ -n "${N1_RUN_ID:-}" ] || return 0
@@ -148,7 +150,6 @@ n1_close_run() {
     t=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || true)
     echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"${FINAL_OUTCOME:-}"'","estimated_tier":"'"${ESTIMATED_TIER:-}"'","type":"'"$t"'"}' >> "$tdir/raw/steps/$N1_RUN_ID.jsonl"
     bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "$tdir" 2>&1 || echo "⚠ Telemetry merge failed" >&2
-    [ -s "$tdir/runs/$N1_RUN_ID.jsonl" ] && n1_remove_run_lock "$tdir" "$N1_RUN_ID"
     return 0
 }
 

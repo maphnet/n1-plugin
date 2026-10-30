@@ -2,7 +2,7 @@
 # N1 per-step choreography helpers
 #
 # n1_step_begin <step_name> <step_number>
-#   Emits telemetry started_at. No-op when N1_RUN_ID is absent after n1_bind_run_to_ticket.
+#   Emits telemetry started_at. No-op with a one-line stderr note when N1_RUN_ID is absent after n1_bind_run_to_ticket.
 #
 # n1_step_end <step_name> <step_number> <outcome> [metadata_json]
 #   1. Writes step: <step_name> to overview.md frontmatter
@@ -50,7 +50,8 @@ _n1_step_display_name() {
 n1_step_begin() {
     local step_name="$1" step_number="$2"
     n1_bind_run_to_ticket                 # restored run must belong to $ID (N1-193)
-    [ -n "${N1_RUN_ID:-}" ] || return 0   # no-op if run context absent
+    # No run bound: say so once, so a lost begin is attributable (N1-229).
+    [ -n "${N1_RUN_ID:-}" ] || { echo "n1_step_begin: no run bound for ${ID:-<unset>}; '$step_name' begin not recorded" >&2; return 0; }
     n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID:-}" \
         "$step_name" "$step_number" "${N1_HOME}/memory/${ID}/telemetry" \
         started_at=now
