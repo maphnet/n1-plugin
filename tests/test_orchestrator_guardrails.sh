@@ -87,7 +87,7 @@ assert_contains "n1-start: blocking dispatch requirement" \
 # N1-227 — one wait source: SKILL.md points every dispatch at output-gates.md § Wait Contract
 assert_contains "n1-start: wait contract pointer on every dispatch" \
     "skills/n1-start/SKILL.md" \
-    'After any dispatch, `procedures/output-gates.md § Wait Contract` applies.'
+    'do not read ahead or poll; if it returns before the result, end the turn with no text and no tool call (detail: `procedures/output-gates.md § Wait Contract`).'
 assert_contains "output-gates: wait is one empty end-of-turn" \
     "skills/n1-start/procedures/output-gates.md" \
     "that empty end-of-turn is the wait"

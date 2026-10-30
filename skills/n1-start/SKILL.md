@@ -11,7 +11,7 @@ model: sonnet
 
 **Never dispatch a fork subagent:** dispatches are typed personas or general-purpose subagents with fresh context.
 
-> **BLOCKING DISPATCH REQUIREMENT:** stay foreground — do NOT continue until the worker's result is available. Fabricating completion is a violation. After any dispatch, `procedures/output-gates.md § Wait Contract` applies.
+> **BLOCKING DISPATCH REQUIREMENT:** stay foreground — do NOT continue until the worker's result is available. Fabricating completion is a violation. After any dispatch, do not read ahead or poll; if it returns before the result, end the turn with no text and no tool call (detail: `procedures/output-gates.md § Wait Contract`).
 
 Accepts ticket ID or brain dump and orchestrates the full development cycle through N1 personas.
 
