@@ -34,6 +34,7 @@ FINISH=skills/n1-finish/SKILL.md
 ARCH=references/architecture.md
 README=README.md
 DEPLOY=skills/n1-finish/steps/03-deploy.md
+VERIFY=skills/n1-finish/references/post-deploy-verification.md
 CLOSE=skills/n1-finish/steps/04-close-ticket.md
 CLEANUP=skills/n1-finish/steps/06-cleanup.md
 
@@ -68,8 +69,8 @@ check "README counts post-deploy verifier" 'post-deploy-verifier' "$README"
 
 # Finish lifecycle wiring. These are deliberately textual: the verifier itself
 # is a persona contract, while this test protects the controller hand-offs.
-check "Step 3b sources config helper" 'source "\$N1_ROOT/lib/config\.sh"' "$DEPLOY"
-check "Step 3b gates through post-deploy helper" 'n1_post_deploy_verification_enabled' "$DEPLOY"
+check "Step 3b sources config helper" 'source "\$N1_ROOT/lib/config\.sh"' "$VERIFY"
+check "Step 3b gates through post-deploy helper" 'n1_post_deploy_verification_enabled' "$VERIFY"
 if awk '/^## Steps/{exit} /POST_DEPLOY_VERIFICATION_ARTIFACT=false/{found=1} END { exit !found }' "$FINISH"; then
     echo "PASS: finish entry initializes verification artifact guard before routes"
     PASS=$((PASS + 1))
@@ -85,27 +86,32 @@ check "failed deploy does not dispatch verification" 'failed.*STOP|STOP.*failed'
 check "timed out deploy does not dispatch verification" 'Timeout.*STOP|STOP.*Timeout' "$DEPLOY"
 check "no-run path does not dispatch verification" 'none triggered.*Step 4' "$DEPLOY"
 check "local merge does not dispatch verification" 'Local-merge.*skip.*entire file' "$DEPLOY"
-check "disabled gate writes canonical skipped rows" 'SKIPPED \(disabled\).*every acceptance criterion|every acceptance criterion.*SKIPPED \(disabled\)' "$DEPLOY"
-check "deployment captures canonical PR diff" 'post-deploy-pr\.diff' "$DEPLOY"
-check "dispatch passes all six canonical paths" 'ticket\.md.*analysis\.md.*local-test-plan\.md.*post-deploy-pr\.diff.*config\.json.*dev-access\.md' "$DEPLOY"
-check "legacy smoke endpoint stays verifier input" 'smokeEndpoint' "$DEPLOY"
-check "legacy smoke commands stay verifier input" 'smokeTests' "$DEPLOY"
-check "missing dev access does not suppress legacy smoke" 'dev-access\.md.*smoke|smoke.*dev-access\.md' "$DEPLOY"
-check "missing diff writes skipped fallback" 'diff.*SKIPPED|SKIPPED.*diff' "$DEPLOY"
-check "missing verifier artifact writes skipped fallback" 'artifact.*SKIPPED|SKIPPED.*artifact' "$DEPLOY"
-check "prior artifact is cleared before verifier dispatch" 'rm -f "\$VERIFICATION_PATH"' "$DEPLOY"
-check "only current invocation marks artifact available" 'POST_DEPLOY_VERIFICATION_ARTIFACT=true' "$DEPLOY"
+check "disabled gate writes canonical skipped rows" 'SKIPPED \(disabled\).*every acceptance criterion|every acceptance criterion.*SKIPPED \(disabled\)' "$VERIFY"
+check "deployment captures canonical PR diff" 'post-deploy-pr\.diff' "$VERIFY"
+check "dispatch passes all six canonical paths" 'ticket\.md.*analysis\.md.*local-test-plan\.md.*post-deploy-pr\.diff.*config\.json.*dev-access\.md' "$VERIFY"
+check "legacy smoke endpoint stays verifier input" 'smokeEndpoint' "$VERIFY"
+check "legacy smoke commands stay verifier input" 'smokeTests' "$VERIFY"
+check "missing dev access does not suppress legacy smoke" 'dev-access\.md.*smoke|smoke.*dev-access\.md' "$VERIFY"
+check "missing diff writes skipped fallback" 'diff.*SKIPPED|SKIPPED.*diff' "$VERIFY"
+check "missing verifier artifact writes skipped fallback" 'artifact.*SKIPPED|SKIPPED.*artifact' "$VERIFY"
+check "prior artifact is cleared before verifier dispatch" 'rm -f "\$VERIFICATION_PATH"' "$VERIFY"
+check "only current invocation marks artifact available" 'POST_DEPLOY_VERIFICATION_ARTIFACT=true' "$VERIFY"
 check "tracker comment renders criterion table" 'verification.*table|table.*verification' "$CLOSE"
 check "tracker skips stale verification artifact" 'POST_DEPLOY_VERIFICATION_ARTIFACT=true' "$CLOSE"
 check "tracker idempotency uses full rendered comment" 'identical.*full.*comment|full.*rendered.*comment' "$CLOSE"
 check "cleanup persists criterion table in Finish" '## Finish.*verification|verification.*## Finish' "$CLEANUP"
 check "final report prints criterion table" 'Verification.*table|table.*Verification' "$CLEANUP"
 check "cleanup skips stale verification artifact" 'POST_DEPLOY_VERIFICATION_ARTIFACT=true' "$CLEANUP"
-check "verification failure still closes ticket" 'FAIL.*clos|clos.*FAIL' "$DEPLOY"
-check "verification skipped still closes ticket" 'SKIPPED.*clos|clos.*SKIPPED' "$DEPLOY"
+check "verification failure still closes ticket" 'FAIL.*clos|clos.*FAIL' "$VERIFY"
+check "verification skipped still closes ticket" 'SKIPPED.*clos|clos.*SKIPPED' "$VERIFY"
 check "verifier inherits dynamic observability tools" 'tools intentionally omitted.*observability MCP' agents/post-deploy-verifier.md
 check "verifier keeps read-only boundary with artifact exception" 'only to read.*read-only.*sole write' agents/post-deploy-verifier.md
 check "verifier uses investigation effort" '^effort: medium$' agents/post-deploy-verifier.md
+
+# N1-228: Step 3b is read on demand from the succeeded outcome only.
+check "deploy success routes to the verification reference" 'deploy status `succeeded`\. Run Step 3b before Step 4: read `<N1_ROOT>/skills/n1-finish/references/post-deploy-verification\.md`' "$DEPLOY"
+check_absent "deploy step no longer inlines Step 3b" '^# Step 3b' "$DEPLOY"
+check_absent "verification reference does not initialize the artifact guard" 'POST_DEPLOY_VERIFICATION_ARTIFACT=false' "$VERIFY"
 
 # N1-111: deploy watch is one bounded blocking wait per call, never one model turn per poll.
 check_fixed "deploy watch uses the poll helper for every event" "n1_wait_release_runs <sha> <grace> <remaining-minutes> '<workflowName>' any" "$DEPLOY"
