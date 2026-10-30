@@ -83,5 +83,6 @@ After dispatching any agent persona, the orchestrator MUST idle until the agent 
 - Do NOT re-read the plan, analysis, or skill text
 - Do NOT poll for status, check files, or run bash commands
 - Do NOT emit progress messages or summaries
+- If the dispatch returns before the result, end the turn with no text and no tool call: that empty end-of-turn is the wait, never a status turn
 
 The host runtime dispatch mechanism handles completion notification.

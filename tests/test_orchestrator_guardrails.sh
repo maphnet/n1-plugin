@@ -83,24 +83,23 @@ assert_contains "brainstorm investigation: experiments delegated" \
 assert_contains "n1-start: blocking dispatch requirement" \
     "skills/n1-start/SKILL.md" \
     "BLOCKING DISPATCH REQUIREMENT"
+
+# N1-227 — one wait source: SKILL.md points every dispatch at output-gates.md § Wait Contract
+assert_contains "n1-start: wait contract pointer on every dispatch" \
+    "skills/n1-start/SKILL.md" \
+    'After any dispatch, `procedures/output-gates.md § Wait Contract` applies.'
+assert_contains "output-gates: wait is one empty end-of-turn" \
+    "skills/n1-start/procedures/output-gates.md" \
+    "that empty end-of-turn is the wait"
 assert_contains "brainstorm: post-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/brainstorm.md" \
     "n1_verify_dependencies"
-assert_contains "brainstorm: wait directive" \
-    "skills/n1-start/steps/brainstorm.md" \
-    "Wait for the persona to return its result before proceeding"
 assert_contains "plan: pre-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/plan.md" \
     "n1_verify_dependencies"
-assert_contains "plan: wait directive" \
-    "skills/n1-start/steps/plan.md" \
-    "Wait for the persona to return its result before proceeding"
 assert_contains "implementation: pre-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/implementation.md" \
     "n1_verify_dependencies"
-assert_contains "implementation: wait directive" \
-    "skills/n1-start/steps/implementation.md" \
-    "Wait contract applies"
 assert_contains "review: pre-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/review.md" \
     "n1_verify_dependencies"
@@ -110,18 +109,12 @@ assert_contains "review: wait directive" \
 assert_contains "fix: pre-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/fix.md" \
     "n1_verify_dependencies"
-assert_contains "fix: wait directive" \
-    "skills/n1-start/steps/fix.md" \
-    "Wait contract applies"
 assert_contains "pr: n1_verify_dependencies" \
     "skills/n1-start/steps/pr.md" \
     "n1_verify_dependencies"
 assert_contains "plan-review: n1_verify_dependencies" \
     "skills/n1-start/steps/plan-review.md" \
     "n1_verify_dependencies"
-assert_contains "plan-review: wait directive" \
-    "skills/n1-start/steps/plan-review.md" \
-    "Wait for the persona to return its result before proceeding"
 assert_contains "investigation-deliverable: wait directive" \
     "skills/n1-start/steps/investigation-deliverable.md" \
     "Wait for the persona to return its result before proceeding"
@@ -131,9 +124,6 @@ assert_contains "investigation-deliverable: post-dispatch n1_verify_dependencies
 assert_contains "investigation-deliverable: verify before step_end (N1-186)" \
     "skills/n1-start/steps/investigation-deliverable.md" \
     'n1_verify_dependencies "$N1_HOME/memory/$ID" investigation.md || { n1_step_end "investigation-deliverable" 16 failed;'
-assert_contains "qa: wait directive" \
-    "skills/n1-start/steps/qa.md" \
-    "Wait contract applies"
 assert_contains "qa: upstream implementation.md dependency check" \
     "skills/n1-start/steps/qa.md" \
     'n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md'
