@@ -22,7 +22,7 @@ ov 0; eq "T1 counter 0, default cap -> allow" "allow" "$(n1_review_fix_gate "$OV
 ov 1; eq "T2 counter 1, default cap -> exhausted" "exhausted" "$(n1_review_fix_gate "$OV")"
 n1_review_fix_gate "$OV" >/dev/null; eq "T2b exhausted returns 1" "1" "$?"
 printf -- '---\nstep: fix\n---\n' > "$OV"; eq "T4 absent counter -> allow" "allow" "$(n1_review_fix_gate "$OV")"
-ov abc; eq "T4b non-numeric counter -> allow" "allow" "$(n1_review_fix_gate "$OV")"
+ov abc; eq "T4b non-numeric counter -> exhausted (fail closed)" "exhausted" "$(n1_review_fix_gate "$OV")"
 
 # ---- gate: explicit config wins ----
 cfg '{"review":{"maxFixAttempts":2}}'
@@ -33,6 +33,8 @@ ov 0; eq "T3c cap 0 -> exhausted at once" "exhausted" "$(n1_review_fix_gate "$OV
 cfg '{"review":{"maxFixAttempts":"x"}}'
 ov 0; eq "T5 non-numeric cap -> default 1 (allow at 0)" "allow" "$(n1_review_fix_gate "$OV")"
 ov 1; eq "T5b non-numeric cap -> default 1 (exhausted at 1)" "exhausted" "$(n1_review_fix_gate "$OV")"
+
+ov abc; n1_increment_counter "$OV" review_fix_cycle >/dev/null 2>&1; eq "T6 increment refuses non-numeric counter" "abc" "$(n1_read_frontmatter "$OV" review_fix_cycle)"
 
 # ---- breach: reproduce (pre-N1-211 nothing compared the counter), then prevent ----
 cfg '{}'
@@ -73,6 +75,9 @@ eq "V1 re-review is incremental from cycle 1 on the fix diff" "1" "$(grep -cF '[
 eq "V2 incremental reviewers get only the fix diff" "1" "$(grep -cE 'INCREMENTAL=true.*fix\.diff.*review only the changes' "$R")"
 eq "V3 review.md no longer claims default 2" "0" "$(grep -c 'maxFixAttempts` (default 2)' "$R")"
 eq "V4 review FAIL routes to the fix-step cap gate" "1" "$(grep -cF '**FAIL → Step 8** (its **Cap gate** bounds the loop).' "$R")"
+
+eq "V5 security-reviewer keeps full scope on re-review" "1" "$(grep -cF 'security-reviewer keeps full scope' "$R")"
+eq "V6 CYCLE guarded as numeric (both sites)" "2" "$(grep -cF '[[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1' "$R")"
 
 # ---- wiring: PR body + telemetry ----
 eq "P1 tech-writer renders For Human Review" "1" "$(grep -cE 'review\.md has `## For Human Review`.*mandatory' agents/tech-writer.md)"

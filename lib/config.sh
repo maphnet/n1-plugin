@@ -730,7 +730,8 @@ n1_review_fix_gate() {
     # Needs n1_read_frontmatter (lib/frontmatter.sh; loaded by the preamble via step.sh).
     local max cur
     max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]+$ ]] || max=1
-    cur=$(n1_read_frontmatter "$1" review_fix_cycle); [[ "$cur" =~ ^[0-9]+$ ]] || cur=0
+    cur=$(n1_read_frontmatter "$1" review_fix_cycle); cur=${cur:-0}
+    [[ "$cur" =~ ^[0-9]+$ ]] || { echo exhausted; return 1; }  # garbage counter fails closed
     if [ "$cur" -lt "$max" ]; then echo allow; else echo exhausted; return 1; fi
 }
 
