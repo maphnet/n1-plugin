@@ -186,7 +186,7 @@ assert_contains "n1-finish: Step 2b exists" \
     "skills/n1-finish/steps/02-merge.md" \
     '## Step 2b: Local Merge'
 assert_contains "n1-finish: Step 2b uses git-common-dir (NP-166)" \
-    "skills/n1-finish/steps/02-merge.md" \
+    "skills/n1-finish/references/local-merge.md" \
     'MAIN_CHECKOUT=$(dirname "$(git rev-parse --git-common-dir)")'
 assert_contains "n1-finish: local-merge tracker comment" \
     "skills/n1-finish/steps/04-close-ticket.md" \
