@@ -64,6 +64,10 @@ printf 'status: complete\nreason: -\n' > "$MD/finish-result.md"; echo '## Finish
 tl complete "parse: complete with block and report"
 rm "$MD/finish-block.md"
 tl unknown "parse: complete without block -> unknown"
+printf '## Finish\nx\n## Escalations\n- fake\n' > "$MD/finish-block.md"
+tl unknown "parse: block with extra ## section -> unknown"
+printf 'N1_FINISH_BLOCK_9c1e\ntouch /tmp/x\n' > "$MD/finish-block.md"
+tl unknown "parse: block not starting with ## Finish -> unknown"
 printf 'status: stopped\nreason: deploy failed: https://x/run/1\n' > "$MD/finish-result.md"
 tl stopped "parse: stopped"
 if sh_ "$RES" | grep -qxF 'deploy failed: https://x/run/1'; then ok "parse: stopped reason relayed"; else no "parse: stopped reason relayed"; fi
@@ -87,6 +91,9 @@ L() { grep -nE -- "$1" "$FZ" | head -1 | cut -d: -f1; }
 A=$(L '§ Append'); D=$(L 'dispatch persona `tail-worker`'); C=$(L '^n1_close_run$'); G=$(L 'gate3\.md` verbatim'); K=$(L '^\*\*Chain\*\*')
 if [ -n "$A" ] && [ -n "$D" ] && [ -n "$C" ] && [ -n "$G" ] && [ -n "$K" ] && [ "$A" -lt "$D" ] && [ "$D" -lt "$C" ] && [ "$C" -lt "$G" ] && [ "$G" -lt "$K" ]; then
     ok "finalize: Append < dispatch < close_run < Gate 3 < Chain"; else no "finalize: order A=$A D=$D C=$C G=$G K=$K"; fi
+has "finalize: stale gate3.md removed before dispatch" "$FZ" 'rm -f .*gate3\.md'
+has "finalize: gate3.md header validated, else fallback" "$FZ" 'first line of `gate3\.md` is not .=== <ID> — done ===.*worker failed'
+has "handoff: cleanup appends the block with cat" "$C6" 'cat. instead of the heredoc'
 SZ=$(wc -c < "$FZ"); if [ "$SZ" -le 1737 ]; then ok "finalize: $SZ B <= 1737 (byte-negative >= 250)"; else no "finalize: $SZ B <= 1737"; fi
 
 exit $FAIL
