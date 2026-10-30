@@ -74,6 +74,10 @@ eq "V2 incremental reviewers get only the fix diff" "1" "$(grep -cE 'INCREMENTAL
 eq "V3 review.md no longer claims default 2" "0" "$(grep -c 'maxFixAttempts` (default 2)' "$R")"
 eq "V4 review FAIL routes to the fix-step cap gate" "1" "$(grep -cF '**FAIL → Step 8** (its **Cap gate** bounds the loop).' "$R")"
 
+# ---- wiring: PR body + telemetry ----
+eq "P1 tech-writer renders For Human Review" "1" "$(grep -cE 'review\.md has `## For Human Review`.*mandatory' agents/tech-writer.md)"
+eq "P2 pr.md emits review_unresolved_at_pr" "1" "$(grep -c '"review_unresolved_at_pr=' skills/n1-start/steps/pr.md)"
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
