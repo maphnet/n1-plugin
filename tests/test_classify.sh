@@ -231,4 +231,24 @@ package.json")"
 assert_eq "alr: empty input" "false" "$(n1_classify_all_low_risk "")"
 assert_eq "alr: single code file" "false" "$(n1_classify_all_low_risk "src/app.ts")"
 
+M1=".claude-plugin/plugin.json"; M2=".claude-plugin/marketplace.json"
+assert_eq "alr: test + both manifests" "true" "$(n1_classify_all_low_risk "tests/test_foo.py
+$M1
+$M2")"
+assert_eq "alr: test + one manifest" "true" "$(n1_classify_all_low_risk "tests/test_foo.py
+$M1")"
+assert_eq "alr: manifests only" "false" "$(n1_classify_all_low_risk "$M1
+$M2")"
+assert_eq "alr: manifests + code" "false" "$(n1_classify_all_low_risk "$M1
+src/main.py")"
+assert_eq "alr: manifests + docs" "false" "$(n1_classify_all_low_risk "$M1
+README.md")"
+assert_eq "alr: package.json not excluded" "false" "$(n1_classify_all_low_risk "tests/test_foo.py
+package.json
+foo/plugin.json")"
+assert_eq "alr: nested plugin.json not excluded" "false" "$(n1_classify_all_low_risk "tests/test_foo.py
+foo/.claude-plugin/plugin.json")"
+BUMP_PATHS=$(grep -o '^set_version [^ ]*' "$(dirname "$0")/../scripts/bump-version.sh" | awk '{print $2}' | sort | tr '\n' ' ')
+assert_eq "alr: manifest paths match bump-version.sh" "$(printf '%s\n%s\n' "$M1" "$M2" | sort | tr '\n' ' ')" "$BUMP_PATHS"
+
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
