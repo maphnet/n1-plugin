@@ -631,7 +631,9 @@ mk_bg() {
 echo "$*" >> "$FAKE_DIR/gh-all"
 case "$1 $2" in
     "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
-    "pr view") cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
+    "pr view") # N1-214: gh-fail holds a count of reads to fail before answering
+        if [ -s "$FAKE_DIR/gh-fail" ]; then n=$(cat "$FAKE_DIR/gh-fail"); if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$FAKE_DIR/gh-fail"; exit 1; fi; fi
+        cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
     *) exit 1 ;;
 esac
 GHEOF
@@ -1425,6 +1427,33 @@ test_bg_chain_pr_closed() {
     assert_eq "chain-closed: exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "chain-closed: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
     assert_eq "chain-closed: reason recorded" "finish:pr-not-open" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# N1-214: one failed PR-state read is retried, so the chain still reaches n1-finish.
+test_bg_chain_pr_state_retry() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    echo 1 > "$tmp/fake/gh-fail"
+    assert_eq "chain-retry: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-retry: finish launched after one failed read" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-retry: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    rm -rf "$tmp"
+}
+
+# N1-214: a persistently failing PR-state read still records pr-state-unreadable (no finish).
+test_bg_chain_pr_state_unreadable() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo 99 > "$tmp/fake/gh-fail"
+    assert_eq "chain-unreadable: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-unreadable: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-unreadable: reason recorded" "finish:pr-state-unreadable" "$(plan_cell "$tmp/queue.md" 1 9)"
     rm -rf "$tmp"
 }
 
@@ -2787,6 +2816,8 @@ test_bg_launch_guard
 test_bg_chain_merges
 test_bg_chain_sync_ok
 test_bg_chain_pr_closed
+test_bg_chain_pr_state_retry
+test_bg_chain_pr_state_unreadable
 test_bg_chain_flags_off
 test_bg_chain_finish_stops
 test_bg_chain_missing_is_busy

@@ -220,7 +220,14 @@ n1_queue_pr_state() {
     # nothing for any other URL (SEC-2 shape, as in n1_queue_held_sweep) or on a gh error; callers
     # fail open to the plain pr stop.
     [[ "$1" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || return 0
-    timeout 30 gh pr view --json state -q .state -- "$1" </dev/null 2>/dev/null
+    # N1-214: a transient gh failure or empty read is retried (3 attempts, 2s/4s backoff) before
+    # giving up, so one flaky read does not strand a merged PR as pr-state-unreadable.
+    local attempt out
+    for attempt in 1 2 3; do
+        out=$(timeout 30 gh pr view --json state -q .state -- "$1" </dev/null 2>/dev/null) || out=""
+        [ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+        [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+    done
     return 0
 }
 
