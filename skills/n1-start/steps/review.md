@@ -20,22 +20,22 @@ if [ "$RELATED_ENABLED" = "true" ]; then
 N1-registered on this machine: ${XREPO_KNOWN}
 Check diff for imports/API calls/env vars/service names pointing to N1-registered projects NOT above. Flag each [XREPO-N] (Low, non-blocking)."
 fi
-CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}
-INCREMENTAL=false; [ "$CYCLE" -ge 2 ] && [ -f "$N1_HOME/memory/$ID/fix-changed-files" ] && { INCREMENTAL=true; FIX_FILES=$(cat "$N1_HOME/memory/$ID/fix-changed-files"); }
-QE=$(n1_autonomy_val 'qualityEscalations'); echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED CYCLE=$CYCLE QE=$QE"
+CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}; [[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1
+INCREMENTAL=false; [ "$CYCLE" -ge 1 ] && [ -s "$N1_HOME/memory/$ID/fix.diff" ] && { INCREMENTAL=true; cp "$N1_HOME/memory/$ID/review.md" "$N1_HOME/memory/$ID/review-prev.md" 2>/dev/null; FIX_FILES=$(cat "$N1_HOME/memory/$ID/fix-changed-files" 2>/dev/null); }
+QE=$(n1_autonomy_val 'qualityEscalations'); echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED CYCLE=$CYCLE INCREMENTAL=$INCREMENTAL QE=$QE"
 ```
 
-### Incremental Re-Review (cycle >= 2)
+### Incremental Re-Review (cycle >= 1)
 
-`INCREMENTAL=true`: pass `$FIX_FILES` as file scope; instruct "Incremental re-review — focus on: [list]; check regressions; verify prior Critical/High and [SEC-N] addressed." `INCREMENTAL=false`: full scope.
+`INCREMENTAL=true`: pass code-reviewer `$N1_HOME/memory/$ID/fix.diff` path and `$FIX_FILES` as file scope; instruct "Incremental re-review — review only the changes in fix.diff, read surrounding code only as needed; check regressions; verify all prior findings addressed (review-prev.md: re-report unfixed by id)." The security-reviewer keeps full scope (unfixed [SEC-N] must resurface). `INCREMENTAL=false`: full scope.
 
-Run **Ensure Dependencies(`<ID>`)** before reviewers. > **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step**
+Run **Ensure Dependencies(`<ID>`)** first. > **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step**
 
 **Shared review core:** `review-core.md` with `BASE_BRANCH`.
 
 **Review tier gate:** If `REVIEW_TIER=SKIP`: record `"Review skipped: DOC_CONFIG_ONLY diff, code-reviewer not needed."` in `$N1_HOME/memory/$ID/review.md`, write `## Review` with `PASS (skipped — doc/config only)` to overview, run `n1_step_end "review" 9 "success"`, and proceed to next step. If `REVIEW_TIER=NARROW`: spawn code-reviewer with scope restricted to TQ findings only — instruct: "Scope: test quality (TQ) findings only. Do NOT review for correctness, design, architecture, or style. Report only [TQ-N] findings for test coverage gaps, hollow tests, and test quality issues." If `REVIEW_TIER=FULL`: current behavior (full code-reviewer scope).
 
-**Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md` (codebase analysis; targeted file:line reads), Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff.
+**Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md` (codebase analysis), Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -45,11 +45,11 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 ```
 `QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Append `$XREPO_REVIEW_CONTEXT`. Spawn reviewers with output paths `$N1_HOME/memory/$ID/review-cr.md` / `…/review-sec.md`; each returns verdict, counts, index.
 
-**Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewer personas return their results before combining findings.
+**Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewers return before combining findings.
 
 For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
 
-After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm -f` the reviewer files)+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read the reviewer files). **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle: deferred, below). Partial (incl. missing/empty reviewer file): retry once.
+After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard (`rm -f` reviewer files)+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]`; with `QE=auto-accept` also any `[SEC-N]` (a Low left after one fix cycle: deferred, below). Partial (incl. missing/empty reviewer file): retry once.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -58,19 +58,19 @@ MEM="$N1_HOME/memory/$ID"; SEC=<true if security-reviewer was spawned, else fals
 FILES=(review-hdr.md review-cr.md); [ "$SEC" = true ] && FILES+=(review-sec.md)
 for f in "${FILES[@]}"; do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
 ( cd "$MEM" && cat "${FILES[@]}" ) > "$MEM/review.md"
-FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}
+FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}; [[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1
 if [ -r "$MEM/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE" \
     || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || echo "NON_CONVERGING: cycle $CYCLE"; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
 n1_step_end "review" 9 "success"
 ```
-NON_CONVERGING or FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+NON_CONVERGING/FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ### 7b. TQ FIX LOOP
 
 No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"`, then `n1_resolve_agent qa-engineer review`+split; spawn qa-engineer: `$N1_HOME/memory/$ID/review.md` path (`[TQ-N]` only), qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5."
 
-**FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
+**FAIL → Step 8** (its **Cap gate** bounds the loop).
 
 **PASS** + `QE=auto-accept` (hands-off soft policy, N1-116): after the verdict line append `## Deferred Soft Findings` to `$N1_HOME/memory/$ID/review.md` with the file-write mechanism, never a shell command (replace if present), one `- [ID] file:line — title` per Low, `[TQ-N]` Low, Low `[XREPO-N]`, or unknown-severity finding, excluding `[SEC-N]`; Low `[SEC-N]` only when `review_fix_cycle>=1` (not fixed; the PR body lists them). A finding of any prefix in a `SECURITY_RELEVANT` class (review-core.md) counts as `[SEC-N]`. `[SEC-N]` findings of any severity are never soft: they go to Step 8 as FAIL (`review.maxFixAttempts` bounds Critical/High/Medium; a Low with `review_fix_cycle>=1` is recorded here, no further cycle). A non-TQ Medium whose title ends ` (correctness)` → Step 8 SOFT-ONLY (one developer pass, no re-review); add every other non-TQ Medium to `## Deferred Soft Findings` (no developer, the PR body lists them); no `(correctness)` Medium → no soft pass, proceed (unchanged). Other modes: **PASS:** proceed. Critical/High/`[RULE-N]` always FAIL → Step 8 as above (unchanged).

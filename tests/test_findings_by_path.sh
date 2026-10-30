@@ -25,7 +25,7 @@ done
 
 check "review removes stale reviewer files" 'rm -f "\$MEM/review-hdr\.md" "\$MEM/review-cr\.md" "\$MEM/review-sec\.md"' "$R"
 check "review spawns reviewers with output paths" 'output paths `\$N1_HOME/memory/\$ID/review-cr\.md`' "$R"
-check "review never reads reviewer files into context" 'never Read the reviewer files' "$R"
+check "review never reads reviewer files into context" 'the reviewer files \(never Read them\)' "$R"
 check "review.md = header file + cat of reviewer files" 'FILES=\(review-hdr\.md review-cr\.md\); \[ "\$SEC" = true \] && FILES\+=\(review-sec\.md\)' "$R"
 check "review.md cat quotes the file list" 'cat "\$\{FILES\[@\]\}" \) > "\$MEM/review\.md"' "$R"
 check "review header is written by file-write, not shell" 'review-hdr\.md` with the file-write mechanism' "$R"

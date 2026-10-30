@@ -59,7 +59,8 @@ n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetr
     "review_fix_cycles=${REVIEW_FIX:-0}" \
     "qa_fix_cycles=${QA_FIX:-0}" \
     "break_check_verdict=$BC_VERDICT" \
-    "review_discarded_count=$DISCARDED"
+    "review_discarded_count=$DISCARDED" \
+    "review_unresolved_at_pr=$(grep -qs '^## For Human Review' "$N1_HOME/memory/$ID/review.md" && echo true || echo false)"
 n1_step_end "pr" 12 "<success|skipped>"
 ```
 
