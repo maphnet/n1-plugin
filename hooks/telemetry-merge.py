@@ -96,6 +96,32 @@ def pair_steps(events: list[dict]) -> list[dict]:
     return steps
 
 
+def repair_windows(steps: list[dict], run_start: str | None, run_end: str | None) -> list[dict]:
+    """Fill a missing step bound from its chronological neighbour, else the envelope (N1-229).
+
+    A missing start takes the previous step's end (else its start, else run_start); a missing
+    end takes the next step's start (else its end, else run_end). Real timestamps are never
+    overwritten; filled steps carry window_inferred so analyzers can discount them.
+    """
+    order = sorted((s for s in steps if s.get("started_at") or s.get("completed_at")),
+                   key=lambda s: (s.get("started_at") or s.get("completed_at"))[:19])
+    real = [(s.get("started_at"), s.get("completed_at")) for s in order]
+    for i, s in enumerate(order):
+        start, end = real[i]
+        if not start:
+            prev = real[i - 1] if i else (None, None)
+            start = prev[1] or prev[0] or run_start
+        if not end:
+            nxt = real[i + 1] if i + 1 < len(real) else (None, None)
+            end = nxt[0] or nxt[1] or run_end
+        if start and end and start[:19] > end[:19]:
+            continue  # inverted fill: leave the gap rather than invent a window
+        if (start, end) != real[i]:
+            s.update(started_at=start, completed_at=end,
+                     duration_s=_duration(start, end), window_inferred=True)
+    return steps
+
+
 def pair_agents(events: list[dict]) -> list[dict]:
     groups: dict = {}
     for ev in events:
@@ -209,6 +235,17 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                 "context": (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
                            + (u.get("cache_creation_input_tokens") or 0),
             })
+
+        # finish.md begins and ends finish back to back; FINALIZE, Gate 3 and the chained
+        # n1-finish run after it, so the finish window runs to the last transcript message.
+        # ponytail: unbounded to the transcript end; a later manual re-merge would also absorb
+        # post-run turns of the same session. Add a Stop-time bound if re-merges become routine.
+        last_ts = max((m["ts"] for m in messages), default="")
+        for step in steps:
+            end = step.get("completed_at")
+            if step.get("step") == "finish" and end and last_ts[:19] > end[:19]:
+                step.update(completed_at=last_ts, window_extended=True,
+                            duration_s=_duration(step.get("started_at"), last_ts))
 
         # Context fields describe the orchestrator's own window, so sidechain
         # (subagent) records are skipped. prev_context = context just before.
@@ -336,7 +373,7 @@ def main() -> int:
     # add completion data, but cannot relabel the host/session it started on.
     envelope = {**envelope_close, **envelope_open}
     host = envelope.get("host") or "unknown"
-    steps = pair_steps(step_events)
+    steps = repair_windows(pair_steps(step_events), envelope.get("started_at"), envelope.get("completed_at"))
     agents_raw = pair_agents(_read_jsonl(agents_file))
 
     agents = []
