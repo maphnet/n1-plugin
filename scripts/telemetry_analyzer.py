@@ -18,6 +18,7 @@ import datetime as dt
 import importlib.util
 import json
 import os
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -275,6 +276,41 @@ def compute_duration(run: dict) -> float | None:
     return None
 
 
+def count_fix_cycles_by_kind(run: dict) -> dict | None:
+    """Count hard/soft/codex fix cycles from the run's implementation.md headings.
+
+    Run file: <slug>/memory/<ID>/telemetry/runs/<file>; implementation.md sits in <ID>/.
+    Returns None when the file is missing or unreadable. Unmatched headings are ignored.
+    """
+    src = run.get("_source_path", "")
+    if not src:
+        return None
+    try:
+        text = (Path(src).parent.parent.parent / "implementation.md").read_text(
+            encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    seen: set[tuple[str, str]] = set()
+    for line in text.splitlines():
+        if not line.startswith("## "):
+            continue
+        h = line[3:].strip().lower()
+        if "qa fix cycle" in h or h.startswith("summary") or h.endswith("summary"):
+            continue
+        m = re.search(r"(?:fix cycle|follow-up)\s+(\d+)", h)
+        n = m.group(1) if m else h
+        if "(soft)" in h:
+            kind = "soft"
+        elif h.startswith("codex") or "(codex" in h:
+            kind = "codex"
+        elif "fix cycle" in h:
+            kind = "hard"
+        else:
+            continue
+        seen.add((kind, n))
+    return {k: sum(1 for kk, _ in seen if kk == k) for k in ("hard", "soft", "codex")}
+
+
 def extract_run_report(run: dict) -> dict:
     """Build a complete per-run report object."""
     # Count fix cycles from outcomes
@@ -288,6 +324,7 @@ def extract_run_report(run: dict) -> dict:
             except (ValueError, TypeError):
                 pass
 
+    kinds = count_fix_cycles_by_kind(run)
     return {
         "run_id": run.get("run_id"),
         "ticket_id": ticket_id_from_run(run),
@@ -299,6 +336,9 @@ def extract_run_report(run: dict) -> dict:
         "total_step_duration_s": (run.get('summary') or {}).get('total_step_duration_s'),
         "final_outcome": run.get("final_outcome"),
         "fix_cycles": fix_cycles,
+        "fix_cycles_hard": kinds["hard"] if kinds else None,
+        "fix_cycles_soft": kinds["soft"] if kinds else None,
+        "fix_cycles_codex": kinds["codex"] if kinds else None,
         "steps": extract_steps(run),
         "agents": extract_agents(run),
         "totals": extract_totals(run),
@@ -489,8 +529,29 @@ def aggregate_runs(reports: list[dict]) -> dict:
             total_anomalies += 1
             anomaly_type_counts[a["type"]] = anomaly_type_counts.get(a["type"], 0) + 1
 
+    # Per-project fix cycles: raw total next to per-kind means (runs without implementation.md
+    # are excluded from the per-kind means, not counted as zero).
+    by_project: dict[str, dict] = {}
+    for r in reports:
+        pr = by_project.setdefault(r.get("project") or "unknown", {"runs": [], "kinds": []})
+        pr["runs"].append(r.get("fix_cycles") or 0)
+        if r.get("fix_cycles_hard") is not None:
+            pr["kinds"].append(r)
+    project_stats = {}
+    for slug, pr in by_project.items():
+        k = pr["kinds"]
+        project_stats[slug] = {
+            "runs": len(pr["runs"]),
+            "fix_cycles_mean": round(statistics.mean(pr["runs"]), 2),
+            "kind_runs": len(k),
+            **{f"fix_cycles_{kind}_mean": (round(statistics.mean(r[f"fix_cycles_{kind}"] for r in k), 2)
+                                           if k else None)
+               for kind in ("hard", "soft", "codex")},
+        }
+
     return {
         "total_runs": len(reports),
+        "by_project": project_stats,
         "by_tier": tier_stats,
         "by_step": step_stats,
         "anomaly_summary": {

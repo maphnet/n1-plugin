@@ -201,12 +201,15 @@ n1_classify_security_hint_any() {
 
 # n1_classify_all_low_risk <newline-separated-paths> -> stdout: true|false
 # true iff every path classifies as deps, style, test, or ci. Empty input -> false (safe default).
+# The two version manifests (bumped on every task branch) are skipped, not counted;
+# a manifests-only list stays false. Keep in sync with scripts/bump-version.sh (parity test).
 n1_classify_all_low_risk() {
     local paths="$1"
     [ -z "$paths" ] && { echo false; return; }
     local f cat found=false
     while IFS= read -r f; do
         [ -z "$f" ] && continue
+        case "$f" in .claude-plugin/plugin.json|.claude-plugin/marketplace.json) continue ;; esac
         found=true
         cat=$(n1_classify_path "$f")
         case "$cat" in

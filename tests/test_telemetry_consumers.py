@@ -63,6 +63,29 @@ class TelemetryConsumersTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             analyzer.build_parser().parse_args(["collect", "--since", "09/02/2026"])
 
+    def _run_with_impl(self, root, slug, ticket, text):
+        d = Path(root) / slug / "memory" / ticket
+        (d / "telemetry" / "runs").mkdir(parents=True)
+        if text is not None:
+            (d / "implementation.md").write_text(text)
+        return {"run_id": ticket, "_source_path": str(d / "telemetry" / "runs" / "r.jsonl"),
+                "outcomes": [{"outcomes": {"fix_cycles_count": 1}}]}
+
+    def test_fix_cycles_by_kind_and_project(self):
+        import tempfile
+        impl = ("## Fix Cycle 1\n## Fix Cycle 1\n## Fix Cycle 2 (soft)\n"
+                "## Codex Fix Cycle 1\n## Follow-up 2 (Codex review)\n"
+                "## QA Fix Cycle 1\n## Fix Cycle 1 Summary\n## Implementation Summary\n"
+                "## Review Fix Cycle 3\n")
+        with tempfile.TemporaryDirectory() as root:
+            a = analyzer.extract_run_report(self._run_with_impl(root, "p1", "T-1", impl))
+            b = analyzer.extract_run_report(self._run_with_impl(root, "p1", "T-2", None))
+            self.assertEqual((a["fix_cycles_hard"], a["fix_cycles_soft"], a["fix_cycles_codex"]), (2, 1, 2))
+            self.assertIsNone(b["fix_cycles_hard"])
+            p = analyzer.aggregate_runs([a, b])["by_project"]["p1"]
+            self.assertEqual((p["runs"], p["kind_runs"], p["fix_cycles_mean"]), (2, 1, 1))
+            self.assertEqual((p["fix_cycles_hard_mean"], p["fix_cycles_soft_mean"]), (2, 1))
+
 
 if __name__ == "__main__":
     unittest.main()
