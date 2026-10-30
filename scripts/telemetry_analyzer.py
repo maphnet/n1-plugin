@@ -280,10 +280,14 @@ def count_fix_cycles_by_kind(run: dict) -> dict | None:
     """Count hard/soft/codex fix cycles from the run's implementation.md headings.
 
     Run file: <slug>/memory/<ID>/telemetry/runs/<file>; implementation.md sits in <ID>/.
+    implementation.md is per ticket, so only the latest run file (names embed a UTC
+    timestamp) gets the counts; older runs return None.
     Returns None when the file is missing or unreadable. Unmatched headings are ignored.
     """
     src = run.get("_source_path", "")
     if not src:
+        return None
+    if Path(src).name < max((f.name for f in Path(src).parent.glob("*.jsonl")), default=""):
         return None
     try:
         text = (Path(src).parent.parent.parent / "implementation.md").read_text(

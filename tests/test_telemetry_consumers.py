@@ -86,6 +86,18 @@ class TelemetryConsumersTest(unittest.TestCase):
             self.assertEqual((p["runs"], p["kind_runs"], p["fix_cycles_mean"]), (2, 1, 1))
             self.assertEqual((p["fix_cycles_hard_mean"], p["fix_cycles_soft_mean"]), (2, 1))
 
+    def test_fix_cycles_by_kind_only_latest_run_of_ticket(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            old = self._run_with_impl(root, "p1", "T-1", "## Fix Cycle 1\n")
+            runs = Path(old["_source_path"]).parent
+            (runs / "n1-run-20260101T000000Z-a.jsonl").write_text("")
+            (runs / "n1-run-20260102T000000Z-b.jsonl").write_text("")
+            old["_source_path"] = str(runs / "n1-run-20260101T000000Z-a.jsonl")
+            new = dict(old, _source_path=str(runs / "n1-run-20260102T000000Z-b.jsonl"))
+            self.assertIsNone(analyzer.extract_run_report(old)["fix_cycles_hard"])
+            self.assertEqual(analyzer.extract_run_report(new)["fix_cycles_hard"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
