@@ -27,8 +27,6 @@ Run `procedures/rules-injection.md`: `agent_name=developer` on every route. Disp
 
 **Plan path:** dispatch **implementer** persona with `$IMPLEMENTER_MODEL` and `$IMPLEMENTER_EFFORT`. Input plan.md or brainstorm.md, `$N1_HOME/memory/$ID/analysis.md` (codebase analysis; targeted file:line reads): "Enumerate tasks; dispatch developer per task." Always invoke `n1-implement`. Constraints: Think Before Coding; Simplicity First; Surgical Changes; Goal-Driven; existing patterns; test+commit per change; BLOCKED on architectural; no finish/branch-delete skills, CONTINUOUS. Pass `WORKTREE_PATH`, output path, escalation, `$RULES_BLOCK` (relay verbatim, never paraphrase), and the implementation-result format.
 
-**Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until the persona returns its result.
-
 ```bash
 source ~/.n1/preamble.sh
 BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )

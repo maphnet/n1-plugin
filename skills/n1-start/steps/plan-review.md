@@ -25,8 +25,6 @@ If issues: fix in-place, state changes. If clean: "Plan validated, no issues fou
 
 Output: `## Plan Review Result` / `**Verdict:** CLEAN | FIXED` / `**Changes:**` / `**Verified assumptions:**` / `**Verified standards:**`
 
-**Wait for the persona to return its result before proceeding. Do NOT read ahead to the step result or check plan.md until the agent tool call completes.**
-
 #### After CCR returns:
 
 - Record the CCR verdict: if verdict is FIXED, the plan file was updated in-place by the reviewer. Record the plan-review verdict and a one-line summary of changes in overview's `## Key Decisions` — durable traceability that survives a resume, rather than living only in transient orchestrator context.

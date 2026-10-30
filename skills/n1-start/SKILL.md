@@ -11,7 +11,7 @@ model: sonnet
 
 **Never dispatch a fork subagent:** dispatches are typed personas or general-purpose subagents with fresh context.
 
-> **BLOCKING DISPATCH REQUIREMENT:** stay foreground — do NOT continue until the worker's result is available. Fabricating completion is a violation.
+> **BLOCKING DISPATCH REQUIREMENT:** stay foreground — do NOT continue until the worker's result is available. Fabricating completion is a violation. After any dispatch, do not read ahead or poll; if it returns before the result, end the turn with no text and no tool call (detail: `procedures/output-gates.md § Wait Contract`).
 
 Accepts ticket ID or brain dump and orchestrates the full development cycle through N1 personas.
 
@@ -45,7 +45,7 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 
 **Ticket watch:** run `procedures/ticket-watch.md § Check` before Steps 5, 6, 10 and 11b.
 
-**Run each step file in order:** read and follow it; never do a step inline or replace its persona dispatch with your own work (simple-path skips only 3, 4, 4b).
+**Run each step file in order:** read and follow it; never do a step inline or replace its persona dispatch with your own work (simple-path skips only 3, 4, 4b). **Transition turn:** issue in ONE turn, in parallel, the prior step's end block, the ticket-watch Check when due, and the read of the next step file (only when no gate or tier decision in the prior step picks it); act on Check output before running the next step's opening snippet.
 
 | Step | File | Notes |
 |------|------|-------|

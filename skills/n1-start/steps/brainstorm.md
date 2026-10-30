@@ -22,8 +22,6 @@ Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 Bug: use root cause findings. Investigation: explore question. Append `$RULES_BLOCK`.
 **ORCHESTRATOR GUARDRAIL (experiments):** do not run ad-hoc experiments, benchmarks, or probes inline — delegate to the developer or qa-engineer agent.
 
-**Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
-
 After: parse `context:`; if updated replace `## Context` in overview.md.
 
 ```bash

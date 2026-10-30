@@ -25,7 +25,7 @@ Failure is non-fatal.
 
 ## § Check
 
-Runs at the check points listed in SKILL.md.
+Runs at the check points listed in SKILL.md, inside the transition turn (in parallel with the prior step's end block and the next step-file read).
 
 ```bash
 source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"; n1_tw_on "$ID"

@@ -29,8 +29,6 @@ Spawn with `$PLANNER_MODEL` and `$PLANNER_EFFORT`:
 - "Do NOT include any `REQUIRED SUB-SKILL` execution directive in the plan body."
 - Append `$RULES_BLOCK` if non-empty.
 
-**Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
-
 After return: record 2-3 sentence approach summary in `## Key Decisions`, then:
 ```bash
 source ~/.n1/preamble.sh
