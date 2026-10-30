@@ -107,3 +107,7 @@ Evaluate the PR state:
 5. **Merge conflict** → `git merge --abort` (or `git rebase --abort` in the feature-branch directory), report the conflicting files, and in a plain checkout switch back to the feature branch. **STOP.**
 6. Capture the merge SHA: `git rev-parse HEAD` on `<defaultBranch>`. **No push.** Report: "Merged `<branch>` into `<defaultBranch>` locally. N1 does not push the default branch; push it yourself (`!git push origin <defaultBranch>`)."
 7. Skip Step 3 (`03-deploy.md`) — nothing is on the remote. Deploy status `skipped (local merge)`, smoke `n/a`. Go to Step 4; the tracker comment is the local-merge variant.
+
+## Hand-off
+
+With `handoff:yes`, every "Go to Step 3" or "Go to Step 4" above (the merge happened or was already done) runs `steps/handoff.md` instead of Steps 3-6; a **STOP** never hands off.

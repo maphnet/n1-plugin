@@ -1,5 +1,7 @@
 # Step 6: Cleanup & Memory
 
+**Hand-off (`handoff:yes`, see `handoff.md`):** [worker] renders item 4's block into `finish-block.md` and the § Report into `finish-report.md` with `Cleanup: <pending>` and Next tickets filled, never running § One Cleanup Call. [orchestrator] runs § One Cleanup Call, appending that file with `cat` instead of the heredoc (no `getIssueLinks` call), fills `Cleanup:`, prints the Report and does release routing.
+
 1. **Local branch (runs last in § One Cleanup Call, after the worktree):** plain checkout (not a linked worktree): if on the feature branch, `git checkout <defaultBranch> && git pull` first (local merge: skip `git pull`). Then `git branch -d`, with `-D` only when the tip equals the merged PR head (see tokens below); otherwise keep it and report why.
 2. **Remote branch:** On the reviewer-merge and n1-finish-merge paths leave remote deletion to the repo's settings — do not force it. Local-merge path: n/a (nothing was pushed).
 3. **Worktree (runs before the branch delete in § One Cleanup Call):** only when the current branch is the finished PR's head branch (`HEAD_REF`); an unrelated ticket's worktree is never touched. Removal rules are in the paragraph below the block.

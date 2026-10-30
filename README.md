@@ -176,6 +176,7 @@ N1 is a **lightweight controller** (~5-10K tokens) that uses a hybrid delegation
 | qa-engineer | sonnet | medium | Test design and implementation |
 | local-test-planner | sonnet | medium | Local test plan creation |
 | post-deploy-verifier | sonnet | low | Acceptance-criterion verification after a successful deployment |
+| tail-worker | sonnet | low | Finalize memory, Gate 3 composition and post-merge finish steps in a fresh context |
 | tech-writer | sonnet | medium | PR content generation |
 
 Defaults come from agent frontmatter; `models.*` in config is an explicit override that also disables signal-based tier adjustments for that agent.

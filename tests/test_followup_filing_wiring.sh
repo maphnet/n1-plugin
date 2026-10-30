@@ -33,7 +33,7 @@ check "report strips unlinked" 'strip ` unlinked`' "$P"
 check "review fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/fix.md
 check "QA fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/qa.md
 check "finalize appends its own proposals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/procedures/finalize.md
-check "finalize runs File before Gate 3" 'followup-filing\.md` § File' skills/n1-start/procedures/finalize.md
+check "finalize worker runs File before Gate 3" 'followup-filing\.md` § File' agents/tail-worker.md
 check "Gate 3 template carries Follow-ups line" 'Follow-ups: <KEY>' skills/n1-start/procedures/output-gates.md
 
 check "Codex step appends human-review items (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-pr/steps/03-codex-review.md

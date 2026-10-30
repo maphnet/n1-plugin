@@ -1,6 +1,6 @@
 # Procedure: Follow-up Filing
 
-Hands-off runs file the follow-up tickets the pipeline would otherwise offer (N1-102). Producers append candidates to `## Follow-ups` in `$N1_HOME/memory/<ID>/overview.md`. n1-start FINALIZE MEMORY runs § File once, before Gate 3. Ask mode (`qualityEscalations` other than `auto-accept`) never appends or files: proposals stay offers, as before. Never dispatches a persona. Never blocks: every failure warns and continues.
+Hands-off runs file the follow-up tickets the pipeline would otherwise offer (N1-102). Producers append candidates to `## Follow-ups` in `$N1_HOME/memory/<ID>/overview.md`. The tail-worker runs § File once in FINALIZE MEMORY (n1-start dispatches it), before Gate 3. Ask mode (`qualityEscalations` other than `auto-accept`) never appends or files: proposals stay offers, as before. Never dispatches a persona. Never blocks: every failure warns and continues.
 
 ## § Append
 
