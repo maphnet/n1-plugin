@@ -41,11 +41,12 @@ source ~/.n1/preamble.sh
 ID="<ID>"; case "$ID" in ""|*[!A-Za-z0-9_-]*) echo id:invalid; exit 1;; esac
 M="$N1_HOME/memory/$ID"
 T=$(sed -nE 's/^status: (complete|stopped)\r?$/\1/p' "$M/finish-result.md" 2>/dev/null | tail -1)
-[ "$T" != complete ] || { [ -s "$M/finish-block.md" ] && [ -s "$M/finish-report.md" ]; } || T=
+B="$M/finish-block.md"
+[ "$T" != complete ] || { [ -s "$M/finish-report.md" ] && [ "$(head -1 "$B" 2>/dev/null | tr -d '\r')" = "## Finish" ] && [ "$(grep -c '^## ' "$B" 2>/dev/null)" = 1 ]; } || T=
 echo "tail:${T:-unknown}"
 [ -z "$T" ] || sed -n 's/^reason: //p' "$M/finish-result.md" | head -1
 ```
 
-- `tail:complete` → run 06 § One Cleanup Call with `finish-block.md` as the `## Finish` block (no `getIssueLinks` call; the report already has Next tickets). Replace `Cleanup: <pending>` in the report with the cleanup tokens, print the Report, then do 06 release routing.
+- `tail:complete` → run 06 § One Cleanup Call with the heredoc replaced by `cat "$N1_HOME/memory/$ID/finish-block.md" >> "$OV"` (never paste the file's text into a command; Result already checked it is one `## Finish` section) (no `getIssueLinks` call; the report already has Next tickets). Replace `Cleanup: <pending>` in the report with the cleanup tokens, print the Report, then do 06 release routing.
 - `tail:stopped` → run `source ~/.n1/preamble.sh; n1_active_run_clear_if n1-finish` (every STOP does, per Step 1), then print "Finish stopped after the merge: <reason>. Fix it, then re-run `/n1:n1-finish <ID>`." **STOP**: no cleanup, no release routing. The worker already wrote any escalation and tracker comment its step requires.
-- `tail:unknown` (no result, garbage, or complete without block or report) → add `- finish: tail-worker returned no status; re-run /n1:n1-finish <ID>` under `## Escalations` in overview.md, post the same text as an `N1 [headless]` tracker comment, then handle it as `tail:stopped`.
+- `tail:unknown` (no result, garbage, or complete without a valid block or report) → add `- finish: tail-worker returned no status; re-run /n1:n1-finish <ID>` under `## Escalations` in overview.md, post the same text as an `N1 [headless]` tracker comment, then handle it as `tail:stopped`.
