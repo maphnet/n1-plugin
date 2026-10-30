@@ -76,7 +76,7 @@ class TelemetryConsumersTest(unittest.TestCase):
         impl = ("## Fix Cycle 1\n## Fix Cycle 1\n## Fix Cycle 2 (soft)\n"
                 "## Codex Fix Cycle 1\n## Follow-up 2 (Codex review)\n"
                 "## QA Fix Cycle 1\n## Fix Cycle 1 Summary\n## Implementation Summary\n"
-                "## Review Fix Cycle 3\n")
+                "## Review Fix Cycle 3\n## Local-Test Fix Cycle 1\n")
         with tempfile.TemporaryDirectory() as root:
             a = analyzer.extract_run_report(self._run_with_impl(root, "p1", "T-1", impl))
             b = analyzer.extract_run_report(self._run_with_impl(root, "p1", "T-2", None))

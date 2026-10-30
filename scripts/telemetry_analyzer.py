@@ -295,7 +295,7 @@ def count_fix_cycles_by_kind(run: dict) -> dict | None:
         if not line.startswith("## "):
             continue
         h = line[3:].strip().lower()
-        if "qa fix cycle" in h or h.startswith("summary") or h.endswith("summary"):
+        if "qa fix cycle" in h or "local-test fix cycle" in h or h.startswith("summary") or h.endswith("summary"):
             continue
         m = re.search(r"(?:fix cycle|follow-up)\s+(\d+)", h)
         n = m.group(1) if m else h
