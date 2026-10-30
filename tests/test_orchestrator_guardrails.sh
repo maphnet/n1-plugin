@@ -91,6 +91,9 @@ assert_contains "n1-start: wait contract pointer on every dispatch" \
 assert_contains "output-gates: wait is one empty end-of-turn" \
     "skills/n1-start/procedures/output-gates.md" \
     "that empty end-of-turn is the wait"
+assert_contains "n1-start: one-turn step transition" \
+    "skills/n1-start/SKILL.md" \
+    "**Transition turn:** issue in ONE turn, in parallel"
 assert_contains "brainstorm: post-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/brainstorm.md" \
     "n1_verify_dependencies"

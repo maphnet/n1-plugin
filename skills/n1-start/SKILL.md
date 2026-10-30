@@ -45,7 +45,7 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 
 **Ticket watch:** run `procedures/ticket-watch.md § Check` before Steps 5, 6, 10 and 11b.
 
-**Run each step file in order:** read and follow it; never do a step inline or replace its persona dispatch with your own work (simple-path skips only 3, 4, 4b).
+**Run each step file in order:** read and follow it; never do a step inline or replace its persona dispatch with your own work (simple-path skips only 3, 4, 4b). **Transition turn:** issue in ONE turn, in parallel, the prior step's end block, the ticket-watch Check when due, and the read of the next step file (only when no gate or tier decision in the prior step picks it); act on Check output before running the next step's opening snippet.
 
 | Step | File | Notes |
 |------|------|-------|
