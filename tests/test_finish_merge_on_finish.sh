@@ -5,53 +5,58 @@ unset N1_QUEUE_RUN_ID N1_HEADLESS N1_RUN_ID
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 F=skills/n1-finish/steps/02-merge.md
+MF=skills/n1-finish/references/merge-on-finish.md
 FAIL=0
 ok() { echo "PASS: $1"; }
 no() { echo "FAIL: $1"; FAIL=1; }
 has() { if grep -qF -- "$2" <<<"$OUT"; then ok "$1"; else no "$1"; fi; }
 line() { if grep -qxF -- "$2" <<<"$OUT"; then ok "$1"; else no "$1"; fi; }
 
-# Static: no auto-merge, no remote-branch deletion; the queue STOP comes before the merge.
-if grep -qE -- '--auto|--delete-branch' "$F"; then no "02-merge has no --auto/--delete-branch"; else ok "02-merge has no --auto/--delete-branch"; fi
-Q=$(grep -n 'queue-run:yes' "$F" | head -1 | cut -d: -f1); M=$(grep -n 'gh pr merge' "$F" | head -1 | cut -d: -f1)
-if [ -n "$Q" ] && [ -n "$M" ] && [ "$Q" -lt "$M" ]; then ok "queue STOP precedes the merge"; else no "queue STOP precedes the merge"; fi
-if grep -qF 'merge-on-finish:yes' "$F"; then ok "02-merge gates on merge-on-finish:yes"; else no "02-merge gates on merge-on-finish:yes"; fi
+# Static: no auto-merge, no remote-branch deletion; the merge lives only in merge-on-finish.md, reached after the queue STOP.
+if grep -qE -- '--auto|--delete-branch' "$F" "$MF"; then no "02-merge/merge-on-finish have no --auto/--delete-branch"; else ok "02-merge/merge-on-finish have no --auto/--delete-branch"; fi
+if grep -qF 'gh pr merge' "$F"; then no "02-merge runs no merge itself"; else ok "02-merge runs no merge itself"; fi
+Q=$(grep -n 'queue-run:yes' "$F" | head -1 | cut -d: -f1); PTR=$(grep -n 'references/merge-on-finish.md' "$F" | head -1 | cut -d: -f1)
+if [ -n "$Q" ] && [ -n "$PTR" ] && [ "$Q" -lt "$PTR" ]; then ok "queue STOP precedes the merge-on-finish pointer"; else no "queue STOP precedes the merge-on-finish pointer"; fi
+if grep -F 'references/merge-on-finish.md' "$F" | head -1 | grep -qF 'only with `merge-on-finish:yes`'; then ok "merge-on-finish pointer is gated on merge-on-finish:yes"; else no "merge-on-finish pointer is gated on merge-on-finish:yes"; fi
+OP=$(grep -nF '3. **`OPEN`:**' "$F" | head -1 | cut -d: -f1)
+if [ -n "$OP" ] && [ -n "$PTR" ] && [ "$OP" -lt "$PTR" ]; then ok "merge-on-finish pointer sits inside the OPEN branch"; else no "merge-on-finish pointer sits inside the OPEN branch"; fi
 W=$(grep -n 'Without `merge-on-finish:yes`' "$F" | head -1 | cut -d: -f1)
-if [ -n "$W" ] && [ -n "$M" ] && [ "$W" -lt "$M" ]; then ok "without-flag STOP precedes the merge"; else no "without-flag STOP precedes the merge"; fi
-P3=$(grep -n 'Could not read the reviewed-head pin' "$F" | head -1 | cut -d: -f1)
-P1=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); P2=$(grep -n 'differs from the reviewed head' "$F" | head -1 | cut -d: -f1)
+if [ -n "$W" ] && grep -qF 'Merge it, then re-run' <<<"$(sed -n "${W}p" "$F")"; then ok "without-flag STOP stays in 02-merge"; else no "without-flag STOP stays in 02-merge"; fi
+M=$(grep -n 'gh pr merge' "$MF" | head -1 | cut -d: -f1)
+P3=$(grep -n 'Could not read the reviewed-head pin' "$MF" | head -1 | cut -d: -f1)
+P1=$(grep -n 'No reviewed-head pin recorded' "$MF" | head -1 | cut -d: -f1); P2=$(grep -n 'differs from the reviewed head' "$MF" | head -1 | cut -d: -f1)
 if [ -n "$P1" ] && [ -n "$P2" ] && [ -n "$M" ] && [ "$P1" -lt "$M" ] && [ "$P2" -lt "$M" ]; then ok "pin STOPs precede the merge"; else no "pin STOPs precede the merge"; fi
 if [ -n "$P3" ] && [ -n "$M" ] && [ "$P3" -lt "$M" ]; then ok "pin lookup-failure STOP precedes the merge"; else no "pin lookup-failure STOP precedes the merge"; fi
 # N1-144/N1-151: first DIRTY or BEHIND routes to resolve-dirty.md; BLOCKED and a second DIRTY/BEHIND keep the STOP.
-D=$(grep -n 'references/resolve-dirty.md' "$F" | head -1 | cut -d: -f1)
+D=$(grep -n 'references/resolve-dirty.md' "$MF" | head -1 | cut -d: -f1)
 if [ -n "$D" ] && [ -n "$M" ] && [ "$D" -lt "$M" ]; then ok "3.1 DIRTY points at resolve-dirty.md before the merge"; else no "3.1 DIRTY points at resolve-dirty.md before the merge"; fi
-if grep -qF 'cannot merge yet' "$F" && grep -qF 'after a resolve attempt in this run' "$F"; then ok "BLOCKED and second DIRTY/BEHIND keep the STOP"; else no "BLOCKED and second DIRTY/BEHIND keep the STOP"; fi
-if grep -qF '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F"; then ok "3.1: first BEHIND routes to resolve-dirty"; else no "3.1: first BEHIND routes to resolve-dirty"; fi
-if grep -qF '`state:BLOCKED` / `BEHIND`' "$F"; then no "3.1: BEHIND is not an unconditional STOP"; else ok "3.1: BEHIND is not an unconditional STOP"; fi
+if grep -qF 'cannot merge yet' "$MF" && grep -qF 'after a resolve attempt in this run' "$MF"; then ok "BLOCKED and second DIRTY/BEHIND keep the STOP"; else no "BLOCKED and second DIRTY/BEHIND keep the STOP"; fi
+if grep -qF '`state:DIRTY` or `state:BEHIND` (first in this run)' "$MF"; then ok "3.1: first BEHIND routes to resolve-dirty"; else no "3.1: first BEHIND routes to resolve-dirty"; fi
+if grep -qF '`state:BLOCKED` / `BEHIND`' "$MF"; then no "3.1: BEHIND is not an unconditional STOP"; else ok "3.1: BEHIND is not an unconditional STOP"; fi
 if grep -qF 'a second `state:DIRTY` or `state:BEHIND` is a **STOP**' skills/n1-finish/references/resolve-dirty.md; then ok "resolve-dirty: second DIRTY/BEHIND stops"; else no "resolve-dirty: second DIRTY/BEHIND stops"; fi
 # N1-151 pinless: the pin line precedes DIRTY/BEHIND, routes to § Re-pin interactively, escalates unattended, no merge-by-hand.
-PE=$(grep -n 'No reviewed-head pin recorded' "$F" | head -1 | cut -d: -f1); DB=$(grep -n '`state:DIRTY` or `state:BEHIND` (first in this run)' "$F" | head -1 | cut -d: -f1)
+PE=$(grep -n 'No reviewed-head pin recorded' "$MF" | head -1 | cut -d: -f1); DB=$(grep -n '`state:DIRTY` or `state:BEHIND` (first in this run)' "$MF" | head -1 | cut -d: -f1)
 if [ -n "$PE" ] && [ -n "$DB" ] && [ "$PE" -lt "$DB" ]; then ok "3.1: pinless line precedes DIRTY/BEHIND"; else no "3.1: pinless line precedes DIRTY/BEHIND"; fi
-PL=$(sed -n "${PE:-1}p" "$F")
+PL=$(sed -n "${PE:-1}p" "$MF")
 if grep -qF '§ Re-pin' <<<"$PL" && grep -qF 'N1 does not pin unattended' <<<"$PL" && grep -qF 'every **STOP** in 3.1 and 3.4 (and in resolve-dirty.md), except the 3.4 merge-queue outcome (`merge-exit:0` with `state:OPEN`), is also added under `## Escalations` and posted as a `N1 [headless]`' "$F"; then ok "3.1: pinless routes to § Re-pin, escalates unattended"; else no "3.1: pinless routes to § Re-pin, escalates unattended"; fi
 if grep -qF 'Merge it yourself' <<<"$PL"; then no "3.1: pinless has no merge-by-hand dead end"; else ok "3.1: pinless has no merge-by-hand dead end"; fi
 # N1-157: a failed 3.4 merge with a DIRTY/BEHIND re-read resolves once (shared attempt with 3.1); a second conflict and every other failure STOP.
-R34=$(grep -n '`mss:DIRTY` or `mss:BEHIND` and no resolve attempt yet in this run' "$F" | head -1 | cut -d: -f1)
-if [ -n "$R34" ] && [ -n "$M" ] && [ "$R34" -gt "$M" ] && grep -qF 'references/resolve-dirty.md' <<<"$(sed -n "${R34}p" "$F")"; then ok "3.4: first conflict routes to resolve-dirty"; else no "3.4: first conflict routes to resolve-dirty"; fi
-if grep -qF '`mss:DIRTY` or `mss:BEHIND` after a resolve attempt in this run' "$F" && grep -qF 'has conflicts again after conflict resolution' "$F"; then ok "3.4: second conflict STOPs"; else no "3.4: second conflict STOPs"; fi
-if grep -qF 'Any other `state:` or `mss:`' "$F" && grep -qF 'Never retry and never fall back to auto-merge' "$F"; then ok "3.4: non-conflict failures STOP without retry"; else no "3.4: non-conflict failures STOP without retry"; fi
-if grep -qF 'no retry except the single resolve-then-retry below' "$F"; then ok "3.4: header names the single retry"; else no "3.4: header names the single retry"; fi
-if grep -qF 'after a resolve attempt in this run (from this list or from 3.4)' "$F"; then ok "3.1: a 3.4 resolve attempt counts"; else no "3.1: a 3.4 resolve attempt counts"; fi
+R34=$(grep -n '`mss:DIRTY` or `mss:BEHIND` and no resolve attempt yet in this run' "$MF" | head -1 | cut -d: -f1)
+if [ -n "$R34" ] && [ -n "$M" ] && [ "$R34" -gt "$M" ] && grep -qF 'references/resolve-dirty.md' <<<"$(sed -n "${R34}p" "$MF")"; then ok "3.4: first conflict routes to resolve-dirty"; else no "3.4: first conflict routes to resolve-dirty"; fi
+if grep -qF '`mss:DIRTY` or `mss:BEHIND` after a resolve attempt in this run' "$MF" && grep -qF 'has conflicts again after conflict resolution' "$MF"; then ok "3.4: second conflict STOPs"; else no "3.4: second conflict STOPs"; fi
+if grep -qF 'Any other `state:` or `mss:`' "$MF" && grep -qF 'Never retry and never fall back to auto-merge' "$MF"; then ok "3.4: non-conflict failures STOP without retry"; else no "3.4: non-conflict failures STOP without retry"; fi
+if grep -qF 'no retry except the single resolve-then-retry below' "$MF"; then ok "3.4: header names the single retry"; else no "3.4: header names the single retry"; fi
+if grep -qF 'after a resolve attempt in this run (from this list or from 3.4)' "$MF"; then ok "3.1: a 3.4 resolve attempt counts"; else no "3.1: a 3.4 resolve attempt counts"; fi
 RD=skills/n1-finish/references/resolve-dirty.md
 if grep -qF 'or from § 3.4 after a failed merge whose re-read is `mss:DIRTY` or `mss:BEHIND`' "$RD" && grep -qF 'One attempt per run, shared by 3.1 and 3.4.' "$RD"; then ok "resolve-dirty: reachable from 3.4, one shared attempt"; else no "resolve-dirty: reachable from 3.4, one shared attempt"; fi
 # N1-142: empty or differing pin routes to repin.md (interactive, once per run); unattended stops; pin:unavailable keeps its STOP.
-RP=$(grep -n 'references/repin.md' "$F" | head -1 | cut -d: -f1)
+RP=$(grep -n 'references/repin.md' "$MF" | head -1 | cut -d: -f1)
 if [ -n "$RP" ] && [ -n "$M" ] && [ "$RP" -lt "$M" ]; then ok "3.1 pin lines route to repin.md before the merge"; else no "3.1 pin lines route to repin.md before the merge"; fi
-if grep -qF 'no valid reviewed-head pin; N1 does not re-review and re-pin unattended' "$F"; then ok "3.1: unattended re-pin escalates and stops"; else no "3.1: unattended re-pin escalates and stops"; fi
-if grep -qF 'after a re-pin attempt in this run' "$F"; then ok "3.1: second pin failure in a run keeps the STOP"; else no "3.1: second pin failure in a run keeps the STOP"; fi
-if grep -F 'Could not read the reviewed-head pin' "$F" | grep -qF 'repin.md'; then no "3.1: pin:unavailable is not offered a re-pin"; else ok "3.1: pin:unavailable is not offered a re-pin"; fi
+if grep -qF 'no valid reviewed-head pin; N1 does not re-review and re-pin unattended' "$MF"; then ok "3.1: unattended re-pin escalates and stops"; else no "3.1: unattended re-pin escalates and stops"; fi
+if grep -qF 'after a re-pin attempt in this run' "$MF"; then ok "3.1: second pin failure in a run keeps the STOP"; else no "3.1: second pin failure in a run keeps the STOP"; fi
+if grep -F 'Could not read the reviewed-head pin' "$MF" | grep -qF 'repin.md'; then no "3.1: pin:unavailable is not offered a re-pin"; else ok "3.1: pin:unavailable is not offered a re-pin"; fi
 # N1-158: 3.1 and 3.4 are first-match lists, so bullet order is behavior. First-match line numbers must ascend.
-L() { grep -nF -- "$1" "$F" | head -1 | cut -d: -f1; }
+L() { grep -nF -- "$1" "$MF" | head -1 | cut -d: -f1; }
 asc() { # <label> <fixed-string>...: each string's first line exists and is below the previous one's
   local lbl=$1 prev=0 n s; shift
   for s in "$@"; do n=$(L "$s"); if [ -z "$n" ] || [ "$n" -le "$prev" ]; then no "$lbl (at: $s)"; return; fi; prev=$n; done
@@ -63,7 +68,7 @@ asc "3.4 bullets: pin, MERGED, queued, first conflict, second conflict, catch-al
   '- `pin:mismatch`' '- `state:MERGED sha:' '- `merge-exit:0` with `state:OPEN`' '- `mss:DIRTY` or `mss:BEHIND` and no resolve attempt' '- `mss:DIRTY` or `mss:BEHIND` after a resolve attempt' '- Any other `state:` or `mss:`'
 
 # Nth bash block of a markdown file (default 02-merge.md), placeholders bound to env vars.
-block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$F}" \
+block() { awk -v n="$1" '/^ *```bash/{c++; if(c==n){b=1;next}} b&&/^ *```/{exit} b' "${2:-$MF}" \
     | sed -e 's#^ *source ~/.n1/preamble.sh$#:#' -e 's/"<n>"/"${TN-7}"/' -e 's/"<head>"/"${TH-}"/' -e 's/"<reviewed>"/"${TREV-}"/' -e 's/"<mergeMethod>"/"${TMM-}"/' \
           -e 's/"<id>"/"${TID-N1-T}"/' -e 's/"<dev>"/"${TDEV-0}"/' -e 's/"<stop>"/"${TSTOP-}"/' -e 's/"<snap>"/"${TSNAP-$SN}"/' -e 's/"<old>"/"${TOLD-}"/' -e 's/"<new>"/"${TNEW-}"/'; }
 PRE=$(block 1); MRG=$(block 2)
@@ -253,7 +258,7 @@ intact() { # branch at the reviewed head, no rebase, clean tree, origin and pin 
 fx 5.10.0 5.12.0 5.11.0; res; NH=$(gw rev-parse HEAD)
 line "resolve: manifest-only conflict re-bumped above main" "resolve:ready old=$OH new=$NH bumped=5.13.0"
 # N1-151: unattended DIRTY routes to resolve-dirty; its writing blocks guard on n1_merge_authorized alone.
-if grep -qF 'Queue and headless runs follow it too' "$F"; then ok "3.1: unattended DIRTY routes to resolve-dirty"; else no "3.1: unattended DIRTY routes to resolve-dirty"; fi
+if grep -qF 'Queue and headless runs follow it too' "$MF"; then ok "3.1: unattended DIRTY routes to resolve-dirty"; else no "3.1: unattended DIRTY routes to resolve-dirty"; fi
 if [ "$(grep -cF '[ "$(n1_merge_authorized)" = true ] || { echo resolve:denied; exit 1; }' "$RF")" = 2 ]; then ok "resolve-dirty: both writing blocks guard on n1_merge_authorized"; else no "resolve-dirty: both writing blocks guard on n1_merge_authorized"; fi
 if grep -qF 'N1 [headless]' "$RF"; then ok "resolve-dirty: unattended STOPs post a tracker comment"; else no "resolve-dirty: unattended STOPs post a tracker comment"; fi
 if [ "$(gw log --format=%s origin/main..HEAD)" = "chore: bump version to 5.13.0 (N1-T)" ]; then ok "resolve: one bump commit on top of main"; else no "resolve: commits $(gw log --format=%s origin/main..HEAD | tr '\n' '|')"; fi
@@ -555,7 +560,7 @@ if grep -qF '**STOP.**' <<<"$FB" && grep -qF 'STOP inside the review' <<<"$FB" &
 if [ -n "$PB" ] && [ -n "$FB" ] && [ "$(grep -nF -- '- Its final report ends `Verdict: PASS`' "$PF" | head -1 | cut -d: -f1)" -lt "$(grep -nF -- '- `Verdict: FAIL`' "$PF" | head -1 | cut -d: -f1)" ]; then ok "repin: PASS bullet precedes the FAIL bullet"; else no "repin: PASS bullet precedes the FAIL bullet"; fi
 if grep -qF 'n1_review_pin set' <<<"$PP" && ! grep -qF 'n1_review_pin set' <<<"$RV"; then ok "repin: the pin is written only in § Push and pin"; else no "repin: the pin is written only in § Push and pin"; fi
 if grep -qE 'When `FULL_REVIEW` is not 1 .*fix-changed-files|FULL_REVIEW. is not 1' skills/n1-review/steps/01-analyze.md && grep -F 'Incremental re-review (cycle' skills/n1-review/steps/01-analyze.md | grep -qF 'FULL_REVIEW'; then ok "n1-review --full disables incremental scoping"; else no "n1-review --full disables incremental scoping"; fi
-if grep -F '**Re-pin** (' skills/n1-finish/steps/02-merge.md | grep -qF '/n1:n1-review --full'; then ok "02-merge re-pin summary names n1-review --full"; else no "02-merge re-pin summary names n1-review --full"; fi
+if grep -F '**Re-pin** (' skills/n1-finish/references/merge-on-finish.md | grep -qF '/n1:n1-review --full'; then ok "merge-on-finish re-pin summary names n1-review --full"; else no "merge-on-finish re-pin summary names n1-review --full"; fi
 if grep -qF 'FULL_REVIEW=1' skills/n1-start/review-core.md && grep -qF 'FULL_REVIEW=1' skills/n1-review/steps/01-analyze.md; then ok "n1-review --full forces the FULL tier via review-core"; else no "n1-review --full forces the FULL tier via review-core"; fi
 PF1=$(block 1 "$PF"); PF2=$(block 2 "$PF")
 REPIN_WAIT_SLEEP=0; export REPIN_WAIT_SLEEP
