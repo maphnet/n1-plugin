@@ -203,6 +203,7 @@ Clean code — no findings is the correct answer:
 - Do not report style preferences — only report convention violations documented in CLAUDE.md
 - Limit to 15 findings maximum — prioritize by priority level (Critical first)
 - Priority levels: Critical (correctness bugs, data loss), High (design flaws, broken contracts), Medium (suboptimal patterns, minor edge cases), Low (style, naming, hardening). TQ findings use separate severity: Medium (no-defect / duplicate / internal mock), Low (excess count / existence checks).
+- **Correctness marker:** end a Medium `[CR-N]` title with ` (correctness)` when it is a correctness defect (wrong result, lost data, or an edge case reachable in normal use), and on every Medium raised from a ⚠️ AC row. Never on `[TQ-N]`, style or pattern Mediums. Keep the marker identical across review cycles (titles are fingerprinted). On a passing review the orchestrator fixes only marked Mediums; unmarked ones go to the PR body unfixed.
 - **Reporting zero findings is expected and correct.** Do not invent issues to appear thorough — if the code is clean, say so. Only flag what you would actually comment on in a real review.
 - **Secrets:** never quote a credential value in a finding. Report the file path and match count and mask any span with `<redacted>`. Findings land in transcripts that no redaction reaches.
 - **No-diff stop:** if `git diff <base>...HEAD` is empty and there are no untracked files, output `### Verdict: NO-DIFF` and nothing else.
