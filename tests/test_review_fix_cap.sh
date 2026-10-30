@@ -38,16 +38,17 @@ ov abc; n1_increment_counter "$OV" review_fix_cycle >/dev/null 2>&1; eq "T6 incr
 
 # ---- breach: reproduce (pre-N1-211 nothing compared the counter), then prevent ----
 cfg '{}'
-ungated() { echo allow; }
-run_fails() { # <gate-fn> <review FAILs> -> final review_fix_cycle
+run_fails() { # <gated 0|1> <review FAILs> -> final review_fix_cycle, real gate + real counter
     local i; ov 0
-    for ((i = 0; i < $2; i++)); do "$1" "$OV" >/dev/null && n1_increment_counter "$OV" review_fix_cycle >/dev/null; done
+    for ((i = 0; i < $2; i++)); do
+        { [ "$1" = 0 ] || n1_review_fix_gate "$OV" >/dev/null; } && n1_increment_counter "$OV" review_fix_cycle >/dev/null
+    done
     n1_read_frontmatter "$OV" review_fix_cycle
 }
-eq "R1 reproduce: ungated loop breaches the cap (5 dispatches)" "5" "$(run_fails ungated 5)"
-eq "R2 prevent: gated loop stops at default cap 1" "1" "$(run_fails n1_review_fix_gate 5)"
+eq "R1 reproduce: real counter without consulting the gate breaches cap 1 (5 dispatches)" "5" "$(run_fails 0 5)"
+eq "R2 prevent: gated loop stops at default cap 1" "1" "$(run_fails 1 5)"
 cfg '{"review":{"maxFixAttempts":2}}'
-eq "R3 prevent: gated loop stops at configured cap 2" "2" "$(run_fails n1_review_fix_gate 5)"
+eq "R3 prevent: gated loop stops at configured cap 2" "2" "$(run_fails 1 5)"
 
 # ---- resume: one fix cycle in this process, gate re-read in a fresh process ----
 cfg '{}'; ov 0
@@ -85,6 +86,8 @@ eq "V9 incremental code-reviewer gets prior findings" "1" "$(grep -cF 'review-pr
 # ---- wiring: PR body + telemetry ----
 eq "P1 tech-writer renders For Human Review" "1" "$(grep -cE 'review\.md has `## For Human Review`.*mandatory' agents/tech-writer.md)"
 eq "P2 pr.md emits review_unresolved_at_pr" "1" "$(grep -c '"review_unresolved_at_pr=' skills/n1-start/steps/pr.md)"
+
+eq "R5 fix.md consults the gate before the counter increment (reverting the gate call goes red)" "yes" "$(gl=$(grep -n 'n1_review_fix_gate' "$F" | head -1 | cut -d: -f1); il=$(grep -n 'n1_increment_counter.*review_fix_cycle' "$F" | head -1 | cut -d: -f1); [ -n "$gl" ] && [ -n "$il" ] && [ "$gl" -lt "$il" ] && echo yes || echo no)"
 
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
