@@ -6,9 +6,14 @@ n1_step_begin "fix" 10
 n1_verify_dependencies "$N1_HOME/memory/$ID" review.md || { echo "ERROR: review.md missing — cannot fix without findings" >&2; exit 1; }
 REVIEW_FIX_CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle")
 [[ "$REVIEW_FIX_CYCLE" =~ ^[0-9]+$ ]] || REVIEW_FIX_CYCLE=0
+FIX_GATE=$(n1_review_fix_gate "$N1_HOME/memory/$ID/overview.md") || true
 IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer fix)
-QE=$(n1_autonomy_val 'qualityEscalations')
+QE=$(n1_autonomy_val 'qualityEscalations'); echo "REVIEW_FIX_CYCLE=$REVIEW_FIX_CYCLE FIX_GATE=$FIX_GATE QE=$QE"
 ```
+
+**Cap gate** (`review.maxFixAttempts`, default 1, counts FAIL cycles): `FIX_GATE` other than `allow` → no developer in this step. SOFT-ONLY: add its `(correctness)` Mediums to `## Deferred Soft Findings` in review.md (file-write mechanism), go to **PASS verdict**. FAIL: **Exhausted** below.
+
+**Exhausted** (FAIL): `QE=auto-accept` and no open `[SEC-N]` or security-class finding (review-core.md): write `## For Human Review` to review.md (file-write mechanism, never a shell command; replace if present), one `- [ID] severity file:line — title` per open Medium-or-higher or `[RULE-N]` finding (none silently dropped); add an `[auto]` ledger row `review fix cap reached`; write `## Review` with `FAIL (unresolved, human review)` to overview; run the **Full-suite regression check** and the last block (no `clean_passes`), then proceed to the next step. Otherwise ask the user: findings summary, then 1. List them under For Human Review and proceed 2. One more FAIL fix cycle (run the FAIL dispatch; `[asked]` ledger row). Mark (Recommended) on 2 when a `[SEC-N]` or security-class finding is open (`[SEC-N]` are never soft, review.md), else on 1 (configured cap reached). **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -18,7 +23,7 @@ echo "$PRE_FIX_SHA" > "$N1_HOME/memory/$ID/pre-fix-sha"
 
 Run **Ensure Dependencies(`<ID>`)** before spawning. Run `procedures/rules-injection.md` (`agent_name=developer`); append `$RULES_BLOCK` to every developer prompt in this step (re-run the procedure if the block is not at hand).
 
-**FAIL**: spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass the `$N1_HOME/memory/$ID/review.md` path and this scope: Critical+High (with `QE=auto-accept`, also all `[SEC-N]` and every non-TQ Medium, fixed in this same pass) plus every `[RULE-N]` finding (any severity), "Record under `## Fix Cycle <N>` in implementation.md (idempotent). Return: commit SHAs, `Findings fixed: N/M`."
+**FAIL**: spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass the `$N1_HOME/memory/$ID/review.md` path and this scope: Critical+High (with `QE=auto-accept`, also all `[SEC-N]` and every non-TQ Medium, fixed in this same pass) plus every `[RULE-N]` finding (any severity), "Record under `## Fix Cycle <N>` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`."
 
 **SOFT-ONLY** (review PASS routed here; hands-off soft policy, N1-116): spawn developer the same way, passing the `review.md` path and scope: non-TQ Medium titled `(correctness)` only (the rest stay deferred), "Record under `## Fix Cycle <N> (soft)` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`, `Findings deferred`." After it returns: no `review_fix_cycle` increment, no re-review, no Return to Step 7; apply the `Findings deferred` Append line below and add each Medium it left unfixed (not `[SEC-N]`) to `## Deferred Soft Findings` in review.md (file-write mechanism, never a shell command), then go to **PASS verdict** (its `**Full-suite:**` line goes under the `(soft)` heading). A failed or partial soft pass never blocks: record it and proceed.
 
@@ -39,8 +44,9 @@ source ~/.n1/preamble.sh
 PRE_FIX_SHA=$(cat "$N1_HOME/memory/$ID/pre-fix-sha" 2>/dev/null || echo "HEAD~1")
 FIX_CHANGED=$(git diff --name-only "$PRE_FIX_SHA" HEAD)
 echo "$FIX_CHANGED" > "$N1_HOME/memory/$ID/fix-changed-files"
+git diff "$PRE_FIX_SHA" HEAD > "$N1_HOME/memory/$ID/fix.diff"
 ```
-Emit: `<ID> · review fix cycle <N>/<MAX>`. FAIL-only: return to Step 7. Bound: `review.maxFixAttempts` (default 2).
+Emit: `<ID> · review fix cycle <N>/<MAX>`. FAIL-only: return to Step 7. Bound: **Cap gate** above.
 
 **Escalation:** `QE==auto-accept`+non-security/architecture/public-API: take recommended, A-tier `[auto]` ledger. Otherwise: resolution ladder (codebase→web→command→prior decisions). Fail all: emit `n1_emit_question_event ... "fix" "quality" "asked" "codebase|web|command|prior-decisions"`. Preamble: `"{Title}: {Core Ask}."` Bug: prepend root-cause. Ask: "{PREAMBLE} Ambiguity: [...]. 1.<recommended> 2.<alt> 3.Decide for me." "Decide for me"→web+apply, emit `"auto-decided"`.
 
