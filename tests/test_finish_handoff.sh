@@ -76,4 +76,17 @@ tl unknown "parse: missing result -> unknown"
 SZ=$(cat "$P" skills/n1-finish/steps/0[3-6]-*.md references/deployment-actions.md skills/n1-start/procedures/output-gates.md "$H" | wc -c)
 if [ "$SZ" -lt 160000 ]; then ok "AC1: worker reads $SZ B < 160000"; else no "AC1: worker reads $SZ B < 160000"; fi
 
+# 5. Finalize: dispatch before n1_close_run; telemetry close, pointer clear, Gate 3 print and chain stay in the orchestrator.
+has "finalize: n1_close_run stays" "$FZ" '^n1_close_run$'
+has "finalize: review check stays" "$FZ" 'n1_review_check_run'
+has "finalize: active-run clear stays" "$FZ" '^n1_active_run_clear$'
+has "finalize: chain fullAuto check stays" "$FZ" 'n1_fullauto_enabled'
+has "finalize: chain never after failed CI" "$FZ" 'never after failed or escalated CI'
+has "finalize: Gate 3 printed verbatim" "$FZ" 'gate3\.md` verbatim'
+L() { grep -nE -- "$1" "$FZ" | head -1 | cut -d: -f1; }
+A=$(L '§ Append'); D=$(L 'dispatch persona `tail-worker`'); C=$(L '^n1_close_run$'); G=$(L 'gate3\.md` verbatim'); K=$(L '^\*\*Chain\*\*')
+if [ -n "$A" ] && [ -n "$D" ] && [ -n "$C" ] && [ -n "$G" ] && [ -n "$K" ] && [ "$A" -lt "$D" ] && [ "$D" -lt "$C" ] && [ "$C" -lt "$G" ] && [ "$G" -lt "$K" ]; then
+    ok "finalize: Append < dispatch < close_run < Gate 3 < Chain"; else no "finalize: order A=$A D=$D C=$C G=$G K=$K"; fi
+SZ=$(wc -c < "$FZ"); if [ "$SZ" -le 1737 ]; then ok "finalize: $SZ B <= 1737 (byte-negative >= 250)"; else no "finalize: $SZ B <= 1737"; fi
+
 exit $FAIL
