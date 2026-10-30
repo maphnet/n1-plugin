@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # N1-116: hands-off soft-findings policy after review PASS stays wired through review -> fix -> PR body.
+# N1-209: Medium routes — (correctness) Medium -> SOFT-ONLY; other Medium -> Deferred Soft Findings, no developer; FAIL fixes every non-TQ Medium.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
@@ -15,8 +16,9 @@ check() { # <label> <extended-regex> <file>
 
 check "review step exposes QE to the PASS branch" 'QE=\$\(n1_autonomy_val .qualityEscalations.\)' "$R"
 check "PASS + auto-accept records deferred soft findings" 'QE=auto-accept.*## Deferred Soft Findings' "$R"
-check "PASS + Medium routes to Step 8 SOFT-ONLY" 'Medium.*Step 8 SOFT-ONLY' "$R"
-check "PASS without Medium: no soft pass" 'none.*no soft pass' "$R"
+check "route 1: PASS + (correctness) Medium routes to Step 8 SOFT-ONLY" 'title ends ` \(correctness\)` → Step 8 SOFT-ONLY' "$R"
+check "route 2: PASS + other Medium deferred, no developer" 'every other non-TQ Medium to `## Deferred Soft Findings` \(no developer' "$R"
+check "PASS without (correctness) Medium: no soft pass" 'no `\(correctness\)` Medium → no soft pass' "$R"
 check "PASS: security findings never soft" 'SEC-N.*never soft.*FAIL' "$R"
 check "hard findings stay explicit and unchanged" 'always FAIL.*\(unchanged\)' "$R"
 
@@ -25,6 +27,7 @@ check "SOFT-ONLY paragraph exists" '^\*\*SOFT-ONLY\*\*' "$F"
 check "soft pass recorded with (soft) heading" '## Fix Cycle <N> \(soft\)' "$F"
 check "soft pass skips counter and re-review" 'no `review_fix_cycle` increment, no re-review' "$F"
 check "soft pass deferrals still filed" 'SOFT-ONLY.*Findings deferred' "$F"
+check "SOFT-ONLY scope is (correctness) Medium only" 'scope: non-TQ Medium titled `\(correctness\)` only' "$F"
 
 check "pipeline table names the soft pass" 'FIX \(if FAIL or soft pass\)' "$S"
 check "PR body lists deferred soft findings" '## Deferred Soft Findings.*## Review Notes' "$T"
