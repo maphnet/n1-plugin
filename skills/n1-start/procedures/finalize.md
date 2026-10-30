@@ -6,7 +6,7 @@
 
 **Follow-ups** (`qualityEscalations=auto-accept` only): append any follow-up you would otherwise propose per `<N1_ROOT>/references/followup-filing.md` § Append (source `finalize`). Never offer to file them.
 
-**Tail worker:** model = first column of `source ~/.n1/preamble.sh; rm -f "$N1_HOME/memory/$ID/gate3.md"; echo "memory:$N1_HOME/memory/$ID"; n1_resolve_agent tail-worker finalize`; dispatch persona `tail-worker` with only `mode: finalize`, `id`, `final_outcome` and absolute `memory` (printed) and `n1_root` paths; wait. If the first line of `gate3.md` is not `=== <ID> — done ===` (missing, empty, garbled), the worker failed: do its steps in `<N1_ROOT>/agents/tail-worker.md` § Mode: finalize yourself.
+**Tail worker:** run `source ~/.n1/preamble.sh; rm -f "$N1_HOME/memory/$ID/gate3.md"; IFS=$'\t' read -r TM _ < <(n1_resolve_agent tail-worker finalize); echo "model:$TM"; echo "memory:$N1_HOME/memory/$ID"`; dispatch persona `tail-worker` with the printed model and only `mode: finalize`, `id`, `final_outcome` and absolute `memory` (printed) and `n1_root` paths; wait. If the first line of `gate3.md` is not `=== <ID> — done ===` (missing, empty, garbled), the worker failed: do its steps in `<N1_ROOT>/agents/tail-worker.md` § Mode: finalize yourself.
 
 **Telemetry:**
 ```bash
