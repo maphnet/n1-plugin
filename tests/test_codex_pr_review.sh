@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-export N1_HOME="$TMP/n1" N1_SESSION_ID=review-test
+export N1_HOME="$TMP/n1" N1_STATE_DIR="$TMP/n1" N1_SESSION_ID=review-test
 mkdir -p "$N1_HOME" "$TMP/bin"
 printf '{}\n' > "$N1_HOME/config.json"
 export PATH="$TMP/bin:$PATH" REVIEW_LOG="$TMP/log"
@@ -168,3 +168,23 @@ bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"unkeyed"}' > "$TMP/unkey
 [ ! -s "$TMP/unkeyed" ] && [ ! -s "${REVIEW_LOG}.list" ]
 bash "$ROOT/hooks/session-stop.sh" <<<'{"session_id":"offline"}' >/dev/null
 printf 'PASS: gh failure, default-branch and unkeyed-pointer runs fail open with no block and no gh call\n'
+# N1-203: receipts resolve to one location regardless of cwd (hook in repo A, runner in repo B)
+(
+  unset N1_HOME N1_SESSION_ID N1_STATE_DIR AUTH_MODE REVIEW_MODE POST_MODE DIFF_MODE
+  export HOME="$TMP/h" CLAUDE_CODE_SESSION_ID=xrepo-s
+  for r in a b; do
+    mkdir -p "$TMP/repo-$r" "$HOME/.n1/proj-$r"
+    git -C "$TMP/repo-$r" init -q
+    git -C "$TMP/repo-$r" remote add origin "https://github.com/example/proj-$r.git"
+  done
+  URL=https://github.com/example/repo/pull/77
+  payload=$(jq -nc --arg u "$URL" '{session_id:"xrepo-s",tool_name:"Bash",tool_input:{command:"gh pr create"},tool_response:{stdout:$u,exit_code:0}}')
+  (cd "$TMP/repo-a" && printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" >/dev/null)
+  (cd "$TMP/repo-b" && N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=1 bash "$ROOT/scripts/codex-pr-review.sh" "$URL" >/dev/null)
+  rc="$HOME/.n1/review-receipts/xrepo-s/example_repo_77.json"
+  jq -e '.outcome == "ran" and .processed' "$rc" >/dev/null
+  (cd "$TMP/repo-a" && printf '{"session_id":"xrepo-s"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/xstop")
+  [ ! -s "$TMP/xstop" ]
+  [ -z "$(find "$HOME/.n1/proj-a" "$HOME/.n1/proj-b" -name review-receipts)" ]
+)
+printf 'PASS: hook in repo A, runner in repo B and Stop in repo A share one receipt location\n'

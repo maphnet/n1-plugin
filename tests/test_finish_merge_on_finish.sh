@@ -91,7 +91,7 @@ EOF
 chmod +x "$T/bin/gh"
 S=0123456789abcdef0123456789abcdef01234567
 O=fedcba9876543210fedcba9876543210fedcba98
-export N1_HOME="$T/home" CFG="$ROOT/lib/config.sh"
+export N1_HOME="$T/home" N1_STATE_DIR="$T/home" CFG="$ROOT/lib/config.sh"
 PIN="$T/home/review-pins/o_r_7"; mkdir -p "${PIN%/*}"; echo "$S" > "$PIN"
 
 pre() { OUT=$(cd "${WD:-$T}" && PATH="$T/bin:$PATH" HEADSHA=${HS-$S} bash -c 'source "$CFG"; '"$PRE" 2>&1); }
