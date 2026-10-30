@@ -67,6 +67,38 @@ class StepWindowTest(unittest.TestCase):
             self.assertEqual(orch['finish']['api_calls'], 2)
             self.assertEqual(row['orchestrator']['unattributed']['api_calls'], 1)
 
+class TranscriptCountTest(unittest.TestCase):
+    def test_record_counts_match_transcript(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            transcript, row = build(Path(tmp))
+            # Independent count from the fixture file: one API call per message id,
+            # one tool call per non-Agent tool_use block id (streamed copies collapse).
+            recs = [json.loads(line) for line in transcript.read_text().splitlines()]
+            asst = [r for r in recs if r.get('type') == 'assistant']
+            ids = {r['message']['id'] for r in asst}
+            tools = {b['id'] for r in asst for b in r['message']['content']
+                     if b.get('type') == 'tool_use' and b['name'] != 'Agent'}
+            late = {r['message']['id'] for r in asst if r['timestamp'][:19] > CLOSE[:19]}
+            orch = row['orchestrator']
+            self.assertEqual(orch['totals']['api_calls'], len(ids))
+            self.assertEqual(orch['totals']['tool_calls'], len(tools))
+            parts = orch['steps'] + [orch['unattributed']]
+            self.assertEqual(sum(p['api_calls'] for p in parts), orch['totals']['api_calls'])
+            self.assertEqual(sum(p['tool_calls'] for p in parts), orch['totals']['tool_calls'])
+            # The tail is a named subset of the finish step and of totals, never additive.
+            self.assertEqual(orch['tail']['api_calls'], len(late))
+            finish = next(s for s in orch['steps'] if s['step'] == 'finish')
+            self.assertEqual(finish['api_calls'], len(late))
+            self.assertEqual(orch['model'], 'claude-opus-5-5')
+            self.assertEqual(orch['context_window'], 1000000)
+            self.assertEqual(orch['transcript_path'], str(transcript))
+
+    def test_unknown_model_has_no_context_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, row = build(Path(tmp), model='claude-haiku-9')
+            self.assertEqual(row['orchestrator']['model'], 'claude-haiku-9')
+            self.assertIsNone(row['orchestrator']['context_window'])
+
 
 if __name__ == '__main__':
     unittest.main()

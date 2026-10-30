@@ -12,6 +12,7 @@ Stdlib only. Invoked as:
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import os
 import sys
@@ -27,6 +28,33 @@ STATIC_MAP = {
     "security-reviewer": ["review"],
     "tech-writer": ["pr"],
 }
+
+
+# Orchestrator context window by model-id prefix (N1-199 F4). The transcript carries no window
+# field; unknown models stay null rather than guessed.
+CONTEXT_WINDOWS = {"claude-opus-5": 1_000_000, "claude-sonnet-5": 1_000_000}
+
+
+def context_window_for(model: str | None) -> int | None:
+    return next((size for prefix, size in CONTEXT_WINDOWS.items()
+                 if model and model.startswith(prefix)), None)
+
+
+def _usage(msgs: list[dict]) -> dict:
+    """Token/call rollup shared by step entries, unattributed, totals and tail."""
+    tools_used: dict[str, int] = {}
+    for m in msgs:
+        for t in m["tools"]:
+            tools_used[t] = tools_used.get(t, 0) + 1
+    return {
+        "input_tokens": sum(m["input_tokens"] for m in msgs),
+        "output_tokens": sum(m["output_tokens"] for m in msgs),
+        "cache_read_tokens": sum(m["cache_read_tokens"] for m in msgs),
+        "cache_creation_tokens": sum(m["cache_creation_tokens"] for m in msgs),
+        "api_calls": len(msgs),
+        "tool_calls": sum(len(m["tools"]) for m in msgs),
+        "tools_used": tools_used,
+    }
 
 
 def persona_of(agent_type: str) -> str:
@@ -232,6 +260,7 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                 "cache_creation_tokens": u.get("cache_creation_input_tokens") or 0,
                 "tools": tools,
                 "sidechain": bool(rec.get("isSidechain")),
+                "model": msg.get("model"),
                 "context": (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
                            + (u.get("cache_creation_input_tokens") or 0),
             })
@@ -283,22 +312,9 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
             grouped.setdefault(step_name, []).append(m)
 
         step_entries = []
-        unattributed = None
+        unattributed = _usage([])
         for step_name, msgs in grouped.items():
-            tools_used: dict[str, int] = {}
-            for m in msgs:
-                for t in m["tools"]:
-                    tools_used[t] = tools_used.get(t, 0) + 1
-            entry = {
-                "step": step_name,
-                "input_tokens": sum(m["input_tokens"] for m in msgs),
-                "output_tokens": sum(m["output_tokens"] for m in msgs),
-                "cache_read_tokens": sum(m["cache_read_tokens"] for m in msgs),
-                "cache_creation_tokens": sum(m["cache_creation_tokens"] for m in msgs),
-                "api_calls": len(msgs),
-                "tool_calls": sum(len(m["tools"]) for m in msgs),
-                "tools_used": tools_used,
-            }
+            entry = {"step": step_name, **_usage(msgs)}
             if step_name == "__unattributed__":
                 del entry["step"]
                 unattributed = entry
@@ -315,31 +331,17 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                 })
                 step_entries.append(entry)
 
-        if unattributed is None:
-            unattributed = {"input_tokens": 0, "output_tokens": 0,
-                            "cache_read_tokens": 0, "cache_creation_tokens": 0,
-                            "api_calls": 0, "tool_calls": 0, "tools_used": {}}
-
-        all_tools: dict[str, int] = {}
-        for msgs in grouped.values():
-            for m in msgs:
-                for t in m["tools"]:
-                    all_tools[t] = all_tools.get(t, 0) + 1
-
-        totals = {
-            "input_tokens": sum(m["input_tokens"] for m in messages),
-            "output_tokens": sum(m["output_tokens"] for m in messages),
-            "cache_read_tokens": sum(m["cache_read_tokens"] for m in messages),
-            "cache_creation_tokens": sum(m["cache_creation_tokens"] for m in messages),
-            "api_calls": len(messages),
-            "tool_calls": sum(len(m["tools"]) for m in messages),
-            "tools_used": all_tools,
-        }
-
         if not messages:
             return {'steps': [], 'unattributed': None, 'totals': None, 'parse_error': 'usage_unavailable'}
-        return {"steps": step_entries, "unattributed": unattributed,
-                "totals": totals, "compactions": compactions, "parse_error": None}
+        # Calls after the envelope close (FINALIZE, Gate 3, chained n1-finish): a named subset
+        # already counted in the finish step and in totals, never added to them (N1-229).
+        tail = _usage([m for m in messages if run_end and m["ts"][:19] > run_end[:19]])
+        models = Counter(m["model"] for m in messages
+                         if not m["sidechain"] and m["model"] and m["model"] != "<synthetic>")
+        model = models.most_common(1)[0][0] if models else None
+        return {"steps": step_entries, "unattributed": unattributed, "totals": _usage(messages),
+                "tail": tail, "model": model, "context_window": context_window_for(model),
+                "compactions": compactions, "parse_error": None}
     except OSError:
         return {"steps": [], "unattributed": None, "totals": None,
                 "parse_error": "orchestrator_transcript_parse_failed"}
@@ -437,6 +439,8 @@ def main() -> int:
     if session_transcript and host == 'claude-code':
         orchestrator = parse_orchestrator_transcript(session_transcript, steps,
                                                      envelope.get("started_at"), envelope.get("completed_at"))
+    if orchestrator is not None:
+        orchestrator["transcript_path"] = session_transcript
 
     def _sum(vals):
         return sum(v for v in vals if v is not None)
