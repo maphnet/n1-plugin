@@ -273,6 +273,13 @@ for c in "gh pr merge 12" "git push origin main" "gh api -X PUT repos/o/r/pulls/
     cfg '{"finishWork":{"mergeOnFinish":"true"},"autonomy":{"fullAuto":true}}'
     assert_eq "string mergeOnFinish: interactive denied: $c" 2 "$(policy_rc -- "$c")"
 done
+# N1-230 SEC-2: tail-worker merge/cleanup/release denied even when merging is authorized
+cfg '{"finishWork":{"mergeOnFinish":true},"autonomy":{"fullAuto":true}}'
+tw_rc() { jq -cn --arg c "$1" --arg cwd "$T" '{session_id:"s",cwd:$cwd,agent_type:"n1:tail-worker",tool_name:"Bash",tool_input:{command:$c}}' | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS bash "$POLICY" >/dev/null 2>&1; echo $?; }
+for c in "gh pr merge 12" "git push origin main" "source ~/.n1/preamble.sh; n1_finish_cleanup a b c" "n1_active_run_clear"; do
+    assert_eq "tail-worker denied with merge authorized: $c" 2 "$(tw_rc "$c")"
+done
+assert_eq "tail-worker plain command allowed" 0 "$(tw_rc "gh pr view 12")"
 # N1-159: a test runner piped into tail/head/grep and && chained into git commit hides the suite status
 PIPE_DENY=("evidence-N1-74|bash tests/run.sh 2>&1 | tail -2 && git add -A && git commit -m x"
            "evidence-N1-75|bash tests/test_manifests.sh | tail -2 && git add -A && git commit -m x"
