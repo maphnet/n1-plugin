@@ -226,6 +226,12 @@ TCH=yes HL=1 run "{$TRK,\"localTesting\":{\"mode\":\"smoke\"}}" 'deploy_pending:
 ho no "handoff: legacy smoke verification -> no"
 TCH=yes HL=1 run "{$TRK,\"localTesting\":{\"mode\":\"test\"}}" 'deploy_pending: false'
 ho yes "handoff: verification key absent, not smoke -> yes"
+# Pending-deploy resume (valid SHA) jumps to Step 4, which never reaches handoff.md.
+TCH=yes HL=1 run "{$OFF,$TRK}" "deploy_pending: true
+deploy_merge_sha: $SHA"
+ho no "handoff: pending-deploy resume -> no"
+has "handoff: resume reads 03-deploy" "steps/03-deploy.md"
+has "handoff: resume reads 06-cleanup" "steps/06-cleanup.md"
 HL=
 
 exit $FAIL

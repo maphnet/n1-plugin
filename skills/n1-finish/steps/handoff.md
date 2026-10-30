@@ -22,6 +22,7 @@ merge_sha: <merge commit SHA>
 merge_method: <squash|merge|rebase>
 merged_by: <reviewer|n1-finish (mergeOnFinish)|local merge>
 local_merge: <0|1>
+comments: <reviewer: n/a (already merged)|n1-finish: no unresolved comments|local merge: n/a (local merge)>
 head_ref: <headRefName>
 worktree: <printed worktree:>
 memory: <printed memory:>

@@ -39,7 +39,7 @@ Input: the block from `<n1_root>/skills/n1-finish/steps/handoff.md` § Dispatch.
 
 1. Read `<n1_root>/skills/n1-finish/steps/` files `03-deploy.md`, `04-close-ticket.md`, `05-telemetry-followup.md`, `06-cleanup.md`, plus `<n1_root>/references/deployment-actions.md`, `<memory>/ticket.md` and `<memory>/overview.md`. The `entry:` lines are the entry output those steps refer to. `POST_DEPLOY_VERIFICATION_ARTIFACT` is `false`.
 2. Run Step 3 (skip it when `local_merge: 1`, as Step 2b says), then Step 4 and Step 5, in order. On a STOP, do what the step says (report text, tracker comment, `## Escalations` under `headless:yes`), write `<memory>/finish-result.md` as `status: stopped` / `reason: <the stop message>`, and end.
-3. Step 6: do not run § One Cleanup Call. Write item 4's rendered `## Finish` block (heading included) to `<memory>/finish-block.md`. Write the § Report text to `<memory>/finish-report.md` with the Next tickets lookup done and the line `Cleanup: <pending>`.
+3. Step 6: do not run § One Cleanup Call. Write item 4's rendered `## Finish` block (heading included; its `Comments:` value is the `comments:` input) to `<memory>/finish-block.md`. Write the § Report text to `<memory>/finish-report.md` with the Next tickets lookup done and the line `Cleanup: <pending>`.
 4. Write `<memory>/finish-result.md` as `status: complete` / `reason: -`.
 
 ## Return

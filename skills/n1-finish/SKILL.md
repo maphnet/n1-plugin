@@ -47,7 +47,7 @@ for k in finishWork.{mergeMethod,deployWatch.workflowName} delivery.mode git.{de
 echo "tracker.operations=$(n1_config_ops .tracker.operations)"
 [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
 [ "$(n1_merge_authorized)" = true ] && echo merge-on-finish:yes; [ "$CH" != yes ] || echo chained:yes
-RA=(); H=no; [ "$CH${N1_HEADLESS:-}" = yes1 ] && [ "$(n1_post_deploy_verification_enabled)" = false ] && H=yes
+RA=(); H=no; [ "$CH${N1_HEADLESS:-}$R" = yes1false ] && [ "$(n1_post_deploy_verification_enabled)" = false ] && H=yes
 [ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md") && H=no
 [ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && RA+=("$S/references/done-status-recovery.md") && H=no
 [ $H = yes ] && RA+=("$S/steps/handoff.md") || RA+=("$S"/steps/0[3-6]-*.md); echo handoff:$H
