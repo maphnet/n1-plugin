@@ -13,7 +13,7 @@ QE=$(n1_autonomy_val 'qualityEscalations'); echo "REVIEW_FIX_CYCLE=$REVIEW_FIX_C
 
 **Cap gate** (`review.maxFixAttempts`, default 1, counts FAIL cycles): `FIX_GATE` other than `allow` → no developer in this step. SOFT-ONLY: add its `(correctness)` Mediums to `## Deferred Soft Findings` in review.md (file-write mechanism), go to **PASS verdict**. FAIL: **Exhausted** below.
 
-**Exhausted** (FAIL): `QE=auto-accept` and no open `[SEC-N]` or security-class finding (review-core.md): write `## For Human Review` to review.md (file-write mechanism; replace if present), one `- [ID] severity file:line — title` per open Medium-or-higher or `[RULE-N]` finding (none silently dropped); add an `[auto]` ledger row `review fix cap reached`; write `## Review` `FAIL (unresolved, human review)` to overview; run **Full-suite regression check** and the last block (no `clean_passes`); next step. Otherwise ask the user: summary, then 1. List them under For Human Review and proceed 2. One more FAIL fix cycle (run the FAIL dispatch; `[asked]` ledger row). Mark (Recommended) on 2 when a `[SEC-N]`/security-class finding is open (never soft), else on 1 (configured cap reached). **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+**Exhausted** (FAIL): `QE=auto-accept` and no open `[SEC-N]` or security-class finding (review-core.md): write `## For Human Review` to review.md (file-write; replace if present), one `- [ID] severity file:line — title` per open Medium-or-higher or `[RULE-N]` finding; add an `[auto]` ledger row `review fix cap reached`; write `## Review` `FAIL (unresolved, human review)` to overview; run **Full-suite regression check** and the last block (no `clean_passes`); next step. Otherwise ask the user: summary, then 1. List them under For Human Review and proceed 2. One more FAIL fix cycle (run the FAIL dispatch; `[asked]` ledger row). Mark (Recommended) on 2 when a `[SEC-N]`/security-class finding is open (never soft), else on 1 (configured cap reached). **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -68,7 +68,7 @@ FULL_SUITE_OUTPUT=$(<discovered-test-command> 2>&1); FULL_SUITE_EXIT=$?
 FULL_SUITE_LINES=$(echo "$FULL_SUITE_OUTPUT" | wc -l); [ "$FULL_SUITE_LINES" -gt 100 ] && FULL_SUITE_OUTPUT="[truncated: showing last 100 of $FULL_SUITE_LINES lines]
 $(echo "$FULL_SUITE_OUTPUT" | tail -n 100)"
 ```
-Append to `## Fix Cycle <N>`: `**Full-suite:** exit <FULL_SUITE_EXIT> — PASS|FAIL`. Regression-fix developer gets `$FULL_SUITE_OUTPUT` (capped) as failure output. Exit 0: proceed. Else: `MP=$(n1_autonomy_val 'mechanicalPrompts')`. `MP==auto` + first attempt: spawn developer to fix, re-run once. Else: ask "Fix regression or proceed?"
+Append to `## Fix Cycle <N>`: `**Full-suite:** exit <FULL_SUITE_EXIT> — PASS|FAIL`. Regression-fix developer gets `$FULL_SUITE_OUTPUT` (capped) as failure output. Exit 0: proceed. Exhausted: report-only, no developer. Else: `MP=$(n1_autonomy_val 'mechanicalPrompts')`. `MP==auto` + first attempt: spawn developer to fix, re-run once. Else: ask "Fix regression or proceed?"
 
 ```bash
 source ~/.n1/preamble.sh

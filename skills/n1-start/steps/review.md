@@ -27,7 +27,7 @@ QE=$(n1_autonomy_val 'qualityEscalations'); echo "BASE_BRANCH=$BASE_BRANCH RELAT
 
 ### Incremental Re-Review (cycle >= 1)
 
-`INCREMENTAL=true`: pass code-reviewer `$N1_HOME/memory/$ID/fix.diff` path and `$FIX_FILES` as file scope; instruct "Incremental re-review — review only the changes in fix.diff, read surrounding code only as needed; check regressions; verify prior Critical/High and [RULE-N] addressed (review-prev.md: re-report unfixed ones by id)." The security-reviewer keeps full scope (unfixed [SEC-N] must resurface). `INCREMENTAL=false`: full scope.
+`INCREMENTAL=true`: pass code-reviewer `$N1_HOME/memory/$ID/fix.diff` path and `$FIX_FILES` as file scope; instruct "Incremental re-review — review only the changes in fix.diff, read surrounding code only as needed; check regressions; verify all prior findings addressed (review-prev.md: re-report unfixed by id)." The security-reviewer keeps full scope (unfixed [SEC-N] must resurface). `INCREMENTAL=false`: full scope.
 
 Run **Ensure Dependencies(`<ID>`)** first. > **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step**
 
