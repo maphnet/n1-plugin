@@ -7,6 +7,7 @@ R=skills/n1-start/steps/review.md
 F=skills/n1-start/steps/fix.md
 S=skills/n1-start/SKILL.md
 T=agents/tech-writer.md
+C=agents/code-reviewer.md
 
 check() { # <label> <extended-regex> <file>
     if grep -qE -- "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
@@ -35,5 +36,6 @@ check "tech-writer excludes [SEC-N] from bullets" 'Omit `\[SEC-N\]`' "$T"
 
 check "soft pass adds unfixed Medium to deferred list" 'Medium it left unfixed.*Deferred Soft Findings' "$F"
 check "deferred list takes only Low XREPO" 'Low `\[XREPO-N\]`' "$R"
+check "code-reviewer marks correctness Mediums" '^- \*\*Correctness marker:\*\*.*` \(correctness\)`' "$C"
 
 exit $FAIL
