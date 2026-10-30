@@ -74,10 +74,12 @@ Each entry: `{name, trigger_step, trigger_outcome, fix_step, retry_step, counter
 | `retry_step` | string | Step re-run after a fix. |
 | `counter` | string | Frontmatter counter tracked in `overview.md`. |
 | `max_config_key` | string \| null | Dotted config key for the bound; `null` means the bound is the constant `max_default`. |
-| `max_default` | int | Bound when the key is absent (qa, local-testing, and ci default to 3; review defaults to 2). |
+| `max_default` | int | Bound when the key is absent (qa, local-testing, and ci default to 3; review defaults to 1). |
 
 `review.maxFixAttempts` is a config key introduced by N1-6 so all four loops are
-uniform; before N1-6 the review loop bound was hardcoded `3`, now defaults to `2`.
+uniform; before N1-6 the review loop bound was hardcoded `3`. N1-6 set it to `2`;
+N1-211 set it to `1` (one fix round, then a second FAIL escalates) and enforces it in
+`n1_review_fix_gate` (lib/config.sh), the only bash reader.
 
 ## Consumers
 

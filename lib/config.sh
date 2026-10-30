@@ -724,6 +724,16 @@ n1_cross_host_review_val() {
     esac
 }
 
+n1_review_fix_gate() {
+    # Usage: n1_review_fix_gate <overview.md> -> prints allow|exhausted; returns 1 when exhausted (N1-211).
+    # Cap: review.maxFixAttempts (default 1 = pipeline.json review_fix max_default); counts FAIL fix cycles.
+    # Needs n1_read_frontmatter (lib/frontmatter.sh; loaded by the preamble via step.sh).
+    local max cur
+    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]+$ ]] || max=1
+    cur=$(n1_read_frontmatter "$1" review_fix_cycle); [[ "$cur" =~ ^[0-9]+$ ]] || cur=0
+    if [ "$cur" -lt "$max" ]; then echo allow; else echo exhausted; return 1; fi
+}
+
 n1_escalation_val() {
     # Usage: n1_escalation_val alwaysAskOn -- fixed stop list (N1-113).
     case "$1" in
