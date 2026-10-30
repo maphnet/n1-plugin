@@ -180,6 +180,9 @@ printf 'PASS: gh failure, default-branch and unkeyed-pointer runs fail open with
   URL=https://github.com/example/repo/pull/77
   payload=$(jq -nc --arg u "$URL" '{session_id:"xrepo-s",tool_name:"Bash",tool_input:{command:"gh pr create"},tool_response:{stdout:$u,exit_code:0}}')
   (cd "$TMP/repo-a" && printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" >/dev/null)
+  # the Stop reader sees the hook-written receipt at the fixed root; clear the once-only marker so the post-runner Stop is meaningful
+  (cd "$TMP/repo-a" && printf '{"session_id":"xrepo-s"}' | bash "$ROOT/hooks/pr-review-stop.sh" | jq -e '.decision == "block"' >/dev/null)
+  f="$HOME/.n1/review-receipts/xrepo-s/example_repo_77.json"; jq 'del(.reminded)' "$f" > "$f.t" && mv "$f.t" "$f"
   (cd "$TMP/repo-b" && N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=1 bash "$ROOT/scripts/codex-pr-review.sh" "$URL" >/dev/null)
   rc="$HOME/.n1/review-receipts/xrepo-s/example_repo_77.json"
   jq -e '.outcome == "ran" and .processed' "$rc" >/dev/null
