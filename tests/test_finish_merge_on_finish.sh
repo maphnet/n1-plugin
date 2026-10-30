@@ -91,7 +91,7 @@ EOF
 chmod +x "$T/bin/gh"
 S=0123456789abcdef0123456789abcdef01234567
 O=fedcba9876543210fedcba9876543210fedcba98
-export N1_HOME="$T/home" CFG="$ROOT/lib/config.sh"
+export N1_HOME="$T/home" N1_STATE_DIR="$T/state" CFG="$ROOT/lib/config.sh"
 PIN="$T/home/review-pins/o_r_7"; mkdir -p "${PIN%/*}"; echo "$S" > "$PIN"
 
 pre() { OUT=$(cd "${WD:-$T}" && PATH="$T/bin:$PATH" HEADSHA=${HS-$S} bash -c 'source "$CFG"; '"$PRE" 2>&1); }
@@ -105,11 +105,15 @@ line "pre: missing pin prints an empty pin" "pin:"
 REPO_FAIL=1 CHECKS='[]' pre
 line "pre: pin lookup failure prints pin:unavailable" "pin:unavailable"
 has "pre: no Codex receipt -> codex:none" "codex:none"
-RC="$T/home/review-receipts/s1"; mkdir -p "$RC"
+RC="$T/state/review-receipts/s1"; mkdir -p "$RC"
 echo '{"outcome":"skipped"}' > "$RC/o_r_7.json"; pre
 has "pre: skipped Codex receipt -> codex:not-ran" "codex:not-ran"
 echo '{"outcome":"ran"}' > "$RC/o_r_7.json"; pre
 has "pre: ran Codex receipt -> codex:ran" "codex:ran"
+rm "$RC/o_r_7.json"; mkdir -p "$N1_HOME/review-receipts/s0"
+echo '{"outcome":"ran"}' > "$N1_HOME/review-receipts/s0/o_r_7.json"; pre
+has "pre: legacy per-project ran receipt -> codex:ran" "codex:ran"
+rm -rf "$N1_HOME/review-receipts"; echo '{"outcome":"ran"}' > "$RC/o_r_7.json"
 echo "$S" > "$PIN"
 CHECKS='[{"bucket":"pass"},{"bucket":"fail"},{"bucket":"cancel"}]' pre
 has "pre: failed and cancelled counted" "checks:fail=2 pending=0"

@@ -2,12 +2,15 @@
 # Durable review receipts are independent of the optional telemetry lock.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/telemetry.sh"
 
+# Fixed, cwd-independent root: hooks, runner and finish may run from different repos.
+n1_review_root() { printf '%s/review-receipts' "${N1_STATE_DIR:-$HOME/.n1}"; }
+
 n1_review_receipt() {
     local url="$1" sid
     sid=$(n1_session_id)
     [[ "$sid" =~ ^[a-zA-Z0-9_-]+$ ]] || return 1
     [[ "$url" =~ ^https://github\.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)/pull/([0-9]+)$ ]] || return 1
-    printf '%s/review-receipts/%s/%s_%s_%s.json' "$(n1_home)" "$sid" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
+    printf '%s/%s/%s_%s_%s.json' "$(n1_review_root)" "$sid" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
 }
 
 n1_review_record() {
@@ -48,7 +51,7 @@ n1_review_check_run() {
     while IFS= read -r url; do
         receipt=$(n1_review_receipt "$url") || continue
         # Receipts are per session; a resumed run counts any session's processed receipt.
-        jq -se 'any(.[]; .processed == true)' "$(n1_home)"/review-receipts/*/"${receipt##*/}" >/dev/null 2>&1 && continue
+        { cat "$(n1_review_root)"/*/"${receipt##*/}" "$(n1_home)"/review-receipts/*/"${receipt##*/}" 2>/dev/null || :; } | jq -se 'any(.[]; .processed == true)' >/dev/null 2>&1 && continue
         [ -f "$receipt" ] || n1_review_record "$url" skipped step-not-run false
         printf '%s\n' "$url"
     done < <(cd "${wt:-.}" 2>/dev/null && timeout 10 gh pr list --head "$branch" --json url -q '.[].url' </dev/null 2>/dev/null)
