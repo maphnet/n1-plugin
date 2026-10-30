@@ -21,13 +21,13 @@ N1-registered on this machine: ${XREPO_KNOWN}
 Check diff for imports/API calls/env vars/service names pointing to N1-registered projects NOT above. Flag each [XREPO-N] (Low, non-blocking)."
 fi
 CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}
-INCREMENTAL=false; [ "$CYCLE" -ge 2 ] && [ -f "$N1_HOME/memory/$ID/fix-changed-files" ] && { INCREMENTAL=true; FIX_FILES=$(cat "$N1_HOME/memory/$ID/fix-changed-files"); }
-QE=$(n1_autonomy_val 'qualityEscalations'); echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED CYCLE=$CYCLE QE=$QE"
+INCREMENTAL=false; [ "$CYCLE" -ge 1 ] && [ -s "$N1_HOME/memory/$ID/fix.diff" ] && { INCREMENTAL=true; FIX_FILES=$(cat "$N1_HOME/memory/$ID/fix-changed-files" 2>/dev/null); }
+QE=$(n1_autonomy_val 'qualityEscalations'); echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED CYCLE=$CYCLE INCREMENTAL=$INCREMENTAL QE=$QE"
 ```
 
-### Incremental Re-Review (cycle >= 2)
+### Incremental Re-Review (cycle >= 1)
 
-`INCREMENTAL=true`: pass `$FIX_FILES` as file scope; instruct "Incremental re-review — focus on: [list]; check regressions; verify prior Critical/High and [SEC-N] addressed." `INCREMENTAL=false`: full scope.
+`INCREMENTAL=true`: pass the `$N1_HOME/memory/$ID/fix.diff` path and `$FIX_FILES` as file scope; instruct "Incremental re-review — review only the changes in fix.diff, reading surrounding code only as needed; check regressions; verify prior Critical/High, [RULE-N] and [SEC-N] addressed." `INCREMENTAL=false`: full scope.
 
 Run **Ensure Dependencies(`<ID>`)** before reviewers. > **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step**
 
@@ -71,6 +71,6 @@ NON_CONVERGING or FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonom
 
 No `[TQ-N]` Medium+ → skip. `tq_fix_cycle` ≥ `TQ_MAX` → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "tq_fix_cycle"`, then `n1_resolve_agent qa-engineer review`+split; spawn qa-engineer: `$N1_HOME/memory/$ID/review.md` path (`[TQ-N]` only), qa.md, tier, "TQ Fix Mode: remove/rewrite TQ tests only, run suite, skip Steps 1-5."
 
-**FAIL → Step 8.** Bound: `review.maxFixAttempts` (default 2). Exhaustion → § Autonomy Gate. **If ask:** findings summary + "Please advise."
+**FAIL → Step 8** (its **Cap gate** bounds the loop).
 
 **PASS** + `QE=auto-accept` (hands-off soft policy, N1-116): after the verdict line append `## Deferred Soft Findings` to `$N1_HOME/memory/$ID/review.md` with the file-write mechanism, never a shell command (replace if present), one `- [ID] file:line — title` per Low, `[TQ-N]` Low, Low `[XREPO-N]`, or unknown-severity finding, excluding `[SEC-N]`; Low `[SEC-N]` only when `review_fix_cycle>=1` (not fixed; the PR body lists them). A finding of any prefix in a `SECURITY_RELEVANT` class (review-core.md) counts as `[SEC-N]`. `[SEC-N]` findings of any severity are never soft: they go to Step 8 as FAIL (`review.maxFixAttempts` bounds Critical/High/Medium; a Low with `review_fix_cycle>=1` is recorded here, no further cycle). A non-TQ Medium whose title ends ` (correctness)` → Step 8 SOFT-ONLY (one developer pass, no re-review); add every other non-TQ Medium to `## Deferred Soft Findings` (no developer, the PR body lists them); no `(correctness)` Medium → no soft pass, proceed (unchanged). Other modes: **PASS:** proceed. Critical/High/`[RULE-N]` always FAIL → Step 8 as above (unchanged).
