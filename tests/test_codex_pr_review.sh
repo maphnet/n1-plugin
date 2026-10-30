@@ -143,6 +143,11 @@ printf '{"pr_url":"%s","processed":true}\n' "$PR_LIST_URLS" > "$N1_HOME/review-r
 bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"mixed"}' > "$TMP/mixed"
 [ ! -s "$TMP/mixed" ]
 printf 'PASS: any processed receipt wins over an unprocessed one from another session\n'
+# Legacy per-project receipts (pre-upgrade) still satisfy the run check under a distinct state root.
+rm -rf "$N1_HOME/review-receipts"; mkdir -p "$N1_HOME/review-receipts/old"
+printf '{"pr_url":"%s","processed":true}\n' "$PR_LIST_URLS" > "$N1_HOME/review-receipts/old/${rcpt##*/}"
+[ -z "$(N1_STATE_DIR="$TMP/empty-state" check_run mixed)" ]
+printf 'PASS: a legacy per-project processed receipt satisfies the run check\n'
 : > "${REVIEW_LOG}.list"
 N1_SESSION_ID=mixed bash -c 'command() { [ "${2:-}" = timeout ] && return 1; builtin command "$@"; }; source "$1/lib/codex-review.sh"; n1_review_check_run' _ "$ROOT" >/dev/null
 [ ! -s "${REVIEW_LOG}.list" ]

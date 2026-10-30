@@ -51,7 +51,7 @@ n1_review_check_run() {
     while IFS= read -r url; do
         receipt=$(n1_review_receipt "$url") || continue
         # Receipts are per session; a resumed run counts any session's processed receipt.
-        jq -se 'any(.[]; .processed == true)' "$(n1_review_root)"/*/"${receipt##*/}" >/dev/null 2>&1 && continue
+        { cat "$(n1_review_root)"/*/"${receipt##*/}" "$(n1_home)"/review-receipts/*/"${receipt##*/}" 2>/dev/null || :; } | jq -se 'any(.[]; .processed == true)' >/dev/null 2>&1 && continue
         [ -f "$receipt" ] || n1_review_record "$url" skipped step-not-run false
         printf '%s\n' "$url"
     done < <(cd "${wt:-.}" 2>/dev/null && timeout 10 gh pr list --head "$branch" --json url -q '.[].url' </dev/null 2>/dev/null)

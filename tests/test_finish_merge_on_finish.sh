@@ -110,6 +110,10 @@ echo '{"outcome":"skipped"}' > "$RC/o_r_7.json"; pre
 has "pre: skipped Codex receipt -> codex:not-ran" "codex:not-ran"
 echo '{"outcome":"ran"}' > "$RC/o_r_7.json"; pre
 has "pre: ran Codex receipt -> codex:ran" "codex:ran"
+rm "$RC/o_r_7.json"; mkdir -p "$N1_HOME/review-receipts/s0"
+echo '{"outcome":"ran"}' > "$N1_HOME/review-receipts/s0/o_r_7.json"; pre
+has "pre: legacy per-project ran receipt -> codex:ran" "codex:ran"
+rm -rf "$N1_HOME/review-receipts"; echo '{"outcome":"ran"}' > "$RC/o_r_7.json"
 echo "$S" > "$PIN"
 CHECKS='[{"bucket":"pass"},{"bucket":"fail"},{"bucket":"cancel"}]' pre
 has "pre: failed and cancelled counted" "checks:fail=2 pending=0"
