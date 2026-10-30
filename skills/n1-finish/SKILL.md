@@ -10,15 +10,13 @@ effort: low
 
 ## Overview
 
-Verify the PR is merged (the human merges, or n1-finish with `mergeOnFinish`; `prMode: skip` merges locally), optionally watch the deployment and deliver to the project's host (asks first, interactive only), close the ticket, and clean up.
-
 The ticket is closed **only when the code is actually merged** — never on green-CI-but-open.
 
 **Announce at start:** "I'm using the n1-finish skill to finish work on this task."
 
 ## Entry (one Bash call + reads)
 
-Fill `ID` (argument, else derived from the PR or branch) , `PR` (digits of a `#123`/`123` argument, else empty) and `CH` (`yes` if the arguments include `chained`), then run via Bash. **In the same turn**, read these in parallel, not via Bash: `<N1_ROOT>/skills/n1-finish/steps/` files `01-resolve-target.md`, `02-merge.md`, `03-deploy.md`, `04-close-ticket.md`, `05-telemetry-followup.md`, `06-cleanup.md`, and `<N1_ROOT>/references/deployment-actions.md`.
+Fill `ID` (argument, else derived from the PR or branch) , `PR` (digits of a `#123`/`123` argument, else empty) and `CH` (`yes` if the arguments include `chained`), then run via Bash. **In the same turn**, read these in parallel, not via Bash: `<N1_ROOT>/skills/n1-finish/steps/` files `01-resolve-target.md`, `02-merge.md`, and `<N1_ROOT>/references/deployment-actions.md`; the rest come via `read-also:`.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -49,9 +47,10 @@ for k in finishWork.{mergeMethod,deployWatch.workflowName} delivery.mode git.{de
 echo "tracker.operations=$(n1_config_ops .tracker.operations)"
 [ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
 [ "$(n1_merge_authorized)" = true ] && echo merge-on-finish:yes; [ "$CH" != yes ] || echo chained:yes
-RA=()
-[ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md")
-[ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && RA+=("$S/references/done-status-recovery.md")
+RA=(); H=no; [ "$CH${N1_HEADLESS:-}" = yes1 ] && [ "$(n1_post_deploy_verification_enabled)" = false ] && H=yes
+[ "$(c delivery.mode)" = ssh ] && RA+=("$S/steps/03b-ssh-deploy.md") && H=no
+[ -n "$(c tracker.mcp)" ] && [ -z "$(c tracker.statuses.done)" ] && RA+=("$S/references/done-status-recovery.md") && H=no
+[ $H = yes ] && RA+=("$S/steps/handoff.md") || RA+=("$S"/steps/0[3-6]-*.md); echo handoff:$H
 [ -z "$ID" ] || for f in ticket overview; do [ -f "$M/$f.md" ] && RA+=("$M/$f.md"); done
 echo "read-also: ${RA[*]}"
 ```
@@ -82,7 +81,7 @@ N1 merges an open PR only when the entry prints `merge-on-finish:yes` (`mergeOnF
 
 ## Steps
 
-Follow the files read at entry, in order.
+Follow the files read at entry, in order; with `handoff:yes`, Steps 3-6 run per `steps/handoff.md`.
 
 1. Resolve Target: `steps/01-resolve-target.md`
 2. Merge State Machine (Step 2b local merge when `prMode` is `"skip"`): `steps/02-merge.md`

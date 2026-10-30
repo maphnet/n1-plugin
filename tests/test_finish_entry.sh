@@ -18,7 +18,8 @@ lacks() { if grep -qF -- "$2" <<<"$OUT"; then no "$1"; else ok "$1"; fi; }
 SNIP=$(awk '/^```bash/{b=1;next} b&&/^```/{exit} b' "$SKILL")
 HEAD=$(awk '/^## Entry/{e=1} /^```bash/{exit} e' "$SKILL")
 for f in $(awk '/^## Steps/{s=1} s' "$SKILL" | grep -oE 'steps/[0-9a-z-]+\.md' | sort -u); do
-    if grep -qF "${f#steps/}" <<<"$HEAD" || grep -qF "$f" <<<"$SNIP"; then ok "entry covers $f"; else no "entry covers $f"; fi
+    if grep -qF "${f#steps/}" <<<"$HEAD" || grep -qF "$f" <<<"$SNIP" \
+       || { [[ ${f#steps/} == 0[3-6]-* ]] && grep -qF 'steps/0[3-6]-*.md' <<<"$SNIP"; }; then ok "entry covers $f"; else no "entry covers $f"; fi
 done
 
 # Entry snippet = first bash block of SKILL.md, preamble pointed at this checkout.
@@ -58,7 +59,10 @@ lacks "typical: does not cat ticket body" "ticket body marker"
 SZ=$(wc -c <<<"$OUT"); if [ "$SZ" -lt 20000 ]; then ok "typical: output $SZ bytes < 20000"; else no "typical: output $SZ bytes < 20000"; fi
 has "typical: id printed" "id=T-1"
 has "typical: prMode derived draft" "prMode=draft"
-lacks "typical: 03-deploy not in read-also (read at entry)" "steps/03-deploy.md"
+has "typical: 03-deploy in read-also (handoff:no)" "steps/03-deploy.md"
+has "typical: 06-cleanup in read-also (handoff:no)" "steps/06-cleanup.md"
+lacks "typical: no handoff.md" "steps/handoff.md"
+if grep -qxF "handoff:no" <<<"$OUT"; then ok "typical: handoff:no printed"; else no "typical: handoff:no printed"; fi
 lacks "typical: skips 03b" "steps/03b-ssh-deploy.md"
 lacks "typical: skips done-status recovery" "done-status-recovery.md"
 
@@ -195,5 +199,33 @@ TCH=yes run '{}' 'deploy_pending: false'
 if grep -qxF "chained:yes" <<<"$OUT"; then ok "chained: token printed"; else no "chained: token printed"; fi
 run '{}' 'deploy_pending: false'
 lacks "chained: absent for a manual run" "chained:yes"
+
+# 15. N1-230: handoff:yes only for chained + headless + no ssh + no done-status recovery + post-deploy verification off.
+ho() { if grep -qxF "handoff:$1" <<<"$OUT"; then ok "$2"; else no "$2"; fi; }
+OFF='"finishWork":{"postDeployVerification":{"enabled":false}}'
+TRK='"tracker":{"mcp":"jira","statuses":{"done":"Done"}}'
+TCH=yes HL=1 run "{$OFF,$TRK}" 'deploy_pending: false'
+ho yes "handoff: all clauses hold -> yes"
+has "handoff: yes reads handoff.md" "steps/handoff.md"
+lacks "handoff: yes skips 03-deploy in orchestrator" "steps/03-deploy.md"
+lacks "handoff: yes skips 06-cleanup in orchestrator" "steps/06-cleanup.md"
+TCH=yes HL=1 run "{$OFF}" 'deploy_pending: false'
+ho yes "handoff: no tracker -> yes (no recovery prompt)"
+TCH= HL=1 run "{$OFF,$TRK}" 'deploy_pending: false'
+ho no "handoff: not chained -> no"
+TCH=yes HL= run "{$OFF,$TRK}" 'deploy_pending: false'
+ho no "handoff: not headless -> no"
+has "handoff: no still reads 03-deploy" "steps/03-deploy.md"
+TCH=yes HL=1 run "{$OFF,$TRK,\"delivery\":{\"mode\":\"ssh\"}}" 'deploy_pending: false'
+ho no "handoff: ssh delivery -> no"
+TCH=yes HL=1 run "{$OFF,\"tracker\":{\"mcp\":\"jira\"}}" 'deploy_pending: false'
+ho no "handoff: done-status recovery -> no"
+TCH=yes HL=1 run "{\"finishWork\":{\"postDeployVerification\":{\"enabled\":true}},$TRK}" 'deploy_pending: false'
+ho no "handoff: verification enabled -> no"
+TCH=yes HL=1 run "{$TRK,\"localTesting\":{\"mode\":\"smoke\"}}" 'deploy_pending: false'
+ho no "handoff: legacy smoke verification -> no"
+TCH=yes HL=1 run "{$TRK,\"localTesting\":{\"mode\":\"test\"}}" 'deploy_pending: false'
+ho yes "handoff: verification key absent, not smoke -> yes"
+HL=
 
 exit $FAIL
