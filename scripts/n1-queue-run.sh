@@ -179,6 +179,9 @@ finalize() {
     # NP-216 AC3 safety net: every failed/deferred Runs row must carry a non-empty
     # reason. Call sites should already pass one; this is the last line of defense.
     [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="unspecified-failure"
+    # N1-240: snapshot the escalation state chain_finish needs before the files below are removed.
+    CHAIN_ESC=""
+    chain_child_escalated "$TICKET" "$N1H" && CHAIN_ESC="$TICKET"
     rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM"
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
@@ -483,6 +486,21 @@ chain_reconcile() {
     return 0
 }
 
+CHAIN_ESC=""   # set by finalize (ticket id) before it removes the question file
+
+# chain_child_escalated <ticket> <n1-home> — exit 0 when the child has a pending escalation: an unanswered
+# mirrored question (no relay marker, or the question newer than it), or more "- [headless]" escalation
+# entries in its overview than answered ask-mode ledger rows. Stopping such a child would pre-empt the
+# human's answer and let the chain merge past a stop-list gate (N1-240 SEC-1). Fails closed.
+chain_child_escalated() {
+    local qf="$N1_QUEUE_DIR/.question-$1.json" rf="$N1_QUEUE_DIR/.relay-$1" ov="$2/memory/$1/overview.md" e a
+    if [ -e "$qf" ] && { [ ! -e "$rf" ] || [ "$qf" -nt "$rf" ]; }; then return 0; fi
+    [ -f "$ov" ] || return 1
+    e=$(grep -c '^- \[headless\] ' "$ov" 2>/dev/null || true)
+    a=$(grep -c 'headless: ask-mode answer' "$ov" 2>/dev/null || true)
+    [ "${e:-0}" -gt "${a:-0}" ]
+}
+
 # chain_finish <num> <ticket> <repo> <n1-home> <model> <pr-url> — the deterministic fullAuto chain.
 # No-op unless chain_authorized. Waits for the child session to go idle (a child blocked for BG_POLL_GRACE polls is stopped; it may still run CI watch or
 # its own prose chain), skips when the PR is already MERGED or not OPEN, else launches a bg
@@ -518,13 +536,24 @@ chain_finish() {
                 working) idle=0; blk=0 ;;
                 blocked)
                     # N1-240: a child parked on a question after its PR never goes idle on its own; waiting
-                    # would end in finish-child-busy. Stop it and chain: the PR-state check below and the
-                    # chained n1-finish (CI + reviewed pin) still decide; a failed stop is not fatal.
-                    idle=0; blk=$((blk + 1))
-                    if [ "$blk" -ge "$BG_POLL_GRACE" ]; then
-                        bash -c "$(n1_bg_cmd stop "$csid")" >/dev/null 2>&1
-                        echo "[$NUM] $TICKET chain: stopped blocked child ($csid)"
-                        break
+                    # would end in finish-child-busy. Stop it and chain only when the block is benign: a
+                    # pending escalation or an answer relay in flight keeps the row awaiting-human / busy,
+                    # and the stop must be confirmed before the chained n1-finish launches.
+                    idle=0
+                    if n1_queue_relay_active "$N1_QUEUE_DIR" "$TICKET"; then blk=0
+                    elif [ "$CHAIN_ESC" = "$TICKET" ] || chain_child_escalated "$TICKET" "$N1H"; then
+                        chain_note "$NUM" "$TICKET" child-escalated; return 0
+                    else
+                        blk=$((blk + 1))
+                        if [ "$blk" -ge "$BG_POLL_GRACE" ]; then
+                            bash -c "$(n1_bg_cmd stop "$csid")" >/dev/null 2>&1
+                            if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1 \
+                                && case "$(n1_queue_bg_state "$agents" "$csid")" in working|blocked) false ;; esac; then
+                                echo "[$NUM] $TICKET chain: stopped blocked child ($csid)"
+                                break
+                            fi
+                            chain_note "$NUM" "$TICKET" child-stop-failed; return 0
+                        fi
                     fi ;;
                 missing) blk=0; idle=$((idle + 1)); [ "$idle" -ge "$BG_POLL_GRACE" ] && break ;;
                 *) break ;;

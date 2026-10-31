@@ -708,6 +708,8 @@ case "$1" in
                 fi
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
+            # stopeffective: a stopped session reports done afterwards (default: the stop has no effect).
+            [ -f "$D/stopeffective" ] && grep -qx "$sid" "$D/stopped" 2>/dev/null && st=done
             out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
         done
         echo "[$out]"
@@ -1480,7 +1482,7 @@ test_bg_chain_blocked_child() {
     mk_bg "$tmp" bgq "T-A:working blocked"
     chain_setup "$tmp" true true
     gh_overview "$tmp/fake/overview.T-A.2" 1
-    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A" "$tmp/fake/stopeffective"
     assert_eq "chain-blocked: exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "chain-blocked: blocked child stopped" yes \
         "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)"
@@ -1500,6 +1502,46 @@ test_bg_chain_blocked_child() {
     assert_eq "chain-working: no marker" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
     assert_eq "chain-working: chain never stops a working child" no \
         "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-240 SEC-1/SEC-2: a blocked child with a pending escalation is never stopped or chained; a stop that does not take effect launches no finish.
+test_bg_chain_blocked_guards() {
+    local tmp case_
+    for case_ in escalated stopfail; do
+        tmp=$(mktemp -d)
+        mk_bg "$tmp" bgq "T-A:working blocked"
+        chain_setup "$tmp" true true
+        gh_overview "$tmp/fake/overview.T-A.2" 1
+        echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+        case "$case_" in
+            escalated) echo '{"question":"stop?"}' > "$tmp/.question-T-A.json" ;;
+        esac
+        assert_eq "chain-$case_: exit 0" 0 "$(run_bg_queue "$tmp")"
+        assert_eq "chain-$case_: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+        assert_eq "chain-$case_: no marker" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
+        assert_eq "chain-$case_: never logs stopped" 0 "$(grep -cF 'stopped blocked child' "$tmp/output.txt" || true)"
+        case "$case_" in
+            escalated)
+                assert_eq "chain-escalated: reason" "finish:child-escalated" "$(plan_cell "$tmp/queue.md" 1 9)"
+                assert_eq "chain-escalated: child not stopped" no "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)" ;;
+            stopfail) assert_eq "chain-stopfail: reason" "finish:child-stop-failed" "$(plan_cell "$tmp/queue.md" 1 9)" ;;
+        esac
+        rm -rf "$tmp"
+    done
+    # TQ-1: the marker-write-failed exit (marker path is a directory) and the already-evaluated exit.
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    mkdir "$tmp/.chained-T-A"
+    assert_eq "chain-markerfail: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-markerfail: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-markerfail: reason" "finish:marker-write-failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched
+    assert_eq "chain-evaluated: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-evaluated: logged" 1 "$(grep -cF '[1] T-A chain: already evaluated (marker=launched)' "$tmp/output.txt" || true)"
     rm -rf "$tmp"
 }
 
@@ -2856,6 +2898,7 @@ test_bg_chain_flags_off
 test_bg_chain_finish_stops
 test_bg_chain_missing_is_busy
 test_bg_chain_blocked_child
+test_bg_chain_blocked_guards
 test_bg_chain_restart
 test_bg_chain_reconcile
 test_runner_lock_atomic
