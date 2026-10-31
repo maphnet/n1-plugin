@@ -217,3 +217,18 @@ n1_orca_ask() {
     echo failed
     return 1
 }
+
+n1_orca_reply() {
+    # Usage: n1_orca_reply <queue-dir> <ticket> <answer> — n1-queue --answer for an Orca child: reply to the pending
+    # ask message recorded in <queue-dir>/.ask-<ticket>. Markers are removed only after a successful reply.
+    # Requires lib/queue.sh (n1_queue_event).
+    local dir="$1" t="$2" msg run
+    msg=$(head -1 "$dir/.ask-$t" 2>/dev/null); run=$(n1_read_frontmatter "$dir/queue.md" orca_run_id)
+    _n1_orca_id "$msg" && _n1_orca_id "$run" || { echo "n1-queue: unreadable Orca question marker for $t" >&2; return 1; }
+    N1_ORCA_TIMEOUT=30 n1_orca orchestration reply --id "$msg" --body "$3" --run "$run" >/dev/null \
+        || { echo "n1-queue: Orca reply failed for $t; retry --answer" >&2; return 1; }
+    rm -f "$dir/.ask-$t" "$dir/.question-$t.json" "$dir/.esc-reason-$t"
+    n1_queue_event "$dir/events.jsonl" "$(n1_read_frontmatter "$dir/queue.md" queue_id)" "$(n1_read_frontmatter "$dir/queue.md" run_id)" \
+        answer_delivered ticket="$t" session="orca:$msg" reason="${3:0:120}"
+    echo "n1-queue: answer delivered to $t (Orca message $msg)."
+}
