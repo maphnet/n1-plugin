@@ -157,3 +157,124 @@ n1_persona_name() {
         *) printf '' ;;
     esac
 }
+
+# ---- Orca workspace manager (N1-224) ----
+# Every call goes through "$ORCA_CLI_COMMAND" (never a bare `orca`) with --json appended. When
+# ORCA_CLI_COMMAND is unset every helper returns at once with zero subprocesses (AC7). Targets are
+# always `path:<abs toplevel>`: `current` from an unregistered nested worktree resolves to the parent checkout.
+_N1_ORCA_ACTIVE=""   # per-process cache: "" unknown, 1 active, 0 inactive
+
+n1_orca() {
+    # Usage: n1_orca <args...> — prints the CLI's JSON stdout and returns its exit code (127: no CLI).
+    [ -n "${ORCA_CLI_COMMAND:-}" ] && [ -x "$ORCA_CLI_COMMAND" ] || return 127
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${N1_ORCA_TIMEOUT:-5}" "$ORCA_CLI_COMMAND" "$@" --json 2>/dev/null </dev/null
+    else
+        "$ORCA_CLI_COMMAND" "$@" --json 2>/dev/null </dev/null
+    fi
+}
+
+n1_orca_active() {
+    # Usage: n1_orca_active — true when the Orca runtime is reachable (jq required; no jq = inactive).
+    [ -n "${ORCA_CLI_COMMAND:-}" ] || return 1
+    if [ -z "$_N1_ORCA_ACTIVE" ]; then
+        _N1_ORCA_ACTIVE=0
+        command -v jq >/dev/null 2>&1 \
+            && n1_orca status | jq -e '.result.runtime.reachable == true' >/dev/null 2>&1 \
+            && _N1_ORCA_ACTIVE=1
+    fi
+    [ "$_N1_ORCA_ACTIVE" = 1 ]
+}
+
+n1_orca_owns() {
+    # Usage: n1_orca_owns [abs-path] — true when the path (default: this checkout) is a non-main Orca worktree.
+    # The single "Orca-owned" predicate for status, links and removal.
+    n1_orca_active || return 1
+    local p="${1:-}"
+    [ -n "$p" ] || p=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+    n1_orca worktree list | jq -e --arg p "$p" 'any(.result.worktrees[]?; .path == $p and .isMainWorktree != true)' >/dev/null 2>&1
+}
+
+n1_orca_display_name() {
+    # Usage: n1_orca_display_name <abs-path> — displayName of that Orca worktree, or empty.
+    n1_orca_active || return 0
+    n1_orca worktree list | jq -r --arg p "$1" 'first(.result.worktrees[]? | select(.path == $p) | .displayName // empty) // empty' 2>/dev/null
+    return 0
+}
+
+n1_orca_sync() {
+    # Usage: n1_orca_sync "<step>: <state>" [--status in-progress|in-review|completed] [--unread]
+    # Best-effort card update for this checkout when Orca owns it. Always returns 0.
+    [ -n "${ORCA_CLI_COMMAND:-}" ] || return 0
+    local c top s args
+    c=$(printf '%s' "${1:-}" | tr -d '\000-\037\177'); c="${c:0:120}"
+    [ $# -gt 0 ] && shift
+    case "$c" in [A-Za-z0-9]*) ;; *) return 0 ;; esac   # never looks like an option
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+    n1_orca_owns "$top" || return 0
+    args=(worktree set --worktree "path:$top" --comment "$c")
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --status) s="${2:-}"
+                      case "$s" in in-progress|in-review|completed) args+=(--workspace-status "$s") ;; esac
+                      [ $# -gt 1 ] && shift ;;
+            --unread) args+=(--unread) ;;
+        esac
+        shift
+    done
+    n1_orca "${args[@]}" >/dev/null 2>&1 || true
+    return 0
+}
+
+n1_orca_link() {
+    # Usage: n1_orca_link <tracker-key|url> — best-effort `reference add` on this checkout's Orca worktree. Always returns 0.
+    [ -n "${ORCA_CLI_COMMAND:-}" ] || return 0
+    local r="${1:-}" top
+    case "$r" in ""|-*|*[[:space:][:cntrl:]]*) return 0 ;; esac
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+    n1_orca_owns "$top" || return 0
+    n1_orca reference add "$r" --worktree "path:$top" >/dev/null 2>&1 || true
+    return 0
+}
+
+n1_orca_rm() {
+    # Usage: n1_orca_rm <abs-path> — remove an Orca-owned worktree through Orca (never --force).
+    # Prints a one-line reason and returns 1 on failure. Only n1_finish_cleanup calls this;
+    # the tail-worker is denied it (hooks/enforce-agent-policy.py TAIL_DENY_RE).
+    local p="${1:-}" out
+    case "$p" in /*) ;; *) echo "invalid path"; return 1 ;; esac
+    n1_orca_owns "$p" || { echo "not a workspace-manager worktree"; return 1; }
+    out=$(N1_ORCA_TIMEOUT=60 n1_orca worktree rm --worktree "path:$p") && return 0
+    jq -r '.error.message // empty' <<<"$out" 2>/dev/null | head -1
+    return 1
+}
+
+n1_orca_handoff() {
+    # Usage: n1_orca_handoff <ID> <type|""> create|launch [abs-path]
+    # Hands the run to a fresh agent in an Orca workspace. Prints exactly one line:
+    #   handoff:ok <workspace-name> <agent-handle> | handoff:failed (<reason>). Always returns 0.
+    # Delivered = zero exit AND an agent handle AND (when reported) prompt outcome journaled|handed-to-terminal; field paths pinned by the live check.
+    local id="${1:-}" ty="${2:-}" mode="${3:-}" path="${4:-}" prompt out msg handle kind name a=()
+    [[ "$id" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]] || { echo "handoff:failed (invalid ticket id)"; return 0; }
+    [ -z "$ty" ] || [[ "$ty" =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "handoff:failed (invalid type)"; return 0; }
+    n1_orca_active || { echo "handoff:failed (workspace manager inactive)"; return 0; }
+    prompt="/n1:n1-start $id${ty:+ --type $ty} --no-handoff"
+    case "$mode" in
+        create) name="$id"; a=(worktree create --name "$id" --no-parent)
+                if type n1_config_val >/dev/null 2>&1 && [ "$(n1_config_val '.tracker.type' 2>/dev/null)" = jira ]; then a+=(--reference "$id"); fi
+                a+=(--agent claude --prompt "$prompt") ;;
+        launch) case "$path" in /*) ;; *) echo "handoff:failed (invalid path)"; return 0 ;; esac
+                name="${path##*/}"; a=(agent launch --worktree "path:$path" --agent claude --prompt "$prompt") ;;
+        *) echo "handoff:failed (invalid mode)"; return 0 ;;
+    esac
+    if ! out=$(N1_ORCA_TIMEOUT=120 n1_orca "${a[@]}"); then
+        msg=$(jq -r '.error.message // empty' <<<"$out" 2>/dev/null | head -1 | tr -d '\r')
+        echo "handoff:failed (${msg:-cli error})"; return 0
+    fi
+    handle=$(jq -r 'first(.. | objects | (.handle?, .agentTerminalHandle?) | strings) // empty' <<<"$out" 2>/dev/null)
+    [ -n "$handle" ] || { echo "handoff:failed (no agent handle in result)"; return 0; }
+    # Ticket rule: a prompt outcome other than journaled|handed-to-terminal means not delivered (absent = accepted until the live check pins the path).
+    kind=$(jq -r '(.result.launch.outcome.kind? // .result.prompt.outcome.kind? // empty)' <<<"$out" 2>/dev/null)
+    case "$kind" in ""|journaled|handed-to-terminal) ;; *) echo "handoff:failed (prompt $kind)"; return 0 ;; esac
+    echo "handoff:ok $name $handle"
+}
