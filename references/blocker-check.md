@@ -58,11 +58,10 @@ For each open blocker, replace `|` and newlines in the title and status with a s
 
 `CALLER=queue` skips this step. The PR column is `-`, because queue intake uses the keys only.
 
-For each open blocker, look up the PR on a best-effort basis. If `<KEY>` does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`, skip the lookup and use PR `-`. Otherwise run:
+For each open blocker, look up the PR on a best-effort basis. The key is untrusted link data: if `<KEY>` does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`, skip the lookup and use PR `-`. Never write a non-matching key into a command. Only a matching key is substituted below, and it holds no shell syntax:
 
 ```bash
-KEY="<KEY>"
-[[ "$KEY" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] && gh pr list --state open --search "$KEY in:title" --json number,title,headRefName --limit 5 2>/dev/null
+gh pr list --state open --search "<KEY> in:title" --json number,title,headRefName --limit 5 2>/dev/null
 ```
 
 The PR is the first entry whose title or `headRefName` contains `<KEY>` as a whole token (PR titles are `[<KEY>] ...`). Use its `number`. If there is no output, no match, or gh is missing or fails, the PR is `-`. This is never an error.
@@ -87,7 +86,7 @@ Branch on the first rule that matches:
 
    1. **Continue anyway**: proceed to the In Progress move.
    2. **Stop**: print "Stopped: <ID> is blocked by <KEYS>. Finish or unlink the blockers; `/n1:n1-start <ID>` resumes and re-checks." The caller then ends the run before the In Progress move, so the tracker status stays unchanged.
-5. **Headless (`HEADLESS=1`):** do not ask. Follow `<N1_ROOT>/skills/n1-start/procedures/autonomy-headless.md` § Headless Guard with `STEP=ticket`, `QUESTION=Open blockers for <ID>: <KEY>[, <KEY>...]` and `OPTIONS=continue anyway | Stop this ticket` (the guard's ask-mode ends the run only on the exact answer "Stop this ticket"; any other answer continues, as in `ticket-watch-react.md`). Use only keys that match `^[A-Z][A-Z0-9_]*-[0-9]+$`, and never put titles in `QUESTION`, because it reaches a shell string. The prompt has no recommended option, so the guard escalates in this order:
+5. **Headless (`HEADLESS=1`):** do not ask. Follow `<N1_ROOT>/skills/n1-start/procedures/autonomy-headless.md` escalation (stop-list path), `STEP=ticket`, category=`blocked-by` (never `none`, so a queue always relays it to a human), `QUESTION=Open blockers for <ID>: <KEY>[, <KEY>...]` and `OPTIONS=continue anyway | Stop this ticket` (the ask-mode ends the run only on the exact answer "Stop this ticket"; any other answer continues, as in `ticket-watch-react.md`). No option is recommended, and never treat `continue anyway` as a default because it is listed first. Use only keys that match `^[A-Z][A-Z0-9_]*-[0-9]+$`, and never put titles in `QUESTION`, because it reaches a shell string. The guard escalates in this order:
    1. Move the ticket to the blocked status.
    2. Add an `## Escalations` line.
    3. Post a tracker comment with the `n1-esc:<ID>:ticket` marker.

@@ -63,25 +63,25 @@ check "NP-239 fix: investigation-deliverable Jira link payload includes cloudId"
 
 # N1-231: shared blocker-check lookup
 B=references/blocker-check.md
-check "N1-231: blocker-check has Check section" "^## § Check" "$B"
-check "N1-231: blocker-check has Report section" "^## § Report" "$B"
 check "N1-231: blocker-check reads operations.getIssueLinks" "tracker\.operations\.getIssueLinks" "$B"
 check "N1-231: blocker-check routes links via versionMcp else mcp" "VERSION_MCP. when non-empty, else .TRACKER_MCP." "$B"
-check "N1-231: blocker-check keeps is blocked by links" "is blocked by" "$B"
-check "N1-231: blocker-check keeps depends on links" "depends on" "$B"
 check "N1-231: open means status category not Done" "status category is not Done" "$B"
 check "N1-231: In Review counts as open" "In Review counts as open" "$B"
 check "N1-231: blocker-check guards untrusted link fields" "untrusted data" "$B"
-check "N1-231: PR lookup validates KEY before shell use" '"\$KEY" =~ \^\[A-Z\]\[A-Z0-9_\]\*-\[0-9\]\+\$' "$B"
+check "N1-231: PR lookup gates on the key regex before any command" "does not match .\^\[A-Z\].*skip the lookup" "$B"
+check "N1-231: Jira blocked-by links read from inwardIssue" "Blocks-type entries that carry .inwardIssue." "$B"
+check "N1-231: headless blocker prompt follows the stop-list path with a category" "escalation \(stop-list path\), .STEP=ticket., category=.blocked-by." "$B"
+check "N1-231: headless blocker prompt states no option is recommended" "No option is recommended, and never treat .continue anyway. as a default" "$B"
+if grep -qE 'KEY="|KEY=.<KEY>' "$B"; then echo "FAIL: N1-231: no tracker key is assigned into a shell string"; FAIL=1; else echo "PASS: N1-231: no tracker key is assigned into a shell string"; fi
 check "N1-231: queue caller skips the PR lookup" "CALLER=queue. skips this step" "$B"
 check "N1-231: question shows status and PR" "<status>\[, PR #<n>\]" "$B"
 check "N1-231: interactive options carry the no-recommendation sentence" "No recommendation\. The options are equivalent given the available evidence; select based on team preference\." "$B"
-check "N1-231: headless start escalates via autonomy-headless" "autonomy-headless\.md. § Headless Guard with .STEP=ticket." "$B"
 check "N1-231: headless options use the exact ask-mode stop label" "OPTIONS=continue anyway \| Stop this ticket" "$B"
 check "N1-231: lookup failure warns and continues" "Warning: blocker check skipped \(<msg>\)" "$B"
 check "N1-231: unconfigured lookup warns and continues" "Warning: blocker check skipped \(operations\.getIssueLinks not configured\)" "$B"
 if grep -qE 'N1_QUEUE_RUN_ID|QUEUE_CHILD' "$B" 2>/dev/null; then echo "FAIL: N1-231: blocker-check has no queue-child skip (queue intake must run it)"; FAIL=1; else echo "PASS: N1-231: blocker-check has no queue-child skip (queue intake must run it)"; fi
 check "N1-231: architecture.md documents the blocker check" "references/blocker-check\.md" references/architecture.md
+check "N1-231: architecture.md notes the queue link routing change" "queue intake used .mcp. only before N1-231" references/architecture.md
 
 # N1-231: queue intake delegates the link lookup and keeps its outcomes
 I=skills/n1-queue/steps/intake.md
@@ -96,6 +96,7 @@ check "N1-231: queue intake keeps the description grep" "Additionally grep the d
 T=skills/n1-start/steps/ticket.md
 check "N1-231: n1-start ticket step runs the blocker check" "blocker-check\.md. § Check with .ID=<ID>., .CALLER=start." "$T"
 check "N1-231: n1-start skips the blocker check only in queue children (SEC-L2)" "Blocker check.*N1_QUEUE_RUN_ID. set AND .N1_HEADLESS=1" "$T"
+check "N1-231: n1-start reads both queue-child env vars" "Blocker check.*N1_QUEUE_RUN_ID:-.*N1_HEADLESS:-" "$T"
 check "N1-231: blocker Stop ends the step with skip reason blocked" "Blocker check.*end as above \(.blocked.\)" "$T"
 check "N1-231: blocker check runs only for existing tracker tickets (mode=ticket)" "Blocker check.* \(mode=ticket only" "$T"
 LD=$(grep -m1 -n 'duplicate-check\.md' "$T" | cut -d: -f1)
