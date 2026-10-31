@@ -9,6 +9,8 @@
   "opusFromSize": "M",
   "designPath": "docs/design/",
   "staleAfterHours": 24,
+  "backend": "auto",
+  "maxConcurrent": 3,
   "taskSizing": {
     "maxSize": "L",
     "warnOnLargeTask": true
