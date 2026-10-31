@@ -92,4 +92,19 @@ check "N1-231: queue intake keeps the held prefix" "blocked_on <ID> · " "$I"
 check "N1-231: queue intake keeps the cycle rule" "blocked by <ID> \(cycle\)" "$I"
 check "N1-231: queue intake keeps the description grep" "Additionally grep the description" "$I"
 
+# N1-231: n1-start runs the blocker check after the duplicate check, before In Progress
+T=skills/n1-start/steps/ticket.md
+check "N1-231: n1-start ticket step runs the blocker check" "blocker-check\.md. § Check with .ID=<ID>., .CALLER=start." "$T"
+check "N1-231: n1-start skips the blocker check only in queue children (SEC-L2)" "Blocker check.*N1_QUEUE_RUN_ID. set AND .N1_HEADLESS=1" "$T"
+check "N1-231: blocker Stop ends the step with skip reason blocked" "Blocker check.*end as above \(.blocked.\)" "$T"
+check "N1-231: blocker check runs only for existing tracker tickets (mode=ticket)" "Blocker check.* \(mode=ticket only" "$T"
+LD=$(grep -m1 -n 'duplicate-check\.md' "$T" | cut -d: -f1)
+LB=$(grep -m1 -n 'blocker-check\.md' "$T" | cut -d: -f1)
+LS=$(grep -m1 -n '^\*\*Tracker status\*\*' "$T" | cut -d: -f1)
+if [ -n "$LD" ] && [ -n "$LB" ] && [ -n "$LS" ] && [ "$LD" -lt "$LB" ] && [ "$LB" -lt "$LS" ]; then
+    echo "PASS: N1-231: blocker check sits after the duplicate check and before Tracker status"
+else
+    echo "FAIL: N1-231: blocker check sits after the duplicate check and before Tracker status"; FAIL=1
+fi
+
 exit $FAIL
