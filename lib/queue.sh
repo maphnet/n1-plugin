@@ -831,10 +831,14 @@ n1_queue_escalation_text() {
     # (plan-review verdict, auto-decided). Fails closed: only these anchored shapes are skipped,
     # unknown text stays an escalation, and "[headless] <step>:" entries are never skipped.
     [ -f "$1" ] || return 0
+    # Continuation lines (non-bullet) of a skipped entry are skipped with it.
     awk '/^## Escalations/{f=1;next} /^## /{f=0}
         f && NF {
+            bullet = ($0 ~ /^[-*][[:space:]]/)
+            if (skip && !bullet) next
             sub(/^[-*][[:space:]]*/,""); l = tolower($0)
-            if (l !~ /^\[headless\] / && (l ~ /^[*]*plan[ -]review[*]*[: ]/ || l ~ /^(approach [a-z0-9]+ )?auto-decided([ (]|$)/ || l ~ /^\[auto/)) next
+            skip = (l !~ /^\[headless\] / && (l ~ /^[*]*plan[ -]review[*]*:? *[*]*(clean|fixed)([^a-z]|$)/ || l ~ /^(approach [a-z0-9]+ )?auto-decided([ (]|$)/ || l ~ /^\[auto(-decided)?\]/))
+            if (skip) next
             print; exit
         }' "$1"
 }
@@ -943,9 +947,9 @@ n1_queue_watch() {
                             printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
                                 "${hint:+ (${hint#; })}"
                         fi ;;
-                    answer_delivered)
+                    answer_delivered|unblocked)
                         relayed=$(awk -F'\t' -v t="$t" '$1 != t' <<<"$relayed")
-                        printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t" ;;
+                        if [ "$ev" = answer_delivered ]; then printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t"; fi ;;
                     ticket_comment)
                         printf 'n1-queue %s: %s has a new external ticket comment: %s\n' "$q" "$t" "$reason" ;;
                     ticket_replan)
@@ -959,7 +963,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time
