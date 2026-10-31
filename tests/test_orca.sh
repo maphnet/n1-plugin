@@ -176,6 +176,15 @@ M2="$T/m2"; git init -q -b main "$M2"; git -C "$M2" commit -q --allow-empty -m i
 eq "D10: no origin ref -> local default fallback" "stay $T/w10" "$(noorca dec "$T/w10" Y-10)"
 eq "D11: --elsewhere skips the ownership check" create-local "$(noorca dec "$W6" Y-7 --elsewhere)"
 
+# ---- start flags (lib/validation.sh) ----
+source "$REPO_ROOT/lib/validation.sh"
+pf() { n1_parse_start_flags "$1"; printf '%s|%s|%s' "$TYPE_OVERRIDE" "$NO_HANDOFF" "$USER_INPUT"; }
+eq "P1: trailing --no-handoff" "|true|N1-1" "$(pf 'N1-1 --no-handoff')"
+eq "P2: --type then --no-handoff" "task|true|N1-1" "$(pf 'N1-1 --type task --no-handoff')"
+eq "P3: --no-handoff then --type" "task|true|N1-1" "$(pf 'N1-1 --no-handoff --type task')"
+eq "P4: --type only" "bug|false|N1-1" "$(pf 'N1-1 --type bug')"
+eq "P5: mid-text flag in a brain dump stays text" "|false|fix the --no-handoff flag in docs" "$(pf 'fix the --no-handoff flag in docs')"
+
 # ---- end ----
 if [ -e "$FAKE/bare" ]; then no "never bare orca" "$(cat "$FAKE/bare")"; else ok "never bare orca: no call reached an orca on PATH"; fi
 hasnt "selector current is never used" "--worktree current" "$(cat "$FAKE/all")"

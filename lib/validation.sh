@@ -113,6 +113,19 @@ n1_parse_type_arg() {
     printf '%s' "${BASH_REMATCH[2]}"
 }
 
+# N1-224: n1_parse_start_flags "<raw>" — sets TYPE_OVERRIDE, NO_HANDOFF (true|false) and USER_INPUT in the
+# caller's shell. Trailing-only `--type <name>` and `--no-handoff`, in either order; mid-text stays text.
+_N1_NO_HANDOFF_RE='(^|[[:space:]])--no-handoff[[:space:]]*$'
+n1_parse_start_flags() {
+    local s="$1"
+    NO_HANDOFF=false
+    if [[ "$s" =~ $_N1_NO_HANDOFF_RE ]]; then NO_HANDOFF=true; s="${s%"${BASH_REMATCH[0]}"}"; fi
+    TYPE_OVERRIDE=$(n1_parse_type_arg "$s") || TYPE_OVERRIDE=""
+    s=$(n1_strip_type_arg "$s")
+    if [ "$NO_HANDOFF" = false ] && [[ "$s" =~ $_N1_NO_HANDOFF_RE ]]; then NO_HANDOFF=true; s="${s%"${BASH_REMATCH[0]}"}"; fi
+    USER_INPUT="${s%"${s##*[![:space:]]}"}"
+}
+
 n1_resolve_type() {
     local title="$1" tags_csv="$2" type_field="$3" type_override="${4:-}"
     local pipeline_json="$(n1_plugin_root)/pipeline.json"
