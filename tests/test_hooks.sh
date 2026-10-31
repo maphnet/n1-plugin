@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected=[$2] actual=[$3])"; FAIL=$((FAIL+1)); fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-unset N1_RUN_ID N1_TRANSCRIPT_PATH N1_PARENT_SESSION_ID N1_SESSION_ID CLAUDE_CODE_SESSION_ID
+unset N1_RUN_ID N1_TRANSCRIPT_PATH N1_PARENT_SESSION_ID N1_SESSION_ID CLAUDE_CODE_SESSION_ID ORCA_CLI_COMMAND
 export N1_HOME="$T/home" N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 mkdir -p "$N1_HOME"
 cat > "$N1_HOME/config.json" <<'EOF'

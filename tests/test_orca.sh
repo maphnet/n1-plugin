@@ -185,6 +185,26 @@ eq "P3: --no-handoff then --type" "task|true|N1-1" "$(pf 'N1-1 --no-handoff --ty
 eq "P4: --type only" "bug|false|N1-1" "$(pf 'N1-1 --type bug')"
 eq "P5: mid-text flag in a brain dump stays text" "|false|fix the --no-handoff flag in docs" "$(pf 'fix the --no-handoff flag in docs')"
 
+# ---- step sync + question hook (AC5) ----
+source "$REPO_ROOT/lib/step.sh"
+reset; (cd "$WO" && ID=X-4 n1_step_end review 7 escalated) >/dev/null 2>&1
+has "S1 (AC5): step end updates the card" "--comment review: escalated" "$(calls)"
+has "S1 (AC5): escalation sets unread" "--unread" "$(calls)"
+reset; (cd "$WO" && ID=X-4 n1_step_end qa 6 success) >/dev/null 2>&1
+has "S2 (AC5): success comment" "--comment qa: success --json" "$(calls)"
+hasnt "S2: no unread on success" "--unread" "$(calls)"
+reset; (unset ORCA_CLI_COMMAND; cd "$WO" && ID=X-4 n1_step_end qa 6 success) >/dev/null 2>&1
+eq "S3 (AC7): no CLI calls when unset" "" "$(calls)"
+
+mkdir -p "$N1_HOME/memory/X-4"; printf -- '---\nstep: plan\n---\n' > "$N1_HOME/memory/X-4/overview.md"
+printf '{"ticketId":"X-4","runId":"r","worktreePath":"%s","branch":"maphskiy/otter"}\n' "$WO" > "$N1_HOME/active-run.s1.json"
+echo '{"notify":{"onQuestion":false}}' > "$N1_HOME/config.json"
+reset
+jq -cn --arg cwd "$WO" '{session_id:"s1",cwd:$cwd,tool_name:"AskUserQuestion"}' | bash "$REPO_ROOT/hooks/notify-question.sh"
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do grep -q -- '--unread' "$FAKE/calls" && break; sleep 0.25; done
+has "Q1 (AC5): question pause sets unread even with desktop notify off" "--comment waiting: plan --unread" "$(calls)"
+rm -f "$N1_HOME/config.json" "$N1_HOME/active-run.s1.json"
+
 # ---- end ----
 if [ -e "$FAKE/bare" ]; then no "never bare orca" "$(cat "$FAKE/bare")"; else ok "never bare orca: no call reached an orca on PATH"; fi
 hasnt "selector current is never used" "--worktree current" "$(cat "$FAKE/all")"
