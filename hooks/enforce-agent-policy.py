@@ -444,6 +444,18 @@ def _command(payload):
 TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b")
 
 
+SENTINEL_RE = re.compile(r"queue/(sentinels|sessions)\b")
+
+
+def sentinel_deny(payload: dict) -> int:
+    """SEC-2: an unattended child may not touch the runner-owned identity files (queue/sentinels, queue/sessions)."""
+    cmd = _command(payload) or ""
+    if _unattended() and (SENTINEL_RE.search(cmd) or SENTINEL_RE.search(re.sub(r"[\"'\\]", "", cmd))):
+        sys.stderr.write("N1: queue children may not touch the runner's identity files (queue/sentinels, queue/sessions)\n")
+        return 2
+    return 0
+
+
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     # N1-230 SEC-2: the tail-worker never merges, clears the run pointer or releases, even when merging is authorized
     tail = persona_of(str(payload.get("agent_type") or "")) == "tail-worker"
@@ -545,7 +557,7 @@ def main() -> int:
             config = {}
     if not isinstance(config, dict):
         config = {}
-    rc = restriction(payload, plugin_root, config_file) or merge_deny(payload, config, config_file) or pipe_deny(payload)
+    rc = restriction(payload, plugin_root, config_file) or sentinel_deny(payload) or merge_deny(payload, config, config_file) or pipe_deny(payload)
     if rc:
         return rc
     return spawn_override(payload, config)

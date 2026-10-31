@@ -42,6 +42,7 @@ case "$1 $2" in
         *) err "runtime down" ;;
       esac ;;
   "orchestration check") ok '{}' ;;
+  "worktree list") case "${FAKE_WT:-fail}" in fail) err "boom" ;; none) ok '{"worktrees":[]}' ;; *) ok '{"worktrees":[{"path":"/w/T-1"}]}' ;; esac ;;
   "orchestration worker-list") ok '{"workers":[{"dispatchId":"d-1","taskId":"task-1","projection":{"liveness":"exited"}},{"dispatchId":"d-2","taskId":"task-2","projection":{}}]}' ;;
   *) err "unknown command" ;;
 esac
@@ -93,6 +94,10 @@ eq "liveness: missing liveness reads unverifiable" "$(printf 'd-1\ttask-1\texite
 reset; n1_orca_ack run-1 "$J"
 has "ack: delivery id" "orchestration check --run run-1 --ack del-1" "$(calls)"
 
+eq "worktree_taken: unreadable list reads taken (fail closed)" 0 "$(rc n1_orca_worktree_taken T-1)"
+eq "worktree_taken: readable, no clash" 1 "$(FAKE_WT=none rc n1_orca_worktree_taken T-1)"
+eq "worktree_taken: readable, clash" 0 "$(FAKE_WT=hit rc n1_orca_worktree_taken T-1)"
+
 # --- Task 2: identity sentinel ---
 M="$T/main"; git init -q -b main "$M"; git -C "$M" commit -q --allow-empty -m init
 mkdir -p "$T/wts"; WT="$T/wts/T-1"; git -C "$M" worktree add -q -b t1 "$WT" main
@@ -115,7 +120,7 @@ n1_write_frontmatter "$Q/queue.md" run_id R2
 eq "loader: queue moved to another run" none "$(load "$WT")"
 n1_write_frontmatter "$Q/queue.md" run_id R1
 touch -d '2 days ago' "$S"
-eq "loader: stale sentinel" none "$(load "$WT")"
+eq "loader: old sentinel of a still-current run keeps the identity (no mtime TTL)" "1|R1|ask|$Q|task-1|T-1" "$(load "$WT")"
 touch "$S"
 printf 'N1_QUEUE_TAG=$(touch %s/pwned)\nPATH=/evil\n' "$T" >> "$S"
 eq "loader: values are data, never executed" '$(touch '"$T"'/pwned)' "$(cd "$WT" && n1_orca_child_env && printf '%s' "$N1_QUEUE_TAG")"
@@ -138,11 +143,27 @@ has "session-start: queue run id persisted" "export N1_QUEUE_RUN_ID=R1" "$(cat "
 : > "$EF"; hook_start "$M"
 eq "session-start: no sentinel, nothing persisted" "" "$(cat "$EF")"
 
+eq "session-start: sentinel pinned per session" yes "$([ -f "$N1_HOME/queue/sessions/T-1.s1" ] && echo yes || echo no)"
 PAY=$(jq -cn --arg c "$WT" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:"gh pr merge 1 --squash"}}')
 eq "merge-deny: Orca queue child denied" 2 "$(cd "$WT" && printf '%s' "$PAY" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
 eq "merge-deny: session without a sentinel unaffected" 0 "$(cd "$M" && printf '%s' "$PAY" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
 # Hooks run in Claude's current directory, which follows a child's `cd`; CLAUDE_PROJECT_DIR stays the session root.
 eq "merge-deny: child that cd'd out of its worktree is still denied" 2 "$(cd "$M" && printf '%s' "$PAY" | CLAUDE_PROJECT_DIR="$WT" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+# SEC-2: a child that deletes its sentinel or rewrites the queue run_id keeps its (pinned) identity.
+cp "$S" "$T/S.bak"; rm -f "$S"
+eq "merge-deny: sentinel deleted mid-session, still denied" 2 "$(cd "$WT" && printf '%s' "$PAY" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+cp "$T/S.bak" "$S"; n1_write_frontmatter "$Q/queue.md" run_id R9
+eq "merge-deny: queue run_id rewritten, still denied" 2 "$(cd "$WT" && printf '%s' "$PAY" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+n1_write_frontmatter "$Q/queue.md" run_id R1
+PAY2=$(jq -cn --arg c "$WT" '{session_id:"s2",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:"gh pr merge 1 --squash"}}')
+rm -f "$S"
+eq "merge-deny: another session without sentinel or pin unaffected" 0 "$(cd "$WT" && printf '%s' "$PAY2" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+cp "$T/S.bak" "$S"
+PAY3=$(jq -cn --arg c "$WT" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:"rm -f $HOME/.n1/x/queue/sentinels/T-1.env"}}')
+eq "sentinel-deny: child touching queue/sentinels denied" 2 "$(cd "$WT" && printf '%s' "$PAY3" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+n1_orca_sentinel_rm "$N1_HOME" T-1
+eq "sentinel_rm: pinned session copies go with it" no "$([ -e "$N1_HOME/queue/sessions/T-1.s1" ] && echo yes || echo no)"
+cp "$T/S.bak" "$S"
 
 OV="$N1_HOME/memory/T-1/overview.md"; mkdir -p "${OV%/*}"
 printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
@@ -166,7 +187,11 @@ printf '{"ticket":"T-1","step":"plan","category":"design","question":"Pick a DB?
 reset
 eq "ask: answer" "answer:Use B" "$(n1_orca_ask "$QF")"
 has "ask: self-contained question" "--question T-1 plan: Pick a DB?" "$(calls)"
-has "ask: options plus stop option, commas neutralised" "--options A,B; or C,Stop this ticket" "$(calls)"
+has "ask: options plus stop option, commas neutralised, recommended marked" "--options A (Recommended),B; or C,Stop this ticket" "$(calls)"
+has "ask: rationale carried" "Recommended: A. x" "$(calls)"
+printf '{"ticket":"T-1","step":"plan","question":"Pick?","options":["A","B"]}' > "$T/q2.json"; reset; n1_orca_ask "$T/q2.json" >/dev/null
+has "ask: no recommendation sentence" "No recommendation. The options are equivalent given the available evidence; select based on team preference." "$(calls)"
+eq "ask: no (Recommended) without a recommendation" 0 "$(grep -c '(Recommended)' "$FAKE/calls")"
 eq "ask: timeout -> pending id" "pending:m-7" "$(FAKE_ASK=pending n1_orca_ask "$QF")"
 reset; FAKE_ASK=pending n1_orca_ask "$QF" m-7 >/dev/null
 has "ask: resume by message id" "--resume m-7" "$(calls)"

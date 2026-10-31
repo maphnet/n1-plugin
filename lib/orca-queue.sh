@@ -100,8 +100,10 @@ n1_orca_release() {
 n1_orca_worktree_taken() {
     # Usage: n1_orca_worktree_taken <ticket> — true when an Orca worktree folder is already named <ticket>. The
     # identity loader keys on that folder name; if Orca deduplicated a clashing --name (e.g. T-1-2), the child would
-    # start without its sentinel (merge guard off). An unreadable list reads "not taken" (same shape as n1_orca_owns).
-    N1_ORCA_TIMEOUT=30 n1_orca worktree list | jq -e --arg n "$1" 'any(.result.worktrees[]?; (.path | split("/") | last) == $n)' >/dev/null 2>&1
+    # start without its sentinel (merge guard off). An unreadable list reads "taken" (fail closed: the row fails, no worker starts blind).
+    local out; out=$(N1_ORCA_TIMEOUT=30 n1_orca worktree list) || return 0
+    jq -e --arg n "$1" 'if (.result.worktrees | type) == "array" then any(.result.worktrees[]; (.path | split("/") | last) == $n) else true end' <<<"$out" >/dev/null 2>&1
+    [ $? -ne 1 ]
 }
 
 # ---- Identity sentinel (N1-225) ----
@@ -141,30 +143,49 @@ n1_orca_sentinel_rm() {
     # (a deferred retry already wrote a new one under the same ticket).
     local f; f=$(n1_orca_sentinel_path "$1" "$2")
     [ -z "${3:-}" ] || [ "$(_n1_orca_sget "$f" N1_ORCA_TASK)" = "$3" ] || return 0
-    rm -f "$f" "${f%.env}.sent"
+    rm -f "$f" "${f%.env}.sent" "${f%/*/*}/sessions/$2".*
 }
 
 _n1_orca_common() { (cd "$1" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P); }
 
+_n1_orca_sentinel_ok() {
+    # <checkout-top> <file> <check-queue 0|1> — the file exists, names this checkout's repo and (check-queue) its
+    # queue run id is that queue's current run_id. No age limit: identity must outlive any wait (a child parked in
+    # ask), and only the runner ends it (n1_orca_sentinel_rm on settle or final failure).
+    local repo qdir rid
+    [ -f "$2" ] || return 1
+    repo=$(_n1_orca_sget "$2" N1_ORCA_REPO)
+    [ -n "$repo" ] && [ "$(_n1_orca_common "$1")" = "$(_n1_orca_common "$repo")" ] || return 1
+    [ "$3" = 1 ] || return 0
+    qdir=$(_n1_orca_sget "$2" N1_QUEUE_DIR); rid=$(_n1_orca_sget "$2" N1_QUEUE_RUN_ID)
+    [ -n "$rid" ] && [ -n "$qdir" ] && [ "$(n1_read_frontmatter "$qdir/queue.md" run_id 2>/dev/null)" = "$rid" ]
+}
+
+n1_orca_session_pin() {
+    # Usage: n1_orca_session_pin <session-id> — after n1_orca_child_env at SessionStart: keep a copy of the sentinel
+    # per session, so a child that deletes or edits its own sentinel (or the queue's run_id) stays a queue child.
+    [[ "${1:-}" =~ ^[A-Za-z0-9_-]+$ ]] && [ -n "${N1_ORCA_SENTINEL:-}" ] || return 0
+    local d="${N1_ORCA_SENTINEL%/sentinels/*}/sessions"
+    mkdir -p "$d" && cp "$N1_ORCA_SENTINEL" "$d/$N1_ORCA_TICKET.$1" && chmod 600 "$d/$N1_ORCA_TICKET.$1"
+}
+
 n1_orca_child_env() {
-    # Usage: n1_orca_child_env [cwd] — load this checkout's queue-child identity into the calling process.
+    # Usage: n1_orca_child_env [cwd] [session-id] — load this checkout's queue-child identity into the calling process.
     # rc 0 and exports only when: ORCA_CLI_COMMAND is set (Orca terminal); the checkout folder name (Orca --name
-    # <ticket>) is a ticket token with a sentinel; the sentinel is fresher than queue.staleAfterHours; its repo
-    # shares this checkout's git common dir; its queue run id is that queue's current run_id. The file is parsed
-    # against the key whitelist, never sourced. Also sets N1_ORCA_TICKET and N1_ORCA_SENTINEL.
+    # <ticket>) is a ticket token with a sentinel; its repo shares this checkout's git common dir; its queue run id
+    # is that queue's current run_id. Failing that, this session's pinned copy (n1_orca_session_pin) still counts, so
+    # tampering with the sentinel or queue.md cannot drop the identity (fail closed). The file is parsed against the
+    # key whitelist, never sourced. Also sets N1_ORCA_TICKET and N1_ORCA_SENTINEL.
     [ -n "${ORCA_CLI_COMMAND:-}" ] || return 1
-    local top t f k hours repo qdir rid
+    local top t f k s="${2:-}"
     top=$(git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null) || return 1
     t="${top##*/}"
     [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
     f=$(n1_orca_sentinel_path "$(n1_home)" "$t")
-    [ -f "$f" ] || return 1
-    hours=$(n1_config_val '.queue.staleAfterHours' 2>/dev/null); [[ "$hours" =~ ^[0-9]+$ ]] || hours=24
-    [ -n "$(find "$f" -mmin -$(( hours * 60 )) 2>/dev/null)" ] || return 1
-    repo=$(_n1_orca_sget "$f" N1_ORCA_REPO); qdir=$(_n1_orca_sget "$f" N1_QUEUE_DIR); rid=$(_n1_orca_sget "$f" N1_QUEUE_RUN_ID)
-    [ -n "$repo" ] && [ "$(_n1_orca_common "$top")" = "$(_n1_orca_common "$repo")" ] || return 1
-    [ -n "$rid" ] && [ -n "$qdir" ] && [ "$(n1_read_frontmatter "$qdir/queue.md" run_id 2>/dev/null)" = "$rid" ] || return 1
-    for k in $N1_ORCA_SENTINEL_KEYS; do export "$k=$(_n1_orca_sget "$f" "$k")"; done
+    if _n1_orca_sentinel_ok "$top" "$f" 1; then s=$f
+    elif [[ "$s" =~ ^[A-Za-z0-9_-]+$ ]]; then s="$(n1_home)/queue/sessions/$t.$s"; _n1_orca_sentinel_ok "$top" "$s" 0 || return 1
+    else return 1; fi
+    for k in $N1_ORCA_SENTINEL_KEYS; do export "$k=$(_n1_orca_sget "$s" "$k")"; done
     export N1_ORCA_TICKET="$t" N1_ORCA_SENTINEL="$f"
 }
 
@@ -203,8 +224,10 @@ n1_orca_ask() {
         a=(orchestration ask --resume "$2")
     else
         [ -f "$1" ] || { echo failed; return 1; }
-        a=(orchestration ask --question "$(jq -r '"\(.ticket) \(.step): \(.question)"' "$1" 2>/dev/null)"
-           --options "$(jq -r '((.options // []) + ["Stop this ticket"]) | map(gsub(","; ";")) | join(",")' "$1" 2>/dev/null)")
+        # The option list keeps the recommended-option rule: one (Recommended) option with its rationale, or the
+        # verbatim "No recommendation" sentence.
+        a=(orchestration ask --question "$(jq -r '"\(.ticket) \(.step): \(.question)" + (if (.recommended // "") != "" then " Recommended: \(.recommended). \(.rationale // "")" else " No recommendation. The options are equivalent given the available evidence; select based on team preference." end)' "$1" 2>/dev/null)"
+           --options "$(jq -r '.recommended as $r | ((.options // []) | map(if . == $r then . + " (Recommended)" else . end) + ["Stop this ticket"]) | map(gsub(","; ";")) | join(",")' "$1" 2>/dev/null)")
     fi
     out=$(N1_ORCA_TIMEOUT=570 n1_orca "${a[@]}" --timeout-ms 540000)
     ans=$(jq -r '.result.answer // .result.reply.body // .result.body // empty' <<<"$out" 2>/dev/null)

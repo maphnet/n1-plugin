@@ -15,7 +15,7 @@ if [ -n "$REVIEW_STOP" ]; then
     exit 0
 fi
 # N1-225: an Orca queue child reports its stop point (worker_done) to the queue coordinator once.
-if source "${SCRIPT_DIR}/../lib/orca-queue.sh" 2>/dev/null && n1_orca_child_env "${CLAUDE_PROJECT_DIR:-$PWD}"; then
+if source "${SCRIPT_DIR}/../lib/orca-queue.sh" 2>/dev/null && n1_orca_child_env "${CLAUDE_PROJECT_DIR:-$PWD}" "$(printf '%s' "$INPUT" | n1_hook_field session_id)"; then
     source "${SCRIPT_DIR}/../lib/frontmatter.sh"
     source "${SCRIPT_DIR}/../lib/queue.sh"
     n1_orca_worker_done || true

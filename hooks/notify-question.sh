@@ -11,9 +11,9 @@ source "${SCRIPT_DIR}/../lib/config.sh" 2>/dev/null || exit 0
 source "${SCRIPT_DIR}/../lib/host.sh" 2>/dev/null || exit 0
 source "${SCRIPT_DIR}/../lib/frontmatter.sh" 2>/dev/null || exit 0
 # N1-225: an Orca queue child is unattended; its questions reach the queue through Orca ask.
-source "${SCRIPT_DIR}/../lib/orca-queue.sh" 2>/dev/null && n1_orca_child_env "${CLAUDE_PROJECT_DIR:-$PWD}" && exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 sid=$(jq -r '.session_id // empty' <<<"$INPUT" 2>/dev/null) || true
+source "${SCRIPT_DIR}/../lib/orca-queue.sh" 2>/dev/null && n1_orca_child_env "${CLAUDE_PROJECT_DIR:-$PWD}" "$sid" && exit 0
 [ -n "$sid" ] && export N1_SESSION_ID="$sid"
 run=$(n1_active_run_file) && [ -f "$run" ] || exit 0
 # Only this session's keyed pointer; the unkeyed fallback may belong to a crashed run.

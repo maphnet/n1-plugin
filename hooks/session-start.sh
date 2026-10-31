@@ -17,8 +17,9 @@ AGENT_ID=$(printf '%s' "$INPUT" | n1_hook_field agent_id)   # CC 2.1.280 omits i
 # N1-225: an Orca queue child carries its unattended identity in a runner-written sentinel (Orca cannot inject
 # env). Persist it for this session's later Bash commands; hooks load the sentinel themselves (they do not see
 # CLAUDE_ENV_FILE).
-if [ -n "${CLAUDE_ENV_FILE:-}" ] && source "${SCRIPT_DIR}/../lib/orca-queue.sh" && n1_orca_child_env "${HOOK_CWD:-$PWD}"; then
+if [ -n "${CLAUDE_ENV_FILE:-}" ] && source "${SCRIPT_DIR}/../lib/orca-queue.sh" && n1_orca_child_env "${HOOK_CWD:-$PWD}" "$N1_SESSION_ID"; then
     n1_orca_child_env_exports >> "$CLAUDE_ENV_FILE" 2>/dev/null || true
+    n1_orca_session_pin "$N1_SESSION_ID" 2>/dev/null || true
 fi
 
 # --- Host facts: recorded for skill preambles and injected as routing context ---
