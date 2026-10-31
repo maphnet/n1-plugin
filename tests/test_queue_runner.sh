@@ -402,6 +402,8 @@ test_escalation_text() {
     assert_eq "esc-text: benign then real -> real" "finish: merge blocked by required review" "$(n1_queue_escalation_text "$tmp/mixed.md")"
     printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- [headless] plan: approach auto-decided? options: a, b\n' > "$tmp/hl.md"
     assert_eq "esc-text: [headless] never skipped" "[headless] plan: approach auto-decided? options: a, b" "$(n1_queue_escalation_text "$tmp/hl.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- finish: blocked, cannot be auto-decided\n' > "$tmp/neg.md"
+    assert_eq "esc-text: unanchored auto-decided not skipped" "finish: blocked, cannot be auto-decided" "$(n1_queue_escalation_text "$tmp/neg.md")"
     assert_eq "esc-text: headless step still resolves" "plan" "$(_n1_queue_escalated_step "$tmp/hl.md")"
 }
 

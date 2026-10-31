@@ -834,7 +834,7 @@ n1_queue_escalation_text() {
     awk '/^## Escalations/{f=1;next} /^## /{f=0}
         f && NF {
             sub(/^[-*][[:space:]]*/,""); l = tolower($0)
-            if (l !~ /^\[headless\] / && (l ~ /^[*]*plan[ -]review[*]*[: ]/ || l ~ /auto-decided/ || l ~ /^\[auto/)) next
+            if (l !~ /^\[headless\] / && (l ~ /^[*]*plan[ -]review[*]*[: ]/ || l ~ /^(approach [a-z0-9]+ )?auto-decided([ (]|$)/ || l ~ /^\[auto/)) next
             print; exit
         }' "$1"
 }
