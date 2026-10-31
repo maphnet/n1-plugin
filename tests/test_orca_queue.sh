@@ -128,6 +128,38 @@ has "exports: export lines" "export N1_HEADLESS=1" "$(cd "$WT" && n1_orca_child_
 n1_orca_sentinel_rm "$N1_HOME" T-1 task-other
 eq "sentinel_rm: another attempt's task keeps the file" yes "$([ -f "$S" ] && echo yes || echo no)"
 
+# --- Task 3: hooks ---
+EF="$T/envfile"; : > "$EF"
+hook_start() { printf '{"source":"startup","cwd":"%s","session_id":"s1"}' "$1" \
+    | (cd "$1" && CLAUDE_ENV_FILE="$EF" N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/state/host.json" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1); }
+hook_start "$WT"
+has "session-start: identity persisted for Bash commands" "export N1_HEADLESS=1" "$(cat "$EF")"
+has "session-start: queue run id persisted" "export N1_QUEUE_RUN_ID=R1" "$(cat "$EF")"
+: > "$EF"; hook_start "$M"
+eq "session-start: no sentinel, nothing persisted" "" "$(cat "$EF")"
+
+PAY=$(jq -cn --arg c "$WT" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:"gh pr merge 1 --squash"}}')
+eq "merge-deny: Orca queue child denied" 2 "$(cd "$WT" && printf '%s' "$PAY" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+eq "merge-deny: session without a sentinel unaffected" 0 "$(cd "$M" && printf '%s' "$PAY" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+# Hooks run in Claude's current directory, which follows a child's `cd`; CLAUDE_PROJECT_DIR stays the session root.
+eq "merge-deny: child that cd'd out of its worktree is still denied" 2 "$(cd "$M" && printf '%s' "$PAY" | CLAUDE_PROJECT_DIR="$WT" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+
+OV="$N1_HOME/memory/T-1/overview.md"; mkdir -p "${OV%/*}"
+printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
+stop() { printf '{"session_id":"s1"}' | (cd "$WT" && ORCA_TERMINAL_HANDLE=term-9 bash "$REPO_ROOT/hooks/session-stop.sh" >/dev/null 2>&1); }
+reset; stop
+has "stop: worker_done succeeded" "orchestration send --type worker_done --outcome succeeded --task-id task-1 --dispatch-id d-1" "$(calls)"
+has "stop: PR url in body" "https://github.com/o/r/pull/7" "$(calls)"
+has "stop: sent from the worker terminal" "--from term-9" "$(calls)"
+stop
+eq "stop: sent exactly once" 1 "$(grep -c 'type worker_done' "$FAKE/calls")"
+rm -f "$N1_HOME/queue/sentinels/T-1.sent"; printf -- '---\nstep: implement\n---\n' > "$OV"
+reset; stop
+eq "stop: mid-pipeline turn end sends nothing" "" "$(grep worker_done "$FAKE/calls")"
+printf -- '---\nstep: escalated\n---\n' > "$OV"
+reset; stop
+has "stop: escalated child reports failed" "--outcome failed" "$(calls)"
+
 # --- summary (later tasks insert their sections above this line) ---
 eq "no bare orca call" "" "$(cat "$FAKE/bare" 2>/dev/null)"
 [ "$FAIL" = 0 ] && echo "ALL PASS" || echo "SOME FAILED"

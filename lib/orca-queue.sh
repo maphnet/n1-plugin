@@ -173,3 +173,23 @@ n1_orca_child_env_exports() {
     local k
     for k in $N1_ORCA_SENTINEL_KEYS N1_ORCA_TICKET N1_ORCA_SENTINEL; do printf 'export %s=%q\n' "$k" "${!k:-}"; done
 }
+
+n1_orca_worker_done() {
+    # Usage: n1_orca_worker_done — Stop hook, after n1_orca_child_env loaded: report this Orca queue child's stop
+    # point to its coordinator exactly once per dispatch (<sentinel>.sent). Only a terminal overview step counts:
+    # pr -> succeeded, escalated -> failed. Any other turn end sends nothing (a premature worker_done would let the
+    # runner relaunch a live child). A lost send is not fatal: the runner reconciles from overview.md and worker
+    # liveness. Requires lib/queue.sh. Always returns 0.
+    [ -n "${N1_ORCA_TASK:-}" ] && [ -n "${N1_ORCA_DISPATCH:-}" ] && [ -n "${N1_ORCA_SENTINEL:-}" ] || return 0
+    local sent="${N1_ORCA_SENTINEL%.env}.sent" ov st url oc=failed a
+    [ "$(cat "$sent" 2>/dev/null)" = "$N1_ORCA_DISPATCH" ] && return 0
+    ov="$(n1_home)/memory/$N1_ORCA_TICKET/overview.md"
+    st=$(n1_queue_child_status "$ov" 0 1)
+    case "$st" in pr) oc=succeeded ;; escalated) ;; *) return 0 ;; esac
+    url=$(n1_queue_child_pr_url "$ov")
+    a=(orchestration send --type worker_done --outcome "$oc" --task-id "$N1_ORCA_TASK" --dispatch-id "$N1_ORCA_DISPATCH"
+       --subject "$N1_ORCA_TICKET $st" --body "$st${url:+ $url}")
+    [ -n "${ORCA_TERMINAL_HANDLE:-}" ] && a+=(--from "$ORCA_TERMINAL_HANDLE")
+    n1_orca "${a[@]}" >/dev/null 2>&1 && printf '%s\n' "$N1_ORCA_DISPATCH" > "$sent"
+    return 0
+}

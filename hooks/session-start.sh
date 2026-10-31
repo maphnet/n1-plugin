@@ -14,6 +14,12 @@ export N1_SESSION_ID
 N1_TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | n1_hook_field transcript_path)
 export N1_TRANSCRIPT_PATH
 AGENT_ID=$(printf '%s' "$INPUT" | n1_hook_field agent_id)   # CC 2.1.280 omits it on SessionStart; guard is forward-compatible
+# N1-225: an Orca queue child carries its unattended identity in a runner-written sentinel (Orca cannot inject
+# env). Persist it for this session's later Bash commands; hooks load the sentinel themselves (they do not see
+# CLAUDE_ENV_FILE).
+if [ -n "${CLAUDE_ENV_FILE:-}" ] && source "${SCRIPT_DIR}/../lib/orca-queue.sh" && n1_orca_child_env "${HOOK_CWD:-$PWD}"; then
+    n1_orca_child_env_exports >> "$CLAUDE_ENV_FILE" 2>/dev/null || true
+fi
 
 # --- Host facts: recorded for skill preambles and injected as routing context ---
 N1_HOST_NAME=$(n1_host)
