@@ -67,6 +67,23 @@ test_escalated_terminal_outcome_hints_n1_start() {
     has   "non-terminal: attach hint kept" "n1-queue q7: T-2 needs you: still working (resume: claude attach 0000beef)" "$out"
 }
 
+test_escalated_dedupe() {
+    # N1-241: the same ticket+reason relays once; a different reason, another ticket, or the
+    # same reason after answer_delivered (a re-asked question, N1-55) relays again.
+    local q out; q=$(newq q9)
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="Plan review: FIXED"
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="Plan review: FIXED"
+    ev "$q" R1 escalated ticket=T-2 session=0000beef reason="Plan review: FIXED"
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="Pick A or B"
+    ev "$q" R1 answer_delivered ticket=T-1 session=0000abcd
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="Pick A or B"
+    ev "$q" R1 queue_done reason="0 PR"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    assert_eq "dedupe: same ticket+reason relayed once" "1" "$(grep -cF 'T-1 needs you: Plan review: FIXED' <<<"$out")"
+    assert_eq "dedupe: other ticket, same reason relayed" "1" "$(grep -cF 'T-2 needs you: Plan review: FIXED' <<<"$out")"
+    assert_eq "dedupe: re-asked after answer relays again" "2" "$(grep -cF 'T-1 needs you: Pick A or B' <<<"$out")"
+}
+
 test_adopt_from_eof_and_resume() {
     local q out; q=$(newq q2)
     ev "$q" R1 escalated ticket=T-1 reason="seen in status table"
@@ -218,6 +235,7 @@ test_ticket_watch_events_relayed() {
 
 test_run_id_filter_and_finish
 test_escalated_terminal_outcome_hints_n1_start
+test_escalated_dedupe
 test_adopt_from_eof_and_resume
 test_runner_dead
 test_sessions_independent

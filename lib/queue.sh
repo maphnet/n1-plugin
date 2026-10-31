@@ -882,8 +882,9 @@ n1_queue_watch() {
     # Final lines end with "Watch ended.": on halted, queue_done, or runner pid gone; the
     # cursor is removed and it returns 0. Otherwise it polls until killed.
     # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
+    # ponytail: escalation dedupe (ticket+reason) is in-memory; a watch restart resumes past consumed lines via the cursor, so no replay.
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
-    local ev t out pr s reason qbody qrender hint
+    local ev t out pr s reason qbody qrender hint key relayed=""
     q="${dir##*/}"
     sid=$(n1_session_id); sid="${sid:-nosession}"
     case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
@@ -904,6 +905,11 @@ n1_queue_watch() {
             while IFS=$'\x1f' read -r ev t out pr s reason; do
                 case "$ev" in
                     escalated)
+                        # N1-241: relay one escalation per ticket+reason (runner park/drain/restart
+                        # can emit the same one twice); answer_delivered resets it for a re-ask.
+                        key="$t"$'\t'"$out"$'\t'"$reason"  # $out: a terminal escalation (n1-start hint) is never swallowed by an earlier attach-hint one
+                        if [ -n "$relayed" ] && grep -qxF -- "$key" <<<"$relayed"; then continue; fi
+                        relayed=$(awk -F'\t' -v t="$t" '$1 != t' <<<"$relayed"; printf '%s' "$key")
                         # N1-55: a child in ask-mode mirrors its full question to .question-<ticket>.json.
                         # qrender is shared with the N1-60 fallback below so a packed-JSON reason
                         # renders identically to the live question file.
@@ -938,6 +944,7 @@ n1_queue_watch() {
                                 "${hint:+ (${hint#; })}"
                         fi ;;
                     answer_delivered)
+                        relayed=$(awk -F'\t' -v t="$t" '$1 != t' <<<"$relayed")
                         printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t" ;;
                     ticket_comment)
                         printf 'n1-queue %s: %s has a new external ticket comment: %s\n' "$q" "$t" "$reason" ;;
