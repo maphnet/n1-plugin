@@ -491,11 +491,13 @@ chain_reconcile() {
 # written before the gh check, so the chain is evaluated once per run, also across a runner restart; a
 # restart finding it pending (launch intended, not confirmed) relaunches for a still-OPEN PR. The runner never
 # merges: n1-finish merges only at the reviewed pin, and the merge-deny hook still applies.
+# Every exit writes a "[NUM] TICKET chain: ..." line to runner.log (N1-240).
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
-    local marker csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 asked="" why=finish-timeout
-    case "$TICKET" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
-    chain_authorized "$N1H" || return 0
+    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 asked="" why=finish-timeout
+    # N1-240: every exit writes a runner.log line. The raw id is not echoed (it failed validation).
+    case "$TICKET" in ''|*[!A-Za-z0-9_-]*) echo "[$NUM] chain: skipped (invalid-ticket-id)"; return 0 ;; esac
+    chain_authorized "$N1H" || { echo "[$NUM] $TICKET chain: skipped (chain_authorized=false)"; return 0; }
     marker="$N1_QUEUE_DIR/.chained-$TICKET"
     poll=$(n1_queue_val pollSeconds)
     mark() { printf '%s\n%s\n' "$RUN_ID" "$1" > "$marker"; }
@@ -503,8 +505,9 @@ chain_finish() {
         # Chain already evaluated this run (restart): never launch a second finish for a confirmed launch;
         # reconcile an orphaned -fin session. Only a marker still "pending" (crash between the marker and
         # the confirmed launch) with an OPEN PR and no live session falls through to launch the owed finish.
-        chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll" "$(sed -n 2p "$marker" 2>/dev/null)"
-        [ $? -eq 10 ] || return 0
+        mstate=$(sed -n 2p "$marker" 2>/dev/null)
+        chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll" "$mstate" || rc=$?
+        [ "$rc" -eq 10 ] || { echo "[$NUM] $TICKET chain: already evaluated (marker=${mstate:-unknown})"; return 0; }
     else
     csid=$(n1_queue_session_id "$QUEUE" "$TICKET")
     while true; do
@@ -520,7 +523,7 @@ chain_finish() {
         [ "$waited" -ge "$TIMEOUT_SECS" ] && { chain_note "$NUM" "$TICKET" finish-child-busy; return 0; }
         sleep "$poll"; waited=$((waited + poll))
     done
-    mark pending || return 0
+    mark pending || { chain_note "$NUM" "$TICKET" marker-write-failed; return 0; }
     fi
     st=$(n1_queue_pr_state "$URL")
     case "$st" in

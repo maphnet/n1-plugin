@@ -1473,6 +1473,7 @@ test_bg_chain_missing_is_busy() {
 }
 
 # AC2: either flag off -> behaviour unchanged (stops at PR, no finish session).
+# N1-240 AC4: the chain_authorized=false exit writes a runner.log line.
 test_bg_chain_flags_off() {
     local tmp combo
     for combo in "false true" "true false"; do
@@ -1485,6 +1486,8 @@ test_bg_chain_flags_off() {
         assert_eq "chain-off ($combo): no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
         assert_eq "chain-off ($combo): outcome pr" pr "$(runs_outcome "$tmp/queue.md" T-A)"
         assert_eq "chain-off ($combo): PR left open" OPEN "$(cat "$tmp/fake/gh-state")"
+        assert_eq "chain-off ($combo): skip logged" 1 \
+            "$(grep -cF '[1] T-A chain: skipped (chain_authorized=false)' "$tmp/output.txt" || true)"
         rm -rf "$tmp"
     done
 }
