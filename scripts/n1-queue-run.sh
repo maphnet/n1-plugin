@@ -203,6 +203,8 @@ finalize() {
     # Persist it too: a runner restart loses CHAIN_ESC and the question files are removed below.
     if [ -n "$CHAIN_ESC" ]; then : > "$N1_QUEUE_DIR/.escalated-$TICKET"; else rm -f "$N1_QUEUE_DIR/.escalated-$TICKET"; fi
     rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM" "$N1_QUEUE_DIR/.ask-$TICKET"
+    # N1-225: a failed Orca row is given up on: its identity ends with it (a user may re-run the ticket interactively).
+    [ "$OUTCOME" = failed ] && [ -n "${ORCA_RUN:-}" ] && n1_orca_sentinel_rm "$N1H" "$TICKET"
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
@@ -865,6 +867,23 @@ launch_orca() {
     echo "[$NUM] $TICKET launched as Orca worker ($DISP)"
 }
 
+# orca_settle <task> — release the worker, drop its sentinel, run the owed fullAuto chain (once). Uses run_orca's
+# SETTLED/OWED (dynamic scope). A task whose row is still in flight waits.
+orca_settle() {
+    local TASK="$1" T DISP ROW NUM TICKET REPO N1H MODEL
+    [[ "$SETTLED" == *" $TASK "* ]] && return
+    IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
+    [ -n "$T" ] || return
+    [ -z "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human' | awk -F'\t' -v t="$T" '$2 == t')" ] || return
+    SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"
+    n1_orca_release "$DISP"
+    n1_orca_sentinel_rm "$(orca_n1h_of "$T")" "$T" "$TASK"
+    ROW=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t' | tail -1)
+    [ -n "$ROW" ] || return
+    IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$ROW"
+    chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")" </dev/null
+}
+
 # run_orca — Orca workers, up to queue.maxConcurrent at once (run_bg stays sequential). Each tick waits on the Run
 # inbox (check --wait: worker_done, escalation, question), then reconciles every live row from overview.md, the
 # ground truth, so a lost or lying worker_done is corrected. An empty wait is a checkpoint; once at start (resume)
@@ -872,13 +891,19 @@ launch_orca() {
 # settles a worker (release + sentinel removal + owed fullAuto chain); unverifiable workers are never relaunched,
 # stopped or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT
-    local LIVE="" DONE=" " SETTLED=" " OWED=" " EMPTY=0 FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
+    local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE
+    local LIVE="" DONE=" " SETTLED=" " OWED=" " SEEN=" " EMPTY=0 FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
     local -a WORKED=()
     POLL=$(n1_queue_val pollSeconds)
     MAXC=$(n1_queue_val maxConcurrent); [[ "$MAXC" =~ ^[1-9][0-9]*$ ]] || MAXC=3
     LIVE=$(n1_orca_liveness "$ORCA_RUN") || LIVE=""
+    # A runner restart loses OWED: re-owe this run's finished rows (chain_finish is idempotent per .chained marker).
+    while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _; do
+        [ "$(n1_read_frontmatter "$N1H/memory/$TICKET/overview.md" queue_run_id 2>/dev/null)" = "$RUN_ID" ] || continue
+        SID=$(n1_queue_session_id "$QUEUE" "$TICKET"); case "$SID" in orca:*/*) TASK="${SID#orca:}"; OWED="$OWED${TASK%%/*} " ;; esac
+    done < <(n1_queue_pending_rows "$QUEUE" pr)
     while true; do
+        TICK0=$(date +%s)
         # An unreadable inbox skips the tick: never treat a CLI hiccup as dead children.
         if ! BATCH=$(n1_orca_check "$ORCA_RUN" "$POLL") || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "$BATCH"; then
             FAILS=$((FAILS + 1))
@@ -888,6 +913,9 @@ run_orca() {
         fi
         FAILS=0
         EVS=$(n1_orca_events "$BATCH")
+        # Time charged to this tick: a full wait for an empty batch, else the real time spent (an early return, or a
+        # replayed batch, must not count as a whole poll interval).
+        if [ -n "$EVS" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
         if [ -n "$EVS" ]; then
             EMPTY=0
         else
@@ -898,6 +926,9 @@ run_orca() {
             _n1_orca_id "$TASK" || continue
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
             [ -n "$T" ] || continue
+            # A replayed message (a missed ack) must not redo its effect, e.g. re-park an answered row.
+            [ -z "$MSG" ] || [[ "$SEEN" != *" $MSG "* ]] || continue
+            SEEN="$SEEN${MSG:+$MSG }"
             case "$TYPE" in
                 worker_done) DONE="$DONE$TASK " ;;
                 question) _n1_orca_id "$MSG" && printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T" ;;
@@ -957,7 +988,7 @@ run_orca() {
                 rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET"
                 ev unblocked ticket="$TICKET" session="$SID"
             fi
-            WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
+            WORKED[NUM]=$(( ${WORKED[NUM]:-0} + CHARGE ))
             if [ "${WORKED[NUM]}" -gt "$TIMEOUT_SECS" ]; then
                 # ponytail: an Orca worker is never stopped without proof of exit, so a timed-out row fails without a
                 # deferred retry (a relaunch could duplicate a live worker); the user stops the worker in Orca.
@@ -969,19 +1000,7 @@ run_orca() {
 
         # Settle: a final row's worker that reported done or is proven exited is released and loses its sentinel;
         # a pr row then runs the fullAuto chain (n1-finish stays a bg session, it is not a ticket worker).
-        for TASK in $DONE $(awk -F'\t' '$3 == "exited" { print $2 }' <<< "$LIVE"); do
-            [[ "$SETTLED" == *" $TASK "* ]] && continue
-            IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
-            [ -n "$T" ] || continue
-            [ -z "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human' | awk -F'\t' -v t="$T" '$2 == t')" ] || continue
-            SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"
-            n1_orca_release "$DISP"
-            n1_orca_sentinel_rm "$(orca_n1h_of "$T")" "$T" "$TASK"
-            ROW=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t' | tail -1)
-            [ -n "$ROW" ] || continue
-            IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$ROW"
-            chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")" </dev/null
-        done
+        for TASK in $DONE $(awk -F'\t' '$3 == "exited" { print $2 }' <<< "$LIVE"); do orca_settle "$TASK"; done
 
         while [ "$INFLIGHT" -lt "$MAXC" ]; do
             ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
@@ -991,13 +1010,17 @@ run_orca() {
         done
 
         if [ "$INFLIGHT" = 0 ] && [ -z "$(n1_queue_pending_rows "$QUEUE")" ]; then
+            # Done reports that never came: the overview is terminal, so settle (release + chain) anyway.
+            if [ "$OWED" != " " ] && [ "$OWED_WAIT" -ge "$TIMEOUT_SECS" ]; then
+                for TASK in $OWED; do orca_settle "$TASK"; done
+            fi
             # N1-64/N1-114: held rows start only once their blocker's PR is merged (no Orca --deps).
             HELD=$(n1_queue_held_sweep "$QUEUE")
             if [ -n "$(n1_queue_pending_rows "$QUEUE")" ]; then
                 HELD_WAIT=0
             elif [ "$OWED" != " " ] && [ "$OWED_WAIT" -lt "$TIMEOUT_SECS" ]; then
                 # Finished rows whose worker has not reported done yet: wait so it is released (and chained).
-                OWED_WAIT=$((OWED_WAIT + POLL))
+                OWED_WAIT=$((OWED_WAIT + CHARGE))
             elif [ -n "$(n1_queue_parked_rows "$QUEUE")" ]; then
                 HELD_WAIT=0
                 if [ "$SINCE_PARK" -ge "$TIMEOUT_SECS" ]; then
@@ -1006,13 +1029,13 @@ run_orca() {
                     break
                 fi
             elif [ "$HELD" -gt 0 ] && [ "$HELD_WAIT" -lt "$TIMEOUT_SECS" ]; then
-                HELD_WAIT=$((HELD_WAIT + POLL))
+                HELD_WAIT=$((HELD_WAIT + CHARGE))
             else
                 [ "$HELD" -gt 0 ] && { n1_queue_held_expire "$QUEUE"; echo "held rows expired (blocker not merged)"; }
                 break
             fi
         fi
-        SINCE_PARK=$((SINCE_PARK + POLL))
+        SINCE_PARK=$((SINCE_PARK + CHARGE))
     done
 }
 
@@ -1030,11 +1053,14 @@ fi
 # N1-225: a queue that already owns an Orca Run resumes it (run-use; rows are adopted, never relaunched). A fresh
 # run uses Orca when queue.backend allows and orchestration answers, else claude --bg, saying so once (AC5).
 ORCA_RUN=$(n1_read_frontmatter "$QUEUE" orca_run_id)
+# The Orca Run belongs to the queue run that created it: a fresh --run picks its backend anew.
+[ -z "$ORCA_RUN" ] || [ "$(n1_read_frontmatter "$QUEUE" orca_queue_run)" = "$RUN_ID" ] || ORCA_RUN=""
 if [ -n "$ORCA_RUN" ]; then
     n1_orca_run_use "$ORCA_RUN" || halt "HALTED: Orca run $ORCA_RUN unreachable; start Orca, then /n1:n1-queue --run $QUEUE_ID"
     run_orca
 elif [ "$(n1_queue_backend)" = orca ] && ORCA_RUN=$(n1_orca_run_create "$QUEUE_ID"); then
     n1_write_frontmatter "$QUEUE" orca_run_id "$ORCA_RUN"
+    n1_write_frontmatter "$QUEUE" orca_queue_run "$RUN_ID"
     echo "Orca run $ORCA_RUN: children launch as Orca workers"
     run_orca
 else

@@ -810,7 +810,11 @@ case "$1 $2" in
       ok "{\"dispatch\":{\"id\":\"d-$t\"}}" ;;
   "orchestration check")
       [ -n "$(arg --ack "$@")" ] && { ok '{}'; exit 0; }
-      m=""
+      m=""; n=$(( $(cat "$D/ncheck" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/ncheck"
+      # $D/replay: the first 5 checks replay a message for a task no row owns (a missed ack); on the 6th the
+      # tickets named in $D/finish-late finish.
+      [ -f "$D/replay" ] && [ "$n" -le 5 ] && m="{\"type\":\"question\",\"taskId\":\"task-ghost\",\"id\":\"m-ghost\"}"
+      if [ -f "$D/replay" ] && [ "$n" -eq 6 ]; then cp "$D/overview.late" "$FAKE_N1H/memory/T-A/overview.md"; fi
       while read -r task; do
           [ -f "$D/nodone.${task#task-}" ] && continue
           grep -qx "$task" "$D/reported" 2>/dev/null && continue
@@ -819,7 +823,7 @@ case "$1 $2" in
       done < <(cat "$D/started" 2>/dev/null)
       if [ -f "$D/question" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/question")"; rm -f "$D/question"; fi
       ok "{\"deliveryId\":\"del-1\",\"messages\":[$m]}" ;;
-  "worktree list") ok "{\"worktrees\":[$(cat "$D/worktrees" 2>/dev/null)]}" ;;   # $D/worktrees: comma-separated {"path":...} objects
+  "worktree list") [ -n "${FAKE_ORCA_WT_FAIL:-}" ] && err "boom"; ok "{\"worktrees\":[$(cat "$D/worktrees" 2>/dev/null)]}" ;;   # $D/worktrees: comma-separated {"path":...} objects
   "orchestration worker-list") cat "$D/workers.json" 2>/dev/null || ok '{"workers":[]}' ;;
   "orchestration worker-release") ok '{}' ;;
   *) err "unknown command" ;;
@@ -912,7 +916,8 @@ test_orca_question_parks() {
 test_orca_resume_no_duplicate() {   # AC4
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
-    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    mkdir -p "$tmp/n1home/queue/sentinels"; printf 'N1_ORCA_TASK=task-T-A\n' > "$tmp/n1home/queue/sentinels/T-A.env"
     n1_queue_row_status "$tmp/queue.md" 1 in-progress
     echo "| T-A | 2026-10-31T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
     mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: implement\n---\n' > "$tmp/n1home/memory/T-A/overview.md"
@@ -927,8 +932,68 @@ test_orca_resume_no_duplicate() {   # AC4
     rm -rf "$tmp"; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
     n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1
+    assert_eq "orca-resume: failed row loses its sentinel" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
     assert_eq "orca-resume-down: halts" "2" "$(run_orca_queue "$tmp" FAKE_ORCA_RUNUSE_FAIL=1)"
     assert_eq "orca-resume-down: nothing launched" "0" "$(grep -c worker-start "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_adopt_launch() {   # AC4: runner died between worker-start and the Runs write
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "R1 task-T-A" > "$tmp/.launch-1"
+    mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/n1home/memory/T-A/overview.md"
+    printf '{"ok":true,"result":{"workers":[{"dispatchId":"d-T-A","taskId":"task-T-A","projection":{"liveness":"unverifiable"}}]}}\n' > "$tmp/fake/workers.json"
+    assert_eq "orca-adopt: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-adopt: no relaunch" "0" "$(grep -cE 'task-create|worker-start' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-adopt: Runs row adopted" "1" "$(grep -c '| orca:task-T-A/d-T-A |' "$tmp/queue.md")"
+    assert_eq "orca-adopt: row reaches pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+test_orca_stale_run_not_reused() {   # a fresh --run (new run_id) never rebinds the previous run's Orca Run
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.backend = "bg"'
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-old; n1_write_frontmatter "$tmp/queue.md" run_id R2; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    assert_eq "orca-stale: exit 0" "0" "$(run_orca_queue "$tmp" FAKE_ORCA_RUNUSE_FAIL=1)"
+    assert_eq "orca-stale: old Run not rebound" "0" "$(grep -c run-use "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stale: bg launch" "1" "$(grep -c '^launch n1-bgq-T-A-1$' "$tmp/fake/events")"
+    rm -rf "$tmp"
+}
+
+test_orca_lost_done_still_chains() {   # worker_done lost: the overview is terminal, the fullAuto chain must still run
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true'
+    echo OPEN > "$tmp/fake/gh-state"; : > "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    assert_eq "orca-lost-done: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-lost-done: one chained n1-finish" "1" "$(grep -c '^launch n1-oq-T-A-1-fin$' <<< "$(cat "$tmp/fake/events" 2>/dev/null)" || true)"
+    assert_eq "orca-lost-done: worker released" "1" "$(grep -c worker-release "$tmp/fake/orca-calls")"
+    rm -rf "$tmp"
+}
+
+test_orca_replay_not_timeout() {   # replayed batches must not charge a poll interval each (no false subtask-timeout)
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/replay"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/fake/overview.late"
+    assert_eq "orca-replay: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-replay: row finished, not timed out" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+test_orca_worktree_list_unreadable() {   # SEC-3: an unreadable worktree list fails the row, no worker starts blind
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    assert_eq "orca-wt-unreadable: exit 0" "0" "$(run_orca_queue "$tmp" FAKE_ORCA_WT_FAIL=1)"
+    assert_eq "orca-wt-unreadable: nothing started" "0" "$(grep -cE 'task-create|worker-start' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-wt-unreadable: row failed" "failed|orca-worktree-name-taken" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     rm -rf "$tmp"
 }
 
@@ -3202,6 +3267,11 @@ test_orca_held_blocker
 test_orca_question_parks
 test_orca_resume_no_duplicate
 test_orca_worktree_name_taken
+test_orca_adopt_launch
+test_orca_stale_run_not_reused
+test_orca_lost_done_still_chains
+test_orca_replay_not_timeout
+test_orca_worktree_list_unreadable
 test_orca_chain_after_settle
 test_orca_fallback_bg
 test_bg_awaiting
