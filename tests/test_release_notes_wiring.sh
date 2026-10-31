@@ -103,4 +103,24 @@ expect "no link line when publishing was skipped" "0" "$(hits 'Full release note
 rm -f "$NOTES"
 expect "missing notes file -> body untouched" "body:no-notes" "$(run_split)"
 
+# --- wiring: SKILL.md routing, hand-offs, gate line, report, docs
+SK=skills/n1-release/SKILL.md
+R2=skills/n1-release/steps/02-confirm-execute.md
+R3=skills/n1-release/steps/03-tracker-release.md
+R4=skills/n1-release/steps/04-report.md
+check "SKILL.md argument-hint offers --notes" '^argument-hint: "\[--notes \[<TAG>\]\]"' "$SK"
+check "SKILL.md usage mentions --notes" 'Usage: /n1:n1-release \[--notes \[<TAG>\]\]' "$SK"
+check "SKILL.md routes --notes to step 3b in notes-only mode" 'MODE=notes-only' "$SK"
+before "SKILL.md lists 3b after step 3" "steps/03-tracker-release.md" "steps/03b-release-notes.md" "$SK"
+before "SKILL.md lists 3b before step 4" "steps/03b-release-notes.md" "steps/04-report.md" "$SK"
+expect "02 hands off through 03b in both flows" "2" "$(grep -cF 'NOT done — continue with `03-tracker-release.md`, then `03b-release-notes.md`, then `04-report.md`.' "$R2")"
+check "02 gate announces the release notes" '^- `Release notes: ' "$R2"
+check "02 idempotency STOP unchanged" 'already exists -- nothing to do\.' "$R2"
+check "03 skips to 3b when its gate fails" 'When any condition fails, skip to `03b-release-notes\.md`' "$R3"
+check "03 continues to 3b when done" 'Then continue with `03b-release-notes\.md`' "$R3"
+expect "04 templates carry the Release notes line" "2" "$(grep -c '^Release notes: <NOTES>' "$R4")"
+check "04 prints the Slack block" 'Slack-ready notes:' "$R4"
+check "architecture documents the notes step" '03b-release-notes\.md' references/architecture.md
+check "n1-start release step lists release notes" 'stakeholder release notes' skills/n1-start/steps/release.md
+
 exit $FAIL

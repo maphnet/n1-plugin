@@ -21,6 +21,7 @@ The n1-release skill works from the current branch and config. It:
 3. Shows a confirmation gate with version, previous tag, and precondition status
 4. Creates an annotated git tag and GitHub Release (or walks through a custom procedure)
 5. Posts a tracker comment best-effort
+6. Writes stakeholder release notes: a Slack-ready block, a Confluence page when the KB is configured, and a section at the top of the GitHub Release body
 
 After `n1:n1-release` returns:
 ```bash

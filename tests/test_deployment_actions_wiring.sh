@@ -238,7 +238,7 @@ before "release: after-deploy follows the deploy watch" "Deployment succeeded" "
 check "release: deploymentCheck false still reaches Step 8b" 'skip detection\. Go to Step 8b' "$R4"
 
 # --- N1-71: release must not end after step 2; the deploy watch concludes before the final report
-[ "$(grep -cF 'NOT done — continue with `03-tracker-release.md`, then `04-report.md`' "$R2")" -ge 2 ] \
+[ "$(grep -cF 'NOT done — continue with `03-tracker-release.md`, then `03b-release-notes.md`, then `04-report.md`' "$R2")" -ge 2 ] \
     && echo "PASS: release: built-in and custom flows hand off instead of ending" \
     || { echo "FAIL: release: hand-off missing from built-in or custom flow"; FAIL=1; }
 if grep -qF 'Report the release URL' "$R2"; then echo "FAIL: release: step 2 still ends with a terminal report"; FAIL=1; else echo "PASS: release: step 2 has no terminal report"; fi

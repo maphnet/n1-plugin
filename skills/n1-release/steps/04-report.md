@@ -96,6 +96,7 @@ Tag:        <TAG> (pushed to origin)
 Release:    <release URL>
 Deployment: <DEPLOY>
 Tickets:    <RELEASE_TICKET_IDS comma-separated> -- comments posted / no tickets found / tracker not configured
+Release notes: <NOTES>
 <tracker release summary -- only when tracker.type is "jira" and RELEASE_TICKET_IDS is non-empty>
 ```
 
@@ -107,7 +108,18 @@ Steps completed: <N>/<total>
 Release: <release URL> / created <release URL> / missing (declined) / missing (create failed) / not yet created (workflow still running) / missing (tag not on origin)
 Deployment: <DEPLOY>
 Ticket: <ID> — comment posted / no ticket inferred / tracker not configured
+Release notes: <NOTES>
 ```
+
+`<NOTES>` is the value recorded by `03b-release-notes.md` § 5c-8 (notes file path -- Confluence URL or skip/failure reason).
+
+After the report block (either flow), print `Slack-ready notes:` followed by the `## Slack` section of `$N1_HOME/releases/<TAG>.md`, verbatim:
+
+```bash
+source ~/.n1/preamble.sh
+awk '/^## Slack$/{f=1; next} /^## /{f=0} f' "$N1_HOME/releases/<TAG>.md"
+```
+
 
 `<DEPLOY>` is one of: `succeeded — <run URL>`, `FAILED — <run URL>`, `timed out (still running) — <run URL>`, `could not verify (gh errors)`, `not triggered`, `not configured`.
 
@@ -131,6 +143,8 @@ Every path is safe to re-run: existing release causes a skip; existing tag skips
 
 Tracker release operations are individually idempotent: existing versions are reused (not duplicated), fix versions already set are no-ops, and tickets already in the target status are skipped.
 
+Release notes are idempotent: the notes file is overwritten, the Confluence page is updated in place (stored page id first, then exact-title search), and only the GitHub Release body section above `<!-- n1:release-notes:end -->` is replaced. `/n1:n1-release --notes [<TAG>]` regenerates them for an existing release; a plain re-run still reports "nothing to do".
+
 ## Integration
 
 **Called by:**
@@ -138,5 +152,5 @@ Tracker release operations are individually idempotent: existing versions are re
 - **Standalone** -- `/n1:n1-release`
 
 **Invokes:**
-- Inline: `gh` CLI (release view/create, auth status, PR body read/edit, run list/view), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit), `lib/poll.sh` (`n1_wait_release_runs` deploy watch), `references/ci-detection.md` (deployment pipeline detection), `references/deployment-actions.md` (deployment actions)
+- Inline: `gh` CLI (release view/create, auth status, PR body read/edit, run list/view), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit, Confluence article search/get/create/update and space lookup for release notes), `lib/poll.sh` (`n1_wait_release_runs` deploy watch), `references/ci-detection.md` (deployment pipeline detection), `references/deployment-actions.md` (deployment actions)
 - No agent spawns -- thin controller, orchestration only

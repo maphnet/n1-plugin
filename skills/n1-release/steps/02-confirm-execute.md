@@ -31,6 +31,7 @@ Condition lines (informational -- no hard blocks):
 - `No merge SHA found (standalone run — not post-finish)` -- not available
 - `GitHub Release: will be created` -- built-in flow, or the custom `procedure` text contains `gh release create`
 - `GitHub Release: will NOT be created by this procedure (checked afterwards; you may be offered one)` -- custom `procedure` without `gh release create`
+- `Release notes: stakeholder notes will be written, published to Confluence when kb is configured, and added to the GitHub Release body` -- always shown; this gate covers those writes
 
 If 3 -> STOP.
 
@@ -75,7 +76,7 @@ gh release create "${TAG}" --generate-notes --verify-tag
 
 On success, capture the release URL for the final report: `gh release view "${TAG}" --json url --jq '.url'`.
 
-Release created. **NOT done — continue with `03-tracker-release.md`, then `04-report.md`.** In `04-report.md`, the deploy check and the final report are mandatory; do not report or end the turn here.
+Release created. **NOT done — continue with `03-tracker-release.md`, then `03b-release-notes.md`, then `04-report.md`.** In `04-report.md`, the deploy check and the final report are mandatory; do not report or end the turn here.
 
 ## Custom procedure flow (when `procedure` is set)
 
@@ -146,4 +147,4 @@ Known ceiling: the SHA resolves from the local tag only; if the tag was created 
 
 ### Hand-off (custom flow)
 
-Runs when the walk completed, whatever the Release-check verdict; an aborted walk ends at step 4 above. Procedure walk complete. **NOT done — continue with `03-tracker-release.md`, then `04-report.md`.** In `04-report.md`, the deploy check and the final report are mandatory; do not report or end the turn here.
+Runs when the walk completed, whatever the Release-check verdict; an aborted walk ends at step 4 above. Procedure walk complete. **NOT done — continue with `03-tracker-release.md`, then `03b-release-notes.md`, then `04-report.md`.** In `04-report.md`, the deploy check and the final report are mandatory; do not report or end the turn here.
