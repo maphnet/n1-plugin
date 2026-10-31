@@ -17,8 +17,9 @@ n1_append_key_decision() {
     [ -n "$text" ] || return 1
 
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
-    awk -v entry="- ${text}" '
+    N1_KD_ENTRY="- ${text}" awk '
     BEGIN {
+        entry = ENVIRON["N1_KD_ENTRY"]
         found_section = 0
         in_section    = 0
         replaced_none = 0
