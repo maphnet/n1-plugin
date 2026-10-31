@@ -25,7 +25,7 @@ No recommendation. The options are equivalent given the available evidence; sele
 Intake is already persisted (ticket.md, overview.md, In Progress). Fresh run (`FRESH=1`): record the ticket step first. Resume (`FRESH=0`): leave `step:` untouched (it is past `ticket`) and do not close the ticket step. Then hand off:
 ```bash
 source ~/.n1/preamble.sh
-ID="<ID>"; [ "${FRESH:-0}" = 1 ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" step ticket
+ID="<ID>"; FRESH=<1|0>; [ "$FRESH" = 1 ] && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" step ticket
 n1_orca_handoff "$ID" "<TYPE_OVERRIDE, empty if none>" <create for handoff-create | launch for handoff-launch> "<path; launch only>"
 ```
 - `handoff:ok <name> <handle>` → say "`<ID>` handed off to workspace `<name>` (agent `<handle>`); it continues there." Run `source ~/.n1/preamble.sh; n1_active_run_clear`, and on a fresh run first `n1_step_end "ticket" 1 success '{"handoff":"workspace"}'` (closes the ticket step telemetry and checkbox; the `step: ticket` write above already let the new session resume), then STOP: no further pipeline steps in this session.
