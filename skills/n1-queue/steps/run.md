@@ -175,6 +175,8 @@ echo "pid:$RUNNER_PID run_id:$RUN_ID notify:$(n1_queue_val notify)"
 n1_queue_notify_check
 ```
 
+With the workspace manager running and `queue.backend` not `bg`, the runner launches children as workspace-manager workers instead of background sessions (see `<N1_ROOT>/references/architecture.md`, N1-225 queue backend section); `--status`, `--watch` and `--answer` work the same.
+
 Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise).
 
 **Session watch.** Watch the event log in the background and relay matching lines, running exactly this (absolute queue dir, printed run id and pid; `0` = from the start of this run):
