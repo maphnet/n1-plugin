@@ -1505,26 +1505,45 @@ test_bg_chain_blocked_child() {
     rm -rf "$tmp"
 }
 
-# N1-240 SEC-1/SEC-2: a blocked child with a pending escalation is never stopped or chained; a stop that does not take effect launches no finish.
+# N1-240 SEC-1/SEC-2/SEC-3 CR-1: a child with a pending escalation (question file or overview entry) is never
+# stopped or chained, whatever state it reports; a stop that does not take effect launches no finish; a lagging
+# stop is re-read; balanced and multi-row-per-step escalation ledgers are counted per step.
 test_bg_chain_blocked_guards() {
-    local tmp case_
-    for case_ in escalated stopfail; do
+    local tmp case_ states esc ans row
+    esc='- [headless] pr: stop?, options: a, b (blocked-move: moved)'
+    row='| pr | headless | S | [asked] | q | a | b | headless: ask-mode answer | --- |'
+    for case_ in escalated stopfail ov-blocked ov-done ov-multirow balanced lag; do
         tmp=$(mktemp -d)
-        mk_bg "$tmp" bgq "T-A:working blocked"
+        states="T-A:working blocked"
+        [ "$case_" = ov-done ] && states="T-A:working done"
+        [ "$case_" = lag ] && states="T-A:working blocked blocked blocked blocked blocked blocked blocked blocked blocked blocked blocked done"
+        mk_bg "$tmp" bgq "$states"
         chain_setup "$tmp" true true
         gh_overview "$tmp/fake/overview.T-A.2" 1
+        gh_overview "$tmp/fake/overview.T-A" 1
         echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
         case "$case_" in
             escalated) echo '{"question":"stop?"}' > "$tmp/.question-T-A.json" ;;
+            ov-blocked|ov-done) for f in overview.T-A.2 overview.T-A; do printf '%s\n' "$esc" >> "$tmp/fake/$f"; done ;;
+            ov-multirow) # step pr answered twice, a second step still pending
+                for f in overview.T-A.2 overview.T-A; do printf '%s\n%s\n%s\n%s\n%s\n' "$esc" "$row" "$row" "- [headless] plan: x, options: y (blocked-move: moved)" "" >> "$tmp/fake/$f"; done ;;
+            balanced) for f in overview.T-A.2 overview.T-A; do printf '%s\n%s\n' "$esc" "$row" >> "$tmp/fake/$f"; done; touch "$tmp/fake/stopeffective" ;;
+            lag) touch "$tmp/fake/stopeffective" ;;
         esac
         assert_eq "chain-$case_: exit 0" 0 "$(run_bg_queue "$tmp")"
-        assert_eq "chain-$case_: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
-        assert_eq "chain-$case_: no marker" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
-        assert_eq "chain-$case_: never logs stopped" 0 "$(grep -cF 'stopped blocked child' "$tmp/output.txt" || true)"
         case "$case_" in
-            escalated)
-                assert_eq "chain-escalated: reason" "finish:child-escalated" "$(plan_cell "$tmp/queue.md" 1 9)"
-                assert_eq "chain-escalated: child not stopped" no "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)" ;;
+            balanced|lag)
+                assert_eq "chain-$case_: one finish launch" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+                assert_eq "chain-$case_: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)" ;;
+            *)
+                assert_eq "chain-$case_: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+                assert_eq "chain-$case_: no marker" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
+                assert_eq "chain-$case_: never logs stopped" 0 "$(grep -cF 'stopped blocked child' "$tmp/output.txt" || true)" ;;
+        esac
+        case "$case_" in
+            escalated|ov-*)
+                assert_eq "chain-$case_: reason" "finish:child-escalated" "$(plan_cell "$tmp/queue.md" 1 9)"
+                [ "$case_" = ov-done ] || assert_eq "chain-$case_: child not stopped" no "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)" ;;
             stopfail) assert_eq "chain-stopfail: reason" "finish:child-stop-failed" "$(plan_cell "$tmp/queue.md" 1 9)" ;;
         esac
         rm -rf "$tmp"
