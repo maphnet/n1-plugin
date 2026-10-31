@@ -150,6 +150,14 @@ ID=CL-A; N1_RUN_ID="$CB"   # pointer/ambient overwritten by ticket B
 FINAL_OUTCOME=pr_created ESTIMATED_TIER=simple n1_close_run
 grep -q '"layer":"envelope_close"' "$N1_HOME/memory/CL-A/telemetry/raw/steps/$CA.jsonl"
 if grep -q envelope_close "$N1_HOME/memory/CL-B/telemetry/raw/steps/$CB.jsonl"; then echo 'close landed in B' >&2; exit 1; fi
-test ! -f "$N1_HOME/memory/CL-A/telemetry/locks/$CA.json"
+# Close merges but keeps the lock: the turn's Stop hook re-merges the tail (Gate 3, chained
+# n1-finish) and removes it (N1-229; removal covered by test_hooks.sh terminal-pointer case).
+test -s "$N1_HOME/memory/CL-A/telemetry/runs/$CA.jsonl"
+test -f "$N1_HOME/memory/CL-A/telemetry/locks/$CA.json"
 test -f "$N1_HOME/memory/CL-B/telemetry/locks/$CB.json"
 echo 'PASS: n1_close_run closes the ticket own run'
+
+# n1_step_begin with no bound run says so on stderr instead of dropping silently (N1-229)
+ERR=$(bash -c "source '$ROOT/lib/preamble.sh' >/dev/null 2>&1; unset N1_RUN_ID; ID=NP-NONE; n1_step_begin ticket 1" 2>&1 >/dev/null)
+case "$ERR" in *"no run bound for NP-NONE"*) ;; *) echo "missing step-begin diagnostic: $ERR" >&2; exit 1 ;; esac
+echo 'PASS: unbound step begin is reported on stderr'

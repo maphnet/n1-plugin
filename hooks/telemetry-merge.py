@@ -12,6 +12,7 @@ Stdlib only. Invoked as:
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import os
 import sys
@@ -27,6 +28,34 @@ STATIC_MAP = {
     "security-reviewer": ["review"],
     "tech-writer": ["pr"],
 }
+
+
+# Orchestrator context window by model-id prefix (N1-199 F4). A lookup, not a measurement: the
+# transcript carries no window field and the model id is the same for any window size, so the
+# value is flagged context_window_source="model_prefix_lookup". Unknown models stay null.
+CONTEXT_WINDOWS = {"claude-opus-5": 1_000_000, "claude-sonnet-5": 1_000_000}
+
+
+def context_window_for(model: str | None) -> int | None:
+    return next((size for prefix, size in CONTEXT_WINDOWS.items()
+                 if model and model.startswith(prefix)), None)
+
+
+def _usage(msgs: list[dict]) -> dict:
+    """Token/call rollup shared by step entries, unattributed, totals and tail."""
+    tools_used: dict[str, int] = {}
+    for m in msgs:
+        for t in m["tools"]:
+            tools_used[t] = tools_used.get(t, 0) + 1
+    return {
+        "input_tokens": sum(m["input_tokens"] for m in msgs),
+        "output_tokens": sum(m["output_tokens"] for m in msgs),
+        "cache_read_tokens": sum(m["cache_read_tokens"] for m in msgs),
+        "cache_creation_tokens": sum(m["cache_creation_tokens"] for m in msgs),
+        "api_calls": len(msgs),
+        "tool_calls": sum(len(m["tools"]) for m in msgs),
+        "tools_used": tools_used,
+    }
 
 
 def persona_of(agent_type: str) -> str:
@@ -93,6 +122,32 @@ def pair_steps(events: list[dict]) -> list[dict]:
             "metadata": (end or {}).get("metadata", {}),
         })
     steps.sort(key=lambda s: (s["step_number"] is None, s["step_number"]))
+    return steps
+
+
+def repair_windows(steps: list[dict], run_start: str | None, run_end: str | None) -> list[dict]:
+    """Fill a missing step bound from its chronological neighbour, else the envelope (N1-229).
+
+    A missing start takes the previous step's end (else its start, else run_start); a missing
+    end takes the next step's start (else its end, else run_end). Real timestamps are never
+    overwritten; filled steps carry window_inferred so analyzers can discount them.
+    """
+    order = sorted((s for s in steps if s.get("started_at") or s.get("completed_at")),
+                   key=lambda s: (s.get("started_at") or s.get("completed_at"))[:19])
+    real = [(s.get("started_at"), s.get("completed_at")) for s in order]
+    for i, s in enumerate(order):
+        start, end = real[i]
+        if not start:
+            prev = real[i - 1] if i else (None, None)
+            start = prev[1] or prev[0] or run_start
+        if not end:
+            nxt = real[i + 1] if i + 1 < len(real) else (None, None)
+            end = nxt[0] or nxt[1] or run_end
+        if start and end and start[:19] > end[:19]:
+            continue  # inverted fill: leave the gap rather than invent a window
+        if (start, end) != real[i]:
+            s.update(started_at=start, completed_at=end,
+                     duration_s=_duration(start, end), window_inferred=True)
     return steps
 
 
@@ -171,7 +226,7 @@ def _assistant_records(records: list[dict]):
         msg = rec.get('message')
         if rec.get('type') != 'assistant' or not isinstance(msg, dict):
             continue
-        key = msg.get('id') or index
+        key = msg.get('id') if isinstance(msg.get('id'), str) and msg.get('id') else index
         previous = messages.get(key, {}).get('message', {})
         tools = {block.get('id'): block for block in previous.get('content', []) + (msg.get('content') or [])
                  if isinstance(block, dict) and block.get('type') == 'tool_use'}
@@ -206,9 +261,26 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                 "cache_creation_tokens": u.get("cache_creation_input_tokens") or 0,
                 "tools": tools,
                 "sidechain": bool(rec.get("isSidechain")),
+                "model": msg.get("model") if isinstance(msg.get("model"), str) else None,
                 "context": (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
                            + (u.get("cache_creation_input_tokens") or 0),
             })
+
+        # finish.md begins and ends finish back to back; FINALIZE, Gate 3 and the chained
+        # n1-finish run after it, so the finish window runs to the last transcript message.
+        # ponytail: unbounded to the transcript end; a later manual re-merge would also absorb
+        # post-run turns of the same session. Add a Stop-time bound if re-merges become routine.
+        # The extension stops where a later step (release) really begins.
+        last_ts = max((m["ts"] for m in messages), default="")
+        for step in steps:
+            end = step.get("completed_at")
+            if step.get("step") == "finish" and end and step.get("started_at"):
+                later = [o["started_at"] for o in steps if o is not step and o.get("started_at")
+                         and o["started_at"][:19] >= end[:19]]
+                new_end = min([last_ts] + later)
+                if new_end[:19] > end[:19]:
+                    step.update(completed_at=new_end, window_extended=True,
+                                duration_s=_duration(step.get("started_at"), new_end))
 
         # Context fields describe the orchestrator's own window, so sidechain
         # (subagent) records are skipped. prev_context = context just before.
@@ -246,22 +318,9 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
             grouped.setdefault(step_name, []).append(m)
 
         step_entries = []
-        unattributed = None
+        unattributed = _usage([])
         for step_name, msgs in grouped.items():
-            tools_used: dict[str, int] = {}
-            for m in msgs:
-                for t in m["tools"]:
-                    tools_used[t] = tools_used.get(t, 0) + 1
-            entry = {
-                "step": step_name,
-                "input_tokens": sum(m["input_tokens"] for m in msgs),
-                "output_tokens": sum(m["output_tokens"] for m in msgs),
-                "cache_read_tokens": sum(m["cache_read_tokens"] for m in msgs),
-                "cache_creation_tokens": sum(m["cache_creation_tokens"] for m in msgs),
-                "api_calls": len(msgs),
-                "tool_calls": sum(len(m["tools"]) for m in msgs),
-                "tools_used": tools_used,
-            }
+            entry = {"step": step_name, **_usage(msgs)}
             if step_name == "__unattributed__":
                 del entry["step"]
                 unattributed = entry
@@ -278,32 +337,20 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                 })
                 step_entries.append(entry)
 
-        if unattributed is None:
-            unattributed = {"input_tokens": 0, "output_tokens": 0,
-                            "cache_read_tokens": 0, "cache_creation_tokens": 0,
-                            "api_calls": 0, "tool_calls": 0, "tools_used": {}}
-
-        all_tools: dict[str, int] = {}
-        for msgs in grouped.values():
-            for m in msgs:
-                for t in m["tools"]:
-                    all_tools[t] = all_tools.get(t, 0) + 1
-
-        totals = {
-            "input_tokens": sum(m["input_tokens"] for m in messages),
-            "output_tokens": sum(m["output_tokens"] for m in messages),
-            "cache_read_tokens": sum(m["cache_read_tokens"] for m in messages),
-            "cache_creation_tokens": sum(m["cache_creation_tokens"] for m in messages),
-            "api_calls": len(messages),
-            "tool_calls": sum(len(m["tools"]) for m in messages),
-            "tools_used": all_tools,
-        }
-
         if not messages:
             return {'steps': [], 'unattributed': None, 'totals': None, 'parse_error': 'usage_unavailable'}
-        return {"steps": step_entries, "unattributed": unattributed,
-                "totals": totals, "compactions": compactions, "parse_error": None}
-    except OSError:
+        # Calls after the envelope close (FINALIZE, Gate 3, chained n1-finish): a named subset
+        # already counted in the finish step and in totals, never added to them (N1-229).
+        tail = _usage([m for m in messages if run_end and m["ts"][:19] > run_end[:19]])
+        models = Counter(m["model"] for m in messages
+                         if not m["sidechain"] and m["model"] and m["model"] != "<synthetic>")
+        model = models.most_common(1)[0][0] if models else None
+        return {"steps": step_entries, "unattributed": unattributed, "totals": _usage(messages),
+                "tail": tail, "model": model, "context_window": context_window_for(model),
+                "context_window_source": "model_prefix_lookup" if context_window_for(model) else None,
+                "compactions": compactions, "parse_error": None}
+    except (OSError, TypeError, ValueError, AttributeError):
+        # Malformed transcript fields degrade to parse_error rather than abort the merge (SEC-1).
         return {"steps": [], "unattributed": None, "totals": None,
                 "parse_error": "orchestrator_transcript_parse_failed"}
 
@@ -336,7 +383,7 @@ def main() -> int:
     # add completion data, but cannot relabel the host/session it started on.
     envelope = {**envelope_close, **envelope_open}
     host = envelope.get("host") or "unknown"
-    steps = pair_steps(step_events)
+    steps = repair_windows(pair_steps(step_events), envelope.get("started_at"), envelope.get("completed_at"))
     agents_raw = pair_agents(_read_jsonl(agents_file))
 
     agents = []
@@ -400,6 +447,8 @@ def main() -> int:
     if session_transcript and host == 'claude-code':
         orchestrator = parse_orchestrator_transcript(session_transcript, steps,
                                                      envelope.get("started_at"), envelope.get("completed_at"))
+    if orchestrator is not None:
+        orchestrator["transcript_path"] = session_transcript
 
     def _sum(vals):
         return sum(v for v in vals if v is not None)
