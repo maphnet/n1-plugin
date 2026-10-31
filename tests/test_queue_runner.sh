@@ -1074,6 +1074,21 @@ test_bg_escalation_dedupe() {
     rm -rf "$tmp"
 }
 
+# N1-241: same as above, but the child mirrored a question file at park time (reason packed from
+# it) and finalize removes it before drain; the drain escalate must still dedupe on the overview text.
+test_bg_escalation_dedupe_question_file() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf -- '---\nstep: implementation\n---\n# T\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.1"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.2"
+    printf '{"question":"Pick A or B?","options":["A","B"]}' > "$tmp/.question-T-A.json"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "esc-dedupe-qfile: park then drain escalates once" "1" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-A")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    rm -rf "$tmp"
+}
+
 test_bg_halt_drains() {
     # N1-74 [CR-1]: a halt (three escalated strikes) must still drain the session whose
     # finalize tripped it, not exit with it resident.
@@ -2966,6 +2981,7 @@ test_bg_drain_defers_until_idle
 test_bg_drain_rearms_after_answer
 test_bg_drain_benign_reason
 test_bg_escalation_dedupe
+test_bg_escalation_dedupe_question_file
 test_bg_halt_drains
 test_bg_drain_stop_retries_on_failure
 test_bg_reconcile_missing

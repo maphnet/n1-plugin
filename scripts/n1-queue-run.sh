@@ -134,11 +134,13 @@ escalate() {
     # N1-241: one escalation per ticket+reason. Park, finalize, drain and a crash-restart can all
     # reach here for the same pending stop; the marker is cleared on launch, unblock, new question,
     # drain re-arm and --answer, so a genuinely new or re-asked escalation still fires. A failed
-    # marker write only risks a duplicate, never a lost escalation.
-    if [ -n "$mark" ] && [ -f "$mark" ] && [ "$(cat "$mark" 2>/dev/null)" = "$reason" ]; then
+    # marker write only risks a duplicate, never a lost escalation. The marker keys on the stable
+    # overview text $q, not the packed reason (the mirrored question file is gone by drain time).
+    # A crash between the marker write and the emit would lose that escalation (accepted).
+    if [ -n "$mark" ] && [ -f "$mark" ] && [ "$(cat "$mark" 2>/dev/null)" = "$q" ]; then
         return 0
     fi
-    [ -n "$mark" ] && { printf '%s' "$reason" > "$mark"; } 2>/dev/null || true
+    [ -n "$mark" ] && { printf '%s' "$q" > "$mark"; } 2>/dev/null || true
     if [ "${3:-}" = "stopped" ]; then
         ev escalated ticket="$1" session="$sid" reason="$reason" outcome=terminal
     else
