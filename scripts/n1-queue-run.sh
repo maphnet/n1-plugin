@@ -182,6 +182,8 @@ finalize() {
     # N1-240: snapshot the escalation state chain_finish needs before the files below are removed.
     CHAIN_ESC=""
     chain_child_escalated "$TICKET" "$N1H" && CHAIN_ESC="$TICKET"
+    # Persist it too: a runner restart loses CHAIN_ESC and the question files are removed below.
+    if [ -n "$CHAIN_ESC" ]; then : > "$N1_QUEUE_DIR/.escalated-$TICKET"; else rm -f "$N1_QUEUE_DIR/.escalated-$TICKET"; fi
     rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM"
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
@@ -494,6 +496,7 @@ CHAIN_ESC=""   # set by finalize (ticket id) before it removes the question file
 # human's answer and let the chain merge past a stop-list gate (N1-240 SEC-1). Fails closed.
 chain_child_escalated() {
     local qf="$N1_QUEUE_DIR/.question-$1.json" rf="$N1_QUEUE_DIR/.relay-$1" ov="$2/memory/$1/overview.md"
+    [ -e "$N1_QUEUE_DIR/.escalated-$1" ] && return 0   # persisted by finalize, reset by its next run
     if [ -e "$qf" ] && { [ ! -e "$rf" ] || [ "$qf" -nt "$rf" ]; }; then return 0; fi
     [ -f "$ov" ] || return 1
     # Per step: an escalation line "- [headless] <step>: ..." needs its own ask-mode answer row

@@ -1516,7 +1516,7 @@ test_bg_chain_blocked_guards() {
     local tmp case_ states esc ans row
     esc='- [headless] pr: stop?, options: a, b (blocked-move: moved)'
     row='| pr | headless | S | [asked] | q | a | b | headless: ask-mode answer | --- |'
-    for case_ in escalated stopfail ov-blocked ov-done ov-multirow balanced lag; do
+    for case_ in escalated stopfail ov-blocked ov-done ov-multirow balanced lag marker; do
         tmp=$(mktemp -d)
         states="T-A:working blocked"
         [ "$case_" = ov-done ] && states="T-A:working done"
@@ -1528,6 +1528,7 @@ test_bg_chain_blocked_guards() {
         echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
         case "$case_" in
             escalated) echo '{"question":"stop?"}' > "$tmp/.question-T-A.json" ;;
+            marker) : > "$tmp/.escalated-T-A" ;; # restart lost CHAIN_ESC and the question files are gone
             ov-blocked|ov-done) for f in overview.T-A.2 overview.T-A; do printf '%s\n' "$esc" >> "$tmp/fake/$f"; done ;;
             ov-multirow) # step pr answered twice, a second step still pending
                 for f in overview.T-A.2 overview.T-A; do printf '%s\n%s\n%s\n%s\n%s\n' "$esc" "$row" "$row" "- [headless] plan: x, options: y (blocked-move: moved)" "" >> "$tmp/fake/$f"; done ;;
@@ -1545,7 +1546,7 @@ test_bg_chain_blocked_guards() {
                 assert_eq "chain-$case_: never logs stopped" 0 "$(grep -cF 'stopped blocked child' "$tmp/output.txt" || true)" ;;
         esac
         case "$case_" in
-            escalated|ov-*)
+            escalated|marker|ov-*)
                 assert_eq "chain-$case_: reason" "finish:child-escalated" "$(plan_cell "$tmp/queue.md" 1 9)"
                 [ "$case_" = ov-done ] || assert_eq "chain-$case_: child not stopped" no "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)" ;;
             stopfail) assert_eq "chain-stopfail: reason" "finish:child-stop-failed" "$(plan_cell "$tmp/queue.md" 1 9)" ;;
