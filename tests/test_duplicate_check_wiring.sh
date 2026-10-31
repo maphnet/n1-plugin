@@ -61,4 +61,26 @@ check "NP-239: n1-story subtask link uses the subtask of direction name" "subtas
 check "NP-239 fix: n1-finish Jira link payload includes cloudId" "cloudId\`, \`inwardIssue" skills/n1-finish/steps/05-telemetry-followup.md
 check "NP-239 fix: investigation-deliverable Jira link payload includes cloudId" "cloudId\`, \`inwardIssue" skills/n1-start/steps/investigation-deliverable.md
 
+# N1-231: shared blocker-check lookup
+B=references/blocker-check.md
+check "N1-231: blocker-check has Check section" "^## § Check" "$B"
+check "N1-231: blocker-check has Report section" "^## § Report" "$B"
+check "N1-231: blocker-check reads operations.getIssueLinks" "tracker\.operations\.getIssueLinks" "$B"
+check "N1-231: blocker-check routes links via versionMcp else mcp" "VERSION_MCP. when non-empty, else .TRACKER_MCP." "$B"
+check "N1-231: blocker-check keeps is blocked by links" "is blocked by" "$B"
+check "N1-231: blocker-check keeps depends on links" "depends on" "$B"
+check "N1-231: open means status category not Done" "status category is not Done" "$B"
+check "N1-231: In Review counts as open" "In Review counts as open" "$B"
+check "N1-231: blocker-check guards untrusted link fields" "untrusted data" "$B"
+check "N1-231: PR lookup validates KEY before shell use" '"\$KEY" =~ \^\[A-Z\]\[A-Z0-9_\]\*-\[0-9\]\+\$' "$B"
+check "N1-231: queue caller skips the PR lookup" "CALLER=queue. skips this step" "$B"
+check "N1-231: question shows status and PR" "<status>\[, PR #<n>\]" "$B"
+check "N1-231: interactive options carry the no-recommendation sentence" "No recommendation\. The options are equivalent given the available evidence; select based on team preference\." "$B"
+check "N1-231: headless start escalates via autonomy-headless" "autonomy-headless\.md. § Headless Guard with .STEP=ticket." "$B"
+check "N1-231: headless options use the exact ask-mode stop label" "OPTIONS=continue anyway \| Stop this ticket" "$B"
+check "N1-231: lookup failure warns and continues" "Warning: blocker check skipped \(<msg>\)" "$B"
+check "N1-231: unconfigured lookup warns and continues" "Warning: blocker check skipped \(operations\.getIssueLinks not configured\)" "$B"
+if grep -qE 'N1_QUEUE_RUN_ID|QUEUE_CHILD' "$B" 2>/dev/null; then echo "FAIL: N1-231: blocker-check has no queue-child skip (queue intake must run it)"; FAIL=1; else echo "PASS: N1-231: blocker-check has no queue-child skip (queue intake must run it)"; fi
+check "N1-231: architecture.md documents the blocker check" "references/blocker-check\.md" references/architecture.md
+
 exit $FAIL
