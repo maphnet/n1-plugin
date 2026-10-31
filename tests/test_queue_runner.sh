@@ -709,7 +709,11 @@ case "$1" in
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
             # stopeffective: a stopped session reports done afterwards (default: the stop has no effect).
-            [ -f "$D/stopeffective" ] && grep -qx "$sid" "$D/stopped" 2>/dev/null && st=done
+            # stoplag: N (file content) agents reads after the stop still report the old state.
+            if [ -f "$D/stopeffective" ] && grep -qx "$sid" "$D/stopped" 2>/dev/null; then
+                lagn=$(cat "$D/stoplag" 2>/dev/null || echo 0)
+                if [ "$lagn" -gt 0 ]; then echo $((lagn - 1)) > "$D/stoplag"; else st=done; fi
+            fi
             out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
         done
         echo "[$out]"
@@ -1516,7 +1520,7 @@ test_bg_chain_blocked_guards() {
         tmp=$(mktemp -d)
         states="T-A:working blocked"
         [ "$case_" = ov-done ] && states="T-A:working done"
-        [ "$case_" = lag ] && states="T-A:working blocked blocked blocked blocked blocked blocked blocked blocked blocked blocked blocked done"
+        
         mk_bg "$tmp" bgq "$states"
         chain_setup "$tmp" true true
         gh_overview "$tmp/fake/overview.T-A.2" 1
@@ -1528,7 +1532,7 @@ test_bg_chain_blocked_guards() {
             ov-multirow) # step pr answered twice, a second step still pending
                 for f in overview.T-A.2 overview.T-A; do printf '%s\n%s\n%s\n%s\n%s\n' "$esc" "$row" "$row" "- [headless] plan: x, options: y (blocked-move: moved)" "" >> "$tmp/fake/$f"; done ;;
             balanced) for f in overview.T-A.2 overview.T-A; do printf '%s\n%s\n' "$esc" "$row" >> "$tmp/fake/$f"; done; touch "$tmp/fake/stopeffective" ;;
-            lag) touch "$tmp/fake/stopeffective" ;;
+            lag) touch "$tmp/fake/stopeffective"; echo 2 > "$tmp/fake/stoplag" ;;
         esac
         assert_eq "chain-$case_: exit 0" 0 "$(run_bg_queue "$tmp")"
         case "$case_" in
@@ -1557,6 +1561,13 @@ test_bg_chain_blocked_guards() {
     assert_eq "chain-markerfail: exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "chain-markerfail: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
     assert_eq "chain-markerfail: reason" "finish:marker-write-failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+    # TQ-2: restart sweep, no marker, escalated overview, child done: no finish launch.
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched; rm -f "$tmp/.chained-T-A"
+    printf '%s\n' "$esc" >> "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "chain-restart-escalated: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-restart-escalated: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-restart-escalated: no marker" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
     rm -rf "$tmp"
     tmp=$(mktemp -d); chain_restart_setup "$tmp" launched
     assert_eq "chain-evaluated: exit 0" 0 "$(run_bg_queue "$tmp")"
