@@ -50,7 +50,7 @@ BR=$(git rev-parse --abbrev-ref HEAD)
 if [ ! -f "$(git rev-parse --show-toplevel)/.git" ]; then   # plain checkout (a linked worktree never checks out the default branch)
   [ "$BR" = "$DB" ] || [ "$BR" != "$HR" ] || { git checkout "$DB" -- && { [ "$LOCAL" = 1 ] || git pull; } || echo checkout:failed; }
 fi
-n1_orca_sync "finish: merged" --status completed   # N1-224: best-effort workspace card
+[ -n "$HR" ] && [ "$BR" = "$HR" ] && n1_orca_sync "finish: merged" --status completed   # N1-224: best-effort; only this ticket's card (BR read before checkout)
 n1_finish_cleanup "$HR" "$OID" "$DB"
 ```
 

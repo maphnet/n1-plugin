@@ -231,7 +231,7 @@ has "W2 (AC1): ticket step runs the workspace decision last" "Workspace Decision
 hasnt "W2b: ticket step no longer creates the worktree before overview.md" "**Ensure Worktree**." "$(sed -n '30,40p' skills/n1-start/steps/ticket.md)"
 has "W3 (AC1): input parsing uses n1_parse_start_flags" "n1_parse_start_flags" "$(cat skills/n1-start/procedures/input-parsing.md)"
 has "W4 (AC5): n1-pr marks the card in review" 'n1_orca_sync "pr: opened" --status in-review' "$(cat skills/n1-pr/steps/02-push-create.md)"
-has "W5 (AC5): n1-finish marks the card completed" 'n1_orca_sync "finish: merged" --status completed' "$(cat skills/n1-finish/steps/06-cleanup.md)"
+has "W5 (AC5): n1-finish marks only this ticket's card completed" '[ -n "$HR" ] && [ "$BR" = "$HR" ] && n1_orca_sync "finish: merged" --status completed' "$(cat skills/n1-finish/steps/06-cleanup.md)"
 has "W6 (AC3): ownership prompt carries the no-recommendation sentence" \
     "No recommendation. The options are equivalent given the available evidence; select based on team preference." "$(cat skills/n1-start/procedures/workspace-ownership.md 2>/dev/null)"
 hasnt "W6b: ownership prompt has no (Recommended) option" "(Recommended)" "$(cat skills/n1-start/procedures/workspace-ownership.md 2>/dev/null)"
