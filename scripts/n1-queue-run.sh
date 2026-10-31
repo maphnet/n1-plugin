@@ -484,7 +484,7 @@ chain_reconcile() {
 }
 
 # chain_finish <num> <ticket> <repo> <n1-home> <model> <pr-url> — the deterministic fullAuto chain.
-# No-op unless chain_authorized. Waits for the child session to go idle (it may still run CI watch or
+# No-op unless chain_authorized. Waits for the child session to go idle (a child blocked for BG_POLL_GRACE polls is stopped; it may still run CI watch or
 # its own prose chain), skips when the PR is already MERGED or not OPEN, else launches a bg
 # `n1-finish <ticket> chained` session and waits for it. Blocking on purpose: the next child must
 # branch from the merged default branch. .chained-<ticket> (line 1 run id, line 2 pending|launched|done) is
@@ -494,7 +494,7 @@ chain_reconcile() {
 # Every exit writes a "[NUM] TICKET chain: ..." line to runner.log (N1-240).
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
-    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 asked="" why=finish-timeout
+    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 asked="" why=finish-timeout
     # N1-240: every exit writes a runner.log line. The raw id is not echoed (it failed validation).
     case "$TICKET" in ''|*[!A-Za-z0-9_-]*) echo "[$NUM] chain: skipped (invalid-ticket-id)"; return 0 ;; esac
     chain_authorized "$N1H" || { echo "[$NUM] $TICKET chain: skipped (chain_authorized=false)"; return 0; }
@@ -515,8 +515,18 @@ chain_finish() {
             drain_stop "$agents"
             [ -n "$csid" ] || break
             case "$(n1_queue_bg_state "$agents" "$csid")" in
-                working|blocked) idle=0 ;;
-                missing) idle=$((idle + 1)); [ "$idle" -ge "$BG_POLL_GRACE" ] && break ;;
+                working) idle=0; blk=0 ;;
+                blocked)
+                    # N1-240: a child parked on a question after its PR never goes idle on its own; waiting
+                    # would end in finish-child-busy. Stop it and chain: the PR-state check below and the
+                    # chained n1-finish (CI + reviewed pin) still decide; a failed stop is not fatal.
+                    idle=0; blk=$((blk + 1))
+                    if [ "$blk" -ge "$BG_POLL_GRACE" ]; then
+                        bash -c "$(n1_bg_cmd stop "$csid")" >/dev/null 2>&1
+                        echo "[$NUM] $TICKET chain: stopped blocked child ($csid)"
+                        break
+                    fi ;;
+                missing) blk=0; idle=$((idle + 1)); [ "$idle" -ge "$BG_POLL_GRACE" ] && break ;;
                 *) break ;;
             esac
         fi

@@ -1472,6 +1472,37 @@ test_bg_chain_missing_is_busy() {
     rm -rf "$tmp"
 }
 
+# N1-240: a child parked blocked after its PR (it asked instead of ending) is stopped after
+# BG_POLL_GRACE blocked polls and its PR chained; a child still working at the timeout keeps
+# finish-child-busy and no marker (retry-safe, unchanged). overview.T-A.2 lands step pr on poll 2.
+test_bg_chain_blocked_child() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working blocked"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A.2" 1
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    assert_eq "chain-blocked: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-blocked: blocked child stopped" yes \
+        "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)"
+    assert_eq "chain-blocked: stop logged" 1 \
+        "$(grep -cF '[1] T-A chain: stopped blocked child (00000001)' "$tmp/output.txt" || true)"
+    assert_eq "chain-blocked: one finish launch" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-blocked: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "chain-blocked: never finish-child-busy" 0 "$(grep -cF 'finish-child-busy' "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working working"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A.2" 1
+    assert_eq "chain-working: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-working: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-working: reason finish-child-busy" "finish:finish-child-busy" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "chain-working: no marker" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
+    assert_eq "chain-working: chain never stops a working child" no \
+        "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 # AC2: either flag off -> behaviour unchanged (stops at PR, no finish session).
 # N1-240 AC4: the chain_authorized=false exit writes a runner.log line.
 test_bg_chain_flags_off() {
@@ -2824,6 +2855,7 @@ test_bg_chain_pr_state_unreadable
 test_bg_chain_flags_off
 test_bg_chain_finish_stops
 test_bg_chain_missing_is_busy
+test_bg_chain_blocked_child
 test_bg_chain_restart
 test_bg_chain_reconcile
 test_runner_lock_atomic
