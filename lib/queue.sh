@@ -831,16 +831,19 @@ n1_queue_escalation_text() {
     # (plan-review verdict, auto-decided). Fails closed: only these anchored shapes are skipped,
     # unknown text stays an escalation, and "[headless] <step>:" entries are never skipped.
     [ -f "$1" ] || return 0
-    # Continuation lines (non-bullet) of a skipped entry are skipped with it.
-    awk '/^## Escalations/{f=1;next} /^## /{f=0}
-        f && NF {
-            bullet = ($0 ~ /^[-*][[:space:]]/)
-            if (skip && !bullet) next
+    # An indented line directly after an entry (skipped or kept) is its continuation; a blank line
+    # or a new heading ends it. Optional $2=last prints the newest human-needed entry instead.
+    awk -v last="${2:-}" '/^## Escalations/{f=1;prev=0;next} /^## /{f=0;prev=0}
+        f && !NF { prev = 0; next }
+        f {
+            if (prev && /^[[:space:]]+[^[:space:]]/) next
+            prev = 1
             sub(/^[-*][[:space:]]*/,""); l = tolower($0)
-            skip = (l !~ /^\[headless\] / && (l ~ /^[*]*plan[ -]review[*]*:? *[*]*(clean|fixed)([^a-z]|$)/ || l ~ /^(approach [a-z0-9]+ )?auto-decided([ (]|$)/ || l ~ /^\[auto(-decided)?\]/))
-            if (skip) next
-            print; exit
-        }' "$1"
+            if (l !~ /^\[headless\] / && (l ~ /^[*]*plan[ -]review[*]*:? *[*]*(clean|fixed)([^a-z]|$)/ || l ~ /^(approach [a-z0-9]+ )?auto-decided([ (]|$)/ || l ~ /^\[auto(-decided)?\]/)) next
+            if (last == "") { print; exit }
+            out = $0
+        }
+        END { if (out != "") print out }' "$1"
 }
 
 

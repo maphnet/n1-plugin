@@ -411,6 +411,13 @@ test_escalation_text() {
     assert_eq "esc-text: [automerge] printed" "[automerge] blocked, need you" "$(n1_queue_escalation_text "$tmp/am.md")"
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - tightened\n  wrapped continuation\n- real stop\n' > "$tmp/wrap.md"
     assert_eq "esc-text: continuation of skipped entry skipped" "real stop" "$(n1_queue_escalation_text "$tmp/wrap.md")"
+    # N1-241 SEC-5: only an indented line directly after the skipped entry is its continuation.
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - x\n\nfinish: merge blocked\n' > "$tmp/blank.md"
+    assert_eq "esc-text: blank line ends continuation" "finish: merge blocked" "$(n1_queue_escalation_text "$tmp/blank.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- [auto-decided] x\nworktree setup auto-retry attempted\n' > "$tmp/unind.md"
+    assert_eq "esc-text: un-indented line after skipped entry printed" "worktree setup auto-retry attempted" "$(n1_queue_escalation_text "$tmp/unind.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- real one\n  wrapped\n- real two\n' > "$tmp/last.md"
+    assert_eq "esc-text: last mode prints newest entry" "real two" "$(n1_queue_escalation_text "$tmp/last.md" last)"
     assert_eq "esc-text: headless step still resolves" "plan" "$(_n1_queue_escalated_step "$tmp/hl.md")"
 }
 
