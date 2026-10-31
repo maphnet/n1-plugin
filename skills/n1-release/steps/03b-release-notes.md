@@ -129,7 +129,7 @@ Writing rules:
 - Group by judgement, using the ticket type as a hint: Bug goes to Fixed; Story, Feature or Epic to New; Task, Improvement, Sub-task or an unknown type to Improved. Judge PR-only items from their summary.
 - Write one plain business sentence per change: what a user can now do or notice, and why it matters. No ticket keys, PR numbers, file paths, function, config or code terms anywhere in `## Slack` or in `## Full` above `### Internal changelog`.
 - Fold chores, refactors, tests, CI, dependency bumps and docs into at most one line, "Internal improvements to reliability and maintenance.", under Improved. Leave the line out when there are none.
-- Omit empty groups in both blocks. If the sources file is empty, `## Slack` and `## Full` each hold the single line "No user-facing changes recorded." and there is no `### Internal changelog`.
+- Omit empty groups in both blocks. If both the sources file and the tickets file hold no usable changes, `## Slack` and `## Full` each hold the single line "No user-facing changes recorded." and there is no `### Internal changelog`.
 - Internal changelog: one line per ticket or PR. A ticket link is `<site>/browse/<KEY>`, where `<site>` is the stored `confluence_url` text before `/wiki`. Without a stored url, write the plain key.
 - `## Full` uses only `###` headings. 5c-7 takes the stakeholder section from `## Full` down to `### Internal changelog`.
 - Slack block: mrkdwn `*bold*` and `•` bullets, with no `#` headings and no links.
@@ -206,21 +206,12 @@ if [[ "$ID" =~ ^[0-9]+$ ]]; then
 else echo "space lookup failed"; fi
 ```
 
-**3. Stored page.** If 5c-4 found `confluence_page_id:`, call `operations.getArticle` with `{pageId}`. If that succeeds, this is an update: go to 6. If it throws (the page was deleted), drop the stored id and continue with 4.
+**3. Stored page.** If 5c-4 found `confluence_page_id:`, call `operations.getArticle` with `{pageId}`. Reuse it only when its `spaceId` equals the configured `spaceId` and its `title` equals `TITLE` exactly. Then this is an update: go to 6. If it throws (the page was deleted) or either check fails (the destination changed), drop the stored id and continue with 4.
 
-**4. Space key and parent page.** CQL strings escape `\` as `\\` and `"` as `\"` inside quoted titles.
-- With `spaceKey` set: call `operations.searchArticles` with `{cql: 'space = "<spaceKey>" AND title = "Release notes" AND type = page', maxResults: 5}`. A hit whose `title` is exactly `Release notes` gives `PARENT_ID`.
-- Without `spaceKey` (only `spaceId`): search results carry `spaceKey`, not `spaceId`. Call `operations.searchArticles` with `{cql: 'title = "Release notes" AND type = page', maxResults: 25}`. For each exact-title hit, call `operations.getArticle` and keep the first one whose `spaceId` equals the configured `spaceId`. That hit gives `PARENT_ID`, and its `spaceKey` becomes `spaceKey`.
-- No parent found: call `operations.createArticle` with `{spaceId, title: "Release notes", body: "Stakeholder release notes, one child page per release."}` and no `parentId`. The result's `id` is `PARENT_ID`. If `spaceKey` is still unknown, take it from the result's `url` (the segment after `/spaces/`).
-- A newly learned `spaceKey` is persisted. If it is still unknown, set `CONF=skipped:space key missing` and go to 5c-7.
-
-```bash
-source ~/.n1/preamble.sh
-KEY="<space key>"
-if [[ "$KEY" =~ ^[A-Za-z0-9_~-]+$ ]]; then
-  jq --arg k "$KEY" '.kb.spaceKey = $k' "$N1_HOME/config.json" > "$N1_HOME/config.json.tmp" && mv "$N1_HOME/config.json.tmp" "$N1_HOME/config.json" && echo "kb.spaceKey saved: $KEY"
-else echo "space key missing"; fi
-```
+**4. Space key and parent page.** CQL strings escape `\` as `\\` and `"` as `\"` inside quoted titles. Search cannot be paged (25 results, no offset) and `getArticle` returns no space key, so a space-wide title search is never used.
+- Without `spaceKey` (only `spaceId`): set `CONF=skipped:kb.spaceKey missing (set kb.spaceKey to publish)` and go to 5c-7.
+- Call `operations.searchArticles` with `{cql: 'space = "<spaceKey>" AND title = "Release notes" AND type = page', maxResults: 5}`. A hit whose `title` is exactly `Release notes` gives `PARENT_ID`.
+- No parent found: call `operations.createArticle` with `{spaceId, title: "Release notes", body: "Stakeholder release notes, one child page per release."}` and no `parentId`. The result's `id` is `PARENT_ID`.
 
 **5. Existing child page.** Call `operations.searchArticles` with `{cql: 'space = "<spaceKey>" AND title = "<TITLE>" AND type = page', maxResults: 5}`. A hit whose `title` equals `TITLE` exactly gives `PAGE_ID`, and this becomes an update. CQL indexing can lag, which is why the stored page id (step 3) is checked first.
 
