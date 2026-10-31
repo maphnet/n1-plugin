@@ -1,7 +1,7 @@
 ---
 name: n1-start
 description: "Core orchestrator. Start working on a task: /n1:n1-start TRID-510 or /n1:n1-start need CSV export for users. Handles the full cycle: ticket → analysis → brainstorm → plan → implement → QA → review → [local testing] → PR."
-argument-hint: "<ticket-id or brain dump> [--type <name>]"
+argument-hint: "<ticket-id or brain dump> [--type <name>] [--no-handoff]"
 model: sonnet
 ---
 
@@ -37,7 +37,7 @@ Telemetry Init: `procedures/telemetry.md` | Input Parsing: `procedures/input-par
 1. `procedures/telemetry.md` — init telemetry.
 2. `procedures/input-parsing.md` — parse input.
 3. `procedures/resume.md` — check for existing run; resume or fresh start.
-4. `procedures/workspace-isolation.md` — set up workspace (skip for investigation; skip on resume if done).
+4. Workspace: `procedures/workspace-isolation.md § Workspace Decision` runs on resume or at the end of `steps/ticket.md`, never before `<ID>` is final.
 
 ## Pipeline Steps
 

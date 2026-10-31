@@ -38,7 +38,7 @@ n1_busy_guard "$N1_HOME/memory/$ID/overview.md" "$ID"
 ```
 Exit 3 (headless): STOP.
 
-`TYPE=="investigation"`: skip workspace isolation; else run it. Read loop counters:
+`TYPE=="investigation"`: skip workspace isolation; else run `procedures/workspace-isolation.md § Workspace Decision` (`FRESH=0`). Read loop counters:
 ```bash
 source ~/.n1/preamble.sh
 n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"

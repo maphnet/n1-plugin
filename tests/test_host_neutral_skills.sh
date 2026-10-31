@@ -33,6 +33,8 @@ PY
 
 check "headless claude -p literal" 'claude -p'
 check "worktree directory literal" '\.claude/worktrees'
+# N1-224: workspace-manager calls live in lib/host.sh (n1_orca_* helpers); skill text never names the CLI.
+check "workspace manager CLI literal (use n1_orca_* helpers)" '(^|[^A-Za-z0-9_])[Oo]rca([^A-Za-z0-9_]|$)|ORCA_CLI_COMMAND'
 check "manifest version read through plugin root" 'N1_ROOT/\.claude-plugin/plugin\.json|N1_ROOT>/\.claude-plugin'
 
 # NP-229: json_val is not defined anywhere in lib/; the real helper is n1_config_val.

@@ -224,6 +224,19 @@ hasnt "F2: no removal call" "worktree rm" "$(calls)"
 eq "F3: Orca rm failure reported, no git fallback" "worktree:remove-failed (rm refused),branch:kept (worktree kept)" "$(FAKE_ORCA_RM_FAIL=1 run_fc "$F3" fb3)"
 eq "F3: dir kept" yes "$([ -d "$F3" ] && echo yes || echo no)"
 
+# ---- static wiring ----
+cd "$REPO_ROOT"
+eq "W1 (AC4): only n1-start decides or hands off workspaces" "" "$(grep -rlE 'n1_workspace_decide|n1_orca_handoff' skills agents | grep -v '^skills/n1-start/' || true)"
+has "W2 (AC1): ticket step runs the workspace decision last" "Workspace Decision" "$(tail -n 12 skills/n1-start/steps/ticket.md)"
+hasnt "W2b: ticket step no longer creates the worktree before overview.md" "**Ensure Worktree**." "$(sed -n '30,40p' skills/n1-start/steps/ticket.md)"
+has "W3 (AC1): input parsing uses n1_parse_start_flags" "n1_parse_start_flags" "$(cat skills/n1-start/procedures/input-parsing.md)"
+has "W4 (AC5): n1-pr marks the card in review" 'n1_orca_sync "pr: opened" --status in-review' "$(cat skills/n1-pr/steps/02-push-create.md)"
+has "W5 (AC5): n1-finish marks the card completed" 'n1_orca_sync "finish: merged" --status completed' "$(cat skills/n1-finish/steps/06-cleanup.md)"
+has "W6 (AC3): ownership prompt carries the no-recommendation sentence" \
+    "No recommendation. The options are equivalent given the available evidence; select based on team preference." "$(cat skills/n1-start/procedures/workspace-ownership.md 2>/dev/null)"
+hasnt "W6b: ownership prompt has no (Recommended) option" "(Recommended)" "$(cat skills/n1-start/procedures/workspace-ownership.md 2>/dev/null)"
+cd - >/dev/null
+
 # ---- end ----
 if [ -e "$FAKE/bare" ]; then no "never bare orca" "$(cat "$FAKE/bare")"; else ok "never bare orca: no call reached an orca on PATH"; fi
 hasnt "selector current is never used" "--worktree current" "$(cat "$FAKE/all")"
