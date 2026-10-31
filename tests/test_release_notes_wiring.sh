@@ -42,7 +42,7 @@ if [ -n "$SNIPPET" ]; then echo "PASS: release body snippet present"; else echo 
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/home/.n1" "$T/n1/releases" "$T/n1/scratch"
-: > "$T/home/.n1/preamble.sh"   # N1_HOME comes from the environment below
+echo "source \"$PWD/lib/config.sh\"" > "$T/home/.n1/preamble.sh"   # N1_HOME comes from the environment below
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
@@ -102,6 +102,58 @@ expect "no link line when publishing was skipped" "0" "$(hits 'Full release note
 
 rm -f "$NOTES"
 expect "missing notes file -> body untouched" "body:no-notes" "$(run_split)"
+
+# --- behavior: other shipped snippets (extracted from the step file, run in a sandbox)
+snip() { # <heading prefix>: first bash block under that heading, <TAG> -> v1.2.0
+    awk -v h="$1" 'index($0, h) == 1 {f = 1; next} f && /^```bash/ {b = 1; next} b && /^```/ {exit} b' "$R3B" | sed 's/<TAG>/v1.2.0/g'
+}
+sandbox() { (export HOME="$T/home" N1_HOME="$T/n1" GH_BODY="$T/body.md" GH_EDITS="$T/edits"; PATH="$T/bin:$PATH" bash -c "$1" 2>/dev/null) }
+
+# 5c-1: tag resolution, previous tag, tag-name validation
+SNIP1=$(snip "## 5c-1.")
+G="$T/repo"; git init -q "$G"; git -C "$G" -c user.name=t -c user.email=t@t commit -q --allow-empty -m c
+for t in v1.0.0 v1.1.0 v1.2.0; do git -C "$G" update-ref "refs/tags/$t" HEAD; done
+tag_run() { (cd "$G" && sandbox "$(sed "s|<TAG argument, or empty>|$1|" <<<"$SNIP1")"); }
+expect "notes-only: latest tag by default" "TAG=v1.2.0 VERSION=1.2.0 PREV_TAG=v1.1.0" "$(tag_run '' | head -1)"
+expect "notes-only: bare version gets the v prefix, previous tag is the next older one" "TAG=v1.1.0 VERSION=1.1.0 PREV_TAG=v1.0.0" "$(tag_run 1.1.0 | head -1)"
+expect "notes-only: oldest tag has an empty previous tag" "TAG=v1.0.0 VERSION=1.0.0 PREV_TAG=" "$(tag_run v1.0.0 | head -1)"
+expect "notes-only: unknown tag" "notes:no-tag" "$(tag_run v9.9.9 | head -1)"
+expect "notes-only: non-semver argument rejected" "notes:bad-tag" "$(tag_run 'v1.0.0;x' | head -1)"
+git -C "$G" update-ref 'refs/tags/v99$(touch${IFS}PWNED)' HEAD
+expect "notes-only: hostile repo tag is rejected, not used" "notes:bad-tag" "$(tag_run '' | head -1)"
+expect "notes-only: hostile repo tag never executed" "0" "$(find "$G" "$T" -name PWNED 2>/dev/null | wc -l | tr -d ' ')"
+git -C "$G" update-ref -d 'refs/tags/v99$(touch${IFS}PWNED)'
+
+# 5c-6 step 1: gate and config backfill
+SNIP6=$(snip "## 5c-6.")
+cfg() { # <json>
+    echo "$1" > "$T/n1/config.json"
+}
+GOOD='{"tracker":{"type":"jira","mcp":"jc","operations":{"createArticle":"jcm_createArticle","getArticle":"custom_get"}},"kb":{"enabled":true,"spaceId":"42"}}'
+cfg "$GOOD"; OUT6=$(sandbox "$SNIP6")
+expect "backfill: go when jira + jc-mcp + kb enabled" "conf:go mcp=jc spaceId=42 spaceKey=" "$OUT6"
+expect "backfill: existing getArticle mapping preserved" "custom_get" "$(jq -r .tracker.operations.getArticle "$T/n1/config.json")"
+expect "backfill: missing keys added" "jcm_searchArticles jcm_lookupSpace jcm_updateArticle" "$(jq -r '.tracker.operations | "\(.searchArticles) \(.lookupSpace) \(.updateArticle)"' "$T/n1/config.json")"
+cfg '{"tracker":{"type":"github","mcp":"gh","operations":{"createArticle":"x"}},"kb":{"enabled":true,"spaceId":"42"}}'
+expect "gate: other provider skipped" "conf:skipped:provider not supported" "$(sandbox "$SNIP6")"
+cfg '{"tracker":{"type":"jira","mcp":"jc","operations":{"createArticle":"jcm_createArticle"}},"kb":{"enabled":true}}'
+expect "gate: kb without space skipped" "conf:skipped:kb not configured" "$(sandbox "$SNIP6")"
+cfg '{"tracker":{"type":"jira","mcp":"jc","operations":{"createArticle":"jcm_createArticle"}},"kb":{"enabled":false,"spaceKey":"P"}}'
+expect "gate: kb disabled skipped" "conf:skipped:kb disabled" "$(sandbox "$SNIP6")"
+
+# 5c-4b: stakeholder guard
+SNIP4B=$(snip "## 5c-4b.")
+guard() { sandbox "$(sed "s|<0, or 1 on the second run>|$1|" <<<"$SNIP4B")"; }
+{ echo "# T"; printf '\n## Slack\n\n*T*\n\n*New*\n• Search is faster.\n• Fixes N1-239 in docs/notes.md.\n\n## Full\n\n### New\n- Sign-in is smoother (#12).\n- Reports load faster.\n\n### Internal changelog\n- N1-5 Search rewrite ([#12](https://x/pull/12))\n'; } > "$NOTES"
+OUT4B=$(guard 0)
+expect "guard: flags ticket key and path in Slack" "1" "$(grep -c 'guard:hit:• Fixes N1-239' <<<"$OUT4B")"
+expect "guard: flags PR number in Full" "1" "$(grep -c 'guard:hit:- Sign-in is smoother (#12)' <<<"$OUT4B")"
+expect "guard: internal changelog is not flagged" "0" "$(grep -c 'guard:hit:- N1-5' <<<"$OUT4B")"
+expect "guard: flagging alone keeps the file" "1" "$(grep -c 'Fixes N1-239' "$NOTES")"
+expect "guard: preview prints the stakeholder text" "1" "$(grep -c 'Reports load faster' <<<"$OUT4B")"
+guard 1 >/dev/null
+expect "guard: strip pass removes matching bullets" "0" "$(grep -c 'Fixes N1-239\|Sign-in is smoother' "$NOTES")"
+expect "guard: strip pass keeps clean bullets and the changelog" "3" "$(grep -c 'Search is faster\|Reports load faster\|N1-5 Search rewrite' "$NOTES")"
 
 # --- wiring: SKILL.md routing, hand-offs, gate line, report, docs
 SK=skills/n1-release/SKILL.md
