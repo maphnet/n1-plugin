@@ -93,6 +93,41 @@ eq "liveness: missing liveness reads unverifiable" "$(printf 'd-1\ttask-1\texite
 reset; n1_orca_ack run-1 "$J"
 has "ack: delivery id" "orchestration check --run run-1 --ack del-1" "$(calls)"
 
+# --- Task 2: identity sentinel ---
+M="$T/main"; git init -q -b main "$M"; git -C "$M" commit -q --allow-empty -m init
+mkdir -p "$T/wts"; WT="$T/wts/T-1"; git -C "$M" worktree add -q -b t1 "$WT" main
+O="$T/other"; git init -q -b main "$O"; git -C "$O" commit -q --allow-empty -m init
+Q="$N1_HOME/queue/q1"; mkdir -p "$Q"
+printf -- '---\nqueue_id: q1\nrun_id: R1\norca_run_id: run-1\nstep: run\n---\n' > "$Q/queue.md"
+N1_QUEUE_DIR="$Q" n1_orca_sentinel_write "$N1_HOME" T-1 "$M" R1 run-1 task-1
+S="$N1_HOME/queue/sentinels/T-1.env"
+eq "sentinel: mode 600" 600 "$(stat -c %a "$S")"
+load() { (cd "$1" && n1_orca_child_env && echo "$N1_HEADLESS|$N1_QUEUE_RUN_ID|$N1_UNATTENDED|$N1_QUEUE_DIR|$N1_ORCA_TASK|$N1_ORCA_TICKET") || echo none; }
+eq "loader: Orca child loads identity" "1|R1|ask|$Q|task-1|T-1" "$(load "$WT")"
+mkdir -p "$WT/sub"
+eq "loader: from a subdirectory" "1|R1|ask|$Q|task-1|T-1" "$(load "$WT/sub")"
+eq "loader: outside Orca (no ORCA_CLI_COMMAND)" none "$(ORCA_CLI_COMMAND= load "$WT")"
+eq "loader: checkout without a sentinel" none "$(load "$M")"
+sed -i "s|^N1_ORCA_REPO=.*|N1_ORCA_REPO=$O|" "$S"
+eq "loader: sentinel for another repo" none "$(load "$WT")"
+sed -i "s|^N1_ORCA_REPO=.*|N1_ORCA_REPO=$M|" "$S"
+n1_write_frontmatter "$Q/queue.md" run_id R2
+eq "loader: queue moved to another run" none "$(load "$WT")"
+n1_write_frontmatter "$Q/queue.md" run_id R1
+touch -d '2 days ago' "$S"
+eq "loader: stale sentinel" none "$(load "$WT")"
+touch "$S"
+printf 'N1_QUEUE_TAG=$(touch %s/pwned)\nPATH=/evil\n' "$T" >> "$S"
+eq "loader: values are data, never executed" '$(touch '"$T"'/pwned)' "$(cd "$WT" && n1_orca_child_env && printf '%s' "$N1_QUEUE_TAG")"
+eq "loader: no command ran" no "$([ -e "$T/pwned" ] && echo yes || echo no)"
+eq "loader: non-whitelisted key ignored" "$PATH" "$(cd "$WT" && n1_orca_child_env && printf '%s' "$PATH")"
+eq "sentinel_set: whitelist enforced" 1 "$(rc n1_orca_sentinel_set "$N1_HOME" T-1 PATH /evil)"
+n1_orca_sentinel_set "$N1_HOME" T-1 N1_ORCA_DISPATCH d-1
+eq "sentinel_set: dispatch appended" d-1 "$(cd "$WT" && n1_orca_child_env && printf '%s' "$N1_ORCA_DISPATCH")"
+has "exports: export lines" "export N1_HEADLESS=1" "$(cd "$WT" && n1_orca_child_env && n1_orca_child_env_exports)"
+n1_orca_sentinel_rm "$N1_HOME" T-1 task-other
+eq "sentinel_rm: another attempt's task keeps the file" yes "$([ -f "$S" ] && echo yes || echo no)"
+
 # --- summary (later tasks insert their sections above this line) ---
 eq "no bare orca call" "" "$(cat "$FAKE/bare" 2>/dev/null)"
 [ "$FAIL" = 0 ] && echo "ALL PASS" || echo "SOME FAILED"

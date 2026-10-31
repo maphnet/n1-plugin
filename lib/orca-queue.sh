@@ -103,3 +103,73 @@ n1_orca_worktree_taken() {
     # start without its sentinel (merge guard off). An unreadable list reads "not taken" (same shape as n1_orca_owns).
     N1_ORCA_TIMEOUT=30 n1_orca worktree list | jq -e --arg n "$1" 'any(.result.worktrees[]?; (.path | split("/") | last) == $n)' >/dev/null 2>&1
 }
+
+# ---- Identity sentinel (N1-225) ----
+# worker-start has no env flag, so an Orca child would run as an interactive session (merge guard off, a question
+# TUI nobody answers). The runner writes $N1_HOME/queue/sentinels/<ticket>.env before worker-start; SessionStart
+# persists it for Bash commands via CLAUDE_ENV_FILE and every hook loads it into its own process.
+N1_ORCA_SENTINEL_KEYS="N1_HEADLESS N1_AUTONOMY_PRESET N1_UNATTENDED N1_QUEUE_RUN_ID N1_QUEUE_TAG N1_QUEUE_DIR N1_PARENT_SESSION_ID N1_ORCA_REPO N1_ORCA_RUN N1_ORCA_TASK N1_ORCA_DISPATCH"
+
+n1_orca_sentinel_path() { printf '%s/queue/sentinels/%s.env' "$1" "$2"; }   # <n1-home> <ticket>
+
+n1_orca_sentinel_write() {
+    # Usage: n1_orca_sentinel_write <n1-home> <ticket> <repo> <queue-run-id> <orca-run> <task>
+    # Runner side, before worker-start: KEY=value lines (same env as a bg child's --settings), mode 600, atomic.
+    local f t
+    f=$(n1_orca_sentinel_path "$1" "$2")
+    mkdir -p "${f%/*}" && t=$(mktemp "$f.XXXXXX") || return 1
+    chmod 600 "$t"
+    {
+        printf 'N1_HEADLESS=1\nN1_AUTONOMY_PRESET=autonomous\nN1_UNATTENDED=ask\n'
+        printf 'N1_QUEUE_RUN_ID=%s\nN1_QUEUE_TAG=%s\nN1_QUEUE_DIR=%s\nN1_PARENT_SESSION_ID=%s\n' \
+            "$4" "${N1_QUEUE_TAG:-}" "${N1_QUEUE_DIR:-}" "$(n1_session_id 2>/dev/null)"
+        printf 'N1_ORCA_REPO=%s\nN1_ORCA_RUN=%s\nN1_ORCA_TASK=%s\n' "$3" "$5" "$6"
+    } > "$t" && mv -f "$t" "$f" || { rm -f "$t"; return 1; }
+}
+
+n1_orca_sentinel_set() {
+    # Usage: n1_orca_sentinel_set <n1-home> <ticket> <KEY> <value> — append one whitelisted key (last wins);
+    # the runner adds N1_ORCA_DISPATCH once worker-start returns.
+    case " $N1_ORCA_SENTINEL_KEYS " in *" $3 "*) ;; *) return 1 ;; esac
+    printf '%s=%s\n' "$3" "${4//$'\n'/}" >> "$(n1_orca_sentinel_path "$1" "$2")"
+}
+
+_n1_orca_sget() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -1; }   # <file> <whitelisted KEY>; last wins
+
+n1_orca_sentinel_rm() {
+    # Usage: n1_orca_sentinel_rm <n1-home> <ticket> [task] — with a task, only that attempt's sentinel goes
+    # (a deferred retry already wrote a new one under the same ticket).
+    local f; f=$(n1_orca_sentinel_path "$1" "$2")
+    [ -z "${3:-}" ] || [ "$(_n1_orca_sget "$f" N1_ORCA_TASK)" = "$3" ] || return 0
+    rm -f "$f" "${f%.env}.sent"
+}
+
+_n1_orca_common() { (cd "$1" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P); }
+
+n1_orca_child_env() {
+    # Usage: n1_orca_child_env [cwd] — load this checkout's queue-child identity into the calling process.
+    # rc 0 and exports only when: ORCA_CLI_COMMAND is set (Orca terminal); the checkout folder name (Orca --name
+    # <ticket>) is a ticket token with a sentinel; the sentinel is fresher than queue.staleAfterHours; its repo
+    # shares this checkout's git common dir; its queue run id is that queue's current run_id. The file is parsed
+    # against the key whitelist, never sourced. Also sets N1_ORCA_TICKET and N1_ORCA_SENTINEL.
+    [ -n "${ORCA_CLI_COMMAND:-}" ] || return 1
+    local top t f k hours repo qdir rid
+    top=$(git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null) || return 1
+    t="${top##*/}"
+    [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
+    f=$(n1_orca_sentinel_path "$(n1_home)" "$t")
+    [ -f "$f" ] || return 1
+    hours=$(n1_config_val '.queue.staleAfterHours' 2>/dev/null); [[ "$hours" =~ ^[0-9]+$ ]] || hours=24
+    [ -n "$(find "$f" -mmin -$(( hours * 60 )) 2>/dev/null)" ] || return 1
+    repo=$(_n1_orca_sget "$f" N1_ORCA_REPO); qdir=$(_n1_orca_sget "$f" N1_QUEUE_DIR); rid=$(_n1_orca_sget "$f" N1_QUEUE_RUN_ID)
+    [ -n "$repo" ] && [ "$(_n1_orca_common "$top")" = "$(_n1_orca_common "$repo")" ] || return 1
+    [ -n "$rid" ] && [ -n "$qdir" ] && [ "$(n1_read_frontmatter "$qdir/queue.md" run_id 2>/dev/null)" = "$rid" ] || return 1
+    for k in $N1_ORCA_SENTINEL_KEYS; do export "$k=$(_n1_orca_sget "$f" "$k")"; done
+    export N1_ORCA_TICKET="$t" N1_ORCA_SENTINEL="$f"
+}
+
+n1_orca_child_env_exports() {
+    # Usage: n1_orca_child_env_exports — after n1_orca_child_env: "export K=<quoted>" lines for CLAUDE_ENV_FILE.
+    local k
+    for k in $N1_ORCA_SENTINEL_KEYS N1_ORCA_TICKET N1_ORCA_SENTINEL; do printf 'export %s=%q\n' "$k" "${!k:-}"; done
+}
