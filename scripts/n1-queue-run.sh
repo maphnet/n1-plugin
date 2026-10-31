@@ -362,6 +362,7 @@ drain_stop() {
             *)  # back to working (question answered): re-arm so a later question escalates too
                 DRAIN_ESCALATED=($(printf '%s\n' "${DRAIN_ESCALATED[@]+"${DRAIN_ESCALATED[@]}"}" | grep -vxF -- "$sid"))
                 rm -f "$N1_QUEUE_DIR/.esc-reason-$ticket"
+                ev unblocked ticket="$ticket" session="$sid"
                 keep+=("$entry") ;;
         esac
     done

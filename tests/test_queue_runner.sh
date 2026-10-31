@@ -1042,6 +1042,9 @@ test_bg_drain_rearms_after_answer() {
     run_bg_queue "$tmp" >/dev/null
     assert_eq "drain: re-blocked T-B escalated once per question" "2" \
         "$(jq -c 'select(.event == "escalated" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    # N1-241: the drain back-to-working transition emits unblocked so the watch dedupe resets too.
+    assert_eq "drain: back-to-working emits unblocked for T-B" "1" \
+        "$(jq -c 'select(.event == "unblocked" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
     rm -rf "$tmp"
 }
 

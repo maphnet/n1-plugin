@@ -909,12 +909,12 @@ n1_queue_watch() {
         alive=0; kill -0 "$pid" 2>/dev/null && alive=1
         total=0; [ -f "$events" ] && total=$(wc -l < "$events"); total="${total//[[:space:]]/}"
         if [ "$total" -gt "$seen" ]; then
-            while IFS=$'\x1f' read -r ev t out pr s reason; do
+            while IFS=$'\x1f' read -r ev t out pr s reason full; do
                 case "$ev" in
                     escalated)
                         # N1-241: relay one escalation per ticket+reason (runner park/drain/restart
                         # can emit the same one twice); answer_delivered resets it for a re-ask.
-                        key="$t"$'\t'"$out"$'\t'"$reason"  # $out: a terminal escalation (n1-start hint) is never swallowed by an earlier attach-hint one
+                        key="$t"$'\t'"$out"$'\t'"$full"  # $full: untruncated reason, so the 300-char display cap never merges distinct escalations; $out: a terminal escalation (n1-start hint) is never swallowed by an earlier attach-hint one
                         if [ -n "$relayed" ] && grep -qxF -- "$key" <<<"$relayed"; then continue; fi
                         relayed=$(awk -F'\t' -v t="$t" '$1 != t' <<<"$relayed"; printf '%s' "$key")
                         # N1-55: a child in ask-mode mirrors its full question to .question-<ticket>.json.
@@ -973,7 +973,7 @@ n1_queue_watch() {
                 # (escalate(): 2000 chars/field, <=10 options); the 300-cap here is only
                 # for plain-text reasons and the other fields.
                 | (($arr[5] | fromjson? | objects | has("question")) // false) as $packed
-                | ($arr[0:5] | map(.[:300])) + [if $packed then $arr[5] else $arr[5][:300] end]
+                | ($arr[0:5] | map(.[:300])) + [if $packed then $arr[5] else $arr[5][:300] end, $arr[5]]
                 | join("\u001f")' 2>/dev/null)
             seen="$total"
         fi

@@ -89,6 +89,16 @@ test_escalated_dedupe() {
     assert_eq "dedupe: re-asked after answer relays again" "2" "$(grep -cF 'T-1 needs you: Pick A or B' <<<"$out")"
 }
 
+test_escalated_dedupe_full_reason() {
+    # N1-241: reasons identical for the first 300 chars (the display cap) are distinct escalations.
+    local q out pre; q=$(newq q9b); pre=$(printf 'x%.0s' $(seq 1 300))
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="${pre}AAA"
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="${pre}BBB"
+    ev "$q" R1 queue_done reason="0 PR"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    assert_eq "dedupe: reasons differing past the display cap both relay" "2" "$(grep -cF 'T-1 needs you:' <<<"$out")"
+}
+
 test_adopt_from_eof_and_resume() {
     local q out; q=$(newq q2)
     ev "$q" R1 escalated ticket=T-1 reason="seen in status table"
@@ -241,6 +251,7 @@ test_ticket_watch_events_relayed() {
 test_run_id_filter_and_finish
 test_escalated_terminal_outcome_hints_n1_start
 test_escalated_dedupe
+test_escalated_dedupe_full_reason
 test_adopt_from_eof_and_resume
 test_runner_dead
 test_sessions_independent
