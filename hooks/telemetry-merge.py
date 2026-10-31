@@ -276,7 +276,7 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
             end = step.get("completed_at")
             if step.get("step") == "finish" and end and step.get("started_at"):
                 later = [o["started_at"] for o in steps if o is not step and o.get("started_at")
-                         and o["started_at"][:19] > end[:19]]
+                         and o["started_at"][:19] >= end[:19]]
                 new_end = min([last_ts] + later)
                 if new_end[:19] > end[:19]:
                     step.update(completed_at=new_end, window_extended=True,

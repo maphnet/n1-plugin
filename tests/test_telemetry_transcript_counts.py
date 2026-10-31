@@ -132,6 +132,22 @@ class FinishExtensionTest(unittest.TestCase):
         by = {s['step']: s['api_calls'] for s in out['steps']}
         self.assertEqual(by, {'finish': 1, 'release': 1})
 
+    def test_filled_finish_end_is_not_extended_past_release_start(self):
+        # Missing finish end, repaired from the next step's start: end == release start.
+        steps = [
+            dict(step='finish', step_number=14, started_at='2026-01-01T00:04:00Z',
+                 completed_at='2026-01-01T00:06:00Z'),
+            dict(step='release', step_number=15, started_at='2026-01-01T00:06:00Z',
+                 completed_at='2026-01-01T00:07:00Z'),
+        ]
+        rows = [_msg('a', '2026-01-01T00:05:00.000Z'), _msg('b', '2026-01-01T00:06:30.000Z')]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = _parse(tmp, rows, steps)
+        self.assertEqual(steps[0]['completed_at'], '2026-01-01T00:06:00Z')
+        self.assertFalse(steps[0].get('window_extended'))
+        by = {s['step']: s['api_calls'] for s in out['steps']}
+        self.assertEqual(by, {'finish': 1, 'release': 1})
+
     def test_malformed_model_degrades_instead_of_raising(self):
         for bad in ({'x': 1}, ['a'], 7):
             row = _msg('a', '2026-01-01T00:01:00.000Z')
