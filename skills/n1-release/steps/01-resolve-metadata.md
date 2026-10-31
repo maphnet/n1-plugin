@@ -79,6 +79,8 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
      PREV_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
      [ "$PREV_TAG" = "$TAG" ] && PREV_TAG=""
    fi
+   # Tag names come from the remote and may carry shell metacharacters: keep only plain semver tags.
+   [[ "$PREV_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+.][0-9A-Za-z.-]+)?$ ]] || PREV_TAG=""
    # Show "(none — first release)" when nothing found
    ```
 3b. **Suggested next version** (derived from conventional commits since `PREV_TAG`):

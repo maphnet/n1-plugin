@@ -7,6 +7,8 @@ Only runs when ALL hold:
 - `tracker.mcp` is configured (not null)
 - `RELEASE_TICKET_IDS` is non-empty
 
+When any condition fails, skip to `03b-release-notes.md` (it always runs).
+
 All sub-operations are best-effort: failures warn but never block the release report.
 
 ```
@@ -132,3 +134,5 @@ For each ticket in `RELEASE_TICKET_IDS`:
 4. If no matching transition exists -- warn: `"Could not transition <ID>: no transition to '<target>' available -- continuing."`.
 
 Report: `"<N> ticket(s) moved to \"<target>\""`.
+
+Then continue with `03b-release-notes.md`, then `04-report.md`.

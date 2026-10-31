@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# N1-239: n1-release writes stakeholder release notes (Slack block, Confluence page, GitHub Release body section).
+set -uo pipefail
+cd "$(dirname "$0")/.."
+FAIL=0
+R3B=skills/n1-release/steps/03b-release-notes.md
+
+check() { # <label> <extended-regex> <file>
+    if grep -qE -- "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
+}
+lacks() { # <label> <extended-regex> <file>
+    if grep -qE -- "$2" "$3" 2>/dev/null; then echo "FAIL: $1"; FAIL=1; else echo "PASS: $1"; fi
+}
+before() { # <label> <fixed-a> <fixed-b> <file>: first occurrence of a precedes first occurrence of b
+    local a b
+    a=$(grep -nF -m1 -- "$2" "$4" 2>/dev/null | cut -d: -f1); b=$(grep -nF -m1 -- "$3" "$4" 2>/dev/null | cut -d: -f1)
+    if [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
+}
+expect() { # <label> <want> <got>
+    if [ "$3" = "$2" ]; then echo "PASS: $1"; else echo "FAIL: $1 (want $2, got '$3')"; FAIL=1; fi
+}
+
+# --- 03b content
+if [ -f "$R3B" ]; then echo "PASS: 03b-release-notes.md exists"; else echo "FAIL: 03b-release-notes.md missing"; FAIL=1; fi
+check "03b supports notes-only mode" 'MODE=notes-only' "$R3B"
+check "03b finds or creates the Release notes parent" 'title = "Release notes"' "$R3B"
+check "03b stores the Confluence url in the notes file" 'confluence_url:' "$R3B"
+check "03b stores the Confluence page id in the notes file" 'confluence_page_id:' "$R3B"
+check "03b looks pages up via searchArticles" 'operations\.searchArticles' "$R3B"
+check "03b resolves a missing space id via lookupSpace" 'operations\.lookupSpace' "$R3B"
+check "03b treats ok:false as a warning" 'ok:false' "$R3B"
+check "03b passes the current page version to updateArticle" 'current version from getArticle' "$R3B"
+check "03b keeps ticket keys out of stakeholder text" 'No ticket keys' "$R3B"
+check "03b folds internal work into one line" 'Internal improvements' "$R3B"
+check "03b handles headless notes-only runs" 'N1_HEADLESS' "$R3B"
+expect "03b confirmation marks exactly one option (Recommended)" "1" "$(grep -c '(Recommended' "$R3B" 2>/dev/null)"
+lacks "03b has no checkbox lines" '^[[:space:]]*- \[[ xX]\]' "$R3B"
+
+# --- behavior: the GitHub Release body snippet against a stubbed gh
+SNIPPET=$(awk 'index($0, "## 5c-7. GitHub Release body") == 1 {f = 1; next} f && /^```bash/ {b = 1; next} b && /^```/ {exit} b' "$R3B" 2>/dev/null | sed 's/<TAG>/v1.2.0/g')
+if [ -n "$SNIPPET" ]; then echo "PASS: release body snippet present"; else echo "FAIL: release body snippet missing"; FAIL=1; fi
+
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/bin" "$T/home/.n1" "$T/n1/releases" "$T/n1/scratch"
+echo "source \"$PWD/lib/config.sh\"" > "$T/home/.n1/preamble.sh"   # N1_HOME comes from the environment below
+cat > "$T/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+    "release view") [ -f "$GH_BODY" ] && cat "$GH_BODY" ;;
+    "release edit") while [ $# -gt 0 ]; do [ "$1" = --notes-file ] && cp "$2" "$GH_BODY"; shift; done; echo edit >> "$GH_EDITS" ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod +x "$T/bin/gh"
+
+MARK='<!-- n1:release-notes:end -->'
+URL=https://example.atlassian.net/wiki/spaces/P/pages/123
+NOTES="$T/n1/releases/v1.2.0.md"
+write_notes() { # <stakeholder sentence> [confluence url]
+    { echo "# Publius assistant 1.2.0 release notes"
+      if [ -n "${2:-}" ]; then echo "confluence_url: $2"; echo "confluence_page_id: 123"; fi
+      printf '\n## Slack\n\n*New*\n• %s\n\n## Full\n\n### New\n- %s\n\n### Internal changelog\n- N1-5 Search rewrite ([#12](https://github.com/o/r/pull/12))\n' "$1" "$1"
+    } > "$NOTES"
+}
+run_split() { (export HOME="$T/home" N1_HOME="$T/n1" GH_BODY="$T/body.md" GH_EDITS="$T/edits"; PATH="$T/bin:$PATH" bash -c "$SNIPPET" 2>/dev/null) }
+edits() { if [ -f "$T/edits" ]; then wc -l < "$T/edits" | tr -d ' '; else echo 0; fi; }
+lines() { grep -cxF -- "$1" "$T/body.md" 2>/dev/null; }   # exact-line count
+hits() { grep -cF -- "$1" "$T/body.md" 2>/dev/null; }     # substring count
+
+write_notes "Search finds documents faster." "$URL"
+expect "no GitHub Release -> body untouched" "body:no-release" "$(run_split)"
+expect "no GitHub Release -> no edit" "0" "$(edits)"
+
+printf '\n' > "$T/body.md"
+expect "empty body -> updated" "body:updated" "$(run_split)"
+expect "empty body: stakeholder section comes first" "### New" "$(head -1 "$T/body.md")"
+expect "empty body: one marker" "1" "$(lines "$MARK")"
+expect "link line present when published" "1" "$(lines "Full release notes: $URL")"
+expect "internal changelog stays out of the body" "0" "$(hits 'N1-5')"
+expect "Slack block stays out of the body" "0" "$(hits '*New*')"
+expect "repeat run -> unchanged" "body:unchanged" "$(run_split)"
+expect "repeat run -> no second edit" "1" "$(edits)"
+
+printf "## What's Changed\r\n* Search rewrite by @a in #12\r\n" > "$T/body.md"
+expect "generated notes without marker -> updated" "body:updated" "$(run_split)"
+expect "generated notes kept once" "1" "$(lines "## What's Changed")"
+expect "generated notes sit below the marker" "## What's Changed" "$(awk -v m="$MARK" 'f && NF {print; exit} $0 == m {f = 1}' "$T/body.md")"
+expect "CRLF stripped" "0" "$(grep -c $'\r' "$T/body.md")"
+
+write_notes "Sign-in works after a password reset." "$URL"
+expect "changed notes -> updated" "body:updated" "$(run_split)"
+expect "old section replaced, not duplicated" "0" "$(hits 'Search finds documents faster.')"
+expect "new section present" "1" "$(hits 'Sign-in works after a password reset.')"
+expect "still one marker" "1" "$(lines "$MARK")"
+expect "generated notes still once" "1" "$(lines "## What's Changed")"
+B1=$(cat "$T/body.md"); run_split >/dev/null
+expect "third run leaves the body byte-identical" "$B1" "$(cat "$T/body.md")"
+
+write_notes "Sign-in works after a password reset."
+run_split >/dev/null
+expect "no link line when publishing was skipped" "0" "$(hits 'Full release notes:')"
+
+rm -f "$NOTES"
+expect "missing notes file -> body untouched" "body:no-notes" "$(run_split)"
+
+# --- behavior: other shipped snippets (extracted from the step file, run in a sandbox)
+snip() { # <heading prefix>: first bash block under that heading, <TAG> -> v1.2.0
+    awk -v h="$1" 'index($0, h) == 1 {f = 1; next} f && /^```bash/ {b = 1; next} b && /^```/ {exit} b' "$R3B" | sed 's/<TAG>/v1.2.0/g'
+}
+sandbox() { (export HOME="$T/home" N1_HOME="$T/n1" GH_BODY="$T/body.md" GH_EDITS="$T/edits"; PATH="$T/bin:$PATH" bash -c "$1" 2>/dev/null) }
+
+# 5c-1: tag resolution, previous tag, tag-name validation
+SNIP1=$(snip "## 5c-1.")
+G="$T/repo"; git init -q "$G"; git -C "$G" -c user.name=t -c user.email=t@t commit -q --allow-empty -m c
+for t in v1.0.0 v1.1.0 v1.2.0; do git -C "$G" update-ref "refs/tags/$t" HEAD; done
+tag_run() { (cd "$G" && sandbox "$(sed "s|<TAG argument, or empty>|$1|" <<<"$SNIP1")"); }
+expect "notes-only: latest tag by default" "TAG=v1.2.0 VERSION=1.2.0 PREV_TAG=v1.1.0" "$(tag_run '' | head -1)"
+expect "notes-only: bare version gets the v prefix, previous tag is the next older one" "TAG=v1.1.0 VERSION=1.1.0 PREV_TAG=v1.0.0" "$(tag_run 1.1.0 | head -1)"
+expect "notes-only: oldest tag has an empty previous tag" "TAG=v1.0.0 VERSION=1.0.0 PREV_TAG=" "$(tag_run v1.0.0 | head -1)"
+expect "notes-only: unknown tag" "notes:no-tag" "$(tag_run v9.9.9 | head -1)"
+expect "notes-only: non-semver argument rejected" "notes:bad-tag" "$(tag_run 'v1.0.0;x' | head -1)"
+git -C "$G" update-ref 'refs/tags/v99$(touch${IFS}PWNED)' HEAD
+expect "notes-only: hostile repo tag is rejected, not used" "notes:bad-tag" "$(tag_run '' | head -1)"
+expect "notes-only: hostile repo tag never executed" "0" "$(find "$G" "$T" -name PWNED 2>/dev/null | wc -l | tr -d ' ')"
+git -C "$G" update-ref -d 'refs/tags/v99$(touch${IFS}PWNED)'
+
+# 5c-6 step 1: gate and config backfill
+SNIP6=$(snip "## 5c-6.")
+cfg() { # <json>
+    echo "$1" > "$T/n1/config.json"
+}
+GOOD='{"tracker":{"type":"jira","mcp":"jc","operations":{"createArticle":"jcm_createArticle","getArticle":"custom_get"}},"kb":{"enabled":true,"spaceId":"42"}}'
+cfg "$GOOD"; OUT6=$(sandbox "$SNIP6")
+expect "backfill: go when jira + jc-mcp + kb enabled" "conf:go mcp=jc spaceId=42 spaceKey=" "$OUT6"
+expect "backfill: existing getArticle mapping preserved" "custom_get" "$(jq -r .tracker.operations.getArticle "$T/n1/config.json")"
+expect "backfill: missing keys added" "jcm_searchArticles jcm_lookupSpace jcm_updateArticle" "$(jq -r '.tracker.operations | "\(.searchArticles) \(.lookupSpace) \(.updateArticle)"' "$T/n1/config.json")"
+cfg '{"tracker":{"type":"github","mcp":"gh","operations":{"createArticle":"x"}},"kb":{"enabled":true,"spaceId":"42"}}'
+expect "gate: other provider skipped" "conf:skipped:provider not supported" "$(sandbox "$SNIP6")"
+cfg '{"tracker":{"type":"jira","mcp":"jc","operations":{"createArticle":"jcm_createArticle"}},"kb":{"enabled":true}}'
+expect "gate: kb without space skipped" "conf:skipped:kb not configured" "$(sandbox "$SNIP6")"
+cfg '{"tracker":{"type":"jira","mcp":"jc","operations":{"createArticle":"jcm_createArticle"}},"kb":{"enabled":false,"spaceKey":"P"}}'
+expect "gate: kb disabled skipped" "conf:skipped:kb disabled" "$(sandbox "$SNIP6")"
+
+# 5c-4b: stakeholder guard
+SNIP4B=$(snip "## 5c-4b.")
+guard() { sandbox "$(sed "s|<0, or 1 on the second run>|$1|" <<<"$SNIP4B")"; }
+{ echo "# T"; printf '\n## Slack\n\n*T*\n\n*New*\n• Search is faster.\n• Fixes N1-239 in docs/notes.md.\n\n## Full\n\n### New\n- Sign-in is smoother (#12).\n- Reports load faster.\n\n### Internal changelog\n- N1-5 Search rewrite ([#12](https://x/pull/12))\n'; } > "$NOTES"
+OUT4B=$(guard 0)
+expect "guard: flags ticket key and path in Slack" "1" "$(grep -c 'guard:hit:• Fixes N1-239' <<<"$OUT4B")"
+expect "guard: flags PR number in Full" "1" "$(grep -c 'guard:hit:- Sign-in is smoother (#12)' <<<"$OUT4B")"
+expect "guard: internal changelog is not flagged" "0" "$(grep -c 'guard:hit:- N1-5' <<<"$OUT4B")"
+expect "guard: flagging alone keeps the file" "1" "$(grep -c 'Fixes N1-239' "$NOTES")"
+expect "guard: preview prints the stakeholder text" "1" "$(grep -c 'Reports load faster' <<<"$OUT4B")"
+guard 1 >/dev/null
+expect "guard: strip pass removes matching bullets" "0" "$(grep -c 'Fixes N1-239\|Sign-in is smoother' "$NOTES")"
+expect "guard: strip pass keeps clean bullets and the changelog" "3" "$(grep -c 'Search is faster\|Reports load faster\|N1-5 Search rewrite' "$NOTES")"
+
+# --- wiring: SKILL.md routing, hand-offs, gate line, report, docs
+SK=skills/n1-release/SKILL.md
+R2=skills/n1-release/steps/02-confirm-execute.md
+R3=skills/n1-release/steps/03-tracker-release.md
+R4=skills/n1-release/steps/04-report.md
+check "SKILL.md argument-hint offers --notes" '^argument-hint: "\[--notes \[<TAG>\]\]"' "$SK"
+check "SKILL.md usage mentions --notes" 'Usage: /n1:n1-release \[--notes \[<TAG>\]\]' "$SK"
+check "SKILL.md routes --notes to step 3b in notes-only mode" 'MODE=notes-only' "$SK"
+before "SKILL.md lists 3b after step 3" "steps/03-tracker-release.md" "steps/03b-release-notes.md" "$SK"
+before "SKILL.md lists 3b before step 4" "steps/03b-release-notes.md" "steps/04-report.md" "$SK"
+expect "02 hands off through 03b in both flows" "2" "$(grep -cF 'NOT done — continue with `03-tracker-release.md`, then `03b-release-notes.md`, then `04-report.md`.' "$R2")"
+check "02 gate announces the release notes" '^- `Release notes: ' "$R2"
+check "02 idempotency STOP unchanged" 'already exists -- nothing to do\.' "$R2"
+check "03 skips to 3b when its gate fails" 'When any condition fails, skip to `03b-release-notes\.md`' "$R3"
+check "03 continues to 3b when done" 'Then continue with `03b-release-notes\.md`' "$R3"
+expect "04 templates carry the Release notes line" "2" "$(grep -c '^Release notes: <NOTES>' "$R4")"
+check "04 prints the Slack block" 'Slack-ready notes:' "$R4"
+check "architecture documents the notes step" '03b-release-notes\.md' references/architecture.md
+check "n1-start release step lists release notes" 'stakeholder release notes' skills/n1-start/steps/release.md
+
+exit $FAIL
