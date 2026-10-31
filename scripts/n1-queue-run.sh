@@ -102,7 +102,8 @@ ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 escalate() {
     local sid q qfile qfull reason mark key
     sid=$(n1_queue_session_id "$QUEUE" "$1")
-    q=$(n1_queue_escalation_text "$2/memory/$1/overview.md")
+    # N1-241: newest entry, so an appended entry changes the reason and the watch dedupe relays it.
+    q=$(n1_queue_escalation_text "$2/memory/$1/overview.md" last)
     reason="$q"
     case "$1" in
         ''|*[!A-Za-z0-9_-]*) qfile="" mark="" ;;

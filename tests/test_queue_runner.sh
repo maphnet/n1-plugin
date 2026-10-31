@@ -1114,6 +1114,9 @@ test_bg_escalation_rearm_on_new_entry() {
     run_bg_queue "$tmp" >/dev/null
     assert_eq "esc-rearm: appended entry re-emits" "2" \
         "$(jq -c 'select(.event == "escalated" and .ticket == "T-A")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    # CR-4: the re-armed event carries the new entry, so the watch's ticket+reason dedupe relays it.
+    assert_eq "esc-rearm: re-armed event has a distinct reason" "2" \
+        "$(jq -r 'select(.event == "escalated" and .ticket == "T-A") | .reason' "$tmp/events.jsonl" | sort -u | wc -l | tr -d ' ')"
     rm -rf "$tmp"
 }
 
