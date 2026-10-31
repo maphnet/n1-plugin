@@ -29,8 +29,10 @@ steps/local-testing.md	n1_step_end	10
 steps/local-testing.md	n1_record_decision	1
 steps/plan-review.md	n1_step_begin	1
 steps/plan-review.md	n1_step_end	2
+steps/plan-review.md	n1_append_key_decision	1
 steps/plan.md	n1_step_begin	1
 steps/plan.md	n1_step_end	2
+steps/plan.md	n1_append_key_decision	1
 steps/pr.md	n1_step_begin	1
 steps/pr.md	n1_step_end	2
 steps/pr.md	n1_emit_outcome	1
