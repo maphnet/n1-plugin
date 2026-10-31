@@ -775,7 +775,7 @@ FAKEEOF
 
 run_bg_queue() { # <tmp> — runs the runner with the fakes first on PATH; prints its exit code
     local rc=0
-    env FAKE_DIR="$1/fake" FAKE_N1H="$1/n1home" N1_HOME="$1/n1home" PATH="$1/bin:$PATH" \
+    env -u ORCA_CLI_COMMAND FAKE_DIR="$1/fake" FAKE_N1H="$1/n1home" N1_HOME="$1/n1home" PATH="$1/bin:$PATH" \
         bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$1/queue.md" > "$1/output.txt" 2>&1 || rc=$?
     echo "$rc"
 }
@@ -952,6 +952,27 @@ test_orca_chain_after_settle() {   # fullAuto chain stays a bg n1-finish, launch
     assert_eq "orca-chain: exit 0" "0" "$(run_orca_queue "$tmp")"
     assert_eq "orca-chain: one chained n1-finish" "1" "$(grep -c '^launch n1-oq-T-A-1-fin$' <<< "$(cat "$tmp/fake/events" 2>/dev/null)" || true)"
     rm -rf "$tmp"
+}
+
+test_orca_fallback_bg() {   # AC5: Orca available but not used, or unusable -> claude --bg exactly as before
+    local tmp c rc want
+    for c in backend-bg run-create-fails runtime-down; do
+        tmp=$(mktemp -d); mk_bg "$tmp" bgq "T-A:working done"; mk_orca "$tmp"
+        case "$c" in
+            backend-bg) cfg_set "$tmp" '.queue.backend = "bg"'; rc=$(run_orca_queue "$tmp"); want=0 ;;
+            run-create-fails) rc=$(run_orca_queue "$tmp" FAKE_ORCA_RUN_FAIL=1); want=1 ;;
+            runtime-down) rc=$(run_orca_queue "$tmp" FAKE_ORCA_DOWN=1); want=1 ;;
+        esac
+        assert_eq "fallback $c: exit 0" "0" "$rc"
+        assert_eq "fallback $c: one bg launch" "1" "$(grep -c '^launch n1-bgq-T-A-1$' "$tmp/fake/events")"
+        assert_eq "fallback $c: bg prompt unchanged" "/n1:n1-start T-A" "$(cat "$tmp/fake/prompt.n1-bgq-T-A-1")"
+        assert_eq "fallback $c: row pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+        assert_eq "fallback $c: bg session id stored" "00000001" "$(n1_queue_session_id "$tmp/queue.md" T-A)"
+        assert_eq "fallback $c: no Orca Run" "" "$(n1_read_frontmatter "$tmp/queue.md" orca_run_id)"
+        assert_eq "fallback $c: no task or worker" "0" "$(grep -cE 'task-create|worker-start' "$tmp/fake/orca-calls" || true)"
+        assert_eq "fallback $c: notice said once" "$want" "$(grep -c 'using claude --bg' "$tmp/output.txt" || true)"
+        rm -rf "$tmp"
+    done
 }
 
 test_bg_sequential() {
@@ -3182,6 +3203,7 @@ test_orca_question_parks
 test_orca_resume_no_duplicate
 test_orca_worktree_name_taken
 test_orca_chain_after_settle
+test_orca_fallback_bg
 test_bg_awaiting
 test_bg_awaiting_oversized_question
 test_bg_awaiting_oversized_control_chars
