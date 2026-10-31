@@ -106,7 +106,7 @@ Then run § Resolve again with `<dev>` = `1` and `<stop>` = the `stop=` SHA and 
 
 ## § Tests
 
-After `resolve:ready`: run the project test suite in the current checkout, discovered as in Step 2b.3 (no test configuration found: note "no test suite detected" and continue). Non-zero exit → run `git reset -q --hard <old>` (nothing was pushed), report the failure output and "Tests fail after rebasing PR #<n> onto its base. The branch is back at the reviewed head. Resolve it yourself, then re-run `/n1:n1-finish`." **STOP.** Pass → § Push.
+After `resolve:ready`: run the project test suite in the current checkout, discovered the same way the qa-engineer does (project root: `package.json` `scripts.test`, `pytest.ini`, `pyproject.toml`, `setup.cfg`, `phpunit.xml`, `go.mod` → `go test ./...`, Makefile `test` target — first match wins; no test configuration found: note "no test suite detected" and continue). Non-zero exit → run `git reset -q --hard <old>` (nothing was pushed), report the failure output and "Tests fail after rebasing PR #<n> onto its base. The branch is back at the reviewed head. Resolve it yourself, then re-run `/n1:n1-finish`." **STOP.** Pass → § Push.
 
 ## § Push
 

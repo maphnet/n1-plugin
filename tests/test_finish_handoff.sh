@@ -12,6 +12,7 @@ lacks() { if grep -qE -- "$3" "$2" 2>/dev/null; then no "$1"; else ok "$1"; fi; 
 P=agents/tail-worker.md
 H=skills/n1-finish/steps/handoff.md
 M2=skills/n1-finish/steps/02-merge.md
+MOF=skills/n1-finish/references/merge-on-finish.md
 C6=skills/n1-finish/steps/06-cleanup.md
 FZ=skills/n1-start/procedures/finalize.md
 
@@ -32,9 +33,11 @@ for s in 'Implementation Summary' 'verdict \+ Evidence' 'local-testing\.md' 'tic
 done
 
 # 2. Gates stay in the orchestrator; the hand-off is reachable only after a merge.
-has "02: merge authorization re-check stays" "$M2" 'n1_merge_authorized'
-has "02: reviewed-head pin stays" "$M2" 'n1_review_pin'
-has "02: merge-head guard stays" "$M2" '--match-head-commit'
+# N1-228 moved the merge gates to merge-on-finish.md, which 02 reads in the orchestrator.
+has "02: routes the merge through merge-on-finish.md" "$M2" 'references/merge-on-finish\.md'
+has "merge-on-finish: merge authorization re-check stays" "$MOF" 'n1_merge_authorized'
+has "merge-on-finish: reviewed-head pin stays" "$MOF" 'n1_review_pin'
+has "merge-on-finish: merge-head guard stays" "$MOF" '--match-head-commit'
 has "02: STOPs clear the finish marker" "$M2" 'n1_active_run_clear_if n1-finish'
 has "01: finish marker armed in orchestrator" skills/n1-finish/steps/01-resolve-target.md 'n1_finish_mark'
 LAST=$(grep -E '^## ' "$M2" | tail -1)
