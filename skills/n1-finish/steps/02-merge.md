@@ -29,4 +29,4 @@ Evaluate the PR state:
 
 ## Hand-off
 
-With `handoff:yes`, every "Go to Step 3" or "Go to Step 4" above (the merge happened or was already done) runs `steps/handoff.md` instead of Steps 3-6; a **STOP** never hands off.
+With `handoff:yes`, every "Go to Step 3" or "Go to Step 4" above or in `references/merge-on-finish.md` and `references/local-merge.md` (the merge happened or was already done) runs `steps/handoff.md` instead of Steps 3-6; a **STOP** never hands off.
