@@ -441,7 +441,7 @@ def _command(payload):
     return command if isinstance(command, str) else None
 
 
-TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|containers_teardown|merge_authorized)\b|n1-release")
+TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|containers_teardown|merge_authorized|orca_rm)\b|n1-release|(\borca\b|ORCA_CLI_COMMAND)[^\n]*\bworktree\s+rm\b")
 
 
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:

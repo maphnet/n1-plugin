@@ -860,6 +860,7 @@ n1_workspace_decide() {
 # are force-removed; external ones only when clean and HEAD is in the merged result (oid, else <defaultBranch>),
 # never forced. Branch: tip must be an ancestor of the merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
 # After a removal the shell is left in the main checkout.
+# Orca-owned worktrees (n1_orca_owns) are removed through n1_orca_rm; ignored files do not block them (N1-224).
 n1_finish_cleanup() {
     local branch="${1:-}" oid="${2:-}" def="${3:-}"
     local gd gcd main top err cur st keep="" force=""
@@ -875,12 +876,18 @@ n1_finish_cleanup() {
         else
             # Only a positive match under the main checkout's N1 worktree root is N1-managed; everything else is external (never forced).
             case "$top" in "$main/$(n1_worktree_root)"/*) force="--force" ;; esac
+            # N1-224: an Orca-owned worktree is removed through Orca; ignored files (.env) do not block it.
+            local orca=""; [ -z "$force" ] && n1_orca_owns "$top" && orca=1
             if [ -z "$force" ]; then
                 if ! st=$(git status --porcelain --ignored 2>/dev/null) || [ -n "$(grep -v '^!!' <<<"$st")" ]; then keep="dirty"
-                elif [ -n "$st" ]; then keep="ignored files"
+                elif [ -n "$st" ] && [ -z "$orca" ]; then keep="ignored files"
                 elif ! git merge-base --is-ancestor HEAD "${oid:-refs/heads/$def}" 2>/dev/null; then keep="unmerged"; fi
             fi
             if [ -n "$keep" ]; then echo "worktree:kept ($keep)"
+            elif [ -n "$orca" ]; then
+                # No git fallback: removing behind Orca's back would desync its state.
+                if err=$(cd / && n1_orca_rm "$top"); then echo "worktree:removed"; cd "$main" 2>/dev/null || true
+                else keep="remove-failed"; echo "worktree:remove-failed (${err:-workspace manager error})"; fi
             elif err=$(cd / && "${G[@]}" worktree remove $force "$top" 2>&1); then echo "worktree:removed"; cd "$main" 2>/dev/null || true
             else keep="remove-failed"; echo "worktree:remove-failed (${err%%$'\n'*})"; fi
         fi

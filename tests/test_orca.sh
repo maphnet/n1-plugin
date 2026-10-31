@@ -205,6 +205,25 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do grep -q -- '--un
 has "Q1 (AC5): question pause sets unread even with desktop notify off" "--comment waiting: plan --unread" "$(calls)"
 rm -f "$N1_HOME/config.json" "$N1_HOME/active-run.s1.json"
 
+# ---- finish cleanup: Orca-owned worktrees (AC6) ----
+fin() {   # fin <path> <branch>: merged worktree with an ignored .env
+    git -C "$M" worktree add -q -b "$2" "$1" main
+    printf '.env\n' > "$1/.gitignore"; git -C "$1" add .gitignore; git -C "$1" commit -q -m "$2"
+    git -C "$M" merge -q --no-ff -m "m-$2" "$2"; echo secret > "$1/.env"
+}
+run_fc() { (cd "$1" && n1_finish_cleanup "$2" "$(git -C "$M" rev-parse "$2")" main) | paste -sd, -; }
+F1="$T/wts/fin1"; fin "$F1" fb1
+F2="$T/wts/fin2"; fin "$F2" fb2; echo x > "$F2/untracked"
+F3="$T/wts/fin3"; fin "$F3" fb3
+orca_list "$WO=X-4" "$F1" "$F2" "$F3"
+reset; eq "F1 (AC6): merged Orca worktree with .env removed" "worktree:removed,branch:deleted" "$(run_fc "$F1" fb1)"
+has "F1 (AC6): removed through the workspace manager" "worktree rm --worktree path:$F1 --json" "$(calls)"
+eq "F1 (AC6): dir gone" no "$([ -d "$F1" ] && echo yes || echo no)"
+reset; eq "F2: dirty Orca worktree kept" "worktree:kept (dirty),branch:kept (worktree kept)" "$(run_fc "$F2" fb2)"
+hasnt "F2: no removal call" "worktree rm" "$(calls)"
+eq "F3: Orca rm failure reported, no git fallback" "worktree:remove-failed (rm refused),branch:kept (worktree kept)" "$(FAKE_ORCA_RM_FAIL=1 run_fc "$F3" fb3)"
+eq "F3: dir kept" yes "$([ -d "$F3" ] && echo yes || echo no)"
+
 # ---- end ----
 if [ -e "$FAKE/bare" ]; then no "never bare orca" "$(cat "$FAKE/bare")"; else ok "never bare orca: no call reached an orca on PATH"; fi
 hasnt "selector current is never used" "--worktree current" "$(cat "$FAKE/all")"

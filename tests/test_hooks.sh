@@ -280,6 +280,11 @@ for c in "gh pr merge 12" "git push origin main" "source ~/.n1/preamble.sh; n1_f
     assert_eq "tail-worker denied with merge authorized: $c" 2 "$(tw_rc "$c")"
 done
 assert_eq "tail-worker plain command allowed" 0 "$(tw_rc "gh pr view 12")"
+# N1-224: the tail-worker never removes a workspace-manager worktree
+for c in "source ~/.n1/preamble.sh; n1_orca_rm /x" '"$ORCA_CLI_COMMAND" worktree rm --worktree path:/x' "orca worktree rm --worktree path:/x"; do
+    assert_eq "tail-worker denied workspace removal: $c" 2 "$(tw_rc "$c")"
+done
+assert_eq "tail-worker card status allowed" 0 "$(tw_rc 'source ~/.n1/preamble.sh; n1_orca_sync "finish: merged"')"
 # N1-159: a test runner piped into tail/head/grep and && chained into git commit hides the suite status
 PIPE_DENY=("evidence-N1-74|bash tests/run.sh 2>&1 | tail -2 && git add -A && git commit -m x"
            "evidence-N1-75|bash tests/test_manifests.sh | tail -2 && git add -A && git commit -m x"
