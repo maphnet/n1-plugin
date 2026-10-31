@@ -62,6 +62,8 @@ Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/renam
 
 **Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=start`, `TEXT` = title + description from ticket.md, `SELF_ID=<ID>`, `OVERVIEW=$N1_HOME/memory/<ID>/overview.md` (cached; skipped on resume and in queue children — resolved at plan time). **Stop** → end as above (`duplicate`), then end the run as the procedure says.
 
+**Blocker check** (mode=ticket only, an existing tracker ticket; after the duplicate check, before **Tracker status**): skip in a queue child. Read both with `printf 'QUEUE_RUN_ID=%s\nHEADLESS=%s\n' "${N1_QUEUE_RUN_ID:-}" "${N1_HEADLESS:-}"` after `source ~/.n1/preamble.sh`; the skip needs `N1_QUEUE_RUN_ID` set AND `N1_HEADLESS=1`, both (SEC-L2). Else follow `<N1_ROOT>/references/blocker-check.md` § Check with `ID=<ID>`, `CALLER=start`, then its § Report. **Stop** → end as above (`blocked`), then end the run; status untouched.
+
 **Tracker status** (mandatory, before any analysis dispatch; interactive runs and queue children alike): `moveStatus` → In Progress (skip if absent; warn and continue).
 
 `tracker.operations.addToSprint` (`n1_config_val`; only here; skip silently if empty): call with `<ID>` on `tracker.versionMcp` else `tracker.mcp`. `ok:true` → one overview.md `## Progress` line (`skipped` → say skipped); `ok:false` or tool error → warning line there (`reason`/`message`). Never prompt; non-fatal.
