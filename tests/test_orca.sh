@@ -149,6 +149,8 @@ noorca() { (unset ORCA_CLI_COMMAND; "$@"); }
 eq "B1: N1-22 does not match N1-224" no "$(yn _n1_id_in N1-22 n1-224-x)"
 eq "B2: branch token match is case-insensitive" yes "$(yn _n1_id_in N1-224 feat/n1-224-thing)"
 eq "B3: no match inside a longer token" no "$(yn _n1_id_in N1-224 xn1-224)"
+eq "B4: no match when letters follow the ID" no "$(yn _n1_id_in N1-224 feat/N1-224extra)"
+eq "B5: - and _ after the ID still match" yes "$(yn _n1_id_in N1-224 feat/N1-224_x)"
 
 eq "D1 (AC7): main, none, no Orca -> create-local" create-local "$(noorca dec "$M" Z-1)"
 reset; noorca dec "$M" Z-1 >/dev/null
@@ -175,6 +177,8 @@ eq "D7 (AC3): another ticket's worktree with commits -> ask" "ask $W6 feat/X-6-t
 eq "D7b (AC3): N1-managed worktree of another ticket -> ask (Gap 1 everywhere)" "ask $WN o1" "$(noorca dec "$WN" Y-7)"
 W8="$T/wts/w8"; wt "$W8" b8
 eq "D8 (AC3): fresh empty worktree -> stay silently" "stay $W8" "$(noorca dec "$W8" Y-8)"
+W8b="$T/wts/w8b"; wt "$W8b" b8b; echo wip > "$W8b/wip.txt"
+eq "D8b: fresh worktree with uncommitted work -> ask, not adopted" "ask $W8b b8b" "$(noorca dec "$W8b" Y-8)"
 mkdir -p "$N1_HOME/memory/Y-9"; printf -- '---\nworkspace_path: %s\n---\n' "$W6" > "$N1_HOME/memory/Y-9/overview.md"
 eq "D9: overview workspace_path points here -> stay" "stay $W6" "$(noorca dec "$W6" Y-9)"
 eq "D9b: overview workspace_path found from main -> reuse" "reuse $W6" "$(noorca dec "$M" Y-9)"
@@ -229,6 +233,13 @@ reset; eq "F2: dirty Orca worktree kept" "worktree:kept (dirty),branch:kept (wor
 hasnt "F2: no removal call" "worktree rm" "$(calls)"
 eq "F3: Orca rm failure reported, no git fallback" "worktree:remove-failed (rm refused),branch:kept (worktree kept)" "$(FAKE_ORCA_RM_FAIL=1 run_fc "$F3" fb3)"
 eq "F3: dir kept" yes "$([ -d "$F3" ] && echo yes || echo no)"
+F4="$M/$(n1_worktree_root)/fin4"; fin "$F4" fb4; echo x > "$F4/untracked"
+F5="$M/$(n1_worktree_root)/fin5"; fin "$F5" fb5
+orca_list "$WO=X-4" "$F4" "$F5"
+reset; eq "F4: dirty Orca worktree under the N1 root is kept, not forced" "worktree:kept (dirty),branch:kept (worktree kept)" "$(run_fc "$F4" fb4)"
+eq "F4: dir kept" yes "$([ -d "$F4" ] && echo yes || echo no)"
+reset; eq "F5: Orca worktree under the N1 root removed through Orca" "worktree:removed,branch:deleted" "$(run_fc "$F5" fb5)"
+has "F5: removal goes through the workspace manager" "worktree rm --worktree path:$F5 --json" "$(calls)"
 
 # ---- static wiring ----
 cd "$REPO_ROOT"
@@ -239,6 +250,7 @@ ln() { grep -n -m1 -F "$1" "$TK" | cut -d: -f1; }
 eq "W2b: no worktree creation before overview.md exists" yes "$(yn test -z "$(grep -F 'Ensure Worktree' "$TK")")"
 eq "W2c (CR-2): Assign values are read before the workspace step, which comes before the step close" yes \
     "$(yn test "$(ln 'n1_assign_gap_warn')" -lt "$(ln '**Workspace**')" -a "$(ln '**Workspace**')" -lt "$(ln 'n1_step_end "ticket" 1 success')")"
+has "W2e: Adopt Checkout syncs and links the card from inside the adopted checkout" '(cd "$WORKTREE_PATH" && n1_orca_sync "ticket: in progress"' "$(cat skills/n1-start/procedures/workspace-isolation.md)"
 has "W2d (CR-7): handoff snippet sets FRESH itself and gates the step pre-write on it" 'FRESH=<1|0>; [ "$FRESH" = 1 ] && n1_write_frontmatter' "$(cat skills/n1-start/procedures/workspace-ownership.md)"
 has "W3 (AC1): input parsing uses n1_parse_start_flags" "n1_parse_start_flags" "$(cat skills/n1-start/procedures/input-parsing.md)"
 has "W4 (AC5): n1-pr marks the card in review" 'n1_orca_sync "pr: opened" --status in-review' "$(cat skills/n1-pr/steps/02-push-create.md)"
