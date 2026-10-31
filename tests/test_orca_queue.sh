@@ -160,6 +160,20 @@ printf -- '---\nstep: escalated\n---\n' > "$OV"
 reset; stop
 has "stop: escalated child reports failed" "--outcome failed" "$(calls)"
 
+# --- Task 4: child ask ---
+QF="$Q/.question-T-1.json"
+printf '{"ticket":"T-1","step":"plan","category":"design","question":"Pick a DB?","options":["A","B, or C"],"recommended":"A","rationale":"x"}' > "$QF"
+reset
+eq "ask: answer" "answer:Use B" "$(n1_orca_ask "$QF")"
+has "ask: self-contained question" "--question T-1 plan: Pick a DB?" "$(calls)"
+has "ask: options plus stop option, commas neutralised" "--options A,B; or C,Stop this ticket" "$(calls)"
+eq "ask: timeout -> pending id" "pending:m-7" "$(FAKE_ASK=pending n1_orca_ask "$QF")"
+reset; FAKE_ASK=pending n1_orca_ask "$QF" m-7 >/dev/null
+has "ask: resume by message id" "--resume m-7" "$(calls)"
+eq "ask: CLI error -> failed" failed "$(FAKE_ASK=error n1_orca_ask "$QF")"
+has "skill: ask-mode Orca branch" 'n1_orca_ask "<QUESTION_FILE>"' "$(cat "$REPO_ROOT/skills/n1-start/procedures/autonomy-headless.md")"
+has "preamble: loads orca-queue.sh" 'lib/orca-queue.sh' "$(cat "$REPO_ROOT/lib/preamble.sh")"
+
 # --- summary (later tasks insert their sections above this line) ---
 eq "no bare orca call" "" "$(cat "$FAKE/bare" 2>/dev/null)"
 [ "$FAIL" = 0 ] && echo "ALL PASS" || echo "SOME FAILED"

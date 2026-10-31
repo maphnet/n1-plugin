@@ -193,3 +193,27 @@ n1_orca_worker_done() {
     n1_orca "${a[@]}" >/dev/null 2>&1 && printf '%s\n' "$N1_ORCA_DISPATCH" > "$sent"
     return 0
 }
+
+n1_orca_ask() {
+    # Usage: n1_orca_ask <question-file> [message-id] — Orca queue child (N1_ORCA_RUN set): put the ask-mode
+    # QUESTION_FILE to the coordinator and wait up to 9 minutes (under the 10-minute command cap).
+    # Prints answer:<text> | pending:<message-id> (unanswered so far: call again with that id) | failed.
+    local out ans id a
+    if [ -n "${2:-}" ]; then
+        a=(orchestration ask --resume "$2")
+    else
+        [ -f "$1" ] || { echo failed; return 1; }
+        a=(orchestration ask --question "$(jq -r '"\(.ticket) \(.step): \(.question)"' "$1" 2>/dev/null)"
+           --options "$(jq -r '((.options // []) + ["Stop this ticket"]) | map(gsub(","; ";")) | join(",")' "$1" 2>/dev/null)")
+    fi
+    out=$(N1_ORCA_TIMEOUT=570 n1_orca "${a[@]}" --timeout-ms 540000)
+    ans=$(jq -r '.result.answer // .result.reply.body // .result.body // empty' <<<"$out" 2>/dev/null)
+    if [ -n "$ans" ]; then printf 'answer:%s\n' "$ans"; return 0; fi
+    id=$(jq -r '.result.messageId // .result.message.id // .error.data.messageId // empty' <<<"$out" 2>/dev/null)
+    id="${id:-${2:-}}"
+    if _n1_orca_id "$id" && jq -e '.ok == true or ((.error.code // "") | test("timeout"; "i"))' <<<"$out" >/dev/null 2>&1; then
+        printf 'pending:%s\n' "$id"; return 0
+    fi
+    echo failed
+    return 1
+}
