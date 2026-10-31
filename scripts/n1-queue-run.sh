@@ -179,6 +179,11 @@ finalize() {
     # NP-216 AC3 safety net: every failed/deferred Runs row must carry a non-empty
     # reason. Call sites should already pass one; this is the last line of defense.
     [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="unspecified-failure"
+    # N1-240: snapshot the escalation state chain_finish needs before the files below are removed.
+    CHAIN_ESC=""
+    chain_child_escalated "$TICKET" "$N1H" && CHAIN_ESC="$TICKET"
+    # Persist it too: a runner restart loses CHAIN_ESC and the question files are removed below.
+    if [ -n "$CHAIN_ESC" ]; then : > "$N1_QUEUE_DIR/.escalated-$TICKET"; else rm -f "$N1_QUEUE_DIR/.escalated-$TICKET"; fi
     rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM"
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
@@ -483,19 +488,40 @@ chain_reconcile() {
     return 0
 }
 
+CHAIN_ESC=""   # set by finalize (ticket id) before it removes the question file
+
+# chain_child_escalated <ticket> <n1-home> — exit 0 when the child has a pending escalation: an unanswered
+# mirrored question (no relay marker, or the question newer than it), or more "- [headless]" escalation
+# entries in its overview than answered ask-mode ledger rows. Stopping such a child would pre-empt the
+# human's answer and let the chain merge past a stop-list gate (N1-240 SEC-1). Fails closed.
+chain_child_escalated() {
+    local qf="$N1_QUEUE_DIR/.question-$1.json" rf="$N1_QUEUE_DIR/.relay-$1" ov="$2/memory/$1/overview.md"
+    [ -e "$N1_QUEUE_DIR/.escalated-$1" ] && return 0   # persisted by finalize, reset by its next run
+    if [ -e "$qf" ] && { [ ! -e "$rf" ] || [ "$qf" -nt "$rf" ]; }; then return 0; fi
+    [ -f "$ov" ] || return 1
+    # Per step: an escalation line "- [headless] <step>: ..." needs its own ask-mode answer row
+    # "| <step> | headless | ... | headless: ask-mode answer |"; a step with more entries than rows is pending,
+    # so extra rows of one step cannot hide another step's escalation.
+    awk '/^- \[headless\] /{s=$3; sub(/:$/,"",s); e[s]++}
+        /^\|[^|]*\| *headless *\|.*\| *headless: ask-mode answer *\|/{split($0,f,"|"); s=f[2]; gsub(/^ +| +$/,"",s); a[s]++}
+        END{for(s in e) if(e[s]>a[s]) exit 0; exit 1}' "$ov" 2>/dev/null
+}
+
 # chain_finish <num> <ticket> <repo> <n1-home> <model> <pr-url> — the deterministic fullAuto chain.
-# No-op unless chain_authorized. Waits for the child session to go idle (it may still run CI watch or
+# No-op unless chain_authorized. Waits for the child session to go idle (a child blocked for BG_POLL_GRACE polls is stopped; it may still run CI watch or
 # its own prose chain), skips when the PR is already MERGED or not OPEN, else launches a bg
 # `n1-finish <ticket> chained` session and waits for it. Blocking on purpose: the next child must
 # branch from the merged default branch. .chained-<ticket> (line 1 run id, line 2 pending|launched|done) is
 # written before the gh check, so the chain is evaluated once per run, also across a runner restart; a
 # restart finding it pending (launch intended, not confirmed) relaunches for a still-OPEN PR. The runner never
 # merges: n1-finish merges only at the reviewed pin, and the merge-deny hook still applies.
+# Every exit writes a "[NUM] TICKET chain: ..." line to runner.log (N1-240).
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
-    local marker csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 asked="" why=finish-timeout
-    case "$TICKET" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
-    chain_authorized "$N1H" || return 0
+    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" why=finish-timeout
+    # N1-240: every exit writes a runner.log line. The raw id is not echoed (it failed validation).
+    case "$TICKET" in ''|*[!A-Za-z0-9_-]*) echo "[$NUM] chain: skipped (invalid-ticket-id)"; return 0 ;; esac
+    chain_authorized "$N1H" || { echo "[$NUM] $TICKET chain: skipped (chain_authorized=false)"; return 0; }
     marker="$N1_QUEUE_DIR/.chained-$TICKET"
     poll=$(n1_queue_val pollSeconds)
     mark() { printf '%s\n%s\n' "$RUN_ID" "$1" > "$marker"; }
@@ -503,8 +529,9 @@ chain_finish() {
         # Chain already evaluated this run (restart): never launch a second finish for a confirmed launch;
         # reconcile an orphaned -fin session. Only a marker still "pending" (crash between the marker and
         # the confirmed launch) with an OPEN PR and no live session falls through to launch the owed finish.
-        chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll" "$(sed -n 2p "$marker" 2>/dev/null)"
-        [ $? -eq 10 ] || return 0
+        mstate=$(sed -n 2p "$marker" 2>/dev/null)
+        chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll" "$mstate" || rc=$?
+        [ "$rc" -eq 10 ] || { echo "[$NUM] $TICKET chain: already evaluated (marker=${mstate:-unknown})"; return 0; }
     else
     csid=$(n1_queue_session_id "$QUEUE" "$TICKET")
     while true; do
@@ -512,15 +539,43 @@ chain_finish() {
             drain_stop "$agents"
             [ -n "$csid" ] || break
             case "$(n1_queue_bg_state "$agents" "$csid")" in
-                working|blocked) idle=0 ;;
-                missing) idle=$((idle + 1)); [ "$idle" -ge "$BG_POLL_GRACE" ] && break ;;
+                working) idle=0; blk=0 ;;
+                blocked)
+                    # N1-240: a child parked on a question after its PR never goes idle on its own; waiting
+                    # would end in finish-child-busy. Stop it and chain only when the block is benign: a
+                    # pending escalation keeps the row awaiting-human, and the stop must be confirmed
+                    # (re-read up to BG_POLL_GRACE times, the stop is not instantaneous) before n1-finish launches.
+                    idle=0
+                    if [ "$CHAIN_ESC" = "$TICKET" ] || chain_child_escalated "$TICKET" "$N1H"; then
+                        chain_note "$NUM" "$TICKET" child-escalated; return 0
+                    fi
+                    blk=$((blk + 1))
+                    if [ "$blk" -ge "$BG_POLL_GRACE" ]; then
+                        bash -c "$(n1_bg_cmd stop "$csid")" >/dev/null 2>&1
+                        for ((chk = 0; chk < BG_POLL_GRACE; chk++)); do
+                            if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1 \
+                                && case "$(n1_queue_bg_state "$agents" "$csid")" in working|blocked) false ;; esac; then
+                                stopped=1; break
+                            fi
+                            sleep "$poll"
+                        done
+                        [ "$stopped" = 1 ] || { chain_note "$NUM" "$TICKET" child-stop-failed; return 0; }
+                        echo "[$NUM] $TICKET chain: stopped blocked child ($csid)"
+                        break
+                    fi ;;
+                missing) blk=0; idle=$((idle + 1)); [ "$idle" -ge "$BG_POLL_GRACE" ] && break ;;
                 *) break ;;
             esac
         fi
         [ "$waited" -ge "$TIMEOUT_SECS" ] && { chain_note "$NUM" "$TICKET" finish-child-busy; return 0; }
         sleep "$poll"; waited=$((waited + poll))
     done
-    mark pending || return 0
+    # N1-240 SEC-1: every exit of the wait loop (no session id, missing, done, failed, stopped) and the restart
+    # sweep pass here; a child with a pending escalation is never chained, whatever state it reports.
+    if [ "$CHAIN_ESC" = "$TICKET" ] || chain_child_escalated "$TICKET" "$N1H"; then
+        chain_note "$NUM" "$TICKET" child-escalated; return 0
+    fi
+    mark pending || { chain_note "$NUM" "$TICKET" marker-write-failed; return 0; }
     fi
     st=$(n1_queue_pr_state "$URL")
     case "$st" in

@@ -708,6 +708,12 @@ case "$1" in
                 fi
             fi
             sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
+            # stopeffective: a stopped session reports done afterwards (default: the stop has no effect).
+            # stoplag: N (file content) agents reads after the stop still report the old state.
+            if [ -f "$D/stopeffective" ] && grep -qx "$sid" "$D/stopped" 2>/dev/null; then
+                lagn=$(cat "$D/stoplag" 2>/dev/null || echo 0)
+                if [ "$lagn" -gt 0 ]; then echo $((lagn - 1)) > "$D/stoplag"; else st=done; fi
+            fi
             out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
         done
         echo "[$out]"
@@ -1472,7 +1478,106 @@ test_bg_chain_missing_is_busy() {
     rm -rf "$tmp"
 }
 
+# N1-240: a child parked blocked after its PR (it asked instead of ending) is stopped after
+# BG_POLL_GRACE blocked polls and its PR chained; a child still working at the timeout keeps
+# finish-child-busy and no marker (retry-safe, unchanged). overview.T-A.2 lands step pr on poll 2.
+test_bg_chain_blocked_child() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working blocked"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A.2" 1
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A" "$tmp/fake/stopeffective"
+    assert_eq "chain-blocked: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-blocked: blocked child stopped" yes \
+        "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)"
+    assert_eq "chain-blocked: stop logged" 1 \
+        "$(grep -cF '[1] T-A chain: stopped blocked child (00000001)' "$tmp/output.txt" || true)"
+    assert_eq "chain-blocked: one finish launch" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-blocked: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "chain-blocked: never finish-child-busy" 0 "$(grep -cF 'finish-child-busy' "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working working"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A.2" 1
+    assert_eq "chain-working: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-working: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-working: reason finish-child-busy" "finish:finish-child-busy" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "chain-working: no marker" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
+    assert_eq "chain-working: chain never stops a working child" no \
+        "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-240 SEC-1/SEC-2/SEC-3 CR-1: a child with a pending escalation (question file or overview entry) is never
+# stopped or chained, whatever state it reports; a stop that does not take effect launches no finish; a lagging
+# stop is re-read; balanced and multi-row-per-step escalation ledgers are counted per step.
+test_bg_chain_blocked_guards() {
+    local tmp case_ states esc ans row
+    esc='- [headless] pr: stop?, options: a, b (blocked-move: moved)'
+    row='| pr | headless | S | [asked] | q | a | b | headless: ask-mode answer | --- |'
+    for case_ in escalated stopfail ov-blocked ov-done ov-multirow balanced lag marker; do
+        tmp=$(mktemp -d)
+        states="T-A:working blocked"
+        [ "$case_" = ov-done ] && states="T-A:working done"
+        
+        mk_bg "$tmp" bgq "$states"
+        chain_setup "$tmp" true true
+        gh_overview "$tmp/fake/overview.T-A.2" 1
+        gh_overview "$tmp/fake/overview.T-A" 1
+        echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+        case "$case_" in
+            escalated) echo '{"question":"stop?"}' > "$tmp/.question-T-A.json" ;;
+            marker) : > "$tmp/.escalated-T-A" ;; # restart lost CHAIN_ESC and the question files are gone
+            ov-blocked|ov-done) for f in overview.T-A.2 overview.T-A; do printf '%s\n' "$esc" >> "$tmp/fake/$f"; done ;;
+            ov-multirow) # step pr answered twice, a second step still pending
+                for f in overview.T-A.2 overview.T-A; do printf '%s\n%s\n%s\n%s\n%s\n' "$esc" "$row" "$row" "- [headless] plan: x, options: y (blocked-move: moved)" "" >> "$tmp/fake/$f"; done ;;
+            balanced) for f in overview.T-A.2 overview.T-A; do printf '%s\n%s\n' "$esc" "$row" >> "$tmp/fake/$f"; done; touch "$tmp/fake/stopeffective" ;;
+            lag) touch "$tmp/fake/stopeffective"; echo 2 > "$tmp/fake/stoplag" ;;
+        esac
+        assert_eq "chain-$case_: exit 0" 0 "$(run_bg_queue "$tmp")"
+        case "$case_" in
+            balanced|lag)
+                assert_eq "chain-$case_: one finish launch" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+                assert_eq "chain-$case_: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)" ;;
+            *)
+                assert_eq "chain-$case_: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+                assert_eq "chain-$case_: no marker" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
+                assert_eq "chain-$case_: never logs stopped" 0 "$(grep -cF 'stopped blocked child' "$tmp/output.txt" || true)" ;;
+        esac
+        case "$case_" in
+            escalated|marker|ov-*)
+                assert_eq "chain-$case_: reason" "finish:child-escalated" "$(plan_cell "$tmp/queue.md" 1 9)"
+                [ "$case_" = ov-done ] || assert_eq "chain-$case_: child not stopped" no "$(grep -qxF 00000001 "$tmp/fake/stopped" 2>/dev/null && echo yes || echo no)" ;;
+            stopfail) assert_eq "chain-stopfail: reason" "finish:child-stop-failed" "$(plan_cell "$tmp/queue.md" 1 9)" ;;
+        esac
+        rm -rf "$tmp"
+    done
+    # TQ-1: the marker-write-failed exit (marker path is a directory) and the already-evaluated exit.
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    mkdir "$tmp/.chained-T-A"
+    assert_eq "chain-markerfail: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-markerfail: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-markerfail: reason" "finish:marker-write-failed" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+    # TQ-2: restart sweep, no marker, escalated overview, child done: no finish launch.
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched; rm -f "$tmp/.chained-T-A"
+    printf '%s\n' "$esc" >> "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "chain-restart-escalated: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-restart-escalated: no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "chain-restart-escalated: no marker" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); chain_restart_setup "$tmp" launched
+    assert_eq "chain-evaluated: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "chain-evaluated: logged" 1 "$(grep -cF '[1] T-A chain: already evaluated (marker=launched)' "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
 # AC2: either flag off -> behaviour unchanged (stops at PR, no finish session).
+# N1-240 AC4: the chain_authorized=false exit writes a runner.log line.
 test_bg_chain_flags_off() {
     local tmp combo
     for combo in "false true" "true false"; do
@@ -1485,6 +1590,8 @@ test_bg_chain_flags_off() {
         assert_eq "chain-off ($combo): no finish launch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
         assert_eq "chain-off ($combo): outcome pr" pr "$(runs_outcome "$tmp/queue.md" T-A)"
         assert_eq "chain-off ($combo): PR left open" OPEN "$(cat "$tmp/fake/gh-state")"
+        assert_eq "chain-off ($combo): skip logged" 1 \
+            "$(grep -cF '[1] T-A chain: skipped (chain_authorized=false)' "$tmp/output.txt" || true)"
         rm -rf "$tmp"
     done
 }
@@ -2821,6 +2928,8 @@ test_bg_chain_pr_state_unreadable
 test_bg_chain_flags_off
 test_bg_chain_finish_stops
 test_bg_chain_missing_is_busy
+test_bg_chain_blocked_child
+test_bg_chain_blocked_guards
 test_bg_chain_restart
 test_bg_chain_reconcile
 test_runner_lock_atomic

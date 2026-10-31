@@ -173,6 +173,16 @@ assert_contains "finish: merge only through the fullAuto chain (N1-185)" \
 assert_contains "finalize: chain is the last block, after Gate 3" \
     "skills/n1-start/procedures/finalize.md" \
     '**Chain** (last, after Gate 3; do not yield first)'
+# N1-240 — the end-of-run merge path is printed from n1_merge_authorized, never from prose; no merge question
+assert_contains "finalize: merge path line from n1_merge_authorized (N1-240)" \
+    "skills/n1-start/procedures/finalize.md" \
+    'echo "Merge path: n1_merge_authorized=$(n1_merge_authorized) n1_fullauto_enabled=$(n1_fullauto_enabled)"'
+assert_contains "finalize: no merge question after the chain (N1-240)" \
+    "skills/n1-start/procedures/finalize.md" \
+    'Otherwise end: no merge question, no wait.'
+assert_contains "finish: merge hint is a statement, never a question (N1-240)" \
+    "skills/n1-start/steps/finish.md" \
+    'State it, never ask it or wait for a reply'
 assert_contains "n1-ci: never chains into n1-finish or release" \
     "skills/n1-ci/steps/01-monitor.md" \
     'never chains into n1-finish or release'

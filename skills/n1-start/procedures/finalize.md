@@ -25,4 +25,4 @@ n1_active_run_clear
 
 **Emit Gate 3** (`procedures/output-gates.md § Gate 3`): print `$N1_HOME/memory/$ID/gate3.md` verbatim.
 
-**Chain** (last, after Gate 3; do not yield first): only if `$FINAL_OUTCOME` is `pr_created`/`pr_skipped`, `source ~/.n1/preamble.sh; n1_fullauto_enabled` prints `true`, and CI passed, had no checks, or was skipped — never after failed or escalated CI — invoke skill `n1-finish` with args `<ID> chained` (never n1-release).
+**Chain** (last, after Gate 3; do not yield first): run `source ~/.n1/preamble.sh; echo "Merge path: n1_merge_authorized=$(n1_merge_authorized) n1_fullauto_enabled=$(n1_fullauto_enabled)"` and print its line verbatim (never state fullAuto/mergeOnFinish from memory). Then only if `$FINAL_OUTCOME` is `pr_created`/`pr_skipped`, it shows `n1_fullauto_enabled=true`, and CI passed, had no checks, or was skipped — never after failed or escalated CI — invoke skill `n1-finish` with args `<ID> chained` (never n1-release). Otherwise end: no merge question, no wait.
