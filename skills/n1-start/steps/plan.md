@@ -29,8 +29,9 @@ Spawn with `$PLANNER_MODEL` and `$PLANNER_EFFORT`:
 - "Do NOT include any `REQUIRED SUB-SKILL` execution directive in the plan body."
 - Append `$RULES_BLOCK` if non-empty.
 
-After return: record 2-3 sentence approach summary in `## Key Decisions`, then:
+After return:
 ```bash
 source ~/.n1/preamble.sh
+n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "Plan: <2-3 sentence approach summary; no quotes, backticks or $>"
 n1_step_end "plan" 4 success
 ```

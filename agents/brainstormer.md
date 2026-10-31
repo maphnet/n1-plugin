@@ -66,6 +66,7 @@ Document your questions and answers — these become the "Clarifying Questions" 
 - **C — nice-to-have:** answer silently from convention; record an `[auto]` ledger row; `rungs_tried` is `---`.
 
 Ledger rows append to the `## Decision Ledger` table in `$N1_HOME/memory/<ID>/overview.md` per `skills/n1-start/ledger.md`, step `brainstorm`, category `design`.
+Auto-decided answers and the selected approach go to the Decision Ledger (and `## Key Decisions`), never `## Escalations`: the queue runner treats that section as human-needed and alerts the user.
 
 ### 3. Approach Generation
 

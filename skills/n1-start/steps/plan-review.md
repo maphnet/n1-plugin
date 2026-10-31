@@ -27,9 +27,10 @@ Output: `## Plan Review Result` / `**Verdict:** CLEAN | FIXED` / `**Changes:**` 
 
 #### After CCR returns:
 
-- Record the CCR verdict: if verdict is FIXED, the plan file was updated in-place by the reviewer. Record the plan-review verdict and a one-line summary of changes in overview's `## Key Decisions` — durable traceability that survives a resume, rather than living only in transient orchestrator context.
+- Record the verdict in `## Key Decisions` (never `## Escalations`):
 
 ```bash
 source ~/.n1/preamble.sh
+n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "Plan review: <CLEAN|FIXED> - <one-line change summary; no quotes, backticks or $>"
 n1_step_end "plan-review" 5 success '{"verdict":"<CLEAN|FIXED>"}'
 ```
