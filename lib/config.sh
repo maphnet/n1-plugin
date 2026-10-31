@@ -817,6 +817,8 @@ n1_find_workspace() {
     if [ -n "$wp" ] && [ "$wp" != "$main" ] && [ -d "$wp" ] && grep -qxF "worktree $wp" <<<"$list"; then printf '%s\n' "$wp"; return 0; fi
     if n1_orca_active; then
         p=$(n1_orca reference find "$id" | jq -r 'first(.result | .. | objects | .path? | strings) // empty' 2>/dev/null)
+        # N1-224 SEC-2: the lookup may be fuzzy; accept only a folder named <ID>, else fall through to the exact name match.
+        [ "$(printf '%s' "${p##*/}" | tr '[:upper:]' '[:lower:]')" = "$lid" ] || p=""
         [ -n "$p" ] || p=$(n1_orca worktree list | jq -r --arg l "$lid" 'first(.result.worktrees[]? | select(.isMainWorktree != true)
             | select((.path | split("/") | last | ascii_downcase) == $l or ((.displayName // "") | ascii_downcase) == $l) | .path) // empty' 2>/dev/null)
         if [ -n "$p" ] && [ "$p" != "$main" ] && [ -d "$p" ] && grep -qxF "worktree $p" <<<"$list"; then printf '%s\n' "$p"; return 0; fi
