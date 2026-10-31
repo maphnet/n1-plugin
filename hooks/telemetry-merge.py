@@ -30,8 +30,9 @@ STATIC_MAP = {
 }
 
 
-# Orchestrator context window by model-id prefix (N1-199 F4). The transcript carries no window
-# field; unknown models stay null rather than guessed.
+# Orchestrator context window by model-id prefix (N1-199 F4). A lookup, not a measurement: the
+# transcript carries no window field and the model id is the same for any window size, so the
+# value is flagged context_window_source="model_prefix_lookup". Unknown models stay null.
 CONTEXT_WINDOWS = {"claude-opus-5": 1_000_000, "claude-sonnet-5": 1_000_000}
 
 
@@ -225,7 +226,7 @@ def _assistant_records(records: list[dict]):
         msg = rec.get('message')
         if rec.get('type') != 'assistant' or not isinstance(msg, dict):
             continue
-        key = msg.get('id') or index
+        key = msg.get('id') if isinstance(msg.get('id'), str) and msg.get('id') else index
         previous = messages.get(key, {}).get('message', {})
         tools = {block.get('id'): block for block in previous.get('content', []) + (msg.get('content') or [])
                  if isinstance(block, dict) and block.get('type') == 'tool_use'}
@@ -260,7 +261,7 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
                 "cache_creation_tokens": u.get("cache_creation_input_tokens") or 0,
                 "tools": tools,
                 "sidechain": bool(rec.get("isSidechain")),
-                "model": msg.get("model"),
+                "model": msg.get("model") if isinstance(msg.get("model"), str) else None,
                 "context": (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
                            + (u.get("cache_creation_input_tokens") or 0),
             })
@@ -269,12 +270,17 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
         # n1-finish run after it, so the finish window runs to the last transcript message.
         # ponytail: unbounded to the transcript end; a later manual re-merge would also absorb
         # post-run turns of the same session. Add a Stop-time bound if re-merges become routine.
+        # The extension stops where a later step (release) really begins.
         last_ts = max((m["ts"] for m in messages), default="")
         for step in steps:
             end = step.get("completed_at")
-            if step.get("step") == "finish" and end and last_ts[:19] > end[:19]:
-                step.update(completed_at=last_ts, window_extended=True,
-                            duration_s=_duration(step.get("started_at"), last_ts))
+            if step.get("step") == "finish" and end and step.get("started_at"):
+                later = [o["started_at"] for o in steps if o is not step and o.get("started_at")
+                         and o["started_at"][:19] > end[:19]]
+                new_end = min([last_ts] + later)
+                if new_end[:19] > end[:19]:
+                    step.update(completed_at=new_end, window_extended=True,
+                                duration_s=_duration(step.get("started_at"), new_end))
 
         # Context fields describe the orchestrator's own window, so sidechain
         # (subagent) records are skipped. prev_context = context just before.
@@ -341,8 +347,10 @@ def parse_orchestrator_transcript(path: str, steps: list[dict],
         model = models.most_common(1)[0][0] if models else None
         return {"steps": step_entries, "unattributed": unattributed, "totals": _usage(messages),
                 "tail": tail, "model": model, "context_window": context_window_for(model),
+                "context_window_source": "model_prefix_lookup" if context_window_for(model) else None,
                 "compactions": compactions, "parse_error": None}
-    except OSError:
+    except (OSError, TypeError, ValueError, AttributeError):
+        # Malformed transcript fields degrade to parse_error rather than abort the merge (SEC-1).
         return {"steps": [], "unattributed": None, "totals": None,
                 "parse_error": "orchestrator_transcript_parse_failed"}
 
