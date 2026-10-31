@@ -139,6 +139,43 @@ has "H20 (AC2): launch by path selector" "agent launch --worktree path:$WO --age
 eq "H21: inactive runtime -> failed" "handoff:failed (workspace manager inactive)" "$(FAKE_ORCA_DOWN=1 n1_orca_handoff X-1 "" create)"
 rm -f "$N1_HOME/config.json"
 
+# ---- ownership + decision (lib/config.sh) ----
+orca_list "$WO=X-4"
+dec() { local d="$1"; shift; (cd "$d" && n1_workspace_decide "$@"); }
+noorca() { (unset ORCA_CLI_COMMAND; "$@"); }
+eq "B1: N1-22 does not match N1-224" no "$(yn _n1_id_in N1-22 n1-224-x)"
+eq "B2: branch token match is case-insensitive" yes "$(yn _n1_id_in N1-224 feat/n1-224-thing)"
+eq "B3: no match inside a longer token" no "$(yn _n1_id_in N1-224 xn1-224)"
+
+eq "D1 (AC7): main, none, no Orca -> create-local" create-local "$(noorca dec "$M" Z-1)"
+reset; noorca dec "$M" Z-1 >/dev/null
+eq "D1 (AC7): no Orca -> zero CLI calls" "" "$(calls)"
+eq "D2 (AC1): main, none, Orca -> handoff-create" handoff-create "$(dec "$M" Z-2)"
+eq "D2b: headless never hands off" create-local "$(N1_HEADLESS=1 dec "$M" Z-2)"
+eq "D2c: queue child never hands off" create-local "$(N1_QUEUE_RUN_ID=q1 dec "$M" Z-2)"
+eq "D2d: --no-handoff never hands off" create-local "$(dec "$M" Z-2 --no-handoff)"
+eq "D2e (AC7): runtime down -> create-local" create-local "$(FAKE_ORCA_DOWN=1 dec "$M" Z-2)"
+W3="$T/wts/X-3"; wt "$W3" maphskiy/fox; commit "$W3"
+eq "D3: main + git worktree named like the ticket -> reuse" "reuse $W3" "$(noorca dec "$M" X-3)"
+eq "D3b: found worktree not registered in Orca -> plain reuse" "reuse $W3" "$(dec "$M" X-3)"
+eq "D4 (AC2): main + Orca workspace by display name -> handoff-launch" "handoff-launch $WO" "$(dec "$M" X-4)"
+eq "D4b (AC2): headless reuses the path" "reuse $WO" "$(N1_HEADLESS=1 dec "$M" X-4)"
+eq "D4c: N1-managed worktree found by basename -> reuse" "reuse $WN" "$(dec "$M" OTHER-1)"
+eq "D5: inside a worktree named like the ticket -> stay" "stay $W3" "$(noorca dec "$W3" X-3)"
+eq "D5b (AC2): inside the Orca workspace (display name) -> stay" "stay $WO" "$(dec "$WO" X-4)"
+W6="$T/wts/w6"; wt "$W6" feat/X-6-thing; commit "$W6"
+eq "D6: branch contains the ID -> stay" "stay $W6" "$(noorca dec "$W6" X-6)"
+eq "D7 (AC3): another ticket's worktree with commits -> ask" "ask $W6 feat/X-6-thing" "$(noorca dec "$W6" Y-7)"
+eq "D7b (AC3): N1-managed worktree of another ticket -> ask (Gap 1 everywhere)" "ask $WN o1" "$(noorca dec "$WN" Y-7)"
+W8="$T/wts/w8"; wt "$W8" b8
+eq "D8 (AC3): fresh empty worktree -> stay silently" "stay $W8" "$(noorca dec "$W8" Y-8)"
+mkdir -p "$N1_HOME/memory/Y-9"; printf -- '---\nworkspace_path: %s\n---\n' "$W6" > "$N1_HOME/memory/Y-9/overview.md"
+eq "D9: overview workspace_path points here -> stay" "stay $W6" "$(noorca dec "$W6" Y-9)"
+eq "D9b: overview workspace_path found from main -> reuse" "reuse $W6" "$(noorca dec "$M" Y-9)"
+M2="$T/m2"; git init -q -b main "$M2"; git -C "$M2" commit -q --allow-empty -m init; git -C "$M2" worktree add -q -b b10 "$T/w10" main
+eq "D10: no origin ref -> local default fallback" "stay $T/w10" "$(noorca dec "$T/w10" Y-10)"
+eq "D11: --elsewhere skips the ownership check" create-local "$(noorca dec "$W6" Y-7 --elsewhere)"
+
 # ---- end ----
 if [ -e "$FAKE/bare" ]; then no "never bare orca" "$(cat "$FAKE/bare")"; else ok "never bare orca: no call reached an orca on PATH"; fi
 hasnt "selector current is never used" "--worktree current" "$(cat "$FAKE/all")"
