@@ -77,8 +77,13 @@ test_escalated_dedupe() {
     ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="Pick A or B"
     ev "$q" R1 answer_delivered ticket=T-1 session=0000abcd
     ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="Pick A or B"
+    ev "$q" R1 unblocked ticket=T-3 session=0000abcd
+    ev "$q" R1 escalated ticket=T-3 session=0000abcd reason="stale"
+    ev "$q" R1 unblocked ticket=T-3 session=0000abcd
+    ev "$q" R1 escalated ticket=T-3 session=0000abcd reason="stale"
     ev "$q" R1 queue_done reason="0 PR"
     out=$(watch 10 "$q" R1 "$$" 0)
+    assert_eq "dedupe: unblocked resets, identical re-block relays" "2" "$(grep -cF 'T-3 needs you: stale' <<<"$out")"
     assert_eq "dedupe: same ticket+reason relayed once" "1" "$(grep -cF 'T-1 needs you: Plan review: FIXED' <<<"$out")"
     assert_eq "dedupe: other ticket, same reason relayed" "1" "$(grep -cF 'T-2 needs you: Plan review: FIXED' <<<"$out")"
     assert_eq "dedupe: re-asked after answer relays again" "2" "$(grep -cF 'T-1 needs you: Pick A or B' <<<"$out")"

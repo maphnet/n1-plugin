@@ -100,7 +100,7 @@ ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 # it survives the file's later removal by n1_queue_answer/the child on resume. events.jsonl's
 # reason field is already free text; this just widens what it can hold, as JSON, via jq -c.
 escalate() {
-    local sid q qfile qfull reason mark
+    local sid q qfile qfull reason mark key
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md")
     reason="$q"
@@ -137,10 +137,13 @@ escalate() {
     # marker write only risks a duplicate, never a lost escalation. The marker keys on the stable
     # overview text $q, not the packed reason (the mirrored question file is gone by drain time).
     # A crash between the marker write and the emit would lose that escalation (accepted).
-    if [ -n "$mark" ] && [ -f "$mark" ] && [ "$(cat "$mark" 2>/dev/null)" = "$q" ]; then
+    # SEC-1: the key also holds the state argument and a checksum of the whole ## Escalations
+    # section, so a terminal stop or any appended entry re-arms the alert.
+    key="${3:-}"$'\t'"$q"$'\t'$(awk '/^## Escalations/{f=1;next} /^## /{f=0} f' "$2/memory/$1/overview.md" 2>/dev/null | cksum)
+    if [ -n "$mark" ] && [ -f "$mark" ] && [ "$(cat "$mark" 2>/dev/null)" = "$key" ]; then
         return 0
     fi
-    [ -n "$mark" ] && { printf '%s' "$q" > "$mark"; } 2>/dev/null || true
+    [ -n "$mark" ] && { printf '%s' "$key" > "$mark"; } 2>/dev/null || true
     if [ "${3:-}" = "stopped" ]; then
         ev escalated ticket="$1" session="$sid" reason="$reason" outcome=terminal
     else

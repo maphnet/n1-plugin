@@ -396,7 +396,7 @@ test_escalation_text() {
     # N1-241: autonomous records are not escalations; unknown shapes and [headless] entries are.
     printf -- '---\nstep: pr\n---\n# T\n\n## Key Decisions\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n\n## Escalations\n\n## Notes\nx\n' > "$tmp/kd.md"
     assert_eq "esc-text: Key Decisions-only overview" "" "$(n1_queue_escalation_text "$tmp/kd.md")"
-    printf -- '---\nstep: pr\n---\n# T\n\n## Key Decisions\n\n## Escalations\n- Plan review: FIXED - tightened Task 3\n- **Plan-review** verdict CLEAN\n- Approach A auto-decided (21/25)\n- [auto-decided] storage: sqlite\n' > "$tmp/benign.md"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Key Decisions\n\n## Escalations\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n- [auto-decided] storage: sqlite\n' > "$tmp/benign.md"
     assert_eq "esc-text: benign-only Escalations" "" "$(n1_queue_escalation_text "$tmp/benign.md")"
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - x\n- finish: merge blocked by required review\n' > "$tmp/mixed.md"
     assert_eq "esc-text: benign then real -> real" "finish: merge blocked by required review" "$(n1_queue_escalation_text "$tmp/mixed.md")"
@@ -404,6 +404,13 @@ test_escalation_text() {
     assert_eq "esc-text: [headless] never skipped" "[headless] plan: approach auto-decided? options: a, b" "$(n1_queue_escalation_text "$tmp/hl.md")"
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- finish: blocked, cannot be auto-decided\n' > "$tmp/neg.md"
     assert_eq "esc-text: unanchored auto-decided not skipped" "finish: blocked, cannot be auto-decided" "$(n1_queue_escalation_text "$tmp/neg.md")"
+    # N1-241 review: verdict-anchored plan review, exact [auto] shapes, continuation lines.
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review failed: needs human\n' > "$tmp/pr.md"
+    assert_eq "esc-text: unverdicted plan review printed" "Plan review failed: needs human" "$(n1_queue_escalation_text "$tmp/pr.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- [automerge] blocked, need you\n' > "$tmp/am.md"
+    assert_eq "esc-text: [automerge] printed" "[automerge] blocked, need you" "$(n1_queue_escalation_text "$tmp/am.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - tightened\n  wrapped continuation\n- real stop\n' > "$tmp/wrap.md"
+    assert_eq "esc-text: continuation of skipped entry skipped" "real stop" "$(n1_queue_escalation_text "$tmp/wrap.md")"
     assert_eq "esc-text: headless step still resolves" "plan" "$(_n1_queue_escalated_step "$tmp/hl.md")"
 }
 
@@ -1085,6 +1092,20 @@ test_bg_escalation_dedupe_question_file() {
     printf '{"question":"Pick A or B?","options":["A","B"]}' > "$tmp/.question-T-A.json"
     run_bg_queue "$tmp" >/dev/null
     assert_eq "esc-dedupe-qfile: park then drain escalates once" "1" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-A")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    rm -rf "$tmp"
+}
+
+# N1-241 SEC-1: a terminal escalation (state "stopped") or an appended entry is not swallowed by an
+# earlier park escalation whose first-entry text is unchanged.
+test_bg_escalation_rearm_on_new_entry() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf -- '---\nstep: implementation\n---\n# T\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.1"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n\n## Escalations\n- [headless] plan: pick A or B\n- [headless] pr: second stop\n' > "$tmp/fake/overview.T-A.2"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "esc-rearm: appended entry re-emits" "2" \
         "$(jq -c 'select(.event == "escalated" and .ticket == "T-A")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
     rm -rf "$tmp"
 }
@@ -2982,6 +3003,7 @@ test_bg_drain_rearms_after_answer
 test_bg_drain_benign_reason
 test_bg_escalation_dedupe
 test_bg_escalation_dedupe_question_file
+test_bg_escalation_rearm_on_new_entry
 test_bg_halt_drains
 test_bg_drain_stop_retries_on_failure
 test_bg_reconcile_missing
