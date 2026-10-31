@@ -708,6 +708,30 @@ assert_eq "terminal pointer: locks removed" "false" \
 assert_eq "terminal pointer: per-run lock removed" "false" \
     "$([ -f "$TERM_TELEM/locks/run-stop-terminal.json" ] && echo true || echo false)"
 
+# N1-229: calls after the closed envelope land in orchestrator.tail when Stop re-merges, then the lock goes.
+TAIL_TICK="T-STOP-TAIL"
+TAIL_TELEM="$N1_HOME/memory/$TAIL_TICK/telemetry"
+TAIL_TR="$TAIL_TELEM/session.jsonl"
+mkdir -p "$TAIL_TELEM/raw/steps" "$TAIL_TELEM/runs" "$TAIL_TELEM/locks"
+tail_msg() { echo '{"type":"assistant","timestamp":"'"$2"'","message":{"id":"'"$1"'","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":1,"cache_creation_input_tokens":1},"content":[]}}'; }
+tail_msg a 2026-01-01T00:00:30.000Z > "$TAIL_TR"
+{
+    echo '{"layer":"envelope","run_id":"run-stop-tail","host":"claude-code","session_id":"s-stop-tail","session_transcript_path":"'"$TAIL_TR"'","started_at":"2026-01-01T00:00:00Z"}'
+    echo '{"layer":"envelope_close","run_id":"run-stop-tail","completed_at":"2026-01-01T00:01:00Z","final_outcome":"pr_created"}'
+} > "$TAIL_TELEM/raw/steps/run-stop-tail.jsonl"
+echo '{"run_id":"run-stop-tail","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-tail"}' > "$TAIL_TELEM/locks/run-stop-tail.json"
+echo '{"run_id":"run-stop-tail","n1_version":"3.14.1","host":"claude-code","session_id":"s-stop-tail"}' > "$TAIL_TELEM/telemetry.lock"
+bash "$REPO_ROOT/hooks/telemetry-merge.sh" run-stop-tail "$TAIL_TELEM" >/dev/null 2>&1 || true
+assert_eq "tail: close-time merge has an empty tail" "0" \
+    "$(jq -r .orchestrator.tail.api_calls "$TAIL_TELEM/runs/run-stop-tail.jsonl" 2>/dev/null)"
+tail_msg b 2026-01-01T00:02:00.000Z >> "$TAIL_TR"
+tail_msg c 2026-01-01T00:03:00.000Z >> "$TAIL_TR"
+echo '{"session_id":"s-stop-tail"}' | N1_HOME="$N1_HOME" N1_STATE_DIR="$N1_STATE_DIR" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-stop.sh" 2>/dev/null || true
+assert_eq "tail: Stop re-merge records the post-close calls" "2" \
+    "$(jq -r .orchestrator.tail.api_calls "$TAIL_TELEM/runs/run-stop-tail.jsonl" 2>/dev/null)"
+assert_eq "tail: lock removed after the re-merge" "false" \
+    "$([ -f "$TAIL_TELEM/telemetry.lock" ] && echo true || echo false)"
+
 # session-stop: no lock -> silent exit, no crash
 NO_LOCK_MEM="$N1_HOME/memory/T-NOLOCK"
 mkdir -p "$NO_LOCK_MEM"

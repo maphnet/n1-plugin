@@ -1,4 +1,5 @@
 """Run records bracket every step and match transcript call counts (N1-229)."""
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -98,6 +99,52 @@ class TranscriptCountTest(unittest.TestCase):
             _, row = build(Path(tmp), model='claude-haiku-9')
             self.assertEqual(row['orchestrator']['model'], 'claude-haiku-9')
             self.assertIsNone(row['orchestrator']['context_window'])
+
+    def test_context_window_is_flagged_as_lookup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, row = build(Path(tmp))
+            self.assertEqual(row['orchestrator']['context_window_source'], 'model_prefix_lookup')
+        with tempfile.TemporaryDirectory() as tmp:
+            _, row = build(Path(tmp), model='claude-haiku-9')
+            self.assertIsNone(row['orchestrator']['context_window_source'])
+
+
+def _parse(tmp, rows, steps):
+    spec = importlib.util.spec_from_file_location('tm', ROOT / 'hooks/telemetry-merge.py')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    path = Path(tmp) / 't.jsonl'
+    path.write_text(''.join(json.dumps(r) + '\n' for r in rows))
+    return mod.parse_orchestrator_transcript(str(path), steps, '2026-01-01T00:00:00Z', None)
+
+
+class FinishExtensionTest(unittest.TestCase):
+    def test_extension_stops_at_the_release_step(self):
+        steps = [
+            dict(step='finish', step_number=14, started_at='2026-01-01T00:04:00Z',
+                 completed_at='2026-01-01T00:04:00Z'),
+            dict(step='release', step_number=15, started_at='2026-01-01T00:06:00Z',
+                 completed_at='2026-01-01T00:07:00Z'),
+        ]
+        rows = [_msg('a', '2026-01-01T00:05:00.000Z'), _msg('b', '2026-01-01T00:06:30.000Z')]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = _parse(tmp, rows, steps)
+        by = {s['step']: s['api_calls'] for s in out['steps']}
+        self.assertEqual(by, {'finish': 1, 'release': 1})
+
+    def test_malformed_model_degrades_instead_of_raising(self):
+        for bad in ({'x': 1}, ['a'], 7):
+            row = _msg('a', '2026-01-01T00:01:00.000Z')
+            row['message']['model'] = bad
+            with tempfile.TemporaryDirectory() as tmp:
+                out = _parse(tmp, [row], [])
+            self.assertIsNone(out['model'])
+        row = _msg('a', '2026-01-01T00:01:00.000Z')
+        row['message']['id'] = {'x': 1}
+        row['message']['content'] = 5
+        with tempfile.TemporaryDirectory() as tmp:
+            out = _parse(tmp, [row], [])
+        self.assertEqual(out['parse_error'], 'orchestrator_transcript_parse_failed')
 
 
 if __name__ == '__main__':
