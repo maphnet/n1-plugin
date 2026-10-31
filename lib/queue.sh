@@ -732,7 +732,7 @@ n1_queue_answer() {
     [ -n "$full" ] || { echo "n1-queue: could not resolve the full session id for $sid; retry, or: $(n1_bg_cmd attach "$sid")" >&2; return 1; }
     [ -n "$ans" ] || { echo "n1-queue: empty answer" >&2; return 1; }
     [ "${#ans}" -le 4000 ] || ans="${ans:0:4000}... [truncated]"
-    : > "$dir/.relay-$t"
+    : > "$dir/.relay-$t"; rm -f "$dir/.esc-reason-$t"  # N1-241: a re-asked escalation fires again
     if [ "$st" = blocked ]; then
         if ! bash -c "$(n1_bg_cmd stop "$sid")"; then
             rm -f "$dir/.relay-$t"; echo "n1-queue: could not stop session $sid" >&2; return 1

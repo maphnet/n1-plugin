@@ -1029,6 +1029,49 @@ test_bg_drain_rearms_after_answer() {
     rm -rf "$tmp"
 }
 
+# N1-241: a child blocked after its PR whose overview only holds autonomous records under
+# ## Escalations surfaces once with an empty reason, never "Plan review: ..." / "auto-decided".
+test_bg_drain_benign_reason() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-B:working blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-B"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n\n## Key Decisions\n\n## Escalations\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n' > "$tmp/n1home/memory/T-B/overview.md"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "benign-drain: one escalated event" "1" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "benign-drain: reason carries no autonomous record" "" \
+        "$(jq -r 'select(.event == "escalated" and .ticket == "T-B") | .reason' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+
+    # AC1 regression guard: plan review FIXED + auto-decided and a child that just finishes -> no escalated event.
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-C:working done"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/3\n\n## Key Decisions\n\n## Escalations\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n' > "$tmp/fake/overview.T-C"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "benign-done: no escalated event" "0" \
+        "$(jq -c 'select(.event == "escalated")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "benign-done: row pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+# N1-241: park (blocked) -> overview reaches step pr while still blocked -> drain. The same
+# escalation must not be emitted twice. A stale marker from an earlier run is cleared at launch.
+test_bg_escalation_dedupe() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf -- '---\nstep: implementation\n---\n# T\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.1"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.2"
+    printf '%s' '[headless] plan: pick A or B' > "$tmp/.esc-reason-T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "esc-dedupe: park then drain escalates once" "1" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-A")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "esc-dedupe: reason is the headless entry" "[headless] plan: pick A or B" \
+        "$(jq -r 'select(.event == "escalated" and .ticket == "T-A") | .reason' "$tmp/events.jsonl" | head -1)"
+    rm -rf "$tmp"
+}
+
 test_bg_halt_drains() {
     # N1-74 [CR-1]: a halt (three escalated strikes) must still drain the session whose
     # finalize tripped it, not exit with it resident.
@@ -1934,6 +1977,7 @@ FAKEEOF
         session:"0000abcd",duration_s:null,
         reason:({question:"Back-port?",options:["Back-port","Skip"],recommended:"Back-port",rationale:""}|tostring)}' \
         >> "$q/events.jsonl"
+    printf '%s' 'stale reason' > "$q/.esc-reason-T-1"
     printf '%s' "B; \$(touch $tmp/pwned) \"q\"" > "$af"
     ans T-1
     assert_eq "answer: rc 0" "0" "$rc"
@@ -1944,6 +1988,7 @@ FAKEEOF
     assert_eq "answer: answer file deleted after read" "no" "$([ -e "$af" ] && echo yes || echo no)"
     assert_eq "answer: question file removed" "no" "$([ -e "$q/.question-T-1.json" ] && echo yes || echo no)"
     assert_eq "answer: relay marker written" "yes" "$([ -e "$q/.relay-T-1" ] && echo yes || echo no)"
+    assert_eq "answer: escalation marker cleared (N1-241)" "no" "$([ -e "$q/.esc-reason-T-1" ] && echo yes || echo no)"
     assert_eq "answer: answer_delivered event" "answer_delivered,T-1,0000abcd,R1" \
         "$(jq -r 'select(.event=="answer_delivered") | [.event,.ticket,.session,.run_id]|join(",")' "$q/events.jsonl")"
     assert_eq "N1-60: full question survives --answer + file removal" "Back-port?" \
@@ -2917,6 +2962,8 @@ test_bg_missing_grace
 test_bg_reconcile_working
 test_bg_drain_defers_until_idle
 test_bg_drain_rearms_after_answer
+test_bg_drain_benign_reason
+test_bg_escalation_dedupe
 test_bg_halt_drains
 test_bg_drain_stop_retries_on_failure
 test_bg_reconcile_missing
