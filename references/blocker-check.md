@@ -50,7 +50,7 @@ A blocker is open when its status category is not Done:
 - **Jira:** `statusCategory.key` is not `done`.
 - **YouTrack:** the ticket is unresolved, meaning its state is not in the resolved or done class.
 
-Use the status carried in the link entry. When the entry has no status, read the blocker once via `mcp__<TRACKER_MCP>__<READ_OP>`. If the status is still unknown (no `READ_OP`, or the read fails), treat the blocker as open with status `unknown`. In Review counts as open, because its category is not Done.
+Use the status carried in the link entry. When the entry has no status, or its completion metadata is missing (Jira `statusCategory.key`; YouTrack resolved state), read the blocker once via `mcp__<TRACKER_MCP>__<READ_OP>`. If the status is still unknown (no `READ_OP`, or the read fails), treat the blocker as open with status `unknown`. In Review counts as open, because its category is not Done.
 
 For each open blocker, replace `|` and newlines in the title and status with a space, and truncate the title to 80 chars. Then add `<KEY> | <title> | <status> | <PR>` to `OPEN_BLOCKERS`, with `<PR>` from § 4.
 
@@ -92,4 +92,4 @@ Branch on the first rule that matches:
    3. Post a tracker comment with the `n1-esc:<ID>:ticket` marker.
    4. Pause or exit, depending on `N1_UNATTENDED`.
 
-   The ticket is never moved to In Progress.
+   Only the answer "Stop this ticket" or an escalation exit leaves the ticket unmoved. Any other answer continues, and the caller then performs the In Progress move.
