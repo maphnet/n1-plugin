@@ -732,7 +732,7 @@ n1_queue_answer() {
     [ -n "$full" ] || { echo "n1-queue: could not resolve the full session id for $sid; retry, or: $(n1_bg_cmd attach "$sid")" >&2; return 1; }
     [ -n "$ans" ] || { echo "n1-queue: empty answer" >&2; return 1; }
     [ "${#ans}" -le 4000 ] || ans="${ans:0:4000}... [truncated]"
-    : > "$dir/.relay-$t"
+    : > "$dir/.relay-$t"; rm -f "$dir/.esc-reason-$t"  # N1-241: a re-asked escalation fires again
     if [ "$st" = blocked ]; then
         if ! bash -c "$(n1_bg_cmd stop "$sid")"; then
             rm -f "$dir/.relay-$t"; echo "n1-queue: could not stop session $sid" >&2; return 1
@@ -826,9 +826,24 @@ n1_queue_event() {
 }
 
 n1_queue_escalation_text() {
-    # Usage: n1_queue_escalation_text <overview.md> — first "## Escalations" entry, or empty.
+    # Usage: n1_queue_escalation_text <overview.md> — first human-needed "## Escalations" entry, or empty.
+    # N1-241: skips autonomous records that belong in ## Key Decisions / the Decision Ledger
+    # (plan-review verdict, auto-decided). Fails closed: only these anchored shapes are skipped,
+    # unknown text stays an escalation, and "[headless] <step>:" entries are never skipped.
     [ -f "$1" ] || return 0
-    awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF {sub(/^[-*][[:space:]]*/,""); print; exit}' "$1"
+    # An indented line directly after an entry (skipped or kept) is its continuation; a blank line
+    # or a new heading ends it. Optional $2=last prints the newest human-needed entry instead.
+    awk -v last="${2:-}" '/^## Escalations/{f=1;prev=0;next} /^## /{f=0;prev=0}
+        f && !NF { prev = 0; next }
+        f {
+            if (prev && /^[[:space:]]+[^[:space:]]/) next
+            prev = 1
+            sub(/^[-*][[:space:]]*/,""); l = tolower($0)
+            if (l !~ /^\[headless\] / && (l ~ /^[*]*plan[ -]review[*]*:? *[*]*(clean|fixed)([^a-z]|$)/ || l ~ /^(approach [a-z0-9]+ )?auto-decided([ (]|$)/ || l ~ /^\[auto(-decided)?\]/)) next
+            if (last == "") { print; exit }
+            out = $0
+        }
+        END { if (out != "") print out }' "$1"
 }
 
 
@@ -874,8 +889,9 @@ n1_queue_watch() {
     # Final lines end with "Watch ended.": on halted, queue_done, or runner pid gone; the
     # cursor is removed and it returns 0. Otherwise it polls until killed.
     # ponytail: a watch killed with its session leaves its small cursor file behind; sweep if they pile up.
+    # ponytail: escalation dedupe (ticket+reason) is in-memory; a watch restart resumes past consumed lines via the cursor, so no replay.
     local dir="$1" run="$2" pid="$3" from="${4:-}" events="$1/events.jsonl" q sid cursor seen total alive poll
-    local ev t out pr s reason qbody qrender hint
+    local ev t out pr s reason qbody qrender hint key relayed=""
     q="${dir##*/}"
     sid=$(n1_session_id); sid="${sid:-nosession}"
     case "$run$sid" in ''|*[!a-zA-Z0-9_-]*) echo "n1-queue: bad run or session id" >&2; return 1 ;; esac
@@ -893,9 +909,14 @@ n1_queue_watch() {
         alive=0; kill -0 "$pid" 2>/dev/null && alive=1
         total=0; [ -f "$events" ] && total=$(wc -l < "$events"); total="${total//[[:space:]]/}"
         if [ "$total" -gt "$seen" ]; then
-            while IFS=$'\x1f' read -r ev t out pr s reason; do
+            while IFS=$'\x1f' read -r ev t out pr s reason full; do
                 case "$ev" in
                     escalated)
+                        # N1-241: relay one escalation per ticket+reason (runner park/drain/restart
+                        # can emit the same one twice); answer_delivered resets it for a re-ask.
+                        key="$t"$'\t'"$out"$'\t'"$full"  # $full: untruncated reason, so the 300-char display cap never merges distinct escalations; $out: a terminal escalation (n1-start hint) is never swallowed by an earlier attach-hint one
+                        if [ -n "$relayed" ] && grep -qxF -- "$key" <<<"$relayed"; then continue; fi
+                        relayed=$(awk -F'\t' -v t="$t" '$1 != t' <<<"$relayed"; printf '%s' "$key")
                         # N1-55: a child in ask-mode mirrors its full question to .question-<ticket>.json.
                         # qrender is shared with the N1-60 fallback below so a packed-JSON reason
                         # renders identically to the live question file.
@@ -929,8 +950,9 @@ n1_queue_watch() {
                             printf 'n1-queue %s: %s needs you: %s%s\n' "$q" "$t" "${reason:-waiting for an answer}" \
                                 "${hint:+ (${hint#; })}"
                         fi ;;
-                    answer_delivered)
-                        printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t" ;;
+                    answer_delivered|unblocked)
+                        relayed=$(awk -F'\t' -v t="$t" '$1 != t' <<<"$relayed")
+                        if [ "$ev" = answer_delivered ]; then printf 'n1-queue %s: %s answer delivered, resuming.\n' "$q" "$t"; fi ;;
                     ticket_comment)
                         printf 'n1-queue %s: %s has a new external ticket comment: %s\n' "$q" "$t" "$reason" ;;
                     ticket_replan)
@@ -944,14 +966,14 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time
                 # (escalate(): 2000 chars/field, <=10 options); the 300-cap here is only
                 # for plain-text reasons and the other fields.
                 | (($arr[5] | fromjson? | objects | has("question")) // false) as $packed
-                | ($arr[0:5] | map(.[:300])) + [if $packed then $arr[5] else $arr[5][:300] end]
+                | ($arr[0:5] | map(.[:300])) + [if $packed then $arr[5] else $arr[5][:300] end, $arr[5]]
                 | join("\u001f")' 2>/dev/null)
             seen="$total"
         fi

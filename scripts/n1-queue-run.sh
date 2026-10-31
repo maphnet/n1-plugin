@@ -100,13 +100,14 @@ ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 # it survives the file's later removal by n1_queue_answer/the child on resume. events.jsonl's
 # reason field is already free text; this just widens what it can hold, as JSON, via jq -c.
 escalate() {
-    local sid q qfile qfull reason
+    local sid q qfile qfull reason mark key
     sid=$(n1_queue_session_id "$QUEUE" "$1")
-    q=$(n1_queue_escalation_text "$2/memory/$1/overview.md")
+    # N1-241: newest entry, so an appended entry changes the reason and the watch dedupe relays it.
+    q=$(n1_queue_escalation_text "$2/memory/$1/overview.md" last)
     reason="$q"
     case "$1" in
-        ''|*[!A-Za-z0-9_-]*) qfile="" ;;
-        *) qfile="$N1_QUEUE_DIR/.question-$1.json" ;;
+        ''|*[!A-Za-z0-9_-]*) qfile="" mark="" ;;
+        *) qfile="$N1_QUEUE_DIR/.question-$1.json" mark="$N1_QUEUE_DIR/.esc-reason-$1" ;;
     esac
     if [ -n "$qfile" ] && [ -f "$qfile" ]; then
         # SEC-1/CR-2/N1-60-follow-up: cap each field so the packed reason stays far
@@ -131,6 +132,19 @@ escalate() {
         ' "$qfile" 2>/dev/null)
         [ -n "$qfull" ] && reason="$qfull"
     fi
+    # N1-241: one escalation per ticket+reason. Park, finalize, drain and a crash-restart can all
+    # reach here for the same pending stop; the marker is cleared on launch, unblock, new question,
+    # drain re-arm and --answer, so a genuinely new or re-asked escalation still fires. A failed
+    # marker write only risks a duplicate, never a lost escalation. The marker keys on the stable
+    # overview text $q, not the packed reason (the mirrored question file is gone by drain time).
+    # A crash between the marker write and the emit would lose that escalation (accepted).
+    # SEC-1: the key also holds the state argument and a checksum of the whole ## Escalations
+    # section, so a terminal stop or any appended entry re-arms the alert.
+    key="${3:-}"$'\t'"$q"$'\t'$(awk '/^## Escalations/{f=1;next} /^## /{f=0} f' "$2/memory/$1/overview.md" 2>/dev/null | cksum)
+    if [ -n "$mark" ] && [ -f "$mark" ] && [ "$(cat "$mark" 2>/dev/null)" = "$key" ]; then
+        return 0
+    fi
+    [ -n "$mark" ] && { printf '%s' "$key" > "$mark"; } 2>/dev/null || true
     if [ "${3:-}" = "stopped" ]; then
         ev escalated ticket="$1" session="$sid" reason="$reason" outcome=terminal
     else
@@ -308,6 +322,7 @@ launch_bg() {
     OUT=$(bash -c "$CMD" 2>&1)
     if SID=$(n1_queue_parse_launch "$OUT"); then
         echo "| $TICKET | $STARTED | | | | $SID |" >> "$QUEUE"
+        rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET"
         ev ticket_started ticket="$TICKET" session="$SID"
         echo "[$NUM] $TICKET launched ($SID)"
         return
@@ -346,6 +361,8 @@ drain_stop() {
                 ;;
             *)  # back to working (question answered): re-arm so a later question escalates too
                 DRAIN_ESCALATED=($(printf '%s\n' "${DRAIN_ESCALATED[@]+"${DRAIN_ESCALATED[@]}"}" | grep -vxF -- "$sid"))
+                rm -f "$N1_QUEUE_DIR/.esc-reason-$ticket"
+                ev unblocked ticket="$ticket" session="$sid"
                 keep+=("$entry") ;;
         esac
     done
@@ -707,6 +724,7 @@ run_bg() {
                     MISSING[NUM]=0
                     if [ "$STATUS" = "awaiting-human" ]; then
                         n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
+                        rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET"
                         ev unblocked ticket="$TICKET" session="$SID"
                     fi
                     WORKED[NUM]=$(( ${WORKED[NUM]:-0} + POLL ))
@@ -724,7 +742,7 @@ run_bg() {
                     elif [ -e "$N1_QUEUE_DIR/.relay-$TICKET" ] && [ "$N1_QUEUE_DIR/.question-$TICKET.json" -nt "$N1_QUEUE_DIR/.relay-$TICKET" ]; then
                         # N1-55: an answered child re-blocked on a new question before any poll saw
                         # it working; dropping the marker escalates this question exactly once.
-                        rm -f "$N1_QUEUE_DIR/.relay-$TICKET"
+                        rm -f "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.esc-reason-$TICKET"
                         SINCE_PARK=0
                         echo "[$NUM] $TICKET -> awaiting-human (new question)"
                         escalate "$TICKET" "$N1H"

@@ -178,6 +178,7 @@ test_child_status() {
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- QA fail\n' > "$tmp/esc2.md"
     printf -- '---\nstep: implementation\n---\n# T\n' > "$tmp/mid.md"
     printf -- '---\nstep: done\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n\npr_url: https://example.com/pr/1\n' > "$tmp/asked-done.md"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - x\n- Approach A auto-decided\n' > "$tmp/benign.md"
 
     assert_eq "qstatus: step pr -> pr" "pr" "$(n1_queue_child_status "$tmp/pr.md" 0)"
     # N1-53: step pr is written when the PR step begins; only a recorded pr_url makes it terminal.
@@ -193,6 +194,9 @@ test_child_status() {
     assert_eq "qstatus: missing file exit 1 -> failed" "failed" "$(n1_queue_child_status "$tmp/none.md" 1)"
     assert_eq "qstatus: missing file exit 0 -> running" "running" "$(n1_queue_child_status "$tmp/none.md" 0)"
     assert_eq "qstatus: ask-mode answered then done -> pr, not escalated" "pr" "$(n1_queue_child_status "$tmp/asked-done.md" 0)"
+    # N1-241: autonomous records under ## Escalations are not an escalation.
+    assert_eq "qstatus: benign-only escalations, exit 0 -> running" "running" "$(n1_queue_child_status "$tmp/benign.md" 0)"
+    assert_eq "qstatus: benign-only escalations, exit 1 -> failed" "failed" "$(n1_queue_child_status "$tmp/benign.md" 1)"
 
     # NP-216 CR-1: strict mode (live-poll callers) ignores a stale/append-only
     # ## Escalations entry unless step is explicitly "escalated".
@@ -389,6 +393,32 @@ test_escalation_text() {
     printf -- '---\nstep: pr\n---\n# T\n\n## Escalations\n\n## Notes\nx\n' > "$tmp/o2.md"
     assert_eq "esc-text: empty section" "" "$(n1_queue_escalation_text "$tmp/o2.md")"
     assert_eq "esc-text: missing file" "" "$(n1_queue_escalation_text "$tmp/none.md")"
+    # N1-241: autonomous records are not escalations; unknown shapes and [headless] entries are.
+    printf -- '---\nstep: pr\n---\n# T\n\n## Key Decisions\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n\n## Escalations\n\n## Notes\nx\n' > "$tmp/kd.md"
+    assert_eq "esc-text: Key Decisions-only overview" "" "$(n1_queue_escalation_text "$tmp/kd.md")"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Key Decisions\n\n## Escalations\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n- [auto-decided] storage: sqlite\n' > "$tmp/benign.md"
+    assert_eq "esc-text: benign-only Escalations" "" "$(n1_queue_escalation_text "$tmp/benign.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - x\n- finish: merge blocked by required review\n' > "$tmp/mixed.md"
+    assert_eq "esc-text: benign then real -> real" "finish: merge blocked by required review" "$(n1_queue_escalation_text "$tmp/mixed.md")"
+    printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- [headless] plan: approach auto-decided? options: a, b\n' > "$tmp/hl.md"
+    assert_eq "esc-text: [headless] never skipped" "[headless] plan: approach auto-decided? options: a, b" "$(n1_queue_escalation_text "$tmp/hl.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- finish: blocked, cannot be auto-decided\n' > "$tmp/neg.md"
+    assert_eq "esc-text: unanchored auto-decided not skipped" "finish: blocked, cannot be auto-decided" "$(n1_queue_escalation_text "$tmp/neg.md")"
+    # N1-241 review: verdict-anchored plan review, exact [auto] shapes, continuation lines.
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review failed: needs human\n' > "$tmp/pr.md"
+    assert_eq "esc-text: unverdicted plan review printed" "Plan review failed: needs human" "$(n1_queue_escalation_text "$tmp/pr.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- [automerge] blocked, need you\n' > "$tmp/am.md"
+    assert_eq "esc-text: [automerge] printed" "[automerge] blocked, need you" "$(n1_queue_escalation_text "$tmp/am.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - tightened\n  wrapped continuation\n- real stop\n' > "$tmp/wrap.md"
+    assert_eq "esc-text: continuation of skipped entry skipped" "real stop" "$(n1_queue_escalation_text "$tmp/wrap.md")"
+    # N1-241 SEC-5: only an indented line directly after the skipped entry is its continuation.
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - x\n\nfinish: merge blocked\n' > "$tmp/blank.md"
+    assert_eq "esc-text: blank line ends continuation" "finish: merge blocked" "$(n1_queue_escalation_text "$tmp/blank.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- [auto-decided] x\nworktree setup auto-retry attempted\n' > "$tmp/unind.md"
+    assert_eq "esc-text: un-indented line after skipped entry printed" "worktree setup auto-retry attempted" "$(n1_queue_escalation_text "$tmp/unind.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- real one\n  wrapped\n- real two\n' > "$tmp/last.md"
+    assert_eq "esc-text: last mode prints newest entry" "real two" "$(n1_queue_escalation_text "$tmp/last.md" last)"
+    assert_eq "esc-text: headless step still resolves" "plan" "$(_n1_queue_escalated_step "$tmp/hl.md")"
 }
 
 # --- n1_desktop_notify / n1_notify -------------------------------------------
@@ -1012,6 +1042,84 @@ test_bg_drain_rearms_after_answer() {
     run_bg_queue "$tmp" >/dev/null
     assert_eq "drain: re-blocked T-B escalated once per question" "2" \
         "$(jq -c 'select(.event == "escalated" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    # N1-241: the drain back-to-working transition emits unblocked so the watch dedupe resets too.
+    assert_eq "drain: back-to-working emits unblocked for T-B" "1" \
+        "$(jq -c 'select(.event == "unblocked" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    rm -rf "$tmp"
+}
+
+# N1-241: a child blocked after its PR whose overview only holds autonomous records under
+# ## Escalations surfaces once with an empty reason, never "Plan review: ..." / "auto-decided".
+test_bg_drain_benign_reason() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-B:working blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    mkdir -p "$tmp/n1home/memory/T-B"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/9\n\n## Key Decisions\n\n## Escalations\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n' > "$tmp/n1home/memory/T-B/overview.md"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "benign-drain: one escalated event" "1" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-B")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "benign-drain: reason carries no autonomous record" "" \
+        "$(jq -r 'select(.event == "escalated" and .ticket == "T-B") | .reason' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+
+    # AC1 regression guard: plan review FIXED + auto-decided and a child that just finishes -> no escalated event.
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-C:working done"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/3\n\n## Key Decisions\n\n## Escalations\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n' > "$tmp/fake/overview.T-C"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "benign-done: no escalated event" "0" \
+        "$(jq -c 'select(.event == "escalated")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "benign-done: row pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+# N1-241: park (blocked) -> overview reaches step pr while still blocked -> drain. The same
+# escalation must not be emitted twice. A stale marker from an earlier run is cleared at launch.
+test_bg_escalation_dedupe() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf -- '---\nstep: implementation\n---\n# T\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.1"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.2"
+    printf '%s' '[headless] plan: pick A or B' > "$tmp/.esc-reason-T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "esc-dedupe: park then drain escalates once" "1" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-A")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "esc-dedupe: reason is the headless entry" "[headless] plan: pick A or B" \
+        "$(jq -r 'select(.event == "escalated" and .ticket == "T-A") | .reason' "$tmp/events.jsonl" | head -1)"
+    rm -rf "$tmp"
+}
+
+# N1-241: same as above, but the child mirrored a question file at park time (reason packed from
+# it) and finalize removes it before drain; the drain escalate must still dedupe on the overview text.
+test_bg_escalation_dedupe_question_file() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf -- '---\nstep: implementation\n---\n# T\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.1"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.2"
+    printf '{"question":"Pick A or B?","options":["A","B"]}' > "$tmp/.question-T-A.json"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "esc-dedupe-qfile: park then drain escalates once" "1" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-A")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    rm -rf "$tmp"
+}
+
+# N1-241 SEC-1: a terminal escalation (state "stopped") or an appended entry is not swallowed by an
+# earlier park escalation whose first-entry text is unchanged.
+test_bg_escalation_rearm_on_new_entry() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked blocked"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":5,"notify":"none"}}\n' > "$tmp/n1home/config.json"
+    printf -- '---\nstep: implementation\n---\n# T\n\n## Escalations\n- [headless] plan: pick A or B\n' > "$tmp/fake/overview.T-A.1"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n\n## Escalations\n- [headless] plan: pick A or B\n- [headless] pr: second stop\n' > "$tmp/fake/overview.T-A.2"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "esc-rearm: appended entry re-emits" "2" \
+        "$(jq -c 'select(.event == "escalated" and .ticket == "T-A")' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    # CR-4: the re-armed event carries the new entry, so the watch's ticket+reason dedupe relays it.
+    assert_eq "esc-rearm: re-armed event has a distinct reason" "2" \
+        "$(jq -r 'select(.event == "escalated" and .ticket == "T-A") | .reason' "$tmp/events.jsonl" | sort -u | wc -l | tr -d ' ')"
     rm -rf "$tmp"
 }
 
@@ -1920,6 +2028,7 @@ FAKEEOF
         session:"0000abcd",duration_s:null,
         reason:({question:"Back-port?",options:["Back-port","Skip"],recommended:"Back-port",rationale:""}|tostring)}' \
         >> "$q/events.jsonl"
+    printf '%s' 'stale reason' > "$q/.esc-reason-T-1"
     printf '%s' "B; \$(touch $tmp/pwned) \"q\"" > "$af"
     ans T-1
     assert_eq "answer: rc 0" "0" "$rc"
@@ -1930,6 +2039,7 @@ FAKEEOF
     assert_eq "answer: answer file deleted after read" "no" "$([ -e "$af" ] && echo yes || echo no)"
     assert_eq "answer: question file removed" "no" "$([ -e "$q/.question-T-1.json" ] && echo yes || echo no)"
     assert_eq "answer: relay marker written" "yes" "$([ -e "$q/.relay-T-1" ] && echo yes || echo no)"
+    assert_eq "answer: escalation marker cleared (N1-241)" "no" "$([ -e "$q/.esc-reason-T-1" ] && echo yes || echo no)"
     assert_eq "answer: answer_delivered event" "answer_delivered,T-1,0000abcd,R1" \
         "$(jq -r 'select(.event=="answer_delivered") | [.event,.ticket,.session,.run_id]|join(",")' "$q/events.jsonl")"
     assert_eq "N1-60: full question survives --answer + file removal" "Back-port?" \
@@ -2903,6 +3013,10 @@ test_bg_missing_grace
 test_bg_reconcile_working
 test_bg_drain_defers_until_idle
 test_bg_drain_rearms_after_answer
+test_bg_drain_benign_reason
+test_bg_escalation_dedupe
+test_bg_escalation_dedupe_question_file
+test_bg_escalation_rearm_on_new_entry
 test_bg_halt_drains
 test_bg_drain_stop_retries_on_failure
 test_bg_reconcile_missing
