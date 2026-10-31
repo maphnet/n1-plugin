@@ -83,4 +83,13 @@ check "N1-231: unconfigured lookup warns and continues" "Warning: blocker check 
 if grep -qE 'N1_QUEUE_RUN_ID|QUEUE_CHILD' "$B" 2>/dev/null; then echo "FAIL: N1-231: blocker-check has no queue-child skip (queue intake must run it)"; FAIL=1; else echo "PASS: N1-231: blocker-check has no queue-child skip (queue intake must run it)"; fi
 check "N1-231: architecture.md documents the blocker check" "references/blocker-check\.md" references/architecture.md
 
+# N1-231: queue intake delegates the link lookup and keeps its outcomes
+I=skills/n1-queue/steps/intake.md
+check "N1-231: queue intake follows blocker-check with CALLER=queue" "blocker-check\.md. § Check with .ID=<KEY>., .CALLER=queue." "$I"
+check "N1-231: queue intake keeps the description-grep fallback" "SKIP_REASON=not-configured.*rely on the description grep" "$I"
+check "N1-231: queue intake does not exclude on a failed lookup" "SKIP_REASON=error: <msg>.*do not exclude on links" "$I"
+check "N1-231: queue intake keeps the held prefix" "blocked_on <ID> · " "$I"
+check "N1-231: queue intake keeps the cycle rule" "blocked by <ID> \(cycle\)" "$I"
+check "N1-231: queue intake keeps the description grep" "Additionally grep the description" "$I"
+
 exit $FAIL
