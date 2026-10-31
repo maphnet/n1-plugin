@@ -2,6 +2,9 @@
 # tests/test_orca.sh
 # N1-224: Orca workspace helpers (lib/host.sh), ownership/decision (lib/config.sh), start flags,
 # step sync, question hook and finish cleanup against a fake Orca CLI (no real Orca).
+# AC8 live check on test-project is DEFERRED: Orca 1.4.243 is installed, 1.4.244 is required, so no live run
+# (handoff create/launch, card sync, finish removal with .env, create-result handle path, `path` vs
+# `git rev-parse --show-toplevel`) has been done; everything here is fake-CLI only. No live evidence exists.
 # Every helper call runs inside $( ) or ( ) so the per-process n1_orca_active cache never leaks between cases.
 # Run: bash tests/test_orca.sh
 set -uo pipefail
@@ -236,6 +239,8 @@ ln() { grep -n -m1 -F "$1" "$TK" | cut -d: -f1; }
 eq "W2b: no worktree creation before overview.md exists" yes "$(yn test -z "$(grep -F 'Ensure Worktree' "$TK")")"
 eq "W2c (CR-2): Assign values are read before the workspace step, which comes before the step close" yes \
     "$(yn test "$(ln 'n1_assign_gap_warn')" -lt "$(ln '**Workspace**')" -a "$(ln '**Workspace**')" -lt "$(ln 'n1_step_end "ticket" 1 success')")"
+has "W2d (CR-1): handoff on resume keeps step: and skips the ticket step close" 'FRESH:-0}" = 1 ] && n1_write_frontmatter' "$(cat skills/n1-start/procedures/workspace-ownership.md)"
+hasnt "W2e (CR-1): handoff never closes the ticket step unconditionally" 'n1_step_end "ticket" 1 success '"'"'{"handoff":"workspace"}'"'"'; n1_active_run_clear' "$(cat skills/n1-start/procedures/workspace-ownership.md)"
 has "W3 (AC1): input parsing uses n1_parse_start_flags" "n1_parse_start_flags" "$(cat skills/n1-start/procedures/input-parsing.md)"
 has "W4 (AC5): n1-pr marks the card in review" 'n1_orca_sync "pr: opened" --status in-review' "$(cat skills/n1-pr/steps/02-push-create.md)"
 has "W5 (AC5): n1-finish marks only this ticket's card completed" '[ -n "$HR" ] && [ "$BR" = "$HR" ] && n1_orca_sync "finish: merged" --status completed' "$(cat skills/n1-finish/steps/06-cleanup.md)"
