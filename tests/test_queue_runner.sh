@@ -178,6 +178,7 @@ test_child_status() {
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- QA fail\n' > "$tmp/esc2.md"
     printf -- '---\nstep: implementation\n---\n# T\n' > "$tmp/mid.md"
     printf -- '---\nstep: done\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n\npr_url: https://example.com/pr/1\n' > "$tmp/asked-done.md"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - x\n- Approach A auto-decided\n' > "$tmp/benign.md"
 
     assert_eq "qstatus: step pr -> pr" "pr" "$(n1_queue_child_status "$tmp/pr.md" 0)"
     # N1-53: step pr is written when the PR step begins; only a recorded pr_url makes it terminal.
@@ -193,6 +194,9 @@ test_child_status() {
     assert_eq "qstatus: missing file exit 1 -> failed" "failed" "$(n1_queue_child_status "$tmp/none.md" 1)"
     assert_eq "qstatus: missing file exit 0 -> running" "running" "$(n1_queue_child_status "$tmp/none.md" 0)"
     assert_eq "qstatus: ask-mode answered then done -> pr, not escalated" "pr" "$(n1_queue_child_status "$tmp/asked-done.md" 0)"
+    # N1-241: autonomous records under ## Escalations are not an escalation.
+    assert_eq "qstatus: benign-only escalations, exit 0 -> running" "running" "$(n1_queue_child_status "$tmp/benign.md" 0)"
+    assert_eq "qstatus: benign-only escalations, exit 1 -> failed" "failed" "$(n1_queue_child_status "$tmp/benign.md" 1)"
 
     # NP-216 CR-1: strict mode (live-poll callers) ignores a stale/append-only
     # ## Escalations entry unless step is explicitly "escalated".
@@ -389,6 +393,16 @@ test_escalation_text() {
     printf -- '---\nstep: pr\n---\n# T\n\n## Escalations\n\n## Notes\nx\n' > "$tmp/o2.md"
     assert_eq "esc-text: empty section" "" "$(n1_queue_escalation_text "$tmp/o2.md")"
     assert_eq "esc-text: missing file" "" "$(n1_queue_escalation_text "$tmp/none.md")"
+    # N1-241: autonomous records are not escalations; unknown shapes and [headless] entries are.
+    printf -- '---\nstep: pr\n---\n# T\n\n## Key Decisions\n- Plan review: FIXED - tightened Task 3\n- Approach A auto-decided (21/25)\n\n## Escalations\n\n## Notes\nx\n' > "$tmp/kd.md"
+    assert_eq "esc-text: Key Decisions-only overview" "" "$(n1_queue_escalation_text "$tmp/kd.md")"
+    printf -- '---\nstep: pr\n---\n# T\n\n## Key Decisions\n\n## Escalations\n- Plan review: FIXED - tightened Task 3\n- **Plan-review** verdict CLEAN\n- Approach A auto-decided (21/25)\n- [auto-decided] storage: sqlite\n' > "$tmp/benign.md"
+    assert_eq "esc-text: benign-only Escalations" "" "$(n1_queue_escalation_text "$tmp/benign.md")"
+    printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - x\n- finish: merge blocked by required review\n' > "$tmp/mixed.md"
+    assert_eq "esc-text: benign then real -> real" "finish: merge blocked by required review" "$(n1_queue_escalation_text "$tmp/mixed.md")"
+    printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- [headless] plan: approach auto-decided? options: a, b\n' > "$tmp/hl.md"
+    assert_eq "esc-text: [headless] never skipped" "[headless] plan: approach auto-decided? options: a, b" "$(n1_queue_escalation_text "$tmp/hl.md")"
+    assert_eq "esc-text: headless step still resolves" "plan" "$(_n1_queue_escalated_step "$tmp/hl.md")"
 }
 
 # --- n1_desktop_notify / n1_notify -------------------------------------------

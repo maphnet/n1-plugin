@@ -826,9 +826,17 @@ n1_queue_event() {
 }
 
 n1_queue_escalation_text() {
-    # Usage: n1_queue_escalation_text <overview.md> — first "## Escalations" entry, or empty.
+    # Usage: n1_queue_escalation_text <overview.md> — first human-needed "## Escalations" entry, or empty.
+    # N1-241: skips autonomous records that belong in ## Key Decisions / the Decision Ledger
+    # (plan-review verdict, auto-decided). Fails closed: only these anchored shapes are skipped,
+    # unknown text stays an escalation, and "[headless] <step>:" entries are never skipped.
     [ -f "$1" ] || return 0
-    awk '/^## Escalations/{f=1;next} /^## /{f=0} f && NF {sub(/^[-*][[:space:]]*/,""); print; exit}' "$1"
+    awk '/^## Escalations/{f=1;next} /^## /{f=0}
+        f && NF {
+            sub(/^[-*][[:space:]]*/,""); l = tolower($0)
+            if (l !~ /^\[headless\] / && (l ~ /^[*]*plan[ -]review[*]*[: ]/ || l ~ /auto-decided/ || l ~ /^\[auto/)) next
+            print; exit
+        }' "$1"
 }
 
 
