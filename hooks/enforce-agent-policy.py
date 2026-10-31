@@ -449,7 +449,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     tail = persona_of(str(payload.get("agent_type") or "")) == "tail-worker"
     if tail:
         cmd = _command(payload) or ""
-        if TAIL_DENY_RE.search(cmd):
+        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
             sys.stderr.write("N1: tail-worker may not run merge/cleanup/run-pointer/release commands; the orchestrator owns them\n")
             return 2
     elif merge_authorized(config):

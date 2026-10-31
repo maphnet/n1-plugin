@@ -283,7 +283,8 @@ assert_eq "tail-worker plain command allowed" 0 "$(tw_rc "gh pr view 12")"
 # N1-224: the tail-worker never removes a workspace-manager worktree
 for c in "source ~/.n1/preamble.sh; n1_orca_rm /x" '"$ORCA_CLI_COMMAND" worktree rm --worktree path:/x' "orca worktree rm --worktree path:/x" \
     "source ~/.n1/preamble.sh; n1_orca worktree rm --worktree path:/x" 'X=$ORCA_CLI_COMMAND
-$X worktree rm --worktree path:/x' "orca worktree remove path:/x" "n1_orca_handoff X-1 '' create"; do
+$X worktree rm --worktree path:/x' "orca worktree remove path:/x" "n1_orca_handoff X-1 '' create" \
+    "n1_orc''a_rm /x" 'n1_orca_r\m /x' "orca worktree r''m path:/x"; do
     assert_eq "tail-worker denied workspace removal: $c" 2 "$(tw_rc "$c")"
 done
 assert_eq "tail-worker card status allowed" 0 "$(tw_rc 'source ~/.n1/preamble.sh; n1_orca_sync "finish: merged"')"
