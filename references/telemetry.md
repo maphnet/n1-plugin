@@ -71,7 +71,7 @@ The merged record includes an `orchestrator` field with per-step tool call and t
 
 Context fields and compaction boundaries skip `isSidechain` records. Token sums still include them.
 
-**Step windows (N1-229):** A step missing its begin or end is filled from its chronological neighbour (previous step's end / next step's begin) or the envelope bound and flagged `window_inferred: true`; real timestamps are never overwritten. The `finish` step's end is extended to the last transcript message (`window_extended: true`) because `finish.md` begins and ends it back to back before FINALIZE and the chained `n1-finish`. Startup calls before the first step window stay in `unattributed`.
+**Step windows (N1-229):** A step missing its begin or end is filled from its chronological neighbour (previous step's end / next step's begin) or the envelope bound and flagged `window_inferred: true`; real timestamps are never overwritten, except the `finish` end below. The `finish` step's end is extended to the last transcript message, or to the start of the next step if one begins first (`window_extended: true`, recorded `completed_at` replaced) because `finish.md` begins and ends it back to back before FINALIZE and the chained `n1-finish`. Startup calls before the first step window stay in `unattributed`.
 
 Summary additions: `orchestrator_input_tokens`, `orchestrator_output_tokens`, `orchestrator_tool_calls`, `total_cache_creation_tokens`. v6: `compaction_count`, `compaction_auto_count`, `compaction_manual_count`, and `compaction_timestamps` come from `orchestrator.compactions[]`. All four are `null` when the orchestrator transcript was not parsed. A boundary with an `unknown` trigger counts toward the total only.
 
