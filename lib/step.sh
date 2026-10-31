@@ -50,7 +50,7 @@ _n1_step_display_name() {
 n1_step_begin() {
     local step_name="$1" step_number="$2"
     n1_bind_run_to_ticket                 # restored run must belong to $ID (N1-193)
-    # No run bound: say so once, so a lost begin is attributable (N1-229).
+    # No run bound: say so on every call, so a lost begin is attributable (N1-229).
     [ -n "${N1_RUN_ID:-}" ] || { echo "n1_step_begin: no run bound for ${ID:-<unset>}; '$step_name' begin not recorded" >&2; return 0; }
     n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID:-}" \
         "$step_name" "$step_number" "${N1_HOME}/memory/${ID}/telemetry" \

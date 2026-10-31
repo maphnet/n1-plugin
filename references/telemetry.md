@@ -61,9 +61,10 @@ The merged record includes an `orchestrator` field with per-step tool call and t
 | `orchestrator.steps[].compactions` | int | Compaction boundaries inside the step window. When > 0, end minus start is not growth. Steps without assistant messages have no `steps[]` entry, so `orchestrator.compactions[]` / `summary.compaction_count` is the authoritative count (v6) |
 | `orchestrator.compactions[]` | array | Main-transcript `compact_boundary` records with `started_at <= timestamp <= completed_at` (no upper bound when `completed_at` is missing; compared at 1-second resolution, timestamps truncated to `YYYY-MM-DDTHH:MM:SS`): `{timestamp, trigger: auto\|manual\|unknown, pre_tokens, post_tokens}` (v6) |
 | `orchestrator.unattributed` | object | Same shape as a step entry, for API calls outside any step window |
-| `orchestrator.tail` | object | Same shape as `unattributed`, for API calls after envelope `completed_at` (FINALIZE, Gate 3, chained `n1-finish`). A subset already counted in the `finish` step and in `totals`; never add it to them (N1-229) |
+| `orchestrator.tail` | object | Same shape as `unattributed`, for API calls after envelope `completed_at` (FINALIZE, Gate 3, chained `n1-finish`). A subset already counted in `totals`, usually inside the `finish` step (not guaranteed when the run never reached finish, or when a later step such as `release` begins first); never add it to them. Absent when the transcript is unparsed (N1-229) |
 | `orchestrator.model` | string\|null | Most frequent main-thread `message.model`, `<synthetic>` excluded |
-| `orchestrator.context_window` | int\|null | Context window by model-id prefix (`claude-opus-5`, `claude-sonnet-5` -> 1,000,000); `null` for any other model |
+| `orchestrator.context_window` | int\|null | Assumed window from a model-id prefix lookup (`claude-opus-5`, `claude-sonnet-5` -> 1,000,000), not a measurement: the model id does not reveal a smaller window. `null` for any other model |
+| `orchestrator.context_window_source` | string\|null | `model_prefix_lookup` when `context_window` is set, else `null` |
 | `orchestrator.transcript_path` | string | Orchestrator transcript the merge parsed |
 | `orchestrator.totals` | object | Rollup across all steps + unattributed |
 | `orchestrator.parse_error` | string\|null | Error string if transcript could not be parsed |
