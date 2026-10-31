@@ -161,6 +161,9 @@ eq "D3b: found worktree not registered in Orca -> plain reuse" "reuse $W3" "$(de
 eq "D4 (AC2): main + Orca workspace by display name -> handoff-launch" "handoff-launch $WO" "$(dec "$M" X-4)"
 eq "D4b (AC2): headless reuses the path" "reuse $WO" "$(N1_HEADLESS=1 dec "$M" X-4)"
 eq "D4c: N1-managed worktree found by basename -> reuse" "reuse $WN" "$(dec "$M" OTHER-1)"
+printf '{"ok":true,"result":{"path":"%s"}}\n' "$WO" > "$FAKE/refs.json"
+eq "D4d (SEC-2): fuzzy reference hit for another ticket's folder is ignored" handoff-create "$(dec "$M" X-9)"
+printf '{"ok":true,"result":{"worktrees":[]}}\n' > "$FAKE/refs.json"
 eq "D5: inside a worktree named like the ticket -> stay" "stay $W3" "$(noorca dec "$W3" X-3)"
 eq "D5b (AC2): inside the Orca workspace (display name) -> stay" "stay $WO" "$(dec "$WO" X-4)"
 W6="$T/wts/w6"; wt "$W6" feat/X-6-thing; commit "$W6"
@@ -227,8 +230,12 @@ eq "F3: dir kept" yes "$([ -d "$F3" ] && echo yes || echo no)"
 # ---- static wiring ----
 cd "$REPO_ROOT"
 eq "W1 (AC4): only n1-start decides or hands off workspaces" "" "$(grep -rlE 'n1_workspace_decide|n1_orca_handoff' skills agents | grep -v '^skills/n1-start/' || true)"
-has "W2 (AC1): ticket step runs the workspace decision last" "Workspace Decision" "$(tail -n 12 skills/n1-start/steps/ticket.md)"
-hasnt "W2b: ticket step no longer creates the worktree before overview.md" "**Ensure Worktree**." "$(sed -n '30,40p' skills/n1-start/steps/ticket.md)"
+has "W2 (AC1): ticket step runs the workspace decision" "Workspace Decision" "$(cat skills/n1-start/steps/ticket.md)"
+TK=skills/n1-start/steps/ticket.md
+ln() { grep -n -m1 -F "$1" "$TK" | cut -d: -f1; }
+eq "W2b: no worktree creation before overview.md exists" yes "$(yn test -z "$(grep -F 'Ensure Worktree' "$TK")")"
+eq "W2c (CR-2): Assign values are read before the workspace step, which comes before the step close" yes \
+    "$(yn test "$(ln 'n1_assign_gap_warn')" -lt "$(ln '**Workspace**')" -a "$(ln '**Workspace**')" -lt "$(ln 'n1_step_end "ticket" 1 success')")"
 has "W3 (AC1): input parsing uses n1_parse_start_flags" "n1_parse_start_flags" "$(cat skills/n1-start/procedures/input-parsing.md)"
 has "W4 (AC5): n1-pr marks the card in review" 'n1_orca_sync "pr: opened" --status in-review' "$(cat skills/n1-pr/steps/02-push-create.md)"
 has "W5 (AC5): n1-finish marks only this ticket's card completed" '[ -n "$HR" ] && [ "$BR" = "$HR" ] && n1_orca_sync "finish: merged" --status completed' "$(cat skills/n1-finish/steps/06-cleanup.md)"
