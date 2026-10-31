@@ -33,7 +33,7 @@ n1_story_convert_decision "$(n1_config_val '.tracker.type')" "<has|none|unknown>
 
 `INVESTIGATION_DETECTED=true` with `N1_QUEUE_RUN_ID` unset and `N1_HEADLESS=1` not set: say "Interactive investigation moved: run `/n1:n1-refine <ID> --investigate`." (no tracker ID: `/n1:n1-ticket` first) and STOP before overview.md (run `source ~/.n1/preamble.sh; n1_step_end "ticket" 1 skipped '{"skip_reason":"investigation_moved"}'` first).
 
-`IS_STORY=true`: non-headless→handoff `n1:n1-queue --story <ID>` (end as above, `story_handoff`), STOP; headless→`procedures/autonomy-headless.md § Headless Guard`. **Workspace isolation** (`INVESTIGATION_DETECTED=false`): **Ensure Worktree**.
+`IS_STORY=true`: non-headless→handoff `n1:n1-queue --story <ID>` (end as above, `story_handoff`), STOP; headless→`procedures/autonomy-headless.md § Headless Guard`.
 
 **ID-Final:** no memory file/branch until `<ID>` final. product-analyst writes ticket.md directly to `ticketMdPath`.
 
@@ -66,11 +66,17 @@ Missing/empty: compact fallback. Extract `tier:` default `standard`. Run `/renam
 
 `tracker.operations.addToSprint` (`n1_config_val`; only here; skip silently if empty): call with `<ID>` on `tracker.versionMcp` else `tracker.mcp`. `ok:true` → one overview.md `## Progress` line (`skipped` → say skipped); `ok:false` or tool error → warning line there (`reason`/`message`). Never prompt; non-fatal.
 
-**Assign to creator** (if configured; never steal from an existing assignee): skip if ANY of `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` empty, `ASSIGN_OP` empty, or (when `READ_OP` set) `READ_OP` on `<ID>` shows a non-empty assignee. Else call `GET_USER_OP` then `ASSIGN_OP` (payload per `n1-ticket/steps/02-create.md` Step 8). Failure: log to overview.md `## Progress`, continue — non-fatal. Relay any `Warning:` line the snippet prints (missing assign ops).
-
+**Assign to creator** (if configured; never steal from an existing assignee): skip if ANY of `ASSIGN_TO_CREATOR` is `false`, `GET_USER_OP` empty, `ASSIGN_OP` empty, or (when `READ_OP` set) `READ_OP` on `<ID>` shows a non-empty assignee. Else call `GET_USER_OP` then `ASSIGN_OP` (payload per `n1-ticket/steps/02-create.md` Step 8). Failure: log to overview.md `## Progress`, continue — non-fatal. Relay any `Warning:` line the snippet prints (missing assign ops). Run this first; it supplies the values Assign needs and does not close the step:
 ```bash
 source ~/.n1/preamble.sh
 ASSIGN_TO_CREATOR=$(n1_config_val ".tracker.assignToCreator"); GET_USER_OP=$(n1_config_val ".tracker.operations.getCurrentUser"); ASSIGN_OP=$(n1_config_val ".tracker.operations.assign"); READ_OP=$(n1_config_val ".tracker.operations.readTicket"); n1_assign_gap_warn
+```
+
+**Workspace** (`INVESTIGATION_DETECTED=false`; after Assign, so overview.md exists for a handoff or escalation): `procedures/workspace-isolation.md § Workspace Decision` with `FRESH=1`. A successful handoff or Stop closes the ticket step itself and STOPs the run: skip the block below.
+
+**Close the step** (only when the run continues):
+```bash
+source ~/.n1/preamble.sh
 LT=$(n1_config_val '.localTesting.enabled' "${N1_HOME}/config.json")
 [ -n "$N1_RUN_ID" ] && echo '{"layer":"envelope","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","branch":"'"$BRANCH"'","started_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","config_snapshot":{"test_coverage_tier":"maintain","local_testing_enabled":'"${LT:-true}"',"plan_review_enabled":true}}' >> "${N1_HOME}/memory/$ID/telemetry/raw/steps/$N1_RUN_ID.jsonl"
 n1_step_end "ticket" 1 success

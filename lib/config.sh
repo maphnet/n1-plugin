@@ -767,12 +767,104 @@ n1_is_external_worktree() {
     return 0
 }
 
+# N1-224: <ID> occurs in <text> as a whole token (case-insensitive; N1-22 does not match N1-224).
+_n1_id_in() {
+    local id t
+    id=$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]'); t=$(printf '%s' "${2:-}" | tr '[:upper:]' '[:lower:]')
+    [ -n "$id" ] || return 1
+    case "$t" in "$id"|"$id"[!a-z0-9]*|*[!a-z0-9]"$id"|*[!a-z0-9]"$id"[!a-z0-9]*) return 0 ;; esac
+    return 1
+}
+
+# N1-224 Gap 1 (applies with or without Orca): does this linked worktree belong to <ID>?
+# Usage: n1_worktree_owned <ID> — rc 0 owned, 1 not owned, 2 not a linked worktree (main checkout / no repo).
+# Owned when ANY: folder basename or Orca display name equals <ID>; branch contains <ID>; no commits ahead of
+# origin/<default> and a clean working tree (fallback: local <default>; neither = unknown = not owned); overview workspace_path or this
+# session's active-run worktreePath is this toplevel.
+n1_worktree_owned() {
+    local id="${1:-}" gd gcd top lid def base="" wp ar st
+    gd=$(cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 2
+    gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) || return 2
+    [ "$gd" != "$gcd" ] || return 2
+    top=$(git rev-parse --show-toplevel 2>/dev/null) || return 2
+    [ -n "$id" ] || return 1
+    lid=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
+    [ "$(printf '%s' "${top##*/}" | tr '[:upper:]' '[:lower:]')" = "$lid" ] && return 0
+    [ "$(n1_orca_display_name "$top" | tr '[:upper:]' '[:lower:]')" = "$lid" ] && return 0
+    _n1_id_in "$id" "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" && return 0
+    def=$(n1_config_val '.git.defaultBranch' 2>/dev/null); def="${def:-main}"
+    if git rev-parse -q --verify "refs/remotes/origin/$def" >/dev/null 2>&1; then base="origin/$def"
+    elif git rev-parse -q --verify "refs/heads/$def" >/dev/null 2>&1; then base="$def"; fi
+    # Empty-workspace shortcut needs a clean tree (another ticket's fresh worktree may hold uncommitted work).
+    [ -n "$base" ] && [ "$(git rev-list --count "$base..HEAD" 2>/dev/null)" = 0 ] \
+        && st=$(git status --porcelain 2>/dev/null) && [ -z "$st" ] && return 0
+    wp=$(sed -n 's/^workspace_path: *//p' "$(n1_home)/memory/$id/overview.md" 2>/dev/null | head -1)
+    [ -n "$wp" ] && [ "$wp" = "$top" ] && return 0
+    ar=$(n1_active_run_file 2>/dev/null) && [ -f "$ar" ] && command -v jq >/dev/null 2>&1 \
+        && [ "$(jq -r '.ticketId // empty' "$ar" 2>/dev/null)" = "$id" ] \
+        && [ "$(jq -r '.worktreePath // empty' "$ar" 2>/dev/null)" = "$top" ] && return 0
+    return 1
+}
+
+# N1-224 Gap 2: existing linked worktree for <ID>, in order: overview workspace_path; Orca `reference find`
+# and `worktree list` by folder/display name (Orca active only); `git worktree list` by folder or branch.
+# Usage: n1_find_workspace <ID> — prints the path, or nothing. Never returns the main checkout.
+n1_find_workspace() {
+    local id="${1:-}" lid list main wp p b
+    [ -n "$id" ] || return 0
+    lid=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
+    list=$(git worktree list --porcelain 2>/dev/null) || return 0
+    main=$(sed -n '1s/^worktree //p' <<<"$list")
+    wp=$(sed -n 's/^workspace_path: *//p' "$(n1_home)/memory/$id/overview.md" 2>/dev/null | head -1)
+    if [ -n "$wp" ] && [ "$wp" != "$main" ] && [ -d "$wp" ] && grep -qxF "worktree $wp" <<<"$list"; then printf '%s\n' "$wp"; return 0; fi
+    if n1_orca_active; then
+        p=$(n1_orca reference find "$id" | jq -r 'first(.result | .. | objects | .path? | strings) // empty' 2>/dev/null)
+        # N1-224 SEC-2: the lookup may be fuzzy; accept only a folder named <ID>, else fall through to the exact name match.
+        [ "$(printf '%s' "${p##*/}" | tr '[:upper:]' '[:lower:]')" = "$lid" ] || p=""
+        [ -n "$p" ] || p=$(n1_orca worktree list | jq -r --arg l "$lid" 'first(.result.worktrees[]? | select(.isMainWorktree != true)
+            | select((.path | split("/") | last | ascii_downcase) == $l or ((.displayName // "") | ascii_downcase) == $l) | .path) // empty' 2>/dev/null)
+        if [ -n "$p" ] && [ "$p" != "$main" ] && [ -d "$p" ] && grep -qxF "worktree $p" <<<"$list"; then printf '%s\n' "$p"; return 0; fi
+    fi
+    while IFS=$'\t' read -r p b; do
+        [ -d "$p" ] || continue
+        if [ "$(printf '%s' "${p##*/}" | tr '[:upper:]' '[:lower:]')" = "$lid" ] || _n1_id_in "$id" "$b"; then printf '%s\n' "$p"; return 0; fi
+    done < <(awk '/^worktree /{p=substr($0,10)} /^branch /{b=substr($0,19)} /^$/{print p "\t" b; p=""; b=""} END{if(p!="")print p "\t" b}' <<<"$list" | tail -n +2)
+    return 0
+}
+
+# N1-224 workspace decision for n1-start. Prints exactly one token:
+#   stay <path> | ask <path> <branch> | reuse <path> | handoff-launch <path> | handoff-create | create-local
+# Handoff only when: Orca active, not headless, not a queue child, no --no-handoff; handoff-launch only for an
+# Orca-registered path. --elsewhere skips the ownership check (the user chose a separate workspace).
+# Usage: n1_workspace_decide <ID> [--no-handoff] [--elsewhere]
+n1_workspace_decide() {
+    local id="${1:-}" nh="" el="" a rc=0 top found can=""
+    [ $# -gt 0 ] && shift
+    for a in "$@"; do case "$a" in --no-handoff) nh=1 ;; --elsewhere) el=1 ;; esac; done
+    if [ -z "$el" ]; then
+        n1_worktree_owned "$id" || rc=$?
+        top=$(git rev-parse --show-toplevel 2>/dev/null)
+        case "$rc" in
+            0) echo "stay $top"; return 0 ;;
+            1) echo "ask $top $(git rev-parse --abbrev-ref HEAD 2>/dev/null)"; return 0 ;;
+        esac
+    fi
+    [ -z "$nh" ] && [ "${N1_HEADLESS:-}" != 1 ] && [ -z "${N1_QUEUE_RUN_ID:-}" ] && n1_orca_active && can=1
+    found=$(n1_find_workspace "$id")
+    if [ -n "$found" ]; then
+        if [ -n "$can" ] && n1_orca_owns "$found"; then echo "handoff-launch $found"; else echo "reuse $found"; fi
+    elif [ -n "$can" ]; then echo handoff-create
+    else echo create-local; fi
+    return 0
+}
+
 # N1-112: n1-finish Step 6 worktree + local-branch cleanup; prints status tokens, one per line, always returns 0.
 # Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch>   (run from the feature checkout)
 # A branch checked out in a worktree cannot be deleted, so the worktree goes first. N1-managed worktrees
 # are force-removed; external ones only when clean and HEAD is in the merged result (oid, else <defaultBranch>),
 # never forced. Branch: tip must be an ancestor of the merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
 # After a removal the shell is left in the main checkout.
+# Orca-owned worktrees (n1_orca_owns) are removed through n1_orca_rm; ignored files do not block them (N1-224).
 n1_finish_cleanup() {
     local branch="${1:-}" oid="${2:-}" def="${3:-}"
     local gd gcd main top err cur st keep="" force=""
@@ -787,13 +879,19 @@ n1_finish_cleanup() {
         if [ "$cur" != "$branch" ]; then echo "worktree:kept-other"
         else
             # Only a positive match under the main checkout's N1 worktree root is N1-managed; everything else is external (never forced).
-            case "$top" in "$main/$(n1_worktree_root)"/*) force="--force" ;; esac
+            # N1-224: an Orca-owned worktree is removed through Orca (never forced, even under the N1 root); ignored files (.env) do not block it.
+            local orca=""; n1_orca_owns "$top" && orca=1
+            [ -z "$orca" ] && case "$top" in "$main/$(n1_worktree_root)"/*) force="--force" ;; esac
             if [ -z "$force" ]; then
                 if ! st=$(git status --porcelain --ignored 2>/dev/null) || [ -n "$(grep -v '^!!' <<<"$st")" ]; then keep="dirty"
-                elif [ -n "$st" ]; then keep="ignored files"
+                elif [ -n "$st" ] && [ -z "$orca" ]; then keep="ignored files"
                 elif ! git merge-base --is-ancestor HEAD "${oid:-refs/heads/$def}" 2>/dev/null; then keep="unmerged"; fi
             fi
             if [ -n "$keep" ]; then echo "worktree:kept ($keep)"
+            elif [ -n "$orca" ]; then
+                # No git fallback: removing behind Orca's back would desync its state.
+                if err=$(cd / && n1_orca_rm "$top"); then echo "worktree:removed"; cd "$main" 2>/dev/null || true
+                else keep="remove-failed"; echo "worktree:remove-failed (${err:-workspace manager error})"; fi
             elif err=$(cd / && "${G[@]}" worktree remove $force "$top" 2>&1); then echo "worktree:removed"; cd "$main" 2>/dev/null || true
             else keep="remove-failed"; echo "worktree:remove-failed (${err%%$'\n'*})"; fi
         fi

@@ -19,6 +19,8 @@ trap 'rm -rf "$T"' EXIT
 export N1_HOME="$T/home"; mkdir -p "$N1_HOME"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+# C18 pins the non-Orca ignored-files rule; Orca-owned removal is covered in tests/test_orca.sh (N1-224).
+unset ORCA_CLI_COMMAND
 
 M="$T/main"
 git init -q -b main "$M"

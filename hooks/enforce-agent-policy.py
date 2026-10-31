@@ -441,7 +441,7 @@ def _command(payload):
     return command if isinstance(command, str) else None
 
 
-TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|containers_teardown|merge_authorized)\b|n1-release")
+TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b")
 
 
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
@@ -449,7 +449,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     tail = persona_of(str(payload.get("agent_type") or "")) == "tail-worker"
     if tail:
         cmd = _command(payload) or ""
-        if TAIL_DENY_RE.search(cmd):
+        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
             sys.stderr.write("N1: tail-worker may not run merge/cleanup/run-pointer/release commands; the orchestrator owns them\n")
             return 2
     elif merge_authorized(config):

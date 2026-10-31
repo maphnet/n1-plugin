@@ -10,6 +10,7 @@
 #   3. Reads $N1_HOME/memory/$ID/step_signals.tmp if present,
 #      calls n1_write_signals against $N1_HOME/memory/$ID/<step_name>.md,
 #      then deletes the tmp file.
+#   Best-effort: sets the Orca workspace card comment "<step>: <outcome>" (unread on escalated/blocked).
 #   4. Emits telemetry completed_at with outcome (and optional metadata JSON).
 #
 # Signal scratch file protocol:
@@ -90,6 +91,14 @@ n1_step_end() {
             [ "${#pairs[@]}" -gt 0 ] && n1_write_signals "$mem_file" "${pairs[@]}"
         fi
         rm -f "$sig_file"
+    fi
+
+    # 2b. Orca workspace card (N1-224): best-effort; zero subprocesses when ORCA_CLI_COMMAND is unset
+    if [ -n "${ORCA_CLI_COMMAND:-}" ] && type n1_orca_sync >/dev/null 2>&1; then
+        case "$outcome" in
+            escalated|blocked) n1_orca_sync "${step_name}: ${outcome}" --unread ;;
+            *)                 n1_orca_sync "${step_name}: ${outcome}" ;;
+        esac
     fi
 
     # 3. Emit telemetry completed_at

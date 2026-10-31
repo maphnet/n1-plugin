@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
 assert_eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS+1)); else echo "FAIL: $1 (expected=[$2] actual=[$3])"; FAIL=$((FAIL+1)); fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-unset N1_RUN_ID N1_TRANSCRIPT_PATH N1_PARENT_SESSION_ID N1_SESSION_ID CLAUDE_CODE_SESSION_ID
+unset N1_RUN_ID N1_TRANSCRIPT_PATH N1_PARENT_SESSION_ID N1_SESSION_ID CLAUDE_CODE_SESSION_ID ORCA_CLI_COMMAND
 export N1_HOME="$T/home" N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 mkdir -p "$N1_HOME"
 cat > "$N1_HOME/config.json" <<'EOF'
@@ -280,6 +280,14 @@ for c in "gh pr merge 12" "git push origin main" "source ~/.n1/preamble.sh; n1_f
     assert_eq "tail-worker denied with merge authorized: $c" 2 "$(tw_rc "$c")"
 done
 assert_eq "tail-worker plain command allowed" 0 "$(tw_rc "gh pr view 12")"
+# N1-224: the tail-worker never removes a workspace-manager worktree
+for c in "source ~/.n1/preamble.sh; n1_orca_rm /x" '"$ORCA_CLI_COMMAND" worktree rm --worktree path:/x' "orca worktree rm --worktree path:/x" \
+    "source ~/.n1/preamble.sh; n1_orca worktree rm --worktree path:/x" 'X=$ORCA_CLI_COMMAND
+$X worktree rm --worktree path:/x' "orca worktree remove path:/x" "n1_orca_handoff X-1 '' create" \
+    "n1_orc''a_rm /x" 'n1_orca_r\m /x' "orca worktree r''m path:/x"; do
+    assert_eq "tail-worker denied workspace removal: $c" 2 "$(tw_rc "$c")"
+done
+assert_eq "tail-worker card status allowed" 0 "$(tw_rc 'source ~/.n1/preamble.sh; n1_orca_sync "finish: merged"')"
 # N1-159: a test runner piped into tail/head/grep and && chained into git commit hides the suite status
 PIPE_DENY=("evidence-N1-74|bash tests/run.sh 2>&1 | tail -2 && git add -A && git commit -m x"
            "evidence-N1-75|bash tests/test_manifests.sh | tail -2 && git add -A && git commit -m x"
