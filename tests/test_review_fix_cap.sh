@@ -96,6 +96,37 @@ eq "P2 pr.md emits review_unresolved_at_pr" "1" "$(grep -c '"review_unresolved_a
 
 eq "R5 fix.md consults the gate before the counter increment (reverting the gate call goes red)" "yes" "$(gl=$(grep -n 'n1_review_fix_gate' "$F" | head -1 | cut -d: -f1); il=$(grep -n 'n1_increment_counter.*review_fix_cycle' "$F" | head -1 | cut -d: -f1); [ -n "$gl" ] && [ -n "$il" ] && [ "$gl" -lt "$il" ] && echo yes || echo no)"
 
+# ---- audit (N1-260): counter past the cap needs one human-answered `fix` ledger row per extra cycle ----
+ovl() { # <counter> [ledger rows...] -> overview.md with frontmatter + Decision Ledger
+    ov "$1"; shift
+    printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$OV"
+    [ $# -eq 0 ] || printf '%s\n' "$@" >> "$OV"
+}
+ASKED='| fix | quality | A | [asked] | review fix cap reached | One more FAIL fix cycle | List under For Human Review | user chose 2 | codebase |'
+HL_ASKED='| fix | headless | A | [asked] | review fix cap reached | 2 | 1 | headless: ask-mode answer | --- |'
+PLAN='| fix | headless | A | [plan] | review fix cap reached | 2 | 1 | queue plan pre-decision: extend | --- |'
+AUTO_CAP='| fix | quality | A | [auto] | review fix cap reached | List under For Human Review | Prompt user | qualityEscalations=auto-accept | --- |'
+AUTO_EXTRA='| fix | quality | A | [auto-decided] | review-fix-cap-extra | One more FAIL fix cycle | For Human Review | SEC-5 Medium open | --- |'
+OTHER='| review | quality | A | [asked] | review tier | FULL | NARROW | user chose | codebase |'
+cfg '{}'
+ovl 0; eq "A1 counter 0 -> ok" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 1; eq "A2 counter at cap 1, no rows -> ok" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 2; eq "A3 counter 2 > cap 1, no rows -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+n1_review_fix_audit "$OV" >/dev/null; eq "A3b breach returns 1" "1" "$?"
+ovl 2 "$ASKED"; eq "A4 interactive [asked] fix row covers one extra cycle" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 2 "$HL_ASKED"; eq "A5 headless ask-mode [asked] fix row counts" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 2 "$PLAN"; eq "A6 queue plan-time [plan] fix row counts" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 3 "$ASKED"; eq "A7 two extra cycles, one row -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+ovl 3 "$ASKED" "$HL_ASKED"; eq "A8 two extra cycles, two rows -> ok" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 2 "$OTHER"; eq "A9 [asked] row from another step does not count -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+ov 2; eq "A10 legacy overview without ledger, above cap -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+ov 1; eq "A11 legacy overview without ledger, at cap -> ok" "ok" "$(n1_review_fix_audit "$OV")"
+ov abc; eq "A12 non-numeric counter -> breach (fail closed)" "breach" "$(n1_review_fix_audit "$OV")"
+cfg '{"review":{"maxFixAttempts":2}}'
+ovl 2; eq "A13 cap 2, counter 2 -> ok" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 3; eq "A14 cap 2, counter 3, no rows -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+cfg '{}'
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -735,6 +735,21 @@ n1_review_fix_gate() {
     if [ "$cur" -lt "$max" ]; then echo allow; else echo exhausted; return 1; fi
 }
 
+n1_review_fix_audit() {
+    # Usage: n1_review_fix_audit <overview.md> -> prints ok|breach; returns 1 on breach (N1-260).
+    # Breach: review_fix_cycle above review.maxFixAttempts with fewer human-answered `fix` ledger rows
+    # ([asked]; [plan] = answered at queue plan time) than cycles over the cap. [auto]/[auto-decided] never count.
+    local max cur n=0 line re='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan)\] [|]'
+    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]+$ ]] || max=1
+    cur=$(n1_read_frontmatter "$1" review_fix_cycle); cur=${cur:-0}
+    [[ "$cur" =~ ^[0-9]+$ ]] || { echo breach; return 1; }  # garbage counter fails closed
+    if [ "$cur" -le "$max" ]; then echo ok; return 0; fi
+    while IFS= read -r line; do
+        if [[ "$line" =~ $re ]]; then n=$((n + 1)); fi
+    done < "$1"
+    if [ "$n" -ge $((cur - max)) ]; then echo ok; else echo breach; return 1; fi
+}
+
 n1_escalation_val() {
     # Usage: n1_escalation_val alwaysAskOn -- fixed stop list (N1-113).
     case "$1" in
