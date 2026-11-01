@@ -126,6 +126,11 @@ ovl 2 '| fix | headless | A | [asked] | review fix cap reached | 1 | 2 | headles
 ov 08; eq "A11e octal-looking counter 08 -> breach, no crash" "breach" "$(n1_review_fix_audit "$OV")"
 ovl 08 "$ASKED"; eq "A11f counter 08 needs 7 rows -> breach" "breach" "$(n1_review_fix_audit "$OV")"
 ov abc; eq "A12 non-numeric counter -> breach (fail closed)" "breach" "$(n1_review_fix_audit "$OV")"
+ov 18446744073709551616; eq "A12b 2^64 counter wraps at 64 bits -> breach (fail closed)" "breach" "$(n1_review_fix_audit "$OV")"
+ovl 2 "$ASKED"; printf '%s' "$(cat "$OV")" > "$OV"  # drop the final newline
+eq "A12c extension row at EOF without trailing newline counts" "ok" "$(n1_review_fix_audit "$OV")"
+cfg '{"review":{"maxFixAttempts":18446744073709551616}}'
+ovl 2; eq "A12d overflowing cap falls back to default -> breach" "breach" "$(n1_review_fix_audit "$OV")"
 cfg '{"review":{"maxFixAttempts":2}}'
 ovl 2; eq "A13 cap 2, counter 2 -> ok" "ok" "$(n1_review_fix_audit "$OV")"
 ovl 3; eq "A14 cap 2, counter 3, no rows -> breach" "breach" "$(n1_review_fix_audit "$OV")"

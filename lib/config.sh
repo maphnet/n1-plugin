@@ -741,12 +741,12 @@ n1_review_fix_audit() {
     # An extension row sits in `## Decision Ledger`: step fix, tag [asked] ([plan] = queue plan time), Question
     # `review fix cap reached`, Chosen option 2 (`2` or `One more FAIL fix cycle`). Nothing else counts.
     local max cur n=0 line in_l=0 re='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan)\] [|] review fix cap reached [|] (2|One more FAIL fix cycle) [|]'
-    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]+$ ]] || max=1
+    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]{1,9}$ ]] || max=1
     cur=$(n1_read_frontmatter "$1" review_fix_cycle); cur=${cur:-0}
-    [[ "$cur" =~ ^[0-9]+$ ]] || { echo breach; return 1; }  # garbage counter fails closed
+    [[ "$cur" =~ ^[0-9]{1,9}$ ]] || { echo breach; return 1; }  # garbage or >9-digit counter (64-bit wrap) fails closed
     cur=$((10#$cur)); max=$((10#$max))  # decimal: 08/09 are not octal
     if [ "$cur" -le "$max" ]; then echo ok; return 0; fi
-    while IFS= read -r line; do
+    while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in '## Decision Ledger'*) in_l=1; continue ;; '## '*) in_l=0; continue ;; esac
         if [ "$in_l" = 1 ] && [[ "$line" =~ $re ]]; then n=$((n + 1)); fi
     done < "$1"
