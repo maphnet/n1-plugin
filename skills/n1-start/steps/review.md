@@ -27,7 +27,7 @@ QE=$(n1_autonomy_val 'qualityEscalations'); echo "BASE_BRANCH=$BASE_BRANCH RELAT
 
 ### Incremental Re-Review (cycle >= 1)
 
-`INCREMENTAL=true`: pass code-reviewer `$N1_HOME/memory/$ID/fix.diff` path and `$FIX_FILES` as file scope; instruct "Incremental re-review — review only the changes in fix.diff, read surrounding code only as needed; check regressions; verify all prior findings addressed (review-prev.md: re-report unfixed by id)." The security-reviewer keeps full scope (unfixed [SEC-N] must resurface). `INCREMENTAL=false`: full scope.
+`INCREMENTAL=true`: pass code-reviewer `$N1_HOME/memory/$ID/fix.diff` path and `$FIX_FILES` as file scope; instruct "Incremental re-review — review only the changes in fix.diff, read surrounding code only as needed; check regressions; verify all prior findings addressed (review-prev.md: re-report unfixed by id)." The security-reviewer gets the same fix.diff path and `$FIX_FILES` scope plus the prior `[SEC-N]` list from review-prev.md: re-verify each by id and re-report unfixed ones (they must resurface and FAIL); new findings only as regressions introduced by fix.diff. `INCREMENTAL=false`: full scope.
 
 Run **Ensure Dependencies(`<ID>`)** first. > **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step**
 
@@ -35,7 +35,7 @@ Run **Ensure Dependencies(`<ID>`)** first. > **ORCHESTRATOR GUARDRAIL (review): 
 
 **Review tier gate:** If `REVIEW_TIER=SKIP`: record `"Review skipped: DOC_CONFIG_ONLY diff, code-reviewer not needed."` in `$N1_HOME/memory/$ID/review.md`, write `## Review` with `PASS (skipped — doc/config only)` to overview, run `n1_step_end "review" 9 "success"`, and proceed to next step. If `REVIEW_TIER=NARROW`: spawn code-reviewer with scope restricted to TQ findings only — instruct: "Scope: test quality (TQ) findings only. Do NOT review for correctness, design, architecture, or style. Report only [TQ-N] findings for test coverage gaps, hollow tests, and test quality issues." If `REVIEW_TIER=FULL`: current behavior (full code-reviewer scope).
 
-**Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md` (codebase analysis), Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff.
+**Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md` (codebase analysis), Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff (on `INCREMENTAL=true`: fix.diff + `$FIX_FILES`, see Incremental Re-Review).
 
 ```bash
 source ~/.n1/preamble.sh
