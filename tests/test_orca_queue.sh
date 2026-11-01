@@ -161,6 +161,25 @@ eq "merge-deny: another session without sentinel or pin unaffected" 0 "$(cd "$WT
 cp "$T/S.bak" "$S"
 PAY3=$(jq -cn --arg c "$WT" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:"rm -f $HOME/.n1/x/queue/sentinels/T-1.env"}}')
 eq "sentinel-deny: child touching queue/sentinels denied" 2 "$(cd "$WT" && printf '%s' "$PAY3" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+hookrc() { (cd "$WT" && printf '%s' "$1" | env "${@:2}" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?); }
+wpay() { jq -cn --arg c "$WT" --arg t "$1" --arg p "$2" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:$t,tool_input:{file_path:$p}}'; }
+eq "sentinel-deny: Write to a session pin denied" 2 "$(hookrc "$(wpay Write "$N1_HOME/queue/sessions/T-1.s1")")"
+eq "sentinel-deny: Edit to the sentinel denied" 2 "$(hookrc "$(wpay Edit "$S")")"
+eq "sentinel-deny: ../ path into sentinels denied" 2 "$(hookrc "$(wpay Write "$N1_HOME/queue/q1/../sentinels/T-1.env")")"
+ln -s "$N1_HOME/queue" "$T/qlink"
+eq "sentinel-deny: symlinked path denied" 2 "$(hookrc "$(wpay MultiEdit "$T/qlink/sessions/T-1.s1")")"
+eq "sentinel-deny: Write elsewhere unaffected" 0 "$(hookrc "$(wpay Write "$WT/a.txt")")"
+BPAY() { jq -cn --arg c "$WT" --arg m "$1" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$m}}'; }
+eq "sentinel-deny: rm of \$N1_ORCA_SENTINEL denied" 2 "$(hookrc "$(BPAY 'rm -f "$N1_ORCA_SENTINEL"')")"
+eq "sentinel-deny: globbed pins denied" 2 "$(hookrc "$(BPAY 'rm $N1_HOME/queue/sess*/*')")"
+# Scope: only an Orca queue child. A plain unattended run (claude --bg child) is not denied.
+eq "sentinel-deny: bg/headless run without a sentinel not denied" 0 "$(cd "$M" && printf '%s' "$(BPAY 'grep -r queue/sentinels lib')" | N1_HEADLESS=1 bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
+# SEC-5: a re-run of the session pin (compaction) never overwrites the pin from an edited sentinel.
+cp "$S" "$T/S.pre"; sed -i "s|^N1_ORCA_REPO=.*|N1_ORCA_REPO=$O|" "$S"
+(cd "$WT" && n1_orca_child_env "$WT" s1 && n1_orca_session_pin s1)
+eq "session-pin: tampered sentinel does not overwrite the pin" "$M" "$(sed -n 's/^N1_ORCA_REPO=//p' "$N1_HOME/queue/sessions/T-1.s1")"
+eq "session-pin: identity survives the tamper plus a re-pin" 0 "$(cd "$WT" && n1_orca_child_env "$WT" s1; echo $?)"
+cp "$T/S.pre" "$S"
 n1_orca_sentinel_rm "$N1_HOME" T-1
 eq "sentinel_rm: pinned session copies go with it" no "$([ -e "$N1_HOME/queue/sessions/T-1.s1" ] && echo yes || echo no)"
 cp "$T/S.bak" "$S"

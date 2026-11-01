@@ -56,6 +56,7 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 case "$INPUT" in
     *'"n1:'*) : ;;
     *'"Bash"'*) : ;;
+    *'"Write"'*|*'"Edit"'*|*'"MultiEdit"'*|*'"NotebookEdit"'*) : ;;   # N1-225: sentinel_deny checks file_path
     *) exit 0 ;;
 esac
 

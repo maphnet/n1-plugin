@@ -444,13 +444,30 @@ def _command(payload):
 TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b")
 
 
-SENTINEL_RE = re.compile(r"queue/(sentinels|sessions)\b")
+# Bash text of an Orca child: the identity dirs by name, the env var that names the sentinel, a glob into queue/, or
+# the queue dir itself (best effort: an obfuscated command is invisible to a hook, only the file tools are exact).
+SENTINEL_RE = re.compile(r"N1_ORCA_SENTINEL|\b(sentinels|sessions)\b|\bqueue/\w*\*|/queue(?![\w./-])")
+FILE_TOOL_KEYS = ("file_path", "notebook_path", "path")
 
 
 def sentinel_deny(payload: dict) -> int:
-    """SEC-2: an unattended child may not touch the runner-owned identity files (queue/sentinels, queue/sessions)."""
+    """SEC-2: an Orca queue child (N1_ORCA_SENTINEL, set only by n1_orca_child_env) may not touch the runner-owned
+    identity files: <n1-home>/queue/sentinels and queue/sessions, via Bash text or a file tool's resolved path."""
+    sentinel = os.environ.get("N1_ORCA_SENTINEL")
+    if not sentinel:
+        return 0
     cmd = _command(payload) or ""
-    if _unattended() and (SENTINEL_RE.search(cmd) or SENTINEL_RE.search(re.sub(r"[\"'\\]", "", cmd))):
+    hit = SENTINEL_RE.search(cmd) or SENTINEL_RE.search(re.sub(r"[\"'\\]", "", cmd))
+    tool_input = payload.get("tool_input")
+    if not hit and isinstance(tool_input, dict):
+        qdir = os.path.dirname(os.path.dirname(os.path.realpath(sentinel)))
+        cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else os.getcwd()
+        for key in FILE_TOOL_KEYS:
+            path = tool_input.get(key)
+            if isinstance(path, str) and path:
+                real = os.path.realpath(os.path.join(cwd, os.path.expanduser(path)))
+                hit = hit or any(real == d or real.startswith(d + os.sep) for d in (qdir + "/sentinels", qdir + "/sessions"))
+    if hit:
         sys.stderr.write("N1: queue children may not touch the runner's identity files (queue/sentinels, queue/sessions)\n")
         return 2
     return 0

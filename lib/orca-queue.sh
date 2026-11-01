@@ -166,7 +166,8 @@ n1_orca_session_pin() {
     # per session, so a child that deletes or edits its own sentinel (or the queue's run_id) stays a queue child.
     [[ "${1:-}" =~ ^[A-Za-z0-9_-]+$ ]] && [ -n "${N1_ORCA_SENTINEL:-}" ] || return 0
     local d="${N1_ORCA_SENTINEL%/sentinels/*}/sessions"
-    mkdir -p "$d" && cp "$N1_ORCA_SENTINEL" "$d/$N1_ORCA_TICKET.$1" && chmod 600 "$d/$N1_ORCA_TICKET.$1"
+    # Only the first SessionStart pins: on compaction/resume the sentinel may have been edited, the pin must not follow.
+    [ -e "$d/$N1_ORCA_TICKET.$1" ] || { mkdir -p "$d" && cp "$N1_ORCA_SENTINEL" "$d/$N1_ORCA_TICKET.$1" && chmod 600 "$d/$N1_ORCA_TICKET.$1"; }
 }
 
 n1_orca_child_env() {
