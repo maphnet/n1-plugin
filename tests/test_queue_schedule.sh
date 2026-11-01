@@ -86,4 +86,62 @@ has "notify needs-you: unread marker" "worktree set --worktree path:$T/proj --un
 reset; (n1_notify done "queue finished") >/dev/null 2>&1
 hasnt "notify done: no unread marker" "worktree set" "$(calls)"
 
+# --- Task 2: precheck script ---
+PRE="$REPO_ROOT/scripts/n1-queue-precheck.sh"
+mkdir -p "$HOME/.config/mcp/secrets"
+printf 'ATLASSIAN_URL=https://x.atlassian.net/\nATLASSIAN_EMAIL=me@example.com\nATLASSIAN_TOKEN=s3cr3t-tok\n' > "$HOME/.config/mcp/secrets/jira.env"
+cat > "$FAKE/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE/curl-argv"
+cat >> "$FAKE/curl-stdin"
+case "${FAKE_CURL:-zero}" in
+  zero) echo '{"issues":[],"isLast":true}' ;;
+  one) echo '{"issues":[{"id":"1","key":"TP-1"}],"isLast":false}' ;;
+  junk) echo 'not json' ;;
+  *) exit 22 ;;
+esac
+EOF
+chmod +x "$FAKE/bin/curl"
+# Clean env: Orca's precheck env is undocumented, so the script must work with PATH and HOME only.
+pre() { env -i PATH="$PATH" HOME="$HOME" FAKE="$FAKE" FAKE_CURL="${FAKE_CURL:-zero}" bash "$PRE" "$N1_HOME" n1-auto "${1:-jira}" TP "To Do"; }
+fresh() { rm -rf "$N1_HOME/queue" "$FAKE/curl-argv" "$FAKE/curl-stdin"; mkdir -p "$N1_HOME/queue/n1-auto"; }
+
+fresh; eq "precheck: zero tagged TODO tickets -> skip" 1 "$(rc pre)"
+has "precheck: JQL names project, label and status" 'jql=project = "TP" AND labels = "n1-auto" AND status = "To Do"' "$(cat "$FAKE/curl-argv")"
+has "precheck: enhanced search endpoint" "https://x.atlassian.net/rest/api/3/search/jql" "$(cat "$FAKE/curl-argv")"
+hasnt "precheck: token never in curl argv" "s3cr3t" "$(cat "$FAKE/curl-argv")"
+has "precheck: auth header via curl stdin" 'header = "Authorization: Basic ' "$(cat "$FAKE/curl-stdin")"
+fresh; eq "precheck: tagged ticket -> start" 0 "$(FAKE_CURL=one rc pre)"
+fresh; out=$(FAKE_CURL=fail pre 2>&1); r=$?
+eq "precheck: tracker failure fails open" 0 "$r"
+has "precheck: failure reason on stderr" "tracker check failed" "$out"
+hasnt "precheck: no secret in output" "s3cr3t" "$out"
+fresh; eq "precheck: unreadable response fails open" 0 "$(FAKE_CURL=junk rc pre)"
+fresh; eq "precheck: missing credentials file fails open" 0 "$(rc pre nope)"
+fresh; eq "precheck: non-Jira tracker skips REST" 0 "$(rc pre none)"
+eq "precheck: non-Jira tracker never calls curl" no "$([ -s "$FAKE/curl-argv" ] && echo yes || echo no)"
+
+fresh; mkdir "$N1_HOME/queue/n1-auto/.unattended-claim"
+eq "precheck: fresh claim -> skip" 1 "$(FAKE_CURL=one rc pre)"
+touch -d '20 minutes ago' "$N1_HOME/queue/n1-auto/.unattended-claim"
+eq "precheck: stale claim ignored" 0 "$(FAKE_CURL=one rc pre)"
+
+fresh; mkdir -p "$T/p/scripts" "$N1_HOME/queue/other" "$N1_HOME/queue/third"
+printf 'sleep 30; :\n' > "$T/p/scripts/n1-queue-run.sh"   # trailing ':' keeps bash from exec-ing sleep
+Q="$N1_HOME/queue/other/queue.md"; Q3="$N1_HOME/queue/third/queue.md"
+bash "$T/p/scripts/n1-queue-run.sh" "$Q" & LIVE=$!
+sleep 0 & DEAD=$!; wait "$DEAD"
+sleep 0.3   # let the fake runner exec so /proc/<pid>/cmdline is its own
+printf -- '---\nqueue_id: other\nstep: run\npid: %s\n---\n' "$LIVE" > "$Q"
+eq "precheck: live runner of any project queue -> skip" 1 "$(FAKE_CURL=one rc pre)"
+eq "lib agrees: live runner" 0 "$(rc n1_queue_runner_alive "$LIVE" "$Q")"
+printf -- '---\nqueue_id: other\nstep: run\npid: %s\n---\n' "$DEAD" > "$Q"
+eq "precheck: dead runner (interrupted run) passes" 0 "$(FAKE_CURL=one rc pre)"
+eq "lib agrees: dead runner" 1 "$(rc n1_queue_runner_alive "$DEAD" "$Q")"
+printf -- '---\nqueue_id: other\nstep: done\npid: %s\n---\n' "$LIVE" > "$Q"
+printf -- '---\nqueue_id: third\nstep: run\npid: %s\n---\n' "$LIVE" > "$Q3"
+eq "precheck: runner of another queue file does not count" 0 "$(FAKE_CURL=one rc pre)"
+eq "lib agrees: runner of another queue file" 1 "$(rc n1_queue_runner_alive "$LIVE" "$Q3")"
+rm -rf "$N1_HOME/queue"
+
 exit "$FAIL"
