@@ -203,8 +203,8 @@ finalize() {
     # Persist it too: a runner restart loses CHAIN_ESC and the question files are removed below.
     if [ -n "$CHAIN_ESC" ]; then : > "$N1_QUEUE_DIR/.escalated-$TICKET"; else rm -f "$N1_QUEUE_DIR/.escalated-$TICKET"; fi
     rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM" "$N1_QUEUE_DIR/.ask-$TICKET"
-    # N1-225: a failed Orca row is given up on: its identity ends with it (a user may re-run the ticket interactively).
-    [ "$OUTCOME" = failed ] && [ -n "${ORCA_RUN:-}" ] && n1_orca_sentinel_rm "$N1H" "$TICKET"
+    # N1-225: an Orca row's identity is never removed here: a timed-out worker may still be running. orca_settle
+    # removes it once the worker reported done or is proven exited.
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
@@ -892,15 +892,17 @@ orca_settle() {
 # stopped or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
     local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE
-    local LIVE="" DONE=" " SETTLED=" " OWED=" " SEEN=" " EMPTY=0 FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
+    local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" EMPTY=0 FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
     local -a WORKED=()
     POLL=$(n1_queue_val pollSeconds)
     MAXC=$(n1_queue_val maxConcurrent); [[ "$MAXC" =~ ^[1-9][0-9]*$ ]] || MAXC=3
-    LIVE=$(n1_orca_liveness "$ORCA_RUN") || LIVE=""
-    # A runner restart loses OWED: re-owe this run's finished rows (chain_finish is idempotent per .chained marker).
+    LIVE_OK=1; LIVE=$(n1_orca_liveness "$ORCA_RUN") || { LIVE=""; LIVE_OK=0; }
+    # A runner restart loses OWED: re-owe this run's finished rows that are not settled yet (settle removes the
+    # sentinel, so a row whose sentinel still names its task is the unsettled one).
     while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _; do
         [ "$(n1_read_frontmatter "$N1H/memory/$TICKET/overview.md" queue_run_id 2>/dev/null)" = "$RUN_ID" ] || continue
-        SID=$(n1_queue_session_id "$QUEUE" "$TICKET"); case "$SID" in orca:*/*) TASK="${SID#orca:}"; OWED="$OWED${TASK%%/*} " ;; esac
+        SID=$(n1_queue_session_id "$QUEUE" "$TICKET"); case "$SID" in orca:*/*) TASK="${SID#orca:}"; TASK="${TASK%%/*}" ;; *) continue ;; esac
+        [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$N1H" "$TICKET")" N1_ORCA_TASK)" = "$TASK" ] && OWED="$OWED$TASK "
     done < <(n1_queue_pending_rows "$QUEUE" pr)
     while true; do
         TICK0=$(date +%s)
@@ -920,7 +922,7 @@ run_orca() {
             EMPTY=0
         else
             EMPTY=$((EMPTY + 1))
-            if [ "$EMPTY" -ge 3 ]; then EMPTY=0; L=$(n1_orca_liveness "$ORCA_RUN") && LIVE="$L"; fi
+            if [ "$EMPTY" -ge 3 ]; then EMPTY=0; L=$(n1_orca_liveness "$ORCA_RUN") && { LIVE="$L"; LIVE_OK=1; }; fi
         fi
         while IFS=$'\t' read -r TYPE TASK MSG; do
             _n1_orca_id "$TASK" || continue
@@ -969,7 +971,7 @@ run_orca() {
                 if [ -n "$OPEN_PR" ]; then
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
                 else
-                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "child-exited-incomplete"
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "child-exited-incomplete" "" nodefer
                 fi
                 continue
             fi
@@ -1012,7 +1014,17 @@ run_orca() {
         if [ "$INFLIGHT" = 0 ] && [ -z "$(n1_queue_pending_rows "$QUEUE")" ]; then
             # Done reports that never came: the overview is terminal, so settle (release + chain) anyway.
             if [ "$OWED" != " " ] && [ "$OWED_WAIT" -ge "$TIMEOUT_SECS" ]; then
-                for TASK in $OWED; do orca_settle "$TASK"; done
+                # Only a worker proven exited (or gone from a readable worker list) is settled; a live one (a long PR
+                # review-fix loop) keeps its identity.
+                for TASK in $OWED; do
+                    IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
+                    L=$(awk -F'\t' -v d="$DISP" '$1 == d { print $3; exit }' <<< "$LIVE")
+                    if [ "$L" = exited ] || { [ -z "$L" ] && [ "$LIVE_OK" = 1 ]; }; then orca_settle "$TASK"; fi
+                done
+                if [ "$OWED" != " " ] && [ -z "$OWED_NOTED" ]; then
+                    OWED_NOTED=1
+                    n1_notify info "Queue $QUEUE_ID: worker(s)${OWED% } still running after their PR; not released. Resume: /n1:n1-queue --run $QUEUE_ID"
+                fi
             fi
             # N1-64/N1-114: held rows start only once their blocker's PR is merged (no Orca --deps).
             HELD=$(n1_queue_held_sweep "$QUEUE")
