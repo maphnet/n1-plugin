@@ -16,7 +16,7 @@ steps/finish.md	n1_step_begin	1
 steps/finish.md	n1_step_end	1
 steps/fix.md	n1_step_begin	1
 steps/fix.md	n1_step_end	1
-steps/fix.md	n1_review_fix_gate	1
+steps/fix.md	n1_review_fix_gate	2
 steps/fix.md	n1_emit_question_event	1
 steps/implementation.md	n1_step_begin	1
 steps/implementation.md	n1_step_end	1
