@@ -127,6 +127,25 @@ ovl 2; eq "A13 cap 2, counter 2 -> ok" "ok" "$(n1_review_fix_audit "$OV")"
 ovl 3; eq "A14 cap 2, counter 3, no rows -> breach" "breach" "$(n1_review_fix_audit "$OV")"
 cfg '{}'
 
+# ---- regression (N1-241): hands-off Exhausted with an open SEC finding ----
+cfg '{"autonomy":{"qualityEscalations":"auto-accept"}}'
+ovl 2 "$AUTO_CAP" "$AUTO_EXTRA"
+eq "X1 N1-241 state (cycle 2, cap 1): gate reads exhausted" "exhausted" "$(n1_review_fix_gate "$OV")"
+eq "X2 N1-241 state: [auto]/[auto-decided] rows never authorize the extra cycle -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+cfg '{}'
+eq "H1 auto-accept Exhausted branch excludes open SEC findings" "1" "$(grep -cE '^\*\*Exhausted\*\*.*`QE=auto-accept` and no open `\[SEC-N\]`' "$F")"
+eq "H2 open SEC routes to the ask under any QE, never an [auto] row" "1" "$(grep -cE '^\*\*Exhausted\*\*.*security-class finding needs this ask under any `QE`; never an `\[auto\]` row' "$F")"
+eq "H3a no (Recommended) on option 2 for SEC" "0" "$(grep -c 'Mark (Recommended) on 2' "$F")"
+eq "H3b SEC option list carries the verbatim no-recommendation sentence" "1" "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$F")"
+eq "H4 headless SEC Exhausted goes through Headless Guard, never auto-extends" "1" "$(grep -cE '^\*\*Exhausted\*\*.*Headless Guard.*never auto-extend' "$F")"
+eq "H5 rule: gate before every FAIL dispatch, no inline fixes, no extra developer" "1" "$(grep -cE '^\*\*Rule \(N1-260\):\*\* `n1_review_fix_gate` .*runs before every FAIL developer dispatch.*never fixes findings inline.*never dispatches a developer outside this step' "$F")"
+AUDIT_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_audit/{print NR; exit}' "$F")
+eq "W7 fix.md runs the audit in a fence before the first developer spawn" "yes" "$([ -n "$AUDIT_LN" ] && [ -n "$SPAWN_LN" ] && [ "$AUDIT_LN" -lt "$SPAWN_LN" ] && echo yes || echo no)"
+eq "W8 audit breach is listed under For Human Review as [FIX-CAP]" "1" "$(grep -cE '^\*\*Exhausted\*\*.*`FIX_AUDIT=breach`.*\[FIX-CAP\].*## For Human Review' "$F")"
+PIN=$(grep -oE '`\| fix \| quality \| A \| \[asked\] \|`' "$F" | head -1 | tr -d '`')
+ovl 2 "$PIN q | c | a | r | codebase |"
+eq "W9 the option-2 ledger row fix.md prescribes satisfies the audit" "ok" "$(n1_review_fix_audit "$OV")"
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
