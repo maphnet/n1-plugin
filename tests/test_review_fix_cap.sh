@@ -146,6 +146,12 @@ PIN=$(grep -oE '`\| fix \| quality \| A \| \[asked\] \|`' "$F" | head -1 | tr -d
 ovl 2 "$PIN q | c | a | r | codebase |"
 eq "W9 the option-2 ledger row fix.md prescribes satisfies the audit" "ok" "$(n1_review_fix_audit "$OV")"
 
+PRF=skills/n1-start/steps/pr.md
+PA_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_audit/{print NR; exit}' "$PRF")
+PR_LN=$(grep -n 'n1:n1-pr`. Pass:' "$PRF" | head -1 | cut -d: -f1)
+eq "P3 pr.md audits the fix cap in a fence before n1-pr runs" "yes" "$([ -n "$PA_LN" ] && [ -n "$PR_LN" ] && [ "$PA_LN" -lt "$PR_LN" ] && echo yes || echo no)"
+eq "P4 pr.md breach surfaces [FIX-CAP] under For Human Review, never as an [auto] pass" "1" "$(grep -cE '^`FIX_AUDIT=breach`.*\[FIX-CAP\].*## For Human Review.*never an `\[auto\]`' "$PRF")"
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
