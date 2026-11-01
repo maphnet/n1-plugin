@@ -824,7 +824,8 @@ case "$1 $2" in
       if [ -f "$D/question" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/question")"; rm -f "$D/question"; fi
       ok "{\"deliveryId\":\"del-1\",\"messages\":[$m]}" ;;
   "worktree list") [ -n "${FAKE_ORCA_WT_FAIL:-}" ] && err "boom"; ok "{\"worktrees\":[$(cat "$D/worktrees" 2>/dev/null)]}" ;;   # $D/worktrees: comma-separated {"path":...} objects
-  "orchestration worker-list") cat "$D/workers.json" 2>/dev/null || ok '{"workers":[]}' ;;
+  "orchestration worker-list") [ -n "${FAKE_ORCA_WL_FAIL_AFTER:-}" ] && [ "$(grep -c 'worker-list' "$D/orca-calls")" -gt "$FAKE_ORCA_WL_FAIL_AFTER" ] && err "list down"
+      cat "$D/workers.json" 2>/dev/null || ok '{"workers":[]}' ;;
   "orchestration worker-release") ok '{}' ;;
   *) err "unknown command" ;;
 esac
@@ -967,6 +968,11 @@ test_orca_resume_owed() {   # CR-1: a settled row is not re-owed on resume; CR-2
     assert_eq "orca-owed: live worker is not released at expiry" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-owed: live worker keeps its sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
     assert_eq "orca-owed: user told to resume" "1" "$(grep -c 'still running after their PR' "$tmp/notes" || true)"
+    # SEC-7: an empty list that was readable once, then failed refreshes, must not prove the worker gone.
+    rm -f "$tmp/fake/workers.json"; : > "$tmp/fake/orca-calls"; : > "$tmp/notes"
+    assert_eq "orca-owed: stale list: exit 0" "0" "$(run_orca_queue "$tmp" FAKE_ORCA_WL_FAIL_AFTER=1)"
+    assert_eq "orca-owed: failed refresh after an empty list does not release" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-owed: stale list keeps the sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
     rm -rf "$tmp"
 }
 

@@ -922,7 +922,7 @@ run_orca() {
             EMPTY=0
         else
             EMPTY=$((EMPTY + 1))
-            if [ "$EMPTY" -ge 3 ]; then EMPTY=0; L=$(n1_orca_liveness "$ORCA_RUN") && { LIVE="$L"; LIVE_OK=1; }; fi
+            if [ "$EMPTY" -ge 3 ]; then EMPTY=0; if L=$(n1_orca_liveness "$ORCA_RUN"); then LIVE="$L"; LIVE_OK=1; else LIVE_OK=0; fi; fi
         fi
         while IFS=$'\t' read -r TYPE TASK MSG; do
             _n1_orca_id "$TASK" || continue
