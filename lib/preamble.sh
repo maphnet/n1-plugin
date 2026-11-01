@@ -17,6 +17,7 @@ source "$N1_ROOT/lib/config.sh"
 source "$N1_ROOT/lib/step.sh"       # also loads telemetry.sh, frontmatter.sh, signals.sh
 source "$N1_ROOT/lib/validation.sh"
 source "$N1_ROOT/lib/containers.sh"
+source "$N1_ROOT/lib/orca-queue.sh"   # N1-225: n1_orca_ask (queue children), n1_orca_reply (--answer)
 
 N1_HOME=$(n1_home)
 

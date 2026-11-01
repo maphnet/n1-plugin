@@ -56,8 +56,16 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 case "$INPUT" in
     *'"n1:'*) : ;;
     *'"Bash"'*) : ;;
+    *'"Write"'*|*'"Edit"'*|*'"MultiEdit"'*|*'"NotebookEdit"'*) : ;;   # N1-225: sentinel_deny checks file_path
     *) exit 0 ;;
 esac
+
+# N1-225: an Orca queue child carries its identity in a runner-written sentinel: load it into this hook process
+# so merge-deny and the fail-closed checks apply. enforce-agent-policy.py inherits these exports. Keyed on
+# CLAUDE_PROJECT_DIR (the session root), not the hook cwd: the cwd follows the child's `cd`, which would drop the identity.
+if [ -z "$QUEUE_CHILD" ] && source "${SCRIPT_DIR}/../lib/orca-queue.sh" && n1_orca_child_env "${CLAUDE_PROJECT_DIR:-$PWD}" "$(printf '%s' "$INPUT" | n1_hook_field session_id)"; then
+    QUEUE_CHILD=1
+fi
 
 CONFIG_FILE=$(n1_config_file)
 PLUGIN_ROOT_DIR=$(n1_plugin_root)

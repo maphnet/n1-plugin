@@ -775,12 +775,337 @@ FAKEEOF
 
 run_bg_queue() { # <tmp> — runs the runner with the fakes first on PATH; prints its exit code
     local rc=0
-    env FAKE_DIR="$1/fake" FAKE_N1H="$1/n1home" N1_HOME="$1/n1home" PATH="$1/bin:$PATH" \
+    env -u ORCA_CLI_COMMAND FAKE_DIR="$1/fake" FAKE_N1H="$1/n1home" N1_HOME="$1/n1home" PATH="$1/bin:$PATH" \
         bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$1/queue.md" > "$1/output.txt" 2>&1 || rc=$?
     echo "$rc"
 }
 
 line_of() { grep -n -F -- "$2" "$1" | head -1 | cut -d: -f1; }
+
+# --- N1-225: Orca orchestration backend ---------------------------------------
+# mk_orca <tmp> — fake Orca CLI <tmp>/bin/fake-orca on top of mk_bg's fakes; argv log in $FAKE_DIR/orca-calls.
+# worker-start copies the ticket's sentinel to $FAKE_DIR/sentinel.<t> and writes the child's overview at once
+# ($FAKE_DIR/overview.<t> if present, else step from $FAKE_DIR/step.<t>, default pr). check reports worker_done once per started task unless
+# $FAKE_DIR/nodone.<t> exists, plus $FAKE_DIR/question (one message JSON) once any task has started.
+mk_orca() {
+    : > "$1/fake/orca-calls"
+    cat > "$1/bin/fake-orca" <<'ORCAEOF'
+#!/usr/bin/env bash
+D="$FAKE_DIR"; printf '%s\n' "$*" >> "$D/orca-calls"
+ok() { printf '{"id":"1","ok":true,"result":%s}\n' "$1"; }
+err() { printf '{"id":"1","ok":false,"error":{"code":"x","message":"%s"}}\n' "$1"; exit 1; }
+arg() { local k="$1"; shift; while [ $# -gt 0 ]; do [ "$1" = "$k" ] && { printf '%s' "$2"; return; }; shift; done; }
+case "$1 $2" in
+  "status --json") [ -n "${FAKE_ORCA_DOWN:-}" ] && err "runtime down"; ok '{"runtime":{"reachable":true}}' ;;
+  "orchestration run-create") [ -n "${FAKE_ORCA_RUN_FAIL:-}" ] && err "unknown command"; ok '{"run":{"id":"run-1"}}' ;;
+  "orchestration run-use") [ -n "${FAKE_ORCA_RUNUSE_FAIL:-}" ] && err "no such run"; ok '{}' ;;
+  "orchestration task-create") ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
+  "orchestration worker-start")
+      task=$(arg --task "$@"); t="${task#task-}"
+      [ -n "${FAKE_ORCA_START_FAIL:-}" ] && err "lost response"
+      cp "$FAKE_N1H/queue/sentinels/$t.env" "$D/sentinel.$t" 2>/dev/null
+      echo "$task" >> "$D/started"
+      mkdir -p "$FAKE_N1H/memory/$t"
+      if [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
+      else printf -- '---\nstep: %s\n---\n## Pending\npr_url: https://x/pr/%s\n' "$(cat "$D/step.$t" 2>/dev/null || echo pr)" "$t" > "$FAKE_N1H/memory/$t/overview.md"; fi
+      ok "{\"dispatch\":{\"id\":\"d-$t\"}}" ;;
+  "orchestration check")
+      [ -n "$(arg --ack "$@")" ] && { ok '{}'; exit 0; }
+      m=""; n=$(( $(cat "$D/ncheck" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/ncheck"
+      # $D/replay: the first 5 checks replay a message for a task no row owns (a missed ack); on the 6th the
+      # tickets named in $D/finish-late finish.
+      [ -f "$D/replay" ] && [ "$n" -le 5 ] && m="{\"type\":\"question\",\"taskId\":\"task-ghost\",\"id\":\"m-ghost\"}"
+      if [ -f "$D/replay" ] && [ "$n" -eq 6 ]; then cp "$D/overview.late" "$FAKE_N1H/memory/T-A/overview.md"; fi
+      while read -r task; do
+          [ -f "$D/nodone.${task#task-}" ] && continue
+          grep -qx "$task" "$D/reported" 2>/dev/null && continue
+          echo "$task" >> "$D/reported"
+          m="$m${m:+,}{\"type\":\"worker_done\",\"taskId\":\"$task\",\"id\":\"m-$task\"}"
+      done < <(cat "$D/started" 2>/dev/null)
+      if [ -f "$D/question" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/question")"; rm -f "$D/question"; fi
+      ok "{\"deliveryId\":\"del-1\",\"messages\":[$m]}" ;;
+  "worktree list") [ -n "${FAKE_ORCA_WT_FAIL:-}" ] && err "boom"; ok "{\"worktrees\":[$(cat "$D/worktrees" 2>/dev/null)]}" ;;   # $D/worktrees: comma-separated {"path":...} objects
+  "orchestration worker-list") [ -n "${FAKE_ORCA_WL_FAIL_AFTER:-}" ] && [ "$(grep -c 'worker-list' "$D/orca-calls")" -gt "$FAKE_ORCA_WL_FAIL_AFTER" ] && err "list down"
+      cat "$D/workers.json" 2>/dev/null || ok '{"workers":[]}' ;;
+  "orchestration worker-release") ok '{}' ;;
+  *) err "unknown command" ;;
+esac
+ORCAEOF
+    chmod +x "$1/bin/fake-orca"
+}
+
+run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CLI as ORCA_CLI_COMMAND
+    local tmp="$1" rc=0; shift
+    env HOME="$tmp/hh" "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
+    echo "$rc"
+}
+
+cfg_set() { jq "$2" "$1/n1home/config.json" > "$1/cfg.tmp" && mv "$1/cfg.tmp" "$1/n1home/config.json"; } # <tmp> <jq-filter>
+
+test_orca_parallel_workers() {   # AC1
+    local tmp rid last_start first_rel; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done"; mk_orca "$tmp"
+    assert_eq "orca: exit 0" "0" "$(run_orca_queue "$tmp")"
+    rid=$(n1_read_frontmatter "$tmp/queue.md" run_id)
+    assert_eq "orca: Run id stored" "run-1" "$(n1_read_frontmatter "$tmp/queue.md" orca_run_id)"
+    assert_eq "orca: rows reach pr" "pr,pr,pr" "$(plan_cell "$tmp/queue.md" 1 8),$(plan_cell "$tmp/queue.md" 2 8),$(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "orca: no claude --bg child" "0" "$(grep -c '^launch ' <<< "$(cat "$tmp/fake/events" 2>/dev/null)" || true)"
+    last_start=$(grep -n worker-start "$tmp/fake/orca-calls" | tail -1 | cut -d: -f1)
+    first_rel=$(line_of "$tmp/fake/orca-calls" worker-release)
+    assert_eq "orca: 3 workers running at once" "3,yes" \
+        "$(grep -c worker-start "$tmp/fake/orca-calls"),$([ -n "$first_rel" ] && [ "$last_start" -lt "$first_rel" ] && echo yes || echo no)"
+    assert_eq "orca: worker flags" "yes" \
+        "$(grep -qF -- "--task task-T-A --worktree new-top-level --name T-A --repo path:$tmp --agent claude --model sonnet" "$tmp/fake/orca-calls" && echo yes || echo no)"
+    assert_eq "orca: Session cell" "orca:task-T-A/d-T-A" "$(n1_queue_session_id "$tmp/queue.md" T-A)"
+    assert_eq "orca: sentinel written before worker-start" "4" \
+        "$(grep -c -e '^N1_HEADLESS=1$' -e "^N1_QUEUE_RUN_ID=$rid$" -e '^N1_ORCA_TASK=task-T-A$' -e "^N1_ORCA_REPO=$tmp$" "$tmp/fake/sentinel.T-A")"
+    assert_eq "orca: every worker released" "3" "$(grep -c worker-release "$tmp/fake/orca-calls")"
+    assert_eq "orca: sentinels removed" "0" "$(ls "$tmp/n1home/queue/sentinels" 2>/dev/null | grep -c '\.env$' || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_max_concurrent() {
+    local tmp b_start a_rel; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 1'
+    assert_eq "orca-max1: exit 0" "0" "$(run_orca_queue "$tmp")"
+    b_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-B"); a_rel=$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-T-A")
+    assert_eq "orca-max1: T-B starts only after T-A is released" "yes" \
+        "$([ -n "$b_start" ] && [ -n "$a_rel" ] && [ "$b_start" -gt "$a_rel" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_held_blocker() {   # AC3: merge-gated, no --deps
+    local tmp b_start a_rel; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    # N1-114 release fixture (as test_bg_held_user_merge): a github pr_url, MERGED into main, a syncable repo.
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git init -q -b work "$tmp"
+    git -C "$tmp" remote add origin "$tmp/origin"
+    echo "MERGED main" > "$tmp/fake/gh-state"
+    assert_eq "orca-held: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-held: both pr" "pr,pr" "$(plan_cell "$tmp/queue.md" 1 8),$(plan_cell "$tmp/queue.md" 2 8)"
+    b_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-B"); a_rel=$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-T-A")
+    assert_eq "orca-held: dependent starts after its blocker completed" "yes" \
+        "$([ -n "$b_start" ] && [ "$b_start" -gt "$a_rel" ] && echo yes || echo no)"
+    assert_eq "orca-held: no --deps on tasks" "0" "$(grep task-create "$tmp/fake/orca-calls" | grep -vc -- "--deps \[\]" || true)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    echo OPEN > "$tmp/fake/gh-state"
+    assert_eq "orca-held-open: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-held-open: dependent never starts" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_question_parks() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    printf '{"type":"question","taskId":"task-T-A","id":"m-q1"}' > "$tmp/fake/question"
+    printf '{"ticket":"T-A","question":"Pick a DB?","options":["A","B"],"recommended":"A","rationale":"x"}' > "$tmp/.question-T-A.json"
+    assert_eq "orca-ask: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-ask: row parked" "awaiting-human" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-ask: message id kept for --answer" "m-q1" "$(cat "$tmp/.ask-T-A" 2>/dev/null)"
+    assert_eq "orca-ask: needs-you points at --answer" "1" "$(grep -c 'T-A needs you.*--answer T-A' "$tmp/notes" || true)"
+    assert_eq "orca-ask: never relaunched" "1" "$(grep -c worker-start "$tmp/fake/orca-calls")"
+    rm -rf "$tmp"
+}
+
+test_orca_resume_no_duplicate() {   # AC4
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    mkdir -p "$tmp/n1home/queue/sentinels"; printf 'N1_ORCA_TASK=task-T-A\n' > "$tmp/n1home/queue/sentinels/T-A.env"
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "| T-A | 2026-10-31T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: implement\n---\n' > "$tmp/n1home/memory/T-A/overview.md"
+    printf '{"ok":true,"result":{"workers":[{"dispatchId":"d-T-A","taskId":"task-T-A","projection":{"liveness":"unverifiable"}}]}}\n' > "$tmp/fake/workers.json"
+    assert_eq "orca-resume: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-resume: Run rebound" "1" "$(grep -c 'run-use --id run-1' "$tmp/fake/orca-calls")"
+    assert_eq "orca-resume: no new Run" "0" "$(grep -c run-create "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-resume: unverifiable worker never relaunched" "0" "$(grep -c worker-start "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-resume: unverifiable worker never released" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-resume: timeout fails without a retry row" "failed|subtask-timeout|1" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)|$(awk -F'|' '$2 ~ /^ *[0-9]+ *$/' "$tmp/queue.md" | wc -l | tr -d ' ')"
+    # SEC-4: the timed-out worker is not proven exited, so it keeps its identity (pin and sentinel).
+    assert_eq "orca-resume: timed-out live worker keeps its sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    # A worker proven exited: the failed row loses its sentinel (asserted on the dir the runner used, TQ-2).
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    mkdir -p "$tmp/n1home/queue/sentinels"; printf 'N1_ORCA_TASK=task-T-A\n' > "$tmp/n1home/queue/sentinels/T-A.env"
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "| T-A | 2026-10-31T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: implement\n---\n' > "$tmp/n1home/memory/T-A/overview.md"
+    printf '{"ok":true,"result":{"workers":[{"dispatchId":"d-T-A","taskId":"task-T-A","projection":{"liveness":"exited"}}]}}\n' > "$tmp/fake/workers.json"
+    assert_eq "orca-resume: exited: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-resume: exited: row failed" "failed|child-exited-incomplete" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "orca-resume: failed row of an exited worker loses its sentinel" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    assert_eq "orca-resume-down: halts" "2" "$(run_orca_queue "$tmp" FAKE_ORCA_RUNUSE_FAIL=1)"
+    assert_eq "orca-resume-down: nothing launched" "0" "$(grep -c worker-start "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_launch_failure_identity() {   # an ambiguous launch failure never strips a possibly live worker's identity
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    printf '{"ok":true,"result":{"workers":[{"dispatchId":"d-T-A","taskId":"task-T-A","projection":{"liveness":"live"}}]}}\n' > "$tmp/fake/workers.json"
+    run_orca_queue "$tmp" FAKE_ORCA_START_FAIL=1 > /dev/null
+    assert_eq "orca-launch-fail: listed worker keeps its sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    run_orca_queue "$tmp" FAKE_ORCA_START_FAIL=1 > /dev/null
+    assert_eq "orca-launch-fail: no worker in a readable list: sentinel removed" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_owed_holds_slot() {   # an unsettled finished worker still counts toward maxConcurrent
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 1'
+    printf '{"ok":true,"result":{"workers":[{"dispatchId":"d-T-A","taskId":"task-T-A","projection":{"liveness":"unverifiable"}}]}}\n' > "$tmp/fake/workers.json"
+    touch "$tmp/fake/nodone.T-A"
+    # The runner waits on the live worker by design; bound the run.
+    timeout 20 bash -c "$(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-owed-slot: T-B does not start while T-A's worker is unsettled" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_settle_chain_before_sentinel() {   # the sentinel outlives the fullAuto chain, so a restart re-owes it
+    grep -n 'chain_finish' "$REPO_ROOT/scripts/n1-queue-run.sh" > /dev/null
+    local s r; s=$(grep -n 'chain_finish "\$NUM" "\$TICKET" "\$REPO" "\$N1H" "\$MODEL" "\$(n1_queue_child_pr_url' "$REPO_ROOT/scripts/n1-queue-run.sh" | head -1 | cut -d: -f1)
+    r=$(grep -n 'n1_orca_sentinel_rm "$(orca_n1h_of' "$REPO_ROOT/scripts/n1-queue-run.sh" | head -1 | cut -d: -f1)
+    assert_eq "orca-settle: chain_finish runs before the sentinel is removed" "yes" "$([ -n "$s" ] && [ -n "$r" ] && [ "$s" -lt "$r" ] && echo yes || echo no)"
+}
+
+test_orca_resume_owed() {   # CR-1: a settled row is not re-owed on resume; CR-2: a live worker is never settled at expiry
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    n1_queue_row_status "$tmp/queue.md" 1 pr
+    echo "| T-A | 2026-10-31T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: pr\nqueue_run_id: R1\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/n1home/memory/T-A/overview.md"
+    printf '{"ok":true,"result":{"workers":[{"dispatchId":"d-T-A","taskId":"task-T-A","projection":{"liveness":"unverifiable"}}]}}\n' > "$tmp/fake/workers.json"
+    assert_eq "orca-owed: settled row (no sentinel): exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-owed: settled row is not waited for or released again" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    # CR-2: the row is still owed (sentinel names the task) but its worker is live: expiry must not release it.
+    mkdir -p "$tmp/n1home/queue/sentinels"; printf 'N1_ORCA_TASK=task-T-A\n' > "$tmp/n1home/queue/sentinels/T-A.env"
+    assert_eq "orca-owed: live worker: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-owed: live worker is not released at expiry" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-owed: live worker keeps its sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    assert_eq "orca-owed: user told to resume" "1" "$(grep -c 'still running after their PR' "$tmp/notes" || true)"
+    # SEC-7: an empty list that was readable once, then failed refreshes, must not prove the worker gone.
+    rm -f "$tmp/fake/workers.json"; : > "$tmp/fake/orca-calls"; : > "$tmp/notes"
+    assert_eq "orca-owed: stale list: exit 0" "0" "$(run_orca_queue "$tmp" FAKE_ORCA_WL_FAIL_AFTER=1)"
+    assert_eq "orca-owed: failed refresh after an empty list does not release" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-owed: stale list keeps the sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_adopt_launch() {   # AC4: runner died between worker-start and the Runs write
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "R1 task-T-A" > "$tmp/.launch-1"
+    mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/n1home/memory/T-A/overview.md"
+    printf '{"ok":true,"result":{"workers":[{"dispatchId":"d-T-A","taskId":"task-T-A","projection":{"liveness":"unverifiable"}}]}}\n' > "$tmp/fake/workers.json"
+    assert_eq "orca-adopt: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-adopt: no relaunch" "0" "$(grep -cE 'task-create|worker-start' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-adopt: Runs row adopted" "1" "$(grep -c '| orca:task-T-A/d-T-A |' "$tmp/queue.md")"
+    assert_eq "orca-adopt: row reaches pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+test_orca_stale_run_not_reused() {   # a fresh --run (new run_id) never rebinds the previous run's Orca Run
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.backend = "bg"'
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-old; n1_write_frontmatter "$tmp/queue.md" run_id R2; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    assert_eq "orca-stale: exit 0" "0" "$(run_orca_queue "$tmp" FAKE_ORCA_RUNUSE_FAIL=1)"
+    assert_eq "orca-stale: old Run not rebound" "0" "$(grep -c run-use "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stale: bg launch" "1" "$(grep -c '^launch n1-bgq-T-A-1$' "$tmp/fake/events")"
+    rm -rf "$tmp"
+}
+
+test_orca_lost_done_still_chains() {   # worker_done lost: the overview is terminal, the fullAuto chain must still run
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true'
+    echo OPEN > "$tmp/fake/gh-state"; : > "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    assert_eq "orca-lost-done: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-lost-done: one chained n1-finish" "1" "$(grep -c '^launch n1-oq-T-A-1-fin$' <<< "$(cat "$tmp/fake/events" 2>/dev/null)" || true)"
+    assert_eq "orca-lost-done: worker released" "1" "$(grep -c worker-release "$tmp/fake/orca-calls")"
+    rm -rf "$tmp"
+}
+
+test_orca_replay_not_timeout() {   # replayed batches must not charge a poll interval each (no false subtask-timeout)
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/replay"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/fake/overview.late"
+    assert_eq "orca-replay: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-replay: row finished, not timed out" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+test_orca_worktree_list_unreadable() {   # SEC-3: an unreadable worktree list fails the row, no worker starts blind
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    assert_eq "orca-wt-unreadable: exit 0" "0" "$(run_orca_queue "$tmp" FAKE_ORCA_WT_FAIL=1)"
+    assert_eq "orca-wt-unreadable: nothing started" "0" "$(grep -cE 'task-create|worker-start' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-wt-unreadable: row failed" "failed|orca-worktree-name-taken" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+test_orca_worktree_name_taken() {   # identity needs the folder name == ticket: a clash fails the row, no launch
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    printf '{"path":"/orca/wt/T-A"}' > "$tmp/fake/worktrees"
+    assert_eq "orca-wt-taken: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-wt-taken: nothing started" "0" "$(grep -cE 'task-create|worker-start' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-wt-taken: row failed, no deferred retry" "failed|orca-worktree-name-taken|1" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)|$(awk -F'|' '$2 ~ /^ *[0-9]+ *$/' "$tmp/queue.md" | wc -l | tr -d ' ')"
+    rm -rf "$tmp"
+}
+
+test_orca_chain_after_settle() {   # fullAuto chain stays a bg n1-finish, launched once the worker settled
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true'
+    echo OPEN > "$tmp/fake/gh-state"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    assert_eq "orca-chain: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-chain: one chained n1-finish" "1" "$(grep -c '^launch n1-oq-T-A-1-fin$' <<< "$(cat "$tmp/fake/events" 2>/dev/null)" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_fallback_bg() {   # AC5: Orca available but not used, or unusable -> claude --bg exactly as before
+    local tmp c rc want
+    for c in backend-bg run-create-fails runtime-down; do
+        tmp=$(mktemp -d); mk_bg "$tmp" bgq "T-A:working done"; mk_orca "$tmp"
+        case "$c" in
+            backend-bg) cfg_set "$tmp" '.queue.backend = "bg"'; rc=$(run_orca_queue "$tmp"); want=0 ;;
+            run-create-fails) rc=$(run_orca_queue "$tmp" FAKE_ORCA_RUN_FAIL=1); want=1 ;;
+            runtime-down) rc=$(run_orca_queue "$tmp" FAKE_ORCA_DOWN=1); want=1 ;;
+        esac
+        assert_eq "fallback $c: exit 0" "0" "$rc"
+        assert_eq "fallback $c: one bg launch" "1" "$(grep -c '^launch n1-bgq-T-A-1$' "$tmp/fake/events")"
+        assert_eq "fallback $c: bg prompt unchanged" "/n1:n1-start T-A" "$(cat "$tmp/fake/prompt.n1-bgq-T-A-1")"
+        assert_eq "fallback $c: row pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+        assert_eq "fallback $c: bg session id stored" "00000001" "$(n1_queue_session_id "$tmp/queue.md" T-A)"
+        assert_eq "fallback $c: no Orca Run" "" "$(n1_read_frontmatter "$tmp/queue.md" orca_run_id)"
+        assert_eq "fallback $c: no task or worker" "0" "$(grep -cE 'task-create|worker-start' "$tmp/fake/orca-calls" || true)"
+        assert_eq "fallback $c: notice said once" "$want" "$(grep -c 'using claude --bg' "$tmp/output.txt" || true)"
+        rm -rf "$tmp"
+    done
+}
 
 test_bg_sequential() {
     local tmp; tmp=$(mktemp -d)
@@ -3003,6 +3328,23 @@ test_runner_tag_release
 test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
 test_bg_sequential
+test_orca_parallel_workers
+test_orca_max_concurrent
+test_orca_held_blocker
+test_orca_question_parks
+test_orca_resume_no_duplicate
+test_orca_resume_owed
+test_orca_launch_failure_identity
+test_orca_owed_holds_slot
+test_orca_settle_chain_before_sentinel
+test_orca_worktree_name_taken
+test_orca_adopt_launch
+test_orca_stale_run_not_reused
+test_orca_lost_done_still_chains
+test_orca_replay_not_timeout
+test_orca_worktree_list_unreadable
+test_orca_chain_after_settle
+test_orca_fallback_bg
 test_bg_awaiting
 test_bg_awaiting_oversized_question
 test_bg_awaiting_oversized_control_chars

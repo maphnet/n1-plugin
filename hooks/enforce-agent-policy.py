@@ -444,6 +444,42 @@ def _command(payload):
 TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b")
 
 
+# Bash text of an Orca child (best effort, accidental tamper only, like TAIL_DENY_RE: an obfuscated command is
+# invisible to a hook, only the file tools are exact). Anchored to the identity dirs under an N1 home (the resolved
+# path, $N1_HOME or ~/.n1/<slug>), so plain mentions of "sessions" or "/queue" are allowed. Also the N1_ORCA_SENTINEL var.
+def _identity_re(home: str):
+    return re.compile(r"N1_ORCA_SENTINEL|(?:%s|\$\{?N1_HOME\}?|\.n1/[^/\s]+)/queue/(?:sentinels|sessions|\w*\*)" % re.escape(home), re.I)
+
+
+FILE_TOOL_KEYS = ("file_path", "notebook_path", "path")
+
+
+def sentinel_deny(payload: dict) -> int:
+    """SEC-2: an Orca queue child (N1_ORCA_SENTINEL, set only by n1_orca_child_env) may not touch the runner-owned
+    identity files: <n1-home>/queue/sentinels and queue/sessions, via Bash text or a file tool's resolved path."""
+    sentinel = os.environ.get("N1_ORCA_SENTINEL")
+    if not sentinel:
+        return 0
+    cmd = _command(payload) or ""
+    home = os.path.dirname(os.path.dirname(os.path.dirname(sentinel)))
+    hit = False
+    for h in {home, os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(sentinel))))}:
+        hit = hit or any(_identity_re(h).search(text) for text in (cmd, re.sub(r"[\"'\\]", "", cmd)))
+    tool_input = payload.get("tool_input")
+    if not hit and isinstance(tool_input, dict):
+        qdir = os.path.dirname(os.path.dirname(os.path.realpath(sentinel)))
+        cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else os.getcwd()
+        for key in FILE_TOOL_KEYS:
+            path = tool_input.get(key)
+            if isinstance(path, str) and path:
+                real = os.path.realpath(os.path.join(cwd, os.path.expanduser(path)))
+                hit = hit or any(real == d or real.startswith(d + os.sep) for d in (qdir + "/sentinels", qdir + "/sessions"))
+    if hit:
+        sys.stderr.write("N1: queue children may not touch the runner's identity files (queue/sentinels, queue/sessions)\n")
+        return 2
+    return 0
+
+
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     # N1-230 SEC-2: the tail-worker never merges, clears the run pointer or releases, even when merging is authorized
     tail = persona_of(str(payload.get("agent_type") or "")) == "tail-worker"
@@ -545,7 +581,7 @@ def main() -> int:
             config = {}
     if not isinstance(config, dict):
         config = {}
-    rc = restriction(payload, plugin_root, config_file) or merge_deny(payload, config, config_file) or pipe_deny(payload)
+    rc = restriction(payload, plugin_root, config_file) or sentinel_deny(payload) or merge_deny(payload, config, config_file) or pipe_deny(payload)
     if rc:
         return rc
     return spawn_override(payload, config)

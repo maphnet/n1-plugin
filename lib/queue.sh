@@ -718,11 +718,19 @@ n1_queue_answer() {
     case "$t" in ''|*[!A-Za-z0-9_-]*) echo "n1-queue: invalid ticket id" >&2; return 1 ;; esac
     af="$home/queue/.answer-$t.txt"
     ans=$(cat "$af" 2>/dev/null); rm -f "$af"
-    qf=$(ls -t "$home"/queue/*/.question-"$t".json 2>/dev/null | head -1)
+    qf=$(ls -t "$home"/queue/*/.question-"$t".json "$home"/queue/*/.ask-"$t" 2>/dev/null | head -1)
     [ -n "$qf" ] || { echo "n1-queue: no pending question for $t" >&2; return 1; }
     dir="${qf%/*}"
+    # N1-225: an Orca child waits on an orchestration ask, not a bg session.
+    if [ -f "$dir/.ask-$t" ]; then
+        [ -n "$ans" ] || { echo "n1-queue: empty answer" >&2; return 1; }
+        [ "${#ans}" -le 4000 ] || ans="${ans:0:4000}... [truncated]"
+        n1_orca_reply "$dir" "$t" "$ans"
+        return
+    fi
     row=$(n1_queue_pending_rows "$dir/queue.md" 'awaiting-human' | awk -F'\t' -v t="$t" '$2 == t')
     sid=$(n1_queue_session_id "$dir/queue.md" "$t")
+    case "$sid" in orca:*) echo "n1-queue: $t has no pending Orca question" >&2; return 1 ;; esac
     { [ -n "$row" ] && [ -n "$sid" ]; } || { echo "n1-queue: $t is not waiting in a queue session" >&2; return 1; }
     agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null)
     st=$(n1_queue_bg_state "$agents" "$sid")
@@ -804,7 +812,10 @@ n1_queue_awaiting_hints() {
     local file="$1" t h sid
     while IFS=$'\t' read -r _ t _ h _ _; do
         sid=$(n1_queue_session_id "$file" "$t")
-        if [ -n "$sid" ]; then printf '%s: %s\n' "$t" "$(n1_bg_cmd attach "$sid")"; fi
+        case "$sid" in
+            orca:*) printf '%s: /n1:n1-queue --answer %s <answer>\n' "$t" "$t" ;;
+            ?*) printf '%s: %s\n' "$t" "$(n1_bg_cmd attach "$sid")" ;;
+        esac
     done < <(n1_queue_pending_rows "$file" 'awaiting-human')
 }
 
@@ -1014,7 +1025,7 @@ n1_queue_status_table() {
         case "$status" in
             in-progress|awaiting-human)
                 sid=$(n1_queue_session_id "$file" "$ticket")
-                if [ -n "$sid" ]; then
+                if [ -n "$sid" ] && [ "${sid#orca:}" = "$sid" ]; then  # N1-225: Orca rows keep their Plan status
                     local bgs; bgs=$(n1_queue_bg_state "$agents_json" "$sid")
                     case "$bgs" in
                         working) state=in-progress ;;
