@@ -175,10 +175,8 @@ eq "sentinel-deny: globbed pins denied" 2 "$(hookrc "$(BPAY 'rm $N1_HOME/queue/s
 eq "sentinel-deny: plain git commit text with sessions and /queue allowed" 0 "$(hookrc "$(BPAY 'git commit -m "fix sessions handling in /queue and queue/ docs"')")"
 eq "sentinel-deny: gh pr create text with sessions allowed" 0 "$(hookrc "$(BPAY 'gh pr create --body "sessions, sentinels and /queue notes"')")"
 eq "sentinel-deny: mixed-case absolute rm of the sentinel dir denied" 2 "$(hookrc "$(BPAY "rm -rf $N1_HOME/Queue/SENTINELS")")"
-eq "sentinel-deny: rm of the queue dir (ancestor) denied" 2 "$(hookrc "$(BPAY "rm -rf $N1_HOME/queue")")"
-eq "sentinel-deny: rm of N1 home (ancestor) denied" 2 "$(hookrc "$(BPAY "rm -rf $N1_HOME/")")"
-eq "sentinel-deny: find -delete on the queue dir denied" 2 "$(hookrc "$(BPAY "find $N1_HOME/queue -delete")")"
 eq "sentinel-deny: rm of a memory file under N1 home allowed" 0 "$(hookrc "$(BPAY "rm -f $N1_HOME/memory/T-1/x.md")")"
+eq "sentinel-deny: N1 skill snippet (preamble + rm under \$N1_HOME) allowed" 0 "$(hookrc "$(BPAY 'source ~/.n1/preamble.sh; rm -f "$N1_HOME/memory/X/.tw-probe.json"')")"
 # SEC-6: N1 home comes from the session root, not the hook cwd (child inside a nested repo).
 NH="$T/nhome"; mkdir -p "$NH/.n1/t-1/queue/q1" "$WT/nested"; git init -q "$WT/nested"
 printf -- '---\nqueue_id: q1\nrun_id: R1\n---\n' > "$NH/.n1/t-1/queue/q1/queue.md"

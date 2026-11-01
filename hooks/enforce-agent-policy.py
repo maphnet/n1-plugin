@@ -444,17 +444,13 @@ def _command(payload):
 TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b")
 
 
-# Bash text of an Orca child (best effort: an obfuscated command is invisible to a hook, only the file tools are
-# exact). Anchored to the identity dirs under an N1 home (the resolved path, $N1_HOME or ~/.n1/<slug>), so plain
-# mentions of "sessions" or "/queue" in a commit message or repo path are allowed. Also the N1_ORCA_SENTINEL var,
-# and a destructive verb aimed at the queue dir or the home itself (an ancestor of the identity dirs).
-def _identity_res(home: str):
-    base = r"(?:%s|\$\{?N1_HOME\}?|\.n1/[^/\s]+)" % re.escape(home)
-    return (re.compile(r"N1_ORCA_SENTINEL|%s/queue/(?:sentinels|sessions|\w*\*)" % base, re.I),
-            re.compile(r"%s(?:/queue)?/?(?![\w./-])" % base, re.I))
+# Bash text of an Orca child (best effort, accidental tamper only, like TAIL_DENY_RE: an obfuscated command is
+# invisible to a hook, only the file tools are exact). Anchored to the identity dirs under an N1 home (the resolved
+# path, $N1_HOME or ~/.n1/<slug>), so plain mentions of "sessions" or "/queue" are allowed. Also the N1_ORCA_SENTINEL var.
+def _identity_re(home: str):
+    return re.compile(r"N1_ORCA_SENTINEL|(?:%s|\$\{?N1_HOME\}?|\.n1/[^/\s]+)/queue/(?:sentinels|sessions|\w*\*)" % re.escape(home), re.I)
 
 
-DESTRUCTIVE_RE = re.compile(r"\b(?:rm|mv|chmod|chown)\b|\bfind\b[^\n]*(?:-delete|-exec)")
 FILE_TOOL_KEYS = ("file_path", "notebook_path", "path")
 
 
@@ -468,9 +464,7 @@ def sentinel_deny(payload: dict) -> int:
     home = os.path.dirname(os.path.dirname(os.path.dirname(sentinel)))
     hit = False
     for h in {home, os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(sentinel))))}:
-        direct, ancestor = _identity_res(h)
-        for text in (cmd, re.sub(r"[\"'\\]", "", cmd)):
-            hit = hit or direct.search(text) or (DESTRUCTIVE_RE.search(text) and ancestor.search(text))
+        hit = hit or any(_identity_re(h).search(text) for text in (cmd, re.sub(r"[\"'\\]", "", cmd)))
     tool_input = payload.get("tool_input")
     if not hit and isinstance(tool_input, dict):
         qdir = os.path.dirname(os.path.dirname(os.path.realpath(sentinel)))
