@@ -184,4 +184,15 @@ has "remove: nothing scheduled" "No scheduled run" "$(FAKE_AUTOS=none n1_queue_s
 eq "remove: unreadable list -> rc 1" 1 "$(FAKE_AUTOS=fail rc n1_queue_schedule remove)"
 eq "schedule: unknown op -> rc 1" 1 "$(rc n1_queue_schedule frobnicate)"
 
+# --- Task 4: skill wiring (the flag the automation prompt uses must exist in the skill) ---
+S="$REPO_ROOT/skills/n1-queue"
+has "skill: --unattended in argument-hint" "--unattended" "$(sed -n '1,5p' "$S/SKILL.md")"
+has "skill: --schedule routes to schedule.md" "steps/schedule.md" "$(cat "$S/SKILL.md")"
+eq "skill: schedule step exists" 0 "$(rc test -f "$S/steps/schedule.md")"
+has "run.md: unattended entry section" "## Unattended entry" "$(cat "$S/steps/run.md")"
+has "run.md: unattended entry takes the claim" "n1_queue_claim" "$(cat "$S/steps/run.md")"
+eq "preview.md: three --unattended answers" 3 "$(grep -c -- '--unattended' "$S/steps/preview.md")"
+has "intake.md: unattended repo answer" "--unattended" "$(cat "$S/steps/intake.md")"
+has "architecture: scheduled runs section" "### Scheduled queue runs (N1-226)" "$(cat "$REPO_ROOT/references/architecture.md")"
+
 exit "$FAIL"

@@ -70,7 +70,7 @@ Record the printed sha256 as Desc Checksum (NP-203 SEC-3: a checksum that a head
 
 ### 2. Duplicates
 
-For each candidate whose Reason intake annotated with `possible duplicate:` or `related:`, follow `<N1_ROOT>/references/duplicate-check.md` § 4 Act with `CONTEXT=queue-plan`, `SELF_ID=<KEY>`, that candidate's `MATCHES` and `LINK_OP` from intake (no new search). Record Notes `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>`. On `exclude`, move the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)` and drop its `DECISIONS` row.
+For each candidate whose Reason intake annotated with `possible duplicate:` or `related:`, follow `<N1_ROOT>/references/duplicate-check.md` § 4 Act with `CONTEXT=queue-plan`, `SELF_ID=<KEY>`, that candidate's `MATCHES` and `LINK_OP` from intake (no new search). Record Notes `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>`. On `exclude`, move the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)` and drop its `DECISIONS` row. `--unattended`: do not ask; take **Continue** for duplicate rows (the unattended default in duplicate-check.md).
 
 ### 3. Overlap order
 
@@ -87,6 +87,8 @@ printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap
 Reorder the plan to the printed order and renumber `#`. For each printed non-empty note, set the `DECISIONS` Order cell to it and append ` · <note>` to the candidate's Reason. Record Touches as the comma list.
 
 ### 4. Stop-list pre-scan
+
+`--unattended`: skip this section. No candidate gets a Pre-Decision, so every child asks at runtime.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -111,7 +113,7 @@ source "$N1_ROOT/lib/queue.sh"
 n1_queue_notify_check
 ```
 
-Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes), plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user:
+Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes), plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user (`--unattended`: do not ask; proceed as **Start**):
 - **Start** (bare) or **Save plan** (`--plan`) -> proceed to the run step.
 - **Edit** -> free text: remove tickets, reorder, change model (`KEY=opus|sonnet`). Apply changes (a removed ticket also loses its `DECISIONS` row), re-print the table, ask again. Log each edit as `| preview | edit | <text> |` in a pending Decision Ledger list.
 - **Cancel** -> **STOP.** Cancel and Edit's ticket removal do not revert briefs already written to the tracker in § 1.
