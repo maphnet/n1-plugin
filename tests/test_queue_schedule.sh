@@ -144,4 +144,44 @@ eq "precheck: runner of another queue file does not count" 0 "$(FAKE_CURL=one rc
 eq "lib agrees: runner of another queue file" 1 "$(rc n1_queue_runner_alive "$LIVE" "$Q3")"
 rm -rf "$N1_HOME/queue"
 
+# --- Task 3: n1_queue_schedule ---
+reset; out=$(FAKE_AUTOS=none n1_queue_schedule create n1-auto daily Jira jira TP "To Do"); r=$?
+eq "schedule create: rc 0" 0 "$r"
+has "schedule create: reports automation id" "automation a-2" "$out"
+has "schedule create: argv" "automations create --name n1-queue proj --trigger daily --provider claude --workspace path:$T/proj --prompt /n1:n1-queue --tag n1-auto --unattended --precheck bash '$N1_HOME/bin/n1-queue-precheck.sh' '$N1_HOME' 'n1-auto' 'jira' 'TP' 'To Do' --json" "$(calls)"
+hasnt "schedule create: nothing removed when absent" "automations remove" "$(calls)"
+eq "schedule create: precheck installed" 0 "$(rc cmp -s "$REPO_ROOT/scripts/n1-queue-precheck.sh" "$N1_HOME/bin/n1-queue-precheck.sh")"
+
+reset; out=$(FAKE_AUTOS=one n1_queue_schedule create n1-auto "0 9 * * 1-5" Jira jira TP "To Do")
+has "reschedule: removes the existing automation by name" "automations remove a-1 --json" "$(calls)"
+hasnt "reschedule: other projects untouched" "remove a-9" "$(calls)"
+eq "reschedule: remove before create" "remove create" "$(grep -oE 'automations (remove|create)' "$FAKE/calls" | cut -d' ' -f2 | paste -sd' ' -)"
+has "reschedule: cron trigger passed" "--trigger 0 9 * * 1-5 --provider" "$(calls)"
+
+reset; eq "reschedule: remove failure -> rc 1" 1 "$(FAKE_AUTOS=one FAKE_REMOVE_FAIL=1 rc n1_queue_schedule create n1-auto daily Jira jira TP "To Do")"
+hasnt "reschedule: remove failure creates nothing" "automations create" "$(calls)"
+reset; eq "create: unreadable list -> rc 1" 1 "$(FAKE_AUTOS=fail rc n1_queue_schedule create n1-auto daily Jira jira TP "To Do")"
+hasnt "create: unreadable list creates nothing" "automations create" "$(calls)"
+reset; eq "create: create failure -> rc 1" 1 "$(FAKE_AUTOS=none FAKE_CREATE_FAIL=1 rc n1_queue_schedule create n1-auto daily Jira jira TP "To Do")"
+reset; eq "create: bad tag rejected" 1 "$(rc n1_queue_schedule create "a'b" daily Jira jira TP "To Do")"
+eq "create: bad tag never reaches Orca automations" "" "$(grep automations "$FAKE/calls")"
+reset; eq "create: bad trigger rejected" 1 "$(rc n1_queue_schedule create n1-auto 'daily$(id)' Jira jira TP "To Do")"
+reset; eq "create: quoted TODO status rejected" 1 "$(rc n1_queue_schedule create n1-auto daily Jira jira TP "To'Do")"
+reset; out=$(FAKE_AUTOS=none n1_queue_schedule create n1-auto daily YouTrack youtrack TP Open)
+has "create: non-Jira tracker -> precheck skips REST" "'n1-auto' 'none' 'TP' 'Open'" "$(calls)"
+reset; out=$(FAKE_ORCA_DOWN=1 n1_queue_schedule create n1-auto daily Jira jira TP "To Do")
+has "create: Orca down -> message" "not reachable" "$out"
+hasnt "create: Orca down -> no automation calls" "automations" "$(calls)"
+
+out=$(FAKE_AUTOS=one n1_queue_schedule list)
+has "list: this project's automation" "a-1" "$out"
+hasnt "list: other projects hidden" "a-9" "$out"
+has "list: none" "No scheduled run for n1-queue proj." "$(FAKE_AUTOS=none n1_queue_schedule list)"
+reset; out=$(FAKE_AUTOS=one n1_queue_schedule remove)
+has "remove: by looked-up id" "automations remove a-1 --json" "$(calls)"
+has "remove: message" "Removed scheduled run a-1" "$out"
+has "remove: nothing scheduled" "No scheduled run" "$(FAKE_AUTOS=none n1_queue_schedule remove)"
+eq "remove: unreadable list -> rc 1" 1 "$(FAKE_AUTOS=fail rc n1_queue_schedule remove)"
+eq "schedule: unknown op -> rc 1" 1 "$(rc n1_queue_schedule frobnicate)"
+
 exit "$FAIL"
