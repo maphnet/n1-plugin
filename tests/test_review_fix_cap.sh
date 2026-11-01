@@ -69,6 +69,9 @@ eq "W3 FAIL and SOFT-ONLY prompts both define N" "2" "$(grep -c 'N = REVIEW_FIX_
 eq "W4 FAIL-only block writes the fix diff" "1" "$(grep -cF 'git diff "$PRE_FIX_SHA" HEAD > "$N1_HOME/memory/$ID/fix.diff"' "$F")"
 eq "W5 exhausted hands-off records For Human Review" "1" "$(grep -cE '^\*\*Exhausted\*\*.*## For Human Review' "$F")"
 eq "W6 fix.md no longer claims review default 2" "0" "$(grep -c 'maxFixAttempts` (default 2)' "$F")"
+eq "W7a exhausted never recommends option 2" "0" "$(grep -c 'Recommended) on 2' "$F")"
+eq "W7b exhausted always recommends option 1" "1" "$(grep -cF 'Always mark (Recommended) on 1' "$F")"
+eq "W7c exhausted names open SEC IDs with severities" "1" "$(grep -cF 'Name open `[SEC-N]` IDs with severities' "$F")"
 
 # ---- wiring: review.md ----
 R=skills/n1-start/steps/review.md
