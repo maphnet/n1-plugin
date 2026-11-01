@@ -43,7 +43,7 @@ case "$1 $2" in
       esac ;;
   "orchestration check") ok '{}' ;;
   "worktree list") case "${FAKE_WT:-fail}" in fail) err "boom" ;; none) ok '{"worktrees":[]}' ;; *) ok '{"worktrees":[{"path":"/w/T-1"}]}' ;; esac ;;
-  "orchestration worker-list") ok '{"workers":[{"dispatchId":"d-1","taskId":"task-1","projection":{"liveness":"exited"}},{"dispatchId":"d-2","taskId":"task-2","projection":{}}]}' ;;
+  "orchestration worker-list") [ -n "${FAKE_WL_EMPTY:-}" ] && ok '{}' && exit 0; ok '{"workers":[{"dispatchId":"d-1","taskId":"task-1","projection":{"liveness":"exited"}},{"dispatchId":"d-2","taskId":"task-2","projection":{}}]}' ;;
   *) err "unknown command" ;;
 esac
 EOF
@@ -91,6 +91,7 @@ J='{"ok":true,"result":{"deliveryId":"del-1","messages":[{"type":"worker_done","
 eq "events: TSV" "$(printf 'worker_done\ttask-1\tm-1\nquestion\ttask-2\tm-2')" "$(n1_orca_events "$J")"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
 eq "liveness: missing liveness reads unverifiable" "$(printf 'd-1\ttask-1\texited\nd-2\ttask-2\tunverifiable')" "$(n1_orca_liveness run-1)"
+FAKE_WL_EMPTY=1 n1_orca_liveness run-1 >/dev/null; rc=$?; eq "liveness: receipt without a worker array is unreadable" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
 reset; n1_orca_ack run-1 "$J"
 has "ack: delivery id" "orchestration check --run run-1 --ack del-1" "$(calls)"
 

@@ -802,6 +802,7 @@ case "$1 $2" in
   "orchestration task-create") ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
   "orchestration worker-start")
       task=$(arg --task "$@"); t="${task#task-}"
+      [ -n "${FAKE_ORCA_START_FAIL:-}" ] && err "lost response"
       cp "$FAKE_N1H/queue/sentinels/$t.env" "$D/sentinel.$t" 2>/dev/null
       echo "$task" >> "$D/started"
       mkdir -p "$FAKE_N1H/memory/$t"
@@ -950,6 +951,37 @@ test_orca_resume_no_duplicate() {   # AC4
     assert_eq "orca-resume-down: halts" "2" "$(run_orca_queue "$tmp" FAKE_ORCA_RUNUSE_FAIL=1)"
     assert_eq "orca-resume-down: nothing launched" "0" "$(grep -c worker-start "$tmp/fake/orca-calls" || true)"
     rm -rf "$tmp"
+}
+
+test_orca_launch_failure_identity() {   # an ambiguous launch failure never strips a possibly live worker's identity
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    printf '{"ok":true,"result":{"workers":[{"dispatchId":"d-T-A","taskId":"task-T-A","projection":{"liveness":"live"}}]}}\n' > "$tmp/fake/workers.json"
+    run_orca_queue "$tmp" FAKE_ORCA_START_FAIL=1 > /dev/null
+    assert_eq "orca-launch-fail: listed worker keeps its sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    run_orca_queue "$tmp" FAKE_ORCA_START_FAIL=1 > /dev/null
+    assert_eq "orca-launch-fail: no worker in a readable list: sentinel removed" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_owed_holds_slot() {   # an unsettled finished worker still counts toward maxConcurrent
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 1'
+    printf '{"ok":true,"result":{"workers":[{"dispatchId":"d-T-A","taskId":"task-T-A","projection":{"liveness":"unverifiable"}}]}}\n' > "$tmp/fake/workers.json"
+    touch "$tmp/fake/nodone.T-A"
+    # The runner waits on the live worker by design; bound the run.
+    timeout 20 bash -c "$(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-owed-slot: T-B does not start while T-A's worker is unsettled" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_settle_chain_before_sentinel() {   # the sentinel outlives the fullAuto chain, so a restart re-owes it
+    grep -n 'chain_finish' "$REPO_ROOT/scripts/n1-queue-run.sh" > /dev/null
+    local s r; s=$(grep -n 'chain_finish "\$NUM" "\$TICKET" "\$REPO" "\$N1H" "\$MODEL" "\$(n1_queue_child_pr_url' "$REPO_ROOT/scripts/n1-queue-run.sh" | head -1 | cut -d: -f1)
+    r=$(grep -n 'n1_orca_sentinel_rm "$(orca_n1h_of' "$REPO_ROOT/scripts/n1-queue-run.sh" | head -1 | cut -d: -f1)
+    assert_eq "orca-settle: chain_finish runs before the sentinel is removed" "yes" "$([ -n "$s" ] && [ -n "$r" ] && [ "$s" -lt "$r" ] && echo yes || echo no)"
 }
 
 test_orca_resume_owed() {   # CR-1: a settled row is not re-owed on resume; CR-2: a live worker is never settled at expiry
@@ -3302,6 +3334,9 @@ test_orca_held_blocker
 test_orca_question_parks
 test_orca_resume_no_duplicate
 test_orca_resume_owed
+test_orca_launch_failure_identity
+test_orca_owed_holds_slot
+test_orca_settle_chain_before_sentinel
 test_orca_worktree_name_taken
 test_orca_adopt_launch
 test_orca_stale_run_not_reused

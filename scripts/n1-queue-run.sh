@@ -853,7 +853,11 @@ launch_orca() {
         return
     fi
     if ! DISP=$(n1_orca_worker_start "$ORCA_RUN" "$TASK" "$TICKET" "$REPO" "$MODEL"); then
-        n1_orca_sentinel_rm "$N1H" "$TICKET" "$TASK"
+        # A timeout or lost response does not prove the worker never started: drop the identity only when a readable
+        # worker list shows no worker for this task (else it stays; the user stops the worker in Orca).
+        if L=$(n1_orca_liveness "$ORCA_RUN") && ! awk -F'\t' -v k="$TASK" '$2 == k { f = 1 } END { exit !f }' <<< "$L"; then
+            n1_orca_sentinel_rm "$N1H" "$TICKET" "$TASK"
+        fi
         echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
         echo "[$NUM] $TICKET launch failed: $DISP"
         # Orca forbids a blind relaunch after a failed worker-start (residual resources): no deferred retry.
@@ -877,11 +881,13 @@ orca_settle() {
     [ -z "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human' | awk -F'\t' -v t="$T" '$2 == t')" ] || return
     SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"
     n1_orca_release "$DISP"
-    n1_orca_sentinel_rm "$(orca_n1h_of "$T")" "$T" "$TASK"
     ROW=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t' | tail -1)
-    [ -n "$ROW" ] || return
-    IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$ROW"
-    chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")" </dev/null
+    if [ -n "$ROW" ]; then
+        IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$ROW"
+        chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")" </dev/null
+    fi
+    # Last: a restart re-owes a pr row only while its sentinel still names the task, so a crash mid-chain re-runs it.
+    n1_orca_sentinel_rm "$(orca_n1h_of "$T")" "$T" "$TASK"
 }
 
 # run_orca — Orca workers, up to queue.maxConcurrent at once (run_bg stays sequential). Each tick waits on the Run
@@ -891,7 +897,7 @@ orca_settle() {
 # settles a worker (release + sentinel removal + owed fullAuto chain); unverifiable workers are never relaunched,
 # stopped or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE
+    local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
     local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" EMPTY=0 FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
     local -a WORKED=()
     POLL=$(n1_queue_val pollSeconds)
@@ -994,6 +1000,7 @@ run_orca() {
             if [ "${WORKED[NUM]}" -gt "$TIMEOUT_SECS" ]; then
                 # ponytail: an Orca worker is never stopped without proof of exit, so a timed-out row fails without a
                 # deferred retry (a relaunch could duplicate a live worker); the user stops the worker in Orca.
+                [ -n "$TASK" ] && OWED="$OWED$TASK "
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "subtask-timeout" "" nodefer
                 continue
             fi
@@ -1004,14 +1011,17 @@ run_orca() {
         # a pr row then runs the fullAuto chain (n1-finish stays a bg session, it is not a ticket worker).
         for TASK in $DONE $(awk -F'\t' '$3 == "exited" { print $2 }' <<< "$LIVE"); do orca_settle "$TASK"; done
 
-        while [ "$INFLIGHT" -lt "$MAXC" ]; do
+        # Unsettled workers (finished or timed-out rows whose worker is not proven exited) still hold a slot.
+        OWEDN=$(wc -w <<< "$OWED")
+        while [ $((INFLIGHT + OWEDN)) -lt "$MAXC" ]; do
             ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
             [ -n "$ROW" ] || break
             launch_orca "$ROW"
             INFLIGHT=$((INFLIGHT + 1)); HELD_WAIT=0
         done
 
-        if [ "$INFLIGHT" = 0 ] && [ -z "$(n1_queue_pending_rows "$QUEUE")" ]; then
+        # Also entered when unsettled workers alone fill every slot, so their expiry/notice is not starved by pending rows.
+        if [ "$INFLIGHT" = 0 ] && { [ -z "$(n1_queue_pending_rows "$QUEUE")" ] || [ "$OWEDN" -ge "$MAXC" ]; }; then
             # Done reports that never came: the overview is terminal, so settle (release + chain) anyway.
             if [ "$OWED" != " " ] && [ "$OWED_WAIT" -ge "$TIMEOUT_SECS" ]; then
                 # Only a worker proven exited (or gone from a readable worker list) is settled; a live one (a long PR
@@ -1030,6 +1040,7 @@ run_orca() {
             HELD=$(n1_queue_held_sweep "$QUEUE")
             if [ -n "$(n1_queue_pending_rows "$QUEUE")" ]; then
                 HELD_WAIT=0
+                [ "$OWEDN" -ge "$MAXC" ] && [ "$OWED_WAIT" -lt "$TIMEOUT_SECS" ] && OWED_WAIT=$((OWED_WAIT + CHARGE))
             elif [ "$OWED" != " " ] && [ "$OWED_WAIT" -lt "$TIMEOUT_SECS" ]; then
                 # Finished rows whose worker has not reported done yet: wait so it is released (and chained).
                 OWED_WAIT=$((OWED_WAIT + CHARGE))
