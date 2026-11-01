@@ -11,7 +11,7 @@ n1_step_begin "pr" 12
 FIX_AUDIT=$(n1_review_fix_audit "$N1_HOME/memory/$ID/overview.md") || true; echo "FIX_AUDIT=$FIX_AUDIT"
 ```
 
-`FIX_AUDIT=breach` (review fix cap bypassed): before n1-pr, ensure review.md lists `- [FIX-CAP] High — review_fix_cycle past the cap without an [asked] ledger row` under `## For Human Review` (file-write; create the section if absent) so the PR body shows it; never an `[auto]` pass.
+`FIX_AUDIT` other than `ok`, including empty (review fix cap bypassed): before n1-pr, ensure review.md lists `- [FIX-CAP] High — review_fix_cycle past the cap without an [asked] ledger row` under `## For Human Review` (file-write; create the section if absent) so the PR body shows it; never an `[auto]` pass.
 
 **If `prMode` is `"skip"`**: skip n1-pr/push/`## Pending`; add ledger row, run the last block below (end `skipped`), continue.
 

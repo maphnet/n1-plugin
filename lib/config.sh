@@ -737,15 +737,18 @@ n1_review_fix_gate() {
 
 n1_review_fix_audit() {
     # Usage: n1_review_fix_audit <overview.md> -> prints ok|breach; returns 1 on breach (N1-260).
-    # Breach: review_fix_cycle above review.maxFixAttempts with fewer human-answered `fix` ledger rows
-    # ([asked]; [plan] = answered at queue plan time) than cycles over the cap. [auto]/[auto-decided] never count.
-    local max cur n=0 line re='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan)\] [|]'
+    # Breach: review_fix_cycle above review.maxFixAttempts with fewer extension rows than cycles over the cap.
+    # An extension row sits in `## Decision Ledger`: step fix, tag [asked] ([plan] = queue plan time), Question
+    # `review fix cap reached`, Chosen option 2 (`2` or `One more FAIL fix cycle`). Nothing else counts.
+    local max cur n=0 line in_l=0 re='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan)\] [|] review fix cap reached [|] (2|One more FAIL fix cycle) [|]'
     max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]+$ ]] || max=1
     cur=$(n1_read_frontmatter "$1" review_fix_cycle); cur=${cur:-0}
     [[ "$cur" =~ ^[0-9]+$ ]] || { echo breach; return 1; }  # garbage counter fails closed
+    cur=$((10#$cur)); max=$((10#$max))  # decimal: 08/09 are not octal
     if [ "$cur" -le "$max" ]; then echo ok; return 0; fi
     while IFS= read -r line; do
-        if [[ "$line" =~ $re ]]; then n=$((n + 1)); fi
+        case "$line" in '## Decision Ledger'*) in_l=1; continue ;; '## '*) in_l=0; continue ;; esac
+        if [ "$in_l" = 1 ] && [[ "$line" =~ $re ]]; then n=$((n + 1)); fi
     done < "$1"
     if [ "$n" -ge $((cur - max)) ]; then echo ok; else echo breach; return 1; fi
 }

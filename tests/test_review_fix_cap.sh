@@ -120,7 +120,11 @@ ovl 3 "$ASKED"; eq "A7 two extra cycles, one row -> breach" "breach" "$(n1_revie
 ovl 3 "$ASKED" "$HL_ASKED"; eq "A8 two extra cycles, two rows -> ok" "ok" "$(n1_review_fix_audit "$OV")"
 ovl 2 "$OTHER"; eq "A9 [asked] row from another step does not count -> breach" "breach" "$(n1_review_fix_audit "$OV")"
 ov 2; eq "A10 legacy overview without ledger, above cap -> breach" "breach" "$(n1_review_fix_audit "$OV")"
-ov 1; eq "A11 legacy overview without ledger, at cap -> ok" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 2 '| fix | quality | A | [asked] | security escalation | Fix inline | Ask | user chose | codebase |'; eq "A11 unrelated fix-step [asked] row -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+ovl 2 '| fix | quality | A | [asked] | review fix cap reached | List under For Human Review | One more FAIL fix cycle | user chose 1 | codebase |'; eq "A11b cap ask answered option 1 -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+ovl 2 '| fix | headless | A | [asked] | review fix cap reached | 1 | 2 | headless: ask-mode answer | --- |'; eq "A11c headless ask-mode answer 1 -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+ov 08; eq "A11e octal-looking counter 08 -> breach, no crash" "breach" "$(n1_review_fix_audit "$OV")"
+ovl 08 "$ASKED"; eq "A11f counter 08 needs 7 rows -> breach" "breach" "$(n1_review_fix_audit "$OV")"
 ov abc; eq "A12 non-numeric counter -> breach (fail closed)" "breach" "$(n1_review_fix_audit "$OV")"
 cfg '{"review":{"maxFixAttempts":2}}'
 ovl 2; eq "A13 cap 2, counter 2 -> ok" "ok" "$(n1_review_fix_audit "$OV")"
@@ -141,16 +145,16 @@ eq "H4 headless SEC Exhausted goes through Headless Guard, never auto-extends" "
 eq "H5 rule: gate before every FAIL dispatch, no inline fixes, no extra developer" "1" "$(grep -cE '^\*\*Rule \(N1-260\):\*\* `n1_review_fix_gate` .*runs before every FAIL developer dispatch.*never fixes findings inline.*never dispatches a developer outside this step' "$F")"
 AUDIT_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_audit/{print NR; exit}' "$F")
 eq "W7 fix.md runs the audit in a fence before the first developer spawn" "yes" "$([ -n "$AUDIT_LN" ] && [ -n "$SPAWN_LN" ] && [ "$AUDIT_LN" -lt "$SPAWN_LN" ] && echo yes || echo no)"
-eq "W8 audit breach is listed under For Human Review as [FIX-CAP]" "1" "$(grep -cE '^\*\*Exhausted\*\*.*`FIX_AUDIT=breach`.*\[FIX-CAP\].*## For Human Review' "$F")"
-PIN=$(grep -oE '`\| fix \| quality \| A \| \[asked\] \|`' "$F" | head -1 | tr -d '`')
-ovl 2 "$PIN q | c | a | r | codebase |"
+eq "W8 audit breach is listed under For Human Review as [FIX-CAP]" "1" "$(grep -cE '^\*\*Exhausted\*\*.*`FIX_AUDIT` other than `ok` \(including empty\).*\[FIX-CAP\].*## For Human Review' "$F")"
+PIN=$(grep -oE '`\| fix \| quality \| A \| \[asked\] \| review fix cap reached \| One more FAIL fix cycle \|`' "$F" | head -1 | tr -d '`')
+ovl 2 "$PIN a | r | codebase |"
 eq "W9 the option-2 ledger row fix.md prescribes satisfies the audit" "ok" "$(n1_review_fix_audit "$OV")"
 
 PRF=skills/n1-start/steps/pr.md
 PA_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_audit/{print NR; exit}' "$PRF")
 PR_LN=$(grep -n 'n1:n1-pr`. Pass:' "$PRF" | head -1 | cut -d: -f1)
 eq "P3 pr.md audits the fix cap in a fence before n1-pr runs" "yes" "$([ -n "$PA_LN" ] && [ -n "$PR_LN" ] && [ "$PA_LN" -lt "$PR_LN" ] && echo yes || echo no)"
-eq "P4 pr.md breach surfaces [FIX-CAP] under For Human Review, never as an [auto] pass" "1" "$(grep -cE '^`FIX_AUDIT=breach`.*\[FIX-CAP\].*## For Human Review.*never an `\[auto\]`' "$PRF")"
+eq "P4 pr.md breach surfaces [FIX-CAP] under For Human Review, never as an [auto] pass" "1" "$(grep -cE '^`FIX_AUDIT` other than `ok`, including empty.*\[FIX-CAP\].*## For Human Review.*never an `\[auto\]`' "$PRF")"
 
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
