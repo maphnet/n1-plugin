@@ -65,6 +65,8 @@ GATE_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_gate/{print NR
 SPAWN_LN=$(grep -n 'spawn developer' "$F" | head -1 | cut -d: -f1)
 eq "W1 fix.md calls the gate in a fence before the first developer spawn" "yes" "$([ -n "$GATE_LN" ] && [ -n "$SPAWN_LN" ] && [ "$GATE_LN" -lt "$SPAWN_LN" ] && echo yes || echo no)"
 eq "W2 cap gate covers SOFT-ONLY and FAIL" "1" "$(grep -cE '^\*\*Cap gate\*\*.*SOFT-ONLY.*FAIL' "$F")"
+cfg '{"review":{"maxFixAttempts":2}}'; ov 1
+eq "W2b cap 2, counter 1 -> gate allow, yet fix.md still defers SOFT-ONLY at REVIEW_FIX_CYCLE>=1 (N1-261)" "allow:1" "$(n1_review_fix_gate "$OV"):$(grep -cE '^\*\*Cap gate\*\*.*SOFT-ONLY with `FIX_GATE` not `allow` or `REVIEW_FIX_CYCLE>=1`' "$F")"
 eq "W3 FAIL and SOFT-ONLY prompts both define N" "2" "$(grep -c 'N = REVIEW_FIX_CYCLE+1' "$F")"
 eq "W4 FAIL-only block writes the fix diff" "1" "$(grep -cF 'git diff "$PRE_FIX_SHA" HEAD > "$N1_HOME/memory/$ID/fix.diff"' "$F")"
 eq "W5 exhausted hands-off records For Human Review" "1" "$(grep -cE '^\*\*Exhausted\*\*.*## For Human Review' "$F")"

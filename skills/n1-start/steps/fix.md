@@ -11,7 +11,7 @@ IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent develope
 QE=$(n1_autonomy_val 'qualityEscalations'); echo "REVIEW_FIX_CYCLE=$REVIEW_FIX_CYCLE FIX_GATE=$FIX_GATE QE=$QE"
 ```
 
-**Cap gate** (`review.maxFixAttempts`, default 1, counts FAIL cycles): `FIX_GATE` other than `allow` → no developer in this step. SOFT-ONLY: add its `(correctness)` Mediums to `## Deferred Soft Findings` in review.md (file-write mechanism), go to **PASS verdict**. FAIL: **Exhausted** below.
+**Cap gate** (`review.maxFixAttempts`, default 1, counts FAIL cycles): `FIX_GATE` other than `allow` → no developer in this step. SOFT-ONLY with `FIX_GATE` not `allow` or `REVIEW_FIX_CYCLE>=1` (a FAIL fix is unreviewed code; a soft pass would be a second unreviewed change): add its `(correctness)` Mediums to `## Deferred Soft Findings` in review.md (file-write mechanism), go to **PASS verdict**. FAIL: **Exhausted** below.
 
 **Exhausted** (FAIL): `QE=auto-accept` and no open `[SEC-N]` or security-class finding (review-core.md): write `## For Human Review` to review.md (file-write; replace if present), one `- [ID] severity file:line — title` per open Medium-or-higher or `[RULE-N]` finding; add an `[auto]` ledger row `review fix cap reached`; write `## Review` `FAIL (unresolved, human review)` to overview; run **Full-suite regression check** and the last block (no `clean_passes`); next step. Otherwise ask the user: summary, then 1. List them under For Human Review and proceed 2. One more FAIL fix cycle (run the FAIL dispatch; `[asked]` ledger row). Name open `[SEC-N]` IDs with severities in the question. Always mark (Recommended) on 1 (configured cap reached). **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 

@@ -42,4 +42,8 @@ check "soft pass adds unfixed Medium to deferred list" 'Medium it left unfixed.*
 check "deferred list takes only Low XREPO" 'Low `\[XREPO-N\]`' "$R"
 check "code-reviewer marks correctness Mediums" '^- \*\*Correctness marker:\*\*.*` \(correctness\)`' "$C"
 
+# N1-261: no unreviewed soft pass after a FAIL fix cycle
+check "review: SOFT-ONLY route only at review_fix_cycle 0, defer at >=1" 'Step 8 SOFT-ONLY \(one developer pass, no re-review\) only when `review_fix_cycle` is 0 or absent.*`review_fix_cycle>=1`.*defer it, no developer' "$R"
+check "fix: Cap gate defers SOFT-ONLY at REVIEW_FIX_CYCLE>=1" '^\*\*Cap gate\*\*.*SOFT-ONLY with `FIX_GATE` not `allow` or `REVIEW_FIX_CYCLE>=1`.*Deferred Soft Findings' "$F"
+
 exit $FAIL
