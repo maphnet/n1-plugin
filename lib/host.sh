@@ -226,6 +226,28 @@ n1_orca_sync() {
     return 0
 }
 
+n1_main_checkout() {
+    # Usage: n1_main_checkout [dir] — N1-226: absolute path of the main checkout of the repo at dir (default .),
+    # also from a linked worktree. Non-zero outside git.
+    local c
+    c=$(git -C "${1:-.}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && [ -n "$c" ] || return 1
+    dirname "$c"
+}
+
+n1_orca_unread_main() {
+    # Usage: n1_orca_unread_main <text> — N1-226: mark this project's main-checkout Orca card unread with a comment,
+    # so a paused scheduled queue run shows in Orca. n1_orca_sync skips main checkouts on purpose. The project is
+    # the session root (CLAUDE_PROJECT_DIR, inherited by the runner), else the cwd. Always returns 0.
+    [ -n "${ORCA_CLI_COMMAND:-}" ] || return 0
+    n1_orca_active || return 0
+    local c m
+    c=$(printf '%s' "${1:-}" | tr -d '\000-\037\177'); c="${c:0:120}"
+    case "$c" in [A-Za-z0-9]*) ;; *) c="n1-queue: needs you" ;; esac   # never looks like an option
+    m=$(n1_main_checkout "${CLAUDE_PROJECT_DIR:-.}") || return 0
+    n1_orca worktree set --worktree "path:$m" --unread --comment "$c" >/dev/null 2>&1 || true
+    return 0
+}
+
 n1_orca_link() {
     # Usage: n1_orca_link <tracker-key|url> — best-effort `reference add` on this checkout's Orca worktree. Always returns 0.
     [ -n "${ORCA_CLI_COMMAND:-}" ] || return 0

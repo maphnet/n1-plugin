@@ -791,6 +791,21 @@ n1_queue_interrupted() {
     ! n1_queue_runner_alive "$(n1_read_frontmatter "$1" pid)" "$1"
 }
 
+n1_queue_claim() {
+    # Usage: n1_queue_claim <queue-dir> — N1-226: take the unattended-run claim <queue-dir>/.unattended-claim
+    # (mkdir is atomic). Non-zero while another trigger holds a claim under 15 minutes old; an older claim is
+    # retaken. Never released: it expires, so a trigger closer than 15 minutes after a start is skipped.
+    # scripts/n1-queue-precheck.sh reads the same path and age.
+    local c="$1/.unattended-claim"
+    mkdir -p "$1" 2>/dev/null || return 1
+    mkdir "$c" 2>/dev/null && return 0
+    [ -z "$(find "$c" -maxdepth 0 -mmin -15 2>/dev/null)" ] || return 1
+    # ponytail: two sessions retaking the same stale claim in the same instant can both win; the runner's
+    # hardlink lock (scripts/n1-queue-run.sh) still admits one runner. Upgrade: rename-based retake if it bites.
+    rmdir "$c" 2>/dev/null
+    mkdir "$c" 2>/dev/null
+}
+
 n1_queue_interrupted_note() {
     # Usage: n1_queue_interrupted_note <queue.md> — N1-183: for an interrupted run, append one
     # queue_interrupted event per run id (later calls only print) and print the resume line.
@@ -1136,6 +1151,7 @@ n1_notify() {
     # Backend from queue.notify: desktop (default) | ntfy (queue.ntfyTopic) | command
     # (queue.notifyCommand gets {"ts","kind","text"} on stdin) | none. Never fails the caller.
     local kind="$1" text="$2" title="N1 queue: $1" backend val
+    [ "$kind" != needs-you ] || n1_orca_unread_main "$text"   # N1-226: also mark the main-checkout Orca card
     backend=$(n1_queue_val notify)
     case "${backend:-desktop}" in
         none) ;;
