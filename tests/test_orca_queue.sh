@@ -52,7 +52,7 @@ printf '#!/bin/sh\necho "$*" >> "$FAKE/bare"\nexit 1\n' > "$FAKE/bin/orca"
 chmod +x "$FAKE/bin/fake-orca" "$FAKE/bin/orca"
 export PATH="$FAKE/bin:$PATH" ORCA_CLI_COMMAND="$FAKE/bin/fake-orca"
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT" N1_HOME="$T/home"; mkdir -p "$N1_HOME/memory"
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 HOME="$T/hh"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 unset N1_HEADLESS N1_QUEUE_RUN_ID N1_UNATTENDED N1_QUEUE_DIR N1_QUEUE_TAG N1_SESSION_ID CLAUDE_CODE_SESSION_ID N1_RUN_ID ORCA_TERMINAL_HANDLE CLAUDE_ENV_FILE CLAUDE_PROJECT_DIR
 source "$REPO_ROOT/lib/config.sh"
@@ -182,6 +182,15 @@ NH="$T/nhome"; mkdir -p "$NH/.n1/t-1/queue/q1" "$WT/nested"; git init -q "$WT/ne
 printf -- '---\nqueue_id: q1\nrun_id: R1\n---\n' > "$NH/.n1/t-1/queue/q1/queue.md"
 (unset N1_HOME; export HOME="$NH"; N1_QUEUE_DIR="$NH/.n1/t-1/queue/q1" n1_orca_sentinel_write "$NH/.n1/t-1" T-1 "$M" R1 run-1 task-1)
 eq "loader: nested-repo cwd still finds the identity via the session root" T-1 "$(cd "$WT/nested" && unset N1_HOME && export HOME="$NH" && n1_orca_child_env "$WT" && echo "$N1_ORCA_TICKET" || echo none)"
+# SEC-9: the home comes from the runner's pointer, not git config: a child that repoints origin keeps its identity.
+mkdir -p "$NH/.n1/evil"; git -C "$WT" remote add origin https://example.com/o/evil.git
+eq "loader: git remote set-url does not drop the identity" T-1 "$(cd "$WT" && unset N1_HOME && export HOME="$NH" && n1_orca_child_env "$WT" && echo "$N1_ORCA_TICKET" || echo none)"
+git -C "$WT" remote remove origin
+# CR-11: the Stop hook's own cwd-derived N1_HOME must not shadow the identity home (child inside a nested repo).
+mkdir -p "$NH/.n1/nested" "$NH/.n1/t-1/memory/T-1"; n1_orca_sentinel_set "$NH/.n1/t-1" T-1 N1_ORCA_DISPATCH d-1
+printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/9\n' > "$NH/.n1/t-1/memory/T-1/overview.md"
+reset; printf '{"session_id":"s9"}' | (cd "$WT/nested" && unset N1_HOME && HOME="$NH" CLAUDE_PROJECT_DIR="$WT" bash "$REPO_ROOT/hooks/session-stop.sh" >/dev/null 2>&1)
+has "stop: nested-repo cwd still reports worker_done" "type worker_done --outcome succeeded" "$(calls)"
 # Scope: only an Orca queue child. A plain unattended run (claude --bg child) is not denied.
 eq "sentinel-deny: bg/headless run without a sentinel not denied" 0 "$(cd "$M" && printf '%s' "$(BPAY 'grep -r queue/sentinels lib')" | N1_HEADLESS=1 bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
 # SEC-5: a re-run of the session pin (compaction) never overwrites the pin from an edited sentinel.
@@ -192,7 +201,8 @@ eq "session-pin: identity survives the tamper plus a re-pin" 0 "$(cd "$WT" && n1
 cp "$T/S.pre" "$S"
 n1_orca_sentinel_rm "$N1_HOME" T-1
 eq "sentinel_rm: pinned session copies go with it" no "$([ -e "$N1_HOME/queue/sessions/T-1.s1" ] && echo yes || echo no)"
-cp "$T/S.bak" "$S"
+eq "sentinel_rm: home pointer goes with it" no "$([ -e "$(n1_orca_home_ptr T-1)" ] && echo yes || echo no)"
+cp "$T/S.bak" "$S"; printf '%s\n' "$N1_HOME" > "$(n1_orca_home_ptr T-1)"
 
 OV="$N1_HOME/memory/T-1/overview.md"; mkdir -p "${OV%/*}"
 printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"

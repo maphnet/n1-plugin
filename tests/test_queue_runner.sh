@@ -835,7 +835,7 @@ ORCAEOF
 
 run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CLI as ORCA_CLI_COMMAND
     local tmp="$1" rc=0; shift
-    env "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+    env HOME="$tmp/hh" "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
         bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
     echo "$rc"
 }

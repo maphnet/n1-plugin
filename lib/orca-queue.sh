@@ -113,6 +113,9 @@ n1_orca_worktree_taken() {
 N1_ORCA_SENTINEL_KEYS="N1_HEADLESS N1_AUTONOMY_PRESET N1_UNATTENDED N1_QUEUE_RUN_ID N1_QUEUE_TAG N1_QUEUE_DIR N1_PARENT_SESSION_ID N1_ORCA_REPO N1_ORCA_RUN N1_ORCA_TASK N1_ORCA_DISPATCH"
 
 n1_orca_sentinel_path() { printf '%s/queue/sentinels/%s.env' "$1" "$2"; }   # <n1-home> <ticket>
+# <ticket> — fixed, git-independent pointer to the ticket's N1 home: the loader never resolves the home through git
+# config, which a child can change (git remote set-url). ponytail: keyed by ticket only; ticket ids carry a project prefix.
+n1_orca_home_ptr() { printf '%s/.n1/orca-home/%s' "$HOME" "$1"; }
 
 n1_orca_sentinel_write() {
     # Usage: n1_orca_sentinel_write <n1-home> <ticket> <repo> <queue-run-id> <orca-run> <task>
@@ -127,6 +130,7 @@ n1_orca_sentinel_write() {
             "$4" "${N1_QUEUE_TAG:-}" "${N1_QUEUE_DIR:-}" "$(n1_session_id 2>/dev/null)"
         printf 'N1_ORCA_REPO=%s\nN1_ORCA_RUN=%s\nN1_ORCA_TASK=%s\n' "$3" "$5" "$6"
     } > "$t" && mv -f "$t" "$f" || { rm -f "$t"; return 1; }
+    t=$(n1_orca_home_ptr "$2"); mkdir -p "${t%/*}" && printf '%s\n' "$1" > "$t"
 }
 
 n1_orca_sentinel_set() {
@@ -143,6 +147,7 @@ n1_orca_sentinel_rm() {
     # (a deferred retry already wrote a new one under the same ticket).
     local f; f=$(n1_orca_sentinel_path "$1" "$2")
     [ -z "${3:-}" ] || [ "$(_n1_orca_sget "$f" N1_ORCA_TASK)" = "$3" ] || return 0
+    [ "$(head -1 "$(n1_orca_home_ptr "$2")" 2>/dev/null)" != "$1" ] || rm -f "$(n1_orca_home_ptr "$2")"
     rm -f "$f" "${f%.env}.sent" "${f%/*/*}/sessions/$2".*
 }
 
@@ -180,10 +185,10 @@ n1_orca_child_env() {
     [ -n "${ORCA_CLI_COMMAND:-}" ] || return 1
     local top t f k s="${2:-}" h
     top=$(git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null) || return 1
-    # N1 home from the session root (arg 1), never the hook cwd: a child inside a nested repo keeps its identity.
-    h=$(cd "$top" 2>/dev/null && n1_home) && [ -n "$h" ] || return 1
     t="${top##*/}"
     [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
+    # N1 home from the runner's fixed pointer, never n1_home (git config, $N1_HOME of the hook process).
+    h=$(head -1 "$(n1_orca_home_ptr "$t")" 2>/dev/null) && [ -n "$h" ] || return 1
     f=$(n1_orca_sentinel_path "$h" "$t")
     if _n1_orca_sentinel_ok "$top" "$f" 1; then s=$f
     elif [[ "$s" =~ ^[A-Za-z0-9_-]+$ ]]; then s="$h/queue/sessions/$t.$s"; _n1_orca_sentinel_ok "$top" "$s" 0 || return 1
