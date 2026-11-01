@@ -178,13 +178,15 @@ n1_orca_child_env() {
     # tampering with the sentinel or queue.md cannot drop the identity (fail closed). The file is parsed against the
     # key whitelist, never sourced. Also sets N1_ORCA_TICKET and N1_ORCA_SENTINEL.
     [ -n "${ORCA_CLI_COMMAND:-}" ] || return 1
-    local top t f k s="${2:-}"
+    local top t f k s="${2:-}" h
     top=$(git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null) || return 1
+    # N1 home from the session root (arg 1), never the hook cwd: a child inside a nested repo keeps its identity.
+    h=$(cd "$top" 2>/dev/null && n1_home) && [ -n "$h" ] || return 1
     t="${top##*/}"
     [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
-    f=$(n1_orca_sentinel_path "$(n1_home)" "$t")
+    f=$(n1_orca_sentinel_path "$h" "$t")
     if _n1_orca_sentinel_ok "$top" "$f" 1; then s=$f
-    elif [[ "$s" =~ ^[A-Za-z0-9_-]+$ ]]; then s="$(n1_home)/queue/sessions/$t.$s"; _n1_orca_sentinel_ok "$top" "$s" 0 || return 1
+    elif [[ "$s" =~ ^[A-Za-z0-9_-]+$ ]]; then s="$h/queue/sessions/$t.$s"; _n1_orca_sentinel_ok "$top" "$s" 0 || return 1
     else return 1; fi
     for k in $N1_ORCA_SENTINEL_KEYS; do export "$k=$(_n1_orca_sget "$s" "$k")"; done
     export N1_ORCA_TICKET="$t" N1_ORCA_SENTINEL="$f"
@@ -205,7 +207,7 @@ n1_orca_worker_done() {
     [ -n "${N1_ORCA_TASK:-}" ] && [ -n "${N1_ORCA_DISPATCH:-}" ] && [ -n "${N1_ORCA_SENTINEL:-}" ] || return 0
     local sent="${N1_ORCA_SENTINEL%.env}.sent" ov st url oc=failed a
     [ "$(cat "$sent" 2>/dev/null)" = "$N1_ORCA_DISPATCH" ] && return 0
-    ov="$(n1_home)/memory/$N1_ORCA_TICKET/overview.md"
+    ov="${N1_ORCA_SENTINEL%/queue/sentinels/*}/memory/$N1_ORCA_TICKET/overview.md"
     st=$(n1_queue_child_status "$ov" 0 1)
     case "$st" in pr) oc=succeeded ;; escalated) ;; *) return 0 ;; esac
     url=$(n1_queue_child_pr_url "$ov")

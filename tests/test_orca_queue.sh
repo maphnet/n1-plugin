@@ -172,6 +172,18 @@ eq "sentinel-deny: Write elsewhere unaffected" 0 "$(hookrc "$(wpay Write "$WT/a.
 BPAY() { jq -cn --arg c "$WT" --arg m "$1" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$m}}'; }
 eq "sentinel-deny: rm of \$N1_ORCA_SENTINEL denied" 2 "$(hookrc "$(BPAY 'rm -f "$N1_ORCA_SENTINEL"')")"
 eq "sentinel-deny: globbed pins denied" 2 "$(hookrc "$(BPAY 'rm $N1_HOME/queue/sess*/*')")"
+eq "sentinel-deny: plain git commit text with sessions and /queue allowed" 0 "$(hookrc "$(BPAY 'git commit -m "fix sessions handling in /queue and queue/ docs"')")"
+eq "sentinel-deny: gh pr create text with sessions allowed" 0 "$(hookrc "$(BPAY 'gh pr create --body "sessions, sentinels and /queue notes"')")"
+eq "sentinel-deny: mixed-case absolute rm of the sentinel dir denied" 2 "$(hookrc "$(BPAY "rm -rf $N1_HOME/Queue/SENTINELS")")"
+eq "sentinel-deny: rm of the queue dir (ancestor) denied" 2 "$(hookrc "$(BPAY "rm -rf $N1_HOME/queue")")"
+eq "sentinel-deny: rm of N1 home (ancestor) denied" 2 "$(hookrc "$(BPAY "rm -rf $N1_HOME/")")"
+eq "sentinel-deny: find -delete on the queue dir denied" 2 "$(hookrc "$(BPAY "find $N1_HOME/queue -delete")")"
+eq "sentinel-deny: rm of a memory file under N1 home allowed" 0 "$(hookrc "$(BPAY "rm -f $N1_HOME/memory/T-1/x.md")")"
+# SEC-6: N1 home comes from the session root, not the hook cwd (child inside a nested repo).
+NH="$T/nhome"; mkdir -p "$NH/.n1/t-1/queue/q1" "$WT/nested"; git init -q "$WT/nested"
+printf -- '---\nqueue_id: q1\nrun_id: R1\n---\n' > "$NH/.n1/t-1/queue/q1/queue.md"
+(unset N1_HOME; export HOME="$NH"; N1_QUEUE_DIR="$NH/.n1/t-1/queue/q1" n1_orca_sentinel_write "$NH/.n1/t-1" T-1 "$M" R1 run-1 task-1)
+eq "loader: nested-repo cwd still finds the identity via the session root" T-1 "$(cd "$WT/nested" && unset N1_HOME && export HOME="$NH" && n1_orca_child_env "$WT" && echo "$N1_ORCA_TICKET" || echo none)"
 # Scope: only an Orca queue child. A plain unattended run (claude --bg child) is not denied.
 eq "sentinel-deny: bg/headless run without a sentinel not denied" 0 "$(cd "$M" && printf '%s' "$(BPAY 'grep -r queue/sentinels lib')" | N1_HEADLESS=1 bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
 # SEC-5: a re-run of the session pin (compaction) never overwrites the pin from an edited sentinel.
