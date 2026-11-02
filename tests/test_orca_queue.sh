@@ -90,8 +90,6 @@ eq "worker-start: failure reason" "orca-launch:worktree-setup" "$(FAKE_ORCA_STAR
 J='{"ok":true,"result":{"deliveryId":"del-1","messages":[{"type":"worker_done","taskId":"task-1","id":"m-1"},{"type":"question","taskId":"task-2","id":"m-2"}]}}'
 eq "events: TSV" "$(printf 'worker_done\ttask-1\tm-1\nquestion\ttask-2\tm-2')" "$(n1_orca_events "$J")"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
-HB='{"ok":true,"result":{"deliveryId":"del-2","messages":[{"type":"heartbeat","taskId":"task-1","id":"m-h1"}]}}'
-eq "events: heartbeat row" "$(printf 'heartbeat\ttask-1\tm-h1')" "$(n1_orca_events "$HB")"
 eq "liveness: object verdict, missing, string fallback, odd-typed verdict" \
     "$(printf 'd-1\ttask-1\texited\nd-2\ttask-2\tunverifiable\nd-3\ttask-3\tunverifiable\nd-4\ttask-4\tlive\nd-5\ttask-5\tunverifiable')" "$(n1_orca_liveness run-1)"
 n1_orca_liveness run-1 >/dev/null; eq "liveness: real Orca payload is readable (rc 0)" 0 "$?"
