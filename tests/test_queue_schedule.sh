@@ -32,7 +32,7 @@ case "$1 $2" in
   "automations list")
       case "${FAKE_AUTOS:-none}" in
         none) ok '{"automations":[]}' ;;
-        one) ok '{"automations":[{"id":"a-1","name":"n1-queue proj","trigger":"daily"},{"id":"a-9","name":"n1-queue other","trigger":"hourly"}]}' ;;
+        one) ok '{"automations":[{"id":"a-1","name":"'"$FAKE_NAME"'","trigger":"daily"},{"id":"a-9","name":"n1-queue other","trigger":"hourly"}]}' ;;
         *) err "boom" ;;
       esac ;;
   "automations create") [ -n "${FAKE_CREATE_FAIL:-}" ] && err "bad trigger"; ok '{"automation":{"id":"a-2"}}' ;;
@@ -52,6 +52,7 @@ source "$REPO_ROOT/lib/config.sh"
 source "$REPO_ROOT/lib/frontmatter.sh"
 source "$REPO_ROOT/lib/queue.sh"
 source "$REPO_ROOT/lib/orca-queue.sh"
+NAME=$(_n1_sched_name "$T/proj"); export FAKE_NAME="$NAME"
 calls() { cat "$FAKE/calls"; }
 reset() { : > "$FAKE/calls"; }
 
@@ -148,21 +149,24 @@ rm -rf "$N1_HOME/queue"
 reset; out=$(FAKE_AUTOS=none n1_queue_schedule create n1-auto daily Jira jira TP "To Do"); r=$?
 eq "schedule create: rc 0" 0 "$r"
 has "schedule create: reports automation id" "automation a-2" "$out"
-has "schedule create: argv" "automations create --name n1-queue proj --trigger daily --provider claude --workspace path:$T/proj --prompt /n1:n1-queue --tag n1-auto --unattended --precheck bash '$N1_HOME/bin/n1-queue-precheck.sh' '$N1_HOME' 'n1-auto' 'jira' 'TP' 'To Do' --json" "$(calls)"
+has "schedule create: argv" "automations create --name $NAME --trigger daily --provider claude --workspace path:$T/proj --workspace-mode existing --fresh-session --prompt /n1:n1-queue --tag n1-auto --unattended --precheck bash '$N1_HOME/bin/n1-queue-precheck.sh' '$N1_HOME' 'n1-auto' 'jira' 'TP' 'To Do' --json" "$(calls)"
 hasnt "schedule create: nothing removed when absent" "automations remove" "$(calls)"
 eq "schedule create: precheck installed" 0 "$(rc cmp -s "$REPO_ROOT/scripts/n1-queue-precheck.sh" "$N1_HOME/bin/n1-queue-precheck.sh")"
 
 reset; out=$(FAKE_AUTOS=one n1_queue_schedule create n1-auto "0 9 * * 1-5" Jira jira TP "To Do")
 has "reschedule: removes the existing automation by name" "automations remove a-1 --json" "$(calls)"
 hasnt "reschedule: other projects untouched" "remove a-9" "$(calls)"
-eq "reschedule: remove before create" "remove create" "$(grep -oE 'automations (remove|create)' "$FAKE/calls" | cut -d' ' -f2 | paste -sd' ' -)"
+eq "reschedule: create before remove" "create remove" "$(grep -oE 'automations (remove|create)' "$FAKE/calls" | cut -d' ' -f2 | paste -sd' ' -)"
 has "reschedule: cron trigger passed" "--trigger 0 9 * * 1-5 --provider" "$(calls)"
 
-reset; eq "reschedule: remove failure -> rc 1" 1 "$(FAKE_AUTOS=one FAKE_REMOVE_FAIL=1 rc n1_queue_schedule create n1-auto daily Jira jira TP "To Do")"
-hasnt "reschedule: remove failure creates nothing" "automations create" "$(calls)"
+reset; out=$(FAKE_AUTOS=one FAKE_REMOVE_FAIL=1 n1_queue_schedule create n1-auto daily Jira jira TP "To Do"); r=$?
+eq "reschedule: old-remove failure -> rc 1" 1 "$r"
+has "reschedule: old-remove failure names the leftover" "could not remove the previous automation a-1" "$out"
 reset; eq "create: unreadable list -> rc 1" 1 "$(FAKE_AUTOS=fail rc n1_queue_schedule create n1-auto daily Jira jira TP "To Do")"
 hasnt "create: unreadable list creates nothing" "automations create" "$(calls)"
 reset; eq "create: create failure -> rc 1" 1 "$(FAKE_AUTOS=none FAKE_CREATE_FAIL=1 rc n1_queue_schedule create n1-auto daily Jira jira TP "To Do")"
+reset; eq "reschedule: create failure -> rc 1" 1 "$(FAKE_AUTOS=one FAKE_CREATE_FAIL=1 rc n1_queue_schedule create n1-auto daily Jira jira TP "To Do")"
+hasnt "reschedule: create failure keeps the old automation" "automations remove" "$(calls)"
 reset; eq "create: bad tag rejected" 1 "$(rc n1_queue_schedule create "a'b" daily Jira jira TP "To Do")"
 eq "create: bad tag never reaches Orca automations" "" "$(grep automations "$FAKE/calls")"
 reset; eq "create: bad trigger rejected" 1 "$(rc n1_queue_schedule create n1-auto 'daily$(id)' Jira jira TP "To Do")"
@@ -173,15 +177,22 @@ reset; out=$(FAKE_ORCA_DOWN=1 n1_queue_schedule create n1-auto daily Jira jira T
 has "create: Orca down -> message" "not reachable" "$out"
 hasnt "create: Orca down -> no automation calls" "automations" "$(calls)"
 
+mkdir -p "$T/other/proj"; git init -q "$T/other/proj"
+NAME2=$(FAKE_AUTOS=none CLAUDE_PROJECT_DIR="$T/other/proj" n1_queue_schedule list | sed -n 's/^No scheduled run for \(.*\)\.$/\1/p')
+eq "name: same folder name, different path -> different name" 0 "$([ "$NAME2" != "$NAME" ] && [ "${NAME2%% *}" != "" ] && echo 0 || echo 1)"
+has "list: same-named project elsewhere sees nothing" "No scheduled run" "$(FAKE_AUTOS=one CLAUDE_PROJECT_DIR="$T/other/proj" n1_queue_schedule list)"
+reset; FAKE_AUTOS=one CLAUDE_PROJECT_DIR="$T/other/proj" n1_queue_schedule create n1-auto daily Jira jira TP "To Do" >/dev/null
+hasnt "create: same-named project elsewhere removes nothing" "automations remove" "$(calls)"
 out=$(FAKE_AUTOS=one n1_queue_schedule list)
 has "list: this project's automation" "a-1" "$out"
 hasnt "list: other projects hidden" "a-9" "$out"
-has "list: none" "No scheduled run for n1-queue proj." "$(FAKE_AUTOS=none n1_queue_schedule list)"
+has "list: none" "No scheduled run for $NAME." "$(FAKE_AUTOS=none n1_queue_schedule list)"
 reset; out=$(FAKE_AUTOS=one n1_queue_schedule remove)
 has "remove: by looked-up id" "automations remove a-1 --json" "$(calls)"
 has "remove: message" "Removed scheduled run a-1" "$out"
 has "remove: nothing scheduled" "No scheduled run" "$(FAKE_AUTOS=none n1_queue_schedule remove)"
 eq "remove: unreadable list -> rc 1" 1 "$(FAKE_AUTOS=fail rc n1_queue_schedule remove)"
+eq "list: unreadable response -> rc 1" 1 "$(FAKE_AUTOS=fail rc n1_queue_schedule list)"
 eq "schedule: unknown op -> rc 1" 1 "$(rc n1_queue_schedule frobnicate)"
 
 # --- Task 4: skill wiring (the flag the automation prompt uses must exist in the skill) ---
@@ -191,8 +202,7 @@ has "skill: --schedule routes to schedule.md" "steps/schedule.md" "$(cat "$S/SKI
 eq "skill: schedule step exists" 0 "$(rc test -f "$S/steps/schedule.md")"
 has "run.md: unattended entry section" "## Unattended entry" "$(cat "$S/steps/run.md")"
 has "run.md: unattended entry takes the claim" "n1_queue_claim" "$(cat "$S/steps/run.md")"
-eq "preview.md: three --unattended answers" 3 "$(grep -c -- '--unattended' "$S/steps/preview.md")"
 has "intake.md: unattended repo answer" "--unattended" "$(cat "$S/steps/intake.md")"
-has "architecture: scheduled runs section" "### Scheduled queue runs (N1-226)" "$(cat "$REPO_ROOT/references/architecture.md")"
+eq "precheck: curl pinned to https" 0 "$(rc grep -q -- '--proto =https' "$PRE")"
 
 exit "$FAIL"
