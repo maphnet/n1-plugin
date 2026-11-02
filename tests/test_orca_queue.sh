@@ -87,8 +87,13 @@ eq "worker-start: model rejected -> retried without --model" d-1 "$(FAKE_ORCA_MO
 eq "worker-start: exactly one retry" 2 "$(grep -c worker-start "$FAKE/calls")"
 eq "worker-start: failure reason" "orca-launch:worktree-setup" "$(FAKE_ORCA_START_FAIL=1 n1_orca_worker_start run-1 task-1 T-1 /r '')"
 
-J='{"ok":true,"result":{"deliveryId":"del-1","messages":[{"type":"worker_done","taskId":"task-1","id":"m-1"},{"type":"question","taskId":"task-2","id":"m-2"}]}}'
-eq "events: TSV" "$(printf 'worker_done\ttask-1\tm-1\nquestion\ttask-2\tm-2')" "$(n1_orca_events "$J")"
+# Orca 1.4.243: taskId/dispatchId live only inside "payload", a JSON string.
+J='{"ok":true,"result":{"deliveryId":"del-1","messages":[{"id":"m-1","type":"worker_done","payload":"{\"taskId\":\"task-1\",\"dispatchId\":\"d-1\",\"outcome\":\"succeeded\"}"},{"id":"m-2","type":"question","payload":"{\"taskId\":\"task-2\",\"dispatchId\":\"d-2\"}"}]}}'
+eq "events: task id from the payload string" "$(printf 'worker_done\ttask-1\tm-1\nquestion\ttask-2\tm-2')" "$(n1_orca_events "$J")"
+eq "events: top-level taskId fallback" "$(printf 'escalation\ttask-3\tm-3')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-3","type":"escalation","taskId":"task-3"}]}}')"
+eq "events: malformed payload falls back, batch kept" "$(printf 'worker_done\ttask-4\tm-4\nworker_done\ttask-5\tm-5\nworker_done\t\tm-6\nworker_done\ttask-7\tm-7')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-4","type":"worker_done","payload":"{not json","taskId":"task-4"},{"id":"m-5","type":"worker_done","payload":"{\"taskId\":\"task-5\"}"},{"id":"m-6","type":"worker_done","payload":"{\"taskId\":{\"a\":1}}"},{"id":"m-7","type":"worker_done","payload":"{\"taskId\":\"task-7\"}"}]}}')"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
 eq "liveness: object verdict, missing, string fallback, odd-typed verdict" \
     "$(printf 'd-1\ttask-1\texited\nd-2\ttask-2\tunverifiable\nd-3\ttask-3\tunverifiable\nd-4\ttask-4\tlive\nd-5\ttask-5\tunverifiable')" "$(n1_orca_liveness run-1)"

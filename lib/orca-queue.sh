@@ -70,9 +70,16 @@ n1_orca_check() {
 }
 
 n1_orca_events() {
-    # Usage: n1_orca_events <check-json> — "<type>\t<task-id>\t<message-id>" per message.
+    # Usage: n1_orca_events <check-json> — "<type>\t<task-id>\t<message-id>" per message. Orca 1.4.243 carries
+    # taskId/dispatchId only inside "payload", a JSON string; top-level fields stay as a fallback. A malformed or
+    # non-object payload falls back too, and a non-string task id reads empty (@tsv errors on an object and would
+    # drop the rest of the batch), so one bad message never drops the batch. The task id is still untrusted.
     jq -r '(.result.messages // .result.batch // .result.items // [])[]?
-        | [(.type // .messageType // ""), (.taskId // .task_id // .task.id // ""), (.id // .messageId // "")] | @tsv' <<<"$1" 2>/dev/null
+        | (.payload | if type == "string" then (try fromjson catch {}) else . end
+            | if type == "object" then . else {} end) as $p
+        | [(.type // .messageType // ""),
+           ($p.taskId // .taskId // .task_id // .task.id // "" | if type == "string" then . else "" end),
+           (.id // .messageId // "")] | @tsv' <<<"$1" 2>/dev/null
     return 0
 }
 
