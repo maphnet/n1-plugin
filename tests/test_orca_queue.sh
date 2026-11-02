@@ -125,6 +125,23 @@ has "ack: delivery id" "orchestration check --run run-1 --ack del-1" "$(calls)"
 eq "worktree_taken: unreadable list reads taken (fail closed)" 0 "$(rc n1_orca_worktree_taken T-1)"
 eq "worktree_taken: readable, no clash" 1 "$(FAKE_WT=none rc n1_orca_worktree_taken T-1)"
 eq "worktree_taken: readable, clash" 0 "$(FAKE_WT=hit rc n1_orca_worktree_taken T-1)"
+# N1-267: usage-limit stall from the newest transcript of the ticket's worktree (FAKE_WT=hit lists /w/T-1).
+# Bugs caught: a worker idle on the usage limit read as working (charged into subtask-timeout); a worker that resumed
+# after the reset still read as stalled (never times out); one malformed transcript line disabling detection; an older
+# session's transcript deciding the verdict; an unreadable worktree list reading "stalled" (fail open).
+CC="$T/cc"; TD="$CC/projects/-w-T-1"; mkdir -p "$TD"
+MARK='{"type":"system","subtype":"informational","level":"notice","content":"Usage limit reached · continuing automatically at 7:30pm · esc to cancel"}'
+ASST='{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}'
+printf '%s\n%s\n' "$ASST" "$MARK" > "$TD/s1.jsonl"
+eq "stalled: marker after last assistant entry" 0 "$(FAKE_WT=hit CLAUDE_CONFIG_DIR="$CC" rc n1_orca_usage_stalled T-1)"
+eq "stalled: prints nothing" "" "$(FAKE_WT=hit CLAUDE_CONFIG_DIR="$CC" n1_orca_usage_stalled T-1 2>&1)"
+printf '{not json\n%s\n%s\n' "$ASST" "$MARK" > "$TD/s1.jsonl"
+eq "stalled: malformed line tolerated" 0 "$(FAKE_WT=hit CLAUDE_CONFIG_DIR="$CC" rc n1_orca_usage_stalled T-1)"
+eq "stalled: unreadable worktree list -> not stalled" 1 "$(FAKE_WT=fail CLAUDE_CONFIG_DIR="$CC" rc n1_orca_usage_stalled T-1)"
+printf '%s\n%s\n' "$MARK" "$ASST" > "$TD/s1.jsonl"
+eq "stalled: assistant entry after marker (reset) -> not stalled" 1 "$(FAKE_WT=hit CLAUDE_CONFIG_DIR="$CC" rc n1_orca_usage_stalled T-1)"
+printf '%s\n%s\n' "$ASST" "$MARK" > "$TD/s0.jsonl"; touch -d '1 hour ago' "$TD/s0.jsonl"
+eq "stalled: only the newest transcript counts" 1 "$(FAKE_WT=hit CLAUDE_CONFIG_DIR="$CC" rc n1_orca_usage_stalled T-1)"
 
 # --- Task 2: identity sentinel ---
 M="$T/main"; git init -q -b main "$M"; git -C "$M" commit -q --allow-empty -m init
