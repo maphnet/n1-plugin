@@ -1206,6 +1206,30 @@ test_orca_forged_dispatch_ignored() {   # N1-281 SEC-1: a message naming a task 
     rm -rf "$tmp"
 }
 
+test_orca_worker_list_dispatch_bound() {   # N1-281: a worker-list row for the task with another dispatch id must not settle the Runs-row worker
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    : > "$tmp/fake/nodone.T-A"   # final row (pr): only a settle can release its worker
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    wl_set "$tmp" "$(wl_row T-A succeeded | jq -c '.dispatchId = "d-forged"')"
+    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-wl-bound: mismatched dispatch does not release the worker" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_done_without_dispatch_ignored() {   # N1-281: a worker_done whose payload lacks dispatchId must not act on the row
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; echo implement > "$tmp/fake/step.T-B"
+    : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
+    printf '%s' "$(orca_msg worker_done task-T-B m-d1 | jq -c '.payload |= (fromjson | del(.dispatchId) | tojson)')" > "$tmp/fake/question"
+    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-nodisp: T-B not finalized by a dispatch-less done" "no" \
+        "$([ "$(plan_cell "$tmp/queue.md" 2 9)" = child-exited-incomplete ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 test_orca_replay_not_timeout() {   # replayed batches must not charge a poll interval each (no false subtask-timeout)
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
@@ -3510,6 +3534,8 @@ test_orca_adopt_launch
 test_orca_stale_run_not_reused
 test_orca_lost_done_still_chains
 test_orca_settled_from_worker_list
+test_orca_worker_list_dispatch_bound
+test_orca_done_without_dispatch_ignored
 test_orca_replay_not_timeout
 test_orca_worktree_list_unreadable
 test_orca_chain_after_settle
