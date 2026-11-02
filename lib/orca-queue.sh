@@ -266,3 +266,73 @@ n1_orca_reply() {
         answer_delivered ticket="$t" session="orca:$msg" reason="${3:0:120}"
     echo "n1-queue: answer delivered to $t (Orca message $msg)."
 }
+
+# ---- Scheduled runs (N1-226) ----
+# One Orca automation per project ("n1-queue <main-checkout folder> <6-hex of its path>", workspace = main checkout) runs
+# scripts/n1-queue-precheck.sh (copied to <n1-home>/bin) and then "/n1:n1-queue --tag <tag> --unattended".
+# Requires lib/config.sh (n1_orca, n1_main_checkout, n1_plugin_root, n1_home).
+_n1_sched_safe() { [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
+# <main-checkout> — automation name; the path hash keeps same-named folders of different projects apart.
+_n1_sched_name() { printf 'n1-queue %s %06x' "${1##*/}" $(( $(printf '%s' "$1" | cksum | cut -d' ' -f1) % 16777216 )); }
+
+_n1_sched_id() {
+    # <name> — id of the automation with exactly this name. rc 1: none; rc 2: list unreadable.
+    local out id
+    out=$(N1_ORCA_TIMEOUT=30 n1_orca automations list) || return 2
+    jq -e '(.result.automations // .result.items) | type == "array"' <<<"$out" >/dev/null 2>&1 || return 2
+    id=$(jq -r --arg n "$1" '[(.result.automations // .result.items)[] | select(.name == $n) | .id // empty][0] // empty' <<<"$out" 2>/dev/null)
+    _n1_orca_id "$id" || return 1
+    printf '%s' "$id"
+}
+
+n1_queue_schedule() {
+    # Usage: n1_queue_schedule create <tag> <trigger> <tracker-type> <tracker-mcp> <project-key> <todo-status>
+    #      | n1_queue_schedule list | n1_queue_schedule remove
+    # Prints one result line (list: "<id>\t<trigger>\t<enabled|disabled>" lines); rc 1 on failure. Re-create is
+    # create + remove-old-by-id (Orca `edit` semantics unverified); the old automation goes only after the new
+    # one exists, so a failed create keeps the previous schedule. Every value baked into the precheck command (it runs through a shell) is quote-free.
+    local op="${1:-}" main name home id old r out pre tag trig ttype mcp key todo
+    local trig_re='^[A-Za-z0-9*][A-Za-z0-9 */,:=;_-]*$' todo_re='^[A-Za-z0-9][A-Za-z0-9 ._-]*$'
+    n1_orca_active || { echo "Orca workspace manager not reachable."; return 1; }
+    main=$(n1_main_checkout "${CLAUDE_PROJECT_DIR:-.}") || { echo "Not inside a git checkout."; return 1; }
+    name=$(_n1_sched_name "$main")
+    case "$op" in
+        list)
+            out=$(N1_ORCA_TIMEOUT=30 n1_orca automations list) && jq -e '(.result.automations // .result.items) | type == "array"' <<<"$out" >/dev/null 2>&1 \
+                || { echo "Could not list Orca automations."; return 1; }
+            out=$(jq -r --arg n "$name" '(.result.automations // .result.items // [])[] | select(.name == $n)
+                | "\(.id)\t\(.trigger // .schedule // "?")\t\(if .enabled == false then "disabled" else "enabled" end)"' <<<"$out" 2>/dev/null)
+            printf '%s\n' "${out:-No scheduled run for $name.}" ;;
+        remove)
+            id=$(_n1_sched_id "$name"); r=$?
+            case "$r" in 1) echo "No scheduled run for $name."; return 0 ;; 2) echo "Could not list Orca automations."; return 1 ;; esac
+            N1_ORCA_TIMEOUT=30 n1_orca automations remove "$id" >/dev/null || { echo "Could not remove automation $id."; return 1; }
+            echo "Removed scheduled run $id ($name)." ;;
+        create)
+            tag="${2:-}" trig="${3:-}" ttype="${4:-}" mcp="${5:-}" key="${6:-}" todo="${7:-}"
+            home="${N1_HOME:-$(n1_home)}"
+            _n1_sched_safe "$tag" && _n1_sched_safe "$key" || { echo "Invalid tag or project key."; return 1; }
+            [[ "$trig" =~ $trig_re ]] || { echo "Invalid trigger: $trig"; return 1; }
+            [[ "$todo" =~ $todo_re ]] || { echo "Invalid TODO status name: $todo"; return 1; }
+            case "$home" in /*) ;; *) echo "N1 home is not an absolute path."; return 1 ;; esac
+            case "$home" in *"'"*) echo "N1 home path contains a quote; cannot bake the precheck."; return 1 ;; esac
+            # Only Jira has a REST check (credentials in the MCP secrets env); other trackers skip it in the precheck.
+            case "$(printf '%s' "$ttype" | tr '[:upper:]' '[:lower:]')" in jira) _n1_sched_safe "$mcp" || mcp=none ;; *) mcp=none ;; esac
+            mkdir -p "$home/bin" && cp "$(n1_plugin_root)/scripts/n1-queue-precheck.sh" "$home/bin/n1-queue-precheck.sh" \
+                || { echo "Could not install the precheck under $home/bin."; return 1; }
+            pre="bash '$home/bin/n1-queue-precheck.sh' '$home' '$tag' '$mcp' '$key' '$todo'"
+            id=$(_n1_sched_id "$name"); r=$?
+            [ "$r" -ne 2 ] || { echo "Could not list Orca automations; nothing created."; return 1; }
+            old=""; [ "$r" -ne 0 ] || old="$id"
+            out=$(N1_ORCA_TIMEOUT=30 n1_orca automations create --name "$name" --trigger "$trig" --provider claude \
+                --workspace "path:$main" --workspace-mode existing --fresh-session --prompt "/n1:n1-queue --tag $tag --unattended" --precheck "$pre") || {
+                echo "Orca automation create failed: $(jq -r '.error.message // empty' <<<"$out" 2>/dev/null)"; return 1; }
+            id=$(jq -r '.result.automation.id // .result.id // empty' <<<"$out" 2>/dev/null)
+            if [ -n "$old" ]; then
+                N1_ORCA_TIMEOUT=30 n1_orca automations remove "$old" >/dev/null \
+                    || { echo "Scheduled $name (${id:-unknown id}) but could not remove the previous automation $old; remove it with the workspace manager."; return 1; }
+            fi
+            echo "Scheduled $name ($trig): automation ${id:-unknown id}." ;;
+        *) echo "Usage: n1_queue_schedule create|list|remove"; return 1 ;;
+    esac
+}

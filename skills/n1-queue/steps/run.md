@@ -1,12 +1,30 @@
 # Run
 
-**Busy guard — always runs first, on every entry point, before § Saved plan or § Write plan below:** if `$QUEUE_DIR/queue.md` exists and its frontmatter `pid` is a live runner, print "Queue <QUEUE_ID> is already running (pid <pid>). Check: <queue watch hint>." **STOP.**
+**Busy guard — always runs first, on every entry point, before § Unattended entry, § Saved plan or § Write plan below:** if `$QUEUE_DIR/queue.md` exists and its frontmatter `pid` is a live runner, print "Queue <QUEUE_ID> is already running (pid <pid>). Check: <queue watch hint>." **STOP.**
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 OLD_PID=$(n1_read_frontmatter "$QUEUE_DIR/queue.md" pid 2>/dev/null); n1_queue_runner_alive "$OLD_PID" "$QUEUE_DIR/queue.md" && echo "busy:$OLD_PID"
 ```
+
+## Unattended entry (`--unattended` only)
+
+A scheduled trigger started this session and nobody is watching it. After the busy guard:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+if [ "$(n1_queue_val unattendedAutoStart)" != true ]; then echo POLICY=off
+elif ! n1_queue_claim "$QUEUE_DIR"; then echo CLAIM=held
+elif n1_queue_interrupted "$QUEUE_DIR/queue.md"; then echo ENTRY=resume
+else echo ENTRY=plan; fi
+```
+
+- `POLICY=off`: print "Unattended runs are off: set `queue.unattendedAutoStart` to true in config.json, or remove the schedule with `/n1:n1-queue --schedule remove`." **STOP.**
+- `CLAIM=held`: print "Queue <QUEUE_ID> was claimed by another trigger in the last 15 minutes." **STOP.**
+- `ENTRY=resume`: print "Resuming interrupted run of `<QUEUE_ID>`." and go to § Launch with `RESUME=1`.
+- `ENTRY=plan`: continue at SKILL.md step 3 as a bare run. Every user prompt on that path takes its `--unattended` answer (marked in intake.md and preview.md); an unattended run always plans fresh and ignores a saved interactive plan (its Edit removals, model overrides and pre-decisions). Escalation, release and headless gates are unchanged.
 
 ## Saved plan (`--run <queue-id>` only)
 
@@ -144,7 +162,7 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 
 `--plan`: print "Plan saved: <QUEUE_DIR>/queue.md (<N> tickets). Run it with `/n1:n1-queue --run <QUEUE_ID>` (re-validated first when older than <STALE_HOURS>h)." **STOP.**
 
-Bare: continue to § Launch.
+Bare and `--unattended`: continue to § Launch.
 
 ## Launch
 

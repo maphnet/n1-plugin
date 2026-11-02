@@ -46,8 +46,8 @@ else
   if [ -z "$MY_SERVICE" ]; then CFG_PATH="$N1_HOME/config.json"; N1_HOME_SUB="$N1_HOME"; REPO=$(n1_config_val '.repoPath'); [ -z "$REPO" ] && REPO=$(git rev-parse --show-toplevel); else CFG_PATH=""; REPO=""; fi
 fi
 ```
-- No matching config -> ask the user: **Enter path**, **Skip** (Status `skip`, reason "no repo"), **Cancel**.
-- Matched config but empty `REPO` -> ask for path, validate, backfill.
+- No matching config -> ask the user: **Enter path**, **Skip** (Status `skip`, reason "no repo"), **Cancel**. `--unattended`: Skip without asking.
+- Matched config but empty `REPO` -> ask for path, validate, backfill. `--unattended`: Skip (Status `skip`, reason "no repo") without asking.
 
 ## Story check (tag mode only)
 
