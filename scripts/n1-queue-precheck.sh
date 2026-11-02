@@ -30,10 +30,12 @@ alive() {   # <pid> <queue.md> — minimal copy of n1_queue_runner_alive (lib/qu
     done < "/proc/$1/cmdline" 2>/dev/null
     return 1
 }
+interrupted=""
 for q in "$home"/queue/*/queue.md; do
     [ -f "$q" ] && [ "$(fm "$q" step)" = run ] || continue
     pid=$(fm "$q" pid)
     if alive "$pid" "$q"; then say "queue run live ($q, pid $pid); skip"; exit 1; fi
+    interrupted=1   # step: run with a dead runner: the agent must resume it even with no TODO tickets
 done
 
 [ "$mcp" != none ] || { say "no REST tracker check for this tracker; start"; exit 0; }
@@ -52,7 +54,8 @@ out=$(
 ) || { say "tracker check failed; start"; exit 0; }
 n=$(jq -r 'if (.issues | type) == "array" then (.issues | length) else empty end' <<<"$out" 2>/dev/null)
 case "$n" in
-    0) say "no '$tag' tickets in '$todo'; skip"; exit 1 ;;
+    0) [ -z "$interrupted" ] || { say "interrupted queue to resume; start"; exit 0; }
+       say "no '$tag' tickets in '$todo'; skip"; exit 1 ;;
     ''|*[!0-9]*) say "unreadable tracker response; start"; exit 0 ;;
 esac
 exit 0
