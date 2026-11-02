@@ -801,7 +801,7 @@ line_of() { grep -n -F -- "$2" "$1" | head -1 | cut -d: -f1; }
 # worker-start copies the ticket's sentinel to $FAKE_DIR/sentinel.<t> and writes the child's overview at once
 # ($FAKE_DIR/overview.<t> if present, else step from $FAKE_DIR/step.<t>, default pr). check reports worker_done once per started task unless
 # $FAKE_DIR/nodone.<t> exists, plus $FAKE_DIR/question (one message JSON) once any task has started, plus
-# $FAKE_DIR/heartbeat (one message JSON) on every check once any task has started.
+# $FAKE_DIR/heartbeat (one message JSON) on every check once any task has started. $FAKE_DIR/at.<n> runs on the n-th check.
 mk_orca() {
     : > "$1/fake/orca-calls"
     cat > "$1/bin/fake-orca" <<'ORCAEOF'
@@ -828,6 +828,7 @@ case "$1 $2" in
   "orchestration check")
       [ -n "$(arg --ack "$@")" ] && { ok '{}'; exit 0; }
       m=""; n=$(( $(cat "$D/ncheck" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/ncheck"
+      [ -f "$D/at.$n" ] && bash "$D/at.$n"   # N1-267: $D/at.<n>: script run on the n-th check (tick n), before that tick's row loop
       # $D/replay: the first 5 checks replay a message for a task no row owns (a missed ack); on the 6th the
       # tickets named in $D/finish-late finish.
       [ -f "$D/replay" ] && [ "$n" -le 5 ] && m=$(msg question task-ghost m-ghost)
@@ -853,7 +854,7 @@ ORCAEOF
 
 run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CLI as ORCA_CLI_COMMAND
     local tmp="$1" rc=0; shift
-    env HOME="$tmp/hh" "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+    env -u CLAUDE_CONFIG_DIR HOME="$tmp/hh" "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
         bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
     echo "$rc"
 }
@@ -1070,6 +1071,55 @@ test_orca_timeout_open_pr() {
     # The worker is still running (unverifiable): it stays owed, never released, keeps its identity.
     assert_eq "orca-timeout-pr: live worker not released" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-timeout-pr: live worker keeps its sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# orca_stall_fixture <tmp> <line>... — N1-267: orca_resumed_row plus Orca worktree /orca/wt/T-A and its newest Claude
+# transcript ($tmp/cc, passed as CLAUDE_CONFIG_DIR) holding the given JSONL lines; at.<n> scripts get $tmp/fake/{late,asst}.
+orca_stall_fixture() {
+    local tmp="$1"; shift
+    orca_resumed_row "$tmp"
+    printf '{"path":"/orca/wt/T-A"}' > "$tmp/fake/worktrees"
+    mkdir -p "$tmp/cc/projects/-orca-wt-T-A"
+    printf '%s\n' "$@" > "$tmp/cc/projects/-orca-wt-T-A/s1.jsonl"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/fake/late"
+    printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"resumed"}]}}' > "$tmp/fake/asst"
+}
+
+# N1-267 AC2 (timeout 1 min = 60 s, every empty tick charges 30 s, so an unpaused row times out on tick 3).
+# Bugs caught: (a) a worker idle on the usage limit is charged and fails subtask-timeout before it can finish;
+# (b) after the reset (new assistant entry) the clock never resumes, so a hung worker never times out;
+# (c) with no ceiling a stale notice keeps a dead worker in-progress forever; (d) control: a working transcript is charged.
+test_orca_usage_stall() {
+    local tmp MARK ASST
+    MARK='{"type":"system","subtype":"informational","level":"notice","content":"Usage limit reached · continuing automatically at 7:30pm · esc to cancel"}'
+    ASST='{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}'
+    # (a) stalled ticks 1-3, the worker finishes on tick 4 -> pr (unpaused: failed on tick 3).
+    tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST" "$MARK"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/late" "$tmp/n1home/memory/T-A/overview.md" > "$tmp/fake/at.4"
+    assert_eq "orca-stall: exit 0" "0" "$(run_orca_queue "$tmp" CLAUDE_CONFIG_DIR="$tmp/cc")"
+    assert_eq "orca-stall: stalled worker not charged, finishes as pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+    # (b) stalled tick 1, reset on tick 2, charged 30/60/90 on ticks 2-4 -> subtask-timeout before the tick-6 finish.
+    tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST" "$MARK"
+    printf 'cat "%s" >> "%s"\n' "$tmp/fake/asst" "$tmp/cc/projects/-orca-wt-T-A/s1.jsonl" > "$tmp/fake/at.2"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/late" "$tmp/n1home/memory/T-A/overview.md" > "$tmp/fake/at.6"
+    assert_eq "orca-stall-reset: exit 0" "0" "$(run_orca_queue "$tmp" CLAUDE_CONFIG_DIR="$tmp/cc")"
+    assert_eq "orca-stall-reset: charging resumes after the reset" "failed|subtask-timeout" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+    # (c) notice never clears: stall budget (2x timeout) runs out, the row still times out and the runner exits.
+    tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST" "$MARK"
+    assert_eq "orca-stall-ceiling: exit 0" "0" "$(timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp' CLAUDE_CONFIG_DIR='$tmp/cc'")"
+    assert_eq "orca-stall-ceiling: times out despite a stale notice" "failed|subtask-timeout" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+    # (d) control: no notice -> charged, times out on tick 3 before the tick-4 finish.
+    tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/late" "$tmp/n1home/memory/T-A/overview.md" > "$tmp/fake/at.4"
+    assert_eq "orca-stall-control: exit 0" "0" "$(run_orca_queue "$tmp" CLAUDE_CONFIG_DIR="$tmp/cc")"
+    assert_eq "orca-stall-control: working worker is charged" "failed|subtask-timeout" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     rm -rf "$tmp"
 }
 
@@ -3570,6 +3620,7 @@ test_orca_question_parks
 test_orca_heartbeat
 test_orca_resume_no_duplicate
 test_orca_timeout_open_pr
+test_orca_usage_stall
 test_orca_resume_owed
 test_orca_launch_failure_identity
 test_orca_owed_holds_slot

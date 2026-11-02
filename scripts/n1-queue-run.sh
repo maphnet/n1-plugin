@@ -899,7 +899,7 @@ orca_settle() {
 run_orca() {
     local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
     local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
-    local -a WORKED=()
+    local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
     MAXC=$(n1_queue_val maxConcurrent); [[ "$MAXC" =~ ^[1-9][0-9]*$ ]] || MAXC=3
     LIVE_OK=1; LIVE=$(n1_orca_liveness "$ORCA_RUN") || { LIVE=""; LIVE_OK=0; }
@@ -998,6 +998,14 @@ run_orca() {
                 n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
                 rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET"
                 ev unblocked ticket="$TICKET" session="$SID"
+            fi
+            # N1-267: a worker waiting on the Claude usage limit is idle, not working: its tick goes to STALLED instead.
+            # Rows are checked one by one, so workers that all stall at once all pause. ponytail: the pause is capped at
+            # 2x subtaskTimeoutMinutes so a worker hung behind a stale notice still times out.
+            if [ "${STALLED[NUM]:-0}" -lt $((2 * TIMEOUT_SECS)) ] && n1_orca_usage_stalled "$TICKET"; then
+                STALLED[NUM]=$(( ${STALLED[NUM]:-0} + CHARGE ))
+                INFLIGHT=$((INFLIGHT + 1))
+                continue
             fi
             WORKED[NUM]=$(( ${WORKED[NUM]:-0} + CHARGE ))
             if [ "${WORKED[NUM]}" -gt "$TIMEOUT_SECS" ]; then
