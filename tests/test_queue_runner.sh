@@ -801,7 +801,7 @@ line_of() { grep -n -F -- "$2" "$1" | head -1 | cut -d: -f1; }
 # worker-start copies the ticket's sentinel to $FAKE_DIR/sentinel.<t> and writes the child's overview at once
 # ($FAKE_DIR/overview.<t> if present, else step from $FAKE_DIR/step.<t>, default pr). check reports worker_done once per started task unless
 # $FAKE_DIR/nodone.<t> exists, plus $FAKE_DIR/question (one message JSON) once any task has started, plus
-# $FAKE_DIR/heartbeat (one message JSON) on every check once any task has started.
+# $FAKE_DIR/heartbeat (one message JSON) on every check once any task has started. $FAKE_DIR/at.<n> runs on the n-th check.
 mk_orca() {
     : > "$1/fake/orca-calls"
     cat > "$1/bin/fake-orca" <<'ORCAEOF'
@@ -815,7 +815,7 @@ case "$1 $2" in
   "status --json") [ -n "${FAKE_ORCA_DOWN:-}" ] && err "runtime down"; ok '{"runtime":{"reachable":true}}' ;;
   "orchestration run-create") [ -n "${FAKE_ORCA_RUN_FAIL:-}" ] && err "unknown command"; ok '{"run":{"id":"run-1"}}' ;;
   "orchestration run-use") [ -n "${FAKE_ORCA_RUNUSE_FAIL:-}" ] && err "no such run"; ok '{}' ;;
-  "orchestration task-create") ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
+  "orchestration task-create") [ -n "${FAKE_ORCA_TASK_FAIL:-}" ] && err "task-create failed"; ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
   "orchestration worker-start")
       task=$(arg --task "$@"); t="${task#task-}"
       [ -n "${FAKE_ORCA_START_FAIL:-}" ] && err "lost response"
@@ -828,6 +828,7 @@ case "$1 $2" in
   "orchestration check")
       [ -n "$(arg --ack "$@")" ] && { ok '{}'; exit 0; }
       m=""; n=$(( $(cat "$D/ncheck" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/ncheck"
+      [ -f "$D/at.$n" ] && bash "$D/at.$n"   # N1-267: $D/at.<n>: script run on the n-th check (tick n), before that tick's row loop
       # $D/replay: the first 5 checks replay a message for a task no row owns (a missed ack); on the 6th the
       # tickets named in $D/finish-late finish.
       [ -f "$D/replay" ] && [ "$n" -le 5 ] && m=$(msg question task-ghost m-ghost)
@@ -853,7 +854,7 @@ ORCAEOF
 
 run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CLI as ORCA_CLI_COMMAND
     local tmp="$1" rc=0; shift
-    env HOME="$tmp/hh" "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+    env -u CLAUDE_CONFIG_DIR HOME="$tmp/hh" "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
         bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
     echo "$rc"
 }
@@ -1038,6 +1039,129 @@ test_orca_resume_no_duplicate() {   # AC4
     rm -rf "$tmp"
 }
 
+# orca_resumed_row <tmp> — N1-267: a resumed run whose row T-A is already in-progress on a live, unverifiable Orca worker
+# (no launch, so the fake worktree list may already name T-A); overview step implement; timeout 1 min, poll 30 s.
+orca_resumed_row() {
+    local tmp="$1"
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    mkdir -p "$tmp/n1home/queue/sentinels"; printf 'N1_ORCA_TASK=task-T-A\n' > "$tmp/n1home/queue/sentinels/T-A.env"
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "| T-A | 2026-10-31T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: implement\n---\n' > "$tmp/n1home/memory/T-A/overview.md"
+    wl_set "$tmp" "$(wl_row T-A running unverifiable)"
+}
+
+# N1-267 AC1. Bug caught: a worker whose PR is open (pr step still waiting on CI/review) hits subtaskTimeoutMinutes and
+# the row is recorded failed|subtask-timeout although the PR later merges (N1-259 / PR #239 in run 20261101T131600Z).
+test_orca_timeout_open_pr() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"
+    mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
+    printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
+        > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
+    printf 'https://github.com/o/r/pull/239\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/me/T-A)" > "$tmp/fake/gh-pr"
+    assert_eq "orca-timeout-pr: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-timeout-pr: row is pr, not subtask-timeout, no retry row" "pr||1" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)|$(awk -F'|' '$2 ~ /^ *[0-9]+ *$/' "$tmp/queue.md" | wc -l | tr -d ' ')"
+    assert_eq "orca-timeout-pr: Runs records the PR" "https://github.com/o/r/pull/239" \
+        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
+    assert_eq "orca-timeout-pr: asked gh for the envelope branch" "1" "$(grep -c -- '--head me/T-A' "$tmp/fake/gh-calls")"
+    # The worker is still running (unverifiable): it stays owed, never released, keeps its identity.
+    assert_eq "orca-timeout-pr: live worker not released" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-timeout-pr: live worker keeps its sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# orca_stall_fixture <tmp> <line>... — N1-267: orca_resumed_row plus Orca worktree /orca/wt/T-A and its newest Claude
+# transcript ($tmp/cc, passed as CLAUDE_CONFIG_DIR) holding the given JSONL lines; at.<n> scripts get $tmp/fake/{late,asst}.
+orca_stall_fixture() {
+    local tmp="$1"; shift
+    orca_resumed_row "$tmp"
+    printf '{"path":"/orca/wt/T-A"}' > "$tmp/fake/worktrees"
+    mkdir -p "$tmp/cc/projects/-orca-wt-T-A"
+    printf '%s\n' "$@" > "$tmp/cc/projects/-orca-wt-T-A/s1.jsonl"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/fake/late"
+    printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"resumed"}]}}' > "$tmp/fake/asst"
+}
+
+# N1-267 AC2 (timeout 1 min = 60 s, every empty tick charges 30 s, so an unpaused row times out on tick 3).
+# Bugs caught: (a) a worker idle on the usage limit is charged and fails subtask-timeout before it can finish;
+# (b) after the reset (new assistant entry) the clock never resumes, so a hung worker never times out;
+# (c) with no ceiling a stale notice keeps a dead worker in-progress forever; (d) control: a working transcript is charged.
+test_orca_usage_stall() {
+    local tmp MARK ASST
+    MARK='{"type":"system","subtype":"informational","level":"notice","content":"Usage limit reached · continuing automatically at 7:30pm · esc to cancel"}'
+    ASST='{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}'
+    # (a) stalled ticks 1-3, the worker finishes on tick 4 -> pr (unpaused: failed on tick 3).
+    tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST" "$MARK"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/late" "$tmp/n1home/memory/T-A/overview.md" > "$tmp/fake/at.4"
+    assert_eq "orca-stall: exit 0" "0" "$(run_orca_queue "$tmp" CLAUDE_CONFIG_DIR="$tmp/cc")"
+    assert_eq "orca-stall: stalled worker not charged, finishes as pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+    # (b) stalled tick 1, reset on tick 2, charged 30/60/90 on ticks 2-4 -> subtask-timeout before the tick-6 finish.
+    tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST" "$MARK"
+    printf 'cat "%s" >> "%s"\n' "$tmp/fake/asst" "$tmp/cc/projects/-orca-wt-T-A/s1.jsonl" > "$tmp/fake/at.2"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/late" "$tmp/n1home/memory/T-A/overview.md" > "$tmp/fake/at.6"
+    assert_eq "orca-stall-reset: exit 0" "0" "$(run_orca_queue "$tmp" CLAUDE_CONFIG_DIR="$tmp/cc")"
+    assert_eq "orca-stall-reset: charging resumes after the reset" "failed|subtask-timeout" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+    # (c) notice never clears: stall budget (2x timeout) runs out, the row still times out and the runner exits.
+    tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST" "$MARK"
+    assert_eq "orca-stall-ceiling: exit 0" "0" "$(timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp' CLAUDE_CONFIG_DIR='$tmp/cc'")"
+    assert_eq "orca-stall-ceiling: times out despite a stale notice" "failed|subtask-timeout" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+    # (d) control: no notice -> charged, times out on tick 3 before the tick-4 finish.
+    tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/late" "$tmp/n1home/memory/T-A/overview.md" > "$tmp/fake/at.4"
+    assert_eq "orca-stall-control: exit 0" "0" "$(run_orca_queue "$tmp" CLAUDE_CONFIG_DIR="$tmp/cc")"
+    assert_eq "orca-stall-control: working worker is charged" "failed|subtask-timeout" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# N1-267 AC3. Bug caught: three Orca rows timing out together on one cause (a shared usage-limit wait) count as three
+# strikes and halt the queue mid-tick (run 20261101T131600Z), so the pending row T-D never runs.
+test_orca_same_reason_one_strike() {
+    local tmp t; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 3'
+    for t in T-A T-B T-C; do echo implement > "$tmp/fake/step.$t"; : > "$tmp/fake/nodone.$t"; done
+    assert_eq "orca-strike-dedupe: not halted (exit 0)" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-strike-dedupe: all three timed out" "failed|subtask-timeout failed|subtask-timeout failed|subtask-timeout" \
+        "$(for n in 1 2 3; do printf '%s|%s ' "$(plan_cell "$tmp/queue.md" "$n" 8)" "$(plan_cell "$tmp/queue.md" "$n" 9)"; done | sed 's/ $//')"
+    assert_eq "orca-strike-dedupe: remaining row still processed" "pr" "$(plan_cell "$tmp/queue.md" 4 8)"
+    assert_eq "orca-strike-dedupe: no halted step" "no" "$([ "$(n1_read_frontmatter "$tmp/queue.md" step)" = halted ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-267 regression guard. Bug caught: the dedupe swallowing distinct reasons, so three unrelated consecutive Orca
+# failures (launch clash, incomplete exit, timeout) no longer halt the queue.
+test_orca_mixed_reasons_halt() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 3'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"   # -> subtask-timeout
+    echo implement > "$tmp/fake/step.T-B"                               # done without PR -> child-exited-incomplete
+    printf '{"path":"/orca/wt/T-C"}' > "$tmp/fake/worktrees"            # -> orca-worktree-name-taken at launch
+    assert_eq "orca-strike-mixed: halts (exit 2)" "2" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-strike-mixed: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    rm -rf "$tmp"
+}
+
+# N1-267 CR-1. Bug caught: the dedupe swallowing non-timeout reasons, so a systemic launch failure (three launches
+# failing orca-task-create) drains every pending row instead of halting the queue.
+test_orca_same_launch_reason_halts() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done"; mk_orca "$tmp"
+    assert_eq "orca-strike-launch: halts (exit 2)" "2" "$(run_orca_queue "$tmp" FAKE_ORCA_TASK_FAIL=1)"
+    assert_eq "orca-strike-launch: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    rm -rf "$tmp"
+}
+
 test_orca_launch_failure_identity() {   # an ambiguous launch failure never strips a possibly live worker's identity
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
@@ -1065,11 +1189,11 @@ test_orca_owed_holds_slot() {   # an unsettled finished worker still counts towa
 test_orca_notifier_drain_keeps_rows() {   # N1-265: a stdin-draining notifier must not hide in-flight rows from the slot count
     local tmp t; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done" "T-E:done"; mk_orca "$tmp"
-    cfg_set "$tmp" '.queue.maxConcurrent = 3'; drain_notifier "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 3 | .queue.subtaskTimeoutMinutes = 600'; drain_notifier "$tmp"   # N1-267: no timeouts, so rows stay in flight; the 20 s bound ends the run
     for t in T-A T-B T-C T-D; do echo implement > "$tmp/fake/step.$t"; done
     : > "$tmp/fake/nodone.T-B"; : > "$tmp/fake/nodone.T-C"; : > "$tmp/fake/nodone.T-D"
     # Tick 2: T-A's worker reports done without a terminal step -> failed (notifies) while T-B and T-C are in flight.
-    # T-B/T-C/T-D never finish; the run ends on three strikes or the bound.
+    # T-B/T-C/T-D never finish; the run ends on the bound.
     timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
     assert_eq "orca-drain: notifier fired" "yes" "$([ -s "$tmp/fake/drained" ] && echo yes || echo no)"
     assert_eq "orca-drain: T-A failed" "failed|child-exited-incomplete" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
@@ -3534,6 +3658,11 @@ test_orca_held_blocker
 test_orca_question_parks
 test_orca_heartbeat
 test_orca_resume_no_duplicate
+test_orca_timeout_open_pr
+test_orca_usage_stall
+test_orca_same_reason_one_strike
+test_orca_mixed_reasons_halt
+test_orca_same_launch_reason_halts
 test_orca_resume_owed
 test_orca_launch_failure_identity
 test_orca_owed_holds_slot

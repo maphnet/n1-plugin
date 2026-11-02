@@ -130,6 +130,27 @@ n1_orca_worktree_taken() {
     [ $? -ne 1 ]
 }
 
+n1_orca_usage_stalled() {
+    # Usage: n1_orca_usage_stalled <ticket> — N1-267: true while the ticket's Orca worker waits on the Claude usage limit:
+    # in the newest transcript of its worktree (Orca folder name == ticket), the last "Usage limit reached" system notice
+    # comes after the last user/assistant entry. A new user/assistant entry ends the stall (the reset time in the notice
+    # is local, dateless and not parsed). Any failure reads "not stalled" so time keeps being charged. The transcript is
+    # untrusted: only matched, never printed. Claude names a project dir after its cwd, every non-alphanumeric -> '-'.
+    # ponytail: one worktree list call per in-progress row per tick; cache the path in .wt-<ticket> if it shows up in profiling.
+    local root="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects" out wt f
+    _n1_orca_id "${1:-}" && [ -d "$root" ] || return 1
+    out=$(N1_ORCA_TIMEOUT=30 n1_orca worktree list) || return 1
+    wt=$(jq -r --arg n "$1" '[.result.worktrees[]? | .path | strings | select(split("/") | last == $n)][0] // empty' <<<"$out" 2>/dev/null)
+    [ -n "$wt" ] || return 1
+    f=$(ls -t "$root/$(printf '%s' "$wt" | sed 's/[^A-Za-z0-9]/-/g')"/*.jsonl 2>/dev/null | head -1)
+    [ -n "$f" ] || return 1
+    tail -n 50 "$f" | jq -nRe '[inputs | fromjson? // empty | objects] | to_entries
+        | ([.[] | select(.value.type == "user" or .value.type == "assistant") | .key] | max // -1) as $w
+        | ([.[] | select(.value.type == "system" and .value.subtype == "informational"
+               and ((.value.content | strings | startswith("Usage limit reached")) // false)) | .key] | max // -1) as $m
+        | $m > $w' >/dev/null 2>&1
+}
+
 # ---- Identity sentinel (N1-225) ----
 # worker-start has no env flag, so an Orca child would run as an interactive session (merge guard off, a question
 # TUI nobody answers). The runner writes $N1_HOME/queue/sentinels/<ticket>.env before worker-start; SessionStart

@@ -66,6 +66,9 @@ TIMEOUT_SECS=$(( $(n1_queue_val subtaskTimeoutMinutes) * 60 ))
 # consecutive missing-from-list polls for one session (fails that row).
 BG_POLL_GRACE=10
 CONSECUTIVE_FAIL=0
+# N1-267: last counted strike (reason, epoch). Orca only: a subtask-timeout within STRIKE_WINDOW seconds of the last counted one
+# shares one cause (a usage-limit wait, an outage) and adds no strike.
+STRIKE_REASON="" STRIKE_AT=0 STRIKE_WINDOW=300
 QUEUE_ID=$(n1_read_frontmatter "$QUEUE" queue_id)
 QUEUE_ID="${QUEUE_ID:-queue}"
 # Tag mode: QUEUE_ID is the tag; children release it on handoff (NP-199).
@@ -275,10 +278,17 @@ finalize() {
         session="$(n1_queue_session_id "$QUEUE" "$TICKET")" duration_s="$DUR" reason="$REASON"
     [ "$EV_OUTCOME" = "failed" ] && n1_notify info "$TICKET failed${REASON:+ ($REASON)}"
 
-    # Three-strikes counter
+    # Three-strikes counter. N1-267: under Orca concurrency, a subtask-timeout right after a counted subtask-timeout
+    # within STRIKE_WINDOW adds no strike (launch/exit failures stay systemic), so one cause timing out several rows neither halts nor stops the tick's other rows.
     case "$OUTCOME" in
-        failed|escalated) CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)) ;;
-        pr|awaiting-human) CONSECUTIVE_FAIL=0 ;;
+        failed|escalated)
+            if [ -n "${ORCA_RUN:-}" ] && [ "$OUTCOME" = failed ] && [ "$REASON" = subtask-timeout ] && [ "$REASON" = "$STRIKE_REASON" ] \
+                && [ $(( $(date +%s) - STRIKE_AT )) -lt "$STRIKE_WINDOW" ]; then
+                echo "[$NUM] $TICKET: same reason as the last strike ($REASON), not counted"
+            else
+                CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)); STRIKE_REASON="$REASON"; STRIKE_AT=$(date +%s)
+            fi ;;
+        pr|awaiting-human) CONSECUTIVE_FAIL=0; STRIKE_REASON="" ;;
     esac
     if [ "$CONSECUTIVE_FAIL" -ge 3 ]; then
         halt "HALTED after 3 consecutive non-success"
@@ -899,7 +909,7 @@ orca_settle() {
 run_orca() {
     local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
     local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
-    local -a WORKED=()
+    local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
     MAXC=$(n1_queue_val maxConcurrent); [[ "$MAXC" =~ ^[1-9][0-9]*$ ]] || MAXC=3
     LIVE_OK=1; LIVE=$(n1_orca_liveness "$ORCA_RUN") || { LIVE=""; LIVE_OK=0; }
@@ -999,12 +1009,27 @@ run_orca() {
                 rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET"
                 ev unblocked ticket="$TICKET" session="$SID"
             fi
+            # N1-267: a worker waiting on the Claude usage limit is idle, not working: its tick goes to STALLED instead.
+            # Rows are checked one by one, so workers that all stall at once all pause. ponytail: the pause is capped at
+            # 2x subtaskTimeoutMinutes so a worker hung behind a stale notice still times out.
+            if [ "${STALLED[NUM]:-0}" -lt $((2 * TIMEOUT_SECS)) ] && n1_orca_usage_stalled "$TICKET"; then
+                STALLED[NUM]=$(( ${STALLED[NUM]:-0} + CHARGE ))
+                INFLIGHT=$((INFLIGHT + 1))
+                continue
+            fi
             WORKED[NUM]=$(( ${WORKED[NUM]:-0} + CHARGE ))
             if [ "${WORKED[NUM]}" -gt "$TIMEOUT_SECS" ]; then
                 # ponytail: an Orca worker is never stopped without proof of exit, so a timed-out row fails without a
                 # deferred retry (a relaunch could duplicate a live worker); the user stops the worker in Orca.
                 [ -n "$TASK" ] && OWED="$OWED$TASK "
-                finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "subtask-timeout" "" nodefer
+                # N1-267: a worker that already opened its PR (pr step still waiting on CI/review) is a pr, not a
+                # timeout. It stays owed: settle releases it and runs the chain once it reports done or exits.
+                OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
+                if [ -n "$OPEN_PR" ]; then
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
+                else
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "subtask-timeout" "" nodefer
+                fi
                 continue
             fi
             INFLIGHT=$((INFLIGHT + 1))
