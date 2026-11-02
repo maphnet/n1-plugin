@@ -202,7 +202,7 @@ finalize() {
     chain_child_escalated "$TICKET" "$N1H" && CHAIN_ESC="$TICKET"
     # Persist it too: a runner restart loses CHAIN_ESC and the question files are removed below.
     if [ -n "$CHAIN_ESC" ]; then : > "$N1_QUEUE_DIR/.escalated-$TICKET"; else rm -f "$N1_QUEUE_DIR/.escalated-$TICKET"; fi
-    rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM" "$N1_QUEUE_DIR/.ask-$TICKET"
+    rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM" "$N1_QUEUE_DIR/.ask-$TICKET" "$N1_QUEUE_DIR/.hb-$TICKET"
     # N1-225: an Orca row's identity is never removed here: a timed-out worker may still be running. orca_settle
     # removes it once the worker reported done or is proven exited.
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
@@ -897,7 +897,7 @@ orca_settle() {
 # settles a worker (release + sentinel removal + owed fullAuto chain); unverifiable workers are never relaunched,
 # stopped or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
+    local POLL MAXC BATCH EVS SIG TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
     local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" EMPTY=0 FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
     local -a WORKED=()
     POLL=$(n1_queue_val pollSeconds)
@@ -921,10 +921,12 @@ run_orca() {
         fi
         FAILS=0
         EVS=$(n1_orca_events "$BATCH")
-        # Time charged to this tick: a full wait for an empty batch, else the real time spent (an early return, or a
-        # replayed batch, must not count as a whole poll interval).
+        # Heartbeats are recorded, not activity: a heartbeat-only batch counts as an empty wait.
+        SIG=$(awk -F'\t' '$1 != "heartbeat"' <<< "$EVS")
+        # Time charged to this tick: a full wait only for a truly empty batch, else the real time spent (an early
+        # return, a heartbeat, or a replayed batch must not count as a whole poll interval).
         if [ -n "$EVS" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
-        if [ -n "$EVS" ]; then
+        if [ -n "$SIG" ]; then
             EMPTY=0
         else
             EMPTY=$((EMPTY + 1))
@@ -943,6 +945,7 @@ run_orca() {
                 worker_done) DONE="$DONE$TASK " ;;
                 question) _n1_orca_id "$MSG" && printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T" ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" ;;
+                heartbeat) date +%s > "$N1_QUEUE_DIR/.hb-$T" ;;   # last heartbeat (runner receive time); settles nothing
             esac
         done 3<<< "$EVS"
         n1_orca_ack "$ORCA_RUN" "$BATCH"
