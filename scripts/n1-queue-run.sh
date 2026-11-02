@@ -928,6 +928,7 @@ run_orca() {
         # (WSL powershell.exe drains it) must never consume the remaining rows or events.
         while IFS=$'\t' read -r -u 3 TYPE TASK MSG MDISP; do
             _n1_orca_id "$TASK" || continue
+            [ "$MSG" != "-" ] || MSG=""; [ "$MDISP" != "-" ] || MDISP=""   # "-" = empty field (see n1_orca_events)
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
             [ -n "$T" ] || continue
             # The message must name the dispatch the Runs row holds: a task id alone must not act on another's row.

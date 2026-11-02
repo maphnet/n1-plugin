@@ -970,6 +970,7 @@ test_orca_heartbeat() {   # AC3: a bound heartbeat is recorded per worker; heart
     hb=$(cat "$tmp/.hb-T-A" 2>/dev/null)
     assert_eq "orca-hb: last heartbeat epoch recorded" "yes" \
         "$([[ "$hb" =~ ^[0-9]+$ ]] && [ "$hb" -ge "$t0" ] && [ "$hb" -le "$(date +%s)" ] && echo yes || echo no)"
+    assert_eq "orca-hb: check requests heartbeat" "yes" "$(grep -q 'check --run run-1.*--types worker_done,escalation,question,heartbeat' "$tmp/fake/orca-calls" && echo yes || echo no)"
     assert_eq "orca-hb: heartbeat batch acked" "yes" "$(grep -q 'check --run run-1 --ack del-1' "$tmp/fake/orca-calls" && echo yes || echo no)"
     rm -rf "$tmp"; tmp=$(mktemp -d)
     # (b) Heartbeat-only ticks return early: they must still record .hb-<TICKET> and must charge real elapsed time, not a full poll
@@ -988,6 +989,14 @@ test_orca_heartbeat() {   # AC3: a bound heartbeat is recorded per worker; heart
     jq -cn '{id: "m-hb2", type: "heartbeat", payload: ({taskId: "task-T-A", dispatchId: "d-forged"} | tojson)}' > "$tmp/fake/heartbeat"
     timeout 8 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
     assert_eq "orca-hb-only: heartbeat for another dispatch not recorded" "no" "$([ -e "$tmp/.hb-T-A" ] && echo yes || echo no)"
+
+    # (c) A bound message with no message id is still processed (the empty id must not shift the dispatch column).
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    jq -cn '{type: "heartbeat", payload: ({taskId: "task-T-A", dispatchId: "d-T-A"} | tojson)}' > "$tmp/fake/heartbeat"
+    timeout 8 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-hb-noid: bound heartbeat without message id recorded" "yes" "$([[ "$(cat "$tmp/.hb-T-A" 2>/dev/null)" =~ ^[0-9]+$ ]] && echo yes || echo no)"
     rm -rf "$tmp"
 }
 

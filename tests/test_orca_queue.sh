@@ -104,10 +104,15 @@ J='{"ok":true,"result":{"deliveryId":"del-1","messages":[{"id":"m-1","type":"wor
 eq "events: task id and dispatch id from the payload string" "$(printf 'worker_done\ttask-1\tm-1\td-1\nquestion\ttask-2\tm-2\td-2')" "$(n1_orca_events "$J")"
 eq "events: top-level taskId/dispatchId fallback" "$(printf 'escalation\ttask-3\tm-3\td-3')" \
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-3","type":"escalation","taskId":"task-3","dispatchId":"d-3"}]}}')"
-eq "events: no dispatch id reads empty" "$(printf 'escalation\ttask-3\tm-3\t')" \
+eq "events: no dispatch id reads as placeholder" "$(printf 'escalation\ttask-3\tm-3\t-')" \
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-3","type":"escalation","taskId":"task-3"}]}}')"
-eq "events: malformed payload falls back, batch kept, taskless message dropped" "$(printf 'worker_done\ttask-4\tm-4\t\nworker_done\ttask-5\tm-5\t\nworker_done\ttask-7\tm-7\t')" \
+eq "events: malformed payload falls back, batch kept, taskless message dropped" "$(printf 'worker_done\ttask-4\tm-4\t-\nworker_done\ttask-5\tm-5\t-\nworker_done\ttask-7\tm-7\t-')" \
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-4","type":"worker_done","payload":"{not json","taskId":"task-4"},{"id":"m-5","type":"worker_done","payload":"{\"taskId\":\"task-5\"}"},{"id":"m-6","type":"worker_done","payload":"{\"taskId\":{\"a\":1}}"},{"id":"m-7","type":"worker_done","payload":"{\"taskId\":\"task-7\"}"}]}}')"
+eq "events: empty message id keeps the dispatch column" "$(printf 'escalation\ttask-8\t-\td-8')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"type":"escalation","payload":"{\"taskId\":\"task-8\",\"dispatchId\":\"d-8\"}"}]}}')"
+reset
+n1_orca_check run-1 5 >/dev/null
+has "check: requests heartbeat" "--types worker_done,escalation,question,heartbeat" "$(calls)"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
 eq "liveness: verdict + durable settled state" \
     "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t\nd-6\ttask-6\tlive\tdone\nd-7\ttask-7\tlive\tdone\nd-8\ttask-8\tlive\t\nd-9\ttask-9\texited\t\nd-10\ttask-10\tunverifiable\t')" \
