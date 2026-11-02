@@ -800,7 +800,8 @@ line_of() { grep -n -F -- "$2" "$1" | head -1 | cut -d: -f1; }
 # mk_orca <tmp> — fake Orca CLI <tmp>/bin/fake-orca on top of mk_bg's fakes; argv log in $FAKE_DIR/orca-calls.
 # worker-start copies the ticket's sentinel to $FAKE_DIR/sentinel.<t> and writes the child's overview at once
 # ($FAKE_DIR/overview.<t> if present, else step from $FAKE_DIR/step.<t>, default pr). check reports worker_done once per started task unless
-# $FAKE_DIR/nodone.<t> exists, plus $FAKE_DIR/question (one message JSON) once any task has started.
+# $FAKE_DIR/nodone.<t> exists, plus $FAKE_DIR/question (one message JSON) once any task has started, plus
+# $FAKE_DIR/heartbeat (one message JSON) on every check once any task has started.
 mk_orca() {
     : > "$1/fake/orca-calls"
     cat > "$1/bin/fake-orca" <<'ORCAEOF'
@@ -837,6 +838,7 @@ case "$1 $2" in
           m="$m${m:+,}{\"type\":\"worker_done\",\"taskId\":\"$task\",\"id\":\"m-$task\"}"
       done < <(cat "$D/started" 2>/dev/null)
       if [ -f "$D/question" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/question")"; rm -f "$D/question"; fi
+      if [ -f "$D/heartbeat" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/heartbeat")"; fi
       ok "{\"deliveryId\":\"del-1\",\"messages\":[$m]}" ;;
   "worktree list") [ -n "${FAKE_ORCA_WT_FAIL:-}" ] && err "boom"; ok "{\"worktrees\":[$(cat "$D/worktrees" 2>/dev/null)]}" ;;   # $D/worktrees: comma-separated {"path":...} objects
   "orchestration worker-list") [ -n "${FAKE_ORCA_WL_FAIL_AFTER:-}" ] && [ "$(grep -c 'worker-list' "$D/orca-calls")" -gt "$FAKE_ORCA_WL_FAIL_AFTER" ] && err "list down"
@@ -934,6 +936,34 @@ test_orca_question_parks() {
     assert_eq "orca-ask: message id kept for --answer" "m-q1" "$(cat "$tmp/.ask-T-A" 2>/dev/null)"
     assert_eq "orca-ask: needs-you points at --answer" "1" "$(grep -c 'T-A needs you.*--answer T-A' "$tmp/notes" || true)"
     assert_eq "orca-ask: never relaunched" "1" "$(grep -c worker-start "$tmp/fake/orca-calls")"
+    rm -rf "$tmp"
+}
+
+test_orca_heartbeat() {   # AC3: a heartbeat is recorded per worker; heartbeat-only batches are empty waits
+    local tmp t0 hb; tmp=$(mktemp -d)
+    # (a) A batch carrying a heartbeat records the runner's receive time in .hb-<TICKET> (row parked, so not finalized).
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    printf '{"type":"question","taskId":"task-T-A","id":"m-q1"},{"type":"heartbeat","taskId":"task-T-A","id":"m-hb1"}' > "$tmp/fake/question"
+    printf '{"ticket":"T-A","question":"Pick a DB?","options":["A","B"],"recommended":"A","rationale":"x"}' > "$tmp/.question-T-A.json"
+    t0=$(date +%s)
+    assert_eq "orca-hb: exit 0" "0" "$(run_orca_queue "$tmp")"
+    hb=$(cat "$tmp/.hb-T-A" 2>/dev/null)
+    assert_eq "orca-hb: last heartbeat epoch recorded" "yes" \
+        "$([[ "$hb" =~ ^[0-9]+$ ]] && [ "$hb" -ge "$t0" ] && [ "$hb" -le "$(date +%s)" ] && echo yes || echo no)"
+    assert_eq "orca-hb: heartbeat batch acked" "yes" "$(grep -q 'check --run run-1 --ack del-1' "$tmp/fake/orca-calls" && echo yes || echo no)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    # (b) Heartbeats on every tick must not reset the empty-wait counter or charge zero time: the liveness re-read
+    # still fires after three empty waits, and the worker still times out (subtaskTimeoutMinutes=1, pollSeconds=30).
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    printf '{"type":"heartbeat","taskId":"task-T-A","id":"m-hb1"}' > "$tmp/fake/heartbeat"
+    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-hb-only: liveness re-read despite heartbeats" "yes" \
+        "$([ "$(grep -c 'orchestration worker-list' "$tmp/fake/orca-calls")" -ge 2 ] && echo yes || echo no)"
+    assert_eq "orca-hb-only: heartbeats do not stop the working timeout" "failed|subtask-timeout" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "orca-hb-only: finalize clears the heartbeat marker" "no" "$([ -e "$tmp/.hb-T-A" ] && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
@@ -3424,6 +3454,7 @@ test_orca_parallel_workers
 test_orca_max_concurrent
 test_orca_held_blocker
 test_orca_question_parks
+test_orca_heartbeat
 test_orca_resume_no_duplicate
 test_orca_resume_owed
 test_orca_launch_failure_identity

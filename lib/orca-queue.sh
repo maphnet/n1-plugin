@@ -66,7 +66,7 @@ n1_orca_check() {
     # Usage: n1_orca_check <run> <wait-seconds> — one coordinator inbox batch; blocks up to wait-seconds
     # (an empty batch is a checkpoint, not a failure).
     N1_ORCA_TIMEOUT=$(( $2 + 30 )) n1_orca orchestration check --run "$1" --wait \
-        --types worker_done,escalation,question --timeout-ms $(( $2 * 1000 ))
+        --types worker_done,escalation,question,heartbeat --timeout-ms $(( $2 * 1000 ))
 }
 
 n1_orca_events() {
