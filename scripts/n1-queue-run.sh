@@ -891,14 +891,14 @@ orca_settle() {
 }
 
 # run_orca — Orca workers, up to queue.maxConcurrent at once (run_bg stays sequential). Each tick waits on the Run
-# inbox (check --wait: worker_done, escalation, question), then reconciles every live row from overview.md, the
-# ground truth, so a lost or lying worker_done is corrected. An empty wait is a checkpoint; once at start (resume)
-# and after every third empty wait in a row, worker liveness is re-read. Only worker_done or positive proof of exit
-# settles a worker (release + sentinel removal + owed fullAuto chain); unverifiable workers are never relaunched,
-# stopped or released. Held/parked/end-of-queue handling mirrors run_bg.
+# inbox (check --wait: worker_done, escalation, question), re-reads the worker list (worker-list), then reconciles
+# every live row from overview.md, the ground truth, so a lost or lying worker_done is corrected. worker_done (the
+# fast path), a durable terminal worker state (n1_orca_liveness field 4) or positive proof of exit settles a worker
+# (release + sentinel removal + owed fullAuto chain); running or unverifiable workers are never relaunched, stopped
+# or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local POLL MAXC BATCH EVS SIG TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
-    local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" EMPTY=0 FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
+    local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
+    local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
     local -a WORKED=()
     POLL=$(n1_queue_val pollSeconds)
     MAXC=$(n1_queue_val maxConcurrent); [[ "$MAXC" =~ ^[1-9][0-9]*$ ]] || MAXC=3
@@ -921,17 +921,9 @@ run_orca() {
         fi
         FAILS=0
         EVS=$(n1_orca_events "$BATCH")
-        # Heartbeats are recorded, not activity: a heartbeat-only batch counts as an empty wait.
-        SIG=$(awk -F'\t' '$1 != "heartbeat"' <<< "$EVS")
         # Time charged to this tick: a full wait only for a truly empty batch, else the real time spent (an early
         # return, a heartbeat, or a replayed batch must not count as a whole poll interval).
         if [ -n "$EVS" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
-        if [ -n "$SIG" ]; then
-            EMPTY=0
-        else
-            EMPTY=$((EMPTY + 1))
-            if [ "$EMPTY" -ge 3 ]; then EMPTY=0; if L=$(n1_orca_liveness "$ORCA_RUN"); then LIVE="$L"; LIVE_OK=1; else LIVE_OK=0; fi; fi
-        fi
         # N1-265: loops that can reach n1_notify read fd 3; a notifier backend that reads fd 0
         # (WSL powershell.exe drains it) must never consume the remaining rows or events.
         while IFS=$'\t' read -r -u 3 TYPE TASK MSG; do
@@ -949,6 +941,9 @@ run_orca() {
             esac
         done 3<<< "$EVS"
         n1_orca_ack "$ORCA_RUN" "$BATCH"
+        # N1-281: durable worker state every tick (the inbox is only the fast path). A failed read keeps the last
+        # list and disables the absence rule below (LIVE_OK=0).
+        if L=$(n1_orca_liveness "$ORCA_RUN"); then LIVE="$L"; LIVE_OK=1; else LIVE_OK=0; fi
 
         INFLIGHT=0
         while IFS=$'\t' read -r -u 3 NUM TICKET REPO N1H MODEL STATUS; do
@@ -976,7 +971,7 @@ run_orca() {
                 continue
             fi
             if [ -n "$TASK" ] && { [[ "$DONE" == *" $TASK "* ]] \
-                || [ "$(awk -F'\t' -v d="$DISP" '$1 == d { print $3; exit }' <<< "$LIVE")" = exited ]; }; then
+                || awk -F'\t' -v d="$DISP" '$1 == d && ($3 == "exited" || $4 == "done") { f = 1 } END { exit !f }' <<< "$LIVE"; }; then
                 # The worker stopped without a terminal overview step (N1-182: it may still have opened a PR).
                 OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
                 if [ -n "$OPEN_PR" ]; then
@@ -1012,9 +1007,10 @@ run_orca() {
             INFLIGHT=$((INFLIGHT + 1))
         done 3< <(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')
 
-        # Settle: a final row's worker that reported done or is proven exited is released and loses its sentinel;
-        # a pr row then runs the fullAuto chain (n1-finish stays a bg session, it is not a ticket worker).
-        for TASK in $DONE $(awk -F'\t' '$3 == "exited" { print $2 }' <<< "$LIVE"); do orca_settle "$TASK"; done
+        # Settle: a final row's worker that reported done, is durably finished (worker-list) or is proven exited is
+        # released and loses its sentinel; a pr row then runs the fullAuto chain (n1-finish stays a bg session, it is
+        # not a ticket worker). Re-settling after a restart is guarded by SETTLED, idempotent release and .chained-<ticket>.
+        for TASK in $DONE $(awk -F'\t' '$3 == "exited" || $4 == "done" { print $2 }' <<< "$LIVE"); do orca_settle "$TASK"; done
 
         # Unsettled workers (finished or timed-out rows whose worker is not proven exited) still hold a slot.
         OWEDN=$(wc -w <<< "$OWED")
