@@ -142,7 +142,7 @@ ovl 2 "$AUTO_CAP" "$AUTO_EXTRA"
 eq "X1 N1-241 state (cycle 2, cap 1): gate reads exhausted" "exhausted" "$(n1_review_fix_gate "$OV")"
 eq "X2 N1-241 state: [auto]/[auto-decided] rows never authorize the extra cycle -> breach" "breach" "$(n1_review_fix_audit "$OV")"
 cfg '{}'
-eq "H1 auto-accept Exhausted branch excludes open SEC findings" "1" "$(grep -cE '^\*\*Exhausted\*\*.*`QE=auto-accept` and no open `\[SEC-N\]`' "$F")"
+eq "H1 auto-accept Exhausted branch excludes open SEC findings" "1" "$(grep -cE '^\*\*Exhausted\*\*.*`QE=auto-accept` and no open in-diff non-Low `\[SEC-N\]`' "$F")"
 eq "H2 open SEC routes to the ask under any QE, never an [auto] row" "1" "$(grep -cE '^\*\*Exhausted\*\*.*security-class finding needs this ask under any `QE`; never an `\[auto\]` row' "$F")"
 eq "H3a no (Recommended) on option 2 for SEC" "0" "$(grep -c 'Mark (Recommended) on 2' "$F")"
 eq "H3b N1-259 wins: no SEC no-recommendation override, option 1 always recommended" "0" "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$F")"

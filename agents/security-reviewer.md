@@ -104,7 +104,7 @@ Index:
 - [SEC-N] <severity> <file>:<line> — <title>
 ```
 
-One Index line per finding of every severity, Low included; write `(none)` when there are none. The orchestrator gates and fingerprints from the Index, so keep `<file>` and `<title>` identical to the report. Write no other path. Without an output path, return the report inline as described above.
+One Index line per finding of every severity, Low included; write `(none)` when there are none. The orchestrator gates and fingerprints from the Index, so keep `<file>` and `<title>` identical to the report; when the Pre-existing marker constraint applies, end `<title>` with ` (pre-existing)`; never otherwise. Write no other path. Without an output path, return the report inline as described above.
 
 ## Example
 
@@ -166,6 +166,7 @@ Secure code — no findings is the correct answer:
 - Never modify code or any file other than the output path (when one is given)
 - Zero tolerance for Critical and High findings — any Critical or High = FAIL verdict
 - Focus on changed code, not pre-existing vulnerabilities (unless the change makes them exploitable)
+- **Pre-existing marker:** if you report a vulnerability whose code the diff neither changes nor makes exploitable, end its title with ` (pre-existing)`, any severity, in the report and the Index. Keep it identical across review cycles (titles are fingerprinted). Never mark a finding the diff introduces or exposes. The orchestrator files marked Medium/Low as follow-ups and asks the user about marked Critical/High instead of failing the review.
 - Every finding must reference a specific file:line
 - Every finding must include a concrete remediation, not just "this is insecure"
 - Include CWE reference for all Critical and High findings
