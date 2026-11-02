@@ -1063,9 +1063,11 @@ n1_queue_status_table() {
                 fi
                 [ "$state" = awaiting-human ] && [ -n "$sid" ] && attach=$(n1_bg_cmd attach "$sid")
                 ;;
-            pr|failed|deferred|escalated)
+            pr|failed|deferred|escalated|stopped)
                 local dur; dur=$(_n1_queue_event_duration "$events" "$ticket")
                 [ -n "$dur" ] && elapsed=$(n1_fmt_elapsed "$dur")
+                # N1-268: the Runs Outcome is the only place a merge is recorded (Plan status stays pr).
+                case "$status" in pr|failed|stopped) [ "$(_n1_queue_run_outcome "$file" "$ticket")" = merged ] && state=merged ;; esac
                 if [ "$status" = pr ]; then
                     pr=$(n1_queue_child_pr_url "$n1h/memory/$ticket/overview.md")
                     [ -n "$pr" ] || pr=$(_n1_queue_run_pr "$file" "$ticket")
@@ -1108,6 +1110,56 @@ _n1_queue_run_pr() {
             if (t == tk) { p = $6; gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); pr = p }
         }
         END { print pr }' "$1"
+}
+
+_n1_queue_run_outcome() {
+    # Usage: _n1_queue_run_outcome <queue.md> <ticket> — Outcome cell of the ticket's last Runs row (N1-268).
+    awk -F'|' -v tk="$2" '/^## Runs/ { r = 1; next } /^## / { r = 0 }
+        r && index($0, "| " tk " |") == 1 { o = $5 }
+        END { gsub(/^[[:space:]]+|[[:space:]]+$/, "", o); print o }' "$1"
+}
+
+n1_queue_runs_outcome() {
+    # Usage: n1_queue_runs_outcome <queue.md> <ticket> <outcome> [pr-url] — N1-268: set the Outcome (and, when given,
+    # the PR) cell of the ticket's last Runs row. The one writer for merged/stopped (runner chain, settle, --stop,
+    # --status reconcile). Callers pass a PR URL only after n1_queue_pr_state answered MERGED (shape-checked).
+    # Non-zero (file untouched) when the ticket has no Runs row: reconcile must not record a merge it could not store.
+    local tmp; tmp=$(mktemp "$1.XXXXXX") || return 1
+    awk -v tk="$2" -v oc="$3" -v pr="${4:-}" '
+    { lines[NR] = $0; n = NR }
+    /^## Runs/ { rs = NR }
+    END {
+        for (i = n; rs && i > rs; i--) if (index(lines[i], "| " tk " |") > 0) {
+            split(lines[i], c, "|"); c[5] = " " oc " "; if (pr != "") c[6] = " " pr " "; out = ""
+            for (j = 1; j <= 7; j++) out = out c[j] "|"
+            lines[i] = out; hit = 1; break
+        }
+        for (i = 1; i <= n; i++) print lines[i]
+        exit hit ? 0 : 1
+    }' "$1" > "$tmp" && mv "$tmp" "$1" || { rm -f "$tmp"; return 1; }
+}
+
+n1_queue_reconcile() {
+    # Usage: n1_queue_reconcile <queue.md> — N1-268, --status: with no live runner (a live one records merges itself
+    # on settle), a pr/failed/stopped row whose PR merged since gets Runs Outcome merged, Plan status pr and one
+    # ticket_finished outcome=merged event. PR URL: overview.md pr_url only when finalize stamped it for this queue run
+    # (queue_run_id == the queue's run_id: ticket memory outlives runs, so an older run's merged PR must not count),
+    # else the Runs PR cell (overview.md final_outcome never says merged). Never merges, chains or releases tags; an
+    # unreadable PR state, or a ticket without a Runs row, leaves the row.
+    local q="$1" evf qid rid num ticket repo n1h model status url
+    n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q" && return 0
+    evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
+    while IFS=$'\t' read -r -u 3 num ticket repo n1h model status; do
+        [ "$(_n1_queue_run_outcome "$q" "$ticket")" = merged ] && continue
+        url=""; [ -n "$rid" ] && [ "$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" queue_run_id 2>/dev/null)" = "$rid" ] \
+            && url=$(n1_queue_child_pr_url "$n1h/memory/$ticket/overview.md")
+        [ -n "$url" ] || url=$(_n1_queue_run_pr "$q" "$ticket")
+        [ "$(n1_queue_pr_state "$url")" = MERGED ] || continue
+        n1_queue_runs_outcome "$q" "$ticket" merged "$url" || continue
+        [ "$status" = pr ] || n1_queue_row_status "$q" "$num" pr
+        n1_queue_event "$evf" "$qid" "$rid" ticket_finished ticket="$ticket" outcome=merged pr="$url"
+        printf 'reconciled: %s merged\n' "$ticket"
+    done 3< <(n1_queue_pending_rows "$q" 'pr|failed|stopped')
 }
 
 _n1_queue_event_duration() {

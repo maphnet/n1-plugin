@@ -449,18 +449,7 @@ chain_note() {
 # chain_merged <num> <ticket> <repo> <n1-home> <pr-url> — Runs Outcome merged + event, then fast-forward
 # the local default branch so the next child branches from the merge (Plan Status stays pr).
 chain_merged() {
-    local tmp; tmp=$(mktemp "${QUEUE}.XXXXXX")
-    awk -v tk="$2" '
-    { lines[NR] = $0; n = NR }
-    /^## Runs/ { rs = NR }
-    END {
-        for (i = n; rs && i > rs; i--) if (index(lines[i], "| " tk " |") > 0) {
-            split(lines[i], c, "|"); c[5] = " merged "; out = ""
-            for (j = 1; j <= 7; j++) out = out c[j] "|"
-            lines[i] = out; break
-        }
-        for (i = 1; i <= n; i++) print lines[i]
-    }' "$QUEUE" > "$tmp" && mv "$tmp" "$QUEUE" || rm -f "$tmp"
+    n1_queue_runs_outcome "$QUEUE" "$2" merged
     ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")"
     echo "[$1] $2 -> merged $5"
     chain_sync "$1" "$2" "$3" "$4"
