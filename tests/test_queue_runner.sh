@@ -838,7 +838,7 @@ case "$1 $2" in
           m="$m${m:+,}{\"type\":\"worker_done\",\"taskId\":\"$task\",\"id\":\"m-$task\"}"
       done < <(cat "$D/started" 2>/dev/null)
       if [ -f "$D/question" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/question")"; rm -f "$D/question"; fi
-      if [ -f "$D/heartbeat" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/heartbeat")"; fi
+      if [ -f "$D/heartbeat" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/heartbeat")"; sleep 0.2; fi
       ok "{\"deliveryId\":\"del-1\",\"messages\":[$m]}" ;;
   "worktree list") [ -n "${FAKE_ORCA_WT_FAIL:-}" ] && err "boom"; ok "{\"worktrees\":[$(cat "$D/worktrees" 2>/dev/null)]}" ;;   # $D/worktrees: comma-separated {"path":...} objects
   "orchestration worker-list") [ -n "${FAKE_ORCA_WL_FAIL_AFTER:-}" ] && [ "$(grep -c 'worker-list' "$D/orca-calls")" -gt "$FAKE_ORCA_WL_FAIL_AFTER" ] && err "list down"
@@ -953,17 +953,17 @@ test_orca_heartbeat() {   # AC3: a heartbeat is recorded per worker; heartbeat-o
         "$([[ "$hb" =~ ^[0-9]+$ ]] && [ "$hb" -ge "$t0" ] && [ "$hb" -le "$(date +%s)" ] && echo yes || echo no)"
     assert_eq "orca-hb: heartbeat batch acked" "yes" "$(grep -q 'check --run run-1 --ack del-1' "$tmp/fake/orca-calls" && echo yes || echo no)"
     rm -rf "$tmp"; tmp=$(mktemp -d)
-    # (b) Heartbeats on every tick must not reset the empty-wait counter or charge zero time: the liveness re-read
-    # still fires after three empty waits, and the worker still times out (subtaskTimeoutMinutes=1, pollSeconds=30).
+    # (b) Heartbeats on every tick must not reset the empty-wait counter (liveness re-read still fires after three
+    # heartbeat-only waits) and must charge real elapsed time, not a full poll: heartbeat-only ticks return early, so
+    # the worker must not hit the working timeout (subtaskTimeoutMinutes=1, pollSeconds=30) within seconds.
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
     echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
     printf '{"type":"heartbeat","taskId":"task-T-A","id":"m-hb1"}' > "$tmp/fake/heartbeat"
-    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    timeout 8 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
     assert_eq "orca-hb-only: liveness re-read despite heartbeats" "yes" \
         "$([ "$(grep -c 'orchestration worker-list' "$tmp/fake/orca-calls")" -ge 2 ] && echo yes || echo no)"
-    assert_eq "orca-hb-only: heartbeats do not stop the working timeout" "failed|subtask-timeout" \
-        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
-    assert_eq "orca-hb-only: finalize clears the heartbeat marker" "no" "$([ -e "$tmp/.hb-T-A" ] && echo yes || echo no)"
+    assert_eq "orca-hb-only: early heartbeat returns do not charge a full poll (no early timeout)" "no" \
+        "$([ "$(plan_cell "$tmp/queue.md" 1 9)" = subtask-timeout ] && echo yes || echo no)"
     rm -rf "$tmp"
 }
 

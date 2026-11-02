@@ -922,12 +922,10 @@ run_orca() {
         FAILS=0
         EVS=$(n1_orca_events "$BATCH")
         # Heartbeats are recorded, not activity: a heartbeat-only batch counts as an empty wait.
-        # ponytail: a heartbeat returns the wait early, so charging a full POLL over-counts (a timeout fires early,
-        # never late); charge real elapsed time if that ever matters.
         SIG=$(awk -F'\t' '$1 != "heartbeat"' <<< "$EVS")
-        # Time charged to this tick: a full wait for an empty batch, else the real time spent (an early return, or a
-        # replayed batch, must not count as a whole poll interval).
-        if [ -n "$SIG" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
+        # Time charged to this tick: a full wait only for a truly empty batch, else the real time spent (an early
+        # return, a heartbeat, or a replayed batch must not count as a whole poll interval).
+        if [ -n "$EVS" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
         if [ -n "$SIG" ]; then
             EMPTY=0
         else
