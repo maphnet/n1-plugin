@@ -47,7 +47,7 @@ else
 fi
 ```
 - No matching config -> ask the user: **Enter path**, **Skip** (Status `skip`, reason "no repo"), **Cancel**. `--unattended`: Skip without asking.
-- Matched config but empty `REPO` -> ask for path, validate, backfill.
+- Matched config but empty `REPO` -> ask for path, validate, backfill. `--unattended`: Skip (Status `skip`, reason "no repo") without asking.
 
 ## Story check (tag mode only)
 

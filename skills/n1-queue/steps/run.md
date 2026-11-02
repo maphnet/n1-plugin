@@ -24,7 +24,7 @@ else echo ENTRY=plan; fi
 - `POLICY=off`: print "Unattended runs are off: set `queue.unattendedAutoStart` to true in config.json, or remove the schedule with `/n1:n1-queue --schedule remove`." **STOP.**
 - `CLAIM=held`: print "Queue <QUEUE_ID> was claimed by another trigger in the last 15 minutes." **STOP.**
 - `ENTRY=resume`: print "Resuming interrupted run of `<QUEUE_ID>`." and go to § Launch with `RESUME=1`.
-- `ENTRY=plan`: continue at SKILL.md step 3 as a bare run. Every user prompt on that path takes its `--unattended` answer (marked in intake.md and preview.md); a saved plan is replaced by the fresh one. Escalation, release and headless gates are unchanged.
+- `ENTRY=plan`: continue at SKILL.md step 3 as a bare run. Every user prompt on that path takes its `--unattended` answer (marked in intake.md and preview.md); an unattended run always plans fresh and ignores a saved interactive plan (its Edit removals, model overrides and pre-decisions). Escalation, release and headless gates are unchanged.
 
 ## Saved plan (`--run <queue-id>` only)
 

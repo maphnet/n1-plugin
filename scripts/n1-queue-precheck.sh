@@ -44,9 +44,9 @@ fi
 out=$(
     set -a; . "$env_file" >/dev/null 2>&1; set +a
     [ -n "${ATLASSIAN_URL:-}" ] && [ -n "${ATLASSIAN_EMAIL:-}" ] && [ -n "${ATLASSIAN_TOKEN:-}" ] || exit 2
-    # Basic auth goes in through curl's stdin config, never argv (argv is readable by other processes).
+    # Basic auth goes in through curl's stdin config, never argv (argv is readable by other processes); --proto keeps them off plain HTTP.
     printf 'header = "Authorization: Basic %s"\n' "$(printf '%s:%s' "$ATLASSIAN_EMAIL" "$ATLASSIAN_TOKEN" | base64 | tr -d '\n')" \
-    | curl -sSf --max-time 10 -K - -G "${ATLASSIAN_URL%/}/rest/api/3/search/jql" \
+    | curl -sSf --proto =https --proto-redir =https --max-time 10 -K - -G "${ATLASSIAN_URL%/}/rest/api/3/search/jql" \
         --data-urlencode "jql=project = \"$key\" AND labels = \"$tag\" AND status = \"$todo\"" \
         --data-urlencode maxResults=1 --data-urlencode fields=key 2>/dev/null
 ) || { say "tracker check failed; start"; exit 0; }
