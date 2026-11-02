@@ -4,7 +4,7 @@ Hands-off runs file the follow-up tickets the pipeline would otherwise offer (N1
 
 ## § Append
 
-Producers: review fix (`review`), QA fix (`qa`), n1-pr Codex step (`codex`), FINALIZE MEMORY (`finalize`). Only when `qualityEscalations=auto-accept`. Keep the usual report text; the line is added on top of it.
+Producers: review step and review fix (`review`; the step appends ` (pre-existing)` `[SEC-N]` findings), QA fix (`qa`), n1-pr Codex step (`codex`), FINALIZE MEMORY (`finalize`). Only when `qualityEscalations=auto-accept`. Keep the usual report text; the line is added on top of it.
 
 Add one line per candidate at the end of the `## Follow-ups` section, before the next `^## ` heading or EOF (create the heading at EOF if absent); other steps append to overview.md with `>>`, so never assume the section is last. Use the file-write mechanism, never through a shell command: titles and reasons are model or reviewer text. Line format: `- <title, ≤80 chars> | <one-line reason, with the finding ID if any> | <source>`
 
