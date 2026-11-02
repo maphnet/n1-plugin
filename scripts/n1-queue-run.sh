@@ -66,6 +66,9 @@ TIMEOUT_SECS=$(( $(n1_queue_val subtaskTimeoutMinutes) * 60 ))
 # consecutive missing-from-list polls for one session (fails that row).
 BG_POLL_GRACE=10
 CONSECUTIVE_FAIL=0
+# N1-267: last counted strike (reason, epoch). Orca only: a failure with the same reason within STRIKE_WINDOW seconds
+# shares one cause (a usage-limit wait, an outage) and adds no strike.
+STRIKE_REASON="" STRIKE_AT=0 STRIKE_WINDOW=300
 QUEUE_ID=$(n1_read_frontmatter "$QUEUE" queue_id)
 QUEUE_ID="${QUEUE_ID:-queue}"
 # Tag mode: QUEUE_ID is the tag; children release it on handoff (NP-199).
@@ -275,10 +278,17 @@ finalize() {
         session="$(n1_queue_session_id "$QUEUE" "$TICKET")" duration_s="$DUR" reason="$REASON"
     [ "$EV_OUTCOME" = "failed" ] && n1_notify info "$TICKET failed${REASON:+ ($REASON)}"
 
-    # Three-strikes counter
+    # Three-strikes counter. N1-267: under Orca concurrency, a failure with the same reason as the last counted strike
+    # within STRIKE_WINDOW adds no strike, so one cause failing several rows neither halts nor stops the tick's other rows.
     case "$OUTCOME" in
-        failed|escalated) CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)) ;;
-        pr|awaiting-human) CONSECUTIVE_FAIL=0 ;;
+        failed|escalated)
+            if [ -n "${ORCA_RUN:-}" ] && [ "$OUTCOME" = failed ] && [ "$REASON" = "$STRIKE_REASON" ] \
+                && [ $(( $(date +%s) - STRIKE_AT )) -lt "$STRIKE_WINDOW" ]; then
+                echo "[$NUM] $TICKET: same reason as the last strike ($REASON), not counted"
+            else
+                CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)); STRIKE_REASON="$REASON"; STRIKE_AT=$(date +%s)
+            fi ;;
+        pr|awaiting-human) CONSECUTIVE_FAIL=0; STRIKE_REASON="" ;;
     esac
     if [ "$CONSECUTIVE_FAIL" -ge 3 ]; then
         halt "HALTED after 3 consecutive non-success"

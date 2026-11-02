@@ -1123,6 +1123,35 @@ test_orca_usage_stall() {
     rm -rf "$tmp"
 }
 
+# N1-267 AC3. Bug caught: three Orca rows timing out together on one cause (a shared usage-limit wait) count as three
+# strikes and halt the queue mid-tick (run 20261101T131600Z), so the pending row T-D never runs.
+test_orca_same_reason_one_strike() {
+    local tmp t; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 3'
+    for t in T-A T-B T-C; do echo implement > "$tmp/fake/step.$t"; : > "$tmp/fake/nodone.$t"; done
+    assert_eq "orca-strike-dedupe: not halted (exit 0)" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-strike-dedupe: all three timed out" "failed|subtask-timeout failed|subtask-timeout failed|subtask-timeout" \
+        "$(for n in 1 2 3; do printf '%s|%s ' "$(plan_cell "$tmp/queue.md" "$n" 8)" "$(plan_cell "$tmp/queue.md" "$n" 9)"; done | sed 's/ $//')"
+    assert_eq "orca-strike-dedupe: remaining row still processed" "pr" "$(plan_cell "$tmp/queue.md" 4 8)"
+    assert_eq "orca-strike-dedupe: no halted step" "no" "$([ "$(n1_read_frontmatter "$tmp/queue.md" step)" = halted ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-267 regression guard. Bug caught: the dedupe swallowing distinct reasons, so three unrelated consecutive Orca
+# failures (launch clash, incomplete exit, timeout) no longer halt the queue.
+test_orca_mixed_reasons_halt() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 3'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"   # -> subtask-timeout
+    echo implement > "$tmp/fake/step.T-B"                               # done without PR -> child-exited-incomplete
+    printf '{"path":"/orca/wt/T-C"}' > "$tmp/fake/worktrees"            # -> orca-worktree-name-taken at launch
+    assert_eq "orca-strike-mixed: halts (exit 2)" "2" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-strike-mixed: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    rm -rf "$tmp"
+}
+
 test_orca_launch_failure_identity() {   # an ambiguous launch failure never strips a possibly live worker's identity
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
@@ -1150,11 +1179,11 @@ test_orca_owed_holds_slot() {   # an unsettled finished worker still counts towa
 test_orca_notifier_drain_keeps_rows() {   # N1-265: a stdin-draining notifier must not hide in-flight rows from the slot count
     local tmp t; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done" "T-E:done"; mk_orca "$tmp"
-    cfg_set "$tmp" '.queue.maxConcurrent = 3'; drain_notifier "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 3 | .queue.subtaskTimeoutMinutes = 600'; drain_notifier "$tmp"   # N1-267: no timeouts, so rows stay in flight; the 20 s bound ends the run
     for t in T-A T-B T-C T-D; do echo implement > "$tmp/fake/step.$t"; done
     : > "$tmp/fake/nodone.T-B"; : > "$tmp/fake/nodone.T-C"; : > "$tmp/fake/nodone.T-D"
     # Tick 2: T-A's worker reports done without a terminal step -> failed (notifies) while T-B and T-C are in flight.
-    # T-B/T-C/T-D never finish; the run ends on three strikes or the bound.
+    # T-B/T-C/T-D never finish; the run ends on the bound.
     timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
     assert_eq "orca-drain: notifier fired" "yes" "$([ -s "$tmp/fake/drained" ] && echo yes || echo no)"
     assert_eq "orca-drain: T-A failed" "failed|child-exited-incomplete" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
@@ -3621,6 +3650,8 @@ test_orca_heartbeat
 test_orca_resume_no_duplicate
 test_orca_timeout_open_pr
 test_orca_usage_stall
+test_orca_same_reason_one_strike
+test_orca_mixed_reasons_halt
 test_orca_resume_owed
 test_orca_launch_failure_identity
 test_orca_owed_holds_slot
