@@ -85,12 +85,15 @@ n1_orca_ack() {
 
 n1_orca_liveness() {
     # Usage: n1_orca_liveness <run> — "<dispatch>\t<task>\t<live|unverifiable|exited>" per worker; non-zero when
-    # the list is unreadable. A missing liveness reads unverifiable: only positive proof of exit settles a worker.
+    # the list is unreadable. Orca reports liveness as {"verdict":..,"reason":..} (a bare string is still accepted);
+    # a missing or non-string verdict reads unverifiable: only positive proof of exit settles a worker.
     local out; out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration worker-list --run "$1") || return 1
     # Only an ok receipt with an array-shaped worker collection is a readable list; anything else is non-zero.
     jq -r '(.result.workers // .result.dispatches // .result.items) as $w
         | if .ok == true and ($w | type) == "array" then $w[]
-            | [(.dispatchId // .dispatch.id // .id // ""), (.taskId // .task.id // ""), (.projection.liveness // "unverifiable")] | @tsv
+            | [(.dispatchId // .dispatch.id // .id // ""), (.taskId // .task.id // ""),
+               (.projection.liveness | if type == "object" then .verdict else . end
+                    | if type == "string" then . else "unverifiable" end)] | @tsv
           else error("unreadable worker list") end' <<<"$out" 2>/dev/null
 }
 
