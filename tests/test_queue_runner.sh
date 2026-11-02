@@ -439,6 +439,20 @@ test_desktop_notify() {
     assert_eq "desktop: WSL powershell off PATH used" "0|Title|Body" "$rc|$(cat "$tmp/ps" 2>/dev/null)"
 }
 
+test_desktop_notify_stdin() {   # N1-265: no desktop backend may consume the caller's stdin (WSL powershell.exe drains it)
+    local tmp b out; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mkdir -p "$tmp/bin"; ln -s "$(command -v timeout)" "$tmp/bin/timeout"
+    printf '#!/bin/sh\nwhile read -r _; do :; done\nexit 0\n' > "$tmp/drain"; chmod +x "$tmp/drain"
+    for b in notify-send osascript; do
+        rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"; cp "$tmp/drain" "$tmp/bin/$b"
+        out=$(printf 'a\nb\nc\n' | { read -r _; ( PATH="$tmp/bin"; n1_desktop_notify T B ); cat; } | paste -sd, -)
+        assert_eq "desktop-stdin: $b leaves caller stdin alone" "b,c" "$out"
+    done
+    rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
+    out=$(printf 'a\nb\nc\n' | { read -r _; ( PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/drain" n1_desktop_notify T B ); cat; } | paste -sd, -)
+    assert_eq "desktop-stdin: powershell leaves caller stdin alone" "b,c" "$out"
+}
+
 test_notify_backends() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     local TEST_CONFIG="$tmp/config.json"
@@ -843,6 +857,14 @@ run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CL
 
 cfg_set() { jq "$2" "$1/n1home/config.json" > "$1/cfg.tmp" && mv "$1/cfg.tmp" "$1/n1home/config.json"; } # <tmp> <jq-filter>
 
+# drain_notifier <tmp> — N1-265: desktop notify through a notify-send that swallows its stdin (what WSL
+# powershell.exe does); each call appends to $FAKE_DIR/drained so a test can prove the notifier fired.
+drain_notifier() {
+    printf '#!/bin/sh\nwhile read -r _; do :; done\necho x >> "%s/fake/drained"\nexit 0\n' "$1" > "$1/bin/notify-send"
+    chmod +x "$1/bin/notify-send"
+    cfg_set "$1" '.queue.notify = "desktop"'
+}
+
 test_orca_parallel_workers() {   # AC1
     local tmp rid last_start first_rel; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done"; mk_orca "$tmp"
@@ -975,6 +997,68 @@ test_orca_owed_holds_slot() {   # an unsettled finished worker still counts towa
     timeout 20 bash -c "$(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
     assert_eq "orca-owed-slot: T-B does not start while T-A's worker is unsettled" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
     rm -rf "$tmp"
+}
+
+test_orca_notifier_drain_keeps_rows() {   # N1-265: a stdin-draining notifier must not hide in-flight rows from the slot count
+    local tmp t; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done" "T-E:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 3'; drain_notifier "$tmp"
+    for t in T-A T-B T-C T-D; do echo implement > "$tmp/fake/step.$t"; done
+    : > "$tmp/fake/nodone.T-B"; : > "$tmp/fake/nodone.T-C"; : > "$tmp/fake/nodone.T-D"
+    # Tick 2: T-A's worker reports done without a terminal step -> failed (notifies) while T-B and T-C are in flight.
+    # T-B/T-C/T-D never finish; the run ends on three strikes or the bound.
+    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-drain: notifier fired" "yes" "$([ -s "$tmp/fake/drained" ] && echo yes || echo no)"
+    assert_eq "orca-drain: T-A failed" "failed|child-exited-incomplete" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "orca-drain: freed slot refilled once" "1" "$(grep -c -- "--task task-T-D" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-drain: never past maxConcurrent (T-E not started)" "0" "$(grep -c -- "--task task-T-E" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_event_drain_keeps_events() {   # N1-265: an escalation's notifier must not swallow the rest of the event batch
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; drain_notifier "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; echo implement > "$tmp/fake/step.T-B"
+    : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
+    # One batch (emitted once both workers started): T-A escalates (notifies), then T-B's worker reports done.
+    printf '{"type":"escalation","taskId":"task-T-A","id":"m-e1"},{"type":"worker_done","taskId":"task-T-B","id":"m-d1"}' > "$tmp/fake/question"
+    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-event-drain: notifier fired" "yes" "$([ -s "$tmp/fake/drained" ] && echo yes || echo no)"
+    # A lost worker_done leaves T-B to time out instead (subtask-timeout).
+    assert_eq "orca-event-drain: worker_done after the escalation still processed" "failed|child-exited-incomplete" \
+        "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
+    rm -rf "$tmp"
+}
+
+test_bg_notifier_drain_keeps_rows() {   # N1-265: a failed row's stdin-draining notifier must not hide a working row
+    local tmp b_done c_launch; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:failed" "T-B:working done" "T-C:done"; drain_notifier "$tmp"
+    # Resume state: T-A (already a deferred retry, so its failure notifies instead of deferring) and T-B in flight.
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress deferred-retry
+    n1_queue_row_status "$tmp/queue.md" 2 in-progress
+    printf '/n1:n1-start T-A\n' > "$tmp/fake/prompt.n1-bgq-T-A-1"; echo 00000001 > "$tmp/fake/id.n1-bgq-T-A-1"
+    printf '/n1:n1-start T-B\n' > "$tmp/fake/prompt.n1-bgq-T-B-2"; echo 00000002 > "$tmp/fake/id.n1-bgq-T-B-2"
+    echo 2 > "$tmp/fake/seq"   # new launches get ids after the seeded ones
+    printf '| T-A | 2026-01-01T00:00:00Z | | | | 00000001 |\n| T-B | 2026-01-01T00:00:00Z | | | | 00000002 |\n' >> "$tmp/queue.md"
+    run_bg_queue "$tmp" > /dev/null
+    assert_eq "bg-drain: notifier fired" "yes" "$([ -s "$tmp/fake/drained" ] && echo yes || echo no)"
+    assert_eq "bg-drain: T-A failed" "failed" "$(plan_cell "$tmp/queue.md" 1 8)"
+    b_done=$(line_of "$tmp/fake/events" "state n1-bgq-T-B-2 done"); c_launch=$(line_of "$tmp/fake/events" "launch n1-bgq-T-C-3")
+    assert_eq "bg-drain: T-C launched only after T-B finished" "yes" \
+        "$([ -n "$b_done" ] && [ -n "$c_launch" ] && [ "$c_launch" -gt "$b_done" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_runner_loops_fd3() {   # N1-265: notifying loops read a dedicated fd, so no child reading fd 0 can drain them
+    local s="$REPO_ROOT/scripts/n1-queue-run.sh"
+    assert_eq "loops-fd3: both row loops read fd 3" "2" \
+        "$(grep -cF "done 3< <(n1_queue_pending_rows \"\$QUEUE\" 'in-progress|awaiting-human')" "$s" || true)"
+    assert_eq "loops-fd3: both row loop reads use -u 3" "2" \
+        "$(grep -cF "while IFS=\$'\\t' read -r -u 3 NUM TICKET REPO N1H MODEL STATUS; do" "$s" || true)"
+    assert_eq "loops-fd3: event loop reads fd 3" "2" \
+        "$(grep -cF -e 'done 3<<< "$EVS"' -e "while IFS=\$'\\t' read -r -u 3 TYPE TASK MSG; do" "$s" || true)"
+    assert_eq "loops-fd3: no row loop left on fd 0" "0" \
+        "$(grep -cF "done < <(n1_queue_pending_rows \"\$QUEUE\" 'in-progress|awaiting-human')" "$s" || true)"
 }
 
 test_orca_settle_chain_before_sentinel() {   # the sentinel outlives the fullAuto chain, so a restart re-owes it
@@ -3321,6 +3405,7 @@ test_escalated_step_fallback
 test_queue_event
 test_escalation_text
 test_desktop_notify
+test_desktop_notify_stdin
 test_notify_backends
 test_runner_three_strikes
 test_runner_all_pr
@@ -3336,6 +3421,10 @@ test_orca_resume_no_duplicate
 test_orca_resume_owed
 test_orca_launch_failure_identity
 test_orca_owed_holds_slot
+test_orca_notifier_drain_keeps_rows
+test_orca_event_drain_keeps_events
+test_bg_notifier_drain_keeps_rows
+test_runner_loops_fd3
 test_orca_settle_chain_before_sentinel
 test_orca_worktree_name_taken
 test_orca_adopt_launch

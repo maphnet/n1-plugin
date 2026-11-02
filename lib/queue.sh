@@ -1169,7 +1169,7 @@ n1_notify() {
             case "$val" in ""|*://*) ;; *) val="https://ntfy.sh/$val" ;; esac
             [ -z "$val" ] || timeout 10 curl -fsS -H "Title: $title" \
                 -H "Priority: $([ "$kind" = needs-you ] && echo high || echo default)" \
-                -d "$text" "$val" >/dev/null 2>&1 ;;
+                -d "$text" "$val" </dev/null >/dev/null 2>&1 ;;
         *)
             n1_desktop_notify "$title" "$text" \
                 || echo "n1_notify: no desktop notifier available; skipped ($kind: $text)" >&2 ;;

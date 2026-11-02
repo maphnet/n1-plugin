@@ -285,8 +285,8 @@ finalize() {
     fi
 
     echo "[$NUM] $TICKET -> $OUTCOME $PR_URL"
-    # N1-185: one funnel for the three pr sites (reconcile, timeout_stop, open-PR rescue). stdin is the
-    # row loop's process substitution, so the chain's commands never read from it.
+    # N1-185: one funnel for the three pr sites (reconcile, timeout_stop, open-PR rescue). The chain gets
+    # /dev/null on stdin; the row loops read fd 3 (N1-265), so nothing here can consume their rows.
     # N1-225: in Orca mode the chain runs from run_orca's settle step, once the worker reported done or exited.
     [ "$OUTCOME" = pr ] && [ -z "${ORCA_RUN:-}" ] && chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$PR_URL" </dev/null
     return 0
@@ -682,7 +682,7 @@ run_bg() {
         AGENT_FAILS=0
         drain_stop "$AGENTS"
         WORKING=0
-        while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
+        while IFS=$'\t' read -r -u 3 NUM TICKET REPO N1H MODEL STATUS; do
             SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
             # N1-82: in-progress with no Session cell = the runner died between launch and the Runs
             # write. Adopt the live session this run launched instead of failing and relaunching the row.
@@ -770,7 +770,7 @@ run_bg() {
                     ;;
                 failed|*) finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "bg-state:$STATE" ;;
             esac
-        done < <(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')
+        done 3< <(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')
 
         if [ "$WORKING" = 0 ]; then
             ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
@@ -930,7 +930,9 @@ run_orca() {
             EMPTY=$((EMPTY + 1))
             if [ "$EMPTY" -ge 3 ]; then EMPTY=0; if L=$(n1_orca_liveness "$ORCA_RUN"); then LIVE="$L"; LIVE_OK=1; else LIVE_OK=0; fi; fi
         fi
-        while IFS=$'\t' read -r TYPE TASK MSG; do
+        # N1-265: loops that can reach n1_notify read fd 3; a notifier backend that reads fd 0
+        # (WSL powershell.exe drains it) must never consume the remaining rows or events.
+        while IFS=$'\t' read -r -u 3 TYPE TASK MSG; do
             _n1_orca_id "$TASK" || continue
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
             [ -n "$T" ] || continue
@@ -942,11 +944,11 @@ run_orca() {
                 question) _n1_orca_id "$MSG" && printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T" ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" ;;
             esac
-        done <<< "$EVS"
+        done 3<<< "$EVS"
         n1_orca_ack "$ORCA_RUN" "$BATCH"
 
         INFLIGHT=0
-        while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL STATUS; do
+        while IFS=$'\t' read -r -u 3 NUM TICKET REPO N1H MODEL STATUS; do
             SID=$(n1_queue_session_id "$QUEUE" "$TICKET")
             TASK=""; case "$SID" in orca:*/*) TASK="${SID#orca:}"; TASK="${TASK%%/*}" ;; esac
             if [ -z "$TASK" ]; then
@@ -1005,7 +1007,7 @@ run_orca() {
                 continue
             fi
             INFLIGHT=$((INFLIGHT + 1))
-        done < <(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')
+        done 3< <(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')
 
         # Settle: a final row's worker that reported done or is proven exited is released and loses its sentinel;
         # a pr row then runs the fullAuto chain (n1-finish stays a bg session, it is not a ticket worker).
