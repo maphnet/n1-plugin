@@ -70,6 +70,9 @@ check "fix scope: pre-existing SEC filed by user excluded from Critical+High" 'C
 check "fingerprints: pre-existing SEC not treated as in-diff excluded" 'except a ` \(pre-existing\)` one not treated as in-diff' "$R"
 check "pre-existing marker downgraded when in a changed hunk" 'lies in a changed hunk or in a file the diff adds' "$R"
 check "pre-existing gate skips titles already in Follow-ups" 'Skip a finding whose title is already in `## Follow-ups`' "$R"
-check "pre-existing unknown severity escalates" 'Critical/High or any other or unparsed severity: § Autonomy Gate' "$R"
+check "pre-existing unknown severity escalates" 'any other or unparsed severity: § Autonomy Gate' "$R"
+check "pre-existing downgrade names base range" 'git diff -U0 "\$BASE_BRANCH"\.\.\.HEAD' "$R"
+check "pre-existing command has no pathspec or finding text" 'no pathspec, never put a finding path or title in a command' "$R"
+check "pre-existing unparsable file:line fails closed" 'missing or unparsable `file:line` counts as in-diff' "$R"
 
 exit $FAIL
