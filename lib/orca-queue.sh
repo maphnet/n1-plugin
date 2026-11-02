@@ -70,9 +70,21 @@ n1_orca_check() {
 }
 
 n1_orca_events() {
-    # Usage: n1_orca_events <check-json> — "<type>\t<task-id>\t<message-id>" per message.
+    # Usage: n1_orca_events <check-json> — "<type>\t<task-id>\t<message-id>\t<dispatch-id>" per message. Orca 1.4.243
+    # carries taskId/dispatchId only inside "payload", a JSON string; top-level fields stay as a fallback. A malformed
+    # or non-object payload falls back too, and a non-string id reads empty (@tsv errors on an object and would drop
+    # the rest of the batch), so one bad message never drops the batch. A message with no task id is dropped (an empty
+    # column would collapse under the consumer's read). An empty type/message/dispatch is emitted as "-" (tab is
+    # whitespace to read, so an empty column would shift the rest); the consumer maps "-" back to empty. Ids are untrusted: the consumer binds the dispatch to the Runs row.
     jq -r '(.result.messages // .result.batch // .result.items // [])[]?
-        | [(.type // .messageType // ""), (.taskId // .task_id // .task.id // ""), (.id // .messageId // "")] | @tsv' <<<"$1" 2>/dev/null
+        | (.payload | if type == "string" then (try fromjson catch {}) else . end
+            | if type == "object" then . else {} end) as $p
+        | ($p.taskId // .taskId // .task_id // .task.id // "" | if type == "string" then . else "" end) as $tid
+        | select($tid != "")
+        | [(.type // .messageType // ""), $tid, (.id // .messageId // ""),
+           ($p.dispatchId // .dispatchId // .dispatch_id // .dispatch.id // "" | if type == "string" then . else "" end)]
+        | map(if . == "" then "-" else . end)
+        | @tsv' <<<"$1" 2>/dev/null
     return 0
 }
 
@@ -84,16 +96,22 @@ n1_orca_ack() {
 }
 
 n1_orca_liveness() {
-    # Usage: n1_orca_liveness <run> — "<dispatch>\t<task>\t<live|unverifiable|exited>" per worker; non-zero when
-    # the list is unreadable. Orca reports liveness as {"verdict":..,"reason":..} (a bare string is still accepted);
-    # a missing or non-string verdict reads unverifiable: only positive proof of exit settles a worker.
+    # Usage: n1_orca_liveness <run> — "<dispatch>\t<task>\t<live|unverifiable|exited>\t<done|>" per worker; non-zero
+    # when the list is unreadable. Orca reports liveness as {"verdict":..,"reason":..} (a bare string is still accepted);
+    # a missing or non-string verdict reads unverifiable: only positive proof of exit settles a worker by liveness.
+    # Field 4 (N1-281) is "done" for a durable terminal state only: workerState succeeded|failed, dispatchStatus
+    # completed, or projection.nextAction.kind release. A running or unknown state is empty and never settles.
+    # ponytail: first page only (default limit 100, newest first, --run scoped); follow result.page.nextCursor if a Run ever outgrows it.
     local out; out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration worker-list --run "$1") || return 1
     # Only an ok receipt with an array-shaped worker collection is a readable list; anything else is non-zero.
     jq -r '(.result.workers // .result.dispatches // .result.items) as $w
         | if .ok == true and ($w | type) == "array" then $w[]
             | [(.dispatchId // .dispatch.id // .id // ""), (.taskId // .task.id // ""),
                (.projection.liveness | if type == "object" then .verdict else . end
-                    | if type == "string" then . else "unverifiable" end)] | @tsv
+                    | if type == "string" then . else "unverifiable" end),
+               (if .workerState == "succeeded" or .workerState == "failed" or .dispatchStatus == "completed"
+                    or ((.projection.nextAction | if type == "object" then .kind else null end) == "release")
+                then "done" else "" end)] | @tsv
           else error("unreadable worker list") end' <<<"$out" 2>/dev/null
 }
 
