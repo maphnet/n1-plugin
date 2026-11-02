@@ -121,6 +121,23 @@ n1_orca_release() {
     return 0
 }
 
+n1_orca_terminal_of() {
+    # Usage: n1_orca_terminal_of <run> <dispatch> — N1-268: the worker's own terminal handle (worker-list
+    # resource.terminalHandle); non-zero when the list is unreadable, the worker is not listed or the handle is unsafe.
+    local out h
+    out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration worker-list --run "$1") || return 1
+    h=$(jq -r --arg d "$2" '(.result.workers // .result.dispatches // .result.items // [])[]?
+        | select((.dispatchId // .dispatch.id // .id) == $d) | .resource.terminalHandle // empty | strings' <<<"$out" 2>/dev/null | head -1)
+    _n1_orca_id "$h" || return 1
+    printf '%s' "$h"
+}
+
+n1_orca_terminal_close() {
+    # Usage: n1_orca_terminal_close <handle> — N1-268: close exactly one terminal (never --worktree ... --all).
+    _n1_orca_id "${1:-}" || return 1
+    N1_ORCA_TIMEOUT=30 n1_orca terminal close --terminal "$1" >/dev/null
+}
+
 n1_orca_worktree_taken() {
     # Usage: n1_orca_worktree_taken <ticket> — true when an Orca worktree folder is already named <ticket>. The
     # identity loader keys on that folder name; if Orca deduplicated a clashing --name (e.g. T-1-2), the child would
@@ -194,6 +211,47 @@ n1_orca_sentinel_rm() {
     [ -z "${3:-}" ] || [ "$(_n1_orca_sget "$f" N1_ORCA_TASK)" = "$3" ] || return 0
     [ "$(head -1 "$(n1_orca_home_ptr "$2")" 2>/dev/null)" != "$1" ] || rm -f "$(n1_orca_home_ptr "$2")"
     rm -f "$f" "${f%.env}.sent" "${f%/*/*}/sessions/$2".*
+}
+
+n1_orca_unsettled() {
+    # Usage: n1_orca_unsettled <queue.md> — N1-268: "<num>\t<ticket>\t<n1-home>\t<task>\t<dispatch>" per Orca worker of
+    # the queue whose identity file still names its Runs-row task (settle removes it, so these are unsettled).
+    # The last Plan row per ticket wins (a deferred retry reuses the ticket).
+    local num ticket repo n1h model status sid task
+    while IFS=$'\t' read -r num ticket repo n1h model status; do
+        sid=$(n1_queue_session_id "$1" "$ticket")
+        case "$sid" in orca:*/*) task="${sid#orca:}"; task="${task%%/*}" ;; *) continue ;; esac
+        [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$n1h" "$ticket")" N1_ORCA_TASK)" = "$task" ] || continue
+        printf '%s\t%s\t%s\t%s\t%s\n' "$num" "$ticket" "$n1h" "$task" "${sid#*/}"
+    done < <(n1_queue_pending_rows "$1" 'in-progress|awaiting-human|pr|failed|escalated' | awk -F'\t' '{ r[$2] = $0 } END { for (k in r) print r[k] }' | sort -n)
+}
+
+n1_orca_stop_worker() {
+    # Usage: n1_orca_stop_worker <queue.md> <num> <ticket> <n1-home> <task> <dispatch> <orca-run> — N1-268, n1-queue
+    # --stop only (after user confirmation). A worker whose PR already merged is recorded merged and settled without a
+    # close. Otherwise its own terminal is closed, then the row is recorded stopped (Plan + Runs + event), the worker
+    # released and its identity removed. A missing handle or a failed close changes nothing (non-zero, fail closed).
+    local q="$1" num="$2" t="$3" h="$4" task="$5" d="$6" run="$7" evf qid rid url handle
+    evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
+    url=$(n1_queue_child_pr_url "$h/memory/$t/overview.md")
+    if [ "$(n1_queue_pr_state "$url")" = MERGED ]; then
+        n1_queue_row_status "$q" "$num" pr
+        n1_queue_runs_outcome "$q" "$t" merged "$url"
+        n1_queue_event "$evf" "$qid" "$rid" ticket_finished ticket="$t" outcome=merged pr="$url" session="orca:$task/$d"
+        set -- merged
+    else
+        if ! handle=$(n1_orca_terminal_of "$run" "$d") || ! n1_orca_terminal_close "$handle"; then
+            echo "stop failed: $t (worker terminal not closed; row and identity kept)"
+            return 1
+        fi
+        n1_queue_row_status "$q" "$num" stopped "stopped by user"
+        n1_queue_runs_outcome "$q" "$t" stopped
+        n1_queue_event "$evf" "$qid" "$rid" ticket_finished ticket="$t" outcome=stopped session="orca:$task/$d"
+        set -- stopped
+    fi
+    n1_orca_release "$d"
+    n1_orca_sentinel_rm "$h" "$t" "$task"
+    echo "$1: $t"
 }
 
 _n1_orca_common() { (cd "$1" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P); }
