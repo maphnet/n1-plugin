@@ -56,7 +56,7 @@ check "review FAIL: SEC Low and pre-existing never FAIL" 'never a `\[SEC-N\]` Lo
 check "review FAIL: pre-existing Critical/High [SEC-N] exempt under auto-accept" 'except a ` \(pre-existing\)` `\[SEC-N\]`: \*\*Pre-existing\*\* below' "$R"
 check_absent "SEC Low deferral no longer gated on fix cycle" 'Low `\[SEC-N\]` only when `review_fix_cycle>=1`' "$R"
 check "SEC Low deferred at every cycle incl. 0" '`\[SEC-N\]` Low too, at every cycle incl\. 0' "$R"
-check "pre-existing never listed as soft" 'Never list a ` \(pre-existing\)` finding' "$R"
+check "pre-existing never listed as soft" 'Never list a ` \(pre-existing\)` finding not treated as in-diff \(filed above\); a downgraded one is an ordinary `\[SEC-N\]`' "$R"
 check "pre-existing handled before routing on PASS or FAIL" '^\*\*Pre-existing\*\* \(`QE=auto-accept`, PASS or FAIL, before routing\)' "$R"
 check "pre-existing Medium/Low filed via followup-filing" 'Medium/Low: append to `## Follow-ups` per `<N1_ROOT>/references/followup-filing\.md` § Append \(source `review`\)' "$R"
 check "pre-existing Critical/High escalates" 'Critical/High or any other or unparsed severity: § Autonomy Gate' "$R"
