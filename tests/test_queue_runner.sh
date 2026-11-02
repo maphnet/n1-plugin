@@ -815,7 +815,7 @@ case "$1 $2" in
   "status --json") [ -n "${FAKE_ORCA_DOWN:-}" ] && err "runtime down"; ok '{"runtime":{"reachable":true}}' ;;
   "orchestration run-create") [ -n "${FAKE_ORCA_RUN_FAIL:-}" ] && err "unknown command"; ok '{"run":{"id":"run-1"}}' ;;
   "orchestration run-use") [ -n "${FAKE_ORCA_RUNUSE_FAIL:-}" ] && err "no such run"; ok '{}' ;;
-  "orchestration task-create") ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
+  "orchestration task-create") [ -n "${FAKE_ORCA_TASK_FAIL:-}" ] && err "task-create failed"; ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
   "orchestration worker-start")
       task=$(arg --task "$@"); t="${task#task-}"
       [ -n "${FAKE_ORCA_START_FAIL:-}" ] && err "lost response"
@@ -1149,6 +1149,16 @@ test_orca_mixed_reasons_halt() {
     printf '{"path":"/orca/wt/T-C"}' > "$tmp/fake/worktrees"            # -> orca-worktree-name-taken at launch
     assert_eq "orca-strike-mixed: halts (exit 2)" "2" "$(run_orca_queue "$tmp")"
     assert_eq "orca-strike-mixed: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    rm -rf "$tmp"
+}
+
+# N1-267 CR-1. Bug caught: the dedupe swallowing non-timeout reasons, so a systemic launch failure (three launches
+# failing orca-task-create) drains every pending row instead of halting the queue.
+test_orca_same_launch_reason_halts() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done"; mk_orca "$tmp"
+    assert_eq "orca-strike-launch: halts (exit 2)" "2" "$(run_orca_queue "$tmp" FAKE_ORCA_TASK_FAIL=1)"
+    assert_eq "orca-strike-launch: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
     rm -rf "$tmp"
 }
 
@@ -3652,6 +3662,7 @@ test_orca_timeout_open_pr
 test_orca_usage_stall
 test_orca_same_reason_one_strike
 test_orca_mixed_reasons_halt
+test_orca_same_launch_reason_halts
 test_orca_resume_owed
 test_orca_launch_failure_identity
 test_orca_owed_holds_slot
