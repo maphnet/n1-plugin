@@ -800,9 +800,14 @@ n1_queue_claim() {
     mkdir -p "$1" 2>/dev/null || return 1
     mkdir "$c" 2>/dev/null && return 0
     [ -z "$(find "$c" -maxdepth 0 -mmin -15 2>/dev/null)" ] || return 1
-    # ponytail: two sessions retaking the same stale claim in the same instant can both win; the runner's
-    # hardlink lock (scripts/n1-queue-run.sh) still admits one runner. Upgrade: rename-based retake if it bites.
-    rmdir "$c" 2>/dev/null
+    # Retake: rename to a unique tombstone (succeeds for one session); a tombstone that is fresh was a
+    # winner's new claim, so put it back and report busy.
+    mv "$c" "$c.stale.$$" 2>/dev/null || return 1
+    if [ -n "$(find "$c.stale.$$" -maxdepth 0 -mmin -15 2>/dev/null)" ]; then
+        mv "$c.stale.$$" "$c" 2>/dev/null || rmdir "$c.stale.$$" 2>/dev/null
+        return 1
+    fi
+    rmdir "$c.stale.$$" 2>/dev/null
     mkdir "$c" 2>/dev/null
 }
 
