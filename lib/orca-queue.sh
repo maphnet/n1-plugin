@@ -66,7 +66,7 @@ n1_orca_check() {
     # Usage: n1_orca_check <run> <wait-seconds> — one coordinator inbox batch; blocks up to wait-seconds
     # (an empty batch is a checkpoint, not a failure).
     N1_ORCA_TIMEOUT=$(( $2 + 30 )) n1_orca orchestration check --run "$1" --wait \
-        --types worker_done,escalation,question,heartbeat --timeout-ms $(( $2 * 1000 ))
+        --types worker_done,escalation,question --timeout-ms $(( $2 * 1000 ))
 }
 
 n1_orca_events() {
@@ -91,16 +91,22 @@ n1_orca_ack() {
 }
 
 n1_orca_liveness() {
-    # Usage: n1_orca_liveness <run> — "<dispatch>\t<task>\t<live|unverifiable|exited>" per worker; non-zero when
-    # the list is unreadable. Orca reports liveness as {"verdict":..,"reason":..} (a bare string is still accepted);
-    # a missing or non-string verdict reads unverifiable: only positive proof of exit settles a worker.
+    # Usage: n1_orca_liveness <run> — "<dispatch>\t<task>\t<live|unverifiable|exited>\t<done|>" per worker; non-zero
+    # when the list is unreadable. Orca reports liveness as {"verdict":..,"reason":..} (a bare string is still accepted);
+    # a missing or non-string verdict reads unverifiable: only positive proof of exit settles a worker by liveness.
+    # Field 4 (N1-281) is "done" for a durable terminal state only: workerState succeeded|failed, dispatchStatus
+    # completed, or projection.nextAction.kind release. A running or unknown state is empty and never settles.
+    # ponytail: first page only (default limit 100, newest first, --run scoped); follow result.page.nextCursor if a Run ever outgrows it.
     local out; out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration worker-list --run "$1") || return 1
     # Only an ok receipt with an array-shaped worker collection is a readable list; anything else is non-zero.
     jq -r '(.result.workers // .result.dispatches // .result.items) as $w
         | if .ok == true and ($w | type) == "array" then $w[]
             | [(.dispatchId // .dispatch.id // .id // ""), (.taskId // .task.id // ""),
                (.projection.liveness | if type == "object" then .verdict else . end
-                    | if type == "string" then . else "unverifiable" end)] | @tsv
+                    | if type == "string" then . else "unverifiable" end),
+               (if .workerState == "succeeded" or .workerState == "failed" or .dispatchStatus == "completed"
+                    or ((.projection.nextAction | if type == "object" then .kind else null end) == "release")
+                then "done" else "" end)] | @tsv
           else error("unreadable worker list") end' <<<"$out" 2>/dev/null
 }
 
