@@ -53,7 +53,9 @@ case "$1 $2" in
         {"dispatchId":"d-5","taskId":"task-5","workerState":"stopping","dispatchStatus":"dispatched","terminalState":"active","projection":{}},
         {"dispatchId":"d-6","taskId":"task-6","workerState":"running","dispatchStatus":"completed","projection":{"liveness":{"verdict":"live"},"nextAction":{"kind":"none"}}},
         {"dispatchId":"d-7","taskId":"task-7","workerState":"ready","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"},"nextAction":{"kind":"release"}}},
-        {"dispatchId":"d-8","taskId":"task-8","workerState":"running","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"},"nextAction":"release"}}]}' ;;
+        {"dispatchId":"d-8","taskId":"task-8","workerState":"running","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"},"nextAction":"release"}},
+        {"dispatchId":"d-9","taskId":"task-9","workerState":"running","dispatchStatus":"dispatched","projection":{"liveness":"exited"}},
+        {"dispatchId":"d-10","taskId":"task-10","workerState":"running","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":{"x":1}}}}]}' ;;
   *) err "unknown command" ;;
 esac
 EOF
@@ -108,7 +110,7 @@ eq "events: malformed payload falls back, batch kept, taskless message dropped" 
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-4","type":"worker_done","payload":"{not json","taskId":"task-4"},{"id":"m-5","type":"worker_done","payload":"{\"taskId\":\"task-5\"}"},{"id":"m-6","type":"worker_done","payload":"{\"taskId\":{\"a\":1}}"},{"id":"m-7","type":"worker_done","payload":"{\"taskId\":\"task-7\"}"}]}}')"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
 eq "liveness: verdict + durable settled state" \
-    "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t\nd-6\ttask-6\tlive\tdone\nd-7\ttask-7\tlive\tdone\nd-8\ttask-8\tlive\t')" \
+    "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t\nd-6\ttask-6\tlive\tdone\nd-7\ttask-7\tlive\tdone\nd-8\ttask-8\tlive\t\nd-9\ttask-9\texited\t\nd-10\ttask-10\tunverifiable\t')" \
     "$(n1_orca_liveness run-1)"
 n1_orca_liveness run-1 >/dev/null; eq "liveness: real Orca payload is readable (rc 0)" 0 "$?"
 FAKE_WL_EMPTY=1 n1_orca_liveness run-1 >/dev/null; rc=$?; eq "liveness: receipt without a worker array is unreadable" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"

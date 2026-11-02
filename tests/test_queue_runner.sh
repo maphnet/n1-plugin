@@ -958,7 +958,7 @@ test_orca_question_parks() {
     rm -rf "$tmp"
 }
 
-test_orca_heartbeat() {   # AC3: a heartbeat is recorded per worker; heartbeat-only batches are empty waits
+test_orca_heartbeat() {   # AC3: a bound heartbeat is recorded per worker; heartbeat-only ticks charge real elapsed time
     local tmp t0 hb; tmp=$(mktemp -d)
     # (a) A batch carrying a heartbeat records the runner's receive time in .hb-<TICKET> (row parked, so not finalized).
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
@@ -972,16 +972,22 @@ test_orca_heartbeat() {   # AC3: a heartbeat is recorded per worker; heartbeat-o
         "$([[ "$hb" =~ ^[0-9]+$ ]] && [ "$hb" -ge "$t0" ] && [ "$hb" -le "$(date +%s)" ] && echo yes || echo no)"
     assert_eq "orca-hb: heartbeat batch acked" "yes" "$(grep -q 'check --run run-1 --ack del-1' "$tmp/fake/orca-calls" && echo yes || echo no)"
     rm -rf "$tmp"; tmp=$(mktemp -d)
-    # (b) Heartbeats on every tick must not stop the per-tick worker-list re-read and must charge real elapsed time, not a full poll: heartbeat-only ticks return early, so
-    # the worker must not hit the working timeout (subtaskTimeoutMinutes=1, pollSeconds=30) within seconds.
+    # (b) Heartbeat-only ticks return early: they must still record .hb-<TICKET> and must charge real elapsed time, not a full poll
+    # (subtaskTimeoutMinutes=1, pollSeconds=30 must not time the worker out within seconds). A heartbeat whose dispatchId does not
+    # match the Runs row (real shape, forged dispatch) must not be recorded.
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
     echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
     jq -cn '{id: "m-hb1", type: "heartbeat", payload: ({taskId: "task-T-A", dispatchId: "d-T-A"} | tojson)}' > "$tmp/fake/heartbeat"
     timeout 8 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
-    assert_eq "orca-hb-only: liveness re-read despite heartbeats" "yes" \
-        "$([ "$(grep -c 'orchestration worker-list' "$tmp/fake/orca-calls")" -ge 2 ] && echo yes || echo no)"
+    assert_eq "orca-hb-only: bound heartbeat recorded" "yes" "$([[ "$(cat "$tmp/.hb-T-A" 2>/dev/null)" =~ ^[0-9]+$ ]] && echo yes || echo no)"
     assert_eq "orca-hb-only: early heartbeat returns do not charge a full poll (no early timeout)" "no" \
         "$([ "$(plan_cell "$tmp/queue.md" 1 9)" = subtask-timeout ] && echo yes || echo no)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    jq -cn '{id: "m-hb2", type: "heartbeat", payload: ({taskId: "task-T-A", dispatchId: "d-forged"} | tojson)}' > "$tmp/fake/heartbeat"
+    timeout 8 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-hb-only: heartbeat for another dispatch not recorded" "no" "$([ -e "$tmp/.hb-T-A" ] && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
