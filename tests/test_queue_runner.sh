@@ -1038,6 +1038,41 @@ test_orca_resume_no_duplicate() {   # AC4
     rm -rf "$tmp"
 }
 
+# orca_resumed_row <tmp> — N1-267: a resumed run whose row T-A is already in-progress on a live, unverifiable Orca worker
+# (no launch, so the fake worktree list may already name T-A); overview step implement; timeout 1 min, poll 30 s.
+orca_resumed_row() {
+    local tmp="$1"
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    mkdir -p "$tmp/n1home/queue/sentinels"; printf 'N1_ORCA_TASK=task-T-A\n' > "$tmp/n1home/queue/sentinels/T-A.env"
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "| T-A | 2026-10-31T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: implement\n---\n' > "$tmp/n1home/memory/T-A/overview.md"
+    wl_set "$tmp" "$(wl_row T-A running unverifiable)"
+}
+
+# N1-267 AC1. Bug caught: a worker whose PR is open (pr step still waiting on CI/review) hits subtaskTimeoutMinutes and
+# the row is recorded failed|subtask-timeout although the PR later merges (N1-259 / PR #239 in run 20261101T131600Z).
+test_orca_timeout_open_pr() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"
+    mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
+    printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
+        > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
+    printf 'https://github.com/o/r/pull/239\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/me/T-A)" > "$tmp/fake/gh-pr"
+    assert_eq "orca-timeout-pr: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-timeout-pr: row is pr, not subtask-timeout, no retry row" "pr||1" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)|$(awk -F'|' '$2 ~ /^ *[0-9]+ *$/' "$tmp/queue.md" | wc -l | tr -d ' ')"
+    assert_eq "orca-timeout-pr: Runs records the PR" "https://github.com/o/r/pull/239" \
+        "$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-A/ { gsub(/ /,"",$6); print $6 }' "$tmp/queue.md")"
+    assert_eq "orca-timeout-pr: asked gh for the envelope branch" "1" "$(grep -c -- '--head me/T-A' "$tmp/fake/gh-calls")"
+    # The worker is still running (unverifiable): it stays owed, never released, keeps its identity.
+    assert_eq "orca-timeout-pr: live worker not released" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-timeout-pr: live worker keeps its sentinel" "yes" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 test_orca_launch_failure_identity() {   # an ambiguous launch failure never strips a possibly live worker's identity
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
@@ -3534,6 +3569,7 @@ test_orca_held_blocker
 test_orca_question_parks
 test_orca_heartbeat
 test_orca_resume_no_duplicate
+test_orca_timeout_open_pr
 test_orca_resume_owed
 test_orca_launch_failure_identity
 test_orca_owed_holds_slot

@@ -1004,7 +1004,14 @@ run_orca() {
                 # ponytail: an Orca worker is never stopped without proof of exit, so a timed-out row fails without a
                 # deferred retry (a relaunch could duplicate a live worker); the user stops the worker in Orca.
                 [ -n "$TASK" ] && OWED="$OWED$TASK "
-                finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "subtask-timeout" "" nodefer
+                # N1-267: a worker that already opened its PR (pr step still waiting on CI/review) is a pr, not a
+                # timeout. It stays owed: settle releases it and runs the chain once it reports done or exits.
+                OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
+                if [ -n "$OPEN_PR" ]; then
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
+                else
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "subtask-timeout" "" nodefer
+                fi
                 continue
             fi
             INFLIGHT=$((INFLIGHT + 1))
