@@ -50,7 +50,10 @@ case "$1 $2" in
         {"dispatchId":"d-2","taskId":"task-2","workerState":"ready","dispatchStatus":"dispatched","terminalState":"active","projection":{"outcome":"in_progress","liveness":{"verdict":"live"},"nextAction":{"kind":"none","argv":[]}}},
         {"dispatchId":"d-3","taskId":"task-3","workerState":"succeeded","dispatchStatus":"completed","terminalState":"reclaimable","projection":{"outcome":"succeeded","liveness":{"verdict":"unverifiable","reason":"missing_status"},"nextAction":{"kind":"release","argv":[]}}},
         {"dispatchId":"d-4","taskId":"task-4","workerState":"failed","dispatchStatus":"failed","terminalState":"reclaimable","projection":{"outcome":"failed","liveness":{"verdict":"unverifiable","reason":"missing_status"},"nextAction":{"kind":"release","argv":[]}}},
-        {"dispatchId":"d-5","taskId":"task-5","workerState":"stopping","dispatchStatus":"dispatched","terminalState":"active","projection":{}}]}' ;;
+        {"dispatchId":"d-5","taskId":"task-5","workerState":"stopping","dispatchStatus":"dispatched","terminalState":"active","projection":{}},
+        {"dispatchId":"d-6","taskId":"task-6","workerState":"running","dispatchStatus":"completed","projection":{"liveness":{"verdict":"live"},"nextAction":{"kind":"none"}}},
+        {"dispatchId":"d-7","taskId":"task-7","workerState":"ready","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"},"nextAction":{"kind":"release"}}},
+        {"dispatchId":"d-8","taskId":"task-8","workerState":"running","dispatchStatus":"dispatched","projection":{"liveness":{"verdict":"live"},"nextAction":"release"}}]}' ;;
   *) err "unknown command" ;;
 esac
 EOF
@@ -96,14 +99,16 @@ eq "worker-start: failure reason" "orca-launch:worktree-setup" "$(FAKE_ORCA_STAR
 
 # Orca 1.4.243: taskId/dispatchId live only inside "payload", a JSON string.
 J='{"ok":true,"result":{"deliveryId":"del-1","messages":[{"id":"m-1","type":"worker_done","payload":"{\"taskId\":\"task-1\",\"dispatchId\":\"d-1\",\"outcome\":\"succeeded\"}"},{"id":"m-2","type":"question","payload":"{\"taskId\":\"task-2\",\"dispatchId\":\"d-2\"}"}]}}'
-eq "events: task id from the payload string" "$(printf 'worker_done\ttask-1\tm-1\nquestion\ttask-2\tm-2')" "$(n1_orca_events "$J")"
-eq "events: top-level taskId fallback" "$(printf 'escalation\ttask-3\tm-3')" \
+eq "events: task id and dispatch id from the payload string" "$(printf 'worker_done\ttask-1\tm-1\td-1\nquestion\ttask-2\tm-2\td-2')" "$(n1_orca_events "$J")"
+eq "events: top-level taskId/dispatchId fallback" "$(printf 'escalation\ttask-3\tm-3\td-3')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-3","type":"escalation","taskId":"task-3","dispatchId":"d-3"}]}}')"
+eq "events: no dispatch id reads empty" "$(printf 'escalation\ttask-3\tm-3\t')" \
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-3","type":"escalation","taskId":"task-3"}]}}')"
-eq "events: malformed payload falls back, batch kept" "$(printf 'worker_done\ttask-4\tm-4\nworker_done\ttask-5\tm-5\nworker_done\t\tm-6\nworker_done\ttask-7\tm-7')" \
+eq "events: malformed payload falls back, batch kept, taskless message dropped" "$(printf 'worker_done\ttask-4\tm-4\t\nworker_done\ttask-5\tm-5\t\nworker_done\ttask-7\tm-7\t')" \
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-4","type":"worker_done","payload":"{not json","taskId":"task-4"},{"id":"m-5","type":"worker_done","payload":"{\"taskId\":\"task-5\"}"},{"id":"m-6","type":"worker_done","payload":"{\"taskId\":{\"a\":1}}"},{"id":"m-7","type":"worker_done","payload":"{\"taskId\":\"task-7\"}"}]}}')"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
 eq "liveness: verdict + durable settled state" \
-    "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t')" \
+    "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t\nd-6\ttask-6\tlive\tdone\nd-7\ttask-7\tlive\tdone\nd-8\ttask-8\tlive\t')" \
     "$(n1_orca_liveness run-1)"
 n1_orca_liveness run-1 >/dev/null; eq "liveness: real Orca payload is readable (rc 0)" 0 "$?"
 FAKE_WL_EMPTY=1 n1_orca_liveness run-1 >/dev/null; rc=$?; eq "liveness: receipt without a worker array is unreadable" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"

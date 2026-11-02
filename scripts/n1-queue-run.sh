@@ -204,7 +204,7 @@ finalize() {
     if [ -n "$CHAIN_ESC" ]; then : > "$N1_QUEUE_DIR/.escalated-$TICKET"; else rm -f "$N1_QUEUE_DIR/.escalated-$TICKET"; fi
     rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM" "$N1_QUEUE_DIR/.ask-$TICKET" "$N1_QUEUE_DIR/.hb-$TICKET"
     # N1-225: an Orca row's identity is never removed here: a timed-out worker may still be running. orca_settle
-    # removes it once the worker reported done or is proven exited.
+    # removes it once the worker reported done, is durably finished, or is proven exited.
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
     n1_write_frontmatter "$OVERVIEW" queue_run_id "$RUN_ID" || true
     # Read the row's current Reason BEFORE rewriting it (defer-once guard).
@@ -926,10 +926,12 @@ run_orca() {
         if [ -n "$EVS" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
         # N1-265: loops that can reach n1_notify read fd 3; a notifier backend that reads fd 0
         # (WSL powershell.exe drains it) must never consume the remaining rows or events.
-        while IFS=$'\t' read -r -u 3 TYPE TASK MSG; do
+        while IFS=$'\t' read -r -u 3 TYPE TASK MSG MDISP; do
             _n1_orca_id "$TASK" || continue
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
             [ -n "$T" ] || continue
+            # The message must name the dispatch the Runs row holds: a task id alone must not act on another's row.
+            [ -n "$MDISP" ] && [ "$MDISP" = "$DISP" ] || continue
             # A replayed message (a missed ack) must not redo its effect, e.g. re-park an answered row.
             [ -z "$MSG" ] || [[ "$SEEN" != *" $MSG "* ]] || continue
             SEEN="$SEEN${MSG:+$MSG }"
@@ -1010,9 +1012,15 @@ run_orca() {
         # Settle: a final row's worker that reported done, is durably finished (worker-list) or is proven exited is
         # released and loses its sentinel; a pr row then runs the fullAuto chain (n1-finish stays a bg session, it is
         # not a ticket worker). Re-settling after a restart is guarded by SETTLED, idempotent release and .chained-<ticket>.
-        for TASK in $DONE $(awk -F'\t' '$3 == "exited" || $4 == "done" { print $2 }' <<< "$LIVE"); do orca_settle "$TASK"; done
+        # A worker-list row settles only the dispatch the Runs row holds for its task.
+        for TASK in $DONE; do orca_settle "$TASK"; done
+        while IFS=$'\t' read -r -u 3 L TASK; do
+            _n1_orca_id "$TASK" || continue
+            IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
+            [ -n "$T" ] && [ "$L" = "$DISP" ] && orca_settle "$TASK"
+        done 3< <(awk -F'\t' '$3 == "exited" || $4 == "done" { print $1 "\t" $2 }' <<< "$LIVE")
 
-        # Unsettled workers (finished or timed-out rows whose worker is not proven exited) still hold a slot.
+        # Unsettled workers (finished or timed-out rows whose worker is not proven exited or durably finished) still hold a slot.
         OWEDN=$(wc -w <<< "$OWED")
         while [ $((INFLIGHT + OWEDN)) -lt "$MAXC" ]; do
             ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)

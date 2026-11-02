@@ -1105,7 +1105,7 @@ test_runner_loops_fd3() {   # N1-265: notifying loops read a dedicated fd, so no
     assert_eq "loops-fd3: both row loop reads use -u 3" "2" \
         "$(grep -cF "while IFS=\$'\\t' read -r -u 3 NUM TICKET REPO N1H MODEL STATUS; do" "$s" || true)"
     assert_eq "loops-fd3: event loop reads fd 3" "2" \
-        "$(grep -cF -e 'done 3<<< "$EVS"' -e "while IFS=\$'\\t' read -r -u 3 TYPE TASK MSG; do" "$s" || true)"
+        "$(grep -cF -e 'done 3<<< "$EVS"' -e "while IFS=\$'\\t' read -r -u 3 TYPE TASK MSG MDISP; do" "$s" || true)"
     assert_eq "loops-fd3: no row loop left on fd 0" "0" \
         "$(grep -cF "done < <(n1_queue_pending_rows \"\$QUEUE\" 'in-progress|awaiting-human')" "$s" || true)"
 }
@@ -1191,6 +1191,18 @@ test_orca_settled_from_worker_list() {   # N1-281 AC2: worker_done lost, worker-
     assert_eq "orca-settled: T-A sentinel removed" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
     r=$(line_of "$tmp/fake/orca-calls" 'worker-release --dispatch d-T-A'); s=$(line_of "$tmp/fake/orca-calls" '--task task-T-B')
     assert_eq "orca-settled: T-B launched after T-A's release" "yes" "$([ -n "$r" ] && [ -n "$s" ] && [ "$s" -gt "$r" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_forged_dispatch_ignored() {   # N1-281 SEC-1: a message naming a task with another dispatch id must not act on its row
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; echo implement > "$tmp/fake/step.T-B"
+    : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
+    printf '%s' "$(orca_msg worker_done task-T-B m-d1 | jq -c '.payload |= (fromjson | .dispatchId = "d-forged" | tojson)')" > "$tmp/fake/question"
+    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-forged: T-B not finalized by a mismatched dispatch" "no" \
+        "$([ "$(plan_cell "$tmp/queue.md" 2 9)" = child-exited-incomplete ] && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
@@ -3487,6 +3499,7 @@ test_orca_resume_no_duplicate
 test_orca_resume_owed
 test_orca_launch_failure_identity
 test_orca_owed_holds_slot
+test_orca_forged_dispatch_ignored
 test_orca_notifier_drain_keeps_rows
 test_orca_event_drain_keeps_events
 test_bg_notifier_drain_keeps_rows

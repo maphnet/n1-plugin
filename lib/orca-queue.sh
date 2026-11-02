@@ -70,16 +70,19 @@ n1_orca_check() {
 }
 
 n1_orca_events() {
-    # Usage: n1_orca_events <check-json> — "<type>\t<task-id>\t<message-id>" per message. Orca 1.4.243 carries
-    # taskId/dispatchId only inside "payload", a JSON string; top-level fields stay as a fallback. A malformed or
-    # non-object payload falls back too, and a non-string task id reads empty (@tsv errors on an object and would
-    # drop the rest of the batch), so one bad message never drops the batch. The task id is still untrusted.
+    # Usage: n1_orca_events <check-json> — "<type>\t<task-id>\t<message-id>\t<dispatch-id>" per message. Orca 1.4.243
+    # carries taskId/dispatchId only inside "payload", a JSON string; top-level fields stay as a fallback. A malformed
+    # or non-object payload falls back too, and a non-string id reads empty (@tsv errors on an object and would drop
+    # the rest of the batch), so one bad message never drops the batch. A message with no task id is dropped (an empty
+    # column would collapse under the consumer's read). Ids are untrusted: the consumer binds the dispatch to the Runs row.
     jq -r '(.result.messages // .result.batch // .result.items // [])[]?
         | (.payload | if type == "string" then (try fromjson catch {}) else . end
             | if type == "object" then . else {} end) as $p
-        | [(.type // .messageType // ""),
-           ($p.taskId // .taskId // .task_id // .task.id // "" | if type == "string" then . else "" end),
-           (.id // .messageId // "")] | @tsv' <<<"$1" 2>/dev/null
+        | ($p.taskId // .taskId // .task_id // .task.id // "" | if type == "string" then . else "" end) as $tid
+        | select($tid != "")
+        | [(.type // .messageType // ""), $tid, (.id // .messageId // ""),
+           ($p.dispatchId // .dispatchId // .dispatch_id // .dispatch.id // "" | if type == "string" then . else "" end)]
+        | @tsv' <<<"$1" 2>/dev/null
     return 0
 }
 
