@@ -1,12 +1,11 @@
 # Stop (--stop [<id>])
 
-Stops the Orca workers of a queue run after the user confirms. Interactive sessions only: a headless or queue-child session never stops workers.
+Stops the workers of a queue run after the user confirms. Interactive sessions only: a headless or queue-child session never stops workers.
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
-source "$N1_ROOT/lib/orca-queue.sh"
 [ "${N1_HEADLESS:-}" = 1 ] && echo HEADLESS
 ```
 
@@ -24,13 +23,12 @@ List the run's unsettled workers (ticket, PR, PR state):
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
-source "$N1_ROOT/lib/orca-queue.sh"
 n1_orca_unsettled "$QUEUE_FILE" | while IFS=$'\t' read -r num t h task d; do
     url=$(n1_queue_child_pr_url "$h/memory/$t/overview.md")
     printf '%s\t%s\t%s\n' "$t" "${url:-no PR}" "$(n1_queue_pr_state "$url")"
 done
 ```
-No rows: "No live Orca workers to stop in queue <queue_id>." **STOP.**
+No rows: "No live workers to stop in queue <queue_id>." **STOP.**
 
 Print the list, then ask the user: "Stop <N> worker(s) of queue <queue_id>? Each worker's own terminal is closed, its row is recorded `stopped` and its queue identity is removed. A worker with an OPEN PR may be mid finish-chain (CI, review, merge); stopping it can leave that PR unmerged. A worker whose PR already merged is only recorded as merged." Options:
 - Stop workers
@@ -45,7 +43,6 @@ Confirmed:
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
-source "$N1_ROOT/lib/orca-queue.sh"
 if n1_queue_runner_alive "$(n1_read_frontmatter "$QUEUE_FILE" pid)" "$QUEUE_FILE"; then
     : > "$(dirname "$QUEUE_FILE")/.stop" && echo "stop:queued"
 else
@@ -57,4 +54,4 @@ else
 fi
 ```
 
-Print the output verbatim. `stop:queued`: "Stop requested; the runner closes the workers at its next poll, then halts. Check with `/n1:n1-queue --status <queue_id>`." A `stop failed:` line means that worker's terminal was not closed (also the result when this session has no Orca CLI): its row and identity are unchanged; close it in Orca, then run `--status`.
+Print the output verbatim. `stop:queued`: "Stop requested; the runner closes the workers at its next poll, then halts. Check with `/n1:n1-queue --status <queue_id>`." A `stop failed:` line means that worker's terminal was not closed (also the result when the workspace manager is unavailable): its row and identity are unchanged; close it in the workspace manager, then run `--status`.
