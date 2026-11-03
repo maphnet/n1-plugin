@@ -25,6 +25,7 @@ check "procedure has Tick section" "^## § Tick" "$P"
 check "procedure has Conflicts section" "^## § Conflicts" "$P"
 check "procedure has Unwatched Deploy section" "^## § Unwatched Deploy" "$P"
 check "procedure has Runbook section" "^## § Runbook" "$P"
+check "procedure contract has Before release" "^### Before release" "$P"
 check "walk is an unconditional gate" "never auto-resolve" "$P"
 check "walk offers Yes/Skip/Abort" "3 — Abort" "$P"
 check "queue/headless detection" "N1_QUEUE_RUN_ID.*N1_HEADLESS" "$P"
@@ -52,6 +53,7 @@ run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e '/preamble\.sh/d' -
 out=$(run "## § Parse")
 check "parse prints mode:walk interactively" "^mode:walk$" <(printf '%s\n' "$out")
 check "parse counts unticked items" "^unticked:2$" <(printf '%s\n' "$out")
+check "parse prints deferred:0 when there is no Before release item" "^deferred:0$" <(printf '%s\n' "$out")
 [ "$(sed -n 1p "$TSV" 2>/dev/null)" = "$(printf '7\tbefore\tbefore\tManual: set secret STRIPE_KEY')" ] \
     && echo "PASS: parse row 1 (before, manual)" || { echo "FAIL: parse row 1"; FAIL=1; }
 [ "$(sed -n 2p "$TSV" 2>/dev/null)" = "$(printf '7\tafter\tafter\t`npm run backfill -- --since "2026-01-01"`')" ] \
@@ -151,6 +153,72 @@ out=$(run4)
 check "tick after move still succeeds" "^ticked:#8$" <(printf '%s\n' "$out")
 [ "$(grep -A1 '^### Before deploy' "$T/edited-move.md" | tail -1)" = '- [x] `echo moved`' ] \
     && echo "PASS: tick after move flips the Before deploy line (where the text actually lives)" || { echo "FAIL: tick after move did not flip Before deploy"; FAIL=1; }
+
+# --- behavior (N1-302): ### Before release is deferred by n1-finish (RELEASE_ROWS=defer) and included by
+# n1-release (RELEASE_ROWS=include) as orig phase release / execution phase before; § Tick flips it under
+# ### Before release only, even after § Edit moves its execution phase.
+cat > "$T/body-rel.md" <<'EOF'
+## Deployment Actions
+
+### Before deploy
+- [ ] `echo same`
+
+### Before release
+- [ ] `echo same`
+- [ ] Manual: set prod secret PROD_KEY
+- [x] `echo released`
+
+### After deploy
+- [ ] `echo after`
+EOF
+export GH_BODY="$T/body-rel.md" GH_EDITED="$T/edited-rel.md"
+TSV6="$T/rel.tsv"
+run6() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Parse" | sed -e '/preamble\.sh/d' -e 's|^PRS=.*|PRS="7"|' -e "s|^OUT=.*|OUT=\"$TSV6\"|" -e "s|^RELEASE_ROWS=.*|RELEASE_ROWS=\"$1\"|")"; }
+
+out=$(run6 defer)
+check "parse defer: unticked counts before/after rows only" "^unticked:2$" <(printf '%s\n' "$out")
+check "parse defer: counts deferred release rows" "^deferred:2$" <(printf '%s\n' "$out")
+check "parse defer: lists deferred items with their PR" '^deferred #7 Manual: set prod secret PROD_KEY$' <(printf '%s\n' "$out")
+if grep -q $'\trelease\t' "$TSV6" 2>/dev/null; then echo "FAIL: parse defer: release row leaked into OUT"; FAIL=1; else echo "PASS: parse defer: OUT holds no release row"; fi
+[ "$(sed -n 1p "$TSV6.deferred" 2>/dev/null)" = "$(printf '7\trelease\tbefore\t`echo same`')" ] \
+    && echo "PASS: parse defer: .deferred row is orig release, phase before" || { echo "FAIL: parse defer: .deferred row 1"; FAIL=1; }
+[ "$(wc -l < "$TSV6.deferred" 2>/dev/null | tr -d ' ')" = "2" ] \
+    && echo "PASS: parse defer: ticked release item not deferred" || { echo "FAIL: parse defer: .deferred row count"; FAIL=1; }
+
+out=$(run6 include)
+check "parse include: unticked counts release rows" "^unticked:4$" <(printf '%s\n' "$out")
+check "parse include: nothing deferred" "^deferred:0$" <(printf '%s\n' "$out")
+[ "$(sed -n 2p "$TSV6" 2>/dev/null)" = "$(printf '7\trelease\tbefore\t`echo same`')" ] \
+    && echo "PASS: parse include: release row is orig release, phase before" || { echo "FAIL: parse include: release row"; FAIL=1; }
+[ "$(sed -n 4p "$TSV6" 2>/dev/null)" = "$(printf '7\tafter\tafter\t`echo after`')" ] \
+    && echo "PASS: parse include: after row unchanged" || { echo "FAIL: parse include: after row"; FAIL=1; }
+
+TSV7="$T/rel-tick.tsv"
+run7() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Tick" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV7\"|" -e 's|^K=.*|K=1|')"; }
+printf '7\trelease\tbefore\t`echo same`\n' > "$TSV7"
+rm -f "$T/edited-rel.md"
+out=$(run7)
+check "tick release: reports success" "^ticked:#7$" <(printf '%s\n' "$out")
+[ "$(grep -A1 '^### Before release' "$T/edited-rel.md" 2>/dev/null | tail -1)" = '- [x] `echo same`' ] \
+    && echo "PASS: tick release: flips the Before release line" || { echo "FAIL: tick release: Before release line not flipped"; FAIL=1; }
+[ "$(grep -A1 '^### Before deploy' "$T/edited-rel.md" 2>/dev/null | tail -1)" = '- [ ] `echo same`' ] \
+    && echo "PASS: tick release: Before deploy line untouched" || { echo "FAIL: tick release: flipped Before deploy"; FAIL=1; }
+
+printf '7\tbogus\tbefore\t`echo same`\n' > "$TSV7"
+rm -f "$T/edited-rel.md"
+out=$(run7)
+check "tick unknown orig phase: tick-missing" "^tick-missing:#7$" <(printf '%s\n' "$out")
+[ ! -f "$T/edited-rel.md" ] && echo "PASS: tick unknown orig phase: no gh pr edit" || { echo "FAIL: tick unknown orig phase edited the PR"; FAIL=1; }
+
+printf '7\trelease\tbefore\t`echo same`\n' > "$TSV7"
+rm -f "$T/edited-rel.md"
+PATH="$T/bin:$PATH" bash -c "$(snippet "**Edit**" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV7\"|" -e 's|^K=.*|K=1|' -e 's|^P=.*|P=after|')"
+[ "$(sed -n 1p "$TSV7")" = "$(printf '7\trelease\tafter\t`echo same`')" ] \
+    && echo "PASS: edit moves a release row's phase only" || { echo "FAIL: edit changed a release row's orig phase"; FAIL=1; }
+out=$(run7)
+check "tick after moving a release row still succeeds" "^ticked:#7$" <(printf '%s\n' "$out")
+[ "$(grep -A1 '^### Before release' "$T/edited-rel.md" 2>/dev/null | tail -1)" = '- [x] `echo same`' ] \
+    && echo "PASS: tick after move flips the Before release line" || { echo "FAIL: tick after move missed Before release"; FAIL=1; }
 
 # --- agents
 TW=agents/tech-writer.md
