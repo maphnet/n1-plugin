@@ -918,7 +918,7 @@ orca_settle() {
 # (release + sentinel removal + owed fullAuto chain); running or unverifiable workers are never relaunched, stopped
 # or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
+    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN SKIP
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
@@ -970,7 +970,15 @@ run_orca() {
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
             [ -n "$T" ] || continue
             # The message must name the dispatch the Runs row holds: a task id alone must not act on another's row.
-            [ -n "$MDISP" ] && [ "$MDISP" = "$DISP" ] || continue
+            # N1-309 (N1-287): the skip is logged and recorded (--status lists it), never dropped silently. The task id
+            # passed _n1_orca_id; the message id is untrusted, so only [A-Za-z0-9_-], 64 chars, reaches log and event.
+            if [ -z "$MDISP" ] || [ "$MDISP" != "$DISP" ]; then
+                SKIP="${MSG//[^A-Za-z0-9_-]/}"
+                SKIP="dispatch-mismatch task=$TASK msg=${SKIP:0:64}"
+                echo "[orca] skipped message ($SKIP)"
+                ev dispatch_mismatch ticket="$T" reason="$SKIP"
+                continue
+            fi
             # A replayed message (a missed ack) must not redo its effect, e.g. re-park an answered row.
             [ -z "$MSG" ] || [[ "$SEEN" != *" $MSG "* ]] || continue
             SEEN="$SEEN${MSG:+$MSG }"

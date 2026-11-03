@@ -556,14 +556,20 @@ test_orca_settled_from_worker_list() {   # N1-281 AC2: worker_done lost, worker-
 }
 
 test_orca_forged_dispatch_ignored() {   # N1-281 SEC-1: a message naming a task with another dispatch id must not act on its row
+    # N1-309 (N1-287): the skip is logged to runner.log and recorded as a dispatch_mismatch event (not dropped silently);
+    # the untrusted message id reaches both only as [A-Za-z0-9_-].
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
     echo implement > "$tmp/fake/step.T-A"; echo implement > "$tmp/fake/step.T-B"
     : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
-    printf '%s' "$(orca_msg worker_done task-T-B m-d1 | jq -c '.payload |= (fromjson | .dispatchId = "d-forged" | tojson)')" > "$tmp/fake/question"
+    printf '%s' "$(orca_msg worker_done task-T-B 'm-d1"<x>$(y)' | jq -c '.payload |= (fromjson | .dispatchId = "d-forged" | tojson)')" > "$tmp/fake/question"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-forged: T-B not finalized by a mismatched dispatch" "no" \
         "$([ "$(plan_cell "$tmp/queue.md" 2 9)" = child-exited-incomplete ] && echo yes || echo no)"
+    assert_eq "orca-forged: skip logged to runner.log" "1" \
+        "$(grep -c -F '[orca] skipped message (dispatch-mismatch task=task-T-B msg=m-d1xy)' "$tmp/output.txt" || true)"
+    assert_eq "orca-forged: dispatch_mismatch event, sanitized" "T-B|dispatch-mismatch task=task-T-B msg=m-d1xy" \
+        "$(jq -rR 'fromjson? | select(.event == "dispatch_mismatch") | "\(.ticket)|\(.reason)"' "$tmp/events.jsonl")"
     rm -rf "$tmp"
 }
 
