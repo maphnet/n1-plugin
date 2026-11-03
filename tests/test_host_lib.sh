@@ -29,5 +29,43 @@ has   "headless: closed stdin + log" "< /dev/null > /tmp/out 2>&1" "$cmd"
 lacks "headless: no N1_HOST export" "N1_HOST" "$cmd"
 lacks "headless: no codex" "codex" "$cmd"
 
+# ---- n1_mcp_http_url (N1-314, SEC-3): ~/.claude.json projects[<main checkout>] -> approved repo .mcp.json -> user scope; loopback only ----
+U=$(mktemp -d); trap 'rm -rf "$U"' EXIT
+git init -q "$U/main" && git -C "$U/main" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init \
+    && git -C "$U/main" worktree add -q "$U/wt" -b wt 2>/dev/null
+url() { (cd "$U/wt" && HOME="$U/home" n1_mcp_http_url "$1"); }
+cj() { jq -n --arg m "$U/main" "$1 | .projects = {(\$m): (.projects // {})}" > "$U/home/.claude.json"; }
+mkdir -p "$U/home"
+eq "mcp url: no ~/.claude.json -> rc 1" "1" "$(url jc >/dev/null; echo $?)"
+cj '{mcpServers:{jc:{type:"http",url:"http://127.0.0.1:9/user"},sx:{type:"stdio",command:"x"}},projects:{mcpServers:{jc:{type:"http",url:"http://localhost:9/main"}}}}'
+eq "mcp url: main checkout project entry beats user scope" "http://localhost:9/main" "$(url jc)"
+printf '{"mcpServers":{"jc":{"type":"http","url":"http://127.0.0.1:9/repo"}}}' > "$U/wt/.mcp.json"
+eq "mcp url: local scope beats .mcp.json" "http://localhost:9/main" "$(url jc)"
+cj '{mcpServers:{jc:{type:"http",url:"http://127.0.0.1:9/user"}}}'
+eq "mcp url: unapproved .mcp.json ignored, user scope used" "http://127.0.0.1:9/user" "$(url jc)"
+cj '{projects:{enabledMcpjsonServers:["jc"]}}'
+eq "mcp url: approved .mcp.json used" "http://127.0.0.1:9/repo" "$(url jc)"
+cj '{projects:{enableAllProjectMcpServers:true}}'
+eq "mcp url: enableAllProjectMcpServers approves" "http://127.0.0.1:9/repo" "$(url jc)"
+cj '{projects:{enableAllProjectMcpServers:true,disabledMcpjsonServers:["jc"]}}'
+eq "mcp url: disabled server not used" "1" "$(url jc >/dev/null; echo $?)"
+cj '{projects:{enabledMcpjsonServers:["jc"]}}'
+for u in https://attacker.example/mcp http://127.0.0.1.evil.test/mcp http://evil.test:80/@127.0.0.1/ 'http://127.0.0.1@evil.test/' http://127.0.0.1x/ file:///etc/passwd; do
+    printf '{"mcpServers":{"jc":{"type":"http","url":"%s"}}}' "$u" > "$U/wt/.mcp.json"
+    eq "mcp url: non-loopback $u -> rc 1" "1" "$(url jc >/dev/null; echo $?)"
+done
+for u in http://127.0.0.1/ http://127.0.0.1:18090/mcp 'https://localhost:1/a?b=c' 'http://[::1]:5/mcp' http://localhost; do
+    printf '{"mcpServers":{"jc":{"type":"http","url":"%s"}}}' "$u" > "$U/wt/.mcp.json"
+    eq "mcp url: loopback $u accepted" "$u" "$(url jc)"
+done
+printf '{"mcpServers":{"jc":{"command":"jc-mcp"}}}' > "$U/wt/.mcp.json"
+eq "mcp url: first entry by name decides (stdio -> rc 1)" "1" "$(url jc >/dev/null; echo $?)"
+rm "$U/wt/.mcp.json"
+cj '{mcpServers:{jc:{type:"http",url:"http://127.0.0.1:9/user"},sx:{type:"stdio",command:"x"}}}'
+eq "mcp url: stdio entry -> rc 1, no output" "1|" "$(o=$(url sx); echo "$?|$o")"
+eq "mcp url: unknown name -> rc 1" "1" "$(url nope >/dev/null; echo $?)"
+cj '{mcpServers:{jc:{type:"http",url:"file:///etc/passwd"}}}'
+eq "mcp url: non-http url -> rc 1" "1" "$(url jc >/dev/null; echo $?)"
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

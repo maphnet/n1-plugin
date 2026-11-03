@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N1-89: lib/ticket-watch.sh — gate, seed, comparator, delta, replan reset. jq fixtures, no MCP.
+# N1-89: lib/ticket-watch.sh — gate, need (N1-314), seed, comparator, delta, replan reset. jq fixtures, no MCP.
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
@@ -27,6 +27,16 @@ cfg '{"tracker":{"mcp":"jc","operations":{}}}'
 assert_eq "on: getChangelog unmapped -> off" "" "$(n1_tw_on "$ID" seed)"
 cfg '{"watch":{"enabled":false},"tracker":{"mcp":"jc","operations":{"getChangelog":"jcm_getIssueChangelog"}}}'
 assert_eq "on: watch.enabled=false -> off" "" "$(n1_tw_on "$ID" seed)"
+
+# ---- n1_tw_need (N1-314): host-capture fallback ----
+printf '{}' > "$T/have.json"; : > "$T/empty.json"
+out=$(n1_tw_need "$T/have.json"); rc=$?
+assert_eq "need: present -> silent" "" "$out"
+assert_eq "need: present rc 0" "0" "$rc"
+out=$(n1_tw_need "$T/have.json" "$T/none.json" "$T/empty.json"); rc=$?
+assert_eq "need: one line per missing or empty file" "TW_MISSING $T/none.json
+TW_MISSING $T/empty.json" "$out"
+assert_eq "need: missing rc 1" "1" "$rc"
 
 # ---- n1_tw_seed ----
 cfg "$CFG_ON"
@@ -71,7 +81,7 @@ ext_log 7 "2026-10-17T10:40:00.000+0000" status Done false > "$T/log-done.json"
 ext_log 8 "2026-10-17T10:40:00.000+0000" status Blocked false > "$T/log-blocked.json"
 ext_log 9 "2026-10-17T10:40:00.000+0000" status "In Review" false > "$T/log-review.json"
 ext_log 10 "2026-10-17T10:40:00.000+0000" description "New AC: CSV" false > "$T/log-desc.json"
-ext_log 11 "2026-10-17T10:10:00.000+0000" labels x true > "$T/log-p1.json"
+ext_log 11 "2026-10-17T10:10:00.000+0000" summary x true > "$T/log-p1.json"
 ext_log 13 "2026-10-17T10:45:00.000+0000" description "$(printf 'z%.0s' $(seq 600))" false > "$T/log-long.json"
 ext_log 12 "2026-10-17T10:20:00.000+0000" description y false > "$T/log-p2.json"
 
@@ -117,7 +127,7 @@ assert_eq "delta: body capped at 1500" "1500" "$(jq '.comments[0].body | length'
 
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-long.json")
 assert_eq "delta: changelog from/to capped at 500" "500" "$(jq '.changes[0].to | length' <<<"$out")"
-printf '{"entries":[{"id":"30","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:45:00.000+0000","items":[{"field":"labels","from":"a\u200bb\u00adc","to":"x"}]}],"truncated":false}' > "$T/log-inv.json"
+printf '{"entries":[{"id":"30","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:45:00.000+0000","items":[{"field":"summary","from":"a\u200bb\u00adc","to":"x"}]}],"truncated":false}' > "$T/log-inv.json"
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-inv.json")
 assert_eq "delta: zero-width chars stripped" "a b c" "$(jq -r '.changes[0].from' <<<"$out")"
 reset; out=$(n1_tw_delta "$ID" "$T/bad.json" "$T/log-empty.json"); rc=$?
@@ -137,7 +147,7 @@ out=$(n1_tw_delta "$ID" "$T/issue-many.json" "$T/log-empty.json")
 assert_eq "cap: remainder delivered next check" "2" "$(jq '.comments | length' <<<"$out")"
 assert_eq "cap: remainder first id" "310" "$(jq -r '.comments[0].id' <<<"$out")"
 assert_eq "cap: drained advances updated" "$T1" "$(jq -r .updated "$M/.ticket-watch")"
-jq -nc '{entries:[range(12) | {id:"\(40+.)", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:\(10+.):00.000+0000", items:[{field:"labels",from:"a",to:"b"}]}], truncated:false}' > "$T/log-12.json"
+jq -nc '{entries:[range(12) | {id:"\(40+.)", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:\(10+.):00.000+0000", items:[{field:"summary",from:"a",to:"b"}]}], truncated:false}' > "$T/log-12.json"
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-12.json")
 assert_eq "cap: changes capped at 10" "10" "$(jq '.changes | length' <<<"$out")"
 assert_eq "cap: changelog_since stops at last delivered" "2026-10-17T11:19:00.000+0000" "$(jq -r .changelog_since "$M/.ticket-watch")"
@@ -154,7 +164,7 @@ printf '{"entries":[{"id":"50","authorAccountId":"al-2","author":"Alice","create
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-ownflip.json")
 assert_eq "status: own later transition -> no stop" "null" "$(jq -r .status_stop <<<"$out")"
 # [CR-1] a status stop inside the withheld (beyond-cap) entries waits for its own delivery
-jq -nc '{entries:([range(10) | {id:"\(60+.)", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:\(10+.):00.000+0000", items:[{field:"labels",from:"a",to:"b"}]}] + [{id:"70", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:30:00.000+0000", items:[{field:"status",from:"In Progress",to:"Blocked"}]}]), truncated:false}' > "$T/log-capstop.json"
+jq -nc '{entries:([range(10) | {id:"\(60+.)", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:\(10+.):00.000+0000", items:[{field:"summary",from:"a",to:"b"}]}] + [{id:"70", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:30:00.000+0000", items:[{field:"status",from:"In Progress",to:"Blocked"}]}]), truncated:false}' > "$T/log-capstop.json"
 reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-capstop.json")
 assert_eq "capstop: withheld status stop not fired" "null" "$(jq -r .status_stop <<<"$out")"
 jq -c '{entries:[.entries[-1]], truncated:false}' "$T/log-capstop.json" > "$T/log-capstop2.json"
@@ -168,6 +178,19 @@ assert_eq "trunc: own Blocked in history -> no stop, no digest" "" "$out"
 # [CR-3] fallback stop without any status item reports an unknown actor
 reset; out=$(n1_tw_delta "$ID" "$T/issue-blk.json" "$T/log-p1.json")
 assert_eq "trunc: fallback stop status_by unknown" "unknown" "$(jq -r .status_by <<<"$out")"
+# ---- N1-314 noise filter: Rank/Sprint/labels/Fix Version/watchers never reach the digest ----
+printf '{"entries":[{"id":"90","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:41:00.000+0000","items":[{"field":"Rank","from":"","to":"Ranked higher"}]},{"id":"91","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:42:00.000+0000","items":[{"field":"Sprint","from":"","to":"S1"},{"field":"labels","from":"","to":"x"},{"field":"Fix Version","fieldId":"fixVersions","from":"","to":"5.38.0"},{"field":"WATCHERS","from":"","to":"y"}]}],"truncated":false}' > "$T/log-noise.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-noise.json")
+assert_eq "noise: external Rank/Sprint/labels/Fix Version/watchers -> silent" "" "$out"
+assert_eq "noise: dropped items advance changelog_since" "2026-10-17T10:42:00.000+0000" "$(jq -r .changelog_since "$M/.ticket-watch")"
+assert_eq "noise: dropped items advance updated" "$T1" "$(jq -r .updated "$M/.ticket-watch")"
+printf '{"entries":[{"id":"92","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:43:00.000+0000","items":[{"field":"Sprint","from":"","to":"S1"},{"field":"status","from":"To Do","to":"In Review"}]},{"id":"93","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:44:00.000+0000","items":[{"field":"x","fieldId":"fixVersions","from":"","to":"5.38.0"}]},{"id":"94","authorAccountId":"al-2","author":"Alice","created":"2026-10-17T10:45:00.000+0000","items":[{"field":"priority","from":"Low","to":"High"}]}],"truncated":false}' > "$T/log-mixed.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-mixed.json")
+assert_eq "noise: mixed entry keeps only valuable fields" "status,priority" "$(jq -r '[.changes[].field] | join(",")' <<<"$out")"
+assert_eq "noise: mixed advances changelog_since" "2026-10-17T10:45:00.000+0000" "$(jq -r .changelog_since "$M/.ticket-watch")"
+jq -nc '{entries:([range(12) | {id:"\(95+.)", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:\(10+.):00.000+0000", items:[{field:"Rank",from:"a",to:"b"}]}] + [{id:"120", authorAccountId:"al-2", author:"Alice", created:"2026-10-17T11:30:00.000+0000", items:[{field:"summary",from:"a",to:"b"}]}]), truncated:false}' > "$T/log-noisecap.json"
+reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-noisecap.json")
+assert_eq "noise: dropped items do not count toward the cap" "1|false" "$(jq -r '"\(.changes | length)|\(.pending)"' <<<"$out")"
 # ---- n1_tw_replan_reset ----
 A=$(_n1_step_display_name analysis); Q=$(_n1_step_display_name qa)
 printf -- '---\nstep: review\nqa_fix_cycle: 2\nreview_fix_cycle: 1\n---\n\n- [x] %s\n- [x] %s\n- [x] Unrelated checklist item\n' "$A" "$Q" > "$M/overview.md"

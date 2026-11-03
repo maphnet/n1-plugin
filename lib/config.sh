@@ -951,6 +951,20 @@ n1_active_run_file() {
     fi
 }
 
+# n1_active_run_ticket [sid]: prints ticketId from the active-run pointer (the key n1_active_run_write
+# writes). With a sid, reads that session's keyed file only; without, n1_active_run_file's pick.
+n1_active_run_ticket() {
+    local f home
+    if [ -n "${1:-}" ]; then
+        case "$1" in *[!a-zA-Z0-9_-]*) return 0 ;; esac
+        home=$(n1_home) && [ -n "$home" ] || return 0
+        f="${home}/active-run.${1}.json"
+    else
+        f=$(n1_active_run_file 2>/dev/null) || return 0
+    fi
+    jq -r '.ticketId // empty | strings' "$f" 2>/dev/null || true
+}
+
 n1_active_run_write() {
     local ticket_id="$1" run_id="$2" worktree_path="${3:-null}" branch="${4:-}"
     local file
