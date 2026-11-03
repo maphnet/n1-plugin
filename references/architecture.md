@@ -497,8 +497,10 @@ Host backend: each child runs as a `claude --bg` background session (`n1_bg_laun
   - Each pending or held row lists every earlier row that shares a Touches token. `n1_queue_overlap_preds` computes the lists and `n1_queue_schedule_write` writes them.
   - Preview and `--run` print the schedule as waves (`n1_queue_waves`, `n1_queue_plan_waves`). Held rows' Blocks blockers appear as display-only edges and are never stored.
   - Each Orca tick launches the first pending row whose predecessors are all released (`n1_queue_eligible_rows`, the N1-269 rule). A predecessor is released at `pr`, or at Runs Outcome `merged` when `autonomy.fullAuto` and `finishWork.mergeOnFinish` let the queue merge its own PRs, or at `done-before-run`.
-  - A `failed`, `escalated`, `skip` or not-in-plan predecessor skips the row.
-  - Gated rows count as held for the idle wait. When that wait times out, `n1_queue_gated_expire` skips them.
+  - An edge `S after P` is dropped when P is held and blocked on S, so a Blocks edge never reverses into a deadlock. A three-ticket form (held row blocked on a ticket that overlap-depends on it) is not dropped; `n1_queue_waves` prints `cycle in schedule` for a residual cycle.
+  - A `failed`, `escalated`, `skip` or not-in-plan predecessor skips the row. With merge authorized, a `pr` predecessor whose Reason is `finish:<why>` skips the row at once (`predecessor <key> not merged`).
+  - Gated rows count as held for the idle wait. When that wait times out, `n1_queue_gated_expire` skips them and names the blocking predecessor.
+  - A stale plan re-planned at `--run` prints `Re-pinned max_concurrent <old> -> <new>` before the Start prompt.
   - Blocks-held rows keep the idle-only held sweep. The bg runner ignores the schedule and runs sequentially in Plan order.
 - `queue.unattendedAutoStart` (default `false`): consent for scheduled runs. `--schedule` refuses and `--unattended` stops while it is false (N1-226).
 
