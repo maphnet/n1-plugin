@@ -132,6 +132,50 @@ test_orca_question_parks() {
     rm -rf "$tmp"
 }
 
+# N1-309 AC1-AC3. Bug caught: a worker whose row already failed subtask-timeout asks a question; the .ask marker is
+# written but the row loop only visits in-progress/awaiting-human rows, so no event, no needs-you, the worker waits
+# forever and its later PR is never recorded (run 20261102T172042Z, N1-268). Timeline (timeout 60 s, poll 30 s):
+# tick 3 times out, tick 4 asks, tick 5 answers (.ask removed as --answer does), tick 6 the worker reaches pr.
+test_orca_question_after_timeout() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"
+    : > "$tmp/fake/nodone.T-A"
+    orca_msg question task-T-A m-q1 > "$tmp/fake/q.late"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/fake/overview.pr"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.4"
+    printf 'rm -f "%s"\n' "$tmp/.ask-T-A" > "$tmp/fake/at.5"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/overview.pr" "$tmp/n1home/memory/T-A/overview.md" > "$tmp/fake/at.6"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=12 > /dev/null
+    evc() { jq -R --arg e "$1" --arg o "${2:-}" 'fromjson? | select(.event == $e and .ticket == "T-A" and ($o == "" or .outcome == $o)) | .event' "$tmp/events.jsonl" | wc -l | tr -d ' '; }
+    assert_eq "orca-ask-after-timeout: timed out first" "1" "$(evc ticket_finished failed)"
+    assert_eq "orca-ask-after-timeout: row re-adopted" "1" "$(grep -c 'T-A -> awaiting-human (worker asked after the row failed)' "$tmp/output.txt" || true)"
+    assert_eq "orca-ask-after-timeout: one escalated event" "1" "$(evc escalated)"
+    assert_eq "orca-ask-after-timeout: needs-you points at --answer" "1" "$(grep -c 'T-A needs you.*--answer T-A' "$tmp/notes" || true)"
+    assert_eq "orca-ask-after-timeout: unblocked after the answer" "1" "$(evc unblocked)"
+    assert_eq "orca-ask-after-timeout: no second timeout (clock reset)" "1" "$(evc ticket_finished failed)"
+    assert_eq "orca-ask-after-timeout: later outcome recorded" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-ask-after-timeout: never relaunched" "0" "$(grep -c worker-start "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-309. Bug caught: a question from a worker whose row is already pr (PR open, worker still in its review/CI loop)
+# is dropped silently; re-adopting it instead would re-finalize the row and delete .ask before the user answers.
+test_orca_question_on_pr_row() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"
+    : > "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/n1home/memory/T-A/overview.md"
+    orca_msg question task-T-A m-q2 > "$tmp/fake/q.late"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.2"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+    assert_eq "orca-ask-pr: row keeps pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-ask-pr: .ask kept for --answer" "m-q2" "$(cat "$tmp/.ask-T-A" 2>/dev/null)"
+    assert_eq "orca-ask-pr: one escalated event" "1" \
+        "$(jq -R 'fromjson? | select(.event == "escalated" and .ticket == "T-A") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "orca-ask-pr: one needs-you" "1" "$(grep -c 'T-A needs you.*--answer T-A' "$tmp/notes" || true)"
+    rm -rf "$tmp"
+}
+
 test_orca_coordinator_sink() {   # N1-270 AC1
     # Bugs caught: an orchestration call (run-create, task-create, worker-start, check, worker-list) made as the
     # launching terminal, which Orca then nudges; the sink handle not stored for --answer; the sink left open at queue end.
@@ -695,6 +739,8 @@ test_orca_overlap_releases_at_pr
 test_orca_overlap_hard_edge
 test_orca_held_blocker
 test_orca_question_parks
+test_orca_question_after_timeout
+test_orca_question_on_pr_row
 test_orca_coordinator_sink
 test_orca_coordinator_fallback
 test_orca_resume_no_duplicate

@@ -976,7 +976,27 @@ run_orca() {
             SEEN="$SEEN${MSG:+$MSG }"
             case "$TYPE" in
                 worker_done) DONE="$DONE$TASK " ;;
-                question) _n1_orca_id "$MSG" && printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T" ;;
+                question)
+                    _n1_orca_id "$MSG" || continue
+                    printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T"
+                    # N1-309: the row loop only visits in-flight rows, so a question on a final row is surfaced here.
+                    # A failed row whose worker is not settled (e.g. subtask-timeout, worker alive) is re-adopted: the
+                    # row loop then flips it back to in-progress after --answer and records its later outcome. Its
+                    # clock restarts, its slot is no longer owed, and its strike is returned (a later finalize counts
+                    # again). A pr/escalated row keeps its status: OWED and orca_settle already supervise it, and a
+                    # re-adopt would make the next tick re-finalize it and delete .ask before the answer.
+                    IFS=$'\t' read -r NUM _ _ N1H _ STATUS <<< "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human|failed|pr|escalated' | awk -F'\t' -v t="$T" '$2 == t' | tail -1)"
+                    case "$STATUS" in
+                        failed)
+                            if [[ "$SETTLED" != *" $TASK "* ]]; then
+                                n1_queue_row_status "$QUEUE" "$NUM" awaiting-human
+                                WORKED[NUM]=0; OWED="${OWED// $TASK / }"; PARKED[NUM]=1; SINCE_PARK=0
+                                [ "$CONSECUTIVE_FAIL" -gt 0 ] && CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL - 1))
+                                echo "[$NUM] $T -> awaiting-human (worker asked after the row failed)"
+                            fi
+                            escalate "$T" "$N1H" ;;
+                        pr|escalated) escalate "$T" "$N1H" ;;
+                    esac ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" ;;
             esac
         done 3<<< "$EVS"
