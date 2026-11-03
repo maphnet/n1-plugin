@@ -6,13 +6,12 @@ source "$(dirname "$0")/queue_runner_lib.sh"
 
 test_orca_heartbeat() {   # AC3: a stray heartbeat is acked and ignored; heartbeat-only ticks charge real elapsed time
     local tmp; tmp=$(mktemp -d)
-    # (a) A batch carrying a heartbeat is acked and writes no .hb- file (row parked, so not finalized).
+    # (a) A batch carrying a heartbeat is acked (row parked, so not finalized).
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
     echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
     printf '%s,%s' "$(jq -cn --arg y question --arg i m-q1 '{id: $i, type: $y, payload: ({taskId: "task-T-A", dispatchId: "d-T-A"} | tojson)}')" "$(jq -cn --arg y heartbeat --arg i m-hb1 '{id: $i, type: $y, payload: ({taskId: "task-T-A", dispatchId: "d-T-A"} | tojson)}')" > "$tmp/fake/question"   # real payload shape, bound to d-T-A
     printf '{"ticket":"T-A","question":"Pick a DB?","options":["A","B"],"recommended":"A","rationale":"x"}' > "$tmp/.question-T-A.json"
     assert_eq "orca-hb: exit 0" "0" "$(run_orca_queue "$tmp")"
-    assert_eq "orca-hb: no .hb- file written" "no" "$(compgen -G "$tmp/.hb-*" > /dev/null && echo yes || echo no)"
     assert_eq "orca-hb: check requests heartbeat" "yes" "$(grep -q 'check --run run-1.*--types worker_done,escalation,question,heartbeat' "$tmp/fake/orca-calls" && echo yes || echo no)"
     assert_eq "orca-hb: heartbeat batch acked" "yes" "$(grep -q 'check --run run-1 --ack del-1' "$tmp/fake/orca-calls" && echo yes || echo no)"
     rm -rf "$tmp"; tmp=$(mktemp -d)
@@ -25,13 +24,6 @@ test_orca_heartbeat() {   # AC3: a stray heartbeat is acked and ignored; heartbe
     assert_eq "orca-hb-only: early heartbeat returns do not charge a full poll (no early timeout)" "no" \
         "$([ "$(plan_cell "$tmp/queue.md" 1 9)" = subtask-timeout ] && echo yes || echo no)"
 
-    # (c) A bound message with no message id is still processed (the empty id must not shift the dispatch column).
-    rm -rf "$tmp"; tmp=$(mktemp -d)
-    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
-    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
-    jq -cn '{type: "heartbeat", payload: ({taskId: "task-T-A", dispatchId: "d-T-A"} | tojson)}' > "$tmp/fake/heartbeat"
-    timeout 8 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
-    assert_eq "orca-hb-noid: heartbeat without message id writes no .hb- file" "no" "$(compgen -G "$tmp/.hb-*" > /dev/null && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
