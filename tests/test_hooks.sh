@@ -168,11 +168,29 @@ assert_eq "missing persona file: reviewer Write outside findings path denied" 2 
 assert_eq "missing persona file: reviewer Write to findings path allowed" 0 "$(pyroot_rc "$T/alt/memory/T-9/review-cr.md")"
 
 # --- enforce-agent-policy: merge deny (N1-146; N1-167: only unattended sessions and active N1 runs, unless n1_merge_authorized) ---
-policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
+# N1-321: policy_rc is answered by one in-process policy server (tests/hooks_policy_server.py runs the hook's own
+# main() per case), so the tables below cost no process spawn per command. wrapper_rc keeps the full bash-wrapper
+# path for the end-to-end cases (no Python, crashes, missing config) and the wrapper smoke checks.
+wrapper_rc() {  # wrapper_rc <env-assignments...> -- <command>; prints the hook exit code
     local envs=() cmd
     while [ "$1" != "--" ]; do envs+=("$1"); shift; done; cmd=$2
     local p; p=$(jq -cn --arg c "$cmd" --arg cwd "$T" '{session_id:"s",cwd:$cwd,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c}}')
     local rc=0; printf '%s' "$p" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "${envs[@]}" bash "$POLICY" >/dev/null 2>&1 || rc=$?
+    echo "$rc"
+}
+mkfifo "$T/policy.req" "$T/policy.resp"
+python3 "$REPO_ROOT/tests/hooks_policy_server.py" "$REPO_ROOT/hooks/enforce-agent-policy.py" "$N1_HOME/config.json" "$REPO_ROOT" "$T" \
+    <"$T/policy.req" >"$T/policy.resp" 2>"$T/policy.err" &
+POLICY_PID=$!
+trap 'kill "$POLICY_PID" 2>/dev/null; rm -rf "$T"' EXIT
+exec 7>"$T/policy.req" 8<"$T/policy.resp"
+policy_rc() {  # policy_rc <env-assignments...> -- <command>; same contract as wrapper_rc, answered by the policy server
+    local rc
+    # a dead server must fail the assertions, not kill the script with SIGPIPE on the write; a hung one is killed after the
+    # first timeout so a late answer can never be read as the next case's verdict (request/response skew)
+    kill -0 "$POLICY_PID" 2>/dev/null || { echo "no-server"; return; }
+    printf '%s\0' "$@" >&7
+    read -r -t 30 rc <&8 || { rc="no-answer"; kill "$POLICY_PID" 2>/dev/null; }
     echo "$rc"
 }
 Q=(N1_QUEUE_RUN_ID=RUN1 N1_HEADLESS=1)
@@ -244,11 +262,18 @@ for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push ori
     assert_eq "queue headless: allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
     assert_eq "interactive: allowed: $c" 0 "$(policy_rc -- "$c")"
 done
+# N1-321: the tables above are answered by the policy server; these prove the bash wrapper reaches the same verdicts
+for c in "gh pr merge 12" "git push origin HEAD:main"; do
+    assert_eq "wrapper: queue headless: denied: $c" 2 "$(wrapper_rc "${Q[@]}" -- "$c")"
+    assert_eq "wrapper: interactive: denied: $c" 2 "$(wrapper_rc -- "$c")"
+done
+assert_eq "wrapper: queue headless: allowed: gh pr view 12" 0 "$(wrapper_rc "${Q[@]}" -- "gh pr view 12")"
+assert_eq "wrapper: interactive: allowed: gh pr view 12" 0 "$(wrapper_rc -- "gh pr view 12")"
 # CR-11: no working Python -> queue-child Bash fails closed; other payloads stay fail-open
 mkdir -p "$T/nopy"; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; cp "$T/nopy/python3" "$T/nopy/python"; chmod +x "$T/nopy/"*
-assert_eq "no python: queue headless Bash denied" 2 "$(PATH="$T/nopy:$PATH" policy_rc "${Q[@]}" -- "gh pr view 1")"
-assert_eq "no python: non-queue Bash allowed" 0 "$(PATH="$T/nopy:$PATH" policy_rc -- "gh pr view 1")"
-assert_eq "no python: interactive merge fails open (warned)" 0 "$(PATH="$T/nopy:$PATH" policy_rc -- "gh pr merge 1")"
+assert_eq "no python: queue headless Bash denied" 2 "$(PATH="$T/nopy:$PATH" wrapper_rc "${Q[@]}" -- "gh pr view 1")"
+assert_eq "no python: non-queue Bash allowed" 0 "$(PATH="$T/nopy:$PATH" wrapper_rc -- "gh pr view 1")"
+assert_eq "no python: interactive merge fails open (warned)" 0 "$(PATH="$T/nopy:$PATH" wrapper_rc -- "gh pr merge 1")"
 rm -rf "$T/nopy"
 # N1-146: {mergeOnFinish, fullAuto} x {interactive, queue headless}; only JSON true counts
 cfg() { printf '%s\n' "$1" > "$N1_HOME/config.json"; }
@@ -323,6 +348,11 @@ for e in "${PIPE_OK[@]}"; do
     cfg '{}'
     assert_eq "pipe-mask allow ${e%%|*}" 0 "$(policy_rc -- "${e#*|}")"
 done
+cfg '{}'
+assert_eq "wrapper: pipe-mask deny ${PIPE_DENY[0]%%|*}" 2 "$(wrapper_rc -- "${PIPE_DENY[0]#*|}")"
+assert_eq "wrapper: pipe-mask allow ${PIPE_OK[0]%%|*}" 0 "$(wrapper_rc -- "${PIPE_OK[0]#*|}")"
+cfg "$BOTH"
+assert_eq "wrapper: gh pr merge allowed when authorized" 0 "$(wrapper_rc -- "gh pr merge 12")"
 # SEC-1/CR-3: long pathological word must stay linear
 LONG="bash $(printf 'tests/%.0s' $(seq 1 20000))x | tail -2 && git commit -m x"
 cfg '{}'; START=$SECONDS
@@ -376,10 +406,10 @@ printf '#!/bin/sh\n[ "$1" = -c ] && { cat; echo; exit 0; }\nexit "${CRASH_RC:-1}
 cp "$T/crashpy/python3" "$T/crashpy/python"; chmod +x "$T/crashpy/"*
 for r in 1 137; do
     cfg '{}'
-    assert_eq "python crash rc $r: queue-child Bash denied" 2 "$(policy_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
-    assert_eq "python crash rc $r: ordinary Bash allowed" 0 "$(policy_rc PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+    assert_eq "python crash rc $r: queue-child Bash denied" 2 "$(wrapper_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+    assert_eq "python crash rc $r: ordinary Bash allowed" 0 "$(wrapper_rc PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
     cfg "$BOTH"
-    assert_eq "python crash rc $r: authorized queue-child Bash still denied (pipe-mask check lost)" 2 "$(policy_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+    assert_eq "python crash rc $r: authorized queue-child Bash still denied (pipe-mask check lost)" 2 "$(wrapper_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
 done
 cfg '{}'
 assert_eq "python crash: queue-child developer Write allowed" 0 "$(raw_rc "$DW" "${Q[@]}" PATH="$T/crashpy:$PATH")"
@@ -388,11 +418,11 @@ rm -rf "$T/crashpy"
 # Missing or invalid config must deny, never authorize (the shell predicate is false, so Python decides with config {})
 c="gh pr merge 12"
 rm -f "$N1_HOME/config.json"
-assert_eq "no config file: interactive denied" 2 "$(policy_rc -- "$c")"
-assert_eq "no config file: queue denied" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+assert_eq "no config file: interactive denied" 2 "$(wrapper_rc -- "$c")"
+assert_eq "no config file: queue denied" 2 "$(wrapper_rc "${Q[@]}" -- "$c")"
 cfg '{bad'
-assert_eq "invalid config: interactive denied" 2 "$(policy_rc -- "$c")"
-assert_eq "invalid config: queue denied" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+assert_eq "invalid config: interactive denied" 2 "$(wrapper_rc -- "$c")"
+assert_eq "invalid config: queue denied" 2 "$(wrapper_rc "${Q[@]}" -- "$c")"
 # The Python mirror decides on its own (the .sh fast exit is skipped when called directly)
 PAY=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr merge 12"}}')
 py_rc() { local rc=0; printf '%s' "$PAY" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "$@" python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "$N1_HOME/config.json" "$REPO_ROOT" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
