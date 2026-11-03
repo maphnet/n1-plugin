@@ -496,10 +496,10 @@ Host backend: each child runs as a `claude --bg` background session (`n1_bg_laun
   - `--run` on a fresh plan prints a note when config now differs. Re-plan to change the value.
   - The bg backend stays sequential. Lower the value when WSL RAM is tight (N1-74).
 - Parallel schedule (N1-303): queue.md `## Schedule` (`| Ticket | After |`, between `## Decisions` and `## Decision Ledger`).
-  - Each pending or held row lists every earlier row that shares a Touches token. `n1_queue_overlap_preds` computes the lists and `n1_queue_schedule_write` writes them.
+  - Each pending or held row lists every earlier row that shares a Touches token, except an edge that would close a cycle through Blocks edges of any length (N1-318). `n1_queue_overlap_preds` computes the lists and `n1_queue_schedule_write` writes them.
   - Preview and `--run` print the schedule as waves (`n1_queue_waves`, `n1_queue_plan_waves`). Held rows' Blocks blockers appear as display-only edges and are never stored.
   - Each Orca tick launches the first pending row whose predecessors are all released (`n1_queue_eligible_rows`, the N1-269 rule). A predecessor is released at `pr`, or at Runs Outcome `merged` when `autonomy.fullAuto` and `finishWork.mergeOnFinish` let the queue merge its own PRs, or at `done-before-run`.
-  - An edge `S after P` is dropped when P is held and blocked on S, so a Blocks edge never reverses into a deadlock. A three-ticket form (held row blocked on a ticket that overlap-depends on it) is not dropped; `n1_queue_waves` prints `cycle in schedule` for a residual cycle.
+  - An overlap edge `S after P` is dropped when P already depends on S through Blocks edges plus the overlap edges kept so far, so a Blocks edge always wins and never reverses into a deadlock. `n1_queue_waves` still prints `cycle in schedule` for any residual cycle.
   - A `failed`, `escalated`, `skip` or not-in-plan predecessor skips the row. With merge authorized, a `pr` predecessor whose Reason is `finish:<why>` skips the row at once (`predecessor <key> not merged`).
   - Gated rows count as held for the idle wait. When that wait times out, `n1_queue_gated_expire` skips them and names the blocking predecessor.
   - A stale plan re-planned at `--run` prints `Re-pinned max_concurrent <old> -> <new>` before the Start prompt.
