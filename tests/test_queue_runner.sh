@@ -424,11 +424,11 @@ test_desktop_notify_stdin() {   # N1-265: no desktop backend may consume the cal
     printf '#!/bin/sh\nwhile read -r _; do :; done\nexit 0\n' > "$tmp/drain"; chmod +x "$tmp/drain"
     for b in notify-send osascript; do
         rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"; cp "$tmp/drain" "$tmp/bin/$b"
-        out=$(printf 'a\nb\nc\n' | { read -r _; ( PATH="$tmp/bin"; n1_desktop_notify T B ); cat; } | paste -sd, -)
+        out=$(printf 'a\nb\nc\n' | { read -r _; ( export PATH="$tmp/bin"; n1_desktop_notify T B ); cat; } | paste -sd, -)
         assert_eq "desktop-stdin: $b leaves caller stdin alone" "b,c" "$out"
     done
     rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    out=$(printf 'a\nb\nc\n' | { read -r _; ( PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/drain" n1_desktop_notify T B ); cat; } | paste -sd, -)
+    out=$(printf 'a\nb\nc\n' | { read -r _; ( export PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/drain" n1_desktop_notify T B ); cat; } | paste -sd, -)
     assert_eq "desktop-stdin: powershell leaves caller stdin alone" "b,c" "$out"
 }
 
@@ -464,7 +464,7 @@ test_notify_backends() {
     mkdir -p "$tmp/bin"; local c
     for c in jq timeout date; do ln -s "$(command -v "$c")" "$tmp/bin/$c"; done
     printf '{"queue":{"notify":"desktop"}}' > "$TEST_CONFIG"
-    rc=0; ( PATH="$tmp/bin"; n1_notify needs-you "T-2 needs you" ) 2> "$tmp/err" || rc=$?
+    rc=0; ( export PATH="$tmp/bin"; n1_notify needs-you "T-2 needs you" ) 2> "$tmp/err" || rc=$?
     assert_eq "notify: desktop skip rc 0" "0" "$rc"
     assert_eq "notify: desktop skip logged" "yes" "$(grep -q 'no desktop notifier available; skipped (needs-you: T-2 needs you)' "$tmp/err" && echo yes || echo no)"
     unset -f n1_config_file
