@@ -156,4 +156,19 @@ has "architecture lists n1-refine" '| n1-refine |' references/architecture.md
 has "compose keeps the feasibility rating" 'Keep the feasibility rating for Step 9' skills/n1-ticket/steps/01-compose.md
 line_has "create hints refine on risky tickets" '/n1:n1-refine <TICKET_ID>' 'needs investigation' skills/n1-ticket/steps/02-create.md
 
+# --- N1-296: fetch type + existing children
+F=skills/n1-refine/steps/01-fetch.md
+has "N1-296: fetch parses issue_type" '"issue_type"' "$F"
+has "N1-296: fetch parses subtask_count" '"subtask_count"' "$F"
+has "N1-296: fetch reads createIssue op" ".tracker.operations.createIssue" "$F"
+has "N1-296: fetch reads linkIssues op" ".tracker.operations.linkIssues" "$F"
+has "N1-296: fetch reads getIssueLinks op" ".tracker.operations.getIssueLinks" "$F"
+has "N1-296: fetch reads versionMcp" ".tracker.versionMcp" "$F"
+line_has "N1-296: fetch lists Jira children by parent JQL, every page" 'parent = <ID>' 'startAt' "$F"
+line_has "N1-296: fetch lists YouTrack subtask links" '<LINKS_OP>' '`subtask` link' "$F"
+lacks "N1-296: fetch never uses the existence-only form" 'maxResults 1' "$F"
+has "N1-296: subtask_count is a hint only" '`SUBTASK_COUNT` is a hint only' "$F"
+has "N1-296: children lookup failure sets unknown" '`CHILDREN=unknown`' "$F"
+before "N1-296: children lookup follows fetch" '## Step 3: Fetch' '## Step 3b: Existing Children' "$F"
+
 exit $FAIL

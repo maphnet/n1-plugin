@@ -1,4 +1,4 @@
-<!-- Purpose: tracker gate, fetch, codebase analysis, optional investigation (Steps 1-5). -->
+<!-- Purpose: tracker gate, fetch, existing children, codebase analysis, optional investigation (Steps 1-5). -->
 
 ## Step 1: Tracker Gate
 
@@ -10,8 +10,14 @@ CLOUD_ID=$(n1_config_val '.tracker.cloudId')
 READ_OP=$(n1_config_val '.tracker.operations.readTicket')
 EDIT_OP=$(n1_config_val '.tracker.operations.editTicket')
 COMMENT_OP=$(n1_config_val '.tracker.operations.addComment')
+CREATE_ISSUE_OP=$(n1_config_val '.tracker.operations.createIssue')
+LINK_OP=$(n1_config_val '.tracker.operations.linkIssues')
+SEARCH_OP=$(n1_config_val '.tracker.operations.search')
+LINKS_OP=$(n1_config_val '.tracker.operations.getIssueLinks')
+VERSION_MCP=$(n1_config_val '.tracker.versionMcp')
 mkdir -p "$N1_HOME/memory/<ID>/refine"
 echo "mcp=$TRACKER_MCP type=$TRACKER_TYPE cloud=$CLOUD_ID read=$READ_OP edit=$EDIT_OP comment=$COMMENT_OP"
+echo "create=$CREATE_ISSUE_OP link=$LINK_OP search=$SEARCH_OP links=$LINKS_OP versionMcp=$VERSION_MCP"
 ```
 
 `TRACKER_MCP` or `READ_OP` empty: say "No tracker configured. Run `/n1:n1-init` to set up a tracker." **STOP.** Keep the printed values for later steps.
@@ -34,9 +40,16 @@ TITLE=$(echo "$AGENT_OUTPUT" | grep -m1 '^title: ' | sed 's/^title: //')
 TAGS_CSV=$(echo "$INTAKE_RESULT" | sed 's/.*"tags":\[//;s/\].*//' | tr -d '"' | tr -d ' ')
 TYPE_FIELD=$(echo "$INTAKE_RESULT" | sed 's/.*[,{] *"type": *"\([^"]*\)".*/\1/')
 n1_resolve_type "$TITLE" "$TAGS_CSV" "$TYPE_FIELD" "" 2>/dev/null
+ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1/p' | tr '[:upper:]' '[:lower:]')
+SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p')
+echo "issue_type=$ISSUE_TYPE subtask_count=${SUBTASK_COUNT:-0}"
 ```
 
 Printed type `investigation`: set `INVESTIGATE=true`.
+
+## Step 3b: Existing Children
+
+`ISSUE_TYPE` `epic` or `story` only; otherwise `CHILDREN` is empty. Jira: `mcp__<TRACKER_MCP>__<SEARCH_OP>` with JQL `parent = <ID>` (`cloudId` when set), keeping `key`, `summary` and `issuetype` per issue, and fetch every page (follow `nextPageToken` when the result carries one, else advance `startAt`, until a page returns fewer issues than requested or no token remains; a full page whose next page cannot be fetched sets `CHILDREN=unknown`, never a partial list); never infer the count from `total` (jc-mcp omits it). YouTrack: `mcp__<TRACKER_MCP>__<LINKS_OP>` on `<ID>`, keeping every `subtask` link where `<ID>` is the parent. Hold the list as `CHILDREN` (key, type, summary) in this session; write no file. `SUBTASK_COUNT` is a hint only; the list is authoritative. Error, the needed op empty, or an unparseable result: `CHILDREN=unknown`, and say "Could not list existing children of <ID>; refine proposes none this run."
 
 ## Step 4: Codebase Analysis
 
