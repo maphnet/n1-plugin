@@ -104,6 +104,19 @@ assert_contains "output-gates: resume the owning subagent (N1-300)" \
 assert_contains "output-gates: run never stalls with plan tasks left (N1-300)" \
     "skills/n1-start/procedures/output-gates.md" \
     "Never let such a notice end the step or the run while plan tasks remain"
+# N1-300 — nested dispatchers: no return or waiting-text turn end before the child's final report
+assert_contains "implementer: hard stop on pending persona (N1-300)" \
+    "agents/implementer.md" \
+    "while a dispatched persona has no final report"
+assert_contains "implementer: waiting text stalls the run (N1-300)" \
+    "agents/implementer.md" \
+    "is read as your final result and stalls the run"
+assert_contains "implementer: resume child on interim notice (N1-300)" \
+    "agents/implementer.md" \
+    "resume it through the host message mechanism asking for its final report"
+assert_contains "developer: foreground tests (N1-300)" \
+    "agents/developer.md" \
+    "never background them and never end your turn while one is pending"
 assert_contains "n1-start: one-turn step transition" \
     "skills/n1-start/SKILL.md" \
     "**Transition turn:** issue in ONE turn, in parallel"

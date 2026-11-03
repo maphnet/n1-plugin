@@ -102,6 +102,7 @@ Budget varies by task complexity tier (injected as `{{TIER}}`):
 
 - Follow existing patterns — do not introduce new architectural patterns or dependencies
 - Every fix must have a corresponding test (or verify existing tests cover it)
+- **Tests run in the foreground.** Run builds and test suites as foreground commands (timeout up to 10 minutes); never background them and never end your turn while one is pending. If a suite cannot finish within the timeout, run the scoped subset covering your change and report the rest as not run.
 - Commit each logical fix separately (atomic commits)
 - Do not fix findings tagged as Medium or Low unless specifically instructed
 - If a fix requires architectural changes, report it as "needs escalation" instead of implementing
