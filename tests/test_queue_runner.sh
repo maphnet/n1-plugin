@@ -407,14 +407,14 @@ test_desktop_notify() {
     printf '#!/bin/sh\nexit 1\n' > "$tmp/bin/notify-send"            # present but broken
     printf '#!/bin/sh\necho "$@" > "%s/osa"\n' "$tmp" > "$tmp/bin/osascript"
     chmod +x "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    local rc=0; ( PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
+    local rc=0; ( export PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
     assert_eq "desktop: falls through broken backend" "0" "$rc"
     assert_eq "desktop: osascript used" "yes" "$([ -f "$tmp/osa" ] && echo yes || echo no)"
     rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    rc=0; ( PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
+    rc=0; ( export PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
     assert_eq "desktop: none available -> 1" "1" "$rc"
     printf '#!/bin/sh\necho "$N1_NT|$N1_NB" > "%s/ps"\n' "$tmp" > "$tmp/ps.exe"; chmod +x "$tmp/ps.exe"
-    rc=0; ( PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/ps.exe" n1_desktop_notify "Title" "Body" ) || rc=$?
+    rc=0; ( export PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/ps.exe" n1_desktop_notify "Title" "Body" ) || rc=$?
     assert_eq "desktop: WSL powershell off PATH used" "0|Title|Body" "$rc|$(cat "$tmp/ps" 2>/dev/null)"
 }
 
