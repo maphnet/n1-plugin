@@ -226,7 +226,8 @@ check "tech-writer template has Deployment Actions" "^## Deployment Actions" "$T
 check "tech-writer template has Before deploy" "^### Before deploy" "$TW"
 check "tech-writer template has After deploy" "^### After deploy" "$TW"
 check "tech-writer template has Before release" "^### Before release" "$TW"
-before "tech-writer template orders Before release before After deploy" "### Before release" "### After deploy" "$TW"
+grep "^### " "$TW" > "$T/tw-headings.md"
+before "tech-writer template orders Before release before After deploy" "### Before release" "### After deploy" "$T/tw-headings.md"
 check "architecture.md documents the Before release heading" "### Before release" references/architecture.md
 check "tech-writer scans the diff for vars/secrets" '\(vars\|secrets\)' "$TW"
 check "tech-writer never writes secret values" "Secret values never appear" "$TW"
