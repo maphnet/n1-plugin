@@ -228,8 +228,7 @@ _n1_tw_http() {
     [ "$mode" = check ] || [ ! -f "$N1_HOME/memory/$id/.ticket-watch" ] || return 0
     IFS=$'\t' read -r mcp op <<<"$on"
     # Only the run that owns this ticket may advance its cursor (same pointer the capture hook checks).
-    run=$(n1_active_run_file 2>/dev/null) || run=""
-    [ "$(jq -r '.ticket_id // empty | strings' "$run" 2>/dev/null)" = "$id" ] || { echo "TW_FALLBACK not-run-owner"; return 0; }
+    [ "$(n1_active_run_ticket)" = "$id" ] || { echo "TW_FALLBACK not-run-owner"; return 0; }
     command -v curl >/dev/null 2>&1 || { echo "TW_FALLBACK no-curl"; return 0; }
     url=$(n1_mcp_http_url "$mcp") || { echo "TW_FALLBACK no-http-server"; return 0; }
     d=$(mktemp -d "$N1_HOME/memory/$id/.tw-http.XXXXXX") || { echo "TW_FALLBACK no-temp-dir"; return 0; }

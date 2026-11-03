@@ -11,7 +11,9 @@ export N1_HOME="$T/home" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 CFG='{"tracker":{"mcp":"jc","operations":{"getChangelog":"jcm_getIssueChangelog"},"statuses":{"done":"Done","blocked":"Blocked"}}}'
 mkdir -p "$N1_HOME"; printf '%s' "$CFG" > "$N1_HOME/config.json"
 M="$N1_HOME/memory/T-1"; mkdir -p "$M"
-printf '{"ticket_id":"T-1"}' > "$N1_HOME/active-run.s1.json"   # session s1 owns the run on T-1
+# session s1 owns the run on T-1 (written by the real writer so a key mismatch fails)
+arw() { ( export HOME="$T/h" N1_ROOT="$REPO_ROOT" N1_SESSION_ID="$1"; source "$REPO_ROOT/lib/preamble.sh"; n1_active_run_write "$2" r1 ); }
+arw s1 T-1
 H="$REPO_ROOT/hooks/ticket-watch-capture.sh"
 GI=mcp__jc__jcm_getIssue; GL=mcp__jc__jcm_getIssueChangelog; GS=mcp__jc__jcm_searchIssues
 K='{"issueKey":"T-1"}'
@@ -165,7 +167,7 @@ seed; printf '{"me":5}\n' > "$M/.ticket-watch"; hook "$GI" "$K" "$I1" >/dev/null
 assert_eq "bad cursor: delta fails silently" "0|" "$(hook "$GL" "$K" "$(own_log)")"
 
 # Ownership: only the session whose active run is on this ticket captures, compares or reports
-printf '{"ticket_id":"T-9"}' > "$N1_HOME/active-run.s2.json"
+arw s2 T-9
 for sid in s2 s3 '' '../s1' 's1 x'; do
     seed; cp "$M/.ticket-watch" "$T/cur"
     out=$(SID="$sid" hook "$GS" '{"jql":"key = T-1","maxResults":1}' "$P1")
