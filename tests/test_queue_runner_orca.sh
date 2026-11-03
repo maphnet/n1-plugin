@@ -104,6 +104,18 @@ test_orca_max_concurrent_default() {   # N1-272: legacy plan, no config -> 1
     rm -rf "$tmp"
 }
 
+test_orca_max_concurrent_invalid() {   # N1-272: legacy plan, invalid live queue.maxConcurrent -> runner fallback 1
+    local tmp b_start a_rel; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = "x"'
+    assert_eq "orca-invalid: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-invalid: invalid value falls back to maxConcurrent=1" "1" \
+        "$(grep -c 'using live queue.maxConcurrent=1$' "$tmp/output.txt" || true)"
+    b_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-B"); a_rel=$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-T-A")
+    assert_eq "orca-invalid: T-B starts only after T-A is released" "yes" \
+        "$([ -n "$b_start" ] && [ -n "$a_rel" ] && [ "$b_start" -gt "$a_rel" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 test_orca_held_blocker() {   # AC3: merge-gated, no --deps
     local tmp b_start a_rel; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
@@ -801,6 +813,7 @@ test_orca_tick_cap() {
 test_orca_parallel_workers
 test_orca_max_concurrent
 test_orca_max_concurrent_default
+test_orca_max_concurrent_invalid
 test_orca_stored_max_concurrent
 test_orca_gated_wait_expires
 test_orca_overlap_pair_sequential
