@@ -247,7 +247,8 @@ F4=skills/n1-finish/steps/04-close-ticket.md
 check "finish Step 4 walks after-deploy items" "PHASE=after" "$F4"
 check "finish Step 4 asks when no deploy was watched" "§ Unwatched Deploy" "$F4"
 check "finish Step 4 clears deploy_pending" "deploy_pending false" "$F4"
-check "finish Step 4 lists release-scoped items as deferred to release" "Deferred to release \(n1-release walks these before the tag push\)" "$F4"
+check "finish Step 4 records deferred items for the Step 6 Report" "Deferred to release:. line" "$F4"
+check "finish Step 6 Report carries the deferred-to-release line" "^Deferred to release \(n1-release walks these before the tag push\): <items> \(PR #<n>\)" skills/n1-finish/steps/06-cleanup.md
 before "finish: after-deploy follows the delivery gate" "03b-ssh-deploy.md" "deployment-actions.md" "$F4"
 
 # --- n1-release
