@@ -4,6 +4,60 @@
 set -euo pipefail
 source "$(dirname "$0")/queue_runner_lib.sh"
 
+# N1-268 AC2 (lib side). Bugs caught: a failed close still recording "stopped" and dropping the identity (merge guard
+# off for a live worker); a worktree-wide close; closing a worker whose PR already merged.
+test_orca_stop_worker() {
+    local tmp out rc sent
+    tmp=$(mktemp -d); orca_live_fixture "$tmp" https://github.com/o/r/pull/1; sent="$tmp/n1home/queue/sentinels/T-A.env"
+    assert_eq "stop-lib: listed as unsettled" "1	T-A	$tmp/n1home	task-T-A	d-T-A" "$(orca_lib "$tmp" n1_orca_unsettled "$tmp/queue.md")"
+    rc=0; out=$(FAKE_ORCA_CLOSE_FAIL=1 orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1) || rc=$?
+    assert_eq "stop-lib: close failure is non-zero" "1" "$rc"
+    assert_eq "stop-lib: close failure reported" "yes" "$(grep -qF 'stop failed: T-A' <<< "$out" && echo yes || echo no)"
+    assert_eq "stop-lib: close failure keeps row" "in-progress" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "stop-lib: close failure keeps identity" "yes" "$([ -e "$sent" ] && echo yes || echo no)"
+    assert_eq "stop-lib: close failure releases nothing" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    out=$(orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1)
+    assert_eq "stop-lib: stopped" "stopped: T-A" "$out"
+    assert_eq "stop-lib: own handle closed (failed try + retry)" "2" "$(grep -c '^terminal close --terminal term-A' "$tmp/fake/orca-calls" || true)"
+    assert_eq "stop-lib: never worktree-wide" "0" "$(grep -c -- '--all' "$tmp/fake/orca-calls" || true)"
+    assert_eq "stop-lib: Plan + Runs stopped" "stopped stopped" "$(plan_cell "$tmp/queue.md" 1 8) $(_n1_queue_run_outcome "$tmp/queue.md" T-A)"
+    assert_eq "stop-lib: identity removed" "no" "$([ -e "$sent" ] && echo yes || echo no)"
+    assert_eq "stop-lib: event stopped" "stopped" "$(jq -r 'select(.event=="ticket_finished") | .outcome' "$tmp/events.jsonl")"
+    assert_eq "stop-lib: nothing left to stop" "" "$(orca_lib "$tmp" n1_orca_unsettled "$tmp/queue.md")"
+    rm -rf "$tmp"
+    # N1-268 SEC-1. Bugs caught: a stale or child-forged overview.md pr_url (no queue_run_id of this run) recorded as
+    # merged and the live worker's identity dropped without closing it; a merged PR whose worker is not yet settled.
+    stop_merged_fixture() {   # <tmp> <stamp 0|1> <worker row state>
+        orca_live_fixture "$1" https://github.com/o/r/pull/1
+        printf '#!/bin/sh\ncase "$*" in *"pr view"*) echo MERGED ;; esac\n' > "$1/bin/gh"; chmod +x "$1/bin/gh"
+        n1_write_frontmatter "$1/queue.md" run_id RID
+        [ "$2" = 1 ] && n1_write_frontmatter "$1/n1home/memory/T-A/overview.md" queue_run_id RID
+        wl_set "$1" "$(wl_row T-A "$3" | jq -c '.resource.terminalHandle = "term-A"')"
+    }
+    tmp=$(mktemp -d); stop_merged_fixture "$tmp" 1 succeeded; sent="$tmp/n1home/queue/sentinels/T-A.env"
+    assert_eq "stop-lib: merged PR recorded" "merged: T-A" \
+        "$(orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1)"
+    assert_eq "stop-lib: settled merged worker not closed" "0" "$(grep -c '^terminal close' "$tmp/fake/orca-calls" || true)"
+    assert_eq "stop-lib: merged row pr / Runs merged" "pr merged" "$(plan_cell "$tmp/queue.md" 1 8) $(_n1_queue_run_outcome "$tmp/queue.md" T-A)"
+    assert_eq "stop-lib: merged identity removed" "no" "$([ -e "$sent" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); stop_merged_fixture "$tmp" 0 running; sent="$tmp/n1home/queue/sentinels/T-A.env"
+    assert_eq "stop-lib: unattributed pr_url is not a merge" "stopped: T-A" \
+        "$(orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1)"
+    assert_eq "stop-lib: unattributed pr_url -> live worker closed" "1" "$(grep -c '^terminal close --terminal term-A' "$tmp/fake/orca-calls" || true)"
+    assert_eq "stop-lib: unattributed pr_url -> stopped, not merged" "stopped stopped" "$(plan_cell "$tmp/queue.md" 1 8) $(_n1_queue_run_outcome "$tmp/queue.md" T-A)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); stop_merged_fixture "$tmp" 1 running; sent="$tmp/n1home/queue/sentinels/T-A.env"
+    assert_eq "stop-lib: merged but live worker -> merged" "merged: T-A" \
+        "$(orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1)"
+    assert_eq "stop-lib: merged but live worker is closed" "1" "$(grep -c '^terminal close --terminal term-A' "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); stop_merged_fixture "$tmp" 1 running; sent="$tmp/n1home/queue/sentinels/T-A.env"
+    out=$(FAKE_ORCA_CLOSE_FAIL=1 orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1) || true
+    assert_eq "stop-lib: merged live worker, close failed -> identity kept" "yes" "$([ -e "$sent" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 test_orca_parallel_workers() {   # AC1
     local tmp rid last_start first_rel; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done"; mk_orca "$tmp"
@@ -122,6 +176,7 @@ test_orca_timeout_open_pr() {
     mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
     printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
         > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    touch -d "+1 hour" "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"  # as if written after launch: the runner ignores an envelope older than the child start, and the start can land in the next second
     git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t -c commit.gpgSign=false commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
     printf 'https://github.com/o/r/pull/239\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/me/T-A)" > "$tmp/fake/gh-pr"
     assert_eq "orca-timeout-pr: exit 0" "0" "$(run_orca_queue "$tmp")"
@@ -209,6 +264,97 @@ test_orca_same_launch_reason_halts() {
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done"; mk_orca "$tmp"
     assert_eq "orca-strike-launch: halts (exit 2)" "2" "$(run_orca_queue "$tmp" FAKE_ORCA_TASK_FAIL=1)"
     assert_eq "orca-strike-launch: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "orca-strike-launch: no worker, no drain" "0" "$(grep -c '"halt_draining"' "$tmp/events.jsonl" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-268 AC1. Bug caught (run 20261101T131600Z): halt() exited with a worker in flight; the worker merged its PR
+# unsupervised, its Runs row stayed blank and its identity sentinel stayed.
+test_orca_halt_keeps_supervising() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done" "T-E:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 3 | .queue.subtaskTimeoutMinutes = 5'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"   # T-A: live worker at the halt
+    printf '{"path":"/orca/wt/T-B"},{"path":"/orca/wt/T-C"},{"path":"/orca/wt/T-D"}' > "$tmp/fake/worktrees"   # three launch strikes
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/late"
+    printf 'cp "%s" "%s"; rm -f "%s"\n' "$tmp/fake/late" "$tmp/n1home/memory/T-A/overview.md" "$tmp/fake/nodone.T-A" > "$tmp/fake/at.4"
+    printf '#!/bin/sh\ncase "$*" in *"pr view"*) echo MERGED ;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+    assert_eq "orca-halt-supervise: final halt (exit 2)" "2" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-halt-supervise: step halted at the end" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "orca-halt-supervise: drain announced once" "1" "$(grep -c '"halt_draining"' "$tmp/events.jsonl" || true)"
+    assert_eq "orca-halt-supervise: worker merge recorded" "merged" "$(_n1_queue_run_outcome "$tmp/queue.md" T-A)"
+    assert_eq "orca-halt-supervise: merged before the final halted event" "ticket_finished halted" \
+        "$(jq -r 'select((.event=="ticket_finished" and .outcome=="merged") or .event=="halted") | .event' "$tmp/events.jsonl" | tr '\n' ' ' | sed 's/ $//')"
+    assert_eq "orca-halt-supervise: identity removed" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    assert_eq "orca-halt-supervise: no launch after the halt" "0" "$(grep -c 'task-T-E' "$tmp/fake/started" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-268 Q4. Bug caught: the drain deferring the inbox-unreadable halt, so a runner that cannot supervise hangs.
+test_orca_inbox_down_hard_halt() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 5'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    assert_eq "orca-inbox-down: halts (exit 2)" "2" "$(run_orca_queue "$tmp" FAKE_ORCA_CHECK_FAIL=1)"
+    assert_eq "orca-inbox-down: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "orca-inbox-down: no drain" "0" "$(grep -c '"halt_draining"' "$tmp/events.jsonl" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-268 AC2 (runner side). Bug caught: no way to stop a halted queue's workers; Escape does not stop an Orca worker.
+test_orca_stop_marker() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 5'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    wl_set "$tmp" "$(wl_row T-A running | jq -c '.resource.terminalHandle = "term-A"')"
+    n1_write_frontmatter "$tmp/queue.md" run_id RID-S
+    printf 'printf %%s RID-S > "%s/.stop"\n' "$tmp" > "$tmp/fake/at.3"   # the user confirmed --stop during tick 3 (marker = run_id)
+    assert_eq "orca-stop: halts after the stop (exit 2)" "2" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-stop: own terminal closed" "1" "$(grep -c '^terminal close --terminal term-A' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop: row stopped" "stopped" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-stop: Runs outcome stopped" "stopped" "$(_n1_queue_run_outcome "$tmp/queue.md" T-A)"
+    assert_eq "orca-stop: identity removed" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
+    assert_eq "orca-stop: marker consumed" "no" "$([ -e "$tmp/.stop" ] && echo yes || echo no)"
+    assert_eq "orca-stop: no launch after the stop" "0" "$(grep -c 'task-T-B' "$tmp/fake/started" || true)"
+    assert_eq "orca-stop: halted reason" "stopped by user" "$(jq -r 'select(.event=="halted") | .reason' "$tmp/events.jsonl")"
+    assert_eq "orca-stop: drain announced (CR-3)" "stopped by user" "$(jq -r 'select(.event=="halt_draining") | .reason' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
+test_orca_stop_marker_forged() {   # N1-268 SEC-2: a marker not carrying this queue's run_id is not a user confirmation
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 5'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    wl_set "$tmp" "$(wl_row T-A running | jq -c '.resource.terminalHandle = "term-A"')"
+    printf ': > "%s/.stop"\n' "$tmp" > "$tmp/fake/at.3"
+    run_orca_queue "$tmp" >/dev/null
+    assert_eq "orca-stop-forged: no terminal closed" "0" "$(grep -c '^terminal close' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-forged: not recorded stopped" "0" "$(grep -c stopped "$tmp/queue.md" || true)"
+    assert_eq "orca-stop-forged: marker discarded" "no" "$([ -e "$tmp/.stop" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_stop_close_failure_notifies() {   # N1-268 CR-5: a failed close on the queued path reaches the user
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 5 | .queue.notify = "command" | .queue.notifyCommand = "cat >> '"$tmp"'/notes"'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    wl_set "$tmp" "$(wl_row T-A running | jq -c '.resource.terminalHandle = "term-A"')"
+    n1_write_frontmatter "$tmp/queue.md" run_id RID-S
+    printf 'printf %%s RID-S > "%s/.stop"\n' "$tmp" > "$tmp/fake/at.3"
+    run_orca_queue "$tmp" FAKE_ORCA_CLOSE_FAIL=1 >/dev/null
+    assert_eq "orca-stop-fail: user notified" "yes" "$(jq -r 'select(.kind=="needs-you") | .text' "$tmp/notes" 2>/dev/null | grep -qF 'Stop failed: T-A' && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_stale_stop_marker_ignored() {   # N1-268: a marker left by a dead runner must not stop a fresh run
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"; : > "$tmp/.stop"
+    assert_eq "orca-stale-stop: run completes (exit 0)" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-stale-stop: row pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     rm -rf "$tmp"
 }
 
@@ -227,7 +373,7 @@ test_orca_launch_failure_identity() {   # an ambiguous launch failure never stri
 
 test_orca_settle_chain_before_sentinel() {   # the sentinel outlives the fullAuto chain, so a restart re-owes it
     grep -n 'chain_finish' "$REPO_ROOT/scripts/n1-queue-run.sh" > /dev/null
-    local s r; s=$(grep -n 'chain_finish "\$NUM" "\$TICKET" "\$REPO" "\$N1H" "\$MODEL" "\$(n1_queue_child_pr_url' "$REPO_ROOT/scripts/n1-queue-run.sh" | head -1 | cut -d: -f1)
+    local s r; s=$(grep -n 'chain_finish "\$NUM" "\$TICKET" "\$REPO" "\$N1H" "\$MODEL" "\$URL"' "$REPO_ROOT/scripts/n1-queue-run.sh" | head -1 | cut -d: -f1)
     r=$(grep -n 'n1_orca_sentinel_rm "$(orca_n1h_of' "$REPO_ROOT/scripts/n1-queue-run.sh" | head -1 | cut -d: -f1)
     assert_eq "orca-settle: chain_finish runs before the sentinel is removed" "yes" "$([ -n "$s" ] && [ -n "$r" ] && [ "$s" -lt "$r" ] && echo yes || echo no)"
 }
@@ -405,6 +551,12 @@ test_orca_usage_stall
 test_orca_same_reason_one_strike
 test_orca_mixed_reasons_halt
 test_orca_same_launch_reason_halts
+test_orca_halt_keeps_supervising
+test_orca_inbox_down_hard_halt
+test_orca_stop_marker
+test_orca_stop_marker_forged
+test_orca_stop_close_failure_notifies
+test_orca_stale_stop_marker_ignored
 test_orca_resume_owed
 test_orca_launch_failure_identity
 test_orca_forged_dispatch_ignored
@@ -414,6 +566,7 @@ test_orca_adopt_launch
 test_orca_stale_run_not_reused
 test_orca_lost_done_still_chains
 test_orca_settled_from_worker_list
+test_orca_stop_worker
 test_orca_done_without_dispatch_ignored
 test_orca_replay_not_timeout
 test_orca_worktree_list_unreadable

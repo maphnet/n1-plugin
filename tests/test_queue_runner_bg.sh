@@ -915,6 +915,7 @@ test_bg_pr_lifecycle() {
     mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
     printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
         > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    touch -d "+1 hour" "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"  # as if written after launch: the runner ignores an envelope older than the child start, and the start can land in the next second
     git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t -c commit.gpgSign=false commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
     printf 'https://github.com/o/r/pull/77\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/me/T-A)" > "$tmp/fake/gh-pr"
     assert_eq "bg-openpr: exit 0" "0" "$(run_bg_queue "$tmp")"
@@ -936,6 +937,7 @@ test_bg_pr_lifecycle() {
     mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
     printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
         > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    touch -d "+1 hour" "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"  # as if written after launch: the runner ignores an envelope older than the child start, and the start can land in the next second
     git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t -c commit.gpgSign=false commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
     printf 'https://github.com/o/r/pull/77\t%s\n' "0000000000000000000000000000000000000000" > "$tmp/fake/gh-pr"
     assert_eq "bg-stalepr: exit 0" "0" "$(run_bg_queue "$tmp")"

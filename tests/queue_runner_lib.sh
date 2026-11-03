@@ -194,6 +194,7 @@ case "$1 $2" in
       ok "{\"dispatch\":{\"id\":\"d-$t\"}}" ;;
   "orchestration check")
       [ -n "$(arg --ack "$@")" ] && { ok '{}'; exit 0; }
+      [ -n "${FAKE_ORCA_CHECK_FAIL:-}" ] && [ -s "$D/started" ] && err "inbox down"   # N1-268: inbox unreadable once a worker runs
       m=""; n=$(( $(cat "$D/ncheck" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/ncheck"
       [ -f "$D/at.$n" ] && bash "$D/at.$n"   # N1-267: $D/at.<n>: script run on the n-th check (tick n), before that tick's row loop
       # $D/replay: the first 5 checks replay a message for a task no row owns (a missed ack); on the 6th the
@@ -213,6 +214,7 @@ case "$1 $2" in
   "orchestration worker-list") [ -n "${FAKE_ORCA_WL_FAIL_AFTER:-}" ] && [ "$(grep -c 'worker-list' "$D/orca-calls")" -gt "$FAKE_ORCA_WL_FAIL_AFTER" ] && err "list down"
       cat "$D/workers.json" 2>/dev/null || ok '{"workers":[]}' ;;
   "orchestration worker-release") ok '{}' ;;
+  "terminal close") [ -n "${FAKE_ORCA_CLOSE_FAIL:-}" ] && err "close failed"; ok '{}' ;;
   *) err "unknown command" ;;
 esac
 ORCAEOF
@@ -222,7 +224,7 @@ ORCAEOF
 run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CLI as ORCA_CLI_COMMAND
     local tmp="$1" rc=0; shift
     env -u CLAUDE_CONFIG_DIR HOME="$tmp/hh" "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
-        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
+        timeout 60 bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?   # N1-268: a runner missing a behaviour fails fast (rc 124) instead of hanging
     echo "$rc"
 }
 
@@ -252,6 +254,28 @@ drain_notifier() {
     printf '#!/bin/sh\nwhile read -r _; do :; done\necho x >> "%s/fake/drained"\nexit 0\n' "$1" > "$1/bin/notify-send"
     chmod +x "$1/bin/notify-send"
     cfg_set "$1" '.queue.notify = "desktop"'
+}
+
+# orca_lib <tmp> <fn> [args...] — N1-268: run one lib function with the fake Orca CLI, the fake gh and a private HOME.
+orca_lib() {
+    local tmp="$1"; shift
+    env -u CLAUDE_CONFIG_DIR HOME="$tmp/hh" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" \
+        N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+        bash -c 'r="$1"; shift; for f in config frontmatter queue orca-queue; do source "$r/lib/$f.sh"; done; "$@"' _ "$REPO_ROOT" "$@"
+}
+
+# orca_live_fixture <tmp> <pr-url> — one in-progress Orca row T-A with its identity file, Runs row and a running worker
+# whose own terminal handle is term-A.
+orca_live_fixture() {
+    local tmp="$1"
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    mkdir -p "$tmp/hh" "$tmp/n1home/memory/T-A"
+    printf -- '---\nstep: implement\n---\n## Pending\npr_url: %s\n' "$2" > "$tmp/n1home/memory/T-A/overview.md"
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "| T-A | 2026-11-02T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
+    : > "$tmp/events.jsonl"
+    orca_lib "$tmp" n1_orca_sentinel_write "$tmp/n1home" T-A "$tmp" RID run-1 task-T-A
+    wl_set "$tmp" "$(wl_row T-A running | jq -c '.resource.terminalHandle = "term-A"')"
 }
 
 # orca_resumed_row <tmp> — N1-267: a resumed run whose row T-A is already in-progress on a live, unverifiable Orca worker
