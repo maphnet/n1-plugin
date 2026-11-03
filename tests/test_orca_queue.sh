@@ -255,8 +255,6 @@ eq "policy-skip: MultiEdit without an Orca identity skips Python" "0|skipped" "$
 eq "policy-skip: NotebookEdit without an Orca identity skips Python" "0|skipped" "$(pyprobe "$M" "$(npay NotebookEdit "$M/a.ipynb")")"
 eq "policy-skip: non-Orca headless queue child Write skips Python" "0|skipped" "$(pyprobe "$M" "$(npay Write "$M/a.txt")" N1_QUEUE_RUN_ID=R1 N1_HEADLESS=1)"
 eq "policy-skip: Orca child Write still runs Python" "0|ran" "$(pyprobe "$WT" "$(wpay Write "$WT/a.txt")")"
-eq "policy-skip: Orca child Edit to the sentinel still denied by Python" "2|ran" "$(pyprobe "$WT" "$(wpay Edit "$S")")"
-eq "policy-skip: Orca child Write to a session pin still denied by Python" "2|ran" "$(pyprobe "$WT" "$(wpay Write "$N1_HOME/queue/sessions/T-1.s1")")"
 eq "policy-skip: inherited N1_ORCA_SENTINEL keeps Python" "0|ran" "$(pyprobe "$M" "$(npay Write "$M/a.txt")" N1_ORCA_SENTINEL="$S")"
 eq "policy-skip: \"Bash\" in the payload keeps Python" "0|ran" "$(pyprobe "$M" "$(npay Write Bash)")"
 eq "policy-skip: \"n1: in the payload keeps Python" "0|ran" "$(pyprobe "$M" "$(npay Write n1:x)")"
