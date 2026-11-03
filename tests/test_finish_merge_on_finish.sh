@@ -98,6 +98,7 @@ S=0123456789abcdef0123456789abcdef01234567
 O=fedcba9876543210fedcba9876543210fedcba98
 export N1_HOME="$T/home" N1_STATE_DIR="$T/state" CFG="$ROOT/lib/config.sh"
 source "$CFG"   # N1-321: once; pre/mrg/res run their snippet in a subshell instead of a fresh bash that re-sources config.sh
+export MERGE_REREAD_SLEEP=0   # N1-321: the merge re-read poll sleeps 3 s per extra poll; no assertion depends on the delay
 PIN="$T/home/review-pins/o_r_7"; mkdir -p "${PIN%/*}"; echo "$S" > "$PIN"
 
 pre() { OUT=$(exec 2>&1; cd "${WD:-$T}" || exit; set +u +o pipefail; export PATH="$T/bin:$PATH" HEADSHA="${HS-$S}"; eval "$PRE"); }
