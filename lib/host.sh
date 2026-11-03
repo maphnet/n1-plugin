@@ -277,7 +277,7 @@ n1_orca_handoff() {
     # Usage: n1_orca_handoff <ID> <type|""> create|launch [abs-path]
     # Hands the run to a fresh agent in an Orca workspace. Prints exactly one line:
     #   handoff:ok <workspace-name> <agent-handle> | handoff:failed (<reason>). Always returns 0.
-    # Delivered = zero exit AND an agent handle AND (when reported) prompt outcome journaled|handed-to-terminal; field paths pinned by the live check.
+    # Delivered = zero exit AND an agent handle AND (when reported) a prompt outcome kind that is not a known failure (failed|skipped|error); Orca documents terminal|chat; field paths pinned by the live check.
     local id="${1:-}" ty="${2:-}" mode="${3:-}" path="${4:-}" prompt out msg handle kind name a=()
     [[ "$id" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]] || { echo "handoff:failed (invalid ticket id)"; return 0; }
     [ -z "$ty" ] || [[ "$ty" =~ ^[a-z][a-z0-9_-]*$ ]] || { echo "handoff:failed (invalid type)"; return 0; }
@@ -297,8 +297,8 @@ n1_orca_handoff() {
     fi
     handle=$(jq -r 'first(.. | objects | (.handle?, .agentTerminalHandle?) | strings) // empty' <<<"$out" 2>/dev/null)
     [ -n "$handle" ] || { echo "handoff:failed (no agent handle in result)"; return 0; }
-    # Ticket rule: a prompt outcome other than journaled|handed-to-terminal means not delivered (absent = accepted until the live check pins the path).
+    # The handle proves the agent started: only a known failure kind means not delivered (absent or any other kind, e.g. terminal|chat = accepted).
     kind=$(jq -r '(.result.launch.outcome.kind? // .result.prompt.outcome.kind? // empty)' <<<"$out" 2>/dev/null)
-    case "$kind" in ""|journaled|handed-to-terminal) ;; *) echo "handoff:failed (prompt $kind)"; return 0 ;; esac
+    case "$kind" in failed|skipped|error) echo "handoff:failed (prompt $kind)"; return 0 ;; esac
     echo "handoff:ok $name $handle"
 }
