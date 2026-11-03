@@ -672,6 +672,10 @@ CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"NEVER use any other MCP server"*) assert_eq "no versionMcp keeps NEVER directive" ok ok;; *) assert_eq "no versionMcp keeps NEVER directive" ok "$CTX";; esac
 export N1_HOST_FILE="$T/host.json"
 
+# N1-321: the session-stop blocks only touch their own T-STOP* tickets, so they run in the background against a private
+# N1_HOME/N1_STATE_DIR, overlapping the session-start blocks below; output is replayed in place after the wait.
+mkdir -p "$T/stop/home"; cp "$N1_HOME/config.json" "$T/stop/home/config.json"
+( N1_HOME="$T/stop/home"; N1_STATE_DIR="$T/stop/state"
 # --- session-stop: active matching pointer retains the selected run ----------
 STOP_TICK="T-STOP"
 STOP_MEM="$N1_HOME/memory/$STOP_TICK"
@@ -799,6 +803,8 @@ assert_eq "agent resolved: abandoned write fires (regression)" "abandoned" \
     "$(grep '"envelope_close"' "$PEND_TELEM/raw/steps/run-pending-test.jsonl" 2>/dev/null | tail -1 | jq -r .final_outcome 2>/dev/null)"
 assert_eq "agent resolved: lock removed after merge" "false" \
     "$([ -f "$PEND_TELEM/telemetry.lock" ] && echo true || echo false)"
+) > "$T/stop.out" 2>&1 &
+STOP_BG_PID=$!
 
 # --- session-start: queue digest line (NP-194) --------------------------------
 QD="$N1_HOME/queue/hq"; mkdir -p "$QD"; NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -884,4 +890,7 @@ rm "$N1_HOME/active-run.json"
 assert_eq "hooks.json: AskUserQuestion matcher runs notify-question.sh" "1" \
   "$(jq '[.hooks.PreToolUse[] | select(.matcher=="AskUserQuestion") | .hooks[].command | select(test("notify-question.sh"))] | length' "$REPO_ROOT/hooks/hooks.json")"
 
+wait "$STOP_BG_PID" || true  # the session-stop blocks (N1-321): replay their output and fold in their counts
+cat "$T/stop.out"
+PASS=$((PASS+$(grep -c "^PASS: " "$T/stop.out" || true))); FAIL=$((FAIL+$(grep -c "^FAIL: " "$T/stop.out" || true)))
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
