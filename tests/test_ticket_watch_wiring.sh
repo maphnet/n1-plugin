@@ -8,6 +8,9 @@ R=skills/n1-start/procedures/ticket-watch-react.md
 check() { # <label> <extended-regex> <file>
     if grep -qE "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
 }
+nocheck() { # <label> <extended-regex> <file>: the pattern must be absent
+    if grep -qE "$2" "$3" 2>/dev/null; then echo "FAIL: $1"; FAIL=1; else echo "PASS: $1"; fi
+}
 check "SKILL.md check-point pointer" "procedures/ticket-watch\.md § Check\` before Steps 5, 6, 10 and 11b" skills/n1-start/SKILL.md
 check "analysis seeds the watch" "procedures/ticket-watch\.md § Seed" skills/n1-start/steps/analysis.md
 check "procedure has Seed" "^## § Seed" "$P"
@@ -33,4 +36,7 @@ check "Check hands off to react file" "ticket-watch-react\.md" "$P"
 check "Jira getChangelog mapping in n1-init" "\"getChangelog\": \"jcm_getIssueChangelog\"" skills/n1-init/steps/03-tracker.md
 check "YouTrack getChangelog explicitly unmapped" "YouTrack.*getChangelog.*not mapped" skills/n1-init/steps/03-tracker.md
 check "architecture documents the watch" "procedures/ticket-watch\.md" references/architecture.md
+check "host saves the current user for the seed" 'before the cursor exists it also saves the `jcm_getCurrentUser` response to `M/\.tw-me\.json`' "$P"
+nocheck "Seed no longer writes .tw-me.json itself" 'Write the raw getCurrentUser response|always yours to write' "$P"
+check "architecture documents getCurrentUser capture" 'saves the `jcm_getCurrentUser` response to `\.tw-me\.json`' references/architecture.md
 exit "$FAIL"
