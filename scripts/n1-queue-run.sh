@@ -878,7 +878,7 @@ launch_orca() {
     fi
     n1_orca_sentinel_set "$N1H" "$TICKET" N1_ORCA_DISPATCH "$DISP"
     echo "| $TICKET | $STARTED | | | | orca:$TASK/$DISP |" >> "$QUEUE"
-    rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET"
+    rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET" "$N1_QUEUE_DIR/.ask-$TICKET"
     ev ticket_started ticket="$TICKET" session="orca:$TASK/$DISP"
     echo "[$NUM] $TICKET launched as Orca worker ($DISP)"
 }
@@ -909,6 +909,7 @@ orca_settle() {
     fi
     # Last: a restart re-owes a pr row only while its sentinel still names the task, so a crash mid-chain re-runs it.
     n1_orca_sentinel_rm "$(orca_n1h_of "$T")" "$T" "$TASK"
+    rm -f "$N1_QUEUE_DIR/.ask-$T" "$N1_QUEUE_DIR/.esc-reason-$T"   # N1-309: a final row's question marker must not outlive it
 }
 
 # run_orca — Orca workers, up to queue.maxConcurrent at once (run_bg stays sequential). Each tick waits on the Run
@@ -972,9 +973,13 @@ run_orca() {
             # The message must name the dispatch the Runs row holds: a task id alone must not act on another's row.
             # N1-309 (N1-287): the skip is logged and recorded (--status lists it), never dropped silently. The task id
             # passed _n1_orca_id; the message id is untrusted, so only [A-Za-z0-9_-], 64 chars, reaches log and event.
+            # Heartbeats are dropped silently; each skip is recorded once per task+message (replays, repeats).
             if [ -z "$MDISP" ] || [ "$MDISP" != "$DISP" ]; then
+                [ "$TYPE" != heartbeat ] || continue
                 SKIP="${MSG//[^A-Za-z0-9_-]/}"
                 SKIP="dispatch-mismatch task=$TASK msg=${SKIP:0:64}"
+                [[ "${SKIPPED:-}" != *" $SKIP "* ]] || continue
+                SKIPPED="${SKIPPED:-} $SKIP "
                 echo "[orca] skipped message ($SKIP)"
                 ev dispatch_mismatch ticket="$T" reason="$SKIP"
                 continue

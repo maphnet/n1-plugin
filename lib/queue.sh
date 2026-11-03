@@ -1064,7 +1064,7 @@ n1_queue_dispatch_skips() {
     # runner skipped in this run because its dispatch id did not match the Runs row (dispatch_mismatch events; the
     # runner already sanitized the ids). A missing or unreadable file prints nothing.
     jq -rR --arg r "$2" 'fromjson? | select(.event == "dispatch_mismatch" and .run_id == $r)
-        | "\(.ticket): skipped worker message (\(.reason))"' "$1" 2>/dev/null
+        | "\(.ticket): skipped worker message (\(.reason))"' "$1" 2>/dev/null | sort -u
     return 0
 }
 

@@ -177,6 +177,39 @@ test_orca_question_on_pr_row() {
     rm -rf "$tmp"
 }
 
+# N1-309 CR-2. Bug caught: the .ask marker written for a question on a pr row outlived the row (orca_settle removed only
+# the sentinel), so a re-queued ticket was parked on a message that no longer exists.
+test_orca_question_on_pr_row_cleanup() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"
+    : > "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/n1home/memory/T-A/overview.md"
+    orca_msg question task-T-A m-q2 > "$tmp/fake/q.late"
+    orca_msg worker_done task-T-A m-d2 > "$tmp/fake/q.done"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.2"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.done" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.4"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+    assert_eq "orca-ask-pr-cleanup: row keeps pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-ask-pr-cleanup: .ask removed once the worker is done" "no" "$([ -e "$tmp/.ask-T-A" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-309 CR-1. Bug caught: heartbeats with a mismatched dispatch id were logged and recorded as dispatch_mismatch
+# events every tick; the same skipped message replayed was recorded again.
+test_orca_dispatch_skip_not_flooded() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    local f='.payload |= (fromjson | .dispatchId = "d-forged" | tojson)'
+    printf '%s,%s,%s' "$(orca_msg heartbeat task-T-A m-h1 | jq -c "$f")" "$(orca_msg worker_done task-T-A m-x1 | jq -c "$f")" \
+        "$(orca_msg worker_done task-T-A m-x1 | jq -c "$f")" > "$tmp/fake/question.multi"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/question.multi" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.2"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=6 > /dev/null
+    assert_eq "orca-skip-flood: only the non-heartbeat skip, once" "1" \
+        "$(jq -R 'fromjson? | select(.event == "dispatch_mismatch") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    rm -rf "$tmp"
+}
+
 test_orca_coordinator_sink() {   # N1-270 AC1
     # Bugs caught: an orchestration call (run-create, task-create, worker-start, check, worker-list) made as the
     # launching terminal, which Orca then nudges; the sink handle not stored for --answer; the sink left open at queue end.
@@ -748,6 +781,8 @@ test_orca_held_blocker
 test_orca_question_parks
 test_orca_question_after_timeout
 test_orca_question_on_pr_row
+test_orca_question_on_pr_row_cleanup
+test_orca_dispatch_skip_not_flooded
 test_orca_coordinator_sink
 test_orca_coordinator_fallback
 test_orca_resume_no_duplicate
