@@ -169,10 +169,12 @@ _N1_ORCA_ACTIVE=""   # per-process cache: "" unknown, 1 active, 0 inactive
 n1_orca() {
     # Usage: n1_orca <args...> — prints the CLI's JSON stdout and returns its exit code (127: no CLI).
     [ -n "${ORCA_CLI_COMMAND:-}" ] && [ -x "$ORCA_CLI_COMMAND" ] || return 127
+    # Orca 1.4.247 made concise receipts the default for orchestration; --full restores the full shape. Other commands reject --full.
+    local full=(); [ "${1:-}" = orchestration ] && full=(--full)
     if command -v timeout >/dev/null 2>&1; then
-        timeout "${N1_ORCA_TIMEOUT:-5}" "$ORCA_CLI_COMMAND" "$@" --json 2>/dev/null </dev/null
+        timeout "${N1_ORCA_TIMEOUT:-5}" "$ORCA_CLI_COMMAND" "$@" ${full[@]+"${full[@]}"} --json 2>/dev/null </dev/null
     else
-        "$ORCA_CLI_COMMAND" "$@" --json 2>/dev/null </dev/null
+        "$ORCA_CLI_COMMAND" "$@" ${full[@]+"${full[@]}"} --json 2>/dev/null </dev/null
     fi
 }
 
