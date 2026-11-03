@@ -267,7 +267,7 @@ eq "loader: git remote set-url does not drop the identity" T-1 "$(cd "$WT" && un
 git -C "$WT" remote remove origin
 # CR-11: the Stop hook's own cwd-derived N1_HOME must not shadow the identity home (child inside a nested repo).
 mkdir -p "$NH/.n1/nested" "$NH/.n1/t-1/memory/T-1"; n1_orca_sentinel_set "$NH/.n1/t-1" T-1 N1_ORCA_DISPATCH d-1
-printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/9\n' > "$NH/.n1/t-1/memory/T-1/overview.md"
+printf -- '---\nstep: done\n---\n## Pending\npr_url: https://github.com/o/r/pull/9\n' > "$NH/.n1/t-1/memory/T-1/overview.md"
 reset; printf '{"session_id":"s9"}' | (cd "$WT/nested" && unset N1_HOME && HOME="$NH" CLAUDE_PROJECT_DIR="$WT" bash "$REPO_ROOT/hooks/session-stop.sh" >/dev/null 2>&1)
 has "stop: nested-repo cwd still reports worker_done" "type worker_done --outcome succeeded" "$(calls)"
 # Scope: only an Orca queue child. A plain unattended run (claude --bg child) is not denied.
@@ -286,6 +286,21 @@ cp "$T/S.bak" "$S"; printf '%s\n' "$N1_HOME" > "$(n1_orca_home_ptr T-1)"
 OV="$N1_HOME/memory/T-1/overview.md"; mkdir -p "${OV%/*}"
 printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
 stop() { printf '{"session_id":"s1"}' | (cd "$WT" && ORCA_TERMINAL_HANDLE=term-9 bash "$REPO_ROOT/hooks/session-stop.sh" >/dev/null 2>&1); }
+reset; stop
+eq "stop: PR open at step pr sends nothing (N1-310)" "" "$(grep worker_done "$FAKE/calls")"
+printf -- '---\nstep: ci\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
+reset; stop
+eq "stop: step ci sends nothing without fullAuto" "" "$(grep worker_done "$FAKE/calls")"
+printf -- '---\nstep: done\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
+printf '{"autonomy":{"fullAuto":true}}' > "$N1_HOME/config.json"
+reset; stop
+eq "stop: fullAuto step done without Finish block sends nothing" "" "$(grep worker_done "$FAKE/calls")"
+printf '## Finish\npr_url: https://github.com/o/r/pull/7\n' >> "$OV"
+reset; stop
+has "stop: fullAuto with Finish block sends succeeded" "--outcome succeeded" "$(calls)"
+eq "stop: fullAuto Finish sent once" 1 "$(grep -c 'type worker_done' "$FAKE/calls")"
+rm -f "$N1_HOME/config.json" "$N1_HOME/queue/sentinels/T-1.sent"
+printf -- '---\nstep: done\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
 reset; stop
 has "stop: worker_done succeeded" "orchestration send --type worker_done --outcome succeeded --task-id task-1 --dispatch-id d-1" "$(calls)"
 has "stop: PR url in body" "https://github.com/o/r/pull/7" "$(calls)"
