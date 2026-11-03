@@ -39,7 +39,7 @@ Do NOT install N1 as a user-scope plugin for local development.
 
 - Test on a separate repo before committing; `/reload-plugins` to pick up edits
 - Dogfooding: use N1 skills on the N1 repo itself
-- Targeted runs: run only the test files covering touched code (`bash tests/<file>.sh`); `bash tests/run.sh` runs everything. Queue runner tests are split by area: `tests/test_queue_runner.sh` (parse/plan/status/report/decisions/notify), `_bg.sh` (bg runner core), `_bg_chain.sh` (fullAuto finish chain, held rows), `_orca.sh` (Orca backend), `_orca_liveness.sh` (heartbeat, worker-list binding), `_orca_slots.sh` (slot counting, notifier drains); shared fixtures in `tests/queue_runner_lib.sh`.
+- Targeted runs: run only the test files covering touched code (`bash tests/<file>.sh`); `bash tests/run.sh` runs everything. Queue runner tests are split by area: `tests/test_queue_runner.sh` (parse/plan/status/report/decisions/notify, held-row helpers, and the skill wiring tests: plan, brief, answer, desc-chain, form-repair), `_bg.sh` (bg runner core), `_bg_chain.sh` (fullAuto finish chain, bg held rows, lifecycle/merge wording wiring), `_orca.sh` (Orca backend, held rows), `_orca_liveness.sh` (heartbeat, worker-list binding), `_orca_slots.sh` (slot counting, notifier drains); shared fixtures in `tests/queue_runner_lib.sh`. For `skills/n1-queue` text changes run `tests/test_queue_runner.sh`, `_bg_chain.sh`, `test_queue_preview_reason.sh` and `test_queue_schedule.sh`.
 
 ## Conventions
 

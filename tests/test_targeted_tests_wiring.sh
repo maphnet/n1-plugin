@@ -14,6 +14,12 @@ check "fix cycle runs only the covering test files" '^5\. \*\*Run only the test 
 check "direct implementation runs only the covering test files" '^6\. \*\*Run only the test files covering your changes\*\* to verify nothing is broken, not the full suite' "$DEV"
 check "QA runs the full suite once, then reruns only failing files" 'Run the full suite exactly once .*rerun only the failing test files' agents/qa-engineer.md
 check "CLAUDE.md maps the queue-runner test areas" 'Queue runner tests are split by area' CLAUDE.md
+for s in "" _bg _bg_chain _orca _orca_liveness _orca_slots; do
+    f=tests/test_queue_runner$s.sh
+    if [ -z "$s" ]; then pat='`tests/test_queue_runner\.sh`'; else pat="\`${s}\\.sh\`"; fi
+    check "CLAUDE.md map names $f" "$pat" CLAUDE.md
+    if [ -f "$f" ]; then echo "PASS: $f exists"; else echo "FAIL: $f missing"; FAIL=1; fi
+done
 
 # Column-0 function definitions across the lib and every split file; ok/err/arg/msg live inside mk_orca's heredoc.
 dups=$(grep -hoE '^[A-Za-z_][A-Za-z0-9_]*\(\) *\{' tests/queue_runner_lib.sh tests/test_queue_runner*.sh \
