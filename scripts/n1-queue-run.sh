@@ -918,14 +918,22 @@ orca_settle() {
 # (release + sentinel removal + owed fullAuto chain); running or unverifiable workers are never relaunched, stopped
 # or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local STOP_OK POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN PENDING
+    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
     local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
-    MAXC=$(n1_queue_val maxConcurrent); [[ "$MAXC" =~ ^[1-9][0-9]*$ ]] || MAXC=3
+    # N1-303: the plan pins max_concurrent; live config is read only for a plan made before it (legacy).
+    MAXC=$(n1_read_frontmatter "$QUEUE" max_concurrent 2>/dev/null)
+    if [[ ! "$MAXC" =~ ^[1-9][0-9]*$ ]]; then
+        MAXC=$(n1_queue_val maxConcurrent); [[ "$MAXC" =~ ^[1-9][0-9]*$ ]] || MAXC=3
+        echo "queue.md has no max_concurrent (planned before N1-303); using live queue.maxConcurrent=$MAXC"
+    fi
+    # N1-303: an overlap successor waits for its predecessor's merge only when the predecessor's own N1 Home merges its PRs
+    # (chain_authorized, evaluated per predecessor row by n1_queue_eligible_rows).
+    MERGE=chain_authorized
     LIVE_OK=1; LIVE=$(n1_orca_liveness "$ORCA_RUN") || { LIVE=""; LIVE_OK=0; }
     # A runner restart loses OWED: re-owe this run's finished rows that are not settled yet (settle removes the
     # sentinel, so a row whose sentinel still names its task is the unsettled one).
@@ -1083,16 +1091,18 @@ run_orca() {
         # Unsettled workers (finished or timed-out rows whose worker is not proven exited or durably finished) still hold a slot.
         OWEDN=$(wc -w <<< "$OWED")
         while [ -z "$HALT_DRAIN" ] && [ $((INFLIGHT + OWEDN)) -lt "$MAXC" ]; do
-            ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
+            # N1-303 (N1-269 rule): the first ELIGIBLE pending row (every ## Schedule predecessor released).
+            ROW=$(n1_queue_eligible_rows "$QUEUE" "$MERGE"); ROW="${ROW%%$'\n'*}"
             [ -n "$ROW" ] || break
             launch_orca "$ROW"
             INFLIGHT=$((INFLIGHT + 1)); HELD_WAIT=0
         done
 
         # N1-268: while draining a halt, pending rows are never launched, so they read as none here.
-        PENDING=""; [ -n "$HALT_DRAIN" ] || PENDING=$(n1_queue_pending_rows "$QUEUE")
+        # N1-303: "pending" means ELIGIBLE pending; rows gated on a ## Schedule predecessor are counted into HELD below.
+        ELIG=""; [ -n "$HALT_DRAIN" ] || ELIG=$(n1_queue_eligible_rows "$QUEUE" "$MERGE")
         # Also entered when unsettled workers alone fill every slot, so their expiry/notice is not starved by pending rows.
-        if [ "$INFLIGHT" = 0 ] && { [ -z "$PENDING" ] || [ "$OWEDN" -ge "$MAXC" ]; }; then
+        if [ "$INFLIGHT" = 0 ] && { [ -z "$ELIG" ] || [ "$OWEDN" -ge "$MAXC" ]; }; then
             # Done reports that never came: the overview is terminal, so settle (release + chain) anyway.
             if [ "$OWED" != " " ] && [ "$OWED_WAIT" -ge "$TIMEOUT_SECS" ]; then
                 # Only a worker proven exited (or gone from a readable worker list) is settled; a live one (a long PR
@@ -1108,8 +1118,15 @@ run_orca() {
                 fi
             fi
             # N1-64/N1-114: held rows start only once their blocker's PR is merged (no Orca --deps).
-            HELD=0; [ -n "$HALT_DRAIN" ] || HELD=$(n1_queue_held_sweep "$QUEUE")
-            if [ -n "$PENDING" ]; then
+            # N1-268: no sweep while draining (held and gated rows stay untouched, HELD=0 so nothing expires).
+            HELD=0; ELIG=""
+            if [ -z "$HALT_DRAIN" ]; then
+                HELD=$(n1_queue_held_sweep "$QUEUE")
+                ELIG=$(n1_queue_eligible_rows "$QUEUE" "$MERGE")
+                # N1-303: pending rows gated on a ## Schedule predecessor wait like held rows, under the same bounded timeout.
+                [ -n "$ELIG" ] || HELD=$((HELD + $(n1_queue_pending_rows "$QUEUE" | wc -l)))
+            fi
+            if [ -n "$ELIG" ]; then
                 HELD_WAIT=0
                 [ "$OWEDN" -ge "$MAXC" ] && [ "$OWED_WAIT" -lt "$TIMEOUT_SECS" ] && OWED_WAIT=$((OWED_WAIT + CHARGE))
             elif [ "$OWED" != " " ] && [ "$OWED_WAIT" -lt "$TIMEOUT_SECS" ]; then
@@ -1118,14 +1135,14 @@ run_orca() {
             elif [ -n "$(n1_queue_parked_rows "$QUEUE")" ]; then
                 HELD_WAIT=0
                 if [ "$SINCE_PARK" -ge "$TIMEOUT_SECS" ]; then
-                    [ "$HELD" -gt 0 ] && n1_queue_held_expire "$QUEUE"
+                    [ "$HELD" -gt 0 ] && { n1_queue_held_expire "$QUEUE"; n1_queue_gated_expire "$QUEUE"; }
                     echo "awaiting-human rows left for the user; queue done"
                     break
                 fi
             elif [ "$HELD" -gt 0 ] && [ "$HELD_WAIT" -lt "$TIMEOUT_SECS" ]; then
                 HELD_WAIT=$((HELD_WAIT + CHARGE))
             else
-                [ "$HELD" -gt 0 ] && { n1_queue_held_expire "$QUEUE"; echo "held rows expired (blocker not merged)"; }
+                [ "$HELD" -gt 0 ] && { n1_queue_held_expire "$QUEUE"; n1_queue_gated_expire "$QUEUE"; echo "held rows expired (blocker not merged)"; }
                 break
             fi
         fi

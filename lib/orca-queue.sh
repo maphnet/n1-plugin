@@ -16,6 +16,15 @@ n1_queue_backend() {
     echo bg
 }
 
+n1_queue_max_concurrent() {
+    # Usage: n1_queue_max_concurrent — N1-303: the concurrency a plan pins as queue.md max_concurrent. 1 on the
+    # bg backend (sequential), else queue.maxConcurrent (positive integer, fallback 3 as the runner had).
+    local m
+    if [ "$(n1_queue_backend)" = bg ]; then echo 1; return 0; fi
+    m=$(n1_queue_val maxConcurrent); [[ "$m" =~ ^[1-9][0-9]*$ ]] || m=3
+    echo "$m"
+}
+
 n1_orca_run_create() {
     # Usage: n1_orca_run_create <queue-id> — prints the new Run id; non-zero when orchestration is unavailable
     # (CLI missing, feature disabled, unknown command, no usable id in the receipt).

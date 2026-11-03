@@ -39,13 +39,16 @@ printf 'PLANNED_AT=%s\n' "$(n1_read_frontmatter "$QUEUE_FILE" planned_at 2>/dev/
 if n1_queue_interrupted "$QUEUE_FILE"; then echo INTERRUPTED=yes; else echo INTERRUPTED=no; fi
 if n1_queue_stale "$QUEUE_FILE"; then echo STALE=yes; else echo STALE=no; fi
 printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
+printf 'PLANNED_MAXC=%s\n' "$(n1_read_frontmatter "$QUEUE_FILE" max_concurrent 2>/dev/null)"
+printf 'LIVE_MAXC=%s\n' "$(n1_queue_max_concurrent)"
+printf 'SCHEDULE=%s\n' "$(n1_queue_plan_waves "$QUEUE_FILE")"
 ```
 
 `INTERRUPTED=yes` (`STEP` is `run` but its runner is gone, N1-183): print "Resuming interrupted run of `<QUEUE_ID>`." and go to § Launch with `RESUME=1`. Skip re-validation: the runner re-adopts `in-progress`/`awaiting-human` rows, runs any fullAuto chain still owed, continues `pending` rows, and never re-runs `pr`/`failed`/`skip` rows.
 
 Otherwise, `STEP` is not `planned` (or queue.md is missing): print "No saved plan for `<QUEUE_ID>` (step: <STEP or none>). Run `/n1:n1-queue --plan` first." **STOP.**
 
-`STALE=no`: go to § Launch (`RESUME=0`).
+`STALE=no`: print `Schedule: <SCHEDULE>` when it is non-empty. When `PLANNED_MAXC` and `LIVE_MAXC` are both set and differ, print `Using planned max_concurrent=<PLANNED_MAXC> (config now says <LIVE_MAXC>); re-plan with /n1:n1-queue --plan to change it.` The runner uses the stored value. If `PLANNED_MAXC` is empty, the plan was made before N1-303, and the runner falls back to live `queue.maxConcurrent` and logs that. Then go to § Launch (`RESUME=0`).
 
 `STALE=yes` (planned more than `STALE_HOURS` hours ago, or age unknown): re-validate every Plan row with Status `pending` or `held`, one row at a time, in this order (cheapest exclusion first, so a row headed for skip/exclude never pays for a later check on itself):
 1. Call `mcp__<TRACKER_MCP>__<READ_OP>` for the ticket.
@@ -87,16 +90,31 @@ printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap
 ```
 Rewrite the pending Plan rows (only — leave `held`/`skip`/`pr`/`escalated`/`failed`/`awaiting-human` rows exactly where they are) in the printed order and renumber their `#`. For each printed non-empty note, set that ticket's `## Decisions` Order cell (via `n1_queue_decisions_write_row`) and append ` · <note>` to its Reason. Record any reordering in the change summary below.
 
-Print "<N> ticket(s) changed since planning (<PLANNED_AT>): <KEY>: <what changed>; ..." or "Plan is older than <STALE_HOURS>h; no ticket changed." Print the plan table, and ask the preview.md § Prompt question (Start / Edit / Cancel). On Start, refresh the timestamp, then go to § Launch:
+Then rebuild the schedule and re-pin concurrency (N1-303). A re-plan is the only place `max_concurrent` changes. `SCHEDULE_WRITE=failed` (more than one `## Schedule` heading): print it and **STOP**:
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_schedule_write "$QUEUE_DIR/queue.md" || echo "SCHEDULE_WRITE=failed"
+OLD_MAXC="$(n1_read_frontmatter "$QUEUE_DIR/queue.md" max_concurrent 2>/dev/null)"
+n1_write_frontmatter "$QUEUE_DIR/queue.md" max_concurrent "$(n1_queue_max_concurrent)"
+printf 'OLD_MAXC=%s\nSCHEDULE=%s\nMAX_CONCURRENT=%s\n' "$OLD_MAXC" "$(n1_queue_plan_waves "$QUEUE_DIR/queue.md")" "$(n1_read_frontmatter "$QUEUE_DIR/queue.md" max_concurrent)"
+```
+
+When `OLD_MAXC` is set and differs from `MAX_CONCURRENT`, print `Re-pinned max_concurrent <OLD_MAXC> -> <MAX_CONCURRENT> (plan was stale).` before the Start prompt. Print `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time). Parallel workers share your usage limits.` with the plan table below.
+
+Print "<N> ticket(s) changed since planning (<PLANNED_AT>): <KEY>: <what changed>; ..." or "Plan is older than <STALE_HOURS>h; no ticket changed." Print the plan table, and ask the preview.md § Prompt question (Start / Edit / Cancel). On Start or after an Edit, refresh the timestamp and rewrite the schedule (an Edit may have removed or reordered tickets). `SCHEDULE_WRITE=failed`: print it and **STOP**. Then go to § Launch:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
 n1_write_frontmatter "$QUEUE_DIR/queue.md" planned_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+n1_queue_schedule_write "$QUEUE_DIR/queue.md" || echo "SCHEDULE_WRITE=failed"
 ```
 
 ## Write plan (bare and `--plan`)
 
-Write `$QUEUE_DIR/queue.md` with EXACT section order (the runner assumes `## Runs` is last). `<KEY>` cells are the intake-validated ticket key (safe to write literally, NP-203 SEC-L4). Every other cell below (Title, Reason, Touches, Order, Pre-Decision, Notes) comes from untrusted ticket text or free-form user input, so it is left blank in this file-write and filled in by the code helpers in the bash block right after — never sanitized by prose alone (NP-203 SEC-4):
+Write `$QUEUE_DIR/queue.md` with EXACT section order (the runner assumes `## Runs` is last). `<MAX_CONCURRENT>` is preview.md § Plan-Resolve 3's digits-only value; `## Schedule` rows are filled by `n1_queue_schedule_write` below, never by hand. `<KEY>` cells are the intake-validated ticket key (safe to write literally, NP-203 SEC-L4). Every other cell below (Title, Reason, Touches, Order, Pre-Decision, Notes) comes from untrusted ticket text or free-form user input, so it is left blank in this file-write and filled in by the code helpers in the bash block right after — never sanitized by prose alone (NP-203 SEC-4):
 
 ```markdown
 ---
@@ -104,6 +122,7 @@ queue_id: <QUEUE_ID>
 mode: tag|story
 story_id: <ID or empty>
 step: planned
+max_concurrent: <MAX_CONCURRENT>
 ---
 # Queue <QUEUE_ID>
 
@@ -123,6 +142,10 @@ step: planned
 |--------|---------|-------|-------------------------|---------------|-------|
 | <KEY> |  |  |  |  |  |
 ...
+
+## Schedule
+| Ticket | After |
+|--------|-------|
 
 ## Decision Ledger
 | Step | Decision | Detail |
@@ -152,15 +175,18 @@ done < "$QUEUE_DIR/cells.tsv"
 rm -f "$QUEUE_DIR/cells.tsv"
 ```
 
-Stamp the plan time:
+Stamp the plan time and write the schedule (N1-303). `SCHEDULE_WRITE=failed` means queue.md has more than one `## Schedule` heading: print it and **STOP**:
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
 n1_write_frontmatter "$QUEUE_DIR/queue.md" planned_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
+n1_queue_schedule_write "$QUEUE_DIR/queue.md" || echo "SCHEDULE_WRITE=failed"
+printf 'SCHEDULE=%s\n' "$(n1_queue_plan_waves "$QUEUE_DIR/queue.md")"
 ```
 
-`--plan`: print "Plan saved: <QUEUE_DIR>/queue.md (<N> tickets). Run it with `/n1:n1-queue --run <QUEUE_ID>` (re-validated first when older than <STALE_HOURS>h)." **STOP.**
+`--plan`: print "Plan saved: <QUEUE_DIR>/queue.md (<N> tickets). Schedule: <SCHEDULE>. Run it with `/n1:n1-queue --run <QUEUE_ID>` (re-validated first when older than <STALE_HOURS>h)." **STOP.**
 
 Bare and `--unattended`: continue to § Launch.
 

@@ -90,6 +90,18 @@ printf '{"queue":{"backend":"bg"}}\n' > "$N1_HOME/config.json"
 eq "backend: queue.backend=bg -> bg" bg "$(n1_queue_backend)"
 rm -f "$N1_HOME/config.json"
 
+# N1-303: plan-time max_concurrent; the bg backend runs one ticket at a time whatever maxConcurrent says.
+eq "max_concurrent: no ORCA_CLI_COMMAND (bg) -> 1" 1 "$(ORCA_CLI_COMMAND= n1_queue_max_concurrent)"
+eq "max_concurrent: Orca down (bg) -> 1" 1 "$(FAKE_ORCA_DOWN=1 n1_queue_max_concurrent)"
+eq "max_concurrent: Orca, default -> 3" 3 "$(n1_queue_max_concurrent)"
+printf '{"queue":{"backend":"bg","maxConcurrent":3}}\n' > "$N1_HOME/config.json"
+eq "max_concurrent: queue.backend=bg forces 1 over maxConcurrent=3" 1 "$(n1_queue_max_concurrent)"
+printf '{"queue":{"maxConcurrent":5}}\n' > "$N1_HOME/config.json"
+eq "max_concurrent: Orca uses queue.maxConcurrent" 5 "$(n1_queue_max_concurrent)"
+printf '{"queue":{"maxConcurrent":"x"}}\n' > "$N1_HOME/config.json"
+eq "max_concurrent: invalid value falls back to 3" 3 "$(n1_queue_max_concurrent)"
+rm -f "$N1_HOME/config.json"
+
 eq "run-create: id" run-1 "$(n1_orca_run_create q1)"
 eq "run-create: unavailable -> rc 1" 1 "$(FAKE_ORCA_RUN_FAIL=1 rc n1_orca_run_create q1)"
 eq "run-create: unsafe id rejected" 1 "$(FAKE_ORCA_RUN_ID='a|b' rc n1_orca_run_create q1)"
