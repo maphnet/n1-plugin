@@ -68,9 +68,30 @@ eq "claim: overlapping trigger refused" 1 "$(rc n1_queue_claim "$C")"
 touch -d '20 minutes ago' "$C/.unattended-claim"
 eq "claim: stale claim retaken" 0 "$(rc n1_queue_claim "$C")"
 eq "claim: retaken claim is fresh" 1 "$(rc n1_queue_claim "$C")"
-touch -d '20 minutes ago' "$C/.unattended-claim"
+# A second ageing needs a different mtime than the first (the generation marker is named by it)
+touch -d '21 minutes ago' "$C/.unattended-claim"
 for i in 1 2 3 4 5 6 7 8; do ( n1_queue_claim "$C" && echo won >> "$C/wins" ) & done; wait
 eq "claim: concurrent stale takeover has one winner" 1 "$(grep -c won "$C/wins")"
+
+# N1-324: a contender that sees the same stale generation after the winner already acted must lose
+C2="$N1_HOME/queue/c2"; mkdir -p "$C2/.unattended-claim"
+M=$(( $(date +%s) - 1200 )); touch -d "@$M" "$C2/.unattended-claim"
+eq "claim: generation retaken once" 0 "$(rc n1_queue_claim "$C2")"
+eq "claim: generation marker created" yes "$([ -d "$C2/.unattended-claim/retake.$M" ] && echo yes)"
+touch -d "@$M" "$C2/.unattended-claim"
+eq "claim: same generation not retaken twice" 1 "$(rc n1_queue_claim "$C2")"
+
+# N1-324: forced-alignment stress; a busy-wait barrier releases all contenders at once, no sleeps
+BAD=0
+for r in $(seq 25); do
+    R="$N1_HOME/queue/s$r"; mkdir -p "$R/.unattended-claim"; touch -d '30 minutes ago' "$R/.unattended-claim"
+    for i in 1 2 3 4 5 6 7 8; do
+        ( while [ ! -e "$R/go" ]; do :; done; n1_queue_claim "$R" && echo won >> "$R/wins" ) &
+    done
+    : > "$R/go"; wait
+    n=$(grep -c won "$R/wins" 2>/dev/null); [ "${n:-0}" = 1 ] || BAD=$((BAD+1))
+done
+eq "claim: stress rounds without exactly one winner" 0 "$BAD"
 
 eq "main checkout: from main" "$T/proj" "$(n1_main_checkout "$T/proj")"
 eq "main checkout: from linked worktree" "$T/proj" "$(n1_main_checkout "$T/wt")"
