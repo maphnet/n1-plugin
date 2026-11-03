@@ -257,7 +257,7 @@ test_orca_usage_stall() {
     rm -rf "$tmp"
     # (c) notice never clears: stall budget (2x timeout) runs out, the row still times out and the runner exits.
     tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST" "$MARK"
-    assert_eq "orca-stall-ceiling: exit 0" "0" "$(run_orca_queue "$tmp" CLAUDE_CONFIG_DIR="$tmp/cc" N1_QUEUE_TEST_MAX_TICKS=40)"
+    assert_eq "orca-stall-ceiling: exit 0" "0" "$(run_orca_queue "$tmp" CLAUDE_CONFIG_DIR="$tmp/cc" N1_QUEUE_TEST_MAX_TICKS=10)"
     assert_eq "orca-stall-ceiling: times out despite a stale notice" "failed|subtask-timeout" \
         "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     rm -rf "$tmp"
@@ -502,7 +502,7 @@ test_orca_settled_from_worker_list() {   # N1-281 AC2: worker_done lost, worker-
     cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 600'
     : > "$tmp/fake/nodone.T-A"
     wl_set "$tmp" "$(wl_row T-A succeeded)"
-    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=40 > /dev/null
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-settled: T-A reached pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "orca-settled: T-A worker released once" "1" "$(grep -c -- 'worker-release --dispatch d-T-A' "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-settled: T-A sentinel removed" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-A.env" ] && echo yes || echo no)"
@@ -517,7 +517,7 @@ test_orca_forged_dispatch_ignored() {   # N1-281 SEC-1: a message naming a task 
     echo implement > "$tmp/fake/step.T-A"; echo implement > "$tmp/fake/step.T-B"
     : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
     printf '%s' "$(orca_msg worker_done task-T-B m-d1 | jq -c '.payload |= (fromjson | .dispatchId = "d-forged" | tojson)')" > "$tmp/fake/question"
-    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=40 > /dev/null
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-forged: T-B not finalized by a mismatched dispatch" "no" \
         "$([ "$(plan_cell "$tmp/queue.md" 2 9)" = child-exited-incomplete ] && echo yes || echo no)"
     rm -rf "$tmp"
@@ -529,7 +529,7 @@ test_orca_done_without_dispatch_ignored() {   # N1-281: a worker_done whose payl
     echo implement > "$tmp/fake/step.T-A"; echo implement > "$tmp/fake/step.T-B"
     : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
     printf '%s' "$(orca_msg worker_done task-T-B m-d1 | jq -c '.payload |= (fromjson | del(.dispatchId) | tojson)')" > "$tmp/fake/question"
-    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=40 > /dev/null
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-nodisp: T-B not finalized by a dispatch-less done" "no" \
         "$([ "$(plan_cell "$tmp/queue.md" 2 9)" = child-exited-incomplete ] && echo yes || echo no)"
     rm -rf "$tmp"
@@ -616,7 +616,7 @@ test_orca_overlap_pair_sequential() {   # N1-303 AC: T-2 overlaps T-1 (after T-1
     sched_set "$tmp" 3 T-2 T-1
     cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'   # no timeouts: T-1 stays in flight; the tick cap ends the run
     echo implement > "$tmp/fake/step.T-1"; : > "$tmp/fake/nodone.T-1"
-    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=40 > /dev/null
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-overlap: independent T-3 runs alongside T-1" "1" "$(grep -c -- "--task task-T-3" "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-overlap: T-2 never starts while T-1 is in flight" "0" "$(grep -c -- "--task task-T-2" "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-overlap: T-2 still pending" "pending" "$(plan_cell "$tmp/queue.md" 2 8)"
@@ -640,7 +640,7 @@ test_orca_overlap_hard_edge() {   # N1-303: a failed predecessor skips its overl
     mk_bg "$tmp" oq "T-1:done" "T-2:done" "T-3:done"; mk_orca "$tmp"
     sched_set "$tmp" 3 T-2 T-1
     echo implement > "$tmp/fake/step.T-1"   # T-1's worker reports done without a PR -> failed
-    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=40 > /dev/null
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-overlap-fail: T-2 skipped" "skip" "$(plan_cell "$tmp/queue.md" 2 8)"
     assert_eq "orca-overlap-fail: reason names the predecessor" "yes" \
         "$(case "$(plan_cell "$tmp/queue.md" 2 9)" in *"predecessor T-1"*) echo yes ;; *) echo no ;; esac)"
