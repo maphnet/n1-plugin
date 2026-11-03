@@ -32,6 +32,25 @@ n1_orca_run_use() {
     N1_ORCA_TIMEOUT=30 n1_orca orchestration run-use --id "$1" >/dev/null
 }
 
+n1_orca_coord_open() {
+    # Usage: n1_orca_coord_open <queue-id> — N1-270: open the runner's own Orca terminal to coordinate the Run. Orca
+    # nudges a Run's coordinator terminal whenever a worker sends ("You have 1 orchestration message ..."), heartbeats
+    # included, and a coordinator must be a terminal (no_active_sender_terminal). The terminal runs cat >/dev/null: a
+    # nudge is read and discarded, never executed. Prints the handle; non-zero on a CLI failure or a missing or unsafe
+    # handle (the caller keeps the launching terminal). The receipt shape is unverified: several paths are tried.
+    local out h
+    out=$(N1_ORCA_TIMEOUT=30 n1_orca terminal create --title "n1-queue coordinator $1" --command 'cat >/dev/null') || return 1
+    h=$(jq -r '.result.terminal.handle // .result.handle // .result.id // empty' <<<"$out" 2>/dev/null)
+    _n1_orca_id "$h" || return 1
+    printf '%s' "$h"
+}
+
+n1_orca_coord_close() {
+    # Usage: n1_orca_coord_close <handle> — close a coordinator terminal opened by n1_orca_coord_open. Best-effort.
+    _n1_orca_id "${1:-}" && N1_ORCA_TIMEOUT=30 n1_orca terminal close --terminal "$1" >/dev/null 2>&1
+    return 0
+}
+
 n1_orca_task_create() {
     # Usage: n1_orca_task_create <run> <ticket> — prints the task id. The spec is the child's prompt; it names the
     # skill in words so it works whether or not a slash command still resolves after Orca's preamble.
@@ -362,11 +381,17 @@ n1_orca_ask() {
 n1_orca_reply() {
     # Usage: n1_orca_reply <queue-dir> <ticket> <answer> — n1-queue --answer for an Orca child: reply to the pending
     # ask message recorded in <queue-dir>/.ask-<ticket>. Markers are removed only after a successful reply.
+    # N1-270: the reply is sent as the Run's coordinator (queue.md orca_coord_terminal, the runner's own terminal);
+    # empty means the launching terminal coordinates (legacy), so the caller's own handle is used.
     # Requires lib/queue.sh (n1_queue_event).
-    local dir="$1" t="$2" msg run
+    local dir="$1" t="$2" msg run coord
     msg=$(head -1 "$dir/.ask-$t" 2>/dev/null); run=$(n1_read_frontmatter "$dir/queue.md" orca_run_id)
+    coord=$(n1_read_frontmatter "$dir/queue.md" orca_coord_terminal)
     _n1_orca_id "$msg" && _n1_orca_id "$run" || { echo "n1-queue: unreadable Orca question marker for $t" >&2; return 1; }
-    N1_ORCA_TIMEOUT=30 n1_orca orchestration reply --id "$msg" --body "$3" --run "$run" >/dev/null \
+    [ -z "$coord" ] || _n1_orca_id "$coord" || { echo "n1-queue: unreadable Orca coordinator terminal for $t" >&2; return 1; }
+    # A coordinator terminal that is gone (Orca restarted) must not block the answer: retry as the caller.
+    N1_ORCA_TIMEOUT=30 n1_orca orchestration reply --id "$msg" --body "$3" --run "$run" ${coord:+--from "$coord"} >/dev/null \
+        || { [ -n "$coord" ] && N1_ORCA_TIMEOUT=30 n1_orca orchestration reply --id "$msg" --body "$3" --run "$run" >/dev/null; } \
         || { echo "n1-queue: Orca reply failed for $t; retry --answer" >&2; return 1; }
     rm -f "$dir/.ask-$t" "$dir/.question-$t.json" "$dir/.esc-reason-$t"
     n1_queue_event "$dir/events.jsonl" "$(n1_read_frontmatter "$dir/queue.md" queue_id)" "$(n1_read_frontmatter "$dir/queue.md" run_id)" \

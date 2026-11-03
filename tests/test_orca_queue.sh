@@ -34,14 +34,20 @@ case "$1 $2" in
       has --model "$@" && [ -n "${FAKE_ORCA_MODEL_REJECT:-}" ] && err "unsupported model" validate
       [ -n "${FAKE_ORCA_START_FAIL:-}" ] && err "setup failed" worktree-setup
       ok '{"dispatch":{"id":"d-1"}}' ;;
-  "orchestration send"|"orchestration reply") [ -n "${FAKE_ORCA_REPLY_FAIL:-}" ] && err "reply failed"; ok '{}' ;;
+  "orchestration send"|"orchestration reply") [ -n "${FAKE_ORCA_REPLY_FAIL:-}" ] && err "reply failed"
+      [ -n "${FAKE_COORD_DEAD:-}" ] && has --from "$@" && err "terminal not found"; ok '{}' ;;
   "orchestration ask")
       case "${FAKE_ASK:-answer}" in
         answer) ok '{"answer":"Use B"}' ;;
         pending) ok '{"messageId":"m-7","status":"timeout"}' ;;
         *) err "runtime down" ;;
       esac ;;
-  "orchestration check") ok '{}' ;;
+  "orchestration check") if has --all "$@"; then
+          [ -n "${FAKE_COORD_DEAD:-}" ] && has --terminal "$@" && err "terminal not found"
+          ok "{\"messages\":[${FAKE_INBOX:-}]}"
+      else ok '{}'; fi ;;
+  "terminal create") [ -n "${FAKE_TERM_FAIL:-}" ] && err "no terminal"; j='{"terminal":{"handle":"term-9"}}'; ok "${FAKE_TERM_JSON:-$j}" ;;
+  "terminal close") ok '{}' ;;
   "worktree list") case "${FAKE_WT:-fail}" in fail) err "boom" ;; none) ok '{"worktrees":[]}' ;; *) ok '{"worktrees":[{"path":"/w/T-1"}]}' ;; esac ;;
   "orchestration worker-list") [ -n "${FAKE_WL_EMPTY:-}" ] && ok '{}' && exit 0
       # Real Orca 1.4.243 rows: released, running, finished (reclaimable), failed, unknown state with no projection.
@@ -298,12 +304,28 @@ printf 'Use B' > "$N1_HOME/queue/.answer-T-1.txt"
 reset
 has "answer: delivered" "answer delivered to T-1" "$(n1_queue_answer "$N1_HOME" T-1 2>&1)"
 has "answer: orchestration reply" "orchestration reply --id m-9 --body Use B --run run-1" "$(calls)"
+hasnt "answer: no coordinator terminal recorded -> no --from" "--from" "$(calls)"
 eq "answer: markers removed" no "$({ [ -e "$Q/.ask-T-1" ] || [ -e "$Q/.question-T-1.json" ]; } && echo yes || echo no)"
 eq "answer: event" answer_delivered "$(jq -r .event "$Q/events.jsonl" | tail -1)"
 printf 'm-9\n' > "$Q/.ask-T-1"; printf 'Use B' > "$N1_HOME/queue/.answer-T-1.txt"
 eq "answer: reply failure -> rc 1" 1 "$(FAKE_ORCA_REPLY_FAIL=1 rc n1_queue_answer "$N1_HOME" T-1)"
 eq "answer: ask marker kept for a retry" yes "$([ -e "$Q/.ask-T-1" ] && echo yes || echo no)"
 eq "hints: Orca row points at --answer" "T-1: /n1:n1-queue --answer T-1 <answer>" "$(n1_queue_awaiting_hints "$Q/queue.md")"
+
+# --- N1-270: runner-owned coordinator terminal ---
+# Bugs caught: the sink handle read from the wrong receipt path; a CLI failure or an unsafe/missing handle accepted
+# as a coordinator; an unsafe handle passed to terminal close.
+reset
+eq "coord_open: handle from terminal.handle" term-9 "$(n1_orca_coord_open q1)"
+has "coord_open: sink runs cat into /dev/null" "terminal create --title n1-queue coordinator q1 --command cat >/dev/null" "$(calls)"
+eq "coord_open: flat handle shape" term-8 "$(FAKE_TERM_JSON='{"handle":"term-8"}' n1_orca_coord_open q1)"
+eq "coord_open: CLI failure -> rc 1" 1 "$(FAKE_TERM_FAIL=1 rc n1_orca_coord_open q1)"
+eq "coord_open: unsafe handle rejected" 1 "$(FAKE_TERM_JSON='{"handle":"a|b"}' rc n1_orca_coord_open q1)"
+eq "coord_open: no handle rejected" 1 "$(FAKE_TERM_JSON='{}' rc n1_orca_coord_open q1)"
+reset; n1_orca_coord_close term-9
+has "coord_close: closes by handle" "terminal close --terminal term-9" "$(calls)"
+reset; n1_orca_coord_close 'a|b'
+eq "coord_close: unsafe handle never reaches the CLI" "" "$(calls)"
 
 # --- summary (later tasks insert their sections above this line) ---
 eq "no bare orca call" "" "$(cat "$FAKE/bare" 2>/dev/null)"
