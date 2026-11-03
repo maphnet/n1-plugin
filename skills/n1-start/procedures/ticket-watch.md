@@ -42,7 +42,7 @@ Start with one call that probes, fetches on change, filters own writes and noise
 source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"; n1_tw_check_http "$ID"
 ```
 
-No output: continue the pipeline. `ticket-watch: digest ...`: handle it as in the list below. Only on `TW_FALLBACK <reason>` (HTTP unavailable; cursor untouched) run the model path:
+No output: continue the pipeline. `ticket-watch: digest ...`: handle it as in the list below. Only on `TW_FALLBACK <reason>`, or when the call errored or timed out (HTTP unavailable; cursor untouched) run the model path:
 
 ```bash
 source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"; rm -f "$N1_HOME/memory/$ID/.tw-probe.json"; n1_tw_on "$ID"

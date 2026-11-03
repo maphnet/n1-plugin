@@ -147,4 +147,11 @@ reset; rm -f "$M/.ticket-watch"; fx jcm_getCurrentUser 1 '{"displayName":"no id"
 assert_eq "seed: bad user -> fallback" "TW_FALLBACK seed-failed" "$(n1_tw_seed_http "$ID")"
 assert_eq "seed: temp files removed" "0" "$(find "$M" -name '.tw-*' | wc -l | tr -d ' ')"
 
+# [CR-7] one wall-clock budget per check: with the real transport, a call past the deadline never starts curl
+assert_eq "expired check budget: real _n1_mcp_post refuses" "1" "$(source "$REPO_ROOT/lib/ticket-watch.sh"; _N1_MCP_DEADLINE=$SECONDS; _n1_mcp_post http://127.0.0.1:9/ "" '{}' >/dev/null; echo $?)"
+# [CR-6] the session id header is matched case-insensitively without bash-4 expansions
+reset; fx jcm_searchIssues 1 "$(probe "$T0")"; SID_HDR=sid-9 check >/dev/null
+assert_eq "init keeps the session id" "yes" "$(grep -q '^tools/call|jcm_searchIssues|sid-9|' "$T/calls" && echo yes || echo no)"
+assert_eq "no bash-4-only lowercase expansion" "0" "$(grep -c '\${[a-z]*,,}' "$REPO_ROOT/lib/ticket-watch.sh")"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

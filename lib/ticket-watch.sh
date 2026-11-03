@@ -172,9 +172,13 @@ N1_TW_TS_RE='^[0-9][0-9T:.+Z-]*$'
 _n1_mcp_post() {
     # Usage: _n1_mcp_post <url> <session-id|""> <json-body> — raw HTTP response (headers, blank line, body).
     # The transport seam: tests replace this function with a fixture server.
-    local h=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
+    local h=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream') t=15
     [ -z "$2" ] || h+=(-H "Mcp-Session-Id: $2")
-    curl -sS -i --fail --connect-timeout 2 --max-time 15 --noproxy '127.0.0.1,localhost,::1' \
+    # One wall-clock budget per check (_N1_MCP_DEADLINE, in $SECONDS): no call starts past it or outlasts it.
+    if [ -n "${_N1_MCP_DEADLINE:-}" ]; then
+        t=$((_N1_MCP_DEADLINE - SECONDS)); [ "$t" -ge 1 ] || return 1; [ "$t" -le 15 ] || t=15
+    fi
+    curl -sS -i --fail --globoff --proto =http,https --connect-timeout 2 --max-time "$t" --noproxy '127.0.0.1,localhost,::1' \
         "${h[@]}" --data-binary @- "$1" <<<"$3" 2>/dev/null
 }
 
@@ -197,7 +201,7 @@ _n1_mcp_init() {
     _n1_mcp_msg "$raw" | jq -e '(.result | type) == "object"' >/dev/null 2>&1 || return 1
     raw=${raw//$'\r'/}
     while IFS= read -r l; do
-        case "${l,,}" in mcp-session-id:*) sid=${l#*:}; sid=${sid# }; break ;; esac
+        case "$l" in [Mm][Cc][Pp]-[Ss][Ee][Ss][Ss][Ii][Oo][Nn]-[Ii][Dd]:*) sid=${l#*:}; sid=${sid# }; break ;; esac
     done <<<"${raw%%$'\n\n'*}"
     [[ "$sid" =~ ^[A-Za-z0-9._~-]+$ ]] || return 1   # becomes a request header: no spaces or CR/LF
     _n1_mcp_post "$1" "$sid" '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null || return 1
@@ -232,7 +236,9 @@ _n1_tw_http() {
     command -v curl >/dev/null 2>&1 || { echo "TW_FALLBACK no-curl"; return 0; }
     url=$(n1_mcp_http_url "$mcp") || { echo "TW_FALLBACK no-http-server"; return 0; }
     d=$(mktemp -d "$N1_HOME/memory/$id/.tw-http.XXXXXX") || { echo "TW_FALLBACK no-temp-dir"; return 0; }
+    _N1_MCP_DEADLINE=$((SECONDS + ${N1_TW_HTTP_BUDGET:-60}))   # a stalled server must not outlast the Bash tool limit
     out=$("_n1_tw_http_$mode" "$id" "$url" "$op" "$d")
+    _N1_MCP_DEADLINE=""
     rm -rf "$d"
     [ -z "$out" ] || printf '%s\n' "$out"
 }
