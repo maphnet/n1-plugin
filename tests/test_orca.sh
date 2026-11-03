@@ -245,6 +245,9 @@ has "F5: removal goes through the workspace manager" "worktree rm --worktree pat
 # ---- static wiring ----
 cd "$REPO_ROOT"
 eq "W1b (N1-307): handoff failure rule checks for an existing workspace" "1" "$(grep -c 'handoff:failed.*n1_find_workspace' skills/n1-start/procedures/workspace-ownership.md)"
+has "W1c (N1-307): handoff-launch failures other than input validation trigger the guard" "any reason except an input-validation one" "$(cat skills/n1-start/procedures/workspace-ownership.md)"
+has "W1d (N1-307): stop path clears the active run and closes the ticket step" "handoff_unconfirmed" "$(cat skills/n1-start/procedures/workspace-ownership.md)"
+eq "W1e (N1-307): active run cleared on both handoff stop paths" "2" "$(grep -c 'n1_active_run_clear' skills/n1-start/procedures/workspace-ownership.md)"
 eq "W1 (AC4): only n1-start decides or hands off workspaces" "" "$(grep -rlE 'n1_workspace_decide|n1_orca_handoff' skills agents | grep -v '^skills/n1-start/' || true)"
 has "W2 (AC1): ticket step runs the workspace decision" "Workspace Decision" "$(cat skills/n1-start/steps/ticket.md)"
 TK=skills/n1-start/steps/ticket.md
