@@ -29,4 +29,8 @@ ID="<ID>"; FRESH=<1|0>; [ "$FRESH" = 1 ] && n1_write_frontmatter "$N1_HOME/memor
 n1_orca_handoff "$ID" "<TYPE_OVERRIDE, empty if none>" <create for handoff-create | launch for handoff-launch> "<path; launch only>"
 ```
 - `handoff:ok <name> <handle>` → say "`<ID>` handed off to workspace `<name>` (agent `<handle>`); it continues there." Run `source ~/.n1/preamble.sh; n1_active_run_clear`, and on a fresh run first `n1_step_end "ticket" 1 success '{"handoff":"workspace"}'` (closes the ticket step telemetry and checkbox; the `step: ticket` write above already let the new session resume), then STOP: no further pipeline steps in this session.
-- `handoff:failed (<reason>)` → say once "Workspace handoff failed (<reason>); continuing in this session." A partly created workspace is left in place and is found by the next run. `handoff-launch <path>` → act as `reuse <path>`; `handoff-create` → act as `create-local`. Then continue the calling step.
+- `handoff:failed (<reason>)` → the agent may already be running when `handoff-create` and `source ~/.n1/preamble.sh; n1_find_workspace "<ID>"` prints a path, or either of:
+  - the reason starts with `prompt`
+  - `handoff-launch` with any reason except an input-validation one (invalid ticket id / type / path), which never reached Orca
+
+  Then tell the user "Workspace handoff reported (<reason>), but an agent may already be running in that workspace" and ask: stop here or continue in this session (No recommendation. The options are equivalent given the available evidence; select based on team preference.). On stop, run `source ~/.n1/preamble.sh; n1_active_run_clear`, on a fresh run first `n1_step_end "ticket" 1 skipped '{"skip_reason":"handoff_unconfirmed"}'`, then STOP without further steps. Otherwise say once "Workspace handoff failed (<reason>); continuing in this session." `handoff-launch <path>` → act as `reuse <path>`; `handoff-create` → act as `create-local`. Then continue the calling step.
