@@ -71,7 +71,8 @@ printf 'source %q/"${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:?N1: no session id 
 HOST_BLOCK="N1 PLUGIN ROOT: ${N1_ROOT_DIR}
 
 HOST ROUTING (authoritative for how N1 skills reach Claude Code):
-- Dispatch persona <name>: Agent tool with subagent_type \"n1:<name>\", prompt, model from n1_resolve_agent (first tab-separated field). Wait for it: the tool call returns the result inline. Fix loops: dispatch a fresh persona per cycle.
+- Dispatch persona <name>: Agent tool with subagent_type \"n1:<name>\", prompt, model from n1_resolve_agent (first tab-separated field). Dispatch is asynchronous: the call returns 'launched' and the result arrives later as a task notification. Orchestrator: follow Wait Contract. A subagent that dispatches a persona must not return or move on until that persona's final result is in hand: end a turn only while that persona is still running, and after an interim notice (it is waiting on its own background work) resume it before ending the turn. Fix loops: dispatch a fresh persona per cycle.
+- Resume subagent <id> (host message mechanism): SendMessage tool (load via ToolSearch if deferred); it also resumes a finished subagent in the background.
 - Dispatch a general-purpose subagent: Agent tool with subagent_type \"general-purpose\".
 - never use subagent_type \"fork\". All dispatches use typed personas or general-purpose subagents with fresh context.
 - Ask the user: AskUserQuestion tool (max 4 questions per call).

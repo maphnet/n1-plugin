@@ -91,6 +91,35 @@ assert_contains "n1-start: wait contract pointer on every dispatch" \
 assert_contains "output-gates: wait is one empty end-of-turn" \
     "skills/n1-start/procedures/output-gates.md" \
     "that empty end-of-turn is the wait"
+# N1-300 — a grandchild notice, or a subagent "finished" notice that only says it is waiting, resumes the owner
+assert_contains "output-gates: nested notice is not a result (N1-300)" \
+    "skills/n1-start/procedures/output-gates.md" \
+    "A notification for a persona you did not dispatch (a nested one)"
+assert_contains "output-gates: waiting-only finished notice (N1-300)" \
+    "skills/n1-start/procedures/output-gates.md" \
+    "only says it is waiting"
+assert_contains "output-gates: resume the owning subagent (N1-300)" \
+    "skills/n1-start/procedures/output-gates.md" \
+    "resume the owning subagent"
+assert_contains "output-gates: run never stalls with plan tasks left (N1-300)" \
+    "skills/n1-start/procedures/output-gates.md" \
+    "Never let such a notice end the step or the run while plan tasks remain"
+# N1-300 — nested dispatchers: no return or waiting-text turn end before the child's final report
+assert_contains "implementer: hard stop on pending persona (N1-300)" \
+    "agents/implementer.md" \
+    "while a dispatched persona has no final report"
+assert_contains "implementer: waiting text stalls the run (N1-300)" \
+    "agents/implementer.md" \
+    "is read as your final result and stalls the run"
+assert_contains "implementer: resume child on interim notice (N1-300)" \
+    "agents/implementer.md" \
+    "resume it through the host message mechanism asking for its final report"
+assert_contains "implementer: final message starts with DONE or BLOCKED (N1-300)" \
+    "agents/implementer.md" \
+    "Your final message must start with the status DONE or BLOCKED"
+assert_contains "developer: foreground tests (N1-300)" \
+    "agents/developer.md" \
+    "never background them and never end your turn while one is pending"
 assert_contains "n1-start: one-turn step transition" \
     "skills/n1-start/SKILL.md" \
     "**Transition turn:** issue in ONE turn, in parallel"
@@ -204,6 +233,60 @@ assert_contains "n1-finish: local-merge tracker comment" \
 assert_contains "n1-finish: local merge report label" \
     "skills/n1-finish/steps/06-cleanup.md" \
     'by <reviewer|n1-finish (mergeOnFinish)|local merge>'
+
+# N1-300 / AC4 — regression fixture of N1-268 (20261102T172042Z) plus a synthetic no-waiting-text
+# "finished" notice. Each event is classified from its real text: it must contain a trigger phrase that
+# the rule names (so editing either the rule or the text turns the check red), or be not-final
+# (a nested persona's notice, or no DONE/BLOCKED status while the Wait Contract names that status).
+# Static: not live harness behaviour. The live check is AC1 (a queue run with a background-test developer).
+check_nested_wait_fixture() {
+    local fix="tests/fixtures/notifications/n1-268-nested-wait.txt"
+    local block="" events=0 line spec file phrase kind dispatched="" id
+    local gates="skills/n1-start/procedures/output-gates.md"
+    if [ ! -f "$REPO_ROOT/$fix" ]; then
+        echo "FAIL: nested-wait fixture missing ($fix)"; FAIL=$((FAIL+1)); return
+    fi
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "=== "*) block=""; events=$((events+1)) ;;
+            "# dispatched: "*) dispatched="${line#"# dispatched: "}" ;;
+            "# trigger: "*)
+                spec="${line#"# trigger: "}"; file="${spec%% :: *}"; phrase="${spec#* :: }"
+                if [[ "$block" == *"$phrase"* ]]; then
+                    echo "PASS: fixture event $events text carries trigger: $phrase"; PASS=$((PASS+1))
+                else
+                    echo "FAIL: fixture event $events text lacks trigger: $phrase"; FAIL=$((FAIL+1))
+                fi
+                assert_contains "fixture event $events trigger named by $file" "$file" "$phrase" ;;
+            "# not-final: "*)
+                kind="${line#"# not-final: "}"
+                if [ "$kind" = nested ]; then
+                    id="$(sed -n 's/.*<task-id>\(.*\)<\/task-id>.*/\1/p' <<<"$block")"
+                    if [ -n "$id" ] && [ "$id" != "$dispatched" ]; then
+                        echo "PASS: fixture event $events is a nested persona notice"; PASS=$((PASS+1))
+                    else
+                        echo "FAIL: fixture event $events is not a nested persona notice"; FAIL=$((FAIL+1))
+                    fi
+                else
+                    if [[ "$block" =~ \<result\>[[:space:]]*(DONE|BLOCKED) ]]; then
+                        echo "FAIL: fixture event $events has a final status but is marked no-status"; FAIL=$((FAIL+1))
+                    else
+                        echo "PASS: fixture event $events has no DONE/BLOCKED status"; PASS=$((PASS+1))
+                    fi
+                    assert_contains "fixture event $events: Wait Contract keys on final status" \
+                        "$gates" "lacks that persona's documented final status"
+                fi ;;
+            "#"*) ;;
+            *) block+="$line"$'\n' ;;
+        esac
+    done < "$REPO_ROOT/$fix"
+    if [ "$events" -eq 4 ]; then
+        echo "PASS: nested-wait fixture has 4 events"; PASS=$((PASS+1))
+    else
+        echo "FAIL: nested-wait fixture has $events events, want 4"; FAIL=$((FAIL+1))
+    fi
+}
+check_nested_wait_fixture
 
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

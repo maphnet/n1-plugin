@@ -1,0 +1,48 @@
+# N1-300 regression fixture: N1-268 queue run 20261102T172042Z, worker ctx_f99145601a66.
+# Notification texts condensed from the run transcripts; marker phrases are verbatim.
+# Format: "=== <event>" starts an event; lines not starting with "#" are notification text;
+#   "# dispatched: <id>"          -> task-id of the subagent the orchestrator dispatched;
+#   "# trigger: <file> :: <s>"    -> <s> must appear in BOTH the event text and <file> (the rule naming it);
+#   "# not-final: <id|->"         -> the text is not a final result: for "nested" its task-id differs from
+#                                    the dispatched one; for "no-status" it has no DONE/BLOCKED status and
+#                                    the Wait Contract names that status as the final-result marker.
+# dispatched: a49d4af429e23c504
+
+=== 19:35:18Z interim developer notice delivered to the implementer (expect: resume-child)
+<task-notification>
+<task-id>a0c2aa02a05673d26</task-id>
+<status>completed</status>
+<summary>Agent "Task 2 developer" completed while waiting on its own background work</summary>
+<note>The agent is still running background tasks; the result below may be interim.</note>
+<result>Full test suite started in the background; I will report when it finishes.</result>
+</task-notification>
+# trigger: agents/implementer.md :: waiting on its own background work
+# trigger: agents/implementer.md :: may be interim
+
+=== 19:35:19Z implementer "finished" notice delivered to the orchestrator (expect: resume-owner)
+<task-notification>
+<task-id>a49d4af429e23c504</task-id>
+<status>completed</status>
+<summary>Agent "implementer" finished</summary>
+<result>Task 2 developer is running its tests in the background. I'll wait for its next notification.</result>
+</task-notification>
+# trigger: skills/n1-start/procedures/output-gates.md :: wait for its next notification
+# not-final: no-status
+
+=== 19:46:18Z developer final report delivered to the orchestrator instead of its parent (expect: resume-owner)
+<task-notification>
+<task-id>a0c2aa02a05673d26</task-id>
+<status>completed</status>
+<summary>Agent "Task 2 developer" completed</summary>
+<result>DONE. Commit 9a399db. Full test suite passes.</result>
+</task-notification>
+# not-final: nested
+
+=== synthetic: implementer "finished" notice with no waiting text and no status (the compliant empty end-of-turn)
+<task-notification>
+<task-id>a49d4af429e23c504</task-id>
+<status>completed</status>
+<summary>Agent "implementer" finished</summary>
+<result>Task 2 developer dispatched.</result>
+</task-notification>
+# not-final: no-status
