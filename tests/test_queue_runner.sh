@@ -762,10 +762,10 @@ test_held_user_merge() {
     mkdir -p "$tmp/bin" "$tmp/h/memory/T-1"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/5\n' > "$tmp/h/memory/T-1/overview.md"
     git init -q -b main "$tmp/origin"
-    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
     git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
     git -C "$tmp/repo" checkout -q -b work
-    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m blocker
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m blocker
     mkq() { mk_held_plan "$tmp/q.md" pr; sed -i "s#| /r | /h |#| $tmp/repo | $tmp/h |#g" "$tmp/q.md"; }
     fakegh() { printf '#!/bin/sh\n%s\n' "$1" > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"; }
 
@@ -812,15 +812,15 @@ test_sync_default() {
     local tmp origin repo; tmp=$(mktemp -d)
     origin="$tmp/origin"; repo="$tmp/repo"
     git init -q -b main "$origin"
-    git -C "$origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git -C "$origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
     git clone -q "$origin" "$repo" 2>/dev/null
     git -C "$repo" -c user.email=t@t -c user.name=t checkout -q -b other-branch
-    git -C "$origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m new
+    git -C "$origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m new
     assert_eq "sync: checked out elsewhere, updates local ref" "0" "$(n1_queue_sync_default "$repo" >/dev/null 2>&1; echo $?)"
     git -C "$repo" checkout -q main
     assert_eq "sync: local main advanced" "$(git -C "$origin" rev-parse main)" "$(git -C "$repo" rev-parse main)"
     # N1-64 TQ-2: default branch checked out (the ff-only merge path, not the fetch-into-ref path).
-    git -C "$origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m newer
+    git -C "$origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m newer
     local before after; before=$(git -C "$repo" rev-parse HEAD)
     assert_eq "sync: ff-only path, default checked out" "0" "$(n1_queue_sync_default "$repo" >/dev/null 2>&1; echo $?)"
     after=$(git -C "$repo" rev-parse HEAD)

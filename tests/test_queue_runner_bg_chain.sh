@@ -42,7 +42,7 @@ test_bg_chain_sync_ok() {
     gh_overview "$tmp/fake/overview.T-A" 1
     echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
     git init -q --bare -b main "$tmp/origin.git"
-    git -C "$tmp" init -q -b main; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i
+    git -C "$tmp" init -q -b main; git -C "$tmp" -c user.name=t -c user.email=t@t -c commit.gpgSign=false commit -q --allow-empty -m i
     git -C "$tmp" remote add origin "$tmp/origin.git"; git -C "$tmp" push -q origin main
     assert_eq "chain-sync: exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "chain-sync: outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
@@ -378,7 +378,7 @@ test_bg_held_user_merge() {
     n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
     git init -q -b main "$tmp/origin"
-    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
     git init -q -b work "$tmp"
     git -C "$tmp" remote add origin "$tmp/origin"
     printf '#!/bin/sh\ncase "$*" in *"pr view"*"--json state"*) echo MERGED main ;; esac\n' > "$tmp/bin/gh"
@@ -398,7 +398,7 @@ test_bg_held_merge_at_timeout() {
     n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
     git init -q -b main "$tmp/origin"
-    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
     git init -q -b work "$tmp"
     git -C "$tmp" remote add origin "$tmp/origin"
     cat > "$tmp/bin/gh" <<EOF

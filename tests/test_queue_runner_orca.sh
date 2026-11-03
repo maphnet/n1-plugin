@@ -43,7 +43,7 @@ test_orca_held_blocker() {   # AC3: merge-gated, no --deps
     # N1-114 release fixture (as test_bg_held_user_merge): a github pr_url, MERGED into main, a syncable repo.
     printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
     git init -q -b main "$tmp/origin"
-    git -C "$tmp/origin" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
     git init -q -b work "$tmp"
     git -C "$tmp" remote add origin "$tmp/origin"
     echo "MERGED main" > "$tmp/fake/gh-state"
@@ -122,7 +122,7 @@ test_orca_timeout_open_pr() {
     mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
     printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
         > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
-    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t -c commit.gpgSign=false commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
     printf 'https://github.com/o/r/pull/239\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/me/T-A)" > "$tmp/fake/gh-pr"
     assert_eq "orca-timeout-pr: exit 0" "0" "$(run_orca_queue "$tmp")"
     assert_eq "orca-timeout-pr: row is pr, not subtask-timeout, no retry row" "pr||1" \
