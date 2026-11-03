@@ -79,7 +79,7 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 - **Plugin:** `claude --plugin-dir ~/dev/n1-plugin` from any test project; `/reload-plugins` to pick up edits
 - **Always test on a separate repo before committing plugin changes**
 - **Dogfooding:** use N1 skills on the N1 repo itself
-- Run `bash tests/run.sh` before committing; every lib helper has a test file under `tests/` that builds throwaway git repos in `mktemp -d`.
+- Run `bash tests/run.sh` before committing. It runs every `tests/test_*.sh` in parallel (`N1_TEST_JOBS` workers, default nproc/2), buffers each file's output and prints it only on failure (`!! <file> FAILED`). Tests must therefore be safe to run concurrently: every lib helper has a test file under `tests/` that builds throwaway git repos in its own `mktemp -d`, and a test that touches N1 state points `N1_HOME`, `N1_STATE_DIR` and `HOME` into that temp dir instead of the real `$HOME/.n1`.
 - Static: `tests/test_host_neutral_skills.sh` fails on any host tool name or host path literal in `skills/` or `agents/`; `tests/test_manifests.sh` checks the manifest versions match.
 
 ### Auditing orchestrator delegation
