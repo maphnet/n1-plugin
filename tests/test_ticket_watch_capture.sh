@@ -247,7 +247,7 @@ done
 
 # [SEC-2] subagent calls (agent_id set) neither capture nor receive the digest
 clean; printf '%s\n' "$CUR" > "$M/.ticket-watch"
-o=$(jq -nc --arg t "$GI" --argjson i "$K" --argjson r "$ISSUE" --arg cwd "$T" '{session_id:"s1",agent_id:"a1",cwd:$cwd,tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H")
+o=$(jq -nc --arg t "$GI" --argjson i "$K" --argjson r "$(jq -c '[{type:"text",text:tojson}]' <<<"$ISSUE")" --arg cwd "$T" '{session_id:"s1",agent_id:"a1",cwd:$cwd,tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H")
 assert_eq "subagent call: silent, nothing saved" "|no" "$o|$(has "$M/.tw-issue.json")"
 # [SEC-4] a planted lock symlink is neither followed nor truncated
 clean; V="$T/victim"; printf 'keep' > "$V"; ln -s "$V" "$M/.tw-lock"
