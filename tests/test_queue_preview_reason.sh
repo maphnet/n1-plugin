@@ -30,5 +30,11 @@ check "preview.md prints a Hierarchy block for epic rows (N1-298)" \
 check "preview.md Hierarchy groups rows under their Story (N1-298)" \
     '^Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #' \
     skills/n1-queue/steps/preview.md
+check "preview.md prints the Concurrency line (N1-272)" \
+    'Concurrency: <MAX_CONCURRENT> \(queue\.maxConcurrent' \
+    skills/n1-queue/steps/preview.md
+check "preview.md usage note only when MAX_CONCURRENT is above 1 (N1-272)" \
+    'Parallel workers share your usage limits\.` only when `MAX_CONCURRENT` is above 1' \
+    skills/n1-queue/steps/preview.md
 
 exit $FAIL

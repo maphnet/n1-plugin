@@ -33,7 +33,7 @@ test_orca_notifier_drain_keeps_rows() {   # N1-265: a stdin-draining notifier mu
 
 test_orca_event_drain_keeps_events() {   # N1-265: an escalation's notifier must not swallow the rest of the event batch
     local tmp; tmp=$(mktemp -d)
-    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; drain_notifier "$tmp"
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 3'; drain_notifier "$tmp"
     echo implement > "$tmp/fake/step.T-A"; echo implement > "$tmp/fake/step.T-B"
     : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
     # One batch (emitted once both workers started): T-A escalates (notifies), then T-B's worker reports done.
