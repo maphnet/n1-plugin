@@ -1,0 +1,392 @@
+# Shared setup and fixtures for tests/test_queue_runner*.sh (N1-304). Sourced by each file, never run:
+# the name is outside the tests/test_*.sh glob, so tests/run.sh does not execute it.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PASS=0
+FAIL=0
+
+assert_eq() {
+    local label="$1" expected="$2" actual="$3"
+    if [ "$expected" = "$actual" ]; then
+        echo "PASS: $label"; PASS=$((PASS+1))
+    else
+        echo "FAIL: $label (expected=[$expected] actual=[$actual])"; FAIL=$((FAIL+1))
+    fi
+}
+
+plan_cell() { # <queue.md> <row#> <col: 8=Status 9=Reason>
+    awk -F'|' -v n="$2" -v c="$3" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 == n && NF >= 9 { print $c }' "$1"
+}
+
+export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
+export N1_WSL_POWERSHELL=/nonexistent  # never fire a real WSL toast from tests
+: "${N1_HOME:=}"; : "${ID:=}"; export N1_HOME ID
+source "${REPO_ROOT}/lib/config.sh"
+source "${REPO_ROOT}/lib/frontmatter.sh"
+source "${REPO_ROOT}/lib/queue.sh"
+source "${REPO_ROOT}/lib/validation.sh"
+
+# --- Background-session (claude-code) runner path ----------------------------
+# mk_bg <tmp> <queue-id> <ticket:states>... — queue.md plus a fake
+# claude and a no-op sleep in <tmp>/bin. States are space-separated, one per poll of
+# that session; the last state repeats. Timeout 1 min, poll 30 s -> 2 polls.
+# Optional per-ticket files in <tmp>/fake: finish-step.<t>, overview.<t> (full overview written on done),
+# overview.<t>.<poll> (full overview written on that poll), relay.<t>.
+mk_bg() {
+    local tmp="$1" qid="$2" n=0 spec t; shift 2
+    mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
+    # N1-182: runner asks gh for an open PR of an incomplete child; default answer comes from
+    # $FAKE_DIR/gh-pr (absent -> no PR). Never reach the real gh from tests.
+    # N1-185: pr view prints $FAKE_DIR/gh-state (OPEN/MERGED/CLOSED); absent -> exit 1 as before.
+    [ -e "$tmp/bin/gh" ] || { cat > "$tmp/bin/gh" <<'GHEOF'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_DIR/gh-all"
+case "$1 $2" in
+    "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
+    "pr view") # N1-214: gh-fail holds a count of reads to fail before answering
+        if [ -s "$FAKE_DIR/gh-fail" ]; then n=$(cat "$FAKE_DIR/gh-fail"); if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$FAKE_DIR/gh-fail"; exit 1; fi; fi
+        cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
+    *) exit 1 ;;
+esac
+GHEOF
+        chmod +x "$tmp/bin/gh"; }
+    cat > "$tmp/bin/claude" <<'FAKEEOF'
+#!/usr/bin/env bash
+# Fake claude CLI for background-session tests. State lives in $FAKE_DIR.
+D="$FAKE_DIR"
+case "$1" in
+    --bg)
+        all="$*"; name=""; settings=""; prompt=""
+        while [ $# -gt 0 ]; do
+            case "$1" in
+                --name) name="$2"; shift ;;
+                --settings) settings="$2"; shift ;;
+                --model|--permission-mode|--plugin-dir) shift ;;
+                --bg) ;;
+                *) prompt="$1" ;;
+            esac
+            shift
+        done
+        echo "launch $name" >> "$D/events"
+        printf '%s\n' "$all" > "$D/args.$name"
+        printf '%s\n' "$settings" > "$D/settings.$name"
+        if [ -f "$D/refuse" ]; then
+            echo "Bypass Permissions mode requires accepting the disclaimer first. Run claude --dangerously-skip-permissions once."
+            exit 1
+        fi
+        printf '%s\n' "$prompt" > "$D/prompt.$name"
+        t="${prompt##* }"
+        grep '^queue_tag_removed:' "$FAKE_N1H/memory/$t/overview.md" > "$D/flag.$t" 2>/dev/null || true
+        n=$(( $(cat "$D/seq" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/seq"
+        printf '%08x' "$n" > "$D/id.$name"
+        printf 'backgrounded \xc2\xb7 %08x \xc2\xb7 %s\n' "$n" "$name"
+        ;;
+    agents)
+        out=""
+        for f in "$D"/prompt.*; do
+            [ -f "$f" ] || continue
+            name="${f##*/prompt.}"; t=$(cat "$f"); t="${t% chained}"; t="${t##* }"
+            c=$(( $(cat "$D/poll.$name" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$D/poll.$name"
+            # N1-185: a chained n1-finish session (<name>-fin) replays states.<t>.fin (default done).
+            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; esac
+            read -r -a seq 2>/dev/null < "$sf" || seq=(done)
+            i=$(( c < ${#seq[@]} ? c - 1 : ${#seq[@]} - 1 ))
+            st="${seq[$i]}"
+            echo "state $name $st" >> "$D/events"
+            # relay.<t>: an answer relay in flight; lands as the runner's marker (mtime kept) when
+            # the fake first reports the session stopped, i.e. after the runner saw the first block.
+            [ "$st" = stopped ] && [ -f "$D/relay.$t" ] && mv "$D/relay.$t" "$D/../.relay-$t"
+            if [ "${name%-fin}" != "$name" ]; then
+                # N1-185: fin-merge.<t> makes the chained finish merge the PR when it is done.
+                [ "$st" = done ] && [ -f "$D/fin-merge.$t" ] && echo MERGED > "$D/gh-state"
+            elif [ -f "$D/overview.$t.$c" ]; then
+                mkdir -p "$FAKE_N1H/memory/$t"
+                cp "$D/overview.$t.$c" "$FAKE_N1H/memory/$t/overview.md"
+                echo "overview $name $c" >> "$D/events"
+            elif [ "$st" = done ]; then
+                # N1-74: the runner now polls agents again after a ticket finalizes (draining
+                # the bg session until idle); cap done-poll writes so a later poll doesn't
+                # clobber what finalize already stamped onto overview.md (e.g. queue_run_id).
+                wn=$(( $(cat "$D/wrote.$t" 2>/dev/null || echo 0) + 1 ))
+                if [ "$wn" -le 1 ]; then
+                    echo "$wn" > "$D/wrote.$t"
+                    mkdir -p "$FAKE_N1H/memory/$t"
+                    # finish-step.<ticket>: overrides the terminal step (default pr) so a test
+                    # can simulate a bg session reporting done while overview never reached a
+                    # terminal step (NP-216).
+                    step="pr"; [ -f "$D/finish-step.$t" ] && step=$(cat "$D/finish-step.$t")
+                    if [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
+                    else printf -- '---\nstep: %s\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' "$step" > "$FAKE_N1H/memory/$t/overview.md"; fi
+                fi
+            fi
+            sid=$(cat "$D/id.$name" 2>/dev/null || echo "00000000")
+            # stopeffective: a stopped session reports done afterwards (default: the stop has no effect).
+            # stoplag: N (file content) agents reads after the stop still report the old state.
+            if [ -f "$D/stopeffective" ] && grep -qx "$sid" "$D/stopped" 2>/dev/null; then
+                lagn=$(cat "$D/stoplag" 2>/dev/null || echo 0)
+                if [ "$lagn" -gt 0 ]; then echo $((lagn - 1)) > "$D/stoplag"; else st=done; fi
+            fi
+            out="$out${out:+,}{\"kind\":\"background\",\"id\":\"$sid\",\"sessionId\":\"$sid-0000-0000-0000-000000000000\",\"name\":\"$name\",\"state\":\"$st\",\"waitingFor\":null,\"pid\":1,\"cwd\":\"/r\"}"
+        done
+        echo "[$out]"
+        ;;
+    stop)
+        if [ -f "$D/stopfail.$2" ]; then
+            echo "$2" >> "$D/stopfail-log"
+            rm -f "$D/stopfail.$2"
+            exit 1
+        fi
+        echo "$2" >> "$D/stopped"
+        ;;
+esac
+FAKEEOF
+    printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
+    chmod +x "$tmp/bin/claude" "$tmp/bin/sleep"
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":1,"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$tmp" > "$tmp/n1home/config.json"
+    {
+        printf -- '---\nstep: plan\nqueue_id: %s\n---\n## Plan\n' "$qid"
+        printf '| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
+        for spec in "$@"; do
+            n=$((n + 1)); t="${spec%%:*}"
+            printf '%s\n' "${spec#*:}" > "$tmp/fake/states.$t"
+            printf '| %s | %s | Fix %s | %s | %s | sonnet | pending | |\n' "$n" "$t" "$t" "$tmp" "$tmp/n1home"
+        done
+        printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n'
+    } > "$tmp/queue.md"
+}
+
+run_bg_queue() { # <tmp> — runs the runner with the fakes first on PATH; prints its exit code
+    local rc=0
+    env -u ORCA_CLI_COMMAND FAKE_DIR="$1/fake" FAKE_N1H="$1/n1home" N1_HOME="$1/n1home" PATH="$1/bin:$PATH" \
+        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$1/queue.md" > "$1/output.txt" 2>&1 || rc=$?
+    echo "$rc"
+}
+
+line_of() { grep -n -F -- "$2" "$1" | head -1 | cut -d: -f1; }
+
+# --- N1-225: Orca orchestration backend ---------------------------------------
+# mk_orca <tmp> — fake Orca CLI <tmp>/bin/fake-orca on top of mk_bg's fakes; argv log in $FAKE_DIR/orca-calls.
+# worker-start copies the ticket's sentinel to $FAKE_DIR/sentinel.<t> and writes the child's overview at once
+# ($FAKE_DIR/overview.<t> if present, else step from $FAKE_DIR/step.<t>, default pr). check reports worker_done once per started task unless
+# $FAKE_DIR/nodone.<t> exists, plus $FAKE_DIR/question (one message JSON) once any task has started, plus
+# $FAKE_DIR/heartbeat (one message JSON) on every check once any task has started. $FAKE_DIR/at.<n> runs on the n-th check.
+mk_orca() {
+    : > "$1/fake/orca-calls"
+    cat > "$1/bin/fake-orca" <<'ORCAEOF'
+#!/usr/bin/env bash
+D="$FAKE_DIR"; printf '%s\n' "$*" >> "$D/orca-calls"
+ok() { printf '{"id":"1","ok":true,"result":%s}\n' "$1"; }
+err() { printf '{"id":"1","ok":false,"error":{"code":"x","message":"%s"}}\n' "$1"; exit 1; }
+arg() { local k="$1"; shift; while [ $# -gt 0 ]; do [ "$1" = "$k" ] && { printf '%s' "$2"; return; }; shift; done; }
+msg() { jq -cn --arg y "$1" --arg k "$2" --arg i "$3" '{id: $i, type: $y, payload: ({taskId: $k, dispatchId: ("d-" + ($k | ltrimstr("task-")))} | tojson)}'; }   # real shape: ids only in the payload string
+case "$1 $2" in
+  "status --json") [ -n "${FAKE_ORCA_DOWN:-}" ] && err "runtime down"; ok '{"runtime":{"reachable":true}}' ;;
+  "orchestration run-create") [ -n "${FAKE_ORCA_RUN_FAIL:-}" ] && err "unknown command"; ok '{"run":{"id":"run-1"}}' ;;
+  "orchestration run-use") [ -n "${FAKE_ORCA_RUNUSE_FAIL:-}" ] && err "no such run"; ok '{}' ;;
+  "orchestration task-create") [ -n "${FAKE_ORCA_TASK_FAIL:-}" ] && err "task-create failed"; ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
+  "orchestration worker-start")
+      task=$(arg --task "$@"); t="${task#task-}"
+      [ -n "${FAKE_ORCA_START_FAIL:-}" ] && err "lost response"
+      cp "$FAKE_N1H/queue/sentinels/$t.env" "$D/sentinel.$t" 2>/dev/null
+      echo "$task" >> "$D/started"
+      mkdir -p "$FAKE_N1H/memory/$t"
+      if [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
+      else printf -- '---\nstep: %s\n---\n## Pending\npr_url: https://x/pr/%s\n' "$(cat "$D/step.$t" 2>/dev/null || echo pr)" "$t" > "$FAKE_N1H/memory/$t/overview.md"; fi
+      ok "{\"dispatch\":{\"id\":\"d-$t\"}}" ;;
+  "orchestration check")
+      [ -n "$(arg --ack "$@")" ] && { ok '{}'; exit 0; }
+      m=""; n=$(( $(cat "$D/ncheck" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/ncheck"
+      [ -f "$D/at.$n" ] && bash "$D/at.$n"   # N1-267: $D/at.<n>: script run on the n-th check (tick n), before that tick's row loop
+      # $D/replay: the first 5 checks replay a message for a task no row owns (a missed ack); on the 6th the
+      # tickets named in $D/finish-late finish.
+      [ -f "$D/replay" ] && [ "$n" -le 5 ] && m=$(msg question task-ghost m-ghost)
+      if [ -f "$D/replay" ] && [ "$n" -eq 6 ]; then cp "$D/overview.late" "$FAKE_N1H/memory/T-A/overview.md"; fi
+      while read -r task; do
+          [ -f "$D/nodone.${task#task-}" ] && continue
+          grep -qx "$task" "$D/reported" 2>/dev/null && continue
+          echo "$task" >> "$D/reported"
+          m="$m${m:+,}$(msg worker_done "$task" "m-$task")"
+      done < <(cat "$D/started" 2>/dev/null)
+      if [ -f "$D/question" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/question")"; rm -f "$D/question"; fi
+      if [ -f "$D/heartbeat" ] && [ -s "$D/started" ]; then m="$m${m:+,}$(cat "$D/heartbeat")"; sleep 0.2; fi
+      ok "{\"deliveryId\":\"del-1\",\"messages\":[$m]}" ;;
+  "worktree list") [ -n "${FAKE_ORCA_WT_FAIL:-}" ] && err "boom"; ok "{\"worktrees\":[$(cat "$D/worktrees" 2>/dev/null)]}" ;;   # $D/worktrees: comma-separated {"path":...} objects
+  "orchestration worker-list") [ -n "${FAKE_ORCA_WL_FAIL_AFTER:-}" ] && [ "$(grep -c 'worker-list' "$D/orca-calls")" -gt "$FAKE_ORCA_WL_FAIL_AFTER" ] && err "list down"
+      cat "$D/workers.json" 2>/dev/null || ok '{"workers":[]}' ;;
+  "orchestration worker-release") ok '{}' ;;
+  *) err "unknown command" ;;
+esac
+ORCAEOF
+    chmod +x "$1/bin/fake-orca"
+}
+
+run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CLI as ORCA_CLI_COMMAND
+    local tmp="$1" rc=0; shift
+    env -u CLAUDE_CONFIG_DIR HOME="$tmp/hh" "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+        bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
+    echo "$rc"
+}
+
+cfg_set() { jq "$2" "$1/n1home/config.json" > "$1/cfg.tmp" && mv "$1/cfg.tmp" "$1/n1home/config.json"; } # <tmp> <jq-filter>
+# orca_msg <type> <task> <msg-id> — one inbox message, real Orca 1.4.243 shape (taskId/dispatchId only inside "payload").
+orca_msg() { jq -cn --arg y "$1" --arg k "$2" --arg i "$3" '{id: $i, type: $y, payload: ({taskId: $k, dispatchId: ("d-" + ($k | ltrimstr("task-")))} | tojson)}'; }
+
+# wl_row <ticket> <running|succeeded|released> [liveness verdict] — one worker-list row, real Orca 1.4.243 shape.
+wl_row() {
+    local ws ds ts oc nx lv
+    case "$2" in
+        running)   ws=ready;     ds=dispatched; ts=active;      oc=in_progress; nx=none;    lv=live ;;
+        succeeded) ws=succeeded; ds=completed;  ts=reclaimable; oc=succeeded;   nx=release; lv=unverifiable ;;
+        released)  ws=succeeded; ds=completed;  ts=released;    oc=succeeded;   nx=none;    lv=exited ;;
+    esac
+    lv="${3:-$lv}"
+    jq -cn --arg t "$1" --arg ws "$ws" --arg ds "$ds" --arg ts "$ts" --arg oc "$oc" --arg nx "$nx" --arg lv "$lv" \
+        '{dispatchId: ("d-" + $t), taskId: ("task-" + $t), runId: "run-1", workerState: $ws, dispatchStatus: $ds,
+          terminalState: $ts, resource: {}, projection: {outcome: $oc, nextAction: {kind: $nx, argv: []},
+          liveness: ({verdict: $lv} + (if $lv == "unverifiable" then {reason: "missing_status"} else {} end))}}'
+}
+wl_set() { local tmp="$1"; shift; local IFS=,; printf '{"ok":true,"result":{"workers":[%s]}}\n' "$*" > "$tmp/fake/workers.json"; }   # <tmp> <row-json>...
+
+# drain_notifier <tmp> — N1-265: desktop notify through a notify-send that swallows its stdin (what WSL
+# powershell.exe does); each call appends to $FAKE_DIR/drained so a test can prove the notifier fired.
+drain_notifier() {
+    printf '#!/bin/sh\nwhile read -r _; do :; done\necho x >> "%s/fake/drained"\nexit 0\n' "$1" > "$1/bin/notify-send"
+    chmod +x "$1/bin/notify-send"
+    cfg_set "$1" '.queue.notify = "desktop"'
+}
+
+# orca_resumed_row <tmp> — N1-267: a resumed run whose row T-A is already in-progress on a live, unverifiable Orca worker
+# (no launch, so the fake worktree list may already name T-A); overview step implement; timeout 1 min, poll 30 s.
+orca_resumed_row() {
+    local tmp="$1"
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    mkdir -p "$tmp/n1home/queue/sentinels"; printf 'N1_ORCA_TASK=task-T-A\n' > "$tmp/n1home/queue/sentinels/T-A.env"
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "| T-A | 2026-10-31T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: implement\n---\n' > "$tmp/n1home/memory/T-A/overview.md"
+    wl_set "$tmp" "$(wl_row T-A running unverifiable)"
+}
+
+# orca_stall_fixture <tmp> <line>... — N1-267: orca_resumed_row plus Orca worktree /orca/wt/T-A and its newest Claude
+# transcript ($tmp/cc, passed as CLAUDE_CONFIG_DIR) holding the given JSONL lines; at.<n> scripts get $tmp/fake/{late,asst}.
+orca_stall_fixture() {
+    local tmp="$1"; shift
+    orca_resumed_row "$tmp"
+    printf '{"path":"/orca/wt/T-A"}' > "$tmp/fake/worktrees"
+    mkdir -p "$tmp/cc/projects/-orca-wt-T-A"
+    printf '%s\n' "$@" > "$tmp/cc/projects/-orca-wt-T-A/s1.jsonl"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/fake/late"
+    printf '%s\n' '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"resumed"}]}}' > "$tmp/fake/asst"
+}
+
+# N1-60 follow-up: a field full of control characters (U+0001) JSON-encodes each char
+# as a 6-byte \u0001 escape, and a field full of 4-byte UTF-8 (emoji) is 4x its char
+# count in bytes — both can push the capped-at-2000-chars packed reason well past
+# execve's 128 KiB per-arg limit (~156 KiB and ~104 KiB respectively at 13 max-length
+# fields) unless the control chars are stripped before capping and a hard byte-size
+# fallback shrinks the per-field cap.
+mk_oversized_question() {
+    # Usage: mk_oversized_question <dir> <ticket> <char> — writes a .question-<ticket>.json
+    # with question/10-options/recommended/rationale all at the 2000-char cap, filled
+    # with 2000 repeats of <char> (may be a multi-byte literal). Built via a plain bash
+    # loop, not `yes | head` (SIGPIPE under pipefail, N1-75).
+    local dir="$1" ticket="$2" ch="$3" v="" opts i
+    for ((i = 0; i < 2000; i++)); do v+="$ch"; done
+    opts=""
+    for i in $(seq 1 10); do opts="$opts\"$v\","; done
+    opts="${opts%,}"
+    printf '{"question":"%s","options":[%s],"recommended":"%s","rationale":"%s"}' \
+        "$v" "$opts" "$v" "$v" > "$dir/.question-$ticket.json"
+}
+
+# start_fake_runner — sets FAKE_RUNNER_PID to a live process whose cmdline names n1-queue-run
+# (what n1_queue_runner_alive accepts as a runner). stop_fake_runner kills and reaps it.
+start_fake_runner() {
+    # N1-185 SEC-2: argv is script + queue path, as the launcher starts the real runner.
+    bash -c 'sleep 30; :' "${1:-/x}/scripts/n1-queue-run.sh" "${2:-/x/queue.md}" >/dev/null 2>&1 &
+    FAKE_RUNNER_PID=$!
+    local i
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        case "$(tr '\0' ' ' < "/proc/$FAKE_RUNNER_PID/cmdline" 2>/dev/null)" in *n1-queue-run*) return 0 ;; esac
+        [ -r "/proc/$FAKE_RUNNER_PID/cmdline" ] || return 0
+        sleep 0.2
+    done
+}
+stop_fake_runner() { kill "$FAKE_RUNNER_PID" 2>/dev/null || true; wait "$FAKE_RUNNER_PID" 2>/dev/null || true; }
+
+# count_x <file> <exact-line> — number of lines equal to <exact-line> (0 when the file is missing).
+count_x() { [ -f "$1" ] || { echo 0; return; }; grep -cxF -- "$2" "$1" || true; }
+
+# seed_live_session <tmp> <name> <ticket> <id8> — a live bg session the fake claude lists (states.<ticket>).
+seed_live_session() {
+    printf '/n1:n1-start %s\n' "$3" > "$1/fake/prompt.$2"
+    printf '%s' "$4" > "$1/fake/id.$2"
+}
+
+# N1-185 chain fixtures.
+chain_setup() { # <tmp> <fullAuto> <mergeOnFinish> — config with both flags; PR state OPEN
+    printf '{"queue":{"pollSeconds":30,"subtaskTimeoutMinutes":10,"notify":"command","notifyCommand":"cat >> %s/notes"},"autonomy":{"fullAuto":%s},"finishWork":{"mergeOnFinish":%s}}\n' \
+        "$1" "$2" "$3" > "$1/n1home/config.json"
+    echo OPEN > "$1/fake/gh-state"
+}
+gh_overview() { # <file> <pr-number> — overview at step pr with a GitHub pr_url
+    printf -- '---\nstep: pr\n---\n# T\n\n## Pending\npr_url: https://github.com/o/r/pull/%s\n' "$2" > "$1"
+}
+runs_outcome() { # <queue.md> <ticket> — Outcome cell of the ticket's last Runs row
+    awk -F'|' -v tk="$2" '/^## Runs/{f=1;next} f { t=$2; gsub(/ /,"",t); if (t == tk) { o=$5; gsub(/ /,"",o) } } END { print o }' "$1"
+}
+
+# Review fixes: reconcile (marker hit) state handling.
+chain_restart_setup() { # <tmp> <marker-state> — pr row of this run, marker with that state, no live fin session
+    mk_bg "$1" bgq "T-A:done"
+    chain_setup "$1" true true
+    n1_write_frontmatter "$1/queue.md" run_id R1
+    n1_queue_row_status "$1/queue.md" 1 pr
+    echo '| T-A | 2026-01-01T00:00:00Z | | pr | https://github.com/o/r/pull/1 | 00000009 |' >> "$1/queue.md"
+    mkdir -p "$1/n1home/memory/T-A"; gh_overview "$1/n1home/memory/T-A/overview.md" 1
+    n1_write_frontmatter "$1/n1home/memory/T-A/overview.md" queue_run_id R1
+    echo done > "$1/fake/states.T-A.fin"; touch "$1/fake/fin-merge.T-A"
+    printf 'R1\n%s\n' "$2" > "$1/.chained-T-A"
+}
+
+# --- n1_queue_status_table ----------------------------------------------------
+mk_status_queue() { # <tmp> — a 3-row queue.md + events.jsonl + overview.md fixture
+    local tmp="$1"
+    mkdir -p "$tmp/h/memory/T-2" "$tmp/h/memory/T-4"
+    printf -- '---\nstep: review\n---\n' > "$tmp/h/memory/T-2/overview.md"
+    printf -- '---\nstep: escalated\n---\n\n## Escalations\n\n- [headless] qa: first blocker\n- [headless] implementation: second blocker\n' > "$tmp/h/memory/T-4/overview.md"
+    {
+        printf '## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|--------|-------|------|---------|-------|--------|--------|\n'
+        printf '| 1 | T-1 | A | /r | %s/h | sonnet | pr | |\n' "$tmp"
+        printf '| 2 | T-2 | B | /r | %s/h | sonnet | in-progress | |\n' "$tmp"
+        printf '| 3 | T-3 | C | /r | %s/h | sonnet | awaiting-human | |\n' "$tmp"
+        printf '| 4 | T-4 | D | /r | %s/h | sonnet | escalated | |\n' "$tmp"
+        printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n'
+        printf '| T-1 | 2020-01-01T00:00:00Z | | pr | https://x/pr/1 | 00000001 |\n'
+        printf '| T-2 | %s | | | | 0000abcd |\n' "$(date -u -d '-5 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-5M +%Y-%m-%dT%H:%M:%SZ)"
+        printf '| T-3 | %s | | | | 11112222 |\n' "$(date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)"
+        printf '| T-4 | 2020-01-01T00:00:00Z | | escalated | | |\n'
+    } > "$tmp/q.md"
+    printf '{"ts":"2020-01-01T00:01:00Z","queue":"q","run_id":"r","event":"ticket_finished","ticket":"T-1","outcome":"pr","pr":"https://x/pr/1","session":"00000001","duration_s":60,"reason":""}\n' \
+        > "$tmp/events.jsonl"
+}
+
+# N1-64: held rows (same-plan blocker) — helpers and runner hold/expire.
+mk_held_plan() { # <file> <status-of-T-1>
+    cat > "$1" <<EOF
+---
+queue_id: q
+run_id: R1
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | /h | sonnet | $2 | |
+| 2 | T-2 | B | /r | /h | sonnet | held | blocked_on T-1 · tag match |
+| 3 | T-3 | C | /r | /h | sonnet | held | blocked_on T-2 |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+}

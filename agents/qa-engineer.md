@@ -103,7 +103,7 @@ This step runs for ALL tiers.
 
 ### Step 7: Run the full test suite
 
-Run all tests (not just new ones) and fix any test failures in test code only. If a test failure reveals a production bug, report it — do not fix production code.
+Run the full suite exactly once (all tests, not just new ones) and fix any test failures in test code only; after a fix, rerun only the failing test files, not the full suite. If a test failure reveals a production bug, report it — do not fix production code.
 
 ## Anti-Trivial Rules
 
