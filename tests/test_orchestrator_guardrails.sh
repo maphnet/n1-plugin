@@ -114,6 +114,9 @@ assert_contains "implementer: waiting text stalls the run (N1-300)" \
 assert_contains "implementer: resume child on interim notice (N1-300)" \
     "agents/implementer.md" \
     "resume it through the host message mechanism asking for its final report"
+assert_contains "implementer: final message starts with DONE or BLOCKED (N1-300)" \
+    "agents/implementer.md" \
+    "Your final message must start with the status DONE or BLOCKED"
 assert_contains "developer: foreground tests (N1-300)" \
     "agents/developer.md" \
     "never background them and never end your turn while one is pending"
