@@ -186,7 +186,6 @@ case "$1 $2" in
       [ -n "${FAKE_ORCA_SINK_REFUSE:-}" ] && [ "${ORCA_TERMINAL_HANDLE:-}" = "$(cat "$D/sink" 2>/dev/null)" ] && err "not your terminal"
       ok '{"run":{"id":"run-1"}}' ;;
   "terminal create") [ -f "$D/sink" ] || err "no terminals"; ok "{\"terminal\":{\"handle\":\"$(cat "$D/sink")\"}}" ;;
-  "terminal close") ok '{}' ;;
   "orchestration run-use") [ -n "${FAKE_ORCA_RUNUSE_FAIL:-}" ] && err "no such run"; ok '{}' ;;
   "orchestration task-create") [ -n "${FAKE_ORCA_TASK_FAIL:-}" ] && err "task-create failed"; ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
   "orchestration worker-start")
