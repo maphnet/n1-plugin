@@ -13,6 +13,7 @@ DEV=agents/developer.md
 check "fix cycle runs only the covering test files" '^5\. \*\*Run only the test files covering your changes\*\*, not the full suite' "$DEV"
 check "direct implementation runs only the covering test files" '^6\. \*\*Run only the test files covering your changes\*\* to verify nothing is broken, not the full suite' "$DEV"
 check "QA runs the full suite once, then reruns only failing files" 'Run the full suite exactly once .*rerun only the failing test files' agents/qa-engineer.md
+check "QA evidence documents Fixed test: lines for files QA fixed" '^Fixed test: \{test_file\} \| `' agents/qa-engineer.md
 check "CLAUDE.md maps the queue-runner test areas" 'Queue runner tests are split by area' CLAUDE.md
 for s in "" _bg _bg_chain _orca _orca_liveness _orca_slots; do
     f=tests/test_queue_runner$s.sh
