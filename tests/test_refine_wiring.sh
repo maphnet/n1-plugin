@@ -120,7 +120,23 @@ has "loop recommendation needs codebase evidence" '(Recommended): <evidence, fil
 has "loop runs duplicate check on widening" 'references/duplicate-check.md' "$L"
 has "loop reclassifies scope" 'references/ticket-scope.md' "$L"
 has "loop prints readiness verdict" 'Executable without questions: no — N open' "$L"
-has "ticket-scope defines refine to story handoff" '**Story scope in n1-refine:**' references/ticket-scope.md
+lacks "N1-296: refine to story handoff removed" '**Story scope in n1-refine:**' references/ticket-scope.md
+lacks "N1-296: refine never mentions n1-story" 'n1-story' skills/n1-refine
+lacks "N1-296: widening no longer ends refine without a block" 'refine writes no block' "$L"
+has "N1-296: loop classifies by ticket type" 'ticket-scope.md` § Decomposition by ticket type' "$L"
+has "N1-296: loop proposes only missing children" 'Propose only missing children' "$L"
+has "N1-296: re-run never re-proposes an existing child" 'never re-proposes an existing child' "$L"
+line_has "N1-296: CONVERT covers atomic Story to Task" '`CONVERT`' '`Task` (Story with one atomic deliverable' "$L"
+line_has "N1-296: CONVERT covers Story-sized Task to Story" '`CONVERT`' '`Story` (Task classified `SCOPE_TYPE=Story`)' "$L"
+has "N1-296: Story with children is never converted" 'a Story with children is never offered Task conversion' "$L"
+S=references/ticket-scope.md
+has "N1-296: ticket-scope has decomposition section" '## Decomposition by ticket type' "$S"
+line_has "N1-296: Epic proposes Stories" '| Epic |' 'propose missing Stories' "$S"
+line_has "N1-296: Story proposes Sub-tasks" '| Story | meaningful decomposition |' 'propose missing Sub-tasks' "$S"
+line_has "N1-296: atomic Story converts to Task" '| Story, no children |' 'converting to Task' "$S"
+line_has "N1-296: Story with children never converts" '| Story with children |' 'never convert' "$S"
+line_has "N1-296: Story-sized Task converts to Story" '`SCOPE_TYPE=Story`' 'converting to Story' "$S"
+line_has "N1-296: fitting Task refines only" '`SCOPE_TYPE=Task`' 'refine the block only' "$S"
 
 # --- Task 8: write step
 W=skills/n1-refine/steps/03-write.md

@@ -40,7 +40,21 @@ Carry the confirmed goal, title/description, acceptance criteria, repository req
 
 - **Task scope in n1-story:** say "This is one atomic change in one repository. Creating one standalone Task." Invoke `n1-ticket` with the captured scope and type `Task`, with no parent or child tickets. Continue at Step 3 in `<N1_ROOT>/skills/n1-ticket/steps/01-compose.md`, reusing completed analysis/discovery, then follow `<N1_ROOT>/skills/n1-ticket/steps/02-create.md`. The destination creates exactly one standalone Task; only the destination reports the created ticket and suggests `n1-start`.
 - **Story scope in n1-ticket:** say "This scope needs a Story with child tickets." Invoke `n1-story` with the captured scope, continuing at Step 3 in `<N1_ROOT>/skills/n1-story/steps/01-collect.md`, reusing completed analysis/discovery, then follow `<N1_ROOT>/skills/n1-story/steps/02-compose.md`. Derive meaningful child scopes from the confirmed deliverables and repository work.
-- **Story scope in n1-refine:** say "This scope needs a Story with child tickets." Invoke `n1-story` with the refined scope (Decisions and Assumptions included), continuing at Step 3 in `<N1_ROOT>/skills/n1-story/steps/01-collect.md`, reusing completed analysis, then follow `<N1_ROOT>/skills/n1-story/steps/02-compose.md`. The original ticket is left unchanged.
 - **Already in the matching skill:** continue there. Task scope in `n1-ticket` retains its existing Bug detection for defect reports; a normal atomic change is a Task.
 
 End the originating flow after the destination finishes or cancels. It must not resume its own approval, creation, child linking, or queue suggestion. No tracker ticket may be created before the final scope classification selects that path.
+
+## Decomposition by ticket type
+
+n1-refine applies this mapping to an existing ticket: `issue_type` from intake, existing children listed from the tracker. Classify the latest confirmed scope with the `SCOPE_TYPE` table above first; the ticket type then selects the action offered. Nothing is converted or created until the user picks it.
+
+| Ticket type | Classification | Action offered |
+|---|---|---|
+| Epic | always decomposes | propose missing Stories (summary, description, acceptance criteria) |
+| Story | meaningful decomposition | propose missing Sub-tasks (summary, description, acceptance criteria) |
+| Story, no children | one atomic deliverable | offer converting to Task; no children |
+| Story with children | already decomposed | list the children, flag gaps and overlaps, propose only missing ones; never convert |
+| Task | `SCOPE_TYPE=Story` | offer converting to Story, then propose Sub-tasks |
+| Task | `SCOPE_TYPE=Task` | refine the block only |
+
+Any other type (Bug and the like) is handled as a Task with `SCOPE_TYPE=Task`: refine the block only.

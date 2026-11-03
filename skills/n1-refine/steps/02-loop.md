@@ -1,4 +1,4 @@
-<!-- Purpose: contradiction gate, tiering, question batches, scope widening, readiness verdict (Steps 1-5). -->
+<!-- Purpose: contradiction gate, tiering, question batches, scope classification, readiness verdict (Steps 1-5). -->
 
 ## Step 1: Contradiction Gate
 
@@ -36,16 +36,16 @@ Q<n> <topic>: <why it matters, one line>
 
 Exactly one `(Recommended)`, with codebase evidence right after it. When the evidence does not differentiate, put "No recommendation. The options are equivalent given the available evidence; select based on team preference." above the options, label none, and Park keeps option 1. **Decide for me:** apply the recommended option; with none, dispatch persona `solution-architect` with "Answer only: <question>. ≤200 words." and apply its answer. Record answered points as Decisions (`Rejected:` lists the options not chosen) and parked points as Assumptions.
 
-## Step 4: Scope Widening
+## Step 4: Scope Classification
 
-An answer that adds a repository, a deliverable or user-visible behavior outside the ticket's stated scope:
-1. Run `<N1_ROOT>/references/duplicate-check.md` § Check on the widened summary, the way `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` does; show any hits; apply no links.
-2. Reclassify with `<N1_ROOT>/references/ticket-scope.md`. `SCOPE_TYPE=Story`: ask the user:
-   1 — Hand off to n1-story (Recommended): `references/ticket-scope.md` classifies this scope as a Story
-   2 — Narrow the scope back to one Task and continue
+Classify with `<N1_ROOT>/references/ticket-scope.md` § Decomposition by ticket type, using `ISSUE_TYPE` and `CHILDREN` (`01-fetch.md` Steps 3-3b) and the latest confirmed scope. Runs for every ticket type, and again after any answer that adds a repository, a deliverable or user-visible behavior outside the ticket's stated scope. For such a widening, first run `<N1_ROOT>/references/duplicate-check.md` § Check on the widened summary, the way `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` does; show any hits; apply no links. Widening never ends refine: the new classification feeds the draft.
 
-   Hand-off: follow ticket-scope.md § Handoffs "Story scope in n1-refine"; refine writes no block.
+Results, carried into `03-write.md`:
+- `PROPOSED`: children to create. Epic: Stories. Story, or a Task converting to Story: Sub-tasks. Each has a summary, a description and acceptance criteria as plain bullets. Propose only missing children: drop any child that an entry in `CHILDREN` already covers, so a re-run never re-proposes an existing child.
+- `CONVERT`: `Task` (Story with one atomic deliverable and empty `CHILDREN`), `Story` (Task classified `SCOPE_TYPE=Story`), or empty.
+
+`ISSUE_TYPE` other than `epic`, `story` or `task` (bug, sub-task, ...): `PROPOSED` and `CONVERT` stay empty; refine writes the block only. `CHILDREN` non-empty: show it first (key, type, summary) and flag gaps (scope no child covers) and overlaps (two children, or a child and the ticket's Out list, covering the same deliverable); a Story with children is never offered Task conversion. `CHILDREN=unknown`: `PROPOSED` and `CONVERT` stay empty; say "Existing children unknown; refine proposes no children or conversion this run." The user confirms or edits `PROPOSED` and `CONVERT` like any other point in the Step 3 batches; nothing is written in this step.
 
 ## Step 5: Readiness Verdict
 
-N = A-tier points the user parked. N = 0: `Executable without questions: yes`. Otherwise `Executable without questions: no — N open`, followed by the parked points. Carry the verdict and the draft lists into `03-write.md`.
+N = A-tier points the user parked. N = 0: `Executable without questions: yes`. Otherwise `Executable without questions: no — N open`, followed by the parked points. Carry the verdict, the draft lists, `PROPOSED` and `CONVERT` into `03-write.md`.
