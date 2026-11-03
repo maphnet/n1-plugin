@@ -191,5 +191,15 @@ for t in mcp__jc__jcm_getIssueLinks mcp__jc__jcm_addComment Bash; do
     assert_eq "matcher skips $t" "no" "$([ -n "$MATCH" ] && [[ "$t" =~ $MATCH ]] && echo yes || echo no)"
 done
 
+# [SEC-2] subagent calls (agent_id set) neither capture nor receive the digest
+clean; printf '%s\n' "$CUR" > "$M/.ticket-watch"
+o=$(jq -nc --arg t "$GI" --argjson i "$K" --argjson r "$ISSUE" --arg cwd "$T" '{session_id:"s1",agent_id:"a1",cwd:$cwd,tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H")
+assert_eq "subagent call: silent, nothing saved" "|no" "$o|$(has "$M/.tw-issue.json")"
+# [SEC-4] a planted lock symlink is neither followed nor truncated
+clean; V="$T/victim"; printf 'keep' > "$V"; ln -s "$V" "$M/.tw-lock"
+hook "$GI" "$K" "$ISSUE" >/dev/null
+assert_eq "symlinked lock: target untouched, nothing saved" "keep|no" "$(cat "$V")|$(has "$M/.tw-issue.json")"
+rm -f "$M/.tw-lock"; clean
+
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

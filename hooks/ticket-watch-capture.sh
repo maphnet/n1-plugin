@@ -29,10 +29,12 @@ esac
 [[ "${key:-}" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || exit 0
 cwd=$(jq -r '.cwd // empty' <<<"$INPUT" 2>/dev/null)
 [ -n "$cwd" ] && cd "$cwd" 2>/dev/null
+# Subagent calls carry agent_id (shared session_id): only the orchestrator's own calls capture and receive the digest.
+[ -z "$(jq -r '.agent_id // empty | strings' <<<"$INPUT" 2>/dev/null)" ] || exit 0
 N1_HOME=$(n1_home 2>/dev/null)
 [ -n "$N1_HOME" ] || exit 0
 M="$N1_HOME/memory/$key"
-[ -d "$M" ] || exit 0
+[ -d "$M" ] && [ ! -L "$M" ] || exit 0   # a committed in-repo .n1 could plant a symlink here
 # Only the session that owns the run on this ticket (subagents share its session_id): another session's
 # read of the same key must never capture, advance this cursor or receive the digest.
 sid=$(jq -r '.session_id // empty | strings' <<<"$INPUT" 2>/dev/null)
@@ -81,8 +83,9 @@ fi
 # Issue and changelog page 1 arrive in the same turn, so their hooks run concurrently: save and
 # evaluate under one lock, so exactly the hook that completes the set runs the delta and reports.
 LOCK="$M/.tw-lock"
+[ ! -L "$LOCK" ] && [ ! -L "$LOCK.d" ] || exit 0
 if command -v flock >/dev/null 2>&1; then
-    exec 9>"$LOCK" 2>/dev/null || exit 0
+    exec 9>>"$LOCK" 2>/dev/null || exit 0
     flock -w 5 9 || exit 0
 else
     # ponytail: mkdir lock; a hook killed while holding it leaves the dir, and captures then fall
