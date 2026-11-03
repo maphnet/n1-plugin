@@ -66,7 +66,7 @@ n1_orca_task_create() {
     # --deps is always empty: same-plan blockers stay merge-gated held rows (N1-225 decision).
     local out id
     out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration task-create --run "$1" --task-title "$2" --deps '[]' \
-        --spec "Invoke the n1-start skill for ticket $2 (equivalent to /n1:n1-start $2). Do not send heartbeat messages; liveness comes from Orca worker state, so send only worker_done and ask when needed.") || return 1
+        --spec "Invoke the n1-start skill for ticket $2 (equivalent to /n1:n1-start $2). Do not send heartbeat messages; liveness comes from Orca worker state, so send only worker_done and ask when needed. The Stop hook sends worker_done once the whole run is over; an open PR alone is not the end.")|| return 1
     id=$(jq -r '.result.task.id // .result.id // empty' <<<"$out" 2>/dev/null)
     _n1_orca_id "$id" || return 1
     printf '%s' "$id"
@@ -343,16 +343,27 @@ n1_orca_child_env_exports() {
 
 n1_orca_worker_done() {
     # Usage: n1_orca_worker_done — Stop hook, after n1_orca_child_env loaded: report this Orca queue child's stop
-    # point to its coordinator exactly once per dispatch (<sentinel>.sent). Only a terminal overview step counts:
-    # pr -> succeeded, escalated -> failed. Any other turn end sends nothing (a premature worker_done would let the
-    # runner relaunch a live child). A lost send is not fatal: the runner reconciles from overview.md and worker
-    # liveness. Requires lib/queue.sh. Always returns 0.
+    # point to its coordinator exactly once per dispatch (<sentinel>.sent). escalated -> failed. succeeded only once
+    # the run is over (N1-310): a PR is open (status pr) AND, when the unattended merge chain is authorized
+    # (mergeOnFinish and fullAuto, as the runner's chain_authorized), overview.md carries the ## Finish block, else
+    # step is done. A PR alone is not the end: the child still runs triage/CI/finish. Any other turn end sends
+    # nothing (a premature worker_done would let the runner release and relaunch a live child). A lost send is not
+    # fatal: the runner reconciles from overview.md and worker liveness. Requires lib/queue.sh. Always returns 0.
     [ -n "${N1_ORCA_TASK:-}" ] && [ -n "${N1_ORCA_DISPATCH:-}" ] && [ -n "${N1_ORCA_SENTINEL:-}" ] || return 0
-    local sent="${N1_ORCA_SENTINEL%.env}.sent" ov st url oc=failed a
+    local sent="${N1_ORCA_SENTINEL%.env}.sent" ov st url oc=failed a home="${N1_ORCA_SENTINEL%/queue/sentinels/*}"
     [ "$(cat "$sent" 2>/dev/null)" = "$N1_ORCA_DISPATCH" ] && return 0
-    ov="${N1_ORCA_SENTINEL%/queue/sentinels/*}/memory/$N1_ORCA_TICKET/overview.md"
+    ov="$home/memory/$N1_ORCA_TICKET/overview.md"
     st=$(n1_queue_child_status "$ov" 0 1)
-    case "$st" in pr) oc=succeeded ;; escalated) ;; *) return 0 ;; esac
+    case "$st" in
+        escalated) ;;
+        pr) if [ "$(N1_HOME="$home" N1_QUEUE_RUN_ID="${N1_QUEUE_RUN_ID:-orca}" n1_merge_authorized)" = true ]; then
+                grep -q '^## Finish' "$ov" || return 0
+            else
+                [ "$(n1_read_frontmatter "$ov" step)" = done ] || return 0
+            fi
+            oc=succeeded ;;
+        *) return 0 ;;
+    esac
     url=$(n1_queue_child_pr_url "$ov")
     a=(orchestration send --type worker_done --outcome "$oc" --task-id "$N1_ORCA_TASK" --dispatch-id "$N1_ORCA_DISPATCH"
        --subject "$N1_ORCA_TICKET $st" --body "$st${url:+ $url}")
