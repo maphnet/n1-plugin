@@ -385,7 +385,7 @@ n1_queue_eligible_rows() {
     # hard edge: the row is marked skip here and not listed (the next call cascades). Any other status
     # (pending, in-progress, awaiting-human, held, deferred) waits. No ## Schedule (a plan made before N1-303)
     # lists every pending row. Reads queue.md only (no gh, no stdin): safe on every runner tick (N1-265).
-    local q="$1" merge="$2" sched out="" num t rest p st ok
+    local q="$1" merge="$2" sched out="" num t rest p st ok why
     sched=$(n1_queue_schedule_rows "$q")
     while IFS=$'\t' read -r num t rest; do
         ok=1
@@ -396,6 +396,13 @@ n1_queue_eligible_rows() {
                 pr)
                     if [ "$merge" = true ] && [ "$(awk -F'|' -v tk="$p" '/^## Runs/ { f = 1; next }
                         f { x = $2; gsub(/ /, "", x); if (x == tk) { o = $5; gsub(/ /, "", o) } } END { print o }' "$q")" != merged ]; then
+                        # a chain that ended without merging (Reason finish:<why>) is final unless a merge is still owed
+                        why=$(awk -F'|' -v t="$p" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
+                            $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { r = $9 } END { print r }' "$q")
+                        case "$why" in
+                            finish:*) n1_queue_row_status "$q" "$num" skip "predecessor $p not merged (${why%% *})"
+                                      ok=0; break ;;
+                        esac
                         ok=0
                     fi ;;
                 failed|escalated|skip|'')
@@ -412,9 +419,14 @@ n1_queue_eligible_rows() {
 n1_queue_gated_expire() {
     # Usage: n1_queue_gated_expire <queue.md> — N1-303: the runner's bounded wait ran out with no pending row
     # eligible; every pending row left (all gated on a ## Schedule predecessor) is skipped. It stays tagged.
-    local q="$1" num
-    while IFS=$'\t' read -r num _; do
-        n1_queue_row_status "$q" "$num" skip "predecessor not released (not at PR or not merged)"
+    local q="$1" num t p st blk
+    while IFS=$'\t' read -r num t _; do
+        blk=""
+        for p in $(n1_queue_schedule_rows "$q" | awk -F'\t' -v t="$t" '$1 == t { gsub(/,/, " ", $2); print $2 }'); do
+            st=$(n1_queue_ticket_status "$q" "$p")
+            [ "$st" = done-before-run ] || { blk="$p"; break; }
+        done
+        n1_queue_row_status "$q" "$num" skip "predecessor ${blk:+$blk }not released (not at PR or not merged)"
     done < <(n1_queue_pending_rows "$q")
 }
 
@@ -628,13 +640,15 @@ n1_queue_overlap_order() {
 }
 
 n1_queue_overlap_preds() {
-    # Usage: printf '%s\t%s\n' <ticket> <touches> ... | n1_queue_overlap_preds
+    # Usage: printf '%s\t%s\t%s\n' <ticket> <touches> <blocker-or-empty> ... | n1_queue_overlap_preds
     # N1-303: prints "<ticket>\t<after>" per input line in input (execution) order. <after> is the comma list of
     # EVERY earlier ticket sharing a Touches token (case-insensitive, trimmed: the tokens n1_queue_overlap_order
     # uses). Overlap is not transitive, so this is not only the nearest overlapper an Order note names.
+    # An earlier held ticket whose blocker is this ticket is not listed: that Blocks edge points the other way
+    # and both together would deadlock the pair (the held row waits for this one's merge).
     awk -F'\t' '
     $1 != "" && !seen[$1]++ {
-        n++; key[n] = $1; after = ""
+        n++; key[n] = $1; blk[n] = $3; after = ""
         m = split(tolower($2), parts, ",")
         for (i = 1; i <= m; i++) {
             c = parts[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); parts[i] = c
@@ -642,7 +656,7 @@ n1_queue_overlap_preds() {
         }
         for (j = 1; j < n; j++)
             for (i = 1; i <= m; i++)
-                if (parts[i] != "" && ((j, parts[i]) in has)) { after = after (after == "" ? "" : ",") key[j]; break }
+                if (blk[j] != key[n] && parts[i] != "" && ((j, parts[i]) in has)) { after = after (after == "" ? "" : ",") key[j]; break }
         print key[n] "\t" after
     }'
 }
@@ -667,6 +681,7 @@ n1_queue_waves() {
             }
             if (!ch) break
         }
+        if (ch) { print "cycle in schedule (dependencies loop; re-plan)"; exit }
         top = 0; for (i = 1; i <= n; i++) if (w[i] > top) top = w[i]
         out = ""
         for (v = 1; v <= top; v++) {
@@ -710,12 +725,12 @@ n1_queue_schedule_write() {
     # physical order and their ## Decisions Touches, via n1_queue_overlap_preds. Idempotent. A plan without the
     # section (made before N1-303, being re-planned) gets it inserted before ## Runs, which stays last.
     # Fails closed (returns 1, file untouched) on more than one "## Schedule" heading or no "## Runs" line.
-    local file="$1" n rows tmp
+    local file="$1" n rows tmp num
     [ -f "$file" ] || return 1
     n=$(grep -c '^## Schedule$' "$file" || true)
     { [ "$n" -le 1 ] && grep -q '^## Runs$' "$file"; } || return 1
-    rows=$(while IFS=$'\t' read -r _ t _; do
-            printf '%s\t%s\n' "$t" "$(n1_queue_decisions_row "$file" "$t" | cut -f1)"
+    rows=$(while IFS=$'\t' read -r num t _; do
+            printf '%s\t%s\t%s\n' "$t" "$(n1_queue_decisions_row "$file" "$t" | cut -f1)" "$(n1_queue_blocker_of "$file" "$num")"
         done < <(n1_queue_pending_rows "$file" 'pending|held') | n1_queue_overlap_preds \
         | while IFS=$'\t' read -r t a; do
             printf '| %s | %s |\n' "$(_n1_queue_sanitize_cell "$t")" "$(_n1_queue_sanitize_cell "$a")"

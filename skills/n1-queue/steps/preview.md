@@ -86,12 +86,12 @@ printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap
 
 Reorder the plan to the printed order and renumber `#`. For each printed non-empty note, set the `DECISIONS` Order cell to it and append ` · <note>` to the candidate's Reason. Record Touches as the comma list.
 
-**Schedule and concurrency (N1-303).** Run the same pairs again in the NEW plan order. Add one `'<HELD_KEY>' '<BLOCKER>'` line for each held candidate (Reason `blocked_on <BLOCKER>`); omit the second `printf` when no candidate is held. Blocks edges are display-only, because the runner's held sweep gates them:
+**Schedule and concurrency (N1-303).** Run the same pairs again in the NEW plan order. Pass each candidate's blocker (empty when it is not held) as the third field, and add one `'<HELD_KEY>' '<BLOCKER>'` line for each held candidate (Reason `blocked_on <BLOCKER>`); omit the second `printf` when no candidate is held. Blocks edges are display-only, because the runner's held sweep gates them:
 
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
-{ printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap_preds
+{ printf '%s\t%s\t%s\n' '<KEY1>' '<touches1>' '<BLOCKER1-or-empty>' '<KEY2>' '<touches2>' '<BLOCKER2-or-empty>' | n1_queue_overlap_preds
   printf '%s\t%s\n' '<HELD_KEY>' '<BLOCKER>'; } | n1_queue_waves
 printf 'MAX_CONCURRENT=%s\n' "$(n1_queue_max_concurrent)"
 ```
