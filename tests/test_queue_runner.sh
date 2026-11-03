@@ -119,13 +119,15 @@ queue_id: n1-auto
 | 5 | T-5 | E | /r | $tmp/h | sonnet | awaiting-human | |
 | 6 | T-1 | A | /r | $tmp/h | sonnet | failed | deferred-retry |
 | 7 | T-6 | F | /r | $tmp/h | sonnet | skip | |
+| 8 | T-7 | G | /r | $tmp/h | sonnet | stopped | stopped by user |
 
 ## Runs
 | Ticket | Started | Exit | Outcome | PR | Session |
 |--------|---------|------|---------|----|---------|
 EOF
-    assert_eq "release-rows: pr/escalated/failed not yet released, deduped" \
-        "$(printf 'T-1\t%s/h,T-3\t%s/h' "$tmp" "$tmp")" \
+    # N1-268 CR-2: a stopped ticket keeps no queue tag (the next tag-mode queue would re-pick it).
+    assert_eq "release-rows: pr/escalated/failed/stopped not yet released, deduped" \
+        "$(printf 'T-1\t%s/h,T-3\t%s/h,T-7\t%s/h' "$tmp" "$tmp" "$tmp")" \
         "$(n1_queue_release_rows "$tmp/q.md" | paste -sd, -)"
     sed -i 's/^mode: tag$/mode: story/' "$tmp/q.md"
     assert_eq "release-rows: story mode -> none" "" "$(n1_queue_release_rows "$tmp/q.md")"
@@ -1351,6 +1353,37 @@ test_headless_plan_wiring() {
         "$(grep -q 'created after .planned_at.: treat this exactly like .MISMATCH' "$h" && echo yes || echo no)"
 }
 
+# N1-268 AC3. Bug caught: a failed row whose PR merged after the runner stopped supervising it stays "failed" in --status.
+test_status_reconcile_merged() {
+    local tmp out; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done"
+    mkdir -p "$tmp/n1home/memory/T-A" "$tmp/n1home/memory/T-B" "$tmp/n1home/memory/T-C"
+    n1_write_frontmatter "$tmp/queue.md" run_id R1
+    # finalize stamps queue_run_id on the overview; T-C's overview is left over from an earlier run (R0) whose PR merged long ago.
+    printf -- '---\nstep: done\nqueue_run_id: R1\n---\n## Pending\npr_url: https://github.com/o/r/pull/1\n' > "$tmp/n1home/memory/T-A/overview.md"
+    printf -- '---\nstep: done\nqueue_run_id: R1\n---\n## Pending\npr_url: https://github.com/o/r/pull/2\n' > "$tmp/n1home/memory/T-B/overview.md"
+    printf -- '---\nstep: done\nqueue_run_id: R0\n---\n## Pending\npr_url: https://github.com/o/r/pull/3\n' > "$tmp/n1home/memory/T-C/overview.md"
+    for n in 1 2 3; do n1_queue_row_status "$tmp/queue.md" "$n" failed subtask-timeout; done
+    printf '| T-A | 2026-11-02T00:00:00Z | | failed | | orca:task-T-A/d-T-A |\n| T-B | 2026-11-02T00:00:00Z | | failed | | orca:task-T-B/d-T-B |\n| T-C | 2026-11-02T00:00:00Z | | failed | | orca:task-T-C/d-T-C |\n' >> "$tmp/queue.md"
+    printf '#!/bin/sh\ncase "$*" in *pull/1*|*pull/3*) echo MERGED ;; *pull/2*) echo OPEN ;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+    : > "$tmp/events.jsonl"
+    out=$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$tmp/queue.md")
+    assert_eq "reconcile: merged row reported" "reconciled: T-A merged" "$out"
+    assert_eq "reconcile: Runs outcome merged / open PR and stale-run PR untouched" "merged failed failed" \
+        "$(_n1_queue_run_outcome "$tmp/queue.md" T-A) $(_n1_queue_run_outcome "$tmp/queue.md" T-B) $(_n1_queue_run_outcome "$tmp/queue.md" T-C)"
+    assert_eq "reconcile: failed -> pr for the merged row only" "pr failed failed" \
+        "$(plan_cell "$tmp/queue.md" 1 8) $(plan_cell "$tmp/queue.md" 2 8) $(plan_cell "$tmp/queue.md" 3 8)"
+    assert_eq "runs-outcome: no Runs row is non-zero" "1" "$(n1_queue_runs_outcome "$tmp/queue.md" T-Z merged >/dev/null; echo $?)"
+    assert_eq "reconcile: event recorded" "merged" \
+        "$(jq -r 'select(.event=="ticket_finished" and .ticket=="T-A") | .outcome' "$tmp/events.jsonl")"
+    assert_eq "reconcile: table shows merged" "merged" \
+        "$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/queue.md" "$tmp/events.jsonl" | awk -F'\t' '$1 == "T-A" { print $2 }')"
+    assert_eq "reconcile: idempotent" "" "$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$tmp/queue.md")"
+    assert_eq "reconcile: one event only" "1" "$(grep -c '"ticket_finished"' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
+
 test_parse_service
 test_find_repo
 test_pick_model
@@ -1390,6 +1423,7 @@ test_desktop_notify_stdin
 test_notify_backends
 test_answer_wiring
 test_headless_plan_wiring
+test_status_reconcile_merged
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -54,6 +54,15 @@ test_run_id_filter_and_finish() {
     assert_eq "finish: cursor removed" "no" "$([ -e "$q/.watch-R1.sessA" ] && echo yes || echo no)"
 }
 
+# N1-268. Bug caught: the session watch ending at the halt while the runner still supervises live workers.
+test_halt_draining_keeps_watch() {
+    local q out; q=$(newq q-drain)
+    ev "$q" R1 halt_draining reason="HALTED after 3 consecutive non-success"
+    ev "$q" R1 halted reason="final halt after workers"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    has "drain: watch runs on to the final halt" "final halt after workers" "$out"
+}
+
 test_escalated_terminal_outcome_hints_n1_start() {
     # N1-74: outcome=terminal (finalize's stopped-path escalate) means the bg session is
     # drained and stopped — attach would reach nothing, so the hint is n1-start, not attach.
@@ -249,6 +258,7 @@ test_ticket_watch_events_relayed() {
 }
 
 test_run_id_filter_and_finish
+test_halt_draining_keeps_watch
 test_escalated_terminal_outcome_hints_n1_start
 test_escalated_dedupe
 test_escalated_dedupe_full_reason

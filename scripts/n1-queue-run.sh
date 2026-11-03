@@ -69,6 +69,9 @@ CONSECUTIVE_FAIL=0
 # N1-267: last counted strike (reason, epoch). Orca only: a subtask-timeout within STRIKE_WINDOW seconds of the last counted one
 # shares one cause (a usage-limit wait, an outage) and adds no strike.
 STRIKE_REASON="" STRIKE_AT=0 STRIKE_WINDOW=300
+# N1-268: set (to the halt reason) when a halt arrives while run_orca still owns unsettled workers: launches stop,
+# supervision goes on, and the final halt runs once the loop ends. ORCA_LOOP is 1 inside run_orca.
+HALT_DRAIN="" ORCA_LOOP=""
 QUEUE_ID=$(n1_read_frontmatter "$QUEUE" queue_id)
 QUEUE_ID="${QUEUE_ID:-queue}"
 # Tag mode: QUEUE_ID is the tag; children release it on handoff (NP-199).
@@ -177,8 +180,8 @@ release_backstop() {
     timeout -k 30 300 bash -c "$(n1_queue_release_cmd "$QUEUE_ID" "$rel_repo" "$rel_log")" >>"$rel_log" 2>&1 || true
 }
 
-# halt <message> — record, notify, and stop the runner (exit 2).
-halt() {
+# halt_now <message> — record, notify, and stop the runner (exit 2).
+halt_now() {
     n1_write_frontmatter "$QUEUE" step halted
     ev halted reason="$1"
     release_backstop
@@ -187,6 +190,21 @@ halt() {
     drain_wait
     strip_pid
     exit 2
+}
+
+# halt <message> — N1-268: inside run_orca with workers in flight (rows in-progress/awaiting-human, or OWED from
+# run_orca's dynamic scope), stop launching but keep supervising (questions, settle, merged recording); step stays
+# run and the halted event (which ends the session watch) waits for halt_now after the loop. Idempotent.
+halt() {
+    if [ -n "$ORCA_LOOP" ] && { [ -n "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human')" ] || [ -n "${OWED// /}" ]; }; then
+        [ -n "$HALT_DRAIN" ] && return 0
+        HALT_DRAIN="$1"
+        ev halt_draining reason="$1"
+        n1_notify needs-you "Queue $QUEUE_ID halted: ${1:0:160}; still supervising live workers. Stop them: /n1:n1-queue --stop $QUEUE_ID"
+        echo "$1 (supervising live workers until they finish or are stopped)"
+        return 0
+    fi
+    halt_now "$1"
 }
 
 ev queue_started
@@ -449,18 +467,7 @@ chain_note() {
 # chain_merged <num> <ticket> <repo> <n1-home> <pr-url> — Runs Outcome merged + event, then fast-forward
 # the local default branch so the next child branches from the merge (Plan Status stays pr).
 chain_merged() {
-    local tmp; tmp=$(mktemp "${QUEUE}.XXXXXX")
-    awk -v tk="$2" '
-    { lines[NR] = $0; n = NR }
-    /^## Runs/ { rs = NR }
-    END {
-        for (i = n; rs && i > rs; i--) if (index(lines[i], "| " tk " |") > 0) {
-            split(lines[i], c, "|"); c[5] = " merged "; out = ""
-            for (j = 1; j <= 7; j++) out = out c[j] "|"
-            lines[i] = out; break
-        }
-        for (i = 1; i <= n; i++) print lines[i]
-    }' "$QUEUE" > "$tmp" && mv "$tmp" "$QUEUE" || rm -f "$tmp"
+    n1_queue_runs_outcome "$QUEUE" "$2" merged
     ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")"
     echo "[$1] $2 -> merged $5"
     chain_sync "$1" "$2" "$3" "$4"
@@ -496,7 +503,7 @@ chain_reconcile() {
             fi
         else
             fails=$((fails + 1))
-            [ "$fails" -ge "$BG_POLL_GRACE" ] && halt "chained n1-finish session $6 state unknown for $2 (agents list unreadable)"
+            [ "$fails" -ge "$BG_POLL_GRACE" ] && halt_now "chained n1-finish session $6 state unknown for $2 (agents list unreadable)"
         fi
         if [ "$waited" -ge "$TIMEOUT_SECS" ]; then
             if [ -n "$fid" ]; then
@@ -505,7 +512,7 @@ chain_reconcile() {
                     && [ -z "$(n1_queue_live_by_name "$agents" "$6")" ]; then
                     break
                 fi
-                halt "chained n1-finish session $6 for $2 still live after the timeout; stop it and re-run"
+                halt_now "chained n1-finish session $6 for $2 still live after the timeout; stop it and re-run"
             fi
             break
         fi
@@ -884,7 +891,7 @@ launch_orca() {
 # orca_settle <task> — release the worker, drop its sentinel, run the owed fullAuto chain (once). Uses run_orca's
 # SETTLED/OWED (dynamic scope). A task whose row is still in flight waits.
 orca_settle() {
-    local TASK="$1" T DISP ROW NUM TICKET REPO N1H MODEL
+    local TASK="$1" T DISP ROW NUM TICKET REPO N1H MODEL URL
     [[ "$SETTLED" == *" $TASK "* ]] && return
     IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
     [ -n "$T" ] || return
@@ -894,7 +901,16 @@ orca_settle() {
     ROW=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t' | tail -1)
     if [ -n "$ROW" ]; then
         IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$ROW"
-        chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")" </dev/null
+        URL=$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")
+        chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$URL" </dev/null
+        URL=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")   # N1-268: only a PR attributed to this run is recorded merged
+        # N1-268: a worker that merged its own PR (its own fullAuto finish) is recorded merged even when the
+        # runner's chain did not run or did not merge.
+        if [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] && [ "$(n1_queue_pr_state "$URL")" = MERGED ]; then
+            n1_queue_runs_outcome "$QUEUE" "$TICKET" merged "$URL"
+            ev ticket_finished ticket="$TICKET" outcome=merged pr="$URL" session="$(n1_queue_session_id "$QUEUE" "$TICKET")"
+            echo "[$NUM] $TICKET -> merged $URL"
+        fi
     fi
     # Last: a restart re-owes a pr row only while its sentinel still names the task, so a crash mid-chain re-runs it.
     n1_orca_sentinel_rm "$(orca_n1h_of "$T")" "$T" "$TASK"
@@ -907,7 +923,10 @@ orca_settle() {
 # (release + sentinel removal + owed fullAuto chain); running or unverifiable workers are never relaunched, stopped
 # or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
+    local STOP_OK POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN PENDING
+    ORCA_LOOP=1
+    # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
+    [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
     local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
@@ -925,7 +944,7 @@ run_orca() {
         # An unreadable inbox skips the tick: never treat a CLI hiccup as dead children.
         if ! BATCH=$(n1_orca_check "$ORCA_RUN" "$POLL") || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "$BATCH"; then
             FAILS=$((FAILS + 1))
-            [ "$FAILS" -ge "$BG_POLL_GRACE" ] && halt "HALTED: Orca run inbox unreadable for $BG_POLL_GRACE polls in a row"
+            [ "$FAILS" -ge "$BG_POLL_GRACE" ] && halt_now "HALTED: Orca run inbox unreadable for $BG_POLL_GRACE polls in a row"
             sleep "$POLL"
             continue
         fi
@@ -957,6 +976,27 @@ run_orca() {
         # N1-281: durable worker state every tick (the inbox is only the fast path). A failed read keeps the last
         # list and disables the absence rule below (LIVE_OK=0).
         if L=$(n1_orca_liveness "$ORCA_RUN"); then LIVE="$L"; LIVE_OK=1; else LIVE_OK=0; fi
+        # N1-268: n1-queue --stop (user-confirmed) left a marker: close each unsettled worker's own terminal and record
+        # it stopped (a merged PR is only recorded), then stop launching; the loop ends through the end-of-queue
+        # branch and the final halt. A worker whose close failed keeps its row and identity and is supervised on.
+        # The marker is the user's confirmation: stop.md writes this queue's run_id into it (queue children are denied
+        # the file by the policy hook); any other content is discarded unread.
+        if [ -f "$N1_QUEUE_DIR/.stop" ]; then
+            STOP_OK=0; [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] && STOP_OK=1
+            rm -f "$N1_QUEUE_DIR/.stop"
+        else
+            STOP_OK=0
+        fi
+        if [ "$STOP_OK" = 1 ]; then
+            [ -n "$HALT_DRAIN" ] || { HALT_DRAIN="stopped by user"; ev halt_draining reason="$HALT_DRAIN"; }
+            while IFS=$'\t' read -r -u 3 NUM TICKET N1H TASK DISP; do
+                if n1_orca_stop_worker "$QUEUE" "$NUM" "$TICKET" "$N1H" "$TASK" "$DISP" "$ORCA_RUN" </dev/null; then
+                    SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"
+                else
+                    n1_notify needs-you "Stop failed: $TICKET (worker terminal not closed; row and identity kept). Close it in the workspace manager, then run /n1:n1-queue --status $QUEUE_ID" </dev/null
+                fi
+            done 3< <(n1_orca_unsettled "$QUEUE")
+        fi
 
         INFLIGHT=0
         while IFS=$'\t' read -r -u 3 NUM TICKET REPO N1H MODEL STATUS; do
@@ -1048,15 +1088,17 @@ run_orca() {
 
         # Unsettled workers (finished or timed-out rows whose worker is not proven exited or durably finished) still hold a slot.
         OWEDN=$(wc -w <<< "$OWED")
-        while [ $((INFLIGHT + OWEDN)) -lt "$MAXC" ]; do
+        while [ -z "$HALT_DRAIN" ] && [ $((INFLIGHT + OWEDN)) -lt "$MAXC" ]; do
             ROW=$(n1_queue_pending_rows "$QUEUE" | head -1)
             [ -n "$ROW" ] || break
             launch_orca "$ROW"
             INFLIGHT=$((INFLIGHT + 1)); HELD_WAIT=0
         done
 
+        # N1-268: while draining a halt, pending rows are never launched, so they read as none here.
+        PENDING=""; [ -n "$HALT_DRAIN" ] || PENDING=$(n1_queue_pending_rows "$QUEUE")
         # Also entered when unsettled workers alone fill every slot, so their expiry/notice is not starved by pending rows.
-        if [ "$INFLIGHT" = 0 ] && { [ -z "$(n1_queue_pending_rows "$QUEUE")" ] || [ "$OWEDN" -ge "$MAXC" ]; }; then
+        if [ "$INFLIGHT" = 0 ] && { [ -z "$PENDING" ] || [ "$OWEDN" -ge "$MAXC" ]; }; then
             # Done reports that never came: the overview is terminal, so settle (release + chain) anyway.
             if [ "$OWED" != " " ] && [ "$OWED_WAIT" -ge "$TIMEOUT_SECS" ]; then
                 # Only a worker proven exited (or gone from a readable worker list) is settled; a live one (a long PR
@@ -1072,8 +1114,8 @@ run_orca() {
                 fi
             fi
             # N1-64/N1-114: held rows start only once their blocker's PR is merged (no Orca --deps).
-            HELD=$(n1_queue_held_sweep "$QUEUE")
-            if [ -n "$(n1_queue_pending_rows "$QUEUE")" ]; then
+            HELD=0; [ -n "$HALT_DRAIN" ] || HELD=$(n1_queue_held_sweep "$QUEUE")
+            if [ -n "$PENDING" ]; then
                 HELD_WAIT=0
                 [ "$OWEDN" -ge "$MAXC" ] && [ "$OWED_WAIT" -lt "$TIMEOUT_SECS" ] && OWED_WAIT=$((OWED_WAIT + CHARGE))
             elif [ "$OWED" != " " ] && [ "$OWED_WAIT" -lt "$TIMEOUT_SECS" ]; then
@@ -1132,6 +1174,8 @@ else
 fi
 
 # --- Done --------------------------------------------------------------------
+# N1-268: a halt deferred while Orca workers were in flight ends here, after they finished or were stopped.
+[ -z "$HALT_DRAIN" ] || halt_now "$HALT_DRAIN"
 count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }
 DIGEST="$(count_rows pr) PR / $(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"
 release_backstop

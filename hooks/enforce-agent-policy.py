@@ -448,7 +448,7 @@ TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cl
 # invisible to a hook, only the file tools are exact). Anchored to the identity dirs under an N1 home (the resolved
 # path, $N1_HOME or ~/.n1/<slug>), so plain mentions of "sessions" or "/queue" are allowed. Also the N1_ORCA_SENTINEL var.
 def _identity_re(home: str):
-    return re.compile(r"N1_ORCA_SENTINEL|(?:%s|\$\{?N1_HOME\}?|\.n1/[^/\s]+)/queue/(?:sentinels|sessions|\w*\*)" % re.escape(home), re.I)
+    return re.compile(r"N1_ORCA_SENTINEL|(?:%s|\$\{?N1_HOME\}?|\.n1/[^/\s]+)/queue/(?:sentinels|sessions|\w*\*|[^/\s]+/\.stop)|N1_QUEUE_DIR\}?/\.stop" % re.escape(home), re.I)
 
 
 FILE_TOOL_KEYS = ("file_path", "notebook_path", "path")
@@ -456,7 +456,8 @@ FILE_TOOL_KEYS = ("file_path", "notebook_path", "path")
 
 def sentinel_deny(payload: dict) -> int:
     """SEC-2: an Orca queue child (N1_ORCA_SENTINEL, set only by n1_orca_child_env) may not touch the runner-owned
-    identity files: <n1-home>/queue/sentinels and queue/sessions, via Bash text or a file tool's resolved path."""
+    identity files: <n1-home>/queue/sentinels and queue/sessions, and the user-confirmed stop marker
+    <n1-home>/queue/<id>/.stop (N1-268), via Bash text or a file tool's resolved path."""
     sentinel = os.environ.get("N1_ORCA_SENTINEL")
     if not sentinel:
         return 0
@@ -474,8 +475,9 @@ def sentinel_deny(payload: dict) -> int:
             if isinstance(path, str) and path:
                 real = os.path.realpath(os.path.join(cwd, os.path.expanduser(path)))
                 hit = hit or any(real == d or real.startswith(d + os.sep) for d in (qdir + "/sentinels", qdir + "/sessions"))
+                hit = hit or (os.path.basename(real) == ".stop" and os.path.dirname(os.path.dirname(real)) == qdir)
     if hit:
-        sys.stderr.write("N1: queue children may not touch the runner's identity files (queue/sentinels, queue/sessions)\n")
+        sys.stderr.write("N1: queue children may not touch the runner's identity files (queue/sentinels, queue/sessions, the .stop marker)\n")
         return 2
     return 0
 

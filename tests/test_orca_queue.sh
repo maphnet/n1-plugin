@@ -207,6 +207,7 @@ cp "$T/S.bak" "$S"
 PAY3=$(jq -cn --arg c "$WT" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:"rm -f $HOME/.n1/x/queue/sentinels/T-1.env"}}')
 eq "sentinel-deny: child touching queue/sentinels denied" 2 "$(cd "$WT" && printf '%s' "$PAY3" | bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?)"
 hookrc() { (cd "$WT" && printf '%s' "$1" | env "${@:2}" bash "$REPO_ROOT/hooks/enforce-agent-policy.sh" >/dev/null 2>&1; echo $?); }
+BPAY2() { jq -cn --arg c "$WT" --arg m "$1" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$m}}'; }
 wpay() { jq -cn --arg c "$WT" --arg t "$1" --arg p "$2" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:$t,tool_input:{file_path:$p}}'; }
 eq "sentinel-deny: Write to a session pin denied" 2 "$(hookrc "$(wpay Write "$N1_HOME/queue/sessions/T-1.s1")")"
 eq "sentinel-deny: Edit to the sentinel denied" 2 "$(hookrc "$(wpay Edit "$S")")"
@@ -214,6 +215,11 @@ eq "sentinel-deny: ../ path into sentinels denied" 2 "$(hookrc "$(wpay Write "$N
 ln -s "$N1_HOME/queue" "$T/qlink"
 eq "sentinel-deny: symlinked path denied" 2 "$(hookrc "$(wpay MultiEdit "$T/qlink/sessions/T-1.s1")")"
 eq "sentinel-deny: Write elsewhere unaffected" 0 "$(hookrc "$(wpay Write "$WT/a.txt")")"
+# N1-268 SEC-2: a child must not forge the user-confirmed stop marker.
+eq "stop-marker-deny: Bash via N1_QUEUE_DIR denied" 2 "$(hookrc "$(BPAY2 ': > "$N1_QUEUE_DIR/.stop"')")"
+eq "stop-marker-deny: Bash via N1 home path denied" 2 "$(hookrc "$(BPAY2 "touch $N1_HOME/queue/q1/.stop")")"
+eq "stop-marker-deny: Write to the marker denied" 2 "$(hookrc "$(wpay Write "$N1_HOME/queue/q1/.stop")")"
+eq "stop-marker-deny: ../ path to the marker denied" 2 "$(hookrc "$(wpay Write "$N1_HOME/queue/q1/x/../.stop")")"
 BPAY() { jq -cn --arg c "$WT" --arg m "$1" '{session_id:"s1",cwd:$c,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$m}}'; }
 eq "sentinel-deny: rm of \$N1_ORCA_SENTINEL denied" 2 "$(hookrc "$(BPAY 'rm -f "$N1_ORCA_SENTINEL"')")"
 eq "sentinel-deny: globbed pins denied" 2 "$(hookrc "$(BPAY 'rm $N1_HOME/queue/sess*/*')")"
