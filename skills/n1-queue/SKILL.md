@@ -1,7 +1,7 @@
 ---
 name: n1-queue
-description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children stop after PR + CI and never merge unless autonomy.fullAuto and finishWork.mergeOnFinish are both true. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--schedule <trigger>|list|remove] [--unattended]"
-argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--schedule <trigger>|list|remove] [--unattended]"
+description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children stop after PR + CI and never merge unless autonomy.fullAuto and finishWork.mergeOnFinish are both true. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--stop [<id>]] [--schedule <trigger>|list|remove] [--unattended]"
+argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--stop [<id>]] [--schedule <trigger>|list|remove] [--unattended]"
 ---
 
 # N1 Queue
@@ -24,9 +24,9 @@ If the output shows `N1_NOT_CONFIGURED`: "N1 is not configured for this project.
 
 ## Input
 
-Parse arguments: `--tag <tag>` (tag mode), `--story <ID>` (story mode, accept tracker URLs via `n1_extract_ticket_from_url`), `--plan` (plan and save, do not launch), `--run <queue-id>` (execute a saved plan), `--dry-run` (wins over `--plan`), `--status [<id>]`, `--watch [<id>]` (status, then relay this run's events in this session), --answer <ticket> <text> (relay an answer to a waiting queue child), --schedule <trigger>|list|remove (set up, list or remove this project's scheduled automation in the workspace manager), --unattended (scheduled entry: plan and start with no prompts; needs queue.unattendedAutoStart).
+Parse arguments: `--tag <tag>` (tag mode), `--story <ID>` (story mode, accept tracker URLs via `n1_extract_ticket_from_url`), `--plan` (plan and save, do not launch), `--run <queue-id>` (execute a saved plan), `--dry-run` (wins over `--plan`), `--status [<id>]`, `--watch [<id>]` (status, then relay this run's events in this session), --answer <ticket> <text> (relay an answer to a waiting queue child), --stop [<id>] (after confirmation, stop the run's Orca workers and record them stopped), --schedule <trigger>|list|remove (set up, list or remove this project's scheduled automation in the workspace manager), --unattended (scheduled entry: plan and start with no prompts; needs queue.unattendedAutoStart).
 
-`QUEUE_ID` = the `--run` argument, else the tag (tag mode) or the story ID (story mode). Default tag: `n1_queue_val tag` (i.e. `n1-auto`). A `--run` id or `--tag` value must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`; otherwise print "Invalid queue id: <id>." **STOP.** `QUEUE_DIR="$N1_HOME/queue/$QUEUE_ID"`; `mkdir -p "$QUEUE_DIR"` except under `--run` (a saved plan's dir already exists).
+`QUEUE_ID` = the `--run` argument (under `--stop`, its `<id>` argument when given), else the tag (tag mode) or the story ID (story mode). Default tag: `n1_queue_val tag` (i.e. `n1-auto`). A `--run` or `--stop` id or `--tag` value must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`; otherwise print "Invalid queue id: <id>." **STOP.** `QUEUE_DIR="$N1_HOME/queue/$QUEUE_ID"`; `mkdir -p "$QUEUE_DIR"` except under `--run` (a saved plan's dir already exists).
 
 ## Tracker gate
 
@@ -44,7 +44,7 @@ If `TRACKER_MCP` is empty: "No tracker configured. Run `/n1:n1-init`." **STOP.**
 
 ## Steps
 
-1. **Status check.** If `--schedule`: read and follow `<N1_ROOT>/skills/n1-queue/steps/schedule.md`. **STOP.** If `--answer`: read and follow only § Answer in `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.** If `--status` or `--watch`: read and follow `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.**
+1. **Status check.** If `--schedule`: read and follow `<N1_ROOT>/skills/n1-queue/steps/schedule.md`. **STOP.** If `--answer`: read and follow only § Answer in `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.** If `--stop`: read and follow `<N1_ROOT>/skills/n1-queue/steps/stop.md`. **STOP.** If `--status` or `--watch`: read and follow `<N1_ROOT>/skills/n1-queue/steps/report.md`. **STOP.**
 2. **Saved plan.** If `--run <queue-id>`: read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md` in full (the busy guard at the top always runs first; the saved-plan flow itself begins at § Saved plan). Skip steps 3-5. If `--unattended`: read and follow `<N1_ROOT>/skills/n1-queue/steps/run.md` from the top through § Unattended entry; it STOPs, resumes at § Launch, or sends you to step 3 as a bare run whose prompts take their `--unattended` answers.
 3. **INTAKE** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/intake.md`. Produces the candidate list.
 4. **PREVIEW** -- read and follow `<N1_ROOT>/skills/n1-queue/steps/preview.md`. `--dry-run` stops there; otherwise Plan-Resolve records plan-time decisions and the user confirms or cancels.
