@@ -50,6 +50,13 @@ same `&&`-connected run: the pipeline exit status is the filter's, so a red suit
 session, merge-authorized or not. Allowed when the command enables pipefail (`set -o pipefail`,
 `set -euo pipefail`) or mentions `PIPESTATUS`. Known gaps: `bash -c`, `$(...)`, subshells, variables/aliases, quoted separators.
 
+Case 5 - self-matching poll (N1-317). Deny persona Bash (agent_type n1:*) where `pgrep -f`, `pkill -0 -f`
+or `ps | grep` uses a pattern that, as a regex, matches the command's own text: the tool's `bash -c` argv
+holds that text, so the poll always matches itself and never sees the process gone (N1-300 foreground
+rule). Allowed: the bracket trick (`[t]ests/run.sh`), dynamic patterns ($VAR, $(...)), pgrep without -f,
+-x/--exact, pkill without -0, a `grep -v` stage after ps, and anything that fails to parse or compile.
+
+
 Fail-open otherwise: exit 0, no output. An unparseable payload (malformed JSON or not an object) exits 3;
 the wrapper (enforce-agent-policy.sh) treats 3 like a crash or a missing interpreter: an n1:code-reviewer /
 n1:security-reviewer Write and any queue-child Bash are denied (no --allow-authorized on that path),
@@ -63,6 +70,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -518,7 +526,11 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
 
 def _words(stage):
     """Command-position words of a pipeline stage: env assignments, wrappers, their flags/durations skipped."""
-    words = stage.split()
+    return _command_words(stage.split())
+
+
+def _command_words(words):
+    """_words on an already tokenized stage (shlex tokens keep quoted patterns whole)."""
     i = 0
     while i < len(words) and (ASSIGN_RE.match(words[i]) or words[i] in WRAPPERS
                               or (i and (words[i].startswith("-") or DURATION_RE.match(words[i])))):
@@ -566,6 +578,130 @@ def pipe_deny(payload: dict) -> int:
     return 0
 
 
+POLL_VALUE_SHORT = set("dFgGPstuU")  # procps pgrep/pkill short options that take a value (-u root, -P 1)
+POLL_VALUE_LONG = {"--delimiter", "--pidfile", "--group", "--pgroup", "--parent", "--session", "--terminal",
+                   "--euid", "--uid", "--signal", "--ns", "--nslist", "--cgroup"}
+GREP_VALUE_SHORT = set("efmABCdD")  # grep short options that take a value (-e PAT, -m 1, -A 2)
+POLL_RE = re.compile(r"\b(?:pgrep|pkill|ps)\b")
+DYNAMIC_RE = re.compile(r"\$[({\w]|`")  # $VAR, ${...}, $(...), backticks: the runtime pattern is unknown
+POLL_PATTERN_MAX = 120
+
+
+def _pgrep_pattern(prog, args):
+    """Pattern of a full-cmdline pgrep or `pkill -0` poll; None for name-only (no -f), exact (-x) or a real kill."""
+    full = exact = signal0 = False
+    pat, i = None, 0
+    while i < len(args):  # keep scanning after the pattern: GNU getopt permutes (`pgrep run.sh -f`)
+        a = args[i]
+        if a == "--":
+            pat = pat or (args[i + 1] if i + 1 < len(args) else None)
+            break
+        if a.startswith("--"):
+            name, eq, val = a.partition("=")
+            if name in POLL_VALUE_LONG and not eq:
+                i += 1
+                val = args[i] if i < len(args) else ""
+            full = full or name == "--full"
+            exact = exact or name == "--exact"
+            signal0 = signal0 or (name == "--signal" and val == "0")
+        elif a == "-0":
+            signal0 = True
+        elif a.startswith("-") and len(a) > 1:
+            for j, ch in enumerate(a[1:]):
+                full = full or ch == "f"
+                exact = exact or ch == "x"
+                if ch in POLL_VALUE_SHORT:
+                    if j == len(a) - 2:  # value is the next token (-u root), not glued (-uroot)
+                        i += 1
+                    break
+        else:
+            pat = pat or a
+        i += 1
+    return pat if full and not exact and (prog == "pgrep" or signal0) else None
+
+
+def _grep_pattern(args):
+    """(pattern, inverted) of a grep stage: the -e/--regexp value, else the first positional."""
+    pat, inv, i = None, False, 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            if pat is None and i + 1 < len(args):
+                pat = args[i + 1]
+            break
+        if a.startswith("--"):
+            name, eq, val = a.partition("=")
+            inv = inv or name == "--invert-match"
+            if name == "--regexp":
+                if not eq:
+                    i += 1
+                    val = args[i] if i < len(args) else None
+                pat = val
+        elif a.startswith("-") and len(a) > 1:
+            for j, ch in enumerate(a[1:]):
+                inv = inv or ch == "v"
+                if ch in GREP_VALUE_SHORT:
+                    val = a[j + 2:]
+                    if not val:
+                        i += 1
+                        val = args[i] if i < len(args) else None
+                    if ch == "e":
+                        pat = val
+                    break
+        elif pat is None:
+            pat = a
+        i += 1
+    return pat, inv
+
+
+def _poll_patterns(command):
+    """Patterns of pgrep -f / pkill -0 -f calls and of `ps | grep` pipelines (none when any later grep stage has -v)."""
+    parts = UNIT_RE.split(REDIR_RE.sub(" ", command))
+    for i in range(0, len(parts), 2):
+        stages = []
+        for st in parts[i].split("|"):
+            try:
+                stages.append(_command_words(shlex.split(st.lstrip("&"))))
+            except ValueError:  # unbalanced quotes, or a quoted `|` split above: skip the stage (fail open)
+                stages.append([])
+        names = [w[0].lstrip("$(`").rsplit("/", 1)[-1] if w else "" for w in stages]
+        for k, name in enumerate(names):
+            if name in ("pgrep", "pkill"):
+                yield _pgrep_pattern(name, stages[k][1:])
+            elif name == "ps":
+                greps = [_grep_pattern(stages[m][1:]) for m in range(k + 1, len(stages)) if names[m] == "grep"]
+                if greps and not any(inv for _, inv in greps):
+                    yield greps[0][0]
+
+
+def pgrep_deny(payload: dict) -> int:
+    """Case 5 (N1-317): deny a persona poll whose pattern matches its own command text (the tool's `bash -c` argv)."""
+    # ponytail: Python re is not POSIX ERE/BRE and a quoted `|` or `$(pgrep ...)` inside `[ ]` is not parsed; such
+    # patterns fail open. ReDoS is bounded only by POLL_PATTERN_MAX (LLM-authored commands, not adversarial input).
+    try:
+        if not persona_of(str(payload.get("agent_type") or "")):
+            return 0
+        command = _command(payload)
+        if not command or not POLL_RE.search(command):
+            return 0
+        for pat in _poll_patterns(command):
+            if not pat or len(pat) > POLL_PATTERN_MAX or DYNAMIC_RE.search(pat):
+                continue
+            try:
+                hit = re.search(pat, command)
+            except re.error:
+                continue
+            if hit:
+                sys.stderr.write("N1: poll denied -- the pattern '%s' appears in this command's own text, so "
+                                 "pgrep/pkill -0/ps|grep always matches itself and never reports the process gone. "
+                                 "Run tests in the foreground (N1-300: no background run plus poll); to look for a "
+                                 "different process use a bracket pattern such as '[t]ests/run.sh'\n" % pat)
+                return 2
+    except Exception:  # a crash would deny queue-child Bash through the wrapper: fail open instead
+        return 0
+    return 0
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.buffer.read())
@@ -583,7 +719,8 @@ def main() -> int:
             config = {}
     if not isinstance(config, dict):
         config = {}
-    rc = restriction(payload, plugin_root, config_file) or sentinel_deny(payload) or merge_deny(payload, config, config_file) or pipe_deny(payload)
+    rc = (restriction(payload, plugin_root, config_file) or sentinel_deny(payload) or merge_deny(payload, config, config_file)
+          or pipe_deny(payload) or pgrep_deny(payload))
     if rc:
         return rc
     return spawn_override(payload, config)

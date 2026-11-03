@@ -360,6 +360,47 @@ cfg '{}'; START=$SECONDS
 assert_eq "pipe-mask long word allowed" 0 "$(policy_rc -- "$LONG")"
 assert_eq "pipe-mask long word fast" 1 "$(( SECONDS - START < 5 ))"
 cfg "$BOTH"; assert_eq "pipe-mask gh pr merge allowed when authorized" 0 "$(policy_rc -- "gh pr merge 12")"
+# N1-317: a persona poll whose pattern matches its own command text (pgrep -f, pkill -0 -f, ps | grep) never sees
+# the process gone (the tool's own `bash -c` argv matches), so it is denied; the orchestrator is not gated
+POLL_DENY=("n1-303-loop|while pgrep -f \"tests/run.sh\" >/dev/null; do sleep 5; done"
+           "one-shot|pgrep -f tests/run.sh"
+           "pkill-0|pkill -0 -f foo"
+           "ps-grep|ps aux | grep tests/run.sh"
+           "until-af|until ! pgrep -af \"run.sh\"; do sleep 1; done"
+           "full-long-flag|pgrep --full -u root server.py"
+           "newline-loop|while pgrep -f run.sh
+do sleep 1; done"
+           "flag-after-pattern|pgrep run.sh -f")
+POLL_OK=("bracket|pgrep -f \"[t]ests/run.sh\""
+         'variable|while pgrep -f "$PAT" >/dev/null; do sleep 5; done'
+         "name-only|pgrep node"
+         "exact|pgrep -fx run.sh"
+         "exact-after-pattern|pgrep -f run.sh -x"
+         "real-kill|pkill -f foo"
+         "grep-v|ps aux | grep -v grep | grep run.sh"
+         "ps-bracket|ps aux | grep '[r]un.sh'"
+         "bad-quote|pgrep -f \"tests/run.sh"
+         "long-pattern|pgrep -f $(printf 'a%.0s' $(seq 1 200))"
+         "no-poll|bash tests/run.sh")
+cfg '{}'
+for e in "${POLL_DENY[@]}"; do
+    assert_eq "poll deny ${e%%|*}" 2 "$(policy_rc @agent_type=n1:developer -- "${e#*|}")"
+    assert_eq "poll allow orchestrator ${e%%|*}" 0 "$(policy_rc -- "${e#*|}")"
+done
+for e in "${POLL_OK[@]}"; do
+    assert_eq "poll allow ${e%%|*}" 0 "$(policy_rc @agent_type=n1:developer -- "${e#*|}")"
+done
+poll_wrapper_rc() {  # poll_wrapper_rc <command>: persona Bash through the real .sh wrapper; stderr -> $T/poll-err
+    local p rc=0
+    p=$(jq -cn --arg c "$1" --arg cwd "$T" '{session_id:"s",cwd:$cwd,hook_event_name:"PreToolUse",agent_type:"n1:developer",tool_name:"Bash",tool_input:{command:$c}}')
+    printf '%s' "$p" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS bash "$POLICY" >/dev/null 2>"$T/poll-err" || rc=$?
+    echo "$rc"
+}
+assert_eq "wrapper: poll deny ${POLL_DENY[0]%%|*}" 2 "$(poll_wrapper_rc "${POLL_DENY[0]#*|}")"
+assert_eq "poll deny message names the foreground rule" yes "$(grep -qF 'Run tests in the foreground (N1-300' "$T/poll-err" && echo yes || echo no)"
+assert_eq "poll deny message suggests the bracket pattern" yes "$(grep -qF '[t]ests/run.sh' "$T/poll-err" && echo yes || echo no)"
+assert_eq "wrapper: poll allow ${POLL_OK[0]%%|*}" 0 "$(poll_wrapper_rc "${POLL_OK[0]#*|}")"
+rm -f "$T/poll-err"
 # CR-2 (N1-146): no Python + authorized queue child -> persona Bash allowed (no-Python deny applies only when merges are not authorized)
 mkdir -p "$T/nopy"; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; cp "$T/nopy/python3" "$T/nopy/python"; chmod +x "$T/nopy/"*
 PP=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,agent_type:"n1:developer",tool_name:"Bash",tool_input:{command:"gh pr view 1"}}')
