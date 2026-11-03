@@ -427,6 +427,7 @@ n1_orca_pending_questions() {
         [ "$type" = question ] && _n1_orca_id "$task" && _n1_orca_id "$msg" || continue
         IFS=$'\t' read -r t d <<< "$(n1_orca_row_of_task "$q" "$task")"
         [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] && [ "$disp" = "$d" ] && [ ! -e "$1/.ask-$t" ] || continue
+        [ "$(n1_queue_session_id "$q" "$t")" = "orca:$task/$d" ] || continue   # only the ticket's latest attempt, not an older task
         num=$(awk -F'\t' -v t="$t" '$2 == t { n = $1 } END { print n }' <<< "$rows")
         [ -n "$num" ] || continue
         [ -z "$(jq -R --arg s "orca:$msg" 'fromjson? | select(.event == "answer_delivered" and .session == $s)' "$1/events.jsonl" 2>/dev/null)" ] || continue

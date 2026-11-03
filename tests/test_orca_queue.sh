@@ -347,6 +347,10 @@ n1_queue_row_status "$Q/queue.md" 1 in-progress
 n1_write_frontmatter "$Q/queue.md" orca_queue_run R0
 eq "pending: Run of an earlier queue run skipped" "" "$(n1_orca_pending_questions "$Q")"
 n1_write_frontmatter "$Q/queue.md" orca_queue_run R1
+# Bug caught: an unanswered question from an older task parked the ticket's newer attempt.
+printf '| T-1 | 2026-10-31T01:00:00Z | | | | orca:task-2/d-2 |\n' >> "$Q/queue.md"
+eq "pending: question of an older task than the ticket's latest attempt skipped" "" "$(n1_orca_pending_questions "$Q")"
+sed -i '$d' "$Q/queue.md"
 printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$T" > "$N1_HOME/config.json"
 OUT=$(n1_queue_interrupted_note "$Q/queue.md")
 has "runner-down: resume line still printed" "resume: /n1:n1-queue --run q1" "$OUT"

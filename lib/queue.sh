@@ -820,8 +820,8 @@ n1_queue_orca_scan() {
     if [ -n "$(n1_read_frontmatter "$q" orca_run_id)" ] && declare -F n1_orca_pending_questions >/dev/null; then
         d=$(dirname "$q")
         while IFS=$'\t' read -r -u 3 num t msg; do
-            [ ! -e "$d/.ask-$t" ] || continue   # two unanswered questions for one ticket in one scan: first wins, one event
-            printf '%s\n' "$msg" > "$d/.ask-$t" || continue
+            # noclobber makes the create the atomic claim: concurrent scans or two questions for one ticket, first wins, one event
+            ( set -o noclobber; printf '%s\n' "$msg" > "$d/.ask-$t" ) 2>/dev/null || continue
             n1_queue_row_status "$q" "$num" awaiting-human
             n1_queue_event "$ev" "$qid" "$run" escalated ticket="$t" session="$(n1_queue_session_id "$q" "$t")" \
                 reason="worker question pending, runner down"
