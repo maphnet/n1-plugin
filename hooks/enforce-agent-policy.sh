@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse hook: N1 agent policy (persona tool restriction, config model override, merge deny, pipe-mask deny).
+# A bare file-tool call with no Orca identity (N1_ORCA_SENTINEL empty) exits 0 before any Python spawn (N1-255).
 # Delegates to enforce-agent-policy.py and fails open, except where the call cannot be evaluated (no Python,
 # script crash, malformed payload, or a shell error before Python runs): an n1:code-reviewer /
 # n1:security-reviewer Write (N1-174) and a queue-child Bash (CR-11, N1-195) are then denied (exit 2).
@@ -53,10 +54,11 @@ source "${SCRIPT_DIR}/../lib/config.sh"
 # test status deny, Case 4, N1-159, applies even when merges are authorized). Key on the tool
 # name, never the command text (SEC-4: a substring glob on the command is evaded by quote-split
 # obfuscation).
+FILE_TOOL_ONLY=""
 case "$INPUT" in
     *'"n1:'*) : ;;
     *'"Bash"'*) : ;;
-    *'"Write"'*|*'"Edit"'*|*'"MultiEdit"'*|*'"NotebookEdit"'*) : ;;   # N1-225: sentinel_deny checks file_path
+    *'"Write"'*|*'"Edit"'*|*'"MultiEdit"'*|*'"NotebookEdit"'*) FILE_TOOL_ONLY=1 ;;  # N1-225: sentinel_deny checks file_path
     *) exit 0 ;;
 esac
 
@@ -65,6 +67,13 @@ esac
 # CLAUDE_PROJECT_DIR (the session root), not the hook cwd: the cwd follows the child's `cd`, which would drop the identity.
 if [ -z "$QUEUE_CHILD" ] && source "${SCRIPT_DIR}/../lib/orca-queue.sh" && n1_orca_child_env "${CLAUDE_PROJECT_DIR:-$PWD}" "$(printf '%s' "$INPUT" | n1_hook_field session_id)"; then
     QUEUE_CHILD=1
+fi
+
+# N1-255: for a bare file-tool call (arm 3 only: no persona, no Bash) sentinel_deny is the only check that can
+# deny, and it is a no-op without N1_ORCA_SENTINEL. Skip every Python spawn, the interpreter probe included.
+# Fails closed: an identity loaded above or inherited from the environment keeps the Python path.
+if [ -n "$FILE_TOOL_ONLY" ] && [ -z "${N1_ORCA_SENTINEL:-}" ]; then
+    exit 0
 fi
 
 CONFIG_FILE=$(n1_config_file)
