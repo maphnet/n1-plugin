@@ -46,7 +46,9 @@ case "$1 $2" in
         pending) ok '{"messageId":"m-7","status":"timeout"}' ;;
         *) err "runtime down" ;;
       esac ;;
-  "orchestration check") if has --all "$@"; then
+  "orchestration check") if [ -n "${FAKE_ORCA_NO_HEARTBEAT:-}" ] && case "$*" in *heartbeat*) true;; *) false;; esac; then err "Invalid --types: heartbeat" invalid_argument
+      elif [ -n "${FAKE_ORCA_CHECK_FAIL:-}" ]; then err "boom"
+      elif has --all "$@"; then
           [ -n "${FAKE_COORD_DEAD:-}" ] && has --terminal "$@" && err "terminal not found"
           ok "{\"messages\":[${FAKE_INBOX:-}]}"
       else ok '{}'; fi ;;
@@ -141,6 +143,15 @@ eq "events: empty message id keeps the dispatch column" "$(printf 'escalation\tt
 reset
 n1_orca_check run-1 5 >/dev/null
 has "check: requests heartbeat" "--types worker_done,escalation,question,heartbeat" "$(calls)"
+eq "check: accepted first call -> one call" 1 "$(calls | grep -c 'orchestration check')"
+reset; hb_out=$(FAKE_ORCA_NO_HEARTBEAT=1 n1_orca_check run-1 5 2>"$T/hb.err"); eq "check: heartbeat rejected -> retry rc 0" 0 "$?"
+eq "check: heartbeat rejected -> stdout is the retry's success receipt" true "$(jq -r '.ok' <<<"$hb_out" 2>/dev/null)"
+has "check: heartbeat rejected -> stderr notes the retry" "retrying without it" "$(cat "$T/hb.err")"
+eq "check: heartbeat rejected -> two calls" 2 "$(calls | grep -c 'orchestration check')"
+has "check: retry first call had heartbeat" "question,heartbeat" "$(calls | sed -n 1p)"
+hasnt "check: retry dropped heartbeat" "heartbeat" "$(calls | sed -n 2p)"
+reset; FAKE_ORCA_CHECK_FAIL=1 n1_orca_check run-1 5 >/dev/null 2>&1; rc=$?; eq "check: generic failure -> rc 1" 1 "$rc"
+eq "check: generic failure -> one call" 1 "$(calls | grep -c 'orchestration check')"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
 eq "liveness: verdict + durable settled state" \
     "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t\nd-6\ttask-6\tlive\tdone\nd-7\ttask-7\tlive\tdone\nd-8\ttask-8\tlive\t\nd-9\ttask-9\texited\t\nd-10\ttask-10\tunverifiable\t')" \
