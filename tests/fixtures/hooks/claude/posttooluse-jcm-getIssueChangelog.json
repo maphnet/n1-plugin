@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "mcp__maphnet-jc-mcp__jcm_getIssueChangelog",
+  "tool_input": {
+    "issueKey": "N1-313",
+    "maxResults": 5
+  },
+  "tool_response": [
+    {
+      "type": "text",
+      "text": "{\"entries\":[{\"id\":\"13443\",\"authorAccountId\":\"acct-redacted\",\"author\":\"Vladimir Karnaukhov\",\"created\":\"2026-11-03T11:57:45.873+0300\",\"items\":[{\"field\":\"Link\",\"from\":null,\"to\":\"This work item relates to N1-89\"}]},{\"id\":\"13448\",\"authorAccountId\":\"acct-redacted\",\"author\":\"Vladimir Karnaukhov\",\"created\":\"2026-11-03T11:57:47.496+0300\",\"items\":[{\"field\":\"Link\",\"from\":null,\"to\":\"This work item relates to N1-314\"}]},{\"id\":\"13449\",\"authorAccountId\":\"acct-redacted\",\"author\":\"Vladimir Karnaukhov\",\"created\":\"2026-11-03T11:57:48.359+0300\",\"items\":[{\"field\":\"labels\",\"from\":\"\",\"to\":\"n1-auto\"},{\"field\":\"priority\",\"from\":\"Medium\",\"to\":\"High\"}]},{\"id\":\"13451\",\"authorAccountId\":\"acct-redacted\",\"author\":\"Vladimir Karnaukhov\",\"created\":\"2026-11-03T11:57:52.370+0300\",\"items\":[{\"field\":\"status\",\"from\":\"Backlog\",\"to\":\"To Do\"}]},{\"id\":\"13506\",\"authorAccountId\":\"acct-redacted\",\"author\":\"Vladimir Karnaukhov\",\"created\":\"2026-11-03T17:30:03.687+0300\",\"items\":[{\"field\":\"Link\",\"from\":null,\"to\":\"This work item relates to N1-322\"}]}],\"truncated\":true}"
+    }
+  ]
+}

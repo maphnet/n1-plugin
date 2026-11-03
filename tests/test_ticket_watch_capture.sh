@@ -20,12 +20,13 @@ K='{"issueKey":"T-1"}'
 ISSUE='{"key":"T-1","updated":"2026-10-17T10:00:00.000+0000","comments":[]}'
 PROBE='{"total":1,"issues":[{"key":"T-1","updated":"2026-10-17T10:00:00.000+0000"}]}'
 BLOCKS=$(jq -nc --arg s "$ISSUE" '[{type:"text",text:$s}]')
-hook() { # <tool_name> <tool_input-json> <tool_response-json>; prints "<rc>|<stdout>"
+hookr() { # <tool_name> <tool_input-json> <tool_response-json>; prints "<rc>|<stdout>"
     local out rc
     out=$(jq -nc --arg t "$1" --argjson i "$2" --argjson r "$3" --arg cwd "$T" --arg sid "${SID-s1}" \
         '{session_id:$sid,cwd:$cwd,hook_event_name:"PostToolUse",tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H"); rc=$?
     printf '%s|%s' "$rc" "$out"
 }
+hook() { hookr "$@"; }   # <tool_name> <tool_input-json> <payload-json>
 norm() { jq -c . "$1" 2>/dev/null || echo "<none>"; }
 has() { [ -e "$1" ] && echo yes || echo no; }
 clean() { rm -rf "$M"/.tw-* "$M/.ticket-watch"; }
@@ -58,6 +59,36 @@ assert_eq "getIssue split across two text blocks: joined and saved" "$ISSUE" "$(
 clean; hook "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '{content:[{type:"text",text:$s},{type:"image",data:"x"}]}')" >/dev/null
 assert_eq "result object with an image block: wrapper not saved" "no" "$(has "$M/.tw-issue.json")"
 assert_eq "failed captures leave no temp files" "0" "$(find "$M" -name '*.json.*' | wc -l | tr -d ' ')"
+# [N1-313 AC3] the saved file equals the MCP text byte for byte (cmp, not jq -c): pretty-printed JSON,
+# non-ASCII, an escaped slash, doubled spaces and a trailing newline survive every text shape.
+RAW=$(printf '{\n  "key": "T-1",\n  "updated": "2026-10-17T10:00:00.000+0000",\n  "summary": "caf\xc3\xa9  \\/ \xe2\x9c\x93  x",\n  "comments": []\n}\n.'); RAW=${RAW%.}
+printf '%s' "$RAW" > "$T/raw.exp"
+for shape in string blocks result; do
+    case $shape in
+        string) r=$(jq -nc --arg s "$RAW" '$s') ;;
+        blocks) r=$(jq -nc --arg s "$RAW" '[{type:"text",text:$s[:15]},{type:"text",text:$s[15:]}]') ;;
+        result) r=$(jq -nc --arg s "$RAW" '{content:[{type:"text",text:$s}]}') ;;
+    esac
+    clean; hookr "$GI" "$K" "$r" >/dev/null
+    assert_eq "byte-exact capture ($shape)" "same" "$(cmp -s "$T/raw.exp" "$M/.tw-issue.json" && echo same || echo differs)"
+done
+# [N1-313 AC1/AC3] real Claude Code PostToolUse payloads (sanitized): rebound to this test's session and key,
+# the saved file equals the payload's joined text blocks byte for byte.
+FX="$REPO_ROOT/tests/fixtures/hooks/claude"
+replay() { # <fixture-name> <dest-file>
+    local p="$FX/$1"
+    jq -j '.tool_response | if type == "string" then .
+        elif type == "array" then [.[] | select(type == "object" and .type == "text") | .text] | join("")
+        else [.content[] | select(type == "object" and .type == "text") | .text] | join("") end' "$p" > "$T/fx.exp"
+    jq -c --arg cwd "$T" '.session_id = "s1" | .cwd = $cwd | del(.agent_id)
+        | .tool_name |= sub("^mcp__.+__"; "mcp__jc__")
+        | if .tool_input.issueKey then .tool_input.issueKey = "T-1" else . end
+        | if .tool_input.jql then .tool_input.jql = "key = T-1" else . end' "$p" | bash "$H" >/dev/null
+    assert_eq "real payload $1: byte-exact" "same" "$(cmp -s "$T/fx.exp" "$2" && echo same || echo differs)"
+}
+clean; replay posttooluse-jcm-getIssue.json "$M/.tw-issue.json"
+clean; replay posttooluse-jcm-getIssueChangelog.json "$M/.tw-log-1.json"
+clean; replay posttooluse-jcm-searchIssues.json "$M/.tw-probe.json"
 
 # Key validation before any path use; write only into an existing memory dir
 for k in '../T-1' 't-1' 'T-1/x' 'T-' "$(printf 'T-1\n../x')"; do

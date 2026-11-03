@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "PostToolUse",
+  "tool_name": "mcp__maphnet-jc-mcp__jcm_searchIssues",
+  "tool_input": {
+    "jql": "key = N1-313",
+    "maxResults": 1
+  },
+  "tool_response": [
+    {
+      "type": "text",
+      "text": "{\"issues\":[{\"key\":\"N1-313\",\"summary\":\"Ticket watch: capture tracker responses in a PostToolUse hook, not model-relayed Writes\",\"status\":\"In Progress\",\"type\":\"Bug\",\"parent\":null,\"assignee\":\"Vladimir Karnaukhov\",\"updated\":\"2026-11-03T17:43:49.291+0300\",\"updatedJql\":\"2026-11-03 17:43\"}]}"
+    }
+  ]
+}
