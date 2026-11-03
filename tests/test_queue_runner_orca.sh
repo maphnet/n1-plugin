@@ -194,6 +194,22 @@ test_orca_question_on_pr_row_cleanup() {
     rm -rf "$tmp"
 }
 
+# N1-309. Bug caught: a question delivered after the row settled (worker done, released) recreated .ask and alerted.
+test_orca_question_after_settle() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"
+    : > "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/A\n' > "$tmp/n1home/memory/T-A/overview.md"
+    orca_msg worker_done task-T-A m-d2 > "$tmp/fake/q.done"
+    orca_msg question task-T-A m-q3 > "$tmp/fake/q.late"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.done" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.2"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.5"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+    assert_eq "orca-ask-settled: no .ask marker" "no" "$([ -e "$tmp/.ask-T-A" ] && echo yes || echo no)"
+    assert_eq "orca-ask-settled: no alert" "0" "$(grep -c 'T-A needs you' "$tmp/notes" || true)"
+    rm -rf "$tmp"
+}
+
 # N1-309 CR-1. Bug caught: heartbeats with a mismatched dispatch id were logged and recorded as dispatch_mismatch
 # events every tick; the same skipped message replayed was recorded again.
 test_orca_dispatch_skip_not_flooded() {
@@ -782,6 +798,7 @@ test_orca_question_parks
 test_orca_question_after_timeout
 test_orca_question_on_pr_row
 test_orca_question_on_pr_row_cleanup
+test_orca_question_after_settle
 test_orca_dispatch_skip_not_flooded
 test_orca_coordinator_sink
 test_orca_coordinator_fallback

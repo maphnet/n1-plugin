@@ -95,7 +95,7 @@ strip_pid() {
 EVENTS="$(dirname "$QUEUE")/events.jsonl"
 # ponytail: STARTED_AT/PARKED are in-memory; after a runner crash-restart duration_s is null and
 # a re-parked ticket may notify twice. Persist them in queue.md if that ever matters.
-declare -a STARTED_AT=() PARKED=() DRAIN=() DRAIN_ESCALATED=()
+declare -a STRUCK=() STARTED_AT=() PARKED=() DRAIN=() DRAIN_ESCALATED=()
 
 ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 
@@ -304,9 +304,9 @@ finalize() {
                 && [ $(( $(date +%s) - STRIKE_AT )) -lt "$STRIKE_WINDOW" ]; then
                 echo "[$NUM] $TICKET: same reason as the last strike ($REASON), not counted"
             else
-                CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)); STRIKE_REASON="$REASON"; STRIKE_AT=$(date +%s)
+                CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)); STRUCK[NUM]=1; STRIKE_REASON="$REASON"; STRIKE_AT=$(date +%s)
             fi ;;
-        pr|awaiting-human) CONSECUTIVE_FAIL=0; STRIKE_REASON="" ;;
+        pr|awaiting-human) CONSECUTIVE_FAIL=0; STRUCK=(); STRIKE_REASON="" ;;
     esac
     if [ "$CONSECUTIVE_FAIL" -ge 3 ]; then
         halt "HALTED after 3 consecutive non-success"
@@ -991,22 +991,23 @@ run_orca() {
                 worker_done) DONE="$DONE$TASK " ;;
                 question)
                     _n1_orca_id "$MSG" || continue
-                    printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T"
                     # N1-309: the row loop only visits in-flight rows, so a question on a final row is surfaced here.
+                    # A question for a settled final row (worker released) is stale: no marker, no alert.
                     # A failed row whose worker is not settled (e.g. subtask-timeout, worker alive) is re-adopted: the
                     # row loop then flips it back to in-progress after --answer and records its later outcome. Its
-                    # clock restarts, its slot is no longer owed, and its strike is returned (a later finalize counts
-                    # again). A pr/escalated row keeps its status: OWED and orca_settle already supervise it, and a
-                    # re-adopt would make the next tick re-finalize it and delete .ask before the answer.
+                    # clock restarts, its slot is no longer owed, and its strike is returned only if that failure is
+                    # still in the current streak (STRUCK; a later finalize counts again). A pr/escalated row keeps its
+                    # status: OWED and orca_settle already supervise it, and a re-adopt would make the next tick
+                    # re-finalize it and delete .ask before the answer.
                     IFS=$'\t' read -r NUM _ _ N1H _ STATUS <<< "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human|failed|pr|escalated' | awk -F'\t' -v t="$T" '$2 == t' | tail -1)"
+                    case "$STATUS" in failed|pr|escalated) [[ "$SETTLED" != *" $TASK "* ]] || continue ;; esac
+                    printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T"
                     case "$STATUS" in
                         failed)
-                            if [[ "$SETTLED" != *" $TASK "* ]]; then
-                                n1_queue_row_status "$QUEUE" "$NUM" awaiting-human
-                                WORKED[NUM]=0; OWED="${OWED// $TASK / }"; PARKED[NUM]=1; SINCE_PARK=0
-                                [ "$CONSECUTIVE_FAIL" -gt 0 ] && CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL - 1))
-                                echo "[$NUM] $T -> awaiting-human (worker asked after the row failed)"
-                            fi
+                            n1_queue_row_status "$QUEUE" "$NUM" awaiting-human
+                            WORKED[NUM]=0; OWED="${OWED// $TASK / }"; PARKED[NUM]=1; SINCE_PARK=0
+                            if [ -n "${STRUCK[NUM]:-}" ]; then STRUCK[NUM]=""; CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL - 1)); fi
+                            echo "[$NUM] $T -> awaiting-human (worker asked after the row failed)"
                             escalate "$T" "$N1H" ;;
                         pr|escalated) escalate "$T" "$N1H" ;;
                     esac ;;
