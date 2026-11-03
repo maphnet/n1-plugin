@@ -161,18 +161,18 @@ Generate the PR title and body from implementation context.
 
 7. **Analyze diff stat** to understand the scope of changes (which areas of the codebase were touched).
 
-7b. **Deployment actions.** Build a Before deploy list and an After deploy list from two sources, then merge them:
-   - **ticket.md `### Deployment Actions`** (if present): keep each item's wording. Use the ticket's own before/after split when it has one. Otherwise put config, secrets and migrations under Before deploy, and backfills, cache warm-ups and one-off scripts under After deploy.
+7b. **Deployment actions.** Build a Before deploy list, a Before release list and an After deploy list from two sources, then merge them:
+   - **ticket.md `### Deployment Actions`** (if present): keep each item's wording. Use the ticket's own split when it has one (Before deploy / Before release / After deploy). Items the ticket marks as release-time or prod-only go under Before release. Otherwise put config, secrets and migrations under Before deploy, and backfills, cache warm-ups and one-off scripts under After deploy.
    - **Diff scan** (same base as step 7). Collect names added in this branch:
      ```bash
      git diff <base>...HEAD -U0 | grep -E '^\+[^+]' | grep -oE '(vars|secrets)\.[A-Za-z_][A-Za-z0-9_]*|process\.env\.[A-Za-z_][A-Za-z0-9_]*|[Gg]etenv\(.[A-Za-z_][A-Za-z0-9_]*|environ(\.get\(|\[).[A-Za-z_][A-Za-z0-9_]*|ENV\[.[A-Za-z_][A-Za-z0-9_]*' | sort -u
      git diff <base>...HEAD --name-only --diff-filter=A | grep -iE '(^|/)migrations?/' || true
      ```
-     Strip each match to its bare name. Keep only names that are new in this branch, checked in one call: `for n in <names>; do git grep -qw -- "$n" <base> || echo "new:$n"; done`. Each new `secrets.X` (or any credential-like name) becomes `Manual: set secret X in <GitHub Actions secrets | the deploy environment>`. Each new `vars.X` becomes `Manual: set repository variable X`. Each new env var read becomes `Manual: set env var X in the deploy environment`. Each new migration file becomes `Manual: apply migration <file>`, unless the ticket gives the exact command. Diff-derived items go under Before deploy.
+     Strip each match to its bare name. Keep only names that are new in this branch, checked in one call: `for n in <names>; do git grep -qw -- "$n" <base> || echo "new:$n"; done`. Each new `secrets.X` (or any credential-like name) becomes `Manual: set secret X in <GitHub Actions secrets | the deploy environment>`. Each new `vars.X` becomes `Manual: set repository variable X`. Each new env var read becomes `Manual: set env var X in the deploy environment`. Each new migration file becomes `Manual: apply migration <file>`, unless the ticket gives the exact command. Diff-derived items go under Before deploy (the diff cannot show which steps are release-only; Before release items come from the ticket only).
    - **Merge:** drop a diff-derived item when a ticket item names the same resource.
    - **Secret values never appear**, only names. Any secret-involving item is written as `Manual:`, even when the ticket gives a command. If a ticket item contains a literal secret value, rewrite it as `Manual: set secret <NAME> ...` without the value.
-   - **Format:** one action per `- [ ]` line, with no nested bullets. Each item is either a single backtick shell command (optionally followed by a short note) or text starting with `Manual:`. n1-finish and n1-release parse these lines and tick them `[x]` as they run.
-   - Both lists empty → no section. One list empty → omit that sub-heading.
+   - **Format:** one action per `- [ ]` line, with no nested bullets. Each item is either a single backtick shell command (optionally followed by a short note) or text starting with `Manual:`. n1-finish and n1-release parse these lines and tick them `[x]` as they run. Before release items are walked only by n1-release, before the tag push; n1-finish never offers them.
+   - All lists empty → no section. Any list empty → omit that sub-heading.
 
 8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1. When `body_file` is given, write the body (body only: no title, no `## PR Content` wrapper, no other wrapper tags) to `body_file` and the title (one line, no `###`) to `<body_file>.title`, both with the Write tool, and return only the title block plus `pr body written: <body_file>` (see Output Format). Without `body_file`, return title and body inline.
 
@@ -185,7 +185,7 @@ Runs when the input says `mode: reconcile`: an open PR received pushes after its
 1. Read `old body`, `diff`, and `commits`. Do not read `full diff` whole — step 3 only greps it.
 2. Check every claim in `## Summary`, `## Changes`, `## Verification`, `## Decisions`, `## Documentation`, and `## Review Notes` against diff and the commit list, not only the files the fix report names. Rewrite what the diff contradicts or no longer covers. Add what the new commits introduced. Leave text with no contrary evidence verbatim.
 3. Preservation rules (hard rules, not judgment calls):
-   - `## Deployment Actions`: copy it verbatim, every `- [ ]` and `- [x]` line byte-for-byte. Never regenerate it. If the new commits add a deploy action (Phase 2 step 7b detection, grep `full diff`, not `diff` — a truncated diff would hide deploy actions past the 30KB cut), append it as a new `- [ ]` line under the right sub-heading — but only when that exact action text is not already present anywhere in the old body (ticked or not). Step 7b's detection scope is the whole PR diff vs base, so without this check every reconcile pass would re-detect and re-append actions a previous pass (or the original PR creation) already listed, duplicating an already-`[x]`-ticked line as a new unticked sibling.
+   - `## Deployment Actions`: copy it verbatim, every `- [ ]` and `- [x]` line byte-for-byte. Never regenerate it. If the new commits add a deploy action (Phase 2 step 7b detection, grep `full diff`, not `diff` — a truncated diff would hide deploy actions past the 30KB cut), append it as a new `- [ ]` line under the right sub-heading (`### Before release` only when the ticket names the action as release-time or prod-only; otherwise as in step 7b) — but only when that exact action text is not already present anywhere in the old body (ticked or not). Step 7b's detection scope is the whole PR diff vs base, so without this check every reconcile pass would re-detect and re-append actions a previous pass (or the original PR creation) already listed, duplicating an already-`[x]`-ticked line as a new unticked sibling.
    - Every checkbox line (`- [ ]` and `- [x]`) inside `## Deployment Actions`, and every line anywhere carrying `*(locally verified — ...)*`, `*(local testing: FAILED — ...)*`, or `*(manual check)*`: copy verbatim.
    - Plain `- [x]` lines outside `## Deployment Actions` and without one of those annotations may be reworded when the diff makes their stated fact stale (e.g. an updated test count), but must stay ticked and must not be removed unless the diff removed the thing they verify. Plain `- [ ]` items (same scope) may be reworded or removed freely.
    - Any `##` section outside the known set (Summary, Changes, Deployment Actions, Verification, Decisions, Documentation, Review Notes, Ticket), and `## Ticket` itself: copy byte-for-byte in the same position.
@@ -219,6 +219,9 @@ The 500-word budget applies to rewritten text only. Preserved content never gets
 ### Before deploy
 - [ ] `<shell command>`
 - [ ] Manual: <step — names only, never secret values>
+
+### Before release
+- [ ] Manual: <release-time step, e.g. prod-only — walked only by n1-release before the tag push>
 
 ### After deploy
 - [ ] `<shell command>`

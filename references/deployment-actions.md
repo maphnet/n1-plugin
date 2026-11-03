@@ -1,6 +1,6 @@
 # Procedure: Deployment Actions
 
-Runs the deploy-time actions a PR declares in its body. Called from n1-finish (Step 2 before the merge, Step 4 after the deploy) and n1-release (Step 2 collect, Step 3 gate, Step 5 before the tag push, Step 8b after the deploy). Never dispatches a persona.
+Runs the deploy-time actions a PR declares in its body. Called from n1-finish (Step 2 before the merge, Step 4 after the deploy) and n1-release (Step 2 collect, Step 3 gate, Step 5 before the tag push, Step 8b after the deploy). Never dispatches a persona. `### Before release` items are walked only by n1-release (Step 5, before the tag push); n1-finish never offers them and reports them as deferred to release.
 
 **Contract** (tech-writer writes it at PR time; the PR body is the source of truth):
 
@@ -11,13 +11,16 @@ Runs the deploy-time actions a PR declares in its body. Called from n1-finish (S
 - [ ] `<shell command>`
 - [ ] Manual: <step — names only, never secret values>
 
+### Before release
+- [ ] Manual: <release-time step, e.g. prod-only — walked only by n1-release before the tag push>
+
 ### After deploy
 - [ ] `<shell command>`
 ```
 
 One action per `- [ ]` line. An item starting with `Manual:` is always a **manual item**. Otherwise it is a **shell item** only when it starts with a backtick, contains exactly two backticks, and the extracted command is non-empty; its command is the text between the backticks, extracted by § Command. Everything else is a **manual item**. `- [x]` means done: it is never offered again. Secret values never appear, only names.
 
-The per-run working copy is a TSV file, one row per unticked item: `<PR>\t<orig phase: before|after>\t<phase: before|after|drop>\t<item text>`. § Parse sets the orig-phase and phase columns identically. § Edit may later change only the phase column (move/drop); the orig-phase column stays put, so § Tick can still find the item under the heading it actually lives under in the PR body. Rows are addressed by row number `K` (the `cat -n` number), so item text is never pasted into a shell command. Paths: n1-finish uses `$N1_HOME/scratch/deploy-actions-<PR>.tsv`; n1-release uses `$N1_HOME/scratch/release-actions.tsv`.
+The per-run working copy is a TSV file, one row per unticked item: `<PR>\t<orig phase: before|after|release>\t<phase: before|after|drop>\t<item text>`. § Parse sets the orig-phase and phase columns identically, except a `### Before release` item, which gets orig phase `release` and phase `before`. § Edit may later change only the phase column (move/drop); the orig-phase column stays put, so § Tick can still find the item under the heading it actually lives under in the PR body. Rows are addressed by row number `K` (the `cat -n` number), so item text is never pasted into a shell command. Paths: n1-finish uses `$N1_HOME/scratch/deploy-actions-<PR>.tsv`; n1-release uses `$N1_HOME/scratch/release-actions.tsv`. § Parse also writes `"$OUT.deferred"` (same row format; scratch only, rewritten on every Parse).
 
 **Queue and headless runs** (`N1_QUEUE_RUN_ID` non-empty or `N1_HEADLESS=1`, printed as `mode:runbook`) never run § Walk. Callers use § Runbook instead.
 
@@ -27,31 +30,40 @@ The per-run working copy is a TSV file, one row per unticked item: `<PR>\t<orig 
 source ~/.n1/preamble.sh
 PRS="<PR numbers, space-separated>"
 OUT="<TSV path>"
+RELEASE_ROWS="defer"
 if [ -n "${N1_QUEUE_RUN_ID:-}" ] || [ "${N1_HEADLESS:-}" = "1" ]; then echo "mode:runbook"; else echo "mode:walk"; fi
-mkdir -p "$(dirname "$OUT")"; : > "$OUT"; rm -f "$OUT.cmd"
+mkdir -p "$(dirname "$OUT")"; : > "$OUT"; : > "$OUT.deferred"; rm -f "$OUT.cmd"
 for n in $PRS; do
   if ! BODY=$(gh pr view "$n" --json body --jq .body 2>/dev/null); then echo "fetch-failed:#$n"; continue; fi
-  printf '%s\n' "$BODY" | tr -d '\r' | awk -v pr="$n" '
+  printf '%s\n' "$BODY" | tr -d '\r' | awk -v pr="$n" -v rel="$RELEASE_ROWS" -v def="$OUT.deferred" '
     /^## / { in_da = ($0 ~ /^## Deployment Actions[[:space:]]*$/); phase = ""; next }
-    in_da && /^### / { phase = ($0 ~ /^### Before deploy/) ? "before" : (($0 ~ /^### After deploy/) ? "after" : ""); next }
-    in_da && phase != "" && /^- \[ \] / { sub(/^- \[ \] /, ""); print pr "\t" phase "\t" phase "\t" $0 }' >> "$OUT"
+    in_da && /^### / { phase = ($0 ~ /^### Before deploy/) ? "before" : (($0 ~ /^### After deploy/) ? "after" : (($0 ~ /^### Before release/) ? "release" : "")); next }
+    in_da && phase != "" && /^- \[ \] / {
+      sub(/^- \[ \] /, "")
+      if (phase != "release") print pr "\t" phase "\t" phase "\t" $0
+      else if (rel == "include") print pr "\trelease\tbefore\t" $0
+      else print (pr "\trelease\tbefore\t" $0) >> def }' >> "$OUT"
 done
 echo "unticked:$(wc -l < "$OUT" | tr -d ' ')"
+echo "deferred:$(wc -l < "$OUT.deferred" | tr -d ' ')"
+awk -F'\t' '{ s = $4; for (i = 5; i <= NF; i++) s = s "\t" $i; print "deferred #" $1 " " s }' "$OUT.deferred"
 cat -n "$OUT"
 ```
 
 `fetch-failed:#<n>`: that PR's actions are unknown. The caller decides whether to stop or continue.
 
+`RELEASE_ROWS` selects how `### Before release` items are handled. `defer` (default; n1-finish) writes them to `"$OUT.deferred"` and prints `deferred:<M>` plus one `deferred #<PR> <item>` line each; they never count in `unticked` and never reach § Walk, § Tick or § Runbook. `include` (n1-release sets `RELEASE_ROWS="include"`) writes them to `$OUT` as `before` rows with orig phase `release`, so every `before`-row rule below applies to them.
+
 ## § Walk
 
-Inputs: `PHASE` (`before` or `after`) and `OUT`. Walk the rows whose phase column (column 3) equals `PHASE`, in row order. Rows in the same phase with identical item text (different PRs) are one action: ask once, run once, and § Tick every one of those rows.
+Inputs: `PHASE` (`before` or `after`) and `OUT`. The prompt `<label>` comes from column 2: `before` → `before deploy`, `after` → `after deploy`, `release` → `before release`. Walk the rows whose phase column (column 3) equals `PHASE`, in row order. Rows in the same phase with identical item text (different PRs) are one action: ask once, run once, and § Tick every one of those rows.
 
 This is an unconditional gate. Ask the user for every item, never auto-resolve, never pick an option on the user's behalf, and never run an item the user has not confirmed in this run.
 
 - Run § Command first, with `K=<row number>`, to classify the item and (for a shell item) extract the command into `"$OUT.cmd"`. Treat the item as a **shell item** only when § Command printed `shell`; `manual` → the Manual item branch below.
 - **Shell item**: display the command with `cat "$OUT.cmd"` — never by re-typing the item text — then show:
   ```
-  Deployment action (<before|after> deploy, PR #<N>): <item text>
+  Deployment action (<label>, PR #<N>): <item text>
   Command: <contents of "$OUT.cmd">
   Run this?
   1 — Yes
@@ -67,7 +79,7 @@ This is an unconditional gate. Ask the user for every item, never auto-resolve, 
   and show its output. Exit 0 → § Tick. Non-zero → report the failure and ask `1 — Retry / 2 — Skip / 3 — Abort`. Retry re-runs the same command — the same file, never re-typed.
 - **Manual item** (§ Command printed `manual`):
   ```
-  Deployment action (<before|after> deploy, PR #<N>): <item text>
+  Deployment action (<label>, PR #<N>): <item text>
   Done?
   1 — Yes, done
   2 — Skip (not done yet)
@@ -113,7 +125,7 @@ fi
 
 ## § Tick
 
-Marks row `K` as done in its PR body. It runs only after a shell item exits 0 or the user confirms a manual item. The match is scoped to the row's **original** PR-body phase (column 2), not its current execution phase (column 3): it only flips a line under the `### Before deploy` / `### After deploy` heading that matches column 2 of row `K` (`before` → `### Before deploy`, `after` → `### After deploy`). This keeps ticking correct even after § Edit moves a row's execution phase (column 3) without moving the text in the PR body.
+Marks row `K` as done in its PR body. It runs only after a shell item exits 0 or the user confirms a manual item. The match is scoped to the row's **original** PR-body phase (column 2), not its current execution phase (column 3): it only flips a line under the heading that matches column 2 of row `K` (`before` → `### Before deploy`, `after` → `### After deploy`, `release` → `### Before release`). Any other column-2 value prints `tick-missing:#<N>` without fetching or editing the PR. This keeps ticking correct even after § Edit moves a row's execution phase (column 3) without moving the text in the PR body.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -123,9 +135,16 @@ K=<row number>
 N=$(sed -n "${K}p" "$OUT" | cut -f1)
 ORIG_PHASE=$(sed -n "${K}p" "$OUT" | cut -f2)
 ITEM=$(sed -n "${K}p" "$OUT" | cut -f4-)
-HEADING="### After deploy"; [ "$ORIG_PHASE" = "before" ] && HEADING="### Before deploy"
+case "$ORIG_PHASE" in
+  before) HEADING="### Before deploy" ;;
+  after) HEADING="### After deploy" ;;
+  release) HEADING="### Before release" ;;
+  *) HEADING="" ;;
+esac
 # Re-fetch right before the edit. Ceiling: last write wins if the body changes between this fetch and the edit.
-if BODY=$(gh pr view "$N" --json body --jq .body 2>/dev/null); then
+if [ -z "$HEADING" ]; then
+  echo "tick-missing:#$N"
+elif BODY=$(gh pr view "$N" --json body --jq .body 2>/dev/null); then
   NEW=$(printf '%s\n' "$BODY" | tr -d '\r' \
     | ITEM="$ITEM" HEADING="$HEADING" awk '
         /^## / { in_da = ($0 ~ /^## Deployment Actions[[:space:]]*$/); phase_ok = 0; print; next }
@@ -156,7 +175,7 @@ n1-release only. This is a model comparison over the `before`/`after` rows, with
 - one PR deletes or renames what another PR sets;
 - a `before` item in one PR that depends on an `after` item in another PR (it would run too early).
 
-Identical text in the same phase is a merged duplicate, not a conflict; § Walk runs it once.
+Identical text in the same phase is a merged duplicate, not a conflict; § Walk runs it once. `### Before release` rows (orig phase `release`) are `before` rows here and render under `Before deploy:`.
 
 Render at the Step 3 gate (omit empty sub-blocks):
 ```
@@ -197,7 +216,7 @@ The caller reached its after-deploy point with `after` rows, but no deploy was w
 
 ## § Runbook
 
-n1-finish only, for headless runs. It never executes an item. It writes the unticked items into the ticket's runbook and marks the ticket deploy-pending, the same handling as the SSH-delivery runbook.
+n1-finish only, for headless runs. It never executes an item. It writes the unticked items into the ticket's runbook and marks the ticket deploy-pending, the same handling as the SSH-delivery runbook. `### Before release` items never reach it: n1-finish's § Parse defers them to `"$OUT.deferred"`.
 
 ```bash
 source ~/.n1/preamble.sh

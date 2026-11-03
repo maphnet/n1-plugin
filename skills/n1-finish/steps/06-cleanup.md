@@ -67,6 +67,7 @@ PR: <url | none (prMode: skip — push it yourself: !git push origin <defaultBra
 Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge)>
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
+Deferred to release (n1-release walks these before the tag push): <items> (PR #<n>)   ← only when Step 4 § Parse printed `deferred:<M>` with M > 0
 Delivery: <pending — runbook: memory/<ID>/runbook.md, resume with /n1:n1-finish <ID> | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
 Cleanup: <the status tokens, e.g. worktree:removed, branch:deleted | worktree:kept (dirty), branch:kept (worktree kept) | worktree:none, branch:none>
 Next tickets: <ID title [status]; ... | none | lookup failed (<reason>)>

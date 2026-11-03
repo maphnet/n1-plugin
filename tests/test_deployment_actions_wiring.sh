@@ -25,6 +25,7 @@ check "procedure has Tick section" "^## § Tick" "$P"
 check "procedure has Conflicts section" "^## § Conflicts" "$P"
 check "procedure has Unwatched Deploy section" "^## § Unwatched Deploy" "$P"
 check "procedure has Runbook section" "^## § Runbook" "$P"
+check "procedure contract has Before release" "^### Before release" "$P"
 check "walk is an unconditional gate" "never auto-resolve" "$P"
 check "walk offers Yes/Skip/Abort" "3 — Abort" "$P"
 check "queue/headless detection" "N1_QUEUE_RUN_ID.*N1_HEADLESS" "$P"
@@ -52,6 +53,7 @@ run() { PATH="$T/bin:$PATH" bash -c "$(snippet "$1" | sed -e '/preamble\.sh/d' -
 out=$(run "## § Parse")
 check "parse prints mode:walk interactively" "^mode:walk$" <(printf '%s\n' "$out")
 check "parse counts unticked items" "^unticked:2$" <(printf '%s\n' "$out")
+check "parse prints deferred:0 when there is no Before release item" "^deferred:0$" <(printf '%s\n' "$out")
 [ "$(sed -n 1p "$TSV" 2>/dev/null)" = "$(printf '7\tbefore\tbefore\tManual: set secret STRIPE_KEY')" ] \
     && echo "PASS: parse row 1 (before, manual)" || { echo "FAIL: parse row 1"; FAIL=1; }
 [ "$(sed -n 2p "$TSV" 2>/dev/null)" = "$(printf '7\tafter\tafter\t`npm run backfill -- --since "2026-01-01"`')" ] \
@@ -152,11 +154,81 @@ check "tick after move still succeeds" "^ticked:#8$" <(printf '%s\n' "$out")
 [ "$(grep -A1 '^### Before deploy' "$T/edited-move.md" | tail -1)" = '- [x] `echo moved`' ] \
     && echo "PASS: tick after move flips the Before deploy line (where the text actually lives)" || { echo "FAIL: tick after move did not flip Before deploy"; FAIL=1; }
 
+# --- behavior (N1-302): ### Before release is deferred by n1-finish (RELEASE_ROWS=defer) and included by
+# n1-release (RELEASE_ROWS=include) as orig phase release / execution phase before; § Tick flips it under
+# ### Before release only, even after § Edit moves its execution phase.
+cat > "$T/body-rel.md" <<'EOF'
+## Deployment Actions
+
+### Before deploy
+- [ ] `echo same`
+
+### Before release
+- [ ] `echo same`
+- [ ] Manual: set prod secret PROD_KEY
+- [x] `echo released`
+
+### After deploy
+- [ ] `echo after`
+EOF
+export GH_BODY="$T/body-rel.md" GH_EDITED="$T/edited-rel.md"
+TSV6="$T/rel.tsv"
+run6() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Parse" | sed -e '/preamble\.sh/d' -e 's|^PRS=.*|PRS="7"|' -e "s|^OUT=.*|OUT=\"$TSV6\"|" -e "s|^RELEASE_ROWS=.*|RELEASE_ROWS=\"$1\"|")"; }
+
+out=$(run6 defer)
+check "parse defer: unticked counts before/after rows only" "^unticked:2$" <(printf '%s\n' "$out")
+check "parse defer: counts deferred release rows" "^deferred:2$" <(printf '%s\n' "$out")
+check "parse defer: lists deferred items with their PR" '^deferred #7 Manual: set prod secret PROD_KEY$' <(printf '%s\n' "$out")
+if grep -q $'\trelease\t' "$TSV6" 2>/dev/null; then echo "FAIL: parse defer: release row leaked into OUT"; FAIL=1; else echo "PASS: parse defer: OUT holds no release row"; fi
+[ "$(sed -n 1p "$TSV6.deferred" 2>/dev/null)" = "$(printf '7\trelease\tbefore\t`echo same`')" ] \
+    && echo "PASS: parse defer: .deferred row is orig release, phase before" || { echo "FAIL: parse defer: .deferred row 1"; FAIL=1; }
+[ "$(wc -l < "$TSV6.deferred" 2>/dev/null | tr -d ' ')" = "2" ] \
+    && echo "PASS: parse defer: ticked release item not deferred" || { echo "FAIL: parse defer: .deferred row count"; FAIL=1; }
+
+out=$(run6 include)
+check "parse include: unticked counts release rows" "^unticked:4$" <(printf '%s\n' "$out")
+check "parse include: nothing deferred" "^deferred:0$" <(printf '%s\n' "$out")
+[ "$(sed -n 2p "$TSV6" 2>/dev/null)" = "$(printf '7\trelease\tbefore\t`echo same`')" ] \
+    && echo "PASS: parse include: release row is orig release, phase before" || { echo "FAIL: parse include: release row"; FAIL=1; }
+[ "$(sed -n 4p "$TSV6" 2>/dev/null)" = "$(printf '7\tafter\tafter\t`echo after`')" ] \
+    && echo "PASS: parse include: after row unchanged" || { echo "FAIL: parse include: after row"; FAIL=1; }
+
+TSV7="$T/rel-tick.tsv"
+run7() { PATH="$T/bin:$PATH" bash -c "$(snippet "## § Tick" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV7\"|" -e 's|^K=.*|K=1|')"; }
+printf '7\trelease\tbefore\t`echo same`\n' > "$TSV7"
+rm -f "$T/edited-rel.md"
+out=$(run7)
+check "tick release: reports success" "^ticked:#7$" <(printf '%s\n' "$out")
+[ "$(grep -A1 '^### Before release' "$T/edited-rel.md" 2>/dev/null | tail -1)" = '- [x] `echo same`' ] \
+    && echo "PASS: tick release: flips the Before release line" || { echo "FAIL: tick release: Before release line not flipped"; FAIL=1; }
+[ "$(grep -A1 '^### Before deploy' "$T/edited-rel.md" 2>/dev/null | tail -1)" = '- [ ] `echo same`' ] \
+    && echo "PASS: tick release: Before deploy line untouched" || { echo "FAIL: tick release: flipped Before deploy"; FAIL=1; }
+
+printf '7\tbogus\tbefore\t`echo same`\n' > "$TSV7"
+rm -f "$T/edited-rel.md"
+out=$(run7)
+check "tick unknown orig phase: tick-missing" "^tick-missing:#7$" <(printf '%s\n' "$out")
+[ ! -f "$T/edited-rel.md" ] && echo "PASS: tick unknown orig phase: no gh pr edit" || { echo "FAIL: tick unknown orig phase edited the PR"; FAIL=1; }
+
+printf '7\trelease\tbefore\t`echo same`\n' > "$TSV7"
+rm -f "$T/edited-rel.md"
+PATH="$T/bin:$PATH" bash -c "$(snippet "**Edit**" | sed -e '/preamble\.sh/d' -e "s|^OUT=.*|OUT=\"$TSV7\"|" -e 's|^K=.*|K=1|' -e 's|^P=.*|P=after|')"
+[ "$(sed -n 1p "$TSV7")" = "$(printf '7\trelease\tafter\t`echo same`')" ] \
+    && echo "PASS: edit moves a release row's phase only" || { echo "FAIL: edit changed a release row's orig phase"; FAIL=1; }
+out=$(run7)
+check "tick after moving a release row still succeeds" "^ticked:#7$" <(printf '%s\n' "$out")
+[ "$(grep -A1 '^### Before release' "$T/edited-rel.md" 2>/dev/null | tail -1)" = '- [x] `echo same`' ] \
+    && echo "PASS: tick after move flips the Before release line" || { echo "FAIL: tick after move missed Before release"; FAIL=1; }
+
 # --- agents
 TW=agents/tech-writer.md
 check "tech-writer template has Deployment Actions" "^## Deployment Actions" "$TW"
 check "tech-writer template has Before deploy" "^### Before deploy" "$TW"
 check "tech-writer template has After deploy" "^### After deploy" "$TW"
+check "tech-writer template has Before release" "^### Before release" "$TW"
+grep "^### " "$TW" > "$T/tw-headings.md"
+before "tech-writer template orders Before release before After deploy" "### Before release" "### After deploy" "$T/tw-headings.md"
+check "architecture.md documents the Before release heading" "### Before release" references/architecture.md
 check "tech-writer scans the diff for vars/secrets" '\(vars\|secrets\)' "$TW"
 check "tech-writer never writes secret values" "Secret values never appear" "$TW"
 check "tech-writer omits the section when empty" "Omit .## Deployment Actions. entirely" "$TW"
@@ -170,10 +242,13 @@ check "finish Step 2 parses deployment actions" "deployment-actions\.md. § Pars
 check "finish Step 2 walks before-deploy items" "PHASE=before" "$F2"
 check "finish Step 2 queue/headless writes the runbook" "§ Runbook" "$F2"
 check "finish Step 2 aborted walk blocks the merge" "Merge blocked" "$F2"
+check "finish Step 2 defers Before release items" "### Before release. items are deferred" "$F2"
 F4=skills/n1-finish/steps/04-close-ticket.md
 check "finish Step 4 walks after-deploy items" "PHASE=after" "$F4"
 check "finish Step 4 asks when no deploy was watched" "§ Unwatched Deploy" "$F4"
 check "finish Step 4 clears deploy_pending" "deploy_pending false" "$F4"
+check "finish Step 4 records deferred items for the Step 6 Report" "Deferred to release:. line" "$F4"
+check "finish Step 6 Report carries the deferred-to-release line" "^Deferred to release \(n1-release walks these before the tag push\): <items> \(PR #<n>\)" skills/n1-finish/steps/06-cleanup.md
 before "finish: after-deploy follows the delivery gate" "03b-ssh-deploy.md" "deployment-actions.md" "$F4"
 
 # --- n1-release
@@ -182,6 +257,7 @@ check "release collects actions before the tag exists" "deployment-actions\.md. 
 check "release maps pending batch SHAs to PRs" "merged_sha" "$R1"
 check "release scans merge-commit PR refs too" "Merge pull request #" "$R1"
 check "release writes the shared TSV" "release-actions\.tsv" "$R1"
+check "release Parse includes Before release items" 'RELEASE_ROWS="include"' "$R1"
 check "release previous-tag resolution excludes the target tag itself" 'grep -v -x "\$TAG"' "$R1"
 check "release scan range uses the release target, not bare HEAD" 'RELEASE_TARGET="\$\{MERGE_SHA:-HEAD\}"' "$R1"
 check "release scan range is used for the git log scan" '\$\{PREV_TAG\}\.\.\$\{RELEASE_TARGET\}' "$R1"
