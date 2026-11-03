@@ -22,6 +22,10 @@ check "hook emits additionalContext" 'additionalContext' hooks/ticket-watch-capt
 check "procedure falls back on TW_MISSING" "TW_MISSING" "$P"
 check "probe read guarded by n1_tw_need" 'n1_tw_need "\$M/\.tw-probe\.json"' "$P"
 check "delta read guarded by n1_tw_need" 'n1_tw_need "\$M/\.tw-issue\.json" "\$M/\.tw-log-1\.json"' "$P"
+check "Seed starts with the HTTP call" 'n1_tw_seed_http "\$ID"' "$P"
+check "Check starts with the HTTP call" 'n1_tw_check_http "\$ID"' "$P"
+check "model path only on TW_FALLBACK" 'Only on `TW_FALLBACK <reason>`' "$P"
+check "architecture documents the HTTP check" "n1_tw_check_http" references/architecture.md
 check "architecture documents capture hook" "ticket-watch-capture\.sh" references/architecture.md
 check "procedure has React" "^## § React" "$R"
 check "procedure has Replan" "^## § Replan" "$R"
