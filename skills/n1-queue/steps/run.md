@@ -39,7 +39,6 @@ printf 'PLANNED_AT=%s\n' "$(n1_read_frontmatter "$QUEUE_FILE" planned_at 2>/dev/
 if n1_queue_interrupted "$QUEUE_FILE"; then echo INTERRUPTED=yes; else echo INTERRUPTED=no; fi
 if n1_queue_stale "$QUEUE_FILE"; then echo STALE=yes; else echo STALE=no; fi
 printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
-source "$N1_ROOT/lib/orca-queue.sh"
 printf 'PLANNED_MAXC=%s\n' "$(n1_read_frontmatter "$QUEUE_FILE" max_concurrent 2>/dev/null)"
 printf 'LIVE_MAXC=%s\n' "$(n1_queue_max_concurrent)"
 printf 'SCHEDULE=%s\n' "$(n1_queue_plan_waves "$QUEUE_FILE")"
@@ -96,7 +95,6 @@ Then rebuild the schedule and re-pin concurrency (N1-303). A re-plan is the only
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
-source "$N1_ROOT/lib/orca-queue.sh"
 n1_queue_schedule_write "$QUEUE_DIR/queue.md" || echo "SCHEDULE_WRITE=failed"
 n1_write_frontmatter "$QUEUE_DIR/queue.md" max_concurrent "$(n1_queue_max_concurrent)"
 printf 'SCHEDULE=%s\nMAX_CONCURRENT=%s\n' "$(n1_queue_plan_waves "$QUEUE_DIR/queue.md")" "$(n1_read_frontmatter "$QUEUE_DIR/queue.md" max_concurrent)"

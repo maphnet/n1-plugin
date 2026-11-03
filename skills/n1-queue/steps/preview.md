@@ -91,7 +91,6 @@ Reorder the plan to the printed order and renumber `#`. For each printed non-emp
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
-source "$N1_ROOT/lib/orca-queue.sh"
 { printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap_preds
   printf '%s\t%s\n' '<HELD_KEY>' '<BLOCKER>'; } | n1_queue_waves
 printf 'MAX_CONCURRENT=%s\n' "$(n1_queue_max_concurrent)"
