@@ -189,6 +189,7 @@ line_has "N1-296: Story under Epic" '**Child type rule:**' 'Story under an Epic'
 line_has "N1-296: Sub-task under Story" '**Child type rule:**' 'Sub-task under a Story' "$W"
 line_has "N1-296: never Task under Story" '**Child type rule:**' 'Never `Task` under a Story' "$W"
 line_has "N1-296: YouTrack child links subtask of" '**Child type rule:**' '`subtask of`' "$W"
+line_has "N1-296: YouTrack children need a link op" '**Actions** come from' 'YouTrack children when `LINK_OP` is empty' "$W"
 has "N1-296: per-child duplicate check" 'duplicate-check.md` § Check with `CONTEXT=create`' "$W"
 has "N1-296: dup prompt has no recommendation" 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$W"
 line_has "N1-296: adopt passes child type and parentKey" 'issueKeys: [<HIT_ID>]' 'parentKey: <ID>' "$W"
