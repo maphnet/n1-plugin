@@ -144,7 +144,9 @@ reset
 n1_orca_check run-1 5 >/dev/null
 has "check: requests heartbeat" "--types worker_done,escalation,question,heartbeat" "$(calls)"
 eq "check: accepted first call -> one call" 1 "$(calls | grep -c 'orchestration check')"
-reset; FAKE_ORCA_NO_HEARTBEAT=1 n1_orca_check run-1 5 >/dev/null 2>&1; eq "check: heartbeat rejected -> retry rc 0" 0 "$?"
+reset; hb_out=$(FAKE_ORCA_NO_HEARTBEAT=1 n1_orca_check run-1 5 2>"$T/hb.err"); eq "check: heartbeat rejected -> retry rc 0" 0 "$?"
+eq "check: heartbeat rejected -> stdout is the retry's success receipt" true "$(jq -r '.ok' <<<"$hb_out" 2>/dev/null)"
+has "check: heartbeat rejected -> stderr notes the retry" "retrying without it" "$(cat "$T/hb.err")"
 eq "check: heartbeat rejected -> two calls" 2 "$(calls | grep -c 'orchestration check')"
 has "check: retry first call had heartbeat" "question,heartbeat" "$(calls | sed -n 1p)"
 hasnt "check: retry dropped heartbeat" "heartbeat" "$(calls | sed -n 2p)"
