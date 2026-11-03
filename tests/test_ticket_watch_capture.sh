@@ -20,11 +20,14 @@ K='{"issueKey":"T-1"}'
 ISSUE='{"key":"T-1","updated":"2026-10-17T10:00:00.000+0000","comments":[]}'
 PROBE='{"total":1,"issues":[{"key":"T-1","updated":"2026-10-17T10:00:00.000+0000"}]}'
 BLOCKS=$(jq -nc --arg s "$ISSUE" '[{type:"text",text:$s}]')
-hook() { # <tool_name> <tool_input-json> <tool_response-json>; prints "<rc>|<stdout>"
+hookr() { # <tool_name> <tool_input-json> <tool_response-json>; prints "<rc>|<stdout>"
     local out rc
     out=$(jq -nc --arg t "$1" --argjson i "$2" --argjson r "$3" --arg cwd "$T" --arg sid "${SID-s1}" \
         '{session_id:$sid,cwd:$cwd,hook_event_name:"PostToolUse",tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H"); rc=$?
     printf '%s|%s' "$rc" "$out"
+}
+hook() { # <tool_name> <tool_input-json> <payload-json>: sent as one text content block, the real shape (N1-313 probe)
+    hookr "$1" "$2" "$(jq -c '[{type:"text",text:tojson}]' <<<"$3")"
 }
 norm() { jq -c . "$1" 2>/dev/null || echo "<none>"; }
 has() { [ -e "$1" ] && echo yes || echo no; }
@@ -32,18 +35,18 @@ clean() { rm -rf "$M"/.tw-* "$M/.ticket-watch"; }
 ctx() { jq -r '.hookSpecificOutput | select(.hookEventName == "PostToolUse") | .additionalContext' <<<"${1#*|}" 2>/dev/null; }
 count() { find "$N1_HOME" -name '.tw-*' | wc -l | tr -d ' '; }
 
-# getIssue: every response shape lands in .tw-issue.json, silently, rc 0
-clean; assert_eq "getIssue blocks: rc 0, no stdout" "0|" "$(hook "$GI" "$K" "$BLOCKS")"
+# getIssue: every text response shape lands in .tw-issue.json, silently, rc 0
+clean; assert_eq "getIssue blocks: rc 0, no stdout" "0|" "$(hookr "$GI" "$K" "$BLOCKS")"
 assert_eq "getIssue content-block array: saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '$s')" >/dev/null
+clean; hookr "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '$s')" >/dev/null
 assert_eq "getIssue plain string: saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "$ISSUE" >/dev/null
-assert_eq "getIssue object: saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "{\"content\":$BLOCKS}" >/dev/null
+clean; hookr "$GI" "$K" "$ISSUE" >/dev/null
+assert_eq "getIssue bare object (not an MCP text shape): nothing saved" "no" "$(has "$M/.tw-issue.json")"
+clean; hookr "$GI" "$K" "{\"content\":$BLOCKS}" >/dev/null
 assert_eq "getIssue result object with content blocks: saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "$(jq -nc '[{type:"text",text:"Error: issue not found"}]')" >/dev/null
+clean; hookr "$GI" "$K" "$(jq -nc '[{type:"text",text:"Error: issue not found"}]')" >/dev/null
 assert_eq "getIssue non-JSON text: nothing saved" "no" "$(has "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" 'null' >/dev/null
+clean; hookr "$GI" "$K" 'null' >/dev/null
 assert_eq "getIssue null response: nothing saved" "no" "$(has "$M/.tw-issue.json")"
 # [CR-3] only bodies with the expected payload shape are saved, so a gap still reaches TW_MISSING
 clean; hook "$GI" "$K" '{"error":"not found"}' >/dev/null
@@ -53,11 +56,42 @@ assert_eq "changelog without entries: nothing saved" "no" "$(has "$M/.tw-log-1.j
 clean; hook "$GS" '{"jql":"key = T-1"}' '{"error":"x"}' >/dev/null
 assert_eq "probe without issues: nothing saved" "no" "$(has "$M/.tw-probe.json")"
 # [TQ-1] payload split across text blocks is joined; a wrapper with a non-text block is not a payload
-clean; hook "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '[{type:"text",text:$s[:20]},{type:"text",text:$s[20:]}]')" >/dev/null
+clean; hookr "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '[{type:"text",text:$s[:20]},{type:"text",text:$s[20:]}]')" >/dev/null
 assert_eq "getIssue split across two text blocks: joined and saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '{content:[{type:"text",text:$s},{type:"image",data:"x"}]}')" >/dev/null
+clean; hookr "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '{content:[{type:"text",text:$s},{type:"image",data:"x"}]}')" >/dev/null
 assert_eq "result object with an image block: wrapper not saved" "no" "$(has "$M/.tw-issue.json")"
 assert_eq "failed captures leave no temp files" "0" "$(find "$M" -name '*.json.*' | wc -l | tr -d ' ')"
+# [N1-313 AC3] the saved file equals the MCP text byte for byte (cmp, not jq -c): pretty-printed JSON,
+# non-ASCII, an escaped slash, doubled spaces and a trailing newline survive every text shape.
+RAW=$(printf '{\n  "key": "T-1",\n  "updated": "2026-10-17T10:00:00.000+0000",\n  "summary": "caf\xc3\xa9  \\/ \xe2\x9c\x93  x",\n  "comments": []\n}\n.'); RAW=${RAW%.}
+printf '%s' "$RAW" > "$T/raw.exp"
+for shape in string blocks result; do
+    case $shape in
+        string) r=$(jq -nc --arg s "$RAW" '$s') ;;
+        blocks) r=$(jq -nc --arg s "$RAW" '[{type:"text",text:$s[:15]},{type:"text",text:$s[15:]}]') ;;
+        result) r=$(jq -nc --arg s "$RAW" '{content:[{type:"text",text:$s}]}') ;;
+    esac
+    clean; hookr "$GI" "$K" "$r" >/dev/null
+    assert_eq "byte-exact capture ($shape)" "same" "$(cmp -s "$T/raw.exp" "$M/.tw-issue.json" && echo same || echo differs)"
+done
+# [N1-313 AC1/AC3] real Claude Code PostToolUse payloads (sanitized): rebound to this test's session and key,
+# the saved file equals the payload's joined text blocks byte for byte.
+FX="$REPO_ROOT/tests/fixtures/hooks/claude"
+replay() { # <fixture-name> <dest-file>
+    local p="$FX/$1"
+    jq -j '.tool_response | if type == "string" then .
+        elif type == "array" then [.[] | select(type == "object" and .type == "text") | .text] | join("")
+        else [.content[] | select(type == "object" and .type == "text") | .text] | join("") end' "$p" > "$T/fx.exp"
+    jq -c --arg cwd "$T" '.session_id = "s1" | .cwd = $cwd | del(.agent_id)
+        | .tool_name |= sub("^mcp__.+__"; "mcp__jc__")
+        | if .tool_input.issueKey then .tool_input.issueKey = "T-1" else . end
+        | if .tool_input.jql then .tool_input.jql = "key = T-1" else . end' "$p" | bash "$H" >/dev/null
+    assert_eq "real payload $1: byte-exact" "same" "$(cmp -s "$T/fx.exp" "$2" && echo same || echo differs)"
+}
+clean; replay posttooluse-jcm-getIssue.json "$M/.tw-issue.json"
+clean; replay posttooluse-jcm-getIssueChangelog.json "$M/.tw-log-1.json"
+clean; replay posttooluse-jcm-searchIssues.json "$M/.tw-probe.json"
+clean; replay posttooluse-jcm-getCurrentUser.json "$M/.tw-me.json"
 
 # Key validation before any path use; write only into an existing memory dir
 for k in '../T-1' 't-1' 'T-1/x' 'T-' "$(printf 'T-1\n../x')"; do
@@ -178,22 +212,42 @@ for sid in s2 s3 '' '../s1' 's1 x'; do
 done
 clean; SID=s2 hook "$GI" "$K" "$I1" >/dev/null
 assert_eq "seed path, other session: nothing saved" "no" "$(has "$M/.tw-issue.json")"
+# [N1-313] getCurrentUser: no key in tool_input; saved to the calling session's run ticket, seed path only
+GU=mcp__jc__jcm_getCurrentUser
+ME='{"accountId":"me-1","displayName":"Me"}'
+clean; assert_eq "getCurrentUser: rc 0, silent" "0|" "$(hook "$GU" '{}' "$ME")"
+assert_eq "getCurrentUser: saved to the run's .tw-me.json" "$ME" "$(norm "$M/.tw-me.json")"
+clean; hook "$GU" '{"issueKey":"T-9"}' "$ME" >/dev/null
+assert_eq "getCurrentUser: a key in tool_input is ignored" "yes|no" "$(has "$M/.tw-me.json")|$(has "$N1_HOME/memory/T-9")"
+clean; hook "$GU" '{}' '{"displayName":"no id"}' >/dev/null
+assert_eq "getCurrentUser without accountId: nothing saved" "no" "$(has "$M/.tw-me.json")"
+seed; out=$(hook "$GU" '{}' "$ME")
+assert_eq "getCurrentUser with a cursor: silent, nothing saved" "0||no" "$out|$(has "$M/.tw-me.json")"
+for sid in s2 s3 '' '../s1'; do
+    clean; SID="$sid" hook "$GU" '{}' "$ME" >/dev/null
+    assert_eq "getCurrentUser, session [$sid] without an owned run dir: nothing saved" "0" "$(count)"
+done
+clean; hook mcp__other__jcm_getCurrentUser '{}' "$ME" >/dev/null
+assert_eq "getCurrentUser on a non-watch server: nothing saved" "no" "$(has "$M/.tw-me.json")"
+clean; o=$(jq -nc --arg t "$GU" --argjson r "$(jq -c '[{type:"text",text:tojson}]' <<<"$ME")" --arg cwd "$T" \
+    '{session_id:"s1",agent_id:"a1",cwd:$cwd,tool_name:$t,tool_input:{},tool_response:$r}' | bash "$H")
+assert_eq "getCurrentUser from a subagent: silent, nothing saved" "|no" "$o|$(has "$M/.tw-me.json")"
 
 # hooks.json registration: anchored matcher, synchronous
 HJ="$REPO_ROOT/hooks/hooks.json"
 MATCH=$(jq -r '[.hooks.PostToolUse[] | select(any(.hooks[]; .command | contains("ticket-watch-capture.sh")))][0].matcher // empty' "$HJ")
-assert_eq "hooks.json: capture matcher" '^mcp__.+__jcm_(getIssue|getIssueChangelog|searchIssues)$' "$MATCH"
+assert_eq "hooks.json: capture matcher" '^mcp__.+__jcm_(getIssue|getIssueChangelog|searchIssues|getCurrentUser)$' "$MATCH"
 assert_eq "hooks.json: capture hook is synchronous" "false" "$(jq '[.hooks.PostToolUse[].hooks[] | select(.command | contains("ticket-watch-capture.sh")) | .async // false] | any' "$HJ")"
-for t in mcp__jc__jcm_getIssue mcp__jc__jcm_getIssueChangelog mcp__plugin_x_jc__jcm_searchIssues; do
+for t in mcp__jc__jcm_getIssue mcp__jc__jcm_getIssueChangelog mcp__plugin_x_jc__jcm_searchIssues mcp__jc__jcm_getCurrentUser; do
     assert_eq "matcher selects $t" "yes" "$([ -n "$MATCH" ] && [[ "$t" =~ $MATCH ]] && echo yes || echo no)"
 done
-for t in mcp__jc__jcm_getIssueLinks mcp__jc__jcm_addComment Bash; do
+for t in mcp__jc__jcm_getIssueLinks mcp__jc__jcm_addComment mcp__jc__jcm_getArticle mcp__jc__jcm_getCurrentUserX Bash; do
     assert_eq "matcher skips $t" "no" "$([ -n "$MATCH" ] && [[ "$t" =~ $MATCH ]] && echo yes || echo no)"
 done
 
 # [SEC-2] subagent calls (agent_id set) neither capture nor receive the digest
 clean; printf '%s\n' "$CUR" > "$M/.ticket-watch"
-o=$(jq -nc --arg t "$GI" --argjson i "$K" --argjson r "$ISSUE" --arg cwd "$T" '{session_id:"s1",agent_id:"a1",cwd:$cwd,tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H")
+o=$(jq -nc --arg t "$GI" --argjson i "$K" --argjson r "$(jq -c '[{type:"text",text:tojson}]' <<<"$ISSUE")" --arg cwd "$T" '{session_id:"s1",agent_id:"a1",cwd:$cwd,tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H")
 assert_eq "subagent call: silent, nothing saved" "|no" "$o|$(has "$M/.tw-issue.json")"
 # [SEC-4] a planted lock symlink is neither followed nor truncated
 clean; V="$T/victim"; printf 'keep' > "$V"; ln -s "$V" "$M/.tw-lock"
