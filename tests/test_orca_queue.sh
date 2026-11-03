@@ -292,13 +292,18 @@ printf -- '---\nstep: ci\n---\n## Pending\npr_url: https://github.com/o/r/pull/7
 reset; stop
 eq "stop: step ci sends nothing without fullAuto" "" "$(grep worker_done "$FAKE/calls")"
 printf -- '---\nstep: done\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
-printf '{"autonomy":{"fullAuto":true}}' > "$N1_HOME/config.json"
+printf '{"autonomy":{"fullAuto":true},"finishWork":{"mergeOnFinish":true}}' > "$N1_HOME/config.json"
 reset; stop
 eq "stop: fullAuto step done without Finish block sends nothing" "" "$(grep worker_done "$FAKE/calls")"
 printf '## Finish\npr_url: https://github.com/o/r/pull/7\n' >> "$OV"
 reset; stop
 has "stop: fullAuto with Finish block sends succeeded" "--outcome succeeded" "$(calls)"
 eq "stop: fullAuto Finish sent once" 1 "$(grep -c 'type worker_done' "$FAKE/calls")"
+rm -f "$N1_HOME/queue/sentinels/T-1.sent"
+printf '{"autonomy":{"fullAuto":true}}' > "$N1_HOME/config.json"
+printf -- '---\nstep: done\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
+reset; stop
+eq "stop: fullAuto without mergeOnFinish sends succeeded at step done" 1 "$(grep -c 'worker_done --outcome succeeded' "$FAKE/calls")"
 rm -f "$N1_HOME/config.json" "$N1_HOME/queue/sentinels/T-1.sent"
 printf -- '---\nstep: done\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
 reset; stop
