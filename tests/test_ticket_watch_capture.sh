@@ -11,6 +11,7 @@ export N1_HOME="$T/home" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 CFG='{"tracker":{"mcp":"jc","operations":{"getChangelog":"jcm_getIssueChangelog"},"statuses":{"done":"Done","blocked":"Blocked"}}}'
 mkdir -p "$N1_HOME"; printf '%s' "$CFG" > "$N1_HOME/config.json"
 M="$N1_HOME/memory/T-1"; mkdir -p "$M"
+printf '{"ticket_id":"T-1"}' > "$N1_HOME/active-run.s1.json"   # session s1 owns the run on T-1
 H="$REPO_ROOT/hooks/ticket-watch-capture.sh"
 GI=mcp__jc__jcm_getIssue; GL=mcp__jc__jcm_getIssueChangelog; GS=mcp__jc__jcm_searchIssues
 K='{"issueKey":"T-1"}'
@@ -19,8 +20,8 @@ PROBE='{"total":1,"issues":[{"key":"T-1","updated":"2026-10-17T10:00:00.000+0000
 BLOCKS=$(jq -nc --arg s "$ISSUE" '[{type:"text",text:$s}]')
 hook() { # <tool_name> <tool_input-json> <tool_response-json>; prints "<rc>|<stdout>"
     local out rc
-    out=$(jq -nc --arg t "$1" --argjson i "$2" --argjson r "$3" --arg cwd "$T" \
-        '{session_id:"s1",cwd:$cwd,hook_event_name:"PostToolUse",tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H"); rc=$?
+    out=$(jq -nc --arg t "$1" --argjson i "$2" --argjson r "$3" --arg cwd "$T" --arg sid "${SID-s1}" \
+        '{session_id:$sid,cwd:$cwd,hook_event_name:"PostToolUse",tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H"); rc=$?
     printf '%s|%s' "$rc" "$out"
 }
 norm() { jq -c . "$1" 2>/dev/null || echo "<none>"; }
@@ -162,6 +163,19 @@ assert_eq "no cursor: changelog silent" "0|" "$(hook "$GL" "$K" "$(own_log)")"
 assert_eq "no cursor: files kept for the seed block" "yes yes" "$(has "$M/.tw-issue.json") $(has "$M/.tw-log-1.json")"
 seed; printf '{"me":5}\n' > "$M/.ticket-watch"; hook "$GI" "$K" "$I1" >/dev/null
 assert_eq "bad cursor: delta fails silently" "0|" "$(hook "$GL" "$K" "$(own_log)")"
+
+# Ownership: only the session whose active run is on this ticket captures, compares or reports
+printf '{"ticket_id":"T-9"}' > "$N1_HOME/active-run.s2.json"
+for sid in s2 s3 '' '../s1' 's1 x'; do
+    seed; cp "$M/.ticket-watch" "$T/cur"
+    out=$(SID="$sid" hook "$GS" '{"jql":"key = T-1","maxResults":1}' "$P1")
+    a=$(SID="$sid" hook "$GI" "$K" "$I_EXT"); b=$(SID="$sid" hook "$GL" "$K" "$EMPTY_LOG")
+    assert_eq "session [$sid] not owning T-1: silent" "0|0|0|" "$out$a$b"
+    assert_eq "session [$sid] not owning T-1: no files" "0" "$(find "$M" -name '.tw-*.json' | wc -l | tr -d ' ')"
+    assert_eq "session [$sid] not owning T-1: cursor byte-identical" "$(cat "$T/cur")" "$(cat "$M/.ticket-watch")"
+done
+clean; SID=s2 hook "$GI" "$K" "$I1" >/dev/null
+assert_eq "seed path, other session: nothing saved" "no" "$(has "$M/.tw-issue.json")"
 
 # hooks.json registration: anchored matcher, synchronous
 HJ="$REPO_ROOT/hooks/hooks.json"

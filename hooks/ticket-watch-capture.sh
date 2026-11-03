@@ -33,6 +33,11 @@ N1_HOME=$(n1_home 2>/dev/null)
 [ -n "$N1_HOME" ] || exit 0
 M="$N1_HOME/memory/$key"
 [ -d "$M" ] || exit 0
+# Only the session that owns the run on this ticket (subagents share its session_id): another session's
+# read of the same key must never capture, advance this cursor or receive the digest.
+sid=$(jq -r '.session_id // empty | strings' <<<"$INPUT" 2>/dev/null)
+[[ "$sid" =~ ^[a-zA-Z0-9_-]+$ ]] || exit 0   # same rule as n1_active_run_file
+[ "$(jq -r '.ticket_id // empty | strings' "$N1_HOME/active-run.$sid.json" 2>/dev/null)" = "$key" ] || exit 0
 # Bind to the configured watch MCP and changelog op (same gate as the procedure: n1_tw_on).
 IFS=$'\t' read -r mcp op <<<"$(n1_tw_on "$key" seed 2>/dev/null)"
 [ -n "${mcp:-}" ] && [ -n "${op:-}" ] || exit 0
