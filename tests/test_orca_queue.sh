@@ -34,14 +34,20 @@ case "$1 $2" in
       has --model "$@" && [ -n "${FAKE_ORCA_MODEL_REJECT:-}" ] && err "unsupported model" validate
       [ -n "${FAKE_ORCA_START_FAIL:-}" ] && err "setup failed" worktree-setup
       ok '{"dispatch":{"id":"d-1"}}' ;;
-  "orchestration send"|"orchestration reply") [ -n "${FAKE_ORCA_REPLY_FAIL:-}" ] && err "reply failed"; ok '{}' ;;
+  "orchestration send"|"orchestration reply") [ -n "${FAKE_ORCA_REPLY_FAIL:-}" ] && err "reply failed"
+      [ -n "${FAKE_COORD_DEAD:-}" ] && has --from "$@" && err "terminal not found"; ok '{}' ;;
   "orchestration ask")
       case "${FAKE_ASK:-answer}" in
         answer) ok '{"answer":"Use B"}' ;;
         pending) ok '{"messageId":"m-7","status":"timeout"}' ;;
         *) err "runtime down" ;;
       esac ;;
-  "orchestration check") ok '{}' ;;
+  "orchestration check") if has --all "$@"; then
+          [ -n "${FAKE_COORD_DEAD:-}" ] && has --terminal "$@" && err "terminal not found"
+          ok "{\"messages\":[${FAKE_INBOX:-}]}"
+      else ok '{}'; fi ;;
+  "terminal create") [ -n "${FAKE_TERM_FAIL:-}" ] && err "no terminal"; j='{"terminal":{"handle":"term-9"}}'; ok "${FAKE_TERM_JSON:-$j}" ;;
+  "terminal close") ok '{}' ;;
   "worktree list") case "${FAKE_WT:-fail}" in fail) err "boom" ;; none) ok '{"worktrees":[]}' ;; *) ok '{"worktrees":[{"path":"/w/T-1"}]}' ;; esac ;;
   "orchestration worker-list") [ -n "${FAKE_WL_EMPTY:-}" ] && ok '{}' && exit 0
       # Real Orca 1.4.243 rows: released, running, finished (reclaimable), failed, unknown state with no projection.
@@ -298,12 +304,83 @@ printf 'Use B' > "$N1_HOME/queue/.answer-T-1.txt"
 reset
 has "answer: delivered" "answer delivered to T-1" "$(n1_queue_answer "$N1_HOME" T-1 2>&1)"
 has "answer: orchestration reply" "orchestration reply --id m-9 --body Use B --run run-1" "$(calls)"
+hasnt "answer: no coordinator terminal recorded -> no --from" "--from" "$(calls)"
 eq "answer: markers removed" no "$({ [ -e "$Q/.ask-T-1" ] || [ -e "$Q/.question-T-1.json" ]; } && echo yes || echo no)"
 eq "answer: event" answer_delivered "$(jq -r .event "$Q/events.jsonl" | tail -1)"
 printf 'm-9\n' > "$Q/.ask-T-1"; printf 'Use B' > "$N1_HOME/queue/.answer-T-1.txt"
 eq "answer: reply failure -> rc 1" 1 "$(FAKE_ORCA_REPLY_FAIL=1 rc n1_queue_answer "$N1_HOME" T-1)"
 eq "answer: ask marker kept for a retry" yes "$([ -e "$Q/.ask-T-1" ] && echo yes || echo no)"
 eq "hints: Orca row points at --answer" "T-1: /n1:n1-queue --answer T-1 <answer>" "$(n1_queue_awaiting_hints "$Q/queue.md")"
+
+# --- N1-270: runner-owned coordinator terminal ---
+# Bugs caught: the sink handle read from the wrong receipt path; a CLI failure or an unsafe/missing handle accepted
+# as a coordinator; an unsafe handle passed to terminal close.
+reset
+eq "coord_open: handle from terminal.handle" term-9 "$(n1_orca_coord_open q1)"
+has "coord_open: sink runs cat into /dev/null" "terminal create --title n1-queue coordinator q1 --command cat >/dev/null" "$(calls)"
+eq "coord_open: flat handle shape" term-8 "$(FAKE_TERM_JSON='{"handle":"term-8"}' n1_orca_coord_open q1)"
+eq "coord_open: CLI failure -> rc 1" 1 "$(FAKE_TERM_FAIL=1 rc n1_orca_coord_open q1)"
+eq "coord_open: unsafe handle rejected" 1 "$(FAKE_TERM_JSON='{"handle":"a|b"}' rc n1_orca_coord_open q1)"
+eq "coord_open: no handle rejected" 1 "$(FAKE_TERM_JSON='{}' rc n1_orca_coord_open q1)"
+reset; n1_orca_coord_close term-9
+has "coord_close: closes by handle" "terminal close --terminal term-9" "$(calls)"
+reset; n1_orca_coord_close 'a|b'
+eq "coord_close: unsafe handle never reaches the CLI" "" "$(calls)"
+
+# Bugs caught: a question sent after the runner died never got an .ask marker (--answer: "no pending question");
+# an answered, forged-dispatch, unknown-task, finished-row or earlier-run question surfaced; a second status call
+# re-alerted; the reply went out as the launching terminal instead of the Run's coordinator.
+n1_write_frontmatter "$Q/queue.md" orca_queue_run R1
+n1_write_frontmatter "$Q/queue.md" orca_coord_terminal term-9
+n1_queue_row_status "$Q/queue.md" 1 in-progress
+rm -f "$Q/.ask-T-1" "$Q/.question-T-1.json"
+QM() { jq -cn --arg i "$1" --arg k "$2" --arg d "$3" '{id: $i, type: "question", payload: ({taskId: $k, dispatchId: $d} | tojson)}'; }
+export FAKE_INBOX="$(QM m-9 task-1 d-1),$(QM m-10 task-1 d-1),$(QM m-11 task-1 d-other),$(QM m-12 task-x d-x)"
+eq "row_of_task: ticket and dispatch" "$(printf 'T-1\td-1')" "$(n1_orca_row_of_task "$Q/queue.md" task-1)"
+eq "row_of_task: unknown task" "" "$(n1_orca_row_of_task "$Q/queue.md" task-x)"
+reset
+eq "pending: only the unanswered question bound to the row's dispatch" "$(printf '1\tT-1\tm-10')" "$(n1_orca_pending_questions "$Q")"
+has "pending: lists every message as the coordinator terminal" "orchestration check --run run-1 --all --types question --terminal term-9" "$(calls)"
+n1_queue_row_status "$Q/queue.md" 1 pr
+eq "pending: finished row skipped" "" "$(n1_orca_pending_questions "$Q")"
+n1_queue_row_status "$Q/queue.md" 1 in-progress
+n1_write_frontmatter "$Q/queue.md" orca_queue_run R0
+eq "pending: Run of an earlier queue run skipped" "" "$(n1_orca_pending_questions "$Q")"
+n1_write_frontmatter "$Q/queue.md" orca_queue_run R1
+# Bug caught: an unanswered question from an older task parked the ticket's newer attempt.
+printf '| T-1 | 2026-10-31T01:00:00Z | | | | orca:task-2/d-2 |\n' >> "$Q/queue.md"
+eq "pending: question of an older task than the ticket's latest attempt skipped" "" "$(n1_orca_pending_questions "$Q")"
+sed -i '$d' "$Q/queue.md"
+printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$T" > "$N1_HOME/config.json"
+OUT=$(n1_queue_interrupted_note "$Q/queue.md")
+has "runner-down: resume line still printed" "resume: /n1:n1-queue --run q1" "$OUT"
+eq "runner-down: .ask marker for --answer" m-10 "$(cat "$Q/.ask-T-1" 2>/dev/null)"
+eq "runner-down: row parked, hint points at --answer" "T-1: /n1:n1-queue --answer T-1 <answer>" "$(n1_queue_awaiting_hints "$Q/queue.md")"
+esc() { jq -R 'fromjson? | select(.event == "escalated" and .ticket == "T-1") | .event' "$Q/events.jsonl" | wc -l | tr -d ' '; }
+eq "runner-down: one escalated event" 1 "$(esc)"
+has "runner-down: needs-you carries the answer command" "T-1 needs you: worker question pending, runner down (answer: /n1:n1-queue --answer T-1 <text>)" "$(cat "$T/notes" 2>/dev/null)"
+n1_queue_interrupted_note "$Q/queue.md" >/dev/null
+eq "runner-down: second status call adds no event" 1 "$(esc)"
+printf 'Use A' > "$N1_HOME/queue/.answer-T-1.txt"; reset
+has "runner-down: --answer delivers" "answer delivered to T-1" "$(n1_queue_answer "$N1_HOME" T-1 2>&1)"
+has "answer: reply sent as the coordinator terminal" "orchestration reply --id m-10 --body Use A --run run-1 --from term-9" "$(calls)"
+n1_queue_interrupted_note "$Q/queue.md" >/dev/null
+eq "runner-down: answered question not surfaced again" 1 "$(esc)"
+export FAKE_INBOX="$(QM m-13 task-1 d-1)"; rm -f "$Q/.ask-T-1"
+eq "pending: dead coordinator terminal -> scan retried as the caller" "$(printf '1\tT-1\tm-13')" "$(FAKE_COORD_DEAD=1 n1_orca_pending_questions "$Q")"
+printf 'm-13\n' > "$Q/.ask-T-1"; printf 'Use C' > "$N1_HOME/queue/.answer-T-1.txt"; reset
+has "answer: dead coordinator terminal -> still delivered" "answer delivered to T-1" "$(FAKE_COORD_DEAD=1 n1_queue_answer "$N1_HOME" T-1 2>&1)"
+has "answer: the retry carries no --from" "orchestration reply --id m-13 --body Use C --run run-1 --json" "$(calls)"
+# Bug caught: a done queue with a parked Orca row never scanned the inbox, so a second question surfaced nowhere.
+n1_write_frontmatter "$Q/queue.md" step done
+n1_queue_row_status "$Q/queue.md" 1 awaiting-human
+export FAKE_INBOX="$(QM m-20 task-1 d-1)"; rm -f "$Q/.ask-T-1"
+n1_queue_finished_scan "$Q/queue.md"
+eq "finished: done queue with parked row -> .ask marker" m-20 "$(cat "$Q/.ask-T-1" 2>/dev/null)"
+rm -f "$Q/.ask-T-1"; n1_write_frontmatter "$Q/queue.md" step run
+n1_queue_finished_scan "$Q/queue.md"
+eq "finished: running queue not scanned" no "$([ -e "$Q/.ask-T-1" ] && echo yes || echo no)"
+rm -f "$N1_HOME/config.json"; unset FAKE_INBOX
 
 # --- summary (later tasks insert their sections above this line) ---
 eq "no bare orca call" "" "$(cat "$FAKE/bare" 2>/dev/null)"

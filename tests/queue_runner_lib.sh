@@ -169,18 +169,23 @@ line_of() { grep -n -F -- "$2" "$1" | head -1 | cut -d: -f1; }
 # ($FAKE_DIR/overview.<t> if present, else step from $FAKE_DIR/step.<t>, default pr). check reports worker_done once per started task unless
 # $FAKE_DIR/nodone.<t> exists, plus $FAKE_DIR/question (one message JSON) once any task has started, plus
 # $FAKE_DIR/heartbeat (one message JSON) on every check once any task has started. $FAKE_DIR/at.<n> runs on the n-th check.
+# N1-270: each call also logs "<verb> <sub> <ORCA_TERMINAL_HANDLE>" to $FAKE_DIR/orca-handles; terminal create returns the
+# handle in $FAKE_DIR/sink (no file: fails); FAKE_ORCA_SINK_REFUSE=1 makes run-create refuse that handle.
 mk_orca() {
     : > "$1/fake/orca-calls"
     cat > "$1/bin/fake-orca" <<'ORCAEOF'
 #!/usr/bin/env bash
-D="$FAKE_DIR"; printf '%s\n' "$*" >> "$D/orca-calls"
+D="$FAKE_DIR"; printf '%s\n' "$*" >> "$D/orca-calls"; printf '%s %s %s\n' "$1" "$2" "${ORCA_TERMINAL_HANDLE:-}" >> "$D/orca-handles"
 ok() { printf '{"id":"1","ok":true,"result":%s}\n' "$1"; }
 err() { printf '{"id":"1","ok":false,"error":{"code":"x","message":"%s"}}\n' "$1"; exit 1; }
 arg() { local k="$1"; shift; while [ $# -gt 0 ]; do [ "$1" = "$k" ] && { printf '%s' "$2"; return; }; shift; done; }
 msg() { jq -cn --arg y "$1" --arg k "$2" --arg i "$3" '{id: $i, type: $y, payload: ({taskId: $k, dispatchId: ("d-" + ($k | ltrimstr("task-")))} | tojson)}'; }   # real shape: ids only in the payload string
 case "$1 $2" in
   "status --json") [ -n "${FAKE_ORCA_DOWN:-}" ] && err "runtime down"; ok '{"runtime":{"reachable":true}}' ;;
-  "orchestration run-create") [ -n "${FAKE_ORCA_RUN_FAIL:-}" ] && err "unknown command"; ok '{"run":{"id":"run-1"}}' ;;
+  "orchestration run-create") [ -n "${FAKE_ORCA_RUN_FAIL:-}" ] && err "unknown command"
+      [ -n "${FAKE_ORCA_SINK_REFUSE:-}" ] && [ "${ORCA_TERMINAL_HANDLE:-}" = "$(cat "$D/sink" 2>/dev/null)" ] && err "not your terminal"
+      ok '{"run":{"id":"run-1"}}' ;;
+  "terminal create") [ -f "$D/sink" ] || err "no terminals"; ok "{\"terminal\":{\"handle\":\"$(cat "$D/sink")\"}}" ;;
   "orchestration run-use") [ -n "${FAKE_ORCA_RUNUSE_FAIL:-}" ] && err "no such run"; ok '{}' ;;
   "orchestration task-create") [ -n "${FAKE_ORCA_TASK_FAIL:-}" ] && err "task-create failed"; ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
   "orchestration worker-start")
