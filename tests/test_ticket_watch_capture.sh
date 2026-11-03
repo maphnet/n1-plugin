@@ -26,25 +26,27 @@ hookr() { # <tool_name> <tool_input-json> <tool_response-json>; prints "<rc>|<st
         '{session_id:$sid,cwd:$cwd,hook_event_name:"PostToolUse",tool_name:$t,tool_input:$i,tool_response:$r}' | bash "$H"); rc=$?
     printf '%s|%s' "$rc" "$out"
 }
-hook() { hookr "$@"; }   # <tool_name> <tool_input-json> <payload-json>
+hook() { # <tool_name> <tool_input-json> <payload-json>: sent as one text content block, the real shape (N1-313 probe)
+    hookr "$1" "$2" "$(jq -c '[{type:"text",text:tojson}]' <<<"$3")"
+}
 norm() { jq -c . "$1" 2>/dev/null || echo "<none>"; }
 has() { [ -e "$1" ] && echo yes || echo no; }
 clean() { rm -rf "$M"/.tw-* "$M/.ticket-watch"; }
 ctx() { jq -r '.hookSpecificOutput | select(.hookEventName == "PostToolUse") | .additionalContext' <<<"${1#*|}" 2>/dev/null; }
 count() { find "$N1_HOME" -name '.tw-*' | wc -l | tr -d ' '; }
 
-# getIssue: every response shape lands in .tw-issue.json, silently, rc 0
-clean; assert_eq "getIssue blocks: rc 0, no stdout" "0|" "$(hook "$GI" "$K" "$BLOCKS")"
+# getIssue: every text response shape lands in .tw-issue.json, silently, rc 0
+clean; assert_eq "getIssue blocks: rc 0, no stdout" "0|" "$(hookr "$GI" "$K" "$BLOCKS")"
 assert_eq "getIssue content-block array: saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '$s')" >/dev/null
+clean; hookr "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '$s')" >/dev/null
 assert_eq "getIssue plain string: saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "$ISSUE" >/dev/null
-assert_eq "getIssue object: saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "{\"content\":$BLOCKS}" >/dev/null
+clean; hookr "$GI" "$K" "$ISSUE" >/dev/null
+assert_eq "getIssue bare object (not an MCP text shape): nothing saved" "no" "$(has "$M/.tw-issue.json")"
+clean; hookr "$GI" "$K" "{\"content\":$BLOCKS}" >/dev/null
 assert_eq "getIssue result object with content blocks: saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "$(jq -nc '[{type:"text",text:"Error: issue not found"}]')" >/dev/null
+clean; hookr "$GI" "$K" "$(jq -nc '[{type:"text",text:"Error: issue not found"}]')" >/dev/null
 assert_eq "getIssue non-JSON text: nothing saved" "no" "$(has "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" 'null' >/dev/null
+clean; hookr "$GI" "$K" 'null' >/dev/null
 assert_eq "getIssue null response: nothing saved" "no" "$(has "$M/.tw-issue.json")"
 # [CR-3] only bodies with the expected payload shape are saved, so a gap still reaches TW_MISSING
 clean; hook "$GI" "$K" '{"error":"not found"}' >/dev/null
@@ -54,9 +56,9 @@ assert_eq "changelog without entries: nothing saved" "no" "$(has "$M/.tw-log-1.j
 clean; hook "$GS" '{"jql":"key = T-1"}' '{"error":"x"}' >/dev/null
 assert_eq "probe without issues: nothing saved" "no" "$(has "$M/.tw-probe.json")"
 # [TQ-1] payload split across text blocks is joined; a wrapper with a non-text block is not a payload
-clean; hook "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '[{type:"text",text:$s[:20]},{type:"text",text:$s[20:]}]')" >/dev/null
+clean; hookr "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '[{type:"text",text:$s[:20]},{type:"text",text:$s[20:]}]')" >/dev/null
 assert_eq "getIssue split across two text blocks: joined and saved" "$ISSUE" "$(norm "$M/.tw-issue.json")"
-clean; hook "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '{content:[{type:"text",text:$s},{type:"image",data:"x"}]}')" >/dev/null
+clean; hookr "$GI" "$K" "$(jq -nc --arg s "$ISSUE" '{content:[{type:"text",text:$s},{type:"image",data:"x"}]}')" >/dev/null
 assert_eq "result object with an image block: wrapper not saved" "no" "$(has "$M/.tw-issue.json")"
 assert_eq "failed captures leave no temp files" "0" "$(find "$M" -name '*.json.*' | wc -l | tr -d ' ')"
 # [N1-313 AC3] the saved file equals the MCP text byte for byte (cmp, not jq -c): pretty-printed JSON,

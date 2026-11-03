@@ -50,16 +50,16 @@ case "$tool" in
     *) exit 0 ;;
 esac
 
-save() { # <file>: unwrap the response, keep it only when it has the expected payload shape
+save() { # <file>: join the response's text blocks, keep it only when it has the expected payload shape
     local tmp
     tmp=$(mktemp "$1.XXXXXX" 2>/dev/null) || return 1
-    # Content-block array, MCP result object {content:[text blocks]}, plain string, or the payload itself.
+    # Text only, never re-serialized, so the file is the MCP text byte for byte (N1-313 probe): content-block
+    # array, result object {content:[text blocks]}, or a plain string. Any other shape fails closed (TW_MISSING).
     if jq -j '.tool_response
         | if type == "string" then .
           elif type == "array" then [.[] | select(type == "object" and .type == "text") | .text] | join("")
           elif type == "object" and (.content | type) == "array" and (.content | length) > 0
                and all(.content[]; type == "object" and .type == "text") then [.content[].text] | join("")
-          elif type == "object" then tojson
           else error("no payload") end' <<<"$INPUT" > "$tmp" 2>/dev/null \
        && jq -e "type == \"object\" and $shape" "$tmp" >/dev/null 2>&1 \
        && mv -f "$tmp" "$1" 2>/dev/null; then
