@@ -147,12 +147,13 @@ test_orca_question_after_timeout() {
     printf 'cp "%s" "%s"\n' "$tmp/fake/overview.pr" "$tmp/n1home/memory/T-A/overview.md" > "$tmp/fake/at.6"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=12 > /dev/null
     evc() { jq -R --arg e "$1" --arg o "${2:-}" 'fromjson? | select(.event == $e and .ticket == "T-A" and ($o == "" or .outcome == $o)) | .event' "$tmp/events.jsonl" | wc -l | tr -d ' '; }
-    assert_eq "orca-ask-after-timeout: timed out first" "1" "$(evc ticket_finished failed)"
     assert_eq "orca-ask-after-timeout: row re-adopted" "1" "$(grep -c 'T-A -> awaiting-human (worker asked after the row failed)' "$tmp/output.txt" || true)"
     assert_eq "orca-ask-after-timeout: one escalated event" "1" "$(evc escalated)"
     assert_eq "orca-ask-after-timeout: needs-you points at --answer" "1" "$(grep -c 'T-A needs you.*--answer T-A' "$tmp/notes" || true)"
     assert_eq "orca-ask-after-timeout: unblocked after the answer" "1" "$(evc unblocked)"
-    assert_eq "orca-ask-after-timeout: no second timeout (clock reset)" "1" "$(evc ticket_finished failed)"
+    # no WORKED reset: the stale clock (>60 s) would time the re-adopted row out again on the next tick
+    assert_eq "orca-ask-after-timeout: exactly one timeout (clock reset)" "1" "$(evc ticket_finished failed)"
+    assert_eq "orca-ask-after-timeout: one pr finish" "1" "$(evc ticket_finished pr)"
     assert_eq "orca-ask-after-timeout: later outcome recorded" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "orca-ask-after-timeout: never relaunched" "0" "$(grep -c worker-start "$tmp/fake/orca-calls" || true)"
     rm -rf "$tmp"
