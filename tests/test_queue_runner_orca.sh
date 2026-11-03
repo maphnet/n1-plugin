@@ -663,6 +663,29 @@ test_orca_gated_wait_expires() {   # N1-303 TQ-1: merge mode, T-1 at pr but unme
     rm -rf "$tmp"
 }
 
+# N1-321: the test-only tick cap ends a run whose worker never finishes without a wall-clock wait, the way the old
+# `timeout` wrappers did (SIGTERM, no halt bookkeeping); a non-numeric value is ignored (inert in production).
+test_orca_tick_cap() {
+    local tmp rc start; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    start=$SECONDS
+    rc=$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=5)
+    assert_eq "orca-tick-cap: runner stopped by its own SIGTERM, not the 60 s timeout" "143" "$rc"
+    assert_eq "orca-tick-cap: cap reason logged" "1" "$(grep -c 'N1_QUEUE_TEST_MAX_TICKS=5 reached' "$tmp/output.txt" || true)"
+    assert_eq "orca-tick-cap: at most 5 inbox checks" "1" "$(( $(cat "$tmp/fake/ncheck") <= 5 ))"
+    assert_eq "orca-tick-cap: ends well before the safety net" "1" "$(( SECONDS - start < 20 ))"
+    assert_eq "orca-tick-cap: no halt bookkeeping" "no" "$([ "$(n1_read_frontmatter "$tmp/queue.md" step)" = halted ] && echo yes || echo no)"
+    assert_eq "orca-tick-cap: worker row still in flight" "in-progress" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    assert_eq "orca-tick-cap: non-numeric cap ignored (natural exit 0)" "0" "$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=abc)"
+    assert_eq "orca-tick-cap: non-numeric cap never logs" "0" "$(grep -c 'N1_QUEUE_TEST_MAX_TICKS' "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
 test_orca_parallel_workers
 test_orca_max_concurrent
 test_orca_stored_max_concurrent
@@ -702,6 +725,7 @@ test_orca_replay_not_timeout
 test_orca_worktree_list_unreadable
 test_orca_chain_after_settle
 test_orca_fallback_bg
+test_orca_tick_cap
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

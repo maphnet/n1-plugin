@@ -226,7 +226,8 @@ ORCAEOF
     chmod +x "$1/bin/fake-orca"
 }
 
-run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CLI as ORCA_CLI_COMMAND
+run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CLI as ORCA_CLI_COMMAND. Pass N1_QUEUE_TEST_MAX_TICKS=<n>
+                   # to end a run whose workers never finish after n ticks (runner self-SIGTERM, rc 143) instead of a wall-clock timeout.
     local tmp="$1" rc=0; shift
     env -u CLAUDE_CONFIG_DIR HOME="$tmp/hh" "$@" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
         timeout 60 bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?   # N1-268: a runner missing a behaviour fails fast (rc 124) instead of hanging

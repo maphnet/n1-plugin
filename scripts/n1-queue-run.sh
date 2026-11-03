@@ -922,7 +922,7 @@ run_orca() {
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
-    local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
+    local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
     # N1-303: the plan pins max_concurrent; live config is read only for a plan made before it (legacy).
@@ -943,6 +943,12 @@ run_orca() {
         [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$N1H" "$TICKET")" N1_ORCA_TASK)" = "$TASK" ] && OWED="$OWED$TASK "
     done < <(n1_queue_pending_rows "$QUEUE" pr)
     while true; do
+        # N1-321: test-only tick cap; unset (production) it is a no-op. Set to a number, the runner stops itself after
+        # that many ticks with the SIGTERM the tests' old `timeout` bounds sent, so no test waits on a wall clock.
+        if [[ "${N1_QUEUE_TEST_MAX_TICKS:-}" =~ ^[0-9]+$ ]] && [ "$((ORCA_TICKS += 1))" -gt "$N1_QUEUE_TEST_MAX_TICKS" ]; then
+            echo "N1_QUEUE_TEST_MAX_TICKS=$N1_QUEUE_TEST_MAX_TICKS reached: stopping (test-only cap)"
+            kill -TERM "$$"; exit 143
+        fi
         TICK0=$(date +%s)
         # An unreadable inbox skips the tick: never treat a CLI hiccup as dead children.
         if ! BATCH=$(n1_orca_check "$ORCA_RUN" "$POLL") || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "$BATCH"; then
