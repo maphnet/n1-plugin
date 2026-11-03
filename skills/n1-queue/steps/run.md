@@ -96,11 +96,12 @@ Then rebuild the schedule and re-pin concurrency (N1-303). A re-plan is the only
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 n1_queue_schedule_write "$QUEUE_DIR/queue.md" || echo "SCHEDULE_WRITE=failed"
+OLD_MAXC="$(n1_read_frontmatter "$QUEUE_DIR/queue.md" max_concurrent 2>/dev/null)"
 n1_write_frontmatter "$QUEUE_DIR/queue.md" max_concurrent "$(n1_queue_max_concurrent)"
-printf 'SCHEDULE=%s\nMAX_CONCURRENT=%s\n' "$(n1_queue_plan_waves "$QUEUE_DIR/queue.md")" "$(n1_read_frontmatter "$QUEUE_DIR/queue.md" max_concurrent)"
+printf 'OLD_MAXC=%s\nSCHEDULE=%s\nMAX_CONCURRENT=%s\n' "$OLD_MAXC" "$(n1_queue_plan_waves "$QUEUE_DIR/queue.md")" "$(n1_read_frontmatter "$QUEUE_DIR/queue.md" max_concurrent)"
 ```
 
-Print `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time). Parallel workers share your usage limits.` with the plan table below.
+When `OLD_MAXC` is set and differs from `MAX_CONCURRENT`, print `Re-pinned max_concurrent <OLD_MAXC> -> <MAX_CONCURRENT> (plan was stale).` before the Start prompt. Print `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time). Parallel workers share your usage limits.` with the plan table below.
 
 Print "<N> ticket(s) changed since planning (<PLANNED_AT>): <KEY>: <what changed>; ..." or "Plan is older than <STALE_HOURS>h; no ticket changed." Print the plan table, and ask the preview.md § Prompt question (Start / Edit / Cancel). On Start or after an Edit, refresh the timestamp and rewrite the schedule (an Edit may have removed or reordered tickets). `SCHEDULE_WRITE=failed`: print it and **STOP**. Then go to § Launch:
 
