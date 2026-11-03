@@ -104,11 +104,13 @@ printf 'SCHEDULE=%s\nMAX_CONCURRENT=%s\n' "$(n1_queue_plan_waves "$QUEUE_DIR/que
 
 Print `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time). Parallel workers share your usage limits.` with the plan table below.
 
-Print "<N> ticket(s) changed since planning (<PLANNED_AT>): <KEY>: <what changed>; ..." or "Plan is older than <STALE_HOURS>h; no ticket changed." Print the plan table, and ask the preview.md § Prompt question (Start / Edit / Cancel). On Start, refresh the timestamp, then go to § Launch:
+Print "<N> ticket(s) changed since planning (<PLANNED_AT>): <KEY>: <what changed>; ..." or "Plan is older than <STALE_HOURS>h; no ticket changed." Print the plan table, and ask the preview.md § Prompt question (Start / Edit / Cancel). On Start or after an Edit, refresh the timestamp and rewrite the schedule (an Edit may have removed or reordered tickets). `SCHEDULE_WRITE=failed`: print it and **STOP**. Then go to § Launch:
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
 n1_write_frontmatter "$QUEUE_DIR/queue.md" planned_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+n1_queue_schedule_write "$QUEUE_DIR/queue.md" || echo "SCHEDULE_WRITE=failed"
 ```
 
 ## Write plan (bare and `--plan`)

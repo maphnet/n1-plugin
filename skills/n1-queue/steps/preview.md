@@ -97,7 +97,7 @@ source "$N1_ROOT/lib/orca-queue.sh"
 printf 'MAX_CONCURRENT=%s\n' "$(n1_queue_max_concurrent)"
 ```
 
-Keep the first printed line as `SCHEDULE` and the number as `MAX_CONCURRENT` for § Prompt and run.md § Write plan. Rows that share a Touches token never run at the same time. The runner starts a row only after every earlier overlapping row has reached PR, or has merged when the queue merges its own PRs. If one of those rows failed, the runner skips the row. Independent rows fill free slots up to `MAX_CONCURRENT`. The bg backend always gets 1.
+Keep the first printed line as `SCHEDULE` and the number as `MAX_CONCURRENT` for § Prompt and run.md § Write plan. Rows that share a Touches token never start before the earlier row reaches PR. The runner starts a row only after every earlier overlapping row has reached PR, or has merged when the queue merges its own PRs. If one of those rows failed, the runner skips the row. Independent rows fill free slots up to `MAX_CONCURRENT`. The bg backend always gets 1.
 
 ### 4. Stop-list pre-scan
 
