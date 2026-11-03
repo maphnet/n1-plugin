@@ -975,21 +975,21 @@ n1_queue_interrupted() {
 n1_queue_claim() {
     # Usage: n1_queue_claim <queue-dir> — N1-226: take the unattended-run claim <queue-dir>/.unattended-claim
     # (mkdir is atomic). Non-zero while another trigger holds a claim under 15 minutes old; an older claim is
-    # retaken. Never released: it expires, so a trigger closer than 15 minutes after a start is skipped.
-    # scripts/n1-queue-precheck.sh reads the same path and age.
-    local c="$1/.unattended-claim"
+    # retaken by creating the marker <claim>/retake.<claim mtime> (one winner per generation; the claim dir is
+    # never removed or renamed). Never released: it expires, so a trigger closer than 15 minutes after a start
+    # is skipped. scripts/n1-queue-precheck.sh reads the same path and age.
+    local c="$1/.unattended-claim" m
     mkdir -p "$1" 2>/dev/null || return 1
     mkdir "$c" 2>/dev/null && return 0
-    [ -z "$(find "$c" -maxdepth 0 -mmin -15 2>/dev/null)" ] || return 1
-    # Retake: rename to a unique tombstone (succeeds for one session); a tombstone that is fresh was a
-    # winner's new claim, so put it back and report busy.
-    mv "$c" "$c.stale.$$" 2>/dev/null || return 1
-    if [ -n "$(find "$c.stale.$$" -maxdepth 0 -mmin -15 2>/dev/null)" ]; then
-        mv "$c.stale.$$" "$c" 2>/dev/null || rmdir "$c.stale.$$" 2>/dev/null
-        return 1
-    fi
-    rmdir "$c.stale.$$" 2>/dev/null
-    mkdir "$c" 2>/dev/null
+    # One stat feeds both the age test and the generation name; a separate find then stat would let a late
+    # contender win twice. The marker mkdir also refreshes the claim mtime.
+    m=$(stat -c %Y "$c" 2>/dev/null || stat -f %m "$c" 2>/dev/null) || return 1
+    [ $(( $(date +%s) - m )) -ge 900 ] || return 1
+    # Ceiling: a contender stalled more than 30 minutes between its stat and this mkdir could re-win a
+    # generation whose marker was already cleaned.
+    mkdir "$c/retake.$m" 2>/dev/null || return 1
+    find "$c" -mindepth 1 -maxdepth 1 -name 'retake.*' -mmin +30 -exec rmdir {} + 2>/dev/null
+    return 0
 }
 
 n1_queue_orca_scan() {
