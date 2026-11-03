@@ -378,14 +378,15 @@ n1_queue_held_expire() {
 }
 
 n1_queue_eligible_rows() {
-    # Usage: n1_queue_eligible_rows <queue.md> <merge: true|false>
+    # Usage: n1_queue_eligible_rows <queue.md> <merge: true|false|function-name>
+    # A function name is called with the predecessor row's N1 Home and returns 0 when that home merges its own PRs.
     # N1-303 (the N1-269 eligibility rule): pending Plan rows (n1_queue_pending_rows columns) whose every
     # ## Schedule predecessor is released: at pr (with <merge> true, only once its Runs Outcome is merged, i.e. the
     # queue merged its own PR) or done-before-run. A failed/escalated/skip predecessor, or one not in the plan, is a
     # hard edge: the row is marked skip here and not listed (the next call cascades). Any other status
     # (pending, in-progress, awaiting-human, held, deferred) waits. No ## Schedule (a plan made before N1-303)
     # lists every pending row. Reads queue.md only (no gh, no stdin): safe on every runner tick (N1-265).
-    local q="$1" merge="$2" sched out="" num t rest p st ok why
+    local q="$1" merge="$2" sched out="" num t rest p st ok why mrg home
     sched=$(n1_queue_schedule_rows "$q")
     while IFS=$'\t' read -r num t rest; do
         ok=1
@@ -394,7 +395,12 @@ n1_queue_eligible_rows() {
             case "$st" in
                 done-before-run) ;;
                 pr)
-                    if [ "$merge" = true ] && [ "$(awk -F'|' -v tk="$p" '/^## Runs/ { f = 1; next }
+                    mrg=$merge
+                    if [ "$merge" != true ] && [ "$merge" != false ]; then
+                        home=$(n1_queue_pending_rows "$q" '.*' | awk -F'\t' -v t="$p" '$2 == t { print $4; exit }')
+                        mrg=false; "$merge" "$home" && mrg=true
+                    fi
+                    if [ "$mrg" = true ] && [ "$(awk -F'|' -v tk="$p" '/^## Runs/ { f = 1; next }
                         f { x = $2; gsub(/ /, "", x); if (x == tk) { o = $5; gsub(/ /, "", o) } } END { print o }' "$q")" != merged ]; then
                         # a chain that ended without merging (Reason finish:<why>) is final unless a merge is still owed
                         why=$(awk -F'|' -v t="$p" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }

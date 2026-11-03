@@ -1372,6 +1372,13 @@ EOF
         "$(n1_queue_eligible_rows "$d/legacy.md" false | cut -f2 | paste -sd, -)"
     assert_eq "eligible: same columns as pending_rows" "$(n1_queue_pending_rows "$d/legacy.md" | head -1)" \
         "$(n1_queue_eligible_rows "$d/legacy.md" false | head -1)"
+    # mixed homes: the callback decides per predecessor home (T-1 lives in /h; only /hm merges)
+    mh() { [ "$1" = /hm ]; }
+    assert_eq "eligible: per-home merge fn, predecessor home not merging releases at pr" "T-2,T-7" \
+        "$(n1_queue_eligible_rows "$d/merge.md" mh | cut -f2 | paste -sd, -)"
+    sed 's#^| 1 | T-1 | a | /r | /h |#| 1 | T-1 | a | /r | /hm |#' "$d/merge.md" > "$d/mixed.md"
+    assert_eq "eligible: per-home merge fn, predecessor home merging waits" "T-7" \
+        "$(n1_queue_eligible_rows "$d/mixed.md" mh | cut -f2 | paste -sd, -)"
     n1_queue_gated_expire "$d/merge.md"
     assert_eq "eligible: gated expiry skips the waiting rows" "skip,skip" "$(plan_cell "$d/merge.md" 2 8),$(plan_cell "$d/merge.md" 3 8)"
     rm -rf "$d"
