@@ -38,7 +38,6 @@ case "$1 $2" in
   "worktree create"|"agent launch")
       [ -n "${FAKE_ORCA_CREATE_FAIL:-}" ] && err "create failed"
       [ -n "${FAKE_ORCA_NO_HANDLE:-}" ] && { ok '{"launch":{"outcome":{"kind":"skipped"}}}'; exit 0; }
-      [ -n "${FAKE_ORCA_BAD_OUTCOME:-}" ] && { ok '{"worktree":{"path":"/x"},"launch":{"outcome":{"kind":"failed","handle":"term-42"}}}'; exit 0; }
       [ "${FAKE_ORCA_OUTCOME:-}" = none ] && { ok '{"worktree":{"path":"/x"},"launch":{"outcome":{"handle":"term-42"}}}'; exit 0; }
       ok '{"worktree":{"path":"/x"},"launch":{"outcome":{"kind":"'"${FAKE_ORCA_OUTCOME:-journaled}"'","handle":"term-42"}}}' ;;
   "reference find") cat "$FAKE/refs.json" ;;
@@ -136,7 +135,6 @@ reset; eq "H16: invalid ID rejected" "handoff:failed (invalid ticket id)" "$(n1_
 hasnt "H16: no create call for an invalid ID" "worktree create" "$(calls)"
 eq "H17: invalid type rejected" "handoff:failed (invalid type)" "$(n1_orca_handoff X-1 'task --evil' create)"
 eq "H18: no agent handle -> failed" "handoff:failed (no agent handle in result)" "$(FAKE_ORCA_NO_HANDLE=1 n1_orca_handoff X-1 "" create)"
-eq "H18b: prompt outcome other than journaled/handed-to-terminal -> failed (ticket fallback rule)" "handoff:failed (prompt failed)" "$(FAKE_ORCA_BAD_OUTCOME=1 n1_orca_handoff X-1 "" create)"
 for k in terminal chat handed-to-terminal journaled none; do eq "H18c: outcome $k with handle -> ok" "handoff:ok X-1 term-42" "$(FAKE_ORCA_OUTCOME=$k n1_orca_handoff X-1 "" create)"; done
 for k in failed skipped error; do eq "H18d: outcome $k with handle -> failed" "handoff:failed (prompt $k)" "$(FAKE_ORCA_OUTCOME=$k n1_orca_handoff X-1 "" create)"; done
 eq "H19: CLI error -> failed with its reason" "handoff:failed (create failed)" "$(FAKE_ORCA_CREATE_FAIL=1 n1_orca_handoff X-1 "" create)"
