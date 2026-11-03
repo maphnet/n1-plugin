@@ -86,6 +86,19 @@ printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap
 
 Reorder the plan to the printed order and renumber `#`. For each printed non-empty note, set the `DECISIONS` Order cell to it and append ` · <note>` to the candidate's Reason. Record Touches as the comma list.
 
+**Schedule and concurrency (N1-303).** Run the same pairs again in the NEW plan order. Add one `'<HELD_KEY>' '<BLOCKER>'` line for each held candidate (Reason `blocked_on <BLOCKER>`); omit the second `printf` when no candidate is held. Blocks edges are display-only, because the runner's held sweep gates them:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+source "$N1_ROOT/lib/orca-queue.sh"
+{ printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap_preds
+  printf '%s\t%s\n' '<HELD_KEY>' '<BLOCKER>'; } | n1_queue_waves
+printf 'MAX_CONCURRENT=%s\n' "$(n1_queue_max_concurrent)"
+```
+
+Keep the first printed line as `SCHEDULE` and the number as `MAX_CONCURRENT` for § Prompt and run.md § Write plan. Rows that share a Touches token never run at the same time. The runner starts a row only after every earlier overlapping row has reached PR, or has merged when the queue merges its own PRs. If one of those rows failed, the runner skips the row. Independent rows fill free slots up to `MAX_CONCURRENT`. The bg backend always gets 1.
+
 ### 4. Stop-list pre-scan
 
 `--unattended`: skip this section. No candidate gets a Pre-Decision, so every child asks at runtime.
@@ -113,7 +126,7 @@ source "$N1_ROOT/lib/queue.sh"
 n1_queue_notify_check
 ```
 
-Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes), plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user (`--unattended`: do not ask; proceed as **Start**):
+Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes), then `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time). Parallel workers share your usage limits.`, plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user (`--unattended`: do not ask; proceed as **Start**):
 - **Start** (bare) or **Save plan** (`--plan`) -> proceed to the run step.
-- **Edit** -> free text: remove tickets, reorder, change model (`KEY=opus|sonnet`). Apply changes (a removed ticket also loses its `DECISIONS` row), re-print the table, ask again. Log each edit as `| preview | edit | <text> |` in a pending Decision Ledger list.
+- **Edit** -> free text: remove tickets, reorder, change model (`KEY=opus|sonnet`). Apply changes (a removed ticket also loses its `DECISIONS` row), re-run § 3's Schedule and concurrency block in the edited order, re-print the table and schedule, ask again. Log each edit as `| preview | edit | <text> |` in a pending Decision Ledger list.
 - **Cancel** -> **STOP.** Cancel and Edit's ticket removal do not revert briefs already written to the tracker in § 1.
