@@ -1,6 +1,6 @@
 # Procedure: Duplicate Check
 
-Searches the tracker for tickets that duplicate or relate to the work at hand. It classifies the hits inline and warns before effort is spent. Called from n1-ticket and n1-story (before creation), n1-start (intake), and n1-queue (intake annotates; preview resolves at plan time). Runs for every tier. Never dispatches a persona.
+Searches the tracker for tickets that duplicate or relate to the work at hand. It classifies the hits inline and warns before effort is spent. Called from n1-ticket, n1-story and n1-refine (before creation), n1-start (intake), and n1-queue (intake annotates; preview resolves at plan time). Runs for every tier. Never dispatches a persona.
 
 **Parameters:**
 - `CONTEXT`: `create` (ticket not created yet), `start` (n1-start intake), `queue` (n1-queue intake, annotate only), or `queue-plan` (n1-queue preview, one flagged candidate; enters at § 4 with that candidate's `MATCHES` from the `queue` pass, no new search)

@@ -10,7 +10,7 @@ effort: medium
 
 **Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
-Settle a ticket's decisions, scope, acceptance criteria and assumptions with the user, then write them back as one `*Refined by N1*` block. Optional and re-runnable: a re-run replaces the block in place. No branch, no worktree, no status change. All working files live in `$N1_HOME/memory/<ID>/refine/`; the ticket's `overview.md` is never created (n1-start would treat it as a resume).
+Settle a ticket's decisions, scope, acceptance criteria and assumptions with the user, then write them back as one `*Refined by N1*` block. Decomposes by ticket type (`references/ticket-scope.md` § Decomposition by ticket type): it may convert the ticket's type and create or adopt child tickets (Stories under an Epic, Sub-tasks under a Story), only for actions the user picks in the preview. Optional and re-runnable: a re-run replaces the block in place and proposes only missing children. No branch, no worktree, no status change. All working files live in `$N1_HOME/memory/<ID>/refine/`; the ticket's `overview.md` is never created (n1-start would treat it as a resume).
 
 Run refine before `n1-queue --plan`: in a queue child, a refined block posted as a comment after the plan is ignored. Refined Decisions never pre-authorize stop-list (security, architecture, public-api) escalations.
 
@@ -42,11 +42,11 @@ Anything other than `ticket` (brain dump, file, error-tracker URL): say "n1-refi
 
 Execute steps in order. Read each step file and follow its instructions before proceeding to the next.
 
-1. **Fetch** — tracker gate, fetch, codebase analysis, optional investigation
+1. **Fetch** — tracker gate, fetch, existing children, codebase analysis, optional investigation
    Read `<N1_ROOT>/skills/n1-refine/steps/01-fetch.md`
 
-2. **Loop** — contradictions, tiering, question batches, scope widening, readiness verdict
+2. **Loop** — contradictions, tiering, question batches, scope classification, readiness verdict
    Read `<N1_ROOT>/skills/n1-refine/steps/02-loop.md`
 
-3. **Write** — draft block, preview, write or comment, handoff
+3. **Write** — draft block, preview with actions, write or comment, conversion and children, handoff
    Read `<N1_ROOT>/skills/n1-refine/steps/03-write.md`

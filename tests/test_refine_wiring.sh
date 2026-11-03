@@ -120,7 +120,23 @@ has "loop recommendation needs codebase evidence" '(Recommended): <evidence, fil
 has "loop runs duplicate check on widening" 'references/duplicate-check.md' "$L"
 has "loop reclassifies scope" 'references/ticket-scope.md' "$L"
 has "loop prints readiness verdict" 'Executable without questions: no — N open' "$L"
-has "ticket-scope defines refine to story handoff" '**Story scope in n1-refine:**' references/ticket-scope.md
+lacks "N1-296: refine to story handoff removed" '**Story scope in n1-refine:**' references/ticket-scope.md
+lacks "N1-296: refine never mentions n1-story" 'n1-story' skills/n1-refine
+lacks "N1-296: widening no longer ends refine without a block" 'refine writes no block' "$L"
+has "N1-296: loop classifies by ticket type" 'ticket-scope.md` § Decomposition by ticket type' "$L"
+has "N1-296: loop proposes only missing children" 'Propose only missing children' "$L"
+has "N1-296: re-run never re-proposes an existing child" 'never re-proposes an existing child' "$L"
+line_has "N1-296: CONVERT covers atomic Story to Task" '`CONVERT`' '`Task` (Story with one atomic deliverable' "$L"
+line_has "N1-296: CONVERT covers Story-sized Task to Story" '`CONVERT`' '`Story` (Task classified `SCOPE_TYPE=Story`)' "$L"
+has "N1-296: Story with children is never converted" 'a Story with children is never offered Task conversion' "$L"
+S=references/ticket-scope.md
+has "N1-296: ticket-scope has decomposition section" '## Decomposition by ticket type' "$S"
+line_has "N1-296: Epic proposes Stories" '| Epic |' 'propose missing Stories' "$S"
+line_has "N1-296: Story proposes Sub-tasks" '| Story | meaningful decomposition |' 'propose missing Sub-tasks' "$S"
+line_has "N1-296: atomic Story converts to Task" '| Story, no children |' 'converting to Task' "$S"
+line_has "N1-296: Story with children never converts" '| Story with children |' 'never convert' "$S"
+line_has "N1-296: Story-sized Task converts to Story" '`SCOPE_TYPE=Story`' 'converting to Story' "$S"
+line_has "N1-296: fitting Task refines only" '`SCOPE_TYPE=Task`' 'refine the block only' "$S"
 
 # --- Task 8: write step
 W=skills/n1-refine/steps/03-write.md
@@ -139,5 +155,55 @@ has "architecture lists n1-refine" '| n1-refine |' references/architecture.md
 # --- Task 9: n1-ticket hint
 has "compose keeps the feasibility rating" 'Keep the feasibility rating for Step 9' skills/n1-ticket/steps/01-compose.md
 line_has "create hints refine on risky tickets" '/n1:n1-refine <TICKET_ID>' 'needs investigation' skills/n1-ticket/steps/02-create.md
+
+# --- N1-296: fetch type + existing children
+F=skills/n1-refine/steps/01-fetch.md
+has "N1-296: fetch parses issue_type" '"issue_type"' "$F"
+has "N1-296: fetch parses subtask_count" '"subtask_count"' "$F"
+has "N1-296: fetch reads createIssue op" ".tracker.operations.createIssue" "$F"
+has "N1-296: fetch reads linkIssues op" ".tracker.operations.linkIssues" "$F"
+has "N1-296: fetch reads getIssueLinks op" ".tracker.operations.getIssueLinks" "$F"
+has "N1-296: fetch reads versionMcp" ".tracker.versionMcp" "$F"
+line_has "N1-296: fetch lists Jira children by parent JQL, every page" 'parent = <ID>' 'startAt' "$F"
+has "N1-296: fetch lists children of a Task" '`epic`, `story` or `task` only' "$F"
+has "N1-296: Task with children is never converted" 'a Task with children is never offered Story conversion' "$L"
+line_has "N1-296: fetch lists YouTrack subtask links" '<LINKS_OP>' '`subtask` link' "$F"
+lacks "N1-296: fetch never uses the existence-only form" 'maxResults 1' "$F"
+has "N1-296: subtask_count is a hint only" '`SUBTASK_COUNT` is a hint only' "$F"
+has "N1-296: children lookup failure sets unknown" '`CHILDREN=unknown`' "$F"
+before "N1-296: children lookup follows fetch" '## Step 3: Fetch' '## Step 3b: Existing Children' "$F"
+
+# --- N1-296: write actions
+W=skills/n1-refine/steps/03-write.md
+n=$(grep -cF '(Recommended)' "$W")
+if [ "$n" -eq 1 ]; then echo "PASS: N1-296: write has exactly one Recommended"; else echo "FAIL: N1-296: write has exactly one Recommended ($n)"; FAIL=1; fi
+has "N1-296: preview offers Block only" '4 — Block only' "$W"
+has "N1-296: preview offers Remove" '5 — Remove' "$W"
+before "N1-296: block write precedes conversion" '## Step 3: Write' '## Step 3b: Conversion' "$W"
+before "N1-296: conversion precedes children" '## Step 3b: Conversion' '## Step 3c: Children' "$W"
+has "N1-296: failed block write runs no Actions" 'a failed block write runs no Actions' "$W"
+line_has "N1-296: conversion via jcm_convertIssueType for Task and Story" 'jcm_convertIssueType' '`issueTypeName: <CONVERT>` (`Task` or `Story`)' "$W"
+has "N1-296: failed Story conversion skips Sub-tasks" 'when `CONVERT=Story` skip Step 3c' "$W"
+has "N1-296: child type rule exists" '**Child type rule:**' "$W"
+line_has "N1-296: Story under Epic" '**Child type rule:**' 'Story under an Epic' "$W"
+line_has "N1-296: Sub-task under Story" '**Child type rule:**' 'Sub-task under a Story' "$W"
+line_has "N1-296: never Task under Story" '**Child type rule:**' 'Never `Task` under a Story' "$W"
+line_has "N1-296: YouTrack child links subtask of" '**Child type rule:**' '`subtask of`' "$W"
+line_has "N1-296: YouTrack children need a link op" '**Actions** come from' 'YouTrack children when `LINK_OP` is empty' "$W"
+has "N1-296: per-child duplicate check" 'duplicate-check.md` § Check with `CONTEXT=create`' "$W"
+has "N1-296: dup prompt has no recommendation" 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$W"
+line_has "N1-296: adopt passes child type and parentKey" 'issueKeys: [<HIT_ID>]' 'parentKey: <ID>' "$W"
+line_has "N1-296: create passes child type and parentKey" 'issueType: <child type>' 'parentKey: <ID>' "$W"
+has "N1-296: skip this child never ends the run" 'never ends the run' "$W"
+has "N1-296: removing the Story conversion drops its Sub-tasks" 'dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$W"
+has "N1-296: handoff summarizes actions" 'Actions: converted' "$W"
+lacks "N1-296: refine never transitions status" 'operations.transition' skills/n1-refine
+lacks "N1-296: refine never creates a branch" 'git checkout' skills/n1-refine
+
+# --- N1-296: dispatcher + docs
+has "N1-296: SKILL states actions run only when picked" 'only for actions the user picks in the preview' skills/n1-refine/SKILL.md
+has "N1-296: SKILL loop blurb names scope classification" 'scope classification' skills/n1-refine/SKILL.md
+line_has "N1-296: architecture row describes decomposition" '| n1-refine |' 'Epic into Stories, Story into Sub-tasks' references/architecture.md
+has "N1-296: duplicate-check lists n1-refine as caller" 'n1-ticket, n1-story and n1-refine (before creation)' references/duplicate-check.md
 
 exit $FAIL
