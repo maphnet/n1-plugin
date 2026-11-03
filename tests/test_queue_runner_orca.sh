@@ -84,6 +84,8 @@ test_orca_max_concurrent() {
     local tmp b_start a_rel; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 1'
     assert_eq "orca-max1: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-max1: legacy plan (no max_concurrent) logs the live-config fallback" "1" \
+        "$(grep -c 'planned before N1-303' "$tmp/output.txt" || true)"
     b_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-B"); a_rel=$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-T-A")
     assert_eq "orca-max1: T-B starts only after T-A is released" "yes" \
         "$([ -n "$b_start" ] && [ -n "$a_rel" ] && [ "$b_start" -gt "$a_rel" ] && echo yes || echo no)"
@@ -581,8 +583,79 @@ test_orca_fallback_bg() {   # AC5: Orca available but not used, or unusable -> c
     done
 }
 
+test_orca_stored_max_concurrent() {   # N1-303 AC: the planned max_concurrent wins over a later config change
+    local tmp b_start a_rel c_start b_rel; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done"; mk_orca "$tmp"
+    sched_set "$tmp" 1; cfg_set "$tmp" '.queue.maxConcurrent = 3'
+    assert_eq "orca-pinned: exit 0" "0" "$(run_orca_queue "$tmp")"
+    b_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-B"); a_rel=$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-T-A")
+    c_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-C"); b_rel=$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-T-B")
+    assert_eq "orca-pinned: one worker at a time despite maxConcurrent=3" "yes,yes" \
+        "$([ "$b_start" -gt "$a_rel" ] && echo yes || echo no),$([ "$c_start" -gt "$b_rel" ] && echo yes || echo no)"
+    assert_eq "orca-pinned: no legacy fallback note" "0" "$(grep -c 'planned before N1-303' "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_overlap_pair_sequential() {   # N1-303 AC: T-2 overlaps T-1 (after T-1); T-3 is independent
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-1:done" "T-2:done" "T-3:done"; mk_orca "$tmp"
+    sched_set "$tmp" 3 T-2 T-1
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'   # no timeouts: T-1 stays in flight; the 20 s bound ends the run
+    echo implement > "$tmp/fake/step.T-1"; : > "$tmp/fake/nodone.T-1"
+    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-overlap: independent T-3 runs alongside T-1" "1" "$(grep -c -- "--task task-T-3" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-overlap: T-2 never starts while T-1 is in flight" "0" "$(grep -c -- "--task task-T-2" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-overlap: T-2 still pending" "pending" "$(plan_cell "$tmp/queue.md" 2 8)"
+    rm -rf "$tmp"
+}
+
+test_orca_overlap_releases_at_pr() {   # N1-303: default (no-merge) mode releases T-2 once T-1 reached PR
+    local tmp b_start c_start; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-1:done" "T-2:done" "T-3:done"; mk_orca "$tmp"
+    sched_set "$tmp" 3 T-2 T-1
+    assert_eq "orca-overlap-pr: exit 0" "0" "$(run_orca_queue "$tmp")"
+    b_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-2"); c_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-3")
+    assert_eq "orca-overlap-pr: later independent T-3 starts before gated T-2" "yes" "$([ "$c_start" -lt "$b_start" ] && echo yes || echo no)"
+    assert_eq "orca-overlap-pr: all rows reach pr" "pr,pr,pr" \
+        "$(plan_cell "$tmp/queue.md" 1 8),$(plan_cell "$tmp/queue.md" 2 8),$(plan_cell "$tmp/queue.md" 3 8)"
+    rm -rf "$tmp"
+}
+
+test_orca_overlap_hard_edge() {   # N1-303: a failed predecessor skips its overlap successor
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-1:done" "T-2:done" "T-3:done"; mk_orca "$tmp"
+    sched_set "$tmp" 3 T-2 T-1
+    echo implement > "$tmp/fake/step.T-1"   # T-1's worker reports done without a PR -> failed
+    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    assert_eq "orca-overlap-fail: T-2 skipped" "skip" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "orca-overlap-fail: reason names the predecessor" "yes" \
+        "$(case "$(plan_cell "$tmp/queue.md" 2 9)" in *"predecessor T-1"*) echo yes ;; *) echo no ;; esac)"
+    assert_eq "orca-overlap-fail: T-2 never started" "0" "$(grep -c -- "--task task-T-2" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-overlap-fail: T-3 unaffected" "pr" "$(plan_cell "$tmp/queue.md" 3 8)"
+    rm -rf "$tmp"
+}
+
+test_orca_gated_wait_expires() {   # N1-303 TQ-1: merge mode, T-1 at pr but unmerged: T-2 waits (bounded), then ends skip, not pending
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-1:done" "T-2:done"; mk_orca "$tmp"
+    sched_set "$tmp" 3 T-2 T-1
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.subtaskTimeoutMinutes = 1 | .queue.pollSeconds = 30'
+    n1_queue_row_status "$tmp/queue.md" 1 pr "waiting"
+    assert_eq "orca-gated: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-gated: T-2 never started" "0" "$(grep -c -- "--task task-T-2" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-gated: T-2 ends skip, not pending" "skip" "$(plan_cell "$tmp/queue.md" 2 8)"
+    assert_eq "orca-gated: reason names the predecessor" "yes" \
+        "$(case "$(plan_cell "$tmp/queue.md" 2 9)" in *"predecessor T-1"*) echo yes ;; *) echo no ;; esac)"
+    rm -rf "$tmp"
+}
+
 test_orca_parallel_workers
 test_orca_max_concurrent
+test_orca_stored_max_concurrent
+test_orca_gated_wait_expires
+test_orca_overlap_pair_sequential
+test_orca_overlap_releases_at_pr
+test_orca_overlap_hard_edge
 test_orca_held_blocker
 test_orca_question_parks
 test_orca_coordinator_sink

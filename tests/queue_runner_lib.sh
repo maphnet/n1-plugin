@@ -419,3 +419,14 @@ run_id: R1
 |--------|---------|------|---------|----|---------|
 EOF
 }
+
+# sched_set <tmp> <max_concurrent|-> [<ticket> <after>]... — N1-303: a planned max_concurrent in mk_bg's
+# frontmatter ("-" = none) and a ## Schedule section (one row per ticket/after pair) before ## Runs.
+sched_set() {
+    local f="$1/queue.md" mc="$2" rows=""; shift 2
+    while [ $# -ge 2 ]; do rows="$rows| $1 | $2 |"$'\n'; shift 2; done
+    MC="$mc" ROWS="$rows" awk '
+        NR == 2 && ENVIRON["MC"] != "-" { print "max_concurrent: " ENVIRON["MC"] }
+        /^## Runs$/ && ENVIRON["ROWS"] != "" { printf "## Schedule\n| Ticket | After |\n|--------|-------|\n%s\n", ENVIRON["ROWS"] }
+        { print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+}

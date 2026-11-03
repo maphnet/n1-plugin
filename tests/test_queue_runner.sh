@@ -1256,6 +1256,191 @@ test_overlap_order() {
     assert_eq "overlap: transitive chain" "T-4,T-6,T-8" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
 }
 
+# N1-303: plan-time schedule (every earlier Touches overlapper is a predecessor), its wave line, and the
+# saved ## Schedule section reproducing the preview's line.
+test_schedule_helpers() {
+    local out d q rc
+    out=$(printf '%s\t%s\n' 'T-1' 'r:a' 'T-2' 'r:b' 'T-3' 'r:a, R:B' 'T-4' '' | n1_queue_overlap_preds)
+    assert_eq "schedule: every earlier overlapper is a predecessor (non-transitive)" \
+        "T-1|;T-2|;T-3|T-1,T-2;T-4|" "$(printf '%s\n' "$out" | tr '\t' '|' | paste -sd';' -)"
+    assert_eq "schedule: wave line" "wave 1: T-1, T-2, T-4 | wave 2: T-3 (after T-1, T-2)" "$(n1_queue_waves <<< "$out")"
+    assert_eq "schedule: ticket example" "wave 1: N1-277, N1-284 | wave 2: N1-278 (after N1-277), N1-285 (after N1-284)" \
+        "$(printf '%s\t%s\n' N1-277 r:q N1-284 r:w N1-278 r:q N1-285 r:w | n1_queue_overlap_preds | n1_queue_waves)"
+    assert_eq "schedule: display-only held edge lands in a later wave" "wave 1: T-1, T-2 | wave 2: T-3 (after T-1)" \
+        "$({ printf '%s\t%s\n' T-1 a T-2 b T-3 c | n1_queue_overlap_preds; printf '%s\t%s\n' T-3 T-1; } | n1_queue_waves)"
+    assert_eq "schedule: an empty held line is ignored" "wave 1: T-1" "$({ printf '%s\t%s\n' T-1 a | n1_queue_overlap_preds; printf '%s\t%s\n'; } | n1_queue_waves)"
+
+    d=$(mktemp -d); q="$d/queue.md"
+    cat > "$q" <<'EOF'
+---
+step: planned
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | a | /r | /h | sonnet | pending | |
+| 2 | T-2 | b | /r | /h | sonnet | pending | |
+| 3 | T-3 | c | /r | /h | sonnet | pending | |
+| 4 | T-4 | d | /r | /h | sonnet | skip | status changed |
+
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:a |  |  |  |  |
+| T-2 | r:b |  |  |  |  |
+| T-3 | r:a, r:b |  |  |  |  |
+| T-4 | r:a |  |  |  |  |
+
+## Decision Ledger
+| Step | Decision | Detail |
+|------|----------|--------|
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    assert_eq "schedule: missing section reads as no predecessors" "" "$(n1_queue_schedule_rows "$q")"
+    n1_queue_schedule_write "$q"
+    assert_eq "schedule: section inserted once (legacy plan)" "1" "$(grep -c '^## Schedule$' "$q" || true)"
+    assert_eq "schedule: ## Runs stays last" "## Runs" "$(grep '^## ' "$q" | tail -1)"
+    assert_eq "schedule: rows from pending/held Plan rows only" "T-1|;T-2|;T-3|T-1,T-2" \
+        "$(n1_queue_schedule_rows "$q" | tr '\t' '|' | paste -sd';' -)"
+    assert_eq "schedule: saved plan reproduces the preview line" \
+        "$(printf '%s\t%s\n' T-1 r:a T-2 r:b T-3 'r:a, r:b' | n1_queue_overlap_preds | n1_queue_waves)" "$(n1_queue_plan_waves "$q")"
+    cp "$q" "$d/before.md"; n1_queue_schedule_write "$q"
+    assert_eq "schedule: rewrite is idempotent" "yes" "$(cmp -s "$q" "$d/before.md" && echo yes || echo no)"
+    n1_queue_row_status "$q" 2 held "blocked_on T-1"
+    assert_eq "schedule: saved plan shows held Blocks edges" \
+        "wave 1: T-1 | wave 2: T-2 (after T-1) | wave 3: T-3 (after T-1, T-2)" "$(n1_queue_plan_waves "$q")"
+    awk '{ if ($0 == "| T-3 | T-1,T-2 |") print "| T-3 | T-1, rm -rf x, T-2 |"; else print }' "$q" > "$d/forged.md"
+    assert_eq "schedule: non-key After entries are dropped" "T-1,T-2" \
+        "$(n1_queue_schedule_rows "$d/forged.md" | awk -F'\t' '$1 == "T-3" { print $2 }')"
+    awk '/^## Decision Ledger$/ { print "## Schedule" } { print }' "$q" > "$d/dup.md"
+    assert_eq "schedule: duplicated heading reads nothing" "" "$(n1_queue_schedule_rows "$d/dup.md")"
+    rc=0; n1_queue_schedule_write "$d/dup.md" || rc=$?
+    assert_eq "schedule: duplicated heading refuses the write" "1" "$rc"
+    rm -rf "$d"
+}
+
+# N1-303: per-tick eligibility from ## Schedule: released at pr (merged when the queue merges its own PRs),
+# hard edge on a dead or unknown predecessor, waits otherwise; no section = every pending row.
+test_eligible_rows() {
+    local d q
+    d=$(mktemp -d); q="$d/queue.md"
+    cat > "$q" <<'EOF'
+---
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | a | /r | /h | sonnet | pr | |
+| 2 | T-2 | b | /r | /h | sonnet | pending | |
+| 3 | T-3 | c | /r | /h | sonnet | pending | |
+| 4 | T-4 | d | /r | /h | sonnet | failed | child-exited-incomplete |
+| 5 | T-5 | e | /r | /h | sonnet | pending | |
+| 6 | T-6 | f | /r | /h | sonnet | pending | |
+| 7 | T-7 | g | /r | /h | sonnet | pending | |
+
+## Schedule
+| Ticket | After |
+|--------|-------|
+| T-2 | T-1 |
+| T-3 | T-2 |
+| T-5 | T-4 |
+| T-6 | T-9 |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+| T-1 | 2026-11-03T00:00:00Z | 0 | pr | https://x/pr/1 | s1 |
+EOF
+    cp "$q" "$d/merge.md"
+    awk '/^## Schedule$/ { s = 1; next } s && /^## / { s = 0 } !s' "$q" > "$d/legacy.md"
+    assert_eq "eligible: no-merge mode releases at pr, waits on pending" "T-2,T-7" \
+        "$(n1_queue_eligible_rows "$q" false | cut -f2 | paste -sd, -)"
+    assert_eq "eligible: failed predecessor skips the successor" "skip" "$(plan_cell "$q" 5 8)"
+    assert_eq "eligible: skip reason names it" "yes" "$(case "$(plan_cell "$q" 5 9)" in *"predecessor T-4 failed"*) echo yes ;; *) echo no ;; esac)"
+    assert_eq "eligible: predecessor not in plan skips too" "skip" "$(plan_cell "$q" 6 8)"
+    assert_eq "eligible: waiting row stays pending" "pending" "$(plan_cell "$q" 3 8)"
+    assert_eq "eligible: merge mode waits for a merged predecessor" "T-7" \
+        "$(n1_queue_eligible_rows "$d/merge.md" true | cut -f2 | paste -sd, -)"
+    awk '{ if ($0 ~ /^\| T-1 \|/ && $0 ~ /\| pr \|/) sub(/\| pr \|/, "| merged |"); print }' "$d/merge.md" > "$d/m2.md"
+    assert_eq "eligible: merge mode releases once Runs Outcome is merged" "T-2,T-7" \
+        "$(n1_queue_eligible_rows "$d/m2.md" true | cut -f2 | paste -sd, -)"
+    assert_eq "eligible: no ## Schedule lists every pending row" "T-2,T-3,T-5,T-6,T-7" \
+        "$(n1_queue_eligible_rows "$d/legacy.md" false | cut -f2 | paste -sd, -)"
+    assert_eq "eligible: same columns as pending_rows" "$(n1_queue_pending_rows "$d/legacy.md" | head -1)" \
+        "$(n1_queue_eligible_rows "$d/legacy.md" false | head -1)"
+    n1_queue_gated_expire "$d/merge.md"
+    assert_eq "eligible: gated expiry skips the waiting rows" "skip,skip" "$(plan_cell "$d/merge.md" 2 8),$(plan_cell "$d/merge.md" 3 8)"
+    rm -rf "$d"
+}
+
+# N1-303 fix cycle 1: CR-1 (overlap edge vs reverse Blocks edge), CR-3 (merge mode, chain ended unmerged).
+test_schedule_cycle_and_merge_final() {
+    local d q out
+    d=$(mktemp -d); q="$d/queue.md"
+    cat > "$q" <<'EOF'
+---
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | a | /r | /h | sonnet | held | blocked_on T-2 |
+| 2 | T-2 | b | /r | /h | sonnet | pending | |
+
+## Decisions
+| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |
+|--------|---------|-------|-------------------------|---------------|-------|
+| T-1 | r:a |  |  |  |  |
+| T-2 | r:a |  |  |  |  |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    n1_queue_schedule_write "$q"
+    assert_eq "cr1: held predecessor blocked on its overlap successor stores no reverse edge" "T-1|;T-2|" \
+        "$(n1_queue_schedule_rows "$q" | tr '\t' '|' | paste -sd';' -)"
+    assert_eq "cr1: plan line shows the Blocks order" "wave 1: T-2 | wave 2: T-1 (after T-2)" "$(n1_queue_plan_waves "$q")"
+    assert_eq "cr1: preview pipeline agrees" "$(n1_queue_plan_waves "$q")" \
+        "$({ printf '%s\t%s\t%s\n' T-1 r:a T-2 T-2 r:a '' | n1_queue_overlap_preds; printf '%s\t%s\n' T-1 T-2; } | n1_queue_waves)"
+    assert_eq "cr1: eligibility lists the pending blocker" "T-2" "$(n1_queue_eligible_rows "$q" false | cut -f2 | paste -sd, -)"
+    out=$(printf 'T-1\tT-2\nT-2\tT-1\n' | n1_queue_waves)
+    assert_eq "cr1: a cyclic input is reported, not drawn as waves" "yes" "$(case "$out" in cycle*) echo yes ;; *) echo no ;; esac)"
+    cat > "$q" <<'EOF'
+---
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | a | /r | /h | sonnet | pr | finish:ci-red |
+| 2 | T-2 | b | /r | /h | sonnet | pending | |
+
+## Schedule
+| Ticket | After |
+|--------|-------|
+| T-2 | T-1 |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+| T-1 | 2026-11-03T00:00:00Z | 0 | pr | https://x/pr/1 | s1 |
+EOF
+    cp "$q" "$d/nomerge.md"
+    assert_eq "cr3: no-merge mode still releases at pr" "T-2" "$(n1_queue_eligible_rows "$d/nomerge.md" false | cut -f2)"
+    assert_eq "cr3: merge mode lists nothing" "" "$(n1_queue_eligible_rows "$q" true)"
+    assert_eq "cr3: successor skipped at once" "skip" "$(plan_cell "$q" 2 8)"
+    assert_eq "cr3: reason names the predecessor and the finish failure" "predecessor T-1 not merged (finish:ci-red)" "$(plan_cell "$q" 2 9)"
+    cp "$d/nomerge.md" "$d/exp.md"; n1_queue_row_status "$d/exp.md" 1 pr "waiting"
+    n1_queue_gated_expire "$d/exp.md"
+    assert_eq "cr3: gated expiry reason names the blocking predecessor" "predecessor T-1 not released (not at PR or not merged)" "$(plan_cell "$d/exp.md" 2 9)"
+    rm -rf "$d"
+}
+
 # NP-203: plan/run split wiring in the n1-queue skill text.
 test_plan_wiring() {
     local s="$REPO_ROOT/skills/n1-queue"
@@ -1271,11 +1456,10 @@ test_plan_wiring() {
     assert_eq "plan-wiring: run stamps planned_at" "yes" "$(has 'planned_at' "$s/steps/run.md")"
     assert_eq "plan-wiring: run has Decisions section" "yes" "$(has '^## Decisions' "$s/steps/run.md")"
     assert_eq "plan-wiring: --run applies staleness gate" "yes" "$(has 'n1_queue_stale' "$s/steps/run.md")"
-    assert_eq "plan-wiring: preview computes the schedule (N1-303)" "yes" "$(has 'n1_queue_overlap_preds \| n1_queue_waves|\| n1_queue_waves' "$s/steps/preview.md")"
-    assert_eq "plan-wiring: preview computes overlap preds" "yes" "$(has 'n1_queue_overlap_preds' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: preview computes the schedule (N1-303)" "yes" "$(has 'n1_queue_overlap_preds$' "$s/steps/preview.md")"
     assert_eq "plan-wiring: run.md re-pins max_concurrent on re-plan" "yes" "$(has 'max_concurrent "\$\(n1_queue_max_concurrent\)"' "$s/steps/run.md")"
     assert_eq "plan-wiring: Start/Edit refresh rewrites the schedule" "yes" "$(sed "/^## Write plan/q" "$s/steps/run.md" | grep -cF 'n1_queue_schedule_write "$QUEUE_DIR' | awk '{print ($1>=2)?"yes":"no"}')"
-    assert_eq "plan-wiring: preview resolves plan-time concurrency" "yes" "$(has 'n1_queue_max_concurrent' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: stale re-plan prints the re-pin" "yes" "$(has 'Re-pinned max_concurrent' "$s/steps/run.md")"
     assert_eq "plan-wiring: preview prints the concurrency/usage-limit note" "yes" "$(has 'Parallel workers share your usage limits' "$s/steps/preview.md")"
     assert_eq "plan-wiring: run.md pins max_concurrent in frontmatter" "yes" "$(has '^max_concurrent: <MAX_CONCURRENT>$' "$s/steps/run.md")"
     assert_eq "plan-wiring: run.md has the Schedule section" "yes" "$(has '^## Schedule$' "$s/steps/run.md")"
@@ -1415,6 +1599,9 @@ test_desc_chain_wiring
 test_brief_wiring
 test_form_repair_wiring
 test_overlap_order
+test_schedule_helpers
+test_eligible_rows
+test_schedule_cycle_and_merge_final
 test_release_wiring
 test_already_run
 test_release_rows
