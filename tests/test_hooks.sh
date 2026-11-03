@@ -513,6 +513,9 @@ assert_eq "per-session preamble written for the payload session id" "N1_ROOT=$RE
 source \"\$N1_ROOT/lib/preamble.sh\"" "$(cat "$N1_STATE_DIR/sessions/s-claude-1.preamble.sh" 2>/dev/null)"
 case "$CTX" in *"N1 PLUGIN ROOT: $REPO_ROOT"*) assert_eq "unconfigured branch carries plugin root" ok ok;; *) assert_eq "unconfigured branch carries plugin root" ok "$CTX";; esac
 case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code)"*"subagent_type"*) assert_eq "claude routing block" ok ok;; *) assert_eq "claude routing block" ok "$CTX";; esac
+# N1-300: dispatch is async; routing must not claim an inline result and must name the resume mechanism
+case "$CTX" in *"returns the result inline"*) assert_eq "routing drops inline-dispatch claim (N1-300)" ok "$CTX";; *) assert_eq "routing drops inline-dispatch claim (N1-300)" ok ok;; esac
+case "$CTX" in *"Dispatch is asynchronous"*"must not return or move on until that persona's final result is in hand"*"Resume subagent <id> (host message mechanism): SendMessage tool"*) assert_eq "routing: async dispatch and resume rule (N1-300)" ok ok;; *) assert_eq "routing: async dispatch and resume rule (N1-300)" ok "$CTX";; esac
 echo '{}' > "$N1_HOME/config.json"
 PROJ="$T/proj"; mkdir -p "$PROJ"
 PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/claude/session-start.json")
