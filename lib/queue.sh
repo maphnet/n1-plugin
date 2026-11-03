@@ -1043,10 +1043,15 @@ n1_queue_awaiting_hints() {
     # Prints "<ticket>: <resume command>" for each Plan row waiting on a human: an attach
     # command for parked sessions, --answer for Orca rows. N1-309: also a final (failed/pr/escalated)
     # row whose worker question is still pending (<queue-dir>/.ask-<ticket>), whatever its status.
-    local file="$1" t sid st
-    while IFS=$'\t' read -r _ t _ _ _ st; do
-        [ "$st" = awaiting-human ] || [ -e "$(dirname "$file")/.ask-$t" ] || continue
+    local file="$1" t h sid st task
+    while IFS=$'\t' read -r _ t _ h _ st; do
         sid=$(n1_queue_session_id "$file" "$t")
+        if [ "$st" != awaiting-human ]; then
+            # final row: only while its sentinel still names the task (a settled worker's .ask is stale); fail closed
+            [ -e "$(dirname "$file")/.ask-$t" ] && declare -F _n1_orca_sget >/dev/null || continue
+            task=${sid#orca:}; task=${task%%/*}
+            [ -n "$task" ] && [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$h" "$t")" N1_ORCA_TASK)" = "$task" ] || continue
+        fi
         case "$sid" in
             orca:*) printf '%s: /n1:n1-queue --answer %s <answer>\n' "$t" "$t" ;;
             ?*) printf '%s: %s\n' "$t" "$(n1_bg_cmd attach "$sid")" ;;
