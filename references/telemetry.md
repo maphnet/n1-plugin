@@ -14,7 +14,7 @@ Always-on local-first telemetry (no config key). Captures per-step timing, per-a
 | File | Purpose |
 |------|---------|
 | `hooks/telemetry-agent-start.sh` | SubagentStart hook — log agent start event |
-| `hooks/telemetry-agent-stop.sh` | SubagentStop hook — log agent stop event + transcript path; when the persona left `bash -c` shells running in the run's worktree, warns on stderr and adds `leftover_shells` (`[{pid, age_s}]`, each shell reported once, never killed) to the raw stop line only, not merged (N1-317) |
+| `hooks/telemetry-agent-stop.sh` | SubagentStop hook (synchronous, so its warning is delivered) — log agent stop event + transcript path; when the persona left `bash -c` shells running in the run's worktree, warns via a `systemMessage` and adds `leftover_shells` (`[{pid, age_s}]`, each shell reported once, never killed) to the raw stop line only, not merged (N1-317) |
 | `hooks/telemetry-merge.sh` | Post-run merge — pair events, parse transcripts, produce unified JSONL record |
 
 **Data layout** (in `$N1_HOME/memory/<ID>/telemetry/`):

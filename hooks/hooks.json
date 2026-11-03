@@ -68,7 +68,7 @@
       {
         "matcher": "n1:.*",
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-stop.sh\"", "async": true }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/telemetry-agent-stop.sh\"" }
         ]
       }
     ]

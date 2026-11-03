@@ -23,10 +23,10 @@ spawn() {  # spawn <dir>: background `bash -c` with cwd <dir>; sets SPAWNED once
     local i=0
     until [ "$(head -c 7 "/proc/$SPAWNED/cmdline" 2>/dev/null | tr '\0' ' ')" = "bash -c" ] || [ $i -ge 50 ]; do sleep 0.1; i=$((i+1)); done
 }
-stop() {  # stop <agent_id>: run the stop hook as a developer persona; stderr -> $T/err; prints the exit code
+stop() {  # stop <agent_id>: run the stop hook as a developer persona; stdout+stderr -> $T/err; prints the exit code
     local rc=0
     jq -cn --arg a "$1" --arg c "$WT" '{session_id:"s1",cwd:$c,hook_event_name:"SubagentStop",agent_type:"n1:developer",agent_id:$a}' \
-        | bash "$REPO_ROOT/hooks/telemetry-agent-stop.sh" 2>"$T/err" || rc=$?
+        | bash "$REPO_ROOT/hooks/telemetry-agent-stop.sh" >"$T/err" 2>&1 || rc=$?
     echo "$rc"
 }
 last_has_field() { tail -n 1 "$RAW" | jq -r 'has("leftover_shells")'; }
@@ -45,6 +45,10 @@ assert_eq "leftover: stop line is valid JSON" ok "$(tail -n 1 "$RAW" | jq -e . >
 assert_eq "leftover: field carries the pid" "$P1" "$(tail -n 1 "$RAW" | jq -r '.leftover_shells[0].pid')"
 assert_eq "leftover: field carries a numeric age" number "$(tail -n 1 "$RAW" | jq -r '.leftover_shells[0].age_s | type')"
 assert_eq "leftover: shell not killed" alive "$(kill -0 "$P1" 2>/dev/null && echo alive || echo dead)"
+
+# the warning only reaches the user from a synchronous hook with a systemMessage on stdout
+assert_eq "leftover: output is a systemMessage" ok "$(jq -e '.systemMessage|test("pid [0-9]+ age")' "$T/err" >/dev/null 2>&1 && echo ok || echo bad)"
+assert_eq "hooks.json: agent-stop hook is synchronous" false "$(jq '[.hooks.SubagentStop[].hooks[] | select(.command | contains("telemetry-agent-stop.sh")) | .async // false] | any' "$REPO_ROOT/hooks/hooks.json")"
 
 # (b)+(c) a second stop is silent for the already-reported shell; a shell outside the worktree is never reported
 spawn "$ELSEWHERE"; P2=$SPAWNED

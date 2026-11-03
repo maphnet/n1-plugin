@@ -85,8 +85,10 @@ if [ -n "$LEFT" ]; then
         items="${items:+$items,}{\"pid\":$p,\"age_s\":$a}"
         text="${text:+$text, }pid $p age ${a}s"
     done <<< "$LEFT"
-    printf 'N1: warning -- %s stopped with shell(s) still running in the worktree (possibly from a parallel persona): %s (reported, not killed)\n' \
-        "$(n1_persona_name "$AGENT_TYPE")" "$text" >&2
+    # systemMessage on stdout: the harness shows it for a synchronous hook (exit-0 stderr is not surfaced)
+    msg=$(printf 'N1: warning -- %s stopped with shell(s) still running in the worktree (possibly from a parallel persona): %s (reported, not killed)' \
+        "$(n1_persona_name "$AGENT_TYPE")" "$text")
+    printf '{"systemMessage":"%s"}\n' "$(escape_json_val "$msg")"
     LEFTOVER_JSON=",\"leftover_shells\":[$items]"
 fi
 
