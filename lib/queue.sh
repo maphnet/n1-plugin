@@ -586,6 +586,125 @@ n1_queue_overlap_order() {
     }'
 }
 
+n1_queue_overlap_preds() {
+    # Usage: printf '%s\t%s\n' <ticket> <touches> ... | n1_queue_overlap_preds
+    # N1-303: prints "<ticket>\t<after>" per input line in input (execution) order. <after> is the comma list of
+    # EVERY earlier ticket sharing a Touches token (case-insensitive, trimmed: the tokens n1_queue_overlap_order
+    # uses). Overlap is not transitive, so this is not only the nearest overlapper an Order note names.
+    awk -F'\t' '
+    $1 != "" && !seen[$1]++ {
+        n++; key[n] = $1; after = ""
+        m = split(tolower($2), parts, ",")
+        for (i = 1; i <= m; i++) {
+            c = parts[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); parts[i] = c
+            if (c != "") has[n, c] = 1
+        }
+        for (j = 1; j < n; j++)
+            for (i = 1; i <= m; i++)
+                if (parts[i] != "" && ((j, parts[i]) in has)) { after = after (after == "" ? "" : ",") key[j]; break }
+        print key[n] "\t" after
+    }'
+}
+
+n1_queue_waves() {
+    # Usage: <ticket>\t<after> lines | n1_queue_waves
+    # N1-303: one display line, "wave 1: A, C | wave 2: B (after A)". wave = 1 + the highest wave among the
+    # listed predecessors that are in the input (others are shown but ignored). A repeated ticket unions its
+    # lists (held Blocks edges are appended as extra lines). Input order within a wave.
+    awk -F'\t' '
+    $1 == "" { next }
+    !($1 in idx) { n++; key[n] = $1; idx[$1] = n }
+    $2 != "" { aft[$1] = aft[$1] (aft[$1] == "" ? "" : ",") $2 }
+    END {
+        for (i = 1; i <= n; i++) w[i] = 1
+        for (pass = 1; pass <= n; pass++) {   # relax to a fixed point; a cycle stops after n passes
+            ch = 0
+            for (i = 1; i <= n; i++) {
+                m = split(aft[key[i]], p, ",")
+                for (k = 1; k <= m; k++)
+                    if ((p[k] in idx) && w[idx[p[k]]] + 1 > w[i]) { w[i] = w[idx[p[k]]] + 1; ch = 1 }
+            }
+            if (!ch) break
+        }
+        top = 0; for (i = 1; i <= n; i++) if (w[i] > top) top = w[i]
+        out = ""
+        for (v = 1; v <= top; v++) {
+            s = ""
+            for (i = 1; i <= n; i++) if (w[i] == v) {
+                s = s (s == "" ? "" : ", ") key[i]
+                if (aft[key[i]] != "") { a = aft[key[i]]; gsub(/,/, ", ", a); s = s " (after " a ")" }
+            }
+            if (s != "") out = out (out == "" ? "" : " | ") "wave " v ": " s
+        }
+        print out
+    }'
+}
+
+n1_queue_schedule_rows() {
+    # Usage: n1_queue_schedule_rows <queue.md>
+    # N1-303: prints "<ticket>\t<after>" per ## Schedule row. Fails closed (prints nothing, i.e. no predecessors:
+    # the pre-N1-303 behaviour) unless the file has exactly one "## Schedule" heading. Only ticket keys
+    # (^[A-Z][A-Z0-9_]*-[0-9]+$) pass; any other After entry is dropped.
+    [ -f "$1" ] || return 0
+    [ "$(grep -c '^## Schedule$' "$1" || true)" = 1 ] || return 0
+    awk -F'|' '
+        function key(s) { return s ~ /^[A-Z][A-Z0-9_]*-[0-9]+$/ }
+        /^## Schedule$/ { f = 1; next }
+        /^## / { f = 0 }
+        f && NF >= 4 {
+            for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            if (!key($2)) next
+            m = split($3, p, ","); a = ""
+            for (k = 1; k <= m; k++) {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", p[k])
+                if (key(p[k])) a = a (a == "" ? "" : ",") p[k]
+            }
+            print $2 "\t" a
+        }' "$1"
+}
+
+n1_queue_schedule_write() {
+    # Usage: n1_queue_schedule_write <queue.md>
+    # N1-303: (re)writes the whole ## Schedule section ("| Ticket | After |") from the pending/held Plan rows in
+    # physical order and their ## Decisions Touches, via n1_queue_overlap_preds. Idempotent. A plan without the
+    # section (made before N1-303, being re-planned) gets it inserted before ## Runs, which stays last.
+    # Fails closed (returns 1, file untouched) on more than one "## Schedule" heading or no "## Runs" line.
+    local file="$1" n rows tmp
+    [ -f "$file" ] || return 1
+    n=$(grep -c '^## Schedule$' "$file" || true)
+    { [ "$n" -le 1 ] && grep -q '^## Runs$' "$file"; } || return 1
+    rows=$(while IFS=$'\t' read -r _ t _; do
+            printf '%s\t%s\n' "$t" "$(n1_queue_decisions_row "$file" "$t" | cut -f1)"
+        done < <(n1_queue_pending_rows "$file" 'pending|held') | n1_queue_overlap_preds \
+        | while IFS=$'\t' read -r t a; do
+            printf '| %s | %s |\n' "$(_n1_queue_sanitize_cell "$t")" "$(_n1_queue_sanitize_cell "$a")"
+        done)
+    tmp=$(mktemp "${file}.XXXXXX")
+    has="$n" rows="$rows" awk '
+        function emit() {
+            print "## Schedule"; print "| Ticket | After |"; print "|--------|-------|"
+            if (ENVIRON["rows"] != "") print ENVIRON["rows"]
+            print ""
+        }
+        ENVIRON["has"] == 0 && /^## Runs$/ { emit() }
+        /^## Schedule$/ { emit(); skip = 1; next }
+        skip && /^## / { skip = 0 }
+        skip { next }
+        { print }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_plan_waves() {
+    # Usage: n1_queue_plan_waves <queue.md>
+    # N1-303: the saved plan's wave line, built like the preview's: the ## Schedule edges plus each held row's
+    # Blocks blocker (display-only; the held sweep gates those at run time, they are never stored).
+    local q="$1" num t
+    { n1_queue_schedule_rows "$q"
+      while IFS=$'\t' read -r num t _; do
+          printf '%s\t%s\n' "$t" "$(n1_queue_blocker_of "$q" "$num")"
+      done < <(n1_queue_pending_rows "$q" held)
+    } | n1_queue_waves
+}
+
 n1_queue_release_rows() {
     # Usage: n1_queue_release_rows <queue.md>
     # Prints unique "<ticket>\t<n1-home>" for tag-mode Plan rows with a handoff outcome
