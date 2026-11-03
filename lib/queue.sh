@@ -1003,7 +1003,10 @@ n1_queue_orca_scan() {
         while IFS=$'\t' read -r -u 3 num t msg; do
             # noclobber makes the create the atomic claim: concurrent scans or two questions for one ticket, first wins, one event
             ( set -o noclobber; printf '%s\n' "$msg" > "$d/.ask-$t" ) 2>/dev/null || continue
-            n1_queue_row_status "$q" "$num" awaiting-human
+            # N1-309: a final row (failed/pr/escalated) keeps its status; n1_queue_awaiting_hints lists its .ask marker.
+            if [ -n "$(n1_queue_pending_rows "$q" 'in-progress|awaiting-human' | awk -F'\t' -v n="$num" '$1 == n')" ]; then
+                n1_queue_row_status "$q" "$num" awaiting-human
+            fi
             n1_queue_event "$ev" "$qid" "$run" escalated ticket="$t" session="$(n1_queue_session_id "$q" "$t")" \
                 reason="worker question pending, runner down"
             n1_notify needs-you "$t needs you: worker question pending, runner down (answer: /n1:n1-queue --answer $t <text>)"
@@ -1038,15 +1041,26 @@ n1_queue_interrupted_note() {
 n1_queue_awaiting_hints() {
     # Usage: n1_queue_awaiting_hints <queue.md>
     # Prints "<ticket>: <resume command>" for each Plan row waiting on a human: an attach
-    # command for parked sessions.
-    local file="$1" t h sid
-    while IFS=$'\t' read -r _ t _ h _ _; do
+    # command for parked sessions, --answer for Orca rows. N1-309: also a final (failed/pr/escalated)
+    # row whose worker question is still pending (<queue-dir>/.ask-<ticket>), whatever its status.
+    local file="$1" t sid st
+    while IFS=$'\t' read -r _ t _ _ _ st; do
+        [ "$st" = awaiting-human ] || [ -e "$(dirname "$file")/.ask-$t" ] || continue
         sid=$(n1_queue_session_id "$file" "$t")
         case "$sid" in
             orca:*) printf '%s: /n1:n1-queue --answer %s <answer>\n' "$t" "$t" ;;
             ?*) printf '%s: %s\n' "$t" "$(n1_bg_cmd attach "$sid")" ;;
         esac
-    done < <(n1_queue_pending_rows "$file" 'awaiting-human')
+    done < <(n1_queue_pending_rows "$file" 'awaiting-human|failed|pr|escalated')
+}
+
+n1_queue_dispatch_skips() {
+    # Usage: n1_queue_dispatch_skips <events.jsonl> <run_id> — N1-309 (N1-287): one line per worker message the
+    # runner skipped in this run because its dispatch id did not match the Runs row (dispatch_mismatch events; the
+    # runner already sanitized the ids). A missing or unreadable file prints nothing.
+    jq -rR --arg r "$2" 'fromjson? | select(.event == "dispatch_mismatch" and .run_id == $r)
+        | "\(.ticket): skipped worker message (\(.reason))"' "$1" 2>/dev/null
+    return 0
 }
 
 n1_queue_event() {

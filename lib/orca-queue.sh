@@ -443,22 +443,28 @@ n1_orca_pending_questions() {
     # Reads as the Run's coordinator (queue.md orca_coord_terminal; empty: the caller's own terminal). check --all lists
     # every message without marking it read (--peek would miss one the dead runner read but never acked). Ids are
     # untrusted: the message must name the dispatch its task's Runs row holds (run_orca's rule), and that row must
-    # still be in-progress or awaiting-human in this queue run. Requires lib/queue.sh. Any failure prints nothing.
-    local q="$1/queue.md" run coord out rows type task msg disp t d num
+    # be in-progress or awaiting-human in this queue run, or final (failed/pr/escalated) while its sentinel still names the
+    # task (N1-309: the worker is not settled, so a settled worker's stale question never re-alerts). Requires
+    # lib/queue.sh. Any failure prints nothing.
+    local q="$1/queue.md" run coord out rows type task msg disp t d num n1h st
     run=$(n1_read_frontmatter "$q" orca_run_id); coord=$(n1_read_frontmatter "$q" orca_coord_terminal)
     _n1_orca_id "$run" && [ "$(n1_read_frontmatter "$q" orca_queue_run)" = "$(n1_read_frontmatter "$q" run_id)" ] || return 0
     [ -z "$coord" ] || _n1_orca_id "$coord" || return 0
     out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration check --run "$run" --all --types question ${coord:+--terminal "$coord"}) \
         || { [ -n "$coord" ] && out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration check --run "$run" --all --types question); } \
         || return 0   # a dead coordinator terminal (Orca restarted): retry as the caller, which resolves from its own env
-    rows=$(n1_queue_pending_rows "$q" 'in-progress|awaiting-human')
+    rows=$(n1_queue_pending_rows "$q" 'in-progress|awaiting-human|failed|pr|escalated')
     while IFS=$'\t' read -r type task msg disp; do
         [ "$type" = question ] && _n1_orca_id "$task" && _n1_orca_id "$msg" || continue
         IFS=$'\t' read -r t d <<< "$(n1_orca_row_of_task "$q" "$task")"
         [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] && [ "$disp" = "$d" ] && [ ! -e "$1/.ask-$t" ] || continue
         [ "$(n1_queue_session_id "$q" "$t")" = "orca:$task/$d" ] || continue   # only the ticket's latest attempt, not an older task
-        num=$(awk -F'\t' -v t="$t" '$2 == t { n = $1 } END { print n }' <<< "$rows")
+        IFS=$'\t' read -r num n1h st <<< "$(awk -F'\t' -v t="$t" '$2 == t { r = $1 "\t" $4 "\t" $6 } END { print r }' <<< "$rows")"
         [ -n "$num" ] || continue
+        case "$st" in
+            in-progress|awaiting-human) ;;
+            *) [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$n1h" "$t")" N1_ORCA_TASK)" = "$task" ] || continue ;;
+        esac
         [ -z "$(jq -R --arg s "orca:$msg" 'fromjson? | select(.event == "answer_delivered" and .session == $s)' "$1/events.jsonl" 2>/dev/null)" ] || continue
         printf '%s\t%s\t%s\n' "$num" "$t" "$msg"
     done < <(n1_orca_events "$out")
