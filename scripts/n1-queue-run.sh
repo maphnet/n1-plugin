@@ -924,6 +924,7 @@ orca_settle() {
 run_orca() {
     local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN PENDING
     ORCA_LOOP=1
+    rm -f "$N1_QUEUE_DIR/.stop"   # N1-268: a marker from a dead runner's era never stops a fresh run
     local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
@@ -973,6 +974,17 @@ run_orca() {
         # N1-281: durable worker state every tick (the inbox is only the fast path). A failed read keeps the last
         # list and disables the absence rule below (LIVE_OK=0).
         if L=$(n1_orca_liveness "$ORCA_RUN"); then LIVE="$L"; LIVE_OK=1; else LIVE_OK=0; fi
+        # N1-268: n1-queue --stop (user-confirmed) left a marker: close each unsettled worker's own terminal and record
+        # it stopped (a merged PR is only recorded), then stop launching; the loop ends through the end-of-queue
+        # branch and the final halt. A worker whose close failed keeps its row and identity and is supervised on.
+        if [ -f "$N1_QUEUE_DIR/.stop" ]; then
+            rm -f "$N1_QUEUE_DIR/.stop"
+            HALT_DRAIN="${HALT_DRAIN:-stopped by user}"
+            while IFS=$'\t' read -r -u 3 NUM TICKET N1H TASK DISP; do
+                n1_orca_stop_worker "$QUEUE" "$NUM" "$TICKET" "$N1H" "$TASK" "$DISP" "$ORCA_RUN" </dev/null \
+                    && { SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"; }
+            done 3< <(n1_orca_unsettled "$QUEUE")
+        fi
 
         INFLIGHT=0
         while IFS=$'\t' read -r -u 3 NUM TICKET REPO N1H MODEL STATUS; do
