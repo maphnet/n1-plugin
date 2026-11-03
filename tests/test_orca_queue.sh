@@ -91,6 +91,8 @@ reset
 eq "task-create: id" task-1 "$(n1_orca_task_create run-1 T-1)"
 has "task-create: empty deps (held rows stay merge-gated)" "--deps []" "$(calls)"
 has "task-create: spec invokes n1-start" "Invoke the n1-start skill for ticket T-1" "$(calls)"
+has "task-create: spec forbids heartbeats" "Do not send heartbeat messages" "$(calls)"
+has "task-create: spec names worker_done and ask" "send only worker_done and ask when needed" "$(calls)"
 reset
 eq "worker-start: dispatch" d-1 "$(n1_orca_worker_start run-1 task-1 T-1 /r sonnet)"
 has "worker-start: flags" "orchestration worker-start --run run-1 --task task-1 --worktree new-top-level --name T-1 --repo path:/r --agent claude --model sonnet" "$(calls)"

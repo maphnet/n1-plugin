@@ -38,7 +38,7 @@ n1_orca_task_create() {
     # --deps is always empty: same-plan blockers stay merge-gated held rows (N1-225 decision).
     local out id
     out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration task-create --run "$1" --task-title "$2" --deps '[]' \
-        --spec "Invoke the n1-start skill for ticket $2 (equivalent to /n1:n1-start $2).") || return 1
+        --spec "Invoke the n1-start skill for ticket $2 (equivalent to /n1:n1-start $2). Do not send heartbeat messages; liveness comes from Orca worker state, so send only worker_done and ask when needed.") || return 1
     id=$(jq -r '.result.task.id // .result.id // empty' <<<"$out" 2>/dev/null)
     _n1_orca_id "$id" || return 1
     printf '%s' "$id"
