@@ -8,6 +8,21 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 unset N1_RUN_ID N1_TRANSCRIPT_PATH N1_PARENT_SESSION_ID N1_SESSION_ID CLAUDE_CODE_SESSION_ID ORCA_CLI_COMMAND
 export N1_HOME="$T/home" N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 mkdir -p "$N1_HOME"
+mkfifo "$T/policy.req" "$T/policy.resp"
+python3 "$REPO_ROOT/tests/hooks_policy_server.py" "$REPO_ROOT/hooks/enforce-agent-policy.py" "$N1_HOME/config.json" "$REPO_ROOT" "$T" \
+    <"$T/policy.req" >"$T/policy.resp" 2>"$T/policy.err" &
+POLICY_PID=$!
+trap 'kill "$POLICY_PID" 2>/dev/null; rm -rf "$T"' EXIT
+exec 7>"$T/policy.req" 8<"$T/policy.resp"
+policy_rc() {  # policy_rc <env-assignments...> -- <command>; same contract as wrapper_rc, answered by the policy server
+    local rc
+    # a dead server must fail the assertions, not kill the script with SIGPIPE on the write; a hung one is killed after the
+    # first timeout so a late answer can never be read as the next case's verdict (request/response skew)
+    kill -0 "$POLICY_PID" 2>/dev/null || { echo "no-server"; return; }
+    printf '%s\0' "$@" >&7
+    read -r -t 30 rc <&8 || { rc="no-answer"; kill "$POLICY_PID" 2>/dev/null; }
+    echo "$rc"
+}
 cat > "$N1_HOME/config.json" <<'EOF'
 {"planReview":{"requirePlanApproval":true},"autonomy":{"brainstorm":"auto","acceptanceGate":"auto"}}
 EOF
@@ -74,7 +89,7 @@ assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
 mkdir -p "$N1_HOME/memory/T-9" "$N1_HOME/memory/T-8" "$T/wt"; ln -sf "$T/wt/f.txt" "$N1_HOME/memory/T-9/review-sec.md"
 echo '{"ticketId":"T-8"}' > "$N1_HOME/active-run.s-rev.json"
 rev_write_rc() {  # rev_write_rc <persona> <tool> <file_path>
-    local rc=0; jq -cn --arg a "n1:$1" --arg t "$2" --arg f "$3" '{agent_type:$a,tool_name:$t,session_id:"s-rev",tool_input:{file_path:$f}}' | bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+    policy_rc "@@json=$(jq -cn --arg a "n1:$1" --arg t "$2" --arg f "$3" '{agent_type:$a,tool_name:$t,session_id:"s-rev",tool_input:{file_path:$f}}')" -- ""  # N1-321: served
 }
 for P in code-reviewer security-reviewer; do
     OWN=cr; OTHER=sec; [ "$P" = security-reviewer ] && { OWN=sec; OTHER=cr; }
@@ -117,7 +132,7 @@ assert_eq "developer Write unscoped" 0 "$(rev_write_rc developer Write "$T/wt/f.
 # live-captured reviewer Write payload (N1-137): the real CC field set still scopes the Write
 RW="$FX/claude/pretooluse-reviewer-write.json"
 fx_write_rc() {  # fx_write_rc <file_path> [jq-filter]: captured payload with file_path (and optionally more) overridden
-    local rc=0; jq -c --arg f "$1" ".tool_input.file_path=\$f | ${2:-.}" "$RW" | bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+    policy_rc "@@json=$(jq -c --arg f "$1" ".tool_input.file_path=\$f | ${2:-.}" "$RW")" -- ""  # N1-321: served
 }
 assert_eq "captured payload: in-scope review-cr.md allowed" 0 "$(fx_write_rc "$N1_HOME/memory/T-8/review-cr.md")"
 assert_eq "captured payload: off-scope Write denied" 2 "$(fx_write_rc "$N1_HOME/memory/T-8/off-scope.md")"
@@ -177,21 +192,6 @@ wrapper_rc() {  # wrapper_rc <env-assignments...> -- <command>; prints the hook 
     while [ "$1" != "--" ]; do envs+=("$1"); shift; done; cmd=$2
     local p; p=$(jq -cn --arg c "$cmd" --arg cwd "$T" '{session_id:"s",cwd:$cwd,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c}}')
     local rc=0; printf '%s' "$p" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "${envs[@]}" bash "$POLICY" >/dev/null 2>&1 || rc=$?
-    echo "$rc"
-}
-mkfifo "$T/policy.req" "$T/policy.resp"
-python3 "$REPO_ROOT/tests/hooks_policy_server.py" "$REPO_ROOT/hooks/enforce-agent-policy.py" "$N1_HOME/config.json" "$REPO_ROOT" "$T" \
-    <"$T/policy.req" >"$T/policy.resp" 2>"$T/policy.err" &
-POLICY_PID=$!
-trap 'kill "$POLICY_PID" 2>/dev/null; rm -rf "$T"' EXIT
-exec 7>"$T/policy.req" 8<"$T/policy.resp"
-policy_rc() {  # policy_rc <env-assignments...> -- <command>; same contract as wrapper_rc, answered by the policy server
-    local rc
-    # a dead server must fail the assertions, not kill the script with SIGPIPE on the write; a hung one is killed after the
-    # first timeout so a late answer can never be read as the next case's verdict (request/response skew)
-    kill -0 "$POLICY_PID" 2>/dev/null || { echo "no-server"; return; }
-    printf '%s\0' "$@" >&7
-    read -r -t 30 rc <&8 || { rc="no-answer"; kill "$POLICY_PID" 2>/dev/null; }
     echo "$rc"
 }
 Q=(N1_QUEUE_RUN_ID=RUN1 N1_HEADLESS=1)
@@ -823,23 +823,31 @@ rm -rf "$N1_HOME/queue"
 
 # --- session-start: local-testing enable offer (NP-222) ----------------------
 LTP="$T/ltproj"; mkdir -p "$LTP"; touch "$LTP/compose.yaml"
-has_offer() {
-  local ctx
-  ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"$LTP\",\"source\":\"startup\"}" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext)
-  case "$ctx" in *"LOCAL TESTING OFFER"*) echo yes;; *) echo no;; esac
+# N1-321: the six offer cases are independent (config is the only input), so each runs concurrently against its own
+# N1_HOME copy; results are collected in order and asserted with the original labels.
+has_offer_bg() {  # has_offer_bg <idx> <config json> [project dir]: starts one session-start run, answer in $T/lt-<idx>.out
+  local d="$T/lt-$1"; mkdir -p "$d/home"; printf '%s\n' "$2" > "$d/home/config.json"
+  ( local ctx
+    ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"${3:-$LTP}\",\"source\":\"startup\"}" | N1_HOME="$d/home" N1_STATE_DIR="$d/state" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext)
+    case "$ctx" in *"LOCAL TESTING OFFER"*) echo yes;; *) echo no;; esac > "$d/out" ) &
+  LT_PIDS+=($!)
 }
+LT_PIDS=()
+has_offer_bg 1 '{}'
+has_offer_bg 2 '{"localTesting":{"autoLive":true}}'
+has_offer_bg 3 '{"localTesting":{"enabled":false,"autoLive":true}}'
+has_offer_bg 4 '{"localTesting":{"mode":"test"}}'
+has_offer_bg 5 '{"localTesting":{"enabled":false,"mode":"test"}}'
+mkdir -p "$T/ltproj-bare"; has_offer_bg 6 '{}' "$T/ltproj-bare"  # same project minus compose.yaml (no race with the runs above)
+wait "${LT_PIDS[@]}"  # not a bare wait: that would also wait for the policy server
+rm "$LTP/compose.yaml"
+assert_eq "enable offer injected when live is off and compose exists" "yes" "$(cat "$T/lt-1/out")"
+assert_eq "no enable offer when live already resolves" "no" "$(cat "$T/lt-2/out")"
+assert_eq "enable offer when localTesting disabled" "yes" "$(cat "$T/lt-3/out")"
+assert_eq "no enable offer when mode explicitly set to test" "no" "$(cat "$T/lt-4/out")"
+assert_eq "no enable offer even when disabled, if mode explicitly set (never overwrite a deliberate choice)" "no" "$(cat "$T/lt-5/out")"
+assert_eq "no enable offer without a compose file" "no" "$(cat "$T/lt-6/out")"
 echo '{}' > "$N1_HOME/config.json"
-assert_eq "enable offer injected when live is off and compose exists" "yes" "$(has_offer)"
-echo '{"localTesting":{"autoLive":true}}' > "$N1_HOME/config.json"
-assert_eq "no enable offer when live already resolves" "no" "$(has_offer)"
-echo '{"localTesting":{"enabled":false,"autoLive":true}}' > "$N1_HOME/config.json"
-assert_eq "enable offer when localTesting disabled" "yes" "$(has_offer)"
-echo '{"localTesting":{"mode":"test"}}' > "$N1_HOME/config.json"
-assert_eq "no enable offer when mode explicitly set to test" "no" "$(has_offer)"
-echo '{"localTesting":{"enabled":false,"mode":"test"}}' > "$N1_HOME/config.json"
-assert_eq "no enable offer even when disabled, if mode explicitly set (never overwrite a deliberate choice)" "no" "$(has_offer)"
-rm "$LTP/compose.yaml"; echo '{}' > "$N1_HOME/config.json"
-assert_eq "no enable offer without a compose file" "no" "$(has_offer)"
 
 # --- notify-question hook (N1-103) --------------------------------------------
 NQ="$REPO_ROOT/hooks/notify-question.sh"
@@ -851,8 +859,8 @@ echo '{}' > "$N1_HOME/config.json"
 nq() {  # nq [VAR=val ...] -> prints hook exit code; waits briefly for the backgrounded notifier
   local rc=0; : > "$NQLOG"
   echo '{"session_id":"s-nq","tool_name":"AskUserQuestion"}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID "$@" PATH="$NQBIN:$PATH" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
-  # poll for the notifier (exits as soon as it logs); the no-call cases wait the full 0.25 s
-  local i; for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$NQLOG" ] && break; sleep 0.025; done; echo "$rc"
+  # poll for the notifier (exits as soon as it logs); the no-call cases wait the full 0.1 s (a fake notifier logs within ms)
+  local i; for i in 1 2 3 4 5; do [ -s "$NQLOG" ] && break; sleep 0.02; done; echo "$rc"
 }
 assert_eq "notify-question: no active run -> exit 0" "0" "$(nq)"
 assert_eq "notify-question: no active run -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"

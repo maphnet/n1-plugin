@@ -7,6 +7,7 @@ reset to the startup environment minus N1_QUEUE_RUN_ID / N1_HEADLESS (what `env 
 call), the KEY=VALUE overrides are applied, and the hook module's own main() runs on the same Bash
 PreToolUse payload policy_rc built. The deny chain is never re-implemented here. The exit code is
 written as one line to stdout. A field "@KEY=VALUE" sets payload[KEY] and "@-KEY" deletes it (payload variants).
+"@@json=<payload>" replaces the whole payload (the command field is then ignored).
 """
 import contextlib
 import importlib.util
@@ -34,7 +35,7 @@ def fields():
             yield f.decode("utf-8", "surrogateescape")
 
 
-def run(env, pl, cmd):
+def run(env, pl, cmd, full=None):
     os.environ.clear()
     os.environ.update(BASE)
     os.environ.update(env)
@@ -44,6 +45,8 @@ def run(env, pl, cmd):
             obj.cache_clear()
     payload = {"session_id": "s", "cwd": payload_cwd, "hook_event_name": "PreToolUse",
                "tool_name": "Bash", "tool_input": {"command": cmd}}
+    if full is not None:
+        payload = json.loads(full)
     for k, v in pl.items():
         if v is None:
             payload.pop(k, None)
@@ -62,15 +65,17 @@ def run(env, pl, cmd):
 
 it = fields()
 for f in it:
-    env, pl = {}, {}
+    env, pl, full = {}, {}, None
     while f != "--":
         k, _, v = f.partition("=")
-        if k.startswith("@-"):
+        if k == "@@json":
+            full = v
+        elif k.startswith("@-"):
             pl[k[2:]] = None
         elif k.startswith("@"):
             pl[k[1:]] = v
         else:
             env[k] = v
         f = next(it)
-    sys.stdout.write(f"{run(env, pl, next(it))}\n")
+    sys.stdout.write(f"{run(env, pl, next(it), full)}\n")
     sys.stdout.flush()
