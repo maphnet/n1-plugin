@@ -238,16 +238,22 @@ n1_main_checkout() {
 
 n1_mcp_http_url() {
     # Usage: n1_mcp_http_url <server-name> — N1-314: Streamable HTTP url of a Claude Code MCP server, or rc 1.
-    # The first entry by that name decides: repo .mcp.json, then ~/.claude.json projects[<main checkout>]
-    # (worktrees have no entry of their own), then ~/.claude.json user scope. Only type "http" with an http(s) url.
-    local name="${1:-}" top main e=""
+    # Claude Code precedence, first entry by that name decides: ~/.claude.json projects[<main checkout>] (local scope;
+    # worktrees have no entry of their own), then repo .mcp.json only if the user approved the server there
+    # (enabledMcpjsonServers / enableAllProjectMcpServers, not disabledMcpjsonServers), then user scope.
+    # The repo file is attacker-controllable, so only a loopback http(s) url is ever returned.
+    local name="${1:-}" top main e="" cj="$HOME/.claude.json"
     [ -n "$name" ] && command -v jq >/dev/null 2>&1 || return 1
-    top=$(git rev-parse --show-toplevel 2>/dev/null) && [ -r "$top/.mcp.json" ] \
-        && e=$(jq -c --arg n "$name" '.mcpServers[$n] // empty' "$top/.mcp.json" 2>/dev/null)
     main=$(n1_main_checkout 2>/dev/null) || main=""
-    [ -n "$e" ] || e=$(jq -c --arg n "$name" --arg p "$main" \
-        '(.projects[$p].mcpServers[$n]? // .mcpServers[$n]?) // empty' "$HOME/.claude.json" 2>/dev/null)
-    jq -re 'select(.type == "http") | .url | strings | select(test("\\Ahttps?://[^[:space:][:cntrl:]]+\\z"))' <<<"$e" 2>/dev/null || return 1
+    e=$(jq -c --arg n "$name" --arg p "$main" '.projects[$p].mcpServers[$n]? // empty' "$cj" 2>/dev/null)
+    if [ -z "$e" ] && top=$(git rev-parse --show-toplevel 2>/dev/null) && [ -r "$top/.mcp.json" ] \
+        && jq -e --arg n "$name" --arg p "$main" '(.projects[$p]? // {}) as $x
+            | (($x.enabledMcpjsonServers // []) | index($n)) != null or $x.enableAllProjectMcpServers == true
+            | . and ((($x.disabledMcpjsonServers // []) | index($n)) == null)' "$cj" >/dev/null 2>&1; then
+        e=$(jq -c --arg n "$name" '.mcpServers[$n]? // empty' "$top/.mcp.json" 2>/dev/null)
+    fi
+    [ -n "$e" ] || e=$(jq -c --arg n "$name" '.mcpServers[$n]? // empty' "$cj" 2>/dev/null)
+    jq -re 'select(.type == "http") | .url | strings | select(test("\\Ahttps?://(127\\.0\\.0\\.1|localhost|\\[::1\\])(:[0-9]+)?(/[^[:space:][:cntrl:]]*)?\\z"))' <<<"$e" 2>/dev/null || return 1
 }
 
 n1_orca_unread_main() {
