@@ -238,10 +238,12 @@ check "finish Step 2 parses deployment actions" "deployment-actions\.md. § Pars
 check "finish Step 2 walks before-deploy items" "PHASE=before" "$F2"
 check "finish Step 2 queue/headless writes the runbook" "§ Runbook" "$F2"
 check "finish Step 2 aborted walk blocks the merge" "Merge blocked" "$F2"
+check "finish Step 2 defers Before release items" "### Before release. items are deferred" "$F2"
 F4=skills/n1-finish/steps/04-close-ticket.md
 check "finish Step 4 walks after-deploy items" "PHASE=after" "$F4"
 check "finish Step 4 asks when no deploy was watched" "§ Unwatched Deploy" "$F4"
 check "finish Step 4 clears deploy_pending" "deploy_pending false" "$F4"
+check "finish Step 4 lists release-scoped items as deferred to release" "Deferred to release \(n1-release walks these before the tag push\)" "$F4"
 before "finish: after-deploy follows the delivery gate" "03b-ssh-deploy.md" "deployment-actions.md" "$F4"
 
 # --- n1-release
@@ -250,6 +252,7 @@ check "release collects actions before the tag exists" "deployment-actions\.md. 
 check "release maps pending batch SHAs to PRs" "merged_sha" "$R1"
 check "release scans merge-commit PR refs too" "Merge pull request #" "$R1"
 check "release writes the shared TSV" "release-actions\.tsv" "$R1"
+check "release Parse includes Before release items" 'RELEASE_ROWS="include"' "$R1"
 check "release previous-tag resolution excludes the target tag itself" 'grep -v -x "\$TAG"' "$R1"
 check "release scan range uses the release target, not bare HEAD" 'RELEASE_TARGET="\$\{MERGE_SHA:-HEAD\}"' "$R1"
 check "release scan range is used for the git log scan" '\$\{PREV_TAG\}\.\.\$\{RELEASE_TARGET\}' "$R1"
