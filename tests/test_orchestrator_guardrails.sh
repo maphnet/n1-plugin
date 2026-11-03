@@ -231,38 +231,56 @@ assert_contains "n1-finish: local merge report label" \
     "skills/n1-finish/steps/06-cleanup.md" \
     'by <reviewer|n1-finish (mergeOnFinish)|local merge>'
 
-# N1-300 / AC4 — regression fixture of N1-268 (20261102T172042Z): the 19:35:18Z interim developer
-# notice, the 19:35:19Z implementer "finished" notice, and the 19:46:18Z developer final that reached
-# the orchestrator. Each event must carry its marker text, and each must map to rule text that
-# resumes a subagent instead of ending the step. Static: this pins wording and classification text,
-# not live harness behaviour. The live check is AC1 (a queue run with a background-test developer).
+# N1-300 / AC4 — regression fixture of N1-268 (20261102T172042Z) plus a synthetic no-waiting-text
+# "finished" notice. Each event is classified from its real text: it must contain a trigger phrase that
+# the rule names (so editing either the rule or the text turns the check red), or be not-final
+# (a nested persona's notice, or no DONE/BLOCKED status while the Wait Contract names that status).
+# Static: not live harness behaviour. The live check is AC1 (a queue run with a background-test developer).
 check_nested_wait_fixture() {
     local fix="tests/fixtures/notifications/n1-268-nested-wait.txt"
-    local block="" events=0 line text spec file phrase
+    local block="" events=0 line spec file phrase kind dispatched="" id
+    local gates="skills/n1-start/procedures/output-gates.md"
     if [ ! -f "$REPO_ROOT/$fix" ]; then
         echo "FAIL: nested-wait fixture missing ($fix)"; FAIL=$((FAIL+1)); return
     fi
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
             "=== "*) block=""; events=$((events+1)) ;;
-            "# expect-text: "*)
-                text="${line#"# expect-text: "}"
-                if [[ "$block" == *"$text"* ]]; then
-                    echo "PASS: fixture event $events carries: $text"; PASS=$((PASS+1))
+            "# dispatched: "*) dispatched="${line#"# dispatched: "}" ;;
+            "# trigger: "*)
+                spec="${line#"# trigger: "}"; file="${spec%% :: *}"; phrase="${spec#* :: }"
+                if [[ "$block" == *"$phrase"* ]]; then
+                    echo "PASS: fixture event $events text carries trigger: $phrase"; PASS=$((PASS+1))
                 else
-                    echo "FAIL: fixture event $events lacks: $text"; FAIL=$((FAIL+1))
+                    echo "FAIL: fixture event $events text lacks trigger: $phrase"; FAIL=$((FAIL+1))
+                fi
+                assert_contains "fixture event $events trigger named by $file" "$file" "$phrase" ;;
+            "# not-final: "*)
+                kind="${line#"# not-final: "}"
+                if [ "$kind" = nested ]; then
+                    id="$(sed -n 's/.*<task-id>\(.*\)<\/task-id>.*/\1/p' <<<"$block")"
+                    if [ -n "$id" ] && [ "$id" != "$dispatched" ]; then
+                        echo "PASS: fixture event $events is a nested persona notice"; PASS=$((PASS+1))
+                    else
+                        echo "FAIL: fixture event $events is not a nested persona notice"; FAIL=$((FAIL+1))
+                    fi
+                else
+                    if [[ "$block" =~ \<result\>[[:space:]]*(DONE|BLOCKED) ]]; then
+                        echo "FAIL: fixture event $events has a final status but is marked no-status"; FAIL=$((FAIL+1))
+                    else
+                        echo "PASS: fixture event $events has no DONE/BLOCKED status"; PASS=$((PASS+1))
+                    fi
+                    assert_contains "fixture event $events: Wait Contract keys on final status" \
+                        "$gates" "lacks that persona's documented final status"
                 fi ;;
-            "# rule: "*)
-                spec="${line#"# rule: "}"; file="${spec%% :: *}"; phrase="${spec#* :: }"
-                assert_contains "fixture event $events handled by $file" "$file" "$phrase" ;;
             "#"*) ;;
             *) block+="$line"$'\n' ;;
         esac
     done < "$REPO_ROOT/$fix"
-    if [ "$events" -eq 3 ]; then
-        echo "PASS: nested-wait fixture has 3 events"; PASS=$((PASS+1))
+    if [ "$events" -eq 4 ]; then
+        echo "PASS: nested-wait fixture has 4 events"; PASS=$((PASS+1))
     else
-        echo "FAIL: nested-wait fixture has $events events, want 3"; FAIL=$((FAIL+1))
+        echo "FAIL: nested-wait fixture has $events events, want 4"; FAIL=$((FAIL+1))
     fi
 }
 check_nested_wait_fixture

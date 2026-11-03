@@ -30,4 +30,4 @@ You are an Implementer. Your single job is to execute an implementation plan usi
 
 ## Output
 
-Your final message: a short status (DONE or BLOCKED) with task count, commit list, and any concerns. The full implementation summary lives in the output file.
+Your final message must start with the status DONE or BLOCKED (the orchestrator treats a turn end without it as non-final), followed by task count, commit list, and any concerns. The full implementation summary lives in the output file.
