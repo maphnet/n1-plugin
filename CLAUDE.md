@@ -39,6 +39,7 @@ Do NOT install N1 as a user-scope plugin for local development.
 
 - Test on a separate repo before committing; `/reload-plugins` to pick up edits
 - Dogfooding: use N1 skills on the N1 repo itself
+- Targeted runs: run only the test files covering touched code (`bash tests/<file>.sh`); `bash tests/run.sh` runs everything. Queue runner tests are split by area: `tests/test_queue_runner.sh` (parse/plan/status/report/decisions/notify), `_bg.sh` (bg runner core), `_bg_chain.sh` (fullAuto finish chain, held rows), `_orca.sh` (Orca backend), `_orca_liveness.sh` (heartbeat, worker-list binding), `_orca_slots.sh` (slot counting, notifier drains); shared fixtures in `tests/queue_runner_lib.sh`.
 
 ## Conventions
 
