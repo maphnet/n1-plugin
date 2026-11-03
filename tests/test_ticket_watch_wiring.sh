@@ -12,7 +12,13 @@ check "SKILL.md check-point pointer" "procedures/ticket-watch\.md § Check\` bef
 check "analysis seeds the watch" "procedures/ticket-watch\.md § Seed" skills/n1-start/steps/analysis.md
 check "procedure has Seed" "^## § Seed" "$P"
 check "procedure has Check" "^## § Check" "$P"
-check "Check fetches issue and first page in one turn" '1\. In one turn, call `mcp__<WATCH_MCP>__jcm_getIssue`' "$P"
+check "Check fetches issue and first page in one turn" 'CHANGED since <SINCE>; \.\.\.`: in one turn, call `mcp__<WATCH_MCP>__jcm_getIssue`' "$P"
+check "Check reads the unchanged line" '`ticket-watch: unchanged`: continue' "$P"
+check "Check reads the next-page line" '`ticket-watch: fetch next changelog page since <S>`' "$P"
+check "Check reads the own-only line" '`ticket-watch: no external change`' "$P"
+check "digest line goes to React" '`ticket-watch: digest .*ticket-watch-react\.md.*§ React' "$P"
+check "single fallback statement" '^\*\*Fallback \(the only one\):\*\* .*no `ticket-watch:` line' "$P"
+check "hook emits additionalContext" 'additionalContext' hooks/ticket-watch-capture.sh
 check "procedure falls back on TW_MISSING" "TW_MISSING" "$P"
 check "probe read guarded by n1_tw_need" 'n1_tw_need "\$M/\.tw-probe\.json"' "$P"
 check "delta read guarded by n1_tw_need" 'n1_tw_need "\$M/\.tw-issue\.json" "\$M/\.tw-log-1\.json"' "$P"
