@@ -1625,6 +1625,11 @@ test_story_epic_wiring() {
     assert_eq "epic-wiring: story JQL line unchanged" "yes" "$(hasX '- **Jira:** call `mcp__<TRACKER_MCP>__<SEARCH_OP>` with JQL `parent = <STORY_ID> ORDER BY created ASC`. Include `cloudId`.' "$s/intake.md")"
     assert_eq "epic-wiring: zero-subtask STOP line unchanged" "yes" "$(hasX '- **Zero subtasks** (parsed empty result, any status): print "no subtasks — run /n1:n1-start <STORY_ID>" and **STOP** (no queue is built).' "$s/intake.md")"
     assert_eq "epic-wiring: story subtask Reason kept" "yes" "$(hasF '`story subtask` for story-mode candidates found via subtask enumeration' "$s/intake.md")"
+    # Preview hierarchy (display-only, schema unchanged)
+    assert_eq "epic-wiring: preview prints Hierarchy only for epic Reasons (contains, not starts-with)" "yes" "$(hasF 'When any candidate'"'"'s Reason contains `epic subtask of ` or `epic child`' "$s/preview.md")"
+    assert_eq "epic-wiring: preview Hierarchy line format" "yes" "$(hasX 'Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #3, #4, #5' "$s/preview.md")"
+    assert_eq "epic-wiring: Hierarchy uses post-reorder numbers and is display-only" "yes" "$(hasF 'Grouping is display-only' "$s/preview.md")"
+    assert_eq "epic-wiring: Prompt re-print includes the Hierarchy block" "yes" "$(hasF 'Print the plan table again (Reason now carries Order notes) and the Hierarchy block when it applies' "$s/preview.md")"
 }
 
 

@@ -21,5 +21,11 @@ check "intake.md enumerates Epic Reason values after story subtask (N1-298)" \
 check "preview.md plan table header includes Reason column" \
     '\| # \| Ticket \| Title \| Repo \| Model \| Reason \|' \
     skills/n1-queue/steps/preview.md
+check "preview.md prints a Hierarchy block for epic rows (N1-298)" \
+    '^Hierarchy:$' \
+    skills/n1-queue/steps/preview.md
+check "preview.md Hierarchy groups rows under their Story (N1-298)" \
+    '^Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #' \
+    skills/n1-queue/steps/preview.md
 
 exit $FAIL
