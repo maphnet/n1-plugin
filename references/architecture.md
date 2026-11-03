@@ -564,7 +564,7 @@ With Orca running, `scripts/n1-queue-run.sh` creates one Orca Run per queue run 
 - **Resume.** A queue with `orca_run_id` runs `run-use --id`, then adopts its rows; it never relaunches them. If the Run is unreachable, the queue halts.
 - **Unchanged.** Held rows stay merge-gated (`n1_queue_held_sweep`; no Orca `--deps`). The fullAuto chain and DRAIN stay bg sessions. In Orca mode the chain starts when the worker settles, not at finalize.
 - **Launch guards.** A ticket whose name is already an Orca worktree folder fails its row (`orca-worktree-name-taken`) before any task is created, because the loader matches the sentinel by folder name. A failed `worker-start` is final (no deferred retry); Orca forbids a blind relaunch. Hooks key the loader on `CLAUDE_PROJECT_DIR` (the session root), since the hook cwd follows the child's `cd`.
-- **Residual risks.** A child that deletes its own sentinel drops the hook-side queue identity (merge-deny) for its later calls. Sentinels of workers that never settle remain until they go stale. Orchestration receipt shapes are parsed defensively and must be pinned by the live check.
+- **Residual risks.** A child that deletes its own sentinel drops the hook-side queue identity (merge-deny) for its later calls. Sentinels of workers that never settle remain until they go stale. `n1_orca` passes `--full` on `orchestration` calls (Orca 1.4.247 made concise receipts the default; other commands reject the flag), so parsers read the full receipt shape. Orchestration receipt shapes are parsed defensively and must be pinned by the live check.
 
 ### Scheduled queue runs (N1-226)
 

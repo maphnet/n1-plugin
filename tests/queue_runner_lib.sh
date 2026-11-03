@@ -180,14 +180,17 @@ ok() { printf '{"id":"1","ok":true,"result":%s}\n' "$1"; }
 err() { printf '{"id":"1","ok":false,"error":{"code":"x","message":"%s"}}\n' "$1"; exit 1; }
 arg() { local k="$1"; shift; while [ $# -gt 0 ]; do [ "$1" = "$k" ] && { printf '%s' "$2"; return; }; shift; done; }
 msg() { jq -cn --arg y "$1" --arg k "$2" --arg i "$3" '{id: $i, type: $y, payload: ({taskId: $k, dispatchId: ("d-" + ($k | ltrimstr("task-")))} | tojson)}'; }   # real shape: ids only in the payload string
+full=0; for a in "$@"; do [ "$a" = --full ] && full=1; done
+# Real 1.4.247 CLI: concise receipts unless --full; --full is an unknown flag outside orchestration.
+[ "$full" = 1 ] && [ "$1" != orchestration ] && { printf '{"id":"1","ok":false,"error":{"code":"invalid_argument","message":"Unknown flag --full"}}\n'; exit 1; }
 case "$1 $2" in
   "status --json") [ -n "${FAKE_ORCA_DOWN:-}" ] && err "runtime down"; ok '{"runtime":{"reachable":true}}' ;;
   "orchestration run-create") [ -n "${FAKE_ORCA_RUN_FAIL:-}" ] && err "unknown command"
       [ -n "${FAKE_ORCA_SINK_REFUSE:-}" ] && [ "${ORCA_TERMINAL_HANDLE:-}" = "$(cat "$D/sink" 2>/dev/null)" ] && err "not your terminal"
-      ok '{"run":{"id":"run-1"}}' ;;
+      if [ "$full" = 1 ]; then ok '{"run":{"id":"run-1"}}'; else ok '{"runId":"run-1","objective":"x"}'; fi ;;
   "terminal create") [ -f "$D/sink" ] || err "no terminals"; ok "{\"terminal\":{\"handle\":\"$(cat "$D/sink")\"}}" ;;
   "orchestration run-use") [ -n "${FAKE_ORCA_RUNUSE_FAIL:-}" ] && err "no such run"; ok '{}' ;;
-  "orchestration task-create") [ -n "${FAKE_ORCA_TASK_FAIL:-}" ] && err "task-create failed"; ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}" ;;
+  "orchestration task-create") [ -n "${FAKE_ORCA_TASK_FAIL:-}" ] && err "task-create failed"; if [ "$full" = 1 ]; then ok "{\"task\":{\"id\":\"task-$(arg --task-title "$@")\"}}"; else ok "{\"taskId\":\"task-$(arg --task-title "$@")\",\"status\":\"ready\"}"; fi ;;
   "orchestration worker-start")
       task=$(arg --task "$@"); t="${task#task-}"
       [ -n "${FAKE_ORCA_START_FAIL:-}" ] && err "lost response"

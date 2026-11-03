@@ -26,13 +26,17 @@ printf '%s\n' "$*" >> "$FAKE/calls"
 ok() { printf '{"id":"1","ok":true,"result":%s}\n' "$1"; }
 err() { printf '{"id":"1","ok":false,"error":{"code":"x","message":"%s","data":{"failedStage":"%s"}}}\n' "$1" "${2:-}"; exit 1; }
 has() { local k="$1"; shift; for a; do [ "$a" = "$k" ] && return 0; done; return 1; }
+# Real 1.4.247 CLI: concise receipts unless --full; --full is an unknown flag outside orchestration.
+if has --full "$@" && [ "$1" != orchestration ]; then err "Unknown flag --full" invalid_argument; fi
 case "$1 $2" in
   "status --json") [ -n "${FAKE_ORCA_DOWN:-}" ] && err "runtime down"; ok '{"runtime":{"reachable":true}}' ;;
-  "orchestration run-create") [ -n "${FAKE_ORCA_RUN_FAIL:-}" ] && err "unknown command"; ok "{\"run\":{\"id\":\"${FAKE_ORCA_RUN_ID:-run-1}\"}}" ;;
-  "orchestration task-create") ok '{"task":{"id":"task-1"}}' ;;
+  "orchestration run-create") [ -n "${FAKE_ORCA_RUN_FAIL:-}" ] && err "unknown command"; 
+      if has --full "$@"; then ok "{\"run\":{\"id\":\"${FAKE_ORCA_RUN_ID:-run-1}\"}}"; else ok "{\"runId\":\"${FAKE_ORCA_RUN_ID:-run-1}\",\"objective\":\"x\"}"; fi ;;
+  "orchestration task-create") if has --full "$@"; then ok '{"task":{"id":"task-1"}}'; else ok '{"taskId":"task-1","status":"ready"}'; fi ;;
   "orchestration worker-start")
       has --model "$@" && [ -n "${FAKE_ORCA_MODEL_REJECT:-}" ] && err "unsupported model" validate
       [ -n "${FAKE_ORCA_START_FAIL:-}" ] && err "setup failed" worktree-setup
+      [ -n "${FAKE_ORCA_START_RC1:-}" ] && { ok '{"dispatch":{"id":"d-1"}}'; exit 1; }   # ok:true receipt, exit 1
       ok '{"dispatch":{"id":"d-1"}}' ;;
   "orchestration send"|"orchestration reply") [ -n "${FAKE_ORCA_REPLY_FAIL:-}" ] && err "reply failed"
       [ -n "${FAKE_COORD_DEAD:-}" ] && has --from "$@" && err "terminal not found"; ok '{}' ;;
@@ -107,6 +111,10 @@ eq "run-create: unavailable -> rc 1" 1 "$(FAKE_ORCA_RUN_FAIL=1 rc n1_orca_run_cr
 eq "run-create: unsafe id rejected" 1 "$(FAKE_ORCA_RUN_ID='a|b' rc n1_orca_run_create q1)"
 reset
 eq "task-create: id" task-1 "$(n1_orca_task_create run-1 T-1)"
+has "full: task-create argv ends --full --json" "--full --json" "$(calls)"
+n1_orca status >/dev/null; n1_orca worktree list >/dev/null
+eq "full: status and worktree list never get --full" 0 "$(calls | grep -E '^(status|worktree list)' | grep -c -- --full)"
+has "worker-start: ok:true receipt with exit 1 still returns the dispatch id" d-1 "$(FAKE_ORCA_START_RC1=1 n1_orca_worker_start run-1 task-1 T-1 /r '')"
 has "task-create: empty deps (held rows stay merge-gated)" "--deps []" "$(calls)"
 has "task-create: spec invokes n1-start" "Invoke the n1-start skill for ticket T-1" "$(calls)"
 has "task-create: spec forbids heartbeats" "Do not send heartbeat messages" "$(calls)"
@@ -382,7 +390,7 @@ export FAKE_INBOX="$(QM m-13 task-1 d-1)"; rm -f "$Q/.ask-T-1"
 eq "pending: dead coordinator terminal -> scan retried as the caller" "$(printf '1\tT-1\tm-13')" "$(FAKE_COORD_DEAD=1 n1_orca_pending_questions "$Q")"
 printf 'm-13\n' > "$Q/.ask-T-1"; printf 'Use C' > "$N1_HOME/queue/.answer-T-1.txt"; reset
 has "answer: dead coordinator terminal -> still delivered" "answer delivered to T-1" "$(FAKE_COORD_DEAD=1 n1_queue_answer "$N1_HOME" T-1 2>&1)"
-has "answer: the retry carries no --from" "orchestration reply --id m-13 --body Use C --run run-1 --json" "$(calls)"
+has "answer: the retry carries no --from" "orchestration reply --id m-13 --body Use C --run run-1 --full --json" "$(calls)"
 # Bug caught: a done queue with a parked Orca row never scanned the inbox, so a second question surfaced nowhere.
 n1_write_frontmatter "$Q/queue.md" step done
 n1_queue_row_status "$Q/queue.md" 1 awaiting-human
