@@ -97,9 +97,11 @@ chmod +x "$T/bin/gh"
 S=0123456789abcdef0123456789abcdef01234567
 O=fedcba9876543210fedcba9876543210fedcba98
 export N1_HOME="$T/home" N1_STATE_DIR="$T/state" CFG="$ROOT/lib/config.sh"
+source "$CFG"   # N1-321: once; pre/mrg/res run their snippet in a subshell instead of a fresh bash that re-sources config.sh
+export MERGE_REREAD_SLEEP=0   # N1-321: the merge re-read poll sleeps 3 s per extra poll; no assertion depends on the delay
 PIN="$T/home/review-pins/o_r_7"; mkdir -p "${PIN%/*}"; echo "$S" > "$PIN"
 
-pre() { OUT=$(cd "${WD:-$T}" && PATH="$T/bin:$PATH" HEADSHA=${HS-$S} bash -c 'source "$CFG"; '"$PRE" 2>&1); }
+pre() { OUT=$(exec 2>&1; cd "${WD:-$T}" || exit; set +u +o pipefail; export PATH="$T/bin:$PATH" HEADSHA="${HS-$S}"; eval "$PRE"); }
 CHECKS='[{"bucket":"pass"},{"bucket":"skipping"}]' pre
 has "pre: green CI" "checks:fail=0 pending=0"
 has "pre: head sha printed" "head:$S"
@@ -152,7 +154,7 @@ has "pre: no checks, no workflow -> checks:none" "checks:none"
 TN='7;x' pre
 has "pre: non-digit PR rejected" "pr:invalid"
 
-mrg() { : > "$T/log"; OUT=$(PATH="$T/bin:$PATH" LOG="$T/log" TH="${TH-$S}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$MRG" 2>&1); ARGS=$(cat "$T/log"); }
+mrg() { : > "$T/log"; OUT=$(exec 2>&1; set +u +o pipefail; export PATH="$T/bin:$PATH" LOG="$T/log" TH="${TH-$S}"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; eval "$MRG"); ARGS=$(cat "$T/log"); }
 V="{\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"$S\"}}"
 VIEW=$V mrg
 has "merge: announces method" "mergeOnFinish=true: merging PR #7 (squash)"
@@ -248,7 +250,7 @@ fx() { # <base-ver> <main-ver> <pr-ver>; SRC_PR / SRC_MAIN add conflicting src.t
   OH=$(git -C "$G/w" rev-parse HEAD); echo "$OH" > "$PIN"; SN=
 }
 gw() { git -C "$G/w" "$@"; }
-res() { OUT=$(cd "$G/w" && PATH="$T/bin:$PATH" TH="${TH-$OH}" TSNAP="${TSNAP-$SN}" bash -c 'source "$CFG"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; '"$RES" 2>&1); s=$(sed -n 's/.* snap=\([0-9a-f]*\) .*/\1/p' <<<"$OUT"); [ -z "$s" ] || SN=$s; }
+res() { OUT=$(exec 2>&1; cd "$G/w" || exit; set +u +o pipefail; export PATH="$T/bin:$PATH" TH="${TH-$OH}" TSNAP="${TSNAP-$SN}"; n1_finish_merge_enabled() { echo "${MERGE_KEY-true}"; }; n1_fullauto_enabled() { echo "${FA_KEY-false}"; }; eval "$RES"); s=$(sed -n 's/.* snap=\([0-9a-f]*\) .*/\1/p' <<<"$OUT"); [ -z "$s" ] || SN=$s; }
 intact() { # branch at the reviewed head, no rebase, clean tree, origin and pin unchanged
   if [ "$(gw rev-parse HEAD)" = "$OH" ] && [ ! -d "$G/w/.git/rebase-merge" ] && [ -z "$(gw status --porcelain --untracked-files=no)" ] \
      && [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "$1"; else no "$1"; fi

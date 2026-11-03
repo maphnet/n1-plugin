@@ -9,8 +9,8 @@ test_orca_owed_holds_slot() {   # an unsettled finished worker still counts towa
     mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 1'
     wl_set "$tmp" "$(wl_row T-A running)"
     touch "$tmp/fake/nodone.T-A"
-    # T-A's worker is still running after its PR (AC3: never settled); the runner waits on it by design; bound the run.
-    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    # T-A's worker is still running after its PR (AC3: never settled); the runner waits on it by design; the tick cap ends the run.
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-owed-slot: T-B does not start while T-A's worker is unsettled" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
     rm -rf "$tmp"
 }
@@ -18,12 +18,12 @@ test_orca_owed_holds_slot() {   # an unsettled finished worker still counts towa
 test_orca_notifier_drain_keeps_rows() {   # N1-265: a stdin-draining notifier must not hide in-flight rows from the slot count
     local tmp t; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done" "T-E:done"; mk_orca "$tmp"
-    cfg_set "$tmp" '.queue.maxConcurrent = 3 | .queue.subtaskTimeoutMinutes = 600'; drain_notifier "$tmp"   # N1-267: no timeouts, so rows stay in flight; the 20 s bound ends the run
+    cfg_set "$tmp" '.queue.maxConcurrent = 3 | .queue.subtaskTimeoutMinutes = 600'; drain_notifier "$tmp"   # N1-267: no timeouts, so rows stay in flight; the tick cap ends the run
     for t in T-A T-B T-C T-D; do echo implement > "$tmp/fake/step.$t"; done
     : > "$tmp/fake/nodone.T-B"; : > "$tmp/fake/nodone.T-C"; : > "$tmp/fake/nodone.T-D"
     # Tick 2: T-A's worker reports done without a terminal step -> failed (notifies) while T-B and T-C are in flight.
-    # T-B/T-C/T-D never finish; the run ends on the bound.
-    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    # T-B/T-C/T-D never finish; the run ends on the tick cap.
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-drain: notifier fired" "yes" "$([ -s "$tmp/fake/drained" ] && echo yes || echo no)"
     assert_eq "orca-drain: T-A failed" "failed|child-exited-incomplete" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     assert_eq "orca-drain: freed slot refilled once" "1" "$(grep -c -- "--task task-T-D" "$tmp/fake/orca-calls" || true)"
@@ -38,7 +38,7 @@ test_orca_event_drain_keeps_events() {   # N1-265: an escalation's notifier must
     : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
     # One batch (emitted once both workers started): T-A escalates (notifies), then T-B's worker reports done.
     printf '%s,%s' "$(orca_msg escalation task-T-A m-e1)" "$(orca_msg worker_done task-T-B m-d1)" > "$tmp/fake/question"
-    timeout 20 bash -c "REPO_ROOT='$REPO_ROOT'; $(declare -f run_orca_queue); run_orca_queue '$tmp'" > /dev/null 2>&1 || true
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-event-drain: notifier fired" "yes" "$([ -s "$tmp/fake/drained" ] && echo yes || echo no)"
     # A lost worker_done leaves T-B to time out instead (subtask-timeout).
     assert_eq "orca-event-drain: worker_done after the escalation still processed" "failed|child-exited-incomplete" \

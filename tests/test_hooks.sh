@@ -8,6 +8,21 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 unset N1_RUN_ID N1_TRANSCRIPT_PATH N1_PARENT_SESSION_ID N1_SESSION_ID CLAUDE_CODE_SESSION_ID ORCA_CLI_COMMAND
 export N1_HOME="$T/home" N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 mkdir -p "$N1_HOME"
+mkfifo "$T/policy.req" "$T/policy.resp"
+python3 "$REPO_ROOT/tests/hooks_policy_server.py" "$REPO_ROOT/hooks/enforce-agent-policy.py" "$N1_HOME/config.json" "$REPO_ROOT" "$T" \
+    <"$T/policy.req" >"$T/policy.resp" 2>"$T/policy.err" &
+POLICY_PID=$!
+trap 'kill "$POLICY_PID" 2>/dev/null; rm -rf "$T"' EXIT
+exec 7>"$T/policy.req" 8<"$T/policy.resp"
+policy_rc() {  # policy_rc <env-assignments...> -- <command>; same contract as wrapper_rc, answered by the policy server
+    local rc
+    # a dead server must fail the assertions, not kill the script with SIGPIPE on the write; a hung one is killed after the
+    # first timeout so a late answer can never be read as the next case's verdict (request/response skew)
+    kill -0 "$POLICY_PID" 2>/dev/null || { echo "no-server"; return; }
+    printf '%s\0' "$@" >&7
+    read -r -t 30 rc <&8 || { rc="no-answer"; kill "$POLICY_PID" 2>/dev/null; }
+    echo "$rc"
+}
 cat > "$N1_HOME/config.json" <<'EOF'
 {"planReview":{"requirePlanApproval":true},"autonomy":{"brainstorm":"auto","acceptanceGate":"auto"}}
 EOF
@@ -74,7 +89,7 @@ assert_eq "foreign agent passthrough" "0:" "$RC:$OUT"
 mkdir -p "$N1_HOME/memory/T-9" "$N1_HOME/memory/T-8" "$T/wt"; ln -sf "$T/wt/f.txt" "$N1_HOME/memory/T-9/review-sec.md"
 echo '{"ticketId":"T-8"}' > "$N1_HOME/active-run.s-rev.json"
 rev_write_rc() {  # rev_write_rc <persona> <tool> <file_path>
-    local rc=0; jq -cn --arg a "n1:$1" --arg t "$2" --arg f "$3" '{agent_type:$a,tool_name:$t,session_id:"s-rev",tool_input:{file_path:$f}}' | bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+    policy_rc "@@json=$(jq -cn --arg a "n1:$1" --arg t "$2" --arg f "$3" '{agent_type:$a,tool_name:$t,session_id:"s-rev",tool_input:{file_path:$f}}')" -- ""  # N1-321: served
 }
 for P in code-reviewer security-reviewer; do
     OWN=cr; OTHER=sec; [ "$P" = security-reviewer ] && { OWN=sec; OTHER=cr; }
@@ -117,7 +132,7 @@ assert_eq "developer Write unscoped" 0 "$(rev_write_rc developer Write "$T/wt/f.
 # live-captured reviewer Write payload (N1-137): the real CC field set still scopes the Write
 RW="$FX/claude/pretooluse-reviewer-write.json"
 fx_write_rc() {  # fx_write_rc <file_path> [jq-filter]: captured payload with file_path (and optionally more) overridden
-    local rc=0; jq -c --arg f "$1" ".tool_input.file_path=\$f | ${2:-.}" "$RW" | bash "$POLICY" >/dev/null 2>&1 || rc=$?; echo "$rc"
+    policy_rc "@@json=$(jq -c --arg f "$1" ".tool_input.file_path=\$f | ${2:-.}" "$RW")" -- ""  # N1-321: served
 }
 assert_eq "captured payload: in-scope review-cr.md allowed" 0 "$(fx_write_rc "$N1_HOME/memory/T-8/review-cr.md")"
 assert_eq "captured payload: off-scope Write denied" 2 "$(fx_write_rc "$N1_HOME/memory/T-8/off-scope.md")"
@@ -167,8 +182,12 @@ pyroot_rc() {  # pyroot_rc <file_path>: reviewer Write straight into the hook wi
 assert_eq "missing persona file: reviewer Write outside findings path denied" 2 "$(pyroot_rc "$T/alt/config.json")"
 assert_eq "missing persona file: reviewer Write to findings path allowed" 0 "$(pyroot_rc "$T/alt/memory/T-9/review-cr.md")"
 
+# N1-321: the wrapper's fail-closed rc mapping (no python, crash, missing config) is covered only by wrapper_rc/raw_rc cases, never by policy_rc.
 # --- enforce-agent-policy: merge deny (N1-146; N1-167: only unattended sessions and active N1 runs, unless n1_merge_authorized) ---
-policy_rc() {  # policy_rc <env-assignments...> -- <command>; prints the hook exit code
+# N1-321: policy_rc is answered by one in-process policy server (tests/hooks_policy_server.py runs the hook's own
+# main() per case), so the tables below cost no process spawn per command. wrapper_rc keeps the full bash-wrapper
+# path for the end-to-end cases (no Python, crashes, missing config) and the wrapper smoke checks.
+wrapper_rc() {  # wrapper_rc <env-assignments...> -- <command>; prints the hook exit code
     local envs=() cmd
     while [ "$1" != "--" ]; do envs+=("$1"); shift; done; cmd=$2
     local p; p=$(jq -cn --arg c "$cmd" --arg cwd "$T" '{session_id:"s",cwd:$cwd,hook_event_name:"PreToolUse",tool_name:"Bash",tool_input:{command:$c}}')
@@ -244,11 +263,18 @@ for c in "git merge-base HEAD origin/main" "git merge origin/main" "git push ori
     assert_eq "queue headless: allowed: $c" 0 "$(policy_rc "${Q[@]}" -- "$c")"
     assert_eq "interactive: allowed: $c" 0 "$(policy_rc -- "$c")"
 done
+# N1-321: the tables above are answered by the policy server; these prove the bash wrapper reaches the same verdicts
+for c in "gh pr merge 12" "git push origin HEAD:main"; do
+    assert_eq "wrapper: queue headless: denied: $c" 2 "$(wrapper_rc "${Q[@]}" -- "$c")"
+    assert_eq "wrapper: interactive: denied: $c" 2 "$(wrapper_rc -- "$c")"
+done
+assert_eq "wrapper: queue headless: allowed: gh pr view 12" 0 "$(wrapper_rc "${Q[@]}" -- "gh pr view 12")"
+assert_eq "wrapper: interactive: allowed: gh pr view 12" 0 "$(wrapper_rc -- "gh pr view 12")"
 # CR-11: no working Python -> queue-child Bash fails closed; other payloads stay fail-open
 mkdir -p "$T/nopy"; printf '#!/bin/sh\nexit 1\n' > "$T/nopy/python3"; cp "$T/nopy/python3" "$T/nopy/python"; chmod +x "$T/nopy/"*
-assert_eq "no python: queue headless Bash denied" 2 "$(PATH="$T/nopy:$PATH" policy_rc "${Q[@]}" -- "gh pr view 1")"
-assert_eq "no python: non-queue Bash allowed" 0 "$(PATH="$T/nopy:$PATH" policy_rc -- "gh pr view 1")"
-assert_eq "no python: interactive merge fails open (warned)" 0 "$(PATH="$T/nopy:$PATH" policy_rc -- "gh pr merge 1")"
+assert_eq "no python: queue headless Bash denied" 2 "$(PATH="$T/nopy:$PATH" wrapper_rc "${Q[@]}" -- "gh pr view 1")"
+assert_eq "no python: non-queue Bash allowed" 0 "$(PATH="$T/nopy:$PATH" wrapper_rc -- "gh pr view 1")"
+assert_eq "no python: interactive merge fails open (warned)" 0 "$(PATH="$T/nopy:$PATH" wrapper_rc -- "gh pr merge 1")"
 rm -rf "$T/nopy"
 # N1-146: {mergeOnFinish, fullAuto} x {interactive, queue headless}; only JSON true counts
 cfg() { printf '%s\n' "$1" > "$N1_HOME/config.json"; }
@@ -275,7 +301,7 @@ for c in "gh pr merge 12" "git push origin main" "gh api -X PUT repos/o/r/pulls/
 done
 # N1-230 SEC-2: tail-worker merge/cleanup/release denied even when merging is authorized
 cfg '{"finishWork":{"mergeOnFinish":true},"autonomy":{"fullAuto":true}}'
-tw_rc() { jq -cn --arg c "$1" --arg cwd "$T" '{session_id:"s",cwd:$cwd,agent_type:"n1:tail-worker",tool_name:"Bash",tool_input:{command:$c}}' | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS bash "$POLICY" >/dev/null 2>&1; echo $?; }
+tw_rc() { policy_rc @agent_type=n1:tail-worker -- "$1"; }  # N1-321: served by the policy server (payload variant)
 for c in "gh pr merge 12" "git push origin main" "source ~/.n1/preamble.sh; n1_finish_cleanup a b c" "n1_active_run_clear"; do
     assert_eq "tail-worker denied with merge authorized: $c" 2 "$(tw_rc "$c")"
 done
@@ -323,6 +349,11 @@ for e in "${PIPE_OK[@]}"; do
     cfg '{}'
     assert_eq "pipe-mask allow ${e%%|*}" 0 "$(policy_rc -- "${e#*|}")"
 done
+cfg '{}'
+assert_eq "wrapper: pipe-mask deny ${PIPE_DENY[0]%%|*}" 2 "$(wrapper_rc -- "${PIPE_DENY[0]#*|}")"
+assert_eq "wrapper: pipe-mask allow ${PIPE_OK[0]%%|*}" 0 "$(wrapper_rc -- "${PIPE_OK[0]#*|}")"
+cfg "$BOTH"
+assert_eq "wrapper: gh pr merge allowed when authorized" 0 "$(wrapper_rc -- "gh pr merge 12")"
 # SEC-1/CR-3: long pathological word must stay linear
 LONG="bash $(printf 'tests/%.0s' $(seq 1 20000))x | tail -2 && git commit -m x"
 cfg '{}'; START=$SECONDS
@@ -376,10 +407,10 @@ printf '#!/bin/sh\n[ "$1" = -c ] && { cat; echo; exit 0; }\nexit "${CRASH_RC:-1}
 cp "$T/crashpy/python3" "$T/crashpy/python"; chmod +x "$T/crashpy/"*
 for r in 1 137; do
     cfg '{}'
-    assert_eq "python crash rc $r: queue-child Bash denied" 2 "$(policy_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
-    assert_eq "python crash rc $r: ordinary Bash allowed" 0 "$(policy_rc PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+    assert_eq "python crash rc $r: queue-child Bash denied" 2 "$(wrapper_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+    assert_eq "python crash rc $r: ordinary Bash allowed" 0 "$(wrapper_rc PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
     cfg "$BOTH"
-    assert_eq "python crash rc $r: authorized queue-child Bash still denied (pipe-mask check lost)" 2 "$(policy_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
+    assert_eq "python crash rc $r: authorized queue-child Bash still denied (pipe-mask check lost)" 2 "$(wrapper_rc "${Q[@]}" PATH="$T/crashpy:$PATH" CRASH_RC=$r -- "gh pr view 1")"
 done
 cfg '{}'
 assert_eq "python crash: queue-child developer Write allowed" 0 "$(raw_rc "$DW" "${Q[@]}" PATH="$T/crashpy:$PATH")"
@@ -388,11 +419,11 @@ rm -rf "$T/crashpy"
 # Missing or invalid config must deny, never authorize (the shell predicate is false, so Python decides with config {})
 c="gh pr merge 12"
 rm -f "$N1_HOME/config.json"
-assert_eq "no config file: interactive denied" 2 "$(policy_rc -- "$c")"
-assert_eq "no config file: queue denied" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+assert_eq "no config file: interactive denied" 2 "$(wrapper_rc -- "$c")"
+assert_eq "no config file: queue denied" 2 "$(wrapper_rc "${Q[@]}" -- "$c")"
 cfg '{bad'
-assert_eq "invalid config: interactive denied" 2 "$(policy_rc -- "$c")"
-assert_eq "invalid config: queue denied" 2 "$(policy_rc "${Q[@]}" -- "$c")"
+assert_eq "invalid config: interactive denied" 2 "$(wrapper_rc -- "$c")"
+assert_eq "invalid config: queue denied" 2 "$(wrapper_rc "${Q[@]}" -- "$c")"
 # The Python mirror decides on its own (the .sh fast exit is skipped when called directly)
 PAY=$(jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr merge 12"}}')
 py_rc() { local rc=0; printf '%s' "$PAY" | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "$@" python3 "$REPO_ROOT/hooks/enforce-agent-policy.py" "$N1_HOME/config.json" "$REPO_ROOT" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
@@ -426,20 +457,17 @@ NOHOME_RC=$(rc=0; printf '%s' "$PAY" | env -u N1_HOME -u N1_QUEUE_RUN_ID -u N1_H
 assert_eq "py: no N1 home, no config: allowed" 0 "$NOHOME_RC"
 # Only this session's valid keyed file counts; anything else reads as plain (allowed)
 ar_on; cfg '{}'
-sid_rc() {  # sid_rc <jq filter>: hook exit code for "gh pr merge 12" with a modified payload
-    local rc=0
-    jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr merge 12"}}' | jq -c "$1" \
-        | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS bash "$POLICY" >/dev/null 2>&1 || rc=$?
-    echo "$rc"
+sid_rc() {  # sid_rc <payload field>...: hook exit code for "gh pr merge 12" with a modified payload (N1-321: served by the policy server)
+    policy_rc "$@" -- "gh pr merge 12"
 }
-assert_eq "active run file, own session: denied" 2 "$(sid_rc '.')"
-assert_eq "active run file, missing session_id: allowed" 0 "$(sid_rc 'del(.session_id)')"
-assert_eq "active run file, unsafe session_id: allowed" 0 "$(sid_rc '.session_id="../s"')"
-assert_eq "other session's active run: allowed" 0 "$(sid_rc '.session_id="s-other"')"
+assert_eq "active run file, own session: denied" 2 "$(sid_rc)"
+assert_eq "active run file, missing session_id: allowed" 0 "$(sid_rc @-session_id)"
+assert_eq "active run file, unsafe session_id: allowed" 0 "$(sid_rc @session_id=../s)"
+assert_eq "other session's active run: allowed" 0 "$(sid_rc @session_id=s-other)"
 echo '{"ticketId":"../x"}' > "$N1_HOME/active-run.s.json"
-assert_eq "active run with invalid ticketId: still denied (SEC-3)" 2 "$(sid_rc '.')"
+assert_eq "active run with invalid ticketId: still denied (SEC-3)" 2 "$(sid_rc)"
 : > "$N1_HOME/active-run.s.json"
-assert_eq "empty active-run file: still denied (SEC-3)" 2 "$(sid_rc '.')"
+assert_eq "empty active-run file: still denied (SEC-3)" 2 "$(sid_rc)"
 # run pointer under another ~/.n1/<slug>/ than the cwd/config home (SEC-2); HOME is a temp dir
 ar_off; mkdir -p "$T/fakehome/.n1/other"
 echo '{"ticketId":"N1-1"}' > "$T/fakehome/.n1/other/active-run.s.json"
@@ -644,6 +672,10 @@ CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"NEVER use any other MCP server"*) assert_eq "no versionMcp keeps NEVER directive" ok ok;; *) assert_eq "no versionMcp keeps NEVER directive" ok "$CTX";; esac
 export N1_HOST_FILE="$T/host.json"
 
+# N1-321: the session-stop blocks only touch their own T-STOP* tickets, so they run in the background against a private
+# N1_HOME/N1_STATE_DIR, overlapping the session-start blocks below; output is replayed in place after the wait.
+mkdir -p "$T/stop/home"; cp "$N1_HOME/config.json" "$T/stop/home/config.json"
+( N1_HOME="$T/stop/home"; N1_STATE_DIR="$T/stop/state"
 # --- session-stop: active matching pointer retains the selected run ----------
 STOP_TICK="T-STOP"
 STOP_MEM="$N1_HOME/memory/$STOP_TICK"
@@ -771,6 +803,9 @@ assert_eq "agent resolved: abandoned write fires (regression)" "abandoned" \
     "$(grep '"envelope_close"' "$PEND_TELEM/raw/steps/run-pending-test.jsonl" 2>/dev/null | tail -1 | jq -r .final_outcome 2>/dev/null)"
 assert_eq "agent resolved: lock removed after merge" "false" \
     "$([ -f "$PEND_TELEM/telemetry.lock" ] && echo true || echo false)"
+echo "STOP_BG_DONE"
+) > "$T/stop.out" 2>&1 &
+STOP_BG_PID=$!
 
 # --- session-start: queue digest line (NP-194) --------------------------------
 QD="$N1_HOME/queue/hq"; mkdir -p "$QD"; NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -795,23 +830,31 @@ rm -rf "$N1_HOME/queue"
 
 # --- session-start: local-testing enable offer (NP-222) ----------------------
 LTP="$T/ltproj"; mkdir -p "$LTP"; touch "$LTP/compose.yaml"
-has_offer() {
-  local ctx
-  ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"$LTP\",\"source\":\"startup\"}" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext)
-  case "$ctx" in *"LOCAL TESTING OFFER"*) echo yes;; *) echo no;; esac
+# N1-321: the six offer cases are independent (config is the only input), so each runs concurrently against its own
+# N1_HOME copy; results are collected in order and asserted with the original labels.
+has_offer_bg() {  # has_offer_bg <idx> <config json> [project dir]: starts one session-start run, answer in $T/lt-<idx>.out
+  local d="$T/lt-$1"; mkdir -p "$d/home"; printf '%s\n' "$2" > "$d/home/config.json"
+  ( local ctx
+    ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"${3:-$LTP}\",\"source\":\"startup\"}" | N1_HOME="$d/home" N1_STATE_DIR="$d/state" N1_HOST_FILE="$d/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext) || true
+    case "$ctx" in *"LOCAL TESTING OFFER"*) echo yes;; *) echo no;; esac > "$d/out" ) &
+  LT_PIDS+=($!)
 }
+LT_PIDS=()
+has_offer_bg 1 '{}'
+has_offer_bg 2 '{"localTesting":{"autoLive":true}}'
+has_offer_bg 3 '{"localTesting":{"enabled":false,"autoLive":true}}'
+has_offer_bg 4 '{"localTesting":{"mode":"test"}}'
+has_offer_bg 5 '{"localTesting":{"enabled":false,"mode":"test"}}'
+mkdir -p "$T/ltproj-bare"; has_offer_bg 6 '{}' "$T/ltproj-bare"  # same project minus compose.yaml (no race with the runs above)
+wait "${LT_PIDS[@]}" || true  # not a bare wait: that would also wait for the policy server
+rm "$LTP/compose.yaml"
+assert_eq "enable offer injected when live is off and compose exists" "yes" "$(cat "$T/lt-1/out")"
+assert_eq "no enable offer when live already resolves" "no" "$(cat "$T/lt-2/out")"
+assert_eq "enable offer when localTesting disabled" "yes" "$(cat "$T/lt-3/out")"
+assert_eq "no enable offer when mode explicitly set to test" "no" "$(cat "$T/lt-4/out")"
+assert_eq "no enable offer even when disabled, if mode explicitly set (never overwrite a deliberate choice)" "no" "$(cat "$T/lt-5/out")"
+assert_eq "no enable offer without a compose file" "no" "$(cat "$T/lt-6/out")"
 echo '{}' > "$N1_HOME/config.json"
-assert_eq "enable offer injected when live is off and compose exists" "yes" "$(has_offer)"
-echo '{"localTesting":{"autoLive":true}}' > "$N1_HOME/config.json"
-assert_eq "no enable offer when live already resolves" "no" "$(has_offer)"
-echo '{"localTesting":{"enabled":false,"autoLive":true}}' > "$N1_HOME/config.json"
-assert_eq "enable offer when localTesting disabled" "yes" "$(has_offer)"
-echo '{"localTesting":{"mode":"test"}}' > "$N1_HOME/config.json"
-assert_eq "no enable offer when mode explicitly set to test" "no" "$(has_offer)"
-echo '{"localTesting":{"enabled":false,"mode":"test"}}' > "$N1_HOME/config.json"
-assert_eq "no enable offer even when disabled, if mode explicitly set (never overwrite a deliberate choice)" "no" "$(has_offer)"
-rm "$LTP/compose.yaml"; echo '{}' > "$N1_HOME/config.json"
-assert_eq "no enable offer without a compose file" "no" "$(has_offer)"
 
 # --- notify-question hook (N1-103) --------------------------------------------
 NQ="$REPO_ROOT/hooks/notify-question.sh"
@@ -823,12 +866,14 @@ echo '{}' > "$N1_HOME/config.json"
 nq() {  # nq [VAR=val ...] -> prints hook exit code; waits briefly for the backgrounded notifier
   local rc=0; : > "$NQLOG"
   echo '{"session_id":"s-nq","tool_name":"AskUserQuestion"}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID "$@" PATH="$NQBIN:$PATH" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
-  sleep 0.5; echo "$rc"
+  # poll for the notifier: exits at the first log line. NQ_EXPECT=1 (a call is expected) allows ~2 s; no-call cases wait 0.1 s
+  local i max=5 step=0.02; [ "${NQ_EXPECT:-}" = 1 ] && { max=100; step=0.02; }
+  for i in $(seq "$max"); do [ -s "$NQLOG" ] && break; sleep "$step"; done; echo "$rc"
 }
 assert_eq "notify-question: no active run -> exit 0" "0" "$(nq)"
 assert_eq "notify-question: no active run -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
 echo '{"ticketId":"Q-1","runId":"r1","worktreePath":null,"branch":"b"}' > "$N1_HOME/active-run.s-nq.json"
-assert_eq "notify-question: active run -> exit 0" "0" "$(nq)"
+assert_eq "notify-question: active run -> exit 0" "0" "$(NQ_EXPECT=1 nq)"
 assert_eq "notify-question: active run -> one call naming ID and step" "N1 Q-1|Waiting for your answer after analysis" "$(cat "$NQLOG")"
 assert_eq "notify-question: no stdout" "" "$(cat "$T/nq.out")"
 assert_eq "notify-question: N1_HEADLESS=1 -> exit 0" "0" "$(nq N1_HEADLESS=1)"
@@ -846,4 +891,8 @@ rm "$N1_HOME/active-run.json"
 assert_eq "hooks.json: AskUserQuestion matcher runs notify-question.sh" "1" \
   "$(jq '[.hooks.PreToolUse[] | select(.matcher=="AskUserQuestion") | .hooks[].command | select(test("notify-question.sh"))] | length' "$REPO_ROOT/hooks/hooks.json")"
 
+STOP_RC=0; wait "$STOP_BG_PID" || STOP_RC=$?  # the session-stop blocks (N1-321): replay their output and fold in their counts
+grep -v '^STOP_BG_DONE$' "$T/stop.out" || true
+PASS=$((PASS+$(grep -c "^PASS: " "$T/stop.out" || true))); FAIL=$((FAIL+$(grep -c "^FAIL: " "$T/stop.out" || true)))
+if [ "$STOP_RC" -ne 0 ] || ! grep -qx 'STOP_BG_DONE' "$T/stop.out"; then echo "FAIL: session-stop background blocks did not complete (exit $STOP_RC)"; FAIL=$((FAIL+1)); fi
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]

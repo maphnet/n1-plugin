@@ -25,11 +25,12 @@ source "${REPO_ROOT}/lib/config.sh"
 source "${REPO_ROOT}/lib/frontmatter.sh"
 source "${REPO_ROOT}/lib/queue.sh"
 
-# watch <secs> <n1_queue_watch args...> — runs the watch under timeout; prints its output then "rc=<code>".
-# rc=124 means it was still watching (no terminal state) when the timeout hit.
+# watch <secs> <n1_queue_watch args...> — runs the watch; prints its output then "rc=<code>".
+# rc=124 means it was still watching (no terminal state): N1-321 makes the first idle poll exit 124 instead of
+# sleeping, so no case waits on the clock; timeout <secs> stays as the safety net.
 watch() {
     local secs="$1"; shift
-    timeout "$secs" bash -c 'source "$REPO_ROOT/lib/config.sh"; source "$REPO_ROOT/lib/frontmatter.sh"; source "$REPO_ROOT/lib/queue.sh"; n1_queue_watch "$@"' _ "$@"
+    timeout "$secs" bash -c 'source "$REPO_ROOT/lib/config.sh"; source "$REPO_ROOT/lib/frontmatter.sh"; source "$REPO_ROOT/lib/queue.sh"; sleep() { [ "$1" = "${poll:-30}" ] && exit 124; command sleep "$@"; }; n1_queue_watch "$@"' _ "$@"
     echo "rc=$?"
 }
 
