@@ -1,0 +1,46 @@
+# N1-300 regression fixture: N1-268 queue run 20261102T172042Z, worker ctx_f99145601a66.
+# Notification texts condensed from the run transcripts; marker phrases are verbatim.
+# Format: "=== <event>" starts an event; lines not starting with "#" are notification text;
+#   "# expect-text: <s>"            -> <s> must appear in that event's text;
+#   "# rule: <repo file> :: <s>"    -> <s> must appear in that file (the rule handling the event).
+# Every event is handled by "resume a subagent"; none of them is a wait signal or a step end.
+
+=== 19:35:18Z interim developer notice delivered to the implementer (expect: resume-child)
+<task-notification>
+<task-id>a0c2aa02a05673d26</task-id>
+<status>completed</status>
+<summary>Agent "Task 2 developer" completed while waiting on its own background work</summary>
+<note>The agent is still running background tasks; the result below may be interim.</note>
+<result>Full test suite started in the background; I will report when it finishes.</result>
+</task-notification>
+# expect-text: waiting on its own background work
+# expect-text: may be interim
+# rule: agents/implementer.md :: waiting on its own background work
+# rule: agents/implementer.md :: may be interim
+# rule: agents/implementer.md :: resume it through the host message mechanism asking for its final report
+# rule: agents/developer.md :: never background them and never end your turn while one is pending
+
+=== 19:35:19Z implementer "finished" notice delivered to the orchestrator (expect: resume-owner)
+<task-notification>
+<task-id>a49d4af429e23c504</task-id>
+<status>completed</status>
+<summary>Agent "implementer" finished</summary>
+<result>Task 2 developer is running its tests in the background. I'll wait for its next notification.</result>
+</task-notification>
+# expect-text: wait for its next notification
+# rule: agents/implementer.md :: is read as your final result and stalls the run
+# rule: skills/n1-start/procedures/output-gates.md :: wait for its next notification
+# rule: skills/n1-start/procedures/output-gates.md :: only says it is waiting
+# rule: skills/n1-start/procedures/output-gates.md :: resume the owning subagent
+
+=== 19:46:18Z developer final report delivered to the orchestrator instead of its parent (expect: resume-owner)
+<task-notification>
+<task-id>a0c2aa02a05673d26</task-id>
+<status>completed</status>
+<summary>Agent "Task 2 developer" completed</summary>
+<result>DONE. Commit 9a399db. Full test suite passes.</result>
+</task-notification>
+# expect-text: a0c2aa02a05673d26
+# expect-text: 9a399db
+# rule: skills/n1-start/procedures/output-gates.md :: a persona you did not dispatch (a nested one)
+# rule: skills/n1-start/procedures/output-gates.md :: Never let such a notice end the step or the run while plan tasks remain

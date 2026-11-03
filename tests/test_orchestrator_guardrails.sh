@@ -231,5 +231,41 @@ assert_contains "n1-finish: local merge report label" \
     "skills/n1-finish/steps/06-cleanup.md" \
     'by <reviewer|n1-finish (mergeOnFinish)|local merge>'
 
+# N1-300 / AC4 — regression fixture of N1-268 (20261102T172042Z): the 19:35:18Z interim developer
+# notice, the 19:35:19Z implementer "finished" notice, and the 19:46:18Z developer final that reached
+# the orchestrator. Each event must carry its marker text, and each must map to rule text that
+# resumes a subagent instead of ending the step. Static: this pins wording and classification text,
+# not live harness behaviour. The live check is AC1 (a queue run with a background-test developer).
+check_nested_wait_fixture() {
+    local fix="tests/fixtures/notifications/n1-268-nested-wait.txt"
+    local block="" events=0 line text spec file phrase
+    if [ ! -f "$REPO_ROOT/$fix" ]; then
+        echo "FAIL: nested-wait fixture missing ($fix)"; FAIL=$((FAIL+1)); return
+    fi
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            "=== "*) block=""; events=$((events+1)) ;;
+            "# expect-text: "*)
+                text="${line#"# expect-text: "}"
+                if [[ "$block" == *"$text"* ]]; then
+                    echo "PASS: fixture event $events carries: $text"; PASS=$((PASS+1))
+                else
+                    echo "FAIL: fixture event $events lacks: $text"; FAIL=$((FAIL+1))
+                fi ;;
+            "# rule: "*)
+                spec="${line#"# rule: "}"; file="${spec%% :: *}"; phrase="${spec#* :: }"
+                assert_contains "fixture event $events handled by $file" "$file" "$phrase" ;;
+            "#"*) ;;
+            *) block+="$line"$'\n' ;;
+        esac
+    done < "$REPO_ROOT/$fix"
+    if [ "$events" -eq 3 ]; then
+        echo "PASS: nested-wait fixture has 3 events"; PASS=$((PASS+1))
+    else
+        echo "FAIL: nested-wait fixture has $events events, want 3"; FAIL=$((FAIL+1))
+    fi
+}
+check_nested_wait_fixture
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
