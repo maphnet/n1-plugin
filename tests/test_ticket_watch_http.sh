@@ -28,7 +28,7 @@ _n1_mcp_post() { # <url> <session-id> <body>
     printf '%s|%s|%s|%s\n' "$m" "$t" "$2" "$(jq -c '.params.arguments // {}' <<<"$3")" >> "$T/calls"
     case "$m" in
         initialize) [ -z "${INIT_FAIL:-}" ] || return 7
-                    printf 'HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nmcp-session-id: %s\r\n\r\nevent: message\r\ndata: {"result":{"protocolVersion":"2025-03-26"},"jsonrpc":"2.0","id":1}\r\n\r\n' "${SID_HDR:-sid-1}" ;;
+                    printf 'HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n%s\r\n\r\nevent: message\r\ndata: {"result":{"protocolVersion":"2025-03-26"},"jsonrpc":"2.0","id":1}\r\n\r\n' "${NO_SID:+x-other: 1}${NO_SID-mcp-session-id: ${SID_HDR:-sid-1}}" ;;
         notifications/initialized) printf 'HTTP/1.1 202 Accepted\r\n\r\n' ;;
         tools/call)
             n=$(( $(grep -c "^tools/call|$t|" "$T/calls") ))
@@ -60,6 +60,9 @@ assert_eq "unchanged: only the probe" "jcm_searchIssues" "$(calls)"
 assert_eq "unchanged: probe args built by jq" '{"jql":"key = T-1","maxResults":1}' "$(grep '^tools/call' "$T/calls" | cut -d'|' -f4)"
 assert_eq "unchanged: session id sent on calls" "sid-1" "$(grep '^tools/call' "$T/calls" | cut -d'|' -f3)"
 assert_eq "unchanged: cursor untouched" "yes" "$(same_cursor)"
+reset; NO_SID=1 fx jcm_searchIssues 1 "$(probe "$T0")"
+assert_eq "stateless server: silent" "" "$(NO_SID=1 check)"
+assert_eq "stateless server: calls send no session header" "" "$(grep '^tools/call' "$T/calls" | cut -d'|' -f3)"
 
 # Own-only change: silent, cursor advanced
 reset; fx jcm_searchIssues 1 "$(probe "$T1")"; fx jcm_getIssue 1 "$(issue)"; fx jcm_getIssueChangelog 1 "$(log me-1 '[{"field":"status","from":"a","to":"b"}]')"

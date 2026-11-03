@@ -194,7 +194,7 @@ _n1_mcp_msg() {
 }
 
 _n1_mcp_init() {
-    # Usage: _n1_mcp_init <url> — initialize, keep Mcp-Session-Id, send notifications/initialized.
+    # Usage: _n1_mcp_init <url> — initialize, keep the optional Mcp-Session-Id, send notifications/initialized.
     local raw sid="" l
     _N1_MCP_URL=""; _N1_MCP_SID=""
     raw=$(_n1_mcp_post "$1" "" '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"n1-ticket-watch","version":"1"}}}') || return 1
@@ -203,7 +203,7 @@ _n1_mcp_init() {
     while IFS= read -r l; do
         case "$l" in [Mm][Cc][Pp]-[Ss][Ee][Ss][Ss][Ii][Oo][Nn]-[Ii][Dd]:*) sid=${l#*:}; sid=${sid# }; break ;; esac
     done <<<"${raw%%$'\n\n'*}"
-    [[ "$sid" =~ ^[A-Za-z0-9._~-]+$ ]] || return 1   # becomes a request header: no spaces or CR/LF
+    [ -z "$sid" ] || [[ "$sid" =~ ^[A-Za-z0-9._~-]+$ ]] || return 1   # optional (stateless servers); becomes a request header: no spaces or CR/LF
     _n1_mcp_post "$1" "$sid" '{"jsonrpc":"2.0","method":"notifications/initialized"}' >/dev/null || return 1
     _N1_MCP_URL=$1; _N1_MCP_SID=$sid
 }
@@ -213,7 +213,7 @@ n1_mcp_http_call() {
     # blocks joined and parsed). One session per shell: initializes on first use. rc 1 on transport error,
     # JSON-RPC error, result.isError or a non-JSON payload. Call with "> file", not "$( )", to reuse the session.
     local body raw
-    [ "$1" = "$_N1_MCP_URL" ] && [ -n "$_N1_MCP_SID" ] || _n1_mcp_init "$1" || return 1
+    [ -n "$_N1_MCP_URL" ] && [ "$1" = "$_N1_MCP_URL" ] || _n1_mcp_init "$1" || return 1
     body=$(jq -nc --arg t "$2" --argjson a "$3" '{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:$t,arguments:$a}}') || return 1
     raw=$(_n1_mcp_post "$1" "$_N1_MCP_SID" "$body") || return 1
     _n1_mcp_msg "$raw" | jq -ce '
