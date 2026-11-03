@@ -91,6 +91,7 @@ replay() { # <fixture-name> <dest-file>
 clean; replay posttooluse-jcm-getIssue.json "$M/.tw-issue.json"
 clean; replay posttooluse-jcm-getIssueChangelog.json "$M/.tw-log-1.json"
 clean; replay posttooluse-jcm-searchIssues.json "$M/.tw-probe.json"
+clean; replay posttooluse-jcm-getCurrentUser.json "$M/.tw-me.json"
 
 # Key validation before any path use; write only into an existing memory dir
 for k in '../T-1' 't-1' 'T-1/x' 'T-' "$(printf 'T-1\n../x')"; do
@@ -211,16 +212,36 @@ for sid in s2 s3 '' '../s1' 's1 x'; do
 done
 clean; SID=s2 hook "$GI" "$K" "$I1" >/dev/null
 assert_eq "seed path, other session: nothing saved" "no" "$(has "$M/.tw-issue.json")"
+# [N1-313] getCurrentUser: no key in tool_input; saved to the calling session's run ticket, seed path only
+GU=mcp__jc__jcm_getCurrentUser
+ME='{"accountId":"me-1","displayName":"Me"}'
+clean; assert_eq "getCurrentUser: rc 0, silent" "0|" "$(hook "$GU" '{}' "$ME")"
+assert_eq "getCurrentUser: saved to the run's .tw-me.json" "$ME" "$(norm "$M/.tw-me.json")"
+clean; hook "$GU" '{"issueKey":"T-9"}' "$ME" >/dev/null
+assert_eq "getCurrentUser: a key in tool_input is ignored" "yes|no" "$(has "$M/.tw-me.json")|$(has "$N1_HOME/memory/T-9")"
+clean; hook "$GU" '{}' '{"displayName":"no id"}' >/dev/null
+assert_eq "getCurrentUser without accountId: nothing saved" "no" "$(has "$M/.tw-me.json")"
+seed; out=$(hook "$GU" '{}' "$ME")
+assert_eq "getCurrentUser with a cursor: silent, nothing saved" "0||no" "$out|$(has "$M/.tw-me.json")"
+for sid in s2 s3 '' '../s1'; do
+    clean; SID="$sid" hook "$GU" '{}' "$ME" >/dev/null
+    assert_eq "getCurrentUser, session [$sid] without an owned run dir: nothing saved" "0" "$(count)"
+done
+clean; hook mcp__other__jcm_getCurrentUser '{}' "$ME" >/dev/null
+assert_eq "getCurrentUser on a non-watch server: nothing saved" "no" "$(has "$M/.tw-me.json")"
+clean; o=$(jq -nc --arg t "$GU" --argjson r "$(jq -c '[{type:"text",text:tojson}]' <<<"$ME")" --arg cwd "$T" \
+    '{session_id:"s1",agent_id:"a1",cwd:$cwd,tool_name:$t,tool_input:{},tool_response:$r}' | bash "$H")
+assert_eq "getCurrentUser from a subagent: silent, nothing saved" "|no" "$o|$(has "$M/.tw-me.json")"
 
 # hooks.json registration: anchored matcher, synchronous
 HJ="$REPO_ROOT/hooks/hooks.json"
 MATCH=$(jq -r '[.hooks.PostToolUse[] | select(any(.hooks[]; .command | contains("ticket-watch-capture.sh")))][0].matcher // empty' "$HJ")
-assert_eq "hooks.json: capture matcher" '^mcp__.+__jcm_(getIssue|getIssueChangelog|searchIssues)$' "$MATCH"
+assert_eq "hooks.json: capture matcher" '^mcp__.+__jcm_(getIssue|getIssueChangelog|searchIssues|getCurrentUser)$' "$MATCH"
 assert_eq "hooks.json: capture hook is synchronous" "false" "$(jq '[.hooks.PostToolUse[].hooks[] | select(.command | contains("ticket-watch-capture.sh")) | .async // false] | any' "$HJ")"
-for t in mcp__jc__jcm_getIssue mcp__jc__jcm_getIssueChangelog mcp__plugin_x_jc__jcm_searchIssues; do
+for t in mcp__jc__jcm_getIssue mcp__jc__jcm_getIssueChangelog mcp__plugin_x_jc__jcm_searchIssues mcp__jc__jcm_getCurrentUser; do
     assert_eq "matcher selects $t" "yes" "$([ -n "$MATCH" ] && [[ "$t" =~ $MATCH ]] && echo yes || echo no)"
 done
-for t in mcp__jc__jcm_getIssueLinks mcp__jc__jcm_addComment Bash; do
+for t in mcp__jc__jcm_getIssueLinks mcp__jc__jcm_addComment mcp__jc__jcm_getArticle mcp__jc__jcm_getCurrentUserX Bash; do
     assert_eq "matcher skips $t" "no" "$([ -n "$MATCH" ] && [[ "$t" =~ $MATCH ]] && echo yes || echo no)"
 done
 

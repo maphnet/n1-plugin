@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# PostToolUse hook (jcm_getIssue, jcm_getIssueChangelog, jcm_searchIssues on the watch MCP): saves the
-# response for a ticket with an N1 memory dir into its ticket-watch file and, once the ticket's watch
-# cursor exists, runs the comparator / delta in shell and tells the model one "ticket-watch:" line
-# (N1-314; skills/n1-start/procedures/ticket-watch.md). Seed path (no cursor yet): save only, silent.
+# PostToolUse hook (jcm_getIssue, jcm_getIssueChangelog, jcm_searchIssues and, before the cursor exists,
+# jcm_getCurrentUser on the watch MCP): saves the response for a ticket with an N1 memory dir into its
+# ticket-watch file and, once the ticket's watch cursor exists, runs the comparator / delta in shell and
+# tells the model one "ticket-watch:" line (N1-314, N1-313; skills/n1-start/procedures/ticket-watch.md).
+# Seed path (no cursor yet): save only, silent.
 # The payload is untrusted tracker text: written as a file and parsed by jq only, never evaluated.
 # Fail-open: any error exits 0 with no output; the procedure then falls back to its bash blocks.
 set -u
@@ -17,6 +18,7 @@ TS_RE='^[0-9][0-9T:.+Z-]*$'
 say() { jq -nc --arg c "$1" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$c}}'; }
 
 tool=$(jq -r '.tool_name // empty' <<<"$INPUT" 2>/dev/null) || exit 0
+me=0
 case "$tool" in
     mcp__*__jcm_searchIssues)
         # Only the watch probe's exact single-line JQL "key = <KEY>" (\A..\z: no line anchors).
@@ -24,22 +26,25 @@ case "$tool" in
             | select(test("\\Akey = [A-Z][A-Z0-9_]*-[0-9]+\\z")) | .[6:]' <<<"$INPUT" 2>/dev/null) ;;
     mcp__*__jcm_getIssue|mcp__*__jcm_getIssueChangelog)
         key=$(jq -r '.tool_input.issueKey // empty | strings' <<<"$INPUT" 2>/dev/null) ;;
+    # N1-313: no key in tool_input; the ticket is the calling session's active run (resolved below).
+    mcp__*__jcm_getCurrentUser) me=1; key="" ;;
     *) exit 0 ;;
 esac
-[[ "${key:-}" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || exit 0
 cwd=$(jq -r '.cwd // empty' <<<"$INPUT" 2>/dev/null)
 [ -n "$cwd" ] && cd "$cwd" 2>/dev/null
 # Subagent calls carry agent_id (shared session_id): only the orchestrator's own calls capture and receive the digest.
 [ -z "$(jq -r '.agent_id // empty | strings' <<<"$INPUT" 2>/dev/null)" ] || exit 0
-N1_HOME=$(n1_home 2>/dev/null)
-[ -n "$N1_HOME" ] || exit 0
-M="$N1_HOME/memory/$key"
-[ -d "$M" ] && [ ! -L "$M" ] || exit 0   # a committed in-repo .n1 could plant a symlink here
 # Only the session that owns the run on this ticket (subagents share its session_id): another session's
 # read of the same key must never capture, advance this cursor or receive the digest.
 sid=$(jq -r '.session_id // empty | strings' <<<"$INPUT" 2>/dev/null)
 [[ "$sid" =~ ^[a-zA-Z0-9_-]+$ ]] || exit 0   # same rule as n1_active_run_file
-[ "$(n1_active_run_ticket "$sid")" = "$key" ] || exit 0
+run=$(n1_active_run_ticket "$sid")
+[ "$me" = 0 ] || key=$run
+[[ "${key:-}" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] && [ "$run" = "$key" ] || exit 0
+N1_HOME=$(n1_home 2>/dev/null)
+[ -n "$N1_HOME" ] || exit 0
+M="$N1_HOME/memory/$key"
+[ -d "$M" ] && [ ! -L "$M" ] || exit 0   # a committed in-repo .n1 could plant a symlink here
 # Bind to the configured watch MCP and changelog op (same gate as the procedure: n1_tw_on).
 IFS=$'\t' read -r mcp op <<<"$(n1_tw_on "$key" seed 2>/dev/null)"
 [ -n "${mcp:-}" ] && [ -n "${op:-}" ] || exit 0
@@ -47,6 +52,7 @@ case "$tool" in
     "mcp__${mcp}__jcm_getIssue") kind=issue; shape='(.updated | type) == "string"' ;;
     "mcp__${mcp}__${op}") kind=log; shape='(.entries | type) == "array"' ;;
     "mcp__${mcp}__jcm_searchIssues") kind=probe; shape='(.issues | type) == "array"' ;;
+    "mcp__${mcp}__jcm_getCurrentUser") kind=me; shape='(.accountId | type) == "string"' ;;   # what n1_tw_seed reads
     *) exit 0 ;;
 esac
 
@@ -67,6 +73,14 @@ save() { # <file>: join the response's text blocks, keep it only when it has the
     fi
     rm -f "$tmp"; return 1
 }
+
+# N1-313: the current user only feeds the Seed fallback; once the cursor exists the call is not the watch's.
+# ponytail: a getCurrentUser call before the seed (e.g. Step 1 assign) leaves .tw-me.json behind until the
+# Seed fallback's rm; harmless (own accountId), clean it in n1_tw_seed_http if it ever matters.
+if [ "$kind" = me ]; then
+    [ -f "$M/.ticket-watch" ] || save "$M/.tw-me.json"
+    exit 0
+fi
 
 if [ "$kind" = probe ]; then
     save "$M/.tw-probe.json" || exit 0
