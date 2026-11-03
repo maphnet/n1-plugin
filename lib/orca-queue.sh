@@ -399,6 +399,42 @@ n1_orca_reply() {
     echo "n1-queue: answer delivered to $t (Orca message $msg)."
 }
 
+n1_orca_row_of_task() {
+    # Usage: n1_orca_row_of_task <queue.md> <task> — "<ticket>\t<dispatch>" from the newest Runs row whose Session is
+    # orca:<task>/<dispatch>; empty when no row names the task.
+    awk -F'|' -v tk="orca:$2/" '/^## Runs/ { f = 1; next }
+        f { s = $7; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
+            if (index(s, tk) == 1) { t = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", t); r = t "\t" substr(s, length(tk) + 1) } }
+        END { if (r != "") print r }' "$1"
+}
+
+n1_orca_pending_questions() {
+    # Usage: n1_orca_pending_questions <queue-dir> — N1-270: "<num>\t<ticket>\t<message-id>" per worker question waiting
+    # in the queue's Orca Run inbox that no runner handled: no .ask-<ticket> marker and no answer_delivered event.
+    # Reads as the Run's coordinator (queue.md orca_coord_terminal; empty: the caller's own terminal). check --all lists
+    # every message without marking it read (--peek would miss one the dead runner read but never acked). Ids are
+    # untrusted: the message must name the dispatch its task's Runs row holds (run_orca's rule), and that row must
+    # still be in-progress or awaiting-human in this queue run. Requires lib/queue.sh. Any failure prints nothing.
+    local q="$1/queue.md" run coord out rows type task msg disp t d num
+    run=$(n1_read_frontmatter "$q" orca_run_id); coord=$(n1_read_frontmatter "$q" orca_coord_terminal)
+    _n1_orca_id "$run" && [ "$(n1_read_frontmatter "$q" orca_queue_run)" = "$(n1_read_frontmatter "$q" run_id)" ] || return 0
+    [ -z "$coord" ] || _n1_orca_id "$coord" || return 0
+    out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration check --run "$run" --all --types question ${coord:+--terminal "$coord"}) \
+        || { [ -n "$coord" ] && out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration check --run "$run" --all --types question); } \
+        || return 0   # a dead coordinator terminal (Orca restarted): retry as the caller, which resolves from its own env
+    rows=$(n1_queue_pending_rows "$q" 'in-progress|awaiting-human')
+    while IFS=$'\t' read -r type task msg disp; do
+        [ "$type" = question ] && _n1_orca_id "$task" && _n1_orca_id "$msg" || continue
+        IFS=$'\t' read -r t d <<< "$(n1_orca_row_of_task "$q" "$task")"
+        [[ "$t" =~ ^[A-Za-z0-9_-]+$ ]] && [ "$disp" = "$d" ] && [ ! -e "$1/.ask-$t" ] || continue
+        num=$(awk -F'\t' -v t="$t" '$2 == t { n = $1 } END { print n }' <<< "$rows")
+        [ -n "$num" ] || continue
+        [ -z "$(jq -R --arg s "orca:$msg" 'fromjson? | select(.event == "answer_delivered" and .session == $s)' "$1/events.jsonl" 2>/dev/null)" ] || continue
+        printf '%s\t%s\t%s\n' "$num" "$t" "$msg"
+    done < <(n1_orca_events "$out")
+    return 0
+}
+
 # ---- Scheduled runs (N1-226) ----
 # One Orca automation per project ("n1-queue <main-checkout folder> <6-hex of its path>", workspace = main checkout) runs
 # scripts/n1-queue-precheck.sh (copied to <n1-home>/bin) and then "/n1:n1-queue --tag <tag> --unattended".

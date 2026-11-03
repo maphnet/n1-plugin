@@ -826,12 +826,7 @@ run_bg() {
 ORCA_RUN=""
 
 # orca_row_of_task <task> — "<ticket>\t<dispatch>" of the Runs row whose Session cell is orca:<task>/<dispatch>.
-orca_row_of_task() {
-    awk -F'|' -v tk="orca:$1/" '/^## Runs/ { f = 1; next }
-        f { s = $7; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
-            if (index(s, tk) == 1) { t = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", t); r = t "\t" substr(s, length(tk) + 1) } }
-        END { if (r != "") print r }' "$QUEUE"
-}
+orca_row_of_task() { n1_orca_row_of_task "$QUEUE" "$1"; }
 
 # orca_n1h_of <ticket> — the ticket's N1 Home cell (last Plan row for it).
 orca_n1h_of() {

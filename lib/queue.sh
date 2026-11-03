@@ -814,13 +814,27 @@ n1_queue_claim() {
 n1_queue_interrupted_note() {
     # Usage: n1_queue_interrupted_note <queue.md> — N1-183: for an interrupted run, append one
     # queue_interrupted event per run id (later calls only print) and print the resume line.
-    # Prints nothing for a run that is not interrupted.
-    local q="$1" ev run qid pid
+    # N1-270: an Orca worker question that reached the Run inbox after the runner died parks its row
+    # with the runner's .ask marker (--answer finds it; n1_queue_awaiting_hints prints the command),
+    # one escalated event and a needs-you alert. The marker dedupes later calls; a resumed runner
+    # sees the parked row and does not re-escalate. Prints nothing for a run that is not interrupted.
+    local q="$1" ev run qid pid d num t msg
     n1_queue_interrupted "$q" || return 0
     ev="$(dirname "$q")/events.jsonl"
     run=$(n1_read_frontmatter "$q" run_id); qid=$(n1_read_frontmatter "$q" queue_id); pid=$(n1_read_frontmatter "$q" pid)
     if [ -z "$(jq -R --arg r "$run" 'fromjson? | select(.event == "queue_interrupted" and .run_id == $r)' "$ev" 2>/dev/null)" ]; then
         n1_queue_event "$ev" "$qid" "$run" queue_interrupted reason="runner pid ${pid:-?} gone"
+    fi
+    if [ -n "$(n1_read_frontmatter "$q" orca_run_id)" ] && declare -F n1_orca_pending_questions >/dev/null; then
+        d=$(dirname "$q")
+        while IFS=$'\t' read -r -u 3 num t msg; do
+            [ ! -e "$d/.ask-$t" ] || continue   # two unanswered questions for one ticket in one scan: first wins, one event
+            printf '%s\n' "$msg" > "$d/.ask-$t" || continue
+            n1_queue_row_status "$q" "$num" awaiting-human
+            n1_queue_event "$ev" "$qid" "$run" escalated ticket="$t" session="$(n1_queue_session_id "$q" "$t")" \
+                reason="worker question pending, runner down"
+            n1_notify needs-you "$t needs you: worker question pending, runner down (answer: /n1:n1-queue --answer $t <text>)"
+        done 3< <(n1_orca_pending_questions "$d")
     fi
     printf 'interrupted: runner pid %s is gone; resume: /n1:n1-queue --run %s\n' "${pid:-?}" "$qid"
 }

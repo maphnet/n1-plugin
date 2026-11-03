@@ -327,6 +327,48 @@ has "coord_close: closes by handle" "terminal close --terminal term-9" "$(calls)
 reset; n1_orca_coord_close 'a|b'
 eq "coord_close: unsafe handle never reaches the CLI" "" "$(calls)"
 
+# Bugs caught: a question sent after the runner died never got an .ask marker (--answer: "no pending question");
+# an answered, forged-dispatch, unknown-task, finished-row or earlier-run question surfaced; a second status call
+# re-alerted; the reply went out as the launching terminal instead of the Run's coordinator.
+n1_write_frontmatter "$Q/queue.md" orca_queue_run R1
+n1_write_frontmatter "$Q/queue.md" orca_coord_terminal term-9
+n1_queue_row_status "$Q/queue.md" 1 in-progress
+rm -f "$Q/.ask-T-1" "$Q/.question-T-1.json"
+QM() { jq -cn --arg i "$1" --arg k "$2" --arg d "$3" '{id: $i, type: "question", payload: ({taskId: $k, dispatchId: $d} | tojson)}'; }
+export FAKE_INBOX="$(QM m-9 task-1 d-1),$(QM m-10 task-1 d-1),$(QM m-11 task-1 d-other),$(QM m-12 task-x d-x)"
+eq "row_of_task: ticket and dispatch" "$(printf 'T-1\td-1')" "$(n1_orca_row_of_task "$Q/queue.md" task-1)"
+eq "row_of_task: unknown task" "" "$(n1_orca_row_of_task "$Q/queue.md" task-x)"
+reset
+eq "pending: only the unanswered question bound to the row's dispatch" "$(printf '1\tT-1\tm-10')" "$(n1_orca_pending_questions "$Q")"
+has "pending: lists every message as the coordinator terminal" "orchestration check --run run-1 --all --types question --terminal term-9" "$(calls)"
+n1_queue_row_status "$Q/queue.md" 1 pr
+eq "pending: finished row skipped" "" "$(n1_orca_pending_questions "$Q")"
+n1_queue_row_status "$Q/queue.md" 1 in-progress
+n1_write_frontmatter "$Q/queue.md" orca_queue_run R0
+eq "pending: Run of an earlier queue run skipped" "" "$(n1_orca_pending_questions "$Q")"
+n1_write_frontmatter "$Q/queue.md" orca_queue_run R1
+printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}\n' "$T" > "$N1_HOME/config.json"
+OUT=$(n1_queue_interrupted_note "$Q/queue.md")
+has "runner-down: resume line still printed" "resume: /n1:n1-queue --run q1" "$OUT"
+eq "runner-down: .ask marker for --answer" m-10 "$(cat "$Q/.ask-T-1" 2>/dev/null)"
+eq "runner-down: row parked, hint points at --answer" "T-1: /n1:n1-queue --answer T-1 <answer>" "$(n1_queue_awaiting_hints "$Q/queue.md")"
+esc() { jq -R 'fromjson? | select(.event == "escalated" and .ticket == "T-1") | .event' "$Q/events.jsonl" | wc -l | tr -d ' '; }
+eq "runner-down: one escalated event" 1 "$(esc)"
+has "runner-down: needs-you carries the answer command" "T-1 needs you: worker question pending, runner down (answer: /n1:n1-queue --answer T-1 <text>)" "$(cat "$T/notes" 2>/dev/null)"
+n1_queue_interrupted_note "$Q/queue.md" >/dev/null
+eq "runner-down: second status call adds no event" 1 "$(esc)"
+printf 'Use A' > "$N1_HOME/queue/.answer-T-1.txt"; reset
+has "runner-down: --answer delivers" "answer delivered to T-1" "$(n1_queue_answer "$N1_HOME" T-1 2>&1)"
+has "answer: reply sent as the coordinator terminal" "orchestration reply --id m-10 --body Use A --run run-1 --from term-9" "$(calls)"
+n1_queue_interrupted_note "$Q/queue.md" >/dev/null
+eq "runner-down: answered question not surfaced again" 1 "$(esc)"
+export FAKE_INBOX="$(QM m-13 task-1 d-1)"; rm -f "$Q/.ask-T-1"
+eq "pending: dead coordinator terminal -> scan retried as the caller" "$(printf '1\tT-1\tm-13')" "$(FAKE_COORD_DEAD=1 n1_orca_pending_questions "$Q")"
+printf 'm-13\n' > "$Q/.ask-T-1"; printf 'Use C' > "$N1_HOME/queue/.answer-T-1.txt"; reset
+has "answer: dead coordinator terminal -> still delivered" "answer delivered to T-1" "$(FAKE_COORD_DEAD=1 n1_queue_answer "$N1_HOME" T-1 2>&1)"
+has "answer: the retry carries no --from" "orchestration reply --id m-13 --body Use C --run run-1 --json" "$(calls)"
+rm -f "$N1_HOME/config.json"; unset FAKE_INBOX
+
 # --- summary (later tasks insert their sections above this line) ---
 eq "no bare orca call" "" "$(cat "$FAKE/bare" 2>/dev/null)"
 [ "$FAIL" = 0 ] && echo "ALL PASS" || echo "SOME FAILED"
