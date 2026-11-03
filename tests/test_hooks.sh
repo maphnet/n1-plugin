@@ -803,6 +803,7 @@ assert_eq "agent resolved: abandoned write fires (regression)" "abandoned" \
     "$(grep '"envelope_close"' "$PEND_TELEM/raw/steps/run-pending-test.jsonl" 2>/dev/null | tail -1 | jq -r .final_outcome 2>/dev/null)"
 assert_eq "agent resolved: lock removed after merge" "false" \
     "$([ -f "$PEND_TELEM/telemetry.lock" ] && echo true || echo false)"
+echo "STOP_BG_DONE"
 ) > "$T/stop.out" 2>&1 &
 STOP_BG_PID=$!
 
@@ -890,7 +891,8 @@ rm "$N1_HOME/active-run.json"
 assert_eq "hooks.json: AskUserQuestion matcher runs notify-question.sh" "1" \
   "$(jq '[.hooks.PreToolUse[] | select(.matcher=="AskUserQuestion") | .hooks[].command | select(test("notify-question.sh"))] | length' "$REPO_ROOT/hooks/hooks.json")"
 
-wait "$STOP_BG_PID" || true  # the session-stop blocks (N1-321): replay their output and fold in their counts
-cat "$T/stop.out"
+STOP_RC=0; wait "$STOP_BG_PID" || STOP_RC=$?  # the session-stop blocks (N1-321): replay their output and fold in their counts
+grep -v '^STOP_BG_DONE$' "$T/stop.out" || true
 PASS=$((PASS+$(grep -c "^PASS: " "$T/stop.out" || true))); FAIL=$((FAIL+$(grep -c "^FAIL: " "$T/stop.out" || true)))
+if [ "$STOP_RC" -ne 0 ] || ! grep -qx 'STOP_BG_DONE' "$T/stop.out"; then echo "FAIL: session-stop background blocks did not complete (exit $STOP_RC)"; FAIL=$((FAIL+1)); fi
 echo; echo "Passed: $PASS  Failed: $FAIL"; [ "$FAIL" -eq 0 ]
