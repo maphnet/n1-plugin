@@ -367,6 +367,15 @@ eq "pending: dead coordinator terminal -> scan retried as the caller" "$(printf 
 printf 'm-13\n' > "$Q/.ask-T-1"; printf 'Use C' > "$N1_HOME/queue/.answer-T-1.txt"; reset
 has "answer: dead coordinator terminal -> still delivered" "answer delivered to T-1" "$(FAKE_COORD_DEAD=1 n1_queue_answer "$N1_HOME" T-1 2>&1)"
 has "answer: the retry carries no --from" "orchestration reply --id m-13 --body Use C --run run-1 --json" "$(calls)"
+# Bug caught: a done queue with a parked Orca row never scanned the inbox, so a second question surfaced nowhere.
+n1_write_frontmatter "$Q/queue.md" step done
+n1_queue_row_status "$Q/queue.md" 1 awaiting-human
+export FAKE_INBOX="$(QM m-20 task-1 d-1)"; rm -f "$Q/.ask-T-1"
+n1_queue_finished_scan "$Q/queue.md"
+eq "finished: done queue with parked row -> .ask marker" m-20 "$(cat "$Q/.ask-T-1" 2>/dev/null)"
+rm -f "$Q/.ask-T-1"; n1_write_frontmatter "$Q/queue.md" step run
+n1_queue_finished_scan "$Q/queue.md"
+eq "finished: running queue not scanned" no "$([ -e "$Q/.ask-T-1" ] && echo yes || echo no)"
 rm -f "$N1_HOME/config.json"; unset FAKE_INBOX
 
 # --- summary (later tasks insert their sections above this line) ---
