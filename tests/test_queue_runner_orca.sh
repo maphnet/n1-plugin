@@ -365,6 +365,20 @@ test_orca_stop_marker() {
     rm -rf "$tmp"
 }
 
+test_orca_stop_gated_untouched() {   # N1-303 x N1-268: draining a stop leaves a schedule-gated pending row pending (no launch, no gated expiry)
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-1:done" "T-2:done"; mk_orca "$tmp"; sched_set "$tmp" 3 T-2 T-1
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.maxConcurrent = 3 | .queue.subtaskTimeoutMinutes = 1 | .queue.pollSeconds = 30'
+    echo implement > "$tmp/fake/step.T-1"; : > "$tmp/fake/nodone.T-1"
+    wl_set "$tmp" "$(wl_row T-1 running | jq -c '.resource.terminalHandle = "term-1"')"
+    n1_write_frontmatter "$tmp/queue.md" run_id RID-S
+    printf 'printf %%s RID-S > "%s/.stop"\n' "$tmp" > "$tmp/fake/at.3"
+    assert_eq "orca-stop-gated: halts (exit 2)" "2" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-stop-gated: T-2 never started" "0" "$(grep -c -- "--task task-T-2" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-gated: T-2 still pending, not skipped" "pending" "$(plan_cell "$tmp/queue.md" 2 8)"
+    rm -rf "$tmp"
+}
+
 test_orca_stop_marker_forged() {   # N1-268 SEC-2: a marker not carrying this queue's run_id is not a user confirmation
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
@@ -670,6 +684,7 @@ test_orca_halt_keeps_supervising
 test_orca_inbox_down_hard_halt
 test_orca_stop_marker
 test_orca_stop_marker_forged
+test_orca_stop_gated_untouched
 test_orca_stop_close_failure_notifies
 test_orca_stale_stop_marker_ignored
 test_orca_resume_owed
