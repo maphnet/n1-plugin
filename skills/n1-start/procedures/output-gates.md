@@ -84,5 +84,6 @@ After dispatching any agent persona, the orchestrator MUST idle until the agent 
 - Do NOT poll for status, check files, or run bash commands
 - Do NOT emit progress messages or summaries
 - If the dispatch returns before the result, end the turn with no text and no tool call: that empty end-of-turn is the wait, never a status turn
+- A notification for a persona you did not dispatch (a nested one), or a subagent "finished" notice whose text only says it is waiting (e.g. "wait for its next notification", "waiting on its own background work"), is not a result: resume the owning subagent (the one you dispatched in this step) by its id via the host message mechanism, asking it to continue and report when its dispatched persona is done, then idle again. If that subagent already returned its final result, ignore the stray notice. Never let such a notice end the step or the run while plan tasks remain.
 
 The host runtime dispatch mechanism handles completion notification.

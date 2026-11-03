@@ -91,6 +91,19 @@ assert_contains "n1-start: wait contract pointer on every dispatch" \
 assert_contains "output-gates: wait is one empty end-of-turn" \
     "skills/n1-start/procedures/output-gates.md" \
     "that empty end-of-turn is the wait"
+# N1-300 — a grandchild notice, or a subagent "finished" notice that only says it is waiting, resumes the owner
+assert_contains "output-gates: nested notice is not a result (N1-300)" \
+    "skills/n1-start/procedures/output-gates.md" \
+    "A notification for a persona you did not dispatch (a nested one)"
+assert_contains "output-gates: waiting-only finished notice (N1-300)" \
+    "skills/n1-start/procedures/output-gates.md" \
+    "only says it is waiting"
+assert_contains "output-gates: resume the owning subagent (N1-300)" \
+    "skills/n1-start/procedures/output-gates.md" \
+    "resume the owning subagent"
+assert_contains "output-gates: run never stalls with plan tasks left (N1-300)" \
+    "skills/n1-start/procedures/output-gates.md" \
+    "Never let such a notice end the step or the run while plan tasks remain"
 assert_contains "n1-start: one-turn step transition" \
     "skills/n1-start/SKILL.md" \
     "**Transition turn:** issue in ONE turn, in parallel"
