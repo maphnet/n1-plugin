@@ -407,8 +407,14 @@ eq "row_of_task: unknown task" "" "$(n1_orca_row_of_task "$Q/queue.md" task-x)"
 reset
 eq "pending: only the unanswered question bound to the row's dispatch" "$(printf '1\tT-1\tm-10')" "$(n1_orca_pending_questions "$Q")"
 has "pending: lists every message as the coordinator terminal" "orchestration check --run run-1 --all --types question --terminal term-9" "$(calls)"
+# N1-309: a finished row's question counts while its worker is still owned (sentinel names the task), not once settled.
+S309="$N1_HOME/queue/sentinels/T-1.env"; [ -e "$S309" ] && mv "$S309" "$T/s309.bak"
+mkdir -p "$N1_HOME/queue/sentinels"; printf 'N1_ORCA_TASK=task-1\n' > "$S309"
 n1_queue_row_status "$Q/queue.md" 1 pr
-eq "pending: finished row skipped" "" "$(n1_orca_pending_questions "$Q")"
+eq "pending: finished row of a still-owned worker listed" "$(printf '1\tT-1\tm-10')" "$(n1_orca_pending_questions "$Q")"
+rm -f "$S309"
+eq "pending: finished row of a settled worker skipped" "" "$(n1_orca_pending_questions "$Q")"
+[ -e "$T/s309.bak" ] && mv "$T/s309.bak" "$S309"
 n1_queue_row_status "$Q/queue.md" 1 in-progress
 n1_write_frontmatter "$Q/queue.md" orca_queue_run R0
 eq "pending: Run of an earlier queue run skipped" "" "$(n1_orca_pending_questions "$Q")"
@@ -446,6 +452,28 @@ eq "finished: done queue with parked row -> .ask marker" m-20 "$(cat "$Q/.ask-T-
 rm -f "$Q/.ask-T-1"; n1_write_frontmatter "$Q/queue.md" step run
 n1_queue_finished_scan "$Q/queue.md"
 eq "finished: running queue not scanned" no "$([ -e "$Q/.ask-T-1" ] && echo yes || echo no)"
+# N1-309: runner down, a question on a final row of a still-owned worker: .ask marker, needs-you, hint; status kept.
+S309="$N1_HOME/queue/sentinels/T-1.env"; [ -e "$S309" ] && mv "$S309" "$T/s309.bak"
+mkdir -p "$N1_HOME/queue/sentinels"; printf 'N1_ORCA_TASK=task-1\n' > "$S309"
+n1_queue_row_status "$Q/queue.md" 1 failed
+export FAKE_INBOX="$(QM m-30 task-1 d-1)"; rm -f "$Q/.ask-T-1"; : > "$T/notes"
+n1_queue_orca_scan "$Q/queue.md"
+eq "final row: .ask marker for --answer" m-30 "$(cat "$Q/.ask-T-1" 2>/dev/null)"
+eq "final row: status kept" "failed" "$(n1_queue_pending_rows "$Q/queue.md" 'failed' | cut -f6)"
+has "final row: needs-you carries the answer command" "T-1 needs you: worker question pending, runner down (answer: /n1:n1-queue --answer T-1 <text>)" "$(cat "$T/notes" 2>/dev/null)"
+eq "final row: hint lists it" "T-1: /n1:n1-queue --answer T-1 <answer>" "$(n1_queue_awaiting_hints "$Q/queue.md")"
+rm -f "$S309"
+eq "final row: leftover .ask of a settled worker, no hint" "" "$(n1_queue_awaiting_hints "$Q/queue.md")"
+rm -f "$Q/.ask-T-1"
+eq "final row: no pending question, no hint" "" "$(n1_queue_awaiting_hints "$Q/queue.md")"
+rm -f "$S309";[ -e "$T/s309.bak" ] && mv "$T/s309.bak" "$S309"
+# N1-309 (N1-287): --status lists dispatch-mismatch skips of the current run only.
+DS="$T/ds.jsonl"; : > "$DS"
+n1_queue_event "$DS" q1 R1 dispatch_mismatch ticket=T-1 reason="dispatch-mismatch task=task-1 msg=m-1"
+n1_queue_event "$DS" q1 R0 dispatch_mismatch ticket=T-1 reason="dispatch-mismatch task=task-1 msg=m-0"
+n1_queue_event "$DS" q1 R1 escalated ticket=T-1
+eq "dispatch skips: current run only" "T-1: skipped worker message (dispatch-mismatch task=task-1 msg=m-1)" "$(n1_queue_dispatch_skips "$DS" R1)"
+eq "dispatch skips: missing file prints nothing" "" "$(n1_queue_dispatch_skips "$T/missing.jsonl" R1)"
 rm -f "$N1_HOME/config.json"; unset FAKE_INBOX
 
 # --- summary (later tasks insert their sections above this line) ---

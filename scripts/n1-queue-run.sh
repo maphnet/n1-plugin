@@ -95,7 +95,7 @@ strip_pid() {
 EVENTS="$(dirname "$QUEUE")/events.jsonl"
 # ponytail: STARTED_AT/PARKED are in-memory; after a runner crash-restart duration_s is null and
 # a re-parked ticket may notify twice. Persist them in queue.md if that ever matters.
-declare -a STARTED_AT=() PARKED=() DRAIN=() DRAIN_ESCALATED=()
+declare -a STRUCK=() STARTED_AT=() PARKED=() DRAIN=() DRAIN_ESCALATED=()
 
 ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 
@@ -304,9 +304,9 @@ finalize() {
                 && [ $(( $(date +%s) - STRIKE_AT )) -lt "$STRIKE_WINDOW" ]; then
                 echo "[$NUM] $TICKET: same reason as the last strike ($REASON), not counted"
             else
-                CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)); STRIKE_REASON="$REASON"; STRIKE_AT=$(date +%s)
+                CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)); STRUCK[NUM]=1; STRIKE_REASON="$REASON"; STRIKE_AT=$(date +%s)
             fi ;;
-        pr|awaiting-human) CONSECUTIVE_FAIL=0; STRIKE_REASON="" ;;
+        pr|awaiting-human) CONSECUTIVE_FAIL=0; STRUCK=(); STRIKE_REASON="" ;;
     esac
     if [ "$CONSECUTIVE_FAIL" -ge 3 ]; then
         halt "HALTED after 3 consecutive non-success"
@@ -878,7 +878,7 @@ launch_orca() {
     fi
     n1_orca_sentinel_set "$N1H" "$TICKET" N1_ORCA_DISPATCH "$DISP"
     echo "| $TICKET | $STARTED | | | | orca:$TASK/$DISP |" >> "$QUEUE"
-    rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET"
+    rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET" "$N1_QUEUE_DIR/.ask-$TICKET"
     ev ticket_started ticket="$TICKET" session="orca:$TASK/$DISP"
     echo "[$NUM] $TICKET launched as Orca worker ($DISP)"
 }
@@ -909,6 +909,7 @@ orca_settle() {
     fi
     # Last: a restart re-owes a pr row only while its sentinel still names the task, so a crash mid-chain re-runs it.
     n1_orca_sentinel_rm "$(orca_n1h_of "$T")" "$T" "$TASK"
+    rm -f "$N1_QUEUE_DIR/.ask-$T" "$N1_QUEUE_DIR/.esc-reason-$T"   # N1-309: a final row's question marker must not outlive it
 }
 
 # run_orca — Orca workers, up to queue.maxConcurrent at once (run_bg stays sequential). Each tick waits on the Run
@@ -918,7 +919,7 @@ orca_settle() {
 # (release + sentinel removal + owed fullAuto chain); running or unverifiable workers are never relaunched, stopped
 # or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN
+    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN SKIP
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
@@ -970,13 +971,46 @@ run_orca() {
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
             [ -n "$T" ] || continue
             # The message must name the dispatch the Runs row holds: a task id alone must not act on another's row.
-            [ -n "$MDISP" ] && [ "$MDISP" = "$DISP" ] || continue
+            # N1-309 (N1-287): the skip is logged and recorded (--status lists it), never dropped silently. The task id
+            # passed _n1_orca_id; the message id is untrusted, so only [A-Za-z0-9_-], 64 chars, reaches log and event.
+            # Heartbeats are dropped silently; each skip is recorded once per task+message (replays, repeats).
+            if [ -z "$MDISP" ] || [ "$MDISP" != "$DISP" ]; then
+                [ "$TYPE" != heartbeat ] || continue
+                SKIP="${MSG//[^A-Za-z0-9_-]/}"
+                SKIP="dispatch-mismatch task=$TASK msg=${SKIP:0:64}"
+                [[ "${SKIPPED:-}" != *" $SKIP "* ]] || continue
+                SKIPPED="${SKIPPED:-} $SKIP "
+                echo "[orca] skipped message ($SKIP)"
+                ev dispatch_mismatch ticket="$T" reason="$SKIP"
+                continue
+            fi
             # A replayed message (a missed ack) must not redo its effect, e.g. re-park an answered row.
             [ -z "$MSG" ] || [[ "$SEEN" != *" $MSG "* ]] || continue
             SEEN="$SEEN${MSG:+$MSG }"
             case "$TYPE" in
                 worker_done) DONE="$DONE$TASK " ;;
-                question) _n1_orca_id "$MSG" && printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T" ;;
+                question)
+                    _n1_orca_id "$MSG" || continue
+                    # N1-309: the row loop only visits in-flight rows, so a question on a final row is surfaced here.
+                    # A question for a settled final row (worker released) is stale: no marker, no alert.
+                    # A failed row whose worker is not settled (e.g. subtask-timeout, worker alive) is re-adopted: the
+                    # row loop then flips it back to in-progress after --answer and records its later outcome. Its
+                    # clock restarts, its slot is no longer owed, and its strike is returned only if that failure is
+                    # still in the current streak (STRUCK; a later finalize counts again). A pr/escalated row keeps its
+                    # status: OWED and orca_settle already supervise it, and a re-adopt would make the next tick
+                    # re-finalize it and delete .ask before the answer.
+                    IFS=$'\t' read -r NUM _ _ N1H _ STATUS <<< "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human|failed|pr|escalated' | awk -F'\t' -v t="$T" '$2 == t' | tail -1)"
+                    case "$STATUS" in failed|pr|escalated) [[ "$SETTLED" != *" $TASK "* ]] || continue ;; esac
+                    printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T"
+                    case "$STATUS" in
+                        failed)
+                            n1_queue_row_status "$QUEUE" "$NUM" awaiting-human
+                            WORKED[NUM]=0; OWED="${OWED// $TASK / }"; PARKED[NUM]=1; SINCE_PARK=0
+                            if [ -n "${STRUCK[NUM]:-}" ]; then STRUCK[NUM]=""; CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL - 1)); fi
+                            echo "[$NUM] $T -> awaiting-human (worker asked after the row failed)"
+                            escalate "$T" "$N1H" ;;
+                        pr|escalated) escalate "$T" "$N1H" ;;
+                    esac ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" ;;
             esac
         done 3<<< "$EVS"
