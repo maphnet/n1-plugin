@@ -1436,6 +1436,10 @@ EOF
     assert_eq "cr1: eligibility lists the pending blocker" "T-2" "$(n1_queue_eligible_rows "$q" false | cut -f2 | paste -sd, -)"
     out=$(printf 'T-1\tT-2\nT-2\tT-1\n' | n1_queue_waves)
     assert_eq "cr1: a cyclic input is reported, not drawn as waves" "yes" "$(case "$out" in cycle*) echo yes ;; *) echo no ;; esac)"
+    # N1-318: A (held, blocked_on C), B overlaps both, C: Blocks wins over a transitive overlap cycle
+    out=$({ printf '%s\t%s\t%s\n' A r:a C B r:a '' C r:a '' | n1_queue_overlap_preds; printf '%s\t%s\n' A C; } | n1_queue_waves)
+    assert_eq "n1-318: three-row overlap plus Blocks has no cycle, waves C, A, B" \
+        "wave 1: C | wave 2: A (after C) | wave 3: B (after A)" "$out"
     cat > "$q" <<'EOF'
 ---
 step: run

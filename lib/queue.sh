@@ -650,20 +650,39 @@ n1_queue_overlap_preds() {
     # N1-303: prints "<ticket>\t<after>" per input line in input (execution) order. <after> is the comma list of
     # EVERY earlier ticket sharing a Touches token (case-insensitive, trimmed: the tokens n1_queue_overlap_order
     # uses). Overlap is not transitive, so this is not only the nearest overlapper an Order note names.
-    # An earlier held ticket whose blocker is this ticket is not listed: that Blocks edge points the other way
-    # and both together would deadlock the pair (the held row waits for this one's merge).
+    # N1-318: Blocks always wins over overlap. An earlier ticket j is not listed when j already depends on this
+    # ticket (directly or transitively) through Blocks edges plus overlap edges kept so far: that edge would
+    # close a cycle and nothing would start. Blockers outside the input are ignored.
     awk -F'\t' '
-    $1 != "" && !seen[$1]++ {
-        n++; key[n] = $1; blk[n] = $3; after = ""
-        m = split(tolower($2), parts, ",")
-        for (i = 1; i <= m; i++) {
-            c = parts[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); parts[i] = c
-            if (c != "") has[n, c] = 1
+    function reach(from, to,    sp, st, v, k, m, p) {   # does `from` depend on `to`?
+        delete vis; sp = 1; st[1] = from; vis[from] = 1
+        while (sp > 0) {
+            v = st[sp--]
+            if (v == to) return 1
+            if ((blk[v] in idx) && !vis[idx[blk[v]]]) { vis[idx[blk[v]]] = 1; st[++sp] = idx[blk[v]] }
+            m = split(kept[v], p, ",")
+            for (k = 1; k <= m; k++) if (p[k] != "" && !vis[p[k]]) { vis[p[k]] = 1; st[++sp] = p[k] }
         }
-        for (j = 1; j < n; j++)
-            for (i = 1; i <= m; i++)
-                if (blk[j] != key[n] && parts[i] != "" && ((j, parts[i]) in has)) { after = after (after == "" ? "" : ",") key[j]; break }
-        print key[n] "\t" after
+        return 0
+    }
+    $1 != "" && !seen[$1]++ {
+        n++; key[n] = $1; blk[n] = $3; idx[$1] = n; np[n] = split(tolower($2), parts, ",")
+        for (i = 1; i <= np[n]; i++) {
+            c = parts[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c)
+            if (c != "") has[n, c] = 1; tok[n, i] = c
+        }
+    }
+    END {
+        for (x = 1; x <= n; x++) {
+            after = ""
+            for (j = 1; j < x; j++)
+                for (i = 1; i <= np[x]; i++)
+                    if (tok[x, i] != "" && ((j, tok[x, i]) in has)) {
+                        if (!reach(j, x)) { after = after (after == "" ? "" : ",") key[j]; kept[x] = kept[x] "," j }
+                        break
+                    }
+            print key[x] "\t" after
+        }
     }'
 }
 
