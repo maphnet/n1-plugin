@@ -34,7 +34,10 @@ check "preview.md prints the Concurrency line (N1-272)" \
     'Concurrency: <MAX_CONCURRENT> \(queue\.maxConcurrent' \
     skills/n1-queue/steps/preview.md
 check "preview.md usage note only when MAX_CONCURRENT is above 1 (N1-272)" \
-    'Parallel workers share your usage limits\.` only when `MAX_CONCURRENT` is above 1' \
+    'when `MAX_CONCURRENT` is above 1 append ` Parallel workers share your usage limits\.`' \
     skills/n1-queue/steps/preview.md
+check "run.md stale-plan prompt usage note only when MAX_CONCURRENT is above 1 (N1-272)" \
+    'when `MAX_CONCURRENT` is above 1 append ` Parallel workers share your usage limits\.`' \
+    skills/n1-queue/steps/run.md
 
 exit $FAIL

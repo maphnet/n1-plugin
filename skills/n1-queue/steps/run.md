@@ -101,7 +101,7 @@ n1_write_frontmatter "$QUEUE_DIR/queue.md" max_concurrent "$(n1_queue_max_concur
 printf 'OLD_MAXC=%s\nSCHEDULE=%s\nMAX_CONCURRENT=%s\n' "$OLD_MAXC" "$(n1_queue_plan_waves "$QUEUE_DIR/queue.md")" "$(n1_read_frontmatter "$QUEUE_DIR/queue.md" max_concurrent)"
 ```
 
-When `OLD_MAXC` is set and differs from `MAX_CONCURRENT`, print `Re-pinned max_concurrent <OLD_MAXC> -> <MAX_CONCURRENT> (plan was stale).` before the Start prompt. Print `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time). Parallel workers share your usage limits.` with the plan table below.
+When `OLD_MAXC` is set and differs from `MAX_CONCURRENT`, print `Re-pinned max_concurrent <OLD_MAXC> -> <MAX_CONCURRENT> (plan was stale).` before the Start prompt. Print `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time).`, and when `MAX_CONCURRENT` is above 1 append ` Parallel workers share your usage limits.`, with the plan table below.
 
 Print "<N> ticket(s) changed since planning (<PLANNED_AT>): <KEY>: <what changed>; ..." or "Plan is older than <STALE_HOURS>h; no ticket changed." Print the plan table, and ask the preview.md § Prompt question (Start / Edit / Cancel). On Start or after an Edit, refresh the timestamp and rewrite the schedule (an Edit may have removed or reordered tickets). `SCHEDULE_WRITE=failed`: print it and **STOP**. Then go to § Launch:
 
