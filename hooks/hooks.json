@@ -33,6 +33,12 @@
         "hooks": [
           { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pr-review-observe.sh\"" }
         ]
+      },
+      {
+        "matcher": "^mcp__.+__jcm_(getIssue|getIssueChangelog|searchIssues)$",
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ticket-watch-capture.sh\"" }
+        ]
       }
     ],
     "PostToolUseFailure": [

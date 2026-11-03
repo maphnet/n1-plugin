@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # N1-89 ticket watch: deterministic, LLM-free change detection for the run's own ticket.
-# Pure functions; no MCP calls. The orchestrator relays raw MCP JSON through files
+# Pure functions; no MCP calls. Raw MCP JSON reaches the .tw-*.json files through
+# hooks/ticket-watch-capture.sh, or the orchestrator writes it when n1_tw_need reports a gap
 # (procedures/ticket-watch.md). Requires lib/preamble.sh (config.sh, host.sh, step.sh) first.
 # State: $N1_HOME/memory/<ID>/.ticket-watch = {updated, changelog_since, me, seen:["<id>@<updated>"]}
 # N1-314: n1_tw_absorb advances only .updated after own writes; n1_tw_need reports uncaptured response files.
