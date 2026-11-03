@@ -407,14 +407,14 @@ test_desktop_notify() {
     printf '#!/bin/sh\nexit 1\n' > "$tmp/bin/notify-send"            # present but broken
     printf '#!/bin/sh\necho "$@" > "%s/osa"\n' "$tmp" > "$tmp/bin/osascript"
     chmod +x "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    local rc=0; ( PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
+    local rc=0; ( export PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
     assert_eq "desktop: falls through broken backend" "0" "$rc"
     assert_eq "desktop: osascript used" "yes" "$([ -f "$tmp/osa" ] && echo yes || echo no)"
     rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    rc=0; ( PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
+    rc=0; ( export PATH="$tmp/bin"; n1_desktop_notify "Title" "Body" ) || rc=$?
     assert_eq "desktop: none available -> 1" "1" "$rc"
     printf '#!/bin/sh\necho "$N1_NT|$N1_NB" > "%s/ps"\n' "$tmp" > "$tmp/ps.exe"; chmod +x "$tmp/ps.exe"
-    rc=0; ( PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/ps.exe" n1_desktop_notify "Title" "Body" ) || rc=$?
+    rc=0; ( export PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/ps.exe" n1_desktop_notify "Title" "Body" ) || rc=$?
     assert_eq "desktop: WSL powershell off PATH used" "0|Title|Body" "$rc|$(cat "$tmp/ps" 2>/dev/null)"
 }
 
@@ -424,11 +424,11 @@ test_desktop_notify_stdin() {   # N1-265: no desktop backend may consume the cal
     printf '#!/bin/sh\nwhile read -r _; do :; done\nexit 0\n' > "$tmp/drain"; chmod +x "$tmp/drain"
     for b in notify-send osascript; do
         rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"; cp "$tmp/drain" "$tmp/bin/$b"
-        out=$(printf 'a\nb\nc\n' | { read -r _; ( PATH="$tmp/bin"; n1_desktop_notify T B ); cat; } | paste -sd, -)
+        out=$(printf 'a\nb\nc\n' | { read -r _; ( export PATH="$tmp/bin"; n1_desktop_notify T B ); cat; } | paste -sd, -)
         assert_eq "desktop-stdin: $b leaves caller stdin alone" "b,c" "$out"
     done
     rm -f "$tmp/bin/notify-send" "$tmp/bin/osascript"
-    out=$(printf 'a\nb\nc\n' | { read -r _; ( PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/drain" n1_desktop_notify T B ); cat; } | paste -sd, -)
+    out=$(printf 'a\nb\nc\n' | { read -r _; ( export PATH="$tmp/bin"; N1_WSL_POWERSHELL="$tmp/drain" n1_desktop_notify T B ); cat; } | paste -sd, -)
     assert_eq "desktop-stdin: powershell leaves caller stdin alone" "b,c" "$out"
 }
 
@@ -464,7 +464,7 @@ test_notify_backends() {
     mkdir -p "$tmp/bin"; local c
     for c in jq timeout date; do ln -s "$(command -v "$c")" "$tmp/bin/$c"; done
     printf '{"queue":{"notify":"desktop"}}' > "$TEST_CONFIG"
-    rc=0; ( PATH="$tmp/bin"; n1_notify needs-you "T-2 needs you" ) 2> "$tmp/err" || rc=$?
+    rc=0; ( export PATH="$tmp/bin"; n1_notify needs-you "T-2 needs you" ) 2> "$tmp/err" || rc=$?
     assert_eq "notify: desktop skip rc 0" "0" "$rc"
     assert_eq "notify: desktop skip logged" "yes" "$(grep -q 'no desktop notifier available; skipped (needs-you: T-2 needs you)' "$tmp/err" && echo yes || echo no)"
     unset -f n1_config_file
