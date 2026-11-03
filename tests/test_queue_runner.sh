@@ -1604,11 +1604,40 @@ test_status_reconcile_merged() {
     rm -rf "$tmp"
 }
 
+# N1-298: --story <Epic> expands each child into its Sub-tasks; --story <Story> is unchanged.
+test_story_epic_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue/steps"
+    hasF() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    hasX() { grep -qxF -- "$1" "$2" && echo yes || echo no; }
+    # Epic branch
+    assert_eq "epic-wiring: intake has the Jira-only Epic expansion paragraph" "yes" "$(hasF '**Epic expansion (Jira only).**' "$s/intake.md")"
+    assert_eq "epic-wiring: Epic branch keys on root issue type Epic" "yes" "$(hasF 'returned issue type `Epic` for the story ID' "$s/intake.md")"
+    assert_eq "epic-wiring: per-child search copies the story JQL form" "yes" "$(hasF 'JQL `parent = <STORY_KEY> ORDER BY created ASC`' "$s/intake.md")"
+    assert_eq "epic-wiring: child keys are key-validated before the search" "yes" "$(hasF 'Apply § Key validation to `<STORY_KEY>` before the search' "$s/intake.md")"
+    assert_eq "epic-wiring: any child search error stops the whole intake" "yes" "$(hasF '**STOP** the whole intake (no partial plan)' "$s/intake.md")"
+    assert_eq "epic-wiring: childless child stays one row" "yes" "$(hasF 'Reason `epic child`' "$s/intake.md")"
+    assert_eq "epic-wiring: expanded Sub-tasks carry their Story key" "yes" "$(hasF 'Reason `epic subtask of <STORY_KEY>`' "$s/intake.md")"
+    assert_eq "epic-wiring: all-Done child is excluded" "yes" "$(hasF 'done-before-run (all subtasks done)' "$s/intake.md")"
+    assert_eq "epic-wiring: depth fixed, Sub-tasks never searched" "yes" "$(hasF 'never search a Sub-task for children' "$s/intake.md")"
+    assert_eq "epic-wiring: YouTrack story mode unchanged" "yes" "$(hasF 'YouTrack has no Epic path here' "$s/intake.md")"
+    assert_eq "epic-wiring: Output lists the Epic Reason values" "yes" "$(hasF '`epic subtask of <STORY_KEY>` and `epic child` for Epic-mode candidates' "$s/intake.md")"
+    # Unchanged Story path (byte-identical lines)
+    assert_eq "epic-wiring: story JQL line unchanged" "yes" "$(hasX '- **Jira:** call `mcp__<TRACKER_MCP>__<SEARCH_OP>` with JQL `parent = <STORY_ID> ORDER BY created ASC`. Include `cloudId`.' "$s/intake.md")"
+    assert_eq "epic-wiring: zero-subtask STOP line unchanged" "yes" "$(hasX '- **Zero subtasks** (parsed empty result, any status): print "no subtasks — run /n1:n1-start <STORY_ID>" and **STOP** (no queue is built).' "$s/intake.md")"
+    assert_eq "epic-wiring: story subtask Reason kept" "yes" "$(hasF '`story subtask` for story-mode candidates found via subtask enumeration' "$s/intake.md")"
+    # Preview hierarchy (display-only, schema unchanged)
+    assert_eq "epic-wiring: preview prints Hierarchy only for epic Reasons (contains, not starts-with)" "yes" "$(hasF 'When any candidate'"'"'s Reason contains `epic subtask of ` or `epic child`' "$s/preview.md")"
+    assert_eq "epic-wiring: preview Hierarchy line format" "yes" "$(hasX 'Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #3, #4, #5' "$s/preview.md")"
+    assert_eq "epic-wiring: Hierarchy uses post-reorder numbers and is display-only" "yes" "$(hasF 'Grouping is display-only' "$s/preview.md")"
+    assert_eq "epic-wiring: Prompt re-print includes the Hierarchy block" "yes" "$(hasF 'Print the plan table again (Reason now carries Order notes) and the Hierarchy block when it applies' "$s/preview.md")"
+}
+
 
 test_parse_service
 test_find_repo
 test_pick_model
 test_plan_wiring
+test_story_epic_wiring
 test_child_status
 test_child_status_deploy
 test_held_helpers

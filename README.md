@@ -44,7 +44,7 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 /n1:n1-review #340                 # advisory review of a PR
 /n1:n1-pr                          # finalize branch: docs, push, create PR
 /n1:n1-finish                      # verify PR is merged, watch deploy, close ticket
-/n1:n1-queue --story STORY-12       # run story subtasks through the pipeline one by one (each ticket stops after PR + CI; N1 never merges unless autonomy.fullAuto and finishWork.mergeOnFinish are both true, held tickets start once you merge their blocker). Also: --tag <tag>, --plan, --run <queue-id>, --dry-run, --status, --watch, --answer <ticket> <text>, --schedule <trigger|list|remove>, --unattended.
+/n1:n1-queue --story STORY-12       # run a story's subtasks (for a Jira Epic, each child's Sub-tasks) through the pipeline one by one (each ticket stops after PR + CI; N1 never merges unless autonomy.fullAuto and finishWork.mergeOnFinish are both true, held tickets start once you merge their blocker). Also: --tag <tag>, --plan, --run <queue-id>, --dry-run, --status, --watch, --answer <ticket> <text>, --schedule <trigger|list|remove>, --unattended.
 ```
 
 ## Skills

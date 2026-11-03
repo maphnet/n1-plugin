@@ -15,6 +15,15 @@ Excluded:
 | ... | blocked by X-123 |
 ```
 
+**Hierarchy (Epic mode, N1-298).** When any candidate's Reason contains `epic subtask of ` or `epic child` (match anywhere in the cell: the blocker check can prefix `blocked_on <ID> · ` and later steps append ` · briefed` or Order notes), print this block right after every print of the plan table in this step (here, § Prompt, and each Edit re-print), using the plan's current `#` numbers:
+
+```
+Hierarchy:
+Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #3, #4, #5
+```
+
+One line per child, in intake's child order. An expanded child lists the rows whose Reason contains `epic subtask of <STORY_KEY>`, and an `epic child` row lists itself. Children that intake excluded, and Stories left with no rows after later exclusions, get no line. Grouping is display-only: § 3 may still reorder rows, and the schedule, not this block, decides start order. A Story-ID run (Reason `story subtask`) prints no Hierarchy block.
+
 If `--dry-run`: print "Dry run -- nothing launched." **STOP** (do not write queue.md, do not run Plan-Resolve).
 
 ## Plan-Resolve
@@ -125,7 +134,7 @@ source "$N1_ROOT/lib/queue.sh"
 n1_queue_notify_check
 ```
 
-Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes), then `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time). Parallel workers share your usage limits.`, plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user (`--unattended`: do not ask; proceed as **Start**):
+Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes) and the Hierarchy block when it applies, then `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time). Parallel workers share your usage limits.`, plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user (`--unattended`: do not ask; proceed as **Start**):
 - **Start** (bare) or **Save plan** (`--plan`) -> proceed to the run step.
 - **Edit** -> free text: remove tickets, reorder, change model (`KEY=opus|sonnet`). Apply changes (a removed ticket also loses its `DECISIONS` row), re-run § 3's Schedule and concurrency block in the edited order, re-print the table and schedule, ask again. Log each edit as `| preview | edit | <text> |` in a pending Decision Ledger list.
 - **Cancel** -> **STOP.** Cancel and Edit's ticket removal do not revert briefs already written to the tracker in § 1.

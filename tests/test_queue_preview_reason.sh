@@ -15,8 +15,20 @@ check "intake.md Candidates Output lists Reason field" \
 check "intake.md enumerates Reason values (tag match / story subtask)" \
     'tag match.*story subtask' \
     skills/n1-queue/steps/intake.md
+check "intake.md enumerates Epic Reason values after story subtask (N1-298)" \
+    'story subtask.*epic subtask of <STORY_KEY>.*epic child' \
+    skills/n1-queue/steps/intake.md
+check "intake.md expands Done-class Epic children too (N1-298)" \
+    'expand every child, including those just classified `done-before-run`' \
+    skills/n1-queue/steps/intake.md
 check "preview.md plan table header includes Reason column" \
     '\| # \| Ticket \| Title \| Repo \| Model \| Reason \|' \
+    skills/n1-queue/steps/preview.md
+check "preview.md prints a Hierarchy block for epic rows (N1-298)" \
+    '^Hierarchy:$' \
+    skills/n1-queue/steps/preview.md
+check "preview.md Hierarchy groups rows under their Story (N1-298)" \
+    '^Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #' \
     skills/n1-queue/steps/preview.md
 
 exit $FAIL

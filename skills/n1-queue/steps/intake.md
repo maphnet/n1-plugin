@@ -34,6 +34,14 @@ Enumerate subtasks (same logic as tag mode but via parent link):
 
 Status classification: a status whose lowercase name is one of `done`, `closed`, `resolved`, `fixed`, `verified` -> `done-before-run`. Everything else -> candidate.
 
+**Epic expansion (Jira only).** When the tracker is Jira and the `READ_OP` call above returned issue type `Epic` for the story ID, expand every child, including those just classified `done-before-run` (a Done-class child can still hold an open Sub-task), before any later step uses them: a child with Sub-tasks queued as a row would stop at its own Headless Guard. Call each such child `<STORY_KEY>` (any issue type) and take them in enumeration order (created ASC):
+1. Apply § Key validation to `<STORY_KEY>` before the search; an invalid key is excluded with reason `invalid ticket key` and never searched.
+2. Call `mcp__<TRACKER_MCP>__<SEARCH_OP>` with JQL `parent = <STORY_KEY> ORDER BY created ASC`. Include `cloudId`. A search error or unparseable result for any child: report the error and **STOP** the whole intake (no partial plan).
+3. Zero hits: the child's own status decides: candidate with Reason `epic child`, or `done-before-run` if Done-class.
+4. Hits: apply § Key validation and the status classification above to each Sub-task, in result order. Non-done Sub-tasks replace the child as candidates, Reason `epic subtask of <STORY_KEY>`; done ones are excluded `done-before-run`. The child's own status is ignored here. When no Sub-task is left, exclude the child with reason `done-before-run (all subtasks done)`.
+
+Depth is fixed at Epic > Story > Sub-task: never search a Sub-task for children. Every child is searched once whatever its type, so a child Epic expands like a Story. Record each child's title from the enumeration result as `<CHILD_TITLE>` for preview.md's Hierarchy block, with `|` and newlines replaced by a space. YouTrack has no Epic path here: its story mode is unchanged and the children are the rows. Any other root type (Story, Task, Bug) skips this paragraph.
+
 For each candidate in story mode:
 ```bash
 source ~/.n1/preamble.sh
@@ -93,7 +101,7 @@ If no size field, default to `sonnet`.
 ## Output
 
 Build two lists:
-- **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration)
+- **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration; `epic subtask of <STORY_KEY>` and `epic child` for Epic-mode candidates, § Story mode Epic expansion)
 - **Excluded**: `Ticket`, `Reason` (already run, blocked, story, no usable content, skip, done-before-run)
 
 If no candidates: "No actionable tickets found." **STOP.**
