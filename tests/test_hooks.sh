@@ -167,6 +167,7 @@ pyroot_rc() {  # pyroot_rc <file_path>: reviewer Write straight into the hook wi
 assert_eq "missing persona file: reviewer Write outside findings path denied" 2 "$(pyroot_rc "$T/alt/config.json")"
 assert_eq "missing persona file: reviewer Write to findings path allowed" 0 "$(pyroot_rc "$T/alt/memory/T-9/review-cr.md")"
 
+# N1-321: the wrapper's fail-closed rc mapping (no python, crash, missing config) is covered only by wrapper_rc/raw_rc cases, never by policy_rc.
 # --- enforce-agent-policy: merge deny (N1-146; N1-167: only unattended sessions and active N1 runs, unless n1_merge_authorized) ---
 # N1-321: policy_rc is answered by one in-process policy server (tests/hooks_policy_server.py runs the hook's own
 # main() per case), so the tables below cost no process spawn per command. wrapper_rc keeps the full bash-wrapper
@@ -300,7 +301,7 @@ for c in "gh pr merge 12" "git push origin main" "gh api -X PUT repos/o/r/pulls/
 done
 # N1-230 SEC-2: tail-worker merge/cleanup/release denied even when merging is authorized
 cfg '{"finishWork":{"mergeOnFinish":true},"autonomy":{"fullAuto":true}}'
-tw_rc() { jq -cn --arg c "$1" --arg cwd "$T" '{session_id:"s",cwd:$cwd,agent_type:"n1:tail-worker",tool_name:"Bash",tool_input:{command:$c}}' | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS bash "$POLICY" >/dev/null 2>&1; echo $?; }
+tw_rc() { policy_rc @agent_type=n1:tail-worker -- "$1"; }  # N1-321: served by the policy server (payload variant)
 for c in "gh pr merge 12" "git push origin main" "source ~/.n1/preamble.sh; n1_finish_cleanup a b c" "n1_active_run_clear"; do
     assert_eq "tail-worker denied with merge authorized: $c" 2 "$(tw_rc "$c")"
 done
@@ -456,20 +457,17 @@ NOHOME_RC=$(rc=0; printf '%s' "$PAY" | env -u N1_HOME -u N1_QUEUE_RUN_ID -u N1_H
 assert_eq "py: no N1 home, no config: allowed" 0 "$NOHOME_RC"
 # Only this session's valid keyed file counts; anything else reads as plain (allowed)
 ar_on; cfg '{}'
-sid_rc() {  # sid_rc <jq filter>: hook exit code for "gh pr merge 12" with a modified payload
-    local rc=0
-    jq -cn --arg cwd "$T" '{session_id:"s",cwd:$cwd,tool_name:"Bash",tool_input:{command:"gh pr merge 12"}}' | jq -c "$1" \
-        | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS bash "$POLICY" >/dev/null 2>&1 || rc=$?
-    echo "$rc"
+sid_rc() {  # sid_rc <payload field>...: hook exit code for "gh pr merge 12" with a modified payload (N1-321: served by the policy server)
+    policy_rc "$@" -- "gh pr merge 12"
 }
-assert_eq "active run file, own session: denied" 2 "$(sid_rc '.')"
-assert_eq "active run file, missing session_id: allowed" 0 "$(sid_rc 'del(.session_id)')"
-assert_eq "active run file, unsafe session_id: allowed" 0 "$(sid_rc '.session_id="../s"')"
-assert_eq "other session's active run: allowed" 0 "$(sid_rc '.session_id="s-other"')"
+assert_eq "active run file, own session: denied" 2 "$(sid_rc)"
+assert_eq "active run file, missing session_id: allowed" 0 "$(sid_rc @-session_id)"
+assert_eq "active run file, unsafe session_id: allowed" 0 "$(sid_rc @session_id=../s)"
+assert_eq "other session's active run: allowed" 0 "$(sid_rc @session_id=s-other)"
 echo '{"ticketId":"../x"}' > "$N1_HOME/active-run.s.json"
-assert_eq "active run with invalid ticketId: still denied (SEC-3)" 2 "$(sid_rc '.')"
+assert_eq "active run with invalid ticketId: still denied (SEC-3)" 2 "$(sid_rc)"
 : > "$N1_HOME/active-run.s.json"
-assert_eq "empty active-run file: still denied (SEC-3)" 2 "$(sid_rc '.')"
+assert_eq "empty active-run file: still denied (SEC-3)" 2 "$(sid_rc)"
 # run pointer under another ~/.n1/<slug>/ than the cwd/config home (SEC-2); HOME is a temp dir
 ar_off; mkdir -p "$T/fakehome/.n1/other"
 echo '{"ticketId":"N1-1"}' > "$T/fakehome/.n1/other/active-run.s.json"
@@ -853,7 +851,8 @@ echo '{}' > "$N1_HOME/config.json"
 nq() {  # nq [VAR=val ...] -> prints hook exit code; waits briefly for the backgrounded notifier
   local rc=0; : > "$NQLOG"
   echo '{"session_id":"s-nq","tool_name":"AskUserQuestion"}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID "$@" PATH="$NQBIN:$PATH" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
-  sleep 0.5; echo "$rc"
+  # poll for the notifier (exits as soon as it logs); the no-call cases wait the full 0.25 s
+  local i; for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$NQLOG" ] && break; sleep 0.025; done; echo "$rc"
 }
 assert_eq "notify-question: no active run -> exit 0" "0" "$(nq)"
 assert_eq "notify-question: no active run -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"

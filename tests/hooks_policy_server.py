@@ -6,7 +6,7 @@ NUL-terminated fields: KEY=VALUE ... then "--" then the Bash command. For each r
 reset to the startup environment minus N1_QUEUE_RUN_ID / N1_HEADLESS (what `env -u` did in the wrapper
 call), the KEY=VALUE overrides are applied, and the hook module's own main() runs on the same Bash
 PreToolUse payload policy_rc built. The deny chain is never re-implemented here. The exit code is
-written as one line to stdout.
+written as one line to stdout. A field "@KEY=VALUE" sets payload[KEY] and "@-KEY" deletes it (payload variants).
 """
 import contextlib
 import importlib.util
@@ -34,7 +34,7 @@ def fields():
             yield f.decode("utf-8", "surrogateescape")
 
 
-def run(env, cmd):
+def run(env, pl, cmd):
     os.environ.clear()
     os.environ.update(BASE)
     os.environ.update(env)
@@ -44,6 +44,11 @@ def run(env, cmd):
             obj.cache_clear()
     payload = {"session_id": "s", "cwd": payload_cwd, "hook_event_name": "PreToolUse",
                "tool_name": "Bash", "tool_input": {"command": cmd}}
+    for k, v in pl.items():
+        if v is None:
+            payload.pop(k, None)
+        else:
+            payload[k] = v
     sys.argv = ["enforce-agent-policy.py", config_file, plugin_root]
     sys.stdin = io.TextIOWrapper(io.BytesIO(json.dumps(payload).encode()))
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -57,10 +62,15 @@ def run(env, cmd):
 
 it = fields()
 for f in it:
-    env = {}
+    env, pl = {}, {}
     while f != "--":
         k, _, v = f.partition("=")
-        env[k] = v
+        if k.startswith("@-"):
+            pl[k[2:]] = None
+        elif k.startswith("@"):
+            pl[k[1:]] = v
+        else:
+            env[k] = v
         f = next(it)
-    sys.stdout.write(f"{run(env, next(it))}\n")
+    sys.stdout.write(f"{run(env, pl, next(it))}\n")
     sys.stdout.flush()
