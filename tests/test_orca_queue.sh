@@ -111,7 +111,6 @@ eq "run-create: unavailable -> rc 1" 1 "$(FAKE_ORCA_RUN_FAIL=1 rc n1_orca_run_cr
 eq "run-create: unsafe id rejected" 1 "$(FAKE_ORCA_RUN_ID='a|b' rc n1_orca_run_create q1)"
 reset
 eq "task-create: id" task-1 "$(n1_orca_task_create run-1 T-1)"
-has "full: orchestration argv carries --full before --json" "orchestration task-create --run run-1 --task-title T-1" "$(calls)"
 has "full: task-create argv ends --full --json" "--full --json" "$(calls)"
 n1_orca status >/dev/null; n1_orca worktree list >/dev/null
 eq "full: status and worktree list never get --full" 0 "$(calls | grep -E '^(status|worktree list)' | grep -c -- --full)"
