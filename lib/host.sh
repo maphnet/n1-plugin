@@ -161,7 +161,7 @@ n1_persona_name() {
 }
 
 # ---- Orca workspace manager (N1-224) ----
-# Every call goes through "$ORCA_CLI_COMMAND" (never a bare `orca`) with --json appended. When
+# Every call goes through "$ORCA_CLI_COMMAND" (never a bare `orca`) with --json appended (and --full for `orchestration` calls). When
 # ORCA_CLI_COMMAND is unset every helper returns at once with zero subprocesses (AC7). Targets are
 # always `path:<abs toplevel>`: `current` from an unregistered nested worktree resolves to the parent checkout.
 _N1_ORCA_ACTIVE=""   # per-process cache: "" unknown, 1 active, 0 inactive
