@@ -38,11 +38,13 @@ n1_queue_finished_scan "$QUEUE_FILE"
 Read frontmatter `step` and `queue_id`. Print:
 - `Step: <step>` (plan/run/done/halted). `run` with a `halt_draining` event after the last `queue_started` event in events.jsonl means the queue halted and the runner still supervises live workers; `/n1:n1-queue --stop <id>` stops them.
 - For each ticket in the Plan with status `pr`, `escalated`, or `failed`: read `$N1_HOME_COL/memory/<TICKET>/overview.md` and extract `## Escalations` content (if any). Print escalations grouped by ticket.
-- Rows with status `awaiting-human` are background children waiting for an answer (their sessions are still alive). Print each resume command:
+- Rows waiting for an answer: `awaiting-human` rows (their sessions are still alive), plus workspace-manager rows that are already `failed`/`pr`/`escalated` but whose worker asked a question afterwards. Print each resume or `--answer` command verbatim. Then print any `<ticket>: skipped worker message (dispatch-mismatch ...)` lines verbatim: the runner ignored those messages because they named a different dispatch than the ticket's row, so tell the user the worker may need checking.
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
 n1_queue_awaiting_hints "$QUEUE_FILE"
+n1_queue_dispatch_skips "$(dirname "$QUEUE_FILE")/events.jsonl" "$(n1_read_frontmatter "$QUEUE_FILE" run_id)"
 ```
 - The full transition history (starts, escalations, outcomes with wall-clock durations, halts) is in `<queue-dir>/events.jsonl`, one JSON object per line. Read it when the merged status table below does not explain what happened.
 
