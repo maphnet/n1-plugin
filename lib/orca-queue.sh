@@ -92,9 +92,18 @@ n1_orca_worker_start() {
 
 n1_orca_check() {
     # Usage: n1_orca_check <run> <wait-seconds> — one coordinator inbox batch; blocks up to wait-seconds
-    # (an empty batch is a checkpoint, not a failure).
-    N1_ORCA_TIMEOUT=$(( $2 + 30 )) n1_orca orchestration check --run "$1" --wait \
-        --types worker_done,escalation,question,heartbeat --timeout-ms $(( $2 * 1000 ))
+    # (an empty batch is a checkpoint, not a failure). An Orca whose --types rejects heartbeat is retried once
+    # without it (N1-282); any other failure passes through unchanged.
+    local out rc t=$(( $2 * 1000 )) w=$(( $2 + 30 ))
+    out=$(N1_ORCA_TIMEOUT=$w n1_orca orchestration check --run "$1" --wait \
+        --types worker_done,escalation,question,heartbeat --timeout-ms "$t"); rc=$?
+    if [ "$rc" -ne 0 ] && jq -r '.error.message // empty' <<<"$out" 2>/dev/null | grep -qi 'Invalid --types'; then
+        echo "n1-queue: Orca rejected --types heartbeat; retrying without it" >&2
+        out=$(N1_ORCA_TIMEOUT=$w n1_orca orchestration check --run "$1" --wait \
+            --types worker_done,escalation,question --timeout-ms "$t"); rc=$?
+    fi
+    printf '%s\n' "$out"
+    return "$rc"
 }
 
 n1_orca_events() {
