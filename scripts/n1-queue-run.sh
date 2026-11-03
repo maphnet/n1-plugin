@@ -223,7 +223,7 @@ finalize() {
     chain_child_escalated "$TICKET" "$N1H" && CHAIN_ESC="$TICKET"
     # Persist it too: a runner restart loses CHAIN_ESC and the question files are removed below.
     if [ -n "$CHAIN_ESC" ]; then : > "$N1_QUEUE_DIR/.escalated-$TICKET"; else rm -f "$N1_QUEUE_DIR/.escalated-$TICKET"; fi
-    rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM" "$N1_QUEUE_DIR/.ask-$TICKET" "$N1_QUEUE_DIR/.hb-$TICKET"
+    rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM" "$N1_QUEUE_DIR/.ask-$TICKET"
     # N1-225: an Orca row's identity is never removed here: a timed-out worker may still be running. orca_settle
     # removes it once the worker reported done, is durably finished, or is proven exited.
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
@@ -969,7 +969,6 @@ run_orca() {
                 worker_done) DONE="$DONE$TASK " ;;
                 question) _n1_orca_id "$MSG" && printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T" ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" ;;
-                heartbeat) date +%s > "$N1_QUEUE_DIR/.hb-$T" ;;   # last heartbeat (runner receive time); settles nothing
             esac
         done 3<<< "$EVS"
         n1_orca_ack "$ORCA_RUN" "$BATCH"
