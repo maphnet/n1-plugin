@@ -60,7 +60,7 @@ test_orca_stop_worker() {
 
 test_orca_parallel_workers() {   # AC1
     local tmp rid last_start first_rel; tmp=$(mktemp -d)
-    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done"; mk_orca "$tmp"
+    mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 3'
     assert_eq "orca: exit 0" "0" "$(run_orca_queue "$tmp")"
     rid=$(n1_read_frontmatter "$tmp/queue.md" run_id)
     assert_eq "orca: Run id stored" "run-1" "$(n1_read_frontmatter "$tmp/queue.md" orca_run_id)"
@@ -88,6 +88,30 @@ test_orca_max_concurrent() {
         "$(grep -c 'planned before N1-303' "$tmp/output.txt" || true)"
     b_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-B"); a_rel=$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-T-A")
     assert_eq "orca-max1: T-B starts only after T-A is released" "yes" \
+        "$([ -n "$b_start" ] && [ -n "$a_rel" ] && [ "$b_start" -gt "$a_rel" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_max_concurrent_default() {   # N1-272: legacy plan, no config -> 1
+    local tmp b_start a_rel; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    assert_eq "orca-default: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-default: legacy plan falls back to maxConcurrent=1" "1" \
+        "$(grep -c 'using live queue.maxConcurrent=1$' "$tmp/output.txt" || true)"
+    b_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-B"); a_rel=$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-T-A")
+    assert_eq "orca-default: T-B starts only after T-A is released" "yes" \
+        "$([ -n "$b_start" ] && [ -n "$a_rel" ] && [ "$b_start" -gt "$a_rel" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_max_concurrent_invalid() {   # N1-272: legacy plan, invalid live queue.maxConcurrent -> runner fallback 1
+    local tmp b_start a_rel; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = "x"'
+    assert_eq "orca-invalid: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-invalid: invalid value falls back to maxConcurrent=1" "1" \
+        "$(grep -c 'using live queue.maxConcurrent=1$' "$tmp/output.txt" || true)"
+    b_start=$(line_of "$tmp/fake/orca-calls" "--task task-T-B"); a_rel=$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-T-A")
+    assert_eq "orca-invalid: T-B starts only after T-A is released" "yes" \
         "$([ -n "$b_start" ] && [ -n "$a_rel" ] && [ "$b_start" -gt "$a_rel" ] && echo yes || echo no)"
     rm -rf "$tmp"
 }
@@ -609,7 +633,7 @@ test_orca_forged_dispatch_ignored() {   # N1-281 SEC-1: a message naming a task 
     # N1-309 (N1-287): the skip is logged to runner.log and recorded as a dispatch_mismatch event (not dropped silently);
     # the untrusted message id reaches both only as [A-Za-z0-9_-].
     local tmp; tmp=$(mktemp -d)
-    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 3'
     echo implement > "$tmp/fake/step.T-A"; echo implement > "$tmp/fake/step.T-B"
     : > "$tmp/fake/nodone.T-A"; : > "$tmp/fake/nodone.T-B"
     printf '%s' "$(orca_msg worker_done task-T-B 'm-d1"<x>$(y)' | jq -c '.payload |= (fromjson | .dispatchId = "d-forged" | tojson)')" > "$tmp/fake/question"
@@ -788,6 +812,8 @@ test_orca_tick_cap() {
 
 test_orca_parallel_workers
 test_orca_max_concurrent
+test_orca_max_concurrent_default
+test_orca_max_concurrent_invalid
 test_orca_stored_max_concurrent
 test_orca_gated_wait_expires
 test_orca_overlap_pair_sequential

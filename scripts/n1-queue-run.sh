@@ -929,7 +929,7 @@ run_orca() {
     # N1-303: the plan pins max_concurrent; live config is read only for a plan made before it (legacy).
     MAXC=$(n1_read_frontmatter "$QUEUE" max_concurrent 2>/dev/null)
     if [[ ! "$MAXC" =~ ^[1-9][0-9]*$ ]]; then
-        MAXC=$(n1_queue_val maxConcurrent); [[ "$MAXC" =~ ^[1-9][0-9]*$ ]] || MAXC=3
+        MAXC=$(n1_queue_val maxConcurrent); [[ "$MAXC" =~ ^[1-9][0-9]*$ ]] || MAXC=1
         echo "queue.md has no max_concurrent (planned before N1-303); using live queue.maxConcurrent=$MAXC"
     fi
     # N1-303: an overlap successor waits for its predecessor's merge only when the predecessor's own N1 Home merges its PRs
