@@ -1154,12 +1154,41 @@ fi
 ORCA_RUN=$(n1_read_frontmatter "$QUEUE" orca_run_id)
 # The Orca Run belongs to the queue run that created it: a fresh --run picks its backend anew.
 [ -z "$ORCA_RUN" ] || [ "$(n1_read_frontmatter "$QUEUE" orca_queue_run)" = "$RUN_ID" ] || ORCA_RUN=""
+# N1-270: Orca nudges the Run's coordinator terminal whenever a worker sends (heartbeats included), and a coordinator
+# must be a terminal. The runner opens its own (n1_orca_coord_open) and exports its handle, so every coordinator call
+# (run-create/run-use, task-create, worker-start, check, worker-list) names it, never the launching session. No
+# terminal, or Orca refusing it as coordinator: the launching terminal coordinates (legacy), said once.
+LAUNCH_HANDLE="${ORCA_TERMINAL_HANDLE:-}" COORD=""
+orca_coord_open() {
+    if COORD=$(n1_orca_coord_open "$QUEUE_ID"); then
+        export ORCA_TERMINAL_HANDLE="$COORD"
+    else
+        COORD=""
+        echo "Orca coordinator terminal unavailable; the launching session coordinates this run"
+    fi
+    return 0
+}
+# orca_coord_drop — back to the launching terminal and close the runner's own; non-zero when none was in use.
+orca_coord_drop() {
+    [ -n "$COORD" ] || return 1
+    if [ -n "$LAUNCH_HANDLE" ]; then export ORCA_TERMINAL_HANDLE="$LAUNCH_HANDLE"; else unset ORCA_TERMINAL_HANDLE; fi
+    n1_orca_coord_close "$COORD"; COORD=""
+    echo "Orca refused the coordinator terminal; the launching session coordinates this run"
+}
 if [ -n "$ORCA_RUN" ]; then
-    n1_orca_run_use "$ORCA_RUN" || halt "HALTED: Orca run $ORCA_RUN unreachable; start Orca, then /n1:n1-queue --run $QUEUE_ID"
+    PREV_COORD=$(n1_read_frontmatter "$QUEUE" orca_coord_terminal)
+    orca_coord_open
+    n1_orca_run_use "$ORCA_RUN" || { orca_coord_drop && n1_orca_run_use "$ORCA_RUN"; } \
+        || halt "HALTED: Orca run $ORCA_RUN unreachable; start Orca, then /n1:n1-queue --run $QUEUE_ID"
+    n1_write_frontmatter "$QUEUE" orca_coord_terminal "$COORD"
+    # run-use rebound the Run to this runner's terminal: the previous runner's one is no longer the coordinator.
+    [ -z "$PREV_COORD" ] || [ "$PREV_COORD" = "$COORD" ] || n1_orca_coord_close "$PREV_COORD"
     run_orca
-elif [ "$(n1_queue_backend)" = orca ] && ORCA_RUN=$(n1_orca_run_create "$QUEUE_ID"); then
+elif [ "$(n1_queue_backend)" = orca ] && orca_coord_open \
+        && { ORCA_RUN=$(n1_orca_run_create "$QUEUE_ID") || { orca_coord_drop && ORCA_RUN=$(n1_orca_run_create "$QUEUE_ID"); }; }; then
     n1_write_frontmatter "$QUEUE" orca_run_id "$ORCA_RUN"
     n1_write_frontmatter "$QUEUE" orca_queue_run "$RUN_ID"
+    n1_write_frontmatter "$QUEUE" orca_coord_terminal "$COORD"
     echo "Orca run $ORCA_RUN: children launch as Orca workers"
     run_orca
 else
@@ -1177,6 +1206,10 @@ fi
 [ -z "$HALT_DRAIN" ] || halt_now "$HALT_DRAIN"
 count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }
 DIGEST="$(count_rows pr) PR / $(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"
+# N1-270: close the runner's coordinator terminal unless a row still waits on an answer (--answer replies from it,
+# and the waiting worker's next message must still land in a terminal that discards the nudge). A crash or halt
+# leaves it open on purpose.
+if [ -n "$COORD" ] && [ "$(count_rows awaiting-human)" = 0 ]; then n1_orca_coord_close "$COORD"; fi
 release_backstop
 ev queue_done reason="$DIGEST"
 n1_notify done "Queue $QUEUE_ID: $DIGEST"

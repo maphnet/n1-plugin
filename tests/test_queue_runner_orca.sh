@@ -130,6 +130,41 @@ test_orca_question_parks() {
     rm -rf "$tmp"
 }
 
+test_orca_coordinator_sink() {   # N1-270 AC1
+    # Bugs caught: an orchestration call (run-create, task-create, worker-start, check, worker-list) made as the
+    # launching terminal, which Orca then nudges; the sink handle not stored for --answer; the sink left open at queue end.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"; echo term-sink > "$tmp/fake/sink"
+    assert_eq "sink: exit 0" "0" "$(run_orca_queue "$tmp" ORCA_TERMINAL_HANDLE=term-launch)"
+    assert_eq "sink: handle stored" "term-sink" "$(n1_read_frontmatter "$tmp/queue.md" orca_coord_terminal)"
+    assert_eq "sink: run-create from the sink" "1" "$(grep -c -- '--from term-sink' <<< "$(grep run-create "$tmp/fake/orca-calls")")"
+    assert_eq "sink: checks ran as the sink" "yes" "$(grep -q '^orchestration check term-sink$' "$tmp/fake/orca-handles" && echo yes || echo no)"
+    assert_eq "sink: no orchestration call as the launching terminal" "0" \
+        "$(grep '^orchestration ' "$tmp/fake/orca-handles" | grep -vc ' term-sink$' || true)"
+    assert_eq "sink: closed at queue end" "1" "$(grep -c 'terminal close --terminal term-sink' "$tmp/fake/orca-calls")"
+    rm -rf "$tmp"
+}
+
+test_orca_coordinator_fallback() {
+    # Bugs caught: a failed terminal create or a refused sink stopping the Orca run instead of falling back to the
+    # launching terminal; a refused sink left open or recorded as the coordinator.
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    assert_eq "no-sink: exit 0" "0" "$(run_orca_queue "$tmp" ORCA_TERMINAL_HANDLE=term-launch)"
+    assert_eq "no-sink: one notice" "1" "$(grep -c 'Orca coordinator terminal unavailable' "$tmp/output.txt")"
+    assert_eq "no-sink: launching terminal coordinates" "1" "$(grep -c '^orchestration run-create term-launch$' "$tmp/fake/orca-handles")"
+    assert_eq "no-sink: no coordinator recorded" "" "$(n1_read_frontmatter "$tmp/queue.md" orca_coord_terminal)"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"; echo term-sink > "$tmp/fake/sink"
+    assert_eq "refused: exit 0" "0" "$(run_orca_queue "$tmp" ORCA_TERMINAL_HANDLE=term-launch FAKE_ORCA_SINK_REFUSE=1)"
+    assert_eq "refused: notice" "1" "$(grep -c 'Orca refused the coordinator terminal' "$tmp/output.txt")"
+    assert_eq "refused: retried as the launching terminal" "1" "$(grep -c '^orchestration run-create term-launch$' "$tmp/fake/orca-handles")"
+    assert_eq "refused: Run still created" "run-1" "$(n1_read_frontmatter "$tmp/queue.md" orca_run_id)"
+    assert_eq "refused: sink closed once" "1" "$(grep -c 'terminal close --terminal term-sink' "$tmp/fake/orca-calls")"
+    assert_eq "refused: no coordinator recorded" "" "$(n1_read_frontmatter "$tmp/queue.md" orca_coord_terminal)"
+    rm -rf "$tmp"
+}
+
 test_orca_resume_no_duplicate() {   # AC4
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
@@ -139,7 +174,12 @@ test_orca_resume_no_duplicate() {   # AC4
     echo "| T-A | 2026-10-31T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
     mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: implement\n---\n' > "$tmp/n1home/memory/T-A/overview.md"
     wl_set "$tmp" "$(wl_row T-A running unverifiable)"
-    assert_eq "orca-resume: exit 0" "0" "$(run_orca_queue "$tmp")"
+    echo term-sink > "$tmp/fake/sink"; n1_write_frontmatter "$tmp/queue.md" orca_coord_terminal term-old
+    assert_eq "orca-resume: exit 0" "0" "$(run_orca_queue "$tmp" ORCA_TERMINAL_HANDLE=term-launch)"
+    # N1-270: a resume rebinds the Run to a fresh sink and closes the previous one.
+    assert_eq "orca-resume: run-use as the new sink" "1" "$(grep -c '^orchestration run-use term-sink$' "$tmp/fake/orca-handles")"
+    assert_eq "orca-resume: new sink stored" "term-sink" "$(n1_read_frontmatter "$tmp/queue.md" orca_coord_terminal)"
+    assert_eq "orca-resume: previous sink closed" "1" "$(grep -c 'terminal close --terminal term-old' "$tmp/fake/orca-calls")"
     assert_eq "orca-resume: Run rebound" "1" "$(grep -c 'run-use --id run-1' "$tmp/fake/orca-calls")"
     assert_eq "orca-resume: no new Run" "0" "$(grep -c run-create "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-resume: unverifiable worker never relaunched" "0" "$(grep -c worker-start "$tmp/fake/orca-calls" || true)"
@@ -545,6 +585,8 @@ test_orca_parallel_workers
 test_orca_max_concurrent
 test_orca_held_blocker
 test_orca_question_parks
+test_orca_coordinator_sink
+test_orca_coordinator_fallback
 test_orca_resume_no_duplicate
 test_orca_timeout_open_pr
 test_orca_usage_stall
