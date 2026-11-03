@@ -171,4 +171,30 @@ has "N1-296: subtask_count is a hint only" '`SUBTASK_COUNT` is a hint only' "$F"
 has "N1-296: children lookup failure sets unknown" '`CHILDREN=unknown`' "$F"
 before "N1-296: children lookup follows fetch" '## Step 3: Fetch' '## Step 3b: Existing Children' "$F"
 
+# --- N1-296: write actions
+W=skills/n1-refine/steps/03-write.md
+n=$(grep -cF '(Recommended)' "$W")
+if [ "$n" -eq 1 ]; then echo "PASS: N1-296: write has exactly one Recommended"; else echo "FAIL: N1-296: write has exactly one Recommended ($n)"; FAIL=1; fi
+has "N1-296: preview offers Block only" '4 — Block only' "$W"
+has "N1-296: preview offers Remove" '5 — Remove' "$W"
+before "N1-296: block write precedes conversion" '## Step 3: Write' '## Step 3b: Conversion' "$W"
+before "N1-296: conversion precedes children" '## Step 3b: Conversion' '## Step 3c: Children' "$W"
+has "N1-296: failed block write runs no Actions" 'a failed block write runs no Actions' "$W"
+line_has "N1-296: conversion via jcm_convertIssueType for Task and Story" 'jcm_convertIssueType' '`issueTypeName: <CONVERT>` (`Task` or `Story`)' "$W"
+has "N1-296: failed Story conversion skips Sub-tasks" 'when `CONVERT=Story` skip Step 3c' "$W"
+has "N1-296: child type rule exists" '**Child type rule:**' "$W"
+line_has "N1-296: Story under Epic" '**Child type rule:**' 'Story under an Epic' "$W"
+line_has "N1-296: Sub-task under Story" '**Child type rule:**' 'Sub-task under a Story' "$W"
+line_has "N1-296: never Task under Story" '**Child type rule:**' 'Never `Task` under a Story' "$W"
+line_has "N1-296: YouTrack child links subtask of" '**Child type rule:**' '`subtask of`' "$W"
+has "N1-296: per-child duplicate check" 'duplicate-check.md` § Check with `CONTEXT=create`' "$W"
+has "N1-296: dup prompt has no recommendation" 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$W"
+line_has "N1-296: adopt passes child type and parentKey" 'issueKeys: [<HIT_ID>]' 'parentKey: <ID>' "$W"
+line_has "N1-296: create passes child type and parentKey" 'issueType: <child type>' 'parentKey: <ID>' "$W"
+has "N1-296: skip this child never ends the run" 'never ends the run' "$W"
+has "N1-296: removing the Story conversion drops its Sub-tasks" 'dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$W"
+has "N1-296: handoff summarizes actions" 'Actions: converted' "$W"
+lacks "N1-296: refine never transitions status" 'operations.transition' skills/n1-refine
+lacks "N1-296: refine never creates a branch" 'git checkout' skills/n1-refine
+
 exit $FAIL
