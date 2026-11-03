@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N1-89: lib/ticket-watch.sh — gate, need, seed, comparator, delta, absorb (N1-314), replan reset. jq fixtures, no MCP.
+# N1-89: lib/ticket-watch.sh — gate, need (N1-314), seed, comparator, delta, replan reset. jq fixtures, no MCP.
 set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0; FAIL=0
@@ -178,47 +178,6 @@ assert_eq "trunc: own Blocked in history -> no stop, no digest" "" "$out"
 # [CR-3] fallback stop without any status item reports an unknown actor
 reset; out=$(n1_tw_delta "$ID" "$T/issue-blk.json" "$T/log-p1.json")
 assert_eq "trunc: fallback stop status_by unknown" "unknown" "$(jq -r .status_by <<<"$out")"
-# ---- n1_tw_absorb (N1-314): own write clusters never trip the probe ----
-T2="2026-10-17T13:00:00.000+0000"
-jq --arg u "$T2" '.updated = $u' "$T/issue-own.json" > "$T/issue-own2.json"
-printf '{"total":1,"issues":[{"key":"T-1","updated":"%s"}]}' "$T2" > "$T/p-new2.json"
-# AC1: own-only cluster absorbed; the next probe is silent; a second cluster never reaches the delta
-reset; out=$(n1_tw_absorb "$ID" "$T/issue-own.json")
-assert_eq "absorb: own-only -> ABSORBED" "ABSORBED" "$out"
-assert_eq "absorb: advances updated" "$T1" "$(jq -r .updated "$M/.ticket-watch")"
-assert_eq "absorb: keeps changelog_since" "$T0" "$(jq -r .changelog_since "$M/.ticket-watch")"
-assert_eq "absorb: keeps seen" "[\"100@$TC\"]" "$(jq -c .seen "$M/.ticket-watch")"
-assert_eq "absorb: keeps me" "me-1" "$(jq -r .me "$M/.ticket-watch")"
-assert_eq "absorb: next cmp silent" "" "$(n1_tw_cmp "$ID" "$T/p-new.json")"
-assert_eq "absorb: second own cluster ABSORBED" "ABSORBED" "$(n1_tw_absorb "$ID" "$T/issue-own2.json")"
-assert_eq "absorb: second cluster cmp silent" "" "$(n1_tw_cmp "$ID" "$T/p-new2.json")"
-# AC2: unseen external comment -> HELD, cursor untouched, the next Check still delivers it
-reset; out=$(n1_tw_absorb "$ID" "$T/issue-ext.json")
-assert_eq "absorb: external comment -> HELD" "HELD" "$out"
-assert_eq "absorb: HELD leaves cursor byte-identical" "$(cat "$T/cur0")" "$(cat "$M/.ticket-watch")"
-assert_eq "absorb: HELD -> cmp still CHANGED" "CHANGED $T0" "$(n1_tw_cmp "$ID" "$T/p-new.json")"
-out=$(n1_tw_delta "$ID" "$T/issue-ext.json" "$T/log-empty.json")
-assert_eq "absorb: HELD comment delivered by delta" "200" "$(jq -r '.comments[0].id' <<<"$out")"
-assert_eq "absorb: already-seen external comment -> ABSORBED" "ABSORBED" "$(n1_tw_absorb "$ID" "$T/issue-ext.json")"
-# AC2: an external field change that landed before the absorb is still delivered at the next bump
-reset; n1_tw_absorb "$ID" "$T/issue-own.json" >/dev/null
-assert_eq "absorb: later bump reads changelog from held since" "CHANGED $T0" "$(n1_tw_cmp "$ID" "$T/p-new2.json")"
-out=$(n1_tw_delta "$ID" "$T/issue-own2.json" "$T/log-desc.json")
-assert_eq "absorb: earlier external change still in digest" "true" "$(jq -r .description_edited <<<"$out")"
-# bad input / no cursor
-reset; out=$(n1_tw_absorb "$ID" "$T/bad.json"); rc=$?
-assert_eq "absorb: bad issue rc 1" "1" "$rc"
-assert_eq "absorb: bad issue silent" "" "$out"
-assert_eq "absorb: bad issue leaves cursor" "$(cat "$T/cur0")" "$(cat "$M/.ticket-watch")"
-printf '{"comments":[]}' > "$T/issue-noupd.json"
-n1_tw_absorb "$ID" "$T/issue-noupd.json" >/dev/null; rc=$?
-assert_eq "absorb: missing updated rc 1" "1" "$rc"
-assert_eq "absorb: missing updated leaves cursor" "$(cat "$T/cur0")" "$(cat "$M/.ticket-watch")"
-rm -f "$M/.ticket-watch"; n1_tw_absorb "$ID" "$T/issue-own.json" >/dev/null; rc=$?
-assert_eq "absorb: no cursor rc 1" "1" "$rc"
-assert_eq "absorb: no cursor creates none" "no" "$([ -f "$M/.ticket-watch" ] && echo yes || echo no)"
-reset
-
 # ---- n1_tw_replan_reset ----
 A=$(_n1_step_display_name analysis); Q=$(_n1_step_display_name qa)
 printf -- '---\nstep: review\nqa_fix_cycle: 2\nreview_fix_cycle: 1\n---\n\n- [x] %s\n- [x] %s\n- [x] Unrelated checklist item\n' "$A" "$Q" > "$M/overview.md"

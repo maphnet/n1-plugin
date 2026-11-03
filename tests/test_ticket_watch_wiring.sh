@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N1-89: ticket-watch procedure keeps its guards, and the orchestrator/init/docs reference it (Absorb, capture: N1-314).
+# N1-89: ticket-watch procedure keeps its guards, and the orchestrator/init/docs reference it (capture: N1-314).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
@@ -12,14 +12,10 @@ check "SKILL.md check-point pointer" "procedures/ticket-watch\.md § Check\` bef
 check "analysis seeds the watch" "procedures/ticket-watch\.md § Seed" skills/n1-start/steps/analysis.md
 check "procedure has Seed" "^## § Seed" "$P"
 check "procedure has Check" "^## § Check" "$P"
-check "procedure has Absorb" "^## § Absorb" "$P"
 check "Check fetches issue and first page in one turn" '1\. In one turn, call `mcp__<WATCH_MCP>__jcm_getIssue`' "$P"
 check "procedure falls back on TW_MISSING" "TW_MISSING" "$P"
 check "probe read guarded by n1_tw_need" 'n1_tw_need "\$M/\.tw-probe\.json"' "$P"
 check "delta read guarded by n1_tw_need" 'n1_tw_need "\$M/\.tw-issue\.json" "\$M/\.tw-log-1\.json"' "$P"
-check "brainstorm enrichment absorbs own writes" "procedures/ticket-watch\.md § Absorb" skills/n1-start/steps/brainstorm.md
-check "PR create absorbs own writes" "procedures/ticket-watch\.md § Absorb" skills/n1-pr/steps/02-push-create.md
-check "architecture documents absorb" "n1_tw_absorb" references/architecture.md
 check "architecture documents capture hook" "ticket-watch-capture\.sh" references/architecture.md
 check "procedure has React" "^## § React" "$R"
 check "procedure has Replan" "^## § Replan" "$R"

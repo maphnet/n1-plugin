@@ -4,7 +4,7 @@
 # hooks/ticket-watch-capture.sh, or the orchestrator writes it when n1_tw_need reports a gap
 # (procedures/ticket-watch.md). Requires lib/preamble.sh (config.sh, host.sh, step.sh) first.
 # State: $N1_HOME/memory/<ID>/.ticket-watch = {updated, changelog_since, me, seen:["<id>@<updated>"]}
-# N1-314: n1_tw_absorb advances only .updated after own writes; n1_tw_need reports uncaptured response files.
+# N1-314: n1_tw_need reports uncaptured response files.
 
 n1_watch_val() {
     # Usage: n1_watch_val <key> — .watch.<key> from config, else defaults/watch.json.
@@ -131,33 +131,6 @@ n1_tw_delta() {
     tmp=$(mktemp "$f.XXXXXX") || return 1
     if jq -c '.cursor' <<<"$res" > "$tmp"; then mv "$tmp" "$f"; else rm -f "$tmp"; return 1; fi
     jq -c '.digest // empty' <<<"$res"
-}
-
-n1_tw_absorb() {
-    # Usage: n1_tw_absorb <ID> <issue.json> — run after this run's own tracker write cluster with a
-    # fresh raw getIssue. Advances only the cursor's updated so the next probe stays silent; prints
-    # ABSORBED. Prints HELD and leaves the cursor untouched when the issue has an unseen comment by
-    # another author (the next Check delivers it). changelog_since and seen never move here, so a
-    # later real delta still reads the changelog from the old since. rc 1, cursor untouched on bad
-    # input or no cursor.
-    # ponytail: an external field-only change (status, description, labels) landing between the last
-    # check and this fetch is absorbed until the next bump of updated; add a pre-write probe if that
-    # window ever matters.
-    local f="$N1_HOME/memory/$1/.ticket-watch" res tmp
-    [ -f "$f" ] || return 1
-    res=$(jq -rc --slurpfile cur "$f" '
-        $cur[0] as $c
-        | if ($c.me | type) != "string" or (.updated | type) != "string" or .updated == ""
-          then error("bad input") else . end
-        | ($c.seen // []) as $seen
-        | if any((.comments // [])[]; .authorAccountId != $c.me
-                 and ("\(.id)@\(.updated)" as $k | any($seen[]; . == $k) | not))
-          then "HELD" else $c + {updated: .updated} end' "$2" 2>/dev/null) || return 1
-    [ -n "$res" ] || return 1
-    [ "$res" = HELD ] && { echo HELD; return 0; }
-    tmp=$(mktemp "$f.XXXXXX") || return 1
-    if printf '%s\n' "$res" > "$tmp"; then mv "$tmp" "$f"; else rm -f "$tmp"; return 1; fi
-    echo ABSORBED
 }
 
 n1_tw_replan_reset() {

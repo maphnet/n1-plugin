@@ -53,19 +53,3 @@ n1_tw_need "$M/.tw-issue.json" "$M/.tw-log-1.json" && { n1_tw_delta "$ID" "$M/.t
 
 No output: only our own writes changed the ticket (cursor advanced). Continue. Output: the JSON digest; read `procedures/ticket-watch-react.md` and go to its § React. The cursor has already advanced past the delivered items, so they never fire again. When the digest has `pending: true`, the remainder (items past the 10-item caps, or pages past the 5-page limit) is delivered at the next check point.
 
-## § Absorb
-
-Runs right after this run's own tracker write cluster at the call sites that point here (Post-Brainstorm Enrichment, n1-pr Step 5), so those writes do not trip the next Check (N1-314). It advances only the cursor's `updated`; `changelog_since` and `seen` stay put, so any earlier external change is still delivered by the next real delta. Skip this section when the most recent Check digest had `pending: true` (its remainder must still fire).
-
-```bash
-source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"; rm -f "$N1_HOME/memory/$ID/.tw-issue.json"; n1_tw_on "$ID"
-```
-
-No output: skip this section. Otherwise call `mcp__<WATCH_MCP>__jcm_getIssue` for `<ID>`. Then:
-
-```bash
-source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ticket-watch.sh"; M="$N1_HOME/memory/$ID"
-n1_tw_need "$M/.tw-issue.json" && { n1_tw_absorb "$ID" "$M/.tw-issue.json" || echo "ticket-watch: absorb failed"; rm -f "$M/.tw-issue.json"; }
-```
-
-`ABSORBED`: continue. `HELD` (an unseen comment by someone else) or a failure: continue; the cursor is untouched, so the next Check takes the normal CHANGED path and delivers it. Failure is non-fatal.

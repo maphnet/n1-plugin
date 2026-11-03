@@ -100,8 +100,6 @@ If `tracker.mcp` is not null:
    ```
    Empty `TAG` -> skip (not launched by a tag-mode queue). Otherwise read and follow `<N1_ROOT>/skills/n1-queue/procedures/release-tag.md` with `ID`, `TAG`, `OVERVIEW` from the output above.
 
-4. **Absorb own writes** (after items 1-3, which all bump the ticket): read and follow `<N1_ROOT>/skills/n1-start/procedures/ticket-watch.md § Absorb` with `ID`. It skips itself when no watch cursor exists (standalone n1-pr, YouTrack, watch off).
-
 Tracker failures (including tag release): warn, don't block.
 
 ## Step 6: Update Memory
