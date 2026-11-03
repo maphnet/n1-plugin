@@ -32,7 +32,7 @@ else
     VERIFY_LOG="$QD/qa-verify.log"; ACTUAL_EXIT=0
     while IFS= read -r RUNNER_CMD; do env -i HOME="$HOME" PATH="$PATH" bash -c "$RUNNER_CMD" < /dev/null || ACTUAL_EXIT=1; done <<< "$VCMDS" > "$VERIFY_LOG" 2>&1
     REPORTED_EXIT=$(grep -m1 "^Exit code:" "$QD/qa.md" | grep -o '[0-9]*' | head -1)
-    [ "$REPORTED_EXIT" = 0 ] && [ "$ACTUAL_EXIT" != 0 ] && { n1_append_key_decision "$QD/overview.md" "QA verifyGate mismatch: reported 0, a named test failed on re-run. Log: $VERIFY_LOG"; n1_write_frontmatter "$QD/overview.md" "qa_verdict_unverified" "true"; QA_DEGRADED=1; }
+    [ "${REPORTED_EXIT:-0}" = 0 ] && [ "$ACTUAL_EXIT" != 0 ] && { n1_append_key_decision "$QD/overview.md" "QA verifyGate mismatch: reported 0/none, named test failed. Log: $VERIFY_LOG"; n1_write_frontmatter "$QD/overview.md" "qa_verdict_unverified" "true"; QA_DEGRADED=1; }
 fi
 ```
 `NEW_FUNC_UNTESTED=true`: B-tier ledger row. `QA_DEGRADED=1`: print `⚠ QA evidence missing`.

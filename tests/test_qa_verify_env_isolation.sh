@@ -56,6 +56,9 @@ assert_eq "reported pass + passing isolated named tests -> not degraded" "0" "$(
 mkdir -p "$T/c3"; printf '%s\n' "Runner command: ${BT}false${BT}" "Exit code: 0" > "$T/c3/qa.md"
 assert_eq "no named tests -> not degraded" "0" "$(run_gate "$T/c3")"
 assert_eq "no named tests -> skip recorded" "1" "$(grep -c 'QA verifyGate skipped' "$T/c3/kd" || true)"
+# Case 4: Exit code line missing, a named command fails -> still degraded.
+mkdir -p "$T/c4"; printf '%s\n' "Fixed test: tests/test_x.sh | ${BT}false${BT}" > "$T/c4/qa.md"
+assert_eq "missing Exit code + failing named test -> degraded" "1" "$(run_gate "$T/c4")"
 
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
