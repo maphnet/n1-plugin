@@ -16,7 +16,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-clean | (inline: git worktree remove) | Worktree cleanup for abandoned or completed tickets |
 | n1-ticket | solution-architect agent + inline context capture, web research, tracker MCP | Create a single backlog ticket (Task/Bug) from conversation context |
 | n1-story | solution-architect agent + inline context capture, interactive discovery, tracker MCP | Create a story with subtask tickets from conversation context |
-| n1-refine | product-analyst, solution-architect agents + inline decision loop, tracker MCP | Settle a ticket's decisions, scope, AC and assumptions with the user before the pipeline; writes one `*Refined by N1*` block to the description (a comment only when the edit is unavailable or fails); hosts interactive `--investigate` |
+| n1-refine | product-analyst, solution-architect agents + inline decision loop, tracker MCP | Settle a ticket's decisions, scope, AC and assumptions with the user before the pipeline; writes one `*Refined by N1*` block to the description (a comment only when the edit is unavailable or fails); decomposes by ticket type (Epic into Stories, Story into Sub-tasks, atomic Story to Task, Story-sized Task to Story) and converts or creates/adopts children only for actions the user picks; hosts interactive `--investigate` |
 | n1-queue | headless child per ticket (`n1_headless_cmd`: `claude -p`) (n1-start), tracker MCP | Run a batch of tickets (by tag or story subtasks) through the pipeline sequentially without merging; background runner |
 | n1-rules | (inline: lib/rules.sh) | List, add, validate project rules; regenerate deny hook |
 
@@ -38,6 +38,8 @@ Detection happens in the orchestrator after the ticket step via `n1_resolve_type
 - **n1-story:** Captures context → deeper analysis (solution-architect, standard effort) → interactive discovery of unknowns → designs subtask decomposition (existing ticket keys can be adopted as sub-tasks) → approval gate → creates a Story ticket with linked subtasks and converts adopted tickets under it in one `jcm_convertIssueType` call (Jira with jc-mcp >= 0.9.0).
 
 Neither command transitions ticket status or creates branches. Both mention `/n1:n1-start <ID>` as the next step.
+
+`/n1:n1-refine` decomposes an existing ticket: it lists existing children (Jira `parent = <ID>`, YouTrack `subtask` links), classifies by `references/ticket-scope.md` § Decomposition by ticket type, proposes only missing children, and on approval writes the refined block, then converts the ticket type and creates or adopts each child (Story under an Epic, Sub-task under a Story) after a per-child duplicate check. It never changes status or creates branches.
 
 ## Per-Ticket Memory (`$N1_HOME/`)
 

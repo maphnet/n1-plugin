@@ -197,4 +197,10 @@ has "N1-296: handoff summarizes actions" 'Actions: converted' "$W"
 lacks "N1-296: refine never transitions status" 'operations.transition' skills/n1-refine
 lacks "N1-296: refine never creates a branch" 'git checkout' skills/n1-refine
 
+# --- N1-296: dispatcher + docs
+has "N1-296: SKILL states actions run only when picked" 'only for actions the user picks in the preview' skills/n1-refine/SKILL.md
+has "N1-296: SKILL loop blurb names scope classification" 'scope classification' skills/n1-refine/SKILL.md
+line_has "N1-296: architecture row describes decomposition" '| n1-refine |' 'Epic into Stories, Story into Sub-tasks' references/architecture.md
+has "N1-296: duplicate-check lists n1-refine as caller" 'n1-ticket, n1-story and n1-refine (before creation)' references/duplicate-check.md
+
 exit $FAIL
