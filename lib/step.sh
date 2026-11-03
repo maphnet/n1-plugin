@@ -2,10 +2,11 @@
 # N1 per-step choreography helpers
 #
 # n1_step_begin <step_name> <step_number>
+#   Writes current_step: <step_name> to overview.md frontmatter (the running step, read by the queue status table).
 #   Emits telemetry started_at. No-op with a one-line stderr note when N1_RUN_ID is absent after n1_bind_run_to_ticket.
 #
 # n1_step_end <step_name> <step_number> <outcome> [metadata_json]
-#   1. Writes step: <step_name> to overview.md frontmatter
+#   1. Writes step: <step_name> to overview.md frontmatter and clears current_step
 #   2. Ticks the progress checkbox for this step in overview.md
 #   3. Reads $N1_HOME/memory/$ID/step_signals.tmp if present,
 #      calls n1_write_signals against $N1_HOME/memory/$ID/<step_name>.md,
@@ -51,6 +52,8 @@ _n1_step_display_name() {
 n1_step_begin() {
     local step_name="$1" step_number="$2"
     n1_bind_run_to_ticket                 # restored run must belong to $ID (N1-193)
+    # Running step for the queue status table (N1-299); independent of the run binding.
+    [ -f "${N1_HOME}/memory/${ID}/overview.md" ] && { n1_write_frontmatter "${N1_HOME}/memory/${ID}/overview.md" current_step "$step_name" || true; }
     # No run bound: say so on every call, so a lost begin is attributable (N1-229).
     [ -n "${N1_RUN_ID:-}" ] || { echo "n1_step_begin: no run bound for ${ID:-<unset>}; '$step_name' begin not recorded" >&2; return 0; }
     n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID:-}" \
@@ -68,6 +71,7 @@ n1_step_end() {
     local overview="${N1_HOME}/memory/${ID}/overview.md"
     if [ -f "$overview" ]; then
         n1_write_frontmatter "$overview" "step" "$step_name"
+        n1_write_frontmatter "$overview" "current_step" ""
         local display_name
         display_name=$(_n1_step_display_name "$step_name")
         if [ -n "$display_name" ]; then

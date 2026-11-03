@@ -1264,7 +1264,8 @@ n1_queue_status_table() {
                         done) : ;;  # runner hasn't finalized yet; keep the Plan status as-is
                     esac
                 fi
-                step=$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" step)
+                step=$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" current_step)
+                [ -n "$step" ] || step=$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" step)
                 local started; started=$(n1_queue_session_started "$file" "$ticket")
                 if [ -n "$started" ]; then
                     local started_epoch

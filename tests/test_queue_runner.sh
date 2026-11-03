@@ -676,6 +676,25 @@ FAKEEOF
     assert_eq "status: cost always em dash" "4" "$(echo "$out" | awk -F'\t' '$5=="\xe2\x80\x94"' | wc -l | tr -d ' ')"
 }
 
+test_status_table_running_step() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp"
+    mkdir -p "$tmp/bin"
+    printf '#!/usr/bin/env bash\ncase "$1" in agents) echo '"'"'{"agents":[{"id":"0000abcd","state":"working"}]}'"'"' ;; esac\n' > "$tmp/bin/claude"
+    chmod +x "$tmp/bin/claude"
+    local ov="$tmp/h/memory/T-2/overview.md" out
+    _t2_step() { PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl" | awk -F'\t' '$1=="T-2"{print $3}'; }
+    assert_eq "running step: before begin shows last completed step" "review" "$(_t2_step)"
+    # No N1_RUN_ID: the running step must still be written (subshell keeps env clean).
+    ( source "$REPO_ROOT/lib/step.sh"; unset N1_RUN_ID; N1_HOME="$tmp/h" ID=T-2; n1_step_begin implementation 7 ) 2>/dev/null
+    assert_eq "running step: begin shows current step" "implementation" "$(_t2_step)"
+    assert_eq "running step: begin leaves step untouched" "review" "$(n1_read_frontmatter "$ov" step)"
+    ( source "$REPO_ROOT/lib/step.sh"; unset N1_RUN_ID; N1_HOME="$tmp/h" ID=T-2; n1_step_end implementation 7 success ) 2>/dev/null
+    assert_eq "running step: end sets step" "implementation" "$(n1_read_frontmatter "$ov" step)"
+    assert_eq "running step: end clears current_step" "" "$(n1_read_frontmatter "$ov" current_step)"
+    assert_eq "running step: after end falls back to step" "implementation" "$(_t2_step)"
+}
+
 test_escalated_step_fallback() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     printf -- '---\nstep: escalated\n---\n\n## Escalations\n\n- no headless prefix here\n' > "$tmp/o.md"
@@ -1619,6 +1638,7 @@ test_queue_digest
 test_fmt_elapsed
 test_status_table_pre_np197_fixture
 test_status_table_claude_code
+test_status_table_running_step
 test_queue_answer
 test_escalated_step_fallback
 test_queue_event
