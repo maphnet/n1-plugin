@@ -903,6 +903,7 @@ orca_settle() {
         IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$ROW"
         URL=$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")
         chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$URL" </dev/null
+        URL=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")   # N1-268: only a PR attributed to this run is recorded merged
         # N1-268: a worker that merged its own PR (its own fullAuto finish) is recorded merged even when the
         # runner's chain did not run or did not merge.
         if [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] && [ "$(n1_queue_pr_state "$URL")" = MERGED ]; then
@@ -922,9 +923,10 @@ orca_settle() {
 # (release + sentinel removal + owed fullAuto chain); running or unverifiable workers are never relaunched, stopped
 # or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN PENDING
+    local STOP_OK POLL MAXC BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN PENDING
     ORCA_LOOP=1
-    rm -f "$N1_QUEUE_DIR/.stop"   # N1-268: a marker from a dead runner's era never stops a fresh run
+    # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
+    [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
     local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
@@ -977,12 +979,22 @@ run_orca() {
         # N1-268: n1-queue --stop (user-confirmed) left a marker: close each unsettled worker's own terminal and record
         # it stopped (a merged PR is only recorded), then stop launching; the loop ends through the end-of-queue
         # branch and the final halt. A worker whose close failed keeps its row and identity and is supervised on.
+        # The marker is the user's confirmation: stop.md writes this queue's run_id into it (queue children are denied
+        # the file by the policy hook); any other content is discarded unread.
         if [ -f "$N1_QUEUE_DIR/.stop" ]; then
+            STOP_OK=0; [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] && STOP_OK=1
             rm -f "$N1_QUEUE_DIR/.stop"
-            HALT_DRAIN="${HALT_DRAIN:-stopped by user}"
+        else
+            STOP_OK=0
+        fi
+        if [ "$STOP_OK" = 1 ]; then
+            [ -n "$HALT_DRAIN" ] || { HALT_DRAIN="stopped by user"; ev halt_draining reason="$HALT_DRAIN"; }
             while IFS=$'\t' read -r -u 3 NUM TICKET N1H TASK DISP; do
-                n1_orca_stop_worker "$QUEUE" "$NUM" "$TICKET" "$N1H" "$TASK" "$DISP" "$ORCA_RUN" </dev/null \
-                    && { SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"; }
+                if n1_orca_stop_worker "$QUEUE" "$NUM" "$TICKET" "$N1H" "$TASK" "$DISP" "$ORCA_RUN" </dev/null; then
+                    SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"
+                else
+                    n1_notify needs-you "Stop failed: $TICKET (worker terminal not closed; row and identity kept). Close it in the workspace manager, then run /n1:n1-queue --status $QUEUE_ID" </dev/null
+                fi
             done 3< <(n1_orca_unsettled "$QUEUE")
         fi
 

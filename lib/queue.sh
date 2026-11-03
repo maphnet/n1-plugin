@@ -589,10 +589,10 @@ n1_queue_overlap_order() {
 n1_queue_release_rows() {
     # Usage: n1_queue_release_rows <queue.md>
     # Prints unique "<ticket>\t<n1-home>" for tag-mode Plan rows with a handoff outcome
-    # (pr, escalated, failed) whose overview.md lacks queue_tag_removed: true.
+    # (pr, escalated, failed, stopped) whose overview.md lacks queue_tag_removed: true.
     local q="$1" t h
     [ "$(n1_read_frontmatter "$q" mode)" = tag ] || return 0
-    n1_queue_pending_rows "$q" 'pr|escalated|failed' | cut -f2,4 | sort -u |
+    n1_queue_pending_rows "$q" 'pr|escalated|failed|stopped' | cut -f2,4 | sort -u |
         while IFS=$'\t' read -r t h; do
             [ "$(n1_read_frontmatter "$h/memory/$t/overview.md" queue_tag_removed)" = true ] ||
                 printf '%s\t%s\n' "$t" "$h"
@@ -1139,6 +1139,17 @@ n1_queue_runs_outcome() {
     }' "$1" > "$tmp" && mv "$tmp" "$1" || { rm -f "$tmp"; return 1; }
 }
 
+n1_queue_attested_pr() {
+    # Usage: n1_queue_attested_pr <queue.md> <ticket> <n1-home> — N1-268: the PR URL to trust for a merge record.
+    # overview.md pr_url only when finalize stamped it for this queue run (queue_run_id == the queue's run_id: ticket
+    # memory outlives runs and a child writes its own overview.md), else the Runs PR cell.
+    local rid ov="$3/memory/$2/overview.md" url=""
+    rid=$(n1_read_frontmatter "$1" run_id)
+    [ -n "$rid" ] && [ "$(n1_read_frontmatter "$ov" queue_run_id 2>/dev/null)" = "$rid" ] && url=$(n1_queue_child_pr_url "$ov")
+    [ -n "$url" ] || url=$(_n1_queue_run_pr "$1" "$2")
+    printf '%s\n' "$url"
+}
+
 n1_queue_reconcile() {
     # Usage: n1_queue_reconcile <queue.md> — N1-268, --status: with no live runner (a live one records merges itself
     # on settle), a pr/failed/stopped row whose PR merged since gets Runs Outcome merged, Plan status pr and one
@@ -1151,9 +1162,7 @@ n1_queue_reconcile() {
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
     while IFS=$'\t' read -r -u 3 num ticket repo n1h model status; do
         [ "$(_n1_queue_run_outcome "$q" "$ticket")" = merged ] && continue
-        url=""; [ -n "$rid" ] && [ "$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" queue_run_id 2>/dev/null)" = "$rid" ] \
-            && url=$(n1_queue_child_pr_url "$n1h/memory/$ticket/overview.md")
-        [ -n "$url" ] || url=$(_n1_queue_run_pr "$q" "$ticket")
+        url=$(n1_queue_attested_pr "$q" "$ticket" "$n1h")
         [ "$(n1_queue_pr_state "$url")" = MERGED ] || continue
         n1_queue_runs_outcome "$q" "$ticket" merged "$url" || continue
         [ "$status" = pr ] || n1_queue_row_status "$q" "$num" pr

@@ -228,26 +228,33 @@ n1_orca_unsettled() {
 
 n1_orca_stop_worker() {
     # Usage: n1_orca_stop_worker <queue.md> <num> <ticket> <n1-home> <task> <dispatch> <orca-run> — N1-268, n1-queue
-    # --stop only (after user confirmation). A worker whose PR already merged is recorded merged and settled without a
-    # close. Otherwise its own terminal is closed, then the row is recorded stopped (Plan + Runs + event), the worker
-    # released and its identity removed. A missing handle or a failed close changes nothing (non-zero, fail closed).
+    # --stop only (after user confirmation). A PR merged for this queue run (n1_queue_attested_pr) is recorded merged;
+    # otherwise the row is recorded stopped (Plan + Runs + event). Either way the worker's own terminal is closed
+    # first unless it is proven settled, then the worker is released and its identity removed. A missing handle or a
+    # failed close keeps the identity (non-zero, fail closed; a merged record stays).
     local q="$1" num="$2" t="$3" h="$4" task="$5" d="$6" run="$7" evf qid rid url handle
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
-    url=$(n1_queue_child_pr_url "$h/memory/$t/overview.md")
+    url=$(n1_queue_attested_pr "$q" "$t" "$h")
     if [ "$(n1_queue_pr_state "$url")" = MERGED ]; then
         n1_queue_row_status "$q" "$num" pr
         n1_queue_runs_outcome "$q" "$t" merged "$url"
         n1_queue_event "$evf" "$qid" "$rid" ticket_finished ticket="$t" outcome=merged pr="$url" session="orca:$task/$d"
         set -- merged
     else
+        set -- stopped
+    fi
+    # Only a worker proven settled (exited, or a durable terminal state) keeps its terminal; anything else is closed
+    # first, and a failed close changes nothing more (a merged record above is true either way).
+    if [ "$1" = stopped ] || ! n1_orca_liveness "$run" | awk -F'\t' -v d="$d" '$1 == d && ($3 == "exited" || $4 == "done") { f = 1 } END { exit !f }'; then
         if ! handle=$(n1_orca_terminal_of "$run" "$d") || ! n1_orca_terminal_close "$handle"; then
             echo "stop failed: $t (worker terminal not closed; row and identity kept)"
             return 1
         fi
+    fi
+    if [ "$1" = stopped ]; then
         n1_queue_row_status "$q" "$num" stopped "stopped by user"
         n1_queue_runs_outcome "$q" "$t" stopped
         n1_queue_event "$evf" "$qid" "$rid" ticket_finished ticket="$t" outcome=stopped session="orca:$task/$d"
-        set -- stopped
     fi
     n1_orca_release "$d"
     n1_orca_sentinel_rm "$h" "$t" "$task"

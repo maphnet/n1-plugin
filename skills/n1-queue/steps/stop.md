@@ -24,28 +24,38 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
 n1_orca_unsettled "$QUEUE_FILE" | while IFS=$'\t' read -r num t h task d; do
-    url=$(n1_queue_child_pr_url "$h/memory/$t/overview.md")
+    url=$(n1_queue_attested_pr "$QUEUE_FILE" "$t" "$h")
     printf '%s\t%s\t%s\n' "$t" "${url:-no PR}" "$(n1_queue_pr_state "$url")"
 done
 ```
 No rows: "No live workers to stop in queue <queue_id>." **STOP.**
 
-Print the list, then ask the user: "Stop <N> worker(s) of queue <queue_id>? Each worker's own terminal is closed, its row is recorded `stopped` and its queue identity is removed. A worker with an OPEN PR may be mid finish-chain (CI, review, merge); stopping it can leave that PR unmerged. A worker whose PR already merged is only recorded as merged." Options:
-- Stop workers
-- Cancel
+Print the list. This question is an unconditional gate: always ask the user, even when `autonomy.mode` is `hands-off`, and never auto-resolve it. Ask the user: "Stop <N> worker(s) of queue <queue_id>? Each worker's own terminal is closed, its row is recorded `stopped` and its queue identity is removed. A worker with an OPEN PR may be mid finish-chain (CI, review, merge); stopping it can leave that PR unmerged. A worker whose PR already merged is only recorded as merged."
 
 No recommendation. The options are equivalent given the available evidence; select based on team preference.
 
+Options:
+- Stop workers
+- Cancel
+
 Anything but "Stop workers": print "Stop cancelled; nothing changed." **STOP.**
 
-Confirmed:
+Confirmed. The marker carries the queue's run_id (the runner ignores any other content) and the runner consumes it within one poll; a runner that is gone or past its supervise loop never does, so then the workers are stopped directly:
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/queue.sh"
+STOPF="$(dirname "$QUEUE_FILE")/.stop"; QUEUED=0
 if n1_queue_runner_alive "$(n1_read_frontmatter "$QUEUE_FILE" pid)" "$QUEUE_FILE"; then
-    : > "$(dirname "$QUEUE_FILE")/.stop" && echo "stop:queued"
-else
+    printf '%s' "$(n1_read_frontmatter "$QUEUE_FILE" run_id)" > "$STOPF"
+    POLL=$(n1_queue_val pollSeconds); [[ "$POLL" =~ ^[0-9]+$ ]] || POLL=30
+    for _ in $(seq 1 $((2 * POLL + 5))); do
+        [ -e "$STOPF" ] || { QUEUED=1; break; }
+        sleep 1
+    done
+    [ "$QUEUED" = 1 ] && echo "stop:queued" || rm -f "$STOPF"
+fi
+if [ "$QUEUED" = 0 ]; then
     ORCA_RUN=$(n1_read_frontmatter "$QUEUE_FILE" orca_run_id); rc=0
     while IFS=$'\t' read -r -u 3 num t h task d; do
         n1_orca_stop_worker "$QUEUE_FILE" "$num" "$t" "$h" "$task" "$d" "$ORCA_RUN" </dev/null || rc=1
@@ -54,4 +64,4 @@ else
 fi
 ```
 
-Print the output verbatim. `stop:queued`: "Stop requested; the runner closes the workers at its next poll, then halts. Check with `/n1:n1-queue --status <queue_id>`." A `stop failed:` line means that worker's terminal was not closed (also the result when the workspace manager is unavailable): its row and identity are unchanged; close it in the workspace manager, then run `--status`.
+Print the output verbatim. `stop:queued`: "The runner took the stop and is closing the workers, then halts. Check with `/n1:n1-queue --status <queue_id>`; a row still `in-progress` there means its close failed (the runner also sends a needs-you notice)." A `stop failed:` line means that worker's terminal was not closed (also the result when the workspace manager is unavailable): its row and identity are unchanged; close it in the workspace manager, then run `--status`.

@@ -35,7 +35,7 @@ n1_queue_reconcile "$QUEUE_FILE"
 ```
 
 Read frontmatter `step` and `queue_id`. Print:
-- `Step: <step>` (plan/run/done/halted). `run` with a `halt_draining` event in events.jsonl means the queue halted and the runner still supervises live workers; `/n1:n1-queue --stop <id>` stops them.
+- `Step: <step>` (plan/run/done/halted). `run` with a `halt_draining` event after the last `queue_started` event in events.jsonl means the queue halted and the runner still supervises live workers; `/n1:n1-queue --stop <id>` stops them.
 - For each ticket in the Plan with status `pr`, `escalated`, or `failed`: read `$N1_HOME_COL/memory/<TICKET>/overview.md` and extract `## Escalations` content (if any). Print escalations grouped by ticket.
 - Rows with status `awaiting-human` are background children waiting for an answer (their sessions are still alive). Print each resume command:
 ```bash
