@@ -377,6 +377,47 @@ n1_queue_held_expire() {
     done < <(n1_queue_pending_rows "$q" held)
 }
 
+n1_queue_eligible_rows() {
+    # Usage: n1_queue_eligible_rows <queue.md> <merge: true|false>
+    # N1-303 (the N1-269 eligibility rule): pending Plan rows (n1_queue_pending_rows columns) whose every
+    # ## Schedule predecessor is released: at pr (with <merge> true, only once its Runs Outcome is merged, i.e. the
+    # queue merged its own PR) or done-before-run. A failed/escalated/skip predecessor, or one not in the plan, is a
+    # hard edge: the row is marked skip here and not listed (the next call cascades). Any other status
+    # (pending, in-progress, awaiting-human, held, deferred) waits. No ## Schedule (a plan made before N1-303)
+    # lists every pending row. Reads queue.md only (no gh, no stdin): safe on every runner tick (N1-265).
+    local q="$1" merge="$2" sched out="" num t rest p st ok
+    sched=$(n1_queue_schedule_rows "$q")
+    while IFS=$'\t' read -r num t rest; do
+        ok=1
+        for p in $(awk -F'\t' -v t="$t" '$1 == t { gsub(/,/, " ", $2); print $2 }' <<< "$sched"); do
+            st=$(n1_queue_ticket_status "$q" "$p")
+            case "$st" in
+                done-before-run) ;;
+                pr)
+                    if [ "$merge" = true ] && [ "$(awk -F'|' -v tk="$p" '/^## Runs/ { f = 1; next }
+                        f { x = $2; gsub(/ /, "", x); if (x == tk) { o = $5; gsub(/ /, "", o) } } END { print o }' "$q")" != merged ]; then
+                        ok=0
+                    fi ;;
+                failed|escalated|skip|'')
+                    n1_queue_row_status "$q" "$num" skip "predecessor $p ${st:-not in plan}"
+                    ok=0; break ;;
+                *) ok=0 ;;
+            esac
+        done
+        if [ "$ok" = 1 ]; then out="$out$num"$'\t'"$t"$'\t'"$rest"$'\n'; fi
+    done < <(n1_queue_pending_rows "$q")
+    printf '%s' "$out"
+}
+
+n1_queue_gated_expire() {
+    # Usage: n1_queue_gated_expire <queue.md> — N1-303: the runner's bounded wait ran out with no pending row
+    # eligible; every pending row left (all gated on a ## Schedule predecessor) is skipped. It stays tagged.
+    local q="$1" num
+    while IFS=$'\t' read -r num _; do
+        n1_queue_row_status "$q" "$num" skip "predecessor not released (not at PR or not merged)"
+    done < <(n1_queue_pending_rows "$q")
+}
+
 n1_queue_sync_default() {
     # Usage: n1_queue_sync_default <repo>
     # N1-64 (CR-1) / N1-114: after the user merges a blocking child's PR, n1_queue_held_sweep
