@@ -828,7 +828,7 @@ LTP="$T/ltproj"; mkdir -p "$LTP"; touch "$LTP/compose.yaml"
 has_offer_bg() {  # has_offer_bg <idx> <config json> [project dir]: starts one session-start run, answer in $T/lt-<idx>.out
   local d="$T/lt-$1"; mkdir -p "$d/home"; printf '%s\n' "$2" > "$d/home/config.json"
   ( local ctx
-    ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"${3:-$LTP}\",\"source\":\"startup\"}" | N1_HOME="$d/home" N1_STATE_DIR="$d/state" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext)
+    ctx=$(echo "{\"session_id\":\"s-lt\",\"cwd\":\"${3:-$LTP}\",\"source\":\"startup\"}" | N1_HOME="$d/home" N1_STATE_DIR="$d/state" N1_HOST_FILE="$d/host.json" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" 2>/dev/null | jq -r .hookSpecificOutput.additionalContext) || true
     case "$ctx" in *"LOCAL TESTING OFFER"*) echo yes;; *) echo no;; esac > "$d/out" ) &
   LT_PIDS+=($!)
 }
@@ -839,7 +839,7 @@ has_offer_bg 3 '{"localTesting":{"enabled":false,"autoLive":true}}'
 has_offer_bg 4 '{"localTesting":{"mode":"test"}}'
 has_offer_bg 5 '{"localTesting":{"enabled":false,"mode":"test"}}'
 mkdir -p "$T/ltproj-bare"; has_offer_bg 6 '{}' "$T/ltproj-bare"  # same project minus compose.yaml (no race with the runs above)
-wait "${LT_PIDS[@]}"  # not a bare wait: that would also wait for the policy server
+wait "${LT_PIDS[@]}" || true  # not a bare wait: that would also wait for the policy server
 rm "$LTP/compose.yaml"
 assert_eq "enable offer injected when live is off and compose exists" "yes" "$(cat "$T/lt-1/out")"
 assert_eq "no enable offer when live already resolves" "no" "$(cat "$T/lt-2/out")"
@@ -859,13 +859,14 @@ echo '{}' > "$N1_HOME/config.json"
 nq() {  # nq [VAR=val ...] -> prints hook exit code; waits briefly for the backgrounded notifier
   local rc=0; : > "$NQLOG"
   echo '{"session_id":"s-nq","tool_name":"AskUserQuestion"}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID "$@" PATH="$NQBIN:$PATH" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
-  # poll for the notifier (exits as soon as it logs); the no-call cases wait the full 0.1 s (a fake notifier logs within ms)
-  local i; for i in 1 2 3 4 5; do [ -s "$NQLOG" ] && break; sleep 0.02; done; echo "$rc"
+  # poll for the notifier: exits at the first log line. NQ_EXPECT=1 (a call is expected) allows ~2 s; no-call cases wait 0.1 s
+  local i max=5 step=0.02; [ "${NQ_EXPECT:-}" = 1 ] && { max=100; step=0.02; }
+  for i in $(seq "$max"); do [ -s "$NQLOG" ] && break; sleep "$step"; done; echo "$rc"
 }
 assert_eq "notify-question: no active run -> exit 0" "0" "$(nq)"
 assert_eq "notify-question: no active run -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
 echo '{"ticketId":"Q-1","runId":"r1","worktreePath":null,"branch":"b"}' > "$N1_HOME/active-run.s-nq.json"
-assert_eq "notify-question: active run -> exit 0" "0" "$(nq)"
+assert_eq "notify-question: active run -> exit 0" "0" "$(NQ_EXPECT=1 nq)"
 assert_eq "notify-question: active run -> one call naming ID and step" "N1 Q-1|Waiting for your answer after analysis" "$(cat "$NQLOG")"
 assert_eq "notify-question: no stdout" "" "$(cat "$T/nq.out")"
 assert_eq "notify-question: N1_HEADLESS=1 -> exit 0" "0" "$(nq N1_HEADLESS=1)"
