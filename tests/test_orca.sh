@@ -35,7 +35,11 @@ case "$1 $2" in
   "status --json") [ -n "${FAKE_ORCA_DOWN:-}" ] && err "runtime down"; ok '{"runtime":{"state":"ready","reachable":true}}' ;;
   "worktree list") cat "$FAKE/worktrees.json" ;;
   "worktree set") [ -n "${FAKE_ORCA_SET_FAIL:-}" ] && err "set failed"; ok '{}' ;;
+  "jira connection")
+      [ -n "${FAKE_ORCA_JIRA_PROBE_FAIL:-}" ] && err "probe failed"
+      if [ -n "${FAKE_ORCA_JIRA_OFF:-}" ]; then ok '{"connected":false,"sites":[]}'; else ok '{"connected":true,"sites":[{"id":"s"}]}'; fi ;;
   "worktree create"|"agent launch")
+      case " $* " in *" --reference "*) [ -n "${FAKE_ORCA_JIRA_OFF:-}" ] && err "No matching connected Jira site. Check orca jira connection and Orca Jira settings." ;; esac
       [ -n "${FAKE_ORCA_CREATE_FAIL:-}" ] && err "create failed"
       [ -n "${FAKE_ORCA_NO_HANDLE:-}" ] && { ok '{"launch":{"outcome":{"kind":"skipped"}}}'; exit 0; }
       [ "${FAKE_ORCA_OUTCOME:-}" = none ] && { ok '{"worktree":{"path":"/x"},"launch":{"outcome":{"handle":"term-42"}}}'; exit 0; }
@@ -127,6 +131,12 @@ reset; OUT=$(n1_orca_handoff X-1 task create)
 eq "H14 (AC1): create handoff ok" "handoff:ok X-1 term-42" "$OUT"
 has "H14 (AC1): one named workspace with the Jira reference and a resume prompt" \
     "worktree create --name X-1 --no-parent --reference X-1 --agent claude --prompt /n1:n1-start X-1 --type task --no-handoff --json" "$(calls)"
+reset; OUT=$(FAKE_ORCA_JIRA_OFF=1 n1_orca_handoff X-1 task create)
+eq "H14b (N1-335): Jira not connected -> create still ok" "handoff:ok X-1 term-42" "$OUT"
+hasnt "H14b (N1-335): no --reference when Jira is not connected" "--reference" "$(calls)"
+reset; OUT=$(FAKE_ORCA_JIRA_PROBE_FAIL=1 n1_orca_handoff X-1 task create)
+eq "H14c (N1-335): failing probe -> create still ok" "handoff:ok X-1 term-42" "$OUT"
+hasnt "H14c (N1-335): no --reference when the probe fails" "--reference" "$(calls)"
 echo '{"tracker":{"type":"youtrack"}}' > "$N1_HOME/config.json"
 reset; (n1_orca_handoff X-1 "" create >/dev/null)
 hasnt "H15: no --reference for non-Jira trackers" "--reference" "$(calls)"

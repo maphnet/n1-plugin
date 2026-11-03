@@ -305,7 +305,8 @@ n1_orca_handoff() {
     prompt="/n1:n1-start $id${ty:+ --type $ty} --no-handoff"
     case "$mode" in
         create) name="$id"; a=(worktree create --name "$id" --no-parent)
-                if type n1_config_val >/dev/null 2>&1 && [ "$(n1_config_val '.tracker.type' 2>/dev/null)" = jira ]; then a+=(--reference "$id"); fi
+                if type n1_config_val >/dev/null 2>&1 && [ "$(n1_config_val '.tracker.type' 2>/dev/null)" = jira ] \
+                    && n1_orca jira connection | jq -e '.result.connected == true' >/dev/null 2>&1; then a+=(--reference "$id"); fi   # N1-335: unconnected Jira fails create
                 a+=(--agent claude --prompt "$prompt") ;;
         launch) case "$path" in /*) ;; *) echo "handoff:failed (invalid path)"; return 0 ;; esac
                 name="${path##*/}"; a=(agent launch --worktree "path:$path" --agent claude --prompt "$prompt") ;;
