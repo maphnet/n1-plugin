@@ -6,6 +6,10 @@
 # State: $N1_HOME/memory/<ID>/.ticket-watch = {updated, changelog_since, me, seen:["<id>@<updated>"]}
 # N1-314: n1_tw_need reports uncaptured response files.
 
+# N1-314: changelog fields that are never worth a model turn (lowercased Jira field names and fieldIds).
+# Kept: status, description, summary, priority, assignee and everything else; comments are not changelog items.
+N1_TW_NOISE='["rank","sprint","labels","fix version","fixversions","watchers"]'
+
 n1_watch_val() {
     # Usage: n1_watch_val <key> — .watch.<key> from config, else defaults/watch.json.
     local key="$1" val
@@ -78,10 +82,12 @@ n1_tw_delta() {
     # comments, ~10 changelog items by whole entries) stays pending: old updated kept, withheld comments
     # not marked seen, changelog_since stops at the last delivered entry. A truncated last page also
     # checks the current getIssue status unless our own account set the latest status for Done/Blocked.
+    # N1-314: changelog items whose field (or fieldId) is in N1_TW_NOISE never reach the digest or the cap,
+    # but their entries still advance changelog_since.
     local f="$N1_HOME/memory/$1/.ticket-watch" issue="$2" res tmp
     shift 2
     [ -f "$f" ] || return 1
-    res=$(jq -nc --slurpfile cur "$f" --slurpfile iss "$issue" \
+    res=$(jq -nc --slurpfile cur "$f" --slurpfile iss "$issue" --argjson noise "$N1_TW_NOISE" \
         --arg done "$(n1_config_val '.tracker.statuses.done')" \
         --arg blocked "$(n1_config_val '.tracker.statuses.blocked')" '
         def s: tostring | .[:1500] | gsub("[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]"; " ");
@@ -92,12 +98,15 @@ n1_tw_delta() {
         | ($c.seen // []) as $seen
         | [($i.comments // [])[] | select(.authorAccountId != $c.me)
            | select("\(.id)@\(.updated)" as $k | any($seen[]; . == $k) | not)] as $new
-        | ([$pages[].entries[] | select(.authorAccountId != $c.me)]
+        | [$pages[].entries[] | select(.authorAccountId != $c.me)
+           | .items = [.items[] | select([.field, .fieldId] | any(strings | ascii_downcase | IN($noise[])) | not)]
+           | select(.items | length > 0)] as $ext
+        | ($ext
            | reduce .[] as $e ({inc: [], n: 0, full: false};
                ([$e.items[]] | length) as $k
                | if .full or (.inc | length) > 0 and .n + $k > 10 then .full = true
                  else {inc: (.inc + [$e]), n: (.n + $k), full: false} end)) as $sel
-        | ([$pages[].entries[] | select(.authorAccountId != $c.me)] | map([.items[]] | length) | add // 0) as $total
+        | ($ext | map(.items | length) | add // 0) as $total
         | [$sel.inc[] | (.author // "" | s) as $a | (.created | s) as $t
            | .items[] | {author: $a, created: $t, field: (.field // "" | t), from: (.from // "" | t), to: (.to // "" | t)}] as $items
         | ($total - ($items | length)) as $cwith
