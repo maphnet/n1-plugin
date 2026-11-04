@@ -59,7 +59,13 @@ done
 
 Write 2-4 criteria, each inferred from the title and description. Never invent scope. The new description is the original + `\n\n` + the brief (for an Empty description, the brief alone). Re-fetch the candidate first and skip the brief (` · brief skipped (changed)`) if its title or description differs from intake's copy (after any repair written above). Update it via `mcp__<TRACKER_MCP>__<EDIT_OP>` (Jira: `cloudId`, `issueIdOrKey`, `description`; YouTrack: `issueId`, `description`). On success, append ` · briefed` to the candidate's Reason and keep the brief text for § Prompt. On failure, append ` · brief failed` and continue. The failure is non-blocking because the child enriches as today.
 
-**Snapshot.** Re-fetch each briefed candidate and each repaired one via `mcp__<TRACKER_MCP>__<READ_OP>`. Also re-fetch any candidate missing `<QUEUE_DIR>/desc/<KEY>.title` or `.txt` (its intake fetch was not captured). The tracker may normalize markup, and the checksum must match what a child later fetches. Right before those fetches, run one bash call that clears each re-fetched candidate's scratch files and marks its fetch, so a stale copy is never hashed. Repeat the last two lines once per candidate:
+**Snapshot.** Re-fetch each briefed candidate and each repaired one via `mcp__<TRACKER_MCP>__<READ_OP>`. Also re-fetch every candidate the check below reports as `REFETCH` (its intake fetch was not captured). Run this first, once per candidate:
+
+```bash
+[ -f "<QUEUE_DIR>/desc/<KEY>.title" ] && [ -f "<QUEUE_DIR>/desc/<KEY>.txt" ] || echo "REFETCH <KEY>"
+```
+
+The tracker may normalize markup, and the checksum must match what a child later fetches. Right before those fetches, run one bash call that clears each re-fetched candidate's scratch files and marks its fetch, so a stale copy is never hashed. Repeat the last two lines once per candidate:
 
 ```bash
 source ~/.n1/preamble.sh

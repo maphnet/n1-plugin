@@ -1536,6 +1536,7 @@ test_plan_wiring() {
 
     # SEC-1: the capture hook writes the title/desc files from the fetch; the title is never interpolated into a shell string.
     assert_eq "plan-wiring: preview marks the snapshot fetch for the capture hook (N1-326)" "yes" "$(grep -qF 'n1_desc_mark queue "<KEY>" "<QUEUE_ID>"' "$s/steps/preview.md" && echo yes || echo no)"
+    assert_eq "plan-wiring: preview checks missing desc files before the snapshot (N1-326)" "yes" "$(grep -qF 'echo "REFETCH <KEY>"' "$s/steps/preview.md" && echo yes || echo no)"
     assert_eq "plan-wiring: run.md marks the re-plan fetch for the capture hook (N1-326)" "yes" "$(grep -qF 'n1_desc_mark queue "<KEY>" "<QUEUE_ID>"' "$s/steps/run.md" && echo yes || echo no)"
     local fw
     for fw in intake preview run; do
