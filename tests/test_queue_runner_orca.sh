@@ -689,6 +689,47 @@ test_orca_worktree_name_taken() {   # identity needs the folder name == ticket: 
     rm -rf "$tmp"
 }
 
+# N1-271: a re-queued ticket whose overview.md names its Orca worktree resumes there. Bugs caught: the row failing
+# orca-worktree-name-taken anyway; a new worktree (--name) instead of path:; identity without this run's id or the
+# resume flag; the previous attempt's escalated overview finalizing the row on the first tick; memory overwritten.
+test_orca_resume_existing_worktree() {
+    local tmp rid wt ov; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    wt="$tmp/wt/T-A"; ov="$tmp/n1home/memory/T-A/overview.md"; mkdir -p "$wt" "${ov%/*}"
+    printf '{"path":"%s"}' "$wt" > "$tmp/fake/worktrees"
+    printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- review fix cap\n' "$wt" > "$ov"
+    echo kept > "${ov%/*}/implementation.md"
+    : > "$tmp/fake/keepov.T-A"; : > "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\nworkspace_path: %s\n---\n## Pending\npr_url: https://x/pr/T-A\n' "$wt" > "$tmp/fake/late.T-A"
+    # Tick 3: the resumed worker writes its own terminal step (mtime after .launch-1) and then reports done.
+    cat > "$tmp/fake/at.3" <<EOF
+cp "$tmp/fake/late.T-A" "$ov"; touch -d "@\$(( \$(date +%s) + 5 ))" "$ov"; rm -f "$tmp/fake/nodone.T-A"
+EOF
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
+    rid=$(n1_read_frontmatter "$tmp/queue.md" run_id)
+    assert_eq "orca-resume: worker started in the existing worktree" "yes" \
+        "$(grep -qF -- "--task task-T-A --worktree path:$wt --repo path:$tmp --agent claude --model sonnet" "$tmp/fake/orca-calls" && echo yes || echo no)"
+    assert_eq "orca-resume: no new worktree requested" "0" "$(grep -c -- '--name T-A' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-resume: identity carries this run id and the resume flag" "2" \
+        "$(grep -c -e "^N1_QUEUE_RUN_ID=$rid$" -e '^N1_ORCA_RESUME=1$' "$tmp/fake/sentinel.T-A")"
+    assert_eq "orca-resume: stale escalated step ignored; the resumed worker's pr counts" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-resume: memory intact" "kept" "$(cat "${ov%/*}/implementation.md")"
+    rm -rf "$tmp"
+}
+
+# N1-271: overview.md naming another checkout keeps the fail-closed error (ticket ambiguity, analysis.md).
+test_orca_resume_mismatch_fails_closed() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"; mkdir -p "$tmp/n1home/memory/T-A"
+    printf '{"path":"/orca/wt/T-A"}' > "$tmp/fake/worktrees"
+    printf -- '---\nstep: escalated\nworkspace_path: /elsewhere/T-A\n---\n' > "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "orca-resume-mismatch: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-resume-mismatch: nothing started" "0" "$(grep -cE 'task-create|worker-start' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-resume-mismatch: row failed, name taken" "failed|orca-worktree-name-taken" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
 test_orca_chain_after_settle() {   # fullAuto chain stays a bg n1-finish, launched once the worker settled
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
@@ -885,6 +926,8 @@ test_orca_launch_failure_identity
 test_orca_forged_dispatch_ignored
 test_orca_settle_chain_before_sentinel
 test_orca_worktree_name_taken
+test_orca_resume_existing_worktree
+test_orca_resume_mismatch_fails_closed
 test_orca_adopt_launch
 test_orca_stale_run_not_reused
 test_orca_lost_done_still_chains

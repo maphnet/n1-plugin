@@ -838,16 +838,18 @@ orca_n1h_of() {
 # launch_orca <pending-row> — task, identity sentinel, then worker. The Runs row is written once the dispatch
 # exists; .launch-<num> holds "<run-id> <task>" so a runner that dies in between adopts the worker, never relaunches.
 launch_orca() {
-    local NUM TICKET REPO N1H MODEL STARTED TASK DISP
+    local NUM TICKET REPO N1H MODEL STARTED TASK DISP WT=""
     IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$1"
     STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     STARTED_AT[NUM]=$(date +%s)
     n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
     # Re-queued ticket: forget the previous run's tag release (NP-199).
     n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" queue_tag_removed false || true
-    if n1_orca_worktree_taken "$TICKET"; then
-        # A leftover worktree named like the ticket: Orca may rename the new one, and the child would then miss its
-        # sentinel. Fail the row (no retry) instead; the user removes the old worktree and re-queues.
+    # A leftover worktree named like the ticket: Orca may rename a new one, and the child would then miss its
+    # sentinel. N1-271: when overview.md's workspace_path is that worktree (and the only one with the name), the worker
+    # resumes in it (branch and memory intact). Anything else fails the row (no retry, fail closed).
+    if n1_orca_worktree_taken "$TICKET" \
+        && ! WT=$(n1_orca_worktree_resumable "$TICKET" "$N1H/memory/$TICKET/overview.md"); then
         echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "orca-worktree-name-taken" "" nodefer
         return
@@ -858,13 +860,14 @@ launch_orca() {
         return
     fi
     if ! printf '%s %s\n' "$RUN_ID" "$TASK" > "$N1_QUEUE_DIR/.launch-$NUM" \
-        || ! n1_orca_sentinel_write "$N1H" "$TICKET" "$REPO" "$RUN_ID" "$ORCA_RUN" "$TASK"; then
+        || ! n1_orca_sentinel_write "$N1H" "$TICKET" "$REPO" "$RUN_ID" "$ORCA_RUN" "$TASK" \
+        || { [ -n "$WT" ] && ! n1_orca_sentinel_set "$N1H" "$TICKET" N1_ORCA_RESUME 1; }; then
         # No child is ever started without its unattended identity.
         echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "sentinel-unwritable"
         return
     fi
-    if ! DISP=$(n1_orca_worker_start "$ORCA_RUN" "$TASK" "$TICKET" "$REPO" "$MODEL"); then
+    if ! DISP=$(n1_orca_worker_start "$ORCA_RUN" "$TASK" "$TICKET" "$REPO" "$MODEL" "$WT"); then
         # A timeout or lost response does not prove the worker never started: drop the identity only when a readable
         # worker list shows no worker for this task (else it stays; the user stops the worker in Orca).
         if L=$(n1_orca_liveness "$ORCA_RUN") && ! awk -F'\t' -v k="$TASK" '$2 == k { f = 1 } END { exit !f }' <<< "$L"; then
@@ -880,7 +883,7 @@ launch_orca() {
     echo "| $TICKET | $STARTED | | | | orca:$TASK/$DISP |" >> "$QUEUE"
     rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET" "$N1_QUEUE_DIR/.ask-$TICKET"
     ev ticket_started ticket="$TICKET" session="orca:$TASK/$DISP"
-    echo "[$NUM] $TICKET launched as Orca worker ($DISP)"
+    echo "[$NUM] $TICKET launched as Orca worker ($DISP)${WT:+, resumed in its existing worktree}"
 }
 
 # orca_settle <task> — release the worker, drop its sentinel, run the owed fullAuto chain (once). Uses run_orca's
@@ -1060,6 +1063,13 @@ run_orca() {
             fi
             DISP=""; [ -n "$TASK" ] && DISP="${SID#*/}"
             OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
+            # N1-271: a resumed worktree's overview keeps the previous attempt's terminal step until the new worker
+            # rewrites it (launch_orca's last overview write precedes .launch-<num>). Only the terminal-step branch is
+            # skipped; an exited worker is still caught below. ponytail: mtime order, not a run stamp in overview.md.
+            if [ -n "$(_n1_orca_sget "$(n1_orca_sentinel_path "$N1H" "$TICKET")" N1_ORCA_RESUME)" ] \
+                && ! [ "$N1H/memory/$TICKET/overview.md" -nt "$N1_QUEUE_DIR/.launch-$NUM" ]; then
+                OUTCOME=running
+            fi
             if [ "$OUTCOME" = pr ] || [ "$OUTCOME" = escalated ]; then
                 [ -n "$TASK" ] && OWED="$OWED$TASK "
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
