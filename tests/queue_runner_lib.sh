@@ -434,3 +434,13 @@ sched_set() {
         /^## Runs$/ && ENVIRON["ROWS"] != "" { printf "## Schedule\n| Ticket | After |\n|--------|-------|\n%s\n", ENVIRON["ROWS"] }
         { print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 }
+
+# touches_set <tmp> <ticket> <touches>... — N1-269: a ## Decisions table (Touches column only) before ## Runs, then
+# the real n1_queue_schedule_write derives ## Schedule from it (unlike sched_set, edges are not hand-written).
+touches_set() {
+    local f="$1/queue.md" rows="" t; shift
+    while [ $# -ge 2 ]; do rows="$rows| $1 | $2 |  |  |  |  |"$'\n'; shift 2; done
+    ROWS="$rows" awk '/^## Runs$/ { printf "## Decisions\n| Ticket | Touches | Order | Stop-List Pre-Decision | Desc Checksum | Notes |\n|--------|---------|-------|-------------------------|---------------|-------|\n%s\n", ENVIRON["ROWS"] }
+        { print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+    bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_schedule_write '$f'"
+}

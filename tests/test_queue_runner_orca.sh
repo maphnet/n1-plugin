@@ -759,6 +759,43 @@ test_orca_overlap_releases_at_pr() {   # N1-303: default (no-merge) mode release
     rm -rf "$tmp"
 }
 
+# N1-269: the real run's shape: two overlap pairs (257->258 on review.md, 260->261 on fix.md) plus independent 259,
+# with ## Schedule derived from Touches (not hand-written) at a pinned max_concurrent 4.
+overlap_run_fixture() { # <tmp>
+    mk_bg "$1" oq "N1-257:done" "N1-258:done" "N1-259:done" "N1-260:done" "N1-261:done"; mk_orca "$1"
+    sched_set "$1" 4
+    touches_set "$1" N1-257 "n1-plugin:skills/n1-review/review.md" N1-258 "n1-plugin:skills/n1-review/review.md" \
+        N1-259 "n1-plugin:docs/other.md" N1-260 "n1-plugin:skills/n1-fix/fix.md" N1-261 "n1-plugin:skills/n1-fix/fix.md"
+}
+
+test_orca_overlap_run_pairs_never_concurrent() {   # N1-269
+    local tmp t; tmp=$(mktemp -d)
+    overlap_run_fixture "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    for t in N1-257 N1-260; do echo implement > "$tmp/fake/step.$t"; : > "$tmp/fake/nodone.$t"; done
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
+    assert_eq "orca-pairs: schedule derived from Touches" "N1-258>N1-257;N1-261>N1-260" \
+        "$(n1_queue_schedule_rows "$tmp/queue.md" | awk -F'\t' '$2 != "" { print $1 ">" $2 }' | paste -sd';' -)"
+    assert_eq "orca-pairs: independent N1-259 launched" "1" "$(grep -c -- "--task task-N1-259" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-pairs: N1-258 never launched while N1-257 in flight" "0" "$(grep -c -- "--task task-N1-258" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-pairs: N1-261 never launched while N1-260 in flight" "0" "$(grep -c -- "--task task-N1-261" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-pairs: successors still pending" "pending,pending" "$(plan_cell "$tmp/queue.md" 2 8),$(plan_cell "$tmp/queue.md" 5 8)"
+    rm -rf "$tmp"
+}
+
+test_orca_overlap_run_pairs_release_in_order() {   # N1-269
+    local tmp r; tmp=$(mktemp -d)
+    overlap_run_fixture "$tmp"
+    assert_eq "orca-pairs-order: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-pairs-order: all rows reach pr" "pr,pr,pr,pr,pr" \
+        "$(for r in 1 2 3 4 5; do plan_cell "$tmp/queue.md" "$r" 8; done | paste -sd, -)"
+    for r in "N1-258 N1-257" "N1-261 N1-260"; do set -- $r
+        assert_eq "orca-pairs-order: $1 starts after $2 is released" "yes" \
+            "$([ "$(line_of "$tmp/fake/orca-calls" "--task task-$1")" -gt "$(line_of "$tmp/fake/orca-calls" "worker-release --dispatch d-$2")" ] && echo yes || echo no)"
+    done
+    rm -rf "$tmp"
+}
+
 test_orca_overlap_hard_edge() {   # N1-303: a failed predecessor skips its overlap successor
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-1:done" "T-2:done" "T-3:done"; mk_orca "$tmp"
@@ -819,6 +856,8 @@ test_orca_gated_wait_expires
 test_orca_overlap_pair_sequential
 test_orca_overlap_releases_at_pr
 test_orca_overlap_hard_edge
+test_orca_overlap_run_pairs_never_concurrent
+test_orca_overlap_run_pairs_release_in_order
 test_orca_held_blocker
 test_orca_question_parks
 test_orca_question_after_timeout
