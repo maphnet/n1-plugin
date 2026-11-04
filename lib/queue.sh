@@ -1042,7 +1042,7 @@ n1_queue_retry() {
     local q="$1" t="$2" dir step row num st n1h
     [[ "$t" =~ ^[A-Za-z][A-Za-z0-9_]*-[0-9]+$ ]] || { echo "n1-queue: invalid ticket id: $t" >&2; return 1; }
     [ -n "$q" ] && [ -f "$q" ] || { echo "No queue runs found." >&2; return 1; }
-    dir="${q%/*}"
+    dir=$(dirname -- "$q")
     if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
         echo "n1-queue: queue $(n1_read_frontmatter "$q" queue_id) is running; retry once it ends" >&2; return 1
     fi
@@ -1052,9 +1052,9 @@ n1_queue_retry() {
     [ -n "$row" ] || { echo "n1-queue: no row for $t" >&2; return 1; }
     IFS=$'\t' read -r num _ _ n1h _ st <<< "$row"
     case "$st" in failed|escalated) ;; *) echo "n1-queue: $t is ${st:-empty}, not failed or escalated" >&2; return 1 ;; esac
+    declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
     n1_queue_row_status "$q" "$num" pending "" clear || return 1
     rm -f "$dir/.launch-$num" "$dir/.esc-reason-$t" "$dir/.ask-$t" "$dir/.escalated-$t" "$dir/.question-$t.json"
-    declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh"
     [ -z "$n1h" ] || n1_orca_sentinel_rm "$n1h" "$t"
     case "$step" in halted|done) n1_write_frontmatter "$q" step run ;; esac
     echo "Retry queued: /n1:n1-queue --run $(n1_read_frontmatter "$q" queue_id)"
