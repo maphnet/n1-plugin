@@ -1026,6 +1026,7 @@ run_orca() {
         # that many ticks with the SIGTERM the tests' old `timeout` bounds sent, so no test waits on a wall clock.
         if [[ "${N1_QUEUE_TEST_MAX_TICKS:-}" =~ ^[0-9]+$ ]] && [ "$((ORCA_TICKS += 1))" -gt "$N1_QUEUE_TEST_MAX_TICKS" ]; then
             echo "N1_QUEUE_TEST_MAX_TICKS=$N1_QUEUE_TEST_MAX_TICKS reached: stopping (test-only cap)"
+            [[ "${N1_QUEUE_TEST_EXIT_RC:-}" =~ ^[1-9][0-9]*$ ]] && exit "$N1_QUEUE_TEST_EXIT_RC"   # test-only: a plain non-zero exit
             kill -TERM "$$"; exit 143
         fi
         TICK0=$(date +%s)

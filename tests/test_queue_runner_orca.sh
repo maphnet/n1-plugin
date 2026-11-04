@@ -1113,6 +1113,38 @@ test_orca_exit_trace_signals() {
     done
 }
 
+# N1-333 AC1 (exit half): a non-zero exit while step is run (N1_QUEUE_TEST_EXIT_RC seam at the tick cap) leaves the
+# `exit rc=<n>` line and one event, keeps step/pid; catches an on_exit that loses the status or the once-only flag.
+test_orca_exit_trace_rc() {
+    local tmp; tmp=$(mktemp -d); mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    assert_eq "exit-trace rc: exit code" "7" "$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=2 N1_QUEUE_TEST_EXIT_RC=7)"
+    assert_eq "exit-trace rc: one line, one event" "1|1" \
+        "$(grep -c '^runner interrupted: exit rc=7 (pid' "$tmp/output.txt" || true)|$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
+    assert_eq "exit-trace rc: event reason" "runner exit rc=7" \
+        "$(jq -r 'select(.event == "queue_interrupted") | .reason | sub(" pid [0-9]+$"; "")' "$tmp/events.jsonl")"
+    assert_eq "exit-trace rc: step run kept, pid kept" "run|yes" \
+        "$(n1_read_frontmatter "$tmp/queue.md" step)|$([ -n "$(n1_read_frontmatter "$tmp/queue.md" pid)" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-333 CR-1: a TERM that arrives during the poll sleep (inbox unreadable after the worker started, so the tick naps)
+# ends the runner at once, not after pollSeconds, and leaves no sleep child. A real sleep replaces the suite's no-op
+# one; the marker poll value 37 identifies the child. Without nap() the trap waits out the 37 s sleep.
+test_orca_term_interrupts_sleep() {
+    local tmp t0 el; tmp=$(mktemp -d); mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600 | .queue.pollSeconds = 37'
+    printf '#!/bin/sh\nexec /bin/sleep "$@"\n' > "$tmp/bin/sleep"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    ( /bin/sleep 3; kill -TERM "$(sed -n "s/^pid: *//p" "$tmp/queue.md")" ) >/dev/null 2>&1 &
+    t0=$(date +%s); assert_eq "term-in-sleep: exit code" "143" "$(FAKE_ORCA_CHECK_FAIL=1 trace_run "$tmp")"; el=$(( $(date +%s) - t0 ))
+    wait
+    assert_eq "term-in-sleep: ended well before the 37 s poll" "yes" "$([ "$el" -lt 20 ] && echo yes || echo no)"
+    assert_eq "term-in-sleep: no leaked sleep child" "0" "$(pgrep -fc '/bin/sleep 37' || true)"
+    rm -rf "$tmp"
+}
+
 # N1-333 AC4: a SIGKILLed runner cannot trap; the digest and --status still flag it from queue.md's step/pid.
 test_orca_sigkill_runner_gone() {
     local tmp; tmp=$(mktemp -d)
@@ -1189,6 +1221,8 @@ test_orca_chain_after_settle
 test_orca_fallback_bg
 test_orca_tick_cap
 test_orca_exit_trace_signals
+test_orca_exit_trace_rc
+test_orca_term_interrupts_sleep
 test_orca_sigkill_runner_gone
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
