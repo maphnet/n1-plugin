@@ -78,6 +78,9 @@ printf 'total=3 pending=0\nFAIL\tlint\thttps://x/runs/1\nFAIL\ttest (ubuntu)\tht
 printf 'total=3 pending=0\nFAIL\ttest (ubuntu)\thttps://x/runs/9\nFAIL\tlint\thttps://x/runs/8\n' > "$T/ci2.tsv"
 eq "I1 check names only" "$(printf 'lint\ntest (ubuntu)')" "$(n1_stall_names_ci "$T/ci1.tsv")"
 eq "I2 links and order do not alter the signature" "$(n1_stall_names_ci "$T/ci1.tsv" | n1_stall_sig)" "$(n1_stall_names_ci "$T/ci2.tsv" | n1_stall_sig)"
+printf 'FAIL\tlint\thttps://x/runs/1\n' > "$T/ci3.tsv"
+printf 'FAIL\tlint\thttps://x/runs/5\n' > "$T/ci4.tsv"
+eq "I4 signature depends only on the lines written (skip-category check omitted upstream)" "$(n1_stall_names_ci "$T/ci3.tsv" | n1_stall_sig)" "$(n1_stall_names_ci "$T/ci4.tsv" | n1_stall_sig)"
 eq "I3 missing file -> empty" "" "$(n1_stall_names_ci "$T/none.tsv")"
 
 # ---- QA: names from qa-verify.log ----
@@ -100,6 +103,7 @@ eq "W11e QA option 2 resets qa_fail_sig" "1" "$(sect "$P" QA | grep -cE '^2 — 
 eq "W12 CI stall goes to Step 6b" "1" "$([ "$(sect "$P" CI | grep -c 'Step 6b')" -ge 1 ] && echo 1 || echo 0)"
 eq "W12b CI section has no Autonomy Gate (D1)" "0" "$(sect "$P" CI | grep -c 'Autonomy Gate')"
 eq "W12c CI names reach the helper through ci-fail.tsv" "1" "$(sect "$P" CI | grep -c 'n1_stall_names_ci "\$M/ci-fail.tsv"')"
+eq "W12e CI signature omits checks matching a skip category pattern" "1" "$(sect "$P" CI | grep -c 'omit checks whose name matches a `skip` category pattern')"
 eq "W12d CI NOT_BRANCH_CAUSED clears ci_fail_sig (D8)" "1" "$(sect "$P" CI | grep -c 'NOT_BRANCH_CAUSED.*§ Reset with `ci_fail_sig`')"
 eq "W13 local-testing stall goes to the cap exit" "1" "$(sect "$P" 'Local testing' | grep -c 'stalled on the same failure after <N> fix cycles')"
 eq "W14 stall-stop.md is not in the standard-path budget list" "0" "$(grep -c 'stall-stop' tests/test_instruction_budget.sh)"
