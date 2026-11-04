@@ -1298,7 +1298,7 @@ n1_queue_watch() {
                         # N1-55: a child in ask-mode mirrors its full question to .question-<ticket>.json.
                         # qrender is shared with the N1-60 fallback below so a packed-JSON reason
                         # renders identically to the live question file.
-                        qrender='def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ") | .[:1000];
+                        qrender='def s: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ") | .[:1000];
                                 (.rationale // "" | s) as $r | (.recommended // "" | s) as $rec
                                 | "  Q: \(.question | s)",
                                   (select($rec == "" and $r != "") | "  \($r)"),
@@ -1346,7 +1346,7 @@ n1_queue_watch() {
                 fromjson? | objects | select(.run_id == $run)
                 | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
-                | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ")) as $arr
+                | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time
                 # (escalate(): 2000 chars/field, <=10 options); the 300-cap here is only
                 # for plain-text reasons and the other fields.

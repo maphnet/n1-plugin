@@ -110,12 +110,17 @@ ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 # Orca session the --answer hint is printed only when a question is pending (.ask-<T> or .question-<T>.json); otherwise
 # no hint (the worker is alive in its terminal, so neither --answer nor an n1-start resume applies).
 escalate() {
-    local sid q qfile qfull reason mark key hint=""
+    local sid q qfile qfull reason mark key fb hint=""
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     # N1-241: newest entry, so an appended entry changes the reason and the watch dedupe relays it.
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md" last)
+    fb=""
+    [ -z "$q" ] && [ -n "${4:-}" ] && fb=1
     q="${q:-${4:-}}"   # N1-359: no overview entry -> caller's fallback; also keys the dedupe marker below
     reason="$q"
+    # SEC-2: the untrusted Orca subject must never render as a packed question (watch shows --answer + Recommended
+    # for object-shaped reasons); only the $qfull path below may produce one.
+    if [ -n "$fb" ] && jq -e 'type == "object"' >/dev/null 2>&1 <<<"$reason"; then reason="orca: $reason"; fi
     case "$1" in
         ''|*[!A-Za-z0-9_-]*) qfile="" mark="" ;;
         *) qfile="$N1_QUEUE_DIR/.question-$1.json" mark="$N1_QUEUE_DIR/.esc-reason-$1" ;;
@@ -130,7 +135,7 @@ escalate() {
         # the normal 2000-char cap) still exceeds a 32 KiB budget — covers 4-byte UTF-8
         # (emoji) content, which isn't a control char and isn't escaped by jq.
         qfull=$(jq -cn '
-            def strip: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ");
+            def strip: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ");
             def build($src; $n): $src | objects | {
                 question: (.question // "" | strip | .[:$n]),
                 options: ((.options // []) | arrays | .[:10] | map(strip | .[:$n])),

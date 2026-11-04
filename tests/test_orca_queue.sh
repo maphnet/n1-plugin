@@ -149,6 +149,8 @@ eq "events: stop notice -> escalation-stop with stopReason and flattened body" \
 eq "events: plain escalation carries its subject; non-string stopReason stays plain" \
     "$(printf 'escalation\ttask-10\tm-10\td-10\tNeed a DB choice\nescalation\ttask-11\tm-11\td-11')" \
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-10","type":"escalation","subject":"Need a DB choice","payload":"{\"taskId\":\"task-10\",\"dispatchId\":\"d-10\"}"},{"id":"m-11","type":"escalation","payload":"{\"taskId\":\"task-11\",\"dispatchId\":\"d-11\",\"stopReason\":1}"}]}}')"
+eq "events: zero-width and tag-block chars in a subject become spaces" "escalation	task-12	m-12	d-12	a b c" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-12","type":"escalation","subject":"a\u200bb\udb40\udc41c","payload":"{\"taskId\":\"task-12\",\"dispatchId\":\"d-12\"}"}]}}')"
 B=$(printf 'x%.0s' $(seq 400))
 eq "events: stop text capped at 300 chars" 300 \
     "$(n1_orca_events "$(jq -cn --arg b "$B" '{ok: true, result: {messages: [{id: "m-12", type: "escalation", body: $b, payload: ({taskId: "task-12", dispatchId: "d-12", stopReason: "finished"} | tojson)}]}}')" | cut -f5 | tr -d '\n' | wc -c | tr -d ' ')"

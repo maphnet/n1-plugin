@@ -121,7 +121,7 @@ n1_orca_events() {
     # escalation's text is its subject. The text is untrusted: control/format chars become spaces, then it is cut to
     # 300 chars. The 5th column is omitted when the text is empty (the consumer's last read variable then reads empty).
     jq -r 'def str: if type == "string" then . else "" end;
-        def strip: gsub("[\u0000-\u001f\u007f-\u009f‎‏  ‪-‮⁦-⁩؜]"; " ");
+        def strip: gsub("[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff\\x{E0000}-\\x{E007F}]"; " ");
         (.result.messages // .result.batch // .result.items // [])[]?
         | (.payload | if type == "string" then (try fromjson catch {}) else . end
             | if type == "object" then . else {} end) as $p
