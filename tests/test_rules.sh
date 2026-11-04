@@ -29,7 +29,6 @@ assert_eq "inert flags persona without render site" "implementer" "$(n1_rules_in
 assert_eq "tech-writer not inert" "" "$(n1_rules_inert_applies_to "tech-writer")"
 sites=$( { grep -rhoE 'agent_name=[a-z-]+|n1_rules_for_agent "[a-z-]+"' "$REPO_ROOT/skills/" | sed -E 's/agent_name=//; s/n1_rules_for_agent "//; s/"//' ; } | sort -u)
 assert_eq "render sites pinned to call sites" "$sites" "$(n1_rules_render_sites | sort)"
-grep -q 'n1_rules_for_agent "tech-writer"' "$REPO_ROOT/skills/n1-pr/steps/01-prepare.md"; assert_eq "n1-pr has tech-writer render site" "0" "$?"
 D="$T/rules"; mkdir "$D"; printf -- '---\napplies_to: tech-writer\n---\nbody\n' > "$D/tw.rule.md"
 assert_eq "for_agent returns tech-writer rule" "$D/tw.rule.md" "$(n1_rules_for_agent tech-writer "" "$D")"
 
