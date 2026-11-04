@@ -402,6 +402,11 @@ cp "$T/S.res" "$S"; rm -f "$N1_HOME/queue/sentinels/T-1.sent"
 printf -- '---\nstep: escalated\n---\n' > "$OV"
 reset; stop
 has "stop: escalated child reports failed" "--outcome failed" "$(calls)"
+# N1-362 AC2: an obsolete-ticket escalation (Headless Guard run-ending branch) reports worker_done failed.
+rm -f "$N1_HOME/queue/sentinels/T-1.sent"
+printf -- '---\nstep: escalated\n---\n## Escalations\n- [headless] analysis: ticket obsolete: fix already on main\n' > "$OV"
+reset; stop
+has "stop: obsolete-ticket escalation reports failed (N1-362)" "worker_done --outcome failed" "$(calls)"
 
 # --- Task 4: child ask ---
 QF="$Q/.question-T-1.json"

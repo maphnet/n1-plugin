@@ -175,6 +175,29 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 18-20 (N1-362): a recommended option that ends the run escalates
+# instead of ending silently (no blocked move, no ask-mode park)
+# ---------------------------------------------------------------------------
+RUN_END_BLOCK=$(awk '/^\*\*If the recommended option ends the run\*\*/{f=1} /^\*\*If the prompt IS on the stop list/{f=0} f' "$HEADLESS_FILE")
+if [ -n "$RUN_END_BLOCK" ] && grep -q 'step: escalated' <<< "$RUN_END_BLOCK" && grep -q 'HEADLESS ESCALATION' <<< "$RUN_END_BLOCK"; then
+    pass "T18: run-ending recommended-option branch sets step: escalated and ends"
+else
+    fail "T18: run-ending recommended-option branch missing or does not escalate"
+fi
+
+if grep -qF -- "- [headless] %s: ticket obsolete: %s" <<< "$RUN_END_BLOCK"; then
+    pass "T19: Guard writes the 'ticket obsolete:' marker the queue runner matches"
+else
+    fail "T19: 'ticket obsolete:' marker missing from the Guard branch"
+fi
+
+if grep -q 'Skip the blocked move' <<< "$RUN_END_BLOCK" && grep -q 'ask-mode branch whatever `N1_UNATTENDED` is' <<< "$RUN_END_BLOCK"; then
+    pass "T20: run-ending branch skips the blocked move and the ask-mode park"
+else
+    fail "T20: run-ending branch must skip the blocked move and the ask-mode park"
+fi
+
+# ---------------------------------------------------------------------------
 # Cleanup
 # ---------------------------------------------------------------------------
 echo ""

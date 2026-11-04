@@ -41,7 +41,17 @@ grep -q '^## Decision Ledger' "$OVERVIEW" 2>/dev/null || printf '\n## Decision L
 printf '| %s | headless | %s | [auto] | %s | %s | %s | headless: not on stop list | --- |\n' "$STEP" "$TIER" "$QUESTION" "$RECOMMENDED" "$ALTERNATIVES" >> "$OVERVIEW"
 ```
 
-Then continue the run — do not escalate, do not end.
+Then continue the run — do not escalate, do not end — unless the recommended option ends the run (next branch).
+
+**If the recommended option ends the run** (it stops the pipeline with no code change, e.g. the analysis contradiction gate's Redirect for an obsolete or already-done ticket): log the ledger row above, then escalate so the launching session sees why; never end silently:
+
+1. Append to `## Escalations`; keep the fixed phrase `ticket obsolete:` (the queue runner matches it to release overlap successors):
+   ```bash
+   source ~/.n1/preamble.sh
+   printf -- '- [headless] %s: ticket obsolete: %s\n' "$STEP" "$EVIDENCE" >> "$N1_HOME/memory/$ID/overview.md"
+   ```
+2. Run escalation steps 3 (release the queue tag) and 4 (tracker comment; reason line `ticket obsolete: <evidence>`, no options line) below.
+3. Skip the blocked move (step 1) and the ask-mode branch whatever `N1_UNATTENDED` is: nothing is left to answer. Run step 5 "Not `ask`" a-b below: set `step: escalated`, run the telemetry failure path, clear the active-run pointer, print `HEADLESS ESCALATION: <one line>` and end the run.
 
 **If the prompt IS on the stop list, is the release gate, or has no recommended option**, escalate:
 
