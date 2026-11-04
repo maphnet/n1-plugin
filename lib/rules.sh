@@ -62,7 +62,7 @@ n1_rules_render_sites() {
 n1_rules_validate_applies_to() {
     local valid tok toks rc=0
     valid=$(n1_rules_valid_applies_to)
-    IFS=, read -ra toks <<<"$1"
+    IFS=, read -d "" -ra toks <<<"${1//$'\n'/,}" || true
     for tok in "${toks[@]}"; do
         tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
         [ -z "$tok" ] && continue
@@ -76,7 +76,7 @@ n1_rules_inert_applies_to() {
     local valid sites tok toks
     valid=$(n1_rules_valid_applies_to)
     sites=$(n1_rules_render_sites)
-    IFS=, read -ra toks <<<"$1"
+    IFS=, read -d "" -ra toks <<<"${1//$'\n'/,}" || true
     for tok in "${toks[@]}"; do
         tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
         [ -z "$tok" ] || [ "$tok" = "*" ] && continue

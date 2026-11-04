@@ -27,6 +27,7 @@ assert_eq "valid set = star + agents/*.md" "$( { echo '*'; ls "$REPO_ROOT"/agent
 assert_eq "queue not valid" "0" "$(n1_rules_valid_applies_to | grep -cx queue)"
 assert_eq "inert flags persona without render site" "implementer" "$(n1_rules_inert_applies_to "implementer,developer")"
 assert_eq "tech-writer not inert" "" "$(n1_rules_inert_applies_to "tech-writer")"
+assert_eq "multi-line: second line validated" "devloper" "$(V "developer"$'\n'"devloper")"
 sites=$( { grep -rhoE 'agent_name=[a-z-]+|n1_rules_for_agent "[a-z-]+"' "$REPO_ROOT/skills/" | sed -E 's/agent_name=//; s/n1_rules_for_agent "//; s/"//' ; } | sort -u)
 assert_eq "render sites pinned to call sites" "$sites" "$(n1_rules_render_sites | sort)"
 D="$T/rules"; mkdir "$D"; printf -- '---\napplies_to: tech-writer\n---\nbody\n' > "$D/tw.rule.md"
