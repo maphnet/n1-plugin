@@ -42,4 +42,14 @@ check "02-loop: other options carry a works-when note" '^2 — <option>: works w
 check "03-write: Cancel carries a works-when note" '^3 — Cancel: write nothing; works when ' skills/n1-refine/steps/03-write.md
 expect "03-write: still exactly one (Recommended)" 1 "$(grep -cF '(Recommended)' skills/n1-refine/steps/03-write.md)"
 
+# --- n1-init
+for f in 01-prerequisites 03-tracker 08-local-testing 10-quality-config 11-rules; do
+    pointer "skills/n1-init/steps/$f.md"
+done
+expect "01-prerequisites: every Skip carries a works-when note" 3 "$(grep -c '2 — Skip: works when ' skills/n1-init/steps/01-prerequisites.md)"
+check "03-tracker: Atlassian option carries a works-when note" '^2 — Jira via Atlassian MCP: works when ' skills/n1-init/steps/03-tracker.md
+check "10-quality-config: Hands-off normalised with evidence" '^1 — Hands-off \(Recommended\): .*lib/config\.sh' skills/n1-init/steps/10-quality-config.md
+check "11-rules: starter rules normalised with evidence" '^1 — Yes, generate starter rules \(Recommended\): ' skills/n1-init/steps/11-rules.md
+lacks_tree "no lowercase (recommended) mark under skills/" '\(recommended\)' skills
+
 exit "$FAIL"

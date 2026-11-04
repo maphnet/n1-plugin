@@ -27,7 +27,7 @@ check "02 skips the project-list probe for jc-mcp" 'jc-mcp has no project-list o
 
 # Step 03: jc-mcp is the default
 check "03 both-present list recommends jc-mcp" '^  1 -- jc-mcp .*\(Recommended' "$T"
-before "03 full menu lists jc-mcp before Atlassian" '^1 — Jira via jc-mcp \(Recommended' '^2 — Jira via Atlassian MCP$' "$T"
+before "03 full menu lists jc-mcp before Atlassian" '^1 — Jira via jc-mcp \(Recommended' '^2 — Jira via Atlassian MCP' "$T"
 refute "03 never recommends the Atlassian MCP" 'Atlassian MCP.*\(Recommended' "$T"
 before "03 jc-mcp block precedes the Atlassian block" '^### If Jira via jc-mcp:$' '^### If Jira via Atlassian MCP:$' "$T"
 

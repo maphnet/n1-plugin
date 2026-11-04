@@ -54,6 +54,7 @@ How should N1 test this project locally?
 - If Startup Detection (below) would find a match (docker-compose, Makefile with run targets, package.json with dev/start, manage.py, Procfile) -> suggest `1 -- Live (Recommended)` with reason: "Detected `<file>` -- this project appears locally runnable."
 - If .github/workflows/ exists AND no startup mechanism detected -> suggest `3 -- Smoke (Recommended)` with reason: "No local startup detected but the repo has CI workflows (deploy watch is always on) -- smoke testing after deploy may be appropriate."
 - Otherwise -> suggest `2 -- Test (Recommended)` with reason: "No local startup mechanism detected."
+- Present the suggested mode as its `(Recommended)` line with the reason above, and give each of the two other modes one line from this list: Live: works when the app and its services start locally; Test: works when the test suite alone covers the change; Smoke: works when the service runs only after deploy. Format: `<N1_ROOT>/references/question-format.md`.
 
 Write the selected mode:
 ```json
