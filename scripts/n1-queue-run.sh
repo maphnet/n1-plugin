@@ -478,7 +478,7 @@ chain_merged() {
 # chain_clean <num> <ticket> <repo> <n1-home> — N1-339: launch one background `n1-clean --ticket <ticket>` for a merged
 # row whose overview does not yet show its branch deleted. Fire and forget: results land in the overview Cleanup
 # line and a ticket_cleanup event. .cleaned-<ticket> (line 1 run id, line 2 launched) is written before the launch, so it
-# runs once per run, also across a runner restart. The runner removes nothing itself.
+# runs once per run, also across a runner restart. The runner removes nothing itself. Runs only when chain_authorized holds (mergeOnFinish and fullAuto).
 chain_clean() {
     local marker="$N1_QUEUE_DIR/.cleaned-$2" out sid
     case "$2" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac

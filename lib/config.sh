@@ -1025,7 +1025,7 @@ _n1_clean_record() {
     # A no-op re-run never overwrites an earlier real record (overview line, or a non-pending report line).
     if [ "$toks" = "worktree:none, branch:none" ] && { grep -q '^- \*\*Cleanup:\*\*' "$ov" 2>/dev/null \
         || grep '^Cleanup:' "$rep" 2>/dev/null | grep -qv '<pending>'; }; then return 0; fi
-    case "$toks" in *remove-failed*) outcome=failed ;; worktree:kept*|cleanup:skipped*) outcome=skipped ;; *) outcome=success ;; esac
+    case "$toks" in *remove-failed*) outcome=failed ;; worktree:kept*|*branch:kept*|cleanup:skipped*) outcome=skipped ;; *) outcome=success ;; esac
     if [ -f "$ov" ] && [ "${toks#cleanup:skipped}" = "$toks" ] && tmp=$(mktemp "$ov.XXXXXX"); then
         L="- **Cleanup:** $toks${path:+ ($path)}" awk '/^## /{s = /^## Finish\r?$/} s && /^- \*\*Cleanup:\*\*/{next} {print}
             /^## Finish\r?$/{print ENVIRON["L"]; d = 1} END{if (!d) {print ""; print "## Finish"; print ENVIRON["L"]}}' "$ov" > "$tmp" \

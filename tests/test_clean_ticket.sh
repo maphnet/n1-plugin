@@ -81,6 +81,10 @@ wt "$T/k13" b13; git -C "$M" merge -q --no-ff -m m13 b13; ov K-13
 (export N1_RUN_ID=run-13; ct K-13 "$(printf 'MERGED\tb13\t%s\tmain' "$(rev b13)")" >/dev/null)
 eq "K13: step event" "cleanup|18|success|clean|false|[\"branch\",\"cwd\",\"orca\",\"path\",\"reason\",\"trigger\",\"worktree\"]" \
     "$(jq -rc '"\(.step)|\(.step_number)|\(.outcome)|\(.metadata.trigger)|\(.metadata.orca)|\(.metadata | keys)"' "$N1_HOME/memory/K-13/telemetry/raw/steps/run-13.jsonl")"
+# K13b: a removed worktree with a kept branch is outcome skipped (listed by n1_queue_cleanup_left).
+ov K-13b
+(export N1_RUN_ID=run-13b; _n1_clean_record K-13b clean "worktree:removed, branch:kept (not merged)" "$T/k13b" git)
+eq "K13b: branch kept -> skipped" skipped "$(jq -r .outcome "$N1_HOME/memory/K-13b/telemetry/raw/steps/run-13b.jsonl")"
 # K14: finish trigger rewrites finish-report.md's pending Cleanup line, no gh call.
 wt "$T/k14" b14; git -C "$M" merge -q --no-ff -m m14 b14; ov K-14
 printf 'Finish complete: K-14\nCleanup: <pending>\n' > "$N1_HOME/memory/K-14/finish-report.md"; : > "$GH_CALLS"

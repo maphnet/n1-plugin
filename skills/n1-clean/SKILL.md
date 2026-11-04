@@ -13,7 +13,7 @@ Removes worktrees of finished tickets. Two modes:
 - **Ticket mode** (`--ticket <ID>`): one ticket, no prompt. Used by n1-queue for merged rows and safe to run by hand from any cwd inside the repository, including the target worktree.
 - **General mode** (no argument): lists every linked worktree (plain git and workspace-manager ones), classifies them and offers to remove the merged ones.
 
-Memory in `$N1_HOME` is always preserved. Removal never forces: dirty, unmerged or locked worktrees are kept and reported.
+Memory in `$N1_HOME` is always preserved. Worktrees under the N1 worktree root are removed with force once their PR is MERGED; all other worktrees are never forced and are kept when dirty or unmerged, and locked ones are kept too.
 
 **Announce at start:** "I'm using the n1-clean skill to manage worktrees."
 
@@ -28,7 +28,7 @@ If the output shows `N1_NOT_CONFIGURED` → "N1 is not configured. Run `/n1:n1-i
 
 ## Step 0: Ticket Mode
 
-When the arguments contain `--ticket <ID>`, run exactly one Bash call and nothing else:
+When the arguments contain `--ticket <ID>`, after the N1_HOME check, run exactly one Bash call:
 
 ```bash
 source ~/.n1/preamble.sh
@@ -95,7 +95,7 @@ If nothing is Stale, Completed or Abandoned: "All worktrees are active. Nothing 
 If `MP` is `ask`, ask the user:
 ```
 Remove merged worktrees?
-1 — Remove all Stale and Completed (Recommended: each Completed removal re-checks the merged PR and keeps dirty or unmerged trees, per n1_clean_ticket in lib/config.sh)
+1 — Remove all Stale and Completed (Recommended: each Completed removal re-checks the merged PR; worktrees under the N1 worktree root are removed with force once merged, all others are never forced and kept when dirty or unmerged, per n1_clean_ticket in lib/config.sh)
 2 — Select which to remove (Completed and Abandoned)
 3 — Cancel
 ```
