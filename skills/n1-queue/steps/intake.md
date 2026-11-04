@@ -18,7 +18,14 @@ if RUN=$(n1_queue_already_run "$N1_HOME/memory/<KEY>/overview.md"); then echo "E
 ```
 `EXCLUDE` -> excluded with reason `already run: <run> (tag not released; /n1:n1-queue --status releases it)`; skip its `READ_OP` call.
 
-For each remaining result, call `mcp__<TRACKER_MCP>__<READ_OP>` to get `key`, `title`, `description`, `status`, `size` (estimation field if available).
+For each remaining result, call `mcp__<TRACKER_MCP>__<READ_OP>` to get `key`, `title`, `description`, `status`, `size` (estimation field if available). Before those calls, run one bash call that clears and marks every remaining result. Its keys already passed § Key validation. Repeat the last two lines once per key. The capture hook (`hooks/desc-capture.sh`) then writes each fetched title and description to `<QUEUE_DIR>/desc/<KEY>.title`/`.txt` for § Description quality and preview.md § Plan-Resolve 1's Snapshot. Never write those files yourself (NP-203 SEC-1). The hook consumes a key's mark on any read of it, even a failed one, so re-run that key's two lines before retrying its read:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+rm -f "<QUEUE_DIR>/desc/<KEY>.title" "<QUEUE_DIR>/desc/<KEY>.txt"
+n1_desc_mark queue "<KEY>" "<QUEUE_ID>" || echo "MARK-FAILED <KEY>"
+```
 
 Repo and N1 Home for all candidates: current repo root (`git rev-parse --show-toplevel`) and `$N1_HOME`.
 
@@ -75,14 +82,15 @@ Excluded tickets are left for a later run (no toposort). Before § Output, a hel
 
 For each remaining candidate, grade the description with the product-analyst tiers (`<N1_ROOT>/agents/product-analyst.md` § Description Quality Assessment, table C): Empty, Skeletal, Weak, Adequate. A description that already carries `*Briefed by N1 (queue plan)*`, `*Structured by N1*`, `*Restructured by N1*`, `*Refined by N1*` or `Normalized by N1` (with or without `*` or `_` emphasis), or a ticket whose fetched comments carry a qualifying `Refined by N1` comment block (`<N1_ROOT>/agents/product-analyst.md` § Refined block rule, qualifier only; no `planned_at` check at plan time), counts as Adequate here, so it is never briefed twice. For an Empty candidate whose fetch returned no comments, read its comments once before the exclusion below and apply the same qualifier. Keep the tier with the candidate for preview.md § Plan-Resolve 1. Length alone never excludes.
 
-Exclude only a candidate with nothing to work from: an Empty description and a vague title. For each Empty candidate, write its title to `<QUEUE_DIR>/desc/<KEY>.title` with the file-write mechanism (never through a shell string, NP-203 SEC-1), then:
+Exclude only a candidate with nothing to work from: an Empty description and a vague title. The capture hook wrote each fetched title to `<QUEUE_DIR>/desc/<KEY>.title` (§ Tag mode). Story mode reads no issue per candidate, so for an Empty candidate without that file, run § Tag mode's mark bash call for it and call `READ_OP` for it first. Then:
 
 ```bash
 source ~/.n1/preamble.sh
-n1_title_vague "<QUEUE_DIR>/desc/<KEY>.title" && echo VAGUE || echo OK
+if [ ! -f "<QUEUE_DIR>/desc/<KEY>.title" ]; then echo MISSING
+elif n1_title_vague "<QUEUE_DIR>/desc/<KEY>.title"; then echo VAGUE; else echo OK; fi
 ```
 
-`VAGUE`: exclude with reason `no usable content: empty description, vague title`. `OK`: keep; preview briefs it.
+`VAGUE`: exclude with reason `no usable content: empty description, vague title`. `OK` or `MISSING` (the capture did not run): keep; preview briefs it.
 
 ## Duplicate check
 

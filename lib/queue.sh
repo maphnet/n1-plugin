@@ -535,15 +535,53 @@ n1_queue_content_hash() {
     # shasum -a 256 fallback (NP-203 SEC-3 — replaces cksum/CRC32, which is trivially
     # forgeable). Both arguments are files, never inline text (NP-203 SEC-1): a ticket title
     # is untrusted tracker text, and interpolating it into a shell string executed by a
-    # headless child is command injection (CWE-78) — callers must write it to a file with
-    # the file-write mechanism first. Fails closed (SEC-5): prints nothing and returns 1
+    # headless child is command injection (CWE-78) — hooks/desc-capture.sh writes both files
+    # from the tracker fetch (N1-326). Fails closed (SEC-5): prints nothing and returns 1
     # when either file is missing, so a fetch failure never silently hashes as "unchanged".
     # Shared by preview.md's Desc Checksum snapshot, run.md's staleness re-check, and the
-    # child-side TOCTOU guard in autonomy-headless.md, so all three agree on one definition
+    # child-side TOCTOU guard in autonomy-headless-predecision.md, so all three agree on one definition
     # of "changed".
     [ -f "$1" ] || return 1
     [ -f "$2" ] || return 1
     { cat "$1"; printf '\n'; cat "$2"; } | { command -v sha256sum >/dev/null 2>&1 && sha256sum || shasum -a 256; } | cut -d' ' -f1
+}
+
+n1_desc_mark() {
+    # Usage: n1_desc_mark <pre|post|guard|queue> <KEY> [<queue-id>]
+    # N1-326: one-shot destination marker for hooks/desc-capture.sh. Run it in its own bash call right
+    # before the tracker read of <KEY>; the hook then writes that fetch's title/description to
+    # memory/<KEY>/.desc-pre|.desc-post|.guard-live.{title,txt} or queue/<queue-id>/desc/<KEY>.{title,txt}.
+    # Writes $N1_HOME/.desc-marker/<session-id>/<KEY> holding validated tokens only (never a path, never
+    # tracker text); re-marking a key overwrites. Sweeps markers older than 60 minutes first.
+    # Returns 1 and writes nothing on a bad kind, key, queue id or session id.
+    local kind="${1:-}" key="${2:-}" qid="${3:-}" sid dir line
+    type n1_session_id >/dev/null 2>&1 || return 1
+    sid=$(n1_session_id)
+    [[ "$sid" =~ ^[a-zA-Z0-9_-]+$ ]] || return 1
+    [[ "$key" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || return 1
+    case "$kind" in
+        pre|post|guard) [ -z "$qid" ] || return 1; line=$kind ;;
+        queue) [[ "$qid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 1; line="queue $qid" ;;
+        *) return 1 ;;
+    esac
+    [ -n "${N1_HOME:-}" ] || return 1
+    dir="$N1_HOME/.desc-marker"
+    [ ! -L "$dir" ] || return 1
+    find "$dir" -type f -mmin +60 -delete 2>/dev/null
+    find "$dir" -mindepth 1 -type d -empty -delete 2>/dev/null
+    dir="$dir/$sid"
+    mkdir -p "$dir" 2>/dev/null && [ ! -L "$dir" ] || return 1
+    rm -f "$dir/$key"
+    printf '%s\n' "$line" > "$dir/$key"
+}
+
+n1_desc_unmark() {
+    # Usage: n1_desc_unmark <KEY>: drop this session's pending capture marker for <KEY> (desc-hash-chain Gate).
+    local key="${1:-}" sid
+    type n1_session_id >/dev/null 2>&1 || return 1
+    sid=$(n1_session_id)
+    [[ "$sid" =~ ^[a-zA-Z0-9_-]+$ ]] && [[ "$key" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] && [ -n "${N1_HOME:-}" ] || return 1
+    rm -f "$N1_HOME/.desc-marker/$sid/$key"
 }
 
 n1_desc_hash_is_trusted() {
