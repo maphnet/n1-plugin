@@ -940,46 +940,73 @@ n1_workspace_decide() {
     return 0
 }
 
-# N1-112: n1-finish Step 6 worktree + local-branch cleanup; prints status tokens, one per line, always returns 0.
-# Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch>   (run from the feature checkout)
-# A branch checked out in a worktree cannot be deleted, so the worktree goes first. N1-managed worktrees
-# are force-removed; external ones only when clean and HEAD is in the merged result (oid, else <defaultBranch>),
-# never forced. Branch: tip must be an ancestor of the merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
-# After a removal the shell is left in the main checkout.
-# Orca-owned worktrees (n1_orca_owns) are removed through n1_orca_rm; ignored files do not block them (N1-224).
+# N1-339: "<path>\t<branch ref or empty>" per worktree from git porcelain, main checkout first.
+_n1_wt_records() {
+    git worktree list --porcelain 2>/dev/null | awk '/^worktree /{p=substr($0,10)} /^branch /{b=substr($0,8)} /^$/{print p "\t" b; p=""; b=""} END{if(p!="")print p "\t" b}'
+}
+
+# N1-339: path of the worktree (main checkout included) holding refs/heads/<branch>, or nothing. A worktree holds its
+# branch exclusively, so this exact match can never select another ticket's tree.
+_n1_wt_holder() {
+    [ -n "${1:-}" ] || return 0
+    _n1_wt_records | B="refs/heads/$1" awk -F'\t' '$2 == ENVIRON["B"] {print $1; exit}'
+    return 0
+}
+
+# N1-339: removal gate for linked worktree <top>. Prints "<mode>\t<keep>": mode orca (Orca-owned, via n1_orca_rm, never
+# forced, ignored files do not block) | force (under <main>/<worktree_root>, not Orca-owned) | plain (external, never
+# forced). keep is empty or dirty | ignored files | unmerged | orca-unreachable (Orca CLI installed, runtime down: ownership
+# unknown, so no plain-git removal behind Orca's back).
+_n1_clean_gate() {
+    local top="$1" main="$2" oid="$3" def="$4" mode=plain keep="" st
+    if n1_orca_owns "$top"; then mode=orca
+    else
+        case "$top" in "$main/$(n1_worktree_root)"/*) mode=force ;; esac
+        [ "$mode" = plain ] && [ -n "${ORCA_CLI_COMMAND:-}" ] && [ -x "$ORCA_CLI_COMMAND" ] && ! n1_orca_active && keep="orca-unreachable"
+    fi
+    if [ -z "$keep" ] && [ "$mode" != force ]; then
+        if ! st=$(git -C "$top" status --porcelain --ignored 2>/dev/null) || [ -n "$(grep -v '^!!' <<<"$st")" ]; then keep="dirty"
+        elif [ -n "$st" ] && [ "$mode" = plain ]; then keep="ignored files"
+        elif ! git -C "$top" merge-base --is-ancestor HEAD "${oid:-refs/heads/$def}" 2>/dev/null; then keep="unmerged"; fi
+    fi
+    printf '%s\t%s\n' "$mode" "$keep"
+}
+
+# N1-112/N1-339: worktree + local-branch cleanup for a merged ticket; prints status tokens, one per line, always returns 0.
+# Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch>   (any cwd inside the repository)
+# The worktree is the linked one holding refs/heads/<branch> (never the main checkout, never chosen by cwd); it goes
+# first because a checked-out branch cannot be deleted. Gates: _n1_clean_gate. Branch: tip must be an ancestor of the
+# merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
+# When the cwd's worktree was removed the shell is left in the main checkout.
 n1_finish_cleanup() {
     local branch="${1:-}" oid="${2:-}" def="${3:-}"
-    local gd gcd main top err cur st keep="" force=""
-    gd=$(cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
-        && gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
+    local gcd main top err mode="" keep="" holder
+    gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
         && main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] \
         || { echo worktree:none; echo branch:none; return 0; }
     local G=(git --git-dir="$gcd")
-    if [ "$gd" = "$gcd" ]; then echo "worktree:none"
+    top=$(_n1_wt_holder "$branch"); [ "$top" = "$main" ] && top=""
+    # A registered worktree whose directory is gone cannot be gated or removed: drop its stale admin entry (locked ones
+    # survive the prune and are then named by the branch check below) so the branch can be deleted.
+    if [ -n "$top" ] && [ ! -d "$top" ]; then "${G[@]}" worktree prune 2>/dev/null; top=""; fi
+    if [ -z "$top" ]; then echo "worktree:none"
     else
-        top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""; cur=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || cur=""
-        if [ "$cur" != "$branch" ]; then echo "worktree:kept-other"
-        else
-            # Only a positive match under the main checkout's N1 worktree root is N1-managed; everything else is external (never forced).
-            # N1-224: an Orca-owned worktree is removed through Orca (never forced, even under the N1 root); ignored files (.env) do not block it.
-            local orca=""; n1_orca_owns "$top" && orca=1
-            [ -z "$orca" ] && case "$top" in "$main/$(n1_worktree_root)"/*) force="--force" ;; esac
-            if [ -z "$force" ]; then
-                if ! st=$(git status --porcelain --ignored 2>/dev/null) || [ -n "$(grep -v '^!!' <<<"$st")" ]; then keep="dirty"
-                elif [ -n "$st" ] && [ -z "$orca" ]; then keep="ignored files"
-                elif ! git merge-base --is-ancestor HEAD "${oid:-refs/heads/$def}" 2>/dev/null; then keep="unmerged"; fi
-            fi
-            if [ -n "$keep" ]; then echo "worktree:kept ($keep)"
-            elif [ -n "$orca" ]; then
-                # No git fallback: removing behind Orca's back would desync its state.
-                if err=$(cd / && n1_orca_rm "$top"); then echo "worktree:removed"; cd "$main" 2>/dev/null || true
-                else keep="remove-failed"; echo "worktree:remove-failed (${err:-workspace manager error})"; fi
-            elif err=$(cd / && "${G[@]}" worktree remove $force "$top" 2>&1); then echo "worktree:removed"; cd "$main" 2>/dev/null || true
-            else keep="remove-failed"; echo "worktree:remove-failed (${err%%$'\n'*})"; fi
-        fi
+        IFS=$'\t' read -r mode keep <<<"$(_n1_clean_gate "$top" "$main" "$oid" "$def")"
+        if [ -n "$keep" ]; then
+            echo "worktree:kept ($keep)"
+            [ "$keep" = orca-unreachable ] && echo "n1: worktree not removed: $top: workspace manager unreachable" >&2
+        elif [ "$mode" = orca ]; then
+            # No git fallback: removing behind Orca's back would desync its state.
+            if err=$(cd / && n1_orca_rm "$top"); then echo "worktree:removed"
+            else err="${err:-workspace manager error}"; echo "worktree:remove-failed ($err)"; echo "n1: worktree not removed: $top: $err" >&2; fi
+        elif err=$(cd / && if [ "$mode" = force ]; then "${G[@]}" worktree remove --force "$top"; else "${G[@]}" worktree remove "$top"; fi 2>&1); then
+            echo "worktree:removed"
+        else echo "worktree:remove-failed (${err%%$'\n'*})"; fi
     fi
-    if [ -n "$keep" ]; then echo "branch:kept (worktree kept)"
-    elif [ -z "$branch" ] || [ "$branch" = "$def" ] || ! "${G[@]}" rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1; then echo "branch:none"
+    [ -d "$PWD" ] || cd "$main" 2>/dev/null || true
+    holder=$(_n1_wt_holder "$branch")
+    if [ -z "$branch" ] || [ "$branch" = "$def" ] || ! "${G[@]}" rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1; then echo "branch:none"
+    elif [ -n "$holder" ]; then echo "branch:kept (checked out in $holder)"
     elif ! "${G[@]}" merge-base --is-ancestor "refs/heads/$branch" "${oid:-refs/heads/$def}" >/dev/null 2>&1; then echo "branch:kept (not merged)"
     elif "${G[@]}" branch -d -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
     elif [ -n "$oid" ] && [ "$("${G[@]}" rev-parse -q --verify "refs/heads/$branch" 2>/dev/null)" = "$oid" ] \

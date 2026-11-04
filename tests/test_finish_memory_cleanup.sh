@@ -48,7 +48,7 @@ chk "worktree: directory gone" $([ ! -d "$T/repo/.claude/worktrees/feat" ]; echo
 grep -qx 'branch:deleted' <<<"$OUT"; chk "worktree: branch status printed" $?
 # Linked worktree of another ticket (branch differs from the finished PR's head): untouched.
 HR=other-pr wt mine; HR=
-grep -qx 'worktree:kept-other' <<<"$OUT"; chk "other ticket worktree: kept-other status" $?
+grep -qx 'worktree:none' <<<"$OUT"; chk "other ticket worktree: none status" $?
 chk "other ticket worktree: directory stays" $([ -d "$T/repo/.claude/worktrees/mine" ]; echo $?)
 chk "other ticket worktree: its branch stays" $(git -C "$T/repo" rev-parse --verify -q mine >/dev/null; echo $?)
 # Invalid head ref is rejected before anything runs.

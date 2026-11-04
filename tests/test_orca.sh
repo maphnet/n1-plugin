@@ -240,17 +240,33 @@ orca_list "$WO=X-4" "$F1" "$F2" "$F3"
 reset; eq "F1 (AC6): merged Orca worktree with .env removed" "worktree:removed,branch:deleted" "$(run_fc "$F1" fb1)"
 has "F1 (AC6): removed through the workspace manager" "worktree rm --worktree path:$F1 --json" "$(calls)"
 eq "F1 (AC6): dir gone" no "$([ -d "$F1" ] && echo yes || echo no)"
-reset; eq "F2: dirty Orca worktree kept" "worktree:kept (dirty),branch:kept (worktree kept)" "$(run_fc "$F2" fb2)"
+reset; eq "F2: dirty Orca worktree kept" "worktree:kept (dirty),branch:kept (checked out in $F2)" "$(run_fc "$F2" fb2)"
 hasnt "F2: no removal call" "worktree rm" "$(calls)"
-eq "F3: Orca rm failure reported, no git fallback" "worktree:remove-failed (rm refused),branch:kept (worktree kept)" "$(FAKE_ORCA_RM_FAIL=1 run_fc "$F3" fb3)"
+eq "F3: Orca rm failure reported, no git fallback" "worktree:remove-failed (rm refused),branch:kept (checked out in $F3)" "$(FAKE_ORCA_RM_FAIL=1 run_fc "$F3" fb3)"
 eq "F3: dir kept" yes "$([ -d "$F3" ] && echo yes || echo no)"
 F4="$M/$(n1_worktree_root)/fin4"; fin "$F4" fb4; echo x > "$F4/untracked"
 F5="$M/$(n1_worktree_root)/fin5"; fin "$F5" fb5
 orca_list "$WO=X-4" "$F4" "$F5"
-reset; eq "F4: dirty Orca worktree under the N1 root is kept, not forced" "worktree:kept (dirty),branch:kept (worktree kept)" "$(run_fc "$F4" fb4)"
+reset; eq "F4: dirty Orca worktree under the N1 root is kept, not forced" "worktree:kept (dirty),branch:kept (checked out in $F4)" "$(run_fc "$F4" fb4)"
 eq "F4: dir kept" yes "$([ -d "$F4" ] && echo yes || echo no)"
 reset; eq "F5: Orca worktree under the N1 root removed through Orca" "worktree:removed,branch:deleted" "$(run_fc "$F5" fb5)"
 has "F5: removal goes through the workspace manager" "worktree rm --worktree path:$F5 --json" "$(calls)"
+# N1-339: warning names the path on an Orca rm failure.
+orca_list "$WO=X-4" "$F3"
+W3=$( (cd "$F3" && FAKE_ORCA_RM_FAIL=1 n1_finish_cleanup fb3 "$(git -C "$M" rev-parse fb3)" main) 2>&1 >/dev/null)
+has "F3: failure warning names the path" "n1: worktree not removed: $F3: rm refused" "$W3"
+# N1-339: Orca-faked finish from the main checkout removes through Orca, never --force.
+run_main() { (cd "$M" && n1_finish_cleanup "$1" "$(git -C "$M" rev-parse "$1")" main) | paste -sd, -; }
+F6="$T/wts/fin6"; fin "$F6" fb6
+F7="$T/wts/fin7"; fin "$F7" fb7
+orca_list "$WO=X-4" "$F6" "$F7"
+reset; eq "F6: Orca finish from main removed" "worktree:removed,branch:deleted" "$(run_main fb6)"
+has "F6: removal goes through the workspace manager" "worktree rm --worktree path:$F6 --json" "$(calls)"
+hasnt "F6: never forced" "--force" "$(calls)"
+# N1-339: CLI installed but runtime unreachable -> kept, no rm call, no git removal.
+reset; eq "F7: orca-unreachable kept" "worktree:kept (orca-unreachable),branch:kept (checked out in $F7)" "$(_N1_ORCA_ACTIVE= FAKE_ORCA_DOWN=1 run_main fb7)"
+hasnt "F7: no removal call" "worktree rm" "$(calls)"
+eq "F7: dir kept" yes "$([ -d "$F7" ] && echo yes || echo no)"
 
 # ---- static wiring ----
 cd "$REPO_ROOT"
