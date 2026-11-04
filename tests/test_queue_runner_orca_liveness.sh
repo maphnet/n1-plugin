@@ -115,9 +115,24 @@ test_orca_stall_flag() {
     rm -rf "$tmp"
 }
 
+test_beacon_lines() {   # N1-315 AC3: --status shows the last phase and its age for in-progress rows with a beacon
+    local tmp out; tmp=$(mktemp -d); orca_resumed_row "$tmp"
+    assert_eq "beacon-lines: no beacon prints nothing" "" "$(n1_queue_beacon_lines "$tmp/queue.md")"
+    printf '%s\timplement/developer\n' "$(( $(date +%s) - 600 ))" > "$tmp/.hb-T-A"
+    out=$(n1_queue_beacon_lines "$tmp/queue.md")
+    assert_eq "beacon-lines: ticket, phase, flag" "T-A|implement/developer|" "$(cut -f1,2,4 <<<"$out" | tr '\t' '|')"
+    assert_eq "beacon-lines: age present" "yes" "$([ -n "$(cut -f3 <<<"$out")" ] && echo yes || echo no)"
+    : > "$tmp/.stall-T-A"
+    assert_eq "beacon-lines: stalled flag" "stalled?" "$(n1_queue_beacon_lines "$tmp/queue.md" | cut -f4)"
+    n1_queue_row_status "$tmp/queue.md" 1 pr
+    assert_eq "beacon-lines: final rows skipped" "" "$(n1_queue_beacon_lines "$tmp/queue.md")"
+    rm -rf "$tmp"
+}
+
 test_orca_heartbeat
 test_orca_worker_list_dispatch_bound
 test_orca_stall_flag
+test_beacon_lines
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
