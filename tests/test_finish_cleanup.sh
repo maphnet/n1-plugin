@@ -167,7 +167,8 @@ assert_eq "C26: missing dir -> pruned + deleted" "worktree:none,branch:deleted" 
 # Static: Step 6 delegates to the helper and no longer exempts external worktrees.
 R="$SCRIPT_DIR/.."; STEP6="$R/skills/n1-finish/steps/06-cleanup.md"
 yn() { "$@" && echo yes || echo no; }
-assert_eq "S1: step 6 calls n1_finish_cleanup" yes "$(yn grep -qF 'n1_finish_cleanup "$HR"' "$STEP6")"
+assert_eq "S1: step 6 calls n1_clean_ticket last" yes "$(yn grep -qF 'n1_clean_ticket "$ID" finish "$HR" "$OID" "$DB"' "$STEP6")"
+assert_eq "S5: step 6 no longer documents kept-other" no "$(yn grep -qF 'kept-other' "$STEP6")"
 assert_eq "S2: step 6 has no inline worktree remove / -D" no "$(yn grep -qE 'git worktree remove|git branch -D' "$STEP6")"
 assert_eq "S3: step 6 fetches headRefOid in the cleanup block" yes "$(yn grep -qF 'headRefOid' "$STEP6")"
 assert_eq "S4: architecture.md drops external exemption" no "$(yn grep -qF 'Does not apply to external worktrees' "$R/references/architecture.md")"

@@ -19,7 +19,7 @@ FZ=skills/n1-start/procedures/finalize.md
 # 1. Persona: inherit-all (no tools:), never merges, pushes, asks, clears or removes.
 has "persona: name" "$P" '^name: tail-worker$'
 lacks "persona: no tools: allowlist (inherits tracker MCP)" "$P" '^tools:'
-FORBID='gh pr merge|git push|git merge|n1_merge_authorized|n1_active_run_clear|n1_finish_cleanup|n1_containers_teardown|n1-release'
+FORBID='gh pr merge|git push|git merge|n1_merge_authorized|n1_active_run_clear|n1_finish_cleanup|n1_clean_ticket|n1_containers_teardown|n1-release'
 BAD=$(grep -nE "$FORBID" "$P" 2>/dev/null | grep -vE '^[0-9]+:- Never ' || true)
 if [ -f "$P" ] && [ -z "$BAD" ]; then ok "persona: forbidden commands only inside Never bullets"; else no "persona: forbidden commands only inside Never bullets: $BAD"; fi
 has "persona: never prompts" "$P" '^- Never ask the user'
