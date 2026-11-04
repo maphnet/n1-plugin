@@ -123,4 +123,18 @@ n1_ci_log_infra 900; eq "H1 runner shutdown log -> infra" "0" "$?"
 n1_ci_log_infra 901; eq "H2 unavailable log -> not infra" "1" "$?"
 n1_ci_log_infra 'x;y'; eq "H3 non-numeric run id -> not infra" "1" "$?"
 
+# ---- wiring ----
+CF=skills/n1-ci/steps/02-fix.md
+S5_LN=$(grep -n '^## Step 5: Classify Failures' "$CF" | head -1 | cut -d: -f1)
+GT_LN=$(grep -nF 'n1_ci_rerun_gate "$M/overview.md"' "$CF" | head -1 | cut -d: -f1)
+CP_LN=$(grep -nF '<N1_ROOT>/skills/n1-start/procedures/stall-stop.md § CI' "$CF" | head -1 | cut -d: -f1)
+eq "W1 rerun gate sits after the Step 5 heading and before the stall check" "1" "$([ -n "$S5_LN" ] && [ -n "$GT_LN" ] && [ -n "$CP_LN" ] && [ "$S5_LN" -lt "$GT_LN" ] && [ "$GT_LN" -lt "$CP_LN" ] && echo 1 || echo 0)"
+eq "W2 rerun round leaves ci_fix_cycle alone, sleeps and returns to Step 3" "1" "$(grep -cE '^- `RERUN=rerun:<k>/3`: .*no `ci_fix_cycle` change.*`sleep 20`.*\*\*Step 3\*\*' "$CF")"
+eq "W3 dispatch continues to the stall check" "1" "$(grep -cE '^- `RERUN=dispatch`: continue with the stall check' "$CF")"
+eq "W4 CI Status records reruns" "1" "$(grep -cF -- '- **Reruns:** ' "$CF")"
+eq "W5 final report has the Reruns line" "1" "$(grep -c '^Reruns: ' "$CF")"
+eq "W6 stall-stop.md § CI notes the rerun gate runs first" "1" "$(awk '$0 == "## CI" {p=1; next} /^## /{p=0} p' skills/n1-start/procedures/stall-stop.md | grep -q 'rerun gate' && echo 1 || echo 0)"
+eq "W7 architecture.md documents the rerun keys" "1" "$(grep -q 'ci_rerun_sha.*ci_rerun_count.*ci_rerun_checks' references/architecture.md && echo 1 || echo 0)"
+eq "W8 CLAUDE.md lists lib/ci_rerun.sh" "1" "$(grep -q 'lib/ci_rerun\.sh' CLAUDE.md && echo 1 || echo 0)"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

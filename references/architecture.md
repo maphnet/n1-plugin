@@ -9,7 +9,7 @@ Skills are lightweight controllers that delegate all heavy work:
 | n1-start | product-analyst, solution-architect, planner, implementer, qa-engineer agents + n1-brainstorm, n1-plan | Full pipeline. Brainstorm step uses brainstormer agent when `BRAINSTORM_MODE` is `auto`; n1-brainstorm in interactive mode (interactive investigation runs in n1-refine). Implementation uses an implementer agent wrapping n1-implement. |
 | n1-review | code-reviewer, security-reviewer, developer agents | Review + fix loop |
 | n1-pr | tech-writer agent + inline git/gh/MCP | Doc update, push, create PR, update tracker |
-| n1-ci | developer agent + inline gh CLI | Post-PR CI watch, classify failures, fix loop |
+| n1-ci | developer agent + inline gh CLI | Post-PR CI watch, rerun flaky/infra failures (cap 3 per head SHA), classify failures, fix loop |
 | n1-finish | (inline: gh + tracker MCP) | Merge verify, deploy watch, ticket close, worktree cleanup |
 | n1-release | (inline: gh + git + tracker MCP) | Git tag, GitHub Release (or custom procedure), tracker comment |
 | n1-init | (inline: analysis + prompts) | Project setup wizard (v2: migration flow) |
@@ -355,6 +355,8 @@ The QA, local-testing and CI fix loops stop early when two consecutive failing r
 | CI | `ci_fail_sig` | Check names of all poll `FAIL` lines, cancelled included, passed through `ci-fail.tsv` |
 
 **Check point.** At the failing result, before the cap test and the developer spawn: the QA **FAIL** branch, the local-testing 9d entry, n1-ci Step 5 entry. `n1_stall_check` always stores the new signature and reports `stalled` only for a non-empty match. A stalled round runs no increment and no developer.
+
+**CI rerun gate (N1-341).** n1-ci Step 5 runs `n1_ci_rerun_gate` (`lib/ci_rerun.sh`) before the stall check. Failures whose check name contains `timeout`, `runner` or `infrastructure`, or whose failed-job log shows a runner, network or timeout failure and no assertion, are rerun with `gh run rerun <id> --failed`, all or nothing per batch, at most 3 checks per head SHA. State in overview.md beside `ci_fix_cycle`: `ci_rerun_sha`, `ci_rerun_count`, `ci_rerun_checks` (sha256 of rerun check names); a new head SHA resets them. A rerun round writes no `ci_fail_sig` and never changes `ci_fix_cycle`. A check that fails again after its rerun, a 4th flaky failure, a mixed batch or any `gh` error falls through to the stall check and the developer path. Standalone n1-ci (no overview.md) has no rerun gate.
 
 **Exits.** QA: § Autonomy Gate with step `qa`; auto-accept proceeds to review; otherwise a 3-option prompt with no recommended option, so the Headless Guard escalates as at the cap. Local testing: the existing cap exit (auto-accept skips local testing). CI: the Step 6b menu, unchanged; nothing auto-accepts. Standalone n1-ci (no overview.md) has no stall detection.
 

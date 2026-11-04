@@ -2,7 +2,21 @@
 
 ## Step 5: Classify Failures
 
-**Stall check (N1 runs only):** `<N1_ROOT>/skills/n1-start/procedures/stall-stop.md § CI` first; stalled → **Step 6b** with "stalled on the same failure", no classification, no developer.
+**Rerun gate (N1 runs only; skip when `$N1_HOME/memory/$ID/overview.md` does not exist):** write the `FAIL` lines of the latest poll verbatim to `$N1_HOME/memory/$ID/ci-fail.tsv` with the file-write mechanism (same file and rules as the stall check: omit checks whose name matches a `skip` category pattern; never put a check name in a shell command, variable or double-quoted string). `<ESC_ERE>` is the Step 2 patterns of categories whose behavior is `escalate`, joined with `|`; empty when there are none. Then:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/ci_rerun.sh"; M="$N1_HOME/memory/$ID"
+V=$(n1_ci_rerun_gate "$M/overview.md" "<PR#>" "$M/ci-fail.tsv" '<ESC_ERE>')
+case "$V" in rerun:*) rm -f "$M/ci-fail.tsv"; n1_ci_rerun_summary "$M/overview.md" ;; esac
+echo "RERUN=$V"
+```
+
+The helper reruns `infra` failures (check name contains `timeout`, `runner` or `infrastructure`, or the failed-job log shows a runner, network or timeout failure and no assertion) with `gh run rerun <run-id> --failed`, at most 3 checks per head SHA; a new push resets the count. It reads the logs itself and prints only the verdict.
+- `RERUN=dispatch`: continue with the stall check below (it reuses `ci-fail.tsv`) and Step 5 unchanged. A mixed batch, a 4th flaky failure at one SHA, a check that fails again after its rerun, or any `gh` error lands here.
+- `RERUN=rerun:<k>/3`: no stall check, no classification, no developer, no `ci_fix_cycle` change. Report the printed `reran <N> flaky check(s) (<k>/3)` line, run `sleep 20` as a standalone command (GitHub marks the rerun check pending before the next poll), then back to **Step 3** (in 01-monitor.md).
+
+**Stall check (N1 runs only):** `<N1_ROOT>/skills/n1-start/procedures/stall-stop.md § CI` next; stalled → **Step 6b** with "stalled on the same failure", no classification, no developer.
 
 Match each failed check `name` against category patterns (case-insensitive substring, first match wins). No match → `unknown`.
 
@@ -122,10 +136,12 @@ Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch →
 
 ### Update overview.md (if memory exists):
 Clear `ci_fail_sig` first (`stall-stop.md § Reset`, N1 runs only).
+`<RERUNS>` below is the output of `source ~/.n1/preamble.sh; source "$N1_ROOT/lib/ci_rerun.sh"; n1_ci_rerun_summary "$N1_HOME/memory/$ID/overview.md"` (empty in standalone runs).
 ```markdown
 ## CI Status
 - **Result:** PASS / FAIL (with N fix cycles)
 - **Fix cycles:** N
+- **Reruns:** <RERUNS, or none>
 - **Auto-fixed:** <checks>
 - **Escalated:** <checks>
 - **Still failing:** <checks>
@@ -136,6 +152,7 @@ Clear `ci_fail_sig` first (`stall-stop.md § Reset`, N1 runs only).
 CI Watch complete.
 Result: All checks passing (after N fix cycles) / Some checks still failing
 PR: <PR URL>
+Reruns: <RERUNS, e.g. reran 1 flaky check (1/3); omit this line when empty>
 Fixed:
 - <check>: <fix> (cycle N)
 Still failing:
