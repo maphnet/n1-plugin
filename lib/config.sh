@@ -739,18 +739,82 @@ n1_review_fix_audit() {
     # Usage: n1_review_fix_audit <overview.md> -> prints ok|breach; returns 1 on breach (N1-260).
     # Breach: review_fix_cycle above review.maxFixAttempts with fewer extension rows than cycles over the cap.
     # An extension row sits in `## Decision Ledger`: step fix, tag [asked] ([plan] = queue plan time), Question
-    # `review fix cap reached`, Chosen option 2 (`2` or `One more FAIL fix cycle`). Nothing else counts.
-    local max cur n=0 line in_l=0 re='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan)\] [|] review fix cap reached [|] (2|One more FAIL fix cycle) [|]'
+    # `review fix cap reached`, Chosen option 2 (`2` or `One more FAIL fix cycle`); or the [granted] row that
+    # n1_review_fix_grant writes (Chosen `auto extra round`), counted at most once per run (N1-345). Nothing else counts.
+    local max cur n g re='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan)\] [|] review fix cap reached [|] (2|One more FAIL fix cycle) [|]'
     max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]{1,9}$ ]] || max=1
     cur=$(n1_read_frontmatter "$1" review_fix_cycle); cur=${cur:-0}
     [[ "$cur" =~ ^[0-9]{1,9}$ ]] || { echo breach; return 1; }  # garbage or >9-digit counter (64-bit wrap) fails closed
     cur=$((10#$cur)); max=$((10#$max))  # decimal: 08/09 are not octal
     if [ "$cur" -le "$max" ]; then echo ok; return 0; fi
+    n=$(_n1_ledger_count "$1" "$re"); g=$(_n1_ledger_count "$1" "$_N1_FIX_GRANTED_RE"); [ "$g" -le 1 ] || g=1
+    if [ $((n + g)) -ge $((cur - max)) ]; then echo ok; else echo breach; return 1; fi
+}
+
+_N1_FIX_GRANTED_RE='^[|] fix [|] [^|]* [|] [^|]* [|] \[granted\] [|] review fix cap reached [|] auto extra round [|]'
+
+_n1_ledger_count() {
+    # Usage: _n1_ledger_count <overview.md> <ERE> -> count of `## Decision Ledger` lines matching <ERE>.
+    local line in_l=0 n=0
+    [ -r "$1" ] || { echo 0; return; }
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in '## Decision Ledger'*) in_l=1; continue ;; '## '*) in_l=0; continue ;; esac
-        if [ "$in_l" = 1 ] && [[ "$line" =~ $re ]]; then n=$((n + 1)); fi
+        if [ "$in_l" = 1 ] && [[ "$line" =~ $2 ]]; then n=$((n + 1)); fi
     done < "$1"
-    if [ "$n" -ge $((cur - max)) ]; then echo ok; else echo breach; return 1; fi
+    echo "$n"
+}
+
+n1_review_fix_grant() {
+    # Usage: n1_review_fix_grant <overview.md> <fingerprints.jsonl> <fix.diff> -> prints granted|deny:<reason>;
+    # returns 1 on deny (N1-345). Grants one automatic extra FAIL fix cycle at the cap, at most once per run:
+    # cur == max (D19), no cap extension row yet (D5), non-empty fix.diff, an eligible recorded finding in bucket cur
+    # (D17), no eligible fingerprint recurring from bucket cur-1 (D2), convergence holds (D4/D13; tie denies).
+    # On grant appends the fixed [granted] row to `## Decision Ledger` (no reviewer text). Any bad input denies.
+    # Needs lib/fingerprints.sh and n1_read_frontmatter.
+    local ov="$1" fpj="$2" diff="$3" max cur tmp
+    local ext='^[|] fix [|] [^|]* [|] [^|]* [|] \[(asked|plan|granted)\] [|] review fix cap reached [|]'
+    local row='| fix | quality | A | [granted] | review fix cap reached | auto extra round | ask the user | new High/SEC finding, blocking count dropped, fix changed code | --- |'
+    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]{1,9}$ ]] || max=1
+    cur=$(n1_read_frontmatter "$ov" review_fix_cycle); cur=${cur:-0}
+    [[ "$cur" =~ ^[0-9]{1,9}$ ]] || { echo deny:counter; return 1; }
+    cur=$((10#$cur)); max=$((10#$max))
+    { [ "$cur" -ge 1 ] && [ "$cur" -eq "$max" ]; } || { echo deny:not-at-cap; return 1; }
+    [ "$(_n1_ledger_count "$ov" "$ext")" -eq 0 ] || { echo deny:extended; return 1; }
+    [ -s "$diff" ] || { echo deny:empty-diff; return 1; }
+    if [ -s "$fpj" ] && command -v jq >/dev/null 2>&1; then jq -e . "$fpj" >/dev/null 2>&1 || { echo deny:fingerprints; return 1; }; fi
+    [ -n "$(_n1_fp_eligible_rows "$fpj" "$cur")" ] || { echo deny:no-eligible; return 1; }
+    if n1_fingerprint_recurred "$fpj" "$cur"; then echo deny:recurred; return 1; fi
+    n1_fingerprint_check_convergence "$fpj" "$cur" || { echo deny:non-converging; return 1; }
+    tmp=$(mktemp "${ov}.XXXXXX") || { echo deny:write; return 1; }
+    if awk -v row="$row" '
+        function emit() { if (!done) { print row; done = 1 } }
+        /^## / { if (inl && seen) emit(); inl = ($0 ~ /^## Decision Ledger/); seen = 0; print; next }
+        inl && /^\|/ { seen = 1; print; next }
+        inl && seen { emit(); inl = 0 }
+        { print }
+        END {
+            if (inl && seen) emit()
+            if (!done) {
+                print ""; print "## Decision Ledger"; print ""
+                print "| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |"
+                print "|------|----------|------|-----|----------|--------|--------------|--------|-------------|"
+                print row
+            }
+        }' "$ov" > "$tmp" && mv -f "$tmp" "$ov"; then
+        echo granted
+    else
+        rm -f "$tmp"; echo deny:write; return 1
+    fi
+}
+
+n1_review_fix_extra_round() {
+    # Usage: n1_review_fix_extra_round <overview.md> -> prints true|false (N1-345).
+    # true only in the one granted extra round: review_fix_cycle == maxFixAttempts+1 and exactly one [granted] row.
+    local max cur
+    max=$(n1_config_val '.review.maxFixAttempts'); [[ "$max" =~ ^[0-9]{1,9}$ ]] || max=1
+    cur=$(n1_read_frontmatter "$1" review_fix_cycle)
+    if [[ "$cur" =~ ^[0-9]{1,9}$ ]] && [ $((10#$cur)) -eq $((10#$max + 1)) ] \
+        && [ "$(_n1_ledger_count "$1" "$_N1_FIX_GRANTED_RE")" -eq 1 ]; then echo true; else echo false; fi
 }
 
 n1_escalation_val() {

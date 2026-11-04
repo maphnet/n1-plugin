@@ -107,4 +107,12 @@ eq "pr.md reads first-pass bucket 0" "1" "$(grep -c 'blocking_count_for_cycle "$
 eq "telemetry.md lists only emitted fields" "0" "$(grep -cE 'findings_total|execution_path|cross_repo_xrepo|cross_repo_runtime' skills/n1-start/procedures/telemetry.md)"
 eq "01-analyze.md states cycle starts at 0" "1" "$(grep -c 'CYCLE. is 0 on the first review pass' skills/n1-review/steps/01-analyze.md)"
 
+# N1-345: the extra-round filter reads Index lines as data, never as shell text.
+printf 'x.sh\n' > "$T/fixf"; printf -- '- [CR-1] High x.sh:1 — old\n' > "$T/prev.md"; : > "$T/oos.jsonl"
+printf -- '- [CR-7] High lib/z.sh:1 — %s\n' "$EVIL" > "$T/idx.md"
+OOS=$( cd "$T" && n1_fingerprint_filter_oos "$T/oos.jsonl" 2 "$T/fixf" "$T/prev.md" "$T/idx.md" )
+eq "filter: hostile Index title not executed" "absent absent" "$([ -e "$T/S1" ] && echo present || echo absent) $([ -e "$T/S2" ] && echo present || echo absent)"
+eq "filter: hostile line printed verbatim" "- [CR-7] High lib/z.sh:1 — $EVIL" "$OOS"
+eq "filter: hostile line removed from the index" "0" "$(grep -c 'CR-7' "$T/idx.md")"
+
 exit $FAIL

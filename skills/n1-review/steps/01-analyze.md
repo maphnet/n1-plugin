@@ -162,7 +162,7 @@ fi
 
 On `NON_CONVERGING` (blocking count for cycle N is not less than cycle N-1), escalate to the user rather than burning remaining cycles. Context: "Review findings are not converging."
 
-Maximum 2 review-fix cycles before escalating to user.
+Fix cycles are capped by `review.maxFixAttempts` (default 1); at the cap, escalate to the user. Only n1-start's fix step may add one automatic extra round (`references/architecture.md § Review Fix Cap`).
 
 **If no Critical or High confirmed findings (clean pass):**
 
