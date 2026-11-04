@@ -358,7 +358,7 @@ The QA, local-testing and CI fix loops stop early when two consecutive failing r
 
 **Exits.** QA: § Autonomy Gate with step `qa`; auto-accept proceeds to review; otherwise a 3-option prompt with no recommended option, so the Headless Guard escalates as at the cap. Local testing: the existing cap exit (auto-accept skips local testing). CI: the Step 6b menu, unchanged; nothing auto-accepts. Standalone n1-ci (no overview.md) has no stall detection.
 
-**Reset.** User-continue paths (QA option 2, local-testing 9d options 1 and 3, n1-ci Step 6b options 1 and 3), the n1-ci Step 7 run end and ticket-watch re-plans (`n1_tw_replan_reset`) write the key empty, so the next failing round cannot stall at once. A CI `NOT_BRANCH_CAUSED` round also clears `ci_fail_sig`: Step 5 stores the signature before classification, so clearing is how that round "does not update" it. A clear can delay a stall by one round, never cause one.
+**Reset.** User-continue paths (QA option 2, local-testing 9d options 1 and 3, n1-ci Step 5 `escalate` classification and Step 5b option 2, n1-ci Step 6b options 1 and 3), the n1-ci Step 7 run end and ticket-watch re-plans (`n1_tw_replan_reset`) write the key empty, so the next failing round cannot stall at once. A CI `NOT_BRANCH_CAUSED` round also clears `ci_fail_sig`: Step 5 stores the signature before classification, so clearing is how that round "does not update" it. A clear can delay a stall by one round, never cause one.
 
 
 ## Codex Review

@@ -61,7 +61,7 @@ NOT_BRANCH_CAUSED (Step 6, "After developer returns" item 2): run § Reset with 
 
 ## Reset
 
-Every user-continue path clears its loop's signature, so the next failing round stores a fresh one and cannot stall at once: QA option 2 (`qa_fail_sig`); local-testing 9d options 1 and 3 (`local_test_fail_sig`); n1-ci Step 6b options 1 and 3, the NOT_BRANCH_CAUSED branch and the n1-ci Step 7 run end (`ci_fail_sig`, N1 runs only; the run-end clear stops a later n1-ci run on the same PR from stalling on a previous run's failure). Ticket-watch re-plans clear all three keys in `n1_tw_replan_reset`.
+Every user-continue path clears its loop's signature, so the next failing round stores a fresh one and cannot stall at once: QA option 2 (`qa_fail_sig`); local-testing 9d options 1 and 3 (`local_test_fail_sig`); n1-ci Step 5 `escalate` classification and Step 5b option 2, Step 6b options 1 and 3, the NOT_BRANCH_CAUSED branch and the n1-ci Step 7 run end (`ci_fail_sig`, N1 runs only; the run-end clear stops a later n1-ci run on the same PR from stalling on a previous run's failure). Ticket-watch re-plans clear all three keys in `n1_tw_replan_reset`.
 
 ```bash
 source ~/.n1/preamble.sh

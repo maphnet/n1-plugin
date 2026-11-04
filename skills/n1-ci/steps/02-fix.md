@@ -8,7 +8,7 @@ Match each failed check `name` against category patterns (case-insensitive subst
 
 **Per-category behavior:**
 - `auto-fix` → developer agent
-- `escalate` → skip developer, ask user immediately
+- `escalate` → skip developer, ask user immediately; clear `ci_fail_sig` (`<N1_ROOT>/skills/n1-start/procedures/stall-stop.md § Reset`, N1 runs only)
 - `skip` → ignore
 - `unknown` → developer agent with confidence assessment (Step 5b)
 
@@ -24,6 +24,7 @@ After developer returns for `unknown` checks:
 - confidence >= `0.7` → accept fix
 - confidence < `0.7` → present to user with the one-line evidence and the report path:
   "1 — Accept fix / 2 — Provide guidance / 3 — Skip this check"
+  On option 2, clear `ci_fail_sig` (`stall-stop.md § Reset`, N1 runs only).
 
 ## Step 6: Fix Cycle
 
@@ -73,7 +74,7 @@ Report format:
 
 **After developer returns:**
 1. Handle `unknown` fixes below threshold (Step 5b flow)
-2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`; clear `ci_fail_sig` (`stall-stop.md § Reset`, N1 runs only). On "Abort", run **Step 7a** (Reconcile PR Body) before stopping — the developer may already have pushed fixes for other checks in this batch.
+2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with this sentence first, "No recommendation. The options are equivalent given the available evidence; select based on team preference.", then "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`; clear `ci_fail_sig` (`stall-stop.md § Reset`, N1 runs only). On "Abort", run **Step 7a** (Reconcile PR Body) before stopping — the developer may already have pushed fixes for other checks in this batch.
 3. Push if developer didn't: `git push`
 4. ```bash
    source ~/.n1/preamble.sh
@@ -86,6 +87,7 @@ Report format:
 ### Step 6b: Max Attempts Exhausted
 
 Present remaining failures and fix history, then offer:
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
 1. Provide guidance → spawn developer with guidance, increment `MAX_FIX` by 1 (hard ceiling: `6`), log extension, clear `ci_fail_sig` (`stall-stop.md § Reset`), back to Step 3
 2. Skip CI → Step 7 with failing status
 3. Fix manually → wait for "continue", back to Step 3 (reset counter), clear `ci_fail_sig` (`stall-stop.md § Reset`)
