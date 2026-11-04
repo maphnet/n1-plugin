@@ -176,6 +176,7 @@ eq "resumable: unreadable list (fail closed)" 1 "$(FAKE_WT=fail rc n1_orca_workt
 eq "resumable: two worktrees named T-1 (fail closed)" 1 "$(FAKE_WT=dup rc n1_orca_worktree_resumable T-1 "$RV")"
 eq "resumable: no worktree named T-1" 1 "$(FAKE_WT=none rc n1_orca_worktree_resumable T-1 "$RV")"
 eq "resumable: missing overview" 1 "$(FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$T/absent.md")"
+eq "resumable: realpath fails on both sides (fail closed)" 1 "$(realpath() { return 1; }; FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$RV")"
 printf -- '---\nstep: escalated\nworkspace_path: /elsewhere/T-1\n---\n' > "$RV"
 eq "resumable: workspace_path is another checkout" 1 "$(FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$RV")"
 printf -- '---\nstep: escalated\n---\n' > "$RV"

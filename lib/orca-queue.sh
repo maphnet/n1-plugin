@@ -193,7 +193,7 @@ n1_orca_worktree_resumable() {
     # named <ticket> (the identity loader keys on that folder name, which a reused worktree keeps). A missing overview,
     # an empty workspace_path, an unreadable list, zero or several matches, or a path mismatch: exit 1 (the caller
     # keeps orca-worktree-name-taken, fail closed).
-    local ws out wt
+    local ws out wt rwt rws
     [ -f "$2" ] || return 1
     ws=$(sed -n 's/^workspace_path: *//p' "$2" 2>/dev/null | head -1)
     [ -n "$ws" ] || return 1
@@ -201,7 +201,9 @@ n1_orca_worktree_resumable() {
     wt=$(jq -r --arg n "$1" 'if (.result.worktrees | type) == "array"
         then [.result.worktrees[] | .path | strings | select(split("/") | last == $n)] | if length == 1 then .[0] else empty end
         else empty end' <<<"$out" 2>/dev/null)
-    [ -n "$wt" ] && [ "$(realpath -m -- "$wt" 2>/dev/null)" = "$(realpath -m -- "$ws" 2>/dev/null)" ] || return 1
+    [ -n "$wt" ] || return 1
+    rwt=$(realpath -m -- "$wt" 2>/dev/null); rws=$(realpath -m -- "$ws" 2>/dev/null)
+    [ -n "$rwt" ] && [ "$rwt" = "$rws" ] || return 1   # empty realpath on both sides must not match
     printf '%s' "$wt"
 }
 
