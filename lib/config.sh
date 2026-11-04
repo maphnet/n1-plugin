@@ -411,6 +411,20 @@ n1_fullauto_enabled() {
     fi
 }
 
+n1_release_autorun_enabled() {
+    # N1-301. Prints true only when release.autoRun is the JSON boolean true (the string "true" is false;
+    # n1_config_val would print true for both). autoRun skips per-step "Run this?" prompts in custom
+    # release procedures and the missing-offer ask; it never skips the Step 3 confirmation gate.
+    local file out
+    file=$(n1_config_file)
+    if [ -f "$file" ] && command -v jq >/dev/null 2>&1 \
+        && out=$(jq -r '(.release? | objects | .autoRun) == true' "$file" 2>/dev/null) && [ "$out" = "true" ]; then
+        printf 'true'
+    else
+        printf 'false'
+    fi
+}
+
 n1_merge_authorized() {
     # N1-146. The one merge predicate for n1-finish and the merge-deny hook (mirrored in
     # hooks/enforce-agent-policy.py merge_authorized): mergeOnFinish true, and in an unattended
