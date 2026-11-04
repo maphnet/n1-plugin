@@ -31,6 +31,7 @@ case "$HR" in *[!A-Za-z0-9._/-]*) echo headref:invalid; exit 1;; esac
 case "$DB" in ""|-*|*[!A-Za-z0-9._/-]*) echo db:invalid; exit 1;; esac
 case "$LOCAL" in 0|1) ;; *) echo local:invalid; exit 1;; esac
 OV="$N1_HOME/memory/$ID/overview.md"
+RUN=$(jq -r '.runId // empty' "$(n1_active_run_file)" 2>/dev/null); [ "$RUN" = n1-finish ] && RUN=""   # real run id, read before the clear
 if [ -n "$ID" ] && [ -f "$OV" ]; then
   TMP=$(mktemp "$OV.XXXXXX")
   awk '/^## /{s=/^## (Finish|Pending)\r?$/} !s' "$OV" > "$TMP" && mv "$TMP" "$OV"
@@ -51,10 +52,10 @@ if [ ! -f "$(git rev-parse --show-toplevel)/.git" ]; then   # plain checkout (a 
   [ "$BR" = "$DB" ] || [ "$BR" != "$HR" ] || { git checkout "$DB" -- && { [ "$LOCAL" = 1 ] || git pull; } || echo checkout:failed; }
 fi
 [ -n "$HR" ] && [ "$BR" = "$HR" ] && n1_orca_sync "finish: merged" --status completed   # N1-224: best-effort; only this ticket's card (BR read before checkout)
-n1_clean_ticket "$ID" finish "$HR" "$OID" "$DB"   # N1-339: last action; also records the Cleanup line
+N1_RUN_ID="${N1_RUN_ID:-$RUN}" n1_clean_ticket "$ID" finish "$HR" "$OID" "$DB"   # N1-339: last action; also records the Cleanup line
 ```
 
-Tokens (from `n1_clean_ticket` in `lib/config.sh`; print them verbatim in the Report's `Cleanup:` line; it also writes them as `- **Cleanup:**` in overview `## Finish` and into `finish-report.md`): `worktree:removed | none | kept (<dirty|ignored files|unmerged|<manager>-unreachable|workspace_path <p> holds <ref>>) | remove-failed (<error>)` and `branch:deleted | none | kept (<not merged|checked out in <path>>)`. N1-managed worktrees (under `<main checkout>/$(n1_worktree_root)/`) are removed with `--force`; workspace-manager worktrees through it (ignored files do not block; `remove-failed` and an unreachable manager warn with the path, no git fallback); other external ones only when clean (ignored files count) and HEAD is in the merged PR head (`OID`, else the local default branch), never forced. The branch uses `git branch -d`, `-D` only when its tip equals `OID` (squash/rebase). `kept (unmerged)` with a PR may mean the `OID` lookup failed. `checkout:failed` → warn that the default branch could not be checked out or pulled (implies `branch:kept`). Kept external worktrees are the user's; `remove-failed` → warn and point at `/n1:n1-clean --ticket <ID>`. Add the block's `containers: ...` line to `Cleanup:` only when it is not `containers: none tracked`.
+Tokens (from `n1_clean_ticket` in `lib/config.sh`; print them verbatim in the Report's `Cleanup:` line; it also writes them as `- **Cleanup:**` in overview `## Finish` and into `finish-report.md`): `worktree:removed | none | kept (<dirty|ignored files|unmerged|<manager>-unreachable|workspace_path <p> holds <ref>>) | remove-failed (<error>)` and `branch:deleted | none | kept (<not merged|checked out in <path>>)`. N1-managed worktrees (under `<main checkout>/$(n1_worktree_root)/`) are force-removed here (finish only; `n1-clean` and the queue gate them); workspace-manager worktrees through it (ignored files do not block; `remove-failed` and an unreachable manager warn with the path, no git fallback); other external ones only when clean (ignored files count) and HEAD is in the merged PR head (`OID`, else the local default branch), never forced. The branch uses `git branch -d`, `-D` only when its tip equals `OID` (squash/rebase). `kept (unmerged)` with a PR may mean the `OID` lookup failed. `checkout:failed` → warn that the default branch could not be checked out or pulled (implies `branch:kept`). Kept external worktrees are the user's; `remove-failed` → warn and point at `/n1:n1-clean --ticket <ID>`. Add the block's `containers: ...` line to `Cleanup:` only when it is not `containers: none tracked`.
 
 ## Report (final message)
 

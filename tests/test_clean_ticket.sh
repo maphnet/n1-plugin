@@ -96,7 +96,21 @@ eq "K15: empty id finish" "worktree:none,branch:none" "$( (cd "$M" && n1_clean_t
 
 # n1-clean wiring (N1-339 D5).
 S="$R/skills/n1-clean/SKILL.md"
-eq "W1: n1-clean never forces removal" 0 "$(grep -c -- '--force' "$S")"
+# W1: non-finish triggers never force an N1-managed tree (dirty / unmerged stay kept); finish still forces.
+WR="$(n1_worktree_root)"; mkdir -p "$M/$WR"
+wt "$M/$WR/w1" bw1; git -C "$M" merge -q --no-ff -m mw1 bw1; echo x > "$M/$WR/w1/d"; ov K-70
+eq "W1: dirty merged N1 tree kept" "worktree:kept (dirty),branch:kept (checked out in $M/$WR/w1)" "$(ct K-70 "$(printf 'MERGED\tbw1\t%s\tmain' "$(rev bw1)")")"
+eq "W1: dir stays" yes "$(yn test -d "$M/$WR/w1")"
+wt "$M/$WR/w1b" bw1b; ov K-71
+eq "W1b: unmerged N1 tree kept" "worktree:kept (unmerged),branch:kept (checked out in $M/$WR/w1b)" "$(ct K-71 "$(printf 'MERGED\tbw1b\t%s\tmain' "$(rev main)")")"
+eq "W1b: dir stays" yes "$(yn test -d "$M/$WR/w1b")"
+wt "$M/$WR/w1c" bw1c; git -C "$M" merge -q --no-ff -m mw1c bw1c; echo x > "$M/$WR/w1c/d"
+eq "W1c: finish trigger still forces" "worktree:removed,branch:deleted" "$( (cd "$M" && n1_clean_ticket "" finish bw1c "$(rev bw1c)" main) | paste -sd, -)"
+# CR-2: a run id bound only for the call (as 06-cleanup.md does) carries the cleanup event from the finish trigger.
+wt "$M/$WR/w2" bw2; git -C "$M" merge -q --no-ff -m mw2 bw2; echo x > "$M/$WR/w2/d"; ov K-72
+(cd "$M" && N1_RUN_ID=run-w2 n1_clean_ticket K-72 finish bw2 "$(rev bw2)" main >/dev/null)
+eq "W2e: finish emits cleanup event" "cleanup|success" "$(jq -r '"\(.step)|\(.outcome)"' "$N1_HOME/memory/K-72/telemetry/raw/steps/run-w2.jsonl")"
+eq "W2e: skill binds run id" yes "$(yn grep -qF 'N1_RUN_ID="${N1_RUN_ID:-$RUN}" n1_clean_ticket' "$R/skills/n1-finish/steps/06-cleanup.md")"
 eq "W2: ticket mode calls n1_clean_ticket" yes "$(yn grep -qF 'n1_clean_ticket "$ID"' "$S")"
 eq "W3: --ticket mode documented" yes "$(yn grep -qF -- '--ticket <ID>' "$S")"
 eq "W4: discovery not limited to the N1 worktree root" 0 "$(grep -c 'n1_worktree_root' "$S")"
