@@ -219,6 +219,130 @@ EOF
     assert_eq "row_title: Ticket cell unchanged" "T-2" "$(plan_cell "$tmp/q.md" 2 3)"
     assert_eq "row_title: other cells of row 2 untouched" "1" "$(grep -cxF '| 2 | T-2 | evil titleninject174 | /r | /h | opus | pending | |' "$tmp/q.md")"
     assert_eq "row_title: row 1 untouched" "1" "$(grep -cxF '| 1 | T-1 | Fix A | /r | /h | sonnet | stn1 | reasonninject174 |' "$tmp/q.md")"
+    # N1-271: an empty reason leaves Reason alone; "clear" empties it (--retry), keeping the row's cell shape.
+    n1_queue_row_status "$tmp/q.md" "2" "failed" "boom"
+    n1_queue_row_status "$tmp/q.md" "2" "in-progress"
+    assert_eq "row_status: empty reason keeps Reason" "boom" "$(plan_cell "$tmp/q.md" 2 9)"
+    n1_queue_row_status "$tmp/q.md" "2" "pending" "" clear
+    assert_eq "row_status: clear empties Reason" "1" "$(grep -cxF '| 2 | T-2 | evil titleninject174 | /r | /h | opus | pending | |' "$tmp/q.md")"
+}
+
+# N1-271: --retry resets exactly one failed/escalated row. Bugs caught: other rows rewritten; a pr/skip row reset;
+# the old Reason kept; a reset while the runner is live; a halted/done queue --run cannot resume; stale markers or
+# identity of the previous attempt leaking into the relaunch; another ticket's markers removed.
+test_queue_retry() {
+    local tmp q h out rc pid _wf; source "$REPO_ROOT/lib/orca-queue.sh"   # before the RETURN trap: sourcing fires it
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q="$tmp/queue/q1/queue.md"; h="$tmp/h"; mkdir -p "${q%/*}" "$h/queue/sentinels"
+    cat > "$q" <<EOF
+---
+queue_id: q1
+run_id: R1
+step: halted
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | Fix A | /r | $h | sonnet | pr | |
+| 2 | T-2 | Fix B | /r | $h | opus | failed | orca-worktree-name-taken |
+| 3 | T-3 | Fix C | /r | $h | opus | escalated | review fix cap |
+| 4 | T-4 | Fix D | /r | $h | opus | skip | excluded |
+EOF
+    cp "$q" "$tmp/orig.md"
+    _same() { cmp -s "$q" "$tmp/orig.md" && echo same || echo changed; }
+    rc=0; HOME="$tmp" n1_queue_retry "$q" 'T-1;rm' 2>/dev/null || rc=$?
+    assert_eq "retry: invalid id refused" "1|same" "$rc|$(_same)"
+    rc=0; out=$(HOME="$tmp" n1_queue_retry "$q" T-1 2>&1) || rc=$?
+    assert_eq "retry: pr row refused, status named" "1|yes|same" "$rc|$(grep -qF 'T-1 is pr' <<< "$out" && echo yes || echo no)|$(_same)"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-4 2>/dev/null || rc=$?
+    assert_eq "retry: skip row refused" "1|same" "$rc|$(_same)"
+    rc=0; out=$(HOME="$tmp" n1_queue_retry "$q" T-9 2>&1) || rc=$?
+    assert_eq "retry: no row refused" "1|yes|same" "$rc|$(grep -qF 'no row for T-9' <<< "$out" && echo yes || echo no)|$(_same)"
+    # A live runner of this queue (cmdline carries scripts/n1-queue-run.sh <queue.md>) is refused.
+    bash -c 'sleep 30; :' "$REPO_ROOT/scripts/n1-queue-run.sh" "$q" & pid=$!
+    n1_write_frontmatter "$q" pid "$pid"; cp "$q" "$tmp/orig.md"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-2 2>/dev/null || rc=$?
+    assert_eq "retry: live runner refused" "1|same" "$rc|$(_same)"
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true
+    # Success: markers and identity of T-2 go, T-3's stay; the halted queue goes to step: run.
+    : > "${q%/*}/.launch-2"; : > "${q%/*}/.esc-reason-T-2"; : > "${q%/*}/.ask-T-2"; : > "${q%/*}/.escalated-T-2"
+    : > "${q%/*}/.question-T-2.json"; : > "${q%/*}/.ask-T-3"
+    # An identity needs a task and a readable worker list showing no live worker for it (stubbed here as empty).
+    n1_write_frontmatter "$q" orca_run_id run-1
+    n1_orca_liveness() { :; }
+    printf 'N1_ORCA_TASK=task-2\n' > "$h/queue/sentinels/T-2.env"; printf 'N1_ORCA_TASK=task-3\n' > "$h/queue/sentinels/T-3.env"
+    out=$(HOME="$tmp" n1_queue_retry "$q" T-2)
+    assert_eq "retry: prints the resume command" "Retry queued: /n1:n1-queue --run q1" "$out"
+    assert_eq "retry: row pending, Reason cleared" "pending|" "$(plan_cell "$q" 2 8)|$(plan_cell "$q" 2 9)"
+    assert_eq "retry: other rows unchanged" "3" "$(grep -cxF -e "| 1 | T-1 | Fix A | /r | $h | sonnet | pr | |" \
+        -e "| 3 | T-3 | Fix C | /r | $h | opus | escalated | review fix cap |" -e "| 4 | T-4 | Fix D | /r | $h | opus | skip | excluded |" "$q")"
+    assert_eq "retry: halted queue set to step run" "run" "$(n1_read_frontmatter "$q" step)"
+    assert_eq "retry: run_id not rotated" "R1" "$(n1_read_frontmatter "$q" run_id)"
+    assert_eq "retry: previous attempt's markers removed" "0" \
+        "$(ls -A "${q%/*}" | grep -cE '^\.(launch-2|esc-reason-T-2|ask-T-2|escalated-T-2|question-T-2\.json)$' || true)"
+    assert_eq "retry: another ticket's marker kept" "yes" "$([ -e "${q%/*}/.ask-T-3" ] && echo yes || echo no)"
+    assert_eq "retry: identity dropped, other identity kept" "no|yes" \
+        "$([ -e "$h/queue/sentinels/T-2.env" ] && echo yes || echo no)|$([ -e "$h/queue/sentinels/T-3.env" ] && echo yes || echo no)"
+    # Interrupted run (step run, runner dead): accepted; step stays run.
+    out=$(HOME="$tmp" n1_queue_retry "$q" T-3)
+    assert_eq "retry: interrupted run accepted" "pending|run" "$(plan_cell "$q" 3 8)|$(n1_read_frontmatter "$q" step)"
+    # A planned queue keeps step planned.
+    n1_write_frontmatter "$q" step planned; n1_queue_row_status "$q" 1 failed "boom"
+    HOME="$tmp" n1_queue_retry "$q" T-1 > /dev/null
+    assert_eq "retry: planned queue stays planned" "pending|planned" "$(plan_cell "$q" 1 8)|$(n1_read_frontmatter "$q" step)"
+    # SEC-1: the identity file decides whether a worker may be live, not the Runs row. Retry must refuse (changing
+    # nothing: row, identity, session pins) while a listed worker of the identity's task is not exited/done, on an
+    # unreadable worker list, and on an identity without a task; a readable list with no such worker retries.
+    # T-5 started worker, failed row; T-6 worker-start timeout (Runs Session empty, scripts/n1-queue-run.sh);
+    # T-7 identity names another task than the Runs row; T-8 identity without a task.
+    printf '| %s | T-%s | Fix | /r | %s | opus | failed | %s |\n' 5 5 "$h" worker-failed-after-start 6 6 "$h" worker-start-timeout \
+        7 7 "$h" relaunch-start-failed 8 8 "$h" identity-without-task > "$tmp/plan5"
+    sed -i "/^| 4 | T-4/r $tmp/plan5" "$q"
+    printf '\n## Runs\n| Started | Ticket | Title | Branch | Outcome | Session |\n|---|---|---|---|---|---|\n| s | T-5 | Fix | b | failed | orca:task-5/d-5 |\n| s | T-6 | Fix | b | failed | |\n| s | T-7 | Fix | b | failed | orca:task-old/d-7 |\n' >> "$q"
+    mkdir -p "$h/queue/sessions"
+    local n; for n in 5 6 7 8; do : > "$h/queue/sessions/T-$n.pin"; done
+    printf 'N1_ORCA_TASK=task-5\n' > "$h/queue/sentinels/T-5.env"; printf 'N1_ORCA_TASK=task-6\n' > "$h/queue/sentinels/T-6.env"
+    printf 'N1_ORCA_TASK=task-new-7\n' > "$h/queue/sentinels/T-7.env"; printf 'N1_ORCA_RUN=run-1\n' > "$h/queue/sentinels/T-8.env"
+    cp "$q" "$tmp/orig.md"
+    _kept() { [ -e "$h/queue/sentinels/T-$1.env" ] && echo yes || echo no; [ -e "$h/queue/sessions/T-$1.pin" ] && echo yes || echo no; }
+    n1_orca_liveness() { printf 'd-5\ttask-5\tlive\t\nd-6\ttask-6\tlive\t\nd-7\ttask-new-7\tlive\t\n'; }
+    rc=0; out=$(HOME="$tmp" n1_queue_retry "$q" T-5 2>&1) || rc=$?
+    assert_eq "retry: started live worker refused, nothing changed" "1|yes|same|yes yes" "$rc|$(grep -qF 'may still be running' <<< "$out" && echo yes || echo no)|$(_same)|$(_kept 5 | paste -sd' ')"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-6 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: worker-start timeout (empty Session) with live worker refused, identity and pins kept" "1|same|yes yes" "$rc|$(_same)|$(_kept 6 | paste -sd' ')"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-7 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: identity naming another task than the Runs row, worker live, refused" "1|same|yes yes" "$rc|$(_same)|$(_kept 7 | paste -sd' ')"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-8 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: identity without a task refused" "1|same|yes yes" "$rc|$(_same)|$(_kept 8 | paste -sd' ')"
+    n1_orca_liveness() { return 1; }
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-6 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: unreadable worker list refused, identity kept" "1|same|yes yes" "$rc|$(_same)|$(_kept 6 | paste -sd' ')"
+    n1_orca_liveness() { printf 'd-5\ttask-5\texited\t\nd-6\ttask-6\tlive\tdone\n'; }
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-5 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: exited worker retried, identity and pins dropped" "0|pending|no no" "$rc|$(plan_cell "$q" 5 8)|$(_kept 5 | paste -sd' ')"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-6 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: done worker (empty Session row) retried" "0|pending|no no" "$rc|$(plan_cell "$q" 6 8)|$(_kept 6 | paste -sd' ')"
+    n1_orca_liveness() { :; }
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-7 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: readable list with no worker for the task retried" "0|pending|no no" "$rc|$(plan_cell "$q" 7 8)|$(_kept 7 | paste -sd' ')"
+    # A failed step write changes nothing, and a second retry works once the file is writable again.
+    printf '| %s | T-%s | Fix | /r | %s | opus | failed | x |\n' 9 9 "$h" >> "$tmp/plan9"
+    sed -i "/^| 8 | T-8/r $tmp/plan9" "$q"
+    printf 'N1_ORCA_TASK=task-9\nN1_ORCA_RUN=run-1\n' > "$h/queue/sentinels/T-9.env"; : > "${q%/*}/.ask-T-9"
+    sed -i 's/^step: .*/step: halted/' "$q"; n1_orca_liveness() { :; }
+    _wf=$(declare -f n1_write_frontmatter); n1_write_frontmatter() { return 1; }
+    cp "$q" "$tmp/orig.md"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-9 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: failed step write leaves row, marker and identity intact" "1|same|yes|yes" \
+        "$rc|$(_same)|$([ -e "${q%/*}/.ask-T-9" ] && echo yes || echo no)|$([ -e "$h/queue/sentinels/T-9.env" ] && echo yes || echo no)"
+    eval "$_wf"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-9 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: second retry after the failed write succeeds" "0|pending|no" \
+        "$rc|$(plan_cell "$q" 9 8)|$([ -e "$h/queue/sentinels/T-9.env" ] && echo yes || echo no)"
+    unset -f n1_orca_liveness; source "$REPO_ROOT/lib/orca-queue.sh"   # restore the real helper
+    # Missing queue file.
+    rc=0; out=$(HOME="$tmp" n1_queue_retry "" T-1 2>&1) || rc=$?
+    assert_eq "retry: no queue" "1|No queue runs found." "$rc|$out"
 }
 
 # --- run.md § Write plan cell-fill snippet (NP-203): free text with quotes via cells.tsv ---
@@ -1260,6 +1384,23 @@ test_brief_wiring() {
     assert_eq "brief: a missing captured title keeps the candidate (N1-326 D8)" "yes" "$(_hasF 'echo MISSING' "$s/steps/intake.md")"
 }
 
+# N1-271: --retry is routed, documented and wired to the helper; a resumed escalated child re-asks.
+test_retry_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "retry-wiring: argument-hint offers --retry" "yes" "$(grep -q '^argument-hint:.*\[--retry <ticket>\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "retry-wiring: description usage offers --retry" "yes" "$(grep -q '^description:.*\[--retry <ticket>\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "retry-wiring: Input parses --retry" "yes" "$(_hasF '--retry <ticket> (reset a failed or escalated row to pending' "$s/SKILL.md")"
+    assert_eq "retry-wiring: step 1 routes --retry" "yes" "$(_hasF 'If `--retry`: read and follow `<N1_ROOT>/skills/n1-queue/steps/retry.md`. **STOP.**' "$s/SKILL.md")"
+    assert_eq "retry-wiring: step calls the helper" "yes" "$(_hasF 'n1_queue_retry "$QUEUE_FILE" "$RETRY_TICKET"' "$s/steps/retry.md")"
+    assert_eq "retry-wiring: step validates the ticket id first" "yes" "$(_hasF '^[A-Za-z][A-Za-z0-9_]*-[0-9]+$' "$s/steps/retry.md")"
+    assert_eq "retry-wiring: resumed escalated child re-asks" "yes" "$(_hasF 'N1_ORCA_RESUME=1' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
+    assert_eq "retry-wiring: resume re-asks only the last escalation" "yes" "$(_hasF 'last `## Escalations` item' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
+    assert_eq "retry-wiring: resume makes the step reset the first overview.md write" "yes" "$(_hasF 'The step reset is the first overview.md write' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
+    assert_eq "retry-wiring: resume never resets to a runner-terminal step" "yes" "$(_hasF 'If that step is `pr`, `ci` or `done` (terminal for the queue runner poll' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
+    assert_eq "retry-wiring: architecture documents the resumable exception" "yes" "$(_hasF 'n1_orca_worktree_resumable' "$REPO_ROOT/references/architecture.md")"
+}
+
 
 # N1-61: placeholder titles and form-dump descriptions are repaired at intake.
 test_form_repair_wiring() {
@@ -1686,6 +1827,7 @@ test_held_helpers
 test_held_user_merge
 test_sync_default
 test_row_status
+test_queue_retry
 test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
@@ -1694,6 +1836,7 @@ test_refined_intake_check
 test_title_vague
 test_desc_chain_wiring
 test_brief_wiring
+test_retry_wiring
 test_form_repair_wiring
 test_overlap_order
 test_schedule_helpers

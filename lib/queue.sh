@@ -242,22 +242,25 @@ _n1_queue_sanitize_cell() {
 }
 
 n1_queue_row_status() {
-    # Usage: n1_queue_row_status <queue.md> <row-number> <status> [reason]
+    # Usage: n1_queue_row_status <queue.md> <row-number> <status> [reason] [clear]
     # Rewrites the Status (and optionally Reason) cell of the Plan table row
     # whose first cell equals <row-number>. Cells are sanitized (NP-203 SEC-2).
+    # An empty reason leaves Reason unchanged unless the 5th arg is "clear" (N1-271: --retry empties it).
     # Row shape: | # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
     # Sanitized values are passed via ENVIRON[], never awk -v (NP-203 SEC-3): -v assignments
     # undergo string-constant escape processing, so a sanitized value containing a literal
     # `\n` or `\174` would still re-expand into a real newline/`|` inside awk.
-    local file="$1" row_num="$2" status reason
+    local file="$1" row_num="$2" status reason clr=""
     status=$(_n1_queue_sanitize_cell "$3")
     reason=$(_n1_queue_sanitize_cell "${4:-}")
+    [ "${5:-}" = clear ] && clr=1
     local tmp; tmp=$(mktemp "${file}.XXXXXX")
-    num="$row_num" st="$status" rsn="$reason" awk 'BEGIN { FS="|"; OFS="|"; num=ENVIRON["num"]; st=ENVIRON["st"]; rsn=ENVIRON["rsn"] } {
+    num="$row_num" st="$status" rsn="$reason" clr="$clr" awk 'BEGIN { FS="|"; OFS="|"; num=ENVIRON["num"]; st=ENVIRON["st"]; rsn=ENVIRON["rsn"]; clr=ENVIRON["clr"] } {
         f2 = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", f2)
         if (f2 == num && NF >= 9) {
             $8 = " " st " "
             if (rsn != "") $9 = " " rsn " "
+            else if (clr != "") $9 = " "
         }
         print
     }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
@@ -1027,6 +1030,43 @@ n1_queue_interrupted() {
     # runner is gone (killed with the launching session, crashed, or host restart).
     [ -f "$1" ] && [ "$(n1_read_frontmatter "$1" step)" = run ] || return 1
     ! n1_queue_runner_alive "$(n1_read_frontmatter "$1" pid)" "$1"
+}
+
+n1_queue_retry() {
+    # Usage: n1_queue_retry <queue.md> <ticket> — N1-271 (n1-queue --retry): reset the ticket's last Plan row from
+    # failed/escalated to pending (Reason cleared) in a planned, halted, done or interrupted queue; drop the previous
+    # attempt's markers and Orca identity (the next launch writes a fresh one); set a halted/done queue to step: run so
+    # `--run <id>` resumes it through the interrupted-run path under the same run_id. Never starts the runner.
+    # Refuses (stderr, exit 1, nothing changed): invalid ticket id, no queue, live runner, another step, no row, or
+    # a row in another status.
+    local q="$1" t="$2" dir step row num st n1h task
+    [[ "$t" =~ ^[A-Za-z][A-Za-z0-9_]*-[0-9]+$ ]] || { echo "n1-queue: invalid ticket id: $t" >&2; return 1; }
+    [ -n "$q" ] && [ -f "$q" ] || { echo "No queue runs found." >&2; return 1; }
+    dir=$(dirname -- "$q")
+    if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
+        echo "n1-queue: queue $(n1_read_frontmatter "$q" queue_id) is running; retry once it ends" >&2; return 1
+    fi
+    step=$(n1_read_frontmatter "$q" step)
+    case "$step" in planned|halted|done|run) ;; *) echo "n1-queue: queue step '${step:-none}' cannot be retried" >&2; return 1 ;; esac
+    row=$(n1_queue_pending_rows "$q" '.*' | awk -F'\t' -v t="$t" '$2 == t { r = $0 } END { print r }')
+    [ -n "$row" ] || { echo "n1-queue: no row for $t" >&2; return 1; }
+    IFS=$'\t' read -r num _ _ n1h _ st <<< "$row"
+    case "$st" in failed|escalated) ;; *) echo "n1-queue: $t is ${st:-empty}, not failed or escalated" >&2; return 1 ;; esac
+    declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
+    # SEC-1: the identity file, not the Runs row, says whether a worker may be live (launch keeps it on a worker-start
+    # timeout, with an empty Runs Session). Retry drops that identity and its session pins, so refuse unless a readable
+    # worker list shows no worker for its task still running (none listed = never started, as the runner decides).
+    # An unreadable list, or an identity without task or run, refuses too (fail closed).
+    task=$(n1_orca_identity_guard "$n1h" "$t" "$(n1_read_frontmatter "$q" orca_run_id)") || {
+        echo "n1-queue: $t's previous worker may still be running; stop it first (/n1:n1-queue --stop)" >&2; return 1
+    }
+    # Flip the step first so a failed write changes nothing; restore it if the row reset then fails.
+    case "$step" in halted|done) n1_write_frontmatter "$q" step run || { echo "n1-queue: could not set step run on $q" >&2; return 1; } ;; esac
+    n1_queue_row_status "$q" "$num" pending "" clear || { n1_write_frontmatter "$q" step "$step" || true; return 1; }
+    rm -f "$dir/.launch-$num" "$dir/.esc-reason-$t" "$dir/.ask-$t" "$dir/.escalated-$t" "$dir/.question-$t.json" \
+        || { echo "n1-queue: could not clear retry markers in $dir" >&2; return 1; }
+    [ -z "$n1h" ] || n1_orca_sentinel_rm "$n1h" "$t" "$task" || { echo "n1-queue: could not remove $t's Orca identity" >&2; return 1; }
+    echo "Retry queued: /n1:n1-queue --run $(n1_read_frontmatter "$q" queue_id)"
 }
 
 n1_queue_claim() {

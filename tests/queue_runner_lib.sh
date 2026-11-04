@@ -166,7 +166,7 @@ line_of() { grep -n -F -- "$2" "$1" | head -1 | cut -d: -f1; }
 # --- N1-225: Orca orchestration backend ---------------------------------------
 # mk_orca <tmp> — fake Orca CLI <tmp>/bin/fake-orca on top of mk_bg's fakes; argv log in $FAKE_DIR/orca-calls.
 # worker-start copies the ticket's sentinel to $FAKE_DIR/sentinel.<t> and writes the child's overview at once
-# ($FAKE_DIR/overview.<t> if present, else step from $FAKE_DIR/step.<t>, default pr). check reports worker_done once per started task unless
+# (none when $FAKE_DIR/keepov.<t> exists; else $FAKE_DIR/overview.<t> if present, else step from $FAKE_DIR/step.<t>, default pr). check reports worker_done once per started task unless
 # $FAKE_DIR/nodone.<t> exists, plus $FAKE_DIR/question (one message JSON) once any task has started, plus
 # $FAKE_DIR/heartbeat (one message JSON) on every check once any task has started. $FAKE_DIR/at.<n> runs on the n-th check.
 # N1-270: each call also logs "<verb> <sub> <ORCA_TERMINAL_HANDLE>" to $FAKE_DIR/orca-handles; terminal create returns the
@@ -197,7 +197,8 @@ case "$1 $2" in
       cp "$FAKE_N1H/queue/sentinels/$t.env" "$D/sentinel.$t" 2>/dev/null
       echo "$task" >> "$D/started"
       mkdir -p "$FAKE_N1H/memory/$t"
-      if [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
+      if [ -f "$D/keepov.$t" ]; then :   # N1-271: a resumed worker leaves the existing memory alone at start
+      elif [ -f "$D/overview.$t" ]; then cp "$D/overview.$t" "$FAKE_N1H/memory/$t/overview.md"
       else printf -- '---\nstep: %s\n---\n## Pending\npr_url: https://x/pr/%s\n' "$(cat "$D/step.$t" 2>/dev/null || echo pr)" "$t" > "$FAKE_N1H/memory/$t/overview.md"; fi
       ok "{\"dispatch\":{\"id\":\"d-$t\"}}" ;;
   "orchestration check")

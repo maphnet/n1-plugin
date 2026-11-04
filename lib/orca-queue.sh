@@ -73,11 +73,14 @@ n1_orca_task_create() {
 }
 
 n1_orca_worker_start() {
-    # Usage: n1_orca_worker_start <run> <task> <ticket> <repo> <model> — prints the dispatch id (exit 0), else
-    # "orca-launch:<failedStage>" (exit 1). A launch rejected for its model is retried once without --model (row
-    # models are aliases; Orca takes opaque provider ids). Any other failure is final: Orca forbids blind relaunch.
+    # Usage: n1_orca_worker_start <run> <task> <ticket> <repo> <model> [existing-worktree] — prints the dispatch id
+    # (exit 0), else "orca-launch:<failedStage>" (exit 1). A launch rejected for its model is retried once without
+    # --model (row models are aliases; Orca takes opaque provider ids). Any other failure is final: Orca forbids blind
+    # relaunch. N1-271: with an existing worktree (n1_orca_worktree_resumable) the worker starts there
+    # (--worktree path:<abs>, no --name: nothing new is created, so Orca has nothing to rename).
     local model="${5:-}" out id why rc
     local a=(orchestration worker-start --run "$1" --task "$2" --worktree new-top-level --name "$3" --repo "path:$4" --agent claude)
+    [ -z "${6:-}" ] || a=(orchestration worker-start --run "$1" --task "$2" --worktree "path:$6" --repo "path:$4" --agent claude)
     out=$(N1_ORCA_TIMEOUT=180 n1_orca "${a[@]}" ${model:+--model "$model"}); rc=$?
     if [ "$rc" -ne 0 ] && [ -n "$model" ] && jq -r '.error.message // empty' <<<"$out" 2>/dev/null | grep -qi model; then
         echo "n1-queue: worker-start rejected model '$model' for $3; retrying without --model" >&2
@@ -184,6 +187,28 @@ n1_orca_worktree_taken() {
     [ $? -ne 1 ]
 }
 
+n1_orca_worktree_resumable() {
+    # Usage: n1_orca_worktree_resumable <ticket> <overview.md> <repo> — N1-271: prints the path of the ticket's existing Orca
+    # worktree (exit 0) only when overview.md's workspace_path is that worktree and exactly one Orca worktree folder is
+    # named <ticket> (the identity loader keys on that folder name, which a reused worktree keeps). A missing overview,
+    # an empty workspace_path, an unreadable list, zero or several matches, a path mismatch, or a worktree whose git
+    # common dir is not <repo>'s (SEC-2): exit 1 (the caller
+    # keeps orca-worktree-name-taken, fail closed).
+    local ws out wt rwt rws
+    [ -f "$2" ] || return 1
+    ws=$(n1_read_frontmatter "$2" workspace_path)
+    [ -n "$ws" ] || return 1
+    out=$(N1_ORCA_TIMEOUT=30 n1_orca worktree list) || return 1
+    wt=$(jq -r --arg n "$1" 'if (.result.worktrees | type) == "array"
+        then [.result.worktrees[] | .path | strings | select(split("/") | last == $n)] | if length == 1 then .[0] else empty end
+        else empty end' <<<"$out" 2>/dev/null)
+    [ -n "$wt" ] || return 1
+    rwt=$(realpath -m -- "$wt" 2>/dev/null); rws=$(realpath -m -- "$ws" 2>/dev/null)
+    [ -n "$rwt" ] && [ "$rwt" = "$rws" ] || return 1   # empty realpath on both sides must not match
+    rwt=$(_n1_orca_common "$wt"); [ -n "$rwt" ] && [ -n "${3:-}" ] && [ "$rwt" = "$(_n1_orca_common "${3:-}")" ] || return 1   # same repo as the row
+    printf '%s' "$wt"
+}
+
 n1_orca_usage_stalled() {
     # Usage: n1_orca_usage_stalled <ticket> — N1-267: true while the ticket's Orca worker waits on the Claude usage limit:
     # in the newest transcript of its worktree (Orca folder name == ticket), the last "Usage limit reached" system notice
@@ -209,12 +234,26 @@ n1_orca_usage_stalled() {
 # worker-start has no env flag, so an Orca child would run as an interactive session (merge guard off, a question
 # TUI nobody answers). The runner writes $N1_HOME/queue/sentinels/<ticket>.env before worker-start; SessionStart
 # persists it for Bash commands via CLAUDE_ENV_FILE and every hook loads it into its own process.
-N1_ORCA_SENTINEL_KEYS="N1_HEADLESS N1_AUTONOMY_PRESET N1_UNATTENDED N1_QUEUE_RUN_ID N1_QUEUE_TAG N1_QUEUE_DIR N1_PARENT_SESSION_ID N1_ORCA_REPO N1_ORCA_RUN N1_ORCA_TASK N1_ORCA_DISPATCH"
+N1_ORCA_SENTINEL_KEYS="N1_HEADLESS N1_AUTONOMY_PRESET N1_UNATTENDED N1_QUEUE_RUN_ID N1_QUEUE_TAG N1_QUEUE_DIR N1_PARENT_SESSION_ID N1_ORCA_REPO N1_ORCA_RUN N1_ORCA_TASK N1_ORCA_DISPATCH N1_ORCA_RESUME"
 
 n1_orca_sentinel_path() { printf '%s/queue/sentinels/%s.env' "$1" "$2"; }   # <n1-home> <ticket>
 # <ticket> — fixed, git-independent pointer to the ticket's N1 home: the loader never resolves the home through git
 # config, which a child can change (git remote set-url). ponytail: keyed by ticket only; ticket ids carry a project prefix.
 n1_orca_home_ptr() { printf '%s/.n1/orca-home/%s' "$HOME" "$1"; }
+
+n1_orca_identity_guard() {
+    # Usage: n1_orca_identity_guard <n1-home> <ticket> [fallback-run] — N1-271: the identity file says whether a worker
+    # may be live. Prints its task (empty when no identity file). Non-zero (fail closed) when the identity lacks task or
+    # run, the worker list is unreadable, or a listed worker for the task is neither exited nor done.
+    local idf task run L
+    idf=$(n1_orca_sentinel_path "$1" "$2")
+    [ -n "$1" ] && [ -e "$idf" ] || return 0
+    task=$(_n1_orca_sget "$idf" N1_ORCA_TASK); run=$(_n1_orca_sget "$idf" N1_ORCA_RUN)
+    [ -n "$run" ] || run="$3"
+    [ -n "$task" ] && [ -n "$run" ] && L=$(n1_orca_liveness "$run" 2>/dev/null) || return 1
+    ! awk -F'\t' -v k="$task" '$2 == k && $3 != "exited" && $4 != "done" { f = 1 } END { exit !f }' <<< "$L" || return 1
+    printf '%s' "$task"
+}
 
 n1_orca_sentinel_write() {
     # Usage: n1_orca_sentinel_write <n1-home> <ticket> <repo> <queue-run-id> <orca-run> <task>
@@ -362,6 +401,9 @@ n1_orca_worker_done() {
     local sent="${N1_ORCA_SENTINEL%.env}.sent" ov st url oc=failed a home="${N1_ORCA_SENTINEL%/queue/sentinels/*}"
     [ "$(cat "$sent" 2>/dev/null)" = "$N1_ORCA_DISPATCH" ] && return 0
     ov="$home/memory/$N1_ORCA_TICKET/overview.md"
+    # N1-271: a resumed worktree's overview keeps the previous attempt's terminal step until this worker rewrites it
+    # (the runner wrote the identity file just before worker-start). ponytail: mtime order, not a run stamp.
+    [ -z "${N1_ORCA_RESUME:-}" ] || [ "$ov" -nt "$N1_ORCA_SENTINEL" ] || return 0
     st=$(n1_queue_child_status "$ov" 0 1)
     case "$st" in
         escalated) ;;
