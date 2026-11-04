@@ -1022,6 +1022,9 @@ n1_finish_cleanup() {
 _n1_clean_record() {
     local id="$1" trig="$2" toks="$3" path="$4" mode="$5" mem ov rep tmp outcome wt br reason
     mem="$(n1_home)/memory/$id"; ov="$mem/overview.md"; rep="$mem/finish-report.md"
+    # A no-op re-run never overwrites an earlier real record (overview line, or a non-pending report line).
+    if [ "$toks" = "worktree:none, branch:none" ] && { grep -q '^- \*\*Cleanup:\*\*' "$ov" 2>/dev/null \
+        || grep '^Cleanup:' "$rep" 2>/dev/null | grep -qv '<pending>'; }; then return 0; fi
     case "$toks" in *remove-failed*) outcome=failed ;; worktree:kept*|cleanup:skipped*) outcome=skipped ;; *) outcome=success ;; esac
     if [ -f "$ov" ] && [ "${toks#cleanup:skipped}" = "$toks" ] && tmp=$(mktemp "$ov.XXXXXX"); then
         L="- **Cleanup:** $toks${path:+ ($path)}" awk '/^## /{s = /^## Finish\r?$/} s && /^- \*\*Cleanup:\*\*/{next} {print}
@@ -1076,8 +1079,10 @@ n1_clean_ticket() {
     fi
     [ -n "$id" ] || { n1_finish_cleanup "$hr" "$oid" "$def"; return 0; }
     main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+    [ -n "$main" ] || { _n1_clean_record "$id" "$trig" "cleanup:skipped (no-repo)" "" ""; echo "cleanup:skipped (no-repo)"; return 0; }
     top=$(_n1_wt_holder "$hr"); [ "$top" = "$main" ] && top=""
     [ -n "$top" ] && gate=$(_n1_clean_gate "$top" "$main" "$oid" "$def")
+    # The surviving-session record below may emit step/queue events a second time.
     if [ "$gate" = $'orca\t' ] && case "$(pwd -P)/" in "$top"/*) true ;; *) false ;; esac; then
         _n1_clean_record "$id" "$trig" "worktree:removed, branch:kept (checked out in $top)" "$top" orca
     fi
@@ -1087,7 +1092,7 @@ n1_clean_ticket() {
         # A detached (or re-branched) workspace_path worktree cannot be located by branch: report it, never remove it.
         wp=$(sed -n 's/^workspace_path: *//p' "$(n1_home)/memory/$id/overview.md" 2>/dev/null | head -1)
         [ -n "$wp" ] && b=$(_n1_wt_records | tail -n +2 | P="$wp" awk -F'\t' '$1 == ENVIRON["P"] {print ($2 == "" ? "detached" : substr($2, 12)); exit}')
-        [ -n "$b" ] && out="${out/worktree:none/worktree:kept (workspace_path $wp holds $b)}"
+        [ -n "$b" ] && out="worktree:kept (workspace_path $wp holds $b)${out#worktree:none}"
     fi
     toks="${out//$'\n'/, }"
     _n1_clean_record "$id" "$trig" "$toks" "$top" "${gate%%$'\t'*}"

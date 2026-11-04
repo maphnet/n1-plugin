@@ -40,6 +40,7 @@ eq "K1: pr_url still readable" yes "$(yn grep -q "^pr_url: $URL" "$N1_HOME/memor
 eq "K1: no step event when unbound" no "$(yn test -d "$N1_HOME/memory/K-1/telemetry")"
 # K2: idempotent re-run.
 eq "K2: re-run no-ops" "worktree:none,branch:none" "$(ct K-1 "$(printf 'MERGED\tb1\t%s\tmain' "$(rev main)")")"
+eq "K2: real record survives no-op" "- **Cleanup:** worktree:removed, branch:deleted ($T/k1)" "$(cl K-1)"
 eq "K2: single Cleanup line" 1 "$(grep -c '^- \*\*Cleanup:\*\*' "$N1_HOME/memory/K-1/overview.md")"
 # K3/K4: OPEN or CLOSED PR: nothing touched, no overview line.
 wt "$T/k3" b3; echo x > "$T/k3/d"; ov K-3
