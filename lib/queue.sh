@@ -1056,7 +1056,7 @@ n1_queue_retry() {
     # SEC-1: an attempt whose identity still names its Runs-row task may be a live worker (launch keeps it on a
     # worker-start timeout); retry drops that identity and its session pins, so refuse unless the dispatch is proven
     # exited/done. An unreadable worker list refuses too (fail closed).
-    u=$(n1_orca_unsettled "$q" | awk -F'\t' -v t="$t" '$2 == t { r = $0 } END { print r }')
+    task=""; u=$(n1_orca_unsettled "$q" | awk -F'\t' -v t="$t" '$2 == t { r = $0 } END { print r }')
     if [ -n "$u" ]; then
         IFS=$'\t' read -r _ _ _ task disp <<< "$u"
         if ! n1_orca_liveness "$(n1_read_frontmatter "$q" orca_run_id)" 2>/dev/null \

@@ -286,6 +286,27 @@ EOF
     n1_write_frontmatter "$q" step planned; n1_queue_row_status "$q" 1 failed "boom"
     HOME="$tmp" n1_queue_retry "$q" T-1 > /dev/null
     assert_eq "retry: planned queue stays planned" "pending|planned" "$(plan_cell "$q" 1 8)|$(n1_read_frontmatter "$q" step)"
+    # SEC-1: a failed row whose identity still names its Runs-row task may be a live worker (launch keeps the
+    # identity on a worker-start timeout). Retry must refuse and leave the identity and session pins; an unreadable
+    # worker list refuses too; only a dispatch proven exited/done is retried, removing just that task's identity.
+    source "$REPO_ROOT/lib/orca-queue.sh"
+    n1_write_frontmatter "$q" orca_run_id run-1
+    printf '| 5 | T-5 | Fix E | /r | %s | opus | failed | worker-start-timeout |\n' "$h" >> "$tmp/plan5"
+    sed -i "/^| 4 | T-4/r $tmp/plan5" "$q"
+    printf '\n## Runs\n| Started | Ticket | Title | Branch | Outcome | Session |\n|---|---|---|---|---|---|\n| s | T-5 | Fix E | b | failed | orca:task-5/d-5 |\n' >> "$q"
+    : > "$tmp/pins"; mkdir -p "$h/queue/sessions"
+    printf 'N1_ORCA_TASK=task-5\n' > "$h/queue/sentinels/T-5.env"; : > "$h/queue/sessions/T-5.pin"
+    cp "$q" "$tmp/orig.md"
+    n1_orca_liveness() { printf 'd-5\ttask-5\tlive\t\n'; }
+    rc=0; out=$(HOME="$tmp" n1_queue_retry "$q" T-5 2>&1) || rc=$?
+    assert_eq "retry: live worker refused, nothing changed" "1|yes|same|yes|yes" "$rc|$(grep -qF 'may still be running' <<< "$out" && echo yes || echo no)|$(_same)|$([ -e "$h/queue/sentinels/T-5.env" ] && echo yes || echo no)|$([ -e "$h/queue/sessions/T-5.pin" ] && echo yes || echo no)"
+    n1_orca_liveness() { return 1; }
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-5 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: unreadable worker list refused, identity kept" "1|same|yes" "$rc|$(_same)|$([ -e "$h/queue/sentinels/T-5.env" ] && echo yes || echo no)"
+    n1_orca_liveness() { printf 'd-5\ttask-5\texited\t\n'; }
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-5 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: exited worker retried, identity and pins dropped" "0|pending|no|no" "$rc|$(plan_cell "$q" 5 8)|$([ -e "$h/queue/sentinels/T-5.env" ] && echo yes || echo no)|$([ -e "$h/queue/sessions/T-5.pin" ] && echo yes || echo no)"
+    unset -f n1_orca_liveness; source "$REPO_ROOT/lib/orca-queue.sh"
     # Missing queue file.
     rc=0; out=$(HOME="$tmp" n1_queue_retry "" T-1 2>&1) || rc=$?
     assert_eq "retry: no queue" "1|No queue runs found." "$rc|$out"
