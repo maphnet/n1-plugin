@@ -30,7 +30,7 @@ done
 ```
 No rows: "No live workers to stop in queue <queue_id>." **STOP.**
 
-Print the list. This question is an unconditional gate: always ask the user, even when `autonomy.mode` is `hands-off`, and never auto-resolve it. Ask the user: "Stop <N> worker(s) of queue <queue_id>? Each worker's own terminal is closed, its row is recorded `stopped` and its queue identity is removed. A worker with an OPEN PR may be mid finish-chain (CI, review, merge); stopping it can leave that PR unmerged. A worker whose PR already merged is only recorded as merged."
+Print the list. This question is an unconditional gate: always ask the user, even when `autonomy.mode` is `hands-off`, and never auto-resolve it. Ask the user: "Stop <N> worker(s) of queue <queue_id>? Each worker's own terminal is closed (a worker whose terminal is already gone is only recorded), its row is recorded `stopped` and its queue identity is removed. A worker with an OPEN PR may be mid finish-chain (CI, review, merge); stopping it can leave that PR unmerged. A worker whose PR already merged is only recorded as merged."
 
 No recommendation. The options are equivalent given the available evidence; select based on team preference.
 
@@ -64,4 +64,4 @@ if [ "$QUEUED" = 0 ]; then
 fi
 ```
 
-Print the output verbatim. `stop:queued`: "The runner took the stop and is closing the workers, then halts. Check with `/n1:n1-queue --status <queue_id>`; a row still `in-progress` there means its close failed (the runner also sends a needs-you notice)." A `stop failed:` line means that worker's terminal was not closed (also the result when the workspace manager is unavailable): its row and identity are unchanged; close it in the workspace manager, then run `--status`.
+Print the output verbatim. `stop:queued`: "The runner took the stop and is closing the workers, then halts. Check with `/n1:n1-queue --status <queue_id>`; a row still `in-progress` there means its close failed (the runner also sends a needs-you notice)." A `note: <ticket> worker terminal already gone` line means the workspace manager no longer lists that worker or reports its terminal missing: its row is recorded `stopped` with nothing to close. A `stop failed:` line means that worker's terminal was not closed (the worker list was unreadable, the listed worker has no safe terminal handle, or the close failed; also the result when the workspace manager is unavailable): its row and identity are unchanged; close it in the workspace manager, then run `--status`.
