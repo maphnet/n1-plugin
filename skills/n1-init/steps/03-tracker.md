@@ -6,7 +6,18 @@
 
 If a tracker type was detected in step 02's Consolidated Detection:
 
-- **Jira detected (MCP connected):** Present as a confirmation rather than an open question:
+- **Jira detected via jc-mcp only:** Present as a confirmation rather than an open question:
+  ```
+  Detected Jira via jc-mcp MCP (`<JCM_SERVER>`).
+  1 -- Use Jira (Recommended: jc-mcp is the only Jira MCP detected)
+  2 -- Use a different tracker
+  3 -- No tracker
+  ```
+  If 1 -> set `JIRA_FLAVOR=jc-mcp` and go to **If Jira via jc-mcp** below.
+  If 2 -> fall through to the full tracker question below.
+  If 3 -> set `tracker.type` to `"none"`, `tracker.mcp` to `null`, skip remaining tracker setup.
+
+- **Jira detected via Atlassian MCP only (MCP connected):** Present as a confirmation rather than an open question:
   ```
   Detected Jira via Atlassian MCP.
   1 -- Use Jira
@@ -17,19 +28,106 @@ If a tracker type was detected in step 02's Consolidated Detection:
   If 2 -> fall through to the full tracker question below.
   If 3 -> set `tracker.type` to `"none"`, `tracker.mcp` to `null`, skip remaining tracker setup.
 
+- **Jira detected via both jc-mcp and Atlassian MCP:** Ask:
+  ```
+  Detected Jira via two MCP servers. Which one should N1 use?
+  1 -- jc-mcp (`<JCM_SERVER>`) (Recommended: one server covers every N1 Jira operation; the Atlassian config below still routes version, link and changelog operations to jc-mcp)
+  2 -- Atlassian MCP
+  3 -- Use a different tracker
+  4 -- No tracker
+  ```
+  If 1 -> set `JIRA_FLAVOR=jc-mcp` and go to **If Jira via jc-mcp** below.
+  If 2 -> skip to **Select project** below when step 02's Atlassian probe succeeded; otherwise start at **If Jira via Atlassian MCP**.
+  If 3 -> fall through to the full tracker question below.
+  If 4 -> set `tracker.type` to `"none"`, `tracker.mcp` to `null`, skip remaining tracker setup.
+  After the choice, do not use the other Jira server for standard tracker operations; the Atlassian config still uses jc-mcp for version, link and changelog operations.
+
 - **YouTrack detected:** Same confirmation pattern -- confirm or override.
 
-- **Ambiguous (both detected) / None detected / No pre-detection available (targeted upgrade):** Fall through to the full tracker question below.
+- **Ambiguous (Jira and YouTrack both detected) / None detected / No pre-detection available (targeted upgrade):** Fall through to the full tracker question below.
 
 Ask: **"Which issue tracker do you use?"**
 
 ```
-1 — Jira (via Atlassian MCP)
-2 — YouTrack (via YouTrack MCP)
-3 — None (no tracker integration)
+1 — Jira via jc-mcp (Recommended: one server covers every N1 Jira operation; the Atlassian config still needs jc-mcp for version, link and changelog operations)
+2 — Jira via Atlassian MCP
+3 — YouTrack (via YouTrack MCP)
+4 — None (no tracker integration)
 ```
 
-### If Jira:
+1 -> set `JIRA_FLAVOR=jc-mcp`, go to **If Jira via jc-mcp**. 2 -> **If Jira via Atlassian MCP**. 3 -> **If YouTrack**. 4 -> **If None**.
+
+### If Jira via jc-mcp:
+
+Runs when `JIRA_FLAVOR=jc-mcp`. Call only `mcp__<JCM_SERVER>__jcm_*` tools on this path; never call an Atlassian MCP tool.
+
+**Server:** Use the jc-mcp server name recorded by step 02 as `JCM_SERVER` (the segment between `mcp__` and `__jcm_` in the tool name; `jc-mcp` is only an example). If no `__jcm_getIssue` tool is in the tool list (load the tools if deferred, per HOST ROUTING):
+1. Tell the user: "The jc-mcp MCP server is not connected or not configured."
+2. Ask: **"Would you like me to help set it up? 1 — Yes (Recommended: jc-mcp was chosen above) / 2 — Use the Atlassian MCP instead / 3 — Skip tracker"**
+3. If **1:** Guide the user through adding the jc-mcp server to their MCP settings. **CRITICAL: NEVER store, save, log, or transmit API keys, tokens, or credentials anywhere — the user must enter them directly into their own MCP configuration only.** After setup, retry detection once; when a `__jcm_getIssue` tool is now found, set `JCM_SERVER` from its prefix. If it still fails — report the error, set `tracker.mcp` to `null`, skip remaining tracker setup.
+4. If **2:** set `JIRA_FLAVOR=atlassian` (so the Atlassian-only guards below do not skip) and go to **If Jira via Atlassian MCP**.
+5. If **3:** Set `tracker.mcp` to `null`, skip remaining tracker setup.
+
+Requires jc-mcp 0.9.0 or newer; tell the user this minimum. The tool list does not show the server version, so this is a stated requirement, not a check.
+
+**Project key:** Ask: **"Which Jira project key should N1 use? (e.g., PROJ; leave blank to skip tracker)"**
+
+- Blank -> set `tracker.mcp` to `null`, skip remaining tracker setup.
+- Otherwise validate it: call `mcp__<JCM_SERVER>__jcm_listVersions` with `projectKey` set to the key. A not-found result means the key is unknown or malformed: tell the user "Project <KEY> was not found via jc-mcp." and ask again. Any other tool error (authentication, permission, timeout, server error) is not a key problem: report the error and ask **"1 — Retry / 2 — Skip tracker"**; retry repeats the call, skip sets `tracker.mcp` to `null` and skips remaining tracker setup. Any successful result is valid, including an empty list (a project with no versions returns `[]`).
+
+Set both `tracker.projectKey` and `tracker.prefix` from the validated key.
+
+**Continue with the shared steps:** run **Branch prefix** and **Auto-detect workflow statuses** in **If Jira via Atlassian MCP** below, using status source 3 (jc-mcp), then the confirmation table and **Done Fallback Picker**. Then return here, set the config below and end Jira tracker setup. Skip **Select project**, **Detect Atlassian Cloud ID**, **Detect jc-mcp server (for version operations)**, the Atlassian config block and **Verify comment ops availability** (comments come from `jcm_getIssue`). `tracker.cloudId` is omitted, so **Knowledge Base Configuration** skips the Confluence prompts through its existing `cloudId` prerequisite; runtime KB operations still work through the `jcm_*Article` operations.
+
+If the tool list exposes `mcp__<JCM_SERVER>__jcm_addToActiveSprint`, add `"addToSprint": "jcm_addToActiveSprint"` to the `operations` block below; otherwise leave it unset (the Operation Gap Check backfills it later).
+
+Set config (jc-mcp):
+```json
+{
+  "tracker": {
+    "type": "jira",
+    "mcp": "<JCM_SERVER>",
+    "versionMcp": "<JCM_SERVER>",
+    "prefix": "<validated project key>",
+    "projectKey": "<validated project key>",
+    "assignToCreator": true,
+    "operations": {
+      "readTicket": "jcm_getIssue",
+      "getComments": "jcm_getIssue",
+      "getTransitions": "jcm_getTransitions",
+      "moveStatus": "jcm_transitionIssue",
+      "addComment": "jcm_addComment",
+      "search": "jcm_searchIssues",
+      "createIssue": "jcm_createIssue",
+      "getCurrentUser": "jcm_getCurrentUser",
+      "lookupUser": "jcm_lookupUser",
+      "assign": "jcm_editIssue",
+      "editTicket": "jcm_editIssue",
+      "linkIssues": "jcm_addIssueLink",
+      "getIssueLinks": "jcm_getIssueLinks",
+      "createArticle": "jcm_createArticle",
+      "getArticle": "jcm_getArticle",
+      "updateArticle": "jcm_updateArticle",
+      "createVersion": "jcm_createVersion",
+      "releaseVersion": "jcm_releaseVersion",
+      "listVersions": "jcm_listVersions",
+      "getChangelog": "jcm_getIssueChangelog"
+    },
+    "statuses": {
+      "todo": "<detected or manual>",
+      "inProgress": "<detected or manual>",
+      "codeReview": "<detected or inProgress fallback>",
+      "done": "<detected or manual — omit key entirely when absent>",
+      "blocked": "<detected or inProgress fallback>",
+      "released": "<detected or omit key entirely when absent>"
+    }
+  }
+}
+```
+
+`getChangelog` turns on the ticket watch (`skills/n1-start/procedures/ticket-watch.md`); `watch.enabled` (default true) turns it off.
+
+### If Jira via Atlassian MCP:
 
 **Verify MCP and get projects:**
 
@@ -43,6 +141,8 @@ Call `mcp__plugin_atlassian_atlassian__getVisibleJiraProjects` — this simultan
   4. If **2:** Set `tracker.mcp` to `null`, skip remaining tracker setup.
 
 **Select project:**
+
+Atlassian MCP only; skip when `JIRA_FLAVOR=jc-mcp` (the jc-mcp path sets the key in **If Jira via jc-mcp**).
 
 Display the project list from `getVisibleJiraProjects` as numbered options:
 ```
@@ -68,8 +168,9 @@ Ask: **"Use {KEY} as branch prefix? (e.g., branch name: {KEY}-123) 1 — Yes (de
 
 Detect statuses via MCP — do NOT ask the user to type status names:
 
-1. Try calling `mcp__plugin_atlassian_atlassian__fetch` with the Jira REST endpoint `/rest/api/3/project/{projectKey}/statuses` to get all workflow statuses for the project. The response is an array of issue-type objects, each containing a `statuses` array — flatten and deduplicate by status name across all issue types to build the full status list.
-2. If that fails or returns empty: find sample issues in **distinct statuses** via `mcp__plugin_atlassian_atlassian__searchJiraIssuesUsingJql` (JQL: `project = {KEY} ORDER BY status ASC`, maxResults: 5), then call `mcp__plugin_atlassian_atlassian__getTransitionsForJiraIssue` on each and union all transition target statuses. A single issue only exposes transitions reachable from its current state — scanning multiple issues in different states covers end-of-workflow statuses (e.g. "Released") that are invisible from early states like "To Do".
+1. **Atlassian MCP only; skip when `JIRA_FLAVOR=jc-mcp`.** Try calling `mcp__plugin_atlassian_atlassian__fetch` with the Jira REST endpoint `/rest/api/3/project/{projectKey}/statuses` to get all workflow statuses for the project. The response is an array of issue-type objects, each containing a `statuses` array — flatten and deduplicate by status name across all issue types to build the full status list.
+2. **Atlassian MCP only; skip when `JIRA_FLAVOR=jc-mcp`.** If that fails or returns empty: find sample issues in **distinct statuses** via `mcp__plugin_atlassian_atlassian__searchJiraIssuesUsingJql` (JQL: `project = {KEY} ORDER BY status ASC`, maxResults: 5), then call `mcp__plugin_atlassian_atlassian__getTransitionsForJiraIssue` on each and union all transition target statuses. A single issue only exposes transitions reachable from its current state — scanning multiple issues in different states covers end-of-workflow statuses (e.g. "Released") that are invisible from early states like "To Do".
+3. **jc-mcp (`JIRA_FLAVOR=jc-mcp`):** call `mcp__<JCM_SERVER>__jcm_searchIssues` (`jql`: `project = {KEY} ORDER BY updated DESC`, default page size; each returned issue carries its `status`), pick one issue per distinct status (up to 5), then call `mcp__<JCM_SERVER>__jcm_getTransitions` on each and union every returned issue's current status with all transition target statuses. Statuses no issue has reached yet are missed; the manual entry and **Done Fallback Picker** below cover them, and a project with no issues goes straight to manual entry.
 
 Auto-map detected statuses to N1 workflow slots by matching common names:
 - **todo**: "To Do", "Open", "New", "Backlog", "Created"
@@ -115,6 +216,8 @@ Which status represents a closed/resolved ticket?
 
 **Detect Atlassian Cloud ID:**
 
+Atlassian MCP only; skip when `JIRA_FLAVOR=jc-mcp`: the jc-mcp path ends Jira tracker setup after the **Done Fallback Picker** with the config in **If Jira via jc-mcp**, so it skips this subsection and everything after it up to **If YouTrack**.
+
 Call `mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources`.
 
 - **Single resource returned:** auto-select it. Set `tracker.cloudId` from the resource's `id` field.
@@ -131,7 +234,7 @@ Call `mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources`.
 
 **Detect jc-mcp server (for version operations):**
 
-Look in the tool list (load the tool if deferred, per HOST ROUTING) for a tool matching `jcm_createVersion`. Extract the MCP server name from the tool name prefix (e.g., `mcp__publius-jc-mcp__jcm_createVersion` → `publius-jc-mcp`).
+Look in the tool list (load the tool if deferred, per HOST ROUTING) for a tool matching `jcm_createVersion`. Extract the MCP server name from the tool name prefix (e.g., `mcp__jc-mcp__jcm_createVersion` → `jc-mcp`).
 
 Requires jc-mcp 0.9.0 or newer. From 0.9.0, `jcm_convertIssueType` (used by `/n1:n1-story` to adopt existing tickets) takes `issueKeys`; older servers take `issueKey`. Tell the user this minimum whenever `VERSION_MCP` is set (found or entered). The tool list does not show the server version, so this is a stated requirement, not a check.
 
@@ -139,7 +242,7 @@ Requires jc-mcp 0.9.0 or newer. From 0.9.0, `jcm_convertIssueType` (used by `/n1
 - **Not found:** prompt:
   ```
   Version operations (create/release Jira versions) require jc-mcp.
-  Enter your jc-mcp MCP server name (e.g., publius-jc-mcp), or leave blank to skip:
+  Enter your jc-mcp MCP server name (e.g., jc-mcp), or leave blank to skip:
   ```
   If blank or skipped → set `VERSION_MCP` to `null` and omit `versionMcp` from the config block. Version operations will be unavailable until configured.
 

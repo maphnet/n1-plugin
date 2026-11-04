@@ -20,14 +20,17 @@ After analyzing the stack, run these additional detection probes. Detection only
 ### Tracker Detection
 
 Scan available tools for tracker MCP patterns (on hosts with deferred tools, search for `mcp__` first per HOST ROUTING):
-- Tools matching `mcp__plugin_atlassian_atlassian__*` present -> Jira detected
+- A tool whose name ends `__jcm_getIssue` or `__jcm_createVersion` present -> Jira via jc-mcp detected. The jc-mcp server name is the segment between `mcp__` and `__jcm_` (e.g. `mcp__jc-mcp__jcm_getIssue` -> `jc-mcp`); never assume a fixed name.
+- Tools matching `mcp__plugin_atlassian_atlassian__*` present -> Jira via Atlassian MCP detected
 - Tools matching `mcp__youtrack__*` present -> YouTrack detected
-- Both present -> ambiguous (let user choose in step 03)
-- Neither present -> no tracker detected
+- Jira (either MCP) and YouTrack both present -> ambiguous (let user choose in step 03)
+- None present -> no tracker detected
 
-If Jira detected, verify connectivity by calling the get-projects operation (the operation that lists visible projects). Record whether the call succeeded or failed.
+Both Jira MCPs present (jc-mcp and Atlassian) is one `jira` tracker with Jira flavor `both`, not the ambiguous case; step 03 asks which one to use.
 
-Record detection results for step 03: detected tracker type (jira / youtrack / none / ambiguous), MCP server name, connectivity status.
+If Jira via Atlassian MCP is detected, verify connectivity by calling the get-projects operation (the operation that lists visible projects). Record whether the call succeeded or failed. Jira via jc-mcp has no project-list operation, so skip the probe for it; step 03 validates the project key instead.
+
+Record detection results for step 03: detected tracker type (jira / youtrack / none / ambiguous), Jira flavor (jc-mcp / atlassian / both), jc-mcp server name (when detected), MCP server name, connectivity status.
 
 ### Observability Detection
 
@@ -67,7 +70,7 @@ Display all detection results as one consolidated block before any questions:
 Detected environment:
   Stack: <language(s)>, <framework>, <test runner>, <linter>, <CI system>
   Docker: <yes (compose) / yes / no>
-  Tracker: <Jira (MCP connected) / YouTrack (MCP found) / None detected>
+  Tracker: <Jira via jc-mcp (<server>) / Jira via Atlassian MCP (MCP connected) / Jira via jc-mcp and Atlassian MCP / YouTrack (MCP found) / None detected>
   Observability: <provider [confidence], ...> or "None detected"
   Startup: <file> -> <command> or "None detected"
   Worktree setup: <command> or "none"
