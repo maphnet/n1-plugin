@@ -138,6 +138,9 @@ unset N1_WAIT_CHECK_TIMEOUT
 expect "hung check is cut and counted as failed -> timeout" timeout "$(first "$out")"
 check "hung check output names the per-check timeout" "check timed out after 1s" <(printf '%s\n' "$out")
 
+fresh; out=$(ws monitor 40 15 '/bin/sleep 2; true')
+expect "monitor: a 2s check near the chunk end is not cut short -> ok" ok "$(first "$out")"
+
 out=$(ws poll 10m 15 true)
 expect "non-integer remaining -> failed" failed "$(first "$out")"
 expect "bad arguments exit 1" rc=1 "$(last "$out")"

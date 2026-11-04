@@ -138,7 +138,7 @@ n1_wait_parse_marker() {
 n1_wait_step() {
     # Usage: n1_wait_step <poll|monitor> <remaining-s> <interval-s> <command>
     # Runs <command> via `bash -c` every <interval-s> for at most one chunk (POLL_CHUNK_SECONDS). Each check is
-    # cut at N1_WAIT_CHECK_TIMEOUT (default 60) seconds, clamped to the time left in the chunk; a cut check
+    # cut at N1_WAIT_CHECK_TIMEOUT (default 60, capped at 100) seconds, so a chunk ends within POLL_CHUNK_SECONDS + 100 + 5; a cut check
     # counts as failed. First output line: poll -> "passed" | "pending <remaining-s>" | "timeout";
     # monitor -> "failed" (first non-zero check, at once) | "pending <remaining-s>" | "ok". Then the last
     # check's output (last 40 lines). rc 0 on passed/ok/pending, 1 on timeout/failed and on bad arguments
@@ -148,12 +148,11 @@ n1_wait_step() {
         || ! [[ "$interval" =~ ^[1-9][0-9]*$ ]] || [ -z "$cmd" ]; then
         printf 'failed\nusage: n1_wait_step <poll|monitor> <remaining-s> <interval-s> <command>\n'; return 1
     fi
-    local start now end left t out rc rem nap
+    local start now end t out rc rem nap
     start=$(date +%s)
     end=$(( start + (remaining < POLL_CHUNK_SECONDS ? remaining : POLL_CHUNK_SECONDS) ))
     while :; do
-        now=$(date +%s); left=$(( end - now )); [ "$left" -lt 1 ] && left=1
-        t=${N1_WAIT_CHECK_TIMEOUT:-60}; [[ "$t" =~ ^[1-9][0-9]*$ ]] || t=60; [ "$t" -gt "$left" ] && t=$left
+        t=${N1_WAIT_CHECK_TIMEOUT:-60}; [[ "$t" =~ ^[1-9][0-9]*$ ]] || t=60; [ "$t" -gt 100 ] && t=100
         out=$(timeout -k 5 "$t" bash -c "$cmd" 2>&1); rc=$?
         { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; } && out="check timed out after ${t}s"
         out=$(tail -n 40 <<<"$out")
