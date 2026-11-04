@@ -90,5 +90,16 @@ eq "K14: finish trigger never calls gh" "" "$(cat "$GH_CALLS")"
 # K15: finish trigger with an empty id still cleans (n1-finish standalone without memory).
 eq "K15: empty id finish" "worktree:none,branch:none" "$( (cd "$M" && n1_clean_ticket "" finish "" "" main) | paste -sd, -)"
 
+# n1-clean wiring (N1-339 D5).
+S="$R/skills/n1-clean/SKILL.md"
+eq "W1: n1-clean never forces removal" 0 "$(grep -c -- '--force' "$S")"
+eq "W2: ticket mode calls n1_clean_ticket" yes "$(yn grep -qF 'n1_clean_ticket "$ID"' "$S")"
+eq "W3: --ticket mode documented" yes "$(yn grep -qF -- '--ticket <ID>' "$S")"
+eq "W4: discovery not limited to the N1 worktree root" 0 "$(grep -c 'n1_worktree_root' "$S")"
+eq "W5: general mode removes through n1_clean_ticket" yes "$(yn grep -qF 'n1_clean_ticket "<ID>" general' "$S")"
+eq "W6: auto mode never removes Abandoned" yes "$(yn grep -qF 'never removes Abandoned' "$S")"
+eq "W7: Orca worktrees tagged" yes "$(yn grep -qF 'n1_orca_owns' "$S")"
+eq "W8: Completed requires a merged PR" yes "$(yn grep -qF 'MERGED' "$S")"
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
