@@ -994,7 +994,8 @@ run_orca() {
         if [ -n "$EVS" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
         # N1-265: loops that can reach n1_notify read fd 3; a notifier backend that reads fd 0
         # (WSL powershell.exe drains it) must never consume the remaining rows or events.
-        while IFS=$'\t' read -r -u 3 TYPE TASK MSG MDISP; do
+        # N1-359: EXTRA = optional 5th column (stop/escalation text, see n1_orca_events); empty when absent.
+        while IFS=$'\t' read -r -u 3 TYPE TASK MSG MDISP EXTRA; do
             _n1_orca_id "$TASK" || continue
             [ "$MSG" != "-" ] || MSG=""; [ "$MDISP" != "-" ] || MDISP=""   # "-" = empty field (see n1_orca_events)
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"

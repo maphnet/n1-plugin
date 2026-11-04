@@ -141,6 +141,17 @@ eq "events: malformed payload falls back, batch kept, taskless message dropped" 
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-4","type":"worker_done","payload":"{not json","taskId":"task-4"},{"id":"m-5","type":"worker_done","payload":"{\"taskId\":\"task-5\"}"},{"id":"m-6","type":"worker_done","payload":"{\"taskId\":{\"a\":1}}"},{"id":"m-7","type":"worker_done","payload":"{\"taskId\":\"task-7\"}"}]}}')"
 eq "events: empty message id keeps the dispatch column" "$(printf 'escalation\ttask-8\t-\td-8')" \
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"type":"escalation","payload":"{\"taskId\":\"task-8\",\"dispatchId\":\"d-8\"}"}]}}')"
+# N1-359: an escalation whose payload carries a string stopReason is Orca's stop notice (type escalation-stop, text =
+# stopReason + flattened body); a plain escalation carries its subject; a non-string stopReason stays a plain escalation.
+eq "events: stop notice -> escalation-stop with stopReason and flattened body" \
+    "$(printf 'escalation-stop\ttask-9\tm-9\td-9\tstopped (finished): Worker ended Last output: Done?')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-9","type":"escalation","subject":"Worker stopped without reporting","body":"Worker ended\nLast output:\tDone?","payload":"{\"taskId\":\"task-9\",\"dispatchId\":\"d-9\",\"stopReason\":\"finished\"}"}]}}')"
+eq "events: plain escalation carries its subject; non-string stopReason stays plain" \
+    "$(printf 'escalation\ttask-10\tm-10\td-10\tNeed a DB choice\nescalation\ttask-11\tm-11\td-11')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-10","type":"escalation","subject":"Need a DB choice","payload":"{\"taskId\":\"task-10\",\"dispatchId\":\"d-10\"}"},{"id":"m-11","type":"escalation","payload":"{\"taskId\":\"task-11\",\"dispatchId\":\"d-11\",\"stopReason\":1}"}]}}')"
+B=$(printf 'x%.0s' $(seq 400))
+eq "events: stop text capped at 300 chars" 300 \
+    "$(n1_orca_events "$(jq -cn --arg b "$B" '{ok: true, result: {messages: [{id: "m-12", type: "escalation", body: $b, payload: ({taskId: "task-12", dispatchId: "d-12", stopReason: "finished"} | tojson)}]}}')" | cut -f5 | tr -d '\n' | wc -c | tr -d ' ')"
 reset
 n1_orca_check run-1 5 >/dev/null
 has "check: requests heartbeat" "--types worker_done,escalation,question,heartbeat" "$(calls)"
