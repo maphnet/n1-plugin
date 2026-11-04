@@ -215,6 +215,7 @@ line_has "N1-33: falsified premise counts in ticket_contradictions" '**Premise c
 line_has "N1-33: premise search uses Grep tool with \\b" '**Premise check:**' 'Grep tool using `\b` word boundaries' "$SA"
 line_has "N1-33: premise check never uses shell grep" '**Premise check:**' 'never shell grep' "$SA"
 line_has "N1-33: unable to verify is not counted" '**Premise check:**' 'is unable to verify and is not counted' "$SA"
+line_has "N1-33: blamed-missing mechanism is confirmed, not falsified" '**Premise check:**' 'is a defect report: confirm the absence or unreachability' "$SA"
 has "N1-33: output format documents the premise line" 'claim = `premise: <mechanism>`' "$SA"
 line_has "N1-33: refine dispatch passes the resolved type" 'Dispatch persona `solution-architect`' 'Resolved ticket type: `<type from Step 3>`' "$F"
 
