@@ -38,6 +38,7 @@ You will receive:
 - `brainstorm_gate_skipped` — `true` when the brainstorm User Gate was bypassed because `autonomy.brainstorm` is `"auto"`; defaults to `false` when absent
 - `mode`: `create` (default) or `reconcile`. Reconcile receives only the inputs listed under Reconcile Mode.
 - `body_file` (optional, Phase 2): absolute path for the PR body. When given, write the body there instead of returning it, and the one-line title to `<body_file>.title` (Phase 2 step 8).
+- Optional: `RULES_BLOCK` — project rules matching tech-writer (verbatim, from n1-pr).
 - `phase` (optional): `2` means skip Phase 1 and run Phase 2 only (retry after a missing body file). Default: both phases.
 
 ## Phase 1: Documentation Update
@@ -172,6 +173,7 @@ Generate the PR title and body from implementation context.
    - **Merge:** drop a diff-derived item when a ticket item names the same resource.
    - **Secret values never appear**, only names. Any secret-involving item is written as `Manual:`, even when the ticket gives a command. If a ticket item contains a literal secret value, rewrite it as `Manual: set secret <NAME> ...` without the value.
    - **Format:** one action per `- [ ]` line, with no nested bullets. Each item is either a single backtick shell command (optionally followed by a short note) or text starting with `Manual:`. n1-finish and n1-release parse these lines and tick them `[x]` as they run. Before release items are walked only by n1-release, before the tag push; n1-finish never offers them.
+   - **Project rules** (if `RULES_BLOCK` given): for each rule whose clause requires an action at the deploy boundary, add one `- [ ]` row under Before deploy (same Format rules; names only, no secret values; drop a row that duplicates a ticket or diff item). Rules about docs apply in Phase 1; rules with no deploy action produce no row. Never copy rule text into the PR body beyond the row.
    - All lists empty → no section. Any list empty → omit that sub-heading.
 
 8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1. When `body_file` is given, write the body (body only: no title, no `## PR Content` wrapper, no other wrapper tags) to `body_file` and the title (one line, no `###`) to `<body_file>.title`, both with the Write tool, and return only the title block plus `pr body written: <body_file>` (see Output Format). Without `body_file`, return title and body inline.
