@@ -248,6 +248,35 @@ test_orca_json_subject_not_packed() {
     rm -rf "$tmp"
 }
 
+# N1-362 AC2-AC4. Bug caught: a headless child that found its ticket obsolete ended at step analysis with an empty
+# ## Escalations: no worker_done, row in-progress until subtask-timeout, empty needs-you, overlap successor skipped.
+# Fixed child shape: step escalated + "ticket obsolete:" entry, workspace at its branch-point, no PR.
+test_orca_obsolete_releases_successor() {
+    local tmp ws; tmp=$(mktemp -d); ws="$tmp/ws"
+    mk_bg "$tmp" oq "T-1:done" "T-2:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    sed -i 's/^## Runs$/## Schedule\n| Ticket | After |\n|--------|-------|\n| T-2 | T-1 |\n\n## Runs/' "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/queue/sentinels" "$tmp/n1home/memory/T-1"; printf 'N1_ORCA_TASK=task-T-1\n' > "$tmp/n1home/queue/sentinels/T-1.env"
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "| T-1 | 2026-10-31T00:00:00Z | | | | orca:task-T-1/d-T-1 |" >> "$tmp/queue.md"
+    wl_set "$tmp" "$(wl_row T-1 succeeded)"
+    echo task-T-1 > "$tmp/fake/started"   # the Stop hook's worker_done (failed) arrives on tick 1
+    git init -q "$ws"; git -C "$ws" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m base
+    git -C "$ws" rev-parse HEAD > "$tmp/n1home/memory/T-1/branch-point"
+    printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: ticket obsolete: fix already on main\n' "$ws" > "$tmp/n1home/memory/T-1/overview.md"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=6 > /dev/null
+    assert_eq "orca-obsolete: row settled escalated/obsolete" "escalated|obsolete" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "orca-obsolete: escalated event carries the reason" "[headless] analysis: ticket obsolete: fix already on main" \
+        "$(jq -R -r 'fromjson? | select(.event == "escalated" and .ticket == "T-1") | .reason' "$tmp/events.jsonl")"
+    assert_eq "orca-obsolete: needs-you names the reason" "1" \
+        "$(cat "$tmp/notes" 2>/dev/null | grep -c 'T-1 needs you: \[headless\] analysis: ticket obsolete' || true)"
+    assert_eq "orca-obsolete: no empty-reason alert" "0" "$(cat "$tmp/notes" 2>/dev/null | grep -c 'waiting for an answer' || true)"
+    assert_eq "orca-obsolete: no strike" "1" "$(grep -c 'T-1: obsolete ticket, not counted' "$tmp/output.txt" || true)"
+    assert_eq "orca-obsolete: successor not skipped" "no" "$([ "$(plan_cell "$tmp/queue.md" 2 8)" = skip ] && echo yes || echo no)"
+    assert_eq "orca-obsolete: successor launched" "1" "$(grep -c '^orchestration worker-start.*--task task-T-2' "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
 # N1-309. Bug caught: a question from a worker whose row is already pr (PR open, worker still in its review/CI loop)
 # is dropped silently; re-adopting it instead would re-finalize the row and delete .ask before the user answers.
 test_orca_question_on_pr_row() {
@@ -1019,6 +1048,7 @@ test_orca_stop_notice_not_escalated
 test_orca_stop_notice_then_timeout
 test_orca_plain_escalation_reason
 test_orca_json_subject_not_packed
+test_orca_obsolete_releases_successor
 test_orca_question_on_pr_row
 test_orca_question_on_pr_row_cleanup
 test_orca_question_after_settle
