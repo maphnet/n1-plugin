@@ -145,4 +145,8 @@ S7_LN=$(grep -n '^### Update overview.md' "$CF" | head -1 | cut -d: -f1)
 RE_LN=$(grep -nE '^Clear `ci_fail_sig` first' "$CF" | head -1 | cut -d: -f1)
 eq "W16 Step 7 run end clears ci_fail_sig (no stall across n1-ci runs)" "1" "$([ -n "$S7_LN" ] && [ -n "$RE_LN" ] && [ "$S7_LN" -lt "$RE_LN" ] && echo 1 || echo 0)"
 
+# ---- docs ----
+eq "W15 architecture.md documents the stall stop" "1" "$(grep -cx '## Same-Failure Stall Stop' references/architecture.md)"
+eq "W15b architecture.md documents the stale-log removal" "1" "$(grep -cF 'removes `qa-verify.log` before each verify run' references/architecture.md)"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
