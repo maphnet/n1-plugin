@@ -57,6 +57,7 @@ case "$1 $2" in
   "worktree list") case "${FAKE_WT:-fail}" in fail) err "boom" ;; none) ok '{"worktrees":[]}' ;;
       dup) ok '{"worktrees":[{"path":"/w/T-1"},{"path":"/v/T-1"}]}' ;; path) ok "{\"worktrees\":[{\"path\":\"$FAKE_WT_PATH\"}]}" ;; *) ok '{"worktrees":[{"path":"/w/T-1"}]}' ;; esac ;;
   "orchestration worker-list") [ -n "${FAKE_WL_EMPTY:-}" ] && ok '{}' && exit 0
+      [ -n "${FAKE_WL_FILE:-}" ] && { cat "$FAKE_WL_FILE"; exit 0; }   # N1-333: a whole receipt from a file
       # Real Orca 1.4.243 rows: released, running, finished (reclaimable), failed, unknown state with no projection.
       ok '{"workers":[
         {"dispatchId":"d-1","taskId":"task-1","workerState":"succeeded","dispatchStatus":"completed","terminalState":"released","projection":{"outcome":"succeeded","liveness":{"verdict":"exited","source":"resource_release"},"nextAction":{"kind":"none","argv":[]}}},
@@ -177,11 +178,18 @@ HB=$(jq -cn --arg ph "review/dev"$'\a'"$LONG" '{result:{messages:[{id:"m-h",type
 eq "events: heartbeat phase is the 5th column, stripped and capped" "heartbeat	task-1	m-h	d-1	review/dev $X53" "$(n1_orca_events "$HB")"
 HB=$(jq -cn '{result:{messages:[{id:"m-h",type:"heartbeat",payload:({taskId:"task-1",dispatchId:"d-1"}|tojson)}]}}')
 eq "events: heartbeat without phase has 4 columns" "heartbeat	task-1	m-h	d-1" "$(n1_orca_events "$HB")"
-eq "liveness: verdict + durable settled state" \
-    "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t\nd-6\ttask-6\tlive\tdone\nd-7\ttask-7\tlive\tdone\nd-8\ttask-8\tlive\t\nd-9\ttask-9\texited\t\nd-10\ttask-10\tunverifiable\t')" \
+eq "liveness: verdict + durable settled state (+ empty stage detail)" \
+    "$(printf 'd-1\ttask-1\texited\tdone\t\nd-2\ttask-2\tlive\t\t\nd-3\ttask-3\tunverifiable\tdone\t\nd-4\ttask-4\tunverifiable\tdone\t\nd-5\ttask-5\tunverifiable\t\t\nd-6\ttask-6\tlive\tdone\t\nd-7\ttask-7\tlive\tdone\t\nd-8\ttask-8\tlive\t\t\nd-9\ttask-9\texited\t\t\nd-10\ttask-10\tunverifiable\t\t')" \
     "$(n1_orca_liveness run-1)"
 n1_orca_liveness run-1 >/dev/null; eq "liveness: real Orca payload is readable (rc 0)" 0 "$?"
 FAKE_WL_EMPTY=1 n1_orca_liveness run-1 >/dev/null; rc=$?; eq "liveness: receipt without a worker array is unreadable" yes "$([ "$rc" -ne 0 ] && echo yes || echo no)"
+# N1-333: column 5 is projection.stage.detail. Real Orca receipt shape (scrubbed N1-309 ghost: exited, terminal_missing).
+GHOST_WL="$REPO_ROOT/tests/fixtures/orca_worker_list_terminal_missing.json"
+eq "liveness: stage detail is column 5 (real ghost receipt)" \
+    "$(printf 'ctx_ghost000001\ttask_ghost00001\texited\t\tterminal_missing\nctx_settled0001\ttask_settled001\texited\tdone\tsettled')" \
+    "$(FAKE_WL_FILE="$GHOST_WL" n1_orca_liveness run-1)"
+jq -n '{ok: true, result: {workers: [{dispatchId: "d-1", taskId: "task-1", projection: {liveness: {verdict: "live"}, stage: {detail: {x: 1}}}}]}}' > "$T/wl-obj.json"
+eq "liveness: non-string stage detail reads empty" "$(printf 'd-1\ttask-1\tlive\t\t')" "$(FAKE_WL_FILE="$T/wl-obj.json" n1_orca_liveness run-1)"
 reset; n1_orca_ack run-1 "$J"
 has "ack: delivery id" "orchestration check --run run-1 --ack del-1" "$(calls)"
 

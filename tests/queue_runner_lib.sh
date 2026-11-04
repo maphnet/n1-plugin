@@ -248,7 +248,8 @@ orca_msg() {
          + (if $sub != "" then {subject: $sub} else {} end) + (if $b != "" then {body: $b} else {} end)'
 }
 
-# wl_row <ticket> <running|succeeded|released> [liveness verdict] — one worker-list row, real Orca 1.4.243 shape.
+# wl_row <ticket> <running|succeeded|released> [liveness verdict] [stage detail] — one worker-list row, real Orca 1.4.243
+# shape. A stage detail (N1-333, e.g. terminal_missing) adds projection.stage {worker: "abandoned", detail}.
 wl_row() {
     local ws ds ts oc nx lv
     case "$2" in
@@ -257,10 +258,11 @@ wl_row() {
         released)  ws=succeeded; ds=completed;  ts=released;    oc=succeeded;   nx=none;    lv=exited ;;
     esac
     lv="${3:-$lv}"
-    jq -cn --arg t "$1" --arg ws "$ws" --arg ds "$ds" --arg ts "$ts" --arg oc "$oc" --arg nx "$nx" --arg lv "$lv" \
+    jq -cn --arg t "$1" --arg ws "$ws" --arg ds "$ds" --arg ts "$ts" --arg oc "$oc" --arg nx "$nx" --arg lv "$lv" --arg sd "${4:-}" \
         '{dispatchId: ("d-" + $t), taskId: ("task-" + $t), runId: "run-1", workerState: $ws, dispatchStatus: $ds,
-          terminalState: $ts, resource: {}, projection: {outcome: $oc, nextAction: {kind: $nx, argv: []},
-          liveness: ({verdict: $lv} + (if $lv == "unverifiable" then {reason: "missing_status"} else {} end))}}'
+          terminalState: $ts, resource: {}, projection: ({outcome: $oc, nextAction: {kind: $nx, argv: []},
+          liveness: ({verdict: $lv} + (if $lv == "unverifiable" then {reason: "missing_status"} else {} end))}
+          + (if $sd != "" then {stage: {worker: "abandoned", detail: $sd}} else {} end))}'
 }
 wl_set() { local tmp="$1"; shift; local IFS=,; printf '{"ok":true,"result":{"workers":[%s]}}\n' "$*" > "$tmp/fake/workers.json"; }   # <tmp> <row-json>...
 

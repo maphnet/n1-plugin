@@ -152,11 +152,13 @@ n1_orca_ack() {
 }
 
 n1_orca_liveness() {
-    # Usage: n1_orca_liveness <run> — "<dispatch>\t<task>\t<live|unverifiable|exited>\t<done|>" per worker; non-zero
+    # Usage: n1_orca_liveness <run> — "<dispatch>\t<task>\t<live|unverifiable|exited>\t<done|>\t<stage-detail|>" per worker; non-zero
     # when the list is unreadable. Orca reports liveness as {"verdict":..,"reason":..} (a bare string is still accepted);
     # a missing or non-string verdict reads unverifiable: only positive proof of exit settles a worker by liveness.
     # Field 4 (N1-281) is "done" for a durable terminal state only: workerState succeeded|failed, dispatchStatus
     # completed, or projection.nextAction.kind release. A running or unknown state is empty and never settles.
+    # Field 5 (N1-333) is projection.stage.detail when it is a string (e.g. terminal_missing: Orca lost the worker's
+    # terminal), else empty. Every consumer indexes columns with awk -F'\t', so the appended column is additive.
     # ponytail: first page only (default limit 100, newest first, --run scoped); follow result.page.nextCursor if a Run ever outgrows it.
     local out; out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration worker-list --run "$1") || return 1
     # Only an ok receipt with an array-shaped worker collection is a readable list; anything else is non-zero.
@@ -167,7 +169,8 @@ n1_orca_liveness() {
                     | if type == "string" then . else "unverifiable" end),
                (if .workerState == "succeeded" or .workerState == "failed" or .dispatchStatus == "completed"
                     or ((.projection.nextAction | if type == "object" then .kind else null end) == "release")
-                then "done" else "" end)] | @tsv
+                then "done" else "" end),
+               (.projection.stage | if type == "object" then .detail else null end | if type == "string" then . else "" end)] | @tsv
           else error("unreadable worker list") end' <<<"$out" 2>/dev/null
 }
 
