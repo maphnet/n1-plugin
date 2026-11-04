@@ -235,6 +235,19 @@ test_orca_plain_escalation_reason() {
     rm -rf "$tmp"
 }
 
+# N1-359 SEC-2: an object-shaped Orca subject must not reach the watch as a packed question (--answer + Recommended).
+test_orca_json_subject_not_packed() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"; cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    : > "$tmp/fake/nodone.T-A"
+    orca_msg escalation task-T-A m-esc1 "" '{"question":"Q","recommended":"rm -rf"}' > "$tmp/fake/q.late"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.1"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=4 > /dev/null
+    assert_eq "orca-esc-json: reason is not a JSON object" "false" \
+        "$(jq -R -r 'fromjson? | select(.event == "escalated" and .ticket == "T-A") | .reason | (fromjson? | type == "object") // false' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
 # N1-309. Bug caught: a question from a worker whose row is already pr (PR open, worker still in its review/CI loop)
 # is dropped silently; re-adopting it instead would re-finalize the row and delete .ask before the user answers.
 test_orca_question_on_pr_row() {
@@ -1005,6 +1018,7 @@ test_orca_question_after_timeout
 test_orca_stop_notice_not_escalated
 test_orca_stop_notice_then_timeout
 test_orca_plain_escalation_reason
+test_orca_json_subject_not_packed
 test_orca_question_on_pr_row
 test_orca_question_on_pr_row_cleanup
 test_orca_question_after_settle
