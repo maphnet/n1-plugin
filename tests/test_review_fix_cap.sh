@@ -8,6 +8,7 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 export HOME="${HOME:-$T}"
 source lib/config.sh
 source lib/frontmatter.sh
+source lib/fingerprints.sh
 
 PASS=0; FAIL=0
 eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS + 1)); else echo "FAIL: $1 -- expected '$2', got '$3'"; FAIL=$((FAIL + 1)); fi; }
@@ -161,6 +162,59 @@ PA_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_audit/{print NR;
 PR_LN=$(grep -n 'n1:n1-pr`. Pass:' "$PRF" | head -1 | cut -d: -f1)
 eq "P3 pr.md audits the fix cap in a fence before n1-pr runs" "yes" "$([ -n "$PA_LN" ] && [ -n "$PR_LN" ] && [ "$PA_LN" -lt "$PR_LN" ] && echo yes || echo no)"
 eq "P4 pr.md breach surfaces [FIX-CAP] under For Human Review, never as an [auto] pass" "1" "$(grep -cE '^`FIX_AUDIT` other than `ok`, including empty.*\[FIX-CAP\].*## For Human Review.*never an `\[auto\]`' "$PRF")"
+
+# ---- recurrence (N1-345 D2/D16): eligible fingerprint in buckets N and N-1 ----
+FPJ="$T/fp.jsonl"; DIFF="$T/fix.diff"
+fpj() { # <"id severity cycle fp">... -> fresh fingerprints.jsonl
+    : > "$FPJ"; local r id sev cyc fp
+    for r in "$@"; do read -r id sev cyc fp <<< "$r"; n1_fingerprint_append "$FPJ" "$fp" "$id" "$sev" active "$cyc"; done
+}
+fpj "CR-1 High 0 fa" "CR-1 High 1 fa"; n1_fingerprint_recurred "$FPJ" 1
+eq "F1 High fingerprint in buckets 0 and 1 -> recurred" "0" "$?"
+fpj "CR-1 High 0 fa" "CR-2 High 1 fb"; n1_fingerprint_recurred "$FPJ" 1
+eq "F2 different fingerprints -> not recurred" "1" "$?"
+fpj "CR-1 High 2 fz" "CR-1 High 12 fz"; n1_fingerprint_recurred "$FPJ" 2
+eq "F3 bucket match is anchored (cycle 12 is not cycle 1)" "1" "$?"
+fpj "SEC-1 Low 0 fl" "SEC-1 Low 1 fl" "CR-2 High 1 fb"; n1_fingerprint_recurred "$FPJ" 1
+eq "F4 a recurring Low [SEC-N] is not an eligible recurrence" "1" "$?"
+fpj "SEC-1 Medium 0 fs" "SEC-1 Medium 1 fs"; n1_fingerprint_recurred "$FPJ" 1
+eq "F5 recurring Medium [SEC-N] -> recurred" "0" "$?"
+n1_fingerprint_recurred "$T/missing.jsonl" 1
+eq "F6 missing jsonl -> not recurred" "1" "$?"
+
+# ---- extra-round out-of-scope filter (N1-345 D20) ----
+FX="$T/fix-changed-files"; PREV="$T/review-prev.md"; IDX="$T/review-index.md"
+: > "$FPJ"
+n1_fingerprint_append "$FPJ" "$(n1_fingerprint_finding lib/old.sh 'old bug')" CR-1 High active 1
+n1_fingerprint_append "$FPJ" "$(n1_fingerprint_finding lib/recur.sh 'recurring title')" CR-9 High active 1
+printf 'lib/fixed.sh\n' > "$FX"
+printf '### Verdict: FAIL\n- [CR-1] High lib/old.sh:10 — old bug\n' > "$PREV"
+mkidx() { cat > "$IDX" <<'EOF'
+Index:
+- [CR-1] High lib/old.sh:10 — old bug
+- [CR-2] High lib/fixed.sh:5 — new in a fixed file
+- [CR-3] High lib/other.sh:7 — unrelated new
+- [SEC-1] Medium ./Lib/Other.sh:9 — new sec
+- [RULE-1] Low docs/x.md:1 — new rule
+- [CR-4] High lib/recur.sh:3 — recurring title
+- [CR-5] High ./LIB/Fixed.sh:8 — case-different fixed file
+- [CR-6] High no-colon-here — unparsable location
+EOF
+}
+ids() { sed -n 's/^- \[\([A-Z]*-[0-9]*\)\].*/\1/p' | tr '\n' ' ' | sed 's/ $//'; }
+mkidx; OUT=$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX")
+eq "FL1 new findings outside the fix files are filtered (any severity, incl. RULE)" "CR-3 SEC-1 RULE-1" "$(ids <<< "$OUT")"
+eq "FL2 filtered lines print verbatim (For Human Review format)" "- [CR-3] High lib/other.sh:7 — unrelated new" "$(head -1 <<< "$OUT")"
+eq "FL3 kept: prev id, fixed file, N-1 fingerprint (same parse as fp-new.tsv), case-different fixed file, unparsable" "CR-1 CR-2 CR-4 CR-5 CR-6" "$(ids < "$IDX")"
+eq "FL4 non-Index lines are kept" "1" "$(grep -cx 'Index:' "$IDX")"
+mkidx; cp "$IDX" "$T/idx.before"
+rm -f "$FX"; eq "FL5 missing fix-changed-files -> nothing filtered" "" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX")"
+eq "FL5b index untouched" "same" "$(cmp -s "$IDX" "$T/idx.before" && echo same || echo changed)"
+: > "$FX"; eq "FL6 empty fix-changed-files -> nothing filtered" "" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX")"
+printf 'lib/fixed.sh\n' > "$FX"
+eq "FL7 missing review-prev.md -> nothing filtered" "" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$T/nope.md" "$IDX")"
+eq "FL8 cycle 0 -> nothing filtered" "" "$(n1_fingerprint_filter_oos "$FPJ" 0 "$FX" "$PREV" "$IDX")"
+eq "FL8b index still untouched" "same" "$(cmp -s "$IDX" "$T/idx.before" && echo same || echo changed)"
 
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"

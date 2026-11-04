@@ -128,3 +128,63 @@ n1_fingerprint_check_convergence() {
     [ "$cur_count" -lt "$prev_count" ] 2>/dev/null && return 0
     return 1
 }
+
+_n1_fp_eligible_rows() {
+    # Usage: _n1_fp_eligible_rows <jsonl_file> <cycle>
+    # Prints active rows of bucket <cycle> that can earn the one extra review round (N1-345 D17):
+    # Critical/High, or Medium [SEC-N]. Recorded Low never qualifies. "cycle":N, is anchored (ts follows).
+    [ -r "$1" ] && [[ "$2" =~ ^[0-9]+$ ]] || return 0
+    grep "\"cycle\":$2," "$1" 2>/dev/null | grep '"status":"active"' \
+        | grep -E '"id":"[A-Z]+-[0-9]+","severity":"(Critical|High)"|"id":"SEC-[0-9]+","severity":"Medium"'
+    return 0
+}
+
+n1_fingerprint_recurred() {
+    # Usage: n1_fingerprint_recurred <jsonl_file> <cycle>
+    # Exit 0 when an eligible fingerprint of bucket <cycle> is also in bucket <cycle>-1 (N1-345 D2/D16:
+    # the finding oscillates, so no extra round). Exit 1 otherwise, including bad input.
+    local jsonl_file="$1" cycle="$2" prev fp
+    [[ "$cycle" =~ ^[0-9]+$ ]] && [ "$cycle" -ge 1 ] && [ -r "$jsonl_file" ] || return 1
+    prev=$(grep "\"cycle\":$((cycle - 1))," "$jsonl_file" 2>/dev/null)
+    while IFS= read -r fp; do
+        [ -n "$fp" ] && [[ "$prev" == *"$fp"* ]] && return 0
+    done < <(_n1_fp_eligible_rows "$jsonl_file" "$cycle" | grep -o '"fp":"[^"]*"')
+    return 1
+}
+
+n1_fingerprint_filter_oos() {
+    # Usage: n1_fingerprint_filter_oos <jsonl> <cycle> <fix-changed-files> <review-prev.md> <index-file>
+    # Extra review round only (N1-345 D20). Removes from <index-file> each Index line
+    # `- [ID] <severity> <file>:<line> — <title>` (any severity/prefix) that is new and out of the fix's reach:
+    # ID absent from <review-prev.md>, fingerprint (file before the last ':', title) absent from bucket <cycle>-1,
+    # and file (./ stripped, case-insensitive) absent from <fix-changed-files>. Prints the removed lines verbatim.
+    # Fail-safe: a missing/empty input, cycle < 1 or an unparsable line keeps the finding in the loop.
+    # Reviewer text is read from files as data, never placed in shell command text (N1-136).
+    local jsonl="$1" cycle="$2" fixf="$3" prev="$4" idx="$5" sep=' — '
+    local line id sev rest loc file title fp norm bucket fixl tmp out=""
+    [[ "$cycle" =~ ^[0-9]+$ ]] && [ "$cycle" -ge 1 ] && [ -s "$fixf" ] && [ -r "$prev" ] && [ -r "$jsonl" ] && [ -r "$idx" ] || return 0
+    bucket=$(grep "\"cycle\":$((cycle - 1))," "$jsonl" 2>/dev/null)
+    fixl=$(sed 's|^\./||' "$fixf" | tr '[:upper:]' '[:lower:]')
+    tmp=$(mktemp "${idx}.XXXXXX") || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        if [[ "$line" =~ ^-\ \[([A-Z]+-[0-9]+)\]\ ([^ ]+)\ (.+)$ ]]; then
+            id=${BASH_REMATCH[1]}; sev=${BASH_REMATCH[2]}; rest=${BASH_REMATCH[3]}
+            if [[ "$rest" == *"$sep"* ]]; then
+                loc=${rest%%"$sep"*}; title=${rest#*"$sep"}
+                if [[ "$loc" == *:* ]]; then
+                    file=${loc%:*}
+                    if [ -n "$file" ] && [ -n "${title//[[:space:]]/}" ] && ! grep -qF -- "[$id]" "$prev"; then
+                        fp=$(n1_fingerprint_finding "$file" "$title")
+                        norm=$(printf '%s' "$file" | sed 's|^\./||' | tr '[:upper:]' '[:lower:]')
+                        if [[ "$bucket" != *"\"fp\":\"$fp\""* ]] && ! grep -qxF -- "$norm" <<< "$fixl"; then
+                            out+="$line"$'\n'; continue
+                        fi
+                    fi
+                fi
+            fi
+        fi
+        printf '%s\n' "$line" >> "$tmp"
+    done < "$idx"
+    if mv -f "$tmp" "$idx"; then printf '%s' "$out"; else rm -f "$tmp"; return 1; fi
+}
