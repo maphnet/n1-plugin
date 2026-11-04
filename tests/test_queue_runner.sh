@@ -231,7 +231,7 @@ EOF
 # the old Reason kept; a reset while the runner is live; a halted/done queue --run cannot resume; stale markers or
 # identity of the previous attempt leaking into the relaunch; another ticket's markers removed.
 test_queue_retry() {
-    local tmp q h out rc pid; source "$REPO_ROOT/lib/orca-queue.sh"   # before the RETURN trap: sourcing fires it
+    local tmp q h out rc pid _wf; source "$REPO_ROOT/lib/orca-queue.sh"   # before the RETURN trap: sourcing fires it
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     q="$tmp/queue/q1/queue.md"; h="$tmp/h"; mkdir -p "${q%/*}" "$h/queue/sentinels"
     cat > "$q" <<EOF
@@ -325,6 +325,20 @@ EOF
     n1_orca_liveness() { :; }
     rc=0; HOME="$tmp" n1_queue_retry "$q" T-7 >/dev/null 2>&1 || rc=$?
     assert_eq "retry: readable list with no worker for the task retried" "0|pending|no no" "$rc|$(plan_cell "$q" 7 8)|$(_kept 7 | paste -sd' ')"
+    # A failed step write changes nothing, and a second retry works once the file is writable again.
+    printf '| %s | T-%s | Fix | /r | %s | opus | failed | x |\n' 9 9 "$h" >> "$tmp/plan9"
+    sed -i "/^| 8 | T-8/r $tmp/plan9" "$q"
+    printf 'N1_ORCA_TASK=task-9\nN1_ORCA_RUN=run-1\n' > "$h/queue/sentinels/T-9.env"; : > "${q%/*}/.ask-T-9"
+    sed -i 's/^step: .*/step: halted/' "$q"; n1_orca_liveness() { :; }
+    _wf=$(declare -f n1_write_frontmatter); n1_write_frontmatter() { return 1; }
+    cp "$q" "$tmp/orig.md"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-9 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: failed step write leaves row, marker and identity intact" "1|same|yes|yes" \
+        "$rc|$(_same)|$([ -e "${q%/*}/.ask-T-9" ] && echo yes || echo no)|$([ -e "$h/queue/sentinels/T-9.env" ] && echo yes || echo no)"
+    eval "$_wf"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-9 >/dev/null 2>&1 || rc=$?
+    assert_eq "retry: second retry after the failed write succeeds" "0|pending|no" \
+        "$rc|$(plan_cell "$q" 9 8)|$([ -e "$h/queue/sentinels/T-9.env" ] && echo yes || echo no)"
     unset -f n1_orca_liveness; source "$REPO_ROOT/lib/orca-queue.sh"   # restore the real helper
     # Missing queue file.
     rc=0; out=$(HOME="$tmp" n1_queue_retry "" T-1 2>&1) || rc=$?

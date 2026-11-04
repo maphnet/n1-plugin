@@ -719,6 +719,37 @@ EOF
     rm -rf "$tmp"
 }
 
+# N1-271: reuse of a worktree checks the identity file's worker first. Bugs caught: a resume over a worker left running
+# after a worker-start timeout; an unreadable worker list read as "no worker"; a finished worker or no identity refused.
+test_orca_resume_identity_guard() {
+    local tmp wt ov idf mode started failed extra
+    for mode in live unreadable exited none; do
+        tmp=$(mktemp -d); mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+        wt="$tmp/wt/T-A"; ov="$tmp/n1home/memory/T-A/overview.md"; idf="$tmp/n1home/queue/sentinels/T-A.env"
+        mkdir -p "${ov%/*}" "${idf%/*}"
+        git init -q "$tmp" && git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i && git -C "$tmp" worktree add -q "$wt" -b t-a
+        printf '{"path":"%s"}' "$wt" > "$tmp/fake/worktrees"
+        printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n' "$wt" > "$ov"
+        [ "$mode" = none ] || printf 'N1_ORCA_TASK=task-T-A\nN1_ORCA_RUN=run-1\n' > "$idf"
+        case "$mode" in
+            live) wl_set "$tmp" "$(wl_row T-A running)" ;;
+            exited) wl_set "$tmp" "$(wl_row T-A released)" ;;
+        esac
+        extra=""; [ "$mode" != unreadable ] || extra=FAKE_ORCA_WL_FAIL_AFTER=0
+        run_orca_queue "$tmp" $extra N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+        started=$(grep -c 'worker-start' "$tmp/fake/orca-calls" || true)
+        failed="$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+        case "$mode" in
+            live|unreadable)
+                assert_eq "orca-resume-guard($mode): nothing started, name taken, identity kept" \
+                    "0|failed|orca-worktree-name-taken|yes" "$started|$failed|$([ -e "$idf" ] && echo yes || echo no)" ;;
+            *) assert_eq "orca-resume-guard($mode): resumed in the worktree" "yes" \
+                    "$(grep -qF -- "--worktree path:$wt" "$tmp/fake/orca-calls" && echo yes || echo no)" ;;
+        esac
+        rm -rf "$tmp"
+    done
+}
+
 # N1-271 SEC-2: a same-named worktree of another repo, even when overview.md names it, keeps the fail-closed error.
 test_orca_resume_foreign_repo_fails_closed() {
     local tmp wt; tmp=$(mktemp -d)
@@ -944,6 +975,7 @@ test_orca_forged_dispatch_ignored
 test_orca_settle_chain_before_sentinel
 test_orca_worktree_name_taken
 test_orca_resume_existing_worktree
+test_orca_resume_identity_guard
 test_orca_resume_foreign_repo_fails_closed
 test_orca_resume_mismatch_fails_closed
 test_orca_adopt_launch

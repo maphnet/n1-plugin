@@ -241,6 +241,20 @@ n1_orca_sentinel_path() { printf '%s/queue/sentinels/%s.env' "$1" "$2"; }   # <n
 # config, which a child can change (git remote set-url). ponytail: keyed by ticket only; ticket ids carry a project prefix.
 n1_orca_home_ptr() { printf '%s/.n1/orca-home/%s' "$HOME" "$1"; }
 
+n1_orca_identity_guard() {
+    # Usage: n1_orca_identity_guard <n1-home> <ticket> [fallback-run] — N1-271: the identity file says whether a worker
+    # may be live. Prints its task (empty when no identity file). Non-zero (fail closed) when the identity lacks task or
+    # run, the worker list is unreadable, or a listed worker for the task is neither exited nor done.
+    local idf task run L
+    idf=$(n1_orca_sentinel_path "$1" "$2")
+    [ -n "$1" ] && [ -e "$idf" ] || return 0
+    task=$(_n1_orca_sget "$idf" N1_ORCA_TASK); run=$(_n1_orca_sget "$idf" N1_ORCA_RUN)
+    [ -n "$run" ] || run="$3"
+    [ -n "$task" ] && [ -n "$run" ] && L=$(n1_orca_liveness "$run" 2>/dev/null) || return 1
+    ! awk -F'\t' -v k="$task" '$2 == k && $3 != "exited" && $4 != "done" { f = 1 } END { exit !f }' <<< "$L" || return 1
+    printf '%s' "$task"
+}
+
 n1_orca_sentinel_write() {
     # Usage: n1_orca_sentinel_write <n1-home> <ticket> <repo> <queue-run-id> <orca-run> <task>
     # Runner side, before worker-start: KEY=value lines (same env as a bg child's --settings), mode 600, atomic.
