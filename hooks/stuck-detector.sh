@@ -14,8 +14,8 @@ INPUT=$(cat)
 command -v jq >/dev/null 2>&1 || exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NUDGE_AT=3; DENY_AT=5
-# Raw polls exit non-zero while pending (gh pr checks: 8) with identical normalized errors; never a streak.
-POLL_RE='n1_wait_|lib/poll\.sh|gh[[:space:]]+(pr[[:space:]]+checks|run[[:space:]]+(list|view|watch))'
+# Raw standalone polls exit non-zero while pending (gh pr checks: 8) with identical normalized errors; never a streak.
+POLL_RE='^[[:space:]]*(n1_wait_|[^[:space:]]*lib/poll\.sh|gh[[:space:]]+(pr[[:space:]]+checks|run[[:space:]]+(list|view|watch)))'
 ID_RE='^[A-Za-z0-9_-]+$'
 
 IFS=$'\x1f' read -r ev tool sid aid cwd < <(jq -r '[.hook_event_name, .tool_name, .session_id,
@@ -73,7 +73,8 @@ telem() { # <kind> <count> <failure-hash>: no-op unless this session owns exactl
 
 if [ "$ev" = PostToolUseFailure ]; then
     cmd=$(jq -r '.tool_input.command // "" | strings' <<<"$INPUT" 2>/dev/null)
-    [[ "$cmd" =~ $POLL_RE ]] && exit 0
+    # Standalone polls only: a chained command (&& ; || |) falls through to normal failure tracking.
+    [[ "$cmd" =~ $POLL_RE && ! "$cmd" =~ [\;\&\|] ]] && exit 0
     norm=$(jq -r '.error // "" | strings' <<<"$INPUT" 2>/dev/null | head -n 3 | sed -E 's/[0-9]+/N/g' | head -c 300)
     F=$({ printf '%s\0' "$H"; printf '%s' "$norm"; } | _n1_sha256)
     [ -n "$F" ] || exit 0

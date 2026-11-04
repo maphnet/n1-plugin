@@ -84,6 +84,9 @@ for i in 1 2 3 4 5 6; do fail "gh pr checks 12" $'Exit code 8\nsome checks are s
 assert_eq "six identical failing gh pr checks: no nudge" "0" "$(nudges "$T/out")"
 assert_eq "failing polls: identical call never denied" "0|" "$(pre "gh pr checks 12")"
 assert_eq "failing polls: no state written" "0" "$(find "$SD" -type f 2>/dev/null | wc -l | tr -d ' ')"
+reset
+for i in 1 2 3 4 5; do fail "gh pr checks 1 && make test" >/dev/null; done
+assert_eq "compound poll+failing command: denied after 5" "2|" "$(pre "gh pr checks 1 && make test")"
 
 # Keying: per agent; invalid ids write nothing
 reset; AID=a1 fail "make test" >/dev/null; AID=a1 fail "make test" >/dev/null
@@ -155,6 +158,14 @@ mkdir -p "$SD"; printf 'a b 3 1\n' > "$SD/old"; printf 'a b 3 1\n' > "$SD/fresh"
 echo '{"session_id":"s-sweep","source":"resume"}' | N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" \
     bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
 assert_eq "session-start sweeps stale stuck state, keeps fresh" "fresh" "$(ls "$SD" | tr '\n' ' ' | sed 's/ $//')"
+
+# Symlinked scratch parent: the sweep must not delete inside the link target
+reset; rm -rf "$N1_HOME/scratch"; mkdir -p "$T/target/stuck"; printf 'a b 3 1\n' > "$T/target/stuck/old"; touch -d '3 days ago' "$T/target/stuck/old"
+ln -s "$T/target" "$N1_HOME/scratch"
+echo '{"session_id":"s-sweep2","source":"resume"}' | N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" \
+    bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "session-start sweep skips symlinked scratch parent" "old" "$(ls "$T/target/stuck")"
+rm -f "$N1_HOME/scratch"
 
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

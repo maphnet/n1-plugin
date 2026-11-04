@@ -112,7 +112,7 @@ if [ "${TRIGGER:-}" = startup ] && [ -n "$n1_memory_dir" ]; then
 fi
 
 # N1-342: stuck-detector state of ended or stuck sessions; a live session deletes it on any success or edit.
-if [ -n "$n1_memory_dir" ] && [ ! -L "$n1_memory_dir/scratch/stuck" ]; then
+if [ -n "$n1_memory_dir" ] && [ ! -L "$n1_memory_dir/scratch" ] && [ ! -L "$n1_memory_dir/scratch/stuck" ]; then
     find "$n1_memory_dir/scratch/stuck" -maxdepth 1 -type f -mtime +1 -delete 2>/dev/null || true
 fi
 
