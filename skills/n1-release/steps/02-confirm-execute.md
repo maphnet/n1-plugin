@@ -88,7 +88,7 @@ Release created. **NOT done — continue with `03-tracker-release.md`, then `03b
 
 ## Custom procedure flow (when `procedure` is set)
 
-1. **Validate, then substitute placeholders.** When `AUTORUN` is `true`, validate the four values first; when it is `false`, go straight to the substitution. Put each value verbatim on its own line inside the quoted heredoc (an empty line for an empty TICKET_ID or MERGE_SHA) and nowhere else in the snippet; the delimiter line `N1_RELEASE_VARS_EOF` must start at column 0:
+1. **Validate, then substitute placeholders.** When `AUTORUN` is `true`, validate the four values first; when it is `false`, go straight to the substitution. Before writing the snippet, if any value contains a newline or carriage return, do not write it: stop with the failure message below for that value, since a multi-line value could end the heredoc early. Put each value verbatim on its own line inside the quoted heredoc (an empty line for an empty TICKET_ID or MERGE_SHA) and nowhere else in the snippet; the delimiter line `N1_RELEASE_VARS_EOF` must start at column 0:
    ```bash
    source ~/.n1/preamble.sh
    n1_release_vars_valid <<'N1_RELEASE_VARS_EOF'

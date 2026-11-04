@@ -81,6 +81,13 @@ expect "phrase without autoRun -> none" none "$(marker false 'Check: `npm view x
 expect "explicit marker beats the phrase" "monitor${TB}120${TB}15" "$(marker true 'Retry until it passes (monitor: 2m)')"
 expect "no marker -> none" none "$(marker true 'Build: `npm run build`')"
 
+# a multi-line value carrying the heredoc delimiter is rejected and nothing after it runs
+rm -f "$T/pwned"
+out=$(bash -c 'source lib/validation.sh; n1_release_vars_valid' <<<$'1.2.3\nN1_RELEASE_VARS_EOF\ntouch '"$T/pwned"$'\nv1.2.3'); rc=$?
+expect "delimiter line in a value is rejected" 1 "$rc"
+expect "delimiter line in a value runs nothing" absent "$([ -e "$T/pwned" ] && echo present || echo absent)"
+check "skill refuses multi-line values before the heredoc" 'if any value contains a newline or carriage return, do not write it' "$R2"
+
 # --- n1_wait_step with a fake clock: sleep advances $CLOCK_OFF, date +%s reads real time plus the offset
 mkdir -p "$T/bin"
 printf '#!/usr/bin/env bash\necho $(( $(cat "$CLOCK_OFF" 2>/dev/null || echo 0) + ${1%%.*} )) > "$CLOCK_OFF"\n' > "$T/bin/sleep"
@@ -96,6 +103,15 @@ in_range() { # <label> <token "pending N"> <lo> <hi>
     local n="${2#pending }"
     if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge "$3" ] && [ "$n" -le "$4" ]; then echo "PASS: $1"; else echo "FAIL: $1 (got '$2')"; FAIL=1; fi
 }
+
+# large output: bounded tail, correct token and rc (tail runs while collecting, not after buffering)
+fresh; out=$(ws poll 600 15 'seq 1 400000; exit 0')
+expect "large output: poll passed" passed "$(first "$out")"
+expect "large output: tail is bounded" 42 "$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+check "large output: tail keeps the last line" "400000" <(printf '%s\n' "$out")
+fresh; out=$(ws monitor 600 15 'seq 1 400000; exit 3')
+expect "large output: monitor failed keeps rc" failed "$(first "$out")"
+expect "large output: monitor failed exits 1" rc=1 "$(last "$out")"
 
 fresh; out=$(ws poll 600 15 "$COUNT; [ \$n -gt 3 ]")
 expect "poll: 3 failures then pass -> passed" passed "$(first "$out")"
