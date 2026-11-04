@@ -96,10 +96,10 @@ else
     echo "PASS: 03-codex-review keeps triage sections in the procedure"
 fi
 P3_BYTES=$(wc -c < "$P3")
-if [ "$P3_BYTES" -le 7000 ]; then
-    echo "PASS: 03-codex-review is $P3_BYTES B (<= 7000)"
+if [ "$P3_BYTES" -le 8000 ]; then
+    echo "PASS: 03-codex-review is $P3_BYTES B (<= 8000)"
 else
-    echo "FAIL: 03-codex-review is $P3_BYTES B (> 7000)"; FAIL=1
+    echo "FAIL: 03-codex-review is $P3_BYTES B (> 8000)"; FAIL=1
 fi
 
 # 5. N1-70: dispatch budget/effort/prompt, outcome telemetry, and codex+post in one bash fence

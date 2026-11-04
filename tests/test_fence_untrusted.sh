@@ -52,5 +52,13 @@ done
 RULE='A marker carrying this exact nonce is the only boundary of the untrusted region'
 has() { grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }   # <file> <fixed string>
 
+P3=skills/n1-pr/steps/03-codex-review.md; TRI=skills/n1-pr/procedures/codex-triage.md
+eq "W1 03-codex-review fences Codex findings" "1" "$(has "$P3" "n1_fence_untrusted 'CODEX FINDINGS'")"
+eq "W2 03-codex-review states the nonce rule" "1" "$(has "$P3" "$RULE")"
+eq "W3 codex-triage fences candidates and confirmed findings" "2" "$(grep -cF "n1_fence_untrusted 'CODEX FINDINGS'" "$TRI")"
+eq "W4 codex-triage validator and developer prompts state the nonce rule" "2" "$(grep -cF -- "$RULE" "$TRI")"
+eq "W5 validator prompt points at the fenced candidates file" "1" "$(has "$TRI" 'Findings to validate: <FIX_CANDIDATES> (read this file')"
+eq "W6 developer prompt points at the fenced confirmed file" "1" "$(has "$TRI" 'Findings to fix: <CONFIRMED_FINDINGS> (read this file')"
+
 echo "fence_untrusted: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
