@@ -153,9 +153,8 @@ n1_wait_step() {
     end=$(( start + (remaining < POLL_CHUNK_SECONDS ? remaining : POLL_CHUNK_SECONDS) ))
     while :; do
         t=${N1_WAIT_CHECK_TIMEOUT:-60}; [[ "$t" =~ ^[1-9][0-9]*$ ]] || t=60; [ "$t" -gt 100 ] && t=100
-        out=$(timeout -k 5 "$t" bash -c "$cmd" 2>&1); rc=$?
+        out=$(timeout -k 5 "$t" bash -c "$cmd" 2>&1 | tail -n 40; exit "${PIPESTATUS[0]}"); rc=$?
         { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; } && out="check timed out after ${t}s"
-        out=$(tail -n 40 <<<"$out")
         if [ "$mode" = poll ] && [ "$rc" -eq 0 ]; then printf 'passed\n%s\n' "$out"; return 0; fi
         if [ "$mode" = monitor ] && [ "$rc" -ne 0 ]; then printf 'failed\n%s\n' "$out"; return 1; fi
         now=$(date +%s); rem=$(( remaining - (now - start) ))
