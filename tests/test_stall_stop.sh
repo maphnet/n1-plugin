@@ -143,7 +143,8 @@ eq "W8b Step 6b option 3 clears ci_fail_sig" "1" "$(grep -cE '^3\. Fix manually 
 eq "W9 NOT_BRANCH_CAUSED clears ci_fail_sig (D8)" "1" "$(grep -cE 'NOT_BRANCH_CAUSED.*treat as `escalate`.*clear `ci_fail_sig`' "$CF")"
 eq "W17 Step 5 escalate path clears ci_fail_sig" "1" "$(grep -cE '^- `escalate` .*ask user immediately.*clear `ci_fail_sig`' "$CF")"
 eq "W18 Step 5b option 2 clears ci_fail_sig" "1" "$(grep -cE 'On option 2, clear `ci_fail_sig`' "$CF")"
-eq "W19 n1-ci option lists state no recommendation" "2" "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$CF")"
+eq "W19 n1-ci option lists state no recommendation" "3" "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$CF")"
+eq "W19b Step 5b option list is preceded by the no-recommendation sentence" "1" "$(grep -cE 'report path, with this sentence first, "No recommendation\. ' "$CF")"
 S7_LN=$(grep -n '^### Update overview.md' "$CF" | head -1 | cut -d: -f1)
 RE_LN=$(grep -nE '^Clear `ci_fail_sig` first' "$CF" | head -1 | cut -d: -f1)
 eq "W16 Step 7 run end clears ci_fail_sig (no stall across n1-ci runs)" "1" "$([ -n "$S7_LN" ] && [ -n "$RE_LN" ] && [ "$S7_LN" -lt "$RE_LN" ] && echo 1 || echo 0)"

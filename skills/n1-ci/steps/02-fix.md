@@ -22,7 +22,7 @@ Only when a check is classified `escalate` (needs the user) with a valid run ID 
 
 After developer returns for `unknown` checks:
 - confidence >= `0.7` → accept fix
-- confidence < `0.7` → present to user with the one-line evidence and the report path:
+- confidence < `0.7` → present to user with the one-line evidence and the report path, with this sentence first, "No recommendation. The options are equivalent given the available evidence; select based on team preference.":
   "1 — Accept fix / 2 — Provide guidance / 3 — Skip this check"
   On option 2, clear `ci_fail_sig` (`stall-stop.md § Reset`, N1 runs only).
 
