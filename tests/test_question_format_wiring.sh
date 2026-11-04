@@ -59,4 +59,14 @@ done
 check "fix.md keeps the pinned mark on option 1" 'Always mark \(Recommended\) on 1' skills/n1-start/steps/fix.md
 check "ticket-watch-react: Re-plan carries a works-when note" 'Re-plan: works when ' skills/n1-start/procedures/ticket-watch-react.md
 
+# --- n1-brainstorm
+pointer skills/n1-brainstorm/SKILL.md
+lacks "n1-brainstorm: no bare-word recommended answer" 'with a recommended answer for each' skills/n1-brainstorm/SKILL.md
+lacks "n1-brainstorm: no bare-word recommended approach" 'accept the recommended one' skills/n1-brainstorm/SKILL.md
+# --- n1-clean
+pointer skills/n1-clean/steps/03-confirm.md
+check "n1-clean: SKILL.md reads the confirm step" 'steps/03-confirm\.md' skills/n1-clean/SKILL.md
+check "n1-clean: Select carries a works-when note" '^2 — Select which to remove \(Completed and Abandoned\): works when ' skills/n1-clean/steps/03-confirm.md
+lacks "n1-clean: prompt moved out of SKILL.md" 'Remove all Stale and Completed \(Recommended' skills/n1-clean/SKILL.md
+
 exit "$FAIL"
