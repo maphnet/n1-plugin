@@ -49,7 +49,7 @@ Options 4 and 5 appear only with a non-empty Actions list. `EDIT_OP` empty: repl
 
 ## Step 3b: Conversion
 
-`A1` not listed: skip. Jira: call `mcp__<VERSION_MCP>__jcm_convertIssueType` with `issueKeys: [<ID>]`, `issueTypeName: <CONVERT>` (`Task` or `Story`), as `skills/n1-start/steps/ticket.md` does for Story to Task. `ok: true`: report "Converted <ID> to <CONVERT>". Anything else (an error, `RUNNING`, declined): print the error or message, keep the block, and when `CONVERT=Story` skip Step 3c (Jira rejects Sub-tasks under a Task).
+`A1` not listed: skip. Jira: call `mcp__<VERSION_MCP>__jcm_convertIssueType` with `issueKeys: [<ID>]`, `issueTypeName: <CONVERT>` (`Task` or `Story`), as `skills/n1-start/procedures/ticket-story.md` does for Story to Task. `ok: true`: report "Converted <ID> to <CONVERT>". Anything else (an error, `RUNNING`, declined): print the error or message, keep the block, and when `CONVERT=Story` skip Step 3c (Jira rejects Sub-tasks under a Task).
 
 ## Step 3c: Children
 
