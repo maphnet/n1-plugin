@@ -131,7 +131,7 @@ n1_head_record() {
     n1_bind_run_to_ticket
     [ -n "${N1_RUN_ID:-}" ] && [ -n "${ID:-}" ] || { echo "n1_head_record: no run or ticket bound (ID=${ID:-<unset>}); head not recorded" >&2; return 0; }
     to=$(git rev-parse HEAD 2>/dev/null) || return 0
-    [[ "$from" =~ ^[0-9a-f]{40}$ ]] || from=""
+    [[ "$from" =~ ^[0-9a-f]{40}$ && "$to" =~ ^[0-9a-f]{40}$ ]] || { echo "n1_head_record: from or HEAD is not a 40-hex SHA; head not recorded" >&2; return 0; }
     n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID}" head 0 "${N1_HOME}/memory/${ID}/telemetry" \
         completed_at=now outcome=success "metadata={\"head\":\"$to\",\"from\":\"$from\"}" || true
     return 0

@@ -439,7 +439,8 @@ n1_review_artifacts_ok() {
     # ticket's ended step events in run-file (chronological) order: an ended "review" event sets the
     # chain to its metadata.head (a missing head breaks it); a "head" event (n1_head_record: soft-fix
     # pass, n1-pr doc commit, conflict-free rebase) moves it to metadata.head only when metadata.from
-    # equals the current end. A broken chain stays broken until the next review event.
+    # equals the current end (a record whose head already is the end is a no-op); heads and froms
+    # that are not 40-hex count as missing. A broken chain stays broken until the next review event.
     # ponytail: blocks stale artifacts and unrecorded commits, not forgery (memory and telemetry are
     # agent-writable; signed evidence would be a separate ticket). review-sec.md is not required
     # because "security reviewer required" is not persisted. n1-finish's pin == head check stays the backstop.
@@ -455,10 +456,12 @@ n1_review_artifacts_ok() {
         grep -qh '"layer":"step","step":"review"' "${steps[@]}" 2>/dev/null || { printf '%s' "$id"; return 1; }
         if [ -n "$head" ]; then
             end=$(jq -Rrn '
+                def sha: if type == "string" and test("^[0-9a-f]{40}$") then . else null end;
                 [inputs | fromjson? | objects | select(.layer == "step" and has("outcome"))]
                 | reduce .[] as $e (null;
-                    if $e.step == "review" then $e.metadata.head
-                    elif $e.step == "head" then (if . != null and $e.metadata.from == . then $e.metadata.head else null end)
+                    (($e.metadata | objects | .head | sha) // null) as $to | (($e.metadata | objects | .from | sha) // null) as $from
+                    | if $e.step == "review" then $to
+                    elif $e.step == "head" then (if . != null and $to == . then . elif . != null and $from == . then $to else null end)
                     else . end)
                 | strings' "${steps[@]}" 2>/dev/null)
             [[ "$end" =~ ^[0-9a-f]{40}$ ]] && [ "$end" = "$head" ] || { printf '%s' "$id"; return 3; }
