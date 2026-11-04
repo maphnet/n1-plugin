@@ -11,18 +11,33 @@ source "$_N1_CI_RERUN_LIB/treestate.sh"
 
 _N1_CI_RERUN_CAP=3
 _N1_CI_INFRA_NAME='timeout|runner|infrastructure'
-_N1_CI_INFRA_LOG='runner .*(lost communication|shutdown)|shutdown signal|No space left on device|ETIMEDOUT|ECONNRESET|ENOTFOUND|connection (timed out|reset)|TLS handshake timeout|Could not resolve host|Temporary failure in name resolution|50[234] (Bad Gateway|Service Unavailable|Gateway Time-?out)|429 Too Many Requests|timed out'
+_N1_CI_INFRA_LOG='runner .*(lost communication|shutdown)|shutdown signal|No space left on device|ETIMEDOUT|ECONNRESET|ENOTFOUND|connection (timed out|reset)|TLS handshake timeout|Could not resolve host|Temporary failure in name resolution|50[234] (Bad Gateway|Service Unavailable|Gateway Time-?out)|429 Too Many Requests|exceeded the maximum execution time|The operation was canceled'
 _N1_CI_ASSERT_LOG='AssertionError|expected .* (to|but)|(^|[[:space:]])FAIL[: ]|[1-9][0-9]* (tests? )?failed'
 
-# n1_ci_log_infra <run-id>: rc 0 when the failed-job log (last 500 lines) shows a runner, network or
-# timeout failure and no assertion. Any error, empty log or no match -> rc 1. Prints nothing.
-n1_ci_log_infra() {
+# _n1_ci_log_tail <run-id>: last 40 lines of the failed-job log (the cause is near the end; earlier lines are
+# retry noise). rc 1 on a bad id, gh error or empty log.
+_n1_ci_log_tail() {
     local log
     [[ "${1:-}" =~ ^[0-9]+$ ]] || return 1
     log=$(timeout -k 5 45 gh run view "$1" --log-failed 2>&1) || return 1
-    log=$(tail -n 500 <<<"$log")
+    log=$(tail -n 40 <<<"$log")
     [ -n "$log" ] || return 1
+    printf '%s\n' "$log"
+}
+
+# n1_ci_log_infra <run-id>: rc 0 when the failed-job log tail shows a runner, network or timeout failure and
+# no assertion. Any error, empty log or no match -> rc 1. Prints nothing.
+n1_ci_log_infra() {
+    local log
+    log=$(_n1_ci_log_tail "$1") || return 1
     grep -Eq "$_N1_CI_INFRA_LOG" <<<"$log" && ! grep -Eq "$_N1_CI_ASSERT_LOG" <<<"$log"
+}
+
+# n1_ci_log_assert <run-id>: rc 0 only when the log tail shows an assertion failure. Unreadable log -> rc 1.
+n1_ci_log_assert() {
+    local log
+    log=$(_n1_ci_log_tail "$1") || return 1
+    grep -Eq "$_N1_CI_ASSERT_LOG" <<<"$log"
 }
 
 # n1_ci_rerun_gate <overview.md> <pr#> <fail-tsv> [escalate-ere]: prints dispatch or rerun:<k>/<cap>; rc 0.
@@ -56,7 +71,11 @@ n1_ci_rerun_gate() {
             grep -Eiq -- "$esc" <<<"${names[$i]}"; rc=$?
             [ "$rc" -eq 1 ] || { echo dispatch; return 0; }   # match (0) or bad ERE (2)
         fi
-        grep -Eiq "$_N1_CI_INFRA_NAME" <<<"${names[$i]}" || n1_ci_log_infra "${ids[$i]}" || { echo dispatch; return 0; }
+        if grep -Eiq "$_N1_CI_INFRA_NAME" <<<"${names[$i]}"; then
+            ! n1_ci_log_assert "${ids[$i]}" || { echo dispatch; return 0; }   # name hint never overrides an assertion
+        else
+            n1_ci_log_infra "${ids[$i]}" || { echo dispatch; return 0; }
+        fi
     done
     # Count first: a failed write stops before any rerun, so reruns never run uncounted.
     n1_write_frontmatter "$o" ci_rerun_count "$((count + ${#ids[@]}))" || { echo dispatch; return 0; }

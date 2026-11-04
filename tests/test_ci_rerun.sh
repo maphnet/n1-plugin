@@ -41,7 +41,7 @@ eq "A1 infra-named check at count 0 -> rerun:1/3" "rerun:1/3" "$(gate)"
 eq "A1b gh run rerun <id> --failed called once" "1" "$(grep -cxF 'run rerun 111 --failed' "$T/calls")"
 eq "A1c ci_rerun_count=1" "1" "$(fm ci_rerun_count)"
 eq "A1d ci_rerun_sha is the head SHA" "$SHA1" "$(fm ci_rerun_sha)"
-eq "A1e no log fetched for a name match" "0" "$(grep -c '^run view' "$T/calls")"
+eq "A1e name match with no readable log still reruns" "rerun:1/3" "$(ov; fails runner-timeout "$(L 111)"; gate)"
 ov; fails build "$(L 222)"; printf 'build\tTest\t2026-11-04T00:00:00Z Error: connect ETIMEDOUT 10.0.0.1:443\n' > "$T/log.222"
 eq "A1f log shows a network timeout -> rerun:1/3" "rerun:1/3" "$(gate)"
 ov; fails build "$(L 333)"; printf 'x\ty\tz Error: connect ETIMEDOUT\nx\ty\tz AssertionError: 1 != 2\n' > "$T/log.333"
@@ -51,6 +51,14 @@ ov; fails build "$(L 334)"; printf 'x\ty\tz FAIL: tests/test_a.sh\nx\ty\tz conne
 eq "A1i FAIL: line in the log -> dispatch" "dispatch" "$(gate)"
 ov; fails lint "$(L 444)"
 eq "A1j non-infra name with no log available -> dispatch" "dispatch" "$(gate)"
+
+ov; fails runner-tests "$(L 335)"; printf 'x\ty\tz AssertionError: 1 != 2\n' > "$T/log.335"
+eq "A1k infra-named check with an assertion log -> dispatch" "dispatch" "$(gate)"
+eq "A1l no rerun call for it" "0" "$(reruns)"
+ov; fails build "$(L 336)"; { printf 'x\ty\tz npm warn ETIMEDOUT retrying\n'; for n in $(seq 60); do printf 'x\ty\tz tsc error TS%s\n' "$n"; done; } > "$T/log.336"
+eq "A1m early retry noise followed by a compile error -> dispatch" "dispatch" "$(gate)"
+ov; fails build "$(L 337)"; printf 'x\ty\tz request timed out, retrying\nx\ty\tz eslint: no-unused-vars\n' > "$T/log.337"
+eq "A1n generic 'timed out' alone is not an infra signature -> dispatch" "dispatch" "$(gate)"
 
 # ---- AC2: fall-through to the existing path ----
 ov; n1_write_frontmatter "$OV" ci_rerun_sha "$SHA1"; n1_write_frontmatter "$OV" ci_rerun_count 3
