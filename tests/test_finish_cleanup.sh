@@ -14,7 +14,7 @@ fail() { echo "FAIL: $1 -- expected '$2', got '$3'"; FAIL=$((FAIL + 1)); }
 assert_eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "$2" "$3"; fi; }
 assert_prefix() { case "$3" in "$2"*) pass "$1" ;; *) fail "$1" "$2*" "$3" ;; esac; }
 
-T=$(mktemp -d)
+T=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$T"' EXIT
 export N1_HOME="$T/home"; mkdir -p "$N1_HOME"
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
@@ -46,14 +46,14 @@ assert_eq "C1: branch gone" no "$(has_branch f1)"
 
 # C2: external with uncommitted changes -> kept, never forced.
 new_wt "$T/ext2" f2; git -C "$M" merge -q --no-ff -m m2 f2; echo dirty > "$T/ext2/dirty"
-assert_eq "C2: dirty external kept" "worktree:kept (dirty),branch:kept (worktree kept)" "$(run "$T/ext2" f2 "$(tip f2)")"
+assert_eq "C2: dirty external kept" "worktree:kept (dirty),branch:kept (checked out in $T/ext2)" "$(run "$T/ext2" f2 "$(tip f2)")"
 assert_eq "C2: dir kept" yes "$(has_dir "$T/ext2")"
 assert_eq "C2: branch kept" yes "$(has_branch f2)"
 
 # C3: external with a local commit not in the merged PR head -> kept.
 new_wt "$T/ext3" f3; OID3=$(tip f3)
 echo more > "$T/ext3/more"; git -C "$T/ext3" add . ; git -C "$T/ext3" commit -q -m extra
-assert_eq "C3: unmerged external kept" "worktree:kept (unmerged),branch:kept (worktree kept)" "$(run "$T/ext3" f3 "$OID3")"
+assert_eq "C3: unmerged external kept" "worktree:kept (unmerged),branch:kept (checked out in $T/ext3)" "$(run "$T/ext3" f3 "$OID3")"
 assert_eq "C3: dir kept" yes "$(has_dir "$T/ext3")"
 
 # C5: N1-managed worktree (under n1_worktree_root) is force-removed even when dirty; branch deleted too.
@@ -95,9 +95,9 @@ assert_prefix "C9: locked -> removal failed reported" "worktree:remove-failed ("
 assert_eq "C9: never non-zero" 0 "$RC9"
 assert_eq "C9: branch kept" yes "$(has_branch f9)"
 
-# C11: branch name differs from the checkout -> kept-other, own branch still deleted.
+# C11: the PR's branch is not checked out anywhere -> worktree:none; another ticket's worktree untouched, branch deleted.
 new_wt "$T/ext11" f11; git -C "$M" merge -q --no-ff -m m11 f11; git -C "$M" branch -q f11b; git -C "$M" merge -q f11b
-assert_eq "C11: other ticket worktree untouched" "worktree:kept-other,branch:deleted" "$(run "$T/ext11" f11b "")"
+assert_eq "C11: other ticket worktree untouched" "worktree:none,branch:deleted" "$(run "$T/ext11" f11b "")"
 assert_eq "C11: dir kept" yes "$(has_dir "$T/ext11")"
 
 # C10: branch mode (plain checkout on the feature branch): switch to default, delete; re-run no-ops.
@@ -121,7 +121,7 @@ assert_eq "C17: N1-managed unmerged, no oid" "worktree:removed,branch:kept (not 
 new_wt "$T/ext18" f18; git -C "$M" merge -q --no-ff -m m18 f18
 echo ".env" > "$T/ext18/.gitignore"; git -C "$T/ext18" add .gitignore; git -C "$T/ext18" commit -q -m ign
 git -C "$M" merge -q f18; echo secret > "$T/ext18/.env"
-assert_eq "C18: ignored files keep worktree" "worktree:kept (ignored files),branch:kept (worktree kept)" "$(run "$T/ext18" f18 "$(tip f18)")"
+assert_eq "C18: ignored files keep worktree" "worktree:kept (ignored files),branch:kept (checked out in $T/ext18)" "$(run "$T/ext18" f18 "$(tip f18)")"
 assert_eq "C18: .env intact" yes "$(has_dir "$T/ext18")"
 
 # C19: separate-git-dir main checkout: branch ops hit the right repo.
@@ -137,10 +137,38 @@ assert_eq "C20: outside a repo, no args" "worktree:none,branch:none,rc:0" "$OUT2
 OUT20=$(bash -c 'set -euo pipefail; source "$1/lib/config.sh"; cd "$2"; n1_finish_cleanup f1; echo rc:$?' _ "$SCRIPT_DIR/.." "$M" | paste -sd, -)
 assert_eq "C20: in a repo, too few args" "worktree:none,branch:none,rc:0" "$OUT20"
 
+# C22 (N1-339): finish from the main checkout removes the worktree that holds the branch.
+new_wt "$T/ext22" f22; git -C "$M" merge -q --no-ff -m m22 f22
+assert_eq "C22: from main -> removed + deleted" "worktree:removed,branch:deleted" "$(run "$M" f22 "$(tip f22)")"
+assert_eq "C22: dir gone" no "$(has_dir "$T/ext22")"
+assert_eq "C22: branch gone" no "$(has_branch f22)"
+
+# C23: run from another ticket's worktree: only the branch holder is removed.
+new_wt "$T/ext23a" f23a; new_wt "$T/ext23" f23; git -C "$M" merge -q --no-ff -m m23 f23
+assert_eq "C23: from other worktree -> target removed" "worktree:removed,branch:deleted" "$(run "$T/ext23a" f23 "$(tip f23)")"
+assert_eq "C23: caller worktree untouched" yes "$(has_dir "$T/ext23a")"
+
+# C24: open-PR (unmerged) dirty worktree run from main is untouched.
+new_wt "$T/ext24" f24; echo d > "$T/ext24/d"
+assert_eq "C24: open-PR dirty untouched" "worktree:kept (dirty),branch:kept (checked out in $T/ext24)" "$(run "$M" f24 "")"
+assert_eq "C24: dir kept" yes "$(has_dir "$T/ext24")"
+assert_eq "C24: branch kept" yes "$(has_branch f24)"
+
+# C25: branch held by the main checkout: main is never removed, holder is named.
+git -C "$M" checkout -q -b f25; git -C "$M" commit -q --allow-empty -m f25
+git -C "$M" checkout -q main; git -C "$M" merge -q --no-ff -m m25 f25; git -C "$M" checkout -q f25
+assert_eq "C25: main holder named" "worktree:none,branch:kept (checked out in $M)" "$(run "$M" f25 "$(tip f25)")"
+git -C "$M" checkout -q main
+
+# C26: registered worktree whose directory is gone: stale entry pruned, branch deleted.
+new_wt "$T/ext26" f26; git -C "$M" merge -q --no-ff -m m26 f26; rm -rf "$T/ext26"
+assert_eq "C26: missing dir -> pruned + deleted" "worktree:none,branch:deleted" "$(run "$M" f26 "$(tip f26)")"
+
 # Static: Step 6 delegates to the helper and no longer exempts external worktrees.
 R="$SCRIPT_DIR/.."; STEP6="$R/skills/n1-finish/steps/06-cleanup.md"
 yn() { "$@" && echo yes || echo no; }
-assert_eq "S1: step 6 calls n1_finish_cleanup" yes "$(yn grep -qF 'n1_finish_cleanup "$HR"' "$STEP6")"
+assert_eq "S1: step 6 calls n1_clean_ticket last" yes "$(yn grep -qF 'n1_clean_ticket "$ID" finish "$HR" "$OID" "$DB"' "$STEP6")"
+assert_eq "S5: step 6 no longer documents kept-other" no "$(yn grep -qF 'kept-other' "$STEP6")"
 assert_eq "S2: step 6 has no inline worktree remove / -D" no "$(yn grep -qE 'git worktree remove|git branch -D' "$STEP6")"
 assert_eq "S3: step 6 fetches headRefOid in the cleanup block" yes "$(yn grep -qF 'headRefOid' "$STEP6")"
 assert_eq "S4: architecture.md drops external exemption" no "$(yn grep -qF 'Does not apply to external worktrees' "$R/references/architecture.md")"

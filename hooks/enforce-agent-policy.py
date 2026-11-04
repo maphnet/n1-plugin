@@ -449,7 +449,7 @@ def _command(payload):
     return command if isinstance(command, str) else None
 
 
-TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b")
+TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1-clean\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b")
 
 
 # Bash text of an Orca child (best effort, accidental tamper only, like TAIL_DENY_RE: an obfuscated command is

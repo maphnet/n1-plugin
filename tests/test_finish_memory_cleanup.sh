@@ -33,6 +33,7 @@ for pass in 1 2; do
     grep -q '^step: done' "$OV"; chk "run $pass: step done" $?
     grep -q 'memory:done' <<<"$OUT"; chk "run $pass: memory status printed" $?
     grep -q 'branch:none' <<<"$OUT" && grep -q 'worktree:none' <<<"$OUT"; chk "run $pass: branch/worktree status printed" $?
+    chk "run $pass: one Cleanup line in Finish" $([ "$(grep -c '^- \*\*Cleanup:\*\* worktree:none, branch:none' "$OV")" = 1 ]; echo $?)
 done
 chk "no leftover temp files" $([ -z "$(ls "$T/home/memory/T-1" | grep -v '^overview.md$')" ]; echo $?)
 
@@ -46,9 +47,10 @@ wt feat
 grep -qx 'worktree:removed' <<<"$OUT"; chk "worktree: removed status" $?
 chk "worktree: directory gone" $([ ! -d "$T/repo/.claude/worktrees/feat" ]; echo $?)
 grep -qx 'branch:deleted' <<<"$OUT"; chk "worktree: branch status printed" $?
+grep -q '^- \*\*Cleanup:\*\* worktree:removed, branch:deleted' "$OV"; chk "worktree: overview Cleanup line recorded" $?
 # Linked worktree of another ticket (branch differs from the finished PR's head): untouched.
 HR=other-pr wt mine; HR=
-grep -qx 'worktree:kept-other' <<<"$OUT"; chk "other ticket worktree: kept-other status" $?
+grep -qx 'worktree:none' <<<"$OUT"; chk "other ticket worktree: none status" $?
 chk "other ticket worktree: directory stays" $([ -d "$T/repo/.claude/worktrees/mine" ]; echo $?)
 chk "other ticket worktree: its branch stays" $(git -C "$T/repo" rev-parse --verify -q mine >/dev/null; echo $?)
 # Invalid head ref is rejected before anything runs.

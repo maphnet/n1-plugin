@@ -69,7 +69,7 @@ case "$1" in
         echo "launch $name" >> "$D/events"
         printf '%s\n' "$all" > "$D/args.$name"
         printf '%s\n' "$settings" > "$D/settings.$name"
-        if [ -f "$D/refuse" ]; then
+        if [ -f "$D/refuse" ] || { [ -f "$D/refuse-clean" ] && [ "${name%-clean}" != "$name" ]; }; then
             echo "Bypass Permissions mode requires accepting the disclaimer first. Run claude --dangerously-skip-permissions once."
             exit 1
         fi
@@ -87,7 +87,7 @@ case "$1" in
             name="${f##*/prompt.}"; t=$(cat "$f"); t="${t% chained}"; t="${t##* }"
             c=$(( $(cat "$D/poll.$name" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$D/poll.$name"
             # N1-185: a chained n1-finish session (<name>-fin) replays states.<t>.fin (default done).
-            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; esac
+            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; *-clean) sf="$D/states.$t.clean" ;; esac
             read -r -a seq 2>/dev/null < "$sf" || seq=(done)
             i=$(( c < ${#seq[@]} ? c - 1 : ${#seq[@]} - 1 ))
             st="${seq[$i]}"

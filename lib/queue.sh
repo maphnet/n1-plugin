@@ -215,6 +215,19 @@ n1_queue_finish_cmd() {
     n1_bg_launch_cmd "$5" n1-finish "$2 chained" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
 }
 
+n1_queue_clean_cmd() {
+    # Usage: n1_queue_clean_cmd <repoPath> <ticket-id> <model> <run-id> <session-name>
+    # N1-339: background `n1-clean --ticket <ticket>` for a merged row, same settings env as a chained finish.
+    # The runner never removes a worktree itself.
+    n1_bg_launch_cmd "$5" n1-clean "--ticket $2" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
+}
+
+n1_queue_cleanup_needed() {
+    # Usage: n1_queue_cleanup_needed <overview.md> - N1-339: exit 0 (launch a clean) unless the overview's Cleanup
+    # line already shows the branch deleted or absent (finish cleaned it).
+    ! grep -qE '^- \*\*Cleanup:\*\* .*branch:(deleted|none)' "$1" 2>/dev/null
+}
+
 n1_queue_pr_state() {
     # Usage: n1_queue_pr_state <pr-url> — N1-185: OPEN/MERGED/CLOSED for a GitHub PR URL. Prints
     # nothing for any other URL (SEC-2 shape, as in n1_queue_held_sweep) or on a gh error; callers
@@ -1165,6 +1178,14 @@ n1_queue_dispatch_skips() {
     return 0
 }
 
+n1_queue_cleanup_left() {
+    # Usage: n1_queue_cleanup_left <events.jsonl> - N1-339: "<ticket>: <reason>" for each ticket whose last
+    # ticket_cleanup event was not a success. A missing or unreadable file prints nothing.
+    jq -rRn '[inputs | fromjson? | objects | select(.event == "ticket_cleanup")] | group_by(.ticket)[] | last
+        | select(.outcome != "success") | "\(.ticket): \(.reason)"' "$1" 2>/dev/null
+    return 0
+}
+
 n1_queue_event() {
     # Usage: n1_queue_event <events.jsonl> <queue_id> <run_id> <event> [key=value]...
     # Appends one JSON line. Every line carries the same 10 keys (ts, queue, run_id, event,
@@ -1358,7 +1379,7 @@ n1_fmt_elapsed() {
 
 n1_queue_status_table() {
     # Usage: n1_queue_status_table <queue.md> <events.jsonl>
-    # Prints one tab-separated row per Plan row: Ticket State Step Elapsed Cost PR Attach.
+    # Prints one tab-separated row per Plan row: Ticket State Step Elapsed Cost PR Attach Cleanup.
     # Live-overrides State for in-progress/awaiting-human rows from
     # `claude agents --json --all` via n1_queue_bg_state (same missing/failed degradation
     # it already applies; no second failure path).
@@ -1404,7 +1425,8 @@ n1_queue_status_table() {
                 fi
                 ;;
         esac
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ticket" "$state" "$step" "$elapsed" "$cost" "$pr" "$attach"
+        local cln; cln=$(sed -n 's/^- \*\*Cleanup:\*\* //p' "$n1h/memory/$ticket/overview.md" 2>/dev/null | head -1)
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ticket" "$state" "$step" "$elapsed" "$cost" "$pr" "$attach" "$(_n1_queue_sanitize_cell "$cln")"
     done < <(awk -F'|' '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 ~ /^[0-9]+$/ && NF >= 9 { printf "%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7, $8 }' "$file")
 }
 

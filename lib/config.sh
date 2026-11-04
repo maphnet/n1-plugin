@@ -940,51 +940,169 @@ n1_workspace_decide() {
     return 0
 }
 
-# N1-112: n1-finish Step 6 worktree + local-branch cleanup; prints status tokens, one per line, always returns 0.
-# Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch>   (run from the feature checkout)
-# A branch checked out in a worktree cannot be deleted, so the worktree goes first. N1-managed worktrees
-# are force-removed; external ones only when clean and HEAD is in the merged result (oid, else <defaultBranch>),
-# never forced. Branch: tip must be an ancestor of the merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
-# After a removal the shell is left in the main checkout.
-# Orca-owned worktrees (n1_orca_owns) are removed through n1_orca_rm; ignored files do not block them (N1-224).
+# N1-339: "<path>\t<branch ref or empty>" per worktree from git porcelain, main checkout first.
+_n1_wt_records() {
+    git worktree list --porcelain 2>/dev/null | awk '/^worktree /{p=substr($0,10)} /^branch /{b=substr($0,8)} /^$/{print p "\t" b; p=""; b=""} END{if(p!="")print p "\t" b}'
+}
+
+# N1-339: path of the worktree (main checkout included) holding refs/heads/<branch>, or nothing. A worktree holds its
+# branch exclusively, so this exact match can never select another ticket's tree.
+_n1_wt_holder() {
+    [ -n "${1:-}" ] || return 0
+    _n1_wt_records | B="refs/heads/$1" awk -F'\t' '$2 == ENVIRON["B"] {print $1; exit}'
+    return 0
+}
+
+# N1-339: removal gate for linked worktree <top>. Prints "<mode>\t<keep>": mode orca (Orca-owned, via n1_orca_rm, never
+# forced, ignored files do not block) | force (under <main>/<worktree_root>, not Orca-owned, no gates; finish trigger only)
+# | managed (same tree, but <nof>=1: gated like plain, ignored files do not block, never forced) | plain (external, never
+# forced). keep is empty or dirty | ignored files | unmerged | orca-unreachable (Orca CLI installed, runtime down: ownership
+# unknown, so no plain-git removal behind Orca's back).
+_n1_clean_gate() {
+    local top="$1" main="$2" oid="$3" def="$4" nof="${5:-}" mode=plain keep="" st
+    if n1_orca_owns "$top"; then mode=orca
+    else
+        case "$top" in "$main/$(n1_worktree_root)"/*) mode=force; [ "$nof" = 1 ] && mode=managed ;; esac
+        [ -n "${ORCA_CLI_COMMAND:-}" ] && [ -x "$ORCA_CLI_COMMAND" ] && ! n1_orca_active && keep="orca-unreachable"
+    fi
+    if [ -z "$keep" ] && [ "$mode" != force ]; then
+        if ! st=$(git -C "$top" status --porcelain --ignored 2>/dev/null) || [ -n "$(grep -v '^!!' <<<"$st")" ]; then keep="dirty"
+        elif [ -n "$st" ] && [ "$mode" = plain ]; then keep="ignored files"
+        elif ! git -C "$top" merge-base --is-ancestor HEAD "${oid:-refs/heads/$def}" 2>/dev/null; then keep="unmerged"; fi
+    fi
+    printf '%s\t%s\n' "$mode" "$keep"
+}
+
+# N1-112/N1-339: worktree + local-branch cleanup for a merged ticket; prints status tokens, one per line, always returns 0.
+# Usage: n1_finish_cleanup <branch> <merged-pr-head-oid|""> <defaultBranch> [<nof>]   (any cwd inside the repository)
+# <nof>=1 (every trigger but finish): N1-managed trees are gated (dirty, unmerged) and never removed with --force.
+# The worktree is the linked one holding refs/heads/<branch> (never the main checkout, never chosen by cwd); it goes
+# first because a checked-out branch cannot be deleted. Gates: _n1_clean_gate. Branch: tip must be an ancestor of the
+# merged result (oid, else <defaultBranch>), then -d; -D only when the tip equals the merged PR head oid (squash/rebase).
+# When the cwd's worktree was removed the shell is left in the main checkout.
 n1_finish_cleanup() {
-    local branch="${1:-}" oid="${2:-}" def="${3:-}"
-    local gd gcd main top err cur st keep="" force=""
-    gd=$(cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
-        && gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
+    local branch="${1:-}" oid="${2:-}" def="${3:-}" nof="${4:-}"
+    local gcd main top err mode="" keep="" holder
+    gcd=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P) \
         && main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p') && [ -n "$main" ] \
         || { echo worktree:none; echo branch:none; return 0; }
     local G=(git --git-dir="$gcd")
-    if [ "$gd" = "$gcd" ]; then echo "worktree:none"
+    top=$(_n1_wt_holder "$branch"); [ "$top" = "$main" ] && top=""
+    # A registered worktree whose directory is gone cannot be gated or removed: drop its stale admin entry (locked ones
+    # survive the prune and are then named by the branch check below) so the branch can be deleted.
+    if [ -n "$top" ] && [ ! -d "$top" ]; then "${G[@]}" worktree prune 2>/dev/null; top=""; fi
+    if [ -z "$top" ]; then echo "worktree:none"
     else
-        top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""; cur=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || cur=""
-        if [ "$cur" != "$branch" ]; then echo "worktree:kept-other"
-        else
-            # Only a positive match under the main checkout's N1 worktree root is N1-managed; everything else is external (never forced).
-            # N1-224: an Orca-owned worktree is removed through Orca (never forced, even under the N1 root); ignored files (.env) do not block it.
-            local orca=""; n1_orca_owns "$top" && orca=1
-            [ -z "$orca" ] && case "$top" in "$main/$(n1_worktree_root)"/*) force="--force" ;; esac
-            if [ -z "$force" ]; then
-                if ! st=$(git status --porcelain --ignored 2>/dev/null) || [ -n "$(grep -v '^!!' <<<"$st")" ]; then keep="dirty"
-                elif [ -n "$st" ] && [ -z "$orca" ]; then keep="ignored files"
-                elif ! git merge-base --is-ancestor HEAD "${oid:-refs/heads/$def}" 2>/dev/null; then keep="unmerged"; fi
-            fi
-            if [ -n "$keep" ]; then echo "worktree:kept ($keep)"
-            elif [ -n "$orca" ]; then
-                # No git fallback: removing behind Orca's back would desync its state.
-                if err=$(cd / && n1_orca_rm "$top"); then echo "worktree:removed"; cd "$main" 2>/dev/null || true
-                else keep="remove-failed"; echo "worktree:remove-failed (${err:-workspace manager error})"; fi
-            elif err=$(cd / && "${G[@]}" worktree remove $force "$top" 2>&1); then echo "worktree:removed"; cd "$main" 2>/dev/null || true
-            else keep="remove-failed"; echo "worktree:remove-failed (${err%%$'\n'*})"; fi
-        fi
+        IFS=$'\t' read -r mode keep <<<"$(_n1_clean_gate "$top" "$main" "$oid" "$def" "$nof")"
+        if [ -n "$keep" ]; then
+            echo "worktree:kept ($keep)"
+            [ "$keep" = orca-unreachable ] && echo "n1: worktree not removed: $top: workspace manager unreachable" >&2
+        elif [ "$mode" = orca ]; then
+            # No git fallback: removing behind Orca's back would desync its state.
+            if err=$(cd / && n1_orca_rm "$top"); then echo "worktree:removed"
+            else err="${err:-workspace manager error}"; echo "worktree:remove-failed ($err)"; echo "n1: worktree not removed: $top: $err" >&2; fi
+        elif err=$(cd / && if [ "$mode" = force ]; then "${G[@]}" worktree remove --force "$top"; else "${G[@]}" worktree remove "$top"; fi 2>&1); then
+            echo "worktree:removed"
+        else echo "worktree:remove-failed (${err%%$'\n'*})"; fi
     fi
-    if [ -n "$keep" ]; then echo "branch:kept (worktree kept)"
-    elif [ -z "$branch" ] || [ "$branch" = "$def" ] || ! "${G[@]}" rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1; then echo "branch:none"
+    [ -d "$PWD" ] || cd "$main" 2>/dev/null || true
+    holder=$(_n1_wt_holder "$branch")
+    if [ -z "$branch" ] || [ "$branch" = "$def" ] || ! "${G[@]}" rev-parse -q --verify "refs/heads/$branch" >/dev/null 2>&1; then echo "branch:none"
+    elif [ -n "$holder" ]; then echo "branch:kept (checked out in $holder)"
     elif ! "${G[@]}" merge-base --is-ancestor "refs/heads/$branch" "${oid:-refs/heads/$def}" >/dev/null 2>&1; then echo "branch:kept (not merged)"
     elif "${G[@]}" branch -d -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
     elif [ -n "$oid" ] && [ "$("${G[@]}" rev-parse -q --verify "refs/heads/$branch" 2>/dev/null)" = "$oid" ] \
         && "${G[@]}" branch -D -- "$branch" >/dev/null 2>&1; then echo "branch:deleted"
     else echo "branch:kept (not merged)"; fi
+    return 0
+}
+
+# N1-339: record a cleanup outcome. Usage: _n1_clean_record <ID> <trigger> <tokens joined by ", "> <path> <mode>
+# Upserts "- **Cleanup:**" as the first line of overview ## Finish (appending a minimal ## Finish when absent; skipped
+# results are not written there), rewrites finish-report.md's Cleanup line, emits the cleanup step event (bound run
+# only: an unbound run id is never merged) and the queue ticket_cleanup event (queue env only). Best effort, rc 0.
+_n1_clean_record() {
+    local id="$1" trig="$2" toks="$3" path="$4" mode="$5" mem ov rep tmp outcome wt br reason prev
+    mem="$(n1_home)/memory/$id"; ov="$mem/overview.md"; rep="$mem/finish-report.md"
+    # A no-op re-run never overwrites an earlier successful record (overview line, or a non-pending report line); a
+    # verified no-op does replace an earlier kept / failed / skipped one.
+    if [ "$toks" = "worktree:none, branch:none" ]; then
+        prev=$(grep '^- \*\*Cleanup:\*\*' "$ov" 2>/dev/null; grep '^Cleanup:' "$rep" 2>/dev/null | grep -v '<pending>')
+        [ -n "$prev" ] && ! grep -qE 'kept|remove-failed|cleanup:skipped' <<<"$prev" && return 0
+    fi
+    case "$toks" in *remove-failed*) outcome=failed ;; worktree:kept*|*branch:kept*|cleanup:skipped*) outcome=skipped ;; *) outcome=success ;; esac
+    if [ -f "$ov" ] && [ "${toks#cleanup:skipped}" = "$toks" ] && tmp=$(mktemp "$ov.XXXXXX"); then
+        L="- **Cleanup:** $toks${path:+ ($path)}" awk '/^## /{s = /^## Finish\r?$/} s && /^- \*\*Cleanup:\*\*/{next} {print}
+            /^## Finish\r?$/{print ENVIRON["L"]; d = 1} END{if (!d) {print ""; print "## Finish"; print ENVIRON["L"]}}' "$ov" > "$tmp" \
+            && mv "$tmp" "$ov" || rm -f "$tmp"
+    fi
+    if [ -f "$rep" ] && tmp=$(mktemp "$rep.XXXXXX"); then
+        L="Cleanup: $toks" awk '/^Cleanup:/{print ENVIRON["L"]; next} {print}' "$rep" > "$tmp" && mv "$tmp" "$rep" || rm -f "$tmp"
+    fi
+    wt="${toks%%, branch:*}"; br=""; case "$toks" in *", branch:"*) br="branch:${toks##*, branch:}" ;; esac
+    reason=$(sed -n 's/^[^(]*(\(.*\))$/\1/p' <<<"$wt")
+    if [ -n "${N1_RUN_ID:-}" ]; then
+        n1_emit_step_event "$N1_RUN_ID" "${N1_VERSION:-}" "$id" cleanup 18 "$mem/telemetry" outcome="$outcome" completed_at=now \
+            metadata="$(jq -cn --arg worktree "$wt" --arg reason "$reason" --arg path "$path" --arg branch "$br" \
+                --argjson orca "$([ "$mode" = orca ] && echo true || echo false)" --arg trigger "$trig" --arg cwd "$PWD" \
+                '{worktree:$worktree,reason:$reason,path:$path,branch:$branch,orca:$orca,trigger:$trigger,cwd:$cwd}')" 2>/dev/null || true
+    fi
+    if [ -n "${N1_QUEUE_DIR:-}" ] && [ -n "${N1_QUEUE_RUN_ID:-}" ] && [ -d "$N1_QUEUE_DIR" ]; then
+        declare -F n1_queue_event >/dev/null || source "${BASH_SOURCE[0]%/*}/queue.sh" 2>/dev/null
+        n1_queue_event "$N1_QUEUE_DIR/events.jsonl" "${N1_QUEUE_DIR##*/}" "$N1_QUEUE_RUN_ID" ticket_cleanup ticket="$id" \
+            outcome="$outcome" reason="$toks${path:+; $path}" session="${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}" 2>/dev/null || true
+    fi
+    return 0
+}
+
+# N1-339: ticket-keyed cleanup, the one entry point for n1-finish (last action), n1-clean --ticket and n1-clean general mode.
+# Usage: n1_clean_ticket <ID> <finish|clean|queue|general> [<headRef> <oid> <defaultBranch>]
+# finish passes the PR facts it already has (local merge: empty oid). Other triggers read pr_url from overview
+# (## Pending or ## Finish), require gh state MERGED and take headRefName/headRefOid/baseRefName from it; anything else
+# prints one "cleanup:skipped (<why>)" line and touches nothing. Never fuzzy, never cwd: n1_finish_cleanup's exact
+# branch match. Inside an Orca-owned target the predicted outcome is recorded BEFORE the removal, because Orca's rm
+# kills the terminal (and this session) running there; a surviving session overwrites it with the real tokens.
+n1_clean_ticket() {
+    local id="${1:-}" trig="${2:-clean}" hr="${3:-}" oid="${4:-}" def="${5:-}"
+    local url="" res="" st="" a main top="" gate="" out toks wp b="" nof=1
+    [ "$trig" = finish ] && nof=0
+    [[ "$id" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]] || id=""
+    if [ "$trig" != finish ]; then
+        [ -n "$id" ] || { echo "cleanup:skipped (invalid-id)"; return 0; }
+        url=$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$(n1_home)/memory/$id/overview.md" 2>/dev/null)
+        if ! [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]]; then st=no-pr
+        else
+            for a in 1 2 3; do
+                res=$(timeout 30 gh pr view --json state,headRefName,headRefOid,baseRefName -q '[.state,.headRefName,.headRefOid,.baseRefName] | @tsv' -- "$url" </dev/null 2>/dev/null) || res=""
+                [ -n "$res" ] && break
+                [ "$a" -lt 3 ] && sleep $((a * 2))
+            done
+            IFS=$'\t' read -r st hr oid def <<<"$res"
+            case "$st" in MERGED) st="" ;; "") st=pr-unreadable ;; *) st=pr-not-merged ;; esac
+            [[ "$hr" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$def" =~ ^[A-Za-z0-9._/-]+$ ]] || st="${st:-pr-unreadable}"
+        fi
+        if [ -n "$st" ]; then _n1_clean_record "$id" "$trig" "cleanup:skipped ($st)" "" ""; echo "cleanup:skipped ($st)"; return 0; fi
+    fi
+    [ -n "$id" ] || { n1_finish_cleanup "$hr" "$oid" "$def"; return 0; }
+    main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+    [ -n "$main" ] || { _n1_clean_record "$id" "$trig" "cleanup:skipped (no-repo)" "" ""; echo "cleanup:skipped (no-repo)"; return 0; }
+    top=$(_n1_wt_holder "$hr"); [ "$top" = "$main" ] && top=""
+    [ -n "$top" ] && gate=$(_n1_clean_gate "$top" "$main" "$oid" "$def" "$nof")
+    # The surviving-session record below may emit step/queue events a second time.
+    if [ "$gate" = $'orca\t' ] && case "$(pwd -P)/" in "$top"/*) true ;; *) false ;; esac; then
+        _n1_clean_record "$id" "$trig" "worktree:removed, branch:kept (checked out in $top)" "$top" orca
+    fi
+    out=$(n1_finish_cleanup "$hr" "$oid" "$def" "$nof")
+    [ -d "$PWD" ] || cd "$main" 2>/dev/null || true
+    if [ -z "$top" ]; then
+        # A detached (or re-branched) workspace_path worktree cannot be located by branch: report it, never remove it.
+        wp=$(sed -n 's/^workspace_path: *//p' "$(n1_home)/memory/$id/overview.md" 2>/dev/null | head -1)
+        [ -n "$wp" ] && b=$(_n1_wt_records | tail -n +2 | P="$wp" awk -F'\t' '$1 == ENVIRON["P"] {print ($2 == "" ? "detached" : substr($2, 12)); exit}')
+        [ -n "$b" ] && out="worktree:kept (workspace_path $wp holds $b)${out#worktree:none}"
+    fi
+    toks="${out//$'\n'/, }"
+    _n1_clean_record "$id" "$trig" "$toks" "$top" "${gate%%$'\t'*}"
+    printf '%s\n' "$out"
     return 0
 }
 

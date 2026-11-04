@@ -47,6 +47,7 @@ case "$1 $2" in
   "reference find") cat "$FAKE/refs.json" ;;
   "reference add") ok '{}' ;;
   "worktree rm")
+      [ -n "${FAKE_ORCA_RM_SNAP:-}" ] && cp "$FAKE_ORCA_RM_SNAP" "$FAKE/rm-snap"
       [ -n "${FAKE_ORCA_RM_FAIL:-}" ] && err "rm refused"
       p=""; while [ $# -gt 0 ]; do [ "$1" = --worktree ] && p="${2#path:}"; shift; done
       c=$(cd "$p" && cd "$(git rev-parse --git-common-dir)" && pwd -P) || err "no repo"
@@ -240,17 +241,44 @@ orca_list "$WO=X-4" "$F1" "$F2" "$F3"
 reset; eq "F1 (AC6): merged Orca worktree with .env removed" "worktree:removed,branch:deleted" "$(run_fc "$F1" fb1)"
 has "F1 (AC6): removed through the workspace manager" "worktree rm --worktree path:$F1 --json" "$(calls)"
 eq "F1 (AC6): dir gone" no "$([ -d "$F1" ] && echo yes || echo no)"
-reset; eq "F2: dirty Orca worktree kept" "worktree:kept (dirty),branch:kept (worktree kept)" "$(run_fc "$F2" fb2)"
+reset; eq "F2: dirty Orca worktree kept" "worktree:kept (dirty),branch:kept (checked out in $F2)" "$(run_fc "$F2" fb2)"
 hasnt "F2: no removal call" "worktree rm" "$(calls)"
-eq "F3: Orca rm failure reported, no git fallback" "worktree:remove-failed (rm refused),branch:kept (worktree kept)" "$(FAKE_ORCA_RM_FAIL=1 run_fc "$F3" fb3)"
+eq "F3: Orca rm failure reported, no git fallback" "worktree:remove-failed (rm refused),branch:kept (checked out in $F3)" "$(FAKE_ORCA_RM_FAIL=1 run_fc "$F3" fb3)"
 eq "F3: dir kept" yes "$([ -d "$F3" ] && echo yes || echo no)"
 F4="$M/$(n1_worktree_root)/fin4"; fin "$F4" fb4; echo x > "$F4/untracked"
 F5="$M/$(n1_worktree_root)/fin5"; fin "$F5" fb5
 orca_list "$WO=X-4" "$F4" "$F5"
-reset; eq "F4: dirty Orca worktree under the N1 root is kept, not forced" "worktree:kept (dirty),branch:kept (worktree kept)" "$(run_fc "$F4" fb4)"
+reset; eq "F4: dirty Orca worktree under the N1 root is kept, not forced" "worktree:kept (dirty),branch:kept (checked out in $F4)" "$(run_fc "$F4" fb4)"
 eq "F4: dir kept" yes "$([ -d "$F4" ] && echo yes || echo no)"
 reset; eq "F5: Orca worktree under the N1 root removed through Orca" "worktree:removed,branch:deleted" "$(run_fc "$F5" fb5)"
 has "F5: removal goes through the workspace manager" "worktree rm --worktree path:$F5 --json" "$(calls)"
+# N1-339: warning names the path on an Orca rm failure.
+orca_list "$WO=X-4" "$F3"
+W3=$( (cd "$F3" && FAKE_ORCA_RM_FAIL=1 n1_finish_cleanup fb3 "$(git -C "$M" rev-parse fb3)" main) 2>&1 >/dev/null)
+has "F3: failure warning names the path" "n1: worktree not removed: $F3: rm refused" "$W3"
+# N1-339: Orca-faked finish from the main checkout removes through Orca, never --force.
+run_main() { (cd "$M" && n1_finish_cleanup "$1" "$(git -C "$M" rev-parse "$1")" main) | paste -sd, -; }
+F6="$T/wts/fin6"; fin "$F6" fb6
+F7="$T/wts/fin7"; fin "$F7" fb7
+orca_list "$WO=X-4" "$F6" "$F7"
+reset; eq "F6: Orca finish from main removed" "worktree:removed,branch:deleted" "$(run_main fb6)"
+has "F6: removal goes through the workspace manager" "worktree rm --worktree path:$F6 --json" "$(calls)"
+hasnt "F6: never forced" "--force" "$(calls)"
+# N1-339: CLI installed but runtime unreachable -> kept, no rm call, no git removal.
+reset; eq "F7: orca-unreachable kept" "worktree:kept (orca-unreachable),branch:kept (checked out in $F7)" "$(_N1_ORCA_ACTIVE= FAKE_ORCA_DOWN=1 run_main fb7)"
+hasnt "F7: no removal call" "worktree rm" "$(calls)"
+eq "F7: dir kept" yes "$([ -d "$F7" ] && echo yes || echo no)"
+# N1-339: unreachable runtime also keeps an N1-managed (force-mode) worktree, finish trigger included.
+F7B="$M/$(n1_worktree_root)/fin7b"; fin "$F7B" fb7b
+reset; eq "F7b: managed tree kept when unreachable" "worktree:kept (orca-unreachable)" "$(cd "$M" && _N1_ORCA_ACTIVE= FAKE_ORCA_DOWN=1 n1_finish_cleanup fb7b "" main 2>/dev/null | head -n1)"
+eq "F7b: managed dir kept" yes "$([ -d "$F7B" ] && echo yes || echo no)"
+# N1-339 self-kill ordering: inside the Orca target, the Cleanup line exists before `worktree rm` runs.
+F8="$T/wts/fin8"; fin "$F8" fb8; orca_list "$WO=X-4" "$F8"
+mkdir -p "$N1_HOME/memory/F-8"; printf -- '---\nstep: done\n---\n## Finish\npr_url: x\n' > "$N1_HOME/memory/F-8/overview.md"
+rm -f "$FAKE/rm-snap"
+(cd "$F8" && FAKE_ORCA_RM_SNAP="$N1_HOME/memory/F-8/overview.md" n1_clean_ticket F-8 finish fb8 "$(git -C "$M" rev-parse fb8)" main >/dev/null)
+has "F8: record written before rm" "- **Cleanup:** worktree:removed, branch:kept (checked out in $F8)" "$(cat "$FAKE/rm-snap" 2>/dev/null)"
+has "F8: surviving session overwrites with real tokens" "- **Cleanup:** worktree:removed, branch:deleted ($F8)" "$(cat "$N1_HOME/memory/F-8/overview.md")"
 
 # ---- static wiring ----
 cd "$REPO_ROOT"

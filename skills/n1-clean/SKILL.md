@@ -1,6 +1,6 @@
 ---
 name: n1-clean
-description: "Clean up N1 worktrees. Lists worktrees, classifies by status, and offers to remove non-active ones."
+description: "Clean up N1 worktrees. With --ticket <ID>, removes that ticket's worktree once its PR is merged; without it, lists worktrees, classifies them and offers to remove merged ones. Usage: /n1:n1-clean [--ticket <ID>]"
 model: sonnet
 effort: low
 ---
@@ -9,13 +9,15 @@ effort: low
 
 ## Overview
 
-Manage the lifecycle of N1 worktrees. Lists all worktrees created by N1 (under the worktree root: `n1_worktree_root`, the Claude Code default directory (see HOST ROUTING)), classifies them by status, and offers to remove completed or abandoned ones. Memory in `$N1_HOME` is always preserved — only the worktree directory and its checkout are removed.
+Removes worktrees of finished tickets. Two modes:
+- **Ticket mode** (`--ticket <ID>`): one ticket, no prompt. Used by n1-queue for merged rows and safe to run by hand from any cwd inside the repository, including the target worktree.
+- **General mode** (no argument): lists every linked worktree (plain git and workspace-manager ones), classifies them and offers to remove the merged ones.
+
+Memory in `$N1_HOME` is always preserved. No worktree is ever removed with force: dirty or unmerged ones are kept, and locked ones too. Without a bound run the `- **Cleanup:**` overview line is the only record of a kept tree.
 
 **Announce at start:** "I'm using the n1-clean skill to manage worktrees."
 
 ## N1_HOME Resolution
-
-Resolve the N1 state directory at the start of every run. Run via Bash:
 
 ```bash
 source ~/.n1/preamble.sh
@@ -24,54 +26,50 @@ source ~/.n1/preamble.sh
 
 If the output shows `N1_NOT_CONFIGURED` → "N1 is not configured. Run `/n1:n1-init` first." **STOP.**
 
-All config reads use `n1_*_val` helpers (never cat config.json). All memory paths use `$N1_HOME/memory/$ID/`.
+## Step 0: Ticket Mode
+
+When the arguments contain `--ticket <ID>`, after the N1_HOME check, run exactly one Bash call:
+
+```bash
+source ~/.n1/preamble.sh
+ID="<ID>"; [[ "$ID" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]] || { echo id:invalid; exit 1; }
+n1_clean_ticket "$ID" "$([ -n "${N1_QUEUE_RUN_ID:-}" ] && echo queue || echo clean)"
+```
+
+Print the output lines verbatim as the final message and **STOP**. Never ask the user and write no Decision Ledger row. The helper requires the ticket's PR (overview `pr_url`) to be MERGED, removes only the worktree holding that PR's head branch, and records the result in overview `## Finish` (`- **Cleanup:**`). A workspace-manager removal from inside the target may end this session; the record is written before it. Re-running is safe.
+
+Tokens: `cleanup:skipped (<invalid-id|no-pr|pr-not-merged|pr-unreadable>)` (nothing touched), else `worktree:removed | none | kept (<reason>) | remove-failed (<error>)` and `branch:deleted | none | kept (<not merged|checked out in <path>>)`.
 
 ## Step 1: Discover Worktrees
 
-List all git worktrees:
-
 ```bash
-git worktree list --porcelain
+source ~/.n1/preamble.sh
+git worktree list --porcelain | awk '/^worktree /{p=substr($0,10)} /^branch /{b=substr($0,19)} /^$/{print p "\t" b; p=""; b=""} END{if(p!="")print p "\t" b}' | tail -n +2 |
+while IFS=$'\t' read -r p b; do
+  o=plain; n1_orca_owns "$p" && o=workspace-manager
+  printf '%s\t%s\t%s\t%s\n' "$p" "${b:-detached}" "$o" "$([ -d "$p" ] && echo present || echo missing)"
+done
 ```
 
-Parse the porcelain output. Each entry has:
-- `worktree <path>` — the worktree directory
-- `HEAD <hash>` — current commit
-- `branch refs/heads/<name>` — branch name (if not detached)
+Each line is `<path> <branch> <owner> <present|missing>`; the main checkout is excluded. `<ID>`: the last path component when it looks like a ticket id (`ABC-123`), else the first ticket id in the branch name; no id → listed as **Unknown** and never removed.
 
-Filter to entries whose path is under `$(n1_worktree_root)/` (source `config.sh` with the preamble first). Extract the `<ID>` from the path (last component of the worktree path).
-
-If no N1 worktrees found: "No N1 worktrees found. Nothing to clean up." **STOP.**
+If no linked worktrees are found: "No worktrees found. Nothing to clean up." **STOP.**
 
 ## Step 2: Classify Each Worktree
 
-For each discovered worktree, determine its status:
-
-### Stale
-The worktree directory no longer exists on disk (git knows about it but the directory was deleted externally).
-- Detection: `worktree <path>` but the path does not exist
-- Action: mark for `git worktree prune`
-
-### Completed
-The corresponding task has finished (PR created).
-- Detection: `$N1_HOME/memory/<ID>/overview.md` exists AND its frontmatter has `step: done` or `step: pr`
-- Action: offer to remove
-
-### Abandoned
-The task was started but appears inactive.
-- Detection: `$N1_HOME/memory/<ID>/overview.md` exists AND `step` is NOT `done` or `pr`, AND the branch has no commits in the last 7 days:
+- **Stale:** directory missing. Action: `git worktree prune`.
+- **Completed:** `$N1_HOME/memory/<ID>/overview.md` has `step: done` or `step: pr` AND its PR is MERGED:
+  ```bash
+  URL=$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$N1_HOME/memory/<ID>/overview.md")
+  [ -n "$URL" ] && gh pr view "$URL" --json state -q .state
+  ```
+  A ticket whose PR is still open is **Active (open PR)**, never removable.
+- **Abandoned:** overview exists, `step` is not `done` or `pr`, and the branch has no commit for 7+ days:
   ```bash
   LAST_COMMIT=$(git log -1 --format=%ct <branch> 2>/dev/null || echo 0)
-  NOW=$(date +%s)
-  DAYS_AGO=$(( (NOW - LAST_COMMIT) / 86400 ))
+  DAYS_AGO=$(( ($(date +%s) - LAST_COMMIT) / 86400 ))
   ```
-  If `DAYS_AGO >= 7` → abandoned.
-- Action: flag and offer to remove (with warning)
-
-### Active
-The task is in progress with recent activity.
-- Detection: not stale, not completed, not abandoned
-- Action: skip (do not offer to remove)
+- **Active:** everything else (including Unknown). Never removed.
 
 ## Step 3: Present Summary
 
@@ -80,71 +78,48 @@ N1 Worktree Status:
 
   Stale (directory missing):
     - <ID> (branch: <branch>)
-
-  Completed (task done):
-    - <ID> (branch: <branch>, step: done)
-
+  Completed (PR merged):
+    - <ID> (branch: <branch>, <owner>)
   Abandoned (no activity for 7+ days):
-    - <ID> (branch: <branch>, step: <step>, last commit: <N> days ago)
-
-  Active (in progress):
+    - <ID> (branch: <branch>, step: <step>, last commit: <N> days ago, <owner>)
+  Active (in progress or open PR):
     - <ID> (branch: <branch>, step: <step>)
 
-Removable: <N> worktrees (stale + completed + abandoned)
+Removable: <N> (stale + completed); Abandoned only by selection
 ```
 
-If no removable worktrees: "All worktrees are active. Nothing to clean up." **STOP.**
+If nothing is Stale, Completed or Abandoned: "All worktrees are active. Nothing to clean up." **STOP.**
 
-**Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip the prompt below and auto-select **Remove all** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
-`| n1-clean | mechanical | C | [auto] | Remove removable worktrees? | Remove all | Select or Cancel | mechanicalPrompts=auto | --- |`
-If `MP` is `ask`: continue to the prompt below.
-
-Ask:
+**Autonomy gate:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: select option 1 without asking; auto mode never removes Abandoned worktrees. Write a Decision Ledger row to the relevant overview.md when one exists:
+`| n1-clean | mechanical | C | [auto] | Remove merged worktrees? | Remove Stale and Completed | Select or Cancel | mechanicalPrompts=auto | --- |`
+If `MP` is `ask`, ask the user:
 ```
-Remove all removable worktrees?
-1 — Yes, remove all
-2 — Select which to remove
+Remove merged worktrees?
+1 — Remove all Stale and Completed (Recommended: each Completed removal re-checks the merged PR; worktrees are never forced and kept when dirty or unmerged, per n1_clean_ticket in lib/config.sh)
+2 — Select which to remove (Completed and Abandoned)
 3 — Cancel
 ```
-
-**If 1 (remove all):** proceed to Step 4 with all removable worktrees.
-**If 2 (select):** present numbered list, let user pick by number.
-**If 3:** **STOP.**
+**1:** Step 4 with Stale and Completed. **2:** show a numbered list, let the user pick. **3:** **STOP.**
 
 ## Step 4: Remove Worktrees
 
-For each worktree to remove:
-
-1. **Stale entries:** just prune:
+1. **Stale:** `git worktree prune`.
+2. **Completed:** one call per entry; record its tokens:
    ```bash
-   git worktree prune
+   source ~/.n1/preamble.sh
+   n1_clean_ticket "<ID>" general
    ```
-
-2. **Completed and abandoned entries:**
-   ```bash
-   git worktree remove "<worktree-path>" --force 2>/dev/null
-   ```
-   - If removal fails (Windows locked files): warn "Could not remove `<path>` — files may be locked. Try closing editors or terminals using that directory."
-   - The branch is **preserved** — it may be needed for an open PR.
-   - Memory in `$N1_HOME` is **preserved** — it contains task history.
-
-3. Final prune:
-   ```bash
-   git worktree prune
-   ```
+3. **Abandoned (user-selected only):** workspace-manager owned → `n1_orca_rm "<path>"`; otherwise `git worktree remove "<path>"`. A dirty or locked tree fails; report the error and keep it. The branch is kept.
+4. Final `git worktree prune`.
 
 ## Step 5: Report
 
 ```
 Cleanup complete.
 
-Removed: <N> worktrees
-  - <ID>: removed (was <status>)
-  - <ID>: failed to remove (<reason>)
+  - <ID>: <tokens, e.g. worktree:removed, branch:deleted | worktree:kept (dirty), branch:kept (checked out in <path>)>
+  - <ID>: removed (abandoned) | failed (<error>)
 
-Preserved:
-  - Branches (needed for open PRs)
-  - Memory at $N1_HOME (task history)
-
+Preserved: memory at $N1_HOME; branches of Abandoned worktrees
 Active worktrees: <N>
 ```

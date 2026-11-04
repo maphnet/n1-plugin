@@ -285,7 +285,7 @@ n1_orca_link() {
 
 n1_orca_rm() {
     # Usage: n1_orca_rm <abs-path> — remove an Orca-owned worktree through Orca (never --force).
-    # Prints a one-line reason and returns 1 on failure. Only n1_finish_cleanup calls this;
+    # Prints a one-line reason and returns 1 on failure. Only n1_finish_cleanup (via n1_clean_ticket) calls this;
     # the tail-worker is denied it (hooks/enforce-agent-policy.py TAIL_DENY_RE).
     local p="${1:-}" out
     case "$p" in /*) ;; *) echo "invalid path"; return 1 ;; esac
