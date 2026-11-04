@@ -18,6 +18,7 @@ pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 HEADLESS_FILE="${PLUGIN_ROOT}/skills/n1-start/procedures/autonomy-headless.md"
+HEADLESS_ASK="${PLUGIN_ROOT}/skills/n1-start/procedures/autonomy-headless-ask.md"
 
 # ---------------------------------------------------------------------------
 # Test 1: procedure references alwaysAskOn
@@ -131,7 +132,7 @@ fi
 # ---------------------------------------------------------------------------
 # Test 13: ask-mode question includes an explicit stop option
 # ---------------------------------------------------------------------------
-if grep -q 'Stop this ticket' "$HEADLESS_FILE"; then
+if grep -q 'Stop this ticket' "$HEADLESS_ASK"; then
     pass "T13: procedure contains 'Stop this ticket' option"
 else
     fail "T13: procedure missing 'Stop this ticket' option"
@@ -140,7 +141,7 @@ fi
 # ---------------------------------------------------------------------------
 # Test 14: ask-mode answers are tagged [asked] in the Decision Ledger
 # ---------------------------------------------------------------------------
-if grep -q '\[asked\]' "$HEADLESS_FILE"; then
+if grep -q '\[asked\]' "$HEADLESS_ASK"; then
     pass "T14: procedure contains '[asked]' ledger tag"
 else
     fail "T14: procedure missing '[asked]' ledger tag"
@@ -167,7 +168,7 @@ fi
 # ---------------------------------------------------------------------------
 # Test 17 (TQ-1): ask-mode ledger snippet defines OVERVIEW before appending
 # ---------------------------------------------------------------------------
-if grep -B5 '\[asked\]' "$HEADLESS_FILE" | grep -q 'OVERVIEW="\$N1_HOME/memory/\$ID/overview.md"'; then
+if grep -B5 '\[asked\]' "$HEADLESS_ASK" | grep -q 'OVERVIEW="\$N1_HOME/memory/\$ID/overview.md"'; then
     pass "T17: ask-mode ledger snippet defines OVERVIEW before appending"
 else
     fail "T17: ask-mode ledger snippet missing OVERVIEW definition"

@@ -360,7 +360,7 @@ eq "ask: timeout -> pending id" "pending:m-7" "$(FAKE_ASK=pending n1_orca_ask "$
 reset; FAKE_ASK=pending n1_orca_ask "$QF" m-7 >/dev/null
 has "ask: resume by message id" "--resume m-7" "$(calls)"
 eq "ask: CLI error -> failed" failed "$(FAKE_ASK=error n1_orca_ask "$QF")"
-has "skill: ask-mode Orca branch" 'n1_orca_ask "<QUESTION_FILE>"' "$(cat "$REPO_ROOT/skills/n1-start/procedures/autonomy-headless.md")"
+has "skill: ask-mode Orca branch" 'n1_orca_ask "<QUESTION_FILE>"' "$(cat "$REPO_ROOT/skills/n1-start/procedures/autonomy-headless-ask.md")"
 has "preamble: loads orca-queue.sh" 'lib/orca-queue.sh' "$(cat "$REPO_ROOT/lib/preamble.sh")"
 
 # --- Task 7: --answer in Orca mode ---

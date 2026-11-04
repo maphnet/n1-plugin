@@ -17,6 +17,8 @@ while IFS='|' read -r parent ref cond; do
   if grep -qF "procedures/$ref" "$S/SKILL.md"; then no "$ref is not read at entry"; else ok "$ref is not read at entry"; fi
 done <<'EOT'
 steps/local-testing.md|local-testing-run.md|**Gates passed (not skipped):**
+procedures/autonomy-headless.md|autonomy-headless-predecision.md|**Plan-time pre-decision (queue children).**
+procedures/autonomy-headless.md|autonomy-headless-ask.md|**`ask`** (Claude Code queue children)
 EOT
 # Every relative procedures/<file>.md path named in n1-start text exists (catches a mistyped pointer).
 for p in $(grep -rhoE '(^|[^/A-Za-z0-9_-])procedures/[A-Za-z0-9._-]+\.md' "$S" | sed 's#^.*procedures/#procedures/#' | sort -u); do
