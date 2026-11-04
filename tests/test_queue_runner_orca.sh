@@ -695,7 +695,9 @@ test_orca_worktree_name_taken() {   # identity needs the folder name == ticket: 
 test_orca_resume_existing_worktree() {
     local tmp rid wt ov; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
-    wt="$tmp/wt/T-A"; ov="$tmp/n1home/memory/T-A/overview.md"; mkdir -p "$wt" "${ov%/*}"
+    wt="$tmp/wt/T-A"; ov="$tmp/n1home/memory/T-A/overview.md"; mkdir -p "${ov%/*}"
+    # SEC-2: the reused worktree must belong to the row's repo ($tmp), so it is a real git worktree of it.
+    git init -q "$tmp" && git -C "$tmp" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i && git -C "$tmp" worktree add -q "$wt" -b t-a
     printf '{"path":"%s"}' "$wt" > "$tmp/fake/worktrees"
     printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- review fix cap\n' "$wt" > "$ov"
     echo kept > "${ov%/*}/implementation.md"
@@ -714,6 +716,21 @@ EOF
         "$(grep -c -e "^N1_QUEUE_RUN_ID=$rid$" -e '^N1_ORCA_RESUME=1$' "$tmp/fake/sentinel.T-A")"
     assert_eq "orca-resume: stale escalated step ignored; the resumed worker's pr counts" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "orca-resume: memory intact" "kept" "$(cat "${ov%/*}/implementation.md")"
+    rm -rf "$tmp"
+}
+
+# N1-271 SEC-2: a same-named worktree of another repo, even when overview.md names it, keeps the fail-closed error.
+test_orca_resume_foreign_repo_fails_closed() {
+    local tmp wt; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"; mkdir -p "$tmp/n1home/memory/T-A" "$tmp/other"
+    wt="$tmp/other/wt/T-A"
+    git init -q "$tmp/other/r" && git -C "$tmp/other/r" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i && git -C "$tmp/other/r" worktree add -q "$wt" -b t-a
+    printf '{"path":"%s"}' "$wt" > "$tmp/fake/worktrees"
+    printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n' "$wt" > "$tmp/n1home/memory/T-A/overview.md"
+    assert_eq "orca-resume-foreign: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-resume-foreign: nothing started" "0" "$(grep -cE 'task-create|worker-start' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-resume-foreign: row failed, name taken" "failed|orca-worktree-name-taken" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     rm -rf "$tmp"
 }
 
@@ -927,6 +944,7 @@ test_orca_forged_dispatch_ignored
 test_orca_settle_chain_before_sentinel
 test_orca_worktree_name_taken
 test_orca_resume_existing_worktree
+test_orca_resume_foreign_repo_fails_closed
 test_orca_resume_mismatch_fails_closed
 test_orca_adopt_launch
 test_orca_stale_run_not_reused
