@@ -149,10 +149,70 @@ test_beacon_lines() {   # N1-315 AC3: --status shows the last phase and its age 
     rm -rf "$tmp"
 }
 
+# N1-333 AC2/AC3: a ghost worker (Orca stage.detail terminal_missing, verdict not live) more than 5 minutes after its
+# .launch-<n> marker ends failed worker-terminal-missing (nodefer): released, identity removed, slot freed. Every case
+# runs a fresh runner on a pre-seeded in-progress row (orca_resumed_row), so it also covers a runner restart.
+# Bugs caught: a live worker or one without the marker released; a release inside the grace, without a launch marker
+# or on an unreadable list; the old child-exited-incomplete reason on an exited ghost; a deferred relaunch.
+ghost_fixture() {   # <tmp> <verdict> <stage detail|""> [launch age for touch -d]
+    orca_resumed_row "$1"
+    cfg_set "$1" '.queue.subtaskTimeoutMinutes = 600'
+    wl_set "$1" "$(wl_row T-A running "$2" "$3")"
+    if [ -n "${4:-}" ]; then echo "R1 task-T-A" > "$1/.launch-1"; touch -d "$4" "$1/.launch-1"; fi
+    return 0
+}
+ghost_rel() { grep -c 'worker-release --dispatch d-T-A' "$1/fake/orca-calls" || true; }
+test_orca_ghost_worker() {
+    local tmp sent v
+    for v in unverifiable exited; do
+        tmp=$(mktemp -d); ghost_fixture "$tmp" "$v" terminal_missing '10 minutes ago'; sent="$tmp/n1home/queue/sentinels/T-A.env"
+        run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=2 > /dev/null
+        assert_eq "ghost $v: failed with its own reason" "failed|worker-terminal-missing" \
+            "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+        assert_eq "ghost $v: no deferred retry row" "" "$(plan_cell "$tmp/queue.md" 2 3)"
+        assert_eq "ghost $v: dispatch released, identity removed" "yes|no" \
+            "$([ "$(ghost_rel "$tmp")" -ge 1 ] && echo yes || echo no)|$([ -e "$sent" ] && echo yes || echo no)"
+        rm -rf "$tmp"
+    done
+    # Slot freed: maxConcurrent 1, the ghost's slot goes to the next pending row.
+    tmp=$(mktemp -d); mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    n1_write_frontmatter "$tmp/queue.md" max_concurrent 1
+    mkdir -p "$tmp/n1home/queue/sentinels"; printf 'N1_ORCA_TASK=task-T-A\n' > "$tmp/n1home/queue/sentinels/T-A.env"
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "| T-A | 2026-10-31T00:00:00Z | | | | orca:task-T-A/d-T-A |" >> "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/memory/T-A"; printf -- '---\nstep: implement\n---\n' > "$tmp/n1home/memory/T-A/overview.md"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running unverifiable terminal_missing)"
+    echo "R1 task-T-A" > "$tmp/.launch-1"; touch -d '10 minutes ago' "$tmp/.launch-1"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+    assert_eq "ghost: slot freed, next row launched" "failed|yes" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$(grep 'worker-start' "$tmp/fake/orca-calls" | grep -q 'T-B' && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+test_orca_ghost_never_released() {
+    local tmp label v d age wlfail
+    while IFS='|' read -r label v d age wlfail; do
+        tmp=$(mktemp -d); ghost_fixture "$tmp" "$v" "$d" "$age"
+        if [ -n "$wlfail" ]; then run_orca_queue "$tmp" FAKE_ORCA_WL_FAIL_AFTER=0 N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+        else run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null; fi
+        assert_eq "ghost-guard: $label -> row kept, not released" "in-progress|0" "$(plan_cell "$tmp/queue.md" 1 8)|$(ghost_rel "$tmp")"
+        rm -rf "$tmp"
+    done <<'EOF'
+live verdict with terminal_missing|live|terminal_missing|10 minutes ago|
+unverifiable without the marker|unverifiable||10 minutes ago|
+marker inside the 5-minute grace|unverifiable|terminal_missing|1 minute ago|
+no launch marker|unverifiable|terminal_missing||
+unreadable worker list|unverifiable|terminal_missing|10 minutes ago|1
+EOF
+}
+
 test_orca_heartbeat
 test_orca_worker_list_dispatch_bound
 test_orca_stall_flag
 test_beacon_lines
+test_orca_ghost_worker
+test_orca_ghost_never_released
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

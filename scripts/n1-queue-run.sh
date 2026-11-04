@@ -81,6 +81,9 @@ STALL_SECS=$(( $(n1_queue_val stallMinutes) * 60 ))   # N1-315: Orca live-but-si
 # Shared grace limit: consecutive unreadable-agents-list polls (halts the run) and
 # consecutive missing-from-list polls for one session (fails that row).
 BG_POLL_GRACE=10
+# N1-333: a launched Orca worker that Orca marks terminal_missing and that is not live is a ghost once its .launch-<n>
+# marker is older than this (fixed 5 min, no config key).
+GHOST_GRACE_SECS=300
 CONSECUTIVE_FAIL=0
 # N1-267: last counted strike (reason, epoch). Orca only: a subtask-timeout within STRIKE_WINDOW seconds of the last counted one
 # shares one cause (a usage-limit wait, an outage) and adds no strike.
@@ -991,7 +994,7 @@ orca_settle() {
 # (release + sentinel removal + owed fullAuto chain); running or unverifiable workers are never relaunched, stopped
 # or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN SKIP
+    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN SKIP GHOST LAUNCH_AT
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
@@ -1155,12 +1158,27 @@ run_orca() {
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
             fi
-            if [ -n "$TASK" ] && { [[ "$DONE" == *" $TASK "* ]] \
+            # N1-333: ghost worker. Orca marks a worker whose terminal is gone projection.stage.detail terminal_missing (column 5).
+            # Not live, past GHOST_GRACE_SECS from its .launch-<num> marker: it is released, loses its identity and ends failed
+            # below (an unverifiable verdict never reaches settle). An unreadable list, a live verdict or a missing marker
+            # never matches. The marker's mtime survives a runner restart.
+            GHOST=0
+            if [ -n "$TASK" ] && [ "$LIVE_OK" = 1 ] \
+                && awk -F'\t' -v d="$DISP" '$1 == d && $3 != "live" && $5 == "terminal_missing" { f = 1 } END { exit !f }' <<< "$LIVE"; then
+                LAUNCH_AT=$(stat -c %Y "$N1_QUEUE_DIR/.launch-$NUM" 2>/dev/null || stat -f %m "$N1_QUEUE_DIR/.launch-$NUM" 2>/dev/null)
+                [ -n "$LAUNCH_AT" ] && [ $(( $(date +%s) - LAUNCH_AT )) -gt "$GHOST_GRACE_SECS" ] && GHOST=1
+            fi
+            if [ -n "$TASK" ] && { [ "$GHOST" = 1 ] || [[ "$DONE" == *" $TASK "* ]] \
                 || awk -F'\t' -v d="$DISP" '$1 == d && ($3 == "exited" || $4 == "done") { f = 1 } END { exit !f }' <<< "$LIVE"; }; then
                 # The worker stopped without a terminal overview step (N1-182: it may still have opened a PR).
                 OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
                 if [ -n "$OPEN_PR" ]; then
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
+                elif [ "$GHOST" = 1 ]; then
+                    # Cleanup first: finalize may exit 2 on a third strike. Both calls are idempotent.
+                    n1_orca_release "$DISP"
+                    n1_orca_sentinel_rm "$N1H" "$TICKET" "$TASK"
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "worker-terminal-missing" "" nodefer
                 else
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "child-exited-incomplete" "" nodefer
                 fi
