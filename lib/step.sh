@@ -14,6 +14,9 @@
 #   Best-effort: sets the Orca workspace card comment "<step>: <outcome>" (unread on escalated/blocked).
 #   4. Emits telemetry completed_at with outcome (and optional metadata JSON).
 #
+# n1_head_record <from_sha>
+#   Emits a "head" step event {"head":<HEAD>,"from":<from_sha>} for the review-pin head chain (N1-184).
+#
 # Signal scratch file protocol:
 #   Middle bash snippets write one key=value pair per line to:
 #     $N1_HOME/memory/$ID/step_signals.tmp
@@ -113,4 +116,23 @@ n1_step_end() {
     n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID:-}" \
         "$step_name" "$step_number" "${N1_HOME}/memory/${ID}/telemetry" \
         "${telem_args[@]}"
+}
+
+# n1_head_record <from_sha>
+# N1-184. Records a post-review commit (n1-start SOFT-ONLY pass, n1-pr doc commit, conflict-free
+# n1-pr rebase) as a step event: step "head", step_number 0, outcome success,
+# metadata {"head":"<HEAD>","from":"<from_sha>"}. n1_review_pin set accepts a PR head only at the
+# end of an unbroken review -> head chain (n1_review_artifacts_ok in lib/config.sh), so <from_sha>
+# must be the head before the commit. No overview.md or checkbox writes (that is why this does not
+# use n1_step_end). No-op without a bound run or ID (says so on stderr, as n1_step_begin does, so a
+# lost record is attributable); always returns 0 (a lost record fails closed at pin set).
+n1_head_record() {
+    local from="${1:-}" to
+    n1_bind_run_to_ticket
+    [ -n "${N1_RUN_ID:-}" ] && [ -n "${ID:-}" ] || { echo "n1_head_record: no run or ticket bound (ID=${ID:-<unset>}); head not recorded" >&2; return 0; }
+    to=$(git rev-parse HEAD 2>/dev/null) || return 0
+    [[ "$from" =~ ^[0-9a-f]{40}$ ]] || from=""
+    n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID}" head 0 "${N1_HOME}/memory/${ID}/telemetry" \
+        completed_at=now outcome=success "metadata={\"head\":\"$to\",\"from\":\"$from\"}" || true
+    return 0
 }

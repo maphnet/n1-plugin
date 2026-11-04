@@ -427,19 +427,23 @@ n1_review_artifacts_ok() {
     # N1-182. rc 0 when the active run's review step left its artifacts: a non-empty review-cr.md,
     # or review.md carrying the review-core SKIP record ("Review skipped"). Fails open (rc 0) with
     # no active-run pointer, no ticketId, an unsafe ticketId or no jq (standalone n1-pr, non-N1 use;
-    # same precedent as n1_review_check_run). rc 1 (artifacts/event missing) or rc 2 (verdict not PASS)
-    # prints the ticket id.
+    # same precedent as n1_review_check_run). rc 1 (artifacts/event missing), rc 2 (verdict not PASS)
+    # or rc 3 (head not bound to the review, N1-184) prints the ticket id.
     # Also requires (SEC-3) a review step event in some run file of this ticket (n1_step_begin
     # "review"), so a hand-written review-cr.md fails; any run file, not only the active runId's,
     # because n1_run_begin mints a new runId on resume. With review-cr.md the combined review.md must
     # open with "### Verdict: PASS" (SEC-1; review-hdr.md is first, the reviewers' own verdict lines
     # follow); the "Review skipped" record needs no verdict. Fails open when the pointer's runId is
     # empty/none or the ticket has no step telemetry at all.
-    # ponytail: proves the review step ran for this ticket, not that it saw the PR head SHA (n1-pr
-    # step 1 commits docs/version after review); review-sec.md is not required because "security
-    # reviewer required" is not persisted. A same-ID re-run that skips review again can still pass on
-    # an earlier run's event and artifacts. n1-finish's pin == head check stays the backstop.
-    local home="$1" f id rid
+    # N1-184: with a non-empty <head>, the head must be the end of the review head chain over the
+    # ticket's ended step events in run-file (chronological) order: an ended "review" event sets the
+    # chain to its metadata.head (a missing head breaks it); a "head" event (n1_head_record: soft-fix
+    # pass, n1-pr doc commit, conflict-free rebase) moves it to metadata.head only when metadata.from
+    # equals the current end. A broken chain stays broken until the next review event.
+    # ponytail: blocks stale artifacts and unrecorded commits, not forgery (memory and telemetry are
+    # agent-writable; signed evidence would be a separate ticket). review-sec.md is not required
+    # because "security reviewer required" is not persisted. n1-finish's pin == head check stays the backstop.
+    local home="$1" head="${2:-}" f id rid end
     local -a steps
     f=$(n1_active_run_file) && [ -f "$f" ] && command -v jq >/dev/null 2>&1 || return 0
     id=$(jq -r '.ticketId // empty' "$f" 2>/dev/null)
@@ -449,6 +453,16 @@ n1_review_artifacts_ok() {
     [ -e "${steps[0]}" ] || steps=()
     if [ -n "$rid" ] && [ "$rid" != none ] && [ "${#steps[@]}" -gt 0 ]; then
         grep -qh '"layer":"step","step":"review"' "${steps[@]}" 2>/dev/null || { printf '%s' "$id"; return 1; }
+        if [ -n "$head" ]; then
+            end=$(jq -Rrn '
+                [inputs | fromjson? | objects | select(.layer == "step" and has("outcome"))]
+                | reduce .[] as $e (null;
+                    if $e.step == "review" then $e.metadata.head
+                    elif $e.step == "head" then (if . != null and $e.metadata.from == . then $e.metadata.head else null end)
+                    else . end)
+                | strings' "${steps[@]}" 2>/dev/null)
+            [[ "$end" =~ ^[0-9a-f]{40}$ ]] && [ "$end" = "$head" ] || { printf '%s' "$id"; return 3; }
+        fi
     fi
     if [ -s "$home/memory/$id/review-cr.md" ]; then
         [ "$(grep -m1 '^### Verdict:' "$home/memory/$id/review.md" 2>/dev/null)" = '### Verdict: PASS' ] && return 0
@@ -464,8 +478,9 @@ n1_review_pin() {
     # $(n1_home)/review-pins/<owner>_<repo>_<pr>. n1-finish merges only that head.
     #   get <pr>                  print the bare pin; empty when missing; "unavailable" on any lookup failure
     #   set <pr> [--confirmed]    pin the PR's current head (n1-pr Step 9); refuses (rc 1, pin:refused)
-    #                             when the active run has no review artifacts (N1-182); --confirmed is
-    #                             only for the user-confirmed n1-finish re-pins (repin.md, resolve-dirty.md)
+    #                             when the active run has no review artifacts (N1-182) or the head is
+    #                             not the reviewed SHA or a recorded post-review head (N1-184); --confirmed
+    #                             is only for the user-confirmed n1-finish re-pins (repin.md, resolve-dirty.md)
     #   advance <pr> <from> <to>  move the pin to <to> only when it is <from> (N1 fix-loop pushes)
     # set/advance print pin:set|advanced <sha7>, pin:kept or pin:unavailable and never fail the
     # caller (only set's pin:refused returns 1); a missing pin makes n1-finish refuse to merge (fail closed).
@@ -475,13 +490,19 @@ n1_review_pin() {
     # ponytail: the user's own commits pushed from this checkout (e.g. "Fix manually") are advanced
     # too, and so is anything pulled into the checkout from others (git pull adopts it as reviewed);
     # per-commit provenance would need signed commits.
-    local op="${1:-}" pr="${2:-}" home repo file cur sha tmp="" br tip id rc
+    local op="${1:-}" pr="${2:-}" home repo file cur sha="" tmp="" br tip id rc
     home=$(n1_home)
+    # One head lookup for set: the guard binds to the same SHA that is pinned below (N1-184).
+    [ "$op" != set ] || sha=$(gh pr view "$pr" --json headRefOid -q .headRefOid 2>/dev/null)
     if [ "$op" = set ] && [ "${3:-}" != --confirmed ] && [ -n "$home" ]; then
-        id=$(n1_review_artifacts_ok "$home"); rc=$?
+        id=$(n1_review_artifacts_ok "$home" "$sha"); rc=$?
         if [ "$rc" = 2 ]; then
             echo "pin:refused review-failed $id (the review verdict is not PASS; fix and re-review)"
             echo "n1_review_pin: refused: memory/$id/review.md does not open with '### Verdict: PASS'" >&2
+            return 1
+        elif [ "$rc" = 3 ]; then
+            echo "pin:refused unreviewed-head $id (head is not the reviewed SHA or a recorded post-review head; re-run review)"
+            echo "n1_review_pin: refused: PR head ${sha:0:7} is not the end of the review head chain in memory/$id/telemetry" >&2
             return 1
         elif [ "$rc" != 0 ]; then
             echo "pin:refused no-review-artifacts $id (run the review step; do not hand-write the pin)"
@@ -502,7 +523,7 @@ n1_review_pin() {
     cur=$(cat "$file" 2>/dev/null)
     case "$op" in
         get) [[ "$cur" =~ ^[0-9a-f]{40}$ ]] && printf '%s\n' "$cur"; return 0 ;;
-        set) sha=$(gh pr view "$pr" --json headRefOid -q .headRefOid 2>/dev/null) ;;
+        set) ;;
         advance) [[ "$cur" =~ ^[0-9a-f]{40}$ ]] && [ "$cur" = "${3:-}" ] || { echo pin:kept; return 0; }; sha="${4:-}" ;;
         *) return 1 ;;
     esac
