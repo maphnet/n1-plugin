@@ -1220,6 +1220,24 @@ test_desc_chain_wiring() {
     intake_hash=$(line_of "$d" 'NEW_HASH=$(n1_queue_content_hash "$M/.guard-live.title" "$M/.guard-live.txt")' || true)
     intake_rm=$(line_of "$d" 'rm -f "$M"/.guard-live.*' || true)
     assert_eq "chain-wiring: Intake check clears live files after computing NEW_HASH" "yes" "$([ -n "$intake_hash" ] && [ -n "$intake_rm" ] && [ "$intake_rm" -gt "$intake_hash" ] && echo yes || echo no)"
+
+    # N1-326: the capture hook writes the scratch files; each fetch is marked first and nothing is model-written.
+    local mk_pre mk_post mk_guard pre_hash post_hash unmark
+    mk_pre=$(line_of "$d" 'n1_desc_mark pre "<ID>"' || true)
+    mk_post=$(line_of "$d" 'n1_desc_mark post "<ID>"' || true)
+    mk_guard=$(line_of "$d" 'n1_desc_mark guard "<ID>"' || true)
+    pre_hash=$(line_of "$d" 'n1_queue_content_hash "$M/.desc-pre.title" "$M/.desc-pre.txt"' || true)
+    post_hash=$(line_of "$d" 'n1_queue_content_hash "$M/.desc-post.title" "$M/.desc-post.txt"' || true)
+    unmark=$(line_of "$d" 'n1_desc_unmark "<ID>"' || true)
+    assert_eq "chain-wiring: Before marks its fetch before the hash (N1-326)" "yes" "$([ -n "$mk_pre" ] && [ -n "$pre_hash" ] && [ "$mk_pre" -lt "$pre_hash" ] && echo yes || echo no)"
+    assert_eq "chain-wiring: After marks its re-fetch after Before's mark and before the hash (N1-326)" "yes" "$([ -n "$mk_post" ] && [ -n "$mk_pre" ] && [ "$mk_pre" -lt "$mk_post" ] && [ "$mk_post" -lt "$post_hash" ] && echo yes || echo no)"
+    assert_eq "chain-wiring: Intake check marks its fetch before the hash (N1-326)" "yes" "$([ -n "$mk_guard" ] && [ -n "$intake_hash" ] && [ "$mk_guard" -lt "$intake_hash" ] && echo yes || echo no)"
+    assert_eq "chain-wiring: Gate drops a pending marker before the CHAIN check (N1-326)" "yes" "$([ -n "$unmark" ] && [ "$gate_rm" -lt "$unmark" ] && [ "$unmark" -lt "$chain_echo" ] && echo yes || echo no)"
+    assert_eq "chain-wiring: no model file-write of tracker text left (N1-326)" "0" "$(grep -cE 'file-write( mechanism|,)' "$d" || true)"
+    local mk_g
+    mk_g=$(line_of "$h" 'n1_desc_mark guard "$ID"' || true)
+    assert_eq "chain-wiring: headless guard marks its re-fetch between clear and hash (N1-326)" "yes" "$([ -n "$mk_g" ] && [ "$guard_clear_before" -lt "$mk_g" ] && [ "$mk_g" -lt "$guard_hash" ] && echo yes || echo no)"
+    assert_eq "chain-wiring: headless guard never model-writes .guard-live (N1-326)" "0" "$(grep -F '.guard-live' "$h" | grep -cE 'file-write( mechanism|,)' || true)"
 }
 
 # NP-231: thin tickets get a plan-time brief instead of a word-count exclusion.
@@ -1238,6 +1256,8 @@ test_brief_wiring() {
     assert_eq "brief: Desc Checksum is taken after the brief" "yes" "$([ -n "$b" ] && [ -n "$c" ] && [ "$b" -lt "$c" ] && echo yes || echo no)"
     assert_eq "brief: preview shows briefs before Start" "yes" "$(_hasF 'Brief <KEY>:' "$s/steps/preview.md")"
     assert_eq "brief: --run re-plan re-runs Plan-Resolve 1 so the checksum stays post-brief" "yes" "$(_hasF 'preview.md § Plan-Resolve 1' "$s/steps/run.md")"
+    assert_eq "brief: intake marks each candidate fetch for the capture hook (N1-326)" "yes" "$(_hasF 'n1_desc_mark queue "<KEY>" "<QUEUE_ID>"' "$s/steps/intake.md")"
+    assert_eq "brief: a missing captured title keeps the candidate (N1-326 D8)" "yes" "$(_hasF 'echo MISSING' "$s/steps/intake.md")"
 }
 
 
@@ -1514,7 +1534,7 @@ test_plan_wiring() {
     assert_eq "plan-wiring: preview.md no longer pipes through cksum" "no" "$(has 'cksum <' "$s/steps/preview.md")"
     assert_eq "plan-wiring: intake validates ticket keys before path use (SEC-L4)" "yes" "$(has '\^\[A-Z\]\[A-Z0-9_\]\*-\[0-9\]\+\$' "$s/steps/intake.md")"
 
-    # SEC-1: a ticket title is written to a file, never interpolated into a shell string.
+    # SEC-1: the capture hook writes the title/desc files from the fetch; the title is never interpolated into a shell string.
     assert_eq "plan-wiring: preview marks the snapshot fetch for the capture hook (N1-326)" "yes" "$(grep -qF 'n1_desc_mark queue "<KEY>" "<QUEUE_ID>"' "$s/steps/preview.md" && echo yes || echo no)"
     assert_eq "plan-wiring: run.md marks the re-plan fetch for the capture hook (N1-326)" "yes" "$(grep -qF 'n1_desc_mark queue "<KEY>" "<QUEUE_ID>"' "$s/steps/run.md" && echo yes || echo no)"
     local fw
@@ -1591,6 +1611,8 @@ test_headless_plan_wiring() {
         "$(grep -qF 'Comment check (SEC-2)' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: a post-plan comment falls through like MISMATCH (SEC-2)" "yes" \
         "$(grep -q 'created after .planned_at.: treat this exactly like .MISMATCH' "$h" && echo yes || echo no)"
+    assert_eq "headless-plan: guard re-fetch is marked for the capture hook (N1-326)" "yes" \
+        "$(grep -qF 'n1_desc_mark guard "$ID"' "$h" && echo yes || echo no)"
 }
 
 # N1-268 AC3. Bug caught: a failed row whose PR merged after the runner stopped supervising it stays "failed" in --status.
