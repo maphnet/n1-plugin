@@ -1343,6 +1343,7 @@ test_retry_wiring() {
     assert_eq "retry-wiring: resumed escalated child re-asks" "yes" "$(_hasF 'N1_ORCA_RESUME=1' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
     assert_eq "retry-wiring: resume re-asks only the last escalation" "yes" "$(_hasF 'last `## Escalations` item' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
     assert_eq "retry-wiring: resume makes the step reset the first overview.md write" "yes" "$(_hasF 'The step reset is the first overview.md write' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
+    assert_eq "retry-wiring: resume never resets to a runner-terminal step" "yes" "$(_hasF 'If that step is `pr`, `ci` or `done` (terminal for the queue runner poll' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
     assert_eq "retry-wiring: architecture documents the resumable exception" "yes" "$(_hasF 'n1_orca_worktree_resumable' "$REPO_ROOT/references/architecture.md")"
 }
 
