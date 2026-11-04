@@ -11,7 +11,7 @@ PASS=0; FAIL=0
 eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS + 1)); else echo "FAIL: $1 -- expected '$2', got '$3'"; FAIL=$((FAIL + 1)); fi; }
 
 # Stub gh: logs every call to $GH_CALLS; `pr view` prints $GH_SHA; `run view <id> --log-failed` prints
-# $GH_DIR/log.<id> (missing file -> rc 1); `run rerun <id> --failed` exits $GH_RERUN_RC. Anything else fails.
+# $GH_DIR/log.<id> (missing file -> rc 1); `run rerun <id> --failed` exits 1 for $GH_RERUN_FAIL_ID, else $GH_RERUN_RC. Anything else fails.
 mkdir "$T/bin"
 cat > "$T/bin/gh" <<'EOG'
 #!/usr/bin/env bash
@@ -19,7 +19,7 @@ printf '%s\n' "$*" >> "$GH_CALLS"
 case "$1 $2" in
     "pr view") [[ "$*" == *"--json headRefOid --jq .headRefOid"* ]] || exit 1; printf '%s\n' "$GH_SHA" ;;
     "run view") [ "$4" = "--log-failed" ] && cat "$GH_DIR/log.$3" 2>/dev/null ;;
-    "run rerun") [ "$4" = "--failed" ] || exit 1; exit "${GH_RERUN_RC:-0}" ;;
+    "run rerun") [ "$4" = "--failed" ] || exit 1; [ "$3" = "${GH_RERUN_FAIL_ID:-}" ] && exit 1; exit "${GH_RERUN_RC:-0}" ;;
     *) exit 1 ;;
 esac
 EOG
@@ -28,7 +28,7 @@ SHA1=$(printf 'a%.0s' $(seq 40)); SHA2=$(printf 'b%.0s' $(seq 40))
 export PATH="$T/bin:$PATH" GH_CALLS="$T/calls" GH_DIR="$T" GH_RERUN_RC=0 GH_SHA="$SHA1"
 
 OV="$T/overview.md"; TSV="$T/ci-fail.tsv"
-ov() { printf -- '---\nstep: ci\nci_fix_cycle: 1\n---\n' > "$OV"; : > "$T/calls"; export GH_SHA="$SHA1" GH_RERUN_RC=0; }
+ov() { printf -- '---\nstep: ci\nci_fix_cycle: 1\n---\n' > "$OV"; : > "$T/calls"; export GH_SHA="$SHA1" GH_RERUN_RC=0 GH_RERUN_FAIL_ID=; }
 L() { printf 'https://github.com/o/r/actions/runs/%s/job/9' "$1"; }
 fails() { printf 'FAIL\t%s\t%s\n' "$@" > "$TSV"; }   # fails <name> <link> [<name> <link>]...
 gate() { n1_ci_rerun_gate "$OV" 12 "$TSV" "${1:-}"; }
@@ -87,6 +87,9 @@ eq "E1b mixed batch: no rerun, count 0" "0|0" "$(reruns)|$(fm ci_rerun_count)"
 ov; export GH_RERUN_RC=1; fails runner-timeout "$(L 111)"
 eq "E2 gh run rerun rejected -> dispatch" "dispatch" "$(gate)"
 eq "E2b count restored, no check recorded" "0|" "$(fm ci_rerun_count)|$(fm ci_rerun_checks)"
+ov; fails runner-a "$(L 801)" runner-b "$(L 802)"; export GH_RERUN_FAIL_ID=802
+eq "E2c two runs, one rerun rejected -> rerun:1/3" "rerun:1/3" "$(gate)"
+eq "E2d count is 1 and one check hash recorded" "1|1" "$(fm ci_rerun_count)|$(fm ci_rerun_checks | wc -w | tr -d ' ')"
 ov; fails runner-a "$(L 700)" runner-b "https://github.com/o/r/actions/runs/700/job/2"
 eq "E3 two checks sharing one run -> rerun:2/3" "rerun:2/3" "$(gate)"
 eq "E3b one gh run rerun call for the shared run" "1" "$(reruns)"
