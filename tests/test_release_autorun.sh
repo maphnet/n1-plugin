@@ -162,4 +162,16 @@ check "missing-offer names autoRun as the only skip" 'only release.autoRun skips
 absent "old missing-offer wording removed" 'no autonomy setting skips this ask' "$R2"
 check "missing-offer auto-creates under autoRun" 'When `AUTORUN` (Step 3) is `true`, do not ask' "$R2"
 
+# --- wiring: docs, init, defaults
+INIT=skills/n1-init/steps/09-finish-release.md
+check "SKILL.md config table lists release.autoRun" '| `.release.autoRun` | `false` |' skills/n1-release/SKILL.md
+check "04-report lists the wait helpers" 'n1_wait_step' skills/n1-release/steps/04-report.md
+check "init asks the autoRun question" 'Run the procedure'"'"'s shell steps without asking "Run this?"' "$INIT"
+check "init question carries no recommendation" 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$INIT"
+check "init writes autoRun only on Yes" '"autoRun": true' "$INIT"
+check "init example shows a poll marker" '(poll: 10m)' "$INIT"
+check "init example shows a monitor marker" '(monitor: 10m, every 30s)' "$INIT"
+check "architecture documents release.autoRun" 'release.autoRun' references/architecture.md
+expect "defaults/release.json has autoRun false" true "$(jq -r '.autoRun == false' defaults/release.json)"
+
 exit $FAIL
