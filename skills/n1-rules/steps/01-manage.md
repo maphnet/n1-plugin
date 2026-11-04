@@ -82,7 +82,17 @@ Which agents should check this rule?
 
 If option 2 selected, warn: "A rule that applies to every persona is usually a rule that belongs in CLAUDE.md instead. Continue? 1 — Yes / 2 — No"
 
-For option 3, run `n1_rules_valid_applies_to` and show its output as the valid names. After a custom entry, run `n1_rules_validate_applies_to "<entry>"`; on non-zero show the invalid tokens and the valid values, and ask again. Options 1 and 2 need no validation.
+For option 3, validate the custom entry by putting it in the quoted heredoc below (never inside double quotes). Non-zero exit → show the printed invalid tokens and the valid values (the `VALID:` line), and ask again. Options 1 and 2 need no validation.
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/rules.sh"
+echo "VALID: $(n1_rules_valid_applies_to | paste -sd, -)"
+n1_rules_validate_applies_to "$(cat <<'EOF'
+<entry>
+EOF
+)"
+```
 
 **5. Enforcement — push toward deny:**
 ```

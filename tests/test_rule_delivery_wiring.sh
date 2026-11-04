@@ -42,6 +42,8 @@ check "re-dispatch keeps RULES_BLOCK" 'same inputs \(including .RULES_BLOCK.\) p
 check "tech-writer takes RULES_BLOCK input" 'Optional: .RULES_BLOCK. ' agents/tech-writer.md
 check "tech-writer maps rules to Before deploy rows" 'Project rules.*Before deploy' agents/tech-writer.md
 check "check validates applies_to" 'n1_rules_validate_applies_to' skills/n1-rules/steps/02-deny-hooks.md
+check "check sources lib/rules.sh" 'source "\$N1_ROOT/lib/rules.sh"' skills/n1-rules/steps/02-deny-hooks.md
+check "wizard sources lib/rules.sh" 'source "\$N1_ROOT/lib/rules.sh"' skills/n1-rules/steps/01-manage.md
 check "wizard lists valid names from helper" 'n1_rules_valid_applies_to' skills/n1-rules/steps/01-manage.md
 absent "wizard no hard-coded persona list" 'product-analyst., .solution-architect' skills/n1-rules/steps/01-manage.md
 

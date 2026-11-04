@@ -48,12 +48,12 @@ Run once; copy the printed output verbatim as RULES_BLOCK (shell variables do no
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/rules.sh"
-BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'); BASE="${BASE:-main}"
+BASE=$(n1_config_val '.git.defaultBranch'); BASE="${BASE:-$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')}"; BASE="${BASE:-main}"
 git rev-parse --verify -q "origin/$BASE" >/dev/null && BASE="origin/$BASE"
 RULES_DIR=$(n1_rules_dir)
 if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
     MATCHING=$(n1_rules_for_agent "tech-writer" "$(git diff --name-only "$BASE...HEAD" 2>/dev/null)" "$RULES_DIR")
-    [ -n "$MATCHING" ] && n1_rules_render $MATCHING
+    if [ -n "$MATCHING" ]; then n1_rules_render $MATCHING; fi
 fi
 ```
 
