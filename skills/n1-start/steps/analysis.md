@@ -15,19 +15,12 @@ DESC_QUALITY=$(n1_read_signal "$N1_HOME/memory/$ID/ticket.md" "description_quali
 n1_record_decision lite-analysis-gate "$LITE_MODE" '{"all":[{"frontmatter":"tier","eq":"simple"},{"signal":"ticket.description_quality","neq":"empty"},{"signal":"ticket.description_quality","neq":"skeletal"},{"any":[{"frontmatter":"type","eq":"task"},{"frontmatter":"type","eq":"chore"}]}]}' "tier=$TIER" "type=$TYPE" "quality=$DESC_QUALITY"
 IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect analysis)
 n1_write_context
-RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json"); PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME"); RELATED_CONTEXT=""
-if [ "$RELATED_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then
-    MAX_AGE=72h; RELATED_LINES=""
-    while IFS=$'\t' read -r slug reason repo_path; do [ -z "$slug" ] && continue
-        RELATED_LINES="${RELATED_LINES}
-- ${slug} (${reason}): map=$(n1_project_map_check_freshness "$(n1_related_project_map "$slug")" "$MAX_AGE" || echo cold) mapPath=$(n1_related_project_map "$slug") repo=${repo_path}"
-    done < <(n1_related_projects "$N1_HOME/config.json")
-    [ -n "$RELATED_LINES" ] && RELATED_CONTEXT="RELATED PROJECTS:${RELATED_LINES}
-Fresh→read mapPath. Stale/cold→generate map (schema_version:1,generated_at,git_sha,git_sha_short,generator:solution-architect), emit XREPO_MAP_GENERATED:<slug>. Add '### Cross-Repo Context'."
-fi
+RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json"); PROJECT_MAP_PATH=$(n1_project_map_path "$N1_HOME"); echo "RELATED_ENABLED=$RELATED_ENABLED"
 echo "LITE_MODE=$LITE_MODE CACHE_STATE=$CACHE_STATE"
 ```
 `LITE_MODE=true`: log to `## Key Decisions`.
+
+If `RELATED_ENABLED=true`, read `procedures/analysis-xrepo.md` now (before the SA spawn) and follow it; it also owns the cross-repo end of this step.
 
 Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
@@ -73,13 +66,9 @@ n1_write_context
 XREPO_PENDING_FILE="$N1_HOME/memory/$ID/xrepo-pending.tsv"; rm -f "$XREPO_PENDING_FILE"
 ```
 
-Parse `XREPO_SUGGEST: <slug> <reason>` from `$AGENT_OUTPUT`. **Auto**: `n1_related_add` + B-tier `[auto]` ledger row per slug. **Non-auto:** append to `$XREPO_PENDING_FILE`; print `SA detected cross-repo integrations:` + slug list + `Add? (yes/no/select)`.
-
 **Contradiction gate:** `CONTRADICTIONS > 0`: show `### Ticket Validation`; 1=Continue 2=Redirect(Recommended); log `[asked]` ledger row. Zero or all unverifiable: skip. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 Missing/empty: re-prompt once; fallback. DRIFT: delete snapshot. Write frontmatter; `CONTEXT_BLOCK` → replace `## Context`. **Print Gate 1** (`SIMPLE_PATH=true`: `analysis → developer → qa → review → pr`). `SELF_RESOLVED>0`: `[auto]` ledger. Then `procedures/ticket-watch.md § Seed`. Headless: continue immediately past Gate 1 into the next step — do not end the turn.
-
-Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":** add all + ledger rows (use `n1_related_add`+`n1_record_decision` per slug). **"select":** add approved. **"no":** `[asked]` row. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -91,5 +80,4 @@ if [ "$RELATED_ENABLED" = "true" ]; then XREPO_EXPLORED_BOOL=$(n1_read_signal "$
 [ "$RELATED_ENABLED" = "true" ] || n1_step_end "analysis" 2 success
 ```
 
-When `RELATED_ENABLED=true`: read `cross_repo_explored` signal; extract comma-separated XREPO_PROJECTS from `### Cross-Repo Context`; count `XREPO_MAPS_GENERATED`+`XREPO_DISCOVERY_NEW` in `$AGENT_OUTPUT`; end the step: `n1_step_end "analysis" 2 success "{\"cross_repo_explored\":${XREPO_EXPLORED_BOOL:-false},\"cross_repo_projects\":\"${XREPO_PROJECTS}\",\"cross_repo_maps_generated\":${XREPO_MAPS_GENERATED},\"cross_repo_discovery_new\":${XREPO_DISCOVERY_NEW}}"`.
 `UNKNOWN_COUNT=0`: skip. Inherited→`[auto]` telemetry+ledger. Preamble: `"{Title}: {Core Ask}."` Bug: prepend root-cause. Batch (max 4): unknown — tried — why — (Recommended). Options: answer / "skip" / "Decide for me" / "use recommended" (all). "Decide for me"→search+apply `[auto-decided]`. After: `### Clarifications`.
