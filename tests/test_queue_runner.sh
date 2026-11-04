@@ -1128,7 +1128,8 @@ step: run
 | T-7 | | | | $h0 | |
 EOF
     # Run the real fenced recipe from the doc (minus the two `source` lines; lib/queue.sh is already loaded).
-    local recipe; recipe=$(awk 'index($0,"## Intake check")==1{f=1;next} f&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$REPO_ROOT/references/desc-hash-chain.md" | { grep -v '^source ' || true; } | sed 's/<ID>/T-7/g')
+    # The section opens with the n1_desc_mark block (N1-326); take the block that holds the hash check.
+    local recipe; recipe=$(awk 'index($0,"## Intake check")==1{f=1;next} f&&/^```bash/{b=1;buf="";next} b&&/^```/{if(buf~/n1_desc_hash_is_trusted/){printf "%s",buf;exit} b=0;next} b{buf=buf $0 "\n"}' "$REPO_ROOT/references/desc-hash-chain.md" | { grep -v '^source ' || true; } | sed 's/<ID>/T-7/g')
     assert_eq "intake: recipe extracted from doc" "1" "$(printf '%s' "$recipe" | grep -c n1_desc_hash_is_trusted || true)"
     _intake_check() { # <title-file|""> <desc-file|"">: "" = that file-write failed
         if [ -n "$1" ]; then cp "$1" "$M/.guard-live.title"; fi
@@ -1514,7 +1515,13 @@ test_plan_wiring() {
     assert_eq "plan-wiring: intake validates ticket keys before path use (SEC-L4)" "yes" "$(has '\^\[A-Z\]\[A-Z0-9_\]\*-\[0-9\]\+\$' "$s/steps/intake.md")"
 
     # SEC-1: a ticket title is written to a file, never interpolated into a shell string.
-    assert_eq "plan-wiring: preview writes the title to a file before hashing" "yes" "$(has '\.title.*file-write mechanism|file-write mechanism.*\.title' "$s/steps/preview.md")"
+    assert_eq "plan-wiring: preview marks the snapshot fetch for the capture hook (N1-326)" "yes" "$(grep -qF 'n1_desc_mark queue "<KEY>" "<QUEUE_ID>"' "$s/steps/preview.md" && echo yes || echo no)"
+    assert_eq "plan-wiring: run.md marks the re-plan fetch for the capture hook (N1-326)" "yes" "$(grep -qF 'n1_desc_mark queue "<KEY>" "<QUEUE_ID>"' "$s/steps/run.md" && echo yes || echo no)"
+    local fw
+    for fw in intake preview run; do
+        assert_eq "plan-wiring: $fw.md never model-writes desc/<KEY> files (N1-326)" "0" \
+            "$(grep -F 'desc/<KEY>' "$s/steps/$fw.md" | grep -cE 'file-write( mechanism|,)' || true)"
+    done
     assert_eq "plan-wiring: preview no longer passes a bare <title> string to content_hash" "no" "$(has 'n1_queue_content_hash "<title>"' "$s/steps/preview.md")"
     assert_eq "plan-wiring: run.md writes the fresh title to a file before hashing" "yes" "$(has '\.title' "$s/steps/run.md")"
     assert_eq "plan-wiring: run.md no longer passes a bare <title> string to content_hash" "no" "$(has 'n1_queue_content_hash "<title>"' "$s/steps/run.md")"

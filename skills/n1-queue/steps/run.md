@@ -68,12 +68,14 @@ Otherwise, `STEP` is not `planned` (or queue.md is missing): print "No saved pla
    Keep these five values (`OLD_TOUCHES`, `OLD_ORDER`, `OLD_PREDECISION`, `OLD_CHECKSUM`, `OLD_NOTES`) as this row's working values. Steps 5-7 below only update the ones they touch, carry the rest forward unchanged, and flush everything in exactly one `n1_queue_decisions_write_row` call at the end of step 7 (never a second call for the same row).
 5. **Duplicate check (unconditional, every pending or held row that survived step 4, fresh search):** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=queue-plan`, `TEXT` = this ticket's title + description, `SELF_ID=<KEY>`, `OVERVIEW` empty. `DUP_CHOICE=exclude` -> move the row to Excluded with reason `duplicate: <HIT_IDs> (plan)`, drop its `## Decisions` row, continue to the next row. Otherwise (`continue` or `link`) set `OLD_NOTES` to `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>` (not written yet) and keep going.
 6. **Touches extraction (unconditional, every pending or held row that survived step 5):** follow preview.md § Plan-Resolve 3's Touches list only (not its `n1_queue_overlap_order` reorder call — that runs once, globally, after every row below). Set `OLD_TOUCHES` to the result (not written yet).
-7. Clear the row's scratch files first, so a failed write below never leaves the stale plan snapshot to hash as `SAME`:
+7. Clear the row's scratch files first and mark the fetch, so a failed capture below never leaves the stale plan snapshot to hash as `SAME`:
    ```bash
    source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/queue.sh"
    rm -f "<QUEUE_DIR>/desc/<KEY>.title" "<QUEUE_DIR>/desc/<KEY>.txt"
+   n1_desc_mark queue "<KEY>" "<QUEUE_ID>" || echo MARK-FAILED
    ```
-   Then write the fresh title and description to those same paths (file-write, as in preview.md § Plan-Resolve 1 — never through a shell string, NP-203 SEC-1) and compare its hash with the saved Desc Checksum from step 4's read:
+   Then call `mcp__<TRACKER_MCP>__<READ_OP>` for the ticket again as the very next tracker call. Step 1's fetch came before the mark and was not captured. The capture hook (`hooks/desc-capture.sh`) writes the fresh title and description to those same paths. Never write them yourself (NP-203 SEC-1). The hook consumes the mark on any read of the ticket, even a failed one, so re-run this bash call before retrying the read. Compare their hash with the saved Desc Checksum from step 4's read:
    ```bash
    source ~/.n1/preamble.sh
    source "$N1_ROOT/lib/queue.sh"
