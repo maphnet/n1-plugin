@@ -58,6 +58,12 @@ assert_eq "success of the same call resets" "0" "$(nudges "$T/out")"
 reset; fail "make test" >/dev/null; fail "make test" >/dev/null; TOOL=Edit ok "" >/dev/null
 : > "$T/out"; fail "make test" >> "$T/out"; fail "make test" >> "$T/out"
 assert_eq "an Edit resets" "0" "$(nudges "$T/out")"
+reset; fail "make test" >/dev/null; fail "make test" >/dev/null; AID=a1 TOOL=Edit ok "" >/dev/null
+: > "$T/out"; fail "make test" >> "$T/out"; fail "make test" >> "$T/out"
+assert_eq "a subagent Edit resets the main streak" "0" "$(nudges "$T/out")"
+reset; fail "make test" >/dev/null; fail "make test" >/dev/null; AID=a1 ok "make lint" >/dev/null
+: > "$T/out"; fail "make test" >> "$T/out"
+assert_eq "a subagent Bash success does not reset the main streak" "1" "$(nudges "$T/out")"
 reset; fail "make test" $'Exit code 1\nerr A' >/dev/null; fail "make test" $'Exit code 1\nerr A' >/dev/null
 : > "$T/out"; fail "make test" $'Exit code 1\nerr B' >> "$T/out"; fail "make test" $'Exit code 1\nerr B' >> "$T/out"
 assert_eq "same command, different error text: new streak" "0" "$(nudges "$T/out")"

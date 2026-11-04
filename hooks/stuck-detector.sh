@@ -2,7 +2,7 @@
 # N1-342: stuck detector for a repeated identical failing Bash call inside one session/agent.
 #   PostToolUseFailure (Bash): records the streak; the 3rd identical failure gets one additionalContext nudge.
 #   PreToolUse (Bash): once 5 identical failures are recorded, the same call is denied (exit 2, reason on stderr).
-#   PostToolUse (Bash and edit tools): any success or edit deletes the state, which resets the streak.
+#   PostToolUse (Bash and edit tools): a success deletes the caller's state; an edit deletes every agent's state in the session.
 # Identical = same tool_input without .description, and the same normalized error (first 3 lines, digit runs
 # -> N, 300 bytes). State: $N1_HOME/scratch/stuck/<session_id>.<agent_id|main>, one line "H F count flag",
 # hashes only. Telemetry: {"event":"stuck","kind":"nudge|stop"} in raw/steps when the session owns a run lock.
@@ -30,7 +30,13 @@ N1_HOME=$(n1_home 2>/dev/null)
 D="$N1_HOME/scratch/stuck"; S="$D/$sid.$aid"
 [ ! -L "$N1_HOME/scratch" ] && [ ! -L "$D" ] && [ ! -L "$S" ] || exit 0
 
-if [ "$ev" = PostToolUse ]; then rm -f "$S" 2>/dev/null; exit 0; fi
+if [ "$ev" = PostToolUse ]; then
+    case "$tool" in   # an edit anywhere in the session changes the world for every agent
+        Edit|Write|MultiEdit|NotebookEdit) rm -f "$D/$sid".* 2>/dev/null ;;
+        *) rm -f "$S" 2>/dev/null ;;
+    esac
+    exit 0
+fi
 [ "$tool" = Bash ] || exit 0
 case "$ev" in PreToolUse|PostToolUseFailure) ;; *) exit 0 ;; esac
 if [ "$ev" = PreToolUse ] && [ ! -f "$S" ]; then exit 0; fi   # hot path: no streak, nothing to deny
