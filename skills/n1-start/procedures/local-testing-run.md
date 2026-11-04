@@ -67,7 +67,7 @@ Spawn the developer agent with:
 | # | Scenario | Result | Details |
 |---|----------|--------|---------|
 
-{Omit table if no ad-hoc scenarios were planned.}
+{Result is exactly `PASS` or `FAIL`. Omit table if no ad-hoc scenarios were planned.}
 
 ### Manual Verification Checklist
 - [ ] <item from plan>
@@ -77,6 +77,7 @@ Spawn the developer agent with:
 - App process: <status>
 
 ### Verdict: PASS / FAIL
+- **Failure class:** infra|code-bug|none
 ```
 
 - Output-path directive: "Write your full Local Testing Report to `$N1_HOME/memory/<ID>/local-testing.md` yourself, as a full overwrite (never append). Return to the orchestrator ONLY this compact block:
@@ -183,6 +184,8 @@ Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core
 
 If local testing verdict is FAIL (e2e tests or ad-hoc scenarios failed):
 
+**Stall check:** `procedures/stall-stop.md § Local testing` first; stalled → the cap exit below (Autonomy gate, then the options), no developer spawn.
+
 **Spawn agent:** developer (fix mode)
 
 Resolve model for `developer`.
@@ -215,6 +218,7 @@ Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core
   - "1 — Fix manually, type 'continue' to re-test"
   - "2 — Skip local testing, proceed to PR" (run the same skipped end as above)
   - "3 — Provide guidance for another fix attempt"
-- If 3: reset the counter ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci) and continue with user's guidance.
+- If 1: run `procedures/stall-stop.md § Reset` with `local_test_fail_sig`, wait for 'continue', then re-run 9c.
+- If 3: run `procedures/stall-stop.md § Reset` with `local_test_fail_sig`, reset the counter ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci) and continue with user's guidance.
 
 **Cleanup guarantee:** cleanup runs after EVERY execution attempt, including failed ones, and includes `localTesting.teardownCommand` when set. No orphan containers or processes between fix cycles. Started containers are recorded in `$N1_HOME/memory/<ID>/containers.tsv` and removed by `n1_containers_teardown`; `n1-finish` repeats it as a backstop.

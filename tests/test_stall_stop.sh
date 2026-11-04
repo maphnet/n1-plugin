@@ -120,4 +120,15 @@ eq "W2 qa.md stall check precedes the cap test" "1" "$(before "$QL" 'stall-stop.
 eq "W2b qa.md stall check precedes the increment" "1" "$(before "$QL" 'stall-stop.md § QA' 'n1_increment_counter')"
 eq "W2c qa.md loop exit covers the stall" "1" "$(grep -cF 'Loop exit only (PASS, cap or stall), once: run the final block below.' "$QA")"
 
+# ---- wiring: local testing (procedures/local-testing-run.md) ----
+LTR=skills/n1-start/procedures/local-testing-run.md
+LP_LN=$(grep -nF 'procedures/stall-stop.md § Local testing' "$LTR" | head -1 | cut -d: -f1)
+FL_LN=$(grep -n '^#### 9d\. FIX LOOP' "$LTR" | head -1 | cut -d: -f1)
+SP_LN=$(awk -v s="${LP_LN:-0}" 'NR > s && index($0, "**Spawn agent:** developer (fix mode)") { print NR; exit }' "$LTR")
+eq "W3 9d stall pointer sits after the 9d heading and before the developer spawn" "1" "$([ -n "$LP_LN" ] && [ -n "$FL_LN" ] && [ -n "$SP_LN" ] && [ "$FL_LN" -lt "$LP_LN" ] && [ "$LP_LN" -lt "$SP_LN" ] && echo 1 || echo 0)"
+eq "W4 report template has the Failure class line (D3)" "1" "$(grep -cxF -- '- **Failure class:** infra|code-bug|none' "$LTR")"
+eq "W5 report template states the Result vocabulary" "1" "$(grep -cF 'Result is exactly `PASS` or `FAIL`.' "$LTR")"
+eq "W6 9d option 1 resets local_test_fail_sig" "1" "$(grep -cE '^- If 1: run `procedures/stall-stop\.md § Reset` with `local_test_fail_sig`' "$LTR")"
+eq "W6b 9d option 3 resets local_test_fail_sig" "1" "$(grep -cE '^- If 3: run `procedures/stall-stop\.md § Reset` with `local_test_fail_sig`' "$LTR")"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
