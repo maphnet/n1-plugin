@@ -14,29 +14,32 @@ _N1_CI_INFRA_NAME='timeout|runner|infrastructure'
 _N1_CI_INFRA_LOG='runner .*(lost communication|shutdown)|shutdown signal|No space left on device|ETIMEDOUT|ECONNRESET|ENOTFOUND|connection (timed out|reset)|TLS handshake timeout|Could not resolve host|Temporary failure in name resolution|50[234] (Bad Gateway|Service Unavailable|Gateway Time-?out)|429 Too Many Requests|exceeded the maximum execution time|The operation was canceled'
 _N1_CI_ASSERT_LOG='AssertionError|expected .* (to|but)|(^|[[:space:]])FAIL[: ]|[1-9][0-9]* (tests? )?failed'
 
-# _n1_ci_log_tail <run-id>: last 40 lines of the failed-job log (the cause is near the end; earlier lines are
-# retry noise). rc 1 on a bad id, gh error or empty log.
+# _n1_ci_log_tail <run-id> [job-id]: last 40 lines of the failed-job log (the cause is near the end; earlier
+# lines are retry noise). With a job id only that check's job log is read, so checks sharing a run are judged
+# separately. rc 1 on a bad id, gh error or empty log.
 _n1_ci_log_tail() {
     local log
+    local -a job=()
     [[ "${1:-}" =~ ^[0-9]+$ ]] || return 1
-    log=$(timeout -k 5 45 gh run view "$1" --log-failed 2>&1) || return 1
+    [[ "${2:-}" =~ ^[0-9]+$ ]] && job=(--job "$2")
+    log=$(timeout -k 5 45 gh run view "$1" "${job[@]}" --log-failed 2>&1) || return 1
     log=$(tail -n 40 <<<"$log")
     [ -n "$log" ] || return 1
     printf '%s\n' "$log"
 }
 
-# n1_ci_log_infra <run-id>: rc 0 when the failed-job log tail shows a runner, network or timeout failure and
+# n1_ci_log_infra <run-id> [job-id]: rc 0 when the failed-job log tail shows a runner, network or timeout failure and
 # no assertion. Any error, empty log or no match -> rc 1. Prints nothing.
 n1_ci_log_infra() {
     local log
-    log=$(_n1_ci_log_tail "$1") || return 1
+    log=$(_n1_ci_log_tail "$1" "${2:-}") || return 1
     grep -Eq "$_N1_CI_INFRA_LOG" <<<"$log" && ! grep -Eq "$_N1_CI_ASSERT_LOG" <<<"$log"
 }
 
-# n1_ci_log_assert <run-id>: rc 0 only when the log tail shows an assertion failure. Unreadable log -> rc 1.
+# n1_ci_log_assert <run-id> [job-id]: rc 0 only when the log tail shows an assertion failure. Unreadable log -> rc 1.
 n1_ci_log_assert() {
     local log
-    log=$(_n1_ci_log_tail "$1") || return 1
+    log=$(_n1_ci_log_tail "$1" "${2:-}") || return 1
     grep -Eq "$_N1_CI_ASSERT_LOG" <<<"$log"
 }
 
@@ -45,13 +48,13 @@ n1_ci_log_assert() {
 # no escalate match, not rerun before at this SHA, infra name or infra log) and fit under the cap.
 n1_ci_rerun_gate() {
     local o="$1" pr="$2" tsv="$3" esc="${4:-}" sha count old tag="" name link id i rc ok=0 newh=""
-    local -a ids=() hs=() names=()
+    local -a ids=() hs=() names=() jobs=()
     [ -f "$o" ] && [[ "$pr" =~ ^[0-9]+$ ]] && [ -s "$tsv" ] || { echo dispatch; return 0; }
     while IFS=$'\t' read -r tag name link || [ -n "$tag" ]; do
         [ "$tag" = FAIL ] && [ -n "$name" ] || { tag=""; continue; }
         link=${link%$'\r'}
-        [[ "$link" =~ ^https?://github\.com/[^/]+/[^/]+/actions/runs/([0-9]+)(/|$) ]] || { echo dispatch; return 0; }
-        ids+=("${BASH_REMATCH[1]}"); names+=("$name"); hs+=("$(printf '%s\n' "$name" | _n1_sha256)")
+        [[ "$link" =~ ^https?://github\.com/[^/]+/[^/]+/actions/runs/([0-9]+)(/job/([0-9]+))?(/|$) ]] || { echo dispatch; return 0; }
+        ids+=("${BASH_REMATCH[1]}"); jobs+=("${BASH_REMATCH[3]:-}"); names+=("$name"); hs+=("$(printf '%s\n' "$name" | _n1_sha256)")
         tag=""
     done < "$tsv"
     [ "${#ids[@]}" -gt 0 ] || { echo dispatch; return 0; }
@@ -72,9 +75,9 @@ n1_ci_rerun_gate() {
             [ "$rc" -eq 1 ] || { echo dispatch; return 0; }   # match (0) or bad ERE (2)
         fi
         if grep -Eiq "$_N1_CI_INFRA_NAME" <<<"${names[$i]}"; then
-            ! n1_ci_log_assert "${ids[$i]}" || { echo dispatch; return 0; }   # name hint never overrides an assertion
+            ! n1_ci_log_assert "${ids[$i]}" "${jobs[$i]}" || { echo dispatch; return 0; }   # name hint never overrides an assertion
         else
-            n1_ci_log_infra "${ids[$i]}" || { echo dispatch; return 0; }
+            n1_ci_log_infra "${ids[$i]}" "${jobs[$i]}" || { echo dispatch; return 0; }
         fi
     done
     # Count first: a failed write stops before any rerun, so reruns never run uncounted.

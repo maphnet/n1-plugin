@@ -18,7 +18,8 @@ cat > "$T/bin/gh" <<'EOG'
 printf '%s\n' "$*" >> "$GH_CALLS"
 case "$1 $2" in
     "pr view") [[ "$*" == *"--json headRefOid --jq .headRefOid"* ]] || exit 1; printf '%s\n' "$GH_SHA" ;;
-    "run view") [ "$4" = "--log-failed" ] && cat "$GH_DIR/log.$3" 2>/dev/null ;;
+    "run view") if [ "$4" = "--job" ]; then [ "$6" = "--log-failed" ] && cat "$GH_DIR/log.$3.job.$5" 2>/dev/null || cat "$GH_DIR/log.$3" 2>/dev/null
+                else [ "$4" = "--log-failed" ] && cat "$GH_DIR/log.$3" 2>/dev/null; fi ;;
     "run rerun") [ "$4" = "--failed" ] || exit 1; [ "$3" = "${GH_RERUN_FAIL_ID:-}" ] && exit 1; exit "${GH_RERUN_RC:-0}" ;;
     *) exit 1 ;;
 esac
@@ -59,6 +60,15 @@ ov; fails build "$(L 336)"; { printf 'x\ty\tz npm warn ETIMEDOUT retrying\n'; fo
 eq "A1m early retry noise followed by a compile error -> dispatch" "dispatch" "$(gate)"
 ov; fails build "$(L 337)"; printf 'x\ty\tz request timed out, retrying\nx\ty\tz eslint: no-unused-vars\n' > "$T/log.337"
 eq "A1n generic 'timed out' alone is not an infra signature -> dispatch" "dispatch" "$(gate)"
+
+# Mixed batch in one run: each check reads its own job log (log.<run>.job.<job>, else log.<run>).
+ov; fails build-a "$(L 565)" build-b 'https://github.com/o/r/actions/runs/565/job/10'
+printf 'x\ty\tz ETIMEDOUT\n' > "$T/log.565.job.9"; printf 'x\ty\tz tsc error TS1\n' > "$T/log.565.job.10"
+eq "A1o infra job plus compile job in one run -> dispatch" "dispatch" "$(gate)"
+eq "A1p no rerun call for the mixed run" "0" "$(reruns)"
+ov; printf 'x\ty\tz ETIMEDOUT\n' > "$T/log.565.job.10"
+eq "A1q both jobs infra in one run -> rerun:2/3" "rerun:2/3" "$(fails build-a "$(L 565)" build-b 'https://github.com/o/r/actions/runs/565/job/10'; gate)"
+eq "A1r the run is rerun once" "1" "$(reruns)"
 
 # ---- AC2: fall-through to the existing path ----
 ov; n1_write_frontmatter "$OV" ci_rerun_sha "$SHA1"; n1_write_frontmatter "$OV" ci_rerun_count 3
