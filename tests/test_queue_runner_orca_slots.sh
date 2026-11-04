@@ -72,7 +72,7 @@ test_runner_loops_fd3() {   # N1-265: notifying loops read a dedicated fd, so no
     assert_eq "loops-fd3: both row loop reads use -u 3" "2" \
         "$(grep -cF "while IFS=\$'\\t' read -r -u 3 NUM TICKET REPO N1H MODEL STATUS; do" "$s" || true)"
     assert_eq "loops-fd3: event loop reads fd 3" "2" \
-        "$(grep -cF -e 'done 3<<< "$EVS"' -e "while IFS=\$'\\t' read -r -u 3 TYPE TASK MSG MDISP; do" "$s" || true)"
+        "$(grep -cF -e 'done 3<<< "$EVS"' -e "while IFS=\$'\\t' read -r -u 3 TYPE TASK MSG MDISP EXTRA; do" "$s" || true)"
     assert_eq "loops-fd3: no row loop left on fd 0" "0" \
         "$(grep -cF "done < <(n1_queue_pending_rows \"\$QUEUE\" 'in-progress|awaiting-human')" "$s" || true)"
 }
