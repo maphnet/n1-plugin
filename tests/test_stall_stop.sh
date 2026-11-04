@@ -87,6 +87,21 @@ eq "Q3 same failing test with a different detail -> stalled" "stalled" "$(n1_sta
 ov; n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/q1.log" | n1_stall_sig)" >/dev/null
 eq "Q4 a round with no qa-verify.log (removed, no named tests) -> ok" "ok" "$(n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/none.log" | n1_stall_sig)")"
 
-# ---- wiring (added by later tasks) ----
+# ---- wiring: procedures/stall-stop.md ----
+P=skills/n1-start/procedures/stall-stop.md
+sect() { awk -v h="## $2" '$0 == h {p=1; next} /^## /{p=0} p' "$1"; }
+eq "W10 procedure has QA, Local testing, CI and Reset sections" "4" "$(grep -cE '^## (QA|Local testing|CI|Reset)$' "$P" 2>/dev/null)"
+eq "W11 QA exit uses the Autonomy Gate with step qa" "1" "$(sect "$P" QA | grep -cF 'step=`qa`, action=`accept the QA failure and proceed to review`')"
+eq "W11b QA ledger context names the stall" "1" "$(sect "$P" QA | grep -cF 'ledger_context=`QA stalled on the same failure: <FAILED_TESTS> failing tests')"
+eq "W11c QA prompt marks no option Recommended" "0" "$(sect "$P" QA | grep -c '(Recommended)')"
+eq "W11f QA prompt states the verbatim No-recommendation sentence (recommended-option rule)" "1" "$(sect "$P" QA | grep -cxF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.')"
+eq "W11d QA headless escalates via the Headless Guard" "1" "$(sect "$P" QA | grep -cE 'no recommended option.*Headless Guard|Headless Guard.*no recommended option')"
+eq "W11e QA option 2 resets qa_fail_sig" "1" "$(sect "$P" QA | grep -cE '^2 — One more fix cycle: run § Reset with `qa_fail_sig`')"
+eq "W12 CI stall goes to Step 6b" "1" "$([ "$(sect "$P" CI | grep -c 'Step 6b')" -ge 1 ] && echo 1 || echo 0)"
+eq "W12b CI section has no Autonomy Gate (D1)" "0" "$(sect "$P" CI | grep -c 'Autonomy Gate')"
+eq "W12c CI names reach the helper through ci-fail.tsv" "1" "$(sect "$P" CI | grep -c 'n1_stall_names_ci "\$M/ci-fail.tsv"')"
+eq "W12d CI NOT_BRANCH_CAUSED clears ci_fail_sig (D8)" "1" "$(sect "$P" CI | grep -c 'NOT_BRANCH_CAUSED.*§ Reset with `ci_fail_sig`')"
+eq "W13 local-testing stall goes to the cap exit" "1" "$(sect "$P" 'Local testing' | grep -c 'stalled on the same failure after <N> fix cycles')"
+eq "W14 stall-stop.md is not in the standard-path budget list" "0" "$(grep -c 'stall-stop' tests/test_instruction_budget.sh)"
 
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
