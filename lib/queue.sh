@@ -1039,7 +1039,7 @@ n1_queue_retry() {
     # `--run <id>` resumes it through the interrupted-run path under the same run_id. Never starts the runner.
     # Refuses (stderr, exit 1, nothing changed): invalid ticket id, no queue, live runner, another step, no row, or
     # a row in another status.
-    local q="$1" t="$2" dir step row num st n1h u task disp
+    local q="$1" t="$2" dir step row num st n1h idf task run L
     [[ "$t" =~ ^[A-Za-z][A-Za-z0-9_]*-[0-9]+$ ]] || { echo "n1-queue: invalid ticket id: $t" >&2; return 1; }
     [ -n "$q" ] && [ -f "$q" ] || { echo "No queue runs found." >&2; return 1; }
     dir=$(dirname -- "$q")
@@ -1053,14 +1053,16 @@ n1_queue_retry() {
     IFS=$'\t' read -r num _ _ n1h _ st <<< "$row"
     case "$st" in failed|escalated) ;; *) echo "n1-queue: $t is ${st:-empty}, not failed or escalated" >&2; return 1 ;; esac
     declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
-    # SEC-1: an attempt whose identity still names its Runs-row task may be a live worker (launch keeps it on a
-    # worker-start timeout); retry drops that identity and its session pins, so refuse unless the dispatch is proven
-    # exited/done. An unreadable worker list refuses too (fail closed).
-    task=""; u=$(n1_orca_unsettled "$q" | awk -F'\t' -v t="$t" '$2 == t { r = $0 } END { print r }')
-    if [ -n "$u" ]; then
-        IFS=$'\t' read -r _ _ _ task disp <<< "$u"
-        if ! n1_orca_liveness "$(n1_read_frontmatter "$q" orca_run_id)" 2>/dev/null \
-            | awk -F'\t' -v d="$disp" '$1 == d && ($3 == "exited" || $4 == "done") { f = 1 } END { exit !f }'; then
+    # SEC-1: the identity file, not the Runs row, says whether a worker may be live (launch keeps it on a worker-start
+    # timeout, with an empty Runs Session). Retry drops that identity and its session pins, so refuse unless a readable
+    # worker list shows no worker for its task still running (none listed = never started, as the runner decides).
+    # An unreadable list, or an identity without task or run, refuses too (fail closed).
+    task=""; idf=$(n1_orca_sentinel_path "$n1h" "$t")
+    if [ -n "$n1h" ] && [ -e "$idf" ]; then
+        task=$(_n1_orca_sget "$idf" N1_ORCA_TASK); run=$(_n1_orca_sget "$idf" N1_ORCA_RUN)
+        [ -n "$run" ] || run=$(n1_read_frontmatter "$q" orca_run_id)
+        if [ -z "$task" ] || [ -z "$run" ] || ! L=$(n1_orca_liveness "$run" 2>/dev/null) \
+            || awk -F'\t' -v k="$task" '$2 == k && $3 != "exited" && $4 != "done" { f = 1 } END { exit !f }' <<< "$L"; then
             echo "n1-queue: $t's previous worker may still be running; stop it first (/n1:n1-queue --stop)" >&2; return 1
         fi
     fi
