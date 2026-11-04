@@ -12,6 +12,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INV="$REPO_ROOT/skills/n1-start/steps/investigation-deliverable.md"
 LT="$REPO_ROOT/skills/n1-start/steps/local-testing.md"
+LTR="$REPO_ROOT/skills/n1-start/procedures/local-testing-run.md"
 
 PASS=0
 FAIL=0
@@ -19,7 +20,7 @@ pass() { echo "PASS: $1"; PASS=$((PASS+1)); }
 fail() { echo "FAIL: $1"; FAIL=$((FAIL+1)); }
 
 # 1. Static guard
-if grep -nE 'grep -c.*\|\| *echo' "$INV" "$LT" "$REPO_ROOT/tests/test_related_lib.sh"; then
+if grep -nE 'grep -c.*\|\| *echo' "$INV" "$LT" "$LTR" "$REPO_ROOT/tests/test_related_lib.sh"; then
     fail "no 'grep -c ... || echo' remains"
 else
     pass "no 'grep -c ... || echo' remains"
@@ -38,7 +39,7 @@ check() { # label file QA_MD-or-INV_FILE var...
     local label="$1" file="$2" qa="$3"; shift 3
     local INV_FILE="$file" QA_MD="$qa" UNKNOWNS="" v line lines
     for v in "$@"; do
-        lines=$(grep -hE "^ *$v=[$][(].*grep -cE? " "$INV" "$LT")
+        lines=$(grep -hE "^ *$v=[$][(].*grep -cE? " "$INV" "$LT" "$LTR")
         [ -n "$lines" ] || { fail "$label: no line found for $v"; continue; }
         while IFS= read -r line; do
             eval "$line"
@@ -58,7 +59,7 @@ check "zero-match" "$TMP/inv.md" "$TMP/inv.md" $VARS
 check "missing-file" "$TMP/missing.md" "$TMP/missing.md" $VARS
 
 # 3. planner_failed closes the local-testing step
-if grep -q 'n1_step_end "local-testing" 11 skipped .*"skip_reason":"planner_failed"' "$LT"; then
+if grep -q 'n1_step_end "local-testing" 11 skipped .*"skip_reason":"planner_failed"' "$LTR"; then
     pass "planner_failed emits n1_step_end"
 else
     fail "planner_failed emits n1_step_end"

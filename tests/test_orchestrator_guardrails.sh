@@ -35,7 +35,7 @@ assert_contains "local-testing: orchestrator prohibition" \
     "skills/n1-start/steps/local-testing.md" \
     "ORCHESTRATOR GUARDRAIL (local testing): do not run test suites"
 assert_contains "local-testing: developer env step 0" \
-    "skills/n1-start/steps/local-testing.md" \
+    "skills/n1-start/procedures/local-testing-run.md" \
     "0. Environment check: before anything else"
 assert_contains "local-testing: QA dedup gate requires test mode" \
     "skills/n1-start/steps/local-testing.md" \
@@ -160,7 +160,7 @@ assert_contains "qa: upstream implementation.md dependency check" \
     "skills/n1-start/steps/qa.md" \
     'n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md'
 assert_contains "local-testing: planner wait directive" \
-    "skills/n1-start/steps/local-testing.md" \
+    "skills/n1-start/procedures/local-testing-run.md" \
     "Wait for the persona to return its result before proceeding"
 
 echo

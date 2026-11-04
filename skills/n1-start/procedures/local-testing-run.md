@@ -1,0 +1,220 @@
+# Local Testing: run (9a-9d)
+
+Read from `steps/local-testing.md` once every gate passed. `LOCAL_TESTING_MODE` and `QA_RUNNER_CMDS` come from that step. Every exit below ends the step exactly once.
+
+#### 9a. ANALYSIS (local-test-planner)
+
+**Spawn agent:** local-test-planner
+
+Resolve model for `local-test-planner`.
+
+Before dispatching, `rm -f` any old `$N1_HOME/memory/<ID>/local-test-plan.md`.
+
+Spawn the local-test-planner agent with:
+- The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/implementation.md` (what changed, which files), `$N1_HOME/memory/<ID>/ticket.md` (acceptance criteria), and `$N1_HOME/memory/<ID>/plan.md` if it exists, else `$N1_HOME/memory/<ID>/brainstorm.md` (design intent, scope). Their content is NOT inlined here."
+- Read `localTesting.startCommand` from config: `n1_config_val '.localTesting.startCommand'` (default: empty). If non-empty, include in the prompt: "The project has a configured start command: `<value>`. Use this as the app start command instead of auto-detecting."
+- Include the resolved mode in the prompt: "The local testing mode is `<LOCAL_TESTING_MODE>`. If mode is `test`, suppress Runtime First -- produce a test-suite-only plan with no infrastructure startup. If mode is `live`, enforce Runtime First as usual."
+- If `QA_RUNNER_CMDS` is set (from the QA dedup gate above), include in the prompt: "The QA step already ran these test commands: `<QA_RUNNER_CMDS value, one per line>`. Do not duplicate these as ad-hoc scenarios — design test scenarios that complement them (e.g. infrastructure checks, curl endpoints, CLI flows that QA did not exercise)."
+- Directive: "Write the plan to `<absolute plan path>` (`$N1_HOME/memory/<ID>/local-test-plan.md`, already expanded by the orchestrator) in your Output Format. Return only that path plus a summary of at most 5 lines (Framework, Run command, automated scenario count, manual item count), not the plan."
+
+> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the local-test-planner agent has written its output.
+
+After the agent returns, check the plan file is non-empty (`test -s`); if not, re-dispatch once. Still missing → auto-skip: record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="planner failed"`, update overview as in the edge case below with key decision "Local Testing: skipped (planner failed)", run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"planner_failed"}'`, and skip to Step 10.
+
+**Edge case — no testable scenarios:** If the returned summary (or `grep` of the plan file) shows the plan has no existing e2e suite (`### Existing E2E Tests` Framework is "None" and Run command is "N/A") AND zero ad-hoc test scenarios in `### Automated Test Scenarios`, auto-skip: Record `LOCAL_TESTING_SKIPPED=true` and `LOCAL_TESTING_SKIP_REASON="no testable scenarios"`. Do not print here — Gate 3 will emit `Local Testing: SKIPPED — no testable scenarios` in the Done summary. Run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"<LOCAL_TESTING_SKIP_REASON>"}'`, add key decision: "Local Testing: skipped (no testable scenarios)". Skip to Step 10. If the plan has a valid e2e suite, do NOT auto-skip even if there are zero ad-hoc scenarios.
+
+#### 9c. EXECUTION (developer)
+
+**Spawn agent:** developer
+
+Resolve model for `developer`.
+
+Spawn the developer agent with:
+- The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/local-test-plan.md` (the test plan to execute) and `$N1_HOME/memory/<ID>/implementation.md` (context for debugging)."
+- The value of `n1_config_val '.worktree.setup'` as `<SETUP>` (may be empty).
+- The value of `n1_config_val '.localTesting.teardownCommand'` as `<TEARDOWN>` (may be empty).
+- Directive: "Execute the local test plan. Follow this sequence strictly:"
+  - "0. Environment check: before anything else, verify the interpreter and test runner work in the worktree (e.g. `python -m pytest --version`, `npm test -- --help`, or the project's equivalent). If dependencies are missing and the project defines a setup command (`worktree.setup` in `$N1_HOME/config.json`, passed to you as `<SETUP>`), run it ONCE. If the environment still does not work, write a report with `Result: ENV_FAILURE` and the exact stderr, run cleanup, and STOP — do not attempt scenarios and do not try to repair the environment further."
+  - "1. Infrastructure setup: first run `source ~/.n1/preamble.sh && n1_containers_snapshot <ID>`, then run the start command from the plan (`<ID>` is the ticket ID, expanded by the orchestrator like the other paths in this directive), then immediately run `source ~/.n1/preamble.sh && n1_containers_track <ID>` (also after a failed start, so partial starts are recorded; it records new containers owned by this run, i.e. compose projects in the worktree or containers started with `--label n1.ticket=<ID>` (add that label to every plain `docker run`), and sets `--restart=no`; others are ignored). Run the track call again after any later start (app, e2e tests), and once more before teardown. Never start containers with `--restart always` or `unless-stopped`; if `docker compose config` shows `restart: always`, note it in the report (the track call neutralizes it). Poll readiness check with a 60s timeout. If infrastructure fails to start, report immediately with the error output, run cleanup (step 6), and STOP — do not attempt scenarios."
+  - "2. App startup: start the app in background. Poll the readiness signal with a 30s timeout. If app fails to start, capture stderr/stdout, report FAIL, run cleanup, and STOP."
+  - "3. Existing e2e tests: if the plan has an 'Existing E2E Tests' section with a run command (not 'N/A' or 'None'), run that command. Record the full output. If no existing e2e suite, skip this step."
+  - "4. Ad-hoc scenario execution: execute each scenario from 'Automated Test Scenarios' SEQUENTIALLY (not parallel — some may depend on prior state). Record PASS/FAIL per scenario with actual output. Continue through ALL scenarios even if some fail. If the plan says 'no ad-hoc scenarios needed', skip this step."
+  - "5. Evidence capture: for each test/scenario, record HTTP response bodies and status codes, command stdout/stderr, relevant app log output, full error context for failures."
+  - "6. Cleanup: ALWAYS runs, on every attempt, even on failure (ENV_FAILURE, infrastructure or app startup failure, failing scenarios). Kill app process, tear down infrastructure, verify no orphan containers/processes. If `<TEARDOWN>` is non-empty, run it from the worktree root as part of cleanup; a failing teardown is recorded in the report's cleanup status, not treated as a test failure. Last, run `source ~/.n1/preamble.sh && n1_containers_teardown <ID>`: it stops and removes exactly the containers recorded in step 1 and nothing else; never run any `docker ... prune` command. A non-zero result is recorded in the report, not treated as a test failure."
+- Directive: "CONSTRAINTS — you MUST follow these:"
+  - "Do NOT modify production code — only execute and observe"
+  - "Do NOT write or modify tests"
+  - "Do NOT commit anything"
+  - "Skip destructive or ambiguous commands, note why"
+- Directive: "Write the report in this exact structure to `$N1_HOME/memory/<ID>/local-testing.md` (full overwrite):"
+
+```markdown
+## Local Testing Report
+
+### Infrastructure
+- **Status:** UP/DOWN (<details>)
+- **Containers:** <tracked container names and the teardown result printed by the helpers, or "none tracked">
+
+### Application
+- **Status:** Running/Failed (<details>)
+
+### Existing E2E Test Results
+- **Command:** <command run or "Skipped — no e2e suite detected">
+- **Result:** PASS/FAIL/SKIPPED
+- **Details:** <summary or failure output>
+
+### Ad-Hoc Scenario Results
+| # | Scenario | Result | Details |
+|---|----------|--------|---------|
+
+{Omit table if no ad-hoc scenarios were planned.}
+
+### Manual Verification Checklist
+- [ ] <item from plan>
+
+### Cleanup
+- Infrastructure: <status>
+- App process: <status>
+
+### Verdict: PASS / FAIL
+```
+
+- Output-path directive: "Write your full Local Testing Report to `$N1_HOME/memory/<ID>/local-testing.md` yourself, as a full overwrite (never append). Return to the orchestrator ONLY this compact block:
+  `Verdict: PASS|FAIL` / `Failure class: infra|code-bug|none` / per-scenario one-liners (`<name>: PASS|FAIL — <detail>`) / cleanup status. Do NOT return the full report."
+
+> **WAIT:** Wait for the persona to return its result before proceeding. Do not continue until the developer agent has written its output.
+
+After the agent returns:
+- The agent wrote `$N1_HOME/memory/<ID>/local-testing.md` itself. Verify it:
+  ```bash
+  source ~/.n1/preamble.sh
+  n1_verify_dependencies "$N1_HOME/memory/$ID" local-testing.md
+  ```
+  If missing/empty (agent failed to write), write the returned compact summary block to `local-testing.md` as a fallback and note the gap in overview's `## Key Decisions`.
+
+- Extract telemetry metadata from the report and plan. Run via Bash:
+  ```bash
+  LOCAL_TESTING_REPORT="$N1_HOME/memory/$ID/local-testing.md"
+  LOCAL_TEST_PLAN="$N1_HOME/memory/$ID/local-test-plan.md"
+  QA_MD="$N1_HOME/memory/$ID/qa.md"
+
+  # Parse Infrastructure Status from report (first Status: line, under ### Infrastructure)
+  INFRA_STATUS=$(awk '/^### Infrastructure/{found=1} found && /\*\*Status:\*\*/{print; exit}' "$LOCAL_TESTING_REPORT" | sed 's/.*\*\*Status:\*\* *//')
+  if echo "$INFRA_STATUS" | grep -qiE '\bup\b|started|running'; then
+    INFRA_STARTED=true
+  else
+    INFRA_STARTED=false
+  fi
+
+  # Parse Application Status from report (Status: line under ### Application)
+  APP_STATUS=$(awk '/^### Application/{found=1} found && /\*\*Status:\*\*/{print; exit}' "$LOCAL_TESTING_REPORT" | sed 's/.*\*\*Status:\*\* *//')
+  if echo "$APP_STATUS" | grep -qiE 'running|started|\bup\b'; then
+    APP_STARTED=true
+  else
+    APP_STARTED=false
+  fi
+
+  # Derive action_type from infra_started
+  if [ "$INFRA_STARTED" = "true" ]; then
+    ACTION_TYPE="live"
+  else
+    ACTION_TYPE="test_only"
+  fi
+
+  # Extract services list from plan (Services required: line under ### Infrastructure)
+  SERVICES_RAW=$(awk '/^### Infrastructure/{found=1} found && /Services required:/{print; exit}' "$LOCAL_TEST_PLAN" 2>/dev/null | sed 's/.*Services required:\** *//')
+  if [ -z "$SERVICES_RAW" ] || echo "$SERVICES_RAW" | grep -qi '^none$'; then
+    SERVICES_JSON="[]"
+  else
+    # Convert comma/space-separated service names to JSON array
+    SERVICES_JSON=$(echo "$SERVICES_RAW" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$' | sed 's/\(.*\)/"\1"/' | paste -sd ',' | sed 's/^/[/;s/$/]/')
+  fi
+
+  # Extract scenario method types from plan (Method: curl/CLI/browser/script)
+  TYPES_RAW=$(grep -oiE 'Method: [A-Za-z]+' "$LOCAL_TEST_PLAN" 2>/dev/null | sed 's/Method: *//' | sort -u | tr '\n' ',' | sed 's/,$//')
+  if [ -z "$TYPES_RAW" ]; then
+    SCENARIO_TYPES_JSON="[]"
+  else
+    SCENARIO_TYPES_JSON=$(echo "$TYPES_RAW" | tr ',' '\n' | sed 's/\(.*\)/"\1"/' | paste -sd ',' | sed 's/^/[/;s/$/]/')
+  fi
+
+  # Compute qa_overlap_pct: fraction of QA runner commands also present in the local test plan
+  QA_RUNNER_COUNT=$(grep -c 'Runner command:' "$QA_MD" 2>/dev/null || true); QA_RUNNER_COUNT=${QA_RUNNER_COUNT:-0}
+  if [ "$QA_RUNNER_COUNT" -gt 0 ]; then
+    MATCH_COUNT=0
+    while IFS= read -r rcmd; do
+      rcmd_trimmed=$(echo "$rcmd" | sed 's/^ *//;s/ *$//')
+      [ -z "$rcmd_trimmed" ] && continue
+      grep -qF "$rcmd_trimmed" "$LOCAL_TEST_PLAN" 2>/dev/null && MATCH_COUNT=$((MATCH_COUNT + 1))
+    done < <(grep 'Runner command:' "$QA_MD" | sed 's/.*Runner command: *//')
+    QA_OVERLAP_PCT=$((MATCH_COUNT * 100 / QA_RUNNER_COUNT))
+  else
+    QA_OVERLAP_PCT=null
+  fi
+
+  LOCAL_TESTING_METADATA="{\"action_type\":\"$ACTION_TYPE\",\"infra_started\":$INFRA_STARTED,\"app_started\":$APP_STARTED,\"services\":$SERVICES_JSON,\"scenario_types\":$SCENARIO_TYPES_JSON,\"qa_overlap_pct\":$QA_OVERLAP_PCT}"
+  echo "$LOCAL_TESTING_METADATA" | tee "$N1_HOME/memory/$ID/.lt-metadata"
+  ```
+
+**If verdict is PASS:**
+- End the step:
+  ```bash
+  source ~/.n1/preamble.sh
+  n1_step_end "local-testing" 11 success "$(cat "$N1_HOME/memory/$ID/.lt-metadata" 2>/dev/null)"; rm -f "$N1_HOME/memory/$ID/.lt-metadata"
+  ```
+- Proceed to Step 10 (PR CREATION)
+
+**If verdict is FAIL:**
+- Proceed to fix loop (9d)
+
+**If infrastructure or app startup failed (not a code bug):**
+- Do NOT enter the fix loop — these are environment issues, not code bugs
+- Report the failure with full error output
+
+Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then: "{PREAMBLE} Infrastructure/startup failure — not a code bug. Options:"
+  - "1 — Fix environment manually, type 'continue' to re-test"
+  - "2 — Skip local testing, proceed to PR"
+  - "3 — Abort"
+- If 1: wait for user, then re-run 9c from the beginning. **Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
+- If 2: run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"env_failure"}'`, key decision: "Local Testing: skipped — environment failure", proceed to Step 10
+- If 3: run `n1_step_end "local-testing" 11 failed`, stop
+
+#### 9d. FIX LOOP (if local testing failed)
+
+If local testing verdict is FAIL (e2e tests or ad-hoc scenarios failed):
+
+**Spawn agent:** developer (fix mode)
+
+Resolve model for `developer`.
+
+Pass to developer:
+- The paths to its inputs — instruct the agent: "Read these files yourself: `$N1_HOME/memory/<ID>/local-testing.md` (which scenarios failed, with evidence), `$N1_HOME/memory/<ID>/local-test-plan.md` (what was expected), `$N1_HOME/memory/<ID>/implementation.md` (original implementation context)."
+- Directive: "Fix the production code to make the failing scenarios pass. Constraints:"
+  - "Fix production code ONLY (not the test plan)"
+  - "Atomic commits per fix"
+  - "Same escalation rules as implementation — high blast radius + low confidence → ask user"
+- Output-path directive: "After applying fixes, record your 'Fixes Applied' report (your standard Fix Cycle output format) in `$N1_HOME/memory/<ID>/implementation.md` yourself, under a `## Local-Test Fix Cycle <N>` heading where `<N>` is the current `local_test_fix_cycle` value. If a `## Local-Test Fix Cycle <N>` section for this N already exists, REPLACE it (idempotent upsert — safe on re-run), never duplicate it. Return to the orchestrator ONLY: the list of commit SHAs with one-line summaries, and `Findings fixed: N/M`."
+
+**Wait for the persona to return its result before proceeding. Do NOT read ahead to the next step or check for files until the agent tool call completes.**
+
+After developer returns:
+- Run via Bash (durable across resume):
+  ```bash
+  source ~/.n1/preamble.sh
+  n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "local_test_fix_cycle"
+  ```
+- Emit one fix-loop iteration line (exempt from inter-gate silence per D2): `<ID> · local-test fix cycle <N>/<MAX>`
+- Re-run FULL execution (Step 9c) — all scenarios, not just failed ones (catches regressions)
+- **Bounded loop:** read `local_test_fix_cycle` from overview frontmatter. Stop after `localTesting.maxFixAttempts` cycles (config, default 3). On exhaustion, escalate instead of looping forever. The bound and its default are declared in `pipeline.json` `loops[]` (`local_testing_fix`).
+
+**Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`. Also update `## Escalations` with key decision: `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)`, then run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"fix_exhausted"}'`. Otherwise end only on option 2 below.
+
+**Headless:** under `N1_HEADLESS=1`, apply `procedures/autonomy-headless.md § Headless Guard` instead of prompting.
+
+Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then prompt: "{PREAMBLE} After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
+  - "1 — Fix manually, type 'continue' to re-test"
+  - "2 — Skip local testing, proceed to PR" (run the same skipped end as above)
+  - "3 — Provide guidance for another fix attempt"
+- If 3: reset the counter ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci) and continue with user's guidance.
+
+**Cleanup guarantee:** cleanup runs after EVERY execution attempt, including failed ones, and includes `localTesting.teardownCommand` when set. No orphan containers or processes between fix cycles. Started containers are recorded in `$N1_HOME/memory/<ID>/containers.tsv` and removed by `n1_containers_teardown`; `n1-finish` repeats it as a backstop.
