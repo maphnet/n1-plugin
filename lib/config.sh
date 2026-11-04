@@ -781,6 +781,7 @@ n1_review_fix_grant() {
     { [ "$cur" -ge 1 ] && [ "$cur" -eq "$max" ]; } || { echo deny:not-at-cap; return 1; }
     [ "$(_n1_ledger_count "$ov" "$ext")" -eq 0 ] || { echo deny:extended; return 1; }
     [ -s "$diff" ] || { echo deny:empty-diff; return 1; }
+    if [ -s "$fpj" ] && command -v jq >/dev/null 2>&1; then jq -e . "$fpj" >/dev/null 2>&1 || { echo deny:fingerprints; return 1; }; fi
     [ -n "$(_n1_fp_eligible_rows "$fpj" "$cur")" ] || { echo deny:no-eligible; return 1; }
     if n1_fingerprint_recurred "$fpj" "$cur"; then echo deny:recurred; return 1; fi
     n1_fingerprint_check_convergence "$fpj" "$cur" || { echo deny:non-converging; return 1; }

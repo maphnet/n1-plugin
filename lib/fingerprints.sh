@@ -156,12 +156,13 @@ n1_fingerprint_filter_oos() {
     # Usage: n1_fingerprint_filter_oos <jsonl> <cycle> <fix-changed-files> <review-prev.md> <index-file>
     # Extra review round only (N1-345 D20). Removes from <index-file> each Index line
     # `- [ID] <severity> <file>:<line> — <title>` (any severity/prefix) that is new and out of the fix's reach:
-    # ID absent from <review-prev.md>, fingerprint (file before the last ':', title) absent from bucket <cycle>-1,
+    # no <review-prev.md> Index line with the same ID and file, fingerprint (file before the last ':', title) absent from bucket <cycle>-1,
     # and file (./ stripped, case-insensitive) absent from <fix-changed-files>. Prints the removed lines verbatim.
-    # Fail-safe: a missing/empty input, cycle < 1 or an unparsable line keeps the finding in the loop.
+    # Fail-safe: a missing/empty input, cycle < 1, an unparsable line, a location that is not one repo-relative
+    # path (absolute, a/ b/ prefix, list) or any [SEC-N] finding keeps the finding in the loop.
     # Reviewer text is read from files as data, never placed in shell command text (N1-136).
     local jsonl="$1" cycle="$2" fixf="$3" prev="$4" idx="$5" sep=' — '
-    local line id sev rest loc file title fp norm bucket fixl tmp out=""
+    local line id sev rest loc file title fp norm bucket fixl tmp pl out=""
     [[ "$cycle" =~ ^[0-9]+$ ]] && [ "$cycle" -ge 1 ] && [ -s "$fixf" ] && [ -r "$prev" ] && [ -r "$jsonl" ] && [ -r "$idx" ] || return 0
     bucket=$(grep "\"cycle\":$((cycle - 1))," "$jsonl" 2>/dev/null)
     fixl=$(sed 's|^\./||' "$fixf" | tr '[:upper:]' '[:lower:]')
@@ -172,9 +173,13 @@ n1_fingerprint_filter_oos() {
             id=${BASH_REMATCH[1]}; sev=${BASH_REMATCH[2]}; rest=${BASH_REMATCH[3]}
             if [[ "$rest" == *"$sep"* ]]; then
                 loc=${rest%%"$sep"*}; title=${rest#*"$sep"}
-                if [[ "$loc" == *:* ]]; then
+                if [[ "$loc" == *:* ]] && [[ ! "$id" =~ ^SEC-[0-9]+$ ]]; then
                     file=${loc%:*}
-                    if [ -n "$file" ] && [ -n "${title//[[:space:]]/}" ] && ! grep -qF -- "[$id]" "$prev"; then
+                    # single repo-relative path only (SEC-2); [SEC-N] is never filtered (SEC-1)
+                    # open in prev = same id AND same file on one Index line (CR-1: ids restart per run)
+                    pl=$(grep -F -- "- [$id] " "$prev")
+                    if [[ "$file" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]] && [[ ! "$file" =~ ^[ab]/ ]] \
+                        && [ -n "${title//[[:space:]]/}" ] && [[ "$pl" != *" $file:"* ]]; then
                         fp=$(n1_fingerprint_finding "$file" "$title")
                         norm=$(printf '%s' "$file" | sed 's|^\./||' | tr '[:upper:]' '[:lower:]')
                         if [[ "$bucket" != *"\"fp\":\"$fp\""* ]] && ! grep -qxF -- "$norm" <<< "$fixl"; then

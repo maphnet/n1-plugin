@@ -203,9 +203,9 @@ EOF
 }
 ids() { sed -n 's/^- \[\([A-Z]*-[0-9]*\)\].*/\1/p' | tr '\n' ' ' | sed 's/ $//'; }
 mkidx; OUT=$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX")
-eq "FL1 new findings outside the fix files are filtered (any severity, incl. RULE)" "CR-3 SEC-1 RULE-1" "$(ids <<< "$OUT")"
+eq "FL1 new non-SEC findings outside the fix files are filtered (any severity, incl. RULE)" "CR-3 RULE-1" "$(ids <<< "$OUT")"
 eq "FL2 filtered lines print verbatim (For Human Review format)" "- [CR-3] High lib/other.sh:7 — unrelated new" "$(head -1 <<< "$OUT")"
-eq "FL3 kept: prev id, fixed file, N-1 fingerprint (same parse as fp-new.tsv), case-different fixed file, unparsable" "CR-1 CR-2 CR-4 CR-5 CR-6" "$(ids < "$IDX")"
+eq "FL3 kept: prev id+file, SEC, fixed file, N-1 fingerprint (same parse as fp-new.tsv), case-different fixed file, unparsable" "CR-1 CR-2 SEC-1 CR-4 CR-5 CR-6" "$(ids < "$IDX")"
 eq "FL4 non-Index lines are kept" "1" "$(grep -cx 'Index:' "$IDX")"
 mkidx; cp "$IDX" "$T/idx.before"
 rm -f "$FX"; eq "FL5 missing fix-changed-files -> nothing filtered" "" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX")"
@@ -215,6 +215,24 @@ printf 'lib/fixed.sh\n' > "$FX"
 eq "FL7 missing review-prev.md -> nothing filtered" "" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$T/nope.md" "$IDX")"
 eq "FL8 cycle 0 -> nothing filtered" "" "$(n1_fingerprint_filter_oos "$FPJ" 0 "$FX" "$PREV" "$IDX")"
 eq "FL8b index still untouched" "same" "$(cmp -s "$IDX" "$T/idx.before" && echo same || echo changed)"
+
+# ID reuse (CR-1): fixed [CR-2] in another file must not shield a new [CR-2] in an unchanged file
+printf -- '- [CR-2] High lib/old.sh:10 — old bug\n' > "$PREV"
+printf 'Index:\n- [CR-2] High lib/other.sh:7 — brand new\n' > "$IDX"
+eq "FL9 reused id in another unchanged file is filtered" "CR-2" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX" | ids)"
+printf 'Index:\n- [CR-2] High lib/old.sh:12 — same finding moved\n' > "$IDX"
+eq "FL9b same id and same file stays" "" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX" | ids)"
+# SEC-1: security findings never filtered
+printf 'Index:\n- [SEC-9] Critical untouched.sh:1 — x\n' > "$IDX"
+eq "FL10 new [SEC-N] stays in the index" "" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX" | ids)"
+eq "FL10b index keeps SEC line" "SEC-9" "$(ids < "$IDX")"
+# SEC-2: location shapes that are not one repo-relative path stay
+for loc in '/abs/untouched.sh:1' 'a/untouched.sh:1' 'b/untouched.sh:1' 'untouched.sh:1, lib/y.sh:2' 'my file.sh:1' 'x.sh:1:2'; do
+    printf 'Index:\n- [CR-7] High %s — odd\n' "$loc" > "$IDX"
+    eq "FL11 location '$loc' stays" "" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX" | ids)"
+done
+printf 'Index:\n- [CR-7] High untouched.sh:1 — plain\n' > "$IDX"
+eq "FL11b plain repo path is filtered" "CR-7" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX" | ids)"
 
 # ---- extra round grant (N1-345): one automatic extra FAIL cycle at the cap ----
 cfg '{}'
@@ -232,6 +250,8 @@ eq "G1f still one [granted] row" "1" "$(grep -cF '[granted]' "$OV")"
 ovl 1; fpj "CR-1 High 0 fa" "CR-3 High 1 fc"
 eq "G2 1-vs-1 High tie is NON_CONVERGING -> deny" "deny:non-converging" "$(grant)"
 eq "G2b deny writes no ledger row" "0" "$(grep -cF '[granted]' "$OV")"
+ovl 1; fpj "CR-1 High 0 fa" "CR-2 High 0 fb" "CR-3 High 1 fc"; printf 'not json\n' >> "$FPJ"
+if command -v jq >/dev/null 2>&1; then eq "G3b unparsable fingerprints.jsonl line -> deny" "deny:fingerprints" "$(grant)"; fi
 ovl 1; fpj "CR-1 High 0 fa" "CR-2 High 0 fb" "CR-1 High 1 fa"
 eq "G3 High fingerprint in both of the last two reviews -> deny" "deny:recurred" "$(grant)"
 ovl 1; fpj "CR-1 High 0 fa" "CR-2 High 0 fb" "CR-3 High 1 fc"; : > "$DIFF"
