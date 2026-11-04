@@ -42,4 +42,25 @@ expect "C: stakeholder prose mentioning an ID yields nothing" "" "$(gh_ids 'We f
 lacks "01 Sources C/D no longer grep whole lines for PREFIX" 'grep -oE "\$\{PREFIX\}' "$R01"
 check "01 states the leading-tag rule" 'Only the leading `\[PREFIX-N\]` tag counts' "$R01"
 
+# --- Tracker server check: Step 5b (03) and Step 6 / Step 9 (04) (AC1, AC2, AC3)
+for f in "$R03" "$R04"; do
+    b=$(basename "$f")
+    check "$b runs the Tracker server check on the whole mcp__<tracker.mcp>__ prefix" 'mcp__<tracker\.mcp>__`, matching the whole prefix' "$f"
+    check "$b sets TRACKER_UP=no when the server is missing" 'TRACKER_UP=no' "$f"
+    check "$b gives the missing-server reason" 'tracker server <tracker\.mcp> not available' "$f"
+done
+check "03 records the fixVersion skip" 'SKIPPED fixVersion on <N> ticket\(s\): tracker server <tracker\.mcp> not available' "$R03"
+check "03 records the transition skip" 'SKIPPED transition to released on <N> ticket\(s\): tracker server <tracker\.mcp> not available' "$R03"
+check "03 skips the released-status recovery call too" 'including the released-status recovery' "$R03"
+lacks "03 drops the blanket best-effort wording" 'All sub-operations are best-effort: failures warn' "$R03"
+check "04 records the comment skip" 'SKIPPED "Released as" comment on <N> ticket\(s\): tracker server <tracker\.mcp> not available' "$R04"
+check "04 Step 9 lists skipped operations" 'Skipped tracker operations:' "$R04"
+check "04 summary has the fixVersion missing-server variant" 'Fix version: .*skipped \(tracker server <tracker\.mcp> not available\)' "$R04"
+check "03 fixVersion still runs on tracker.mcp" 'mcp__<tracker\.mcp>__<operations\.editTicket>' "$R03"
+check "03 transitions still run on tracker.mcp" 'mcp__<tracker\.mcp>__<operations\.moveStatus>' "$R03"
+check "04 comment still runs on tracker.mcp" 'mcp__<tracker\.mcp>__<operations\.addComment>' "$R04"
+for f in "$R03" "$R03B" "$R04"; do
+    lacks "$(basename "$f") never routes ticket ops to versionMcp" 'mcp__<(tracker\.)?versionMcp>__<operations\.(editTicket|getTransitions|moveStatus|addComment|readTicket)>' "$f"
+done
+
 exit "$FAIL"

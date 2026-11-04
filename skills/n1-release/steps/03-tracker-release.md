@@ -9,13 +9,17 @@ Only runs when ALL hold:
 
 When any condition fails, skip to `03b-release-notes.md` (it always runs).
 
-All sub-operations are best-effort: failures warn but never block the release report.
+Per-call failures are best-effort: they warn but never block the release report. A missing tracker server is not a call failure: it is recorded as SKIPPED (see Tracker server check) and listed in the Step 9 report.
 
 ```
 Warning format: "Could not <operation> for <target>: <error> -- continuing."
 ```
 
 **MCP routing for version operations:** Version ops (`createVersion`, `releaseVersion`, `listVersions`) use `tracker.versionMcp` when configured, falling back to `tracker.mcp`. Construct tool names as `mcp__<versionMcp>__<operation>`. All other operations (editTicket, getTransitions, moveStatus) use `tracker.mcp` as usual.
+
+**Tracker server check:** search the tool list (load if deferred, per HOST ROUTING) for a tool whose name starts with `mcp__<tracker.mcp>__`, matching the whole prefix including both double underscores. Found: `TRACKER_UP=yes`. None found: `TRACKER_UP=no`; the server is not loaded, so make no `mcp__<tracker.mcp>__` call and record the operation as SKIPPED with the reason `tracker server <tracker.mcp> not available`. If the search itself fails or is ambiguous, use `TRACKER_UP=yes`. With `TRACKER_UP=yes`, per-call errors stay best-effort warnings. Run the check once, at whichever of 5b-2 or 5b-3 runs first, and reuse the result. Version operations (5b-0, 5b-1) use `versionMcp` and do not depend on it.
+
+Record each SKIPPED line in the conversation state, echo it inline, and let Step 9 print it. `<N>` is the number of IDs in `RELEASE_TICKET_IDS`.
 
 ## 5b-0. Inline Configuration
 
@@ -76,7 +80,7 @@ jq '.tracker.operations += {"createVersion":"jcm_createVersion","releaseVersion"
 
 Report: `"Version MCP saved: \"<VERSION_MCP>\". Version operations added to config."`
 
-On skip: set `VERSION_MCP` to empty. Skip steps 5b-1 (version creation) and 5b-2 (fixVersion — requires version to exist) entirely. Continue to 5b-3 (ticket transitions).
+On skip: set `VERSION_MCP` to empty. Skip step 5b-1 (version creation). In 5b-2 (fixVersion — requires version to exist), run only its gate to record the skip reason. Continue to 5b-3 (ticket transitions).
 
 **Resolve `VERSION_NAME`** (used by 5b-1 and 5b-2):
 ```bash
@@ -97,7 +101,7 @@ Report: `"Version \"<VERSION_NAME>\" -- created and released"` or `"Version \"<V
 
 ## 5b-2. Set fix version on tickets
 
-Gate: `VERSION_MCP` is non-empty (version must have been created or already exist in Jira for fixVersion to work). If `VERSION_MCP` is empty (user skipped in 5b-0), skip with `"Fix version skipped: jc-mcp not configured."`.
+Gate: run the Tracker server check. If `TRACKER_UP=no`, make no call and record `SKIPPED fixVersion on <N> ticket(s): tracker server <tracker.mcp> not available`; this reason wins over the jc-mcp one. Otherwise `VERSION_MCP` must be non-empty (version must have been created or already exist in Jira for fixVersion to work). If `VERSION_MCP` is empty (user skipped in 5b-0), skip with `"Fix version skipped: jc-mcp not configured."`.
 
 For each ticket in `RELEASE_TICKET_IDS`:
 
@@ -108,6 +112,8 @@ Idempotent: adding an already-set fix version is a no-op in Jira.
 Report: `"Fix version set on <ID1>, <ID2>, ..."`.
 
 ## 5b-3. Move tickets to released status
+
+Gate: run the Tracker server check (reuse the result from 5b-2 when it ran). If `TRACKER_UP=no`, skip this whole sub-step, including the released-status recovery: make no call, do not ask for a status, and record `SKIPPED transition to released on <N> ticket(s): tracker server <tracker.mcp> not available`.
 
 Resolve target status: `tracker.statuses.released`.
 
