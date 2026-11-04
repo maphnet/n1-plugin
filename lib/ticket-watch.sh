@@ -91,7 +91,7 @@ n1_tw_delta() {
     res=$(jq -nc --slurpfile cur "$f" --slurpfile iss "$issue" --argjson noise "$N1_TW_NOISE" \
         --arg done "$(n1_config_val '.tracker.statuses.done')" \
         --arg blocked "$(n1_config_val '.tracker.statuses.blocked')" '
-        def s: tostring | .[:1500] | gsub("[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]"; " ");
+        def s: tostring | .[:1500] | gsub("[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\\x{E0000}-\\x{E007F}]"; " ");
         def t: s | .[:500];
         $cur[0] as $c | $iss[0] as $i | [inputs] as $pages
         | if ($c.me | type) != "string" or ($i.updated | type) != "string"

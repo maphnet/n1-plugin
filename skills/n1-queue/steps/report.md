@@ -111,7 +111,7 @@ case "$STEP" in
 esac
 ```
 
-On `watch:no`: print "Not watching queue <id>: <reason>." On `watch:yes`: watch the event log in the background and relay matching lines, running exactly this (no start line: only events after the snapshot above; a cursor this session left earlier wins):
+On `watch:no`: print "Not watching queue <id>: <reason>." On `watch:yes`: stream the watch command's output lines to this session as they are printed (a live line feed, not a notice when the process exits), running exactly this (no start line: only events after the snapshot above; a cursor this session left earlier wins). When the host ends the stream at its deadline, start the identical command again:
 
 ```bash
 source ~/.n1/preamble.sh

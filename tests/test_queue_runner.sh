@@ -655,6 +655,10 @@ test_queue_digest() {
     n1_queue_event "$e1" q1 R1 escalated ticket=T-2
     n1_queue_event "$e1" q1 R1 ticket_started ticket=T-3
     assert_eq "digest: needs-you queue preferred" "Queue q1: 1 PR, 1 needs you (T-2), running T-3" "$(n1_queue_digest "$tmp")"
+    # N1-359: an informational worker_stopped event (last for its ticket) must not hide needs-you or running
+    n1_queue_event "$e1" q1 R1 worker_stopped ticket=T-2 reason="stopped (finished): x"
+    n1_queue_event "$e1" q1 R1 worker_stopped ticket=T-3 reason="stopped (finished): y"
+    assert_eq "digest: worker_stopped ignored" "Queue q1: 1 PR, 1 needs you (T-2), running T-3" "$(n1_queue_digest "$tmp")"
     # q3: stale (older than 24h) never shows, even with an escalation
     rm -rf "$tmp/queue/q1" "$tmp/queue/q2"
     printf '{"ts":"2020-01-01T00:00:00Z","queue":"q3","run_id":"R1","event":"escalated","ticket":"T-5","outcome":"","pr":"","session":"","duration_s":null,"reason":""}\n' \

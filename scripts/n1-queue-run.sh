@@ -106,12 +106,21 @@ ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 # content (question/options/recommended/rationale) is packed into the event's reason field so
 # it survives the file's later removal by n1_queue_answer/the child on resume. events.jsonl's
 # reason field is already free text; this just widens what it can hold, as JSON, via jq -c.
+# N1-359: optional 4th arg = fallback reason (the Orca subject) used when overview.md has no ## Escalations entry. On an
+# Orca session the --answer hint is printed only when a question is pending (.ask-<T> or .question-<T>.json); otherwise
+# no hint (the worker is alive in its terminal, so neither --answer nor an n1-start resume applies).
 escalate() {
-    local sid q qfile qfull reason mark key
+    local sid q qfile qfull reason mark key fb hint=""
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     # N1-241: newest entry, so an appended entry changes the reason and the watch dedupe relays it.
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md" last)
+    fb=""
+    [ -z "$q" ] && [ -n "${4:-}" ] && fb=1
+    q="${q:-${4:-}}"   # N1-359: no overview entry -> caller's fallback; also keys the dedupe marker below
     reason="$q"
+    # SEC-2: the untrusted Orca subject must never render as a packed question (watch shows --answer + Recommended
+    # for object-shaped reasons); only the $qfull path below may produce one.
+    if [ -n "$fb" ] && jq -e 'type == "object"' >/dev/null 2>&1 <<<"$reason"; then reason="orca: $reason"; fi
     case "$1" in
         ''|*[!A-Za-z0-9_-]*) qfile="" mark="" ;;
         *) qfile="$N1_QUEUE_DIR/.question-$1.json" mark="$N1_QUEUE_DIR/.esc-reason-$1" ;;
@@ -126,7 +135,7 @@ escalate() {
         # the normal 2000-char cap) still exceeds a 32 KiB budget — covers 4-byte UTF-8
         # (emoji) content, which isn't a control char and isn't escaped by jq.
         qfull=$(jq -cn '
-            def strip: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c]"; " ");
+            def strip: tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ");
             def build($src; $n): $src | objects | {
                 question: (.question // "" | strip | .[:$n]),
                 options: ((.options // []) | arrays | .[:10] | map(strip | .[:$n])),
@@ -160,7 +169,10 @@ escalate() {
     if [ "${3:-}" = "stopped" ]; then
         n1_notify needs-you "$1 needs you: ${q:-waiting for an answer} (resume: n1-start $1)"
     elif [ "${sid#orca:}" != "$sid" ]; then
-        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer} (answer: /n1:n1-queue --answer $1 <text>)"
+        if [ -n "$qfile" ] && { [ -f "$N1_QUEUE_DIR/.ask-$1" ] || [ -f "$qfile" ]; }; then
+            hint=" (answer: /n1:n1-queue --answer $1 <text>)"
+        fi
+        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}$hint"
     else
         n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}${sid:+ (resume: $(n1_bg_cmd attach "$sid"))}"
     fi
@@ -994,7 +1006,8 @@ run_orca() {
         if [ -n "$EVS" ]; then CHARGE=$(( $(date +%s) - TICK0 )); else CHARGE=$POLL; fi
         # N1-265: loops that can reach n1_notify read fd 3; a notifier backend that reads fd 0
         # (WSL powershell.exe drains it) must never consume the remaining rows or events.
-        while IFS=$'\t' read -r -u 3 TYPE TASK MSG MDISP; do
+        # N1-359: EXTRA = optional 5th column (stop/escalation text, see n1_orca_events); empty when absent.
+        while IFS=$'\t' read -r -u 3 TYPE TASK MSG MDISP EXTRA; do
             _n1_orca_id "$TASK" || continue
             [ "$MSG" != "-" ] || MSG=""; [ "$MDISP" != "-" ] || MDISP=""   # "-" = empty field (see n1_orca_events)
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
@@ -1040,7 +1053,12 @@ run_orca() {
                             escalate "$T" "$N1H" ;;
                         pr|escalated) escalate "$T" "$N1H" ;;
                     esac ;;
-                escalation) escalate "$T" "$(orca_n1h_of "$T")" ;;
+                escalation) escalate "$T" "$(orca_n1h_of "$T")" "" "$EXTRA" ;;
+                # N1-359: Orca's "worker stopped without reporting" notice is not a human question: record it and leave
+                # the row alone. Reconcile (worker exited/done) and subtaskTimeoutMinutes still end a worker that never resumes.
+                escalation-stop)
+                    echo "[orca] $T worker stopped without reporting (row unchanged)"
+                    ev worker_stopped ticket="$T" reason="$EXTRA" ;;
             esac
         done 3<<< "$EVS"
         n1_orca_ack "$ORCA_RUN" "$BATCH"

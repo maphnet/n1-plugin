@@ -110,21 +110,35 @@ n1_orca_check() {
 }
 
 n1_orca_events() {
-    # Usage: n1_orca_events <check-json> — "<type>\t<task-id>\t<message-id>\t<dispatch-id>" per message. Orca 1.4.243
+    # Usage: n1_orca_events <check-json> — "<type>\t<task-id>\t<message-id>\t<dispatch-id>[\t<text>]" per message. Orca 1.4.243
     # carries taskId/dispatchId only inside "payload", a JSON string; top-level fields stay as a fallback. A malformed
     # or non-object payload falls back too, and a non-string id reads empty (@tsv errors on an object and would drop
     # the rest of the batch), so one bad message never drops the batch. A message with no task id is dropped (an empty
     # column would collapse under the consumer's read). An empty type/message/dispatch is emitted as "-" (tab is
     # whitespace to read, so an empty column would shift the rest); the consumer maps "-" back to empty. Ids are untrusted: the consumer binds the dispatch to the Runs row.
-    jq -r '(.result.messages // .result.batch // .result.items // [])[]?
+    # N1-359: an escalation whose payload carries a string stopReason is Orca's "worker stopped without reporting"
+    # notice, emitted as type "escalation-stop" with text "stopped (<stopReason>): <body, else subject>"; a plain
+    # escalation's text is its subject. The text is untrusted: control/format chars become spaces, then it is cut to
+    # 300 chars. The 5th column is omitted when the text is empty (the consumer's last read variable then reads empty).
+    jq -r 'def str: if type == "string" then . else "" end;
+        def strip: gsub("[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff\\x{E0000}-\\x{E007F}]"; " ");
+        (.result.messages // .result.batch // .result.items // [])[]?
         | (.payload | if type == "string" then (try fromjson catch {}) else . end
             | if type == "object" then . else {} end) as $p
-        | ($p.taskId // .taskId // .task_id // .task.id // "" | if type == "string" then . else "" end) as $tid
+        | ($p.taskId // .taskId // .task_id // .task.id // "" | str) as $tid
         | select($tid != "")
-        | [(.type // .messageType // ""), $tid, (.id // .messageId // ""),
-           ($p.dispatchId // .dispatchId // .dispatch_id // .dispatch.id // "" | if type == "string" then . else "" end)]
-        | map(if . == "" then "-" else . end)
-        | @tsv' <<<"$1" 2>/dev/null
+        | ($p.stopReason // "" | str) as $stop
+        | (.type // .messageType // "") as $t0
+        | (if $t0 == "escalation" and $stop != "" then "escalation-stop" else $t0 end) as $ty
+        | (if $ty == "escalation-stop" then
+               "stopped (" + $stop + "): " + ([.body, .subject] | map(str | select(. != "")) | .[0] // "")
+           elif $ty == "escalation" then (.subject | str)
+           else "" end | strip | .[:300]) as $x
+        | ([$ty, $tid, (.id // .messageId // ""),
+           ($p.dispatchId // .dispatchId // .dispatch_id // .dispatch.id // "" | str)]
+           | map(if . == "" then "-" else . end) | @tsv)
+        # The text is appended outside @tsv: strip leaves no tab/newline in it, and @tsv would double its backslashes.
+        + (if $x != "" then "\t" + $x else "" end)' <<<"$1" 2>/dev/null
     return 0
 }
 

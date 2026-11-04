@@ -141,6 +141,19 @@ eq "events: malformed payload falls back, batch kept, taskless message dropped" 
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-4","type":"worker_done","payload":"{not json","taskId":"task-4"},{"id":"m-5","type":"worker_done","payload":"{\"taskId\":\"task-5\"}"},{"id":"m-6","type":"worker_done","payload":"{\"taskId\":{\"a\":1}}"},{"id":"m-7","type":"worker_done","payload":"{\"taskId\":\"task-7\"}"}]}}')"
 eq "events: empty message id keeps the dispatch column" "$(printf 'escalation\ttask-8\t-\td-8')" \
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"type":"escalation","payload":"{\"taskId\":\"task-8\",\"dispatchId\":\"d-8\"}"}]}}')"
+# N1-359: an escalation whose payload carries a string stopReason is Orca's stop notice (type escalation-stop, text =
+# stopReason + flattened body); a plain escalation carries its subject; a non-string stopReason stays a plain escalation.
+eq "events: stop notice -> escalation-stop with stopReason and flattened body" \
+    "$(printf 'escalation-stop\ttask-9\tm-9\td-9\tstopped (finished): Worker ended Last output: Done?')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-9","type":"escalation","subject":"Worker stopped without reporting","body":"Worker ended\nLast output:\tDone?","payload":"{\"taskId\":\"task-9\",\"dispatchId\":\"d-9\",\"stopReason\":\"finished\"}"}]}}')"
+eq "events: plain escalation carries its subject; non-string stopReason stays plain" \
+    "$(printf 'escalation\ttask-10\tm-10\td-10\tNeed a DB choice\nescalation\ttask-11\tm-11\td-11')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-10","type":"escalation","subject":"Need a DB choice","payload":"{\"taskId\":\"task-10\",\"dispatchId\":\"d-10\"}"},{"id":"m-11","type":"escalation","payload":"{\"taskId\":\"task-11\",\"dispatchId\":\"d-11\",\"stopReason\":1}"}]}}')"
+eq "events: zero-width and tag-block chars in a subject become spaces" "escalation	task-12	m-12	d-12	a b c" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-12","type":"escalation","subject":"a\u200bb\udb40\udc41c","payload":"{\"taskId\":\"task-12\",\"dispatchId\":\"d-12\"}"}]}}')"
+B=$(printf 'x%.0s' $(seq 400))
+eq "events: stop text capped at 300 chars" 300 \
+    "$(n1_orca_events "$(jq -cn --arg b "$B" '{ok: true, result: {messages: [{id: "m-12", type: "escalation", body: $b, payload: ({taskId: "task-12", dispatchId: "d-12", stopReason: "finished"} | tojson)}]}}')" | cut -f5 | tr -d '\n' | wc -c | tr -d ' ')"
 reset
 n1_orca_check run-1 5 >/dev/null
 has "check: requests heartbeat" "--types worker_done,escalation,question,heartbeat" "$(calls)"
@@ -153,6 +166,10 @@ has "check: retry first call had heartbeat" "question,heartbeat" "$(calls | sed 
 hasnt "check: retry dropped heartbeat" "heartbeat" "$(calls | sed -n 2p)"
 reset; FAKE_ORCA_CHECK_FAIL=1 n1_orca_check run-1 5 >/dev/null 2>&1; rc=$?; eq "check: generic failure -> rc 1" 1 "$rc"
 eq "check: generic failure -> one call" 1 "$(calls | grep -c 'orchestration check')"
+# N1-359: literal backslashes in the text column are not doubled by TSV escaping (subject and stop-notice body)
+eq "events: backslash in subject and body is kept single" \
+    "$(printf 'escalation\ttask-13\tm-13\td-13\tpath C:\\repo\nescalation-stop\ttask-14\tm-14\td-14\tstopped (finished): a\\b')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-13","type":"escalation","subject":"path C:\\repo","payload":"{\"taskId\":\"task-13\",\"dispatchId\":\"d-13\"}"},{"id":"m-14","type":"escalation","body":"a\\b","payload":"{\"taskId\":\"task-14\",\"dispatchId\":\"d-14\",\"stopReason\":\"finished\"}"}]}}')"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
 eq "liveness: verdict + durable settled state" \
     "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t\nd-6\ttask-6\tlive\tdone\nd-7\ttask-7\tlive\tdone\nd-8\ttask-8\tlive\t\nd-9\ttask-9\texited\t\nd-10\ttask-10\tunverifiable\t')" \

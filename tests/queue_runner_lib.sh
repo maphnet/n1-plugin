@@ -239,8 +239,14 @@ run_orca_queue() { # <tmp> [VAR=value...] — run_bg_queue with the fake Orca CL
 }
 
 cfg_set() { jq "$2" "$1/n1home/config.json" > "$1/cfg.tmp" && mv "$1/cfg.tmp" "$1/n1home/config.json"; } # <tmp> <jq-filter>
-# orca_msg <type> <task> <msg-id> — one inbox message, real Orca 1.4.243 shape (taskId/dispatchId only inside "payload").
-orca_msg() { jq -cn --arg y "$1" --arg k "$2" --arg i "$3" '{id: $i, type: $y, payload: ({taskId: $k, dispatchId: ("d-" + ($k | ltrimstr("task-")))} | tojson)}'; }
+# orca_msg <type> <task> <msg-id> [stopReason] [subject] [body] — one inbox message, real Orca 1.4.243 shape
+# (taskId/dispatchId and stopReason only inside "payload"; subject/body top-level, as the observed stop notice).
+orca_msg() {
+    jq -cn --arg y "$1" --arg k "$2" --arg i "$3" --arg s "${4:-}" --arg sub "${5:-}" --arg b "${6:-}" \
+        '{id: $i, type: $y, payload: ({taskId: $k, dispatchId: ("d-" + ($k | ltrimstr("task-")))}
+            + (if $s != "" then {stopReason: $s} else {} end) | tojson)}
+         + (if $sub != "" then {subject: $sub} else {} end) + (if $b != "" then {body: $b} else {} end)'
+}
 
 # wl_row <ticket> <running|succeeded|released> [liveness verdict] — one worker-list row, real Orca 1.4.243 shape.
 wl_row() {
