@@ -166,6 +166,10 @@ has "check: retry first call had heartbeat" "question,heartbeat" "$(calls | sed 
 hasnt "check: retry dropped heartbeat" "heartbeat" "$(calls | sed -n 2p)"
 reset; FAKE_ORCA_CHECK_FAIL=1 n1_orca_check run-1 5 >/dev/null 2>&1; rc=$?; eq "check: generic failure -> rc 1" 1 "$rc"
 eq "check: generic failure -> one call" 1 "$(calls | grep -c 'orchestration check')"
+# N1-359: literal backslashes in the text column are not doubled by TSV escaping (subject and stop-notice body)
+eq "events: backslash in subject and body is kept single" \
+    "$(printf 'escalation\ttask-13\tm-13\td-13\tpath C:\\repo\nescalation-stop\ttask-14\tm-14\td-14\tstopped (finished): a\\b')" \
+    "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-13","type":"escalation","subject":"path C:\\repo","payload":"{\"taskId\":\"task-13\",\"dispatchId\":\"d-13\"}"},{"id":"m-14","type":"escalation","body":"a\\b","payload":"{\"taskId\":\"task-14\",\"dispatchId\":\"d-14\",\"stopReason\":\"finished\"}"}]}}')"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
 eq "liveness: verdict + durable settled state" \
     "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t\nd-6\ttask-6\tlive\tdone\nd-7\ttask-7\tlive\tdone\nd-8\ttask-8\tlive\t\nd-9\ttask-9\texited\t\nd-10\ttask-10\tunverifiable\t')" \

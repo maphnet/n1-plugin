@@ -134,11 +134,11 @@ n1_orca_events() {
                "stopped (" + $stop + "): " + ([.body, .subject] | map(str | select(. != "")) | .[0] // "")
            elif $ty == "escalation" then (.subject | str)
            else "" end | strip | .[:300]) as $x
-        | [$ty, $tid, (.id // .messageId // ""),
+        | ([$ty, $tid, (.id // .messageId // ""),
            ($p.dispatchId // .dispatchId // .dispatch_id // .dispatch.id // "" | str)]
-        | map(if . == "" then "-" else . end)
-        | if $x != "" then . + [$x] else . end
-        | @tsv' <<<"$1" 2>/dev/null
+           | map(if . == "" then "-" else . end) | @tsv)
+        # The text is appended outside @tsv: strip leaves no tab/newline in it, and @tsv would double its backslashes.
+        + (if $x != "" then "\t" + $x else "" end)' <<<"$1" 2>/dev/null
     return 0
 }
 
