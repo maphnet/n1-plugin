@@ -29,4 +29,8 @@ EOT
 for p in $(grep -rhoE '(^|[^/A-Za-z0-9_-])procedures/[A-Za-z0-9._-]+\.md' "$S" | sed 's#^.*procedures/#procedures/#' | sort -u); do
   if [ -f "$S/$p" ]; then ok "exists: $p"; else no "dangling: $p"; fi
 done
+# Every full-path skills/n1-start/procedures/<file>.md citation anywhere (skills, agents, references) exists. The full path is unambiguous, so other skills' own procedures/ dirs never match.
+for p in $(grep -rhoE 'skills/n1-start/procedures/[A-Za-z0-9._-]+\.md' skills agents references | sort -u); do
+  if [ -f "$p" ]; then ok "exists: $p"; else no "dangling: $p"; fi
+done
 [ "$FAIL" -eq 0 ]
