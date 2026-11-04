@@ -190,6 +190,19 @@ test_orca_ghost_worker() {
         "$(plan_cell "$tmp/queue.md" 1 8)|$(grep 'worker-start' "$tmp/fake/orca-calls" | grep -q 'T-B' && echo yes || echo no)"
     rm -rf "$tmp"
 }
+test_orca_ghost_open_pr() {
+    local tmp; tmp=$(mktemp -d); ghost_fixture "$tmp" unverifiable terminal_missing '10 minutes ago'
+    mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/steps"
+    printf '{"layer":"envelope","run_id":"r1","ticket_id":"T-A","branch":"me/T-A","started_at":"x","config_snapshot":{}}\n' \
+        > "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    touch -d "+1 hour" "$tmp/n1home/memory/T-A/telemetry/raw/steps/r1.jsonl"
+    git -C "$tmp" init -q; git -C "$tmp" -c user.name=t -c user.email=t@t -c commit.gpgSign=false commit -q --allow-empty -m i; git -C "$tmp" branch me/T-A
+    printf 'https://github.com/o/r/pull/239\t%s\n' "$(git -C "$tmp" rev-parse refs/heads/me/T-A)" > "$tmp/fake/gh-pr"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=2 > /dev/null
+    assert_eq "ghost-pr: row is pr, dispatch released" "pr|yes" \
+        "$(plan_cell "$tmp/queue.md" 1 8)|$([ "$(ghost_rel "$tmp")" -ge 1 ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
 test_orca_ghost_never_released() {
     local tmp label v d age wlfail
     while IFS='|' read -r label v d age wlfail; do
@@ -213,6 +226,7 @@ test_orca_stall_flag
 test_beacon_lines
 test_orca_ghost_worker
 test_orca_ghost_never_released
+test_orca_ghost_open_pr
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

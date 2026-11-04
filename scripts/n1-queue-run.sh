@@ -1177,6 +1177,8 @@ run_orca() {
                 # The worker stopped without a terminal overview step (N1-182: it may still have opened a PR).
                 OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
                 if [ -n "$OPEN_PR" ]; then
+                    # A ghost with a PR is released and owed so settle runs its chain (an unverifiable ghost never reaches settle otherwise).
+                    [ "$GHOST" = 1 ] && { n1_orca_release "$DISP"; OWED="$OWED$TASK "; }
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
                 elif [ "$GHOST" = 1 ]; then
                     # Cleanup first: finalize may exit 2 on a third strike. Both calls are idempotent.
