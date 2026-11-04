@@ -1264,7 +1264,7 @@ n1_queue_digest() {
     for f in "$1"/queue/*/events.jsonl; do [ -f "$f" ] && cat "$f"; done 2>/dev/null | jq -nrR '
         [inputs | fromjson? | objects] | group_by(.queue) | map(
             .[-1] as $end
-            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped")] | group_by(.ticket) | map(.[-1])) as $t
+            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled")] | group_by(.ticket) | map(.[-1])) as $t
             | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "failed")] | length) as $failed
