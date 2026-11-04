@@ -29,12 +29,12 @@ Ask at most 4 questions per message; there is no round cap. Continue until every
 ```
 Q<n> <topic>: <why it matters, one line>
 1 — <option> (Recommended): <evidence, file:line>
-2 — <option>
+2 — <option>: works when <condition>
 3 — Park: keep <default> as an Assumption
 4 — Decide for me
 ```
 
-Exactly one `(Recommended)`, with codebase evidence right after it. When the evidence does not differentiate, put "No recommendation. The options are equivalent given the available evidence; select based on team preference." above the options, label none, and Park keeps option 1. **Decide for me:** apply the recommended option; with none, dispatch persona `solution-architect` with "Answer only: <question>. ≤200 words." and apply its answer. Record answered points as Decisions (`Rejected:` lists the options not chosen) and parked points as Assumptions.
+Exactly one `(Recommended)`, with codebase evidence right after it. Every other option gets one line, `works when <condition>`; format: `<N1_ROOT>/references/question-format.md`. When the evidence does not differentiate, put "No recommendation. The options are equivalent given the available evidence; select based on team preference." above the options, label none, and Park keeps option 1. **Decide for me:** apply the recommended option; with none, dispatch persona `solution-architect` with "Answer only: <question>. ≤200 words." and apply its answer. Record answered points as Decisions (`Rejected:` lists the options not chosen) and parked points as Assumptions.
 
 ## Step 4: Scope Classification
 

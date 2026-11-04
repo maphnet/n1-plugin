@@ -35,4 +35,11 @@ check "doc: capital-R marker" 'Always write the marker as `\(Recommended\)`' "$D
 check "doc: alternatives JSON shape" '"alternatives":\{"B":"works when <condition>"\}' "$DOC"
 lacks_tree "no works-when note carries the marker" 'works when[^`]*\(Recommended' skills "$DOC"
 
+# --- n1-refine
+pointer skills/n1-refine/steps/02-loop.md
+pointer skills/n1-refine/steps/03-write.md
+check "02-loop: other options carry a works-when note" '^2 — <option>: works when <condition>$' skills/n1-refine/steps/02-loop.md
+check "03-write: Cancel carries a works-when note" '^3 — Cancel: write nothing; works when ' skills/n1-refine/steps/03-write.md
+expect "03-write: still exactly one (Recommended)" 1 "$(grep -cF '(Recommended)' skills/n1-refine/steps/03-write.md)"
+
 exit "$FAIL"

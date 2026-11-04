@@ -29,13 +29,13 @@ The last line closes the block; text outside the two marker lines belongs to peo
 
 **Actions** come from `PROPOSED` and `CONVERT` (`02-loop.md` Step 4): `A1 Convert <ID> to <CONVERT>` first, then one `C<n> <child type>: <summary>` per child with its description and acceptance criteria (child type per Step 3c). Drop the actions that cannot run and print each under the block with its reason: every child when `CREATE_ISSUE_OP` is empty ("no create op configured"); Jira children when `CREATE_ISSUE_OP` does not start with `jcm_` and `VERSION_MCP` is empty ("no parent link without jc-mcp"); YouTrack children when `LINK_OP` is empty ("no link op configured"); a Jira conversion when `VERSION_MCP` is empty ("conversion needs jc-mcp; convert <ID> manually"); a YouTrack conversion ("convert <ID> manually"; its children stay, a `subtask of` link needs no parent type). A dropped Jira `CONVERT=Story` also drops its Sub-tasks.
 
-Show the verdict line from `02-loop.md` Step 5, then the block, then the Actions list when it is non-empty, then ask the user.
+Show the verdict line from `02-loop.md` Step 5, then the block, then the Actions list when it is non-empty, then ask the user (format: `<N1_ROOT>/references/question-format.md`).
 
 1 — Write (Recommended): puts the block in the description, where `agents/product-analyst.md` § Idempotency detects it, then runs every listed action (chosen by `references/ticket-scope.md` § Decomposition by ticket type)
-2 — Edit: say what to change
-3 — Cancel: write nothing
-4 — Block only: write the block, run no action
-5 — Remove: name an action (`A1` or `C<n>`) to drop
+2 — Edit: say what to change; works when the block or an action needs a change before writing
+3 — Cancel: write nothing; works when the ticket should stay as it is for now
+4 — Block only: write the block, run no action; works when the block is right but the actions should wait
+5 — Remove: name an action (`A1` or `C<n>`) to drop; works when one listed action is wrong
 
 Options 4 and 5 appear only with a non-empty Actions list. `EDIT_OP` empty: replace Write with "Comment: post the block as a comment, then run every listed action" (no Recommended mark). `COMMENT_OP` also empty: print the block and the Actions and say "No tracker write available; paste it yourself." **STOP.** Edit: apply the change (block or Actions), redraft, show this preview again. Remove: drop that action, show this preview again; dropping `A1` when `CONVERT=Story` also drops every Sub-task (Jira rejects Sub-tasks under a Task). Cancel: say "Nothing written." **STOP.**
 
