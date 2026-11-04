@@ -119,5 +119,36 @@ bash "$REPO_ROOT/hooks/telemetry-merge.sh" r1 "$TD" >/dev/null 2>&1; rc=$?
 assert_eq "telemetry-merge accepts stuck events" "0" "$rc"
 assert_eq "merged run is valid JSON" "ok" "$(jq -e . "$TD/runs/r1.jsonl" >/dev/null 2>&1 && echo ok || echo bad)"
 
+# Registration: three synchronous entries; existing entries untouched
+HJ="$REPO_ROOT/hooks/hooks.json"
+reg() { jq -r --arg e "$1" '[.hooks[$e][] | select(any(.hooks[]; .command | contains("stuck-detector.sh"))) | .matcher // ""] | join(",")' "$HJ"; }
+assert_eq "hooks.json: PreToolUse matcher" "Bash" "$(reg PreToolUse)"
+assert_eq "hooks.json: PostToolUseFailure matcher" "Bash" "$(reg PostToolUseFailure)"
+PM='^(Bash|Edit|Write|MultiEdit|NotebookEdit)$'
+assert_eq "hooks.json: PostToolUse reset matcher" "$PM" "$(reg PostToolUse)"
+assert_eq "hooks.json: stuck detector is synchronous" "false" \
+    "$(jq '[.hooks[][] .hooks[] | select(.command | contains("stuck-detector.sh")) | .async // false] | any' "$HJ")"
+assert_eq "hooks.json: three stuck-detector commands" "3" \
+    "$(jq '[.hooks[][] .hooks[] | select(.command | contains("stuck-detector.sh"))] | length' "$HJ")"
+assert_eq "hooks.json: pr-review-observe still on PostToolUseFailure Bash" "1" \
+    "$(jq '[.hooks.PostToolUseFailure[] | select(.matcher == "Bash") | .hooks[] | select(.command | contains("pr-review-observe.sh"))] | length' "$HJ")"
+assert_eq "hooks.json: enforce-agent-policy stays the first, matcher-less PreToolUse entry" "true|" \
+    "$(jq -r '.hooks.PreToolUse[0] | "\(.hooks[0].command | contains("enforce-agent-policy.sh"))|\(.matcher // "")"' "$HJ")"
+for t in Bash Edit Write MultiEdit NotebookEdit; do
+    assert_eq "reset matcher selects $t" "yes" "$([[ "$t" =~ $PM ]] && echo yes || echo no)"
+done
+for t in Read Grep Glob mcp__x__Bash BashOutput; do
+    assert_eq "reset matcher skips $t" "no" "$([[ "$t" =~ $PM ]] && echo yes || echo no)"
+done
+
+# Stale sweep at session start: state older than a day is removed, fresh state kept (behavioral; session-start.sh
+# exits early for an unconfigured project, so the fixture needs a config.json; precedent: tests/test_hooks.sh:695)
+echo '{}' > "$N1_HOME/config.json"
+reset
+mkdir -p "$SD"; printf 'a b 3 1\n' > "$SD/old"; printf 'a b 3 1\n' > "$SD/fresh"; touch -d '3 days ago' "$SD/old"
+echo '{"session_id":"s-sweep","source":"resume"}' | N1_STATE_DIR="$T/state" N1_HOST_FILE="$T/host.json" \
+    bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "session-start sweeps stale stuck state, keeps fresh" "fresh" "$(ls "$SD" | tr '\n' ' ' | sed 's/ $//')"
+
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
