@@ -193,11 +193,14 @@ reset; out=$(n1_tw_delta "$ID" "$T/issue-own.json" "$T/log-noisecap.json")
 assert_eq "noise: dropped items do not count toward the cap" "1|false" "$(jq -r '"\(.changes | length)|\(.pending)"' <<<"$out")"
 # ---- n1_tw_replan_reset ----
 A=$(_n1_step_display_name analysis); Q=$(_n1_step_display_name qa)
-printf -- '---\nstep: review\nqa_fix_cycle: 2\nreview_fix_cycle: 1\n---\n\n- [x] %s\n- [x] %s\n- [x] Unrelated checklist item\n' "$A" "$Q" > "$M/overview.md"
+printf -- '---\nstep: review\nqa_fix_cycle: 2\nreview_fix_cycle: 1\nqa_fail_sig: aa11\nlocal_test_fail_sig: bb22\nci_fail_sig: cc33\n---\n\n- [x] %s\n- [x] %s\n- [x] Unrelated checklist item\n' "$A" "$Q" > "$M/overview.md"
 assert_eq "replan: first reset prints 1" "1" "$(n1_tw_replan_reset "$ID")"
 assert_eq "replan: step back to ticket" "ticket" "$(n1_read_frontmatter "$M/overview.md" step)"
 assert_eq "replan: qa_fix_cycle zeroed" "0" "$(n1_read_frontmatter "$M/overview.md" qa_fix_cycle)"
 assert_eq "replan: review_fix_cycle zeroed" "0" "$(n1_read_frontmatter "$M/overview.md" review_fix_cycle)"
+assert_eq "replan: qa_fail_sig cleared (N1-346)" "" "$(n1_read_frontmatter "$M/overview.md" qa_fail_sig)"
+assert_eq "replan: local_test_fail_sig cleared (N1-346)" "" "$(n1_read_frontmatter "$M/overview.md" local_test_fail_sig)"
+assert_eq "replan: ci_fail_sig cleared (N1-346)" "" "$(n1_read_frontmatter "$M/overview.md" ci_fail_sig)"
 assert_eq "replan: analysis box unticked" "1" "$(grep -c -- "- \[ \] $A" "$M/overview.md")"
 assert_eq "replan: qa box unticked" "1" "$(grep -c -- "- \[ \] $Q" "$M/overview.md")"
 assert_eq "replan: unrelated box kept" "1" "$(grep -c -- '- \[x\] Unrelated checklist item' "$M/overview.md")"

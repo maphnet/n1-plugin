@@ -153,6 +153,9 @@ n1_tw_replan_reset() {
     for k in qa_fix_cycle tq_fix_cycle review_fix_cycle clean_passes local_test_fix_cycle ci_fix_cycle; do
         [ -n "$(n1_read_frontmatter "$o" "$k")" ] && n1_write_frontmatter "$o" "$k" 0
     done
+    for k in qa_fail_sig local_test_fail_sig ci_fail_sig; do
+        [ -n "$(n1_read_frontmatter "$o" "$k")" ] && n1_write_frontmatter "$o" "$k" ""
+    done
     n1_write_frontmatter "$o" step ticket
     n1_write_frontmatter "$o" replan_count "$((n + 1))"
     for s in ticket analysis brainstorm plan plan-review implementation qa review fix local-testing pr ci finish; do
