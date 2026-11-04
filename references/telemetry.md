@@ -96,3 +96,7 @@ The outcome event gained `review_blocking_count` (Critical/High fingerprints fro
 `lib/telemetry.sh:n1_emit_question_event` appends `{"event":"question","step":"...","question_category":"design|mechanical|quality|scope","resolution":"asked|auto|auto-decided|decide-for-me|inherited","rungs_tried":"codebase,web,..."}` to `raw/steps/<run_id>.jsonl`. Emitted by analysis (Phase 3), brainstorm (A-tier questions), fix (escalation), and investigation-deliverable (Phase 2) steps. The merge collects them into `questions[]`.
 
 `n1-telemetry` reports questions/run by step, resolution distribution, and an earned-autonomy trend line. `scripts/benchmark.py` includes `QuestionMetric` and `QuestionShareMetric` for cross-version comparison.
+
+## Stuck events
+
+`hooks/stuck-detector.sh` (N1-342) appends `{"event":"stuck","kind":"nudge|stop","run_id","ticket_id","session_id","agent_id","tool":"Bash","count":N,"hash":"<12 hex>","timestamp"}` to `raw/steps/<run_id>.jsonl` when the hook's session owns a run lock (`n1_read_lock`); otherwise nothing is written. `nudge` is emitted once per streak at the 3rd identical failure, `stop` once per streak at the first denied call after 5. `agent_id` is `main` for the orchestrator. The merge ignores these lines (no `layer`, no collected `event` name); they are read from the raw file until an analyzer needs a merged `stuck_events[]` field.
