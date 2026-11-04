@@ -1271,11 +1271,6 @@ n1_owner_check() {
             echo "owner:live $fsid $p"
             if [ "${N1_HEADLESS:-}" = 1 ]; then
                 echo "HEADLESS ESCALATION: $id owned by live session $fsid (pid $p)"
-                ov="$home/memory/$id/overview.md"
-                if [ -f "$ov" ]; then
-                    declare -F n1_append_escalation >/dev/null || source "${BASH_SOURCE[0]%/*}/memory.sh" 2>/dev/null
-                    n1_append_escalation "$ov" "- [headless] owner: $id owned by live session $fsid (pid $p)" 2>/dev/null || :
-                fi
             fi
             return 1
         fi

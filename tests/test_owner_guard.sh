@@ -74,7 +74,7 @@ assert_eq "f1: legacy pointer free" "owner:free" "$(n1_owner_check T-1)"
 reset; ptr other T-2 r1 "$CL"
 assert_eq "f2: other ticket free" "owner:free" "$(n1_owner_check T-1)"
 
-# (g) headless: token + HEADLESS ESCALATION; no memory dir created; escalation appended when overview.md exists
+# (g) headless: token + HEADLESS ESCALATION; no memory dir created; overview.md of the owner left untouched
 reset; ptr other T-1 r1 "$CL"
 OUT=$(N1_HEADLESS=1 n1_owner_check T-1); RC=$?
 assert_eq "g: rc 1" 1 "$RC"
@@ -83,8 +83,9 @@ assert_eq "g: headless line" "HEADLESS ESCALATION: T-1 owned by live session oth
 assert_eq "g: no memory dir created" "no" "$([ -e "$N1_HOME/memory/T-1" ] && echo yes || echo no)"
 mkdir -p "$N1_HOME/memory/T-1"
 printf -- '---\nstep: ticket\n---\n# T-1\n\n## Escalations\n' > "$N1_HOME/memory/T-1/overview.md"
+BEFORE=$(cksum < "$N1_HOME/memory/T-1/overview.md")
 N1_HEADLESS=1 n1_owner_check T-1 >/dev/null
-assert_eq "g: escalation appended" 1 "$(grep -c '^- \[headless\] owner: T-1 owned by live session other' "$N1_HOME/memory/T-1/overview.md")"
+assert_eq "g: overview.md untouched" "$BEFORE" "$(cksum < "$N1_HOME/memory/T-1/overview.md")"
 rm -rf "$N1_HOME/memory/T-1"
 
 # (h) writer records pid = $PPID, keeps compact runId, clear_if still removes it
@@ -102,6 +103,17 @@ ID=T-1
 assert_eq "i: step_begin live token" "owner:live other $CL" "$(n1_step_begin ticket 1 2>/dev/null)"
 reset
 assert_eq "i: step_begin silent when free" "" "$(n1_step_begin ticket 1 2>/dev/null)"
+# (j) headless step_begin on a live owner: token only, overview.md byte-identical, no step event; interactive still writes
+mkdir -p "$N1_HOME/memory/T-1"
+printf -- '---\nstep: ticket\n---\n# T-1\n' > "$N1_HOME/memory/T-1/overview.md"
+reset; ptr other T-1 r1 "$CL"
+BEFORE=$(cksum < "$N1_HOME/memory/T-1/overview.md")
+N1_RUN_ID=run-j N1_HEADLESS=1 n1_step_begin ticket 1 >/dev/null 2>&1
+assert_eq "j: headless overview untouched" "$BEFORE" "$(cksum < "$N1_HOME/memory/T-1/overview.md")"
+assert_eq "j: headless no step event" "no" "$([ -e "$N1_HOME/memory/T-1/telemetry" ] && echo yes || echo no)"
+N1_RUN_ID=run-j n1_step_begin ticket 1 >/dev/null 2>&1
+assert_eq "j: interactive writes current_step" 1 "$(grep -cE '^current_step: ticket' "$N1_HOME/memory/T-1/overview.md")"
+rm -rf "$N1_HOME/memory/T-1"
 unset ID
 echo "---"
 echo "PASS=$PASS FAIL=$FAIL"
