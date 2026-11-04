@@ -42,15 +42,17 @@ RUN_IDS="<run IDs of the checks going to the developer, from Step 5a, space-sepa
 mkdir -p "$N1_HOME/scratch"
 find "$N1_HOME/scratch" -maxdepth 1 -name 'ci-log.*' -mtime +1 -delete 2>/dev/null
 RAW=$(mktemp "$N1_HOME/scratch/ci-log.XXXXXX") || { echo "cilog:unavailable"; exit 0; }
+SECONDS=0
 for r in $RUN_IDS; do
   [[ "$r" =~ ^[0-9]+$ ]] || continue
-  { printf '### run %s\n' "$r"; timeout -k 5 120 gh run view "$r" --log-failed 2>&1 | head -500; echo; } >> "$RAW"
+  (( SECONDS < 90 )) || break
+  { printf '### run %s\n' "$r"; timeout -k 5 45 gh run view "$r" --log-failed 2>&1 | head -500; echo; } >> "$RAW"
 done
 n1_fence_untrusted 'CI LOG' "$RAW" > "$RAW.fenced" && echo "cilog:file=$RAW.fenced" || { rm -f "$RAW.fenced"; echo "cilog:unavailable"; }
 rm -f "$RAW"
 ```
 
-If the output says `cilog:unavailable`, go to **Step 6b** with "CI log capture failed"; never dispatch the developer with unfenced logs.
+If the output has no `cilog:file=` line (including `cilog:unavailable` or a timed-out command), go to **Step 6b** with "CI log capture failed"; never dispatch the developer with unfenced logs.
 
 **Developer instructions:**
 
