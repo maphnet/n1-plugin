@@ -194,7 +194,7 @@ test_orca_ghost_never_released() {
     local tmp label v d age wlfail
     while IFS='|' read -r label v d age wlfail; do
         tmp=$(mktemp -d); ghost_fixture "$tmp" "$v" "$d" "$age"
-        if [ -n "$wlfail" ]; then run_orca_queue "$tmp" FAKE_ORCA_WL_FAIL_AFTER=0 N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+        if [ -n "$wlfail" ]; then run_orca_queue "$tmp" FAKE_ORCA_WL_FAIL_AFTER=1 N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
         else run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null; fi
         assert_eq "ghost-guard: $label -> row kept, not released" "in-progress|0" "$(plan_cell "$tmp/queue.md" 1 8)|$(ghost_rel "$tmp")"
         rm -rf "$tmp"
@@ -203,7 +203,7 @@ live verdict with terminal_missing|live|terminal_missing|10 minutes ago|
 unverifiable without the marker|unverifiable||10 minutes ago|
 marker inside the 5-minute grace|unverifiable|terminal_missing|1 minute ago|
 no launch marker|unverifiable|terminal_missing||
-unreadable worker list|unverifiable|terminal_missing|10 minutes ago|1
+unreadable worker list after the startup read|unverifiable|terminal_missing|10 minutes ago|1
 EOF
 }
 
