@@ -219,6 +219,76 @@ EOF
     assert_eq "row_title: Ticket cell unchanged" "T-2" "$(plan_cell "$tmp/q.md" 2 3)"
     assert_eq "row_title: other cells of row 2 untouched" "1" "$(grep -cxF '| 2 | T-2 | evil titleninject174 | /r | /h | opus | pending | |' "$tmp/q.md")"
     assert_eq "row_title: row 1 untouched" "1" "$(grep -cxF '| 1 | T-1 | Fix A | /r | /h | sonnet | stn1 | reasonninject174 |' "$tmp/q.md")"
+    # N1-271: an empty reason leaves Reason alone; "clear" empties it (--retry), keeping the row's cell shape.
+    n1_queue_row_status "$tmp/q.md" "2" "failed" "boom"
+    n1_queue_row_status "$tmp/q.md" "2" "in-progress"
+    assert_eq "row_status: empty reason keeps Reason" "boom" "$(plan_cell "$tmp/q.md" 2 9)"
+    n1_queue_row_status "$tmp/q.md" "2" "pending" "" clear
+    assert_eq "row_status: clear empties Reason" "1" "$(grep -cxF '| 2 | T-2 | evil titleninject174 | /r | /h | opus | pending | |' "$tmp/q.md")"
+}
+
+# N1-271: --retry resets exactly one failed/escalated row. Bugs caught: other rows rewritten; a pr/skip row reset;
+# the old Reason kept; a reset while the runner is live; a halted/done queue --run cannot resume; stale markers or
+# identity of the previous attempt leaking into the relaunch; another ticket's markers removed.
+test_queue_retry() {
+    local tmp q h out rc pid; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q="$tmp/queue/q1/queue.md"; h="$tmp/h"; mkdir -p "${q%/*}" "$h/queue/sentinels"
+    cat > "$q" <<EOF
+---
+queue_id: q1
+run_id: R1
+step: halted
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | Fix A | /r | $h | sonnet | pr | |
+| 2 | T-2 | Fix B | /r | $h | opus | failed | orca-worktree-name-taken |
+| 3 | T-3 | Fix C | /r | $h | opus | escalated | review fix cap |
+| 4 | T-4 | Fix D | /r | $h | opus | skip | excluded |
+EOF
+    cp "$q" "$tmp/orig.md"
+    _same() { cmp -s "$q" "$tmp/orig.md" && echo same || echo changed; }
+    rc=0; HOME="$tmp" n1_queue_retry "$q" 'T-1;rm' 2>/dev/null || rc=$?
+    assert_eq "retry: invalid id refused" "1|same" "$rc|$(_same)"
+    rc=0; out=$(HOME="$tmp" n1_queue_retry "$q" T-1 2>&1) || rc=$?
+    assert_eq "retry: pr row refused, status named" "1|yes|same" "$rc|$(grep -qF 'T-1 is pr' <<< "$out" && echo yes || echo no)|$(_same)"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-4 2>/dev/null || rc=$?
+    assert_eq "retry: skip row refused" "1|same" "$rc|$(_same)"
+    rc=0; out=$(HOME="$tmp" n1_queue_retry "$q" T-9 2>&1) || rc=$?
+    assert_eq "retry: no row refused" "1|yes|same" "$rc|$(grep -qF 'no row for T-9' <<< "$out" && echo yes || echo no)|$(_same)"
+    # A live runner of this queue (cmdline carries scripts/n1-queue-run.sh <queue.md>) is refused.
+    bash -c 'sleep 30; :' "$REPO_ROOT/scripts/n1-queue-run.sh" "$q" & pid=$!
+    n1_write_frontmatter "$q" pid "$pid"; cp "$q" "$tmp/orig.md"
+    rc=0; HOME="$tmp" n1_queue_retry "$q" T-2 2>/dev/null || rc=$?
+    assert_eq "retry: live runner refused" "1|same" "$rc|$(_same)"
+    kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true
+    # Success: markers and identity of T-2 go, T-3's stay; the halted queue goes to step: run.
+    : > "${q%/*}/.launch-2"; : > "${q%/*}/.esc-reason-T-2"; : > "${q%/*}/.ask-T-2"; : > "${q%/*}/.escalated-T-2"
+    : > "${q%/*}/.question-T-2.json"; : > "${q%/*}/.ask-T-3"
+    : > "$h/queue/sentinels/T-2.env"; : > "$h/queue/sentinels/T-3.env"
+    out=$(HOME="$tmp" n1_queue_retry "$q" T-2)
+    assert_eq "retry: prints the resume command" "Retry queued: /n1:n1-queue --run q1" "$out"
+    assert_eq "retry: row pending, Reason cleared" "pending|" "$(plan_cell "$q" 2 8)|$(plan_cell "$q" 2 9)"
+    assert_eq "retry: other rows unchanged" "3" "$(grep -cxF -e "| 1 | T-1 | Fix A | /r | $h | sonnet | pr | |" \
+        -e "| 3 | T-3 | Fix C | /r | $h | opus | escalated | review fix cap |" -e "| 4 | T-4 | Fix D | /r | $h | opus | skip | excluded |" "$q")"
+    assert_eq "retry: halted queue set to step run" "run" "$(n1_read_frontmatter "$q" step)"
+    assert_eq "retry: run_id not rotated" "R1" "$(n1_read_frontmatter "$q" run_id)"
+    assert_eq "retry: previous attempt's markers removed" "0" \
+        "$(ls -A "${q%/*}" | grep -cE '^\.(launch-2|esc-reason-T-2|ask-T-2|escalated-T-2|question-T-2\.json)$' || true)"
+    assert_eq "retry: another ticket's marker kept" "yes" "$([ -e "${q%/*}/.ask-T-3" ] && echo yes || echo no)"
+    assert_eq "retry: identity dropped, other identity kept" "no|yes" \
+        "$([ -e "$h/queue/sentinels/T-2.env" ] && echo yes || echo no)|$([ -e "$h/queue/sentinels/T-3.env" ] && echo yes || echo no)"
+    # Interrupted run (step run, runner dead): accepted; step stays run.
+    out=$(HOME="$tmp" n1_queue_retry "$q" T-3)
+    assert_eq "retry: interrupted run accepted" "pending|run" "$(plan_cell "$q" 3 8)|$(n1_read_frontmatter "$q" step)"
+    # A planned queue keeps step planned.
+    n1_write_frontmatter "$q" step planned; n1_queue_row_status "$q" 1 failed "boom"
+    HOME="$tmp" n1_queue_retry "$q" T-1 > /dev/null
+    assert_eq "retry: planned queue stays planned" "pending|planned" "$(plan_cell "$q" 1 8)|$(n1_read_frontmatter "$q" step)"
+    # Missing queue file.
+    rc=0; out=$(HOME="$tmp" n1_queue_retry "" T-1 2>&1) || rc=$?
+    assert_eq "retry: no queue" "1|No queue runs found." "$rc|$out"
 }
 
 # --- run.md § Write plan cell-fill snippet (NP-203): free text with quotes via cells.tsv ---
@@ -1686,6 +1756,7 @@ test_held_helpers
 test_held_user_merge
 test_sync_default
 test_row_status
+test_queue_retry
 test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
