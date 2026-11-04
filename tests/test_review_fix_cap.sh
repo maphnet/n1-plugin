@@ -288,6 +288,14 @@ eq "XW9 filter runs before fp-new.tsv, NON_CONVERGING and the verdict" "1" "$(gr
 eq "XW10 filtered lines are appended to For Human Review by a fixed command" "1" "$(grep -cF 'cat "$MEM/review-oos.md"; } >> "$MEM/review.md"' "$XP")"
 eq "XW11 Grant runs in every mode, headless and queue included" "1" "$(grep -cF 'in every mode, headless and queue included' "$XP")"
 
+# ---- docs (N1-345) ----
+ARCH=references/architecture.md
+eq "DOC1 architecture.md has a Review Fix Cap section" "1" "$(grep -cx '## Review Fix Cap' "$ARCH")"
+eq "DOC2 section documents NON_CONVERGING, the tie, the grant, the [granted] row and the filter" "5" "$(sed -n '/^## Review Fix Cap$/,/^## Codex Review$/p' "$ARCH" | grep -cE '^\*\*(NON_CONVERGING|Reach \(D13\)|One automatic extra round|`\[granted\]` row|Extra-round filter)')"
+eq "DOC3 architecture row text equals the helper row" "1" "$(grep -cF '| fix | quality | A | [granted] | review fix cap reached | auto extra round | ask the user |' "$ARCH")"
+eq "DOC4 tech-writer orders [granted] between [auto] and [asked]" "1" "$(grep -cF '`[auto]` before `[granted]` before `[asked]` within a tier' agents/tech-writer.md)"
+eq "DOC5 n1-review no longer claims a fixed maximum of 2" "0" "$(grep -c 'Maximum 2 review-fix cycles' skills/n1-review/steps/01-analyze.md)"
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

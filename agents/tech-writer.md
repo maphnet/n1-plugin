@@ -153,8 +153,8 @@ Generate the PR title and body from implementation context.
 
    If local-testing.md was NOT provided, skip this step entirely — all QA items become plain unchecked checkboxes with no summary line.
 
-6. **Render the Decision Ledger.** If overview.md contains a `## Decision Ledger` section with at least one data row, add a `## Decisions` section to the PR body. One bullet per row, ordered tier A → B → C, and `[auto]` before `[asked]` within a tier:
-   - `- **[auto/asked] <question>** — <chosen>. *(<reason>)*` — include `(alternatives: <...>)` only for tier A rows.
+6. **Render the Decision Ledger.** If overview.md contains a `## Decision Ledger` section with at least one data row, add a `## Decisions` section to the PR body. One bullet per row, ordered tier A → B → C, and `[auto]` before `[granted]` before `[asked]` within a tier:
+   - `- **[auto/granted/asked] <question>** — <chosen>. *(<reason>)*` — include `(alternatives: <...>)` only for tier A rows.
    - Tier A rows are the ones the reviewer must actually judge — never omit them, even under the word budget. Tier C rows may be collapsed to a single line: `- N routine decisions made autonomously (see overview.md ledger)` when the body would otherwise exceed the 500-word budget.
    - The ledger table has a 9th column `Rungs Tried` (added in v2.90.0). Rows without a 9th cell are treated as `---` (backward compatible). Do not render `rungs_tried` in PR bullets — it is for telemetry only.
    If there is no ledger section or it has no rows, omit the `## Decisions` section entirely.
