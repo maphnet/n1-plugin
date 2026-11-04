@@ -164,10 +164,12 @@ Print the `## Slack` and `## Full` blocks as a preview.
 
 Otherwise ask the user once:
 
+Format: `<N1_ROOT>/references/question-format.md`.
+
 ```
 Publish these release notes for <TAG>?
 1 — Yes (Recommended): publish to Confluence and update the GitHub Release body. 02-confirm-execute.md gates the same writes with one confirmation, and this flag exists to refresh published notes.
-2 — Write the local file only
+2 — Write the local file only: works when the notes need a review before stakeholders see them
 ```
 
 On 2: set `CONF=skipped:declined` and `BODY=not updated (declined)`, skip 5c-6 and 5c-7, and go to 5c-8.

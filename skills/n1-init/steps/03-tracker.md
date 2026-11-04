@@ -2,6 +2,8 @@
 
 ## Tracker Setup
 
+Prompts in this step follow `<N1_ROOT>/references/question-format.md`.
+
 ### Pre-detection gate
 
 If a tracker type was detected in step 02's Consolidated Detection:
@@ -10,8 +12,8 @@ If a tracker type was detected in step 02's Consolidated Detection:
   ```
   Detected Jira via jc-mcp MCP (`<JCM_SERVER>`).
   1 -- Use Jira (Recommended: jc-mcp is the only Jira MCP detected)
-  2 -- Use a different tracker
-  3 -- No tracker
+  2 -- Use a different tracker: works when this project is tracked outside Jira
+  3 -- No tracker: works when N1 should run without tracker sync
   ```
   If 1 -> set `JIRA_FLAVOR=jc-mcp` and go to **If Jira via jc-mcp** below.
   If 2 -> fall through to the full tracker question below.
@@ -21,8 +23,8 @@ If a tracker type was detected in step 02's Consolidated Detection:
   ```
   Detected Jira via Atlassian MCP.
   1 -- Use Jira
-  2 -- Use a different tracker
-  3 -- No tracker
+  2 -- Use a different tracker: works when this project is tracked outside Jira
+  3 -- No tracker: works when N1 should run without tracker sync
   ```
   If 1 -> skip to **Select project** below (MCP connectivity already verified).
   If 2 -> fall through to the full tracker question below.
@@ -32,9 +34,9 @@ If a tracker type was detected in step 02's Consolidated Detection:
   ```
   Detected Jira via two MCP servers. Which one should N1 use?
   1 -- jc-mcp (`<JCM_SERVER>`) (Recommended: one server covers every N1 Jira operation; the Atlassian config below still routes version, link and changelog operations to jc-mcp)
-  2 -- Atlassian MCP
-  3 -- Use a different tracker
-  4 -- No tracker
+  2 -- Atlassian MCP: works when only the Atlassian server can reach this Jira site
+  3 -- Use a different tracker: works when this project is tracked outside Jira
+  4 -- No tracker: works when N1 should run without tracker sync
   ```
   If 1 -> set `JIRA_FLAVOR=jc-mcp` and go to **If Jira via jc-mcp** below.
   If 2 -> skip to **Select project** below when step 02's Atlassian probe succeeded; otherwise start at **If Jira via Atlassian MCP**.
@@ -50,9 +52,9 @@ Ask: **"Which issue tracker do you use?"**
 
 ```
 1 — Jira via jc-mcp (Recommended: one server covers every N1 Jira operation; the Atlassian config still needs jc-mcp for version, link and changelog operations)
-2 — Jira via Atlassian MCP
-3 — YouTrack (via YouTrack MCP)
-4 — None (no tracker integration)
+2 — Jira via Atlassian MCP: works when the Atlassian MCP is already set up and jc-mcp is not
+3 — YouTrack (via YouTrack MCP): works when the project tracks work in YouTrack
+4 — None (no tracker integration): works when N1 should run without tracker sync
 ```
 
 1 -> set `JIRA_FLAVOR=jc-mcp`, go to **If Jira via jc-mcp**. 2 -> **If Jira via Atlassian MCP**. 3 -> **If YouTrack**. 4 -> **If None**.
@@ -63,7 +65,7 @@ Runs when `JIRA_FLAVOR=jc-mcp`. Call only `mcp__<JCM_SERVER>__jcm_*` tools on th
 
 **Server:** Use the jc-mcp server name recorded by step 02 as `JCM_SERVER` (the segment between `mcp__` and `__jcm_` in the tool name; `jc-mcp` is only an example). If no `__jcm_getIssue` tool is in the tool list (load the tools if deferred, per HOST ROUTING):
 1. Tell the user: "The jc-mcp MCP server is not connected or not configured."
-2. Ask: **"Would you like me to help set it up? 1 — Yes (Recommended: jc-mcp was chosen above) / 2 — Use the Atlassian MCP instead / 3 — Skip tracker"**
+2. Ask: **"Would you like me to help set it up? 1 — Yes (Recommended: jc-mcp was chosen above) / 2 — Use the Atlassian MCP instead (works when jc-mcp cannot be installed here) / 3 — Skip tracker (works when tracker sync can wait)"**
 3. If **1:** Guide the user through adding the jc-mcp server to their MCP settings. **CRITICAL: NEVER store, save, log, or transmit API keys, tokens, or credentials anywhere — the user must enter them directly into their own MCP configuration only.** After setup, retry detection once; when a `__jcm_getIssue` tool is now found, set `JCM_SERVER` from its prefix. If it still fails — report the error, set `tracker.mcp` to `null`, skip remaining tracker setup.
 4. If **2:** set `JIRA_FLAVOR=atlassian` (so the Atlassian-only guards below do not skip) and go to **If Jira via Atlassian MCP**.
 5. If **3:** Set `tracker.mcp` to `null`, skip remaining tracker setup.

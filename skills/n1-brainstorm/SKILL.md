@@ -25,7 +25,7 @@ Read `ticket.md` and `analysis.md` in full. Identify:
 
 ### 2. Clarifying Questions
 
-Generate up to 4 clarifying questions that cannot be answered from the provided files. Present ALL questions in one message with a recommended answer for each. Accept "use recommended" as a global reply — apply all recommendations without follow-up. For questions that require facts not in `analysis.md`, dispatch the solution-architect persona. Use "ask the user" (not any tool name) for the interaction.
+Generate up to 4 clarifying questions that cannot be answered from the provided files. Present ALL questions in one message; per question mark one answer `(Recommended)` with its evidence and give each other answer a one-line `works when` note, per `<N1_ROOT>/references/question-format.md`. Accept "use recommended" as a global reply — apply all recommendations without follow-up. For questions that require facts not in `analysis.md`, dispatch the solution-architect persona. Use "ask the user" (not any tool name) for the interaction.
 
 Only ask questions that materially affect the design. Skip questions answerable from `analysis.md`.
 
@@ -39,7 +39,7 @@ Propose 2-3 approaches with tradeoffs. For each describe:
 - Which existing patterns it follows or breaks
 - Relative effort estimate
 
-Present to the user. Ask which approach to proceed with (or accept the recommended one).
+Present to the user. Ask which approach to proceed with (or accept the one marked `(Recommended)`; each other approach gets a one-line `works when` note).
 
 ### 4. Design Writing
 

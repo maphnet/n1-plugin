@@ -2,13 +2,15 @@
 
 ## Rules Configuration
 
+Prompts in this step follow `<N1_ROOT>/references/question-format.md`.
+
 Ask whether N1 should generate project rules — authored, checkable conventions that drive review gates and deny hooks. **Default is Yes** for new setups, presented after all other config is written.
 
 ```
 N1 can generate project rules from what it detects about your project.
 Rules are checkable conventions — violations block reviews or deny tool calls.
-1 — Yes, generate starter rules (recommended)
-2 — No, skip rules for now
+1 — Yes, generate starter rules (Recommended): review gates and deny hooks check only conventions written as rules, and no rules directory exists yet
+2 — No, skip rules for now: works when you will add rules later with /n1:n1-rules
 ```
 
 **If 2 (No) or skip:** Move on. No rules directory created.

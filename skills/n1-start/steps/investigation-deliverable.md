@@ -136,11 +136,13 @@ n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/t
 
 1. <unknown>
    Tried: codebase search, web search — unresolvable because <why>
-   (Recommended) <answer>
+   (Recommended) <answer>: <evidence, file:line or source URL>
 
 For each: type your answer, "skip" to defer, or "Decide for me" to research and apply the recommendation.
 Reply "use recommended" to accept all recommendations at once.
 ```
+
+Format: `<N1_ROOT>/references/question-format.md`; the alternatives are free-text answers, so no works-when notes.
 
 "Decide for me": re-run web search, apply best answer, record `[auto-decided]`, no follow-up.
 "Use recommended": apply all; ask individually for those without a recommendation.

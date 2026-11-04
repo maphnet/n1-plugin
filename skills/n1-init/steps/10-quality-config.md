@@ -2,15 +2,17 @@
 
 ## Autonomy Configuration
 
+Prompts in this step follow `<N1_ROOT>/references/question-format.md`.
+
 Ask:
 
 ```
 How autonomous should pipeline runs be?
 
-1 — Hands-off (recommended): mechanical prompts auto-resolve with safe defaults; brainstorm
+1 — Hands-off (Recommended): matches the code default of n1_autonomy_val (mechanicalPrompts falls back to auto, lib/config.sh:329); mechanical prompts auto-resolve with safe defaults; brainstorm
     runs autonomously; acceptance gate auto-confirms; quality-gate exhaustion auto-accepts.
     Every autonomous decision is logged to a Decision Ledger and rendered in the PR body for review.
-2 — Interactive: the pipeline asks at every decision point.
+2 — Interactive: the pipeline asks at every decision point; works when you want to answer each decision yourself.
 ```
 
 - **1 (Hands-off)** → write:
@@ -34,7 +36,7 @@ Run /n1:n1-finish automatically after PR + CI (autonomy.fullAuto)?
 N1 still merges only with finishWork.mergeOnFinish: true; otherwise the chained finish stops on the open PR.
 Queue and headless runs merge only when both keys are true. Such merges include N1's own post-review CI-fix and Codex-triage fix commits; no reviewer re-checks them.
 1 — No (Recommended): matches the code default false of n1_fullauto_enabled (lib/config.sh) and of finishWork.mergeOnFinish (13-write-config.md).
-2 — Yes
+2 — Yes: works when CI and review gates are trusted to finish without you (merging also needs finishWork.mergeOnFinish: true)
 ```
 
 - **1** → add `"fullAuto": false` to the `autonomy` object. **2** → add `"fullAuto": true`. Always write a JSON boolean, never a string.

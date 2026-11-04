@@ -479,8 +479,8 @@ n1_orca_ask() {
     else
         [ -f "$1" ] || { echo failed; return 1; }
         # The option list keeps the recommended-option rule: one (Recommended) option with its rationale, or the
-        # verbatim "No recommendation" sentence.
-        a=(orchestration ask --question "$(jq -r '"\(.ticket) \(.step): \(.question)" + (if (.recommended // "") != "" then " Recommended: \(.recommended). \(.rationale // "")" else " No recommendation. The options are equivalent given the available evidence; select based on team preference." end)' "$1" 2>/dev/null)"
+        # verbatim "No recommendation" sentence; optional alternatives notes (N1-216) follow in the question text.
+        a=(orchestration ask --question "$(jq -r '"\(.ticket) \(.step): \(.question)" + (if (.recommended // "") != "" then " Recommended: \(.recommended). \(.rationale // "")" else " No recommendation. The options are equivalent given the available evidence; select based on team preference." end) + ((if (.alternatives | type) == "object" then ((.options | arrays) // []) as $o | [.alternatives | to_entries[] | select(.key as $k | any($o[]; . == $k))] | .[:10] else [] end) as $alt | if ($alt | length) > 0 then " Alternatives: " + ($alt | map("\(.key): \(.value)") | join("; ")) else "" end)' "$1" 2>/dev/null)"
            --options "$(jq -r '.recommended as $r | ((.options // []) | map(if . == $r then . + " (Recommended)" else . end) + ["Stop this ticket"]) | map(gsub(","; ";")) | join(",")' "$1" 2>/dev/null)")
     fi
     out=$(N1_ORCA_TIMEOUT=570 n1_orca "${a[@]}" --timeout-ms 540000)

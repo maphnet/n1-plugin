@@ -2,6 +2,8 @@
 
 ## Prerequisites
 
+Prompts in this step follow `<N1_ROOT>/references/question-format.md`.
+
 Check if CLAUDE.md exists in the project root:
 - **If missing:** Create a minimal `CLAUDE.md` with `# <project-name>` (derived from the directory name or `package.json`/`Cargo.toml`/etc. if available). Log: "Created a minimal CLAUDE.md — I'll enrich it after analyzing the repo." Continue.
 - **If exists:** Continue.
@@ -179,7 +181,7 @@ Infer the operation names deterministically (never guess):
   Without it, new and entered tickets are not assigned to you.
 
   1 — Add <missing> (<G> / <A>) (Recommended: assignToCreator is on, so without it tickets are not assigned to you)
-  2 — Skip
+  2 — Skip: works when you assign tickets by hand
   ```
   - **If 1:** Patch. Only empty or absent keys are filled; every other key and any present value is left untouched:
     ```bash
@@ -200,7 +202,7 @@ Without it, tickets moved to In Progress are not added to the active sprint.
 Kanban boards are skipped safely.
 
 1 — Add addToSprint (jcm_addToActiveSprint) (Recommended: the tool list exposes jcm_addToActiveSprint on <server>)
-2 — Skip
+2 — Skip: works when the board is Kanban or sprint membership is managed by hand
 ```
 - **If 1:** Patch (only when empty):
   ```bash
@@ -218,7 +220,7 @@ Config is missing tracker.operations.getChangelog.
 Without it, the ticket watch stays off.
 
 1 — Add getChangelog (jcm_getIssueChangelog) (Recommended: the tool list exposes jcm_getIssueChangelog on <server>)
-2 — Skip
+2 — Skip: works when you do not want the ticket watch
 ```
 - **If 1:** Patch (only when empty):
   ```bash

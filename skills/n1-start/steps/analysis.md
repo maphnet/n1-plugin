@@ -66,7 +66,7 @@ n1_write_context
 XREPO_PENDING_FILE="$N1_HOME/memory/$ID/xrepo-pending.tsv"; rm -f "$XREPO_PENDING_FILE"
 ```
 
-**Contradiction gate:** `CONTRADICTIONS > 0`: show `### Ticket Validation`; 1=Continue 2=Redirect(Recommended); log `[asked]` ledger row. Zero or all unverifiable: skip. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+**Contradiction gate:** `CONTRADICTIONS > 0`: show `### Ticket Validation`; 1=Continue 2=Redirect(Recommended): cite the contradicting file:line; Continue works when every contradiction is minor (format: <N1_ROOT>/references/question-format.md); log `[asked]` ledger row. Zero or all unverifiable: skip. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 Missing/empty: re-prompt once; fallback. DRIFT: delete snapshot. Write frontmatter; `CONTEXT_BLOCK` → replace `## Context`. **Print Gate 1** (`SIMPLE_PATH=true`: `analysis → developer → qa → review → pr`). `SELF_RESOLVED>0`: `[auto]` ledger. Then `procedures/ticket-watch.md § Seed`. Headless: continue immediately past Gate 1 into the next step — do not end the turn.
 
@@ -80,4 +80,4 @@ if [ "$RELATED_ENABLED" = "true" ]; then XREPO_EXPLORED_BOOL=$(n1_read_signal "$
 [ "$RELATED_ENABLED" = "true" ] || n1_step_end "analysis" 2 success
 ```
 
-`UNKNOWN_COUNT=0`: skip. Inherited→`[auto]` telemetry+ledger. Preamble: `"{Title}: {Core Ask}."` Bug: prepend root-cause. Batch (max 4): unknown — tried — why — (Recommended). Options: answer / "skip" / "Decide for me" / "use recommended" (all). "Decide for me"→search+apply `[auto-decided]`. After: `### Clarifications`.
+`UNKNOWN_COUNT=0`: skip. Inherited→`[auto]` telemetry+ledger. Preamble: `"{Title}: {Core Ask}."` Bug: prepend root-cause. Batch (max 4): unknown — tried — why — (Recommended) answer with its evidence, per <N1_ROOT>/references/question-format.md. Options: answer / "skip" / "Decide for me" / "use recommended" (all). "Decide for me"→search+apply `[auto-decided]`. After: `### Clarifications`.
