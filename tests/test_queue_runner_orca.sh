@@ -183,6 +183,40 @@ test_orca_question_after_timeout() {
     rm -rf "$tmp"
 }
 
+# N1-359 AC1. Bug caught: Orca's "Worker stopped without reporting" notice (payload stopReason) was escalated as a human
+# question: escalated event + needs-you advertising --answer, which then failed (no pending Orca question).
+test_orca_stop_notice_not_escalated() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"; cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    : > "$tmp/fake/nodone.T-A"
+    orca_msg escalation task-T-A m-stop1 finished "Worker stopped without reporting" $'Worker ended its turn\nLast output:\nDone?' > "$tmp/fake/q.late"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.1"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=4 > /dev/null
+    evc() { jq -R --arg e "$1" 'fromjson? | select(.event == $e and .ticket == "T-A") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' '; }
+    assert_eq "orca-stop: no escalated event" "0" "$(evc escalated)"
+    assert_eq "orca-stop: no needs-you" "0" "$(cat "$tmp/notes" 2>/dev/null | grep -c 'T-A needs you' || true)"
+    assert_eq "orca-stop: one worker_stopped event" "1" "$(evc worker_stopped)"
+    assert_eq "orca-stop: event keeps stopReason and flattened excerpt" "stopped (finished): Worker ended its turn Last output: Done?" \
+        "$(jq -R -r 'fromjson? | select(.event == "worker_stopped" and .ticket == "T-A") | .reason' "$tmp/events.jsonl")"
+    assert_eq "orca-stop: row unchanged" "in-progress" "$(plan_cell "$tmp/queue.md" 1 8)"
+    rm -rf "$tmp"
+}
+
+# N1-359 AC4. Bug caught: a stop notice that parked or settled the row would stop the subtask clock; a worker that stops
+# and never resumes must still end subtask-timeout (subtaskTimeoutMinutes=1, pollSeconds=30: tick 3 times out).
+test_orca_stop_notice_then_timeout() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"
+    : > "$tmp/fake/nodone.T-A"
+    orca_msg escalation task-T-A m-stop2 finished > "$tmp/fake/q.late"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.1"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+    assert_eq "orca-stop-timeout: worker_stopped recorded" "1" \
+        "$(jq -R 'fromjson? | select(.event == "worker_stopped" and .ticket == "T-A") | .event' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "orca-stop-timeout: ends subtask-timeout" "failed|subtask-timeout" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
 # N1-309. Bug caught: a question from a worker whose row is already pr (PR open, worker still in its review/CI loop)
 # is dropped silently; re-adopting it instead would re-finalize the row and delete .ask before the user answers.
 test_orca_question_on_pr_row() {
@@ -950,6 +984,8 @@ test_orca_overlap_run_pairs_release_in_order
 test_orca_held_blocker
 test_orca_question_parks
 test_orca_question_after_timeout
+test_orca_stop_notice_not_escalated
+test_orca_stop_notice_then_timeout
 test_orca_question_on_pr_row
 test_orca_question_on_pr_row_cleanup
 test_orca_question_after_settle

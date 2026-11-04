@@ -1042,6 +1042,11 @@ run_orca() {
                         pr|escalated) escalate "$T" "$N1H" ;;
                     esac ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" ;;
+                # N1-359: Orca's "worker stopped without reporting" notice is not a human question: record it and leave
+                # the row alone. Reconcile (worker exited/done) and subtaskTimeoutMinutes still end a worker that never resumes.
+                escalation-stop)
+                    echo "[orca] $T worker stopped without reporting (row unchanged)"
+                    ev worker_stopped ticket="$T" reason="$EXTRA" ;;
             esac
         done 3<<< "$EVS"
         n1_orca_ack "$ORCA_RUN" "$BATCH"
