@@ -54,7 +54,8 @@ case "$1 $2" in
       else ok '{}'; fi ;;
   "terminal create") [ -n "${FAKE_TERM_FAIL:-}" ] && err "no terminal"; j='{"terminal":{"handle":"term-9"}}'; ok "${FAKE_TERM_JSON:-$j}" ;;
   "terminal close") ok '{}' ;;
-  "worktree list") case "${FAKE_WT:-fail}" in fail) err "boom" ;; none) ok '{"worktrees":[]}' ;; *) ok '{"worktrees":[{"path":"/w/T-1"}]}' ;; esac ;;
+  "worktree list") case "${FAKE_WT:-fail}" in fail) err "boom" ;; none) ok '{"worktrees":[]}' ;;
+      dup) ok '{"worktrees":[{"path":"/w/T-1"},{"path":"/v/T-1"}]}' ;; *) ok '{"worktrees":[{"path":"/w/T-1"}]}' ;; esac ;;
   "orchestration worker-list") [ -n "${FAKE_WL_EMPTY:-}" ] && ok '{}' && exit 0
       # Real Orca 1.4.243 rows: released, running, finished (reclaimable), failed, unknown state with no projection.
       ok '{"workers":[
@@ -164,6 +165,26 @@ has "ack: delivery id" "orchestration check --run run-1 --ack del-1" "$(calls)"
 eq "worktree_taken: unreadable list reads taken (fail closed)" 0 "$(rc n1_orca_worktree_taken T-1)"
 eq "worktree_taken: readable, no clash" 1 "$(FAKE_WT=none rc n1_orca_worktree_taken T-1)"
 eq "worktree_taken: readable, clash" 0 "$(FAKE_WT=hit rc n1_orca_worktree_taken T-1)"
+# N1-271: resume only into the single Orca worktree named <ticket> that overview.md names as workspace_path.
+# Bugs caught: resuming into a different checkout; a duplicate folder name or unreadable list resuming (fail open);
+# a new worktree (--name) requested for a resume; the fresh-launch argv changing.
+RV="$T/rv.md"
+printf -- '---\nstep: escalated\nworkspace_path: /w/T-1\n---\n' > "$RV"
+eq "resumable: matching workspace_path prints the worktree" /w/T-1 "$(FAKE_WT=hit n1_orca_worktree_resumable T-1 "$RV")"
+eq "resumable: trailing slash still matches" /w/T-1 "$(printf -- '---\nworkspace_path: /w/T-1/\n---\n' > "$T/rv2.md"; FAKE_WT=hit n1_orca_worktree_resumable T-1 "$T/rv2.md")"
+eq "resumable: unreadable list (fail closed)" 1 "$(FAKE_WT=fail rc n1_orca_worktree_resumable T-1 "$RV")"
+eq "resumable: two worktrees named T-1 (fail closed)" 1 "$(FAKE_WT=dup rc n1_orca_worktree_resumable T-1 "$RV")"
+eq "resumable: no worktree named T-1" 1 "$(FAKE_WT=none rc n1_orca_worktree_resumable T-1 "$RV")"
+eq "resumable: missing overview" 1 "$(FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$T/absent.md")"
+printf -- '---\nstep: escalated\nworkspace_path: /elsewhere/T-1\n---\n' > "$RV"
+eq "resumable: workspace_path is another checkout" 1 "$(FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$RV")"
+printf -- '---\nstep: escalated\n---\n' > "$RV"
+eq "resumable: empty workspace_path" 1 "$(FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$RV")"
+reset; n1_orca_worker_start run-1 task-1 T-1 /r sonnet /w/T-1 >/dev/null
+has "worker-start: existing worktree selector" "orchestration worker-start --run run-1 --task task-1 --worktree path:/w/T-1 --repo path:/r --agent claude --model sonnet" "$(calls)"
+hasnt "worker-start: existing worktree requests no new name" "--name" "$(calls)"
+reset; n1_orca_worker_start run-1 task-1 T-1 /r sonnet >/dev/null
+has "worker-start: fresh launch argv unchanged" "orchestration worker-start --run run-1 --task task-1 --worktree new-top-level --name T-1 --repo path:/r --agent claude --model sonnet" "$(calls)"
 # N1-267: usage-limit stall from the newest transcript of the ticket's worktree (FAKE_WT=hit lists /w/T-1).
 # Bugs caught: a worker idle on the usage limit read as working (charged into subtask-timeout); a worker that resumed
 # after the reset still read as stalled (never times out); one malformed transcript line disabling detection; an older
@@ -341,6 +362,16 @@ eq "stop: sent exactly once" 1 "$(grep -c 'type worker_done' "$FAKE/calls")"
 rm -f "$N1_HOME/queue/sentinels/T-1.sent"; printf -- '---\nstep: implement\n---\n' > "$OV"
 reset; stop
 eq "stop: mid-pipeline turn end sends nothing" "" "$(grep worker_done "$FAKE/calls")"
+# N1-271: a resumed worker (N1_ORCA_RESUME=1) never reports the previous attempt's terminal step.
+# Bugs caught: a stale escalated overview sending worker_done failed when the resumed worker's first turn ends.
+cp "$S" "$T/S.res"; n1_orca_sentinel_set "$N1_HOME" T-1 N1_ORCA_RESUME 1
+rm -f "$N1_HOME/queue/sentinels/T-1.sent"; printf -- '---\nstep: escalated\n---\n' > "$OV"; touch -d '1 hour ago' "$OV"
+reset; stop
+eq "stop: resumed worker ignores a stale terminal overview" "" "$(grep worker_done "$FAKE/calls")"
+touch -d '2 hours ago' "$S"
+reset; stop
+has "stop: resumed worker reports a step it wrote itself" "worker_done --outcome failed" "$(calls)"
+cp "$T/S.res" "$S"; rm -f "$N1_HOME/queue/sentinels/T-1.sent"
 printf -- '---\nstep: escalated\n---\n' > "$OV"
 reset; stop
 has "stop: escalated child reports failed" "--outcome failed" "$(calls)"
