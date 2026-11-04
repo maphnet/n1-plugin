@@ -136,6 +136,17 @@ test_beacon_lines() {   # N1-315 AC3: --status shows the last phase and its age 
     n1_queue_row_status "$tmp/queue.md" 1 pr
     assert_eq "beacon-lines: final rows skipped" "" "$(n1_queue_beacon_lines "$tmp/queue.md")"
     rm -rf "$tmp"
+    # Stall-flagged row that never beaconed: aged from the launch lock, phase unknown.
+    tmp=$(mktemp -d); orca_resumed_row "$tmp"
+    : > "$tmp/.stall-T-A"
+    assert_eq "beacon-lines: stall without .hb or launch lock hidden" "" "$(n1_queue_beacon_lines "$tmp/queue.md")"
+    printf 'R1 task-T-A\n' > "$tmp/.launch-1"; touch -d '2 hours ago' "$tmp/.launch-1"
+    out=$(n1_queue_beacon_lines "$tmp/queue.md")
+    assert_eq "beacon-lines: stall without .hb shown" "T-A|unknown|stalled?" "$(cut -f1,2,4 <<<"$out" | tr '\t' '|')"
+    assert_eq "beacon-lines: launch-based age" "yes" "$(grep -q $'\t2h' <<<"$out" && echo yes || echo no)"
+    rm -f "$tmp/.stall-T-A"
+    assert_eq "beacon-lines: no stall, no .hb stays hidden" "" "$(n1_queue_beacon_lines "$tmp/queue.md")"
+    rm -rf "$tmp"
 }
 
 test_orca_heartbeat

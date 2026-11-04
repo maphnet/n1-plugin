@@ -1466,13 +1466,18 @@ n1_queue_beacon_lines() {
     # Usage: n1_queue_beacon_lines <queue.md> — N1-315: "<ticket>\t<phase>\t<age>\t<stalled?|>" per in-progress row
     # with a worker progress beacon (<queue-dir>/.hb-<ticket> = "<epoch>\t<phase>", written by the runner;
     # .stall-<ticket> = the runner flagged it). Prints nothing when no row has a beacon.
-    local d now t at ph
+    local d now num t at ph
     d=$(dirname "$1"); now=$(date +%s)
-    while IFS=$'\t' read -r _ t _ _ _ _; do
+    while IFS=$'\t' read -r num t _ _ _ _; do
         at=""; ph=""
         IFS=$'\t' read -r at ph 2>/dev/null < "$d/.hb-$t" || true
-        case "$at" in ''|*[!0-9]*) continue ;; esac
-        printf '%s\t%s\t%s\t%s\n' "$t" "${ph:--}" "$(n1_fmt_elapsed "$((now - at))")" "$([ -e "$d/.stall-$t" ] && echo 'stalled?')"
+        case "$at" in ''|*[!0-9]*)
+            # Never beaconed: a stall-flagged row still shows, aged from the launch lock like the runner does.
+            [ -e "$d/.stall-$t" ] || continue
+            at=$(stat -c %Y "$d/.launch-$num" 2>/dev/null || stat -f %m "$d/.launch-$num" 2>/dev/null) || continue
+            case "$at" in ''|*[!0-9]*) continue ;; esac
+            ph="" ;; esac
+        printf '%s\t%s\t%s\t%s\n' "$t" "${ph:-unknown}" "$(n1_fmt_elapsed "$((now - at))")" "$([ -e "$d/.stall-$t" ] && echo 'stalled?')"
     done < <(n1_queue_pending_rows "$1" 'in-progress')
 }
 
