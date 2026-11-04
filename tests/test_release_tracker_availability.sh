@@ -40,6 +40,13 @@ expect "C: release-note entry leading tag only" "VEL-2976" "$(gh_ids "## What's 
 expect "C: entry with no leading tag yields nothing" "" "$(gh_ids '* fix: handle VEL-1188 case by @u in https://github.com/o/r/pull/37')"
 expect "C: stakeholder prose mentioning an ID yields nothing" "" "$(gh_ids 'We fixed key handling (VEL-1188).')"
 lacks "01 Sources C/D no longer grep whole lines for PREFIX" 'grep -oE "\$\{PREFIX\}' "$R01"
+# Source D must not see log decoration (log.decorate=short adds "(tag: ...)" after the hash)
+expect "D: both Source D git log calls pass --no-decorate" "2" "$(grep -cE 'GIT_LOG=\$\(git log .*--no-decorate' "$R01")"
+D_REPO=$(mktemp -d); trap 'rm -rf "$D_REPO"' EXIT
+git -C "$D_REPO" init -q; git -C "$D_REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m '[VEL-1] x'
+git -C "$D_REPO" -c user.name=t -c user.email=t@t tag -m t v1.0.0
+D_LINES=$(grep -E '^[[:space:]]+GIT_LOG=\$\(git log "\$\{TAG\}"' "$R01")
+expect "D: tag commit under log.decorate=short still yields its ticket" "VEL-1" "$(cd "$D_REPO" && git config log.decorate short && TAG=v1.0.0 PREFIX=VEL && eval "$D_LINES" && printf '%s\n' "$GIT_LOG" | sed -nE "s/^[0-9a-f]+ \[(${PREFIX}-[0-9]+)\].*/\1/p")"
 check "01 states the leading-tag rule" 'Only the leading `\[PREFIX-N\]` tag counts' "$R01"
 
 # --- Tracker server check: Step 5b (03) and Step 6 / Step 9 (04) (AC1, AC2, AC3)

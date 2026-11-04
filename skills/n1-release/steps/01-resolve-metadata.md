@@ -137,9 +137,9 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    **Source D — Git log between tags** (new): scan commit messages between previous and current tag:
    ```bash
    if [ -n "$PREV_TAG" ]; then
-     GIT_LOG=$(git log "${PREV_TAG}..${TAG}" --oneline 2>/dev/null || true)
+     GIT_LOG=$(git log "${PREV_TAG}..${TAG}" --oneline --no-decorate 2>/dev/null || true)
    else
-     GIT_LOG=$(git log "${TAG}" --oneline 2>/dev/null || true)
+     GIT_LOG=$(git log "${TAG}" --oneline --no-decorate 2>/dev/null || true)
    fi
    GIT_IDS=$(printf '%s\n' "$GIT_LOG" | sed -nE "s/^[0-9a-f]+ \[(${PREFIX}-[0-9]+)\].*/\1/p" | sort -u)
    ```
