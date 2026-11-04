@@ -42,6 +42,21 @@ Missing grep results are non-blocking — they feed report text only.
 ### N1 config:
 Read from `$N1_HOME/config.json`: `tracker.prefix`, `tracker.mcp`, `git.defaultBranch`, `git.branchPattern`.
 
+### Rules for tech-writer:
+Run once; copy the printed output verbatim as RULES_BLOCK (shell variables do not persist between snippets). Empty output = no rules.
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/rules.sh"
+BASE=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'); BASE="${BASE:-main}"
+git rev-parse --verify -q "origin/$BASE" >/dev/null && BASE="origin/$BASE"
+RULES_DIR=$(n1_rules_dir)
+if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then
+    MATCHING=$(n1_rules_for_agent "tech-writer" "$(git diff --name-only "$BASE...HEAD" 2>/dev/null)" "$RULES_DIR")
+    [ -n "$MATCHING" ] && n1_rules_render $MATCHING
+fi
+```
+
 ### Extract ticket ID:
 Parse from branch name using `git.branchPattern` (e.g. branch `TRID-510` + pattern `{prefix}-{id}` → `TRID-510`).
 
@@ -58,7 +73,7 @@ From `$N1_HOME/config.json` optional `docs` section: `docs.include` (globs), `do
 - Otherwise → `confirm`
 
 ### Spawn tech-writer Phase 1 with:
-Default branch, paths to `implementation.md` (if available), git diff stat, doc config (`include`/`exclude`), doc update mode.
+Default branch, paths to `implementation.md` (if available), git diff stat, doc config (`include`/`exclude`), doc update mode, `RULES_BLOCK` (verbatim; omit when empty).
 
 ### If `confirm` mode:
 **Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, skip the prompt — apply updates and append a Decision Ledger row per `skills/n1-start/ledger.md` (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass via `docUpdateMode: "autonomous"`.
@@ -106,7 +121,7 @@ BRAINSTORM_GATE_SKIPPED=false
 [ "${BRAINSTORM_MODE:-ask}" = "auto" ] && BRAINSTORM_GATE_SKIPPED=true
 ```
 
-Spawn tech-writer with: ticket ID, paths to `overview.md`/`review.md`/`qa.md`/`local-testing.md` (if exists)/`ticket.md` (if exists), git diff stat, Phase 1 doc update report, `description_quality: $DQ`, `brainstorm_gate_skipped: $BRAINSTORM_GATE_SKIPPED`, `body_file: <the pr:body-file= path>`.
+Spawn tech-writer with: ticket ID, paths to `overview.md`/`review.md`/`qa.md`/`local-testing.md` (if exists)/`ticket.md` (if exists), git diff stat, Phase 1 doc update report, `description_quality: $DQ`, `brainstorm_gate_skipped: $BRAINSTORM_GATE_SKIPPED`, `body_file: <the pr:body-file= path>`, `RULES_BLOCK` (verbatim; omit when empty).
 
 It writes the body to `body_file` and the title to `<body_file>.title`, and returns the `### Title` plus one line `pr body written: <path>`.
 
@@ -119,7 +134,7 @@ case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*/*) echo "PR body path inval
 [ -s "$PR_BODY_FILE" ] && [ -s "$PR_BODY_FILE.title" ] && echo "pr:body ok" || echo "pr:body missing"
 ```
 
-`pr:body missing` after tech-writer → dispatch tech-writer once more with the same inputs plus `phase: 2` (skip Phase 1; the docs are already updated and committed) and re-run the check. If it is still missing (or missing on the input path) → stop: "PR body missing — PR not created." Otherwise `gh pr create --body-file` would create a PR with an empty body.
+`pr:body missing` after tech-writer → dispatch tech-writer once more with the same inputs (including `RULES_BLOCK`) plus `phase: 2` (skip Phase 1; the docs are already updated and committed) and re-run the check. If it is still missing (or missing on the input path) → stop: "PR body missing — PR not created." Otherwise `gh pr create --body-file` would create a PR with an empty body.
 
 **Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, skip the prompt — create PR as composed, append Decision Ledger row (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass.
 
