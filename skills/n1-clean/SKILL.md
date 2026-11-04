@@ -44,7 +44,7 @@ Tokens: `cleanup:skipped (<invalid-id|no-pr|pr-not-merged|pr-unreadable>)` (noth
 
 ```bash
 source ~/.n1/preamble.sh
-git worktree list --porcelain | awk '/^worktree /{p=substr($0,10)} /^branch /{b=substr($0,19)} /^$/{print p "\t" b; p=""; b=""} END{if(p!="")print p "\t" b}' | tail -n +2 |
+git worktree list --porcelain | { p=; b=; while IFS= read -r l; do case $l in "worktree "*) p=${l#worktree } ;; "branch "*) b=${l#branch refs/heads/} ;; "") printf '%s\t%s\n' "$p" "$b"; p=; b= ;; esac; done; [ -z "$p" ] || printf '%s\t%s\n' "$p" "$b"; } | tail -n +2 |
 while IFS=$'\t' read -r p b; do
   o=plain; n1_orca_owns "$p" && o=workspace-manager
   printf '%s\t%s\t%s\t%s\n' "$p" "${b:-detached}" "$o" "$([ -d "$p" ] && echo present || echo missing)"

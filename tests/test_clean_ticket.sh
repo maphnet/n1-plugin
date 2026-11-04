@@ -123,5 +123,18 @@ eq "W6: auto mode never removes Abandoned" yes "$(yn grep -qF 'never removes Aba
 eq "W7: Orca worktrees tagged" yes "$(yn grep -qF 'n1_orca_owns' "$S")"
 eq "W8: Completed requires a merged PR" yes "$(yn grep -qF 'MERGED' "$S")"
 
+# W9 (N1-347): Step 1 discovery snippet. Main checkout excluded, branch name without refs/heads/,
+# detached and missing trees reported. Orca ownership stubbed off.
+STEP1=$(awk '/^## Step 1:/{s=1} s&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$S" | sed '/preamble\.sh/d')
+wt "$T/s1" bs1
+git -C "$M" worktree add -q --detach "$T/s2" main
+wt "$T/s3" bs3; rm -rf "$T/s3"
+D1=$(cd "$M" && n1_orca_owns() { return 1; }; eval "$STEP1")
+eq "W9: branch tree listed" yes "$(yn grep -qxF "$(printf '%s\tbs1\tplain\tpresent' "$T/s1")" <<<"$D1")"
+eq "W9: detached tree listed" yes "$(yn grep -qxF "$(printf '%s\tdetached\tplain\tpresent' "$T/s2")" <<<"$D1")"
+eq "W9: missing tree listed" yes "$(yn grep -qxF "$(printf '%s\tbs3\tplain\tmissing' "$T/s3")" <<<"$D1")"
+eq "W9: main checkout excluded" 0 "$(grep -c "^$M	" <<<"$D1")"
+eq "W9: four fields per line" 0 "$(awk -F'\t' 'NF!=4' <<<"$D1" | wc -l | tr -d ' ')"
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]

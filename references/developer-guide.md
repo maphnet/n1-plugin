@@ -81,6 +81,7 @@ Do NOT install N1 as a user-scope plugin for local development. A `file://` mark
 - **Dogfooding:** use N1 skills on the N1 repo itself
 - Run `bash tests/run.sh` before committing. It runs every `tests/test_*.sh` in parallel (`N1_TEST_JOBS` workers, default nproc/2), buffers each file's output and prints it only on failure (`!! <file> FAILED`). Tests must therefore be safe to run concurrently: every lib helper has a test file under `tests/` that builds throwaway git repos in its own `mktemp -d`, and a test that touches N1 state points `N1_HOME`, `N1_STATE_DIR` and `HOME` into that temp dir instead of the real `$HOME/.n1`.
 - Static: `tests/test_host_neutral_skills.sh` fails on any host tool name or host path literal in `skills/` or `agents/`; `tests/test_manifests.sh` checks the manifest versions match.
+- Static: `tests/test_skill_no_positional_args.sh` fails on `$<digit>`, `${<digit>}` or `$ARGUMENTS` in any `skills/*/SKILL.md`. Claude Code substitutes `$ARGUMENTS`, `$ARGUMENTS[N]` and `$N` (`$0` is the first argument) in SKILL.md text before the model sees it, so a shell helper's `$1` silently becomes a skill argument (N1-347: `n1-finish <ID> chained` read every config key as `.chained`). Files loaded via Read (`steps/`, `references/`, agents) are not substituted. In SKILL.md shell snippets use `$*` or `"$@"` in helpers, and parse in bash rather than with awk `$0`/`$N`.
 
 ### Auditing orchestrator delegation
 
