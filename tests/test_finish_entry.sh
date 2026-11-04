@@ -44,7 +44,7 @@ run() { # <config-json> <overview frontmatter lines>
     printf '%s\n' "$1" > "$T/home/config.json"
     printf -- '---\n%s\n---\n# T-1\n' "$2" > "$T/home/memory/T-1/overview.md"
     git -C "$T/repo" checkout -q "${BRN:-me/T-1-feature}"
-    OUT=$(cd "$T/repo" && N1_ROOT="$REPO" N1_HOME="$T/home" N1_HEADLESS="${HL:-}" PATH="$T/bin:$PATH" bash -c "$ENTRY" 2>&1)
+    OUT=$(cd "$T/repo" && N1_ROOT="$REPO" N1_HOME="$T/home" N1_HEADLESS="${HL:-}" PATH="$T/bin:$PATH" bash -c "${ENTRYX:-$ENTRY}" 2>&1)
 }
 
 # 1. Typical run: deploy watch off, no delivery, done status configured.
@@ -233,5 +233,17 @@ ho no "handoff: pending-deploy resume -> no"
 has "handoff: resume reads 03-deploy" "steps/03-deploy.md"
 has "handoff: resume reads 06-cleanup" "steps/06-cleanup.md"
 HL=
+
+# 16. N1-347: Claude Code substitutes $N in SKILL.md text ($0 = first argument, $1 = second).
+# Simulate it per invocation and assert config keys still read real values.
+CFG='{"tracker":{"prefix":"T","mcp":"maphnet-jc-mcp","statuses":{"done":"Done"}}}'
+cfgok() { if grep -qxF "tracker.mcp=maphnet-jc-mcp" <<<"$OUT" && grep -qxF "tracker.statuses.done=Done" <<<"$OUT"; then ok "$1"; else no "$1"; fi; }
+ENTRYX=$(sed 's/\$1/chained/g' <<<"$ENTRY") TCH=yes run "$CFG" 'deploy_pending: false'
+cfgok "args '<ID> chained': real config values"
+run "$CFG" 'deploy_pending: false'
+cfgok "args '<ID>': real config values"
+TID= run "$CFG" 'deploy_pending: false'
+cfgok "no args: real config values"
+has "no args: id derived from branch" "id=T-1"
 
 exit $FAIL
