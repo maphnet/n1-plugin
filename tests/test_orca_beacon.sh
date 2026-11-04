@@ -87,6 +87,32 @@ setstep hang ''
 s=$SECONDS; (export FAKE_ORCA_HANG=1; beacon tick); took=$((SECONDS - s))
 eq "beacon: a hung send never blocks the caller" yes "$([ "$took" -lt 2 ] && echo yes || echo no)"
 
+# --- Task 2: hook call sites (each hook loads the identity itself, before any early exit) ---
+# hook <script> <payload> — runs a hook as a child session in $WT; prints its exit code.
+hook() { printf '%s' "$2" | (cd "$WT" && CLAUDE_PROJECT_DIR="$WT" bash "$REPO_ROOT/hooks/$1" >/dev/null 2>&1); echo $?; }
+AGENT='{"session_id":"s1","agent_type":"n1:developer","agent_id":"a1"}'
+: > "$FAKE/calls"; rm -f "$STAMP"; setstep plan implement
+eq "hook start: exit 0 with no telemetry lock" 0 "$(hook telemetry-agent-start.sh "$AGENT")"
+eq "hook start: one heartbeat" 1 "$(settle 1)"
+has "hook start: step/persona phase" "--phase implement/developer --subject" "$(lasthb)"
+eq "hook stop: exit 0" 0 "$(hook telemetry-agent-stop.sh "$AGENT")"
+eq "hook stop: one heartbeat" 2 "$(settle 2)"
+has "hook stop: step phase" "--phase implement --subject" "$(lasthb)"
+setstep implement review
+eq "hook PostToolUse Bash: exit 0" 0 "$(hook pr-review-observe.sh '{"session_id":"s1","tool_input":{"command":"ls"}}')"
+eq "hook PostToolUse Bash: step change beacons" 3 "$(settle 3)"
+has "hook PostToolUse Bash: phase" "--phase review --subject" "$(lasthb)"
+eq "hook Stop: exit 0" 0 "$(hook session-stop.sh '{"session_id":"s1"}')"
+eq "hook Stop: same step sends nothing" 3 "$(settle 3)"
+setstep review qa
+hook session-stop.sh '{"session_id":"s1"}' >/dev/null
+eq "hook Stop: step change beacons" 4 "$(settle 4)"
+eq "hook Stop: mid-pipeline turn end still sends no worker_done" 0 "$(grep -c 'type worker_done' "$FAKE/calls" || true)"
+setstep qa ci
+printf '{"session_id":"s1"}' | (cd "$M" && CLAUDE_PROJECT_DIR="$M" bash "$REPO_ROOT/hooks/session-stop.sh" >/dev/null 2>&1)
+eq "hook: non-queue checkout sends nothing" 4 "$(settle 4)"
+eq "hook: failing send never fails the hook" 0 "$( (export FAKE_ORCA_FAIL=1; hook pr-review-observe.sh '{"session_id":"s1","tool_input":{"command":"ls"}}') )"
+
 # Keep this last: it rewrites, then removes, the identity.
 : > "$STAMP"; N1_QUEUE_DIR="$Q" n1_orca_sentinel_write "$N1_HOME" T-1 "$M" R1 run-1 task-1
 eq "sentinel_write: a retry does not inherit the previous attempt's beacon stamp" no "$([ -e "$STAMP" ] && echo yes || echo no)"

@@ -18,6 +18,7 @@ fi
 if source "${SCRIPT_DIR}/../lib/orca-queue.sh" 2>/dev/null && n1_orca_child_env "${CLAUDE_PROJECT_DIR:-$PWD}" "$(printf '%s' "$INPUT" | n1_hook_field session_id)"; then
     source "${SCRIPT_DIR}/../lib/frontmatter.sh"
     source "${SCRIPT_DIR}/../lib/queue.sh"
+    n1_orca_beacon tick || true   # N1-315: before worker_done, so a terminal worker_done follows the last beacon
     n1_orca_worker_done || true
 fi
 N1_SESSION_ID=$(printf '%s' "$INPUT" | n1_hook_field session_id)
