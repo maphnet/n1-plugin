@@ -5,6 +5,13 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/../lib/codex-review.sh"
 INPUT=$(cat)
 export N1_SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty')
+# N1-315: lib/step.sh writes step changes from Bash, so this hook sees them. Non-Orca sessions stop at the env test.
+# ponytail: identity load per Bash call in an Orca child, cache per session if profiling shows cost.
+if [ -n "${ORCA_CLI_COMMAND:-}" ] && source "$SCRIPT_DIR/../lib/orca-queue.sh" 2>/dev/null \
+    && n1_orca_child_env "${CLAUDE_PROJECT_DIR:-$PWD}" "$N1_SESSION_ID"; then
+    source "$SCRIPT_DIR/../lib/frontmatter.sh"
+    n1_orca_beacon tick || true
+fi
 N1_HOME=$(n1_home)
 [ -n "$N1_HOME" ] || exit 0
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')

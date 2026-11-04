@@ -56,11 +56,15 @@ source "$N1_ROOT/lib/frontmatter.sh"
 QUEUE_DIR=$(dirname "$QUEUE_FILE")
 printf 'Ticket\tState\tStep\tElapsed\tCost\tPR\tAttach\tCleanup\n'
 n1_queue_status_table "$QUEUE_FILE" "$QUEUE_DIR/events.jsonl"
+B=$(n1_queue_beacon_lines "$QUEUE_FILE")
+if [ -n "$B" ]; then echo "Last beacon (ticket, phase, age, flag):"; sed 's/^/  /' <<<"$B"; fi
 L=$(n1_queue_cleanup_left "$QUEUE_DIR/events.jsonl")
 if [ -n "$L" ]; then echo "Worktrees not removed:"; sed 's/^/  - /' <<<"$L"; else echo "Worktrees not removed: none"; fi
 ```
 
 For each row under "Worktrees not removed", resolve the reason, then run /n1:n1-clean --ticket <ticket>. The `Cleanup` column is empty until a cleanup ran.
+
+The `Last beacon` block lists each in-progress row's latest worker progress beacon. `stalled?` means the worker is live but sent no beacon for `queue.stallMinutes`. The flag is informational, and the runner never stops the worker because of it.
 
 After printing the merged status table, compute and print decision counts, then write `telemetry.json`:
 

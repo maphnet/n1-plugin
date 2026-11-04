@@ -252,10 +252,12 @@ test_ticket_watch_events_relayed() {
     local q out; q=$(newq q_tw)
     ev "$q" R1 ticket_comment ticket=T-1 reason="Alice: please also cover CSV"
     ev "$q" R1 ticket_replan ticket=T-1 reason="description edited by Alice"
+    ev "$q" R1 stalled ticket=T-1 reason="phase=review age=31m"
     ev "$q" R1 queue_done reason="done"
     out=$(watch 10 "$q" R1 "$$" 0)
     has "N1-89: ticket_comment relayed" "T-1 has a new external ticket comment: Alice: please also cover CSV" "$out"
     has "N1-89: ticket_replan relayed" "T-1 re-planned after an external ticket change: description edited by Alice" "$out"
+    has "N1-315: stalled relayed" "T-1 may be stalled (phase=review age=31m)" "$out"
 }
 
 test_run_id_filter_and_finish

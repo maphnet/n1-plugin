@@ -171,6 +171,12 @@ eq "events: backslash in subject and body is kept single" \
     "$(printf 'escalation\ttask-13\tm-13\td-13\tpath C:\\repo\nescalation-stop\ttask-14\tm-14\td-14\tstopped (finished): a\\b')" \
     "$(n1_orca_events '{"ok":true,"result":{"messages":[{"id":"m-13","type":"escalation","subject":"path C:\\repo","payload":"{\"taskId\":\"task-13\",\"dispatchId\":\"d-13\"}"},{"id":"m-14","type":"escalation","body":"a\\b","payload":"{\"taskId\":\"task-14\",\"dispatchId\":\"d-14\",\"stopReason\":\"finished\"}"}]}}')"
 eq "events: empty batch" "" "$(n1_orca_events '{"ok":true,"result":{"messages":[]}}')"
+# N1-315: a heartbeat's payload phase is the 5th column, control-stripped and cut to 64 chars.
+LONG=$(printf 'x%.0s' $(seq 80)); X53=$(printf 'x%.0s' $(seq 53))
+HB=$(jq -cn --arg ph "review/dev"$'\a'"$LONG" '{result:{messages:[{id:"m-h",type:"heartbeat",payload:({taskId:"task-1",dispatchId:"d-1",phase:$ph}|tojson)}]}}')
+eq "events: heartbeat phase is the 5th column, stripped and capped" "heartbeat	task-1	m-h	d-1	review/dev $X53" "$(n1_orca_events "$HB")"
+HB=$(jq -cn '{result:{messages:[{id:"m-h",type:"heartbeat",payload:({taskId:"task-1",dispatchId:"d-1"}|tojson)}]}}')
+eq "events: heartbeat without phase has 4 columns" "heartbeat	task-1	m-h	d-1" "$(n1_orca_events "$HB")"
 eq "liveness: verdict + durable settled state" \
     "$(printf 'd-1\ttask-1\texited\tdone\nd-2\ttask-2\tlive\t\nd-3\ttask-3\tunverifiable\tdone\nd-4\ttask-4\tunverifiable\tdone\nd-5\ttask-5\tunverifiable\t\nd-6\ttask-6\tlive\tdone\nd-7\ttask-7\tlive\tdone\nd-8\ttask-8\tlive\t\nd-9\ttask-9\texited\t\nd-10\ttask-10\tunverifiable\t')" \
     "$(n1_orca_liveness run-1)"

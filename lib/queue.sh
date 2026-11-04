@@ -1264,7 +1264,7 @@ n1_queue_digest() {
     for f in "$1"/queue/*/events.jsonl; do [ -f "$f" ] && cat "$f"; done 2>/dev/null | jq -nrR '
         [inputs | fromjson? | objects] | group_by(.queue) | map(
             .[-1] as $end
-            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped")] | group_by(.ticket) | map(.[-1])) as $t
+            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled")] | group_by(.ticket) | map(.[-1])) as $t
             | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "failed")] | length) as $failed
@@ -1288,7 +1288,7 @@ n1_queue_watch() {
     # Usage: n1_queue_watch <queue_dir> <run_id> <runner_pid> [from_line]
     # Session-side relay for one queue run. Every queue.pollSeconds, prints new escalated (full
     # mirrored question when present) / answer_delivered /
-    # ticket_finished / ticket_comment / ticket_replan / halted / queue_done
+    # ticket_finished / ticket_comment / ticket_replan / stalled / halted / queue_done
     # events in <queue_dir>/events.jsonl whose run_id is <run_id> (never queue id alone: a
     # relaunch appends to the same file).
     # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
@@ -1365,6 +1365,8 @@ n1_queue_watch() {
                         printf 'n1-queue %s: %s has a new external ticket comment: %s\n' "$q" "$t" "$reason" ;;
                     ticket_replan)
                         printf 'n1-queue %s: %s re-planned after an external ticket change: %s\n' "$q" "$t" "$reason" ;;
+                    stalled)
+                        printf 'n1-queue %s: %s may be stalled (%s)\n' "$q" "$t" "$reason" ;;
                     ticket_finished)
                         printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
                     halted|queue_done)
@@ -1374,7 +1376,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time
@@ -1458,6 +1460,25 @@ n1_queue_status_table() {
         local cln; cln=$(sed -n 's/^- \*\*Cleanup:\*\* //p' "$n1h/memory/$ticket/overview.md" 2>/dev/null | head -1)
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$ticket" "$state" "$step" "$elapsed" "$cost" "$pr" "$attach" "$(_n1_queue_sanitize_cell "$cln")"
     done < <(awk -F'|' '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) } $2 ~ /^[0-9]+$/ && NF >= 9 { printf "%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $5, $6, $7, $8 }' "$file")
+}
+
+n1_queue_beacon_lines() {
+    # Usage: n1_queue_beacon_lines <queue.md> — N1-315: "<ticket>\t<phase>\t<age>\t<stalled?|>" per in-progress row
+    # with a worker progress beacon (<queue-dir>/.hb-<ticket> = "<epoch>\t<phase>", written by the runner;
+    # .stall-<ticket> = the runner flagged it). Prints nothing when no row has a beacon.
+    local d now num t at ph
+    d=$(dirname "$1"); now=$(date +%s)
+    while IFS=$'\t' read -r num t _ _ _ _; do
+        at=""; ph=""
+        IFS=$'\t' read -r at ph 2>/dev/null < "$d/.hb-$t" || true
+        case "$at" in ''|*[!0-9]*)
+            # Never beaconed: a stall-flagged row still shows, aged from the launch lock like the runner does.
+            [ -e "$d/.stall-$t" ] || continue
+            at=$(stat -c %Y "$d/.launch-$num" 2>/dev/null || stat -f %m "$d/.launch-$num" 2>/dev/null) || continue
+            case "$at" in ''|*[!0-9]*) continue ;; esac
+            ph="" ;; esac
+        printf '%s\t%s\t%s\t%s\n' "$t" "${ph:-unknown}" "$(n1_fmt_elapsed "$((now - at))")" "$([ -e "$d/.stall-$t" ] && echo 'stalled?')"
+    done < <(n1_queue_pending_rows "$1" 'in-progress')
 }
 
 _n1_queue_escalated_step() {
