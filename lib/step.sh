@@ -4,7 +4,7 @@
 # n1_step_begin <step_name> <step_number>
 #   Writes current_step: <step_name> to overview.md frontmatter (the running step, read by the queue status table).
 #   Emits telemetry started_at. No-op with a one-line stderr note when N1_RUN_ID is absent after n1_bind_run_to_ticket.
-#   Prints owner:live <sid> <pid> on stdout when another live session owns $ID (n1_owner_check, N1-308).
+#   Prints owner:live <sid> <pid> on stdout when another live session owns $ID (n1_owner_check, N1-308); headless then returns without writes.
 #
 # n1_step_end <step_name> <step_number> <outcome> [metadata_json]
 #   1. Writes step: <step_name> to overview.md frontmatter and clears current_step
@@ -57,7 +57,7 @@ n1_step_begin() {
     local step_name="$1" step_number="$2" _o
     n1_bind_run_to_ticket                 # restored run must belong to $ID (N1-193)
     # Second live orchestrator on $ID (N1-308): live token on stdout for the model; silent otherwise.
-    [ -n "${ID:-}" ] && { _o=$(n1_owner_check "$ID") || echo "$_o"; }
+    [ -n "${ID:-}" ] && { _o=$(n1_owner_check "$ID") || { echo "$_o"; [ "${N1_HEADLESS:-}" = 1 ] && return 0; }; }
     # Running step for the queue status table (N1-299); independent of the run binding.
     [ -f "${N1_HOME}/memory/${ID}/overview.md" ] && { n1_write_frontmatter "${N1_HOME}/memory/${ID}/overview.md" current_step "$step_name" || true; }
     # No run bound: say so on every call, so a lost begin is attributable (N1-229).
