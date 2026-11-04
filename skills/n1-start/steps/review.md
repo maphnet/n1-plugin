@@ -41,7 +41,7 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewers return before combining findings.
 
-**Pre-existing** (`QE=auto-accept` only): read `procedures/review-preexisting.md` and follow it after the reviewers return, before writing review-hdr.md and before routing (PASS or FAIL).
+**Pre-existing** (`QE=auto-accept` only): read `procedures/review-preexisting.md` and follow it only after the reviewers return and the **Tree freeze** below passes, before writing review-hdr.md and before routing (PASS or FAIL).
 
 For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`, except a ` (pre-existing)` one not treated as in-diff: **Pre-existing** above): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
 
