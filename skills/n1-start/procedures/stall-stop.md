@@ -44,6 +44,8 @@ echo "STALL=$(n1_stall_check "$M/overview.md" local_test_fail_sig "$SIG")"
 
 N1 runs only: skip this section when `$N1_HOME/memory/$ID/overview.md` does not exist (standalone n1-ci has no stall detection).
 
+The n1-ci rerun gate (`skills/n1-ci/steps/02-fix.md` Step 5, `lib/ci_rerun.sh`, N1-341) runs first and writes the same `ci-fail.tsv`; on `RERUN=dispatch` reuse that file instead of writing it again. A `rerun:` round skips this section, so it stores no signature and a check that fails again after its rerun reaches the developer.
+
 At Step 5 entry, before classification: write the `FAIL` lines of the latest poll verbatim (`FAIL<TAB>name<TAB>link`, cancelled checks included; omit checks whose name matches a `skip` category pattern, as Step 5 matches them) to `$N1_HOME/memory/$ID/ci-fail.tsv` with the file-write mechanism. Never put a check name in a shell command, variable or double-quoted string. Then:
 
 ```bash
