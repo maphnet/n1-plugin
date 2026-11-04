@@ -8,7 +8,7 @@ N1 is a Claude Code plugin that orchestrates the full development cycle using 12
 
 - [Claude Code](https://claude.ai/code) 2.1+
 - `git`, `gh` (GitHub CLI), `jq`, and `python3` on PATH
-- Optional: Jira (Atlassian MCP) or YouTrack MCP for tracker integration
+- Optional: Jira (jc-mcp, default, or the Atlassian MCP) or YouTrack MCP for tracker integration
 - Optional: Sentry MCP for error-tracking integration
 
 ## Installation
@@ -138,9 +138,12 @@ Removes the git worktree for a ticket after work is done or abandoned. Use when 
 
 | Tracker | MCP Server | Status |
 |---------|------------|--------|
-| Jira | `plugin_atlassian_atlassian` | Supported |
+| Jira | jc-mcp (server name detected from the tool prefix) | Supported (default) |
+| Jira | `plugin_atlassian_atlassian` | Supported (alternative) |
 | YouTrack | `youtrack` | Supported |
 | None | — | Works without tracker |
+
+Existing Atlassian MCP configs keep working unchanged; `/n1:n1-init reconfigure` re-walks the tracker section to switch a project to jc-mcp.
 
 Tracker routing is config-driven via `~/.n1/<project>/config.json` (auto-derived from repo name at runtime) — all MCP tool names are mapped through operations presets populated by `n1-init`.
 

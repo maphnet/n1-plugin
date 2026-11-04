@@ -51,4 +51,13 @@ check "03 keeps the Atlassian project list" 'getVisibleJiraProjects' "$T"
 check "03 keeps the Atlassian cloudId lookup" 'getAccessibleAtlassianResources' "$T"
 check "03 keeps the Atlassian config" '"mcp": "plugin_atlassian_atlassian"' "$T"
 
+# Docs: jc-mcp default, Atlassian alternative
+R=README.md
+A=references/architecture.md
+check "README requirements name jc-mcp as the default" 'Jira \(jc-mcp, default, or the Atlassian MCP\)' "$R"
+before "README tracker table lists jc-mcp first" '^\| Jira \| jc-mcp .*\| Supported \(default\) \|$' '^\| Jira \| `plugin_atlassian_atlassian` \| Supported \(alternative\) \|$' "$R"
+check "README says existing Atlassian configs keep working" 'Existing Atlassian MCP configs keep working' "$R"
+before "architecture presets list jc-mcp first" '^\| Jira \(jc-mcp, default\) \|' '^\| Jira \(Atlassian MCP, alternative\) \|' "$A"
+refute "architecture drops the stale jira-velosity example" 'jira-velosity' "$A"
+
 exit "$FAIL"

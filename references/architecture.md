@@ -98,11 +98,12 @@ Each step reads ONLY its declared dependencies:
 
 ## Tracker Routing
 
-Tracker MCP tool names are never hardcoded — they're resolved at runtime from `$N1_HOME/config.json` operations map. The `tracker.type` field (`"jira"` or `"youtrack"`) controls conditional branching (parameter shapes, cloudId resolution); the `tracker.mcp` field (e.g., `"jira-velosity"`, `"youtrack"`) controls MCP tool call prefix construction (`mcp__<tracker.mcp>__<operation>`). Two presets exist:
+Tracker MCP tool names are never hardcoded — they're resolved at runtime from `$N1_HOME/config.json` operations map. The `tracker.type` field (`"jira"` or `"youtrack"`) controls conditional branching (parameter shapes, cloudId resolution); the `tracker.mcp` field (e.g., `"jc-mcp"`, `"plugin_atlassian_atlassian"`, `"youtrack"`) controls MCP tool call prefix construction (`mcp__<tracker.mcp>__<operation>`). Three presets exist; jc-mcp is the default Jira MCP and the Atlassian MCP is a supported alternative (existing configs of either flavor keep working):
 
 | Tracker | type | mcp value | Key operations |
 |---------|------|-----------|---------------|
-| Jira | `jira` | `plugin_atlassian_atlassian` | `getJiraIssue`, `transitionJiraIssue`, `addCommentToJiraIssue`, `getTransitionsForJiraIssue`, `atlassianUserInfo` (getCurrentUser), `editJiraIssue` (assign, editTicket) |
+| Jira (jc-mcp, default) | `jira` | detected jc-mcp server name (e.g. `jc-mcp`); `versionMcp` is the same server | `jcm_getIssue` (readTicket, getComments), `jcm_transitionIssue` (moveStatus), `jcm_addComment`, `jcm_getTransitions`, `jcm_getCurrentUser` (getCurrentUser), `jcm_editIssue` (assign, editTicket), `jcm_searchIssues` (search), `jcm_addToActiveSprint` (addToSprint, optional) |
+| Jira (Atlassian MCP, alternative) | `jira` | `plugin_atlassian_atlassian` | `getJiraIssue`, `transitionJiraIssue`, `addCommentToJiraIssue`, `getTransitionsForJiraIssue`, `atlassianUserInfo` (getCurrentUser), `editJiraIssue` (assign, editTicket) |
 | YouTrack | `youtrack` | `youtrack` | `get_issue`, `update_issue` (moveStatus, editTicket), `add_issue_comment`, `get_issue_comments`, `get_current_user` (getCurrentUser), `change_issue_assignee` (assign) |
 
 When `ticketTagging.enabled` is true, `n1-start` prefixes created tickets with `ticketTagging.service` (`{service} | title`) and adds a `**Service:**` line to the description. Off by default; configured by `n1-init`. Creation only — existing tickets are never re-tagged.
