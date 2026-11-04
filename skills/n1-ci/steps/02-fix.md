@@ -2,6 +2,8 @@
 
 ## Step 5: Classify Failures
 
+**Stall check (N1 runs only):** `<N1_ROOT>/skills/n1-start/procedures/stall-stop.md § CI` first; stalled → **Step 6b** with "stalled on the same failure", no classification, no developer.
+
 Match each failed check `name` against category patterns (case-insensitive substring, first match wins). No match → `unknown`.
 
 **Per-category behavior:**
@@ -71,7 +73,7 @@ Report format:
 
 **After developer returns:**
 1. Handle `unknown` fixes below threshold (Step 5b flow)
-2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`. On "Abort", run **Step 7a** (Reconcile PR Body) before stopping — the developer may already have pushed fixes for other checks in this batch.
+2. Any check reported `NOT_BRANCH_CAUSED` → treat as `escalate`: present the developer's evidence to the user with "1 — Accept as pre-existing and continue / 2 — Provide guidance / 3 — Abort". Do not attempt to fix it yourself. Do not count it toward `ci_fix_cycle`; clear `ci_fail_sig` (`stall-stop.md § Reset`, N1 runs only). On "Abort", run **Step 7a** (Reconcile PR Body) before stopping — the developer may already have pushed fixes for other checks in this batch.
 3. Push if developer didn't: `git push`
 4. ```bash
    source ~/.n1/preamble.sh
@@ -84,9 +86,9 @@ Report format:
 ### Step 6b: Max Attempts Exhausted
 
 Present remaining failures and fix history, then offer:
-1. Provide guidance → spawn developer with guidance, increment `MAX_FIX` by 1 (hard ceiling: `6`), log extension, back to Step 3
+1. Provide guidance → spawn developer with guidance, increment `MAX_FIX` by 1 (hard ceiling: `6`), log extension, clear `ci_fail_sig` (`stall-stop.md § Reset`), back to Step 3
 2. Skip CI → Step 7 with failing status
-3. Fix manually → wait for "continue", back to Step 3 (reset counter)
+3. Fix manually → wait for "continue", back to Step 3 (reset counter), clear `ci_fail_sig` (`stall-stop.md § Reset`)
 
 ## Step 7: Report & Memory Update
 
@@ -95,6 +97,7 @@ Present remaining failures and fix history, then offer:
 Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` from Step 1, `START_FILE="$RECONCILE_START_FILE"` from Step 1, and, as the fix report, the developer's bounded return(s) plus the report path(s) from this run. It runs once per n1-ci run and no-ops unless the PR head moved since Step 1. Never blocks: on failure it warns and Step 7 continues. Add its `PR body:` line to the final report.
 
 ### Update overview.md (if memory exists):
+Clear `ci_fail_sig` first (`stall-stop.md § Reset`, N1 runs only).
 ```markdown
 ## CI Status
 - **Result:** PASS / FAIL (with N fix cycles)

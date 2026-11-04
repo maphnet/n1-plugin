@@ -131,4 +131,18 @@ eq "W5 report template states the Result vocabulary" "1" "$(grep -cF 'Result is 
 eq "W6 9d option 1 resets local_test_fail_sig" "1" "$(grep -cE '^- If 1: run `procedures/stall-stop\.md § Reset` with `local_test_fail_sig`' "$LTR")"
 eq "W6b 9d option 3 resets local_test_fail_sig" "1" "$(grep -cE '^- If 3: run `procedures/stall-stop\.md § Reset` with `local_test_fail_sig`' "$LTR")"
 
+# ---- wiring: CI (skills/n1-ci/steps/02-fix.md) ----
+CF=skills/n1-ci/steps/02-fix.md
+CP_LN=$(grep -nF '<N1_ROOT>/skills/n1-start/procedures/stall-stop.md § CI' "$CF" | head -1 | cut -d: -f1)
+S5_LN=$(grep -n '^## Step 5: Classify Failures' "$CF" | head -1 | cut -d: -f1)
+S5A_LN=$(grep -n '^### Step 5a' "$CF" | head -1 | cut -d: -f1)
+eq "W7 Step 5 entry points at stall-stop.md § CI before classification" "1" "$([ -n "$CP_LN" ] && [ "$S5_LN" -lt "$CP_LN" ] && [ "$CP_LN" -lt "$S5A_LN" ] && echo 1 || echo 0)"
+eq "W7b CI stall goes to Step 6b with the stall message" "1" "$(grep -cF 'stalled → **Step 6b** with "stalled on the same failure"' "$CF")"
+eq "W8 Step 6b option 1 clears ci_fail_sig" "1" "$(grep -cE '^1\. Provide guidance .*clear `ci_fail_sig`' "$CF")"
+eq "W8b Step 6b option 3 clears ci_fail_sig" "1" "$(grep -cE '^3\. Fix manually .*clear `ci_fail_sig`' "$CF")"
+eq "W9 NOT_BRANCH_CAUSED clears ci_fail_sig (D8)" "1" "$(grep -cE 'NOT_BRANCH_CAUSED.*treat as `escalate`.*clear `ci_fail_sig`' "$CF")"
+S7_LN=$(grep -n '^### Update overview.md' "$CF" | head -1 | cut -d: -f1)
+RE_LN=$(grep -nE '^Clear `ci_fail_sig` first' "$CF" | head -1 | cut -d: -f1)
+eq "W16 Step 7 run end clears ci_fail_sig (no stall across n1-ci runs)" "1" "$([ -n "$S7_LN" ] && [ -n "$RE_LN" ] && [ "$S7_LN" -lt "$RE_LN" ] && echo 1 || echo 0)"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
