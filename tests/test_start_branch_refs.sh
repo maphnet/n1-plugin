@@ -21,6 +21,9 @@ procedures/autonomy-headless.md|autonomy-headless-predecision.md|**Plan-time pre
 procedures/autonomy-headless.md|autonomy-headless-ask.md|**`ask`** (Claude Code queue children)
 steps/analysis.md|analysis-xrepo.md|If `RELATED_ENABLED=true`
 steps/ticket.md|ticket-story.md|**Story/epic** (`ISSUE_TYPE=story` or `IS_STORY=true`)
+steps/review.md|review-xrepo.md|If `RELATED_ENABLED=true`
+steps/review.md|review-incremental.md|If `INCREMENTAL=true`
+steps/review.md|review-preexisting.md|**Pre-existing** (`QE=auto-accept` only)
 EOT
 # Every relative procedures/<file>.md path named in n1-start text exists (catches a mistyped pointer).
 for p in $(grep -rhoE '(^|[^/A-Za-z0-9_-])procedures/[A-Za-z0-9._-]+\.md' "$S" | sed 's#^.*procedures/#procedures/#' | sort -u); do
