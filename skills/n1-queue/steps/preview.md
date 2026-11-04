@@ -125,11 +125,11 @@ n1_escalation_val 'alwaysAskOn'
 
 Flag, per candidate, each printed category its title and description clearly signal: `security` (auth, secrets, tokens, permissions, crypto, injection), `architecture` (new service or subsystem, cross-cutting redesign, state-machine or data-model change), `public-api` (public endpoints, CLI flags or arguments, config schema, exported interfaces). When unsure, do not flag: an unflagged ticket keeps today's runtime behavior. The release confirmation gate is never a category here and can never be pre-decided.
 
-For each flagged candidate, ask the user one self-contained question (ticket, category, one-line reason):
+For each flagged candidate, ask the user one self-contained question (ticket, category, one-line reason), format `<N1_ROOT>/references/question-format.md`:
 1. **Ask at runtime (Recommended)**: no pre-decision; the child pauses as today. Evidence: project Escalation Safety (security, architecture, public API always escalate) is the existing default.
-2. **Pre-authorize**: the child takes the recommended option for a `<category>` escalation without pausing.
-3. **Narrow**: the user states a constraint in free text; the child takes the one option inside it, or pauses when none fits.
-4. **Exclude**: move the candidate to Excluded with reason `stop-list: <category> (plan)` and drop its `DECISIONS` row.
+2. **Pre-authorize**: the child takes the recommended option for a `<category>` escalation without pausing. Works when the category's recommended option is safe to take unattended for this ticket.
+3. **Narrow**: the user states a constraint in free text; the child takes the one option inside it, or pauses when none fits. Works when only part of the option space is acceptable.
+4. **Exclude**: move the candidate to Excluded with reason `stop-list: <category> (plan)` and drop its `DECISIONS` row. Works when the ticket should not run unattended at all.
 
 Record Pre-Decision as `<category>: <ask-at-runtime|pre-authorize|narrow>`, several categories separated by `; `. For Narrow, append `narrow:<constraint>` to Notes (entries separated by ` · `).
 

@@ -133,9 +133,11 @@ LLM reviewers are systematically weak at detecting negation violations.
 
 Example: Instead of "Never skip validation", write "Validate every request body through lib/validate.ts"
 
-1 — Rephrase
-2 — Keep as-is (not recommended)
+1 — Rephrase: works when the rule can name the positive action a reviewer checks
+2 — Keep as-is (not recommended): a negated rule names no action to check, as the example above shows
 ```
+
+Format: `<N1_ROOT>/references/question-format.md`.
 
 **8. Write the rule file:**
 

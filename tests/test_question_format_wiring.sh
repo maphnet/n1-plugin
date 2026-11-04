@@ -69,4 +69,14 @@ check "n1-clean: SKILL.md reads the confirm step" 'steps/03-confirm\.md' skills/
 check "n1-clean: Select carries a works-when note" '^2 — Select which to remove \(Completed and Abandoned\): works when ' skills/n1-clean/steps/03-confirm.md
 lacks "n1-clean: prompt moved out of SKILL.md" 'Remove all Stale and Completed \(Recommended' skills/n1-clean/SKILL.md
 
+# --- n1-release, n1-rules, n1-queue
+pointer skills/n1-release/steps/03b-release-notes.md
+pointer skills/n1-rules/steps/01-manage.md
+pointer skills/n1-queue/steps/preview.md
+expect "03b: still exactly one (Recommended" 1 "$(grep -c '(Recommended' skills/n1-release/steps/03b-release-notes.md)"
+check "03b: local-only option carries a works-when note" '^2 — Write the local file only: works when ' skills/n1-release/steps/03b-release-notes.md
+check "01-manage: (not recommended) states its reason" '^2 — Keep as-is \(not recommended\): ' skills/n1-rules/steps/01-manage.md
+check "01-manage: Rephrase carries a works-when note" '^1 — Rephrase: works when ' skills/n1-rules/steps/01-manage.md
+expect "preview: three alternatives carry works-when notes" 3 "$(grep -cE '^[234]\. \*\*.*Works when ' skills/n1-queue/steps/preview.md)"
+
 exit "$FAIL"
