@@ -107,6 +107,12 @@ Compare what was detected vs. what's documented in CLAUDE.md.
 
 If gaps exist, propose additions as a structured block. **Only add tool-agnostic information** — no N1-specific config in CLAUDE.md.
 
+Propose only commands (build/test/lint/run), non-obvious gotchas, and conventions not inferable from the code. Per-line test: "Would removing this line cause mistakes? If not, omit it." If nothing passes, propose nothing rather than padding.
+
+Optionally offer a `# Compact instructions` line (preserve modified files and test commands) as part of the proposal.
+
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
+
 Present proposed additions to the user:
 ```
 I found the following gaps in your CLAUDE.md:
@@ -118,10 +124,8 @@ docker compose exec app php artisan test
 docker compose exec app ./vendor/bin/phpunit
 npm run dev
 
-### Project Structure
-- app/Http/Controllers/ — HTTP controllers
-- app/Services/ — Business logic
-...
+### Compact instructions (optional)
+When compacting, preserve modified files and test commands.
 
 Add these to CLAUDE.md?
 1 — Yes
