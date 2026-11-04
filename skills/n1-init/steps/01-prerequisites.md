@@ -119,7 +119,7 @@ Applies when `HAS_GET_ISSUE_LINKS` is empty and `TRACKER_TYPE` is `"jira"` or `"
   1 — Add getIssueLinks (I will provide my versionMcp server name)
   2 — Skip
   ```
-  - **If 1:** Ask: **"What is your jc-mcp MCP server name? (e.g. publius-jc-mcp)"**. Set `tracker.versionMcp` and `tracker.operations.getIssueLinks`:
+  - **If 1:** Ask: **"What is your jc-mcp MCP server name? (e.g. jc-mcp)"**. Set `tracker.versionMcp` and `tracker.operations.getIssueLinks`:
     ```bash
     jq --arg vmcp "$VERSION_MCP" \
        '.tracker.versionMcp = $vmcp | .tracker.operations.getIssueLinks = "jcm_getIssueLinks"' \
