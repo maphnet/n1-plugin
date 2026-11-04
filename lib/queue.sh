@@ -1332,7 +1332,7 @@ n1_queue_watch() {
                                 (.rationale // "" | s) as $r | (.recommended // "" | s) as $rec
                                 | "  Q: \(.question | s)",
                                   (select($rec == "" and $r != "") | "  \($r)"),
-                                  (.options | arrays | .[:10] | .[] | "  - \(s)"),
+                                  (((.alternatives | objects) // {}) as $alt | .options | arrays | .[:10] | .[] | "  - \(s)", ($alt[.]? // empty | s | select(. != "") | "      \(.)")),
                                   (select($rec != "") | "  Recommended: \($rec)\(if $r != "" then " — \($r)" else "" end)")'
                         qbody=""
                         case "$t" in ''|*[!A-Za-z0-9_-]*) ;; *) [ -f "$dir/.question-$t.json" ] && \

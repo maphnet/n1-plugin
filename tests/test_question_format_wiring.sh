@@ -79,4 +79,7 @@ check "01-manage: (not recommended) states its reason" '^2 — Keep as-is \(not 
 check "01-manage: Rephrase carries a works-when note" '^1 — Rephrase: works when ' skills/n1-rules/steps/01-manage.md
 expect "preview: three alternatives carry works-when notes" 3 "$(grep -cE '^[234]\. \*\*.*Works when ' skills/n1-queue/steps/preview.md)"
 
+# --- headless schema
+pointer skills/n1-start/procedures/autonomy-headless-ask.md
+
 exit "$FAIL"

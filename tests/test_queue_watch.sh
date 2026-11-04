@@ -215,6 +215,28 @@ test_escalated_json_reason_fallback_over_300_chars_rendered() {
     lacks "long json-reason fallback: raw JSON never printed" '{"question"' "$out"
 }
 
+# N1-216: optional alternatives render under their option; absent or non-object renders as before.
+test_question_alternatives_rendered() {
+    local q out; q=$(newq qalt)
+    printf '{"ticket":"T-1","step":"plan","question":"Pick a DB?","options":["A","B","C"],"recommended":"A","rationale":"repo uses A","alternatives":{"B":"works when the team runs B\\u001b[2J","Z":"never shown"}}' \
+        > "$q/.question-T-1.json"
+    printf '{"ticket":"T-2","step":"plan","question":"Pick one?","options":["A","B"],"recommended":"A","rationale":"x","alternatives":"not an object"}' \
+        > "$q/.question-T-2.json"
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="r1"
+    ev "$q" R1 escalated ticket=T-2 session=0000beef reason="r2"
+    ev "$q" R1 escalated ticket=T-3 session=0000cafe reason='{"question":"Packed?","options":["A","B"],"recommended":"A","rationale":"x","alternatives":{"B":"works when packed"}}'
+    ev "$q" R1 queue_done reason="done"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    has   "alternatives: note printed under its option" $'  - B\n      works when the team runs B' "$out"
+    has   "alternatives: option without a note unchanged" $'  - A\n  - B' "$out"
+    lacks "alternatives: control chars stripped in notes" $'\e' "$out"
+    lacks "alternatives: key matching no option not printed" "never shown" "$out"
+    has   "alternatives: non-object field renders as before" $'  - A\n  - B\n  Recommended: A — x' "$out"
+    lacks "alternatives: non-object value never printed" "not an object" "$out"
+    # the packed-reason fallback prints jq -R output (JSON-quoted lines, pre-existing), so match the indented note itself
+    has   "alternatives: packed-reason fallback renders notes" '      works when packed' "$out"
+}
+
 test_escalated_plaintext_brace_reason_unchanged() {
     # N1-60 [SEC-4]/[CR-3]: a plain-text reason that happens to start with "{" but is not a
     # JSON question object must print unchanged, exactly as before N1-60.
@@ -272,6 +294,7 @@ test_question_mirror_and_answer_delivered
 test_ticket_watch_events_relayed
 test_escalated_json_reason_fallback_rendered
 test_escalated_json_reason_fallback_over_300_chars_rendered
+test_question_alternatives_rendered
 test_escalated_plaintext_brace_reason_unchanged
 test_escalated_plaintext_long_reason_capped_at_300
 test_rejects_bad_input_and_sanitizes

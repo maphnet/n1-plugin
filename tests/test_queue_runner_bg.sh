@@ -202,6 +202,19 @@ test_bg_sequential() {
     rm -rf "$tmp"
 }
 
+test_bg_awaiting_alternatives() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:blocked blocked working done" "T-B:working done"
+    # N1-216: alternatives survive packing (strip + per-field cap like options), so the
+    # watch fallback can render them after the question file is removed.
+    printf '{"ticket":"T-A","question":"Pick a DB?","options":["A","B"],"recommended":"A","rationale":"faster","alternatives":{"B":"works when\\u0007 the team runs B"}}' \
+        > "$tmp/.question-T-A.json"
+    assert_eq "bg-await-alt: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "N1-216: escalated event carries alternatives, control chars stripped" "works when  the team runs B" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .alternatives.B' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+}
+
 test_bg_awaiting() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked blocked working done" "T-B:working done"
@@ -216,6 +229,8 @@ test_bg_awaiting() {
         "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | .options | join(",")' "$tmp/events.jsonl")"
     assert_eq "N1-60: escalated event carries recommended/rationale" "A|faster" \
         "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | "\(.recommended)|\(.rationale)"' "$tmp/events.jsonl")"
+    assert_eq "N1-216: payload without alternatives packs without the key" "false" \
+        "$(jq -r 'select(.event=="escalated") | (.reason | fromjson?) | has("alternatives")' "$tmp/events.jsonl")"
     # Removing the mirrored question file (as the answer path does) does not touch the
     # already-written durable record.
     rm -f "$tmp/.question-T-A.json"
@@ -991,6 +1006,7 @@ test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
 test_bg_sequential
 test_bg_awaiting
+test_bg_awaiting_alternatives
 test_bg_awaiting_oversized_question
 test_bg_awaiting_oversized_control_chars
 test_bg_awaiting_oversized_emoji

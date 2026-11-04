@@ -147,7 +147,10 @@ escalate() {
                 options: ((.options // []) | arrays | .[:10] | map(strip | .[:$n])),
                 recommended: (.recommended // "" | strip | .[:$n]),
                 rationale: (.rationale // "" | strip | .[:$n])
-            };
+            } + (if (.alternatives | type) == "object" and (.alternatives | length) > 0
+                 then {alternatives: (.alternatives | to_entries | .[:10]
+                       | map({key: (.key | strip | .[:$n]), value: (.value | strip | .[:$n])}) | from_entries)}
+                 else {} end);
             (input) as $src
             | (build($src; 2000)) as $full
             | if ($full | tojson | utf8bytelength) > 32768 then build($src; 200) else $full end

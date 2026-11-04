@@ -425,6 +425,13 @@ has "ask: rationale carried" "Recommended: A. x" "$(calls)"
 printf '{"ticket":"T-1","step":"plan","question":"Pick?","options":["A","B"]}' > "$T/q2.json"; reset; n1_orca_ask "$T/q2.json" >/dev/null
 has "ask: no recommendation sentence" "No recommendation. The options are equivalent given the available evidence; select based on team preference." "$(calls)"
 eq "ask: no (Recommended) without a recommendation" 0 "$(grep -c '(Recommended)' "$FAKE/calls")"
+# N1-216: optional alternatives go into the question text; --options is unchanged; absent field adds nothing.
+printf '{"ticket":"T-1","step":"plan","question":"Pick a DB?","options":["A","B"],"recommended":"A","rationale":"x","alternatives":{"B":"works when the team runs B"}}' > "$T/q3.json"
+reset; n1_orca_ask "$T/q3.json" >/dev/null
+has "ask: alternatives carried in the question" "Recommended: A. x Alternatives: B: works when the team runs B" "$(calls)"
+has "ask: options unchanged with alternatives" "--options A (Recommended),B,Stop this ticket" "$(calls)"
+reset; n1_orca_ask "$QF" >/dev/null
+eq "ask: no Alternatives text without the field" 0 "$(grep -c 'Alternatives:' "$FAKE/calls")"
 eq "ask: timeout -> pending id" "pending:m-7" "$(FAKE_ASK=pending n1_orca_ask "$QF")"
 reset; FAKE_ASK=pending n1_orca_ask "$QF" m-7 >/dev/null
 has "ask: resume by message id" "--resume m-7" "$(calls)"
