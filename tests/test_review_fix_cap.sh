@@ -216,6 +216,62 @@ eq "FL7 missing review-prev.md -> nothing filtered" "" "$(n1_fingerprint_filter_
 eq "FL8 cycle 0 -> nothing filtered" "" "$(n1_fingerprint_filter_oos "$FPJ" 0 "$FX" "$PREV" "$IDX")"
 eq "FL8b index still untouched" "same" "$(cmp -s "$IDX" "$T/idx.before" && echo same || echo changed)"
 
+# ---- extra round grant (N1-345): one automatic extra FAIL cycle at the cap ----
+cfg '{}'
+GRANTED='| fix | quality | A | [granted] | review fix cap reached | auto extra round | ask the user | new High/SEC finding, blocking count dropped, fix changed code | --- |'
+grant() { n1_review_fix_grant "$OV" "$FPJ" "$DIFF"; }
+printf 'diff --git a/x b/x\n' > "$DIFF"
+fpj "CR-1 High 0 fa" "CR-2 High 0 fb" "CR-3 High 1 fc"
+ovl 1; eq "G1 cap reached, new High, count 2->1, non-empty diff -> granted" "granted" "$(grant)"
+eq "G1b exactly one [granted] row, equal to the documented row" "1" "$(grep -cxF "$GRANTED" "$OV")"
+n1_increment_counter "$OV" review_fix_cycle >/dev/null
+eq "G1c extra round (cur = max+1, one [granted]) -> audit ok" "ok" "$(n1_review_fix_audit "$OV")"
+eq "G1d extra-round trigger is true" "true" "$(n1_review_fix_extra_round "$OV")"
+eq "G1e second cap-reached state -> deny (asks; no third automatic round)" "deny:not-at-cap" "$(grant)"
+eq "G1f still one [granted] row" "1" "$(grep -cF '[granted]' "$OV")"
+ovl 1; fpj "CR-1 High 0 fa" "CR-3 High 1 fc"
+eq "G2 1-vs-1 High tie is NON_CONVERGING -> deny" "deny:non-converging" "$(grant)"
+eq "G2b deny writes no ledger row" "0" "$(grep -cF '[granted]' "$OV")"
+ovl 1; fpj "CR-1 High 0 fa" "CR-2 High 0 fb" "CR-1 High 1 fa"
+eq "G3 High fingerprint in both of the last two reviews -> deny" "deny:recurred" "$(grant)"
+ovl 1; fpj "CR-1 High 0 fa" "CR-2 High 0 fb" "CR-3 High 1 fc"; : > "$DIFF"
+eq "G4 empty fix.diff -> deny" "deny:empty-diff" "$(grant)"
+rm -f "$DIFF"; eq "G4b missing fix.diff -> deny" "deny:empty-diff" "$(grant)"
+printf 'diff --git a/x b/x\n' > "$DIFF"
+ovl 1; fpj "CR-1 High 0 fa" "CR-2 Medium 1 fm" "SEC-1 Low 1 fl"; cp "$OV" "$T/ov.before"
+eq "G5 only Medium non-SEC / Low SEC open -> deny, exactly as today" "deny:no-eligible" "$(grant)"
+eq "G5b overview untouched on deny" "same" "$(cmp -s "$OV" "$T/ov.before" && echo same || echo changed)"
+ovl 1; fpj "CR-1 High 0 fa" "SEC-2 Medium 1 fs"
+eq "G6 only a new Medium [SEC-N] open (count 0 converges) -> granted" "granted" "$(grant)"
+fpj "CR-1 High 0 fa" "CR-2 High 0 fb" "CR-3 High 1 fc"
+ovl 1 "$GRANTED"; eq "G7 [granted] row already in the ledger -> deny" "deny:extended" "$(grant)"
+ovl 1 "$ASKED"; eq "G7b cap ask already in the ledger -> deny" "deny:extended" "$(grant)"
+ovl 0; eq "G8 below the cap -> deny" "deny:not-at-cap" "$(grant)"
+ov abc; eq "G8b garbage counter -> deny" "deny:counter" "$(grant)"
+cfg '{"review":{"maxFixAttempts":2}}'; ovl 3 "$ASKED"
+eq "G8c user-extended past cap 2 -> deny" "deny:not-at-cap" "$(grant)"
+cfg '{}'
+ovl 1; rm -f "$FPJ"; eq "G9 missing fingerprints.jsonl -> deny" "deny:no-eligible" "$(grant)"
+fpj "CR-1 High 0 fa" "CR-2 High 0 fb" "CR-3 High 1 fc"
+ov 1; eq "G10 no Decision Ledger section -> granted, section created" "granted" "$(grant)"
+n1_increment_counter "$OV" review_fix_cycle >/dev/null
+eq "G10b created section satisfies the audit" "ok" "$(n1_review_fix_audit "$OV")"
+
+# ---- audit counting (N1-345 D15): n = [asked]/[plan] rows + min([granted] rows, 1) ----
+ovl 2 "$GRANTED"; eq "A15 one [granted] row covers the one extra cycle" "ok" "$(n1_review_fix_audit "$OV")"
+ovl 3 "$GRANTED" "$GRANTED"; eq "A16 two [granted] rows, no [asked] -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+ovl 3 "$GRANTED" "$ASKED"; eq "A17 [granted] plus an [asked] option 2 covers two extra cycles" "ok" "$(n1_review_fix_audit "$OV")"
+ov 2; printf '\n## Notes\n\n%s\n' "$GRANTED" >> "$OV"
+eq "A18 [granted] row outside the Decision Ledger -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+ovl 2 '| fix | quality | A | [granted] | review fix cap reached | One more FAIL fix cycle | ask | x | --- |'
+eq "A19 [granted] with another Chosen text -> breach" "breach" "$(n1_review_fix_audit "$OV")"
+
+# ---- extra-round trigger ----
+ovl 2 "$GRANTED"; eq "E1 cur = max+1 with one [granted] -> true" "true" "$(n1_review_fix_extra_round "$OV")"
+ovl 1 "$GRANTED"; eq "E2 at the cap -> false" "false" "$(n1_review_fix_extra_round "$OV")"
+ovl 2 "$ASKED"; eq "E3 user extension, no [granted] -> false" "false" "$(n1_review_fix_extra_round "$OV")"
+ovl 3 "$GRANTED" "$ASKED"; eq "E4 past the extra round -> false" "false" "$(n1_review_fix_extra_round "$OV")"
+
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
