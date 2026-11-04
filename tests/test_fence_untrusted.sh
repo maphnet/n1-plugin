@@ -65,5 +65,10 @@ eq "W7 review-response fences comment bodies" "1" "$(has "$RR" "n1_fence_untrust
 eq "W8 review-response developer prompt states the nonce rule" "1" "$(has "$RR" "$RULE")"
 eq "W9 developer prompt reads the fenced comments file" "1" "$(has "$RR" 'Original comment bodies: <FENCED_COMMENTS_FILE>')"
 
+CI=skills/n1-ci/steps/02-fix.md
+eq "W10 n1-ci fences the CI log" "1" "$(has "$CI" "n1_fence_untrusted 'CI LOG'")"
+eq "W11 n1-ci developer prompt states the nonce rule" "1" "$(has "$CI" "$RULE")"
+eq "W12 developer reads the fenced log and no longer fetches it" "0" "$(has "$CI" 'Fetch the logs yourself')"
+
 echo "fence_untrusted: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
