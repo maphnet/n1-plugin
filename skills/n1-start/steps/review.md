@@ -41,9 +41,11 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewers return before combining findings.
 
-For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`, except a ` (pre-existing)` one not treated as in-diff: **Pre-existing** below): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
+**Pre-existing** (`QE=auto-accept` only): read `procedures/review-preexisting.md` and follow it after the reviewers return, before writing review-hdr.md and before routing (PASS or FAIL).
 
-After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard reviewer files+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]` (with `QE=auto-accept`, except a ` (pre-existing)` `[SEC-N]`: **Pre-existing** below); with `QE=auto-accept` also any in-diff non-Low `[SEC-N]`, never a `[SEC-N]` Low or ` (pre-existing)` (**PASS** below). Partial (incl. missing/empty reviewer file): retry once.
+For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`, except a ` (pre-existing)` one not treated as in-diff: **Pre-existing** above): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
+
+After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard reviewer files+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]` (with `QE=auto-accept`, except a ` (pre-existing)` `[SEC-N]`: **Pre-existing** above); with `QE=auto-accept` also any in-diff non-Low `[SEC-N]`, never a `[SEC-N]` Low or ` (pre-existing)` (**PASS** below). Partial (incl. missing/empty reviewer file): retry once.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -60,8 +62,6 @@ TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=
 n1_step_end "review" 9 "success"
 ```
 NON_CONVERGING/FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
-
-**Pre-existing** (`QE=auto-accept` only): read `procedures/review-preexisting.md` and follow it after the reviewers return, before writing review-hdr.md and before routing (PASS or FAIL).
 
 ### 7b. TQ FIX LOOP
 

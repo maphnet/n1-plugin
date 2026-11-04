@@ -54,7 +54,7 @@ check "fix: Cap gate defers SOFT-ONLY at REVIEW_FIX_CYCLE>=1" '^\*\*Cap gate\*\*
 
 # N1-257
 check "review FAIL: SEC Low and pre-existing never FAIL" 'never a `\[SEC-N\]` Low or ` \(pre-existing\)`' "$R"
-check "review FAIL: pre-existing Critical/High [SEC-N] exempt under auto-accept" 'except a ` \(pre-existing\)` `\[SEC-N\]`: \*\*Pre-existing\*\* below' "$R"
+check "review FAIL: pre-existing Critical/High [SEC-N] exempt under auto-accept" 'except a ` \(pre-existing\)` `\[SEC-N\]`: \*\*Pre-existing\*\* above' "$R"
 check_absent "SEC Low deferral no longer gated on fix cycle" 'Low `\[SEC-N\]` only when `review_fix_cycle>=1`' "$R"
 check "SEC Low deferred at every cycle incl. 0" '`\[SEC-N\]` Low too, at every cycle incl\. 0' "$R"
 check "pre-existing never listed as soft" 'Never list a ` \(pre-existing\)` finding not treated as in-diff \(filed above\); a downgraded one is an ordinary `\[SEC-N\]`' "$R"
