@@ -59,13 +59,16 @@ if ! take_lock; then
 fi
 # N1-333: exit trace. TERM/HUP/INT, or any exit while step is still run, leaves one runner.log line and one
 # queue_interrupted event (n1_queue_note_interrupt); halt_now and the normal end set step first and stay silent.
-# step and pid are kept for resume. Bash runs a trap only after the current foreground command returns; SIGKILL
+# step and pid are kept for resume. nap() makes the poll sleeps interruptible; SIGKILL
 # leaves no trace (the session-start digest and --status flag that case from the dead pid).
 INTERRUPT_NOTED=""
+# Interruptible sleep: `wait` returns at once when a trapped signal arrives, so the trap runs without the poll delay.
+nap() { sleep "$1" & NAP_PID=$!; wait "$NAP_PID" || true; NAP_PID=""; }
 note_interrupt() { [ -n "$INTERRUPT_NOTED" ] && return 0; INTERRUPT_NOTED=1; n1_queue_note_interrupt "$QUEUE" "$1"; }
 on_exit() {
     local rc=$?
     note_interrupt "exit rc=$rc"
+    [ -n "${NAP_PID:-}" ] && kill "$NAP_PID" 2>/dev/null
     [ "$(cat "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"
     return 0
 }
@@ -477,7 +480,7 @@ drain_wait() {
         fi
         [ "${#DRAIN[@]}" -eq 0 ] && break
         [ "$waited" -ge "$TIMEOUT_SECS" ] && { drain_leftover "still finishing up" "still finishing up"; break; }
-        sleep "$poll"
+        nap "$poll"
         waited=$((waited + poll))
     done
 }
@@ -584,7 +587,7 @@ chain_reconcile() {
             fi
             break
         fi
-        sleep "$7"; waited=$((waited + $7))
+        nap "$7"; waited=$((waited + $7))
     done
     out=$(awk -F'|' -v tk="$2" '/^## Runs/{f=1;next} f { t=$2; gsub(/ /,"",t); if (t == tk) { o=$5; gsub(/ /,"",o) } } END { print o }' "$QUEUE")
     if [ "$out" = merged ]; then
@@ -668,7 +671,7 @@ chain_finish() {
                                 && case "$(n1_queue_bg_state "$agents" "$csid")" in working|blocked) false ;; esac; then
                                 stopped=1; break
                             fi
-                            sleep "$poll"
+                            nap "$poll"
                         done
                         [ "$stopped" = 1 ] || { chain_note "$NUM" "$TICKET" child-stop-failed; return 0; }
                         echo "[$NUM] $TICKET chain: stopped blocked child ($csid)"
@@ -679,7 +682,7 @@ chain_finish() {
             esac
         fi
         [ "$waited" -ge "$TIMEOUT_SECS" ] && { chain_note "$NUM" "$TICKET" finish-child-busy; return 0; }
-        sleep "$poll"; waited=$((waited + poll))
+        nap "$poll"; waited=$((waited + poll))
     done
     # N1-240 SEC-1: every exit of the wait loop (no session id, missing, done, failed, stopped) and the restart
     # sweep pass here; a child with a pending escalation is never chained, whatever state it reports.
@@ -722,7 +725,7 @@ chain_finish() {
             fails=$((fails + 1))
             [ "$fails" -ge "$BG_POLL_GRACE" ] && { why=finish-agents-unreadable; break; }
         fi
-        sleep "$poll"; waited=$((waited + poll))
+        nap "$poll"; waited=$((waited + poll))
     done
     if [ "$why" = finish-timeout ]; then
         bash -c "$(n1_bg_cmd stop "$fsid")" >/dev/null 2>&1
@@ -762,7 +765,7 @@ run_bg() {
             if [ "$AGENT_FAILS" -ge "$BG_POLL_GRACE" ]; then
                 halt "HALTED: background session list unreadable for $BG_POLL_GRACE polls in a row"
             fi
-            sleep "$POLL"
+            nap "$POLL"
             continue
         fi
         AGENT_FAILS=0
@@ -887,7 +890,7 @@ run_bg() {
             fi
         fi
         SINCE_PARK=$((SINCE_PARK + POLL))
-        sleep "$POLL"
+        nap "$POLL"
     done
 }
 
@@ -1030,7 +1033,7 @@ run_orca() {
         if ! BATCH=$(n1_orca_check "$ORCA_RUN" "$POLL") || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "$BATCH"; then
             FAILS=$((FAILS + 1))
             [ "$FAILS" -ge "$BG_POLL_GRACE" ] && halt_now "HALTED: Orca run inbox unreadable for $BG_POLL_GRACE polls in a row"
-            sleep "$POLL"
+            nap "$POLL"
             continue
         fi
         FAILS=0
