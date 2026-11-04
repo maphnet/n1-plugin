@@ -1270,12 +1270,20 @@ n1_queue_escalation_text() {
 n1_queue_digest() {
     # Usage: n1_queue_digest <n1-home> — one status line for the queue active in the last 24h,
     # preferring one with a ticket that needs you; prints nothing when none qualifies.
-    # Reads only <n1-home>/queue/*/events.jsonl (latest run per queue, latest event per ticket);
-    # non-JSON lines are skipped.
-    local f
-    for f in "$1"/queue/*/events.jsonl; do [ -f "$f" ] && cat "$f"; done 2>/dev/null | jq -nrR '
-        [inputs | fromjson? | objects] | group_by(.queue) | map(
+    # Reads <n1-home>/queue/*/events.jsonl (latest run per queue, latest event per ticket; non-JSON
+    # lines are skipped). N1-333: also reads each queue.md's step and pid (local only: kill -0 and
+    # /proc, no network, no writes); a queue whose runner is gone while step is run says "runner gone"
+    # instead of "running <ids>", also after SIGKILL, which no trap can record.
+    local f q qid gone=""
+    for q in "$1"/queue/*/queue.md; do
+        n1_queue_interrupted "$q" || continue
+        qid=$(n1_read_frontmatter "$q" queue_id); gone="$gone${qid:-queue}"$'\n'
+    done
+    for f in "$1"/queue/*/events.jsonl; do [ -f "$f" ] && cat "$f"; done 2>/dev/null | jq -nrR --arg gone "$gone" '
+        ($gone | split("\n")) as $g
+        | [inputs | fromjson? | objects] | group_by(.queue) | map(
             .[-1] as $end
+            | any($g[]; . == $end.queue) as $dead
             | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled")] | group_by(.ticket) | map(.[-1])) as $t
             | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
@@ -1288,8 +1296,8 @@ n1_queue_digest() {
                    (if $merged > 0 then "\($merged) merged" else empty end),
                    (if ($needs | length) > 0 then "\($needs | length) needs you (\($needs | join(", ")))" else empty end),
                    (if $failed > 0 then "\($failed) failed" else empty end),
-                   (if ($running | length) > 0 then "running \($running | join(", "))" else empty end),
-                   (if $end.event == "queue_done" then "done" elif $end.event == "halted" then "halted" elif $end.event == "queue_interrupted" then "interrupted" else empty end)
+                   (if $dead then "runner gone" elif ($running | length) > 0 then "running \($running | join(", "))" else empty end),
+                   (if $end.event == "queue_done" then "done" elif $end.event == "halted" then "halted" elif $end.event == "queue_interrupted" and ($dead | not) then "interrupted" else empty end)
                ] | if length == 0 then ["started"] else . end | join(", ")))})
         | map(select(.ts >= (now - 86400 | todate)))
         | sort_by([(.needs > 0), .ts]) | last | .line // empty' 2>/dev/null
@@ -1427,9 +1435,12 @@ n1_queue_status_table() {
     # Live-overrides State for in-progress/awaiting-human rows from
     # `claude agents --json --all` via n1_queue_bg_state (same missing/failed degradation
     # it already applies; no second failure path).
-    local file="$1" events="$2" agents_json now
+    # N1-333: with step run and a dead runner pid (also after SIGKILL) an in-progress row reads runner-gone;
+    # awaiting-human rows keep their state (--answer works without a runner).
+    local file="$1" events="$2" agents_json now gone=""
     agents_json=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null)
     now=$(date +%s)
+    n1_queue_interrupted "$file" && gone=1
 
     while IFS=$'\t' read -r num ticket repo n1h model status; do
         local state="$status" step="" elapsed="" cost="—" pr="" attach="" sid
@@ -1445,6 +1456,7 @@ n1_queue_status_table() {
                         done) : ;;  # runner hasn't finalized yet; keep the Plan status as-is
                     esac
                 fi
+                [ -n "$gone" ] && [ "$state" = in-progress ] && state=runner-gone
                 step=$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" current_step)
                 [ -n "$step" ] || step=$(n1_read_frontmatter "$n1h/memory/$ticket/overview.md" step)
                 local started; started=$(n1_queue_session_started "$file" "$ticket")

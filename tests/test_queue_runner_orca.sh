@@ -1082,6 +1082,23 @@ test_orca_exit_trace_signals() {
     done
 }
 
+# N1-333 AC4: a SIGKILLed runner cannot trap; the digest and --status still flag it from queue.md's step/pid.
+test_orca_sigkill_runner_gone() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    printf 'kill -KILL "$(sed -n "s/^pid: *//p" "$FAKE_DIR/../queue.md")"\n' > "$tmp/fake/at.3"
+    assert_eq "sigkill: runner killed (timeout reports 128+9)" "137" "$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10)"
+    assert_eq "sigkill: no trap trace" "0" "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
+    mkdir -p "$tmp/dh/queue"; ln -s "$tmp" "$tmp/dh/queue/oq"   # digest globs <home>/queue/*/
+    assert_eq "sigkill: digest says runner gone, not running" "1|0" \
+        "$(n1_queue_digest "$tmp/dh" | grep -c 'runner gone' || true)|$(n1_queue_digest "$tmp/dh" | grep -c 'running T-A' || true)"
+    assert_eq "sigkill: --status row runner-gone" "runner-gone" \
+        "$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/queue.md" "$tmp/events.jsonl" | head -1 | cut -f2)"
+    rm -rf "$tmp"
+}
+
 test_orca_parallel_workers
 test_orca_max_concurrent
 test_orca_max_concurrent_default
@@ -1141,6 +1158,7 @@ test_orca_chain_after_settle
 test_orca_fallback_bg
 test_orca_tick_cap
 test_orca_exit_trace_signals
+test_orca_sigkill_runner_gone
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
