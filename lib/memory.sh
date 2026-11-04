@@ -104,6 +104,37 @@ n1_append_key_decision() {
     ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
 }
 
+# n1_append_escalation <overview_path> <line>
+# Inserts <line> (written verbatim) after the last content line of the ## Escalations
+# section, before the next ## heading; creates the section at EOF when absent.
+# A plain `>>` lands after a later ## Decision Ledger, where the queue runner never reads it.
+n1_append_escalation() {
+    local file="$1" line="$2"
+
+    [ -f "$file" ] || return 1
+    [ -n "$line" ] || return 1
+
+    local tmp; tmp=$(mktemp "${file}.XXXXXX")
+    N1_ESC_ENTRY="$line" awk '
+    { lines[n++] = $0 }
+    END {
+        entry = ENVIRON["N1_ESC_ENTRY"]
+        sec = -1; last = -1
+        for (i = 0; i < n; i++) {
+            if (sec < 0) { if (lines[i] ~ /^## Escalations[[:space:]]*$/) { sec = i; last = i } continue }
+            if (lines[i] ~ /^## /) break
+            if (lines[i] !~ /^[[:space:]]*$/) last = i
+        }
+        if (sec < 0) {
+            for (i = 0; i < n; i++) print lines[i]
+            print ""; print "## Escalations"; print entry
+        } else {
+            for (i = 0; i < n; i++) { print lines[i]; if (i == last) print entry }
+        }
+    }
+    ' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
 # n1_extract_sections <file> <heading_regex>...
 # Prints each ## or ### section whose heading text matches one of the regexes (case-insensitive ERE),
 # including nested lower-level headings, up to the next heading of the same or higher level.

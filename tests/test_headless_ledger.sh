@@ -191,6 +191,12 @@ else
     fail "T19: 'ticket obsolete:' marker missing from the Guard branch"
 fi
 
+if grep -q 'n1_append_escalation' <<< "$RUN_END_BLOCK" && grep -q 'n1_append_escalation' "$HEADLESS_FILE"; then
+    pass "T20b: Guard writes escalation entries via n1_append_escalation (inside ## Escalations)"
+else
+    fail "T20b: Guard must write escalation entries via n1_append_escalation"
+fi
+
 if grep -q 'Skip the blocked move' <<< "$RUN_END_BLOCK" && grep -q 'ask-mode branch whatever `N1_UNATTENDED` is' <<< "$RUN_END_BLOCK"; then
     pass "T20: run-ending branch skips the blocked move and the ask-mode park"
 else

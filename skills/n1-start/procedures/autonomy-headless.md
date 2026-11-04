@@ -47,8 +47,8 @@ Then continue the run — do not escalate, do not end — unless the recommended
 
 1. Append to `## Escalations`; keep the fixed phrase `ticket obsolete:` (the queue runner matches it to release overlap successors):
    ```bash
-   source ~/.n1/preamble.sh
-   printf -- '- [headless] %s: ticket obsolete: %s\n' "$STEP" "$EVIDENCE" >> "$N1_HOME/memory/$ID/overview.md"
+   source ~/.n1/preamble.sh; source "$N1_ROOT/lib/memory.sh"
+   n1_append_escalation "$N1_HOME/memory/$ID/overview.md" "$(printf -- '- [headless] %s: ticket obsolete: %s' "$STEP" "$EVIDENCE")"
    ```
 2. Run escalation steps 3 (release the queue tag) and 4 (tracker comment; reason line `ticket obsolete: <evidence>`, no options line) below.
 3. Skip the blocked move (step 1) and the ask-mode branch whatever `N1_UNATTENDED` is: nothing is left to answer. Run step 5 "Not `ask`" a-b below: set `step: escalated`, run the telemetry failure path, clear the active-run pointer, print `HEADLESS ESCALATION: <one line>` and end the run.
@@ -66,8 +66,8 @@ Then continue the run — do not escalate, do not end — unless the recommended
    - Otherwise the move is **mandatory** (not best-effort — this differs from the comment below): on Jira, call `mcp__<tracker.mcp>__<operations.getTransitions>` first to find the transition ID targeting `BLOCKED_STATUS`, then call `mcp__<tracker.mcp>__<operations.moveStatus>`; on other trackers call `moveStatus` directly with `BLOCKED_STATUS`. Do not overwrite the existing `original_status` frontmatter. Outcome is `moved` on success, `failed:<error>` on any tool-call error.
 2. Append to `## Escalations` in `$N1_HOME/memory/$ID/overview.md`, including the resolved outcome:
    ```bash
-   source ~/.n1/preamble.sh
-   printf -- '- [headless] %s: %s, options: %s (blocked-move: %s)\n' "$STEP" "$QUESTION" "$OPTIONS" "$MOVE_OUTCOME" >> "$N1_HOME/memory/$ID/overview.md"
+   source ~/.n1/preamble.sh; source "$N1_ROOT/lib/memory.sh"
+   n1_append_escalation "$N1_HOME/memory/$ID/overview.md" "$(printf -- '- [headless] %s: %s, options: %s (blocked-move: %s)' "$STEP" "$QUESTION" "$OPTIONS" "$MOVE_OUTCOME")"
    ```
 3. **Release the queue tag** (best-effort, queue children only):
    ```bash

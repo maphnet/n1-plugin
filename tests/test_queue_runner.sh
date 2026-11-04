@@ -3,6 +3,7 @@
 # Shared setup and fixtures: tests/queue_runner_lib.sh (N1-304 split).
 set -euo pipefail
 source "$(dirname "$0")/queue_runner_lib.sh"
+source "$REPO_ROOT/lib/memory.sh"
 
 # --- n1_story_parse_service (migrated from test_story_lib.sh) ----------------
 test_parse_service() {
@@ -1589,6 +1590,10 @@ test_obsolete_release() {
     git -C "$ws" rev-parse HEAD > "$h/memory/T-1/branch-point"
     printf '## Pending\npr_url: https://github.com/o/r/pull/1\n' >> "$ov"
     assert_eq "obsolete: recorded PR fails closed" no "$(ob)"
+    # Guard-shaped overview: Escalations followed by a Decision Ledger table; entry written via the helper (N1-362 CR-1)
+    printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n\n## Decision Ledger\n\n| Step |\n|------|\n| analysis |\n' "$ws" > "$ov"
+    n1_append_escalation "$ov" '- [headless] analysis: ticket obsolete: already on main'
+    assert_eq "obsolete: entry written by helper before a ledger is readable" yes "$(ob)"
     printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: Pick a DB?, options: A | B (blocked-move: moved)\n' "$ws" > "$ov"
     assert_eq "obsolete: other escalation fails closed" no "$(ob)"
     printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: ticket obsolete: x\n' "$d/gone" > "$ov"
