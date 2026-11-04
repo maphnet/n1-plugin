@@ -352,12 +352,14 @@ n1_queue_child_obsolete() {
     # diff (workspace_path HEAD equals memory/<ID>/branch-point, clean tree). The marker alone is child-written and an
     # analysis-stage question also has no diff/PR, so both are required. Fails closed: a missing file, a workspace_path
     # that is not a directory (no fallback to <repo>: its HEAD is not the child's) or any git error returns 1.
-    local t="$1" h="$2" repo="$3" start="${4:-}" ov="$2/memory/$1/overview.md" ws bp re='^\[headless\] [^:]+: ticket obsolete'
+    local t="$1" h="$2" repo="$3" start="${4:-}" ov="$2/memory/$1/overview.md" ws bp re='^\[headless\] [^:]+: ticket obsolete:'
     [[ "$(n1_queue_escalation_text "$ov" last)" =~ $re ]] || return 1
     [ -z "$(n1_queue_child_pr_url "$ov")" ] || return 1
     ws=$(n1_read_frontmatter "$ov" workspace_path); [ -n "$ws" ] && [ -d "$ws" ] || return 1
     bp=$(head -n1 "$h/memory/$t/branch-point" 2>/dev/null | tr -d '[:space:]'); [[ "$bp" =~ ^[0-9a-f]{7,40}$ ]] || return 1
-    [ "$(git -C "$ws" rev-list --count "$bp..HEAD" 2>/dev/null)" = 0 ] || return 1
+    local bpc head
+    bpc=$(git -C "$ws" rev-parse --verify -q "$bp^{commit}" 2>/dev/null) && [ -n "$bpc" ] || return 1
+    head=$(git -C "$ws" rev-parse --verify -q HEAD 2>/dev/null) && [ "$head" = "$bpc" ] || return 1
     [ -z "$(git -C "$ws" status --porcelain 2>&1)" ] || return 1
     [ -z "$(n1_queue_child_open_pr "$t" "$h" "$repo" "$start")" ]
 }

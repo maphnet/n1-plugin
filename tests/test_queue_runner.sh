@@ -1594,6 +1594,11 @@ test_obsolete_release() {
     printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n\n## Decision Ledger\n\n| Step |\n|------|\n| analysis |\n' "$ws" > "$ov"
     n1_append_escalation "$ov" '- [headless] analysis: ticket obsolete: already on main'
     assert_eq "obsolete: entry written by helper before a ledger is readable" yes "$(ob)"
+    gc ahead; git -C "$ws" rev-parse HEAD > "$h/memory/T-1/branch-point"; git -C "$ws" reset -q --hard HEAD~1
+    assert_eq "obsolete: HEAD behind branch-point fails closed" no "$(ob)"
+    git -C "$ws" rev-parse HEAD > "$h/memory/T-1/branch-point"
+    printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: ticket obsolete? options: A | B\n' "$ws" > "$ov"
+    assert_eq "obsolete: similarly worded question fails closed" no "$(ob)"
     printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: Pick a DB?, options: A | B (blocked-move: moved)\n' "$ws" > "$ov"
     assert_eq "obsolete: other escalation fails closed" no "$(ob)"
     printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: ticket obsolete: x\n' "$d/gone" > "$ov"
