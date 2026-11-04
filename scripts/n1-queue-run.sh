@@ -465,12 +465,33 @@ chain_note() {
 }
 
 # chain_merged <num> <ticket> <repo> <n1-home> <pr-url> — Runs Outcome merged + event, then fast-forward
-# the local default branch so the next child branches from the merge (Plan Status stays pr).
+# the local default branch so the next child branches from the merge (Plan Status stays pr), then launch the
+# merged row's n1-clean (chain_clean).
 chain_merged() {
     n1_queue_runs_outcome "$QUEUE" "$2" merged
     ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")"
     echo "[$1] $2 -> merged $5"
     chain_sync "$1" "$2" "$3" "$4"
+    chain_clean "$1" "$2" "$3" "$4"
+}
+
+# chain_clean <num> <ticket> <repo> <n1-home> — N1-339: launch one background `n1-clean --ticket <ticket>` for a merged
+# row whose overview does not yet show its branch deleted. Fire and forget: results land in the overview Cleanup
+# line and a ticket_cleanup event. .cleaned-<ticket> (line 1 run id, line 2 launched) is written before the launch, so it
+# runs once per run, also across a runner restart. The runner removes nothing itself.
+chain_clean() {
+    local marker="$N1_QUEUE_DIR/.cleaned-$2" out sid
+    case "$2" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
+    chain_authorized "$4" || return 0
+    n1_queue_cleanup_needed "$4/memory/$2/overview.md" || return 0
+    [ "$(head -n1 "$marker" 2>/dev/null)" = "$RUN_ID" ] && return 0
+    printf '%s\nlaunched\n' "$RUN_ID" > "$marker"
+    if out=$(bash -c "$(n1_queue_clean_cmd "$3" "$2" sonnet "$RUN_ID" "n1-${QUEUE_ID}-$2-$1-clean")" </dev/null 2>&1) \
+        && sid=$(n1_queue_parse_launch "$out") && [ -n "$sid" ]; then
+        echo "[$1] $2 n1-clean launched ($sid)"
+    else
+        echo "[$1] $2 n1-clean launch-failed (run /n1:n1-clean --ticket $2)"
+    fi
 }
 
 # chain_sync <num> <ticket> <repo> <n1-home> — fast-forward the local default branch (one retry). A sync
@@ -521,6 +542,7 @@ chain_reconcile() {
     out=$(awk -F'|' -v tk="$2" '/^## Runs/{f=1;next} f { t=$2; gsub(/ /,"",t); if (t == tk) { o=$5; gsub(/ /,"",o) } } END { print o }' "$QUEUE")
     if [ "$out" = merged ]; then
         chain_sync "$1" "$2" "$3" "$4"
+        chain_clean "$1" "$2" "$3" "$4"
         return 0
     fi
     st=$(n1_queue_pr_state "$5")
@@ -909,6 +931,7 @@ orca_settle() {
             n1_queue_runs_outcome "$QUEUE" "$TICKET" merged "$URL"
             ev ticket_finished ticket="$TICKET" outcome=merged pr="$URL" session="$(n1_queue_session_id "$QUEUE" "$TICKET")"
             echo "[$NUM] $TICKET -> merged $URL"
+            chain_clean "$NUM" "$TICKET" "$REPO" "$N1H"
         fi
     fi
     # Last: a restart re-owes a pr row only while its sentinel still names the task, so a crash mid-chain re-runs it.

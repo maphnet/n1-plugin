@@ -31,6 +31,39 @@ test_bg_chain_merges() {
     # $tmp is not a git repo, so the default-branch sync fails (also on its retry) and is recorded.
     assert_eq "chain: failed sync recorded on the row" "finish:sync-failed" "$(plan_cell "$tmp/queue.md" 1 9)"
     assert_eq "chain: runner never merges" 0 "$(grep -c '^pr merge' "$tmp/fake/gh-all" || true)"
+    assert_eq "N1-339: one n1-clean launch for merged T-B" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-B-2-clean')"
+    assert_eq "N1-339: one n1-clean launch for T-A (merged by the chained finish)" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-clean')"
+    assert_eq "N1-339: clean prompt" "/n1:n1-clean --ticket T-B" "$(cat "$tmp/fake/prompt.n1-bgq-T-B-2-clean")"
+    assert_eq "N1-339: clean session is an unattended queue run" "1,$(n1_read_frontmatter "$tmp/queue.md" run_id)" \
+        "$(jq -r '[.env.N1_HEADLESS,.env.N1_QUEUE_RUN_ID]|join(",")' "$tmp/fake/settings.n1-bgq-T-B-2-clean")"
+    assert_eq "N1-339: marker run id and state" "$(n1_read_frontmatter "$tmp/queue.md" run_id),launched" "$(head -n2 "$tmp/.cleaned-T-B" | paste -sd,)"
+    assert_eq "N1-339: runner.log line" yes "$(grep -q 'T-B n1-clean launched' "$tmp/output.txt" && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-339: a restart (marker for this run) or a finish that already cleaned does not relaunch n1-clean.
+test_bg_chain_clean_marker() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    n1_write_frontmatter "$tmp/queue.md" run_id R1
+    printf '%s\nlaunched\n' R1 > "$tmp/.cleaned-T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "N1-339: marker for this run -> no relaunch" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-clean')"
+    rm -rf "$tmp"
+}
+
+test_bg_chain_clean_done() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    printf '## Finish\n- **Cleanup:** worktree:removed, branch:deleted (/w)\n' >> "$tmp/fake/overview.T-A"
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "N1-339: branch already deleted -> no n1-clean" 0 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-clean')"
     rm -rf "$tmp"
 }
 
@@ -339,6 +372,9 @@ test_lifecycle_wiring() {
     assert_eq "wiring: --status reports interrupted runs" yes "$(has 'n1_queue_interrupted_note "$QUEUE_FILE"' "$s/steps/report.md")"
     assert_eq "wiring: --status reports dispatch skips (N1-309)" yes "$(has 'n1_queue_dispatch_skips' "$s/steps/report.md")"
     assert_eq "wiring: SKILL.md documents resume" yes "$(has 'resumes an interrupted run' "$s/SKILL.md")"
+    assert_eq "N1-339: runner contains no worktree removal" 0 "$(grep -cE 'git worktree remove|n1_orca_rm|n1_finish_cleanup|n1_clean_ticket|worktree rm' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+    assert_eq "N1-339: chain_merged launches chain_clean" yes "$(grep -A6 '^chain_merged()' "$REPO_ROOT/scripts/n1-queue-run.sh" | grep -q 'chain_clean' && echo yes || echo no)"
+    assert_eq "N1-339: chain_clean called from three merged paths" 3 "$(grep -c 'chain_clean "' "$REPO_ROOT/scripts/n1-queue-run.sh")"
 }
 
 # N1-185 AC3: run.md held-ticket wording (finish.md and session-start covered in test_orchestrator_guardrails.sh and test_hooks.sh).
@@ -423,6 +459,8 @@ test_bg_held_user_merge
 test_bg_held_merge_at_timeout
 test_bg_chain_merges
 test_bg_chain_sync_ok
+test_bg_chain_clean_marker
+test_bg_chain_clean_done
 test_bg_chain_pr_closed
 test_bg_chain_pr_state_retry
 test_bg_chain_pr_state_unreadable

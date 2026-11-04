@@ -54,9 +54,13 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 source "$N1_ROOT/lib/frontmatter.sh"
 QUEUE_DIR=$(dirname "$QUEUE_FILE")
-printf 'Ticket\tState\tStep\tElapsed\tCost\tPR\tAttach\n'
+printf 'Ticket\tState\tStep\tElapsed\tCost\tPR\tAttach\tCleanup\n'
 n1_queue_status_table "$QUEUE_FILE" "$QUEUE_DIR/events.jsonl"
+L=$(n1_queue_cleanup_left "$QUEUE_DIR/events.jsonl")
+if [ -n "$L" ]; then echo "Worktrees not removed:"; sed 's/^/  - /' <<<"$L"; else echo "Worktrees not removed: none"; fi
 ```
+
+For each row under "Worktrees not removed", resolve the reason, then run /n1:n1-clean --ticket <ticket>. The `Cleanup` column is empty until a cleanup ran.
 
 After printing the merged status table, compute and print decision counts, then write `telemetry.json`:
 

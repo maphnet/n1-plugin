@@ -87,7 +87,7 @@ case "$1" in
             name="${f##*/prompt.}"; t=$(cat "$f"); t="${t% chained}"; t="${t##* }"
             c=$(( $(cat "$D/poll.$name" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$D/poll.$name"
             # N1-185: a chained n1-finish session (<name>-fin) replays states.<t>.fin (default done).
-            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; esac
+            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; *-clean) sf="$D/states.$t.clean" ;; esac
             read -r -a seq 2>/dev/null < "$sf" || seq=(done)
             i=$(( c < ${#seq[@]} ? c - 1 : ${#seq[@]} - 1 ))
             st="${seq[$i]}"

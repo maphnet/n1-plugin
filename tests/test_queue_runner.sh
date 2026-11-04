@@ -797,6 +797,9 @@ FAKEEOF
     assert_eq "status: T-3 awaiting-human" "awaiting-human" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $2}')"
     assert_eq "status: T-3 attach command" "claude attach 11112222" "$(echo "$out" | awk -F'\t' '$1=="T-3"{print $7}')"
     assert_eq "status: T-4 escalated step from last headless Escalations line" "implementation" "$(echo "$out" | awk -F'\t' '$1=="T-4"{print $3}')"
+    printf '## Finish\n- **Cleanup:** worktree:removed, branch:deleted (/w)\n' >> "$tmp/h/memory/T-2/overview.md"
+    out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
+    assert_eq "N1-339 status: Cleanup field" "worktree:removed, branch:deleted (/w)" "$(awk -F'\t' '$1=="T-2"{print $8}' <<<"$out")"
     assert_eq "status: cost always em dash" "4" "$(echo "$out" | awk -F'\t' '$5=="\xe2\x80\x94"' | wc -l | tr -d ' ')"
 }
 
@@ -1863,6 +1866,27 @@ test_notify_backends
 test_answer_wiring
 test_headless_plan_wiring
 test_status_reconcile_merged
+
+test_n1_339_cleanup_helpers() {
+    local tmp339 cmd339; tmp339=$(mktemp -d)
+    printf '## Finish\n- **Cleanup:** worktree:removed, branch:deleted (/x)\n' > "$tmp339/a.md"
+    printf '## Finish\n- **Cleanup:** worktree:kept (dirty), branch:kept (checked out in /x)\n' > "$tmp339/b.md"
+    assert_eq "N1-339 cleanup_needed: branch deleted -> no" no "$(n1_queue_cleanup_needed "$tmp339/a.md" && echo yes || echo no)"
+    assert_eq "N1-339 cleanup_needed: kept -> yes" yes "$(n1_queue_cleanup_needed "$tmp339/b.md" && echo yes || echo no)"
+    assert_eq "N1-339 cleanup_needed: no line -> yes" yes "$(n1_queue_cleanup_needed "$tmp339/none.md" && echo yes || echo no)"
+    cmd339=$(n1_queue_clean_cmd /repo T-B sonnet run-1 n1-q-T-B-2-clean)
+    assert_eq "N1-339 clean_cmd: n1-clean --ticket T-B" yes "$([[ "$cmd339" == *n1-clean*--ticket*T-B* ]] && echo yes || echo no)"
+    assert_eq "N1-339 clean_cmd: unattended queue settings" yes "$([[ "$cmd339" == *N1_QUEUE_RUN_ID*run-1* ]] && echo yes || echo no)"
+    printf '%s\n' '{"event":"ticket_cleanup","ticket":"T-A","outcome":"skipped","reason":"worktree:kept (dirty); /a"}' \
+        '{"event":"ticket_cleanup","ticket":"T-B","outcome":"failed","reason":"x"}' \
+        '{"event":"ticket_cleanup","ticket":"T-B","outcome":"success","reason":"y"}' 'garbage' > "$tmp339/e.jsonl"
+    assert_eq "N1-339 cleanup_left: last per ticket, non-success only" "T-A: worktree:kept (dirty); /a" "$(n1_queue_cleanup_left "$tmp339/e.jsonl")"
+    assert_eq "N1-339 cleanup_left: missing file prints nothing" "" "$(n1_queue_cleanup_left "$tmp339/nope.jsonl")"
+    assert_eq "N1-339 report: header has Cleanup" yes "$(grep -qF 'PR\tAttach\tCleanup' "$REPO_ROOT/skills/n1-queue/steps/report.md" && echo yes || echo no)"
+    assert_eq "N1-339 report: lists worktrees not removed" yes "$(grep -qF 'n1_queue_cleanup_left' "$REPO_ROOT/skills/n1-queue/steps/report.md" && echo yes || echo no)"
+    rm -rf "$tmp339"
+}
+test_n1_339_cleanup_helpers
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
