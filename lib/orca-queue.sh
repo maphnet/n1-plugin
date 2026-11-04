@@ -182,11 +182,19 @@ n1_orca_release() {
 
 n1_orca_terminal_of() {
     # Usage: n1_orca_terminal_of <run> <dispatch> — N1-268: the worker's own terminal handle (worker-list
-    # resource.terminalHandle); non-zero when the list is unreadable, the worker is not listed or the handle is unsafe.
+    # resource.terminalHandle), rc 0. N1-333: rc 2 = nothing to close: a readable list (ok receipt, worker array) where
+    # the dispatch is absent or Orca marks it projection.stage.detail terminal_missing. rc 1 (fail closed) otherwise:
+    # an unreadable list or non-ok receipt, or a listed worker with no or an unsafe handle.
     local out h
     out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration worker-list --run "$1") || return 1
-    h=$(jq -r --arg d "$2" '(.result.workers // .result.dispatches // .result.items // [])[]?
-        | select((.dispatchId // .dispatch.id // .id) == $d) | .resource.terminalHandle // empty | strings' <<<"$out" 2>/dev/null | head -1)
+    h=$(jq -r --arg d "$2" '(.result.workers // .result.dispatches // .result.items) as $w
+        | if .ok == true and ($w | type) == "array" then
+            ([$w[] | select((.dispatchId // .dispatch.id // .id) == $d)] | first) as $r
+            | if $r == null then "@absent"
+              elif ($r.projection.stage | if type == "object" then .detail else null end) == "terminal_missing" then "@missing"
+              else ($r.resource.terminalHandle // "" | strings) end
+          else error("unreadable worker list") end' <<<"$out" 2>/dev/null) || return 1
+    case "$h" in @absent|@missing) return 2 ;; esac   # marker tokens: _n1_orca_id never accepts a leading @
     _n1_orca_id "$h" || return 1
     printf '%s' "$h"
 }
@@ -326,9 +334,10 @@ n1_orca_stop_worker() {
     # Usage: n1_orca_stop_worker <queue.md> <num> <ticket> <n1-home> <task> <dispatch> <orca-run> — N1-268, n1-queue
     # --stop only (after user confirmation). A PR merged for this queue run (n1_queue_attested_pr) is recorded merged;
     # otherwise the row is recorded stopped (Plan + Runs + event). Either way the worker's own terminal is closed
-    # first unless it is proven settled, then the worker is released and its identity removed. A missing handle or a
-    # failed close keeps the identity (non-zero, fail closed; a merged record stays).
-    local q="$1" num="$2" t="$3" h="$4" task="$5" d="$6" run="$7" evf qid rid url handle
+    # first unless it is proven settled, then the worker is released and its identity removed. N1-333: a worker whose
+    # terminal Orca reports gone (absent from a readable list, or terminal_missing) has nothing to close. An unreadable
+    # list, a missing or unsafe handle, or a failed close keeps the identity (non-zero, fail closed; a merged record stays).
+    local q="$1" num="$2" t="$3" h="$4" task="$5" d="$6" run="$7" evf qid rid url handle trc
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
     url=$(n1_queue_attested_pr "$q" "$t" "$h")
     if [ "$(n1_queue_pr_state "$url")" = MERGED ]; then
@@ -342,7 +351,10 @@ n1_orca_stop_worker() {
     # Only a worker proven settled (exited, or a durable terminal state) keeps its terminal; anything else is closed
     # first, and a failed close changes nothing more (a merged record above is true either way).
     if [ "$1" = stopped ] || ! n1_orca_liveness "$run" | awk -F'\t' -v d="$d" '$1 == d && ($3 == "exited" || $4 == "done") { f = 1 } END { exit !f }'; then
-        if ! handle=$(n1_orca_terminal_of "$run" "$d") || ! n1_orca_terminal_close "$handle"; then
+        trc=0; handle=$(n1_orca_terminal_of "$run" "$d") || trc=$?   # errexit-safe capture of the tri-state rc
+        if [ "$trc" = 2 ]; then
+            echo "note: $t worker terminal already gone; nothing to close"
+        elif [ "$trc" != 0 ] || ! n1_orca_terminal_close "$handle"; then
             echo "stop failed: $t (worker terminal not closed; row and identity kept)"
             return 1
         fi

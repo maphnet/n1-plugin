@@ -190,6 +190,21 @@ eq "liveness: stage detail is column 5 (real ghost receipt)" \
     "$(FAKE_WL_FILE="$GHOST_WL" n1_orca_liveness run-1)"
 jq -n '{ok: true, result: {workers: [{dispatchId: "d-1", taskId: "task-1", projection: {liveness: {verdict: "live"}, stage: {detail: {x: 1}}}}]}}' > "$T/wl-obj.json"
 eq "liveness: non-string stage detail reads empty" "$(printf 'd-1\ttask-1\tlive\t\t')" "$(FAKE_WL_FILE="$T/wl-obj.json" n1_orca_liveness run-1)"
+# N1-333: n1_orca_terminal_of tri-state. rc 2 (nothing to close) only on a readable list where the dispatch is absent
+# or terminal_missing; everything else that is not a safe handle stays rc 1 (fail closed).
+printf '%s' '{"ok":true,"result":{"workers":[{"dispatchId":"d-1","resource":{"terminalHandle":"term-1"}}]}}' > "$T/wl-h.json"
+eq "terminal_of: listed with handle -> handle" "term-1" "$(FAKE_WL_FILE="$T/wl-h.json" n1_orca_terminal_of run-1 d-1)"
+eq "terminal_of: listed with handle -> rc 0" 0 "$(FAKE_WL_FILE="$T/wl-h.json" rc n1_orca_terminal_of run-1 d-1)"
+eq "terminal_of: absent from a readable list -> rc 2" 2 "$(FAKE_WL_FILE="$T/wl-h.json" rc n1_orca_terminal_of run-1 d-9)"
+eq "terminal_of: real terminal_missing receipt (handle still listed) -> rc 2" 2 "$(FAKE_WL_FILE="$GHOST_WL" rc n1_orca_terminal_of run-1 ctx_ghost000001)"
+eq "terminal_of: settled worker in the same receipt -> rc 0" 0 "$(FAKE_WL_FILE="$GHOST_WL" rc n1_orca_terminal_of run-1 ctx_settled0001)"
+printf '%s' '{"ok":true,"result":{"workers":[{"dispatchId":"d-1","resource":{}}]}}' > "$T/wl-nh.json"
+eq "terminal_of: listed, no handle, no marker -> rc 1" 1 "$(FAKE_WL_FILE="$T/wl-nh.json" rc n1_orca_terminal_of run-1 d-1)"
+printf '%s' '{"ok":true,"result":{"workers":[{"dispatchId":"d-1","resource":{"terminalHandle":"term 1;x"}}]}}' > "$T/wl-bad.json"
+eq "terminal_of: unsafe handle -> rc 1" 1 "$(FAKE_WL_FILE="$T/wl-bad.json" rc n1_orca_terminal_of run-1 d-1)"
+printf '%s' '{"ok":false,"result":{"workers":[]}}' > "$T/wl-nok.json"
+eq "terminal_of: non-ok receipt is never read as absent -> rc 1" 1 "$(FAKE_WL_FILE="$T/wl-nok.json" rc n1_orca_terminal_of run-1 d-1)"
+eq "terminal_of: receipt without a worker array -> rc 1" 1 "$(FAKE_WL_EMPTY=1 rc n1_orca_terminal_of run-1 d-1)"
 reset; n1_orca_ack run-1 "$J"
 has "ack: delivery id" "orchestration check --run run-1 --ack del-1" "$(calls)"
 

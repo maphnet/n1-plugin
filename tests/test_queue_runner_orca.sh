@@ -56,6 +56,37 @@ test_orca_stop_worker() {
     out=$(FAKE_ORCA_CLOSE_FAIL=1 orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1) || true
     assert_eq "stop-lib: merged live worker, close failed -> identity kept" "yes" "$([ -e "$sent" ] && echo yes || echo no)"
     rm -rf "$tmp"
+    # N1-333 AC5. Bugs caught: a worker whose terminal is gone never stoppable (fail closed before recording anything);
+    # an unreadable list or a listed no-handle worker treated as gone (identity dropped for a possibly live worker).
+    local how
+    for how in absent missing; do
+        tmp=$(mktemp -d); orca_live_fixture "$tmp" https://github.com/o/r/pull/1; sent="$tmp/n1home/queue/sentinels/T-A.env"
+        if [ "$how" = absent ]; then wl_set "$tmp"
+        else wl_set "$tmp" "$(wl_row T-A running unverifiable terminal_missing | jq -c '.resource.terminalHandle = "term-A"')"; fi
+        out=$(orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1)
+        assert_eq "stop-lib: terminal $how -> note + stopped" \
+            "note: T-A worker terminal already gone; nothing to close|stopped: T-A" "$(paste -sd'|' <<< "$out")"
+        assert_eq "stop-lib: terminal $how -> no close call" "0" "$(grep -c '^terminal close' "$tmp/fake/orca-calls" || true)"
+        assert_eq "stop-lib: terminal $how -> Plan + Runs stopped" "stopped stopped" \
+            "$(plan_cell "$tmp/queue.md" 1 8) $(_n1_queue_run_outcome "$tmp/queue.md" T-A)"
+        assert_eq "stop-lib: terminal $how -> released, identity removed" "1|no" \
+            "$(grep -c 'worker-release --dispatch d-T-A' "$tmp/fake/orca-calls" || true)|$([ -e "$sent" ] && echo yes || echo no)"
+        rm -rf "$tmp"
+    done
+    for how in unreadable no-handle; do
+        tmp=$(mktemp -d); orca_live_fixture "$tmp" https://github.com/o/r/pull/1; sent="$tmp/n1home/queue/sentinels/T-A.env"
+        rc=0
+        if [ "$how" = unreadable ]; then
+            out=$(FAKE_ORCA_WL_FAIL_AFTER=0 orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1) || rc=$?
+        else
+            wl_set "$tmp" "$(wl_row T-A running)"   # listed, resource {}, no terminal_missing
+            out=$(orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1) || rc=$?
+        fi
+        assert_eq "stop-lib: $how list -> fail closed (rc, row, identity, no release)" "1|in-progress|yes|0" \
+            "$rc|$(plan_cell "$tmp/queue.md" 1 8)|$([ -e "$sent" ] && echo yes || echo no)|$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+        assert_eq "stop-lib: $how list -> stop failed line" "yes" "$(grep -qF 'stop failed: T-A' <<< "$out" && echo yes || echo no)"
+        rm -rf "$tmp"
+    done
 }
 
 test_orca_parallel_workers() {   # AC1
