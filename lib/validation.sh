@@ -71,6 +71,23 @@ n1_title_vague() {
     [ "$(( $(sed -E '1s/^[[:space:]]*[A-Z][A-Z0-9_]*-[0-9]+[[:space:]]*[:.-]?//' "$1" | wc -w) ))" -le 3 ]
 }
 
+# n1_fence_untrusted <kind> <file>: print <file> between `===== BEGIN/END UNTRUSTED <KIND> CONTENT <nonce> =====`
+# lines that share one fresh 32-hex nonce from /dev/urandom (N1-340). Content is verbatim, so a fake END line
+# without the nonce stays inside. Kind: [A-Za-z0-9 _-], uppercased. Bad kind, unreadable file or no nonce:
+# stderr message, nothing on stdout, return 1. A prompt-injection mitigation: the reader must honor the nonce rule.
+n1_fence_untrusted() {
+    local kind="$1" file="$2" nonce re='^[A-Za-z0-9 _-]+$'
+    [[ "$kind" =~ $re ]] || { echo "n1_fence_untrusted: bad kind" >&2; return 1; }
+    [ -f "$file" ] && [ -r "$file" ] || { echo "n1_fence_untrusted: unreadable file: $file" >&2; return 1; }
+    nonce=$(head -c16 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    [[ "$nonce" =~ ^[0-9a-f]{32}$ ]] || { echo "n1_fence_untrusted: no nonce" >&2; return 1; }
+    kind=$(printf '%s' "$kind" | tr a-z A-Z)
+    printf '===== BEGIN UNTRUSTED %s CONTENT %s =====\n' "$kind" "$nonce"
+    cat -- "$file" || return 1
+    [ -z "$(tail -c1 -- "$file")" ] || echo
+    printf '===== END UNTRUSTED %s CONTENT %s =====\n' "$kind" "$nonce"
+}
+
 # Backward-compatible wrapper: tags only.
 n1_detect_investigation() {
     local tags="$2"
