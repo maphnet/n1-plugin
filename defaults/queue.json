@@ -3,6 +3,7 @@
   "maxTickets": 10,
   "pollSeconds": 30,
   "subtaskTimeoutMinutes": 180,
+  "stallMinutes": 30,
   "notify": "desktop",
   "ntfyTopic": "",
   "notifyCommand": "",

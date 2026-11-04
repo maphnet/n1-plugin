@@ -62,6 +62,7 @@ n1_write_frontmatter "$QUEUE" pid "$$"
 n1_write_frontmatter "$QUEUE" step run
 
 TIMEOUT_SECS=$(( $(n1_queue_val subtaskTimeoutMinutes) * 60 ))
+STALL_SECS=$(( $(n1_queue_val stallMinutes) * 60 ))   # N1-315: Orca live-but-silent threshold (info notice only); 0 disables
 # Shared grace limit: consecutive unreadable-agents-list polls (halts the run) and
 # consecutive missing-from-list polls for one session (fails that row).
 BG_POLL_GRACE=10
@@ -98,6 +99,11 @@ EVENTS="$(dirname "$QUEUE")/events.jsonl"
 declare -a STRUCK=() STARTED_AT=() PARKED=() DRAIN=() DRAIN_ESCALATED=()
 
 ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
+hb_rebase() {   # N1-315: <ticket> — a wait the worker cannot beacon through (parked question, usage limit) must not age its beacon
+    local p=-
+    IFS=$'\t' read -r _ p 2>/dev/null < "$N1_QUEUE_DIR/.hb-$1" || p=-
+    printf '%s\t%s\n' "$(date +%s)" "${p:--}" > "$N1_QUEUE_DIR/.hb-$1"; rm -f "$N1_QUEUE_DIR/.stall-$1"
+}
 
 # escalate <ticket> <n1-home> [session-state] — escalated event + needs-you notification
 # (with resume hint). session-state "stopped" means the bg session is draining (success-path
@@ -1155,6 +1161,7 @@ run_orca() {
                 n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
                 rm -f "$N1_QUEUE_DIR/.esc-reason-$TICKET"
                 ev unblocked ticket="$TICKET" session="$SID"
+                hb_rebase "$TICKET"
             fi
             # N1-267: a worker waiting on the Claude usage limit is idle, not working: its tick goes to STALLED instead.
             # Rows are checked one by one, so workers that all stall at once all pause. ponytail: the pause is capped at
@@ -1162,7 +1169,27 @@ run_orca() {
             if [ "${STALLED[NUM]:-0}" -lt $((2 * TIMEOUT_SECS)) ] && n1_orca_usage_stalled "$TICKET"; then
                 STALLED[NUM]=$(( ${STALLED[NUM]:-0} + CHARGE ))
                 INFLIGHT=$((INFLIGHT + 1))
+                hb_rebase "$TICKET"
                 continue
+            fi
+            # N1-315 (absorbs N1-280): model-free stall flag. A live worker whose last beacon (else its launch marker) is
+            # older than queue.stallMinutes gets one info notice per episode (.stall-<ticket>; the next beacon clears it).
+            # Usage-limit waits (above) and awaiting-human rows (earlier continue) never reach here, and settled rows
+            # were finalized above, so a late beacon's .hb for a finished row is never read. It never stops,
+            # releases or relaunches a worker and leaves WORKED and the row status alone.
+            if [ "$STALL_SECS" -gt 0 ] && [ -n "$TASK" ] && [ "$LIVE_OK" = 1 ] && [ ! -e "$N1_QUEUE_DIR/.stall-$TICKET" ] \
+                && awk -F'\t' -v d="$DISP" '$1 == d && $3 == "live" { f = 1 } END { exit !f }' <<< "$LIVE"; then
+                HB_AT=""; HB_PHASE=""; NOW=$(date +%s)
+                IFS=$'\t' read -r HB_AT HB_PHASE 2>/dev/null < "$N1_QUEUE_DIR/.hb-$TICKET" || true
+                case "$HB_AT" in ''|*[!0-9]*) HB_AT=$(stat -c %Y "$N1_QUEUE_DIR/.launch-$NUM" 2>/dev/null \
+                    || stat -f %m "$N1_QUEUE_DIR/.launch-$NUM" 2>/dev/null) ;; esac
+                if [ -n "$HB_AT" ] && [ $((NOW - HB_AT)) -gt "$STALL_SECS" ]; then
+                    AGE=$(( (NOW - HB_AT) / 60 ))
+                    : > "$N1_QUEUE_DIR/.stall-$TICKET"
+                    echo "[$NUM] $TICKET may be stalled (live, no beacon for ${AGE} min, last phase ${HB_PHASE:--})"
+                    ev stalled ticket="$TICKET" reason="phase=${HB_PHASE:--} age=${AGE}m"
+                    n1_notify info "$TICKET may be stalled: live but no beacon for $AGE min (last phase ${HB_PHASE:--})" </dev/null
+                fi
             fi
             WORKED[NUM]=$(( ${WORKED[NUM]:-0} + CHARGE ))
             if [ "${WORKED[NUM]}" -gt "$TIMEOUT_SECS" ]; then

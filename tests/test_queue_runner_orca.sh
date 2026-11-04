@@ -480,6 +480,15 @@ test_orca_usage_stall() {
     assert_eq "orca-stall-control: working worker is charged" "failed|subtask-timeout" \
         "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     rm -rf "$tmp"
+    # (e) N1-315: a usage-limit wait on a live worker whose beacon is old is not flagged stalled.
+    tmp=$(mktemp -d); orca_stall_fixture "$tmp" "$ASST" "$MARK"
+    wl_set "$tmp" "$(wl_row T-A running)"; cfg_set "$tmp" '.queue.stallMinutes = 1'
+    printf '1\timplement\n' > "$tmp/.hb-T-A"
+    run_orca_queue "$tmp" CLAUDE_CONFIG_DIR="$tmp/cc" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+    assert_eq "orca-stall-beacon: usage-limit wait is not flagged stalled" "0" "$(grep -c '"stalled"' "$tmp/events.jsonl" || true)"
+    assert_eq "orca-stall-beacon: the wait restarts the beacon baseline (no flag when the limit lifts)" "yes" \
+        "$([ "$(cut -f1 "$tmp/.hb-T-A")" -gt 1000 ] && echo yes || echo no)"
+    rm -rf "$tmp"
 }
 
 # N1-267 AC3. Bug caught: three Orca rows timing out together on one cause (a shared usage-limit wait) count as three
