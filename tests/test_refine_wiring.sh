@@ -207,4 +207,17 @@ has "N1-296: SKILL loop blurb names scope classification" 'scope classification'
 line_has "N1-296: architecture row describes decomposition" '| n1-refine |' 'Epic into Stories, Story into Sub-tasks' references/architecture.md
 has "N1-296: duplicate-check lists n1-refine as caller" 'n1-ticket, n1-story and n1-refine (before creation)' references/duplicate-check.md
 
+# --- N1-33: premise check for bug tickets
+SA=agents/solution-architect.md
+before "N1-33: premise check sits inside step 6 (bug only)" 'Bug investigation (when type is `bug`)' '**Premise check:**' "$SA"
+before "N1-33: premise check precedes the defect trace" '**Premise check:**' 'Identify the code path where the bug manifests' "$SA"
+line_has "N1-33: falsified premise counts in ticket_contradictions" '**Premise check:**' 'count it in `ticket_contradictions`' "$SA"
+line_has "N1-33: premise search uses Grep tool with \\b" '**Premise check:**' 'Grep tool using `\b` word boundaries for identifiers' "$SA"
+line_has "N1-33: premise search uses literal delimited search for punctuated names" '**Premise check:**' 'literal delimited searches for names with punctuation' "$SA"
+line_has "N1-33: premise check never uses shell grep" '**Premise check:**' 'never shell grep' "$SA"
+line_has "N1-33: unable to verify is not counted" '**Premise check:**' 'is unable to verify and is not counted' "$SA"
+line_has "N1-33: blamed-missing mechanism is confirmed, not falsified" '**Premise check:**' 'is a defect report: confirm the absence or unreachability' "$SA"
+has "N1-33: output format documents the premise line" 'claim = `premise: <mechanism>`' "$SA"
+line_has "N1-33: refine dispatch passes the resolved type" 'Dispatch persona `solution-architect`' 'Resolved ticket type: `<type from Step 3>`' "$F"
+
 exit $FAIL
