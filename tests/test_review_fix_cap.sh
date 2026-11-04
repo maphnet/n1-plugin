@@ -148,7 +148,7 @@ eq "H1 auto-accept Exhausted branch excludes open SEC findings" "1" "$(grep -cE 
 eq "H2 open SEC routes to the ask under any QE, never an [auto] row" "1" "$(grep -cE '^\*\*Exhausted\*\*.*security-class finding needs this ask under any `QE`; never an `\[auto\]` row' "$F")"
 eq "H3a no (Recommended) on option 2 for SEC" "0" "$(grep -c 'Mark (Recommended) on 2' "$F")"
 eq "H3b N1-259 wins: no SEC no-recommendation override, option 1 always recommended" "0" "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$F")"
-eq "H4 headless SEC Exhausted goes through Headless Guard, never auto-extends" "1" "$(grep -cE '^\*\*Exhausted\*\*.*Headless Guard.*never auto-extend' "$F")"
+eq "H4 Exhausted runs § Grant first (every mode); the Headless Guard path still never auto-extends" "1" "$(grep -cE '^\*\*Exhausted\*\* \(FAIL\): `procedures/review-extra-round\.md § Grant` first; `granted` skips the rest\. `QE=auto-accept` and no open.*Headless Guard.*never auto-extend' "$F")"
 eq "H5 rule: gate before every FAIL dispatch, no inline fixes, no extra developer" "1" "$(grep -cE '^\*\*Rule \(N1-260\):\*\* `n1_review_fix_gate` .*runs before every FAIL developer dispatch.*never fixes findings inline.*never dispatches a developer outside this step' "$F")"
 AUDIT_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_audit/{print NR; exit}' "$F")
 eq "W7 fix.md runs the audit in a fence before the first developer spawn" "yes" "$([ -n "$AUDIT_LN" ] && [ -n "$SPAWN_LN" ] && [ "$AUDIT_LN" -lt "$SPAWN_LN" ] && echo yes || echo no)"
@@ -271,6 +271,22 @@ ovl 2 "$GRANTED"; eq "E1 cur = max+1 with one [granted] -> true" "true" "$(n1_re
 ovl 1 "$GRANTED"; eq "E2 at the cap -> false" "false" "$(n1_review_fix_extra_round "$OV")"
 ovl 2 "$ASKED"; eq "E3 user extension, no [granted] -> false" "false" "$(n1_review_fix_extra_round "$OV")"
 ovl 3 "$GRANTED" "$ASKED"; eq "E4 past the extra round -> false" "false" "$(n1_review_fix_extra_round "$OV")"
+
+# ---- wiring: extra round (N1-345) ----
+XP=skills/n1-start/procedures/review-extra-round.md
+eq "XW1 Rule counts one [granted] row as a cap extension" "1" "$(grep -cF 'or one `[granted]` row raises `review_fix_cycle` past the cap' "$F")"
+eq "XW2 Exhausted For Human Review write merges (keeps filtered entries)" "1" "$(grep -cE '^\*\*Exhausted\*\*.*## For Human Review` to review\.md \(file-write; merge if present\)' "$F")"
+eq "XW3 Exhausted no longer replaces For Human Review" "0" "$(grep -cE '^\*\*Exhausted\*\*.*replace if present' "$F")"
+FILT_LN=$(grep -n 'procedures/review-extra-round.md § Filter' "$R" | head -1 | cut -d: -f1)
+FPNEW_LN=$(grep -n 'fp-new.tsv` with the file-write mechanism' "$R" | head -1 | cut -d: -f1)
+eq "XW4 review.md reaches § Filter before writing fp-new.tsv" "yes" "$([ -n "$FILT_LN" ] && [ -n "$FPNEW_LN" ] && [ "$FILT_LN" -le "$FPNEW_LN" ] && echo yes || echo no)"
+eq "XW5 grant fence passes the three memory paths to the helper" "1" "$(grep -cF 'FIX_GRANT=$(n1_review_fix_grant "$MEM/overview.md" "$MEM/fingerprints.jsonl" "$MEM/fix.diff")' "$XP")"
+eq "XW6 both helper fences source fingerprints.sh" "2" "$(grep -cF 'source "$N1_ROOT/lib/fingerprints.sh"' "$XP")"
+eq "XW7 the model never writes the [granted] row" "1" "$(grep -cF 'never write it yourself' "$XP")"
+eq "XW8 filter call over the orchestrator-written index file" "1" "$(grep -cF 'n1_fingerprint_filter_oos "$MEM/fingerprints.jsonl" "$CYCLE" "$MEM/fix-changed-files" "$MEM/review-prev.md" "$MEM/review-index.md" > "$MEM/review-oos.md"' "$XP")"
+eq "XW9 filter runs before fp-new.tsv, NON_CONVERGING and the verdict" "1" "$(grep -cF 'never enter `fp-new.tsv`, NON_CONVERGING or the verdict' "$XP")"
+eq "XW10 filtered lines are appended to For Human Review by a fixed command" "1" "$(grep -cF 'cat "$MEM/review-oos.md"; } >> "$MEM/review.md"' "$XP")"
+eq "XW11 Grant runs in every mode, headless and queue included" "1" "$(grep -cF 'in every mode, headless and queue included' "$XP")"
 
 # ---- summary ----
 echo "$PASS passed, $FAIL failed"
