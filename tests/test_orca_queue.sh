@@ -203,6 +203,13 @@ eq "terminal_of: listed, no handle, no marker -> rc 1" 1 "$(FAKE_WL_FILE="$T/wl-
 printf '%s' '{"ok":true,"result":{"workers":[{"dispatchId":"d-1","resource":{"terminalHandle":"term 1;x"}}]}}' > "$T/wl-bad.json"
 eq "terminal_of: unsafe handle -> rc 1" 1 "$(FAKE_WL_FILE="$T/wl-bad.json" rc n1_orca_terminal_of run-1 d-1)"
 printf '%s' '{"ok":false,"result":{"workers":[]}}' > "$T/wl-nok.json"
+printf '%s' '{"ok":true,"result":{"workers":[{"dispatchId":"d-1","resource":{"terminalHandle":"term-1"}}],"page":{"hasMore":true}}}' > "$T/wl-more.json"
+eq "terminal_of: paginated list missing the dispatch -> rc 1" 1 "$(FAKE_WL_FILE="$T/wl-more.json" rc n1_orca_terminal_of run-1 d-9)"
+eq "terminal_of: paginated list with the dispatch -> rc 0" 0 "$(FAKE_WL_FILE="$T/wl-more.json" rc n1_orca_terminal_of run-1 d-1)"
+for lit in @absent @missing; do
+    printf '%s' '{"ok":true,"result":{"workers":[{"dispatchId":"d-1","resource":{"terminalHandle":"'$lit'"}}]}}' > "$T/wl-lit.json"
+    eq "terminal_of: handle $lit -> rc 1" 1 "$(FAKE_WL_FILE="$T/wl-lit.json" rc n1_orca_terminal_of run-1 d-1)"
+done
 eq "terminal_of: non-ok receipt is never read as absent -> rc 1" 1 "$(FAKE_WL_FILE="$T/wl-nok.json" rc n1_orca_terminal_of run-1 d-1)"
 eq "terminal_of: receipt without a worker array -> rc 1" 1 "$(FAKE_WL_EMPTY=1 rc n1_orca_terminal_of run-1 d-1)"
 reset; n1_orca_ack run-1 "$J"

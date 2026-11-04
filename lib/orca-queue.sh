@@ -184,17 +184,21 @@ n1_orca_terminal_of() {
     # Usage: n1_orca_terminal_of <run> <dispatch> — N1-268: the worker's own terminal handle (worker-list
     # resource.terminalHandle), rc 0. N1-333: rc 2 = nothing to close: a readable list (ok receipt, worker array) where
     # the dispatch is absent or Orca marks it projection.stage.detail terminal_missing. rc 1 (fail closed) otherwise:
-    # an unreadable list or non-ok receipt, or a listed worker with no or an unsafe handle.
+    # an unreadable list or non-ok receipt, a paginated list (page.hasMore/nextCursor) missing the dispatch, or a listed
+    # worker with no or an unsafe handle.
     local out h
     out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration worker-list --run "$1") || return 1
     h=$(jq -r --arg d "$2" '(.result.workers // .result.dispatches // .result.items) as $w
         | if .ok == true and ($w | type) == "array" then
             ([$w[] | select((.dispatchId // .dispatch.id // .id) == $d)] | first) as $r
-            | if $r == null then "@absent"
-              elif ($r.projection.stage | if type == "object" then .detail else null end) == "terminal_missing" then "@missing"
-              else ($r.resource.terminalHandle // "" | strings) end
+            | if $r == null then
+                (if .result.page.hasMore == true or (.result.page.nextCursor // null) != null
+                 then error("incomplete worker list") else "A" end)
+              elif ($r.projection.stage | if type == "object" then .detail else null end) == "terminal_missing" then "A"
+              else "H" + ($r.resource.terminalHandle // "" | strings) end
           else error("unreadable worker list") end' <<<"$out" 2>/dev/null) || return 1
-    case "$h" in @absent|@missing) return 2 ;; esac   # marker tokens: _n1_orca_id never accepts a leading @
+    [[ "$h" == A ]] && return 2   # status prefix: A = nothing to close, H<handle> = a handle to validate
+    h=${h#H}
     _n1_orca_id "$h" || return 1
     printf '%s' "$h"
 }
