@@ -120,6 +120,7 @@ n1_orca_events() {
     # notice, emitted as type "escalation-stop" with text "stopped (<stopReason>): <body, else subject>"; a plain
     # escalation's text is its subject. The text is untrusted: control/format chars become spaces, then it is cut to
     # 300 chars. The 5th column is omitted when the text is empty (the consumer's last read variable then reads empty).
+    # N1-315: a heartbeat's text is its payload phase (hook-sent progress beacon), cut to 64 chars.
     jq -r 'def str: if type == "string" then . else "" end;
         def strip: gsub("[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff\\x{E0000}-\\x{E007F}]"; " ");
         (.result.messages // .result.batch // .result.items // [])[]?
@@ -133,6 +134,7 @@ n1_orca_events() {
         | (if $ty == "escalation-stop" then
                "stopped (" + $stop + "): " + ([.body, .subject] | map(str | select(. != "")) | .[0] // "")
            elif $ty == "escalation" then (.subject | str)
+           elif $ty == "heartbeat" then ($p.phase // "" | str | .[:64])
            else "" end | strip | .[:300]) as $x
         | ([$ty, $tid, (.id // .messageId // ""),
            ($p.dispatchId // .dispatchId // .dispatch_id // .dispatch.id // "" | str)]
