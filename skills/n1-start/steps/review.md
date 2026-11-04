@@ -27,7 +27,7 @@ Run **Ensure Dependencies(`<ID>`)** first. > **ORCHESTRATOR GUARDRAIL (review): 
 
 **Shared review core:** `review-core.md` with `BASE_BRANCH`.
 
-**Review tier gate:** If `REVIEW_TIER=SKIP`: record `"Review skipped: DOC_CONFIG_ONLY diff."` in `$N1_HOME/memory/$ID/review.md`, write `## Review` with `PASS (skipped — doc/config only)` to overview, run `n1_step_end "review" 9 "success"`, and proceed to next step. If `REVIEW_TIER=NARROW`: spawn code-reviewer with scope restricted to TQ findings only — instruct: "Scope: test quality (TQ) findings only. Do NOT review correctness, design, architecture, or style. Report only [TQ-N] findings (coverage gaps, hollow tests)." If `REVIEW_TIER=FULL`: current behavior (full code-reviewer scope).
+**Review tier gate:** If `REVIEW_TIER=SKIP`: record `"Review skipped: DOC_CONFIG_ONLY diff."` in `$N1_HOME/memory/$ID/review.md`, write `## Review` with `PASS (skipped — doc/config only)` to overview, run `n1_step_end "review" 9 "success" "{\"head\":\"$(git rev-parse HEAD)\"}"`, and proceed to next step. If `REVIEW_TIER=NARROW`: spawn code-reviewer with scope restricted to TQ findings only — instruct: "Scope: test quality (TQ) findings only. Do NOT review correctness, design, architecture, or style. Report only [TQ-N] findings (coverage gaps, hollow tests)." If `REVIEW_TIER=FULL`: current behavior (full code-reviewer scope).
 
 **Spawn PARALLEL** code-reviewer+security-reviewer (if `SECURITY_RELEVANT`). Shared: ticket.md, qa-facts.md, base branch, `$N1_HOME/memory/$ID/analysis.md`, Key Decisions+Escalations. Code-reviewer: review-spec.md+plan.md (NOT impl/brainstorm); "cold second pair of eyes"; diff `--name-only`; tier. Security-reviewer: ticket.md+file list+diff (on `INCREMENTAL=true`: fix.diff + `$FIX_FILES`).
 
@@ -59,7 +59,7 @@ if [ -r "$MEM/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.
     || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
 [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || echo "NON_CONVERGING: cycle $CYCLE"; }
 TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
-n1_step_end "review" 9 "success"
+n1_step_end "review" 9 "success" "{\"head\":\"$(git rev-parse HEAD)\"}"
 ```
 NON_CONVERGING/FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 

@@ -173,4 +173,21 @@ done
 if grep -rnF -- '--confirmed' skills/n1-pr skills/n1-start | grep -q n1_review_pin; then no "n1-pr/n1-start never bypass the review guard"; else ok "n1-pr/n1-start never bypass the review guard"; fi
 if grep -qF 'pin:refused' "$S3"; then ok "n1-pr explains pin:refused"; else no "n1-pr explains pin:refused"; fi
 
+# N1-184: both review ends record HEAD; every post-review recorder is wired after its commit.
+RV=skills/n1-start/steps/review.md
+eq "review.md: both review ends record HEAD" "2" "$(grep -cF 'n1_step_end "review" 9 "success" "{\"head\":\"$(git rev-parse HEAD)\"}"' "$RV")"
+eq "review.md: no review end without HEAD" "2" "$(grep -oF 'n1_step_end "review" 9 "success"' "$RV" | wc -l | tr -d ' ')"
+if grep -qxF 'n1_head_record "$(cat "$N1_HOME/memory/$ID/pre-fix-sha")"' skills/n1-start/steps/fix.md; then ok "fix.md records the soft-fix head"; else no "fix.md records the soft-fix head"; fi
+P1=skills/n1-pr/steps/01-prepare.md
+DW=$(grep -nF 'git rev-parse HEAD > "$N1_HOME/memory/$ID/docs-from-sha"' "$P1" | head -1 | cut -d: -f1)
+TW=$(grep -nF '### Spawn tech-writer Phase 1 with:' "$P1" | head -1 | cut -d: -f1)
+DR=$(grep -nxF 'n1_head_record "$(cat "$N1_HOME/memory/${ID:-}/docs-from-sha" 2>/dev/null)"' "$P1" | head -1 | cut -d: -f1)
+if [ -n "$DW" ] && [ -n "$TW" ] && [ -n "$DR" ] && [ "$DW" -lt "$TW" ] && [ "$TW" -lt "$DR" ]; then ok "n1-pr records the doc-commit head around tech-writer"; else no "n1-pr records the doc-commit head around tech-writer"; fi
+P2=skills/n1-pr/steps/02-push-create.md
+PR0=$(grep -nxF 'PRE_REBASE=$(git rev-parse HEAD)' "$P2" | head -1 | cut -d: -f1)
+RB=$(grep -nxF 'git rebase origin/${DEFAULT_BRANCH} && n1_head_record "$PRE_REBASE"' "$P2" | head -1 | cut -d: -f1)
+if [ -n "$PR0" ] && [ -n "$RB" ] && [ "$PR0" -lt "$RB" ]; then ok "n1-pr records the head only after a clean rebase"; else no "n1-pr records the head only after a clean rebase"; fi
+if grep -qF 'unreviewed-head' "$S3"; then ok "n1-pr explains pin:refused unreviewed-head"; else no "n1-pr explains pin:refused unreviewed-head"; fi
+if grep -qF '| 0 | `head` |' skills/n1-start/procedures/telemetry.md; then ok "telemetry.md documents the head event"; else no "telemetry.md documents the head event"; fi
+
 exit $FAIL
