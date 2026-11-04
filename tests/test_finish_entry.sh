@@ -240,10 +240,12 @@ CFG='{"tracker":{"prefix":"T","mcp":"maphnet-jc-mcp","statuses":{"done":"Done"}}
 cfgok() { if grep -qxF "tracker.mcp=maphnet-jc-mcp" <<<"$OUT" && grep -qxF "tracker.statuses.done=Done" <<<"$OUT"; then ok "$1"; else no "$1"; fi; }
 ENTRYX=$(sed 's/\$1/chained/g' <<<"$ENTRY") TCH=yes run "$CFG" 'deploy_pending: false'
 cfgok "args '<ID> chained': real config values"
-run "$CFG" 'deploy_pending: false'
+ENTRYX=$(sed 's/\$1//g' <<<"$ENTRY") run "$CFG" 'deploy_pending: false'
 cfgok "args '<ID>': real config values"
-TID= run "$CFG" 'deploy_pending: false'
+ENTRYX=$(sed 's/\$1//g' <<<"$ENTRY") TID= run "$CFG" 'deploy_pending: false'
 cfgok "no args: real config values"
 has "no args: id derived from branch" "id=T-1"
+# Self-check: the empty-$1 substitution used above really rewrites a $1 reference.
+if [[ $(sed 's/\$1//g' <<<'c() { n1_config_val ".$1"; }') != *'$1'* ]]; then ok "substitution helper rewrites \$1"; else no "substitution helper rewrites \$1"; fi
 
 exit $FAIL
