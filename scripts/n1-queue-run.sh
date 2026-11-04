@@ -908,6 +908,7 @@ launch_orca() {
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "orca-task-create"
         return
     fi
+    rm -f "$N1_QUEUE_DIR/.hb-$TICKET" "$N1_QUEUE_DIR/.stall-$TICKET"   # N1-315: a late beacon after finalize must not be the new baseline
     if ! printf '%s %s\n' "$RUN_ID" "$TASK" > "$N1_QUEUE_DIR/.launch-$NUM" \
         || ! n1_orca_sentinel_write "$N1H" "$TICKET" "$REPO" "$RUN_ID" "$ORCA_RUN" "$TASK" \
         || { [ -n "$WT" ] && ! n1_orca_sentinel_set "$N1H" "$TICKET" N1_ORCA_RESUME 1; }; then

@@ -113,6 +113,15 @@ test_orca_stall_flag() {
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
     assert_eq "stall: stallMinutes 0 disables" "0" "$(stalls "$tmp")"
     rm -rf "$tmp"
+    # (i) a fresh launch with an old beacon left behind (late beacon after an earlier finalize): the launch clears it,
+    # so the new worker's baseline is its launch marker and it is not flagged.
+    tmp=$(mktemp -d); mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"; wl_set "$tmp" "$(wl_row T-A running)"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600 | .queue.stallMinutes = 1'
+    : > "$tmp/fake/nodone.T-A"; printf -- '---\nstep: implement\n---\n' > "$tmp/fake/overview.T-A"
+    printf '1\timplement\n' > "$tmp/.hb-T-A"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+    assert_eq "stall: launch clears an old beacon" "in-progress|0" "$(plan_cell "$tmp/queue.md" 1 8)|$(stalls "$tmp")"
+    rm -rf "$tmp"
 }
 
 test_beacon_lines() {   # N1-315 AC3: --status shows the last phase and its age for in-progress rows with a beacon
