@@ -490,6 +490,8 @@ chain_clean() {
         && sid=$(n1_queue_parse_launch "$out") && [ -n "$sid" ]; then
         echo "[$1] $2 n1-clean launched ($sid)"
     else
+        rm -f "$marker"
+        ev ticket_cleanup ticket="$2" outcome=failed reason="launch-failed"
         echo "[$1] $2 n1-clean launch-failed (run /n1:n1-clean --ticket $2)"
     fi
 }

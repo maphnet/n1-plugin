@@ -42,6 +42,10 @@ eq "K1: no step event when unbound" no "$(yn test -d "$N1_HOME/memory/K-1/teleme
 eq "K2: re-run no-ops" "worktree:none,branch:none" "$(ct K-1 "$(printf 'MERGED\tb1\t%s\tmain' "$(rev main)")")"
 eq "K2: real record survives no-op" "- **Cleanup:** worktree:removed, branch:deleted ($T/k1)" "$(cl K-1)"
 eq "K2: single Cleanup line" 1 "$(grep -c '^- \*\*Cleanup:\*\*' "$N1_HOME/memory/K-1/overview.md")"
+# K2b: a verified no-op replaces an earlier kept/failed record.
+ov K-2b; printf '## Finish\n- **Cleanup:** worktree:kept (dirty), branch:kept (not merged)\n' >> "$N1_HOME/memory/K-2b/overview.md"
+ct K-2b "$(printf 'MERGED\tb1\t%s\tmain' "$(rev main)")" >/dev/null
+eq "K2b: no-op resolves prior kept" "- **Cleanup:** worktree:none, branch:none" "$(cl K-2b)"
 # K3/K4: OPEN or CLOSED PR: nothing touched, no overview line.
 wt "$T/k3" b3; echo x > "$T/k3/d"; ov K-3
 eq "K3: open PR skipped" "cleanup:skipped (pr-not-merged)" "$(ct K-3 "$(printf 'OPEN\tb3\t%s\tmain' "$(rev b3)")")"

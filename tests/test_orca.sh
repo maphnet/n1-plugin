@@ -268,6 +268,10 @@ hasnt "F6: never forced" "--force" "$(calls)"
 reset; eq "F7: orca-unreachable kept" "worktree:kept (orca-unreachable),branch:kept (checked out in $F7)" "$(_N1_ORCA_ACTIVE= FAKE_ORCA_DOWN=1 run_main fb7)"
 hasnt "F7: no removal call" "worktree rm" "$(calls)"
 eq "F7: dir kept" yes "$([ -d "$F7" ] && echo yes || echo no)"
+# N1-339: unreachable runtime also keeps an N1-managed (force-mode) worktree, finish trigger included.
+F7B="$M/$(n1_worktree_root)/fin7b"; fin "$F7B" fb7b
+reset; eq "F7b: managed tree kept when unreachable" "worktree:kept (orca-unreachable)" "$(cd "$M" && _N1_ORCA_ACTIVE= FAKE_ORCA_DOWN=1 n1_finish_cleanup fb7b "" main 2>/dev/null | head -n1)"
+eq "F7b: managed dir kept" yes "$([ -d "$F7B" ] && echo yes || echo no)"
 # N1-339 self-kill ordering: inside the Orca target, the Cleanup line exists before `worktree rm` runs.
 F8="$T/wts/fin8"; fin "$F8" fb8; orca_list "$WO=X-4" "$F8"
 mkdir -p "$N1_HOME/memory/F-8"; printf -- '---\nstep: done\n---\n## Finish\npr_url: x\n' > "$N1_HOME/memory/F-8/overview.md"

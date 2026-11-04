@@ -55,6 +55,21 @@ test_bg_chain_clean_marker() {
     rm -rf "$tmp"
 }
 
+# N1-339: a failed n1-clean launch records a failure event and leaves no marker, so a retry is possible.
+test_bg_chain_clean_launch_failed() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:working done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo done > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    touch "$tmp/fake/refuse-clean"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "N1-339: failed launch -> no marker" no "$([ -e "$tmp/.cleaned-T-A" ] && echo yes || echo no)"
+    assert_eq "N1-339: failed launch -> failure event" 1 \
+        "$(jq -r 'select(.event == "ticket_cleanup" and .outcome == "failed") | .ticket' "$tmp/events.jsonl" | grep -c T-A)"
+    rm -rf "$tmp"
+}
+
 test_bg_chain_clean_done() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:working done"
@@ -460,6 +475,7 @@ test_bg_held_merge_at_timeout
 test_bg_chain_merges
 test_bg_chain_sync_ok
 test_bg_chain_clean_marker
+test_bg_chain_clean_launch_failed
 test_bg_chain_clean_done
 test_bg_chain_pr_closed
 test_bg_chain_pr_state_retry

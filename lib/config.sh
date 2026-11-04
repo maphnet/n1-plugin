@@ -963,7 +963,7 @@ _n1_clean_gate() {
     if n1_orca_owns "$top"; then mode=orca
     else
         case "$top" in "$main/$(n1_worktree_root)"/*) mode=force; [ "$nof" = 1 ] && mode=managed ;; esac
-        [ "$mode" = plain ] && [ -n "${ORCA_CLI_COMMAND:-}" ] && [ -x "$ORCA_CLI_COMMAND" ] && ! n1_orca_active && keep="orca-unreachable"
+        [ -n "${ORCA_CLI_COMMAND:-}" ] && [ -x "$ORCA_CLI_COMMAND" ] && ! n1_orca_active && keep="orca-unreachable"
     fi
     if [ -z "$keep" ] && [ "$mode" != force ]; then
         if ! st=$(git -C "$top" status --porcelain --ignored 2>/dev/null) || [ -n "$(grep -v '^!!' <<<"$st")" ]; then keep="dirty"
@@ -1022,11 +1022,14 @@ n1_finish_cleanup() {
 # results are not written there), rewrites finish-report.md's Cleanup line, emits the cleanup step event (bound run
 # only: an unbound run id is never merged) and the queue ticket_cleanup event (queue env only). Best effort, rc 0.
 _n1_clean_record() {
-    local id="$1" trig="$2" toks="$3" path="$4" mode="$5" mem ov rep tmp outcome wt br reason
+    local id="$1" trig="$2" toks="$3" path="$4" mode="$5" mem ov rep tmp outcome wt br reason prev
     mem="$(n1_home)/memory/$id"; ov="$mem/overview.md"; rep="$mem/finish-report.md"
-    # A no-op re-run never overwrites an earlier real record (overview line, or a non-pending report line).
-    if [ "$toks" = "worktree:none, branch:none" ] && { grep -q '^- \*\*Cleanup:\*\*' "$ov" 2>/dev/null \
-        || grep '^Cleanup:' "$rep" 2>/dev/null | grep -qv '<pending>'; }; then return 0; fi
+    # A no-op re-run never overwrites an earlier successful record (overview line, or a non-pending report line); a
+    # verified no-op does replace an earlier kept / failed / skipped one.
+    if [ "$toks" = "worktree:none, branch:none" ]; then
+        prev=$(grep '^- \*\*Cleanup:\*\*' "$ov" 2>/dev/null; grep '^Cleanup:' "$rep" 2>/dev/null | grep -v '<pending>')
+        [ -n "$prev" ] && ! grep -qE 'kept|remove-failed|cleanup:skipped' <<<"$prev" && return 0
+    fi
     case "$toks" in *remove-failed*) outcome=failed ;; worktree:kept*|*branch:kept*|cleanup:skipped*) outcome=skipped ;; *) outcome=success ;; esac
     if [ -f "$ov" ] && [ "${toks#cleanup:skipped}" = "$toks" ] && tmp=$(mktemp "$ov.XXXXXX"); then
         L="- **Cleanup:** $toks${path:+ ($path)}" awk '/^## /{s = /^## Finish\r?$/} s && /^- \*\*Cleanup:\*\*/{next} {print}
