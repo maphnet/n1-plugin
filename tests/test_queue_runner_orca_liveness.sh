@@ -4,7 +4,7 @@
 set -euo pipefail
 source "$(dirname "$0")/queue_runner_lib.sh"
 
-test_orca_heartbeat() {   # AC3: a stray heartbeat is acked and ignored; heartbeat-only ticks charge real elapsed time
+test_orca_heartbeat() {   # AC3/N1-315: a heartbeat is acked and stored as the row's beacon; heartbeat-only ticks charge real elapsed time
     local tmp; tmp=$(mktemp -d)
     # (a) A batch carrying a heartbeat is acked (row parked, so not finalized).
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
@@ -19,10 +19,20 @@ test_orca_heartbeat() {   # AC3: a stray heartbeat is acked and ignored; heartbe
     # (subtaskTimeoutMinutes=1, pollSeconds=30 must not time the worker out within seconds).
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
     echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
-    jq -cn '{id: "m-hb1", type: "heartbeat", payload: ({taskId: "task-T-A", dispatchId: "d-T-A"} | tojson)}' > "$tmp/fake/heartbeat"
+    jq -cn '{id: "m-hb1", type: "heartbeat", payload: ({taskId: "task-T-A", dispatchId: "d-T-A", phase: "implement/developer"} | tojson)}' > "$tmp/fake/heartbeat"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
     assert_eq "orca-hb-only: early heartbeat returns do not charge a full poll (no early timeout)" "no" \
         "$([ "$(plan_cell "$tmp/queue.md" 1 9)" = subtask-timeout ] && echo yes || echo no)"
+    assert_eq "orca-hb-only: beacon stored as <epoch>\\t<phase>" "yes|implement/developer" \
+        "$(IFS=$'\t' read -r a p 2>/dev/null < "$tmp/.hb-T-A"; [[ "${a:-}" =~ ^[0-9]+$ ]] && echo "yes|${p:-}" || echo "no|${p:-}")"
+    rm -rf "$tmp"; tmp=$(mktemp -d)
+    # (c) finalize removes the beacon and stall markers (a retry must not inherit them). No heartbeat message is
+    # injected, so only finalize can remove the pre-made files (the heartbeat arm would also clear .stall).
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    printf '1\tpr\n' > "$tmp/.hb-T-A"; : > "$tmp/.stall-T-A"
+    assert_eq "orca-hb-final: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-hb-final: finalize removes .hb and .stall" "no|no" \
+        "$([ -e "$tmp/.hb-T-A" ] && echo yes || echo no)|$([ -e "$tmp/.stall-T-A" ] && echo yes || echo no)"
 
     rm -rf "$tmp"
 }

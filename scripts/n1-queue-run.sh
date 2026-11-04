@@ -238,7 +238,8 @@ finalize() {
     chain_child_escalated "$TICKET" "$N1H" && CHAIN_ESC="$TICKET"
     # Persist it too: a runner restart loses CHAIN_ESC and the question files are removed below.
     if [ -n "$CHAIN_ESC" ]; then : > "$N1_QUEUE_DIR/.escalated-$TICKET"; else rm -f "$N1_QUEUE_DIR/.escalated-$TICKET"; fi
-    rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM" "$N1_QUEUE_DIR/.ask-$TICKET"
+    rm -f "$N1_QUEUE_DIR/.question-$TICKET.json" "$N1_QUEUE_DIR/.relay-$TICKET" "$N1_QUEUE_DIR/.launch-$NUM" "$N1_QUEUE_DIR/.ask-$TICKET" \
+        "$N1_QUEUE_DIR/.hb-$TICKET" "$N1_QUEUE_DIR/.stall-$TICKET"
     # N1-225: an Orca row's identity is never removed here: a timed-out worker may still be running. orca_settle
     # removes it once the worker reported done, is durably finished, or is proven exited.
     # Marks the ticket as queue-handled; intake excludes it until the tag release is confirmed.
@@ -1064,6 +1065,11 @@ run_orca() {
                 escalation-stop)
                     echo "[orca] $T worker stopped without reporting (row unchanged)"
                     ev worker_stopped ticket="$T" reason="$EXTRA" ;;
+                # N1-315: a hook-sent progress beacon (bound to the Runs-row dispatch above). Receive time on the runner's
+                # clock plus the phase; it settles nothing. A beacon ends a stall episode.
+                heartbeat)
+                    printf '%s\t%s\n' "$(date +%s)" "${EXTRA:--}" > "$N1_QUEUE_DIR/.hb-$T"
+                    rm -f "$N1_QUEUE_DIR/.stall-$T" ;;
             esac
         done 3<<< "$EVS"
         n1_orca_ack "$ORCA_RUN" "$BATCH"
