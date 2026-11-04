@@ -47,6 +47,7 @@ case "$1 $2" in
   "reference find") cat "$FAKE/refs.json" ;;
   "reference add") ok '{}' ;;
   "worktree rm")
+      [ -n "${FAKE_ORCA_RM_SNAP:-}" ] && cp "$FAKE_ORCA_RM_SNAP" "$FAKE/rm-snap"
       [ -n "${FAKE_ORCA_RM_FAIL:-}" ] && err "rm refused"
       p=""; while [ $# -gt 0 ]; do [ "$1" = --worktree ] && p="${2#path:}"; shift; done
       c=$(cd "$p" && cd "$(git rev-parse --git-common-dir)" && pwd -P) || err "no repo"
@@ -267,6 +268,13 @@ hasnt "F6: never forced" "--force" "$(calls)"
 reset; eq "F7: orca-unreachable kept" "worktree:kept (orca-unreachable),branch:kept (checked out in $F7)" "$(_N1_ORCA_ACTIVE= FAKE_ORCA_DOWN=1 run_main fb7)"
 hasnt "F7: no removal call" "worktree rm" "$(calls)"
 eq "F7: dir kept" yes "$([ -d "$F7" ] && echo yes || echo no)"
+# N1-339 self-kill ordering: inside the Orca target, the Cleanup line exists before `worktree rm` runs.
+F8="$T/wts/fin8"; fin "$F8" fb8; orca_list "$WO=X-4" "$F8"
+mkdir -p "$N1_HOME/memory/F-8"; printf -- '---\nstep: done\n---\n## Finish\npr_url: x\n' > "$N1_HOME/memory/F-8/overview.md"
+rm -f "$FAKE/rm-snap"
+(cd "$F8" && FAKE_ORCA_RM_SNAP="$N1_HOME/memory/F-8/overview.md" n1_clean_ticket F-8 finish fb8 "$(git -C "$M" rev-parse fb8)" main >/dev/null)
+has "F8: record written before rm" "- **Cleanup:** worktree:removed, branch:kept (checked out in $F8)" "$(cat "$FAKE/rm-snap" 2>/dev/null)"
+has "F8: surviving session overwrites with real tokens" "- **Cleanup:** worktree:removed, branch:deleted ($F8)" "$(cat "$N1_HOME/memory/F-8/overview.md")"
 
 # ---- static wiring ----
 cd "$REPO_ROOT"

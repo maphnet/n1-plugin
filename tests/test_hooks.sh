@@ -302,7 +302,7 @@ done
 # N1-230 SEC-2: tail-worker merge/cleanup/release denied even when merging is authorized
 cfg '{"finishWork":{"mergeOnFinish":true},"autonomy":{"fullAuto":true}}'
 tw_rc() { policy_rc @agent_type=n1:tail-worker -- "$1"; }  # N1-321: served by the policy server (payload variant)
-for c in "gh pr merge 12" "git push origin main" "source ~/.n1/preamble.sh; n1_finish_cleanup a b c" "n1_active_run_clear"; do
+for c in "gh pr merge 12" "git push origin main" "source ~/.n1/preamble.sh; n1_finish_cleanup a b c" "n1_active_run_clear" "source ~/.n1/preamble.sh; n1_clean_ticket T-1 finish a b c" "claude --bg '/n1:n1-clean --ticket T-1'"; do
     assert_eq "tail-worker denied with merge authorized: $c" 2 "$(tw_rc "$c")"
 done
 assert_eq "tail-worker plain command allowed" 0 "$(tw_rc "gh pr view 12")"

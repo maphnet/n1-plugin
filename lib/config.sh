@@ -1015,6 +1015,86 @@ n1_finish_cleanup() {
     return 0
 }
 
+# N1-339: record a cleanup outcome. Usage: _n1_clean_record <ID> <trigger> <tokens joined by ", "> <path> <mode>
+# Upserts "- **Cleanup:**" as the first line of overview ## Finish (appending a minimal ## Finish when absent; skipped
+# results are not written there), rewrites finish-report.md's Cleanup line, emits the cleanup step event (bound run
+# only: an unbound run id is never merged) and the queue ticket_cleanup event (queue env only). Best effort, rc 0.
+_n1_clean_record() {
+    local id="$1" trig="$2" toks="$3" path="$4" mode="$5" mem ov rep tmp outcome wt br reason
+    mem="$(n1_home)/memory/$id"; ov="$mem/overview.md"; rep="$mem/finish-report.md"
+    case "$toks" in *remove-failed*) outcome=failed ;; worktree:kept*|cleanup:skipped*) outcome=skipped ;; *) outcome=success ;; esac
+    if [ -f "$ov" ] && [ "${toks#cleanup:skipped}" = "$toks" ] && tmp=$(mktemp "$ov.XXXXXX"); then
+        L="- **Cleanup:** $toks${path:+ ($path)}" awk '/^## /{s = /^## Finish\r?$/} s && /^- \*\*Cleanup:\*\*/{next} {print}
+            /^## Finish\r?$/{print ENVIRON["L"]; d = 1} END{if (!d) {print ""; print "## Finish"; print ENVIRON["L"]}}' "$ov" > "$tmp" \
+            && mv "$tmp" "$ov" || rm -f "$tmp"
+    fi
+    if [ -f "$rep" ] && tmp=$(mktemp "$rep.XXXXXX"); then
+        L="Cleanup: $toks" awk '/^Cleanup:/{print ENVIRON["L"]; next} {print}' "$rep" > "$tmp" && mv "$tmp" "$rep" || rm -f "$tmp"
+    fi
+    wt="${toks%%, branch:*}"; br=""; case "$toks" in *", branch:"*) br="branch:${toks##*, branch:}" ;; esac
+    reason=$(sed -n 's/^[^(]*(\(.*\))$/\1/p' <<<"$wt")
+    if [ -n "${N1_RUN_ID:-}" ]; then
+        n1_emit_step_event "$N1_RUN_ID" "${N1_VERSION:-}" "$id" cleanup 18 "$mem/telemetry" outcome="$outcome" completed_at=now \
+            metadata="$(jq -cn --arg worktree "$wt" --arg reason "$reason" --arg path "$path" --arg branch "$br" \
+                --argjson orca "$([ "$mode" = orca ] && echo true || echo false)" --arg trigger "$trig" --arg cwd "$PWD" \
+                '{worktree:$worktree,reason:$reason,path:$path,branch:$branch,orca:$orca,trigger:$trigger,cwd:$cwd}')" 2>/dev/null || true
+    fi
+    if [ -n "${N1_QUEUE_DIR:-}" ] && [ -n "${N1_QUEUE_RUN_ID:-}" ] && [ -d "$N1_QUEUE_DIR" ]; then
+        declare -F n1_queue_event >/dev/null || source "${BASH_SOURCE[0]%/*}/queue.sh" 2>/dev/null
+        n1_queue_event "$N1_QUEUE_DIR/events.jsonl" "${N1_QUEUE_DIR##*/}" "$N1_QUEUE_RUN_ID" ticket_cleanup ticket="$id" \
+            outcome="$outcome" reason="$toks${path:+; $path}" session="${N1_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}" 2>/dev/null || true
+    fi
+    return 0
+}
+
+# N1-339: ticket-keyed cleanup, the one entry point for n1-finish (last action), n1-clean --ticket and n1-clean general mode.
+# Usage: n1_clean_ticket <ID> <finish|clean|queue|general> [<headRef> <oid> <defaultBranch>]
+# finish passes the PR facts it already has (local merge: empty oid). Other triggers read pr_url from overview
+# (## Pending or ## Finish), require gh state MERGED and take headRefName/headRefOid/baseRefName from it; anything else
+# prints one "cleanup:skipped (<why>)" line and touches nothing. Never fuzzy, never cwd: n1_finish_cleanup's exact
+# branch match. Inside an Orca-owned target the predicted outcome is recorded BEFORE the removal, because Orca's rm
+# kills the terminal (and this session) running there; a surviving session overwrites it with the real tokens.
+n1_clean_ticket() {
+    local id="${1:-}" trig="${2:-clean}" hr="${3:-}" oid="${4:-}" def="${5:-}"
+    local url="" res="" st="" a main top="" gate="" out toks wp b=""
+    [[ "$id" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]] || id=""
+    if [ "$trig" != finish ]; then
+        [ -n "$id" ] || { echo "cleanup:skipped (invalid-id)"; return 0; }
+        url=$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$(n1_home)/memory/$id/overview.md" 2>/dev/null)
+        if ! [[ "$url" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]]; then st=no-pr
+        else
+            for a in 1 2 3; do
+                res=$(timeout 30 gh pr view --json state,headRefName,headRefOid,baseRefName -q '[.state,.headRefName,.headRefOid,.baseRefName] | @tsv' -- "$url" </dev/null 2>/dev/null) || res=""
+                [ -n "$res" ] && break
+                [ "$a" -lt 3 ] && sleep $((a * 2))
+            done
+            IFS=$'\t' read -r st hr oid def <<<"$res"
+            case "$st" in MERGED) st="" ;; "") st=pr-unreadable ;; *) st=pr-not-merged ;; esac
+            [[ "$hr" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$def" =~ ^[A-Za-z0-9._/-]+$ ]] || st="${st:-pr-unreadable}"
+        fi
+        if [ -n "$st" ]; then _n1_clean_record "$id" "$trig" "cleanup:skipped ($st)" "" ""; echo "cleanup:skipped ($st)"; return 0; fi
+    fi
+    [ -n "$id" ] || { n1_finish_cleanup "$hr" "$oid" "$def"; return 0; }
+    main=$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+    top=$(_n1_wt_holder "$hr"); [ "$top" = "$main" ] && top=""
+    [ -n "$top" ] && gate=$(_n1_clean_gate "$top" "$main" "$oid" "$def")
+    if [ "$gate" = $'orca\t' ] && case "$(pwd -P)/" in "$top"/*) true ;; *) false ;; esac; then
+        _n1_clean_record "$id" "$trig" "worktree:removed, branch:kept (checked out in $top)" "$top" orca
+    fi
+    out=$(n1_finish_cleanup "$hr" "$oid" "$def")
+    [ -d "$PWD" ] || cd "$main" 2>/dev/null || true
+    if [ -z "$top" ]; then
+        # A detached (or re-branched) workspace_path worktree cannot be located by branch: report it, never remove it.
+        wp=$(sed -n 's/^workspace_path: *//p' "$(n1_home)/memory/$id/overview.md" 2>/dev/null | head -1)
+        [ -n "$wp" ] && b=$(_n1_wt_records | tail -n +2 | P="$wp" awk -F'\t' '$1 == ENVIRON["P"] {print ($2 == "" ? "detached" : substr($2, 12)); exit}')
+        [ -n "$b" ] && out="${out/worktree:none/worktree:kept (workspace_path $wp holds $b)}"
+    fi
+    toks="${out//$'\n'/, }"
+    _n1_clean_record "$id" "$trig" "$toks" "$top" "${gate%%$'\t'*}"
+    printf '%s\n' "$out"
+    return 0
+}
+
 escape_json_val() {
     local s="$1"
     s="${s//\\/\\\\}"
