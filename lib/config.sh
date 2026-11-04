@@ -1185,6 +1185,8 @@ n1_active_run_ticket() {
     jq -r '.ticketId // empty | strings' "$f" 2>/dev/null || true
 }
 
+# pid: $PPID of the sourced call shell = this session's claude process (N1-308 owner check);
+# appended last so the compact "runId":"..." form n1_active_run_clear_if greps stays intact.
 n1_active_run_write() {
     local ticket_id="$1" run_id="$2" worktree_path="${3:-null}" branch="${4:-}"
     local file
@@ -1196,7 +1198,7 @@ n1_active_run_write() {
     esc_run=$(escape_json_val "$run_id")
     esc_branch=$(escape_json_val "$branch")
     cat > "$file" <<AREOF
-{"ticketId":"${esc_ticket}","runId":"${esc_run}","worktreePath":${wt_val},"branch":"${esc_branch}"}
+{"ticketId":"${esc_ticket}","runId":"${esc_run}","worktreePath":${wt_val},"branch":"${esc_branch}","pid":${PPID}}
 AREOF
 }
 
@@ -1223,6 +1225,66 @@ n1_active_run_clear_if() {
     f=$(n1_active_run_file) || return 0
     case "$f" in */active-run.json) return 0 ;; esac
     grep -qF "\"runId\":\"$1\"" "$f" 2>/dev/null && rm -f "$f"
+    return 0
+}
+
+# _n1_owner_alive <pid> (N1-308): rc 0 when <pid> is a live claude process. kill -0 must pass;
+# where /proc/<pid>/cmdline is readable it must contain "claude" (cmdline, not comm: bg-hosted
+# sessions have comm = the version string). Unreadable /proc: kill -0 stands (n1_queue_runner_alive model).
+# ponytail: an owner whose recorded pid is not a claude process (unverified `claude --bg` call-shell
+# shape) reads dead and is taken over silently; walk up to the claude ancestor if a bg probe shows that.
+_n1_owner_alive() {
+    case "$1" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$1" 2>/dev/null || return 1
+    [ -r "/proc/$1/cmdline" ] || return 0
+    case "$(tr '\0' ' ' < "/proc/$1/cmdline" 2>/dev/null)" in *claude*) return 0 ;; esac
+    return 1
+}
+
+# n1_owner_check <ID> (N1-308): does another live session run n1-start on <ID>? Scans
+# $N1_HOME/active-run.*.json; prints owner:self | owner:free | owner:stale-takeover, or
+# owner:live <sid> <pid> with rc 1. Never an owner: own-sid file, runId n1-finish (n1_finish_mark),
+# pid == $PPID (this claude process under a new sid), missing/non-numeric pid (legacy pointer).
+# Dead pid: stale, left on disk; the caller's own n1_active_run_write takes over. Headless live: also
+# prints a HEADLESS ESCALATION line and appends to overview.md only when it already exists (no new
+# memory write). Fail-open: no home or no jq -> owner:free. Run in the sourced call shell ($PPID).
+# ponytail: check-then-write; two sessions starting one ticket in the same second both pass.
+# A hard-link claim file closes the gap if simultaneous starts ever happen.
+n1_owner_check() {
+    local id="$1" home sid f fsid t r p stale="" own="" ov
+    home=$(n1_home) && [ -n "$home" ] || { echo owner:free; return 0; }
+    command -v jq >/dev/null 2>&1 || { echo owner:free; return 0; }
+    sid=$(n1_session_id)
+    for f in "$home"/active-run.*.json; do
+        [ -f "$f" ] || continue
+        fsid=${f##*/active-run.}; fsid=${fsid%.json}
+        case "$fsid" in ''|*[!a-zA-Z0-9_-]*) continue ;; esac
+        t=""; r=""; p=""
+        { IFS= read -r t; IFS= read -r r; IFS= read -r p; } \
+            < <(jq -r '(.ticketId // ""), (.runId // ""), ((.pid // "") | tostring)' "$f" 2>/dev/null) || :
+        [ -n "$t" ] && [ "$t" = "$id" ] || continue
+        [ "$fsid" = "$sid" ] && { own=1; continue; }
+        [ "$r" = n1-finish ] && continue
+        case "$p" in ''|*[!0-9]*) continue ;; esac
+        [ "$p" = "$PPID" ] && { own=1; continue; }
+        if _n1_owner_alive "$p"; then
+            echo "owner:live $fsid $p"
+            if [ "${N1_HEADLESS:-}" = 1 ]; then
+                echo "HEADLESS ESCALATION: $id owned by live session $fsid (pid $p)"
+                ov="$home/memory/$id/overview.md"
+                if [ -f "$ov" ]; then
+                    declare -F n1_append_escalation >/dev/null || source "${BASH_SOURCE[0]%/*}/memory.sh" 2>/dev/null
+                    n1_append_escalation "$ov" "- [headless] owner: $id owned by live session $fsid (pid $p)" 2>/dev/null || :
+                fi
+            fi
+            return 1
+        fi
+        stale=1
+    done
+    if [ -n "$stale" ]; then echo owner:stale-takeover
+    elif [ -n "$own" ]; then echo owner:self
+    else echo owner:free
+    fi
     return 0
 }
 
