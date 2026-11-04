@@ -233,6 +233,18 @@ for loc in '/abs/untouched.sh:1' 'a/untouched.sh:1' 'b/untouched.sh:1' 'untouche
 done
 printf 'Index:\n- [CR-7] High untouched.sh:1 — plain\n' > "$IDX"
 eq "FL11b plain repo path is filtered" "CR-7" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX" | ids)"
+# Security-class title under a CR id stays; plain title still filtered
+printf 'Index:\n- [CR-8] High untouched.sh:1 — SQL Injection in lookup\n- [CR-9] High untouched.sh:2 — Missing AuthZ check\n' > "$IDX"
+eq "FL12 security-class title under a CR id stays" "" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX" | ids)"
+eq "FL12b both lines kept in the index" "CR-8 CR-9" "$(ids < "$IDX")"
+printf 'Index:\n- [CR-8] High untouched.sh:1 — Rename helper for clarity\n' > "$IDX"
+eq "FL12c plain title is still filtered" "CR-8" "$(n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX" | ids)"
+# Write failure keeps the original index and fails
+printf 'Index:\n- [CR-8] High untouched.sh:1 — Rename helper for clarity\n' > "$IDX"; cp "$IDX" "$T/idx.before"
+( trap '' XFSZ; ulimit -f 0; n1_fingerprint_filter_oos "$FPJ" 2 "$FX" "$PREV" "$IDX" >/dev/null 2>&1 ); WRC=$?
+eq "FL13 failed temp write returns non-zero" "1" "$([ "$WRC" -ne 0 ] && echo 1 || echo 0)"
+eq "FL13b original index preserved" "same" "$(cmp -s "$IDX" "$T/idx.before" && echo same || echo changed)"
+eq "FL13c no temp file left" "0" "$(ls "$IDX".* 2>/dev/null | wc -l | tr -d ' ')"
 
 # ---- extra round grant (N1-345): one automatic extra FAIL cycle at the cap ----
 cfg '{}'

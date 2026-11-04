@@ -37,7 +37,7 @@ n1_fingerprint_filter_oos "$MEM/fingerprints.jsonl" "$CYCLE" "$MEM/fix-changed-f
 echo "OOS=$(grep -c '^- \[' "$MEM/review-oos.md")"
 ```
 
-Read `review-index.md`: its lines alone are this review's findings for `fp-new.tsv`, the summed counts, the verdict and the review-hdr.md Index. Only a finding with a new id or a new file (same id and file open in review-prev.md counts as old) in a single repo-relative path the fix did not change is removed; `[SEC-N]` lines are never filtered, so security findings always stay in the loop. The removed findings are new and sit in files the fix did not change, so they never enter `fp-new.tsv`, NON_CONVERGING or the verdict. `OOS` above 0: right after the review.md block that cats review.md, run:
+Read `review-index.md`: its lines alone are this review's findings for `fp-new.tsv`, the summed counts, the verdict and the review-hdr.md Index. Only a finding with a new id or a new file (same id and file open in review-prev.md counts as old) in a single repo-relative path the fix did not change is removed; `[SEC-N]` lines and any finding whose title names a security class (auth, crypto, input validation, secret/token, network/HTTP, serialization, path/file handling, SQL/injection, shell/command, XSS/CSRF, race/TOCTOU, symlink, privilege, eval, sandbox, untrusted input; case-insensitive substring, any id prefix) are never filtered, so security findings always stay in the loop. The removed findings are new and sit in files the fix did not change, so they never enter `fp-new.tsv`, NON_CONVERGING or the verdict. `OOS` above 0: right after the review.md block that cats review.md, run:
 
 ```bash
 source ~/.n1/preamble.sh
