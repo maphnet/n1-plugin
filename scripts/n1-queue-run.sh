@@ -57,7 +57,22 @@ if ! take_lock; then
     rm -f "$gone"
     take_lock || { echo "queue already running (lock taken)"; exit 3; }
 fi
-trap '[ "$(cat "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"' EXIT
+# N1-333: exit trace. TERM/HUP/INT, or any exit while step is still run, leaves one runner.log line and one
+# queue_interrupted event (n1_queue_note_interrupt); halt_now and the normal end set step first and stay silent.
+# step and pid are kept for resume. Bash runs a trap only after the current foreground command returns; SIGKILL
+# leaves no trace (the session-start digest and --status flag that case from the dead pid).
+INTERRUPT_NOTED=""
+note_interrupt() { [ -n "$INTERRUPT_NOTED" ] && return 0; INTERRUPT_NOTED=1; n1_queue_note_interrupt "$QUEUE" "$1"; }
+on_exit() {
+    local rc=$?
+    note_interrupt "exit rc=$rc"
+    [ "$(cat "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"
+    return 0
+}
+trap on_exit EXIT
+trap 'note_interrupt "signal TERM"; exit 143' TERM
+trap 'note_interrupt "signal HUP"; exit 129' HUP
+trap 'note_interrupt "signal INT"; exit 130' INT
 n1_write_frontmatter "$QUEUE" pid "$$"
 n1_write_frontmatter "$QUEUE" step run
 

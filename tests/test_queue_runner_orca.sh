@@ -517,6 +517,7 @@ test_orca_mixed_reasons_halt() {
     printf '{"path":"/orca/wt/T-C"}' > "$tmp/fake/worktrees"            # -> orca-worktree-name-taken at launch
     assert_eq "orca-strike-mixed: halts (exit 2)" "2" "$(run_orca_queue "$tmp")"
     assert_eq "orca-strike-mixed: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "N1-333: halt_now leaves no exit trace" "0" "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
     rm -rf "$tmp"
 }
 
@@ -1031,12 +1032,54 @@ test_orca_tick_cap() {
     assert_eq "orca-tick-cap: ends well before the safety net" "1" "$(( SECONDS - start < 20 ))"
     assert_eq "orca-tick-cap: no halt bookkeeping" "no" "$([ "$(n1_read_frontmatter "$tmp/queue.md" step)" = halted ] && echo yes || echo no)"
     assert_eq "orca-tick-cap: worker row still in flight" "in-progress" "$(plan_cell "$tmp/queue.md" 1 8)"
+    # N1-333 AC1: the self-SIGTERM hits the TERM trap: one trace line, one queue_interrupted event, step/pid kept.
+    assert_eq "orca-tick-cap: exit trace line" "1" \
+        "$(grep -c '^runner interrupted: signal TERM (pid [0-9]*, step run kept; resume: /n1:n1-queue --run [^)]*)$' "$tmp/output.txt" || true)"
+    assert_eq "orca-tick-cap: one queue_interrupted event" "1" "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
+    assert_eq "orca-tick-cap: step run and pid kept (resume detects it)" "run|yes" \
+        "$(n1_read_frontmatter "$tmp/queue.md" step)|$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+    # The EXIT trap still releases the lock: a resumed run starts (rc 143 from its own cap, not 3 "already running").
+    assert_eq "orca-tick-cap: lock released, resume starts" "143|0" \
+        "$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=1)|$(grep -c 'queue already running' "$tmp/output.txt" || true)"
+    assert_eq "orca-tick-cap: resumed run interrupted again adds one event" "2" "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
     rm -rf "$tmp"
     tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
     assert_eq "orca-tick-cap: non-numeric cap ignored (natural exit 0)" "0" "$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=abc)"
     assert_eq "orca-tick-cap: non-numeric cap never logs" "0" "$(grep -c 'N1_QUEUE_TEST_MAX_TICKS' "$tmp/output.txt" || true)"
+    assert_eq "orca-tick-cap: natural end (queue_done) leaves no exit trace" "0|0" \
+        "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)|$(grep -c '^runner interrupted' "$tmp/output.txt" || true)"
     rm -rf "$tmp"
+}
+
+# N1-333 AC1: TERM/HUP/INT from outside the runner each leave exactly one trace and keep step/pid. The signal is sent
+# by the fake Orca's at.<n> hook (tick 2) to the runner pid in queue.md. env --default-signal=INT undoes the ignored
+# SIGINT that a test file started in the background inherits (bash cannot trap a signal ignored at entry).
+trace_run() {   # <tmp> — run_orca_queue's runner invocation with SIGINT reset; prints the exit code
+    local tmp="$1" rc=0
+    env --default-signal=INT -u CLAUDE_CONFIG_DIR HOME="$tmp/hh" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" \
+        FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+        timeout 60 bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
+    echo "$rc"
+}
+test_orca_exit_trace_signals() {
+    local tmp spec sig want
+    if ! env --default-signal=INT true 2>/dev/null; then echo "SKIP: env --default-signal unsupported"; return 0; fi
+    for spec in TERM:143 HUP:129 INT:130; do
+        sig=${spec%%:*}; want=${spec#*:}
+        tmp=$(mktemp -d); mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+        cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+        echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+        printf 'kill -%s "$(sed -n "s/^pid: *//p" "$FAKE_DIR/../queue.md")"\n' "$sig" > "$tmp/fake/at.2"
+        assert_eq "exit-trace $sig: exit code" "$want" "$(trace_run "$tmp")"
+        assert_eq "exit-trace $sig: one line, one event" "1|1" \
+            "$(grep -c "^runner interrupted: signal $sig (pid" "$tmp/output.txt" || true)|$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
+        assert_eq "exit-trace $sig: event reason" "runner signal $sig" \
+            "$(jq -r 'select(.event == "queue_interrupted") | .reason | sub(" pid [0-9]+$"; "")' "$tmp/events.jsonl")"
+        assert_eq "exit-trace $sig: step run kept, resume detected" "run|yes" \
+            "$(n1_read_frontmatter "$tmp/queue.md" step)|$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+        rm -rf "$tmp"
+    done
 }
 
 test_orca_parallel_workers
@@ -1097,6 +1140,7 @@ test_orca_worktree_list_unreadable
 test_orca_chain_after_settle
 test_orca_fallback_bg
 test_orca_tick_cap
+test_orca_exit_trace_signals
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

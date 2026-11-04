@@ -776,6 +776,26 @@ test_queue_interrupted() {
     rm -rf "$tmp"
 }
 
+# N1-333 AC1 (lib side): the exit trace writes one line + one queue_interrupted event only while step is run,
+# and never touches step or pid (resume detection needs both).
+test_queue_note_interrupt() {
+    local tmp out s; tmp=$(mktemp -d)
+    printf -- '---\nqueue_id: q1\nrun_id: R1\nstep: run\npid: 4242\n---\n## Plan\n' > "$tmp/queue.md"
+    out=$(n1_queue_note_interrupt "$tmp/queue.md" "signal TERM")
+    assert_eq "note-interrupt: runner.log line" \
+        "runner interrupted: signal TERM (pid 4242, step run kept; resume: /n1:n1-queue --run q1)" "$out"
+    assert_eq "note-interrupt: one event with run id and reason" "queue_interrupted|R1|runner signal TERM pid 4242" \
+        "$(jq -r '[.event, .run_id, .reason] | join("|")' "$tmp/events.jsonl")"
+    assert_eq "note-interrupt: step and pid kept" "run 4242" \
+        "$(n1_read_frontmatter "$tmp/queue.md" step) $(n1_read_frontmatter "$tmp/queue.md" pid)"
+    for s in done halted preview; do
+        rm -f "$tmp/events.jsonl"; n1_write_frontmatter "$tmp/queue.md" step "$s"
+        assert_eq "note-interrupt: step $s is silent" "|no" \
+            "$(n1_queue_note_interrupt "$tmp/queue.md" x)|$([ -e "$tmp/events.jsonl" ] && echo yes || echo no)"
+    done
+    rm -rf "$tmp"
+}
+
 # N1-185/N1-183: the digest counts merged tickets and labels an interrupted run.
 test_queue_digest_chain_states() {
     local tmp ev; tmp=$(mktemp -d); mkdir -p "$tmp/queue/q1"; ev="$tmp/queue/q1/events.jsonl"
@@ -1033,6 +1053,7 @@ test_notify_check
 test_bg_disclaimer
 test_busy_guard
 test_queue_interrupted
+test_queue_note_interrupt
 test_queue_digest_chain_states
 test_runner_lock
 test_live_by_name

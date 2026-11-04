@@ -1075,6 +1075,18 @@ n1_queue_interrupted() {
     ! n1_queue_runner_alive "$(n1_read_frontmatter "$1" pid)" "$1"
 }
 
+n1_queue_note_interrupt() {
+    # Usage: n1_queue_note_interrupt <queue.md> <why> — N1-333: the runner's exit trace. Only while step is run (halt_now
+    # and the normal end write halted/done first, so they stay silent): prints one runner.log line and appends one
+    # queue_interrupted event. Never changes step or pid, so n1_queue_interrupted still finds the dead runner and --run resumes.
+    local q="$1" pid qid run
+    [ -f "$q" ] && [ "$(n1_read_frontmatter "$q" step)" = run ] || return 0
+    pid=$(n1_read_frontmatter "$q" pid); qid=$(n1_read_frontmatter "$q" queue_id); run=$(n1_read_frontmatter "$q" run_id)
+    printf 'runner interrupted: %s (pid %s, step run kept; resume: /n1:n1-queue --run %s)\n' "$2" "${pid:-?}" "${qid:-queue}"
+    n1_queue_event "$(dirname "$q")/events.jsonl" "${qid:-queue}" "$run" queue_interrupted reason="runner $2 pid ${pid:-?}"
+    return 0
+}
+
 n1_queue_retry() {
     # Usage: n1_queue_retry <queue.md> <ticket> — N1-271 (n1-queue --retry): reset the ticket's last Plan row from
     # failed/escalated to pending (Reason cleared) in a planned, halted, done or interrupted queue; drop the previous
