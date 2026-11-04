@@ -225,7 +225,7 @@ With the workspace manager running and `queue.backend` not `bg`, the runner laun
 
 Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise).
 
-**Session watch.** Watch the event log in the background and relay matching lines, running exactly this (absolute queue dir, printed run id and pid; `0` = from the start of this run):
+**Session watch.** Stream the watch command's output lines to this session as they are printed (a live line feed, not a notice when the process exits), running exactly this (absolute queue dir, printed run id and pid; `0` = from the start of this run). When the host ends the stream at its deadline, start the identical command again: the per-session cursor gives no gap and no replay.
 With RESUME=1 omit the trailing 0, so this run's earlier events are not replayed.
 
 ```bash

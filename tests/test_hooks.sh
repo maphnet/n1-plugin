@@ -585,6 +585,8 @@ case "$CTX" in *"HOST ROUTING (authoritative for how N1 skills reach Claude Code
 # N1-300: dispatch is async; routing must not claim an inline result and must name the resume mechanism
 case "$CTX" in *"returns the result inline"*) assert_eq "routing drops inline-dispatch claim (N1-300)" ok "$CTX";; *) assert_eq "routing drops inline-dispatch claim (N1-300)" ok ok;; esac
 case "$CTX" in *"Dispatch is asynchronous"*"must not return or move on until that persona's final result is in hand"*"Resume subagent <id> (host message mechanism): SendMessage tool"*) assert_eq "routing: async dispatch and resume rule (N1-300)" ok ok;; *) assert_eq "routing: async dispatch and resume rule (N1-300)" ok "$CTX";; esac
+# N1-359: a streaming watch maps to Monitor (lines reach the session while the queue runs) and is re-armed on its deadline
+case "$CTX" in *"Stream a watch <command>"*"Monitor tool"*"start the identical command again"*) assert_eq "routing: streaming watch -> Monitor, re-armed (N1-359)" ok ok;; *) assert_eq "routing: streaming watch -> Monitor, re-armed (N1-359)" ok "$CTX";; esac
 echo '{}' > "$N1_HOME/config.json"
 PROJ="$T/proj"; mkdir -p "$PROJ"
 PAYLOAD=$(jq -c --arg cwd "$PROJ" '.cwd = $cwd' "$FX/claude/session-start.json")
