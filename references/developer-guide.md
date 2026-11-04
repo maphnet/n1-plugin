@@ -45,7 +45,7 @@ Skills under 6 KB remain in their existing `skills/<name>/SKILL.md` form without
 
 **Procedures:** Shared content referenced by 2+ steps within one skill. Loaded by the step that needs it, never by the dispatcher. Content used by only one step stays inline.
 
-**Reference implementations:** `n1-init` (14 step files, dispatcher-only architecture) and `n1-start` (15 step files + 11 procedures for shared orchestrator logic).
+**Reference implementations:** `n1-init` (14 step files, dispatcher-only architecture) and `n1-start` (15 step files + 22 procedures for shared and on-demand orchestrator logic).
 
 **Size enforcement:** `tests/test_skill_size.sh` asserts all SKILL.md files are under 6 KB in CI.
 

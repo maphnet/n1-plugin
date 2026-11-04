@@ -32,7 +32,7 @@ check "report never lists pending as a key" '`- \[pending\]` is never a key' "$P
 check "report strips unlinked" 'strip ` unlinked`' "$P"
 
 check "review fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/fix.md
-check "review step appends pre-existing [SEC-N] (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/review.md
+check "review step appends pre-existing [SEC-N] (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/procedures/review-preexisting.md
 check "QA fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/qa.md
 check "finalize appends its own proposals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/procedures/finalize.md
 check "finalize worker runs File before Gate 3" 'followup-filing\.md` § File' agents/tail-worker.md

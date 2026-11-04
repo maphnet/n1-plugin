@@ -112,10 +112,10 @@ assert_eq "T19: quality kv separate" "adequate"         "$(echo "$LINE" | jq -r 
 assert_contains "T20: gate result logged in prose" "$SKILL" '`LITE_MODE=true`: log'
 
 # The string `if [ "$RELATED_ENABLED" = "true" ]; then` occurs TWICE in the skill:
-# once in the related-projects block (must become lite-aware) and once in the
+# once in the related-projects block (now analysis-xrepo.md, lite-aware via LITE_MODE) and once in the
 # cross-repo telemetry block at the end (must stay as-is). Pin both counts so a
 # patch applied to the wrong occurrence fails loudly.
-GUARDED=$(grep -cF 'if [ "$RELATED_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]; then' "$SKILL")
+GUARDED=$(grep -cF 'if [ "$LITE_MODE" != "true" ]; then' "$REPO_ROOT/skills/n1-start/procedures/analysis-xrepo.md")
 UNGUARDED=$(grep -cF 'if [ "$RELATED_ENABLED" = "true" ]; then' "$SKILL")
 assert_eq "T21: related-projects guard is lite-aware (exactly 1)" "1" "$GUARDED"
 assert_eq "T22: cross-repo telemetry guard untouched (exactly 1)" "1" "$UNGUARDED"

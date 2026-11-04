@@ -11,23 +11,17 @@ MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-hdr.md" "$MEM/review-cr.md" "$MEM/
 { echo "# Review Spec (generated)"; n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"; [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"; } > "$MEM/review-spec.md"
 { echo "# QA Facts (generated)"; n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"; [ -n "${BREAK_CHECK_TQ:-}" ] && { echo "## Hollow tests (break-check never-red)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'; }; } > "$MEM/qa-facts.md"
 TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
-RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json"); XREPO_REVIEW_CONTEXT=""
-if [ "$RELATED_ENABLED" = "true" ]; then
-    XREPO_REGISTERED=$(while IFS=$'\t' read -r slug reason _; do [ -z "$slug" ] && continue; printf '\n- %s (%s)' "$slug" "$reason"; done < <(n1_related_projects "$N1_HOME/config.json"))
-    SELF_SLUG=$(basename "$(n1_home)")
-    XREPO_KNOWN=$(for cfg in "${HOME}"/.n1/*/config.json; do [ -f "$cfg" ] || continue; peer=$(basename "$(dirname "$cfg")"); [ "$peer" = "$SELF_SLUG" ] && continue; printf '%s\n' "$peer"; done | tr '\n' ',' | sed 's/,$//')
-    XREPO_REVIEW_CONTEXT="REGISTERED RELATED PROJECTS:${XREPO_REGISTERED:-(none)}
-N1-registered on this machine: ${XREPO_KNOWN}
-Check diff for imports/API calls/env vars/service names pointing to N1-registered projects NOT above. Flag each [XREPO-N] (Low, non-blocking)."
-fi
+RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
 CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}; [[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1
 INCREMENTAL=false; [ "$CYCLE" -ge 1 ] && [ -s "$N1_HOME/memory/$ID/fix.diff" ] && { INCREMENTAL=true; cp "$N1_HOME/memory/$ID/review.md" "$N1_HOME/memory/$ID/review-prev.md" 2>/dev/null; FIX_FILES=$(cat "$N1_HOME/memory/$ID/fix-changed-files" 2>/dev/null); }
 QE=$(n1_autonomy_val 'qualityEscalations'); echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED CYCLE=$CYCLE INCREMENTAL=$INCREMENTAL QE=$QE"
 ```
 
+If `RELATED_ENABLED=true`, read `procedures/review-xrepo.md` and follow it before spawning reviewers.
+
 ### Incremental Re-Review (cycle >= 1)
 
-`INCREMENTAL=true`: pass code-reviewer `$N1_HOME/memory/$ID/fix.diff` path and `$FIX_FILES` as file scope; instruct "Incremental re-review — review only the changes in fix.diff, read surrounding code only as needed; check regressions; verify all prior findings addressed (review-prev.md: re-report unfixed by id)." The security-reviewer gets the same fix.diff path and `$FIX_FILES` plus the prior `[SEC-N]` list from review-prev.md: re-verify by id, re-report unfixed (they FAIL); new findings only as regressions from fix.diff. `INCREMENTAL=false`: full scope.
+If `INCREMENTAL=true`: read `procedures/review-incremental.md` and follow it (code-reviewer and security-reviewer scope). `INCREMENTAL=false`: full scope.
 
 Run **Ensure Dependencies(`<ID>`)** first. > **ORCHESTRATOR GUARDRAIL (review): do not run tests, coverage, or lint commands in this step**
 
@@ -43,13 +37,15 @@ QA_UNVERIFIED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_verdic
 IFS=$'\t' read -r CODE_REVIEWER_MODEL CODE_REVIEWER_EFFORT < <(n1_resolve_agent code-reviewer review)
 IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolve_agent security-reviewer review)
 ```
-`QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Append `$XREPO_REVIEW_CONTEXT`. Spawn reviewers with output paths `$N1_HOME/memory/$ID/review-cr.md` / `…/review-sec.md`; each returns verdict, counts, index.
+`QA_UNVERIFIED=true`: add "QA verdict unverified." Hollow tests→`[TQ-N]` (Medium, unless pure refactor). Spawn reviewers with output paths `$N1_HOME/memory/$ID/review-cr.md` / `…/review-sec.md`; each returns verdict, counts, index.
 
 **Wait contract applies** (see `procedures/output-gates.md § Wait Contract`). Idle until ALL reviewers return before combining findings.
 
-For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`, except a ` (pre-existing)` one not treated as in-diff: **Pre-existing** below): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
+**Pre-existing** (`QE=auto-accept` only): read `procedures/review-preexisting.md` and follow it only after the reviewers return and the **Tree freeze** below passes, before writing review-hdr.md and before routing (PASS or FAIL).
 
-After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard reviewer files+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]` (with `QE=auto-accept`, except a ` (pre-existing)` `[SEC-N]`: **Pre-existing** below); with `QE=auto-accept` also any in-diff non-Low `[SEC-N]`, never a `[SEC-N]` Low or ` (pre-existing)` (**PASS** below). Partial (incl. missing/empty reviewer file): retry once.
+For each Critical/High (with `QE=auto-accept`, also each `[SEC-N]`, except a ` (pre-existing)` one not treated as in-diff: **Pre-existing** above): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
+
+After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard reviewer files+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]` (with `QE=auto-accept`, except a ` (pre-existing)` `[SEC-N]`: **Pre-existing** above); with `QE=auto-accept` also any in-diff non-Low `[SEC-N]`, never a `[SEC-N]` Low or ` (pre-existing)` (**PASS** below). Partial (incl. missing/empty reviewer file): retry once.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -66,8 +62,6 @@ TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=
 n1_step_end "review" 9 "success"
 ```
 NON_CONVERGING/FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
-
-**Pre-existing** (`QE=auto-accept`, PASS or FAIL, before routing): a `[SEC-N]` whose Index title ends ` (pre-existing)` is not fixed in this run; any other `[SEC-N]` is in-diff, and so is a marked one whose `file:line` lies in a changed hunk or in a file the diff adds (decide before writing review-hdr.md, so verdict and routing agree: run one fixed command `git diff -U0 "$BASE_BRANCH"...HEAD`, no pathspec, never put a finding path or title in a command; match `file:line` in-model, an added file shows `--- /dev/null`; a missing or unparsable `file:line` counts as in-diff; note the downgrade in the ledger). Skip a finding whose title is already in `## Follow-ups`. Medium/Low: append to `## Follow-ups` per `<N1_ROOT>/references/followup-filing.md` § Append (source `review`). Critical/High or any other or unparsed severity: § Autonomy Gate (step=`review`; security, so it asks). No recommendation. The options are equivalent given the available evidence; select based on team preference. 1. File as follow-up (§ Append) and proceed 2. Fix now (treat as in-diff: FAIL → Step 8).
 
 ### 7b. TQ FIX LOOP
 

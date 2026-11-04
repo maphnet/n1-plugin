@@ -175,7 +175,7 @@ eq "I3: invalid id wrote nothing" "no" "$([ -e "$N1_HOME/x" ] && echo yes || ech
 # ---- wiring (TQ-1): instruction text still calls the helpers ----
 grep -q 'containers.sh' "$REPO_ROOT/lib/preamble.sh" && ok "W1: preamble sources containers.sh" || no "W1" "missing"
 for f in n1_containers_snapshot n1_containers_track n1_containers_teardown; do
-    grep -q "$f" "$REPO_ROOT/skills/n1-start/steps/local-testing.md" && ok "W2: local-testing.md calls $f" || no "W2" "$f missing"
+    grep -q "$f" "$REPO_ROOT/skills/n1-start/procedures/local-testing-run.md" && ok "W2: local-testing.md calls $f" || no "W2" "$f missing"
 done
 grep -q 'n1_containers_teardown' "$REPO_ROOT/skills/n1-finish/steps/06-cleanup.md" && ok "W3: finish backstop" || no "W3" "missing"
 

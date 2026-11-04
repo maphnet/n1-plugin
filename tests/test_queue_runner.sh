@@ -1202,7 +1202,7 @@ test_desc_chain_wiring() {
     after_rm=$(grep -nF 'rm -f "$M"/.desc-pre.* "$M"/.desc-post.*' "$d" | tail -1 | cut -d: -f1)
     assert_eq "chain-wiring: After's final rm -f runs after the record call" "yes" "$([ -n "$after_record" ] && [ -n "$after_rm" ] && [ "$after_rm" -gt "$after_record" ] && echo yes || echo no)"
 
-    local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless.md" guard_clear_before guard_hash guard_clear_after
+    local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless-predecision.md" guard_clear_before guard_hash guard_clear_after
     guard_clear_before=$(line_of "$h" 'rm -f "$N1_HOME/memory/$ID"/.guard-live.*' || true)
     guard_hash=$(line_of "$h" 'NEW_HASH=$(n1_queue_content_hash "$M/.guard-live.title" "$M/.guard-live.txt")' || true)
     assert_eq "chain-wiring: guard clears live-fetch files before the hash" "yes" "$([ -n "$guard_clear_before" ] && [ -n "$guard_hash" ] && [ "$guard_clear_before" -lt "$guard_hash" ] && echo yes || echo no)"
@@ -1545,7 +1545,7 @@ test_plan_wiring() {
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {
-    local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless.md"
+    local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless-ask.md"
     local s="$REPO_ROOT/skills/n1-queue/SKILL.md" r="$REPO_ROOT/skills/n1-queue/steps/report.md"
     assert_eq "answer-wiring: child writes question file" "yes" "$(grep -qF '.question-%s.json' "$h" && echo yes || echo no)"
     assert_eq "answer-wiring: child removes question file on answer" "yes" "$(grep -qF 'rm -f "$N1_QUEUE_DIR/.question-$ID.json"' "$h" && echo yes || echo no)"
@@ -1559,7 +1559,7 @@ test_answer_wiring() {
 
 # NP-203: queue children apply plan-time pre-decisions; release gate never consults them.
 test_headless_plan_wiring() {
-    local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless.md" l="$REPO_ROOT/skills/n1-start/ledger.md"
+    local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless-predecision.md" l="$REPO_ROOT/skills/n1-start/ledger.md"
     assert_eq "headless-plan: looks up the Decisions row" "yes" "$(grep -q 'n1_queue_decisions_row "\$N1_QUEUE_DIR/queue.md"' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: logs [plan]" "yes" "$(grep -qF '[plan]' "$h" && echo yes || echo no)"
     assert_eq "headless-plan: release gate excluded" "yes" "$(grep -q 'release confirmation gate never consults' "$h" && echo yes || echo no)"

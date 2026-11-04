@@ -1,6 +1,6 @@
 # Description Hash Chain (queue children)
 
-The headless guard (`skills/n1-start/procedures/autonomy-headless.md` § Content check) honours a plan-time pre-decision only while the ticket still says what it said at plan time. Without this procedure, N1's own description writes in a queue child read as "changed". Each N1 write records its resulting hash, so the guard accepts it. A human edit after planning is never recorded and still reads as changed (NP-231).
+The headless guard (`skills/n1-start/procedures/autonomy-headless-predecision.md` § Content check) honours a plan-time pre-decision only while the ticket still says what it said at plan time. Without this procedure, N1's own description writes in a queue child read as "changed". Each N1 write records its resulting hash, so the guard accepts it. A human edit after planning is never recorded and still reads as changed (NP-231).
 
 **Gate.** This procedure applies only in queue children. It also clears any pre/post and live-check scratch files a previous write site or check left behind, so this site never hashes stale trusted text if its own Before step or a scratch write is later skipped or fails:
 

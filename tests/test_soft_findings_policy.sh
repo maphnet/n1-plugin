@@ -6,6 +6,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
 R=skills/n1-start/steps/review.md
+RP=skills/n1-start/procedures/review-preexisting.md
 F=skills/n1-start/steps/fix.md
 S=skills/n1-start/SKILL.md
 T=agents/tech-writer.md
@@ -53,14 +54,14 @@ check "fix: Cap gate defers SOFT-ONLY at REVIEW_FIX_CYCLE>=1" '^\*\*Cap gate\*\*
 
 # N1-257
 check "review FAIL: SEC Low and pre-existing never FAIL" 'never a `\[SEC-N\]` Low or ` \(pre-existing\)`' "$R"
-check "review FAIL: pre-existing Critical/High [SEC-N] exempt under auto-accept" 'except a ` \(pre-existing\)` `\[SEC-N\]`: \*\*Pre-existing\*\* below' "$R"
+check "review FAIL: pre-existing Critical/High [SEC-N] exempt under auto-accept" 'except a ` \(pre-existing\)` `\[SEC-N\]`: \*\*Pre-existing\*\* above' "$R"
 check_absent "SEC Low deferral no longer gated on fix cycle" 'Low `\[SEC-N\]` only when `review_fix_cycle>=1`' "$R"
 check "SEC Low deferred at every cycle incl. 0" '`\[SEC-N\]` Low too, at every cycle incl\. 0' "$R"
 check "pre-existing never listed as soft" 'Never list a ` \(pre-existing\)` finding not treated as in-diff \(filed above\); a downgraded one is an ordinary `\[SEC-N\]`' "$R"
-check "pre-existing handled before routing on PASS or FAIL" '^\*\*Pre-existing\*\* \(`QE=auto-accept`, PASS or FAIL, before routing\)' "$R"
-check "pre-existing Medium/Low filed via followup-filing" 'Medium/Low: append to `## Follow-ups` per `<N1_ROOT>/references/followup-filing\.md` § Append \(source `review`\)' "$R"
-check "pre-existing Critical/High escalates" 'Critical/High or any other or unparsed severity: § Autonomy Gate' "$R"
-check "pre-existing prompt: no recommendation" 'No recommendation\. The options are equivalent given the available evidence; select based on team preference\. 1\. File as follow-up' "$R"
+check "pre-existing handled before routing on PASS or FAIL" '^\*\*Pre-existing\*\* \(`QE=auto-accept`, PASS or FAIL, before routing\)' "$RP"
+check "pre-existing Medium/Low filed via followup-filing" 'Medium/Low: append to `## Follow-ups` per `<N1_ROOT>/references/followup-filing\.md` § Append \(source `review`\)' "$RP"
+check "pre-existing Critical/High escalates" 'Critical/High or any other or unparsed severity: § Autonomy Gate' "$RP"
+check "pre-existing prompt: no recommendation" 'No recommendation\. The options are equivalent given the available evidence; select based on team preference\. 1\. File as follow-up' "$RP"
 check "non-pre-existing hard findings still FAIL" 'Other Critical/High/`\[RULE-N\]` always FAIL' "$R"
 check "Exhausted gate: in-diff non-Low SEC blocks auto-resolve" 'no open in-diff non-Low `\[SEC-N\]` or security-class finding' "$F"
 
@@ -68,11 +69,11 @@ check "security-reviewer marks pre-existing findings" '^- \*\*Pre-existing marke
 check "security-reviewer Index title carries the marker" 'when the Pre-existing marker constraint applies, end `<title>` with ` \(pre-existing\)`; never otherwise' "$SR"
 check "fix scope: pre-existing SEC filed by user excluded from Critical+High" 'Critical\+High \(except a ` \(pre-existing\)` `\[SEC-N\]` the user filed;' "$F"
 check "fingerprints: pre-existing SEC not treated as in-diff excluded" 'except a ` \(pre-existing\)` one not treated as in-diff' "$R"
-check "pre-existing marker downgraded when in a changed hunk" 'lies in a changed hunk or in a file the diff adds' "$R"
-check "pre-existing gate skips titles already in Follow-ups" 'Skip a finding whose title is already in `## Follow-ups`' "$R"
-check "pre-existing unknown severity escalates" 'any other or unparsed severity: § Autonomy Gate' "$R"
-check "pre-existing downgrade names base range" 'git diff -U0 "\$BASE_BRANCH"\.\.\.HEAD' "$R"
-check "pre-existing command has no pathspec or finding text" 'no pathspec, never put a finding path or title in a command' "$R"
-check "pre-existing unparsable file:line fails closed" 'missing or unparsable `file:line` counts as in-diff' "$R"
+check "pre-existing marker downgraded when in a changed hunk" 'lies in a changed hunk or in a file the diff adds' "$RP"
+check "pre-existing gate skips titles already in Follow-ups" 'Skip a finding whose title is already in `## Follow-ups`' "$RP"
+check "pre-existing unknown severity escalates" 'any other or unparsed severity: § Autonomy Gate' "$RP"
+check "pre-existing downgrade names base range" 'git diff -U0 "\$BASE_BRANCH"\.\.\.HEAD' "$RP"
+check "pre-existing command has no pathspec or finding text" 'no pathspec, never put a finding path or title in a command' "$RP"
+check "pre-existing unparsable file:line fails closed" 'missing or unparsable `file:line` counts as in-diff' "$RP"
 
 exit $FAIL
