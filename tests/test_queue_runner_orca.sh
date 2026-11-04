@@ -217,6 +217,24 @@ test_orca_stop_notice_then_timeout() {
     rm -rf "$tmp"
 }
 
+# N1-359 AC2/AC3. Bug caught: a plain escalation with no overview.md Escalations entry alerted "waiting for an answer"
+# and advertised --answer, which failed ("has no pending Orca question") because no .ask/.question file existed.
+# The with-.ask case (--answer kept) is test_orca_question_parks.
+test_orca_plain_escalation_reason() {
+    local tmp; tmp=$(mktemp -d)
+    orca_resumed_row "$tmp"; cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    : > "$tmp/fake/nodone.T-A"
+    orca_msg escalation task-T-A m-esc1 "" "Blocked on missing credentials" > "$tmp/fake/q.late"
+    printf 'cp "%s" "%s"\necho task-T-A >> "%s"\n' "$tmp/fake/q.late" "$tmp/fake/question" "$tmp/fake/started" > "$tmp/fake/at.1"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=4 > /dev/null
+    assert_eq "orca-esc: escalated reason is the Orca subject" "Blocked on missing credentials" \
+        "$(jq -R -r 'fromjson? | select(.event == "escalated" and .ticket == "T-A") | .reason' "$tmp/events.jsonl")"
+    assert_eq "orca-esc: needs-you names the subject" "1" \
+        "$(cat "$tmp/notes" 2>/dev/null | grep -c 'T-A needs you: Blocked on missing credentials' || true)"
+    assert_eq "orca-esc: no --answer hint without .ask/.question" "0" "$(cat "$tmp/notes" 2>/dev/null | grep -c -- '--answer' || true)"
+    rm -rf "$tmp"
+}
+
 # N1-309. Bug caught: a question from a worker whose row is already pr (PR open, worker still in its review/CI loop)
 # is dropped silently; re-adopting it instead would re-finalize the row and delete .ask before the user answers.
 test_orca_question_on_pr_row() {
@@ -986,6 +1004,7 @@ test_orca_question_parks
 test_orca_question_after_timeout
 test_orca_stop_notice_not_escalated
 test_orca_stop_notice_then_timeout
+test_orca_plain_escalation_reason
 test_orca_question_on_pr_row
 test_orca_question_on_pr_row_cleanup
 test_orca_question_after_settle

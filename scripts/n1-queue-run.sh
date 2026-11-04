@@ -106,11 +106,15 @@ ev() { n1_queue_event "$EVENTS" "$QUEUE_ID" "$RUN_ID" "$@"; }
 # content (question/options/recommended/rationale) is packed into the event's reason field so
 # it survives the file's later removal by n1_queue_answer/the child on resume. events.jsonl's
 # reason field is already free text; this just widens what it can hold, as JSON, via jq -c.
+# N1-359: optional 4th arg = fallback reason (the Orca subject) used when overview.md has no ## Escalations entry. On an
+# Orca session the --answer hint is printed only when a question is pending (.ask-<T> or .question-<T>.json); otherwise
+# no hint (the worker is alive in its terminal, so neither --answer nor an n1-start resume applies).
 escalate() {
-    local sid q qfile qfull reason mark key
+    local sid q qfile qfull reason mark key hint=""
     sid=$(n1_queue_session_id "$QUEUE" "$1")
     # N1-241: newest entry, so an appended entry changes the reason and the watch dedupe relays it.
     q=$(n1_queue_escalation_text "$2/memory/$1/overview.md" last)
+    q="${q:-${4:-}}"   # N1-359: no overview entry -> caller's fallback; also keys the dedupe marker below
     reason="$q"
     case "$1" in
         ''|*[!A-Za-z0-9_-]*) qfile="" mark="" ;;
@@ -160,7 +164,10 @@ escalate() {
     if [ "${3:-}" = "stopped" ]; then
         n1_notify needs-you "$1 needs you: ${q:-waiting for an answer} (resume: n1-start $1)"
     elif [ "${sid#orca:}" != "$sid" ]; then
-        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer} (answer: /n1:n1-queue --answer $1 <text>)"
+        if [ -n "$qfile" ] && { [ -f "$N1_QUEUE_DIR/.ask-$1" ] || [ -f "$qfile" ]; }; then
+            hint=" (answer: /n1:n1-queue --answer $1 <text>)"
+        fi
+        n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}$hint"
     else
         n1_notify needs-you "$1 needs you: ${q:-waiting for an answer}${sid:+ (resume: $(n1_bg_cmd attach "$sid"))}"
     fi
@@ -1041,7 +1048,7 @@ run_orca() {
                             escalate "$T" "$N1H" ;;
                         pr|escalated) escalate "$T" "$N1H" ;;
                     esac ;;
-                escalation) escalate "$T" "$(orca_n1h_of "$T")" ;;
+                escalation) escalate "$T" "$(orca_n1h_of "$T")" "" "$EXTRA" ;;
                 # N1-359: Orca's "worker stopped without reporting" notice is not a human question: record it and leave
                 # the row alone. Reconcile (worker exited/done) and subtaskTimeoutMinutes still end a worker that never resumes.
                 escalation-stop)
