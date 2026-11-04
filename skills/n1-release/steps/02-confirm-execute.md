@@ -4,6 +4,13 @@
 
 No in-pipeline refusal (N1-192): the pipeline legitimately invokes n1-release when `release.enabled` is true, and neither `N1_RUN_ID` (not exported across Bash calls) nor the active-run pointer (no timestamp; aborted runs leave it) is a reliable in-pipeline signal. The safeguards are this unconditional gate, the headless stop-list and the merge-deny hook.
 
+**Auto-run check** (custom `procedure` only, before showing the gate): run once and remember the printed value as `AUTORUN` for Step 5:
+```bash
+source ~/.n1/preamble.sh
+n1_release_autorun_enabled
+```
+It prints `true` only when `release.autoRun` is the JSON boolean `true`. `AUTORUN` never skips this gate.
+
 Always shown before any side-effecting action:
 
 ```
@@ -30,8 +37,9 @@ Condition lines (informational -- no hard blocks):
 - `Merge SHA: <sha>` -- found in overview.md
 - `No merge SHA found (standalone run — not post-finish)` -- not available
 - `GitHub Release: will be created` -- built-in flow, or the custom `procedure` text contains `gh release create`
-- `GitHub Release: will NOT be created by this procedure (checked afterwards; you may be offered one)` -- custom `procedure` without `gh release create`
+- `GitHub Release: will NOT be created by this procedure (checked afterwards; you may be offered one, or it is created automatically when release.autoRun is true)` -- custom `procedure` without `gh release create`
 - `Release notes: stakeholder notes will be written, published to Confluence when kb is configured, and added to the GitHub Release body` -- always shown; this gate covers those writes
+- `Shell steps that will run without prompts (<N>): 1. <first line of step> 2. <first line of step> ...` -- custom `procedure` and `AUTORUN` is `true`. List every shell step found by the same split and shell-step test as the walk (Step 5, custom flow, sub-steps 2-3), from the unsubstituted text. Informational only: no new prompt or option, and this gate still runs. A step with a malformed marker is still handled as a manual step in the walk.
 
 If 3 -> STOP.
 
@@ -80,7 +88,17 @@ Release created. **NOT done — continue with `03-tracker-release.md`, then `03b
 
 ## Custom procedure flow (when `procedure` is set)
 
-1. **Substitute placeholders** in the `procedure` text:
+1. **Validate, then substitute placeholders.** When `AUTORUN` is `true`, validate the four values first; when it is `false`, go straight to the substitution. Put each value verbatim on its own line inside the quoted heredoc (an empty line for an empty TICKET_ID or MERGE_SHA) and nowhere else in the snippet; the delimiter line `N1_RELEASE_VARS_EOF` must start at column 0:
+   ```bash
+   source ~/.n1/preamble.sh
+   n1_release_vars_valid <<'N1_RELEASE_VARS_EOF'
+   <VERSION>
+   <TICKET_ID>
+   <MERGE_SHA>
+   <TAG>
+   N1_RELEASE_VARS_EOF
+   ```
+   Non-zero exit -> show its `invalid <NAME>: <value>` line and "Release stopped: <NAME> failed validation; no procedure command ran. Fix the value and re-run `/n1:n1-release`." **STOP.** Then substitute placeholders in the `procedure` text:
    - `{{RELEASE_TAG}}` -> `TAG` value (e.g. `v2.29.0`)
    - `{{VERSION}}` -> bare version string (e.g. `2.29.0`)
    - `{{MERGE_SHA}}` -> merge commit SHA (empty string when not found)
@@ -88,8 +106,27 @@ Release created. **NOT done — continue with `03-tracker-release.md`, then `03b
 
 2. **Parse** the markdown into steps: split on top-level numbered list items (`^[0-9]+\.`) or `##`/`###` headings. Each chunk is one step. Sub-bullets within a step are context, not separate steps.
 
-3. **Walk each step** in order:
-   - **Shell step** (contains backtick inline code or a fenced code block) -> extract command(s) and ask:
+3. **Walk each step** in order, using `AUTORUN` from Step 3:
+   - **Shell step** (contains backtick inline code or a fenced code block) -> extract command(s); only for a `poll` / `monitor` step with more than one command, join them with ` && ` into the single command the helper takes (other steps keep today's command extraction). Classify its wait marker: when the step text contains `(poll:` or `(monitor:` (any letter case), or `AUTORUN` is `true` and it contains "Retry until it passes" (any letter case), run the parser with the step text verbatim inside the quoted heredoc (delimiter line at column 0); otherwise the result is `none` without a call:
+     ```bash
+     source ~/.n1/preamble.sh
+     source "$N1_ROOT/lib/poll.sh"
+     IFS= read -r -d '' STEP <<'N1_STEP_TEXT_EOF' || true
+     <step text>
+     N1_STEP_TEXT_EOF
+     n1_wait_parse_marker <AUTORUN> "$STEP"
+     ```
+     It prints `poll<TAB><seconds><TAB><interval>`, `monitor<TAB><seconds><TAB><interval>`, `none` or `reject`.
+
+     | `AUTORUN` | Result | Behavior |
+     |---|---|---|
+     | `false` | `none` | Ask "Run this?" (below). On Yes run it; non-zero exit -> Retry / Skip / Abort |
+     | `false` | `poll` / `monitor` | Ask "Run this?" once; on Yes run the wait helper (below) |
+     | `true` | `none` | Run it without asking; show `Step N: <step text>`, the command and its output; non-zero exit -> Retry / Skip / Abort |
+     | `true` | `poll` / `monitor` | Run the wait helper without asking |
+     | any | `reject` | Manual step (below), with "Malformed or repeated (poll:)/(monitor:) marker: handled as a manual step." shown above the step text |
+
+     "Run this?" prompt:
      ```
      Step N: <step text>
      Command: `<command>`
@@ -99,7 +136,18 @@ Release created. **NOT done — continue with `03-tracker-release.md`, then `03b
      3 — Abort
      ```
      On Yes -> execute via Bash, show stdout/stderr. On non-zero exit -> report failure, ask: `1 — Retry / 2 — Skip / 3 — Abort`.
-   - **Manual step** (no shell command) -> show text and ask:
+
+     **Wait helper** (`poll` / `monitor`). First call: `<remaining-s>` = the parsed seconds, `<interval-s>` = the parsed interval; the command verbatim inside the quoted heredoc (delimiter line at column 0):
+     ```bash
+     source ~/.n1/preamble.sh
+     source "$N1_ROOT/lib/poll.sh"
+     IFS= read -r -d '' CMD <<'N1_STEP_CMD_EOF' || true
+     <command>
+     N1_STEP_CMD_EOF
+     n1_wait_step <poll|monitor> <remaining-s> <interval-s> "$CMD"
+     ```
+     Run every call in the foreground with the maximum command timeout (600000 ms); each call returns within about 8 minutes. Never background it and never end the turn while it prints `pending <remaining-s>`: re-invoke with that `<remaining-s>`. The first output line is the token, then the last check's output. `passed` (poll) or `ok` (monitor) -> report it and go to the next step with no prompt. `timeout` (poll budget spent) or `failed` (a monitor check exited non-zero; reported at once) -> show the output and ask `1 — Retry / 2 — Skip / 3 — Abort`; Retry restarts with the full parsed duration. `failed` followed by a `usage:` line is a malformed call: fix the arguments and call again.
+   - **Manual step** (no shell command, including a step with a `(poll:)`/`(monitor:)` marker but no command) -> show text and ask:
      ```
      Step N: <step text>
      Done?
@@ -136,7 +184,7 @@ Known ceiling: the SHA resolves from the local tag only; if the tag was created 
 - `release:exists` → take the URL from `gh release view "${TAG}" --json url --jq '.url'` for the report.
 - `release:missing-no-remote-tag` → tell the user: "No GitHub Release for `<TAG>`, and the tag was not found on origin (or origin is unreachable). If the tag is not pushed yet, push it (`git push origin "<TAG>"`), then run `gh release create "<TAG>" --generate-notes --verify-tag`." No offer: `--verify-tag` fails without the remote tag. `git ls-remote` failures (no `origin`, network) land here too, hence the "or unreachable" wording; `gh` auth is already checked in Step 1 of the skill.
 - `release:missing-workflow-running` → tell the user: "No GitHub Release for `<TAG>` yet; a workflow that creates Releases is still running on the tag commit. Re-check with `gh release view "<TAG>"`." No offer.
-- `release:missing-offer` → ask the user (no autonomy setting skips this ask):
+- `release:missing-offer` → When `AUTORUN` (Step 3) is `true`, do not ask: run `gh release create "${TAG}" --generate-notes --verify-tag` (add `--draft` when `release.draft` is true), report "Created the missing GitHub Release (release.autoRun)" with the URL, and on failure report the error and leave it to the user. `TAG` was validated at sub-step 1. Otherwise ask the user (only release.autoRun skips this ask):
   ```
   No GitHub Release exists for <TAG>; the procedure did not create one.
   Create it with `gh release create "<TAG>" --generate-notes --verify-tag`?

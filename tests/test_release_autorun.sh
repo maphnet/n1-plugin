@@ -145,4 +145,21 @@ check "bad arguments print usage" "usage: n1_wait_step" <(printf '%s\n' "$out")
 expect "unknown mode -> failed" failed "$(first "$(ws sleep 600 15 true)")"
 expect "empty command -> failed" failed "$(first "$(ws poll 600 15 '')")"
 
+# --- wiring: 02-confirm-execute.md
+check "gate stays unconditional" '**This gate is unconditional.**' "$R2"
+absent "02 never reads autonomy settings" 'n1_autonomy_val' "$R2"
+before "AUTORUN is read at the gate, before the walk" 'n1_release_autorun_enabled' '**Walk each step**' "$R2"
+check "gate discloses shell steps that run unprompted" 'Shell steps that will run without prompts (' "$R2"
+check "gate Release line mentions autoRun creation" 'or it is created automatically when release.autoRun is true' "$R2"
+before "placeholders validated before substitution" 'n1_release_vars_valid' '`{{RELEASE_TAG}}` -> `TAG` value' "$R2"
+check "validation failure stops before any command" 'no procedure command ran' "$R2"
+check "walk classifies markers" 'n1_wait_parse_marker' "$R2"
+check "walk runs the wait helper" 'n1_wait_step <poll|monitor> <remaining-s> <interval-s> "$CMD"' "$R2"
+check "wait helper is never backgrounded" 'Never background it' "$R2"
+check "wait helper uses the maximum command timeout" 'maximum command timeout (600000 ms)' "$R2"
+check "marker without a command stays manual" 'including a step with a `(poll:)`/`(monitor:)` marker but no command' "$R2"
+check "missing-offer names autoRun as the only skip" 'only release.autoRun skips this ask' "$R2"
+absent "old missing-offer wording removed" 'no autonomy setting skips this ask' "$R2"
+check "missing-offer auto-creates under autoRun" 'When `AUTORUN` (Step 3) is `true`, do not ask' "$R2"
+
 exit $FAIL
