@@ -254,9 +254,9 @@ Gate: the same as § Description Quality Assessment & Enrichment below (`enrichm
 
 `*Briefed by N1 (queue plan)*` (n1-queue's plan-time brief) is not an idempotency marker; grade briefed tickets normally.
 
-**Stale-write guard:** the tracker writes in this section and in Title & Form Repair replace whole fields, so re-fetch the ticket immediately before each write. If its title or description differs from the copy the new text was built from (that copy includes any field this run's earlier repair already wrote), skip the write, keep the original title and normal grading, set Action to "Skipped (ticket changed)", and proceed. In queue children this re-fetch is the fetch § Before the write snapshots: run § Gate, the re-fetch, § Before the write, the update, then § After the write.
+**Stale-write guard:** the tracker writes in this section and in Title & Form Repair replace whole fields, so re-fetch the ticket immediately before each write. If its title or description differs from the copy the new text was built from (that copy includes any field this run's earlier repair already wrote), skip the write, keep the original title and normal grading, set Action to "Skipped (ticket changed)", and proceed. In queue children run § Gate, then § Before the write: its mark, then this re-fetch (the capture hook snapshots it), then the update and § After the write.
 
-**Queue children:** wrap every tracker description update below (Title & Form Repair step 4, Empty/Skeletal step 3, Weak step 2) in `references/desc-hash-chain.md` under the plugin root (`source ~/.n1/preamble.sh` sets `$N1_ROOT`): run § Gate, then § Before the write on the description you fetched, § After the write once the update succeeds. § Gate is a no-op outside queue runs.
+**Queue children:** wrap every tracker description update below (Title & Form Repair step 4, Empty/Skeletal step 3, Weak step 2) in `references/desc-hash-chain.md` under the plugin root (`source ~/.n1/preamble.sh` sets `$N1_ROOT`): run § Gate, then § Before the write (mark, then fetch the description you build on), § After the write once the update succeeds. § Gate is a no-op outside queue runs.
 
 Run this assessment AFTER the Fetch section has populated context data (step 1) but BEFORE the final distill (step 9). The analysis in steps 7-8 runs on the ORIGINAL description regardless of enrichment outcome — enrichment writes to the tracker, not to the analyst's working copy.
 
@@ -410,8 +410,8 @@ Assessment criteria:
 - Total tool calls: ≤ 8
 - Read: ≤ 3 calls, ≤ 150 lines per excerpt
 - Bash: ≤ 2 calls
-- The Stale-write guard re-fetch and the hash-chain re-fetches do not count toward the total; never drop them to save budget.
-- Queue child with a description `Refined by N1` block: `references/desc-hash-chain.md` § Intake check takes 2 file-writes and 1 Bash, plus the § Gate Bash it shares with Title & Form Repair (never run twice). The Intake check calls do not count toward the total; never drop them to save budget. If the Bash cap leaves no room for them, ignore the description block (fail closed).
+- The Stale-write guard re-fetch and the hash-chain marks and re-fetches do not count toward the total; never drop them to save budget.
+- Queue child with a description `Refined by N1` block: `references/desc-hash-chain.md` § Intake check takes 1 mark Bash, 1 fetch and 1 hash Bash, plus the § Gate Bash it shares with Title & Form Repair (never run twice). The Intake check calls do not count toward the total; never drop them to save budget. If the Bash cap leaves no room for them, ignore the description block (fail closed).
 - If approaching the budget, return partial results rather than exceed it.
 
 ## Constraints
