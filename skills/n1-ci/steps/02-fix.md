@@ -46,9 +46,11 @@ SECONDS=0
 for r in $RUN_IDS; do
   [[ "$r" =~ ^[0-9]+$ ]] || continue
   (( SECONDS < 90 )) || break
-  { printf '### run %s\n' "$r"; timeout -k 5 45 gh run view "$r" --log-failed 2>&1 | head -500; echo; } >> "$RAW"
+  OUT=$(timeout -k 5 45 gh run view "$r" --log-failed 2>&1) && [ -n "$OUT" ] || continue
+  { printf '### run %s\n' "$r"; head -500 <<< "$OUT"; echo; } >> "$RAW"
+  CAPTURED=1
 done
-n1_fence_untrusted 'CI LOG' "$RAW" > "$RAW.fenced" && echo "cilog:file=$RAW.fenced" || { rm -f "$RAW.fenced"; echo "cilog:unavailable"; }
+[ "${CAPTURED:-0}" = 1 ] && n1_fence_untrusted 'CI LOG' "$RAW" > "$RAW.fenced" && echo "cilog:file=$RAW.fenced" || { rm -f "$RAW.fenced"; echo "cilog:unavailable"; }
 rm -f "$RAW"
 ```
 
