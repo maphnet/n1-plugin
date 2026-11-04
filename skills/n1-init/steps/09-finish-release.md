@@ -235,13 +235,30 @@ Example:
 2. Push tag: `git push origin {{RELEASE_TAG}}`
 3. Create GitHub Release: `gh release create "{{RELEASE_TAG}}" --generate-notes --verify-tag`
 4. Deploy to prod: `ssh prod@example.com "cd /app && git pull && pm2 restart all"`
-5. Verify: `curl -f https://example.com/healthz`
+5. Wait for the package: `npm view my-pkg@{{VERSION}} version` (poll: 10m)
+6. Watch health: `curl -f https://example.com/healthz` (monitor: 10m, every 30s)
+
+(poll: <time>[, every <time>]) re-runs a step's command until it exits 0; (monitor: <time>[, every <time>])
+re-runs it for the whole window and fails on the first non-zero exit. Units s, m, h; default every 15s.
 
 A custom procedure must include a release-creation step (like step 3) unless a workflow
 creates the Release. Without one, /n1:n1-release checks afterwards and offers to create it.
 
 Waiting for your procedure:
 ```
+
+Then ask:
+```
+Run the procedure's shell steps without asking "Run this?" before each one?
+The release confirmation gate stays; a failed step still asks Retry / Skip / Abort,
+and a missing GitHub Release is created without asking.
+
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
+
+1 — No (default)
+2 — Yes
+```
+No answer means 1.
 
 Write:
 ```json
@@ -253,6 +270,7 @@ Write:
   }
 }
 ```
+On 2, also write `"autoRun": true` in the `release` block. On 1, leave the key out (default `false`).
 
 ### Tracker Release Automation
 

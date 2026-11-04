@@ -37,6 +37,7 @@ Read the `release` block via `n1_config_val`, applying defaults when keys are ab
 | `.release.versionSource` | `null` | Optional `{"file":"...","jq":"..."}` — auto-detects common files when absent |
 | `.release.procedure` | `null` | |
 | `.release.draft` | `false` | |
+| `.release.autoRun` | `false` | Custom-procedure shell steps run without "Run this?"; `release:missing-offer` creates the Release unasked. The Step 3 gate stays. Read with `n1_release_autorun_enabled` (JSON `true` only) |
 | `.release.deploymentCheck` | `true` | |
 | `.release.trackerRelease.versionName` | `"{serviceName} {version}"` | |
 

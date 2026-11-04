@@ -2,6 +2,7 @@
   "enabled": false,
   "procedure": null,
   "draft": false,
+  "autoRun": false,
   "deploymentCheck": true,
   "trackerRelease": {
     "versionName": "{serviceName} {version}"

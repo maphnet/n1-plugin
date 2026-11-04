@@ -88,6 +88,22 @@ n1_fence_untrusted() {
     printf '===== END UNTRUSTED %s CONTENT %s =====\n' "$kind" "$nonce"
 }
 
+# n1_release_vars_valid (N1-301): stdin = exactly 4 lines VERSION, TICKET_ID, MERGE_SHA, TAG. Called by
+# n1-release before placeholder substitution when release.autoRun is true. Values arrive on stdin (a quoted
+# heredoc in the skill), never as shell words. rc 0 when valid; else one "invalid <NAME>: <value>" line, rc 1.
+# Empty TICKET_ID and MERGE_SHA are valid (the procedure substitutes "" when they are not found).
+# The skill refuses multi-line values before building the heredoc, so a value cannot carry the delimiter line.
+n1_release_vars_valid() {
+    local v k s t extra
+    local re_v='^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)*$' re_k='^[A-Za-z][A-Za-z0-9_]*-[0-9]+$' re_s='^[0-9a-f]{7,40}$'
+    IFS= read -r v; IFS= read -r k; IFS= read -r s; IFS= read -r t
+    if IFS= read -r extra || [ -n "$extra" ]; then printf 'invalid input: expected 4 lines\n'; return 1; fi
+    [[ "$v" =~ $re_v ]] || { printf 'invalid VERSION: %q\n' "$v"; return 1; }
+    [ -z "$k" ] || [[ "$k" =~ $re_k ]] || { printf 'invalid TICKET_ID: %q\n' "$k"; return 1; }
+    [ -z "$s" ] || [[ "$s" =~ $re_s ]] || { printf 'invalid MERGE_SHA: %q\n' "$s"; return 1; }
+    [ "$t" = "v$v" ] || { printf 'invalid TAG: %q\n' "$t"; return 1; }
+}
+
 # Backward-compatible wrapper: tags only.
 n1_detect_investigation() {
     local tags="$2"
