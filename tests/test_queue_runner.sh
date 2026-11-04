@@ -1330,6 +1330,22 @@ test_brief_wiring() {
     assert_eq "brief: a missing captured title keeps the candidate (N1-326 D8)" "yes" "$(_hasF 'echo MISSING' "$s/steps/intake.md")"
 }
 
+# N1-271: --retry is routed, documented and wired to the helper; a resumed escalated child re-asks.
+test_retry_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "retry-wiring: argument-hint offers --retry" "yes" "$(grep -q '^argument-hint:.*\[--retry <ticket>\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "retry-wiring: description usage offers --retry" "yes" "$(grep -q '^description:.*\[--retry <ticket>\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "retry-wiring: Input parses --retry" "yes" "$(_hasF '--retry <ticket> (reset a failed or escalated row to pending' "$s/SKILL.md")"
+    assert_eq "retry-wiring: step 1 routes --retry" "yes" "$(_hasF 'If `--retry`: read and follow `<N1_ROOT>/skills/n1-queue/steps/retry.md`. **STOP.**' "$s/SKILL.md")"
+    assert_eq "retry-wiring: step calls the helper" "yes" "$(_hasF 'n1_queue_retry "$QUEUE_FILE" "$RETRY_TICKET"' "$s/steps/retry.md")"
+    assert_eq "retry-wiring: step validates the ticket id first" "yes" "$(_hasF '^[A-Za-z][A-Za-z0-9_]*-[0-9]+$' "$s/steps/retry.md")"
+    assert_eq "retry-wiring: resumed escalated child re-asks" "yes" "$(_hasF 'N1_ORCA_RESUME=1' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
+    assert_eq "retry-wiring: resume re-asks only the last escalation" "yes" "$(_hasF 'last `## Escalations` item' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
+    assert_eq "retry-wiring: resume makes the step reset the first overview.md write" "yes" "$(_hasF 'The step reset is the first overview.md write' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
+    assert_eq "retry-wiring: architecture documents the resumable exception" "yes" "$(_hasF 'n1_orca_worktree_resumable' "$REPO_ROOT/references/architecture.md")"
+}
+
 
 # N1-61: placeholder titles and form-dump descriptions are repaired at intake.
 test_form_repair_wiring() {
@@ -1765,6 +1781,7 @@ test_refined_intake_check
 test_title_vague
 test_desc_chain_wiring
 test_brief_wiring
+test_retry_wiring
 test_form_repair_wiring
 test_overlap_order
 test_schedule_helpers
