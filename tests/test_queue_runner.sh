@@ -1572,6 +1572,65 @@ EOF
     rm -rf "$d"
 }
 
+# N1-362: an obsolete-ticket escalation (Headless Guard marker + no PR + no diff) releases overlap and held successors;
+# any missing piece fails closed. Bugs caught: successors of an obsolete row skipped; a marker alone, a recorded PR, a
+# commit past the branch-point, a dirty tree, another escalation or a missing workspace treated as obsolete.
+test_obsolete_release() {
+    local d h ws ov q
+    d=$(mktemp -d); h="$d/h"; ws="$d/ws"; ov="$h/memory/T-1/overview.md"; mkdir -p "${ov%/*}"
+    gc() { git -C "$ws" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m "$1"; }
+    git init -q "$ws"; gc base
+    git -C "$ws" rev-parse HEAD > "$h/memory/T-1/branch-point"
+    ob() { n1_queue_child_obsolete T-1 "$h" "$d/norepo" && echo yes || echo no; }
+    printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: ticket obsolete: already on main\n' "$ws" > "$ov"
+    assert_eq "obsolete: marker + no PR + no diff" yes "$(ob)"
+    touch "$ws/f"; assert_eq "obsolete: dirty tree fails closed" no "$(ob)"; rm -f "$ws/f"
+    gc work; assert_eq "obsolete: commit past branch-point fails closed" no "$(ob)"
+    git -C "$ws" rev-parse HEAD > "$h/memory/T-1/branch-point"
+    printf '## Pending\npr_url: https://github.com/o/r/pull/1\n' >> "$ov"
+    assert_eq "obsolete: recorded PR fails closed" no "$(ob)"
+    printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: Pick a DB?, options: A | B (blocked-move: moved)\n' "$ws" > "$ov"
+    assert_eq "obsolete: other escalation fails closed" no "$(ob)"
+    printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: ticket obsolete: x\n' "$d/gone" > "$ov"
+    assert_eq "obsolete: missing workspace fails closed" no "$(ob)"
+    rm -f "$h/memory/T-1/branch-point"
+    printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n## Escalations\n- [headless] analysis: ticket obsolete: x\n' "$ws" > "$ov"
+    assert_eq "obsolete: missing branch-point fails closed" no "$(ob)"
+
+    q="$d/q.md"
+    cat > "$q" <<'EOF'
+---
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | a | /r | /h | sonnet | escalated | obsolete |
+| 2 | T-2 | b | /r | /h | sonnet | pending | |
+| 3 | T-3 | c | /r | /h | sonnet | escalated | |
+| 4 | T-4 | d | /r | /h | sonnet | pending | |
+
+## Schedule
+| Ticket | After |
+|--------|-------|
+| T-2 | T-1 |
+| T-4 | T-3 |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    assert_eq "obsolete: overlap successor eligible" "T-2" "$(n1_queue_eligible_rows "$q" false | cut -f2 | paste -sd, -)"
+    assert_eq "obsolete: plain escalated predecessor still skips" "skip" "$(plan_cell "$q" 4 8)"
+    mk_held_plan "$q" escalated; n1_queue_row_status "$q" 1 escalated obsolete
+    assert_eq "obsolete: held sweep counts the released row and its waiting child" "2" "$(n1_queue_held_sweep "$q")"
+    assert_eq "obsolete: held row released" "pending|released: T-1 obsolete" "$(plan_cell "$q" 2 8)|$(plan_cell "$q" 2 9)"
+    mk_held_plan "$q" escalated
+    n1_queue_held_sweep "$q" > /dev/null
+    assert_eq "obsolete: plain escalated blocker still skips the held row" "skip" "$(plan_cell "$q" 2 8)"
+    rm -rf "$d"
+}
+
 # N1-303 fix cycle 1: CR-1 (overlap edge vs reverse Blocks edge), CR-3 (merge mode, chain ended unmerged).
 test_schedule_cycle_and_merge_final() {
     local d q out
@@ -1849,6 +1908,7 @@ test_overlap_order
 test_schedule_helpers
 test_eligible_rows
 test_schedule_cycle_and_merge_final
+test_obsolete_release
 test_release_wiring
 test_already_run
 test_release_rows

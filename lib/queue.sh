@@ -339,6 +339,29 @@ n1_queue_ticket_status() {
         $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { s = $8 } END { print s }' "$1"
 }
 
+n1_queue_ticket_obsolete() {
+    # Usage: n1_queue_ticket_obsolete <queue.md> <ticket> — N1-362: 0 when the ticket's LAST Plan row is escalated with
+    # Reason obsolete (finalize wrote it after n1_queue_child_obsolete passed): nothing to wait for or merge.
+    [ "$(awk -F'|' -v t="$2" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
+        $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { s = $8 "|" $9 } END { print s }' "$1")" = "escalated|obsolete" ]
+}
+
+n1_queue_child_obsolete() {
+    # Usage: n1_queue_child_obsolete <ticket> <n1-home> <repo> [start-epoch] — N1-362: 0 only when the child's newest
+    # ## Escalations entry is the Headless Guard's "ticket obsolete:" record AND it left no PR (pr_url or open PR) AND no
+    # diff (workspace_path HEAD equals memory/<ID>/branch-point, clean tree). The marker alone is child-written and an
+    # analysis-stage question also has no diff/PR, so both are required. Fails closed: a missing file, a workspace_path
+    # that is not a directory (no fallback to <repo>: its HEAD is not the child's) or any git error returns 1.
+    local t="$1" h="$2" repo="$3" start="${4:-}" ov="$2/memory/$1/overview.md" ws bp re='^\[headless\] [^:]+: ticket obsolete'
+    [[ "$(n1_queue_escalation_text "$ov" last)" =~ $re ]] || return 1
+    [ -z "$(n1_queue_child_pr_url "$ov")" ] || return 1
+    ws=$(n1_read_frontmatter "$ov" workspace_path); [ -n "$ws" ] && [ -d "$ws" ] || return 1
+    bp=$(head -n1 "$h/memory/$t/branch-point" 2>/dev/null | tr -d '[:space:]'); [[ "$bp" =~ ^[0-9a-f]{7,40}$ ]] || return 1
+    [ "$(git -C "$ws" rev-list --count "$bp..HEAD" 2>/dev/null)" = 0 ] || return 1
+    [ -z "$(git -C "$ws" status --porcelain 2>&1)" ] || return 1
+    [ -z "$(n1_queue_child_open_pr "$t" "$h" "$repo" "$start")" ]
+}
+
 n1_queue_held_sweep() {
     # Usage: n1_queue_held_sweep <queue.md>
     # N1-64: a held row whose blocker ended without a PR (failed/escalated/skip) or is not in the
@@ -357,7 +380,10 @@ n1_queue_held_sweep() {
     local q="$1" num t b st h r url state base d n=0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
+        [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$b" && st=obsolete
         case "$st" in
+            obsolete)   # N1-362: a verified obsolete blocker left nothing to merge
+                n1_queue_row_status "$q" "$num" pending "released: $b obsolete" ;;
             failed|escalated|skip|'')
                 n1_queue_row_status "$q" "$num" skip "blocked by ${b:-?} (${st:-not in plan})"
                 continue ;;
@@ -398,7 +424,8 @@ n1_queue_eligible_rows() {
     # A function name is called with the predecessor row's N1 Home and returns 0 when that home merges its own PRs.
     # N1-303 (the N1-269 eligibility rule): pending Plan rows (n1_queue_pending_rows columns) whose every
     # ## Schedule predecessor is released: at pr (with <merge> true, only once its Runs Outcome is merged, i.e. the
-    # queue merged its own PR) or done-before-run. A failed/escalated/skip predecessor, or one not in the plan, is a
+    # queue merged its own PR), done-before-run or escalated with Reason obsolete (N1-362). A failed/escalated/skip
+    # predecessor, or one not in the plan, is a
     # hard edge: the row is marked skip here and not listed (the next call cascades). Any other status
     # (pending, in-progress, awaiting-human, held, deferred) waits. No ## Schedule (a plan made before N1-303)
     # lists every pending row. Reads queue.md only (no gh, no stdin): safe on every runner tick (N1-265).
@@ -408,6 +435,7 @@ n1_queue_eligible_rows() {
         ok=1
         for p in $(awk -F'\t' -v t="$t" '$1 == t { gsub(/,/, " ", $2); print $2 }' <<< "$sched"); do
             st=$(n1_queue_ticket_status "$q" "$p")
+            [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$p" && st=done-before-run   # N1-362
             case "$st" in
                 done-before-run) ;;
                 pr)
