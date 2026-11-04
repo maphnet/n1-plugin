@@ -33,7 +33,13 @@ n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 
 **FAIL**: spawn developer with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`; pass the `$N1_HOME/memory/$ID/review.md` path and this scope: Critical+High (except a ` (pre-existing)` `[SEC-N]` the user filed; with `QE=auto-accept`, also every in-diff non-Low `[SEC-N]` and every non-TQ Medium except ` (pre-existing)`, fixed in this same pass) plus every `[RULE-N]` finding (any severity), "Record under `## Fix Cycle <N>` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`."
 
-**SOFT-ONLY** (review PASS routed here; hands-off soft policy, N1-116): spawn developer the same way, passing the `review.md` path and scope: non-TQ Medium titled `(correctness)` only (rest stay deferred), "Record under `## Fix Cycle <N> (soft)` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`, `Findings deferred`." After it returns: no `review_fix_cycle` increment, no re-review, no Return to Step 7; apply the `Findings deferred` Append line below and add each Medium it left unfixed (not `[SEC-N]`) to `## Deferred Soft Findings` in review.md (file-write mechanism), then go to **PASS verdict** (`**Full-suite:**` line under the `(soft)` heading). A failed or partial soft pass never blocks.
+**SOFT-ONLY** (review PASS routed here; hands-off soft policy, N1-116): spawn developer the same way, passing the `review.md` path and scope: non-TQ Medium titled `(correctness)` only (rest stay deferred), "Record under `## Fix Cycle <N> (soft)` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`, `Findings deferred`." After it returns: no `review_fix_cycle` increment, no re-review, no Return to Step 7; apply the `Findings deferred` Append line below and add each Medium it left unfixed (not `[SEC-N]`) to `## Deferred Soft Findings` in review.md (file-write mechanism), then run the block below and go to **PASS verdict** (`**Full-suite:**` line under the `(soft)` heading). A failed or partial soft pass never blocks.
+
+SOFT-ONLY, after the developer returns (records the post-review head for `n1_review_pin set`):
+```bash
+source ~/.n1/preamble.sh
+n1_head_record "$(cat "$N1_HOME/memory/$ID/pre-fix-sha")"
+```
 
 **Security findings** (`[SEC-N]`/CVE): append "Fix the entire CLASS — search all variants."
 

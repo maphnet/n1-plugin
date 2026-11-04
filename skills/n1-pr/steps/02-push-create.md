@@ -20,10 +20,14 @@ git merge-base --is-ancestor origin/${DEFAULT_BRANCH} HEAD
 ```
 
 - Exit 0 → branch already includes all of `${DEFAULT_BRANCH}`; skip rebase.
-- Exit 1 → rebase needed:
+- Exit 1 → rebase needed. A clean rebase records the rebased head for `n1_review_pin set` (accepted only when the pre-rebase tip is the last recorded head); a failed rebase records nothing:
 
 ```bash
-git rebase origin/${DEFAULT_BRANCH}
+source ~/.n1/preamble.sh
+ID="<ticket ID from Step 1, or empty>"
+case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
+PRE_REBASE=$(git rev-parse HEAD)
+git rebase origin/${DEFAULT_BRANCH} && n1_head_record "$PRE_REBASE"
 ```
 
 **If rebase succeeds (exit 0):** Branch is clean. Push using `--force-with-lease` (required because rebase rewrites history):

@@ -72,6 +72,14 @@ From `$N1_HOME/config.json` optional `docs` section: `docs.include` (globs), `do
 - `docs.autoUpdate` is `true` → `autonomous`
 - Otherwise → `confirm`
 
+### Record the pre-docs head:
+```bash
+source ~/.n1/preamble.sh
+ID="<ticket ID from Step 1, or empty>"
+case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
+[ -z "$ID" ] || [ ! -d "$N1_HOME/memory/$ID" ] || git rev-parse HEAD > "$N1_HOME/memory/$ID/docs-from-sha"
+```
+
 ### Spawn tech-writer Phase 1 with:
 Default branch, paths to `implementation.md` (if available), git diff stat, doc config (`include`/`exclude`), doc update mode, `RULES_BLOCK` (verbatim; omit when empty).
 
@@ -82,6 +90,15 @@ Otherwise present updates and ask: "Apply or skip? (apply/skip)"
 
 ### If `autonomous` mode:
 Tech-writer applies and commits without prompting.
+
+### After the doc updates are applied or skipped:
+Record the post-docs head so `n1_review_pin set` accepts the doc commit without a re-review (no commit: the record is a no-op link):
+```bash
+source ~/.n1/preamble.sh
+ID="<ticket ID from Step 1, or empty>"
+case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
+n1_head_record "$(cat "$N1_HOME/memory/${ID:-}/docs-from-sha" 2>/dev/null)"
+```
 
 ### No stale docs found:
 Proceed to Step 3.

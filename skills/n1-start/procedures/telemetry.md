@@ -21,7 +21,7 @@ Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_r
 | 5 | `plan-review` | `{"verdict":"CLEAN\|FIXED"}` |
 | 7 | `implementation` | `{}` |
 | 8 | `qa` | `{"loop_iteration":<N>}` |
-| 9 | `review` | `{}` |
+| 9 | `review` | `{"head":"<HEAD sha>"}` (success and SKIP ends) |
 | 10 | `fix` | `{}` |
 | 11 | `local-testing` | run: `{"action_type":"live\|test_only","infra_started":<bool>,"app_started":<bool>,"services":[...],"scenario_types":[...],"qa_overlap_pct":<int\|null>}`; skip: `{"action_type":"skipped\|smoke_deferred","skip_reason":"<reason>"}` |
 | 12 | `pr` | `{}` |
@@ -30,3 +30,4 @@ Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_r
 | 15 | `release` | `{}` |
 | 16 | `investigation-deliverable` | `{}` |
 | 17 | `post_deploy_verification` | `{"action_type":"post_deploy_verification","result":"PASS\|FAIL\|SKIPPED"}` (raw, n1-finish 03-deploy) |
+| 0 | `head` | `{"head":"<sha>","from":"<sha>"}` (raw, `n1_head_record`: SOFT-ONLY pass, n1-pr doc commit and clean rebase; review-pin head chain) |
