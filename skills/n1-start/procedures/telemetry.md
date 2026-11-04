@@ -9,7 +9,7 @@ n1_run_begin "$ID"
 n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "${WORKTREE_PATH:-null}" "${BRANCH:-}"
 fi
 ```
-`owner:live <sid> <pid>` (here or from `n1_step_begin`): another live session runs `<ID>`; write nothing more. Interactive: ask the user once per run to stop or continue; on continue, rerun the two writes without the `if`. Headless: comment on the ticket with marker `n1-esc:<ID>:owner` and end the run; no blocked move, no `step:` write.
+`owner:live <sid> <pid>` (here or from `n1_step_begin`): another live session runs `<ID>`; write nothing more. Interactive: ask the user once per run to stop or continue (No recommendation. The options are equivalent given the available evidence; select based on team preference.); on continue, rerun the two writes without the `if`. Headless: comment on the ticket with marker `n1-esc:<ID>:owner` and end the run; no blocked move, no `step:` write.
 
 Carry `N1_SESSION_ID` and `N1_RUN_ID` from the session routing context and `n1_run_begin` into every subsequent helper invocation. Never infer identity from the shared discovery file. Missing identity remains unknown. The run's opening envelope is authoritative during finalization.
 
