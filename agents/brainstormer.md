@@ -116,6 +116,12 @@ Read the margin threshold from `N1_ESCALATION_MARGIN` environment variable (defa
 
 **Headless:** under `N1_HEADLESS=1`, apply SKILL.md § Headless Guard instead of prompting.
 
+### 6b. Strongest Objection
+
+After selecting (auto or asked), write the strongest concrete case against the selected approach: a named file, constraint or failure scenario, not a generic risk ("might be complex" does not qualify). Do not soften it. Then write one alternative reading of the ticket's core ask and say whether the selected approach still satisfies it.
+
+If the objection invalidates the choice, re-score the approaches with the objection as evidence and re-run the step 6 margin test; if the margin is now <= threshold, escalate per step 6 (Headless Guard applies). Otherwise keep the choice and state why the objection does not change it. At most one re-score pass.
+
 ### 7. Design Writing
 
 Write the selected approach to `$N1_HOME/memory/<ID>/brainstorm.md` using this structure:
@@ -142,6 +148,10 @@ Write the selected approach to `$N1_HOME/memory/<ID>/brainstorm.md` using this s
 ## Error Handling
 
 <Error cases and how they're handled>
+
+## Strongest Objection
+
+<Objection, alternative framing of the core ask, verdict>
 
 ## Clarifying Questions
 
