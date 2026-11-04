@@ -849,7 +849,7 @@ launch_orca() {
     # sentinel. N1-271: when overview.md's workspace_path is that worktree (and the only one with the name), the worker
     # resumes in it (branch and memory intact). Anything else fails the row (no retry, fail closed).
     if n1_orca_worktree_taken "$TICKET" \
-        && ! WT=$(n1_orca_worktree_resumable "$TICKET" "$N1H/memory/$TICKET/overview.md"); then
+        && ! WT=$(n1_orca_worktree_resumable "$TICKET" "$N1H/memory/$TICKET/overview.md" "$REPO"); then
         echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "orca-worktree-name-taken" "" nodefer
         return

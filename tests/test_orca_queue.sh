@@ -55,7 +55,7 @@ case "$1 $2" in
   "terminal create") [ -n "${FAKE_TERM_FAIL:-}" ] && err "no terminal"; j='{"terminal":{"handle":"term-9"}}'; ok "${FAKE_TERM_JSON:-$j}" ;;
   "terminal close") ok '{}' ;;
   "worktree list") case "${FAKE_WT:-fail}" in fail) err "boom" ;; none) ok '{"worktrees":[]}' ;;
-      dup) ok '{"worktrees":[{"path":"/w/T-1"},{"path":"/v/T-1"}]}' ;; *) ok '{"worktrees":[{"path":"/w/T-1"}]}' ;; esac ;;
+      dup) ok '{"worktrees":[{"path":"/w/T-1"},{"path":"/v/T-1"}]}' ;; path) ok "{\"worktrees\":[{\"path\":\"$FAKE_WT_PATH\"}]}" ;; *) ok '{"worktrees":[{"path":"/w/T-1"}]}' ;; esac ;;
   "orchestration worker-list") [ -n "${FAKE_WL_EMPTY:-}" ] && ok '{}' && exit 0
       # Real Orca 1.4.243 rows: released, running, finished (reclaimable), failed, unknown state with no projection.
       ok '{"workers":[
@@ -168,19 +168,28 @@ eq "worktree_taken: readable, clash" 0 "$(FAKE_WT=hit rc n1_orca_worktree_taken 
 # N1-271: resume only into the single Orca worktree named <ticket> that overview.md names as workspace_path.
 # Bugs caught: resuming into a different checkout; a duplicate folder name or unreadable list resuming (fail open);
 # a new worktree (--name) requested for a resume; the fresh-launch argv changing.
+# SEC-2: the worktree must belong to the row's repo (same git common dir), so overview.md cannot point at a same-named foreign one.
+RA="$T/ra"; RB="$T/rb"
+for r in "$RA" "$RB"; do git init -q "$r" && git -C "$r" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i; done
+git -C "$RA" worktree add -q "$T/wa/T-1" -b t1 2>/dev/null; git -C "$RB" worktree add -q "$T/wb/T-1" -b t1 2>/dev/null
+WA="$T/wa/T-1"; WB="$T/wb/T-1"
 RV="$T/rv.md"
-printf -- '---\nstep: escalated\nworkspace_path: /w/T-1\n---\n' > "$RV"
-eq "resumable: matching workspace_path prints the worktree" /w/T-1 "$(FAKE_WT=hit n1_orca_worktree_resumable T-1 "$RV")"
-eq "resumable: trailing slash still matches" /w/T-1 "$(printf -- '---\nworkspace_path: /w/T-1/\n---\n' > "$T/rv2.md"; FAKE_WT=hit n1_orca_worktree_resumable T-1 "$T/rv2.md")"
-eq "resumable: unreadable list (fail closed)" 1 "$(FAKE_WT=fail rc n1_orca_worktree_resumable T-1 "$RV")"
-eq "resumable: two worktrees named T-1 (fail closed)" 1 "$(FAKE_WT=dup rc n1_orca_worktree_resumable T-1 "$RV")"
-eq "resumable: no worktree named T-1" 1 "$(FAKE_WT=none rc n1_orca_worktree_resumable T-1 "$RV")"
-eq "resumable: missing overview" 1 "$(FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$T/absent.md")"
-eq "resumable: realpath fails on both sides (fail closed)" 1 "$(realpath() { return 1; }; FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$RV")"
-printf -- '---\nstep: escalated\nworkspace_path: /elsewhere/T-1\n---\n' > "$RV"
-eq "resumable: workspace_path is another checkout" 1 "$(FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$RV")"
+printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n' "$WA" > "$RV"
+res() { FAKE_WT_PATH="$WA" FAKE_WT="${FAKE_WT:-path}" n1_orca_worktree_resumable T-1 "${RV_ARG:-$RV}" "${REPO_ARG:-$RA}"; }
+eq "resumable: matching workspace_path prints the worktree" "$WA" "$(res)"
+eq "resumable: trailing slash still matches" "$WA" "$(printf -- '---\nworkspace_path: %s/\n---\n' "$WA" > "$T/rv2.md"; RV_ARG="$T/rv2.md" res)"
+eq "resumable: unreadable list (fail closed)" 1 "$(FAKE_WT=fail rc res)"
+eq "resumable: two worktrees named T-1 (fail closed)" 1 "$(FAKE_WT=dup rc res)"
+eq "resumable: no worktree named T-1" 1 "$(FAKE_WT=none rc res)"
+eq "resumable: missing overview" 1 "$(RV_ARG="$T/absent.md" rc res)"
+eq "resumable: realpath fails on both sides (fail closed)" 1 "$(realpath() { return 1; }; rc res)"
+eq "resumable: worktree of another repo than the row (SEC-2, fail closed)" 1 "$(REPO_ARG="$RB" rc res)"
+eq "resumable: row repo is not a checkout (fail closed)" 1 "$(REPO_ARG="$T/nonexistent" rc res)"
+printf -- '---\nstep: escalated\nworkspace_path: %s\n---\n' "$WB" > "$RV"
+eq "resumable: workspace_path is another checkout" 1 "$(rc res)"
+eq "resumable: foreign same-named worktree in both list and overview, row repo A" 1 "$(FAKE_WT_PATH="$WB" FAKE_WT=path rc n1_orca_worktree_resumable T-1 "$RV" "$RA")"
 printf -- '---\nstep: escalated\n---\n' > "$RV"
-eq "resumable: empty workspace_path" 1 "$(FAKE_WT=hit rc n1_orca_worktree_resumable T-1 "$RV")"
+eq "resumable: empty workspace_path" 1 "$(rc res)"
 reset; n1_orca_worker_start run-1 task-1 T-1 /r sonnet /w/T-1 >/dev/null
 has "worker-start: existing worktree selector" "orchestration worker-start --run run-1 --task task-1 --worktree path:/w/T-1 --repo path:/r --agent claude --model sonnet" "$(calls)"
 hasnt "worker-start: existing worktree requests no new name" "--name" "$(calls)"

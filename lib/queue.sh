@@ -1039,7 +1039,7 @@ n1_queue_retry() {
     # `--run <id>` resumes it through the interrupted-run path under the same run_id. Never starts the runner.
     # Refuses (stderr, exit 1, nothing changed): invalid ticket id, no queue, live runner, another step, no row, or
     # a row in another status.
-    local q="$1" t="$2" dir step row num st n1h
+    local q="$1" t="$2" dir step row num st n1h u task disp
     [[ "$t" =~ ^[A-Za-z][A-Za-z0-9_]*-[0-9]+$ ]] || { echo "n1-queue: invalid ticket id: $t" >&2; return 1; }
     [ -n "$q" ] && [ -f "$q" ] || { echo "No queue runs found." >&2; return 1; }
     dir=$(dirname -- "$q")
@@ -1053,10 +1053,21 @@ n1_queue_retry() {
     IFS=$'\t' read -r num _ _ n1h _ st <<< "$row"
     case "$st" in failed|escalated) ;; *) echo "n1-queue: $t is ${st:-empty}, not failed or escalated" >&2; return 1 ;; esac
     declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
+    # SEC-1: an attempt whose identity still names its Runs-row task may be a live worker (launch keeps it on a
+    # worker-start timeout); retry drops that identity and its session pins, so refuse unless the dispatch is proven
+    # exited/done. An unreadable worker list refuses too (fail closed).
+    u=$(n1_orca_unsettled "$q" | awk -F'\t' -v t="$t" '$2 == t { r = $0 } END { print r }')
+    if [ -n "$u" ]; then
+        IFS=$'\t' read -r _ _ _ task disp <<< "$u"
+        if ! n1_orca_liveness "$(n1_read_frontmatter "$q" orca_run_id)" 2>/dev/null \
+            | awk -F'\t' -v d="$disp" '$1 == d && ($3 == "exited" || $4 == "done") { f = 1 } END { exit !f }'; then
+            echo "n1-queue: $t's previous worker may still be running; stop it first (/n1:n1-queue --stop)" >&2; return 1
+        fi
+    fi
     n1_queue_row_status "$q" "$num" pending "" clear || return 1
     rm -f "$dir/.launch-$num" "$dir/.esc-reason-$t" "$dir/.ask-$t" "$dir/.escalated-$t" "$dir/.question-$t.json"
-    [ -z "$n1h" ] || n1_orca_sentinel_rm "$n1h" "$t"
-    case "$step" in halted|done) n1_write_frontmatter "$q" step run ;; esac
+    [ -z "$n1h" ] || n1_orca_sentinel_rm "$n1h" "$t" "$task"
+    case "$step" in halted|done) n1_write_frontmatter "$q" step run || { echo "n1-queue: could not set step run on $q" >&2; return 1; } ;; esac
     echo "Retry queued: /n1:n1-queue --run $(n1_read_frontmatter "$q" queue_id)"
 }
 

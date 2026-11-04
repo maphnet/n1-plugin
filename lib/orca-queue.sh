@@ -188,14 +188,15 @@ n1_orca_worktree_taken() {
 }
 
 n1_orca_worktree_resumable() {
-    # Usage: n1_orca_worktree_resumable <ticket> <overview.md> — N1-271: prints the path of the ticket's existing Orca
+    # Usage: n1_orca_worktree_resumable <ticket> <overview.md> <repo> — N1-271: prints the path of the ticket's existing Orca
     # worktree (exit 0) only when overview.md's workspace_path is that worktree and exactly one Orca worktree folder is
     # named <ticket> (the identity loader keys on that folder name, which a reused worktree keeps). A missing overview,
-    # an empty workspace_path, an unreadable list, zero or several matches, or a path mismatch: exit 1 (the caller
+    # an empty workspace_path, an unreadable list, zero or several matches, a path mismatch, or a worktree whose git
+    # common dir is not <repo>'s (SEC-2): exit 1 (the caller
     # keeps orca-worktree-name-taken, fail closed).
     local ws out wt rwt rws
     [ -f "$2" ] || return 1
-    ws=$(sed -n 's/^workspace_path: *//p' "$2" 2>/dev/null | head -1)
+    ws=$(n1_read_frontmatter "$2" workspace_path)
     [ -n "$ws" ] || return 1
     out=$(N1_ORCA_TIMEOUT=30 n1_orca worktree list) || return 1
     wt=$(jq -r --arg n "$1" 'if (.result.worktrees | type) == "array"
@@ -204,6 +205,7 @@ n1_orca_worktree_resumable() {
     [ -n "$wt" ] || return 1
     rwt=$(realpath -m -- "$wt" 2>/dev/null); rws=$(realpath -m -- "$ws" 2>/dev/null)
     [ -n "$rwt" ] && [ "$rwt" = "$rws" ] || return 1   # empty realpath on both sides must not match
+    rwt=$(_n1_orca_common "$wt"); [ -n "$rwt" ] && [ -n "${3:-}" ] && [ "$rwt" = "$(_n1_orca_common "${3:-}")" ] || return 1   # same repo as the row
     printf '%s' "$wt"
 }
 
