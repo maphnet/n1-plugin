@@ -60,5 +60,10 @@ eq "W4 codex-triage validator and developer prompts state the nonce rule" "2" "$
 eq "W5 validator prompt points at the fenced candidates file" "1" "$(has "$TRI" 'Findings to validate: <FIX_CANDIDATES> (read this file')"
 eq "W6 developer prompt points at the fenced confirmed file" "1" "$(has "$TRI" 'Findings to fix: <CONFIRMED_FINDINGS> (read this file')"
 
+RR=skills/n1-review-response/steps/02-resolve.md
+eq "W7 review-response fences comment bodies" "1" "$(has "$RR" "n1_fence_untrusted 'PR REVIEW COMMENT'")"
+eq "W8 review-response developer prompt states the nonce rule" "1" "$(has "$RR" "$RULE")"
+eq "W9 developer prompt reads the fenced comments file" "1" "$(has "$RR" 'Original comment bodies: <FENCED_COMMENTS_FILE>')"
+
 echo "fence_untrusted: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
