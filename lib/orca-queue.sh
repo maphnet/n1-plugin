@@ -282,6 +282,7 @@ n1_orca_sentinel_write() {
             "$4" "${N1_QUEUE_TAG:-}" "${N1_QUEUE_DIR:-}" "$(n1_session_id 2>/dev/null)"
         printf 'N1_ORCA_REPO=%s\nN1_ORCA_RUN=%s\nN1_ORCA_TASK=%s\n' "$3" "$5" "$6"
     } > "$t" && mv -f "$t" "$f" || { rm -f "$t"; return 1; }
+    rm -f "${f%.env}.beacon"   # N1-315: a retry or resume must not inherit the previous attempt's phase stamp
     t=$(n1_orca_home_ptr "$2"); mkdir -p "${t%/*}" && printf '%s\n' "$1" > "$t"
 }
 
@@ -300,7 +301,7 @@ n1_orca_sentinel_rm() {
     local f; f=$(n1_orca_sentinel_path "$1" "$2")
     [ -z "${3:-}" ] || [ "$(_n1_orca_sget "$f" N1_ORCA_TASK)" = "$3" ] || return 0
     [ "$(head -1 "$(n1_orca_home_ptr "$2")" 2>/dev/null)" != "$1" ] || rm -f "$(n1_orca_home_ptr "$2")"
-    rm -f "$f" "${f%.env}.sent" "${f%/*/*}/sessions/$2".*
+    rm -f "$f" "${f%.env}.sent" "${f%.env}.beacon" "${f%/*/*}/sessions/$2".*
 }
 
 n1_orca_unsettled() {
@@ -434,6 +435,35 @@ n1_orca_worker_done() {
        --subject "$N1_ORCA_TICKET $st" --body "$st${url:+ $url}")
     [ -n "${ORCA_TERMINAL_HANDLE:-}" ] && a+=(--from "$ORCA_TERMINAL_HANDLE")
     n1_orca "${a[@]}" >/dev/null 2>&1 && printf '%s\n' "$N1_ORCA_DISPATCH" > "$sent"
+    return 0
+}
+
+n1_orca_beacon() {
+    # Usage: n1_orca_beacon <start|stop|tick> [agent_type] — N1-315, hooks only (never skill text), after
+    # n1_orca_child_env loaded: send this queue child's phase to its coordinator as a heartbeat. Phase = overview.md
+    # current_step (else step), plus "/<persona>" on start; stop sends the step alone, so a persona start and finish
+    # each send once. <sentinel>.beacon holds the last phase sent: an unchanged phase sends nothing unless the stamp is
+    # 10+ minutes old (floor: a long single-phase persona must stay under queue.stallMinutes). tick (Stop,
+    # PostToolUse) compares only the step part, so a persona-less hook firing inside a subagent never flaps the phase.
+    # The send is backgrounded with output discarded; a lost send is repaired by the floor. Requires lib/frontmatter.sh.
+    # Always returns 0.
+    [ -n "${N1_ORCA_TASK:-}" ] && [ -n "${N1_ORCA_DISPATCH:-}" ] && [ -n "${N1_ORCA_SENTINEL:-}" ] || return 0
+    local stamp="${N1_ORCA_SENTINEL%.env}.beacon" home="${N1_ORCA_SENTINEL%/queue/sentinels/*}" ov step p phase last a
+    ov="$home/memory/${N1_ORCA_TICKET:-}/overview.md"
+    step=$(n1_read_frontmatter "$ov" current_step 2>/dev/null)
+    [ -n "$step" ] || step=$(n1_read_frontmatter "$ov" step 2>/dev/null)
+    step="${step//[^A-Za-z0-9_.-]/}"
+    [ -n "$step" ] || return 0
+    p=$(n1_persona_name "${2:-}"); p="${p//[^A-Za-z0-9_.-]/}"
+    phase="$step"; [ "$1" = start ] && [ -n "$p" ] && phase="$step/$p"
+    phase="${phase:0:64}"
+    last=$(cat "$stamp" 2>/dev/null)
+    [ "$1" != tick ] || [ "${last%%/*}" != "$step" ] || phase="$last"
+    [ "$phase" != "$last" ] || [ -n "$(find "$stamp" -mmin +10 2>/dev/null)" ] || return 0
+    printf '%s\n' "$phase" > "$stamp" 2>/dev/null || return 0
+    a=(orchestration send --type heartbeat --phase "$phase" --subject alive --task-id "$N1_ORCA_TASK" --dispatch-id "$N1_ORCA_DISPATCH")
+    [ -n "${ORCA_TERMINAL_HANDLE:-}" ] && a+=(--from "$ORCA_TERMINAL_HANDLE")
+    ( n1_orca "${a[@]}" >/dev/null 2>&1 & ) 2>/dev/null
     return 0
 }
 
