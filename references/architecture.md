@@ -92,7 +92,7 @@ Each step reads ONLY its declared dependencies:
 | pr | `overview.md` (full); verdict lines only from `review.md`, `qa.md`, `local-testing.md` (skip mode: `overview.md` only); `implementation.md` by path | `overview.md` (updates) |
 | ci | `overview.md`, `plan.md`, `implementation.md` | `overview.md` (CI status) |
 | finish | `overview.md`; PR state via gh | `overview.md` (Finish section) |
-| release | `overview.md` (optional, for merge SHA); `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | tracker comment (best-effort) |
+| release | `overview.md` (optional, for merge SHA); `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | tracker comment (best-effort; SKIPPED when the tracker server is absent) |
 | investigation-deliverable | `ticket.md`, `analysis.md`, `brainstorm.md` | `investigation.md` |
 
 
@@ -456,7 +456,7 @@ After the release, the deploy watch (always on, 30-minute budget, unfiltered) ca
 
 Release notes (N1-239, `steps/03b-release-notes.md`): after the release, and after Step 5b whether or not it ran, n1-release writes `$N1_HOME/releases/<TAG>.md`. The file has a Slack-ready `## Slack` block and a `## Full` block, grouped New / Improved / Fixed in plain language, built inline from the release PRs' `## Summary` sections and the release tickets. When `kb.enabled` is set on a jc-mcp Jira tracker, the full block is published as the child page "<VERSION_NAME> release notes" under a "Release notes" parent in the KB space. Lookups use `searchArticles` and `getArticle` (both backfilled into `tracker.operations`), a missing `kb.spaceId` is resolved via `lookupSpace` and saved, and the file records `confluence_url:` and `confluence_page_id:`. The stakeholder section goes on top of the GitHub Release body above `<!-- n1:release-notes:end -->`, and re-runs replace only that part. `/n1:n1-release --notes [<TAG>]` regenerates and republishes the notes for an existing release after one confirmation. Headless runs escalate instead of publishing. Publishing failures warn and never block the report.
 
-Idempotent: `gh release view` check before creating; existing tag/release causes a skip. Tracker comment ("Released as vX.Y.Z") posted best-effort when a ticket can be inferred from the branch name.
+Idempotent: `gh release view` check before creating; existing tag/release causes a skip. Ticket discovery merges four sources: A branch name, B pending batch, C GitHub Release notes, D `git log` between tags; C and D take only the leading `[PREFIX-N]` tag of each release-note entry or commit subject, so IDs mentioned later in the line and untagged subjects contribute nothing. Tracker server check: before ticket operations, Steps 5b, 6 and 03b search the tool list for `mcp__<tracker.mcp>__` tools. When none are loaded they make no call: fixVersion, the transition to released and the "Released as" comment are each listed with their ticket count under `Skipped tracker operations:` in the final report, and release-notes ticket reads and Confluence publishing warn inline. Per-call errors with the server loaded stay best-effort warnings. There is no fallback to `tracker.versionMcp`, which serves only version operations.
 
 Config keys: `release.enabled` (boolean, default `false`), `release.procedure` (string|null, default `null`), `release.draft` (boolean, default `false`). Tags are always `v<version>`.
 

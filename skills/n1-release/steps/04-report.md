@@ -7,13 +7,15 @@ Only when ALL hold:
 - `tracker.operations.addComment` exists
 - `RELEASE_TICKET_IDS` is non-empty
 
+Then run the Tracker server check: search the tool list (load if deferred, per HOST ROUTING) for a tool whose name starts with `mcp__<tracker.mcp>__`, matching the whole prefix including both double underscores. Found: `TRACKER_UP=yes`. None found: `TRACKER_UP=no`; post nothing and record `SKIPPED "Released as" comment on <N> ticket(s): tracker server <tracker.mcp> not available` (`<N>` = number of IDs in `RELEASE_TICKET_IDS`). If the search itself fails or is ambiguous, use `TRACKER_UP=yes`.
+
 For each ticket in `RELEASE_TICKET_IDS`:
 
 Post: `"Released as <TAG>"` via `mcp__<tracker.mcp>__<operations.addComment>`.
 
 When `tracker.operations.getComments` exists, check recent comments on each ticket first and skip if an identical comment is already present (idempotent re-run).
 
-Failure on any individual ticket -> warn and continue to the next; never block the release report.
+With `TRACKER_UP=yes`, failure on any individual ticket -> warn and continue to the next; never block the release report.
 
 # Step 8: Deployment Check
 
@@ -95,7 +97,7 @@ Released <TAG>
 Tag:        <TAG> (pushed to origin)
 Release:    <release URL>
 Deployment: <DEPLOY>
-Tickets:    <RELEASE_TICKET_IDS comma-separated> -- comments posted / no tickets found / tracker not configured
+Tickets:    <RELEASE_TICKET_IDS comma-separated> -- comments posted / comments skipped (tracker server <tracker.mcp> not available) / no tickets found / tracker not configured
 Release notes: <NOTES>
 <tracker release summary -- only when tracker.type is "jira" and RELEASE_TICKET_IDS is non-empty>
 ```
@@ -107,11 +109,13 @@ Release procedure complete.
 Steps completed: <N>/<total>
 Release: <release URL> / created <release URL> / missing (declined) / missing (create failed) / not yet created (workflow still running) / missing (tag not on origin)
 Deployment: <DEPLOY>
-Ticket: <ID> — comment posted / no ticket inferred / tracker not configured
+Ticket: <ID> — comment posted / comment skipped (tracker server <tracker.mcp> not available) / no ticket inferred / tracker not configured
 Release notes: <NOTES>
 ```
 
 `<NOTES>` is the value recorded by `03b-release-notes.md` § 5c-8 (notes file path -- Confluence URL or skip/failure reason).
+
+When any SKIPPED line was recorded (Steps 5b and 6), print `Skipped tracker operations:` after the report block (either flow), followed by each SKIPPED line verbatim, one per line. Omit the heading otherwise.
 
 After the report block (either flow), print `Slack-ready notes:` followed by the `## Slack` section of `$N1_HOME/releases/<TAG>.md`, verbatim:
 
@@ -128,8 +132,8 @@ awk '/^## Slack$/{f=1; next} /^## /{f=0} f' "$N1_HOME/releases/<TAG>.md"
 ```
 Tracker release:
   Version:     "<VERSION_NAME>" -- created and released / already existed / skipped (jc-mcp not configured)
-  Fix version: set on <IDs> / skipped (jc-mcp not configured)
-  Tickets:     <N> moved to "<target>" / skipped (no status configured)
+  Fix version: set on <IDs> / skipped (jc-mcp not configured) / skipped (tracker server <tracker.mcp> not available)
+  Tickets:     <N> moved to "<target>" / skipped (no status configured) / skipped (tracker server <tracker.mcp> not available)
 ```
 
 On idempotent skip:

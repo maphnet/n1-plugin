@@ -131,18 +131,20 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    ```bash
    PREFIX=$(n1_config_val '.tracker.prefix')
    GH_BODY=$(gh release view "${TAG}" --json body --jq '.body' 2>/dev/null || true)
-   GH_IDS=$(echo "$GH_BODY" | grep -oE "${PREFIX}-[0-9]+" | sort -u)
+   GH_IDS=$(printf '%s\n' "$GH_BODY" | sed -nE "s/^[[:space:]]*([*-][[:space:]]+)?\[(${PREFIX}-[0-9]+)\].*/\2/p" | sort -u)
    ```
 
    **Source D — Git log between tags** (new): scan commit messages between previous and current tag:
    ```bash
    if [ -n "$PREV_TAG" ]; then
-     GIT_LOG=$(git log "${PREV_TAG}..${TAG}" --oneline 2>/dev/null || true)
+     GIT_LOG=$(git log "${PREV_TAG}..${TAG}" --oneline --no-decorate 2>/dev/null || true)
    else
-     GIT_LOG=$(git log "${TAG}" --oneline 2>/dev/null || true)
+     GIT_LOG=$(git log "${TAG}" --oneline --no-decorate 2>/dev/null || true)
    fi
-   GIT_IDS=$(echo "$GIT_LOG" | grep -oE "${PREFIX}-[0-9]+" | sort -u)
+   GIT_IDS=$(printf '%s\n' "$GIT_LOG" | sed -nE "s/^[0-9a-f]+ \[(${PREFIX}-[0-9]+)\].*/\1/p" | sort -u)
    ```
+
+   Only the leading `[PREFIX-N]` tag counts: Source C takes it from the start of each release-note entry (after an optional `* ` or `- ` list marker), Source D from the start of each commit subject. IDs mentioned later in the line are ignored, and a subject without a leading tag (conventional-commit prefix, merge commit) contributes no ticket; Sources A and B still apply.
 
    **Merge all sources:**
    ```bash
