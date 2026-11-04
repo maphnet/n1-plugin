@@ -70,5 +70,16 @@ eq "W10 n1-ci fences the CI log" "1" "$(has "$CI" "n1_fence_untrusted 'CI LOG'")
 eq "W11 n1-ci developer prompt states the nonce rule" "1" "$(has "$CI" "$RULE")"
 eq "W12 developer reads the fenced log and no longer fetches it" "0" "$(has "$CI" 'Fetch the logs yourself')"
 
+R3B=skills/n1-release/steps/03b-release-notes.md
+eq "W13 03b fences the PR sources" "1" "$(has "$R3B" "n1_fence_untrusted 'PR RELEASE SOURCE'")"
+eq "W14 03b states the nonce rule" "1" "$(has "$R3B" "$RULE")"
+eq "W15 5c-4 reads the fenced sources file" "1" "$(has "$R3B" 'Read `$N1_HOME/scratch/release-notes-sources-<TAG>.fenced.md`')"
+eq "W16 tracker tickets file is not fenced" "0" "$(grep -cE 'n1_fence_untrusted.*tickets' "$R3B")"
+WANT=$(printf '%s\n' lib/validation.sh skills/n1-ci/steps/02-fix.md skills/n1-pr/procedures/codex-triage.md \
+    skills/n1-pr/steps/03-codex-review.md skills/n1-release/steps/03b-release-notes.md \
+    skills/n1-review-response/steps/02-resolve.md | sort)
+eq "W17 helper users are exactly the helper and the five call sites (no tracker-text site)" "$WANT" \
+    "$(grep -rlF n1_fence_untrusted lib skills references hooks scripts agents 2>/dev/null | sort)"
+
 echo "fence_untrusted: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
