@@ -40,7 +40,7 @@ If a tracker type was detected in step 02's Consolidated Detection:
   If 2 -> skip to **Select project** below when step 02's Atlassian probe succeeded; otherwise start at **If Jira via Atlassian MCP**.
   If 3 -> fall through to the full tracker question below.
   If 4 -> set `tracker.type` to `"none"`, `tracker.mcp` to `null`, skip remaining tracker setup.
-  After the choice, never call the other Jira server's tools.
+  After the choice, do not use the other Jira server for standard tracker operations; the Atlassian config still uses jc-mcp for version, link and changelog operations.
 
 - **YouTrack detected:** Same confirmation pattern -- confirm or override.
 
@@ -73,7 +73,7 @@ Requires jc-mcp 0.9.0 or newer; tell the user this minimum. The tool list does n
 **Project key:** Ask: **"Which Jira project key should N1 use? (e.g., PROJ; leave blank to skip tracker)"**
 
 - Blank -> set `tracker.mcp` to `null`, skip remaining tracker setup.
-- Otherwise validate it: call `mcp__<JCM_SERVER>__jcm_listVersions` with `projectKey` set to the key. A tool error or not-found result means the key is unknown or malformed: tell the user "Project <KEY> was not found via jc-mcp." and ask again. Any successful result is valid, including an empty list (a project with no versions returns `[]`).
+- Otherwise validate it: call `mcp__<JCM_SERVER>__jcm_listVersions` with `projectKey` set to the key. A not-found result means the key is unknown or malformed: tell the user "Project <KEY> was not found via jc-mcp." and ask again. Any other tool error (authentication, permission, timeout, server error) is not a key problem: report the error and ask **"1 — Retry / 2 — Skip tracker"**; retry repeats the call, skip sets `tracker.mcp` to `null` and skips remaining tracker setup. Any successful result is valid, including an empty list (a project with no versions returns `[]`).
 
 Set both `tracker.projectKey` and `tracker.prefix` from the validated key.
 
