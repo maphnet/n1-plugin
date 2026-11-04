@@ -96,6 +96,13 @@ assert_eq "h: compact runId kept" 1 "$(grep -cF '"runId":"run-h"' "$F")"
 n1_active_run_clear_if run-h
 assert_eq "h: clear_if removes" "gone" "$([ -f "$F" ] && echo kept || echo gone)"
 
+# (i) n1_step_begin prints the live token on stdout; silent when free
+reset; ptr other T-1 r1 "$CL"
+ID=T-1
+assert_eq "i: step_begin live token" "owner:live other $CL" "$(n1_step_begin ticket 1 2>/dev/null)"
+reset
+assert_eq "i: step_begin silent when free" "" "$(n1_step_begin ticket 1 2>/dev/null)"
+unset ID
 echo "---"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
