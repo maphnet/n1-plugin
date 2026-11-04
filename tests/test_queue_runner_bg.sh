@@ -776,6 +776,26 @@ test_queue_interrupted() {
     rm -rf "$tmp"
 }
 
+# N1-333 AC1 (lib side): the exit trace writes one line + one queue_interrupted event only while step is run,
+# and never touches step or pid (resume detection needs both).
+test_queue_note_interrupt() {
+    local tmp out s; tmp=$(mktemp -d)
+    printf -- '---\nqueue_id: q1\nrun_id: R1\nstep: run\npid: 4242\n---\n## Plan\n' > "$tmp/queue.md"
+    out=$(n1_queue_note_interrupt "$tmp/queue.md" "signal TERM")
+    assert_eq "note-interrupt: runner.log line" \
+        "runner interrupted: signal TERM (pid 4242, step run kept; resume: /n1:n1-queue --run q1)" "$out"
+    assert_eq "note-interrupt: one event with run id and reason" "queue_interrupted|R1|runner signal TERM pid 4242" \
+        "$(jq -r '[.event, .run_id, .reason] | join("|")' "$tmp/events.jsonl")"
+    assert_eq "note-interrupt: step and pid kept" "run 4242" \
+        "$(n1_read_frontmatter "$tmp/queue.md" step) $(n1_read_frontmatter "$tmp/queue.md" pid)"
+    for s in done halted preview; do
+        rm -f "$tmp/events.jsonl"; n1_write_frontmatter "$tmp/queue.md" step "$s"
+        assert_eq "note-interrupt: step $s is silent" "|no" \
+            "$(n1_queue_note_interrupt "$tmp/queue.md" x)|$([ -e "$tmp/events.jsonl" ] && echo yes || echo no)"
+    done
+    rm -rf "$tmp"
+}
+
 # N1-185/N1-183: the digest counts merged tickets and labels an interrupted run.
 test_queue_digest_chain_states() {
     local tmp ev; tmp=$(mktemp -d); mkdir -p "$tmp/queue/q1"; ev="$tmp/queue/q1/events.jsonl"
@@ -784,6 +804,43 @@ test_queue_digest_chain_states() {
     n1_queue_event "$ev" q1 R1 ticket_finished ticket=T-A outcome=merged pr=u
     n1_queue_event "$ev" q1 R1 queue_interrupted reason="runner pid 1 gone"
     assert_eq "digest: merged count + interrupted label" "Queue q1: 1 merged, interrupted" "$(n1_queue_digest "$tmp")"
+    rm -rf "$tmp"
+}
+
+# N1-333 AC4: the digest reads each queue.md's step/pid (local only). Step run + dead runner -> "runner gone".
+test_queue_digest_runner_gone() {
+    local tmp ev q dead; tmp=$(mktemp -d); mkdir -p "$tmp/queue/q1"; ev="$tmp/queue/q1/events.jsonl"; q="$tmp/queue/q1/queue.md"
+    sleep 0 & dead=$!; wait "$dead"
+    n1_queue_event "$ev" q1 R1 queue_started
+    n1_queue_event "$ev" q1 R1 ticket_started ticket=T-X
+    assert_eq "digest: no queue.md -> unchanged" "Queue q1: running T-X" "$(n1_queue_digest "$tmp")"
+    printf -- '---\nqueue_id: q1\nrun_id: R1\nstep: run\npid: %s\n---\n' "$dead" > "$q"
+    assert_eq "digest: step run + dead pid -> runner gone" "Queue q1: runner gone" "$(n1_queue_digest "$tmp")"
+    start_fake_runner "$REPO_ROOT" "$q"; n1_write_frontmatter "$q" pid "$FAKE_RUNNER_PID"
+    assert_eq "digest: live runner -> running" "Queue q1: running T-X" "$(n1_queue_digest "$tmp")"
+    stop_fake_runner
+    n1_write_frontmatter "$q" pid "$dead"; n1_write_frontmatter "$q" step done
+    assert_eq "digest: finished step -> running (events only)" "Queue q1: running T-X" "$(n1_queue_digest "$tmp")"
+    n1_write_frontmatter "$q" step run
+    n1_queue_event "$ev" q1 R1 queue_interrupted reason="runner signal TERM pid $dead"
+    assert_eq "digest: trap event is not repeated as interrupted" "Queue q1: runner gone" "$(n1_queue_digest "$tmp")"
+    rm -rf "$tmp"
+}
+
+# N1-333 AC4: --status marks in-progress rows runner-gone for step run + dead runner; awaiting-human rows keep their state.
+test_status_runner_gone() {
+    local tmp dead st; tmp=$(mktemp -d); sleep 0 & dead=$!; wait "$dead"
+    mkdir -p "$tmp/bin"; printf '#!/bin/sh\necho "[]"\n' > "$tmp/bin/claude"; chmod +x "$tmp/bin/claude"   # never the real CLI
+    printf -- '---\nqueue_id: q1\nrun_id: R1\nstep: run\npid: %s\n---\n## Plan\n| # | Ticket | Title | Repo | Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n| 1 | T-A | a | /r | %s | m | in-progress | |\n| 2 | T-B | b | /r | %s | m | awaiting-human | |\n' \
+        "$dead" "$tmp" "$tmp" > "$tmp/queue.md"
+    : > "$tmp/events.jsonl"
+    st() { PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/queue.md" "$tmp/events.jsonl" | cut -f2 | paste -sd' '; }
+    assert_eq "status: dead runner -> in-progress row runner-gone, parked row kept" "runner-gone awaiting-human" "$(st)"
+    start_fake_runner "$REPO_ROOT" "$tmp/queue.md"; n1_write_frontmatter "$tmp/queue.md" pid "$FAKE_RUNNER_PID"
+    assert_eq "status: live runner -> stored state" "in-progress awaiting-human" "$(st)"
+    stop_fake_runner
+    n1_write_frontmatter "$tmp/queue.md" pid "$dead"; n1_write_frontmatter "$tmp/queue.md" step done
+    assert_eq "status: finished run -> stored state" "in-progress awaiting-human" "$(st)"
     rm -rf "$tmp"
 }
 
@@ -1033,7 +1090,10 @@ test_notify_check
 test_bg_disclaimer
 test_busy_guard
 test_queue_interrupted
+test_queue_note_interrupt
 test_queue_digest_chain_states
+test_queue_digest_runner_gone
+test_status_runner_gone
 test_runner_lock
 test_live_by_name
 test_bg_launch_guard

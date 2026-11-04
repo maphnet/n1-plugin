@@ -56,6 +56,37 @@ test_orca_stop_worker() {
     out=$(FAKE_ORCA_CLOSE_FAIL=1 orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1) || true
     assert_eq "stop-lib: merged live worker, close failed -> identity kept" "yes" "$([ -e "$sent" ] && echo yes || echo no)"
     rm -rf "$tmp"
+    # N1-333 AC5. Bugs caught: a worker whose terminal is gone never stoppable (fail closed before recording anything);
+    # an unreadable list or a listed no-handle worker treated as gone (identity dropped for a possibly live worker).
+    local how
+    for how in absent missing; do
+        tmp=$(mktemp -d); orca_live_fixture "$tmp" https://github.com/o/r/pull/1; sent="$tmp/n1home/queue/sentinels/T-A.env"
+        if [ "$how" = absent ]; then wl_set "$tmp"
+        else wl_set "$tmp" "$(wl_row T-A running unverifiable terminal_missing | jq -c '.resource.terminalHandle = "term-A"')"; fi
+        out=$(orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1)
+        assert_eq "stop-lib: terminal $how -> note + stopped" \
+            "note: T-A worker terminal already gone; nothing to close|stopped: T-A" "$(paste -sd'|' <<< "$out")"
+        assert_eq "stop-lib: terminal $how -> no close call" "0" "$(grep -c '^terminal close' "$tmp/fake/orca-calls" || true)"
+        assert_eq "stop-lib: terminal $how -> Plan + Runs stopped" "stopped stopped" \
+            "$(plan_cell "$tmp/queue.md" 1 8) $(_n1_queue_run_outcome "$tmp/queue.md" T-A)"
+        assert_eq "stop-lib: terminal $how -> released, identity removed" "1|no" \
+            "$(grep -c 'worker-release --dispatch d-T-A' "$tmp/fake/orca-calls" || true)|$([ -e "$sent" ] && echo yes || echo no)"
+        rm -rf "$tmp"
+    done
+    for how in unreadable no-handle; do
+        tmp=$(mktemp -d); orca_live_fixture "$tmp" https://github.com/o/r/pull/1; sent="$tmp/n1home/queue/sentinels/T-A.env"
+        rc=0
+        if [ "$how" = unreadable ]; then
+            out=$(FAKE_ORCA_WL_FAIL_AFTER=0 orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1) || rc=$?
+        else
+            wl_set "$tmp" "$(wl_row T-A running)"   # listed, resource {}, no terminal_missing
+            out=$(orca_lib "$tmp" n1_orca_stop_worker "$tmp/queue.md" 1 T-A "$tmp/n1home" task-T-A d-T-A run-1) || rc=$?
+        fi
+        assert_eq "stop-lib: $how list -> fail closed (rc, row, identity, no release)" "1|in-progress|yes|0" \
+            "$rc|$(plan_cell "$tmp/queue.md" 1 8)|$([ -e "$sent" ] && echo yes || echo no)|$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+        assert_eq "stop-lib: $how list -> stop failed line" "yes" "$(grep -qF 'stop failed: T-A' <<< "$out" && echo yes || echo no)"
+        rm -rf "$tmp"
+    done
 }
 
 test_orca_parallel_workers() {   # AC1
@@ -517,6 +548,7 @@ test_orca_mixed_reasons_halt() {
     printf '{"path":"/orca/wt/T-C"}' > "$tmp/fake/worktrees"            # -> orca-worktree-name-taken at launch
     assert_eq "orca-strike-mixed: halts (exit 2)" "2" "$(run_orca_queue "$tmp")"
     assert_eq "orca-strike-mixed: step halted" "halted" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "N1-333: halt_now leaves no exit trace" "0" "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
     rm -rf "$tmp"
 }
 
@@ -1031,11 +1063,102 @@ test_orca_tick_cap() {
     assert_eq "orca-tick-cap: ends well before the safety net" "1" "$(( SECONDS - start < 20 ))"
     assert_eq "orca-tick-cap: no halt bookkeeping" "no" "$([ "$(n1_read_frontmatter "$tmp/queue.md" step)" = halted ] && echo yes || echo no)"
     assert_eq "orca-tick-cap: worker row still in flight" "in-progress" "$(plan_cell "$tmp/queue.md" 1 8)"
+    # N1-333 AC1: the self-SIGTERM hits the TERM trap: one trace line, one queue_interrupted event, step/pid kept.
+    assert_eq "orca-tick-cap: exit trace line" "1" \
+        "$(grep -c '^runner interrupted: signal TERM (pid [0-9]*, step run kept; resume: /n1:n1-queue --run [^)]*)$' "$tmp/output.txt" || true)"
+    assert_eq "orca-tick-cap: one queue_interrupted event" "1" "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
+    assert_eq "orca-tick-cap: step run and pid kept (resume detects it)" "run|yes" \
+        "$(n1_read_frontmatter "$tmp/queue.md" step)|$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+    # The EXIT trap still releases the lock: a resumed run starts (rc 143 from its own cap, not 3 "already running").
+    assert_eq "orca-tick-cap: lock released, resume starts" "143|0" \
+        "$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=1)|$(grep -c 'queue already running' "$tmp/output.txt" || true)"
+    assert_eq "orca-tick-cap: resumed run interrupted again adds one event" "2" "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
     rm -rf "$tmp"
     tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
     assert_eq "orca-tick-cap: non-numeric cap ignored (natural exit 0)" "0" "$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=abc)"
     assert_eq "orca-tick-cap: non-numeric cap never logs" "0" "$(grep -c 'N1_QUEUE_TEST_MAX_TICKS' "$tmp/output.txt" || true)"
+    assert_eq "orca-tick-cap: natural end (queue_done) leaves no exit trace" "0|0" \
+        "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)|$(grep -c '^runner interrupted' "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-333 AC1: TERM/HUP/INT from outside the runner each leave exactly one trace and keep step/pid. The signal is sent
+# by the fake Orca's at.<n> hook (tick 2) to the runner pid in queue.md. env --default-signal=INT undoes the ignored
+# SIGINT that a test file started in the background inherits (bash cannot trap a signal ignored at entry).
+trace_run() {   # <tmp> — run_orca_queue's runner invocation with SIGINT reset; prints the exit code
+    local tmp="$1" rc=0
+    env --default-signal=INT -u CLAUDE_CONFIG_DIR HOME="$tmp/hh" ORCA_CLI_COMMAND="$tmp/bin/fake-orca" FAKE_DIR="$tmp/fake" \
+        FAKE_N1H="$tmp/n1home" N1_HOME="$tmp/n1home" PATH="$tmp/bin:$PATH" \
+        timeout 60 bash "$REPO_ROOT/scripts/n1-queue-run.sh" "$tmp/queue.md" > "$tmp/output.txt" 2>&1 || rc=$?
+    echo "$rc"
+}
+test_orca_exit_trace_signals() {
+    local tmp spec sig want
+    if ! env --default-signal=INT true 2>/dev/null; then echo "SKIP: env --default-signal unsupported"; return 0; fi
+    for spec in TERM:143 HUP:129 INT:130; do
+        sig=${spec%%:*}; want=${spec#*:}
+        tmp=$(mktemp -d); mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+        cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+        echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+        printf 'kill -%s "$(sed -n "s/^pid: *//p" "$FAKE_DIR/../queue.md")"\n' "$sig" > "$tmp/fake/at.2"
+        assert_eq "exit-trace $sig: exit code" "$want" "$(trace_run "$tmp")"
+        assert_eq "exit-trace $sig: one line, one event" "1|1" \
+            "$(grep -c "^runner interrupted: signal $sig (pid" "$tmp/output.txt" || true)|$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
+        assert_eq "exit-trace $sig: event reason" "runner signal $sig" \
+            "$(jq -r 'select(.event == "queue_interrupted") | .reason | sub(" pid [0-9]+$"; "")' "$tmp/events.jsonl")"
+        assert_eq "exit-trace $sig: step run kept, resume detected" "run|yes" \
+            "$(n1_read_frontmatter "$tmp/queue.md" step)|$(n1_queue_interrupted "$tmp/queue.md" && echo yes || echo no)"
+        rm -rf "$tmp"
+    done
+}
+
+# N1-333 AC1 (exit half): a non-zero exit while step is run (N1_QUEUE_TEST_EXIT_RC seam at the tick cap) leaves the
+# `exit rc=<n>` line and one event, keeps step/pid; catches an on_exit that loses the status or the once-only flag.
+test_orca_exit_trace_rc() {
+    local tmp; tmp=$(mktemp -d); mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    assert_eq "exit-trace rc: exit code" "7" "$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=2 N1_QUEUE_TEST_EXIT_RC=7)"
+    assert_eq "exit-trace rc: one line, one event" "1|1" \
+        "$(grep -c '^runner interrupted: exit rc=7 (pid' "$tmp/output.txt" || true)|$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
+    assert_eq "exit-trace rc: event reason" "runner exit rc=7" \
+        "$(jq -r 'select(.event == "queue_interrupted") | .reason | sub(" pid [0-9]+$"; "")' "$tmp/events.jsonl")"
+    assert_eq "exit-trace rc: step run kept, pid kept" "run|yes" \
+        "$(n1_read_frontmatter "$tmp/queue.md" step)|$([ -n "$(n1_read_frontmatter "$tmp/queue.md" pid)" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-333 CR-1: a TERM that arrives during the poll sleep (inbox unreadable after the worker started, so the tick naps)
+# ends the runner at once, not after pollSeconds, and leaves no sleep child. A real sleep replaces the suite's no-op
+# one; the marker poll value 37 identifies the child. Without nap() the trap waits out the 37 s sleep.
+test_orca_term_interrupts_sleep() {
+    local tmp t0 el; tmp=$(mktemp -d); mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600 | .queue.pollSeconds = 37'
+    printf '#!/bin/sh\nexec /bin/sleep "$@"\n' > "$tmp/bin/sleep"
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    ( /bin/sleep 3; kill -TERM "$(sed -n "s/^pid: *//p" "$tmp/queue.md")" ) >/dev/null 2>&1 &
+    t0=$(date +%s); assert_eq "term-in-sleep: exit code" "143" "$(FAKE_ORCA_CHECK_FAIL=1 trace_run "$tmp")"; el=$(( $(date +%s) - t0 ))
+    wait
+    assert_eq "term-in-sleep: ended well before the 37 s poll" "yes" "$([ "$el" -lt 20 ] && echo yes || echo no)"
+    assert_eq "term-in-sleep: no leaked sleep child" "0" "$(pgrep -fc '/bin/sleep 37' || true)"
+    rm -rf "$tmp"
+}
+
+# N1-333 AC4: a SIGKILLed runner cannot trap; the digest and --status still flag it from queue.md's step/pid.
+test_orca_sigkill_runner_gone() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    echo implement > "$tmp/fake/step.T-A"; : > "$tmp/fake/nodone.T-A"
+    printf 'kill -KILL "$(sed -n "s/^pid: *//p" "$FAKE_DIR/../queue.md")"\n' > "$tmp/fake/at.3"
+    assert_eq "sigkill: runner killed (timeout reports 128+9)" "137" "$(run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10)"
+    assert_eq "sigkill: no trap trace" "0" "$(grep -c '"event":"queue_interrupted"' "$tmp/events.jsonl" || true)"
+    mkdir -p "$tmp/dh/queue"; ln -s "$tmp" "$tmp/dh/queue/oq"   # digest globs <home>/queue/*/
+    assert_eq "sigkill: digest says runner gone, not running" "1|0" \
+        "$(n1_queue_digest "$tmp/dh" | grep -c 'runner gone' || true)|$(n1_queue_digest "$tmp/dh" | grep -c 'running T-A' || true)"
+    assert_eq "sigkill: --status row runner-gone" "runner-gone" \
+        "$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/queue.md" "$tmp/events.jsonl" | head -1 | cut -f2)"
     rm -rf "$tmp"
 }
 
@@ -1097,6 +1220,10 @@ test_orca_worktree_list_unreadable
 test_orca_chain_after_settle
 test_orca_fallback_bg
 test_orca_tick_cap
+test_orca_exit_trace_signals
+test_orca_exit_trace_rc
+test_orca_term_interrupts_sleep
+test_orca_sigkill_runner_gone
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

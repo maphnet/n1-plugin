@@ -57,7 +57,25 @@ if ! take_lock; then
     rm -f "$gone"
     take_lock || { echo "queue already running (lock taken)"; exit 3; }
 fi
-trap '[ "$(cat "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"' EXIT
+# N1-333: exit trace. TERM/HUP/INT, or any exit while step is still run, leaves one runner.log line and one
+# queue_interrupted event (n1_queue_note_interrupt); halt_now and the normal end set step first and stay silent.
+# step and pid are kept for resume. nap() makes the poll sleeps interruptible; SIGKILL
+# leaves no trace (the session-start digest and --status flag that case from the dead pid).
+INTERRUPT_NOTED=""
+# Interruptible sleep: `wait` returns at once when a trapped signal arrives, so the trap runs without the poll delay.
+nap() { sleep "$1" & NAP_PID=$!; wait "$NAP_PID" || true; NAP_PID=""; }
+note_interrupt() { [ -n "$INTERRUPT_NOTED" ] && return 0; INTERRUPT_NOTED=1; n1_queue_note_interrupt "$QUEUE" "$1"; }
+on_exit() {
+    local rc=$?
+    note_interrupt "exit rc=$rc"
+    [ -n "${NAP_PID:-}" ] && kill "$NAP_PID" 2>/dev/null
+    [ "$(cat "$LOCK" 2>/dev/null)" = "$$" ] && rm -f "$LOCK"
+    return 0
+}
+trap on_exit EXIT
+trap 'note_interrupt "signal TERM"; exit 143' TERM
+trap 'note_interrupt "signal HUP"; exit 129' HUP
+trap 'note_interrupt "signal INT"; exit 130' INT
 n1_write_frontmatter "$QUEUE" pid "$$"
 n1_write_frontmatter "$QUEUE" step run
 
@@ -66,6 +84,9 @@ STALL_SECS=$(( $(n1_queue_val stallMinutes) * 60 ))   # N1-315: Orca live-but-si
 # Shared grace limit: consecutive unreadable-agents-list polls (halts the run) and
 # consecutive missing-from-list polls for one session (fails that row).
 BG_POLL_GRACE=10
+# N1-333: a launched Orca worker that Orca marks terminal_missing and that is not live is a ghost once its .launch-<n>
+# marker is older than this (fixed 5 min, no config key).
+GHOST_GRACE_SECS=300
 CONSECUTIVE_FAIL=0
 # N1-267: last counted strike (reason, epoch). Orca only: a subtask-timeout within STRIKE_WINDOW seconds of the last counted one
 # shares one cause (a usage-limit wait, an outage) and adds no strike.
@@ -459,7 +480,7 @@ drain_wait() {
         fi
         [ "${#DRAIN[@]}" -eq 0 ] && break
         [ "$waited" -ge "$TIMEOUT_SECS" ] && { drain_leftover "still finishing up" "still finishing up"; break; }
-        sleep "$poll"
+        nap "$poll"
         waited=$((waited + poll))
     done
 }
@@ -566,7 +587,7 @@ chain_reconcile() {
             fi
             break
         fi
-        sleep "$7"; waited=$((waited + $7))
+        nap "$7"; waited=$((waited + $7))
     done
     out=$(awk -F'|' -v tk="$2" '/^## Runs/{f=1;next} f { t=$2; gsub(/ /,"",t); if (t == tk) { o=$5; gsub(/ /,"",o) } } END { print o }' "$QUEUE")
     if [ "$out" = merged ]; then
@@ -650,7 +671,7 @@ chain_finish() {
                                 && case "$(n1_queue_bg_state "$agents" "$csid")" in working|blocked) false ;; esac; then
                                 stopped=1; break
                             fi
-                            sleep "$poll"
+                            nap "$poll"
                         done
                         [ "$stopped" = 1 ] || { chain_note "$NUM" "$TICKET" child-stop-failed; return 0; }
                         echo "[$NUM] $TICKET chain: stopped blocked child ($csid)"
@@ -661,7 +682,7 @@ chain_finish() {
             esac
         fi
         [ "$waited" -ge "$TIMEOUT_SECS" ] && { chain_note "$NUM" "$TICKET" finish-child-busy; return 0; }
-        sleep "$poll"; waited=$((waited + poll))
+        nap "$poll"; waited=$((waited + poll))
     done
     # N1-240 SEC-1: every exit of the wait loop (no session id, missing, done, failed, stopped) and the restart
     # sweep pass here; a child with a pending escalation is never chained, whatever state it reports.
@@ -704,7 +725,7 @@ chain_finish() {
             fails=$((fails + 1))
             [ "$fails" -ge "$BG_POLL_GRACE" ] && { why=finish-agents-unreadable; break; }
         fi
-        sleep "$poll"; waited=$((waited + poll))
+        nap "$poll"; waited=$((waited + poll))
     done
     if [ "$why" = finish-timeout ]; then
         bash -c "$(n1_bg_cmd stop "$fsid")" >/dev/null 2>&1
@@ -744,7 +765,7 @@ run_bg() {
             if [ "$AGENT_FAILS" -ge "$BG_POLL_GRACE" ]; then
                 halt "HALTED: background session list unreadable for $BG_POLL_GRACE polls in a row"
             fi
-            sleep "$POLL"
+            nap "$POLL"
             continue
         fi
         AGENT_FAILS=0
@@ -869,7 +890,7 @@ run_bg() {
             fi
         fi
         SINCE_PARK=$((SINCE_PARK + POLL))
-        sleep "$POLL"
+        nap "$POLL"
     done
 }
 
@@ -976,7 +997,7 @@ orca_settle() {
 # (release + sentinel removal + owed fullAuto chain); running or unverifiable workers are never relaunched, stopped
 # or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN SKIP
+    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN SKIP GHOST LAUNCH_AT
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
@@ -1005,6 +1026,7 @@ run_orca() {
         # that many ticks with the SIGTERM the tests' old `timeout` bounds sent, so no test waits on a wall clock.
         if [[ "${N1_QUEUE_TEST_MAX_TICKS:-}" =~ ^[0-9]+$ ]] && [ "$((ORCA_TICKS += 1))" -gt "$N1_QUEUE_TEST_MAX_TICKS" ]; then
             echo "N1_QUEUE_TEST_MAX_TICKS=$N1_QUEUE_TEST_MAX_TICKS reached: stopping (test-only cap)"
+            [[ "${N1_QUEUE_TEST_EXIT_RC:-}" =~ ^[1-9][0-9]*$ ]] && exit "$N1_QUEUE_TEST_EXIT_RC"   # test-only: a plain non-zero exit
             kill -TERM "$$"; exit 143
         fi
         TICK0=$(date +%s)
@@ -1012,7 +1034,7 @@ run_orca() {
         if ! BATCH=$(n1_orca_check "$ORCA_RUN" "$POLL") || ! jq -e '.ok == true' >/dev/null 2>&1 <<< "$BATCH"; then
             FAILS=$((FAILS + 1))
             [ "$FAILS" -ge "$BG_POLL_GRACE" ] && halt_now "HALTED: Orca run inbox unreadable for $BG_POLL_GRACE polls in a row"
-            sleep "$POLL"
+            nap "$POLL"
             continue
         fi
         FAILS=0
@@ -1140,12 +1162,29 @@ run_orca() {
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
             fi
-            if [ -n "$TASK" ] && { [[ "$DONE" == *" $TASK "* ]] \
+            # N1-333: ghost worker. Orca marks a worker whose terminal is gone projection.stage.detail terminal_missing (column 5).
+            # Not live, past GHOST_GRACE_SECS from its .launch-<num> marker: it is released, loses its identity and ends failed
+            # below (an unverifiable verdict never reaches settle). An unreadable list, a live verdict or a missing marker
+            # never matches. The marker's mtime survives a runner restart.
+            GHOST=0
+            if [ -n "$TASK" ] && [ "$LIVE_OK" = 1 ] \
+                && awk -F'\t' -v d="$DISP" '$1 == d && $3 != "live" && $5 == "terminal_missing" { f = 1 } END { exit !f }' <<< "$LIVE"; then
+                LAUNCH_AT=$(stat -c %Y "$N1_QUEUE_DIR/.launch-$NUM" 2>/dev/null || stat -f %m "$N1_QUEUE_DIR/.launch-$NUM" 2>/dev/null)
+                [ -n "$LAUNCH_AT" ] && [ $(( $(date +%s) - LAUNCH_AT )) -gt "$GHOST_GRACE_SECS" ] && GHOST=1
+            fi
+            if [ -n "$TASK" ] && { [ "$GHOST" = 1 ] || [[ "$DONE" == *" $TASK "* ]] \
                 || awk -F'\t' -v d="$DISP" '$1 == d && ($3 == "exited" || $4 == "done") { f = 1 } END { exit !f }' <<< "$LIVE"; }; then
                 # The worker stopped without a terminal overview step (N1-182: it may still have opened a PR).
                 OPEN_PR=$(n1_queue_child_open_pr "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}")
                 if [ -n "$OPEN_PR" ]; then
+                    # A ghost with a PR is released and owed so settle runs its chain (an unverifiable ghost never reaches settle otherwise).
+                    [ "$GHOST" = 1 ] && { n1_orca_release "$DISP"; OWED="$OWED$TASK "; }
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "pr" "" "" "$OPEN_PR"
+                elif [ "$GHOST" = 1 ]; then
+                    # Cleanup first: finalize may exit 2 on a third strike. Both calls are idempotent.
+                    n1_orca_release "$DISP"
+                    n1_orca_sentinel_rm "$N1H" "$TICKET" "$TASK"
+                    finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "worker-terminal-missing" "" nodefer
                 else
                     finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "child-exited-incomplete" "" nodefer
                 fi

@@ -1,0 +1,79 @@
+{
+  "id": "00000000-0000-4000-8000-000000000000",
+  "ok": true,
+  "result": {
+    "workers": [
+      {
+        "dispatchId": "ctx_ghost000001",
+        "taskId": "task_ghost00001",
+        "runId": "run_fixture0001",
+        "workerState": "abandoned",
+        "dispatchStatus": "failed",
+        "agentTerminalHandle": "term_00000000-0000-4000-8000-000000000001",
+        "terminalState": "released",
+        "resource": {
+          "id": "wtr_fixture0001",
+          "ownershipState": "released",
+          "releaseState": "released",
+          "retainedReason": null,
+          "terminalHandle": "term_00000000-0000-4000-8000-000000000001",
+          "worktreeId": "repo-0000::/home/user/workspaces/repo/T-1",
+          "releaseError": null,
+          "recoveryAttemptCount": 0,
+          "archive": { "source": null, "status": "unavailable" }
+        },
+        "projection": {
+          "id": "ctx_ghost000001",
+          "dispatchId": "ctx_ghost000001",
+          "taskId": "task_ghost00001",
+          "runId": "run_fixture0001",
+          "role": "worker",
+          "stage": { "worker": "abandoned", "dispatch": "failed", "detail": "terminal_missing", "activity": "unknown" },
+          "outcome": "failed",
+          "liveness": { "verdict": "exited", "source": "resource_release" },
+          "evidence": { "durable": true, "liveStatus": "unavailable", "lastObservedAt": null },
+          "resource": { "state": "released" },
+          "nextAction": { "kind": "none", "argv": [] },
+          "attention": { "categories": ["failure", "interruption"], "requiresAction": true }
+        }
+      },
+      {
+        "dispatchId": "ctx_settled0001",
+        "taskId": "task_settled001",
+        "runId": "run_fixture0001",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_00000000-0000-4000-8000-000000000002",
+        "terminalState": "released",
+        "resource": {
+          "id": "wtr_fixture0002",
+          "ownershipState": "released",
+          "releaseState": "released",
+          "retainedReason": null,
+          "terminalHandle": "term_00000000-0000-4000-8000-000000000002",
+          "worktreeId": "repo-0000::/home/user/workspaces/repo/T-2",
+          "releaseError": null,
+          "recoveryAttemptCount": 0,
+          "archive": { "source": "transcript", "status": "captured" }
+        },
+        "projection": {
+          "id": "ctx_settled0001",
+          "dispatchId": "ctx_settled0001",
+          "taskId": "task_settled001",
+          "runId": "run_fixture0001",
+          "role": "worker",
+          "stage": { "worker": "succeeded", "dispatch": "completed", "detail": "settled", "activity": "unknown" },
+          "outcome": "succeeded",
+          "liveness": { "verdict": "exited", "source": "resource_release" },
+          "evidence": { "durable": true, "liveStatus": "unavailable", "lastObservedAt": null },
+          "resource": { "state": "released" },
+          "nextAction": { "kind": "none", "argv": [] },
+          "attention": { "categories": ["root_completion"], "requiresAction": false }
+        }
+      }
+    ],
+    "counts": { "released": 2 },
+    "page": { "limit": 100, "total": 2, "hasMore": false, "nextCursor": null },
+    "scope": { "run": "run_fixture0001", "source": "flag" }
+  }
+}
