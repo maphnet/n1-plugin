@@ -63,4 +63,10 @@ for f in "$R03" "$R03B" "$R04"; do
     lacks "$(basename "$f") never routes ticket ops to versionMcp" 'mcp__<(tracker\.)?versionMcp>__<operations\.(editTicket|getTransitions|moveStatus|addComment|readTicket)>' "$f"
 done
 
+# --- Tracker server check: release notes (03b), local because notes-only skips 5b
+check "03b runs the Tracker server check on the whole mcp__<tracker.mcp>__ prefix" 'mcp__<tracker\.mcp>__`, matching the whole prefix' "$R03B"
+check "03b keeps the check local for notes-only" 'MODE=notes-only` skips Step 5b' "$R03B"
+check "03b skips ticket reads when the server is missing" 'Ticket read skipped: tracker server <tracker\.mcp> not available' "$R03B"
+check "03b skips Confluence when the server is missing" 'CONF=skipped:tracker server <tracker\.mcp> not available' "$R03B"
+
 exit "$FAIL"
