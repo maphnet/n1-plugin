@@ -430,6 +430,13 @@ printf '{"ticket":"T-1","step":"plan","question":"Pick a DB?","options":["A","B"
 reset; n1_orca_ask "$T/q3.json" >/dev/null
 has "ask: alternatives carried in the question" "Recommended: A. x Alternatives: B: works when the team runs B" "$(calls)"
 has "ask: options unchanged with alternatives" "--options A (Recommended),B,Stop this ticket" "$(calls)"
+printf '{"ticket":"T-1","step":"plan","question":"Pick a DB?","options":["A","B"],"recommended":"A","rationale":"x","alternatives":{"B":"works for B","Z":"ghost note"}}' > "$T/q4.json"
+reset; n1_orca_ask "$T/q4.json" >/dev/null
+has "ask: matched alternative kept" "B: works for B" "$(calls)"
+eq "ask: unmatched alternative key dropped" 0 "$(grep -c 'ghost note' "$FAKE/calls")"
+printf '{"ticket":"T-1","step":"plan","question":"Q?","options":["A","B"],"alternatives":{"Z":"ghost note"}}' > "$T/q5.json"
+reset; n1_orca_ask "$T/q5.json" >/dev/null
+eq "ask: only unmatched keys -> no Alternatives text" 0 "$(grep -c 'Alternatives:' "$FAKE/calls")"
 reset; n1_orca_ask "$QF" >/dev/null
 eq "ask: no Alternatives text without the field" 0 "$(grep -c 'Alternatives:' "$FAKE/calls")"
 eq "ask: timeout -> pending id" "pending:m-7" "$(FAKE_ASK=pending n1_orca_ask "$QF")"
