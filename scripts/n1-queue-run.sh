@@ -230,6 +230,9 @@ finalize() {
     # NP-216 AC3 safety net: every failed/deferred Runs row must carry a non-empty
     # reason. Call sites should already pass one; this is the last line of defense.
     [ "$OUTCOME" = "failed" ] && [ -z "$REASON" ] && REASON="unspecified-failure"
+    # N1-362: a verified obsolete-ticket escalation (Headless Guard marker, no PR, no diff) gets Reason obsolete, which
+    # releases overlap/held successors (lib/queue.sh n1_queue_ticket_obsolete) and adds no strike. Fails closed.
+    [ "$OUTCOME" = "escalated" ] && [ -z "$REASON" ] && n1_queue_child_obsolete "$TICKET" "$N1H" "$REPO" "${STARTED_AT[NUM]:-}" && REASON="obsolete"
     # N1-240: snapshot the escalation state chain_finish needs before the files below are removed.
     CHAIN_ESC=""
     chain_child_escalated "$TICKET" "$N1H" && CHAIN_ESC="$TICKET"
@@ -271,7 +274,7 @@ finalize() {
 
     # Update Plan row
     if [ -n "$REASON" ]; then
-        [ "$EXISTING_REASON" = "deferred-retry" ] && REASON="deferred-retry ($REASON)"
+        [ "$EXISTING_REASON" = "deferred-retry" ] && [ "$REASON" != obsolete ] && REASON="deferred-retry ($REASON)"   # N1-362: keep obsolete exact
         n1_queue_row_status "$QUEUE" "$NUM" "$OUTCOME" "$REASON"
     else
         n1_queue_row_status "$QUEUE" "$NUM" "$OUTCOME"
@@ -312,7 +315,9 @@ finalize() {
     # within STRIKE_WINDOW adds no strike (launch/exit failures stay systemic), so one cause timing out several rows neither halts nor stops the tick's other rows.
     case "$OUTCOME" in
         failed|escalated)
-            if [ -n "${ORCA_RUN:-}" ] && [ "$OUTCOME" = failed ] && [ "$REASON" = subtask-timeout ] && [ "$REASON" = "$STRIKE_REASON" ] \
+            if [ "$REASON" = obsolete ]; then
+                echo "[$NUM] $TICKET: obsolete ticket, not counted"   # N1-362: like done-before-run, not a pipeline failure
+            elif [ -n "${ORCA_RUN:-}" ] && [ "$OUTCOME" = failed ] && [ "$REASON" = subtask-timeout ] && [ "$REASON" = "$STRIKE_REASON" ] \
                 && [ $(( $(date +%s) - STRIKE_AT )) -lt "$STRIKE_WINDOW" ]; then
                 echo "[$NUM] $TICKET: same reason as the last strike ($REASON), not counted"
             else
