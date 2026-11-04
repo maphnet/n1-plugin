@@ -51,6 +51,10 @@ For each rule file:
 **`applies_to: *` warning:**
 - WARN: "Rule `{name}` applies to every persona — consider whether it belongs in CLAUDE.md instead."
 
+**`applies_to` validation** (skip when the field is missing):
+- Run `BAD=$(n1_rules_validate_applies_to "<applies_to>")`. Non-zero → ERROR: "Rule `{name}` has invalid applies_to: `{BAD tokens}`. Valid values: {output of `n1_rules_valid_applies_to`, comma-joined}"
+- Run `n1_rules_inert_applies_to "<applies_to>"`; each printed token → WARN: "Rule `{name}` applies to `{token}`, which has no rule render site; the rule will never be delivered."
+
 **Gate rule positive phrasing:**
 - If body starts with "Do not"/"Never"/"Don't"/"Must not"/"Avoid" → WARN: "Rule `{name}` uses negative phrasing. Gate rules should state what TO do — LLM reviewers are weak on negation."
 

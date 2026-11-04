@@ -45,6 +45,46 @@ n1_rule_body() {
     ' "$file" | sed '/./,$!d' | sed -e :a -e '/^[[:space:]]*$/{ $d; N; ba; }'
 }
 
+n1_rules_valid_applies_to() {
+    echo '*'
+    local f
+    for f in "$(dirname "${BASH_SOURCE[0]}")/../agents"/*.md; do
+        [ -f "$f" ] && basename "$f" .md
+    done | sort
+}
+
+# Personas with an n1_rules_for_agent call site; pinned by tests/test_rules.sh.
+n1_rules_render_sites() {
+    printf '%s\n' code-reviewer developer planner qa-engineer security-reviewer solution-architect tech-writer
+}
+
+# Prints each invalid token of a comma list; returns 1 if any.
+n1_rules_validate_applies_to() {
+    local valid tok toks rc=0
+    valid=$(n1_rules_valid_applies_to)
+    IFS=, read -ra toks <<<"$1"
+    for tok in "${toks[@]}"; do
+        tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
+        [ -z "$tok" ] && continue
+        grep -qxF -- "$tok" <<<"$valid" || { echo "$tok"; rc=1; }
+    done
+    return $rc
+}
+
+# Prints valid personas in a comma list that have no render site.
+n1_rules_inert_applies_to() {
+    local valid sites tok toks
+    valid=$(n1_rules_valid_applies_to)
+    sites=$(n1_rules_render_sites)
+    IFS=, read -ra toks <<<"$1"
+    for tok in "${toks[@]}"; do
+        tok="${tok#"${tok%%[![:space:]]*}"}"; tok="${tok%"${tok##*[![:space:]]}"}"
+        [ -z "$tok" ] || [ "$tok" = "*" ] && continue
+        grep -qxF -- "$tok" <<<"$valid" && ! grep -qxF -- "$tok" <<<"$sites" && echo "$tok"
+    done
+    return 0
+}
+
 n1_rules_for_agent() {
     local persona="$1"
     local changed_files="${2:-}"

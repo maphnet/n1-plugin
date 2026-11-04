@@ -82,7 +82,7 @@ Which agents should check this rule?
 
 If option 2 selected, warn: "A rule that applies to every persona is usually a rule that belongs in CLAUDE.md instead. Continue? 1 — Yes / 2 — No"
 
-Valid agent names: `product-analyst`, `solution-architect`, `planner`, `implementer`, `developer`, `code-reviewer`, `security-reviewer`, `qa-engineer`, `tech-writer`, `local-test-planner`
+For option 3, run `n1_rules_valid_applies_to` and show its output as the valid names. After a custom entry, run `n1_rules_validate_applies_to "<entry>"`; on non-zero show the invalid tokens and the valid values, and ask again. Options 1 and 2 need no validation.
 
 **5. Enforcement — push toward deny:**
 ```
