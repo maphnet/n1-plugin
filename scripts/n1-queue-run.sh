@@ -1149,6 +1149,8 @@ run_orca() {
     # N1-303: an overlap successor waits for its predecessor's merge only when the predecessor's own N1 Home merges its PRs
     # (chain_authorized, evaluated per predecessor row by n1_queue_eligible_rows).
     MERGE=chain_authorized
+    # N1-292: in a story queue the runner merges every green child itself, so a successor always waits for that merge.
+    if [ "$(n1_read_frontmatter "$QUEUE" mode)" = story ]; then MERGE=true; fi
     LIVE_OK=1; LIVE=$(n1_orca_liveness "$ORCA_RUN") || { LIVE=""; LIVE_OK=0; }
     # A runner restart loses OWED: re-owe this run's finished rows that are not settled yet (settle removes the
     # sentinel, so a row whose sentinel still names its task is the unsettled one).

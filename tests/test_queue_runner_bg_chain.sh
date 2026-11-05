@@ -516,6 +516,38 @@ test_story_resume() {
     rm -rf "$tmp"
 }
 
+# N1-292 AC6: a held story child starts after the runner merged its blocker into story/S-1, without fullAuto.
+test_story_held_released_after_runner_merge() {
+    local tmp done_a launch_b; tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    assert_eq "story-held: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "story-held: T-B launched once" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-B-2')"
+    done_a=$(line_of "$tmp/fake/events" 'launch n1-sq-T-A-1-done'); launch_b=$(line_of "$tmp/fake/events" 'launch n1-sq-T-B-2')
+    assert_eq "story-held: T-B launches after T-A merged" yes \
+        "$([ -n "$done_a" ] && [ -n "$launch_b" ] && [ "$launch_b" -gt "$done_a" ] && echo yes || echo no)"
+    assert_eq "story-held: both merged by the runner" "merged,merged,2" \
+        "$(runs_outcome "$tmp/queue.md" T-A),$(runs_outcome "$tmp/queue.md" T-B),$(nlines "$tmp/fake/gh-merge")"
+    rm -rf "$tmp"
+}
+
+# N1-292 AC7: a dependent of a finish:ci-red child does not run and names the blocker. Independents run, and the
+# 3-strike count is unchanged (ci-red is no strike: T-C failing plus its deferred retry make 2, no halt).
+test_story_dependents_of_ci_red() {
+    local tmp; tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done" "T-B:done" "T-C:failed"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    echo '[{"bucket":"fail"}]' > "$tmp/fake/gh-checks"; echo 1 > "$tmp/fake/gh-checks-rc"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-red: blocker row" "pr|finish:ci-red" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-red: dependent skipped, names blocker" "skip|blocked by T-A (finish:ci-red)" \
+        "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "story-red: dependent never launched" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-B-2')"
+    assert_eq "story-red: independent ran" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-C-3')"
+    assert_eq "story-red: no halt" 0 "$(grep -c HALTED "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
 # N1-292 AC8: a failed Done launch is a ticket_done failed event. The merge stands and is never retried.
 test_story_done_launch_failed() {
     local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
@@ -651,6 +683,8 @@ test_story_merge_ci
 test_story_merge_refused_and_retarget
 test_story_done_launch_failed
 test_story_resume
+test_story_held_released_after_runner_merge
+test_story_dependents_of_ci_red
 test_lifecycle_wiring
 test_merge_wording
 
