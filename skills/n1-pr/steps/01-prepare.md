@@ -3,12 +3,17 @@
 ## Prerequisites
 
 ```bash
+source ~/.n1/preamble.sh
 CURRENT_BRANCH=$(git branch --show-current)
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+SB=$(n1_story_base) || { echo "invalid story base: STOP"; exit 1; }
+[ -z "$SB" ] || { git fetch origin "$SB" || { echo "story-base: fetch of $SB failed: STOP"; exit 1; }; DEFAULT_BRANCH="$SB"; }
+echo "DEFAULT_BRANCH=$DEFAULT_BRANCH STORY=${SB:-none}"
 ```
 
 - On default branch → "Switch to a feature branch first." **STOP.**
 - Uncommitted changes → commit first (summarize, ask confirmation).
+- `STORY` not `none` (story child): `DEFAULT_BRANCH` is the story branch for every later step (use `origin/${DEFAULT_BRANCH}` in the Step 1 git commands: it has no local ref); the rebase and the PR target it, never the default branch. Story child: make no version-bump commit and run no version-bump script; this overrides any repo per-branch version-bump rule (the bump applies to the story's final PR). `STOP` output → STOP.
 
 ## Codex Review (pre-push)
 
@@ -70,7 +75,8 @@ Run once; copy the printed output verbatim as RULES_BLOCK (shell variables do no
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/rules.sh"
-BASE=$(n1_config_val '.git.defaultBranch'); BASE="${BASE:-$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')}"; BASE="${BASE:-main}"
+SB=$(n1_story_base) || { echo "invalid story base: STOP"; exit 1; }
+BASE=${SB:-$(n1_config_val '.git.defaultBranch')}; BASE="${BASE:-$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')}"; BASE="${BASE:-main}"
 git rev-parse --verify -q "origin/$BASE" >/dev/null && BASE="origin/$BASE"
 RULES_DIR=$(n1_rules_dir)
 if [ -n "$RULES_DIR" ] && [ -d "$RULES_DIR" ]; then

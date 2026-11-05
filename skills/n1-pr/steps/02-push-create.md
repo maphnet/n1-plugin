@@ -8,7 +8,7 @@ When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), 
 
 ### Conflict check and rebase
 
-Before pushing, verify the branch is compatible with `${DEFAULT_BRANCH}`:
+Before pushing, verify the branch is compatible with `${DEFAULT_BRANCH}` (the value prepare printed; for a story child it is `story/<STORY_ID>`, so the rebase and the PR target the story branch, never the default branch):
 
 ```bash
 git fetch origin ${DEFAULT_BRANCH}
@@ -84,7 +84,7 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/codex-review.sh"
 PR_BODY_FILE="<the path from pr:body-file=>"
 case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*/*) echo "PR body path invalid"; exit 1;; "$N1_HOME"/scratch/pr-body-*) ;; *) echo "PR body path invalid"; exit 1;; esac
-DEFAULT_BRANCH="<the default branch>"
+DEFAULT_BRANCH="<DEFAULT_BRANCH printed by prepare>"
 PR_MODE="<draft or ready, from prepare>"
 DRAFT_ARGS=(); [ "$PR_MODE" = "draft" ] && DRAFT_ARGS=(--draft)
 [ -s "$PR_BODY_FILE" ] || { echo "PR body missing"; exit 1; }
