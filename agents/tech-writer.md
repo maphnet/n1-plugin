@@ -176,7 +176,7 @@ Generate the PR title and body from implementation context.
    - **Project rules** (if `RULES_BLOCK` given): for each rule whose clause requires an action at the deploy boundary, add one `- [ ]` row under Before deploy (same Format rules; names only, no secret values; drop a row that duplicates a ticket or diff item). Rules about docs apply in Phase 1; rules with no deploy action produce no row. Never copy rule text into the PR body beyond the row.
    - All lists empty → no section. Any list empty → omit that sub-heading.
 
-8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1. When `body_file` is given, write the body (body only: no title, no `## PR Content` wrapper, no other wrapper tags) to `body_file` and the title (one line, no `###`) to `<body_file>.title`, both with the Write tool, and return only the title block plus `pr body written: <body_file>` (see Output Format). Without `body_file`, return title and body inline.
+8. **Compose** PR title and body in the output format below, incorporating the doc update report from Phase 1. When `body_file` is given, write the body (body only: no title, no `## PR Content` wrapper, no other wrapper tags) to `body_file` and the title (one line, no `###`) to `<body_file>.title`, both with the Write tool (the file-write mechanism, references/file-write-mechanism.md), and return only the title block plus `pr body written: <body_file>` (see Output Format). Without `body_file`, return title and body inline.
 
 ## Reconcile Mode
 
