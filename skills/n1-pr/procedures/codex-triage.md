@@ -14,7 +14,16 @@ Triage has no user prompts and never blocks the pipeline: every failure below wa
 source ~/.n1/preamble.sh
 IFS=$'\t' read -r TRIAGE_MODEL TRIAGE_EFFORT < <(n1_resolve_agent tail-worker codex-triage)
 echo "triage_model=$TRIAGE_MODEL maxFixAttempts=$(n1_cross_host_review_val 'maxFixAttempts')"
+PR_NUMBER='<the PR number from step 4>'
+case "$PR_NUMBER" in ''|*[!0-9]*) echo "reconcile:start unavailable"; exit 0;; esac
+mkdir -p "$N1_HOME/scratch"
+RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX") \
+  && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null \
+  && [ -s "$RECONCILE_START_FILE" ] && echo "reconcile:start file=$RECONCILE_START_FILE" \
+  || { rm -f "${RECONCILE_START_FILE:-}"; echo "reconcile:start unavailable"; }
 ```
+
+The `reconcile:start file=` path is the run-start head, captured before the developer can commit; the Push Gate reuses it. If the snippet printed `reconcile:start unavailable`, pass `start file: none` below and the Push Gate prints `push:blocked gate-unavailable`.
 
 Dispatch persona `tail-worker` with model `$TRIAGE_MODEL` and this input:
 
@@ -26,6 +35,7 @@ pr: <PR number> <PR URL>
 id: <ID>
 branch: <PR branch name>
 workspace: <worktree or checkout path>
+start file: <the reconcile:start file= path, or none>
 memory: <$N1_HOME/memory/<ID>>
 n1_root: <N1_ROOT>
 ```
@@ -38,7 +48,7 @@ Wait for the persona to return. Its last line is one of:
 
 ### Push Gate
 
-Only after `developer=ran`. Count the cycle and gate the push. Only `state=` comes from the persona (prefix-checked); the snippet re-reads the run-start SHA, head ref, repo and changed-file list from `gh` into its own files (nothing is pushed yet, so the head SHA is the run-start SHA). The gate script fails closed and prints exactly one `push:` status line:
+Only after `developer=ran`. Count the cycle and gate the push. Only `state=` comes from the persona (prefix-checked); the snippet reuses the run-start SHA file captured in Fix Phase and re-reads the head ref, repo and changed-file list from `gh` into its own files. The gate script fails closed and prints exactly one `push:` status line:
 
 ```bash
 source ~/.n1/preamble.sh
@@ -46,25 +56,26 @@ source "$N1_ROOT/lib/frontmatter.sh"
 ID='<the ticket ID>'
 PR_NUMBER='<the PR number from step 4>'
 VALIDATE_DIR='<the state= path from triage:fix>'
+RECONCILE_START_FILE='<the reconcile:start file= path from Fix Phase>'
+case "$RECONCILE_START_FILE" in *..*|"$N1_HOME/scratch/reconcile-start-$PR_NUMBER".*/*) RECONCILE_START_FILE="";; "$N1_HOME/scratch/reconcile-start-$PR_NUMBER".*) ;; *) RECONCILE_START_FILE="";; esac
+[ -s "$RECONCILE_START_FILE" ] || { echo "push:blocked gate-unavailable"; exit 0; }
 case "$ID" in ''|*[!A-Za-z0-9_-]*) echo "push:blocked gate-unavailable"; exit 0;; esac
 case "$PR_NUMBER" in ''|*[!0-9]*) echo "push:blocked gate-unavailable"; exit 0;; esac
 case "$VALIDATE_DIR" in *..*|"$N1_HOME/scratch/codex-validate-$PR_NUMBER".*/*) VALIDATE_DIR="";; "$N1_HOME/scratch/codex-validate-$PR_NUMBER".*) ;; *) VALIDATE_DIR="";; esac
 [ -n "$VALIDATE_DIR" ] || { echo "push:blocked gate-unavailable"; exit 0; }
 mkdir -p "$N1_HOME/scratch"
-GATE_TMP=$(mktemp -d "$N1_HOME/scratch/reconcile-gate-$PR_NUMBER.XXXXXX") && RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX") \
-  && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null \
+GATE_TMP=$(mktemp -d "$N1_HOME/scratch/reconcile-gate-$PR_NUMBER.XXXXXX") \
   && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName > "$GATE_TMP/head" 2>/dev/null \
   && timeout -k 5 30 gh pr view "$PR_NUMBER" --json isCrossRepository,headRepositoryOwner,headRepository --jq 'if .isCrossRepository then "fork" else (.headRepositoryOwner.login + "/" + .headRepository.name) end' > "$GATE_TMP/repo" 2>/dev/null \
   && timeout -k 5 30 gh pr diff "$PR_NUMBER" --name-only > "$GATE_TMP/allowed.txt" 2>/dev/null \
-  && [ -s "$RECONCILE_START_FILE" ] && [ -s "$GATE_TMP/head" ] && [ -s "$GATE_TMP/repo" ] && [ -s "$GATE_TMP/allowed.txt" ] \
-  || { rm -rf "${GATE_TMP:-}"; rm -f "${RECONCILE_START_FILE:-}"; echo "push:blocked gate-unavailable"; exit 0; }
-echo "reconcile:start file=$RECONCILE_START_FILE"
+  && [ -s "$GATE_TMP/head" ] && [ -s "$GATE_TMP/repo" ] && [ -s "$GATE_TMP/allowed.txt" ] \
+  || { rm -rf "${GATE_TMP:-}"; echo "push:blocked gate-unavailable"; exit 0; }
 echo "cross_host_fix_cycle=$(n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "cross_host_fix_cycle")"
 bash "$N1_ROOT/scripts/codex-push-gate.sh" "$RECONCILE_START_FILE" "$GATE_TMP/allowed.txt" "$(cat "$GATE_TMP/head")" "$GATE_TMP/repo" "$N1_HOME/memory/$ID/codex-blocked-fix.patch"
 rm -rf "$GATE_TMP"
 ```
 
-Keep the `push:` line and the `reconcile:start file=` path for **Report Phase** and **Reconcile PR Body** (the push line holds statuses, shas and paths, never Codex text). `push:blocked` and `push:rejected` mean nothing reached the PR (the persona words the details into the triage reply). When this snippet printed `push:blocked gate-unavailable`, the gate never ran and the developer's commits stay local: warn inline not to push them. Never dispatch phase `fix` twice in one run. If `cross_host_fix_cycle` >= `maxFixAttempts`, proceed to **Reconcile PR Body** below by way of **Report Phase**, like every other outcome. Default `maxFixAttempts=1` means a single pass.
+Keep the `push:` line for **Report Phase** and **Reconcile PR Body** (the push line holds statuses, shas and paths, never Codex text). `push:blocked` and `push:rejected` mean nothing reached the PR (the persona words the details into the triage reply). When this snippet printed `push:blocked gate-unavailable`, the gate never ran and the developer's commits stay local: warn inline not to push them. Never dispatch phase `fix` twice in one run. If `cross_host_fix_cycle` >= `maxFixAttempts`, proceed to **Reconcile PR Body** below by way of **Report Phase**, like every other outcome. Default `maxFixAttempts=1` means a single pass.
 
 ### Report Phase
 
@@ -82,11 +93,11 @@ memory: <$N1_HOME/memory/<ID>>
 n1_root: <N1_ROOT>
 ```
 
-Wait for the persona to return. It returns three lines: `triage:file=<path> report=<path|none> followups=<n>`, a `Summary:` counts line and a `By severity:` counts line. If it returns no valid `triage:file=` line, warn inline that triage failed and the findings are in the PR's `## Codex Review` comment, and use an empty triage path and `report=none` below (the Triage Reply snippet prints `triage:bad-path` and still cleans up). A failed report phase never skips **Reconcile PR Body**.
+Wait for the persona to return. It returns three lines: `triage:file=<path> report=<path|none> followups=<n>`, a `Summary:` counts line and a `By severity:` counts line. If it returns no valid `triage:file=` line or no `followups=<n>` count, warn inline that triage failed and the findings are in the PR's `## Codex Review` comment, remember `report phase failed` for Step 10 (which then appends the generic human-review item itself), and use an empty triage path and `report=none` below (the Triage Reply snippet prints `triage:bad-path` and still cleans up). A failed report phase never skips **Reconcile PR Body**.
 
 ### Reconcile PR Body
 
-Only when the gate printed `push:ok`. Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` and `START_FILE` set to the path from the Push Gate's `reconcile:start file=` line. Pass `fix report file: <the report= path>` when `report=` is `<S>/fix-report.md` for the `<S>` from `triage:fix` (a `$N1_HOME/scratch/codex-validate-<PR>.*` directory, no `..`); otherwise pass `fix report: Codex triage fixes pushed; report unavailable` (orchestrator-written, no Codex text). Never blocks: continue to Triage Reply.
+Only when the gate printed `push:ok`. Follow `<N1_ROOT>/references/reconcile-pr-body.md` (§ Check → § Dispatch → § Apply) with `PR_NUMBER` and `START_FILE` set to the path from Fix Phase's `reconcile:start file=` line. Pass `fix report file: <the report= path>` when `report=` is `<S>/fix-report.md` for the `<S>` from `triage:fix` (a `$N1_HOME/scratch/codex-validate-<PR>.*` directory, no `..`); otherwise pass `fix report: Codex triage fixes pushed; report unavailable` (orchestrator-written, no Codex text). Never blocks: continue to Triage Reply.
 
 ### Triage Reply
 

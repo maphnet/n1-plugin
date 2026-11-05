@@ -12,7 +12,7 @@ Triage has no user prompts and never blocks the pipeline: every failure below ro
 
 ### State
 
-Inputs: `findings:file=<path>` (the runner's fenced findings file), `pr: <number> <url>`, `id`, `branch`, `workspace`, `memory`, `n1_root`. Create the state directory first:
+Inputs: `findings:file=<path>` (the runner's fenced findings file), `pr: <number> <url>`, `id`, `branch`, `workspace`, `start file` (a file holding the run-start head SHA, written by the orchestrator before this dispatch), `memory`, `n1_root`. Create the state directory first:
 
 ```bash
 source ~/.n1/preamble.sh
@@ -176,7 +176,7 @@ You are fixing Codex review findings on an open pull request. An independent rev
 
 Workspace: resolve your working directory:
 - If `<worktree path>` exists, work there.
-- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && { git rev-parse -q --verify refs/heads/<branch> >/dev/null || git branch <branch> "$(cat <start file>)"; } && git checkout <branch>` (`<start file>` is `$RECONCILE_START_FILE`: a missing local branch starts at the run-start head, never at origin's tip; if that fails, stop and report).
+- Otherwise, in `<main checkout path>`: `git fetch origin <branch> && { git rev-parse -q --verify refs/heads/<branch> >/dev/null || git branch <branch> "$(cat <start file>)"; } && git checkout <branch>` (`<start file>` is the `start file:` input path (pass it to the developer): a missing local branch starts at the run-start head, never at origin's tip; if that fails, stop and report).
 Never work on the default branch.
 
 Findings to fix: <CONFIRMED_FINDINGS> (read this file; the findings sit between its `===== BEGIN/END UNTRUSTED CODEX FINDINGS CONTENT <nonce> =====` lines)
