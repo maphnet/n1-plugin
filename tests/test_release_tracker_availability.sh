@@ -23,30 +23,36 @@ expect() { # <label> <want> <got>
 GIT_LINE=$(sed -n 's/^ *\(GIT_IDS=.*\)$/\1/p' "$R01")
 GH_LINE=$(sed -n 's/^ *\(GH_IDS=.*\)$/\1/p' "$R01")
 expect "01 has exactly one GIT_IDS line" "1" "$(grep -c . <<<"$GIT_LINE")"
+expect "01 Source D calls the lib" 'GIT_IDS=$(n1_release_ticket_ids "$PREV_TAG" "$TAG")' "$GIT_LINE"
 expect "01 has exactly one GH_IDS line" "1" "$(grep -c . <<<"$GH_LINE")"
-git_ids() { local GIT_LOG="$1" PREFIX=VEL GIT_IDS=""; eval "$GIT_LINE"; printf '%s' "$GIT_IDS"; }
 gh_ids() { local GH_BODY="$1" PREFIX=VEL GH_IDS=""; eval "$GH_LINE"; printf '%s' "$GH_IDS"; }
 
+# Source D must not see log decoration (log.decorate=short adds "(tag: ...)" after the hash)
+LIB="$PWD/lib/release.sh"
+D_REPO=$(mktemp -d); trap 'rm -rf "$D_REPO"' EXIT
+dcommit() { git -C "$D_REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$1"; }
+git -C "$D_REPO" init -q; dcommit '[VEL-1] x'
+git -C "$D_REPO" -c user.name=t -c user.email=t@t tag -m t v1.0.0
+git -C "$D_REPO" config log.decorate short
+expect "D: tag commit under log.decorate=short still yields its ticket" "VEL-1" "$(source "$LIB"; cd "$D_REPO" && PREFIX=VEL n1_release_ticket_ids "" v1.0.0)"
+git_ids() { # <subject>...: commits each subject on a fresh base and prints the IDs of that range
+    local base s
+    base=$(git -C "$D_REPO" rev-parse HEAD)
+    for s in "$@"; do dcommit "$s"; done
+    (source "$LIB"; cd "$D_REPO" && PREFIX=VEL n1_release_ticket_ids "$base" HEAD)
+}
+
 SUBJ='[VEL-2976] Accept several API keys; drop committed key from VEL-1188 plan (#36)'
-expect "D: leading tag only, later mention ignored" "VEL-2976" "$(git_ids "abc1234 $SUBJ")"
-expect "D: untagged conventional subject yields nothing" "" "$(git_ids 'abc1234 fix: handle VEL-1188 case')"
-expect "D: merge subject yields nothing" "" "$(git_ids 'def5678 Merge pull request #36 from org/VEL-1188-keys')"
+expect "D: leading tag only, later mention ignored" "VEL-2976" "$(git_ids "$SUBJ")"
+expect "D: untagged conventional subject yields nothing" "" "$(git_ids 'fix: handle VEL-1188 case')"
+expect "D: merge subject yields nothing" "" "$(git_ids 'Merge pull request #36 from org/VEL-1188-keys')"
 expect "D: several commits, tagged ones only" "VEL-2976
-VEL-3001" "$(git_ids "abc1234 $SUBJ
-def5678 [VEL-3001] Other change (#37)
-0a1b2c3 chore: bump VEL-9999")"
+VEL-3001" "$(git_ids "$SUBJ" '[VEL-3001] Other change (#37)' 'chore: bump VEL-9999')"
 expect "C: release-note entry leading tag only" "VEL-2976" "$(gh_ids "## What's Changed
 * $SUBJ by @u in https://github.com/o/r/pull/36")"
 expect "C: entry with no leading tag yields nothing" "" "$(gh_ids '* fix: handle VEL-1188 case by @u in https://github.com/o/r/pull/37')"
 expect "C: stakeholder prose mentioning an ID yields nothing" "" "$(gh_ids 'We fixed key handling (VEL-1188).')"
 lacks "01 Sources C/D no longer grep whole lines for PREFIX" 'grep -oE "\$\{PREFIX\}' "$R01"
-# Source D must not see log decoration (log.decorate=short adds "(tag: ...)" after the hash)
-expect "D: both Source D git log calls pass --no-decorate" "2" "$(grep -cE 'GIT_LOG=\$\(git log .*--no-decorate' "$R01")"
-D_REPO=$(mktemp -d); trap 'rm -rf "$D_REPO"' EXIT
-git -C "$D_REPO" init -q; git -C "$D_REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m '[VEL-1] x'
-git -C "$D_REPO" -c user.name=t -c user.email=t@t tag -m t v1.0.0
-D_LINES=$(grep -E '^[[:space:]]+GIT_LOG=\$\(git log "\$\{TAG\}"' "$R01")
-expect "D: tag commit under log.decorate=short still yields its ticket" "VEL-1" "$(cd "$D_REPO" && git config log.decorate short && TAG=v1.0.0 PREFIX=VEL && eval "$D_LINES" && printf '%s\n' "$GIT_LOG" | sed -nE "s/^[0-9a-f]+ \[(${PREFIX}-[0-9]+)\].*/\1/p")"
 check "01 states the leading-tag rule" 'Only the leading `\[PREFIX-N\]` tag counts' "$R01"
 
 # --- Tracker server check: Step 5b (03) and Step 6 / Step 9 (04) (AC1, AC2, AC3)

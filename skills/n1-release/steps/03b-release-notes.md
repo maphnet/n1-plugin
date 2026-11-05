@@ -16,6 +16,7 @@ A tag argument is pasted into the snippet below only when it matches `^v?[0-9]+\
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/release.sh"
 TAG="<TAG argument, or empty>"
 RE='^v[0-9]+\.[0-9]+\.[0-9]+([-+.][0-9A-Za-z.-]+)?$'
 case "$TAG" in v*|"") ;; *) TAG="v$TAG" ;; esac
@@ -26,8 +27,7 @@ elif ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   echo "notes:no-tag"
 else
   # Previous tag = the next older v* tag, so an older TAG gets its own range, not the latest one.
-  PREV_TAG=$(git tag --list 'v*' --sort=-version:refname | awk -v t="$TAG" 'f {print; exit} $0 == t {f = 1}')
-  [[ "$PREV_TAG" =~ $RE ]] || PREV_TAG=""
+  PREV_TAG=$(n1_release_prev_tag "$TAG")
   echo "TAG=$TAG VERSION=${TAG#v} PREV_TAG=$PREV_TAG"
   gh release view "$TAG" --json url --jq .url 2>/dev/null || echo "release:none"
 fi
