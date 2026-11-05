@@ -773,12 +773,47 @@ test_final_pr_repo_without_merge() {
 test_final_pr_reused() {
     local tmp; tmp=$(mktemp -d)
     final_fixture "$tmp" "T-A:working done"; rm -f "$tmp/fake/final-create"
-    echo '[{"url":"https://github.com/o/r/pull/7","isDraft":false,"headRefName":"story/S-1","baseRefName":"main"}]' > "$tmp/fake/gh-final-list.main"
+    echo '[{"url":"https://github.com/o/r/pull/7","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
     assert_eq "final-reuse: exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "final-reuse: no session" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-S-1-final-1')"
     assert_eq "final-reuse: existing PR recorded" https://github.com/o/r/pull/7 "$(fin_row "$tmp" "$tmp/repo" | cut -f1)"
+    assert_eq "final-reuse: body refreshed by the runner" yes \
+        "$(grep -qF -- "pr edit --body-file $tmp/final-1.body.md -- https://github.com/o/r/pull/7" "$tmp/fake/gh-refresh-calls" && echo yes || echo no)"
+    assert_eq "final-reuse: ready PR is not re-readied" 0 "$(grep -c 'pr ready' "$tmp/fake/gh-refresh-calls" || true)"
     rm -rf "$tmp"
 }
+
+# N1-293 CR-2: a reused draft PR whose children all landed is refreshed and marked ready by the runner; when the refresh
+# fails the row keeps the note.
+test_final_pr_reused_draft() {
+    local tmp; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done"; rm -f "$tmp/fake/final-create"
+    echo '[{"url":"https://github.com/o/r/pull/7","isDraft":true,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final-reuse-draft: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-reuse-draft: edit then ready" "yes,yes" \
+        "$(grep -qF -- 'pr edit --body-file' "$tmp/fake/gh-refresh-calls" && echo yes || echo no),$(grep -qF -- 'pr ready -- https://github.com/o/r/pull/7' "$tmp/fake/gh-refresh-calls" && echo yes || echo no)"
+    assert_eq "final-reuse-draft: row ready, no note" "ready," "$(fin_row "$tmp" "$tmp/repo" | awk -F'\t' '{print $2","$4}')"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done"; rm -f "$tmp/fake/final-create"; touch "$tmp/fake/gh-edit-fail"
+    echo '[{"url":"https://github.com/o/r/pull/7","isDraft":true,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final-reuse-draft: failed refresh exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-reuse-draft: failed refresh keeps draft and the mismatch note" "draft,draft-mismatch (expected ready)" \
+        "$(fin_row "$tmp" "$tmp/repo" | awk -F'\t' '{print $2","$4}')"
+    rm -rf "$tmp"
+}
+
+# N1-293 CR-1: an unreadable agents list says nothing about the final session: its worktree is left in place.
+test_final_pr_unreadable_keeps_worktree() {
+    local tmp; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done"
+    rm -f "$tmp/fake/final-create"; echo working > "$tmp/fake/states.S-1.final"; touch "$tmp/fake/agents-fail-final"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "final-unreadable: worktree kept" yes "$([ -e "$tmp/final-1" ] && echo yes || echo no)"
+    assert_eq "final-unreadable: row notes agents-unreadable" agents-unreadable "$(fin_row "$tmp" "$tmp/repo" | cut -f4)"
+    rm -rf "$tmp"
+}
+
 
 # N1-293: the session ran but no PR exists: row "-" not-created, failed event, needs-you notice, run still exits 0.
 test_final_pr_not_created() {
@@ -903,6 +938,8 @@ test_final_pr_ready
 test_final_pr_draft
 test_final_pr_repo_without_merge
 test_final_pr_reused
+test_final_pr_reused_draft
+test_final_pr_unreadable_keeps_worktree
 test_final_pr_not_created
 test_final_pr_timeout
 test_final_pr_rows_open

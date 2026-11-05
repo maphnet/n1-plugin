@@ -782,7 +782,7 @@ final_none() {
 # reviews and merges it.
 final_pr() {
     local NUM="$1" REPO="$2" N1H="$3" SB="" SBID="" def="" nwo="" counts="" nl=0 nr=0 draft=0 mst="" found="" url="" isd=""
-    local why=not-created mg="" mss="" dcell="" note="" out="" sid=""
+    local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1
     local marker="$N1_QUEUE_DIR/.final-$1" body="$N1_QUEUE_DIR/final-$1.body.md" wt="$N1_QUEUE_DIR/final-$1"
     { story_env "$REPO" && [ -n "$SB" ]; } || { final_none "$REPO" story-branch-invalid; return 0; }
     counts=$(n1_queue_final_body "$QUEUE" "$REPO" "$SBID" "$body") || { final_none "$REPO" body-write-failed; return 0; }
@@ -795,11 +795,13 @@ final_pr() {
     fi
     [ "${nr:-0}" -eq 0 ] || draft=1
     def=$(N1_HOME="$N1H" n1_config_val '.git.defaultBranch' 2>/dev/null); def="${def:-main}"
+    _n1_queue_valid_branch "$def" || { final_none "$REPO" default-branch-invalid; return 0; }
     nwo=$(cd "$REPO" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
     [ -n "$nwo" ] || { final_none "$REPO" repo-unreadable; return 0; }
     found=$(n1_queue_final_pr_find "$nwo" "$SB" "$def")
     if [ "$(head -n1 "$marker" 2>/dev/null)" = "$RUN_ID" ]; then mst=$(sed -n 2p "$marker"); fi
     if [ -z "$found" ] && [ -z "$mst" ]; then
+        reused=0
         printf '%s\npending\n' "$RUN_ID" > "$marker"
         git -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
         if ! { git -C "$REPO" fetch -q origin "+refs/heads/$SB:refs/remotes/origin/$SB" \
@@ -810,10 +812,12 @@ final_pr() {
             echo "final PR: $REPO session launched ($sid)"
             await_bg "$sid" "$SBID" "$N1H"
             [ "$AWAIT_WHY" = done ] || why="$AWAIT_WHY"
+            case "$AWAIT_WHY" in agents-unreadable|missing) ended=0 ;; esac   # session may still run in $wt
         else
             why=launch-failed
         fi
-        git -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
+        # A session of unknown fate keeps its cwd; the next run's pre-add remove cleans it.
+        [ "$ended" = 1 ] && { git -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true; }
         printf '%s\ndone\n' "$RUN_ID" > "$marker"
         found=$(n1_queue_final_pr_find "$nwo" "$SB" "$def")
     elif [ -z "$found" ] && [ "$mst" = pending ]; then
@@ -823,6 +827,12 @@ final_pr() {
     IFS=$'\t' read -r url isd <<< "$found"
     IFS=$'\t' read -r mg mss <<< "$(n1_queue_pr_mergeable "$url")"
     mg="${mg:-UNKNOWN}"
+    # A reused PR may predate children that landed later: the runner (no session) refreshes its body and, when every
+    # child landed, marks it ready; the note stays only when that fails.
+    if [ "$reused" = 1 ]; then
+        timeout -k 30 30 gh pr edit --body-file "$body" -- "$url" </dev/null >/dev/null 2>&1 || note="body-not-refreshed"
+        if [ "$draft" = 0 ] && [ "$isd" = true ] && timeout -k 30 30 gh pr ready -- "$url" </dev/null >/dev/null 2>&1; then isd=false; fi
+    fi
     dcell=ready; [ "$isd" = true ] && dcell=draft
     if [ "$draft" = 1 ] && [ "$isd" != true ]; then note="draft-mismatch (expected draft)"; fi
     if [ "$draft" = 0 ] && [ "$isd" = true ]; then note="draft-mismatch (expected ready)"; fi

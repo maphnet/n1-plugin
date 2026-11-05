@@ -64,6 +64,11 @@ case "$1 $2" in
             *headRefOid*) cat "$v" 2>/dev/null || exit 1 ;;   # N1-292: n1_queue_pr_view (TSV state, base, head)
             *) cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
         esac ;;
+    "pr edit"|"pr ready") # N1-293: the runner's own reuse refresh; logged, gh-edit-fail makes both fail
+        echo "$*" >> "$FAKE_DIR/gh-refresh-calls"
+        [ -f "$FAKE_DIR/gh-edit-fail" ] && exit 1
+        [ "$2" = ready ] && echo ready > "$FAKE_DIR/gh-ready-done"
+        exit 0 ;;
     "pr checks") # N1-292: stdout gh-checks, stderr gh-checks-err, exit gh-checks-rc (default 0)
         cat "$FAKE_DIR/gh-checks-err" >&2 2>/dev/null
         cat "$FAKE_DIR/gh-checks" 2>/dev/null
@@ -121,7 +126,7 @@ case "$1" in
             if [ -f "$D/final-create" ]; then
                 b=$(grep -o -- '--base [^ ]*' <<< "$prompt" | head -1); b="${b#--base }"
                 dr=false; grep -qF -- '--draft' <<< "$prompt" && dr=true
-                printf '[{"url":"https://github.com/o/r/pull/9","isDraft":%s,"headRefName":"story/S-1","baseRefName":"%s"}]\n' "$dr" "$b" > "$D/gh-final-list.$b"
+                printf '[{"url":"https://github.com/o/r/pull/9","isDraft":%s,"headRefName":"story/S-1","baseRefName":"%s","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]\n' "$dr" "$b" > "$D/gh-final-list.$b"
             fi ;;
         esac
         t="${prompt##* }"
@@ -131,6 +136,8 @@ case "$1" in
         printf 'backgrounded \xc2\xb7 %08x \xc2\xb7 %s\n' "$n" "$name"
         ;;
     agents)
+        # N1-293: agents-fail-final makes the session list unreadable once a final session was launched
+        if [ -f "$D/agents-fail-final" ] && compgen -G "$D/prompt.*-final-*" >/dev/null; then echo "agents down" >&2; exit 1; fi
         out=""
         for f in "$D"/prompt.*; do
             [ -f "$f" ] || continue
