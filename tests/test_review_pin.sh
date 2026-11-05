@@ -158,6 +158,13 @@ n=$(wc -l < "$ST/r2.jsonl"); ( unset N1_RUN_ID; ID=T-1 n1_head_record "$H6" )
 eq "n1_head_record: no bound run writes nothing" "$n" "$(wc -l < "$ST/r2.jsonl")"
 H8=$(gc soft-fix); tip "$H8"; hr "$H6"; hr "$H6"
 eq "binding: repeating a head record is a no-op" "pin:set ${H8:0:7}" "$(pin "$H8")"
+# N1-405 AC4: pre-push Codex fix commits recorded by the scope gate keep the chain intact through docs and rebase.
+rv r2 "$H8"; H9=$(gc codex-fix-1); H10=$(gc codex-fix-2); tip "$H10"
+eq "binding: unrecorded Codex fix head -> refused" "$REF" "$(pin "$H10")"
+hr "$H8"
+eq "binding: Codex fix commits recorded from the pre-Codex head allowed" "pin:set ${H10:0:7}" "$(pin "$H10")"
+H11=$(gc docs-after-codex); hr "$H10"; H12=$(gc rebased-after-codex); tip "$H12"; hr "$H11"
+eq "binding: docs and rebase after Codex fixes keep the chain" "pin:set ${H12:0:7}" "$(pin "$H12")"
 rm -f "$ST"/*.jsonl; rv r1 "$H1"; rv r2 "$H2"
 printf '{"run_id":"r2","layer":"step","step":"review","step_number":9}\n' >> "$ST/r2.jsonl"
 tip "$H1"; eq "binding: older run's review head is refused" "$REF" "$(pin "$H1")"
@@ -172,11 +179,11 @@ H7=$(gc ci-fix); tip "$H7"
 eq "binding: advance is not gated by the chain" "pin:advanced ${H7:0:7}" "$(n1_review_pin advance 11 "$H6" "$H7")"
 rm -rf "$R" "$T/home/active-run.json" "$P11"
 
-# Wiring: n1-pr pins before the Codex runner; reconcile § Check advances (N1 fix-loop pushes only).
-cd - >/dev/null; S3=skills/n1-pr/steps/03-codex-review.md
-PS=$(grep -nF 'n1_review_pin set "${PR_URL##*/}"' "$S3" | head -1 | cut -d: -f1)
-CR=$(grep -nF 'codex-pr-review.sh" "$PR_URL"' "$S3" | head -1 | cut -d: -f1)
-if [ -n "$PS" ] && [ -n "$CR" ] && [ "$PS" -lt "$CR" ]; then ok "n1-pr pins the head before the Codex runner"; else no "n1-pr pins the head before the Codex runner"; fi
+# Wiring (N1-405): step 3 pins the PR head and never runs Codex; the pre-push scope gate records the fix head.
+cd - >/dev/null; S3=skills/n1-pr/steps/03-codex-review.md; CTR=skills/n1-pr/procedures/codex-triage.md
+if grep -qF 'n1_review_pin set "${PR_URL##*/}"' "$S3"; then ok "n1-pr step 3 pins the PR head"; else no "n1-pr step 3 pins the PR head"; fi
+if grep -qF 'codex-pr-review.sh' "$S3"; then no "n1-pr step 3 never runs the Codex runner"; else ok "n1-pr step 3 never runs the Codex runner"; fi
+if grep -qF 'push:ok) n1_head_record "$START"' "$CTR"; then ok "Codex scope gate records the fix head"; else no "Codex scope gate records the fix head"; fi
 
 # N1-182: only the user-confirmed n1-finish re-pins bypass the review guard.
 for f in skills/n1-finish/references/repin.md skills/n1-finish/references/resolve-dirty.md; do
@@ -197,8 +204,9 @@ DR=$(grep -nxF 'n1_head_record "$(cat "$N1_HOME/memory/${ID:-}/docs-from-sha" 2>
 if [ -n "$DW" ] && [ -n "$TW" ] && [ -n "$DR" ] && [ "$DW" -lt "$TW" ] && [ "$TW" -lt "$DR" ]; then ok "n1-pr records the doc-commit head around tech-writer"; else no "n1-pr records the doc-commit head around tech-writer"; fi
 P2=skills/n1-pr/steps/02-push-create.md
 PR0=$(grep -nxF 'PRE_REBASE=$(git rev-parse HEAD)' "$P2" | head -1 | cut -d: -f1)
-RB=$(grep -nxF 'git rebase origin/${DEFAULT_BRANCH} && n1_head_record "$PRE_REBASE"' "$P2" | head -1 | cut -d: -f1)
+RB=$(grep -nxF 'git rebase origin/${DEFAULT_BRANCH} && { n1_head_record "$PRE_REBASE"; n1_review_reanchor "$PRE_REBASE"; }' "$P2" | head -1 | cut -d: -f1)
 if [ -n "$PR0" ] && [ -n "$RB" ] && [ "$PR0" -lt "$RB" ]; then ok "n1-pr records the head only after a clean rebase"; else no "n1-pr records the head only after a clean rebase"; fi
+if [ "$(grep -cE '^n1_codex_gate_check "\$ID" && git push' "$P2")" = 2 ] && grep -qF 'n1_codex_gate_check "$ID" ||' skills/n1-pr/procedures/codex-triage.md; then ok "every n1-pr push path and the Codex Fix Phase honour the blocked-gate marker"; else no "every n1-pr push path and the Codex Fix Phase honour the blocked-gate marker"; fi
 if grep -qF 'unreviewed-head' "$S3"; then ok "n1-pr explains pin:refused unreviewed-head"; else no "n1-pr explains pin:refused unreviewed-head"; fi
 if grep -qF '| 0 | `head` |' skills/n1-start/procedures/telemetry.md; then ok "telemetry.md documents the head event"; else no "telemetry.md documents the head event"; fi
 

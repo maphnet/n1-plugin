@@ -46,12 +46,11 @@ lacks "orchestrator holds no validator prompt"     "$CT" 'Validator instructions
 lacks "orchestrator holds no developer prompt"     "$CT" 'Developer instructions'
 lacks "orchestrator never composes the body"       "$CT" 'Construct the triage body'
 has "orchestrator keeps the push gate"             "$CT" 'codex-push-gate\.sh'
-has "orchestrator posts the persona file"          "$CT" '--body-file "\$TRIAGE_FILE"'
-has "reconcile gets the fix report by path"        "$CT" 'fix report file:'
+has "step 3 posts the persona file"                skills/n1-pr/steps/03-codex-review.md '--body-file "\$TRIAGE_FILE"'
 # (c) the three artifacts are never written through a shell command
 has "orchestrator states the no-shell-write rule"  "$CT" '`candidates\.md`, `confirmed\.md` and the triage file are never written through a shell command'
 has "worker writes with the file-write mechanism"  "$CW" 'never through a shell command'
 # (d) 03 passes the findings path and never reads the file
 lacks "03 no longer reads the findings file"       "$P3" 'read the `findings:file=` file'
-has "03 hands the path to the persona"             "$P3" 'never read that file yourself'
+has "01 hands the path to the persona"             skills/n1-pr/steps/01-prepare.md 'never read that file yourself'
 exit $FAIL

@@ -1,33 +1,53 @@
-<!-- Purpose: Execute the review runner, triage optional findings, then print the final report. -->
+<!-- Purpose: Pin the reviewed head, post the pre-push Codex triage once, disclose unreviewed soft fixes, then print the final report. -->
 
-## Step 9: Codex Review
+## Step 9: Codex Comment
 
 If no PR URL is available, PR creation failed: end n1-pr without a review report.
 
-For every PR URL, execute this foreground command before the final report. It owns the gate, short auth timeout, review budget, PR comment, fallback and durable decision receipt. A PostToolUse hook independently records PR creation with `outcome=skipped reason=step-not-run`; the Stop hook requests continuation when the runner was omitted. Receipts live under `$HOME/.n1/review-receipts/<session>/`, even without telemetry.
+The Codex review already ran before the push (step 1, N1-405). This step never runs it again and never pushes. It first pins the PR head that passed N1 review (`$N1_HOME/review-pins/`, any Codex outcome). n1-finish merges only that head, and reconcile § Check advances it after N1's fix-loop pushes. Codex fix commits were recorded as post-review heads in step 1, so they keep the pin valid. `pin:unavailable` is not an error (n1-finish then refuses to merge). `pin:refused` prints its reason (no review artifacts, non-PASS verdict, or `unreviewed-head`: an unrecorded post-review commit or a stale review): let the block finish and report it; never write the pin file by hand.
 
-It first pins the PR head that passed N1 review (`$N1_HOME/review-pins/`, any Codex outcome); n1-finish merges only that head; reconcile § Check advances it after N1's fix-loop pushes. `pin:unavailable` is not an error (n1-finish then refuses to merge). `pin:refused` prints its reason (no review artifacts, non-PASS verdict, or `unreviewed-head`: an unrecorded post-review commit or a stale review): let the block finish, report it; never write the pin file by hand.
+It then reads the branch receipt and posts the saved triage once. A PostToolUse hook records `outcome=skipped reason=step-not-run` when the PR was created without a pre-push review, and the Stop hook requests continuation until this step has run. Receipts live under `$HOME/.n1/review-receipts/<session>/<repo>__<branch>.json` (with the reviewed head; a `ran` receipt counts only while that head is an ancestor of HEAD), even without telemetry.
 
 ```bash
 source ~/.n1/preamble.sh
-PR_URL="<the PR URL from step 4>"
+source "$N1_ROOT/lib/codex-review.sh"
+ID='<the ticket ID>'
+PR_URL='<the PR URL from step 4>'
 n1_review_pin set "${PR_URL##*/}"
-bash "$N1_ROOT/scripts/codex-pr-review.sh" "$PR_URL"
+BRANCH=$(git branch --show-current)
+OUTCOME=$(n1_review_outcome "$BRANCH")
+MISSED=""
+[ -n "$OUTCOME" ] || { n1_review_record "$BRANCH" skipped step-not-run true; OUTCOME=skipped; MISSED=1; }
+echo "codex_review_outcome=$OUTCOME"
+if [ -n "$MISSED" ] && ! timeout -k 5 30 gh pr view "$PR_URL" --json comments --jq '.comments[].body' 2>/dev/null | grep -q '^## Codex Review Not Run'; then
+  timeout -k 5 30 gh pr comment "$PR_URL" --body '## Codex Review Not Run
+
+The pre-push Codex review did not run for this PR. Treat it as not cross-reviewed.' >/dev/null 2>&1 && echo "omitted:posted" || echo "omitted:comment-failed"
+fi
+case "$ID" in ''|*[!A-Za-z0-9_-]*) echo "triage:no-id"; exit 0;; esac
+TRIAGE_FILE="$N1_HOME/memory/$ID/codex-triage.md"
+{ [ -f "$TRIAGE_FILE" ] && [ ! -L "$TRIAGE_FILE" ] && [ "$(stat -c %h "$TRIAGE_FILE")" = 1 ]; } || { echo "triage:none"; exit 0; }
+if timeout -k 5 30 gh pr comment "$PR_URL" --body-file "$TRIAGE_FILE" >/dev/null 2>&1; then
+  mv -f "$TRIAGE_FILE" "$N1_HOME/memory/$ID/codex-triage.posted.md" && echo "triage:posted"
+else echo "triage:comment-failed file=$TRIAGE_FILE"; fi
 ```
 
-Wait for completion. The runner prints `codex_review_outcome` and `crossHostReview_autoTriage`. It defaults review on, skips only for explicit `crossHostReview.enabled=false`, missing CLI, missing auth or auth timeout, and records the reason. Auth has a 10-second budget (`N1_CODEX_AUTH_TIMEOUT` override). Review has a 900-second budget (`N1_CROSS_HOST_REVIEW_TIMEOUT` override). Review failure or timeout warns through the outcome and continues to the **Soft-Fix Notice**. A failed comment is saved beside the receipt and reported with its path.
+- `triage:posted`: the PR's only Codex comment holds the validated triage.
+- `triage:none`: nothing to post (no findings, opt-out, or the review did not run).
+- `triage:comment-failed file=<path>`: warn inline with the path and remember the follow-up item `Codex triage not posted: see ticket memory codex-triage.md`.
+- `triage:no-id`: warn inline.
 
-Unless `crossHostReview.autoTriage` is `false` (triage is on by default), a review that ran also prints one findings line and never the Codex text itself: `findings:file=<path>` (the runner fenced the findings into that file), `findings:none` (a bare no-findings reply) or `findings:unavailable` (fencing failed). Every path continues to the **Soft-Fix Notice**, then the Triage Gate (which routes to **Step 10: Report**).
+Every output continues to the **Soft-Fix Notice**.
 
 ### Soft-Fix Notice
 
-Run this on every path, before the Triage Gate. Soft-pass review fixes (n1-start SOFT-ONLY pass, recorded as `## Fix Cycle <N> (soft)` in implementation.md) are never re-reviewed. When Codex did not review the PR, the notice discloses them to the human merger as not cross-reviewed. It never blocks.
+Run this on every path, before the Report. Soft-pass review fixes (n1-start SOFT-ONLY pass, recorded as `## Fix Cycle <N> (soft)` in implementation.md) are never re-reviewed. When Codex did not review the branch, the notice discloses them to the human merger as not cross-reviewed. It never blocks.
 
 ```bash
 source ~/.n1/preamble.sh
 ID='<the ticket ID>'
 PR_URL='<the PR URL from step 4>'
-OUTCOME='<only the word after codex_review_outcome= (ran, skipped, timeout or failed) from the last runner outcome line, or the receipt; else empty>'
+OUTCOME='<only the word after codex_review_outcome= (ran, skipped, timeout or failed) from Step 9; else empty>'
 [ "$OUTCOME" = ran ] && { echo "softfix:reviewed"; exit 0; }
 case "${ID:-}" in ''|*[!A-Za-z0-9_-]*) echo "softfix:no-id"; exit 0;; esac
 [ -n "${N1_HOME:-}" ] || { echo "softfix:no-id"; exit 0; }
@@ -49,26 +69,15 @@ timeout -k 5 30 gh pr comment "$PR_URL" --body-file "$SOFTFIX_FILE" >/dev/null 2
 rm -f "$SOFTFIX_FILE"
 ```
 
-Replace all three `<...>` placeholders; an unfilled or invalid ID prints `softfix:no-id` (warned). Paste only the outcome word, not the trailing `reason=` or `rc=` fields (the runner prints `codex_review_outcome=skipped reason=...`); anything outside the allow-list becomes `unknown`.
+Replace all three `<...>` placeholders. An unfilled or invalid ID prints `softfix:no-id` (warned). Paste only the outcome word; anything outside the allow-list becomes `unknown`.
 
-If the output says `softfix:comment-failed`, `softfix:bad-pr-url`, `softfix:no-id` or `softfix:unreadable` (implementation.md exists but could not be read, so disclosure status is unknown), warn inline that the soft-pass fixes may not be cross-reviewed and continue. `softfix:already-posted` means an earlier run already posted the notice; a failed comment lookup posts anyway. Every output continues to the Triage Gate.
-
-### Triage Gate
-
-Go straight to **Step 10: Report** (no triage, no triage comment) when any of these holds:
-- `codex_review_outcome` is not `ran`.
-- `crossHostReview_autoTriage` is NOT `true`.
-- The runner printed `findings:none`: Codex reported no findings, so there is nothing to triage. Triage is on by default, so this keeps clean reviews from getting a noise comment.
-
-If the runner printed `findings:unavailable` or no findings line, warn inline, report the Codex review as For Human Review (its findings are in the PR's `## Codex Review` comment, or in the saved copy beside the receipt if posting failed), and continue to **Step 10: Report**.
-
-Otherwise read `<N1_ROOT>/skills/n1-pr/procedures/codex-triage.md` and follow it: it passes the `findings:file=` path to the triage persona; never read that file yourself. Then continue to **Step 10: Report**. If the procedure file cannot be read, warn inline, report the Codex review as For Human Review (its findings are in the PR's `## Codex Review` comment), and continue to **Step 10: Report**.
+If the output says `softfix:comment-failed`, `softfix:bad-pr-url`, `softfix:no-id` or `softfix:unreadable` (implementation.md exists but could not be read, so disclosure status is unknown), warn inline that the soft-pass fixes may not be cross-reviewed and continue. `softfix:already-posted` means an earlier run already posted the notice. A failed comment lookup posts anyway. Every output continues to **Step 10: Report**.
 
 ## Step 10: Report
 
-If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings or file follow-ups, whether or not triage ran. Report the persona's counts lines only; unfixed items are in the posted triage comment (or its fallback file path), never listed from the orchestrator. For Human Review items go through `<N1_ROOT>/references/followup-filing.md` § Append (source `codex`): the triage persona appends them when triage ran and its report phase returned `followups=<n>` (report it); append one item, only when the review needs human attention (no `findings:none`, review not disabled; i.e. `findings:unavailable`, triage not run on existing findings, or report phase failed), `Codex review findings: see the PR's ## Codex Review comment`. n1-start FINALIZE MEMORY files them; outside n1-start, report them as unfiled.
+If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings or file follow-ups, whether or not triage ran. Report the persona's counts lines from step 1 only. Unfixed items are in the posted triage comment (or `memory/<ID>/codex-triage.md` if posting failed); never list them from the orchestrator. For Human Review items go through `<N1_ROOT>/references/followup-filing.md` § Append (source `codex`): the triage persona appended them when its report phase ran. Append the one item remembered in step 1 or Step 9 when present (`Codex review findings: see ticket memory codex-review.md`, or `Codex triage not posted: see ticket memory codex-triage.md`). n1-start FINALIZE MEMORY files them; outside n1-start, report them as unfiled.
 
-Every path through Step 9 ends here: review ran, skipped, timed out, failed, or went through triage. Print this report exactly once. It is the end of n1-pr.
+Every path through Step 9 ends here, whatever the Codex outcome was. Print this report exactly once. It is the end of n1-pr.
 
 Read ticket URL:
 ```bash

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Observe successful PR creation even when the model never reads review step 3.
+# Observe PR creation; a branch without a pre-push Codex receipt gets a step-not-run receipt (N1-405).
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/../lib/codex-review.sh"
@@ -18,12 +18,13 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty')
 [[ "$COMMAND" =~ gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]] || exit 0
 EVENT=$(printf '%s' "$INPUT" | jq -r '.hook_event_name // "PostToolUse"')
 case "$EVENT" in PostToolUse|PostToolUseFailure) :;; *) exit 0;; esac
-urls=()
-while IFS= read -r url; do
-    file=$(n1_review_receipt "$url") || continue
-    [ ! -f "$file" ] || continue
-    n1_review_record "$url" skipped step-not-run false
-    urls+=("$url")
-done < <(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // .error // empty' | grep -Eo 'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+' | sort -u)
-[ "${#urls[@]}" -gt 0 ] || exit 0
-jq -n --arg event "$EVENT" --arg urls "${urls[*]}" '{hookSpecificOutput:{hookEventName:$event,additionalContext:("N1: PRs " + $urls + " need Codex review. Read n1-pr step 3 and run the review runner before reporting completion.")}}'
+URLS=$(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // .error // empty' | grep -Eo 'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+' | sort -u | tr '\n' ' ' | sed 's/ $//') || URLS=""
+[ -n "$URLS" ] || exit 0
+# N1-405: receipts are keyed on the branch of the checkout that ran gh pr create.
+CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
+export N1_REVIEW_DIR="${CWD:-.}"
+BRANCH=$(git -C "${CWD:-.}" branch --show-current 2>/dev/null) || BRANCH=""
+file=$(n1_review_receipt "$BRANCH") || exit 0
+{ [ ! -f "$file" ] && [ -z "$(n1_review_outcome "$BRANCH")" ]; } || exit 0
+n1_review_record "$BRANCH" skipped step-not-run false
+jq -n --arg event "$EVENT" --arg urls "$URLS" --arg b "$BRANCH" '{hookSpecificOutput:{hookEventName:$event,additionalContext:("N1: the Codex review did not run before push on branch " + $b + " (PRs " + $urls + "). Read n1-pr step 3; it records the outcome and discloses the PR as not Codex-reviewed.")}}'

@@ -96,7 +96,7 @@ EOF
 chmod +x "$T/bin/gh"
 S=0123456789abcdef0123456789abcdef01234567
 O=fedcba9876543210fedcba9876543210fedcba98
-export N1_HOME="$T/home" N1_STATE_DIR="$T/state" CFG="$ROOT/lib/config.sh"
+export N1_HOME="$T/home" N1_STATE_DIR="$T/state" CFG="$ROOT/lib/config.sh" N1_ROOT="$ROOT" N1_SESSION_ID=fin-test
 source "$CFG"   # N1-321: once; pre/mrg/res run their snippet in a subshell instead of a fresh bash that re-sources config.sh
 export MERGE_REREAD_SLEEP=0   # N1-321: the merge re-read poll sleeps 3 s per extra poll; no assertion depends on the delay
 PIN="$T/home/review-pins/o_r_7"; mkdir -p "${PIN%/*}"; echo "$S" > "$PIN"
@@ -112,15 +112,24 @@ line "pre: missing pin prints an empty pin" "pin:"
 REPO_FAIL=1 CHECKS='[]' pre
 line "pre: pin lookup failure prints pin:unavailable" "pin:unavailable"
 has "pre: no Codex receipt -> codex:none" "codex:none"
+# N1-405 SEC-1: receipts are repo-scoped and a "ran" receipt needs a head that is an ancestor of the PR head.
+git init -q "$T/rc"; git -C "$T/rc" -c user.name=t -c user.email=t@t commit -q --allow-empty -m c1; RCH=$(git -C "$T/rc" rev-parse HEAD)
+git -C "$T/rc" -c user.name=t -c user.email=t@t commit -q --allow-empty -m c2; RCH2=$(git -C "$T/rc" rev-parse HEAD)
+. "$ROOT/lib/codex-review.sh"; RCN=$(N1_REVIEW_DIR="$T/rc" n1_review_name feat)
+rcw() { jq -nc --arg o "$1" --arg h "${2-$RCH}" '{outcome:$o,head:$h,processed:true}' > "$3"; }
 RC="$T/state/review-receipts/s1"; mkdir -p "$RC"
-echo '{"outcome":"skipped"}' > "$RC/o_r_7.json"; pre
+rcw skipped "" "$RC/$RCN"; WD="$T/rc" HS=$RCH2 pre
 has "pre: skipped Codex receipt -> codex:not-ran" "codex:not-ran"
-echo '{"outcome":"ran"}' > "$RC/o_r_7.json"; pre
+rcw ran "$RCH" "$RC/$RCN"; WD="$T/rc" HS=$RCH2 pre
 has "pre: ran Codex receipt -> codex:ran" "codex:ran"
-rm "$RC/o_r_7.json"; mkdir -p "$N1_HOME/review-receipts/s0"
-echo '{"outcome":"ran"}' > "$N1_HOME/review-receipts/s0/o_r_7.json"; pre
+rm "$RC/$RCN"; mkdir -p "$N1_HOME/review-receipts/s0"
+rcw ran "$RCH" "$N1_HOME/review-receipts/s0/$RCN"; WD="$T/rc" HS=$RCH2 pre
 has "pre: legacy per-project ran receipt -> codex:ran" "codex:ran"
-rm -rf "$N1_HOME/review-receipts"; echo '{"outcome":"ran"}' > "$RC/o_r_7.json"
+rcw ran "$S" "$N1_HOME/review-receipts/s0/$RCN"; WD="$T/rc" HS=$RCH2 pre
+has "pre: ran receipt with a non-ancestor head -> codex:none" "codex:none"
+rcw ran "$RCH" "$N1_HOME/review-receipts/s0/feat.json"; WD="$T/rc" HS=$RCH2 pre
+has "pre: bare branch-keyed receipt (no repo) is ignored" "codex:none"
+rm -rf "$N1_HOME/review-receipts"; mkdir -p "$RC"; rcw ran "$RCH" "$RC/$RCN"
 echo "$S" > "$PIN"
 CHECKS='[{"bucket":"pass"},{"bucket":"fail"},{"bucket":"cancel"}]' pre
 has "pre: failed and cancelled counted" "checks:fail=2 pending=0"
@@ -454,11 +463,12 @@ has "push: local tip != new refused" "push:skip"
 XREPO=true TOLD=$OH TNEW=$NH psh
 has "push: fork PR refused" "push:skip"
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "push: refusals push nothing"; else no "push: refusals push nothing"; fi
+rcw ran "$OH" "$RC/$(N1_REVIEW_DIR="$G/w" n1_review_name feat)"
 TOLD=$OH TNEW=$NH psh
 has "push: pin advanced to the rebased head" "pin:advanced ${NH:0:7}"
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$NH" ] && [ "$(cat "$PIN")" = "$NH" ]; then ok "push: origin and pin at the rebased head"; else no "push: origin and pin at the rebased head"; fi
-# 3.1 re-check after the push: pin == new head; the session-keyed Codex receipt is unaffected.
-HS=$NH pre
+# 3.1 re-check after the push: pin == new head; the receipt head was re-anchored to the rebased head (N1-405).
+WD="$G/w" HS=$NH pre
 line "pre: re-check after resolve sees pin == new head" "pin:$NH"
 has "pre: re-check head is the rebased head" "head:$NH"
 has "pre: Codex receipt survives the resolve push" "codex:ran"

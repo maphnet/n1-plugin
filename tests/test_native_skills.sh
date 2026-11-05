@@ -56,6 +56,7 @@ P2=skills/n1-pr/steps/02-push-create.md
 P3=skills/n1-pr/steps/03-codex-review.md
 TRI=skills/n1-pr/procedures/codex-triage.md
 TRW=skills/n1-pr/procedures/codex-triage-worker.md
+P1=skills/n1-pr/steps/01-prepare.md
 if grep -q 'CHECKPOINT:' "$P2"; then
     echo "FAIL: 02-push-create still prints a CHECKPOINT"; FAIL=1
 else
@@ -67,12 +68,11 @@ else
     echo "FAIL: 02-push-create does not end with continuation to step 3"; FAIL=1
 fi
 LAST_CP=$(grep -n 'CHECKPOINT: Ready for Tech Lead review.' "$P3" | tail -1 | cut -d: -f1)
-PTR=$(grep -n 'procedures/codex-triage.md' "$P3" | head -1 | cut -d: -f1)
-if [ -n "$LAST_CP" ] && [ -n "$PTR" ] && [ "$LAST_CP" -gt "$PTR" ] && grep -q '^### Triage Reply' "$TRI" 2>/dev/null \
-   && grep -q 'Step 10: Report' <<<"$(grep -v '^[[:space:]]*$' "$TRI" 2>/dev/null | tail -1)"; then
-    echo "PASS: 03-codex-review ends with the PR report CHECKPOINT; triage returns to Step 10"
+if [ -n "$LAST_CP" ] && grep -qF 'procedures/codex-triage.md' "$P1" && grep -q '^### Triage File' "$TRI" 2>/dev/null \
+   && grep -q '01-prepare.md' <<<"$(grep -v '^[[:space:]]*$' "$TRI" 2>/dev/null | tail -1)"; then
+    echo "PASS: 03-codex-review ends with the PR report CHECKPOINT; pre-push triage returns to step 1"
 else
-    echo "FAIL: 03-codex-review CHECKPOINT/triage return path broken"; FAIL=1
+    echo "FAIL: 03-codex-review CHECKPOINT/pre-push triage return path broken"; FAIL=1
 fi
 if grep -qiE 'stop here|skip this step entirely' "$P3" "$TRI" "$TRW" 2>/dev/null; then
     echo "FAIL: 03-codex-review or codex-triage has an early exit that bypasses the Report"; FAIL=1
@@ -85,11 +85,11 @@ else
     echo "FAIL: 03-codex-review does not record skipped codex-review decisions"; FAIL=1
 fi
 
-# 4b. N1-127: triage text is read on demand; 03 keeps only runner, gate and report
-if [ -f "$TRI" ] && grep -qF 'procedures/codex-triage.md' "$P3"; then
-    echo "PASS: 03-codex-review points to the on-demand triage procedure"
+# 4b. N1-127/N1-405: triage text is read on demand from step 1; 03 keeps only pin, comment, notice and report
+if [ -f "$TRI" ] && grep -qF 'procedures/codex-triage.md' "$P1"; then
+    echo "PASS: 01-prepare points to the on-demand triage procedure"
 else
-    echo "FAIL: 03-codex-review triage procedure pointer or file missing"; FAIL=1
+    echo "FAIL: 01-prepare triage procedure pointer or file missing"; FAIL=1
 fi
 if grep -qE '^### (Severity Parsing|Validation|Fix Cycle|Reconcile PR Body|Triage Reply)' "$P3"; then
     echo "FAIL: 03-codex-review still inlines triage sections"; FAIL=1
@@ -111,12 +111,10 @@ for pat in 'N1_CROSS_HOST_REVIEW_TIMEOUT:-900' 'codex exec -c model_reasoning_ef
         echo "FAIL: 03-codex-review missing '$pat'"; FAIL=1
     fi
 done
-CX=$(grep -n 'codex exec' "$REVIEW_RUNNER" | head -1 | cut -d: -f1)
-GH=$(grep -n 'gh pr comment' "$REVIEW_RUNNER" | head -1 | cut -d: -f1)
-if [ -n "$CX" ] && [ -n "$GH" ] && [ "$GH" -gt "$CX" ] && ! grep -q '^```' <<<"$(sed -n "${CX},${GH}p" "$REVIEW_RUNNER")"; then
-    echo "PASS: 03-codex-review runs codex and posts the comment in one bash block"
+if ! grep -qE 'gh pr comment|gh pr ' "$REVIEW_RUNNER"; then
+    echo "PASS: codex runner never calls gh (pre-push review, N1-405)"
 else
-    echo "FAIL: 03-codex-review splits codex dispatch and comment posting across blocks"; FAIL=1
+    echo "FAIL: codex runner calls gh"; FAIL=1
 fi
 
 # 6. N1-94: Codex findings are validated by a read-only reviewer before developer fixes
@@ -134,14 +132,14 @@ if [ -n "$CRV" ] && [ -n "$VAL" ] && [ -n "$FIX" ] && [ "$CRV" -gt "$VAL" ] && [
 else
     echo "FAIL: codex-triage Validation does not resolve code-reviewer"; FAIL=1
 fi
-for pat in 'Critical, High, or Medium' 'CONFIRMED | INVALID' '<CONFIRMED_FINDINGS>' 'gh pr diff'; do
+for pat in 'Critical, High, or Medium' 'CONFIRMED | INVALID' '<CONFIRMED_FINDINGS>' 'git diff --no-color --no-ext-diff "$BASE...HEAD"'; do
     if grep -qF -- "$pat" "$TRW" 2>/dev/null; then
         echo "PASS: codex-triage has '$pat'"
     else
         echo "FAIL: codex-triage missing '$pat'"; FAIL=1
     fi
 done
-for pat in 'on by default' 'nothing to triage'; do
+for pat in 'triage:posted' 'triage:none'; do
     if grep -qF -- "$pat" "$P3"; then
         echo "PASS: 03-codex-review gate has '$pat'"
     else
@@ -165,7 +163,7 @@ else
 fi
 
 # 7. N1-94 SEC-1: untrusted triage text reaches the PR only through a file
-if grep -qF -- '--body-file "$TRIAGE_FILE"' "$TRI" 2>/dev/null && ! grep -qE 'TRIAGE_BODY=|printf .*\$TRIAGE_BODY' "$P3" "$TRI" "$TRW" 2>/dev/null; then
+if grep -qF -- '--body-file "$TRIAGE_FILE"' "$P3" 2>/dev/null && ! grep -qE 'TRIAGE_BODY=|printf .*\$TRIAGE_BODY' "$P3" "$TRI" "$TRW" 2>/dev/null; then
     echo "PASS: codex-triage posts triage via --body-file, never via shell variable"
 else
     echo "FAIL: codex-triage triage reply splices text into shell"; FAIL=1
@@ -200,7 +198,7 @@ for f in "$TRW" references/architecture.md; do
 done
 
 # 10. N1-123 SEC-4: disclose soft-pass fixes as not cross-reviewed when Codex did not run
-for pat in '### Soft-Fix Notice' '^## Fix Cycle [0-9]+ \(soft\)' 'not cross-reviewed' '--body-file "$SOFTFIX_FILE"' 'softfix:comment-failed' 'softfix:reviewed' 'softfix:no-id' 'softfix:bad-pr-url' 'softfix:unreadable' 'softfix:already-posted' 'gh pr view "$PR_URL" --json comments' 'gh pr comment "$PR_URL"' "ID='<the ticket ID>'" 'from the last runner outcome line, or the receipt'; do
+for pat in '### Soft-Fix Notice' '^## Fix Cycle [0-9]+ \(soft\)' 'not cross-reviewed' '--body-file "$SOFTFIX_FILE"' 'softfix:comment-failed' 'softfix:reviewed' 'softfix:no-id' 'softfix:bad-pr-url' 'softfix:unreadable' 'softfix:already-posted' 'gh pr view "$PR_URL" --json comments' 'gh pr comment "$PR_URL"' "ID='<the ticket ID>'" 'only the word after codex_review_outcome='; do
     if grep -qF -- "$pat" "$P3"; then
         echo "PASS: 03-codex-review soft-fix notice has '$pat'"
     else
@@ -208,11 +206,11 @@ for pat in '### Soft-Fix Notice' '^## Fix Cycle [0-9]+ \(soft\)' 'not cross-revi
     fi
 done
 SF=$(grep -n '^### Soft-Fix Notice' "$P3" | head -1 | cut -d: -f1)
-TG=$(grep -n '^### Triage Gate' "$P3" | head -1 | cut -d: -f1)
+TG=$(grep -n '^## Step 10: Report' "$P3" | head -1 | cut -d: -f1)
 if [ -n "$SF" ] && [ -n "$TG" ] && [ "$SF" -lt "$TG" ]; then
-    echo "PASS: 03-codex-review soft-fix notice runs before the Triage Gate"
+    echo "PASS: 03-codex-review Soft-Fix Notice precedes the Report"
 else
-    echo "FAIL: 03-codex-review soft-fix notice must precede the Triage Gate"; FAIL=1
+    echo "FAIL: 03-codex-review Soft-Fix Notice must precede the Report"; FAIL=1
 fi
 if grep -qF '## Fix Cycle <N> (soft)' skills/n1-start/steps/fix.md && grep -qF -- '^## Fix Cycle [0-9]+ \(soft\)' "$P3"; then
     echo "PASS: soft Fix Cycle heading matches between fix.md and the notice grep"
@@ -292,85 +290,91 @@ else
     echo "FAIL: PR_BODY_FILE path not validated in 01/02"; FAIL=1
 fi
 
-# 11. N1-138: codex-triage scratch paths are prefix-checked (no subpath) before rm / --body-file
+# 11. N1-138/N1-405: codex-triage scratch paths are prefix-checked (no subpath) before mv / rm
 CT=skills/n1-pr/procedures/codex-triage.md
-# Behavioral: run the "post it and clean up" snippet against a stub gh and decoy scratch files
 TT=$(mktemp -d); trap 'rm -rf "$TT"' EXIT
-mkdir -p "$TT/bin" "$TT/home/scratch"
-printf '#!/bin/bash\necho "$@" >> "$GH_LOG"\n' > "$TT/bin/gh"; chmod +x "$TT/bin/gh"
-awk '/Then post it and clean up:/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$CT" \
-    | sed -E -e '/^source ~\/\.n1\/preamble\.sh$/d' -e "s/^([A-Z_]+)='<.*>'\$/\1=\"\${V_\1}\"/" > "$TT/post.sh"
-export N1_HOME="$TT/home" GH_LOG="$TT/gh.log"
-SC="$TT/home/scratch"
-mkfiles() { rm -rf "$SC"; mkdir -p "$SC/codex-validate-$1.v"; : > "$SC/codex-triage-$1.t"; : > "$SC/reconcile-start-$1.s"; : > "$GH_LOG"; }
-runpost() { # <triage> <validate>
-    V_PR_NUMBER=7 V_TRIAGE_FILE="$1" V_VALIDATE_DIR="$2" PATH="$TT/bin:$PATH" bash "$TT/post.sh"
-}
-mkfiles 7
-out=$(runpost "$SC/codex-triage-7.t" "$SC/codex-validate-7.v")
-if grep -q '^triage:posted$' <<<"$out" && grep -q 'pr comment 7 --body-file' "$GH_LOG" && [ -z "$(ls -A "$SC")" ]; then
-    echo "PASS: codex-triage posts and removes every matching scratch path"
-else echo "FAIL: codex-triage matching paths not posted+removed: $out"; FAIL=1; fi
-# same-family files from another PR, subpaths and out-of-prefix paths: nothing posted, nothing deleted
-mkfiles 8; : > "$TT/outside"
-out=$(runpost "$SC/codex-triage-8.t" "$SC/codex-validate-8.v")
-if grep -q '^triage:bad-path$' <<<"$out" && [ ! -s "$GH_LOG" ] && [ -e "$SC/codex-triage-8.t" ] && [ -d "$SC/codex-validate-8.v" ] && [ -e "$SC/reconcile-start-8.s" ]; then
-    echo "PASS: codex-triage leaves other-PR and out-of-prefix paths alone"
-else echo "FAIL: codex-triage touched other-PR paths: $out"; FAIL=1; fi
-# bad triage path must not block the unrelated cleanups
-mkfiles 7
-out=$(runpost "$SC/codex-triage-9.t" "$SC/codex-validate-7.v/sub")
-if grep -q '^triage:bad-path$' <<<"$out" && [ ! -s "$GH_LOG" ] && [ ! -e "$SC/reconcile-start-7.s" ] && [ -d "$SC/codex-validate-7.v" ]; then
-    echo "PASS: codex-triage bad triage path still cleans the guarded siblings, keeps subpaths"
-else echo "FAIL: codex-triage cleanup blocked or subpath removed: $out"; FAIL=1; fi
-# subpath under a matching triage dir: bad-path, nothing posted, file survives
-mkfiles 7; rm -f "$SC/codex-triage-7.t"; mkdir "$SC/codex-triage-7.t"; : > "$SC/codex-triage-7.t/x"
-out=$(runpost "$SC/codex-triage-7.t/x" "")
-if grep -q '^triage:bad-path$' <<<"$out" && [ ! -s "$GH_LOG" ] && [ -e "$SC/codex-triage-7.t/x" ]; then
-    echo "PASS: codex-triage rejects a subpath TRIAGE_FILE"
-else echo "FAIL: codex-triage accepted a subpath TRIAGE_FILE: $out"; FAIL=1; fi
-# N1-392: a failed post moves the persona's file to memory/<ID>/codex-triage.md (path-only; content unchanged)
-mkdir -p "$TT/binfail"; printf '#!/bin/bash\nexit 1\n' > "$TT/binfail/gh"; chmod +x "$TT/binfail/gh"
-mkfiles 7; printf 'body\n' > "$SC/codex-triage-7.t"
-out=$(V_PR_NUMBER=7 V_ID=T-1 V_TRIAGE_FILE="$SC/codex-triage-7.t" PATH="$TT/binfail:$PATH" bash "$TT/post.sh")
-if grep -q '^triage:comment-failed$' <<<"$out" && grep -q '^triage:fallback file=' <<<"$out" \
-   && [ "$(cat "$TT/home/memory/T-1/codex-triage.md" 2>/dev/null)" = body ] && [ ! -e "$SC/codex-triage-7.t" ]; then
-    echo "PASS: codex-triage comment failure moves the triage file to memory/<ID>/codex-triage.md"
-else echo "FAIL: codex-triage comment-failed fallback: $out"; FAIL=1; fi
-# invalid ID: nothing moved, the scratch file stays
-mkfiles 7; printf 'body\n' > "$SC/codex-triage-7.t"
-out=$(V_PR_NUMBER=7 V_ID='../x' V_TRIAGE_FILE="$SC/codex-triage-7.t" PATH="$TT/binfail:$PATH" bash "$TT/post.sh")
-if grep -q '^triage:fallback-unavailable file=' <<<"$out" && [ -e "$SC/codex-triage-7.t" ] && [ ! -e "$TT/home/x" ]; then
-    echo "PASS: codex-triage fallback rejects an invalid ticket ID"
-else echo "FAIL: codex-triage fallback accepted an invalid ID: $out"; FAIL=1; fi
-# no unguarded rm of a placeholder variable anywhere in the file
-if grep -nE '^[[:space:]]*(\[ -n .* \] && )?rm -r?f "\$(VALIDATE_DIR|RECONCILE_START_FILE|TRIAGE_FILE)"' "$CT" >/dev/null; then
+mkdir -p "$TT/home/scratch"
+awk '/^### Triage File/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$CT" \
+    | sed -E -e '/^source ~\/\.n1\/preamble\.sh$/d' -e "s/^([A-Z_]+)='<.*>'\$/\1=\"\${V_\1}\"/" > "$TT/save.sh"
+export N1_HOME="$TT/home"
+SC="$TT/home/scratch"; K=me_T-1
+mkfiles() { rm -rf "$SC" "$TT/home/memory"; mkdir -p "$SC/codex-validate-$1.v"; printf 'body\n' > "$SC/codex-triage-$1.t"; }
+runsave() { V_ID="${3-T-1}" V_KEY=$K V_TRIAGE_FILE="$1" V_VALIDATE_DIR="$2" bash "$TT/save.sh"; }
+mkfiles $K
+out=$(runsave "$SC/codex-triage-$K.t" "$SC/codex-validate-$K.v")
+if grep -q '^triage:saved file=' <<<"$out" && [ "$(cat "$TT/home/memory/T-1/codex-triage.md" 2>/dev/null)" = body ] && [ -z "$(ls -A "$SC")" ]; then
+    echo "PASS: codex-triage moves the triage file to memory and removes the matching state dir"
+else echo "FAIL: codex-triage save: $out"; FAIL=1; fi
+mkfiles other_T-2
+out=$(runsave "$SC/codex-triage-other_T-2.t" "$SC/codex-validate-other_T-2.v")
+if grep -q '^triage:bad-path$' <<<"$out" && [ -e "$SC/codex-triage-other_T-2.t" ] && [ -d "$SC/codex-validate-other_T-2.v" ] && [ ! -e "$TT/home/memory/T-1/codex-triage.md" ]; then
+    echo "PASS: codex-triage leaves other-branch paths alone"
+else echo "FAIL: codex-triage touched other-branch paths: $out"; FAIL=1; fi
+mkfiles $K; mkdir -p "$SC/codex-triage-$K.d"; : > "$SC/codex-triage-$K.d/x"
+out=$(runsave "$SC/codex-triage-$K.d/x" "$SC/codex-validate-$K.v/sub")
+if grep -q '^triage:bad-path$' <<<"$out" && [ -e "$SC/codex-triage-$K.d/x" ] && [ -d "$SC/codex-validate-$K.v" ]; then
+    echo "PASS: codex-triage rejects subpaths for the triage file and the state dir"
+else echo "FAIL: codex-triage accepted a subpath: $out"; FAIL=1; fi
+mkfiles $K
+out=$(runsave "$SC/codex-triage-$K.t" "" '../x')
+if grep -q '^triage:fallback-unavailable file=' <<<"$out" && [ -e "$SC/codex-triage-$K.t" ] && [ ! -e "$TT/home/x" ]; then
+    echo "PASS: codex-triage rejects an invalid ticket ID"
+else echo "FAIL: codex-triage accepted an invalid ID: $out"; FAIL=1; fi
+if grep -nE '^[[:space:]]*(\[ -n .* \] && )?rm -r?f "\$(VALIDATE_DIR|GATE_DIR|TRIAGE_FILE)"' "$CT" >/dev/null; then
     echo "FAIL: an unguarded rm of a scratch placeholder remains in codex-triage"; FAIL=1
 else echo "PASS: no unguarded rm of scratch placeholders in codex-triage"; fi
 
-# N1-392: Push Gate derives its inputs from gh, never from persona files; a bad state path never reaches the gate
-awk '/^### Push Gate/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$CT" \
-    | sed -E -e '/^source /d' -e "s/^([A-Z_]+)='<.*>'\$/\1=\"\${V_\1}\"/" > "$TT/gate.sh"
-mkdir -p "$TT/gbin"
-cat > "$TT/gbin/gh" <<'GH'
-#!/bin/bash
-case "$*" in *headRefOid*) echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa;; *headRefName*) echo feat;; *isCrossRepository*) echo o/r;; *"--name-only"*) echo a.txt;; esac
-GH
-chmod +x "$TT/gbin/gh"
-n1_increment_counter() { echo 1; }; export -f n1_increment_counter
-mkdir -p "$TT/root/scripts"; printf '#!/bin/bash\necho "gate-ran allowed=$(cat "$2") head=$3 repo=$(cat "$4")"\n' > "$TT/root/scripts/codex-push-gate.sh"
-rungate() { mkdir -p "$SC/codex-validate-7.v"; echo aaaaaaaa > "$SC/reconcile-start-7.t"; V_ID=T-1 V_PR_NUMBER=7 V_VALIDATE_DIR="$1" V_RECONCILE_START_FILE="${2-$SC/reconcile-start-7.t}" N1_ROOT="$TT/root" PATH="$TT/gbin:$PATH" bash "$TT/gate.sh"; }
-out=$(rungate "$SC/codex-validate-7.v")
-if grep -q 'gate-ran allowed=a.txt head=feat repo=o/r' <<<"$out" && ! ls "$SC" | grep -q reconcile-gate; then
-    echo "PASS: push gate reuses the Fix Phase start file and re-derives head/repo/allowed from gh"
-else echo "FAIL: push gate inputs: $out"; FAIL=1; fi
-for bad in "$SC/codex-validate-7.v/../x" "$SC/codex-validate-8.v" "$SC/codex-validate-7.v/sub" ""; do
-    out=$(rungate "$bad")
-    if grep -q '^push:blocked gate-unavailable$' <<<"$out" && ! grep -q gate-ran <<<"$out"; then echo "PASS: push gate rejects state path '${bad##*/}'"
-    else echo "FAIL: push gate accepted state path '$bad': $out"; FAIL=1; fi
+# N1-405: the Scope Gate rebuilds its inputs from the START/BASE literals (SEC-2), records the fix head on push:ok, fails closed,
+# writes the blocked-gate marker on kept= (SEC-3) and restores a dirty tree (CR-1)
+{ printf '. "%s/lib/codex-review.sh"\n' "$PWD"; awk '/^### Scope Gate/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$CT" \
+    | sed -E -e '/^source /d' -e "s/^([A-Z_]+)='<.*>'\$/\1=\"\${V_\1}\"/"; } > "$TT/gate.sh"
+n1_increment_counter() { echo 1; }; n1_head_record() { echo "head-recorded from=$1"; }
+export -f n1_increment_counter n1_head_record
+mkdir -p "$TT/root/scripts" "$TT/repo"
+printf '#!/bin/bash\necho "start=$(cat "$1") allowed=$(cat "$2") patch=$3" > "$GATE_LOG"\necho "${GATE_OUT:-push:ok}"\n' > "$TT/root/scripts/codex-push-gate.sh"
+git -C "$TT/repo" init -q
+git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
+B0=$(git -C "$TT/repo" rev-parse HEAD)
+echo a > "$TT/repo/a.txt"; git -C "$TT/repo" add a.txt; git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q -m a
+git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m b
+S0=$(git -C "$TT/repo" rev-parse HEAD~1); S1=$(git -C "$TT/repo" rev-parse HEAD)
+MK="$TT/home/memory/T-1/codex-gate-blocked"
+rungate() { # <start> [base] [id]
+    (cd "$TT/repo" && V_ID="${3-T-1}" V_START="$1" V_BASE="${2-$B0}" N1_ROOT="$TT/root" N1_HOME="$TT/home" GATE_LOG="$TT/gate.log" bash "$TT/gate.sh")
+}
+mkdir -p "$SC/codex-gate-$K.g"; echo "$S1" > "$SC/codex-gate-$K.g/start"; printf 'a.txt\nevil.sh\n' > "$SC/codex-gate-$K.g/allowed.txt"
+rm -f "$TT/gate.log"; out=$(rungate "$S0")
+if grep -qx 'push:ok' <<<"$out" && grep -qx "head-recorded from=$S0" <<<"$out" \
+   && grep -qxF "start=$S0 allowed=a.txt patch=$TT/home/memory/T-1/codex-blocked-fix.patch" "$TT/gate.log"; then
+    echo "PASS: scope gate rebuilds start/allowed from START and BASE (tampered scratch files ignored), records the fix head on push:ok"
+else echo "FAIL: scope gate push:ok path: $out"; FAIL=1; fi
+if grep -qE 'scratch/codex-gate|GATE_DIR' "$CT"; then echo "FAIL: codex-triage still reads gate inputs from scratch"; FAIL=1
+else echo "PASS: codex-triage keeps no gate inputs in scratch"; fi
+for bad in "x" "$S0;id" ""; do
+    rm -f "$TT/gate.log" "$MK"; out=$(rungate "$bad")
+    if grep -q '^push:blocked paths=gate-unavailable kept=' <<<"$out" && [ ! -e "$TT/gate.log" ]; then echo "PASS: scope gate rejects START '${bad:0:6}'"
+    else echo "FAIL: scope gate accepted START '$bad': $out"; FAIL=1; fi
 done
-out=$(rungate "$SC/codex-validate-7.v" "/etc/passwd")
-if grep -q '^push:blocked gate-unavailable$' <<<"$out" && ! grep -q gate-ran <<<"$out"; then echo "PASS: push gate rejects a start file outside scratch"
-else echo "FAIL: push gate accepted a foreign start file: $out"; FAIL=1; fi
+rm -f "$TT/gate.log"; out=$(rungate "$S0" "bad;id")
+if grep -q '^push:blocked paths=gate-unavailable kept=' <<<"$out" && [ ! -e "$TT/gate.log" ]; then echo "PASS: scope gate rejects an invalid BASE"; else echo "FAIL: invalid BASE accepted: $out"; FAIL=1; fi
+rm -f "$MK"; out=$(rungate "$S0" "$B0" "../x")
+if grep -q '^push:blocked paths=gate-unavailable kept=' <<<"$out" && [ ! -e "$TT/home/x" ]; then echo "PASS: scope gate rejects an invalid ID"; else echo "FAIL: invalid ID accepted: $out"; FAIL=1; fi
+rm -f "$TT/gate.log" "$MK"; out=$(GATE_OUT='push:blocked paths=gate-unavailable' rungate "$S0")
+if grep -qx "push:blocked paths=gate-unavailable reset=$S1" <<<"$out" && [ "$(git -C "$TT/repo" rev-parse HEAD)" = "$S0" ] && ! grep -q head-recorded <<<"$out" && [ ! -e "$MK" ]; then
+    echo "PASS: gate-unavailable after fix commits resets to the run-start head (fail closed)"
+else echo "FAIL: gate-unavailable handling: $out"; FAIL=1; fi
+out=$(GATE_OUT='push:blocked paths=gate-unavailable' rungate "$S0")
+if [ "$out" = "push:none" ]; then echo "PASS: bare gate-unavailable with no new commit is push:none (CR-2)"; else echo "FAIL: bare gate-unavailable: $out"; FAIL=1; fi
+# SEC-3: a failed reset leaves kept= and the marker; a dirty tracked file makes git reset --keep fail
+git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m c; echo changed >> "$TT/repo/a.txt"; git -C "$TT/repo" add a.txt
+git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q -m touch-a; echo dirty >> "$TT/repo/a.txt"
+S2=$(git -C "$TT/repo" rev-parse HEAD~2); rm -f "$MK"
+out=$(GATE_OUT='push:blocked paths=a.txt kept=abc' rungate "$S2")
+if grep -q 'kept=' <<<"$out" && [ "$(cat "$MK" 2>/dev/null)" = "$S2" ]; then echo "PASS: kept= writes the blocked-gate marker with the run-start SHA"; else echo "FAIL: kept= marker: $out"; FAIL=1; fi
+# CR-1: tree:dirty edits are saved and removed (the same dirty file as above)
+if grep -qx 'tree:dirty' <<<"$out" && grep -q '^tree:restored patch=' <<<"$out" && [ -z "$(git -C "$TT/repo" status --porcelain --untracked-files=no)" ] \
+   && grep -q '^+dirty' "$TT/home/memory/T-1/codex-uncommitted.patch"; then
+    echo "PASS: scope gate saves and restores away uncommitted tracked edits (tree:dirty)"
+else echo "FAIL: tree:dirty handling: $out"; FAIL=1; fi
 
 exit $FAIL

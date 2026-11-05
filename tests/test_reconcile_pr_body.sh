@@ -379,18 +379,11 @@ check "n1-ci NOT_BRANCH_CAUSED abort still runs Step 7a first" "Abort.*run \*\*S
 check "n1-ci no-checks-appeared STOP runs Step 7a first" "run \*\*Step 7a\*\*.*No CI checks appeared" "$C1"
 check "n1-ci pending-budget-exhaustion STOP runs Step 7a first" "run \*\*Step 7a\*\*.*Wait longer or skip" "$C1"
 CP=skills/n1-pr/procedures/codex-triage.md
-check "codex triage records the PR head" "reconcile-start-" "$CP"
-before "codex triage head capture precedes the push gate run" "reconcile-start-" "codex-push-gate.sh" "$CP"
-before "codex triage reconcile follows the fix-cycle counter" "cross_host_fix_cycle" "reconcile-pr-body.md" "$CP"
-before "codex triage reconcile precedes Triage Reply" "reconcile-pr-body.md" "### Triage Reply" "$CP"
-# (f) sentinel: the maxFixAttempts exit routes to Reconcile PR Body, not straight to Triage Reply
-check "codex triage maxFixAttempts exit routes to Reconcile PR Body" "proceed to \*\*Reconcile PR Body\*\* below" "$CP"
-if grep -qE "maxFixAttempts\`, proceed to Triage Reply" "$CP"; then
-    echo "FAIL: maxFixAttempts exit still jumps straight to Triage Reply"; FAIL=1
+if grep -qE 'reconcile-pr-body\.md|reconcile:start|reconcile-start-' "$CP"; then
+    echo "FAIL: Codex triage still reconciles the PR body (N1-405 removed the post-PR path)"; FAIL=1
 else
-    echo "PASS: maxFixAttempts exit no longer jumps straight to Triage Reply"
+    echo "PASS: Codex triage has no PR-body reconcile"
 fi
-check "codex triage reconciles on push:ok even when the report phase fails" "A failed report phase never skips \*\*Reconcile PR Body\*\*" "$CP"
 RR=skills/n1-review-response/steps/02-resolve.md
 check "review-response records the PR head" "reconcile-start-" "$RR"
 before "review-response capture precedes developer dispatch" "reconcile-start-" "**Developer instructions:**" "$RR"
