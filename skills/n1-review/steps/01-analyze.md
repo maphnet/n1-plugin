@@ -25,7 +25,10 @@ Three-phase cycle: find bugs → verify findings → report. If confirmed bugs e
 ### Phase 1: Collect Context
 
 ```bash
+source ~/.n1/preamble.sh
+SB=$(n1_story_base) || { echo "invalid story base: STOP"; exit 1; }
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || echo "main")
+[ -z "$SB" ] || DEFAULT_BRANCH="origin/$SB"
 CURRENT_BRANCH=$(git branch --show-current)
 ```
 

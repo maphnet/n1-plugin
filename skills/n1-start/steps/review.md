@@ -6,7 +6,8 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/treestate.sh"; source "$N1_ROOT/lib/related.sh"
 n1_step_begin "review" 9
 n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — aborting review step" >&2; exit 1; }
-BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
+SB=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; exit 1; }
+BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || { [ -n "$SB" ] && echo "origin/$SB"; } || n1_config_val '.git.defaultBranch' )
 MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-hdr.md" "$MEM/review-cr.md" "$MEM/review-sec.md"
 { echo "# Review Spec (generated)"; n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"; [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"; } > "$MEM/review-spec.md"
 { echo "# QA Facts (generated)"; n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"; [ -n "${BREAK_CHECK_TQ:-}" ] && { echo "## Hollow tests (break-check never-red)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'; }; } > "$MEM/qa-facts.md"

@@ -11,7 +11,8 @@ RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json
 XREPO_RT_FILE="$N1_HOME/memory/$ID/xrepo-runtime.tsv"; XREPO_RT_ADDED_FILE="$N1_HOME/memory/$ID/xrepo-runtime-added"
 rm -f "$XREPO_RT_FILE" "$XREPO_RT_ADDED_FILE"
 if [ "$RELATED_ENABLED" = "true" ]; then
-    IMPL_DIFF=$(git diff "$(n1_config_val '.git.defaultBranch' "$N1_HOME/config.json")"...HEAD 2>/dev/null || true)
+    XR_BASE=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; exit 1; }; XR_BASE="${XR_BASE:+origin/$XR_BASE}"
+    IMPL_DIFF=$(git diff "${XR_BASE:-$(n1_config_val '.git.defaultBranch' "$N1_HOME/config.json")}"...HEAD 2>/dev/null || true)
     if [ -n "$IMPL_DIFF" ]; then DETECTED=$(n1_related_detect_in_diff "$IMPL_DIFF" "$N1_HOME/config.json"); fi
     if [ -n "$DETECTED" ]; then
         printf '%s\n' "$DETECTED" > "$XREPO_RT_FILE"; AUTONOMY=$(n1_autonomy_val "mechanicalPrompts"); IMPL_XREPO_DETECTED=""

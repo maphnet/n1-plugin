@@ -1098,6 +1098,15 @@ test_story_base_wiring() {
     assert_eq "story-wiring: adopt rebases onto the story tip" "yes" "$(grep -qF 'rebase "origin/$SB"' "$ws" && echo yes || echo no)"
     assert_eq "story-wiring: ensure cuts the branch from BASE" "yes" "$(grep -qF 'git branch <TARGET> "$BASE"' "$ws" && echo yes || echo no)"
     assert_eq "story-wiring: ensure keeps checkout of the default" "yes" "$(grep -qF 'git checkout $DEFAULT' "$ws" && echo yes || echo no)"
+    local f
+    for f in skills/n1-start/steps/review.md skills/n1-start/steps/implementation.md skills/n1-start/steps/qa.md \
+             skills/n1-start/procedures/cross-repo.md skills/n1-review/steps/01-analyze.md; do
+        assert_eq "story-wiring: $f calls n1_story_base" "yes" "$(grep -q 'n1_story_base' "$REPO_ROOT/$f" && echo yes || echo no)"
+    done
+    assert_eq "story-wiring: qa passes story base to break-check" "yes" \
+        "$(grep -qF '"${SB:-${BC_DEF:-main}}"' "$REPO_ROOT/skills/n1-start/steps/qa.md" && echo yes || echo no)"
+    assert_eq "story-wiring: implementation bump skip" "yes" \
+        "$(grep -q 'Story child: make no version-bump commit' "$REPO_ROOT/skills/n1-start/steps/implementation.md" && echo yes || echo no)"
 }
 
 # N1-290: run.md documents the runner's story-branch step; its halt text matches the runner's.
