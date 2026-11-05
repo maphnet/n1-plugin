@@ -23,4 +23,7 @@ has "tech-writer points to the definition"       agents/tech-writer.md 'file-wri
 OTHERS=$(grep -lE 'NOT the Write tool|heredoc/cat redirect' agents/*.md 2>/dev/null | grep -v '^agents/solution-architect\.md$')
 if [ -z "$OTHERS" ]; then echo "PASS: no other persona prescribes shell writes"; else echo "FAIL: personas contradict the definition: $OTHERS"; FAIL=1; fi
 
+# (f) reconcile takes the fix report by path, so the orchestrator never holds developer text
+has "reconcile accepts fix report file"   references/reconcile-pr-body.md '`fix report file:`'
+has "tech-writer reads fix report file"   agents/tech-writer.md '`fix report file`'
 exit $FAIL
