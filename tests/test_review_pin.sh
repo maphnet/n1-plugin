@@ -204,7 +204,7 @@ DR=$(grep -nxF 'n1_head_record "$(cat "$N1_HOME/memory/${ID:-}/docs-from-sha" 2>
 if [ -n "$DW" ] && [ -n "$TW" ] && [ -n "$DR" ] && [ "$DW" -lt "$TW" ] && [ "$TW" -lt "$DR" ]; then ok "n1-pr records the doc-commit head around tech-writer"; else no "n1-pr records the doc-commit head around tech-writer"; fi
 P2=skills/n1-pr/steps/02-push-create.md
 PR0=$(grep -nxF 'PRE_REBASE=$(git rev-parse HEAD)' "$P2" | head -1 | cut -d: -f1)
-RB=$(grep -nxF 'git rebase origin/${DEFAULT_BRANCH} && { n1_head_record "$PRE_REBASE"; n1_review_reanchor "$PRE_REBASE"; }' "$P2" | head -1 | cut -d: -f1)
+RB=$(grep -nxF 'git rebase "origin/$DEFAULT_BRANCH" && { n1_head_record "$PRE_REBASE"; n1_review_reanchor "$PRE_REBASE"; }' "$P2" | head -1 | cut -d: -f1)
 if [ -n "$PR0" ] && [ -n "$RB" ] && [ "$PR0" -lt "$RB" ]; then ok "n1-pr records the head only after a clean rebase"; else no "n1-pr records the head only after a clean rebase"; fi
 if [ "$(grep -cE '^n1_codex_gate_check "\$ID" && git push' "$P2")" = 2 ] && grep -qF 'n1_codex_gate_check "$ID" ||' skills/n1-pr/procedures/codex-triage.md; then ok "every n1-pr push path and the Codex Fix Phase honour the blocked-gate marker"; else no "every n1-pr push path and the Codex Fix Phase honour the blocked-gate marker"; fi
 if grep -qF 'unreviewed-head' "$S3"; then ok "n1-pr explains pin:refused unreviewed-head"; else no "n1-pr explains pin:refused unreviewed-head"; fi
