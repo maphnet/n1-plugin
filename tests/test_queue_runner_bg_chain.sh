@@ -499,6 +499,18 @@ test_story_merge_base_unverified() {
     rm -rf "$tmp"
 }
 
+# A merge that leaves the PR OPEN (merge queue) is not recorded merged: marker removed so a resume re-evaluates.
+test_story_merge_queued_not_recorded() {
+    local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    touch "$tmp/fake/gh-merge-queued"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-queued: not recorded merged, row finish:merge-pending" "no|finish:merge-pending" \
+        "$([ "$(runs_outcome "$tmp/queue.md" T-A)" = merged ] && echo yes || echo no)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-queued: marker removed, no Done session" "no|0" \
+        "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)|$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+}
+
 # N1-292 SEC-1: a forged pending marker does not skip the escalation guard before the runner merges.
 test_story_pending_marker_guarded() {
     local tmp; tmp=$(mktemp -d); story_restart_setup "$tmp" pending OPEN
@@ -726,6 +738,7 @@ test_story_merge_ci
 test_story_merge_refused_and_retarget
 test_story_done_launch_failed
 test_story_merge_base_unverified
+test_story_merge_queued_not_recorded
 test_story_pending_marker_guarded
 test_story_mode_snapshot
 test_story_resume

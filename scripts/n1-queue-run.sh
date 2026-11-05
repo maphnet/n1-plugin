@@ -678,6 +678,8 @@ story_merge() {
     fi
     printf '%s\ndone\n' "$RUN_ID" > "$marker"
     IFS=$'\t' read -r st base _ <<< "$(n1_queue_pr_view "$url")"
+    # A queued merge can leave the PR OPEN: record nothing and let a --run resume re-evaluate (marker removed).
+    if [ "$st" = OPEN ]; then sm_retry merge-pending; return 0; fi
     if [ -z "$base" ]; then   # SEC-2: an unreadable base is not a clean merge (the re-read already retried 3 times)
         ev escalated ticket="$TICKET" reason="runner merge base unverified"
         n1_notify needs-you "$TICKET: the runner merged $url but could not read its base; check that it landed on $SB"
@@ -1174,10 +1176,10 @@ run_orca() {
         SID=$(n1_queue_session_id "$QUEUE" "$TICKET"); case "$SID" in orca:*/*) TASK="${SID#orca:}"; TASK="${TASK%%/*}" ;; *) continue ;; esac
         if [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$N1H" "$TICKET")" N1_ORCA_TASK)" = "$TASK" ]; then
             OWED="$OWED$TASK "
-        elif [ "$RUN_MODE" = story ] && [ "$(head -n1 "$N1_QUEUE_DIR/.chained-$TICKET" 2>/dev/null)" != "$RUN_ID" ] \
-            && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ]; then
-            # CR-1: a settled story row whose merge was refused (retryable refusals remove the marker) is re-evaluated on
-            # resume, as the bg restart sweep does; the escalation guard and the story_merge gates still apply.
+        elif [ "$RUN_MODE" = story ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ]; then
+            # CR-1: a settled story row whose merge was refused or interrupted is re-evaluated on resume, as the bg
+            # restart sweep does. An existing marker is interpreted by chain_finish (pending re-merges, done records an
+            # already-MERGED PR); the escalation guard and the story_merge gates still apply.
             chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")" </dev/null
         fi
     done < <(n1_queue_pending_rows "$QUEUE" pr)

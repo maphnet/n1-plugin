@@ -62,7 +62,8 @@ case "$1 $2" in
         if [ "$rc" != 0 ]; then cat "$FAKE_DIR/gh-merge-err" >&2 2>/dev/null; exit "$rc"; fi
         IFS=$'\t' read -r _ b h < "$v"
         [ -f "$FAKE_DIR/gh-view-after" ] && b=$(cat "$FAKE_DIR/gh-view-after")
-        printf 'MERGED\t%s\t%s\n' "$b" "$h" > "$v"
+        st=MERGED; [ -f "$FAKE_DIR/gh-merge-queued" ] && st=OPEN   # a merge queue leaves the PR OPEN
+        printf '%s\t%s\t%s\n' "$st" "$b" "$h" > "$v"
         printf 'MERGED %s\n' "$b" > "$FAKE_DIR/gh-state"
         if [ -f "$FAKE_DIR/gh-view-gone-after" ]; then rm -f "$v"; fi ;;   # the post-merge base re-read then fails
     "repo view") # gh-repo-fail-from2: the 2nd and later repo reads fail (the pin lookup follows the repo identity check)
