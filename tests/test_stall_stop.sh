@@ -103,7 +103,7 @@ eq "W11c QA prompt marks no option Recommended" "0" "$(sect "$P" QA | grep -c '(
 eq "W11f QA prompt states the verbatim No-recommendation sentence (recommended-option rule)" "1" "$(sect "$P" QA | grep -cxF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.')"
 eq "W11d QA headless escalates via the Headless Guard" "1" "$(sect "$P" QA | grep -cE 'no recommended option.*Headless Guard|Headless Guard.*no recommended option')"
 eq "W11e QA option 2 resets qa_fail_sig" "1" "$(sect "$P" QA | grep -cE '^2 — One more fix cycle: run § Reset with `qa_fail_sig`')"
-eq "W15 QA section passes full to the name parser" "2" "$(sect "$P" QA | grep -c 'n1_testparse_failed_names "\$QD/qa-verify.log" full')"
+eq "W14b QA section passes full to the name parser" "2" "$(sect "$P" QA | grep -c 'n1_testparse_failed_names "\$QD/qa-verify.log" full')"
 eq "W12 CI stall goes to Step 6b" "1" "$([ "$(sect "$P" CI | grep -c 'Step 6b')" -ge 1 ] && echo 1 || echo 0)"
 eq "W12b CI section has no Autonomy Gate (D1)" "0" "$(sect "$P" CI | grep -c 'Autonomy Gate')"
 eq "W12c CI names reach the helper through ci-fail.tsv" "1" "$(sect "$P" CI | grep -c 'n1_stall_names_ci "\$M/ci-fail.tsv"')"
