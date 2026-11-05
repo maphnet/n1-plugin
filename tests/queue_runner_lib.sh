@@ -45,10 +45,22 @@ echo "$*" >> "$FAKE_DIR/gh-all"
 pr=""; for a in "$@"; do case "$a" in */pull/*) pr="${a##*/}" ;; esac; done
 v="$FAKE_DIR/gh-view.$pr"; [ -f "$v" ] || v="$FAKE_DIR/gh-view"
 case "$1 $2" in
-    "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
+    "pr list")
+        case "$*" in
+            *"--head story/"*) # N1-293: final PR lookup; answers gh-final-list.<base> (absent -> no PR)
+                echo "$*" >> "$FAKE_DIR/gh-final-calls"
+                b=""; prev=""; for a in "$@"; do [ "$prev" = --base ] && b="$a"; prev="$a"; done
+                cat "$FAKE_DIR/gh-final-list.$b" 2>/dev/null || echo '[]' ;;
+            *) echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
+        esac ;;
     "pr view") # N1-214: gh-fail holds a count of reads to fail before answering
         if [ -s "$FAKE_DIR/gh-fail" ]; then n=$(cat "$FAKE_DIR/gh-fail"); if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$FAKE_DIR/gh-fail"; exit 1; fi; fi
         case "$*" in
+            *mergeable*) # N1-293: one line of gh-mergeable-seq per read (last line repeats); absent -> exit 1
+                echo "$*" >> "$FAKE_DIR/gh-mergeable-calls"
+                [ -s "$FAKE_DIR/gh-mergeable-seq" ] || exit 1
+                head -n1 "$FAKE_DIR/gh-mergeable-seq"
+                if [ "$(wc -l < "$FAKE_DIR/gh-mergeable-seq")" -gt 1 ]; then sed -i 1d "$FAKE_DIR/gh-mergeable-seq"; fi ;;
             *headRefOid*) cat "$v" 2>/dev/null || exit 1 ;;   # N1-292: n1_queue_pr_view (TSV state, base, head)
             *) cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
         esac ;;

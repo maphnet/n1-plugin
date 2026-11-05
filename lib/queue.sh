@@ -310,6 +310,43 @@ n1_queue_pr_view() {
     return 0
 }
 
+n1_queue_final_pr_find() {
+    # Usage: n1_queue_final_pr_find <owner/repo> <story-branch> <default-branch> — N1-293: "<url>\t<isDraft>" of the one
+    # OPEN PR in <owner/repo> from <story-branch> into <default-branch>. Session output is never trusted; the final PR is
+    # re-derived here. Prints nothing (status 0) for none, more than one, a head or base other than asked, a URL outside
+    # <owner/repo>, or a gh error on 3 reads (2s/4s backoff).
+    local nwo="$1" sb="$2" def="$3" attempt out=""
+    [[ "$nwo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 0
+    for attempt in 1 2 3; do
+        out=$(timeout 30 gh pr list --repo "$nwo" --head "$sb" --base "$def" --state open \
+            --json url,isDraft,headRefName,baseRefName --limit 5 </dev/null 2>/dev/null) && break
+        out=""; [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+    done
+    [ -n "$out" ] || return 0
+    jq -r --arg sb "$sb" --arg def "$def" --arg pre "https://github.com/$nwo/pull/" '
+        if type == "array" and length == 1 and .[0].headRefName == $sb and .[0].baseRefName == $def
+           and (.[0].url | startswith($pre)) and (.[0].url | ltrimstr($pre) | test("^[0-9]+$"))
+        then "\(.[0].url)\t\(.[0].isDraft)" else empty end' <<< "$out" 2>/dev/null
+    return 0
+}
+
+n1_queue_pr_mergeable() {
+    # Usage: n1_queue_pr_mergeable <pr-url> — N1-293 (N1-289 D6): "<mergeable>\t<mergeStateStatus>" of a GitHub PR.
+    # GitHub computes mergeable lazily (UNKNOWN right after a PR opens), so an UNKNOWN or failed read is retried: at most
+    # 4 reads, 2s/4s/8s apart (bounded: unbounded polling has exhausted API limits). Prints the last UNKNOWN read, or
+    # nothing when every read failed or the URL is not a GitHub PR.
+    [[ "$1" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || return 0
+    local attempt out last=""
+    for attempt in 1 2 3 4; do
+        out=$(timeout 30 gh pr view --json mergeable,mergeStateStatus -q '[.mergeable,.mergeStateStatus]|@tsv' -- "$1" </dev/null 2>/dev/null) || out=""
+        [ -n "$out" ] && last="$out"
+        case "$out" in ''|UNKNOWN*) ;; *) printf '%s\n' "$out"; return 0 ;; esac
+        [ "$attempt" -lt 4 ] && sleep $((2 ** attempt))
+    done
+    [ -z "$last" ] || printf '%s\n' "$last"
+    return 0
+}
+
 n1_queue_checks_class() {
     # Usage: n1_queue_checks_class <pr-url> — N1-292: one `gh pr checks` read (no poll loop) printed as
     # green (all pass/skipping) | red (any fail/cancel) | pending | none | error.

@@ -2287,6 +2287,33 @@ test_final_cmd() {
     rm -rf "$tmp"
 }
 
+# N1-293 (D6): the final PR is re-derived from gh (one OPEN PR, head/base/repo checked); mergeable retries UNKNOWN, bounded.
+test_final_gh_readers() {
+    local tmp u=https://github.com/o/r/pull/9; tmp=$(mktemp -d)
+    mk_bg "$tmp" q "T-A:done"
+    fgh() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" "$@"; }
+    assert_eq "final find: no PR -> nothing" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":true,"headRefName":"story/S-1","baseRefName":"main"}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: one open PR" $'https://github.com/o/r/pull/9\ttrue' "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    assert_eq "final find: query names repo, head, base, open" yes \
+        "$(grep -qF 'pr list --repo o/r --head story/S-1 --base main --state open' "$tmp/fake/gh-final-calls" && echo yes || echo no)"
+    assert_eq "final find: URL of another repo rejected" "" "$(fgh n1_queue_final_pr_find o/x story/S-1 main)"
+    assert_eq "final find: invalid repo slug" "" "$(fgh n1_queue_final_pr_find 'o/r --x' story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-2","baseRefName":"main"}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: other head rejected" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-1","baseRefName":"main"},{"url":"https://github.com/o/r/pull/10","isDraft":false,"headRefName":"story/S-1","baseRefName":"main"}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: two PRs rejected" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    printf 'UNKNOWN\t\nUNKNOWN\t\nMERGEABLE\tCLEAN\n' > "$tmp/fake/gh-mergeable-seq"
+    assert_eq "mergeable: UNKNOWN retried until computed" $'MERGEABLE\tCLEAN' "$(fgh n1_queue_pr_mergeable "$u")"
+    printf 'UNKNOWN\t\n' > "$tmp/fake/gh-mergeable-seq"; : > "$tmp/fake/gh-mergeable-calls"
+    assert_eq "mergeable: bounded, last UNKNOWN kept" $'UNKNOWN\t' "$(fgh n1_queue_pr_mergeable "$u")"
+    assert_eq "mergeable: 4 reads at most" 4 "$(nlines "$tmp/fake/gh-mergeable-calls")"
+    rm -f "$tmp/fake/gh-mergeable-seq"
+    assert_eq "mergeable: unreadable prints nothing" "" "$(fgh n1_queue_pr_mergeable "$u")"
+    assert_eq "mergeable: non-PR URL prints nothing" "" "$(fgh n1_queue_pr_mergeable https://evil.example/x)"
+    rm -rf "$tmp"
+}
+
 test_n1_339_cleanup_helpers
 test_pr_view
 test_checks_class
@@ -2295,6 +2322,7 @@ test_done_cmd
 test_final_pr_table
 test_final_body
 test_final_cmd
+test_final_gh_readers
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
