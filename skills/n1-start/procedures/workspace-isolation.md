@@ -49,7 +49,7 @@ git branch <TARGET> "$BASE" 2>/dev/null || true
 CURRENT=$(git branch --show-current); [ "$CURRENT" = "$TARGET" ] && git checkout $DEFAULT
 git worktree add "$WORKTREE_PATH" <TARGET> && n1_copy_worktree_files "$MAIN_CHECKOUT" "$WORKTREE_PATH" && n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" workspace_path "$WORKTREE_PATH"
 ```
-`git worktree add` fail→recovery. Story child: `<TARGET>` is cut from `origin/<story branch>`; `story-base:` output → STOP and escalate.
+`git worktree add` fail→recovery. Story child: **Adopt Checkout** `$WORKTREE_PATH` (syncs existing `<TARGET>`); `story-base:` → STOP.
 
 ## Ensure Dependencies (`<ID>`)
 
