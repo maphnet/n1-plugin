@@ -144,21 +144,11 @@ Only findings the validator marked `CONFIRMED` enter this section, all in one ba
 
 > **ORCHESTRATOR GUARDRAIL (codex-triage): the triage persona NEVER edits files, runs formatters, linters, or commits in this section. Every remediation goes through the developer spawn below.**
 
-Resolve model for developer and record the PR head before the fix cycle (for the body reconcile below):
+Resolve model for developer:
 
 ```bash
 source ~/.n1/preamble.sh
 IFS=$'\t' read -r DEVELOPER_MODEL DEVELOPER_EFFORT < <(n1_resolve_agent developer fix)
-PR_NUMBER="<the PR number from the dispatch>"
-case "$PR_NUMBER" in ''|*[!0-9]*) echo "reconcile:bad-pr-number"; exit 1;; esac
-mkdir -p "$N1_HOME/scratch"
-find "$N1_HOME/scratch" -maxdepth 1 \( -name 'reconcile-start-*' -o -name 'reconcile-head-*' -o -name 'reconcile-repo-*' \) -mtime +1 -delete 2>/dev/null
-RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX") && HEAD_REF_FILE=$(mktemp "$N1_HOME/scratch/reconcile-head-$PR_NUMBER.XXXXXX") && REPO_FILE=$(mktemp "$N1_HOME/scratch/reconcile-repo-$PR_NUMBER.XXXXXX") \
-  && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null \
-  && timeout -k 5 30 gh pr view "$PR_NUMBER" --json headRefName --jq .headRefName > "$HEAD_REF_FILE" 2>/dev/null \
-  && timeout -k 5 30 gh pr view "$PR_NUMBER" --json isCrossRepository,headRepositoryOwner,headRepository --jq 'if .isCrossRepository then "fork" else (.headRepositoryOwner.login + "/" + .headRepository.name) end' > "$REPO_FILE" 2>/dev/null \
-  && [ -s "$RECONCILE_START_FILE" ] && [ -s "$HEAD_REF_FILE" ] && [ -s "$REPO_FILE" ] \
-  && echo "reconcile:start file=$RECONCILE_START_FILE headref=$HEAD_REF_FILE repo=$REPO_FILE" || { rm -f "${RECONCILE_START_FILE:-}" "${HEAD_REF_FILE:-}" "${REPO_FILE:-}"; echo "reconcile:start unavailable"; }
 ```
 
 Write the `CONFIRMED` findings verbatim (from the fenced findings file, without its marker lines), each followed by the validator's evidence line, to `<VALIDATE_DIR>/confirmed.md` with the file-write mechanism, then fence them:
@@ -213,11 +203,7 @@ Output format:
 
 **Wait for the developer persona to return its result before proceeding.**
 
-Write the developer's output verbatim to `<S>/developer.md` and record each confirmed finding's action (Fixed or Dismissed, with its Detail) on its line in `<S>/state.md`. Do NOT retry: one developer dispatch per phase `fix`; the orchestrator counts the cycle and runs the push gate. Then return the three paths from `reconcile:start`:
-
-`triage:fix state=<S> developer=ran start=<RECONCILE_START_FILE> headref=<HEAD_REF_FILE> repo=<REPO_FILE>`
-
-If `reconcile:start` printed `unavailable`, return the same line with empty `start=`, `headref=` and `repo=` values; the orchestrator's gate then fails closed.
+Write the developer's output verbatim to `<S>/developer.md` and record each confirmed finding's action (Fixed or Dismissed, with its Detail) on its line in `<S>/state.md`. Do NOT retry: one developer dispatch per phase `fix`; the orchestrator counts the cycle and runs the push gate. Then return `triage:fix state=<S> developer=ran`. The orchestrator derives the push-gate inputs itself.
 
 If the developer dispatch fails (error, timeout, empty output), note it in `<S>/state.md`, route all confirmed findings to human review there, and return `triage:fix state=<S> developer=failed`. The developer may have committed a partial fix; nothing is pushed, because the orchestrator runs no gate for a failed dispatch.
 

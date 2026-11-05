@@ -52,7 +52,6 @@ Input: `mode: codex-triage`, `phase: fix` or `phase: report`, plus the fields th
 - Write every artifact with the file-write mechanism (`references/file-write-mechanism.md`), never through a shell command.
 - The orchestrator runs the push gate and posts the triage file; the Boundaries above already forbid you both.
 - Return only the status lines the procedure names: paths, statuses and counts. Never return finding, validator, developer or triage text.
-```
 
 ## Return
 
