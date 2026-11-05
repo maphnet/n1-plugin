@@ -14,14 +14,21 @@ n1_review_repo() {
     printf '%s-%s' "${base#.}" "$(printf '%s' "$gc" | cksum | cut -d' ' -f1)"
 }
 
-n1_review_receipt() {
-    local key="${1//\//_}" sid repo h
-    sid=$(n1_session_id)
-    [[ "$sid" =~ ^[a-zA-Z0-9_-]+$ ]] || return 1
+# File name of BRANCH's receipt in this repo (no session dir): the one place the naming rule lives.
+n1_review_name() {
+    local key="${1//\//_}" repo h
     [[ "$key" =~ ^[A-Za-z0-9._-]+$ && "$key" != .* ]] || return 1
     repo=$(n1_review_repo) || return 1
     h=$(printf '%s' "$1" | cksum | cut -d' ' -f1)   # "/" -> "_" collides (a_b vs a/b): the hash keeps branches apart
-    printf '%s/%s/%s__%s.%s.json' "$(n1_review_root)" "$sid" "$repo" "$key" "$h"
+    printf '%s__%s.%s.json' "$repo" "$key" "$h"
+}
+
+n1_review_receipt() {
+    local sid name
+    sid=$(n1_session_id)
+    [[ "$sid" =~ ^[a-zA-Z0-9_-]+$ ]] || return 1
+    name=$(n1_review_name "$1") || return 1
+    printf '%s/%s/%s' "$(n1_review_root)" "$sid" "$name"
 }
 
 # Outcome of a processed receipt for BRANCH of this repo in any session (legacy per-project root included); "ran" wins. Empty if none.

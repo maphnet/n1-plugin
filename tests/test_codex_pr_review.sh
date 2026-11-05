@@ -7,7 +7,7 @@ trap 'rm -rf "$TMP"' EXIT
 export N1_HOME="$TMP/n1" N1_STATE_DIR="$TMP/n1" N1_SESSION_ID=review-test
 mkdir -p "$N1_HOME" "$TMP/bin"
 source "$ROOT/lib/codex-review.sh"
-rn() { printf '%s__%s.%s.json' "$(N1_REVIEW_DIR="$1" n1_review_repo)" "${2//\//_}" "$(printf %s "$2" | cksum | cut -d" " -f1)"; }   # N1-405 SEC-1: receipt name is repo-scoped and branch-hashed
+rn() { N1_REVIEW_DIR="$1" n1_review_name "$2"; }   # N1-405 SEC-1: receipt name is repo-scoped and branch-hashed (shared helper)
 printf '{}\n' > "$N1_HOME/config.json"
 export PATH="$TMP/bin:$PATH" REVIEW_LOG="$TMP/log"
 cat > "$TMP/bin/codex" <<'SH'

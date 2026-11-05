@@ -115,7 +115,7 @@ has "pre: no Codex receipt -> codex:none" "codex:none"
 # N1-405 SEC-1: receipts are repo-scoped and a "ran" receipt needs a head that is an ancestor of the PR head.
 git init -q "$T/rc"; git -C "$T/rc" -c user.name=t -c user.email=t@t commit -q --allow-empty -m c1; RCH=$(git -C "$T/rc" rev-parse HEAD)
 git -C "$T/rc" -c user.name=t -c user.email=t@t commit -q --allow-empty -m c2; RCH2=$(git -C "$T/rc" rev-parse HEAD)
-. "$ROOT/lib/codex-review.sh"; RCN="$(N1_REVIEW_DIR="$T/rc" n1_review_repo)__feat.json"
+. "$ROOT/lib/codex-review.sh"; RCN=$(N1_REVIEW_DIR="$T/rc" n1_review_name feat)
 rcw() { jq -nc --arg o "$1" --arg h "${2-$RCH}" '{outcome:$o,head:$h,processed:true}' > "$3"; }
 RC="$T/state/review-receipts/s1"; mkdir -p "$RC"
 rcw skipped "" "$RC/$RCN"; WD="$T/rc" HS=$RCH2 pre
@@ -463,7 +463,7 @@ has "push: local tip != new refused" "push:skip"
 XREPO=true TOLD=$OH TNEW=$NH psh
 has "push: fork PR refused" "push:skip"
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$OH" ] && [ "$(cat "$PIN")" = "$OH" ]; then ok "push: refusals push nothing"; else no "push: refusals push nothing"; fi
-rcw ran "$OH" "$RC/$(N1_REVIEW_DIR="$G/w" n1_review_repo)__feat.json"
+rcw ran "$OH" "$RC/$(N1_REVIEW_DIR="$G/w" n1_review_name feat)"
 TOLD=$OH TNEW=$NH psh
 has "push: pin advanced to the rebased head" "pin:advanced ${NH:0:7}"
 if [ "$(git -C "$G/o.git" rev-parse feat)" = "$NH" ] && [ "$(cat "$PIN")" = "$NH" ]; then ok "push: origin and pin at the rebased head"; else no "push: origin and pin at the rebased head"; fi
