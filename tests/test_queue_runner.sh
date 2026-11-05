@@ -1060,6 +1060,23 @@ test_story_branch_helpers() {
     rm -rf "$tmp"
 }
 
+# N1-291: n1_story_base — validated story branch for a story child; empty for non-story; rc 2 fails closed.
+test_story_base() {
+    sb() { ( unset N1_STORY_ID N1_STORY_BRANCH N1_QUEUE_RUN_ID; for kv in "$@"; do export "$kv"; done; n1_story_base 2>/dev/null; echo "|$?" ); }
+    assert_eq "story-base: non-story -> empty, rc 0" "|0" "$(sb)"
+    assert_eq "story-base: hand-run N1_STORY_ID only -> empty, rc 0" "|0" "$(sb N1_STORY_ID=S-1)"
+    assert_eq "story-base: valid branch and id" "story/S-1|0" "$(sb N1_STORY_ID=S-1 N1_STORY_BRANCH=story/S-1)"
+    assert_eq "story-base: branch without id" "story/S-1|0" "$(sb N1_STORY_BRANCH=story/S-1)"
+    assert_eq "story-base: branch != story/<id> -> rc 2" "|2" "$(sb N1_STORY_ID=S-2 N1_STORY_BRANCH=story/S-1)"
+    assert_eq "story-base: not under story/ -> rc 2" "|2" "$(sb N1_STORY_BRANCH=main)"
+    assert_eq "story-base: dot-dot -> rc 2" "|2" "$(sb N1_STORY_BRANCH=story/a..b)"
+    assert_eq "story-base: .lock (check-ref-format) -> rc 2" "|2" "$(sb N1_STORY_BRANCH=story/x.lock)"
+    assert_eq "story-base: shell metachar -> rc 2" "|2" "$(sb 'N1_STORY_BRANCH=story/x;rm')"
+    assert_eq "story-base: queue child lost its branch -> rc 2" "|2" "$(sb N1_STORY_ID=S-1 N1_QUEUE_RUN_ID=R1)"
+    assert_eq "story-base: rc 2 explains on stderr" "yes" \
+        "$( ( export N1_STORY_BRANCH=main; n1_story_base 2>&1 >/dev/null || : ) | grep -q 'invalid story branch' && echo yes || echo no)"
+}
+
 # N1-290: run.md documents the runner's story-branch step; its halt text matches the runner's.
 test_story_branch_wiring() {
     local r="$REPO_ROOT/skills/n1-queue/steps/run.md" k="$REPO_ROOT/scripts/n1-queue-run.sh"
@@ -1988,6 +2005,7 @@ test_held_helpers
 test_held_user_merge
 test_sync_default
 test_story_branch_helpers
+test_story_base
 test_story_branch_wiring
 test_row_status
 test_queue_retry
