@@ -376,12 +376,23 @@ live_row_sid() {
     n1_queue_live_by_name "$3" "n1-${QUEUE_ID}-$2-$1"
 }
 
+# N1-291: story_env <repo> — sets SB (story/<story_id>) and SBID for a story-mode row; both empty in tag mode.
+# rc 1 when a story row has no mapping or the mapping fails n1_story_base (regex, check-ref-format, == story/<id>):
+# the row must not launch, since a story child must never start from the default branch.
+story_env() {
+    SB="" SBID=""
+    [ "$(n1_read_frontmatter "$QUEUE" mode)" = story ] || return 0
+    SBID=$(n1_read_frontmatter "$QUEUE" story_id)
+    SB=$(n1_queue_story_branch_get "$QUEUE" "$1") || return 1
+    [ -n "$SB" ] && N1_STORY_ID="$SBID" N1_STORY_BRANCH="$SB" n1_story_base >/dev/null 2>&1
+}
+
 # launch_bg <pending-row> <agents-json> — start the row's background session. A launch refused for the
 # bypass-permissions disclaimer halts the queue (every later launch would fail the same way).
 # N1-82: the row's launch lock is written before launching; a row this run already launched whose
 # session is still live is adopted instead of launched a second time.
 launch_bg() {
-    local NUM TICKET REPO N1H MODEL CMD OUT SID STARTED
+    local NUM TICKET REPO N1H MODEL CMD OUT SID STARTED SB SBID
     IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$1"
     STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     STARTED_AT[NUM]=$(date +%s)
@@ -401,7 +412,12 @@ launch_bg() {
     n1_queue_row_status "$QUEUE" "$NUM" "in-progress"
     # Re-queued ticket: forget the previous run's tag release (NP-199).
     n1_write_frontmatter "$N1H/memory/$TICKET/overview.md" queue_tag_removed false || true
-    CMD=$(n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
+    if ! story_env "$REPO"; then
+        echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
+        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "story-branch-invalid" "" nodefer
+        return
+    fi
+    CMD=$(N1_STORY_ID="$SBID" N1_STORY_BRANCH="$SB" n1_queue_child_cmd "$REPO" "$TICKET" "$MODEL" "$RUN_ID" "" "n1-${QUEUE_ID}-${TICKET}-${NUM}")
     OUT=$(bash -c "$CMD" 2>&1)
     if SID=$(n1_queue_parse_launch "$OUT"); then
         echo "| $TICKET | $STARTED | | | | $SID |" >> "$QUEUE"
@@ -910,7 +926,7 @@ orca_n1h_of() {
 # launch_orca <pending-row> — task, identity sentinel, then worker. The Runs row is written once the dispatch
 # exists; .launch-<num> holds "<run-id> <task>" so a runner that dies in between adopts the worker, never relaunches.
 launch_orca() {
-    local NUM TICKET REPO N1H MODEL STARTED TASK DISP WT=""
+    local NUM TICKET REPO N1H MODEL STARTED TASK DISP WT="" SB SBID
     IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _ <<< "$1"
     STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     STARTED_AT[NUM]=$(date +%s)
@@ -927,6 +943,11 @@ launch_orca() {
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "orca-worktree-name-taken" "" nodefer
         return
     fi
+    if ! story_env "$REPO"; then
+        echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
+        finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "story-branch-invalid" "" nodefer
+        return
+    fi
     if ! TASK=$(n1_orca_task_create "$ORCA_RUN" "$TICKET"); then
         echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "orca-task-create"
@@ -934,14 +955,14 @@ launch_orca() {
     fi
     rm -f "$N1_QUEUE_DIR/.hb-$TICKET" "$N1_QUEUE_DIR/.stall-$TICKET"   # N1-315: a late beacon after finalize must not be the new baseline
     if ! printf '%s %s\n' "$RUN_ID" "$TASK" > "$N1_QUEUE_DIR/.launch-$NUM" \
-        || ! n1_orca_sentinel_write "$N1H" "$TICKET" "$REPO" "$RUN_ID" "$ORCA_RUN" "$TASK" \
+        || ! N1_STORY_ID="$SBID" N1_STORY_BRANCH="$SB" n1_orca_sentinel_write "$N1H" "$TICKET" "$REPO" "$RUN_ID" "$ORCA_RUN" "$TASK" \
         || { [ -n "$WT" ] && ! n1_orca_sentinel_set "$N1H" "$TICKET" N1_ORCA_RESUME 1; }; then
         # No child is ever started without its unattended identity.
         echo "| $TICKET | $STARTED | | | | |" >> "$QUEUE"
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "failed" "" "sentinel-unwritable"
         return
     fi
-    if ! DISP=$(n1_orca_worker_start "$ORCA_RUN" "$TASK" "$TICKET" "$REPO" "$MODEL" "$WT"); then
+    if ! DISP=$(N1_STORY_ID="$SBID" N1_STORY_BRANCH="$SB" n1_orca_worker_start "$ORCA_RUN" "$TASK" "$TICKET" "$REPO" "$MODEL" "$WT"); then
         # A timeout or lost response does not prove the worker never started: drop the identity only when a readable
         # worker list shows no worker for this task (else it stays; the user stops the worker in Orca).
         if L=$(n1_orca_liveness "$ORCA_RUN") && ! awk -F'\t' -v k="$TASK" '$2 == k { f = 1 } END { exit !f }' <<< "$L"; then
@@ -1328,6 +1349,10 @@ run_orca() {
         SINCE_PARK=$((SINCE_PARK + CHARGE))
     done
 }
+
+# N1-291: only the per-child prefix assignments above may carry the story env; a value inherited by the runner
+# process would otherwise leak into chained finish/clean settings.
+unset N1_STORY_ID N1_STORY_BRANCH
 
 # N1-290: story mode makes sure origin carries story/<story_id> in every distinct repo of the rows still to run
 # (cut from that repo's origin/<default>; an existing branch is reused, never reset) and records repo -> branch in

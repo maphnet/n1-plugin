@@ -453,3 +453,20 @@ touches_set() {
         { print }' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
     bash -c "source '$REPO_ROOT/lib/config.sh'; source '$REPO_ROOT/lib/queue.sh'; n1_queue_schedule_write '$f'"
 }
+
+# N1-290: sb_fixture <tmp> <mode> [origin] — mk_bg queue "sq" with two rows (T-A, T-B) in one real clone
+# ($tmp/repo) of <origin> (default: a fresh $tmp/origin with one commit on main); mode (and story_id S-1 in story
+# mode) in frontmatter; $tmp/fake/events exists so a launch count reads 0 when nothing launched.
+sb_fixture() {
+    local tmp="$1" origin="${3:-$1/origin}"
+    if [ -z "${3:-}" ]; then
+        git init -q -b main "$origin"
+        git -C "$origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    fi
+    git clone -q "$origin" "$tmp/repo" 2>/dev/null
+    mk_bg "$tmp" sq "T-A:done" "T-B:done"
+    sed -i "s#| $tmp | $tmp/n1home |#| $tmp/repo | $tmp/n1home |#g" "$tmp/queue.md"
+    n1_write_frontmatter "$tmp/queue.md" mode "$2"
+    [ "$2" = story ] && n1_write_frontmatter "$tmp/queue.md" story_id S-1
+    : > "$tmp/fake/events"
+}

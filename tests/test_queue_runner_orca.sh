@@ -111,6 +111,24 @@ test_orca_parallel_workers() {   # AC1
     rm -rf "$tmp"
 }
 
+# N1-291: story-mode Orca workers start from origin/story/<ID> and their identity file carries the story keys;
+# tag mode gets neither.
+test_orca_story_base() {
+    local tmp t2
+    tmp=$(mktemp -d); sb_fixture "$tmp" story; mk_orca "$tmp"
+    assert_eq "orca-story: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-story: every worker-start carries --base-branch" "2" \
+        "$(grep -c -- "--agent claude --base-branch origin/story/S-1" "$tmp/fake/orca-calls")"
+    assert_eq "orca-story: identity file carries story keys" "2" \
+        "$(grep -c -e '^N1_STORY_ID=S-1$' -e '^N1_STORY_BRANCH=story/S-1$' "$tmp/fake/sentinel.T-A")"
+    t2=$(mktemp -d); sb_fixture "$t2" tag; mk_orca "$t2"
+    run_orca_queue "$t2" >/dev/null   # exit code not asserted: tag-mode finalize paths are not this ticket's concern
+    assert_eq "orca-tag: workers started" "yes" "$(grep -q worker-start "$t2/fake/orca-calls" && echo yes || echo no)"
+    assert_eq "orca-tag: no --base-branch" "0" "$(grep -c -- --base-branch "$t2/fake/orca-calls" || true)"
+    assert_eq "orca-tag: no story keys" "0" "$(grep -c '^N1_STORY_' "$t2/fake/sentinel.T-A" || true)"
+    rm -rf "$tmp" "$t2"
+}
+
 test_orca_max_concurrent() {
     local tmp b_start a_rel; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 1'
@@ -1163,6 +1181,7 @@ test_orca_sigkill_runner_gone() {
 }
 
 test_orca_parallel_workers
+test_orca_story_base
 test_orca_max_concurrent
 test_orca_max_concurrent_default
 test_orca_max_concurrent_invalid
