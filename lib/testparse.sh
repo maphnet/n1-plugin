@@ -17,9 +17,9 @@ n1_testparse_failed_names() {
     n1_testparse_strip_ansi "$f" | awk -v full="$full" '
         # pytest: "FAILED path::test_name - msg"  or "FAILED path::Class::test_name"
         /^FAILED [^ ]+::/ {
-            s=$2; sub(/ .*/, "", s); n=split(s, parts, "::"); name=parts[n]
-            if (full) { name=s }
-            sub(/\[.*$/, "", name); print name; next
+            s=$2; sub(/ .*/, "", s); n=split(s, parts, "::"); sub(/\[.*$/, "", parts[n]); name=parts[n]
+            if (full) { name=parts[1]; for (i=2; i<=n; i++) name=name "::" parts[i] }
+            print name; next
         }
         # jest / vitest: "  ✕ test name (3 ms)"  or "  × test name"
         /^[[:space:]]*(✕|×) / {
