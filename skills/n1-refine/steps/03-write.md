@@ -73,9 +73,11 @@ For each listed `C<n>`, in order:
    Jira create errors because the type name is unknown: take the name from the types the error lists that matches `sub-?task` or `story` (case-insensitive) and repeat the call once, as in Adopt.
    Then, when `DUP_LINKS` is non-empty, follow § Apply Links with `SOURCE_ID=<new child ID>`. A failed create prints the error and continues with the next child.
 
+Add every key created or adopted here to `CHILDREN` (adopted and pending keys included, failed or skipped ones not), so Step 4 sees them next to the existing children.
+
 ## Step 4: Handoff
 
-Print, then end. When the ticket's resolved type is `investigation` (01-fetch Step 3; `--investigate` on a Task-typed ticket does not count), it is still investigation-typed, so print the `--type task` form of the Next line only, and add "Queue and headless runs would still run the investigation; retype the ticket first." Print the Actions line only when Step 3b or 3c ran.
+Print, then the Sub-task offer below when it applies, then end. When the ticket's resolved type is `investigation` (01-fetch Step 3; `--investigate` on a Task-typed ticket does not count), it is still investigation-typed, so print the `--type task` form of the Next line only, and add "Queue and headless runs would still run the investigation; retype the ticket first." Print the Actions line only when Step 3b or 3c ran.
 
 ```
 Refined <ID> (<description|comment>). <verdict line>
@@ -83,3 +85,11 @@ Actions: converted <ID> to <type>; created <keys>; adopted <keys>; skipped <n>; 
 Next: /n1:n1-start <ID>            (investigation-typed ticket: /n1:n1-start <ID> --type task)
 Or queue it: add it to a /n1:n1-queue batch (tag or story), then run --plan.
 ```
+
+**Sub-task offer:** after the handoff, when `ISSUE_TYPE` is `story` or `epic`, or Step 3b converted the ticket to Story, and `CHILDREN` holds at least one key, ask the user (format: `<N1_ROOT>/references/question-format.md`). No offer when `CHILDREN` is empty or `unknown`, or when `N1_HEADLESS=1` or `N1_QUEUE_RUN_ID` is set (queue and headless runs end here).
+
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
+1 — Refine Sub-tasks: invoke skill n1-refine for each key in `CHILDREN` in turn; works when the children are not yet refined
+2 — Done: end the run with the handoff above; works when the children should be refined later
+
+Option 1: before each next child, ask the user whether to continue, so they can stop. Option 2: end the run.

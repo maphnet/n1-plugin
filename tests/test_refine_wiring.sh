@@ -198,6 +198,14 @@ line_has "N1-296: create passes child type and parentKey" 'issueType: <child typ
 has "N1-296: skip this child never ends the run" 'never ends the run' "$W"
 has "N1-296: removing the Story conversion drops its Sub-tasks" 'dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$W"
 has "N1-296: handoff summarizes actions" 'Actions: converted' "$W"
+has "N1-382: 3c records created/adopted keys in CHILDREN" 'Add every key created or adopted here to `CHILDREN`' "$W"
+has "N1-382: Sub-task offer exists" '**Sub-task offer:**' "$W"
+before "N1-382: offer follows the handoff" 'Or queue it:' '**Sub-task offer:**' "$W"
+line_has "N1-382: offer covers Story, Epic and converted Story" '**Sub-task offer:**' 'converted the ticket to Story' "$W"
+line_has "N1-382: no offer without known children" '**Sub-task offer:**' 'empty or `unknown`' "$W"
+line_has "N1-382: no offer in headless or queue runs" '**Sub-task offer:**' '`N1_HEADLESS=1` or `N1_QUEUE_RUN_ID`' "$W"
+has "N1-382: offer invokes n1-refine per child" 'invoke skill n1-refine for each key in `CHILDREN`' "$W"
+has "N1-382: asks before each next child" 'before each next child, ask the user' "$W"
 lacks "N1-296: refine never transitions status" 'operations.transition' skills/n1-refine
 lacks "N1-296: refine never creates a branch" 'git checkout' skills/n1-refine
 
