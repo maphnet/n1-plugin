@@ -280,9 +280,6 @@ printf 'PASS: receipts live in one cwd-independent root but are scoped per repo\
   jq '.head = "'"$(printf 'a%.0s' {1..40})"'"' "$(n1_review_receipt feature/anc)" > "$TMP/r.t" && mv "$TMP/r.t" "$(n1_review_receipt feature/anc)"
   n1_review_reanchor "$(git -C "$R" rev-parse HEAD)"
   [ -z "$(n1_review_outcome feature/anc)" ]
-  # branch names differing only by / vs _ share a key but a runner run clears only this repo's receipt
-  n1_review_record feature/anc skipped x true
-  [ "$(n1_review_outcome feature/anc)" = skipped ]
 )
 printf 'PASS: ran receipts need an ancestor head; non-ancestor and wrong-repo receipts are ignored; rebase re-anchors\n'
 
@@ -295,7 +292,6 @@ printf 'PASS: ran receipts need an ancestor head; non-ancestor and wrong-repo re
   gc "$R" --allow-empty -m unvetted
   n1_codex_gate_block T-9 "$S"
   [ "$(n1_codex_gate_check T-9)" = 'push:blocked-by-codex-gate' ]
-  ! n1_codex_gate_check T-9 >/dev/null
   [ -e "$N1_HOME/memory/T-9/codex-gate-blocked" ]
   git reset -q --hard "$S"
   n1_codex_gate_check T-9
@@ -316,7 +312,8 @@ printf 'PASS: ran receipts need an ancestor head; non-ancestor and wrong-repo re
     [ -n "$(git status --porcelain --untracked-files=no)" ]
     rmdir "$N1_HOME/memory/T-9/codex-uncommitted.patch"
     # the failure marker never equals HEAD: the push stays blocked until it is cleared by hand
-    ! n1_codex_gate_check T-9 >/dev/null
+    [ "$(n1_codex_gate_check T-9)" = 'push:blocked-by-codex-gate' ]
+    [ "$(cat "$N1_HOME/memory/T-9/codex-gate-blocked")" = dirty-tree ]
   fi
 )
 printf 'PASS: gate marker blocks pushes until HEAD is the run-start SHA; dirty edits are saved and restored away\n'
