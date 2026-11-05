@@ -77,11 +77,60 @@ test_runner_loops_fd3() {   # N1-265: notifying loops read a dedicated fd, so no
         "$(grep -cF "done < <(n1_queue_pending_rows \"\$QUEUE\" 'in-progress|awaiting-human')" "$s" || true)"
 }
 
+# N1-394. Bug caught: a "finished" stop notice for a worker whose row is already final (pr) left its owed slot held for
+# the 180-minute expiry, so the next pending row never launched. The same notice for an in-progress row must change nothing.
+stop_notice_slot_run() {   # <tmp> <step>: T-A (maxConcurrent 1, nodone, unverifiable worker) gets a finished stop notice on tick 3
+    local tmp="$1"
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running unverifiable)"
+    # $2 = step; with "samepoll" T-A starts at implement and reaches pr on the same poll (tick 3) the notice arrives
+    if [ "${2:-}" = samepoll ]; then echo implement > "$tmp/fake/step.T-A"; elif [ -n "${2:-}" ]; then echo "$2" > "$tmp/fake/step.T-A"; fi
+    touch "$tmp/fake/nodone.T-A"
+    orca_msg escalation task-T-A m-stop1 finished "Worker stopped without reporting" "Worker ended its turn" > "$tmp/fake/q.stop"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/q.stop" "$tmp/fake/question" > "$tmp/fake/at.3"
+    if [ "${2:-}" = samepoll ]; then
+        printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/fake/ov.pr"
+        printf 'cp "%s" "%s/n1home/memory/T-A/overview.md"\n' "$tmp/fake/ov.pr" "$tmp" >> "$tmp/fake/at.3"
+    fi
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+}
+
+test_orca_stop_finished_releases_pr_slot() {
+    local tmp; tmp=$(mktemp -d)
+    stop_notice_slot_run "$tmp"
+    assert_eq "orca-stop-slot: T-A is pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-stop-slot: worker released" "1" "$(grep -c 'worker-release --dispatch d-T-A' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-slot: T-B launched" "1" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+# Same-tick race: the notice and the first pr observation land on one poll, so the row is still in-progress in the event loop.
+test_orca_stop_finished_same_tick_releases() {
+    local tmp; tmp=$(mktemp -d)
+    stop_notice_slot_run "$tmp" samepoll
+    assert_eq "orca-stop-same-tick: T-A is pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-stop-same-tick: worker released" "1" "$(grep -c 'worker-release --dispatch d-T-A' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-same-tick: T-B launched" "1" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+test_orca_stop_finished_keeps_in_progress() {
+    local tmp; tmp=$(mktemp -d)
+    stop_notice_slot_run "$tmp" implement
+    assert_eq "orca-stop-slot: in-progress row unchanged" "in-progress" "$(plan_cell "$tmp/queue.md" 1 8)"
+    assert_eq "orca-stop-slot: no release" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-slot: T-B not launched" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
 test_orca_owed_holds_slot
 test_orca_notifier_drain_keeps_rows
 test_orca_event_drain_keeps_events
 test_bg_notifier_drain_keeps_rows
 test_runner_loops_fd3
+test_orca_stop_finished_releases_pr_slot
+test_orca_stop_finished_same_tick_releases
+test_orca_stop_finished_keeps_in_progress
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
