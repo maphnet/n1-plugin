@@ -756,8 +756,25 @@ chain_finish() {
         # reconcile an orphaned -fin session. Only a marker still "pending" (crash between the marker and
         # the confirmed launch) with an OPEN PR and no live session falls through to launch the owed finish.
         mstate=$(sed -n 2p "$marker" 2>/dev/null)
-        chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll" "$mstate" || rc=$?
-        [ "$rc" -eq 10 ] || { echo "[$NUM] $TICKET chain: already evaluated (marker=${mstate:-unknown})"; return 0; }
+        if [ -n "$SB" ]; then
+            # N1-292: a story row has no -fin session to reconcile. A pending marker (crash before the merge result was
+            # written) falls through to story_merge, whose merge is head-pinned and which only records an already-MERGED
+            # PR. Any other marker records a PR merged into SB whose Outcome is not merged yet (Done session included),
+            # and otherwise does nothing.
+            if [ "$mstate" != pending ]; then
+                aurl=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")
+                if [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] \
+                    && [ "$(n1_queue_pr_view "$aurl" | cut -f1,2)" = "MERGED"$'\t'"$SB" ]; then
+                    story_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$aurl" merged
+                else
+                    echo "[$NUM] $TICKET chain: already evaluated (marker=${mstate:-unknown})"
+                fi
+                return 0
+            fi
+        else
+            chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll" "$mstate" || rc=$?
+            [ "$rc" -eq 10 ] || { echo "[$NUM] $TICKET chain: already evaluated (marker=${mstate:-unknown})"; return 0; }
+        fi
     else
     csid=$(n1_queue_session_id "$QUEUE" "$TICKET")
     case "$csid" in orca:*) csid="" ;; esac  # N1-225: an Orca worker has already settled (worker_done/exited) here

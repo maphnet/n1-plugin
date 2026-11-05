@@ -484,6 +484,38 @@ test_story_merge_refused_and_retarget() {
     rm -rf "$tmp"
 }
 
+# N1-292 AC9: a resumed run never merges twice. A PR already merged into the story branch is only recorded (Done
+# session once). A recorded merge is left alone. A pending marker re-runs the head-pinned merge. A red-CI row
+# (marker removed) is re-evaluated, and its stale finish:ci-red Reason is overwritten.
+test_story_resume() {
+    local tmp
+    tmp=$(mktemp -d); story_restart_setup "$tmp" done MERGED
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume merged: recorded, no merge call" "merged|0" "$(runs_outcome "$tmp/queue.md" T-A)|$(nlines "$tmp/fake/gh-merge")"
+    assert_eq "story-resume merged: one Done session" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_restart_setup "$tmp" done MERGED
+    n1_queue_runs_outcome "$tmp/queue.md" T-A merged
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume recorded: no merge, no Done relaunch" "0|0" \
+        "$(nlines "$tmp/fake/gh-merge")|$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_restart_setup "$tmp" done OPEN
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume done+OPEN: already evaluated, no merge" 0 "$(nlines "$tmp/fake/gh-merge")"
+    assert_eq "story-resume done+OPEN: log line" yes "$(grep -qF 'T-A chain: already evaluated (marker=done)' "$tmp/output.txt" && echo yes || echo no)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_restart_setup "$tmp" pending OPEN
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume pending+OPEN: one merge, merged" "1|merged" "$(nlines "$tmp/fake/gh-merge")|$(runs_outcome "$tmp/queue.md" T-A)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_restart_setup "$tmp" "" OPEN
+    n1_queue_row_status "$tmp/queue.md" 1 pr "finish:ci-red"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume after red CI: merged, stale reason overwritten" "1|merged" "$(nlines "$tmp/fake/gh-merge")|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
 # N1-292 AC8: a failed Done launch is a ticket_done failed event. The merge stands and is never retried.
 test_story_done_launch_failed() {
     local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
@@ -618,6 +650,7 @@ test_story_merge_refusals
 test_story_merge_ci
 test_story_merge_refused_and_retarget
 test_story_done_launch_failed
+test_story_resume
 test_lifecycle_wiring
 test_merge_wording
 

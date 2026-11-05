@@ -522,3 +522,18 @@ story_merge_fixture() {
     done
     : > "$tmp/fake/events"
 }
+
+# story_restart_setup <tmp> <marker-state|""> <OPEN|MERGED> — story_merge_fixture T-A at pr of run R1 (as
+# chain_restart_setup), the Story Branches row written, PR 1 in that state on story/S-1 at $SM_PIN, and the
+# .chained-T-A marker in that state (none for "").
+story_restart_setup() {
+    story_merge_fixture "$1" "T-A:done"
+    n1_write_frontmatter "$1/queue.md" run_id R1
+    n1_queue_row_status "$1/queue.md" 1 pr
+    n1_queue_story_branch_set "$1/queue.md" "$1/repo" story/S-1
+    echo '| T-A | 2026-01-01T00:00:00Z | | pr | https://github.com/o/r/pull/1 | 00000009 |' >> "$1/queue.md"
+    mkdir -p "$1/n1home/memory/T-A"; gh_overview "$1/n1home/memory/T-A/overview.md" 1
+    n1_write_frontmatter "$1/n1home/memory/T-A/overview.md" queue_run_id R1
+    printf '%s\tstory/S-1\t%s\n' "$3" "$SM_PIN" > "$1/fake/gh-view.1"
+    [ -z "$2" ] || printf 'R1\n%s\n' "$2" > "$1/.chained-T-A"
+}
