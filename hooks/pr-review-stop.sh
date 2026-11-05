@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One continuation request per unprocessed PR; receipt remains on repeated Stop.
+# One continuation request per unprocessed branch receipt; receipt remains on repeated Stop.
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/../lib/codex-review.sh"
@@ -12,14 +12,14 @@ N1_HOME=$(n1_home)
 [ -n "$N1_HOME" ] || exit 0
 # A PR created outside n1-pr has no PostToolUse receipt; find it via the run branch.
 n1_review_check_run >/dev/null || true
-urls=()
+branches=()
 for file in "$(n1_review_root)/$sid/"*.json; do
     [ -f "$file" ] || continue
     jq -e '.processed == false and .reminded != true' "$file" >/dev/null || continue
-    urls+=("$(jq -r .pr_url "$file")")
+    branches+=("$(jq -r '.branch // .pr_url // "unknown"' "$file")")
     tmp=$(mktemp "${file}.XXXXXX")
     jq '. + {reminded:true}' "$file" > "$tmp"
     mv "$tmp" "$file"
 done
-[ "${#urls[@]}" -gt 0 ] || exit 0
-jq -n --arg urls "${urls[*]}" '{decision:"block",reason:("N1: Codex review step was not run for " + $urls + ". Read n1-pr step 3 and execute scripts/codex-pr-review.sh for each PR before the final report. A skipped/step-not-run receipt has been saved.")}'
+[ "${#branches[@]}" -gt 0 ] || exit 0
+jq -n --arg b "${branches[*]}" '{decision:"block",reason:("N1: the Codex review did not run before push for branch " + $b + ". Read n1-pr step 3 and run it before the final report: it records the outcome and discloses the PR as not Codex-reviewed. Do not run Codex after the PR exists. A skipped/step-not-run receipt has been saved.")}'

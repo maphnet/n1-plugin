@@ -82,14 +82,14 @@ PR_TITLE=$(head -n1 "$PR_BODY_FILE.title")
 PR_URL=$(gh pr create --title "$PR_TITLE" --body-file "$PR_BODY_FILE" --base "$DEFAULT_BRANCH" "${DRAFT_ARGS[@]}")
 PR_RC=$?
 if [ "$PR_RC" -eq 0 ] && [ -n "$PR_URL" ]; then
-  n1_review_record "$PR_URL" skipped step-not-run false
+  B=$(git branch --show-current); [ -n "$(n1_review_outcome "$B")" ] || n1_review_record "$B" skipped step-not-run false
   rm -f "$PR_BODY_FILE" "$PR_BODY_FILE.title"
   printf '%s\n' "$PR_URL"
   n1_orca_sync "pr: opened" --status in-review; n1_orca_link "$PR_URL"   # N1-224: best-effort workspace card
 fi
 ```
 
-On failure, stop. The fallback receipt is replaced by the runner's terminal outcome in step 3.
+On failure, stop. Without a pre-push Codex receipt, this fallback receipt makes step 3 disclose the PR as not Codex-reviewed.
 
 ## Step 5: Update Tracker (if configured)
 
