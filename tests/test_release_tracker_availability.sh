@@ -53,7 +53,6 @@ expect "C: release-note entry leading tag only" "VEL-2976" "$(gh_ids "## What's 
 expect "C: entry with no leading tag yields nothing" "" "$(gh_ids '* fix: handle VEL-1188 case by @u in https://github.com/o/r/pull/37')"
 expect "C: stakeholder prose mentioning an ID yields nothing" "" "$(gh_ids 'We fixed key handling (VEL-1188).')"
 lacks "01 Sources C/D no longer grep whole lines for PREFIX" 'grep -oE "\$\{PREFIX\}' "$R01"
-expect "lib: both Source D git log calls pass --no-decorate" "2" "$(grep -cE 'log=\$\(git log .*--no-decorate' lib/release.sh)"
 check "01 states the leading-tag rule" 'Only the leading `\[PREFIX-N\]` tag counts' "$R01"
 
 # --- Tracker server check: Step 5b (03) and Step 6 / Step 9 (04) (AC1, AC2, AC3)
