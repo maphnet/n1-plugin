@@ -2314,6 +2314,18 @@ test_final_gh_readers() {
     rm -rf "$tmp"
 }
 
+# N1-293: --status and the story summary read ## Final PRs; docs name the human-merge policy and both events.
+test_final_pr_wiring() {
+    local r="$REPO_ROOT/skills/n1-queue/steps/report.md" a="$REPO_ROOT/references/architecture.md" u="$REPO_ROOT/skills/n1-queue/steps/run.md"
+    assert_eq "final wiring: --status prints Final PRs" yes "$(grep -qF 'Final PRs (repo, PR, draft, mergeable, note):' "$r" && echo yes || echo no)"
+    assert_eq "final wiring: summary reads Final PRs" yes "$(grep -qF 'FINAL=$(n1_queue_final_prs "$QUEUE_FILE")' "$r" && echo yes || echo no)"
+    assert_eq "final wiring: final lines above per-child lines" yes "$(grep -qF 'above the per-child lines' "$r" && echo yes || echo no)"
+    assert_eq "final wiring: halted summary lists merged children" yes "$(grep -qF 'merged into `story/<STORY_ID>`' "$r" && echo yes || echo no)"
+    assert_eq "final wiring: events documented" yes "$(grep -qF '`final_pr_opened`' "$a" && grep -qF '`final_pr_failed`' "$a" && echo yes || echo no)"
+    assert_eq "final wiring: human merge policy in run step" yes "$(grep -qF 'The runner never merges the final PR' "$u" && echo yes || echo no)"
+    assert_eq "final wiring: human merge policy in architecture" yes "$(grep -qF 'The runner never merges the final PR' "$a" && echo yes || echo no)"
+}
+
 test_n1_339_cleanup_helpers
 test_pr_view
 test_checks_class
@@ -2323,6 +2335,7 @@ test_final_pr_table
 test_final_body
 test_final_cmd
 test_final_gh_readers
+test_final_pr_wiring
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
