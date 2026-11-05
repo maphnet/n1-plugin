@@ -1077,6 +1077,20 @@ test_story_base() {
         "$( ( export N1_STORY_BRANCH=main; n1_story_base 2>&1 >/dev/null || : ) | grep -q 'invalid story branch' && echo yes || echo no)"
 }
 
+# N1-291: bg settings carry the story env only when N1_STORY_BRANCH is set; non-story JSON is unchanged.
+test_story_bg_settings() {
+    local plain story
+    plain=$(unset N1_STORY_ID N1_STORY_BRANCH; N1_QUEUE_TAG= N1_QUEUE_DIR=/q _n1_queue_bg_settings R1)
+    assert_eq "story-settings: non-story env keys and order unchanged" \
+        "N1_HEADLESS,N1_AUTONOMY_PRESET,N1_QUEUE_RUN_ID,N1_QUEUE_TAG,N1_QUEUE_DIR,N1_PARENT_SESSION_ID,N1_UNATTENDED" \
+        "$(jq -r '.env|keys_unsorted|join(",")' <<< "$plain")"
+    story=$(N1_STORY_ID=S-1 N1_STORY_BRANCH=story/S-1 N1_QUEUE_TAG= N1_QUEUE_DIR=/q _n1_queue_bg_settings R1)
+    assert_eq "story-settings: story keys present" "S-1,story/S-1" "$(jq -r '[.env.N1_STORY_ID,.env.N1_STORY_BRANCH]|join(",")' <<< "$story")"
+    assert_eq "story-settings: story JSON = non-story JSON + two keys" "$plain" "$(jq -c '.env |= del(.N1_STORY_ID,.N1_STORY_BRANCH)' <<< "$story")"
+    assert_eq "story-settings: id without branch adds nothing" "$plain" \
+        "$(unset N1_STORY_BRANCH; N1_STORY_ID=S-1 N1_QUEUE_TAG= N1_QUEUE_DIR=/q _n1_queue_bg_settings R1)"
+}
+
 # N1-290: run.md documents the runner's story-branch step; its halt text matches the runner's.
 test_story_branch_wiring() {
     local r="$REPO_ROOT/skills/n1-queue/steps/run.md" k="$REPO_ROOT/scripts/n1-queue-run.sh"
@@ -2006,6 +2020,7 @@ test_held_user_merge
 test_sync_default
 test_story_branch_helpers
 test_story_base
+test_story_bg_settings
 test_story_branch_wiring
 test_row_status
 test_queue_retry
