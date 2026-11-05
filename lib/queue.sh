@@ -505,6 +505,71 @@ n1_queue_sync_default() {
     fi
 }
 
+n1_queue_story_branch_ensure() {
+    # Usage: n1_queue_story_branch_ensure <repo> <story-id> <default-branch>
+    # N1-290: makes origin carry story/<story-id> before a story queue launches its children. A branch already on
+    # origin is reused as is (never reset, never force-pushed: resumes keep merged work). An absent one is cut from
+    # origin/<default> after a fetch and pushed with a plain push of the remote-tracking ref, so no local branch or
+    # checkout is touched. Non-zero with a last stderr line "n1-queue: story branch: <reason>" on any failure.
+    local repo="$1" b="story/$2" d="$3" heads
+    [ -d "$repo" ] || { echo "n1-queue: story branch: no such repo $repo" >&2; return 1; }
+    # SEC-11: validate both names before they reach a refspec. The story id is free-form frontmatter, so it is held
+    # to the tracker id grammar first (check-ref-format alone admits quotes, `;`, `|`, `$`); the branch cell
+    # written by n1_queue_story_branch_set must then equal the pushed ref.
+    case "$2" in ''|-*|*[!A-Za-z0-9._-]*) echo "n1-queue: story branch: invalid story id $2" >&2; return 1 ;; esac
+    { [ -n "$2" ] && git check-ref-format --branch "$b" >/dev/null 2>&1; } || { echo "n1-queue: story branch: invalid branch name $b" >&2; return 1; }
+    git check-ref-format --branch "$d" >/dev/null 2>&1 || { echo "n1-queue: story branch: invalid default branch $d" >&2; return 1; }
+    heads=$(git -C "$repo" ls-remote --heads origin "refs/heads/$b" 2>/dev/null) \
+        || { echo "n1-queue: story branch: ls-remote origin failed in $repo" >&2; return 1; }
+    [ -z "$heads" ] || return 0
+    git -C "$repo" fetch origin "+refs/heads/$d:refs/remotes/origin/$d" >&2 || { echo "n1-queue: story branch: fetch origin $d failed in $repo" >&2; return 1; }
+    git -C "$repo" push origin "refs/remotes/origin/$d:refs/heads/$b" >&2 \
+        || { echo "n1-queue: story branch: push of $b to origin failed in $repo" >&2; return 1; }
+}
+
+n1_queue_story_branch_set() {
+    # Usage: n1_queue_story_branch_set <queue.md> <repo> <branch>
+    # N1-290: upserts <repo>'s row in the "## Story Branches" table ("| Repo | Branch |"; Repo is the Plan row's
+    # Repo cell, so N1-291/292 join on it). A file without the section gets it inserted before ## Runs, which stays
+    # last. Repo cell sanitized; a branch the sanitizer would alter is refused. Fails closed (returns 1, file untouched) on more than one "## Story Branches" heading
+    # or no "## Runs" line.
+    local file="$1" n repo branch tmp
+    [ -f "$file" ] || return 1
+    n=$(grep -c '^## Story Branches$' "$file" || true)
+    { [ "$n" -le 1 ] && grep -q '^## Runs$' "$file"; } || return 1
+    repo=$(_n1_queue_sanitize_cell "$2"); branch=$(_n1_queue_sanitize_cell "$3")
+    [ "$branch" = "$3" ] || return 1   # a cell that would differ from the pushed ref is never recorded
+    tmp=$(mktemp "${file}.XXXXXX")
+    has="$n" repo="$repo" branch="$branch" awk '
+        BEGIN { FS = "|"; r = ENVIRON["repo"]; row = "| " r " | " ENVIRON["branch"] " |" }
+        ENVIRON["has"] == 0 && /^## Runs$/ {
+            print "## Story Branches"; print "| Repo | Branch |"; print "|------|--------|"; print row; print ""
+        }
+        /^## Story Branches$/ { f = 1; print; next }
+        f && /^## / { f = 0 }
+        f && /^\|[[:space:]]*:?-/ { print; print row; next }
+        f && NF >= 4 { c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == r) next }
+        { print }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_story_branch_get() {
+    # Usage: n1_queue_story_branch_get <queue.md> <repo>
+    # N1-290: prints the "## Story Branches" branch for <repo>. No file, section or row (tag mode, plans made before
+    # N1-290) prints nothing with status 0. More than one "## Story Branches" heading fails closed (nothing, status 1).
+    [ -f "$1" ] || return 0
+    local n; n=$(grep -c '^## Story Branches$' "$1" || true)
+    [ "$n" -le 1 ] || return 1
+    r="$(_n1_queue_sanitize_cell "$2")" awk -F'|' '
+        BEGIN { r = ENVIRON["r"] }
+        /^## Story Branches$/ { f = 1; next }
+        /^## / { f = 0 }
+        f && NF >= 4 {
+            a = $2; b = $3
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", a); gsub(/^[[:space:]]+|[[:space:]]+$/, "", b)
+            if (a == r) { print b; exit }
+        }' "$1"
+}
+
 n1_queue_already_run() {
     # Usage: n1_queue_already_run <overview.md>
     # Exit 0 and print the stamped queue_run_id when a previous queue run handled this

@@ -1055,12 +1055,89 @@ test_bg_pr_lifecycle() {
     done
 }
 
+# N1-290: sb_fixture <tmp> <mode> [origin] — mk_bg queue "sq" with two rows (T-A, T-B) in one real clone
+# ($tmp/repo) of <origin> (default: a fresh $tmp/origin with one commit on main); mode (and story_id S-1 in story
+# mode) in frontmatter; $tmp/fake/events exists so a launch count reads 0 when nothing launched.
+sb_fixture() {
+    local tmp="$1" origin="${3:-$1/origin}"
+    if [ -z "${3:-}" ]; then
+        git init -q -b main "$origin"
+        git -C "$origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    fi
+    git clone -q "$origin" "$tmp/repo" 2>/dev/null
+    mk_bg "$tmp" sq "T-A:done" "T-B:done"
+    sed -i "s#| $tmp | $tmp/n1home |#| $tmp/repo | $tmp/n1home |#g" "$tmp/queue.md"
+    n1_write_frontmatter "$tmp/queue.md" mode "$2"
+    [ "$2" = story ] && n1_write_frontmatter "$tmp/queue.md" story_id S-1
+    : > "$tmp/fake/events"
+}
+
+# N1-290: a story run cuts story/<story_id> once per repo before any child launches, a resume reuses it untouched,
+# tag mode creates none, and a failed push halts before any launch.
+test_runner_story_branches() {
+    local tmp tmp2 tmp3 tmp4 tmp5 bad main adv
+    # Creation: two rows in one repo -> one branch, one mapping row, cut from origin/main; local clone untouched.
+    tmp=$(mktemp -d); sb_fixture "$tmp" story
+    main=$(git -C "$tmp/origin" rev-parse main)
+    assert_eq "story-run: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "story-run: story/S-1 on origin at origin/main" "$main" "$(git -C "$tmp/origin" rev-parse -q --verify refs/heads/story/S-1)"
+    assert_eq "story-run: mapping recorded" "story/S-1" "$(n1_queue_story_branch_get "$tmp/queue.md" "$tmp/repo")"
+    assert_eq "story-run: one row for one repo" "1" "$(count_x "$tmp/queue.md" "| $tmp/repo | story/S-1 |")"
+    assert_eq "story-run: section before ## Runs" "yes" \
+        "$([ "$(line_of "$tmp/queue.md" '## Story Branches')" -lt "$(line_of "$tmp/queue.md" '## Runs')" ] 2>/dev/null && echo yes || echo no)"
+    assert_eq "story-run: no local story branch" "" "$(git -C "$tmp/repo" for-each-ref --format='%(refname)' refs/heads/story)"
+    assert_eq "story-run: children launched" "yes" "$(grep -q '^launch ' "$tmp/fake/events" && echo yes || echo no)"
+
+    # Resume: the branch exists on origin and has moved on; an interrupted run with no row recorded yet
+    # reuses it (no reset, no force push) and records the mapping row (proves the block ran on resume).
+    adv=$(git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit-tree -p refs/heads/story/S-1 -m story 'refs/heads/story/S-1^{tree}')
+    git -C "$tmp/origin" update-ref refs/heads/story/S-1 "$adv"
+    tmp2=$(mktemp -d); sb_fixture "$tmp2" story "$tmp/origin"
+    n1_write_frontmatter "$tmp2/queue.md" run_id R1; n1_write_frontmatter "$tmp2/queue.md" step run
+    assert_eq "story-resume: exit 0" "0" "$(run_bg_queue "$tmp2")"
+    assert_eq "story-resume: branch not reset" "$adv" "$(git -C "$tmp/origin" rev-parse refs/heads/story/S-1)"
+    assert_eq "story-resume: one row recorded" "1" "$(count_x "$tmp2/queue.md" "| $tmp2/repo | story/S-1 |")"
+    assert_eq "story-resume: one heading" "1" "$(count_x "$tmp2/queue.md" '## Story Branches')"
+
+    # Tag mode: no integration branch, no section.
+    tmp3=$(mktemp -d); sb_fixture "$tmp3" tag
+    run_bg_queue "$tmp3" >/dev/null   # exit code not asserted: tag-mode finalize paths are not this ticket's concern
+    assert_eq "story-tag: children launched" "yes" "$(grep -q '^launch ' "$tmp3/fake/events" && echo yes || echo no)"
+    assert_eq "story-tag: no story branch on origin" "" "$(git -C "$tmp3/origin" for-each-ref --format='%(refname)' refs/heads/story)"
+    assert_eq "story-tag: no section" "0" "$(count_x "$tmp3/queue.md" '## Story Branches')"
+
+    # Failure: origin rejects the push -> halt before any child launches.
+    tmp4=$(mktemp -d); sb_fixture "$tmp4" story
+    printf '#!/bin/sh\nexit 1\n' > "$tmp4/origin/.git/hooks/pre-receive"; chmod +x "$tmp4/origin/.git/hooks/pre-receive"
+    assert_eq "story-fail: exit 2" "2" "$(run_bg_queue "$tmp4")"
+    assert_eq "story-fail: step halted" "halted" "$(n1_read_frontmatter "$tmp4/queue.md" step)"
+    assert_eq "story-fail: halt message" "yes" "$(grep -qF "HALTED: story branch story/S-1 could not be created or pushed in $tmp4/repo: n1-queue: story branch: push of story/S-1 to origin failed in $tmp4/repo; fix access, then /n1:n1-queue --run sq" "$tmp4/output.txt" && echo yes || echo no)"
+    assert_eq "story-fail: no child launched" "0" "$(grep -c '^launch ' "$tmp4/fake/events" || true)"
+    assert_eq "story-fail: no story branch on origin" "" "$(git -C "$tmp4/origin" for-each-ref --format='%(refname)' refs/heads/story)"
+    assert_eq "story-fail: no section" "0" "$(count_x "$tmp4/queue.md" '## Story Branches')"
+    assert_eq "story-fail: halted event" "yes" "$(jq -e 'select(.event=="halted")' "$tmp4/events.jsonl" >/dev/null 2>&1 && echo yes || echo no)"
+
+    # Bad story id (not the tracker id grammar): halt before any launch, naming the id; nothing on origin or in queue.md.
+    for bad in 'A|B' '"VEL-1"'; do
+        tmp5=$(mktemp -d); sb_fixture "$tmp5" story
+        n1_write_frontmatter "$tmp5/queue.md" story_id "$bad"
+        assert_eq "story-badid $bad: exit 2" "2" "$(run_bg_queue "$tmp5")"
+        assert_eq "story-badid $bad: halt names the id" "yes" "$(grep -qF "n1-queue: story branch: invalid story id $bad" "$tmp5/output.txt" && echo yes || echo no)"
+        assert_eq "story-badid $bad: no child launched" "0" "$(grep -c '^launch ' "$tmp5/fake/events" || true)"
+        assert_eq "story-badid $bad: nothing on origin" "" "$(git -C "$tmp5/origin" for-each-ref --format='%(refname)' refs/heads/story)"
+        assert_eq "story-badid $bad: no section" "0" "$(count_x "$tmp5/queue.md" '## Story Branches')"
+        rm -rf "$tmp5"
+    done
+    rm -rf "$tmp" "$tmp2" "$tmp3" "$tmp4"
+}
+
 test_bg_pr_lifecycle
 test_runner_three_strikes
 test_runner_all_pr
 test_runner_tag_release
 test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
+test_runner_story_branches
 test_bg_sequential
 test_bg_awaiting
 test_bg_awaiting_alternatives
