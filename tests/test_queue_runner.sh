@@ -1046,6 +1046,19 @@ test_story_branch_helpers() {
     rm -rf "$tmp"
 }
 
+# N1-290: run.md documents the runner's story-branch step; its halt text matches the runner's.
+test_story_branch_wiring() {
+    local r="$REPO_ROOT/skills/n1-queue/steps/run.md" k="$REPO_ROOT/scripts/n1-queue-run.sh"
+    _sbF() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "story-branch wiring: run.md names the mapping section" "yes" "$(_sbF '`## Story Branches`' "$r")"
+    assert_eq "story-branch wiring: run.md names the reader helper" "yes" "$(_sbF 'n1_queue_story_branch_get' "$r")"
+    assert_eq "story-branch wiring: run.md says reuse, never reset" "yes" "$(_sbF 'reused as is, never reset' "$r")"
+    assert_eq "story-branch wiring: run.md quotes the halt" "yes" "$(_sbF 'HALTED: story branch story/<STORY_ID> could not be created or pushed in <repo>' "$r")"
+    assert_eq "story-branch wiring: runner emits that halt" "yes" "$(_sbF 'HALTED: story branch story/$STORY_ID could not be created or pushed in $SB_REPO' "$k")"
+    assert_eq "story-branch wiring: run.md says tag mode creates none" "yes" "$(_sbF 'Tag mode creates no story branch' "$r")"
+    assert_eq "story-branch wiring: SKILL.md untouched by the step" "no" "$(_sbF 'Story Branches' "$REPO_ROOT/skills/n1-queue/SKILL.md")"
+}
+
 # --- child status (NP-219 deploy flag no longer a queue outcome) ---
 test_child_status_deploy() {
     local tmp; tmp=$(mktemp -d)
@@ -1965,6 +1978,7 @@ test_held_helpers
 test_held_user_merge
 test_sync_default
 test_story_branch_helpers
+test_story_branch_wiring
 test_row_status
 test_queue_retry
 test_write_plan_cells
