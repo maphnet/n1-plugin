@@ -359,15 +359,18 @@ GH
 chmod +x "$TT/gbin/gh"
 n1_increment_counter() { echo 1; }; export -f n1_increment_counter
 mkdir -p "$TT/root/scripts"; printf '#!/bin/bash\necho "gate-ran allowed=$(cat "$2") head=$3 repo=$(cat "$4")"\n' > "$TT/root/scripts/codex-push-gate.sh"
-rungate() { mkdir -p "$SC/codex-validate-7.v"; V_ID=T-1 V_PR_NUMBER=7 V_VALIDATE_DIR="$1" N1_ROOT="$TT/root" PATH="$TT/gbin:$PATH" bash "$TT/gate.sh"; }
+rungate() { mkdir -p "$SC/codex-validate-7.v"; echo aaaaaaaa > "$SC/reconcile-start-7.t"; V_ID=T-1 V_PR_NUMBER=7 V_VALIDATE_DIR="$1" V_RECONCILE_START_FILE="${2-$SC/reconcile-start-7.t}" N1_ROOT="$TT/root" PATH="$TT/gbin:$PATH" bash "$TT/gate.sh"; }
 out=$(rungate "$SC/codex-validate-7.v")
-if grep -q 'gate-ran allowed=a.txt head=feat repo=o/r' <<<"$out" && grep -q '^reconcile:start file=' <<<"$out" && ! ls "$SC" | grep -q reconcile-gate; then
-    echo "PASS: push gate re-derives start/head/repo/allowed from gh"
+if grep -q 'gate-ran allowed=a.txt head=feat repo=o/r' <<<"$out" && ! ls "$SC" | grep -q reconcile-gate; then
+    echo "PASS: push gate reuses the Fix Phase start file and re-derives head/repo/allowed from gh"
 else echo "FAIL: push gate inputs: $out"; FAIL=1; fi
 for bad in "$SC/codex-validate-7.v/../x" "$SC/codex-validate-8.v" "$SC/codex-validate-7.v/sub" ""; do
     out=$(rungate "$bad")
     if grep -q '^push:blocked gate-unavailable$' <<<"$out" && ! grep -q gate-ran <<<"$out"; then echo "PASS: push gate rejects state path '${bad##*/}'"
     else echo "FAIL: push gate accepted state path '$bad': $out"; FAIL=1; fi
 done
+out=$(rungate "$SC/codex-validate-7.v" "/etc/passwd")
+if grep -q '^push:blocked gate-unavailable$' <<<"$out" && ! grep -q gate-ran <<<"$out"; then echo "PASS: push gate rejects a start file outside scratch"
+else echo "FAIL: push gate accepted a foreign start file: $out"; FAIL=1; fi
 
 exit $FAIL
