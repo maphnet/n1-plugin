@@ -30,6 +30,9 @@ has "tier P1 = Critical/High/P0/P1" "$SEV" '| Critical, High, P0, P1 | P1 |'
 has "tier P2 = Medium/P2"           "$SEV" '| Medium, P2 | P2 |'
 has "tier P3 = Low/P3"              "$SEV" '| Low, P3 | P3 |'
 has "no marker = unclassified"      "$SEV" '| no parseable marker | unclassified |'
+has "severity parsing reads the fenced findings file" "$SEV" 'findings:file='
+lacks "severity parsing drops the raw runner region"  "$SEV" '--- codex output --'
+lacks "triage procedure drops the raw runner region"  "$ALL" '--- codex output --'
 
 # 2. Auto-accept fix-candidate rule
 has "auto-accept candidates P1/P2/unclassified" "$SEV" '**fix candidates** are P1, P2 and unclassified findings, plus any security-looking P3 finding'

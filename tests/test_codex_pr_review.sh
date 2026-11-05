@@ -17,7 +17,7 @@ printf 'review\n' >> "$REVIEW_LOG"
 [ "${REVIEW_MODE:-ok}" != hang ] || sleep 10
 [ "${REVIEW_MODE:-ok}" != fail ] || exit 1
 while [ "$#" -gt 0 ]; do
-  if [ "$1" = -o ]; then printf 'No findings.\n' > "$2"; break; fi
+  if [ "$1" = -o ]; then printf '%s\n' "${CODEX_OUT:-No findings.}" > "$2"; break; fi
   shift
 done
 SH
@@ -50,12 +50,16 @@ printf '{"session_id":"other"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/o
 printf '{"session_id":"review-test","stop_hook_active":true}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/retry"
 [ ! -s "$TMP/retry" ]
 printf 'PASS: omitted step records skip and requests continuation once, isolated by session\n'
-for scenario in disabled no-auth auth-timeout ran ran-optout failed timeout post-failed diff-unavailable; do
-  unset AUTH_MODE REVIEW_MODE POST_MODE DIFF_MODE
+for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-noissues ran-fence-fail failed timeout post-failed diff-unavailable; do
+  unset AUTH_MODE REVIEW_MODE POST_MODE DIFF_MODE CODEX_OUT
+  rm -rf "$N1_HOME/scratch"
   printf '{}\n' > "$N1_HOME/config.json"
   case "$scenario" in
     disabled) printf '{"crossHostReview":{"enabled":false}}\n' > "$N1_HOME/config.json";;
     ran-optout) printf '{"crossHostReview":{"autoTriage":false}}\n' > "$N1_HOME/config.json";;
+    ran-findings) export CODEX_OUT=$'**High** - x\n[P2] y\nLow-level note';;
+    ran-noissues) export CODEX_OUT='No issues found.';;
+    ran-fence-fail) export CODEX_OUT=$'**High** - x\n[P2] y\nLow-level note'; : > "$N1_HOME/scratch";;
     no-auth) export AUTH_MODE=fail;;
     auth-timeout) export AUTH_MODE=hang;;
     failed) export REVIEW_MODE=fail;;
@@ -65,18 +69,37 @@ for scenario in disabled no-auth auth-timeout ran ran-optout failed timeout post
   esac
   N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=0.1 bash "$ROOT/scripts/codex-pr-review.sh" "$URL" > "$TMP/out"
   expected=$scenario
-  case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; post-failed|ran-optout) expected=ran;; diff-unavailable) expected=failed;; esac
+  case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; post-failed|ran-optout|ran-findings|ran-noissues|ran-fence-fail) expected=ran;; diff-unavailable) expected=failed;; esac
   jq -e --arg expected "$expected" '.outcome == $expected and .processed' "$receipt" >/dev/null
   if [ "$expected" = skipped ]; then jq -e --arg reason "$scenario" '.reason == $reason' "$receipt" >/dev/null; fi
   if [ "$scenario" = ran ]; then grep -Eq '^## Codex Review' "${REVIEW_LOG}.comment"; fi
-  if [ "$scenario" = ran ]; then
-    grep -qx -- '--- codex output ---' "$TMP/out"
+  if [ "$scenario" = ran ] || [ "$scenario" = ran-noissues ]; then
+    grep -qx 'findings:none' "$TMP/out"
     grep -qx 'crossHostReview_autoTriage=true' "$TMP/out"
   fi
   if [ "$scenario" = ran-optout ]; then
     # `! grep` does not trip set -e, so fail explicitly.
-    if grep -qx -- '--- codex output ---' "$TMP/out"; then echo 'FAIL: autoTriage=false still prints findings'; exit 1; fi
+    if grep -q '^findings:' "$TMP/out"; then echo 'FAIL: autoTriage=false still prints a findings line'; exit 1; fi
     grep -qx 'crossHostReview_autoTriage=false' "$TMP/out"
+  fi
+  if [ "$scenario" = ran-findings ] || [ "$scenario" = ran-fence-fail ]; then
+    for m in '**High** - x' '[P2] y' 'Low-level note'; do
+      if grep -qF -- "$m" "$TMP/out"; then echo "FAIL: $scenario prints raw Codex text on stdout: $m"; exit 1; fi
+    done
+  fi
+  if [ "$scenario" = ran-findings ]; then
+    fenced=$(sed -n 's/^findings:file=//p' "$TMP/out")
+    [[ "$fenced" =~ ^"$N1_HOME"/scratch/codex-findings-42\.[A-Za-z0-9]{6}\.md\.fenced$ ]]
+    [ "$(stat -c %a "$fenced")" = 600 ]
+    grep -Eq '^===== BEGIN UNTRUSTED CODEX FINDINGS CONTENT [0-9a-f]{32} =====$' <<<"$(head -n1 "$fenced")"
+    grep -Eq '^===== END UNTRUSTED CODEX FINDINGS CONTENT [0-9a-f]{32} =====$' <<<"$(tail -n1 "$fenced")"
+    # AC3: Severity Parsing reads these markers from the fenced file, so they must survive verbatim.
+    for m in '**High** - x' '[P2] y' 'Low-level note'; do grep -qxF -- "$m" "$fenced"; done
+  fi
+  if [ "$scenario" = ran-fence-fail ]; then
+    grep -qx 'findings:unavailable' "$TMP/out"
+    if grep -q '^findings:file=' "$TMP/out"; then echo 'FAIL: fence failure still prints a findings file'; exit 1; fi
+    rm -f "$N1_HOME/scratch"
   fi
   if [ "$scenario" = post-failed ]; then
     jq -e '.comment == "saved"' "$receipt" >/dev/null

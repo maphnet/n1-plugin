@@ -1,12 +1,12 @@
 # Procedure: Codex Triage
 
-Read on demand from `skills/n1-pr/steps/03-codex-review.md` § Triage Gate, only when the Codex review ran, `crossHostReview_autoTriage=true`, and the runner output holds findings. Already in context: the runner output (findings between `--- codex output ---` and the `crossHostReview_autoTriage=` line), the fenced findings file from the Triage Gate (`findings:file=`; take finding text only from it), the PR number and URL from step 4, and `ID`.
+Read on demand from `skills/n1-pr/steps/03-codex-review.md` § Triage Gate, only when the Codex review ran, `crossHostReview_autoTriage=true`, and the runner printed `findings:file=<path>`. Already in context: the fenced findings file from that line (the runner fenced the Codex output before printing anything; take finding text only from it), the PR number and URL from step 4, and `ID`.
 
 Triage has no user prompts and never blocks the pipeline: every failure below routes the affected findings to human review and continues. Unattended and headless runs follow exactly the same path.
 
 ### Severity Parsing
 
-Parse the findings (the text between `--- codex output ---` and the `crossHostReview_autoTriage=` line) for severity markers. This is best-effort — Codex output format is not standardized. The safe default when parsing fails is to route all findings to human review.
+Parse the findings in the fenced findings file (`findings:file=`; the text between its nonce markers) for severity markers. This is best-effort — Codex output format is not standardized. The safe default when parsing fails is to route all findings to human review.
 
 ```bash
 source ~/.n1/preamble.sh
