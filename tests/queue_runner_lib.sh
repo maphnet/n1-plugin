@@ -37,14 +37,34 @@ mk_bg() {
     # N1-182: runner asks gh for an open PR of an incomplete child; default answer comes from
     # $FAKE_DIR/gh-pr (absent -> no PR). Never reach the real gh from tests.
     # N1-185: pr view prints $FAKE_DIR/gh-state (OPEN/MERGED/CLOSED); absent -> exit 1 as before.
+    # N1-292: pr view --json ...headRefOid reads gh-view[.<pr#>] (TSV); pr checks / pr merge / repo view per the files named in the fake.
     [ -e "$tmp/bin/gh" ] || { cat > "$tmp/bin/gh" <<'GHEOF'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE_DIR/gh-all"
+# N1-292: per-PR view file gh-view.<pr#> (falls back to gh-view), keyed by the */pull/<n> argument.
+pr=""; for a in "$@"; do case "$a" in */pull/*) pr="${a##*/}" ;; esac; done
+v="$FAKE_DIR/gh-view.$pr"; [ -f "$v" ] || v="$FAKE_DIR/gh-view"
 case "$1 $2" in
     "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
     "pr view") # N1-214: gh-fail holds a count of reads to fail before answering
         if [ -s "$FAKE_DIR/gh-fail" ]; then n=$(cat "$FAKE_DIR/gh-fail"); if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$FAKE_DIR/gh-fail"; exit 1; fi; fi
-        cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
+        case "$*" in
+            *headRefOid*) cat "$v" 2>/dev/null || exit 1 ;;   # N1-292: n1_queue_pr_view (TSV state, base, head)
+            *) cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
+        esac ;;
+    "pr checks") # N1-292: stdout gh-checks, stderr gh-checks-err, exit gh-checks-rc (default 0)
+        cat "$FAKE_DIR/gh-checks-err" >&2 2>/dev/null
+        cat "$FAKE_DIR/gh-checks" 2>/dev/null
+        exit "$(cat "$FAKE_DIR/gh-checks-rc" 2>/dev/null || echo 0)" ;;
+    "pr merge") # N1-292: log the call; gh-merge-rc != 0 refuses with gh-merge-err; success flips the view to MERGED
+        echo "$*" >> "$FAKE_DIR/gh-merge"
+        rc=$(cat "$FAKE_DIR/gh-merge-rc" 2>/dev/null || echo 0)
+        if [ "$rc" != 0 ]; then cat "$FAKE_DIR/gh-merge-err" >&2 2>/dev/null; exit "$rc"; fi
+        IFS=$'\t' read -r _ b h < "$v"
+        [ -f "$FAKE_DIR/gh-view-after" ] && b=$(cat "$FAKE_DIR/gh-view-after")
+        printf 'MERGED\t%s\t%s\n' "$b" "$h" > "$v"
+        printf 'MERGED %s\n' "$b" > "$FAKE_DIR/gh-state" ;;
+    "repo view") cat "$FAKE_DIR/gh-repo" 2>/dev/null || exit 1 ;;
     *) exit 1 ;;
 esac
 GHEOF
@@ -69,7 +89,7 @@ case "$1" in
         echo "launch $name" >> "$D/events"
         printf '%s\n' "$all" > "$D/args.$name"
         printf '%s\n' "$settings" > "$D/settings.$name"
-        if [ -f "$D/refuse" ] || { [ -f "$D/refuse-clean" ] && [ "${name%-clean}" != "$name" ]; }; then
+        if [ -f "$D/refuse" ] || { [ -f "$D/refuse-clean" ] && [ "${name%-clean}" != "$name" ]; } || { [ -f "$D/refuse-done" ] && [ "${name%-done}" != "$name" ]; }; then
             echo "Bypass Permissions mode requires accepting the disclaimer first. Run claude --dangerously-skip-permissions once."
             exit 1
         fi
@@ -87,7 +107,7 @@ case "$1" in
             name="${f##*/prompt.}"; t=$(cat "$f"); t="${t% chained}"; t="${t##* }"
             c=$(( $(cat "$D/poll.$name" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$D/poll.$name"
             # N1-185: a chained n1-finish session (<name>-fin) replays states.<t>.fin (default done).
-            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; *-clean) sf="$D/states.$t.clean" ;; esac
+            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; *-clean) sf="$D/states.$t.clean" ;; *-done) sf="$D/states.$t.done" ;; esac
             read -r -a seq 2>/dev/null < "$sf" || seq=(done)
             i=$(( c < ${#seq[@]} ? c - 1 : ${#seq[@]} - 1 ))
             st="${seq[$i]}"
@@ -95,7 +115,8 @@ case "$1" in
             # relay.<t>: an answer relay in flight; lands as the runner's marker (mtime kept) when
             # the fake first reports the session stopped, i.e. after the runner saw the first block.
             [ "$st" = stopped ] && [ -f "$D/relay.$t" ] && mv "$D/relay.$t" "$D/../.relay-$t"
-            if [ "${name%-fin}" != "$name" ]; then
+            if [ "${name%-done}" != "$name" ]; then :   # N1-292: a Done session never writes the child's overview
+            elif [ "${name%-fin}" != "$name" ]; then
                 # N1-185: fin-merge.<t> makes the chained finish merge the PR when it is done.
                 [ "$st" = done ] && [ -f "$D/fin-merge.$t" ] && echo MERGED > "$D/gh-state"
             elif [ -f "$D/overview.$t.$c" ]; then
@@ -468,5 +489,36 @@ sb_fixture() {
     sed -i "s#| $tmp | $tmp/n1home |#| $tmp/repo | $tmp/n1home |#g" "$tmp/queue.md"
     n1_write_frontmatter "$tmp/queue.md" mode "$2"
     [ "$2" = story ] && n1_write_frontmatter "$tmp/queue.md" story_id S-1
+    : > "$tmp/fake/events"
+}
+
+# --- N1-292: runner story merge --------------------------------------------------
+SM_PIN=$(printf '%040d' 0 | tr 0 1)   # the reviewed head every story fixture PR reports
+nlines() { if [ -f "$1" ]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
+
+# story_merge_fixture <tmp> <ticket:states>... — mk_bg queue "sq" in story mode (story_id S-1). All rows sit in one real
+# clone ($tmp/repo) whose origin carries story/S-1. Config has fullAuto and mergeOnFinish off (the story merge needs
+# neither). The fake gh answers repo view o/r, CI green, and per PR (number = row number) OPEN on story/S-1 at $SM_PIN.
+# Each row has a review pin and a GitHub pr_url overview.
+story_merge_fixture() {
+    local tmp="$1" n=0 spec t; shift
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git -C "$tmp/origin" branch story/S-1
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    mk_bg "$tmp" sq "$@"
+    sed -i "s#| $tmp | $tmp/n1home |#| $tmp/repo | $tmp/n1home |#g" "$tmp/queue.md"
+    n1_write_frontmatter "$tmp/queue.md" mode story
+    n1_write_frontmatter "$tmp/queue.md" story_id S-1
+    chain_setup "$tmp" false false
+    echo o/r > "$tmp/fake/gh-repo"
+    echo '[{"bucket":"pass"}]' > "$tmp/fake/gh-checks"
+    mkdir -p "$tmp/n1home/review-pins"
+    for spec in "$@"; do
+        n=$((n + 1)); t="${spec%%:*}"
+        gh_overview "$tmp/fake/overview.$t" "$n"
+        printf 'OPEN\tstory/S-1\t%s\n' "$SM_PIN" > "$tmp/fake/gh-view.$n"
+        echo "$SM_PIN" > "$tmp/n1home/review-pins/o_r_$n"
+    done
     : > "$tmp/fake/events"
 }

@@ -2114,7 +2114,70 @@ test_n1_339_cleanup_helpers() {
     assert_eq "N1-339 report: lists worktrees not removed" yes "$(grep -qF 'n1_queue_cleanup_left' "$REPO_ROOT/skills/n1-queue/steps/report.md" && echo yes || echo no)"
     rm -rf "$tmp339"
 }
+
+# N1-292: one PR read for state, base and head; nothing on a non-GitHub URL or a persistent gh error.
+test_pr_view() {
+    local tmp u=https://github.com/o/r/pull/1; tmp=$(mktemp -d); mk_bg "$tmp" pv "T-A:done"
+    printf 'OPEN\tstory/S-1\tabc\n' > "$tmp/fake/gh-view.1"
+    assert_eq "pr_view: state base head" "OPEN|story/S-1|abc" \
+        "$(PATH="$tmp/bin:$PATH" FAKE_DIR="$tmp/fake" n1_queue_pr_view "$u" | tr '\t' '|')"
+    rm -f "$tmp/fake/gh-view.1"
+    assert_eq "pr_view: gh error -> empty" "" "$(PATH="$tmp/bin:$PATH" FAKE_DIR="$tmp/fake" n1_queue_pr_view "$u")"
+    assert_eq "pr_view: non-GitHub URL -> empty, no gh call" "" "$(PATH="$tmp/bin:$PATH" FAKE_DIR="$tmp/fake" n1_queue_pr_view https://x/pr/1)"
+    rm -rf "$tmp"
+}
+
+# N1-292: one gh pr checks read classified; stdout parsed whatever the exit code (gh exits 8 while pending).
+test_checks_class() {
+    local tmp u=https://github.com/o/r/pull/1; tmp=$(mktemp -d); mk_bg "$tmp" cc "T-A:done"
+    ck() {
+        printf '%s' "$1" > "$tmp/fake/gh-checks"; printf '%s' "$2" > "$tmp/fake/gh-checks-rc"; printf '%s' "$3" > "$tmp/fake/gh-checks-err"
+        PATH="$tmp/bin:$PATH" FAKE_DIR="$tmp/fake" n1_queue_checks_class "$u"
+    }
+    assert_eq "checks: pass + skipping -> green" green "$(ck '[{"bucket":"pass"},{"bucket":"skipping"}]' 0 '')"
+    assert_eq "checks: fail -> red" red "$(ck '[{"bucket":"pass"},{"bucket":"fail"}]' 1 '')"
+    assert_eq "checks: cancel -> red" red "$(ck '[{"bucket":"cancel"}]' 1 '')"
+    assert_eq "checks: fail beats pending -> red" red "$(ck '[{"bucket":"fail"},{"bucket":"pending"}]' 8 '')"
+    assert_eq "checks: pending (exit 8) -> pending" pending "$(ck '[{"bucket":"pending"}]' 8 '')"
+    assert_eq "checks: zero checks -> none" none "$(ck '' 1 "no checks reported on the 'feat' branch")"
+    assert_eq "checks: other gh error -> error" error "$(ck '' 1 'HTTP 502: Bad Gateway')"
+    assert_eq "checks: non-JSON -> error" error "$(ck 'oops' 0 '')"
+    assert_eq "checks: non-GitHub URL -> error" error "$(PATH="$tmp/bin:$PATH" FAKE_DIR="$tmp/fake" n1_queue_checks_class https://x/pr/1)"
+    rm -rf "$tmp"
+}
+
+# N1-292: best-effort fast-forward of the local story branch; never forced, refuses non-story names.
+test_sync_story() {
+    local tmp rc; tmp=$(mktemp -d)
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git -C "$tmp/origin" branch story/S-1
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    git -C "$tmp/repo" fetch -q origin story/S-1:story/S-1
+    git -C "$tmp/origin" checkout -q story/S-1
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m child
+    rc=0; n1_queue_sync_story "$tmp/repo" story/S-1 2>/dev/null || rc=$?
+    assert_eq "sync_story: rc 0" 0 "$rc"
+    assert_eq "sync_story: local story branch at origin tip" "$(git -C "$tmp/origin" rev-parse story/S-1)" "$(git -C "$tmp/repo" rev-parse story/S-1)"
+    rc=0; n1_queue_sync_story "$tmp/repo" main 2>/dev/null || rc=$?
+    assert_eq "sync_story: non-story branch refused" 1 "$rc"
+    rm -rf "$tmp"
+}
+
+# N1-292: the Done session is a bg n1-run with a fixed prompt ending in the ticket id, queue settings env.
+test_done_cmd() {
+    local cmd; cmd=$(n1_queue_done_cmd /r T-A sonnet RUN1 n1-q-T-A-1-done)
+    assert_eq "done_cmd: n1-run skill" yes "$(grep -qF '/n1:n1-run' <<< "$cmd" && echo yes || echo no)"
+    assert_eq "done_cmd: session name" yes "$(grep -qF 'n1-q-T-A-1-done' <<< "$cmd" && echo yes || echo no)"
+    assert_eq "done_cmd: prompt forbids merging" yes "$(grep -qF 'no\ merge' <<< "$cmd" && echo yes || echo no)"
+    assert_eq "done_cmd: unattended queue settings" yes "$(grep -qF 'N1_QUEUE_RUN_ID' <<< "$cmd" && echo yes || echo no)"
+}
+
 test_n1_339_cleanup_helpers
+test_pr_view
+test_checks_class
+test_sync_story
+test_done_cmd
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

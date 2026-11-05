@@ -224,6 +224,14 @@ n1_queue_clean_cmd() {
     n1_bg_launch_cmd "$5" n1-clean "--ticket $2" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
 }
 
+n1_queue_done_cmd() {
+    # Usage: n1_queue_done_cmd <repoPath> <ticket-id> <model> <run-id> <session-name>
+    # N1-292: background n1-run session for a story child the runner merged. It moves the ticket to the tracker done
+    # status and does nothing else (n1-finish would also watch deploys and clean up). It uses the same settings env as a
+    # chained finish, and its cwd is the row repo, so it reads the row's N1 Home tracker config.
+    n1_bg_launch_cmd "$5" n1-run "Queue story Done step (N1-292): the queue runner merged this ticket's PR into its story branch. Move the tracker ticket to the done status configured for the tracker in this project's N1 config (the status n1-finish Step 4 uses), through the tracker. Do nothing else: no merge, no git command, no PR edit, no deploy watch, no worktree cleanup. If the transition fails, end with the line done-transition: failed <reason>. Ticket: $2" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
+}
+
 n1_queue_cleanup_needed() {
     # Usage: n1_queue_cleanup_needed <overview.md> - N1-339: exit 0 (launch a clean) unless the overview's Cleanup
     # line already shows the branch deleted or absent (finish cleaned it).
@@ -244,6 +252,48 @@ n1_queue_pr_state() {
         [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
     done
     return 0
+}
+
+n1_queue_pr_view() {
+    # Usage: n1_queue_pr_view <pr-url> — N1-292: "<state>\t<baseRefName>\t<headRefOid>" from one gh read. Retries like
+    # n1_queue_pr_state (3 attempts, 2s/4s backoff). Prints nothing for a non-GitHub-PR URL or on a persistent gh error,
+    # and the caller (story_merge) then merges nothing.
+    [[ "$1" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || return 0
+    local attempt out
+    for attempt in 1 2 3; do
+        out=$(timeout 30 gh pr view --json state,baseRefName,headRefOid -q '[.state,.baseRefName,.headRefOid]|@tsv' -- "$1" </dev/null 2>/dev/null) || out=""
+        [ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+        [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+    done
+    return 0
+}
+
+n1_queue_checks_class() {
+    # Usage: n1_queue_checks_class <pr-url> — N1-292: one `gh pr checks` read (no poll loop) printed as
+    # green (all pass/skipping) | red (any fail/cancel) | pending | none | error.
+    # stdout is parsed whatever the exit code (gh exits 8 while checks are pending, 1 when one failed). Zero checks is a gh
+    # error whose stderr says "no checks reported" (cli/cli pkg/cmd/pr/checks/checks.go), printed as none. Any other error
+    # or non-JSON output is printed as error.
+    [[ "$1" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || { echo error; return 0; }
+    local out errf err rc=0
+    errf=$(mktemp) || { echo error; return 0; }
+    out=$(timeout 30 gh pr checks "$1" --json bucket </dev/null 2>"$errf") || rc=$?
+    err=$(cat "$errf"); rm -f "$errf"
+    if [ "$rc" -ne 0 ] && grep -q 'no checks reported' <<< "$err"; then echo none; return 0; fi
+    jq -e 'type == "array"' >/dev/null 2>&1 <<< "$out" || { echo error; return 0; }
+    jq -r 'if length == 0 then "none"
+        elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "red"
+        elif any(.[]; .bucket == "pending") then "pending"
+        elif all(.[]; .bucket == "pass" or .bucket == "skipping") then "green"
+        else "error" end' <<< "$out"
+}
+
+n1_queue_sync_story() {
+    # Usage: n1_queue_sync_story <repo> <story-branch> — N1-292: best-effort fast-forward of the local story branch after
+    # a runner merge. The refspec has no "+", so the update is never forced. git refuses it while the branch is checked out.
+    # Children cut from origin/<sb>, so the caller only logs a failure.
+    [[ "$2" =~ ^story/[A-Za-z0-9._-]+$ ]] && git check-ref-format --branch "$2" >/dev/null 2>&1 || return 1
+    git -C "$1" fetch --quiet origin "refs/heads/$2:refs/heads/$2" >&2
 }
 
 _n1_queue_sanitize_cell() {
