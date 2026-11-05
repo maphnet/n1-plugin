@@ -3,6 +3,7 @@
 set -uo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/../lib/codex-review.sh"
+source "$SCRIPT_DIR/../lib/validation.sh"
 N1_HOME=$(n1_home)
 PR_URL=${1:?Usage: bash scripts/codex-pr-review.sh PR_URL}
 RECEIPT=$(n1_review_receipt "$PR_URL") || { echo 'Invalid PR URL or missing session identity' >&2; exit 1; }
@@ -59,7 +60,20 @@ if [ "$OUTCOME" = ran ]; then
         fi
     fi
     if [ "$(n1_cross_host_review_val autoTriage)" = true ]; then
-        printf -- '--- codex output ---\n'; cat "$WORK/output"
+        # N1-360: Codex text never reaches stdout; the orchestrator reads only the fenced file. Fail closed.
+        PR_NUMBER=${PR_URL##*/}
+        F="$N1_HOME/scratch/codex-findings-$PR_NUMBER.md.fenced"
+        if [ "$(grep -c '[^[:space:]]' "$WORK/output")" = 1 ] \
+            && grep -qiE '^[[:space:]]*no (findings|issues)[.!]?[[:space:]]*$' "$WORK/output"; then
+            echo 'findings:none'
+        elif [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] && [ -n "$N1_HOME" ] && mkdir -p "$N1_HOME/scratch" 2>/dev/null \
+            && rm -f "$F" && n1_fence_untrusted 'CODEX FINDINGS' "$WORK/output" > "$F.tmp" \
+            && mv -f "$F.tmp" "$F"; then
+            echo "findings:file=$F"
+        else
+            [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] && [ -n "$N1_HOME" ] && rm -f "$F" "$F.tmp" 2>/dev/null
+            echo 'findings:unavailable'
+        fi
     fi
 else
     SKIP_REASON="codex-exit-$CODEX_RC"
