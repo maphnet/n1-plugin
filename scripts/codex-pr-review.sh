@@ -64,7 +64,7 @@ if [ "$OUTCOME" = ran ]; then
         PR_NUMBER=${PR_URL##*/}
         F="$N1_HOME/scratch/codex-findings-$PR_NUMBER.md.fenced"
         if [ "$(grep -c '[^[:space:]]' "$WORK/output")" = 1 ] \
-            && grep -qiE '^[[:space:]]*no (findings|issues)[.!]?[[:space:]]*$' "$WORK/output"; then
+            && grep -qiE '^[[:space:]]*no (findings|issues)( (found|identified|detected))?[.!]?[[:space:]]*$' "$WORK/output"; then
             echo 'findings:none'
         elif [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] && [ -n "$N1_HOME" ] && mkdir -p "$N1_HOME/scratch" 2>/dev/null \
             && rm -f "$F" && n1_fence_untrusted 'CODEX FINDINGS' "$WORK/output" > "$F.tmp" \

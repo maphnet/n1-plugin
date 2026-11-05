@@ -50,7 +50,7 @@ printf '{"session_id":"other"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/o
 printf '{"session_id":"review-test","stop_hook_active":true}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/retry"
 [ ! -s "$TMP/retry" ]
 printf 'PASS: omitted step records skip and requests continuation once, isolated by session\n'
-for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-fence-fail failed timeout post-failed diff-unavailable; do
+for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-noissues ran-fence-fail failed timeout post-failed diff-unavailable; do
   unset AUTH_MODE REVIEW_MODE POST_MODE DIFF_MODE CODEX_OUT
   rm -rf "$N1_HOME/scratch"
   printf '{}\n' > "$N1_HOME/config.json"
@@ -58,6 +58,7 @@ for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-fe
     disabled) printf '{"crossHostReview":{"enabled":false}}\n' > "$N1_HOME/config.json";;
     ran-optout) printf '{"crossHostReview":{"autoTriage":false}}\n' > "$N1_HOME/config.json";;
     ran-findings) export CODEX_OUT=$'**High** - x\n[P2] y\nLow-level note';;
+    ran-noissues) export CODEX_OUT='No issues found.';;
     ran-fence-fail) export CODEX_OUT=$'**High** - x\n[P2] y\nLow-level note'; : > "$N1_HOME/scratch";;
     no-auth) export AUTH_MODE=fail;;
     auth-timeout) export AUTH_MODE=hang;;
@@ -68,11 +69,11 @@ for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-fe
   esac
   N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=0.1 bash "$ROOT/scripts/codex-pr-review.sh" "$URL" > "$TMP/out"
   expected=$scenario
-  case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; post-failed|ran-optout|ran-findings|ran-fence-fail) expected=ran;; diff-unavailable) expected=failed;; esac
+  case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; post-failed|ran-optout|ran-findings|ran-noissues|ran-fence-fail) expected=ran;; diff-unavailable) expected=failed;; esac
   jq -e --arg expected "$expected" '.outcome == $expected and .processed' "$receipt" >/dev/null
   if [ "$expected" = skipped ]; then jq -e --arg reason "$scenario" '.reason == $reason' "$receipt" >/dev/null; fi
   if [ "$scenario" = ran ]; then grep -Eq '^## Codex Review' "${REVIEW_LOG}.comment"; fi
-  if [ "$scenario" = ran ]; then
+  if [ "$scenario" = ran ] || [ "$scenario" = ran-noissues ]; then
     grep -qx 'findings:none' "$TMP/out"
     grep -qx 'crossHostReview_autoTriage=true' "$TMP/out"
   fi
