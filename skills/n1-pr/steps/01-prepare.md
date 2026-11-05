@@ -48,8 +48,11 @@ Read `git.prMode` via `n1_config_val '.git.prMode'`:
 
 ### Git context:
 ```bash
-git log ${DEFAULT_BRANCH}..HEAD --oneline
-git diff ${DEFAULT_BRANCH}...HEAD --stat
+source ~/.n1/preamble.sh
+DEFAULT_BRANCH="<DEFAULT_BRANCH printed above>"
+SB=$(n1_story_base) || { echo "invalid story base: STOP"; exit 1; }; [ -z "$SB" ] || DEFAULT_BRANCH="origin/$SB"
+git log "${DEFAULT_BRANCH}..HEAD" --oneline
+git diff "${DEFAULT_BRANCH}...HEAD" --stat
 ```
 
 ### N1 memory (if available):

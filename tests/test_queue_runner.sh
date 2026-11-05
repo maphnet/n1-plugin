@@ -1114,10 +1114,13 @@ test_story_base_wiring() {
     assert_eq "story-wiring: implementation bump skip" "yes" \
         "$(grep -q 'Story child: make no version-bump commit' "$REPO_ROOT/skills/n1-start/steps/implementation.md" && echo yes || echo no)"
     local pp="$REPO_ROOT/skills/n1-pr/steps/01-prepare.md" pc="$REPO_ROOT/skills/n1-pr/steps/02-push-create.md"
-    assert_eq "story-wiring: prepare reads story base for DEFAULT_BRANCH and rules BASE" "2" "$(grep -c 'n1_story_base' "$pp")"
+    assert_eq "story-wiring: prepare reads story base for DEFAULT_BRANCH and rules BASE" "3" "$(grep -c 'n1_story_base' "$pp")"
     assert_eq "story-wiring: prepare bump skip" "yes" "$(grep -q 'Story child: make no version-bump commit' "$pp" && echo yes || echo no)"
-    assert_eq "story-wiring: rebase target via DEFAULT_BRANCH" "yes" "$(grep -qF 'git rebase origin/${DEFAULT_BRANCH}' "$pc" && echo yes || echo no)"
+    assert_eq "story-wiring: rebase target via DEFAULT_BRANCH" "yes" "$(grep -qF 'git rebase "origin/$DEFAULT_BRANCH"' "$pc" && echo yes || echo no)"
     assert_eq "story-wiring: PR base via DEFAULT_BRANCH" "yes" "$(grep -qF -- '--base "$DEFAULT_BRANCH"' "$pc" && echo yes || echo no)"
+    assert_eq "story-wiring: every push-create snippet re-derives the base from n1_story_base (SEC-1)" "4" "$(grep -c 'DEFAULT_BRANCH="\$SB"' "$pc")"
+    assert_eq "story-wiring: adopt checkout re-anchors branch-point (CR-2)" "yes" \
+        "$(grep -qF 'rev-parse "origin/$SB" > "$BP"' "$REPO_ROOT/skills/n1-start/procedures/workspace-isolation.md" && echo yes || echo no)"
     assert_eq "story-wiring: push-create names the story branch" "yes" "$(grep -q 'never the default branch' "$pc" && echo yes || echo no)"
 }
 
