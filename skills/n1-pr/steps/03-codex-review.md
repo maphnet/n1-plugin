@@ -66,7 +66,7 @@ Otherwise read `<N1_ROOT>/skills/n1-pr/procedures/codex-triage.md` and follow it
 
 ## Step 10: Report
 
-If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings or file follow-ups, whether or not triage ran. List any unfixed Codex items as informational only. For Human Review items go through `<N1_ROOT>/references/followup-filing.md` § Append (source `codex`): the triage persona appends them when triage ran (report its `followups=<n>`); otherwise append one item, `Codex review findings: see the PR's ## Codex Review comment`. n1-start FINALIZE MEMORY files them; outside n1-start, report them as unfiled.
+If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings or file follow-ups, whether or not triage ran. Report the persona's counts lines only; unfixed items are in the posted triage comment (or its fallback file path), never listed from the orchestrator. For Human Review items go through `<N1_ROOT>/references/followup-filing.md` § Append (source `codex`): the triage persona appends them when triage ran (report its `followups=<n>`); otherwise append one item, `Codex review findings: see the PR's ## Codex Review comment`. n1-start FINALIZE MEMORY files them; outside n1-start, report them as unfiled.
 
 Every path through Step 9 ends here: review ran, skipped, timed out, failed, or went through triage. Print this report exactly once. It is the end of n1-pr.
 
