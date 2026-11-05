@@ -1001,7 +1001,7 @@ run_orca() {
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
-    local LIVE="" LIVE_OK=0 DONE=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0
+    local LIVE="" LIVE_OK=0 DONE=" " STOPPED=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
     # N1-303: the plan pins max_concurrent; live config is read only for a plan made before it (legacy).
@@ -1038,6 +1038,7 @@ run_orca() {
             continue
         fi
         FAILS=0
+        STOPPED=" "   # N1-394: this tick's "finished" stop notices only; never carried over
         EVS=$(n1_orca_events "$BATCH")
         # Time charged to this tick: a full wait only for a truly empty batch, else the real time spent (an early
         # return, a heartbeat, or a replayed batch must not count as a whole poll interval).
@@ -1092,11 +1093,13 @@ run_orca() {
                         pr|escalated) escalate "$T" "$N1H" ;;
                     esac ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" "" "$EXTRA" ;;
-                # N1-359: Orca's "worker stopped without reporting" notice is not a human question: record it and leave
-                # the row alone. Reconcile (worker exited/done) and subtaskTimeoutMinutes still end a worker that never resumes.
+                # N1-359: Orca's "worker stopped without reporting" notice is not a human question: record it; the row is
+                # never changed here. N1-394: a "finished" notice also settles the task after the row loop (orca_settle
+                # skips a row still in-progress/awaiting-human, so only a final row's owed slot is released). Reconcile (worker exited/done) and subtaskTimeoutMinutes still end a worker that never resumes.
                 escalation-stop)
                     echo "[orca] $T worker stopped without reporting (row unchanged)"
-                    ev worker_stopped ticket="$T" reason="$EXTRA" ;;
+                    ev worker_stopped ticket="$T" reason="$EXTRA"
+                    [[ "$EXTRA" == "stopped (finished)"* ]] && STOPPED="$STOPPED$TASK " ;;
                 # N1-315: a hook-sent progress beacon (bound to the Runs-row dispatch above). Receive time on the runner's
                 # clock plus the phase; it settles nothing. A beacon ends a stall episode.
                 heartbeat)
@@ -1257,6 +1260,7 @@ run_orca() {
         # not a ticket worker). Re-settling after a restart is guarded by SETTLED, idempotent release and .chained-<ticket>.
         # A worker-list row settles only the dispatch the Runs row holds for its task.
         for TASK in $DONE; do orca_settle "$TASK"; done
+        for TASK in $STOPPED; do orca_settle "$TASK"; done
         while IFS=$'\t' read -r -u 3 L TASK; do
             _n1_orca_id "$TASK" || continue
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
