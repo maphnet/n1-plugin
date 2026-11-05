@@ -379,10 +379,15 @@ live_row_sid() {
 # N1-291: story_env <repo> — sets SB (story/<story_id>) and SBID for a story-mode row; both empty in tag mode.
 # rc 1 when a story row has no mapping or the mapping fails n1_story_base (regex, check-ref-format, == story/<id>):
 # the row must not launch, since a story child must never start from the default branch.
+# SEC-3: mode and story_id are fixed at run start (RUN_MODE/RUN_STORY_ID, set before any launch or chain); queue.md is
+# child-writable, so a mode or story_id that differs from the snapshot fails closed instead of changing who merges.
 story_env() {
     SB="" SBID=""
-    [ "$(n1_read_frontmatter "$QUEUE" mode)" = story ] || return 0
-    SBID=$(n1_read_frontmatter "$QUEUE" story_id)
+    local cur; cur=$(n1_read_frontmatter "$QUEUE" mode)
+    [ "$([ "$cur" = story ] && echo story)" = "$RUN_MODE" ] || return 1
+    [ "$RUN_MODE" = story ] || return 0
+    SBID="$RUN_STORY_ID"
+    [ -n "$SBID" ] && [ "$(n1_read_frontmatter "$QUEUE" story_id)" = "$SBID" ] || return 1
     SB=$(n1_queue_story_branch_get "$QUEUE" "$1") || return 1
     [ -n "$SB" ] && N1_STORY_ID="$SBID" N1_STORY_BRANCH="$SB" n1_story_base >/dev/null 2>&1
 }
@@ -617,6 +622,107 @@ chain_reconcile() {
     return 0
 }
 
+# --- story merge (N1-292) ------------------------------------------------------
+# story_merge <num> <ticket> <repo> <n1-home> — the runner merges a story child's PR into SB (set by story_env in
+# chain_finish). It needs neither fullAuto nor mergeOnFinish. Neither the merge-deny hook nor n1_merge_authorized sees
+# this merge (the runner is a bash process, not an agent); both stay unchanged (N1-289 D1).
+# Merge conditions: the attested PR belongs to the row's repo, is OPEN, is based on the literal SB, its head equals the
+# review pin, and one gh pr checks read is green or reports zero checks. The merge uses --match-head-commit <pin>.
+# Retryable refusals remove .chained-<ticket> so a --run resume re-evaluates. They are: unreadable PR or repo,
+# red/pending/unreadable CI, and a refused merge. Final refusals leave the marker done.
+# --match-head-commit pins the head, not the base, so the base is re-read after the merge. A base other than SB raises
+# an escalation (a retarget between view and merge cannot be excluded here; protect the default branch).
+story_merge() {
+    local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" marker="$N1_QUEUE_DIR/.chained-$2"
+    local url u nwo view st base head pin ci method err why=merged
+    sm_retry() { rm -f "$marker"; chain_note "$NUM" "$TICKET" "$1"; }
+    sm_final() { printf '%s\ndone\n' "$RUN_ID" > "$marker"; chain_note "$NUM" "$TICKET" "$1"; }
+    url=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")
+    view=$(n1_queue_pr_view "$url")
+    [ -n "$view" ] || { sm_retry pr-state-unreadable; return 0; }
+    nwo=$(cd "$REPO" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
+    [ -n "$nwo" ] || { sm_retry pr-state-unreadable; return 0; }
+    u=${url#https://github.com/}; u=${u%/pull/*}
+    [ "$u" = "$nwo" ] || { sm_final pr-repo-mismatch; return 0; }
+    IFS=$'\t' read -r st base head <<< "$view"
+    case "$st" in
+        MERGED)
+            if [ "$base" = "$SB" ]; then
+                printf '%s\ndone\n' "$RUN_ID" > "$marker"
+                story_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$url" merged
+            else
+                sm_final wrong-base
+            fi
+            return 0 ;;
+        OPEN) ;;
+        *) sm_final pr-not-open; return 0 ;;
+    esac
+    [ "$base" = "$SB" ] || { sm_final wrong-base; return 0; }
+    pin=$(cd "$REPO" 2>/dev/null && N1_HOME="$N1H" n1_review_pin get "${url##*/}")
+    [ "$pin" = unavailable ] && { sm_retry pin-unavailable; return 0; }   # a failed pin lookup is not "no pin"
+    [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || { sm_final no-pin; return 0; }
+    [ "$head" = "$pin" ] || { sm_final head-moved; return 0; }
+    ci=$(n1_queue_checks_class "$url")
+    case "$ci" in
+        green) ;;
+        none) why="merged: no CI on story base" ;;
+        red|pending) sm_retry "ci-$ci"; return 0 ;;
+        *) sm_retry ci-unreadable; return 0 ;;
+    esac
+    method=$(N1_HOME="$N1H" n1_config_val '.finishWork.mergeMethod' 2>/dev/null)
+    case "$method" in squash|merge|rebase) ;; *) method=squash ;; esac
+    if ! err=$(timeout -k 30 120 gh pr merge "$url" "--$method" --match-head-commit "$pin" </dev/null 2>&1 >/dev/null); then
+        echo "[$NUM] $TICKET gh pr merge refused: $(head -n1 <<< "$err")"
+        if grep -q 'not mergeable' <<< "$err"; then sm_retry dirty; else sm_retry merge-failed; fi
+        return 0
+    fi
+    printf '%s\ndone\n' "$RUN_ID" > "$marker"
+    IFS=$'\t' read -r st base _ <<< "$(n1_queue_pr_view "$url")"
+    # A queued merge can leave the PR OPEN: record nothing and let a --run resume re-evaluate (marker removed).
+    if [ "$st" = OPEN ]; then sm_retry merge-pending; return 0; fi
+    if [ -z "$base" ]; then   # SEC-2: an unreadable base is not a clean merge (the re-read already retried 3 times)
+        ev escalated ticket="$TICKET" reason="runner merge base unverified"
+        n1_notify needs-you "$TICKET: the runner merged $url but could not read its base; check that it landed on $SB"
+        chain_note "$NUM" "$TICKET" merge-base-unverified
+        return 0
+    fi
+    if [ "$base" != "$SB" ]; then
+        ev escalated ticket="$TICKET" reason="runner merge landed on $base, not $SB"
+        n1_notify needs-you "$TICKET: the runner merged $url but its base reads $base, not $SB; check $base"
+        chain_note "$NUM" "$TICKET" merged-off-story
+        return 0
+    fi
+    story_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$url" "$why"
+}
+
+# story_merged <num> <ticket> <repo> <n1-home> <pr-url> <reason> — N1-292. Records Runs Outcome merged and Reason <reason>.
+# The Reason is not a finish:* value, so it overwrites a stale finish:* that would block dependents (an empty Reason
+# would keep the old one). Then: ticket_finished event, best-effort local fast-forward of SB, one Done session.
+# There is no default-branch sync and no n1-clean (story children keep their worktrees).
+story_merged() {
+    n1_queue_runs_outcome "$QUEUE" "$2" merged "$5"
+    n1_queue_row_status "$QUEUE" "$1" pr "$6"
+    ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")" reason="$6"
+    echo "[$1] $2 -> merged $5 ($6)"
+    n1_queue_sync_story "$3" "$SB" </dev/null || echo "[$1] $2: local $SB not fast-forwarded in $3 (children branch from origin/$SB)"
+    story_done "$1" "$2" "$3" "$4"
+}
+
+# story_done <num> <ticket> <repo> <n1-home> — N1-292: one headless n1-run session that moves the ticket to the
+# tracker done status and does nothing else. It is launched once per recorded merge; a resume that finds Outcome
+# merged never relaunches it. A failed launch is recorded as a ticket_done failed event, never as a row Reason; it is
+# never retried and never triggers a re-merge.
+story_done() {
+    local out sid
+    if out=$(bash -c "$(n1_queue_done_cmd "$3" "$2" sonnet "$RUN_ID" "n1-${QUEUE_ID}-$2-$1-done")" </dev/null 2>&1) \
+        && sid=$(n1_queue_parse_launch "$out") && [ -n "$sid" ]; then
+        echo "[$1] $2 done session launched ($sid)"
+    else
+        ev ticket_done ticket="$2" outcome=failed reason="launch-failed"
+        echo "[$1] $2 done session launch-failed (move $2 to done in the tracker)"
+    fi
+}
+
 CHAIN_ESC=""   # set by finalize (ticket id) before it removes the question file
 
 # chain_child_escalated <ticket> <n1-home> — exit 0 when the child has a pending escalation: an unanswered
@@ -637,30 +743,51 @@ chain_child_escalated() {
 }
 
 # chain_finish <num> <ticket> <repo> <n1-home> <model> <pr-url> — the deterministic fullAuto chain.
-# No-op unless chain_authorized. Waits for the child session to go idle (a child blocked for BG_POLL_GRACE polls is stopped; it may still run CI watch or
-# its own prose chain), skips when the PR is already MERGED or not OPEN, else launches a bg
-# `n1-finish <ticket> chained` session and waits for it. Blocking on purpose: the next child must
-# branch from the merged default branch. .chained-<ticket> (line 1 run id, line 2 pending|launched|done) is
-# written before the gh check, so the chain is evaluated once per run, also across a runner restart; a
-# restart finding it pending (launch intended, not confirmed) relaunches for a still-OPEN PR. The runner never
-# merges: n1-finish merges only at the reviewed pin, and the merge-deny hook still applies.
+# Tag rows: no-op unless chain_authorized. It waits for the child session to go idle (a child blocked for
+# BG_POLL_GRACE polls is stopped; it may still run CI watch or its own prose chain), skips when the PR is already
+# MERGED or not OPEN, else launches a bg `n1-finish <ticket> chained` session and waits for it. Blocking on purpose:
+# the next child must branch from the merged default branch. In tag mode the runner never merges: n1-finish merges
+# only at the reviewed pin, and the merge-deny hook still applies.
+# Story rows (N1-292, story_env sets SB): no chain_authorized gate. After the same wait and escalation guard, the
+# runner merges the PR itself into SB (story_merge).
+# .chained-<ticket> (line 1 run id, line 2 pending|launched|done) is written before the gh check, so the chain is
+# evaluated once per run, also across a runner restart. A restart finding it pending (launch or merge intended, not
+# confirmed) re-evaluates a still-OPEN PR.
 # Every exit writes a "[NUM] TICKET chain: ..." line to runner.log (N1-240).
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
-    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" why=finish-timeout
+    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" why=finish-timeout SB SBID aurl
     # N1-240: every exit writes a runner.log line. The raw id is not echoed (it failed validation).
     case "$TICKET" in ''|*[!A-Za-z0-9_-]*) echo "[$NUM] chain: skipped (invalid-ticket-id)"; return 0 ;; esac
-    chain_authorized "$N1H" || { echo "[$NUM] $TICKET chain: skipped (chain_authorized=false)"; return 0; }
+    story_env "$REPO" || { chain_note "$NUM" "$TICKET" story-branch-invalid; return 0; }
+    # N1-292: a story row is merged by the runner (story_merge); only tag rows need chain_authorized.
+    [ -n "$SB" ] || chain_authorized "$N1H" || { echo "[$NUM] $TICKET chain: skipped (chain_authorized=false)"; return 0; }
     marker="$N1_QUEUE_DIR/.chained-$TICKET"
     poll=$(n1_queue_val pollSeconds)
     mark() { printf '%s\n%s\n' "$RUN_ID" "$1" > "$marker"; }
-    if [ "$(head -n1 "$marker" 2>/dev/null)" = "$RUN_ID" ]; then
+    mstate=$(sed -n 2p "$marker" 2>/dev/null)
+    # SEC-1: a story row never skips the wait and the escalation guard on a pending marker (the marker is writable by
+    # the child); the pending marker only means "merge intended", and story_merge only records an already-MERGED PR.
+    if [ "$(head -n1 "$marker" 2>/dev/null)" = "$RUN_ID" ] && { [ -z "$SB" ] || [ "$mstate" != pending ]; }; then
         # Chain already evaluated this run (restart): never launch a second finish for a confirmed launch;
         # reconcile an orphaned -fin session. Only a marker still "pending" (crash between the marker and
         # the confirmed launch) with an OPEN PR and no live session falls through to launch the owed finish.
-        mstate=$(sed -n 2p "$marker" 2>/dev/null)
-        chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll" "$mstate" || rc=$?
-        [ "$rc" -eq 10 ] || { echo "[$NUM] $TICKET chain: already evaluated (marker=${mstate:-unknown})"; return 0; }
+        if [ -n "$SB" ]; then
+            # N1-292: a story row has no -fin session to reconcile. A pending marker takes the wait and guard path
+            # below, then story_merge (head-pinned; it only records an already-MERGED PR). Any other marker records a PR
+            # merged into SB whose Outcome is not merged yet (Done session included), and otherwise does nothing.
+            aurl=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")
+            if [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] \
+                && [ "$(n1_queue_pr_view "$aurl" | cut -f1,2)" = "MERGED"$'\t'"$SB" ]; then
+                story_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$aurl" merged
+            else
+                echo "[$NUM] $TICKET chain: already evaluated (marker=${mstate:-unknown})"
+            fi
+            return 0
+        else
+            chain_reconcile "$NUM" "$TICKET" "$REPO" "$N1H" "$URL" "n1-${QUEUE_ID}-${TICKET}-${NUM}-fin" "$poll" "$mstate" || rc=$?
+            [ "$rc" -eq 10 ] || { echo "[$NUM] $TICKET chain: already evaluated (marker=${mstate:-unknown})"; return 0; }
+        fi
     else
     csid=$(n1_queue_session_id "$QUEUE" "$TICKET")
     case "$csid" in orca:*) csid="" ;; esac  # N1-225: an Orca worker has already settled (worker_done/exited) here
@@ -707,6 +834,7 @@ chain_finish() {
     fi
     mark pending || { chain_note "$NUM" "$TICKET" marker-write-failed; return 0; }
     fi
+    if [ -n "$SB" ]; then story_merge "$NUM" "$TICKET" "$REPO" "$N1H"; return 0; fi
     st=$(n1_queue_pr_state "$URL")
     case "$st" in
         MERGED) mark done; chain_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$URL"; return 0 ;;
@@ -984,7 +1112,7 @@ launch_orca() {
 # orca_settle <task> — release the worker, drop its sentinel, run the owed fullAuto chain (once). Uses run_orca's
 # SETTLED/OWED (dynamic scope). A task whose row is still in flight waits.
 orca_settle() {
-    local TASK="$1" T DISP ROW NUM TICKET REPO N1H MODEL URL
+    local TASK="$1" T DISP ROW NUM TICKET REPO N1H MODEL URL SB SBID fb=1
     [[ "$SETTLED" == *" $TASK "* ]] && return
     IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
     [ -n "$T" ] || return
@@ -999,7 +1127,11 @@ orca_settle() {
         URL=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")   # N1-268: only a PR attributed to this run is recorded merged
         # N1-268: a worker that merged its own PR (its own fullAuto finish) is recorded merged even when the
         # runner's chain did not run or did not merge.
-        if [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] && [ "$(n1_queue_pr_state "$URL")" = MERGED ]; then
+        # CR-2: a story row is recorded only for a PR merged into its story branch; story_merge records every valid merge.
+        if [ "$RUN_MODE" = story ]; then
+            story_env "$REPO" && [ "$(n1_queue_pr_view "$URL" | cut -f1,2)" = "MERGED"$'\t'"$SB" ] || fb=0
+        fi
+        if [ "$fb" = 1 ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] && [ "$(n1_queue_pr_state "$URL")" = MERGED ]; then
             n1_queue_runs_outcome "$QUEUE" "$TICKET" merged "$URL"
             ev ticket_finished ticket="$TICKET" outcome=merged pr="$URL" session="$(n1_queue_session_id "$QUEUE" "$TICKET")"
             echo "[$NUM] $TICKET -> merged $URL"
@@ -1034,13 +1166,22 @@ run_orca() {
     # N1-303: an overlap successor waits for its predecessor's merge only when the predecessor's own N1 Home merges its PRs
     # (chain_authorized, evaluated per predecessor row by n1_queue_eligible_rows).
     MERGE=chain_authorized
+    # N1-292: in a story queue the runner merges every green child itself, so a successor always waits for that merge.
+    if [ "$RUN_MODE" = story ]; then MERGE=true; fi
     LIVE_OK=1; LIVE=$(n1_orca_liveness "$ORCA_RUN") || { LIVE=""; LIVE_OK=0; }
     # A runner restart loses OWED: re-owe this run's finished rows that are not settled yet (settle removes the
     # sentinel, so a row whose sentinel still names its task is the unsettled one).
     while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _; do
         [ "$(n1_read_frontmatter "$N1H/memory/$TICKET/overview.md" queue_run_id 2>/dev/null)" = "$RUN_ID" ] || continue
         SID=$(n1_queue_session_id "$QUEUE" "$TICKET"); case "$SID" in orca:*/*) TASK="${SID#orca:}"; TASK="${TASK%%/*}" ;; *) continue ;; esac
-        [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$N1H" "$TICKET")" N1_ORCA_TASK)" = "$TASK" ] && OWED="$OWED$TASK "
+        if [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$N1H" "$TICKET")" N1_ORCA_TASK)" = "$TASK" ]; then
+            OWED="$OWED$TASK "
+        elif [ "$RUN_MODE" = story ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ]; then
+            # CR-1: a settled story row whose merge was refused or interrupted is re-evaluated on resume, as the bg
+            # restart sweep does. An existing marker is interpreted by chain_finish (pending re-merges, done records an
+            # already-MERGED PR); the escalation guard and the story_merge gates still apply.
+            chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")" </dev/null
+        fi
     done < <(n1_queue_pending_rows "$QUEUE" pr)
     while true; do
         # N1-321: test-only tick cap; unset (production) it is a no-op. Set to a number, the runner stops itself after
@@ -1354,13 +1495,17 @@ run_orca() {
 # process would otherwise leak into chained finish/clean settings.
 unset N1_STORY_ID N1_STORY_BRANCH
 
+# N1-292 SEC-3: snapshot the story mode and id once; story_env and the Orca merge wait use these, never queue.md again.
+RUN_MODE=""; [ "$(n1_read_frontmatter "$QUEUE" mode)" = story ] && RUN_MODE=story
+RUN_STORY_ID=$(n1_read_frontmatter "$QUEUE" story_id)
+
 # N1-290: story mode makes sure origin carries story/<story_id> in every distinct repo of the rows still to run
 # (cut from that repo's origin/<default>; an existing branch is reused, never reset) and records repo -> branch in
 # ## Story Branches, which N1-291/292 read via n1_queue_story_branch_get. Every entry (fresh, --run, unattended,
 # interrupted resume) passes here, before the chain sweep below and the backend dispatch launch anything. A failure
 # halts before any launch (ORCA_LOOP is empty here, so halt is halt_now). Tag mode and plans without mode: story skip.
-if [ "$(n1_read_frontmatter "$QUEUE" mode)" = story ]; then
-    STORY_ID=$(n1_read_frontmatter "$QUEUE" story_id)
+if [ "$RUN_MODE" = story ]; then
+    STORY_ID="$RUN_STORY_ID"
     [ -n "$STORY_ID" ] || halt "HALTED: story queue $QUEUE_ID has no story_id; re-plan it with /n1:n1-queue --story <ID>"
     SB_SEEN=$'\n'
     while IFS=$'\t' read -r _ _ SB_REPO SB_N1H _ _; do

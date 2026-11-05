@@ -129,6 +129,48 @@ test_orca_story_base() {
     rm -rf "$tmp" "$t2"
 }
 
+# N1-292: on the Orca settle path the runner merges story children. A scheduled successor waits for that merge even
+# without fullAuto (MERGE=true in story mode), and a predecessor whose merge was refused skips it with the reason.
+# Ticket keys are T-1/T-2: n1_queue_schedule_rows drops a non-key ticket such as T-A.
+test_orca_story_runner_merge() {
+    local tmp
+    tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-1:done" "T-2:done"; mk_orca "$tmp"
+    sched_set "$tmp" 2 T-2 T-1
+    assert_eq "orca-story-merge: exit 0" 0 "$(run_orca_queue "$tmp")"
+    assert_eq "orca-story-merge: T-1 merged first" yes "$(head -n1 "$tmp/fake/gh-merge" 2>/dev/null | grep -qF 'pull/1 ' && echo yes || echo no)"
+    assert_eq "orca-story-merge: both merged" "merged,merged" "$(runs_outcome "$tmp/queue.md" T-1),$(runs_outcome "$tmp/queue.md" T-2)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-1:done" "T-2:done"; mk_orca "$tmp"
+    sched_set "$tmp" 2 T-2 T-1
+    echo 1 > "$tmp/fake/gh-merge-rc"; echo 'Pull request o/r#1 is not mergeable' > "$tmp/fake/gh-merge-err"
+    run_orca_queue "$tmp" >/dev/null
+    assert_eq "orca-story-merge refused: successor skipped with reason" "skip|predecessor T-1 not merged (finish:dirty)" \
+        "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "orca-story-merge refused: successor never started" 0 "$(grep -c -- "--task task-T-2" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-292 CR-1: a refused story merge (ci-pending) is retried by an Orca resume once CI is green: one merge, no double.
+# CR-2: a PR merged elsewhere (not into the story branch) is not recorded merged by the settle fallback.
+test_orca_story_merge_retry_and_wrong_base() {
+    local tmp
+    tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-1:done"; mk_orca "$tmp"
+    echo '[{"bucket":"pending"}]' > "$tmp/fake/gh-checks"; echo 8 > "$tmp/fake/gh-checks-rc"
+    run_orca_queue "$tmp" >/dev/null
+    assert_eq "orca-story-retry: pending CI merges nothing" "0|finish:ci-pending" "$(nlines "$tmp/fake/gh-merge")|$(plan_cell "$tmp/queue.md" 1 9)"
+    echo '[{"bucket":"pass"}]' > "$tmp/fake/gh-checks"; echo 0 > "$tmp/fake/gh-checks-rc"
+    run_orca_queue "$tmp" >/dev/null
+    assert_eq "orca-story-retry: resume merges once" "1|merged" "$(nlines "$tmp/fake/gh-merge")|$(runs_outcome "$tmp/queue.md" T-1)"
+    run_orca_queue "$tmp" >/dev/null
+    assert_eq "orca-story-retry: a further resume does not merge again" 1 "$(nlines "$tmp/fake/gh-merge")"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-1:done"; mk_orca "$tmp"
+    printf 'MERGED\tmain\t%s\n' "$SM_PIN" > "$tmp/fake/gh-view.1"; echo MERGED > "$tmp/fake/gh-state"
+    run_orca_queue "$tmp" >/dev/null
+    assert_eq "orca-story-wrong-base: not recorded merged" no "$([ "$(runs_outcome "$tmp/queue.md" T-1)" = merged ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 test_orca_max_concurrent() {
     local tmp b_start a_rel; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.maxConcurrent = 1'
@@ -1182,6 +1224,8 @@ test_orca_sigkill_runner_gone() {
 
 test_orca_parallel_workers
 test_orca_story_base
+test_orca_story_runner_merge
+test_orca_story_merge_retry_and_wrong_base
 test_orca_max_concurrent
 test_orca_max_concurrent_default
 test_orca_max_concurrent_invalid

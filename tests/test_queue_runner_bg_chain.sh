@@ -375,25 +375,235 @@ test_bg_chain_row_home() {
     rm -rf "$tmp"
 }
 
-# N1-291: in a story run the child launch carries the story env; the chained finish and clean launches never do.
+# N1-291/N1-292: in a story run the child launch carries the story env. The runner merges the PR itself, so even with
+# fullAuto + mergeOnFinish there is no chained finish or clean session, and the Done session carries no story env.
 test_bg_chain_story_env_scoped() {
     local tmp; tmp=$(mktemp -d)
-    git init -q -b main "$tmp/origin"
-    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
-    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
-    mk_bg "$tmp" bgq "T-A:working done"
-    sed -i "s#| $tmp | $tmp/n1home |#| $tmp/repo | $tmp/n1home |#g" "$tmp/queue.md"
-    n1_write_frontmatter "$tmp/queue.md" mode story; n1_write_frontmatter "$tmp/queue.md" story_id S-1
-    chain_setup "$tmp" true true
-    gh_overview "$tmp/fake/overview.T-A" 1
-    echo "working done" > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    story_merge_fixture "$tmp" "T-A:working done"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true'
     assert_eq "story-chain: exit 0" 0 "$(run_bg_queue "$tmp")"
-    assert_eq "story-chain: finish launched" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
-    assert_eq "story-chain: clean launched" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-clean')"
+    assert_eq "story-chain: no finish or clean launch" 0 "$(grep -cE '^launch n1-sq-T-A-1-(fin|clean)$' "$tmp/fake/events" || true)"
     assert_eq "story-chain: child launch carries story env" "S-1,story/S-1" \
-        "$(jq -r '[.env.N1_STORY_ID,.env.N1_STORY_BRANCH]|join(",")' "$tmp/fake/settings.n1-bgq-T-A-1")"
-    assert_eq "story-chain: finish and clean launches carry no story env" "0" \
-        "$(cat "$tmp/fake/settings.n1-bgq-T-A-1-fin" "$tmp/fake/settings.n1-bgq-T-A-1-clean" | grep -c N1_STORY_ || true)"
+        "$(jq -r '[.env.N1_STORY_ID,.env.N1_STORY_BRANCH]|join(",")' "$tmp/fake/settings.n1-sq-T-A-1")"
+    assert_eq "story-chain: Done launch carries no story env" 0 "$(grep -c N1_STORY_ "$tmp/fake/settings.n1-sq-T-A-1-done" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-292 AC1: a green, reviewed story child is merged by the runner into story/S-1 at the pin, without fullAuto.
+test_story_merge_green() {
+    local tmp; tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done"
+    assert_eq "story-merge: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "story-merge: one merge at the pin, squash default" \
+        "pr merge https://github.com/o/r/pull/1 --squash --match-head-commit $SM_PIN" "$(cat "$tmp/fake/gh-merge" 2>/dev/null)"
+    assert_eq "story-merge: Outcome merged" merged "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "story-merge: Status pr, Reason merged" "pr|merged" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-merge: one Done session" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    assert_eq "story-merge: Done prompt ends with the ticket" "Ticket: T-A" "$(grep -o 'Ticket: T-A$' "$tmp/fake/prompt.n1-sq-T-A-1-done")"
+    assert_eq "story-merge: Done prompt forbids merging" yes "$(grep -qF 'no merge' "$tmp/fake/prompt.n1-sq-T-A-1-done" && echo yes || echo no)"
+    assert_eq "story-merge: marker done" "$(n1_read_frontmatter "$tmp/queue.md" run_id),done" "$(head -n2 "$tmp/.chained-T-A" | paste -sd,)"
+    assert_eq "story-merge: local story branch fast-forwarded" "$(git -C "$tmp/origin" rev-parse story/S-1)" \
+        "$(git -C "$tmp/repo" rev-parse story/S-1 2>/dev/null)"
+    assert_eq "story-merge: merged event" T-A \
+        "$(jq -r 'select(.event == "ticket_finished" and .outcome == "merged") | .ticket' "$tmp/events.jsonl")"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done"
+    cfg_set "$tmp" '.finishWork.mergeMethod = "rebase"'
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-merge: finishWork.mergeMethod honoured" yes "$(grep -qF -- '--rebase --match-head-commit' "$tmp/fake/gh-merge" && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-292 AC2: wrong base, moved head, gh view error, foreign repo, no pin or a non-OPEN PR merge nothing.
+test_story_merge_refusals() {
+    local tmp spec c want mk
+    for spec in wrong-base:wrong-base:done head-moved:head-moved:done view-error:pr-state-unreadable: \
+                repo-mismatch:pr-repo-mismatch:done no-pin:no-pin:done not-open:pr-not-open:done \
+                pin-unavailable:pin-unavailable:; do
+        IFS=: read -r c want mk <<< "$spec"
+        tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+        case "$c" in
+            wrong-base) printf 'OPEN\tmain\t%s\n' "$SM_PIN" > "$tmp/fake/gh-view.1" ;;
+            head-moved) printf 'OPEN\tstory/S-1\t%s\n' "$(printf '%040d' 0 | tr 0 2)" > "$tmp/fake/gh-view.1" ;;
+            view-error) rm -f "$tmp/fake/gh-view.1" ;;
+            repo-mismatch) echo x/y > "$tmp/fake/gh-repo" ;;
+            no-pin) rm -f "$tmp/n1home/review-pins/o_r_1" ;;
+            pin-unavailable) touch "$tmp/fake/gh-repo-fail-from2" ;;   # CR-3: a failed pin lookup is retryable, not no-pin
+            not-open) printf 'CLOSED\tstory/S-1\t%s\n' "$SM_PIN" > "$tmp/fake/gh-view.1" ;;
+        esac
+        run_bg_queue "$tmp" >/dev/null
+        assert_eq "story-refuse $c: nothing merged" 0 "$(nlines "$tmp/fake/gh-merge")"
+        assert_eq "story-refuse $c: row pr, reason" "pr|finish:$want" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+        assert_eq "story-refuse $c: marker" "$mk" "$(sed -n 2p "$tmp/.chained-T-A" 2>/dev/null || true)"
+        assert_eq "story-refuse $c: no Done session" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+        rm -rf "$tmp"
+    done
+}
+
+# sm_ci_case <label> <checks-json> <rc> <stderr> <merges> <reason> <marker> — one CI class through the runner.
+sm_ci_case() {
+    local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    printf '%s' "$2" > "$tmp/fake/gh-checks"; printf '%s' "$3" > "$tmp/fake/gh-checks-rc"; printf '%s' "$4" > "$tmp/fake/gh-checks-err"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-ci $1: merges" "$5" "$(nlines "$tmp/fake/gh-merge")"
+    assert_eq "story-ci $1: status|reason" "pr|$6" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-ci $1: marker" "$7" "$(sed -n 2p "$tmp/.chained-T-A" 2>/dev/null || true)"
+    [ "$1" != zero ] || assert_eq "story-ci zero: runner.log names it" yes \
+        "$(grep -qF 'merged https://github.com/o/r/pull/1 (merged: no CI on story base)' "$tmp/output.txt" && echo yes || echo no)"
+    [ "$1" != red ] || assert_eq "story-ci red: no strike, no halt" 0 "$(grep -c HALTED "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-292 AC3/AC4 + ledger: red and pending CI and unreadable checks merge nothing and leave the marker unwritten
+# (--run retries). Zero checks merges and records "no CI on story base".
+test_story_merge_ci() {
+    sm_ci_case red '[{"bucket":"pass"},{"bucket":"fail"}]' 1 '' 0 finish:ci-red ''
+    sm_ci_case pending '[{"bucket":"pending"}]' 8 '' 0 finish:ci-pending ''
+    sm_ci_case unreadable '' 1 'HTTP 502: Bad Gateway' 0 finish:ci-unreadable ''
+    sm_ci_case zero '' 1 "no checks reported on the 'feat' branch" 1 'merged: no CI on story base' done
+}
+
+# N1-292: a refused merge (DIRTY) is not auto-resolved or looped. A base that reads other than the story branch after
+# the merge (TOCTOU retarget) raises an escalation and records no merge.
+test_story_merge_refused_and_retarget() {
+    local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    echo 1 > "$tmp/fake/gh-merge-rc"
+    echo 'Pull request o/r#1 is not mergeable: the merge commit cannot be cleanly created.' > "$tmp/fake/gh-merge-err"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-dirty: one attempt, row pr finish:dirty" "1|pr|finish:dirty" \
+        "$(nlines "$tmp/fake/gh-merge")|$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-dirty: marker removed" no "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)"
+    assert_eq "story-dirty: Outcome not merged" no "$([ "$(runs_outcome "$tmp/queue.md" T-A)" = merged ] && echo yes || echo no)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    echo main > "$tmp/fake/gh-view-after"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-retarget: row flagged" "pr|finish:merged-off-story" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-retarget: escalated event" 1 \
+        "$(jq -r 'select(.event == "escalated") | .ticket' "$tmp/events.jsonl" | grep -c '^T-A$' || true)"
+    assert_eq "story-retarget: no Done session" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+}
+
+# N1-292 SEC-2: a post-merge base that cannot be read is not a clean merge: escalate, record no merge, no Done session.
+test_story_merge_base_unverified() {
+    local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    touch "$tmp/fake/gh-view-gone-after"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-unverified: one merge attempt, not recorded merged" "1|no" \
+        "$(nlines "$tmp/fake/gh-merge")|$([ "$(runs_outcome "$tmp/queue.md" T-A)" = merged ] && echo yes || echo no)"
+    assert_eq "story-unverified: row flagged" "pr|finish:merge-base-unverified" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-unverified: escalated event" 1 "$(jq -r 'select(.event == "escalated") | .ticket' "$tmp/events.jsonl" | grep -c '^T-A$' || true)"
+    assert_eq "story-unverified: no Done session" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+}
+
+# A merge that leaves the PR OPEN (merge queue) is not recorded merged: marker removed so a resume re-evaluates.
+test_story_merge_queued_not_recorded() {
+    local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    touch "$tmp/fake/gh-merge-queued"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-queued: not recorded merged, row finish:merge-pending" "no|finish:merge-pending" \
+        "$([ "$(runs_outcome "$tmp/queue.md" T-A)" = merged ] && echo yes || echo no)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-queued: marker removed, no Done session" "no|0" \
+        "$([ -e "$tmp/.chained-T-A" ] && echo yes || echo no)|$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+}
+
+# N1-292 SEC-1: a forged pending marker does not skip the escalation guard before the runner merges.
+test_story_pending_marker_guarded() {
+    local tmp; tmp=$(mktemp -d); story_restart_setup "$tmp" pending OPEN
+    touch "$tmp/.escalated-T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-forged-pending: nothing merged, child-escalated" "0|finish:child-escalated" "$(nlines "$tmp/fake/gh-merge")|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# N1-292 SEC-3: story mode is fixed at run start. A child that rewrites a tag queue to story mode gets no runner merge.
+test_story_mode_snapshot() {
+    local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    sed -i -e '/^mode: story$/d' -e '/^story_id: S-1$/d' "$tmp/queue.md"
+    printf '%s' "$tmp/repo" > "$tmp/fake/forge-story"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-forged-mode: nothing merged" 0 "$(nlines "$tmp/fake/gh-merge")"
+    assert_eq "story-forged-mode: row refused" "pr|finish:story-branch-invalid" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# N1-292 AC9: a resumed run never merges twice. A PR already merged into the story branch is only recorded (Done
+# session once). A recorded merge is left alone. A pending marker re-runs the head-pinned merge. A red-CI row
+# (marker removed) is re-evaluated, and its stale finish:ci-red Reason is overwritten.
+test_story_resume() {
+    local tmp
+    tmp=$(mktemp -d); story_restart_setup "$tmp" done MERGED
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume merged: recorded, no merge call" "merged|0" "$(runs_outcome "$tmp/queue.md" T-A)|$(nlines "$tmp/fake/gh-merge")"
+    assert_eq "story-resume merged: one Done session" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_restart_setup "$tmp" done MERGED
+    n1_queue_runs_outcome "$tmp/queue.md" T-A merged
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume recorded: no merge, no Done relaunch" "0|0" \
+        "$(nlines "$tmp/fake/gh-merge")|$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_restart_setup "$tmp" done OPEN
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume done+OPEN: already evaluated, no merge" 0 "$(nlines "$tmp/fake/gh-merge")"
+    assert_eq "story-resume done+OPEN: log line" yes "$(grep -qF 'T-A chain: already evaluated (marker=done)' "$tmp/output.txt" && echo yes || echo no)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_restart_setup "$tmp" pending OPEN
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume pending+OPEN: one merge, merged" "1|merged" "$(nlines "$tmp/fake/gh-merge")|$(runs_outcome "$tmp/queue.md" T-A)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); story_restart_setup "$tmp" "" OPEN
+    n1_queue_row_status "$tmp/queue.md" 1 pr "finish:ci-red"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-resume after red CI: merged, stale reason overwritten" "1|merged" "$(nlines "$tmp/fake/gh-merge")|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# N1-292 AC6: a held story child starts after the runner merged its blocker into story/S-1, without fullAuto.
+test_story_held_released_after_runner_merge() {
+    local tmp done_a launch_b; tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    assert_eq "story-held: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "story-held: T-B launched once" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-B-2')"
+    done_a=$(line_of "$tmp/fake/events" 'launch n1-sq-T-A-1-done'); launch_b=$(line_of "$tmp/fake/events" 'launch n1-sq-T-B-2')
+    assert_eq "story-held: T-B launches after T-A merged" yes \
+        "$([ -n "$done_a" ] && [ -n "$launch_b" ] && [ "$launch_b" -gt "$done_a" ] && echo yes || echo no)"
+    assert_eq "story-held: both merged by the runner" "merged,merged,2" \
+        "$(runs_outcome "$tmp/queue.md" T-A),$(runs_outcome "$tmp/queue.md" T-B),$(nlines "$tmp/fake/gh-merge")"
+    rm -rf "$tmp"
+}
+
+# N1-292 AC7: a dependent of a finish:ci-red child does not run and names the blocker. Independents run, and the
+# 3-strike count is unchanged (ci-red is no strike: T-C failing plus its deferred retry make 2, no halt).
+test_story_dependents_of_ci_red() {
+    local tmp; tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done" "T-B:done" "T-C:failed"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    echo '[{"bucket":"fail"}]' > "$tmp/fake/gh-checks"; echo 1 > "$tmp/fake/gh-checks-rc"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-red: blocker row" "pr|finish:ci-red" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-red: dependent skipped, names blocker" "skip|blocked by T-A (finish:ci-red)" \
+        "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
+    assert_eq "story-red: dependent never launched" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-B-2')"
+    assert_eq "story-red: independent ran" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-C-3')"
+    assert_eq "story-red: no halt" 0 "$(grep -c HALTED "$tmp/output.txt" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-292 AC8: a failed Done launch is a ticket_done failed event. The merge stands and is never retried.
+test_story_done_launch_failed() {
+    local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    touch "$tmp/fake/refuse-done"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-done-fail: one merge, Outcome merged" "1|merged" "$(nlines "$tmp/fake/gh-merge")|$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "story-done-fail: Reason stays merged" merged "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-done-fail: ticket_done failed event" 1 \
+        "$(jq -r 'select(.event == "ticket_done" and .outcome == "failed") | .ticket' "$tmp/events.jsonl" | grep -c '^T-A$' || true)"
     rm -rf "$tmp"
 }
 
@@ -422,6 +632,14 @@ test_merge_wording() {
     local has; has() { grep -qF -- "$1" "$2" && echo yes || echo no; }
     assert_eq "wording: held tickets start on a user or chain merge" yes \
         "$(has "merged (by the user, or by the runner's fullAuto chain)" "$REPO_ROOT/skills/n1-queue/steps/run.md")"
+    assert_eq "wording: SKILL.md names the story runner merge (N1-292)" yes \
+        "$(has 'the runner itself merges each green, reviewed child PR into `story/<STORY_ID>`' "$REPO_ROOT/skills/n1-queue/SKILL.md")"
+    assert_eq "wording: run.md story release (N1-292)" yes \
+        "$(has 'once the runner merged the blocker into the story branch' "$REPO_ROOT/skills/n1-queue/steps/run.md")"
+    assert_eq "wording: architecture documents story_merge (N1-292)" yes \
+        "$(has 'Story mode (N1-292): the runner itself merges' "$REPO_ROOT/references/architecture.md")"
+    assert_eq "wording: architecture lists ticket_done (N1-292)" yes \
+        "$(has '`ticket_done` (N1-292' "$REPO_ROOT/references/architecture.md")"
 }
 
 test_bg_held_not_launched() {
@@ -514,6 +732,18 @@ test_bg_chain_restart
 test_bg_chain_reconcile
 test_bg_chain_row_home
 test_bg_chain_story_env_scoped
+test_story_merge_green
+test_story_merge_refusals
+test_story_merge_ci
+test_story_merge_refused_and_retarget
+test_story_done_launch_failed
+test_story_merge_base_unverified
+test_story_merge_queued_not_recorded
+test_story_pending_marker_guarded
+test_story_mode_snapshot
+test_story_resume
+test_story_held_released_after_runner_merge
+test_story_dependents_of_ci_red
 test_lifecycle_wiring
 test_merge_wording
 

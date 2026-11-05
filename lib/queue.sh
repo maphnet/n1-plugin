@@ -213,7 +213,7 @@ n1_queue_finish_cmd() {
     # Usage: n1_queue_finish_cmd <repoPath> <ticket-id> <model> <run-id> <session-name>
     # N1-185: background `n1-finish <ticket> chained` for the runner's fullAuto chain. Same settings env
     # as a child, so n1-finish re-checks n1_merge_authorized as an unattended run and the merge-deny
-    # hook still applies. The runner itself never merges.
+    # hook still applies. In tag mode the runner itself never merges (story mode: story_merge in n1-queue-run.sh, N1-292).
     n1_bg_launch_cmd "$5" n1-finish "$2 chained" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
 }
 
@@ -222,6 +222,14 @@ n1_queue_clean_cmd() {
     # N1-339: background `n1-clean --ticket <ticket>` for a merged row, same settings env as a chained finish.
     # The runner never removes a worktree itself.
     n1_bg_launch_cmd "$5" n1-clean "--ticket $2" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
+}
+
+n1_queue_done_cmd() {
+    # Usage: n1_queue_done_cmd <repoPath> <ticket-id> <model> <run-id> <session-name>
+    # N1-292: background n1-run session for a story child the runner merged. It moves the ticket to the tracker done
+    # status and does nothing else (n1-finish would also watch deploys and clean up). It uses the same settings env as a
+    # chained finish, and its cwd is the row repo, so it reads the row's N1 Home tracker config.
+    n1_bg_launch_cmd "$5" n1-run "Queue story Done step (N1-292): the queue runner merged this ticket's PR into its story branch. Move the tracker ticket to the done status configured for the tracker in this project's N1 config (the status n1-finish Step 4 uses), through the tracker. Do nothing else: no merge, no git command, no PR edit, no deploy watch, no worktree cleanup. If the transition fails, end with the line done-transition: failed <reason>. Ticket: $2" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
 }
 
 n1_queue_cleanup_needed() {
@@ -244,6 +252,48 @@ n1_queue_pr_state() {
         [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
     done
     return 0
+}
+
+n1_queue_pr_view() {
+    # Usage: n1_queue_pr_view <pr-url> — N1-292: "<state>\t<baseRefName>\t<headRefOid>" from one gh read. Retries like
+    # n1_queue_pr_state (3 attempts, 2s/4s backoff). Prints nothing for a non-GitHub-PR URL or on a persistent gh error,
+    # and the caller (story_merge) then merges nothing.
+    [[ "$1" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || return 0
+    local attempt out
+    for attempt in 1 2 3; do
+        out=$(timeout 30 gh pr view --json state,baseRefName,headRefOid -q '[.state,.baseRefName,.headRefOid]|@tsv' -- "$1" </dev/null 2>/dev/null) || out=""
+        [ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
+        [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+    done
+    return 0
+}
+
+n1_queue_checks_class() {
+    # Usage: n1_queue_checks_class <pr-url> — N1-292: one `gh pr checks` read (no poll loop) printed as
+    # green (all pass/skipping) | red (any fail/cancel) | pending | none | error.
+    # stdout is parsed whatever the exit code (gh exits 8 while checks are pending, 1 when one failed). Zero checks is a gh
+    # error whose stderr says "no checks reported" (cli/cli pkg/cmd/pr/checks/checks.go), printed as none. Any other error
+    # or non-JSON output is printed as error.
+    [[ "$1" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || { echo error; return 0; }
+    local out errf err rc=0
+    errf=$(mktemp) || { echo error; return 0; }
+    out=$(timeout 30 gh pr checks "$1" --json bucket </dev/null 2>"$errf") || rc=$?
+    err=$(cat "$errf"); rm -f "$errf"
+    if [ "$rc" -ne 0 ] && grep -q 'no checks reported' <<< "$err"; then echo none; return 0; fi
+    jq -e 'type == "array"' >/dev/null 2>&1 <<< "$out" || { echo error; return 0; }
+    jq -r 'if length == 0 then "none"
+        elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "red"
+        elif any(.[]; .bucket == "pending") then "pending"
+        elif all(.[]; .bucket == "pass" or .bucket == "skipping") then "green"
+        else "error" end' <<< "$out"
+}
+
+n1_queue_sync_story() {
+    # Usage: n1_queue_sync_story <repo> <story-branch> — N1-292: best-effort fast-forward of the local story branch after
+    # a runner merge. The refspec has no "+", so the update is never forced. git refuses it while the branch is checked out.
+    # Children cut from origin/<sb>, so the caller only logs a failure.
+    [[ "$2" =~ ^story/[A-Za-z0-9._-]+$ ]] && git check-ref-format --branch "$2" >/dev/null 2>&1 || return 1
+    git -C "$1" fetch --quiet origin "refs/heads/$2:refs/heads/$2" >&2
 }
 
 _n1_queue_sanitize_cell() {
@@ -366,6 +416,12 @@ n1_queue_child_obsolete() {
     [ -z "$(n1_queue_child_open_pr "$t" "$h" "$repo" "$start")" ]
 }
 
+_n1_queue_plan_reason() {
+    # Usage: _n1_queue_plan_reason <queue.md> <ticket> — trimmed Reason cell of the ticket's Plan row (last match).
+    awk -F'|' -v t="$2" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
+        $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { r = $9 } END { print r }' "$1"
+}
+
 n1_queue_held_sweep() {
     # Usage: n1_queue_held_sweep <queue.md>
     # N1-64: a held row whose blocker ended without a PR (failed/escalated/skip) or is not in the
@@ -381,7 +437,7 @@ n1_queue_held_sweep() {
     # URL can at worst release a held row early. Non-GitHub-PR URLs count as not merged (SEC-2).
     # Only a merge into the blocker repo's default branch (story mode: its story branch) releases; any other base stays held.
     # The first gh stderr line goes to the runner's stderr (runner.log), not /dev/null.
-    local q="$1" num t b st h r url state base d sb n=0
+    local q="$1" num t b st h r url state base d sb why n=0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$b" && st=obsolete
@@ -406,7 +462,15 @@ n1_queue_held_sweep() {
                 fi
                 sb=$(n1_queue_story_branch_get "$q" "$r")
                 if [ -n "$sb" ]; then   # N1-291: a story child's PR targets its story branch; children are cut from origin/<sb>, no local sync
-                    [ "$state" = MERGED ] && [ "$base" = "$sb" ] && n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                    if [ "$state" = MERGED ] && [ "$base" = "$sb" ]; then
+                        n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                    else
+                        # N1-292: the runner merges story children itself. A blocker whose merge ended finish:<why>
+                        # (ci-red, dirty, wrong-base, ...) does not merge this run, so its dependent is skipped. MERGED is
+                        # tested first: a merged blocker with a stale finish:* Reason still releases.
+                        why=$(_n1_queue_plan_reason "$q" "$b")
+                        case "$why" in finish:*) n1_queue_row_status "$q" "$num" skip "blocked by $b (${why%% *})"; continue ;; esac
+                    fi
                 else
                     d=$(N1_HOME="$h" n1_config_val '.git.defaultBranch' 2>/dev/null); d="${d:-main}"
                     if [ "$state" = MERGED ] && [ "$base" = "$d" ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
@@ -456,8 +520,7 @@ n1_queue_eligible_rows() {
                     if [ "$mrg" = true ] && [ "$(awk -F'|' -v tk="$p" '/^## Runs/ { f = 1; next }
                         f { x = $2; gsub(/ /, "", x); if (x == tk) { o = $5; gsub(/ /, "", o) } } END { print o }' "$q")" != merged ]; then
                         # a chain that ended without merging (Reason finish:<why>) is final unless a merge is still owed
-                        why=$(awk -F'|' -v t="$p" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
-                            $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { r = $9 } END { print r }' "$q")
+                        why=$(_n1_queue_plan_reason "$q" "$p")
                         case "$why" in
                             finish:*) n1_queue_row_status "$q" "$num" skip "predecessor $p not merged (${why%% *})"
                                       ok=0; break ;;

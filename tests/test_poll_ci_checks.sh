@@ -40,4 +40,13 @@ FIX='[{"name":"bad\t\nname","bucket":"fail","link":"http://x"},{"name":"p","buck
 OUT=$(jq -r "$DOC_JQ" <<<"$FIX")
 expect "doc jq: total/pending line" "total=2 pending=1" "$(head -1 <<<"$OUT")"
 expect "doc jq: exactly one clean FAIL line" "1:FAIL	bad  name	http://x" "$(grep -c '^FAIL' <<<"$OUT"):$(grep '^FAIL' <<<"$OUT")"
+
+# N1-292: a PR on a non-default base (story branch) gets a 2-minute registration window that ends as no CI, not a STOP.
+M=skills/n1-ci/steps/01-monitor.md
+expect "n1-ci reads the PR base once" yes "$(grep -qF 'gh pr view <PR#> --json baseRefName --jq .baseRefName' "$M" && echo yes || echo no)"
+L=$(grep -F 'Non-default base, nothing after 2 min' "$M" || true)
+expect "n1-ci non-default base: 2-minute window line" yes "$([ -n "$L" ] && echo yes || echo no)"
+expect "n1-ci non-default base: no CI on story base" yes "$(grep -qF 'No CI on story base' <<< "$L" && echo yes || echo no)"
+expect "n1-ci non-default base: not a STOP" no "$(grep -qF 'STOP' <<< "$L" && echo yes || echo no)"
+expect "n1-ci non-default base: ends as no checks configured" yes "$(grep -qF 'no checks configured' <<< "$L" && echo yes || echo no)"
 exit $FAIL
