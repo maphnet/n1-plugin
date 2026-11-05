@@ -449,7 +449,8 @@ def _command(payload):
     return command if isinstance(command, str) else None
 
 
-TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1-clean\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b")
+# N1-392: also no push and no PR comment, in every tail-worker mode (gh pr edit stays allowed: finish-mode deployment ticking) (codex-triage hands its file to the orchestrator). Best effort like the rest of this regex.
+TAIL_DENY_RE = re.compile(r"\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm)\b|n1-release|\bn1-clean\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?push\b|\bgh\s+pr\s+comment\b")
 
 
 # Bash text of an Orca child (best effort, accidental tamper only, like TAIL_DENY_RE: an obfuscated command is
@@ -496,7 +497,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     if tail:
         cmd = _command(payload) or ""
         if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
-            sys.stderr.write("N1: tail-worker may not run merge/cleanup/run-pointer/release commands; the orchestrator owns them\n")
+            sys.stderr.write("N1: tail-worker may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
     elif merge_authorized(config):
         return 0
