@@ -1308,7 +1308,7 @@ n1_queue_watch() {
     # Usage: n1_queue_watch <queue_dir> <run_id> <runner_pid> [from_line]
     # Session-side relay for one queue run. Every queue.pollSeconds, prints new escalated (full
     # mirrored question when present) / answer_delivered /
-    # ticket_finished / ticket_comment / ticket_replan / stalled / halted / queue_done
+    # ticket_finished / ticket_comment / ticket_replan / stalled / worker_stopped (errored only, N1-393) / halted / queue_done
     # events in <queue_dir>/events.jsonl whose run_id is <run_id> (never queue id alone: a
     # relaunch appends to the same file).
     # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
@@ -1387,6 +1387,10 @@ n1_queue_watch() {
                         printf 'n1-queue %s: %s re-planned after an external ticket change: %s\n' "$q" "$t" "$reason" ;;
                     stalled)
                         printf 'n1-queue %s: %s may be stalled (%s)\n' "$q" "$t" "$reason" ;;
+                    worker_stopped)
+                        # N1-393: only an errored stop needs a human; finished/other stop reasons stay silent.
+                        case "$reason" in 'stopped (errored)'*)
+                            printf 'n1-queue %s: %s worker stopped, needs attention (%s)\n' "$q" "$t" "$reason" ;; esac ;;
                     ticket_finished)
                         printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
                     halted|queue_done)
@@ -1396,7 +1400,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "worker_stopped" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time
