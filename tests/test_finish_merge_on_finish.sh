@@ -113,14 +113,14 @@ REPO_FAIL=1 CHECKS='[]' pre
 line "pre: pin lookup failure prints pin:unavailable" "pin:unavailable"
 has "pre: no Codex receipt -> codex:none" "codex:none"
 RC="$T/state/review-receipts/s1"; mkdir -p "$RC"
-echo '{"outcome":"skipped"}' > "$RC/o_r_7.json"; pre
+echo '{"outcome":"skipped"}' > "$RC/feat.json"; pre
 has "pre: skipped Codex receipt -> codex:not-ran" "codex:not-ran"
-echo '{"outcome":"ran"}' > "$RC/o_r_7.json"; pre
+echo '{"outcome":"ran"}' > "$RC/feat.json"; pre
 has "pre: ran Codex receipt -> codex:ran" "codex:ran"
-rm "$RC/o_r_7.json"; mkdir -p "$N1_HOME/review-receipts/s0"
-echo '{"outcome":"ran"}' > "$N1_HOME/review-receipts/s0/o_r_7.json"; pre
+rm "$RC/feat.json"; mkdir -p "$N1_HOME/review-receipts/s0"
+echo '{"outcome":"ran"}' > "$N1_HOME/review-receipts/s0/feat.json"; pre
 has "pre: legacy per-project ran receipt -> codex:ran" "codex:ran"
-rm -rf "$N1_HOME/review-receipts"; echo '{"outcome":"ran"}' > "$RC/o_r_7.json"
+rm -rf "$N1_HOME/review-receipts"; echo '{"outcome":"ran"}' > "$RC/feat.json"
 echo "$S" > "$PIN"
 CHECKS='[{"bucket":"pass"},{"bucket":"fail"},{"bucket":"cancel"}]' pre
 has "pre: failed and cancelled counted" "checks:fail=2 pending=0"
