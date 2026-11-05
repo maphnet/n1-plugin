@@ -1329,6 +1329,28 @@ run_orca() {
     done
 }
 
+# N1-290: story mode makes sure origin carries story/<story_id> in every distinct repo of the rows still to run
+# (cut from that repo's origin/<default>; an existing branch is reused, never reset) and records repo -> branch in
+# ## Story Branches, which N1-291/292 read via n1_queue_story_branch_get. Every entry (fresh, --run, unattended,
+# interrupted resume) passes here, before the chain sweep below and the backend dispatch launch anything. A failure
+# halts before any launch (ORCA_LOOP is empty here, so halt is halt_now). Tag mode and plans without mode: story skip.
+if [ "$(n1_read_frontmatter "$QUEUE" mode)" = story ]; then
+    STORY_ID=$(n1_read_frontmatter "$QUEUE" story_id)
+    [ -n "$STORY_ID" ] || halt "HALTED: story queue $QUEUE_ID has no story_id; re-plan it with /n1:n1-queue --story <ID>"
+    SB_SEEN=$'\n'
+    while IFS=$'\t' read -r _ _ SB_REPO SB_N1H _ _; do
+        case "$SB_SEEN" in *$'\n'"$SB_REPO"$'\n'*) continue ;; esac
+        SB_SEEN="$SB_SEEN$SB_REPO"$'\n'
+        # First row's N1 Home wins for the repo's default branch (one default per repo).
+        SB_DEFAULT=$(N1_HOME="$SB_N1H" n1_config_val '.git.defaultBranch' 2>/dev/null); SB_DEFAULT="${SB_DEFAULT:-main}"
+        if ! SB_ERR=$(n1_queue_story_branch_ensure "$SB_REPO" "$STORY_ID" "$SB_DEFAULT" 2>&1 >/dev/null </dev/null); then
+            halt "HALTED: story branch story/$STORY_ID could not be created or pushed in $SB_REPO: ${SB_ERR##*$'\n'}; fix access, then /n1:n1-queue --run $QUEUE_ID"
+        fi
+        n1_queue_story_branch_set "$QUEUE" "$SB_REPO" "story/$STORY_ID" \
+            || halt "HALTED: story branch story/$STORY_ID for $SB_REPO could not be recorded in queue.md ## Story Branches (duplicate heading or no ## Runs); fix queue.md, then /n1:n1-queue --run $QUEUE_ID"
+    done < <(n1_queue_pending_rows "$QUEUE" 'pending|held|in-progress|awaiting-human')
+fi
+
 # N1-185: a chain owed from before a runner restart (row already pr, no .chained marker for this run).
 # Only rows this run finalized (finalize stamps queue_run_id on the overview): a pr row left over from an
 # earlier run, or from a run with the flags off, is never merged by a later run's sweep.
