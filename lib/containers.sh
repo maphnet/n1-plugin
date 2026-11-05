@@ -106,11 +106,8 @@ n1_containers_live() {
     d=$(_n1_ct_dir "${1:-}") || return 0
     f="$d/containers.tsv"
     [ -s "$f" ] || return 0                                   # nothing recorded: no Docker probe
-    if command -v timeout >/dev/null 2>&1; then   # bound a hung Docker; without timeout, run docker unbounded
-        run=$(timeout 5 docker ps -q --no-trunc 2>/dev/null) || return 1   # missing, failing or hung Docker
-    else
-        run=$(docker ps -q --no-trunc 2>/dev/null) || return 1             # missing or failing Docker
-    fi
+    command -v timeout >/dev/null 2>&1 || return 1   # no way to bound a hung Docker (sync SessionStart hook): report unknown
+    run=$(timeout 5 docker ps -q --no-trunc 2>/dev/null) || return 1   # missing, failing or hung Docker
     while IFS=$'\t' read -r cid name _; do
         [ -n "$cid" ] || continue
         grep -qxF -- "$cid" <<<"$run" || continue             # recorded but stopped/removed

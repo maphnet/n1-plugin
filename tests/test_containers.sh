@@ -204,8 +204,8 @@ BASH_BIN=$(command -v bash); ln -sf "$BASH_BIN" "$T/tools-notimeout/bash"; ln -s
 OUT=$( (PATH="$T/tools-nodocker"; n1_containers_live T-L; echo "rc=$?") 2>&1)
 has "LV10: docker missing (timeout present) -> rc 1" "rc=1" "$OUT"
 OUT=$( (PATH="$T/tools-notimeout"; n1_containers_live T-L; echo "rc=$?") 2>&1)
-has "LV11: timeout absent, docker present -> containers listed" "n01 (c01)" "$OUT"
-has "LV12: timeout absent, docker present -> rc 0" "rc=0" "$OUT"
+has "LV11: timeout absent, docker present -> rc 1 (unknown, docker not run)" "rc=1" "$OUT"
+case "$OUT" in *"n01 (c01)"*) no "LV12" "listed containers without timeout";; *) ok "LV12: timeout absent -> no containers listed";; esac
 
 # ---- wiring (TQ-1): instruction text still calls the helpers ----
 grep -q 'containers.sh' "$REPO_ROOT/lib/preamble.sh" && ok "W1: preamble sources containers.sh" || no "W1" "missing"
