@@ -6,15 +6,20 @@ n1_testparse_strip_ansi() {
     sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' "$1"
 }
 
-# n1_testparse_failed_names <output_file>
+# n1_testparse_failed_names <output_file> [full]
 # Prints one failing test name per line. Empty output means no failures were recognized.
+# With "full", pytest lines print the whole node ID (path::Class::test) minus the [param] suffix, so
+# same-named tests in different files stay distinct; the default prints the bare test name.
 n1_testparse_failed_names() {
-    local f="$1"
+    local f="$1" full=0
+    [ "${2:-}" = full ] && full=1
     [ -f "$f" ] || return 0
-    n1_testparse_strip_ansi "$f" | awk '
+    n1_testparse_strip_ansi "$f" | awk -v full="$full" '
         # pytest: "FAILED path::test_name - msg"  or "FAILED path::Class::test_name"
         /^FAILED [^ ]+::/ {
-            s=$2; sub(/ .*/, "", s); n=split(s, parts, "::"); name=parts[n]; sub(/\[.*$/, "", name); print name; next
+            s=$2; sub(/ .*/, "", s); n=split(s, parts, "::"); sub(/\[.*$/, "", parts[n]); name=parts[n]
+            if (full) { name=parts[1]; for (i=2; i<=n; i++) name=name "::" parts[i] }
+            print name; next
         }
         # jest / vitest: "  ✕ test name (3 ms)"  or "  × test name"
         /^[[:space:]]*(✕|×) / {

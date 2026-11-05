@@ -17,6 +17,17 @@ FAILED tests/test_calc.py::test_add_negative - assert 0 == 1
 EOF
 assert_eq "pytest failed name" "test_add_negative" "$(n1_testparse_failed_names "$T/pytest.txt")"
 
+cat > "$T/pytest_full.txt" <<'EOF'
+FAILED a/test_x.py::test_x - assert 0
+FAILED b/test_x.py::TestK::test_y[p1] - assert 0
+FAILED tests/[unit]/test_a.py::test_x[p1] - e
+EOF
+assert_eq "pytest default mode keeps bare names" "test_x
+test_y" "$(n1_testparse_failed_names "$T/pytest_full.txt")"
+assert_eq "pytest full mode keeps node id, strips [param], Class-nested" "a/test_x.py::test_x
+b/test_x.py::TestK::test_y
+tests/[unit]/test_a.py::test_x" "$(n1_testparse_failed_names "$T/pytest_full.txt" full)"
+
 cat > "$T/pytest0.txt" <<'EOF'
 ============================= test session starts ==============================
 collected 0 items
