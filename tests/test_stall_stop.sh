@@ -156,6 +156,7 @@ S5A_LN=$(grep -n '^### Step 5a' "$CF" | head -1 | cut -d: -f1)
 eq "W7 Step 5 entry points at stall-stop.md § CI before classification" "1" "$([ -n "$CP_LN" ] && [ "$S5_LN" -lt "$CP_LN" ] && [ "$CP_LN" -lt "$S5A_LN" ] && echo 1 || echo 0)"
 eq "W7b CI stall goes to Step 6b with the stall message" "1" "$(grep -cF 'stalled → **Step 6b** with "stalled on the same failure"' "$CF")"
 eq "W8 Step 6b option 1 clears ci_fail_sig" "1" "$(grep -cE '^1\. Provide guidance .*clear `ci_fail_sig`' "$CF")"
+eq "W8a Step 6b option 1 raises MAX_FIX only at the cap" "1" "$(grep -cE '^1\. Provide guidance .*only when `ci_fix_cycle` >= `MAX_FIX` increment `MAX_FIX` by 1' "$CF")"
 eq "W8b Step 6b option 3 clears ci_fail_sig" "1" "$(grep -cE '^3\. Fix manually .*clear `ci_fail_sig`' "$CF")"
 eq "W9 NOT_BRANCH_CAUSED clears ci_fail_sig (D8)" "1" "$(grep -cE 'NOT_BRANCH_CAUSED.*treat as `escalate`.*clear `ci_fail_sig`' "$CF")"
 eq "W17 Step 5 escalate path clears ci_fail_sig" "1" "$(grep -cE '^- `escalate` .*ask user immediately.*clear `ci_fail_sig`' "$CF")"
