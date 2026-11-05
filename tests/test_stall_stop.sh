@@ -72,6 +72,9 @@ lt "$T/lt7.md" FAIL x FAIL infra
 eq "L7 failure class is part of the signature" "1" "$([ "$(n1_stall_names_lt "$T/lt1.md" | n1_stall_sig)" != "$(n1_stall_names_lt "$T/lt7.md" | n1_stall_sig)" ] && echo 1 || echo 0)"
 lt "$T/lt8.md" "**FAIL**" x "FAIL (flaky)" code-bug
 eq "L8 Result must be exactly FAIL -> empty" "" "$(n1_stall_names_lt "$T/lt8.md")"
+printf '%s\n' "### Ad-Hoc Scenario Results" "| # | Scenario | Result | Details |" "|---|---|---|---|" \
+    '| 1 | a \| b | FAIL | x |' "| 2 | plain | FAIL | y |" "### Verdict: FAIL" "- **Failure class:** code-bug" > "$T/lt9.md"
+eq "L9 escaped pipe in Scenario is kept, unescaped" "$(printf 'a | b\nplain\nclass:code-bug')" "$(n1_stall_names_lt "$T/lt9.md")"
 
 # ---- n1_stall_names_ci ----
 printf 'total=3 pending=0\nFAIL\tlint\thttps://x/runs/1\nFAIL\ttest (ubuntu)\thttps://x/runs/2\n' > "$T/ci1.tsv"
