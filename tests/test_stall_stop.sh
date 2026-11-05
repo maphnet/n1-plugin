@@ -89,6 +89,9 @@ ov; n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/q1.log" | 
 eq "Q3 same failing test with a different detail -> stalled" "stalled" "$(n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/q2.log" | n1_stall_sig)")"
 ov; n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/q1.log" | n1_stall_sig)" >/dev/null
 eq "Q4 a round with no qa-verify.log (removed, no named tests) -> ok" "ok" "$(n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/none.log" | n1_stall_sig)")"
+printf 'FAILED a/test_x.py::test_x - e\n' > "$T/c1.log"; printf 'FAILED b/test_x.py::test_x - e\n' > "$T/c2.log"
+eq "Q5 same bare name in different files collides in default mode" "stalled" "$(ov; n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/c1.log" | n1_stall_sig)" >/dev/null; n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/c2.log" | n1_stall_sig)")"
+eq "Q6 same bare name in different files stays distinct in full mode -> ok" "ok" "$(ov; n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/c1.log" full | n1_stall_sig)" >/dev/null; n1_stall_check "$OV" qa_fail_sig "$(n1_testparse_failed_names "$T/c2.log" full | n1_stall_sig)")"
 
 # ---- wiring: procedures/stall-stop.md ----
 P=skills/n1-start/procedures/stall-stop.md
@@ -100,6 +103,7 @@ eq "W11c QA prompt marks no option Recommended" "0" "$(sect "$P" QA | grep -c '(
 eq "W11f QA prompt states the verbatim No-recommendation sentence (recommended-option rule)" "1" "$(sect "$P" QA | grep -cxF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.')"
 eq "W11d QA headless escalates via the Headless Guard" "1" "$(sect "$P" QA | grep -cE 'no recommended option.*Headless Guard|Headless Guard.*no recommended option')"
 eq "W11e QA option 2 resets qa_fail_sig" "1" "$(sect "$P" QA | grep -cE '^2 — One more fix cycle: run § Reset with `qa_fail_sig`')"
+eq "W15 QA section passes full to the name parser" "2" "$(sect "$P" QA | grep -c 'n1_testparse_failed_names "\$QD/qa-verify.log" full')"
 eq "W12 CI stall goes to Step 6b" "1" "$([ "$(sect "$P" CI | grep -c 'Step 6b')" -ge 1 ] && echo 1 || echo 0)"
 eq "W12b CI section has no Autonomy Gate (D1)" "0" "$(sect "$P" CI | grep -c 'Autonomy Gate')"
 eq "W12c CI names reach the helper through ci-fail.tsv" "1" "$(sect "$P" CI | grep -c 'n1_stall_names_ci "\$M/ci-fail.tsv"')"

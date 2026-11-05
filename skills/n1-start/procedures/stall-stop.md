@@ -11,8 +11,8 @@ At the **FAIL** branch of `steps/qa.md`, before the cap test:
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/testparse.sh"; source "$N1_ROOT/lib/stall.sh"; QD="$N1_HOME/memory/$ID"
-SIG=$(n1_testparse_failed_names "$QD/qa-verify.log" | n1_stall_sig)
-echo "STALL=$(n1_stall_check "$QD/overview.md" qa_fail_sig "$SIG") FAILED_TESTS=$(n1_testparse_failed_names "$QD/qa-verify.log" | grep -c .)"
+SIG=$(n1_testparse_failed_names "$QD/qa-verify.log" full | n1_stall_sig)
+echo "STALL=$(n1_stall_check "$QD/overview.md" qa_fail_sig "$SIG") FAILED_TESTS=$(n1_testparse_failed_names "$QD/qa-verify.log" full | grep -c .)"
 ```
 
 `STALL=ok`: continue the **FAIL** branch (cap test, increment, developer).
