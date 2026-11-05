@@ -89,7 +89,8 @@ for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-no
   fi
   if [ "$scenario" = ran-findings ]; then
     fenced=$(sed -n 's/^findings:file=//p' "$TMP/out")
-    [ "$fenced" = "$N1_HOME/scratch/codex-findings-42.md.fenced" ]
+    [[ "$fenced" =~ ^"$N1_HOME"/scratch/codex-findings-42\.[A-Za-z0-9]{6}\.md\.fenced$ ]]
+    [ "$(stat -c %a "$fenced")" = 600 ]
     grep -Eq '^===== BEGIN UNTRUSTED CODEX FINDINGS CONTENT [0-9a-f]{32} =====$' <<<"$(head -n1 "$fenced")"
     grep -Eq '^===== END UNTRUSTED CODEX FINDINGS CONTENT [0-9a-f]{32} =====$' <<<"$(tail -n1 "$fenced")"
     # AC3: Severity Parsing reads these markers from the fenced file, so they must survive verbatim.

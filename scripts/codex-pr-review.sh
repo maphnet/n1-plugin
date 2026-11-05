@@ -62,16 +62,18 @@ if [ "$OUTCOME" = ran ]; then
     if [ "$(n1_cross_host_review_val autoTriage)" = true ]; then
         # N1-360: Codex text never reaches stdout; the orchestrator reads only the fenced file. Fail closed.
         PR_NUMBER=${PR_URL##*/}
-        F="$N1_HOME/scratch/codex-findings-$PR_NUMBER.md.fenced"
+        F=
+        T=
         if [ "$(grep -c '[^[:space:]]' "$WORK/output")" = 1 ] \
             && grep -qiE '^[[:space:]]*no (findings|issues)( (found|identified|detected))?[.!]?[[:space:]]*$' "$WORK/output"; then
             echo 'findings:none'
         elif [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] && [ -n "$N1_HOME" ] && mkdir -p "$N1_HOME/scratch" 2>/dev/null \
-            && rm -f "$F" && n1_fence_untrusted 'CODEX FINDINGS' "$WORK/output" > "$F.tmp" \
-            && mv -f "$F.tmp" "$F"; then
+            && T=$(mktemp "$N1_HOME/scratch/codex-findings-$PR_NUMBER.XXXXXX") && F="$T.md.fenced" \
+            && n1_fence_untrusted 'CODEX FINDINGS' "$WORK/output" > "$T" \
+            && mv -f "$T" "$F"; then
             echo "findings:file=$F"
         else
-            [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] && [ -n "$N1_HOME" ] && rm -f "$F" "$F.tmp" 2>/dev/null
+            [ -z "$T" ] || rm -f "$T" "$F" 2>/dev/null
             echo 'findings:unavailable'
         fi
     fi
