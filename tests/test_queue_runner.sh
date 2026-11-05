@@ -969,6 +969,38 @@ test_held_user_merge() {
     rm -rf "$tmp"
 }
 
+# N1-292: in story mode a held row whose blocker's runner merge ended finish:<why> is skipped and names the blocker.
+# MERGED into the story branch is checked first. Tag mode is unchanged (still held).
+test_held_sweep_story_finish_skip() {
+    local tmp sweep; tmp=$(mktemp -d)
+    mk_bg "$tmp" hs "T-A:done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 1 pr "finish:ci-red"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    mkdir -p "$tmp/n1home/memory/T-A"; gh_overview "$tmp/n1home/memory/T-A/overview.md" 1
+    n1_queue_story_branch_set "$tmp/queue.md" "$tmp" story/S-1
+    sweep() { PATH="$tmp/bin:$PATH" FAKE_DIR="$tmp/fake" n1_queue_held_sweep "$tmp/queue.md" >/dev/null 2>&1; }
+    echo "OPEN story/S-1" > "$tmp/fake/gh-state"; sweep
+    assert_eq "held-story: finish:* blocker skips the dependent" "skip|blocked by T-A (finish:ci-red)" \
+        "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    echo "MERGED story/S-1" > "$tmp/fake/gh-state"; sweep
+    assert_eq "held-story: MERGED first, stale finish:* Reason still releases" "pending|released: T-A merged" \
+        "$(plan_cell "$tmp/queue.md" 2 8)|$(plan_cell "$tmp/queue.md" 2 9)"
+    n1_queue_row_status "$tmp/queue.md" 1 pr "merged"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    echo "OPEN story/S-1" > "$tmp/fake/gh-state"; sweep
+    assert_eq "held-story: non-finish Reason keeps waiting" held "$(plan_cell "$tmp/queue.md" 2 8)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" hs "T-A:done" "T-B:done"
+    n1_queue_row_status "$tmp/queue.md" 1 pr "finish:ci-red"
+    n1_queue_row_status "$tmp/queue.md" 2 held "blocked_on T-A"
+    mkdir -p "$tmp/n1home/memory/T-A"; gh_overview "$tmp/n1home/memory/T-A/overview.md" 1
+    echo "OPEN main" > "$tmp/fake/gh-state"; sweep
+    assert_eq "held-tag: finish:* blocker still held (tag mode unchanged)" held "$(plan_cell "$tmp/queue.md" 2 8)"
+    rm -rf "$tmp"
+}
+
 # N1-64 CR-1: n1_queue_sync_default fast-forwards the blocker repo's local default branch.
 test_sync_default() {
     local tmp origin repo; tmp=$(mktemp -d)
@@ -2050,6 +2082,7 @@ test_child_status
 test_child_status_deploy
 test_held_helpers
 test_held_user_merge
+test_held_sweep_story_finish_skip
 test_sync_default
 test_story_branch_helpers
 test_story_base

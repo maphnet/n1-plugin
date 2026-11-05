@@ -416,6 +416,12 @@ n1_queue_child_obsolete() {
     [ -z "$(n1_queue_child_open_pr "$t" "$h" "$repo" "$start")" ]
 }
 
+_n1_queue_plan_reason() {
+    # Usage: _n1_queue_plan_reason <queue.md> <ticket> — trimmed Reason cell of the ticket's Plan row (last match).
+    awk -F'|' -v t="$2" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
+        $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { r = $9 } END { print r }' "$1"
+}
+
 n1_queue_held_sweep() {
     # Usage: n1_queue_held_sweep <queue.md>
     # N1-64: a held row whose blocker ended without a PR (failed/escalated/skip) or is not in the
@@ -431,7 +437,7 @@ n1_queue_held_sweep() {
     # URL can at worst release a held row early. Non-GitHub-PR URLs count as not merged (SEC-2).
     # Only a merge into the blocker repo's default branch (story mode: its story branch) releases; any other base stays held.
     # The first gh stderr line goes to the runner's stderr (runner.log), not /dev/null.
-    local q="$1" num t b st h r url state base d sb n=0
+    local q="$1" num t b st h r url state base d sb why n=0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$b" && st=obsolete
@@ -456,7 +462,15 @@ n1_queue_held_sweep() {
                 fi
                 sb=$(n1_queue_story_branch_get "$q" "$r")
                 if [ -n "$sb" ]; then   # N1-291: a story child's PR targets its story branch; children are cut from origin/<sb>, no local sync
-                    [ "$state" = MERGED ] && [ "$base" = "$sb" ] && n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                    if [ "$state" = MERGED ] && [ "$base" = "$sb" ]; then
+                        n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                    else
+                        # N1-292: the runner merges story children itself. A blocker whose merge ended finish:<why>
+                        # (ci-red, dirty, wrong-base, ...) does not merge this run, so its dependent is skipped. MERGED is
+                        # tested first: a merged blocker with a stale finish:* Reason still releases.
+                        why=$(_n1_queue_plan_reason "$q" "$b")
+                        case "$why" in finish:*) n1_queue_row_status "$q" "$num" skip "blocked by $b (${why%% *})"; continue ;; esac
+                    fi
                 else
                     d=$(N1_HOME="$h" n1_config_val '.git.defaultBranch' 2>/dev/null); d="${d:-main}"
                     if [ "$state" = MERGED ] && [ "$base" = "$d" ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
@@ -506,8 +520,7 @@ n1_queue_eligible_rows() {
                     if [ "$mrg" = true ] && [ "$(awk -F'|' -v tk="$p" '/^## Runs/ { f = 1; next }
                         f { x = $2; gsub(/ /, "", x); if (x == tk) { o = $5; gsub(/ /, "", o) } } END { print o }' "$q")" != merged ]; then
                         # a chain that ended without merging (Reason finish:<why>) is final unless a merge is still owed
-                        why=$(awk -F'|' -v t="$p" '{ for (i = 1; i <= NF; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i) }
-                            $2 ~ /^[0-9]+$/ && $3 == t && NF >= 9 { r = $9 } END { print r }' "$q")
+                        why=$(_n1_queue_plan_reason "$q" "$p")
                         case "$why" in
                             finish:*) n1_queue_row_status "$q" "$num" skip "predecessor $p not merged (${why%% *})"
                                       ok=0; break ;;
