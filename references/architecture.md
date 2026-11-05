@@ -569,6 +569,10 @@ Host backend: each child runs as a `claude --bg` background session (`n1_bg_laun
   - `n1_queue_story_branch_ensure` cuts the branch from `origin/<default>` and pushes it, or reuses an existing remote branch without reset. A failed create or push halts the run (exit 2). Tag mode creates none.
   - `n1_queue_story_branch_set` writes the row and `n1_queue_story_branch_get` reads it.
   - Story ids are restricted to `[A-Za-z0-9._-]` (no leading `-`) and must pass `git check-ref-format`.
+- Story children (N1-291): the runner validates the repo's story branch through `n1_story_base` (`lib/config.sh`) and sets `N1_STORY_ID` and `N1_STORY_BRANCH` in the child env (bg settings and Orca launch; never in finish or clean launches). Orca passes `--base-branch origin/story/<ID>` on `worker-start`.
+  - A story child branches from, re-anchors `branch-point` on, rebases onto, and opens its PR against `story/<ID>`, never the default branch. `n1_story_base` fails closed (rc 2) for a queue child with an unset or invalid branch.
+  - A story child makes no per-branch version bump commit; the bump belongs to the final story PR.
+  - The held sweep releases a dependent row only when its blocker's PR merged into the story branch.
 - `queue.unattendedAutoStart` (default `false`): consent for scheduled runs. `--schedule` refuses and `--unattended` stops while it is false (N1-226).
 - `queue.stallMinutes` (default `30`, `0` disables; keep it at least `15`, because an unchanged phase resends its beacon only every 10 minutes): Orca rows only. A live worker that sent no progress beacon for this long is flagged `stalled?` once (info notice, `stalled` event). The flag never stops the worker (N1-315).
 
