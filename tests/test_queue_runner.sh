@@ -2209,7 +2209,7 @@ test_done_cmd() {
 # N1-293: ## Final PRs upsert keyed by Repo, inserted before ## Runs (stays last); fails closed on a bad PR cell or two headings.
 test_final_pr_table() {
     local tmp q rc; tmp=$(mktemp -d); q="$tmp/queue.md"
-    printf -- '---\nqueue_id: q\n---\n## Plan\n| # | Ticket |\n\n## Runs\n| Ticket |\n' > "$q"
+    printf -- '---\nqueue_id: q\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n| 1 | T-A | a | /r1 | /h | sonnet | pr | merged |\n| 2 | T-B | b | /r2 | /h | sonnet | pr | merged |\n\n## Runs\n| Ticket |\n' > "$q"
     n1_queue_final_pr_set "$q" /r1 https://github.com/o/r/pull/9 draft "MERGEABLE (CLEAN)" ""
     n1_queue_final_pr_set "$q" /r2 - - - no-merged-children
     n1_queue_final_pr_set "$q" /r1 https://github.com/o/r/pull/9 ready "CONFLICTING (DIRTY)" 'x|y'
@@ -2223,6 +2223,9 @@ test_final_pr_table() {
     printf '## Final PRs\n' >> "$q"; rc=0
     n1_queue_final_pr_set "$q" /r3 - - - x || rc=$?
     assert_eq "final table: duplicate heading fails closed" 1 "$rc"
+    sed -i '/^| \/r2 /a | /r4 | https://github.com/o/r/pull/5 | ready | x | |\n| /r2 | https://evil.example/pull/1 | ready | x | |\n| /r2 | [x](https://evil.example) | ready | x | |' "$q"
+    assert_eq "final reader: rows outside the Plan or with a non-GitHub PR cell dropped" \
+        $'/r1\thttps://github.com/o/r/pull/9\tready\tCONFLICTING (DIRTY)\txy\n/r2\t-\t-\t-\tno-merged-children' "$(n1_queue_final_prs "$q")"
     assert_eq "final reader: no file prints nothing" "" "$(n1_queue_final_prs "$tmp/none.md")"
     rm -rf "$tmp"
 }
@@ -2293,16 +2296,25 @@ test_final_gh_readers() {
     mk_bg "$tmp" q "T-A:done"
     fgh() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" "$@"; }
     assert_eq "final find: no PR -> nothing" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
-    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":true,"headRefName":"story/S-1","baseRefName":"main"}]' > "$tmp/fake/gh-final-list.main"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":true,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
     assert_eq "final find: one open PR" $'https://github.com/o/r/pull/9\ttrue' "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
     assert_eq "final find: query names repo, head, base, open" yes \
         "$(grep -qF 'pr list --repo o/r --head story/S-1 --base main --state open' "$tmp/fake/gh-final-calls" && echo yes || echo no)"
     assert_eq "final find: URL of another repo rejected" "" "$(fgh n1_queue_final_pr_find o/x story/S-1 main)"
     assert_eq "final find: invalid repo slug" "" "$(fgh n1_queue_final_pr_find 'o/r --x' story/S-1 main)"
-    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-2","baseRefName":"main"}]' > "$tmp/fake/gh-final-list.main"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-2","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
     assert_eq "final find: other head rejected" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
-    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-1","baseRefName":"main"},{"url":"https://github.com/o/r/pull/10","isDraft":false,"headRefName":"story/S-1","baseRefName":"main"}]' > "$tmp/fake/gh-final-list.main"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}},{"url":"https://github.com/o/r/pull/10","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
     assert_eq "final find: two PRs rejected" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":true,"headRepositoryOwner":{"login":"evil"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: fork PR rejected" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/8","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":true,"headRepositoryOwner":{"login":"evil"}},{"url":"https://github.com/o/r/pull/9","isDraft":true,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: a fork PR does not hide the real one" $'https://github.com/o/r/pull/9\ttrue' "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "valid_branch: plain names" "0,0" "$(_n1_queue_valid_branch main; echo -n $?),$(_n1_queue_valid_branch release/1.2; echo $?)"
+    assert_eq "valid_branch: injection, option, dotdot, empty rejected" "1,1,1,1,1" \
+        "$(_n1_queue_valid_branch 'main; curl x|sh'; echo -n $?),$(_n1_queue_valid_branch -x; echo -n $?),$(_n1_queue_valid_branch 'a..b'; echo -n $?),$(_n1_queue_valid_branch ''; echo -n $?),$(_n1_queue_valid_branch 'a b'; echo $?)"
+    assert_eq "final find: invalid default branch" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 'main; x')"
     printf 'UNKNOWN\t\nUNKNOWN\t\nMERGEABLE\tCLEAN\n' > "$tmp/fake/gh-mergeable-seq"
     assert_eq "mergeable: UNKNOWN retried until computed" $'MERGEABLE\tCLEAN' "$(fgh n1_queue_pr_mergeable "$u")"
     printf 'UNKNOWN\t\n' > "$tmp/fake/gh-mergeable-seq"; : > "$tmp/fake/gh-mergeable-calls"

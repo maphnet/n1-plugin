@@ -310,23 +310,31 @@ n1_queue_pr_view() {
     return 0
 }
 
+_n1_queue_valid_branch() {
+    # Usage: _n1_queue_valid_branch <name> — N1-293: 0 for a plain branch name (safe in a prompt command and gh args).
+    [[ "$1" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$1" != -* ]] && [[ "$1" != *..* ]] && git check-ref-format --branch "$1" >/dev/null 2>&1
+}
+
 n1_queue_final_pr_find() {
     # Usage: n1_queue_final_pr_find <owner/repo> <story-branch> <default-branch> — N1-293: "<url>\t<isDraft>" of the one
     # OPEN PR in <owner/repo> from <story-branch> into <default-branch>. Session output is never trusted; the final PR is
     # re-derived here. Prints nothing (status 0) for none, more than one, a head or base other than asked, a URL outside
-    # <owner/repo>, or a gh error on 3 reads (2s/4s backoff).
+    # <owner/repo>, a head from another repository (fork PRs are dropped before counting), an invalid default branch, or a
+    # gh error on 3 reads (2s/4s backoff).
     local nwo="$1" sb="$2" def="$3" attempt out=""
     [[ "$nwo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 0
+    _n1_queue_valid_branch "$def" || return 0
     for attempt in 1 2 3; do
         out=$(timeout 30 gh pr list --repo "$nwo" --head "$sb" --base "$def" --state open \
-            --json url,isDraft,headRefName,baseRefName --limit 5 </dev/null 2>/dev/null) && break
+            --json url,isDraft,headRefName,baseRefName,isCrossRepository,headRepositoryOwner --limit 5 </dev/null 2>/dev/null) && break
         out=""; [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
     done
     [ -n "$out" ] || return 0
-    jq -r --arg sb "$sb" --arg def "$def" --arg pre "https://github.com/$nwo/pull/" '
-        if type == "array" and length == 1 and .[0].headRefName == $sb and .[0].baseRefName == $def
-           and (.[0].url | startswith($pre)) and (.[0].url | ltrimstr($pre) | test("^[0-9]+$"))
-        then "\(.[0].url)\t\(.[0].isDraft)" else empty end' <<< "$out" 2>/dev/null
+    jq -r --arg sb "$sb" --arg def "$def" --arg owner "${nwo%%/*}" --arg pre "https://github.com/$nwo/pull/" '
+        if type == "array" then map(select(.isCrossRepository == false and .headRepositoryOwner.login == $owner)) else [] end
+        | if length == 1 and .[0].headRefName == $sb and .[0].baseRefName == $def
+             and (.[0].url | startswith($pre)) and (.[0].url | ltrimstr($pre) | test("^[0-9]+$"))
+          then "\(.[0].url)\t\(.[0].isDraft)" else empty end' <<< "$out" 2>/dev/null
     return 0
 }
 
@@ -748,11 +756,17 @@ n1_queue_final_pr_set() {
 n1_queue_final_prs() {
     # Usage: n1_queue_final_prs <queue.md> — N1-293: the "## Final PRs" rows as
     # "<repo>\t<pr>\t<draft>\t<mergeable>\t<note>" (header and separator skipped). No file or section prints nothing.
+    # Children can write the file, so only rows whose Repo is a Plan row repo and whose PR cell is a GitHub PR URL or "-"
+    # are printed.
     [ -f "$1" ] || return 0
-    awk -F'|' '/^## Final PRs$/ { f = 1; next } /^## / { f = 0 }
+    local plan; plan=$(n1_queue_pending_rows "$1" '.*' | cut -f3)
+    plan="$plan" awk -F'|' '
+        BEGIN { n = split(ENVIRON["plan"], a, "\n"); for (i = 1; i <= n; i++) ok[a[i]] = 1 }
+        /^## Final PRs$/ { f = 1; next } /^## / { f = 0 }
         f && NF >= 7 && !/^\|[[:space:]]*:?-/ {
             for (i = 2; i <= 6; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
-            if ($2 != "Repo") printf "%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6
+            if ($2 != "Repo" && ($2 in ok) && ($3 == "-" || $3 ~ /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/))
+                printf "%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6
         }' "$1"
 }
 
