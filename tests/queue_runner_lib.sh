@@ -97,6 +97,7 @@ case "$1" in
             -e "/^## Runs\$/i ## Story Branches\n| Repo | Branch |\n|------|--------|\n| $(cat "$D/forge-story") | story/S-1 |\n" "$D/../queue.md"
         printf '%s\n' "$all" > "$D/args.$name"
         printf '%s\n' "$settings" > "$D/settings.$name"
+        pwd > "$D/cwd.$name"   # N1-293: the final PR session runs in the runner's worktree
         if [ -f "$D/refuse" ] || { [ -f "$D/refuse-clean" ] && [ "${name%-clean}" != "$name" ]; } || { [ -f "$D/refuse-done" ] && [ "${name%-done}" != "$name" ]; }; then
             echo "Bypass Permissions mode requires accepting the disclaimer first. Run claude --dangerously-skip-permissions once."
             exit 1

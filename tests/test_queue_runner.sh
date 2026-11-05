@@ -2227,12 +2227,74 @@ test_final_pr_table() {
     rm -rf "$tmp"
 }
 
+# N1-293 (D4): body for one repo: Landed (Runs Outcome merged) and Not landed (Status, sanitized Reason cut to 120).
+test_final_body() {
+    local tmp q out long; tmp=$(mktemp -d); q="$tmp/queue.md"
+    long=$(printf 'r%.0s' $(seq 1 200))
+    {
+        printf -- '---\nqueue_id: q\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n'
+        printf '| 1 | T-A | a | /r1 | /h | sonnet | pr | merged |\n'
+        printf '| 2 | T-B | b | /r1 | /h | sonnet | pr | finish:ci-red |\n'
+        printf '| 3 | T-C | c | /r2 | /h | sonnet | pr | merged |\n'
+        printf '| 4 | T-D | d | /r1 | /h | sonnet | failed | %s |\n' "$long"
+        printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|---|---|---|---|---|---|\n'
+        printf '| T-A | t | | merged | https://github.com/o/r/pull/1 | s |\n'
+        printf '| T-B | t | | pr | javascript:x | s |\n'
+        printf '| T-C | t | | merged | https://github.com/o/r2/pull/3 | s |\n'
+    } > "$q"
+    out=$(n1_queue_final_body "$q" /r1 S-1 "$tmp/body.md")
+    assert_eq "final body: counts for the repo" "1 2" "$out"
+    assert_eq "final body: landed line" yes \
+        "$(grep -qxF -- '- T-A: https://github.com/o/r/pull/1 (merged)' "$tmp/body.md" && echo yes || echo no)"
+    assert_eq "final body: not-landed line, non-GitHub PR shown as -" yes \
+        "$(grep -qxF -- '- T-B: pr, PR - (finish:ci-red)' "$tmp/body.md" && echo yes || echo no)"
+    assert_eq "final body: other repo's row absent" 0 "$(grep -c 'T-C' "$tmp/body.md" || true)"
+    assert_eq "final body: reason cut to 120 chars" 1 \
+        "$(grep -c "^- T-D: failed, PR - ($(printf 'r%.0s' $(seq 1 120)))\$" "$tmp/body.md" || true)"
+    assert_eq "final body: draft note" yes "$(grep -qF 'Draft: 2 of 3 children did not land' "$tmp/body.md" && echo yes || echo no)"
+    assert_eq "final body: unreviewed disclosure" yes "$(grep -qF 'Not Codex-reviewed; the per-branch convention commit is unreviewed' "$tmp/body.md" && echo yes || echo no)"
+    assert_eq "final body: human merge note" yes "$(grep -qF 'a human reviews and merges this PR' "$tmp/body.md" && echo yes || echo no)"
+    out=$(n1_queue_final_body "$q" /r2 S-1 "$tmp/body2.md")
+    assert_eq "final body: all landed" "1 0" "$out"
+    assert_eq "final body: ready note" yes "$(grep -qF 'Ready for review: All 1 children landed.' "$tmp/body2.md" && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-293 (D7): final session is a bg n1-run in the worktree; queue settings + N1_HOME, no story env even when the
+# caller has it; the prompt names --draft only for a draft and forbids merging.
+test_final_cmd() {
+    local tmp cmd s=n1-q-S-1-final-1; tmp=$(mktemp -d)
+    mk_bg "$tmp" q "T-A:done"; mkdir -p "$tmp/wt"
+    cmd=$(N1_STORY_ID=S-1 N1_STORY_BRANCH=story/S-1 n1_queue_final_cmd "$tmp/wt" /h RUN1 "$s" S-1 develop /q/final-1.body.md 1)
+    FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" PATH="$tmp/bin:$PATH" bash -c "$cmd" >/dev/null 2>&1
+    assert_eq "final_cmd: cwd is the worktree" "$tmp/wt" "$(cat "$tmp/fake/cwd.$s")"
+    assert_eq "final_cmd: settings N1_HOME, run id, headless" "/h,RUN1,1" \
+        "$(jq -r '[.env.N1_HOME,.env.N1_QUEUE_RUN_ID,.env.N1_HEADLESS]|join(",")' "$tmp/fake/settings.$s")"
+    assert_eq "final_cmd: no story env" 0 "$(jq '[.env|keys[]|select(startswith("N1_STORY"))]|length' "$tmp/fake/settings.$s")"
+    assert_eq "final_cmd: n1-run, ends with the story id" "yes,yes" \
+        "$(grep -q '^/n1:n1-run ' "$tmp/fake/prompt.$s" && echo yes || echo no),$(grep -q 'Story: S-1$' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "final_cmd: exact push and create" yes \
+        "$(grep -qF 'git push origin HEAD:refs/heads/story/S-1' "$tmp/fake/prompt.$s" \
+            && grep -qF 'gh pr create --head story/S-1 --base develop' "$tmp/fake/prompt.$s" \
+            && grep -qF -- '--body-file /q/final-1.body.md --draft' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "final_cmd: forbids merging" yes "$(grep -qF 'no merge' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    # The PostToolUse/Stop hooks (pr-review-observe.sh, pr-review-stop.sh) ask a session that ran gh pr create for one
+    # n1-pr step 3 continuation; the prompt tells the final session to decline it instead of running a Codex review.
+    assert_eq "final_cmd: declines the Codex-review continuation" yes "$(grep -qF 'not Codex-reviewed by design' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    cmd=$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0)
+    FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" PATH="$tmp/bin:$PATH" bash -c "$cmd" >/dev/null 2>&1
+    assert_eq "final_cmd: ready PR has no --draft" 0 "$(grep -cF -- '--draft' "$tmp/fake/prompt.n1-q-S-1-final-2" || true)"
+    rm -rf "$tmp"
+}
+
 test_n1_339_cleanup_helpers
 test_pr_view
 test_checks_class
 test_sync_story
 test_done_cmd
 test_final_pr_table
+test_final_body
+test_final_cmd
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
