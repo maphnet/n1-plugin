@@ -6,7 +6,7 @@ After compaction, session-start hook injects ORCHESTRATOR STATE into `additional
 
 **Must:**
 1. Read ORCHESTRATOR STATE — authoritative over compacted summary.
-2. Use those values (tracker type, MCP prefix, worktree, step routing, loop counters), not the compacted summary.
+2. Use those values (tracker type, MCP prefix, worktree, step routing, loop counters, memory dir and files, open escalation, pending question file, running containers), not the compacted summary.
 3. If `Task context:` non-empty: print **Gate 1** (resume variant, `procedures/output-gates.md § Gate 1`).
 4. If missing: `source ~/.n1/preamble.sh` re-resolves N1_HOME; read config keys via `n1_*_val` helpers.
 

@@ -629,6 +629,73 @@ OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","s
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"Active ticket: T-30"*) assert_eq "compaction restore uses session-keyed active-run" ok ok;; *) assert_eq "compaction restore uses session-keyed active-run" ok "$CTX";; esac
 rm -f "$N1_HOME/active-run.json" "$N1_HOME/active-run.s1.json"
+# --- N1-404: ORCHESTRATOR STATE lists memory dir + files, open escalation, pending question file, live containers ---
+echo '{"ticketId":"T-30","runId":"n1-run-c","worktreePath":"/wt/T-30","branch":"b-T-30"}' > "$N1_HOME/active-run.s1.json"
+printf -- '---\nstep: review\ntype: task\n---\n## Context\nctx line\n## Escalations\n- review: API choice needs a human\n' > "$N1_HOME/memory/T-30/overview.md"
+printf 'aaa111bbb222ccc\tpg-T-30\tlocal-testing\nddd444\tstopped-one\tlocal-testing\n' > "$N1_HOME/memory/T-30/containers.tsv"
+mkdir -p "$N1_HOME/queue/q404"; echo '{}' > "$N1_HOME/queue/q404/.question-T-30.json"
+DOCKBIN="$T/dockbin"; mkdir -p "$DOCKBIN"
+cat > "$DOCKBIN/docker" <<'DEOF'
+#!/usr/bin/env bash
+[ -n "${FAKE_DOCKER_FAIL:-}" ] && exit 1
+[ "${1:-} ${2:-}" = "ps -q" ] && echo aaa111bbb222ccc
+exit 0
+DEOF
+chmod +x "$DOCKBIN/docker"
+CPAY='{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}'
+OUT=$(echo "$CPAY" | PATH="$DOCKBIN:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$(grep '^- Memory dir:' <<<"$CTX")" in "- Memory dir: $N1_HOME/memory/T-30 (files: "*"containers.tsv"*"overview.md"*")") assert_eq "state: memory dir + files (N1-404)" ok ok;; *) assert_eq "state: memory dir + files (N1-404)" ok "$CTX";; esac
+assert_eq "state: open escalation (N1-404)" "- Open escalation: review: API choice needs a human" "$(grep '^- Open escalation:' <<<"$CTX")"
+assert_eq "state: pending question file (N1-404)" "- Pending question file: $N1_HOME/queue/q404/.question-T-30.json" "$(grep '^- Pending question file:' <<<"$CTX")"
+assert_eq "state: running containers, stopped row omitted (N1-404)" "- Running containers (containers.tsv): pg-T-30 (aaa111bbb222)" "$(grep '^- Running containers' <<<"$CTX")"
+OUT=$(echo "$CPAY" | PATH="$DOCKBIN:$PATH" FAKE_DOCKER_FAIL=1 CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+assert_eq "state: docker failure -> unknown, hook output kept (N1-404)" "- Running containers (containers.tsv): unknown (docker unavailable)" "$(grep '^- Running containers' <<<"$CTX")"
+rm -f "$N1_HOME/memory/T-30/containers.tsv"; rm -rf "$N1_HOME/queue/q404"
+printf -- '---\nstep: review\ntype: task\n---\n## Context\nctx line\n' > "$N1_HOME/memory/T-30/overview.md"
+OUT=$(echo "$CPAY" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+assert_eq "state: no escalation -> none (N1-404)" "- Open escalation: none" "$(grep '^- Open escalation:' <<<"$CTX")"
+assert_eq "state: no question file -> none (N1-404)" "- Pending question file: none" "$(grep '^- Pending question file:' <<<"$CTX")"
+assert_eq "state: no containers.tsv -> none (N1-404)" "- Running containers (containers.tsv): none" "$(grep '^- Running containers' <<<"$CTX")"
+rm -f "$N1_HOME/active-run.s1.json"
+# --- N1-404: PreCompact hook prints N1 compaction instructions; silent and exit 0 otherwise ---
+HJ="$REPO_ROOT/hooks/hooks.json"
+assert_eq "hooks.json: PreCompact matcher manual|auto (N1-404)" "manual|auto" "$(jq -r '.hooks.PreCompact[0].matcher' "$HJ")"
+assert_eq "hooks.json: PreCompact runs pre-compact.sh (N1-404)" 'bash "${CLAUDE_PLUGIN_ROOT}/hooks/pre-compact.sh"' "$(jq -r '.hooks.PreCompact[0].hooks[0].command' "$HJ")"
+assert_eq "hooks.json: PreCompact is synchronous (N1-404)" "false" "$(jq '[.hooks.PreCompact[].hooks[] | .async // false] | any' "$HJ")"
+PC="$REPO_ROOT/hooks/pre-compact.sh"
+PCP=$(jq -cn --arg cwd "$PROJ" '{session_id:"s1",cwd:$cwd,hook_event_name:"PreCompact",trigger:"manual",custom_instructions:null}')
+rm -f "$N1_HOME/config.json"
+OUT=$(echo "$PCP" | bash "$PC") && RC=0 || RC=$?
+assert_eq "pre-compact: no N1 config -> no output (N1-404)" "" "$OUT"
+assert_eq "pre-compact: no N1 config -> rc 0 (N1-404)" "0" "$RC"
+echo '{}' > "$N1_HOME/config.json"
+OUT=$(echo "$PCP" | bash "$PC") && RC=0 || RC=$?
+assert_eq "pre-compact: configured -> rc 0 (N1-404)" "0" "$RC"
+case "$OUT" in *"preserve verbatim the N1 ticket ID, branch, worktree path and current N1 pipeline step"*"$N1_HOME/memory/<ticket ID>/"*"Docker containers and background processes"*) assert_eq "pre-compact: generic instructions (N1-404)" ok ok;; *) assert_eq "pre-compact: generic instructions (N1-404)" ok "$OUT";; esac
+assert_eq "pre-compact: no active run -> no concrete line (N1-404)" "" "$(grep '^Active N1 run:' <<<"$OUT")"
+echo '{"ticketId":"T-30","runId":"n1-run-c","worktreePath":"/wt/T-30","branch":"b-T-30"}' > "$N1_HOME/active-run.s1.json"
+OUT=$(echo "$PCP" | bash "$PC")
+assert_eq "pre-compact: active run -> concrete values (N1-404)" "Active N1 run: ticket=T-30 branch=b-T-30 worktree=/wt/T-30 step=review memory=$N1_HOME/memory/T-30" "$(grep '^Active N1 run:' <<<"$OUT")"
+OUT=$(echo "$PCP" | jq -c '.agent_id = "sub-1"' | bash "$PC") && RC=0 || RC=$?
+assert_eq "pre-compact: subagent payload -> no output (N1-404)" "0|" "$RC|$OUT"
+rm -f "$N1_HOME/active-run.s1.json"
+echo '{"ticketId":"T-31","runId":"n1-run-o","worktreePath":"/wt/T-31","branch":"b-T-31"}' > "$N1_HOME/active-run.json"
+OUT=$(echo "$PCP" | bash "$PC")
+assert_eq "pre-compact: unkeyed pointer -> no concrete line (N1-404)" "" "$(grep '^Active N1 run:' <<<"$OUT")"
+rm -f "$N1_HOME/active-run.json"
+echo '{"ticketId":"T-30","runId":"n1-finish"}' > "$N1_HOME/active-run.s1.json"
+OUT=$(echo "$PCP" | bash "$PC")
+assert_eq "pre-compact: n1-finish marker -> no concrete line (N1-404)" "" "$(grep '^Active N1 run:' <<<"$OUT")"
+echo '{"ticketId":"../x","runId":"n1-run-c"}' > "$N1_HOME/active-run.s1.json"
+OUT=$(echo "$PCP" | bash "$PC")
+assert_eq "pre-compact: unsafe ticket id -> no concrete line (N1-404)" "" "$(grep '^Active N1 run:' <<<"$OUT")"
+rm -f "$N1_HOME/active-run.s1.json"
+OUT=$(echo 'not json{' | bash "$PC") && RC=0 || RC=$?
+assert_eq "pre-compact: garbage stdin -> rc 0, no output (N1-404)" "0|" "$RC|$OUT"
+
 # --- session-start: prMode "skip" is a valid value and is not migrated (NP-202) ---
 echo '{"git":{"prMode":"skip"}}' > "$N1_HOME/config.json"
 echo '{"session_id":"s-prmode","source":"startup"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true

@@ -170,6 +170,23 @@ if [ "${TRIGGER:-}" = "compact" ] && [ -z "$AGENT_ID" ]; then
             auto_mode="${auto_mode:-hands-off (default)}"
             gate_local=$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")
 
+            # N1-404: memory dir + files, newest open escalation, pending queue question file, recorded containers still
+            # running. File-derived text: control chars stripped, length capped. Each value is guarded (pipefail, NP-232).
+            ov_mem="${n1_root}/memory/${ar_ticket}"
+            ov_files="" ov_escal="" ov_qfile="" ov_live="" ov_live_rc=0
+            case "$ar_ticket" in
+                *[!A-Za-z0-9_-]*) ;;   # unsafe id: no globbing/listing with it
+                *)
+                    ov_files=$( set +o pipefail; ls -1 "$ov_mem" 2>/dev/null | head -20 | LC_ALL=C tr -d '\000-\011\013-\037\177' | paste -sd, - ) || ov_files=""
+                    ov_escal=$( source "${SCRIPT_DIR}/../lib/queue.sh" && n1_queue_escalation_text "$ov_file" last ) 2>/dev/null || ov_escal=""
+                    ov_escal=$(printf '%s' "$ov_escal" | LC_ALL=C tr -d '[:cntrl:]') || ov_escal=""
+                    ov_escal="${ov_escal:0:300}"
+                    ov_qfile=$( set +o pipefail; ls -t "$n1_root"/queue/*/.question-"$ar_ticket".json 2>/dev/null | head -1 ) || ov_qfile=""
+                    ov_live=$( source "${SCRIPT_DIR}/../lib/containers.sh" && N1_HOME="$n1_root" n1_containers_live "$ar_ticket" | paste -sd, - | sed 's/,/, /g' ) 2>/dev/null || ov_live_rc=$?
+                    ;;
+            esac
+            [ "$ov_live_rc" -eq 0 ] || ov_live="unknown (docker unavailable)"
+
             N1_COMPACT_STATE="
 (Scope: orchestrator session only. If you are a dispatched subagent/persona, ignore the ORCHESTRATOR STATE block below and continue your own task.)
 ORCHESTRATOR STATE (orchestrator session only — restored after compaction; authoritative for the orchestrator, overrides its compacted summary):
@@ -185,6 +202,10 @@ ORCHESTRATOR STATE (orchestrator session only — restored after compaction; aut
 - Config gates: localTesting.enabled=${gate_local:-true}
 - Task context: ${ov_context}
 - Ticket URL: ${ov_ticket_url}
+- Memory dir: ${ov_mem} (files: ${ov_files:-none})
+- Open escalation: ${ov_escal:-none}
+- Pending question file: ${ov_qfile:-none}
+- Running containers (containers.tsv): ${ov_live:-none}
 - IMPORTANT: Orchestrator only — use these values, not anything from the compacted conversation summary; a dispatched subagent keeps following its own task. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."
         fi
     fi

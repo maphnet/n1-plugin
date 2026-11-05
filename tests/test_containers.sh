@@ -17,13 +17,15 @@ export FAKE="$T/fake"
 mkdir -p "$FAKE/bin" "$T/home/memory/T-1" "$T/home/memory/T-3" "$T/empty"
 : > "$FAKE/containers"; : > "$FAKE/labels"; : > "$FAKE/calls"; : > "$FAKE/updated"; : > "$FAKE/stopped"; : > "$FAKE/removed"
 
-# Fake docker: state in $FAKE. Supports ps -aq [--no-trunc], inspect -f ... <id>, update --restart=no <id>, stop <id>, rm -f -v <id>.
+# Fake docker: state in $FAKE. Supports ps -aq [--no-trunc] (all, $FAKE/containers), ps -q --no-trunc (running, $FAKE/running),
+# inspect -f ... <id>, update --restart=no <id>, stop <id>, rm -f -v <id>.
 cat > "$FAKE/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >> "$FAKE/calls"
 last="${@: -1}"
 case "$1" in
-  ps) [ -n "${FAKE_PS_FAIL:-}" ] && exit 1; [ -n "${FAKE_PS_TRUNC_FAIL:-}" ] && case "$*" in *--no-trunc*) exit 1;; esac; cat "$FAKE/containers" ;;
+  ps) [ -n "${FAKE_PS_FAIL:-}" ] && exit 1; [ -n "${FAKE_PS_TRUNC_FAIL:-}" ] && case "$*" in *--no-trunc*) exit 1;; esac
+      if [ "${2:-}" = -q ]; then cat "$FAKE/running" 2>/dev/null; else cat "$FAKE/containers"; fi ;;
   inspect) [ -n "${FAKE_INSPECT_FAIL:-}" ] && exit 1; case "$3" in
              *Labels*) grep "^$last|" "$FAKE/labels" | cut -d'|' -f2- ;;
              *) echo "/name-$last" ;;
@@ -171,6 +173,39 @@ OUT=$(n1_containers_snapshot '../x'); RC=$?
 has "I1: invalid id -> note" "invalid id" "$OUT"
 eq "I2: invalid id -> rc 0" "0" "$RC"
 eq "I3: invalid id wrote nothing" "no" "$([ -e "$N1_HOME/x" ] && echo yes || echo no)"
+
+# ---- N1-404: n1_containers_live lists recorded containers that are still running ----
+mkdir -p "$N1_HOME/memory/T-L"
+printf 'live1\tpg-live\tlocal-testing\nstop2\tgone-one\tlocal-testing\n' > "$N1_HOME/memory/T-L/containers.tsv"
+printf '%s\n' live1 other9 > "$FAKE/running"
+OUT=$(n1_containers_live T-L); RC=$?
+eq "LV1: lists only recorded containers that are running" "pg-live (live1)" "$OUT"
+eq "LV2: running rows -> rc 0" "0" "$RC"
+OUT=$(n1_containers_live T-NONE); RC=$?
+eq "LV3: no ledger -> empty" "" "$OUT"
+eq "LV4: no ledger -> rc 0" "0" "$RC"
+OUT=$(FAKE_PS_FAIL=1 n1_containers_live T-L); RC=$?
+eq "LV5: docker ps failure -> rc 1" "1" "$RC"
+eq "LV6: docker ps failure -> no output" "" "$OUT"
+printf 'live1\tbad\033[31mname\tlocal-testing\n' > "$N1_HOME/memory/T-L/containers.tsv"
+eq "LV7: control chars stripped from names" "bad[31mname (live1)" "$(n1_containers_live T-L)"
+OUT=$(n1_containers_live '../x'); RC=$?
+eq "LV8: invalid id -> rc 0, empty" "0|" "$RC|$OUT"
+: > "$N1_HOME/memory/T-L/containers.tsv"; : > "$FAKE/running"
+for i in 01 02 03 04 05 06 07 08 09 10 11 12; do printf 'c%s\tn%s\tx\n' "$i" "$i" >> "$N1_HOME/memory/T-L/containers.tsv"; echo "c$i" >> "$FAKE/running"; done
+eq "LV9: at most 10 rows" "10" "$(n1_containers_live T-L | wc -l | tr -d ' ')"
+# PATH dirs holding only the tools the function needs: one without docker, one with the fake docker but no timeout
+mkdir -p "$T/tools-nodocker" "$T/tools-notimeout"
+for b in grep tr timeout; do p=$(command -v "$b") && ln -sf "$p" "$T/tools-nodocker/$b"; done
+for b in grep tr cat env; do ln -sf "$(command -v "$b")" "$T/tools-notimeout/$b"; done
+ln -sf "$FAKE/bin/docker" "$T/tools-notimeout/docker"
+# the fake docker is a bash script with an env shebang; keep bash reachable via absolute path
+BASH_BIN=$(command -v bash); ln -sf "$BASH_BIN" "$T/tools-notimeout/bash"; ln -sf "$BASH_BIN" "$T/tools-nodocker/bash"
+OUT=$( (PATH="$T/tools-nodocker"; n1_containers_live T-L; echo "rc=$?") 2>&1)
+has "LV10: docker missing (timeout present) -> rc 1" "rc=1" "$OUT"
+OUT=$( (PATH="$T/tools-notimeout"; n1_containers_live T-L; echo "rc=$?") 2>&1)
+has "LV11: timeout absent, docker present -> rc 1 (unknown, docker not run)" "rc=1" "$OUT"
+case "$OUT" in *"n01 (c01)"*) no "LV12" "listed containers without timeout";; *) ok "LV12: timeout absent -> no containers listed";; esac
 
 # ---- wiring (TQ-1): instruction text still calls the helpers ----
 grep -q 'containers.sh' "$REPO_ROOT/lib/preamble.sh" && ok "W1: preamble sources containers.sh" || no "W1" "missing"

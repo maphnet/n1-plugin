@@ -7,8 +7,10 @@
 #   n1_containers_snapshot <ID>            run BEFORE the start command
 #   n1_containers_track    <ID> [origin]   run right AFTER it: records new containers, sets restart=no
 #   n1_containers_teardown <ID>            stop + remove exactly the recorded containers (never prune, never project-wide down)
+#   n1_containers_live     <ID>            recorded containers still running: "name (short-id)" per line, max 10 (N1-404)
 #
-# Every function returns 0 when Docker is missing/unreachable (the feature must never fail a run that does not use Docker).
+# Every function except n1_containers_live returns 0 when Docker is missing/unreachable (the feature must never fail a run that does not use Docker);
+# n1_containers_live returns 1 then, so a caller can say "unknown" instead of "none".
 # Ownership: track records only containers new since the snapshot AND owned by this run: label n1.ticket=<ID>, or compose working_dir whose git toplevel is this worktree
 # (no git root -> label only). Containers of other sessions/stacks are never recorded, changed or removed. Plain `docker run` must pass --label n1.ticket=<ID>.
 # track may be called again after later starts (idempotent); each call advances the baseline, so it never diffs against a stale snapshot.
@@ -97,4 +99,21 @@ n1_containers_teardown() {
     done < "$f"
     echo "containers: removed $n tracked"
     return $rc
+}
+
+n1_containers_live() {
+    local d f run cid name n=0
+    d=$(_n1_ct_dir "${1:-}") || return 0
+    f="$d/containers.tsv"
+    [ -s "$f" ] || return 0                                   # nothing recorded: no Docker probe
+    command -v timeout >/dev/null 2>&1 || return 1   # no way to bound a hung Docker (sync SessionStart hook): report unknown
+    run=$(timeout 5 docker ps -q --no-trunc 2>/dev/null) || return 1   # missing, failing or hung Docker
+    while IFS=$'\t' read -r cid name _; do
+        [ -n "$cid" ] || continue
+        grep -qxF -- "$cid" <<<"$run" || continue             # recorded but stopped/removed
+        name=$(printf '%s' "$name" | LC_ALL=C tr -d '[:cntrl:]')
+        printf '%s (%s)\n' "${name:0:80}" "${cid:0:12}"
+        n=$((n + 1)); [ "$n" -ge 10 ] && break
+    done < "$f"
+    return 0
 }
