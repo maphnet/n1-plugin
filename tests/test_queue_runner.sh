@@ -2206,11 +2206,33 @@ test_done_cmd() {
     assert_eq "done_cmd: unattended queue settings" yes "$(grep -qF 'N1_QUEUE_RUN_ID' <<< "$cmd" && echo yes || echo no)"
 }
 
+# N1-293: ## Final PRs upsert keyed by Repo, inserted before ## Runs (stays last); fails closed on a bad PR cell or two headings.
+test_final_pr_table() {
+    local tmp q rc; tmp=$(mktemp -d); q="$tmp/queue.md"
+    printf -- '---\nqueue_id: q\n---\n## Plan\n| # | Ticket |\n\n## Runs\n| Ticket |\n' > "$q"
+    n1_queue_final_pr_set "$q" /r1 https://github.com/o/r/pull/9 draft "MERGEABLE (CLEAN)" ""
+    n1_queue_final_pr_set "$q" /r2 - - - no-merged-children
+    n1_queue_final_pr_set "$q" /r1 https://github.com/o/r/pull/9 ready "CONFLICTING (DIRTY)" 'x|y'
+    assert_eq "final table: rows by repo, upserted, cells sanitized" \
+        $'/r1\thttps://github.com/o/r/pull/9\tready\tCONFLICTING (DIRTY)\txy\n/r2\t-\t-\t-\tno-merged-children' \
+        "$(n1_queue_final_prs "$q")"
+    assert_eq "final table: ## Runs stays last" "## Runs" "$(grep '^## ' "$q" | tail -1)"
+    assert_eq "final table: one heading" 1 "$(grep -c '^## Final PRs$' "$q")"
+    rc=0; n1_queue_final_pr_set "$q" /r3 'https://evil.example/pull/1' ready x "" || rc=$?
+    assert_eq "final table: non-GitHub PR cell refused" 1 "$rc"
+    printf '## Final PRs\n' >> "$q"; rc=0
+    n1_queue_final_pr_set "$q" /r3 - - - x || rc=$?
+    assert_eq "final table: duplicate heading fails closed" 1 "$rc"
+    assert_eq "final reader: no file prints nothing" "" "$(n1_queue_final_prs "$tmp/none.md")"
+    rm -rf "$tmp"
+}
+
 test_n1_339_cleanup_helpers
 test_pr_view
 test_checks_class
 test_sync_story
 test_done_cmd
+test_final_pr_table
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

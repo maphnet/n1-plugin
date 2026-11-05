@@ -640,6 +640,43 @@ n1_queue_story_branch_get() {
         }' "$1"
 }
 
+n1_queue_final_pr_set() {
+    # Usage: n1_queue_final_pr_set <queue.md> <repo> <pr-url|-> <draft> <mergeable> <note>
+    # N1-293: upserts <repo>'s row in "## Final PRs" ("| Repo | PR | Draft | Mergeable | Note |"), inserted before
+    # ## Runs (which stays last), as n1_queue_story_branch_set does. The PR cell is a GitHub PR URL or "-"; the other
+    # cells are sanitized. Fails closed (returns 1, file untouched) on any other PR cell, more than one "## Final PRs"
+    # heading or no "## Runs" line.
+    local file="$1" n tmp repo row
+    [ -f "$file" ] || return 1
+    [[ "$3" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || [ "$3" = - ] || return 1
+    n=$(grep -c '^## Final PRs$' "$file" || true)
+    { [ "$n" -le 1 ] && grep -q '^## Runs$' "$file"; } || return 1
+    repo=$(_n1_queue_sanitize_cell "$2")
+    row="| $repo | $3 | $(_n1_queue_sanitize_cell "$4") | $(_n1_queue_sanitize_cell "$5") | $(_n1_queue_sanitize_cell "$6") |"
+    tmp=$(mktemp "${file}.XXXXXX") || return 1
+    has="$n" repo="$repo" row="$row" awk '
+        BEGIN { FS = "|"; r = ENVIRON["repo"]; row = ENVIRON["row"] }
+        ENVIRON["has"] == 0 && /^## Runs$/ {
+            print "## Final PRs"; print "| Repo | PR | Draft | Mergeable | Note |"; print "|------|----|-------|-----------|------|"; print row; print ""
+        }
+        /^## Final PRs$/ { f = 1; print; next }
+        f && /^## / { f = 0 }
+        f && /^\|[[:space:]]*:?-/ { print; print row; next }
+        f && NF >= 7 { c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == r) next }
+        { print }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_final_prs() {
+    # Usage: n1_queue_final_prs <queue.md> — N1-293: the "## Final PRs" rows as
+    # "<repo>\t<pr>\t<draft>\t<mergeable>\t<note>" (header and separator skipped). No file or section prints nothing.
+    [ -f "$1" ] || return 0
+    awk -F'|' '/^## Final PRs$/ { f = 1; next } /^## / { f = 0 }
+        f && NF >= 7 && !/^\|[[:space:]]*:?-/ {
+            for (i = 2; i <= 6; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            if ($2 != "Repo") printf "%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6
+        }' "$1"
+}
+
 n1_queue_already_run() {
     # Usage: n1_queue_already_run <overview.md>
     # Exit 0 and print the stamped queue_run_id when a previous queue run handled this
