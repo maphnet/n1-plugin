@@ -126,10 +126,25 @@ has "task-create: spec names worker_done and ask" "send only worker_done and ask
 reset
 eq "worker-start: dispatch" d-1 "$(n1_orca_worker_start run-1 task-1 T-1 /r sonnet)"
 has "worker-start: flags" "orchestration worker-start --run run-1 --task task-1 --worktree new-top-level --name T-1 --repo path:/r --agent claude --model sonnet" "$(calls)"
+eq "worker-start: non-story has no --base-branch" 0 "$(calls | grep -c -- --base-branch)"
+reset
+N1_STORY_BRANCH=story/S-1 n1_orca_worker_start run-1 task-1 T-1 /r sonnet >/dev/null
+has "worker-start: story flags" "orchestration worker-start --run run-1 --task task-1 --worktree new-top-level --name T-1 --repo path:/r --agent claude --base-branch origin/story/S-1 --model sonnet" "$(calls)"
+reset
+N1_STORY_BRANCH=story/S-1 n1_orca_worker_start run-1 task-1 T-1 /r sonnet /wt >/dev/null
+eq "worker-start: resume (path:) never gets --base-branch" 0 "$(calls | grep -c -- --base-branch)"
 reset
 eq "worker-start: model rejected -> retried without --model" d-1 "$(FAKE_ORCA_MODEL_REJECT=1 n1_orca_worker_start run-1 task-1 T-1 /r opus 2>/dev/null)"
 eq "worker-start: exactly one retry" 2 "$(grep -c worker-start "$FAKE/calls")"
 eq "worker-start: failure reason" "orca-launch:worktree-setup" "$(FAKE_ORCA_START_FAIL=1 n1_orca_worker_start run-1 task-1 T-1 /r '')"
+# N1-291: story children carry N1_STORY_ID/N1_STORY_BRANCH in the identity file; a non-story file has neither.
+d=$(mktemp -d)
+HOME="$d" n1_orca_sentinel_write "$d" T-9 /r q-1 run-1 task-1
+eq "sentinel: non-story has no story keys" 0 "$(grep -c '^N1_STORY_' "$(n1_orca_sentinel_path "$d" T-9)")"
+HOME="$d" N1_STORY_ID=S-1 N1_STORY_BRANCH=story/S-1 n1_orca_sentinel_write "$d" T-9 /r q-1 run-1 task-1
+eq "sentinel: story keys" "N1_STORY_ID=S-1,N1_STORY_BRANCH=story/S-1" "$(grep '^N1_STORY_' "$(n1_orca_sentinel_path "$d" T-9)" | paste -sd, -)"
+has "sentinel: story keys whitelisted" "N1_STORY_ID N1_STORY_BRANCH" "$N1_ORCA_SENTINEL_KEYS"
+rm -rf "$d"
 
 # Orca 1.4.243: taskId/dispatchId live only inside "payload", a JSON string.
 J='{"ok":true,"result":{"deliveryId":"del-1","messages":[{"id":"m-1","type":"worker_done","payload":"{\"taskId\":\"task-1\",\"dispatchId\":\"d-1\",\"outcome\":\"succeeded\"}"},{"id":"m-2","type":"question","payload":"{\"taskId\":\"task-2\",\"dispatchId\":\"d-2\"}"}]}}'

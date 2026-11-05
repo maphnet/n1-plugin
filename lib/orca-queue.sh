@@ -78,9 +78,13 @@ n1_orca_worker_start() {
     # --model (row models are aliases; Orca takes opaque provider ids). Any other failure is final: Orca forbids blind
     # relaunch. N1-271: with an existing worktree (n1_orca_worktree_resumable) the worker starts there
     # (--worktree path:<abs>, no --name: nothing new is created, so Orca has nothing to rename).
+    # N1-291: with N1_STORY_BRANCH set, a new worktree gets --base-branch origin/$N1_STORY_BRANCH.
     local model="${5:-}" out id why rc
     local a=(orchestration worker-start --run "$1" --task "$2" --worktree new-top-level --name "$3" --repo "path:$4" --agent claude)
     [ -z "${6:-}" ] || a=(orchestration worker-start --run "$1" --task "$2" --worktree "path:$6" --repo "path:$4" --agent claude)
+    # N1-291: a story-mode new worktree starts from the story tip (caller env N1_STORY_BRANCH, runner-validated);
+    # --base-branch is creation-only, so the path: resume never gets it. The child's Adopt Checkout re-syncs anyway.
+    [ -n "${6:-}" ] || [ -z "${N1_STORY_BRANCH:-}" ] || a+=(--base-branch "origin/$N1_STORY_BRANCH")
     out=$(N1_ORCA_TIMEOUT=180 n1_orca "${a[@]}" ${model:+--model "$model"}); rc=$?
     if [ "$rc" -ne 0 ] && [ -n "$model" ] && jq -r '.error.message // empty' <<<"$out" 2>/dev/null | grep -qi model; then
         echo "n1-queue: worker-start rejected model '$model' for $3; retrying without --model" >&2
@@ -265,7 +269,7 @@ n1_orca_usage_stalled() {
 # worker-start has no env flag, so an Orca child would run as an interactive session (merge guard off, a question
 # TUI nobody answers). The runner writes $N1_HOME/queue/sentinels/<ticket>.env before worker-start; SessionStart
 # persists it for Bash commands via CLAUDE_ENV_FILE and every hook loads it into its own process.
-N1_ORCA_SENTINEL_KEYS="N1_HEADLESS N1_AUTONOMY_PRESET N1_UNATTENDED N1_QUEUE_RUN_ID N1_QUEUE_TAG N1_QUEUE_DIR N1_PARENT_SESSION_ID N1_ORCA_REPO N1_ORCA_RUN N1_ORCA_TASK N1_ORCA_DISPATCH N1_ORCA_RESUME"
+N1_ORCA_SENTINEL_KEYS="N1_HEADLESS N1_AUTONOMY_PRESET N1_UNATTENDED N1_QUEUE_RUN_ID N1_QUEUE_TAG N1_QUEUE_DIR N1_PARENT_SESSION_ID N1_ORCA_REPO N1_ORCA_RUN N1_ORCA_TASK N1_ORCA_DISPATCH N1_ORCA_RESUME N1_STORY_ID N1_STORY_BRANCH"
 
 n1_orca_sentinel_path() { printf '%s/queue/sentinels/%s.env' "$1" "$2"; }   # <n1-home> <ticket>
 # <ticket> — fixed, git-independent pointer to the ticket's N1 home: the loader never resolves the home through git
@@ -297,6 +301,8 @@ n1_orca_sentinel_write() {
         printf 'N1_HEADLESS=1\nN1_AUTONOMY_PRESET=autonomous\nN1_UNATTENDED=ask\n'
         printf 'N1_QUEUE_RUN_ID=%s\nN1_QUEUE_TAG=%s\nN1_QUEUE_DIR=%s\nN1_PARENT_SESSION_ID=%s\n' \
             "$4" "${N1_QUEUE_TAG:-}" "${N1_QUEUE_DIR:-}" "$(n1_session_id 2>/dev/null)"
+        # N1-291: story-mode child only (runner prefix-assigns both); a non-story file is unchanged.
+        [ -z "${N1_STORY_BRANCH:-}" ] || printf 'N1_STORY_ID=%s\nN1_STORY_BRANCH=%s\n' "${N1_STORY_ID:-}" "$N1_STORY_BRANCH"
         printf 'N1_ORCA_REPO=%s\nN1_ORCA_RUN=%s\nN1_ORCA_TASK=%s\n' "$3" "$5" "$6"
     } > "$t" && mv -f "$t" "$f" || { rm -f "$t"; return 1; }
     rm -f "${f%.env}.beacon"   # N1-315: a retry or resume must not inherit the previous attempt's phase stamp
