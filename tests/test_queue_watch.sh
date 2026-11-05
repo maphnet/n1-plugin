@@ -282,6 +282,19 @@ test_ticket_watch_events_relayed() {
     has "N1-315: stalled relayed" "T-1 may be stalled (phase=review age=31m)" "$out"
 }
 
+# N1-393. Bug caught: an errored Orca worker stop was invisible to the watch, so the user saw no sign of it.
+test_worker_stopped_errored_relayed() {
+    local q out; q=$(newq q-ws)
+    ev "$q" R1 worker_stopped ticket=T-1 reason=$'stopped (errored): boom\e[2J'
+    ev "$q" R1 ticket_finished ticket=T-2 outcome=pr pr=https://example.test/pr/2
+    ev "$q" R1 worker_stopped ticket=T-2 reason="stopped (finished): done"
+    ev "$q" R1 queue_done reason="done"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    assert_eq "N1-393: errored stop gives one line" "1" "$(grep -cF 'T-1 worker stopped, needs attention (stopped (errored): boom' <<<"$out")"
+    lacks "N1-393: control chars stripped" $'\e' "$out"
+    assert_eq "N1-393: finished stop after ticket_finished adds no line" "1" "$(grep -c 'T-2' <<<"$out")"
+}
+
 test_run_id_filter_and_finish
 test_halt_draining_keeps_watch
 test_escalated_terminal_outcome_hints_n1_start
@@ -298,6 +311,7 @@ test_question_alternatives_rendered
 test_escalated_plaintext_brace_reason_unchanged
 test_escalated_plaintext_long_reason_capped_at_300
 test_rejects_bad_input_and_sanitizes
+test_worker_stopped_errored_relayed
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
