@@ -1088,21 +1088,21 @@ test_runner_story_branches() {
     assert_eq "story-run: no local story branch" "" "$(git -C "$tmp/repo" for-each-ref --format='%(refname)' refs/heads/story)"
     assert_eq "story-run: children launched" "yes" "$(grep -q '^launch ' "$tmp/fake/events" && echo yes || echo no)"
 
-    # Resume: the branch exists on origin and has moved on; an interrupted run with the row already recorded
-    # reuses it (no reset, no force push) and keeps one row.
+    # Resume: the branch exists on origin and has moved on; an interrupted run with no row recorded yet
+    # reuses it (no reset, no force push) and records the mapping row (proves the block ran on resume).
     adv=$(git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit-tree -p refs/heads/story/S-1 -m story 'refs/heads/story/S-1^{tree}')
     git -C "$tmp/origin" update-ref refs/heads/story/S-1 "$adv"
     tmp2=$(mktemp -d); sb_fixture "$tmp2" story "$tmp/origin"
     n1_write_frontmatter "$tmp2/queue.md" run_id R1; n1_write_frontmatter "$tmp2/queue.md" step run
-    n1_queue_story_branch_set "$tmp2/queue.md" "$tmp2/repo" story/S-1
     assert_eq "story-resume: exit 0" "0" "$(run_bg_queue "$tmp2")"
     assert_eq "story-resume: branch not reset" "$adv" "$(git -C "$tmp/origin" rev-parse refs/heads/story/S-1)"
-    assert_eq "story-resume: still one row" "1" "$(count_x "$tmp2/queue.md" "| $tmp2/repo | story/S-1 |")"
+    assert_eq "story-resume: one row recorded" "1" "$(count_x "$tmp2/queue.md" "| $tmp2/repo | story/S-1 |")"
     assert_eq "story-resume: one heading" "1" "$(count_x "$tmp2/queue.md" '## Story Branches')"
 
     # Tag mode: no integration branch, no section.
     tmp3=$(mktemp -d); sb_fixture "$tmp3" tag
     run_bg_queue "$tmp3" >/dev/null   # exit code not asserted: tag-mode finalize paths are not this ticket's concern
+    assert_eq "story-tag: children launched" "yes" "$(grep -q '^launch ' "$tmp3/fake/events" && echo yes || echo no)"
     assert_eq "story-tag: no story branch on origin" "" "$(git -C "$tmp3/origin" for-each-ref --format='%(refname)' refs/heads/story)"
     assert_eq "story-tag: no section" "0" "$(count_x "$tmp3/queue.md" '## Story Branches')"
 
