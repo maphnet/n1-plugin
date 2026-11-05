@@ -258,28 +258,20 @@ check "release maps pending batch SHAs to PRs" "merged_sha" "$R1"
 check "release scans merge-commit PR refs too" "Merge pull request #" "$R1"
 check "release writes the shared TSV" "release-actions\.tsv" "$R1"
 check "release Parse includes Before release items" 'RELEASE_ROWS="include"' "$R1"
-check "release previous-tag resolution excludes the target tag itself" 'grep -v -x "\$TAG"' "$R1"
+check "release previous-tag resolution calls the lib and excludes the target tag" 'PREV_TAG=\$\(n1_release_prev_tag --exclude "\$TAG"\)' "$R1"
 check "release scan range uses the release target, not bare HEAD" 'RELEASE_TARGET="\$\{MERGE_SHA:-HEAD\}"' "$R1"
 check "release scan range is used for the git log scan" '\$\{PREV_TAG\}\.\.\$\{RELEASE_TARGET\}' "$R1"
 check "release resolves rebase/edited-squash commits via PR-for-commit lookup" 'commits/\$sha/pulls' "$R1"
 
-# --- behavior: PREV_TAG resolution excludes TAG itself and resolves the true previous tag
-prev_tag_snippet() { # the ```bash block in R1 containing the PREV_TAG resolution
-    awk '
-    /^[ \t]*```bash/ { inblock=1; buf=""; next }
-    /^[ \t]*```/ { if (inblock && found) { printf "%s", buf }; inblock=0; found=0; next }
-    inblock { buf = buf $0 "\n"; if ($0 ~ /PREV_TAG=\$\(git tag --list/) found=1 }
-    ' "$R1"
-}
-SNIPPET="$(prev_tag_snippet)
-echo \"PREV_TAG=\$PREV_TAG\""
+# --- behavior: n1_release_prev_tag --exclude (step 01) excludes TAG itself and resolves the true previous tag
+prev_tag_lib() { (source "$PWD/lib/release.sh"; cd "$1" && PATH="$1/bin:$PATH" n1_release_prev_tag --exclude "$2"); }
 REPO="$T/prevtag-repo"; mkdir -p "$REPO/bin"
-cat > "$REPO/bin/gh" <<'EOF'
+cat > "$REPO/bin/gh" <<'EOF2'
 #!/usr/bin/env bash
 case "$1 $2" in
     "release list") ;; # no releases -> empty
 esac
-EOF
+EOF2
 chmod +x "$REPO/bin/gh"
 git -C "$REPO" -c tag.gpgSign=false init -q -b main
 git -C "$REPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
@@ -287,8 +279,7 @@ git -C "$REPO" -c tag.gpgSign=false tag v1.0.0
 git -C "$REPO" -c user.email=t@t -c user.name=t commit -q --allow-empty -m second
 git -C "$REPO" -c tag.gpgSign=false tag v1.1.0
 
-out=$(cd "$REPO" && PATH="$REPO/bin:$PATH" TAG="v1.1.0" bash -c "$SNIPPET")
-[ "$(echo "$out" | grep '^PREV_TAG=')" = "PREV_TAG=v1.0.0" ] \
+[ "$(prev_tag_lib "$REPO" v1.1.0)" = "v1.0.0" ] \
     && echo "PASS: PREV_TAG resolution excludes TAG and finds the true previous tag" || { echo "FAIL: PREV_TAG resolution"; FAIL=1; }
 
 REPO2="$T/prevtag-repo-first"; mkdir -p "$REPO2/bin"
@@ -297,8 +288,7 @@ git -C "$REPO2" -c tag.gpgSign=false init -q -b main
 git -C "$REPO2" -c user.email=t@t -c user.name=t commit -q --allow-empty -m first
 git -C "$REPO2" -c tag.gpgSign=false tag v1.1.0
 
-out=$(cd "$REPO2" && PATH="$REPO2/bin:$PATH" TAG="v1.1.0" bash -c "$SNIPPET")
-[ "$(echo "$out" | grep '^PREV_TAG=')" = "PREV_TAG=" ] \
+[ -z "$(prev_tag_lib "$REPO2" v1.1.0)" ] \
     && echo "PASS: PREV_TAG resolution empty on first release" || { echo "FAIL: PREV_TAG first-release case"; FAIL=1; }
 
 R2=skills/n1-release/steps/02-confirm-execute.md

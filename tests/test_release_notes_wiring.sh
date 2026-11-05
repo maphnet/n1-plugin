@@ -42,7 +42,7 @@ if [ -n "$SNIPPET" ]; then echo "PASS: release body snippet present"; else echo 
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/home/.n1" "$T/n1/releases" "$T/n1/scratch"
-echo "source \"$PWD/lib/config.sh\"" > "$T/home/.n1/preamble.sh"   # N1_HOME comes from the environment below
+printf 'N1_ROOT=%q\nsource %q\n' "$PWD" "$PWD/lib/config.sh" > "$T/home/.n1/preamble.sh"   # N1_HOME comes from the environment below
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
@@ -117,6 +117,9 @@ tag_run() { (cd "$G" && sandbox "$(sed "s|<TAG argument, or empty>|$1|" <<<"$SNI
 expect "notes-only: latest tag by default" "TAG=v1.2.0 VERSION=1.2.0 PREV_TAG=v1.1.0" "$(tag_run '' | head -1)"
 expect "notes-only: bare version gets the v prefix, previous tag is the next older one" "TAG=v1.1.0 VERSION=1.1.0 PREV_TAG=v1.0.0" "$(tag_run 1.1.0 | head -1)"
 expect "notes-only: oldest tag has an empty previous tag" "TAG=v1.0.0 VERSION=1.0.0 PREV_TAG=" "$(tag_run v1.0.0 | head -1)"
+expect "lib: next older tag" "v1.1.0" "$(source "$PWD/lib/release.sh"; cd "$G" && n1_release_prev_tag v1.2.0)"
+expect "lib: oldest tag has no previous tag" "" "$(source "$PWD/lib/release.sh"; cd "$G" && n1_release_prev_tag v1.0.0)"
+expect "5c-1 resolves the previous tag through the lib" "1" "$(grep -cF 'PREV_TAG=$(n1_release_prev_tag "$TAG")' "$R3B")"
 expect "notes-only: unknown tag" "notes:no-tag" "$(tag_run v9.9.9 | head -1)"
 expect "notes-only: non-semver argument rejected" "notes:bad-tag" "$(tag_run 'v1.0.0;x' | head -1)"
 git -C "$G" update-ref 'refs/tags/v99$(touch${IFS}PWNED)' HEAD
