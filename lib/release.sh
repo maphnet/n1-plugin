@@ -40,7 +40,7 @@ n1_release_ticket_ids() {
     sed -nE "s/^[0-9a-f]+ \[(${prefix}-[0-9]+)\].*/\1/p" <<<"$log" | sort -u
 }
 
-# n1_release_page_results: stdin is a jcm_getArticle body. Prints <case-id><TAB><result> for rows of the first
+# n1_release_page_results: stdin is a jcm_getArticle body. Prints <case-id><TAB><result>[<TAB><tested-at>] for rows of the first
 # table with ID and Result columns whose Result is non-empty. rc 1 when there is no such table: the caller
 # must then not overwrite the page.
 # ponytail: pinned to the jc-mcp 0.11.1 one-line pipe rows (adf-to-markdown.js tableToMarkdown); a format change
@@ -59,13 +59,14 @@ n1_release_page_results() {
         $0 !~ /^[ \t]*\|/ { if (idc) exit; next }
         !idc {
             n = cells($0, c); id = 0; res = 0
-            for (i = 1; i <= n; i++) { if (c[i] == "ID") id = i; if (c[i] == "Result") res = i }
-            if (id && res) { idc = id; rc = res }
+            tat = 0
+            for (i = 1; i <= n; i++) { if (c[i] == "ID") id = i; if (c[i] == "Result") res = i; if (c[i] == "Tested at") tat = i }
+            if (id && res) { idc = id; rc = res; tc = tat }
             next
         }
         {
             cells($0, c)
-            if (c[idc] ~ /^RT-[0-9]+$/ && c[rc] != "") print c[idc] "\t" c[rc]
+            if (c[idc] ~ /^RT-[0-9]+$/ && c[rc] != "") print c[idc] "\t" c[rc] (tc ? "\t" c[tc] : "")
         }
         END { exit (idc ? 0 : 1) }
     '

@@ -103,6 +103,10 @@ eq "other tables are ignored" "RT-08	FAIL" "$(n1_release_page_results <<<'| Name
 | ID | Result |
 | --- | --- |
 | RT-10 | PASS |')"
+# Bug: the Tested at stamp must come back with the Result so a stale approval can be dropped.
+eq "Tested at column is returned as a third field" "RT-01	PASS	abc-1" "$(n1_release_page_results <<<'| ID | Result | Tested at |
+| --- | --- | --- |
+| RT-01 | PASS | abc-1 |')"
 # Bug: pre-0.11.1 bare lines must give rc 1, or the caller overwrites QA's results.
 n1_release_page_results <<<$'RT-01\nPASS' >/dev/null; eq "bare lines: rc 1" "1" "$?"
 out=$(n1_release_page_results <<<'| ID | Result |

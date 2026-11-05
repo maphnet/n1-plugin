@@ -84,14 +84,15 @@ cat > "$D/release-test-results.md" <<'EOF'
 | RT-01 | PASS | GET /x -> 200 \| ok | - |
 Dev build: verified
 EOF
-cat > "$D/page-body.md" <<'EOF'
-| ID | Tickets | Risk | Class | Steps and expected | Result |
-| --- | --- | --- | --- | --- | --- |
-| RT-01 | VEL-1 | High | auto | 1) x | FAIL |
-| RT-03 | VEL-2 | High | manual | 1) look | pass |
-| RT-04 | VEL-2 | Low | assisted | 1) run | blocked by env |
-| RT-05 | VEL-2 | Low | manual | 1) look |  |
-| RT-99 | VEL-3 | Low | manual | 1) old | PASS |
+H0=$(git rev-parse HEAD); ST3="${H0:0:12}-$(cksum <<<"$(grep '^| RT-03 ' "$D/release-test-plan.md")" | cut -d' ' -f1)"
+cat > "$D/page-body.md" <<EOF
+| ID | Tickets | Risk | Class | Steps and expected | Result | Tested at |
+| --- | --- | --- | --- | --- | --- | --- |
+| RT-01 | VEL-1 | High | auto | 1) x | FAIL | x |
+| RT-03 | VEL-2 | High | manual | 1) look | pass | $ST3 |
+| RT-04 | VEL-2 | Low | assisted | 1) run | blocked by env | x |
+| RT-05 | VEL-2 | Low | manual | 1) look |  |  |
+| RT-99 | VEL-3 | Low | manual | 1) old | PASS | x |
 EOF
 MERGE=$(snip "## 4d." "$S4"); MERGE=${MERGE//<LABEL>/1.1.0}
 OUT=$(sandbox "$MERGE")
@@ -132,5 +133,25 @@ lacks "no checkbox list syntax" '^[[:space:]]*- \[ \]' "$S"
 lacks "no write to pending-releases.json" '>[[:space:]]*"?\$N1_HOME/pending-releases' "$S"
 if grep -rE 'operations\.create' "$S" | grep -qv 'operations\.createArticle'; then echo "FAIL: no ticket-creation op"; FAIL=1; else echo "PASS: no ticket-creation op"; fi
 lacks "host-neutral: no host tool names" 'AskUserQuestion|ToolSearch|spawn_agent|Agent tool' "$S"
+
+# N1-176 Codex fixes: HEAD SHA binding, Tested-at carry-over, PREV validation, preconditions column.
+V=agents/post-deploy-verifier.md
+check "verifier requires the HEAD commit SHA" 'HEAD commit SHA' "$V"
+lacks "verifier no longer accepts a version alone" 'showing the HEAD version' "$V"
+check "run step passes the HEAD SHA" 'git rev-parse HEAD' "$S3"
+check "scope step validates PREV locally" 'git rev-parse --verify -q "\$PREV\^\{commit\}"' "$S1"
+check "scope error is reported apart from empty" 'scope:error' "$S1"
+check "page table has Preconditions column" '^\| ID \| Tickets \| Risk \| Class \| Preconditions / test data \|.*\| Tested at \|' "$S4"
+# Bug: a PASS entered for another commit or an edited case must not carry over.
+D=$T/n1/releases/9.9.9; mkdir -p "$D"
+PLAN='| RT-01 | V-1 | Low | manual | r | none | 1) a -> b |'
+printf '| ID | Tickets | Risk | Class | Reason | Preconditions / test data | Steps and expected |\n|---|---|---|---|---|---|---|\n%s\n' "$PLAN" > "$D/release-test-plan.md"
+git init -q "$T/repo" && git -C "$T/repo" -c user.email=a@b -c user.name=n commit -q --allow-empty -m x
+STAMP=$(cd "$T/repo" && H=$(git rev-parse HEAD) && echo "${H:0:12}-$(cksum <<<"$PLAN" | cut -d' ' -f1)")
+MERGE=$(snip "## 4d." "$S4" | sed 's|<LABEL>|9.9.9|')
+run4d() { printf '| ID | Result | Tested at |\n|---|---|---|\n| RT-01 | PASS | %s |\n' "$1" > "$D/page-body.md"
+  sandbox "cd '$T/repo' && $MERGE" | grep -E '^RT-01' | cut -f4; }
+expect "matching stamp carries the PASS" "PASS" "$(run4d "$STAMP")"
+expect "other commit or case drops the PASS" "MANUAL" "$(run4d "000000000000-1")"
 
 exit $FAIL

@@ -38,6 +38,11 @@ source "$N1_ROOT/lib/release.sh"
 DIR="$N1_HOME/releases/<LABEL>"
 RESULTS="$DIR/release-test-results.md"; [ -f "$RESULTS" ] || RESULTS=/dev/null
 PAGE=/dev/null
+# Bind a carried QA Result to the tested commit and the case definition: stamp = HEAD sha12 + cksum of the plan row.
+HEAD_SHA=$(git rev-parse HEAD) || { echo "page:nohead"; exit 1; }
+while IFS= read -r row; do
+  [[ "$row" =~ ^\|[[:space:]]*(RT-[0-9]+)[[:space:]]*\| ]] && printf '%s\t%s-%s\n' "${BASH_REMATCH[1]}" "${HEAD_SHA:0:12}" "$(cksum <<<"$row" | cut -d' ' -f1)"
+done < "$DIR/release-test-plan.md" > "$DIR/case-stamp.tsv"
 if [ -f "$DIR/page-body.md" ]; then
   if n1_release_page_results < "$DIR/page-body.md" > "$DIR/page-results.tsv"; then
     PAGE="$DIR/page-results.tsv"
@@ -46,20 +51,24 @@ if [ -f "$DIR/page-body.md" ]; then
   fi
 fi
 # Auto cases take the verifier status (missing = UNVERIFIED). Manual and assisted cases take QA's PASS or FAIL
-# from the page; any other value or none is pending (MANUAL).
-awk -v r="$RESULTS" -v p="$PAGE" '
+# from the page when its Tested at stamp equals the current one; any other value, none or a stale stamp is pending (MANUAL).
+awk -v r="$RESULTS" -v p="$PAGE" -v t="$DIR/case-stamp.tsv" '
   function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+  FILENAME == t { split($0, c, "\t"); stamp[c[1]] = c[2]; next }
   FILENAME == r { split($0, c, "|"); if (trim(c[2]) ~ /^RT-[0-9]+$/) st[trim(c[2])] = toupper(trim(c[3])); next }
-  FILENAME == p { split($0, c, "\t"); qa[c[1]] = toupper(trim(c[2])); next }
+  FILENAME == p { split($0, c, "\t"); qa[c[1]] = toupper(trim(c[2])); qt[c[1]] = trim(c[3]); next }
   {
     split($0, c, "|"); id = trim(c[2])
     if (id !~ /^RT-[0-9]+$/) next
     class = tolower(trim(c[5]))
     if (class == "auto") { s = st[id]; if (s != "PASS" && s != "FAIL" && s != "UNVERIFIED" && s != "MANUAL") s = "UNVERIFIED" }
-    else { s = qa[id]; if (s != "PASS" && s != "FAIL") s = "MANUAL" }
+    else {
+      s = qa[id]; if (s != "PASS" && s != "FAIL") s = "MANUAL"
+      if (s != "MANUAL" && qt[id] != stamp[id]) { print "stale: " id " = " qa[id] > "/dev/stderr"; s = "MANUAL" }
+    }
     print id "\t" trim(c[4]) "\t" class "\t" s
   }
-' "$RESULTS" "$PAGE" "$DIR/release-test-plan.md" > "$DIR/case-status.tsv"
+' "$DIR/case-stamp.tsv" "$RESULTS" "$PAGE" "$DIR/release-test-plan.md" > "$DIR/case-status.tsv"
 cat "$DIR/case-status.tsv"
 if [ "$PAGE" != /dev/null ]; then
   awk -F'\t' 'NR == FNR {k[$1]; next} !($1 in k) {print "dropped: " $1 " = " $2}' <(cut -f1 "$DIR/case-status.tsv"; echo) "$PAGE"
@@ -67,6 +76,7 @@ fi
 ```
 
 - `page:unparsable`: do not call `operations.updateArticle` and do not create a page. Print "Confluence page found but its table is not parsable; not updated: <url or page id>", add 1 to `PUBLISH_FAIL`, set `CONF=failed:page table not parsable`, and skip 4e. The local plan is the source of truth for this run.
+- `stale: <ID> = <value>` lines: the Result was entered for another commit or an edited case. It is not carried (the case is pending again); list these in the report.
 - `dropped:` lines go in the report. Those Results are not carried to the page.
 
 ## 4e. Create or update the page
@@ -78,10 +88,10 @@ The page body is:
 
 Scope: <PREV>..HEAD, <N> tickets: <ID>, <ID>
 
-| ID | Tickets | Risk | Class | Steps and expected | Result |
-|---|---|---|---|---|---|
-| RT-01 | <ID> | High | auto | 1) <step> -> <expected> | <status from case-status.tsv> |
-| RT-02 | <ID> | Low | manual | 1) <step> -> <expected> | <QA value from page-results.tsv verbatim, or empty> |
+| ID | Tickets | Risk | Class | Preconditions / test data | Steps and expected | Result | Tested at |
+|---|---|---|---|---|---|---|---|
+| RT-01 | <ID> | High | auto | <preconditions and test data, or none> | 1) <step> -> <expected> | <status from case-status.tsv> | <stamp from case-stamp.tsv> |
+| RT-02 | <ID> | Low | manual | <preconditions and test data, or none> | 1) <step> -> <expected> | <PASS or FAIL from case-status.tsv, empty when MANUAL> | <stamp from case-stamp.tsv> |
 
 QA: enter PASS or FAIL in the Result column of each manual and assisted case. Any other value counts as pending.
 

@@ -51,13 +51,13 @@ Every ticket acceptance criterion appears exactly once. `PASS` requires successf
 
 Release Mode applies only when your prompt names a `release-test-plan.md` path. The per-ticket sections above stay as they are for every other dispatch.
 
-Input, as absolute paths: `release-test-plan.md`, `release.diff` (a `--stat` summary followed by the full diff of the release range), `config.json`, `dev-access.md`, and the output path `$N1_HOME/releases/<label>/release-test-results.md`. The prompt also lists the in-scope ticket IDs.
+Input, as absolute paths: `release-test-plan.md`, `release.diff` (a `--stat` summary followed by the full diff of the release range), `config.json`, `dev-access.md`, and the output path `$N1_HOME/releases/<label>/release-test-results.md`. The prompt also gives the HEAD commit SHA and lists the in-scope ticket IDs.
 
 1. Read the plan table. Read `dev-access.md` and the configured observability in `config.json`. Consult `release.diff` as needed to run a case.
 2. Run every `auto` case against dev with the smallest safe check. A case whose steps are not read-only, or that `dev-access.md` and observability do not support, is `UNVERIFIED` with the reason.
 3. Run `assisted` cases the same way, and report them `MANUAL`: a human confirms the outcome, and your evidence goes in the row. Do not run `manual` cases; report them `MANUAL` with evidence `-`.
 4. Re-run each `FAIL` once. The reported status is the result of the re-run, and the reason notes when the two runs differed.
-5. Look for evidence of which build dev runs: a response or command output showing the HEAD version or short SHA.
+5. Look for evidence of which build dev runs: a response or command output showing the HEAD commit SHA (full, or a prefix of at least 7 characters). A version string alone does not identify the build.
 6. Overwrite the output path. Continue after an individual case fails or is unavailable.
 
 | Case | Status | Check / evidence | Reason |
@@ -66,4 +66,4 @@ Input, as absolute paths: `release-test-plan.md`, `release.diff` (a `--stat` sum
 
 Every case in the plan appears exactly once. `PASS` requires behavioural evidence (request and response, command output, or a log line); static-only evidence, such as reading code or configuration, gives `UNVERIFIED`. Keep every cell on one line and write `|` as `\|`.
 
-The last line of the file is `Dev build: verified (<evidence>)` only when a response or command output shows the HEAD version or SHA. Otherwise the last line is `Dev build: unverified`.
+The last line of the file is `Dev build: verified (<evidence>)` only when a response or command output shows the HEAD commit SHA given in the prompt (a version alone is not enough). Otherwise the last line is `Dev build: unverified`.

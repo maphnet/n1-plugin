@@ -69,7 +69,9 @@ COMMITS=$(git log "${PREV:+$PREV..}HEAD" --format='%h %s' 2>/dev/null || true)
 UNTICKETED=$(grep -vE "^[0-9a-f]+ \[${PREFIX}-[0-9]+\]" <<<"$COMMITS" | grep . || true)
 NOCOMMIT=$(comm -23 <(printf '%s\n' "$OTHER") <(printf '%s\n' "$GIT_IDS") | grep . || true)
 IDS=$(printf '%s\n' "$GIT_IDS" "$OTHER" | grep . | sort -u)
-if [ -z "$COMMITS" ] && [ -z "$IDS" ]; then
+if [ -n "$PREV" ] && ! git rev-parse --verify -q "$PREV^{commit}" >/dev/null; then
+  echo "scope:error"
+elif [ -z "$COMMITS" ] && [ -z "$IDS" ]; then
   echo "scope:empty"
 else
   mkdir -p "$DIR"
@@ -83,4 +85,4 @@ else
 fi
 ```
 
-On `scope:empty`, print "Nothing to test since <PREV>." and STOP. Otherwise print the ticket list and every warning. Carry `WARN` as the integrity warning count. Every value pasted into a snippet here and in later steps must match its allow-list (`LABEL`: the 1c class, `PREV`: `^v[0-9A-Za-z.+-]+$` or empty, `BASE_WARN` and `WARN`: digits); otherwise stop instead of pasting.
+On `scope:error`, print "Previous tag <PREV> does not resolve locally (fetch tags); scope not computed." and STOP. On `scope:empty`, print "Nothing to test since <PREV>." and STOP. Otherwise print the ticket list and every warning. Carry `WARN` as the integrity warning count. Every value pasted into a snippet here and in later steps must match its allow-list (`LABEL`: the 1c class, `PREV`: `^v[0-9A-Za-z.+-]+$` or empty, `BASE_WARN` and `WARN`: digits); otherwise stop instead of pasting.
