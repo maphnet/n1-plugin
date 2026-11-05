@@ -635,7 +635,7 @@ story_merge() {
     url=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")
     view=$(n1_queue_pr_view "$url")
     [ -n "$view" ] || { sm_retry pr-state-unreadable; return 0; }
-    nwo=$(cd "$REPO" 2>/dev/null && timeout 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
+    nwo=$(cd "$REPO" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
     [ -n "$nwo" ] || { sm_retry pr-state-unreadable; return 0; }
     u=${url#https://github.com/}; u=${u%/pull/*}
     [ "$u" = "$nwo" ] || { sm_final pr-repo-mismatch; return 0; }
@@ -665,7 +665,7 @@ story_merge() {
     esac
     method=$(N1_HOME="$N1H" n1_config_val '.finishWork.mergeMethod' 2>/dev/null)
     case "$method" in squash|merge|rebase) ;; *) method=squash ;; esac
-    if ! err=$(timeout 120 gh pr merge "$url" "--$method" --match-head-commit "$pin" </dev/null 2>&1 >/dev/null); then
+    if ! err=$(timeout -k 30 120 gh pr merge "$url" "--$method" --match-head-commit "$pin" </dev/null 2>&1 >/dev/null); then
         echo "[$NUM] $TICKET gh pr merge refused: $(head -n1 <<< "$err")"
         if grep -q 'not mergeable' <<< "$err"; then sm_retry dirty; else sm_retry merge-failed; fi
         return 0
