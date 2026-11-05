@@ -351,7 +351,7 @@ The QA, local-testing and CI fix loops stop early when two consecutive failing r
 
 | Loop | Key | Names |
 |---|---|---|
-| QA | `qa_fail_sig` | `n1_testparse_failed_names` on `qa-verify.log` |
+| QA | `qa_fail_sig` | `n1_testparse_failed_names ... full` on `qa-verify.log` (pytest node IDs minus `[param]`; N1-358) |
 | Local testing | `local_test_fail_sig` | Scenario column of `### Ad-Hoc Scenario Results` rows whose Result is exactly `FAIL`, plus `class:<Failure class>`. Failures only in existing e2e give an empty signature |
 | CI | `ci_fail_sig` | Check names of all poll `FAIL` lines, cancelled included, passed through `ci-fail.tsv` |
 
