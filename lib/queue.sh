@@ -522,7 +522,7 @@ n1_queue_story_branch_ensure() {
     heads=$(git -C "$repo" ls-remote --heads origin "refs/heads/$b" 2>/dev/null) \
         || { echo "n1-queue: story branch: ls-remote origin failed in $repo" >&2; return 1; }
     [ -z "$heads" ] || return 0
-    git -C "$repo" fetch origin "$d" >&2 || { echo "n1-queue: story branch: fetch origin $d failed in $repo" >&2; return 1; }
+    git -C "$repo" fetch origin "+refs/heads/$d:refs/remotes/origin/$d" >&2 || { echo "n1-queue: story branch: fetch origin $d failed in $repo" >&2; return 1; }
     git -C "$repo" push origin "refs/remotes/origin/$d:refs/heads/$b" >&2 \
         || { echo "n1-queue: story branch: push of $b to origin failed in $repo" >&2; return 1; }
 }
@@ -547,7 +547,7 @@ n1_queue_story_branch_set() {
         }
         /^## Story Branches$/ { f = 1; print; next }
         f && /^## / { f = 0 }
-        f && /^\|-/ { print; print row; next }
+        f && /^\|[[:space:]]*:?-/ { print; print row; next }
         f && NF >= 4 { c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == r) next }
         { print }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
 }

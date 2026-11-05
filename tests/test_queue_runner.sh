@@ -1010,6 +1010,11 @@ test_story_branch_helpers() {
     n1_queue_story_branch_set "$q" '/x|y' story/S-1
     assert_eq "story-map: repo cell sanitized" "1" "$(count_x "$q" '| /xy | story/S-1 |')"
     assert_eq "story-map: sanitized key reads back" "story/S-1" "$(n1_queue_story_branch_get "$q" '/x|y')"
+    printf -- '---\nmode: story\n---\n## Story Branches\n| Repo | Branch |\n| :--- | --- |\n| /keep | story/K |\n\n## Runs\n' > "$tmp/sp.md"
+    n1_queue_story_branch_set "$tmp/sp.md" /new story/S-2
+    n1_queue_story_branch_set "$tmp/sp.md" /keep story/K2
+    assert_eq "story-map: spaced/aligned separator -> new row" "story/S-2" "$(n1_queue_story_branch_get "$tmp/sp.md" /new)"
+    assert_eq "story-map: spaced/aligned separator -> upsert keeps row" "story/K2" "$(n1_queue_story_branch_get "$tmp/sp.md" /keep)"
     before=$(cksum < "$q")
     assert_eq "story-map: branch the cell would alter -> set fails" "1" "$(n1_queue_story_branch_set "$q" /r4 'story/S-1|evil'; echo $?)"
     assert_eq "story-map: rejected branch leaves file untouched" "$before" "$(cksum < "$q")"
