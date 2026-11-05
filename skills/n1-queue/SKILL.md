@@ -1,6 +1,6 @@
 ---
 name: n1-queue
-description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children stop after PR + CI and never merge unless autonomy.fullAuto and finishWork.mergeOnFinish are both true. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--retry <ticket>] [--stop [<id>]] [--schedule <trigger>|list|remove] [--unattended]"
+description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children stop after PR + CI and never merge unless autonomy.fullAuto and finishWork.mergeOnFinish are both true; in a story queue the runner merges green, reviewed children into the story branch. Usage: /n1:n1-queue [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--retry <ticket>] [--stop [<id>]] [--schedule <trigger>|list|remove] [--unattended]"
 argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--retry <ticket>] [--stop [<id>]] [--schedule <trigger>|list|remove] [--unattended]"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "[--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-
 
 **Host vocabulary:** "ask the user" / "user prompt" means the host's question mechanism from the HOST ROUTING block in session context. "Dispatch persona `<name>`" and "invoke skill `<x>`" likewise follow HOST ROUTING.
 
-Launches a batch of tracker tickets through `n1-start` sequentially via a background bash runner. Each ticket stops after PR + CI unless `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true, in which case the runner chains `n1-finish` (merge at the reviewed pin); N1 never merges otherwise, and a held ticket starts once the user merges its blocker's PR. The skill plans (intake, preview, plan-time decisions) and persists the plan to `queue.md`; the runner (`scripts/n1-queue-run.sh`) handles execution. Bare `n1-queue` plans then runs (one Start prompt between); `--plan` saves the plan and stops; `--run <queue-id>` executes a saved plan or resumes an interrupted run; `--dry-run` prints the plan and persists nothing.
+Launches a batch of tracker tickets through `n1-start` sequentially via a background bash runner. Each ticket stops after PR + CI unless `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true, in which case the runner chains `n1-finish` (merge at the reviewed pin); N1 never merges otherwise, and a held ticket starts once the user merges its blocker's PR. In a story queue (`--story`) the runner itself merges each green, reviewed child PR into `story/<STORY_ID>` at the reviewed head (no fullAuto needed) and releases held tickets from it. The skill plans (intake, preview, plan-time decisions) and persists the plan to `queue.md`; the runner (`scripts/n1-queue-run.sh`) handles execution. Bare `n1-queue` plans then runs (one Start prompt between); `--plan` saves the plan and stops; `--run <queue-id>` executes a saved plan or resumes an interrupted run; `--dry-run` prints the plan and persists nothing.
 
 **Announce at start:** "I'm using the n1-queue skill to process queue <QUEUE_ID>."
 

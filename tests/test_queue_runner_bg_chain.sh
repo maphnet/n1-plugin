@@ -585,6 +585,14 @@ test_merge_wording() {
     local has; has() { grep -qF -- "$1" "$2" && echo yes || echo no; }
     assert_eq "wording: held tickets start on a user or chain merge" yes \
         "$(has "merged (by the user, or by the runner's fullAuto chain)" "$REPO_ROOT/skills/n1-queue/steps/run.md")"
+    assert_eq "wording: SKILL.md names the story runner merge (N1-292)" yes \
+        "$(has 'the runner itself merges each green, reviewed child PR into `story/<STORY_ID>`' "$REPO_ROOT/skills/n1-queue/SKILL.md")"
+    assert_eq "wording: run.md story release (N1-292)" yes \
+        "$(has 'once the runner merged the blocker into the story branch' "$REPO_ROOT/skills/n1-queue/steps/run.md")"
+    assert_eq "wording: architecture documents story_merge (N1-292)" yes \
+        "$(has 'Story mode (N1-292): the runner itself merges' "$REPO_ROOT/references/architecture.md")"
+    assert_eq "wording: architecture lists ticket_done (N1-292)" yes \
+        "$(has '`ticket_done` (N1-292' "$REPO_ROOT/references/architecture.md")"
 }
 
 test_bg_held_not_launched() {

@@ -213,7 +213,7 @@ n1_queue_finish_cmd() {
     # Usage: n1_queue_finish_cmd <repoPath> <ticket-id> <model> <run-id> <session-name>
     # N1-185: background `n1-finish <ticket> chained` for the runner's fullAuto chain. Same settings env
     # as a child, so n1-finish re-checks n1_merge_authorized as an unattended run and the merge-deny
-    # hook still applies. The runner itself never merges.
+    # hook still applies. In tag mode the runner itself never merges (story mode: story_merge in n1-queue-run.sh, N1-292).
     n1_bg_launch_cmd "$5" n1-finish "$2 chained" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
 }
 

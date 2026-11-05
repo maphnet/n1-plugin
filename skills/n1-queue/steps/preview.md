@@ -4,7 +4,7 @@ Print the plan table:
 
 ```
 ## Queue <QUEUE_ID>
-Each ticket stops after PR + CI. N1 never merges unless `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true.
+Each ticket stops after PR + CI. N1 never merges unless `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true. In a story queue the runner merges each green, reviewed child PR into the story branch.
 | # | Ticket | Title | Repo | Model | Reason |
 |---|--------|-------|------|-------|--------|
 | 1 | ... |
