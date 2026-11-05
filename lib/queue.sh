@@ -192,8 +192,10 @@ n1_queue_child_open_pr() {
 _n1_queue_bg_settings() {
     # Usage: _n1_queue_bg_settings <run-id> — --settings JSON shared by queue children and the runner's
     # chained n1-finish sessions (N1-185), so both run as unattended queue runs (fullAuto required).
+    # N1-291: caller env N1_STORY_ID/N1_STORY_BRANCH (story-mode child launch only) are appended when the branch is set.
     jq -cn --arg run "$1" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
-        '{env:{N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"},worktree:{bgIsolation:"none"}}'
+        --arg sid "${N1_STORY_ID:-}" --arg sb "${N1_STORY_BRANCH:-}" \
+        '{env:({N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"} + (if $sb == "" then {} else {N1_STORY_ID:$sid,N1_STORY_BRANCH:$sb} end)),worktree:{bgIsolation:"none"}}'
 }
 
 n1_queue_child_cmd() {
@@ -377,9 +379,9 @@ n1_queue_held_sweep() {
     # A blocker PR the user CLOSED unmerged skips the row like a failed blocker.
     # Trust: pr_url is child-written; this only reads PR state and never merges, so a forged
     # URL can at worst release a held row early. Non-GitHub-PR URLs count as not merged (SEC-2).
-    # Only a merge into the blocker repo's default branch releases; any other base stays held.
+    # Only a merge into the blocker repo's default branch (story mode: its story branch) releases; any other base stays held.
     # The first gh stderr line goes to the runner's stderr (runner.log), not /dev/null.
-    local q="$1" num t b st h r url state base d n=0
+    local q="$1" num t b st h r url state base d sb n=0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$b" && st=obsolete
@@ -402,9 +404,14 @@ n1_queue_held_sweep() {
                     n1_queue_row_status "$q" "$num" skip "blocked by $b (PR closed)"
                     continue
                 fi
-                d=$(N1_HOME="$h" n1_config_val '.git.defaultBranch' 2>/dev/null); d="${d:-main}"
-                if [ "$state" = MERGED ] && [ "$base" = "$d" ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
-                    n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                sb=$(n1_queue_story_branch_get "$q" "$r")
+                if [ -n "$sb" ]; then   # N1-291: a story child's PR targets its story branch; children are cut from origin/<sb>, no local sync
+                    [ "$state" = MERGED ] && [ "$base" = "$sb" ] && n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                else
+                    d=$(N1_HOME="$h" n1_config_val '.git.defaultBranch' 2>/dev/null); d="${d:-main}"
+                    if [ "$state" = MERGED ] && [ "$base" = "$d" ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
+                        n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                    fi
                 fi ;;
         esac
         n=$((n + 1))

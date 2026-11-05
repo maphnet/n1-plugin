@@ -8,15 +8,21 @@ When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), 
 
 ### Conflict check and rebase
 
-Before pushing, verify the branch is compatible with `${DEFAULT_BRANCH}`:
+Before pushing, verify the branch is compatible with `${DEFAULT_BRANCH}` (the value prepare printed; for a story child it is `story/<STORY_ID>`, so the rebase and the PR target the story branch, never the default branch). Shell variables do not persist between snippets, so every snippet below sets `DEFAULT_BRANCH` from the prepare output and then re-derives it from the validated story base, which overrides the transcribed value for a story child:
 
 ```bash
-git fetch origin ${DEFAULT_BRANCH}
+source ~/.n1/preamble.sh
+DEFAULT_BRANCH="<DEFAULT_BRANCH printed by prepare>"
+SB=$(n1_story_base) || { echo "invalid story base: STOP"; exit 1; }; [ -z "$SB" ] || DEFAULT_BRANCH="$SB"
+git fetch origin "$DEFAULT_BRANCH"
 ```
 
 Check if rebase is needed:
 ```bash
-git merge-base --is-ancestor origin/${DEFAULT_BRANCH} HEAD
+source ~/.n1/preamble.sh
+DEFAULT_BRANCH="<DEFAULT_BRANCH printed by prepare>"
+SB=$(n1_story_base) || { echo "invalid story base: STOP"; exit 1; }; [ -z "$SB" ] || DEFAULT_BRANCH="$SB"
+git merge-base --is-ancestor "origin/$DEFAULT_BRANCH" HEAD
 ```
 
 - Exit 0 → branch already includes all of `${DEFAULT_BRANCH}`; skip rebase.
@@ -27,8 +33,10 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/codex-review.sh"
 ID="<ticket ID from Step 1, or empty>"
 case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
+DEFAULT_BRANCH="<DEFAULT_BRANCH printed by prepare>"
+SB=$(n1_story_base) || { echo "invalid story base: STOP"; exit 1; }; [ -z "$SB" ] || DEFAULT_BRANCH="$SB"
 PRE_REBASE=$(git rev-parse HEAD)
-git rebase origin/${DEFAULT_BRANCH} && { n1_head_record "$PRE_REBASE"; n1_review_reanchor "$PRE_REBASE"; }
+git rebase "origin/$DEFAULT_BRANCH" && { n1_head_record "$PRE_REBASE"; n1_review_reanchor "$PRE_REBASE"; }
 ```
 
 **If rebase succeeds (exit 0):** Branch is clean. Push using `--force-with-lease` (required because rebase rewrites history):
@@ -84,7 +92,8 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/codex-review.sh"
 PR_BODY_FILE="<the path from pr:body-file=>"
 case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*/*) echo "PR body path invalid"; exit 1;; "$N1_HOME"/scratch/pr-body-*) ;; *) echo "PR body path invalid"; exit 1;; esac
-DEFAULT_BRANCH="<the default branch>"
+DEFAULT_BRANCH="<DEFAULT_BRANCH printed by prepare>"
+SB=$(n1_story_base) || { echo "invalid story base: STOP"; exit 1; }; [ -z "$SB" ] || DEFAULT_BRANCH="$SB"
 PR_MODE="<draft or ready, from prepare>"
 DRAFT_ARGS=(); [ "$PR_MODE" = "draft" ] && DRAFT_ARGS=(--draft)
 [ -s "$PR_BODY_FILE" ] || { echo "PR body missing"; exit 1; }

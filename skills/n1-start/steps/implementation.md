@@ -16,10 +16,11 @@ PLANNING_NEED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_
 # Fallback simplicity gate: fires if simple-path gate (analysis.md) did not already route directly.
 # Primary routing is done earlier by the simple-path gate in analysis.md.
 GATE_RESULT=$( [ "$TIER" = "simple" ] && [ "$BLAST" = "low" ] && [ "${FILES_CHANGED:-999}" -lt 3 ] && echo true || echo false )
+STORY_BASE=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; exit 1; }; echo "STORY_BASE=${STORY_BASE:-none}"
 n1_record_decision simplicity-gate "$GATE_RESULT" '{"all":[{"signal":"brainstorm.blast_radius","fallback":"analysis.blast_radius","eq":"low"},{"signal":"brainstorm.files_changed","fallback":"analysis.files_changed","lt":3}]}' "tier=$TIER"
 ```
 
-Run `procedures/rules-injection.md`: `agent_name=developer` on every route. Dispatch prompts always retain the selected persona, resolved model/effort, input-file path, `WORKTREE_PATH`, output path, escalation rules, `$RULES_BLOCK`, constraints, and required result format.
+Run `procedures/rules-injection.md`: `agent_name=developer` on every route. Dispatch prompts always retain the selected persona, resolved model/effort, input-file path, `WORKTREE_PATH`, output path, escalation rules, `$RULES_BLOCK`, constraints, and required result format. `STORY_BASE` not `none` → add this constraint to every dispatch on every route: "Story child: make no version-bump commit; this overrides any repo per-branch version-bump rule (the bump applies to the story's final PR)."
 
 **Simplicity gate PASS** (all: `TIER==simple`, `BLAST==low`, `FILES_CHANGED<3`): dispatch **developer** persona with `$DEVELOPER_MODEL` and `$DEVELOPER_EFFORT`, brainstorm.md or plan.md, `$N1_HOME/memory/$ID/analysis.md` (codebase analysis; targeted file:line reads), and "Direct Implementation mode." → QA.
 
@@ -29,7 +30,8 @@ Run `procedures/rules-injection.md`: `agent_name=developer` on every route. Disp
 
 ```bash
 source ~/.n1/preamble.sh
-BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || n1_config_val '.git.defaultBranch' )
+SB=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; exit 1; }
+BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_REF=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || { [ -n "$SB" ] && echo "origin/$SB"; } || n1_config_val '.git.defaultBranch' )
 BASE=$(git merge-base "$BASE_REF" HEAD 2>/dev/null || git rev-parse HEAD~1 2>/dev/null || echo "HEAD")
 LINES_CHANGED=$(git diff --stat "$BASE" 2>/dev/null | tail -1 | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | grep -oE '[0-9]+' | paste -sd+ | bc 2>/dev/null || echo "0")
 NEW_FILES=$(git diff --name-status "$BASE" 2>/dev/null | grep -c '^A' || true); CHANGED_FILES=$(git diff --name-only "$BASE" 2>/dev/null || true)

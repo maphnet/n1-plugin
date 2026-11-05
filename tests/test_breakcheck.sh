@@ -271,6 +271,10 @@ echo "$SIDE" > "$BP"
 assert_eq "base: non-ancestor falls back to merge-base" "$B0" "$(n1_break_check_base "$BP" base "$T12")"
 rm -f "$BP"
 assert_eq "base: missing file falls back to merge-base" "$B0" "$(n1_break_check_base "$BP" base "$T12")"
+# N1-291: a story child passes story/<ID> as <default>; the fallback resolves against origin/story/<ID>.
+git -C "$T12" update-ref refs/remotes/origin/story/X "$F1"
+assert_eq "base: story default falls back to the story tip" "$F1" "$(n1_break_check_base "$BP" story/X "$T12")"
+assert_eq "base: default arg unchanged with a story ref present" "$B0" "$(n1_break_check_base "$BP" base "$T12")"
 rm -rf "$T12"
 
 rm -rf "$T1" "$T2" "$T3" "$T4" "$T5" "$T6"

@@ -43,7 +43,8 @@ source "$N1_ROOT/lib/breakcheck.sh"; QD="$N1_HOME/memory/$ID"
 BC_MODE=$(n1_config_val '.qa.breakCheck'); BC_MODE=${BC_MODE:-bugs}; BC_MAX=$(n1_config_val '.qa.breakCheckMaxTests'); BC_MAX=${BC_MAX:-5}
 TASK_TYPE=$(n1_read_signal "$QD/ticket.md" "task_type")
 TESTS_ADDED=$(n1_read_signal "$QD/qa.md" "tests_added"); TESTS_ADDED=${TESTS_ADDED:-0}
-BC_DEF=$(n1_config_val '.git.defaultBranch'); BC_BASE=$(n1_break_check_base "$QD/branch-point" "${BC_DEF:-main}" "<worktree dir>")
+SB=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; exit 1; }
+BC_DEF=$(n1_config_val '.git.defaultBranch'); BC_BASE=$(n1_break_check_base "$QD/branch-point" "${SB:-${BC_DEF:-main}}" "<worktree dir>")
 BC_LOG="$QD/break-check.log"; BREAK_CHECK_TQ=""; BC_VERDICT="skipped"
 REG_LINE=$(grep -m1 '^Regression test:' "$QD/qa.md" || true)
 REG_NAME=$(n1_break_check_parse_line "$REG_LINE" name); REG_CMD=$(n1_break_check_parse_line "$REG_LINE" cmd)

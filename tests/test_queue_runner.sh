@@ -957,6 +957,12 @@ test_held_user_merge() {
     assert_eq "user-merge: T-3 waits on T-2" "held" "$(plan_cell "$tmp/q.md" 3 8)"
     assert_eq "user-merge: local default synced" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp/repo" rev-parse main)"
 
+    mkq_story() { mkq; printf '\n## Story Branches\n| Repo | Branch |\n| :--- | --- |\n| %s | story/S-1 |\n' "$tmp/repo" >> "$tmp/q.md"; }
+    fakegh 'echo MERGED story/S-1'; mkq_story
+    assert_eq "user-merge story: merged into story branch -> T-2 released" "pending|released: T-1 merged" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" >/dev/null 2>&1; plan_cell "$tmp/q.md" 2 8)|$(plan_cell "$tmp/q.md" 2 9)"
+    fakegh 'echo MERGED main'; mkq_story
+    assert_eq "user-merge story: merged into default -> T-2 still held" "held" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" >/dev/null 2>&1; plan_cell "$tmp/q.md" 2 8)"
+
     git -C "$tmp/repo" remote set-url origin "$tmp/no-such-origin"; mkq
     assert_eq "user-merge: sync failure -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>/dev/null)"
     assert_eq "user-merge: sync failure -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"
@@ -1058,6 +1064,64 @@ test_story_branch_helpers() {
     assert_eq "story-ensure: unreachable origin -> reason" "n1-queue: story branch: ls-remote origin failed in $tmp/repo" \
         "$(n1_queue_story_branch_ensure "$tmp/repo" S-1 main 2>&1 >/dev/null | tail -1)"
     rm -rf "$tmp"
+}
+
+# N1-291: n1_story_base — validated story branch for a story child; empty for non-story; rc 2 fails closed.
+test_story_base() {
+    sb() { ( unset N1_STORY_ID N1_STORY_BRANCH N1_QUEUE_RUN_ID; for kv in "$@"; do export "$kv"; done; n1_story_base 2>/dev/null; echo "|$?" ); }
+    assert_eq "story-base: non-story -> empty, rc 0" "|0" "$(sb)"
+    assert_eq "story-base: hand-run N1_STORY_ID only -> empty, rc 0" "|0" "$(sb N1_STORY_ID=S-1)"
+    assert_eq "story-base: valid branch and id" "story/S-1|0" "$(sb N1_STORY_ID=S-1 N1_STORY_BRANCH=story/S-1)"
+    assert_eq "story-base: branch without id" "story/S-1|0" "$(sb N1_STORY_BRANCH=story/S-1)"
+    assert_eq "story-base: branch != story/<id> -> rc 2" "|2" "$(sb N1_STORY_ID=S-2 N1_STORY_BRANCH=story/S-1)"
+    assert_eq "story-base: not under story/ -> rc 2" "|2" "$(sb N1_STORY_BRANCH=main)"
+    assert_eq "story-base: dot-dot -> rc 2" "|2" "$(sb N1_STORY_BRANCH=story/a..b)"
+    assert_eq "story-base: .lock (check-ref-format) -> rc 2" "|2" "$(sb N1_STORY_BRANCH=story/x.lock)"
+    assert_eq "story-base: shell metachar -> rc 2" "|2" "$(sb 'N1_STORY_BRANCH=story/x;rm')"
+    assert_eq "story-base: queue child lost its branch -> rc 2" "|2" "$(sb N1_STORY_ID=S-1 N1_QUEUE_RUN_ID=R1)"
+    assert_eq "story-base: rc 2 explains on stderr" "yes" \
+        "$( ( export N1_STORY_BRANCH=main; n1_story_base 2>&1 >/dev/null || : ) | grep -q 'invalid story branch' && echo yes || echo no)"
+}
+
+# N1-291: bg settings carry the story env only when N1_STORY_BRANCH is set; non-story JSON is unchanged.
+test_story_bg_settings() {
+    local plain story
+    plain=$(unset N1_STORY_ID N1_STORY_BRANCH; N1_QUEUE_TAG= N1_QUEUE_DIR=/q _n1_queue_bg_settings R1)
+    assert_eq "story-settings: non-story env keys and order unchanged" \
+        "N1_HEADLESS,N1_AUTONOMY_PRESET,N1_QUEUE_RUN_ID,N1_QUEUE_TAG,N1_QUEUE_DIR,N1_PARENT_SESSION_ID,N1_UNATTENDED" \
+        "$(jq -r '.env|keys_unsorted|join(",")' <<< "$plain")"
+    story=$(N1_STORY_ID=S-1 N1_STORY_BRANCH=story/S-1 N1_QUEUE_TAG= N1_QUEUE_DIR=/q _n1_queue_bg_settings R1)
+    assert_eq "story-settings: story keys present" "S-1,story/S-1" "$(jq -r '[.env.N1_STORY_ID,.env.N1_STORY_BRANCH]|join(",")' <<< "$story")"
+    assert_eq "story-settings: story JSON = non-story JSON + two keys" "$plain" "$(jq -c '.env |= del(.N1_STORY_ID,.N1_STORY_BRANCH)' <<< "$story")"
+    assert_eq "story-settings: id without branch adds nothing" "$plain" \
+        "$(unset N1_STORY_BRANCH; N1_STORY_ID=S-1 N1_QUEUE_TAG= N1_QUEUE_DIR=/q _n1_queue_bg_settings R1)"
+}
+
+# N1-291: every default-branch site reads n1_story_base; bump-skip and PR-base wording present.
+test_story_base_wiring() {
+    local ws="$REPO_ROOT/skills/n1-start/procedures/workspace-isolation.md"
+    assert_eq "story-wiring: workspace-isolation calls n1_story_base in adopt and ensure" "2" "$(grep -c 'n1_story_base' "$ws")"
+    assert_eq "story-wiring: adopt rebases onto the story tip" "yes" "$(grep -qF 'rebase "origin/$SB"' "$ws" && echo yes || echo no)"
+    assert_eq "story-wiring: ensure cuts the branch from BASE" "yes" "$(grep -qF 'git branch <TARGET> "$BASE"' "$ws" && echo yes || echo no)"
+    assert_eq "story-wiring: ensure keeps checkout of the default" "yes" "$(grep -qF 'git checkout $DEFAULT' "$ws" && echo yes || echo no)"
+    local f
+    for f in skills/n1-start/steps/review.md skills/n1-start/steps/implementation.md skills/n1-start/steps/qa.md \
+             skills/n1-start/procedures/cross-repo.md skills/n1-review/steps/01-analyze.md; do
+        assert_eq "story-wiring: $f calls n1_story_base" "yes" "$(grep -q 'n1_story_base' "$REPO_ROOT/$f" && echo yes || echo no)"
+    done
+    assert_eq "story-wiring: qa passes story base to break-check" "yes" \
+        "$(grep -qF '"${SB:-${BC_DEF:-main}}"' "$REPO_ROOT/skills/n1-start/steps/qa.md" && echo yes || echo no)"
+    assert_eq "story-wiring: implementation bump skip" "yes" \
+        "$(grep -q 'Story child: make no version-bump commit' "$REPO_ROOT/skills/n1-start/steps/implementation.md" && echo yes || echo no)"
+    local pp="$REPO_ROOT/skills/n1-pr/steps/01-prepare.md" pc="$REPO_ROOT/skills/n1-pr/steps/02-push-create.md"
+    assert_eq "story-wiring: prepare reads story base for DEFAULT_BRANCH and rules BASE" "3" "$(grep -c 'n1_story_base' "$pp")"
+    assert_eq "story-wiring: prepare bump skip" "yes" "$(grep -q 'Story child: make no version-bump commit' "$pp" && echo yes || echo no)"
+    assert_eq "story-wiring: rebase target via DEFAULT_BRANCH" "yes" "$(grep -qF 'git rebase "origin/$DEFAULT_BRANCH"' "$pc" && echo yes || echo no)"
+    assert_eq "story-wiring: PR base via DEFAULT_BRANCH" "yes" "$(grep -qF -- '--base "$DEFAULT_BRANCH"' "$pc" && echo yes || echo no)"
+    assert_eq "story-wiring: every push-create snippet re-derives the base from n1_story_base (SEC-1)" "4" "$(grep -c 'DEFAULT_BRANCH="\$SB"' "$pc")"
+    assert_eq "story-wiring: adopt checkout re-anchors branch-point (CR-2)" "yes" \
+        "$(grep -qF 'rev-parse "origin/$SB" > "$BP"' "$REPO_ROOT/skills/n1-start/procedures/workspace-isolation.md" && echo yes || echo no)"
+    assert_eq "story-wiring: push-create names the story branch" "yes" "$(grep -q 'never the default branch' "$pc" && echo yes || echo no)"
 }
 
 # N1-290: run.md documents the runner's story-branch step; its halt text matches the runner's.
@@ -1988,6 +2052,9 @@ test_held_helpers
 test_held_user_merge
 test_sync_default
 test_story_branch_helpers
+test_story_base
+test_story_bg_settings
+test_story_base_wiring
 test_story_branch_wiring
 test_row_status
 test_queue_retry
