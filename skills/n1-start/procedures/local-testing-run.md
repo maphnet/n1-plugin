@@ -184,7 +184,7 @@ Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core
 
 If local testing verdict is FAIL (e2e tests or ad-hoc scenarios failed):
 
-**Stall check:** `procedures/stall-stop.md § Local testing` first; stalled → the cap exit below (Autonomy gate, then the options), no developer spawn.
+**Stall check:** `procedures/stall-stop.md § Local testing` first; stalled → the cap exit below (Autonomy gate, then the options) with the stall key decision and `skip_reason` from `procedures/stall-stop.md § Local testing`, no developer spawn.
 
 **Spawn agent:** developer (fix mode)
 
@@ -216,7 +216,7 @@ After developer returns:
 
 Compose `PREAMBLE` (title from `$N1_HOME/memory/<ID>/overview.md` heading + Core Ask from `ticket.md`; omit if unavailable). **Bug root cause (bug tickets only):** Source `"<N1_ROOT>/lib/signals.sh"` first, then: if `$N1_HOME/memory/<ID>/analysis.md` contains a `### Bug Investigation` section AND the `has_bug_root_cause` signal is strictly `true` (read via `n1_read_signal`), prepend one sentence summarizing the root cause: `"Root cause: {root cause}. "` — prepend this to `PREAMBLE`. If the signal is `false`, absent, or any other value, omit the root cause line entirely. Then prompt: "{PREAMBLE} After <N> local testing fix cycles, these scenarios still fail: [list]. Options:"
   - "1 — Fix manually, type 'continue' to re-test"
-  - "2 — Skip local testing, proceed to PR" (run the same skipped end as above)
+  - "2 — Skip local testing, proceed to PR" (run the skipped end from the Autonomy gate above; on a stall use the stall values from `procedures/stall-stop.md § Local testing`)
   - "3 — Provide guidance for another fix attempt"
 - If 1: run `procedures/stall-stop.md § Reset` with `local_test_fail_sig`, wait for 'continue', then re-run 9c.
 - If 3: run `procedures/stall-stop.md § Reset` with `local_test_fail_sig`, reset the counter ceiling to `maxFixAttempts × 2` (hard ceiling, same pattern as n1-ci) and continue with user's guidance.

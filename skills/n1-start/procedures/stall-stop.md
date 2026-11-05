@@ -38,7 +38,7 @@ echo "STALL=$(n1_stall_check "$M/overview.md" local_test_fail_sig "$SIG")"
 
 `STALL=ok`: continue 9d unchanged.
 
-`STALL=stalled`: no developer spawn, no increment, no re-run. Go to the 9d cap exit: its Autonomy gate with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail>; stalled on the same failure after <N> fix cycles` (N = `local_test_fix_cycle`), with the cap's key decision and skipped `n1_step_end`. Otherwise its options prompt, prefixed with "Stalled on the same failure. ". Options 1 and 3 run § Reset with `local_test_fail_sig`. **Headless:** as at the cap.
+`STALL=stalled`: no developer spawn, no increment, no re-run. Go to the 9d cap exit: its Autonomy gate with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail>; stalled on the same failure after <N> fix cycles` (N = `local_test_fix_cycle`), with the key decision `Local Testing: skipped — stalled on the same failure (qualityEscalations=auto-accept)` and `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"stalled"}'`, which replace the cap exit's key decision and `skip_reason`. Otherwise its options prompt, prefixed with "Stalled on the same failure. ". Options 1 and 3 run § Reset with `local_test_fail_sig`. **Headless:** as at the cap.
 
 ## CI
 
