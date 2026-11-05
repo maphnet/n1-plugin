@@ -726,7 +726,7 @@ story_done() {
 # --- N1-293: final story PR ------------------------------------------------------------
 AWAIT_WHY=""
 # await_bg <session-id> <ticket> <n1-home> — N1-293: wait for one background session the runner launched (the poll loop
-# of chain_finish). Sets AWAIT_WHY: done (done/failed), missing (not listed for BG_POLL_GRACE polls), agents-unreadable
+# of chain_finish). Sets AWAIT_WHY: done (done/failed), timeout-unstopped (timed out and stop failed), missing (not listed for BG_POLL_GRACE polls), agents-unreadable
 # (BG_POLL_GRACE unreadable lists) or timeout (TIMEOUT_SECS). A blocked session raises one escalated event and a
 # needs-you notice. A timed-out session is stopped; any other exit queues it on DRAIN (stopped once idle).
 await_bg() {
@@ -754,7 +754,7 @@ await_bg() {
         nap "$poll"; waited=$((waited + poll))
     done
     if [ "$AWAIT_WHY" = timeout ]; then
-        bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1
+        bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1 || AWAIT_WHY=timeout-unstopped   # stop failed: session may still run
     else
         DRAIN+=("$sid"$'\t'"$2"$'\t'"$3")
     fi
@@ -812,7 +812,7 @@ final_pr() {
             echo "final PR: $REPO session launched ($sid)"
             await_bg "$sid" "$SBID" "$N1H"
             [ "$AWAIT_WHY" = done ] || why="$AWAIT_WHY"
-            case "$AWAIT_WHY" in agents-unreadable|missing) ended=0 ;; esac   # session may still run in $wt
+            case "$AWAIT_WHY" in agents-unreadable|missing|timeout-unstopped) ended=0 ;; esac   # session may still run in $wt
         else
             why=launch-failed
         fi
@@ -831,7 +831,7 @@ final_pr() {
     # child landed, marks it ready; the note stays only when that fails.
     if [ "$reused" = 1 ]; then
         timeout -k 30 30 gh pr edit --body-file "$body" -- "$url" </dev/null >/dev/null 2>&1 || note="body-not-refreshed"
-        if [ "$draft" = 0 ] && [ "$isd" = true ] && timeout -k 30 30 gh pr ready -- "$url" </dev/null >/dev/null 2>&1; then isd=false; fi
+        if [ -z "$note" ] && [ "$draft" = 0 ] && [ "$isd" = true ] && timeout -k 30 30 gh pr ready -- "$url" </dev/null >/dev/null 2>&1; then isd=false; fi
     fi
     dcell=ready; [ "$isd" = true ] && dcell=draft
     if [ "$draft" = 1 ] && [ "$isd" != true ]; then note="draft-mismatch (expected draft)"; fi

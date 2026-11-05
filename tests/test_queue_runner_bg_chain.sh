@@ -798,6 +798,7 @@ test_final_pr_reused_draft() {
     final_fixture "$tmp" "T-A:working done"; rm -f "$tmp/fake/final-create"; touch "$tmp/fake/gh-edit-fail"
     echo '[{"url":"https://github.com/o/r/pull/7","isDraft":true,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
     assert_eq "final-reuse-draft: failed refresh exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-reuse-draft: failed refresh never calls ready" 0 "$(grep -c 'pr ready' "$tmp/fake/gh-refresh-calls" || true)"
     assert_eq "final-reuse-draft: failed refresh keeps draft and the mismatch note" "draft,draft-mismatch (expected ready)" \
         "$(fin_row "$tmp" "$tmp/repo" | awk -F'\t' '{print $2","$4}')"
     rm -rf "$tmp"
@@ -835,6 +836,15 @@ test_final_pr_timeout() {
     assert_eq "final-timeout: exit 0" 0 "$(run_bg_queue "$tmp")"
     assert_eq "final-timeout: session stopped" yes "$(grep -qxF "$(cat "$tmp/fake/id.$s")" "$tmp/fake/stopped" && echo yes || echo no)"
     assert_eq "final-timeout: row" $'-\t-\t-\ttimeout' "$(fin_row "$tmp" "$tmp/repo")"
+    assert_eq "final-timeout: stopped session's worktree removed" no "$([ -e "$tmp/final-1" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+    # a stop that fails leaves the session possibly alive: its worktree is kept
+    tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done"
+    echo working > "$tmp/fake/states.S-1.final"; touch "$tmp/fake/stopfail.00000003"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 1'
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "final-timeout-stopfail: worktree kept" yes "$([ -e "$tmp/final-1" ] && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
