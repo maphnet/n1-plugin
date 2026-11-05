@@ -38,7 +38,17 @@ label_run() { (cd "$G" && sandbox "${LABEL//<VERSION, or empty>/$1}"); }
 expect "new version labels the release" "PREV=v1.0.0 LABEL=1.1.0 FIX=yes" "$(label_run 1.1.0)"
 expect "version equal to PREV: unreleased label, no fixVersion" "PREV=v1.0.0 LABEL=unreleased-$SHA7 FIX=no" "$(label_run 1.0.0)"
 expect "empty version: unreleased label" "PREV=v1.0.0 LABEL=unreleased-$SHA7 FIX=no" "$(label_run '')"
+expect "null version: unreleased label" "PREV=v1.0.0 LABEL=unreleased-$SHA7 FIX=no" "$(label_run null)"
 expect "path-unsafe version: unreleased label" "PREV=v1.0.0 LABEL=unreleased-$SHA7 FIX=no" "$(label_run '../x')"
+
+# Bug: the referenced VERSION snippet has no preamble and prints nothing, so versionSource is ignored.
+check "1c adds the preamble to the VERSION snippet" 'source ~/\.n1/preamble\.sh. added as its first line' "$S1"
+check "1c prints VERSION from the VERSION snippet" 'echo "VERSION=\$VERSION"' "$S1"
+# Bug: the stored url reaches a shell string (command substitution) or is erased on update.
+lacks "page.txt is not written by a shell snippet" 'confluence_url: %s' "$S"
+check "page.txt is written with the file-write mechanism" 'page\.txt. with the file-write mechanism' "$S4"
+check "stored url excludes backtick and backslash" 'no whitespace, double quote, dollar sign, backtick or backslash' "$S4"
+check "update keeps the stored url" 'never replace a stored url with an empty one' "$S4"
 
 # --- Scope. Bug: a missed integrity warning lets the signal print GO over an incomplete scope.
 echo '{"pending":[{"id":"VEL-2"},{"id":"VEL-9"},{"id":"x;touch PWNED"}]}' > "$T/n1/pending-releases.json"

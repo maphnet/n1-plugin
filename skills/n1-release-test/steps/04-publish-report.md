@@ -95,12 +95,7 @@ Write one row per case in the plan. Every cell stays on one line, `|` is written
 - No page found: call `operations.createArticle` with `{spaceId, title: TITLE, body}`. The result is `{id, title, url}`. Set `CONF=created <url>`.
 - Page found: call `operations.updateArticle` with `{pageId, title: TITLE, body, version}`, passing the current `version` from `getArticle` unchanged, because jc-mcp increments it itself. Set `CONF=updated <stored url>`, or `CONF=updated <TITLE> (page <id>)` when no url is stored.
 
-After a create or a successful update, store the page. Paste the url only when it matches `^https://[^[:space:]"$]+$` and the id only when it matches `^[0-9]+$`:
-
-```bash
-source ~/.n1/preamble.sh
-printf 'confluence_url: %s\nconfluence_page_id: %s\n' "<url, or empty>" "<id>" > "$N1_HOME/releases/<LABEL>/page.txt"
-```
+After a create or a successful update, store the page by writing `$N1_HOME/releases/<LABEL>/page.txt` with the file-write mechanism, not a shell snippet, because the url comes from the server response. The content is exactly two lines: `confluence_url: <url>` and `confluence_page_id: <id>`. Write the id only when it matches `^[0-9]+$`. Write the url only when it starts with `https://` and contains no whitespace, double quote, dollar sign, backtick or backslash. On an update `updateArticle` returns no url, so carry over the url read from `page.txt` in 4b (the page id is unchanged); never replace a stored url with an empty one. When no url is known, write `confluence_url:` with nothing after it.
 
 **Ticket comments.** Post `Release test plan: <url>` with `operations.addComment` to each in-scope ticket when the page was just created. On an update with a known url, when `operations.getComments` is configured, post only to tickets with no comment containing that url. Without a known url or without `getComments`, post nothing and say so in the report. A failed comment warns and does not change `PUBLISH_FAIL`.
 

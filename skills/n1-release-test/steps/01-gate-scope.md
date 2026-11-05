@@ -26,7 +26,7 @@ fi
 
 ## 1c. Previous tag and label
 
-Run only the `VERSION` bash snippet of `<N1_ROOT>/skills/n1-release/steps/01-resolve-metadata.md` sub-step 1. Do not ask the user when it finds nothing. Paste `VERSION` below only when it matches `^[0-9A-Za-z.+-]+$`; otherwise paste an empty string.
+Run only the `VERSION` bash snippet of `<N1_ROOT>/skills/n1-release/steps/01-resolve-metadata.md` sub-step 1, with `source ~/.n1/preamble.sh` added as its first line and `echo "VERSION=$VERSION"` as its last line, and read `VERSION` from that output. Do not ask the user when it finds nothing. Paste `VERSION` below only when it matches `^[0-9A-Za-z.+-]+$` and is not `null`; otherwise paste an empty string.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -34,7 +34,7 @@ source "$N1_ROOT/lib/release.sh"
 VERSION="<VERSION, or empty>"
 PREV=$(n1_release_prev_tag)
 # The version comes from the working tree, so before a bump merges it equals the latest tag.
-if [[ "$VERSION" =~ ^[0-9A-Za-z.+-]+$ ]] && [[ "$VERSION" != *..* ]] && [ "v$VERSION" != "$PREV" ]; then
+if [[ "$VERSION" =~ ^[0-9A-Za-z.+-]+$ ]] && [[ "$VERSION" != *..* ]] && [ "$VERSION" != null ] && [ "v$VERSION" != "$PREV" ]; then
   LABEL="$VERSION"; FIX=yes
 else
   LABEL="unreleased-$(git rev-parse --short=7 HEAD)"; FIX=no
@@ -83,4 +83,4 @@ else
 fi
 ```
 
-On `scope:empty`, print "Nothing to test since <PREV>." and STOP. Otherwise print the ticket list and every warning. Carry `WARN` as the integrity warning count.
+On `scope:empty`, print "Nothing to test since <PREV>." and STOP. Otherwise print the ticket list and every warning. Carry `WARN` as the integrity warning count. Every value pasted into a snippet here and in later steps must match its allow-list (`LABEL`: the 1c class, `PREV`: `^v[0-9A-Za-z.+-]+$` or empty, `BASE_WARN` and `WARN`: digits); otherwise stop instead of pasting.
