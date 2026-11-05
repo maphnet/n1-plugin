@@ -814,14 +814,17 @@ test_final_pr_rows_open() {
     rm -rf "$tmp"
 }
 
-# N1-293 AC5: a halted story run opens no final PR.
+# N1-293 AC5: a story run that halts after a child merged opens no final PR (final_prs sits after the halt_now).
+# T-A merges, T-B escalates (strike 1), T-C fails and its deferred retry fails (strikes 2-3) -> HALTED.
 test_final_pr_halted() {
     local tmp; tmp=$(mktemp -d)
-    final_fixture "$tmp" "T-A:working done"
-    sed -i '/^story_id: /d' "$tmp/queue.md"
+    final_fixture "$tmp" "T-A:working done" "T-B:done" "T-C:working"
+    printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/fake/overview.T-B"
     assert_eq "final-halt: exit 2" 2 "$(run_bg_queue "$tmp")"
+    assert_eq "final-halt: a child merged first" merged "$(runs_outcome "$tmp/queue.md" T-A)"
     assert_eq "final-halt: no session" 0 "$(grep -c -- '-final-' "$tmp/fake/events" || true)"
     assert_eq "final-halt: no lookup" no "$([ -e "$tmp/fake/gh-final-calls" ] && echo yes || echo no)"
+    assert_eq "final-halt: no Final PRs section" 0 "$(grep -c '^## Final PRs' "$tmp/queue.md" || true)"
     rm -rf "$tmp"
 }
 
