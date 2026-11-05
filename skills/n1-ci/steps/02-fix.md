@@ -124,7 +124,7 @@ Report format:
 
 Present remaining failures and fix history, then offer:
 No recommendation. The options are equivalent given the available evidence; select based on team preference.
-1. Provide guidance → spawn developer with guidance, increment `MAX_FIX` by 1 (hard ceiling: `6`), log extension, clear `ci_fail_sig` (`stall-stop.md § Reset`), back to Step 3
+1. Provide guidance → spawn developer with guidance, only when `ci_fix_cycle` >= `MAX_FIX` increment `MAX_FIX` by 1 (hard ceiling: `6`; a stall or log-capture entry below the cap leaves it unchanged), log extension, clear `ci_fail_sig` (`stall-stop.md § Reset`), back to Step 3
 2. Skip CI → Step 7 with failing status
 3. Fix manually → wait for "continue", back to Step 3 (reset counter), clear `ci_fail_sig` (`stall-stop.md § Reset`)
 
