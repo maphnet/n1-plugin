@@ -198,6 +198,20 @@ line_has "N1-296: create passes child type and parentKey" 'issueType: <child typ
 has "N1-296: skip this child never ends the run" 'never ends the run' "$W"
 has "N1-296: removing the Story conversion drops its Sub-tasks" 'dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$W"
 has "N1-296: handoff summarizes actions" 'Actions: converted' "$W"
+has "N1-382: 3c records created/adopted keys in CHILDREN" 'Add every key created or adopted here to `CHILDREN`' "$W"
+has "N1-382: Sub-task offer exists" '**Sub-task offer:**' "$W"
+before "N1-382: offer follows the handoff" 'Or queue it:' '**Sub-task offer:**' "$W"
+line_has "N1-382: offer triggers on Story or converted Story only" '**Sub-task offer:**' '`ISSUE_TYPE` is `story`, or Step 3b converted the ticket to Story' "$W"
+if sed -n '/^\*\*Sub-task offer:\*\*/,$p' "$W" | grep -qi epic; then echo "FAIL: N1-382: offer text mentions epic"; FAIL=1; fi
+line_has "N1-382: no offer without known children" '**Sub-task offer:**' 'empty or `unknown`' "$W"
+has "N1-382: headless/queue env is read in a snippet" '[ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes' "$W"
+line_has "N1-382: no offer when the check prints a marker" '**Sub-task offer:**' '`queue-run:yes` or `headless:yes`' "$W"
+if sed -n '/^\*\*Sub-task offer:\*\*/,$p' "$W" | grep -qF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.'; then echo "PASS: N1-382: offer states no recommendation"; else echo "FAIL: N1-382: offer states no recommendation"; FAIL=1; fi
+has "N1-382: offer has Done option" '2 — Done:' "$W"
+has "N1-382: offer iterates a held copy of the keys" 'copy `CHILDREN` into a separate held list `OFFER_KEYS`' "$W"
+has "N1-382: one key per invocation" 'one key per invocation' "$W"
+has "N1-382: continue prompt" 'Next: <KEY> <summary>. Continue?' "$W"
+has "N1-382: continue prompt has Stop option" '2 — Stop: works when the remaining children should wait' "$W"
 lacks "N1-296: refine never transitions status" 'operations.transition' skills/n1-refine
 lacks "N1-296: refine never creates a branch" 'git checkout' skills/n1-refine
 

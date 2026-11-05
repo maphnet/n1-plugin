@@ -73,9 +73,11 @@ For each listed `C<n>`, in order:
    Jira create errors because the type name is unknown: take the name from the types the error lists that matches `sub-?task` or `story` (case-insensitive) and repeat the call once, as in Adopt.
    Then, when `DUP_LINKS` is non-empty, follow § Apply Links with `SOURCE_ID=<new child ID>`. A failed create prints the error and continues with the next child.
 
+Add every key created or adopted here to `CHILDREN` (adopted and pending keys included, failed or skipped ones not), so Step 4 sees them next to the existing children.
+
 ## Step 4: Handoff
 
-Print, then end. When the ticket's resolved type is `investigation` (01-fetch Step 3; `--investigate` on a Task-typed ticket does not count), it is still investigation-typed, so print the `--type task` form of the Next line only, and add "Queue and headless runs would still run the investigation; retype the ticket first." Print the Actions line only when Step 3b or 3c ran.
+Print, then the Sub-task offer below when it applies, then end. When the ticket's resolved type is `investigation` (01-fetch Step 3; `--investigate` on a Task-typed ticket does not count), it is still investigation-typed, so print the `--type task` form of the Next line only, and add "Queue and headless runs would still run the investigation; retype the ticket first." Print the Actions line only when Step 3b or 3c ran.
 
 ```
 Refined <ID> (<description|comment>). <verdict line>
@@ -83,3 +85,25 @@ Actions: converted <ID> to <type>; created <keys>; adopted <keys>; skipped <n>; 
 Next: /n1:n1-start <ID>            (investigation-typed ticket: /n1:n1-start <ID> --type task)
 Or queue it: add it to a /n1:n1-queue batch (tag or story), then run --plan.
 ```
+
+**Sub-task offer:** after the handoff, when `ISSUE_TYPE` is `story`, or Step 3b converted the ticket to Story, and `CHILDREN` holds at least one key, run the check below, then ask the user (format: `<N1_ROOT>/references/question-format.md`). No offer when `CHILDREN` is empty or `unknown`, or when the check prints `queue-run:yes` or `headless:yes` (queue and headless runs end here).
+
+```bash
+source ~/.n1/preamble.sh
+[ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
+```
+
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
+1 — Refine Sub-tasks: invoke skill n1-refine once per key in `OFFER_KEYS`; works when the children are not yet refined
+2 — Done: end the run with the handoff above; works when the children should be refined later
+
+Option 1: first copy `CHILDREN` into a separate held list `OFFER_KEYS` (each nested run resets `CHILDREN`), then iterate `OFFER_KEYS` only, one key per invocation. Before each next child ask the user:
+
+```
+Next: <KEY> <summary>. Continue?
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
+1 — Refine <KEY>: works when you want to go on
+2 — Stop: works when the remaining children should wait
+```
+
+Option 2 and Stop: end the run.
