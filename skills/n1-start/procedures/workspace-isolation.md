@@ -22,11 +22,18 @@ source ~/.n1/preamble.sh
 ID="<ID>"; WORKTREE_PATH="<path>"; FRESH=<1|0>; OV="$N1_HOME/memory/$ID/overview.md"; BRANCH=$(git -C "$WORKTREE_PATH" branch --show-current)
 n1_write_frontmatter "$OV" workspace_path "$WORKTREE_PATH"
 BP="$N1_HOME/memory/$ID/branch-point"; DEFAULT=$(n1_config_val '.git.defaultBranch'); DEFAULT="${DEFAULT:-main}"
+SB=$(n1_story_base) || { echo "story-base: invalid"; exit 1; }
+if [ -n "$SB" ]; then
+  { git -C "$WORKTREE_PATH" fetch origin "$SB" && { git -C "$WORKTREE_PATH" merge-base --is-ancestor "origin/$SB" HEAD || git -C "$WORKTREE_PATH" rebase "origin/$SB"; }; } \
+    || { git -C "$WORKTREE_PATH" rebase --abort 2>/dev/null; echo "story-base: sync to origin/$SB failed"; exit 1; }
+  DEFAULT="$SB"
+fi
 [ -s "$BP" ] || { git -C "$WORKTREE_PATH" merge-base HEAD "origin/$DEFAULT" 2>/dev/null || git -C "$WORKTREE_PATH" merge-base HEAD "$DEFAULT"; } > "$BP" || rm -f "$BP"
 if [ "$FRESH" = 1 ] || [ "$(n1_read_frontmatter "$OV" step)" = ticket ]; then (cd "$WORKTREE_PATH" && n1_orca_sync "ticket: in progress" --status in-progress && { [ "$(n1_config_val '.tracker.type')" != jira ] || n1_orca_link "$ID"; }); fi
 n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "$WORKTREE_PATH" "$BRANCH"
 echo "WORKTREE_PATH=$WORKTREE_PATH BRANCH=$BRANCH"
 ```
+Story child (the queue runner set its story branch): the checkout is synced to `origin/<story branch>` before any work, so `branch-point` is the story tip. `story-base:` output → STOP and escalate (headless: pause with a recorded escalation).
 
 ## Ensure Worktree (`<ID>`)
 
@@ -34,13 +41,15 @@ echo "WORKTREE_PATH=$WORKTREE_PATH BRANCH=$BRANCH"
 ```bash
 source ~/.n1/preamble.sh
 MAIN_CHECKOUT=$(git worktree list --porcelain | sed -n '1s/^worktree //p'); WT_ROOT=$(n1_worktree_root)
-WORKTREE_PATH="$MAIN_CHECKOUT/$WT_ROOT/<ID>"; DEFAULT=<git.defaultBranch>
-git branch <TARGET> $DEFAULT 2>/dev/null || true
-[ -f "$BP_FILE" ] || git rev-parse "$DEFAULT" > "$N1_HOME/memory/<ID>/branch-point"
+WORKTREE_PATH="$MAIN_CHECKOUT/$WT_ROOT/<ID>"; DEFAULT=<git.defaultBranch>; BASE="$DEFAULT"
+SB=$(n1_story_base) || { echo "story-base: invalid"; exit 1; }
+[ -z "$SB" ] || { git fetch origin "$SB" || { echo "story-base: fetch of $SB failed"; exit 1; }; BASE="origin/$SB"; }
+git branch <TARGET> "$BASE" 2>/dev/null || true
+[ -f "$BP_FILE" ] || git rev-parse "$BASE" > "$N1_HOME/memory/<ID>/branch-point"
 CURRENT=$(git branch --show-current); [ "$CURRENT" = "$TARGET" ] && git checkout $DEFAULT
 git worktree add "$WORKTREE_PATH" <TARGET> && n1_copy_worktree_files "$MAIN_CHECKOUT" "$WORKTREE_PATH" && n1_write_frontmatter "$N1_HOME/memory/<ID>/overview.md" workspace_path "$WORKTREE_PATH"
 ```
-`git worktree add` fail→recovery.
+`git worktree add` fail→recovery. Story child: `<TARGET>` is cut from `origin/<story branch>`; `story-base:` output → STOP and escalate.
 
 ## Ensure Dependencies (`<ID>`)
 

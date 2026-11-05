@@ -1091,6 +1091,15 @@ test_story_bg_settings() {
         "$(unset N1_STORY_BRANCH; N1_STORY_ID=S-1 N1_QUEUE_TAG= N1_QUEUE_DIR=/q _n1_queue_bg_settings R1)"
 }
 
+# N1-291: every default-branch site reads n1_story_base; bump-skip and PR-base wording present.
+test_story_base_wiring() {
+    local ws="$REPO_ROOT/skills/n1-start/procedures/workspace-isolation.md"
+    assert_eq "story-wiring: workspace-isolation calls n1_story_base in adopt and ensure" "2" "$(grep -c 'n1_story_base' "$ws")"
+    assert_eq "story-wiring: adopt rebases onto the story tip" "yes" "$(grep -qF 'rebase "origin/$SB"' "$ws" && echo yes || echo no)"
+    assert_eq "story-wiring: ensure cuts the branch from BASE" "yes" "$(grep -qF 'git branch <TARGET> "$BASE"' "$ws" && echo yes || echo no)"
+    assert_eq "story-wiring: ensure keeps checkout of the default" "yes" "$(grep -qF 'git checkout $DEFAULT' "$ws" && echo yes || echo no)"
+}
+
 # N1-290: run.md documents the runner's story-branch step; its halt text matches the runner's.
 test_story_branch_wiring() {
     local r="$REPO_ROOT/skills/n1-queue/steps/run.md" k="$REPO_ROOT/scripts/n1-queue-run.sh"
@@ -2021,6 +2030,7 @@ test_sync_default
 test_story_branch_helpers
 test_story_base
 test_story_bg_settings
+test_story_base_wiring
 test_story_branch_wiring
 test_row_status
 test_queue_retry
