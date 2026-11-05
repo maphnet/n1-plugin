@@ -12,7 +12,7 @@ DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@
 
 ## Codex Review (pre-push)
 
-Runs once, before docs, PR body, rebase and push, so Codex fixes land in the first push (N1-405). It never blocks PR creation: skipped, failed and timed-out reviews record a receipt and continue.
+Runs once, before docs, PR body, rebase and push, so Codex fixes land in the first push (N1-405). Skipped, failed and timed-out reviews record a receipt and never block PR creation. Only a scope-gate `kept=` (unvetted commits that could not be reset) ends n1-pr before the push.
 
 ```bash
 source ~/.n1/preamble.sh

@@ -6,6 +6,8 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 export N1_HOME="$TMP/n1" N1_STATE_DIR="$TMP/n1" N1_SESSION_ID=review-test
 mkdir -p "$N1_HOME" "$TMP/bin"
+source "$ROOT/lib/codex-review.sh"
+rn() { printf '%s__%s.json' "$(N1_REVIEW_DIR="$1" n1_review_repo)" "$2"; }   # N1-405 SEC-1: receipt name is repo-scoped
 printf '{}\n' > "$N1_HOME/config.json"
 export PATH="$TMP/bin:$PATH" REVIEW_LOG="$TMP/log"
 cat > "$TMP/bin/codex" <<'SH'
@@ -47,7 +49,7 @@ observe() { # <session> <cwd> <stdout>: PostToolUse payload for gh pr create
 # AC5: a PR created on a branch whose pre-push Codex step never ran is caught at PostToolUse and at Stop.
 SKIP="$TMP/skip"; mkrepo "$SKIP" feature/skip >/dev/null
 observe review-test "$SKIP" https://github.com/example/repo/pull/42 > "$TMP/observe"
-receipt="$N1_HOME/review-receipts/review-test/feature_skip.json"
+receipt="$N1_HOME/review-receipts/review-test/$(rn "$SKIP" feature_skip)"
 jq -e '.branch == "feature/skip" and .outcome == "skipped" and .reason == "step-not-run" and (.processed | not)' "$receipt" >/dev/null
 jq -e '.hookSpecificOutput.additionalContext | contains("did not run before push") and contains("pull/42")' "$TMP/observe" >/dev/null
 printf '{"session_id":"review-test"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/stop"
@@ -66,10 +68,10 @@ printf 'PASS: gh pr create outside a branch checkout fails open\n'
 
 # Runner: every scenario leaves a processed branch receipt; the runner never calls gh (AC6).
 WT="$TMP/wt"; BASE=$(mkrepo "$WT" feature/T-1)
-receipt="$N1_HOME/review-receipts/review-test/feature_T-1.json"
+receipt="$N1_HOME/review-receipts/review-test/$(rn "$WT" feature_T-1)"
 # A processed receipt from an earlier run on the same branch (another session) is cleared by the next runner run.
 mkdir -p "$N1_HOME/review-receipts/old-sess"
-printf '{"branch":"feature/T-1","outcome":"ran","processed":true}\n' > "$N1_HOME/review-receipts/old-sess/feature_T-1.json"
+printf '{"branch":"feature/T-1","outcome":"ran","processed":true}\n' > "$N1_HOME/review-receipts/old-sess/$(rn "$WT" feature_T-1)"
 for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-noissues ran-fence-fail failed timeout memory-unavailable diff-unavailable; do
   unset AUTH_MODE REVIEW_MODE CODEX_OUT
   rm -rf "$N1_HOME/scratch" "$N1_HOME/memory" "$N1_HOME/x" "${REVIEW_LOG}.gh"
@@ -89,7 +91,7 @@ for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-no
     diff-unavailable) B=deadbeef;;
   esac
   (cd "$WT" && N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=0.1 bash "$ROOT/scripts/codex-pr-review.sh" "$B" "$TID") > "$TMP/out"
-  if [ -e "$N1_HOME/review-receipts/old-sess/feature_T-1.json" ]; then echo "FAIL: $scenario: a stale receipt from an earlier run survived"; exit 1; fi
+  if [ -e "$N1_HOME/review-receipts/old-sess/$(rn "$WT" feature_T-1)" ]; then echo "FAIL: $scenario: a stale receipt from an earlier run survived"; exit 1; fi
   expected=$scenario
   case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; memory-unavailable|ran-optout|ran-findings|ran-noissues|ran-fence-fail) expected=ran;; diff-unavailable) expected=failed;; esac
   jq -e --arg expected "$expected" '.branch == "feature/T-1" and .outcome == $expected and .processed' "$receipt" >/dev/null
@@ -152,7 +154,7 @@ A="$TMP/active"; mkrepo "$A" feature/active >/dev/null
 observe active-stop "$A" https://github.com/example/repo/pull/46 >/dev/null
 printf '{"session_id":"active-stop","stop_hook_active":true}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/active-stop"
 [ ! -s "$TMP/active-stop" ]
-jq -e '.reminded != true' "$N1_HOME/review-receipts/active-stop/feature_active.json" >/dev/null
+jq -e '.reminded != true' "$N1_HOME/review-receipts/active-stop/$(rn "$A" feature_active)" >/dev/null
 printf '{"session_id":"active-stop"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/next-stop"
 jq -e '.decision == "block"' "$TMP/next-stop" >/dev/null
 printf 'PASS: another Stop continuation does not consume an unsent reminder\n'
@@ -160,7 +162,7 @@ printf 'PASS: another Stop continuation does not consume an unsent reminder\n'
 F="$TMP/ftail"; mkrepo "$F" feature/ftail >/dev/null
 payload=$(jq -nc --arg c "$F" '{session_id:"failed-tail",cwd:$c,hook_event_name:"PostToolUseFailure",tool_input:{command:"gh pr create && false"},error:"Exit code 1\nhttps://github.com/example/repo/pull/44"}')
 printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" > "$TMP/failed-tail"
-jq -e '.outcome == "skipped" and .reason == "step-not-run"' "$N1_HOME/review-receipts/failed-tail/feature_ftail.json" >/dev/null
+jq -e '.outcome == "skipped" and .reason == "step-not-run"' "$N1_HOME/review-receipts/failed-tail/$(rn "$F" feature_ftail)" >/dev/null
 jq -e '.hookSpecificOutput.hookEventName == "PostToolUseFailure"' "$TMP/failed-tail" >/dev/null
 jq -e '.hooks.PostToolUseFailure[] | select(.matcher == "Bash") | .hooks[] | select(.command | contains("pr-review-observe.sh"))' "$ROOT/hooks/hooks.json" >/dev/null
 printf 'PASS: failed command tail still observes its created PR\n'
@@ -178,13 +180,13 @@ printf 'PASS: a pushed branch without a PR is not flagged\n'
 export PR_LIST_URLS=https://github.com/example/repo/pull/50
 bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"run-stop"}' > "$TMP/run-stop"
 jq -e '.decision == "block" and (.reason | contains("feature/T-5"))' "$TMP/run-stop" >/dev/null
-jq -e '.branch == "feature/T-5" and .outcome == "skipped" and .reason == "step-not-run" and (.processed | not)' "$N1_HOME/review-receipts/run-stop/feature_T-5.json" >/dev/null
+jq -e '.branch == "feature/T-5" and .outcome == "skipped" and .reason == "step-not-run" and (.processed | not)' "$N1_HOME/review-receipts/run-stop/$(rn "$RS" feature_T-5)" >/dev/null
 grep -q -- '--head feature/T-5' "${REVIEW_LOG}.list"
 bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"run-stop"}' > "$TMP/run-stop-2"
 [ ! -s "$TMP/run-stop-2" ]
 printf 'PASS: Stop records and blocks once for an unreceipted branch with a PR\n'
 [ "$(check_run run-stop)" = "$PR_LIST_URLS" ]
-N1_SESSION_ID=run-stop bash -c 'source "$1/lib/codex-review.sh"; n1_review_record feature/T-5 ran "" true' _ "$ROOT"
+N1_SESSION_ID=run-stop N1_REVIEW_DIR="$RS" bash -c 'source "$1/lib/codex-review.sh"; n1_review_record feature/T-5 ran "" true' _ "$ROOT"
 [ -z "$(check_run run-stop)" ]
 printf 'PASS: run check lists the PR until a processed branch receipt exists\n'
 printf '{"ticketId":"T-5","runId":"r","worktreePath":"%s","branch":"feature/T-5"}\n' "$RS" > "$N1_HOME/active-run.resumed.json"
@@ -195,14 +197,14 @@ printf 'PASS: a processed receipt from another session satisfies the run check\n
 printf '{"ticketId":"T-5","runId":"r","worktreePath":"%s","branch":"feature/T-5"}\n' "$RS" > "$N1_HOME/active-run.mixed.json"
 rm -rf "$N1_HOME/review-receipts/run-stop"
 mkdir -p "$N1_HOME/review-receipts/other-a" "$N1_HOME/review-receipts/other-b"
-printf '{"branch":"feature/T-5","processed":false}\n' > "$N1_HOME/review-receipts/other-a/feature_T-5.json"
-printf '{"branch":"feature/T-5","outcome":"ran","processed":true}\n' > "$N1_HOME/review-receipts/other-b/feature_T-5.json"
+printf '{"branch":"feature/T-5","processed":false}\n' > "$N1_HOME/review-receipts/other-a/$(rn "$RS" feature_T-5)"
+jq -nc --arg h "$(git -C "$RS" rev-parse HEAD)" '{branch:"feature/T-5",outcome:"ran",head:$h,processed:true}' > "$N1_HOME/review-receipts/other-b/$(rn "$RS" feature_T-5)"
 [ -z "$(check_run mixed)" ]
 bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"mixed"}' > "$TMP/mixed"
 [ ! -s "$TMP/mixed" ]
 printf 'PASS: any processed receipt wins over an unprocessed one from another session\n'
 rm -rf "$N1_HOME/review-receipts"; mkdir -p "$N1_HOME/review-receipts/old"
-printf '{"branch":"feature/T-5","processed":true}\n' > "$N1_HOME/review-receipts/old/feature_T-5.json"
+printf '{"branch":"feature/T-5","processed":true}\n' > "$N1_HOME/review-receipts/old/$(rn "$RS" feature_T-5)"
 [ -z "$(N1_STATE_DIR="$TMP/empty-state" check_run mixed)" ]
 printf 'PASS: a legacy per-project processed receipt (no outcome field) satisfies the run check\n'
 : > "${REVIEW_LOG}.list"
@@ -241,11 +243,80 @@ printf 'PASS: gh failure, default-branch and unkeyed-pointer runs fail open with
   done
   (cd "$TMP/repo-a" && observe xrepo-s "$TMP/repo-a" https://github.com/example/repo/pull/77 >/dev/null)
   (cd "$TMP/repo-a" && printf '{"session_id":"xrepo-s"}' | bash "$ROOT/hooks/pr-review-stop.sh" | jq -e '.decision == "block"' >/dev/null)
-  f="$HOME/.n1/review-receipts/xrepo-s/feature_x.json"; jq 'del(.reminded)' "$f" > "$f.t" && mv "$f.t" "$f"
   (cd "$TMP/repo-b" && N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=1 bash "$ROOT/scripts/codex-pr-review.sh" "$(cat "$TMP/base-b")" T-9 >/dev/null)
-  jq -e '.outcome == "ran" and .processed' "$f" >/dev/null
-  (cd "$TMP/repo-a" && printf '{"session_id":"xrepo-s"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/xstop")
-  [ ! -s "$TMP/xstop" ]
+  # N1-405 SEC-1: repo B's "ran" receipt for the same branch name does not count for repo A.
+  [ "$(N1_REVIEW_DIR="$TMP/repo-b" n1_review_outcome feature/x)" = ran ]
+  [ -z "$(N1_REVIEW_DIR="$TMP/repo-a" n1_review_outcome feature/x)" ]
+  [ -n "$(ls "$HOME/.n1/review-receipts/xrepo-s/")" ] && [ "$(ls "$HOME/.n1/review-receipts/xrepo-s/"*.json | wc -l)" = 2 ]
   [ -z "$(find "$HOME/.n1/proj-a" "$HOME/.n1/proj-b" -name review-receipts)" ]
 )
-printf 'PASS: hook in repo A, runner in repo B and Stop in repo A share one receipt location\n'
+printf 'PASS: receipts live in one cwd-independent root but are scoped per repo\n'
+
+# N1-405 SEC-1: a "ran" receipt counts only while its head is an ancestor of the checked head; a rebase re-anchors it.
+(
+  export N1_SESSION_ID=anc-s
+  R="$TMP/anc"; mkrepo "$R" feature/anc >/dev/null
+  export N1_REVIEW_DIR="$R"
+  n1_review_record feature/anc ran "" true
+  jq -e '.repo != "" and (.head | test("^[0-9a-f]{40}$"))' "$(n1_review_receipt feature/anc)" >/dev/null
+  [ "$(n1_review_outcome feature/anc)" = ran ]
+  gc "$R" --allow-empty -m later
+  [ "$(n1_review_outcome feature/anc)" = ran ]
+  git -C "$R" reset -q --hard HEAD~2
+  gc "$R" --allow-empty -m other
+  [ -z "$(n1_review_outcome feature/anc)" ]
+  # re-anchor: rebase onto a new default-branch commit rewrites the reviewed commits
+  git -C "$R" reset -q --hard HEAD~1; echo y > "$R/y.md"; git -C "$R" add y.md; gc "$R" -m rv
+  git -C "$R" branch -f rbase HEAD~1
+  n1_review_record feature/anc ran "" true
+  gc "$R" --allow-empty -m docs
+  git -C "$R" checkout -q rbase; gc "$R" --allow-empty -m mainline; git -C "$R" checkout -q feature/anc
+  PRE=$(git -C "$R" rev-parse HEAD)
+  git -C "$R" -c user.name=t -c user.email=t@t rebase -q rbase
+  [ -z "$(n1_review_outcome feature/anc)" ]
+  n1_review_reanchor "$PRE"
+  [ "$(n1_review_outcome feature/anc)" = ran ]
+  # a receipt head that was not part of the pre-rebase tip is not re-anchored
+  jq '.head = "'"$(printf 'a%.0s' {1..40})"'"' "$(n1_review_receipt feature/anc)" > "$TMP/r.t" && mv "$TMP/r.t" "$(n1_review_receipt feature/anc)"
+  n1_review_reanchor "$(git -C "$R" rev-parse HEAD)"
+  [ -z "$(n1_review_outcome feature/anc)" ]
+  # branch names differing only by / vs _ share a key but a runner run clears only this repo's receipt
+  n1_review_record feature/anc skipped x true
+  [ "$(n1_review_outcome feature/anc)" = skipped ]
+)
+printf 'PASS: ran receipts need an ancestor head; non-ancestor and wrong-repo receipts are ignored; rebase re-anchors\n'
+
+# N1-405 SEC-3 / CR-1: blocked-gate marker and dirty-tree restore.
+(
+  export N1_HOME="$TMP/n1" ID=T-9
+  R="$TMP/gate"; mkrepo "$R" feature/gate >/dev/null; cd "$R"
+  S=$(git rev-parse HEAD)
+  n1_codex_gate_check T-9
+  gc "$R" --allow-empty -m unvetted
+  n1_codex_gate_block T-9 "$S"
+  [ "$(n1_codex_gate_check T-9)" = 'push:blocked-by-codex-gate' ]
+  ! n1_codex_gate_check T-9 >/dev/null
+  [ -e "$N1_HOME/memory/T-9/codex-gate-blocked" ]
+  git reset -q --hard "$S"
+  n1_codex_gate_check T-9
+  [ ! -e "$N1_HOME/memory/T-9/codex-gate-blocked" ]
+  echo dirty >> example.md
+  out=$(n1_codex_tree_restore T-9)
+  grep -qx 'tree:dirty' <<<"$out"
+  grep -q '^tree:restored patch=' <<<"$out"
+  [ -z "$(git status --porcelain --untracked-files=no)" ]
+  [ "$(stat -c %a "$N1_HOME/memory/T-9/codex-uncommitted.patch")" = 600 ]
+  grep -q '^+dirty' "$N1_HOME/memory/T-9/codex-uncommitted.patch"
+  [ -z "$(n1_codex_tree_restore T-9)" ]
+  echo dirty >> example.md
+  rm -f "$N1_HOME/memory/T-9/codex-uncommitted.patch"; mkdir "$N1_HOME/memory/T-9/codex-uncommitted.patch"
+  if true; then
+    out=$(n1_codex_tree_restore T-9) && { echo 'FAIL: restore with an unwritable patch path succeeded'; exit 1; }
+    grep -qx 'tree:restore-failed' <<<"$out"
+    [ -n "$(git status --porcelain --untracked-files=no)" ]
+    rmdir "$N1_HOME/memory/T-9/codex-uncommitted.patch"
+    # the failure marker never equals HEAD: the push stays blocked until it is cleared by hand
+    ! n1_codex_gate_check T-9 >/dev/null
+  fi
+)
+printf 'PASS: gate marker blocks pushes until HEAD is the run-start SHA; dirty edits are saved and restored away\n'

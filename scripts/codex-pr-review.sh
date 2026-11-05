@@ -10,11 +10,11 @@ BASE=${1-}; ID=${2-}
 BRANCH=$(git branch --show-current 2>/dev/null) || BRANCH=""
 # A branch that cannot form a receipt key cannot be recorded: fail open (unreachable for <user>/<ID> branches).
 RECEIPT=$(n1_review_receipt "$BRANCH") || { printf 'codex_review_outcome=skipped reason=bad-branch\n'; exit 0; }
-KEY=${RECEIPT##*/}; KEY=${KEY%.json}
-# Branch keys repeat across runs (PR URLs did not): a processed receipt from an earlier run on this branch, in any session,
-# must not hide a skipped step on this run. Cleared here, then this run writes its own.
-rm -f "$(n1_review_root)"/*/"$KEY.json"
-[ -z "$N1_HOME" ] || rm -f "$N1_HOME"/review-receipts/*/"$KEY.json"
+KEY=${BRANCH//\//_}; NAME=${RECEIPT##*/}
+# Branch keys repeat across runs (PR URLs did not): a processed receipt from an earlier run on this repo's branch, in any session,
+# must not hide a skipped step on this run. Cleared here (repo-scoped name), then this run writes its own.
+rm -f "$(n1_review_root)"/*/"$NAME"
+[ -z "$N1_HOME" ] || rm -f "$N1_HOME"/review-receipts/*/"$NAME"
 mkdir -p "$(dirname "$RECEIPT")" || exit 1
 SKIP_REASON=""
 OUTCOME=failed

@@ -6,7 +6,7 @@ If no PR URL is available, PR creation failed: end n1-pr without a review report
 
 The Codex review already ran before the push (step 1, N1-405). This step never runs it again and never pushes. It first pins the PR head that passed N1 review (`$N1_HOME/review-pins/`, any Codex outcome). n1-finish merges only that head, and reconcile § Check advances it after N1's fix-loop pushes. Codex fix commits were recorded as post-review heads in step 1, so they keep the pin valid. `pin:unavailable` is not an error (n1-finish then refuses to merge). `pin:refused` prints its reason (no review artifacts, non-PASS verdict, or `unreviewed-head`: an unrecorded post-review commit or a stale review): let the block finish and report it; never write the pin file by hand.
 
-It then reads the branch receipt and posts the saved triage once. A PostToolUse hook records `outcome=skipped reason=step-not-run` when the PR was created without a pre-push review, and the Stop hook requests continuation until this step has run. Receipts live under `$HOME/.n1/review-receipts/<session>/<branch>.json`, even without telemetry.
+It then reads the branch receipt and posts the saved triage once. A PostToolUse hook records `outcome=skipped reason=step-not-run` when the PR was created without a pre-push review, and the Stop hook requests continuation until this step has run. Receipts live under `$HOME/.n1/review-receipts/<session>/<repo>__<branch>.json` (with the reviewed head; a `ran` receipt counts only while that head is an ancestor of HEAD), even without telemetry.
 
 ```bash
 source ~/.n1/preamble.sh
@@ -20,7 +20,7 @@ OUTCOME=$(n1_review_outcome "$BRANCH")
 echo "codex_review_outcome=$OUTCOME"
 case "$ID" in ''|*[!A-Za-z0-9_-]*) echo "triage:no-id"; exit 0;; esac
 TRIAGE_FILE="$N1_HOME/memory/$ID/codex-triage.md"
-{ [ -f "$TRIAGE_FILE" ] && [ ! -L "$TRIAGE_FILE" ]; } || { echo "triage:none"; exit 0; }
+{ [ -f "$TRIAGE_FILE" ] && [ ! -L "$TRIAGE_FILE" ] && [ "$(stat -c %h "$TRIAGE_FILE")" = 1 ]; } || { echo "triage:none"; exit 0; }
 if timeout -k 5 30 gh pr comment "$PR_URL" --body-file "$TRIAGE_FILE" >/dev/null 2>&1; then
   mv -f "$TRIAGE_FILE" "$N1_HOME/memory/$ID/codex-triage.posted.md" && echo "triage:posted"
 else echo "triage:comment-failed file=$TRIAGE_FILE"; fi

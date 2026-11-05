@@ -20,20 +20,25 @@ git merge-base --is-ancestor origin/${DEFAULT_BRANCH} HEAD
 ```
 
 - Exit 0 → branch already includes all of `${DEFAULT_BRANCH}`; skip rebase.
-- Exit 1 → rebase needed. A clean rebase records the rebased head for `n1_review_pin set` (accepted only when the pre-rebase tip is the last recorded head); a failed rebase records nothing:
+- Exit 1 → rebase needed. A clean rebase records the rebased head for `n1_review_pin set` (accepted only when the pre-rebase tip is the last recorded head) and moves the Codex receipt head to it; a failed rebase records nothing:
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/codex-review.sh"
 ID="<ticket ID from Step 1, or empty>"
 case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
 PRE_REBASE=$(git rev-parse HEAD)
-git rebase origin/${DEFAULT_BRANCH} && n1_head_record "$PRE_REBASE"
+git rebase origin/${DEFAULT_BRANCH} && { n1_head_record "$PRE_REBASE"; n1_review_reanchor "$PRE_REBASE"; }
 ```
 
 **If rebase succeeds (exit 0):** Branch is clean. Push using `--force-with-lease` (required because rebase rewrites history):
 
 ```bash
-git push --force-with-lease -u origin ${CURRENT_BRANCH}
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/codex-review.sh"
+ID="<ticket ID from Step 1, or empty>"
+case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
+n1_codex_gate_check "$ID" && git push --force-with-lease -u origin ${CURRENT_BRANCH}
 ```
 
 Then proceed to **Create PR** below.
@@ -59,8 +64,14 @@ Resolve the following conflicts manually, then re-run /n1:n1-pr:
 When `merge-base` exit 0 (already up to date), push normally:
 
 ```bash
-git push -u origin ${CURRENT_BRANCH}
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/codex-review.sh"
+ID="<ticket ID from Step 1, or empty>"
+case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
+n1_codex_gate_check "$ID" && git push -u origin ${CURRENT_BRANCH}
 ```
+
+`push:blocked-by-codex-gate` (a `kept=` or `tree:restore-failed` from the Codex scope gate): do not push; end n1-pr and report it.
 
 Then proceed to **Create PR** below.
 

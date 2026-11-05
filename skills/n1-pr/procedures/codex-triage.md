@@ -12,21 +12,19 @@ Triage has no user prompts. Every failure below warns inline and continues. Unat
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/codex-review.sh"
+ID='<the ticket ID>'
+n1_codex_gate_check "$ID" || { echo "codex:start unavailable"; exit 0; }
 IFS=$'\t' read -r TRIAGE_MODEL TRIAGE_EFFORT < <(n1_resolve_agent tail-worker codex-triage)
 echo "triage_model=$TRIAGE_MODEL maxFixAttempts=$(n1_cross_host_review_val 'maxFixAttempts')"
 BASE='<the base= SHA from step 1>'
 KEY=$(git branch --show-current | tr / _)
 case "$KEY" in ''|.*|*[!A-Za-z0-9._-]*) echo "codex:start unavailable"; exit 0;; esac
 [[ $BASE =~ ^[0-9a-f]{40,64}$ ]] || { echo "codex:start unavailable"; exit 0; }
-mkdir -p "$N1_HOME/scratch"
-GATE_DIR=$(mktemp -d "$N1_HOME/scratch/codex-gate-$KEY.XXXXXX") \
-  && git rev-parse HEAD > "$GATE_DIR/start" \
-  && git -c core.quotePath=false diff --no-renames --name-only "$BASE...HEAD" > "$GATE_DIR/allowed.txt" \
-  && [ -s "$GATE_DIR/allowed.txt" ] && echo "codex:start dir=$GATE_DIR key=$KEY" \
-  || { rm -rf "${GATE_DIR:-}"; echo "codex:start unavailable"; }
+git -c core.quotePath=false diff --no-renames --name-only "$BASE...HEAD" | grep -q . && echo "codex:start key=$KEY start=$(git rev-parse HEAD)" || echo "codex:start unavailable"
 ```
 
-The `start` file is the run-start head, captured before the developer can commit. The allowlist is the set of files the branch already changes. On `codex:start unavailable`, dispatch nothing: warn inline that the Codex findings were not triaged, remember the follow-up item `Codex review findings: see ticket memory codex-review.md` for the step 3 Report, and return to step 1 (last line of this procedure).
+`start=` is the run-start head, printed before the developer can commit. Keep it as a literal for Scope Gate (the persona never supplies it). A blocked-gate marker from an earlier run (`push:blocked-by-codex-gate`) also prints `codex:start unavailable`: dispatch nothing and end n1-pr before the push. On `codex:start unavailable`, dispatch nothing: warn inline that the Codex findings were not triaged, remember the follow-up item `Codex review findings: see ticket memory codex-review.md` for the step 3 Report, and return to step 1 (last line of this procedure).
 
 Otherwise dispatch persona `tail-worker` with model `$TRIAGE_MODEL` and this input:
 
@@ -50,32 +48,35 @@ Wait for the persona to return. Its last line should be `triage:fix state=<S> de
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
+source "$N1_ROOT/lib/codex-review.sh"
 ID='<the ticket ID>'
-KEY='<the key= value from Fix Phase>'
-GATE_DIR='<the codex:start dir= path from Fix Phase>'
-case "$KEY" in ''|.*|*[!A-Za-z0-9._-]*) KEY="";; esac
-case "$GATE_DIR" in *..*|"$N1_HOME/scratch/codex-gate-$KEY".*/*) GATE_DIR="";; "$N1_HOME/scratch/codex-gate-$KEY".*) ;; *) GATE_DIR="";; esac
-case "$ID" in ''|*[!A-Za-z0-9_-]*) GATE_DIR="";; esac
-START=$(cat "$GATE_DIR/start" 2>/dev/null) || START=""
+START='<the start= SHA from Fix Phase>'
+BASE='<the base= SHA from step 1>'
+case "$ID" in ''|*[!A-Za-z0-9_-]*) ID="";; esac
 TIP=$(git rev-parse HEAD)
-[[ -n "$KEY" && -n "$GATE_DIR" && $START =~ ^[0-9a-f]{40,64}$ ]] || { echo "push:blocked paths=gate-unavailable kept=$TIP"; exit 0; }
+# Gate inputs are rebuilt here from the two literals in a fresh directory; nothing is read back from scratch the developer could write.
+T=$(mktemp -d) || T=""
+[[ -n "$ID" && -n "$T" && $START =~ ^[0-9a-f]{40,64}$ && $BASE =~ ^[0-9a-f]{40,64}$ ]] \
+  && git -c core.quotePath=false diff --no-renames --name-only "$BASE...$START" > "$T/allowed.txt" && printf '%s\n' "$START" > "$T/start" \
+  || { n1_codex_gate_block "$ID" "$START"; [ -z "$T" ] || rm -rf "$T"; echo "push:blocked paths=gate-unavailable kept=$TIP"; exit 0; }
 [ "$TIP" = "$START" ] || echo "cross_host_fix_cycle=$(n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "cross_host_fix_cycle")"
-OUT=$(bash "$N1_ROOT/scripts/codex-push-gate.sh" "$GATE_DIR/start" "$GATE_DIR/allowed.txt" "$N1_HOME/memory/$ID/codex-blocked-fix.patch")
+OUT=$(bash "$N1_ROOT/scripts/codex-push-gate.sh" "$T/start" "$T/allowed.txt" "$N1_HOME/memory/$ID/codex-blocked-fix.patch")
+rm -rf "$T"
 case "$OUT" in
-  "push:blocked paths=gate-unavailable") [ "$TIP" = "$START" ] || { git reset -q --keep "$START" 2>/dev/null && OUT="$OUT reset=$TIP" || OUT="$OUT kept=$TIP"; };;
+  "push:blocked paths=gate-unavailable") if [ "$TIP" = "$START" ]; then OUT="push:none"; elif git reset -q --keep "$START" 2>/dev/null; then OUT="$OUT reset=$TIP"; else OUT="$OUT kept=$TIP"; fi;;
   push:ok) n1_head_record "$START";;
 esac
+case "$OUT" in *" kept="*) n1_codex_gate_block "$ID" "$START";; esac
 echo "$OUT"
-[ -z "$(git status --porcelain --untracked-files=no)" ] || echo "tree:dirty"
-case "$GATE_DIR" in "$N1_HOME/scratch/codex-gate-$KEY".*) rm -rf "$GATE_DIR";; esac
+n1_codex_tree_restore "$ID" || echo "push:blocked paths=uncommitted-edits kept=$TIP"
 ```
 
-The gate fails closed and prints one `push:` line. It never pushes: the line only says whether the fix commits may go out with the first push in step 4. Keep the line for **Report Phase**.
+The gate fails closed and prints one `push:` line. It never pushes: the line only says whether the fix commits may go out with the first push in step 4. Keep the first `push:` line for **Report Phase**.
 - `push:ok`: the fix commits are in scope and are recorded as a post-review head, so `n1_review_pin set` accepts the pushed head.
-- `push:none`: nothing was committed.
+- `push:none`: nothing was committed (a bare `gate-unavailable` with no new commit also becomes `push:none`).
 - `push:blocked ... reset=<sha>`: the commits were removed, and the patch was saved to `memory/<ID>/codex-blocked-fix.patch` unless a denylisted path matched. Warn inline and continue.
-- `push:blocked ... kept=<sha>`: commits that are unvetted or out of scope remain, and the reset failed. Run Report Phase and Triage File, then end n1-pr without pushing: report the blocked paths and that `git reset --keep <START>` (the run-start head) must run before re-running n1-pr.
-- `tree:dirty`: warn inline that uncommitted developer edits remain and are not scope-checked. Do not commit them.
+- `push:blocked ... kept=<sha>`: commits that are unvetted or out of scope remain, and the reset failed. The snippet wrote `memory/<ID>/codex-gate-blocked` (the run-start SHA); every push path and a rerun of Fix Phase refuse (`push:blocked-by-codex-gate`) until HEAD equals it. Run Report Phase and Triage File, then end n1-pr without pushing: report the blocked paths and that `git reset --keep <START>` must run before re-running n1-pr.
+- `tree:dirty` then `tree:restored patch=<path>`: uncommitted developer edits were saved to `memory/<ID>/codex-uncommitted.patch` and removed from the tree; warn inline and continue. `tree:restore-failed` (with `push:blocked paths=uncommitted-edits`) is handled like `kept=`: the marker is written, end n1-pr before the push; clear the tree and delete the marker by hand.
 
 ### Report Phase
 

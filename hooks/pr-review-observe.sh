@@ -22,6 +22,7 @@ URLS=$(printf '%s' "$INPUT" | jq -r '.tool_response.stdout // .error // empty' |
 [ -n "$URLS" ] || exit 0
 # N1-405: receipts are keyed on the branch of the checkout that ran gh pr create.
 CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty')
+export N1_REVIEW_DIR="${CWD:-.}"
 BRANCH=$(git -C "${CWD:-.}" branch --show-current 2>/dev/null) || BRANCH=""
 file=$(n1_review_receipt "$BRANCH") || exit 0
 { [ ! -f "$file" ] && [ -z "$(n1_review_outcome "$BRANCH")" ]; } || exit 0

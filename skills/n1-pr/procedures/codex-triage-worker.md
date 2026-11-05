@@ -59,7 +59,7 @@ Classify findings into groups:
 - If `qualityEscalations=auto-accept` (hands-off): **fix candidates** are P1, P2 and unclassified findings, plus any security-looking P3 finding; the validator decides. **Informational (P3)** findings are the remaining P3 findings: not validated, not fixed, only listed in the Triage Reply.
 - Otherwise: **fix candidates** are Critical, High, or Medium findings (P1 and P2), validated below, then auto-fixed if confirmed; **human-review findings** are Low (P3) or unclassified, flagged for human review.
 
-The N1-116 soft-findings policy (Low deferred to PR notes, Medium fixed once without re-review) does not apply to Codex triage (N1-123). This loop already makes one fix pass with no re-review and never re-runs Codex. In addition, every candidate passes the validator and the fail-closed push gate, which soft-pass fixes do not. Codex findings carry no `[SEC-N]` ids, so the security exclusion below is keyed on the finding text. P3 findings are informational under auto-accept unless security-looking (N1-212; supersedes the Low part of N1-94): a fix pass for the least valuable findings is the main Codex-fix token cost, and the security-looking exception keeps security findings on the fix path.
+The N1-116 soft-findings policy (Low deferred to PR notes, Medium fixed once without re-review) does not apply to Codex triage (N1-123). This loop already makes one fix pass with no re-review and never re-runs Codex. In addition, every candidate passes the validator and the fail-closed scope gate, which soft-pass fixes do not. Codex findings carry no `[SEC-N]` ids, so the security exclusion below is keyed on the finding text. P3 findings are informational under auto-accept unless security-looking (N1-212; supersedes the Low part of N1-94): a fix pass for the least valuable findings is the main Codex-fix token cost, and the security-looking exception keeps security findings on the fix path.
 
 If severity markers are absent but the output does contain findings, treat ALL findings as unclassified. With `qualityEscalations=auto-accept`, send them all through Validation (unclassified is never informational). Otherwise route them to human review, skip validation and the fix cycle, and proceed directly to the triage reply.
 
@@ -223,7 +223,7 @@ The `push:` input is the orchestrator's scope-gate line; read "the output" in th
 
 ### Triage Reply
 
-Compose the triage comment that the orchestrator posts once after PR creation, summarizing the triage outcome. This is a NEW comment (not an edit of the original review comment).
+Compose the triage comment that the orchestrator posts once after PR creation, summarizing the triage outcome. This is the PR's only Codex comment.
 
 Construct the triage body from:
 - **Auto-Fixed** — findings the developer fixed and that passed the scope gate (`push:ok`) (from developer output, action=Fixed)

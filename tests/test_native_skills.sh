@@ -324,34 +324,57 @@ if grep -nE '^[[:space:]]*(\[ -n .* \] && )?rm -r?f "\$(VALIDATE_DIR|GATE_DIR|TR
     echo "FAIL: an unguarded rm of a scratch placeholder remains in codex-triage"; FAIL=1
 else echo "PASS: no unguarded rm of scratch placeholders in codex-triage"; fi
 
-# N1-405: the Scope Gate uses its own Fix Phase start/allowed files, records the fix head on push:ok, fails closed
-awk '/^### Scope Gate/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$CT" \
-    | sed -E -e '/^source /d' -e "s/^([A-Z_]+)='<.*>'\$/\1=\"\${V_\1}\"/" > "$TT/gate.sh"
+# N1-405: the Scope Gate rebuilds its inputs from the START/BASE literals (SEC-2), records the fix head on push:ok, fails closed,
+# writes the blocked-gate marker on kept= (SEC-3) and restores a dirty tree (CR-1)
+{ printf '. "%s/lib/codex-review.sh"\n' "$PWD"; awk '/^### Scope Gate/{f=1} f&&/^```bash/{g=1;next} g&&/^```/{exit} g' "$CT" \
+    | sed -E -e '/^source /d' -e "s/^([A-Z_]+)='<.*>'\$/\1=\"\${V_\1}\"/"; } > "$TT/gate.sh"
 n1_increment_counter() { echo 1; }; n1_head_record() { echo "head-recorded from=$1"; }
 export -f n1_increment_counter n1_head_record
 mkdir -p "$TT/root/scripts" "$TT/repo"
 printf '#!/bin/bash\necho "start=$(cat "$1") allowed=$(cat "$2") patch=$3" > "$GATE_LOG"\necho "${GATE_OUT:-push:ok}"\n' > "$TT/root/scripts/codex-push-gate.sh"
 git -C "$TT/repo" init -q
-git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m a
+git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m base
+B0=$(git -C "$TT/repo" rev-parse HEAD)
+echo a > "$TT/repo/a.txt"; git -C "$TT/repo" add a.txt; git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q -m a
 git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m b
 S0=$(git -C "$TT/repo" rev-parse HEAD~1); S1=$(git -C "$TT/repo" rev-parse HEAD)
-rungate() { # <gate dir>
-    mkdir -p "$SC/codex-gate-$K.g"; echo "$S0" > "$SC/codex-gate-$K.g/start"; echo a.txt > "$SC/codex-gate-$K.g/allowed.txt"
-    (cd "$TT/repo" && V_ID=T-1 V_KEY=$K V_GATE_DIR="$1" N1_ROOT="$TT/root" GATE_LOG="$TT/gate.log" bash "$TT/gate.sh")
+MK="$TT/home/memory/T-1/codex-gate-blocked"
+rungate() { # <start> [base] [id]
+    (cd "$TT/repo" && V_ID="${3-T-1}" V_START="$1" V_BASE="${2-$B0}" N1_ROOT="$TT/root" N1_HOME="$TT/home" GATE_LOG="$TT/gate.log" bash "$TT/gate.sh")
 }
-rm -f "$TT/gate.log"; out=$(rungate "$SC/codex-gate-$K.g")
+mkdir -p "$SC/codex-gate-$K.g"; echo "$S1" > "$SC/codex-gate-$K.g/start"; printf 'a.txt\nevil.sh\n' > "$SC/codex-gate-$K.g/allowed.txt"
+rm -f "$TT/gate.log"; out=$(rungate "$S0")
 if grep -qx 'push:ok' <<<"$out" && grep -qx "head-recorded from=$S0" <<<"$out" \
-   && grep -qxF "start=$S0 allowed=a.txt patch=$TT/home/memory/T-1/codex-blocked-fix.patch" "$TT/gate.log" && [ ! -e "$SC/codex-gate-$K.g" ]; then
-    echo "PASS: scope gate uses its own start/allowed files, records the Codex fix head on push:ok, cleans up"
+   && grep -qxF "start=$S0 allowed=a.txt patch=$TT/home/memory/T-1/codex-blocked-fix.patch" "$TT/gate.log"; then
+    echo "PASS: scope gate rebuilds start/allowed from START and BASE (tampered scratch files ignored), records the fix head on push:ok"
 else echo "FAIL: scope gate push:ok path: $out"; FAIL=1; fi
-for bad in "$SC/codex-gate-$K.g/../x" "$SC/codex-gate-other.g" "$SC/codex-gate-$K.g/sub" ""; do
-    rm -f "$TT/gate.log"; out=$(rungate "$bad")
-    if grep -q '^push:blocked paths=gate-unavailable kept=' <<<"$out" && [ ! -e "$TT/gate.log" ]; then echo "PASS: scope gate rejects gate dir '${bad##*/}'"
-    else echo "FAIL: scope gate accepted gate dir '$bad': $out"; FAIL=1; fi
+if grep -qE 'scratch/codex-gate|GATE_DIR' "$CT"; then echo "FAIL: codex-triage still reads gate inputs from scratch"; FAIL=1
+else echo "PASS: codex-triage keeps no gate inputs in scratch"; fi
+for bad in "x" "$S0;id" ""; do
+    rm -f "$TT/gate.log" "$MK"; out=$(rungate "$bad")
+    if grep -q '^push:blocked paths=gate-unavailable kept=' <<<"$out" && [ ! -e "$TT/gate.log" ]; then echo "PASS: scope gate rejects START '${bad:0:6}'"
+    else echo "FAIL: scope gate accepted START '$bad': $out"; FAIL=1; fi
 done
-rm -f "$TT/gate.log"; out=$(GATE_OUT='push:blocked paths=gate-unavailable' rungate "$SC/codex-gate-$K.g")
-if grep -qx "push:blocked paths=gate-unavailable reset=$S1" <<<"$out" && [ "$(git -C "$TT/repo" rev-parse HEAD)" = "$S0" ] && ! grep -q head-recorded <<<"$out"; then
+rm -f "$TT/gate.log"; out=$(rungate "$S0" "bad;id")
+if grep -q '^push:blocked paths=gate-unavailable kept=' <<<"$out" && [ ! -e "$TT/gate.log" ]; then echo "PASS: scope gate rejects an invalid BASE"; else echo "FAIL: invalid BASE accepted: $out"; FAIL=1; fi
+rm -f "$MK"; out=$(rungate "$S0" "$B0" "../x")
+if grep -q '^push:blocked paths=gate-unavailable kept=' <<<"$out" && [ ! -e "$TT/home/x" ]; then echo "PASS: scope gate rejects an invalid ID"; else echo "FAIL: invalid ID accepted: $out"; FAIL=1; fi
+rm -f "$TT/gate.log" "$MK"; out=$(GATE_OUT='push:blocked paths=gate-unavailable' rungate "$S0")
+if grep -qx "push:blocked paths=gate-unavailable reset=$S1" <<<"$out" && [ "$(git -C "$TT/repo" rev-parse HEAD)" = "$S0" ] && ! grep -q head-recorded <<<"$out" && [ ! -e "$MK" ]; then
     echo "PASS: gate-unavailable after fix commits resets to the run-start head (fail closed)"
 else echo "FAIL: gate-unavailable handling: $out"; FAIL=1; fi
+out=$(GATE_OUT='push:blocked paths=gate-unavailable' rungate "$S0")
+if [ "$out" = "push:none" ]; then echo "PASS: bare gate-unavailable with no new commit is push:none (CR-2)"; else echo "FAIL: bare gate-unavailable: $out"; FAIL=1; fi
+# SEC-3: a failed reset leaves kept= and the marker; a dirty tracked file makes git reset --keep fail
+git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m c; echo changed >> "$TT/repo/a.txt"; git -C "$TT/repo" add a.txt
+git -C "$TT/repo" -c user.name=t -c user.email=t@t commit -q -m touch-a; echo dirty >> "$TT/repo/a.txt"
+S2=$(git -C "$TT/repo" rev-parse HEAD~2); rm -f "$MK"
+out=$(GATE_OUT='push:blocked paths=a.txt kept=abc' rungate "$S2")
+if grep -q 'kept=' <<<"$out" && [ "$(cat "$MK" 2>/dev/null)" = "$S2" ]; then echo "PASS: kept= writes the blocked-gate marker with the run-start SHA"; else echo "FAIL: kept= marker: $out"; FAIL=1; fi
+# CR-1: tree:dirty edits are saved and removed (the same dirty file as above)
+if grep -qx 'tree:dirty' <<<"$out" && grep -q '^tree:restored patch=' <<<"$out" && [ -z "$(git -C "$TT/repo" status --porcelain --untracked-files=no)" ] \
+   && grep -q '^+dirty' "$TT/home/memory/T-1/codex-uncommitted.patch"; then
+    echo "PASS: scope gate saves and restores away uncommitted tracked edits (tree:dirty)"
+else echo "FAIL: tree:dirty handling: $out"; FAIL=1; fi
 
 exit $FAIL

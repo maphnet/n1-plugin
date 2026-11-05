@@ -124,6 +124,7 @@ read -r BR BASE XR < <(gh pr view "$N" --json headRefName,baseRefName,isCrossRep
 P=$(git push -q --force-with-lease="$BR:$OLD" origin "$BR" 2>&1) || { if grep -q 'stale info' <<<"$P"; then echo push:rejected; else echo push:failed; echo "$P"; fi; exit 1; }
 echo "pushed:${NEW:0:7}"
 n1_review_pin advance "$N" "$OLD" "$NEW"
+source "$N1_ROOT/lib/codex-review.sh"; n1_review_reanchor "$OLD"   # Codex receipt head follows the rebase
 ```
 
 - `resolve:denied` → "Merge is not authorized in this run." **STOP.** `pr:invalid` / `sha:invalid` → report it. **STOP.**
@@ -169,7 +170,7 @@ No checks yet with a `pull_request` workflow, and API errors, count as pending. 
 
 ## § Re-check
 
-Run the 3.1 pre-merge block again and apply every line, with this run's resolve attempt counted: a second `state:DIRTY` or `state:BEHIND` is a **STOP** (another PR landed first). The pin now equals the pushed head, so `<head>` for 3.2 and 3.4 is `<new>`. A threads answer already given in this run carries over when the count is unchanged. The `codex:` line is unaffected (Codex receipts are per session, not per head) and no new Codex review is required.
+Run the 3.1 pre-merge block again and apply every line, with this run's resolve attempt counted: a second `state:DIRTY` or `state:BEHIND` is a **STOP** (another PR landed first). The pin now equals the pushed head, so `<head>` for 3.2 and 3.4 is `<new>`. A threads answer already given in this run carries over when the count is unchanged. The `codex:` line is unaffected (§ Push re-anchored the receipt head to the pushed head) and no new Codex review is required.
 
 ## § Re-pin
 
