@@ -711,6 +711,158 @@ EOF
     rm -rf "$tmp"
 }
 
+# N1-293 AC1/AC2/AC4: all children merged -> one ready final PR, opened by a session in a detached worktree; recorded
+# in ## Final PRs with mergeable state, evented before queue_done; the main checkout is untouched.
+test_final_pr_ready() {
+    local tmp s=n1-sq-S-1-final-1; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done"
+    assert_eq "final: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final: one final session" 1 "$(count_x "$tmp/fake/events" "launch $s")"
+    assert_eq "final: n1-run prompt without --draft" "yes,0" \
+        "$(grep -q '^/n1:n1-run ' "$tmp/fake/prompt.$s" && echo yes || echo no),$(grep -cF -- '--draft' "$tmp/fake/prompt.$s" || true)"
+    assert_eq "final: PR into the default branch" yes \
+        "$(grep -qF 'gh pr create --head story/S-1 --base main' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "final: cwd is the queue's worktree" "$tmp/final-1" "$(cat "$tmp/fake/cwd.$s")"
+    assert_eq "final: worktree removed" no "$([ -e "$tmp/final-1" ] && echo yes || echo no)"
+    assert_eq "final: no worktree left registered" 1 "$(git -C "$tmp/repo" worktree list | wc -l | tr -d ' ')"
+    assert_eq "final: main checkout untouched" main "$(git -C "$tmp/repo" symbolic-ref --short HEAD)"
+    assert_eq "final: settings N1_HOME, no story env" "$tmp/n1home,0" \
+        "$(jq -r '[.env.N1_HOME, ([.env|keys[]|select(startswith("N1_STORY"))]|length)]|map(tostring)|join(",")' "$tmp/fake/settings.$s")"
+    assert_eq "final: body lists the landed child" yes \
+        "$(grep -qxF -- '- T-A: https://github.com/o/r/pull/1 (merged)' "$tmp/final-1.body.md" && echo yes || echo no)"
+    assert_eq "final: Final PRs row" $'https://github.com/o/r/pull/9\tready\tMERGEABLE (CLEAN)\t' "$(fin_row "$tmp" "$tmp/repo")"
+    assert_eq "final: ## Runs stays last" "## Runs" "$(grep '^## ' "$tmp/queue.md" | tail -1)"
+    assert_eq "final: opened event" "https://github.com/o/r/pull/9|ready mergeable=MERGEABLE" \
+        "$(jq -r 'select(.event == "final_pr_opened") | "\(.pr)|\(.reason)"' "$tmp/events.jsonl")"
+    assert_eq "final: recorded before queue_done" "final_pr_opened,queue_done" \
+        "$(jq -r '.event' "$tmp/events.jsonl" | grep -E '^(final_pr_opened|queue_done)$' | paste -sd,)"
+    assert_eq "final: marker done for this run" "$(n1_read_frontmatter "$tmp/queue.md" run_id),done" "$(head -n2 "$tmp/.final-1" | paste -sd,)"
+    assert_eq "final: step done" done "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    rm -rf "$tmp"
+}
+
+# N1-293 AC2 (D4): a child that did not land makes the final PR a draft; the body names it with status and reason.
+test_final_pr_draft() {
+    local tmp s=n1-sq-S-1-final-1; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done" "T-B:working done"
+    printf 'OPEN\tmain\t%s\n' "$SM_PIN" > "$tmp/fake/gh-view.2"   # T-B targets main: wrong-base, never merged
+    assert_eq "final-draft: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-draft: prompt asks for --draft" yes "$(grep -qF -- '--draft' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "final-draft: body lists the not-landed child" 1 \
+        "$(grep -cE -- '^- T-B: pr, PR .* \(finish:wrong-base\)$' "$tmp/final-1.body.md" || true)"
+    assert_eq "final-draft: row draft" draft "$(fin_row "$tmp" "$tmp/repo" | cut -f2)"
+    rm -rf "$tmp"
+}
+
+# N1-293 AC1: a repo without a merged child gets no final PR, only a no-merged-children row.
+test_final_pr_repo_without_merge() {
+    local tmp; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done" "T-B:working done"
+    git clone -q "$tmp/origin" "$tmp/repo2" 2>/dev/null
+    sed -i "/^| 2 | T-B /s#| $tmp/repo |#| $tmp/repo2 |#" "$tmp/queue.md"
+    printf 'OPEN\tmain\t%s\n' "$SM_PIN" > "$tmp/fake/gh-view.2"
+    assert_eq "final-2repo: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-2repo: one session, for repo 1" "1,0" \
+        "$(count_x "$tmp/fake/events" 'launch n1-sq-S-1-final-1'),$(count_x "$tmp/fake/events" 'launch n1-sq-S-1-final-2')"
+    assert_eq "final-2repo: repo 1 ready" ready "$(fin_row "$tmp" "$tmp/repo" | cut -f2)"
+    assert_eq "final-2repo: repo 2 not opened" $'-\t-\t-\tno-merged-children' "$(fin_row "$tmp" "$tmp/repo2")"
+    rm -rf "$tmp"
+}
+
+# N1-293: resume safety: an OPEN final PR for the story head is reused; no session is launched.
+test_final_pr_reused() {
+    local tmp; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done"; rm -f "$tmp/fake/final-create"
+    echo '[{"url":"https://github.com/o/r/pull/7","isDraft":false,"headRefName":"story/S-1","baseRefName":"main"}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final-reuse: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-reuse: no session" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-S-1-final-1')"
+    assert_eq "final-reuse: existing PR recorded" https://github.com/o/r/pull/7 "$(fin_row "$tmp" "$tmp/repo" | cut -f1)"
+    rm -rf "$tmp"
+}
+
+# N1-293: the session ran but no PR exists: row "-" not-created, failed event, needs-you notice, run still exits 0.
+test_final_pr_not_created() {
+    local tmp; tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done"
+    assert_eq "final-none: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-none: row" $'-\t-\t-\tnot-created' "$(fin_row "$tmp" "$tmp/repo")"
+    assert_eq "final-none: failed event" not-created "$(jq -r 'select(.event == "final_pr_failed") | .reason' "$tmp/events.jsonl")"
+    assert_eq "final-none: notice" yes "$(grep -qF 'no final PR for story S-1' "$tmp/notes" && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-293: a final session that never ends is stopped at the timeout and recorded as timeout.
+test_final_pr_timeout() {
+    local tmp s=n1-sq-S-1-final-1; tmp=$(mktemp -d)
+    story_merge_fixture "$tmp" "T-A:working done"
+    echo working > "$tmp/fake/states.S-1.final"
+    cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 1'
+    assert_eq "final-timeout: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-timeout: session stopped" yes "$(grep -qxF "$(cat "$tmp/fake/id.$s")" "$tmp/fake/stopped" && echo yes || echo no)"
+    assert_eq "final-timeout: row" $'-\t-\t-\ttimeout' "$(fin_row "$tmp" "$tmp/repo")"
+    rm -rf "$tmp"
+}
+
+# N1-293: a row still open (awaiting-human) at the tail: no final PR yet, no lookup.
+test_final_pr_rows_open() {
+    local tmp; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done" "T-B:blocked"
+    assert_eq "final-open: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-open: no session" 0 "$(grep -c -- '-final-' "$tmp/fake/events" || true)"
+    assert_eq "final-open: no lookup" no "$([ -e "$tmp/fake/gh-final-calls" ] && echo yes || echo no)"
+    assert_eq "final-open: logged" yes "$(grep -qF 'final PRs: skipped (rows still open)' "$tmp/output.txt" && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-293 AC5: a halted story run opens no final PR.
+test_final_pr_halted() {
+    local tmp; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done"
+    sed -i '/^story_id: /d' "$tmp/queue.md"
+    assert_eq "final-halt: exit 2" 2 "$(run_bg_queue "$tmp")"
+    assert_eq "final-halt: no session" 0 "$(grep -c -- '-final-' "$tmp/fake/events" || true)"
+    assert_eq "final-halt: no lookup" no "$([ -e "$tmp/fake/gh-final-calls" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-293: the base is the row N1 Home's git.defaultBranch, in the prompt and in the lookup.
+test_final_pr_default_branch() {
+    local tmp s=n1-sq-S-1-final-1; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done"
+    cfg_set "$tmp" '.git.defaultBranch = "develop"'
+    assert_eq "final-base: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-base: prompt base develop" yes "$(grep -qF -- '--base develop' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "final-base: lookup base develop" yes "$(grep -qF -- '--base develop' "$tmp/fake/gh-final-calls" && echo yes || echo no)"
+    assert_eq "final-base: PR recorded" https://github.com/o/r/pull/9 "$(fin_row "$tmp" "$tmp/repo" | cut -f1)"
+    rm -rf "$tmp"
+}
+
+# N1-293 merge policy: even with fullAuto + mergeOnFinish the runner never merges the final PR and chains no finish.
+test_final_pr_never_merged() {
+    local tmp s=n1-sq-S-1-final-1; tmp=$(mktemp -d)
+    final_fixture "$tmp" "T-A:working done"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true'
+    assert_eq "final-nomerge: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-nomerge: only the child merge" "pr merge https://github.com/o/r/pull/1 --squash --match-head-commit $SM_PIN" \
+        "$(cat "$tmp/fake/gh-merge")"
+    assert_eq "final-nomerge: no merge call on the final PR" 0 "$(grep -c 'pull/9' "$tmp/fake/gh-merge" || true)"
+    assert_eq "final-nomerge: one story session, the final one" "launch $s" "$(grep '^launch n1-sq-S-1-' "$tmp/fake/events")"
+    assert_eq "final-nomerge: no n1-finish for the story" 0 "$(cat "$tmp"/fake/prompt.* | grep -cF 'n1-finish S-1' || true)"
+    assert_eq "final-nomerge: PR left open, ready" ready "$(fin_row "$tmp" "$tmp/repo" | cut -f2)"
+    rm -rf "$tmp"
+}
+
+# N1-293: tag mode is unchanged: no lookup, no final session, no table.
+test_final_pr_tag_mode() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done"
+    assert_eq "final-tag: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "final-tag: no lookup" no "$([ -e "$tmp/fake/gh-final-calls" ] && echo yes || echo no)"
+    assert_eq "final-tag: no session" 0 "$(grep -c -- '-final-' "$tmp/fake/events" || true)"
+    assert_eq "final-tag: no table" 0 "$(grep -c '^## Final PRs$' "$tmp/queue.md" || true)"
+    rm -rf "$tmp"
+}
+
 test_bg_held_not_launched
 test_bg_held_blocker_failed
 test_bg_held_user_merge
@@ -744,6 +896,17 @@ test_story_mode_snapshot
 test_story_resume
 test_story_held_released_after_runner_merge
 test_story_dependents_of_ci_red
+test_final_pr_ready
+test_final_pr_draft
+test_final_pr_repo_without_merge
+test_final_pr_reused
+test_final_pr_not_created
+test_final_pr_timeout
+test_final_pr_rows_open
+test_final_pr_halted
+test_final_pr_default_branch
+test_final_pr_never_merged
+test_final_pr_tag_mode
 test_lifecycle_wiring
 test_merge_wording
 

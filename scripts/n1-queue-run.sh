@@ -723,6 +723,130 @@ story_done() {
     fi
 }
 
+# --- N1-293: final story PR ------------------------------------------------------------
+AWAIT_WHY=""
+# await_bg <session-id> <ticket> <n1-home> — N1-293: wait for one background session the runner launched (the poll loop
+# of chain_finish). Sets AWAIT_WHY: done (done/failed), missing (not listed for BG_POLL_GRACE polls), agents-unreadable
+# (BG_POLL_GRACE unreadable lists) or timeout (TIMEOUT_SECS). A blocked session raises one escalated event and a
+# needs-you notice. A timed-out session is stopped; any other exit queues it on DRAIN (stopped once idle).
+await_bg() {
+    local sid="$1" agents="" poll waited=0 fails=0 miss=0 asked=""
+    AWAIT_WHY=timeout
+    poll=$(n1_queue_val pollSeconds)
+    while [ "$waited" -le "$TIMEOUT_SECS" ]; do
+        if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
+            fails=0
+            case "$(n1_queue_bg_state "$agents" "$sid")" in
+                done|failed) AWAIT_WHY=done; break ;;
+                missing) miss=$((miss + 1)); [ "$miss" -ge "$BG_POLL_GRACE" ] && { AWAIT_WHY=missing; break; } ;;
+                blocked)
+                    if [ -z "$asked" ]; then
+                        asked=1
+                        ev escalated ticket="$2" session="$sid" reason="final PR session needs you"
+                        n1_notify needs-you "$2 final PR session needs you (resume: $(n1_bg_cmd attach "$sid"))"
+                    fi ;;
+                *) asked=""; miss=0 ;;
+            esac
+        else
+            fails=$((fails + 1))
+            [ "$fails" -ge "$BG_POLL_GRACE" ] && { AWAIT_WHY=agents-unreadable; break; }
+        fi
+        nap "$poll"; waited=$((waited + poll))
+    done
+    if [ "$AWAIT_WHY" = timeout ]; then
+        bash -c "$(n1_bg_cmd stop "$sid")" >/dev/null 2>&1
+    else
+        DRAIN+=("$sid"$'\t'"$2"$'\t'"$3")
+    fi
+    return 0
+}
+
+# final_none <repo> <reason> — N1-293: no final PR for <repo>: row "-" with the reason, final_pr_failed event, needs-you
+# notice. The story branch and the merged work are untouched; the run still exits 0.
+final_none() {
+    n1_queue_final_pr_set "$QUEUE" "$1" - - - "$2" || echo "final PR: $1 not recorded in queue.md"
+    ev final_pr_failed ticket="$RUN_STORY_ID" reason="$2"
+    n1_notify needs-you "Queue $QUEUE_ID: no final PR for story $RUN_STORY_ID in $1 ($2); open it from story/$RUN_STORY_ID by hand"
+    echo "final PR: $1 none ($2)"
+}
+
+# final_pr <row#> <repo> <n1-home> — N1-293 (N1-289 D4/D6/D7): the final PR of one repo, from story/<id> into the repo's
+# default branch (first row's N1 Home wins, as at the story branch setup). No merged child: row only, no PR.
+# An OPEN PR for the head is reused (resume). Marker .final-<row#> (run id, pending|done) keeps one session per run.
+# Otherwise the runner writes the body, makes a detached worktree of origin/story/<id> under the queue dir (the user's
+# checkout is never touched), launches one session there (conventions commit, push, gh pr create; --draft when a child
+# did not land), waits for it and removes the worktree. The PR is then re-derived through gh, never taken from session
+# output, and its mergeable state is read (no sync from the default branch, D6).
+# The runner never merges the final PR and launches no finish for it, whatever autonomy.fullAuto and
+# finishWork.mergeOnFinish say: no reviewed-head pin exists for it and its convention commit is unreviewed, so a human
+# reviews and merges it.
+final_pr() {
+    local NUM="$1" REPO="$2" N1H="$3" SB="" SBID="" def="" nwo="" counts="" nl=0 nr=0 draft=0 mst="" found="" url="" isd=""
+    local why=not-created mg="" mss="" dcell="" note="" out="" sid=""
+    local marker="$N1_QUEUE_DIR/.final-$1" body="$N1_QUEUE_DIR/final-$1.body.md" wt="$N1_QUEUE_DIR/final-$1"
+    { story_env "$REPO" && [ -n "$SB" ]; } || { final_none "$REPO" story-branch-invalid; return 0; }
+    counts=$(n1_queue_final_body "$QUEUE" "$REPO" "$SBID" "$body") || { final_none "$REPO" body-write-failed; return 0; }
+    read -r nl nr <<< "$counts"
+    if [ "${nl:-0}" -eq 0 ]; then
+        rm -f "$body"
+        n1_queue_final_pr_set "$QUEUE" "$REPO" - - - no-merged-children || echo "final PR: $REPO not recorded in queue.md"
+        echo "final PR: $REPO not opened (no merged children)"
+        return 0
+    fi
+    [ "${nr:-0}" -eq 0 ] || draft=1
+    def=$(N1_HOME="$N1H" n1_config_val '.git.defaultBranch' 2>/dev/null); def="${def:-main}"
+    nwo=$(cd "$REPO" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
+    [ -n "$nwo" ] || { final_none "$REPO" repo-unreadable; return 0; }
+    found=$(n1_queue_final_pr_find "$nwo" "$SB" "$def")
+    if [ "$(head -n1 "$marker" 2>/dev/null)" = "$RUN_ID" ]; then mst=$(sed -n 2p "$marker"); fi
+    if [ -z "$found" ] && [ -z "$mst" ]; then
+        printf '%s\npending\n' "$RUN_ID" > "$marker"
+        git -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
+        if ! { git -C "$REPO" fetch -q origin "+refs/heads/$SB:refs/remotes/origin/$SB" \
+                && git -C "$REPO" worktree add -q --detach "$wt" "refs/remotes/origin/$SB"; } </dev/null >/dev/null 2>&1; then
+            why=worktree-failed
+        elif out=$(bash -c "$(n1_queue_final_cmd "$wt" "$N1H" "$RUN_ID" "n1-${QUEUE_ID}-${SBID}-final-$NUM" "$SBID" "$def" "$body" "$draft")" </dev/null 2>&1) \
+                && sid=$(n1_queue_parse_launch "$out") && [ -n "$sid" ]; then
+            echo "final PR: $REPO session launched ($sid)"
+            await_bg "$sid" "$SBID" "$N1H"
+            [ "$AWAIT_WHY" = done ] || why="$AWAIT_WHY"
+        else
+            why=launch-failed
+        fi
+        git -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
+        printf '%s\ndone\n' "$RUN_ID" > "$marker"
+        found=$(n1_queue_final_pr_find "$nwo" "$SB" "$def")
+    elif [ -z "$found" ] && [ "$mst" = pending ]; then
+        why=interrupted
+    fi
+    [ -n "$found" ] || { final_none "$REPO" "$why"; return 0; }
+    IFS=$'\t' read -r url isd <<< "$found"
+    IFS=$'\t' read -r mg mss <<< "$(n1_queue_pr_mergeable "$url")"
+    mg="${mg:-UNKNOWN}"
+    dcell=ready; [ "$isd" = true ] && dcell=draft
+    if [ "$draft" = 1 ] && [ "$isd" != true ]; then note="draft-mismatch (expected draft)"; fi
+    if [ "$draft" = 0 ] && [ "$isd" = true ]; then note="draft-mismatch (expected ready)"; fi
+    n1_queue_final_pr_set "$QUEUE" "$REPO" "$url" "$dcell" "$mg${mss:+ ($mss)}" "$note" || echo "final PR: $REPO not recorded in queue.md"
+    ev final_pr_opened ticket="$SBID" pr="$url" reason="$dcell mergeable=$mg"
+    echo "final PR: $REPO -> $url ($dcell, mergeable $mg${mss:+ ($mss)})"
+}
+
+# final_prs — N1-293: story runs only, once every Plan row is terminal (none pending, held, in-progress or
+# awaiting-human; a later --run reaches this tail again). One final_pr per distinct Repo cell in Plan order, with that
+# repo's first row number and N1 Home. A halted run never gets here (halt_now exits first).
+final_prs() {
+    local seen=$'\n' NUM="" REPO="" N1H=""
+    if [ -n "$(n1_queue_pending_rows "$QUEUE" 'pending|held|in-progress|awaiting-human')" ]; then
+        echo "final PRs: skipped (rows still open)"
+        return 0
+    fi
+    while IFS=$'\t' read -r NUM _ REPO N1H _ _; do
+        case "$seen" in *$'\n'"$REPO"$'\n'*) continue ;; esac
+        seen="$seen$REPO"$'\n'
+        final_pr "$NUM" "$REPO" "$N1H" </dev/null
+    done < <(n1_queue_pending_rows "$QUEUE" '.*')
+}
+
 CHAIN_ESC=""   # set by finalize (ticket id) before it removes the question file
 
 # chain_child_escalated <ticket> <n1-home> — exit 0 when the child has a pending escalation: an unanswered
@@ -1587,6 +1711,8 @@ fi
 # --- Done --------------------------------------------------------------------
 # N1-268: a halt deferred while Orca workers were in flight ends here, after they finished or were stopped.
 [ -z "$HALT_DRAIN" ] || halt_now "$HALT_DRAIN"
+# N1-293: story runs open the final per-repo PRs before the digest and step: done, so the summary can link them.
+if [ "$RUN_MODE" = story ]; then final_prs; fi
 count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }
 DIGEST="$(count_rows pr) PR / $(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"
 # N1-270: close the runner's coordinator terminal unless a row still waits on an answer (--answer replies from it,
