@@ -988,6 +988,64 @@ test_sync_default() {
     rm -rf "$tmp"
 }
 
+# N1-290: story-branch helpers — the ## Story Branches mapping and the remote story/<ID> ensure.
+test_story_branch_helpers() {
+    local tmp q before adv; tmp=$(mktemp -d); q="$tmp/q.md"
+    # Mapping: read, upsert, fail closed.
+    mk_held_plan "$q" pending
+    assert_eq "story-map: no section -> empty, status 0" "|0" "$(n1_queue_story_branch_get "$q" /r; echo "|$?")"
+    assert_eq "story-map: missing file -> empty, status 0" "|0" "$(n1_queue_story_branch_get "$tmp/none.md" /r; echo "|$?")"
+    n1_queue_story_branch_set "$q" /r story/S-1
+    n1_queue_story_branch_set "$q" /r story/S-1
+    n1_queue_story_branch_set "$q" /r2 story/S-1
+    assert_eq "story-map: get /r" "story/S-1" "$(n1_queue_story_branch_get "$q" /r)"
+    assert_eq "story-map: get /r2" "story/S-1" "$(n1_queue_story_branch_get "$q" /r2)"
+    assert_eq "story-map: unknown repo -> empty" "" "$(n1_queue_story_branch_get "$q" /other)"
+    assert_eq "story-map: upsert keeps one row per repo" "1" "$(count_x "$q" '| /r | story/S-1 |')"
+    assert_eq "story-map: one heading" "1" "$(count_x "$q" '## Story Branches')"
+    assert_eq "story-map: ## Runs stays last" "## Runs" "$(grep '^## ' "$q" | tail -1)"
+    n1_queue_story_branch_set "$q" /r story/S-9
+    assert_eq "story-map: upsert replaces the branch" "story/S-9|0" "$(n1_queue_story_branch_get "$q" /r)|$(count_x "$q" '| /r | story/S-1 |')"
+    n1_queue_story_branch_set "$q" '/x|y' 'story/S-1|evil'
+    assert_eq "story-map: cells sanitized" "1" "$(count_x "$q" '| /xy | story/S-1evil |')"
+    assert_eq "story-map: sanitized key reads back" "story/S-1evil" "$(n1_queue_story_branch_get "$q" '/x|y')"
+    printf '\n## Story Branches\n' >> "$q"   # a second heading (portable; no GNU sed \n)
+    before=$(cksum < "$q")
+    assert_eq "story-map: duplicate heading -> set fails" "1" "$(n1_queue_story_branch_set "$q" /r3 story/S-1; echo $?)"
+    assert_eq "story-map: duplicate heading -> file untouched" "$before" "$(cksum < "$q")"
+    assert_eq "story-map: duplicate heading -> get fails closed" "|1" "$(n1_queue_story_branch_get "$q" /r; echo "|$?")"
+    printf -- '---\nmode: story\n---\n## Plan\n' > "$tmp/noruns.md"
+    assert_eq "story-map: no ## Runs -> set fails" "1" "$(n1_queue_story_branch_set "$tmp/noruns.md" /r story/S-1; echo $?)"
+
+    # Ensure: cut from a freshly fetched origin/<default>, reuse an existing branch, fail with a reason.
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m ahead
+    before=$(git -C "$tmp/repo" rev-parse main)
+    assert_eq "story-ensure: create -> 0" "0" "$(n1_queue_story_branch_ensure "$tmp/repo" S-1 main >/dev/null 2>&1; echo $?)"
+    assert_eq "story-ensure: cut from the fetched origin/main" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp/origin" rev-parse refs/heads/story/S-1)"
+    assert_eq "story-ensure: local main not moved" "$before" "$(git -C "$tmp/repo" rev-parse main)"
+    assert_eq "story-ensure: no local story branch" "" "$(git -C "$tmp/repo" for-each-ref --format='%(refname)' refs/heads/story)"
+    assert_eq "story-ensure: prints nothing on stdout" "" "$(n1_queue_story_branch_ensure "$tmp/repo" S-1 main 2>/dev/null)"
+    adv=$(git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit-tree -p refs/heads/story/S-1 -m story 'refs/heads/story/S-1^{tree}')
+    git -C "$tmp/origin" update-ref refs/heads/story/S-1 "$adv"
+    assert_eq "story-ensure: existing branch -> 0" "0" "$(n1_queue_story_branch_ensure "$tmp/repo" S-1 main >/dev/null 2>&1; echo $?)"
+    assert_eq "story-ensure: existing branch not reset" "$adv" "$(git -C "$tmp/origin" rev-parse refs/heads/story/S-1)"
+    assert_eq "story-ensure: empty story id -> 1" "1" "$(n1_queue_story_branch_ensure "$tmp/repo" '' main >/dev/null 2>&1; echo $?)"
+    assert_eq "story-ensure: invalid story id -> 1" "1" "$(n1_queue_story_branch_ensure "$tmp/repo" 'S..1' main >/dev/null 2>&1; echo $?)"
+    assert_eq "story-ensure: invalid default -> 1" "1" "$(n1_queue_story_branch_ensure "$tmp/repo" S-1 'ma..in' >/dev/null 2>&1; echo $?)"
+    assert_eq "story-ensure: no such repo -> 1" "1" "$(n1_queue_story_branch_ensure "$tmp/nope" S-1 main >/dev/null 2>&1; echo $?)"
+    printf '#!/bin/sh\nexit 1\n' > "$tmp/origin/.git/hooks/pre-receive"; chmod +x "$tmp/origin/.git/hooks/pre-receive"
+    assert_eq "story-ensure: rejected push -> reason" "n1-queue: story branch: push of story/S-2 to origin failed in $tmp/repo" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" S-2 main 2>&1 >/dev/null | tail -1)"
+    rm -f "$tmp/origin/.git/hooks/pre-receive"
+    git -C "$tmp/repo" remote set-url origin "$tmp/no-such-origin"
+    assert_eq "story-ensure: unreachable origin -> reason" "n1-queue: story branch: ls-remote origin failed in $tmp/repo" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" S-1 main 2>&1 >/dev/null | tail -1)"
+    rm -rf "$tmp"
+}
+
 # --- child status (NP-219 deploy flag no longer a queue outcome) ---
 test_child_status_deploy() {
     local tmp; tmp=$(mktemp -d)
@@ -1906,6 +1964,7 @@ test_child_status_deploy
 test_held_helpers
 test_held_user_merge
 test_sync_default
+test_story_branch_helpers
 test_row_status
 test_queue_retry
 test_write_plan_cells
