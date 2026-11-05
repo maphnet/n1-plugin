@@ -86,10 +86,24 @@ Next: /n1:n1-start <ID>            (investigation-typed ticket: /n1:n1-start <ID
 Or queue it: add it to a /n1:n1-queue batch (tag or story), then run --plan.
 ```
 
-**Sub-task offer:** after the handoff, when `ISSUE_TYPE` is `story` or `epic`, or Step 3b converted the ticket to Story, and `CHILDREN` holds at least one key, ask the user (format: `<N1_ROOT>/references/question-format.md`). No offer when `CHILDREN` is empty or `unknown`, or when `N1_HEADLESS=1` or `N1_QUEUE_RUN_ID` is set (queue and headless runs end here).
+**Sub-task offer:** after the handoff, when `ISSUE_TYPE` is `story`, or Step 3b converted the ticket to Story, and `CHILDREN` holds at least one key, run the check below, then ask the user (format: `<N1_ROOT>/references/question-format.md`). No offer when `CHILDREN` is empty or `unknown`, or when the check prints `queue-run:yes` or `headless:yes` (queue and headless runs end here).
+
+```bash
+source ~/.n1/preamble.sh
+[ -z "${N1_QUEUE_RUN_ID:-}" ] || echo queue-run:yes; [ "${N1_HEADLESS:-}" != 1 ] || echo headless:yes
+```
 
 No recommendation. The options are equivalent given the available evidence; select based on team preference.
-1 — Refine Sub-tasks: invoke skill n1-refine for each key in `CHILDREN` in turn; works when the children are not yet refined
+1 — Refine Sub-tasks: invoke skill n1-refine once per key in `OFFER_KEYS`; works when the children are not yet refined
 2 — Done: end the run with the handoff above; works when the children should be refined later
 
-Option 1: before each next child, ask the user whether to continue, so they can stop. Option 2: end the run.
+Option 1: first copy `CHILDREN` into a separate held list `OFFER_KEYS` (each nested run resets `CHILDREN`), then iterate `OFFER_KEYS` only, one key per invocation. Before each next child ask the user:
+
+```
+Next: <KEY> <summary>. Continue?
+No recommendation. The options are equivalent given the available evidence; select based on team preference.
+1 — Refine <KEY>: works when you want to go on
+2 — Stop: works when the remaining children should wait
+```
+
+Option 2 and Stop: end the run.
