@@ -63,8 +63,12 @@ case "$1 $2" in
         IFS=$'\t' read -r _ b h < "$v"
         [ -f "$FAKE_DIR/gh-view-after" ] && b=$(cat "$FAKE_DIR/gh-view-after")
         printf 'MERGED\t%s\t%s\n' "$b" "$h" > "$v"
-        printf 'MERGED %s\n' "$b" > "$FAKE_DIR/gh-state" ;;
-    "repo view") cat "$FAKE_DIR/gh-repo" 2>/dev/null || exit 1 ;;
+        printf 'MERGED %s\n' "$b" > "$FAKE_DIR/gh-state"
+        if [ -f "$FAKE_DIR/gh-view-gone-after" ]; then rm -f "$v"; fi ;;   # the post-merge base re-read then fails
+    "repo view") # gh-repo-fail-from2: the 2nd and later repo reads fail (the pin lookup follows the repo identity check)
+        n=$(cat "$FAKE_DIR/gh-repo-n" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_DIR/gh-repo-n"
+        [ -f "$FAKE_DIR/gh-repo-fail-from2" ] && [ "$n" -ge 1 ] && exit 1
+        cat "$FAKE_DIR/gh-repo" 2>/dev/null || exit 1 ;;
     *) exit 1 ;;
 esac
 GHEOF
@@ -87,6 +91,9 @@ case "$1" in
             shift
         done
         echo "launch $name" >> "$D/events"
+        # forge-story: the launched child rewrites queue.md to story mode (frontmatter + mapping for the repo in the file)
+        [ -f "$D/forge-story" ] && sed -i -e '1a mode: story\nstory_id: S-1' \
+            -e "/^## Runs\$/i ## Story Branches\n| Repo | Branch |\n|------|--------|\n| $(cat "$D/forge-story") | story/S-1 |\n" "$D/../queue.md"
         printf '%s\n' "$all" > "$D/args.$name"
         printf '%s\n' "$settings" > "$D/settings.$name"
         if [ -f "$D/refuse" ] || { [ -f "$D/refuse-clean" ] && [ "${name%-clean}" != "$name" ]; } || { [ -f "$D/refuse-done" ] && [ "${name%-done}" != "$name" ]; }; then

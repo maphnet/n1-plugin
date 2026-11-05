@@ -419,7 +419,8 @@ test_story_merge_green() {
 test_story_merge_refusals() {
     local tmp spec c want mk
     for spec in wrong-base:wrong-base:done head-moved:head-moved:done view-error:pr-state-unreadable: \
-                repo-mismatch:pr-repo-mismatch:done no-pin:no-pin:done not-open:pr-not-open:done; do
+                repo-mismatch:pr-repo-mismatch:done no-pin:no-pin:done not-open:pr-not-open:done \
+                pin-unavailable:pin-unavailable:; do
         IFS=: read -r c want mk <<< "$spec"
         tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
         case "$c" in
@@ -428,6 +429,7 @@ test_story_merge_refusals() {
             view-error) rm -f "$tmp/fake/gh-view.1" ;;
             repo-mismatch) echo x/y > "$tmp/fake/gh-repo" ;;
             no-pin) rm -f "$tmp/n1home/review-pins/o_r_1" ;;
+            pin-unavailable) touch "$tmp/fake/gh-repo-fail-from2" ;;   # CR-3: a failed pin lookup is retryable, not no-pin
             not-open) printf 'CLOSED\tstory/S-1\t%s\n' "$SM_PIN" > "$tmp/fake/gh-view.1" ;;
         esac
         run_bg_queue "$tmp" >/dev/null
@@ -481,6 +483,39 @@ test_story_merge_refused_and_retarget() {
     assert_eq "story-retarget: escalated event" 1 \
         "$(jq -r 'select(.event == "escalated") | .ticket' "$tmp/events.jsonl" | grep -c '^T-A$' || true)"
     assert_eq "story-retarget: no Done session" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+}
+
+# N1-292 SEC-2: a post-merge base that cannot be read is not a clean merge: escalate, record no merge, no Done session.
+test_story_merge_base_unverified() {
+    local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    touch "$tmp/fake/gh-view-gone-after"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-unverified: one merge attempt, not recorded merged" "1|no" \
+        "$(nlines "$tmp/fake/gh-merge")|$([ "$(runs_outcome "$tmp/queue.md" T-A)" = merged ] && echo yes || echo no)"
+    assert_eq "story-unverified: row flagged" "pr|finish:merge-base-unverified" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "story-unverified: escalated event" 1 "$(jq -r 'select(.event == "escalated") | .ticket' "$tmp/events.jsonl" | grep -c '^T-A$' || true)"
+    assert_eq "story-unverified: no Done session" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-T-A-1-done')"
+    rm -rf "$tmp"
+}
+
+# N1-292 SEC-1: a forged pending marker does not skip the escalation guard before the runner merges.
+test_story_pending_marker_guarded() {
+    local tmp; tmp=$(mktemp -d); story_restart_setup "$tmp" pending OPEN
+    touch "$tmp/.escalated-T-A"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-forged-pending: nothing merged, child-escalated" "0|finish:child-escalated" "$(nlines "$tmp/fake/gh-merge")|$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
+# N1-292 SEC-3: story mode is fixed at run start. A child that rewrites a tag queue to story mode gets no runner merge.
+test_story_mode_snapshot() {
+    local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
+    sed -i -e '/^mode: story$/d' -e '/^story_id: S-1$/d' "$tmp/queue.md"
+    printf '%s' "$tmp/repo" > "$tmp/fake/forge-story"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "story-forged-mode: nothing merged" 0 "$(nlines "$tmp/fake/gh-merge")"
+    assert_eq "story-forged-mode: row refused" "pr|finish:story-branch-invalid" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
     rm -rf "$tmp"
 }
 
@@ -690,6 +725,9 @@ test_story_merge_refusals
 test_story_merge_ci
 test_story_merge_refused_and_retarget
 test_story_done_launch_failed
+test_story_merge_base_unverified
+test_story_pending_marker_guarded
+test_story_mode_snapshot
 test_story_resume
 test_story_held_released_after_runner_merge
 test_story_dependents_of_ci_red
