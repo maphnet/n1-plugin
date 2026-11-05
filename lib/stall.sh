@@ -22,9 +22,11 @@ n1_stall_names_lt() {
         /^### / { in_t = ($0 ~ /^### Ad-Hoc Scenario Results/); next }
         /Failure class:/ && cls == "" { c = $0; sub(/.*Failure class:[*[:space:]]*/, "", c); sub(/[[:space:]]+$/, "", c); cls = c }
         in_t && /^\|/ {
-            if (split($0, f, "|") < 5) next
+            row = $0; gsub(/\\[|]/, "\001", row)   # an escaped pipe is cell text, not a delimiter
+            if (split(row, f, "|") < 5) next
             r = f[4]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", r)
             s = f[3]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
+            gsub(/\001/, "|", s)
             if (r == "FAIL" && s != "") { print s; hit = 1 }
         }
         END { if (hit && cls != "") print "class:" cls }
