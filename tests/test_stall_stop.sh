@@ -138,11 +138,12 @@ eq "W4 report template has the Failure class line (D3)" "1" "$(grep -cxF -- '- *
 eq "W5 report template states the Result vocabulary" "1" "$(grep -cF 'Result is exactly `PASS` or `FAIL`.' "$LTR")"
 eq "W6 9d option 1 resets local_test_fail_sig" "1" "$(grep -cE '^- If 1: run `procedures/stall-stop\.md § Reset` with `local_test_fail_sig`' "$LTR")"
 eq "W6b 9d option 3 resets local_test_fail_sig" "1" "$(grep -cE '^- If 3: run `procedures/stall-stop\.md § Reset` with `local_test_fail_sig`' "$LTR")"
-eq "W15a stall values: skip_reason stalled in stall-stop.md" "1" "$(sect "$P" 'Local testing' | grep -cF 'skip_reason":"stalled"')"
-eq "W15b stall key decision in stall-stop.md" "1" "$(sect "$P" 'Local testing' | grep -cF 'Local Testing: skipped — stalled on the same failure')"
-eq "W15c stall-stop.md no longer reuses the cap key decision" "0" "$(sect "$P" 'Local testing' | grep -cF "the cap's key decision")"
-eq "W15d cap values stay fix_exhausted in local-testing-run.md" "1 1" "$(grep -cF 'fix_exhausted' "$LTR") $(grep -cF 'Local Testing: skipped after fix-loop exhaustion' "$LTR")"
-eq "W15e stall skip_reason is not inlined in local-testing-run.md" "0" "$(grep -cF 'skip_reason":"stalled"' "$LTR")"
+eq "W20a stall values: skip_reason stalled in stall-stop.md" "1" "$(sect "$P" 'Local testing' | grep -cF 'skip_reason":"stalled"')"
+eq "W20b stall key decision in stall-stop.md" "1" "$(sect "$P" 'Local testing' | grep -cF 'Local Testing: skipped — stalled on the same failure')"
+eq "W20c stall values replace the cap exit key decision and skip_reason" "1" "$(sect "$P" 'Local testing' | grep -cF "replace the cap exit's key decision and \`skip_reason\`")"
+eq "W20d cap values stay fix_exhausted in local-testing-run.md" "1 1" "$(grep -cF 'fix_exhausted' "$LTR") $(grep -cF 'Local Testing: skipped after fix-loop exhaustion' "$LTR")"
+eq "W20e stall skip_reason is not inlined in local-testing-run.md" "0" "$(grep -cF 'skip_reason":"stalled"' "$LTR")"
+eq "W20f 9d pointers route a stall to the stall values" "1 1" "$(grep -cF 'with the stall key decision and `skip_reason` from `procedures/stall-stop.md § Local testing`' "$LTR") $(grep -cF 'on a stall use the stall values from `procedures/stall-stop.md § Local testing`' "$LTR")"
 
 # ---- wiring: CI (skills/n1-ci/steps/02-fix.md) ----
 CF=skills/n1-ci/steps/02-fix.md
