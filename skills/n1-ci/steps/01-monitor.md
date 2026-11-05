@@ -51,13 +51,16 @@ From config:
 
 > **Polling discipline:** Each poll is a **separate shell command**. NEVER combine into a bash loop. `sleep 30` between polls as a standalone command. Every poll result must be visible in reasoning context.
 
-### Phase 1 — Wait for registration (up to 15 min)
+### Phase 1 — Wait for registration (up to 15 min; 2 min on a non-default base)
+
+Read the PR base once: `gh pr view <PR#> --json baseRefName --jq .baseRefName`. A base other than `git.defaultBranch` (default `main`), such as a story branch, gets a 2-minute window: CI that runs only for PRs into the default branch never registers there.
 
 1. `sleep 15` (initial delay).
 2. The poll command — separate command.
 3. No checks or `total=0` → `sleep 30`, re-poll (step 2).
-4. Nothing after 15 min → run **Step 7a** (Reconcile PR Body, in 02-fix.md) before stopping — a prior fix cycle may already have pushed, then "No CI checks appeared after 15 minutes." **STOP.**
-5. Checks appear → Phase 2.
+4. Default base, nothing after 15 min → run **Step 7a** (Reconcile PR Body, in 02-fix.md) before stopping — a prior fix cycle may already have pushed, then "No CI checks appeared after 15 minutes." **STOP.**
+5. Non-default base, nothing after 2 min → print "No CI on story base: no checks registered on <base> within 2 minutes." and end n1-ci as no checks configured (a skipped CI step): no Step 7a, no fix loop.
+6. Checks appear → Phase 2.
 
 ### Phase 2 — Poll until resolution (up to 30 min)
 
