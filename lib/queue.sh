@@ -754,18 +754,24 @@ n1_queue_final_pr_set() {
 }
 
 n1_queue_final_prs() {
-    # Usage: n1_queue_final_prs <queue.md> — N1-293: the "## Final PRs" rows as
+    # Usage: n1_queue_final_prs <queue.md> [<events.jsonl> <run_id>] — N1-293: the "## Final PRs" rows as
     # "<repo>\t<pr>\t<draft>\t<mergeable>\t<note>" (header and separator skipped). No file or section prints nothing.
-    # Children can write the file, so only rows whose Repo is a Plan row repo and whose PR cell is a GitHub PR URL or "-"
-    # are printed.
+    # Children can write the file, so nothing prints unless there is exactly one heading (the writer's fail-closed
+    # rule), and only rows whose Repo is a Plan row repo and whose PR cell is a GitHub PR URL or "-" are printed. With
+    # events and run_id, a URL row also needs a final_pr_opened event of that run with the same pr (runner-written).
     [ -f "$1" ] || return 0
-    local plan; plan=$(n1_queue_pending_rows "$1" '.*' | cut -f3)
-    plan="$plan" awk -F'|' '
-        BEGIN { n = split(ENVIRON["plan"], a, "\n"); for (i = 1; i <= n; i++) ok[a[i]] = 1 }
+    [ "$(grep -c '^## Final PRs$' "$1" || true)" = 1 ] || return 0
+    local plan opened=""; plan=$(n1_queue_pending_rows "$1" '.*' | cut -f3)
+    if [ -n "${2:-}" ]; then
+        opened=$(jq -r --arg r "${3:-}" 'select(.event == "final_pr_opened" and .run_id == $r) | .pr' "$2" 2>/dev/null) || opened=""
+    fi
+    plan="$plan" opened="$opened" chk="${2:+1}" awk -F'|' '
+        BEGIN { n = split(ENVIRON["plan"], a, "\n"); for (i = 1; i <= n; i++) ok[a[i]] = 1
+                n = split(ENVIRON["opened"], b, "\n"); for (i = 1; i <= n; i++) ev[b[i]] = 1 }
         /^## Final PRs$/ { f = 1; next } /^## / { f = 0 }
         f && NF >= 7 && !/^\|[[:space:]]*:?-/ {
             for (i = 2; i <= 6; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
-            if ($2 != "Repo" && ($2 in ok) && ($3 == "-" || $3 ~ /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/))
+            if ($2 != "Repo" && ($2 in ok) && ($3 == "-" || ($3 ~ /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/ && (ENVIRON["chk"] == "" || ($3 in ev)))))
                 printf "%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6
         }' "$1"
 }

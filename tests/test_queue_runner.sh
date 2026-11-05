@@ -2223,9 +2223,19 @@ test_final_pr_table() {
     printf '## Final PRs\n' >> "$q"; rc=0
     n1_queue_final_pr_set "$q" /r3 - - - x || rc=$?
     assert_eq "final table: duplicate heading fails closed" 1 "$rc"
+    assert_eq "final reader: duplicate heading prints nothing" "" "$(n1_queue_final_prs "$q")"
+    sed -i '$d' "$q"
     sed -i '/^| \/r2 /a | /r4 | https://github.com/o/r/pull/5 | ready | x | |\n| /r2 | https://evil.example/pull/1 | ready | x | |\n| /r2 | [x](https://evil.example) | ready | x | |' "$q"
     assert_eq "final reader: rows outside the Plan or with a non-GitHub PR cell dropped" \
         $'/r1\thttps://github.com/o/r/pull/9\tready\tCONFLICTING (DIRTY)\txy\n/r2\t-\t-\t-\tno-merged-children' "$(n1_queue_final_prs "$q")"
+    printf '{"event":"final_pr_opened","run_id":"R1","pr":"https://github.com/o/r/pull/9"}\n{"event":"final_pr_opened","run_id":"R0","pr":"https://github.com/o/r/pull/5"}\n' > "$tmp/ev.jsonl"
+    sed -i '/^| \/r4 /d;/evil/d;/^| \/r2 .*\[x\]/d' "$q"
+    sed -i '/^| \/r2 /a | /r2 | https://github.com/o/r/pull/5 | ready | x | |' "$q"
+    assert_eq "final reader: URL row needs a final_pr_opened event of this run with the same pr" \
+        $'/r1\thttps://github.com/o/r/pull/9\tready\tCONFLICTING (DIRTY)\txy\n/r2\t-\t-\t-\tno-merged-children' "$(n1_queue_final_prs "$q" "$tmp/ev.jsonl" R1)"
+    assert_eq "final reader: no matching event drops URL rows" $'/r2\t-\t-\t-\tno-merged-children' "$(n1_queue_final_prs "$q" "$tmp/ev.jsonl" R2)"
+    printf '\n## Final PRs\n| /r1 | https://github.com/o/r/pull/9 | ready | x | |\n' >> "$q"
+    assert_eq "final reader: two headings print nothing" "" "$(n1_queue_final_prs "$q" "$tmp/ev.jsonl" R1)"
     assert_eq "final reader: no file prints nothing" "" "$(n1_queue_final_prs "$tmp/none.md")"
     rm -rf "$tmp"
 }
@@ -2330,7 +2340,7 @@ test_final_gh_readers() {
 test_final_pr_wiring() {
     local r="$REPO_ROOT/skills/n1-queue/steps/report.md" a="$REPO_ROOT/references/architecture.md" u="$REPO_ROOT/skills/n1-queue/steps/run.md"
     assert_eq "final wiring: --status prints Final PRs" yes "$(grep -qF 'Final PRs (repo, PR, draft, mergeable, note):' "$r" && echo yes || echo no)"
-    assert_eq "final wiring: summary reads Final PRs" yes "$(grep -qF 'FINAL=$(n1_queue_final_prs "$QUEUE_FILE")' "$r" && echo yes || echo no)"
+    assert_eq "final wiring: summary reads Final PRs" yes "$(grep -qF 'FINAL=$(n1_queue_final_prs "$QUEUE_FILE" "$(dirname "$QUEUE_FILE")/events.jsonl" "$RUN_ID")' "$r" && echo yes || echo no)"
     assert_eq "final wiring: final lines above per-child lines" yes "$(grep -qF 'above the per-child lines' "$r" && echo yes || echo no)"
     assert_eq "final wiring: halted summary lists merged children" yes "$(grep -qF 'merged into `story/<STORY_ID>`' "$r" && echo yes || echo no)"
     assert_eq "final wiring: events documented" yes "$(grep -qF '`final_pr_opened`' "$a" && grep -qF '`final_pr_failed`' "$a" && echo yes || echo no)"

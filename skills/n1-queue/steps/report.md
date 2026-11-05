@@ -139,7 +139,7 @@ STORY_ID=$(n1_read_frontmatter "$QUEUE_FILE" story_id)
 QUEUE_ID=$(n1_read_frontmatter "$QUEUE_FILE" queue_id)
 RUN_ID=$(n1_read_frontmatter "$QUEUE_FILE" run_id)
 MARKER="n1-queue-summary:${QUEUE_ID}:${RUN_ID}"
-FINAL=$(n1_queue_final_prs "$QUEUE_FILE")
+FINAL=$(n1_queue_final_prs "$QUEUE_FILE" "$(dirname "$QUEUE_FILE")/events.jsonl" "$RUN_ID")
 ```
 
 Check via `mcp__<TRACKER_MCP>__<GET_COMMENTS_OP>` whether a comment with `MARKER` already exists on the story. If not, post a summary comment via `mcp__<TRACKER_MCP>__<COMMENT_OP>`:
