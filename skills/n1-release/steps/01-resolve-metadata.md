@@ -74,13 +74,11 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
    ```
 3. **Previous tag**: resolve from local git tags first, fall back to gh. Exclude `TAG` itself — a retry after a tag-created-but-release-creation-failed run would otherwise pick the just-created tag as its own previous tag, collapsing the scan range to empty:
    ```bash
-   PREV_TAG=$(git tag --list "v*" --sort=-version:refname | grep -v -x "$TAG" | head -1)
-   if [ -z "$PREV_TAG" ]; then
-     PREV_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || true)
-     [ "$PREV_TAG" = "$TAG" ] && PREV_TAG=""
-   fi
-   # Tag names come from the remote and may carry shell metacharacters: keep only plain semver tags.
-   [[ "$PREV_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+.][0-9A-Za-z.-]+)?$ ]] || PREV_TAG=""
+   source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/release.sh"
+   TAG="<TAG>"
+   # Prints a plain semver tag or nothing: tag names come from the remote and may carry shell metacharacters.
+   PREV_TAG=$(n1_release_prev_tag --exclude "$TAG")
    # Show "(none — first release)" when nothing found
    ```
 3b. **Suggested next version** (derived from conventional commits since `PREV_TAG`):
@@ -136,12 +134,10 @@ DEFAULT=$(n1_config_val '.git.defaultBranch')
 
    **Source D — Git log between tags** (new): scan commit messages between previous and current tag:
    ```bash
-   if [ -n "$PREV_TAG" ]; then
-     GIT_LOG=$(git log "${PREV_TAG}..${TAG}" --oneline --no-decorate 2>/dev/null || true)
-   else
-     GIT_LOG=$(git log "${TAG}" --oneline --no-decorate 2>/dev/null || true)
-   fi
-   GIT_IDS=$(printf '%s\n' "$GIT_LOG" | sed -nE "s/^[0-9a-f]+ \[(${PREFIX}-[0-9]+)\].*/\1/p" | sort -u)
+   source ~/.n1/preamble.sh
+   source "$N1_ROOT/lib/release.sh"
+   TAG="<TAG>"; PREV_TAG="<PREV_TAG, or empty>"
+   GIT_IDS=$(n1_release_ticket_ids "$PREV_TAG" "$TAG")
    ```
 
    Only the leading `[PREFIX-N]` tag counts: Source C takes it from the start of each release-note entry (after an optional `* ` or `- ` list marker), Source D from the start of each commit subject. IDs mentioned later in the line are ignored, and a subject without a leading tag (conventional-commit prefix, merge commit) contributes no ticket; Sources A and B still apply.
