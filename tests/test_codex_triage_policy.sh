@@ -5,7 +5,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 FAIL=0
-TRI=skills/n1-pr/procedures/codex-triage.md
+TRI=skills/n1-pr/procedures/codex-triage-worker.md
 ARCH=references/architecture.md
 
 section() { # <heading>: print "### <heading>" of $TRI up to the next ### heading outside code fences
@@ -18,10 +18,10 @@ lacks() { # <label> <text> <fixed-pattern>
     if grep -qF -- "$3" <<<"$2"; then echo "FAIL: $1 (still has '$3')"; FAIL=1; else echo "PASS: $1"; fi
 }
 
-ALL=$(cat "$TRI")
+ALL=$(cat "$TRI" skills/n1-pr/procedures/codex-triage.md)
 SEV=$(section 'Severity Parsing')
 FIXC=$(section 'Fix Cycle')
-REC=$(section 'Reconcile PR Body')
+REC=$(section 'Fix Report')
 TR=$(section 'Triage Reply')
 ARCH_TXT=$(cat "$ARCH")
 

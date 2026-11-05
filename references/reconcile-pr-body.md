@@ -82,6 +82,7 @@ Only after `reconcile:run`. Dispatch persona tech-writer (resolve model for `tec
 - `mode: reconcile`
 - `old body: <D>/old-body.md`, `diff: <D>/diff.patch`, `full diff: <D>/diff-full.patch`, `commits: <D>/commits.txt`
 - `fix report:` the developer output(s) from this run, verbatim, in whatever shape the caller has (`## CI Fixes Applied`, `## Codex Review Fixes`, `## Review Fixes Applied`, or an ad-hoc summary)
+- or, instead of `fix report:`, `fix report file:` an absolute path to a file holding that report (Codex triage passes `<S>/fix-report.md`, written by its persona, so its orchestrator never holds the developer text); pass exactly one of the two
 - `output: <D>/new-body.md`
 
 `<D>` is the directory from the `reconcile:run dir=<D>` line; use that exact value here and in § Apply.

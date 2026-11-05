@@ -161,7 +161,7 @@ reason: <one-line reason for confirmation or revision>
 
 The orchestrator passes you output paths. You write your artifacts yourself and return ONLY the compact block below.
 
-**File writes (via Bash tool — see #44657 note):**
+**File writes (via Bash tool — see #44657 note; the one exception to references/file-write-mechanism.md):**
 1. **analysis.md** — always provided. Write your full analysis report (Output Format above) to this path using Bash (heredoc/cat redirect), NOT the Write tool.
 2. **Snapshot file** — provided on cold/stale cache paths only. When given a snapshot path and a `lib/cache.sh` path, persist `[PROJECT]` sections by sourcing `lib/cache.sh` and calling `n1_snapshot_write "$SNAPSHOT_PATH" "$PROJECT_CONTENT" "$GIT_SHA"` via Bash. Strip the `[PROJECT] ` prefix from headings before passing as `$PROJECT_CONTENT`. For `[TICKET]` sections, strip the `[TICKET] ` prefix and write those to analysis.md.
 3. **Project map file** — provided on cold/stale cache paths only (alongside snapshot). Write a structural index of the current project to the provided path using Bash (heredoc/cat redirect). Format: frontmatter (`schema_version: 1`, `generated_at`, `git_sha`, `git_sha_short`, `generator: solution-architect`) followed by sections: `## Modules` (directory → purpose, one line each), `## API Surface` (method path → handler file:line), `## Exports & Shared Types` (name → file:line → consumer count), `## Integration Points` (consumes/exposes with protocol and file ref), `## Key Files` (navigation-critical files). Target: 300-500 tokens. This is a table of contents for navigation — not an architecture narrative.

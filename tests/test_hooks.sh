@@ -306,6 +306,13 @@ for c in "gh pr merge 12" "git push origin main" "source ~/.n1/preamble.sh; n1_f
     assert_eq "tail-worker denied with merge authorized: $c" 2 "$(tw_rc "$c")"
 done
 assert_eq "tail-worker plain command allowed" 0 "$(tw_rc "gh pr view 12")"
+# N1-392: no tail-worker mode pushes or posts PR comments; the orchestrator owns the push gate and the triage post
+for c in "git push origin feature/x" "git -C /w push origin HEAD" "cd /w && git push" "gh pr comment 12 --body-file /tmp/t"; do
+    assert_eq "tail-worker denied push/PR post: $c" 2 "$(tw_rc "$c")"
+done
+for c in "gh pr diff 12 --name-only" "git log --oneline -1" "gh pr edit 12 --body-file -"; do
+    assert_eq "tail-worker allowed: $c" 0 "$(tw_rc "$c")"
+done
 # N1-224: the tail-worker never removes a workspace-manager worktree
 for c in "source ~/.n1/preamble.sh; n1_orca_rm /x" '"$ORCA_CLI_COMMAND" worktree rm --worktree path:/x' "orca worktree rm --worktree path:/x" \
     "source ~/.n1/preamble.sh; n1_orca worktree rm --worktree path:/x" 'X=$ORCA_CLI_COMMAND
