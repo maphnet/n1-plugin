@@ -26,14 +26,14 @@ SB=$(n1_story_base) || { echo "story-base: invalid"; exit 1; }
 if [ -n "$SB" ]; then
   { git -C "$WORKTREE_PATH" fetch origin "$SB" && { git -C "$WORKTREE_PATH" merge-base --is-ancestor "origin/$SB" HEAD || git -C "$WORKTREE_PATH" rebase "origin/$SB"; }; } \
     || { git -C "$WORKTREE_PATH" rebase --abort 2>/dev/null; echo "story-base: sync to origin/$SB failed"; exit 1; }
-  DEFAULT="$SB"
+  git -C "$WORKTREE_PATH" rev-parse "origin/$SB" > "$BP" || { rm -f "$BP"; echo "story-base: branch-point write failed"; exit 1; }
 fi
 [ -s "$BP" ] || { git -C "$WORKTREE_PATH" merge-base HEAD "origin/$DEFAULT" 2>/dev/null || git -C "$WORKTREE_PATH" merge-base HEAD "$DEFAULT"; } > "$BP" || rm -f "$BP"
 if [ "$FRESH" = 1 ] || [ "$(n1_read_frontmatter "$OV" step)" = ticket ]; then (cd "$WORKTREE_PATH" && n1_orca_sync "ticket: in progress" --status in-progress && { [ "$(n1_config_val '.tracker.type')" != jira ] || n1_orca_link "$ID"; }); fi
 n1_active_run_write "$ID" "${N1_RUN_ID:-none}" "$WORKTREE_PATH" "$BRANCH"
 echo "WORKTREE_PATH=$WORKTREE_PATH BRANCH=$BRANCH"
 ```
-Story child (the queue runner set its story branch): the checkout is synced to `origin/<story branch>` before any work, so `branch-point` is the story tip. `story-base:` output → STOP and escalate (headless: pause with a recorded escalation).
+Story child (the queue runner set its story branch): the checkout is synced to `origin/<story branch>` before any work, so `branch-point` is re-written to the story tip on every adopt (a resumed child is re-anchored). `story-base:` output → STOP and escalate (headless: pause with a recorded escalation).
 
 ## Ensure Worktree (`<ID>`)
 
