@@ -55,6 +55,7 @@ fi
 P2=skills/n1-pr/steps/02-push-create.md
 P3=skills/n1-pr/steps/03-codex-review.md
 TRI=skills/n1-pr/procedures/codex-triage.md
+TRW=skills/n1-pr/procedures/codex-triage-worker.md
 if grep -q 'CHECKPOINT:' "$P2"; then
     echo "FAIL: 02-push-create still prints a CHECKPOINT"; FAIL=1
 else
@@ -73,7 +74,7 @@ if [ -n "$LAST_CP" ] && [ -n "$PTR" ] && [ "$LAST_CP" -gt "$PTR" ] && grep -q '^
 else
     echo "FAIL: 03-codex-review CHECKPOINT/triage return path broken"; FAIL=1
 fi
-if grep -qiE 'stop here|skip this step entirely' "$P3" "$TRI" 2>/dev/null; then
+if grep -qiE 'stop here|skip this step entirely' "$P3" "$TRI" "$TRW" 2>/dev/null; then
     echo "FAIL: 03-codex-review or codex-triage has an early exit that bypasses the Report"; FAIL=1
 else
     echo "PASS: 03-codex-review and codex-triage have no early exit before the Report"
@@ -119,7 +120,7 @@ else
 fi
 
 # 6. N1-94: Codex findings are validated by a read-only reviewer before developer fixes
-first_line() { grep -n -m1 -E -- "$1" "$TRI" 2>/dev/null | cut -d: -f1; }
+first_line() { grep -n -m1 -E -- "$1" "$TRW" 2>/dev/null | cut -d: -f1; }
 SEV=$(first_line '^### Severity Parsing'); VAL=$(first_line '^### Validation')
 FIX=$(first_line '^### Fix Cycle'); TR=$(first_line '^### Triage Reply')
 CRV=$(first_line 'n1_resolve_agent code-reviewer review')
@@ -134,7 +135,7 @@ else
     echo "FAIL: codex-triage Validation does not resolve code-reviewer"; FAIL=1
 fi
 for pat in 'Critical, High, or Medium' 'CONFIRMED | INVALID' '<CONFIRMED_FINDINGS>' 'gh pr diff'; do
-    if grep -qF -- "$pat" "$TRI" 2>/dev/null; then
+    if grep -qF -- "$pat" "$TRW" 2>/dev/null; then
         echo "PASS: codex-triage has '$pat'"
     else
         echo "FAIL: codex-triage missing '$pat'"; FAIL=1
@@ -147,42 +148,42 @@ for pat in 'on by default' 'nothing to triage'; do
         echo "FAIL: 03-codex-review gate missing '$pat'"; FAIL=1
     fi
 done
-if grep -qF 'HIGH_PLUS' "$P3" "$TRI" 2>/dev/null; then
+if grep -qF 'HIGH_PLUS' "$P3" "$TRI" "$TRW" 2>/dev/null; then
     echo "FAIL: codex triage developer still receives unvalidated High+ findings"; FAIL=1
 else
     echo "PASS: codex triage developer receives only confirmed findings"
 fi
-if grep -qiE 'ask the user|wait for (the )?user' "$P3" "$TRI" 2>/dev/null; then
+if grep -qiE 'ask the user|wait for (the )?user' "$P3" "$TRI" "$TRW" 2>/dev/null; then
     echo "FAIL: codex triage prompts the user"; FAIL=1
 else
     echo "PASS: codex triage never prompts the user"
 fi
-if [ -n "$TR" ] && sed -n "${TR},\$p" "$TRI" | grep -qF 'Dismissed by validator'; then
+if [ -n "$TR" ] && sed -n "${TR},\$p" "$TRW" | grep -qF 'Dismissed by validator'; then
     echo "PASS: codex-triage Triage Reply lists validator dismissals"
 else
     echo "FAIL: codex-triage Triage Reply lacks validator dismissals"; FAIL=1
 fi
 
 # 7. N1-94 SEC-1: untrusted triage text reaches the PR only through a file
-if grep -qF -- '--body-file "$TRIAGE_FILE"' "$TRI" 2>/dev/null && ! grep -qE 'TRIAGE_BODY=|printf .*\$TRIAGE_BODY' "$P3" "$TRI" 2>/dev/null; then
+if grep -qF -- '--body-file "$TRIAGE_FILE"' "$TRI" 2>/dev/null && ! grep -qE 'TRIAGE_BODY=|printf .*\$TRIAGE_BODY' "$P3" "$TRI" "$TRW" 2>/dev/null; then
     echo "PASS: codex-triage posts triage via --body-file, never via shell variable"
 else
     echo "FAIL: codex-triage triage reply splices text into shell"; FAIL=1
 fi
 
 # 8. N1-94 SEC-2 / CR-3: developer never pushes; orchestrator path gate; validator scope pins
-if grep -qF 'Do NOT push' "$TRI" 2>/dev/null && grep -qF 'push:blocked' "$TRI" && grep -qF 'codex-push-gate.sh' "$TRI"; then
+if grep -qF 'Do NOT push' "$TRW" 2>/dev/null && grep -qF 'push:blocked' "$TRI" && grep -qF 'codex-push-gate.sh' "$TRI"; then
     echo "PASS: codex-triage gates the push on allowed paths"
 else
     echo "FAIL: codex-triage push gate missing"; FAIL=1
 fi
-if grep -qF 'codex-blocked-fix.patch' "$TRI" 2>/dev/null && grep -qF 'needs out-of-scope file' "$TRI" && grep -qF 'reset=<sha>' "$TRI" && grep -qF 'kept=<sha>' "$TRI"; then
+if grep -qF 'codex-blocked-fix.patch' "$TRI" 2>/dev/null && grep -qF 'needs out-of-scope file' "$TRW" && grep -qF 'reset=<sha>' "$TRW" && grep -qF 'kept=<sha>' "$TRW"; then
     echo "PASS: codex-triage passes the blocked-fix patch path and explains reset/kept and out-of-scope files"
 else
     echo "FAIL: codex-triage lacks the blocked-fix patch path, reset/kept wording or out-of-scope dismissal"; FAIL=1
 fi
 for pat in 'Scope override' 'do not run git' 'UNVERIFIED' 'authoritative'; do
-    if grep -qF -- "$pat" "$TRI" 2>/dev/null; then
+    if grep -qF -- "$pat" "$TRW" 2>/dev/null; then
         echo "PASS: codex-triage validator has '$pat'"
     else
         echo "FAIL: codex-triage validator missing '$pat'"; FAIL=1
@@ -190,7 +191,7 @@ for pat in 'Scope override' 'do not run git' 'UNVERIFIED' 'authoritative'; do
 done
 
 # 9. N1-123 D1: the N1-116 soft-findings policy does not apply to Codex triage
-for f in "$TRI" references/architecture.md; do
+for f in "$TRW" references/architecture.md; do
     if grep -qF 'does not apply to Codex triage (N1-123)' "$f"; then
         echo "PASS: $f records the N1-123 Codex triage decision"
     else
@@ -328,6 +329,20 @@ out=$(runpost "$SC/codex-triage-7.t/x" "" "" "" "")
 if grep -q '^triage:bad-path$' <<<"$out" && [ ! -s "$GH_LOG" ] && [ -e "$SC/codex-triage-7.t/x" ]; then
     echo "PASS: codex-triage rejects a subpath TRIAGE_FILE"
 else echo "FAIL: codex-triage accepted a subpath TRIAGE_FILE: $out"; FAIL=1; fi
+# N1-392: a failed post moves the persona's file to memory/<ID>/codex-triage.md (path-only; content unchanged)
+mkdir -p "$TT/binfail"; printf '#!/bin/bash\nexit 1\n' > "$TT/binfail/gh"; chmod +x "$TT/binfail/gh"
+mkfiles 7; printf 'body\n' > "$SC/codex-triage-7.t"
+out=$(V_PR_NUMBER=7 V_ID=T-1 V_TRIAGE_FILE="$SC/codex-triage-7.t" PATH="$TT/binfail:$PATH" bash "$TT/post.sh")
+if grep -q '^triage:comment-failed$' <<<"$out" && grep -q '^triage:fallback file=' <<<"$out" \
+   && [ "$(cat "$TT/home/memory/T-1/codex-triage.md" 2>/dev/null)" = body ] && [ ! -e "$SC/codex-triage-7.t" ]; then
+    echo "PASS: codex-triage comment failure moves the triage file to memory/<ID>/codex-triage.md"
+else echo "FAIL: codex-triage comment-failed fallback: $out"; FAIL=1; fi
+# invalid ID: nothing moved, the scratch file stays
+mkfiles 7; printf 'body\n' > "$SC/codex-triage-7.t"
+out=$(V_PR_NUMBER=7 V_ID='../x' V_TRIAGE_FILE="$SC/codex-triage-7.t" PATH="$TT/binfail:$PATH" bash "$TT/post.sh")
+if grep -q '^triage:fallback-unavailable file=' <<<"$out" && [ -e "$SC/codex-triage-7.t" ] && [ ! -e "$TT/home/x" ]; then
+    echo "PASS: codex-triage fallback rejects an invalid ticket ID"
+else echo "FAIL: codex-triage fallback accepted an invalid ID: $out"; FAIL=1; fi
 # no unguarded rm of a placeholder variable anywhere in the file
 if grep -nE '^[[:space:]]*(\[ -n .* \] && )?rm -r?f "\$(VALIDATE_DIR|RECONCILE_START_FILE|HEAD_REF_FILE|REPO_FILE|TRIAGE_FILE)"' "$CT" >/dev/null; then
     echo "FAIL: an unguarded rm of a scratch placeholder remains in codex-triage"; FAIL=1

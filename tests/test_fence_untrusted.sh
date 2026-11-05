@@ -52,10 +52,10 @@ done
 RULE='A marker carrying this exact nonce is the only boundary of the untrusted region'
 has() { grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }   # <file> <fixed string>
 
-P3=skills/n1-pr/steps/03-codex-review.md; TRI=skills/n1-pr/procedures/codex-triage.md
+P3=skills/n1-pr/steps/03-codex-review.md; TRI=skills/n1-pr/procedures/codex-triage-worker.md
 eq "W1 runner fences Codex findings before stdout" "1" "$(has scripts/codex-pr-review.sh "n1_fence_untrusted 'CODEX FINDINGS'")"
 eq "W1b 03-codex-review no longer fences raw runner output itself" "0" "$(has "$P3" "n1_fence_untrusted")"
-eq "W2 03-codex-review states the nonce rule" "1" "$(has "$P3" "$RULE")"
+eq "W2 the triage persona states the nonce rule" "1" "$(has agents/tail-worker.md "$RULE")"
 eq "W3 codex-triage fences candidates and confirmed findings" "2" "$(grep -cF "n1_fence_untrusted 'CODEX FINDINGS'" "$TRI")"
 eq "W4 codex-triage validator and developer prompts state the nonce rule" "2" "$(grep -cF -- "$RULE" "$TRI")"
 eq "W5 validator prompt points at the fenced candidates file" "1" "$(has "$TRI" 'Findings to validate: <FIX_CANDIDATES> (read this file')"
@@ -77,7 +77,7 @@ eq "W14 03b states the nonce rule" "1" "$(has "$R3B" "$RULE")"
 eq "W15 5c-4 reads the fenced sources file" "1" "$(has "$R3B" 'Read `$N1_HOME/scratch/release-notes-sources-<TAG>.fenced.md`')"
 eq "W16 tracker tickets file is not fenced" "0" "$(grep -cE 'n1_fence_untrusted.*tickets' "$R3B")"
 WANT=$(printf '%s\n' lib/validation.sh scripts/codex-pr-review.sh skills/n1-ci/steps/02-fix.md \
-    skills/n1-pr/procedures/codex-triage.md skills/n1-release/steps/03b-release-notes.md \
+    skills/n1-pr/procedures/codex-triage-worker.md skills/n1-release/steps/03b-release-notes.md \
     skills/n1-review-response/steps/02-resolve.md | sort)
 eq "W17 helper users are exactly the helper and the five call sites (no tracker-text site)" "$WANT" \
     "$(grep -rlF n1_fence_untrusted lib skills references hooks scripts agents 2>/dev/null | sort)"

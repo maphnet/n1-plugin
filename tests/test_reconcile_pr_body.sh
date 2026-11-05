@@ -380,7 +380,7 @@ check "n1-ci no-checks-appeared STOP runs Step 7a first" "run \*\*Step 7a\*\*.*N
 check "n1-ci pending-budget-exhaustion STOP runs Step 7a first" "run \*\*Step 7a\*\*.*Wait longer or skip" "$C1"
 CP=skills/n1-pr/procedures/codex-triage.md
 check "codex triage records the PR head" "reconcile-start-" "$CP"
-before "codex triage capture precedes developer dispatch" "reconcile-start-" "**Developer instructions:**" "$CP"
+before "codex triage capture precedes developer dispatch" "reconcile-start-" "**Developer instructions:**" skills/n1-pr/procedures/codex-triage-worker.md
 before "codex triage reconcile follows the fix-cycle counter" "cross_host_fix_cycle" "reconcile-pr-body.md" "$CP"
 before "codex triage reconcile precedes Triage Reply" "reconcile-pr-body.md" "### Triage Reply" "$CP"
 # (f) sentinel: the maxFixAttempts exit routes to Reconcile PR Body, not straight to Triage Reply
