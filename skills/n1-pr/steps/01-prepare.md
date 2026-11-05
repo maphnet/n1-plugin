@@ -10,6 +10,28 @@ DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@
 - On default branch → "Switch to a feature branch first." **STOP.**
 - Uncommitted changes → commit first (summarize, ask confirmation).
 
+## Codex Review (pre-push)
+
+Runs once, before docs, PR body, rebase and push, so Codex fixes land in the first push (N1-405). It never blocks PR creation: skipped, failed and timed-out reviews record a receipt and continue.
+
+```bash
+source ~/.n1/preamble.sh
+ID='<the ticket ID, or empty>'
+case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
+DEFAULT_BRANCH='<DEFAULT_BRANCH from Prerequisites>'
+case "$DEFAULT_BRANCH" in ''|*[!A-Za-z0-9._/-]*) DEFAULT_BRANCH=main;; esac
+git fetch -q origin "$DEFAULT_BRANCH" </dev/null 2>/dev/null || true   # step 2 fetches later; a stale origin ref would widen the reviewed diff and the scope allowlist
+BASE=$(git merge-base "origin/$DEFAULT_BRANCH" HEAD 2>/dev/null) || BASE=""
+echo "base=$BASE"
+[ -z "$ID" ] || rm -f "$N1_HOME/memory/$ID/codex-triage.md" "$N1_HOME/memory/$ID/codex-review.md"
+bash "$N1_ROOT/scripts/codex-pr-review.sh" "$BASE" "$ID"
+```
+
+Wait for completion (auth 10 s, `N1_CODEX_AUTH_TIMEOUT`; review 900 s, `N1_CROSS_HOST_REVIEW_TIMEOUT`). Remember the `codex_review_outcome` word and `base=`. The raw output is in `memory/<ID>/codex-review.md`; never read it.
+- `ran`, `crossHostReview_autoTriage=true`, `findings:file=<path>` and a non-empty ID: read `<N1_ROOT>/skills/n1-pr/procedures/codex-triage.md` and follow it. It passes the path to the triage persona (never read that file yourself) and returns here.
+- `ran` with `findings:unavailable`, no findings line, `crossHostReview_autoTriage=false`, or an empty ID: warn inline and remember the follow-up item `Codex review findings: see ticket memory codex-review.md` for the step 3 Report.
+- Anything else continues.
+
 ## PR Mode Resolution
 
 Read `git.prMode` via `n1_config_val '.git.prMode'`:
