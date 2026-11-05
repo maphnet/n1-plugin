@@ -617,6 +617,98 @@ chain_reconcile() {
     return 0
 }
 
+# --- story merge (N1-292) ------------------------------------------------------
+# story_merge <num> <ticket> <repo> <n1-home> — the runner merges a story child's PR into SB (set by story_env in
+# chain_finish). It needs neither fullAuto nor mergeOnFinish. Neither the merge-deny hook nor n1_merge_authorized sees
+# this merge (the runner is a bash process, not an agent); both stay unchanged (N1-289 D1).
+# Merge conditions: the attested PR belongs to the row's repo, is OPEN, is based on the literal SB, its head equals the
+# review pin, and one gh pr checks read is green or reports zero checks. The merge uses --match-head-commit <pin>.
+# Retryable refusals remove .chained-<ticket> so a --run resume re-evaluates. They are: unreadable PR or repo,
+# red/pending/unreadable CI, and a refused merge. Final refusals leave the marker done.
+# --match-head-commit pins the head, not the base, so the base is re-read after the merge. A base other than SB raises
+# an escalation (a retarget between view and merge cannot be excluded here; protect the default branch).
+story_merge() {
+    local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" marker="$N1_QUEUE_DIR/.chained-$2"
+    local url u nwo view st base head pin ci method err why=merged
+    sm_retry() { rm -f "$marker"; chain_note "$NUM" "$TICKET" "$1"; }
+    sm_final() { printf '%s\ndone\n' "$RUN_ID" > "$marker"; chain_note "$NUM" "$TICKET" "$1"; }
+    url=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")
+    view=$(n1_queue_pr_view "$url")
+    [ -n "$view" ] || { sm_retry pr-state-unreadable; return 0; }
+    nwo=$(cd "$REPO" 2>/dev/null && timeout 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
+    [ -n "$nwo" ] || { sm_retry pr-state-unreadable; return 0; }
+    u=${url#https://github.com/}; u=${u%/pull/*}
+    [ "$u" = "$nwo" ] || { sm_final pr-repo-mismatch; return 0; }
+    IFS=$'\t' read -r st base head <<< "$view"
+    case "$st" in
+        MERGED)
+            if [ "$base" = "$SB" ]; then
+                printf '%s\ndone\n' "$RUN_ID" > "$marker"
+                story_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$url" merged
+            else
+                sm_final wrong-base
+            fi
+            return 0 ;;
+        OPEN) ;;
+        *) sm_final pr-not-open; return 0 ;;
+    esac
+    [ "$base" = "$SB" ] || { sm_final wrong-base; return 0; }
+    pin=$(cd "$REPO" 2>/dev/null && N1_HOME="$N1H" n1_review_pin get "${url##*/}")
+    [[ "$pin" =~ ^[0-9a-f]{40}$ ]] || { sm_final no-pin; return 0; }
+    [ "$head" = "$pin" ] || { sm_final head-moved; return 0; }
+    ci=$(n1_queue_checks_class "$url")
+    case "$ci" in
+        green) ;;
+        none) why="merged: no CI on story base" ;;
+        red|pending) sm_retry "ci-$ci"; return 0 ;;
+        *) sm_retry ci-unreadable; return 0 ;;
+    esac
+    method=$(N1_HOME="$N1H" n1_config_val '.finishWork.mergeMethod' 2>/dev/null)
+    case "$method" in squash|merge|rebase) ;; *) method=squash ;; esac
+    if ! err=$(timeout 120 gh pr merge "$url" "--$method" --match-head-commit "$pin" </dev/null 2>&1 >/dev/null); then
+        echo "[$NUM] $TICKET gh pr merge refused: $(head -n1 <<< "$err")"
+        if grep -q 'not mergeable' <<< "$err"; then sm_retry dirty; else sm_retry merge-failed; fi
+        return 0
+    fi
+    printf '%s\ndone\n' "$RUN_ID" > "$marker"
+    IFS=$'\t' read -r st base _ <<< "$(n1_queue_pr_view "$url")"
+    if [ -n "$base" ] && [ "$base" != "$SB" ]; then
+        ev escalated ticket="$TICKET" reason="runner merge landed on $base, not $SB"
+        n1_notify needs-you "$TICKET: the runner merged $url but its base reads $base, not $SB; check $base"
+        chain_note "$NUM" "$TICKET" merged-off-story
+        return 0
+    fi
+    story_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$url" "$why"
+}
+
+# story_merged <num> <ticket> <repo> <n1-home> <pr-url> <reason> — N1-292. Records Runs Outcome merged and Reason <reason>.
+# The Reason is not a finish:* value, so it overwrites a stale finish:* that would block dependents (an empty Reason
+# would keep the old one). Then: ticket_finished event, best-effort local fast-forward of SB, one Done session.
+# There is no default-branch sync and no n1-clean (story children keep their worktrees).
+story_merged() {
+    n1_queue_runs_outcome "$QUEUE" "$2" merged "$5"
+    n1_queue_row_status "$QUEUE" "$1" pr "$6"
+    ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")" reason="$6"
+    echo "[$1] $2 -> merged $5 ($6)"
+    n1_queue_sync_story "$3" "$SB" </dev/null || echo "[$1] $2: local $SB not fast-forwarded in $3 (children branch from origin/$SB)"
+    story_done "$1" "$2" "$3" "$4"
+}
+
+# story_done <num> <ticket> <repo> <n1-home> — N1-292: one headless n1-run session that moves the ticket to the
+# tracker done status and does nothing else. It is launched once per recorded merge; a resume that finds Outcome
+# merged never relaunches it. A failed launch is recorded as a ticket_done failed event, never as a row Reason; it is
+# never retried and never triggers a re-merge.
+story_done() {
+    local out sid
+    if out=$(bash -c "$(n1_queue_done_cmd "$3" "$2" sonnet "$RUN_ID" "n1-${QUEUE_ID}-$2-$1-done")" </dev/null 2>&1) \
+        && sid=$(n1_queue_parse_launch "$out") && [ -n "$sid" ]; then
+        echo "[$1] $2 done session launched ($sid)"
+    else
+        ev ticket_done ticket="$2" outcome=failed reason="launch-failed"
+        echo "[$1] $2 done session launch-failed (move $2 to done in the tracker)"
+    fi
+}
+
 CHAIN_ESC=""   # set by finalize (ticket id) before it removes the question file
 
 # chain_child_escalated <ticket> <n1-home> — exit 0 when the child has a pending escalation: an unanswered
@@ -637,20 +729,25 @@ chain_child_escalated() {
 }
 
 # chain_finish <num> <ticket> <repo> <n1-home> <model> <pr-url> — the deterministic fullAuto chain.
-# No-op unless chain_authorized. Waits for the child session to go idle (a child blocked for BG_POLL_GRACE polls is stopped; it may still run CI watch or
-# its own prose chain), skips when the PR is already MERGED or not OPEN, else launches a bg
-# `n1-finish <ticket> chained` session and waits for it. Blocking on purpose: the next child must
-# branch from the merged default branch. .chained-<ticket> (line 1 run id, line 2 pending|launched|done) is
-# written before the gh check, so the chain is evaluated once per run, also across a runner restart; a
-# restart finding it pending (launch intended, not confirmed) relaunches for a still-OPEN PR. The runner never
-# merges: n1-finish merges only at the reviewed pin, and the merge-deny hook still applies.
+# Tag rows: no-op unless chain_authorized. It waits for the child session to go idle (a child blocked for
+# BG_POLL_GRACE polls is stopped; it may still run CI watch or its own prose chain), skips when the PR is already
+# MERGED or not OPEN, else launches a bg `n1-finish <ticket> chained` session and waits for it. Blocking on purpose:
+# the next child must branch from the merged default branch. In tag mode the runner never merges: n1-finish merges
+# only at the reviewed pin, and the merge-deny hook still applies.
+# Story rows (N1-292, story_env sets SB): no chain_authorized gate. After the same wait and escalation guard, the
+# runner merges the PR itself into SB (story_merge).
+# .chained-<ticket> (line 1 run id, line 2 pending|launched|done) is written before the gh check, so the chain is
+# evaluated once per run, also across a runner restart. A restart finding it pending (launch or merge intended, not
+# confirmed) re-evaluates a still-OPEN PR.
 # Every exit writes a "[NUM] TICKET chain: ..." line to runner.log (N1-240).
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
-    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" why=finish-timeout
+    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" why=finish-timeout SB SBID aurl
     # N1-240: every exit writes a runner.log line. The raw id is not echoed (it failed validation).
     case "$TICKET" in ''|*[!A-Za-z0-9_-]*) echo "[$NUM] chain: skipped (invalid-ticket-id)"; return 0 ;; esac
-    chain_authorized "$N1H" || { echo "[$NUM] $TICKET chain: skipped (chain_authorized=false)"; return 0; }
+    story_env "$REPO" || { chain_note "$NUM" "$TICKET" story-branch-invalid; return 0; }
+    # N1-292: a story row is merged by the runner (story_merge); only tag rows need chain_authorized.
+    [ -n "$SB" ] || chain_authorized "$N1H" || { echo "[$NUM] $TICKET chain: skipped (chain_authorized=false)"; return 0; }
     marker="$N1_QUEUE_DIR/.chained-$TICKET"
     poll=$(n1_queue_val pollSeconds)
     mark() { printf '%s\n%s\n' "$RUN_ID" "$1" > "$marker"; }
@@ -707,6 +804,7 @@ chain_finish() {
     fi
     mark pending || { chain_note "$NUM" "$TICKET" marker-write-failed; return 0; }
     fi
+    if [ -n "$SB" ]; then story_merge "$NUM" "$TICKET" "$REPO" "$N1H"; return 0; fi
     st=$(n1_queue_pr_state "$URL")
     case "$st" in
         MERGED) mark done; chain_merged "$NUM" "$TICKET" "$REPO" "$N1H" "$URL"; return 0 ;;
