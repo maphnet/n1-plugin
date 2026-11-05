@@ -16,8 +16,14 @@ PR_URL='<the PR URL from step 4>'
 n1_review_pin set "${PR_URL##*/}"
 BRANCH=$(git branch --show-current)
 OUTCOME=$(n1_review_outcome "$BRANCH")
-[ -n "$OUTCOME" ] || { n1_review_record "$BRANCH" skipped step-not-run true; OUTCOME=skipped; }
+MISSED=""
+[ -n "$OUTCOME" ] || { n1_review_record "$BRANCH" skipped step-not-run true; OUTCOME=skipped; MISSED=1; }
 echo "codex_review_outcome=$OUTCOME"
+if [ -n "$MISSED" ] && ! timeout -k 5 30 gh pr view "$PR_URL" --json comments --jq '.comments[].body' 2>/dev/null | grep -q '^## Codex Review Not Run'; then
+  timeout -k 5 30 gh pr comment "$PR_URL" --body '## Codex Review Not Run
+
+The pre-push Codex review did not run for this PR. Treat it as not cross-reviewed.' >/dev/null 2>&1 && echo "omitted:posted" || echo "omitted:comment-failed"
+fi
 case "$ID" in ''|*[!A-Za-z0-9_-]*) echo "triage:no-id"; exit 0;; esac
 TRIAGE_FILE="$N1_HOME/memory/$ID/codex-triage.md"
 { [ -f "$TRIAGE_FILE" ] && [ ! -L "$TRIAGE_FILE" ] && [ "$(stat -c %h "$TRIAGE_FILE")" = 1 ]; } || { echo "triage:none"; exit 0; }

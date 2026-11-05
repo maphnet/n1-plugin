@@ -60,8 +60,9 @@ T=$(mktemp -d) || T=""
   && git -c core.quotePath=false diff --no-renames --name-only "$BASE...$START" > "$T/allowed.txt" && printf '%s\n' "$START" > "$T/start" \
   || { n1_codex_gate_block "$ID" "$START"; [ -z "$T" ] || rm -rf "$T"; echo "push:blocked paths=gate-unavailable kept=$TIP"; exit 0; }
 [ "$TIP" = "$START" ] || echo "cross_host_fix_cycle=$(n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "cross_host_fix_cycle")"
-OUT=$(bash "$N1_ROOT/scripts/codex-push-gate.sh" "$T/start" "$T/allowed.txt" "$N1_HOME/memory/$ID/codex-blocked-fix.patch")
+OUT=$(bash "$N1_ROOT/scripts/codex-push-gate.sh" "$T/start" "$T/allowed.txt" "$N1_HOME/memory/$ID/codex-blocked-fix.patch") || OUT=""
 rm -rf "$T"
+case "$OUT" in push:ok|push:none|push:blocked\ *) ;; *) OUT="push:blocked paths=gate-unavailable";; esac
 case "$OUT" in
   "push:blocked paths=gate-unavailable") if [ "$TIP" = "$START" ]; then OUT="push:none"; elif git reset -q --keep "$START" 2>/dev/null; then OUT="$OUT reset=$TIP"; else OUT="$OUT kept=$TIP"; fi;;
   push:ok) n1_head_record "$START";;

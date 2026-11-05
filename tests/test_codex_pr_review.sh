@@ -7,7 +7,7 @@ trap 'rm -rf "$TMP"' EXIT
 export N1_HOME="$TMP/n1" N1_STATE_DIR="$TMP/n1" N1_SESSION_ID=review-test
 mkdir -p "$N1_HOME" "$TMP/bin"
 source "$ROOT/lib/codex-review.sh"
-rn() { printf '%s__%s.json' "$(N1_REVIEW_DIR="$1" n1_review_repo)" "$2"; }   # N1-405 SEC-1: receipt name is repo-scoped
+rn() { printf '%s__%s.%s.json' "$(N1_REVIEW_DIR="$1" n1_review_repo)" "${2//\//_}" "$(printf %s "$2" | cksum | cut -d" " -f1)"; }   # N1-405 SEC-1: receipt name is repo-scoped and branch-hashed
 printf '{}\n' > "$N1_HOME/config.json"
 export PATH="$TMP/bin:$PATH" REVIEW_LOG="$TMP/log"
 cat > "$TMP/bin/codex" <<'SH'
@@ -49,7 +49,7 @@ observe() { # <session> <cwd> <stdout>: PostToolUse payload for gh pr create
 # AC5: a PR created on a branch whose pre-push Codex step never ran is caught at PostToolUse and at Stop.
 SKIP="$TMP/skip"; mkrepo "$SKIP" feature/skip >/dev/null
 observe review-test "$SKIP" https://github.com/example/repo/pull/42 > "$TMP/observe"
-receipt="$N1_HOME/review-receipts/review-test/$(rn "$SKIP" feature_skip)"
+receipt="$N1_HOME/review-receipts/review-test/$(rn "$SKIP" feature/skip)"
 jq -e '.branch == "feature/skip" and .outcome == "skipped" and .reason == "step-not-run" and (.processed | not)' "$receipt" >/dev/null
 jq -e '.hookSpecificOutput.additionalContext | contains("did not run before push") and contains("pull/42")' "$TMP/observe" >/dev/null
 printf '{"session_id":"review-test"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/stop"
@@ -68,10 +68,10 @@ printf 'PASS: gh pr create outside a branch checkout fails open\n'
 
 # Runner: every scenario leaves a processed branch receipt; the runner never calls gh (AC6).
 WT="$TMP/wt"; BASE=$(mkrepo "$WT" feature/T-1)
-receipt="$N1_HOME/review-receipts/review-test/$(rn "$WT" feature_T-1)"
+receipt="$N1_HOME/review-receipts/review-test/$(rn "$WT" feature/T-1)"
 # A processed receipt from an earlier run on the same branch (another session) is cleared by the next runner run.
 mkdir -p "$N1_HOME/review-receipts/old-sess"
-printf '{"branch":"feature/T-1","outcome":"ran","processed":true}\n' > "$N1_HOME/review-receipts/old-sess/$(rn "$WT" feature_T-1)"
+printf '{"branch":"feature/T-1","outcome":"ran","processed":true}\n' > "$N1_HOME/review-receipts/old-sess/$(rn "$WT" feature/T-1)"
 for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-noissues ran-fence-fail failed timeout memory-unavailable diff-unavailable; do
   unset AUTH_MODE REVIEW_MODE CODEX_OUT
   rm -rf "$N1_HOME/scratch" "$N1_HOME/memory" "$N1_HOME/x" "${REVIEW_LOG}.gh"
@@ -91,7 +91,7 @@ for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-no
     diff-unavailable) B=deadbeef;;
   esac
   (cd "$WT" && N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=0.1 bash "$ROOT/scripts/codex-pr-review.sh" "$B" "$TID") > "$TMP/out"
-  if [ -e "$N1_HOME/review-receipts/old-sess/$(rn "$WT" feature_T-1)" ]; then echo "FAIL: $scenario: a stale receipt from an earlier run survived"; exit 1; fi
+  if [ -e "$N1_HOME/review-receipts/old-sess/$(rn "$WT" feature/T-1)" ]; then echo "FAIL: $scenario: a stale receipt from an earlier run survived"; exit 1; fi
   expected=$scenario
   case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; memory-unavailable|ran-optout|ran-findings|ran-noissues|ran-fence-fail) expected=ran;; diff-unavailable) expected=failed;; esac
   jq -e --arg expected "$expected" '.branch == "feature/T-1" and .outcome == $expected and .processed' "$receipt" >/dev/null
@@ -154,7 +154,7 @@ A="$TMP/active"; mkrepo "$A" feature/active >/dev/null
 observe active-stop "$A" https://github.com/example/repo/pull/46 >/dev/null
 printf '{"session_id":"active-stop","stop_hook_active":true}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/active-stop"
 [ ! -s "$TMP/active-stop" ]
-jq -e '.reminded != true' "$N1_HOME/review-receipts/active-stop/$(rn "$A" feature_active)" >/dev/null
+jq -e '.reminded != true' "$N1_HOME/review-receipts/active-stop/$(rn "$A" feature/active)" >/dev/null
 printf '{"session_id":"active-stop"}' | bash "$ROOT/hooks/pr-review-stop.sh" > "$TMP/next-stop"
 jq -e '.decision == "block"' "$TMP/next-stop" >/dev/null
 printf 'PASS: another Stop continuation does not consume an unsent reminder\n'
@@ -162,7 +162,7 @@ printf 'PASS: another Stop continuation does not consume an unsent reminder\n'
 F="$TMP/ftail"; mkrepo "$F" feature/ftail >/dev/null
 payload=$(jq -nc --arg c "$F" '{session_id:"failed-tail",cwd:$c,hook_event_name:"PostToolUseFailure",tool_input:{command:"gh pr create && false"},error:"Exit code 1\nhttps://github.com/example/repo/pull/44"}')
 printf '%s' "$payload" | bash "$ROOT/hooks/pr-review-observe.sh" > "$TMP/failed-tail"
-jq -e '.outcome == "skipped" and .reason == "step-not-run"' "$N1_HOME/review-receipts/failed-tail/$(rn "$F" feature_ftail)" >/dev/null
+jq -e '.outcome == "skipped" and .reason == "step-not-run"' "$N1_HOME/review-receipts/failed-tail/$(rn "$F" feature/ftail)" >/dev/null
 jq -e '.hookSpecificOutput.hookEventName == "PostToolUseFailure"' "$TMP/failed-tail" >/dev/null
 jq -e '.hooks.PostToolUseFailure[] | select(.matcher == "Bash") | .hooks[] | select(.command | contains("pr-review-observe.sh"))' "$ROOT/hooks/hooks.json" >/dev/null
 printf 'PASS: failed command tail still observes its created PR\n'
@@ -180,7 +180,7 @@ printf 'PASS: a pushed branch without a PR is not flagged\n'
 export PR_LIST_URLS=https://github.com/example/repo/pull/50
 bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"run-stop"}' > "$TMP/run-stop"
 jq -e '.decision == "block" and (.reason | contains("feature/T-5"))' "$TMP/run-stop" >/dev/null
-jq -e '.branch == "feature/T-5" and .outcome == "skipped" and .reason == "step-not-run" and (.processed | not)' "$N1_HOME/review-receipts/run-stop/$(rn "$RS" feature_T-5)" >/dev/null
+jq -e '.branch == "feature/T-5" and .outcome == "skipped" and .reason == "step-not-run" and (.processed | not)' "$N1_HOME/review-receipts/run-stop/$(rn "$RS" feature/T-5)" >/dev/null
 grep -q -- '--head feature/T-5' "${REVIEW_LOG}.list"
 bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"run-stop"}' > "$TMP/run-stop-2"
 [ ! -s "$TMP/run-stop-2" ]
@@ -197,14 +197,14 @@ printf 'PASS: a processed receipt from another session satisfies the run check\n
 printf '{"ticketId":"T-5","runId":"r","worktreePath":"%s","branch":"feature/T-5"}\n' "$RS" > "$N1_HOME/active-run.mixed.json"
 rm -rf "$N1_HOME/review-receipts/run-stop"
 mkdir -p "$N1_HOME/review-receipts/other-a" "$N1_HOME/review-receipts/other-b"
-printf '{"branch":"feature/T-5","processed":false}\n' > "$N1_HOME/review-receipts/other-a/$(rn "$RS" feature_T-5)"
-jq -nc --arg h "$(git -C "$RS" rev-parse HEAD)" '{branch:"feature/T-5",outcome:"ran",head:$h,processed:true}' > "$N1_HOME/review-receipts/other-b/$(rn "$RS" feature_T-5)"
+printf '{"branch":"feature/T-5","processed":false}\n' > "$N1_HOME/review-receipts/other-a/$(rn "$RS" feature/T-5)"
+jq -nc --arg h "$(git -C "$RS" rev-parse HEAD)" '{branch:"feature/T-5",outcome:"ran",head:$h,processed:true}' > "$N1_HOME/review-receipts/other-b/$(rn "$RS" feature/T-5)"
 [ -z "$(check_run mixed)" ]
 bash "$ROOT/hooks/pr-review-stop.sh" <<<'{"session_id":"mixed"}' > "$TMP/mixed"
 [ ! -s "$TMP/mixed" ]
 printf 'PASS: any processed receipt wins over an unprocessed one from another session\n'
 rm -rf "$N1_HOME/review-receipts"; mkdir -p "$N1_HOME/review-receipts/old"
-printf '{"branch":"feature/T-5","processed":true}\n' > "$N1_HOME/review-receipts/old/$(rn "$RS" feature_T-5)"
+printf '{"branch":"feature/T-5","processed":true}\n' > "$N1_HOME/review-receipts/old/$(rn "$RS" feature/T-5)"
 [ -z "$(N1_STATE_DIR="$TMP/empty-state" check_run mixed)" ]
 printf 'PASS: a legacy per-project processed receipt (no outcome field) satisfies the run check\n'
 : > "${REVIEW_LOG}.list"
@@ -317,3 +317,5 @@ printf 'PASS: ran receipts need an ancestor head; non-ancestor and wrong-repo re
   fi
 )
 printf 'PASS: gate marker blocks pushes until HEAD is the run-start SHA; dirty edits are saved and restored away\n'
+# Branches that differ only by "/" vs "_" must not share a receipt file.
+[ "$(N1_SESSION_ID=col n1_review_receipt feature/a_b)" != "$(N1_SESSION_ID=col n1_review_receipt feature_a/b)" ] && echo "PASS: colliding branch names get distinct receipts" || { echo "FAIL: branch receipt collision"; exit 1; }

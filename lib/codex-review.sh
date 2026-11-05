@@ -15,12 +15,13 @@ n1_review_repo() {
 }
 
 n1_review_receipt() {
-    local key="${1//\//_}" sid repo
+    local key="${1//\//_}" sid repo h
     sid=$(n1_session_id)
     [[ "$sid" =~ ^[a-zA-Z0-9_-]+$ ]] || return 1
     [[ "$key" =~ ^[A-Za-z0-9._-]+$ && "$key" != .* ]] || return 1
     repo=$(n1_review_repo) || return 1
-    printf '%s/%s/%s__%s.json' "$(n1_review_root)" "$sid" "$repo" "$key"
+    h=$(printf '%s' "$1" | cksum | cut -d' ' -f1)   # "/" -> "_" collides (a_b vs a/b): the hash keeps branches apart
+    printf '%s/%s/%s__%s.%s.json' "$(n1_review_root)" "$sid" "$repo" "$key" "$h"
 }
 
 # Outcome of a processed receipt for BRANCH of this repo in any session (legacy per-project root included); "ran" wins. Empty if none.
