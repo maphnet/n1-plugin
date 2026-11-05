@@ -513,7 +513,10 @@ n1_queue_story_branch_ensure() {
     # checkout is touched. Non-zero with a last stderr line "n1-queue: story branch: <reason>" on any failure.
     local repo="$1" b="story/$2" d="$3" heads
     [ -d "$repo" ] || { echo "n1-queue: story branch: no such repo $repo" >&2; return 1; }
-    # SEC-11: validate both names before they reach a refspec.
+    # SEC-11: validate both names before they reach a refspec. The story id is free-form frontmatter, so it is held
+    # to the tracker id grammar first (check-ref-format alone admits quotes, `;`, `|`, `$`); the branch cell
+    # written by n1_queue_story_branch_set must then equal the pushed ref.
+    case "$2" in ''|-*|*[!A-Za-z0-9._-]*) echo "n1-queue: story branch: invalid story id $2" >&2; return 1 ;; esac
     { [ -n "$2" ] && git check-ref-format --branch "$b" >/dev/null 2>&1; } || { echo "n1-queue: story branch: invalid branch name $b" >&2; return 1; }
     git check-ref-format --branch "$d" >/dev/null 2>&1 || { echo "n1-queue: story branch: invalid default branch $d" >&2; return 1; }
     heads=$(git -C "$repo" ls-remote --heads origin "refs/heads/$b" 2>/dev/null) \
@@ -528,13 +531,14 @@ n1_queue_story_branch_set() {
     # Usage: n1_queue_story_branch_set <queue.md> <repo> <branch>
     # N1-290: upserts <repo>'s row in the "## Story Branches" table ("| Repo | Branch |"; Repo is the Plan row's
     # Repo cell, so N1-291/292 join on it). A file without the section gets it inserted before ## Runs, which stays
-    # last. Cells sanitized. Fails closed (returns 1, file untouched) on more than one "## Story Branches" heading
+    # last. Repo cell sanitized; a branch the sanitizer would alter is refused. Fails closed (returns 1, file untouched) on more than one "## Story Branches" heading
     # or no "## Runs" line.
     local file="$1" n repo branch tmp
     [ -f "$file" ] || return 1
     n=$(grep -c '^## Story Branches$' "$file" || true)
     { [ "$n" -le 1 ] && grep -q '^## Runs$' "$file"; } || return 1
     repo=$(_n1_queue_sanitize_cell "$2"); branch=$(_n1_queue_sanitize_cell "$3")
+    [ "$branch" = "$3" ] || return 1   # a cell that would differ from the pushed ref is never recorded
     tmp=$(mktemp "${file}.XXXXXX")
     has="$n" repo="$repo" branch="$branch" awk '
         BEGIN { FS = "|"; r = ENVIRON["repo"]; row = "| " r " | " ENVIRON["branch"] " |" }

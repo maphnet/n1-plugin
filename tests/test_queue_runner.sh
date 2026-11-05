@@ -990,6 +990,7 @@ test_sync_default() {
 
 # N1-290: story-branch helpers — the ## Story Branches mapping and the remote story/<ID> ensure.
 test_story_branch_helpers() {
+    local bad
     local tmp q before adv; tmp=$(mktemp -d); q="$tmp/q.md"
     # Mapping: read, upsert, fail closed.
     mk_held_plan "$q" pending
@@ -1006,9 +1007,12 @@ test_story_branch_helpers() {
     assert_eq "story-map: ## Runs stays last" "## Runs" "$(grep '^## ' "$q" | tail -1)"
     n1_queue_story_branch_set "$q" /r story/S-9
     assert_eq "story-map: upsert replaces the branch" "story/S-9|0" "$(n1_queue_story_branch_get "$q" /r)|$(count_x "$q" '| /r | story/S-1 |')"
-    n1_queue_story_branch_set "$q" '/x|y' 'story/S-1|evil'
-    assert_eq "story-map: cells sanitized" "1" "$(count_x "$q" '| /xy | story/S-1evil |')"
-    assert_eq "story-map: sanitized key reads back" "story/S-1evil" "$(n1_queue_story_branch_get "$q" '/x|y')"
+    n1_queue_story_branch_set "$q" '/x|y' story/S-1
+    assert_eq "story-map: repo cell sanitized" "1" "$(count_x "$q" '| /xy | story/S-1 |')"
+    assert_eq "story-map: sanitized key reads back" "story/S-1" "$(n1_queue_story_branch_get "$q" '/x|y')"
+    before=$(cksum < "$q")
+    assert_eq "story-map: branch the cell would alter -> set fails" "1" "$(n1_queue_story_branch_set "$q" /r4 'story/S-1|evil'; echo $?)"
+    assert_eq "story-map: rejected branch leaves file untouched" "$before" "$(cksum < "$q")"
     printf '\n## Story Branches\n' >> "$q"   # a second heading (portable; no GNU sed \n)
     before=$(cksum < "$q")
     assert_eq "story-map: duplicate heading -> set fails" "1" "$(n1_queue_story_branch_set "$q" /r3 story/S-1; echo $?)"
@@ -1034,6 +1038,11 @@ test_story_branch_helpers() {
     assert_eq "story-ensure: existing branch not reset" "$adv" "$(git -C "$tmp/origin" rev-parse refs/heads/story/S-1)"
     assert_eq "story-ensure: empty story id -> 1" "1" "$(n1_queue_story_branch_ensure "$tmp/repo" '' main >/dev/null 2>&1; echo $?)"
     assert_eq "story-ensure: invalid story id -> 1" "1" "$(n1_queue_story_branch_ensure "$tmp/repo" 'S..1' main >/dev/null 2>&1; echo $?)"
+    for bad in 'A|B' 'x;y' '"VEL-1"' '-x' 'a b' 'a/b' '$(id)'; do
+        assert_eq "story-ensure: story id '$bad' -> 1, names the id" "n1-queue: story branch: invalid story id $bad" \
+            "$(n1_queue_story_branch_ensure "$tmp/repo" "$bad" main 2>&1 >/dev/null | tail -1)"
+    done
+    assert_eq "story-ensure: bad ids push nothing" "story/S-1" "$(git -C "$tmp/origin" for-each-ref --format='%(refname:short)' refs/heads/story)"
     assert_eq "story-ensure: invalid default -> 1" "1" "$(n1_queue_story_branch_ensure "$tmp/repo" S-1 'ma..in' >/dev/null 2>&1; echo $?)"
     assert_eq "story-ensure: no such repo -> 1" "1" "$(n1_queue_story_branch_ensure "$tmp/nope" S-1 main >/dev/null 2>&1; echo $?)"
     printf '#!/bin/sh\nexit 1\n' > "$tmp/origin/.git/hooks/pre-receive"; chmod +x "$tmp/origin/.git/hooks/pre-receive"

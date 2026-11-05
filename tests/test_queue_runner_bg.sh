@@ -1075,7 +1075,7 @@ sb_fixture() {
 # N1-290: a story run cuts story/<story_id> once per repo before any child launches, a resume reuses it untouched,
 # tag mode creates none, and a failed push halts before any launch.
 test_runner_story_branches() {
-    local tmp tmp2 tmp3 tmp4 main adv
+    local tmp tmp2 tmp3 tmp4 tmp5 bad main adv
     # Creation: two rows in one repo -> one branch, one mapping row, cut from origin/main; local clone untouched.
     tmp=$(mktemp -d); sb_fixture "$tmp" story
     main=$(git -C "$tmp/origin" rev-parse main)
@@ -1116,6 +1116,18 @@ test_runner_story_branches() {
     assert_eq "story-fail: no story branch on origin" "" "$(git -C "$tmp4/origin" for-each-ref --format='%(refname)' refs/heads/story)"
     assert_eq "story-fail: no section" "0" "$(count_x "$tmp4/queue.md" '## Story Branches')"
     assert_eq "story-fail: halted event" "yes" "$(jq -e 'select(.event=="halted")' "$tmp4/events.jsonl" >/dev/null 2>&1 && echo yes || echo no)"
+
+    # Bad story id (not the tracker id grammar): halt before any launch, naming the id; nothing on origin or in queue.md.
+    for bad in 'A|B' '"VEL-1"'; do
+        tmp5=$(mktemp -d); sb_fixture "$tmp5" story
+        n1_write_frontmatter "$tmp5/queue.md" story_id "$bad"
+        assert_eq "story-badid $bad: exit 2" "2" "$(run_bg_queue "$tmp5")"
+        assert_eq "story-badid $bad: halt names the id" "yes" "$(grep -qF "n1-queue: story branch: invalid story id $bad" "$tmp5/output.txt" && echo yes || echo no)"
+        assert_eq "story-badid $bad: no child launched" "0" "$(grep -c '^launch ' "$tmp5/fake/events" || true)"
+        assert_eq "story-badid $bad: nothing on origin" "" "$(git -C "$tmp5/origin" for-each-ref --format='%(refname)' refs/heads/story)"
+        assert_eq "story-badid $bad: no section" "0" "$(count_x "$tmp5/queue.md" '## Story Branches')"
+        rm -rf "$tmp5"
+    done
     rm -rf "$tmp" "$tmp2" "$tmp3" "$tmp4"
 }
 
