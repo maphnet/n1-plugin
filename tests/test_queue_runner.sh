@@ -957,6 +957,12 @@ test_held_user_merge() {
     assert_eq "user-merge: T-3 waits on T-2" "held" "$(plan_cell "$tmp/q.md" 3 8)"
     assert_eq "user-merge: local default synced" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp/repo" rev-parse main)"
 
+    mkq_story() { mkq; printf '\n## Story Branches\n| Repo | Branch |\n| :--- | --- |\n| %s | story/S-1 |\n' "$tmp/repo" >> "$tmp/q.md"; }
+    fakegh 'echo MERGED story/S-1'; mkq_story
+    assert_eq "user-merge story: merged into story branch -> T-2 released" "pending|released: T-1 merged" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" >/dev/null 2>&1; plan_cell "$tmp/q.md" 2 8)|$(plan_cell "$tmp/q.md" 2 9)"
+    fakegh 'echo MERGED main'; mkq_story
+    assert_eq "user-merge story: merged into default -> T-2 still held" "held" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" >/dev/null 2>&1; plan_cell "$tmp/q.md" 2 8)"
+
     git -C "$tmp/repo" remote set-url origin "$tmp/no-such-origin"; mkq
     assert_eq "user-merge: sync failure -> both still wait" "2" "$(PATH="$P" n1_queue_held_sweep "$tmp/q.md" 2>/dev/null)"
     assert_eq "user-merge: sync failure -> T-2 held" "held" "$(plan_cell "$tmp/q.md" 2 8)"

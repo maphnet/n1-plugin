@@ -379,9 +379,9 @@ n1_queue_held_sweep() {
     # A blocker PR the user CLOSED unmerged skips the row like a failed blocker.
     # Trust: pr_url is child-written; this only reads PR state and never merges, so a forged
     # URL can at worst release a held row early. Non-GitHub-PR URLs count as not merged (SEC-2).
-    # Only a merge into the blocker repo's default branch releases; any other base stays held.
+    # Only a merge into the blocker repo's default branch (story mode: its story branch) releases; any other base stays held.
     # The first gh stderr line goes to the runner's stderr (runner.log), not /dev/null.
-    local q="$1" num t b st h r url state base d n=0
+    local q="$1" num t b st h r url state base d sb n=0
     while IFS=$'\t' read -r num t _ _ _ _; do
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$b" && st=obsolete
@@ -404,9 +404,14 @@ n1_queue_held_sweep() {
                     n1_queue_row_status "$q" "$num" skip "blocked by $b (PR closed)"
                     continue
                 fi
-                d=$(N1_HOME="$h" n1_config_val '.git.defaultBranch' 2>/dev/null); d="${d:-main}"
-                if [ "$state" = MERGED ] && [ "$base" = "$d" ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
-                    n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                sb=$(n1_queue_story_branch_get "$q" "$r")
+                if [ -n "$sb" ]; then   # N1-291: a story child's PR targets its story branch; children are cut from origin/<sb>, no local sync
+                    [ "$state" = MERGED ] && [ "$base" = "$sb" ] && n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                else
+                    d=$(N1_HOME="$h" n1_config_val '.git.defaultBranch' 2>/dev/null); d="${d:-main}"
+                    if [ "$state" = MERGED ] && [ "$base" = "$d" ] && N1_HOME="$h" n1_queue_sync_default "$r" </dev/null; then
+                        n1_queue_row_status "$q" "$num" pending "released: $b merged"
+                    fi
                 fi ;;
         esac
         n=$((n + 1))
