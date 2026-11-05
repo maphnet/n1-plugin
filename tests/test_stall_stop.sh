@@ -12,6 +12,8 @@ PASS=0; FAIL=0
 eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS + 1)); else echo "FAIL: $1 -- expected '$2', got '$3'"; FAIL=$((FAIL + 1)); fi; }
 OV="$T/overview.md"
 ov() { printf -- '---\nstep: qa\n---\n' > "$OV"; }
+# rnd2 <key> <names-cmd> <fileA> <fileB>: fresh overview, check A's names, print the verdict for B's names
+rnd2() { ov; n1_stall_check "$OV" "$1" "$($2 "$3" | n1_stall_sig)" >/dev/null; n1_stall_check "$OV" "$1" "$($2 "$4" | n1_stall_sig)"; }
 
 # ---- n1_stall_sig ----
 A=$(printf 'b\na\n' | n1_stall_sig); B=$(printf 'a\nb\na\n\n' | n1_stall_sig)
@@ -60,16 +62,16 @@ lt() { # <file> <row1-result> <row1-detail> <row3-result> <class>
 lt "$T/lt1.md" FAIL "500 at 10:01" FAIL code-bug
 eq "L1 FAIL rows then class" "$(printf 'login works\nlogout\nclass:code-bug')" "$(n1_stall_names_lt "$T/lt1.md")"
 lt "$T/lt2.md" FAIL "500 at 10:07 after 3.2s" FAIL code-bug
-eq "L2 Details changes do not alter the signature" "$(n1_stall_names_lt "$T/lt1.md" | n1_stall_sig)" "$(n1_stall_names_lt "$T/lt2.md" | n1_stall_sig)"
+eq "L2 Details changes do not alter the verdict -> stalled" "stalled" "$(rnd2 local_test_fail_sig n1_stall_names_lt "$T/lt1.md" "$T/lt2.md")"
 lt "$T/lt3.md" PASS ok PASS none
 eq "L3 PASS-only table -> empty" "" "$(n1_stall_names_lt "$T/lt3.md")"
 printf '%s\n' "## Local Testing Report" "### Existing E2E Test Results" "- **Result:** FAIL" "### Verdict: FAIL" "- **Failure class:** code-bug" > "$T/lt4.md"
 eq "L4 failures only in existing e2e (no table) -> empty" "" "$(n1_stall_names_lt "$T/lt4.md")"
 eq "L5 missing report -> empty" "" "$(n1_stall_names_lt "$T/none.md")"
 lt "$T/lt6.md" FAIL x PASS code-bug
-eq "L6 different FAIL set -> different signature" "1" "$([ "$(n1_stall_names_lt "$T/lt1.md" | n1_stall_sig)" != "$(n1_stall_names_lt "$T/lt6.md" | n1_stall_sig)" ] && echo 1 || echo 0)"
+eq "L6 different FAIL set -> ok" "ok" "$(rnd2 local_test_fail_sig n1_stall_names_lt "$T/lt1.md" "$T/lt6.md")"
 lt "$T/lt7.md" FAIL x FAIL infra
-eq "L7 failure class is part of the signature" "1" "$([ "$(n1_stall_names_lt "$T/lt1.md" | n1_stall_sig)" != "$(n1_stall_names_lt "$T/lt7.md" | n1_stall_sig)" ] && echo 1 || echo 0)"
+eq "L7 failure class is part of the signature -> ok" "ok" "$(rnd2 local_test_fail_sig n1_stall_names_lt "$T/lt1.md" "$T/lt7.md")"
 lt "$T/lt8.md" "**FAIL**" x "FAIL (flaky)" code-bug
 eq "L8 Result must be exactly FAIL -> empty" "" "$(n1_stall_names_lt "$T/lt8.md")"
 printf '%s\n' "### Ad-Hoc Scenario Results" "| # | Scenario | Result | Details |" "|---|---|---|---|" \
@@ -80,11 +82,32 @@ eq "L9 escaped pipe in Scenario is kept, unescaped" "$(printf 'a | b\nplain\ncla
 printf 'total=3 pending=0\nFAIL\tlint\thttps://x/runs/1\nFAIL\ttest (ubuntu)\thttps://x/runs/2\n' > "$T/ci1.tsv"
 printf 'total=3 pending=0\nFAIL\ttest (ubuntu)\thttps://x/runs/9\nFAIL\tlint\thttps://x/runs/8\n' > "$T/ci2.tsv"
 eq "I1 check names only" "$(printf 'lint\ntest (ubuntu)')" "$(n1_stall_names_ci "$T/ci1.tsv")"
-eq "I2 links and order do not alter the signature" "$(n1_stall_names_ci "$T/ci1.tsv" | n1_stall_sig)" "$(n1_stall_names_ci "$T/ci2.tsv" | n1_stall_sig)"
+eq "I2 links and order do not alter the verdict -> stalled" "stalled" "$(rnd2 ci_fail_sig n1_stall_names_ci "$T/ci1.tsv" "$T/ci2.tsv")"
 printf 'FAIL\tlint\thttps://x/runs/1\n' > "$T/ci3.tsv"
 printf 'FAIL\tlint\thttps://x/runs/5\n' > "$T/ci4.tsv"
-eq "I4 signature depends only on the lines written (skip-category check omitted upstream)" "$(n1_stall_names_ci "$T/ci3.tsv" | n1_stall_sig)" "$(n1_stall_names_ci "$T/ci4.tsv" | n1_stall_sig)"
+eq "I4 verdict depends only on the lines written (skip-category check omitted upstream) -> stalled" "stalled" "$(rnd2 ci_fail_sig n1_stall_names_ci "$T/ci3.tsv" "$T/ci4.tsv")"
 eq "I3 missing file -> empty" "" "$(n1_stall_names_ci "$T/none.tsv")"
+
+# ---- CRLF ----
+# CI and QA names (n1_stall_names_ci, n1_testparse_failed_names) are intentionally not covered for CRLF: they keep a trailing \r today (tracked follow-up).
+ov; n1_stall_check "$OV" local_test_fail_sig "$A" >/dev/null; sed -i 's/$/\r/' "$OV"
+eq "X1 CRLF overview.md: identical second round -> stalled" "stalled" "$(n1_stall_check "$OV" local_test_fail_sig "$A")"
+sed 's/$/\r/' "$T/lt1.md" > "$T/lt1crlf.md"
+eq "X2 CRLF local-testing.md gives the LF names" "$(n1_stall_names_lt "$T/lt1.md")" "$(n1_stall_names_lt "$T/lt1crlf.md")"
+eq "X3 CRLF local-testing.md after the LF round -> stalled" "stalled" "$(rnd2 local_test_fail_sig n1_stall_names_lt "$T/lt1.md" "$T/lt1crlf.md")"
+
+# ---- special names through n1_stall_check ----
+ltn() { printf '%s\n' "### Ad-Hoc Scenario Results" "| # | Scenario | Result | Details |" "|---|---|---|---|" "| 1 | $2 | FAIL | x |" "### Verdict: FAIL" "- **Failure class:** code-bug" > "$1"; }
+ltn "$T/sp1.md" 'a \| b'; ltn "$T/sp2.md" 'a \| b'; ltn "$T/sp3.md" 'a \| c'
+eq "N1 escaped-pipe Scenario twice -> stalled" "stalled" "$(rnd2 local_test_fail_sig n1_stall_names_lt "$T/sp1.md" "$T/sp2.md")"
+eq "N1b escaped-pipe Scenario vs a different name -> ok" "ok" "$(rnd2 local_test_fail_sig n1_stall_names_lt "$T/sp1.md" "$T/sp3.md")"
+ltn "$T/sp4.md" 'test[1] a.b*'; ltn "$T/sp5.md" 'test[1] a.b*'; ltn "$T/sp6.md" 'test[1] axb*'
+eq "N2 regex-char Scenario twice -> stalled" "stalled" "$(rnd2 local_test_fail_sig n1_stall_names_lt "$T/sp4.md" "$T/sp5.md")"
+eq "N2b regex-char Scenario vs a different name -> ok" "ok" "$(rnd2 local_test_fail_sig n1_stall_names_lt "$T/sp4.md" "$T/sp6.md")"
+printf 'FAIL\ttest (ubuntu, 3.12) [a.b*]\thttps://x/runs/1\n' > "$T/sp7.tsv"; printf 'FAIL\ttest (ubuntu, 3.12) [a.b*]\thttps://x/runs/2\n' > "$T/sp8.tsv"
+printf 'FAIL\ttest (ubuntu, 3.12) [axb*]\thttps://x/runs/2\n' > "$T/sp9.tsv"
+eq "N3 CI check name with spaces/regex chars twice -> stalled" "stalled" "$(rnd2 ci_fail_sig n1_stall_names_ci "$T/sp7.tsv" "$T/sp8.tsv")"
+eq "N3b CI check name vs a different name -> ok" "ok" "$(rnd2 ci_fail_sig n1_stall_names_ci "$T/sp7.tsv" "$T/sp9.tsv")"
 
 # ---- QA: names from qa-verify.log ----
 printf 'FAIL: test a (expected=1 actual=2)\n' > "$T/q1.log"; printf 'FAIL: test a (expected=1 actual=3)\n' > "$T/q2.log"
