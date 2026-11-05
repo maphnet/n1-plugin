@@ -554,6 +554,10 @@ Host backend: each child runs as a `claude --bg` background session (`n1_bg_laun
   - Gated rows count as held for the idle wait. When that wait times out, `n1_queue_gated_expire` skips them and names the blocking predecessor.
   - A stale plan re-planned at `--run` prints `Re-pinned max_concurrent <old> -> <new>` before the Start prompt.
   - Blocks-held rows keep the idle-only held sweep. The bg runner ignores the schedule and runs sequentially in Plan order.
+- Story branches (N1-290): in story mode the runner creates `story/<STORY_ID>` per distinct repo before any child launches, and records them in queue.md `## Story Branches` (`| Repo | Branch |`, before `## Runs`).
+  - `n1_queue_story_branch_ensure` cuts the branch from `origin/<default>` and pushes it, or reuses an existing remote branch without reset. A failed create or push halts the run (exit 2). Tag mode creates none.
+  - `n1_queue_story_branch_set` writes the row and `n1_queue_story_branch_get` reads it.
+  - Story ids are restricted to `[A-Za-z0-9._-]` (no leading `-`) and must pass `git check-ref-format`.
 - `queue.unattendedAutoStart` (default `false`): consent for scheduled runs. `--schedule` refuses and `--unattended` stops while it is false (N1-226).
 - `queue.stallMinutes` (default `30`, `0` disables; keep it at least `15`, because an unchanged phase resends its beacon only every 10 minutes): Orca rows only. A live worker that sent no progress beacon for this long is flagged `stalled?` once (info notice, `stalled` event). The flag never stops the worker (N1-315).
 
