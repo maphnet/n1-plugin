@@ -107,6 +107,16 @@ check "verification skipped still closes ticket" 'SKIPPED.*clos|clos.*SKIPPED' "
 check "verifier inherits dynamic observability tools" 'tools intentionally omitted.*observability MCP' agents/post-deploy-verifier.md
 check "verifier keeps read-only boundary with artifact exception" 'only to read.*read-only.*sole write' agents/post-deploy-verifier.md
 check "verifier uses investigation effort" '^effort: medium$' agents/post-deploy-verifier.md
+# N1-176 Release Mode. Bugs caught: a static read reported as PASS gives a false GO; a changed per-ticket
+# status list breaks the n1-finish artifact validation.
+# Patterns avoid \( and \| so they read the same under BRE and ERE.
+check "per-ticket table keeps its three statuses" 'PASS .*FAIL .*SKIPPED' agents/post-deploy-verifier.md
+check "release mode is selected only by a named plan path" 'prompt names a `release-test-plan\.md` path' agents/post-deploy-verifier.md
+check "release mode writes its own artifact" 'release-test-results\.md' agents/post-deploy-verifier.md
+check "release mode PASS needs behavioural evidence" 'PASS.*behavioural evidence.*UNVERIFIED' agents/post-deploy-verifier.md
+check "release mode re-runs each failure once" 'Re-run each .FAIL. once' agents/post-deploy-verifier.md
+check "release mode records the dev build" 'Dev build: verified .<evidence>.' agents/post-deploy-verifier.md
+check "release mode defaults to an unverified build" 'Otherwise the last line is .Dev build: unverified' agents/post-deploy-verifier.md
 
 # N1-228: Step 3b is read on demand from the succeeded outcome only.
 check "deploy success routes to the verification reference" 'deploy status `succeeded`\. Run Step 3b before Step 4: read `<N1_ROOT>/skills/n1-finish/references/post-deploy-verification\.md`' "$DEPLOY"
