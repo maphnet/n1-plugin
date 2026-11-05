@@ -629,6 +629,37 @@ OUT=$(echo '{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","s
 CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"Active ticket: T-30"*) assert_eq "compaction restore uses session-keyed active-run" ok ok;; *) assert_eq "compaction restore uses session-keyed active-run" ok "$CTX";; esac
 rm -f "$N1_HOME/active-run.json" "$N1_HOME/active-run.s1.json"
+# --- N1-404: ORCHESTRATOR STATE lists memory dir + files, open escalation, pending question file, live containers ---
+echo '{"ticketId":"T-30","runId":"n1-run-c","worktreePath":"/wt/T-30","branch":"b-T-30"}' > "$N1_HOME/active-run.s1.json"
+printf -- '---\nstep: review\ntype: task\n---\n## Context\nctx line\n## Escalations\n- review: API choice needs a human\n' > "$N1_HOME/memory/T-30/overview.md"
+printf 'aaa111bbb222ccc\tpg-T-30\tlocal-testing\nddd444\tstopped-one\tlocal-testing\n' > "$N1_HOME/memory/T-30/containers.tsv"
+mkdir -p "$N1_HOME/queue/q404"; echo '{}' > "$N1_HOME/queue/q404/.question-T-30.json"
+DOCKBIN="$T/dockbin"; mkdir -p "$DOCKBIN"
+cat > "$DOCKBIN/docker" <<'DEOF'
+#!/usr/bin/env bash
+[ -n "${FAKE_DOCKER_FAIL:-}" ] && exit 1
+[ "${1:-} ${2:-}" = "ps -q" ] && echo aaa111bbb222ccc
+exit 0
+DEOF
+chmod +x "$DOCKBIN/docker"
+CPAY='{"session_id":"s1","cwd":"/repo","hook_event_name":"SessionStart","source":"compact"}'
+OUT=$(echo "$CPAY" | PATH="$DOCKBIN:$PATH" CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$(grep '^- Memory dir:' <<<"$CTX")" in "- Memory dir: $N1_HOME/memory/T-30 (files: "*"containers.tsv"*"overview.md"*")") assert_eq "state: memory dir + files (N1-404)" ok ok;; *) assert_eq "state: memory dir + files (N1-404)" ok "$CTX";; esac
+assert_eq "state: open escalation (N1-404)" "- Open escalation: review: API choice needs a human" "$(grep '^- Open escalation:' <<<"$CTX")"
+assert_eq "state: pending question file (N1-404)" "- Pending question file: $N1_HOME/queue/q404/.question-T-30.json" "$(grep '^- Pending question file:' <<<"$CTX")"
+assert_eq "state: running containers, stopped row omitted (N1-404)" "- Running containers (containers.tsv): pg-T-30 (aaa111bbb222)" "$(grep '^- Running containers' <<<"$CTX")"
+OUT=$(echo "$CPAY" | PATH="$DOCKBIN:$PATH" FAKE_DOCKER_FAIL=1 CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+assert_eq "state: docker failure -> unknown, hook output kept (N1-404)" "- Running containers (containers.tsv): unknown (docker unavailable)" "$(grep '^- Running containers' <<<"$CTX")"
+rm -f "$N1_HOME/memory/T-30/containers.tsv"; rm -rf "$N1_HOME/queue/q404"
+printf -- '---\nstep: review\ntype: task\n---\n## Context\nctx line\n' > "$N1_HOME/memory/T-30/overview.md"
+OUT=$(echo "$CPAY" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+assert_eq "state: no escalation -> none (N1-404)" "- Open escalation: none" "$(grep '^- Open escalation:' <<<"$CTX")"
+assert_eq "state: no question file -> none (N1-404)" "- Pending question file: none" "$(grep '^- Pending question file:' <<<"$CTX")"
+assert_eq "state: no containers.tsv -> none (N1-404)" "- Running containers (containers.tsv): none" "$(grep '^- Running containers' <<<"$CTX")"
+rm -f "$N1_HOME/active-run.s1.json"
 # --- session-start: prMode "skip" is a valid value and is not migrated (NP-202) ---
 echo '{"git":{"prMode":"skip"}}' > "$N1_HOME/config.json"
 echo '{"session_id":"s-prmode","source":"startup"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
