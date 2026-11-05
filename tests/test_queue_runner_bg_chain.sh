@@ -375,6 +375,28 @@ test_bg_chain_row_home() {
     rm -rf "$tmp"
 }
 
+# N1-291: in a story run the child launch carries the story env; the chained finish and clean launches never do.
+test_bg_chain_story_env_scoped() {
+    local tmp; tmp=$(mktemp -d)
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    mk_bg "$tmp" bgq "T-A:working done"
+    sed -i "s#| $tmp | $tmp/n1home |#| $tmp/repo | $tmp/n1home |#g" "$tmp/queue.md"
+    n1_write_frontmatter "$tmp/queue.md" mode story; n1_write_frontmatter "$tmp/queue.md" story_id S-1
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo "working done" > "$tmp/fake/states.T-A.fin"; touch "$tmp/fake/fin-merge.T-A"
+    assert_eq "story-chain: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "story-chain: finish launched" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "story-chain: clean launched" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-clean')"
+    assert_eq "story-chain: child launch carries story env" "S-1,story/S-1" \
+        "$(jq -r '[.env.N1_STORY_ID,.env.N1_STORY_BRANCH]|join(",")' "$tmp/fake/settings.n1-bgq-T-A-1")"
+    assert_eq "story-chain: finish and clean launches carry no story env" "0" \
+        "$(cat "$tmp/fake/settings.n1-bgq-T-A-1-fin" "$tmp/fake/settings.n1-bgq-T-A-1-clean" | grep -c N1_STORY_ || true)"
+    rm -rf "$tmp"
+}
+
 # N1-183: launcher wiring (setsid with nohup fallback, liveness busy guard, interrupted resume/status).
 test_lifecycle_wiring() {
     local s="$REPO_ROOT/skills/n1-queue"
@@ -491,6 +513,7 @@ test_bg_chain_blocked_guards
 test_bg_chain_restart
 test_bg_chain_reconcile
 test_bg_chain_row_home
+test_bg_chain_story_env_scoped
 test_lifecycle_wiring
 test_merge_wording
 

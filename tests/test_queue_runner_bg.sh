@@ -1070,14 +1070,9 @@ test_runner_story_branches() {
         "$([ "$(line_of "$tmp/queue.md" '## Story Branches')" -lt "$(line_of "$tmp/queue.md" '## Runs')" ] 2>/dev/null && echo yes || echo no)"
     assert_eq "story-run: no local story branch" "" "$(git -C "$tmp/repo" for-each-ref --format='%(refname)' refs/heads/story)"
     assert_eq "story-run: children launched" "yes" "$(grep -q '^launch ' "$tmp/fake/events" && echo yes || echo no)"
-    # N1-291: each n1-start child gets the story env; chained finish/clean launches (same settings fn) never do.
+    # N1-291: each n1-start child gets the story env (chained launches never do: test_bg_chain_story_env_scoped).
     assert_eq "story-run: child settings carry story env" "S-1,story/S-1" \
         "$(jq -r '[.env.N1_STORY_ID,.env.N1_STORY_BRANCH]|join(",")' "$tmp/fake/settings.n1-sq-T-A-1")"
-    assert_eq "story-run: only n1-start launches carry story env" "yes" "$(ok=yes
-        for p in "$tmp/fake"/prompt.*; do s="$tmp/fake/settings.${p##*/prompt.}"
-            if grep -q n1-start "$p"; then jq -e '.env.N1_STORY_BRANCH == "story/S-1"' "$s" >/dev/null || ok=no
-            else jq -e '.env | has("N1_STORY_BRANCH") | not' "$s" >/dev/null || ok=no; fi
-        done; echo "$ok")"
 
     # Resume: the branch exists on origin and has moved on; an interrupted run with no row recorded yet
     # reuses it (no reset, no force push) and records the mapping row (proves the block ran on resume).
