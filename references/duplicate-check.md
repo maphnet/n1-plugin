@@ -8,7 +8,7 @@ Searches the tracker for tickets that duplicate or relate to the work at hand. I
 - `SELF_ID`: the current ticket ID; empty in `create`
 - `OVERVIEW`: absolute overview.md path in `start`; empty otherwise
 
-**Returns:** `DUP_LINKS`, a list of `<HIT_ID>:<Duplicate|Relates>` — includes every `duplicate` hit auto-linked in `CONTEXT=start` (every autonomy mode), every `related` hit auto-linked whenever links are offered in `CONTEXT=start` or `create` (every autonomy mode; `queue-plan` applies its related links directly, § 4), plus any `duplicate` hit the user chose to link via the interactive prompt. On **Stop**, the caller follows its own stop instruction.
+**Returns:** `DUP_LINKS`, a list of `<HIT_ID>:<Duplicate|Relates>` — includes every `duplicate` hit auto-linked in `CONTEXT=start` (every autonomy mode), every `related` hit auto-linked whenever links are offered in `CONTEXT=start` or `create` (every autonomy mode; `queue-plan` applies its related links directly, § 4), plus any `duplicate` hit the user chose to link via the interactive prompt. On **Stop**, the caller follows its own stop instruction. On **Close as duplicate** (§ Close Duplicate), `queue-plan` returns `DUP_CHOICE=close` and `start` ends the run.
 
 ## § Check
 
@@ -68,21 +68,32 @@ Link mapping: duplicate → link type `Duplicate`; related → link type `Relate
 
 Links are offered only when `LINK_OP` is non-empty and a tracker ticket exists or is about to be created. That means `CONTEXT=create`, `CONTEXT=queue-plan` (candidates are tracker tickets), or `CONTEXT=start` when `SELF_ID` is a tracker ticket (ticket mode, or a ticket was created at intake). If `LINK_OP` is empty, add this line under the table: `Linking unavailable: operations.linkIssues not configured.`
 
+**Close is offered** only when `CONTEXT` is `queue-plan` or `start`, links are offered, `HEADLESS` is not `1`, and `DONE_STATUS`, `MOVE_OP` and `COMMENT_OP` are non-empty (when `TRACKER_TYPE` is Jira, `TRANS_OP` too). When `MATCHES` has `duplicate` rows and `CONTEXT` is `queue-plan` or `start`, read these values first (`queue-plan` enters here without the § 1 Gate):
+
+```bash
+source ~/.n1/preamble.sh
+printf 'TRACKER_MCP=%s\nTRACKER_TYPE=%s\nCLOUD_ID=%s\nCOMMENT_OP=%s\nHEADLESS=%s\n' "$(n1_config_val '.tracker.mcp')" "$(n1_config_val '.tracker.type')" "$(n1_config_val '.tracker.cloudId')" "$(n1_config_val '.tracker.operations.addComment')" "${N1_HEADLESS:-}"
+printf 'DONE_STATUS=%s\nMOVE_OP=%s\nTRANS_OP=%s\n' "$(n1_config_val '.tracker.statuses.done')" "$(n1_config_val '.tracker.operations.moveStatus')" "$(n1_config_val '.tracker.operations.getTransitions')"
+```
+
 Branch on the first rule that matches:
 
 1. **`CONTEXT=queue-plan`:** split `MATCHES` into duplicate rows and related rows.
    - **Related rows, when links are offered:** run § Apply Links now with `SOURCE_ID=<SELF_ID>` and one `<HIT_ID>:Relates` per related row; add `Auto-linked (related): <HIT_ID>[, <HIT_ID>...]` under the warning table. When links are not offered, leave them unlinked (the warning's `Linking unavailable` line already covers this).
    - **If no duplicate rows remain:** show the warning (related rows only) and continue with no prompt. Return `DUP_CHOICE` = `link` when related rows were auto-linked above, otherwise `continue`.
-   - **If duplicate rows remain:** show the warning (duplicate rows only) and ask the user (one question per candidate; name `SELF_ID` in it):
+   - **If duplicate rows remain:** if `HEADLESS=1`, do not ask and never close: return `DUP_CHOICE` = `link` when related rows were auto-linked above, otherwise `continue`. Otherwise show the warning (duplicate rows only) and ask the user (one question per candidate; name `SELF_ID` in it):
      1. **Continue**: keep the candidate in the queue, no link.
      2. **Continue and link**: keep it and run § Apply Links now with `SOURCE_ID=<SELF_ID>` and one `<HIT_ID>:Duplicate` per remaining duplicate row. Omit this option when links are not offered (see above).
-     3. **Exclude from this queue run**: the caller moves the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)`.
+     3. **Exclude from this queue run**: the caller moves the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)`. The ticket stays open and is not linked.
+     4. **Close as duplicate**: run § Close Duplicate with `SELF_ID` and the remaining duplicate rows' `HIT_ID`s; the caller moves the candidate to Excluded with reason `duplicate: <HIT_IDs> closed (plan)`. Omit this option when Close is not offered (see above).
 
-     Return `DUP_CHOICE` = `continue`, `link`, or `exclude`.
+     No recommendation. The options are equivalent given the available evidence; select based on team preference.
+
+     Return `DUP_CHOICE` = `continue`, `link`, `exclude`, or `close`. A failed § Close Duplicate returns `exclude`.
 
    Queue candidates have no `overview.md` and none is created here (it would make the child resume instead of start): § 5 does not run; the caller records the choice in the queue plan's `## Decisions` Notes cell.
 2. **`CONTEXT=queue`:** no prompt, no link, no exclusion. Append ` · possible duplicate: <ID>` or ` · related: <ID>` to the candidate's Reason for each match. Return.
-3. **Unattended** (`HEADLESS=1`, or `QE=auto-accept`): no prompt. Print the warning. If links are offered and `MATCHES` contains any `related` rows, also add `<HIT_ID>:Relates` to `DUP_LINKS` for each (`CONTEXT=start` applies it at § 5; `CONTEXT=create` callers apply it after creation) and add this line under the warning table: `Auto-linked (related): <HIT_ID>[, <HIT_ID>...]`. If `CONTEXT=start`, links are offered, and `MATCHES` contains any `duplicate` rows, set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. When links are not offered, nothing is linked — the warning's `Linking unavailable` line already covers that. If `CONTEXT=start`, `HEADLESS=1`, `COMMENT_OP` is non-empty, and `SELF_ID` is a tracker ticket, post a best-effort comment via `mcp__<TRACKER_MCP>__<COMMENT_OP>` on `SELF_ID`:
+3. **Unattended** (`HEADLESS=1`, or `QE=auto-accept` with `CONTEXT=create`): no prompt. Print the warning. If links are offered and `MATCHES` contains any `related` rows, also add `<HIT_ID>:Relates` to `DUP_LINKS` for each (`CONTEXT=start` applies it at § 5; `CONTEXT=create` callers apply it after creation) and add this line under the warning table: `Auto-linked (related): <HIT_ID>[, <HIT_ID>...]`. If `CONTEXT=start`, links are offered, and `MATCHES` contains any `duplicate` rows, set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. When links are not offered, nothing is linked — the warning's `Linking unavailable` line already covers that. If `CONTEXT=start`, `HEADLESS=1`, `COMMENT_OP` is non-empty, and `SELF_ID` is a tracker ticket, post a best-effort comment via `mcp__<TRACKER_MCP>__<COMMENT_OP>` on `SELF_ID`:
    ```
    N1 duplicate check: possible duplicate/related tickets found.
    Auto-linked: <HIT_ID> (duplicate|related)[, <HIT_ID> (duplicate|related)...], omit this line if none
@@ -90,7 +101,7 @@ Branch on the first rule that matches:
    ```
    A comment failure never blocks.
 4. **Interactive:** first, when links are offered (`CONTEXT=start` or `create`) and `MATCHES` contains any `related` rows, auto-link those without asking: add `<HIT_ID>:Relates` to `DUP_LINKS` for each (`start` applies it at § 5; `create` callers apply it after creation), and add this line under the warning table: `Auto-linked (related): <HIT_ID>[, <HIT_ID>...]`. When links are not offered, leave `related` rows unlinked — the warning's `Linking unavailable` line already covers that. Either way, `related` rows never prompt.
-   - `CONTEXT=start`, links offered, and `MATCHES` contains any `duplicate` rows: auto-link those without asking. Set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. Ask the user: **Continue** (default) or **Stop** (record (§ 5), then end the run with: "Stopped: <SELF_ID> overlaps <HIT_IDs>. Close or link it in the tracker; `/n1:n1-start <SELF_ID>` resumes and skips this check.").
+   - `CONTEXT=start`, links offered, and `MATCHES` contains any `duplicate` rows: auto-link those without asking. Set `DUP_LINKS` to `<HIT_ID>:Duplicate` for each (§ 5 applies it) and add this line under the warning table: `Auto-linked (duplicate): <HIT_ID>[, <HIT_ID>...]`. Ask the user: **Continue** (default) or **Stop** (record (§ 5), then end the run with: "Stopped: <SELF_ID> overlaps <HIT_IDs>. Close or link it in the tracker; `/n1:n1-start <SELF_ID>` resumes and skips this check."), or **Close as duplicate** (omit when Close is not offered): drop the `<HIT_ID>:Duplicate` entries from `DUP_LINKS` (Close links them itself), run § Close Duplicate with `SELF_ID` and the `duplicate` rows' `HIT_ID`s, record (§ 5), then return to the caller as **Stop** and end the run with: "Closed: <SELF_ID> duplicates <HIT_IDs>; it was closed in the tracker." If § Close Duplicate fails, take **Stop** instead; when it failed at `ids` or `link`, put the dropped entries back in `DUP_LINKS` first, so § 5 still applies the auto-links that Stop applied before this change. No recommendation. The options are equivalent given the available evidence; select based on team preference.
    - **Otherwise** (no `duplicate` rows remain, or `CONTEXT=create`, or links not offered): if no `duplicate` rows remain, continue with no further prompt — the `related` handling above already resolved everything. Otherwise show the warning (`duplicate` rows only) and ask the user:
      1. **Continue**: proceed without linking. This is the default when unattended.
      2. **Continue and link**: proceed and add to `DUP_LINKS` one `<HIT_ID>:Duplicate` per remaining `duplicate` match. Omit this option when links are not offered.
@@ -117,3 +128,16 @@ Skip any entry whose `HIT_ID` does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`; its `TY
 - **Jira:** `cloudId`, `inwardIssue: { key: <HIT_ID> }`, `outwardIssue: { key: <SOURCE_ID> }`, `type: { name: "<TYPE>" }`.
 
 A link failure only warns (`Could not link <SOURCE_ID> → <HIT_ID>: <error>`). Continue with the rest and never roll back.
+
+## § Close Duplicate
+
+**Parameters:** `SELF_ID`, `HIT_IDs` (the remaining `duplicate` rows' IDs). Uses `TRACKER_MCP`, `TRACKER_TYPE`, `CLOUD_ID`, `COMMENT_OP`, `MOVE_OP`, `TRANS_OP` and `DONE_STATUS` from § 4. Never runs when `HEADLESS=1`, and only after the user picked **Close as duplicate**.
+
+Drop any `HIT_ID` that does not match `^[A-Z][A-Z0-9_]*-[0-9]+$`. If none remain, or `SELF_ID` does not match it, this fails at step `ids`. Only the filtered IDs go into the links, the comment and the messages; hit summaries never do.
+
+Run in order and stop at the first failure:
+1. **Link:** § Apply Links with `SOURCE_ID=<SELF_ID>` and one `<HIT_ID>:Duplicate` per ID. Any `Could not link` warning counts as failure.
+2. **Comment:** `mcp__<TRACKER_MCP>__<COMMENT_OP>` on `SELF_ID` with `N1 duplicate check: closed as duplicate of <HIT_IDs>.`
+3. **Move:** move `SELF_ID` to `DONE_STATUS` with the lookup in `<N1_ROOT>/skills/n1-finish/steps/04-close-ticket.md` item 1 (Move status), including its skip when the ticket is already done. On Jira, no transition whose target is `DONE_STATUS` counts as failure.
+
+On success print `Closed <SELF_ID> as duplicate of <HIT_IDs>.` and return success. On failure warn `Could not close <SELF_ID>: <ids|link|comment|move>: <error>. Links or the comment already written stay; the ticket is still open.` Never print `Closed` after a failure. Return failure: `queue-plan` returns `DUP_CHOICE=exclude`, `start` takes **Stop**. Never roll back (same policy as § Apply Links).

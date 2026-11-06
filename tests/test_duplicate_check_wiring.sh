@@ -37,6 +37,27 @@ check "queue child skip also requires N1_HEADLESS=1 (SEC-L2)" "QUEUE_CHILD.*non-
 check "NP-230: YouTrack query uses explicit and with quoted keywords" "project: <PROJECT_KEY> and \\(" "$P"
 if grep -qE '\{kw1\} or \{kw2\}' "$P" 2>/dev/null; then echo "FAIL: NP-230: old brace-OR YouTrack query removed"; FAIL=1; else echo "PASS: NP-230: old brace-OR YouTrack query removed"; fi
 check "NP-230: retry once on YouTrack search error before skipping" "retry once with a simpler query" "$P"
+# N1-443: Close as duplicate (queue-plan and attended start only; never unattended)
+close_has() { # <label> <fixed-string>, searched inside § Close Duplicate only
+    if grep -qF -- "$2" <<<"$(sed -n '/^## § Close Duplicate/,$p' "$P")"; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
+}
+check "N1-443: procedure has Close Duplicate section" "^## § Close Duplicate" "$P"
+check "N1-443: Close reads tracker.statuses.done" "tracker\.statuses\.done" "$P"
+check "N1-443: Close offer requires HEADLESS not 1" "\*\*Close is offered\*\* only when .*\`HEADLESS\` is not \`1\`" "$P"
+check "N1-443: queue-plan prompt lists Close as duplicate" "4\. \*\*Close as duplicate\*\*: run § Close Duplicate" "$P"
+check "N1-443: queue-plan returns close" "\`exclude\`, or \`close\`" "$P"
+check "N1-443: queue-plan never prompts when HEADLESS=1" "If duplicate rows remain:\*\* if \`HEADLESS=1\`, do not ask and never close" "$P"
+check "N1-443: start prompt lists Close as duplicate" "or \*\*Close as duplicate\*\* \(omit when Close is not offered\)" "$P"
+check "N1-443: start Close failure restores the dropped duplicate links" "put the dropped entries back in \`DUP_LINKS\`" "$P"
+check "N1-443: QE auto-accept no longer skips the start prompt" "\*\*Unattended\*\* \(\`HEADLESS=1\`, or \`QE=auto-accept\` with \`CONTEXT=create\`\)" "$P"
+check "N1-443: new option lists carry the no-recommendation sentence" "No recommendation\. The options are equivalent given the available evidence; select based on team preference\." "$P"
+close_has "N1-443: Close points to the n1-finish done lookup" "skills/n1-finish/steps/04-close-ticket.md"
+close_has "N1-443: Close filters HIT_IDs" '^[A-Z][A-Z0-9_]*-[0-9]+$'
+close_has "N1-443: Close treats a link warning as failure" 'Any `Could not link` warning counts as failure'
+close_has "N1-443: Close never reports a failed close as closed" 'Never print `Closed`'
+close_has "N1-443: Close never runs unattended" 'Never runs when `HEADLESS=1`'
+if grep -qF 'Close as duplicate' <<<"$(sed -n '/^   - \*\*Otherwise\*\*/,/^### 5\. Record/p' "$P")"; then echo "FAIL: N1-443: create prompt has no Close option"; FAIL=1; else echo "PASS: N1-443: create prompt has no Close option"; fi
+if grep -qiE 'merge|closed by|will be closed' <<<"$(grep -F 'Exclude from this queue run' "$P")"; then echo "FAIL: N1-443: Exclude text does not claim a close by merge"; FAIL=1; else echo "PASS: N1-443: Exclude text does not claim a close by merge"; fi
 check "architecture.md documents the procedure" "references/duplicate-check\.md" references/architecture.md
 
 check "n1-ticket runs the check before creation" "duplicate-check\.md. § Check" skills/n1-ticket/steps/02-create.md
