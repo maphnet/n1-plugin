@@ -168,8 +168,16 @@ for f in steps runs; do
     case "$L" in *'"estimated_tier": "standard"'*|*'"estimated_tier":"standard"'*) ;; *) echo "FAIL: n1_close_run derives outcome and tier from overview.md, env wins ($f: tier not derived: $L)" >&2; exit 1 ;; esac
 done
 (unset ESTIMATED_TIER; FINAL_OUTCOME=escalated n1_close_run)
-grep envelope_close "$N1_HOME/memory/CL-D/telemetry/raw/steps/$CD.jsonl" | tail -1 | grep -q '"final_outcome":"escalated"' || { echo "FAIL: '+n+' (env outcome not kept)" >&2; exit 1; }
+grep envelope_close "$N1_HOME/memory/CL-D/telemetry/raw/steps/$CD.jsonl" | tail -1 | grep -q '"final_outcome":"escalated"' || { echo "FAIL: n1_close_run derives outcome and tier from overview.md, env wins (env outcome not kept)" >&2; exit 1; }
 echo 'PASS: n1_close_run derives outcome and tier from overview.md, env wins'
+
+# N1-434 SEC-1: quotes/backslashes in overview values still yield valid JSON
+ID=CL-E; n1_run_begin "$ID"; CE="$N1_RUN_ID"
+printf -- '---\ntier: "standard\\x"\n---\n# CL-E\n' > "$N1_HOME/memory/CL-E/overview.md"
+(unset FINAL_OUTCOME ESTIMATED_TIER; n1_close_run)
+L=$(grep envelope_close "$N1_HOME/memory/CL-E/telemetry/raw/steps/$CE.jsonl" | tail -1)
+if ! jq -e '.layer == "envelope_close"' <<< "$L" >/dev/null 2>&1; then echo "FAIL: n1_close_run escapes overview values in envelope_close (invalid JSON: $L)" >&2; exit 1; fi
+echo 'PASS: n1_close_run escapes overview values in envelope_close'
 
 # n1_step_begin with no bound run says so on stderr instead of dropping silently (N1-229)
 ERR=$(bash -c "source '$ROOT/lib/preamble.sh' >/dev/null 2>&1; unset N1_RUN_ID; ID=NP-NONE; n1_step_begin ticket 1" 2>&1 >/dev/null)

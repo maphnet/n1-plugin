@@ -153,8 +153,10 @@ n1_close_run() {
     t=$(n1_read_frontmatter "$ov" "type" 2>/dev/null || true)
     tr="${ESTIMATED_TIER:-$(n1_read_frontmatter "$ov" "tier" 2>/dev/null || true)}"
     o="${FINAL_OUTCOME:-$(n1_read_frontmatter "$ov" "final_outcome" 2>/dev/null || true)}"
-    if [ -z "$o" ] && [ -f "$ov" ] && awk '/^## /{p=($0=="## Pending");next} p&&/^(pr|pr_url):/{f=1} END{exit !f}' "$ov"; then o=pr_created; fi
-    echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$o"'","estimated_tier":"'"$tr"'","type":"'"$t"'"}' >> "$tdir/raw/steps/$N1_RUN_ID.jsonl"
+    if [ -z "$o" ] && [ -f "$ov" ] && awk '/^## /{p=($0 ~ /^## Pending[[:space:]]*$/);next} p&&/^(pr|pr_url):/{f=1} END{exit !f}' "$ov"; then o=pr_created; fi
+    printf '{"layer":"envelope_close","run_id":"%s","n1_version":"%s","ticket_id":"%s","completed_at":"%s","final_outcome":"%s","estimated_tier":"%s","type":"%s"}\n' \
+        "$(escape_json_val "$N1_RUN_ID")" "$(escape_json_val "$N1_VERSION")" "$(escape_json_val "$ID")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(escape_json_val "$o")" "$(escape_json_val "$tr")" "$(escape_json_val "$t")" >> "$tdir/raw/steps/$N1_RUN_ID.jsonl"
     bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "$tdir" 2>&1 || echo "⚠ Telemetry merge failed" >&2
     return 0
 }
