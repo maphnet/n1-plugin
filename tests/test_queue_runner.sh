@@ -2680,11 +2680,13 @@ test_queue_chain_wiring() {
     local c="$REPO_ROOT/scripts/n1-queue-chain.sh" f7="$REPO_ROOT/skills/n1-finish/steps/07-queue-chain.md"
     assert_eq "chain-wiring: push pinned by a lease on the fetched tip" 1 "$(grep -cF -- '--force-with-lease=refs/heads/$OWN:$old' "$c")"
     assert_eq "chain-wiring: no unleased force push" 0 "$(grep -E 'push' "$c" | grep -cE -- '(^|[[:space:]])(-f|--force)([[:space:]]|$)|[[:space:]]\+HEAD' || true)"
-    assert_eq "chain-wiring: final_prs runs the chain for a queue" 1 "$(grep -cF 'scripts/n1-queue-chain.sh" "$QUEUE"' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+    assert_eq "chain-wiring: final_prs runs the chain for a queue" 1 "$(grep -cF 'scripts/n1-queue-chain.sh" --own "queue/$RUN_STORY_ID" "$QUEUE"' "$REPO_ROOT/scripts/n1-queue-run.sh")"
     assert_eq "chain-wiring: n1-finish queue path points to step 7" yes \
         "$(grep -qF 'steps/07-queue-chain.md' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    assert_eq "chain-wiring: step 7 runs before the Step 6 summary" yes \
+        "$(grep -qF 'before Step 6 prints the summary' "$f7" && grep -qF 'then Step 6' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
     assert_eq "chain-wiring: step 7 runs --all and ignores its exit" yes \
-        "$(grep -qF 'scripts/n1-queue-chain.sh" --all || true' "$f7" && echo yes || echo no)"
+        "$(grep -qF 'scripts/n1-queue-chain.sh" --pred "<merged final PR url>" --all || true' "$f7" && echo yes || echo no)"
     assert_eq "chain-wiring: run.md documents it" yes \
         "$(grep -qF '**Queue chain (N1-447).**' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
     assert_eq "chain-wiring: architecture documents it" yes \
