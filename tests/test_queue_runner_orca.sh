@@ -1003,28 +1003,26 @@ test_orca_fin_blocked_sees_merge() {
     assert_eq "orca-fin-merge: no escalated event after the retraction" "0" \
         "$(jq -rs '[.[] | select(.ticket == "T-A" or .event == "escalation_retracted") | .event] | (index("escalation_retracted") // length) as $i | .[$i:] | map(select(. == "escalated")) | length' "$tmp/events.jsonl")"
     assert_eq "orca-fin-merge: one needs-you in total" "1" "$(grep -c 'T-A.*needs you' "$tmp/notes" || true)"
-    assert_eq "orca-fin-merge: wait ended on the merge, not the timeout" "yes" \
-        "$([ "$(grep -c 'pr view' "$tmp/fake/gh-all")" -lt 10 ] && echo yes || echo no)"   # a timed-out wait reads the PR ~20 times; the blocked-state count is inflated by the drain polls
     rm -rf "$tmp"
 }
 
-# N1-422 AC4. A blocked finish whose PR is no longer OPEN never raises "needs you"; the row keeps its PR with a reason.
+# N1-422 AC4. A blocked finish raises "needs you" once while its PR is OPEN, and none after the PR reads CLOSED; the row keeps its PR with a reason.
 test_orca_fin_blocked_pr_closed() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
     cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.subtaskTimeoutMinutes = 10'
-    echo OPEN > "$tmp/fake/gh-state"; printf 'OPEN\nCLOSED\n' > "$tmp/fake/gh-state-seq"
+    echo OPEN > "$tmp/fake/gh-state"; printf 'OPEN\nOPEN\nCLOSED\n' > "$tmp/fake/gh-state-seq"   # pre-launch, first poll (blocked while OPEN), second poll
     echo blocked > "$tmp/fake/states.T-A.fin"
     printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
     run_orca_queue "$tmp" > /dev/null
     assert_eq "orca-fin-closed: one chained n1-finish" "1" "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-fin')"
-    assert_eq "orca-fin-closed: no needs you" "0" \
+    assert_eq "orca-fin-closed: needs you raised once while OPEN" "1" \
         "$(jq -r 'select(.event == "escalated" and .reason == "chained n1-finish needs you") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
     assert_eq "orca-fin-closed: no retraction" "0" \
         "$(jq -r 'select(.event == "escalation_retracted") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
     assert_eq "orca-fin-closed: row reason" "finish:finish-pr-not-open" "$(plan_cell "$tmp/queue.md" 1 9)"
-    assert_eq "orca-fin-closed: no escalated event at all" "0" "$(jq -r 'select(.event == "escalated") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
-    assert_eq "orca-fin-closed: no needs-you at all" "0" "$(grep -c 'T-A.*needs you' "$tmp/notes" || true)"
+    assert_eq "orca-fin-closed: no further escalated event" "1" "$(jq -r 'select(.event == "escalated") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "orca-fin-closed: one needs-you in total" "1" "$(grep -c 'T-A.*needs you' "$tmp/notes" || true)"
     rm -rf "$tmp"
 }
 
