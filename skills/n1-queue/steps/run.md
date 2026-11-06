@@ -93,7 +93,7 @@ source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
 printf '%s\t%s\n' '<KEY1>' '<touches1>' '<KEY2>' '<touches2>' | n1_queue_overlap_order
 ```
-Rewrite the pending Plan rows (only — leave `held`/`skip`/`pr`/`escalated`/`failed`/`awaiting-human` rows exactly where they are) in the printed order and renumber their `#`. For each printed non-empty note, set that ticket's `## Decisions` Order cell (via `n1_queue_decisions_write_row`) and append ` · <note>` to its Reason. Record any reordering in the change summary below.
+Rewrite the pending Plan rows (only — leave `held`/`skip`/`pr`/`no-pr`/`escalated`/`failed`/`awaiting-human` rows exactly where they are) in the printed order and renumber their `#`. For each printed non-empty note, set that ticket's `## Decisions` Order cell (via `n1_queue_decisions_write_row`) and append ` · <note>` to its Reason. Record any reordering in the change summary below.
 
 Then rebuild the schedule and re-pin concurrency (N1-303). A re-plan is the only place `max_concurrent` changes. `SCHEDULE_WRITE=failed` (more than one `## Schedule` heading): print it and **STOP**:
 

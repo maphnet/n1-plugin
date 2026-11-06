@@ -37,8 +37,8 @@ n1_queue_finished_scan "$QUEUE_FILE"
 
 Read frontmatter `step` and `queue_id`. Print:
 - `Step: <step>` (plan/run/done/halted). `run` with a `halt_draining` event after the last `queue_started` event in events.jsonl means the queue halted and the runner still supervises live workers; `/n1:n1-queue --stop <id>` stops them.
-- For each ticket in the Plan with status `pr`, `escalated`, or `failed`: read `$N1_HOME_COL/memory/<TICKET>/overview.md` and extract `## Escalations` content (if any). Print escalations grouped by ticket.
-- Rows waiting for an answer: `awaiting-human` rows (their sessions are still alive), plus workspace-manager rows that are already `failed`/`pr`/`escalated` but whose worker asked a question afterwards. Print each resume or `--answer` command verbatim. Then print any `<ticket>: skipped worker message (dispatch-mismatch ...)` lines verbatim: the runner ignored those messages because they named a different dispatch than the ticket's row, so tell the user the worker may need checking.
+- For each ticket in the Plan with status `pr`, `no-pr`, `escalated`, or `failed`: read `$N1_HOME_COL/memory/<TICKET>/overview.md` and extract `## Escalations` content (if any). Print escalations grouped by ticket.
+- Rows waiting for an answer: `awaiting-human` rows (their sessions are still alive), plus workspace-manager rows that are already `failed`/`pr`/`no-pr`/`escalated` but whose worker asked a question afterwards. Print each resume or `--answer` command verbatim. Then print any `<ticket>: skipped worker message (dispatch-mismatch ...)` lines verbatim: the runner ignored those messages because they named a different dispatch than the ticket's row, so tell the user the worker may need checking.
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"
@@ -88,7 +88,7 @@ printf '{"queue_id":"%s","run_id":"%s","step":"%s","plan_decisions":%s,"autonomo
 
 ## Release queue tags
 
-Tag mode only (the helper prints nothing otherwise). Releases the tag for handed-off rows (`failed`, plus `pr`/`escalated` rows whose child-side release did not confirm):
+Tag mode only (the helper prints nothing otherwise). Releases the tag for handed-off rows (`failed`, plus `pr`/`no-pr`/`escalated` rows whose child-side release did not confirm):
 
 ```bash
 source ~/.n1/preamble.sh
