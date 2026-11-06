@@ -82,4 +82,18 @@ lacks "finalize: no contradictions line at 0" "$OUT" "Ticket contradictions"
 lacks "finalize: no context block when none returned" "$OUT" "CONTEXT_BLOCK<<"
 eq "finalize: records simple-path false" "simple-path false" "$(last_decision)"
 
+# --- step wiring: execute the step's own fences so the call text itself is tested ---
+STEP="$REPO_ROOT/skills/n1-start/steps/analysis.md"
+fence() { awk -v n="$2" '/^```bash$/{c++; if (c==n) {f=1; next}} /^```$/{f=0} f' "$1" | sed '\#^source ~/.n1/preamble.sh$#d'; }
+n1_step_begin() { :; }; n1_step_end() { :; }
+printf -- '---\ntier: simple\ntype: task\n---\n' > "$MEM/overview.md"
+printf '<!-- n1:signals description_quality=adequate -->\n' > "$MEM/ticket.md"
+OUT=$( eval "$(fence "$STEP" 1)" 2>&1 )
+has "wiring: entry fence prints LITE_MODE" "$OUT" "LITE_MODE=true CACHE_STATE="
+has "wiring: entry fence prints SA_MODEL" "$OUT" "SA_MODEL="
+fin_fixture simple; printf '%s\n' "$SA" > "$MEM/sa-return.md"
+OUT=$( eval "$(fence "$STEP" 3 | sed 's/<ticket URL, or empty>//')" 2>&1 )
+has "wiring: finalize fence reads sa-return.md" "$OUT" "SELF_RESOLVED=1 SIMPLE_PATH=true"
+has "wiring: finalize fence prints the context block" "$OUT" "CONTEXT_BLOCK<<"
+
 exit $FAIL
