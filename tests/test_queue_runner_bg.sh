@@ -1125,7 +1125,7 @@ test_runner_story_branches() {
     assert_eq "story-resume: one row recorded" "1" "$(count_x "$tmp2/queue.md" "| $tmp2/repo | story/S-1 |")"
     assert_eq "story-resume: one heading" "1" "$(count_x "$tmp2/queue.md" '## Story Branches')"
 
-    # Tag mode: no integration branch, no section.
+    # Tag mode with a recorded integration: none (mk_bg default): no integration branch, no section.
     tmp3=$(mktemp -d); sb_fixture "$tmp3" tag
     run_bg_queue "$tmp3" >/dev/null   # exit code not asserted: tag-mode finalize paths are not this ticket's concern
     assert_eq "story-tag: children launched" "yes" "$(grep -q '^launch ' "$tmp3/fake/events" && echo yes || echo no)"
@@ -1158,6 +1158,67 @@ test_runner_story_branches() {
     rm -rf "$tmp" "$tmp2" "$tmp3" "$tmp4"
 }
 
+# N1-446 AC1/AC2/AC6: a list queue of 2+ rows with merge off decides integration: queue at first start and cuts
+# queue/<QUEUE_ID>-<UTC stamp> before any launch; a resume reuses the recorded name and ignores a config flip;
+# one row or merge on decides none; story mode records no integration key.
+test_runner_queue_branches() {
+    local tmp tmp2 tmp3 tmp4 tmp5 tmp6 qb main
+    tmp=$(mktemp -d); qb_fixture "$tmp"
+    main=$(git -C "$tmp/origin" rev-parse main)
+    assert_eq "queue-run: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "queue-run: integration persisted" queue "$(n1_read_frontmatter "$tmp/queue.md" integration)"
+    assert_eq "queue-run: mode kept" list "$(n1_read_frontmatter "$tmp/queue.md" mode)"
+    qb=$(n1_queue_story_branch_get "$tmp/queue.md" "$tmp/repo")
+    assert_eq "queue-run: name queue/<QUEUE_ID>-<UTC stamp>" yes "$([[ "$qb" =~ ^queue/sq-[0-9]{8}T[0-9]{6}Z$ ]] && echo yes || echo no)"
+    assert_eq "queue-run: branch on origin at origin/main" "$main" "$(git -C "$tmp/origin" rev-parse -q --verify "refs/heads/$qb")"
+    assert_eq "queue-run: no story branch" "" "$(git -C "$tmp/origin" for-each-ref --format='%(refname)' refs/heads/story)"
+    assert_eq "queue-run: child settings carry the queue branch" "${qb#queue/},$qb" \
+        "$(jq -r '[.env.N1_STORY_ID,.env.N1_STORY_BRANCH]|join(",")' "$tmp/fake/settings.n1-sq-T-A-1")"
+
+    # Resume: recorded name reused, no second queue branch, a config flip to merge on does not re-decide.
+    tmp2=$(mktemp -d); qb_fixture "$tmp2" "$tmp/origin"
+    n1_write_frontmatter "$tmp2/queue.md" integration queue
+    n1_queue_story_branch_set "$tmp2/queue.md" "$tmp2/repo" "$qb"
+    n1_write_frontmatter "$tmp2/queue.md" run_id R1; n1_write_frontmatter "$tmp2/queue.md" step run
+    chain_setup "$tmp2" true true
+    run_bg_queue "$tmp2" >/dev/null
+    assert_eq "queue-resume: integration kept" queue "$(n1_read_frontmatter "$tmp2/queue.md" integration)"
+    assert_eq "queue-resume: name reused" "$qb" "$(n1_queue_story_branch_get "$tmp2/queue.md" "$tmp2/repo")"
+    assert_eq "queue-resume: one queue branch on origin" 1 "$(git -C "$tmp/origin" for-each-ref --format='%(refname)' refs/heads/queue | wc -l | tr -d ' ')"
+
+    # Tag mode with a free-text tag as QUEUE_ID: the branch id is reduced to the safe grammar, not halted on.
+    tmp6=$(mktemp -d); qb_fixture "$tmp6" "" ; sed -i 's/^mode: .*/mode: tag/' "$tmp6/queue.md"
+    n1_write_frontmatter "$tmp6/queue.md" queue_id 'n1+auto:x'
+    run_bg_queue "$tmp6" >/dev/null
+    assert_eq "queue-tag: id reduced to the safe grammar" yes \
+        "$([[ "$(n1_queue_story_branch_get "$tmp6/queue.md" "$tmp6/repo")" =~ ^queue/n1-auto-x-[0-9]{8}T[0-9]{6}Z$ ]] && echo yes || echo no)"
+    assert_eq "queue-tag: mode stays tag" tag "$(n1_read_frontmatter "$tmp6/queue.md" mode)"
+
+    # One row: integration none, no branch, no env.
+    tmp3=$(mktemp -d); qb_fixture "$tmp3"
+    sed -i '/| T-B |/d' "$tmp3/queue.md"
+    run_bg_queue "$tmp3" >/dev/null
+    assert_eq "queue-one-row: integration none" none "$(n1_read_frontmatter "$tmp3/queue.md" integration)"
+    assert_eq "queue-one-row: no queue branch" "" "$(git -C "$tmp3/origin" for-each-ref --format='%(refname)' refs/heads/queue)"
+    assert_eq "queue-one-row: no section" 0 "$(count_x "$tmp3/queue.md" '## Story Branches')"
+    assert_eq "queue-one-row: no story env in any launch" 0 "$(cat "$tmp3/fake"/settings.* 2>/dev/null | grep -c N1_STORY_ || true)"
+
+    # Merge on (fullAuto + mergeOnFinish): integration none, behaves as today.
+    tmp4=$(mktemp -d); qb_fixture "$tmp4"
+    chain_setup "$tmp4" true true
+    run_bg_queue "$tmp4" >/dev/null
+    assert_eq "queue-merge-on: integration none" none "$(n1_read_frontmatter "$tmp4/queue.md" integration)"
+    assert_eq "queue-merge-on: no queue branch" "" "$(git -C "$tmp4/origin" for-each-ref --format='%(refname)' refs/heads/queue)"
+
+    # Story mode: no integration decision is recorded (story_id drives it).
+    tmp5=$(mktemp -d); sb_fixture "$tmp5" story
+    sed -i '/^integration: /d' "$tmp5/queue.md"
+    run_bg_queue "$tmp5" >/dev/null
+    assert_eq "queue-story: no integration key" "" "$(n1_read_frontmatter "$tmp5/queue.md" integration)"
+    assert_eq "queue-story: story/S-1 recorded" story/S-1 "$(n1_queue_story_branch_get "$tmp5/queue.md" "$tmp5/repo")"
+    rm -rf "$tmp" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6"
+}
+
 test_bg_pr_lifecycle
 test_runner_three_strikes
 test_runner_all_pr
@@ -1167,6 +1228,7 @@ test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
 test_runner_list_mode_untagged
 test_runner_story_branches
+test_runner_queue_branches
 test_bg_sequential
 test_bg_awaiting
 test_bg_awaiting_alternatives

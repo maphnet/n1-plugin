@@ -1187,7 +1187,7 @@ test_story_branch_wiring() {
     _sbF() { grep -qF -- "$1" "$2" && echo yes || echo no; }
     assert_eq "story-branch wiring: run.md names the reader helper" "yes" "$(_sbF 'n1_queue_story_branch_get' "$r")"
     assert_eq "story-branch wiring: run.md quotes the halt" "yes" "$(_sbF 'HALTED: story branch story/<STORY_ID> could not be created or pushed in <repo>' "$r")"
-    assert_eq "story-branch wiring: runner emits that halt" "yes" "$(_sbF 'HALTED: story branch story/$STORY_ID could not be created or pushed in $SB_REPO' "$k")"
+    assert_eq "story-branch wiring: runner emits that halt" "yes" "$(_sbF 'HALTED: $RUN_MODE branch $RUN_MODE/$STORY_ID could not be created or pushed in $SB_REPO' "$k")"
 }
 
 # --- child status (NP-219 deploy flag no longer a queue outcome) ---

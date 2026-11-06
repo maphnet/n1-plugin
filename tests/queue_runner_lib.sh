@@ -120,6 +120,8 @@ case "$1" in
         # forge-story: the launched child rewrites queue.md to story mode (frontmatter + mapping for the repo in the file)
         [ -f "$D/forge-story" ] && sed -i -e '1a mode: story\nstory_id: S-1' \
             -e "/^## Runs\$/i ## Story Branches\n| Repo | Branch |\n|------|--------|\n| $(cat "$D/forge-story") | story/S-1 |\n" "$D/../queue.md"
+        # N1-446 forge-integration: the launched child rewrites queue.md integration to this file's content
+        [ -f "$D/forge-integration" ] && sed -i "s/^integration: .*/integration: $(cat "$D/forge-integration")/" "$D/../queue.md"
         printf '%s\n' "$all" > "$D/args.$name"
         printf '%s\n' "$settings" > "$D/settings.$name"
         pwd > "$D/cwd.$name"   # N1-293: the final PR session runs in the runner's worktree
@@ -218,6 +220,9 @@ FAKEEOF
         done
         printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n'
     } > "$tmp/queue.md"
+    # N1-446: fixtures pin the integration decision to none, so the many 2+ row merge-off fixtures (repo $tmp is no git
+    # clone) never cut a queue branch; queue tests remove the key (qb_fixture) or set queue (queue_merge_fixture).
+    n1_write_frontmatter "$tmp/queue.md" integration none
 }
 
 run_bg_queue() { # <tmp> — runs the runner with the fakes first on PATH; prints its exit code
@@ -581,6 +586,27 @@ story_restart_setup() {
     n1_write_frontmatter "$1/n1home/memory/T-A/overview.md" queue_run_id R1
     printf '%s\tstory/S-1\t%s\n' "$3" "$SM_PIN" > "$1/fake/gh-view.1"
     [ -z "$2" ] || printf 'R1\n%s\n' "$2" > "$1/.chained-T-A"
+}
+
+# --- N1-446: queue integration branch ----------------------------------------------
+# qb_fixture <tmp> [origin] — sb_fixture in list mode with no integration decision yet, so the first start decides it.
+qb_fixture() {
+    sb_fixture "$1" list "${2:-}"
+    sed -i '/^integration: /d' "$1/queue.md"
+}
+
+QB=queue/sq-20261106T000000Z   # the queue branch every queue_merge_fixture already recorded (resume path reuses its id)
+# queue_merge_fixture <tmp> <ticket:states>... — story_merge_fixture turned into a list queue that decided integration:
+# queue at an earlier start: no story_id, origin carries $QB, ## Story Branches records it, every PR OPEN on $QB at $SM_PIN.
+queue_merge_fixture() {
+    local tmp="$1" n=0 spec; shift
+    story_merge_fixture "$tmp" "$@"
+    git -C "$tmp/origin" branch "$QB"
+    sed -i '/^story_id: /d' "$tmp/queue.md"
+    n1_write_frontmatter "$tmp/queue.md" mode list
+    n1_write_frontmatter "$tmp/queue.md" integration queue
+    n1_queue_story_branch_set "$tmp/queue.md" "$tmp/repo" "$QB"
+    for spec in "$@"; do n=$((n + 1)); printf 'OPEN\t%s\t%s\n' "$QB" "$SM_PIN" > "$tmp/fake/gh-view.$n"; done
 }
 
 # --- N1-293: final story PR ----------------------------------------------------------
