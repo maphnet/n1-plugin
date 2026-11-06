@@ -767,9 +767,50 @@ test_queue_chain_three() {
     old=$(git -C "$tmp/origin" rev-parse "$QB")
     q3="$tmp/n1home/queue/q3/queue.md"; pred_queue "$tmp/n1home" q3 "$tmp/repo" queue/q3-20261107T000000Z
     n1_queue_pred_set "$q3" "$tmp/repo" "${QB#queue/}" "$QB" https://github.com/o/r/pull/9 "$old" "$old" waiting
+    n1_queue_pred_set "$q3" "$tmp/repoB" "${QB#queue/}" "$QB" https://github.com/o/r/pull/9 "$old" "$old" waiting
     run_chain "$tmp" >/dev/null
+    assert_eq "chain-3: other repo's row untouched" "$old" "$(n1_queue_preds "$q3" | awk -F'\t' -v r="$tmp/repoB" '$1 == r { print $6 }')"
     assert_eq "chain-3: Q3 Base kept, Head = Q2's new tip" "$old $(git -C "$tmp/origin" rev-parse "$QB") waiting" \
-        "$(n1_queue_preds "$q3" | awk -F'\t' '{ print $5, $6, $7 }')"
+        "$(n1_queue_preds "$q3" | awk -F'\t' -v r="$tmp/repo" '$1 == r { print $5, $6, $7 }')"
+    rm -rf "$tmp"
+}
+
+# N1-447 SEC-1/SEC-2/CR-2: a row that names a branch of another queue, a Base outside the predecessor PR, a PR other than
+# --pred, or a PR whose child is still open against the branch pushes nothing.
+test_queue_chain_bound() {
+    local tmp c want why q2 other args
+    for c in own base pred open; do
+        tmp=$(mktemp -d); qc_fixture "$tmp" "T-A:done"; n1_queue_row_status "$tmp/queue.md" 1 pr
+        args=(--own "$QB" "$tmp/queue.md"); want=stopped; why=""
+        case "$c" in
+            own) args=(--own queue/other-20261106T000000Z "$tmp/queue.md"); why="own queue branch" ;;
+            base) other=$(git -C "$tmp/origin" rev-parse "$QB"); git -C "$tmp/origin" update-ref refs/pull/5/head "$(git -C "$tmp/origin" rev-parse main)"
+                  printf 'MERGED\tmain\t%s\n' "$(git -C "$tmp/origin" rev-parse main)" > "$tmp/fake/gh-view.5"
+                  n1_queue_pred_set "$tmp/queue.md" "$tmp/repo" "$QC_ID" "$QC_P" https://github.com/o/r/pull/5 "$QC_BASE" "$(git -C "$tmp/origin" rev-parse main)" waiting
+                  why="base not in" ;;
+            pred) args=(--pred https://github.com/o/r/pull/77 --own "$QB" "$tmp/queue.md"); want=waiting ;;
+            open) echo '| T-A | 2026-01-01T00:00:00Z | | open | https://github.com/o/r/pull/1 | 00000009 |' >> "$tmp/queue.md"
+                  printf 'OPEN\tmain\t%040d\n' 3 > "$tmp/fake/gh-view.1"; want=waiting ;;
+        esac
+        q2=$(git -C "$tmp/origin" rev-parse "$QB")
+        assert_eq "chain-bound-$c: exit 0" 0 "$(run_chain "$tmp" "${args[@]}")"
+        assert_eq "chain-bound-$c: queue branch not pushed" "$q2" "$(git -C "$tmp/origin" rev-parse "$QB")"
+        assert_eq "chain-bound-$c: row $want" "$want" "$(n1_queue_preds "$tmp/queue.md" | cut -f7)"
+        [ -z "$why" ] || assert_eq "chain-bound-$c: reason recorded" yes "$(grep -qF "$why" "$tmp/chain.txt" && echo yes || echo no)"
+        rm -rf "$tmp"
+    done
+    tmp=$(mktemp -d); qc_fixture "$tmp" "T-A:done"; n1_queue_row_status "$tmp/queue.md" 1 pr
+    run_chain "$tmp" --pred https://github.com/o/r/pull/5 --own "$QB" "$tmp/queue.md" >/dev/null
+    assert_eq "chain-bound: matching --pred rebases" rebased "$(n1_queue_preds "$tmp/queue.md" | cut -f7)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); qc_fixture "$tmp" "T-A:done"; n1_queue_row_status "$tmp/queue.md" 1 pr
+    run_chain "$tmp" "$tmp/queue.md" >/dev/null
+    assert_eq "chain-bound: without --own the branch must match the queue dir name" stopped "$(n1_queue_preds "$tmp/queue.md" | cut -f7)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d); qc_fixture "$tmp" "T-A:done"; n1_queue_row_status "$tmp/queue.md" 1 pr
+    mkdir -p "$tmp/n1home/queue/sq" && cp "$tmp/queue.md" "$tmp/n1home/queue/sq/queue.md"
+    run_chain "$tmp" "$tmp/n1home/queue/sq/queue.md" >/dev/null
+    assert_eq "chain-bound: derived branch queue/<dir>-<stamp> accepted" rebased "$(n1_queue_preds "$tmp/n1home/queue/sq/queue.md" | cut -f7)"
     rm -rf "$tmp"
 }
 
@@ -1362,6 +1403,7 @@ test_queue_final_waits_predecessor
 test_queue_chain_rebase
 test_queue_chain_stops
 test_queue_chain_three
+test_queue_chain_bound
 test_queue_chain_run_e2e
 test_final_pr_ready
 test_final_pr_draft

@@ -696,11 +696,13 @@ qc_fixture() {
     n1_queue_pred_set "$tmp/queue.md" "$tmp/repo" "$QC_ID" "$QC_P" https://github.com/o/r/pull/5 "$QC_BASE" "$QC_BASE" waiting
     printf 'MERGED\tmain\t%s\n' "$QC_BASE" > "$tmp/fake/gh-view.5"
     echo "$QC_P" > "$tmp/fake/gh-headref.5"
+    git -C "$o" update-ref refs/pull/5/head "$QC_BASE"
 }
-# run_chain <tmp> [args...] — scripts/n1-queue-chain.sh (default arg <tmp>/queue.md) with the fakes; prints its exit code.
+# run_chain <tmp> [args...] — scripts/n1-queue-chain.sh (default args --own $QB <tmp>/queue.md) with the fakes; prints its exit code.
 run_chain() {
     local t="$1" rc=0; shift
+    [ $# -gt 0 ] || set -- --own "$QB" "$t/queue.md"
     env -u ORCA_CLI_COMMAND "${GIT_TEST_ID[@]}" FAKE_DIR="$t/fake" N1_HOME="$t/n1home" PATH="$t/bin:$PATH" \
-        bash "$REPO_ROOT/scripts/n1-queue-chain.sh" "${@:-$t/queue.md}" > "$t/chain.txt" 2>&1 || rc=$?
+        bash "$REPO_ROOT/scripts/n1-queue-chain.sh" "$@" > "$t/chain.txt" 2>&1 || rc=$?
     echo "$rc"
 }
