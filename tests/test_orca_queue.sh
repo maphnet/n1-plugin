@@ -424,6 +424,17 @@ printf '## Finish\npr_url: https://github.com/o/r/pull/7\n' >> "$OV"
 reset; stop
 has "stop: fullAuto with Finish block sends succeeded" "--outcome succeeded" "$(calls)"
 eq "stop: fullAuto Finish sent once" 1 "$(grep -c 'type worker_done' "$FAKE/calls")"
+# N1-470: a child that ended step done without a PR (investigation, prMode skip) never writes ## Finish; under
+# fullAuto+mergeOnFinish it still reports succeeded so its worker settles. step pr without pr_url stays silent (N1-53).
+rm -f "$N1_HOME/queue/sentinels/T-1.sent"
+printf -- '---\nstep: done\n---\n# T\n' > "$OV"
+reset; stop
+has "stop: fullAuto no-PR step done sends succeeded (N1-470)" "worker_done --outcome succeeded" "$(calls)"
+has "stop: no-PR subject names the status" "T-1 no-pr" "$(calls)"
+rm -f "$N1_HOME/queue/sentinels/T-1.sent"
+printf -- '---\nstep: pr\n---\n# T\n' > "$OV"
+reset; stop
+eq "stop: step pr without pr_url sends nothing (N1-53)" "" "$(grep worker_done "$FAKE/calls")"
 rm -f "$N1_HOME/queue/sentinels/T-1.sent"
 printf '{"autonomy":{"fullAuto":true}}' > "$N1_HOME/config.json"
 printf -- '---\nstep: done\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$OV"
