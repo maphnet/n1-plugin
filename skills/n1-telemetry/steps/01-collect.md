@@ -52,7 +52,6 @@ For each threshold in the system, report:
 | `files_changed < 3` for plan skip | < 3 | X% of runs | review pass: Y% | keep / tighten / loosen |
 | `lines_changed < 50` for reviewer downgrade | < 50 | X% | review pass: Y% | keep / tighten / loosen |
 | `blast_radius: low` for security skip | low | X% | (manual check) | keep / tighten |
-| `design_clarity: high` for plan skip | high | X% | fix cycles: Y | keep / tighten / loosen |
 
 **Recommendation logic:**
 - If outcome is WORSE when threshold triggers: recommend **tighten** (make harder to trigger)

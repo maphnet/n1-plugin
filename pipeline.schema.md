@@ -11,7 +11,7 @@ bounds. `docs/` is gitignored, so this schema lives beside the data file.
 |-------|------|-------------|
 | `version` | int | Schema version. |
 | `model_policy` | object | The model-role escalation order used by model resolution. |
-| `downgrade_triggers` | object | Signal conditions that downgrade an agent's model tier (`<agent>:<step>` → `{condition, tier}`). |
+| `downgrade_triggers` | object | Signal conditions that downgrade an agent's model tier (`<agent>:<step>` → `{condition, tier}`). Optional; none defined by default. |
 | `escalation_triggers` | object | Signal conditions that escalate an agent's model tier (`<agent>:<step>` → `{condition, tier}`). |
 | `types` | object | Pipeline type registry: per-type step sequence, detection rules, and optional `step_overrides`. |
 | `steps` | array | The canonical pipeline steps. |
