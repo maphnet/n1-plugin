@@ -114,6 +114,7 @@ Verdict required on two dimensions:
 
 Critical/Important findings block approval. Minor findings are noted but do not block.
 Flag "⚠️ Cannot verify from diff" for requirements in unchanged code or spanning tasks.
+Return findings inline in your reply; write no file.
 ```
 
 ---
@@ -128,6 +129,7 @@ Open findings from prior review:
 
 **Scope:** verify only the fix diff (FIX_BASE to HEAD). For each finding: ADDRESSED or NOT ADDRESSED.
 Flag new Critical/Important breakage in the fix diff only. Out-of-scope observations go to deferred list.
+Return findings inline in your reply; write no file.
 ```
 
 ---

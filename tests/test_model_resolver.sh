@@ -307,6 +307,49 @@ JSON
 }
 test_f
 
+# ---------------------------------------------------------------------------
+# Test (g): N1-469 — no planner:plan downgrade trigger; planner routing ignores design_clarity.
+# ---------------------------------------------------------------------------
+test_g() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' RETURN
+
+    echo '{"models":{}}' > "${tmpdir}/config.json"
+    local saved_n1_home="${N1_HOME:-}" saved_id="${ID:-}"
+    local TEST_CONFIG="${tmpdir}/config.json"
+    n1_config_file() { echo "$TEST_CONFIG"; }
+
+    assert_eq "pipeline.json has no planner:plan downgrade trigger" "" \
+        "$(jq -r '.downgrade_triggers["planner:plan"] // empty' "${REPO_ROOT}/pipeline.json")"
+
+    export N1_HOME="" ID=""
+    local base
+    base=$(n1_resolve_model planner plan) || true
+
+    local mem_dir="${tmpdir}/memory/PLAN-1"
+    mkdir -p "$mem_dir"
+    cat > "${mem_dir}/brainstorm.md" <<'MD'
+# Design
+
+<!-- n1:signals
+design_clarity: high
+files_changed: 2
+-->
+MD
+    export N1_HOME="$tmpdir" ID="PLAN-1"
+    local with_signals
+    with_signals=$(n1_resolve_model planner plan) || true
+
+    n1_config_file() { echo "$(n1_home)/config.json"; }
+    [ -n "$saved_n1_home" ] && export N1_HOME="$saved_n1_home" || export N1_HOME=""
+    [ -n "$saved_id"      ] && export ID="$saved_id"      || export ID=""
+
+    assert_eq "planner:plan baseline is the persona model" "opus" "$base"
+    assert_eq "planner:plan with design_clarity=high equals baseline" "$base" "$with_signals"
+}
+test_g
+
 echo "---"
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
