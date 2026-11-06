@@ -152,6 +152,26 @@ test_orca_stop_notice_then_resume_no_chain() {
     rm -rf "$tmp"
 }
 
+# N1-422 review. Bug caught: DEFERRED lived only in memory, so after a runner restart a released dispatch reading
+# exited/done passed the settlement guard and chained n1-finish while the worker could still resume.
+test_orca_stop_notice_deferral_survives_restart() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running unverifiable)"
+    echo OPEN > "$tmp/fake/gh-state"; touch "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    orca_msg escalation task-T-A m-stop1 finished "Worker stopped without reporting" "Worker ended its turn" > "$tmp/fake/q.stop"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/q.stop" "$tmp/fake/question" > "$tmp/fake/at.3"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=4 > /dev/null
+    assert_eq "orca-defer-restart: marker persisted" "1" "$(ls "$tmp"/.deferred-* 2>/dev/null | wc -l | tr -d ' ')"
+    rm -f "$tmp/fake/at.3"
+    wl_set "$tmp" "$(wl_row T-A released)"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=4 > /dev/null
+    assert_eq "orca-defer-restart: no chained n1-finish" "0" "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-fin')"
+    rm -rf "$tmp"
+}
+
 test_orca_owed_holds_slot
 test_orca_notifier_drain_keeps_rows
 test_orca_event_drain_keeps_events
@@ -161,6 +181,7 @@ test_orca_stop_finished_releases_pr_slot
 test_orca_stop_finished_same_tick_releases
 test_orca_stop_finished_keeps_in_progress
 test_orca_stop_notice_then_resume_no_chain
+test_orca_stop_notice_deferral_survives_restart
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

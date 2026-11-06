@@ -1042,6 +1042,21 @@ test_orca_fin_working_merge_waits() {
     rm -rf "$tmp"
 }
 
+# N1-422 review. Bug caught: after MERGED any non-working state, including a transient "missing", ended the wait and
+# let the runner's cleanup overlap a finish session that was still cleaning up. Missing keeps the BG_POLL_GRACE.
+test_orca_fin_merged_missing_grace() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.subtaskTimeoutMinutes = 10'
+    echo OPEN > "$tmp/fake/gh-state"; printf 'OPEN\nMERGED\n' > "$tmp/fake/gh-state-seq"
+    echo "working missing working done" > "$tmp/fake/states.T-A.fin"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    assert_eq "orca-fin-merged-missing: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-fin-merged-missing: n1-clean launches only after the finish session ended" "working missing working done" \
+        "$(grep -B4 'launch n1-oq-T-A-1-clean' "$tmp/fake/events" | grep -v launch | sed 's/.* //' | paste -sd' ')"
+    rm -rf "$tmp"
+}
+
 test_orca_fallback_bg() {   # AC5: Orca available but not used, or unusable -> claude --bg exactly as before
     local tmp c rc want
     for c in backend-bg run-create-fails runtime-down; do
@@ -1342,6 +1357,7 @@ test_orca_chain_after_settle
 test_orca_fin_blocked_sees_merge
 test_orca_fin_blocked_pr_closed
 test_orca_fin_working_merge_waits
+test_orca_fin_merged_missing_grace
 test_orca_fallback_bg
 test_orca_tick_cap
 test_orca_exit_trace_signals

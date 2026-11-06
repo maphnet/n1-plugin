@@ -998,10 +998,11 @@ chain_finish() {
         if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
             fails=0
             st=$(n1_queue_bg_state "$agents" "$fsid")
-            [ -n "$mg" ] && [ "$st" != working ] && { why=finish-merged; break; }
+            [ -n "$mg" ] && [ "$st" != working ] && [ "$st" != missing ] && { why=finish-merged; break; }
             case "$st" in
                 done|failed) why=finish-stopped; break ;;
-                missing) miss=$((miss + 1)); [ "$miss" -ge "$BG_POLL_GRACE" ] && { why=finish-not-listed; break; } ;;
+                # a missing session keeps the grace even after MERGED (it may still be cleaning up)
+                missing) miss=$((miss + 1)); [ "$miss" -ge "$BG_POLL_GRACE" ] && { why=finish-not-listed; [ -n "$mg" ] && why=finish-merged; break; } ;;
                 blocked)
                     # N1-422: on Orca a blocked finish needs a human only while its PR is still OPEN.
                     if [ -z "$asked" ] && { [ -z "${ORCA_RUN:-}" ] || [ "$pst" = OPEN ]; }; then
@@ -1272,10 +1273,12 @@ orca_settle() {
     if [ "${2:-}" = defer ]; then
         [[ "$OWED" == *" $TASK "* && "$DEFERRED" != *" $TASK "* ]] || return
         DEFERRED="$DEFERRED$TASK "
+        printf '%s\n' "$DISP" > "$N1_QUEUE_DIR/.deferred-${TASK//\//_}"   # survives a runner restart (restored with OWED)
         n1_orca_release "$DISP"
         return
     fi
     SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"; DEFERRED="${DEFERRED// $TASK / }"
+    rm -f "$N1_QUEUE_DIR/.deferred-${TASK//\//_}"
     n1_orca_release "$DISP"
     ROW=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t' | tail -1)
     if [ -n "$ROW" ]; then
@@ -1334,6 +1337,9 @@ run_orca() {
         SID=$(n1_queue_session_id "$QUEUE" "$TICKET"); case "$SID" in orca:*/*) TASK="${SID#orca:}"; TASK="${TASK%%/*}" ;; *) continue ;; esac
         if [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$N1H" "$TICKET")" N1_ORCA_TASK)" = "$TASK" ]; then
             OWED="$OWED$TASK "
+            # a released dispatch stays deferred across a restart, so its exited/done row cannot start the finish
+            IFS=$'\t' read -r _ DISP <<< "$(orca_row_of_task "$TASK")"
+            [ -n "$DISP" ] && [ "$(cat "$N1_QUEUE_DIR/.deferred-${TASK//\//_}" 2>/dev/null)" = "$DISP" ] && DEFERRED="$DEFERRED$TASK "
         elif [ "$RUN_MODE" = story ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ]; then
             # CR-1: a settled story row whose merge was refused or interrupted is re-evaluated on resume, as the bg
             # restart sweep does. An existing marker is interpreted by chain_finish (pending re-merges, done records an
