@@ -195,7 +195,7 @@ _n1_queue_bg_settings() {
     # N1-291: caller env N1_STORY_ID/N1_STORY_BRANCH (story-mode child launch only) are appended when the branch is set.
     jq -cn --arg run "$1" --arg parent "$(n1_session_id)" --arg tag "${N1_QUEUE_TAG:-}" --arg dir "${N1_QUEUE_DIR:-}" \
         --arg sid "${N1_STORY_ID:-}" --arg sb "${N1_STORY_BRANCH:-}" \
-        '{env:({N1_HEADLESS:"1",N1_AUTONOMY_PRESET:"autonomous",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"} + (if $sb == "" then {} else {N1_STORY_ID:$sid,N1_STORY_BRANCH:$sb} end)),worktree:{bgIsolation:"none"}}'
+        '{env:({N1_HEADLESS:"1",N1_QUEUE_RUN_ID:$run,N1_QUEUE_TAG:$tag,N1_QUEUE_DIR:$dir,N1_PARENT_SESSION_ID:$parent,N1_UNATTENDED:"ask"} + (if $sb == "" then {} else {N1_STORY_ID:$sid,N1_STORY_BRANCH:$sb} end)),worktree:{bgIsolation:"none"}}'
 }
 
 n1_queue_child_cmd() {

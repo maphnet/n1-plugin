@@ -268,94 +268,10 @@ n1_resolve_agent() {
     printf '%s\t\n' "$(n1_resolve_model "$1" "${2:-}")"
 }
 
-
-n1_autonomy_val() {
-    # Usage: n1_autonomy_val <key>
-    # Reads autonomy.mode from config and derives the sub-key value.
-    # Falls back to legacy individual key when autonomy.mode is absent.
-    # Unset config -> hands-off defaults (convention over configuration).
-    local key="$1"
-
-    # Env override: N1_AUTONOMY_PRESET=autonomous -> hands-off values
-    if [ "${N1_AUTONOMY_PRESET:-}" = "autonomous" ]; then
-        case "$key" in
-            brainstorm)         printf 'auto';        return ;;
-            mechanicalPrompts)  printf 'auto';        return ;;
-            qualityEscalations) printf 'auto-accept'; return ;;
-            acceptanceGate)     printf 'auto';        return ;;
-            escalationMargin)   printf '0.05';        return ;;
-        esac
-    fi
-
-    # Read the consolidated mode key
-    local mode
-    mode=$(n1_config_val '.autonomy.mode')
-
-    if [ -n "$mode" ]; then
-        # New-style config: derive sub-key from mode
-        case "$mode" in
-            hands-off)
-                case "$key" in
-                    brainstorm)         printf 'auto';        return ;;
-                    mechanicalPrompts)  printf 'auto';        return ;;
-                    qualityEscalations) printf 'auto-accept'; return ;;
-                    acceptanceGate)     printf 'auto';        return ;;
-                    escalationMargin)   printf '0.05';        return ;;
-                esac
-                ;;
-            interactive)
-                case "$key" in
-                    brainstorm)         printf 'interactive'; return ;;
-                    mechanicalPrompts)  printf 'ask';         return ;;
-                    qualityEscalations) printf 'block';       return ;;
-                    acceptanceGate)     printf 'ask';         return ;;
-                    escalationMargin)   printf '0.15';        return ;;
-                esac
-                ;;
-        esac
-    fi
-
-    # Legacy fallback: autonomy.mode absent -> read individual key
-    local val
-    val=$(n1_config_val ".autonomy.${key}")
-    if [ -n "$val" ]; then
-        printf '%s' "$val"
-        return
-    fi
-
-    # Unset config -> hands-off defaults
-    case "$key" in
-        brainstorm)         printf 'auto' ;;
-        mechanicalPrompts)  printf 'auto' ;;
-        qualityEscalations) printf 'auto-accept' ;;
-        acceptanceGate)     printf 'auto' ;;
-        escalationMargin)   printf '0.05' ;;
-        *)                  printf '' ;;
-    esac
-}
-
-n1_emit_autonomy_deprecation_note() {
-    # Prints a one-line deprecation note if the config contains individual
-    # autonomy sub-keys but no autonomy.mode key.
-    # Returns 0 if a note was printed, 1 if not.
-    local config_file="${1:-$(n1_config_file)}"
-    [ -f "$config_file" ] || return 1
-    # Check for autonomy.mode presence
-    local mode
-    mode=$(n1_config_val '.autonomy.mode' "$config_file")
-    [ -n "$mode" ] && return 1  # New-style config — no note needed
-    # Check for any legacy autonomy sub-keys
-    local has_legacy
-    has_legacy=$(n1_config_val '.autonomy.brainstorm' "$config_file")
-    [ -z "$has_legacy" ] && has_legacy=$(n1_config_val '.autonomy.mechanicalPrompts' "$config_file")
-    [ -n "$has_legacy" ] || return 1
-    printf 'N1: autonomy config uses legacy keys (brainstorm, mechanicalPrompts, …). They still work — add "autonomy": {"mode": "hands-off"} to silence this note.\n'
-    return 0
-}
-
 n1_plan_approval_required() {
-    # Prints true/false; exit code agrees (0 only when true). The autonomous env preset always disables the plan checkpoint.
-    if [ "${N1_AUTONOMY_PRESET:-}" = "autonomous" ]; then printf 'false'; return 1; fi
+    # Prints true/false; exit code agrees (0 only when true).
+    # Headless runs (N1_HEADLESS=1, e.g. queue children) have no user to answer Gate 2, so the plan checkpoint is always off there.
+    if [ "${N1_HEADLESS:-}" = "1" ]; then printf 'false'; return 1; fi
     local v; v=$(n1_config_val '.planReview.requirePlanApproval')
     [ "$v" = "true" ] && printf 'true' || printf 'false'
     [ "$v" = "true" ]

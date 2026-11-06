@@ -166,8 +166,6 @@ if [ "${TRIGGER:-}" = "compact" ] && [ -z "$AGENT_ID" ]; then
                 ov_ticket_url=$(n1_read_frontmatter "$ov_file" "ticket_url")
             fi
 
-            auto_mode=$(n1_config_val '.autonomy.mode' "$CONFIG_FILE")
-            auto_mode="${auto_mode:-hands-off (default)}"
             gate_local=$(n1_config_val '.localTesting.enabled' "$CONFIG_FILE")
 
             # N1-404: memory dir + files, newest open escalation, pending queue question file, recorded containers still
@@ -198,7 +196,6 @@ ORCHESTRATOR STATE (orchestrator session only — restored after compaction; aut
 - Worktree: ${ar_worktree:-none}
 - Branch: ${ar_branch:-unknown}
 - Loop counters: qa_fix_cycle=${ov_qa_fix:-0}, review_fix_cycle=${ov_review_fix:-0}, clean_passes=${ov_clean_passes:-0}, local_test_fix_cycle=${ov_lt_fix:-0}, ci_fix_cycle=${ov_ci_fix:-0}
-- Autonomy: mode=${auto_mode}
 - Config gates: localTesting.enabled=${gate_local:-true}
 - Task context: ${ov_context}
 - Ticket URL: ${ov_ticket_url}
@@ -214,15 +211,6 @@ fi
 context="N1 is configured for this project. For task work, PR creation, and code review — always prefer N1 skills (/n1:n1-start, /n1:n1-pr, /n1:n1-review, /n1:n1-ci) over alternatives. When the user starts or requests an N1 run (/n1:n1-start, /n1:n1-pr, n1-queue), that is their explicit request to commit, push the feature branch, and create the PR — do not ask to confirm; this does not authorize merge (unless the fullAuto chain applies), release, or pushing the default branch, and all escalation, release, headless, and error gates still apply.
 
 ${HOST_BLOCK}"
-
-# Emit deprecation note when legacy autonomy keys are in use
-AUTONOMY_DEPRECATION=""
-AUTONOMY_DEPRECATION=$(n1_emit_autonomy_deprecation_note "$CONFIG_FILE" 2>/dev/null || true)
-if [ -n "$AUTONOMY_DEPRECATION" ]; then
-    context="${context}
-
-NOTE: ${AUTONOMY_DEPRECATION}"
-fi
 
 tracker_mcp=$(n1_config_val '.tracker.mcp' "$CONFIG_FILE")
 tracker_type=$(n1_config_val '.tracker.type' "$CONFIG_FILE")

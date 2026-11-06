@@ -269,7 +269,7 @@ n1_orca_usage_stalled() {
 # worker-start has no env flag, so an Orca child would run as an interactive session (merge guard off, a question
 # TUI nobody answers). The runner writes $N1_HOME/queue/sentinels/<ticket>.env before worker-start; SessionStart
 # persists it for Bash commands via CLAUDE_ENV_FILE and every hook loads it into its own process.
-N1_ORCA_SENTINEL_KEYS="N1_HEADLESS N1_AUTONOMY_PRESET N1_UNATTENDED N1_QUEUE_RUN_ID N1_QUEUE_TAG N1_QUEUE_DIR N1_PARENT_SESSION_ID N1_ORCA_REPO N1_ORCA_RUN N1_ORCA_TASK N1_ORCA_DISPATCH N1_ORCA_RESUME N1_STORY_ID N1_STORY_BRANCH"
+N1_ORCA_SENTINEL_KEYS="N1_HEADLESS N1_UNATTENDED N1_QUEUE_RUN_ID N1_QUEUE_TAG N1_QUEUE_DIR N1_PARENT_SESSION_ID N1_ORCA_REPO N1_ORCA_RUN N1_ORCA_TASK N1_ORCA_DISPATCH N1_ORCA_RESUME N1_STORY_ID N1_STORY_BRANCH"
 
 n1_orca_sentinel_path() { printf '%s/queue/sentinels/%s.env' "$1" "$2"; }   # <n1-home> <ticket>
 # <ticket> — fixed, git-independent pointer to the ticket's N1 home: the loader never resolves the home through git
@@ -298,7 +298,7 @@ n1_orca_sentinel_write() {
     mkdir -p "${f%/*}" && t=$(mktemp "$f.XXXXXX") || return 1
     chmod 600 "$t"
     {
-        printf 'N1_HEADLESS=1\nN1_AUTONOMY_PRESET=autonomous\nN1_UNATTENDED=ask\n'
+        printf 'N1_HEADLESS=1\nN1_UNATTENDED=ask\n'
         printf 'N1_QUEUE_RUN_ID=%s\nN1_QUEUE_TAG=%s\nN1_QUEUE_DIR=%s\nN1_PARENT_SESSION_ID=%s\n' \
             "$4" "${N1_QUEUE_TAG:-}" "${N1_QUEUE_DIR:-}" "$(n1_session_id 2>/dev/null)"
         # N1-291: story-mode child only (runner prefix-assigns both); a non-story file is unchanged.
