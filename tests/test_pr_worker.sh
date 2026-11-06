@@ -53,6 +53,8 @@ for N1H in "" 1; do
         eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:tail-worker denied" 2 "$(polx n1:tail-worker $tool n1:tail-worker)"
         eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:code-reviewer allowed" 0 "$(polx n1:tail-worker $tool n1:code-reviewer)"
         eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:developer allowed" 0 "$(polx n1:tail-worker $tool n1:developer)"
+        eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:post-deploy-verifier allowed" 0 "$(polx n1:tail-worker $tool n1:post-deploy-verifier)"
+        eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:tech-writer denied" 2 "$(polx n1:tail-worker $tool n1:tech-writer)"
     done
     for a in general-purpose n1:tech-writer n1:developer; do
         eq "authorized[headless=$N1H]: $a gh pr merge denied" 2 "$(polx $a Bash 'gh pr merge 7')"
