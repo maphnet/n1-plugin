@@ -10,22 +10,16 @@ KEYS=""; BAD=""
 for ITEM in '<ITEM_1>' '<ITEM_2>'; do
   case "$ITEM" in http://*|https://*) K=$(n1_extract_ticket_from_url "$ITEM" "$N1_HOME/config.json") || K="" ;; *) K="$ITEM" ;; esac
   if [[ "$K" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]]; then case " $KEYS " in *" $K "*) ;; *) KEYS="$KEYS $K" ;; esac
-  else BAD="$BAD $ITEM"; fi
+  else BAD="$BAD ${ITEM//[^A-Za-z0-9._:-]/_}"; fi
 done
 echo "KEYS=$KEYS"; echo "BAD=$BAD"
 ```
 
-`KEYS` keeps the given order with duplicates dropped. Each `BAD` item (and each item containing `'`) is excluded with reason `invalid ticket key` (intake.md § List mode) and is never read or used in a path.
+`KEYS` keeps the given order with duplicates dropped. Each `BAD` item (and each item containing `'`) is excluded with reason `invalid ticket key` (intake.md § List mode) and is never read or used in a path. `BAD` holds the sanitized form (every character outside `A-Za-z0-9._:-` replaced by `_`); write only that form to queue.md, never the raw item, because the runner parses `|` in any queue.md line. For an item containing `'`, write `(invalid item)`.
 
 2. **Mixed input.** List items together with `--tag` or `--story`: print "Pass one input: a ticket list, --tag or --story." **STOP.**
 
-3. **No input.** No list item, no `--tag` and no `--story`: under `--unattended` print "No input: pass ticket IDs, --tag <tag> or --story <ID>." **STOP.** Otherwise ask the user the question below, then apply items 1-2 to the reply once. Still no input: **STOP.**
-
-   > Which tickets should this queue run?
-   > No recommendation. The options are equivalent given the available evidence; select based on team preference.
-   > 1. Ticket IDs or tracker URLs, e.g. `N1-12 N1-15`
-   > 2. `--tag <tag>`
-   > 3. `--story <ID>`
+3. **No input.** No list item, no `--tag` and no `--story`: under `--unattended` print "No input: pass ticket IDs, --tag <tag> or --story <ID>." **STOP.** Otherwise ask the user one free-text question with no selectable options: "Which tickets should this queue run? Reply with ticket IDs or tracker URLs (`<KEY-1> <KEY-2>`), `--tag <tag>` or `--story <ID>`." Apply items 1-2 to the reply once. Still no input: **STOP.**
 
 4. **No valid key.** List items were given but `KEYS` is empty: print "No valid ticket keys in the list." **STOP.**
 

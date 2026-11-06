@@ -1988,8 +1988,7 @@ test_list_input_wiring() {
         "$(hasF 'No input: pass ticket IDs, --tag <tag> or --story <ID>.' "$in")"
     assert_eq "list-input: mixed input stops" "yes" "$(hasF 'Pass one input: a ticket list, --tag or --story.' "$in")"
     assert_eq "list-input: no valid key stops" "yes" "$(hasF 'No valid ticket keys in the list.' "$in")"
-    assert_eq "list-input: missing-input prompt says No recommendation" "yes" \
-        "$(hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$in")"
+    assert_eq "list-input: missing-input prompt is free text, not an option list" "no" "$(has '^   > [0-9]\. ' "$in")"
     assert_eq "list-input: intake has List mode" "yes" "$(has '^## List mode$' "$s/steps/intake.md")"
     assert_eq "list-input: list mode skips the already-run check" "yes" \
         "$(sed -n '/^## List mode$/,/^## /p' "$s/steps/intake.md" | grep -qF 'no already-run check' && echo yes || echo no)"
@@ -2011,11 +2010,11 @@ test_list_input_wiring() {
     # Run the item-1 resolve loop from input.md with real items and a stubbed URL extractor.
     local blk out
     blk=$(awk '/^```bash$/{b="";f=1;next} /^```$/{if(f&&b~/for ITEM in/){printf "%s",b;exit}f=0} f{b=b $0 "\n"}' "$in" | grep -v '^source ')
-    blk=${blk/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'N1-2' 'N1-2' 'N1-12' 'N1-1' 'notakey' 'https://x/browse/N1-7' 'https://x/bad' 'n1-5'"}
+    blk=${blk/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'N1-2' 'N1-2' 'N1-12' 'N1-1' 'notakey' 'https://x/browse/N1-7' 'https://x/bad' 'n1-5' 'a|PWN-1|x'"}
     out=$(n1_extract_ticket_from_url() { case "$1" in */browse/*) echo "${1##*/}" ;; *) return 1 ;; esac; }
         N1_HOME=/nonexistent; eval "$blk")
     assert_eq "list-input: loop keeps order, dedupes, resolves URLs" "KEYS= N1-2 N1-12 N1-1 N1-7" "$(grep '^KEYS=' <<<"$out")"
-    assert_eq "list-input: loop sends invalid keys and failed URLs to BAD only" "BAD= notakey https://x/bad n1-5" "$(grep '^BAD=' <<<"$out")"
+    assert_eq "list-input: loop sends invalid keys and failed URLs to BAD only" "BAD= notakey https:__x_bad n1-5 a_PWN-1_x" "$(grep '^BAD=' <<<"$out")"
 }
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
