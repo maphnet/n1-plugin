@@ -1968,6 +1968,38 @@ test_plan_wiring() {
         "$(has 'Touches extraction \(unconditional.*n1_queue_decisions_write_row' "$s/steps/run.md")"
 }
 
+# N1-423: explicit ticket list input and the required-input gate.
+test_list_input_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue" in="$REPO_ROOT/skills/n1-queue/steps/input.md"
+    has() { grep -qE -- "$1" "$2" && echo yes || echo no; }
+    hasF() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "list-input: description lists the ticket operand" "yes" \
+        "$(sed -n '3p' "$s/SKILL.md" | grep -qF '[<ticket|url>...]' && echo yes || echo no)"
+    assert_eq "list-input: argument-hint lists the ticket operand" "yes" \
+        "$(sed -n '4p' "$s/SKILL.md" | grep -qF '[<ticket|url>...]' && echo yes || echo no)"
+    assert_eq "list-input: step 2 routes to input.md before the unattended entry" "yes" \
+        "$(grep -E '^2\. \*\*Saved plan' "$s/SKILL.md" | grep -qE 'steps/input\.md.*If `--unattended`' && echo yes || echo no)"
+    assert_eq "list-input: SKILL.md no longer reads the default tag" "no" "$(hasF 'n1_queue_val tag' "$s/SKILL.md")"
+    assert_eq "list-input: input.md never reads the default tag" "no" "$(hasF 'n1_queue_val tag' "$in")"
+    assert_eq "list-input: URLs go through n1_extract_ticket_from_url" "yes" "$(hasF 'n1_extract_ticket_from_url' "$in")"
+    assert_eq "list-input: list keys are validated" "yes" "$(hasF '^[A-Z][A-Z0-9_]*-[0-9]+$' "$in")"
+    assert_eq "list-input: tag/story ids are validated" "yes" "$(hasF '^[A-Za-z0-9][A-Za-z0-9._-]*$' "$in")"
+    assert_eq "list-input: unattended with no input stops" "yes" \
+        "$(hasF 'No input: pass ticket IDs, --tag <tag> or --story <ID>.' "$in")"
+    assert_eq "list-input: mixed input stops" "yes" "$(hasF 'Pass one input: a ticket list, --tag or --story.' "$in")"
+    assert_eq "list-input: no valid key stops" "yes" "$(hasF 'No valid ticket keys in the list.' "$in")"
+    assert_eq "list-input: missing-input prompt says No recommendation" "yes" \
+        "$(hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$in")"
+    local line a b c
+    line=$(grep -m1 'list-%08x' "$in")
+    a=$(KEYS=" N1-2 N1-10 N1-2"; eval "$line"; printf '%s' "$QUEUE_ID")
+    b=$(KEYS=" N1-10 N1-2"; eval "$line"; printf '%s' "$QUEUE_ID")
+    c=$(KEYS=" N1-3"; eval "$line"; printf '%s' "$QUEUE_ID")
+    assert_eq "list-input: QUEUE_ID ignores order and duplicates" "$a" "$b"
+    assert_eq "list-input: QUEUE_ID is list-<8 hex>" "yes" "$([[ "$a" =~ ^list-[0-9a-f]{8}$ ]] && echo yes || echo no)"
+    assert_eq "list-input: different keys give a different QUEUE_ID" "yes" "$([ "$a" != "$c" ] && echo yes || echo no)"
+}
+
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {
     local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless-ask.md"
@@ -2077,6 +2109,7 @@ test_parse_service
 test_find_repo
 test_pick_model
 test_plan_wiring
+test_list_input_wiring
 test_story_epic_wiring
 test_child_status
 test_child_status_deploy
