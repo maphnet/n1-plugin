@@ -24,7 +24,7 @@ check "N1-78: related hits auto-link, unattended" "MATCHES\` contains any \`rela
 check "N1-78: related hits auto-link, interactive" "MATCHES\` contains any \`related\` rows, auto-link those without asking" "$P"
 check "N1-78: auto-linked-related notice line" "Auto-linked \\(related\\): <HIT_ID>" "$P"
 check "N1-78: headless comment combines duplicate+related with type" "Auto-linked: <HIT_ID> \\(duplicate\\|related\\)" "$P"
-check "N1-78: Stop still offered after duplicate auto-link" "Auto-linked \\(duplicate\\): <HIT_ID>\\[, <HIT_ID>\\.\\.\\.\\]\`\\. Ask the user: \\*\\*Continue\\*\\* \\(default\\) or \\*\\*Stop\\*\\*" "$P"
+check "N1-78: Stop still offered after duplicate auto-link" "Auto-linked \\(duplicate\\): <HIT_ID>\\[, <HIT_ID>\\.\\.\\.\\]\`\\. No recommendation\\. [^.]*\\. Ask the user: \\*\\*Continue\\*\\* \\(default\\) or \\*\\*Stop\\*\\*" "$P"
 check "NP-234 SEC-1: Apply Links validates HIT_ID before use" "Skip any entry whose \`HIT_ID\` does not match \`\\^\\[A-Z\\]\\[A-Z0-9_\\]\\*-\\[0-9\\]\\+\\\$\`" "$P"
 check "NP-234 follow-up: YouTrack link types mapped to command names" "Map \`Duplicate\` .+ \`duplicates\` and \`Relates\` .+ \`relates to\`" "$P"
 check "procedure gate skips queue children (NP-203)" "N1_QUEUE_RUN_ID" "$P"
@@ -52,6 +52,11 @@ check "N1-443: start prompt lists Close as duplicate" "or \*\*Close as duplicate
 check "N1-443: start Close failure restores the dropped duplicate links" "put the dropped entries back in \`DUP_LINKS\`" "$P"
 check "N1-443: QE auto-accept no longer skips the start prompt" "\*\*Unattended\*\* \(\`HEADLESS=1\`, or \`QE=auto-accept\` with \`CONTEXT=create\`\)" "$P"
 check "N1-443: new option lists carry the no-recommendation sentence" "No recommendation\. The options are equivalent given the available evidence; select based on team preference\." "$P"
+NR='No recommendation. The options are equivalent given the available evidence; select based on team preference.'
+# sentence must precede the options in the queue-plan list and the start prompt
+if grep -qF -- "$NR" <<<"$(sed -n '/^1\. \*\*`CONTEXT=queue-plan`/,/^     1\. \*\*Continue\*\*/p' "$P")"; then echo "PASS: N1-443: queue-plan no-recommendation precedes options"; else echo "FAIL: N1-443: queue-plan no-recommendation precedes options"; FAIL=1; fi
+if grep -qF -- "$NR Ask the user: **Continue** (default) or **Stop**" "$P"; then echo "PASS: N1-443: start no-recommendation precedes options"; else echo "FAIL: N1-443: start no-recommendation precedes options"; FAIL=1; fi
+close_has "N1-443: Close comment stays true if the move fails" 'duplicate of <HIT_IDs>; moving to <DONE_STATUS>.'
 close_has "N1-443: Close points to the n1-finish done lookup" "skills/n1-finish/steps/04-close-ticket.md"
 close_has "N1-443: Close filters HIT_IDs" '^[A-Z][A-Z0-9_]*-[0-9]+$'
 close_has "N1-443: Close treats a link warning as failure" 'Any `Could not link` warning counts as failure'
