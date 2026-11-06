@@ -28,7 +28,7 @@ n1_queue_plan_state step preview || true
 
 ```
 Hierarchy:
-Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #3, #4, #5
+Epic <SRC> > Story <STORY_KEY> <CHILD_TITLE>: #3, #4, #5
 ```
 
 One line per child, in intake's child order. An expanded child lists the rows whose Reason contains `epic subtask of <STORY_KEY>`, and an `epic child` row lists itself. Children that intake excluded, and Stories left with no rows after later exclusions, get no line. Grouping is display-only: § 3 may still reorder rows, and the schedule, not this block, decides start order. A Story-ID run (Reason `story subtask`) prints no Hierarchy block.

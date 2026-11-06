@@ -31,7 +31,7 @@ check "preview.md prints a Hierarchy block for epic rows (N1-298)" \
     '^Hierarchy:$' \
     skills/n1-queue/steps/preview.md
 check "preview.md Hierarchy groups rows under their Story (N1-298)" \
-    '^Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #' \
+    '^Epic <SRC> > Story <STORY_KEY> <CHILD_TITLE>: #' \
     skills/n1-queue/steps/preview.md
 check "preview.md prints the Concurrency line (N1-272)" \
     'Concurrency: <MAX_CONCURRENT> \(queue\.maxConcurrent' \
