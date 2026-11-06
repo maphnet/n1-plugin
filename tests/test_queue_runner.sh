@@ -2395,8 +2395,12 @@ test_final_pr_wiring() {
     assert_eq "final wiring: final lines above per-child lines" yes "$(grep -qF 'above the per-child lines' "$r" && echo yes || echo no)"
     assert_eq "final wiring: halted summary lists merged children" yes "$(grep -qF 'merged into `story/<STORY_ID>`' "$r" && echo yes || echo no)"
     assert_eq "final wiring: events documented" yes "$(grep -qF '`final_pr_opened`' "$a" && grep -qF '`final_pr_failed`' "$a" && echo yes || echo no)"
-    assert_eq "final wiring: human merge policy in run step" yes "$(grep -qF 'The runner never merges the final PR' "$u" && echo yes || echo no)"
-    assert_eq "final wiring: human merge policy in architecture" yes "$(grep -qF 'The runner never merges the final PR' "$a" && echo yes || echo no)"
+    assert_eq "final wiring: gated merge policy in run step" yes "$(grep -qF 'The runner merges the final PR only when' "$u" && echo yes || echo no)"
+    assert_eq "final wiring: gated merge policy in architecture" yes "$(grep -qF 'The runner merges the final PR only when' "$a" && echo yes || echo no)"
+    assert_eq "final wiring: no never-merge text left" no "$(grep -qF 'never merges the final PR' "$u" "$a" && echo yes || echo no)"
+    assert_eq "final wiring: merge event documented" yes "$(grep -qF '`final_pr_merge`' "$a" && echo yes || echo no)"
+    assert_eq "final wiring: summary says merged or waits" yes \
+        "$(grep -qF 'waits for a human (<reason>)' "$r" && grep -qF 'Final PR merge: by the runner' "$r" && echo yes || echo no)"
 }
 
 test_n1_339_cleanup_helpers

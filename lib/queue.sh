@@ -213,7 +213,7 @@ n1_queue_finish_cmd() {
     # Usage: n1_queue_finish_cmd <repoPath> <ticket-id> <model> <run-id> <session-name>
     # N1-185: background `n1-finish <ticket> chained` for the runner's fullAuto chain. Same settings env
     # as a child, so n1-finish re-checks n1_merge_authorized as an unattended run and the merge-deny
-    # hook still applies. In tag mode the runner itself never merges (story mode: story_merge in n1-queue-run.sh, N1-292).
+    # hook still applies. In tag mode the runner itself never merges (story mode: story_merge and the gated final_merge in n1-queue-run.sh, N1-292/N1-424).
     n1_bg_launch_cmd "$5" n1-finish "$2 chained" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
 }
 
@@ -256,7 +256,7 @@ n1_queue_final_body() {
     [ -n "$rest" ] || rest=$'- none\n'
     if [ "$nr" -gt 0 ]; then state="Draft: $nr of $((nl + nr)) children did not land; this PR carries only the landed ones."
     else state="Ready for review: All $nl children landed."; fi
-    printf '## Story %s: final PR\n\nOpened by the N1 queue runner from story/%s (N1-293). Not Codex-reviewed; the per-branch convention commit is unreviewed, so review the whole diff.\n\n### Landed\n%s\n### Not landed\n%s\n%s\n\nMerge: a human reviews and merges this PR; the queue never merges it. After the merge, /n1:n1-finish %s closes the story and deletes the local story branch; the remote branch follows the repository delete-branch setting.\n' \
+    printf '## Story %s: final PR\n\nOpened by the N1 queue runner from story/%s (N1-293). Not Codex-reviewed; the per-branch convention commit is unreviewed, so review the whole diff.\n\n### Landed\n%s\n### Not landed\n%s\n%s\n\nMerge: a human reviews and merges this PR, unless autonomy.fullAuto and finishWork.mergeOnFinish are both on and the queue runner merge gates pass (ready, mergeable, Codex review, checks; N1-424). After the merge, /n1:n1-finish %s closes the story and deletes the local story branch; the remote branch follows the repository delete-branch setting.\n' \
         "$id" "$id" "$landed" "$rest" "$state" "$id" > "$out" || return 1
     echo "$nl $nr"
 }
@@ -733,6 +733,7 @@ n1_queue_final_pr_set() {
     # ## Runs (which stays last), as n1_queue_story_branch_set does. The PR cell is a GitHub PR URL or "-"; the other
     # cells are sanitized. Fails closed (returns 1, file untouched) on any other PR cell, more than one "## Final PRs"
     # heading or no "## Runs" line.
+    # N1-424: the Note carries the runner merge result: "merged..." or "waits: <reason>" (see references/architecture.md).
     local file="$1" n tmp repo row
     [ -f "$file" ] || return 1
     [[ "$3" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || [ "$3" = - ] || return 1
