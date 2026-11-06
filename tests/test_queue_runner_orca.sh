@@ -1000,6 +1000,9 @@ test_orca_fin_blocked_sees_merge() {
     assert_eq "orca-fin-merge: retracted once" "T-A,PR merged" \
         "$(jq -r 'select(.event == "escalation_retracted") | [.ticket, .reason] | join(",")' "$tmp/events.jsonl" | paste -sd'|')"
     assert_eq "orca-fin-merge: Runs outcome merged" "merged" "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "orca-fin-merge: no escalated event after the retraction" "0" \
+        "$(jq -rs '[.[] | select(.ticket == "T-A" or .event == "escalation_retracted") | .event] | (index("escalation_retracted") // length) as $i | .[$i:] | map(select(. == "escalated")) | length' "$tmp/events.jsonl")"
+    assert_eq "orca-fin-merge: one needs-you in total" "1" "$(grep -c 'T-A.*needs you' "$tmp/notes" || true)"
     assert_eq "orca-fin-merge: wait ended on the merge, not the timeout" "yes" \
         "$([ "$(grep -c 'pr view' "$tmp/fake/gh-all")" -lt 10 ] && echo yes || echo no)"   # a timed-out wait reads the PR ~20 times; the blocked-state count is inflated by the drain polls
     rm -rf "$tmp"
@@ -1020,6 +1023,24 @@ test_orca_fin_blocked_pr_closed() {
     assert_eq "orca-fin-closed: no retraction" "0" \
         "$(jq -r 'select(.event == "escalation_retracted") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
     assert_eq "orca-fin-closed: row reason" "finish:finish-pr-not-open" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "orca-fin-closed: no escalated event at all" "0" "$(jq -r 'select(.event == "escalated") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "orca-fin-closed: no needs-you at all" "0" "$(grep -c 'T-A.*needs you' "$tmp/notes" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-422 CR-2. Bug caught: on Orca the finish session merges the PR itself and is still working (cleanup); ending the
+# wait on the MERGED read raced finish's own cleanup with the runner's n1-clean.
+test_orca_fin_working_merge_waits() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.subtaskTimeoutMinutes = 10'
+    echo OPEN > "$tmp/fake/gh-state"; printf 'OPEN\nOPEN\nMERGED\n' > "$tmp/fake/gh-state-seq"
+    echo "working working working done" > "$tmp/fake/states.T-A.fin"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    assert_eq "orca-fin-working-merge: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-fin-working-merge: n1-clean launches only after the finish session ended" "working working done" \
+        "$(grep -B3 'launch n1-oq-T-A-1-clean' "$tmp/fake/events" | grep -v launch | sed 's/.* //' | paste -sd' ')"
+    assert_eq "orca-fin-working-merge: Runs outcome merged" "merged" "$(runs_outcome "$tmp/queue.md" T-A)"
     rm -rf "$tmp"
 }
 
@@ -1322,6 +1343,7 @@ test_orca_worktree_list_unreadable
 test_orca_chain_after_settle
 test_orca_fin_blocked_sees_merge
 test_orca_fin_blocked_pr_closed
+test_orca_fin_working_merge_waits
 test_orca_fallback_bg
 test_orca_tick_cap
 test_orca_exit_trace_signals

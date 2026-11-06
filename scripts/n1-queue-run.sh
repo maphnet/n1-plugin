@@ -890,7 +890,7 @@ chain_child_escalated() {
 # Every exit writes a "[NUM] TICKET chain: ..." line to runner.log (N1-240).
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
-    local marker mstate rc=0 csid fsid st pst="" agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" why=finish-timeout SB SBID aurl
+    local marker mstate rc=0 csid fsid st pst="" agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" mg="" why=finish-timeout SB SBID aurl
     # N1-240: every exit writes a runner.log line. The raw id is not echoed (it failed validation).
     case "$TICKET" in ''|*[!A-Za-z0-9_-]*) echo "[$NUM] chain: skipped (invalid-ticket-id)"; return 0 ;; esac
     story_env "$REPO" || { chain_note "$NUM" "$TICKET" story-branch-invalid; return 0; }
@@ -990,7 +990,7 @@ chain_finish() {
         if [ -n "${ORCA_RUN:-}" ]; then
             pst=$(n1_queue_pr_state "$URL")
             case "$pst" in
-                MERGED) why=finish-merged; break ;;
+                MERGED) mg=1 ;;  # CR-2: the wait ends once the finish session is no longer working (it is still cleaning up)
                 ''|OPEN) ;;
                 *) why=finish-pr-not-open; break ;;
             esac
@@ -998,6 +998,7 @@ chain_finish() {
         if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
             fails=0
             st=$(n1_queue_bg_state "$agents" "$fsid")
+            [ -n "$mg" ] && [ "$st" != working ] && { why=finish-merged; break; }
             case "$st" in
                 done|failed) why=finish-stopped; break ;;
                 missing) miss=$((miss + 1)); [ "$miss" -ge "$BG_POLL_GRACE" ] && { why=finish-not-listed; break; } ;;
@@ -1018,7 +1019,8 @@ chain_finish() {
     done
     # N1-422: a merge after the "needs you" escalation tells the watching session the question no longer applies.
     [ "$why" = finish-merged ] && [ -n "$asked" ] && ev escalation_retracted ticket="$TICKET" session="$fsid" reason="PR merged"
-    if [ "$why" = finish-timeout ]; then
+    # CR-1: a merged or closed PR with a blocked finish is stopped here; DRAIN would re-escalate it.
+    if [ "$why" = finish-timeout ] || [ "$why" = finish-merged ] || [ "$why" = finish-pr-not-open ]; then
         bash -c "$(n1_bg_cmd stop "$fsid")" >/dev/null 2>&1
     else
         DRAIN+=("$fsid"$'\t'"$TICKET"$'\t'"$N1H")
