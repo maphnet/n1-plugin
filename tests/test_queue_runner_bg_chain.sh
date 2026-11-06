@@ -698,6 +698,19 @@ test_queue_final_waits_predecessor() {
     rm -rf "$tmp"
 }
 
+# N1-447 Codex: corrupt predecessor metadata (a row with an invalid cell) is not "no predecessor": the final PR stays a draft.
+test_queue_final_invalid_predecessor() {
+    local tmp s="n1-sq-${QB#queue/}-final-1"; tmp=$(mktemp -d)
+    queue_merge_fixture "$tmp" "T-A:working done"
+    touch "$tmp/fake/final-create"; printf 'UNKNOWN\t\nMERGEABLE\tCLEAN\n' > "$tmp/fake/gh-mergeable-seq"
+    n1_queue_pred_set "$tmp/queue.md" "$tmp/repo" "$QC_ID" "$QC_P" https://github.com/o/r/pull/5 "$SM_PIN" "$SM_PIN" waiting
+    sed -i "s/| waiting |/| not-a-status |/" "$tmp/queue.md"
+    run_bg_queue "$tmp" >/dev/null
+    assert_eq "pred-invalid: final PR opened as a draft" yes "$(grep -qF -- '--draft' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "pred-invalid: Note says why" 1 "$(fin_row "$tmp" "$tmp/repo" | grep -cF 'predecessor metadata invalid')"
+    rm -rf "$tmp"
+}
+
 # N1-447 AC4: predecessor squash-merged -> rebase --onto main <Base>, lease push, row rebased; the queue branch then
 # carries only its own commit over main. An open draft final PR whose children all landed is refreshed and marked ready.
 test_queue_chain_rebase() {
@@ -772,6 +785,25 @@ test_queue_chain_three() {
     assert_eq "chain-3: other repo's row untouched" "$old" "$(n1_queue_preds "$q3" | awk -F'\t' -v r="$tmp/repoB" '$1 == r { print $6 }')"
     assert_eq "chain-3: Q3 Base kept, Head = Q2's new tip" "$old $(git -C "$tmp/origin" rev-parse "$QB") waiting" \
         "$(n1_queue_preds "$q3" | awk -F'\t' -v r="$tmp/repo" '$1 == r { print $5, $6, $7 }')"
+    assert_eq "chain-3: marker binds Q3's Base to Q2's new tip" "$old $(git -C "$tmp/origin" rev-parse "$QB")" \
+        "$(cat "$tmp"/n1home/queue/q3/.chain-rebased-* 2>/dev/null)"
+    rm -rf "$tmp"
+}
+
+# N1-447 Codex: a push that went through but was not recorded (row still waiting, marker present) is resumed, not
+# stopped because Base left the rewritten branch's history.
+test_queue_chain_resume() {
+    local tmp old new; tmp=$(mktemp -d)
+    qc_fixture "$tmp" "T-A:done"; n1_queue_row_status "$tmp/queue.md" 1 pr
+    old=$(git -C "$tmp/origin" rev-parse "$QB")
+    run_chain "$tmp" >/dev/null
+    new=$(git -C "$tmp/origin" rev-parse "$QB")
+    n1_queue_pred_set "$tmp/queue.md" "$tmp/repo" "$QC_ID" "$QC_P" https://github.com/o/r/pull/5 "$QC_BASE" "$QC_BASE" waiting
+    echo "$old $new" > "$tmp/.chain-push-$(cksum <<< "$tmp/repo" | cut -d' ' -f1)"
+    run_chain "$tmp" >/dev/null
+    assert_eq "chain-resume: row rebased, not stopped" rebased "$(n1_queue_preds "$tmp/queue.md" | cut -f7)"
+    assert_eq "chain-resume: branch untouched" "$new" "$(git -C "$tmp/origin" rev-parse "$QB")"
+    assert_eq "chain-resume: marker removed" "" "$(ls -A "$tmp" | grep '^\.chain-push-' || true)"
     rm -rf "$tmp"
 }
 
@@ -1403,6 +1435,8 @@ test_queue_final_waits_predecessor
 test_queue_chain_rebase
 test_queue_chain_stops
 test_queue_chain_three
+test_queue_chain_resume
+test_queue_final_invalid_predecessor
 test_queue_chain_bound
 test_queue_chain_run_e2e
 test_final_pr_ready

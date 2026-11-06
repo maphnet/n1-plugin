@@ -919,6 +919,7 @@ final_pr() {
     # final_merge refuses drafts) until scripts/n1-queue-chain.sh rebased it after the predecessor merged.
     pst=$(n1_queue_preds "$QUEUE" | awk -F'\t' -v r="$REPO" '$1 == r && $7 != "rebased" { print $2 " (" $7 ")"; exit }')
     [ -z "$pst" ] || { draft=1; pnote="waits: predecessor $pst"; }
+    ! n1_queue_preds_invalid "$QUEUE" || { draft=1; pnote="waits: predecessor metadata invalid"; }
     def=$(N1_HOME="$N1H" n1_config_val '.git.defaultBranch' 2>/dev/null); def="${def:-main}"
     _n1_queue_valid_branch "$def" || { final_none "$REPO" default-branch-invalid; return 0; }
     nwo=$(cd "$REPO" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)

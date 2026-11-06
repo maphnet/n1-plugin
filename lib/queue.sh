@@ -854,6 +854,19 @@ n1_queue_preds() {
         }' "$1"
 }
 
+n1_queue_preds_invalid() {
+    # Usage: n1_queue_preds_invalid <queue.md> — N1-447: status 0 when "## Predecessor" metadata is corrupt (more than one
+    # heading, or a table row n1_queue_preds drops), so callers can tell it from a queue with no predecessor.
+    [ -f "$1" ] || return 1
+    local h t v
+    h=$(grep -c '^## Predecessor$' "$1" || true)
+    [ "$h" -le 1 ] || return 0
+    [ "$h" = 1 ] || return 1
+    t=$(awk '/^## Predecessor$/ { f = 1; next } /^## / { f = 0 } f && /^\|/ && !/^\|[[:space:]]*:?-/ && !/^\|[[:space:]]*Repo[[:space:]]*\|/' "$1" | wc -l)
+    v=$(n1_queue_preds "$1" | wc -l)
+    [ "$t" -ne "$v" ]
+}
+
 n1_queue_chain_pred_find() {
     # Usage: n1_queue_chain_pred_find <repo> <default-branch> <own-id> <registry-dir>
     # N1-447: the predecessor of a new queue branch in <repo>. Candidates: the ## Story Branches branch for <repo> of every

@@ -55,8 +55,34 @@ record() {
     echo "queue chain: $REPO $3"
 }
 
+# mk <repo> — the per-repo marker of a pushed-but-not-fully-recorded rebase: "<old tip> <new tip>" (queue dir, child-writable
+# like queue.md, but it only ever selects a tip that must still equal origin's branch tip).
+mk() { echo "$(dirname "$Q")/.chain-push-$(cksum <<< "$1" | cut -d' ' -f1)"; }
+
+# after_push <old> <new> <def> <nwo> — records a pushed rebase and updates the queues waiting on this branch. The marker is
+# removed last, so an interruption anywhere in here is replayed by the next trigger.
+after_push() {
+    local old="$1" new="$2" def="$3" nwo="$4" f r q b u bs s mf
+    n1_queue_pred_set "$Q" "$REPO" "$PQ" "$PB" "$PU" "$BASE" "$HEAD" rebased || { echo "queue chain: $REPO row not recorded in queue.md; a later trigger retries"; return 1; }
+    n1_queue_event "$(dirname "$Q")/events.jsonl" "$QID" "$RID" queue_chain_rebased pr="$PU" reason="$OWN $old -> $new"
+    echo "queue chain: $REPO $OWN rebased onto $def ($new)"
+    # Chain of 3: queues waiting on this branch now expect its new tip at their predecessor's merge. Base stays (the cut
+    # point in their history); the marker records that the rewritten head replaced the tip Base was cut from.
+    for f in "$N1_HOME"/queue/*/queue.md; do
+        { [ -f "$f" ] && ! [ "$f" -ef "$Q" ]; } || continue
+        while IFS=$'\t' read -r r q b u bs _ s; do
+            { [ "$r" = "$REPO" ] && [ "$q" = "${OWN#queue/}" ] && [ "$s" = waiting ]; } || continue
+            [ "$bs" = "$old" ] || continue
+            mf="$(dirname "$f")/.chain-rebased-$(cksum <<< "$r $q" | cut -d' ' -f1)"
+            echo "$bs $new" > "$mf" || continue
+            n1_queue_pred_set "$f" "$r" "$q" "$b" "$u" "$bs" "$new" waiting && echo "queue chain: $f now expects $OWN at $new"
+        done <<< "$(n1_queue_preds "$f")"
+    done
+    rm -f "$(mk "$REPO")"
+}
+
 sync_row() {
-    local N1H def nwo st pbase phead pref old new wt body counts nr fu fisd fm f r q b u bs s pn top cn cr cu cs
+    local N1H def nwo st pbase phead pref old new wt body counts nr fu fisd fm b pn top cn cr cu cs mo mn rb ok
     OWN=$(n1_queue_story_branch_get "$Q" "$REPO")
     # The branch is force-pushed, so it must belong to this queue: the caller's own, else queue/<queue dir name>-<UTC stamp>
     # (the reduction n1-queue-run.sh applies to the queue id).
@@ -100,38 +126,44 @@ sync_row() {
         "+refs/pull/$pn/head:refs/remotes/origin/n1-pred-$pn" </dev/null >/dev/null 2>&1 \
         || { echo "queue chain: $REPO fetch failed; a later trigger retries"; return; }
     old=$(G -C "$REPO" rev-parse -q --verify "refs/remotes/origin/$OWN^{commit}" 2>/dev/null)
-    # Base is the cut point and the rebase drops everything up to it: it must lie inside the merged predecessor PR's history.
-    [ "$(G -C "$REPO" rev-parse -q --verify "refs/remotes/origin/n1-pred-$pn^{commit}" 2>/dev/null)" = "$phead" ] \
-        && G -C "$REPO" merge-base --is-ancestor "$BASE" "$phead" 2>/dev/null \
-        && G -C "$REPO" merge-base --is-ancestor "$BASE" "$old" 2>/dev/null \
-        || { record stopped queue_chain_stopped "base not in the predecessor PR and $OWN history" "rebase $OWN by hand"; return; }
-    wt="$(dirname "$Q")/chain-$$"
-    G -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
-    G -C "$REPO" worktree add -q --detach "$wt" "$old" </dev/null >/dev/null 2>&1 \
-        || { echo "queue chain: $REPO worktree failed; a later trigger retries"; return; }
-    if ! G -C "$wt" rebase -q --onto "refs/remotes/origin/$def" "$BASE" </dev/null >/dev/null 2>&1; then
-        G -C "$wt" rebase --abort >/dev/null 2>&1
+    # A push that went through but was not fully recorded (marker: old, new tip) is resumed, not re-validated: the branch
+    # was rewritten, so Base is no longer in its history.
+    read -r mo mn < "$(mk "$REPO")" 2>/dev/null || true
+    if [ -n "${mn:-}" ] && [ "$old" = "$mn" ]; then
+        new="$mn"
+        after_push "$mo" "$new" "$def" "$nwo" || return
+    else
+        # Base is the cut point and the rebase drops everything up to it: it must lie inside the merged predecessor PR's
+        # history. When the predecessor was itself rebased, its rewritten head no longer holds Base; the marker written by
+        # that rebase (Base, new head) stands in for it, still bound to the row's Head by the check above.
+        ok=0
+        [ "$(G -C "$REPO" rev-parse -q --verify "refs/remotes/origin/n1-pred-$pn^{commit}" 2>/dev/null)" = "$phead" ] && ok=1
+        if [ "$ok" = 1 ]; then
+            rb=$(cat "$(dirname "$Q")/.chain-rebased-$(cksum <<< "$REPO $PQ" | cut -d' ' -f1)" 2>/dev/null)
+            [ "$rb" = "$BASE $phead" ] || G -C "$REPO" merge-base --is-ancestor "$BASE" "$phead" 2>/dev/null || ok=0
+        fi
+        { [ "$ok" = 1 ] && G -C "$REPO" merge-base --is-ancestor "$BASE" "$old" 2>/dev/null; } \
+            || { record stopped queue_chain_stopped "base not in the predecessor PR and $OWN history" "rebase $OWN by hand"; return; }
+        wt="$(dirname "$Q")/chain-$$"
         G -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
-        record stopped queue_chain_stopped "rebase conflict" "rebase $OWN onto $def by hand"; return
-    fi
-    new=$(G -C "$wt" rev-parse HEAD)
-    # The lease pins the fetched tip: anything pushed to $OWN after the fetch makes this push fail instead of being lost.
-    if ! G -C "$wt" push -q "--force-with-lease=refs/heads/$OWN:$old" origin "HEAD:refs/heads/$OWN" </dev/null >/dev/null 2>&1; then
+        G -C "$REPO" worktree add -q --detach "$wt" "$old" </dev/null >/dev/null 2>&1 \
+            || { echo "queue chain: $REPO worktree failed; a later trigger retries"; return; }
+        if ! G -C "$wt" rebase -q --onto "refs/remotes/origin/$def" "$BASE" </dev/null >/dev/null 2>&1; then
+            G -C "$wt" rebase --abort >/dev/null 2>&1
+            G -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
+            record stopped queue_chain_stopped "rebase conflict" "rebase $OWN onto $def by hand"; return
+        fi
+        new=$(G -C "$wt" rev-parse HEAD)
+        echo "$old $new" > "$(mk "$REPO")" || { G -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true; echo "queue chain: $REPO marker not written; a later trigger retries"; return; }
+        # The lease pins the fetched tip: anything pushed to $OWN after the fetch makes this push fail instead of being lost.
+        if ! G -C "$wt" push -q "--force-with-lease=refs/heads/$OWN:$old" origin "HEAD:refs/heads/$OWN" </dev/null >/dev/null 2>&1; then
+            rm -f "$(mk "$REPO")"
+            G -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
+            record waiting queue_chain_push_failed "chain-push-failed" "a later /n1:n1-queue --run $QID or n1-finish retries"; return
+        fi
         G -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
-        record waiting queue_chain_push_failed "chain-push-failed" "a later /n1:n1-queue --run $QID or n1-finish retries"; return
+        after_push "$old" "$new" "$def" "$nwo" || return
     fi
-    G -C "$REPO" worktree remove --force "$wt" >/dev/null 2>&1 || true
-    n1_queue_pred_set "$Q" "$REPO" "$PQ" "$PB" "$PU" "$BASE" "$HEAD" rebased || echo "queue chain: $REPO row not recorded in queue.md"
-    n1_queue_event "$(dirname "$Q")/events.jsonl" "$QID" "$RID" queue_chain_rebased pr="$PU" reason="$OWN $old -> $new"
-    echo "queue chain: $REPO $OWN rebased onto $def ($new)"
-    # Chain of 3: queues waiting on this branch now expect its new tip at their predecessor's merge; Base stays.
-    for f in "$N1_HOME"/queue/*/queue.md; do
-        { [ -f "$f" ] && ! [ "$f" -ef "$Q" ]; } || continue
-        while IFS=$'\t' read -r r q b u bs _ s; do
-            { [ "$r" = "$REPO" ] && [ "$q" = "${OWN#queue/}" ] && [ "$s" = waiting ]; } || continue
-            n1_queue_pred_set "$f" "$r" "$q" "$b" "$u" "$bs" "$new" waiting && echo "queue chain: $f now expects $OWN at $new"
-        done <<< "$(n1_queue_preds "$f")"
-    done
     # An open final PR gets the body without the predecessor line; it is marked ready only when every child landed.
     body="$(dirname "$Q")/chain-body.md"
     counts=$(n1_queue_final_body "$Q" "$REPO" "${OWN#queue/}" "$body" queue) || return
@@ -149,7 +181,14 @@ sync_row() {
 for Q in "$@"; do
     { [ -f "$Q" ] && [ "$(n1_read_frontmatter "$Q" integration)" = queue ]; } || continue
     QID=$(n1_read_frontmatter "$Q" queue_id); RID=$(n1_read_frontmatter "$Q" run_id)
-    ROWS=$(n1_queue_preds "$Q" | awk -F'\t' -v p="$PRED_ARG" '$7 == "waiting" && (p == "" || $4 == p)')
+    # A rebased row with a marker is a pushed rebase whose bookkeeping was interrupted: it is resumed too.
+    ROWS=""
+    while IFS=$'\t' read -r REPO PQ PB PU BASE HEAD st; do
+        { [ "$st" = waiting ] || { [ "$st" = rebased ] && [ -f "$(mk "$REPO")" ]; }; } \
+            && { [ -z "$PRED_ARG" ] || [ "$PU" = "$PRED_ARG" ]; } \
+            && ROWS+="$REPO"$'\t'"$PQ"$'\t'"$PB"$'\t'"$PU"$'\t'"$BASE"$'\t'"$HEAD"$'\t'"$st"$'\n'
+    done <<< "$(n1_queue_preds "$Q")"
+    ROWS=${ROWS%$'\n'}
     [ -n "$ROWS" ] || continue
     if [ -n "$(n1_queue_pending_rows "$Q" 'pending|held|in-progress|awaiting-human')" ]; then
         echo "queue chain: $QID skipped (rows still open)"; continue
