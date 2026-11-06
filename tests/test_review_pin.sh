@@ -3,6 +3,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 source lib/config.sh; source lib/step.sh
+ROOT=$PWD
 FAIL=0
 ok() { echo "PASS: $1"; }
 no() { echo "FAIL: $1"; FAIL=1; }
@@ -154,8 +155,9 @@ eq "binding: a broken chain stays broken" "$REF" "$(pin "$H6")"
 eq "binding: --confirmed still bypasses" "pin:set ${H6:0:7}" "$(rm -f "$P11"; HEADSHA=$H6 n1_review_pin set 11 --confirmed)"
 rv r2 "$H6"
 eq "binding: a re-review re-anchors the chain" "pin:set ${H6:0:7}" "$(pin "$H6")"
-n=$(wc -l < "$ST/r2.jsonl"); ( unset N1_RUN_ID; ID=T-1 n1_head_record "$H6" )
+n=$(wc -l < "$ST/r2.jsonl"); out=$( unset N1_RUN_ID; ID=T-1 n1_head_record "$H6" 2>/dev/null ); rc=$?
 eq "n1_head_record: no bound run writes nothing" "$n" "$(wc -l < "$ST/r2.jsonl")"
+eq "n1_head_record: no bound run fails visibly (N1-439)" "1 HEAD_RECORD_FAILED" "$rc ${out%% *}"
 H8=$(gc soft-fix); tip "$H8"; hr "$H6"; hr "$H6"
 eq "binding: repeating a head record is a no-op" "pin:set ${H8:0:7}" "$(pin "$H8")"
 # N1-405 AC4: pre-push Codex fix commits recorded by the scope gate keep the chain intact through docs and rebase.
@@ -172,11 +174,40 @@ tip "$H2"
 eq "binding: newest review head wins; begin event ignored" "pin:set ${H2:0:7}" "$(pin "$H2")"
 rm -f "$ST"/*.jsonl; printf '{"run_id":"r2","layer":"step","step":"review","step_number":9,"outcome":"success","metadata":{"head":""}}\n{"run_id":"r2","layer":"step","step":"head","step_number":0,"outcome":"success","metadata":{"head":"%s","from":""}}\n' "$H6" > "$ST/r2.jsonl"
 eq "binding: empty review head and empty from -> refused" "$REF" "$(pin "$H6")"
-n=$(wc -l < "$ST/r2.jsonl"); hr ""
+n=$(wc -l < "$ST/r2.jsonl"); out=$(hr ""); rc=$?
 eq "n1_head_record: malformed from writes nothing" "$n" "$(wc -l < "$ST/r2.jsonl")"
+eq "n1_head_record: malformed from fails visibly (N1-439)" "1 HEAD_RECORD_FAILED" "$rc ${out%% *}"
 rv r2 "$H6"; tip "$H6"; pin "$H6" >/dev/null
 H7=$(gc ci-fix); tip "$H7"
 eq "binding: advance is not gated by the chain" "pin:advanced ${H7:0:7}" "$(n1_review_pin advance 11 "$H6" "$H7")"
+# N1-439: n1_review_reviewed_head is the pre-PR re-review diff base; n1_head_record derives ID from the active run.
+eq "reviewed head: last ended review event with a head" "$H6" "$(n1_review_reviewed_head "$T/home")"
+eq "reviewed head: no active run prints nothing" "" "$(N1_HOME="$T/none" n1_review_reviewed_head "$T/none")"
+H14=$(gc derived-id); ( unset ID; N1_RUN_ID=r2 n1_head_record "$H7" ) >/dev/null
+eq "n1_head_record: unset ID derives the ticket from the active run" "{\"head\":\"$H14\",\"from\":\"$H7\"}" "$(tail -1 "$ST/r2.jsonl" | jq -c .metadata)"
+mv "$T/home/active-run.json" "$T/ar.bak"; out=$( unset ID N1_RUN_ID; n1_head_record "$H7" 2>/dev/null ); rc=$?; mv "$T/ar.bak" "$T/home/active-run.json"
+eq "n1_head_record: no active run (standalone n1-pr) stays silent" "0:" "$rc:$out"
+# N1-439 AC2: the pre-PR gate fence in pr.md writes fix.diff from the last reviewed head; a re-review re-anchors.
+echo fix > lt.txt; git add lt.txt; H13=$(gc local-test-fix); tip "$H13"
+eq "gate: unrecorded local-test fix commit -> rc 3" "3" "$(n1_review_artifacts_ok "$T/home" "$H13" >/dev/null; echo $?)"
+blk() { awk -v p="$2" '/^```bash/{b="";f=1;next} f&&/^```/{f=0;if(index(b,p)){printf "%s",b;exit};next} f{b=b $0 "\n"}' "$1"; }
+GB=$(blk "$ROOT/skills/n1-start/steps/pr.md" pre_pr_review_cycle | sed '/^source /d')
+if [ -n "$GB" ]; then ok "gate: pr.md carries the pre-PR gate fence"; else no "gate: pr.md carries the pre-PR gate fence"; fi
+echo stale > "$R/fix.diff"; ( n1_increment_counter() { :; }; ID=T-1; eval "$GB" ) >/dev/null
+eq "gate: fix-changed-files lists the post-review commit" "lt.txt" "$(cat "$R/fix-changed-files" 2>/dev/null)"
+if grep -qx '+fix' "$R/fix.diff"; then ok "gate: fix.diff runs from the last reviewed head"; else no "gate: fix.diff runs from the last reviewed head"; fi
+E="$T/nohead"; mkdir -p "$E/memory/T-1/telemetry/raw/steps"; cp "$T/home/active-run.json" "$E/"
+printf '{"run_id":"r2","layer":"step","step":"review","step_number":9,"outcome":"success"}\n' > "$E/memory/T-1/telemetry/raw/steps/r2.jsonl"
+echo stale > "$E/memory/T-1/fix.diff"; ( n1_increment_counter() { :; }; ID=T-1; N1_HOME="$E"; eval "$GB" ) >/dev/null
+eq "gate: unknown reviewed head empties fix.diff (full-scope re-review)" "0" "$(wc -c < "$E/memory/T-1/fix.diff" | tr -d ' ')"
+rv r2 "$H13"
+eq "gate: re-review at the moved HEAD re-anchors the chain" "0" "$(n1_review_artifacts_ok "$T/home" "$H13" >/dev/null; echo $?)"
+# SEC-1: a FAIL verdict (Step 8 Exhausted) plus a later unrecorded commit never routes to re-review.
+printf '### Verdict: FAIL\n' > "$R/review.md"; H15=$(gc after-exhausted); tip "$H15"; echo stale > "$R/fix.diff"
+out=$( ( n1_increment_counter() { :; }; ID=T-1; eval "$GB" ) 2>/dev/null )
+eq "gate: FAIL verdict + unrecorded commit continues to n1-pr (no re-review)" "PRE_PR_GATE=2 T-1" "${out%% PRE_PR_REVIEW_CYCLE=*}"
+eq "gate: FAIL verdict leaves fix.diff untouched" "stale" "$(cat "$R/fix.diff")"
+eq "gate: FAIL verdict + unrecorded commit keeps the pin refused" "1" "$(pin "$H15" >/dev/null; echo $?)"
 rm -rf "$R" "$T/home/active-run.json" "$P11"
 
 # Wiring (N1-405): step 3 pins the PR head and never runs Codex; the pre-push scope gate records the fix head.
@@ -209,5 +240,18 @@ if [ -n "$PR0" ] && [ -n "$RB" ] && [ "$PR0" -lt "$RB" ]; then ok "n1-pr records
 if [ "$(grep -cE '^n1_codex_gate_check "\$ID" && git push' "$P2")" = 2 ] && grep -qF 'n1_codex_gate_check "$ID" ||' skills/n1-pr/procedures/codex-triage.md; then ok "every n1-pr push path and the Codex Fix Phase honour the blocked-gate marker"; else no "every n1-pr push path and the Codex Fix Phase honour the blocked-gate marker"; fi
 if grep -qF 'unreviewed-head' "$S3"; then ok "n1-pr explains pin:refused unreviewed-head"; else no "n1-pr explains pin:refused unreviewed-head"; fi
 if grep -qF '| 0 | `head` |' skills/n1-start/procedures/telemetry.md; then ok "telemetry.md documents the head event"; else no "telemetry.md documents the head event"; fi
+
+# N1-439: the pre-PR gate runs before the pr step begins and before n1-pr; local testing points at it.
+PM=skills/n1-start/steps/pr.md
+G=$(grep -nF 'GATE_ID=$(n1_review_artifacts_ok "$N1_HOME" "$(git rev-parse HEAD)"); GATE_RC=$?' "$PM" | head -1 | cut -d: -f1)
+SB=$(grep -nF 'n1_step_begin "pr" 12' "$PM" | head -1 | cut -d: -f1)
+NP=$(grep -nF '`n1:n1-pr`' "$PM" | head -1 | cut -d: -f1)
+if [ -n "$G" ] && [ -n "$SB" ] && [ -n "$NP" ] && [ "$G" -lt "$SB" ] && [ "$SB" -lt "$NP" ]; then ok "pr.md gate runs before the pr step and n1-pr"; else no "pr.md gate runs before the pr step and n1-pr"; fi
+if grep -qF '`1` (no review step ran' "$PM" && grep -qF 'return to Step 7' "$PM"; then ok "pr.md routes rc 1 and rc 3 to Step 7"; else no "pr.md routes rc 1 and rc 3 to Step 7"; fi
+if grep -qF 'pre-PR gate' skills/n1-start/procedures/local-testing-run.md; then ok "local-testing fix commits point at the pre-PR gate"; else no "local-testing fix commits point at the pre-PR gate"; fi
+
+for f in "$P2" "$CTR"; do
+    if grep -qF 'HEAD_RECORD_FAILED' "$f"; then ok "$f checks HEAD_RECORD_FAILED"; else no "$f checks HEAD_RECORD_FAILED"; fi
+done
 
 exit $FAIL

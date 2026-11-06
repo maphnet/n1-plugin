@@ -39,6 +39,8 @@ PRE_REBASE=$(git rev-parse HEAD)
 git rebase "origin/$DEFAULT_BRANCH" && { n1_head_record "$PRE_REBASE"; n1_review_reanchor "$PRE_REBASE"; }
 ```
 
+`HEAD_RECORD_FAILED` in the rebase output: the rebased head is not recorded and `n1_review_pin set` will refuse it. Do not push; fix the cause the marker names (set `ID` to the ticket ID when it says `unbound`), re-run `n1_head_record "$(git rev-parse ORIG_HEAD)"`, and push only when it prints nothing.
+
 **If rebase succeeds (exit 0):** Branch is clean. Push using `--force-with-lease` (required because rebase rewrites history):
 
 ```bash

@@ -490,6 +490,22 @@ n1_review_artifacts_ok() {
     return 1
 }
 
+n1_review_reviewed_head() {
+    # N1-439. Prints metadata.head (40-hex) of the last ended "review" step event of the active-run
+    # ticket, over its run files in chronological order (same pointer guards as n1_review_artifacts_ok);
+    # empty when none. Diff base for the pre-PR re-review in skills/n1-start/steps/pr.md: when the
+    # head chain is broken its end is null, so the last reviewed tip is the only reliable base.
+    local home="$1" f id
+    local -a steps
+    f=$(n1_active_run_file) && [ -f "$f" ] && command -v jq >/dev/null 2>&1 || return 0
+    id=$(jq -r '.ticketId // empty' "$f" 2>/dev/null)
+    [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] && [ "$id" != . ] && [ "$id" != .. ] || return 0
+    steps=("$home/memory/$id/telemetry/raw/steps/"*.jsonl)
+    [ -e "${steps[0]}" ] || return 0
+    jq -Rrn '[inputs | fromjson? | objects | select(.layer == "step" and .step == "review" and has("outcome"))
+        | .metadata | objects | .head | strings | select(test("^[0-9a-f]{40}$"))] | last // empty' "${steps[@]}" 2>/dev/null
+}
+
 n1_review_pin() {
     # N1-141 (SEC-5). The PR head that passed N1 review: one 40-hex SHA per PR in
     # $(n1_home)/review-pins/<owner>_<repo>_<pr>. n1-finish merges only that head.
