@@ -1968,6 +1968,56 @@ test_plan_wiring() {
         "$(has 'Touches extraction \(unconditional.*n1_queue_decisions_write_row' "$s/steps/run.md")"
 }
 
+# N1-423: explicit ticket list input and the required-input gate.
+test_list_input_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue" in="$REPO_ROOT/skills/n1-queue/steps/input.md"
+    has() { grep -qE -- "$1" "$2" && echo yes || echo no; }
+    hasF() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "list-input: description lists the ticket operand" "yes" \
+        "$(sed -n '3p' "$s/SKILL.md" | grep -qF '[<ticket|url>...]' && echo yes || echo no)"
+    assert_eq "list-input: argument-hint lists the ticket operand" "yes" \
+        "$(sed -n '4p' "$s/SKILL.md" | grep -qF '[<ticket|url>...]' && echo yes || echo no)"
+    assert_eq "list-input: step 2 routes to input.md before the unattended entry" "yes" \
+        "$(grep -E '^2\. \*\*Saved plan' "$s/SKILL.md" | grep -qE 'steps/input\.md.*If `--unattended`' && echo yes || echo no)"
+    assert_eq "list-input: SKILL.md no longer reads the default tag" "no" "$(hasF 'n1_queue_val tag' "$s/SKILL.md")"
+    assert_eq "list-input: input.md never reads the default tag" "no" "$(hasF 'n1_queue_val tag' "$in")"
+    assert_eq "list-input: URLs go through n1_extract_ticket_from_url" "yes" "$(hasF 'n1_extract_ticket_from_url' "$in")"
+    assert_eq "list-input: list keys are validated" "yes" "$(hasF '^[A-Z][A-Z0-9_]*-[0-9]+$' "$in")"
+    assert_eq "list-input: tag/story ids are validated" "yes" "$(hasF '^[A-Za-z0-9][A-Za-z0-9._-]*$' "$in")"
+    assert_eq "list-input: unattended with no input stops" "yes" \
+        "$(hasF 'No input: pass ticket IDs, --tag <tag> or --story <ID>.' "$in")"
+    assert_eq "list-input: mixed input stops" "yes" "$(hasF 'Pass one input: a ticket list, --tag or --story.' "$in")"
+    assert_eq "list-input: --tag with --story is mixed input" "yes" "$(hasF 'includes `--tag` with `--story`' "$in")"
+    assert_eq "list-input: no valid key stops" "yes" "$(hasF 'No valid ticket keys in the list.' "$in")"
+    assert_eq "list-input: missing-input prompt is free text, not an option list" "no" "$(has '^   > [0-9]\. ' "$in")"
+    assert_eq "list-input: intake has List mode" "yes" "$(has '^## List mode$' "$s/steps/intake.md")"
+    assert_eq "list-input: list mode skips the already-run check" "yes" \
+        "$(sed -n '/^## List mode$/,/^## /p' "$s/steps/intake.md" | grep -qF 'no already-run check' && echo yes || echo no)"
+    assert_eq "list-input: list mode excludes invalid items" "yes" \
+        "$(sed -n '/^## List mode$/,/^## /p' "$s/steps/intake.md" | grep -qF 'invalid ticket key' && echo yes || echo no)"
+    assert_eq "list-input: list mode excludes unreadable keys" "yes" \
+        "$(sed -n '/^## List mode$/,/^## /p' "$s/steps/intake.md" | grep -qF 'reason `not found`' && echo yes || echo no)"
+    assert_eq "list-input: Story check covers list mode" "yes" "$(has '^## Story check \(tag and list mode\)$' "$s/steps/intake.md")"
+    assert_eq "list-input: plan header allows mode list" "yes" "$(hasF 'mode: tag|story|list' "$s/steps/run.md")"
+    assert_eq "list-input: revalidation covers list mode" "yes" "$(hasF 'story and list mode: done-class per intake.md § Story mode' "$s/steps/run.md")"
+    local line a b c
+    line=$(grep -m1 'list-%08x' "$in")
+    a=$(KEYS=" N1-2 N1-10 N1-2"; eval "$line"; printf '%s' "$QUEUE_ID")
+    b=$(KEYS=" N1-10 N1-2"; eval "$line"; printf '%s' "$QUEUE_ID")
+    c=$(KEYS=" N1-3"; eval "$line"; printf '%s' "$QUEUE_ID")
+    assert_eq "list-input: QUEUE_ID ignores order and duplicates" "$a" "$b"
+    assert_eq "list-input: QUEUE_ID is list-<8 hex>" "yes" "$([[ "$a" =~ ^list-[0-9a-f]{8}$ ]] && echo yes || echo no)"
+    assert_eq "list-input: different keys give a different QUEUE_ID" "yes" "$([ "$a" != "$c" ] && echo yes || echo no)"
+    # Run the item-1 resolve loop from input.md with real items and a stubbed URL extractor.
+    local blk out
+    blk=$(awk '/^```bash$/{b="";f=1;next} /^```$/{if(f&&b~/for ITEM in/){printf "%s",b;exit}f=0} f{b=b $0 "\n"}' "$in" | grep -v '^source ')
+    blk=${blk/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'N1-2' 'N1-2' 'N1-12' 'N1-1' 'notakey' 'https://x/browse/N1-7' 'https://x/bad' 'n1-5' 'a|PWN-1|x'"}
+    out=$(n1_extract_ticket_from_url() { case "$1" in */browse/*) echo "${1##*/}" ;; *) return 1 ;; esac; }
+        N1_HOME=/nonexistent; eval "$blk")
+    assert_eq "list-input: loop keeps order, dedupes, resolves URLs" "KEYS= N1-2 N1-12 N1-1 N1-7" "$(grep '^KEYS=' <<<"$out")"
+    assert_eq "list-input: loop sends invalid keys and failed URLs to BAD only" "BAD= notakey https:__x_bad n1-5 a_PWN-1_x" "$(grep '^BAD=' <<<"$out")"
+}
+
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {
     local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless-ask.md"
@@ -2077,6 +2127,7 @@ test_parse_service
 test_find_repo
 test_pick_model
 test_plan_wiring
+test_list_input_wiring
 test_story_epic_wiring
 test_child_status
 test_child_status_deploy

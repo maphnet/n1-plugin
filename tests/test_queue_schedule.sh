@@ -230,4 +230,10 @@ has "run.md: unattended entry takes the claim" "n1_queue_claim" "$(cat "$S/steps
 has "intake.md: unattended repo answer" "--unattended" "$(cat "$S/steps/intake.md")"
 eq "precheck: curl pinned to https" 0 "$(rc grep -q -- '--proto =https' "$PRE")"
 
+has "schedule.md: create without --tag stops (N1-423)" \
+    "Scheduled runs need --tag <tag>; lists and stories cannot be scheduled." "$(cat "$S/steps/schedule.md")"
+has "schedule.md: list/remove skip tag validation (N1-423)" \
+    "\`list\` and \`remove\` need no \`--tag\` and skip every check" "$(cat "$S/steps/schedule.md")"
+hasnt "schedule.md: no default-tag fallback (N1-423)" "n1_queue_val tag" "$(cat "$S/steps/schedule.md")"
+
 exit "$FAIL"

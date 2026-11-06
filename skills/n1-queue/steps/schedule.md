@@ -2,7 +2,7 @@
 
 One scheduled automation per project (in the workspace manager) runs this queue on a trigger: `hourly`, `daily`, `weekdays`, `weekly`, a 5-field cron (`0 9 * * 1-5`) or an RRULE. Before each trigger the manager runs a bash precheck (no agent; a non-zero exit records a skipped run), then starts `/n1:n1-queue --tag <tag> --unattended` in the main checkout. Details: `<N1_ROOT>/references/architecture.md` § Scheduled queue runs (N1-226).
 
-`<ARG>` is the `--schedule` argument; `<TAG>` is the queue tag (`--tag`, else `n1_queue_val tag`). Unless `<ARG>` is `list` or `remove`, it must match `^[A-Za-z0-9*][A-Za-z0-9 */,:=;_-]*$` (no quotes, no `$`); otherwise print "Invalid trigger: <ARG>." **STOP.** `<TAG>` must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`; otherwise print "Invalid tag" **STOP.**
+`<ARG>` is the `--schedule` argument; `<TAG>` is the `--tag` value. `list` and `remove` need no `--tag` and skip every check in this paragraph; run the bash below directly. Otherwise (create): with no `--tag`, print "Scheduled runs need --tag <tag>; lists and stories cannot be scheduled." **STOP.** `<ARG>` must match `^[A-Za-z0-9*][A-Za-z0-9 */,:=;_-]*$` (no quotes, no `$`); otherwise print "Invalid trigger: <ARG>." **STOP.** `<TAG>` must match `^[A-Za-z0-9][A-Za-z0-9._-]*$`; otherwise print "Invalid tag" **STOP.**
 
 ```bash
 source ~/.n1/preamble.sh
