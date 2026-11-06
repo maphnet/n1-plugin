@@ -56,7 +56,7 @@ blk() { awk -v n="$1" '/^```bash/{c++; if(c==n){b=1;next}} b&&/^```/{exit} b' "$
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 git -C "$T" init -q -b main
 MD="$T/home/memory/T-1"; mkdir -p "$MD"; echo '{}' > "$T/home/config.json"
-sh_() { (cd "$T" && N1_ROOT="$REPO" CLAUDE_PLUGIN_ROOT="$REPO" N1_HOME="$T/home" bash -c "$1" 2>&1); }
+sh_() { (cd "$T" && env -u N1_HEADLESS N1_ROOT="$REPO" CLAUDE_PLUGIN_ROOT="$REPO" N1_HOME="$T/home" ${N1H:+N1_HEADLESS=$N1H} bash -c "$1" 2>&1); }
 DIS=$(blk 1); RES=$(blk 2)
 touch "$MD/finish-result.md" "$MD/finish-block.md" "$MD/finish-report.md"
 OUT=$(sh_ "$DIS")
@@ -78,6 +78,16 @@ printf 'all good, done!\n' > "$MD/finish-result.md"
 tl unknown "parse: garbage -> unknown"
 rm -f "$MD/finish-result.md"
 tl unknown "parse: missing result -> unknown"
+# N1-435 AC4 round trip (n1-finish): an attended worker stops at the deployment-actions Walk question;
+# the parse routes it inline, where § Walk asks the user. Headless keeps escalate-and-STOP.
+printf 'status: stopped\nreason: prompt: Run deployment action 1 (Manual: rotate the key)?\n' > "$MD/finish-result.md"
+tl prompt "round trip: attended prompt stop -> tail:prompt"
+N1H=1; tl stopped "round trip: headless prompt stop stays tail:stopped"; N1H=
+has "handoff.md: tail:prompt runs Steps 3-6 inline" "$H" '^- `tail:prompt` .*Steps 3-6 inline'
+has "handoff.md: dispatch passes the real headless value" "$H" '^N1_HEADLESS: <1 when the entry printed headless:yes, else empty>$'
+has "deployment-actions: § Walk still asks in the orchestrator path" references/deployment-actions.md '§ Walk'
+has "persona: finish prompt stops carry the prompt: prefix" "$P" 'reason: prompt: '
+has "handoff.md: attended tail:unknown runs Steps 3-6 inline" "$H" '^- `tail:unknown` .*attended .*`tail:prompt`'
 
 # 4. AC1 static: the worker's mandatory reads stay far below a 60K-token start.
 SZ=$(cat "$P" skills/n1-finish/steps/0[3-6]-*.md references/deployment-actions.md skills/n1-start/procedures/output-gates.md "$H" | wc -c)
@@ -100,4 +110,9 @@ has "handoff: cleanup appends the block with cat" "$C6" 'cat. instead of the her
 # N1-240: +237 B for the deterministic Merge path line in the Chain paragraph.
 SZ=$(wc -c < "$FZ"); if [ "$SZ" -le 1974 ]; then ok "finalize: $SZ B <= 1974 (byte-negative >= 250)"; else no "finalize: $SZ B <= 1974"; fi
 
+# 6. N1-435 AC3: no skill-frontmatter model switch when the orchestrator invokes n1-pr or n1-finish inline.
+for s in skills/n1-pr/SKILL.md skills/n1-finish/SKILL.md; do
+    FM=$(awk 'NR==1&&/^---$/{x=1;next} x&&/^---$/{exit} x' "$s")
+    if grep -qE '^model:' <<<"$FM"; then no "AC3: $s has no frontmatter model:"; else ok "AC3: $s has no frontmatter model:"; fi
+done
 exit $FAIL

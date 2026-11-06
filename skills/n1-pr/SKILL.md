@@ -1,7 +1,6 @@
 ---
 name: n1-pr
 description: "Finalize the branch: update docs, push, create PR based on config, and update tracker."
-model: sonnet
 effort: low
 ---
 
