@@ -42,7 +42,10 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 printf 'PLANNED_MAXC=%s\n' "$(n1_read_frontmatter "$QUEUE_FILE" max_concurrent 2>/dev/null)"
 printf 'LIVE_MAXC=%s\n' "$(n1_queue_max_concurrent)"
 printf 'SCHEDULE=%s\n' "$(n1_queue_plan_waves "$QUEUE_FILE")"
+SRC=$(n1_read_frontmatter "$QUEUE_FILE" story_id 2>/dev/null); printf 'SRC=%s\n' "${SRC:-$(n1_read_frontmatter "$QUEUE_FILE" tag 2>/dev/null)}"
 ```
+
+input.md did not run in this session, so use this `SRC` (the story or Epic ID, else the tag) wherever preview.md prints `<SRC>`, e.g. the Hierarchy block on an Edit re-print.
 
 `INTERRUPTED=yes` (`STEP` is `run` but its runner is gone, N1-183): print "Resuming interrupted run of `<QUEUE_ID>`." and go to § Launch with `RESUME=1`. Skip re-validation: the runner re-adopts `in-progress`/`awaiting-human` rows, runs any fullAuto chain still owed, continues `pending` rows, and never re-runs `pr`/`failed`/`skip` rows.
 

@@ -2099,6 +2099,8 @@ test_queue_id_wiring() {
     assert_eq "id-wiring: launch clears planning state" "yes" "$(hasF 'n1_queue_plan_state clear' "$s/run.md")"
     assert_eq "id-wiring: report reads tag attribute" "yes" "$(hasF 'TAG=$(n1_read_frontmatter "$QUEUE_FILE" tag)' "$s/report.md")"
     assert_eq "id-wiring: runner reads tag attribute" "yes" "$(hasF 'N1_QUEUE_TAG=$(n1_read_frontmatter "$QUEUE" tag)' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+    # --run in a new session: input.md never ran, so the Hierarchy block's SRC comes from the saved frontmatter.
+    assert_eq "id-wiring: saved plan restores SRC from frontmatter" "yes" "$(hasF 'SRC=$(n1_read_frontmatter "$QUEUE_FILE" story_id 2>/dev/null)' "$s/run.md")"
 }
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
