@@ -925,6 +925,8 @@ test_final_pr_merged_when_authorized() {
     rm -f "$tmp/fake/final-create"
     echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
     run_fm "$tmp" >/dev/null
+    assert_eq "final-merge-nochecks: first read waits" "0,waits: checks-unregistered" "$(fm_merges "$tmp" 9),$(fin_note "$tmp")"
+    run_fm "$tmp" >/dev/null   # same head seen again with no checks: passes
     assert_eq "final-merge-nochecks: merged" "1,merged" "$(fm_merges "$tmp" 9),$(fin_note "$tmp")"
     rm -rf "$tmp"
     # a Codex skip (disabled) does not block; the note records it and no review ran

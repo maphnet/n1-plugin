@@ -776,8 +776,8 @@ final_none() {
 # branch, the runner's own Codex review of H (scripts/codex-pr-review.sh in a detached worktree of H under the queue
 # dir, removed afterwards; clean only on ran + findings:none; a disabled/not-installed/no-auth skip passes and is
 # noted), checks green or none (read after Codex, which gives a fresh PR's CI time to register; a Codex skip gives none,
-# so `none` passes only when the PR existed before this run, <reused> = 1: for a PR this run created it records
-# checks-unregistered and a --run resume re-reads), a re-read head still H.
+# so `none` passes only for a head H already seen with no checks by an earlier read (.final-none-<row#>); the first
+# read records checks-unregistered and a --run resume re-reads), a re-read head still H.
 # Then a squash/merge/rebase merge with --match-head-commit H: no --admin, no retry, no wait. Sets FM_NOTE to
 # "merged[; codex: skipped <reason>]" or "waits: <reason>" and emits final_pr_merge. --match-head-commit pins the head,
 # not the base: the base is re-read after the merge and an unreadable or other base escalates (story_merge SEC-2).
@@ -812,7 +812,8 @@ final_merge() {
     fi
     # SEC-1: Codex runs inside the reviewed checkout and reads its agent-instruction files as instructions, so a branch that
     # adds, changes or deletes one could dictate "No findings." Such a diff is never auto-merged on a clean review.
-    if ! chg=$(git -C "$REPO" diff --name-only --no-renames "$mb" "$H" 2>/dev/null); then
+    # -z: git quotes odd paths (e.g. non-ASCII) otherwise, which would hide a trailing AGENTS.md from the match.
+    if ! chg=$(git -C "$REPO" diff -z --name-only --no-renames "$mb" "$H" 2>/dev/null | tr '\0' '\n'; exit "${PIPESTATUS[0]}"); then
         git -C "$REPO" worktree remove --force "$rwt" >/dev/null 2>&1 || true
         fm_end waits "waits: codex-checkout-failed"; return 0
     fi
@@ -844,7 +845,11 @@ final_merge() {
     ci=$(n1_queue_checks_class "$url")
     case "$ci" in
         green) ;;
-        none) [ "$reused" = 1 ] || { fm_end waits "waits: checks-unregistered"; return 0; } ;;
+        none)   # CI may not have registered for a new head (fresh or reused PR): pass only when an earlier read saw this same H
+            if [ "$(cat "$N1_QUEUE_DIR/.final-none-$NUM" 2>/dev/null)" != "$H" ]; then
+                printf '%s\n' "$H" > "$N1_QUEUE_DIR/.final-none-$NUM"
+                fm_end waits "waits: checks-unregistered"; return 0
+            fi ;;
         *) fm_end waits "waits: checks-$ci"; return 0 ;;
     esac
     IFS=$'\t' read -r st base h2 <<< "$(n1_queue_pr_view "$url")"
@@ -862,6 +867,7 @@ final_merge() {
     IFS=$'\t' read -r st base _ <<< "$(n1_queue_pr_view "$url")"
     # A queued merge can leave the PR OPEN: a --run resume re-evaluates it.
     if [ "$st" = OPEN ]; then fm_end waits "waits: merge-pending"; return 0; fi
+    if [ "$st" != MERGED ]; then fm_end waits "waits: merge-state-${st:-unreadable}"; return 0; fi
     if [ -z "$base" ]; then   # SEC-2 (as story_merge): an unreadable base is not a clean merge
         ev escalated ticket="$RUN_STORY_ID" reason="runner merge base unverified"
         n1_notify needs-you "Queue $QUEUE_ID: the runner merged final PR $url but could not read its base; check that it landed on $def"
