@@ -141,7 +141,8 @@ lacks "procedure: no unconsumed N1_HEADLESS input" "$PD" '^N1_HEADLESS:'
 printf 'all good\n' > "$F"
 eq "parse: garbage, no open PR -> unknown" pr:unknown "$(pr_ | head -1)"
 export FAKE_PR='9 https://github.com/o/r/pull/9'; OUT=$(pr_); unset FAKE_PR
-eq "parse: garbage, open PR -> unknown-open" pr:unknown-open "$(head -1 <<<"$OUT")"
+eq "parse: garbage, open PR -> stopped" pr:stopped "$(head -1 <<<"$OUT")"
+if grep -qF 'reason:pr-worker returned no result; PR open, pin/triage unverified' <<<"$OUT" && ! grep -q '^missing:' <<<"$OUT"; then ok "parse: garbage, open PR -> reason, no missing check"; else no "parse: garbage, open PR -> reason, no missing check"; fi
 rm -f "$F"
 eq "parse: missing -> unknown" pr:unknown "$(pr_ | head -1)"
 exit $FAIL

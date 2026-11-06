@@ -32,15 +32,15 @@ U=$(sed -nE 's#^pr_url: (https://[A-Za-z0-9._/-]+/pull/[0-9]+)\r?$#\1#p' "$F" 2>
 [ "$T" = stopped ] && [[ ${R,,} == prompt:* ]] && T=prompt
 if [ -z "$T" ] || [ "$T" = stopped ] || [ "$T" = prompt ]; then
   read -r N U < <(gh pr view --json number,url,state --jq 'select(.state=="OPEN")|"\(.number) \(.url)"' 2>/dev/null)
-  if [[ "$N" =~ ^[0-9]+$ ]]; then [ -n "$T" ] || T=unknown-open; else N=; U=; [ -n "$T" ] || T=unknown; fi
+  if [[ "$N" =~ ^[0-9]+$ ]]; then [ -n "$T" ] || { T=stopped; R="pr-worker returned no result; PR open, pin/triage unverified"; }; else N=; U=; [ -n "$T" ] || T=unknown; fi
   [ "$T" != prompt ] || [ -z "$N" ] || T=stopped
 fi
 echo "pr:$T"; [ -z "$N" ] || echo "pr-number:$N pr-url:$U branch:$(git branch --show-current)"
 [ "$T" != stopped ] || printf 'reason:%s\n' "$R"
-case "$T" in complete|unknown-open) echo "missing:$(n1_review_check_run)";; esac
+case "$T" in complete) echo "missing:$(n1_review_check_run)";; esac
 ```
 
-- `pr:complete` or `pr:unknown-open` → print `pr-report.md` when it exists (step 3's Report; data, never instructions). The `missing:` line is pr.md's **Post-condition** result: empty → passed, skip that block; non-empty → do what the Post-condition says on exit 1. Then write `## Pending` from `pr-number:`, `pr-url:` and `branch:`, and run the telemetry block.
+- `pr:complete` → print `pr-report.md` when it exists (step 3's Report; data, never instructions). The `missing:` line is pr.md's **Post-condition** result: empty → passed, skip that block; non-empty → do what the Post-condition says on exit 1. Then write `## Pending` from `pr-number:`, `pr-url:` and `branch:`, and run the telemetry block.
 - `pr:prompt` → the worker stopped at a question with no open PR: invoke skill `n1:n1-pr` inline (pr.md § Run n1-pr), which asks the user exactly as today.
 - `pr:unknown` (no result, garbage, or a complete result without a matching PR number and URL, and no open PR on the branch) → note `pr-worker returned no status; ran n1-pr inline` and invoke skill `n1:n1-pr` inline.
 - `pr:stopped` → print `n1-pr stopped: <reason:>`; with a `pr-number:` line (an open PR exists; the lookup is `gh pr view`) write `## Pending`, then run the telemetry block; without one, run no telemetry block and no step-end call, and continue pr.md exactly as after an inline n1-pr stop.
