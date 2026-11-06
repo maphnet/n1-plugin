@@ -2090,6 +2090,17 @@ test_queue_plan_state() {
     rm -rf "$h"
 }
 
+# N1-440: tag attribute and planning-state wiring in run.md, runner and report.
+test_queue_id_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue/steps"
+    hasF() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "id-wiring: plan frontmatter carries tag" "yes" "$(hasF 'tag: <--tag value in tag mode, else empty>' "$s/run.md")"
+    assert_eq "id-wiring: saved plan advances state" "yes" "$(hasF 'n1_queue_plan_state step saved' "$s/run.md")"
+    assert_eq "id-wiring: launch clears planning state" "yes" "$(hasF 'n1_queue_plan_state clear' "$s/run.md")"
+    assert_eq "id-wiring: report reads tag attribute" "yes" "$(hasF 'TAG=$(n1_read_frontmatter "$QUEUE_FILE" tag)' "$s/report.md")"
+    assert_eq "id-wiring: runner reads tag attribute" "yes" "$(hasF 'N1_QUEUE_TAG=$(n1_read_frontmatter "$QUEUE" tag)' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+}
+
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {
     local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless-ask.md"
@@ -2201,6 +2212,7 @@ test_pick_model
 test_plan_wiring
 test_list_input_wiring
 test_queue_plan_state
+test_queue_id_wiring
 test_story_epic_wiring
 test_child_status
 test_child_status_deploy

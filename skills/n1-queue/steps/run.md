@@ -123,6 +123,7 @@ Write `$QUEUE_DIR/queue.md` with EXACT section order (the runner assumes `## Run
 queue_id: <QUEUE_ID>
 mode: tag|story|list
 story_id: <ID or empty>
+tag: <--tag value in tag mode, else empty>
 step: planned
 max_concurrent: <MAX_CONCURRENT>
 ---
@@ -186,6 +187,7 @@ n1_write_frontmatter "$QUEUE_DIR/queue.md" planned_at "$(date -u +%Y-%m-%dT%H:%M
 printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 n1_queue_schedule_write "$QUEUE_DIR/queue.md" || echo "SCHEDULE_WRITE=failed"
 printf 'SCHEDULE=%s\n' "$(n1_queue_plan_waves "$QUEUE_DIR/queue.md")"
+n1_queue_plan_state step saved || true
 ```
 
 `--plan`: print "Plan saved: <QUEUE_DIR>/queue.md (<N> tickets). Schedule: <SCHEDULE>. Run it with `/n1:n1-queue --run <QUEUE_ID>` (re-validated first when older than <STALE_HOURS>h)." **STOP.**
@@ -209,6 +211,7 @@ else
     n1_write_frontmatter "$QUEUE_FILE" started "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 fi
 n1_write_frontmatter "$QUEUE_FILE" owner_session "$(n1_session_id)"
+n1_queue_plan_state clear || true   # N1-440: planning is over; the runner's events take over
 # N1-183: setsid gives the runner its own session, so ending or restarting the launching session does
 # not take it down ($! is still the runner pid). nohup where setsid is absent (macOS).
 if command -v setsid >/dev/null 2>&1; then

@@ -93,7 +93,7 @@ Tag mode only (the helper prints nothing otherwise). Releases the tag for handed
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
-printf 'TAG=%s\n' "$(n1_read_frontmatter "$QUEUE_FILE" queue_id)"
+TAG=$(n1_read_frontmatter "$QUEUE_FILE" tag); printf 'TAG=%s\n' "${TAG:-$(n1_read_frontmatter "$QUEUE_FILE" queue_id)}"
 n1_queue_release_rows "$QUEUE_FILE"
 ```
 
