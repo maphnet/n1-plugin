@@ -112,7 +112,7 @@ printf 'status: stopped\nreason: Prompt:\n' > "$F"
 eq "parse: odd-case empty prompt stop -> pr:prompt" pr:prompt "$(pr_ | head -1)"
 printf 'status: stopped\nreason: bad\033[31m reason\n' > "$F"
 if grep -qxF 'reason:bad[31m reason' <<<"$(pr_)"; then ok "parse: reason sanitized"; else no "parse: reason sanitized"; fi
-lacks "persona: pin refusal is not a stop" "$P" 'pin refusal'
+has "persona: pin/triage markers are not stops, write status: complete" "$P" 'pin:\*` and `triage:\*` markers are not stops.*write `status: complete`'
 lacks "procedure: no unconsumed N1_HEADLESS input" "$PD" '^N1_HEADLESS:'
 printf 'all good\n' > "$F"
 eq "parse: garbage, no open PR -> unknown" pr:unknown "$(pr_ | head -1)"
