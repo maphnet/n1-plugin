@@ -44,4 +44,53 @@ SZ=$(cat "$P" skills/n1-pr/steps/0[1-3]-*.md | wc -c)
 if [ "$SZ" -lt 160000 ]; then ok "AC1: pr-worker reads $SZ B < 160000"; else no "AC1: pr-worker reads $SZ B < 160000"; fi
 has "README lists pr-worker" README.md '^\| pr-worker \|'
 
+# 3. pr step routing (pr.md) and the worker result parse (procedure).
+PRF=skills/n1-start/steps/pr.md
+PD=skills/n1-start/procedures/pr-worker-dispatch.md
+has "pr.md: begin fence resolves the pr-worker model" "$PRF" 'n1_resolve_agent pr-worker'
+has "pr.md: route line" "$PRF" 'echo route:worker \|\| echo route:inline'
+has "pr.md: worker route points at the procedure" "$PRF" '`route:worker` → follow `procedures/pr-worker-dispatch\.md`'
+has "pr.md: inline fallback keeps n1-pr" "$PRF" '`n1:n1-pr`\. Pass: `docUpdateMode: "autonomous"`'
+has "pr.md: post-condition stays in the orchestrator" "$PRF" 'MISSING=\$\(n1_review_check_run\)'
+has "pr.md: Pending stays in the orchestrator" "$PRF" '^## Pending$'
+has "procedure: dispatches pr-worker" "$PD" 'Dispatch persona `pr-worker`'
+has "procedure: Wait Contract" "$PD" 'Wait Contract'
+for s in n1_merge_authorized 'gh pr merge' n1_step_end; do lacks "procedure: no $s" "$PD" "$s"; done
+has "procedure: prompt falls back inline" "$PD" '^- `pr:prompt` .*invoke skill `n1:n1-pr`'
+has "procedure: unknown falls back inline" "$PD" '^- `pr:unknown` .*invoke skill `n1:n1-pr`'
+
+# Route probe: a dirty tree routes inline, where n1-pr's uncommitted-changes prompt reaches the user.
+RL=$(grep -F 'echo route:worker' "$PRF" | head -1)
+G="$T/g"; git init -q -b feat/x "$G"; git -C "$G" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+mkdir -p "$T/home/memory/T-1"; echo '{}' > "$T/home/config.json"
+rt() { (cd "$G" && N1_HOME="$T/home" ID=T-1 bash -c "$RL" 2>&1); }
+eq "route: clean tree -> worker" route:worker "$(rt)"
+echo x > "$G/dirty"
+eq "route: dirty tree -> inline" route:inline "$(rt)"
+rm -f "$G/dirty"
+
+# Result parse, incl. the AC4 n1-pr round trip: worker prompt stop -> pr:prompt -> inline n1-pr.
+RES=$(awk '/^```bash/{c++; if(c==1){b=1;next}} b&&/^```/{exit} b' "$PD" \
+    | sed -e 's#^source ~/.n1/preamble.sh$#source "$N1_ROOT/lib/preamble.sh"#' -e 's/<ID>/T-1/')
+mkdir -p "$T/bin"; printf '#!/bin/sh\n[ -n "${FAKE_PR:-}" ] || exit 1\necho "$FAKE_PR"\n' > "$T/bin/gh"; chmod +x "$T/bin/gh"
+pr_() { (cd "$G" && env -u N1_HEADLESS PATH="$T/bin:$PATH" N1_ROOT="$REPO" CLAUDE_PLUGIN_ROOT="$REPO" N1_HOME="$T/home" bash -c "$RES" 2>&1); }
+F="$T/home/memory/T-1/pr-result.md"
+printf 'status: complete\nreason: -\npr: 7\npr_url: https://github.com/o/r/pull/7\nbranch: feat/x\n' > "$F"
+OUT=$(pr_); eq "parse: complete" pr:complete "$(head -1 <<<"$OUT")"
+if grep -qxF 'pr-number:7 pr-url:https://github.com/o/r/pull/7 branch:feat/x' <<<"$OUT"; then ok "parse: complete relays PR fields"; else no "parse: complete relays PR fields ($OUT)"; fi
+if grep -qx 'missing:' <<<"$OUT"; then ok "parse: complete runs the post-condition"; else no "parse: complete runs the post-condition ($OUT)"; fi
+printf 'status: complete\nreason: -\npr: 7\npr_url: https://github.com/o/r/pull/8\n' > "$F"
+eq "parse: url/number mismatch -> unknown" pr:unknown "$(pr_ | head -1)"
+printf 'status: stopped\nreason: prompt: Uncommitted changes: commit them first?\n' > "$F"
+eq "round trip: prompt stop -> pr:prompt" pr:prompt "$(pr_ | head -1)"
+has "round trip: inline n1-pr still asks on uncommitted changes" skills/n1-pr/steps/01-prepare.md 'Uncommitted changes → commit first \(summarize, ask confirmation\)'
+printf 'status: stopped\nreason: Rebase conflicts detected\n' > "$F"
+OUT=$(pr_); eq "parse: plain stop -> pr:stopped" pr:stopped "$(head -1 <<<"$OUT")"
+if grep -qxF 'reason:Rebase conflicts detected' <<<"$OUT"; then ok "parse: stop reason relayed"; else no "parse: stop reason relayed"; fi
+printf 'all good\n' > "$F"
+eq "parse: garbage, no open PR -> unknown" pr:unknown "$(pr_ | head -1)"
+export FAKE_PR='9 https://github.com/o/r/pull/9'; OUT=$(pr_); unset FAKE_PR
+eq "parse: garbage, open PR -> unknown-open" pr:unknown-open "$(head -1 <<<"$OUT")"
+rm -f "$F"
+eq "parse: missing -> unknown" pr:unknown "$(pr_ | head -1)"
 exit $FAIL
