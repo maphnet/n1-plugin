@@ -154,8 +154,9 @@ eq "binding: a broken chain stays broken" "$REF" "$(pin "$H6")"
 eq "binding: --confirmed still bypasses" "pin:set ${H6:0:7}" "$(rm -f "$P11"; HEADSHA=$H6 n1_review_pin set 11 --confirmed)"
 rv r2 "$H6"
 eq "binding: a re-review re-anchors the chain" "pin:set ${H6:0:7}" "$(pin "$H6")"
-n=$(wc -l < "$ST/r2.jsonl"); ( unset N1_RUN_ID; ID=T-1 n1_head_record "$H6" )
+n=$(wc -l < "$ST/r2.jsonl"); out=$( unset N1_RUN_ID; ID=T-1 n1_head_record "$H6" 2>/dev/null ); rc=$?
 eq "n1_head_record: no bound run writes nothing" "$n" "$(wc -l < "$ST/r2.jsonl")"
+eq "n1_head_record: no bound run fails visibly (N1-439)" "1 HEAD_RECORD_FAILED" "$rc ${out%% *}"
 H8=$(gc soft-fix); tip "$H8"; hr "$H6"; hr "$H6"
 eq "binding: repeating a head record is a no-op" "pin:set ${H8:0:7}" "$(pin "$H8")"
 # N1-405 AC4: pre-push Codex fix commits recorded by the scope gate keep the chain intact through docs and rebase.
@@ -172,11 +173,19 @@ tip "$H2"
 eq "binding: newest review head wins; begin event ignored" "pin:set ${H2:0:7}" "$(pin "$H2")"
 rm -f "$ST"/*.jsonl; printf '{"run_id":"r2","layer":"step","step":"review","step_number":9,"outcome":"success","metadata":{"head":""}}\n{"run_id":"r2","layer":"step","step":"head","step_number":0,"outcome":"success","metadata":{"head":"%s","from":""}}\n' "$H6" > "$ST/r2.jsonl"
 eq "binding: empty review head and empty from -> refused" "$REF" "$(pin "$H6")"
-n=$(wc -l < "$ST/r2.jsonl"); hr ""
+n=$(wc -l < "$ST/r2.jsonl"); out=$(hr ""); rc=$?
 eq "n1_head_record: malformed from writes nothing" "$n" "$(wc -l < "$ST/r2.jsonl")"
+eq "n1_head_record: malformed from fails visibly (N1-439)" "1 HEAD_RECORD_FAILED" "$rc ${out%% *}"
 rv r2 "$H6"; tip "$H6"; pin "$H6" >/dev/null
 H7=$(gc ci-fix); tip "$H7"
 eq "binding: advance is not gated by the chain" "pin:advanced ${H7:0:7}" "$(n1_review_pin advance 11 "$H6" "$H7")"
+# N1-439: n1_review_reviewed_head is the pre-PR re-review diff base; n1_head_record derives ID from the active run.
+eq "reviewed head: last ended review event with a head" "$H6" "$(n1_review_reviewed_head "$T/home")"
+eq "reviewed head: no active run prints nothing" "" "$(N1_HOME="$T/none" n1_review_reviewed_head "$T/none")"
+H14=$(gc derived-id); ( unset ID; N1_RUN_ID=r2 n1_head_record "$H7" ) >/dev/null
+eq "n1_head_record: unset ID derives the ticket from the active run" "{\"head\":\"$H14\",\"from\":\"$H7\"}" "$(tail -1 "$ST/r2.jsonl" | jq -c .metadata)"
+mv "$T/home/active-run.json" "$T/ar.bak"; out=$( unset ID N1_RUN_ID; n1_head_record "$H7" 2>/dev/null ); rc=$?; mv "$T/ar.bak" "$T/home/active-run.json"
+eq "n1_head_record: no active run (standalone n1-pr) stays silent" "0:" "$rc:$out"
 rm -rf "$R" "$T/home/active-run.json" "$P11"
 
 # Wiring (N1-405): step 3 pins the PR head and never runs Codex; the pre-push scope gate records the fix head.

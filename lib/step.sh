@@ -123,19 +123,29 @@ n1_step_end() {
 
 # n1_head_record <from_sha>
 # N1-184. Records a post-review commit (n1-start SOFT-ONLY pass, n1-pr doc commit, conflict-free
-# n1-pr rebase) as a step event: step "head", step_number 0, outcome success,
+# n1-pr rebase, Codex push:ok) as a step event: step "head", step_number 0, outcome success,
 # metadata {"head":"<HEAD>","from":"<from_sha>"}. n1_review_pin set accepts a PR head only at the
 # end of an unbroken review -> head chain (n1_review_artifacts_ok in lib/config.sh), so <from_sha>
 # must be the head before the commit. No overview.md or checkbox writes (that is why this does not
-# use n1_step_end). No-op without a bound run or ID (says so on stderr, as n1_step_begin does, so a
-# lost record is attributable); always returns 0 (a lost record fails closed at pin set).
+# use n1_step_end). N1-439: an unset ID is taken from the active-run pointer (the reader resolves
+# the ticket the same way). With no active-run ticket and no N1_RUN_ID (standalone n1-pr) it is a
+# silent no-op (rc 0; the pin fails open there too). Any other failure prints
+# "HEAD_RECORD_FAILED <reason>" on stdout and returns 1, so the calling step sees the lost record.
 n1_head_record() {
-    local from="${1:-}" to
+    local from="${1:-}" to bound ID="${ID:-}"
+    bound=$(n1_active_run_ticket 2>/dev/null)
+    [ -n "$ID" ] || ID="$bound"
+    [[ "$ID" =~ ^[A-Za-z0-9._-]+$ ]] && [ "$ID" != . ] && [ "$ID" != .. ] || ID=""
+    if [ -z "$bound" ] && [ -z "${N1_RUN_ID:-}" ]; then
+        echo "n1_head_record: no active N1 run; head not recorded (n1_review_pin set fails open too)" >&2
+        return 0
+    fi
     n1_bind_run_to_ticket
-    [ -n "${N1_RUN_ID:-}" ] && [ -n "${ID:-}" ] || { echo "n1_head_record: no run or ticket bound (ID=${ID:-<unset>}); head not recorded" >&2; return 0; }
-    to=$(git rev-parse HEAD 2>/dev/null) || return 0
-    [[ "$from" =~ ^[0-9a-f]{40}$ && "$to" =~ ^[0-9a-f]{40}$ ]] || { echo "n1_head_record: from or HEAD is not a 40-hex SHA; head not recorded" >&2; return 0; }
+    [ -n "${N1_RUN_ID:-}" ] && [ -n "$ID" ] || { echo "HEAD_RECORD_FAILED unbound (ID=${ID:-<unset>} N1_RUN_ID=${N1_RUN_ID:-<unset>})"; return 1; }
+    to=$(git rev-parse HEAD 2>/dev/null) || { echo "HEAD_RECORD_FAILED no-head"; return 1; }
+    [[ "$from" =~ ^[0-9a-f]{40}$ && "$to" =~ ^[0-9a-f]{40}$ ]] || { echo "HEAD_RECORD_FAILED bad-sha (from=${from:-<empty>})"; return 1; }
     n1_emit_step_event "${N1_RUN_ID}" "${N1_VERSION:-}" "${ID}" head 0 "${N1_HOME}/memory/${ID}/telemetry" \
-        completed_at=now outcome=success "metadata={\"head\":\"$to\",\"from\":\"$from\"}" || true
+        completed_at=now outcome=success "metadata={\"head\":\"$to\",\"from\":\"$from\"}" \
+        || { echo "HEAD_RECORD_FAILED emit"; return 1; }
     return 0
 }
