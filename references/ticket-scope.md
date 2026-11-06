@@ -13,7 +13,7 @@ Use the confirmed scope to choose ticket structure, independently of the invoked
 
 **Meaningful decomposition** means distinct deliverables that can be scoped and accepted separately, including dependent deliverables. Tests, documentation, and implementation steps needed for one atomic change belong in that ticket's acceptance criteria. Do not invent children to justify the initially selected command. Example: rename one CLI flag and update its tests/help in one repo → Task; implement a service change and update a client in another repo → Story.
 
-Re-evaluate against the latest confirmed scope before approval and after every edit or removal. If required facts remain unknown, resolve them through the collection flow's analysis/discovery before any tracker write. In automatic mode resolve from available evidence; ask for missing facts that cannot be established. In interactive mode clarify scope, rather than offering to retain an inappropriate ticket structure. A confirmed scope change can change the resulting type.
+Re-evaluate against the latest confirmed scope before creation. If required facts remain unknown, resolve them through the collection flow's analysis/discovery before any tracker write. Resolve from available evidence rather than retaining an inappropriate ticket structure. A confirmed scope change can change the resulting type.
 
 ## Free-form creation
 

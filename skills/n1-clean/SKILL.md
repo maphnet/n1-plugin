@@ -85,7 +85,7 @@ N1 Worktree Status:
   Active (in progress or open PR):
     - <ID> (branch: <branch>, step: <step>)
 
-Removable: <N> (stale + completed); Abandoned only by selection
+Removable: <N> (stale + completed); Abandoned listed only, never removed by n1-clean
 ```
 
 If nothing is Stale, Completed or Abandoned: "All worktrees are active. Nothing to clean up." **STOP.**
@@ -102,8 +102,7 @@ Continue to Step 4 with Stale and Completed.
    source ~/.n1/preamble.sh
    n1_clean_ticket "<ID>" general
    ```
-3. **Abandoned (user-selected only):** workspace-manager owned → `n1_orca_rm "<path>"`; otherwise `git worktree remove "<path>"`. A dirty or locked tree fails; report the error and keep it. The branch is kept.
-4. Final `git worktree prune`.
+3. Final `git worktree prune`.
 
 ## Step 5: Report
 
@@ -111,8 +110,7 @@ Continue to Step 4 with Stale and Completed.
 Cleanup complete.
 
   - <ID>: <tokens, e.g. worktree:removed, branch:deleted | worktree:kept (dirty), branch:kept (checked out in <path>)>
-  - <ID>: removed (abandoned) | failed (<error>)
 
-Preserved: memory at $N1_HOME; branches of Abandoned worktrees
+Preserved: memory at $N1_HOME
 Active worktrees: <N>
 ```

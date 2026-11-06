@@ -1,12 +1,12 @@
 <!-- Purpose: Approval gate, create story, create subtasks, done (Steps 7-10). -->
 
-**Pre-creation scope guard:** Follow `<N1_ROOT>/references/ticket-scope.md` before Step 7 and after every edit or removal. Only `SCOPE_TYPE=Story` may proceed to Steps 8-10. Task scope performs the standalone Task handoff and ends this flow; unresolved scope returns to analysis/discovery. Apply this guard before auto-selecting **Create all**, too. Adopted keys (`ADOPT_KEYS`) count as children.
+**Pre-creation scope guard:** Follow `<N1_ROOT>/references/ticket-scope.md` before Step 7. Only `SCOPE_TYPE=Story` may proceed to Steps 8-10. Task scope performs the standalone Task handoff and ends this flow; unresolved scope returns to analysis/discovery. Apply this guard before auto-selecting **Create all**, too. Adopted keys (`ADOPT_KEYS`) count as children.
 
 ## Step 7: Approval Gate
 
 **Autonomy gate:** skip this prompt and auto-select **Create all** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
 `| n1-story | mechanical | C | [auto] | Story approval gate | Create all | Edit, Remove, or Cancel | auto | --- |`
-Show the resulting **Type: Story** and child count before creation; Task handoffs show the standalone ticket preview instead.
+Show the resulting **Type: Story** and child count before creation.
 
 ## Step 8: Create Story
 
