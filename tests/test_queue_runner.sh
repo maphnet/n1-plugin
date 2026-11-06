@@ -2018,6 +2018,64 @@ test_list_input_wiring() {
     assert_eq "list-input: loop sends invalid keys and failed URLs to BAD only" "BAD= notakey https:__x_bad n1-5 a_PWN-1_x" "$(grep '^BAD=' <<<"$out")"
 }
 
+# N1-440: per-session queue planning pointer, unique plan ids, planning-dir discard.
+test_queue_plan_state() {
+    local h; h=$(mktemp -d)
+    type n1_session_id >/dev/null 2>&1 || source "$REPO_ROOT/lib/host.sh"
+    qps() { ( export N1_HOME="$h" N1_SESSION_ID="${SID:-s1}"; n1_queue_plan_state "$@" ); }
+    qnew() { ( export N1_HOME="$h" N1_SESSION_ID=s1; n1_queue_new_id "$@" ); }
+    qdis() { ( export N1_HOME="$h" N1_SESSION_ID=s1; n1_queue_plan_discard "$@" ); }
+    local rc out a b c
+    # pointer write/read/step/clear
+    qps write n1-auto-20261106T101530Z intake tag n1-auto; rc=$?
+    assert_eq "plan-state: write rc 0" "0" "$rc"
+    assert_eq "plan-state: keyed file written" "yes" "$([ -f "$h/queue-plan.s1.json" ] && echo yes || echo no)"
+    assert_eq "plan-state: read prints id step mode source" "$(printf 'n1-auto-20261106T101530Z\tintake\ttag\tn1-auto')" "$(qps read)"
+    qps step preview
+    assert_eq "plan-state: step advances" "preview" "$(qps read | cut -f2)"
+    qps step bogus && rc=0 || rc=$?
+    assert_eq "plan-state: unknown step refused" "1" "$rc"
+    assert_eq "plan-state: refused step keeps the old one" "preview" "$(qps read | cut -f2)"
+    qps write '../x' intake tag x && rc=0 || rc=$?
+    assert_eq "plan-state: bad queue id refused" "1" "$rc"
+    qps write q1 intake epic x && rc=0 || rc=$?
+    assert_eq "plan-state: bad mode refused" "1" "$rc"
+    qps write q1 intake list 'N1-1 N1-2;$(id)/x'
+    assert_eq "plan-state: source sanitized" "N1-1 N1-2idx" "$(qps read | cut -f4)"
+    assert_eq "plan-state: other session reads nothing" "" "$(SID=s2 qps read)"
+    SID='a/b' qps write q1 intake tag x && rc=0 || rc=$?
+    assert_eq "plan-state: unsafe sid refused" "1" "$rc"
+    assert_eq "plan-state: unsafe sid writes no file" "1" "$(ls "$h" | grep -c '^queue-plan\.')"
+    echo '{"queueId":"../x","step":"intake","mode":"tag","source":""}' > "$h/queue-plan.s1.json"
+    qps read >/dev/null && rc=0 || rc=$?
+    assert_eq "plan-state: tampered id not read" "1" "$rc"
+    qps clear
+    assert_eq "plan-state: clear removes the file" "no" "$([ -e "$h/queue-plan.s1.json" ] && echo yes || echo no)"
+    # unique ids
+    mkdir -p "$h/queue/n1-auto"; echo 'old rows' > "$h/queue/n1-auto/queue.md"
+    a=$(qnew n1-auto); b=$(qnew n1-auto)
+    assert_eq "new-id: two plans of one tag differ" "yes" "$([ -n "$a" ] && [ "$a" != "$b" ] && echo yes || echo no)"
+    assert_eq "new-id: shape <tag>-<UTC>[-n]" "yes" "$([[ "$a" =~ ^n1-auto-[0-9]{8}T[0-9]{6}Z(-[0-9]+)?$ ]] && [[ "$b" =~ ^n1-auto-[0-9]{8}T[0-9]{6}Z(-[0-9]+)?$ ]] && echo yes || echo no)"
+    assert_eq "new-id: dir created, no inherited rows" "yes|no" "$([ -d "$h/queue/$b" ] && echo yes)|$([ -e "$h/queue/$b/queue.md" ] && echo yes || echo no)"
+    c=$(qnew "$(printf 'x%.0s' {1..50})")
+    assert_eq "new-id: base cut to 40" "yes" "$([[ "$c" =~ ^x{40}-[0-9]{8}T[0-9]{6}Z ]] && echo yes || echo no)"
+    out=$(qnew '../x') && rc=0 || rc=$?
+    assert_eq "new-id: bad base refused" "1|" "$rc|$out"
+    # discard
+    mkdir -p "$h/queue/$a/desc"; qps write "$a" preview tag n1-auto
+    qdis "$a"
+    assert_eq "discard: planning-only dir removed" "no" "$([ -e "$h/queue/$a" ] && echo yes || echo no)"
+    assert_eq "discard: pointer cleared" "no" "$([ -e "$h/queue-plan.s1.json" ] && echo yes || echo no)"
+    qdis n1-auto && rc=0 || rc=$?
+    assert_eq "discard: dir with queue.md kept" "1|yes" "$rc|$([ -f "$h/queue/n1-auto/queue.md" ] && echo yes)"
+    mkdir -p "$h/queue/claimed/.unattended-claim"
+    qdis claimed && rc=0 || rc=$?
+    assert_eq "discard: claimed dir kept" "1|yes" "$rc|$([ -d "$h/queue/claimed" ] && echo yes)"
+    qdis '../x' && rc=0 || rc=$?
+    assert_eq "discard: bad id refused" "1" "$rc"
+    rm -rf "$h"
+}
+
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
 test_answer_wiring() {
     local h="$REPO_ROOT/skills/n1-start/procedures/autonomy-headless-ask.md"
@@ -2128,6 +2186,7 @@ test_find_repo
 test_pick_model
 test_plan_wiring
 test_list_input_wiring
+test_queue_plan_state
 test_story_epic_wiring
 test_child_status
 test_child_status_deploy

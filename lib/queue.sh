@@ -1954,3 +1954,78 @@ n1_story_convert_decision() {
         *) printf 'single:unsupported' ;;
     esac
 }
+
+# --- N1-440: interactive plan ids and the per-session planning pointer ---------------------------
+n1_queue_new_id() {
+    # Usage: n1_queue_new_id <base> — unique queue id "<base cut to 40>-<UTC yyyymmddThhmmssZ>" for one
+    # interactive plan. Creates $N1_HOME/queue/<id> atomically (mkdir without -p on the leaf; one retry
+    # with -$RANDOM on collision) and prints the id. rc 1 on a bad base or a second collision.
+    local base="${1:-}" home id
+    [[ "$base" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 1
+    home=$(n1_home) && [ -n "$home" ] || return 1
+    mkdir -p "$home/queue" || return 1
+    id="${base:0:40}-$(date -u +%Y%m%dT%H%M%SZ)"
+    if ! mkdir "$home/queue/$id" 2>/dev/null; then
+        id="$id-$RANDOM"
+        mkdir "$home/queue/$id" 2>/dev/null || return 1
+    fi
+    printf '%s\n' "$id"
+}
+
+_n1_queue_plan_file() {
+    # $N1_HOME/queue-plan.<sid>.json; no or unsafe session id -> rc 1 (no unkeyed fallback).
+    local home sid
+    type n1_session_id >/dev/null 2>&1 || return 1
+    sid=$(n1_session_id)
+    [[ "$sid" =~ ^[a-zA-Z0-9_-]+$ ]] || return 1
+    home=$(n1_home) && [ -n "$home" ] || return 1
+    printf '%s/queue-plan.%s.json' "$home" "$sid"
+}
+
+_n1_queue_plan_valid() { # <queue-id> <step> <mode>
+    [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 1
+    case "${2:-}" in intake|preview|plan-resolve|saved) ;; *) return 1 ;; esac
+    case "${3:-}" in list|tag|story) ;; *) return 1 ;; esac
+}
+
+n1_queue_plan_state() {
+    # Usage: n1_queue_plan_state write <queue-id> <step> <mode> <source> | step <step> | read | clear
+    # Active n1-queue plan of this session, read by hooks/session-start.sh (compact) and hooks/pre-compact.sh.
+    # read prints "<queue-id>\t<step>\t<mode>\t<source>" after validation, else rc 1.
+    local f id step mode src
+    f=$(_n1_queue_plan_file) || return 1
+    case "${1:-}" in
+        write)
+            id="${2:-}" step="${3:-}" mode="${4:-}"
+            _n1_queue_plan_valid "$id" "$step" "$mode" || return 1
+            src=$(printf '%s' "${5:-}" | LC_ALL=C tr -cd 'A-Za-z0-9._:, -')
+            jq -cn --arg i "$id" --arg s "$step" --arg m "$mode" --arg o "${src:0:200}" \
+                '{queueId:$i,step:$s,mode:$m,source:$o}' > "$f" ;;
+        step)
+            IFS=$'\t' read -r id step mode src <<<"$(n1_queue_plan_state read)"
+            n1_queue_plan_state write "$id" "${2:-}" "$mode" "$src" ;;
+        read)
+            [ -f "$f" ] || return 1
+            id=$(jq -r '.queueId // empty | strings' "$f" 2>/dev/null) || return 1
+            step=$(jq -r '.step // empty | strings' "$f" 2>/dev/null) || return 1
+            mode=$(jq -r '.mode // empty | strings' "$f" 2>/dev/null) || return 1
+            src=$(jq -r '.source // empty | strings' "$f" 2>/dev/null | LC_ALL=C tr -cd 'A-Za-z0-9._:, -')
+            _n1_queue_plan_valid "$id" "$step" "$mode" || return 1
+            printf '%s\t%s\t%s\t%s\n' "$id" "$step" "$mode" "${src:0:200}" ;;
+        clear) rm -f "$f" ;;
+        *) return 1 ;;
+    esac
+}
+
+n1_queue_plan_discard() {
+    # Usage: n1_queue_plan_discard <queue-id> — Cancel / --dry-run: clear this session's planning pointer and
+    # remove a planning-only queue dir (no queue.md, no unattended claim). rc 1 when the dir is kept.
+    local id="${1:-}" home dir
+    n1_queue_plan_state clear 2>/dev/null || true
+    [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 1
+    home=$(n1_home) && [ -n "$home" ] || return 1
+    dir="$home/queue/$id"
+    [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+    if [ -e "$dir/queue.md" ] || [ -e "$dir/.unattended-claim" ]; then return 1; fi
+    rm -rf -- "$dir"
+}
