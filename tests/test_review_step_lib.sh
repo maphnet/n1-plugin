@@ -68,4 +68,22 @@ printf -- '---\nreview_fix_cycle: 1\n---\n' > "$MEM/overview.md"
 printf 'CR-3\tHigh\tc.sh\tthree\nCR-4\tHigh\td.sh\tfour\n' > "$MEM/fp-new.tsv"
 has "collect: equal blockers at cycle 1 are NON_CONVERGING" "$(n1_review_collect false 2>&1)" "NON_CONVERGING: cycle 1"
 
+# --- step wiring: execute the step's own fences so the call text itself is tested ---
+STEP="$REPO_ROOT/skills/n1-start/steps/review.md"
+fence() { awk -v n="$2" '/^```bash$/{c++; if (c==n) {f=1; next}} /^```$/{f=0} f' "$1" | sed '\#^source ~/.n1/preamble.sh$#d'; }
+n1_step_begin() { :; }; n1_step_end() { :; }
+rm -f "$MEM/overview.md" "$MEM/fp-new.tsv"
+OUT=$( cd "$REPO" && eval "$(fence "$STEP" 1 | sed "s#<worktree dir>#$REPO#")" 2>&1 ); rc=$?
+eq "wiring: entry fence exits 0" "0" "$rc"
+has "wiring: entry fence prints base and cycle" "$OUT" "BASE_BRANCH=origin/feat-base RELATED_ENABLED="
+has "wiring: entry fence prints TREE_BEFORE" "$OUT" "TREE_BEFORE="
+put_reviews
+OUT=$( cd "$REPO" && eval "$(fence "$STEP" 3 | sed 's/<true if security-reviewer was spawned, else false>/false/')" 2>&1 ); rc=$?
+eq "wiring: collect fence exits 0" "0" "$rc"
+has "wiring: collect fence prints TQ_MAX" "$OUT" "TQ_MAX=2"
+eq "wiring: collect fence writes review.md" '### Verdict: PASS|## CR|' "$(tr '\n' '|' < "$MEM/review.md")"
+rm -f "$MEM/review-hdr.md"
+( cd "$REPO" && eval "$(fence "$STEP" 3 | sed 's/<true if security-reviewer was spawned, else false>/false/')" ) >/dev/null 2>&1; rc=$?
+eq "wiring: collect fence stops on PARTIAL" "1" "$rc"
+
 exit $FAIL
