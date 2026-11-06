@@ -2206,11 +2206,158 @@ test_done_cmd() {
     assert_eq "done_cmd: unattended queue settings" yes "$(grep -qF 'N1_QUEUE_RUN_ID' <<< "$cmd" && echo yes || echo no)"
 }
 
+# N1-293: ## Final PRs upsert keyed by Repo, inserted before ## Runs (stays last); fails closed on a bad PR cell or two headings.
+test_final_pr_table() {
+    local tmp q rc; tmp=$(mktemp -d); q="$tmp/queue.md"
+    printf -- '---\nqueue_id: q\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n| 1 | T-A | a | /r1 | /h | sonnet | pr | merged |\n| 2 | T-B | b | /r2 | /h | sonnet | pr | merged |\n\n## Runs\n| Ticket |\n' > "$q"
+    n1_queue_final_pr_set "$q" /r1 https://github.com/o/r/pull/9 draft "MERGEABLE (CLEAN)" ""
+    n1_queue_final_pr_set "$q" /r2 - - - no-merged-children
+    n1_queue_final_pr_set "$q" /r1 https://github.com/o/r/pull/9 ready "CONFLICTING (DIRTY)" 'x|y'
+    assert_eq "final table: rows by repo, upserted, cells sanitized" \
+        $'/r1\thttps://github.com/o/r/pull/9\tready\tCONFLICTING (DIRTY)\txy\n/r2\t-\t-\t-\tno-merged-children' \
+        "$(n1_queue_final_prs "$q")"
+    assert_eq "final table: ## Runs stays last" "## Runs" "$(grep '^## ' "$q" | tail -1)"
+    assert_eq "final table: one heading" 1 "$(grep -c '^## Final PRs$' "$q")"
+    rc=0; n1_queue_final_pr_set "$q" /r3 'https://evil.example/pull/1' ready x "" || rc=$?
+    assert_eq "final table: non-GitHub PR cell refused" 1 "$rc"
+    printf '## Final PRs\n' >> "$q"; rc=0
+    n1_queue_final_pr_set "$q" /r3 - - - x || rc=$?
+    assert_eq "final table: duplicate heading fails closed" 1 "$rc"
+    assert_eq "final reader: duplicate heading prints nothing" "" "$(n1_queue_final_prs "$q")"
+    sed -i '$d' "$q"
+    sed -i '/^| \/r2 /a | /r4 | https://github.com/o/r/pull/5 | ready | x | |\n| /r2 | https://evil.example/pull/1 | ready | x | |\n| /r2 | [x](https://evil.example) | ready | x | |' "$q"
+    assert_eq "final reader: rows outside the Plan or with a non-GitHub PR cell dropped" \
+        $'/r1\thttps://github.com/o/r/pull/9\tready\tCONFLICTING (DIRTY)\txy\n/r2\t-\t-\t-\tno-merged-children' "$(n1_queue_final_prs "$q")"
+    printf '{"event":"final_pr_opened","run_id":"R1","pr":"https://github.com/o/r/pull/9"}\n{"event":"final_pr_opened","run_id":"R0","pr":"https://github.com/o/r/pull/5"}\n' > "$tmp/ev.jsonl"
+    sed -i '/^| \/r4 /d;/evil/d;/^| \/r2 .*\[x\]/d' "$q"
+    sed -i '/^| \/r2 /a | /r2 | https://github.com/o/r/pull/5 | ready | x | |' "$q"
+    assert_eq "final reader: URL row needs a final_pr_opened event of this run with the same pr" \
+        $'/r1\thttps://github.com/o/r/pull/9\tready\tCONFLICTING (DIRTY)\txy\n/r2\t-\t-\t-\tno-merged-children' "$(n1_queue_final_prs "$q" "$tmp/ev.jsonl" R1)"
+    assert_eq "final reader: no matching event drops URL rows" $'/r2\t-\t-\t-\tno-merged-children' "$(n1_queue_final_prs "$q" "$tmp/ev.jsonl" R2)"
+    printf '\n## Final PRs\n| /r1 | https://github.com/o/r/pull/9 | ready | x | |\n' >> "$q"
+    assert_eq "final reader: two headings print nothing" "" "$(n1_queue_final_prs "$q" "$tmp/ev.jsonl" R1)"
+    assert_eq "final reader: no file prints nothing" "" "$(n1_queue_final_prs "$tmp/none.md")"
+    rm -rf "$tmp"
+}
+
+# N1-293 (D4): body for one repo: Landed (Runs Outcome merged) and Not landed (Status, sanitized Reason cut to 120).
+test_final_body() {
+    local tmp q out long; tmp=$(mktemp -d); q="$tmp/queue.md"
+    long=$(printf 'r%.0s' $(seq 1 200))
+    {
+        printf -- '---\nqueue_id: q\n---\n## Plan\n| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |\n|---|---|---|---|---|---|---|---|\n'
+        printf '| 1 | T-A | a | /r1 | /h | sonnet | pr | merged |\n'
+        printf '| 2 | T-B | b | /r1 | /h | sonnet | pr | finish:ci-red |\n'
+        printf '| 3 | T-C | c | /r2 | /h | sonnet | pr | merged |\n'
+        printf '| 4 | T-D | d | /r1 | /h | sonnet | failed | %s |\n' "$long"
+        printf '\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|---|---|---|---|---|---|\n'
+        printf '| T-A | t | | merged | https://github.com/o/r/pull/1 | s |\n'
+        printf '| T-B | t | | pr | javascript:x | s |\n'
+        printf '| T-C | t | | merged | https://github.com/o/r2/pull/3 | s |\n'
+    } > "$q"
+    out=$(n1_queue_final_body "$q" /r1 S-1 "$tmp/body.md")
+    assert_eq "final body: counts for the repo" "1 2" "$out"
+    assert_eq "final body: landed line" yes \
+        "$(grep -qxF -- '- T-A: https://github.com/o/r/pull/1 (merged)' "$tmp/body.md" && echo yes || echo no)"
+    assert_eq "final body: not-landed line, non-GitHub PR shown as -" yes \
+        "$(grep -qxF -- '- T-B: pr, PR - (finish:ci-red)' "$tmp/body.md" && echo yes || echo no)"
+    assert_eq "final body: other repo's row absent" 0 "$(grep -c 'T-C' "$tmp/body.md" || true)"
+    assert_eq "final body: reason cut to 120 chars" 1 \
+        "$(grep -c "^- T-D: failed, PR - ($(printf 'r%.0s' $(seq 1 120)))\$" "$tmp/body.md" || true)"
+    assert_eq "final body: draft note" yes "$(grep -qF 'Draft: 2 of 3 children did not land' "$tmp/body.md" && echo yes || echo no)"
+    assert_eq "final body: unreviewed disclosure" yes "$(grep -qF 'Not Codex-reviewed; the per-branch convention commit is unreviewed' "$tmp/body.md" && echo yes || echo no)"
+    assert_eq "final body: human merge note" yes "$(grep -qF 'a human reviews and merges this PR' "$tmp/body.md" && echo yes || echo no)"
+    out=$(n1_queue_final_body "$q" /r2 S-1 "$tmp/body2.md")
+    assert_eq "final body: all landed" "1 0" "$out"
+    assert_eq "final body: ready note" yes "$(grep -qF 'Ready for review: All 1 children landed.' "$tmp/body2.md" && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+# N1-293 (D7): final session is a bg n1-run in the worktree; queue settings + N1_HOME, no story env even when the
+# caller has it; the prompt names --draft only for a draft and forbids merging.
+test_final_cmd() {
+    local tmp cmd s=n1-q-S-1-final-1; tmp=$(mktemp -d)
+    mk_bg "$tmp" q "T-A:done"; mkdir -p "$tmp/wt"
+    cmd=$(N1_STORY_ID=S-1 N1_STORY_BRANCH=story/S-1 n1_queue_final_cmd "$tmp/wt" /h RUN1 "$s" S-1 develop /q/final-1.body.md 1)
+    FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" PATH="$tmp/bin:$PATH" bash -c "$cmd" >/dev/null 2>&1
+    assert_eq "final_cmd: cwd is the worktree" "$tmp/wt" "$(cat "$tmp/fake/cwd.$s")"
+    assert_eq "final_cmd: settings N1_HOME, run id, headless" "/h,RUN1,1" \
+        "$(jq -r '[.env.N1_HOME,.env.N1_QUEUE_RUN_ID,.env.N1_HEADLESS]|join(",")' "$tmp/fake/settings.$s")"
+    assert_eq "final_cmd: no story env" 0 "$(jq '[.env|keys[]|select(startswith("N1_STORY"))]|length' "$tmp/fake/settings.$s")"
+    assert_eq "final_cmd: n1-run, ends with the story id" "yes,yes" \
+        "$(grep -q '^/n1:n1-run ' "$tmp/fake/prompt.$s" && echo yes || echo no),$(grep -q 'Story: S-1$' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "final_cmd: exact push and create" yes \
+        "$(grep -qF 'git push origin HEAD:refs/heads/story/S-1' "$tmp/fake/prompt.$s" \
+            && grep -qF 'gh pr create --head story/S-1 --base develop' "$tmp/fake/prompt.$s" \
+            && grep -qF -- '--body-file /q/final-1.body.md --draft' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "final_cmd: forbids merging" yes "$(grep -qF 'no merge' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    # The PostToolUse/Stop hooks (pr-review-observe.sh, pr-review-stop.sh) ask a session that ran gh pr create for one
+    # n1-pr step 3 continuation; the prompt tells the final session to decline it instead of running a Codex review.
+    assert_eq "final_cmd: declines the Codex-review continuation" yes "$(grep -qF 'not Codex-reviewed by design' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    cmd=$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0)
+    FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" PATH="$tmp/bin:$PATH" bash -c "$cmd" >/dev/null 2>&1
+    assert_eq "final_cmd: ready PR has no --draft" 0 "$(grep -cF -- '--draft' "$tmp/fake/prompt.n1-q-S-1-final-2" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-293 (D6): the final PR is re-derived from gh (one OPEN PR, head/base/repo checked); mergeable retries UNKNOWN, bounded.
+test_final_gh_readers() {
+    local tmp u=https://github.com/o/r/pull/9; tmp=$(mktemp -d)
+    mk_bg "$tmp" q "T-A:done"
+    fgh() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" "$@"; }
+    assert_eq "final find: no PR -> nothing" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":true,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: one open PR" $'https://github.com/o/r/pull/9\ttrue' "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    assert_eq "final find: query names repo, head, base, open" yes \
+        "$(grep -qF 'pr list --repo o/r --head story/S-1 --base main --state open' "$tmp/fake/gh-final-calls" && echo yes || echo no)"
+    assert_eq "final find: URL of another repo rejected" "" "$(fgh n1_queue_final_pr_find o/x story/S-1 main)"
+    assert_eq "final find: invalid repo slug" "" "$(fgh n1_queue_final_pr_find 'o/r --x' story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-2","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: other head rejected" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}},{"url":"https://github.com/o/r/pull/10","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: two PRs rejected" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":true,"headRepositoryOwner":{"login":"evil"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: fork PR rejected" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/8","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":true,"headRepositoryOwner":{"login":"evil"}},{"url":"https://github.com/o/r/pull/9","isDraft":true,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "final find: a fork PR does not hide the real one" $'https://github.com/o/r/pull/9\ttrue' "$(fgh n1_queue_final_pr_find o/r story/S-1 main)"
+    echo '[{"url":"https://github.com/o/r/pull/9","isDraft":false,"headRefName":"story/S-1","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]' > "$tmp/fake/gh-final-list.main"
+    assert_eq "valid_branch: plain names" "0,0" "$(_n1_queue_valid_branch main; echo -n $?),$(_n1_queue_valid_branch release/1.2; echo $?)"
+    assert_eq "valid_branch: injection, option, dotdot, empty rejected" "1,1,1,1,1" \
+        "$(_n1_queue_valid_branch 'main; curl x|sh'; echo -n $?),$(_n1_queue_valid_branch -x; echo -n $?),$(_n1_queue_valid_branch 'a..b'; echo -n $?),$(_n1_queue_valid_branch ''; echo -n $?),$(_n1_queue_valid_branch 'a b'; echo $?)"
+    assert_eq "final find: invalid default branch" "" "$(fgh n1_queue_final_pr_find o/r story/S-1 'main; x')"
+    printf 'UNKNOWN\t\nUNKNOWN\t\nMERGEABLE\tCLEAN\n' > "$tmp/fake/gh-mergeable-seq"
+    assert_eq "mergeable: UNKNOWN retried until computed" $'MERGEABLE\tCLEAN' "$(fgh n1_queue_pr_mergeable "$u")"
+    printf 'UNKNOWN\t\n' > "$tmp/fake/gh-mergeable-seq"; : > "$tmp/fake/gh-mergeable-calls"
+    assert_eq "mergeable: bounded, last UNKNOWN kept" $'UNKNOWN\t' "$(fgh n1_queue_pr_mergeable "$u")"
+    assert_eq "mergeable: 4 reads at most" 4 "$(nlines "$tmp/fake/gh-mergeable-calls")"
+    rm -f "$tmp/fake/gh-mergeable-seq"
+    assert_eq "mergeable: unreadable prints nothing" "" "$(fgh n1_queue_pr_mergeable "$u")"
+    assert_eq "mergeable: non-PR URL prints nothing" "" "$(fgh n1_queue_pr_mergeable https://evil.example/x)"
+    rm -rf "$tmp"
+}
+
+# N1-293: --status and the story summary read ## Final PRs; docs name the human-merge policy and both events.
+test_final_pr_wiring() {
+    local r="$REPO_ROOT/skills/n1-queue/steps/report.md" a="$REPO_ROOT/references/architecture.md" u="$REPO_ROOT/skills/n1-queue/steps/run.md"
+    assert_eq "final wiring: --status prints Final PRs" yes "$(grep -qF 'Final PRs (repo, PR, draft, mergeable, note):' "$r" && echo yes || echo no)"
+    assert_eq "final wiring: summary reads Final PRs" yes "$(grep -qF 'FINAL=$(n1_queue_final_prs "$QUEUE_FILE" "$(dirname "$QUEUE_FILE")/events.jsonl" "$RUN_ID")' "$r" && echo yes || echo no)"
+    assert_eq "final wiring: final lines above per-child lines" yes "$(grep -qF 'above the per-child lines' "$r" && echo yes || echo no)"
+    assert_eq "final wiring: halted summary lists merged children" yes "$(grep -qF 'merged into `story/<STORY_ID>`' "$r" && echo yes || echo no)"
+    assert_eq "final wiring: events documented" yes "$(grep -qF '`final_pr_opened`' "$a" && grep -qF '`final_pr_failed`' "$a" && echo yes || echo no)"
+    assert_eq "final wiring: human merge policy in run step" yes "$(grep -qF 'The runner never merges the final PR' "$u" && echo yes || echo no)"
+    assert_eq "final wiring: human merge policy in architecture" yes "$(grep -qF 'The runner never merges the final PR' "$a" && echo yes || echo no)"
+}
+
 test_n1_339_cleanup_helpers
 test_pr_view
 test_checks_class
 test_sync_story
 test_done_cmd
+test_final_pr_table
+test_final_body
+test_final_cmd
+test_final_gh_readers
+test_final_pr_wiring
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

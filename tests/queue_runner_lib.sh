@@ -45,13 +45,30 @@ echo "$*" >> "$FAKE_DIR/gh-all"
 pr=""; for a in "$@"; do case "$a" in */pull/*) pr="${a##*/}" ;; esac; done
 v="$FAKE_DIR/gh-view.$pr"; [ -f "$v" ] || v="$FAKE_DIR/gh-view"
 case "$1 $2" in
-    "pr list") echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
+    "pr list")
+        case "$*" in
+            *"--head story/"*) # N1-293: final PR lookup; answers gh-final-list.<base> (absent -> no PR)
+                echo "$*" >> "$FAKE_DIR/gh-final-calls"
+                b=""; prev=""; for a in "$@"; do [ "$prev" = --base ] && b="$a"; prev="$a"; done
+                cat "$FAKE_DIR/gh-final-list.$b" 2>/dev/null || echo '[]' ;;
+            *) echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
+        esac ;;
     "pr view") # N1-214: gh-fail holds a count of reads to fail before answering
         if [ -s "$FAKE_DIR/gh-fail" ]; then n=$(cat "$FAKE_DIR/gh-fail"); if [ "$n" -gt 0 ]; then echo $((n - 1)) > "$FAKE_DIR/gh-fail"; exit 1; fi; fi
         case "$*" in
+            *mergeable*) # N1-293: one line of gh-mergeable-seq per read (last line repeats); absent -> exit 1
+                echo "$*" >> "$FAKE_DIR/gh-mergeable-calls"
+                [ -s "$FAKE_DIR/gh-mergeable-seq" ] || exit 1
+                head -n1 "$FAKE_DIR/gh-mergeable-seq"
+                if [ "$(wc -l < "$FAKE_DIR/gh-mergeable-seq")" -gt 1 ]; then sed -i 1d "$FAKE_DIR/gh-mergeable-seq"; fi ;;
             *headRefOid*) cat "$v" 2>/dev/null || exit 1 ;;   # N1-292: n1_queue_pr_view (TSV state, base, head)
             *) cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
         esac ;;
+    "pr edit"|"pr ready") # N1-293: the runner's own reuse refresh; logged, gh-edit-fail makes both fail
+        echo "$*" >> "$FAKE_DIR/gh-refresh-calls"
+        [ -f "$FAKE_DIR/gh-edit-fail" ] && exit 1
+        [ "$2" = ready ] && echo ready > "$FAKE_DIR/gh-ready-done"
+        exit 0 ;;
     "pr checks") # N1-292: stdout gh-checks, stderr gh-checks-err, exit gh-checks-rc (default 0)
         cat "$FAKE_DIR/gh-checks-err" >&2 2>/dev/null
         cat "$FAKE_DIR/gh-checks" 2>/dev/null
@@ -97,11 +114,21 @@ case "$1" in
             -e "/^## Runs\$/i ## Story Branches\n| Repo | Branch |\n|------|--------|\n| $(cat "$D/forge-story") | story/S-1 |\n" "$D/../queue.md"
         printf '%s\n' "$all" > "$D/args.$name"
         printf '%s\n' "$settings" > "$D/settings.$name"
+        pwd > "$D/cwd.$name"   # N1-293: the final PR session runs in the runner's worktree
         if [ -f "$D/refuse" ] || { [ -f "$D/refuse-clean" ] && [ "${name%-clean}" != "$name" ]; } || { [ -f "$D/refuse-done" ] && [ "${name%-done}" != "$name" ]; }; then
             echo "Bypass Permissions mode requires accepting the disclaimer first. Run claude --dangerously-skip-permissions once."
             exit 1
         fi
         printf '%s\n' "$prompt" > "$D/prompt.$name"
+        # N1-293: a final story PR session (<name> contains -final-) opens PR 9 on story/S-1 when final-create exists:
+        # gh-final-list.<base> (base parsed from the prompt) gets one open PR, a draft exactly when the prompt says --draft.
+        case "$name" in *-final-*)
+            if [ -f "$D/final-create" ]; then
+                b=$(grep -o -- '--base [^ ]*' <<< "$prompt" | head -1); b="${b#--base }"
+                dr=false; grep -qF -- '--draft' <<< "$prompt" && dr=true
+                printf '[{"url":"https://github.com/o/r/pull/9","isDraft":%s,"headRefName":"story/S-1","baseRefName":"%s","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]\n' "$dr" "$b" > "$D/gh-final-list.$b"
+            fi ;;
+        esac
         t="${prompt##* }"
         grep '^queue_tag_removed:' "$FAKE_N1H/memory/$t/overview.md" > "$D/flag.$t" 2>/dev/null || true
         n=$(( $(cat "$D/seq" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$D/seq"
@@ -109,13 +136,15 @@ case "$1" in
         printf 'backgrounded \xc2\xb7 %08x \xc2\xb7 %s\n' "$n" "$name"
         ;;
     agents)
+        # N1-293: agents-fail-final makes the session list unreadable once a final session was launched
+        if [ -f "$D/agents-fail-final" ] && compgen -G "$D/prompt.*-final-*" >/dev/null; then echo "agents down" >&2; exit 1; fi
         out=""
         for f in "$D"/prompt.*; do
             [ -f "$f" ] || continue
             name="${f##*/prompt.}"; t=$(cat "$f"); t="${t% chained}"; t="${t##* }"
             c=$(( $(cat "$D/poll.$name" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$D/poll.$name"
             # N1-185: a chained n1-finish session (<name>-fin) replays states.<t>.fin (default done).
-            sf="$D/states.$t"; case "$name" in *-fin) sf="$D/states.$t.fin" ;; *-clean) sf="$D/states.$t.clean" ;; *-done) sf="$D/states.$t.done" ;; esac
+            sf="$D/states.$t"; case "$name" in *-final-*) sf="$D/states.$t.final" ;; *-fin) sf="$D/states.$t.fin" ;; *-clean) sf="$D/states.$t.clean" ;; *-done) sf="$D/states.$t.done" ;; esac
             read -r -a seq 2>/dev/null < "$sf" || seq=(done)
             i=$(( c < ${#seq[@]} ? c - 1 : ${#seq[@]} - 1 ))
             st="${seq[$i]}"
@@ -123,7 +152,7 @@ case "$1" in
             # relay.<t>: an answer relay in flight; lands as the runner's marker (mtime kept) when
             # the fake first reports the session stopped, i.e. after the runner saw the first block.
             [ "$st" = stopped ] && [ -f "$D/relay.$t" ] && mv "$D/relay.$t" "$D/../.relay-$t"
-            if [ "${name%-done}" != "$name" ]; then :   # N1-292: a Done session never writes the child's overview
+            if [ "${name%-done}" != "$name" ] || [ "${name#*-final-}" != "$name" ]; then :   # N1-292/N1-293: Done and final sessions never write a child overview
             elif [ "${name%-fin}" != "$name" ]; then
                 # N1-185: fin-merge.<t> makes the chained finish merge the PR when it is done.
                 [ "$st" = done ] && [ -f "$D/fin-merge.$t" ] && echo MERGED > "$D/gh-state"
@@ -545,3 +574,13 @@ story_restart_setup() {
     printf '%s\tstory/S-1\t%s\n' "$3" "$SM_PIN" > "$1/fake/gh-view.1"
     [ -z "$2" ] || printf 'R1\n%s\n' "$2" > "$1/.chained-T-A"
 }
+
+# --- N1-293: final story PR ----------------------------------------------------------
+# final_fixture <tmp> <ticket:states>... — story_merge_fixture whose final PR session opens PR 9 (final-create) and whose
+# mergeable read answers UNKNOWN once, then MERGEABLE/CLEAN.
+final_fixture() {
+    story_merge_fixture "$@"
+    touch "$1/fake/final-create"
+    printf 'UNKNOWN\t\nMERGEABLE\tCLEAN\n' > "$1/fake/gh-mergeable-seq"
+}
+fin_row() { n1_queue_final_prs "$1/queue.md" | awk -F'\t' -v r="$2" '$1 == r' | cut -f2-; }   # <tmp> <repo>

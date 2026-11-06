@@ -232,6 +232,48 @@ n1_queue_done_cmd() {
     n1_bg_launch_cmd "$5" n1-run "Queue story Done step (N1-292): the queue runner merged this ticket's PR into its story branch. Move the tracker ticket to the done status configured for the tracker in this project's N1 config (the status n1-finish Step 4 uses), through the tracker. Do nothing else: no merge, no git command, no PR edit, no deploy watch, no worktree cleanup. If the transition fails, end with the line done-transition: failed <reason>. Ticket: $2" "$3" "$1" "$(_n1_queue_bg_settings "$4")"
 }
 
+n1_queue_final_body() {
+    # Usage: n1_queue_final_body <queue.md> <repo> <story-id> <out-file> — N1-293 (N1-289 D4): writes the final story PR
+    # body for <repo>'s Plan rows and prints "<landed> <not-landed>". Landed = Runs Outcome merged; Not landed = every
+    # other row, with Status and Reason. queue.md is child-writable: Ticket, Status and Reason are sanitized and bounded,
+    # a PR cell that is not a GitHub PR URL prints as "-".
+    local q="$1" repo="$2" id="$3" out="$4" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state
+    while IFS=$'\t' read -r num t r _ _ st; do
+        [ "$r" = "$repo" ] || continue
+        pr=$(awk -F'|' -v tk="$t" '/^## Runs/ { f = 1; next } /^## / { f = 0 }
+            f && index($0, "| " tk " |") == 1 { p = $6 } END { gsub(/^[[:space:]]+|[[:space:]]+$/, "", p); print p }' "$q")
+        [[ "$pr" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || pr=-
+        tk=$(_n1_queue_sanitize_cell "$t"); tk=${tk:0:40}
+        rsn=$(_n1_queue_sanitize_cell "$(n1_queue_row_reason "$q" "$num")"); rsn=${rsn:0:120}
+        if [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ]; then
+            landed+="- $tk: $pr (${rsn:-merged})"$'\n'; nl=$((nl + 1))
+        else
+            st=$(_n1_queue_sanitize_cell "$st"); st=${st:0:40}
+            rest+="- $tk: $st, PR $pr (${rsn:-no reason recorded})"$'\n'; nr=$((nr + 1))
+        fi
+    done < <(n1_queue_pending_rows "$q" '.*')
+    [ -n "$landed" ] || landed=$'- none\n'
+    [ -n "$rest" ] || rest=$'- none\n'
+    if [ "$nr" -gt 0 ]; then state="Draft: $nr of $((nl + nr)) children did not land; this PR carries only the landed ones."
+    else state="Ready for review: All $nl children landed."; fi
+    printf '## Story %s: final PR\n\nOpened by the N1 queue runner from story/%s (N1-293). Not Codex-reviewed; the per-branch convention commit is unreviewed, so review the whole diff.\n\n### Landed\n%s\n### Not landed\n%s\n%s\n\nMerge: a human reviews and merges this PR; the queue never merges it. After the merge, /n1:n1-finish %s closes the story and deletes the local story branch; the remote branch follows the repository delete-branch setting.\n' \
+        "$id" "$id" "$landed" "$rest" "$state" "$id" > "$out" || return 1
+    echo "$nl $nr"
+}
+
+n1_queue_final_cmd() {
+    # Usage: n1_queue_final_cmd <worktree> <n1-home> <run-id> <session-name> <story-id> <default-branch> <body-file> <draft:0|1>
+    # N1-293 (N1-289 D7): background n1-run session, cwd a detached worktree of origin/story/<story-id>, that applies the
+    # per-branch conventions story children skipped, pushes story/<story-id> and opens the final PR. Settings env: the
+    # queue's plus N1_HOME=<n1-home> (the worktree path is not a repo slug). Story env is cleared even when the caller has
+    # it: n1_story_base would otherwise retarget the PR at the story branch. The prompt names --draft only when <draft> is
+    # 1 and carries no child-authored text (the body is a runner-written file).
+    local id="$5" def="$6" body="$7" sb="story/$5" draft=""
+    [ "$8" = 1 ] && draft=" --draft"
+    n1_bg_launch_cmd "$4" n1-run "Queue story final PR step (N1-293). This directory is a detached checkout of origin/$sb. 1) Apply the per-branch conventions that story children skipped, as this repository's CLAUDE.md and N1 config define them (for example the version bump), as one commit that names $id. Change nothing else. 2) Push with exactly: git push origin HEAD:refs/heads/$sb (never force, never another branch). 3) Read the title of tracker issue $id through the tracker and use the PR title '$id: <title>'; if it cannot be read, use '$id: story changes'. 4) Open the PR with exactly: gh pr create --head $sb --base $def --title <that title> --body-file $body$draft. Do nothing else: no merge, no gh pr ready, no PR edit, no other branch, no ticket transition. A hook may ask for a Codex review or n1-pr step 3 once the PR exists: do not run it; this PR is opened by the queue runner and is not Codex-reviewed by design, so end the session. If a step fails, end with the line final-pr: failed <reason>. Story: $id" \
+        sonnet "$1" "$(N1_STORY_ID="" N1_STORY_BRANCH="" _n1_queue_bg_settings "$3" | jq -c --arg h "$2" '.env.N1_HOME = $h')"
+}
+
 n1_queue_cleanup_needed() {
     # Usage: n1_queue_cleanup_needed <overview.md> - N1-339: exit 0 (launch a clean) unless the overview's Cleanup
     # line already shows the branch deleted or absent (finish cleaned it).
@@ -265,6 +307,51 @@ n1_queue_pr_view() {
         [ -n "$out" ] && { printf '%s\n' "$out"; return 0; }
         [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
     done
+    return 0
+}
+
+_n1_queue_valid_branch() {
+    # Usage: _n1_queue_valid_branch <name> — N1-293: 0 for a plain branch name (safe in a prompt command and gh args).
+    [[ "$1" =~ ^[A-Za-z0-9._/-]+$ ]] && [[ "$1" != -* ]] && [[ "$1" != *..* ]] && git check-ref-format --branch "$1" >/dev/null 2>&1
+}
+
+n1_queue_final_pr_find() {
+    # Usage: n1_queue_final_pr_find <owner/repo> <story-branch> <default-branch> — N1-293: "<url>\t<isDraft>" of the one
+    # OPEN PR in <owner/repo> from <story-branch> into <default-branch>. Session output is never trusted; the final PR is
+    # re-derived here. Prints nothing (status 0) for none, more than one, a head or base other than asked, a URL outside
+    # <owner/repo>, a head from another repository (fork PRs are dropped before counting), an invalid default branch, or a
+    # gh error on 3 reads (2s/4s backoff).
+    local nwo="$1" sb="$2" def="$3" attempt out=""
+    [[ "$nwo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 0
+    _n1_queue_valid_branch "$def" || return 0
+    for attempt in 1 2 3; do
+        out=$(timeout 30 gh pr list --repo "$nwo" --head "$sb" --base "$def" --state open \
+            --json url,isDraft,headRefName,baseRefName,isCrossRepository,headRepositoryOwner --limit 5 </dev/null 2>/dev/null) && break
+        out=""; [ "$attempt" -lt 3 ] && sleep $((attempt * 2))
+    done
+    [ -n "$out" ] || return 0
+    jq -r --arg sb "$sb" --arg def "$def" --arg owner "${nwo%%/*}" --arg pre "https://github.com/$nwo/pull/" '
+        if type == "array" then map(select(.isCrossRepository == false and .headRepositoryOwner.login == $owner)) else [] end
+        | if length == 1 and .[0].headRefName == $sb and .[0].baseRefName == $def
+             and (.[0].url | startswith($pre)) and (.[0].url | ltrimstr($pre) | test("^[0-9]+$"))
+          then "\(.[0].url)\t\(.[0].isDraft)" else empty end' <<< "$out" 2>/dev/null
+    return 0
+}
+
+n1_queue_pr_mergeable() {
+    # Usage: n1_queue_pr_mergeable <pr-url> — N1-293 (N1-289 D6): "<mergeable>\t<mergeStateStatus>" of a GitHub PR.
+    # GitHub computes mergeable lazily (UNKNOWN right after a PR opens), so an UNKNOWN or failed read is retried: at most
+    # 4 reads, 2s/4s/8s apart (bounded: unbounded polling has exhausted API limits). Prints the last UNKNOWN read, or
+    # nothing when every read failed or the URL is not a GitHub PR.
+    [[ "$1" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || return 0
+    local attempt out last=""
+    for attempt in 1 2 3 4; do
+        out=$(timeout 30 gh pr view --json mergeable,mergeStateStatus -q '[.mergeable,.mergeStateStatus]|@tsv' -- "$1" </dev/null 2>/dev/null) || out=""
+        [ -n "$out" ] && last="$out"
+        case "$out" in ''|UNKNOWN*) ;; *) printf '%s\n' "$out"; return 0 ;; esac
+        [ "$attempt" -lt 4 ] && sleep $((2 ** attempt))
+    done
+    [ -z "$last" ] || printf '%s\n' "$last"
     return 0
 }
 
@@ -637,6 +724,55 @@ n1_queue_story_branch_get() {
             a = $2; b = $3
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", a); gsub(/^[[:space:]]+|[[:space:]]+$/, "", b)
             if (a == r) { print b; exit }
+        }' "$1"
+}
+
+n1_queue_final_pr_set() {
+    # Usage: n1_queue_final_pr_set <queue.md> <repo> <pr-url|-> <draft> <mergeable> <note>
+    # N1-293: upserts <repo>'s row in "## Final PRs" ("| Repo | PR | Draft | Mergeable | Note |"), inserted before
+    # ## Runs (which stays last), as n1_queue_story_branch_set does. The PR cell is a GitHub PR URL or "-"; the other
+    # cells are sanitized. Fails closed (returns 1, file untouched) on any other PR cell, more than one "## Final PRs"
+    # heading or no "## Runs" line.
+    local file="$1" n tmp repo row
+    [ -f "$file" ] || return 1
+    [[ "$3" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || [ "$3" = - ] || return 1
+    n=$(grep -c '^## Final PRs$' "$file" || true)
+    { [ "$n" -le 1 ] && grep -q '^## Runs$' "$file"; } || return 1
+    repo=$(_n1_queue_sanitize_cell "$2")
+    row="| $repo | $3 | $(_n1_queue_sanitize_cell "$4") | $(_n1_queue_sanitize_cell "$5") | $(_n1_queue_sanitize_cell "$6") |"
+    tmp=$(mktemp "${file}.XXXXXX") || return 1
+    has="$n" repo="$repo" row="$row" awk '
+        BEGIN { FS = "|"; r = ENVIRON["repo"]; row = ENVIRON["row"] }
+        ENVIRON["has"] == 0 && /^## Runs$/ {
+            print "## Final PRs"; print "| Repo | PR | Draft | Mergeable | Note |"; print "|------|----|-------|-----------|------|"; print row; print ""
+        }
+        /^## Final PRs$/ { f = 1; print; next }
+        f && /^## / { f = 0 }
+        f && /^\|[[:space:]]*:?-/ { print; print row; next }
+        f && NF >= 7 { c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == r) next }
+        { print }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_final_prs() {
+    # Usage: n1_queue_final_prs <queue.md> [<events.jsonl> <run_id>] — N1-293: the "## Final PRs" rows as
+    # "<repo>\t<pr>\t<draft>\t<mergeable>\t<note>" (header and separator skipped). No file or section prints nothing.
+    # Children can write the file, so nothing prints unless there is exactly one heading (the writer's fail-closed
+    # rule), and only rows whose Repo is a Plan row repo and whose PR cell is a GitHub PR URL or "-" are printed. With
+    # events and run_id, a URL row also needs a final_pr_opened event of that run with the same pr (runner-written).
+    [ -f "$1" ] || return 0
+    [ "$(grep -c '^## Final PRs$' "$1" || true)" = 1 ] || return 0
+    local plan opened=""; plan=$(n1_queue_pending_rows "$1" '.*' | cut -f3)
+    if [ -n "${2:-}" ]; then
+        opened=$(jq -r --arg r "${3:-}" 'select(.event == "final_pr_opened" and .run_id == $r) | .pr' "$2" 2>/dev/null) || opened=""
+    fi
+    plan="$plan" opened="$opened" chk="${2:+1}" awk -F'|' '
+        BEGIN { n = split(ENVIRON["plan"], a, "\n"); for (i = 1; i <= n; i++) ok[a[i]] = 1
+                n = split(ENVIRON["opened"], b, "\n"); for (i = 1; i <= n; i++) ev[b[i]] = 1 }
+        /^## Final PRs$/ { f = 1; next } /^## / { f = 0 }
+        f && NF >= 7 && !/^\|[[:space:]]*:?-/ {
+            for (i = 2; i <= 6; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            if ($2 != "Repo" && ($2 in ok) && ($3 == "-" || ($3 ~ /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/ && (ENVIRON["chk"] == "" || ($3 in ev)))))
+                printf "%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6
         }' "$1"
 }
 
