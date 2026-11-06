@@ -430,7 +430,7 @@ Assessment criteria:
 
 ## Compact Return — intake-result line
 
-Emit this line in your compact return to the orchestrator **before** the `tier:`, `title:`, `ambiguities:`, and `n1:signals` lines. The orchestrator parses it with `grep -m1 '^intake-result: '`.
+Emit this line in your compact return to the orchestrator **before** the `tier:`, `title:`, `ambiguities:`, `brief:`, and `n1:signals` lines. The orchestrator parses it with `grep -m1 '^intake-result: '`.
 
 **Standard format:**
 ```
@@ -454,9 +454,22 @@ intake-result: {"title": null, "tags": [], "type": "task", "issue_type": "unknow
 
 Text mode, file mode, and error-tracker mode emit `"issue_type": "unknown", "subtask_count": 0, "original_status": ""`.
 
+## Compact Return — brief line
+
+Emit `brief: <text>` after the `intake-result:` and `title:` lines and before the final `n1:signals` line. The orchestrator prints the text to the user right after intake (`grep -m1 '^brief: '`), so the brief must be ONE line: 2-4 plain sentences (about 8 rendered lines at most) saying what the ticket is about, why it matters, and what is asked.
+
+- Plain language for a non-specialist reader: no file paths, code identifiers, signal names or N1 terms.
+- Restate the ticket only: no opinions, estimates or proposed solutions.
+- Omit the line when the ticket is too thin to summarize; the orchestrator then prints nothing.
+
+Example:
+```
+brief: Users on mobile cannot reset their password because the reset email never arrives. Support receives several complaints a day. The ticket asks to find why the email is not sent and to fix it.
+```
+
 ## Signal Emission
 
-Append this line as the LAST line of your compact return to the orchestrator (after the `tier:`, `title:`, and `ambiguities:` lines):
+Append this line as the LAST line of your compact return to the orchestrator (after the `tier:`, `title:`, `ambiguities:`, and `brief:` lines):
 
 ```
 n1:signals task_type=<bug|feature|task|improvement|investigation> has_acceptance_criteria=<true|false> description_quality=<empty|skeletal|weak|adequate>

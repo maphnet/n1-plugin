@@ -1,6 +1,6 @@
 # Procedure: Output Gates
 
-Between gates: emit nothing. No step announcements, no routing echoes. Only: 1) Blocking prompts. 2) Warnings/escalations. 3) Fix-loop iterations (one line: `<ID> · <loop-name> fix cycle <N>/<MAX>`). 4) The three gates.
+Between gates: emit nothing. No step announcements, no routing echoes. Only: 1) Blocking prompts. 2) Warnings/escalations. 3) Fix-loop iterations (one line: `<ID> · <loop-name> fix cycle <N>/<MAX>`). 4) The three gates. 5) The intake brief.
 
 Cut 30% of what's left before emitting a gate.
 
@@ -9,7 +9,7 @@ Cut 30% of what's left before emitting a gate.
 | Gate 1 | 12 lines, ~700 characters |
 | Gate 2 | 15 lines, ~800 characters |
 | Gate 3 | 20 lines, ~1 200 characters |
-| Any inter-gate line | 1 line, 20 words |
+| Any inter-gate line (except the intake brief) | 1 line, 20 words |
 
 ### Gate 1 — Task Orientation
 
