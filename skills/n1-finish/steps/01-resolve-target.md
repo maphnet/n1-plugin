@@ -14,7 +14,7 @@ source ~/.n1/preamble.sh; n1_finish_mark "<ID>"
 
 - `gh auth status` — if not authenticated AND `prMode` (printed at entry) is not `"skip"`: "GitHub CLI is not authenticated. Run `gh auth login` first." **STOP.** The local-merge path needs no `gh`: when `prMode` is `"skip"` and `gh` is unauthenticated, skip the PR lookup below and go to Step 2b (local merge).
 - Resolve `<ID>`: explicit argument, else parse from the current branch name using `git.branchPattern` (same extraction as n1-pr Step 1). A `#123`/`123` argument selects a PR number directly instead.
-- **Queue final PR (N1-446):** when the PR's `headRefName` starts with `queue/`, continue with `<ID>` empty: derive no ID from `git.branchPattern` (a ticket-like substring of the queue name is not an ID), skip the pending-deploy resume, go to Step 2 (merge check), then Step 6 (no deploy watch, no delivery gate).
+- **Queue final PR (N1-446):** when the PR's `headRefName` starts with `queue/`, continue with `<ID>` empty: derive no ID from `git.branchPattern` (a ticket-like substring of the queue name is not an ID), skip the pending-deploy resume, go to Step 2 (merge check), then Step 6 (no deploy watch, no delivery gate), then `steps/07-queue-chain.md` (N1-447: rebases queues waiting on this PR).
 - **Pending deploy resume:** check whether a deploy is pending for `<ID>`, and validate the recorded SHA before trusting it (it is untrusted frontmatter, not a fresh git query):
   ```bash
   source ~/.n1/preamble.sh

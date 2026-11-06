@@ -2674,6 +2674,23 @@ test_pred_find() {
     rm -rf "$tmp"
 }
 
+# N1-447: the chain push is lease-only; the runner tail and n1-finish (queue final PR path) call the chain script;
+# run.md and architecture.md document it.
+test_queue_chain_wiring() {
+    local c="$REPO_ROOT/scripts/n1-queue-chain.sh" f7="$REPO_ROOT/skills/n1-finish/steps/07-queue-chain.md"
+    assert_eq "chain-wiring: push pinned by a lease on the fetched tip" 1 "$(grep -cF -- '--force-with-lease=refs/heads/$OWN:$old' "$c")"
+    assert_eq "chain-wiring: no unleased force push" 0 "$(grep -E 'push' "$c" | grep -cE -- '(^|[[:space:]])(-f|--force)([[:space:]]|$)|[[:space:]]\+HEAD' || true)"
+    assert_eq "chain-wiring: final_prs runs the chain for a queue" 1 "$(grep -cF 'scripts/n1-queue-chain.sh" "$QUEUE"' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+    assert_eq "chain-wiring: n1-finish queue path points to step 7" yes \
+        "$(grep -qF 'steps/07-queue-chain.md' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    assert_eq "chain-wiring: step 7 runs --all and ignores its exit" yes \
+        "$(grep -qF 'scripts/n1-queue-chain.sh" --all || true' "$f7" && echo yes || echo no)"
+    assert_eq "chain-wiring: run.md documents it" yes \
+        "$(grep -qF '**Queue chain (N1-447).**' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
+    assert_eq "chain-wiring: architecture documents it" yes \
+        "$(grep -qF '**Queue chain (N1-447).**' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
+}
+
 test_queue_integration_wiring() {
     local r="$REPO_ROOT/scripts/n1-queue-run.sh"
     assert_eq "queue-wiring: no story-only RUN_MODE gate" 0 "$(grep -c '\[ "\$RUN_MODE" = story \]' "$r" || true)"
@@ -2705,6 +2722,7 @@ test_final_pr_wiring
 test_pred_table
 test_pred_find
 test_queue_integration_wiring
+test_queue_chain_wiring
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
