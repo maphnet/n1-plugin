@@ -193,7 +193,7 @@ printf 'SCHEDULE=%s\n' "$(n1_queue_plan_waves "$QUEUE_DIR/queue.md")"
 n1_queue_plan_state step saved || true
 ```
 
-`--plan`: print "Plan saved: <QUEUE_DIR>/queue.md (<N> tickets). Schedule: <SCHEDULE>. Run it with `/n1:n1-queue --run <QUEUE_ID>` (re-validated first when older than <STALE_HOURS>h)." **STOP.**
+`--plan`: run `source ~/.n1/preamble.sh; source "$N1_ROOT/lib/queue.sh"; n1_queue_plan_state clear`, then print "Plan saved: <QUEUE_DIR>/queue.md (<N> tickets). Schedule: <SCHEDULE>. Run it with `/n1:n1-queue --run <QUEUE_ID>` (re-validated first when older than <STALE_HOURS>h)." **STOP.**
 
 Bare and `--unattended`: continue to § Launch.
 

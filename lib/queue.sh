@@ -1999,7 +1999,7 @@ n1_queue_plan_state() {
             id="${2:-}" step="${3:-}" mode="${4:-}"
             _n1_queue_plan_valid "$id" "$step" "$mode" || return 1
             src=$(printf '%s' "${5:-}" | LC_ALL=C tr -cd 'A-Za-z0-9._:, -')
-            jq -cn --arg i "$id" --arg s "$step" --arg m "$mode" --arg o "${src:0:200}" \
+            jq -cn --arg i "$id" --arg s "$step" --arg m "$mode" --arg o "$src" \
                 '{queueId:$i,step:$s,mode:$m,source:$o}' > "$f" ;;
         step)
             IFS=$'\t' read -r id step mode src <<<"$(n1_queue_plan_state read)"
@@ -2011,7 +2011,7 @@ n1_queue_plan_state() {
             mode=$(jq -r '.mode // empty | strings' "$f" 2>/dev/null) || return 1
             src=$(jq -r '.source // empty | strings' "$f" 2>/dev/null | LC_ALL=C tr -cd 'A-Za-z0-9._:, -')
             _n1_queue_plan_valid "$id" "$step" "$mode" || return 1
-            printf '%s\t%s\t%s\t%s\n' "$id" "$step" "$mode" "${src:0:200}" ;;
+            printf '%s\t%s\t%s\t%s\n' "$id" "$step" "$mode" "$src" ;;
         clear) rm -f "$f" ;;
         *) return 1 ;;
     esac

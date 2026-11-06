@@ -2056,6 +2056,9 @@ test_queue_plan_state() {
     assert_eq "plan-state: bad mode refused" "1" "$rc"
     qps write q1 intake list 'N1-1 N1-2;$(id)/x'
     assert_eq "plan-state: source sanitized" "N1-1 N1-2idx" "$(qps read | cut -f4)"
+    local long; long=$(printf "N1-%s," $(seq 1 100)); qps write q1 intake list "$long"
+    assert_eq "plan-state: long selector kept whole" "$long" "$(qps read | cut -f4)"
+    qps write q1 intake list 'N1-1 N1-2;$(id)/x'
     assert_eq "plan-state: other session reads nothing" "" "$(SID=s2 qps read)"
     SID='a/b' qps write q1 intake tag x && rc=0 || rc=$?
     assert_eq "plan-state: unsafe sid refused" "1" "$rc"
@@ -2097,6 +2100,7 @@ test_queue_id_wiring() {
     assert_eq "id-wiring: plan frontmatter carries tag" "yes" "$(hasF 'tag: <--tag value in tag mode, else empty>' "$s/run.md")"
     assert_eq "id-wiring: saved plan advances state" "yes" "$(hasF 'n1_queue_plan_state step saved' "$s/run.md")"
     assert_eq "id-wiring: launch clears planning state" "yes" "$(hasF 'n1_queue_plan_state clear' "$s/run.md")"
+    assert_eq "id-wiring: --plan stop clears planning state" "yes" "$(hasF 'n1_queue_plan_state clear`, then print "Plan saved' "$s/run.md")"
     assert_eq "id-wiring: report reads tag attribute" "yes" "$(hasF 'TAG=$(n1_read_frontmatter "$QUEUE_FILE" tag)' "$s/report.md")"
     assert_eq "id-wiring: runner reads tag attribute" "yes" "$(hasF 'N1_QUEUE_TAG=$(n1_read_frontmatter "$QUEUE" tag)' "$REPO_ROOT/scripts/n1-queue-run.sh")"
     # --run in a new session: input.md never ran, so the Hierarchy block's SRC comes from the saved frontmatter.
