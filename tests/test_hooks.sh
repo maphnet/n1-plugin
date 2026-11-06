@@ -321,6 +321,18 @@ $X worktree rm --worktree path:/x' "orca worktree remove path:/x" "n1_orca_hando
     assert_eq "tail-worker denied workspace removal: $c" 2 "$(tw_rc "$c")"
 done
 assert_eq "tail-worker card status allowed" 0 "$(tw_rc 'source ~/.n1/preamble.sh; n1_orca_sync "finish: merged"')"
+# N1-474 CR-2: outside a run only pr-worker and tail-worker stay merge-gated; other subagents follow the run scope,
+# and inside a run no subagent gets the main session's merge authorization (SEC-1)
+M474="gh pr"" merge 12"
+ar_off
+assert_eq "subagent outside a run: merge allowed" 0 "$(policy_rc @agent_type=n1:developer -- "$M474")"
+assert_eq "subagent outside a run: default push allowed" 0 "$(policy_rc @agent_type=n1:developer -- "git push origin HEAD:main")"
+assert_eq "subagent outside a run, headless: merge denied" 2 "$(policy_rc N1_HEADLESS=1 @agent_type=n1:developer -- "$M474")"
+assert_eq "tail-worker outside a run: merge denied" 2 "$(tw_rc "$M474")"
+assert_eq "pr-worker outside a run: merge denied" 2 "$(policy_rc @agent_type=n1:pr-worker -- "$M474")"
+ar_on
+assert_eq "subagent in a run, merge authorized: merge denied (SEC-1)" 2 "$(policy_rc @agent_type=n1:developer -- "$M474")"
+assert_eq "subagent in a run, merge authorized: default push denied (SEC-1)" 2 "$(policy_rc @agent_type=n1:developer -- "git push origin HEAD:main")"
 # N1-159: a test runner piped into tail/head/grep and && chained into git commit hides the suite status
 PIPE_DENY=("evidence-N1-74|bash tests/run.sh 2>&1 | tail -2 && git add -A && git commit -m x"
            "evidence-N1-75|bash tests/test_manifests.sh | tail -2 && git add -A && git commit -m x"

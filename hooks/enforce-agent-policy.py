@@ -525,14 +525,13 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     agent_type = str(payload.get("agent_type") or "")
     tail_persona = persona_of(agent_type)
     tail = tail_persona in ("tail-worker", "post-deploy-verifier")  # the verifier is the tail-worker's delegate: same Bash denies
-    pr = False
+    gated_worker = tail_persona in ("pr-worker", "tail-worker", "post-deploy-verifier")
     if tail:
         cmd = _command(payload) or ""
         if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
             sys.stderr.write(f"N1: {tail_persona} may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
     elif persona_of(agent_type) in ("pr-worker", "tech-writer"):
-        pr = True
         cmd = _command(payload) or ""
         if PR_WORKER_DENY_RE.search(cmd) or PR_WORKER_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
             sys.stderr.write("N1: pr-worker/tech-writer may not run cleanup/run-pointer/step-marker/review-pin --confirmed/workspace-removal commands; the orchestrator owns them\n")
@@ -540,8 +539,9 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     elif not agent_type and merge_authorized(config):
         return 0  # main session only: no subagent merges (n1-finish merges inline)
     unattended = _unattended()
-    # N1-167: interactive sessions are gated only inside an active N1 run
-    if not agent_type and not unattended and not _in_run(payload, config_file):
+    # N1-167: interactive sessions are gated only inside an active N1 run. N1-474: pr-worker and tail-worker are gated
+    # everywhere; other subagents follow the run scope (SEC-1: in a run or unattended they never get merge/push allowances)
+    if not gated_worker and not unattended and not _in_run(payload, config_file):
         return 0
     command = _command(payload)
     if not command:

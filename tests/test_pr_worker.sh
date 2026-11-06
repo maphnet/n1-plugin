@@ -11,12 +11,13 @@ has() { if grep -qE -- "$3" "$2" 2>/dev/null; then ok "$1"; else no "$1"; fi; }
 lacks() { if grep -qE -- "$3" "$2" 2>/dev/null; then no "$1"; else ok "$1"; fi; }
 eq() { if [ "$2" = "$3" ]; then ok "$1"; else no "$1 (want $2, got $3)"; fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+NH=  # N1-474: N1 home holding the s-pr run pointer; empty = no run (HOME is a temp dir, so no ~/.n1 pointer either)
 
 # 1. Guards: a pr-worker Bash call passes the PreToolUse policy for a feature-branch push and
 #    PR create, attended or headless; a default-branch push stays denied (unattended gate).
 WT="$T/wt"; git init -q -b feat/x "$WT"
 pol() { local rc=0; jq -cn --arg c "$1" --arg w "$WT" '{agent_type:"n1:pr-worker",tool_name:"Bash",session_id:"s-pr",cwd:$w,tool_input:{command:$c}}' \
-    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS ${N1H:+N1_HEADLESS=$N1H} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" ${N1H:+N1_HEADLESS=$N1H} ${NH:+N1_HOME=$NH} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
 for N1H in "" 1; do
     eq "guard[headless=$N1H]: feature push allowed" 0 "$(pol 'source ~/.n1/preamble.sh; n1_codex_gate_check "T-1" && git push -u origin feat/x')"
     eq "guard[headless=$N1H]: force-with-lease feature push allowed" 0 "$(pol 'git push --force-with-lease -u origin feat/x')"
@@ -40,10 +41,12 @@ for N1H in "" 1; do
     eq "authorized[headless=$N1H]: gh pr create allowed" 0 "$(pol 'gh pr create --title t --body-file /tmp/b --base main')"
     eq "authorized[headless=$N1H]: gh pr comment allowed" 0 "$(pol 'gh pr comment 7 --body-file /tmp/c')"
 done
-# SEC-1 class: a dispatched subagent must not inherit the main session's merge authorization
+# SEC-1 class: a dispatched subagent must not inherit the main session's merge authorization. It holds inside a run
+# (keyed s-pr pointer) and in every unattended session; outside a run attended, non-worker subagents are plain (N1-474)
 polx() { local rc=0; jq -cn --arg a "$1" --arg t "$2" --arg c "$3" --arg w "$WT" \
     '{tool_name:$t,session_id:"s-pr",cwd:$w,tool_input:(if $t=="Bash" then {command:$c} else {subagent_type:$c} end)} + (if $a=="" then {} else {agent_type:$a} end)' \
-    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS ${N1H:+N1_HEADLESS=$N1H} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" ${N1H:+N1_HEADLESS=$N1H} ${NH:+N1_HOME=$NH} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+NH="$T/nh"; mkdir -p "$NH"; echo '{"ticketId":"N1-1"}' > "$NH/active-run.s-pr.json"
 for N1H in "" 1; do
     for tool in Agent Task; do
         eq "spawn[$tool,headless=$N1H]: pr-worker -> general-purpose denied" 2 "$(polx n1:pr-worker $tool general-purpose)"
@@ -88,7 +91,22 @@ for N1H in "" 1; do
     eq "cr3[headless=$N1H]: tech-writer grep of n1_step_end allowed" 0 "$(polx n1:tech-writer Bash 'sudo -u root grep n1_step_end README.md')"
     eq "authorized[headless=$N1H]: main session gh pr merge allowed" 0 "$(polx '' Bash 'gh pr merge 7')"
 done
-CFG=; N1H=
+CFG=; N1H=; NH=
+# N1-474 CR-2: outside a run (no keyed pointer, no config) only pr-worker and tail-worker stay merge-gated when attended
+MRG="gh pr"" merge 7"
+for a in general-purpose n1:developer n1:tech-writer; do
+    eq "no run, attended: $a merge allowed" 0 "$(polx $a Bash "$MRG")"
+    eq "no run, attended: $a default push allowed" 0 "$(polx $a Bash 'git push origin HEAD:main')"
+    N1H=1
+    eq "no run, headless: $a merge denied" 2 "$(polx $a Bash "$MRG")"
+    eq "no run, headless: $a default push denied" 2 "$(polx $a Bash 'git push origin HEAD:main')"
+    N1H=
+done
+for a in n1:pr-worker n1:tail-worker; do
+    eq "no run, attended: $a merge denied" 2 "$(polx $a Bash "$MRG")"
+    eq "no run, attended: $a default push denied" 2 "$(polx $a Bash 'git push origin HEAD:main')"
+done
+eq "no run, attended: main session merge allowed" 0 "$(polx '' Bash "$MRG")"
 
 # 2. Persona contract: inherit-all tools, never merges, asks, clears or releases; prompt stops carry "prompt:".
 P=agents/pr-worker.md
