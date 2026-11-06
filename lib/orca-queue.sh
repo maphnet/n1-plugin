@@ -337,7 +337,7 @@ n1_orca_unsettled() {
         case "$sid" in orca:*/*) task="${sid#orca:}"; task="${task%%/*}" ;; *) continue ;; esac
         [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$n1h" "$ticket")" N1_ORCA_TASK)" = "$task" ] || continue
         printf '%s\t%s\t%s\t%s\t%s\n' "$num" "$ticket" "$n1h" "$task" "${sid#*/}"
-    done < <(n1_queue_pending_rows "$1" 'in-progress|awaiting-human|pr|failed|escalated' | awk -F'\t' '{ r[$2] = $0 } END { for (k in r) print r[k] }' | sort -n)
+    done < <(n1_queue_pending_rows "$1" 'in-progress|awaiting-human|pr|no-pr|failed|escalated' | awk -F'\t' '{ r[$2] = $0 } END { for (k in r) print r[k] }' | sort -n)
 }
 
 n1_orca_stop_worker() {
@@ -433,7 +433,8 @@ n1_orca_child_env_exports() {
 
 n1_orca_worker_done() {
     # Usage: n1_orca_worker_done — Stop hook, after n1_orca_child_env loaded: report this Orca queue child's stop
-    # point to its coordinator exactly once per dispatch (<sentinel>.sent). escalated -> failed. succeeded only once
+    # point to its coordinator exactly once per dispatch (<sentinel>.sent). escalated -> failed. no-pr (step done, no
+    # PR recorded; N1-470) -> succeeded at once: no ## Finish block ever follows. pr -> succeeded only once
     # the run is over (N1-310): a PR is open (status pr) AND, when the unattended merge chain is authorized
     # (mergeOnFinish and fullAuto, as the runner's chain_authorized), overview.md carries the ## Finish block, else
     # step is done. A PR alone is not the end: the child still runs triage/CI/finish. Any other turn end sends
@@ -449,6 +450,7 @@ n1_orca_worker_done() {
     st=$(n1_queue_child_status "$ov" 0 1)
     case "$st" in
         escalated) ;;
+        no-pr) oc=succeeded ;;   # N1-470: must precede pr); $st also names the subject and body
         pr) if [ "$(N1_HOME="$home" N1_QUEUE_RUN_ID="${N1_QUEUE_RUN_ID:-orca}" n1_merge_authorized)" = true ]; then
                 grep -q '^## Finish' "$ov" || return 0
             else
@@ -566,7 +568,7 @@ n1_orca_pending_questions() {
     out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration check --run "$run" --all --types question ${coord:+--terminal "$coord"}) \
         || { [ -n "$coord" ] && out=$(N1_ORCA_TIMEOUT=30 n1_orca orchestration check --run "$run" --all --types question); } \
         || return 0   # a dead coordinator terminal (Orca restarted): retry as the caller, which resolves from its own env
-    rows=$(n1_queue_pending_rows "$q" 'in-progress|awaiting-human|failed|pr|escalated')
+    rows=$(n1_queue_pending_rows "$q" 'in-progress|awaiting-human|failed|pr|no-pr|escalated')
     while IFS=$'\t' read -r type task msg disp; do
         [ "$type" = question ] && _n1_orca_id "$task" && _n1_orca_id "$msg" || continue
         IFS=$'\t' read -r t d <<< "$(n1_orca_row_of_task "$q" "$task")"

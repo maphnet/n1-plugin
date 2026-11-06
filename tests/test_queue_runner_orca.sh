@@ -368,6 +368,34 @@ test_orca_obsolete_releases_successor() {
     rm -rf "$tmp"
 }
 
+# N1-470 AC1/3/4/5. Bug caught (queue list-53e243e0, N1-437): a child that ended step done with no pr_url was recorded
+# pr with an empty PR cell, its worker was never settled (worker_done waited for a ## Finish block that never comes)
+# and the queue never finished. Now: row no-pr, one notification, no chain, worker settled, successor released.
+test_orca_no_pr_settles() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-1:done" "T-2:done"; mk_orca "$tmp"; cfg_set "$tmp" '.queue.subtaskTimeoutMinutes = 600'
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true'
+    n1_write_frontmatter "$tmp/queue.md" orca_run_id run-1; n1_write_frontmatter "$tmp/queue.md" run_id R1; n1_write_frontmatter "$tmp/queue.md" orca_queue_run R1
+    sed -i 's/^## Runs$/## Schedule\n| Ticket | After |\n|--------|-------|\n| T-2 | T-1 |\n\n## Runs/' "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/queue/sentinels" "$tmp/n1home/memory/T-1"; printf 'N1_ORCA_TASK=task-T-1\n' > "$tmp/n1home/queue/sentinels/T-1.env"
+    n1_queue_row_status "$tmp/queue.md" 1 in-progress
+    echo "| T-1 | 2026-10-31T00:00:00Z | | | | orca:task-T-1/d-T-1 |" >> "$tmp/queue.md"
+    wl_set "$tmp" "$(wl_row T-1 succeeded)"
+    echo task-T-1 > "$tmp/fake/started"   # the Stop hook's worker_done arrives on tick 1
+    printf -- '---\nstep: done\n---\n# T\n' > "$tmp/n1home/memory/T-1/overview.md"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=6 > /dev/null
+    assert_eq "orca-no-pr: row no-pr, Reason empty (no chain)" "no-pr|" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "orca-no-pr: Runs outcome, empty PR cell" "no-pr|" \
+        "$(runs_outcome "$tmp/queue.md" T-1)|$(awk -F'|' '/^## Runs/{f=1;next} f && $2 ~ /T-1/ { gsub(/ /,"",$6); p=$6 } END { print p }' "$tmp/queue.md")"
+    assert_eq "orca-no-pr: event outcome" "no-pr" \
+        "$(jq -R -r 'fromjson? | select(.event == "ticket_finished" and .ticket == "T-1") | .outcome' "$tmp/events.jsonl")"
+    assert_eq "orca-no-pr: one notification naming ticket and gate3.md" "1" \
+        "$(cat "$tmp/notes" 2>/dev/null | grep -c 'T-1 ended without a PR (see .*/memory/T-1/gate3\.md)' || true)"
+    assert_eq "orca-no-pr: worker settled (sentinel removed)" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-1.env" ] && echo yes || echo no)"
+    assert_eq "orca-no-pr: successor launched" "1" "$(grep -c '^orchestration worker-start.*--task task-T-2' "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+}
+
 # N1-309. Bug caught: a question from a worker whose row is already pr (PR open, worker still in its review/CI loop)
 # is dropped silently; re-adopting it instead would re-finalize the row and delete .ask before the user answers.
 test_orca_question_on_pr_row() {
@@ -1317,6 +1345,7 @@ test_orca_stop_notice_then_timeout
 test_orca_plain_escalation_reason
 test_orca_json_subject_not_packed
 test_orca_obsolete_releases_successor
+test_orca_no_pr_settles
 test_orca_question_on_pr_row
 test_orca_question_on_pr_row_cleanup
 test_orca_question_after_settle

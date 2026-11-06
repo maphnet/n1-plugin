@@ -152,12 +152,13 @@ test_child_status() {
 
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\nawaiting: merge\npr_url: https://x/pr/1\n' > "$tmp/pr.md"
     printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/pr-nourl.md"
-    printf -- '---\nstep: ci\n---\n# T\n' > "$tmp/ci.md"
+    printf -- '---\nstep: ci\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ci.md"
     printf -- '---\nstep: done\n---\n# T\n' > "$tmp/done.md"
+    printf -- '---\nstep: done\n---\n# T\n\n## Finish\npr_url: https://x/pr/1\n' > "$tmp/done-url.md"
     printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/esc.md"
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- QA fail\n' > "$tmp/esc2.md"
     printf -- '---\nstep: implementation\n---\n# T\n' > "$tmp/mid.md"
-    printf -- '---\nstep: done\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n\npr_url: https://example.com/pr/1\n' > "$tmp/asked-done.md"
+    printf -- '---\nstep: done\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n\n## Finish\npr_url: https://example.com/pr/1\n' > "$tmp/asked-done.md"
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - x\n- Approach A auto-decided\n' > "$tmp/benign.md"
 
     assert_eq "qstatus: step pr -> pr" "pr" "$(n1_queue_child_status "$tmp/pr.md" 0)"
@@ -166,7 +167,10 @@ test_child_status() {
     assert_eq "qstatus: step pr without url, exit 1 -> failed" "failed" "$(n1_queue_child_status "$tmp/pr-nourl.md" 1)"
     assert_eq "qstatus strict: step pr without url -> running" "running" "$(n1_queue_child_status "$tmp/pr-nourl.md" 0 1)"
     assert_eq "qstatus: step ci -> pr" "pr" "$(n1_queue_child_status "$tmp/ci.md" 0)"
-    assert_eq "qstatus: step done -> pr" "pr" "$(n1_queue_child_status "$tmp/done.md" 0)"
+    # N1-470: step done with no recorded pr_url ended without a PR (investigation, prMode skip).
+    assert_eq "qstatus: step done without url -> no-pr" "no-pr" "$(n1_queue_child_status "$tmp/done.md" 0)"
+    assert_eq "qstatus strict: step done without url -> no-pr" "no-pr" "$(n1_queue_child_status "$tmp/done.md" 0 1)"
+    assert_eq "qstatus: step done with url -> pr" "pr" "$(n1_queue_child_status "$tmp/done-url.md" 0)"
     assert_eq "qstatus: step escalated" "escalated" "$(n1_queue_child_status "$tmp/esc.md" 0)"
     assert_eq "qstatus: escalations section" "escalated" "$(n1_queue_child_status "$tmp/esc2.md" 0)"
     assert_eq "qstatus: mid-run exit 0 -> running" "running" "$(n1_queue_child_status "$tmp/mid.md" 0)"
@@ -828,6 +832,19 @@ test_status_table_running_step() {
     assert_eq "running step: end sets step" "implementation" "$(n1_read_frontmatter "$ov" step)"
     assert_eq "running step: end clears current_step" "" "$(n1_read_frontmatter "$ov" current_step)"
     assert_eq "running step: after end falls back to step" "implementation" "$(_t2_step)"
+}
+
+# N1-470 AC6. Bug caught: a no-pr row missing from the terminal arm of the status table showed no step and no elapsed time.
+test_status_table_no_pr() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp"
+    mkdir -p "$tmp/h/memory/T-1" "$tmp/bin"
+    printf -- '---\nstep: done\n---\n' > "$tmp/h/memory/T-1/overview.md"
+    sed -i 's/| T-1 | A | \/r | \(.*\) | pr | |/| T-1 | A | \/r | \1 | no-pr | |/' "$tmp/q.md"
+    printf '#!/usr/bin/env bash\ncase "$1" in agents) echo '"'"'{"agents":[]}'"'"' ;; esac\n' > "$tmp/bin/claude"; chmod +x "$tmp/bin/claude"
+    local out; out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
+    assert_eq "status no-pr: state, step, elapsed, empty PR" "no-pr|done|1m|" \
+        "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $2 "|" $3 "|" $4 "|" $6}')"
 }
 
 test_escalated_step_fallback() {
@@ -1859,6 +1876,43 @@ EOF
     rm -rf "$d"
 }
 
+# N1-470: a child that ended step done with no pr_url (status no-pr) releases its ## Schedule and held successors
+# like an obsolete row (N1-362), with and without the queue merging its own PRs; the digest counts it.
+test_no_pr_status() {
+    local tmp q; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN; q="$tmp/q.md"
+    cat > "$q" <<'EOF'
+---
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | a | /r | /h | sonnet | no-pr | |
+| 2 | T-2 | b | /r | /h | sonnet | pending | |
+
+## Schedule
+| Ticket | After |
+|--------|-------|
+| T-2 | T-1 |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    assert_eq "no-pr: schedule successor eligible (merge off)" "T-2" "$(n1_queue_eligible_rows "$q" false | cut -f2 | paste -sd, -)"
+    assert_eq "no-pr: schedule successor eligible (merge on)" "T-2" "$(n1_queue_eligible_rows "$q" true | cut -f2 | paste -sd, -)"
+    assert_eq "no-pr: successor not skipped" "pending" "$(plan_cell "$q" 2 8)"
+    mk_held_plan "$q" no-pr
+    assert_eq "no-pr: held sweep counts the released row and its waiting child" "2" "$(n1_queue_held_sweep "$q")"
+    assert_eq "no-pr: held row released" "pending|released: T-1 no-pr" "$(plan_cell "$q" 2 8)|$(plan_cell "$q" 2 9)"
+    mkdir -p "$tmp/queue/q"
+    n1_queue_event "$tmp/queue/q/events.jsonl" q R1 queue_started
+    n1_queue_event "$tmp/queue/q/events.jsonl" q R1 ticket_finished ticket=T-1 outcome=pr
+    n1_queue_event "$tmp/queue/q/events.jsonl" q R1 ticket_finished ticket=T-2 outcome=no-pr
+    n1_queue_event "$tmp/queue/q/events.jsonl" q R1 queue_done
+    assert_eq "no-pr: digest counts no-PR" "Queue q: 1 PR, 1 no-PR, done" "$(n1_queue_digest "$tmp")"
+}
+
 # N1-303 fix cycle 1: CR-1 (overlap edge vs reverse Blocks edge), CR-3 (merge mode, chain ended unmerged).
 test_schedule_cycle_and_merge_final() {
     local d q out
@@ -2330,6 +2384,7 @@ test_schedule_helpers
 test_eligible_rows
 test_schedule_cycle_and_merge_final
 test_obsolete_release
+test_no_pr_status
 test_release_wiring
 test_already_run
 test_release_rows
@@ -2341,6 +2396,7 @@ test_fmt_elapsed
 test_status_table_pre_np197_fixture
 test_status_table_claude_code
 test_status_table_running_step
+test_status_table_no_pr
 test_queue_answer
 test_escalated_step_fallback
 test_queue_event

@@ -339,12 +339,13 @@ finalize() {
     fi
 
     # Events + notifications before three-strikes (which may exit). PR successes notify only
-    # through the end-of-queue digest.
+    # through the end-of-queue digest; a no-PR end (N1-470) notifies once, pointing at the ticket gate3.md.
     [ "$OUTCOME" = "escalated" ] && [ -z "${PARKED[NUM]:-}" ] && escalate "$TICKET" "$N1H" stopped
     [ -n "${STARTED_AT[NUM]:-}" ] && DUR=$(( $(date +%s) - STARTED_AT[NUM] ))
     ev ticket_finished ticket="$TICKET" outcome="$EV_OUTCOME" pr="$PR_URL" \
         session="$(n1_queue_session_id "$QUEUE" "$TICKET")" duration_s="$DUR" reason="$REASON"
     [ "$EV_OUTCOME" = "failed" ] && n1_notify info "$TICKET failed${REASON:+ ($REASON)}"
+    [ "$EV_OUTCOME" = no-pr ] && n1_notify info "$TICKET ended without a PR (see $N1H/memory/$TICKET/gate3.md)"
 
     # Three-strikes counter. N1-267: under Orca concurrency, a subtask-timeout right after a counted subtask-timeout
     # within STRIKE_WINDOW adds no strike (launch/exit failures stay systemic), so one cause timing out several rows neither halts nor stops the tick's other rows.
@@ -358,7 +359,7 @@ finalize() {
             else
                 CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL + 1)); STRUCK[NUM]=1; STRIKE_REASON="$REASON"; STRIKE_AT=$(date +%s)
             fi ;;
-        pr|awaiting-human) CONSECUTIVE_FAIL=0; STRUCK=(); STRIKE_REASON="" ;;
+        pr|no-pr|awaiting-human) CONSECUTIVE_FAIL=0; STRUCK=(); STRIKE_REASON="" ;;
     esac
     if [ "$CONSECUTIVE_FAIL" -ge 3 ]; then
         halt "HALTED after 3 consecutive non-success"
@@ -521,7 +522,7 @@ drain_wait() {
 timeout_stop() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" SID="$6" OUTCOME
     OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
-    if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ]; then
+    if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "no-pr" ] || [ "$OUTCOME" = "escalated" ]; then
         [ -n "$SID" ] && DRAIN+=("$SID"$'\t'"$TICKET"$'\t'"$N1H")
         finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
         return
@@ -1228,7 +1229,7 @@ run_bg() {
             # session. Reconcile before trusting STATE, so a done ticket is never timed
             # out, retried, or parked awaiting-human.
             OUTCOME=$(n1_queue_child_status "$N1H/memory/$TICKET/overview.md" 0 1)
-            if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "escalated" ]; then
+            if [ "$OUTCOME" = "pr" ] || [ "$OUTCOME" = "no-pr" ] || [ "$OUTCOME" = "escalated" ]; then
                 [ -n "$SID" ] && DRAIN+=("$SID"$'\t'"$TICKET"$'\t'"$N1H")
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
@@ -1478,7 +1479,7 @@ run_orca() {
     LIVE_OK=1; LIVE=$(n1_orca_liveness "$ORCA_RUN") || { LIVE=""; LIVE_OK=0; }
     # A runner restart loses OWED: re-owe this run's finished rows that are not settled yet (settle removes the
     # sentinel, so a row whose sentinel still names its task is the unsettled one).
-    while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL _; do
+    while IFS=$'\t' read -r NUM TICKET REPO N1H MODEL ST; do
         [ "$(n1_read_frontmatter "$N1H/memory/$TICKET/overview.md" queue_run_id 2>/dev/null)" = "$RUN_ID" ] || continue
         SID=$(n1_queue_session_id "$QUEUE" "$TICKET"); case "$SID" in orca:*/*) TASK="${SID#orca:}"; TASK="${TASK%%/*}" ;; *) continue ;; esac
         if [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$N1H" "$TICKET")" N1_ORCA_TASK)" = "$TASK" ]; then
@@ -1486,13 +1487,13 @@ run_orca() {
             # a released dispatch stays deferred across a restart, so its exited/done row cannot start the finish
             IFS=$'\t' read -r _ DISP <<< "$(orca_row_of_task "$TASK")"
             [ -n "$DISP" ] && [ "$(cat "$N1_QUEUE_DIR/.deferred-${TASK//\//_}" 2>/dev/null)" = "$DISP" ] && DEFERRED="$DEFERRED$TASK "
-        elif [ -n "$RUN_MODE" ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ]; then
+        elif [ "$ST" = pr ] && [ -n "$RUN_MODE" ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ]; then
             # CR-1: a settled integration row whose merge was refused or interrupted is re-evaluated on resume, as the bg
             # restart sweep does. An existing marker is interpreted by chain_finish (pending re-merges, done records an
             # already-MERGED PR); the escalation guard and the story_merge gates still apply.
             chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")" </dev/null
         fi
-    done < <(n1_queue_pending_rows "$QUEUE" pr)
+    done < <(n1_queue_pending_rows "$QUEUE" 'pr|no-pr')
     while true; do
         # N1-321: test-only tick cap; unset (production) it is a no-op. Set to a number, the runner stops itself after
         # that many ticks with the SIGTERM the tests' old `timeout` bounds sent, so no test waits on a wall clock.
@@ -1552,8 +1553,8 @@ run_orca() {
                     # still in the current streak (STRUCK; a later finalize counts again). A pr/escalated row keeps its
                     # status: OWED and orca_settle already supervise it, and a re-adopt would make the next tick
                     # re-finalize it and delete .ask before the answer.
-                    IFS=$'\t' read -r NUM _ _ N1H _ STATUS <<< "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human|failed|pr|escalated' | awk -F'\t' -v t="$T" '$2 == t' | tail -1)"
-                    case "$STATUS" in failed|pr|escalated) [[ "$SETTLED" != *" $TASK "* ]] || continue ;; esac
+                    IFS=$'\t' read -r NUM _ _ N1H _ STATUS <<< "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human|failed|pr|no-pr|escalated' | awk -F'\t' -v t="$T" '$2 == t' | tail -1)"
+                    case "$STATUS" in failed|pr|no-pr|escalated) [[ "$SETTLED" != *" $TASK "* ]] || continue ;; esac
                     printf '%s\n' "$MSG" > "$N1_QUEUE_DIR/.ask-$T"
                     case "$STATUS" in
                         failed)
@@ -1562,7 +1563,7 @@ run_orca() {
                             if [ -n "${STRUCK[NUM]:-}" ]; then STRUCK[NUM]=""; CONSECUTIVE_FAIL=$((CONSECUTIVE_FAIL - 1)); fi
                             echo "[$NUM] $T -> awaiting-human (worker asked after the row failed)"
                             escalate "$T" "$N1H" ;;
-                        pr|escalated) escalate "$T" "$N1H" ;;
+                        pr|no-pr|escalated) escalate "$T" "$N1H" ;;
                     esac ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" "" "$EXTRA" ;;
                 # N1-359: Orca's "worker stopped without reporting" notice is not a human question: record it; the row is
@@ -1633,7 +1634,7 @@ run_orca() {
                 && ! [ "$N1H/memory/$TICKET/overview.md" -nt "$N1_QUEUE_DIR/.launch-$NUM" ]; then
                 OUTCOME=running
             fi
-            if [ "$OUTCOME" = pr ] || [ "$OUTCOME" = escalated ]; then
+            if [ "$OUTCOME" = pr ] || [ "$OUTCOME" = no-pr ] || [ "$OUTCOME" = escalated ]; then
                 [ -n "$TASK" ] && OWED="$OWED$TASK "
                 finalize "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$OUTCOME" ""
                 continue
@@ -1957,7 +1958,8 @@ fi
 # N1-293/N1-446: runs with an integration branch open the final per-repo PRs before the digest and step: done, so the summary can link them.
 if [ -n "$RUN_MODE" ]; then final_prs; fi
 count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }
-DIGEST="$(count_rows pr) PR / $(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"
+NOPR=$(count_rows no-pr)
+DIGEST="$(count_rows pr) PR / $([ "$NOPR" = 0 ] || printf '%s no-PR / ' "$NOPR")$(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"
 # N1-270: close the runner's coordinator terminal unless a row still waits on an answer (--answer replies from it,
 # and the waiting worker's next message must still land in a terminal that discards the nudge). A crash or halt
 # leaves it open on purpose.
