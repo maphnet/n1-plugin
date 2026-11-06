@@ -1827,7 +1827,9 @@ if [ "$RUN_MODE" = queue ]; then
     # <QUEUE_ID>-<UTC stamp>, so a rerun of the same QUEUE_ID never reuses stale or merged work.
     RUN_STORY_ID=$(awk -F'|' '/^## Story Branches$/ { f = 1; next } /^## / { f = 0 }
         f && NF >= 4 { b = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", b); if (b ~ /^queue\//) { print substr(b, 7); exit } }' "$QUEUE")
+    QB_NEWID=0
     if [ -z "$RUN_STORY_ID" ]; then
+        QB_NEWID=1
         # Tag mode: QUEUE_ID is the tag (line ~99), free text. Reduce it to the branch-safe grammar the ensure helper and
         # n1_story_base enforce ([A-Za-z0-9-], no leading dash), so an odd tag cannot halt the run on a name check.
         QB_BASE=$(printf '%s' "$QUEUE_ID" | tr -c 'A-Za-z0-9\n' '-' | sed 's/^-*//'); QB_BASE="${QB_BASE:-queue}"
@@ -1849,9 +1851,11 @@ if [ -n "$RUN_MODE" ]; then
         SB_SEEN="$SB_SEEN$SB_REPO"$'\n'
         # First row's N1 Home wins for the repo's default branch (one default per repo).
         SB_DEFAULT=$(N1_HOME="$SB_N1H" n1_config_val '.git.defaultBranch' 2>/dev/null); SB_DEFAULT="${SB_DEFAULT:-main}"
-        # N1-446: a queue repo with no recorded row gets a fresh branch: a name already on origin halts (no foreign reuse).
+        # N1-446: a brand-new queue id is fresh: a name already on origin halts (no foreign reuse). A resumed id (some repo
+        # already recorded) is this queue's own timestamped name, so a branch found for an unrecorded repo is an interrupted
+        # push of ours and is reused.
         SB_FRESH=0
-        if [ "$RUN_MODE" = queue ] && [ -z "$(n1_queue_story_branch_get "$QUEUE" "$SB_REPO")" ]; then SB_FRESH=1; fi
+        if [ "$RUN_MODE" = queue ] && [ "${QB_NEWID:-0}" = 1 ]; then SB_FRESH=1; fi
         if ! SB_ERR=$(n1_queue_story_branch_ensure "$SB_REPO" "$STORY_ID" "$SB_DEFAULT" "$RUN_MODE" "$SB_FRESH" 2>&1 >/dev/null </dev/null); then
             halt "HALTED: $RUN_MODE branch $RUN_MODE/$STORY_ID could not be created or pushed in $SB_REPO: ${SB_ERR##*$'\n'}; fix access, then /n1:n1-queue --run $QUEUE_ID"
         fi
