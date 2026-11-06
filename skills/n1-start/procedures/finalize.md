@@ -2,7 +2,7 @@
 
 ## Finalize Memory (Step 12)
 
-`$FINAL_OUTCOME`: `pr_created`/`pr_skipped`/`escalated`/`failed`. `$ESTIMATED_TIER`: overview tier or empty.
+`$FINAL_OUTCOME`: `pr_created`/`pr_skipped`/`escalated`/`failed`.
 
 **Follow-ups** (`qualityEscalations=auto-accept` only): append any follow-up you would otherwise propose per `<N1_ROOT>/references/followup-filing.md` § Append (source `finalize`). Never offer to file them.
 
@@ -12,7 +12,7 @@
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/telemetry.sh"
-n1_close_run
+FINAL_OUTCOME=<outcome> n1_close_run
 ```
 
 Clear active-run (first record any run-branch PR still missing its Codex receipt, so the Stop hook enforces it after the pointer is gone):
