@@ -48,9 +48,11 @@ case "$1 $2" in
     "pr list")
         case "$*" in
             *"--head story/"*|*"--head queue/"*) # N1-293/N1-446: final PR lookup; answers gh-final-list.<base> (absent -> no PR)
+                # N1-447: gh-final-list.<base>.<head with / as _> answers one head only (predecessor discovery lists several heads)
                 echo "$*" >> "$FAKE_DIR/gh-final-calls"
-                b=""; prev=""; for a in "$@"; do [ "$prev" = --base ] && b="$a"; prev="$a"; done
-                cat "$FAKE_DIR/gh-final-list.$b" 2>/dev/null || echo '[]' ;;
+                b=""; h=""; prev=""; for a in "$@"; do [ "$prev" = --base ] && b="$a"; [ "$prev" = --head ] && h="$a"; prev="$a"; done
+                f="$FAKE_DIR/gh-final-list.$b.${h//\//_}"; [ -f "$f" ] || f="$FAKE_DIR/gh-final-list.$b"
+                cat "$f" 2>/dev/null || echo '[]' ;;
             *) echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
         esac ;;
     "pr view") # N1-214: gh-fail holds a count of reads to fail before answering
@@ -608,6 +610,20 @@ queue_merge_fixture() {
     n1_write_frontmatter "$tmp/queue.md" integration queue
     n1_queue_story_branch_set "$tmp/queue.md" "$tmp/repo" "$QB"
     for spec in "$@"; do n=$((n + 1)); printf 'OPEN\t%s\t%s\n' "$QB" "$SM_PIN" > "$tmp/fake/gh-view.$n"; done
+}
+
+# --- N1-447: queue chain ------------------------------------------------------------------
+QC_ID=p1-20261105T000000Z; QC_P="queue/$QC_ID"   # the predecessor queue branch of the chain fixtures
+# final_list <tmp> <head> <pr#> [isDraft] — the one open final PR gh lists for <head> into main (PR <pr#> in o/r).
+final_list() {
+    printf '[{"url":"https://github.com/o/r/pull/%s","isDraft":%s,"headRefName":"%s","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]\n' \
+        "$3" "${4:-false}" "$2" > "$1/fake/gh-final-list.main.${2//\//_}"
+}
+# pred_queue <n1home> <dir> <repo> <branch> — an earlier queue's queue.md (integration: queue) recording <branch> for <repo>.
+pred_queue() {
+    mkdir -p "$1/queue/$2"
+    printf -- '---\nqueue_id: %s\nintegration: queue\n---\n## Story Branches\n| Repo | Branch |\n|------|--------|\n| %s | %s |\n\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n' \
+        "$2" "$3" "$4" > "$1/queue/$2/queue.md"
 }
 
 # --- N1-293: final story PR ----------------------------------------------------------

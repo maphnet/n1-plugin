@@ -681,14 +681,15 @@ n1_queue_sync_default() {
 }
 
 n1_queue_story_branch_ensure() {
-    # Usage: n1_queue_story_branch_ensure <repo> <id> <default-branch> [prefix=story|queue] [fresh=0|1]
+    # Usage: n1_queue_story_branch_ensure <repo> <id> <default-branch> [prefix=story|queue] [fresh=0|1] [base-sha]
     # N1-290: makes origin carry <prefix>/<id> before a story queue (N1-446: or a list/tag queue with integration: queue)
     # launches its children. A branch already on origin is reused as is (never reset, never force-pushed: resumes keep
     # merged work), unless fresh=1: a queue branch is new per first start, so a name already on origin is foreign or
     # stale work and is refused. An absent one is cut from origin/<default> after a fetch and pushed with a plain push
-    # of the remote-tracking ref, so no local branch or checkout is touched. Non-zero with a last stderr line
-    # "n1-queue: <prefix> branch: <reason>" on any failure.
-    local repo="$1" p="${4:-story}" fresh="${5:-0}" d="$3" b heads
+    # of the remote-tracking ref, so no local branch or checkout is touched. N1-447: with a 40-hex <base-sha> (the
+    # predecessor queue tip, already fetched by n1_queue_chain_pred_find) an absent branch is cut at that commit instead.
+    # Non-zero with a last stderr line "n1-queue: <prefix> branch: <reason>" on any failure.
+    local repo="$1" p="${4:-story}" fresh="${5:-0}" base="${6:-}" d="$3" b heads
     case "$p" in story|queue) ;; *) echo "n1-queue: story branch: invalid prefix $p" >&2; return 1 ;; esac
     b="$p/$2"
     [ -d "$repo" ] || { echo "n1-queue: $p branch: no such repo $repo" >&2; return 1; }
@@ -698,6 +699,7 @@ n1_queue_story_branch_ensure() {
     case "$2" in ''|-*|*[!A-Za-z0-9._-]*) echo "n1-queue: $p branch: invalid $p id $2" >&2; return 1 ;; esac
     { [ -n "$2" ] && git check-ref-format --branch "$b" >/dev/null 2>&1; } || { echo "n1-queue: $p branch: invalid branch name $b" >&2; return 1; }
     git check-ref-format --branch "$d" >/dev/null 2>&1 || { echo "n1-queue: $p branch: invalid default branch $d" >&2; return 1; }
+    [ -z "$base" ] || [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "n1-queue: $p branch: invalid base $base" >&2; return 1; }
     heads=$(git -C "$repo" ls-remote --heads origin "refs/heads/$b" 2>/dev/null) \
         || { echo "n1-queue: $p branch: ls-remote origin failed in $repo" >&2; return 1; }
     if [ -n "$heads" ]; then
@@ -705,7 +707,8 @@ n1_queue_story_branch_ensure() {
         echo "n1-queue: $p branch: $b already exists on origin in $repo" >&2; return 1
     fi
     git -C "$repo" fetch origin "+refs/heads/$d:refs/remotes/origin/$d" >&2 || { echo "n1-queue: $p branch: fetch origin $d failed in $repo" >&2; return 1; }
-    git -C "$repo" push origin "refs/remotes/origin/$d:refs/heads/$b" >&2 \
+    [ -z "$base" ] || git -C "$repo" cat-file -e "$base^{commit}" 2>/dev/null || { echo "n1-queue: $p branch: base $base not in $repo" >&2; return 1; }
+    git -C "$repo" push origin "${base:-refs/remotes/origin/$d}:refs/heads/$b" >&2 \
         || { echo "n1-queue: $p branch: push of $b to origin failed in $repo" >&2; return 1; }
 }
 
@@ -849,6 +852,38 @@ n1_queue_preds() {
                 && $8 ~ /^(waiting|rebased|stopped)$/)
                 printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6, $7, $8
         }' "$1"
+}
+
+n1_queue_chain_pred_find() {
+    # Usage: n1_queue_chain_pred_find <repo> <default-branch> <own-id> <registry-dir>
+    # N1-447: the predecessor of a new queue branch in <repo>. Candidates: the ## Story Branches branch for <repo> of every
+    # <registry-dir>/*/queue.md with integration: queue, named queue/<base>-<YYYYMMDDTHHMMSSZ> (own id excluded), most
+    # recent stamp first (user decision). The first whose final PR into <default> is OPEN wins; its PR is re-derived
+    # through gh (n1_queue_final_pr_find), never read from the other queue.md. A candidate with no open final PR (still
+    # running, interrupted, merged or closed) is skipped: no chaining (user decision, N1-446 behaviour). The branch is
+    # fetched to refs/remotes/origin/<branch>; a tip that differs from the PR headRefOid means no chaining.
+    # Prints "<queue>\t<branch>\t<pr>\t<tip>" or nothing; always status 0.
+    local repo="$1" def="$2" own="$3" reg="$4" nwo b id found url tip st head
+    nwo=$(cd "$repo" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
+    [ -n "$nwo" ] || return 0
+    while IFS= read -r b; do
+        id=${b#queue/}
+        { [ "$id" != "$own" ] && _n1_queue_valid_branch "$b"; } || continue
+        found=$(n1_queue_final_pr_find "$nwo" "$b" "$def")
+        [ -n "$found" ] || continue
+        url=${found%%$'\t'*}
+        git -C "$repo" fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b" </dev/null >/dev/null 2>&1 || return 0
+        tip=$(git -C "$repo" rev-parse -q --verify "refs/remotes/origin/$b^{commit}" 2>/dev/null)
+        IFS=$'\t' read -r st _ head <<< "$(n1_queue_pr_view "$url")"
+        { [[ "$tip" =~ ^[0-9a-f]{40}$ ]] && [ "$st" = OPEN ] && [ "$head" = "$tip" ]; } || return 0
+        printf '%s\t%s\t%s\t%s\n' "$id" "$b" "$url" "$tip"
+        return 0
+    done < <(for f in "$reg"/*/queue.md; do
+            [ -f "$f" ] && [ "$(n1_read_frontmatter "$f" integration)" = queue ] || continue
+            n1_queue_story_branch_get "$f" "$repo" 2>/dev/null
+        done | grep -E '^queue/[A-Za-z0-9][A-Za-z0-9._-]*-[0-9]{8}T[0-9]{6}Z$' \
+             | awk '{ print substr($0, length($0) - 15) "\t" $0 }' | sort -r | cut -f2 | awk '!seen[$0]++')
+    return 0
 }
 
 n1_queue_already_run() {

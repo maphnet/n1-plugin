@@ -1114,6 +1114,19 @@ test_queue_branch_ensure() {
     assert_eq "queue-ensure: unknown prefix -> 1" 1 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main release >/dev/null 2>&1; echo $?)"
     assert_eq "queue-ensure: invalid id names the kind" "n1-queue: queue branch: invalid queue id a|b" \
         "$(n1_queue_story_branch_ensure "$tmp/repo" 'a|b' main queue 1 2>&1 >/dev/null | tail -1)"
+    # N1-447: an optional 6th arg cuts the new branch at that commit (the predecessor tip) instead of origin/main.
+    local b
+    git -C "$tmp/origin" checkout -q -b p
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m p
+    git -C "$tmp/origin" checkout -q main
+    git -C "$tmp/repo" fetch -q origin +refs/heads/p:refs/remotes/origin/p
+    b=$(git -C "$tmp/repo" rev-parse refs/remotes/origin/p)
+    assert_eq "queue-ensure: base sha -> 0" 0 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-2 main queue 1 "$b" >/dev/null 2>&1; echo $?)"
+    assert_eq "queue-ensure: cut at the base" "$b" "$(git -C "$tmp/origin" rev-parse -q --verify refs/heads/queue/sq-2)"
+    assert_eq "queue-ensure: malformed base refused" "n1-queue: queue branch: invalid base abc" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" sq-3 main queue 1 abc 2>&1 >/dev/null | tail -1)"
+    assert_eq "queue-ensure: unknown base refused" "n1-queue: queue branch: base $(printf '%040d' 0 | tr 0 f) not in $tmp/repo" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" sq-3 main queue 1 "$(printf '%040d' 0 | tr 0 f)" 2>&1 >/dev/null | tail -1)"
     rm -rf "$tmp"
 }
 
@@ -2629,6 +2642,38 @@ test_pred_table() {
 
 # N1-446: every integration-branch gate in the runner keys on a non-empty RUN_MODE; none is story-only any more
 # (story_env, branch block, Orca CR-2 record, Orca MERGE wait, Orca resume re-evaluation, final_prs tail).
+# N1-447: predecessor discovery: most recent queue/<id>-<stamp> of the same repo with an OPEN final PR (re-derived
+# through gh); no open PR (running, interrupted, merged, closed) skips it; own id, other integration and names without
+# a stamp are never candidates; a PR head that differs from the branch tip means no chaining.
+test_pred_find() {
+    local tmp P1=queue/p1-20261104T000000Z P2=queue/p2-20261105T000000Z t1 t2 U=https://github.com/o/r/pull; tmp=$(mktemp -d)
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git -C "$tmp/origin" branch "$P1"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m two
+    git -C "$tmp/origin" branch "$P2"; git -C "$tmp/origin" branch queue/evil
+    t1=$(git -C "$tmp/origin" rev-parse "$P1"); t2=$(git -C "$tmp/origin" rev-parse "$P2")
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    mk_bg "$tmp" sq "T-A:done"; echo o/r > "$tmp/fake/gh-repo"
+    pred_queue "$tmp/h" p1 "$tmp/repo" "$P1"; pred_queue "$tmp/h" p2 "$tmp/repo" "$P2"; pred_queue "$tmp/h" p3 "$tmp/repo" queue/evil
+    final_list "$tmp" queue/evil 7; printf 'OPEN\tmain\t%s\n' "$t2" > "$tmp/fake/gh-view.7"
+    pf() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" n1_queue_chain_pred_find "$tmp/repo" main "${1:-own-20261106T000000Z}" "$tmp/h/queue"; }
+    assert_eq "pred-find: no open final PR -> none" "" "$(pf)"
+    final_list "$tmp" "$P1" 5; printf 'OPEN\tmain\t%s\n' "$t1" > "$tmp/fake/gh-view.5"
+    assert_eq "pred-find: newer without PR skipped, older open wins" "$(printf 'p1-20261104T000000Z\t%s\t%s/5\t%s' "$P1" "$U" "$t1")" "$(pf)"
+    assert_eq "pred-find: predecessor tip fetched" "$t1" "$(git -C "$tmp/repo" rev-parse "refs/remotes/origin/$P1")"
+    final_list "$tmp" "$P2" 6; printf 'OPEN\tmain\t%s\n' "$t2" > "$tmp/fake/gh-view.6"
+    assert_eq "pred-find: most recent stamp wins" "$(printf 'p2-20261105T000000Z\t%s\t%s/6\t%s' "$P2" "$U" "$t2")" "$(pf)"
+    assert_eq "pred-find: own id excluded" "$(printf 'p1-20261104T000000Z\t%s\t%s/5\t%s' "$P1" "$U" "$t1")" "$(pf p2-20261105T000000Z)"
+    printf 'OPEN\tmain\t%s\n' "$t1" > "$tmp/fake/gh-view.6"
+    assert_eq "pred-find: PR head != branch tip -> no chaining" "" "$(pf)"
+    sed -i 's/^integration: queue/integration: none/' "$tmp/h/queue/p2/queue.md"
+    assert_eq "pred-find: integration none is no candidate" "$(printf 'p1-20261104T000000Z\t%s\t%s/5\t%s' "$P1" "$U" "$t1")" "$(pf)"
+    echo x/y > "$tmp/fake/gh-repo"
+    assert_eq "pred-find: PR outside the repo -> none" "" "$(pf)"
+    rm -rf "$tmp"
+}
+
 test_queue_integration_wiring() {
     local r="$REPO_ROOT/scripts/n1-queue-run.sh"
     assert_eq "queue-wiring: no story-only RUN_MODE gate" 0 "$(grep -c '\[ "\$RUN_MODE" = story \]' "$r" || true)"
@@ -2658,6 +2703,7 @@ test_final_cmd
 test_final_gh_readers
 test_final_pr_wiring
 test_pred_table
+test_pred_find
 test_queue_integration_wiring
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
