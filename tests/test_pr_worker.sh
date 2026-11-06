@@ -87,6 +87,16 @@ has "round trip: inline n1-pr still asks on uncommitted changes" skills/n1-pr/st
 printf 'status: stopped\nreason: Rebase conflicts detected\n' > "$F"
 OUT=$(pr_); eq "parse: plain stop -> pr:stopped" pr:stopped "$(head -1 <<<"$OUT")"
 if grep -qxF 'reason:Rebase conflicts detected' <<<"$OUT"; then ok "parse: stop reason relayed"; else no "parse: stop reason relayed"; fi
+printf 'status: stopped\nreason: Rebase conflicts detected\n' > "$F"
+export FAKE_PR='9 https://github.com/o/r/pull/9'; OUT=$(pr_); unset FAKE_PR
+eq "parse: stop with open PR -> pr:stopped" pr:stopped "$(head -1 <<<"$OUT")"
+if grep -qF 'pr-number:9 pr-url:https://github.com/o/r/pull/9' <<<"$OUT"; then ok "parse: stop with open PR relays PR fields"; else no "parse: stop with open PR relays PR fields ($OUT)"; fi
+printf 'status: stopped\nreason: Prompt:\n' > "$F"
+eq "parse: odd-case empty prompt stop -> pr:prompt" pr:prompt "$(pr_ | head -1)"
+printf 'status: stopped\nreason: bad\033[31m reason\n' > "$F"
+if grep -qxF 'reason:bad[31m reason' <<<"$(pr_)"; then ok "parse: reason sanitized"; else no "parse: reason sanitized"; fi
+lacks "persona: pin refusal is not a stop" "$P" 'pin refusal'
+lacks "procedure: no unconsumed N1_HEADLESS input" "$PD" '^N1_HEADLESS:'
 printf 'all good\n' > "$F"
 eq "parse: garbage, no open PR -> unknown" pr:unknown "$(pr_ | head -1)"
 export FAKE_PR='9 https://github.com/o/r/pull/9'; OUT=$(pr_); unset FAKE_PR

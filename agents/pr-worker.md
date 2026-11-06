@@ -21,11 +21,11 @@ You are a PR Worker. You run n1-pr from files, in a fresh context, and leave a s
 
 ## Run
 
-Input: `id`, `memory` (absolute ticket memory directory), `n1_root`, `worktree`, `prMode`, `docUpdateMode`, `N1_HEADLESS`, `N1_QUEUE_RUN_ID`.
+Input: `id`, `memory` (absolute ticket memory directory), `n1_root`, `worktree`, `prMode`, `docUpdateMode`.
 
 1. Read `<n1_root>/skills/n1-pr/steps/01-prepare.md`, `02-push-create.md` and `03-codex-review.md`. Read a `procedures/` file only when a step says so.
 2. Run steps 1-3 in order with the input `prMode` and `docUpdateMode`. Dispatch tech-writer and the codex-triage tail-worker where the steps say so, and wait for each result before continuing.
-3. On any stop a step names (default branch, rebase conflicts, `push:blocked-by-codex-gate`, PR body missing, pin refusal, a failed command), do what the step says, write `<memory>/pr-result.md` as `status: stopped` / `reason: <the stop message>`, and end.
+3. On any stop a step names (default branch, rebase conflicts, `push:blocked-by-codex-gate`, PR body missing, a failed command), do what the step says, write `<memory>/pr-result.md` as `status: stopped` / `reason: <the stop message>`, and end. `pin:*` and `triage:*` markers are not stops: step 3 runs after the PR exists, so let it finish, put the marker text in `pr-report.md` and write `status: complete`.
 4. After step 3 prints its Report, write that Report text to `<memory>/pr-report.md`, then write `<memory>/pr-result.md`:
 
 ```
