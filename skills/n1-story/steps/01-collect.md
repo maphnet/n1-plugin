@@ -19,7 +19,7 @@ Present the story seed to the user for confirmation: "Here's the story scope I c
 
 ## Step 2: Scope Routing
 
-Read `<N1_ROOT>/references/ticket-scope.md` and classify the confirmed seed. `SCOPE_TYPE=Task`: perform its Task handoff now and end this flow. `SCOPE_TYPE=Story`: continue with Step 3. Unresolved scope: continue through analysis/discovery, then classify in Step 6 before approval. This rule applies in both automatic and interactive modes.
+Read `<N1_ROOT>/references/ticket-scope.md` and classify the confirmed seed. `SCOPE_TYPE=Task`: perform its Task handoff now and end this flow. `SCOPE_TYPE=Story`: continue with Step 3. Unresolved scope: continue through analysis/discovery, then classify in Step 6 before approval.
 
 ## Step 3: Tracker Gate
 
@@ -53,7 +53,7 @@ Relay any `Warning:` line printed above to the user once; it is not repeated for
 - A key that does not match `^<PROJECT_KEY>-[0-9]+$`: tell the user "<KEY> is outside <PROJECT_KEY>; bulk move needs the same project" and drop it.
 - `VERSION_MCP` is empty or null: warn "Adopting existing tickets requires jc-mcp (`tracker.versionMcp`); <keys> will not be adopted." and clear `ADOPT_KEYS`. Do not prompt, and never create new tickets for them.
 
-**Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = story seed goal + known requirements (Step 1), and `SELF_ID` / `OVERVIEW` empty. Remove every `ADOPT_KEYS` entry from the search hits before classifying, as § Check does for `SELF_ID`, so an adopted key never triggers the prompt. **Stop** → cancel without creating anything. Keep the returned `DUP_LINKS` for Step 8. A hit that is in `ADOPT_KEYS` is the user's explicit adopt, not a duplicate: drop it from `DUP_LINKS`.
+**Duplicate check:** follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = story seed goal + known requirements (Step 1), and `SELF_ID` / `OVERVIEW` empty. Remove every `ADOPT_KEYS` entry from the search hits before classifying, as § Check does for `SELF_ID`, so an adopted key never counts as a duplicate. Keep the returned `DUP_LINKS` for Step 8. A hit that is in `ADOPT_KEYS` is the user's explicit adopt, not a duplicate: drop it from `DUP_LINKS`.
 
 ## Step 4: Analysis
 

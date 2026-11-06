@@ -18,11 +18,11 @@ If `GET_PROJECT_FIELDS_OP` is non-empty:
 - If Bug type exists: use it when creating the issue
 - If Bug type does not exist: fall back to default issue type and add a note in the description: "**Note:** Bug type not available in project — created as default type."
 
-If `GET_PROJECT_FIELDS_OP` is empty: skip bug type querying. Use the type from Step 1 as-is and note in the approval gate: "Bug type availability could not be verified (getProjectFields operation not configured)."
+If `GET_PROJECT_FIELDS_OP` is empty: skip bug type querying. Use the type from Step 1 as-is and print this note with the Type in Step 7: "Bug type availability could not be verified (getProjectFields operation not configured)."
 
-The detected type is shown in the approval gate. The user can override it there.
+The detected type is shown in Step 7.
 
-**Pre-creation scope guard:** Follow `<N1_ROOT>/references/ticket-scope.md` before Step 7 and after every edit or removal. Only `SCOPE_TYPE=Task` may proceed to standalone creation. Story scope performs the Story handoff and ends this flow; unresolved scope returns to analysis/discovery. Apply this guard before auto-selecting **Create**, too.
+**Pre-creation scope guard:** Follow `<N1_ROOT>/references/ticket-scope.md` before Step 7. Only `SCOPE_TYPE=Task` may proceed to standalone creation. Story scope performs the Story handoff and ends this flow; unresolved scope returns to analysis/discovery. Apply this guard before auto-selecting **Create**, too.
 
 ## Step 7: Approval Gate
 
@@ -32,7 +32,7 @@ Show the resulting **Type: Task** (or **Bug** for a defect report) before creati
 
 ## Step 7.5: Duplicate Check
 
-Follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = approved title + description, and `SELF_ID` / `OVERVIEW` empty. **Stop** → cancel without creating anything. Keep the returned `DUP_LINKS` for Step 8.
+Follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = approved title + description, and `SELF_ID` / `OVERVIEW` empty. Keep the returned `DUP_LINKS` for Step 8.
 
 ## Step 8: Create Ticket
 
