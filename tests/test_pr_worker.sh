@@ -105,6 +105,9 @@ printf 'status: stopped\nreason: Rebase conflicts detected\n' > "$F"
 export FAKE_PR='9 https://github.com/o/r/pull/9'; OUT=$(pr_); unset FAKE_PR
 eq "parse: stop with open PR -> pr:stopped" pr:stopped "$(head -1 <<<"$OUT")"
 if grep -qF 'pr-number:9 pr-url:https://github.com/o/r/pull/9' <<<"$OUT"; then ok "parse: stop with open PR relays PR fields"; else no "parse: stop with open PR relays PR fields ($OUT)"; fi
+printf 'status: stopped\nreason: prompt: late question\n' > "$F"
+export FAKE_PR='9 https://github.com/o/r/pull/9'; OUT=$(pr_); unset FAKE_PR
+eq "parse: prompt stop with open PR -> pr:stopped, not inline rerun" pr:stopped "$(head -1 <<<"$OUT")"
 printf 'status: stopped\nreason: Prompt:\n' > "$F"
 eq "parse: odd-case empty prompt stop -> pr:prompt" pr:prompt "$(pr_ | head -1)"
 printf 'status: stopped\nreason: bad\033[31m reason\n' > "$F"
