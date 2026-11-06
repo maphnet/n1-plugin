@@ -1114,6 +1114,19 @@ test_queue_branch_ensure() {
     assert_eq "queue-ensure: unknown prefix -> 1" 1 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main release >/dev/null 2>&1; echo $?)"
     assert_eq "queue-ensure: invalid id names the kind" "n1-queue: queue branch: invalid queue id a|b" \
         "$(n1_queue_story_branch_ensure "$tmp/repo" 'a|b' main queue 1 2>&1 >/dev/null | tail -1)"
+    # N1-447: an optional 6th arg cuts the new branch at that commit (the predecessor tip) instead of origin/main.
+    local b
+    git -C "$tmp/origin" checkout -q -b p
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m p
+    git -C "$tmp/origin" checkout -q main
+    git -C "$tmp/repo" fetch -q origin +refs/heads/p:refs/remotes/origin/p
+    b=$(git -C "$tmp/repo" rev-parse refs/remotes/origin/p)
+    assert_eq "queue-ensure: base sha -> 0" 0 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-2 main queue 1 "$b" >/dev/null 2>&1; echo $?)"
+    assert_eq "queue-ensure: cut at the base" "$b" "$(git -C "$tmp/origin" rev-parse -q --verify refs/heads/queue/sq-2)"
+    assert_eq "queue-ensure: malformed base refused" "n1-queue: queue branch: invalid base abc" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" sq-3 main queue 1 abc 2>&1 >/dev/null | tail -1)"
+    assert_eq "queue-ensure: unknown base refused" "n1-queue: queue branch: base $(printf '%040d' 0 | tr 0 f) not in $tmp/repo" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" sq-3 main queue 1 "$(printf '%040d' 0 | tr 0 f)" 2>&1 >/dev/null | tail -1)"
     rm -rf "$tmp"
 }
 
@@ -2594,8 +2607,92 @@ test_final_pr_wiring() {
         "$(grep -qF 'waits for a human (<reason>)' "$r" && grep -qF 'Final PR merge: by the runner' "$r" && echo yes || echo no)"
 }
 
+# N1-447: ## Predecessor writer/reader fail closed like ## Final PRs; forged rows are dropped; the final PR body names
+# a predecessor that has not been rebased yet.
+test_pred_table() {
+    local tmp q P=queue/p1-20261105T000000Z I=p1-20261105T000000Z U=https://github.com/o/r/pull/5 S A
+    tmp=$(mktemp -d); q="$tmp/q.md"
+    S=$(printf '%040d' 0 | tr 0 a); A=$(printf '%040d' 0 | tr 0 b)
+    mk_held_plan "$q" pending
+    assert_eq "pred-set: new section -> 0" 0 "$(n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" waiting; echo $?)"
+    assert_eq "pred-set: inserted before ## Runs" yes \
+        "$([ "$(line_of "$q" '## Predecessor')" -lt "$(line_of "$q" '## Runs')" ] && echo yes || echo no)"
+    assert_eq "preds: row" "$(printf '/r\t%s\t%s\t%s\t%s\t%s\twaiting' "$I" "$P" "$U" "$S" "$S")" "$(n1_queue_preds "$q")"
+    n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$A" rebased
+    assert_eq "pred-set: upsert keeps one row" "$A rebased" "$(n1_queue_preds "$q" | awk -F'\t' '{ print $6, $7 }')"
+    assert_eq "pred-set: branch != queue/<Queue> refused" 1 "$(n1_queue_pred_set "$q" /r "$I" queue/other "$U" "$S" "$S" waiting; echo $?)"
+    assert_eq "pred-set: short sha refused" 1 "$(n1_queue_pred_set "$q" /r "$I" "$P" "$U" abc "$S" waiting; echo $?)"
+    assert_eq "pred-set: unknown status refused" 1 "$(n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" done; echo $?)"
+    assert_eq "pred-set: non-GitHub PR refused" 1 "$(n1_queue_pred_set "$q" /r "$I" "$P" https://x/pull/5 "$S" "$S" waiting; echo $?)"
+    assert_eq "pred-set: id with a dash first refused" 1 "$(n1_queue_pred_set "$q" /r -x queue/-x "$U" "$S" "$S" waiting; echo $?)"
+    # queue.md is child-writable: a row whose Branch is not queue/<Queue> is never printed.
+    sed -i "/^| \/r | $I /a | /r2 | x | queue/y | $U | $S | $S | waiting |" "$q"
+    assert_eq "preds: forged row dropped" 1 "$(n1_queue_preds "$q" | wc -l | tr -d ' ')"
+    n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" waiting
+    n1_queue_final_body "$q" /r q-1 "$tmp/b.md" queue >/dev/null
+    assert_eq "final-body: names a waiting predecessor" 1 "$(grep -cF "cut from $P ($U)" "$tmp/b.md")"
+    n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" rebased
+    n1_queue_final_body "$q" /r q-1 "$tmp/b.md" queue >/dev/null
+    assert_eq "final-body: no predecessor line once rebased" 0 "$(grep -c '^Predecessor:' "$tmp/b.md" || true)"
+    echo '## Predecessor' >> "$q"
+    assert_eq "pred-set: duplicate heading -> 1" 1 "$(n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" waiting; echo $?)"
+    assert_eq "preds: duplicate heading -> nothing" "" "$(n1_queue_preds "$q")"
+    rm -rf "$tmp"
+}
+
 # N1-446: every integration-branch gate in the runner keys on a non-empty RUN_MODE; none is story-only any more
 # (story_env, branch block, Orca CR-2 record, Orca MERGE wait, Orca resume re-evaluation, final_prs tail).
+# N1-447: predecessor discovery: most recent queue/<id>-<stamp> of the same repo with an OPEN final PR (re-derived
+# through gh); no open PR (running, interrupted, merged, closed) skips it; own id, other integration and names without
+# a stamp are never candidates; a PR head that differs from the branch tip means no chaining.
+test_pred_find() {
+    local tmp P1=queue/p1-20261104T000000Z P2=queue/p2-20261105T000000Z t1 t2 U=https://github.com/o/r/pull; tmp=$(mktemp -d)
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git -C "$tmp/origin" branch "$P1"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m two
+    git -C "$tmp/origin" branch "$P2"; git -C "$tmp/origin" branch queue/evil
+    t1=$(git -C "$tmp/origin" rev-parse "$P1"); t2=$(git -C "$tmp/origin" rev-parse "$P2")
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    mk_bg "$tmp" sq "T-A:done"; echo o/r > "$tmp/fake/gh-repo"
+    pred_queue "$tmp/h" p1 "$tmp/repo" "$P1"; pred_queue "$tmp/h" p2 "$tmp/repo" "$P2"; pred_queue "$tmp/h" p3 "$tmp/repo" queue/evil
+    final_list "$tmp" queue/evil 7; printf 'OPEN\tmain\t%s\n' "$t2" > "$tmp/fake/gh-view.7"
+    pf() { FAKE_DIR="$tmp/fake" PATH="$tmp/bin:$PATH" n1_queue_chain_pred_find "$tmp/repo" main "${1:-own-20261106T000000Z}" "$tmp/h/queue"; }
+    assert_eq "pred-find: no open final PR -> none" "" "$(pf)"
+    final_list "$tmp" "$P1" 5; printf 'OPEN\tmain\t%s\n' "$t1" > "$tmp/fake/gh-view.5"
+    assert_eq "pred-find: newer without PR skipped, older open wins" "$(printf 'p1-20261104T000000Z\t%s\t%s/5\t%s' "$P1" "$U" "$t1")" "$(pf)"
+    assert_eq "pred-find: predecessor tip fetched" "$t1" "$(git -C "$tmp/repo" rev-parse "refs/remotes/origin/$P1")"
+    final_list "$tmp" "$P2" 6; printf 'OPEN\tmain\t%s\n' "$t2" > "$tmp/fake/gh-view.6"
+    assert_eq "pred-find: most recent stamp wins" "$(printf 'p2-20261105T000000Z\t%s\t%s/6\t%s' "$P2" "$U" "$t2")" "$(pf)"
+    assert_eq "pred-find: own id excluded" "$(printf 'p1-20261104T000000Z\t%s\t%s/5\t%s' "$P1" "$U" "$t1")" "$(pf p2-20261105T000000Z)"
+    printf 'OPEN\tmain\t%s\n' "$t1" > "$tmp/fake/gh-view.6"
+    assert_eq "pred-find: PR head != branch tip -> no chaining" "" "$(pf)"
+    sed -i 's/^integration: queue/integration: none/' "$tmp/h/queue/p2/queue.md"
+    assert_eq "pred-find: integration none is no candidate" "$(printf 'p1-20261104T000000Z\t%s\t%s/5\t%s' "$P1" "$U" "$t1")" "$(pf)"
+    echo x/y > "$tmp/fake/gh-repo"
+    assert_eq "pred-find: PR outside the repo -> none" "" "$(pf)"
+    rm -rf "$tmp"
+}
+
+# N1-447: the chain push is lease-only; the runner tail and n1-finish (queue final PR path) call the chain script;
+# run.md and architecture.md document it.
+test_queue_chain_wiring() {
+    local c="$REPO_ROOT/scripts/n1-queue-chain.sh" f7="$REPO_ROOT/skills/n1-finish/steps/07-queue-chain.md"
+    assert_eq "chain-wiring: push pinned by a lease on the fetched tip" 1 "$(grep -cF -- '--force-with-lease=refs/heads/$OWN:$old' "$c")"
+    assert_eq "chain-wiring: no unleased force push" 0 "$(grep -E 'push' "$c" | grep -cE -- '(^|[[:space:]])(-f|--force)([[:space:]]|$)|[[:space:]]\+HEAD' || true)"
+    assert_eq "chain-wiring: final_prs runs the chain for a queue" 1 "$(grep -cF 'scripts/n1-queue-chain.sh" --own "queue/$RUN_STORY_ID" "$QUEUE"' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+    assert_eq "chain-wiring: n1-finish queue path points to step 7" yes \
+        "$(grep -qF 'steps/07-queue-chain.md' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    assert_eq "chain-wiring: step 7 runs before the Step 6 summary" yes \
+        "$(grep -qF 'before Step 6 prints the summary' "$f7" && grep -qF 'then Step 6' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    assert_eq "chain-wiring: step 7 runs --all and ignores its exit" yes \
+        "$(grep -qF 'scripts/n1-queue-chain.sh" --pred "<merged final PR url>" --all || true' "$f7" && echo yes || echo no)"
+    assert_eq "chain-wiring: run.md documents it" yes \
+        "$(grep -qF '**Queue chain (N1-447).**' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
+    assert_eq "chain-wiring: architecture documents it" yes \
+        "$(grep -qF '**Queue chain (N1-447).**' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
+}
+
 test_queue_integration_wiring() {
     local r="$REPO_ROOT/scripts/n1-queue-run.sh"
     assert_eq "queue-wiring: no story-only RUN_MODE gate" 0 "$(grep -c '\[ "\$RUN_MODE" = story \]' "$r" || true)"
@@ -2624,7 +2721,10 @@ test_final_body
 test_final_cmd
 test_final_gh_readers
 test_final_pr_wiring
+test_pred_table
+test_pred_find
 test_queue_integration_wiring
+test_queue_chain_wiring
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

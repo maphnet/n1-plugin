@@ -903,7 +903,7 @@ final_merge() {
 # merges the PR once its gates pass; otherwise the Note says why it waits for a human. No finish is launched for it.
 final_pr() {
     local NUM="$1" REPO="$2" N1H="$3" SB="" SBID="" def="" nwo="" counts="" nl=0 nr=0 draft=0 mst="" found="" url="" isd=""
-    local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1 old="" odc="" omg="" onote="" ost="" obase="" ohead=""
+    local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1 old="" odc="" omg="" onote="" ost="" obase="" ohead="" pst="" pnote=""
     local marker="$N1_QUEUE_DIR/.final-$1" body="$N1_QUEUE_DIR/final-$1.body.md" wt="$N1_QUEUE_DIR/final-$1"
     { story_env "$REPO" && [ -n "$SB" ]; } || { final_none "$REPO" story-branch-invalid; return 0; }
     counts=$(n1_queue_final_body "$QUEUE" "$REPO" "$SBID" "$body" "$RUN_MODE") || { final_none "$REPO" body-write-failed; return 0; }
@@ -915,6 +915,11 @@ final_pr() {
         return 0
     fi
     [ "${nr:-0}" -eq 0 ] || draft=1
+    # N1-447: a queue branch cut from a predecessor queue branch stays a draft (the reuse path never marks it ready, and
+    # final_merge refuses drafts) until scripts/n1-queue-chain.sh rebased it after the predecessor merged.
+    pst=$(n1_queue_preds "$QUEUE" | awk -F'\t' -v r="$REPO" '$1 == r && $7 != "rebased" { print $2 " (" $7 ")"; exit }')
+    [ -z "$pst" ] || { draft=1; pnote="waits: predecessor $pst"; }
+    ! n1_queue_preds_invalid "$QUEUE" || { draft=1; pnote="waits: predecessor metadata invalid"; }
     def=$(N1_HOME="$N1H" n1_config_val '.git.defaultBranch' 2>/dev/null); def="${def:-main}"
     _n1_queue_valid_branch "$def" || { final_none "$REPO" default-branch-invalid; return 0; }
     nwo=$(cd "$REPO" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
@@ -977,7 +982,7 @@ final_pr() {
     echo "final PR: $REPO -> $url ($dcell, mergeable $mg${mss:+ ($mss)})"
     FM_NOTE=""
     final_merge "$NUM" "$REPO" "$N1H" "$url" "$draft" "$isd" "$mg" "$def" "$SB" "$reused"
-    n1_queue_final_pr_set "$QUEUE" "$REPO" "$url" "$dcell" "$mg${mss:+ ($mss)}" "${note:+$note; }$FM_NOTE" || echo "final PR: $REPO not recorded in queue.md"
+    n1_queue_final_pr_set "$QUEUE" "$REPO" "$url" "$dcell" "$mg${mss:+ ($mss)}" "${note:+$note; }${pnote:+$pnote; }$FM_NOTE" || echo "final PR: $REPO not recorded in queue.md"
 }
 
 # final_prs — N1-293: runs with an integration branch only (story, N1-446 queue), once every Plan row is terminal (none pending, held, in-progress or
@@ -989,6 +994,8 @@ final_prs() {
         echo "final PRs: skipped (rows still open)"
         return 0
     fi
+    # N1-447: a queue branch whose predecessor final PR merged is rebased first (no-op otherwise), so final_pr sees the row state.
+    if [ "$RUN_MODE" = queue ]; then bash "$N1_ROOT/scripts/n1-queue-chain.sh" --own "queue/$RUN_STORY_ID" "$QUEUE" </dev/null; fi
     while IFS=$'\t' read -r NUM _ REPO N1H _ _; do
         case "$seen" in *$'\n'"$REPO"$'\n'*) continue ;; esac
         seen="$seen$REPO"$'\n'
@@ -1856,7 +1863,24 @@ if [ -n "$RUN_MODE" ]; then
         # push of ours and is reused.
         SB_FRESH=0
         if [ "$RUN_MODE" = queue ] && [ "${QB_NEWID:-0}" = 1 ]; then SB_FRESH=1; fi
-        if ! SB_ERR=$(n1_queue_story_branch_ensure "$SB_REPO" "$STORY_ID" "$SB_DEFAULT" "$RUN_MODE" "$SB_FRESH" 2>&1 >/dev/null </dev/null); then
+        # N1-447: a fresh queue branch whose repo has an earlier queue with an open final PR (registry
+        # $N1_HOME/queue, the one n1-queue-chain.sh --all scans; the row's N1 Home only when N1_HOME is unset) is cut from that queue branch's tip, recorded in ## Predecessor before the push so an interrupted start resumes
+        # with the same base. A resume passes the recorded Base of a waiting row; ensure ignores it for an existing branch.
+        SB_BASE=""
+        if [ "$RUN_MODE" = queue ]; then
+            if [ "$SB_FRESH" = 1 ]; then
+                SB_PRED=$(n1_queue_chain_pred_find "$SB_REPO" "$SB_DEFAULT" "$STORY_ID" "${N1_HOME:-$SB_N1H}/queue")
+                if [ -n "$SB_PRED" ]; then
+                    IFS=$'\t' read -r SB_PQ SB_PB SB_PU SB_BASE <<< "$SB_PRED"
+                    n1_queue_pred_set "$QUEUE" "$SB_REPO" "$SB_PQ" "$SB_PB" "$SB_PU" "$SB_BASE" "$SB_BASE" waiting \
+                        || halt "HALTED: predecessor $SB_PB for $SB_REPO could not be recorded in queue.md ## Predecessor (duplicate heading or no ## Runs); fix queue.md, then /n1:n1-queue --run $QUEUE_ID"
+                    echo "queue chain: $RUN_MODE/$STORY_ID cut from $SB_PB at $SB_BASE (N1-447)"
+                fi
+            else
+                SB_BASE=$(n1_queue_preds "$QUEUE" | awk -F'\t' -v r="$SB_REPO" '$1 == r && $7 == "waiting" { print $5; exit }')
+            fi
+        fi
+        if ! SB_ERR=$(n1_queue_story_branch_ensure "$SB_REPO" "$STORY_ID" "$SB_DEFAULT" "$RUN_MODE" "$SB_FRESH" "$SB_BASE" 2>&1 >/dev/null </dev/null); then
             halt "HALTED: $RUN_MODE branch $RUN_MODE/$STORY_ID could not be created or pushed in $SB_REPO: ${SB_ERR##*$'\n'}; fix access, then /n1:n1-queue --run $QUEUE_ID"
         fi
         n1_queue_story_branch_set "$QUEUE" "$SB_REPO" "$RUN_MODE/$STORY_ID" \

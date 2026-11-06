@@ -48,9 +48,11 @@ case "$1 $2" in
     "pr list")
         case "$*" in
             *"--head story/"*|*"--head queue/"*) # N1-293/N1-446: final PR lookup; answers gh-final-list.<base> (absent -> no PR)
+                # N1-447: gh-final-list.<base>.<head with / as _> answers one head only (predecessor discovery lists several heads)
                 echo "$*" >> "$FAKE_DIR/gh-final-calls"
-                b=""; prev=""; for a in "$@"; do [ "$prev" = --base ] && b="$a"; prev="$a"; done
-                cat "$FAKE_DIR/gh-final-list.$b" 2>/dev/null || echo '[]' ;;
+                b=""; h=""; prev=""; for a in "$@"; do [ "$prev" = --base ] && b="$a"; [ "$prev" = --head ] && h="$a"; prev="$a"; done
+                f="$FAKE_DIR/gh-final-list.$b.${h//\//_}"; [ -f "$f" ] || f="$FAKE_DIR/gh-final-list.$b"
+                cat "$f" 2>/dev/null || echo '[]' ;;
             *) echo "$*" >> "$FAKE_DIR/gh-calls"; cat "$FAKE_DIR/gh-pr" 2>/dev/null ;;
         esac ;;
     "pr view") # N1-214: gh-fail holds a count of reads to fail before answering
@@ -610,6 +612,20 @@ queue_merge_fixture() {
     for spec in "$@"; do n=$((n + 1)); printf 'OPEN\t%s\t%s\n' "$QB" "$SM_PIN" > "$tmp/fake/gh-view.$n"; done
 }
 
+# --- N1-447: queue chain ------------------------------------------------------------------
+QC_ID=p1-20261105T000000Z; QC_P="queue/$QC_ID"   # the predecessor queue branch of the chain fixtures
+# final_list <tmp> <head> <pr#> [isDraft] — the one open final PR gh lists for <head> into main (PR <pr#> in o/r).
+final_list() {
+    printf '[{"url":"https://github.com/o/r/pull/%s","isDraft":%s,"headRefName":"%s","baseRefName":"main","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]\n' \
+        "$3" "${4:-false}" "$2" > "$1/fake/gh-final-list.main.${2//\//_}"
+}
+# pred_queue <n1home> <dir> <repo> <branch> — an earlier queue's queue.md (integration: queue) recording <branch> for <repo>.
+pred_queue() {
+    mkdir -p "$1/queue/$2"
+    printf -- '---\nqueue_id: %s\nintegration: queue\n---\n## Story Branches\n| Repo | Branch |\n|------|--------|\n| %s | %s |\n\n## Runs\n| Ticket | Started | Exit | Outcome | PR | Session |\n|--------|---------|------|---------|----|---------|\n' \
+        "$2" "$3" "$4" > "$1/queue/$2/queue.md"
+}
+
 # --- N1-293: final story PR ----------------------------------------------------------
 # final_fixture <tmp> <ticket:states>... — story_merge_fixture whose final PR session opens PR 9 (final-create) and whose
 # mergeable read answers UNKNOWN once, then MERGEABLE/CLEAN.
@@ -664,3 +680,29 @@ fin_note() { fin_row "$1" "$1/repo" | cut -f4; }            # <tmp>
 fm_merges() { [ -f "$1/fake/gh-merge" ] || { echo 0; return; }; grep -c -- "pull/$2 " "$1/fake/gh-merge" || true; }   # <tmp> <pr#>
 fm_event() { jq -r 'select(.event == "final_pr_merge") | "\(.outcome)|\(.reason)"' "$1/events.jsonl"; }   # <tmp>
 has_file() { [ -e "$1" ] && echo yes || echo no; }
+# Committer identity and no signing for the chain rebase in tests (production uses the user's git config).
+GIT_TEST_ID=(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgSign GIT_CONFIG_VALUE_0=false)
+# qc_fixture <tmp> <ticket:states>... — queue_merge_fixture with this origin history: $QC_P = init + "q1" (f=q1, QC_BASE);
+# $QB = QC_BASE + "q2" (f=q2); main = init + "squash q1" (f=q1). queue.md records $QC_P as the waiting predecessor
+# (PR 5, Base = Head = QC_BASE); gh reports PR 5 MERGED into main from $QC_P at QC_BASE. origin ends checked out on main.
+qc_fixture() {
+    local tmp="$1" o="$1/origin"
+    queue_merge_fixture "$@"
+    oc() { git -C "$o" -c user.email=t@t -c user.name=t -c commit.gpgSign=false "$@"; }
+    oc checkout -q -b "$QC_P"; echo q1 > "$o/f"; oc add f; oc commit -q -m q1
+    QC_BASE=$(git -C "$o" rev-parse HEAD)
+    oc checkout -q -B "$QB"; echo q2 > "$o/f"; oc commit -q -am q2
+    oc checkout -q main; echo q1 > "$o/f"; oc add f; oc commit -q -m 'squash q1'
+    n1_queue_pred_set "$tmp/queue.md" "$tmp/repo" "$QC_ID" "$QC_P" https://github.com/o/r/pull/5 "$QC_BASE" "$QC_BASE" waiting
+    printf 'MERGED\tmain\t%s\n' "$QC_BASE" > "$tmp/fake/gh-view.5"
+    echo "$QC_P" > "$tmp/fake/gh-headref.5"
+    git -C "$o" update-ref refs/pull/5/head "$QC_BASE"
+}
+# run_chain <tmp> [args...] — scripts/n1-queue-chain.sh (default args --own $QB <tmp>/queue.md) with the fakes; prints its exit code.
+run_chain() {
+    local t="$1" rc=0; shift
+    [ $# -gt 0 ] || set -- --own "$QB" "$t/queue.md"
+    env -u ORCA_CLI_COMMAND "${GIT_TEST_ID[@]}" FAKE_DIR="$t/fake" N1_HOME="$t/n1home" PATH="$t/bin:$PATH" \
+        bash "$REPO_ROOT/scripts/n1-queue-chain.sh" "$@" > "$t/chain.txt" 2>&1 || rc=$?
+    echo "$rc"
+}

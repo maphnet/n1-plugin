@@ -237,7 +237,7 @@ n1_queue_final_body() {
     # body for <repo>'s Plan rows and prints "<landed> <not-landed>". Landed = Runs Outcome merged; Not landed = every
     # other row, with Status and Reason. queue.md is child-writable: Ticket, Status and Reason are sanitized and bounded,
     # a PR cell that is not a GitHub PR URL prints as "-". N1-446: kind queue words the PR for a list/tag queue (no ticket to close).
-    local q="$1" repo="$2" id="$3" out="$4" kind="${5:-story}" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state head finish
+    local q="$1" repo="$2" id="$3" out="$4" kind="${5:-story}" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state head finish pred
     case "$kind" in
         story) head=Story; finish="After the merge, /n1:n1-finish $id closes the story and deletes the local story branch" ;;
         queue) head=Queue; finish="After the merge, run /n1:n1-finish with this PR number; it closes no ticket and deletes the local queue branch" ;;
@@ -263,6 +263,10 @@ n1_queue_final_body() {
     else state="Ready for review: All $nl children landed."; fi
     printf '## %s %s: final PR\n\nOpened by the N1 queue runner from %s/%s (N1-293). Not Codex-reviewed; the per-branch convention commit is unreviewed, so review the whole diff.\n\n### Landed\n%s\n### Not landed\n%s\n%s\n\nMerge: a human reviews and merges this PR, unless autonomy.fullAuto and finishWork.mergeOnFinish are both on and the queue runner merge gates pass (ready, mergeable, Codex review, checks; N1-424). %s; the remote branch follows the repository delete-branch setting.\n' \
         "$head" "$id" "$kind" "$id" "$landed" "$rest" "$state" "$finish" > "$out" || return 1
+    # N1-447: a queue branch cut from a predecessor queue branch names it until the chain rebased it (cells are validated
+    # by n1_queue_preds).
+    pred=$(n1_queue_preds "$q" | awk -F'\t' -v r="$repo" '$1 == r && $7 != "rebased" { print $3 " (" $4 ")"; exit }')
+    [ -z "$pred" ] || printf '\nPredecessor: this queue branch was cut from %s and stays a draft until that PR merges; then the N1 queue runner rebases it onto the default branch (N1-447).\n' "$pred" >> "$out" || return 1
     echo "$nl $nr"
 }
 
@@ -677,14 +681,15 @@ n1_queue_sync_default() {
 }
 
 n1_queue_story_branch_ensure() {
-    # Usage: n1_queue_story_branch_ensure <repo> <id> <default-branch> [prefix=story|queue] [fresh=0|1]
+    # Usage: n1_queue_story_branch_ensure <repo> <id> <default-branch> [prefix=story|queue] [fresh=0|1] [base-sha]
     # N1-290: makes origin carry <prefix>/<id> before a story queue (N1-446: or a list/tag queue with integration: queue)
     # launches its children. A branch already on origin is reused as is (never reset, never force-pushed: resumes keep
     # merged work), unless fresh=1: a queue branch is new per first start, so a name already on origin is foreign or
     # stale work and is refused. An absent one is cut from origin/<default> after a fetch and pushed with a plain push
-    # of the remote-tracking ref, so no local branch or checkout is touched. Non-zero with a last stderr line
-    # "n1-queue: <prefix> branch: <reason>" on any failure.
-    local repo="$1" p="${4:-story}" fresh="${5:-0}" d="$3" b heads
+    # of the remote-tracking ref, so no local branch or checkout is touched. N1-447: with a 40-hex <base-sha> (the
+    # predecessor queue tip, already fetched by n1_queue_chain_pred_find) an absent branch is cut at that commit instead.
+    # Non-zero with a last stderr line "n1-queue: <prefix> branch: <reason>" on any failure.
+    local repo="$1" p="${4:-story}" fresh="${5:-0}" base="${6:-}" d="$3" b heads
     case "$p" in story|queue) ;; *) echo "n1-queue: story branch: invalid prefix $p" >&2; return 1 ;; esac
     b="$p/$2"
     [ -d "$repo" ] || { echo "n1-queue: $p branch: no such repo $repo" >&2; return 1; }
@@ -694,6 +699,7 @@ n1_queue_story_branch_ensure() {
     case "$2" in ''|-*|*[!A-Za-z0-9._-]*) echo "n1-queue: $p branch: invalid $p id $2" >&2; return 1 ;; esac
     { [ -n "$2" ] && git check-ref-format --branch "$b" >/dev/null 2>&1; } || { echo "n1-queue: $p branch: invalid branch name $b" >&2; return 1; }
     git check-ref-format --branch "$d" >/dev/null 2>&1 || { echo "n1-queue: $p branch: invalid default branch $d" >&2; return 1; }
+    [ -z "$base" ] || [[ "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "n1-queue: $p branch: invalid base $base" >&2; return 1; }
     heads=$(git -C "$repo" ls-remote --heads origin "refs/heads/$b" 2>/dev/null) \
         || { echo "n1-queue: $p branch: ls-remote origin failed in $repo" >&2; return 1; }
     if [ -n "$heads" ]; then
@@ -701,7 +707,8 @@ n1_queue_story_branch_ensure() {
         echo "n1-queue: $p branch: $b already exists on origin in $repo" >&2; return 1
     fi
     git -C "$repo" fetch origin "+refs/heads/$d:refs/remotes/origin/$d" >&2 || { echo "n1-queue: $p branch: fetch origin $d failed in $repo" >&2; return 1; }
-    git -C "$repo" push origin "refs/remotes/origin/$d:refs/heads/$b" >&2 \
+    [ -z "$base" ] || git -C "$repo" cat-file -e "$base^{commit}" 2>/dev/null || { echo "n1-queue: $p branch: base $base not in $repo" >&2; return 1; }
+    git -C "$repo" push origin "${base:-refs/remotes/origin/$d}:refs/heads/$b" >&2 \
         || { echo "n1-queue: $p branch: push of $b to origin failed in $repo" >&2; return 1; }
 }
 
@@ -796,6 +803,100 @@ n1_queue_final_prs() {
             if ($2 != "Repo" && ($2 in ok) && ($3 == "-" || ($3 ~ /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/ && (ENVIRON["chk"] == "" || ($3 in ev)))))
                 printf "%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6
         }' "$1"
+}
+
+n1_queue_pred_set() {
+    # Usage: n1_queue_pred_set <queue.md> <repo> <queue> <branch> <pr> <base> <head> <status>
+    # N1-447: upserts <repo>'s row in "## Predecessor" ("| Repo | Queue | Branch | PR | Base | Head | Status |"): the
+    # predecessor queue branch this queue branch was cut from. Base is the predecessor tip at the cut (the --onto
+    # upstream, never changed), Head the predecessor PR head expected at its merge. Inserted before ## Runs like
+    # n1_queue_final_pr_set. Fails closed (returns 1, file untouched) on a Queue outside the id grammar, a Branch other
+    # than queue/<Queue>, a PR that is not a GitHub PR URL, a Base or Head that is not 40-hex, a Status other than
+    # waiting|rebased|stopped, more than one "## Predecessor" heading, or no "## Runs" line.
+    local file="$1" n tmp repo row
+    [ -f "$file" ] || return 1
+    case "$3" in ''|-*|*[!A-Za-z0-9._-]*) return 1 ;; esac
+    [ "$4" = "queue/$3" ] || return 1
+    [[ "$5" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || return 1
+    [[ "$6" =~ ^[0-9a-f]{40}$ ]] && [[ "$7" =~ ^[0-9a-f]{40}$ ]] || return 1
+    case "$8" in waiting|rebased|stopped) ;; *) return 1 ;; esac
+    n=$(grep -c '^## Predecessor$' "$file" || true)
+    { [ "$n" -le 1 ] && grep -q '^## Runs$' "$file"; } || return 1
+    repo=$(_n1_queue_sanitize_cell "$2")
+    row="| $repo | $3 | $4 | $5 | $6 | $7 | $8 |"
+    tmp=$(mktemp "${file}.XXXXXX") || return 1
+    has="$n" repo="$repo" row="$row" awk '
+        BEGIN { FS = "|"; r = ENVIRON["repo"]; row = ENVIRON["row"] }
+        ENVIRON["has"] == 0 && /^## Runs$/ {
+            print "## Predecessor"; print "| Repo | Queue | Branch | PR | Base | Head | Status |"; print "|------|-------|--------|----|------|------|--------|"; print row; print ""
+        }
+        /^## Predecessor$/ { f = 1; print; next }
+        f && /^## / { f = 0 }
+        f && /^\|[[:space:]]*:?-/ { print; print row; next }
+        f && NF >= 9 { c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == r) next }
+        { print }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_preds() {
+    # Usage: n1_queue_preds <queue.md> — N1-447: "## Predecessor" rows as
+    # "<repo>\t<queue>\t<branch>\t<pr>\t<base>\t<head>\t<status>". Nothing unless there is exactly one heading (the
+    # writer's fail-closed rule); a row with any cell the writer would refuse is dropped (children can write the file).
+    [ -f "$1" ] || return 0
+    [ "$(grep -c '^## Predecessor$' "$1" || true)" = 1 ] || return 0
+    awk -F'|' '/^## Predecessor$/ { f = 1; next } /^## / { f = 0 }
+        f && NF >= 9 && !/^\|[[:space:]]*:?-/ {
+            for (i = 2; i <= 8; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            if ($3 ~ /^[A-Za-z0-9._][A-Za-z0-9._-]*$/ && $4 == "queue/" $3 \
+                && $5 ~ /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/ \
+                && $6 ~ /^[0-9a-f]+$/ && length($6) == 40 && $7 ~ /^[0-9a-f]+$/ && length($7) == 40 \
+                && $8 ~ /^(waiting|rebased|stopped)$/)
+                printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6, $7, $8
+        }' "$1"
+}
+
+n1_queue_preds_invalid() {
+    # Usage: n1_queue_preds_invalid <queue.md> — N1-447: status 0 when "## Predecessor" metadata is corrupt (more than one
+    # heading, or a table row n1_queue_preds drops), so callers can tell it from a queue with no predecessor.
+    [ -f "$1" ] || return 1
+    local h t v
+    h=$(grep -c '^## Predecessor$' "$1" || true)
+    [ "$h" -le 1 ] || return 0
+    [ "$h" = 1 ] || return 1
+    t=$(awk '/^## Predecessor$/ { f = 1; next } /^## / { f = 0 } f && /^\|/ && !/^\|[[:space:]]*:?-/ && !/^\|[[:space:]]*Repo[[:space:]]*\|/' "$1" | wc -l)
+    v=$(n1_queue_preds "$1" | wc -l)
+    [ "$t" -ne "$v" ]
+}
+
+n1_queue_chain_pred_find() {
+    # Usage: n1_queue_chain_pred_find <repo> <default-branch> <own-id> <registry-dir>
+    # N1-447: the predecessor of a new queue branch in <repo>. Candidates: the ## Story Branches branch for <repo> of every
+    # <registry-dir>/*/queue.md with integration: queue, named queue/<base>-<YYYYMMDDTHHMMSSZ> (own id excluded), most
+    # recent stamp first (user decision). The first whose final PR into <default> is OPEN wins; its PR is re-derived
+    # through gh (n1_queue_final_pr_find), never read from the other queue.md. A candidate with no open final PR (still
+    # running, interrupted, merged or closed) is skipped: no chaining (user decision, N1-446 behaviour). The branch is
+    # fetched to refs/remotes/origin/<branch>; a tip that differs from the PR headRefOid means no chaining.
+    # Prints "<queue>\t<branch>\t<pr>\t<tip>" or nothing; always status 0.
+    local repo="$1" def="$2" own="$3" reg="$4" nwo b id found url tip st head
+    nwo=$(cd "$repo" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
+    [ -n "$nwo" ] || return 0
+    while IFS= read -r b; do
+        id=${b#queue/}
+        { [ "$id" != "$own" ] && _n1_queue_valid_branch "$b"; } || continue
+        found=$(n1_queue_final_pr_find "$nwo" "$b" "$def")
+        [ -n "$found" ] || continue
+        url=${found%%$'\t'*}
+        git -C "$repo" fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b" </dev/null >/dev/null 2>&1 || return 0
+        tip=$(git -C "$repo" rev-parse -q --verify "refs/remotes/origin/$b^{commit}" 2>/dev/null)
+        IFS=$'\t' read -r st _ head <<< "$(n1_queue_pr_view "$url")"
+        { [[ "$tip" =~ ^[0-9a-f]{40}$ ]] && [ "$st" = OPEN ] && [ "$head" = "$tip" ]; } || return 0
+        printf '%s\t%s\t%s\t%s\n' "$id" "$b" "$url" "$tip"
+        return 0
+    done < <(for f in "$reg"/*/queue.md; do
+            [ -f "$f" ] && [ "$(n1_read_frontmatter "$f" integration)" = queue ] || continue
+            n1_queue_story_branch_get "$f" "$repo" 2>/dev/null
+        done | grep -E '^queue/[A-Za-z0-9][A-Za-z0-9._-]*-[0-9]{8}T[0-9]{6}Z$' \
+             | awk '{ print substr($0, length($0) - 15) "\t" $0 }' | sort -r | cut -f2 | awk '!seen[$0]++')
+    return 0
 }
 
 n1_queue_already_run() {
