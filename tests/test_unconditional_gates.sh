@@ -29,7 +29,7 @@ n1_config_file() { printf '%s' "$MOCK_CONFIG"; }
 
 # ---------------------------------------------------------------------------
 # Test 4: alwaysAskOn is a fixed constant (n1_escalation_val), NOT in 'autonomy'
-# The unconditional gates must NOT be routable through n1_autonomy_val.
+# The unconditional gates must NOT be routable through autonomy config.
 # ---------------------------------------------------------------------------
 escalation_list=$(n1_escalation_val alwaysAskOn)
 autonomy_security=$(n1_config_val '.autonomy.alwaysAskOn' "$MOCK_CONFIG" 2>/dev/null || true)
@@ -40,7 +40,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 5: Release confirmation gate in n1-release is NOT routed through n1_autonomy_val
+# Test 5: Release confirmation gate in n1-release is unconditional
 # (grep-based structural check)
 # ---------------------------------------------------------------------------
 RELEASE_CONFIRM="${PLUGIN_ROOT}/skills/n1-release/steps/02-confirm-execute.md"
@@ -51,13 +51,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 6: n1-release Step 3 does NOT call n1_autonomy_val to decide whether to show prompt
+# Test 6c: security carve-out and ambiguous done-status fall-through stay in the skill text (N1-442)
 # ---------------------------------------------------------------------------
-# After sub-file refactoring, the confirmation gate lives in steps/02-confirm-execute.md.
-if grep -q 'n1_autonomy_val' "$RELEASE_CONFIRM" 2>/dev/null; then
-    fail "T6: n1-release steps/02-confirm-execute.md calls n1_autonomy_val — release gate is NOT unconditional"
+if grep -qF 'If the findings involve security/architecture/public API:** show the interactive prompt' "${PLUGIN_ROOT}/skills/n1-start/procedures/autonomy-headless.md" 2>/dev/null; then
+    pass "T6c: autonomy-headless.md keeps the security/architecture/public-API prompt carve-out"
 else
-    pass "T6: n1-release Step 3 does not call n1_autonomy_val"
+    fail "T6c: autonomy-headless.md lost the security/architecture/public-API carve-out line"
+fi
+if grep -qF 'If zero or two or more candidates match: fall through to the prompt' "${PLUGIN_ROOT}/skills/n1-finish/references/done-status-recovery.md" 2>/dev/null; then
+    pass "T6d: done-status-recovery.md keeps the zero-or-2+ fall-through"
+else
+    fail "T6d: done-status-recovery.md lost the zero-or-2+ fall-through line"
 fi
 
 # ---------------------------------------------------------------------------

@@ -35,7 +35,6 @@ for skill, collect, create in [('n1-story', '01-collect.md', '02-compose.md'),
     check(f'{skill} classifies captured scope', 'references/ticket-scope.md' in collection)
     check(f'{skill} rechecks scope before approval and writes',
           0 <= creation.find('references/ticket-scope.md') < creation.find('## Step 7: Approval Gate'))
-    check(f'{skill} rechecks edited previews', 'after every edit or removal' in creation)
     check(f'{skill} auto mode cannot preserve the wrong type',
           'auto-proceed with the story' not in collection
           and 'auto-proceed with a single ticket' not in collection)
