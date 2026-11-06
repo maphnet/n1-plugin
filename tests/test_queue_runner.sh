@@ -1863,6 +1863,43 @@ EOF
     rm -rf "$d"
 }
 
+# N1-470: a child that ended step done with no pr_url (status no-pr) releases its ## Schedule and held successors
+# like an obsolete row (N1-362), with and without the queue merging its own PRs; the digest counts it.
+test_no_pr_status() {
+    local tmp q; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN; q="$tmp/q.md"
+    cat > "$q" <<'EOF'
+---
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | a | /r | /h | sonnet | no-pr | |
+| 2 | T-2 | b | /r | /h | sonnet | pending | |
+
+## Schedule
+| Ticket | After |
+|--------|-------|
+| T-2 | T-1 |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|--------|---------|------|---------|----|---------|
+EOF
+    assert_eq "no-pr: schedule successor eligible (merge off)" "T-2" "$(n1_queue_eligible_rows "$q" false | cut -f2 | paste -sd, -)"
+    assert_eq "no-pr: schedule successor eligible (merge on)" "T-2" "$(n1_queue_eligible_rows "$q" true | cut -f2 | paste -sd, -)"
+    assert_eq "no-pr: successor not skipped" "pending" "$(plan_cell "$q" 2 8)"
+    mk_held_plan "$q" no-pr
+    assert_eq "no-pr: held sweep counts the released row and its waiting child" "2" "$(n1_queue_held_sweep "$q")"
+    assert_eq "no-pr: held row released" "pending|released: T-1 no-pr" "$(plan_cell "$q" 2 8)|$(plan_cell "$q" 2 9)"
+    mkdir -p "$tmp/queue/q"
+    n1_queue_event "$tmp/queue/q/events.jsonl" q R1 queue_started
+    n1_queue_event "$tmp/queue/q/events.jsonl" q R1 ticket_finished ticket=T-1 outcome=pr
+    n1_queue_event "$tmp/queue/q/events.jsonl" q R1 ticket_finished ticket=T-2 outcome=no-pr
+    n1_queue_event "$tmp/queue/q/events.jsonl" q R1 queue_done
+    assert_eq "no-pr: digest counts no-PR" "Queue q: 1 PR, 1 no-PR, done" "$(n1_queue_digest "$tmp")"
+}
+
 # N1-303 fix cycle 1: CR-1 (overlap edge vs reverse Blocks edge), CR-3 (merge mode, chain ended unmerged).
 test_schedule_cycle_and_merge_final() {
     local d q out
@@ -2334,6 +2371,7 @@ test_schedule_helpers
 test_eligible_rows
 test_schedule_cycle_and_merge_final
 test_obsolete_release
+test_no_pr_status
 test_release_wiring
 test_already_run
 test_release_rows

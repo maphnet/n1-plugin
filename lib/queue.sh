@@ -550,8 +550,8 @@ n1_queue_held_sweep() {
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$b" && st=obsolete
         case "$st" in
-            obsolete)   # N1-362: a verified obsolete blocker left nothing to merge
-                n1_queue_row_status "$q" "$num" pending "released: $b obsolete" ;;
+            obsolete|no-pr)   # N1-362: a verified obsolete blocker left nothing to merge; N1-470: nor did a no-PR one
+                n1_queue_row_status "$q" "$num" pending "released: $b $st" ;;
             failed|escalated|skip|'')
                 n1_queue_row_status "$q" "$num" skip "blocked by ${b:-?} (${st:-not in plan})"
                 continue ;;
@@ -605,7 +605,8 @@ n1_queue_eligible_rows() {
     # A function name is called with the predecessor row's N1 Home and returns 0 when that home merges its own PRs.
     # N1-303 (the N1-269 eligibility rule): pending Plan rows (n1_queue_pending_rows columns) whose every
     # ## Schedule predecessor is released: at pr (with <merge> true, only once its Runs Outcome is merged, i.e. the
-    # queue merged its own PR), done-before-run or escalated with Reason obsolete (N1-362). A failed/escalated/skip
+    # queue merged its own PR), done-before-run, no-pr (N1-470: ended with no PR, nothing to merge) or escalated with
+    # Reason obsolete (N1-362). A failed/escalated/skip
     # predecessor, or one not in the plan, is a
     # hard edge: the row is marked skip here and not listed (the next call cascades). Any other status
     # (pending, in-progress, awaiting-human, held, deferred) waits. No ## Schedule (a plan made before N1-303)
@@ -618,7 +619,7 @@ n1_queue_eligible_rows() {
             st=$(n1_queue_ticket_status "$q" "$p")
             [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$p" && st=done-before-run   # N1-362
             case "$st" in
-                done-before-run) ;;
+                done-before-run|no-pr) ;;
                 pr)
                     mrg=$merge
                     if [ "$merge" != true ] && [ "$merge" != false ]; then
@@ -654,7 +655,7 @@ n1_queue_gated_expire() {
         blk=""
         for p in $(n1_queue_schedule_rows "$q" | awk -F'\t' -v t="$t" '$1 == t { gsub(/,/, " ", $2); print $2 }'); do
             st=$(n1_queue_ticket_status "$q" "$p")
-            [ "$st" = done-before-run ] || { blk="$p"; break; }
+            case "$st" in done-before-run|no-pr) ;; *) blk="$p"; break ;; esac
         done
         n1_queue_row_status "$q" "$num" skip "predecessor ${blk:+$blk }not released (not at PR or not merged)"
     done < <(n1_queue_pending_rows "$q")
@@ -1270,10 +1271,10 @@ n1_queue_plan_waves() {
 n1_queue_release_rows() {
     # Usage: n1_queue_release_rows <queue.md>
     # Prints unique "<ticket>\t<n1-home>" for tag-mode Plan rows with a handoff outcome
-    # (pr, escalated, failed, stopped) whose overview.md lacks queue_tag_removed: true.
+    # (pr, no-pr, escalated, failed, stopped) whose overview.md lacks queue_tag_removed: true.
     local q="$1" t h
     [ "$(n1_read_frontmatter "$q" mode)" = tag ] || return 0
-    n1_queue_pending_rows "$q" 'pr|escalated|failed|stopped' | cut -f2,4 | sort -u |
+    n1_queue_pending_rows "$q" 'pr|no-pr|escalated|failed|stopped' | cut -f2,4 | sort -u |
         while IFS=$'\t' read -r t h; do
             [ "$(n1_read_frontmatter "$h/memory/$t/overview.md" queue_tag_removed)" = true ] ||
                 printf '%s\t%s\n' "$t" "$h"
@@ -1590,7 +1591,7 @@ n1_queue_interrupted_note() {
 n1_queue_awaiting_hints() {
     # Usage: n1_queue_awaiting_hints <queue.md>
     # Prints "<ticket>: <resume command>" for each Plan row waiting on a human: an attach
-    # command for parked sessions, --answer for Orca rows. N1-309: also a final (failed/pr/escalated)
+    # command for parked sessions, --answer for Orca rows. N1-309: also a final (failed/pr/no-pr/escalated)
     # row whose worker question is still pending (<queue-dir>/.ask-<ticket>), whatever its status.
     local file="$1" t h sid st task
     while IFS=$'\t' read -r _ t _ h _ st; do
@@ -1605,7 +1606,7 @@ n1_queue_awaiting_hints() {
             orca:*) printf '%s: /n1:n1-queue --answer %s <answer>\n' "$t" "$t" ;;
             ?*) printf '%s: %s\n' "$t" "$(n1_bg_cmd attach "$sid")" ;;
         esac
-    done < <(n1_queue_pending_rows "$file" 'awaiting-human|failed|pr|escalated')
+    done < <(n1_queue_pending_rows "$file" 'awaiting-human|failed|pr|no-pr|escalated')
 }
 
 n1_queue_dispatch_skips() {
@@ -1684,12 +1685,14 @@ n1_queue_digest() {
             | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled")] | group_by(.ticket) | map(.[-1])) as $t
             | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
+            | ([$t[] | select(.event == "ticket_finished" and .outcome == "no-pr")] | length) as $nopr
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "failed")] | length) as $failed
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "merged")] | length) as $merged
             | ([$t[] | select(.event == "ticket_started" or .event == "unblocked") | .ticket]) as $running
             | {needs: ($needs | length), ts: $end.ts,
                line: ("Queue \($end.queue): " + ([
                    (if $pr > 0 then "\($pr) PR" else empty end),
+                   (if $nopr > 0 then "\($nopr) no-PR" else empty end),
                    (if $merged > 0 then "\($merged) merged" else empty end),
                    (if ($needs | length) > 0 then "\($needs | length) needs you (\($needs | join(", ")))" else empty end),
                    (if $failed > 0 then "\($failed) failed" else empty end),
@@ -1871,7 +1874,7 @@ n1_queue_status_table() {
                 fi
                 [ "$state" = awaiting-human ] && [ -n "$sid" ] && attach=$(n1_bg_cmd attach "$sid")
                 ;;
-            pr|failed|deferred|escalated|stopped)
+            pr|no-pr|failed|deferred|escalated|stopped)
                 local dur; dur=$(_n1_queue_event_duration "$events" "$ticket")
                 [ -n "$dur" ] && elapsed=$(n1_fmt_elapsed "$dur")
                 # N1-268: the Runs Outcome is the only place a merge is recorded (Plan status stays pr).
