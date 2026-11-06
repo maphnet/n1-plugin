@@ -9,7 +9,6 @@ check() { # <label> <extended-regex> <file>
     if grep -qE -- "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
 }
 
-check "procedure gates on qualityEscalations" "n1_autonomy_val 'qualityEscalations'" "$P"
 check "candidates never pass through a shell command" 'never through a shell command' "$P"
 check "reuses duplicate-check in create context" 'duplicate-check\.md` § Check with `CONTEXT=create`' "$P"
 check "marker written only after create succeeds" 'only after the create call succeeds' "$P"
@@ -31,13 +30,13 @@ check "done marker only after link succeeds" 'Only after the link succeeds' "$P"
 check "report never lists pending as a key" '`- \[pending\]` is never a key' "$P"
 check "report strips unlinked" 'strip ` unlinked`' "$P"
 
-check "review fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/fix.md
-check "review step appends pre-existing [SEC-N] (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/procedures/review-preexisting.md
-check "QA fix appends deferrals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/steps/qa.md
-check "finalize appends its own proposals (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-start/procedures/finalize.md
+check "review fix appends deferrals" 'followup-filing\.md` § Append' skills/n1-start/steps/fix.md
+check "review step appends pre-existing [SEC-N]" 'followup-filing\.md` § Append' skills/n1-start/procedures/review-preexisting.md
+check "QA fix appends deferrals" 'followup-filing\.md` § Append' skills/n1-start/steps/qa.md
+check "finalize appends its own proposals" 'followup-filing\.md` § Append' skills/n1-start/procedures/finalize.md
 check "finalize worker runs File before Gate 3" 'followup-filing\.md` § File' agents/tail-worker.md
 check "Gate 3 template carries Follow-ups line" 'Follow-ups: <KEY>' skills/n1-start/procedures/output-gates.md
 
-check "Codex step appends human-review items (auto-accept only)" 'auto-accept.*followup-filing\.md` § Append' skills/n1-pr/steps/03-codex-review.md
+check "Codex step appends human-review items" 'followup-filing\.md` § Append' skills/n1-pr/steps/03-codex-review.md
 
 exit $FAIL

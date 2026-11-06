@@ -48,7 +48,7 @@ check('n1-story subtasks keep the VERSION_MCP jc-mcp parent-link fallback',
 check('genuine Story still links YouTrack children', 'link type = `subtask of`' in story)
 check('Task route reuses standalone creation', 'skills/n1-ticket/steps/02-create.md' in scope)
 check('Story route reuses story collection', 'skills/n1-story/steps/01-collect.md' in scope)
-check('Task preview reports the actual type', '**Type:** <Task or Bug>' in Path('skills/n1-ticket/steps/02-create.md').read_text())
+check('Task gate reports the actual type', 'Show the resulting **Type: Task** (or **Bug**' in Path('skills/n1-ticket/steps/02-create.md').read_text())
 
 # N1-97: one shared rule for free-form creation sites and the Jira param shape.
 check('free-form creation section exists', '## Free-form creation' in scope)

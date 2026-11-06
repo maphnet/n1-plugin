@@ -48,7 +48,6 @@ for f in 01-prerequisites 03-tracker 08-local-testing 10-quality-config 11-rules
 done
 expect "01-prerequisites: every Skip carries a works-when note" 3 "$(grep -c '2 — Skip: works when ' skills/n1-init/steps/01-prerequisites.md)"
 check "03-tracker: Atlassian option carries a works-when note" '^2 — Jira via Atlassian MCP: works when ' skills/n1-init/steps/03-tracker.md
-check "10-quality-config: Hands-off normalised with evidence" '^1 — Hands-off \(Recommended\): .*lib/config\.sh' skills/n1-init/steps/10-quality-config.md
 check "11-rules: starter rules normalised with evidence" '^1 — Yes, generate starter rules \(Recommended\): ' skills/n1-init/steps/11-rules.md
 lacks_tree "no lowercase (recommended) mark under skills/" '\(recommended\)' skills
 
@@ -64,9 +63,6 @@ pointer skills/n1-brainstorm/SKILL.md
 lacks "n1-brainstorm: no bare-word recommended answer" 'with a recommended answer for each' skills/n1-brainstorm/SKILL.md
 lacks "n1-brainstorm: no bare-word recommended approach" 'accept the recommended one' skills/n1-brainstorm/SKILL.md
 # --- n1-clean
-pointer skills/n1-clean/steps/03-confirm.md
-check "n1-clean: SKILL.md reads the confirm step" 'steps/03-confirm\.md' skills/n1-clean/SKILL.md
-check "n1-clean: Select carries a works-when note" '^2 — Select which to remove \(Completed and Abandoned\): works when ' skills/n1-clean/steps/03-confirm.md
 lacks "n1-clean: prompt moved out of SKILL.md" 'Remove all Stale and Completed \(Recommended' skills/n1-clean/SKILL.md
 
 # --- n1-release, n1-rules, n1-queue

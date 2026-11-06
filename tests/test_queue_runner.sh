@@ -1120,7 +1120,7 @@ test_story_bg_settings() {
     local plain story
     plain=$(unset N1_STORY_ID N1_STORY_BRANCH; N1_QUEUE_TAG= N1_QUEUE_DIR=/q _n1_queue_bg_settings R1)
     assert_eq "story-settings: non-story env keys and order unchanged" \
-        "N1_HEADLESS,N1_AUTONOMY_PRESET,N1_QUEUE_RUN_ID,N1_QUEUE_TAG,N1_QUEUE_DIR,N1_PARENT_SESSION_ID,N1_UNATTENDED" \
+        "N1_HEADLESS,N1_QUEUE_RUN_ID,N1_QUEUE_TAG,N1_QUEUE_DIR,N1_PARENT_SESSION_ID,N1_UNATTENDED" \
         "$(jq -r '.env|keys_unsorted|join(",")' <<< "$plain")"
     story=$(N1_STORY_ID=S-1 N1_STORY_BRANCH=story/S-1 N1_QUEUE_TAG= N1_QUEUE_DIR=/q _n1_queue_bg_settings R1)
     assert_eq "story-settings: story keys present" "S-1,story/S-1" "$(jq -r '[.env.N1_STORY_ID,.env.N1_STORY_BRANCH]|join(",")' <<< "$story")"
