@@ -39,6 +39,30 @@ for N1H in "" 1; do
     eq "authorized[headless=$N1H]: gh pr create allowed" 0 "$(pol 'gh pr create --title t --body-file /tmp/b --base main')"
     eq "authorized[headless=$N1H]: gh pr comment allowed" 0 "$(pol 'gh pr comment 7 --body-file /tmp/c')"
 done
+# SEC-1 class: a dispatched subagent must not inherit the main session's merge authorization
+polx() { local rc=0; jq -cn --arg a "$1" --arg t "$2" --arg c "$3" --arg w "$WT" \
+    '{tool_name:$t,session_id:"s-pr",cwd:$w,tool_input:(if $t=="Bash" then {command:$c} else {subagent_type:$c} end)} + (if $a=="" then {} else {agent_type:$a} end)' \
+    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS ${N1H:+N1_HEADLESS=$N1H} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+for N1H in "" 1; do
+    for tool in Agent Task; do
+        eq "spawn[$tool,headless=$N1H]: pr-worker -> general-purpose denied" 2 "$(polx n1:pr-worker $tool general-purpose)"
+        eq "spawn[$tool,headless=$N1H]: pr-worker -> n1:developer denied" 2 "$(polx n1:pr-worker $tool n1:developer)"
+        eq "spawn[$tool,headless=$N1H]: pr-worker -> n1:tech-writer allowed" 0 "$(polx n1:pr-worker $tool n1:tech-writer)"
+        eq "spawn[$tool,headless=$N1H]: pr-worker -> n1:tail-worker allowed" 0 "$(polx n1:pr-worker $tool n1:tail-worker)"
+        eq "spawn[$tool,headless=$N1H]: tail-worker -> general-purpose denied" 2 "$(polx n1:tail-worker $tool general-purpose)"
+        eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:tail-worker denied" 2 "$(polx n1:tail-worker $tool n1:tail-worker)"
+        eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:code-reviewer allowed" 0 "$(polx n1:tail-worker $tool n1:code-reviewer)"
+        eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:developer allowed" 0 "$(polx n1:tail-worker $tool n1:developer)"
+    done
+    for a in general-purpose n1:tech-writer n1:developer; do
+        eq "authorized[headless=$N1H]: $a gh pr merge denied" 2 "$(polx $a Bash 'gh pr merge 7')"
+        eq "authorized[headless=$N1H]: $a default push denied" 2 "$(polx $a Bash 'git push origin HEAD:main')"
+    done
+    eq "authorized[headless=$N1H]: tech-writer --confirmed denied" 2 "$(polx n1:tech-writer Bash 'source ~/.n1/preamble.sh; n1_review_pin set 7 --confirmed')"
+    eq "authorized[headless=$N1H]: tech-writer run pointer clear denied" 2 "$(polx n1:tech-writer Bash 'n1_active_run_clear')"
+    eq "authorized[headless=$N1H]: tech-writer docs commit allowed" 0 "$(polx n1:tech-writer Bash 'git add README.md && git commit -m "docs: update"')"
+    eq "authorized[headless=$N1H]: main session gh pr merge allowed" 0 "$(polx '' Bash 'gh pr merge 7')"
+done
 CFG=; N1H=
 
 # 2. Persona contract: inherit-all tools, never merges, asks, clears or releases; prompt stops carry "prompt:".
