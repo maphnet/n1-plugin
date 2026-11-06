@@ -660,6 +660,34 @@ assert_eq "state: no escalation -> none (N1-404)" "- Open escalation: none" "$(g
 assert_eq "state: no question file -> none (N1-404)" "- Pending question file: none" "$(grep '^- Pending question file:' <<<"$CTX")"
 assert_eq "state: no containers.tsv -> none (N1-404)" "- Running containers (containers.tsv): none" "$(grep '^- Running containers' <<<"$CTX")"
 rm -f "$N1_HOME/active-run.s1.json"
+# --- N1-440: n1-queue planning pointer re-injected after compaction ---
+QPLINE="QUEUE PLANNING STATE (orchestrator only): queue id n1-auto-20261106T101530Z, step plan-resolve, mode tag, source n1-auto, dir $N1_HOME/queue/n1-auto-20261106T101530Z. Continue this n1-queue plan under this id; do not run input.md item 5 again and do not infer a selector."
+echo '{"queueId":"n1-auto-20261106T101530Z","step":"plan-resolve","mode":"tag","source":"n1-auto"}' > "$N1_HOME/queue-plan.s1.json"
+OUT=$(echo "$CPAY" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+assert_eq "queue plan: compact injects id and step (N1-440)" "$QPLINE" "$(grep '^QUEUE PLANNING STATE' <<<"$CTX")"
+assert_eq "queue plan: no ORCHESTRATOR STATE without active-run (N1-440)" "" "$(grep '^ORCHESTRATOR STATE' <<<"$CTX")"
+echo '{"ticketId":"T-30","runId":"n1-run-c","worktreePath":"/wt/T-30","branch":"b-T-30"}' > "$N1_HOME/active-run.s1.json"
+OUT=$(echo "$CPAY" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
+case "$CTX" in *"Active ticket: T-30"*"QUEUE PLANNING STATE"*) assert_eq "queue plan: coexists with active-run state (N1-440)" ok ok;; *) assert_eq "queue plan: coexists with active-run state (N1-440)" ok "$CTX";; esac
+rm -f "$N1_HOME/active-run.s1.json"
+OUT=$(echo "$CPAY" | jq -c '.agent_id = "sub-1"' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+assert_eq "queue plan: not injected for a subagent (N1-440)" "" "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep '^QUEUE PLANNING STATE')"
+OUT=$(echo "$CPAY" | jq -c '.source = "resume"' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+assert_eq "queue plan: not injected outside compact (N1-440)" "" "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep '^QUEUE PLANNING STATE')"
+OUT=$(echo "$CPAY" | jq -c '.session_id = "s2"' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+assert_eq "queue plan: other session's pointer not injected (N1-440)" "" "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep '^QUEUE PLANNING STATE')"
+echo '{"queueId":"../x","step":"intake","mode":"tag","source":""}' > "$N1_HOME/queue-plan.s1.json"
+OUT=$(echo "$CPAY" | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh")
+assert_eq "queue plan: unsafe id dropped (N1-440)" "" "$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext | grep '^QUEUE PLANNING STATE')"
+rm -f "$N1_HOME/queue-plan.s1.json"
+echo '{}' > "$N1_HOME/queue-plan.old.json"; touch -d '3 days ago' "$N1_HOME/queue-plan.old.json"
+echo '{}' > "$N1_HOME/queue-plan.new.json"
+echo "$CPAY" | jq -c '.source = "startup"' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null
+assert_eq "queue plan: startup expires pointers older than 2 days (N1-440)" "no|yes" \
+    "$([ -e "$N1_HOME/queue-plan.old.json" ] && echo yes || echo no)|$([ -e "$N1_HOME/queue-plan.new.json" ] && echo yes || echo no)"
+rm -f "$N1_HOME/queue-plan.new.json"
 # --- N1-404: PreCompact hook prints N1 compaction instructions; silent and exit 0 otherwise ---
 HJ="$REPO_ROOT/hooks/hooks.json"
 assert_eq "hooks.json: PreCompact matcher manual|auto (N1-404)" "manual|auto" "$(jq -r '.hooks.PreCompact[0].matcher' "$HJ")"
@@ -693,6 +721,14 @@ echo '{"ticketId":"../x","runId":"n1-run-c"}' > "$N1_HOME/active-run.s1.json"
 OUT=$(echo "$PCP" | bash "$PC")
 assert_eq "pre-compact: unsafe ticket id -> no concrete line (N1-404)" "" "$(grep '^Active N1 run:' <<<"$OUT")"
 rm -f "$N1_HOME/active-run.s1.json"
+echo '{"queueId":"list-1a2b3c4d-20261106T101530Z","step":"preview","mode":"list","source":"N1-1 N1-2"}' > "$N1_HOME/queue-plan.s1.json"
+OUT=$(echo "$PCP" | bash "$PC")
+assert_eq "pre-compact: queue planning preserve line (N1-440)" "N1 queue planning: preserve verbatim queue id list-1a2b3c4d-20261106T101530Z and step preview." "$(grep '^N1 queue planning:' <<<"$OUT")"
+OUT=$(echo "$PCP" | jq -c '.session_id = "s2"' | bash "$PC")
+assert_eq "pre-compact: other session -> no queue planning line (N1-440)" "" "$(grep '^N1 queue planning:' <<<"$OUT")"
+OUT=$(echo "$PCP" | jq -c '.agent_id = "sub-1"' | bash "$PC")
+assert_eq "pre-compact: subagent -> no queue planning line (N1-440)" "" "$OUT"
+rm -f "$N1_HOME/queue-plan.s1.json"
 OUT=$(echo 'not json{' | bash "$PC") && RC=0 || RC=$?
 assert_eq "pre-compact: garbage stdin -> rc 0, no output (N1-404)" "0|" "$RC|$OUT"
 

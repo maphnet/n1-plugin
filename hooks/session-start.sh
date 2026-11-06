@@ -110,6 +110,7 @@ source "${SCRIPT_DIR}/../lib/telemetry.sh"
 n1_memory_dir=$(n1_home)
 if [ "${TRIGGER:-}" = startup ] && [ -n "$n1_memory_dir" ]; then
     n1_merge_pending "${n1_memory_dir}/memory" 2>/dev/null || true
+    find "$n1_memory_dir" -maxdepth 1 -type f -name 'queue-plan.*.json' -mtime +2 -delete 2>/dev/null || true   # N1-440: plans abandoned mid-way
 fi
 
 # N1-342: stuck-detector state of ended or stuck sessions; a live session deletes it on any success or edit.
@@ -208,6 +209,17 @@ ORCHESTRATOR STATE (orchestrator session only — restored after compaction; aut
 - Running containers (containers.tsv): ${ov_live:-none}
 - IMPORTANT: Orchestrator only — use these values, not anything from the compacted conversation summary; a dispatched subagent keeps following its own task. For values not listed here, re-read overview.md and read config keys via n1_*_val helpers, never cat config.json."
         fi
+    fi
+fi
+
+# N1-440: an n1-queue plan has no active-run pointer; re-inject its queue id and step (values validated by the helper).
+if [ "${TRIGGER:-}" = "compact" ] && [ -z "$AGENT_ID" ] && [ -n "$n1_memory_dir" ]; then
+    qp=$( source "${SCRIPT_DIR}/../lib/queue.sh" && n1_queue_plan_state read ) 2>/dev/null || qp=""
+    if [ -n "$qp" ]; then
+        IFS=$'\t' read -r qp_id qp_step qp_mode qp_src <<<"$qp"
+        N1_COMPACT_STATE="${N1_COMPACT_STATE}
+(Scope: orchestrator session only. A dispatched subagent ignores the QUEUE PLANNING STATE line below.)
+QUEUE PLANNING STATE (orchestrator only): queue id ${qp_id}, step ${qp_step}, mode ${qp_mode}, source ${qp_src:-none}, dir ${n1_memory_dir}/queue/${qp_id}. Continue this n1-queue plan under this id; do not run input.md item 5 again and do not infer a selector."
     fi
 fi
 

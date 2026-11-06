@@ -27,6 +27,12 @@ printf '%s\n' \
 
 # Concrete values only from this session's keyed n1-start pointer; the unkeyed fallback may belong to a crashed run.
 [ -n "$sid" ] && export N1_SESSION_ID="$sid"
+# N1-440: an n1-queue plan in progress (no active-run pointer while planning).
+qp=$( source "${SCRIPT_DIR}/../lib/queue.sh" && n1_queue_plan_state read ) 2>/dev/null || qp=""
+if [ -n "$qp" ]; then
+    IFS=$'\t' read -r qp_id qp_step _ <<<"$qp"
+    printf 'N1 queue planning: preserve verbatim queue id %s and step %s.\n' "$qp_id" "$qp_step"
+fi
 run=$(n1_active_run_file 2>/dev/null) && [ -f "$run" ] || exit 0
 case "$run" in */active-run.json) exit 0 ;; esac
 id=$(jq -r '.ticketId // empty' "$run" 2>/dev/null) || exit 0
