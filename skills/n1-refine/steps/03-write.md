@@ -3,7 +3,7 @@
 ## Step 1: Draft Block
 
 Build the block from the Step 2-5 results of `02-loop.md`. Plain bullets for both trackers (Jira strips checkbox brackets; see `agents/product-analyst.md` § Jira formatting rule). An empty section holds `- None`.
-Never restate a contradicted ticket claim as fact in Scope, Decisions or Acceptance Criteria; use the evidence-backed version, and keep the claim only as an Assumption (Continue) per `02-loop.md` Step 1.
+Never restate a contradicted ticket claim as fact in Scope, Decisions or Acceptance Criteria; use the evidence-backed version, and keep the claim only as an Assumption (Continue) per `02-loop.md` Step 1; an unverified claim is likewise recorded only as an Assumption per `02-loop.md` Step 1, never stated as fact.
 
 ```
 *Refined by N1*

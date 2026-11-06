@@ -7,13 +7,15 @@ source ~/.n1/preamble.sh
 n1_read_signal "$N1_HOME/memory/<ID>/refine/analysis.md" ticket_contradictions
 ```
 
+If the signal is empty or missing, count the `contradicted` lines in `### Ticket Validation` and use that count.
+
 Above 0: list the Contradicted claims from `### Ticket Validation`, then ask the user (same choice as `skills/n1-start/steps/analysis.md`):
 
 No recommendation. The options are equivalent given the available evidence; select based on team preference.
 1 — Continue: keep the ticket's direction; record each contradicted claim as an Assumption with its risk
 2 — Redirect: end refine without writing anything; edit the ticket, then re-run
 
-Every `unable to verify` line in `### Ticket Validation` (any count, no gate): show it to the user as `Unverified: <claim>` and record it as an Assumption whose If-wrong names the claim; no new prompt.
+Every `unable to verify` line (match case-insensitively) in `### Ticket Validation` (any count, no gate): show it to the user as `Unverified: <claim>` and record it as an Assumption whose If-wrong names the claim; no new prompt.
 
 ## Step 2: Answer From Code First
 

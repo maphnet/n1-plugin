@@ -245,5 +245,6 @@ line_has "N1-433: loop gate acts on Above 0 contradicted claims" 'Above 0' 'Cont
 line_has "N1-433: unverified claims become Assumptions, no new prompt" 'Unverified:' 'Assumption' "$L"
 line_has "N1-433: unverified claims add no prompt" 'Unverified:' 'no new prompt' "$L"
 has "N1-433: write never restates contradicted claims" 'Never restate a contradicted' "$W"
+has "N1-433: gate counts contradicted lines when signal missing" 'count the `contradicted` lines' "$L"
 
 exit $FAIL
