@@ -86,7 +86,7 @@ Record the printed sha256 as Desc Checksum (NP-203 SEC-3: a checksum that a head
 
 ### 2. Duplicates
 
-For each candidate whose Reason intake annotated with `possible duplicate:` or `related:`, follow `<N1_ROOT>/references/duplicate-check.md` § 4 Act with `CONTEXT=queue-plan`, `SELF_ID=<KEY>`, that candidate's `MATCHES` and `LINK_OP` from intake (no new search). Record Notes `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>`. On `exclude`, move the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)` and drop its `DECISIONS` row. `--unattended`: do not ask; take **Continue** for duplicate rows (the unattended default in duplicate-check.md).
+For each candidate whose Reason intake annotated with `possible duplicate:` or `related:`, follow `<N1_ROOT>/references/duplicate-check.md` § 4 Act with `CONTEXT=queue-plan`, `SELF_ID=<KEY>`, that candidate's `MATCHES` and `LINK_OP` from intake (no new search). Record Notes `dup:<HIT_IDs, comma-separated>:<DUP_CHOICE>`. On `exclude`, move the candidate to Excluded with reason `duplicate: <HIT_IDs> (plan)` and drop its `DECISIONS` row. On `close`, do the same with reason `duplicate: <HIT_IDs> closed (plan)`. `--unattended`: do not ask; take **Continue** for duplicate rows (the unattended default in duplicate-check.md), never Close.
 
 ### 3. Overlap order
 
