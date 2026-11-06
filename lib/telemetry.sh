@@ -144,10 +144,18 @@ n1_emit_rebind() {
 # overview `final_outcome`, else pr_created when overview has a `## Pending` section with pr:/pr_url:, else empty. Then merge.
 # The lock stays: Gate 3 and the chained n1-finish run after this, and the turn's
 # Stop hook sees the terminal envelope, re-merges them in (orchestrator.tail) and removes the lock (N1-229).
-# Unbound run (no/ambiguous) -> no-op. Always returns 0.
+# Unbound run (no/ambiguous) or no resolvable ticket (ID unset and no lock) -> no-op. Always returns 0.
 n1_close_run() {
     n1_bind_run_to_ticket
     [ -n "${N1_RUN_ID:-}" ] || return 0
+    # Caller's $ID may be unset (finalize snippet): derive the ticket from the bound run's lock (local, not leaked).
+    local ID="${ID:-}" lk
+    if [ -z "$ID" ] && _n1_valid_run_id "$N1_RUN_ID"; then
+        for lk in "${N1_HOME}"/memory/*/telemetry/locks/"$N1_RUN_ID".json; do
+            [ -f "$lk" ] && { ID="${lk%/telemetry/locks/*}"; ID="${ID##*/}"; break; }
+        done
+    fi
+    [ -n "$ID" ] || return 0
     type n1_read_frontmatter >/dev/null 2>&1 || source "${_N1_LIB_DIR}/frontmatter.sh"
     local tdir="${N1_HOME}/memory/$ID/telemetry" ov="$N1_HOME/memory/$ID/overview.md" t tr o
     t=$(n1_read_frontmatter "$ov" "type" 2>/dev/null || true)

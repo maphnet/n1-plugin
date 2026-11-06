@@ -179,6 +179,19 @@ L=$(grep envelope_close "$N1_HOME/memory/CL-E/telemetry/raw/steps/$CE.jsonl" | t
 if ! jq -e '.layer == "envelope_close"' <<< "$L" >/dev/null 2>&1; then echo "FAIL: n1_close_run escapes overview values in envelope_close (invalid JSON: $L)" >&2; exit 1; fi
 echo 'PASS: n1_close_run escapes overview values in envelope_close'
 
+# N1-479: close with ID unset derives the ticket from the bound run's lock; unresolvable run writes nothing
+ID=CL-F; n1_run_begin "$ID"; CF="$N1_RUN_ID"
+unset ID
+FINAL_OUTCOME=pr_created ESTIMATED_TIER=simple n1_close_run
+test -s "$N1_HOME/memory/CL-F/telemetry/runs/$CF.jsonl"
+grep -q '"layer":"envelope_close"' "$N1_HOME/memory/CL-F/telemetry/raw/steps/$CF.jsonl"
+test -z "${ID:-}"   # derived ticket does not leak to the caller
+test ! -e "$N1_HOME/memory/telemetry" && test ! -e "$N1_HOME/memory//telemetry"
+N1_RUN_ID=n1-run-nolock-0001 FINAL_OUTCOME=pr_created n1_close_run
+test ! -e "$N1_HOME/memory/telemetry"
+test -z "$(find "$N1_HOME/memory" -path '*nolock*' 2>/dev/null)"
+echo 'PASS: n1_close_run with ID unset derives the ticket from the run lock, no-op when unresolvable'
+
 # n1_step_begin with no bound run says so on stderr instead of dropping silently (N1-229)
 ERR=$(bash -c "source '$ROOT/lib/preamble.sh' >/dev/null 2>&1; unset N1_RUN_ID; ID=NP-NONE; n1_step_begin ticket 1" 2>&1 >/dev/null)
 case "$ERR" in *"no run bound for NP-NONE"*) ;; *) echo "missing step-begin diagnostic: $ERR" >&2; exit 1 ;; esac
