@@ -2594,6 +2594,39 @@ test_final_pr_wiring() {
         "$(grep -qF 'waits for a human (<reason>)' "$r" && grep -qF 'Final PR merge: by the runner' "$r" && echo yes || echo no)"
 }
 
+# N1-447: ## Predecessor writer/reader fail closed like ## Final PRs; forged rows are dropped; the final PR body names
+# a predecessor that has not been rebased yet.
+test_pred_table() {
+    local tmp q P=queue/p1-20261105T000000Z I=p1-20261105T000000Z U=https://github.com/o/r/pull/5 S A
+    tmp=$(mktemp -d); q="$tmp/q.md"
+    S=$(printf '%040d' 0 | tr 0 a); A=$(printf '%040d' 0 | tr 0 b)
+    mk_held_plan "$q" pending
+    assert_eq "pred-set: new section -> 0" 0 "$(n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" waiting; echo $?)"
+    assert_eq "pred-set: inserted before ## Runs" yes \
+        "$([ "$(line_of "$q" '## Predecessor')" -lt "$(line_of "$q" '## Runs')" ] && echo yes || echo no)"
+    assert_eq "preds: row" "$(printf '/r\t%s\t%s\t%s\t%s\t%s\twaiting' "$I" "$P" "$U" "$S" "$S")" "$(n1_queue_preds "$q")"
+    n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$A" rebased
+    assert_eq "pred-set: upsert keeps one row" "$A rebased" "$(n1_queue_preds "$q" | awk -F'\t' '{ print $6, $7 }')"
+    assert_eq "pred-set: branch != queue/<Queue> refused" 1 "$(n1_queue_pred_set "$q" /r "$I" queue/other "$U" "$S" "$S" waiting; echo $?)"
+    assert_eq "pred-set: short sha refused" 1 "$(n1_queue_pred_set "$q" /r "$I" "$P" "$U" abc "$S" waiting; echo $?)"
+    assert_eq "pred-set: unknown status refused" 1 "$(n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" done; echo $?)"
+    assert_eq "pred-set: non-GitHub PR refused" 1 "$(n1_queue_pred_set "$q" /r "$I" "$P" https://x/pull/5 "$S" "$S" waiting; echo $?)"
+    assert_eq "pred-set: id with a dash first refused" 1 "$(n1_queue_pred_set "$q" /r -x queue/-x "$U" "$S" "$S" waiting; echo $?)"
+    # queue.md is child-writable: a row whose Branch is not queue/<Queue> is never printed.
+    sed -i "/^| \/r | $I /a | /r2 | x | queue/y | $U | $S | $S | waiting |" "$q"
+    assert_eq "preds: forged row dropped" 1 "$(n1_queue_preds "$q" | wc -l | tr -d ' ')"
+    n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" waiting
+    n1_queue_final_body "$q" /r q-1 "$tmp/b.md" queue >/dev/null
+    assert_eq "final-body: names a waiting predecessor" 1 "$(grep -cF "cut from $P ($U)" "$tmp/b.md")"
+    n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" rebased
+    n1_queue_final_body "$q" /r q-1 "$tmp/b.md" queue >/dev/null
+    assert_eq "final-body: no predecessor line once rebased" 0 "$(grep -c '^Predecessor:' "$tmp/b.md" || true)"
+    echo '## Predecessor' >> "$q"
+    assert_eq "pred-set: duplicate heading -> 1" 1 "$(n1_queue_pred_set "$q" /r "$I" "$P" "$U" "$S" "$S" waiting; echo $?)"
+    assert_eq "preds: duplicate heading -> nothing" "" "$(n1_queue_preds "$q")"
+    rm -rf "$tmp"
+}
+
 # N1-446: every integration-branch gate in the runner keys on a non-empty RUN_MODE; none is story-only any more
 # (story_env, branch block, Orca CR-2 record, Orca MERGE wait, Orca resume re-evaluation, final_prs tail).
 test_queue_integration_wiring() {
@@ -2624,6 +2657,7 @@ test_final_body
 test_final_cmd
 test_final_gh_readers
 test_final_pr_wiring
+test_pred_table
 test_queue_integration_wiring
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"

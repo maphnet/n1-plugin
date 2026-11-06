@@ -237,7 +237,7 @@ n1_queue_final_body() {
     # body for <repo>'s Plan rows and prints "<landed> <not-landed>". Landed = Runs Outcome merged; Not landed = every
     # other row, with Status and Reason. queue.md is child-writable: Ticket, Status and Reason are sanitized and bounded,
     # a PR cell that is not a GitHub PR URL prints as "-". N1-446: kind queue words the PR for a list/tag queue (no ticket to close).
-    local q="$1" repo="$2" id="$3" out="$4" kind="${5:-story}" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state head finish
+    local q="$1" repo="$2" id="$3" out="$4" kind="${5:-story}" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state head finish pred
     case "$kind" in
         story) head=Story; finish="After the merge, /n1:n1-finish $id closes the story and deletes the local story branch" ;;
         queue) head=Queue; finish="After the merge, run /n1:n1-finish with this PR number; it closes no ticket and deletes the local queue branch" ;;
@@ -263,6 +263,10 @@ n1_queue_final_body() {
     else state="Ready for review: All $nl children landed."; fi
     printf '## %s %s: final PR\n\nOpened by the N1 queue runner from %s/%s (N1-293). Not Codex-reviewed; the per-branch convention commit is unreviewed, so review the whole diff.\n\n### Landed\n%s\n### Not landed\n%s\n%s\n\nMerge: a human reviews and merges this PR, unless autonomy.fullAuto and finishWork.mergeOnFinish are both on and the queue runner merge gates pass (ready, mergeable, Codex review, checks; N1-424). %s; the remote branch follows the repository delete-branch setting.\n' \
         "$head" "$id" "$kind" "$id" "$landed" "$rest" "$state" "$finish" > "$out" || return 1
+    # N1-447: a queue branch cut from a predecessor queue branch names it until the chain rebased it (cells are validated
+    # by n1_queue_preds).
+    pred=$(n1_queue_preds "$q" | awk -F'\t' -v r="$repo" '$1 == r && $7 != "rebased" { print $3 " (" $4 ")"; exit }')
+    [ -z "$pred" ] || printf '\nPredecessor: this queue branch was cut from %s and stays a draft until that PR merges; then the N1 queue runner rebases it onto the default branch (N1-447).\n' "$pred" >> "$out" || return 1
     echo "$nl $nr"
 }
 
@@ -795,6 +799,55 @@ n1_queue_final_prs() {
             for (i = 2; i <= 6; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
             if ($2 != "Repo" && ($2 in ok) && ($3 == "-" || ($3 ~ /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/ && (ENVIRON["chk"] == "" || ($3 in ev)))))
                 printf "%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6
+        }' "$1"
+}
+
+n1_queue_pred_set() {
+    # Usage: n1_queue_pred_set <queue.md> <repo> <queue> <branch> <pr> <base> <head> <status>
+    # N1-447: upserts <repo>'s row in "## Predecessor" ("| Repo | Queue | Branch | PR | Base | Head | Status |"): the
+    # predecessor queue branch this queue branch was cut from. Base is the predecessor tip at the cut (the --onto
+    # upstream, never changed), Head the predecessor PR head expected at its merge. Inserted before ## Runs like
+    # n1_queue_final_pr_set. Fails closed (returns 1, file untouched) on a Queue outside the id grammar, a Branch other
+    # than queue/<Queue>, a PR that is not a GitHub PR URL, a Base or Head that is not 40-hex, a Status other than
+    # waiting|rebased|stopped, more than one "## Predecessor" heading, or no "## Runs" line.
+    local file="$1" n tmp repo row
+    [ -f "$file" ] || return 1
+    case "$3" in ''|-*|*[!A-Za-z0-9._-]*) return 1 ;; esac
+    [ "$4" = "queue/$3" ] || return 1
+    [[ "$5" =~ ^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[0-9]+$ ]] || return 1
+    [[ "$6" =~ ^[0-9a-f]{40}$ ]] && [[ "$7" =~ ^[0-9a-f]{40}$ ]] || return 1
+    case "$8" in waiting|rebased|stopped) ;; *) return 1 ;; esac
+    n=$(grep -c '^## Predecessor$' "$file" || true)
+    { [ "$n" -le 1 ] && grep -q '^## Runs$' "$file"; } || return 1
+    repo=$(_n1_queue_sanitize_cell "$2")
+    row="| $repo | $3 | $4 | $5 | $6 | $7 | $8 |"
+    tmp=$(mktemp "${file}.XXXXXX") || return 1
+    has="$n" repo="$repo" row="$row" awk '
+        BEGIN { FS = "|"; r = ENVIRON["repo"]; row = ENVIRON["row"] }
+        ENVIRON["has"] == 0 && /^## Runs$/ {
+            print "## Predecessor"; print "| Repo | Queue | Branch | PR | Base | Head | Status |"; print "|------|-------|--------|----|------|------|--------|"; print row; print ""
+        }
+        /^## Predecessor$/ { f = 1; print; next }
+        f && /^## / { f = 0 }
+        f && /^\|[[:space:]]*:?-/ { print; print row; next }
+        f && NF >= 9 { c = $2; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c); if (c == r) next }
+        { print }' "$file" > "$tmp" && mv "$tmp" "$file" || { rm -f "$tmp"; false; }
+}
+
+n1_queue_preds() {
+    # Usage: n1_queue_preds <queue.md> — N1-447: "## Predecessor" rows as
+    # "<repo>\t<queue>\t<branch>\t<pr>\t<base>\t<head>\t<status>". Nothing unless there is exactly one heading (the
+    # writer's fail-closed rule); a row with any cell the writer would refuse is dropped (children can write the file).
+    [ -f "$1" ] || return 0
+    [ "$(grep -c '^## Predecessor$' "$1" || true)" = 1 ] || return 0
+    awk -F'|' '/^## Predecessor$/ { f = 1; next } /^## / { f = 0 }
+        f && NF >= 9 && !/^\|[[:space:]]*:?-/ {
+            for (i = 2; i <= 8; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
+            if ($3 ~ /^[A-Za-z0-9._][A-Za-z0-9._-]*$/ && $4 == "queue/" $3 \
+                && $5 ~ /^https:\/\/github\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/[0-9]+$/ \
+                && $6 ~ /^[0-9a-f]+$/ && length($6) == 40 && $7 ~ /^[0-9a-f]+$/ && length($7) == 40 \
+                && $8 ~ /^(waiting|rebased|stopped)$/)
+                printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", $2, $3, $4, $5, $6, $7, $8
         }' "$1"
 }
 
