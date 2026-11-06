@@ -84,10 +84,13 @@ ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
 # Redirection + operand (>f, > f, 2>f, >>f, <f, &>f, 2>&1, >|f) so the next word keeps command
 # position; (?<!...) anchors fd digits to a run start (linear); >( <( $( stay for SUBST.
 REDIR_RE = re.compile(r"(?<![\d&])(?:\d*|&)(?:>>?|<)(?!\()\|?[ \t]*&?(?:[^\s;&|()<>`$]|\$(?!\())*")
+_SH = r"(?:ba|da|z)?sh(?:\s+-[\w-]+)*"
+SINK_RE = re.compile(r"\|\s*(?:\S*/)?" + _SH + r"\s*(?:$|[;&|\n)`])|\b" + _SH + r"\s*<<<|(?:\bsource|(?<!\S)\.|\b(?:ba|da|z)?sh)\s+<\("
+                     r"|\beval\b[^;&|\n]*(?:\$\(|`)")
 DURATION_RE = re.compile(r"[0-9.]+[smhd]?$")
 REVIEWERS = {"code-reviewer", "security-reviewer"}
 PROGRAMS = {"gh", "git", "curl", "wget"}
-WRAPPERS = {"env", "command", "exec", "sudo", "doas", "time", "nohup", "xargs", "timeout", "sh", "bash",
+WRAPPERS = {"env", "eval", "command", "exec", "sudo", "doas", "time", "nohup", "xargs", "timeout", "sh", "bash",
             "nice", "ionice", "stdbuf", "setsid", "chroot",
             "{", "!", "if", "then", "else", "elif", "do", "while", "until"}
 # Wrapper options whose value is the next token (`env -u FOO git`). Exact per wrapper: a skipped real
@@ -371,8 +374,11 @@ def _is_merge(tokens, api_hit, default, cwd, push_ok=False):
     return bool(branch) and branch.lower() == default.lower()
 
 
-def _commands(command):
-    """Token lists, one per gh/git/curl/wget in command position (outer + latest nested; linear, SEC-22)."""
+def _commands(command, programs=PROGRAMS):
+    """Token lists, one per `programs` word in command position (outer + latest nested; linear, SEC-22)."""
+    if SINK_RE.search(command):
+        # N1-474 SEC-2: text handed to another interpreter (| bash, bash <<<, source <(..), eval $(..)) is code: every word is a command
+        command = re.sub(r"[ \t]+", f" {SUBST} ", command.replace("<<<", f" {SUBST} "))
     command = REDIR_RE.sub(" ", command)
     command = re.sub(r"[$<>]\(|`", f" {SUBST} ", command)
     command = re.sub(r"[$@]\{|[()<>]", " ", command)
@@ -398,10 +404,10 @@ def _commands(command):
                         skip -= 1  # operand of a wrapper value flag; the command still follows
                     else:
                         lead -= 1  # chroot NEWROOT (`+r` included: only `-` starts an option)
-                    start = name if name in PROGRAMS and shadow is None else None
+                    start = name if name in programs and shadow is None else None
                 elif lead and tok == "--":
                     skip, lead = 1, lead - 1  # after `--` the next word is NEWROOT whatever its prefix
-                elif name in PROGRAMS:
+                elif name in programs:
                     # GIT_CONFIG_* assignments before git become -c pairs so _config_push sees them (SEC-1)
                     head = [name] + [x for e in envs for x in ("-c", e)] * (name == "git")
                     if outer is None:
@@ -502,22 +508,41 @@ def sentinel_deny(payload: dict) -> int:
     return 0
 
 
-# N1-474: command position (statement start, after ; & | newline ( ` { ! or $(, past shell keywords, VAR= assignments and the
-# wrappers below with their options and option values; same vocabulary as WRAPPERS), so paths and commit text that mention a
-# denied name are allowed. Best effort: a later line of a multi-line commit message that starts with an n1_* name still matches
-# (fails toward deny).
-_ASSIGN = r"""(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S*)\s+)*"""
-CMD_POS = (r"(?:^|[;&|\n(`{!]|\$\()\s*(?:(?:if|then|else|elif|do|while|until)\s+)*" + _ASSIGN
-           + r"(?:(?:env|command|exec|sudo|doas|nohup|time|xargs|nice|ionice|stdbuf|setsid|timeout\s+\S+|(?:ba)?sh\s+-\w*c)\s+"
-           + r"(?:-\S+\s+(?:[^\s;&|\-]\S*\s+)?)*" + _ASSIGN + r")*")
-# N1-435 SEC-1: pr-worker keeps feature push, gh pr create and gh pr comment; everything else orchestrator-owned is denied.
-# Merges and default-branch pushes are denied by the generic command-position gate in merge_deny (N1-474: no text alternative);
-# --confirmed only as an n1_review_pin argument; skill names (n1-release, n1-clean) are not Bash commands (SEC-5).
-PR_WORKER_DENY_RE = re.compile(
-    CMD_POS + r"(?:n1_(?:active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized"
-    r"|orca_rm|step_begin|step_end)\b|n1_orca(?:_rm|_handoff)?\b|n1_review_pin\b[^;&|\n]*\s--confirmed\b)"
-    r"|" + CMD_POS + r"git\s+(?:-C\s+\S+\s+)?(?:worktree\s+(?:rm|remove)|branch\s+(?:-\w*[dD]\w*|--delete))\b"
-    r"|\bORCA_CLI_COMMAND\b|" + CMD_POS + r"orca\b[^;&|\n]*\bworktree\s+(?:rm|remove)\b")
+# N1-474: persona denies are matched on command words, not text: _commands tokenizes (linear, no backtracking regex), so
+# paths and commit text that mention a denied name pass while wrappers (env, sudo, timeout with options, bash -c, eval,
+# xargs, ...), $( ) and pipes/here-strings/source into a shell are read like any command. Best effort: a later line of a
+# multi-line commit message that starts with a denied name still matches (fails toward deny).
+# N1-435 SEC-1: pr-worker keeps feature push, gh pr create and gh pr comment; merges and default-branch pushes are denied
+# by the generic gate in merge_deny; --confirmed only as an n1_review_pin argument.
+_PR_N1_DENIED = {"n1_active_run_clear", "n1_active_run_clear_if", "n1_finish_cleanup", "n1_clean_ticket", "n1_containers_teardown",
+                 "n1_merge_authorized", "n1_orca_rm", "n1_step_begin", "n1_step_end", "n1_orca", "n1_orca_handoff"}
+_POINTER_MUTATORS = {"rm", "mv", "unlink", "truncate", "ln", "shred", "cp", "tee", "dd", "install", "rsync"}
+WORKER_PROGRAMS = frozenset(_PR_N1_DENIED | _POINTER_MUTATORS | {"n1_review_pin", "git", "orca", "claude", "sed", "find"})
+_WORKTREE_RM_RE = re.compile(r"git\s+(?:(?:-[cC]\s+\S+|--[\w-]+=\S+)\s+)*(?:worktree\s+(?:rm|remove)|branch\s+(?:-\w*[dD]\w*|--delete))\b")
+_POINTER_REDIR_RE = re.compile(r">\s*[^\s;&|]*active-run")
+
+
+def _worker_deny(cmd: str, pr: bool) -> bool:
+    """pr-worker/tech-writer (pr) and tail-worker: run-pointer tamper (SEC-3: it would ungate a tech-writer child);
+    pr also: cleanup/step-marker/--confirmed/workspace-removal/nested n1-clean|n1-release session commands."""
+    cmd = cmd.replace("\\\n", " ")
+    # third view: whitespace and separators inside quotes masked, so `FOO="a b" n1_step_end` keeps one assignment word
+    masked = re.sub(r"\"[^\"]*\"|'[^']*'", lambda m: re.sub(r"[\s;&|()<>`$]", "\x01", m.group()), cmd)
+    for text in (cmd, re.sub(r"[\"'\\]", "", cmd), masked):
+        if _POINTER_REDIR_RE.search(text) or (pr and "ORCA_CLI_COMMAND" in text):
+            return True
+        for c in _commands(text, WORKER_PROGRAMS):
+            j = " ".join(c)
+            if "active-run" in j and (c[0] in _POINTER_MUTATORS or (c[0] == "sed" and re.search(r"\s-\w*i", j))
+                                      or (c[0] == "find" and re.search(r"\s-(?:delete|exec)\b", j))):
+                return True
+            if not pr:
+                continue
+            if (c[0] in _PR_N1_DENIED or (c[0] == "n1_review_pin" and re.search(r"\s--confirmed\b", j))
+                    or _WORKTREE_RM_RE.match(j) or (c[0] == "orca" and re.search(r"\bworktree\s+(?:rm|remove)\b", j))
+                    or (c[0] == "claude" and re.search(r"\bn1-(?:clean|release)\b", j))):
+                return True
+    return False
 
 
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
@@ -528,13 +553,13 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     gated_worker = tail_persona in ("pr-worker", "tail-worker", "post-deploy-verifier")
     if tail:
         cmd = _command(payload) or ""
-        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
+        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)) or _worker_deny(cmd, False):
             sys.stderr.write(f"N1: {tail_persona} may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
     elif persona_of(agent_type) in ("pr-worker", "tech-writer"):
         cmd = _command(payload) or ""
-        if PR_WORKER_DENY_RE.search(cmd) or PR_WORKER_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
-            sys.stderr.write("N1: pr-worker/tech-writer may not run cleanup/run-pointer/step-marker/review-pin --confirmed/workspace-removal commands; the orchestrator owns them\n")
+        if _worker_deny(cmd, True):
+            sys.stderr.write("N1: pr-worker/tech-writer may not run cleanup/run-pointer/step-marker/review-pin --confirmed/workspace-removal/n1-clean|n1-release commands; the orchestrator owns them\n")
             return 2
     elif not agent_type and merge_authorized(config):
         return 0  # main session only: no subagent merges (n1-finish merges inline)

@@ -46,6 +46,7 @@ done
 polx() { local rc=0; jq -cn --arg a "$1" --arg t "$2" --arg c "$3" --arg w "$WT" \
     '{tool_name:$t,session_id:"s-pr",cwd:$w,tool_input:(if $t=="Bash" then {command:$c} else {subagent_type:$c} end)} + (if $a=="" then {} else {agent_type:$a} end)' \
     | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" ${N1H:+N1_HEADLESS=$N1H} ${NH:+N1_HOME=$NH} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+MRG="gh pr"" merge 7"
 NH="$T/nh"; mkdir -p "$NH"; echo '{"ticketId":"N1-1"}' > "$NH/active-run.s-pr.json"
 for N1H in "" 1; do
     for tool in Agent Task; do
@@ -89,11 +90,31 @@ for N1H in "" 1; do
     eq "cr3[headless=$N1H]: tech-writer sudo option value step end denied" 2 "$(polx n1:tech-writer Bash 'sudo -u root n1_step_end pr 1 success')"
     eq "cr3[headless=$N1H]: tech-writer quoted-assignment step end denied" 2 "$(polx n1:tech-writer Bash 'FOO="a b" n1_step_end pr 1 success')"
     eq "cr3[headless=$N1H]: tech-writer grep of n1_step_end allowed" 0 "$(polx n1:tech-writer Bash 'sudo -u root grep n1_step_end README.md')"
+    # fix cycle 1: ReDoS, interpreter hand-offs, nested skill sessions, wrapper options, run-pointer tamper
+    DOT=$(printf 'A="1" %.0s' $(seq 40)); SUDO=$(printf 'sudo -u env %.0s' $(seq 40))
+    eq "fc1[headless=$N1H]: 40 quoted assignments then step end denied fast" 2 "$(timeout 10 bash -c "$(declare -f polx pol); WT='$WT' REPO='$REPO' T='$T' N1H='$N1H' NH='$NH' CFG=; polx n1:tech-writer Bash '${DOT}n1_step_end pr 1 success'")"
+    eq "fc1[headless=$N1H]: 40 quoted assignments then echo allowed fast" 0 "$(timeout 10 bash -c "$(declare -f polx pol); WT='$WT' REPO='$REPO' T='$T' N1H='$N1H' NH='$NH' CFG=; polx n1:tech-writer Bash '${DOT}echo ok'")"
+    eq "fc1[headless=$N1H]: 40 sudo -u env wrappers allowed fast" 0 "$(timeout 10 bash -c "$(declare -f polx pol); WT='$WT' REPO='$REPO' T='$T' N1H='$N1H' NH='$NH' CFG=; polx n1:tech-writer Bash '${SUDO}echo ok'")"
+    for c in 'eval n1_step_end pr 1 success' 'echo n1_active_run_clear | bash' "bash <<< 'n1_step_end pr 1'" 'source <(echo n1_step_end pr 1)' \
+        "bash -e -c 'n1_active_run_clear'" 'timeout -k 5 60 git worktree remove y' 'timeout --foreground 5 git branch -D x' '/usr/bin/git branch -D x' \
+        $'n1_review_pin set 7 \\\n--confirmed' "claude --bg '/n1:n1-clean --ticket T-1'" "claude -p '/n1:n1-release'" 'sudo -u env -u env n1_step_end pr 1' \
+        "eval $MRG" "echo '$MRG' | bash" "bash <<< '$MRG'" "source <(echo $MRG)" "timeout -s KILL 5 $MRG"; do
+        eq "fc1[headless=$N1H]: pr-worker denies: $c" 2 "$(polx n1:pr-worker Bash "$c")"
+    done
+    eq "fc1[headless=$N1H]: tech-writer commit text with parens allowed" 0 "$(polx n1:tech-writer Bash 'git commit -m "docs: rename (n1_step_end)"')"
+    eq "fc1[headless=$N1H]: tech-writer claude without n1-clean allowed" 0 "$(polx n1:tech-writer Bash 'git add skills/n1-clean/SKILL.md')"
+    for w in n1:pr-worker n1:tail-worker n1:tech-writer; do
+        for c in 'rm ~/.n1/x/active-run.s-pr.json' 'rm -f ~/.n1/*/active-run.*.json' 'mv ~/.n1/x/active-run.s-pr.json /tmp/z' 'truncate -s0 ~/.n1/x/active-run.s-pr.json' \
+            'echo {} > ~/.n1/x/active-run.s-pr.json' 'ln -sf /tmp/z ~/.n1/x/active-run.s-pr.json' 'cp /dev/null ~/.n1/x/active-run.s-pr.json' \
+            'find ~/.n1 -name active-run.s-pr.json -delete' "rm ~/.n1/x/active''-run.s-pr.json" 'sed -i s/a/b/ ~/.n1/x/active-run.s-pr.json'; do
+            eq "fc1[headless=$N1H]: $w denies pointer tamper: $c" 2 "$(polx $w Bash "$c")"
+        done
+    done
+    eq "fc1[headless=$N1H]: pointer read allowed" 0 "$(polx n1:pr-worker Bash 'cat ~/.n1/x/active-run.s-pr.json')"
     eq "authorized[headless=$N1H]: main session gh pr merge allowed" 0 "$(polx '' Bash 'gh pr merge 7')"
 done
 CFG=; N1H=; NH=
 # N1-474 CR-2: outside a run (no keyed pointer, no config) only pr-worker and tail-worker stay merge-gated when attended
-MRG="gh pr"" merge 7"
 for a in general-purpose n1:developer n1:tech-writer; do
     eq "no run, attended: $a merge allowed" 0 "$(polx $a Bash "$MRG")"
     eq "no run, attended: $a default push allowed" 0 "$(polx $a Bash 'git push origin HEAD:main')"
