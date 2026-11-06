@@ -1466,6 +1466,21 @@ n1_queue_runner_alive() {
     return 1
 }
 
+n1_queue_launch_pid() {
+    # Usage: n1_queue_launch_pid <queue.md> [tries=10] — N1-478: print the pid the runner wrote to <queue.md> frontmatter
+    # (its own $$, written before `step: run`) once n1_queue_runner_alive confirms it. Polls once a second, <tries> times.
+    # $! after `setsid ... &` is the exited setsid parent when setsid forks (the job leads its process group under job
+    # control), so the launcher must not report it. Prints nothing and returns 1 on timeout.
+    local q="$1" n="${2:-10}" i pid
+    case "$n" in ''|*[!0-9]*) n=10 ;; esac
+    for ((i = 0; i < n; i++)); do
+        pid=$(n1_read_frontmatter "$q" pid 2>/dev/null)
+        n1_queue_runner_alive "$pid" "$q" && { printf '%s\n' "$pid"; return 0; }
+        sleep 1
+    done
+    return 1
+}
+
 n1_queue_interrupted() {
     # Usage: n1_queue_interrupted <queue.md> — N1-183: exit 0 when the run says step: run but its
     # runner is gone (killed with the launching session, crashed, or host restart).

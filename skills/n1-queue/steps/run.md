@@ -216,13 +216,14 @@ fi
 n1_write_frontmatter "$QUEUE_FILE" owner_session "$(n1_session_id)"
 n1_queue_plan_state clear || true   # N1-440: planning is over; the runner's events take over
 # N1-183: setsid gives the runner its own session, so ending or restarting the launching session does
-# not take it down ($! is still the runner pid). nohup where setsid is absent (macOS).
+# not take it down. nohup where setsid is absent (macOS).
+# N1-478: $! is not the runner pid (setsid forks under job control); read the pid the runner writes to queue.md.
 if command -v setsid >/dev/null 2>&1; then
     setsid bash "$N1_ROOT/scripts/n1-queue-run.sh" "$QUEUE_FILE" >> "$QUEUE_DIR/runner.log" 2>&1 < /dev/null &
 else
     nohup bash "$N1_ROOT/scripts/n1-queue-run.sh" "$QUEUE_FILE" >> "$QUEUE_DIR/runner.log" 2>&1 < /dev/null &
 fi
-RUNNER_PID=$!
+RUNNER_PID=$(n1_queue_launch_pid "$QUEUE_FILE") || { RUNNER_PID=unknown; echo "WARNING: the queue runner did not report its pid within 10 s; see $QUEUE_DIR/runner.log"; }
 echo "pid:$RUNNER_PID run_id:$RUN_ID notify:$(n1_queue_val notify)"
 n1_queue_notify_check
 ```
@@ -238,6 +239,8 @@ Final story PR (N1-293): when a story run ends with every row terminal, the runn
 **Queue chain (N1-447).** At a first start, a new queue branch is cut from an earlier queue's branch when the same repo has an earlier `integration: queue` queue under `$N1_HOME/queue` whose final PR is open. The most recent `queue/<id>-<UTC stamp>` is tried first. A predecessor that is still running, interrupted, merged or closed is skipped, and the branch is cut from the default branch as above. queue.md records the predecessor in `## Predecessor` (`| Repo | Queue | Branch | PR | Base | Head | Status |`, status `waiting|rebased|stopped`). While the row is not `rebased`, the final PR opens as a draft and its body names the predecessor. The runner never marks it ready or merges it, and the Final PRs Note reads `waits: predecessor <id> (<status>)`. After the predecessor PR merges, `scripts/n1-queue-chain.sh` runs `git rebase --onto origin/<default> <Base>` in a detached worktree under the queue dir and pushes with `--force-with-lease` pinned to the fetched tip. It also marks a draft final PR ready when every child landed. The script runs at the runner tail (every `--run <id>`) and from n1-finish on a queue final PR. The runner passes its own branch (`--own`); n1-finish passes the merged PR (`--pred`), so only rows waiting on it are touched. The script stops a row whose branch is not this queue's, whose Base is outside the predecessor PR, or whose repo path is not a git toplevel, and it waits while a child PR is still open against the branch. Git runs with hooks disabled. A predecessor merged on GitHub needs `/n1:n1-queue --run <id>`. These cases push nothing and set the row to `stopped`, with a Note and a needs-you notice: the predecessor closed unmerged, the predecessor merged with a head other than the recorded one (it gained commits after the cut), or the rebase conflicts. A refused push leaves the row `waiting`, and the next trigger retries it. A push that went through but was not fully recorded is resumed by the next trigger from a per-repo marker in the queue dir. Corrupt `## Predecessor` metadata keeps the final PR a draft (`waits: predecessor metadata invalid`).
 
 Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise).
+
+When the launch printed `pid:unknown`, skip the session watch below (it needs a numeric runner pid) and tell the user: "The runner did not report its pid yet; run `/n1:n1-queue --watch <QUEUE_ID>` to watch it (that reads the pid from queue.md)."
 
 **Session watch.** Stream the watch command's output lines to this session as they are printed (a live line feed, not a notice when the process exits), running exactly this (absolute queue dir, printed run id and pid; `0` = from the start of this run). When the host ends the stream at its deadline, start the identical command again: the per-session cursor gives no gap and no replay.
 With RESUME=1 omit the trailing 0, so this run's earlier events are not replayed.
