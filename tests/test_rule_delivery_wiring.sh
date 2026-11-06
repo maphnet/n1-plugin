@@ -37,7 +37,7 @@ check "self-check applies rule clauses literally to option lists" 'Option lists 
 PREP=skills/n1-pr/steps/01-prepare.md
 check "n1-pr renders rules for tech-writer" 'n1_rules_for_agent "tech-writer"' "$PREP"
 check "tech-writer Phase 1 spawn gets RULES_BLOCK" 'doc update mode, .RULES_BLOCK. \(verbatim' "$PREP"
-check "tech-writer Phase 2 spawn gets RULES_BLOCK" 'brainstorm_gate_skipped.*RULES_BLOCK. \(verbatim' "$PREP"
+check "tech-writer Phase 2 spawn gets RULES_BLOCK" 'description_quality: \$DQ.*RULES_BLOCK. \(verbatim' "$PREP"
 check "re-dispatch keeps RULES_BLOCK" 'same inputs \(including .RULES_BLOCK.\) plus .phase: 2.' "$PREP"
 check "tech-writer takes RULES_BLOCK input" 'Optional: .RULES_BLOCK. ' agents/tech-writer.md
 check "tech-writer maps rules to Before deploy rows" 'Project rules.*Before deploy' agents/tech-writer.md

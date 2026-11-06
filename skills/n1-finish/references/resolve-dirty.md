@@ -174,7 +174,7 @@ Run the 3.1 pre-merge block again and apply every line, with this run's resolve 
 
 ## § Re-pin
 
-Reached only from the 3.1 `pin:` empty line of an interactive run; queue and headless runs escalate there and never pin. It pins the PR's current head once so a PR opened before N1-141 can merge; an existing pin is never replaced (N1-142 covers a pin that differs from the head). This question is an unconditional gate: always ask the user, even when `autonomy.mode` is `hands-off`, and never auto-resolve it. Ask the user:
+Reached only from the 3.1 `pin:` empty line of an interactive run; queue and headless runs escalate there and never pin. It pins the PR's current head once so a PR opened before N1-141 can merge; an existing pin is never replaced (N1-142 covers a pin that differs from the head). This question is an unconditional gate: always ask the user and never auto-resolve it. Ask the user:
 
 ```
 PR #<n> has no reviewed-head pin, and N1 has no record of reviewing this head. Pinning <first 7 of head> treats it as reviewed, so N1 will merge it without a reviewer. Pin it?

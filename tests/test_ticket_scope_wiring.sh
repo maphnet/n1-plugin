@@ -35,7 +35,6 @@ for skill, collect, create in [('n1-story', '01-collect.md', '02-compose.md'),
     check(f'{skill} classifies captured scope', 'references/ticket-scope.md' in collection)
     check(f'{skill} rechecks scope before approval and writes',
           0 <= creation.find('references/ticket-scope.md') < creation.find('## Step 7: Approval Gate'))
-    check(f'{skill} rechecks edited previews', 'after every edit or removal' in creation)
     check(f'{skill} auto mode cannot preserve the wrong type',
           'auto-proceed with the story' not in collection
           and 'auto-proceed with a single ticket' not in collection)
@@ -48,7 +47,7 @@ check('n1-story subtasks keep the VERSION_MCP jc-mcp parent-link fallback',
 check('genuine Story still links YouTrack children', 'link type = `subtask of`' in story)
 check('Task route reuses standalone creation', 'skills/n1-ticket/steps/02-create.md' in scope)
 check('Story route reuses story collection', 'skills/n1-story/steps/01-collect.md' in scope)
-check('Task preview reports the actual type', '**Type:** <Task or Bug>' in Path('skills/n1-ticket/steps/02-create.md').read_text())
+check('Task gate reports the actual type', 'Show the resulting **Type: Task** (or **Bug**' in Path('skills/n1-ticket/steps/02-create.md').read_text())
 
 # N1-97: one shared rule for free-form creation sites and the Jira param shape.
 check('free-form creation section exists', '## Free-form creation' in scope)

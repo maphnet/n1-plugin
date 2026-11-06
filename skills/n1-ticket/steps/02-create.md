@@ -18,44 +18,21 @@ If `GET_PROJECT_FIELDS_OP` is non-empty:
 - If Bug type exists: use it when creating the issue
 - If Bug type does not exist: fall back to default issue type and add a note in the description: "**Note:** Bug type not available in project — created as default type."
 
-If `GET_PROJECT_FIELDS_OP` is empty: skip bug type querying. Use the type from Step 1 as-is and note in the approval gate: "Bug type availability could not be verified (getProjectFields operation not configured)."
+If `GET_PROJECT_FIELDS_OP` is empty: skip bug type querying. Use the type from Step 1 as-is and print this note with the Type in Step 7: "Bug type availability could not be verified (getProjectFields operation not configured)."
 
-The detected type is shown in the approval gate. The user can override it there.
+The detected type is shown in Step 7.
 
-**Pre-creation scope guard:** Follow `<N1_ROOT>/references/ticket-scope.md` before Step 7 and after every edit or removal. Only `SCOPE_TYPE=Task` may proceed to standalone creation. Story scope performs the Story handoff and ends this flow; unresolved scope returns to analysis/discovery. Apply this guard before auto-selecting **Create**, too.
+**Pre-creation scope guard:** Follow `<N1_ROOT>/references/ticket-scope.md` before Step 7. Only `SCOPE_TYPE=Task` may proceed to standalone creation. Story scope performs the Story handoff and ends this flow; unresolved scope returns to analysis/discovery. Apply this guard before auto-selecting **Create**, too.
 
 ## Step 7: Approval Gate
 
-**Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-select **Create** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
-`| n1-ticket | mechanical | C | [auto] | Ticket approval gate | Create ticket | Edit or Cancel | mechanicalPrompts=auto | --- |`
-If `MP` is `ask`: continue to the approval gate below. In either mode, show the resulting **Type: Task** (or **Bug** for a defect report) before creation.
-
-Present the ticket preview by asking the user (HOST ROUTING: ask the user):
-
-```
-## Ticket Preview
-
-**Title:** <title>
-**Type:** <Task or Bug>
-**Project:** <PROJECT_KEY>
-
-**Description:**
-<enriched description with technical context + web research>
-
-**Acceptance Criteria:**
-- [ ] criterion 1
-- [ ] criterion 2
-...
-```
-
-Options:
-1. **Create** — proceed with ticket creation
-2. **Edit** — user provides corrections inline; revise, rerun the scope guard, then present the resulting ticket preview (no loop limit)
-3. **Cancel** — abort without creating anything
+**Autonomy gate:** skip this prompt and auto-select **Create** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
+`| n1-ticket | mechanical | C | [auto] | Ticket approval gate | Create ticket | Edit or Cancel | auto | --- |`
+Show the resulting **Type: Task** (or **Bug** for a defect report) before creation.
 
 ## Step 7.5: Duplicate Check
 
-Follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = approved title + description, and `SELF_ID` / `OVERVIEW` empty. **Stop** → cancel without creating anything. Keep the returned `DUP_LINKS` for Step 8.
+Follow `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create`, `TEXT` = approved title + description, and `SELF_ID` / `OVERVIEW` empty. Keep the returned `DUP_LINKS` for Step 8.
 
 ## Step 8: Create Ticket
 

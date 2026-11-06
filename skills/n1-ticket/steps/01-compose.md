@@ -19,7 +19,7 @@ Present the summary to the user for confirmation: "Here's what I captured — do
 
 ## Step 2: Scope Routing
 
-Read `<N1_ROOT>/references/ticket-scope.md` and classify the confirmed summary. `SCOPE_TYPE=Story`: perform its Story handoff now and end this flow. `SCOPE_TYPE=Task`: continue with Step 3, retaining Bug detection for defect reports. Unresolved scope: continue through analysis/discovery, then reclassify before creation approval. This rule applies in both automatic and interactive modes.
+Read `<N1_ROOT>/references/ticket-scope.md` and classify the confirmed summary. `SCOPE_TYPE=Story`: perform its Story handoff now and end this flow. `SCOPE_TYPE=Task`: continue with Step 3, retaining Bug detection for defect reports. Unresolved scope: continue through analysis/discovery, then reclassify before creation approval.
 
 ## Step 3: Tracker Gate
 

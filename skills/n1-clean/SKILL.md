@@ -85,15 +85,14 @@ N1 Worktree Status:
   Active (in progress or open PR):
     - <ID> (branch: <branch>, step: <step>)
 
-Removable: <N> (stale + completed); Abandoned only by selection
+Removable: <N> (stale + completed); Abandoned listed only, never removed by n1-clean
 ```
 
 If nothing is Stale, Completed or Abandoned: "All worktrees are active. Nothing to clean up." **STOP.**
 
-**Autonomy gate:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: select option 1 without asking; auto mode never removes Abandoned worktrees. Write a Decision Ledger row to the relevant overview.md when one exists:
-`| n1-clean | mechanical | C | [auto] | Remove merged worktrees? | Remove Stale and Completed | Select or Cancel | mechanicalPrompts=auto | --- |`
-If `MP` is `ask`, read `<N1_ROOT>/skills/n1-clean/steps/03-confirm.md` and ask the user its prompt.
-**1:** Step 4 with Stale and Completed. **2:** show a numbered list, let the user pick. **3:** **STOP.**
+**Autonomy gate:** select option 1 without asking; this never removes Abandoned worktrees. Write a Decision Ledger row to the relevant overview.md when one exists:
+`| n1-clean | mechanical | C | [auto] | Remove merged worktrees? | Remove Stale and Completed | Select or Cancel | auto | --- |`
+Continue to Step 4 with Stale and Completed.
 
 ## Step 4: Remove Worktrees
 
@@ -103,8 +102,7 @@ If `MP` is `ask`, read `<N1_ROOT>/skills/n1-clean/steps/03-confirm.md` and ask t
    source ~/.n1/preamble.sh
    n1_clean_ticket "<ID>" general
    ```
-3. **Abandoned (user-selected only):** workspace-manager owned → `n1_orca_rm "<path>"`; otherwise `git worktree remove "<path>"`. A dirty or locked tree fails; report the error and keep it. The branch is kept.
-4. Final `git worktree prune`.
+3. Final `git worktree prune`.
 
 ## Step 5: Report
 
@@ -112,8 +110,7 @@ If `MP` is `ask`, read `<N1_ROOT>/skills/n1-clean/steps/03-confirm.md` and ask t
 Cleanup complete.
 
   - <ID>: <tokens, e.g. worktree:removed, branch:deleted | worktree:kept (dirty), branch:kept (checked out in <path>)>
-  - <ID>: removed (abandoned) | failed (<error>)
 
-Preserved: memory at $N1_HOME; branches of Abandoned worktrees
+Preserved: memory at $N1_HOME
 Active worktrees: <N>
 ```

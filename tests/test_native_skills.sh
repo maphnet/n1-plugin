@@ -132,7 +132,7 @@ if [ -n "$CRV" ] && [ -n "$VAL" ] && [ -n "$FIX" ] && [ "$CRV" -gt "$VAL" ] && [
 else
     echo "FAIL: codex-triage Validation does not resolve code-reviewer"; FAIL=1
 fi
-for pat in 'Critical, High, or Medium' 'CONFIRMED | INVALID' '<CONFIRMED_FINDINGS>' 'git diff --no-color --no-ext-diff "$BASE...HEAD"'; do
+for pat in 'CONFIRMED | INVALID' '<CONFIRMED_FINDINGS>' 'git diff --no-color --no-ext-diff "$BASE...HEAD"'; do
     if grep -qF -- "$pat" "$TRW" 2>/dev/null; then
         echo "PASS: codex-triage has '$pat'"
     else
@@ -247,10 +247,10 @@ else
 fi
 rm -rf "$SFT"
 
-if grep -q 'qualityEscalations' skills/n1-pr/steps/03-codex-review.md && grep -q 'auto-accept' skills/n1-pr/steps/03-codex-review.md && grep -q 'never end with an offer or question to fix Codex findings' skills/n1-pr/steps/03-codex-review.md && grep -q 'never close Gate 3 with an offer or question to fix Codex findings' skills/n1-start/procedures/output-gates.md; then
-    echo "PASS: 03-codex-review fixes all findings under auto-accept and never offers"
+if grep -qi 'never end with an offer or question to fix Codex findings' skills/n1-pr/steps/03-codex-review.md && grep -qi 'never close Gate 3 with an offer or question to fix Codex findings' skills/n1-start/procedures/output-gates.md; then
+    echo "PASS: 03-codex-review and Gate 3 never offer to fix Codex findings"
 else
-    echo "FAIL: 03-codex-review missing qualityEscalations auto-accept / no-offer rule"; FAIL=1
+    echo "FAIL: 03-codex-review or output-gates missing the no-offer rule"; FAIL=1
 fi
 
 # 9. N1-127: tech-writer writes the PR body to a file; 02 creates the PR from it

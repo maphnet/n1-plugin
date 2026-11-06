@@ -107,7 +107,7 @@ ovl() { # <counter> [ledger rows...] -> overview.md with frontmatter + Decision 
 ASKED='| fix | quality | A | [asked] | review fix cap reached | One more FAIL fix cycle | List under For Human Review | user chose 2 | codebase |'
 HL_ASKED='| fix | headless | A | [asked] | review fix cap reached | 2 | 1 | headless: ask-mode answer | --- |'
 PLAN='| fix | headless | A | [plan] | review fix cap reached | 2 | 1 | queue plan pre-decision: extend | --- |'
-AUTO_CAP='| fix | quality | A | [auto] | review fix cap reached | List under For Human Review | Prompt user | qualityEscalations=auto-accept | --- |'
+AUTO_CAP='| fix | quality | A | [auto] | review fix cap reached | List under For Human Review | Prompt user | auto-accept | --- |'
 AUTO_EXTRA='| fix | quality | A | [auto-decided] | review-fix-cap-extra | One more FAIL fix cycle | For Human Review | SEC-5 Medium open | --- |'
 OTHER='| review | quality | A | [asked] | review tier | FULL | NARROW | user chose | codebase |'
 cfg '{}'
@@ -139,16 +139,16 @@ ovl 3; eq "A14 cap 2, counter 3, no rows -> breach" "breach" "$(n1_review_fix_au
 cfg '{}'
 
 # ---- regression (N1-241): hands-off Exhausted with an open SEC finding ----
-cfg '{"autonomy":{"qualityEscalations":"auto-accept"}}'
+cfg '{}'
 ovl 2 "$AUTO_CAP" "$AUTO_EXTRA"
 eq "X1 N1-241 state (cycle 2, cap 1): gate reads exhausted" "exhausted" "$(n1_review_fix_gate "$OV")"
 eq "X2 N1-241 state: [auto]/[auto-decided] rows never authorize the extra cycle -> breach" "breach" "$(n1_review_fix_audit "$OV")"
 cfg '{}'
-eq "H1 auto-accept Exhausted branch excludes open SEC findings" "1" "$(grep -cE '^\*\*Exhausted\*\*.*`QE=auto-accept` and no open in-diff non-Low `\[SEC-N\]`' "$F")"
-eq "H2 open SEC routes to the ask under any QE, never an [auto] row" "1" "$(grep -cE '^\*\*Exhausted\*\*.*security-class finding needs this ask under any `QE`; never an `\[auto\]` row' "$F")"
+eq "H1 Exhausted branch excludes open SEC findings" "1" "$(grep -cE '^\*\*Exhausted\*\*.*skips the rest\. No open in-diff non-Low `\[SEC-N\]` or security-class finding' "$F")"
+eq "H2 open SEC always routes to the ask, never an [auto] row" "1" "$(grep -cE '^\*\*Exhausted\*\*.*security-class finding always needs this ask; never an `\[auto\]` row' "$F")"
 eq "H3a no (Recommended) on option 2 for SEC" "0" "$(grep -c 'Mark (Recommended) on 2' "$F")"
 eq "H3b N1-259 wins: no SEC no-recommendation override, option 1 always recommended" "0" "$(grep -cF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$F")"
-eq "H4 Exhausted runs § Grant first (every mode); the Headless Guard path still never auto-extends" "1" "$(grep -cE '^\*\*Exhausted\*\* \(FAIL\): `procedures/review-extra-round\.md § Grant` first; `granted` skips the rest\. `QE=auto-accept` and no open.*Headless Guard.*never auto-extend' "$F")"
+eq "H4 Exhausted runs § Grant first; the Headless Guard path still never auto-extends" "1" "$(grep -cE '^\*\*Exhausted\*\* \(FAIL\): `procedures/review-extra-round\.md § Grant` first; `granted` skips the rest\. No open.*Headless Guard.*never auto-extend' "$F")"
 eq "H5 rule: gate before every FAIL dispatch, no inline fixes, no extra developer" "1" "$(grep -cE '^\*\*Rule \(N1-260\):\*\* `n1_review_fix_gate` .*runs before every FAIL developer dispatch.*never fixes findings inline.*never dispatches a developer outside this step' "$F")"
 AUDIT_LN=$(awk '/^[[:space:]]*```/{b=!b; next} b && /n1_review_fix_audit/{print NR; exit}' "$F")
 eq "W7 fix.md runs the audit in a fence before the first developer spawn" "yes" "$([ -n "$AUDIT_LN" ] && [ -n "$SPAWN_LN" ] && [ "$AUDIT_LN" -lt "$SPAWN_LN" ] && echo yes || echo no)"
@@ -318,7 +318,7 @@ eq "XW7 the model never writes the [granted] row" "1" "$(grep -cF 'never write i
 eq "XW8 filter call over the orchestrator-written index file" "1" "$(grep -cF 'n1_fingerprint_filter_oos "$MEM/fingerprints.jsonl" "$CYCLE" "$MEM/fix-changed-files" "$MEM/review-prev.md" "$MEM/review-index.md" > "$MEM/review-oos.md"' "$XP")"
 eq "XW9 filter runs before fp-new.tsv, NON_CONVERGING and the verdict" "1" "$(grep -cF 'never enter `fp-new.tsv`, NON_CONVERGING or the verdict' "$XP")"
 eq "XW10 filtered lines are appended to For Human Review by a fixed command" "1" "$(grep -cF 'cat "$MEM/review-oos.md"; } >> "$MEM/review.md"' "$XP")"
-eq "XW11 Grant runs in every mode, headless and queue included" "1" "$(grep -cF 'in every mode, headless and queue included' "$XP")"
+eq "XW11 Grant runs before the ask, headless and queue included" "1" "$(grep -cF 'before the ask, headless and queue included' "$XP")"
 
 # ---- docs (N1-345) ----
 ARCH=references/architecture.md

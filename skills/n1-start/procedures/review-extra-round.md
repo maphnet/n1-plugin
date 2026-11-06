@@ -4,7 +4,7 @@ Read from `steps/fix.md` (**Exhausted**: § Grant) and `steps/review.md` (`INCRE
 
 ## Grant
 
-First thing in **Exhausted**, before the `QE=auto-accept` branch and before the ask, in every mode, headless and queue included. This check never asks.
+First thing in **Exhausted**, before the auto-accept branch and before the ask, headless and queue included. This check never asks.
 
 ```bash
 source ~/.n1/preamble.sh

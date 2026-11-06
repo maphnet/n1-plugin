@@ -20,8 +20,7 @@ check_absent() { # <label> <fixed-string> <file>
     if grep -qF -- "$2" "$3" 2>/dev/null; then echo "FAIL: $1"; FAIL=1; else echo "PASS: $1"; fi
 }
 
-check "review step exposes QE to the PASS branch" 'QE=\$\(n1_autonomy_val .qualityEscalations.\)' "$R"
-check "PASS + auto-accept records deferred soft findings" 'QE=auto-accept.*## Deferred Soft Findings' "$R"
+check "PASS records deferred soft findings" '^\*\*PASS\*\* \(hands-off soft policy, N1-116\).*## Deferred Soft Findings' "$R"
 check "route 1: PASS + (correctness) Medium routes to Step 8 SOFT-ONLY" 'title ends ` \(correctness\)` → Step 8 SOFT-ONLY' "$R"
 check "route 2: PASS + other Medium deferred, no developer" 'every other non-TQ Medium to `## Deferred Soft Findings` \(no developer' "$R"
 check "PASS without (correctness) Medium: no soft pass" 'no `\(correctness\)` Medium → no soft pass' "$R"
@@ -37,7 +36,7 @@ check "SOFT-ONLY scope is (correctness) Medium only" 'scope: non-TQ Medium title
 
 check "pipeline table names the soft pass" 'FIX \(if FAIL or soft pass\)' "$S"
 check "PR body lists deferred soft findings" '## Deferred Soft Findings.*## Review Notes' "$T"
-check "review FAIL: in-diff non-Low [SEC-N] scoped to auto-accept" 'with .QE=auto-accept. also any in-diff non-Low .\[SEC-N\].' "$R"
+check "review FAIL: in-diff non-Low [SEC-N]" 'above\); also any in-diff non-Low .\[SEC-N\].' "$R"
 check "fix FAIL spawn passes in-diff non-Low [SEC-N]" 'also every in-diff non-Low `\[SEC-N\]`' "$F"
 check "route 3: FAIL scope fixes every non-TQ Medium except pre-existing in the same pass" 'also every in-diff non-Low `\[SEC-N\]` and every non-TQ Medium except ` \(pre-existing\)`, fixed in this same pass' "$F"
 check "fix increment block labeled FAIL-only" 'FAIL-only \(the next two blocks; SOFT-ONLY skips' "$F"
@@ -58,12 +57,12 @@ check "review FAIL: pre-existing Critical/High [SEC-N] exempt under auto-accept"
 check_absent "SEC Low deferral no longer gated on fix cycle" 'Low `\[SEC-N\]` only when `review_fix_cycle>=1`' "$R"
 check "SEC Low deferred at every cycle incl. 0" '`\[SEC-N\]` Low too, at every cycle incl\. 0' "$R"
 check "pre-existing never listed as soft" 'Never list a ` \(pre-existing\)` finding not treated as in-diff \(filed above\); a downgraded one is an ordinary `\[SEC-N\]`' "$R"
-check "pre-existing handled before routing on PASS or FAIL" '^\*\*Pre-existing\*\* \(`QE=auto-accept`, PASS or FAIL, before routing\)' "$RP"
+check "pre-existing handled before routing on PASS or FAIL" '^\*\*Pre-existing\*\* \(PASS or FAIL, before routing\)' "$RP"
 check "pre-existing Medium/Low filed via followup-filing" 'Medium/Low: append to `## Follow-ups` per `<N1_ROOT>/references/followup-filing\.md` § Append \(source `review`\)' "$RP"
 check "pre-existing Critical/High escalates" 'Critical/High or any other or unparsed severity: § Autonomy Gate' "$RP"
 check "pre-existing prompt: no recommendation" 'No recommendation\. The options are equivalent given the available evidence; select based on team preference\. 1\. File as follow-up' "$RP"
 check "non-pre-existing hard findings still FAIL" 'Other Critical/High/`\[RULE-N\]` always FAIL' "$R"
-check "Exhausted gate: in-diff non-Low SEC blocks auto-resolve" 'no open in-diff non-Low `\[SEC-N\]` or security-class finding' "$F"
+check "Exhausted gate: in-diff non-Low SEC blocks auto-resolve" 'No open in-diff non-Low `\[SEC-N\]` or security-class finding' "$F"
 
 check "security-reviewer marks pre-existing findings" '^- \*\*Pre-existing marker:\*\*.*` \(pre-existing\)`' "$SR"
 check "security-reviewer Index title carries the marker" 'when the Pre-existing marker constraint applies, end `<title>` with ` \(pre-existing\)`; never otherwise' "$SR"

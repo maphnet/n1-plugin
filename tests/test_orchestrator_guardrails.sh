@@ -66,11 +66,6 @@ assert_contains "finalize: run check before active-run clear" \
     "skills/n1-start/procedures/finalize.md" \
     "n1_review_check_run >/dev/null"
 
-# Task 5 — brainstorm
-assert_contains "brainstorm: no source reads" \
-    "skills/n1-start/steps/brainstorm.md" \
-    "ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, \`cat\`, \`sed -n\`, or otherwise open project source files"
-
 # Task 6 — investigation / ad-hoc experiments
 assert_contains "investigation: experiments delegated" \
     "skills/n1-start/steps/investigation-deliverable.md" \

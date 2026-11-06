@@ -24,7 +24,7 @@ git worktree prune
 
 When setup command fails:
 
-Read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP=auto` AND this is the first attempt (no prior retry in overview.md `## Escalations`): append `worktree setup auto-retry attempted` to `## Escalations`, re-run step 4 once. If retry succeeds: continue. If retry fails (or `MP!=auto`): report stderr and ask:
+If this is the first attempt (no prior retry in overview.md `## Escalations`): append `worktree setup auto-retry attempted` to `## Escalations`, re-run step 4 once. If retry succeeds: continue. If retry fails: report stderr and ask:
 
 ```
 Worktree dependency setup failed. How should I proceed?

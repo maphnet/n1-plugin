@@ -1,22 +1,18 @@
 # Procedure: Autonomy Gate and Headless Guard
 
-Covers the qualityEscalations autonomy gate and the headless guard for non-interactive runs.
+Covers the quality autonomy gate and the headless guard for non-interactive runs.
 
-## Autonomy Gate (qualityEscalations)
+## Autonomy Gate
 
 When a quality step has findings that the user would normally be prompted about, check the autonomy policy first.
 
 **Parameters:** `{step}`, `{action}` (what auto-accept does, e.g. "accept remaining findings"), `{ledger_context}` (summary for the Decision Ledger row)
 
-```bash
-QE=$(n1_autonomy_val 'qualityEscalations')
-```
+**If the findings do NOT involve security, architecture, or public API changes:** take `{action}` silently. Append a Decision Ledger row to overview.md:
 
-**If `QE` is `auto-accept`** AND the findings do NOT involve security, architecture, or public API changes: take `{action}` silently. Append a Decision Ledger row to overview.md:
+`| {step} | quality | A | [auto] | {ledger_context} | {action} | Prompt user | auto-accept | --- |`
 
-`| {step} | quality | A | [auto] | {ledger_context} | {action} | Prompt user | qualityEscalations=auto-accept | --- |`
-
-**If `QE` is `block`** (default) or the findings involve security/architecture/public API: show the interactive prompt as defined by the step file.
+**If the findings involve security/architecture/public API:** show the interactive prompt as defined by the step file.
 
 **Headless:** under `N1_HEADLESS=1`, apply § Headless Guard below instead of prompting.
 
@@ -100,4 +96,4 @@ Then continue the run — do not escalate, do not end — unless the recommended
 
 A later `/n1:n1-start <ID>` in an interactive session resumes at the escalated step and asks the question normally (resume support reads `## Escalations`; on resume with `N1_HEADLESS` unset, reset `step` to the last completed step before continuing).
 
-Mechanical prompts covered by `autonomy.mechanicalPrompts=auto` and quality prompts covered by `qualityEscalations=auto-accept` are not escalations — they auto-resolve as usual.
+Mechanical prompts and quality prompts that § Autonomy Gate auto-accepts are not escalations — they auto-resolve as usual.

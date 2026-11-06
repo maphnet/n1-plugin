@@ -115,9 +115,7 @@ case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
 Default branch, paths to `implementation.md` (if available), git diff stat, doc config (`include`/`exclude`), doc update mode, `RULES_BLOCK` (verbatim; omit when empty).
 
 ### If `confirm` mode:
-**Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, skip the prompt — apply updates and append a Decision Ledger row per `skills/n1-start/ledger.md` (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass via `docUpdateMode: "autonomous"`.
-
-Otherwise present updates and ask: "Apply or skip? (apply/skip)"
+**Autonomy gate:** no prompt — apply updates and append a Decision Ledger row per `skills/n1-start/ledger.md` (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `auto`). Pipeline invocations already bypass via `docUpdateMode: "autonomous"`.
 
 ### If `autonomous` mode:
 Tech-writer applies and commits without prompting.
@@ -164,12 +162,9 @@ source "$N1_ROOT/lib/frontmatter.sh"
 source "$N1_ROOT/lib/config.sh"
 DQ=$(n1_read_frontmatter "$N1_HOME/memory/$ID/ticket.md" "description_quality" 2>/dev/null || echo "adequate")
 [ -z "$DQ" ] && DQ="adequate"
-BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
-BRAINSTORM_GATE_SKIPPED=false
-[ "${BRAINSTORM_MODE:-ask}" = "auto" ] && BRAINSTORM_GATE_SKIPPED=true
 ```
 
-Spawn tech-writer with: ticket ID, paths to `overview.md`/`review.md`/`qa.md`/`local-testing.md` (if exists)/`ticket.md` (if exists), git diff stat, Phase 1 doc update report, `description_quality: $DQ`, `brainstorm_gate_skipped: $BRAINSTORM_GATE_SKIPPED`, `body_file: <the pr:body-file= path>`, `RULES_BLOCK` (verbatim; omit when empty).
+Spawn tech-writer with: ticket ID, paths to `overview.md`/`review.md`/`qa.md`/`local-testing.md` (if exists)/`ticket.md` (if exists), git diff stat, Phase 1 doc update report, `description_quality: $DQ`, `body_file: <the pr:body-file= path>`, `RULES_BLOCK` (verbatim; omit when empty).
 
 It writes the body to `body_file` and the title to `<body_file>.title`, and returns the `### Title` plus one line `pr body written: <path>`.
 
@@ -184,6 +179,4 @@ case "$PR_BODY_FILE" in "$N1_HOME"/scratch/pr-body-*/*) echo "PR body path inval
 
 `pr:body missing` after tech-writer → dispatch tech-writer once more with the same inputs (including `RULES_BLOCK`) plus `phase: 2` (skip Phase 1; the docs are already updated and committed) and re-run the check. If it is still missing (or missing on the input path) → stop: "PR body missing — PR not created." Otherwise `gh pr create --body-file` would create a PR with an empty body.
 
-**Autonomy gate:** if `$(n1_autonomy_val 'mechanicalPrompts')` is `auto`, skip the prompt — create PR as composed, append Decision Ledger row (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `mechanicalPrompts=auto`). Pipeline invocations already bypass.
-
-Otherwise: present the title and the body file contents, ask **"Create PR with this content? (yes/edit/cancel)"**. On `edit`, rewrite the body file with the file-write mechanism; on a title edit, rewrite `$PR_BODY_FILE.title` the same way.
+**Autonomy gate:** no prompt — create the PR as composed, append Decision Ledger row (step `pr`, category `mechanical`, tier `C`, tag `[auto]`, reason `auto`). Pipeline invocations already bypass.

@@ -17,7 +17,7 @@ echo "STALL=$(n1_stall_check "$QD/overview.md" qa_fail_sig "$SIG") FAILED_TESTS=
 
 `STALL=ok`: continue the **FAIL** branch (cap test, increment, developer).
 
-`STALL=stalled`: no increment, no developer. Run § Autonomy Gate (`procedures/autonomy-headless.md`) with step=`qa`, action=`accept the QA failure and proceed to review`, ledger_context=`QA stalled on the same failure: <FAILED_TESTS> failing tests, see qa-verify.log`. Under `qualityEscalations=auto-accept`: take the action, add the key decision `QA: stalled on the same failure`, run the final block of `steps/qa.md` once with `failed`, continue to the review step. Otherwise prompt "QA stalled on the same failure: the same tests failed in two consecutive rounds (see `qa-verify.log`). Options:"
+`STALL=stalled`: no increment, no developer. Run § Autonomy Gate (`procedures/autonomy-headless.md`) with step=`qa`, action=`accept the QA failure and proceed to review`, ledger_context=`QA stalled on the same failure: <FAILED_TESTS> failing tests, see qa-verify.log`. When the gate auto-accepts: take the action, add the key decision `QA: stalled on the same failure`, run the final block of `steps/qa.md` once with `failed`, continue to the review step. Otherwise prompt "QA stalled on the same failure: the same tests failed in two consecutive rounds (see `qa-verify.log`). Options:"
 No recommendation. The options are equivalent given the available evidence; select based on team preference.
 1 — Proceed to review with the failure recorded: key decision `QA: stalled on the same failure`, final block with `failed`, continue to review
 2 — One more fix cycle: run § Reset with `qa_fail_sig`, then continue the **FAIL** branch (cap test, increment, developer)
@@ -38,7 +38,7 @@ echo "STALL=$(n1_stall_check "$M/overview.md" local_test_fail_sig "$SIG")"
 
 `STALL=ok`: continue 9d unchanged.
 
-`STALL=stalled`: no developer spawn, no increment, no re-run. Go to the 9d cap exit: its Autonomy gate with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail>; stalled on the same failure after <N> fix cycles` (N = `local_test_fix_cycle`), with the key decision `Local Testing: skipped — stalled on the same failure (qualityEscalations=auto-accept)` and `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"stalled"}'`, which replace the cap exit's key decision and `skip_reason`. Otherwise its options prompt, prefixed with "Stalled on the same failure. ". Options 1 and 3 run § Reset with `local_test_fail_sig`. **Headless:** as at the cap.
+`STALL=stalled`: no developer spawn, no increment, no re-run. Go to the 9d cap exit: its Autonomy gate with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail>; stalled on the same failure after <N> fix cycles` (N = `local_test_fix_cycle`), with the key decision `Local Testing: skipped — stalled on the same failure (auto-accept)` and `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"stalled"}'`, which replace the cap exit's key decision and `skip_reason`. Otherwise its options prompt, prefixed with "Stalled on the same failure. ". Options 1 and 3 run § Reset with `local_test_fail_sig`. **Headless:** as at the cap.
 
 ## CI
 
@@ -57,7 +57,7 @@ echo "STALL=$(n1_stall_check "$M/overview.md" ci_fail_sig "$SIG")"
 
 `STALL=ok`: continue Step 5.
 
-`STALL=stalled`: no classification, no developer, no increment. Go to **Step 6b** and present "CI stalled on the same failure: <failed check names>" with the remaining failures and fix history. The Step 6b menu is unchanged and nothing auto-accepts under any `qualityEscalations` value (D1). Headless runs escalate as at the cap.
+`STALL=stalled`: no classification, no developer, no increment. Go to **Step 6b** and present "CI stalled on the same failure: <failed check names>" with the remaining failures and fix history. The Step 6b menu is unchanged and nothing auto-accepts (D1). Headless runs escalate as at the cap.
 
 NOT_BRANCH_CAUSED (Step 6, "After developer returns" item 2): run § Reset with `ci_fail_sig`. Step 5 already stored this round's signature, so clearing it keeps the round from counting toward a stall (D8).
 

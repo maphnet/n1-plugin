@@ -50,7 +50,8 @@ check "N1-443: queue-plan returns close" "\`exclude\`, or \`close\`" "$P"
 check "N1-443: queue-plan never prompts when HEADLESS=1" "If duplicate rows remain:\*\* if \`HEADLESS=1\`, do not ask and never close" "$P"
 check "N1-443: start prompt lists Close as duplicate" "or \*\*Close as duplicate\*\* \(omit when Close is not offered\)" "$P"
 check "N1-443: start Close failure restores the dropped duplicate links" "put the dropped entries back in \`DUP_LINKS\`" "$P"
-check "N1-443: QE auto-accept no longer skips the start prompt" "\*\*Unattended\*\* \(\`HEADLESS=1\`, or \`QE=auto-accept\` with \`CONTEXT=create\`\)" "$P"
+check "N1-442: only headless start or create skips the start prompt" "\*\*Unattended\*\* \(\`HEADLESS=1\`, or \`CONTEXT=create\`\)" "$P"
+check "N1-442: interactive rule is attended start only" "4\. \*\*Interactive\*\* \(attended \`CONTEXT=start\`\)" "$P"
 check "N1-443: new option lists carry the no-recommendation sentence" "No recommendation\. The options are equivalent given the available evidence; select based on team preference\." "$P"
 NR='No recommendation. The options are equivalent given the available evidence; select based on team preference.'
 # sentence must precede the options in the queue-plan list and the start prompt
@@ -62,7 +63,8 @@ close_has "N1-443: Close filters HIT_IDs" '^[A-Z][A-Z0-9_]*-[0-9]+$'
 close_has "N1-443: Close treats a link warning as failure" 'Any `Could not link` warning counts as failure'
 close_has "N1-443: Close never reports a failed close as closed" 'Never print `Closed`'
 close_has "N1-443: Close never runs unattended" 'Never runs when `HEADLESS=1`'
-if grep -qF 'Close as duplicate' <<<"$(sed -n '/^   - \*\*Otherwise\*\*/,/^### 5\. Record/p' "$P")"; then echo "FAIL: N1-443: create prompt has no Close option"; FAIL=1; else echo "PASS: N1-443: create prompt has no Close option"; fi
+if grep -qF 'Close as duplicate' <<<"$(sed -n '/^   - \*\*Otherwise\*\*/,/^### 5\. Record/p' "$P")"; then echo "FAIL: N1-443: attended-start Otherwise branch has no Close option"; FAIL=1; else echo "PASS: N1-443: attended-start Otherwise branch has no Close option"; fi
+if /usr/bin/grep -qF 'CONTEXT=create' <<<"$(sed -n '/^4\. \*\*Interactive/,/^### 5\. Record/p' "$P")"; then echo "FAIL: N1-442: rule 4 (attended start) never mentions CONTEXT=create"; FAIL=1; else echo "PASS: N1-442: rule 4 (attended start) never mentions CONTEXT=create"; fi
 if grep -qiE 'merge|closed by|will be closed' <<<"$(grep -F 'Exclude from this queue run' "$P")"; then echo "FAIL: N1-443: Exclude text does not claim a close by merge"; FAIL=1; else echo "PASS: N1-443: Exclude text does not claim a close by merge"; fi
 check "N1-443: preview handles DUP_CHOICE close" "On \`close\`, .*duplicate: <HIT_IDs> closed \(plan\)" skills/n1-queue/steps/preview.md
 check "N1-443: preview --unattended never takes Close" "\`--unattended\`: do not ask; take \*\*Continue\*\*.*never Close" skills/n1-queue/steps/preview.md

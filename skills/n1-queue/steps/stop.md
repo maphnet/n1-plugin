@@ -30,7 +30,7 @@ done
 ```
 No rows: "No live workers to stop in queue <queue_id>." **STOP.**
 
-Print the list. This question is an unconditional gate: always ask the user, even when `autonomy.mode` is `hands-off`, and never auto-resolve it. Ask the user: "Stop <N> worker(s) of queue <queue_id>? Each worker's own terminal is closed (a worker whose terminal is already gone is only recorded), its row is recorded `stopped` and its queue identity is removed. A worker with an OPEN PR may be mid finish-chain (CI, review, merge); stopping it can leave that PR unmerged. A worker whose PR already merged is only recorded as merged."
+Print the list. This question is an unconditional gate: always ask the user and never auto-resolve it. Ask the user: "Stop <N> worker(s) of queue <queue_id>? Each worker's own terminal is closed (a worker whose terminal is already gone is only recorded), its row is recorded `stopped` and its queue identity is removed. A worker with an OPEN PR may be mid finish-chain (CI, review, merge); stopping it can leave that PR unmerged. A worker whose PR already merged is only recorded as merged."
 
 No recommendation. The options are equivalent given the available evidence; select based on team preference.
 

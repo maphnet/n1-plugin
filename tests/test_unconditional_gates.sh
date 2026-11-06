@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/test_unconditional_gates.sh
 # Verifies that unconditional gates (security, architecture, public-API escalations,
-# release confirmation) are structurally independent from autonomy.mode.
+# release confirmation) stay unconditional and that autonomy.mode is gone (N1-442).
 #
 # Run: bash tests/test_unconditional_gates.sh
 # Expected: all tests PASS; exit 0.
@@ -21,39 +21,15 @@ fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 # Setup: source lib/config.sh with a temporary mock config
 # ---------------------------------------------------------------------------
 MOCK_CONFIG=$(mktemp /tmp/n1-test-config-XXXXXX.json)
-cat > "$MOCK_CONFIG" <<'EOF'
-{
-  "autonomy": { "mode": "hands-off" }
-}
-EOF
+echo '{}' > "$MOCK_CONFIG"
 
 # Source lib/config.sh; override n1_config_file to return mock
 source "${PLUGIN_ROOT}/lib/config.sh"
 n1_config_file() { printf '%s' "$MOCK_CONFIG"; }
 
 # ---------------------------------------------------------------------------
-# Test 1: hands-off mode -> mechanicalPrompts = auto
-# ---------------------------------------------------------------------------
-val=$(n1_autonomy_val 'mechanicalPrompts')
-if [ "$val" = "auto" ]; then
-    pass "T1: autonomy.mode=hands-off -> mechanicalPrompts=auto"
-else
-    fail "T1: expected auto, got '${val}'"
-fi
-
-# ---------------------------------------------------------------------------
-# Test 2: hands-off mode -> qualityEscalations = auto-accept
-# ---------------------------------------------------------------------------
-val=$(n1_autonomy_val 'qualityEscalations')
-if [ "$val" = "auto-accept" ]; then
-    pass "T2: autonomy.mode=hands-off -> qualityEscalations=auto-accept"
-else
-    fail "T2: expected auto-accept, got '${val}'"
-fi
-
-# ---------------------------------------------------------------------------
 # Test 4: alwaysAskOn is a fixed constant (n1_escalation_val), NOT in 'autonomy'
-# The unconditional gates must NOT be routable through n1_autonomy_val.
+# The unconditional gates must NOT be routable through autonomy config.
 # ---------------------------------------------------------------------------
 escalation_list=$(n1_escalation_val alwaysAskOn)
 autonomy_security=$(n1_config_val '.autonomy.alwaysAskOn' "$MOCK_CONFIG" 2>/dev/null || true)
@@ -64,7 +40,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 5: Release confirmation gate in n1-release is NOT routed through n1_autonomy_val
+# Test 5: Release confirmation gate in n1-release is unconditional
 # (grep-based structural check)
 # ---------------------------------------------------------------------------
 RELEASE_CONFIRM="${PLUGIN_ROOT}/skills/n1-release/steps/02-confirm-execute.md"
@@ -75,13 +51,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 6: n1-release Step 3 does NOT call n1_autonomy_val to decide whether to show prompt
+# Test 6c: security carve-out and ambiguous done-status fall-through stay in the skill text (N1-442)
 # ---------------------------------------------------------------------------
-# After sub-file refactoring, the confirmation gate lives in steps/02-confirm-execute.md.
-if grep -q 'n1_autonomy_val' "$RELEASE_CONFIRM" 2>/dev/null; then
-    fail "T6: n1-release steps/02-confirm-execute.md calls n1_autonomy_val — release gate is NOT unconditional"
+if grep -qF 'If the findings involve security/architecture/public API:** show the interactive prompt' "${PLUGIN_ROOT}/skills/n1-start/procedures/autonomy-headless.md" 2>/dev/null; then
+    pass "T6c: autonomy-headless.md keeps the security/architecture/public-API prompt carve-out"
 else
-    pass "T6: n1-release Step 3 does not call n1_autonomy_val"
+    fail "T6c: autonomy-headless.md lost the security/architecture/public-API carve-out line"
+fi
+if grep -qF 'If zero or two or more candidates match: fall through to the prompt' "${PLUGIN_ROOT}/skills/n1-finish/references/done-status-recovery.md" 2>/dev/null; then
+    pass "T6d: done-status-recovery.md keeps the zero-or-2+ fall-through"
+else
+    fail "T6d: done-status-recovery.md lost the zero-or-2+ fall-through line"
 fi
 
 # ---------------------------------------------------------------------------
@@ -94,46 +74,18 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 7: interactive mode -> mechanicalPrompts = ask (gate preserved)
+# Test 10: autonomy.mode, its sub-keys and the preset are gone from shipped code (N1-442)
 # ---------------------------------------------------------------------------
-cat > "$MOCK_CONFIG" <<'EOF'
-{
-  "autonomy": { "mode": "interactive" }
-}
-EOF
-val=$(n1_autonomy_val 'mechanicalPrompts')
-if [ "$val" = "ask" ]; then
-    pass "T7: autonomy.mode=interactive -> mechanicalPrompts=ask"
+if grep -rqE 'n1_autonomy_val|autonomy\.mode|mechanicalPrompts|qualityEscalations|acceptanceGate|N1_AUTONOMY_PRESET' \
+    "${PLUGIN_ROOT}/skills" "${PLUGIN_ROOT}/agents" "${PLUGIN_ROOT}/hooks" "${PLUGIN_ROOT}/lib" "${PLUGIN_ROOT}/references"; then
+    fail "T10: autonomy mode keys still referenced in skills/agents/hooks/lib/references"
 else
-    fail "T7: expected ask, got '${val}'"
+    pass "T10: no autonomy mode keys in skills/agents/hooks/lib/references"
 fi
-
-# ---------------------------------------------------------------------------
-# Test 8: Legacy config (no autonomy.mode) -> falls back to individual keys
-# ---------------------------------------------------------------------------
-cat > "$MOCK_CONFIG" <<'EOF'
-{
-  "autonomy": { "brainstorm": "interactive", "mechanicalPrompts": "ask" }
-}
-EOF
-val=$(n1_autonomy_val 'mechanicalPrompts')
-if [ "$val" = "ask" ]; then
-    pass "T8: legacy config (no autonomy.mode) falls back to individual key read"
+if declare -F n1_autonomy_val >/dev/null; then
+    fail "T10b: lib/config.sh still defines n1_autonomy_val"
 else
-    fail "T8: expected ask (legacy fallback), got '${val}'"
-fi
-
-# ---------------------------------------------------------------------------
-# Test 9: Completely empty autonomy config -> hands-off defaults
-# ---------------------------------------------------------------------------
-cat > "$MOCK_CONFIG" <<'EOF'
-{}
-EOF
-val=$(n1_autonomy_val 'mechanicalPrompts')
-if [ "$val" = "auto" ]; then
-    pass "T9: no autonomy config at all -> mechanicalPrompts defaults to auto (hands-off)"
-else
-    fail "T9: expected auto (hands-off default), got '${val}'"
+    pass "T10b: n1_autonomy_val is not defined"
 fi
 
 # ---------------------------------------------------------------------------

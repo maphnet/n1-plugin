@@ -41,7 +41,7 @@ Telemetry Init: `procedures/telemetry.md` | Input Parsing: `procedures/input-par
 
 ## Pipeline Steps
 
-Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). Gate 2 pauses for plan approval when `requirePlanApproval` enabled.
+Step 3 runs autonomously (brainstormer, auto-confirmed acceptance gate). Gate 2 pauses for plan approval when `requirePlanApproval` is enabled, never under `N1_HEADLESS=1`.
 
 **Ticket watch:** run `procedures/ticket-watch.md § Check` before Steps 5, 6, 10 and 11b.
 
@@ -52,7 +52,7 @@ Step 3 is **INTERACTIVE** by default (`autonomy.brainstorm=auto` → headless). 
 | 1. REQUIREMENTS ANALYSIS | `steps/ticket.md` | moveStatus → In Progress; assign to creator if configured and unassigned; addToSprint if configured |
 | 2. ANALYSIS | `steps/analysis.md` | |
 | Simple-Path Routing | — | `n1_read_context`; if `SIMPLE_PATH=true`: skip steps 3, 4, 4b, Gate 2 — jump to Step 5 |
-| 3. BRAINSTORM | `steps/brainstorm.md` | interactive unless auto; skipped on simple-path |
+| 3. BRAINSTORM | `steps/brainstorm.md` | autonomous; skipped on simple-path |
 | 3b. INVESTIGATION DELIVERABLE | `steps/investigation-deliverable.md` | investigation mode only; terminates pipeline |
 | Planning Need Routing | — | `plan` → Step 4; `direct` → Step 5 |
 | 4. PLAN | `steps/plan.md` | plan path only; skipped on simple-path |

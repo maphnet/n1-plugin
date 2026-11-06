@@ -10,7 +10,7 @@ check() { # <label> <extended-regex> <file>
     if grep -qE "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
 }
 
-check "collect never prompts for adopt keys" 'Do not prompt, in either' "$K"
+check "collect never prompts for adopt keys" 'Do not prompt, and never create new tickets for them' "$K"
 check "collect drops cross-project keys" 'bulk move needs the same project' "$K"
 check "collect warns adoption needs jc-mcp when VERSION_MCP is empty" 'Adopting existing tickets requires jc-mcp' "$K"
 check "collect never turns an adopt key into a new ticket" 'never create new tickets for them' "$K"
@@ -56,7 +56,6 @@ else
     echo "PASS: no hard-coded type literal in the convert call"
 fi
 
-check "preview lists adopted tickets" '^### Adopt existing tickets' "$C"
 check "scope guard counts adopted keys" 'Adopted keys \(`ADOPT_KEYS`\) count as children' "$C"
 check "Step 10 reports adopted keys" '^\*\*Adopted:\*\*' "$C"
 check "Step 10 reports not-adopted keys" '^\*\*Not adopted:\*\*' "$C"
@@ -64,6 +63,5 @@ check "n1-init states the jc-mcp minimum version" 'jc-mcp 0\.9\.0 or newer' skil
 check "n1-init configured path states the jc-mcp minimum" 'needs jc-mcp 0\.9\.0 or newer' skills/n1-init/steps/01-prerequisites.md
 check "Step 10 omits empty Subtasks block" 'Omit \*\*Subtasks\*\*, \*\*Adopted\*\* or' "$C"
 check "duplicate check excludes adopt keys before the prompt" 'Remove every `ADOPT_KEYS` entry from the search hits before classifying' "$K"
-check "preview omits Subtasks when no new subtasks" 'Omit the Subtasks section when there are no new subtasks' "$C"
 
 exit $FAIL

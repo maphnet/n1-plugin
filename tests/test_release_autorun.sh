@@ -166,7 +166,6 @@ expect "empty command -> failed" failed "$(first "$(ws poll 600 15 '')")"
 
 # --- wiring: 02-confirm-execute.md
 check "gate stays unconditional" '**This gate is unconditional.**' "$R2"
-absent "02 never reads autonomy settings" 'n1_autonomy_val' "$R2"
 before "AUTORUN is read at the gate, before the walk" 'n1_release_autorun_enabled' '**Walk each step**' "$R2"
 check "gate discloses shell steps that run unprompted" 'Shell steps that will run without prompts (' "$R2"
 check "gate Release line mentions autoRun creation" 'or it is created automatically when release.autoRun is true' "$R2"

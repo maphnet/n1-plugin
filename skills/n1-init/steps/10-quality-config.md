@@ -1,35 +1,12 @@
-<!-- Purpose: Configure autonomy mode and analysis cache. -->
+<!-- Purpose: Configure autonomy.fullAuto and analysis cache. -->
 
 ## Autonomy Configuration
 
 Prompts in this step follow `<N1_ROOT>/references/question-format.md`.
 
-Ask:
-
-```
-How autonomous should pipeline runs be?
-
-1 — Hands-off (Recommended): matches the code default of n1_autonomy_val (mechanicalPrompts falls back to auto, lib/config.sh:329); mechanical prompts auto-resolve with safe defaults; brainstorm
-    runs autonomously; acceptance gate auto-confirms; quality-gate exhaustion auto-accepts.
-    Every autonomous decision is logged to a Decision Ledger and rendered in the PR body for review.
-2 — Interactive: the pipeline asks at every decision point; works when you want to answer each decision yourself.
-```
-
-- **1 (Hands-off)** → write:
-  ```json
-  "autonomy": { "mode": "hands-off" }
-  ```
-
-- **2 (Interactive)** → write:
-  ```json
-  "autonomy": { "mode": "interactive" }
-  ```
-
-Neither option writes individual sub-keys (`brainstorm`, `mechanicalPrompts`, etc.) — those are code defaults derived from `autonomy.mode` at runtime.
-
 Note in the summary output: security, architecture, and public-API escalations always block regardless of this setting, and releases are always manual.
 
-Then ask:
+Ask:
 
 ```
 Run /n1:n1-finish automatically after PR + CI (autonomy.fullAuto)?
@@ -39,14 +16,11 @@ Queue and headless runs merge only when both keys are true. Such merges include 
 2 — Yes: works when CI and review gates are trusted to finish without you (merging also needs finishWork.mergeOnFinish: true)
 ```
 
-- **1** → add `"fullAuto": false` to the `autonomy` object. **2** → add `"fullAuto": true`. Always write a JSON boolean, never a string.
+- **1** → write `"autonomy": { "fullAuto": false }`. **2** → write `"autonomy": { "fullAuto": true }`. Always write a JSON boolean, never a string.
 
 ### On reconfiguration (n1-init re-run):
 
-If `autonomy` already exists in the current config:
-- If it contains `"mode"` (with or without `"fullAuto"`): show the current values and re-ask both questions.
-- If it contains legacy sub-keys (no `"mode"` key): show a migration note —
-  `"Your config uses legacy autonomy keys. Reconfiguring will write the new single-key format."` — then re-ask.
+If `autonomy.fullAuto` already exists in the current config: show the current value and re-ask the question.
 
 ## Analysis Cache Configuration
 

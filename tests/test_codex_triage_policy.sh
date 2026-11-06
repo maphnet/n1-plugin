@@ -39,12 +39,11 @@ has "P3 informational under auto-accept"        "$SEV" '**Informational (P3)** f
 has "security-looking keyword list"             "$SEV" 'path traversal, deserialization, crypto, privilege'
 has "ambiguous security flagged"                "$SEV" 'When in doubt, flag it.'
 has "unclassified never informational"          "$SEV" 'unclassified is never informational'
-has "non-auto-accept rule kept"                 "$SEV" 'Critical, High, or Medium'
 has "N1-123 decision kept"                      "$SEV" 'does not apply to Codex triage (N1-123)'
-has "N1-212 supersedes Low part of N1-94"       "$SEV" 'P3 findings are informational under auto-accept unless security-looking (N1-212; supersedes the Low part of N1-94)'
+has "N1-212 supersedes Low part of N1-94"       "$SEV" 'P3 findings are informational unless security-looking (N1-212; supersedes the Low part of N1-94)'
 has "P3 not fixed"                              "$SEV" 'not validated, not fixed, only listed in the Triage Reply'
 has "keyword list covers exec/race/TLS"         "$SEV" 'command or code execution, eval, shell quoting or word splitting, race condition or TOCTOU, symlink'
-has "security exception scoped to auto-accept"   "$SEV" 'Under `qualityEscalations=auto-accept` a security-looking finding stays a fix candidate'
+has "security-looking finding stays a fix candidate" "$SEV" 'A security-looking finding stays a fix candidate whatever its severity tier'
 has "marker precedence: label beats bare word"  "$SEV" 'an explicit priority label'
 has "marker conflict: higher tier wins"         "$SEV" 'the higher tier wins (fail toward fixing)'
 lacks "no stale arch human-review line"         "$ARCH_TXT" 'Low, unclassified, and any finding whose validation'
@@ -64,7 +63,7 @@ else
 fi
 
 # 4. P3 note route: triage reply section, counts line, PR-body reconcile input
-has "reply lists Informational (P3)"  "$TR" '- **Informational (P3)** — only under `qualityEscalations=auto-accept`'
+has "reply lists Informational (P3)"  "$TR" '- **Informational (P3)** — P3 findings that are not security-looking'
 has "summary counts informational"    "$TR" 'Z for human review, I informational (P3)'
 COUNTS=$(grep -cF 'By severity: P1 <a>, P2 <b>, P3 <c>, unclassified <d>' <<<"$TR")
 if [ "$COUNTS" -ge 2 ]; then
@@ -77,7 +76,7 @@ fi
 README_TXT=$(cat README.md)
 lacks "README drops 'every finding'" "$README_TXT" '(every finding under hands-off autonomy'
 has "README states P3 informational" "$README_TXT" 'other Low findings are listed as informational (P3)'
-has "arch states N1-212 policy"   "$ARCH_TXT" 'P3 findings are informational under auto-accept unless security-looking (N1-212'
+has "arch states N1-212 policy"   "$ARCH_TXT" 'P3 findings are informational unless security-looking (N1-212'
 lacks "arch drops N1-94 Low line" "$ARCH_TXT" 'Low findings stay fix candidates under auto-accept'
 lacks "arch drops 'all findings'" "$ARCH_TXT" 'all findings when `qualityEscalations=auto-accept`'
 
