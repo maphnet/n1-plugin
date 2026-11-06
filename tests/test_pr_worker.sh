@@ -53,6 +53,9 @@ for N1H in "" 1; do
         eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:tail-worker denied" 2 "$(polx n1:tail-worker $tool n1:tail-worker)"
         eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:code-reviewer allowed" 0 "$(polx n1:tail-worker $tool n1:code-reviewer)"
         eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:developer allowed" 0 "$(polx n1:tail-worker $tool n1:developer)"
+        eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:post-deploy-verifier allowed" 0 "$(polx n1:tail-worker $tool n1:post-deploy-verifier)"
+        eq "spawn[$tool,headless=$N1H]: post-deploy-verifier -> n1:developer denied" 2 "$(polx n1:post-deploy-verifier $tool n1:developer)"
+        eq "spawn[$tool,headless=$N1H]: tail-worker -> n1:tech-writer denied" 2 "$(polx n1:tail-worker $tool n1:tech-writer)"
     done
     for a in general-purpose n1:tech-writer n1:developer; do
         eq "authorized[headless=$N1H]: $a gh pr merge denied" 2 "$(polx $a Bash 'gh pr merge 7')"
@@ -61,6 +64,9 @@ for N1H in "" 1; do
     eq "authorized[headless=$N1H]: tech-writer --confirmed denied" 2 "$(polx n1:tech-writer Bash 'source ~/.n1/preamble.sh; n1_review_pin set 7 --confirmed')"
     eq "authorized[headless=$N1H]: tech-writer run pointer clear denied" 2 "$(polx n1:tech-writer Bash 'n1_active_run_clear')"
     eq "authorized[headless=$N1H]: tech-writer docs commit allowed" 0 "$(polx n1:tech-writer Bash 'git add README.md && git commit -m "docs: update"')"
+    eq "verifier[headless=$N1H]: git push denied" 2 "$(polx n1:post-deploy-verifier Bash 'git push origin feat')"
+    eq "verifier[headless=$N1H]: gh pr comment denied" 2 "$(polx n1:post-deploy-verifier Bash 'gh pr comment 7 --body x')"
+    eq "verifier[headless=$N1H]: health curl allowed" 0 "$(polx n1:post-deploy-verifier Bash 'curl -s http://localhost:8080/health')"
     eq "authorized[headless=$N1H]: main session gh pr merge allowed" 0 "$(polx '' Bash 'gh pr merge 7')"
 done
 CFG=; N1H=

@@ -126,7 +126,7 @@ PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 
 # SEC-1 (N1-435): restricted workers inherit all tools, so bound what they can dispatch
-SPAWN_ALLOW = {"pr-worker": {"tech-writer", "tail-worker"}, "tail-worker": {"code-reviewer", "developer"}}
+SPAWN_ALLOW = {"pr-worker": {"tech-writer", "tail-worker"}, "tail-worker": {"code-reviewer", "developer", "post-deploy-verifier"}, "post-deploy-verifier": set()}
 
 
 def persona_of(agent_type: str):
@@ -509,12 +509,13 @@ PR_WORKER_DENY_RE = re.compile(r"\bgh\s+pr\s+merge\b|\bn1_(active_run_clear|acti
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     # N1-230 SEC-2: the tail-worker never merges, clears the run pointer or releases, even when merging is authorized
     agent_type = str(payload.get("agent_type") or "")
-    tail = persona_of(agent_type) == "tail-worker"
+    tail_persona = persona_of(agent_type)
+    tail = tail_persona in ("tail-worker", "post-deploy-verifier")  # the verifier is the tail-worker's delegate: same Bash denies
     pr = False
     if tail:
         cmd = _command(payload) or ""
         if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
-            sys.stderr.write("N1: tail-worker may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
+            sys.stderr.write(f"N1: {tail_persona} may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
     elif persona_of(agent_type) in ("pr-worker", "tech-writer"):
         pr = True
