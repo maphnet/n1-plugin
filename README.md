@@ -46,7 +46,7 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 /n1:n1-finish                      # verify PR is merged, watch deploy, close ticket
 /n1:n1-queue N1-12 N1-15            # run exactly these tickets (IDs or tracker URLs, no label search); a run with no list, --tag or --story asks for one
 /n1:n1-queue --goal "speed up the test suite"   # rank the oldest queue.maxTickets To Do tickets against a goal; you approve the list before anything is written (not with --unattended or --schedule)
-/n1:n1-queue --story STORY-12       # run a story's subtasks (for a Jira Epic, each child's Sub-tasks) through the pipeline one by one (each ticket stops after PR + CI; the runner merges it into story/STORY-12 once review passes and CI is green or absent, and held tickets start from the updated story branch). Also: --tag <tag>, --plan, --run <queue-id>, --dry-run, --status, --watch, --answer <ticket> <text>, --retry <ticket>, --schedule <trigger|list|remove>, --unattended.
+/n1:n1-queue --story STORY-12       # run a story's subtasks (for a Jira Epic, each child's Sub-tasks) through the pipeline one by one (each ticket stops after PR + CI; the runner merges it into story/STORY-12 once review passes and CI is green or absent, and held tickets start from the updated story branch). Also: --tag <tag>, --goal "<text>" (rank To Do tickets against a goal; you approve the list), --plan, --run <queue-id>, --dry-run, --status, --watch, --answer <ticket> <text>, --retry <ticket>, --schedule <trigger|list|remove>, --unattended.
 ```
 
 ## Skills
