@@ -242,6 +242,26 @@ test_bg_sequential() {
     rm -rf "$tmp"
 }
 
+# N1-470. Bug caught: a child that ended step done with no pr_url was recorded pr with an empty PR cell and the
+# fullAuto finish chain ran on the empty URL (Reason finish:pr-state-unreadable). Now: no-pr everywhere, one info
+# notification naming the ticket and its gate3.md, no chain, the queue ends.
+test_bg_no_pr() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done" "T-B:done"
+    printf -- '---\nstep: done\n---\n# T\n' > "$tmp/fake/overview.T-A"
+    jq '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true' "$tmp/n1home/config.json" > "$tmp/cfg" && mv "$tmp/cfg" "$tmp/n1home/config.json"
+    assert_eq "bg-no-pr: exit 0" "0" "$(run_bg_queue "$tmp")"
+    assert_eq "bg-no-pr: queue step done" "done" "$(n1_read_frontmatter "$tmp/queue.md" step)"
+    assert_eq "bg-no-pr: Plan status no-pr, Reason empty (no chain)" "no-pr|" "$(plan_cell "$tmp/queue.md" 1 8)|$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "bg-no-pr: Runs outcome" "no-pr" "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "bg-no-pr: event outcome" "no-pr" \
+        "$(jq -R -r 'fromjson? | select(.event == "ticket_finished" and .ticket == "T-A") | .outcome' "$tmp/events.jsonl")"
+    assert_eq "bg-no-pr: one notification naming ticket and gate3.md" "1" \
+        "$(jq -r 'select(.kind == "info") | .text' "$tmp/notes" | grep -c '^T-A ended without a PR (see .*/memory/T-A/gate3\.md)$' || true)"
+    assert_eq "bg-no-pr: next row still runs" "T-B" "$(grep -o 'launch n1-bgq-T-B-[0-9]*' "$tmp/fake/events" | head -1 | sed 's/launch n1-bgq-//; s/-[0-9]*$//')"
+    rm -rf "$tmp"
+}
+
 test_bg_awaiting_alternatives() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:blocked blocked working done" "T-B:working done"
@@ -1116,8 +1136,10 @@ test_bg_pr_lifecycle() {
         printf -- '---\nstep: %s\n---\n# T\n' "$step" > "$tmp/fake/overview.T-A.1"
         cp "$tmp/fake/overview.T-A.1" "$tmp/fake/overview.T-A"
         assert_eq "bg-pr: step $step exit 0" "0" "$(run_bg_queue "$tmp")"
-        assert_eq "bg-pr: step $step without URL still finalizes as pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
-        assert_eq "bg-pr: step $step success event" "pr" \
+        # N1-470: step done without a URL is no-pr; step ci keeps mapping to pr
+        want=pr; [ "$step" = done ] && want=no-pr
+        assert_eq "bg-pr: step $step without URL finalizes as $want" "$want" "$(plan_cell "$tmp/queue.md" 1 8)"
+        assert_eq "bg-pr: step $step success event" "$want" \
             "$(jq -r 'select(.event=="ticket_finished") | .outcome' "$tmp/events.jsonl")"
         assert_eq "bg-pr: step $step has no retry" "" "$(plan_cell "$tmp/queue.md" 2 8)"
         rm -rf "$tmp"
@@ -1259,6 +1281,7 @@ test_runner_list_mode_untagged
 test_runner_story_branches
 test_runner_queue_branches
 test_bg_sequential
+test_bg_no_pr
 test_bg_awaiting
 test_bg_awaiting_alternatives
 test_bg_awaiting_oversized_question
