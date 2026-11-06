@@ -23,9 +23,9 @@ ISSUE_TYPE=$(echo "$INTAKE_RESULT" | sed -n 's/.*"issue_type": *"\([^"]*\)".*/\1
 SUBTASK_COUNT=$(echo "$INTAKE_RESULT" | sed -n 's/.*"subtask_count": *\([0-9]*\).*/\1/p')
 case "$ISSUE_TYPE" in epic) IS_STORY=true ;; story) ;; *) [ "${SUBTASK_COUNT:-0}" -gt 0 ] && ! grep -q '### Parent Context' "$N1_HOME/memory/$ID/ticket.md" && IS_STORY=true ;; esac
 ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"]*\)".*/\1/p')
-[ -z "${N1_QUEUE_RUN_ID:-}" ] && [ "${N1_HEADLESS:-}" != 1 ] && echo "$AGENT_OUTPUT" | grep -m1 '^brief: ' | sed 's/^brief: //' || true
+printf 'QUEUE_RUN_ID=%s\nHEADLESS=%s\n' "${N1_QUEUE_RUN_ID:-}" "${N1_HEADLESS:-}"
 ```
-**Brief:** relay any output of the `brief:` line verbatim (none in queue children, headless runs or without a `brief:` line) and continue without pausing.
+**Brief:** only when both printed values are empty, print the `brief:` line text from the analyst return (already in context) verbatim; print nothing in queue children, headless runs or without a `brief:` line; continue without pausing.
 
 **Story/epic** (`ISSUE_TYPE=story` or `IS_STORY=true`): read `procedures/ticket-story.md` and follow it (Story children, convert decision, Story handoff); otherwise skip it.
 

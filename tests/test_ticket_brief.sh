@@ -6,7 +6,7 @@ FAIL=0
 T=skills/n1-start/steps/ticket.md
 A=agents/product-analyst.md
 G=skills/n1-start/procedures/output-gates.md
-NEEDLE="grep -m1 '^brief: '"
+ENVREAD="printf 'QUEUE_RUN_ID=%s\\nHEADLESS=%s\\n' \"\${N1_QUEUE_RUN_ID:-}\" \"\${N1_HEADLESS:-}\""
 
 has() { # <label> <fixed-string> <file>
     if grep -qF -- "$2" "$3" 2>/dev/null; then echo "PASS: $1"; else echo "FAIL: $1"; FAIL=1; fi
@@ -21,40 +21,25 @@ before() { # <label> <fixed-a> <fixed-b> <file>: first a precedes first b
 }
 
 # --- Wiring: ticket step
-line_has "brief line skips queue children" "$NEEDLE" 'N1_QUEUE_RUN_ID' "$T"
-line_has "brief line skips headless runs" "$NEEDLE" 'N1_HEADLESS' "$T"
-line_has "brief line never fails the step" "$NEEDLE" '|| true' "$T"
-before "brief prints before the Story/epic gate" "$NEEDLE" '**Story/epic**' "$T"
-before "brief prints before the create prompt" "$NEEDLE" '**Tracker ticket creation**' "$T"
-before "brief prints before the duplicate check" "$NEEDLE" '**Duplicate check:**' "$T"
+line_has "intake block reads N1_QUEUE_RUN_ID" "$ENVREAD" 'N1_QUEUE_RUN_ID' "$T"
+line_has "intake block reads N1_HEADLESS" "$ENVREAD" 'N1_HEADLESS' "$T"
+before "env read sits in the intake block" 'ORIGINAL_STATUS=$(' "$ENVREAD" "$T"
+line_has "brief prose names the analyst brief: line" '**Brief:**' '`brief:`' "$T"
+line_has "brief prose gates on both values empty" '**Brief:**' 'both printed values are empty' "$T"
 line_has "brief prose continues without pausing" '**Brief:**' 'without pausing' "$T"
+before "brief prints before the Story/epic gate" '**Brief:**' '**Story/epic**' "$T"
+before "brief prints before the create prompt" '**Brief:**' '**Tracker ticket creation**' "$T"
+if grep -F -- "'^brief: '" "$T" >/dev/null 2>&1; then echo "FAIL: brief must not be piped through a shell string"; FAIL=1; else echo "PASS: no shell pipe for brief"; fi
 has "no-yield rule intact" 'IMMEDIATELY continue to the next pipeline step — do NOT write a summary message or yield to the user' "$T"
 
 # --- Wiring: output gates + analyst contract
 has "output gates allow the intake brief" '5) The intake brief.' "$G"
+has "budget table carves out the intake brief" 'Any inter-gate line (except the intake brief)' "$G"
 has "analyst defines the brief section" '## Compact Return — brief line' "$A"
 line_has "analyst brief is a single line" 'ONE line' 'brief:' "$A"
 line_has "analyst brief bans paths and jargon" 'no file paths' 'signal names' "$A"
 has "analyst omits brief when too thin" 'Omit the line when the ticket is too thin to summarize' "$A"
 before "brief section precedes Signal Emission" '## Compact Return — brief line' '## Signal Emission' "$A"
 line_has "signals line lists brief: before n1:signals" 'LAST line of your compact return' '`brief:`' "$A"
-
-# --- Behavior: run the extracted line
-BRIEF_LINE=$(grep -m1 -F -- "$NEEDLE" "$T")
-if [ -z "$BRIEF_LINE" ]; then echo "FAIL: brief line not found in $T"; FAIL=1; fi
-WANT='Users cannot log in. Sales calls are blocked. The ticket asks to fix the login form.'
-OUT=$(printf 'intake-result: {"title": "Login"}\ntitle: Fix login\nbrief: %s\nn1:signals task_type=bug\n' "$WANT")
-NOBRIEF=$(printf 'intake-result: {"title": "Login"}\ntitle: Fix login\nn1:signals task_type=bug\n')
-
-expect() { # <label> <expected-stdout> <env assignments...>
-    local label="$1" want="$2" got rc; shift 2
-    got=$(env -u N1_QUEUE_RUN_ID -u N1_HEADLESS "$@" bash -ec "$BRIEF_LINE" 2>&1); rc=$?
-    if [ -n "$BRIEF_LINE" ] && [ "$rc" -eq 0 ] && [ "$got" = "$want" ]; then echo "PASS: $label"
-    else echo "FAIL: $label (rc=$rc, got: $got)"; FAIL=1; fi
-}
-expect "interactive run prints the brief" "$WANT" AGENT_OUTPUT="$OUT"
-expect "queue child prints nothing" "" AGENT_OUTPUT="$OUT" N1_QUEUE_RUN_ID=q-1
-expect "headless run prints nothing" "" AGENT_OUTPUT="$OUT" N1_HEADLESS=1
-expect "missing brief prints nothing and exits 0" "" AGENT_OUTPUT="$NOBRIEF"
 
 exit "$FAIL"
