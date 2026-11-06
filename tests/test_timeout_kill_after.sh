@@ -13,7 +13,7 @@ XR="$REPO_ROOT/scripts/codex-pr-review.sh"
 
 # 1. Static guard: every in-scope call site carries -k 30 ...
 assert_eq "breakcheck.sh: timeout -k 30 sites"        2 "$(grep -c 'timeout -k 30 ' "$BC" || true)"
-assert_eq "n1-queue-run.sh: timeout -k 30 sites"      6 "$(grep -c 'timeout -k 30 ' "$QR" || true)"
+assert_eq "n1-queue-run.sh: timeout -k 30 sites"      7 "$(grep -c 'timeout -k 30 ' "$QR" || true)"
 assert_eq "codex-pr-review.sh: timeout -k 30 site" 1 "$(grep -c 'timeout -k 30 ' "$XR" || true)"
 # ... and no bare `timeout <duration>` invocation in command position remains.
 BARE=$(grep -nE '(^|&&|[;(|])[[:space:]]*timeout[[:space:]]+[^-[:space:]]' "$BC" "$QR" "$XR" || true)

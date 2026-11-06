@@ -770,6 +770,101 @@ final_none() {
     echo "final PR: $1 none ($2)"
 }
 
+# final_merge <row#> <repo> <n1-home> <pr-url> <draft 0|1> <isDraft> <mergeable> <default-branch> <story-branch> <reused 0|1> —
+# N1-424: the gated runner merge of the final PR. Gates, cheapest first, all bound to one head H: chain_authorized
+# (fullAuto AND mergeOnFinish), ready (every child landed and the PR is not a draft), MERGEABLE, OPEN into the default
+# branch, the runner's own Codex review of H (scripts/codex-pr-review.sh in a detached worktree of H under the queue
+# dir, removed afterwards; clean only on ran + findings:none; a disabled/not-installed/no-auth skip passes and is
+# noted), checks green or none (read after Codex, which gives a fresh PR's CI time to register; a Codex skip gives none,
+# so `none` passes only when the PR existed before this run, <reused> = 1: for a PR this run created it records
+# checks-unregistered and a --run resume re-reads), a re-read head still H.
+# Then a squash/merge/rebase merge with --match-head-commit H: no --admin, no retry, no wait. Sets FM_NOTE to
+# "merged[; codex: skipped <reason>]" or "waits: <reason>" and emits final_pr_merge. --match-head-commit pins the head,
+# not the base: the base is re-read after the merge and an unreadable or other base escalates (story_merge SEC-2).
+# A --run resume re-runs every gate on the then-current head.
+final_merge() {
+    local NUM="$1" REPO="$2" N1H="$3" url="$4" draft="$5" isd="$6" mg="$7" def="$8" SB="$9" reused="${10}"
+    local rwt="$N1_QUEUE_DIR/final-$1-review" st="" base="" H="" h2="" mb="" out="" cx="" skip="" ci="" method="" err="" sfx=""
+    fm_end() { # <merged|waits> <note>
+        FM_NOTE="$2"
+        ev final_pr_merge ticket="$RUN_STORY_ID" pr="$url" outcome="$1" reason="$2"
+        echo "final PR: $REPO $2"
+    }
+    chain_authorized "$N1H" || { fm_end waits "waits: not-authorized"; return 0; }
+    { [ "$draft" = 0 ] && [ "$isd" != true ]; } || { fm_end waits "waits: draft"; return 0; }
+    case "$mg" in
+        MERGEABLE) ;;
+        CONFLICTING) fm_end waits "waits: conflicting"; return 0 ;;
+        *) fm_end waits "waits: mergeable-$(tr '[:upper:]' '[:lower:]' <<< "$mg")"; return 0 ;;
+    esac
+    IFS=$'\t' read -r st base H <<< "$(n1_queue_pr_view "$url")"
+    [ -n "$st" ] || { fm_end waits "waits: pr-state-unreadable"; return 0; }
+    [ "$st" = OPEN ] || { fm_end waits "waits: pr-not-open"; return 0; }
+    [ "$base" = "$def" ] || { fm_end waits "waits: wrong-base"; return 0; }
+    [[ "$H" =~ ^[0-9a-f]{40}$ ]] || { fm_end waits "waits: pr-state-unreadable"; return 0; }
+    # Codex at exactly H: a detached worktree of H (the user's checkout is never touched), BASE = merge-base with the default branch.
+    git -C "$REPO" worktree remove --force "$rwt" >/dev/null 2>&1 || true
+    if ! git -C "$REPO" fetch -q origin "+refs/heads/$SB:refs/remotes/origin/$SB" "+refs/heads/$def:refs/remotes/origin/$def" </dev/null >/dev/null 2>&1 \
+            || ! mb=$(git -C "$REPO" merge-base "$H" "refs/remotes/origin/$def" 2>/dev/null) \
+            || ! git -C "$REPO" worktree add -q --detach "$rwt" "$H" </dev/null >/dev/null 2>&1; then
+        git -C "$REPO" worktree remove --force "$rwt" >/dev/null 2>&1 || true
+        fm_end waits "waits: codex-checkout-failed"; return 0
+    fi
+    # Empty ID: raw Codex output stays next to the receipt, never in story memory. The session id only keys the receipt.
+    out=$(cd "$rwt" && N1_HOME="$N1H" N1_SESSION_ID="queue-${QUEUE_ID//[!A-Za-z0-9_-]/_}" N1_REVIEW_BRANCH="$SB" \
+        bash "$N1_ROOT/scripts/codex-pr-review.sh" "$mb" "" </dev/null 2>/dev/null)
+    git -C "$REPO" worktree remove --force "$rwt" >/dev/null 2>&1 || true
+    cx=$(sed -n 's/^codex_review_outcome=\([a-z]*\).*/\1/p' <<< "$out" | tail -n1)
+    case "$cx" in
+        skipped)   # user decision 2026-11-06: only an opt-out or a missing/unauthenticated CLI passes without a review
+            skip=$(sed -n 's/^codex_review_outcome=skipped reason=//p' <<< "$out" | tail -n1)
+            case "$skip" in
+                disabled|not-installed|no-auth) sfx="; codex: skipped $skip" ;;
+                *) fm_end waits "waits: codex-failed"; return 0 ;;
+            esac ;;
+        ran)
+            if ! grep -qx 'findings:none' <<< "$out"; then
+                if grep -q '^findings:file=' <<< "$out"; then fm_end waits "waits: codex-findings"
+                else fm_end waits "waits: codex-findings-unavailable"; fi
+                return 0
+            fi ;;
+        timeout) fm_end waits "waits: codex-timeout"; return 0 ;;
+        *) fm_end waits "waits: codex-failed"; return 0 ;;
+    esac
+    ci=$(n1_queue_checks_class "$url")
+    case "$ci" in
+        green) ;;
+        none) [ "$reused" = 1 ] || { fm_end waits "waits: checks-unregistered"; return 0; } ;;
+        *) fm_end waits "waits: checks-$ci"; return 0 ;;
+    esac
+    IFS=$'\t' read -r st base h2 <<< "$(n1_queue_pr_view "$url")"
+    [ -n "$st" ] || { fm_end waits "waits: pr-state-unreadable"; return 0; }
+    [ "$st" = OPEN ] || { fm_end waits "waits: pr-not-open"; return 0; }
+    [ "$base" = "$def" ] || { fm_end waits "waits: wrong-base"; return 0; }
+    [ "$h2" = "$H" ] || { fm_end waits "waits: head-moved"; return 0; }
+    method=$(N1_HOME="$N1H" n1_config_val '.finishWork.mergeMethod' 2>/dev/null)
+    case "$method" in squash|merge|rebase) ;; *) method=squash ;; esac
+    if ! err=$(timeout -k 30 120 gh pr merge "$url" "--$method" --match-head-commit "$H" </dev/null 2>&1 >/dev/null); then
+        echo "final PR: $REPO gh pr merge refused: $(head -n1 <<< "$err")"
+        if grep -q 'not mergeable' <<< "$err"; then fm_end waits "waits: dirty"; else fm_end waits "waits: merge-failed"; fi
+        return 0
+    fi
+    IFS=$'\t' read -r st base _ <<< "$(n1_queue_pr_view "$url")"
+    # A queued merge can leave the PR OPEN: a --run resume re-evaluates it.
+    if [ "$st" = OPEN ]; then fm_end waits "waits: merge-pending"; return 0; fi
+    if [ -z "$base" ]; then   # SEC-2 (as story_merge): an unreadable base is not a clean merge
+        ev escalated ticket="$RUN_STORY_ID" reason="runner merge base unverified"
+        n1_notify needs-you "Queue $QUEUE_ID: the runner merged final PR $url but could not read its base; check that it landed on $def"
+        fm_end waits "waits: merge-base-unverified"; return 0
+    fi
+    if [ "$base" != "$def" ]; then
+        ev escalated ticket="$RUN_STORY_ID" reason="runner merge landed on $base, not $def"
+        n1_notify needs-you "Queue $QUEUE_ID: the runner merged final PR $url but its base reads $base, not $def; check $base"
+        fm_end waits "waits: merged-off-default"; return 0
+    fi
+    fm_end merged "merged$sfx"
+}
+
 # final_pr <row#> <repo> <n1-home> — N1-293 (N1-289 D4/D6/D7): the final PR of one repo, from story/<id> into the repo's
 # default branch (first row's N1 Home wins, as at the story branch setup). No merged child: row only, no PR.
 # An OPEN PR for the head is reused (resume). Marker .final-<row#> (run id, pending|done) keeps one session per run.
@@ -777,9 +872,8 @@ final_none() {
 # checkout is never touched), launches one session there (conventions commit, push, gh pr create; --draft when a child
 # did not land), waits for it and removes the worktree. The PR is then re-derived through gh, never taken from session
 # output, and its mergeable state is read (no sync from the default branch, D6).
-# The runner never merges the final PR and launches no finish for it, whatever autonomy.fullAuto and
-# finishWork.mergeOnFinish say: no reviewed-head pin exists for it and its convention commit is unreviewed, so a human
-# reviews and merges it.
+# The row is then passed to final_merge (N1-424): with autonomy.fullAuto and finishWork.mergeOnFinish on, the runner
+# merges the PR once its gates pass; otherwise the Note says why it waits for a human. No finish is launched for it.
 final_pr() {
     local NUM="$1" REPO="$2" N1H="$3" SB="" SBID="" def="" nwo="" counts="" nl=0 nr=0 draft=0 mst="" found="" url="" isd=""
     local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1
@@ -839,6 +933,9 @@ final_pr() {
     n1_queue_final_pr_set "$QUEUE" "$REPO" "$url" "$dcell" "$mg${mss:+ ($mss)}" "$note" || echo "final PR: $REPO not recorded in queue.md"
     ev final_pr_opened ticket="$SBID" pr="$url" reason="$dcell mergeable=$mg"
     echo "final PR: $REPO -> $url ($dcell, mergeable $mg${mss:+ ($mss)})"
+    FM_NOTE=""
+    final_merge "$NUM" "$REPO" "$N1H" "$url" "$draft" "$isd" "$mg" "$def" "$SB" "$reused"
+    n1_queue_final_pr_set "$QUEUE" "$REPO" "$url" "$dcell" "$mg${mss:+ ($mss)}" "${note:+$note; }$FM_NOTE" || echo "final PR: $REPO not recorded in queue.md"
 }
 
 # final_prs — N1-293: story runs only, once every Plan row is terminal (none pending, held, in-progress or
