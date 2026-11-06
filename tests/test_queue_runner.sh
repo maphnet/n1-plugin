@@ -2009,13 +2009,27 @@ test_list_input_wiring() {
     assert_eq "list-input: QUEUE_ID is list-<8 hex>" "yes" "$([[ "$a" =~ ^list-[0-9a-f]{8}$ ]] && echo yes || echo no)"
     assert_eq "list-input: different keys give a different QUEUE_ID" "yes" "$([ "$a" != "$c" ] && echo yes || echo no)"
     # Run the item-1 resolve loop from input.md with real items and a stubbed URL extractor.
-    local blk out
-    blk=$(awk '/^```bash$/{b="";f=1;next} /^```$/{if(f&&b~/for ITEM in/){printf "%s",b;exit}f=0} f{b=b $0 "\n"}' "$in" | grep -v '^source ')
-    blk=${blk/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'N1-2' 'N1-2' 'N1-12' 'N1-1' 'notakey' 'https://x/browse/N1-7' 'https://x/bad' 'n1-5' 'a|PWN-1|x'"}
+    local raw blk out
+    raw=$(awk '/^```bash$/{b="";f=1;next} /^```$/{if(f&&b~/for ITEM in/){printf "%s",b;exit}f=0} f{b=b $0 "\n"}' "$in" | grep -v '^source ')
+    blk=${raw/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'N1-2' 'N1-2' 'N1-12' 'N1-1' 'notakey' 'https://x/browse/N1-7' 'https://x/bad' 'n1-5' 'a|PWN-1|x' 'but' 'maxConcurrent'"}
     out=$(n1_extract_ticket_from_url() { case "$1" in */browse/*) echo "${1##*/}" ;; *) return 1 ;; esac; }
         N1_HOME=/nonexistent; eval "$blk")
     assert_eq "list-input: loop keeps order, dedupes, resolves URLs" "KEYS= N1-2 N1-12 N1-1 N1-7" "$(grep '^KEYS=' <<<"$out")"
-    assert_eq "list-input: loop sends invalid keys and failed URLs to BAD only" "BAD= notakey https:__x_bad n1-5 a_PWN-1_x" "$(grep '^BAD=' <<<"$out")"
+    assert_eq "list-input: key-shaped typos and failed URLs go to BAD (N1-440)" "BAD= https:__x_bad n1-5" "$(grep '^BAD=' <<<"$out")"
+    assert_eq "list-input: other words go to PROSE, sanitized (N1-440)" "PROSE= notakey a_PWN-1_x but maxConcurrent" "$(grep '^PROSE=' <<<"$out")"
+    blk=${raw/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'but' 'change' 'maxConcurrent' 'to' '1' 'in' 'n1' 'config'"}
+    out=$(N1_HOME=/nonexistent; eval "$blk")
+    assert_eq "list-input: prose-only args yield no keys (N1-440)" "KEYS=|BAD=" "$(grep '^KEYS=' <<<"$out")|$(grep '^BAD=' <<<"$out")"
+    assert_eq "list-input: prose-only args are kept as an instruction (N1-440)" "PROSE= but change maxConcurrent to 1 in n1 config" "$(grep '^PROSE=' <<<"$out")"
+    # N1-440 rule text
+    assert_eq "list-input: never-infer rule (N1-440)" "yes" "$(hasF 'Never pick a tag, story or ticket list from conversation context, memory, config, a schedule or an existing queue dir, and never reuse a queue dir because it looks current.' "$in")"
+    assert_eq "list-input: prose alone still asks item 3 (N1-440)" "yes" "$(hasF '(prose alone counts as no input)' "$in")"
+    assert_eq "list-input: prose printed as a session instruction (N1-440)" "yes" "$(hasF 'Session instruction (not a ticket selector): ' "$in")"
+    assert_eq "list-input: prose never selects input (N1-440)" "yes" "$(hasF 'Never use prose as a ticket key, tag, story ID, path or shell word' "$in")"
+    assert_eq "list-input: no-valid-key needs BAD items (N1-440)" "yes" "$(hasF '`KEYS` is empty and `BAD` is not' "$in")"
+    assert_eq "list-input: interactive plans get a unique id (N1-440)" "yes" "$(hasF 'QUEUE_ID=$(n1_queue_new_id "$QUEUE_ID")' "$in")"
+    assert_eq "list-input: planning pointer written at intake (N1-440)" "yes" "$(hasF 'n1_queue_plan_state write "$QUEUE_ID" intake "$MODE" "$SRC"' "$in")"
+    assert_eq "list-input: no bare mkdir -p for interactive ids (N1-440)" "1" "$(grep -c 'mkdir -p "$N1_HOME/queue/$QUEUE_ID"' "$in")"
 }
 
 # N1-440: per-session queue planning pointer, unique plan ids, planning-dir discard.
