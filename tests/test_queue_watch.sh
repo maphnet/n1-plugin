@@ -283,6 +283,19 @@ test_ticket_watch_events_relayed() {
 }
 
 # N1-393. Bug caught: an errored Orca worker stop was invisible to the watch, so the user saw no sign of it.
+test_escalation_retracted_relayed() {
+    # N1-422 AC3: a merge after "needs you" prints a retraction and resets the ticket's dedupe, so an identical
+    # later escalation relays again.
+    local q out; q=$(newq q42)
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="chained n1-finish needs you"
+    ev "$q" R1 escalation_retracted ticket=T-1 session=0000abcd reason="PR merged"
+    ev "$q" R1 escalated ticket=T-1 session=0000abcd reason="chained n1-finish needs you"
+    ev "$q" R1 queue_done reason="0 PR"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    has   "retracted: line" "n1-queue q42: T-1 no longer needs you (PR merged)." "$out"
+    assert_eq "retracted: dedupe reset, identical re-ask relays" "2" "$(grep -cF 'T-1 needs you: chained n1-finish needs you' <<<"$out")"
+}
+
 test_worker_stopped_errored_relayed() {
     local q out; q=$(newq q-ws)
     ev "$q" R1 worker_stopped ticket=T-1 reason=$'stopped (errored): boom\e[2J'
@@ -312,6 +325,7 @@ test_escalated_plaintext_brace_reason_unchanged
 test_escalated_plaintext_long_reason_capped_at_300
 test_rejects_bad_input_and_sanitizes
 test_worker_stopped_errored_relayed
+test_escalation_retracted_relayed
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

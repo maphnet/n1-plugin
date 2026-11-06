@@ -123,6 +123,55 @@ test_orca_stop_finished_keeps_in_progress() {
     rm -rf "$tmp"
 }
 
+# N1-422 AC1/AC5. Bug caught: a "finished" stop notice (the worker only ended a turn) chained n1-finish against the
+# live worker; the finish hit the moved head and raised a false "needs you". The notice now only frees the slot; the
+# worker's later worker_done (after it merged its own PR) settles the row, with no chained finish, even when the
+# released dispatch reads exited/done in the worker list on the next tick.
+test_orca_stop_notice_then_resume_no_chain() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running unverifiable)"
+    echo OPEN > "$tmp/fake/gh-state"; touch "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    orca_msg escalation task-T-A m-stop1 finished "Worker stopped without reporting" "Worker ended its turn" > "$tmp/fake/q.stop"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/q.stop" "$tmp/fake/question" > "$tmp/fake/at.3"
+    # Tick 4: the released dispatch now reads exited/done in the worker list (as real Orca rows do); a resuming worker must not be chained.
+    wl_set "$tmp" "$(wl_row T-A released)"; cp "$tmp/fake/workers.json" "$tmp/fake/workers.released"
+    wl_set "$tmp" "$(wl_row T-A running unverifiable)"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/workers.released" "$tmp/fake/workers.json" > "$tmp/fake/at.4"
+    # Tick 5: the worker resumed, merged its own PR and now reports done.
+    printf 'echo MERGED > "%s"; rm -f "%s"\n' "$tmp/fake/gh-state" "$tmp/fake/nodone.T-A" > "$tmp/fake/at.5"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
+    assert_eq "orca-stop-resume: no chained n1-finish" "0" "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-fin')"
+    assert_eq "orca-stop-resume: released by the notice and by worker_done" "2" \
+        "$(grep -c 'worker-release --dispatch d-T-A' "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-resume: Runs outcome merged" "merged" "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "orca-stop-resume: merged recorded once" "1" \
+        "$(jq -r 'select(.event == "ticket_finished" and .outcome == "merged" and .ticket == "T-A") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    rm -rf "$tmp"
+}
+
+# N1-422 review. Bug caught: DEFERRED lived only in memory, so after a runner restart a released dispatch reading
+# exited/done passed the settlement guard and chained n1-finish while the worker could still resume.
+test_orca_stop_notice_deferral_survives_restart() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running unverifiable)"
+    echo OPEN > "$tmp/fake/gh-state"; touch "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    orca_msg escalation task-T-A m-stop1 finished "Worker stopped without reporting" "Worker ended its turn" > "$tmp/fake/q.stop"
+    printf 'cp "%s" "%s"\n' "$tmp/fake/q.stop" "$tmp/fake/question" > "$tmp/fake/at.3"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=4 > /dev/null
+    assert_eq "orca-defer-restart: marker persisted" "1" "$(ls "$tmp"/.deferred-* 2>/dev/null | wc -l | tr -d ' ')"
+    rm -f "$tmp/fake/at.3"
+    wl_set "$tmp" "$(wl_row T-A released)"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=4 > /dev/null
+    assert_eq "orca-defer-restart: no chained n1-finish" "0" "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-fin')"
+    rm -rf "$tmp"
+}
+
 test_orca_owed_holds_slot
 test_orca_notifier_drain_keeps_rows
 test_orca_event_drain_keeps_events
@@ -131,6 +180,8 @@ test_runner_loops_fd3
 test_orca_stop_finished_releases_pr_slot
 test_orca_stop_finished_same_tick_releases
 test_orca_stop_finished_keeps_in_progress
+test_orca_stop_notice_then_resume_no_chain
+test_orca_stop_notice_deferral_survives_restart
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -984,6 +984,79 @@ test_orca_chain_after_settle() {   # fullAuto chain stays a bg n1-finish, launch
     rm -rf "$tmp"
 }
 
+# N1-422 AC2/AC3. Bug caught: the chained finish wait read only the session state, so a PR the worker merged while the
+# finish sat blocked was recorded only after subtaskTimeoutMinutes, and its "needs you" was never retracted.
+test_orca_fin_blocked_sees_merge() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.subtaskTimeoutMinutes = 10'
+    echo OPEN > "$tmp/fake/gh-state"; printf 'OPEN\nOPEN\nOPEN\nMERGED\n' > "$tmp/fake/gh-state-seq"
+    echo blocked > "$tmp/fake/states.T-A.fin"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    assert_eq "orca-fin-merge: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-fin-merge: one chained n1-finish" "1" "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-fin')"
+    assert_eq "orca-fin-merge: needs you raised once" "1" \
+        "$(jq -r 'select(.event == "escalated" and .reason == "chained n1-finish needs you") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "orca-fin-merge: retracted once" "T-A,PR merged" \
+        "$(jq -r 'select(.event == "escalation_retracted") | [.ticket, .reason] | join(",")' "$tmp/events.jsonl" | paste -sd'|')"
+    assert_eq "orca-fin-merge: Runs outcome merged" "merged" "$(runs_outcome "$tmp/queue.md" T-A)"
+    assert_eq "orca-fin-merge: no escalated event after the retraction" "0" \
+        "$(jq -rs '[.[] | select(.ticket == "T-A" or .event == "escalation_retracted") | .event] | (index("escalation_retracted") // length) as $i | .[$i:] | map(select(. == "escalated")) | length' "$tmp/events.jsonl")"
+    assert_eq "orca-fin-merge: one needs-you in total" "1" "$(grep -c 'T-A.*needs you' "$tmp/notes" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-422 AC4. A blocked finish raises "needs you" once while its PR is OPEN, and none after the PR reads CLOSED; the row keeps its PR with a reason.
+test_orca_fin_blocked_pr_closed() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.subtaskTimeoutMinutes = 10'
+    echo OPEN > "$tmp/fake/gh-state"; printf 'OPEN\nOPEN\nCLOSED\n' > "$tmp/fake/gh-state-seq"   # pre-launch, first poll (blocked while OPEN), second poll
+    echo blocked > "$tmp/fake/states.T-A.fin"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    run_orca_queue "$tmp" > /dev/null
+    assert_eq "orca-fin-closed: one chained n1-finish" "1" "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-fin')"
+    assert_eq "orca-fin-closed: needs you raised once while OPEN" "1" \
+        "$(jq -r 'select(.event == "escalated" and .reason == "chained n1-finish needs you") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "orca-fin-closed: no retraction" "0" \
+        "$(jq -r 'select(.event == "escalation_retracted") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "orca-fin-closed: row reason" "finish:finish-pr-not-open" "$(plan_cell "$tmp/queue.md" 1 9)"
+    assert_eq "orca-fin-closed: no further escalated event" "1" "$(jq -r 'select(.event == "escalated") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "orca-fin-closed: one needs-you in total" "1" "$(grep -c 'T-A.*needs you' "$tmp/notes" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-422 CR-2. Bug caught: on Orca the finish session merges the PR itself and is still working (cleanup); ending the
+# wait on the MERGED read raced finish's own cleanup with the runner's n1-clean.
+test_orca_fin_working_merge_waits() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.subtaskTimeoutMinutes = 10'
+    echo OPEN > "$tmp/fake/gh-state"; printf 'OPEN\nOPEN\nMERGED\n' > "$tmp/fake/gh-state-seq"
+    echo "working working working done" > "$tmp/fake/states.T-A.fin"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    assert_eq "orca-fin-working-merge: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-fin-working-merge: n1-clean launches only after the finish session ended" "working working done" \
+        "$(grep -B3 'launch n1-oq-T-A-1-clean' "$tmp/fake/events" | grep -v launch | sed 's/.* //' | paste -sd' ')"
+    assert_eq "orca-fin-working-merge: Runs outcome merged" "merged" "$(runs_outcome "$tmp/queue.md" T-A)"
+    rm -rf "$tmp"
+}
+
+# N1-422 review. Bug caught: after MERGED any non-working state, including a transient "missing", ended the wait and
+# let the runner's cleanup overlap a finish session that was still cleaning up. Missing keeps the BG_POLL_GRACE.
+test_orca_fin_merged_missing_grace() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true | .queue.subtaskTimeoutMinutes = 10'
+    echo OPEN > "$tmp/fake/gh-state"; printf 'OPEN\nMERGED\n' > "$tmp/fake/gh-state-seq"
+    echo "working missing working done" > "$tmp/fake/states.T-A.fin"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    assert_eq "orca-fin-merged-missing: exit 0" "0" "$(run_orca_queue "$tmp")"
+    assert_eq "orca-fin-merged-missing: n1-clean launches only after the finish session ended" "working missing working done" \
+        "$(grep -B4 'launch n1-oq-T-A-1-clean' "$tmp/fake/events" | grep -v launch | sed 's/.* //' | paste -sd' ')"
+    rm -rf "$tmp"
+}
+
 test_orca_fallback_bg() {   # AC5: Orca available but not used, or unusable -> claude --bg exactly as before
     local tmp c rc want
     for c in backend-bg run-create-fails runtime-down; do
@@ -1281,6 +1354,10 @@ test_orca_done_without_dispatch_ignored
 test_orca_replay_not_timeout
 test_orca_worktree_list_unreadable
 test_orca_chain_after_settle
+test_orca_fin_blocked_sees_merge
+test_orca_fin_blocked_pr_closed
+test_orca_fin_working_merge_waits
+test_orca_fin_merged_missing_grace
 test_orca_fallback_bg
 test_orca_tick_cap
 test_orca_exit_trace_signals

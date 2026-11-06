@@ -890,7 +890,7 @@ chain_child_escalated() {
 # Every exit writes a "[NUM] TICKET chain: ..." line to runner.log (N1-240).
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
-    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" why=finish-timeout SB SBID aurl
+    local marker mstate rc=0 csid fsid st pst="" agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" mg="" why=finish-timeout SB SBID aurl
     # N1-240: every exit writes a runner.log line. The raw id is not echoed (it failed validation).
     case "$TICKET" in ''|*[!A-Za-z0-9_-]*) echo "[$NUM] chain: skipped (invalid-ticket-id)"; return 0 ;; esac
     story_env "$REPO" || { chain_note "$NUM" "$TICKET" story-branch-invalid; return 0; }
@@ -985,14 +985,27 @@ chain_finish() {
     echo "[$NUM] $TICKET n1-finish chained ($fsid)"
     waited=0
     while [ "$waited" -le "$TIMEOUT_SECS" ]; do
+        # N1-422 (Orca only): the worker may merge its own PR while this finish waits or sits blocked on the moved head.
+        # Read the PR on every poll: MERGED or closed ends the wait at once; an unreadable read never ends it.
+        if [ -n "${ORCA_RUN:-}" ]; then
+            pst=$(n1_queue_pr_state "$URL")
+            case "$pst" in
+                MERGED) mg=1 ;;  # CR-2: the wait ends once the finish session is no longer working (it is still cleaning up)
+                ''|OPEN) ;;
+                *) why=finish-pr-not-open; break ;;
+            esac
+        fi
         if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
             fails=0
             st=$(n1_queue_bg_state "$agents" "$fsid")
+            [ -n "$mg" ] && [ "$st" != working ] && [ "$st" != missing ] && { why=finish-merged; break; }
             case "$st" in
                 done|failed) why=finish-stopped; break ;;
-                missing) miss=$((miss + 1)); [ "$miss" -ge "$BG_POLL_GRACE" ] && { why=finish-not-listed; break; } ;;
+                # a missing session keeps the grace even after MERGED (it may still be cleaning up)
+                missing) miss=$((miss + 1)); [ "$miss" -ge "$BG_POLL_GRACE" ] && { why=finish-not-listed; [ -n "$mg" ] && why=finish-merged; break; } ;;
                 blocked)
-                    if [ -z "$asked" ]; then
+                    # N1-422: on Orca a blocked finish needs a human only while its PR is still OPEN.
+                    if [ -z "$asked" ] && { [ -z "${ORCA_RUN:-}" ] || [ "$pst" = OPEN ]; }; then
                         asked=1
                         ev escalated ticket="$TICKET" session="$fsid" reason="chained n1-finish needs you"
                         n1_notify needs-you "$TICKET n1-finish needs you (resume: $(n1_bg_cmd attach "$fsid"))"
@@ -1005,7 +1018,10 @@ chain_finish() {
         fi
         nap "$poll"; waited=$((waited + poll))
     done
-    if [ "$why" = finish-timeout ]; then
+    # N1-422: a merge after the "needs you" escalation tells the watching session the question no longer applies.
+    [ "$why" = finish-merged ] && [ -n "$asked" ] && ev escalation_retracted ticket="$TICKET" session="$fsid" reason="PR merged"
+    # CR-1: a merged or closed PR with a blocked finish is stopped here; DRAIN would re-escalate it.
+    if [ "$why" = finish-timeout ] || [ "$why" = finish-merged ] || [ "$why" = finish-pr-not-open ]; then
         bash -c "$(n1_bg_cmd stop "$fsid")" >/dev/null 2>&1
     else
         DRAIN+=("$fsid"$'\t'"$TICKET"$'\t'"$N1H")
@@ -1243,15 +1259,26 @@ launch_orca() {
     echo "[$NUM] $TICKET launched as Orca worker ($DISP)${WT:+, resumed in its existing worktree}"
 }
 
-# orca_settle <task> — release the worker, drop its sentinel, run the owed fullAuto chain (once). Uses run_orca's
-# SETTLED/OWED (dynamic scope). A task whose row is still in flight waits.
+# orca_settle <task> [defer] — release the worker, drop its sentinel, run the owed fullAuto chain (once). Uses run_orca's
+# SETTLED/OWED/DEFERRED (dynamic scope). A task whose row is still in flight waits.
+# N1-422: "defer" (a "stopped (finished)" notice: the worker only ended a turn and may resume and merge its own PR)
+# releases the worker and frees its slot once, but keeps the task owed: no SETTLED, no chain, sentinel and markers kept,
+# so worker_done, a worker-list exited/done row or the owed expiry still settle and chain it.
 orca_settle() {
     local TASK="$1" T DISP ROW NUM TICKET REPO N1H MODEL URL SB SBID fb=1
     [[ "$SETTLED" == *" $TASK "* ]] && return
     IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
     [ -n "$T" ] || return
     [ -z "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human' | awk -F'\t' -v t="$T" '$2 == t')" ] || return
-    SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"
+    if [ "${2:-}" = defer ]; then
+        [[ "$OWED" == *" $TASK "* && "$DEFERRED" != *" $TASK "* ]] || return
+        DEFERRED="$DEFERRED$TASK "
+        printf '%s\n' "$DISP" > "$N1_QUEUE_DIR/.deferred-${TASK//\//_}"   # survives a runner restart (restored with OWED)
+        n1_orca_release "$DISP"
+        return
+    fi
+    SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"; DEFERRED="${DEFERRED// $TASK / }"
+    rm -f "$N1_QUEUE_DIR/.deferred-${TASK//\//_}"
     n1_orca_release "$DISP"
     ROW=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t' | tail -1)
     if [ -n "$ROW" ]; then
@@ -1288,7 +1315,7 @@ run_orca() {
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
-    local LIVE="" LIVE_OK=0 DONE=" " STOPPED=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0
+    local LIVE="" LIVE_OK=0 DONE=" " STOPPED=" " SETTLED=" " OWED=" " DEFERRED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
     # N1-303: the plan pins max_concurrent; live config is read only for a plan made before it (legacy).
@@ -1310,6 +1337,9 @@ run_orca() {
         SID=$(n1_queue_session_id "$QUEUE" "$TICKET"); case "$SID" in orca:*/*) TASK="${SID#orca:}"; TASK="${TASK%%/*}" ;; *) continue ;; esac
         if [ "$(_n1_orca_sget "$(n1_orca_sentinel_path "$N1H" "$TICKET")" N1_ORCA_TASK)" = "$TASK" ]; then
             OWED="$OWED$TASK "
+            # a released dispatch stays deferred across a restart, so its exited/done row cannot start the finish
+            IFS=$'\t' read -r _ DISP <<< "$(orca_row_of_task "$TASK")"
+            [ -n "$DISP" ] && [ "$(cat "$N1_QUEUE_DIR/.deferred-${TASK//\//_}" 2>/dev/null)" = "$DISP" ] && DEFERRED="$DEFERRED$TASK "
         elif [ "$RUN_MODE" = story ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ]; then
             # CR-1: a settled story row whose merge was refused or interrupted is re-evaluated on resume, as the bg
             # restart sweep does. An existing marker is interpreted by chain_finish (pending re-merges, done records an
@@ -1390,8 +1420,9 @@ run_orca() {
                     esac ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" "" "$EXTRA" ;;
                 # N1-359: Orca's "worker stopped without reporting" notice is not a human question: record it; the row is
-                # never changed here. N1-394: a "finished" notice also settles the task after the row loop (orca_settle
-                # skips a row still in-progress/awaiting-human, so only a final row's owed slot is released). Reconcile (worker exited/done) and subtaskTimeoutMinutes still end a worker that never resumes.
+                # never changed here. N1-394/N1-422: a "finished" notice for a final row releases the worker and frees its
+                # owed slot after the row loop (orca_settle defer), but never chains: the worker only ended a turn and may
+                # resume and merge its own PR. worker_done, reconcile (worker exited/done) and the owed expiry settle it later.
                 escalation-stop)
                     echo "[orca] $T worker stopped without reporting (row unchanged)"
                     ev worker_stopped ticket="$T" reason="$EXTRA"
@@ -1556,15 +1587,17 @@ run_orca() {
         # not a ticket worker). Re-settling after a restart is guarded by SETTLED, idempotent release and .chained-<ticket>.
         # A worker-list row settles only the dispatch the Runs row holds for its task.
         for TASK in $DONE; do orca_settle "$TASK"; done
-        for TASK in $STOPPED; do orca_settle "$TASK"; done
+        for TASK in $STOPPED; do orca_settle "$TASK" defer; done   # N1-422: slot release only, never a chain
         while IFS=$'\t' read -r -u 3 L TASK; do
             _n1_orca_id "$TASK" || continue
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
-            [ -n "$T" ] && [ "$L" = "$DISP" ] && orca_settle "$TASK"
+            # N1-422: a deferred task is settled only by worker_done or the owed expiry; a released dispatch reads exited/done here.
+            [ -n "$T" ] && [ "$L" = "$DISP" ] && [[ "$DEFERRED" != *" $TASK "* ]] && orca_settle "$TASK"
         done 3< <(awk -F'\t' '$3 == "exited" || $4 == "done" { print $1 "\t" $2 }' <<< "$LIVE")
 
         # Unsettled workers (finished or timed-out rows whose worker is not proven exited or durably finished) still hold a slot.
-        OWEDN=$(wc -w <<< "$OWED")
+        # N1-422: a task deferred by a "finished" stop notice stays owed (still settled and chained later) but holds no slot.
+        OWEDN=0; for TASK in $OWED; do [[ "$DEFERRED" == *" $TASK "* ]] || OWEDN=$((OWEDN + 1)); done
         while [ -z "$HALT_DRAIN" ] && [ $((INFLIGHT + OWEDN)) -lt "$MAXC" ]; do
             # N1-303 (N1-269 rule): the first ELIGIBLE pending row (every ## Schedule predecessor released).
             ROW=$(n1_queue_eligible_rows "$QUEUE" "$MERGE"); ROW="${ROW%%$'\n'*}"
