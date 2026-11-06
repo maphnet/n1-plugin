@@ -15,6 +15,7 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SKILL="$REPO_ROOT/skills/n1-start/steps/analysis.md"
+LIB="$REPO_ROOT/lib/analysis.sh"   # N1-436: the analysis step's shell lines live here
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 
 PASS=0
@@ -35,12 +36,12 @@ source "$REPO_ROOT/lib/telemetry.sh"
 # Extract the condition JSON from the skill file. It must be on one line,
 # matching the simplicity-gate precedent in implementation.md.
 # ---------------------------------------------------------------------------
-COND=$(grep -A1 -F 'n1_record_decision lite-analysis-gate' "$SKILL" | grep -o '{.*}' | head -1)
+COND=$(grep -A1 -F 'n1_record_decision lite-analysis-gate' "$LIB" | grep -o '{.*}' | head -1)
 
 if [ -n "$COND" ] && echo "$COND" | jq -e . >/dev/null 2>&1; then
     pass "T1: condition JSON extracted from skill and is valid JSON"
 else
-    fail "T1: could not extract a single-line condition JSON from $SKILL"
+    fail "T1: could not extract a single-line condition JSON from $LIB"
     echo; echo "Passed: $PASS  Failed: $FAIL"; exit 1
 fi
 
@@ -129,22 +130,22 @@ assert_contains "T24: lite escape-hatch directive exists" "$SKILL" \
 assert_contains "T25: standards research gated off in lite" "$SKILL" \
     "Cold/stale+cache+non-lite"
 # T26: LITE_MODE guard present in bash project-map one-liner
-assert_contains "T26: project map one-liner is lite-aware" "$SKILL" \
+assert_contains "T26: project map one-liner is lite-aware" "$LIB" \
     '[ "$LITE_MODE" != "true" ] && { [ ! -f "$PROJECT_MAP_PATH" ]'
 # T27 removed: covered by T26 and T32 (same guard, same line)
 assert_contains "T28: observability skipped in lite" "$SKILL" \
     "skip if LITE"
-assert_contains "T29: LITE_ESCALATED parsed" "$SKILL" \
+assert_contains "T29: LITE_ESCALATED parsed" "$LIB" \
     "grep -m1 '^LITE_ESCALATED:'"
 # T30/T31/T34/T35/T36/T37/T38 removed: verbose directive headings were
 # intentionally compressed in NP-110; behavioral correctness is covered by
 # T2-T12 (condition JSON truth table), T26, T32, and T43-T46 (execution).
 # T32: project-map one-liner skips when LITE_MODE=true (compressed form)
-assert_contains "T32: project-map verification skipped in lite" "$SKILL" \
+assert_contains "T32: project-map verification skipped in lite" "$LIB" \
     '[ "$CACHE_STATE" != "fresh" ] && [ "$CACHE_ENABLED" = "true" ] && [ "$LITE_MODE" != "true" ]'
 # T33: downstream bash blocks re-read context via n1_read_context (replaces
 # the old multi-line re-derivation block with comment)
-assert_contains "T33: downstream blocks use n1_read_context to restore LITE_MODE" "$SKILL" \
+assert_contains "T33: downstream blocks use n1_read_context to restore LITE_MODE" "$LIB" \
     "n1_read_context"
 
 # ---------------------------------------------------------------------------
@@ -158,11 +159,11 @@ assert_contains "T33: downstream blocks use n1_read_context to restore LITE_MODE
 # After NP-110 compression LITE_MODE=false is the tail of a multi-statement
 # line (line 14) and the conditional is a separate line (line 15). Extract
 # the conditional line which contains the predicate logic.
-PRED_COND=$(grep -m1 'LITE_MODE=true$' "$SKILL")
+PRED_COND=$(grep -m1 'LITE_MODE=true$' "$LIB")
 if [ -n "$PRED_COND" ]; then
-    pass "T39: LITE_MODE predicate conditional is present in skill"
+    pass "T39: LITE_MODE predicate conditional is present in lib/analysis.sh"
 else
-    fail "T39: LITE_MODE predicate conditional missing from skill"
+    fail "T39: LITE_MODE predicate conditional missing from lib/analysis.sh"
 fi
 
 # Evaluate the predicate (init + conditional) against the truth table.
@@ -205,9 +206,9 @@ assert_contains "T42: telemetry.md documents the lite-analysis-gate decision id"
 # ---------------------------------------------------------------------------
 
 # Extract the one-liner that checks project-map persistence.
-MAP_LINE=$(grep -m1 'echo "Project map persistence failed' "$SKILL")
+MAP_LINE=$(grep -m1 'echo "Project map persistence failed' "$LIB")
 # Extract the one-liner that checks snapshot persistence.
-SNAP_LINE=$(grep -m1 'echo "Snapshot persistence failed' "$SKILL")
+SNAP_LINE=$(grep -m1 'echo "Snapshot persistence failed' "$LIB")
 
 run_oneliner() {
     # $1=line $2=CACHE_STATE $3=CACHE_ENABLED $4=LITE_MODE $5=PROJECT_MAP_PATH $6=SNAPSHOT_PATH
