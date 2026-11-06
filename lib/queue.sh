@@ -129,7 +129,8 @@ _n1_word_overlap() {
 
 n1_queue_child_status() {
     # Usage: n1_queue_child_status <overview.md> <exit-code> [strict]
-    # Prints: pr | escalated | failed | running — pr needs pr_url at step pr (N1-53)
+    # Prints: pr | no-pr | escalated | failed | running — pr needs pr_url at step pr (N1-53); step done with no
+    # recorded pr_url is no-pr (N1-470: the child ended without a PR, e.g. an investigation or git.prMode skip)
     # strict=1 (NP-216 live-poll callers): only step:escalated counts as escalated.
     # ## Escalations is an append-only log (lib/memory.sh) that also gets an entry
     # in ask-mode while the child continues past the question — its mere presence
@@ -145,8 +146,10 @@ n1_queue_child_status() {
     # frontmatter step:pr and records pr_url in the same instruction, but as two separate,
     # non-atomic writes (N1-53): a live/bg-poll read of overview.md landing between them sees
     # step:pr with no pr_url yet. Terminal only once pr_url is actually recorded.
+    # N1-470: step done without pr_url is its own terminal status; ci always follows a recorded PR.
     case "$step" in
-        ci|done) printf 'pr'; return ;;
+        ci) printf 'pr'; return ;;
+        done) if [ -n "$(n1_queue_child_pr_url "$overview")" ]; then printf 'pr'; else printf 'no-pr'; fi; return ;;
         pr) if [ -n "$(n1_queue_child_pr_url "$overview")" ]; then printf 'pr'; return; fi ;;
     esac
     if [ "$step" = "escalated" ] || { [ "$strict" != "1" ] && [ -n "$(n1_queue_escalation_text "$overview")" ]; }; then

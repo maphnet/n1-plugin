@@ -152,12 +152,13 @@ test_child_status() {
 
     printf -- '---\nstep: pr\n---\n# T\n\n## Pending\nawaiting: merge\npr_url: https://x/pr/1\n' > "$tmp/pr.md"
     printf -- '---\nstep: pr\n---\n# T\n' > "$tmp/pr-nourl.md"
-    printf -- '---\nstep: ci\n---\n# T\n' > "$tmp/ci.md"
+    printf -- '---\nstep: ci\n---\n# T\n\n## Pending\npr_url: https://x/pr/1\n' > "$tmp/ci.md"
     printf -- '---\nstep: done\n---\n# T\n' > "$tmp/done.md"
+    printf -- '---\nstep: done\n---\n# T\n\n## Finish\npr_url: https://x/pr/1\n' > "$tmp/done-url.md"
     printf -- '---\nstep: escalated\n---\n# T\n\n## Escalations\n- blocked\n' > "$tmp/esc.md"
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- QA fail\n' > "$tmp/esc2.md"
     printf -- '---\nstep: implementation\n---\n# T\n' > "$tmp/mid.md"
-    printf -- '---\nstep: done\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n\npr_url: https://example.com/pr/1\n' > "$tmp/asked-done.md"
+    printf -- '---\nstep: done\n---\n# T\n\n## Escalations\n- [asked] resolved, continuing\n\n## Finish\npr_url: https://example.com/pr/1\n' > "$tmp/asked-done.md"
     printf -- '---\nstep: qa\n---\n# T\n\n## Escalations\n- Plan review: FIXED - x\n- Approach A auto-decided\n' > "$tmp/benign.md"
 
     assert_eq "qstatus: step pr -> pr" "pr" "$(n1_queue_child_status "$tmp/pr.md" 0)"
@@ -166,7 +167,10 @@ test_child_status() {
     assert_eq "qstatus: step pr without url, exit 1 -> failed" "failed" "$(n1_queue_child_status "$tmp/pr-nourl.md" 1)"
     assert_eq "qstatus strict: step pr without url -> running" "running" "$(n1_queue_child_status "$tmp/pr-nourl.md" 0 1)"
     assert_eq "qstatus: step ci -> pr" "pr" "$(n1_queue_child_status "$tmp/ci.md" 0)"
-    assert_eq "qstatus: step done -> pr" "pr" "$(n1_queue_child_status "$tmp/done.md" 0)"
+    # N1-470: step done with no recorded pr_url ended without a PR (investigation, prMode skip).
+    assert_eq "qstatus: step done without url -> no-pr" "no-pr" "$(n1_queue_child_status "$tmp/done.md" 0)"
+    assert_eq "qstatus strict: step done without url -> no-pr" "no-pr" "$(n1_queue_child_status "$tmp/done.md" 0 1)"
+    assert_eq "qstatus: step done with url -> pr" "pr" "$(n1_queue_child_status "$tmp/done-url.md" 0)"
     assert_eq "qstatus: step escalated" "escalated" "$(n1_queue_child_status "$tmp/esc.md" 0)"
     assert_eq "qstatus: escalations section" "escalated" "$(n1_queue_child_status "$tmp/esc2.md" 0)"
     assert_eq "qstatus: mid-run exit 0 -> running" "running" "$(n1_queue_child_status "$tmp/mid.md" 0)"
