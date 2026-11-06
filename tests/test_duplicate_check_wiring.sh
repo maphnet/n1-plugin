@@ -58,6 +58,11 @@ close_has "N1-443: Close never reports a failed close as closed" 'Never print `C
 close_has "N1-443: Close never runs unattended" 'Never runs when `HEADLESS=1`'
 if grep -qF 'Close as duplicate' <<<"$(sed -n '/^   - \*\*Otherwise\*\*/,/^### 5\. Record/p' "$P")"; then echo "FAIL: N1-443: create prompt has no Close option"; FAIL=1; else echo "PASS: N1-443: create prompt has no Close option"; fi
 if grep -qiE 'merge|closed by|will be closed' <<<"$(grep -F 'Exclude from this queue run' "$P")"; then echo "FAIL: N1-443: Exclude text does not claim a close by merge"; FAIL=1; else echo "PASS: N1-443: Exclude text does not claim a close by merge"; fi
+check "N1-443: preview handles DUP_CHOICE close" "On \`close\`, .*duplicate: <HIT_IDs> closed \(plan\)" skills/n1-queue/steps/preview.md
+check "N1-443: preview --unattended never takes Close" "\`--unattended\`: do not ask; take \*\*Continue\*\*.*never Close" skills/n1-queue/steps/preview.md
+check "N1-443: run.md step 5 handles DUP_CHOICE close" "Duplicate check \(unconditional.*DUP_CHOICE=close.*closed \(plan\)" skills/n1-queue/steps/run.md
+check "N1-443: run.md step 5 --unattended never takes Close" "Duplicate check \(unconditional.*\`--unattended\`: do not ask; take \*\*Continue\*\*, never Close" skills/n1-queue/steps/run.md
+check "N1-443: architecture.md lists the close outcome" "continue, link, exclude, or close as duplicate" references/architecture.md
 check "architecture.md documents the procedure" "references/duplicate-check\.md" references/architecture.md
 
 check "n1-ticket runs the check before creation" "duplicate-check\.md. § Check" skills/n1-ticket/steps/02-create.md
