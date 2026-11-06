@@ -18,6 +18,9 @@ check "intake.md enumerates Reason values (tag match / story subtask)" \
 check "intake.md enumerates Epic Reason values after story subtask (N1-298)" \
     'story subtask.*epic subtask of <STORY_KEY>.*epic child' \
     skills/n1-queue/steps/intake.md
+check "intake.md enumerates the list Reason value (N1-423)" \
+    'epic child.*`list` for list-mode candidates' \
+    skills/n1-queue/steps/intake.md
 check "intake.md expands Done-class Epic children too (N1-298)" \
     'expand every child, including those just classified `done-before-run`' \
     skills/n1-queue/steps/intake.md

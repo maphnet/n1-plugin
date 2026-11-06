@@ -171,6 +171,30 @@ WEOF2
     rm -rf "$tmp"
 }
 
+# N1-423: a list queue (mode: list) is untagged: children get no N1_QUEUE_TAG and the
+# tag-release backstop never fires, even for a failed row.
+test_runner_list_mode_untagged() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" list-0a1b2c3d "T-R:done" "T-F:failed"
+    sed -i 's/^queue_id: list-0a1b2c3d$/&\nmode: list/' "$tmp/queue.md"
+    cat > "$tmp/release-seen.sh" <<WEOF2
+#!/usr/bin/env bash
+printf '%s\n' "\$1" > "$tmp/release-called"
+WEOF2
+    chmod +x "$tmp/release-seen.sh"
+    export N1_QUEUE_RELEASE_STUB="$tmp/release-seen.sh"
+    run_bg_queue "$tmp" >/dev/null
+    unset N1_QUEUE_RELEASE_STUB
+
+    local st="$tmp/fake/settings.n1-list-0a1b2c3d-T-R-1"
+    assert_eq "list-mode: child launched" "yes" "$([ -f "$st" ] && echo yes || echo no)"
+    assert_eq "list-mode: child gets no N1_QUEUE_TAG" "" "$(jq -r '.env.N1_QUEUE_TAG // ""' "$st" 2>/dev/null)"
+    assert_eq "list-mode: no tag-release backstop" "not called" \
+        "$(cat "$tmp/release-called" 2>/dev/null || echo "not called")"
+
+    rm -rf "$tmp"
+}
+
 test_bg_sequential() {
     local tmp; tmp=$(mktemp -d)
     mk_bg "$tmp" bgq "T-A:working working done" "T-B:done"
@@ -1124,6 +1148,7 @@ test_runner_all_pr
 test_runner_tag_release
 test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
+test_runner_list_mode_untagged
 test_runner_story_branches
 test_bg_sequential
 test_bg_awaiting

@@ -1,6 +1,6 @@
 # Intake
 
-Builds the candidate list for the queue. Two modes: tag (search tracker) or story (subtasks of a parent).
+Builds the candidate list for the queue. Three modes: tag (search tracker), story (subtasks of a parent) or list (ticket keys the user named, `steps/input.md`).
 
 **Key validation.** Before any step below uses a candidate's `<KEY>` in a path (`$N1_HOME/memory/<KEY>/`, later `<QUEUE_DIR>/desc/<KEY>.txt`) or as `SELF_ID`, check it against `^[A-Z][A-Z0-9_]*-[0-9]+$` (SEC-L4). A key that doesn't match — a malformed tracker response, never a real ticket ID — is excluded with reason `invalid ticket key`; skip its `READ_OP` call and every later step for it.
 
@@ -64,9 +64,13 @@ fi
 - No matching config -> ask the user: **Enter path**, **Skip** (Status `skip`, reason "no repo"), **Cancel**. `--unattended`: Skip without asking.
 - Matched config but empty `REPO` -> ask for path, validate, backfill. `--unattended`: Skip (Status `skip`, reason "no repo") without asking.
 
-## Story check (tag mode only)
+## List mode
 
-A tagged story is never expanded into the queue; the user runs it explicitly in story mode. Exclusion reason: `story: run with --story <ID>`.
+`KEYS` and `BAD` come from `<N1_ROOT>/skills/n1-queue/steps/input.md`. Each `BAD` item is excluded with reason `invalid ticket key`; every key in `KEYS` already passed § Key validation. No search, no `maxTickets` cap and no already-run check (a list run never releases a tag, so `n1_queue_already_run` would exclude every re-listed ticket). Run § Tag mode's clear-and-mark bash call for every key in `KEYS`, then call `mcp__<TRACKER_MCP>__<READ_OP>` for each key as in § Tag mode. A key the tracker reports as not found or not accessible (a typo or another project) is excluded with reason `not found` and its later steps are skipped; any other read error follows Error Recovery. Classify each status as in § Story mode: done-class -> excluded `done-before-run`; every other status -> candidate with Reason `list`. Repo and N1 Home: as in § Tag mode.
+
+## Story check (tag and list mode)
+
+A tagged or listed story is never expanded into the queue; the user runs it explicitly in story mode. Exclusion reason: `story: run with --story <ID>`.
 - **Jira:** subtasks are not issue links. If the candidate's type (from `READ_OP`) is `Story` or `Epic`, search JQL `parent = <KEY> AND statusCategory != Done`, maxResults 1. Any hit -> exclude.
 - **YouTrack:** call `mcp__<TRACKER_MCP>__<LINKS_OP>` (skip when `LINKS_OP` is empty). If the candidate is the parent of any `subtask` link whose target is not done -> exclude.
 
@@ -109,7 +113,7 @@ If no size field, default to `sonnet`.
 ## Output
 
 Build two lists:
-- **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration; `epic subtask of <STORY_KEY>` and `epic child` for Epic-mode candidates, § Story mode Epic expansion)
-- **Excluded**: `Ticket`, `Reason` (already run, blocked, story, no usable content, skip, done-before-run)
+- **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration; `epic subtask of <STORY_KEY>` and `epic child` for Epic-mode candidates, § Story mode Epic expansion; `list` for list-mode candidates)
+- **Excluded**: `Ticket`, `Reason` (already run, blocked, story, no usable content, skip, done-before-run, invalid ticket key, not found)
 
 If no candidates: "No actionable tickets found." **STOP.**

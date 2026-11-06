@@ -1990,6 +1990,16 @@ test_list_input_wiring() {
     assert_eq "list-input: no valid key stops" "yes" "$(hasF 'No valid ticket keys in the list.' "$in")"
     assert_eq "list-input: missing-input prompt says No recommendation" "yes" \
         "$(hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$in")"
+    assert_eq "list-input: intake has List mode" "yes" "$(has '^## List mode$' "$s/steps/intake.md")"
+    assert_eq "list-input: list mode skips the already-run check" "yes" \
+        "$(sed -n '/^## List mode$/,/^## /p' "$s/steps/intake.md" | grep -qF 'no already-run check' && echo yes || echo no)"
+    assert_eq "list-input: list mode excludes invalid items" "yes" \
+        "$(sed -n '/^## List mode$/,/^## /p' "$s/steps/intake.md" | grep -qF 'invalid ticket key' && echo yes || echo no)"
+    assert_eq "list-input: list mode excludes unreadable keys" "yes" \
+        "$(sed -n '/^## List mode$/,/^## /p' "$s/steps/intake.md" | grep -qF 'reason `not found`' && echo yes || echo no)"
+    assert_eq "list-input: Story check covers list mode" "yes" "$(has '^## Story check \(tag and list mode\)$' "$s/steps/intake.md")"
+    assert_eq "list-input: plan header allows mode list" "yes" "$(hasF 'mode: tag|story|list' "$s/steps/run.md")"
+    assert_eq "list-input: revalidation covers list mode" "yes" "$(hasF 'story and list mode: done-class per intake.md § Story mode' "$s/steps/run.md")"
     local line a b c
     line=$(grep -m1 'list-%08x' "$in")
     a=$(KEYS=" N1-2 N1-10 N1-2"; eval "$line"; printf '%s' "$QUEUE_ID")

@@ -52,7 +52,7 @@ Otherwise, `STEP` is not `planned` (or queue.md is missing): print "No saved pla
 
 `STALE=yes` (planned more than `STALE_HOURS` hours ago, or age unknown): re-validate every Plan row with Status `pending` or `held`, one row at a time, in this order (cheapest exclusion first, so a row headed for skip/exclude never pays for a later check on itself):
 1. Call `mcp__<TRACKER_MCP>__<READ_OP>` for the ticket.
-2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed"` (fixed literal: a status name can contain quotes). Record the new status in the change summary. Continue to the next row.
+2. Status no longer a candidate (tag mode: not `TODO_STATUS`; story and list mode: done-class per intake.md § Story mode): `n1_queue_row_status "$QUEUE_FILE" <#> skip "status changed"` (fixed literal: a status name can contain quotes). Record the new status in the change summary. Continue to the next row.
 3. **Blocker check (unconditional, every pending or held row that survived step 2):** follow intake.md § Blocker check for this ticket. Blocked -> `n1_queue_row_status "$QUEUE_FILE" <#> skip "blocked by <ID>"`, record in the change summary, continue to the next row. Same-plan blocker (intake's held case) -> `n1_queue_row_status "$QUEUE_FILE" <#> held "blocked_on <ID>"` and keep going. A held row keeps Status `held` through step 7. No open blocker left on a row that was `held` (its `blocked_on` ticket is now done) -> release it: `n1_queue_row_status "$QUEUE_FILE" <#> pending "<Reason>"`, where `<Reason>` is its current Reason with the `blocked_on <ID> · ` prefix removed (passed from a file-written `cells.tsv` line, as in step 7), record the release in the change summary, and keep going.
 4. **Before the duplicate check, read this row's current `## Decisions` values once (single read, reused through step 7 — `n1_queue_decisions_write_row` is a full-row replace, so every field it doesn't get must be carried forward from this read, never left blank):**
    ```bash
@@ -121,7 +121,7 @@ Write `$QUEUE_DIR/queue.md` with EXACT section order (the runner assumes `## Run
 ```markdown
 ---
 queue_id: <QUEUE_ID>
-mode: tag|story
+mode: tag|story|list
 story_id: <ID or empty>
 step: planned
 max_concurrent: <MAX_CONCURRENT>
