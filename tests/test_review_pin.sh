@@ -202,6 +202,12 @@ echo stale > "$E/memory/T-1/fix.diff"; ( n1_increment_counter() { :; }; ID=T-1; 
 eq "gate: unknown reviewed head empties fix.diff (full-scope re-review)" "0" "$(wc -c < "$E/memory/T-1/fix.diff" | tr -d ' ')"
 rv r2 "$H13"
 eq "gate: re-review at the moved HEAD re-anchors the chain" "0" "$(n1_review_artifacts_ok "$T/home" "$H13" >/dev/null; echo $?)"
+# SEC-1: a FAIL verdict (Step 8 Exhausted) plus a later unrecorded commit never routes to re-review.
+printf '### Verdict: FAIL\n' > "$R/review.md"; H15=$(gc after-exhausted); tip "$H15"; echo stale > "$R/fix.diff"
+out=$( ( n1_increment_counter() { :; }; ID=T-1; eval "$GB" ) 2>/dev/null )
+eq "gate: FAIL verdict + unrecorded commit continues to n1-pr (no re-review)" "PRE_PR_GATE=2 T-1" "${out%% PRE_PR_REVIEW_CYCLE=*}"
+eq "gate: FAIL verdict leaves fix.diff untouched" "stale" "$(cat "$R/fix.diff")"
+eq "gate: FAIL verdict + unrecorded commit keeps the pin refused" "1" "$(pin "$H15" >/dev/null; echo $?)"
 rm -rf "$R" "$T/home/active-run.json" "$P11"
 
 # Wiring (N1-405): step 3 pins the PR head and never runs Codex; the pre-push scope gate records the fix head.
