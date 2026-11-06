@@ -2093,6 +2093,10 @@ test_list_input_wiring() {
     assert_eq "goal-input: option list follows the recommended-option rule" "yes" "$(hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$gm")"
     assert_eq "goal-input: no Recommended label" "no" "$(hasF '(Recommended)' "$gm")"
     assert_eq "goal-input: returns GOAL=goal" "yes" "$(hasF '`GOAL=goal`' "$gm")"
+    # N1-441: SKILL.md surface
+    assert_eq "goal-input: description lists --goal" "yes" "$(sed -n '3p' "$s/SKILL.md" | grep -qF '[--story <ID>] [--goal <text>] [--plan]' && echo yes || echo no)"
+    assert_eq "goal-input: argument-hint lists --goal" "yes" "$(sed -n '4p' "$s/SKILL.md" | grep -qF '[--story <ID>] [--goal <text>] [--plan]' && echo yes || echo no)"
+    assert_eq "goal-input: Input section parses --goal" "yes" "$(hasF '`--goal "<text>"` (goal mode: rank To Do tickets, user approves)' "$s/SKILL.md")"
 }
 
 # N1-440: per-session queue planning pointer, unique plan ids, planning-dir discard.
