@@ -16,7 +16,7 @@ T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 #    PR create, attended or headless; a default-branch push stays denied (unattended gate).
 WT="$T/wt"; git init -q -b feat/x "$WT"
 pol() { local rc=0; jq -cn --arg c "$1" --arg w "$WT" '{agent_type:"n1:pr-worker",tool_name:"Bash",session_id:"s-pr",cwd:$w,tool_input:{command:$c}}' \
-    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS ${N1H:+N1_HEADLESS=$N1H} python3 hooks/enforce-agent-policy.py "" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS ${N1H:+N1_HEADLESS=$N1H} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
 for N1H in "" 1; do
     eq "guard[headless=$N1H]: feature push allowed" 0 "$(pol 'source ~/.n1/preamble.sh; n1_codex_gate_check "T-1" && git push -u origin feat/x')"
     eq "guard[headless=$N1H]: force-with-lease feature push allowed" 0 "$(pol 'git push --force-with-lease -u origin feat/x')"
@@ -26,6 +26,20 @@ N1H=1
 eq "guard: default-branch push still denied for pr-worker" 2 "$(pol 'git push origin HEAD:main')"
 eq "guard: gh pr merge still denied for pr-worker" 2 "$(pol 'gh pr merge 7 --squash')"
 N1H=
+# SEC-1: merging authorized (mergeOnFinish + fullAuto) must not loosen pr-worker
+CFG="$T/auth.json"; echo '{"finishWork":{"mergeOnFinish":true},"autonomy":{"fullAuto":true}}' > "$CFG"
+for N1H in "" 1; do
+    eq "authorized[headless=$N1H]: gh pr merge denied" 2 "$(pol 'gh pr merge 7 --squash')"
+    eq "authorized[headless=$N1H]: default push denied" 2 "$(pol 'git push origin HEAD:main')"
+    eq "authorized[headless=$N1H]: --confirmed pin denied" 2 "$(pol 'source ~/.n1/preamble.sh; n1_review_pin set 7 --confirmed')"
+    eq "authorized[headless=$N1H]: run pointer clear denied" 2 "$(pol 'n1_active_run_clear')"
+    eq "authorized[headless=$N1H]: step end denied" 2 "$(pol 'n1_step_end pr 1 success')"
+    eq "authorized[headless=$N1H]: branch delete denied" 2 "$(pol 'git branch -D feat/x')"
+    eq "authorized[headless=$N1H]: feature push allowed" 0 "$(pol 'git push -u origin feat/x')"
+    eq "authorized[headless=$N1H]: gh pr create allowed" 0 "$(pol 'gh pr create --title t --body-file /tmp/b --base main')"
+    eq "authorized[headless=$N1H]: gh pr comment allowed" 0 "$(pol 'gh pr comment 7 --body-file /tmp/c')"
+done
+CFG=; N1H=
 
 # 2. Persona contract: inherit-all tools, never merges, asks, clears or releases; prompt stops carry "prompt:".
 P=agents/pr-worker.md

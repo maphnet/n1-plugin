@@ -491,19 +491,30 @@ def sentinel_deny(payload: dict) -> int:
     return 0
 
 
+# N1-435 SEC-1: pr-worker keeps feature push, gh pr create and gh pr comment; everything else orchestrator-owned is denied
+PR_WORKER_DENY_RE = re.compile(r"\bgh\s+pr\s+merge\b|\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm|step_begin|step_end)\b|--confirmed|n1-release|\bn1-clean\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?(worktree\s+(rm|remove)|branch\s+(-\w*[dD]\w*|--delete))\b")
+
+
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     # N1-230 SEC-2: the tail-worker never merges, clears the run pointer or releases, even when merging is authorized
     tail = persona_of(str(payload.get("agent_type") or "")) == "tail-worker"
+    pr = False
     if tail:
         cmd = _command(payload) or ""
         if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
             sys.stderr.write("N1: tail-worker may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
+    elif persona_of(str(payload.get("agent_type") or "")) == "pr-worker":
+        pr = True
+        cmd = _command(payload) or ""
+        if PR_WORKER_DENY_RE.search(cmd) or PR_WORKER_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
+            sys.stderr.write("N1: pr-worker may not run merge/cleanup/run-pointer/step-marker/--confirmed/release commands; the orchestrator owns them\n")
+            return 2
     elif merge_authorized(config):
         return 0
     unattended = _unattended()
     # N1-167: interactive sessions are gated only inside an active N1 run
-    if not tail and not unattended and not _in_run(payload, config_file):
+    if not tail and not pr and not unattended and not _in_run(payload, config_file):
         return 0
     command = _command(payload)
     if not command:
@@ -514,7 +525,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
     api_re = re.compile(r"%s|git/refs/heads/%s(?![\w.-])" % (MERGE_API, re.escape(default)), re.I)
     api_hit = api_re.search(command) is not None
-    push_ok = not tail and not unattended and _is_true(config, "git", "directPush")
+    push_ok = not tail and not pr and not unattended and _is_true(config, "git", "directPush")
     if not any(_is_merge(c, api_hit, default, cwd, push_ok) for c in _commands(command)):
         return 0
     sys.stderr.write("N1: merge/default-branch push denied in an N1 run -- merges need finishWork.mergeOnFinish true "
