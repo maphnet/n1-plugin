@@ -234,4 +234,17 @@ line_has "N1-33: blamed-missing mechanism is confirmed, not falsified" '**Premis
 has "N1-33: output format documents the premise line" 'claim = `premise: <mechanism>`' "$SA"
 line_has "N1-33: refine dispatch passes the resolved type" 'Dispatch persona `solution-architect`' 'Resolved ticket type: `<type from Step 3>`' "$F"
 
+# --- N1-433: ticket text is a hypothesis
+line_has "N1-433: directive treats ticket text as context, not fact" 'Dispatch persona `solution-architect`' 'context, not fact' "$F"
+line_has "N1-433: directive names root cause" 'Dispatch persona `solution-architect`' 'root cause' "$F"
+line_has "N1-433: directive classifies unable to verify" 'Dispatch persona `solution-architect`' 'unable to verify' "$F"
+line_has "N1-433: Decisions sentence kept" 'Dispatch persona `solution-architect`' 'Lines under ticket.md `### Decisions` are resolved' "$F"
+before "N1-433: signals bridged before dependency check" 'n1_write_signals' 'n1_verify_dependencies "$N1_HOME/memory/<ID>/refine" analysis.md' "$F"
+has "N1-433: loop shows unverified claims" 'Unverified:' "$L"
+line_has "N1-433: loop gate acts on Above 0 contradicted claims" 'Above 0' 'Contradicted claims' "$L"
+line_has "N1-433: unverified claims become Assumptions, no new prompt" 'Unverified:' 'Assumption' "$L"
+line_has "N1-433: unverified claims add no prompt" 'Unverified:' 'no new prompt' "$L"
+has "N1-433: write never restates contradicted claims" 'Never restate a contradicted' "$W"
+has "N1-433: gate counts contradicted lines when signal missing" 'count the `contradicted` lines' "$L"
+
 exit $FAIL

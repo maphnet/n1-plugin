@@ -3,6 +3,7 @@
 ## Step 1: Draft Block
 
 Build the block from the Step 2-5 results of `02-loop.md`. Plain bullets for both trackers (Jira strips checkbox brackets; see `agents/product-analyst.md` § Jira formatting rule). An empty section holds `- None`.
+Never restate a contradicted or unverified ticket claim about current behavior as fact in Scope, Decisions or Acceptance Criteria; use the evidence-backed version, and record the claim as an Assumption per `02-loop.md` Step 1. Requirements for behavior not yet implemented stay in Acceptance Criteria; they are not claims. If the user chose to keep the ticket's direction (Continue), keep that direction as a Decision and record the contradicting evidence as an Assumption.
 
 ```
 *Refined by N1*
