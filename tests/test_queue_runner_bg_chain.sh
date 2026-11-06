@@ -698,6 +698,94 @@ test_queue_final_waits_predecessor() {
     rm -rf "$tmp"
 }
 
+# N1-447 AC4: predecessor squash-merged -> rebase --onto main <Base>, lease push, row rebased; the queue branch then
+# carries only its own commit over main. An open draft final PR whose children all landed is refreshed and marked ready.
+test_queue_chain_rebase() {
+    local tmp tip; tmp=$(mktemp -d)
+    qc_fixture "$tmp" "T-A:done"
+    n1_queue_row_status "$tmp/queue.md" 1 pr
+    echo '| T-A | 2026-01-01T00:00:00Z | | merged | https://github.com/o/r/pull/1 | 00000009 |' >> "$tmp/queue.md"
+    n1_queue_final_pr_set "$tmp/queue.md" "$tmp/repo" https://github.com/o/r/pull/9 draft MERGEABLE "waits: predecessor"
+    final_list "$tmp" "$QB" 9 true
+    assert_eq "chain: exit 0" 0 "$(run_chain "$tmp")"
+    assert_eq "chain: queue branch sits on main" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp/origin" rev-parse "$QB^")"
+    assert_eq "chain: only Q2's commit over main" 1 "$(git -C "$tmp/origin" rev-list --count "main..$QB")"
+    assert_eq "chain: row rebased, Base/Head kept" "$QC_BASE $QC_BASE rebased" "$(n1_queue_preds "$tmp/queue.md" | awk -F'\t' '{ print $5, $6, $7 }')"
+    assert_eq "chain: rebased event" 1 "$(grep -c 'queue_chain_rebased' "$tmp/events.jsonl" || true)"
+    assert_eq "chain: final PR marked ready" 1 "$(count_x "$tmp/fake/gh-refresh-calls" 'pr ready -- https://github.com/o/r/pull/9')"
+    assert_eq "chain: Final PRs row ready" $'https://github.com/o/r/pull/9\tready\tMERGEABLE\trebased onto main' "$(fin_row "$tmp" "$tmp/repo")"
+    assert_eq "chain: worktree removed" "" "$(find "$tmp" -maxdepth 1 -type d -name 'chain-*')"
+    tip=$(git -C "$tmp/origin" rev-parse "$QB"); run_chain "$tmp" >/dev/null
+    assert_eq "chain: second run is a no-op" "$tip" "$(git -C "$tmp/origin" rev-parse "$QB")"
+    rm -rf "$tmp"
+}
+
+# N1-447 AC5 / ticket item 3: predecessor closed unmerged, predecessor head moved (gained commits after the cut), or a
+# rebase conflict -> no push, row stopped, needs-you notice. A refused push stays waiting (a later trigger retries).
+# Rows still open -> nothing at all.
+test_queue_chain_stops() {
+    local tmp spec c want ev why q2
+    for spec in "closed|stopped|queue_chain_stopped|predecessor closed unmerged" \
+                "moved|stopped|queue_chain_stopped|predecessor gained commits after cut" \
+                "conflict|stopped|queue_chain_stopped|rebase conflict" \
+                "pushfail|waiting|queue_chain_push_failed|chain-push-failed" \
+                "open|waiting||"; do
+        IFS='|' read -r c want ev why <<< "$spec"
+        tmp=$(mktemp -d); qc_fixture "$tmp" "T-A:done"
+        n1_queue_final_pr_set "$tmp/queue.md" "$tmp/repo" https://github.com/o/r/pull/9 draft MERGEABLE "waits: predecessor"
+        [ "$c" = open ] || n1_queue_row_status "$tmp/queue.md" 1 pr
+        case "$c" in
+            closed) printf 'CLOSED\tmain\t%s\n' "$QC_BASE" > "$tmp/fake/gh-view.5" ;;
+            moved) printf 'MERGED\tmain\t%s\n' "$SM_PIN" > "$tmp/fake/gh-view.5" ;;
+            conflict) echo other > "$tmp/origin/f"
+                      git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q -am other ;;
+            pushfail) printf '#!/bin/sh\nexit 1\n' > "$tmp/origin/.git/hooks/pre-receive"; chmod +x "$tmp/origin/.git/hooks/pre-receive" ;;
+        esac
+        q2=$(git -C "$tmp/origin" rev-parse "$QB")
+        assert_eq "chain-$c: exit 0" 0 "$(run_chain "$tmp")"
+        assert_eq "chain-$c: queue branch not pushed" "$q2" "$(git -C "$tmp/origin" rev-parse "$QB")"
+        assert_eq "chain-$c: row $want" "$want" "$(n1_queue_preds "$tmp/queue.md" | cut -f7)"
+        assert_eq "chain-$c: no worktree left" "" "$(find "$tmp" -maxdepth 1 -type d -name 'chain-*')"
+        if [ -n "$why" ]; then
+            assert_eq "chain-$c: needs-you notice" yes "$(grep -qF "$why" "$tmp/notes" 2>/dev/null && echo yes || echo no)"
+            assert_eq "chain-$c: event" 1 "$(grep -c "$ev" "$tmp/events.jsonl" || true)"
+            assert_eq "chain-$c: Final PRs row keeps its PR, Note says why" \
+                "$(printf 'https://github.com/o/r/pull/9\tdraft\tMERGEABLE\tchain: %s' "$why")" "$(fin_row "$tmp" "$tmp/repo")"
+        else
+            assert_eq "chain-$c: skipped, no notice" "yes,no" \
+                "$(grep -qF 'rows still open' "$tmp/chain.txt" && echo yes || echo no),$([ -s "$tmp/notes" ] && echo yes || echo no)"
+        fi
+        rm -rf "$tmp"
+    done
+}
+
+# N1-447 chain of 3: rebasing Q2 moves the Head of every queue waiting on Q2 to Q2's new tip; Base stays the old tip,
+# so Q3's later --onto drops exactly the commits it inherited from Q2.
+test_queue_chain_three() {
+    local tmp old q3; tmp=$(mktemp -d)
+    qc_fixture "$tmp" "T-A:done"; n1_queue_row_status "$tmp/queue.md" 1 pr
+    old=$(git -C "$tmp/origin" rev-parse "$QB")
+    q3="$tmp/n1home/queue/q3/queue.md"; pred_queue "$tmp/n1home" q3 "$tmp/repo" queue/q3-20261107T000000Z
+    n1_queue_pred_set "$q3" "$tmp/repo" "${QB#queue/}" "$QB" https://github.com/o/r/pull/9 "$old" "$old" waiting
+    run_chain "$tmp" >/dev/null
+    assert_eq "chain-3: Q3 Base kept, Head = Q2's new tip" "$old $(git -C "$tmp/origin" rev-parse "$QB") waiting" \
+        "$(n1_queue_preds "$q3" | awk -F'\t' '{ print $5, $6, $7 }')"
+    rm -rf "$tmp"
+}
+
+# N1-447 AC4 end to end: a --run after the predecessor merged rebases the queue branch before its final PR, which then
+# opens ready (every child landed, no predecessor wait).
+test_queue_chain_run_e2e() {
+    local tmp s="n1-sq-${QB#queue/}-final-1"; tmp=$(mktemp -d)
+    qc_fixture "$tmp" "T-A:working done"
+    touch "$tmp/fake/final-create"; printf 'UNKNOWN\t\nMERGEABLE\tCLEAN\n' > "$tmp/fake/gh-mergeable-seq"
+    assert_eq "chain-run: exit 0" 0 "$(export "${GIT_TEST_ID[@]}"; run_bg_queue "$tmp")"
+    assert_eq "chain-run: row rebased" rebased "$(n1_queue_preds "$tmp/queue.md" | cut -f7)"
+    assert_eq "chain-run: queue branch on main" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp/origin" rev-parse "$QB^")"
+    assert_eq "chain-run: final PR not a draft" no "$(grep -qF -- '--draft' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 # N1-292 AC8: a failed Done launch is a ticket_done failed event. The merge stands and is never retried.
 test_story_done_launch_failed() {
     local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
@@ -1271,6 +1359,10 @@ test_queue_held_released_after_runner_merge
 test_queue_integration_snapshot
 test_queue_final_pr
 test_queue_final_waits_predecessor
+test_queue_chain_rebase
+test_queue_chain_stops
+test_queue_chain_three
+test_queue_chain_run_e2e
 test_final_pr_ready
 test_final_pr_draft
 test_final_pr_repo_without_merge

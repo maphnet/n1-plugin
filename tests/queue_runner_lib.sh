@@ -680,3 +680,27 @@ fin_note() { fin_row "$1" "$1/repo" | cut -f4; }            # <tmp>
 fm_merges() { [ -f "$1/fake/gh-merge" ] || { echo 0; return; }; grep -c -- "pull/$2 " "$1/fake/gh-merge" || true; }   # <tmp> <pr#>
 fm_event() { jq -r 'select(.event == "final_pr_merge") | "\(.outcome)|\(.reason)"' "$1/events.jsonl"; }   # <tmp>
 has_file() { [ -e "$1" ] && echo yes || echo no; }
+# Committer identity and no signing for the chain rebase in tests (production uses the user's git config).
+GIT_TEST_ID=(GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgSign GIT_CONFIG_VALUE_0=false)
+# qc_fixture <tmp> <ticket:states>... — queue_merge_fixture with this origin history: $QC_P = init + "q1" (f=q1, QC_BASE);
+# $QB = QC_BASE + "q2" (f=q2); main = init + "squash q1" (f=q1). queue.md records $QC_P as the waiting predecessor
+# (PR 5, Base = Head = QC_BASE); gh reports PR 5 MERGED into main from $QC_P at QC_BASE. origin ends checked out on main.
+qc_fixture() {
+    local tmp="$1" o="$1/origin"
+    queue_merge_fixture "$@"
+    oc() { git -C "$o" -c user.email=t@t -c user.name=t -c commit.gpgSign=false "$@"; }
+    oc checkout -q -b "$QC_P"; echo q1 > "$o/f"; oc add f; oc commit -q -m q1
+    QC_BASE=$(git -C "$o" rev-parse HEAD)
+    oc checkout -q -B "$QB"; echo q2 > "$o/f"; oc commit -q -am q2
+    oc checkout -q main; echo q1 > "$o/f"; oc add f; oc commit -q -m 'squash q1'
+    n1_queue_pred_set "$tmp/queue.md" "$tmp/repo" "$QC_ID" "$QC_P" https://github.com/o/r/pull/5 "$QC_BASE" "$QC_BASE" waiting
+    printf 'MERGED\tmain\t%s\n' "$QC_BASE" > "$tmp/fake/gh-view.5"
+    echo "$QC_P" > "$tmp/fake/gh-headref.5"
+}
+# run_chain <tmp> [args...] — scripts/n1-queue-chain.sh (default arg <tmp>/queue.md) with the fakes; prints its exit code.
+run_chain() {
+    local t="$1" rc=0; shift
+    env -u ORCA_CLI_COMMAND "${GIT_TEST_ID[@]}" FAKE_DIR="$t/fake" N1_HOME="$t/n1home" PATH="$t/bin:$PATH" \
+        bash "$REPO_ROOT/scripts/n1-queue-chain.sh" "${@:-$t/queue.md}" > "$t/chain.txt" 2>&1 || rc=$?
+    echo "$rc"
+}

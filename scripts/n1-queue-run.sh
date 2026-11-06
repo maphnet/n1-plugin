@@ -993,6 +993,8 @@ final_prs() {
         echo "final PRs: skipped (rows still open)"
         return 0
     fi
+    # N1-447: a queue branch whose predecessor final PR merged is rebased first (no-op otherwise), so final_pr sees the row state.
+    if [ "$RUN_MODE" = queue ]; then bash "$N1_ROOT/scripts/n1-queue-chain.sh" "$QUEUE" </dev/null; fi
     while IFS=$'\t' read -r NUM _ REPO N1H _ _; do
         case "$seen" in *$'\n'"$REPO"$'\n'*) continue ;; esac
         seen="$seen$REPO"$'\n'
