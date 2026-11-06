@@ -1,6 +1,6 @@
 # Intake
 
-Builds the candidate list for the queue. Three modes: tag (search tracker), story (subtasks of a parent) or list (ticket keys the user named, `steps/input.md`).
+Builds the candidate list for the queue. Four modes: tag (search tracker), story (subtasks of a parent), list (ticket keys the user named, `steps/input.md`) or goal (keys the user approved in `steps/goal.md`, run as list mode).
 
 **Key validation.** Before any step below uses a candidate's `<KEY>` in a path (`$N1_HOME/memory/<KEY>/`, later `<QUEUE_DIR>/desc/<KEY>.txt`) or as `SELF_ID`, check it against `^[A-Z][A-Z0-9_]*-[0-9]+$` (SEC-L4). A key that doesn't match — a malformed tracker response, never a real ticket ID — is excluded with reason `invalid ticket key`; skip its `READ_OP` call and every later step for it.
 
@@ -66,7 +66,7 @@ fi
 
 ## List mode
 
-`KEYS` and `BAD` come from `<N1_ROOT>/skills/n1-queue/steps/input.md`. Each `BAD` item is excluded with reason `invalid ticket key`; every key in `KEYS` already passed § Key validation. No search, no `maxTickets` cap and no already-run check (a list run never releases a tag, so `n1_queue_already_run` would exclude every re-listed ticket). Run § Tag mode's clear-and-mark bash call for every key in `KEYS`, then call `mcp__<TRACKER_MCP>__<READ_OP>` for each key as in § Tag mode. A key the tracker reports as not found or not accessible (a typo or another project) is excluded with reason `not found` and its later steps are skipped; any other read error follows Error Recovery. Classify each status as in § Story mode: done-class -> excluded `done-before-run`; every other status -> candidate with Reason `list`. Repo and N1 Home: as in § Tag mode.
+`KEYS` and `BAD` come from `<N1_ROOT>/skills/n1-queue/steps/input.md`. Each `BAD` item is excluded with reason `invalid ticket key`; every key in `KEYS` already passed § Key validation. No search, no `maxTickets` cap and no already-run check (a list run never releases a tag, so `n1_queue_already_run` would exclude every re-listed ticket). Run § Tag mode's clear-and-mark bash call for every key in `KEYS`, then call `mcp__<TRACKER_MCP>__<READ_OP>` for each key as in § Tag mode. A key the tracker reports as not found or not accessible (a typo or another project) is excluded with reason `not found` and its later steps are skipped; any other read error follows Error Recovery. Classify each status as in § Story mode: done-class -> excluded `done-before-run`; every other status -> candidate with Reason `list`. Repo and N1 Home: as in § Tag mode. In goal mode (`GOAL=goal`, `steps/goal.md`) `KEYS` are the approved keys, `BAD` is empty, and each candidate's Reason is `goal: <why>` from `GOAL_REASONS` instead of `list`. Everything else in this section is unchanged.
 
 ## Story check (tag and list mode)
 
@@ -113,7 +113,7 @@ If no size field, default to `sonnet`.
 ## Output
 
 Build two lists:
-- **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration; `epic subtask of <STORY_KEY>` and `epic child` for Epic-mode candidates, § Story mode Epic expansion; `list` for list-mode candidates)
+- **Candidates**: `#`, `Ticket`, `Title`, `Repo`, `N1 Home`, `Model`, `Reason` (`tag match` for tag-mode candidates found via the tag search; `story subtask` for story-mode candidates found via subtask enumeration; `epic subtask of <STORY_KEY>` and `epic child` for Epic-mode candidates, § Story mode Epic expansion; `list` for list-mode candidates; `goal: <why>` for goal-mode candidates)
 - **Excluded**: `Ticket`, `Reason` (already run, blocked, story, no usable content, skip, done-before-run, invalid ticket key, not found)
 
 If no candidates: "No actionable tickets found." **STOP.**

@@ -16,7 +16,7 @@ Excluded:
 | ... | blocked by X-123 |
 ```
 
-**Selector header (N1-440).** `Mode` is input.md's `MODE`, `Source` its `SRC` (the ticket keys, the tag or the story ID), `Candidates` the number of plan rows. Print the header and the table before the `--dry-run` stop and before § Plan-Resolve writes anything to the tracker, also under `--unattended` (it has no prompt, so this print is its only record). This is not a new gate: the explicit input, or the reply to input.md item 3, is the user's selection. Then advance the planning state:
+**Selector header (N1-440).** `Mode` is input.md's `MODE`, `Source` its `SRC` (the ticket keys, the tag or the story ID), `Candidates` the number of plan rows. Print the header and the table before the `--dry-run` stop and before § Plan-Resolve writes anything to the tracker, also under `--unattended` (it has no prompt, so this print is its only record). This is not a new gate: the explicit input, or the reply to input.md item 3, is the user's selection. In goal mode `Mode` is `list` and the selection is the list the user approved in `steps/goal.md`. Then advance the planning state:
 
 ```bash
 source ~/.n1/preamble.sh

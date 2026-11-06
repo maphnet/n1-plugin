@@ -2011,7 +2011,7 @@ test_list_input_wiring() {
     assert_eq "list-input: tag/story ids are validated" "yes" "$(hasF '^[A-Za-z0-9][A-Za-z0-9._-]*$' "$in")"
     assert_eq "list-input: unattended with no input stops" "yes" \
         "$(hasF 'No input: pass ticket IDs, --tag <tag> or --story <ID>.' "$in")"
-    assert_eq "list-input: mixed input stops" "yes" "$(hasF 'Pass one input: a ticket list, --tag or --story.' "$in")"
+    assert_eq "list-input: mixed input stops (names --goal, N1-441)" "yes" "$(hasF 'Pass one input: a ticket list, --tag, --story or --goal.' "$in")"
     assert_eq "list-input: --tag with --story is mixed input" "yes" "$(hasF 'includes `--tag` with `--story`' "$in")"
     assert_eq "list-input: no valid key stops" "yes" "$(hasF 'No valid ticket keys in the list.' "$in")"
     assert_eq "list-input: missing-input prompt is free text, not an option list" "no" "$(has '^   > [0-9]\. ' "$in")"
@@ -2025,14 +2025,17 @@ test_list_input_wiring() {
     assert_eq "list-input: Story check covers list mode" "yes" "$(has '^## Story check \(tag and list mode\)$' "$s/steps/intake.md")"
     assert_eq "list-input: plan header allows mode list" "yes" "$(hasF 'mode: tag|story|list' "$s/steps/run.md")"
     assert_eq "list-input: revalidation covers list mode" "yes" "$(hasF 'story and list mode: done-class per intake.md § Story mode' "$s/steps/run.md")"
-    local line a b c
-    line=$(grep -m1 'list-%08x' "$in")
-    a=$(KEYS=" N1-2 N1-10 N1-2"; eval "$line"; printf '%s' "$QUEUE_ID")
-    b=$(KEYS=" N1-10 N1-2"; eval "$line"; printf '%s' "$QUEUE_ID")
-    c=$(KEYS=" N1-3"; eval "$line"; printf '%s' "$QUEUE_ID")
+    local line a b c g
+    line=$(grep -m1 "printf '%s-%08x'" "$in")
+    a=$(GOAL=; KEYS=" N1-2 N1-10 N1-2"; eval "$line"; printf '%s' "$QUEUE_ID")
+    b=$(GOAL=; KEYS=" N1-10 N1-2"; eval "$line"; printf '%s' "$QUEUE_ID")
+    c=$(GOAL=; KEYS=" N1-3"; eval "$line"; printf '%s' "$QUEUE_ID")
+    g=$(GOAL=goal; KEYS=" N1-2 N1-10"; eval "$line"; printf '%s' "$QUEUE_ID")
     assert_eq "list-input: QUEUE_ID ignores order and duplicates" "$a" "$b"
     assert_eq "list-input: QUEUE_ID is list-<8 hex>" "yes" "$([[ "$a" =~ ^list-[0-9a-f]{8}$ ]] && echo yes || echo no)"
     assert_eq "list-input: different keys give a different QUEUE_ID" "yes" "$([ "$a" != "$c" ] && echo yes || echo no)"
+    assert_eq "goal-input: goal QUEUE_ID is goal-<8 hex> (N1-441)" "yes" "$([[ "$g" =~ ^goal-[0-9a-f]{8}$ ]] && echo yes || echo no)"
+    assert_eq "goal-input: goal id uses the list checksum of the approved keys (N1-441)" "${a#list-}" "${g#goal-}"
     # Run the item-1 resolve loop from input.md with real items and a stubbed URL extractor.
     local raw blk out
     raw=$(awk '/^```bash$/{b="";f=1;next} /^```$/{if(f&&b~/for ITEM in/){printf "%s",b;exit}f=0} f{b=b $0 "\n"}' "$in" | grep -v '^source ')
@@ -2055,6 +2058,46 @@ test_list_input_wiring() {
     assert_eq "list-input: interactive plans get a unique id (N1-440)" "yes" "$(hasF 'QUEUE_ID=$(n1_queue_new_id "$QUEUE_ID")' "$in")"
     assert_eq "list-input: planning pointer written at intake (N1-440)" "yes" "$(hasF 'n1_queue_plan_state write "$QUEUE_ID" intake "$MODE" "$SRC"' "$in")"
     assert_eq "list-input: no bare mkdir -p for interactive ids (N1-440)" "1" "$(grep -c 'mkdir -p "$N1_HOME/queue/$QUEUE_ID"' "$in")"
+    # N1-441: --goal input (input.md)
+    assert_eq "goal-input: --goal is a flag operand, never a token" "yes" "$(hasF '`--goal "<text>"` (the quoted value, or the words up to the next flag; it is never a token and never reaches bash)' "$in")"
+    assert_eq "goal-input: unattended goal stops" "yes" "$(hasF 'Goal mode needs approval; pass ticket IDs, --tag or --story.' "$in")"
+    assert_eq "goal-input: empty goal stops" "yes" "$(hasF 'Goal text is empty.' "$in")"
+    assert_eq "goal-input: a flag right after --goal counts as empty (N1-441)" "yes" "$(hasF 'or a flag right after it (for example `--goal --dry-run`)' "$in")"
+    assert_eq "goal-input: apostrophe in goal stops" "yes" "$(hasF "Invalid goal: remove the apostrophe (')." "$in")"
+    assert_eq "goal-input: item 3 asks for --goal too" "yes" "$(hasF 'no `--story` and no `--goal` (prose alone counts as no input)' "$in")"
+    assert_eq "goal-input: MODE has no goal value" "yes" "$(hasF "MODE='<list|tag|story>'" "$in")"
+    assert_eq "goal-input: goal mode is saved as mode list" "yes" "$(hasF 'goal mode is `goal-` plus the same checksum of the approved keys and is saved as `mode: list`' "$in")"
+    lno() { grep -nF -- "$1" "$in" | head -1 | cut -d: -f1; }
+    local u q d x
+    u=$(lno 'Goal mode needs approval'); q=$(lno 'Invalid goal: remove the apostrophe')
+    d=$(lno 'read and follow `<N1_ROOT>/skills/n1-queue/steps/goal.md`'); x=$(lno '5. **Queue id and dir.**')
+    assert_eq "goal-input: goal stops and goal.md precede item 5, so nothing is written first" "yes" \
+        "$([ -n "$u" ] && [ -n "$q" ] && [ -n "$d" ] && [ -n "$x" ] && [ "$u" -lt "$d" ] && [ "$q" -lt "$d" ] && [ "$d" -lt "$x" ] && echo yes || echo no)"
+    # N1-441: steps/goal.md
+    local gm="$s/steps/goal.md"
+    assert_eq "goal-input: goal.md exists" "yes" "$([ -f "$gm" ] && echo yes || echo no)"
+    assert_eq "goal-input: Jira pool is To Do only, oldest first" "yes" "$(hasF 'JQL `project = <PROJECT_KEY> AND status = "<TODO_STATUS>" ORDER BY created ASC`' "$gm")"
+    assert_eq "goal-input: YouTrack pool is To Do only, oldest first" "yes" "$(hasF 'query `project: {PREFIX} State: {<TODO_STATUS>} sort by: created asc`' "$gm")"
+    assert_eq "goal-input: pool capped by queue.maxTickets" "yes" "$(hasF 'n1_queue_val maxTickets' "$gm")"
+    assert_eq "goal-input: pool keys validated (SEC-L4)" "yes" "$(hasF '^[A-Z][A-Z0-9_]*-[0-9]+$' "$gm")"
+    assert_eq "goal-input: ranking reads no ticket" "no" "$(hasF 'READ_OP' "$gm")"
+    assert_eq "goal-input: ranking marks no ticket" "no" "$(hasF 'n1_desc_mark' "$gm")"
+    assert_eq "goal-input: goal.md runs no bash" "no" "$(has '^```bash' "$gm")"
+    assert_eq "goal-input: reason is one sanitized line" "yes" "$(hasF '`|` and newlines replaced by a space, at most 80 characters' "$gm")"
+    assert_eq "goal-input: empty pool stops" "yes" "$(hasF 'No To Do tickets in the pool.' "$gm")"
+    assert_eq "goal-input: no match stops" "yes" "$(hasF 'No To Do ticket matches the goal.' "$gm")"
+    assert_eq "goal-input: edit to zero stops" "yes" "$(hasF 'No tickets selected.' "$gm")"
+    assert_eq "goal-input: Approve option" "yes" "$(has '^- \*\*Approve\*\* -> ' "$gm")"
+    assert_eq "goal-input: Edit option" "yes" "$(has '^- \*\*Edit\*\* -> ' "$gm")"
+    assert_eq "goal-input: Cancel option" "yes" "$(has '^- \*\*Cancel\*\* -> \*\*STOP\.\*\*' "$gm")"
+    assert_eq "goal-input: option list follows the recommended-option rule" "yes" "$(hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$gm")"
+    assert_eq "goal-input: no Recommended label" "no" "$(hasF '(Recommended)' "$gm")"
+    assert_eq "goal-input: returns GOAL=goal" "yes" "$(hasF '`GOAL=goal`' "$gm")"
+    assert_eq "goal-input: GOAL placeholder is the literal word, not the goal text" "yes" "$(hasF "GOAL='<the literal word goal in goal mode, else empty; never the goal text>'" "$in")"
+    # N1-441: SKILL.md surface
+    assert_eq "goal-input: description lists --goal" "yes" "$(sed -n '3p' "$s/SKILL.md" | grep -qF '[--story <ID>] [--goal <text>] [--plan]' && echo yes || echo no)"
+    assert_eq "goal-input: argument-hint lists --goal" "yes" "$(sed -n '4p' "$s/SKILL.md" | grep -qF '[--story <ID>] [--goal <text>] [--plan]' && echo yes || echo no)"
+    assert_eq "goal-input: Input section parses --goal" "yes" "$(hasF '`--goal "<text>"` (goal mode: rank To Do tickets, user approves)' "$s/SKILL.md")"
 }
 
 # N1-440: per-session queue planning pointer, unique plan ids, planning-dir discard.
