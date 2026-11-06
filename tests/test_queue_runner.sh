@@ -566,7 +566,7 @@ test_notify_backends() {
     local TEST_CONFIG="$tmp/config.json"
     n1_config_file() { echo "$TEST_CONFIG"; }
 
-    assert_eq "notify: default backend desktop" "desktop" "$(n1_queue_val notify)"
+    assert_eq "notify: default backend none" "none" "$(n1_queue_val notify)"
 
     printf '{"queue":{"notify":"command","notifyCommand":"cat >> %s/notes"}}' "$tmp" > "$TEST_CONFIG"
     n1_notify needs-you "T-1 needs you"

@@ -14,7 +14,7 @@ An interactive `/n1:n1-start <ID>` resume of a ticket-watch escalation may move 
 **Otherwise, judge the digest inline** against `M/ticket.md` and whichever of `M/brainstorm.md` / `M/plan.md` exists. Pick one class:
 - `info`: no effect on this ticket's requirements or scope.
 - `replan`: changes requirements, acceptance criteria or scope. `description_edited: true` defaults to `replan` unless the edit is plainly cosmetic.
-- `escalate`: a `replan` whose change touches a category in `n1_escalation_val alwaysAskOn` (security, architecture, public-api). Also: any `replan` at the Step 11b check point (an open PR is under review), or a `replan` whose re-plan cap is reached.
+- `escalate`: a `replan` whose change touches a category in `n1_escalation_val alwaysAskOn` (security, architecture, public-api). Also: a `replan` whose re-plan cap is reached.
 
 Log the class as an `[auto]` row in `## Decision Ledger` (format: `procedures/autonomy-headless.md`), Step `ticket-watch`, Reason naming the comment ids / fields. Write a one-line reason (author and a summary of at most 200 chars) to `M/.tw-reason.txt` with the file-write mechanism.
 

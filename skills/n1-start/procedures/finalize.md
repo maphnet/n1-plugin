@@ -12,7 +12,7 @@
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/telemetry.sh"
-FINAL_OUTCOME=<outcome> n1_close_run
+ID=<ID> FINAL_OUTCOME=<outcome> n1_close_run
 ```
 
 Clear active-run (first record any run-branch PR still missing its Codex receipt, so the Stop hook enforces it after the pointer is gone):

@@ -1011,35 +1011,35 @@ echo '{}' > "$N1_HOME/config.json"
 
 # --- notify-question hook (N1-103) --------------------------------------------
 NQ="$REPO_ROOT/hooks/notify-question.sh"
-NQBIN="$T/nqbin"; NQLOG="$T/nq.log"; mkdir -p "$NQBIN"
-printf '#!/usr/bin/env bash\nprintf "%%s|%%s\\n" "$1" "$2" >> "%s"\n' "$NQLOG" > "$NQBIN/notify-send"; chmod +x "$NQBIN/notify-send"
+NQBIN="$T/nqbin"; NQLOG="$T/nq.log"; NQDIR="$(mkdir -p "$T/nqwt" && cd "$T/nqwt" && pwd -P)"; mkdir -p "$NQBIN"
+git init -q "$NQDIR"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\ncase "$1 $2" in\n  "status --json") echo '"'"'{"ok":true,"result":{"runtime":{"state":"ready","reachable":true}}}'"'"' ;;\n  "worktree list") echo '"'"'{"ok":true,"result":{"worktrees":[{"path":"%s","isMainWorktree":false}]}}'"'"' ;;\n  *) echo '"'"'{"ok":true,"result":{}}'"'"' ;;\nesac\n' "$NQLOG" "$NQDIR" > "$NQBIN/fake-orca"; chmod +x "$NQBIN/fake-orca"
 mkdir -p "$N1_HOME/memory/Q-1"
 printf -- '---\nstep: analysis\n---\n' > "$N1_HOME/memory/Q-1/overview.md"
 echo '{}' > "$N1_HOME/config.json"
-nq() {  # nq [VAR=val ...] -> prints hook exit code; waits briefly for the backgrounded notifier
+nq() {  # nq [VAR=val ...] -> prints hook exit code; the fake Orca CLI logs every call (the card update is backgrounded)
   local rc=0; : > "$NQLOG"
-  echo '{"session_id":"s-nq","tool_name":"AskUserQuestion"}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID "$@" PATH="$NQBIN:$PATH" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
-  # poll for the notifier: exits at the first log line. NQ_EXPECT=1 (a call is expected) allows ~2 s; no-call cases wait 0.1 s
-  local i max=5 step=0.02; [ "${NQ_EXPECT:-}" = 1 ] && { max=100; step=0.02; }
-  for i in $(seq "$max"); do [ -s "$NQLOG" ] && break; sleep "$step"; done; echo "$rc"
+  jq -cn --arg c "$NQDIR" '{session_id:"s-nq",tool_name:"AskUserQuestion",cwd:$c}' | env -u N1_HEADLESS -u N1_QUEUE_RUN_ID -u N1_RUN_ID ORCA_CLI_COMMAND="$NQBIN/fake-orca" "$@" bash "$NQ" >"$T/nq.out" 2>&1 || rc=$?
+  echo "$rc"
 }
+nq_calls() { sleep 0.3; wc -l < "$NQLOG" | tr -d ' '; }  # guard cases: give a wrongly-spawned update time to log
 assert_eq "notify-question: no active run -> exit 0" "0" "$(nq)"
-assert_eq "notify-question: no active run -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
+assert_eq "notify-question: no active run -> no Orca call" "0" "$(nq_calls)"
 echo '{"ticketId":"Q-1","runId":"r1","worktreePath":null,"branch":"b"}' > "$N1_HOME/active-run.s-nq.json"
-assert_eq "notify-question: active run -> exit 0" "0" "$(NQ_EXPECT=1 nq)"
-assert_eq "notify-question: active run -> one call naming ID and step" "N1 Q-1|Waiting for your answer after analysis" "$(cat "$NQLOG")"
+assert_eq "notify-question: active run -> exit 0" "0" "$(nq)"
+for _ in $(seq 100); do grep -q -- '--unread' "$NQLOG" && break; sleep 0.02; done
+assert_eq "notify-question: active run -> one --unread call" "1" "$(grep -c -- '--unread' "$NQLOG")"
 assert_eq "notify-question: no stdout" "" "$(cat "$T/nq.out")"
+assert_eq "notify-question: no ORCA_CLI_COMMAND -> exit 0" "0" "$(nq ORCA_CLI_COMMAND=)"
+assert_eq "notify-question: no ORCA_CLI_COMMAND -> no Orca call" "0" "$(nq_calls)"
 assert_eq "notify-question: N1_HEADLESS=1 -> exit 0" "0" "$(nq N1_HEADLESS=1)"
-assert_eq "notify-question: N1_HEADLESS=1 -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
+assert_eq "notify-question: N1_HEADLESS=1 -> no Orca call" "0" "$(nq_calls)"
 assert_eq "notify-question: N1_QUEUE_RUN_ID -> exit 0" "0" "$(nq N1_QUEUE_RUN_ID=q1)"
-assert_eq "notify-question: N1_QUEUE_RUN_ID -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
-echo '{"notify":{"onQuestion":false}}' > "$N1_HOME/config.json"
-assert_eq "notify-question: onQuestion=false -> exit 0" "0" "$(nq)"
-assert_eq "notify-question: onQuestion=false -> no call" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
+assert_eq "notify-question: N1_QUEUE_RUN_ID -> no Orca call" "0" "$(nq_calls)"
 echo '{}' > "$N1_HOME/config.json"
 rm "$N1_HOME/active-run.s-nq.json"; echo '{"ticketId":"Q-1"}' > "$N1_HOME/active-run.json"
 nq >/dev/null
-assert_eq "notify-question: unkeyed pointer ignored" "0" "$(wc -l < "$NQLOG" | tr -d ' ')"
+assert_eq "notify-question: unkeyed pointer ignored" "0" "$(nq_calls)"
 rm "$N1_HOME/active-run.json"
 assert_eq "hooks.json: AskUserQuestion matcher runs notify-question.sh" "1" \
   "$(jq '[.hooks.PreToolUse[] | select(.matcher=="AskUserQuestion") | .hooks[].command | select(test("notify-question.sh"))] | length' "$REPO_ROOT/hooks/hooks.json")"

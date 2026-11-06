@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# PreToolUse hook (AskUserQuestion): desktop-notify that an interactive N1 run waits for an answer, and
-# set the unread dot on the run's Orca workspace card (N1-224; independent of notify.onQuestion).
+# PreToolUse hook (AskUserQuestion): set the unread dot on the run's Orca workspace card while an
+# interactive N1 run waits for an answer (N1-224). No desktop toast.
 # Advisory and fail-open: every path exits 0 with no stdout, so the question is never delayed.
 set -u
 INPUT=$(cat)
 [ "${N1_HEADLESS:-}" = "1" ] && exit 0
 [ -n "${N1_QUEUE_RUN_ID:-}" ] && exit 0
+[ -n "${ORCA_CLI_COMMAND:-}" ] || exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/config.sh" 2>/dev/null || exit 0
 source "${SCRIPT_DIR}/../lib/host.sh" 2>/dev/null || exit 0
@@ -25,6 +26,4 @@ if [ -n "${ORCA_CLI_COMMAND:-}" ]; then
     cwd=$(jq -r '.cwd // empty' <<<"$INPUT" 2>/dev/null) || cwd=""
     ( cd "${cwd:-.}" 2>/dev/null && n1_orca_sync "waiting: ${step:-answer}" --unread ) >/dev/null 2>&1 &
 fi
-[ "$(n1_config_val '.notify.onQuestion')" = "false" ] && exit 0
-n1_desktop_notify "N1 $id" "Waiting for your answer${step:+ after $step}" >/dev/null 2>&1 &
 exit 0
