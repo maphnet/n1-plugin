@@ -157,6 +157,20 @@ test -f "$N1_HOME/memory/CL-A/telemetry/locks/$CA.json"
 test -f "$N1_HOME/memory/CL-B/telemetry/locks/$CB.json"
 echo 'PASS: n1_close_run closes the ticket own run'
 
+# N1-434: close without FINAL_OUTCOME/ESTIMATED_TIER in env derives them from overview.md
+ID=CL-D; n1_run_begin "$ID"; CD="$N1_RUN_ID"
+printf -- '---\ntier: standard\n---\n# CL-D\n\n## Pending\nawaiting: merge\npr: 123\n' > "$N1_HOME/memory/CL-D/overview.md"
+(unset FINAL_OUTCOME ESTIMATED_TIER; n1_close_run)
+for f in steps runs; do
+    L=$(grep envelope_close "$N1_HOME/memory/CL-D/telemetry/raw/steps/$CD.jsonl" | tail -1)
+    [ "$f" = steps ] || L=$(grep -h '"final_outcome"' "$N1_HOME/memory/CL-D/telemetry/runs/$CD.jsonl" | tail -1)
+    case "$L" in *'"final_outcome": "pr_created"'*|*'"final_outcome":"pr_created"'*) ;; *) echo "$f: outcome not derived: $L" >&2; exit 1 ;; esac
+    case "$L" in *'"estimated_tier": "standard"'*|*'"estimated_tier":"standard"'*) ;; *) echo "$f: tier not derived: $L" >&2; exit 1 ;; esac
+done
+(unset ESTIMATED_TIER; FINAL_OUTCOME=escalated n1_close_run)
+grep envelope_close "$N1_HOME/memory/CL-D/telemetry/raw/steps/$CD.jsonl" | tail -1 | grep -q '"final_outcome":"escalated"'
+echo 'PASS: n1_close_run derives outcome and tier from overview.md, env wins'
+
 # n1_step_begin with no bound run says so on stderr instead of dropping silently (N1-229)
 ERR=$(bash -c "source '$ROOT/lib/preamble.sh' >/dev/null 2>&1; unset N1_RUN_ID; ID=NP-NONE; n1_step_begin ticket 1" 2>&1 >/dev/null)
 case "$ERR" in *"no run bound for NP-NONE"*) ;; *) echo "missing step-begin diagnostic: $ERR" >&2; exit 1 ;; esac

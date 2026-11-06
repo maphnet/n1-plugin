@@ -139,16 +139,22 @@ n1_emit_rebind() {
       printf '%s\t%s' "${N1_RUN_ID:-}" "${N1_VERSION:-}" )
 }
 
-# n1_close_run: FINALIZE close for $ID (needs FINAL_OUTCOME, ESTIMATED_TIER): bind run to ticket, write
-# envelope_close, merge. The lock stays: Gate 3 and the chained n1-finish run after this, and the turn's
+# n1_close_run: FINALIZE close for $ID: bind run to ticket, write
+# envelope_close. Optional env FINAL_OUTCOME / ESTIMATED_TIER override; else tier = overview `tier`, outcome =
+# overview `final_outcome`, else pr_created when overview has a `## Pending` section with pr:/pr_url:, else empty. Then merge.
+# The lock stays: Gate 3 and the chained n1-finish run after this, and the turn's
 # Stop hook sees the terminal envelope, re-merges them in (orchestrator.tail) and removes the lock (N1-229).
 # Unbound run (no/ambiguous) -> no-op. Always returns 0.
 n1_close_run() {
     n1_bind_run_to_ticket
     [ -n "${N1_RUN_ID:-}" ] || return 0
-    local tdir="${N1_HOME}/memory/$ID/telemetry" t
-    t=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type" 2>/dev/null || true)
-    echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"${FINAL_OUTCOME:-}"'","estimated_tier":"'"${ESTIMATED_TIER:-}"'","type":"'"$t"'"}' >> "$tdir/raw/steps/$N1_RUN_ID.jsonl"
+    type n1_read_frontmatter >/dev/null 2>&1 || source "${_N1_LIB_DIR}/frontmatter.sh"
+    local tdir="${N1_HOME}/memory/$ID/telemetry" ov="$N1_HOME/memory/$ID/overview.md" t tr o
+    t=$(n1_read_frontmatter "$ov" "type" 2>/dev/null || true)
+    tr="${ESTIMATED_TIER:-$(n1_read_frontmatter "$ov" "tier" 2>/dev/null || true)}"
+    o="${FINAL_OUTCOME:-$(n1_read_frontmatter "$ov" "final_outcome" 2>/dev/null || true)}"
+    if [ -z "$o" ] && [ -f "$ov" ] && awk '/^## /{p=($0=="## Pending");next} p&&/^(pr|pr_url):/{f=1} END{exit !f}' "$ov"; then o=pr_created; fi
+    echo '{"layer":"envelope_close","run_id":"'"$N1_RUN_ID"'","n1_version":"'"$N1_VERSION"'","ticket_id":"'"$ID"'","completed_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","final_outcome":"'"$o"'","estimated_tier":"'"$tr"'","type":"'"$t"'"}' >> "$tdir/raw/steps/$N1_RUN_ID.jsonl"
     bash "$N1_ROOT/hooks/telemetry-merge.sh" "$N1_RUN_ID" "$tdir" 2>&1 || echo "⚠ Telemetry merge failed" >&2
     return 0
 }
