@@ -125,6 +125,10 @@ PIPEFAIL_RE = re.compile(r"\bset\b[^;&|\n]{0,200}\s-[A-Za-z]*o\s+pipefail\b")
 PUSH_VALUE_FLAGS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 
 
+# SEC-1 (N1-435): restricted workers inherit all tools, so bound what they can dispatch
+SPAWN_ALLOW = {"pr-worker": {"tech-writer", "tail-worker"}, "tail-worker": {"code-reviewer", "developer"}}
+
+
 def persona_of(agent_type: str):
     if agent_type.startswith("n1:"):
         return agent_type[len("n1:"):]
@@ -212,6 +216,13 @@ def restriction(payload: dict, plugin_root: str, config_file: str = "") -> int:
     tool = str(payload.get("tool_name") or "")
     if not persona or not tool:
         return 0
+    spawn_allow = SPAWN_ALLOW.get(persona)
+    if spawn_allow is not None and tool in SPAWN_TOOLS:
+        ti = payload.get("tool_input") or {}
+        target = str(ti.get("subagent_type") or ti.get("subagent_name") or ti.get("agent_type") or "")
+        if persona_of(target) not in spawn_allow:
+            sys.stderr.write(f"N1: persona {persona} may dispatch only {', '.join('n1:' + a for a in sorted(spawn_allow)) or 'nothing'} (got {target or 'no target'})\n")
+            return 2
     allowed = persona_tools(plugin_root, persona)
     if tool.startswith("mcp__"):
         return 0
@@ -491,19 +502,31 @@ def sentinel_deny(payload: dict) -> int:
     return 0
 
 
+# N1-435 SEC-1: pr-worker keeps feature push, gh pr create and gh pr comment; everything else orchestrator-owned is denied
+PR_WORKER_DENY_RE = re.compile(r"\bgh\s+pr\s+merge\b|\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm|step_begin|step_end)\b|--confirmed|n1-release|\bn1-clean\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?(worktree\s+(rm|remove)|branch\s+(-\w*[dD]\w*|--delete))\b")
+
+
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     # N1-230 SEC-2: the tail-worker never merges, clears the run pointer or releases, even when merging is authorized
-    tail = persona_of(str(payload.get("agent_type") or "")) == "tail-worker"
+    agent_type = str(payload.get("agent_type") or "")
+    tail = persona_of(agent_type) == "tail-worker"
+    pr = False
     if tail:
         cmd = _command(payload) or ""
         if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
             sys.stderr.write("N1: tail-worker may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
-    elif merge_authorized(config):
-        return 0
+    elif persona_of(agent_type) in ("pr-worker", "tech-writer"):
+        pr = True
+        cmd = _command(payload) or ""
+        if PR_WORKER_DENY_RE.search(cmd) or PR_WORKER_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
+            sys.stderr.write("N1: pr-worker/tech-writer may not run merge/cleanup/run-pointer/step-marker/--confirmed/release commands; the orchestrator owns them\n")
+            return 2
+    elif not agent_type and merge_authorized(config):
+        return 0  # main session only: no subagent merges (n1-finish merges inline)
     unattended = _unattended()
     # N1-167: interactive sessions are gated only inside an active N1 run
-    if not tail and not unattended and not _in_run(payload, config_file):
+    if not agent_type and not unattended and not _in_run(payload, config_file):
         return 0
     command = _command(payload)
     if not command:
@@ -514,7 +537,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
     api_re = re.compile(r"%s|git/refs/heads/%s(?![\w.-])" % (MERGE_API, re.escape(default)), re.I)
     api_hit = api_re.search(command) is not None
-    push_ok = not tail and not unattended and _is_true(config, "git", "directPush")
+    push_ok = not agent_type and not unattended and _is_true(config, "git", "directPush")
     if not any(_is_merge(c, api_hit, default, cwd, push_ok) for c in _commands(command)):
         return 0
     sys.stderr.write("N1: merge/default-branch push denied in an N1 run -- merges need finishWork.mergeOnFinish true "

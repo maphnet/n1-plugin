@@ -28,13 +28,15 @@ echo "PRE_PR_GATE=$GATE_RC $GATE_ID PRE_PR_REVIEW_CYCLE=$PRE_PR/3"
 source ~/.n1/preamble.sh
 n1_step_begin "pr" 12
 FIX_AUDIT=$(n1_review_fix_audit "$N1_HOME/memory/$ID/overview.md") || true; echo "FIX_AUDIT=$FIX_AUDIT"
+rm -f "$N1_HOME/memory/$ID/pr-result.md" "$N1_HOME/memory/$ID/pr-report.md"; [ -z "$(git status --porcelain)" ] && echo route:worker || echo route:inline
+IFS=$'\t' read -r PM _ < <(n1_resolve_agent pr-worker); echo "model:$PM memory:$N1_HOME/memory/$ID n1_root:$N1_ROOT worktree:$(git rev-parse --show-toplevel)"
 ```
 
 `FIX_AUDIT` other than `ok`, including empty (review fix cap bypassed): before n1-pr, ensure review.md lists `- [FIX-CAP] High — review_fix_cycle past the cap without an [asked] ledger row` under `## For Human Review` (file-write; create the section if absent) so the PR body shows it; never an `[auto]` pass.
 
 **If `prMode` is `"skip"`**: skip n1-pr/push/`## Pending`; add ledger row, run the last block below (end `skipped`), continue.
 
-**REQUIRED SUB-SKILL:** `n1:n1-pr`. Pass: `docUpdateMode: "autonomous"`.
+**Run n1-pr:** `route:worker` → follow `procedures/pr-worker-dispatch.md`; `route:inline`, or that procedure's `pr:prompt` or `pr:unknown` → invoke skill `n1:n1-pr`. Pass: `docUpdateMode: "autonomous"`.
 
 > **ORCHESTRATOR GUARDRAIL (post-PR follow-ups):** do not add post-PR actions inline (CI watch, finish, smoke) — these are separate pipeline steps invoked after this step completes.
 

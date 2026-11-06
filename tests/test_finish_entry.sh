@@ -59,10 +59,10 @@ lacks "typical: does not cat ticket body" "ticket body marker"
 SZ=$(wc -c <<<"$OUT"); if [ "$SZ" -lt 20000 ]; then ok "typical: output $SZ bytes < 20000"; else no "typical: output $SZ bytes < 20000"; fi
 has "typical: id printed" "id=T-1"
 has "typical: prMode derived draft" "prMode=draft"
-has "typical: 03-deploy in read-also (handoff:no)" "steps/03-deploy.md"
-has "typical: 06-cleanup in read-also (handoff:no)" "steps/06-cleanup.md"
-lacks "typical: no handoff.md" "steps/handoff.md"
-if grep -qxF "handoff:no" <<<"$OUT"; then ok "typical: handoff:no printed"; else no "typical: handoff:no printed"; fi
+has "typical: handoff.md in read-also (handoff:yes, N1-435)" "steps/handoff.md"
+lacks "typical: 03-deploy left to the worker" "steps/03-deploy.md"
+lacks "typical: 06-cleanup read through handoff Result" "steps/06-cleanup.md"
+if grep -qxF "handoff:yes" <<<"$OUT"; then ok "typical: handoff:yes printed"; else no "typical: handoff:yes printed"; fi
 lacks "typical: skips 03b" "steps/03b-ssh-deploy.md"
 lacks "typical: skips done-status recovery" "done-status-recovery.md"
 
@@ -200,7 +200,7 @@ if grep -qxF "chained:yes" <<<"$OUT"; then ok "chained: token printed"; else no 
 run '{}' 'deploy_pending: false'
 lacks "chained: absent for a manual run" "chained:yes"
 
-# 15. N1-230: handoff:yes only for chained + headless + no ssh + no done-status recovery + post-deploy verification off.
+# 15. N1-230/N1-435: handoff:yes when Steps 3-6 hold no predictable prompt: no pending-deploy resume, no ssh, no done-status recovery, post-deploy verification off (attended or headless, chained or not).
 ho() { if grep -qxF "handoff:$1" <<<"$OUT"; then ok "$2"; else no "$2"; fi; }
 OFF='"finishWork":{"postDeployVerification":{"enabled":false}}'
 TRK='"tracker":{"mcp":"jira","statuses":{"done":"Done"}}'
@@ -212,9 +212,11 @@ lacks "handoff: yes skips 06-cleanup in orchestrator" "steps/06-cleanup.md"
 TCH=yes HL=1 run "{$OFF}" 'deploy_pending: false'
 ho yes "handoff: no tracker -> yes (no recovery prompt)"
 TCH= HL=1 run "{$OFF,$TRK}" 'deploy_pending: false'
-ho no "handoff: not chained -> no"
+ho yes "handoff: not chained -> yes (N1-435)"
 TCH=yes HL= run "{$OFF,$TRK}" 'deploy_pending: false'
-ho no "handoff: not headless -> no"
+ho yes "handoff: attended -> yes (N1-435; a worker question comes back as tail:prompt)"
+lacks "handoff: attended yes skips 03-deploy in orchestrator" "steps/03-deploy.md"
+TCH=yes HL=1 run "{$OFF,$TRK,\"delivery\":{\"mode\":\"ssh\"}}" 'deploy_pending: false'
 has "handoff: no still reads 03-deploy" "steps/03-deploy.md"
 TCH=yes HL=1 run "{$OFF,$TRK,\"delivery\":{\"mode\":\"ssh\"}}" 'deploy_pending: false'
 ho no "handoff: ssh delivery -> no"
