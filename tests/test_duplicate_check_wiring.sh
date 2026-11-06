@@ -50,7 +50,8 @@ check "N1-443: queue-plan returns close" "\`exclude\`, or \`close\`" "$P"
 check "N1-443: queue-plan never prompts when HEADLESS=1" "If duplicate rows remain:\*\* if \`HEADLESS=1\`, do not ask and never close" "$P"
 check "N1-443: start prompt lists Close as duplicate" "or \*\*Close as duplicate\*\* \(omit when Close is not offered\)" "$P"
 check "N1-443: start Close failure restores the dropped duplicate links" "put the dropped entries back in \`DUP_LINKS\`" "$P"
-check "N1-443: QE auto-accept no longer skips the start prompt" "\*\*Unattended\*\* \(\`HEADLESS=1\`, or \`QE=auto-accept\` with \`CONTEXT=create\`\)" "$P"
+check "N1-442: only headless start or create skips the start prompt" "\*\*Unattended\*\* \(\`HEADLESS=1\`, or \`CONTEXT=create\`\)" "$P"
+check "N1-442: interactive rule is attended start only" "4\. \*\*Interactive\*\* \(attended \`CONTEXT=start\`\)" "$P"
 check "N1-443: new option lists carry the no-recommendation sentence" "No recommendation\. The options are equivalent given the available evidence; select based on team preference\." "$P"
 NR='No recommendation. The options are equivalent given the available evidence; select based on team preference.'
 # sentence must precede the options in the queue-plan list and the start prompt
