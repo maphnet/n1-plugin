@@ -36,7 +36,7 @@ mk_bg() {
     mkdir -p "$tmp/bin" "$tmp/fake" "$tmp/n1home/memory"
     # N1-182: runner asks gh for an open PR of an incomplete child; default answer comes from
     # $FAKE_DIR/gh-pr (absent -> no PR). Never reach the real gh from tests.
-    # N1-185: pr view prints $FAKE_DIR/gh-state (OPEN/MERGED/CLOSED); absent -> exit 1 as before.
+    # N1-185: pr view prints $FAKE_DIR/gh-state (OPEN/MERGED/CLOSED); absent -> exit 1 as before. N1-422: gh-state-seq overrides it per read.
     # N1-292: pr view --json ...headRefOid reads gh-view[.<pr#>] (TSV); pr checks / pr merge / repo view per the files named in the fake.
     [ -e "$tmp/bin/gh" ] || { cat > "$tmp/bin/gh" <<'GHEOF'
 #!/usr/bin/env bash
@@ -62,7 +62,11 @@ case "$1 $2" in
                 head -n1 "$FAKE_DIR/gh-mergeable-seq"
                 if [ "$(wc -l < "$FAKE_DIR/gh-mergeable-seq")" -gt 1 ]; then sed -i 1d "$FAKE_DIR/gh-mergeable-seq"; fi ;;
             *headRefOid*) cat "$v" 2>/dev/null || exit 1 ;;   # N1-292: n1_queue_pr_view (TSV state, base, head)
-            *) cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1 ;;
+            *) # N1-422: gh-state-seq answers one line per state read (last line repeats); absent -> gh-state
+                if [ -s "$FAKE_DIR/gh-state-seq" ]; then
+                    head -n1 "$FAKE_DIR/gh-state-seq"
+                    if [ "$(wc -l < "$FAKE_DIR/gh-state-seq")" -gt 1 ]; then sed -i 1d "$FAKE_DIR/gh-state-seq"; fi
+                else cat "$FAKE_DIR/gh-state" 2>/dev/null || exit 1; fi ;;
         esac ;;
     "pr edit"|"pr ready") # N1-293: the runner's own reuse refresh; logged, gh-edit-fail makes both fail
         echo "$*" >> "$FAKE_DIR/gh-refresh-calls"

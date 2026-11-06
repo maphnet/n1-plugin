@@ -890,7 +890,7 @@ chain_child_escalated() {
 # Every exit writes a "[NUM] TICKET chain: ..." line to runner.log (N1-240).
 chain_finish() {
     local NUM="$1" TICKET="$2" REPO="$3" N1H="$4" MODEL="$5" URL="$6"
-    local marker mstate rc=0 csid fsid st agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" why=finish-timeout SB SBID aurl
+    local marker mstate rc=0 csid fsid st pst="" agents out poll waited=0 fails=0 miss=0 idle=0 blk=0 chk stopped=0 asked="" why=finish-timeout SB SBID aurl
     # N1-240: every exit writes a runner.log line. The raw id is not echoed (it failed validation).
     case "$TICKET" in ''|*[!A-Za-z0-9_-]*) echo "[$NUM] chain: skipped (invalid-ticket-id)"; return 0 ;; esac
     story_env "$REPO" || { chain_note "$NUM" "$TICKET" story-branch-invalid; return 0; }
@@ -985,6 +985,16 @@ chain_finish() {
     echo "[$NUM] $TICKET n1-finish chained ($fsid)"
     waited=0
     while [ "$waited" -le "$TIMEOUT_SECS" ]; do
+        # N1-422 (Orca only): the worker may merge its own PR while this finish waits or sits blocked on the moved head.
+        # Read the PR on every poll: MERGED or closed ends the wait at once; an unreadable read never ends it.
+        if [ -n "${ORCA_RUN:-}" ]; then
+            pst=$(n1_queue_pr_state "$URL")
+            case "$pst" in
+                MERGED) why=finish-merged; break ;;
+                ''|OPEN) ;;
+                *) why=finish-pr-not-open; break ;;
+            esac
+        fi
         if agents=$(bash -c "$(n1_bg_cmd agents)" 2>/dev/null) && printf '%s' "$agents" | jq -e . >/dev/null 2>&1; then
             fails=0
             st=$(n1_queue_bg_state "$agents" "$fsid")
@@ -992,7 +1002,8 @@ chain_finish() {
                 done|failed) why=finish-stopped; break ;;
                 missing) miss=$((miss + 1)); [ "$miss" -ge "$BG_POLL_GRACE" ] && { why=finish-not-listed; break; } ;;
                 blocked)
-                    if [ -z "$asked" ]; then
+                    # N1-422: on Orca a blocked finish needs a human only while its PR is still OPEN.
+                    if [ -z "$asked" ] && { [ -z "${ORCA_RUN:-}" ] || [ "$pst" = OPEN ]; }; then
                         asked=1
                         ev escalated ticket="$TICKET" session="$fsid" reason="chained n1-finish needs you"
                         n1_notify needs-you "$TICKET n1-finish needs you (resume: $(n1_bg_cmd attach "$fsid"))"
@@ -1005,6 +1016,8 @@ chain_finish() {
         fi
         nap "$poll"; waited=$((waited + poll))
     done
+    # N1-422: a merge after the "needs you" escalation tells the watching session the question no longer applies.
+    [ "$why" = finish-merged ] && [ -n "$asked" ] && ev escalation_retracted ticket="$TICKET" session="$fsid" reason="PR merged"
     if [ "$why" = finish-timeout ]; then
         bash -c "$(n1_bg_cmd stop "$fsid")" >/dev/null 2>&1
     else

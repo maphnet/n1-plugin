@@ -41,6 +41,25 @@ test_bg_chain_merges() {
     rm -rf "$tmp"
 }
 
+# N1-422 AC6: the bg chain keeps its session-only wait. A PR that turns MERGED during the wait is read only after the
+# finish ends (pre-launch + post-loop reads), and a blocked finish still raises one "needs you" with no retraction.
+test_bg_chain_fin_wait_unchanged() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" bgq "T-A:done"
+    chain_setup "$tmp" true true
+    gh_overview "$tmp/fake/overview.T-A" 1
+    echo "blocked blocked done" > "$tmp/fake/states.T-A.fin"
+    printf 'OPEN\nOPEN\nOPEN\nMERGED\n' > "$tmp/fake/gh-state-seq"
+    run_bg_queue "$tmp" > /dev/null
+    assert_eq "bg-fin-wait: one finish launch" 1 "$(count_x "$tmp/fake/events" 'launch n1-bgq-T-A-1-fin')"
+    assert_eq "bg-fin-wait: needs you raised once" "1" \
+        "$(jq -r 'select(.event == "escalated" and .reason == "chained n1-finish needs you") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "bg-fin-wait: no retraction" "0" \
+        "$(jq -r 'select(.event == "escalation_retracted") | .ticket' "$tmp/events.jsonl" | wc -l | tr -d ' ')"
+    assert_eq "bg-fin-wait: PR not polled during the wait" "finish:finish-stopped" "$(plan_cell "$tmp/queue.md" 1 9)"
+    rm -rf "$tmp"
+}
+
 # N1-339: a restart (marker for this run) or a finish that already cleaned does not relaunch n1-clean.
 test_bg_chain_clean_marker() {
     local tmp; tmp=$(mktemp -d)
@@ -916,6 +935,7 @@ test_bg_held_blocker_failed
 test_bg_held_user_merge
 test_bg_held_merge_at_timeout
 test_bg_chain_merges
+test_bg_chain_fin_wait_unchanged
 test_bg_chain_sync_ok
 test_bg_chain_clean_marker
 test_bg_chain_clean_launch_failed
