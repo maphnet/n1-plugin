@@ -2026,7 +2026,7 @@ n1_queue_notify_check() {
     # Prints nothing when the backend is usable. Mirrors n1_notify's backend logic.
     local backend val
     backend=$(n1_queue_val notify)
-    case "${backend:-desktop}" in
+    case "${backend:-none}" in
         none) ;;
         command)
             val=$(n1_queue_val notifyCommand)
@@ -2046,11 +2046,11 @@ n1_queue_notify_check() {
 n1_notify() {
     # Usage: n1_notify <needs-you|done|info> <text> — best-effort out-of-session alert.
     # Backend from queue.notify: none (default) | desktop | ntfy (queue.ntfyTopic) | command
-    # (queue.notifyCommand gets {"ts","kind","text"} on stdin) | none. Never fails the caller.
+    # (queue.notifyCommand gets {"ts","kind","text"} on stdin). Never fails the caller.
     local kind="$1" text="$2" title="N1 queue: $1" backend val
     [ "$kind" != needs-you ] || n1_orca_unread_main "$text"   # N1-226: also mark the main-checkout Orca card
     backend=$(n1_queue_val notify)
-    case "${backend:-desktop}" in
+    case "${backend:-none}" in
         none) ;;
         command)
             val=$(n1_queue_val notifyCommand)
