@@ -2073,6 +2073,26 @@ test_list_input_wiring() {
     d=$(lno 'read and follow `<N1_ROOT>/skills/n1-queue/steps/goal.md`'); x=$(lno '5. **Queue id and dir.**')
     assert_eq "goal-input: goal stops and goal.md precede item 5, so nothing is written first" "yes" \
         "$([ -n "$u" ] && [ -n "$q" ] && [ -n "$d" ] && [ -n "$x" ] && [ "$u" -lt "$d" ] && [ "$q" -lt "$d" ] && [ "$d" -lt "$x" ] && echo yes || echo no)"
+    # N1-441: steps/goal.md
+    local gm="$s/steps/goal.md"
+    assert_eq "goal-input: goal.md exists" "yes" "$([ -f "$gm" ] && echo yes || echo no)"
+    assert_eq "goal-input: Jira pool is To Do only, oldest first" "yes" "$(hasF 'JQL `project = <PROJECT_KEY> AND status = "<TODO_STATUS>" ORDER BY created ASC`' "$gm")"
+    assert_eq "goal-input: YouTrack pool is To Do only, oldest first" "yes" "$(hasF 'query `project: {PREFIX} State: {<TODO_STATUS>} sort by: created asc`' "$gm")"
+    assert_eq "goal-input: pool capped by queue.maxTickets" "yes" "$(hasF 'n1_queue_val maxTickets' "$gm")"
+    assert_eq "goal-input: pool keys validated (SEC-L4)" "yes" "$(hasF '^[A-Z][A-Z0-9_]*-[0-9]+$' "$gm")"
+    assert_eq "goal-input: ranking reads no ticket" "no" "$(hasF 'READ_OP' "$gm")"
+    assert_eq "goal-input: ranking marks no ticket" "no" "$(hasF 'n1_desc_mark' "$gm")"
+    assert_eq "goal-input: goal.md runs no bash" "no" "$(has '^```bash' "$gm")"
+    assert_eq "goal-input: reason is one sanitized line" "yes" "$(hasF '`|` and newlines replaced by a space, at most 80 characters' "$gm")"
+    assert_eq "goal-input: empty pool stops" "yes" "$(hasF 'No To Do tickets in the pool.' "$gm")"
+    assert_eq "goal-input: no match stops" "yes" "$(hasF 'No To Do ticket matches the goal.' "$gm")"
+    assert_eq "goal-input: edit to zero stops" "yes" "$(hasF 'No tickets selected.' "$gm")"
+    assert_eq "goal-input: Approve option" "yes" "$(has '^- \*\*Approve\*\* -> ' "$gm")"
+    assert_eq "goal-input: Edit option" "yes" "$(has '^- \*\*Edit\*\* -> ' "$gm")"
+    assert_eq "goal-input: Cancel option" "yes" "$(has '^- \*\*Cancel\*\* -> \*\*STOP\.\*\*' "$gm")"
+    assert_eq "goal-input: option list follows the recommended-option rule" "yes" "$(hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$gm")"
+    assert_eq "goal-input: no Recommended label" "no" "$(hasF '(Recommended)' "$gm")"
+    assert_eq "goal-input: returns GOAL=goal" "yes" "$(hasF '`GOAL=goal`' "$gm")"
 }
 
 # N1-440: per-session queue planning pointer, unique plan ids, planning-dir discard.
