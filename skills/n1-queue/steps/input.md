@@ -17,7 +17,7 @@ echo "KEYS=$KEYS"; echo "BAD=$BAD"
 
 `KEYS` keeps the given order with duplicates dropped. Each `BAD` item (and each item containing `'`) is excluded with reason `invalid ticket key` (intake.md § List mode) and is never read or used in a path. `BAD` holds the sanitized form (every character outside `A-Za-z0-9._:-` replaced by `_`); write only that form to queue.md, never the raw item, because the runner parses `|` in any queue.md line. For an item containing `'`, write `(invalid item)`.
 
-2. **Mixed input.** List items together with `--tag` or `--story`: print "Pass one input: a ticket list, --tag or --story." **STOP.**
+2. **Mixed input.** More than one input source (list items, `--tag`, `--story`; includes `--tag` with `--story`): print "Pass one input: a ticket list, --tag or --story." **STOP.**
 
 3. **No input.** No list item, no `--tag` and no `--story`: under `--unattended` print "No input: pass ticket IDs, --tag <tag> or --story <ID>." **STOP.** Otherwise ask the user one free-text question with no selectable options: "Which tickets should this queue run? Reply with ticket IDs or tracker URLs (`<KEY-1> <KEY-2>`), `--tag <tag>` or `--story <ID>`." Apply items 1-2 to the reply once. Still no input: **STOP.**
 

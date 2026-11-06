@@ -1987,6 +1987,7 @@ test_list_input_wiring() {
     assert_eq "list-input: unattended with no input stops" "yes" \
         "$(hasF 'No input: pass ticket IDs, --tag <tag> or --story <ID>.' "$in")"
     assert_eq "list-input: mixed input stops" "yes" "$(hasF 'Pass one input: a ticket list, --tag or --story.' "$in")"
+    assert_eq "list-input: --tag with --story is mixed input" "yes" "$(hasF 'includes `--tag` with `--story`' "$in")"
     assert_eq "list-input: no valid key stops" "yes" "$(hasF 'No valid ticket keys in the list.' "$in")"
     assert_eq "list-input: missing-input prompt is free text, not an option list" "no" "$(has '^   > [0-9]\. ' "$in")"
     assert_eq "list-input: intake has List mode" "yes" "$(has '^## List mode$' "$s/steps/intake.md")"
