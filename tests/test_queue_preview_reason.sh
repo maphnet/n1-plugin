@@ -21,6 +21,18 @@ check "intake.md enumerates Epic Reason values after story subtask (N1-298)" \
 check "intake.md enumerates the list Reason value (N1-423)" \
     'epic child.*`list` for list-mode candidates' \
     skills/n1-queue/steps/intake.md
+check "intake.md enumerates the goal Reason value (N1-441)" \
+    '`list` for list-mode candidates.*`goal: <why>` for goal-mode candidates' \
+    skills/n1-queue/steps/intake.md
+check "intake.md List mode sets the goal Reason (N1-441)" \
+    'Reason is `goal: <why>` from `GOAL_REASONS`' \
+    skills/n1-queue/steps/intake.md
+check "intake.md names four input modes (N1-441)" \
+    '^Builds the candidate list for the queue\. Four modes:' \
+    skills/n1-queue/steps/intake.md
+check "preview.md names goal.md as the goal-mode selection (N1-441)" \
+    'In goal mode `Mode` is `list` and the selection is the list the user approved in `steps/goal.md`' \
+    skills/n1-queue/steps/preview.md
 check "intake.md expands Done-class Epic children too (N1-298)" \
     'expand every child, including those just classified `done-before-run`' \
     skills/n1-queue/steps/intake.md
