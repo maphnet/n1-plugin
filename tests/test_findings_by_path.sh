@@ -6,6 +6,7 @@ FAIL=0
 CR=agents/code-reviewer.md
 SR=agents/security-reviewer.md
 R=skills/n1-start/steps/review.md
+RL=lib/review-step.sh   # N1-436: review.md's shell lines live here
 F=skills/n1-start/steps/fix.md
 
 check() { # <label> <extended-regex> <file>
@@ -23,11 +24,11 @@ for A in "$CR" "$SR"; do
     refute "$A no longer claims Read-only" 'Read-only' "$A"
 done
 
-check "review removes stale reviewer files" 'rm -f "\$MEM/review-hdr\.md" "\$MEM/review-cr\.md" "\$MEM/review-sec\.md"' "$R"
+check "review removes stale reviewer files" 'rm -f "\$MEM/review-hdr\.md" "\$MEM/review-cr\.md" "\$MEM/review-sec\.md"' "$RL"
 check "review spawns reviewers with output paths" 'output paths `\$N1_HOME/memory/\$ID/review-cr\.md`' "$R"
 check "review never reads reviewer files into context" 'the reviewer files \(never Read them\)' "$R"
-check "review.md = header file + cat of reviewer files" 'FILES=\(review-hdr\.md review-cr\.md\); \[ "\$SEC" = true \] && FILES\+=\(review-sec\.md\)' "$R"
-check "review.md cat quotes the file list" 'cat "\$\{FILES\[@\]\}" \) > "\$MEM/review\.md"' "$R"
+check "review.md = header file + cat of reviewer files" 'FILES=\(review-hdr\.md review-cr\.md\); \[ "\$SEC" = true \] && FILES\+=\(review-sec\.md\)' "$RL"
+check "review.md cat quotes the file list" 'cat "\$\{FILES\[@\]\}" \) > "\$MEM/review\.md"' "$RL"
 check "review header is written by file-write, not shell" 'review-hdr\.md` with the file-write mechanism' "$R"
 refute "review has no header heredoc" 'N1_REVIEW_HDR_EOF' "$R"
 check "missing reviewer file is Partial" 'missing/empty reviewer file' "$R"
@@ -41,25 +42,26 @@ check "qa-engineer TQ Fix Mode reads review.md" 'TQ Fix Mode only: the path to `
 
 refute "n1-review does not pass reviewer output paths" 'review-cr\.md|review-sec\.md' skills/n1-review
 
-# N1-158: run the combine lines of review.md against fake reviewer files.
+# N1-158/N1-436: run n1_review_collect (the review step's combine lines) against fake reviewer files.
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-COMBINE=$(sed -n '/^FILES=(review-hdr\.md/,/> "\$MEM\/review\.md"$/p' "$R")
-if [ "$(wc -l <<<"$COMBINE")" = 3 ]; then echo "PASS: combine block extracted"; else echo "FAIL: combine block extracted"; FAIL=1; fi
+export CLAUDE_PLUGIN_ROOT="$PWD" N1_HOME="$T/home" ID=FBP-1
+source lib/config.sh; source lib/step.sh; source lib/validation.sh; source lib/review-step.sh
+M="$N1_HOME/memory/$ID"; mkdir -p "$M"
 combine() { # <SEC> -> exit code; stderr in $T/err
-    rm -f "$T/review.md"; MEM=$T SEC=$1 bash -c "$COMBINE" 2>"$T/err"
+    rm -f "$M/review.md"; ( n1_review_collect "$1" ) >/dev/null 2>"$T/err"
 }
-printf '### Verdict: PASS\n' > "$T/review-hdr.md"; printf '## CR findings\n' > "$T/review-cr.md"; printf '## SEC findings\n' > "$T/review-sec.md"
+printf '### Verdict: PASS\n' > "$M/review-hdr.md"; printf '## CR findings\n' > "$M/review-cr.md"; printf '## SEC findings\n' > "$M/review-sec.md"
 combine true; rc=$?
-if [ $rc = 0 ] && [ "$(tr '\n' '|' < "$T/review.md")" = '### Verdict: PASS|## CR findings|## SEC findings|' ]; then echo "PASS: review.md = header, CR, SEC in order"; else echo "FAIL: review.md = header, CR, SEC in order"; FAIL=1; fi
+if [ $rc = 0 ] && [ "$(tr '\n' '|' < "$M/review.md")" = '### Verdict: PASS|## CR findings|## SEC findings|' ]; then echo "PASS: review.md = header, CR, SEC in order"; else echo "FAIL: review.md = header, CR, SEC in order"; FAIL=1; fi
 combine false; rc=$?
-if [ $rc = 0 ] && [ "$(tr '\n' '|' < "$T/review.md")" = '### Verdict: PASS|## CR findings|' ]; then echo "PASS: review.md omits SEC when not spawned"; else echo "FAIL: review.md omits SEC when not spawned"; FAIL=1; fi
+if [ $rc = 0 ] && [ "$(tr '\n' '|' < "$M/review.md")" = '### Verdict: PASS|## CR findings|' ]; then echo "PASS: review.md omits SEC when not spawned"; else echo "FAIL: review.md omits SEC when not spawned"; FAIL=1; fi
 for m in review-hdr.md review-cr.md review-sec.md; do
-    cp "$T/$m" "$T/$m.bak"
+    cp "$M/$m" "$T/$m.bak"
     for kind in missing empty; do
-        if [ $kind = missing ]; then rm "$T/$m"; else : > "$T/$m"; fi
+        if [ $kind = missing ]; then rm "$M/$m"; else : > "$M/$m"; fi
         combine true; rc=$?
-        if [ $rc = 1 ] && grep -qF "PARTIAL: $m missing/empty" "$T/err" && [ ! -e "$T/review.md" ]; then echo "PASS: $kind $m is PARTIAL, no review.md"; else echo "FAIL: $kind $m is PARTIAL, no review.md"; FAIL=1; fi
-        cp "$T/$m.bak" "$T/$m"
+        if [ $rc = 1 ] && grep -qF "PARTIAL: $m missing/empty" "$T/err" && [ ! -e "$M/review.md" ]; then echo "PASS: $kind $m is PARTIAL, no review.md"; else echo "FAIL: $kind $m is PARTIAL, no review.md"; FAIL=1; fi
+        cp "$T/$m.bak" "$M/$m"
     done
 done
 

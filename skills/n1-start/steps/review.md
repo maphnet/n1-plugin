@@ -3,20 +3,11 @@
 
 ```bash
 source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/memory.sh"; source "$N1_ROOT/lib/treestate.sh"; source "$N1_ROOT/lib/related.sh"
+source "$N1_ROOT/lib/review-step.sh"
 n1_step_begin "review" 9
-n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — aborting review step" >&2; exit 1; }
-SB=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; exit 1; }
-BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || { [ -n "$SB" ] && echo "origin/$SB"; } || n1_config_val '.git.defaultBranch' )
-MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-hdr.md" "$MEM/review-cr.md" "$MEM/review-sec.md"
-{ echo "# Review Spec (generated)"; n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"; [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"; } > "$MEM/review-spec.md"
-{ echo "# QA Facts (generated)"; n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"; [ -n "${BREAK_CHECK_TQ:-}" ] && { echo "## Hollow tests (break-check never-red)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'; }; } > "$MEM/qa-facts.md"
-TREE_BEFORE=$(n1_tree_snapshot "<worktree dir>")
-RELATED_ENABLED=$(n1_config_val ".relatedProjects.enabled" "$N1_HOME/config.json")
-CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}; [[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1
-INCREMENTAL=false; [ "$CYCLE" -ge 1 ] && [ -s "$N1_HOME/memory/$ID/fix.diff" ] && { INCREMENTAL=true; cp "$N1_HOME/memory/$ID/review.md" "$N1_HOME/memory/$ID/review-prev.md" 2>/dev/null; FIX_FILES=$(cat "$N1_HOME/memory/$ID/fix-changed-files" 2>/dev/null); }
-echo "BASE_BRANCH=$BASE_BRANCH RELATED_ENABLED=$RELATED_ENABLED CYCLE=$CYCLE INCREMENTAL=$INCREMENTAL"
+n1_review_entry "<worktree dir>" || exit 1
 ```
+Output: `BASE_BRANCH= RELATED_ENABLED= CYCLE= INCREMENTAL=`, `TREE_BEFORE=` and, on `INCREMENTAL=true`, `FIX_FILES=`. Non-zero exit (missing implementation.md, invalid story base): stop the step. The call also removes stale reviewer files and writes review-spec.md and qa-facts.md.
 
 If `RELATED_ENABLED=true`, read `procedures/review-xrepo.md` and follow it before spawning reviewers.
 
@@ -46,22 +37,15 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 
 `INCREMENTAL=true`: `procedures/review-extra-round.md § Filter` first. For each Critical/High (also each `[SEC-N]`, except a ` (pre-existing)` one not treated as in-diff: **Pre-existing** above): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
 
-After ALL: **Tree freeze** `n1_tree_verify "$TREE_BEFORE"`. Fail→discard reviewer files+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]` (except a ` (pre-existing)` `[SEC-N]`: **Pre-existing** above); also any in-diff non-Low `[SEC-N]`, never a `[SEC-N]` Low or ` (pre-existing)` (**PASS** below). Partial (incl. missing/empty reviewer file): retry once.
+After ALL: **Tree freeze** `n1_tree_verify "<printed TREE_BEFORE>"`. Fail→discard reviewer files+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]` (except a ` (pre-existing)` `[SEC-N]`: **Pre-existing** above); also any in-diff non-Low `[SEC-N]`, never a `[SEC-N]` Low or ` (pre-existing)` (**PASS** below). Partial (incl. missing/empty reviewer file): retry once.
 
 ```bash
 source ~/.n1/preamble.sh
-source "$N1_ROOT/lib/fingerprints.sh"
-MEM="$N1_HOME/memory/$ID"; SEC=<true if security-reviewer was spawned, else false>
-FILES=(review-hdr.md review-cr.md); [ "$SEC" = true ] && FILES+=(review-sec.md)
-for f in "${FILES[@]}"; do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; exit 1; }; done
-( cd "$MEM" && cat "${FILES[@]}" ) > "$MEM/review.md"
-FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}; [[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1
-if [ -r "$MEM/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE" \
-    || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
-[ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || echo "NON_CONVERGING: cycle $CYCLE"; }
-TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
+source "$N1_ROOT/lib/review-step.sh"
+n1_review_collect <true if security-reviewer was spawned, else false> || exit 1
 n1_step_end "review" 9 "success" "{\"head\":\"$(git rev-parse HEAD)\"}"
 ```
+Output: `PARTIAL: <file> missing/empty` (non-zero exit: Partial, retry once as above), `FP_RECORD_FAILED`, `NON_CONVERGING: cycle N` when they apply; always `TQ_MAX=N`.
 NON_CONVERGING/FP_RECORD_FAILED→escalate. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ### 7b. TQ FIX LOOP

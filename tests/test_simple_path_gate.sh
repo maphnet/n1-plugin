@@ -18,6 +18,7 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ANALYSIS="$REPO_ROOT/skills/n1-start/steps/analysis.md"
+LIB="$REPO_ROOT/lib/analysis.sh"   # N1-436: the gate's shell lines live here
 SKILL="$REPO_ROOT/skills/n1-start/SKILL.md"
 GATES="$REPO_ROOT/skills/n1-start/procedures/output-gates.md"
 export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
@@ -40,12 +41,12 @@ source "$REPO_ROOT/lib/context.sh"
 # ---------------------------------------------------------------------------
 # T1: extract condition JSON from analysis.md
 # ---------------------------------------------------------------------------
-COND=$(grep -m1 'n1_record_decision simple-path' "$ANALYSIS" | sed "s/.*'\({.*}\)'.*/\1/")
+COND=$(grep -m1 'n1_record_decision simple-path' "$LIB" | sed "s/.*'\({.*}\)'.*/\1/")
 
 if [ -n "$COND" ] && echo "$COND" | jq -e . >/dev/null 2>&1; then
-    pass "T1: condition JSON extracted from analysis.md and is valid JSON"
+    pass "T1: condition JSON extracted from lib/analysis.sh and is valid JSON"
 else
-    fail "T1: could not extract a single-line condition JSON from $ANALYSIS"
+    fail "T1: could not extract a single-line condition JSON from lib/analysis.sh"
     echo; echo "Passed: $PASS  Failed: $FAIL"; exit 1
 fi
 
@@ -133,18 +134,18 @@ assert_eq "T21: missing context file leaves SIMPLE_PATH unchanged" "sentinel" "$
 # ---------------------------------------------------------------------------
 # T22: bash predicate is present in analysis.md
 # ---------------------------------------------------------------------------
-PRED=$(grep -m1 'SIMPLE_PATH=true' "$ANALYSIS")
+PRED=$(grep -m1 'SIMPLE_PATH=true' "$LIB")
 if [ -n "$PRED" ]; then
-    pass "T22: SIMPLE_PATH=true assignment is present in analysis.md"
+    pass "T22: SIMPLE_PATH=true assignment is present in lib/analysis.sh"
 else
-    fail "T22: SIMPLE_PATH=true assignment missing from analysis.md"
+    fail "T22: SIMPLE_PATH=true assignment missing from lib/analysis.sh"
 fi
 
 # ---------------------------------------------------------------------------
 # T23-T25: bash predicate truth table (inline execution)
 # ---------------------------------------------------------------------------
-INIT_LINE=$(grep -m1 'SIMPLE_PATH=false' "$ANALYSIS")
-COND_LINES=$(grep -A7 'SIMPLE_PATH=false' "$ANALYSIS" | grep -v '^--$' | head -8)
+INIT_LINE=$(grep -m1 'SIMPLE_PATH=false' "$LIB")
+COND_LINES=$(grep -A7 'SIMPLE_PATH=false' "$LIB" | grep -v '^--$' | head -8)
 
 run_pred() {
     local tier="$1" type="$2" blast="$3" files="$4" security="$5" root_cause="$6"
@@ -205,7 +206,7 @@ assert_eq "T36: decision_id is simple-path" "simple-path" "$DID"
 # ---------------------------------------------------------------------------
 # T37: analysis.md calls n1_write_context after SIMPLE_PATH assignment
 # ---------------------------------------------------------------------------
-assert_contains "T37: analysis.md calls n1_write_context after gate" "$ANALYSIS" "n1_write_context"
+assert_contains "T37: lib/analysis.sh calls n1_write_context after gate" "$LIB" "n1_write_context"
 
 # ---------------------------------------------------------------------------
 # T38: analysis.md surfaces simple-path in Gate 1 prose

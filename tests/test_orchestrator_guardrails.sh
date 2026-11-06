@@ -127,8 +127,8 @@ assert_contains "plan: pre-dispatch n1_verify_dependencies" \
 assert_contains "implementation: pre-dispatch n1_verify_dependencies" \
     "skills/n1-start/steps/implementation.md" \
     "n1_verify_dependencies"
-assert_contains "review: pre-dispatch n1_verify_dependencies" \
-    "skills/n1-start/steps/review.md" \
+assert_contains "review: pre-dispatch n1_verify_dependencies (lib/review-step.sh, N1-436)" \
+    "lib/review-step.sh" \
     "n1_verify_dependencies"
 assert_contains "review: wait directive" \
     "skills/n1-start/steps/review.md" \

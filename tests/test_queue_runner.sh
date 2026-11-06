@@ -1175,7 +1175,7 @@ test_story_base_wiring() {
     assert_eq "story-wiring: ensure cuts the branch from BASE" "yes" "$(grep -qF 'git branch <TARGET> "$BASE"' "$ws" && echo yes || echo no)"
     assert_eq "story-wiring: ensure keeps checkout of the default" "yes" "$(grep -qF 'git checkout $DEFAULT' "$ws" && echo yes || echo no)"
     local f
-    for f in skills/n1-start/steps/review.md skills/n1-start/steps/implementation.md skills/n1-start/steps/qa.md \
+    for f in lib/review-step.sh skills/n1-start/steps/implementation.md skills/n1-start/steps/qa.md \
              skills/n1-start/procedures/cross-repo.md skills/n1-review/steps/01-analyze.md; do
         assert_eq "story-wiring: $f calls n1_story_base" "yes" "$(grep -q 'n1_story_base' "$REPO_ROOT/$f" && echo yes || echo no)"
     done

@@ -75,15 +75,19 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # Wiring: both call sites write findings by file and record via the helper.
+# N1-436: review.md's shell lines live in lib/review-step.sh; prose checks stay on the step.
 R=skills/n1-start/steps/review.md
+RL=lib/review-step.sh
 A=skills/n1-review/steps/01-analyze.md
 for S in "$R" "$A"; do
     eq "$S has no double-quoted <file>/<title> placeholders" "0" "$(grep -cE '"<(file|title)>"' "$S")"
-    eq "$S records via n1_fingerprint_record" "1" "$(grep -cE 'n1_fingerprint_record "\$FP_FILE" ' "$S")"
     eq "$S names the memory-path fp-new.tsv" "1" "$(grep -c 'fp-new\.tsv` with' "$S")"
     eq "$S writes fp-new.tsv with the file-write mechanism" "1" "$(grep -cE 'fp-new\.tsv` with the file-write mechanism' "$S")"
     eq "$S forbids titles in shell strings" "1" "$(grep -ciE 'never put a title or path in a shell command, variable or double-quoted string' "$S")"
-    eq "$S guards record with if [ -r (absent TSV is silent)" "1" "$(grep -cE '^if \[ -r "[^"]*fp-new\.tsv" \]; then n1_fingerprint_record' "$S")"
+done
+for S in "$RL" "$A"; do
+    eq "$S records via n1_fingerprint_record" "1" "$(grep -cE 'n1_fingerprint_record "\$FP_FILE" ' "$S")"
+    eq "$S guards record with if [ -r (absent TSV is silent)" "1" "$(grep -cE '^[[:space:]]*if \[ -r "[^"]*fp-new\.tsv" \]; then n1_fingerprint_record' "$S")"
     eq "$S no longer calls n1_fingerprint_finding inline" "0" "$(grep -c 'n1_fingerprint_finding' "$S")"
 done
 
@@ -99,9 +103,9 @@ CJ2="$T/cyc2.jsonl"; printf 'CR-1\tHigh\ta.sh\tone\nCR-2\tCritical\tb.sh\ttwo\n'
 n1_fingerprint_check_convergence "$CJ2" 1; eq "lower count at cycle 1 is converging" "0" "$?"
 CJ3="$T/cyc3.jsonl"; : > "$CJ3"; n1_fingerprint_check_convergence "$CJ3" 1; eq "zero blockers (RULE-only FAIL) is converging" "0" "$?"
 n1_fingerprint_check_convergence "$CJ" 0; eq "cycle 0 is converging" "0" "$?"
-eq "review.md defaults CYCLE to 0" "1" "$(grep -cF 'fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}' skills/n1-start/steps/review.md)"
-eq "review.md emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' skills/n1-start/steps/review.md)"
-eq "review.md no longer discards the verdict" "0" "$(grep -c 'check_convergence.*|| true' skills/n1-start/steps/review.md)"
+eq "review-step.sh defaults CYCLE to 0" "1" "$(grep -cF 'fingerprints.jsonl"; CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}' lib/review-step.sh)"
+eq "review-step.sh emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' lib/review-step.sh)"
+eq "review-step.sh no longer discards the verdict" "0" "$(grep -c 'check_convergence.*|| true' lib/review-step.sh)"
 eq "01-analyze.md emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' skills/n1-review/steps/01-analyze.md)"
 eq "pr.md reads first-pass bucket 0" "1" "$(grep -c 'blocking_count_for_cycle "$FP_FILE" 0' skills/n1-start/steps/pr.md)"
 eq "telemetry.md lists only emitted fields" "0" "$(grep -cE 'findings_total|execution_path|cross_repo_xrepo|cross_repo_runtime' skills/n1-start/procedures/telemetry.md)"
