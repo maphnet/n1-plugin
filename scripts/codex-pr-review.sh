@@ -7,7 +7,8 @@ source "$SCRIPT_DIR/../lib/codex-review.sh"
 source "$SCRIPT_DIR/../lib/validation.sh"
 N1_HOME=$(n1_home)
 BASE=${1-}; ID=${2-}
-BRANCH=$(git branch --show-current 2>/dev/null) || BRANCH=""
+# N1-424: the queue runner reviews a detached worktree at the final PR head and names its branch here.
+BRANCH=${N1_REVIEW_BRANCH:-$(git branch --show-current 2>/dev/null)}
 # A branch that cannot form a receipt key cannot be recorded: fail open (unreachable for <user>/<ID> branches).
 RECEIPT=$(n1_review_receipt "$BRANCH") || { printf 'codex_review_outcome=skipped reason=bad-branch\n'; exit 0; }
 KEY=${BRANCH//\//_}; NAME=${RECEIPT##*/}

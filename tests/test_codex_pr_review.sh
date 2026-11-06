@@ -319,3 +319,17 @@ printf 'PASS: ran receipts need an ancestor head; non-ancestor and wrong-repo re
 printf 'PASS: gate marker blocks pushes until HEAD is the run-start SHA; dirty edits are saved and restored away\n'
 # Branches that differ only by "/" vs "_" must not share a receipt file.
 [ "$(N1_SESSION_ID=col n1_review_receipt feature/a_b)" != "$(N1_SESSION_ID=col n1_review_receipt feature_a/b)" ] && echo "PASS: colliding branch names get distinct receipts" || { echo "FAIL: branch receipt collision"; exit 1; }
+
+# N1-424: the queue runner reviews a detached checkout at the final PR head; N1_REVIEW_BRANCH names the branch.
+unset AUTH_MODE REVIEW_MODE CODEX_OUT
+printf '{}\n' > "$N1_HOME/config.json"
+DT="$TMP/detached"; DBASE=$(mkrepo "$DT" story/S-9)
+git -C "$DT" checkout -q --detach
+(cd "$DT" && bash "$ROOT/scripts/codex-pr-review.sh" "$DBASE" "") > "$TMP/det-out"
+grep -qx 'codex_review_outcome=skipped reason=bad-branch' "$TMP/det-out"
+(cd "$DT" && N1_REVIEW_BRANCH=story/S-9 bash "$ROOT/scripts/codex-pr-review.sh" "$DBASE" "") > "$TMP/det-out"
+grep -qx 'findings:none' "$TMP/det-out"
+grep -q '^codex_review_outcome=ran ' "$TMP/det-out"
+jq -e '.branch == "story/S-9" and .outcome == "ran" and .processed' \
+  "$N1_HOME/review-receipts/review-test/$(rn "$DT" story/S-9)" >/dev/null
+printf 'PASS: N1_REVIEW_BRANCH reviews a detached checkout under that branch key\n'
