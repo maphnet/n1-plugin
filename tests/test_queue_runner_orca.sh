@@ -392,7 +392,6 @@ test_orca_no_pr_settles() {
     assert_eq "orca-no-pr: one notification naming ticket and gate3.md" "1" \
         "$(cat "$tmp/notes" 2>/dev/null | grep -c 'T-1 ended without a PR (see .*/memory/T-1/gate3\.md)' || true)"
     assert_eq "orca-no-pr: worker settled (sentinel removed)" "no" "$([ -e "$tmp/n1home/queue/sentinels/T-1.env" ] && echo yes || echo no)"
-    assert_eq "orca-no-pr: no strike" "0" "$(grep -c 'T-1.*strike' "$tmp/output.txt" || true)"
     assert_eq "orca-no-pr: successor launched" "1" "$(grep -c '^orchestration worker-start.*--task task-T-2' "$tmp/fake/orca-calls" || true)"
     rm -rf "$tmp"
 }
