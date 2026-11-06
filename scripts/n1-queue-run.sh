@@ -1243,15 +1243,24 @@ launch_orca() {
     echo "[$NUM] $TICKET launched as Orca worker ($DISP)${WT:+, resumed in its existing worktree}"
 }
 
-# orca_settle <task> — release the worker, drop its sentinel, run the owed fullAuto chain (once). Uses run_orca's
-# SETTLED/OWED (dynamic scope). A task whose row is still in flight waits.
+# orca_settle <task> [defer] — release the worker, drop its sentinel, run the owed fullAuto chain (once). Uses run_orca's
+# SETTLED/OWED/DEFERRED (dynamic scope). A task whose row is still in flight waits.
+# N1-422: "defer" (a "stopped (finished)" notice: the worker only ended a turn and may resume and merge its own PR)
+# releases the worker and frees its slot once, but keeps the task owed: no SETTLED, no chain, sentinel and markers kept,
+# so worker_done, a worker-list exited/done row or the owed expiry still settle and chain it.
 orca_settle() {
     local TASK="$1" T DISP ROW NUM TICKET REPO N1H MODEL URL SB SBID fb=1
     [[ "$SETTLED" == *" $TASK "* ]] && return
     IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
     [ -n "$T" ] || return
     [ -z "$(n1_queue_pending_rows "$QUEUE" 'in-progress|awaiting-human' | awk -F'\t' -v t="$T" '$2 == t')" ] || return
-    SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"
+    if [ "${2:-}" = defer ]; then
+        [[ "$OWED" == *" $TASK "* && "$DEFERRED" != *" $TASK "* ]] || return
+        DEFERRED="$DEFERRED$TASK "
+        n1_orca_release "$DISP"
+        return
+    fi
+    SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"; DEFERRED="${DEFERRED// $TASK / }"
     n1_orca_release "$DISP"
     ROW=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t' | tail -1)
     if [ -n "$ROW" ]; then
@@ -1288,7 +1297,7 @@ run_orca() {
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
-    local LIVE="" LIVE_OK=0 DONE=" " STOPPED=" " SETTLED=" " OWED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0
+    local LIVE="" LIVE_OK=0 DONE=" " STOPPED=" " SETTLED=" " OWED=" " DEFERRED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
     # N1-303: the plan pins max_concurrent; live config is read only for a plan made before it (legacy).
@@ -1390,8 +1399,9 @@ run_orca() {
                     esac ;;
                 escalation) escalate "$T" "$(orca_n1h_of "$T")" "" "$EXTRA" ;;
                 # N1-359: Orca's "worker stopped without reporting" notice is not a human question: record it; the row is
-                # never changed here. N1-394: a "finished" notice also settles the task after the row loop (orca_settle
-                # skips a row still in-progress/awaiting-human, so only a final row's owed slot is released). Reconcile (worker exited/done) and subtaskTimeoutMinutes still end a worker that never resumes.
+                # never changed here. N1-394/N1-422: a "finished" notice for a final row releases the worker and frees its
+                # owed slot after the row loop (orca_settle defer), but never chains: the worker only ended a turn and may
+                # resume and merge its own PR. worker_done, reconcile (worker exited/done) and the owed expiry settle it later.
                 escalation-stop)
                     echo "[orca] $T worker stopped without reporting (row unchanged)"
                     ev worker_stopped ticket="$T" reason="$EXTRA"
@@ -1556,15 +1566,17 @@ run_orca() {
         # not a ticket worker). Re-settling after a restart is guarded by SETTLED, idempotent release and .chained-<ticket>.
         # A worker-list row settles only the dispatch the Runs row holds for its task.
         for TASK in $DONE; do orca_settle "$TASK"; done
-        for TASK in $STOPPED; do orca_settle "$TASK"; done
+        for TASK in $STOPPED; do orca_settle "$TASK" defer; done   # N1-422: slot release only, never a chain
         while IFS=$'\t' read -r -u 3 L TASK; do
             _n1_orca_id "$TASK" || continue
             IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
-            [ -n "$T" ] && [ "$L" = "$DISP" ] && orca_settle "$TASK"
+            # N1-422: a deferred task is settled only by worker_done or the owed expiry; a released dispatch reads exited/done here.
+            [ -n "$T" ] && [ "$L" = "$DISP" ] && [[ "$DEFERRED" != *" $TASK "* ]] && orca_settle "$TASK"
         done 3< <(awk -F'\t' '$3 == "exited" || $4 == "done" { print $1 "\t" $2 }' <<< "$LIVE")
 
         # Unsettled workers (finished or timed-out rows whose worker is not proven exited or durably finished) still hold a slot.
-        OWEDN=$(wc -w <<< "$OWED")
+        # N1-422: a task deferred by a "finished" stop notice stays owed (still settled and chained later) but holds no slot.
+        OWEDN=0; for TASK in $OWED; do [[ "$DEFERRED" == *" $TASK "* ]] || OWEDN=$((OWEDN + 1)); done
         while [ -z "$HALT_DRAIN" ] && [ $((INFLIGHT + OWEDN)) -lt "$MAXC" ]; do
             # N1-303 (N1-269 rule): the first ELIGIBLE pending row (every ## Schedule predecessor released).
             ROW=$(n1_queue_eligible_rows "$QUEUE" "$MERGE"); ROW="${ROW%%$'\n'*}"
