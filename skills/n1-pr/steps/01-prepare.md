@@ -13,7 +13,7 @@ echo "DEFAULT_BRANCH=$DEFAULT_BRANCH STORY=${SB:-none}"
 
 - On default branch → "Switch to a feature branch first." **STOP.**
 - Uncommitted changes → commit first (summarize, ask confirmation).
-- `STORY` not `none` (story child): `DEFAULT_BRANCH` is the story branch for every later step (use `origin/${DEFAULT_BRANCH}` in the Step 1 git commands: it has no local ref); the rebase and the PR target it, never the default branch. Story child: make no version-bump commit and run no version-bump script; this overrides any repo per-branch version-bump rule (the bump applies to the story's final PR). `STOP` output → STOP.
+- `STORY` not `none` (story child): `DEFAULT_BRANCH` is the story branch for every later step (use `origin/${DEFAULT_BRANCH}` in the Step 1 git commands: it has no local ref); the rebase and the PR target it, never the default branch. Story child or queue child: make no version-bump commit and run no version-bump script; this overrides any repo per-branch version-bump rule (the bump applies to the story's final PR). `STOP` output → STOP.
 
 ## Codex Review (pre-push)
 

@@ -1,5 +1,7 @@
 # Step 4: Close Ticket
 
+**Queue integration PR (N1-446):** when the PR's head branch (`headRefName`) starts with `queue/`, the PR is a queue runner final PR and carries no ticket, even when the head name contains a ticket-like id. Skip this step's ticket close and the Step 5 ticket work, and go to Step 6; its cleanup deletes the local queue branch.
+
 **Delivery gate (before anything else in this step):** follow `<N1_ROOT>/skills/n1-finish/steps/03b-ssh-deploy.md` (read at entry when `delivery.mode` is `"ssh"`). Continue below only when it says to return to Step 4. It is a no-op unless `delivery.mode` is `"ssh"`.
 
 **After-deploy actions (after the delivery gate returns; PR path only, skipped on the local-merge path):** follow `<N1_ROOT>/references/deployment-actions.md` (already read at entry; do not re-read) for the merged PR `<n>`. After a Step 1 pending-deploy resume, `<n>` is unknown; find it with `gh api "repos/{owner}/{repo}/commits/<SHA>/pulls" --jq '[.[] | select(.merged_at)] | .[0].number'`.

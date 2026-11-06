@@ -1172,7 +1172,7 @@ test_story_base_wiring() {
         "$(grep -q 'Story child: make no version-bump commit' "$REPO_ROOT/skills/n1-start/steps/implementation.md" && echo yes || echo no)"
     local pp="$REPO_ROOT/skills/n1-pr/steps/01-prepare.md" pc="$REPO_ROOT/skills/n1-pr/steps/02-push-create.md"
     assert_eq "story-wiring: prepare reads story base for DEFAULT_BRANCH and rules BASE" "3" "$(grep -c 'n1_story_base' "$pp")"
-    assert_eq "story-wiring: prepare bump skip" "yes" "$(grep -q 'Story child: make no version-bump commit' "$pp" && echo yes || echo no)"
+    assert_eq "story-wiring: prepare bump skip" "yes" "$(grep -q 'Story child or queue child: make no version-bump commit' "$pp" && echo yes || echo no)"
     assert_eq "story-wiring: rebase target via DEFAULT_BRANCH" "yes" "$(grep -qF 'git rebase "origin/$DEFAULT_BRANCH"' "$pc" && echo yes || echo no)"
     assert_eq "story-wiring: PR base via DEFAULT_BRANCH" "yes" "$(grep -qF -- '--base "$DEFAULT_BRANCH"' "$pc" && echo yes || echo no)"
     assert_eq "story-wiring: every push-create snippet re-derives the base from n1_story_base (SEC-1)" "4" "$(grep -c 'DEFAULT_BRANCH="\$SB"' "$pc")"
@@ -2558,6 +2558,14 @@ test_queue_integration_wiring() {
     assert_eq "queue-wiring: no story-only RUN_MODE gate" 0 "$(grep -c '\[ "\$RUN_MODE" = story \]' "$r" || true)"
     assert_eq "queue-wiring: six RUN_MODE integration gates" 6 "$(grep -c '\[ -n "\$RUN_MODE" \]' "$r" || true)"
     assert_eq "queue-wiring: final_pr passes the kind to body and cmd" 2 "$(grep -c '"\$body" "\$draft" "\$RUN_MODE")\|"\$SBID" "\$body" "\$RUN_MODE")' "$r" || true)"
+    assert_eq "queue-wiring: n1-finish close step skips queue/ heads" yes \
+        "$(grep -qF 'starts with `queue/`' "$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: n1-pr bump skip names queue children" yes \
+        "$(grep -qF 'Story child or queue child' "$REPO_ROOT/skills/n1-pr/steps/01-prepare.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: run.md documents the queue integration branch" yes \
+        "$(grep -qF '**Queue integration branch (N1-446).**' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: architecture documents it" yes \
+        "$(grep -qF 'Queue integration branch (N1-446)' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
 }
 
 test_n1_339_cleanup_helpers

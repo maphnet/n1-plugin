@@ -1,6 +1,6 @@
 ---
 name: n1-queue
-description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children stop after PR + CI and never merge unless autonomy.fullAuto and finishWork.mergeOnFinish are both true; in a story queue the runner merges green, reviewed children into the story branch. Usage: /n1:n1-queue [<ticket|url>...] [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--retry <ticket>] [--stop [<id>]] [--schedule <trigger>|list|remove] [--unattended]"
+description: "Use when a batch of tracker tickets tagged for unattended work should run through the pipeline one after another; children stop after PR + CI and never merge unless autonomy.fullAuto and finishWork.mergeOnFinish are both true; in a story queue, or a list/tag queue of 2+ tickets with merge off, the runner merges green, reviewed children into the integration branch. Usage: /n1:n1-queue [<ticket|url>...] [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--retry <ticket>] [--stop [<id>]] [--schedule <trigger>|list|remove] [--unattended]"
 argument-hint: "[<ticket|url>...] [--tag <tag>] [--story <ID>] [--plan] [--run <queue-id>] [--dry-run] [--status [<id>]] [--watch [<id>]] [--answer <ticket> <text>] [--retry <ticket>] [--stop [<id>]] [--schedule <trigger>|list|remove] [--unattended]"
 ---
 
