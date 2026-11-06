@@ -828,10 +828,12 @@ _n1_id_in() {
     return 1
 }
 
-# N1-291: n1_story_base — the story child's integration branch (story/<ID>, no origin/), validated; prints nothing
-# for a non-story run. The queue runner sets N1_STORY_BRANCH/N1_STORY_ID on story children only. rc 2 (stderr)
-# when the branch is set but invalid or != story/$N1_STORY_ID, or when a queue child carries N1_STORY_ID without a
-# branch: a story child never falls back to the default branch. Callers: SB=$(n1_story_base) || exit 1.
+# N1-291: n1_story_base — the story child's integration branch (story/<ID>, or N1-446 queue/<ID> for a list/tag queue
+# with integration: queue; no origin/), validated; prints nothing for a non-integration run. The queue runner sets
+# N1_STORY_BRANCH/N1_STORY_ID on integration children only. rc 2 (stderr) when the branch is set but invalid or is
+# neither story/$N1_STORY_ID nor queue/$N1_STORY_ID, or when a queue child carries N1_STORY_ID without a branch: an
+# integration child never falls back to the default branch. The runner (story_env) pins the prefix to its run mode.
+# Callers: SB=$(n1_story_base) || exit 1.
 n1_story_base() {
     local b="${N1_STORY_BRANCH:-}" id="${N1_STORY_ID:-}"
     if [ -z "$b" ]; then
@@ -840,8 +842,9 @@ n1_story_base() {
         fi
         return 0
     fi
-    if ! [[ "$b" =~ ^story/[A-Za-z0-9._-]+$ ]] || [[ "$b" == *..* ]] \
-        || ! git check-ref-format --branch "$b" >/dev/null 2>&1 || { [ -n "$id" ] && [ "$b" != "story/$id" ]; }; then
+    if ! [[ "$b" =~ ^(story|queue)/[A-Za-z0-9._-]+$ ]] || [[ "$b" == *..* ]] \
+        || ! git check-ref-format --branch "$b" >/dev/null 2>&1 \
+        || { [ -n "$id" ] && [ "$b" != "story/$id" ] && [ "$b" != "queue/$id" ]; }; then
         printf 'n1_story_base: invalid story branch %s\n' "$b" >&2; return 2
     fi
     printf '%s' "$b"

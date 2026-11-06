@@ -1111,6 +1111,12 @@ test_story_base() {
     assert_eq "story-base: .lock (check-ref-format) -> rc 2" "|2" "$(sb N1_STORY_BRANCH=story/x.lock)"
     assert_eq "story-base: shell metachar -> rc 2" "|2" "$(sb 'N1_STORY_BRANCH=story/x;rm')"
     assert_eq "story-base: queue child lost its branch -> rc 2" "|2" "$(sb N1_STORY_ID=S-1 N1_QUEUE_RUN_ID=R1)"
+    # N1-446: a queue integration branch is a valid base; the id pairing and fail-closed cases still hold.
+    assert_eq "story-base: queue branch and id" "queue/sq-20261106T000000Z|0" \
+        "$(sb N1_STORY_ID=sq-20261106T000000Z N1_STORY_BRANCH=queue/sq-20261106T000000Z)"
+    assert_eq "story-base: queue branch != queue/<id> -> rc 2" "|2" "$(sb N1_STORY_ID=S-1 N1_STORY_BRANCH=queue/sq-1)"
+    assert_eq "story-base: queue dot-dot -> rc 2" "|2" "$(sb N1_STORY_BRANCH=queue/a..b)"
+    assert_eq "story-base: other prefix -> rc 2" "|2" "$(sb N1_STORY_BRANCH=release/x)"
     assert_eq "story-base: rc 2 explains on stderr" "yes" \
         "$( ( export N1_STORY_BRANCH=main; n1_story_base 2>&1 >/dev/null || : ) | grep -q 'invalid story branch' && echo yes || echo no)"
 }
@@ -2339,6 +2345,21 @@ test_sync_story() {
     rm -rf "$tmp"
 }
 
+# N1-446: the local queue branch is fast-forwarded after a runner merge like a story branch; other prefixes are refused.
+test_sync_queue_branch() {
+    local tmp rc; tmp=$(mktemp -d)
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git -C "$tmp/origin" branch queue/sq-20261106T000000Z
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    rc=0; n1_queue_sync_story "$tmp/repo" queue/sq-20261106T000000Z 2>/dev/null || rc=$?
+    assert_eq "sync-queue: queue branch fetched" "0|$(git -C "$tmp/origin" rev-parse queue/sq-20261106T000000Z)" \
+        "$rc|$(git -C "$tmp/repo" rev-parse queue/sq-20261106T000000Z 2>/dev/null)"
+    rc=0; n1_queue_sync_story "$tmp/repo" release/x 2>/dev/null || rc=$?
+    assert_eq "sync-queue: other prefix refused" 1 "$rc"
+    rm -rf "$tmp"
+}
+
 # N1-292: the Done session is a bg n1-run with a fixed prompt ending in the ticket id, queue settings env.
 test_done_cmd() {
     local cmd; cmd=$(n1_queue_done_cmd /r T-A sonnet RUN1 n1-q-T-A-1-done)
@@ -2498,6 +2519,7 @@ test_n1_339_cleanup_helpers
 test_pr_view
 test_checks_class
 test_sync_story
+test_sync_queue_branch
 test_done_cmd
 test_final_pr_table
 test_final_body

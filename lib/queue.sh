@@ -376,10 +376,10 @@ n1_queue_checks_class() {
 }
 
 n1_queue_sync_story() {
-    # Usage: n1_queue_sync_story <repo> <story-branch> — N1-292: best-effort fast-forward of the local story branch after
+    # Usage: n1_queue_sync_story <repo> <story-or-queue-branch> — N1-292: best-effort fast-forward of the local story branch after
     # a runner merge. The refspec has no "+", so the update is never forced. git refuses it while the branch is checked out.
     # Children cut from origin/<sb>, so the caller only logs a failure.
-    [[ "$2" =~ ^story/[A-Za-z0-9._-]+$ ]] && git check-ref-format --branch "$2" >/dev/null 2>&1 || return 1
+    [[ "$2" =~ ^(story|queue)/[A-Za-z0-9._-]+$ ]] && git check-ref-format --branch "$2" >/dev/null 2>&1 || return 1
     git -C "$1" fetch --quiet origin "refs/heads/$2:refs/heads/$2" >&2
 }
 
