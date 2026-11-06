@@ -35,7 +35,7 @@ echo "KEYS=$KEYS"; echo "BAD=$BAD"; echo "PROSE=$PROSE"
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/queue.sh"
-KEYS='<KEYS printed by item 1 or approved in steps/goal.md, empty in tag and story mode>'; GOAL='<goal in goal mode, else empty>'; QUEUE_ID='<--tag value, story ID or story URL; empty in list mode>'; MODE='<list|tag|story>'; UNATTENDED='<yes or empty>'
+KEYS='<KEYS printed by item 1 or approved in steps/goal.md, empty in tag and story mode>'; GOAL='<the literal word goal in goal mode, else empty; never the goal text>'; QUEUE_ID='<--tag value, story ID or story URL; empty in list mode>'; MODE='<list|tag|story>'; UNATTENDED='<yes or empty>'
 case "$QUEUE_ID" in http://*|https://*) QUEUE_ID=$(n1_extract_ticket_from_url "$QUEUE_ID" "$N1_HOME/config.json") || QUEUE_ID="" ;; esac
 [ -n "$KEYS" ] && QUEUE_ID=$(printf '%s-%08x' "${GOAL:-list}" "$(printf '%s\n' $KEYS | LC_ALL=C sort -u | cksum | cut -d' ' -f1)")
 SRC="${KEYS:-$QUEUE_ID}"
