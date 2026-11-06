@@ -6,6 +6,7 @@ set -u
 INPUT=$(cat)
 [ "${N1_HEADLESS:-}" = "1" ] && exit 0
 [ -n "${N1_QUEUE_RUN_ID:-}" ] && exit 0
+[ -n "${ORCA_CLI_COMMAND:-}" ] || exit 0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../lib/config.sh" 2>/dev/null || exit 0
 source "${SCRIPT_DIR}/../lib/host.sh" 2>/dev/null || exit 0
