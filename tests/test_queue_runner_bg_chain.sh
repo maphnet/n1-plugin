@@ -1053,6 +1053,37 @@ test_final_pr_merge_refused() {
     rm -rf "$tmp"
 }
 
+# N1-424: a resume whose recorded final PR is already MERGED into the default branch launches no session, merges
+# nothing and keeps the row (n1_queue_final_pr_find lists OPEN PRs only).
+test_final_pr_merged_resume() {
+    local tmp; tmp=$(mktemp -d)
+    final_merge_fixture "$tmp" "T-A:working done"
+    n1_queue_final_pr_set "$tmp/queue.md" "$tmp/repo" https://github.com/o/r/pull/9 ready MERGEABLE "waits: checks-pending"
+    printf 'MERGED\tmain\t%s\n' "$FM_HEAD" > "$tmp/fake/gh-view.9"
+    assert_eq "final-resume: exit 0" 0 "$(run_fm "$tmp")"
+    assert_eq "final-resume: no final session" 0 "$(count_x "$tmp/fake/events" 'launch n1-sq-S-1-final-1')"
+    assert_eq "final-resume: no merge call" 0 "$(fm_merges "$tmp" 9)"
+    assert_eq "final-resume: note" "merged (outside the runner)" "$(fin_note "$tmp")"
+    assert_eq "final-resume: summary reader still lists it" https://github.com/o/r/pull/9 \
+        "$(n1_queue_final_prs "$tmp/queue.md" "$tmp/events.jsonl" "$(n1_read_frontmatter "$tmp/queue.md" run_id)" | cut -f2)"
+    rm -rf "$tmp"
+    tmp=$(mktemp -d)
+    final_merge_fixture "$tmp" "T-A:working done"
+    n1_queue_final_pr_set "$tmp/queue.md" "$tmp/repo" https://github.com/o/r/pull/9 ready MERGEABLE "merged; codex: skipped no-auth"
+    printf 'MERGED\tmain\t%s\n' "$FM_HEAD" > "$tmp/fake/gh-view.9"
+    run_fm "$tmp" >/dev/null
+    assert_eq "final-resume-kept: runner note kept" "merged; codex: skipped no-auth" "$(fin_note "$tmp")"
+    rm -rf "$tmp"
+    # a recorded URL of another repository is never trusted: the normal flow runs (a session opens the final PR)
+    tmp=$(mktemp -d)
+    final_merge_fixture "$tmp" "T-A:working done"
+    n1_queue_final_pr_set "$tmp/queue.md" "$tmp/repo" https://github.com/x/y/pull/9 ready MERGEABLE ""
+    printf 'MERGED\tmain\t%s\n' "$FM_HEAD" > "$tmp/fake/gh-view.9"
+    run_fm "$tmp" >/dev/null
+    assert_eq "final-resume-foreign: a final session launched" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-S-1-final-1')"
+    rm -rf "$tmp"
+}
+
 # N1-293: tag mode is unchanged: no lookup, no final session, no table.
 test_final_pr_tag_mode() {
     local tmp; tmp=$(mktemp -d)
@@ -1117,6 +1148,7 @@ test_final_pr_draft_not_merged
 test_final_pr_mergeable_gate
 test_final_pr_codex_gate
 test_final_pr_merge_refused
+test_final_pr_merged_resume
 test_final_pr_tag_mode
 test_lifecycle_wiring
 test_merge_wording

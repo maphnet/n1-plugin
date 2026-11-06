@@ -876,7 +876,7 @@ final_merge() {
 # merges the PR once its gates pass; otherwise the Note says why it waits for a human. No finish is launched for it.
 final_pr() {
     local NUM="$1" REPO="$2" N1H="$3" SB="" SBID="" def="" nwo="" counts="" nl=0 nr=0 draft=0 mst="" found="" url="" isd=""
-    local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1
+    local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1 old="" odc="" omg="" onote="" ost="" obase=""
     local marker="$N1_QUEUE_DIR/.final-$1" body="$N1_QUEUE_DIR/final-$1.body.md" wt="$N1_QUEUE_DIR/final-$1"
     { story_env "$REPO" && [ -n "$SB" ]; } || { final_none "$REPO" story-branch-invalid; return 0; }
     counts=$(n1_queue_final_body "$QUEUE" "$REPO" "$SBID" "$body") || { final_none "$REPO" body-write-failed; return 0; }
@@ -892,6 +892,19 @@ final_pr() {
     _n1_queue_valid_branch "$def" || { final_none "$REPO" default-branch-invalid; return 0; }
     nwo=$(cd "$REPO" 2>/dev/null && timeout -k 30 30 gh repo view --json nameWithOwner -q .nameWithOwner </dev/null 2>/dev/null)
     [ -n "$nwo" ] || { final_none "$REPO" repo-unreadable; return 0; }
+    # N1-424 resume: a recorded final PR already MERGED into the default branch is kept, never re-opened or re-merged
+    # (n1_queue_final_pr_find lists OPEN PRs only, so the flow below would launch a second final session).
+    IFS=$'\t' read -r old odc omg onote <<< "$(n1_queue_final_prs "$QUEUE" | awk -F'\t' -v r="$REPO" '$1 == r { print $2 "\t" $3 "\t" $4 "\t" $5 }')"
+    if [[ "$old" == "https://github.com/$nwo/pull/"* ]]; then
+        IFS=$'\t' read -r ost obase _ <<< "$(n1_queue_pr_view "$old")"
+        if [ "$ost" = MERGED ] && [ "$obase" = "$def" ]; then
+            case "$onote" in merged*) ;; *) onote="merged (outside the runner)" ;; esac
+            n1_queue_final_pr_set "$QUEUE" "$REPO" "$old" "$odc" "$omg" "$onote" || echo "final PR: $REPO not recorded in queue.md"
+            ev final_pr_opened ticket="$SBID" pr="$old" reason="$odc mergeable=$omg"
+            echo "final PR: $REPO -> $old ($onote)"
+            return 0
+        fi
+    fi
     found=$(n1_queue_final_pr_find "$nwo" "$SB" "$def")
     if [ "$(head -n1 "$marker" 2>/dev/null)" = "$RUN_ID" ]; then mst=$(sed -n 2p "$marker"); fi
     if [ -z "$found" ] && [ -z "$mst" ]; then
