@@ -44,6 +44,7 @@ close_has() { # <label> <fixed-string>, searched inside § Close Duplicate only
 check "N1-443: procedure has Close Duplicate section" "^## § Close Duplicate" "$P"
 check "N1-443: Close reads tracker.statuses.done" "tracker\.statuses\.done" "$P"
 check "N1-443: Close offer requires HEADLESS not 1" "\*\*Close is offered\*\* only when .*\`HEADLESS\` is not \`1\`" "$P"
+check "N1-443: Close config read includes LINK_OP" "LINK_OP=%s.nCOMMENT_OP=%s.*operations\.linkIssues.*operations\.addComment" "$P"
 check "N1-443: queue-plan prompt lists Close as duplicate" "4\. \*\*Close as duplicate\*\*: run § Close Duplicate" "$P"
 check "N1-443: queue-plan returns close" "\`exclude\`, or \`close\`" "$P"
 check "N1-443: queue-plan never prompts when HEADLESS=1" "If duplicate rows remain:\*\* if \`HEADLESS=1\`, do not ask and never close" "$P"

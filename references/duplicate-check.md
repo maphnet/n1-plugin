@@ -72,7 +72,7 @@ Links are offered only when `LINK_OP` is non-empty and a tracker ticket exists o
 
 ```bash
 source ~/.n1/preamble.sh
-printf 'TRACKER_MCP=%s\nTRACKER_TYPE=%s\nCLOUD_ID=%s\nCOMMENT_OP=%s\nHEADLESS=%s\n' "$(n1_config_val '.tracker.mcp')" "$(n1_config_val '.tracker.type')" "$(n1_config_val '.tracker.cloudId')" "$(n1_config_val '.tracker.operations.addComment')" "${N1_HEADLESS:-}"
+printf 'TRACKER_MCP=%s\nTRACKER_TYPE=%s\nCLOUD_ID=%s\nLINK_OP=%s\nCOMMENT_OP=%s\nHEADLESS=%s\n' "$(n1_config_val '.tracker.mcp')" "$(n1_config_val '.tracker.type')" "$(n1_config_val '.tracker.cloudId')" "$(n1_config_val '.tracker.operations.linkIssues')" "$(n1_config_val '.tracker.operations.addComment')" "${N1_HEADLESS:-}"
 printf 'DONE_STATUS=%s\nMOVE_OP=%s\nTRANS_OP=%s\n' "$(n1_config_val '.tracker.statuses.done')" "$(n1_config_val '.tracker.operations.moveStatus')" "$(n1_config_val '.tracker.operations.getTransitions')"
 ```
 
