@@ -25,7 +25,7 @@ case "$ISSUE_TYPE" in epic) IS_STORY=true ;; story) ;; *) [ "${SUBTASK_COUNT:-0}
 ORIGINAL_STATUS=$(echo "$INTAKE_RESULT" | sed -n 's/.*"original_status": *"\([^"]*\)".*/\1/p')
 printf 'QUEUE_RUN_ID=%s\nHEADLESS=%s\n' "${N1_QUEUE_RUN_ID:-}" "${N1_HEADLESS:-}"
 ```
-**Brief:** only when both printed values are empty, print the `brief:` line text from the analyst return (already in context) verbatim; print nothing in queue children, headless runs or without a `brief:` line; continue without pausing.
+**Brief:** only when QUEUE_RUN_ID is empty and HEADLESS is not 1, print the `brief:` line text from the analyst return (already in context) verbatim; print nothing in queue children, headless runs or without a `brief:` line; continue without pausing.
 
 **Story/epic** (`ISSUE_TYPE=story` or `IS_STORY=true`): read `procedures/ticket-story.md` and follow it (Story children, convert decision, Story handoff); otherwise skip it.
 
