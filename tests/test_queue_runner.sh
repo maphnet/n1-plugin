@@ -834,6 +834,19 @@ test_status_table_running_step() {
     assert_eq "running step: after end falls back to step" "implementation" "$(_t2_step)"
 }
 
+# N1-470 AC6. Bug caught: a no-pr row missing from the terminal arm of the status table showed no step and no elapsed time.
+test_status_table_no_pr() {
+    local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    mk_status_queue "$tmp"
+    mkdir -p "$tmp/h/memory/T-1" "$tmp/bin"
+    printf -- '---\nstep: done\n---\n' > "$tmp/h/memory/T-1/overview.md"
+    sed -i 's/| T-1 | A | \/r | \(.*\) | pr | |/| T-1 | A | \/r | \1 | no-pr | |/' "$tmp/q.md"
+    printf '#!/usr/bin/env bash\ncase "$1" in agents) echo '"'"'{"agents":[]}'"'"' ;; esac\n' > "$tmp/bin/claude"; chmod +x "$tmp/bin/claude"
+    local out; out=$(PATH="$tmp/bin:$PATH" n1_queue_status_table "$tmp/q.md" "$tmp/events.jsonl")
+    assert_eq "status no-pr: state, step, elapsed, empty PR" "no-pr|done|1m|" \
+        "$(echo "$out" | awk -F'\t' '$1=="T-1"{print $2 "|" $3 "|" $4 "|" $6}')"
+}
+
 test_escalated_step_fallback() {
     local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
     printf -- '---\nstep: escalated\n---\n\n## Escalations\n\n- no headless prefix here\n' > "$tmp/o.md"
@@ -2383,6 +2396,7 @@ test_fmt_elapsed
 test_status_table_pre_np197_fixture
 test_status_table_claude_code
 test_status_table_running_step
+test_status_table_no_pr
 test_queue_answer
 test_escalated_step_fallback
 test_queue_event
