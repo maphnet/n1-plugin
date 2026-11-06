@@ -5,7 +5,7 @@ Print the plan table:
 ```
 ## Queue <QUEUE_ID>
 Mode: <list|tag|story> | Source: <ticket keys, tag or story ID> | Candidates: <N>
-Each ticket stops after PR + CI. N1 never merges unless `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true. In a story queue the runner merges each green, reviewed child PR into the story branch.
+Each ticket stops after PR + CI. N1 never merges unless `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true. In a story queue, or a list/tag queue of 2+ tickets with merge off (N1-446), the runner merges each green, reviewed child PR into the integration branch.
 | # | Ticket | Title | Repo | Model | Reason |
 |---|--------|-------|------|-------|--------|
 | 1 | ... |
@@ -137,7 +137,7 @@ source "$N1_ROOT/lib/queue.sh"
 printf 'MAX_CONCURRENT=%s\n' "$(n1_queue_max_concurrent)"
 ```
 
-Keep the first printed line as `SCHEDULE` and the number as `MAX_CONCURRENT` for § Prompt and run.md § Write plan. Rows that share a Touches token never start before the earlier row reaches PR. The runner starts a row only after every earlier overlapping row has reached PR, or has merged when the queue merges its own PRs. If one of those rows failed, the runner skips the row. Independent rows fill free slots up to `MAX_CONCURRENT`. The bg backend always gets 1.
+Keep the first printed line as `SCHEDULE` and the number as `MAX_CONCURRENT` for § Prompt and run.md § Write plan. Rows that share a Touches token never start before the earlier row reaches PR. The runner starts a row only after every earlier overlapping row has reached PR, or has merged when the queue merges its own PRs (a story queue, a list/tag queue with an N1-446 integration branch, or merge on). If one of those rows failed, the runner skips the row. Independent rows fill free slots up to `MAX_CONCURRENT`. The bg backend always gets 1.
 
 ### 4. Stop-list pre-scan
 

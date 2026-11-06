@@ -1098,6 +1098,25 @@ test_story_branch_helpers() {
     rm -rf "$tmp"
 }
 
+# N1-446: queue prefix creates queue/<id>; fresh=1 refuses a name already on origin; fresh=0 reuses; bad prefix/id refused.
+test_queue_branch_ensure() {
+    local tmp; tmp=$(mktemp -d)
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    assert_eq "queue-ensure: fresh create -> 0" 0 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main queue 1 >/dev/null 2>&1; echo $?)"
+    assert_eq "queue-ensure: queue/sq-1 on origin at main" "$(git -C "$tmp/origin" rev-parse main)" \
+        "$(git -C "$tmp/origin" rev-parse -q --verify refs/heads/queue/sq-1)"
+    assert_eq "queue-ensure: no story branch" "" "$(git -C "$tmp/origin" for-each-ref --format='%(refname)' refs/heads/story)"
+    assert_eq "queue-ensure: fresh on an existing name -> refused" "n1-queue: queue branch: queue/sq-1 already exists on origin in $tmp/repo" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main queue 1 2>&1 >/dev/null | tail -1)"
+    assert_eq "queue-ensure: resume (fresh 0) reuses -> 0" 0 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main queue 0 >/dev/null 2>&1; echo $?)"
+    assert_eq "queue-ensure: unknown prefix -> 1" 1 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main release >/dev/null 2>&1; echo $?)"
+    assert_eq "queue-ensure: invalid id names the kind" "n1-queue: queue branch: invalid queue id a|b" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" 'a|b' main queue 1 2>&1 >/dev/null | tail -1)"
+    rm -rf "$tmp"
+}
+
 # N1-291: n1_story_base — validated story branch for a story child; empty for non-story; rc 2 fails closed.
 test_story_base() {
     sb() { ( unset N1_STORY_ID N1_STORY_BRANCH N1_QUEUE_RUN_ID; for kv in "$@"; do export "$kv"; done; n1_story_base 2>/dev/null; echo "|$?" ); }
@@ -1111,6 +1130,12 @@ test_story_base() {
     assert_eq "story-base: .lock (check-ref-format) -> rc 2" "|2" "$(sb N1_STORY_BRANCH=story/x.lock)"
     assert_eq "story-base: shell metachar -> rc 2" "|2" "$(sb 'N1_STORY_BRANCH=story/x;rm')"
     assert_eq "story-base: queue child lost its branch -> rc 2" "|2" "$(sb N1_STORY_ID=S-1 N1_QUEUE_RUN_ID=R1)"
+    # N1-446: a queue integration branch is a valid base; the id pairing and fail-closed cases still hold.
+    assert_eq "story-base: queue branch and id" "queue/sq-20261106T000000Z|0" \
+        "$(sb N1_STORY_ID=sq-20261106T000000Z N1_STORY_BRANCH=queue/sq-20261106T000000Z)"
+    assert_eq "story-base: queue branch != queue/<id> -> rc 2" "|2" "$(sb N1_STORY_ID=S-1 N1_STORY_BRANCH=queue/sq-1)"
+    assert_eq "story-base: queue dot-dot -> rc 2" "|2" "$(sb N1_STORY_BRANCH=queue/a..b)"
+    assert_eq "story-base: other prefix -> rc 2" "|2" "$(sb N1_STORY_BRANCH=release/x)"
     assert_eq "story-base: rc 2 explains on stderr" "yes" \
         "$( ( export N1_STORY_BRANCH=main; n1_story_base 2>&1 >/dev/null || : ) | grep -q 'invalid story branch' && echo yes || echo no)"
 }
@@ -1147,7 +1172,7 @@ test_story_base_wiring() {
         "$(grep -q 'Story child: make no version-bump commit' "$REPO_ROOT/skills/n1-start/steps/implementation.md" && echo yes || echo no)"
     local pp="$REPO_ROOT/skills/n1-pr/steps/01-prepare.md" pc="$REPO_ROOT/skills/n1-pr/steps/02-push-create.md"
     assert_eq "story-wiring: prepare reads story base for DEFAULT_BRANCH and rules BASE" "3" "$(grep -c 'n1_story_base' "$pp")"
-    assert_eq "story-wiring: prepare bump skip" "yes" "$(grep -q 'Story child: make no version-bump commit' "$pp" && echo yes || echo no)"
+    assert_eq "story-wiring: prepare bump skip" "yes" "$(grep -q 'Story child or queue child: make no version-bump commit' "$pp" && echo yes || echo no)"
     assert_eq "story-wiring: rebase target via DEFAULT_BRANCH" "yes" "$(grep -qF 'git rebase "origin/$DEFAULT_BRANCH"' "$pc" && echo yes || echo no)"
     assert_eq "story-wiring: PR base via DEFAULT_BRANCH" "yes" "$(grep -qF -- '--base "$DEFAULT_BRANCH"' "$pc" && echo yes || echo no)"
     assert_eq "story-wiring: every push-create snippet re-derives the base from n1_story_base (SEC-1)" "4" "$(grep -c 'DEFAULT_BRANCH="\$SB"' "$pc")"
@@ -1162,7 +1187,7 @@ test_story_branch_wiring() {
     _sbF() { grep -qF -- "$1" "$2" && echo yes || echo no; }
     assert_eq "story-branch wiring: run.md names the reader helper" "yes" "$(_sbF 'n1_queue_story_branch_get' "$r")"
     assert_eq "story-branch wiring: run.md quotes the halt" "yes" "$(_sbF 'HALTED: story branch story/<STORY_ID> could not be created or pushed in <repo>' "$r")"
-    assert_eq "story-branch wiring: runner emits that halt" "yes" "$(_sbF 'HALTED: story branch story/$STORY_ID could not be created or pushed in $SB_REPO' "$k")"
+    assert_eq "story-branch wiring: runner emits that halt" "yes" "$(_sbF 'HALTED: $RUN_MODE branch $RUN_MODE/$STORY_ID could not be created or pushed in $SB_REPO' "$k")"
 }
 
 # --- child status (NP-219 deploy flag no longer a queue outcome) ---
@@ -2227,6 +2252,7 @@ test_held_user_merge
 test_held_sweep_story_finish_skip
 test_sync_default
 test_story_branch_helpers
+test_queue_branch_ensure
 test_story_base
 test_story_bg_settings
 test_story_base_wiring
@@ -2339,6 +2365,21 @@ test_sync_story() {
     rm -rf "$tmp"
 }
 
+# N1-446: the local queue branch is fast-forwarded after a runner merge like a story branch; other prefixes are refused.
+test_sync_queue_branch() {
+    local tmp rc; tmp=$(mktemp -d)
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git -C "$tmp/origin" branch queue/sq-20261106T000000Z
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    rc=0; n1_queue_sync_story "$tmp/repo" queue/sq-20261106T000000Z 2>/dev/null || rc=$?
+    assert_eq "sync-queue: queue branch fetched" "0|$(git -C "$tmp/origin" rev-parse queue/sq-20261106T000000Z)" \
+        "$rc|$(git -C "$tmp/repo" rev-parse queue/sq-20261106T000000Z 2>/dev/null)"
+    rc=0; n1_queue_sync_story "$tmp/repo" release/x 2>/dev/null || rc=$?
+    assert_eq "sync-queue: other prefix refused" 1 "$rc"
+    rm -rf "$tmp"
+}
+
 # N1-292: the Done session is a bg n1-run with a fixed prompt ending in the ticket id, queue settings env.
 test_done_cmd() {
     local cmd; cmd=$(n1_queue_done_cmd /r T-A sonnet RUN1 n1-q-T-A-1-done)
@@ -2412,6 +2453,17 @@ test_final_body() {
     out=$(n1_queue_final_body "$q" /r2 S-1 "$tmp/body2.md")
     assert_eq "final body: all landed" "1 0" "$out"
     assert_eq "final body: ready note" yes "$(grep -qF 'Ready for review: All 1 children landed.' "$tmp/body2.md" && echo yes || echo no)"
+    # N1-446: queue kind — same counts, queue heading/branch/finish wording; the default kind stays story.
+    out=$(n1_queue_final_body "$q" /r1 sq-20261106T000000Z "$tmp/qbody.md" queue)
+    assert_eq "final-body queue: same counts as story" "$(n1_queue_final_body "$q" /r1 S-1 "$tmp/sbody.md")" "$out"
+    assert_eq "final-body queue: heading" "## Queue sq-20261106T000000Z: final PR" "$(head -n1 "$tmp/qbody.md")"
+    assert_eq "final-body queue: opened from the queue branch" yes \
+        "$(grep -qF 'from queue/sq-20261106T000000Z (N1-293)' "$tmp/qbody.md" && echo yes || echo no)"
+    assert_eq "final-body queue: finish closes no ticket" yes \
+        "$(grep -qF 'After the merge, run /n1:n1-finish with this PR number; it closes no ticket and deletes the local queue branch; the remote branch follows' "$tmp/qbody.md" && echo yes || echo no)"
+    n1_queue_final_body "$q" /r1 S-1 "$tmp/sbody2.md" story >/dev/null
+    assert_eq "final-body: explicit story kind equals the default" "" "$(cmp "$tmp/sbody.md" "$tmp/sbody2.md" 2>&1)"
+    assert_eq "final-body: unknown kind -> 1" 1 "$(n1_queue_final_body "$q" /r1 S-1 "$tmp/x.md" release >/dev/null 2>&1; echo $?)"
     rm -rf "$tmp"
 }
 
@@ -2439,6 +2491,11 @@ test_final_cmd() {
     cmd=$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0)
     FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" PATH="$tmp/bin:$PATH" bash -c "$cmd" >/dev/null 2>&1
     assert_eq "final_cmd: ready PR has no --draft" 0 "$(grep -cF -- '--draft' "$tmp/fake/prompt.n1-q-S-1-final-2" || true)"
+    # N1-446: the default kind is story (identical command); an unknown kind is refused. Queue prompt wording is
+    # asserted on the decoded prompt in test_queue_final_pr (tests/test_queue_runner_bg_chain.sh).
+    assert_eq "final-cmd: explicit story kind equals the default" yes \
+        "$([ "$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0)" = "$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0 story)" ] && echo yes || echo no)"
+    assert_eq "final-cmd: unknown kind -> 1" 1 "$(n1_queue_final_cmd "$tmp/wt" /h RUN1 s S-1 main /q/b.md 0 release >/dev/null 2>&1; echo $?)"
     rm -rf "$tmp"
 }
 
@@ -2494,16 +2551,37 @@ test_final_pr_wiring() {
         "$(grep -qF 'waits for a human (<reason>)' "$r" && grep -qF 'Final PR merge: by the runner' "$r" && echo yes || echo no)"
 }
 
+# N1-446: every integration-branch gate in the runner keys on a non-empty RUN_MODE; none is story-only any more
+# (story_env, branch block, Orca CR-2 record, Orca MERGE wait, Orca resume re-evaluation, final_prs tail).
+test_queue_integration_wiring() {
+    local r="$REPO_ROOT/scripts/n1-queue-run.sh"
+    assert_eq "queue-wiring: no story-only RUN_MODE gate" 0 "$(grep -c '\[ "\$RUN_MODE" = story \]' "$r" || true)"
+    assert_eq "queue-wiring: six RUN_MODE integration gates" 6 "$(grep -c '\[ -n "\$RUN_MODE" \]' "$r" || true)"
+    assert_eq "queue-wiring: final_pr passes the kind to body and cmd" 2 "$(grep -c '"\$body" "\$draft" "\$RUN_MODE")\|"\$SBID" "\$body" "\$RUN_MODE")' "$r" || true)"
+    assert_eq "queue-wiring: n1-finish close step skips queue/ heads" yes \
+        "$(grep -qF 'starts with `queue/`' "$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: queue final PR reports deploy not watched" yes \
+        "$(grep -qF 'Deploy: not watched; delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" && grep -qF 'not watched; delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-finish/steps/06-cleanup.md" && grep -qF 'delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: n1-pr bump skip names queue children" yes \
+        "$(grep -qF 'Story child or queue child' "$REPO_ROOT/skills/n1-pr/steps/01-prepare.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: run.md documents the queue integration branch" yes \
+        "$(grep -qF '**Queue integration branch (N1-446).**' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: architecture documents it" yes \
+        "$(grep -qF 'Queue integration branch (N1-446)' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
+}
+
 test_n1_339_cleanup_helpers
 test_pr_view
 test_checks_class
 test_sync_story
+test_sync_queue_branch
 test_done_cmd
 test_final_pr_table
 test_final_body
 test_final_cmd
 test_final_gh_readers
 test_final_pr_wiring
+test_queue_integration_wiring
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

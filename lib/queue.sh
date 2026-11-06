@@ -233,11 +233,16 @@ n1_queue_done_cmd() {
 }
 
 n1_queue_final_body() {
-    # Usage: n1_queue_final_body <queue.md> <repo> <story-id> <out-file> — N1-293 (N1-289 D4): writes the final story PR
+    # Usage: n1_queue_final_body <queue.md> <repo> <id> <out-file> [kind=story|queue] — N1-293 (N1-289 D4): writes the final story PR
     # body for <repo>'s Plan rows and prints "<landed> <not-landed>". Landed = Runs Outcome merged; Not landed = every
     # other row, with Status and Reason. queue.md is child-writable: Ticket, Status and Reason are sanitized and bounded,
-    # a PR cell that is not a GitHub PR URL prints as "-".
-    local q="$1" repo="$2" id="$3" out="$4" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state
+    # a PR cell that is not a GitHub PR URL prints as "-". N1-446: kind queue words the PR for a list/tag queue (no ticket to close).
+    local q="$1" repo="$2" id="$3" out="$4" kind="${5:-story}" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state head finish
+    case "$kind" in
+        story) head=Story; finish="After the merge, /n1:n1-finish $id closes the story and deletes the local story branch" ;;
+        queue) head=Queue; finish="After the merge, run /n1:n1-finish with this PR number; it closes no ticket and deletes the local queue branch" ;;
+        *) return 1 ;;
+    esac
     while IFS=$'\t' read -r num t r _ _ st; do
         [ "$r" = "$repo" ] || continue
         pr=$(awk -F'|' -v tk="$t" '/^## Runs/ { f = 1; next } /^## / { f = 0 }
@@ -256,21 +261,30 @@ n1_queue_final_body() {
     [ -n "$rest" ] || rest=$'- none\n'
     if [ "$nr" -gt 0 ]; then state="Draft: $nr of $((nl + nr)) children did not land; this PR carries only the landed ones."
     else state="Ready for review: All $nl children landed."; fi
-    printf '## Story %s: final PR\n\nOpened by the N1 queue runner from story/%s (N1-293). Not Codex-reviewed; the per-branch convention commit is unreviewed, so review the whole diff.\n\n### Landed\n%s\n### Not landed\n%s\n%s\n\nMerge: a human reviews and merges this PR, unless autonomy.fullAuto and finishWork.mergeOnFinish are both on and the queue runner merge gates pass (ready, mergeable, Codex review, checks; N1-424). After the merge, /n1:n1-finish %s closes the story and deletes the local story branch; the remote branch follows the repository delete-branch setting.\n' \
-        "$id" "$id" "$landed" "$rest" "$state" "$id" > "$out" || return 1
+    printf '## %s %s: final PR\n\nOpened by the N1 queue runner from %s/%s (N1-293). Not Codex-reviewed; the per-branch convention commit is unreviewed, so review the whole diff.\n\n### Landed\n%s\n### Not landed\n%s\n%s\n\nMerge: a human reviews and merges this PR, unless autonomy.fullAuto and finishWork.mergeOnFinish are both on and the queue runner merge gates pass (ready, mergeable, Codex review, checks; N1-424). %s; the remote branch follows the repository delete-branch setting.\n' \
+        "$head" "$id" "$kind" "$id" "$landed" "$rest" "$state" "$finish" > "$out" || return 1
     echo "$nl $nr"
 }
 
 n1_queue_final_cmd() {
-    # Usage: n1_queue_final_cmd <worktree> <n1-home> <run-id> <session-name> <story-id> <default-branch> <body-file> <draft:0|1>
-    # N1-293 (N1-289 D7): background n1-run session, cwd a detached worktree of origin/story/<story-id>, that applies the
-    # per-branch conventions story children skipped, pushes story/<story-id> and opens the final PR. Settings env: the
+    # Usage: n1_queue_final_cmd <worktree> <n1-home> <run-id> <session-name> <id> <default-branch> <body-file> <draft:0|1> [kind=story|queue]
+    # N1-293 (N1-289 D7): background n1-run session, cwd a detached worktree of origin/<kind>/<id>, that applies the
+    # per-branch conventions the children skipped, pushes <kind>/<id> and opens the final PR. Settings env: the
     # queue's plus N1_HOME=<n1-home> (the worktree path is not a repo slug). Story env is cleared even when the caller has
-    # it: n1_story_base would otherwise retarget the PR at the story branch. The prompt names --draft only when <draft> is
-    # 1 and carries no child-authored text (the body is a runner-written file).
-    local id="$5" def="$6" body="$7" sb="story/$5" draft=""
+    # it: n1_story_base would otherwise retarget the PR at the integration branch. The prompt names --draft only when
+    # <draft> is 1 and carries no child-authored text (the body is a runner-written file). N1-446: kind queue has no
+    # tracker issue, so its title is fixed.
+    local id="$5" def="$6" body="$7" kind="${9:-story}" sb draft="" lead kids title tail
+    case "$kind" in
+        story) lead="Queue story final PR step (N1-293)"; kids="story children"; tail="Story: $id"
+               title="Read the title of tracker issue $id through the tracker and use the PR title '$id: <title>'; if it cannot be read, use '$id: story changes'." ;;
+        queue) lead="Queue integration final PR step (N1-446)"; kids="queue children"; tail="Queue: $id"
+               title="Use the PR title 'Queue $id: queued tickets'; do not read the tracker." ;;
+        *) return 1 ;;
+    esac
+    sb="$kind/$5"
     [ "$8" = 1 ] && draft=" --draft"
-    n1_bg_launch_cmd "$4" n1-run "Queue story final PR step (N1-293). This directory is a detached checkout of origin/$sb. 1) Apply the per-branch conventions that story children skipped, as this repository's CLAUDE.md and N1 config define them (for example the version bump), as one commit that names $id. Change nothing else. 2) Push with exactly: git push origin HEAD:refs/heads/$sb (never force, never another branch). 3) Read the title of tracker issue $id through the tracker and use the PR title '$id: <title>'; if it cannot be read, use '$id: story changes'. 4) Open the PR with exactly: gh pr create --head $sb --base $def --title <that title> --body-file $body$draft. Do nothing else: no merge, no gh pr ready, no PR edit, no other branch, no ticket transition. A hook may ask for a Codex review or n1-pr step 3 once the PR exists: do not run it; this PR is opened by the queue runner and is not Codex-reviewed by design, so end the session. If a step fails, end with the line final-pr: failed <reason>. Story: $id" \
+    n1_bg_launch_cmd "$4" n1-run "$lead. This directory is a detached checkout of origin/$sb. 1) Apply the per-branch conventions that $kids skipped, as this repository's CLAUDE.md and N1 config define them (for example the version bump), as one commit that names $id. Change nothing else. 2) Push with exactly: git push origin HEAD:refs/heads/$sb (never force, never another branch). 3) $title 4) Open the PR with exactly: gh pr create --head $sb --base $def --title <that title> --body-file $body$draft. Do nothing else: no merge, no gh pr ready, no PR edit, no other branch, no ticket transition. A hook may ask for a Codex review or n1-pr step 3 once the PR exists: do not run it; this PR is opened by the queue runner and is not Codex-reviewed by design, so end the session. If a step fails, end with the line final-pr: failed <reason>. $tail" \
         sonnet "$1" "$(N1_STORY_ID="" N1_STORY_BRANCH="" _n1_queue_bg_settings "$3" | jq -c --arg h "$2" '.env.N1_HOME = $h')"
 }
 
@@ -376,10 +390,10 @@ n1_queue_checks_class() {
 }
 
 n1_queue_sync_story() {
-    # Usage: n1_queue_sync_story <repo> <story-branch> — N1-292: best-effort fast-forward of the local story branch after
+    # Usage: n1_queue_sync_story <repo> <story-or-queue-branch> — N1-292: best-effort fast-forward of the local story branch after
     # a runner merge. The refspec has no "+", so the update is never forced. git refuses it while the branch is checked out.
     # Children cut from origin/<sb>, so the caller only logs a failure.
-    [[ "$2" =~ ^story/[A-Za-z0-9._-]+$ ]] && git check-ref-format --branch "$2" >/dev/null 2>&1 || return 1
+    [[ "$2" =~ ^(story|queue)/[A-Za-z0-9._-]+$ ]] && git check-ref-format --branch "$2" >/dev/null 2>&1 || return 1
     git -C "$1" fetch --quiet origin "refs/heads/$2:refs/heads/$2" >&2
 }
 
@@ -663,25 +677,32 @@ n1_queue_sync_default() {
 }
 
 n1_queue_story_branch_ensure() {
-    # Usage: n1_queue_story_branch_ensure <repo> <story-id> <default-branch>
-    # N1-290: makes origin carry story/<story-id> before a story queue launches its children. A branch already on
-    # origin is reused as is (never reset, never force-pushed: resumes keep merged work). An absent one is cut from
-    # origin/<default> after a fetch and pushed with a plain push of the remote-tracking ref, so no local branch or
-    # checkout is touched. Non-zero with a last stderr line "n1-queue: story branch: <reason>" on any failure.
-    local repo="$1" b="story/$2" d="$3" heads
-    [ -d "$repo" ] || { echo "n1-queue: story branch: no such repo $repo" >&2; return 1; }
-    # SEC-11: validate both names before they reach a refspec. The story id is free-form frontmatter, so it is held
-    # to the tracker id grammar first (check-ref-format alone admits quotes, `;`, `|`, `$`); the branch cell
-    # written by n1_queue_story_branch_set must then equal the pushed ref.
-    case "$2" in ''|-*|*[!A-Za-z0-9._-]*) echo "n1-queue: story branch: invalid story id $2" >&2; return 1 ;; esac
-    { [ -n "$2" ] && git check-ref-format --branch "$b" >/dev/null 2>&1; } || { echo "n1-queue: story branch: invalid branch name $b" >&2; return 1; }
-    git check-ref-format --branch "$d" >/dev/null 2>&1 || { echo "n1-queue: story branch: invalid default branch $d" >&2; return 1; }
+    # Usage: n1_queue_story_branch_ensure <repo> <id> <default-branch> [prefix=story|queue] [fresh=0|1]
+    # N1-290: makes origin carry <prefix>/<id> before a story queue (N1-446: or a list/tag queue with integration: queue)
+    # launches its children. A branch already on origin is reused as is (never reset, never force-pushed: resumes keep
+    # merged work), unless fresh=1: a queue branch is new per first start, so a name already on origin is foreign or
+    # stale work and is refused. An absent one is cut from origin/<default> after a fetch and pushed with a plain push
+    # of the remote-tracking ref, so no local branch or checkout is touched. Non-zero with a last stderr line
+    # "n1-queue: <prefix> branch: <reason>" on any failure.
+    local repo="$1" p="${4:-story}" fresh="${5:-0}" d="$3" b heads
+    case "$p" in story|queue) ;; *) echo "n1-queue: story branch: invalid prefix $p" >&2; return 1 ;; esac
+    b="$p/$2"
+    [ -d "$repo" ] || { echo "n1-queue: $p branch: no such repo $repo" >&2; return 1; }
+    # SEC-11: validate both names before they reach a refspec. The id is free-form frontmatter (story) or built from the
+    # queue id (queue), so it is held to the tracker id grammar first (check-ref-format alone admits quotes, `;`, `|`,
+    # `$`); the branch cell written by n1_queue_story_branch_set must then equal the pushed ref.
+    case "$2" in ''|-*|*[!A-Za-z0-9._-]*) echo "n1-queue: $p branch: invalid $p id $2" >&2; return 1 ;; esac
+    { [ -n "$2" ] && git check-ref-format --branch "$b" >/dev/null 2>&1; } || { echo "n1-queue: $p branch: invalid branch name $b" >&2; return 1; }
+    git check-ref-format --branch "$d" >/dev/null 2>&1 || { echo "n1-queue: $p branch: invalid default branch $d" >&2; return 1; }
     heads=$(git -C "$repo" ls-remote --heads origin "refs/heads/$b" 2>/dev/null) \
-        || { echo "n1-queue: story branch: ls-remote origin failed in $repo" >&2; return 1; }
-    [ -z "$heads" ] || return 0
-    git -C "$repo" fetch origin "+refs/heads/$d:refs/remotes/origin/$d" >&2 || { echo "n1-queue: story branch: fetch origin $d failed in $repo" >&2; return 1; }
+        || { echo "n1-queue: $p branch: ls-remote origin failed in $repo" >&2; return 1; }
+    if [ -n "$heads" ]; then
+        [ "$fresh" = 1 ] || return 0
+        echo "n1-queue: $p branch: $b already exists on origin in $repo" >&2; return 1
+    fi
+    git -C "$repo" fetch origin "+refs/heads/$d:refs/remotes/origin/$d" >&2 || { echo "n1-queue: $p branch: fetch origin $d failed in $repo" >&2; return 1; }
     git -C "$repo" push origin "refs/remotes/origin/$d:refs/heads/$b" >&2 \
-        || { echo "n1-queue: story branch: push of $b to origin failed in $repo" >&2; return 1; }
+        || { echo "n1-queue: $p branch: push of $b to origin failed in $repo" >&2; return 1; }
 }
 
 n1_queue_story_branch_set() {

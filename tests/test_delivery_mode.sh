@@ -193,7 +193,7 @@ test_wiring() {
         "$(grep -c '\*\*Deploy:\*\*' "$step" || true)"
     assert_eq "wiring: execute branch asks first" "yes" \
         "$(grep -q 'Ask the user' <<<"$xb" && echo yes || echo no)"
-    head4=$(sed -n '1,4p' "$s/n1-finish/steps/04-close-ticket.md")
+    head4=$(sed -n '1,6p' "$s/n1-finish/steps/04-close-ticket.md")
     assert_eq "wiring: Step 4 enters the delivery step first" "yes" \
         "$(grep -qF '03b-ssh-deploy.md' <<<"$head4" && echo yes || echo no)"
     assert_eq "wiring: resume skips merge on recorded sha" "yes" \

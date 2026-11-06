@@ -380,20 +380,27 @@ live_row_sid() {
     n1_queue_live_by_name "$3" "n1-${QUEUE_ID}-$2-$1"
 }
 
-# N1-291: story_env <repo> — sets SB (story/<story_id>) and SBID for a story-mode row; both empty in tag mode.
-# rc 1 when a story row has no mapping or the mapping fails n1_story_base (regex, check-ref-format, == story/<id>):
-# the row must not launch, since a story child must never start from the default branch.
-# SEC-3: mode and story_id are fixed at run start (RUN_MODE/RUN_STORY_ID, set before any launch or chain); queue.md is
-# child-writable, so a mode or story_id that differs from the snapshot fails closed instead of changing who merges.
+# integration_mode <mode> <integration> — N1-446: story for a story queue, queue for a list/tag queue that recorded
+# integration: queue, else empty (no integration branch).
+integration_mode() {
+    if [ "$1" = story ]; then echo story; elif [ "$2" = queue ]; then echo queue; fi
+}
+
+# N1-291: story_env <repo> — sets SB (<kind>/<id> from ## Story Branches) and SBID for a row of a run with an
+# integration branch (story, or N1-446 queue); both empty otherwise. rc 1 when such a row has no mapping, the mapping is
+# not exactly $RUN_MODE/$RUN_STORY_ID or fails n1_story_base: the row must not launch, since an integration child must
+# never start from the default branch.
+# SEC-3: mode, integration and story_id are fixed at run start (RUN_MODE/RUN_STORY_ID, set before any launch or chain);
+# queue.md is child-writable, so a value that differs from the snapshot fails closed instead of changing who merges.
 story_env() {
     SB="" SBID=""
-    local cur; cur=$(n1_read_frontmatter "$QUEUE" mode)
-    [ "$([ "$cur" = story ] && echo story)" = "$RUN_MODE" ] || return 1
-    [ "$RUN_MODE" = story ] || return 0
+    [ "$(integration_mode "$(n1_read_frontmatter "$QUEUE" mode)" "$(n1_read_frontmatter "$QUEUE" integration)")" = "$RUN_MODE" ] || return 1
+    [ -n "$RUN_MODE" ] || return 0
     SBID="$RUN_STORY_ID"
-    [ -n "$SBID" ] && [ "$(n1_read_frontmatter "$QUEUE" story_id)" = "$SBID" ] || return 1
+    [ -n "$SBID" ] || return 1
+    [ "$RUN_MODE" = queue ] || [ "$(n1_read_frontmatter "$QUEUE" story_id)" = "$SBID" ] || return 1
     SB=$(n1_queue_story_branch_get "$QUEUE" "$1") || return 1
-    [ -n "$SB" ] && N1_STORY_ID="$SBID" N1_STORY_BRANCH="$SB" n1_story_base >/dev/null 2>&1
+    [ "$SB" = "$RUN_MODE/$SBID" ] && N1_STORY_ID="$SBID" N1_STORY_BRANCH="$SB" n1_story_base >/dev/null 2>&1
 }
 
 # launch_bg <pending-row> <agents-json> — start the row's background session. A launch refused for the
@@ -766,11 +773,11 @@ await_bg() {
 }
 
 # final_none <repo> <reason> — N1-293: no final PR for <repo>: row "-" with the reason, final_pr_failed event, needs-you
-# notice. The story branch and the merged work are untouched; the run still exits 0.
+# notice. The integration branch and the merged work are untouched; the run still exits 0.
 final_none() {
     n1_queue_final_pr_set "$QUEUE" "$1" - - - "$2" || echo "final PR: $1 not recorded in queue.md"
     ev final_pr_failed ticket="$RUN_STORY_ID" reason="$2"
-    n1_notify needs-you "Queue $QUEUE_ID: no final PR for story $RUN_STORY_ID in $1 ($2); open it from story/$RUN_STORY_ID by hand"
+    n1_notify needs-you "Queue $QUEUE_ID: no final PR for $RUN_MODE $RUN_STORY_ID in $1 ($2); open it from $RUN_MODE/$RUN_STORY_ID by hand"
     echo "final PR: $1 none ($2)"
 }
 
@@ -885,10 +892,10 @@ final_merge() {
     fm_end merged "merged$sfx"
 }
 
-# final_pr <row#> <repo> <n1-home> — N1-293 (N1-289 D4/D6/D7): the final PR of one repo, from story/<id> into the repo's
+# final_pr <row#> <repo> <n1-home> — N1-293 (N1-289 D4/D6/D7): the final PR of one repo, from <kind>/<id> (story, or N1-446 queue) into the repo's
 # default branch (first row's N1 Home wins, as at the story branch setup). No merged child: row only, no PR.
 # An OPEN PR for the head is reused (resume). Marker .final-<row#> (run id, pending|done) keeps one session per run.
-# Otherwise the runner writes the body, makes a detached worktree of origin/story/<id> under the queue dir (the user's
+# Otherwise the runner writes the body, makes a detached worktree of origin/<kind>/<id> under the queue dir (the user's
 # checkout is never touched), launches one session there (conventions commit, push, gh pr create; --draft when a child
 # did not land), waits for it and removes the worktree. The PR is then re-derived through gh, never taken from session
 # output, and its mergeable state is read (no sync from the default branch, D6).
@@ -899,7 +906,7 @@ final_pr() {
     local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1 old="" odc="" omg="" onote="" ost="" obase="" ohead=""
     local marker="$N1_QUEUE_DIR/.final-$1" body="$N1_QUEUE_DIR/final-$1.body.md" wt="$N1_QUEUE_DIR/final-$1"
     { story_env "$REPO" && [ -n "$SB" ]; } || { final_none "$REPO" story-branch-invalid; return 0; }
-    counts=$(n1_queue_final_body "$QUEUE" "$REPO" "$SBID" "$body") || { final_none "$REPO" body-write-failed; return 0; }
+    counts=$(n1_queue_final_body "$QUEUE" "$REPO" "$SBID" "$body" "$RUN_MODE") || { final_none "$REPO" body-write-failed; return 0; }
     read -r nl nr <<< "$counts"
     if [ "${nl:-0}" -eq 0 ]; then
         rm -f "$body"
@@ -936,7 +943,7 @@ final_pr() {
         if ! { git -C "$REPO" fetch -q origin "+refs/heads/$SB:refs/remotes/origin/$SB" \
                 && git -C "$REPO" worktree add -q --detach "$wt" "refs/remotes/origin/$SB"; } </dev/null >/dev/null 2>&1; then
             why=worktree-failed
-        elif out=$(bash -c "$(n1_queue_final_cmd "$wt" "$N1H" "$RUN_ID" "n1-${QUEUE_ID}-${SBID}-final-$NUM" "$SBID" "$def" "$body" "$draft")" </dev/null 2>&1) \
+        elif out=$(bash -c "$(n1_queue_final_cmd "$wt" "$N1H" "$RUN_ID" "n1-${QUEUE_ID}-${SBID}-final-$NUM" "$SBID" "$def" "$body" "$draft" "$RUN_MODE")" </dev/null 2>&1) \
                 && sid=$(n1_queue_parse_launch "$out") && [ -n "$sid" ]; then
             echo "final PR: $REPO session launched ($sid)"
             await_bg "$sid" "$SBID" "$N1H"
@@ -973,7 +980,7 @@ final_pr() {
     n1_queue_final_pr_set "$QUEUE" "$REPO" "$url" "$dcell" "$mg${mss:+ ($mss)}" "${note:+$note; }$FM_NOTE" || echo "final PR: $REPO not recorded in queue.md"
 }
 
-# final_prs — N1-293: story runs only, once every Plan row is terminal (none pending, held, in-progress or
+# final_prs — N1-293: runs with an integration branch only (story, N1-446 queue), once every Plan row is terminal (none pending, held, in-progress or
 # awaiting-human; a later --run reaches this tail again). One final_pr per distinct Repo cell in Plan order, with that
 # repo's first row number and N1 Home. A halted run never gets here (halt_now exits first).
 final_prs() {
@@ -1420,8 +1427,8 @@ orca_settle() {
         URL=$(n1_queue_attested_pr "$QUEUE" "$TICKET" "$N1H")   # N1-268: only a PR attributed to this run is recorded merged
         # N1-268: a worker that merged its own PR (its own fullAuto finish) is recorded merged even when the
         # runner's chain did not run or did not merge.
-        # CR-2: a story row is recorded only for a PR merged into its story branch; story_merge records every valid merge.
-        if [ "$RUN_MODE" = story ]; then
+        # CR-2: a story or queue-integration row is recorded only for a PR merged into its integration branch; story_merge records every valid merge.
+        if [ -n "$RUN_MODE" ]; then
             story_env "$REPO" && [ "$(n1_queue_pr_view "$URL" | cut -f1,2)" = "MERGED"$'\t'"$SB" ] || fb=0
         fi
         if [ "$fb" = 1 ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ] && [ "$(n1_queue_pr_state "$URL")" = MERGED ]; then
@@ -1459,8 +1466,8 @@ run_orca() {
     # N1-303: an overlap successor waits for its predecessor's merge only when the predecessor's own N1 Home merges its PRs
     # (chain_authorized, evaluated per predecessor row by n1_queue_eligible_rows).
     MERGE=chain_authorized
-    # N1-292: in a story queue the runner merges every green child itself, so a successor always waits for that merge.
-    if [ "$RUN_MODE" = story ]; then MERGE=true; fi
+    # N1-292/N1-446: with an integration branch the runner merges every green child itself, so a successor always waits for that merge.
+    if [ -n "$RUN_MODE" ]; then MERGE=true; fi
     LIVE_OK=1; LIVE=$(n1_orca_liveness "$ORCA_RUN") || { LIVE=""; LIVE_OK=0; }
     # A runner restart loses OWED: re-owe this run's finished rows that are not settled yet (settle removes the
     # sentinel, so a row whose sentinel still names its task is the unsettled one).
@@ -1472,8 +1479,8 @@ run_orca() {
             # a released dispatch stays deferred across a restart, so its exited/done row cannot start the finish
             IFS=$'\t' read -r _ DISP <<< "$(orca_row_of_task "$TASK")"
             [ -n "$DISP" ] && [ "$(cat "$N1_QUEUE_DIR/.deferred-${TASK//\//_}" 2>/dev/null)" = "$DISP" ] && DEFERRED="$DEFERRED$TASK "
-        elif [ "$RUN_MODE" = story ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ]; then
-            # CR-1: a settled story row whose merge was refused or interrupted is re-evaluated on resume, as the bg
+        elif [ -n "$RUN_MODE" ] && [ "$(_n1_queue_run_outcome "$QUEUE" "$TICKET")" != merged ]; then
+            # CR-1: a settled integration row whose merge was refused or interrupted is re-evaluated on resume, as the bg
             # restart sweep does. An existing marker is interpreted by chain_finish (pending re-merges, done records an
             # already-MERGED PR); the escalation guard and the story_merge gates still apply.
             chain_finish "$NUM" "$TICKET" "$REPO" "$N1H" "$MODEL" "$(n1_queue_child_pr_url "$N1H/memory/$TICKET/overview.md")" </dev/null
@@ -1794,16 +1801,48 @@ run_orca() {
 # process would otherwise leak into chained finish/clean settings.
 unset N1_STORY_ID N1_STORY_BRANCH
 
-# N1-292 SEC-3: snapshot the story mode and id once; story_env and the Orca merge wait use these, never queue.md again.
-RUN_MODE=""; [ "$(n1_read_frontmatter "$QUEUE" mode)" = story ] && RUN_MODE=story
-RUN_STORY_ID=$(n1_read_frontmatter "$QUEUE" story_id)
+# N1-446: a list or tag queue decides its integration branch once, at its first start, and persists it (integration:
+# queue|none; mode is never overwritten, tag release reads it). queue when the Plan has 2+ rows (all rows, so a resume
+# with one open row is still a 2+ queue) and the first row's N1 Home does not authorize an unattended merge
+# (chain_authorized: fullAuto AND mergeOnFinish). A plan that already ran before N1-446 (a row past pending/held)
+# records none, so it never switches mid-queue. Later starts read the key: a config change never flips the mode.
+MODE_NOW=$(n1_read_frontmatter "$QUEUE" mode)
+INTEGRATION=$(n1_read_frontmatter "$QUEUE" integration)
+if [ "$MODE_NOW" != story ] && [ -z "$INTEGRATION" ]; then
+    INTEGRATION=none
+    IG_ALL=$(n1_queue_pending_rows "$QUEUE" '.*' | wc -l | tr -d ' ')
+    IG_NEW=$(n1_queue_pending_rows "$QUEUE" 'pending|held' | wc -l | tr -d ' ')
+    IFS=$'\t' read -r _ _ _ IG_N1H _ _ <<< "$(n1_queue_pending_rows "$QUEUE" '.*' | head -n1)"
+    if [ "$IG_ALL" -ge 2 ] && [ "$IG_ALL" = "$IG_NEW" ] && ! chain_authorized "$IG_N1H"; then INTEGRATION=queue; fi
+    n1_write_frontmatter "$QUEUE" integration "$INTEGRATION" \
+        || halt "HALTED: queue $QUEUE_ID could not record integration: $INTEGRATION in queue.md; fix queue.md, then /n1:n1-queue --run $QUEUE_ID"
+    echo "integration: $INTEGRATION (N1-446)"
+fi
 
-# N1-290: story mode makes sure origin carries story/<story_id> in every distinct repo of the rows still to run
+# N1-292 SEC-3: snapshot the integration mode and id once; story_env and the Orca merge wait use these, never queue.md again.
+RUN_MODE=$(integration_mode "$MODE_NOW" "$INTEGRATION")
+RUN_STORY_ID=$(n1_read_frontmatter "$QUEUE" story_id)
+if [ "$RUN_MODE" = queue ]; then
+    # N1-446: one id per queue: the id of a recorded queue/ row (resume, every repo shares it), else a new
+    # <QUEUE_ID>-<UTC stamp>, so a rerun of the same QUEUE_ID never reuses stale or merged work.
+    RUN_STORY_ID=$(awk -F'|' '/^## Story Branches$/ { f = 1; next } /^## / { f = 0 }
+        f && NF >= 4 { b = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", b); if (b ~ /^queue\//) { print substr(b, 7); exit } }' "$QUEUE")
+    QB_NEWID=0
+    if [ -z "$RUN_STORY_ID" ]; then
+        QB_NEWID=1
+        # Tag mode: QUEUE_ID is the tag (line ~99), free text. Reduce it to the branch-safe grammar the ensure helper and
+        # n1_story_base enforce ([A-Za-z0-9-], no leading dash), so an odd tag cannot halt the run on a name check.
+        QB_BASE=$(printf '%s' "$QUEUE_ID" | tr -c 'A-Za-z0-9\n' '-' | sed 's/^-*//'); QB_BASE="${QB_BASE:-queue}"
+        RUN_STORY_ID="$QB_BASE-$(date -u +%Y%m%dT%H%M%SZ)"
+    fi
+fi
+
+# N1-290: a run with an integration branch (story, or N1-446 queue) makes sure origin carries <kind>/<id> in every distinct repo of the rows still to run
 # (cut from that repo's origin/<default>; an existing branch is reused, never reset) and records repo -> branch in
 # ## Story Branches, which N1-291/292 read via n1_queue_story_branch_get. Every entry (fresh, --run, unattended,
 # interrupted resume) passes here, before the chain sweep below and the backend dispatch launch anything. A failure
-# halts before any launch (ORCA_LOOP is empty here, so halt is halt_now). Tag mode and plans without mode: story skip.
-if [ "$RUN_MODE" = story ]; then
+# halts before any launch (ORCA_LOOP is empty here, so halt is halt_now). Runs without an integration branch skip.
+if [ -n "$RUN_MODE" ]; then
     STORY_ID="$RUN_STORY_ID"
     [ -n "$STORY_ID" ] || halt "HALTED: story queue $QUEUE_ID has no story_id; re-plan it with /n1:n1-queue --story <ID>"
     SB_SEEN=$'\n'
@@ -1812,11 +1851,16 @@ if [ "$RUN_MODE" = story ]; then
         SB_SEEN="$SB_SEEN$SB_REPO"$'\n'
         # First row's N1 Home wins for the repo's default branch (one default per repo).
         SB_DEFAULT=$(N1_HOME="$SB_N1H" n1_config_val '.git.defaultBranch' 2>/dev/null); SB_DEFAULT="${SB_DEFAULT:-main}"
-        if ! SB_ERR=$(n1_queue_story_branch_ensure "$SB_REPO" "$STORY_ID" "$SB_DEFAULT" 2>&1 >/dev/null </dev/null); then
-            halt "HALTED: story branch story/$STORY_ID could not be created or pushed in $SB_REPO: ${SB_ERR##*$'\n'}; fix access, then /n1:n1-queue --run $QUEUE_ID"
+        # N1-446: a brand-new queue id is fresh: a name already on origin halts (no foreign reuse). A resumed id (some repo
+        # already recorded) is this queue's own timestamped name, so a branch found for an unrecorded repo is an interrupted
+        # push of ours and is reused.
+        SB_FRESH=0
+        if [ "$RUN_MODE" = queue ] && [ "${QB_NEWID:-0}" = 1 ]; then SB_FRESH=1; fi
+        if ! SB_ERR=$(n1_queue_story_branch_ensure "$SB_REPO" "$STORY_ID" "$SB_DEFAULT" "$RUN_MODE" "$SB_FRESH" 2>&1 >/dev/null </dev/null); then
+            halt "HALTED: $RUN_MODE branch $RUN_MODE/$STORY_ID could not be created or pushed in $SB_REPO: ${SB_ERR##*$'\n'}; fix access, then /n1:n1-queue --run $QUEUE_ID"
         fi
-        n1_queue_story_branch_set "$QUEUE" "$SB_REPO" "story/$STORY_ID" \
-            || halt "HALTED: story branch story/$STORY_ID for $SB_REPO could not be recorded in queue.md ## Story Branches (duplicate heading or no ## Runs); fix queue.md, then /n1:n1-queue --run $QUEUE_ID"
+        n1_queue_story_branch_set "$QUEUE" "$SB_REPO" "$RUN_MODE/$STORY_ID" \
+            || halt "HALTED: $RUN_MODE branch $RUN_MODE/$STORY_ID for $SB_REPO could not be recorded in queue.md ## Story Branches (duplicate heading or no ## Runs); fix queue.md, then /n1:n1-queue --run $QUEUE_ID"
     done < <(n1_queue_pending_rows "$QUEUE" 'pending|held|in-progress|awaiting-human')
 fi
 
@@ -1886,8 +1930,8 @@ fi
 # --- Done --------------------------------------------------------------------
 # N1-268: a halt deferred while Orca workers were in flight ends here, after they finished or were stopped.
 [ -z "$HALT_DRAIN" ] || halt_now "$HALT_DRAIN"
-# N1-293: story runs open the final per-repo PRs before the digest and step: done, so the summary can link them.
-if [ "$RUN_MODE" = story ]; then final_prs; fi
+# N1-293/N1-446: runs with an integration branch open the final per-repo PRs before the digest and step: done, so the summary can link them.
+if [ -n "$RUN_MODE" ]; then final_prs; fi
 count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }
 DIGEST="$(count_rows pr) PR / $(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"
 # N1-270: close the runner's coordinator terminal unless a row still waits on an answer (--answer replies from it,
