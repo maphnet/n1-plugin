@@ -73,7 +73,7 @@ n1_codex_tree_restore "$ID" || echo "push:blocked paths=uncommitted-edits kept=$
 ```
 
 The gate fails closed and prints one `push:` line. It never pushes: the line only says whether the fix commits may go out with the first push in step 4. Keep the first `push:` line for **Report Phase**.
-- `push:ok`: the fix commits are in scope and are recorded as a post-review head, so `n1_review_pin set` accepts the pushed head.
+- `push:ok`: the fix commits are in scope and are recorded as a post-review head, so `n1_review_pin set` accepts the pushed head. `HEAD_RECORD_FAILED` printed above it: the head is not recorded; do not push until `n1_head_record "<START>"` (with `ID` set to the ticket ID) prints nothing.
 - `push:none`: nothing was committed (a bare `gate-unavailable` with no new commit also becomes `push:none`).
 - `push:blocked ... reset=<sha>`: the commits were removed, and the patch was saved to `memory/<ID>/codex-blocked-fix.patch` unless a denylisted path matched. Warn inline and continue.
 - `push:blocked ... kept=<sha>`: commits that are unvetted or out of scope remain, and the reset failed. The snippet wrote `memory/<ID>/codex-gate-blocked` (the run-start SHA); every push path and a rerun of Fix Phase refuse (`push:blocked-by-codex-gate`) until HEAD equals it. Run Report Phase and Triage File, then end n1-pr without pushing: report the blocked paths and that `git reset --keep <START>` must run before re-running n1-pr.

@@ -244,4 +244,8 @@ if [ -n "$G" ] && [ -n "$SB" ] && [ -n "$NP" ] && [ "$G" -lt "$SB" ] && [ "$SB" 
 if grep -qF '`1` (no review step ran' "$PM" && grep -qF 'return to Step 7' "$PM"; then ok "pr.md routes rc 1 and rc 3 to Step 7"; else no "pr.md routes rc 1 and rc 3 to Step 7"; fi
 if grep -qF 'pre-PR gate' skills/n1-start/procedures/local-testing-run.md; then ok "local-testing fix commits point at the pre-PR gate"; else no "local-testing fix commits point at the pre-PR gate"; fi
 
+for f in "$P2" "$CTR"; do
+    if grep -qF 'HEAD_RECORD_FAILED' "$f"; then ok "$f checks HEAD_RECORD_FAILED"; else no "$f checks HEAD_RECORD_FAILED"; fi
+done
+
 exit $FAIL
