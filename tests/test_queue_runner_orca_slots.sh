@@ -149,6 +149,40 @@ test_orca_stop_finished_keeps_in_progress() {
     rm -rf "$tmp"
 }
 
+# N1-478 AC5. Bug caught: a PR the user merged while its worker was owed (after a "finished" stop notice) was recorded
+# only at the ~180-minute owed expiry, so its Schedule successors waited and n1-finish (ticket close, follow-ups) never ran.
+merged_sweep_run() {   # <tmp> <worker-list liveness verdict>: T-A pr (GitHub URL), stop notice and user merge on tick 3
+    local tmp="$1"
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 600 | .autonomy.fullAuto = true | .finishWork.mergeOnFinish = true'
+    wl_set "$tmp" "$(wl_row T-A running "$2")"
+    touch "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    echo OPEN > "$tmp/fake/gh-state"
+    orca_msg escalation task-T-A m-stop1 finished "Worker stopped without reporting" "Worker ended its turn" > "$tmp/fake/q.stop"
+    printf 'cp "%s" "%s"; echo MERGED > "%s"\n' "$tmp/fake/q.stop" "$tmp/fake/question" "$tmp/fake/gh-state" > "$tmp/fake/at.3"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+}
+
+test_orca_merged_sweep_settles() {
+    local tmp; tmp=$(mktemp -d)
+    merged_sweep_run "$tmp" unverifiable
+    assert_eq "merged-sweep: recorded merged" "merged" \
+        "$(jq -r 'select(.event == "ticket_finished" and .ticket == "T-A") | .outcome' "$tmp/events.jsonl" | tail -1)"
+    assert_eq "merged-sweep: n1-finish launched once, no n1-clean" "1|0" \
+        "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-clean')"
+    assert_eq "merged-sweep: finish marker carries the run id" "yes" "$([ -s "$tmp/.finished-T-A" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_merged_sweep_skips_live() {   # N1-422: a live worker may still merge its own PR and run its own finish
+    local tmp; tmp=$(mktemp -d)
+    merged_sweep_run "$tmp" live
+    assert_eq "merged-sweep: live worker not settled" "0|0" \
+        "$(grep -c '"ticket_finished".*"merged"' "$tmp/events.jsonl" || true)|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')"
+    rm -rf "$tmp"
+}
+
 # N1-422 AC1/AC5. Bug caught: a "finished" stop notice (the worker only ended a turn) chained n1-finish against the
 # live worker; the finish hit the moved head and raised a false "needs you". The notice now only frees the slot; the
 # worker's later worker_done (after it merged its own PR) settles the row, with no chained finish, even when the
@@ -209,6 +243,8 @@ test_orca_stop_finished_keeps_in_progress
 test_orca_stop_notice_then_resume_no_chain
 test_orca_stop_notice_deferral_survives_restart
 test_orca_slot_held_told
+test_orca_merged_sweep_settles
+test_orca_merged_sweep_skips_live
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

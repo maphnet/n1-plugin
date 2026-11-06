@@ -547,13 +547,13 @@ chain_note() {
 
 # chain_merged <num> <ticket> <repo> <n1-home> <pr-url> — Runs Outcome merged + event, then fast-forward
 # the local default branch so the next child branches from the merge (Plan Status stays pr), then launch the
-# merged row's n1-clean (chain_clean).
+# merged row's n1-finish for a PR the Orca merged sweep found merged (chain_finish_merged, N1-478), else n1-clean (chain_clean).
 chain_merged() {
     n1_queue_runs_outcome "$QUEUE" "$2" merged
     ev ticket_finished ticket="$2" outcome=merged pr="$5" session="$(n1_queue_session_id "$QUEUE" "$2")"
     echo "[$1] $2 -> merged $5"
     chain_sync "$1" "$2" "$3" "$4"
-    chain_clean "$1" "$2" "$3" "$4"
+    chain_finish_merged "$1" "$2" "$3" "$4" || chain_clean "$1" "$2" "$3" "$4"   # N1-478: n1-finish for a PR the sweep found merged
 }
 
 # chain_clean <num> <ticket> <repo> <n1-home> — N1-339: launch one background `n1-clean --ticket <ticket>` for a merged
@@ -575,6 +575,33 @@ chain_clean() {
         ev ticket_cleanup ticket="$2" outcome=failed reason="launch-failed"
         echo "[$1] $2 n1-clean launch-failed (run /n1:n1-clean --ticket $2)"
     fi
+}
+
+# chain_finish_merged <num> <ticket> <repo> <n1-home> — N1-478 (Orca only): a PR merged outside the worker (the user merged
+# it while the worker was owed) still needs n1-finish: ticket close, follow-ups and cleanup. Fire and forget, once per
+# run (.finished-<ticket>, line 1 the run id, written before the launch). Acts only inside orca_merged_sweep's settle
+# (SWEEPING, dynamic scope): chain_merged is also reached after the runner's own -fin session (chain_finish wait loop,
+# chain_reconcile), where a second finish would be a duplicate. Returns 1, so chain_merged falls back to chain_clean,
+# outside the sweep (bg backend included), when the worker ran its own finish (## Finish in the overview), when
+# chain_authorized does not hold, or when the launch fails. Returns 0 when it launched, already launched this run, or
+# cleanup is done.
+chain_finish_merged() {
+    local marker="$N1_QUEUE_DIR/.finished-$2" ov="$4/memory/$2/overview.md" out sid
+    [ -n "${SWEEPING:-}" ] || return 1
+    case "$2" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+    grep -q '^## Finish' "$ov" 2>/dev/null && return 1
+    chain_authorized "$4" || return 1
+    n1_queue_cleanup_needed "$ov" || return 0
+    [ "$(head -n1 "$marker" 2>/dev/null)" = "$RUN_ID" ] && return 0
+    printf '%s\n' "$RUN_ID" > "$marker" || return 1
+    if out=$(bash -c "$(n1_queue_finish_cmd "$3" "$2" sonnet "$RUN_ID" "n1-${QUEUE_ID}-$2-$1-mfin")" </dev/null 2>&1) \
+        && sid=$(n1_queue_parse_launch "$out") && [ -n "$sid" ]; then
+        echo "[$1] $2 n1-finish launched for the merged PR ($sid)"
+        return 0
+    fi
+    rm -f "$marker"
+    echo "[$1] $2 n1-finish launch-failed; falling back to n1-clean"
+    return 1
 }
 
 # chain_sync <num> <ticket> <repo> <n1-home> — fast-forward the local default branch (one retry). A sync
@@ -1410,7 +1437,7 @@ launch_orca() {
 # SETTLED/OWED/DEFERRED (dynamic scope). A task whose row is still in flight waits.
 # N1-422: "defer" (a "stopped (finished)" notice: the worker only ended a turn and may resume and merge its own PR)
 # releases the worker and frees its slot once, but keeps the task owed: no SETTLED, no chain, sentinel and markers kept,
-# so worker_done, a worker-list exited/done row or the owed expiry still settle and chain it.
+# so worker_done, the owed expiry or orca_merged_sweep (its PR merged, N1-478) still settle and chain it.
 orca_settle() {
     local TASK="$1" T DISP ROW NUM TICKET REPO N1H MODEL URL SB SBID fb=1
     [[ "$SETTLED" == *" $TASK "* ]] && return
@@ -1458,6 +1485,39 @@ orca_settle() {
     rm -f "$N1_QUEUE_DIR/.ask-$T" "$N1_QUEUE_DIR/.esc-reason-$T"   # N1-309: a final row's question marker must not outlive it
 }
 
+# orca_merged_sweep — N1-478 AC5: an owed pr row whose PR is MERGED (the user merged it while its worker was owed) is
+# settled now (orca_settle -> chain_finish -> chain_merged -> n1-finish), not at the owed expiry, so ## Schedule successors
+# start. N1-422: a task whose worker-list liveness is live is never touched (it may merge its own PR and run its own
+# finish); otherwise only a deferred task, a worker exited/done, or one gone from a readable list. Uses run_orca's
+# OWED/DEFERRED/LIVE/LIVE_OK/LAST_PRCHK (dynamic scope). ponytail: one sweep with gh reads per 120 s for all owed rows;
+# per-row timers if many owed rows ever make that bursty.
+orca_merged_sweep() {
+    local TASK T DISP L S N1H URL did_read=0 now SWEEPING=""
+    [ "$OWED" != " " ] || return 0
+    now=$(date +%s); [ $((now - LAST_PRCHK)) -ge 120 ] || return 0
+    for TASK in $OWED; do
+        IFS=$'\t' read -r T DISP <<< "$(orca_row_of_task "$TASK")"
+        [ -n "$T" ] && [ -n "$DISP" ] || continue
+        IFS=$'\t' read -r L S <<< "$(awk -F'\t' -v d="$DISP" '$1 == d { print $3 "\t" $4; exit }' <<< "$LIVE")"
+        [ "$L" = live ] && continue
+        if [[ "$DEFERRED" != *" $TASK "* ]] && [ "$L" != exited ] && [ "$S" != done ] \
+            && { [ -n "$L" ] || [ "$LIVE_OK" != 1 ]; }; then continue; fi
+        N1H=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t { print $4 }' | tail -1)
+        [ -n "$N1H" ] || continue
+        URL=$(n1_queue_child_pr_url "$N1H/memory/$T/overview.md")
+        [ -n "$URL" ] || continue
+        did_read=1
+        [ "$(n1_queue_pr_state "$URL")" = MERGED ] || continue
+        echo "[orca] $T PR merged while its worker is owed: settling"
+        # chain_finish_merged acts only here, and only on a first chain evaluation: a .chained-<ticket> marker already
+        # present (restart mid-chain) means the runner's own -fin may have run, so chain_merged falls back to chain_clean.
+        SWEEPING=""; [ -e "$N1_QUEUE_DIR/.chained-$T" ] || SWEEPING=1
+        orca_settle "$TASK"
+        SWEEPING=""
+    done
+    [ "$did_read" = 0 ] || LAST_PRCHK=$now
+}
+
 # run_orca — Orca workers, up to queue.maxConcurrent at once (run_bg stays sequential). Each tick waits on the Run
 # inbox (check --wait: worker_done, escalation, question), re-reads the worker list (worker-list), then reconciles
 # every live row from overview.md, the ground truth, so a lost or lying worker_done is corrected. worker_done (the
@@ -1469,7 +1529,7 @@ run_orca() {
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
-    local LIVE="" LIVE_OK=0 DONE=" " STOPPED=" " SETTLED=" " OWED=" " DEFERRED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0 HOLD_WAIT=0 HOLD_NOTED=""
+    local LIVE="" LIVE_OK=0 DONE=" " STOPPED=" " SETTLED=" " OWED=" " DEFERRED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0 HOLD_WAIT=0 HOLD_NOTED="" LAST_PRCHK=0
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
     # N1-303: the plan pins max_concurrent; live config is read only for a plan made before it (legacy).
@@ -1752,6 +1812,7 @@ run_orca() {
             # N1-422: a deferred task is settled only by worker_done or the owed expiry; a released dispatch reads exited/done here.
             [ -n "$T" ] && [ "$L" = "$DISP" ] && [[ "$DEFERRED" != *" $TASK "* ]] && orca_settle "$TASK"
         done 3< <(awk -F'\t' '$3 == "exited" || $4 == "done" { print $1 "\t" $2 }' <<< "$LIVE")
+        orca_merged_sweep   # N1-478 AC5: an owed row whose PR merged meanwhile is settled now, not at the owed expiry
 
         # Unsettled workers (finished or timed-out rows whose worker is not proven exited or durably finished) still hold a slot.
         # N1-422: a task deferred by a "finished" stop notice stays owed (still settled and chained later) but holds no slot.
