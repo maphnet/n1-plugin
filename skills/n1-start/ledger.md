@@ -32,10 +32,10 @@ Before any user prompt (not unconditional gates): 1→Codebase search, 2→Web s
 
 | Step | When | `rungs_tried` |
 |------|------|---------------|
-| start | `mechanicalPrompts: "auto"` branch/stash | `---` |
+| start | auto branch/stash | `---` |
 | ticket | auto-created/skipped tracker ticket | `---` |
 | brainstorm | SA resolved; A-tier answers `[asked]`; refined Decisions `[refined]` | `---` for `[auto]`; list for `[asked]` |
-| qa/review/fix/local-testing | `qualityEscalations: "auto-accept"` at exhaustion (always A) | `---` |
+| qa/review/fix/local-testing | auto-accept at exhaustion (always A) | `---` |
 | pr | reviewer skips autonomy-influenced | `---` |
 
 ## PR Rendering

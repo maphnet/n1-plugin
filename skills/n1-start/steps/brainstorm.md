@@ -5,7 +5,6 @@
 ```bash
 source ~/.n1/preamble.sh
 n1_step_begin "brainstorm" 3
-BRAINSTORM_MODE=$(n1_autonomy_val 'brainstorm')
 TYPE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "type")
 TEST_TIER=maintain
 # Dispatch the coherent model/effort pair together.
@@ -15,9 +14,7 @@ HAS_INVESTIGATION=false; [ -s "$N1_HOME/memory/$ID/investigation.md" ] && HAS_IN
 
 Run `procedures/rules-injection.md`: `agent_name=solution-architect`.
 
-**`BRAINSTORM_MODE=auto`:** dispatch the **brainstormer** agent — Inputs: ticket.md, analysis.md{if HAS_INVESTIGATION: , investigation.md}. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`. **Investigation auto:** same, investigation focus.
-
-**`BRAINSTORM_MODE=interactive`:** relay loop (cap 2 rounds). Dispatch SA: invoke `n1-brainstorm` against ticket.md+analysis.md{if HAS_INVESTIGATION: +investigation.md}. Single prompt max 4 questions. **ORCHESTRATOR GUARDRAIL (brainstorm): do NOT Read, Grep, Glob, `cat`, `sed -n`, or otherwise open project source files** — `analysis.md` is sufficient; re-spawn SA for missing facts only. Round 2: inputs+answers; write `$N1_HOME/memory/<ID>/brainstorm.md`; do NOT commit.
+Dispatch the **brainstormer** agent — Inputs: ticket.md, analysis.md{if HAS_INVESTIGATION: , investigation.md}. Write `$N1_HOME/memory/$ID/brainstorm.md`. tier={TEST_TIER}. Batch A-tier questions 'Decide for me'. Report `planning_need`. Append `$RULES_BLOCK`. **Investigation auto:** same, investigation focus.
 
 Bug: use root cause findings. Investigation: explore question. Append `$RULES_BLOCK`.
 **ORCHESTRATOR GUARDRAIL (experiments):** do not run ad-hoc experiments, benchmarks, or probes inline — delegate to the developer or qa-engineer agent.
@@ -37,9 +34,7 @@ Skip when investigation mode. Read `DESC_QUALITY`. Present checkpoint: design sa
 
 ```bash
 source ~/.n1/preamble.sh
-ACCEPTANCE_GATE=$(n1_autonomy_val 'acceptanceGate')
-if [ "$ACCEPTANCE_GATE" = "auto" ]; then n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "auto-decided" "---"
-else n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "asked" "codebase|web"; fi
+n1_emit_question_event "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" "brainstorm" "design" "auto-decided" "---"
 n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" "planning_need" "$PLANNING_NEED"
 n1_record_decision planning-need-direct "$( [ "$PLANNING_NEED" = "direct" ] && echo true || echo false )" '{"signal":"brainstorm.design_clarity","eq":"high"}' "planning_need=$PLANNING_NEED"
 [ "$PLANNING_NEED" = "direct" ] && DESIGN_CLARITY="high" || DESIGN_CLARITY="medium"
@@ -49,7 +44,7 @@ ANALYSIS_BLAST=$(n1_read_signal "$N1_HOME/memory/$ID/analysis.md" "blast_radius"
 [ "$BRAINSTORM_FILES" -le 2 ] && BRAINSTORM_BLAST="low" || { [ "$BRAINSTORM_FILES" -le 5 ] && BRAINSTORM_BLAST="${ANALYSIS_BLAST:-medium}" || BRAINSTORM_BLAST="${ANALYSIS_BLAST:-high}"; }
 n1_write_signals "$N1_HOME/memory/$ID/brainstorm.md" "planning_need=$PLANNING_NEED" "design_clarity=$DESIGN_CLARITY" "approach_count=$APPROACH_COUNT" "files_changed=$BRAINSTORM_FILES" "blast_radius=$BRAINSTORM_BLAST"
 ```
-`auto`: auto-confirm, `[auto]` ledger. `ask`: wait; amend → update AC. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+Auto-confirm with an `[auto]` ledger row. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 `direct`: specified+independent+no design+no test strategy. `plan`: coordination/open questions/new abstractions/security/API/cross-cutting. Default `plan`.
 

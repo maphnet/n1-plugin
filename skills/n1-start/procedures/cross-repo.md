@@ -15,19 +15,14 @@ if [ "$RELATED_ENABLED" = "true" ]; then
     IMPL_DIFF=$(git diff "${XR_BASE:-$(n1_config_val '.git.defaultBranch' "$N1_HOME/config.json")}"...HEAD 2>/dev/null || true)
     if [ -n "$IMPL_DIFF" ]; then DETECTED=$(n1_related_detect_in_diff "$IMPL_DIFF" "$N1_HOME/config.json"); fi
     if [ -n "$DETECTED" ]; then
-        printf '%s\n' "$DETECTED" > "$XREPO_RT_FILE"; AUTONOMY=$(n1_autonomy_val "mechanicalPrompts"); IMPL_XREPO_DETECTED=""
+        printf '%s\n' "$DETECTED" > "$XREPO_RT_FILE"
         while IFS=$'\t' read -r det_slug det_signal; do
             [ -z "$det_slug" ] && continue; det_cell=$(printf '%s' "$det_signal" | tr '|' '/' | cut -c1-80)
-            if [ "$AUTONOMY" = "auto" ]; then
-                n1_related_add "$N1_HOME/config.json" "$det_slug" "auto-detected: $det_signal" "auto"
-                grep -q '^## Decision Ledger' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null || printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$N1_HOME/memory/$ID/overview.md"
-                printf '| implementation | scope | B | [auto] | New integration %s in diff | Added | — | Auto-detected: %s | --- |\n' "$det_slug" "$det_cell" >> "$N1_HOME/memory/$ID/overview.md"
-                printf '%s\n' "$det_slug" >> "$XREPO_RT_ADDED_FILE"
-            else IMPL_XREPO_DETECTED="${IMPL_XREPO_DETECTED:+$IMPL_XREPO_DETECTED\n}- **${det_slug}**: ${det_signal}"; fi
+            n1_related_add "$N1_HOME/config.json" "$det_slug" "auto-detected: $det_signal" "auto"
+            grep -q '^## Decision Ledger' "$N1_HOME/memory/$ID/overview.md" 2>/dev/null || printf '\n## Decision Ledger\n\n| Step | Category | Tier | Tag | Question | Chosen | Alternatives | Reason | Rungs Tried |\n|------|----------|------|-----|----------|--------|--------------|--------|-------------|\n' >> "$N1_HOME/memory/$ID/overview.md"
+            printf '| implementation | scope | B | [auto] | New integration %s in diff | Added | — | Auto-detected: %s | --- |\n' "$det_slug" "$det_cell" >> "$N1_HOME/memory/$ID/overview.md"
+            printf '%s\n' "$det_slug" >> "$XREPO_RT_ADDED_FILE"
         done < <(printf '%s\n' "$DETECTED")
-        [ "$AUTONOMY" != "auto" ] && [ -n "$IMPL_XREPO_DETECTED" ] && printf '\nNew cross-repo integrations:\n%b\n\nAdd? (yes/no/select)\n' "$IMPL_XREPO_DETECTED"
     fi
 fi
 ```
-
-**Interactive (non-auto).** Re-read `$XREPO_RT_FILE`. **"yes":** `n1_related_add`+B-tier `[asked]` ledger+`$XREPO_RT_ADDED_FILE` per slug. **"select":** add approved+ledger. **"no":** `[asked]` row.

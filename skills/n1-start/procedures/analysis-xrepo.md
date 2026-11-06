@@ -20,11 +20,11 @@ echo "RELATED_CONTEXT=$RELATED_CONTEXT"
 
 ## After the post-SA fence (`XREPO_PENDING_FILE=`)
 
-Parse `XREPO_SUGGEST: <slug> <reason>` from `$AGENT_OUTPUT`. **Auto**: `n1_related_add` + B-tier `[auto]` ledger row per slug. **Non-auto:** append to `$XREPO_PENDING_FILE`; print `SA detected cross-repo integrations:` + slug list + `Add? (yes/no/select)`.
+Parse `XREPO_SUGGEST: <slug> <reason>` from `$AGENT_OUTPUT`: `n1_related_add` + B-tier `[auto]` ledger row per slug.
 
 ## After Gate 1
 
-Interactive (non-auto): re-read `$XREPO_PENDING_FILE`. **"yes":** add all + ledger rows (use `n1_related_add`+`n1_record_decision` per slug). **"select":** add approved. **"no":** `[asked]` row. **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+**Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 
 ## End of step (after the last step fence, `UNKNOWNS=`)
 
