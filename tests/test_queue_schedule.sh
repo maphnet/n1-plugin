@@ -235,5 +235,7 @@ has "schedule.md: create without --tag stops (N1-423)" \
 has "schedule.md: list/remove skip tag validation (N1-423)" \
     "\`list\` and \`remove\` need no \`--tag\` and skip every check" "$(cat "$S/steps/schedule.md")"
 hasnt "schedule.md: no default-tag fallback (N1-423)" "n1_queue_val tag" "$(cat "$S/steps/schedule.md")"
+has "input.md: --unattended keeps the deterministic queue id for the claim (N1-440)" \
+    'if [ -n "$UNATTENDED" ]; then mkdir -p "$N1_HOME/queue/$QUEUE_ID"' "$(cat "$S/steps/input.md")"
 
 exit "$FAIL"

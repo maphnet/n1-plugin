@@ -2009,13 +2009,102 @@ test_list_input_wiring() {
     assert_eq "list-input: QUEUE_ID is list-<8 hex>" "yes" "$([[ "$a" =~ ^list-[0-9a-f]{8}$ ]] && echo yes || echo no)"
     assert_eq "list-input: different keys give a different QUEUE_ID" "yes" "$([ "$a" != "$c" ] && echo yes || echo no)"
     # Run the item-1 resolve loop from input.md with real items and a stubbed URL extractor.
-    local blk out
-    blk=$(awk '/^```bash$/{b="";f=1;next} /^```$/{if(f&&b~/for ITEM in/){printf "%s",b;exit}f=0} f{b=b $0 "\n"}' "$in" | grep -v '^source ')
-    blk=${blk/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'N1-2' 'N1-2' 'N1-12' 'N1-1' 'notakey' 'https://x/browse/N1-7' 'https://x/bad' 'n1-5' 'a|PWN-1|x'"}
+    local raw blk out
+    raw=$(awk '/^```bash$/{b="";f=1;next} /^```$/{if(f&&b~/for ITEM in/){printf "%s",b;exit}f=0} f{b=b $0 "\n"}' "$in" | grep -v '^source ')
+    blk=${raw/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'N1-2' 'N1-2' 'N1-12' 'N1-1' 'notakey' 'https://x/browse/N1-7' 'https://x/bad' 'n1-5' 'a|PWN-1|x' 'but' 'maxConcurrent'"}
     out=$(n1_extract_ticket_from_url() { case "$1" in */browse/*) echo "${1##*/}" ;; *) return 1 ;; esac; }
         N1_HOME=/nonexistent; eval "$blk")
     assert_eq "list-input: loop keeps order, dedupes, resolves URLs" "KEYS= N1-2 N1-12 N1-1 N1-7" "$(grep '^KEYS=' <<<"$out")"
-    assert_eq "list-input: loop sends invalid keys and failed URLs to BAD only" "BAD= notakey https:__x_bad n1-5 a_PWN-1_x" "$(grep '^BAD=' <<<"$out")"
+    assert_eq "list-input: key-shaped typos and failed URLs go to BAD (N1-440)" "BAD= https:__x_bad n1-5" "$(grep '^BAD=' <<<"$out")"
+    assert_eq "list-input: other words go to PROSE, sanitized (N1-440)" "PROSE= notakey a_PWN-1_x but maxConcurrent" "$(grep '^PROSE=' <<<"$out")"
+    blk=${raw/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'but' 'change' 'maxConcurrent' 'to' '1' 'in' 'n1' 'config'"}
+    out=$(N1_HOME=/nonexistent; eval "$blk")
+    assert_eq "list-input: prose-only args yield no keys (N1-440)" "KEYS=|BAD=" "$(grep '^KEYS=' <<<"$out")|$(grep '^BAD=' <<<"$out")"
+    assert_eq "list-input: prose-only args are kept as an instruction (N1-440)" "PROSE= but change maxConcurrent to 1 in n1 config" "$(grep '^PROSE=' <<<"$out")"
+    # N1-440 rule text
+    assert_eq "list-input: never-infer rule (N1-440)" "yes" "$(hasF 'Never pick a tag, story or ticket list from conversation context, memory, config, a schedule or an existing queue dir, and never reuse a queue dir because it looks current.' "$in")"
+    assert_eq "list-input: prose alone still asks item 3 (N1-440)" "yes" "$(hasF '(prose alone counts as no input)' "$in")"
+    assert_eq "list-input: prose printed as a session instruction (N1-440)" "yes" "$(hasF 'Session instruction (not a ticket selector): ' "$in")"
+    assert_eq "list-input: prose never selects input (N1-440)" "yes" "$(hasF 'Never use prose as a ticket key, tag, story ID, path or shell word' "$in")"
+    assert_eq "list-input: no-valid-key needs BAD items (N1-440)" "yes" "$(hasF '`KEYS` is empty and `BAD` is not' "$in")"
+    assert_eq "list-input: interactive plans get a unique id (N1-440)" "yes" "$(hasF 'QUEUE_ID=$(n1_queue_new_id "$QUEUE_ID")' "$in")"
+    assert_eq "list-input: planning pointer written at intake (N1-440)" "yes" "$(hasF 'n1_queue_plan_state write "$QUEUE_ID" intake "$MODE" "$SRC"' "$in")"
+    assert_eq "list-input: no bare mkdir -p for interactive ids (N1-440)" "1" "$(grep -c 'mkdir -p "$N1_HOME/queue/$QUEUE_ID"' "$in")"
+}
+
+# N1-440: per-session queue planning pointer, unique plan ids, planning-dir discard.
+test_queue_plan_state() {
+    local h; h=$(mktemp -d)
+    type n1_session_id >/dev/null 2>&1 || source "$REPO_ROOT/lib/host.sh"
+    qps() { ( export N1_HOME="$h" N1_SESSION_ID="${SID:-s1}"; n1_queue_plan_state "$@" ); }
+    qnew() { ( export N1_HOME="$h" N1_SESSION_ID=s1; n1_queue_new_id "$@" ); }
+    qdis() { ( export N1_HOME="$h" N1_SESSION_ID=s1; n1_queue_plan_discard "$@" ); }
+    local rc out a b c
+    # pointer write/read/step/clear
+    qps write n1-auto-20261106T101530Z intake tag n1-auto; rc=$?
+    assert_eq "plan-state: write rc 0" "0" "$rc"
+    assert_eq "plan-state: keyed file written" "yes" "$([ -f "$h/queue-plan.s1.json" ] && echo yes || echo no)"
+    assert_eq "plan-state: read prints id step mode source" "$(printf 'n1-auto-20261106T101530Z\tintake\ttag\tn1-auto')" "$(qps read)"
+    qps step preview
+    assert_eq "plan-state: step advances" "preview" "$(qps read | cut -f2)"
+    qps step bogus && rc=0 || rc=$?
+    assert_eq "plan-state: unknown step refused" "1" "$rc"
+    assert_eq "plan-state: refused step keeps the old one" "preview" "$(qps read | cut -f2)"
+    qps write '../x' intake tag x && rc=0 || rc=$?
+    assert_eq "plan-state: bad queue id refused" "1" "$rc"
+    qps write q1 intake epic x && rc=0 || rc=$?
+    assert_eq "plan-state: bad mode refused" "1" "$rc"
+    qps write q1 intake list 'N1-1 N1-2;$(id)/x'
+    assert_eq "plan-state: source sanitized" "N1-1 N1-2idx" "$(qps read | cut -f4)"
+    local long; long=$(printf "N1-%s," $(seq 1 100)); qps write q1 intake list "$long"
+    assert_eq "plan-state: long selector kept whole" "$long" "$(qps read | cut -f4)"
+    qps write q1 intake list 'N1-1 N1-2;$(id)/x'
+    assert_eq "plan-state: other session reads nothing" "" "$(SID=s2 qps read)"
+    SID='a/b' qps write q1 intake tag x && rc=0 || rc=$?
+    assert_eq "plan-state: unsafe sid refused" "1" "$rc"
+    assert_eq "plan-state: unsafe sid writes no file" "1" "$(ls "$h" | grep -c '^queue-plan\.')"
+    echo '{"queueId":"../x","step":"intake","mode":"tag","source":""}' > "$h/queue-plan.s1.json"
+    qps read >/dev/null && rc=0 || rc=$?
+    assert_eq "plan-state: tampered id not read" "1" "$rc"
+    qps clear
+    assert_eq "plan-state: clear removes the file" "no" "$([ -e "$h/queue-plan.s1.json" ] && echo yes || echo no)"
+    # unique ids
+    mkdir -p "$h/queue/n1-auto"; echo 'old rows' > "$h/queue/n1-auto/queue.md"
+    a=$(qnew n1-auto); b=$(qnew n1-auto)
+    assert_eq "new-id: two plans of one tag differ" "yes" "$([ -n "$a" ] && [ "$a" != "$b" ] && echo yes || echo no)"
+    assert_eq "new-id: shape <tag>-<UTC>[-n]" "yes" "$([[ "$a" =~ ^n1-auto-[0-9]{8}T[0-9]{6}Z(-[0-9]+)?$ ]] && [[ "$b" =~ ^n1-auto-[0-9]{8}T[0-9]{6}Z(-[0-9]+)?$ ]] && echo yes || echo no)"
+    assert_eq "new-id: dir created, no inherited rows" "yes|no" "$([ -d "$h/queue/$b" ] && echo yes)|$([ -e "$h/queue/$b/queue.md" ] && echo yes || echo no)"
+    c=$(qnew "$(printf 'x%.0s' {1..50})")
+    assert_eq "new-id: base cut to 40" "yes" "$([[ "$c" =~ ^x{40}-[0-9]{8}T[0-9]{6}Z ]] && echo yes || echo no)"
+    out=$(qnew '../x') && rc=0 || rc=$?
+    assert_eq "new-id: bad base refused" "1|" "$rc|$out"
+    # discard
+    mkdir -p "$h/queue/$a/desc"; qps write "$a" preview tag n1-auto
+    qdis "$a"
+    assert_eq "discard: planning-only dir removed" "no" "$([ -e "$h/queue/$a" ] && echo yes || echo no)"
+    assert_eq "discard: pointer cleared" "no" "$([ -e "$h/queue-plan.s1.json" ] && echo yes || echo no)"
+    qdis n1-auto && rc=0 || rc=$?
+    assert_eq "discard: dir with queue.md kept" "1|yes" "$rc|$([ -f "$h/queue/n1-auto/queue.md" ] && echo yes)"
+    mkdir -p "$h/queue/claimed/.unattended-claim"
+    qdis claimed && rc=0 || rc=$?
+    assert_eq "discard: claimed dir kept" "1|yes" "$rc|$([ -d "$h/queue/claimed" ] && echo yes)"
+    qdis '../x' && rc=0 || rc=$?
+    assert_eq "discard: bad id refused" "1" "$rc"
+    rm -rf "$h"
+}
+
+# N1-440: tag attribute and planning-state wiring in run.md, runner and report.
+test_queue_id_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue/steps"
+    hasF() { grep -qF -- "$1" "$2" && echo yes || echo no; }
+    assert_eq "id-wiring: plan frontmatter carries tag" "yes" "$(hasF 'tag: <--tag value in tag mode, else empty>' "$s/run.md")"
+    assert_eq "id-wiring: saved plan advances state" "yes" "$(hasF 'n1_queue_plan_state step saved' "$s/run.md")"
+    assert_eq "id-wiring: launch clears planning state" "yes" "$(hasF 'n1_queue_plan_state clear' "$s/run.md")"
+    assert_eq "id-wiring: --plan stop clears planning state" "yes" "$(hasF 'n1_queue_plan_state clear`, then print "Plan saved' "$s/run.md")"
+    assert_eq "id-wiring: report reads tag attribute" "yes" "$(hasF 'TAG=$(n1_read_frontmatter "$QUEUE_FILE" tag)' "$s/report.md")"
+    assert_eq "id-wiring: runner reads tag attribute" "yes" "$(hasF 'N1_QUEUE_TAG=$(n1_read_frontmatter "$QUEUE" tag)' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+    # --run in a new session: input.md never ran, so the Hierarchy block's SRC comes from the saved frontmatter.
+    assert_eq "id-wiring: saved plan restores SRC from frontmatter" "yes" "$(hasF 'SRC=$(n1_read_frontmatter "$QUEUE_FILE" story_id 2>/dev/null)' "$s/run.md")"
 }
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
@@ -2117,7 +2206,7 @@ test_story_epic_wiring() {
     assert_eq "epic-wiring: story subtask Reason kept" "yes" "$(hasF '`story subtask` for story-mode candidates found via subtask enumeration' "$s/intake.md")"
     # Preview hierarchy (display-only, schema unchanged)
     assert_eq "epic-wiring: preview prints Hierarchy only for epic Reasons (contains, not starts-with)" "yes" "$(hasF 'When any candidate'"'"'s Reason contains `epic subtask of ` or `epic child`' "$s/preview.md")"
-    assert_eq "epic-wiring: preview Hierarchy line format" "yes" "$(hasX 'Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #3, #4, #5' "$s/preview.md")"
+    assert_eq "epic-wiring: preview Hierarchy line format" "yes" "$(hasX 'Epic <SRC> > Story <STORY_KEY> <CHILD_TITLE>: #3, #4, #5' "$s/preview.md")"
     assert_eq "epic-wiring: Hierarchy uses post-reorder numbers and is display-only" "yes" "$(hasF 'Grouping is display-only' "$s/preview.md")"
     assert_eq "epic-wiring: Prompt re-print includes the Hierarchy block" "yes" "$(hasF 'Print the plan table again (Reason now carries Order notes) and the Hierarchy block when it applies' "$s/preview.md")"
 }
@@ -2128,6 +2217,8 @@ test_find_repo
 test_pick_model
 test_plan_wiring
 test_list_input_wiring
+test_queue_plan_state
+test_queue_id_wiring
 test_story_epic_wiring
 test_child_status
 test_child_status_deploy

@@ -4,6 +4,7 @@ Print the plan table:
 
 ```
 ## Queue <QUEUE_ID>
+Mode: <list|tag|story> | Source: <ticket keys, tag or story ID> | Candidates: <N>
 Each ticket stops after PR + CI. N1 never merges unless `autonomy.fullAuto` and `finishWork.mergeOnFinish` are both true. In a story queue the runner merges each green, reviewed child PR into the story branch.
 | # | Ticket | Title | Repo | Model | Reason |
 |---|--------|-------|------|-------|--------|
@@ -15,20 +16,44 @@ Excluded:
 | ... | blocked by X-123 |
 ```
 
+**Selector header (N1-440).** `Mode` is input.md's `MODE`, `Source` its `SRC` (the ticket keys, the tag or the story ID), `Candidates` the number of plan rows. Print the header and the table before the `--dry-run` stop and before § Plan-Resolve writes anything to the tracker, also under `--unattended` (it has no prompt, so this print is its only record). This is not a new gate: the explicit input, or the reply to input.md item 3, is the user's selection. Then advance the planning state:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_plan_state step preview || true
+```
+
 **Hierarchy (Epic mode, N1-298).** When any candidate's Reason contains `epic subtask of ` or `epic child` (match anywhere in the cell: the blocker check can prefix `blocked_on <ID> · ` and later steps append ` · briefed` or Order notes), print this block right after every print of the plan table in this step (here, § Prompt, and each Edit re-print), using the plan's current `#` numbers:
 
 ```
 Hierarchy:
-Epic <QUEUE_ID> > Story <STORY_KEY> <CHILD_TITLE>: #3, #4, #5
+Epic <SRC> > Story <STORY_KEY> <CHILD_TITLE>: #3, #4, #5
 ```
 
 One line per child, in intake's child order. An expanded child lists the rows whose Reason contains `epic subtask of <STORY_KEY>`, and an `epic child` row lists itself. Children that intake excluded, and Stories left with no rows after later exclusions, get no line. Grouping is display-only: § 3 may still reorder rows, and the schedule, not this block, decides start order. A Story-ID run (Reason `story subtask`) prints no Hierarchy block.
 
-If `--dry-run`: print "Dry run -- nothing launched." **STOP** (do not write queue.md, do not run Plan-Resolve).
+If `--dry-run`: print "Dry run -- nothing launched.", run § Discard, then **STOP** (do not write queue.md, do not run Plan-Resolve).
+
+**Discard.** Removes this plan's queue dir when it holds only intake scratch (no queue.md, no unattended claim) and clears the planning state:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_plan_discard '<QUEUE_ID>' || true
+```
 
 ## Plan-Resolve
 
 Runs for every candidate before the prompt below (and, from run.md § Saved plan, for re-planned rows only). Every candidate reaching this section already passed intake's key validation (`^[A-Z][A-Z0-9_]*-[0-9]+$`), so `<KEY>` is safe to use in a path here. It builds one `DECISIONS` row per candidate that run.md writes as `## Decisions`: `| <KEY> | <Touches> | <Order> | <Pre-Decision> | <Desc Checksum> | <Notes> |`. In every cell replace `|` and newlines with a space (`n1_queue_decisions_write_row` does this automatically when a step calls it instead of writing the table directly). Nothing is written under `$N1_HOME/memory/<KEY>/`: an `overview.md` there would make the child resume instead of start.
+
+First record the step, before any tracker write:
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+n1_queue_plan_state step plan-resolve || true
+```
 
 ### 1. Brief and description snapshot
 
@@ -144,4 +169,4 @@ n1_queue_notify_check
 Print any warning line verbatim (out-of-session alerts will be silently skipped otherwise). Print the plan table again (Reason now carries Order notes) and the Hierarchy block when it applies, then `Schedule: <SCHEDULE>` and `Concurrency: <MAX_CONCURRENT> (queue.maxConcurrent; the bg backend runs one at a time).`, and when `MAX_CONCURRENT` is above 1 append ` Parallel workers share your usage limits.`, plus `## Decisions` rows that have a Pre-Decision or Notes, plus, for each candidate whose Reason carries `briefed`, its brief under `Brief <KEY>:` so the user sees what the child will plan from. Then ask the user (`--unattended`: do not ask; proceed as **Start**):
 - **Start** (bare) or **Save plan** (`--plan`) -> proceed to the run step.
 - **Edit** -> free text: remove tickets, reorder, change model (`KEY=opus|sonnet`). Apply changes (a removed ticket also loses its `DECISIONS` row), re-run § 3's Schedule and concurrency block in the edited order, re-print the table and schedule, ask again. Log each edit as `| preview | edit | <text> |` in a pending Decision Ledger list.
-- **Cancel** -> **STOP.** Cancel and Edit's ticket removal do not revert briefs already written to the tracker in § 1.
+- **Cancel** -> run § Discard, then **STOP.** Cancel and Edit's ticket removal do not revert briefs already written to the tracker in § 1.

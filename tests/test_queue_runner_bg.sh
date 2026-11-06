@@ -123,6 +123,22 @@ test_runner_tag_release() {
     rm -rf "$tmp"
 }
 
+# N1-440: tag-mode queue_id carries a per-plan suffix; children get the tag from frontmatter `tag`.
+test_runner_tag_attr() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" n1-auto-20261106T101530Z "T-R:done"
+    sed -i 's/^queue_id: n1-auto-20261106T101530Z$/&\nmode: tag\ntag: n1-auto/' "$tmp/queue.md"
+    mkdir -p "$tmp/n1home/memory/T-R"
+    printf -- '---\nstep: pr\n---\n' > "$tmp/n1home/memory/T-R/overview.md"
+    export N1_QUEUE_RELEASE_STUB=/bin/true
+    local exit_code; exit_code=$(run_bg_queue "$tmp")
+    unset N1_QUEUE_RELEASE_STUB
+    assert_eq "tag-attr: exit 0" "0" "$exit_code"
+    assert_eq "tag-attr: child sees N1_QUEUE_TAG from frontmatter tag" "n1-auto" \
+        "$(jq -r .env.N1_QUEUE_TAG "$tmp/fake/settings.n1-n1-auto-20261106T101530Z-T-R-1")"
+    rm -rf "$tmp"
+}
+
 # NP-199 (CCR fix): report.md's release wiring only runs on --status/--watch. Without
 # an automatic backstop, a failed tag-mode ticket's tag would stay attached until a
 # human happens to check. The runner must fire the backstop itself when the run ends.
@@ -1146,6 +1162,7 @@ test_bg_pr_lifecycle
 test_runner_three_strikes
 test_runner_all_pr
 test_runner_tag_release
+test_runner_tag_attr
 test_runner_auto_release_backstop
 test_runner_release_backstop_on_halt
 test_runner_list_mode_untagged

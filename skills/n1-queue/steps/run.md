@@ -42,7 +42,10 @@ printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 printf 'PLANNED_MAXC=%s\n' "$(n1_read_frontmatter "$QUEUE_FILE" max_concurrent 2>/dev/null)"
 printf 'LIVE_MAXC=%s\n' "$(n1_queue_max_concurrent)"
 printf 'SCHEDULE=%s\n' "$(n1_queue_plan_waves "$QUEUE_FILE")"
+SRC=$(n1_read_frontmatter "$QUEUE_FILE" story_id 2>/dev/null); printf 'SRC=%s\n' "${SRC:-$(n1_read_frontmatter "$QUEUE_FILE" tag 2>/dev/null)}"
 ```
+
+input.md did not run in this session, so use this `SRC` (the story or Epic ID, else the tag) wherever preview.md prints `<SRC>`, e.g. the Hierarchy block on an Edit re-print.
 
 `INTERRUPTED=yes` (`STEP` is `run` but its runner is gone, N1-183): print "Resuming interrupted run of `<QUEUE_ID>`." and go to § Launch with `RESUME=1`. Skip re-validation: the runner re-adopts `in-progress`/`awaiting-human` rows, runs any fullAuto chain still owed, continues `pending` rows, and never re-runs `pr`/`failed`/`skip` rows.
 
@@ -123,6 +126,7 @@ Write `$QUEUE_DIR/queue.md` with EXACT section order (the runner assumes `## Run
 queue_id: <QUEUE_ID>
 mode: tag|story|list
 story_id: <ID or empty>
+tag: <--tag value in tag mode, else empty>
 step: planned
 max_concurrent: <MAX_CONCURRENT>
 ---
@@ -186,9 +190,10 @@ n1_write_frontmatter "$QUEUE_DIR/queue.md" planned_at "$(date -u +%Y-%m-%dT%H:%M
 printf 'STALE_HOURS=%s\n' "$(n1_queue_val staleAfterHours)"
 n1_queue_schedule_write "$QUEUE_DIR/queue.md" || echo "SCHEDULE_WRITE=failed"
 printf 'SCHEDULE=%s\n' "$(n1_queue_plan_waves "$QUEUE_DIR/queue.md")"
+n1_queue_plan_state step saved || true
 ```
 
-`--plan`: print "Plan saved: <QUEUE_DIR>/queue.md (<N> tickets). Schedule: <SCHEDULE>. Run it with `/n1:n1-queue --run <QUEUE_ID>` (re-validated first when older than <STALE_HOURS>h)." **STOP.**
+`--plan`: run `source ~/.n1/preamble.sh; source "$N1_ROOT/lib/queue.sh"; n1_queue_plan_state clear`, then print "Plan saved: <QUEUE_DIR>/queue.md (<N> tickets). Schedule: <SCHEDULE>. Run it with `/n1:n1-queue --run <QUEUE_ID>` (re-validated first when older than <STALE_HOURS>h)." **STOP.**
 
 Bare and `--unattended`: continue to § Launch.
 
@@ -209,6 +214,7 @@ else
     n1_write_frontmatter "$QUEUE_FILE" started "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 fi
 n1_write_frontmatter "$QUEUE_FILE" owner_session "$(n1_session_id)"
+n1_queue_plan_state clear || true   # N1-440: planning is over; the runner's events take over
 # N1-183: setsid gives the runner its own session, so ending or restarting the launching session does
 # not take it down ($! is still the runner pid). nohup where setsid is absent (macOS).
 if command -v setsid >/dev/null 2>&1; then

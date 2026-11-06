@@ -96,9 +96,13 @@ STRIKE_REASON="" STRIKE_AT=0 STRIKE_WINDOW=300
 HALT_DRAIN="" ORCA_LOOP=""
 QUEUE_ID=$(n1_read_frontmatter "$QUEUE" queue_id)
 QUEUE_ID="${QUEUE_ID:-queue}"
-# Tag mode: QUEUE_ID is the tag; children release it on handoff (NP-199).
+# Tag mode: children release the tag on handoff (NP-199). N1-440: queue_id carries a per-plan suffix, so the
+# tag is the frontmatter `tag`; plans saved before N1-440 have none and their queue_id is the tag.
 N1_QUEUE_TAG=""
-[ "$(n1_read_frontmatter "$QUEUE" mode)" = tag ] && N1_QUEUE_TAG="$QUEUE_ID"
+if [ "$(n1_read_frontmatter "$QUEUE" mode)" = tag ]; then
+    N1_QUEUE_TAG=$(n1_read_frontmatter "$QUEUE" tag)
+    N1_QUEUE_TAG="${N1_QUEUE_TAG:-$QUEUE_ID}"
+fi
 export N1_QUEUE_TAG
 
 # Absolute queue dir: children read their plan-time ## Decisions row from here (NP-203).
