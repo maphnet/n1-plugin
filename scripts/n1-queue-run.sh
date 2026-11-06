@@ -1697,13 +1697,17 @@ run_orca() {
             # Usage-limit waits (above) and awaiting-human rows (earlier continue) never reach here, and settled rows
             # were finalized above, so a late beacon's .hb for a finished row is never read. It never stops,
             # releases or relaunches a worker and leaves WORKED and the row status alone.
+            # N1-478: skipped while n1_queue_recent_activity sees a commit, fresh ticket memory or a running subagent.
             if [ "$STALL_SECS" -gt 0 ] && [ -n "$TASK" ] && [ "$LIVE_OK" = 1 ] && [ ! -e "$N1_QUEUE_DIR/.stall-$TICKET" ] \
                 && awk -F'\t' -v d="$DISP" '$1 == d && $3 == "live" { f = 1 } END { exit !f }' <<< "$LIVE"; then
                 HB_AT=""; HB_PHASE=""; NOW=$(date +%s)
                 IFS=$'\t' read -r HB_AT HB_PHASE 2>/dev/null < "$N1_QUEUE_DIR/.hb-$TICKET" || true
                 case "$HB_AT" in ''|*[!0-9]*) HB_AT=$(stat -c %Y "$N1_QUEUE_DIR/.launch-$NUM" 2>/dev/null \
                     || stat -f %m "$N1_QUEUE_DIR/.launch-$NUM" 2>/dev/null) ;; esac
-                if [ -n "$HB_AT" ] && [ $((NOW - HB_AT)) -gt "$STALL_SECS" ]; then
+                # N1-478: beacons can be lost in transit, so a worker that committed, wrote ticket memory or runs a
+                # subagent inside the window is not flagged; no marker, so the next tick re-evaluates it.
+                if [ -n "$HB_AT" ] && [ $((NOW - HB_AT)) -gt "$STALL_SECS" ] \
+                    && ! n1_queue_recent_activity "$N1H" "$TICKET" "$STALL_SECS"; then
                     AGE=$(( (NOW - HB_AT) / 60 ))
                     : > "$N1_QUEUE_DIR/.stall-$TICKET"
                     echo "[$NUM] $TICKET may be stalled (live, no beacon for ${AGE} min, last phase ${HB_PHASE:--})"

@@ -1481,6 +1481,25 @@ n1_queue_launch_pid() {
     return 1
 }
 
+n1_queue_recent_activity() {
+    # Usage: n1_queue_recent_activity <n1-home> <ticket> <window-secs> — N1-478: exit 0 when the ticket's worker shows work
+    # inside the window without a beacon: the latest commit in the overview's workspace_path, any file under
+    # memory/<ticket>/ modified, or a subagent with a start row and no stop row in the newest telemetry agents file.
+    # Called only after the beacon age already passed queue.stallMinutes. Any read failure counts as no signal, so the
+    # stall flag then fires as before.
+    local h="$1" t="$2" win="$3" ws ct ag
+    case "$t" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+    case "$win" in ''|*[!0-9]*) return 1 ;; esac
+    ws=$(n1_read_frontmatter "$h/memory/$t/overview.md" workspace_path 2>/dev/null)
+    if [ -n "$ws" ] && [ -d "$ws" ]; then
+        ct=$(git -C "$ws" log -1 --format=%ct 2>/dev/null)
+        [[ "$ct" =~ ^[0-9]+$ ]] && [ $(( $(date +%s) - ct )) -le "$win" ] && return 0
+    fi
+    [ -n "$(find "$h/memory/$t" -type f -mmin "-$(( (win + 59) / 60 ))" -print 2>/dev/null | head -n1)" ] && return 0
+    ag=$(ls -t "$h/memory/$t/telemetry/raw/agents/"*.jsonl 2>/dev/null | head -n1)
+    [ -n "$ag" ] && jq -s -e 'group_by(.agent_id) | any(.[]; any(.event == "start") and all(.event != "stop"))' "$ag" >/dev/null 2>&1
+}
+
 n1_queue_interrupted() {
     # Usage: n1_queue_interrupted <queue.md> — N1-183: exit 0 when the run says step: run but its
     # runner is gone (killed with the launching session, crashed, or host restart).

@@ -66,7 +66,7 @@ if [ -n "$F" ]; then echo "Final PRs (repo, PR, draft, mergeable, note):"; sed '
 
 For each row under "Worktrees not removed", resolve the reason, then run /n1:n1-clean --ticket <ticket>. The `Cleanup` column is empty until a cleanup ran.
 
-The `Last beacon` block lists each in-progress row's latest worker progress beacon. `stalled?` means the worker is live but sent no beacon for `queue.stallMinutes`. The flag is informational, and the runner never stops the worker because of it.
+The `Last beacon` block lists each in-progress row's latest worker progress beacon. `stalled?` means the worker is live but sent no beacon and showed no other activity (commit, ticket memory write, running subagent) for `queue.stallMinutes`. The flag is informational, and the runner never stops the worker because of it.
 
 After printing the merged status table, compute and print decision counts, then write `telemetry.json`:
 

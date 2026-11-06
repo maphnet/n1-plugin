@@ -56,7 +56,10 @@ stall_fixture() {   # <tmp> — orca_resumed_row on a live worker, stallMinutes 
     orca_resumed_row "$1"
     wl_set "$1" "$(wl_row T-A running)"
     cfg_set "$1" '.queue.subtaskTimeoutMinutes = 600 | .queue.stallMinutes = 1 | .queue.notify = "command" | .queue.notifyCommand = "cat >> '"$1"'/notes"'
+    age_memory "$1"
 }
+# age_memory <tmp> — N1-478: T-A's memory files read as 2 hours old, so only the signal a case adds counts as activity.
+age_memory() { find "$1/n1home/memory/T-A" -type f -exec touch -d '2 hours ago' {} +; }
 stalls() { grep -c '"stalled"' "$1/events.jsonl" 2>/dev/null || true; }
 stall_notes() { grep -c 'may be stalled' "$1/notes" 2>/dev/null || true; }
 test_orca_stall_flag() {
@@ -121,6 +124,40 @@ test_orca_stall_flag() {
     printf '1\timplement\n' > "$tmp/.hb-T-A"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
     assert_eq "stall: launch clears an old beacon" "in-progress|0" "$(plan_cell "$tmp/queue.md" 1 8)|$(stalls "$tmp")"
+    rm -rf "$tmp"
+    # N1-478 AC2. Bug caught: workers with recent commits, fresh ticket memory or a running subagent were flagged
+    # "may be stalled (phase=- ...)" because the runner received no beacons. Activity inside the window suppresses the flag.
+    # (j) a commit in the overview's workspace_path inside the window: not flagged, no marker.
+    tmp=$(mktemp -d); stall_fixture "$tmp"; printf '1\timplement\n' > "$tmp/.hb-T-A"
+    git init -q "$tmp/ws" && git -C "$tmp/ws" -c user.name=t -c user.email=t@t commit -q --allow-empty -m x
+    n1_write_frontmatter "$tmp/n1home/memory/T-A/overview.md" workspace_path "$tmp/ws"; age_memory "$tmp"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+    assert_eq "stall: recent commit not flagged" "0|no" "$(stalls "$tmp")|$([ -e "$tmp/.stall-T-A" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+    # (k) a ticket memory file written inside the window: not flagged.
+    tmp=$(mktemp -d); stall_fixture "$tmp"; printf '1\timplement\n' > "$tmp/.hb-T-A"
+    : > "$tmp/n1home/memory/T-A/implementation.md"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+    assert_eq "stall: fresh memory file not flagged" "0" "$(stalls "$tmp")"
+    rm -rf "$tmp"
+    # (l) a subagent started long ago and not stopped (newest agents file): not flagged.
+    tmp=$(mktemp -d); stall_fixture "$tmp"; printf '1\timplement\n' > "$tmp/.hb-T-A"
+    mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/agents"
+    printf '{"event":"start","agent_id":"a1","ticket_id":"T-A"}\n' > "$tmp/n1home/memory/T-A/telemetry/raw/agents/R1.jsonl"
+    age_memory "$tmp"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+    assert_eq "stall: running subagent not flagged" "0" "$(stalls "$tmp")"
+    rm -rf "$tmp"
+    # (m) all three signals stale (old commit, aged memory, subagent stopped): flagged once as before.
+    tmp=$(mktemp -d); stall_fixture "$tmp"; printf '1\timplement\n' > "$tmp/.hb-T-A"
+    git init -q "$tmp/ws" && GIT_COMMITTER_DATE='2020-01-01T00:00:00Z' git -C "$tmp/ws" -c user.name=t -c user.email=t@t \
+        commit -q --allow-empty --date='2020-01-01T00:00:00Z' -m x
+    n1_write_frontmatter "$tmp/n1home/memory/T-A/overview.md" workspace_path "$tmp/ws"
+    mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/agents"
+    printf '{"event":"start","agent_id":"a1"}\n{"event":"stop","agent_id":"a1"}\n' > "$tmp/n1home/memory/T-A/telemetry/raw/agents/R1.jsonl"
+    age_memory "$tmp"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+    assert_eq "stall: all signals stale still flagged once" "1" "$(stalls "$tmp")"
     rm -rf "$tmp"
 }
 
