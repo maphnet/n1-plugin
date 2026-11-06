@@ -13,6 +13,8 @@ No recommendation. The options are equivalent given the available evidence; sele
 1 — Continue: keep the ticket's direction; record each contradicted claim as an Assumption with its risk
 2 — Redirect: end refine without writing anything; edit the ticket, then re-run
 
+Every `unable to verify` line in `### Ticket Validation` (any count, no gate): show it to the user as `Unverified: <claim>` and record it as an Assumption whose If-wrong names the claim; no new prompt.
+
 ## Step 2: Answer From Code First
 
 Collect open points: `### Decision Points` in analysis.md, `### Ambiguities` in refine/ticket.md, and `<!-- n1:unknown -->` markers in investigation.md when present, except those answered under its `### Clarifications` (a deferred one becomes an Assumption). Resolve before asking:

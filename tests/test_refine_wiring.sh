@@ -234,4 +234,14 @@ line_has "N1-33: blamed-missing mechanism is confirmed, not falsified" '**Premis
 has "N1-33: output format documents the premise line" 'claim = `premise: <mechanism>`' "$SA"
 line_has "N1-33: refine dispatch passes the resolved type" 'Dispatch persona `solution-architect`' 'Resolved ticket type: `<type from Step 3>`' "$F"
 
+# --- N1-433: ticket text is a hypothesis
+has "N1-433: directive treats ticket text as context, not fact" 'context, not fact' "$F"
+has "N1-433: directive names root cause" 'root cause' "$F"
+has "N1-433: directive classifies unable to verify" 'unable to verify' "$F"
+has "N1-433: Decisions sentence kept" 'Lines under ticket.md `### Decisions` are resolved' "$F"
+before "N1-433: signals bridged before dependency check" 'n1_write_signals' 'n1_verify_dependencies "$N1_HOME/memory/<ID>/refine" analysis.md' "$F"
+has "N1-433: loop shows unverified claims" 'Unverified:' "$L"
+has "N1-433: loop keeps the contradiction gate" 'ticket_contradictions' "$L"
+has "N1-433: write never restates contradicted claims" 'Never restate a contradicted' "$W"
+
 exit $FAIL

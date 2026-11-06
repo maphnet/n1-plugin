@@ -59,10 +59,12 @@ IFS=$'\t' read -r SA_MODEL SA_EFFORT < <(n1_resolve_agent solution-architect ana
 echo "$SA_MODEL $SA_EFFORT"
 ```
 
-Dispatch persona `solution-architect` with that model and effort. Inputs: path `$N1_HOME/memory/<ID>/refine/ticket.md` (read it yourself). Resolved ticket type: `<type from Step 3>`. Output: write `$N1_HOME/memory/<ID>/refine/analysis.md` in your normal Output Format, including `### Ticket Validation` and the `ticket_contradictions` signal. Directive: "Append a `### Decision Points` section: every choice the ticket leaves open (scope edge, behavior, contract, acceptance gap). Per point: the question, 2-3 options, codebase evidence (file:line) for each, the recommended option when the evidence differentiates, and a tier: A (a wrong guess changes the design and the code cannot answer it), B (the code supports a defensible default), C (convention). Lines under ticket.md `### Decisions` are resolved; list one only if the code contradicts it." Wait for the persona to return.
+Dispatch persona `solution-architect` with that model and effort. Inputs: path `$N1_HOME/memory/<ID>/refine/ticket.md` (read it yourself). Resolved ticket type: `<type from Step 3>`. Output: write `$N1_HOME/memory/<ID>/refine/analysis.md` in your normal Output Format, including `### Ticket Validation` and the `ticket_contradictions` signal. Directive: "Treat ticket text as context, not fact. Derive the problem, root cause, affected code and scope from the codebase first, then compare with the ticket. Each material claim (stated root cause, scope, proposed approach, acceptance criteria) goes under `### Ticket Validation` as confirmed, contradicted or unable to verify, with file:line. A contradicted claim counts in `ticket_contradictions`; unable to verify does not. This applies to every ticket type. Append a `### Decision Points` section: every choice the ticket leaves open (scope edge, behavior, contract, acceptance gap). Per point: the question, 2-3 options, codebase evidence (file:line) for each, the recommended option when the evidence differentiates, and a tier: A (a wrong guess changes the design and the code cannot answer it), B (the code supports a defensible default), C (convention). Lines under ticket.md `### Decisions` are resolved; list one only if the code contradicts it." Wait for the persona to return.
 
 ```bash
 source ~/.n1/preamble.sh
+SIGNAL_LINE=$(echo "$AGENT_OUTPUT" | grep -m1 '^n1:signals ')
+[ -n "$SIGNAL_LINE" ] && { PAIRS=$(echo "$SIGNAL_LINE" | sed 's/^n1:signals //'); n1_write_signals "$N1_HOME/memory/<ID>/refine/analysis.md" $PAIRS; }
 n1_verify_dependencies "$N1_HOME/memory/<ID>/refine" analysis.md || exit 1
 ```
 
