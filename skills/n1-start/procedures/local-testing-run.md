@@ -208,6 +208,7 @@ After developer returns:
   ```
 - Emit one fix-loop iteration line (exempt from inter-gate silence per D2): `<ID> · local-test fix cycle <N>/<MAX>`
 - Re-run FULL execution (Step 9c) — all scenarios, not just failed ones (catches regressions)
+- These fix commits (and "Fix manually" commits) are not recorded as post-review heads: the pre-PR gate in `steps/pr.md` re-reviews them before n1-pr (N1-439).
 - **Bounded loop:** read `local_test_fix_cycle` from overview frontmatter. Stop after `localTesting.maxFixAttempts` cycles (config, default 3). On exhaustion, escalate instead of looping forever. The bound and its default are declared in `pipeline.json` `loops[]` (`local_testing_fix`).
 
 **Autonomy gate:** → § Autonomy Gate (qualityEscalations) with step=`local-testing`, action=`skip local testing and proceed to PR`, ledger_context=`<scenarios that still fail after N fix cycles>`. Also update `## Escalations` with key decision: `Local Testing: skipped after fix-loop exhaustion (qualityEscalations=auto-accept)`, then run `n1_step_end "local-testing" 11 skipped '{"action_type":"skipped","skip_reason":"fix_exhausted"}'`. Otherwise end only on option 2 below.

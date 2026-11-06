@@ -42,7 +42,7 @@ Step `escalated` + headless with `N1_ORCA_RESUME=1` (a queue resumed this ticket
 source ~/.n1/preamble.sh
 n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"
 ```
-(Repeat for `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, `ci_fix_cycle`.) Print Gate 1 (resume variant). Read `## Context`:
+(Repeat for `tq_fix_cycle`, `review_fix_cycle`, `clean_passes`, `local_test_fix_cycle`, `ci_fix_cycle`, `pre_pr_review_cycle`.) Print Gate 1 (resume variant). Read `## Context`:
 ```bash
 CONTEXT_SECTION=$(sed -n '/^## Context$/,/^## /{/^## Context$/d;/^## /d;p}' "$N1_HOME/memory/$ID/overview.md")
 ```

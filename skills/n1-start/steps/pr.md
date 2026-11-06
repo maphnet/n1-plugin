@@ -5,6 +5,24 @@ Do not read full reports — n1-pr extracts what it needs via `grep`; tech-write
 
 Resolve `prMode`: `git.prMode` if present; else `git.draftPR === false` → `"ready"`; else → `"draft"`.
 
+<!-- n1:step-snippet-exception: pre-PR review gate fence runs before the step begins (N1-439) -->
+**Pre-PR review gate** (N1-439; skip when `prMode` is `"skip"`): a commit made after Step 7 with no head record (local-test fix, 7b TQ fix, regression fix, "Fix manually", ad-hoc) makes `n1_review_pin set` refuse the PR head, so it is re-reviewed here first.
+```bash
+source ~/.n1/preamble.sh
+MEM="$N1_HOME/memory/$ID"
+GATE_ID=$(n1_review_artifacts_ok "$N1_HOME" "$(git rev-parse HEAD)"); GATE_RC=$?
+PRE_PR=$(n1_read_frontmatter "$MEM/overview.md" "pre_pr_review_cycle"); [[ "$PRE_PR" =~ ^[0-9]+$ ]] || PRE_PR=0
+if [ "$GATE_RC" = 1 ] || [ "$GATE_RC" = 3 ]; then
+    n1_increment_counter "$MEM/overview.md" "pre_pr_review_cycle" >/dev/null
+    REVIEWED=""; [ "$GATE_RC" = 3 ] && REVIEWED=$(n1_review_reviewed_head "$N1_HOME")
+    { [ -n "$REVIEWED" ] && git diff "$REVIEWED" HEAD > "$MEM/fix.diff" && git diff --name-only "$REVIEWED" HEAD > "$MEM/fix-changed-files"; } || : > "$MEM/fix.diff"
+fi
+echo "PRE_PR_GATE=$GATE_RC $GATE_ID PRE_PR_REVIEW_CYCLE=$PRE_PR/3"
+```
+- `PRE_PR_GATE=0` or `2`: continue (`2`: verdict not PASS after Step 8 **Exhausted**; n1-pr's `pin:refused review-failed` is the intended stop).
+- `1` (no review step ran or its artifacts are missing; the fence empties `fix.diff` so the review runs at full scope): count it like `3` (same cap, same cap handling below); do not invoke n1-pr; run Step 7, then Step 8 when the verdict routes there, then this step again. Do not re-run Step 9 (local testing already ran for this diff; its bounded loop and `local_test_fix_cycle` persist, and re-entering it after exhaustion would re-escalate).
+- `3` (HEAD is past the review head chain; the fence wrote `fix.diff` from the last reviewed head, empty when unknown): `PRE_PR_REVIEW_CYCLE` below 3 → return to Step 7 (`review_fix_cycle` ≥ 1 reviews `fix.diff` incrementally, else full scope); Step 8 follows when the verdict routes there (Step 9 is not re-run), then this step again. At 3 (for `1` or `3`) → § Autonomy Gate (qualityEscalations) with step=`pr`, action=`proceed to PR unreviewed`, ledger_context=`HEAD not at the review chain end; pre-PR re-review cap reached`; on that action add `- [UNREVIEWED-HEAD] High — commits after the last review were not re-reviewed` under `## For Human Review` in review.md (file-write) and continue (n1-pr refuses the pin; a human reviews before merge). Prompt otherwise: 1. Proceed to PR unreviewed (Recommended: the cap is reached, the same choice fix.md **Exhausted** recommends) 2. Re-review once more (return to Step 7). **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+
 ```bash
 source ~/.n1/preamble.sh
 n1_step_begin "pr" 12

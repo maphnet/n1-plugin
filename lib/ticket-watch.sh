@@ -150,7 +150,7 @@ n1_tw_replan_reset() {
     [ -f "$o" ] || return 1
     n=$(n1_read_frontmatter "$o" replan_count); case "$n" in ''|*[!0-9]*) n=0 ;; esac
     [ "$n" -ge 2 ] && return 1
-    for k in qa_fix_cycle tq_fix_cycle review_fix_cycle clean_passes local_test_fix_cycle ci_fix_cycle; do
+    for k in qa_fix_cycle tq_fix_cycle review_fix_cycle clean_passes local_test_fix_cycle ci_fix_cycle pre_pr_review_cycle; do
         [ -n "$(n1_read_frontmatter "$o" "$k")" ] && n1_write_frontmatter "$o" "$k" 0
     done
     for k in qa_fail_sig local_test_fail_sig ci_fail_sig; do
