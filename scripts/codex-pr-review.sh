@@ -7,7 +7,8 @@ source "$SCRIPT_DIR/../lib/codex-review.sh"
 source "$SCRIPT_DIR/../lib/validation.sh"
 N1_HOME=$(n1_home)
 BASE=${1-}; ID=${2-}
-BRANCH=$(git branch --show-current 2>/dev/null) || BRANCH=""
+# N1-424: the queue runner reviews a detached worktree at the final PR head and names its branch here.
+BRANCH=${N1_REVIEW_BRANCH:-$(git branch --show-current 2>/dev/null)}
 # A branch that cannot form a receipt key cannot be recorded: fail open (unreachable for <user>/<ID> branches).
 RECEIPT=$(n1_review_receipt "$BRANCH") || { printf 'codex_review_outcome=skipped reason=bad-branch\n'; exit 0; }
 KEY=${BRANCH//\//_}; NAME=${RECEIPT##*/}
@@ -32,9 +33,16 @@ trap 'SKIP_REASON=interrupted; exit 130' INT TERM
 if [ "$(n1_cross_host_review_val enabled)" = false ]; then SKIP_REASON=disabled
 elif ! command -v codex >/dev/null 2>&1; then SKIP_REASON=not-installed
 else
-    timeout -k 1 "${N1_CODEX_AUTH_TIMEOUT:-10}" codex login status </dev/null >"$WORK/auth" 2>&1
+    # Neutral cwd: the reviewed checkout's config must not affect the probe. no-auth only on the positive "not logged in"
+    # signal (rc 1 + message); any other failure is auth-error, which the queue runner treats as a failed review.
+    (cd "$WORK" && timeout -k 1 "${N1_CODEX_AUTH_TIMEOUT:-10}" codex login status </dev/null >"$WORK/auth" 2>&1)
     AUTH_RC=$?
-    case "$AUTH_RC" in 0) :;; 124|137) SKIP_REASON=auth-timeout;; *) SKIP_REASON=no-auth;; esac
+    case "$AUTH_RC" in
+        0) :;;
+        124|137) SKIP_REASON=auth-timeout;;
+        1) if grep -qi 'not logged in' "$WORK/auth"; then SKIP_REASON=no-auth; else SKIP_REASON=auth-error; fi;;
+        *) SKIP_REASON=auth-error;;
+    esac
 fi
 if [ -n "$SKIP_REASON" ]; then
     OUTCOME=skipped

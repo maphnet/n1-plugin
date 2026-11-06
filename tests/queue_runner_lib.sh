@@ -61,6 +61,7 @@ case "$1 $2" in
                 [ -s "$FAKE_DIR/gh-mergeable-seq" ] || exit 1
                 head -n1 "$FAKE_DIR/gh-mergeable-seq"
                 if [ "$(wc -l < "$FAKE_DIR/gh-mergeable-seq")" -gt 1 ]; then sed -i 1d "$FAKE_DIR/gh-mergeable-seq"; fi ;;
+            *headRefName*) cat "$FAKE_DIR/gh-headref.$pr" 2>/dev/null || echo story/S-1 ;;   # N1-424: head branch of a recorded final PR
             *headRefOid*) cat "$v" 2>/dev/null || exit 1 ;;   # N1-292: n1_queue_pr_view (TSV state, base, head)
             *) # N1-422: gh-state-seq answers one line per state read (last line repeats); absent -> gh-state
                 if [ -s "$FAKE_DIR/gh-state-seq" ]; then
@@ -73,17 +74,20 @@ case "$1 $2" in
         [ -f "$FAKE_DIR/gh-edit-fail" ] && exit 1
         [ "$2" = ready ] && echo ready > "$FAKE_DIR/gh-ready-done"
         exit 0 ;;
-    "pr checks") # N1-292: stdout gh-checks, stderr gh-checks-err, exit gh-checks-rc (default 0)
+    "pr checks") # N1-292: stdout gh-checks[.<pr#>] (N1-424: per PR, falls back to gh-checks), stderr gh-checks-err, exit gh-checks-rc (default 0)
+        c="$FAKE_DIR/gh-checks.$pr"; [ -f "$c" ] || c="$FAKE_DIR/gh-checks"
         cat "$FAKE_DIR/gh-checks-err" >&2 2>/dev/null
-        cat "$FAKE_DIR/gh-checks" 2>/dev/null
+        cat "$c" 2>/dev/null
         exit "$(cat "$FAKE_DIR/gh-checks-rc" 2>/dev/null || echo 0)" ;;
     "pr merge") # N1-292: log the call; gh-merge-rc != 0 refuses with gh-merge-err; success flips the view to MERGED
+        # N1-424: gh-merge-rc|err|queued and gh-view-after also exist per PR as <name>.<pr#> (fall back to the plain name)
+        mf() { if [ -e "$FAKE_DIR/$1.$pr" ]; then echo "$FAKE_DIR/$1.$pr"; else echo "$FAKE_DIR/$1"; fi; }
         echo "$*" >> "$FAKE_DIR/gh-merge"
-        rc=$(cat "$FAKE_DIR/gh-merge-rc" 2>/dev/null || echo 0)
-        if [ "$rc" != 0 ]; then cat "$FAKE_DIR/gh-merge-err" >&2 2>/dev/null; exit "$rc"; fi
+        rc=$(cat "$(mf gh-merge-rc)" 2>/dev/null || echo 0)
+        if [ "$rc" != 0 ]; then cat "$(mf gh-merge-err)" >&2 2>/dev/null; exit "$rc"; fi
         IFS=$'\t' read -r _ b h < "$v"
-        [ -f "$FAKE_DIR/gh-view-after" ] && b=$(cat "$FAKE_DIR/gh-view-after")
-        st=MERGED; [ -f "$FAKE_DIR/gh-merge-queued" ] && st=OPEN   # a merge queue leaves the PR OPEN
+        [ -f "$(mf gh-view-after)" ] && b=$(cat "$(mf gh-view-after)")
+        st=MERGED; [ -f "$(mf gh-merge-queued)" ] && st=OPEN   # a merge queue leaves the PR OPEN
         printf '%s\t%s\t%s\n' "$st" "$b" "$h" > "$v"
         printf 'MERGED %s\n' "$b" > "$FAKE_DIR/gh-state"
         if [ -f "$FAKE_DIR/gh-view-gone-after" ]; then rm -f "$v"; fi ;;   # the post-merge base re-read then fails
@@ -588,3 +592,48 @@ final_fixture() {
     printf 'UNKNOWN\t\nMERGEABLE\tCLEAN\n' > "$1/fake/gh-mergeable-seq"
 }
 fin_row() { n1_queue_final_prs "$1/queue.md" | awk -F'\t' -v r="$2" '$1 == r' | cut -f2-; }   # <tmp> <repo>
+
+# --- N1-424: gated runner merge of the final PR ---------------------------------------
+# final_merge_fixture <tmp> <ticket:states>... — final_fixture with fullAuto and mergeOnFinish on, one commit on origin
+# story/S-1 (FM_HEAD: the final PR head, so the Codex diff is not empty), PR 9 OPEN into main at FM_HEAD, and a fake
+# codex first on PATH (logged in; exec mode per $FAKE_DIR/codex-mode: fail|hang|findings|move; default "No findings.").
+# The fake logs each review to codex-calls and the reviewed checkout's HEAD to codex-head; "move" rewrites PR 9's head.
+final_merge_fixture() {
+    local tmp="$1"
+    final_fixture "$@"
+    cfg_set "$tmp" '.autonomy.fullAuto = true | .finishWork.mergeOnFinish = true'
+    git -C "$tmp/origin" checkout -q story/S-1
+    echo story > "$tmp/origin/story.txt"
+    git -C "$tmp/origin" add story.txt
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q -m story
+    git -C "$tmp/origin" checkout -q main
+    FM_HEAD=$(git -C "$tmp/origin" rev-parse story/S-1)
+    printf 'OPEN\tmain\t%s\n' "$FM_HEAD" > "$tmp/fake/gh-view.9"
+    cat > "$tmp/bin/codex" <<'CXEOF'
+#!/usr/bin/env bash
+if [ "$1" = login ]; then
+    case "$(cat "$FAKE_DIR/codex-login" 2>/dev/null)" in
+        notlogged) echo 'Not logged in'; exit 1 ;;
+        broken) echo 'panic: bad config' >&2; exit 1 ;;
+        hang) exec /bin/sleep 10 ;;
+    esac
+    exit 0
+fi
+echo "$*" >> "$FAKE_DIR/codex-calls"
+git rev-parse HEAD > "$FAKE_DIR/codex-head"
+m=$(cat "$FAKE_DIR/codex-mode" 2>/dev/null)
+case "$m" in
+    fail) exit 1 ;;
+    hang) exec /bin/sleep 10 ;;
+    move) printf 'OPEN\tmain\t%040d\n' 2 > "$FAKE_DIR/gh-view.9" ;;
+esac
+o='No findings.'; [ "$m" = findings ] && o=$'[P1] x is wrong\n[P2] y'
+while [ $# -gt 0 ]; do [ "$1" = -o ] && { printf '%s\n' "$o" > "$2"; break; }; shift; done
+CXEOF
+    chmod +x "$tmp/bin/codex"
+}
+run_fm() { N1_STATE_DIR="$1/state" run_bg_queue "$1"; }   # <tmp> — Codex receipts under <tmp>, never in ~/.n1
+fin_note() { fin_row "$1" "$1/repo" | cut -f4; }            # <tmp>
+fm_merges() { [ -f "$1/fake/gh-merge" ] || { echo 0; return; }; grep -c -- "pull/$2 " "$1/fake/gh-merge" || true; }   # <tmp> <pr#>
+fm_event() { jq -r 'select(.event == "final_pr_merge") | "\(.outcome)|\(.reason)"' "$1/events.jsonl"; }   # <tmp>
+has_file() { [ -e "$1" ] && echo yes || echo no; }
