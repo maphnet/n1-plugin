@@ -233,11 +233,16 @@ n1_queue_done_cmd() {
 }
 
 n1_queue_final_body() {
-    # Usage: n1_queue_final_body <queue.md> <repo> <story-id> <out-file> — N1-293 (N1-289 D4): writes the final story PR
+    # Usage: n1_queue_final_body <queue.md> <repo> <id> <out-file> [kind=story|queue] — N1-293 (N1-289 D4): writes the final story PR
     # body for <repo>'s Plan rows and prints "<landed> <not-landed>". Landed = Runs Outcome merged; Not landed = every
     # other row, with Status and Reason. queue.md is child-writable: Ticket, Status and Reason are sanitized and bounded,
-    # a PR cell that is not a GitHub PR URL prints as "-".
-    local q="$1" repo="$2" id="$3" out="$4" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state
+    # a PR cell that is not a GitHub PR URL prints as "-". N1-446: kind queue words the PR for a list/tag queue (no ticket to close).
+    local q="$1" repo="$2" id="$3" out="$4" kind="${5:-story}" num t r st pr rsn tk landed="" rest="" nl=0 nr=0 state head finish
+    case "$kind" in
+        story) head=Story; finish="After the merge, /n1:n1-finish $id closes the story and deletes the local story branch" ;;
+        queue) head=Queue; finish="After the merge, run /n1:n1-finish with this PR number; it closes no ticket and deletes the local queue branch" ;;
+        *) return 1 ;;
+    esac
     while IFS=$'\t' read -r num t r _ _ st; do
         [ "$r" = "$repo" ] || continue
         pr=$(awk -F'|' -v tk="$t" '/^## Runs/ { f = 1; next } /^## / { f = 0 }
@@ -256,21 +261,30 @@ n1_queue_final_body() {
     [ -n "$rest" ] || rest=$'- none\n'
     if [ "$nr" -gt 0 ]; then state="Draft: $nr of $((nl + nr)) children did not land; this PR carries only the landed ones."
     else state="Ready for review: All $nl children landed."; fi
-    printf '## Story %s: final PR\n\nOpened by the N1 queue runner from story/%s (N1-293). Not Codex-reviewed; the per-branch convention commit is unreviewed, so review the whole diff.\n\n### Landed\n%s\n### Not landed\n%s\n%s\n\nMerge: a human reviews and merges this PR, unless autonomy.fullAuto and finishWork.mergeOnFinish are both on and the queue runner merge gates pass (ready, mergeable, Codex review, checks; N1-424). After the merge, /n1:n1-finish %s closes the story and deletes the local story branch; the remote branch follows the repository delete-branch setting.\n' \
-        "$id" "$id" "$landed" "$rest" "$state" "$id" > "$out" || return 1
+    printf '## %s %s: final PR\n\nOpened by the N1 queue runner from %s/%s (N1-293). Not Codex-reviewed; the per-branch convention commit is unreviewed, so review the whole diff.\n\n### Landed\n%s\n### Not landed\n%s\n%s\n\nMerge: a human reviews and merges this PR, unless autonomy.fullAuto and finishWork.mergeOnFinish are both on and the queue runner merge gates pass (ready, mergeable, Codex review, checks; N1-424). %s; the remote branch follows the repository delete-branch setting.\n' \
+        "$head" "$id" "$kind" "$id" "$landed" "$rest" "$state" "$finish" > "$out" || return 1
     echo "$nl $nr"
 }
 
 n1_queue_final_cmd() {
-    # Usage: n1_queue_final_cmd <worktree> <n1-home> <run-id> <session-name> <story-id> <default-branch> <body-file> <draft:0|1>
-    # N1-293 (N1-289 D7): background n1-run session, cwd a detached worktree of origin/story/<story-id>, that applies the
-    # per-branch conventions story children skipped, pushes story/<story-id> and opens the final PR. Settings env: the
+    # Usage: n1_queue_final_cmd <worktree> <n1-home> <run-id> <session-name> <id> <default-branch> <body-file> <draft:0|1> [kind=story|queue]
+    # N1-293 (N1-289 D7): background n1-run session, cwd a detached worktree of origin/<kind>/<id>, that applies the
+    # per-branch conventions the children skipped, pushes <kind>/<id> and opens the final PR. Settings env: the
     # queue's plus N1_HOME=<n1-home> (the worktree path is not a repo slug). Story env is cleared even when the caller has
-    # it: n1_story_base would otherwise retarget the PR at the story branch. The prompt names --draft only when <draft> is
-    # 1 and carries no child-authored text (the body is a runner-written file).
-    local id="$5" def="$6" body="$7" sb="story/$5" draft=""
+    # it: n1_story_base would otherwise retarget the PR at the integration branch. The prompt names --draft only when
+    # <draft> is 1 and carries no child-authored text (the body is a runner-written file). N1-446: kind queue has no
+    # tracker issue, so its title is fixed.
+    local id="$5" def="$6" body="$7" kind="${9:-story}" sb draft="" lead kids title tail
+    case "$kind" in
+        story) lead="Queue story final PR step (N1-293)"; kids="story children"; tail="Story: $id"
+               title="Read the title of tracker issue $id through the tracker and use the PR title '$id: <title>'; if it cannot be read, use '$id: story changes'." ;;
+        queue) lead="Queue integration final PR step (N1-446)"; kids="queue children"; tail="Queue: $id"
+               title="Use the PR title 'Queue $id: queued tickets'; do not read the tracker." ;;
+        *) return 1 ;;
+    esac
+    sb="$kind/$5"
     [ "$8" = 1 ] && draft=" --draft"
-    n1_bg_launch_cmd "$4" n1-run "Queue story final PR step (N1-293). This directory is a detached checkout of origin/$sb. 1) Apply the per-branch conventions that story children skipped, as this repository's CLAUDE.md and N1 config define them (for example the version bump), as one commit that names $id. Change nothing else. 2) Push with exactly: git push origin HEAD:refs/heads/$sb (never force, never another branch). 3) Read the title of tracker issue $id through the tracker and use the PR title '$id: <title>'; if it cannot be read, use '$id: story changes'. 4) Open the PR with exactly: gh pr create --head $sb --base $def --title <that title> --body-file $body$draft. Do nothing else: no merge, no gh pr ready, no PR edit, no other branch, no ticket transition. A hook may ask for a Codex review or n1-pr step 3 once the PR exists: do not run it; this PR is opened by the queue runner and is not Codex-reviewed by design, so end the session. If a step fails, end with the line final-pr: failed <reason>. Story: $id" \
+    n1_bg_launch_cmd "$4" n1-run "$lead. This directory is a detached checkout of origin/$sb. 1) Apply the per-branch conventions that $kids skipped, as this repository's CLAUDE.md and N1 config define them (for example the version bump), as one commit that names $id. Change nothing else. 2) Push with exactly: git push origin HEAD:refs/heads/$sb (never force, never another branch). 3) $title 4) Open the PR with exactly: gh pr create --head $sb --base $def --title <that title> --body-file $body$draft. Do nothing else: no merge, no gh pr ready, no PR edit, no other branch, no ticket transition. A hook may ask for a Codex review or n1-pr step 3 once the PR exists: do not run it; this PR is opened by the queue runner and is not Codex-reviewed by design, so end the session. If a step fails, end with the line final-pr: failed <reason>. $tail" \
         sonnet "$1" "$(N1_STORY_ID="" N1_STORY_BRANCH="" _n1_queue_bg_settings "$3" | jq -c --arg h "$2" '.env.N1_HOME = $h')"
 }
 

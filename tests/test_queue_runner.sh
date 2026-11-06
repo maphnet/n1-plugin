@@ -2453,6 +2453,17 @@ test_final_body() {
     out=$(n1_queue_final_body "$q" /r2 S-1 "$tmp/body2.md")
     assert_eq "final body: all landed" "1 0" "$out"
     assert_eq "final body: ready note" yes "$(grep -qF 'Ready for review: All 1 children landed.' "$tmp/body2.md" && echo yes || echo no)"
+    # N1-446: queue kind — same counts, queue heading/branch/finish wording; the default kind stays story.
+    out=$(n1_queue_final_body "$q" /r1 sq-20261106T000000Z "$tmp/qbody.md" queue)
+    assert_eq "final-body queue: same counts as story" "$(n1_queue_final_body "$q" /r1 S-1 "$tmp/sbody.md")" "$out"
+    assert_eq "final-body queue: heading" "## Queue sq-20261106T000000Z: final PR" "$(head -n1 "$tmp/qbody.md")"
+    assert_eq "final-body queue: opened from the queue branch" yes \
+        "$(grep -qF 'from queue/sq-20261106T000000Z (N1-293)' "$tmp/qbody.md" && echo yes || echo no)"
+    assert_eq "final-body queue: finish closes no ticket" yes \
+        "$(grep -qF 'After the merge, run /n1:n1-finish with this PR number; it closes no ticket and deletes the local queue branch; the remote branch follows' "$tmp/qbody.md" && echo yes || echo no)"
+    n1_queue_final_body "$q" /r1 S-1 "$tmp/sbody2.md" story >/dev/null
+    assert_eq "final-body: explicit story kind equals the default" "" "$(cmp "$tmp/sbody.md" "$tmp/sbody2.md" 2>&1)"
+    assert_eq "final-body: unknown kind -> 1" 1 "$(n1_queue_final_body "$q" /r1 S-1 "$tmp/x.md" release >/dev/null 2>&1; echo $?)"
     rm -rf "$tmp"
 }
 
@@ -2480,6 +2491,11 @@ test_final_cmd() {
     cmd=$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0)
     FAKE_DIR="$tmp/fake" FAKE_N1H="$tmp/n1home" PATH="$tmp/bin:$PATH" bash -c "$cmd" >/dev/null 2>&1
     assert_eq "final_cmd: ready PR has no --draft" 0 "$(grep -cF -- '--draft' "$tmp/fake/prompt.n1-q-S-1-final-2" || true)"
+    # N1-446: the default kind is story (identical command); an unknown kind is refused. Queue prompt wording is
+    # asserted on the decoded prompt in test_queue_final_pr (tests/test_queue_runner_bg_chain.sh).
+    assert_eq "final-cmd: explicit story kind equals the default" yes \
+        "$([ "$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0)" = "$(n1_queue_final_cmd "$tmp/wt" /h RUN1 n1-q-S-1-final-2 S-1 main /q/b.md 0 story)" ] && echo yes || echo no)"
+    assert_eq "final-cmd: unknown kind -> 1" 1 "$(n1_queue_final_cmd "$tmp/wt" /h RUN1 s S-1 main /q/b.md 0 release >/dev/null 2>&1; echo $?)"
     rm -rf "$tmp"
 }
 
