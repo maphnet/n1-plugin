@@ -220,11 +220,10 @@ eq "S3 (AC7): no CLI calls when unset" "" "$(calls)"
 
 mkdir -p "$N1_HOME/memory/X-4"; printf -- '---\nstep: plan\n---\n' > "$N1_HOME/memory/X-4/overview.md"
 printf '{"ticketId":"X-4","runId":"r","worktreePath":"%s","branch":"maphskiy/otter"}\n' "$WO" > "$N1_HOME/active-run.s1.json"
-echo '{"notify":{"onQuestion":false}}' > "$N1_HOME/config.json"
 reset
 jq -cn --arg cwd "$WO" '{session_id:"s1",cwd:$cwd,tool_name:"AskUserQuestion"}' | bash "$REPO_ROOT/hooks/notify-question.sh"
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do grep -q -- '--unread' "$FAKE/calls" && break; sleep 0.25; done
-has "Q1 (AC5): question pause sets unread even with desktop notify off" "--comment waiting: plan --unread" "$(calls)"
+has "Q1 (AC5): question pause sets unread" "--comment waiting: plan --unread" "$(calls)"
 rm -f "$N1_HOME/config.json" "$N1_HOME/active-run.s1.json"
 
 # ---- finish cleanup: Orca-owned worktrees (AC6) ----

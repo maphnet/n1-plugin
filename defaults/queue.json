@@ -4,7 +4,7 @@
   "pollSeconds": 30,
   "subtaskTimeoutMinutes": 180,
   "stallMinutes": 30,
-  "notify": "desktop",
+  "notify": "none",
   "ntfyTopic": "",
   "notifyCommand": "",
   "opusFromSize": "M",
