@@ -25,6 +25,7 @@ done
 N1H=1
 eq "guard: default-branch push still denied for pr-worker" 2 "$(pol 'git push origin HEAD:main')"
 eq "guard: gh pr merge still denied for pr-worker" 2 "$(pol 'gh pr merge 7 --squash')"
+eq "guard: pr-worker commit staging n1-release skill allowed" 0 "$(pol 'git add skills/n1-release/SKILL.md && git commit -m "docs: n1-release notes"')"
 N1H=
 # SEC-1: merging authorized (mergeOnFinish + fullAuto) must not loosen pr-worker
 CFG="$T/auth.json"; echo '{"finishWork":{"mergeOnFinish":true},"autonomy":{"fullAuto":true}}' > "$CFG"
@@ -67,6 +68,24 @@ for N1H in "" 1; do
     eq "verifier[headless=$N1H]: git push denied" 2 "$(polx n1:post-deploy-verifier Bash 'git push origin feat')"
     eq "verifier[headless=$N1H]: gh pr comment denied" 2 "$(polx n1:post-deploy-verifier Bash 'gh pr comment 7 --body x')"
     eq "verifier[headless=$N1H]: health curl allowed" 0 "$(polx n1:post-deploy-verifier Bash 'curl -s http://localhost:8080/health')"
+    # N1-474 CR-3: persona denies match in command position only; paths and commit text that mention them pass
+    eq "cr3[headless=$N1H]: tech-writer commit staging n1-release skill allowed" 0 "$(polx n1:tech-writer Bash 'git add skills/n1-release/SKILL.md && git commit -m "docs: n1-release notes"')"
+    eq "cr3[headless=$N1H]: tech-writer commit mentioning --confirmed allowed" 0 "$(polx n1:tech-writer Bash 'git commit -m "docs: describe the --confirmed re-pin"')"
+    eq "cr3[headless=$N1H]: tech-writer commit mentioning n1_step_end allowed" 0 "$(polx n1:tech-writer Bash 'git commit -m "docs: mention n1_step_end and n1_review_pin"')"
+    eq "cr3[headless=$N1H]: tech-writer commit mentioning branch delete allowed" 0 "$(polx n1:tech-writer Bash 'git commit -m "docs: git branch -D note"')"
+    eq "cr3[headless=$N1H]: tech-writer diff of n1-clean skill allowed" 0 "$(polx n1:tech-writer Bash 'git diff skills/n1-clean/SKILL.md')"
+    eq "cr3[headless=$N1H]: tech-writer step end denied" 2 "$(polx n1:tech-writer Bash 'n1_step_end pr 1 success')"
+    eq "cr3[headless=$N1H]: tech-writer env-prefixed step begin denied" 2 "$(polx n1:tech-writer Bash 'FOO=1 n1_step_begin pr 1')"
+    eq "cr3[headless=$N1H]: tech-writer bash -c run pointer clear denied" 2 "$(polx n1:tech-writer Bash "bash -c 'n1_active_run_clear'")"
+    eq "cr3[headless=$N1H]: tech-writer quote-split orca rm denied" 2 "$(polx n1:tech-writer Bash "n1_orc''a_rm /x")"
+    eq "cr3[headless=$N1H]: tech-writer worktree rm denied" 2 "$(polx n1:tech-writer Bash 'cd /w && git -C x worktree rm y')"
+    eq "cr3[headless=$N1H]: tech-writer piped step end denied" 2 "$(polx n1:tech-writer Bash 'ls | n1_step_end a')"
+    eq "cr3[headless=$N1H]: tech-writer then-keyword step end denied" 2 "$(polx n1:tech-writer Bash 'if true; then n1_step_end pr 1 success; fi')"
+    eq "cr3[headless=$N1H]: tech-writer do-keyword run pointer clear denied" 2 "$(polx n1:tech-writer Bash 'for x in a; do n1_active_run_clear; done')"
+    eq "cr3[headless=$N1H]: tech-writer brace-group step end denied" 2 "$(polx n1:tech-writer Bash '{ n1_step_end pr 1 success; }')"
+    eq "cr3[headless=$N1H]: tech-writer sudo option value step end denied" 2 "$(polx n1:tech-writer Bash 'sudo -u root n1_step_end pr 1 success')"
+    eq "cr3[headless=$N1H]: tech-writer quoted-assignment step end denied" 2 "$(polx n1:tech-writer Bash 'FOO="a b" n1_step_end pr 1 success')"
+    eq "cr3[headless=$N1H]: tech-writer grep of n1_step_end allowed" 0 "$(polx n1:tech-writer Bash 'sudo -u root grep n1_step_end README.md')"
     eq "authorized[headless=$N1H]: main session gh pr merge allowed" 0 "$(polx '' Bash 'gh pr merge 7')"
 done
 CFG=; N1H=

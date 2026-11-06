@@ -502,8 +502,22 @@ def sentinel_deny(payload: dict) -> int:
     return 0
 
 
-# N1-435 SEC-1: pr-worker keeps feature push, gh pr create and gh pr comment; everything else orchestrator-owned is denied
-PR_WORKER_DENY_RE = re.compile(r"\bgh\s+pr\s+merge\b|\bn1_(active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized|orca_rm|step_begin|step_end)\b|--confirmed|n1-release|\bn1-clean\b|\bn1_orca(_rm|_handoff)?\b|ORCA_CLI_COMMAND|\borca\b[\s\S]*\bworktree\s+(rm|remove)\b|\bgit\s+(-C\s+\S+\s+)?(worktree\s+(rm|remove)|branch\s+(-\w*[dD]\w*|--delete))\b")
+# N1-474: command position (statement start, after ; & | newline ( ` { ! or $(, past shell keywords, VAR= assignments and the
+# wrappers below with their options and option values; same vocabulary as WRAPPERS), so paths and commit text that mention a
+# denied name are allowed. Best effort: a later line of a multi-line commit message that starts with an n1_* name still matches
+# (fails toward deny).
+_ASSIGN = r"""(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S*)\s+)*"""
+CMD_POS = (r"(?:^|[;&|\n(`{!]|\$\()\s*(?:(?:if|then|else|elif|do|while|until)\s+)*" + _ASSIGN
+           + r"(?:(?:env|command|exec|sudo|doas|nohup|time|xargs|nice|ionice|stdbuf|setsid|timeout\s+\S+|(?:ba)?sh\s+-\w*c)\s+"
+           + r"(?:-\S+\s+(?:[^\s;&|\-]\S*\s+)?)*" + _ASSIGN + r")*")
+# N1-435 SEC-1: pr-worker keeps feature push, gh pr create and gh pr comment; everything else orchestrator-owned is denied.
+# Merges and default-branch pushes are denied by the generic command-position gate in merge_deny (N1-474: no text alternative);
+# --confirmed only as an n1_review_pin argument; skill names (n1-release, n1-clean) are not Bash commands (SEC-5).
+PR_WORKER_DENY_RE = re.compile(
+    CMD_POS + r"(?:n1_(?:active_run_clear|active_run_clear_if|finish_cleanup|clean_ticket|containers_teardown|merge_authorized"
+    r"|orca_rm|step_begin|step_end)\b|n1_orca(?:_rm|_handoff)?\b|n1_review_pin\b[^;&|\n]*\s--confirmed\b)"
+    r"|" + CMD_POS + r"git\s+(?:-C\s+\S+\s+)?(?:worktree\s+(?:rm|remove)|branch\s+(?:-\w*[dD]\w*|--delete))\b"
+    r"|\bORCA_CLI_COMMAND\b|" + CMD_POS + r"orca\b[^;&|\n]*\bworktree\s+(?:rm|remove)\b")
 
 
 def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
@@ -521,7 +535,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
         pr = True
         cmd = _command(payload) or ""
         if PR_WORKER_DENY_RE.search(cmd) or PR_WORKER_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)):
-            sys.stderr.write("N1: pr-worker/tech-writer may not run merge/cleanup/run-pointer/step-marker/--confirmed/release commands; the orchestrator owns them\n")
+            sys.stderr.write("N1: pr-worker/tech-writer may not run cleanup/run-pointer/step-marker/review-pin --confirmed/workspace-removal commands; the orchestrator owns them\n")
             return 2
     elif not agent_type and merge_authorized(config):
         return 0  # main session only: no subagent merges (n1-finish merges inline)
