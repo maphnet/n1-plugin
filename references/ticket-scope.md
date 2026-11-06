@@ -1,6 +1,6 @@
 # Ticket Scope Routing
 
-Use the confirmed scope to choose ticket structure, independently of the invoked skill and `mechanicalPrompts` mode. Record `SCOPE_TYPE` using this table before choosing a creation path:
+Use the confirmed scope to choose ticket structure, independently of the invoked skill. Record `SCOPE_TYPE` using this table before choosing a creation path:
 
 | Required repository work | Meaningful decomposition | SCOPE_TYPE |
 |--------------------------|--------------------------|------------|

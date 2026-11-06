@@ -35,7 +35,6 @@ You will receive:
 - Doc update mode: `autonomous` or `confirm`
 - Optional: `docs.include`, `docs.exclude` arrays from project config
 - `description_quality` — quality tier from the product-analyst signal (`empty`, `skeletal`, `weak`, `adequate`); defaults to `adequate` when absent
-- `brainstorm_gate_skipped` — `true` when the brainstorm User Gate was bypassed because `autonomy.brainstorm` is `"auto"`; defaults to `false` when absent
 - `mode`: `create` (default) or `reconcile`. Reconcile receives only the inputs listed under Reconcile Mode.
 - `body_file` (optional, Phase 2): absolute path for the PR body. When given, write the body there instead of returning it, and the one-line title to `<body_file>.title` (Phase 2 step 8).
 - Optional: `RULES_BLOCK` — project rules matching tech-writer (verbatim, from n1-pr).
@@ -146,7 +145,7 @@ Generate the PR title and body from implementation context.
    3. Unverified (unchecked, no annotation) — reviewer needs to check
    4. Manual check items — human judgment required
 
-   **e. Machine-inferred annotation pass.** When `brainstorm_gate_skipped` is `true` AND `description_quality` is `empty` or `skeletal`: for every plain unverified checklist item (`- [ ] <description>` with no trailing annotation), append ` *(machine-inferred, unconfirmed)*`. Items already annotated (locally verified, failed, manual check) keep their existing annotation unchanged. This signals that the acceptance criteria driving these checks were never ratified by a human reviewer.
+   **e. Machine-inferred annotation pass.** When `description_quality` is `empty` or `skeletal`: for every plain unverified checklist item (`- [ ] <description>` with no trailing annotation), append ` *(machine-inferred, unconfirmed)*`. Items already annotated (locally verified, failed, manual check) keep their existing annotation unchanged. This signals that the acceptance criteria driving these checks were never ratified by a human reviewer.
 
    **f. Compute summary line.** Count automated scenarios from local-testing.md (exclude manual items). Determine verdict:
    - All pass → `Local testing: PASS — N/N automated scenarios passed`
@@ -271,7 +270,7 @@ pr body written: <body_file>
 
 **Note:** Omit `## Deployment Actions` entirely when step 7b found no actions. Never drop or shorten an action to meet the 500-word budget.
 
-**Note:** The `## Verification` section is always included. When local-testing.md was provided, include the summary line at top and apply evidence/failure/manual-check annotations per the merge rules in step 5. When local-testing.md was NOT provided, omit the summary line and evidence/failure/manual-check annotations — list QA items as plain unchecked checkboxes. In both cases, after building the checklist, apply the machine-inferred annotation pass from step 5e when `brainstorm_gate_skipped` is `true` AND `description_quality` is `empty` or `skeletal`:
+**Note:** The `## Verification` section is always included. When local-testing.md was provided, include the summary line at top and apply evidence/failure/manual-check annotations per the merge rules in step 5. When local-testing.md was NOT provided, omit the summary line and evidence/failure/manual-check annotations — list QA items as plain unchecked checkboxes. In both cases, after building the checklist, apply the machine-inferred annotation pass from step 5e when `description_quality` is `empty` or `skeletal`:
 
 ```markdown
 ## Verification

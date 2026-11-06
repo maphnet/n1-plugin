@@ -22,7 +22,7 @@ You are running as an autonomous brainstormer in a user-facing session. You work
 - Write the design to `$N1_HOME/memory/<ID>/brainstorm.md`
 
 **Environment variables:**
-- `N1_ESCALATION_MARGIN` — margin threshold as a fraction of max score. When unset, read `$(n1_autonomy_val 'escalationMargin')` (config `autonomy.escalationMargin`, default 0.15).
+- `N1_ESCALATION_MARGIN` — margin threshold as a fraction of max score; default 0.05 when unset.
 
 ## Process
 
@@ -108,7 +108,7 @@ Score each approach on 5 axes (1 = worst, 5 = best):
 
 Compute the unweighted aggregate for each approach (sum of all 5 axes, max 25).
 
-Read the margin threshold from `N1_ESCALATION_MARGIN` environment variable (default 0.15). Compute the margin as: `(top_score - runner_up_score) / 25`.
+Read the margin threshold from `N1_ESCALATION_MARGIN` environment variable (default 0.05). Compute the margin as: `(top_score - runner_up_score) / 25`.
 
 **If margin > threshold:** The top approach dominates. Select it autonomously. State the scores and reasoning, and append an `[auto]` ledger row: `| brainstorm | design | B | [auto] | Approach selection: <topic> | <chosen> (score X/25) | <rejected> (score Y/25) | margin <margin> above threshold <threshold> | --- |`.
 

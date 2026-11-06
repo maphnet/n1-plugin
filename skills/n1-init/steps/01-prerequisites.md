@@ -33,7 +33,6 @@ Check for N1 configuration in priority order:
            State: <$N1_HOME path>
            Tracker: <tracker.type> (<tracker.projectKey>) | None
            PR mode: <git.prMode>
-           Autonomy: <autonomy.mode>
            Local testing: <localTesting.enabled> (<localTesting.mode>)
 
          To reconfigure, run: /n1-init reconfigure
@@ -82,7 +81,7 @@ For each missing key, run that key's **fresh-setup** flow (the primary section, 
 7. `release` → **Release Configuration** (fresh-setup portion)
 8. `analysisCache` → **Analysis Cache Configuration** (fresh-setup portion)
 9. `worktree` → **Worktree Setup Detection** (silent detection, no prompt)
-10. `autonomy` → **Autonomy Configuration** (fresh-setup: offer hands-off / interactive, write single `mode` key)
+10. `autonomy` → **Autonomy Configuration** (fresh-setup: ask `autonomy.fullAuto`)
 11. `models` → write defaults silently (see **Write Configuration and Structure** for default values)
 
 Skip keys that are already present in the config. Preserve all existing keys and their values untouched.
