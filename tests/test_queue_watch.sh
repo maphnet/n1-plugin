@@ -308,6 +308,19 @@ test_worker_stopped_errored_relayed() {
     assert_eq "N1-393: finished stop after ticket_finished adds no line" "1" "$(grep -c 'T-2' <<<"$out")"
 }
 
+# N1-478 AC3/AC4. Bug caught: a worker that ended its turn after its PR, and owed workers holding the only slot, gave
+# the watching session no line at all.
+test_owed_and_slot_held_relayed() {
+    local q out; q=$(newq q-ow)
+    ev "$q" R1 worker_owed ticket=T-1 reason="worker stopped after its PR without CI/finish"
+    ev "$q" R1 slot_held ticket="T-1 T-2" reason="1 pending row(s) waiting"
+    ev "$q" R1 queue_done reason="done"
+    out=$(watch 10 "$q" R1 "$$" 0)
+    has "N1-478: worker_owed relayed with the resume hint" \
+        "n1-queue q-ow: T-1 worker ended its turn after the PR without finishing; resume: n1-start T-1" "$out"
+    has "N1-478: slot_held relayed" "n1-queue q-ow: T-1 T-2 still hold the slot after their PR; 1 pending row(s) waiting" "$out"
+}
+
 test_run_id_filter_and_finish
 test_halt_draining_keeps_watch
 test_escalated_terminal_outcome_hints_n1_start
@@ -326,6 +339,7 @@ test_escalated_plaintext_long_reason_capped_at_300
 test_rejects_bad_input_and_sanitizes
 test_worker_stopped_errored_relayed
 test_escalation_retracted_relayed
+test_owed_and_slot_held_relayed
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"

@@ -867,6 +867,19 @@ test_queue_digest_chain_states() {
     rm -rf "$tmp"
 }
 
+# N1-478: informational worker_owed / slot_held events must not change the digest (last-event-per-ticket grouping).
+test_queue_digest_ignores_owed_events() {
+    local tmp ev before; tmp=$(mktemp -d); mkdir -p "$tmp/queue/q1"; ev="$tmp/queue/q1/events.jsonl"
+    n1_queue_event "$ev" q1 R1 queue_started
+    n1_queue_event "$ev" q1 R1 ticket_finished ticket=T-A outcome=pr pr=u
+    before=$(n1_queue_digest "$tmp")
+    n1_queue_event "$ev" q1 R1 worker_owed ticket=T-A reason="worker stopped after its PR without CI/finish"
+    n1_queue_event "$ev" q1 R1 slot_held ticket="T-A T-B" reason="1 pending row(s) waiting"
+    assert_eq "digest: worker_owed and slot_held do not change the digest" "$before" "$(n1_queue_digest "$tmp")"
+    assert_eq "digest: the PR is still counted" "yes" "$([[ "$before" == *"1 PR"* ]] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
 # N1-333 AC4: the digest reads each queue.md's step/pid (local only). Step run + dead runner -> "runner gone".
 test_queue_digest_runner_gone() {
     local tmp ev q dead; tmp=$(mktemp -d); mkdir -p "$tmp/queue/q1"; ev="$tmp/queue/q1/events.jsonl"; q="$tmp/queue/q1/queue.md"
@@ -1312,6 +1325,7 @@ test_busy_guard
 test_queue_interrupted
 test_queue_note_interrupt
 test_queue_digest_chain_states
+test_queue_digest_ignores_owed_events
 test_queue_digest_runner_gone
 test_status_runner_gone
 test_runner_lock

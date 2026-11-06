@@ -1716,7 +1716,7 @@ n1_queue_digest() {
         | [inputs | fromjson? | objects] | group_by(.queue) | map(
             .[-1] as $end
             | any($g[]; . == $end.queue) as $dead
-            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled")] | group_by(.ticket) | map(.[-1])) as $t
+            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled" and .event != "worker_owed" and .event != "slot_held")] | group_by(.ticket) | map(.[-1])) as $t
             | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "no-pr")] | length) as $nopr
@@ -1742,7 +1742,7 @@ n1_queue_watch() {
     # Usage: n1_queue_watch <queue_dir> <run_id> <runner_pid> [from_line]
     # Session-side relay for one queue run. Every queue.pollSeconds, prints new escalated (full
     # mirrored question when present) / answer_delivered / escalation_retracted (N1-422) /
-    # ticket_finished / ticket_comment / ticket_replan / stalled / worker_stopped (errored only, N1-393) / halted / queue_done
+    # ticket_finished / ticket_comment / ticket_replan / stalled / worker_stopped (errored only, N1-393) / worker_owed / slot_held (N1-478) / halted / queue_done
     # events in <queue_dir>/events.jsonl whose run_id is <run_id> (never queue id alone: a
     # relaunch appends to the same file).
     # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
@@ -1828,6 +1828,10 @@ n1_queue_watch() {
                         # N1-393: only an errored stop needs a human; finished/other stop reasons stay silent.
                         case "$reason" in 'stopped (errored)'*)
                             printf 'n1-queue %s: %s worker stopped, needs attention (%s)\n' "$q" "$t" "$reason" ;; esac ;;
+                    worker_owed)   # N1-478: the worker ended its turn after its PR without CI watch or finish
+                        printf 'n1-queue %s: %s worker ended its turn after the PR without finishing; resume: n1-start %s\n' "$q" "$t" "$t" ;;
+                    slot_held)     # N1-478: owed workers alone keep pending rows from starting
+                        printf 'n1-queue %s: %s still hold the slot after their PR; %s\n' "$q" "$t" "$reason" ;;
                     ticket_finished)
                         printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
                     halted|queue_done)
@@ -1837,7 +1841,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "escalation_retracted" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "worker_stopped" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "escalation_retracted" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "worker_stopped" or .event == "worker_owed" or .event == "slot_held" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time

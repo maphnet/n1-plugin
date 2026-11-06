@@ -15,6 +15,29 @@ test_orca_owed_holds_slot() {   # an unsettled finished worker still counts towa
     rm -rf "$tmp"
 }
 
+# N1-478 AC4. Bug caught: an owed worker (pr row, no worker_done, no stop notice; N1-440) held the only slot and the
+# session was never told why pending rows did not start.
+test_orca_slot_held_told() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.stallMinutes = 1 | .queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running)"
+    touch "$tmp/fake/nodone.T-A"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
+    assert_eq "slot-held: one event naming T-A and the waiting row" "T-A|1 pending row(s) waiting" \
+        "$(jq -r 'select(.event == "slot_held") | "\(.ticket)|\(.reason)"' "$tmp/events.jsonl")"
+    assert_eq "slot-held: T-B still waits" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+    # stallMinutes 0 disables the notice.
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.stallMinutes = 0 | .queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running)"; touch "$tmp/fake/nodone.T-A"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
+    assert_eq "slot-held: stallMinutes 0 disables" "0" "$(grep -c '"slot_held"' "$tmp/events.jsonl" || true)"
+    rm -rf "$tmp"
+}
+
 test_orca_notifier_drain_keeps_rows() {   # N1-265: a stdin-draining notifier must not hide in-flight rows from the slot count
     local tmp t; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done" "T-E:done"; mk_orca "$tmp"
@@ -101,6 +124,8 @@ test_orca_stop_finished_releases_pr_slot() {
     assert_eq "orca-stop-slot: T-A is pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "orca-stop-slot: worker released" "1" "$(grep -c 'worker-release --dispatch d-T-A' "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-stop-slot: T-B launched" "1" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-slot: one worker_owed event for T-A (N1-478 AC3)" "T-A" \
+        "$(jq -r 'select(.event == "worker_owed") | .ticket' "$tmp/events.jsonl")"
     rm -rf "$tmp"
 }
 
@@ -120,6 +145,7 @@ test_orca_stop_finished_keeps_in_progress() {
     assert_eq "orca-stop-slot: in-progress row unchanged" "in-progress" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "orca-stop-slot: no release" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-stop-slot: T-B not launched" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-slot: no worker_owed for an in-progress row" "0" "$(grep -c '"worker_owed"' "$tmp/events.jsonl" || true)"
     rm -rf "$tmp"
 }
 
@@ -182,6 +208,7 @@ test_orca_stop_finished_same_tick_releases
 test_orca_stop_finished_keeps_in_progress
 test_orca_stop_notice_then_resume_no_chain
 test_orca_stop_notice_deferral_survives_restart
+test_orca_slot_held_told
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

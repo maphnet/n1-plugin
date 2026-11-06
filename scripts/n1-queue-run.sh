@@ -1422,6 +1422,13 @@ orca_settle() {
         DEFERRED="$DEFERRED$TASK "
         printf '%s\n' "$DISP" > "$N1_QUEUE_DIR/.deferred-${TASK//\//_}"   # survives a runner restart (restored with OWED)
         n1_orca_release "$DISP"
+        # N1-478 AC3: once per task (the DEFERRED guard; .deferred- restores it after a restart). A pr row whose worker
+        # ended its turn before its own finish (no ## Finish block) gets one watch line with the resume command.
+        N1H=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t { print $4 }' | tail -1)
+        if [ -n "$N1H" ] && ! grep -q '^## Finish' "$N1H/memory/$T/overview.md" 2>/dev/null; then
+            echo "[orca] $T worker ended its turn after the PR without finishing (owed)"
+            ev worker_owed ticket="$T" reason="worker stopped after its PR without CI/finish"
+        fi
         return
     fi
     SETTLED="$SETTLED$TASK "; OWED="${OWED// $TASK / }"; DEFERRED="${DEFERRED// $TASK / }"
@@ -1458,11 +1465,11 @@ orca_settle() {
 # (release + sentinel removal + owed fullAuto chain); running or unverifiable workers are never relaunched, stopped
 # or released. Held/parked/end-of-queue handling mirrors run_bg.
 run_orca() {
-    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN SKIP GHOST LAUNCH_AT
+    local STOP_OK POLL MAXC MERGE ELIG BATCH EVS TYPE TASK MSG T DISP L ROW NUM TICKET REPO N1H MODEL STATUS SID OUTCOME OPEN_PR HELD INFLIGHT TICK0 CHARGE OWEDN SKIP GHOST LAUNCH_AT HOLDERS
     ORCA_LOOP=1
     # N1-268: a marker from another run (a dead runner's era) never stops this one; the current run's own marker stays
     [ "$(cat "$N1_QUEUE_DIR/.stop" 2>/dev/null)" = "$RUN_ID" ] || rm -f "$N1_QUEUE_DIR/.stop"
-    local LIVE="" LIVE_OK=0 DONE=" " STOPPED=" " SETTLED=" " OWED=" " DEFERRED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0
+    local LIVE="" LIVE_OK=0 DONE=" " STOPPED=" " SETTLED=" " OWED=" " DEFERRED=" " SEEN=" " OWED_NOTED="" FAILS=0 HELD_WAIT=0 SINCE_PARK=0 OWED_WAIT=0 ORCA_TICKS=0 HOLD_WAIT=0 HOLD_NOTED=""
     local -a WORKED=() STALLED=()
     POLL=$(n1_queue_val pollSeconds)
     # N1-303: the plan pins max_concurrent; live config is read only for a plan made before it (legacy).
@@ -1760,6 +1767,24 @@ run_orca() {
         # N1-268: while draining a halt, pending rows are never launched, so they read as none here.
         # N1-303: "pending" means ELIGIBLE pending; rows gated on a ## Schedule predecessor are counted into HELD below.
         ELIG=""; [ -n "$HALT_DRAIN" ] || ELIG=$(n1_queue_eligible_rows "$QUEUE" "$MERGE")
+        # N1-478 AC4: owed (not deferred) workers alone keep eligible rows from launching (without them a slot would be
+        # free). After queue.stallMinutes of that, tell the watch once per episode; 0 disables it, like the stall flag.
+        if [ "$STALL_SECS" -gt 0 ] && [ "$OWEDN" -gt 0 ] && [ -n "$ELIG" ] && [ "$INFLIGHT" -lt "$MAXC" ] \
+            && [ $((INFLIGHT + OWEDN)) -ge "$MAXC" ]; then
+            HOLD_WAIT=$((HOLD_WAIT + CHARGE))
+            if [ "$HOLD_WAIT" -ge "$STALL_SECS" ] && [ -z "$HOLD_NOTED" ]; then
+                HOLD_NOTED=1; HOLDERS=""
+                for TASK in $OWED; do
+                    [[ "$DEFERRED" == *" $TASK "* ]] && continue
+                    IFS=$'\t' read -r T _ <<< "$(orca_row_of_task "$TASK")"
+                    [ -n "$T" ] && HOLDERS="$HOLDERS${HOLDERS:+ }$T"
+                done
+                echo "[orca] slot held by owed worker(s) $HOLDERS; $(grep -c . <<< "$ELIG") pending row(s) waiting"
+                ev slot_held ticket="$HOLDERS" reason="$(grep -c . <<< "$ELIG") pending row(s) waiting"
+            fi
+        else
+            HOLD_WAIT=0; HOLD_NOTED=""
+        fi
         # Also entered when unsettled workers alone fill every slot, so their expiry/notice is not starved by pending rows.
         if [ "$INFLIGHT" = 0 ] && { [ -z "$ELIG" ] || [ "$OWEDN" -ge "$MAXC" ]; }; then
             # Done reports that never came: the overview is terminal, so settle (release + chain) anyway.
