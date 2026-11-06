@@ -10,7 +10,7 @@
    ## Finish
    - **Merged:** <sha> (<method>, by <reviewer|n1-finish (mergeOnFinish)|local merge>)
    - **Comments:** <N unresolved, user approved merge | all resolved | no unresolved comments | unverified, user approved merge | n/a (already merged) | n/a (local merge)>
-   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge)>
+   - **Deploy:** <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge) | not watched; delivery not run (queue final PR)>
    - **Verification:** <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
    - **Verification details:** when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, this invocation's validated per-criterion table from `memory/<ID>/post-deploy-verification.md` (include status, concise evidence, and reason; exclude dev-access contents, credentials, raw commands, and raw command output); otherwise omit this line.
    - **Delivery:** <pending (runbook: memory/<ID>/runbook.md) | succeeded (<verified | not verified>) | n/a (delivery.mode is not ssh)>
@@ -65,7 +65,7 @@ Finish complete: <ID> (<ticket title>)
 Done: <1-2 lines from ticket title + PR summary>
 Ticket: <ID> → <done status | left open (<reason>) | tracker not configured> — <ticket URL | URL unavailable (<reason>)>
 PR: <url | none (prMode: skip — push it yourself: !git push origin <defaultBranch>)> — merged (<method>, by <reviewer|n1-finish (mergeOnFinish)|local merge>)
-Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge)>
+Deploy: <succeeded <run url> | failed <run url> | skipped (no deploy workflow: <evidence>) | none triggered | skipped (local merge) | not watched; delivery not run (queue final PR)>
 Verification: <PASS | FAIL | SKIPPED (disabled) | SKIPPED (<reason>) | n/a>
 Verification details: <this invocation's validated per-criterion table when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`; otherwise omitted>
 Deferred to release (n1-release walks these before the tag push): <items> (PR #<n>)   ← only when Step 4 § Parse printed `deferred:<M>` with M > 0

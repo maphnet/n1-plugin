@@ -2560,6 +2560,8 @@ test_queue_integration_wiring() {
     assert_eq "queue-wiring: final_pr passes the kind to body and cmd" 2 "$(grep -c '"\$body" "\$draft" "\$RUN_MODE")\|"\$SBID" "\$body" "\$RUN_MODE")' "$r" || true)"
     assert_eq "queue-wiring: n1-finish close step skips queue/ heads" yes \
         "$(grep -qF 'starts with `queue/`' "$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" && echo yes || echo no)"
+    assert_eq "queue-wiring: queue final PR reports deploy not watched" yes \
+        "$(grep -qF 'Deploy: not watched; delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-finish/steps/04-close-ticket.md" && grep -qF 'not watched; delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-finish/steps/06-cleanup.md" && grep -qF 'delivery not run (queue final PR)' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
     assert_eq "queue-wiring: n1-pr bump skip names queue children" yes \
         "$(grep -qF 'Story child or queue child' "$REPO_ROOT/skills/n1-pr/steps/01-prepare.md" && echo yes || echo no)"
     assert_eq "queue-wiring: run.md documents the queue integration branch" yes \
