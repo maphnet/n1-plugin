@@ -61,6 +61,7 @@ case "$1 $2" in
                 [ -s "$FAKE_DIR/gh-mergeable-seq" ] || exit 1
                 head -n1 "$FAKE_DIR/gh-mergeable-seq"
                 if [ "$(wc -l < "$FAKE_DIR/gh-mergeable-seq")" -gt 1 ]; then sed -i 1d "$FAKE_DIR/gh-mergeable-seq"; fi ;;
+            *headRefName*) cat "$FAKE_DIR/gh-headref.$pr" 2>/dev/null || echo story/S-1 ;;   # N1-424: head branch of a recorded final PR
             *headRefOid*) cat "$v" 2>/dev/null || exit 1 ;;   # N1-292: n1_queue_pr_view (TSV state, base, head)
             *) # N1-422: gh-state-seq answers one line per state read (last line repeats); absent -> gh-state
                 if [ -s "$FAKE_DIR/gh-state-seq" ]; then
@@ -610,7 +611,14 @@ final_merge_fixture() {
     printf 'OPEN\tmain\t%s\n' "$FM_HEAD" > "$tmp/fake/gh-view.9"
     cat > "$tmp/bin/codex" <<'CXEOF'
 #!/usr/bin/env bash
-[ "$1" = login ] && exit 0
+if [ "$1" = login ]; then
+    case "$(cat "$FAKE_DIR/codex-login" 2>/dev/null)" in
+        notlogged) echo 'Not logged in'; exit 1 ;;
+        broken) echo 'panic: bad config' >&2; exit 1 ;;
+        hang) exec /bin/sleep 10 ;;
+    esac
+    exit 0
+fi
 echo "$*" >> "$FAKE_DIR/codex-calls"
 git rev-parse HEAD > "$FAKE_DIR/codex-head"
 m=$(cat "$FAKE_DIR/codex-mode" 2>/dev/null)

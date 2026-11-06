@@ -784,7 +784,7 @@ final_none() {
 # A --run resume re-runs every gate on the then-current head.
 final_merge() {
     local NUM="$1" REPO="$2" N1H="$3" url="$4" draft="$5" isd="$6" mg="$7" def="$8" SB="$9" reused="${10}"
-    local rwt="$N1_QUEUE_DIR/final-$1-review" st="" base="" H="" h2="" mb="" out="" cx="" skip="" ci="" method="" err="" sfx=""
+    local rwt="$N1_QUEUE_DIR/final-$1-review" chg="" st="" base="" H="" h2="" mb="" out="" cx="" skip="" ci="" method="" err="" sfx=""
     fm_end() { # <merged|waits> <note>
         FM_NOTE="$2"
         ev final_pr_merge ticket="$RUN_STORY_ID" pr="$url" outcome="$1" reason="$2"
@@ -809,6 +809,16 @@ final_merge() {
             || ! git -C "$REPO" worktree add -q --detach "$rwt" "$H" </dev/null >/dev/null 2>&1; then
         git -C "$REPO" worktree remove --force "$rwt" >/dev/null 2>&1 || true
         fm_end waits "waits: codex-checkout-failed"; return 0
+    fi
+    # SEC-1: Codex runs inside the reviewed checkout and reads its agent-instruction files as instructions, so a branch that
+    # adds, changes or deletes one could dictate "No findings." Such a diff is never auto-merged on a clean review.
+    if ! chg=$(git -C "$REPO" diff --name-only --no-renames "$mb" "$H" 2>/dev/null); then
+        git -C "$REPO" worktree remove --force "$rwt" >/dev/null 2>&1 || true
+        fm_end waits "waits: codex-checkout-failed"; return 0
+    fi
+    if grep -qE '(^|/)(AGENTS\.md|AGENTS\.override\.md|CLAUDE\.md)$|(^|/)\.(codex|claude)/' <<< "$chg"; then
+        git -C "$REPO" worktree remove --force "$rwt" >/dev/null 2>&1 || true
+        fm_end waits "waits: codex-instructions-changed"; return 0
     fi
     # Empty ID: raw Codex output stays next to the receipt, never in story memory. The session id only keys the receipt.
     out=$(cd "$rwt" && N1_HOME="$N1H" N1_SESSION_ID="queue-${QUEUE_ID//[!A-Za-z0-9_-]/_}" N1_REVIEW_BRANCH="$SB" \
@@ -876,7 +886,7 @@ final_merge() {
 # merges the PR once its gates pass; otherwise the Note says why it waits for a human. No finish is launched for it.
 final_pr() {
     local NUM="$1" REPO="$2" N1H="$3" SB="" SBID="" def="" nwo="" counts="" nl=0 nr=0 draft=0 mst="" found="" url="" isd=""
-    local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1 old="" odc="" omg="" onote="" ost="" obase=""
+    local why=not-created mg="" mss="" dcell="" note="" out="" sid="" ended=1 reused=1 old="" odc="" omg="" onote="" ost="" obase="" ohead=""
     local marker="$N1_QUEUE_DIR/.final-$1" body="$N1_QUEUE_DIR/final-$1.body.md" wt="$N1_QUEUE_DIR/final-$1"
     { story_env "$REPO" && [ -n "$SB" ]; } || { final_none "$REPO" story-branch-invalid; return 0; }
     counts=$(n1_queue_final_body "$QUEUE" "$REPO" "$SBID" "$body") || { final_none "$REPO" body-write-failed; return 0; }
@@ -895,9 +905,11 @@ final_pr() {
     # N1-424 resume: a recorded final PR already MERGED into the default branch is kept, never re-opened or re-merged
     # (n1_queue_final_pr_find lists OPEN PRs only, so the flow below would launch a second final session).
     IFS=$'\t' read -r old odc omg onote <<< "$(n1_queue_final_prs "$QUEUE" | awk -F'\t' -v r="$REPO" '$1 == r { print $2 "\t" $3 "\t" $4 "\t" $5 }')"
-    if [[ "$old" == "https://github.com/$nwo/pull/"* ]]; then
+    # CR-1/SEC-7: only an exact PR URL of this repo whose head branch is the story branch is trusted.
+    if [[ "$old" =~ ^https://github\.com/"$nwo"/pull/[0-9]+$ ]]; then
         IFS=$'\t' read -r ost obase _ <<< "$(n1_queue_pr_view "$old")"
-        if [ "$ost" = MERGED ] && [ "$obase" = "$def" ]; then
+        ohead=$(timeout -k 30 30 gh pr view --json headRefName -q .headRefName -- "$old" </dev/null 2>/dev/null)
+        if [ "$ost" = MERGED ] && [ "$obase" = "$def" ] && [ "$ohead" = "$SB" ]; then
             case "$onote" in merged*) ;; *) onote="merged (outside the runner)" ;; esac
             n1_queue_final_pr_set "$QUEUE" "$REPO" "$old" "$odc" "$omg" "$onote" || echo "final PR: $REPO not recorded in queue.md"
             ev final_pr_opened ticket="$SBID" pr="$old" reason="$odc mergeable=$omg"

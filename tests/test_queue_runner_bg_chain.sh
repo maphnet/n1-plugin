@@ -1030,6 +1030,45 @@ test_final_pr_codex_gate() {
     done
 }
 
+# N1-424 CR-2/SEC-2: only disabled|not-installed|no-auth skips pass. A broken login probe (auth-error) or a login
+# timeout (auth-timeout) is a failed review; a positive "not logged in" still passes and is noted.
+test_final_pr_codex_skip_allowlist() {
+    local tmp m
+    for m in broken:auth-error hang:auth-timeout; do
+        tmp=$(mktemp -d)
+        final_merge_fixture "$tmp" "T-A:working done"; echo "${m%%:*}" > "$tmp/fake/codex-login"
+        N1_CODEX_AUTH_TIMEOUT=1 run_fm "$tmp" >/dev/null
+        assert_eq "final-skip ${m#*:}: no merge, note" "0,waits: codex-failed" "$(fm_merges "$tmp" 9),$(fin_note "$tmp")"
+        rm -rf "$tmp"
+    done
+    tmp=$(mktemp -d)
+    final_merge_fixture "$tmp" "T-A:working done"; echo notlogged > "$tmp/fake/codex-login"
+    run_fm "$tmp" >/dev/null
+    assert_eq "final-skip no-auth: merged, noted" "1,merged; codex: skipped no-auth" "$(fm_merges "$tmp" 9),$(fin_note "$tmp")"
+    rm -rf "$tmp"
+}
+
+# N1-424 SEC-1: a story diff that adds, changes or deletes an agent-instruction or Codex config file is never merged on
+# a clean Codex review (Codex reads those files from the reviewed checkout as instructions); Codex does not run.
+test_final_pr_instruction_files() {
+    local tmp f
+    for f in AGENTS.md sub/dir/CLAUDE.md AGENTS.override.md .codex/config.toml .claude/settings.json; do
+        tmp=$(mktemp -d)
+        final_merge_fixture "$tmp" "T-A:working done"
+        git -C "$tmp/origin" checkout -q story/S-1
+        mkdir -p "$tmp/origin/$(dirname "$f")"; echo x > "$tmp/origin/$f"
+        git -C "$tmp/origin" add -f -A
+        git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q -m instr
+        git -C "$tmp/origin" checkout -q main
+        printf 'OPEN\tmain\t%s\n' "$(git -C "$tmp/origin" rev-parse story/S-1)" > "$tmp/fake/gh-view.9"
+        run_fm "$tmp" >/dev/null
+        assert_eq "final-instr $f: no merge, note" "0,waits: codex-instructions-changed" "$(fm_merges "$tmp" 9),$(fin_note "$tmp")"
+        assert_eq "final-instr $f: Codex did not run" no "$(has_file "$tmp/fake/codex-calls")"
+        assert_eq "final-instr $f: worktree removed" no "$(has_file "$tmp/final-1-review")"
+        rm -rf "$tmp"
+    done
+}
+
 # N1-424: a refused merge is recorded, never retried; a queued merge is merge-pending; a merge that lands off the
 # default branch escalates (needs-you), as story_merge SEC-2.
 test_final_pr_merge_refused() {
@@ -1082,6 +1121,18 @@ test_final_pr_merged_resume() {
     run_fm "$tmp" >/dev/null
     assert_eq "final-resume-foreign: a final session launched" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-S-1-final-1')"
     rm -rf "$tmp"
+    # CR-1/SEC-7: a merged PR of this repo whose head is not the story branch, or a URL with a suffix, is never trusted
+    local u
+    for u in "https://github.com/o/r/pull/9:other-branch"; do   # a URL with a suffix cannot be recorded (final_pr_set rejects it)
+        tmp=$(mktemp -d)
+        final_merge_fixture "$tmp" "T-A:working done"
+        n1_queue_final_pr_set "$tmp/queue.md" "$tmp/repo" "${u%:*}" ready MERGEABLE ""
+        printf 'MERGED\tmain\t%s\n' "$FM_HEAD" > "$tmp/fake/gh-view.9"
+        echo "${u##*:}" > "$tmp/fake/gh-headref.9"
+        run_fm "$tmp" >/dev/null
+        assert_eq "final-resume-untrusted ($u): a final session launched" 1 "$(count_x "$tmp/fake/events" 'launch n1-sq-S-1-final-1')"
+        rm -rf "$tmp"
+    done
 }
 
 # N1-293: tag mode is unchanged: no lookup, no final session, no table.
@@ -1147,6 +1198,8 @@ test_final_pr_checks_gate
 test_final_pr_draft_not_merged
 test_final_pr_mergeable_gate
 test_final_pr_codex_gate
+test_final_pr_codex_skip_allowlist
+test_final_pr_instruction_files
 test_final_pr_merge_refused
 test_final_pr_merged_resume
 test_final_pr_tag_mode

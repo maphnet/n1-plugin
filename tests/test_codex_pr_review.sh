@@ -13,7 +13,7 @@ export PATH="$TMP/bin:$PATH" REVIEW_LOG="$TMP/log"
 cat > "$TMP/bin/codex" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = login ]; then
-  case "${AUTH_MODE:-ok}" in hang) sleep 10;; fail) exit 1;; esac
+  case "${AUTH_MODE:-ok}" in hang) sleep 10;; fail) echo 'Not logged in'; exit 1;; broken) echo 'panic: bad config' >&2; exit 1;; esac
   exit 0
 fi
 printf 'review\n' >> "$REVIEW_LOG"
@@ -72,7 +72,7 @@ receipt="$N1_HOME/review-receipts/review-test/$(rn "$WT" feature/T-1)"
 # A processed receipt from an earlier run on the same branch (another session) is cleared by the next runner run.
 mkdir -p "$N1_HOME/review-receipts/old-sess"
 printf '{"branch":"feature/T-1","outcome":"ran","processed":true}\n' > "$N1_HOME/review-receipts/old-sess/$(rn "$WT" feature/T-1)"
-for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-noissues ran-fence-fail failed timeout memory-unavailable diff-unavailable; do
+for scenario in disabled no-auth auth-error auth-timeout ran ran-optout ran-findings ran-noissues ran-fence-fail failed timeout memory-unavailable diff-unavailable; do
   unset AUTH_MODE REVIEW_MODE CODEX_OUT
   rm -rf "$N1_HOME/scratch" "$N1_HOME/memory" "$N1_HOME/x" "${REVIEW_LOG}.gh"
   printf '{}\n' > "$N1_HOME/config.json"
@@ -84,6 +84,7 @@ for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-no
     ran-noissues) export CODEX_OUT='No issues found.';;
     ran-fence-fail) export CODEX_OUT=$'**High** - x\n[P2] y\nLow-level note'; : > "$N1_HOME/scratch";;
     no-auth) export AUTH_MODE=fail;;
+    auth-error) export AUTH_MODE=broken;;
     auth-timeout) export AUTH_MODE=hang;;
     failed) export REVIEW_MODE=fail;;
     timeout) export REVIEW_MODE=hang;;
@@ -93,7 +94,7 @@ for scenario in disabled no-auth auth-timeout ran ran-optout ran-findings ran-no
   (cd "$WT" && N1_CODEX_AUTH_TIMEOUT=0.1 N1_CROSS_HOST_REVIEW_TIMEOUT=0.1 bash "$ROOT/scripts/codex-pr-review.sh" "$B" "$TID") > "$TMP/out"
   if [ -e "$N1_HOME/review-receipts/old-sess/$(rn "$WT" feature/T-1)" ]; then echo "FAIL: $scenario: a stale receipt from an earlier run survived"; exit 1; fi
   expected=$scenario
-  case "$scenario" in disabled|no-auth|auth-timeout) expected=skipped;; memory-unavailable|ran-optout|ran-findings|ran-noissues|ran-fence-fail) expected=ran;; diff-unavailable) expected=failed;; esac
+  case "$scenario" in disabled|no-auth|auth-error|auth-timeout) expected=skipped;; memory-unavailable|ran-optout|ran-findings|ran-noissues|ran-fence-fail) expected=ran;; diff-unavailable) expected=failed;; esac
   jq -e --arg expected "$expected" '.branch == "feature/T-1" and .outcome == $expected and .processed' "$receipt" >/dev/null
   if [ "$expected" = skipped ]; then jq -e --arg reason "$scenario" '.reason == $reason' "$receipt" >/dev/null; fi
   if [ -s "${REVIEW_LOG}.gh" ]; then echo "FAIL: $scenario: the runner called gh: $(cat "${REVIEW_LOG}.gh")"; exit 1; fi
