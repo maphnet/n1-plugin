@@ -145,6 +145,7 @@ n1_emit_rebind() {
 # The lock stays: Gate 3 and the chained n1-finish run after this, and the turn's
 # Stop hook sees the terminal envelope, re-merges them in (orchestrator.tail) and removes the lock (N1-229).
 # Unbound run (no/ambiguous) or no resolvable ticket (ID unset and no lock) -> no-op. Always returns 0.
+# ID unset -> the ticket comes from the run's lock.
 n1_close_run() {
     n1_bind_run_to_ticket
     [ -n "${N1_RUN_ID:-}" ] || return 0
