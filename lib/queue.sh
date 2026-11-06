@@ -663,25 +663,32 @@ n1_queue_sync_default() {
 }
 
 n1_queue_story_branch_ensure() {
-    # Usage: n1_queue_story_branch_ensure <repo> <story-id> <default-branch>
-    # N1-290: makes origin carry story/<story-id> before a story queue launches its children. A branch already on
-    # origin is reused as is (never reset, never force-pushed: resumes keep merged work). An absent one is cut from
-    # origin/<default> after a fetch and pushed with a plain push of the remote-tracking ref, so no local branch or
-    # checkout is touched. Non-zero with a last stderr line "n1-queue: story branch: <reason>" on any failure.
-    local repo="$1" b="story/$2" d="$3" heads
-    [ -d "$repo" ] || { echo "n1-queue: story branch: no such repo $repo" >&2; return 1; }
-    # SEC-11: validate both names before they reach a refspec. The story id is free-form frontmatter, so it is held
-    # to the tracker id grammar first (check-ref-format alone admits quotes, `;`, `|`, `$`); the branch cell
-    # written by n1_queue_story_branch_set must then equal the pushed ref.
-    case "$2" in ''|-*|*[!A-Za-z0-9._-]*) echo "n1-queue: story branch: invalid story id $2" >&2; return 1 ;; esac
-    { [ -n "$2" ] && git check-ref-format --branch "$b" >/dev/null 2>&1; } || { echo "n1-queue: story branch: invalid branch name $b" >&2; return 1; }
-    git check-ref-format --branch "$d" >/dev/null 2>&1 || { echo "n1-queue: story branch: invalid default branch $d" >&2; return 1; }
+    # Usage: n1_queue_story_branch_ensure <repo> <id> <default-branch> [prefix=story|queue] [fresh=0|1]
+    # N1-290: makes origin carry <prefix>/<id> before a story queue (N1-446: or a list/tag queue with integration: queue)
+    # launches its children. A branch already on origin is reused as is (never reset, never force-pushed: resumes keep
+    # merged work), unless fresh=1: a queue branch is new per first start, so a name already on origin is foreign or
+    # stale work and is refused. An absent one is cut from origin/<default> after a fetch and pushed with a plain push
+    # of the remote-tracking ref, so no local branch or checkout is touched. Non-zero with a last stderr line
+    # "n1-queue: <prefix> branch: <reason>" on any failure.
+    local repo="$1" p="${4:-story}" fresh="${5:-0}" d="$3" b heads
+    case "$p" in story|queue) ;; *) echo "n1-queue: story branch: invalid prefix $p" >&2; return 1 ;; esac
+    b="$p/$2"
+    [ -d "$repo" ] || { echo "n1-queue: $p branch: no such repo $repo" >&2; return 1; }
+    # SEC-11: validate both names before they reach a refspec. The id is free-form frontmatter (story) or built from the
+    # queue id (queue), so it is held to the tracker id grammar first (check-ref-format alone admits quotes, `;`, `|`,
+    # `$`); the branch cell written by n1_queue_story_branch_set must then equal the pushed ref.
+    case "$2" in ''|-*|*[!A-Za-z0-9._-]*) echo "n1-queue: $p branch: invalid $p id $2" >&2; return 1 ;; esac
+    { [ -n "$2" ] && git check-ref-format --branch "$b" >/dev/null 2>&1; } || { echo "n1-queue: $p branch: invalid branch name $b" >&2; return 1; }
+    git check-ref-format --branch "$d" >/dev/null 2>&1 || { echo "n1-queue: $p branch: invalid default branch $d" >&2; return 1; }
     heads=$(git -C "$repo" ls-remote --heads origin "refs/heads/$b" 2>/dev/null) \
-        || { echo "n1-queue: story branch: ls-remote origin failed in $repo" >&2; return 1; }
-    [ -z "$heads" ] || return 0
-    git -C "$repo" fetch origin "+refs/heads/$d:refs/remotes/origin/$d" >&2 || { echo "n1-queue: story branch: fetch origin $d failed in $repo" >&2; return 1; }
+        || { echo "n1-queue: $p branch: ls-remote origin failed in $repo" >&2; return 1; }
+    if [ -n "$heads" ]; then
+        [ "$fresh" = 1 ] || return 0
+        echo "n1-queue: $p branch: $b already exists on origin in $repo" >&2; return 1
+    fi
+    git -C "$repo" fetch origin "+refs/heads/$d:refs/remotes/origin/$d" >&2 || { echo "n1-queue: $p branch: fetch origin $d failed in $repo" >&2; return 1; }
     git -C "$repo" push origin "refs/remotes/origin/$d:refs/heads/$b" >&2 \
-        || { echo "n1-queue: story branch: push of $b to origin failed in $repo" >&2; return 1; }
+        || { echo "n1-queue: $p branch: push of $b to origin failed in $repo" >&2; return 1; }
 }
 
 n1_queue_story_branch_set() {

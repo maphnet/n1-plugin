@@ -1098,6 +1098,25 @@ test_story_branch_helpers() {
     rm -rf "$tmp"
 }
 
+# N1-446: queue prefix creates queue/<id>; fresh=1 refuses a name already on origin; fresh=0 reuses; bad prefix/id refused.
+test_queue_branch_ensure() {
+    local tmp; tmp=$(mktemp -d)
+    git init -q -b main "$tmp/origin"
+    git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m init
+    git clone -q "$tmp/origin" "$tmp/repo" 2>/dev/null
+    assert_eq "queue-ensure: fresh create -> 0" 0 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main queue 1 >/dev/null 2>&1; echo $?)"
+    assert_eq "queue-ensure: queue/sq-1 on origin at main" "$(git -C "$tmp/origin" rev-parse main)" \
+        "$(git -C "$tmp/origin" rev-parse -q --verify refs/heads/queue/sq-1)"
+    assert_eq "queue-ensure: no story branch" "" "$(git -C "$tmp/origin" for-each-ref --format='%(refname)' refs/heads/story)"
+    assert_eq "queue-ensure: fresh on an existing name -> refused" "n1-queue: queue branch: queue/sq-1 already exists on origin in $tmp/repo" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main queue 1 2>&1 >/dev/null | tail -1)"
+    assert_eq "queue-ensure: resume (fresh 0) reuses -> 0" 0 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main queue 0 >/dev/null 2>&1; echo $?)"
+    assert_eq "queue-ensure: unknown prefix -> 1" 1 "$(n1_queue_story_branch_ensure "$tmp/repo" sq-1 main release >/dev/null 2>&1; echo $?)"
+    assert_eq "queue-ensure: invalid id names the kind" "n1-queue: queue branch: invalid queue id a|b" \
+        "$(n1_queue_story_branch_ensure "$tmp/repo" 'a|b' main queue 1 2>&1 >/dev/null | tail -1)"
+    rm -rf "$tmp"
+}
+
 # N1-291: n1_story_base — validated story branch for a story child; empty for non-story; rc 2 fails closed.
 test_story_base() {
     sb() { ( unset N1_STORY_ID N1_STORY_BRANCH N1_QUEUE_RUN_ID; for kv in "$@"; do export "$kv"; done; n1_story_base 2>/dev/null; echo "|$?" ); }
@@ -2233,6 +2252,7 @@ test_held_user_merge
 test_held_sweep_story_finish_skip
 test_sync_default
 test_story_branch_helpers
+test_queue_branch_ensure
 test_story_base
 test_story_bg_settings
 test_story_base_wiring
