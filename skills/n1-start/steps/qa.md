@@ -48,7 +48,8 @@ BC_DEF=$(n1_config_val '.git.defaultBranch'); BC_BASE=$(n1_break_check_base "$QD
 BC_LOG="$QD/break-check.log"; BREAK_CHECK_TQ=""; BC_VERDICT="skipped"
 REG_LINE=$(grep -m1 '^Regression test:' "$QD/qa.md" || true)
 REG_NAME=$(n1_break_check_parse_line "$REG_LINE" name); REG_CMD=$(n1_break_check_parse_line "$REG_LINE" cmd)
-if [ -z "$REG_NAME" ] || [ -z "$REG_CMD" ]; then BC_JSON='{"success":false,"error":{"kind":"inconclusive","message":"qa.md has no Regression test: line"},"verdict":"inconclusive"}'
+if [ -z "$REG_NAME" ] || [ -z "$REG_CMD" ]; then BC_V=inconclusive; [ -n "$TASK_TYPE" ] && [ "$TASK_TYPE" != bug ] && [ "$BC_MODE" = bugs ] && BC_V=skipped
+    BC_JSON="{\"success\":false,\"error\":{\"kind\":\"$BC_V\",\"message\":\"qa.md has no Regression test: line\"},\"verdict\":\"$BC_V\"}"
 else BC_JSON=$(n1_break_check "$BC_BASE" "$REG_CMD" "$REG_NAME" "$BC_LOG" "<worktree dir>" || true); fi
 BC_VERDICT=$(echo "$BC_JSON" | jq -r '.verdict // "inconclusive"'); BC_MSG=$(echo "$BC_JSON" | jq -r '.error.message // empty')
 grep '^New test:' "$QD/qa.md" | head -n "$BC_MAX" | while IFS= read -r line; do
@@ -58,7 +59,7 @@ done > "$QD/break-check.new-tests"
 BREAK_CHECK_TQ=$(awk -F'\t' '$2 !~ /^(red-then-green|no-diff)$/ {print $1" ("$2")"}' "$QD/break-check.new-tests")
 n1_write_frontmatter "$QD/overview.md" "break_check_verdict" "$BC_VERDICT"
 ```
-Append `## Break-check`. `BC_VERDICT` not `red-then-green`/`no-diff` → `QA_RESULT=FAIL` (`no-diff`: test-only diff, no revert possible). Non-bug: `BC_MODE==all`→blocking; else pass `BREAK_CHECK_TQ` to review. Maintain+PASS+"No test work needed"→skip fix loop. Loop exit only (PASS, cap or stall), once: run the final block below. **FAIL:** `procedures/stall-stop.md § QA` first; stalled → its exit. `qa_fix_cycle` ≥ `qa.maxFixAttempts` (default 3) → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"`, then spawn developer ("Record `## QA Fix Cycle <N>`", N = new `qa_fix_cycle`). Append the developer's `Findings deferred` per `<N1_ROOT>/references/followup-filing.md` § Append (source `qa`). **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
+Append `## Break-check`. `BC_VERDICT` not `red-then-green`/`no-diff`/`skipped` → `QA_RESULT=FAIL` (`no-diff`: test-only diff, no revert possible; `skipped`: non-bug, mode `bugs`, no `Regression test:` line). Non-bug: `BC_MODE==all`→blocking; else pass `BREAK_CHECK_TQ` to review. Maintain+PASS+"No test work needed"→skip fix loop. Loop exit only (PASS, cap or stall), once: run the final block below. **FAIL:** `procedures/stall-stop.md § QA` first; stalled → its exit. `qa_fix_cycle` ≥ `qa.maxFixAttempts` (default 3) → § Autonomy Gate, no increment. Else `n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "qa_fix_cycle"`, then spawn developer ("Record `## QA Fix Cycle <N>`", N = new `qa_fix_cycle`). Append the developer's `Findings deferred` per `<N1_ROOT>/references/followup-filing.md` § Append (source `qa`). **Headless:** `procedures/autonomy-headless.md § Headless Guard`.
 ```bash
 source ~/.n1/preamble.sh
 n1_step_end "qa" 8 <success|failed> "{\"loop_iteration\":<qa_fix_cycle>}"
