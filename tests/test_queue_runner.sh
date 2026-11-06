@@ -2008,6 +2008,14 @@ test_list_input_wiring() {
     assert_eq "list-input: QUEUE_ID ignores order and duplicates" "$a" "$b"
     assert_eq "list-input: QUEUE_ID is list-<8 hex>" "yes" "$([[ "$a" =~ ^list-[0-9a-f]{8}$ ]] && echo yes || echo no)"
     assert_eq "list-input: different keys give a different QUEUE_ID" "yes" "$([ "$a" != "$c" ] && echo yes || echo no)"
+    # Run the item-1 resolve loop from input.md with real items and a stubbed URL extractor.
+    local blk out
+    blk=$(awk '/^```bash$/{b="";f=1;next} /^```$/{if(f&&b~/for ITEM in/){printf "%s",b;exit}f=0} f{b=b $0 "\n"}' "$in" | grep -v '^source ')
+    blk=${blk/"for ITEM in '<ITEM_1>' '<ITEM_2>'"/"for ITEM in 'N1-2' 'N1-2' 'N1-12' 'N1-1' 'notakey' 'https://x/browse/N1-7' 'https://x/bad' 'n1-5'"}
+    out=$(n1_extract_ticket_from_url() { case "$1" in */browse/*) echo "${1##*/}" ;; *) return 1 ;; esac; }
+        N1_HOME=/nonexistent; eval "$blk")
+    assert_eq "list-input: loop keeps order, dedupes, resolves URLs" "KEYS= N1-2 N1-12 N1-1 N1-7" "$(grep '^KEYS=' <<<"$out")"
+    assert_eq "list-input: loop sends invalid keys and failed URLs to BAD only" "BAD= notakey https://x/bad n1-5" "$(grep '^BAD=' <<<"$out")"
 }
 
 # N1-55: ask-mode child mirrors its question and accepts a relayed answer; n1-queue exposes --answer.
