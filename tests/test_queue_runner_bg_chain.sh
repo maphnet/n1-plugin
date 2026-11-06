@@ -655,6 +655,29 @@ test_queue_integration_snapshot() {
     rm -rf "$tmp"
 }
 
+# N1-446 AC4/AC5: at run end a queue with integration: queue opens one final PR per repo from the queue branch into
+# main, with queue wording, the conventions (version bump) applied once in the final session, and no tracker read.
+test_queue_final_pr() {
+    local tmp s="n1-sq-${QB#queue/}-final-1"; tmp=$(mktemp -d)
+    queue_merge_fixture "$tmp" "T-A:working done"
+    touch "$tmp/fake/final-create"
+    printf 'UNKNOWN\t\nMERGEABLE\tCLEAN\n' > "$tmp/fake/gh-mergeable-seq"
+    assert_eq "queue-final: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "queue-final: one final session" 1 "$(count_x "$tmp/fake/events" "launch $s")"
+    assert_eq "queue-final: PR from the queue branch into main" yes \
+        "$(grep -qF "gh pr create --head $QB --base main" "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "queue-final: push only the queue branch" yes \
+        "$(grep -qF "git push origin HEAD:refs/heads/$QB" "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "queue-final: conventions applied once here" yes \
+        "$(grep -qF 'conventions that queue children skipped' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "queue-final: fixed title, no tracker read" "yes,0" \
+        "$(grep -qF "Queue ${QB#queue/}: queued tickets" "$tmp/fake/prompt.$s" && echo yes || echo no),$(grep -cF 'tracker issue' "$tmp/fake/prompt.$s" || true)"
+    assert_eq "queue-final: body heading" "## Queue ${QB#queue/}: final PR" "$(head -n1 "$tmp/final-1.body.md")"
+    assert_eq "queue-final: Final PRs row, waits for a human (merge off)" \
+        $'https://github.com/o/r/pull/9\tready\tMERGEABLE (CLEAN)\twaits: not-authorized' "$(fin_row "$tmp" "$tmp/repo")"
+    rm -rf "$tmp"
+}
+
 # N1-292 AC8: a failed Done launch is a ticket_done failed event. The merge stands and is never retried.
 test_story_done_launch_failed() {
     local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
@@ -1226,6 +1249,7 @@ test_story_dependents_of_ci_red
 test_queue_merge_green
 test_queue_held_released_after_runner_merge
 test_queue_integration_snapshot
+test_queue_final_pr
 test_final_pr_ready
 test_final_pr_draft
 test_final_pr_repo_without_merge

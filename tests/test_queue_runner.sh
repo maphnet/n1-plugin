@@ -2551,6 +2551,15 @@ test_final_pr_wiring() {
         "$(grep -qF 'waits for a human (<reason>)' "$r" && grep -qF 'Final PR merge: by the runner' "$r" && echo yes || echo no)"
 }
 
+# N1-446: every integration-branch gate in the runner keys on a non-empty RUN_MODE; none is story-only any more
+# (story_env, branch block, Orca CR-2 record, Orca MERGE wait, Orca resume re-evaluation, final_prs tail).
+test_queue_integration_wiring() {
+    local r="$REPO_ROOT/scripts/n1-queue-run.sh"
+    assert_eq "queue-wiring: no story-only RUN_MODE gate" 0 "$(grep -c '\[ "\$RUN_MODE" = story \]' "$r" || true)"
+    assert_eq "queue-wiring: six RUN_MODE integration gates" 6 "$(grep -c '\[ -n "\$RUN_MODE" \]' "$r" || true)"
+    assert_eq "queue-wiring: final_pr passes the kind to body and cmd" 2 "$(grep -c '"\$body" "\$draft" "\$RUN_MODE")\|"\$SBID" "\$body" "\$RUN_MODE")' "$r" || true)"
+}
+
 test_n1_339_cleanup_helpers
 test_pr_view
 test_checks_class
@@ -2562,6 +2571,7 @@ test_final_body
 test_final_cmd
 test_final_gh_readers
 test_final_pr_wiring
+test_queue_integration_wiring
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

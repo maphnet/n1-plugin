@@ -47,7 +47,7 @@ v="$FAKE_DIR/gh-view.$pr"; [ -f "$v" ] || v="$FAKE_DIR/gh-view"
 case "$1 $2" in
     "pr list")
         case "$*" in
-            *"--head story/"*) # N1-293: final PR lookup; answers gh-final-list.<base> (absent -> no PR)
+            *"--head story/"*|*"--head queue/"*) # N1-293/N1-446: final PR lookup; answers gh-final-list.<base> (absent -> no PR)
                 echo "$*" >> "$FAKE_DIR/gh-final-calls"
                 b=""; prev=""; for a in "$@"; do [ "$prev" = --base ] && b="$a"; prev="$a"; done
                 cat "$FAKE_DIR/gh-final-list.$b" 2>/dev/null || echo '[]' ;;
@@ -136,7 +136,8 @@ case "$1" in
             if [ -f "$D/final-create" ]; then
                 b=$(grep -o -- '--base [^ ]*' <<< "$prompt" | head -1); b="${b#--base }"
                 dr=false; grep -qF -- '--draft' <<< "$prompt" && dr=true
-                printf '[{"url":"https://github.com/o/r/pull/9","isDraft":%s,"headRefName":"story/S-1","baseRefName":"%s","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]\n' "$dr" "$b" > "$D/gh-final-list.$b"
+                h=$(grep -o -- '--head [^ ]*' <<< "$prompt" | head -1); h="${h#--head }"; h="${h:-story/S-1}"
+                printf '[{"url":"https://github.com/o/r/pull/9","isDraft":%s,"headRefName":"%s","baseRefName":"%s","isCrossRepository":false,"headRepositoryOwner":{"login":"o"}}]\n' "$dr" "$h" "$b" > "$D/gh-final-list.$b"
             fi ;;
         esac
         t="${prompt##* }"
