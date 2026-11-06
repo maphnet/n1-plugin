@@ -78,7 +78,7 @@ Next (manual): /n1:n1-release   ← only when release.enabled is true; N1 never 
 - **Ticket URL:** overview frontmatter `ticket_url` (`n1_read_frontmatter`); absent → `URL unavailable (<reason>)`.
 - **PR URL:** Step 1's `gh pr view` url; fallback overview `pr_url` / `## Pending`.
 - **Next tickets:** call `tracker.operations.getIssueLinks` on `tracker.versionMcp` when set, else `tracker.mcp`, for `<ID>`. Tickets this one blocks: Jira — Blocks-type entries with `outwardIssue`; YouTrack — relation `blocks` (not `is blocked by`). Use title/status from the entry when present, else `readTicket` per link. No such links → `none`. Op not configured or call error → `lookup failed (<reason>)`; warn only, never block. Issue it in parallel with the cleanup call (§ One Cleanup Call).
-- Print this summary on every completion path (including already-merged / already-closed re-runs and the runbook-pending path), before release routing in both `mechanicalPrompts` modes. Non-complete exits keep their stop message below and do NOT print it.
+- Print this summary on every completion path (including already-merged / already-closed re-runs and the runbook-pending path), before release routing. Non-complete exits keep their stop message below and do NOT print it.
 
 **Release routing:** only when the entry printed `release.enabled=true` and the merge succeeded: after printing the report, read `<N1_ROOT>/skills/n1-finish/references/release-routing.md` now (it is not read at entry) and follow it. Otherwise skip it; N1 never runs n1-release itself.
 

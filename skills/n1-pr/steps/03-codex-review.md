@@ -75,7 +75,7 @@ If the output says `softfix:comment-failed`, `softfix:bad-pr-url`, `softfix:no-i
 
 ## Step 10: Report
 
-If `qualityEscalations=auto-accept`, never end with an offer or question to fix Codex findings or file follow-ups, whether or not triage ran. Report the persona's counts lines from step 1 only. Unfixed items are in the posted triage comment (or `memory/<ID>/codex-triage.md` if posting failed); never list them from the orchestrator. For Human Review items go through `<N1_ROOT>/references/followup-filing.md` § Append (source `codex`): the triage persona appended them when its report phase ran. Append the one item remembered in step 1 or Step 9 when present (`Codex review findings: see ticket memory codex-review.md`, or `Codex triage not posted: see ticket memory codex-triage.md`). n1-start FINALIZE MEMORY files them; outside n1-start, report them as unfiled.
+Never end with an offer or question to fix Codex findings or file follow-ups, whether or not triage ran. Report the persona's counts lines from step 1 only. Unfixed items are in the posted triage comment (or `memory/<ID>/codex-triage.md` if posting failed); never list them from the orchestrator. For Human Review items go through `<N1_ROOT>/references/followup-filing.md` § Append (source `codex`): the triage persona appended them when its report phase ran. Append the one item remembered in step 1 or Step 9 when present (`Codex review findings: see ticket memory codex-review.md`, or `Codex triage not posted: see ticket memory codex-triage.md`). n1-start FINALIZE MEMORY files them; outside n1-start, report them as unfiled.
 
 Every path through Step 9 ends here, whatever the Codex outcome was. Print this report exactly once. It is the end of n1-pr.
 

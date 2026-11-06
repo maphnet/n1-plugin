@@ -4,46 +4,9 @@
 
 ## Step 7: Approval Gate
 
-**Autonomy gate:** Read `MP=$(n1_autonomy_val 'mechanicalPrompts')` via Bash (source `lib/config.sh` first). If `MP` is `auto`: skip this prompt and auto-select **Create all** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
-`| n1-story | mechanical | C | [auto] | Story approval gate | Create all | Edit, Remove, or Cancel | mechanicalPrompts=auto | --- |`
-If `MP` is `ask`: continue to the approval gate below. In either mode, show the resulting **Type: Story** and child count before creation; Task handoffs show the standalone ticket preview instead.
-
-Present the story preview by asking the user (HOST ROUTING: ask the user):
-
-```
-## Story Preview
-
-**Story:** <story title>
-**Type:** Story
-**Project:** <PROJECT_KEY>
-
-**Description:**
-<story-level description>
-
-### Subtasks (<count>)
-1. **<subtask 1 title>** (<size>)
-   <short description>
-   Acceptance criteria:
-   - [ ] ...
-
-2. **<subtask 2 title>** (<size>)
-   <short description>
-   Acceptance criteria:
-   - [ ] ...
-
-...
-
-### Adopt existing tickets (<adopt count>)
-- <KEY> — <summary, only if already known>
-```
-
-Omit the Adopt section when `ADOPT_KEYS` is empty. Omit the Subtasks section when there are no new subtasks.
-
-Options:
-1. **Create all** — proceed with story + subtask creation, then adopt `ADOPT_KEYS`
-2. **Edit items** — user specifies changes; revise, rerun the scope guard, then present the resulting ticket preview
-3. **Remove items** — user specifies subtasks or adopted keys to drop; revise, rerun the scope guard, then present the resulting ticket preview
-4. **Cancel** — abort without creating anything
+**Autonomy gate:** skip this prompt and auto-select **Create all** (option 1). Write a Decision Ledger row to the relevant overview.md if one is available (or skip ledger if no overview exists yet):
+`| n1-story | mechanical | C | [auto] | Story approval gate | Create all | Edit, Remove, or Cancel | auto | --- |`
+Show the resulting **Type: Story** and child count before creation; Task handoffs show the standalone ticket preview instead.
 
 ## Step 8: Create Story
 

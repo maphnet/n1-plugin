@@ -90,10 +90,9 @@ Removable: <N> (stale + completed); Abandoned only by selection
 
 If nothing is Stale, Completed or Abandoned: "All worktrees are active. Nothing to clean up." **STOP.**
 
-**Autonomy gate:** read `MP=$(n1_autonomy_val 'mechanicalPrompts')`. If `MP` is `auto`: select option 1 without asking; auto mode never removes Abandoned worktrees. Write a Decision Ledger row to the relevant overview.md when one exists:
-`| n1-clean | mechanical | C | [auto] | Remove merged worktrees? | Remove Stale and Completed | Select or Cancel | mechanicalPrompts=auto | --- |`
-If `MP` is `ask`, read `<N1_ROOT>/skills/n1-clean/steps/03-confirm.md` and ask the user its prompt.
-**1:** Step 4 with Stale and Completed. **2:** show a numbered list, let the user pick. **3:** **STOP.**
+**Autonomy gate:** select option 1 without asking; this never removes Abandoned worktrees. Write a Decision Ledger row to the relevant overview.md when one exists:
+`| n1-clean | mechanical | C | [auto] | Remove merged worktrees? | Remove Stale and Completed | Select or Cancel | auto | --- |`
+Continue to Step 4 with Stale and Completed.
 
 ## Step 4: Remove Worktrees
 
