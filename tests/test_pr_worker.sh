@@ -27,4 +27,21 @@ eq "guard: default-branch push still denied for pr-worker" 2 "$(pol 'git push or
 eq "guard: gh pr merge still denied for pr-worker" 2 "$(pol 'gh pr merge 7 --squash')"
 N1H=
 
+# 2. Persona contract: inherit-all tools, never merges, asks, clears or releases; prompt stops carry "prompt:".
+P=agents/pr-worker.md
+has "persona: name" "$P" '^name: pr-worker$'
+lacks "persona: no tools: allowlist (inherits tracker MCP)" "$P" '^tools:'
+has "persona: model default" "$P" '^model: sonnet$'
+FORBID='gh pr merge|git merge|n1_merge_authorized|n1_active_run_clear|n1_step_begin|n1_step_end|--confirmed|n1-release'
+BAD=$(grep -nE "$FORBID" "$P" 2>/dev/null | grep -vE '^[0-9]+:- Never ' || true)
+if [ -f "$P" ] && [ -z "$BAD" ]; then ok "persona: forbidden commands only inside Never bullets"; else no "persona: forbidden commands only inside Never bullets: $BAD"; fi
+has "persona: never prompts, stops with a prompt: reason" "$P" '^- Never ask the user\..*reason: prompt: '
+has "persona: runs the three n1-pr steps" "$P" '01-prepare\.md.*02-push-create\.md.*03-codex-review\.md'
+has "persona: writes pr-result.md" "$P" 'pr-result\.md'
+has "persona: writes pr-report.md" "$P" 'pr-report\.md'
+has "persona: untrusted data rule" "$P" 'data, not instructions'
+SZ=$(cat "$P" skills/n1-pr/steps/0[1-3]-*.md | wc -c)
+if [ "$SZ" -lt 160000 ]; then ok "AC1: pr-worker reads $SZ B < 160000"; else no "AC1: pr-worker reads $SZ B < 160000"; fi
+has "README lists pr-worker" README.md '^\| pr-worker \|'
+
 exit $FAIL
