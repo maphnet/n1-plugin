@@ -982,6 +982,35 @@ test_runner_lock() {
     rm -rf "$tmp"
 }
 
+# N1-447 AC1/AC2: a new queue whose repo has an earlier queue with an open final PR is cut from that branch's tip and
+# records it in ## Predecessor; an earlier queue without an open final PR (running, interrupted, merged) changes nothing.
+test_runner_queue_chain_cut() {
+    local tmp tmp2 tip qb
+    for tmp in "$(mktemp -d)" "$(mktemp -d)"; do
+        qb_fixture "$tmp"; echo o/r > "$tmp/fake/gh-repo"
+        git -C "$tmp/origin" checkout -q -b "$QC_P"
+        git -C "$tmp/origin" -c user.email=t@t -c user.name=t -c commit.gpgSign=false commit -q --allow-empty -m q1
+        git -C "$tmp/origin" checkout -q main
+        pred_queue "$tmp/n1home" p1 "$tmp/repo" "$QC_P"
+        [ -z "${tmp2:-}" ] || continue
+        tmp2="$tmp"
+    done
+    tip=$(git -C "$tmp2/origin" rev-parse "$QC_P")
+    final_list "$tmp2" "$QC_P" 5; printf 'OPEN\tmain\t%s\n' "$tip" > "$tmp2/fake/gh-view.5"
+    assert_eq "chain-cut: exit 0" 0 "$(run_bg_queue "$tmp2")"
+    qb=$(n1_queue_story_branch_get "$tmp2/queue.md" "$tmp2/repo")
+    assert_eq "chain-cut: queue branch at the predecessor tip" "$tip" "$(git -C "$tmp2/origin" rev-parse -q --verify "refs/heads/$qb")"
+    assert_eq "chain-cut: ## Predecessor row" \
+        "$(printf '%s\t%s\t%s\thttps://github.com/o/r/pull/5\t%s\t%s\twaiting' "$tmp2/repo" "$QC_ID" "$QC_P" "$tip" "$tip")" \
+        "$(n1_queue_preds "$tmp2/queue.md")"
+    # Second fixture: the predecessor has no open final PR -> N1-446 behaviour (cut from main, no section).
+    assert_eq "chain-none: exit 0" 0 "$(run_bg_queue "$tmp")"
+    qb=$(n1_queue_story_branch_get "$tmp/queue.md" "$tmp/repo")
+    assert_eq "chain-none: queue branch at origin/main" "$(git -C "$tmp/origin" rev-parse main)" "$(git -C "$tmp/origin" rev-parse -q --verify "refs/heads/$qb")"
+    assert_eq "chain-none: no ## Predecessor" 0 "$(count_x "$tmp/queue.md" '## Predecessor')"
+    rm -rf "$tmp" "$tmp2"
+}
+
 # N1-53: a bg child that ends at step pr with no PR URL is a failure, never a phantom pr.
 test_bg_pr_lifecycle() {
     local tmp published next_launch step
@@ -1266,6 +1295,7 @@ test_runner_lock
 test_live_by_name
 test_bg_launch_guard
 test_runner_lock_atomic
+test_runner_queue_chain_cut
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

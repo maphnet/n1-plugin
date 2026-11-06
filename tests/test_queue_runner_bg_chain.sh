@@ -678,6 +678,26 @@ test_queue_final_pr() {
     rm -rf "$tmp"
 }
 
+# N1-447 AC3: while the predecessor final PR is unmerged, the queue's final PR opens as a draft naming it, is never
+# marked ready or merged by the runner, and its Note says what it waits for.
+test_queue_final_waits_predecessor() {
+    local tmp s="n1-sq-${QB#queue/}-final-1"; tmp=$(mktemp -d)
+    queue_merge_fixture "$tmp" "T-A:working done"
+    touch "$tmp/fake/final-create"; printf 'UNKNOWN\t\nMERGEABLE\tCLEAN\n' > "$tmp/fake/gh-mergeable-seq"
+    n1_queue_pred_set "$tmp/queue.md" "$tmp/repo" "$QC_ID" "$QC_P" https://github.com/o/r/pull/5 "$SM_PIN" "$SM_PIN" waiting
+    printf 'OPEN\tmain\t%s\n' "$SM_PIN" > "$tmp/fake/gh-view.5"
+    assert_eq "pred-wait: exit 0" 0 "$(run_bg_queue "$tmp")"
+    assert_eq "pred-wait: final PR opened as a draft" yes "$(grep -qF -- '--draft' "$tmp/fake/prompt.$s" && echo yes || echo no)"
+    assert_eq "pred-wait: body names the predecessor" 1 "$(grep -cF "cut from $QC_P (https://github.com/o/r/pull/5)" "$tmp/final-1.body.md")"
+    assert_eq "pred-wait: Final PRs row" \
+        "$(printf 'https://github.com/o/r/pull/9\tdraft\tMERGEABLE (CLEAN)\twaits: predecessor %s (waiting); waits: not-authorized' "$QC_ID")" \
+        "$(fin_row "$tmp" "$tmp/repo")"
+    assert_eq "pred-wait: never marked ready" 0 "$(cat "$tmp/fake/gh-refresh-calls" 2>/dev/null | grep -c 'pr ready' || true)"
+    assert_eq "pred-wait: final PR not merged" 0 "$(cat "$tmp/fake/gh-merge" 2>/dev/null | grep -c 'pull/9' || true)"
+    assert_eq "pred-wait: row still waiting" waiting "$(n1_queue_preds "$tmp/queue.md" | cut -f7)"
+    rm -rf "$tmp"
+}
+
 # N1-292 AC8: a failed Done launch is a ticket_done failed event. The merge stands and is never retried.
 test_story_done_launch_failed() {
     local tmp; tmp=$(mktemp -d); story_merge_fixture "$tmp" "T-A:working done"
@@ -1250,6 +1270,7 @@ test_queue_merge_green
 test_queue_held_released_after_runner_merge
 test_queue_integration_snapshot
 test_queue_final_pr
+test_queue_final_waits_predecessor
 test_final_pr_ready
 test_final_pr_draft
 test_final_pr_repo_without_merge
