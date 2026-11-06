@@ -1,6 +1,6 @@
 # Procedure: Output Gates
 
-Between gates: emit nothing. No step announcements, no routing echoes. Only: 1) Blocking prompts. 2) Warnings/escalations. 3) Fix-loop iterations (one line: `<ID> · <loop-name> fix cycle <N>/<MAX>`). 4) The three gates.
+Between gates: emit nothing. No step announcements, no routing echoes. Only: 1) Blocking prompts. 2) Warnings/escalations. 3) Fix-loop iterations (one line: `<ID> · <loop-name> fix cycle <N>/<MAX>`). 4) The three gates. 5) The intake brief.
 
 Cut 30% of what's left before emitting a gate.
 
