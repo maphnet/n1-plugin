@@ -161,12 +161,16 @@ merged_sweep_run() {   # <tmp> <worker-list liveness verdict>: T-A pr (GitHub UR
     echo OPEN > "$tmp/fake/gh-state"
     orca_msg escalation task-T-A m-stop1 finished "Worker stopped without reporting" "Worker ended its turn" > "$tmp/fake/q.stop"
     printf 'cp "%s" "%s"; echo MERGED > "%s"\n' "$tmp/fake/q.stop" "$tmp/fake/question" "$tmp/fake/gh-state" > "$tmp/fake/at.3"
+    # $3 = idle (ticket memory old) or active (a resumed worker keeps writing it, so it is fresh)
+    mkdir -p "$tmp/n1home/memory/T-A"; echo x >> "$tmp/n1home/memory/T-A/notes.md"
+    # (aged on tick 3: worker-start writes the overview at launch)
+    [ "${3:-}" != idle ] || printf "find '%s' -type f -exec touch -d '2 hours ago' {} +\n" "$tmp/n1home/memory/T-A" >> "$tmp/fake/at.3"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
 }
 
 test_orca_merged_sweep_settles() {
     local tmp; tmp=$(mktemp -d)
-    merged_sweep_run "$tmp" unverifiable
+    merged_sweep_run "$tmp" unverifiable idle
     assert_eq "merged-sweep: recorded merged" "merged" \
         "$(jq -r 'select(.event == "ticket_finished" and .ticket == "T-A") | .outcome' "$tmp/events.jsonl" | tail -1)"
     assert_eq "merged-sweep: n1-finish launched once, no n1-clean" "1|0" \
@@ -175,10 +179,10 @@ test_orca_merged_sweep_settles() {
     rm -rf "$tmp"
 }
 
-test_orca_merged_sweep_skips_live() {   # N1-422: a live worker may still merge its own PR and run its own finish
+test_orca_merged_sweep_skips_active_deferred() {   # N1-478 CR-1: released dispatch reads exited, worker still writes memory
     local tmp; tmp=$(mktemp -d)
-    merged_sweep_run "$tmp" live
-    assert_eq "merged-sweep: live worker not settled" "0|0" \
+    merged_sweep_run "$tmp" exited active
+    assert_eq "merged-sweep: resumed deferred worker not settled" "0|0" \
         "$(grep -c '"ticket_finished".*"merged"' "$tmp/events.jsonl" || true)|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')"
     rm -rf "$tmp"
 }
@@ -244,7 +248,7 @@ test_orca_stop_notice_then_resume_no_chain
 test_orca_stop_notice_deferral_survives_restart
 test_orca_slot_held_told
 test_orca_merged_sweep_settles
-test_orca_merged_sweep_skips_live
+test_orca_merged_sweep_skips_active_deferred
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

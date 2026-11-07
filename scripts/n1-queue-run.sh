@@ -1488,7 +1488,8 @@ orca_settle() {
 # orca_merged_sweep — N1-478 AC5: an owed pr row whose PR is MERGED (the user merged it while its worker was owed) is
 # settled now (orca_settle -> chain_finish -> chain_merged -> n1-finish), not at the owed expiry, so ## Schedule successors
 # start. N1-422: a task whose worker-list liveness is live is never touched (it may merge its own PR and run its own
-# finish); otherwise only a deferred task, a worker exited/done, or one gone from a readable list. Uses run_orca's
+# finish), nor is a deferred task with recent activity (released dispatches read exited/done even when resumed);
+# otherwise only a deferred task, a worker exited/done, or one gone from a readable list. Uses run_orca's
 # OWED/DEFERRED/LIVE/LIVE_OK/LAST_PRCHK (dynamic scope). ponytail: one sweep with gh reads per 120 s for all owed rows;
 # per-row timers if many owed rows ever make that bursty.
 orca_merged_sweep() {
@@ -1504,6 +1505,9 @@ orca_merged_sweep() {
             && { [ -n "$L" ] || [ "$LIVE_OK" != 1 ]; }; then continue; fi
         N1H=$(n1_queue_pending_rows "$QUEUE" pr | awk -F'\t' -v t="$T" '$2 == t { print $4 }' | tail -1)
         [ -n "$N1H" ] || continue
+        # A deferred task was released, so Orca reports its dispatch exited/done even if the worker resumed (after a
+        # "finished" stop notice) and is merging its own PR: settle it only once it shows no activity in the window.
+        if [[ "$DEFERRED" == *" $TASK "* ]] && n1_queue_recent_activity "$N1H" "$T" "$(( STALL_SECS > 0 ? STALL_SECS : 600 ))"; then continue; fi
         URL=$(n1_queue_child_pr_url "$N1H/memory/$T/overview.md")
         [ -n "$URL" ] || continue
         did_read=1
