@@ -517,7 +517,7 @@ def sentinel_deny(payload: dict) -> int:
 # by the generic gate in merge_deny; --confirmed only as an n1_review_pin argument.
 _PR_N1_DENIED = {"n1_active_run_clear", "n1_active_run_clear_if", "n1_finish_cleanup", "n1_clean_ticket", "n1_containers_teardown",
                  "n1_merge_authorized", "n1_orca_rm", "n1_step_begin", "n1_step_end", "n1_orca", "n1_orca_handoff"}
-_POINTER_NAMES = ("active-run.x.json", "x.s-pr.json", "/h/.n1/x/active-run.x.json")
+_POINTER_NAMES = ("active-run.s0.json", "s0.s-pr.json", "/h/.n1/s0/active-run.s0.json")
 _CD_N1_RE = re.compile(r"\b(?:cd|pushd)\s+\S*(?:\.n1|N1_HOME)")
 _POINTER_MUTATORS = {"rm", "mv", "unlink", "truncate", "ln", "shred", "cp", "tee", "dd", "install", "rsync"}
 WORKER_PROGRAMS = frozenset(_PR_N1_DENIED | _POINTER_MUTATORS | {"n1_review_pin", "git", "orca", "claude", "sed", "find"})
@@ -533,9 +533,19 @@ _DELETES_RE = re.compile(r"remove|unlink|rmtree|rename|move|delete")
 _PROGRAM_TEXT_RE = re.compile(r"\b(?:gh|git|curl|wget)\b|n1_\w+")
 
 
+def _glob_hits(pat: str, names=_POINTER_NAMES) -> bool:
+    """fnmatch.translate is quadratic on `[[[[`: an over-long glob operand is a deny for restricted workers (CR-14)."""
+    return len(pat) > 256 or any(fnmatch.fnmatch(f, pat) for f in names)
+
+
 def _mask(cmd: str) -> str:
     """Whitespace and separators inside quotes masked, so `FOO="a b" n1_step_end` keeps one assignment word."""
     return re.sub(r"\"[^\"]*\"|'[^']*'", lambda m: re.sub(r"[\s;&|()<>`$]", "\x01", m.group()), cmd)
+
+
+def _glob_word(masked: str) -> bool:
+    """Some word of the command is a glob matching a pointer file name (`find ~ -name 'act*' | xargs rm`)."""
+    return any(re.search(r"[*?\[]", w) and _glob_hits(w.strip("\"'\x01").rsplit("/", 1)[-1]) for w in masked.split())
 
 
 def _worker_sink(masked: str) -> int:
@@ -580,7 +590,7 @@ def _worker_sink(masked: str) -> int:
             res = 1
         if "git" in names and any(w.lstrip("'\"").startswith("alias.") and w.partition("=")[2].lstrip("'\"").startswith("!") for w in words[k:]):
             res = 1
-        if "xargs" in names and in_n1 and names & _POINTER_MUTATORS:
+        if "xargs" in names and names & _POINTER_MUTATORS and (in_n1 or _glob_word(masked)):
             return 2
         if names & _INTERPS or any(c.startswith("python") for c in names):
             hd = "<<" in stage  # code from a heredoc sits on later lines: look at the whole command
@@ -608,7 +618,7 @@ def _pointer_hit(c, j) -> bool:
         for o in ops:
             if re.search(r"\.n1|N1_HOME", o) and (re.search(r"[*?\[]", o) or re.search(r"(?:\.n1|N1_HOME\}?)(?:/[^/]*)?/?$", o)):
                 return True
-            if re.search(r"[*?\[]", o) and fnmatch.fnmatch("active-run.x.json", o.rsplit("/", 1)[-1]):
+            if re.search(r"[*?\[]", o) and _glob_hits(o.rsplit("/", 1)[-1], _POINTER_NAMES[:1]):
                 return True
         return False
     if c[0] == "sed":
@@ -619,7 +629,7 @@ def _pointer_hit(c, j) -> bool:
         if re.search(r"active|\.n1|N1_HOME", j):
             return True
         # a -name/-path glob that matches a pointer or marker file name (`find ~ -name 'act*' -delete`)
-        return any(w in ("-name", "-iname", "-path", "-ipath") and any(fnmatch.fnmatch(f, c[x + 1]) for f in _POINTER_NAMES)
+        return any(w in ("-name", "-iname", "-path", "-ipath") and _glob_hits(c[x + 1])
                    for x, w in enumerate(c[:-1]))
     return False
 
@@ -632,11 +642,12 @@ def _worker_deny(cmd: str, pr: bool) -> bool:
     sink = _worker_sink(masked)
     if sink == 2 or _POINTER_REDIR_RE.search(re.sub(r"[\"'\\]", "", masked)):
         return True
-    views = (cmd, re.sub(r"[\"'\\]", "", cmd), masked)
+    stripped = re.sub(r"[\"'\\]", "", cmd)
+    cd_n1 = _CD_N1_RE.search(stripped) is not None  # after `cd ~/.n1/x` a relative rm/mv names the pointer dir's files
+    views = (cmd, stripped, masked)
     for text in (map(_every_word, views) if sink else views):
         if pr and "ORCA_CLI_COMMAND" in text:
             return True
-        cd_n1 = _CD_N1_RE.search(text) is not None  # after `cd ~/.n1/x` a relative rm/mv names the pointer dir's files
         for c in _commands(text, WORKER_PROGRAMS):
             j = " ".join(c)
             if cd_n1 and c[0] in _POINTER_MUTATORS:

@@ -154,6 +154,8 @@ for w in n1:pr-worker n1:tail-worker n1:tech-writer; do
         "python3 -c 'import glob,os;[os.remove(p) for p in glob.glob(\"$HOME/.n1/*/active*\")]'" "perl -e 'unlink glob q(~/.n1/x/active*)'" \
         'cd ~/.n1 && rm -rf n1-plugin' 'cd ~/.n1 && mv n1-plugin x' "find ~ -name 'act*' -delete" "find ~ -name '*.s-pr.json' -delete" \
         'ls ~/.n1/x/active-run* | env xargs rm' 'ls ~/.n1/x/active-run* | timeout 5 xargs rm' \
+        'cd ~/.n1 && rm -rf n1-plugin; echo x | sh' 'cd ~/.n1 && mv n1-plugin x; case a in a) :;; esac' \
+        "find ~ -name 'act*' | xargs rm" "find ~ -name '*.s-pr.json' -print0 | xargs -0 rm" 'ls ~/.n?/*/act* | xargs rm' \
         "python3 - <<'PY'
 import os
 os.remove('$HOME/.n1/x/active-run.s-pr.json')
@@ -179,6 +181,18 @@ PY
         S=$(date +%s); timeout 20 env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" N1_HOME="$T/nh" python3 hooks/enforce-agent-policy.py "" "$REPO" < "$TJ" >/dev/null 2>"$T/adv.err"; RC=$?; E=$(date +%s)
         # the hook must decide (exit 0 allow or 2 deny, no traceback) in time: a crash or timeout would fail open
         if [ $((E - S)) -lt 5 ] && { [ $RC -eq 0 ] || [ $RC -eq 2 ]; } && ! grep -q Traceback "$T/adv.err"; then ok "fc2: 200KB '$pat' ($w) decided rc=$RC in under 5s"; else no "fc2: 200KB '$pat' ($w) rc=$RC took $((E - S))s"; fi
+    done
+done
+# CR-14: one long `[[[[` glob operand (quadratic in fnmatch) must be decided, and denied, fast
+for w in n1:pr-worker n1:tech-writer; do
+    for pre in 'rm ' 'find . -delete -name '; do
+        python3 - "$pre" "$TJ" "$w" <<'PY'
+import json, sys
+pre, out, w = sys.argv[1:4]
+json.dump({"agent_type": w, "tool_name": "Bash", "session_id": "s-pr", "cwd": "/tmp", "tool_input": {"command": pre + "[" * 100000 + "; echo done"}}, open(out, "w"))
+PY
+        S=$(date +%s); timeout 20 env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" N1_HOME="$T/nh" python3 hooks/enforce-agent-policy.py "" "$REPO" < "$TJ" >/dev/null 2>"$T/adv.err"; RC=$?; E=$(date +%s)
+        if [ $((E - S)) -lt 5 ] && [ $RC -eq 2 ] && ! grep -q Traceback "$T/adv.err"; then ok "cr14: 100KB '[' after '$pre' ($w) denied in under 5s"; else no "cr14: 100KB '[' after '$pre' ($w) rc=$RC took $((E - S))s"; fi
     done
 done
 # the wrapper-prefixed payload still reaches the merge: decision is a deny, not just fast
