@@ -235,6 +235,23 @@ def assistant(ts, text=None, ask=False):
     return {"type": "assistant", "timestamp": ts, "message": {"role": "assistant", "content": content}}
 
 
+def q(text, labels):
+    return {"question": text, "options": [{"label": lbl} for lbl in labels]}
+
+
+def ask_use(ts, tid, questions, sidechain=False):
+    rec = {"type": "assistant", "timestamp": ts, "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": tid, "name": "AskUserQuestion", "input": {"questions": questions}}]}}
+    if sidechain:
+        rec["isSidechain"] = True
+    return rec
+
+
+def ask_result(ts, tid, text):
+    return {"type": "user", "timestamp": ts, "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": tid, "content": text}]}}
+
+
 class LinkingTest(unittest.TestCase):
     def setUp(self):
         self.d = TempDirs()
@@ -598,7 +615,7 @@ class MetricsTest(unittest.TestCase):
                                  "duration_min", "orchestrator_output_tokens", "compactions",
                                  "session_cache_creation_tokens", "orchestrator_cache_creation_tokens",
                                  "questions_per_run", "brainstorm_questions",
-                                 "recommended_followed_share", "decide_for_me_share",
+                                 "answer_matches_recommendation", "decide_for_me_share",
                                  "inherited_share",
                                  "bash_calls_per_run", "api_calls_per_run",
                                  "orchestrator_api_calls_per_run", "orchestrator_bash_calls_per_run",
@@ -613,6 +630,71 @@ def asst_with_tools(ts, tool_names, sidechain=False):
     if sidechain:
         rec["isSidechain"] = True
     return rec
+
+
+class ReadAnswersTest(unittest.TestCase):
+    T0, T1 = "2026-09-01T10:01:00Z", "2026-09-01T10:02:00Z"
+    DB = q("Pick DB?", ["SQLite (Recommended)", "Postgres"])
+
+    def setUp(self):
+        self.d = TempDirs()
+
+    def answers(self, records):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, records)
+        return bm.read_answers(p)
+
+    def test_recommended_label_followed(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "Pick DB?"="SQLite (Recommended)". '
+                                      "You can now continue with the user's answers in mind.")]), (1, 1))
+
+    def test_other_option_and_label_without_suffix(self):
+        cache_q = q("Cache?", ["Redis (Recommended)", "None"])
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB, cache_q]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "Pick DB?"="Postgres", '
+                                      '"Cache?"="Redis". You can now continue.')]), (1, 2))
+
+    def test_free_text_with_quotes_is_answered_not_followed(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", 'The user answered: "use "both", really"')]), (0, 1))
+
+    def test_quotes_inside_an_answer_do_not_shift_the_next_one(self):
+        a = q("A?", ["A1 (Recommended)", "A2"])
+        b = q("B?", ["B1 (Recommended)", "B2"])
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [a, b]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "A?"="say "hi", ok", "B?"="B1". Done.')]),
+            (1, 2))
+
+    def test_question_without_recommended_option_is_excluded(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [q("Name?", ["x", "y"])]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "Name?"="x".')]), (0, 0))
+
+    def test_interrupted_unmatched_and_sidechain_are_unanswered(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", "[Tool call interrupted by user]"),
+            ask_use(self.T0, "a2", [self.DB]),
+            ask_result(self.T1, "zz", 'Your questions have been answered: "Pick DB?"="Postgres".'),
+            ask_use(self.T0, "a3", [self.DB], sidechain=True),
+            ask_result(self.T1, "a3", 'Your questions have been answered: "Pick DB?"="Postgres".')]), (0, 0))
+
+    def test_metric_from_compute_run_metrics(self):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, [ask_use(self.T0, "a1", [self.DB, q("Cache?", ["Redis (Recommended)", "None"])]),
+                        ask_result(self.T1, "a1", 'Your questions have been answered: '
+                                                  '"Pick DB?"="SQLite (Recommended)", "Cache?"="None".')])
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": str(p)}
+        bm.compute_run_metrics(cache)
+        self.assertEqual(cache["metrics"]["answer_matches_recommendation"], 0.5)
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": None}
+        bm.compute_run_metrics(cache)
+        self.assertIsNone(cache["metrics"]["answer_matches_recommendation"])
 
 
 class CountToolCallsTest(unittest.TestCase):

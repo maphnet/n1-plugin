@@ -91,6 +91,78 @@ def count_tool_calls(path: Path):
     return bash_calls, api_calls
 
 
+_ANSWERED_PREFIX = "Your questions have been answered:"
+_FREE_TEXT_RE = re.compile(r'The user answered: "(.*)"', re.S)
+
+
+def _result_text(item: dict) -> str:
+    c = item.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "\n".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def _norm_label(s: str) -> str:
+    return (s or "").replace("(Recommended)", "").strip()
+
+
+def _parse_answers(text: str, questions):
+    """Map question text -> answer from an AskUserQuestion result. Splits on the known question
+    strings, never on a generic quote regex, because free text can contain quotes."""
+    text = text.strip()
+    m = _FREE_TEXT_RE.match(text)
+    if m:
+        return {questions[0]: m.group(1)} if len(questions) == 1 else {}
+    if not text.startswith(_ANSWERED_PREFIX):
+        return {}
+    body = text[len(_ANSWERED_PREFIX):]
+    found = sorted((body.find(f'"{qt}"="'), qt) for qt in questions if qt and f'"{qt}"="' in body)
+    out = {}
+    for i, (pos, qt) in enumerate(found):
+        seg = body[pos + len(qt) + 4:found[i + 1][0] if i + 1 < len(found) else len(body)]
+        end = seg.rfind('"')
+        if end >= 0:
+            out[qt] = seg[:end]
+    return out
+
+
+def read_answers(path: Path):
+    """(followed, answered) over orchestrator AskUserQuestion questions that offered a (Recommended)
+    option. Another option or free text counts as answered, not followed; interrupted or unparsed
+    results and questions without a Recommended option count in neither."""
+    pending, followed, answered = {}, 0, 0
+    for rec, _ in read_jsonl(path):
+        if not rec or rec.get("isSidechain"):
+            continue
+        content = (rec.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if (rec.get("type") == "assistant" and item.get("type") == "tool_use"
+                    and item.get("name") == "AskUserQuestion" and item.get("id")):
+                qs = []
+                for qd in (item.get("input") or {}).get("questions") or []:
+                    if not isinstance(qd, dict):
+                        continue
+                    rec_label = next((o.get("label") for o in qd.get("options") or []
+                                      if isinstance(o, dict) and "(Recommended)" in (o.get("label") or "")), None)
+                    qs.append((qd.get("question") or "", rec_label))
+                pending[item["id"]] = qs
+            elif rec.get("type") == "user" and item.get("type") == "tool_result" and item.get("tool_use_id") in pending:
+                qs = pending.pop(item["tool_use_id"])
+                got = _parse_answers(_result_text(item), [qt for qt, _ in qs])
+                for qt, rec_label in qs:
+                    if rec_label is None or qt not in got:
+                        continue
+                    answered += 1
+                    followed += _norm_label(got[qt]) == _norm_label(rec_label)
+    return followed, answered
+
+
 def load_runs(n1_root: Path):
     """Load merged run records from <n1_root>/*/memory/*/telemetry/runs/*.jsonl.
 
@@ -709,6 +781,17 @@ class BashCallsMetric(Metric):
         return float(v) if isinstance(v, (int, float)) else None
 
 
+class AnswerMatchMetric(Metric):
+    """Share of answered questions with a (Recommended) option where the user picked it (N1-483)."""
+    name, unit, direction = "answer_matches_recommendation", "ratio", "higher"
+
+    def compute(self, run_record, turns):
+        a = run_record.get("_answers")
+        if not a or not a[1]:
+            return None
+        return round(a[0] / a[1], 3)
+
+
 class ApiCallsMetric(Metric):
     """Total tool_use items from the orchestrator per run (pre-computed in compute_run_metrics)."""
     name, unit, direction = "api_calls_per_run", "count", "lower"
@@ -777,7 +860,7 @@ METRICS = [
     OrchestratorCacheCreationMetric(),
     QuestionMetric("questions_per_run", only_resolutions={"asked"}),
     QuestionMetric("brainstorm_questions", only_steps={"brainstorm"}),
-    QuestionShareMetric("recommended_followed_share", "auto-decided"),
+    AnswerMatchMetric(),
     QuestionShareMetric("decide_for_me_share", "decide-for-me"),
     QuestionShareMetric("inherited_share", "inherited"),
     # Tool efficiency
@@ -797,9 +880,11 @@ def compute_run_metrics(cache: dict) -> None:
     # Pre-compute tool call counts so BashCallsMetric / ApiCallsMetric can read them.
     transcript_path = cache.get("transcript_path")
     if transcript_path and Path(transcript_path).is_file():
-        bash_c, api_c = count_tool_calls(Path(transcript_path))
+        tp = Path(transcript_path)
+        bash_c, api_c = count_tool_calls(tp)
         run_record["_bash_calls"] = bash_c
         run_record["_api_calls"] = api_c
+        run_record["_answers"] = read_answers(tp)
     # Orchestrator metrics from merged run record
     orch = run_record.get("orchestrator") or {}
     totals = orch.get("totals") or {}
