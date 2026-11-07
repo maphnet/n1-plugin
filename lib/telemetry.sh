@@ -252,6 +252,30 @@ n1_remove_run_lock() {
     fi
 }
 
+# n1_abandon_run <tdir> <run> <ticket> <version> (N1-486): close a run nobody will finalize.
+# Appends an abandoned envelope_close unless a terminal one exists (type/tier from the ticket's
+# overview.md), merges, and removes the lock once runs/<run>.jsonl is non-empty. Never checks
+# pending agents: the Stop caller gates on them, recovery deliberately does not. Always returns 0.
+n1_abandon_run() {
+    local tdir="$1" run="$2" ticket="$3" version="$4" out ov t="" tr=""
+    out="$tdir/raw/steps/$run.jsonl"
+    mkdir -p "$tdir/raw/steps"
+    if ! grep -q '"layer"[[:space:]]*:[[:space:]]*"envelope_close"' "$out" 2>/dev/null; then
+        ov="$tdir/../overview.md"
+        if [ -f "$ov" ]; then
+            type n1_read_frontmatter >/dev/null 2>&1 || source "${_N1_LIB_DIR}/frontmatter.sh"
+            t=$(n1_read_frontmatter "$ov" type 2>/dev/null || true)
+            tr=$(n1_read_frontmatter "$ov" tier 2>/dev/null || true)
+        fi
+        printf '{"layer":"envelope_close","run_id":"%s","n1_version":"%s","ticket_id":"%s","completed_at":"%s","final_outcome":"abandoned","type":"%s","estimated_tier":"%s"}\n' \
+            "$(escape_json_val "$run")" "$(escape_json_val "$version")" "$(escape_json_val "$ticket")" \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(escape_json_val "$t")" "$(escape_json_val "$tr")" >> "$out"
+    fi
+    bash "${_N1_LIB_DIR}/../hooks/telemetry-merge.sh" "$run" "$tdir" 2>/dev/null || true
+    [ -s "$tdir/runs/$run.jsonl" ] && n1_remove_run_lock "$tdir" "$run"
+    return 0
+}
+
 # n1_emit_outcome <run_id> <n1_version> <ticket_id> <telemetry_dir> [key=value ...]
 # Appends a pipeline-completion quality outcome event
 # Expected keys: review_pass_first_try, qa_pass_first_try, fix_cycles_count, total_duration_s
