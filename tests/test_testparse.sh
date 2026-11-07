@@ -80,6 +80,8 @@ printf '======================================================================\n
 assert_eq "unittest ERROR name" "test_x" "$(n1_testparse_failed_names "$T/unittest_error.txt")"
 printf 'ERROR: test_y (pkg.mod.Class.test_y)\n' > "$T/unittest_error311.txt"
 assert_eq "unittest 3.11+ ERROR name" "test_y" "$(n1_testparse_failed_names "$T/unittest_error311.txt")"
+printf 'ERROR: test_z (pkg.Test.test_z) (value=1)\n' > "$T/unittest_subtest.txt"
+assert_eq "unittest subtest ERROR name" "test_z" "$(n1_testparse_failed_names "$T/unittest_subtest.txt")"
 printf 'ERROR: something failed\nERROR: could not connect (host down)\n' > "$T/generic_error.txt"
 assert_eq "generic ERROR log lines are not test names" "" "$(n1_testparse_failed_names "$T/generic_error.txt")"
 

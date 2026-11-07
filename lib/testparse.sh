@@ -48,7 +48,7 @@ n1_testparse_failed_names() {
         # paren group so generic "ERROR: <message>" log lines are not taken for test names.
         # Import failures (unittest.loader._FailedTest) and class/module fixture errors are not test names:
         # they stay inconclusive instead of becoming a never-red verdict.
-        /^ERROR: [^ ]+ \([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.]*\)[[:space:]]*$/ {
+        /^ERROR: [^ ]+ \([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.]*\)( \([^()]*\))?[[:space:]]*$/ {
             if ($3 ~ /^\(unittest\.loader\./ || $2 ~ /^(setUpClass|setUpModule|tearDownClass|tearDownModule)$/) next
             print $2; next
         }
