@@ -5,7 +5,7 @@ set -uo pipefail
 R="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$R/lib/frontmatter.sh"
 PASS=0; FAIL=0
-eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS + 1)); else echo "FAIL: $1 -- expected '$2', got '$3'"; FAIL=$((FAIL + 1)); fi; }
+eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; PASS=$((PASS + 1)); else e=$(printf %s "$2" | tr '\n()' '  []'); a=$(printf %s "$3" | tr '\n()' '  []'); echo "FAIL: $1 (expected='$e' actual='$a')"; FAIL=$((FAIL + 1)); fi; }
 yn() { "$@" && echo yes || echo no; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 HOOK='^awaiting: merge$'   # the exact pattern hooks/session-start.sh scans for
