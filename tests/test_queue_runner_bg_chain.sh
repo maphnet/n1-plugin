@@ -1393,6 +1393,48 @@ test_final_pr_tag_mode() {
     rm -rf "$tmp"
 }
 
+# N1-478 AC1. Bug caught: § Launch printed $!. With job control, setsid forks, so $! is the setsid parent that already
+# exited, and the session watch ended at once ("runner (pid N) is gone"). The launcher must report the pid the runner
+# itself wrote to queue.md, on the setsid-fork path and the nohup path, and report nothing when the runner never writes one.
+test_launch_pid() {
+    local tmp pid got rc; tmp=$(mktemp -d)
+    mkdir -p "$tmp/scripts" "$tmp/bin"
+    cat > "$tmp/scripts/n1-queue-run.sh" <<'EOF'
+source "$R/lib/frontmatter.sh"
+[ -n "${NOPID:-}" ] || n1_write_frontmatter "$1" pid "$$"
+sleep 30
+EOF
+    # Fake setsid that always forks and exits at once: what real setsid does when the caller leads its process group.
+    printf '#!/usr/bin/env bash\n"$@" &\nexit 0\n' > "$tmp/bin/setsid"; chmod +x "$tmp/bin/setsid"
+    # (a) setsid fork: $! is the exited parent.
+    printf -- '---\nstep: run\n---\n' > "$tmp/q1.md"
+    R="$REPO_ROOT" "$tmp/bin/setsid" bash "$tmp/scripts/n1-queue-run.sh" "$tmp/q1.md" >/dev/null 2>&1 < /dev/null &
+    pid=$!
+    got=$(n1_queue_launch_pid "$tmp/q1.md" 10)
+    assert_eq "launch-pid: setsid fork reports the runner pid, not \$!" "yes" \
+        "$([ -n "$got" ] && [ "$got" != "$pid" ] && [ "$got" = "$(n1_read_frontmatter "$tmp/q1.md" pid)" ] && echo yes || echo no)"
+    [ -n "$got" ] && { pkill -P "$got" 2>/dev/null; kill "$got" 2>/dev/null; }; wait "$pid" 2>/dev/null || true
+    # (b) nohup path (no setsid): the runner pid is $! itself.
+    printf -- '---\nstep: run\n---\n' > "$tmp/q2.md"
+    R="$REPO_ROOT" nohup bash "$tmp/scripts/n1-queue-run.sh" "$tmp/q2.md" >/dev/null 2>&1 < /dev/null &
+    pid=$!
+    got=$(n1_queue_launch_pid "$tmp/q2.md" 10)
+    assert_eq "launch-pid: nohup path reports the runner pid" "$pid" "$got"
+    pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true
+    # (c) the runner never writes a pid: nothing printed, rc 1, after the given tries.
+    printf -- '---\nstep: run\n---\n' > "$tmp/q3.md"
+    NOPID=1 R="$REPO_ROOT" nohup bash "$tmp/scripts/n1-queue-run.sh" "$tmp/q3.md" >/dev/null 2>&1 < /dev/null &
+    pid=$!
+    rc=0; got=$(n1_queue_launch_pid "$tmp/q3.md" 2) || rc=$?
+    assert_eq "launch-pid: timeout prints nothing and fails" "|1" "$got|$rc"
+    pkill -P "$pid" 2>/dev/null; kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null || true
+    # (d) run.md wiring: § Launch uses the helper and no longer trusts $!.
+    local md="$REPO_ROOT/skills/n1-queue/steps/run.md"
+    assert_eq "launch-pid: run.md reads the pid through n1_queue_launch_pid" "1|0" \
+        "$(grep -cF 'RUNNER_PID=$(n1_queue_launch_pid "$QUEUE_FILE")' "$md" || true)|$(grep -cF 'RUNNER_PID=$!' "$md" || true)"
+    rm -rf "$tmp"
+}
+
 test_bg_held_not_launched
 test_bg_held_blocker_failed
 test_bg_held_user_merge
@@ -1464,6 +1506,7 @@ test_final_pr_merged_resume
 test_final_pr_tag_mode
 test_lifecycle_wiring
 test_merge_wording
+test_launch_pid
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -1466,6 +1466,41 @@ n1_queue_runner_alive() {
     return 1
 }
 
+n1_queue_launch_pid() {
+    # Usage: n1_queue_launch_pid <queue.md> [tries=10] — N1-478: print the pid the runner wrote to <queue.md> frontmatter
+    # (its own $$, written before `step: run`) once n1_queue_runner_alive confirms it. Polls once a second, <tries> times.
+    # $! after `setsid ... &` is the exited setsid parent when setsid forks (the job leads its process group under job
+    # control), so the launcher must not report it. Prints nothing and returns 1 on timeout.
+    local q="$1" n="${2:-10}" i pid
+    case "$n" in ''|*[!0-9]*) n=10 ;; esac
+    for ((i = 0; i < n; i++)); do
+        pid=$(n1_read_frontmatter "$q" pid 2>/dev/null)
+        n1_queue_runner_alive "$pid" "$q" && { printf '%s\n' "$pid"; return 0; }
+        sleep 1
+    done
+    return 1
+}
+
+n1_queue_recent_activity() {
+    # Usage: n1_queue_recent_activity <n1-home> <ticket> <window-secs> — N1-478: exit 0 when the ticket's worker shows work
+    # inside the window without a beacon: the latest commit in the overview's workspace_path, any file under
+    # memory/<ticket>/ modified, or a subagent with a start row and no stop row in the newest telemetry agents file.
+    # Called only after the beacon age already passed queue.stallMinutes. Any read failure counts as no signal, so the
+    # stall flag then fires as before.
+    local h="$1" t="$2" win="$3" ws ct ag
+    case "$t" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+    case "$win" in ''|*[!0-9]*) return 1 ;; esac
+    ws=$(n1_read_frontmatter "$h/memory/$t/overview.md" workspace_path 2>/dev/null)
+    if [ -n "$ws" ] && [ -d "$ws" ]; then
+        ct=$(git -C "$ws" log -1 --format=%ct 2>/dev/null)
+        [[ "$ct" =~ ^[0-9]+$ ]] && [ $(( $(date +%s) - ct )) -le "$win" ] && return 0
+    fi
+    [ -n "$(find "$h/memory/$t" -type f -mmin "-$(( (win + 59) / 60 ))" -print 2>/dev/null | head -n1)" ] && return 0
+    ag=$(ls -t "$h/memory/$t/telemetry/raw/agents/"*.jsonl 2>/dev/null | head -n1)
+    # An orphaned start (process died before its stop row) counts only while the agents file itself is under an hour old.
+    [ -n "$ag" ] && [ -n "$(find "$ag" -mmin -60 2>/dev/null)" ] && jq -s -e 'group_by(.agent_id) | any(.[]; any(.event == "start") and all(.event != "stop"))' "$ag" >/dev/null 2>&1
+}
+
 n1_queue_interrupted() {
     # Usage: n1_queue_interrupted <queue.md> — N1-183: exit 0 when the run says step: run but its
     # runner is gone (killed with the launching session, crashed, or host restart).
@@ -1682,7 +1717,7 @@ n1_queue_digest() {
         | [inputs | fromjson? | objects] | group_by(.queue) | map(
             .[-1] as $end
             | any($g[]; . == $end.queue) as $dead
-            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled")] | group_by(.ticket) | map(.[-1])) as $t
+            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled" and .event != "worker_owed" and .event != "slot_held")] | group_by(.ticket) | map(.[-1])) as $t
             | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "no-pr")] | length) as $nopr
@@ -1708,7 +1743,7 @@ n1_queue_watch() {
     # Usage: n1_queue_watch <queue_dir> <run_id> <runner_pid> [from_line]
     # Session-side relay for one queue run. Every queue.pollSeconds, prints new escalated (full
     # mirrored question when present) / answer_delivered / escalation_retracted (N1-422) /
-    # ticket_finished / ticket_comment / ticket_replan / stalled / worker_stopped (errored only, N1-393) / halted / queue_done
+    # ticket_finished / ticket_comment / ticket_replan / stalled / worker_stopped (errored only, N1-393) / worker_owed / slot_held (N1-478) / halted / queue_done
     # events in <queue_dir>/events.jsonl whose run_id is <run_id> (never queue id alone: a
     # relaunch appends to the same file).
     # Consumed-line count persists in <queue_dir>/.watch-<run_id>.<session>, so re-running the
@@ -1794,6 +1829,10 @@ n1_queue_watch() {
                         # N1-393: only an errored stop needs a human; finished/other stop reasons stay silent.
                         case "$reason" in 'stopped (errored)'*)
                             printf 'n1-queue %s: %s worker stopped, needs attention (%s)\n' "$q" "$t" "$reason" ;; esac ;;
+                    worker_owed)   # N1-478: the worker ended its turn after its PR without CI watch or finish
+                        printf 'n1-queue %s: %s worker ended its turn after the PR without finishing; resume: n1-start %s\n' "$q" "$t" "$t" ;;
+                    slot_held)     # N1-478: owed workers alone keep pending rows from starting
+                        printf 'n1-queue %s: %s still hold the slot after their PR; %s\n' "$q" "$t" "$reason" ;;
                     ticket_finished)
                         printf 'n1-queue %s: %s finished: %s%s%s\n' "$q" "$t" "$out" "${pr:+ $pr}" "${reason:+ ($reason)}" ;;
                     halted|queue_done)
@@ -1803,7 +1842,7 @@ n1_queue_watch() {
                 esac
             done < <(sed -n "$((seen + 1)),${total}p" "$events" | jq -rR --arg run "$run" '
                 fromjson? | objects | select(.run_id == $run)
-                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "escalation_retracted" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "worker_stopped" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
+                | select(.event == "escalated" or .event == "answer_delivered" or .event == "unblocked" or .event == "escalation_retracted" or .event == "ticket_comment" or .event == "ticket_replan" or .event == "stalled" or .event == "worker_stopped" or .event == "worker_owed" or .event == "slot_held" or .event == "ticket_finished" or .event == "halted" or .event == "queue_done")
                 | [.event, .ticket, .outcome, .pr, .session, .reason]
                 | map(tostring | gsub("[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\u061c\u00ad\u200b-\u200d\u2060-\u2064\ufeff\\x{E0000}-\\x{E007F}]"; " ")) as $arr
                 # N1-60 [CR-4]: a packed-question reason is already capped at write time

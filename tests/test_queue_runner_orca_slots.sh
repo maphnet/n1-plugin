@@ -15,6 +15,29 @@ test_orca_owed_holds_slot() {   # an unsettled finished worker still counts towa
     rm -rf "$tmp"
 }
 
+# N1-478 AC4. Bug caught: an owed worker (pr row, no worker_done, no stop notice; N1-440) held the only slot and the
+# session was never told why pending rows did not start.
+test_orca_slot_held_told() {
+    local tmp; tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.stallMinutes = 1 | .queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running)"
+    touch "$tmp/fake/nodone.T-A"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
+    assert_eq "slot-held: one event naming T-A and the waiting row" "T-A|1 pending row(s) waiting" \
+        "$(jq -r 'select(.event == "slot_held") | "\(.ticket)|\(.reason)"' "$tmp/events.jsonl")"
+    assert_eq "slot-held: T-B still waits" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    rm -rf "$tmp"
+    # stallMinutes 0 disables the notice.
+    tmp=$(mktemp -d)
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.stallMinutes = 0 | .queue.subtaskTimeoutMinutes = 600'
+    wl_set "$tmp" "$(wl_row T-A running)"; touch "$tmp/fake/nodone.T-A"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=10 > /dev/null
+    assert_eq "slot-held: stallMinutes 0 disables" "0" "$(grep -c '"slot_held"' "$tmp/events.jsonl" || true)"
+    rm -rf "$tmp"
+}
+
 test_orca_notifier_drain_keeps_rows() {   # N1-265: a stdin-draining notifier must not hide in-flight rows from the slot count
     local tmp t; tmp=$(mktemp -d)
     mk_bg "$tmp" oq "T-A:done" "T-B:done" "T-C:done" "T-D:done" "T-E:done"; mk_orca "$tmp"
@@ -101,6 +124,8 @@ test_orca_stop_finished_releases_pr_slot() {
     assert_eq "orca-stop-slot: T-A is pr" "pr" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "orca-stop-slot: worker released" "1" "$(grep -c 'worker-release --dispatch d-T-A' "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-stop-slot: T-B launched" "1" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-slot: one worker_owed event for T-A (N1-478 AC3)" "T-A" \
+        "$(jq -r 'select(.event == "worker_owed") | .ticket' "$tmp/events.jsonl")"
     rm -rf "$tmp"
 }
 
@@ -120,6 +145,67 @@ test_orca_stop_finished_keeps_in_progress() {
     assert_eq "orca-stop-slot: in-progress row unchanged" "in-progress" "$(plan_cell "$tmp/queue.md" 1 8)"
     assert_eq "orca-stop-slot: no release" "0" "$(grep -c worker-release "$tmp/fake/orca-calls" || true)"
     assert_eq "orca-stop-slot: T-B not launched" "0" "$(grep -c -- "--task task-T-B" "$tmp/fake/orca-calls" || true)"
+    assert_eq "orca-stop-slot: no worker_owed for an in-progress row" "0" "$(grep -c '"worker_owed"' "$tmp/events.jsonl" || true)"
+    rm -rf "$tmp"
+}
+
+# N1-478 AC5. Bug caught: a PR the user merged while its worker was owed (after a "finished" stop notice) was recorded
+# only at the ~180-minute owed expiry, so its Schedule successors waited and n1-finish (ticket close, follow-ups) never ran.
+merged_sweep_run() {   # <tmp> <worker-list liveness verdict>: T-A pr (GitHub URL), stop notice and user merge on tick 3
+    local tmp="$1"
+    mk_bg "$tmp" oq "T-A:done" "T-B:done"; mk_orca "$tmp"
+    cfg_set "$tmp" '.queue.maxConcurrent = 1 | .queue.subtaskTimeoutMinutes = 600 | .autonomy.fullAuto = true | .finishWork.mergeOnFinish = true'
+    wl_set "$tmp" "$(wl_row T-A running "$2")"
+    touch "$tmp/fake/nodone.T-A"
+    printf -- '---\nstep: pr\n---\n## Pending\npr_url: https://github.com/o/r/pull/7\n' > "$tmp/fake/overview.T-A"
+    echo OPEN > "$tmp/fake/gh-state"
+    orca_msg escalation task-T-A m-stop1 finished "Worker stopped without reporting" "Worker ended its turn" > "$tmp/fake/q.stop"
+    printf 'cp "%s" "%s"; echo MERGED > "%s"\n' "$tmp/fake/q.stop" "$tmp/fake/question" "$tmp/fake/gh-state" > "$tmp/fake/at.3"
+    # $3 = idle (ticket memory old) or active (a resumed worker keeps writing it, so it is fresh)
+    mkdir -p "$tmp/n1home/memory/T-A"; echo x >> "$tmp/n1home/memory/T-A/notes.md"
+    # (aged on tick 3: worker-start writes the overview at launch)
+    [ "${3:-}" = active ] || printf "find '%s' -type f -exec touch -d '2 hours ago' {} +\n" "$tmp/n1home/memory/T-A" >> "$tmp/fake/at.3"
+    # beacon: memory aged, only a fresh progress beacon (re-written by the at.* hooks) shows activity
+    [ "${3:-}" != beacon ] || for i in 3 4 5 6 7 8; do printf "printf '%%s\\tci\\n' \"\$(date +%%s)\" > '%s/.hb-T-A'\n" "$tmp" >> "$tmp/fake/at.$i"; done
+    [ -z "${4:-}" ] || printf 'old-run\n%s\n' "$4" > "$tmp/.chained-T-A"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+}
+
+# Codex: a marker still pending (crash before the runner's -fin launch was confirmed) must not suppress the owed finish;
+# a launched one means -fin ran, so the sweep falls back to n1-clean.
+test_orca_merged_sweep_marker_state() {
+    local tmp st; for st in pending launched; do
+        tmp=$(mktemp -d); merged_sweep_run "$tmp" unverifiable idle "$st"
+        assert_eq "merged-sweep marker $st: mfin|clean" "$([ "$st" = pending ] && echo '1|0' || echo '0|1')" \
+            "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-clean')"
+        rm -rf "$tmp"
+    done
+}
+
+test_orca_merged_sweep_settles() {
+    local tmp; tmp=$(mktemp -d)
+    merged_sweep_run "$tmp" unverifiable idle
+    assert_eq "merged-sweep: recorded merged" "merged" \
+        "$(jq -r 'select(.event == "ticket_finished" and .ticket == "T-A") | .outcome' "$tmp/events.jsonl" | tail -1)"
+    assert_eq "merged-sweep: n1-finish launched once, no n1-clean" "1|0" \
+        "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-clean')"
+    assert_eq "merged-sweep: finish marker carries the run id" "yes" "$([ -s "$tmp/.finished-T-A" ] && echo yes || echo no)"
+    rm -rf "$tmp"
+}
+
+test_orca_merged_sweep_skips_active_deferred() {   # N1-478 CR-1: released dispatch reads exited, worker still writes memory
+    local tmp; tmp=$(mktemp -d)
+    merged_sweep_run "$tmp" exited active
+    assert_eq "merged-sweep: resumed deferred worker not settled" "0|0" \
+        "$(grep -c '"ticket_finished".*"merged"' "$tmp/events.jsonl" || true)|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')"
+    rm -rf "$tmp"
+}
+
+test_orca_merged_sweep_skips_beaconing_deferred() {   # N1-478 CR-1: a fresh beacon alone protects a deferred worker
+    local tmp; tmp=$(mktemp -d)
+    merged_sweep_run "$tmp" unverifiable beacon
+    assert_eq "merged-sweep: beaconing deferred worker not settled" "0|0" \
+        "$(grep -c '"ticket_finished".*"merged"' "$tmp/events.jsonl" || true)|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')"
     rm -rf "$tmp"
 }
 
@@ -182,6 +268,11 @@ test_orca_stop_finished_same_tick_releases
 test_orca_stop_finished_keeps_in_progress
 test_orca_stop_notice_then_resume_no_chain
 test_orca_stop_notice_deferral_survives_restart
+test_orca_slot_held_told
+test_orca_merged_sweep_settles
+test_orca_merged_sweep_marker_state
+test_orca_merged_sweep_skips_active_deferred
+test_orca_merged_sweep_skips_beaconing_deferred
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
