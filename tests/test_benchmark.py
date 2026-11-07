@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -773,6 +774,23 @@ class ReportTest(unittest.TestCase):
     def test_cmd_report_without_snapshots(self):
         d = TempDirs()
         self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
+
+
+class SkillRootResolutionTest(unittest.TestCase):
+    """N1-482 AC5: with CLAUDE_PLUGIN_ROOT unset both skills fall back to ~/.n1/host.json
+    instead of accepting an empty root because /lib exists on the machine."""
+
+    def test_root_resolves_from_host_json_when_env_unset(self):
+        home = Path(tempfile.mkdtemp())
+        (home / ".n1").mkdir()
+        (home / ".n1" / "host.json").write_text(json.dumps({"pluginRoot": str(REPO)}), encoding="utf-8")
+        env = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+        for name in ("n1-benchmark", "n1-telemetry-analyzer"):
+            skill = (REPO / ".claude" / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+            line = next(l for l in skill.splitlines() if l.startswith("N1_ROOT="))
+            res = subprocess.run(["bash", "-c", line + '\nprintf %s "$N1_ROOT"'], env=env,
+                                 capture_output=True, text=True)
+            self.assertEqual(res.stdout, str(REPO), f"{name}: {res.stderr}")
 
 
 class SkillInvocationTest(unittest.TestCase):
