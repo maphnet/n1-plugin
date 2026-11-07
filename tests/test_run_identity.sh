@@ -263,5 +263,11 @@ grep envelope_close "$AB/memory/AB-DEAD/telemetry/raw/steps/n1-run-abdead.jsonl"
 for c in AB-LIVE:n1-run-ablive AB-FRESH:n1-run-abfresh AB-SELF:n1-run-abself; do
     untouched "${c%%:*}" "${c#*:}" || { echo "FAIL: $c was merged" >&2; exit 1; }
 done
+# Without jq the pointer's unquoted pid must still protect a live owner.
+NOJQ="$T/nojq-bin"; mkdir -p "$NOJQ"
+for d in /usr/bin /bin; do for f in "$d"/*; do [ "${f##*/}" = jq ] || ln -sf "$f" "$NOJQ/${f##*/}" 2>/dev/null || true; done; done
+abrun AB-NOJQ n1-run-abnojq s-nojq "$LIVE" 1
+( export N1_HOME="$AB" N1_SESSION_ID=s-self PATH="$NOJQ"; unset N1_RUN_ID; ! command -v jq >/dev/null && n1_merge_pending "$AB/memory" )
+untouched AB-NOJQ n1-run-abnojq || { echo 'FAIL: live owner not protected without jq' >&2; exit 1; }
 kill "$LIVE" 2>/dev/null || true
 echo 'PASS: n1_merge_pending abandons dead idle runs and keeps live, fresh and own runs'
