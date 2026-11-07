@@ -113,6 +113,48 @@ for N1H in "" 1; do
     eq "fc1[headless=$N1H]: pointer read allowed" 0 "$(polx n1:pr-worker Bash 'cat ~/.n1/x/active-run.s-pr.json')"
     eq "authorized[headless=$N1H]: main session gh pr merge allowed" 0 "$(polx '' Bash 'gh pr merge 7')"
 done
+# N1-474 fix cycle 2: interpreter hand-off is read for pr-worker/tail-worker/tech-writer only; the generic gate (main
+# session in a run, other subagents) is back to command-position matching, so message text is not a command (CR-6/SEC-7/CR-7)
+CFG=; N1H=; NH="$T/nh"
+for c in "git commit -m 'Forms like eval \$(x) and | bash now count, gh pr merge stays denied'" \
+    "git commit -m 'grep -E (py|sh)\$ then gh pr merge notes'" "git commit -F- <<'EOF'
+Forms like eval \$(x) now count, so gh pr merge from pr-worker stays denied. git push origin main too.
+EOF" "git commit -m 'pointer -> active-run, n1_step_end and bash <<< gh pr merge'"; do
+    eq "fc2: main session in run commit text allowed: ${c:0:50}" 0 "$(polx '' Bash "$c")"
+    eq "fc2: developer in run commit text allowed: ${c:0:50}" 0 "$(polx n1:developer Bash "$c")"
+done
+eq "fc2: main session in run | bash merge text is not read as a command (as before N1-474)" 0 "$(polx '' Bash "echo '$MRG' | bash")"
+# restricted workers: forms that hand text to another interpreter or delete the pointer indirectly (SEC-2/SEC-3/CR-4)
+for w in n1:pr-worker n1:tail-worker; do
+    for c in "echo '$MRG' | sudo bash" "echo '$MRG' | env bash" "echo '$MRG' | bash -" "echo '$MRG' | bash /dev/stdin" "bash < <(echo $MRG)" \
+        "echo '$MRG' | ksh" "claude -p 'do it'" "python3 -c 'import os; os.system(\"$MRG\")'" "perl -e 'system \"$MRG\"'" \
+        "awk 'BEGIN{system(\"$MRG\")}'" "find . -maxdepth 0 -exec $MRG \\;" "git -c alias.m='!$MRG' m" "case x in a) $MRG;; esac" \
+        "echo 'git push origin HEAD:main' | bash"; do
+        eq "fc2: $w denies: $c" 2 "$(polx $w Bash "$c")"
+    done
+done
+for w in n1:pr-worker n1:tail-worker n1:tech-writer; do
+    for c in 'rm ~/.n1/*/*.s-pr.json' 'rm ~/.n1/x/act*' 'rm -rf ~/.n1/x' 'mv ~/.n1 /tmp/z' 'rm -rf $N1_HOME' 'cd ~/.n1/x && rm *.json' \
+        "find ~/.n1 -name 'active*' -delete" 'ls ~/.n1/*/active-run* | xargs rm' 'ls ~/.n1/x | xargs -n1 rm -f' \
+        "python3 -c 'import glob,os;[os.remove(p) for p in glob.glob(\"$HOME/.n1/*/active*\")]'" "perl -e 'unlink glob q(~/.n1/x/active*)'"; do
+        eq "fc2: $w denies pointer tamper: $c" 2 "$(polx $w Bash "$c")"
+    done
+    eq "fc2: $w rm of a plain file allowed" 0 "$(polx $w Bash 'rm -f /tmp/x.tmp')"
+    eq "fc2: $w commit text with arrow and | bash allowed" 0 "$(polx $w Bash 'git commit -m "docs: pointer -> active-run is read-only; a | bash b"')"
+done
+eq "fc2: pr-worker grep for bash in a pipe allowed" 0 "$(polx n1:pr-worker Bash 'gh pr view 7 | grep -i bash')"
+# SEC-6: every added regex is linear; a ~200KB adversarial command is decided fast (fail-open on hook timeout otherwise)
+TJ="$T/adv.json"
+for pat in 'eval ' '|' '>' '-sh ' 'sh '; do
+    python3 - "$pat" "$TJ" <<'PY'
+import json, sys
+pat, out = sys.argv[1], sys.argv[2]
+cmd = pat * (200000 // len(pat)) + "; echo ok"
+json.dump({"agent_type": "n1:pr-worker", "tool_name": "Bash", "session_id": "s-pr", "cwd": "/tmp", "tool_input": {"command": cmd}}, open(out, "w"))
+PY
+    S=$(date +%s); timeout 20 env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" python3 hooks/enforce-agent-policy.py "" "$REPO" < "$TJ" >/dev/null 2>&1; E=$(date +%s)
+    if [ $((E - S)) -lt 5 ]; then ok "fc2: 200KB '$pat' decided in under 5s"; else no "fc2: 200KB '$pat' took $((E - S))s"; fi
+done
 CFG=; N1H=; NH=
 # N1-474 CR-2: outside a run (no keyed pointer, no config) only pr-worker and tail-worker stay merge-gated when attended
 for a in general-purpose n1:developer n1:tech-writer; do
