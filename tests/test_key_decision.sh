@@ -18,4 +18,11 @@ assert_eq "ledger table untouched and last" '| r |' "$(tail -n1 "$T/e.md")"
 printf '# T\n\n## Decision Ledger\n| r |\n' > "$T/n.md"
 n1_append_escalation "$T/n.md" '- x'
 assert_eq "section created at EOF when absent" '## Escalations|- x' "$(tail -n2 "$T/n.md" | paste -sd'|')"
+# N1-492: step snippets must source lib/memory.sh before calling n1_append_key_decision
+for f in plan plan-review; do
+  F="$REPO_ROOT/skills/n1-start/steps/$f.md"
+  S=$(grep -n 'source "\$N1_ROOT/lib/memory.sh"' "$F" | head -n1 | cut -d: -f1)
+  C=$(grep -n '^n1_append_key_decision' "$F" | head -n1 | cut -d: -f1)
+  assert_eq "$f.md sources lib/memory.sh before n1_append_key_decision" "1" "$([ -n "$S" ] && [ -n "$C" ] && [ "$S" -lt "$C" ] && echo 1 || echo 0)"
+done
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

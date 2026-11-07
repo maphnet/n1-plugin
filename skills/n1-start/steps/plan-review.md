@@ -31,6 +31,7 @@ Output: `## Plan Review Result` / `**Verdict:** CLEAN | FIXED` / `**Changes:**` 
 
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/memory.sh"
 n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "Plan review: <CLEAN|FIXED> - <one-line change summary; no quotes, backticks or $>"
 n1_step_end "plan-review" 5 success '{"verdict":"<CLEAN|FIXED>"}'
 ```
