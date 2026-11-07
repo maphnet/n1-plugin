@@ -141,7 +141,8 @@ n1_emit_rebind() {
 
 # n1_close_run: FINALIZE close for $ID: bind run to ticket, write
 # envelope_close. Optional env FINAL_OUTCOME / ESTIMATED_TIER override; else tier = overview `tier`, outcome =
-# overview `final_outcome`, else pr_created when overview has a `## Pending` section with pr:/pr_url:, else empty. Then merge.
+# overview `final_outcome`, else pr_created when overview frontmatter has a non-empty `pr_url` or a `## Pending`
+# or `## Finish` section has pr:/pr_url:, else empty. Then merge.
 # The lock stays: Gate 3 and the chained n1-finish run after this, and the turn's
 # Stop hook sees the terminal envelope, re-merges them in (orchestrator.tail) and removes the lock (N1-229).
 # Unbound run (no/ambiguous) or no resolvable ticket (ID unset and no lock) -> no-op. Always returns 0.
@@ -162,7 +163,11 @@ n1_close_run() {
     t=$(n1_read_frontmatter "$ov" "type" 2>/dev/null || true)
     tr="${ESTIMATED_TIER:-$(n1_read_frontmatter "$ov" "tier" 2>/dev/null || true)}"
     o="${FINAL_OUTCOME:-$(n1_read_frontmatter "$ov" "final_outcome" 2>/dev/null || true)}"
-    if [ -z "$o" ] && [ -f "$ov" ] && awk '/^## /{p=($0 ~ /^## Pending[[:space:]]*$/);next} p&&/^(pr|pr_url):/{f=1} END{exit !f}' "$ov"; then o=pr_created; fi
+    if [ -z "$o" ]; then
+        local pu; pu=$(n1_read_frontmatter "$ov" "pr_url" 2>/dev/null || true)
+        case "$pu" in ''|'""'|"''"|null) ;; *) o=pr_created ;; esac
+    fi
+    if [ -z "$o" ] && [ -f "$ov" ] && awk '/^## /{p=($0 ~ /^## (Pending|Finish)[[:space:]]*$/);next} p&&/^(pr|pr_url):/{f=1} END{exit !f}' "$ov"; then o=pr_created; fi
     printf '{"layer":"envelope_close","run_id":"%s","n1_version":"%s","ticket_id":"%s","completed_at":"%s","final_outcome":"%s","estimated_tier":"%s","type":"%s"}\n' \
         "$(escape_json_val "$N1_RUN_ID")" "$(escape_json_val "$N1_VERSION")" "$(escape_json_val "$ID")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         "$(escape_json_val "$o")" "$(escape_json_val "$tr")" "$(escape_json_val "$t")" >> "$tdir/raw/steps/$N1_RUN_ID.jsonl"

@@ -171,6 +171,21 @@ done
 grep envelope_close "$N1_HOME/memory/CL-D/telemetry/raw/steps/$CD.jsonl" | tail -1 | grep -q '"final_outcome":"escalated"' || { echo "FAIL: n1_close_run derives outcome and tier from overview.md, env wins (env outcome not kept)" >&2; exit 1; }
 echo 'PASS: n1_close_run derives outcome and tier from overview.md, env wins'
 
+# N1-482: frontmatter pr_url and a ## Finish pr_url also derive pr_created; other sections do not
+ID=CL-F; n1_run_begin "$ID"; CF="$N1_RUN_ID"
+printf -- '---\ntier: simple\npr_url: https://example.test/pr/7\n---\n# CL-F\n' > "$N1_HOME/memory/CL-F/overview.md"
+(unset FINAL_OUTCOME ESTIMATED_TIER; n1_close_run)
+grep envelope_close "$N1_HOME/memory/CL-F/telemetry/raw/steps/$CF.jsonl" | tail -1 | grep -q '"final_outcome":"pr_created"' || { echo "FAIL: n1_close_run derives pr_created from frontmatter pr_url" >&2; exit 1; }
+ID=CL-G; n1_run_begin "$ID"; CG="$N1_RUN_ID"
+printf -- '---\ntier: simple\n---\n# CL-G\n\n## Finish\nmerged: true\npr_url: https://example.test/pr/8\n' > "$N1_HOME/memory/CL-G/overview.md"
+(unset FINAL_OUTCOME ESTIMATED_TIER; n1_close_run)
+grep envelope_close "$N1_HOME/memory/CL-G/telemetry/raw/steps/$CG.jsonl" | tail -1 | grep -q '"final_outcome":"pr_created"' || { echo "FAIL: n1_close_run derives pr_created from ## Finish pr_url" >&2; exit 1; }
+ID=CL-H; n1_run_begin "$ID"; CH="$N1_RUN_ID"
+printf -- '---\ntier: simple\npr_url: ""\n---\n# CL-H\n\n## Notes\npr: 9\n' > "$N1_HOME/memory/CL-H/overview.md"
+(unset FINAL_OUTCOME ESTIMATED_TIER; n1_close_run)
+grep envelope_close "$N1_HOME/memory/CL-H/telemetry/raw/steps/$CH.jsonl" | tail -1 | grep -q '"final_outcome":""' || { echo "FAIL: n1_close_run ignores empty pr_url and pr lines outside Pending/Finish" >&2; exit 1; }
+echo 'PASS: n1_close_run derives pr_created from frontmatter and ## Finish pr_url'
+
 # N1-434 SEC-1: quotes/backslashes in overview values still yield valid JSON
 ID=CL-E; n1_run_begin "$ID"; CE="$N1_RUN_ID"
 printf -- '---\ntier: "standard\\x"\n---\n# CL-E\n' > "$N1_HOME/memory/CL-E/overview.md"
