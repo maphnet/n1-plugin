@@ -72,11 +72,13 @@ QA_FIRST=$( [ "${QA_FIX:-0}" = "0" ] && echo "true" || echo "false" )
 REVIEW_FIRST=$( [ "${REVIEW_FIX:-0}" = "0" ] && echo "true" || echo "false" )
 FIX_TOTAL=$(( ${QA_FIX:-0} + ${REVIEW_FIX:-0} ))
 FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
-BLOCKING_C1=$(n1_fingerprint_blocking_count_for_cycle "$FP_FILE" 0 2>/dev/null || echo 0)
+C0=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_c0_blocking"); HARD_FIRST=""
+if [[ $C0 =~ ^[0-9]+$ ]]; then BLOCKING_C1=$C0; HARD_FIRST=$([ "$C0" = 0 ] && echo true || echo false); else BLOCKING_C1=$(n1_fingerprint_blocking_count_for_cycle "$FP_FILE" 0 2>/dev/null || echo 0); fi
 BC_VERDICT=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "break_check_verdict"); BC_VERDICT=${BC_VERDICT:-skipped}
 DISCARDED=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_discarded_count"); DISCARDED=${DISCARDED:-0}
 n1_emit_outcome "$N1_RUN_ID" "$N1_VERSION" "$ID" "${N1_HOME}/memory/$ID/telemetry" \
     "review_pass_first_try=$REVIEW_FIRST" \
+    "review_pass_first_try_hard=$HARD_FIRST" \
     "qa_pass_first_try=$QA_FIRST" \
     "fix_cycles_count=$FIX_TOTAL" \
     "review_blocking_count=$BLOCKING_C1" \

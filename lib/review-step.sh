@@ -28,8 +28,9 @@ n1_review_entry() {
 
 n1_review_collect() {
     # Usage: n1_review_collect <true|false: security-reviewer spawned> — concatenates review-hdr/cr[/sec] into review.md,
-    # records fp-new.tsv fingerprints, checks convergence, prints TQ_MAX=; returns 1 (PARTIAL on stderr) on a missing file.
-    local MEM SEC="$1" f FP_FILE CYCLE TQ_MAX
+    # records fp-new.tsv fingerprints, persists cycle-0 review_c0_blocking (N1-483), checks convergence, prints TQ_MAX=;
+    # returns 1 (PARTIAL on stderr) on a missing file.
+    local MEM SEC="$1" f FP_FILE CYCLE TQ_MAX C0
     local -a FILES
     MEM="$N1_HOME/memory/$ID"
     FILES=(review-hdr.md review-cr.md); [ "$SEC" = true ] && FILES+=(review-sec.md)
@@ -39,5 +40,7 @@ n1_review_collect() {
     if [ -r "$MEM/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE" \
         || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
     [ "$CYCLE" -gt 0 ] && { n1_fingerprint_check_convergence "$FP_FILE" "$CYCLE" || echo "NON_CONVERGING: cycle $CYCLE"; }
+    [ "$CYCLE" -eq 0 ] && C0=$(n1_review_blocking_index_count "$MEM/review-hdr.md") \
+        && n1_write_frontmatter "$N1_HOME/memory/$ID/overview.md" review_c0_blocking "$C0"
     TQ_MAX=$(n1_config_val '.tq.maxFixAttempts'); TQ_MAX=${TQ_MAX:-2}; echo "TQ_MAX=$TQ_MAX"
 }

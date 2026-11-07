@@ -91,6 +91,122 @@ def count_tool_calls(path: Path):
     return bash_calls, api_calls
 
 
+_ANSWERED_PREFIX = "Your questions have been answered:"
+_USER_ANSWERED_PREFIX = "The user answered:"
+_FREE_TEXT_RE =re.compile(r'The user answered: "(.*)"', re.S)
+
+
+def _result_text(item: dict) -> str:
+    c = item.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "\n".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def _norm_label(s: str) -> str:
+    return (s or "").replace("(Recommended)", "").strip()
+
+
+def _parse_answers(text: str, questions):
+    """Map question text -> answer from an AskUserQuestion result. Splits on the known question
+    strings, never on a generic quote regex, because free text can contain quotes."""
+    text = text.strip()
+    body = None
+    if text.startswith(_ANSWERED_PREFIX):
+        body = text[len(_ANSWERED_PREFIX):]
+    elif text.startswith(_USER_ANSWERED_PREFIX) and any(
+            qt and f'"{qt}"="' in text for qt in questions):
+        body = text[len(_USER_ANSWERED_PREFIX):]  # Claude Code's per-question form
+    if body is None:
+        m = _FREE_TEXT_RE.match(text)
+        if m:
+            return {questions[0]: m.group(1)} if len(questions) == 1 else {}
+        return {}
+    found = sorted((body.find(f'"{qt}"="'), qt) for qt in questions if qt and f'"{qt}"="' in body)
+    out = {}
+    for i, (pos, qt) in enumerate(found):
+        seg = body[pos + len(qt) + 4:found[i + 1][0] if i + 1 < len(found) else len(body)]
+        end = seg.rfind('"')
+        if end >= 0:
+            out[qt] = seg[:end]
+    return out
+
+
+def read_answers(path: Path, started=None, completed=None):
+    """(followed, answered) over orchestrator AskUserQuestion questions that offered a (Recommended)
+    option. Another option or free text counts as answered, not followed; interrupted or unparsed
+    results and questions without a Recommended option count in neither. With started/completed, only
+    answers whose result record falls inside that window count."""
+    pending, followed, answered = {}, 0, 0
+    for rec, _ in read_jsonl(path):
+        if not rec or rec.get("isSidechain"):
+            continue
+        content = (rec.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if (rec.get("type") == "assistant" and item.get("type") == "tool_use"
+                    and item.get("name") == "AskUserQuestion" and item.get("id")):
+                qs = []
+                for qd in (item.get("input") or {}).get("questions") or []:
+                    if not isinstance(qd, dict):
+                        continue
+                    rec_label = next((o.get("label") for o in qd.get("options") or []
+                                      if isinstance(o, dict) and "(Recommended)" in (o.get("label") or "")), None)
+                    qs.append((qd.get("question") or "", rec_label))
+                pending[item["id"]] = qs
+            elif rec.get("type") == "user" and item.get("type") == "tool_result" and item.get("tool_use_id") in pending:
+                qs = pending.pop(item["tool_use_id"])
+                ts = parse_ts(rec.get("timestamp"))
+                if (started is not None and (ts is None or ts < started)) or (
+                        completed is not None and (ts is None or ts > completed)):
+                    continue
+                got = _parse_answers(_result_text(item), [qt for qt, _ in qs])
+                for qt, rec_label in qs:
+                    if rec_label is None or qt not in got:
+                        continue
+                    answered += 1
+                    followed += _norm_label(got[qt]) == _norm_label(rec_label)
+    return followed, answered
+
+
+HUMAN_WAIT_S = 120
+
+
+def read_wait_seconds(path: Path, started, completed):
+    """Seconds the orchestrator waited on the human or a usage limit (N1-483): a gap of at least
+    HUMAN_WAIT_S between consecutive non-sidechain user/assistant records where an assistant record is
+    followed by a human turn or an AskUserQuestion answer, or the earlier record is a rate-limit API
+    error. Each gap is clipped to [started, completed]. A long tool_result wait is work, not waiting."""
+    if started is None or completed is None:
+        return None
+    ask_ids, prev, wait = set(), None, 0.0
+    for rec, _ in read_jsonl(path):
+        if not rec or rec.get("isSidechain") or rec.get("type") not in ("user", "assistant"):
+            continue
+        ts = parse_ts(rec.get("timestamp"))
+        if ts is None:
+            continue
+        content = (rec.get("message") or {}).get("content")
+        items = [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+        if rec["type"] == "assistant":
+            ask_ids.update(b["id"] for b in items if b.get("type") == "tool_use"
+                           and b.get("name") == "AskUserQuestion" and b.get("id"))
+        if prev is not None and ts - prev[0] >= HUMAN_WAIT_S:
+            p = prev[1]
+            answer = rec["type"] == "user" and any(
+                b.get("type") == "tool_result" and b.get("tool_use_id") in ask_ids for b in items)
+            limited = p.get("isApiErrorMessage") and p.get("error") == "rate_limit"
+            if (p.get("type") == "assistant" and (is_human_turn(rec) or answer)) or limited:
+                wait += max(0.0, min(ts, completed) - max(prev[0], started))
+        prev = (ts, rec)
+    return wait
+
+
 def load_runs(n1_root: Path):
     """Load merged run records from <n1_root>/*/memory/*/telemetry/runs/*.jsonl.
 
@@ -563,6 +679,7 @@ class Metric:
     name = ""
     unit = ""
     direction = "lower"  # or "higher"
+    robust = False  # True: report median/p90, no CI delta (N1-483)
 
     def compute(self, run_record: dict, turns):
         raise NotImplementedError
@@ -617,12 +734,25 @@ class OutcomeMetric(Metric):
 
 class DurationMetric(Metric):
     name, unit, direction = "duration_min", "minutes", "lower"
+    robust = True
 
     def compute(self, run_record, turns):
         s, e = parse_ts(run_record.get("started_at")), parse_ts(run_record.get("completed_at"))
         if s is None or e is None or e < s:
             return None
         return round((e - s) / 60.0, 1)
+
+
+class WorkMinMetric(DurationMetric):
+    """duration_min minus human-wait and usage-limit gaps from the transcript (N1-483)."""
+    name = "work_min"
+
+    def compute(self, run_record, turns):
+        d = super().compute(run_record, turns)
+        w = run_record.get("_wait_s")
+        if d is None or not isinstance(w, (int, float)):
+            return None
+        return round(max(0.0, d - w / 60.0), 1)
 
 
 class OrchestratorTokensMetric(Metric):
@@ -645,11 +775,21 @@ class CompactionsMetric(Metric):
 
 
 class CacheCreationTokensMetric(Metric):
-    name, unit, direction = "cache_creation_tokens", "tokens", "lower"
+    """Cache creation tokens of the whole session tree (orchestrator plus every agent)."""
+    name, unit, direction = "session_cache_creation_tokens", "tokens", "lower"
 
     def compute(self, run_record, turns):
         val = (run_record.get("summary") or {}).get("total_cache_creation_tokens")
         return float(val) if isinstance(val, (int, float)) else None
+
+
+class OrchestratorCacheCreationMetric(Metric):
+    """Orchestrator-only cache creation tokens (N1-483); None unless usage is comparable."""
+    name, unit, direction = "orchestrator_cache_creation_tokens", "tokens", "lower"
+
+    def compute(self, run_record, turns):
+        v = run_record.get("_orch_cache_creation")
+        return float(v) if isinstance(v, (int, float)) else None
 
 
 class QuestionMetric(Metric):
@@ -697,6 +837,17 @@ class BashCallsMetric(Metric):
     def compute(self, run_record, turns):
         v = run_record.get("_bash_calls")
         return float(v) if isinstance(v, (int, float)) else None
+
+
+class AnswerMatchMetric(Metric):
+    """Share of answered questions with a (Recommended) option where the user picked it (N1-483)."""
+    name, unit, direction = "answer_matches_recommendation", "ratio", "higher"
+
+    def compute(self, run_record, turns):
+        a = run_record.get("_answers")
+        if not a or not a[1]:
+            return None
+        return round(a[0] / a[1], 3)
 
 
 class ApiCallsMetric(Metric):
@@ -759,13 +910,16 @@ METRICS = [
                     exclude_steps={"outside"} | INTERACTIVE_STEPS),
     OutcomeMetric("fix_cycles", "fix_cycles_count", "count", "lower"),
     OutcomeMetric("review_pass_first_try", "review_pass_first_try", "ratio", "higher", boolean=True),
+    OutcomeMetric("review_pass_first_try_hard", "review_pass_first_try_hard", "ratio", "higher", boolean=True),
     DurationMetric(),
+    WorkMinMetric(),
     OrchestratorTokensMetric(),
     CompactionsMetric(),
     CacheCreationTokensMetric(),
-    QuestionMetric("questions_per_run"),
+    OrchestratorCacheCreationMetric(),
+    QuestionMetric("questions_per_run", only_resolutions={"asked"}),
     QuestionMetric("brainstorm_questions", only_steps={"brainstorm"}),
-    QuestionShareMetric("recommended_followed_share", "auto-decided"),
+    AnswerMatchMetric(),
     QuestionShareMetric("decide_for_me_share", "decide-for-me"),
     QuestionShareMetric("inherited_share", "inherited"),
     # Tool efficiency
@@ -785,9 +939,13 @@ def compute_run_metrics(cache: dict) -> None:
     # Pre-compute tool call counts so BashCallsMetric / ApiCallsMetric can read them.
     transcript_path = cache.get("transcript_path")
     if transcript_path and Path(transcript_path).is_file():
-        bash_c, api_c = count_tool_calls(Path(transcript_path))
+        tp = Path(transcript_path)
+        bash_c, api_c = count_tool_calls(tp)
         run_record["_bash_calls"] = bash_c
         run_record["_api_calls"] = api_c
+        started, completed = parse_ts(run_record.get("started_at")), parse_ts(run_record.get("completed_at"))
+        run_record["_answers"] = read_answers(tp, started, completed)
+        run_record["_wait_s"] = read_wait_seconds(tp, started, completed)
     # Orchestrator metrics from merged run record
     orch = run_record.get("orchestrator") or {}
     totals = orch.get("totals") or {}
@@ -799,6 +957,7 @@ def compute_run_metrics(cache: dict) -> None:
     # complete session usage. Keep those records, but do not benchmark totals.
     comparable = (run_record.get("parser_schema_version") or 0) >= 5 and run_record.get("usage_status") == "complete"
     run_record["_total_input_tokens"] = (run_record.get("summary") or {}).get("total_input_tokens") if comparable else None
+    run_record["_orch_cache_creation"] = totals.get("cache_creation_tokens") if comparable else None
     if comparable and run_record.get('host') == 'claude-code' and totals:
         values = [totals.get(k) for k in ('input_tokens', 'cache_read_tokens', 'cache_creation_tokens')]
         run_record['_orch_input_tokens'] = sum(values) if all(v is not None for v in values) else None
@@ -936,8 +1095,11 @@ def _stat(vals):
     vals = [v for v in vals if isinstance(v, (int, float))]
     if not vals:
         return None
+    s = sorted(vals)
     return {"n": len(vals), "mean": round(statistics.fmean(vals), 3),
-            "median": round(statistics.median(vals), 3), "ci": list(bootstrap_ci(vals))}
+            "median": round(statistics.median(vals), 3),
+            "p90": s[(9 * len(s) + 9) // 10 - 1],  # nearest rank: ceil(0.9 n)
+            "ci": list(bootstrap_ci(vals))}
 
 
 def aggregate(caches, by: str, keyfn=None) -> dict:
@@ -1237,9 +1399,13 @@ def pick_baseline_group(snapshot: dict, baseline):
     return fallback, "no baseline pinned; using oldest sufficient partition"
 
 
-def _fmt_stat(s):
+def _fmt_stat(s, robust=False):
     if not s:
         return "n/a"
+    if robust:
+        p90 = s.get("p90")
+        p90_txt = format(p90, "g") if isinstance(p90, (int, float)) else "n/a"
+        return f"median {s['median']:g} / p90 {p90_txt} (n={s['n']})"
     return f"{s['mean']:g} [{s['ci'][0]:g}, {s['ci'][1]:g}] (n={s['n']})"
 
 
@@ -1300,8 +1466,8 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
             f"{qcov:.0%}" if qcov is not None else "n/a",
         ]
         for m in METRICS:
-            cell = _fmt_stat(grp["metrics"].get(m.name))
-            if grp["sufficient"] and prev_key and grp["metrics"].get(m.name) and g[prev_key]["metrics"].get(m.name):
+            cell = _fmt_stat(grp["metrics"].get(m.name), m.robust)
+            if not m.robust and grp["sufficient"] and prev_key and grp["metrics"].get(m.name) and g[prev_key]["metrics"].get(m.name):
                 d = delta(grp["metrics"][m.name], g[prev_key]["metrics"][m.name])
                 cell += f" {_fmt_delta(d, m.direction)}"
             row.append(cell)
@@ -1311,7 +1477,8 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
         if grp["sufficient"]:
             prev_key_by_host[host_part] = key
     lines.append("")
-    lines.append("Cells: mean [95% bootstrap CI] (n). Deltas compare against the previous sufficient partition of the same host.")
+    lines.append("Cells: mean [95% bootstrap CI] (n); duration_min and work_min: median / p90 (n), no delta. "
+                 "Deltas compare against the previous sufficient partition of the same host.")
     legacy_keys = [k for k in _sorted_groups(snapshot) if is_legacy_key(k)]
     if legacy_keys:
         total_legacy = sum(g[k]["n_all"] for k in legacy_keys)
@@ -1342,8 +1509,9 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
         lines += [f"## {latest} vs baseline {baseline_group}", "", "| metric | baseline | latest | delta |", "|---|---|---|---|"]
         for m in METRICS:
             cur, ref = hg[latest]["metrics"].get(m.name), hg[baseline_group]["metrics"].get(m.name)
-            d = delta(cur, ref) if cur and ref else None
-            lines.append(f"| {m.name} | {_fmt_stat(ref)} | {_fmt_stat(cur)} | {_fmt_delta(d, m.direction)} |")
+            d = delta(cur, ref) if cur and ref and not m.robust else None
+            lines.append(f"| {m.name} | {_fmt_stat(ref, m.robust)} | {_fmt_stat(cur, m.robust)} | "
+                         f"{'median/p90 only' if m.robust else _fmt_delta(d, m.direction)} |")
         lines.append("")
 
     # Drift vs previous snapshot

@@ -112,6 +112,26 @@ n1_fingerprint_blocking_count_for_cycle() {
     fi
 }
 
+n1_review_blocking_index_count() {
+    # Usage: n1_review_blocking_index_count <review-hdr.md> (N1-483)
+    # Prints the number of Index lines `- [ID] <severity> <file>:<line> — <title>` that fail review
+    # (skills/n1-start/steps/review.md FAIL rule): Critical/High, any [RULE-N], and a non-Low [SEC-N];
+    # a [SEC-N] whose title ends " (pre-existing)" never counts. Prints 0 and returns 1 on an unreadable file.
+    [ -r "$1" ] || { printf '0'; return 1; }
+    awk '
+        /^- \[[A-Z]+-[0-9]+\] / {
+            id = $2; sev = tolower($3)
+            if (id ~ /^\[SEC-/) {
+                if ($0 ~ / \(pre-existing\)[ \t]*$/) next
+                if (sev != "low") n++
+                next
+            }
+            if (id ~ /^\[RULE-/ || sev == "critical" || sev == "high") n++
+        }
+        END { printf "%d", n }
+    ' "$1"
+}
+
 n1_fingerprint_check_convergence() {
     # Usage: n1_fingerprint_check_convergence <jsonl_file> <current_cycle>
     # Compares blocking count for cycle N vs cycle N-1.

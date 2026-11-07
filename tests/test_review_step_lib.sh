@@ -86,4 +86,30 @@ rm -f "$MEM/review-hdr.md"
 ( cd "$REPO" && eval "$(fence "$STEP" 3 | sed 's/<true if security-reviewer was spawned, else false>/false/')" ) >/dev/null 2>&1; rc=$?
 eq "wiring: collect fence stops on PARTIAL" "1" "$rc"
 
+# N1-483: cycle-0 blocking Index count (review.md FAIL rule) and its overview persistence.
+HDR="$T/hdr-c0.md"
+printf '%s\n' '### Verdict: FAIL' 'Index:' \
+    '- [CR-1] High a.sh:1 — t1' \
+    '- [CR-2] Medium a.sh:2 — t2' \
+    '- [RULE-1] Low a.sh:3 — t3' \
+    '- [TQ-1] Critical t.sh:4 — t4' \
+    '- [SEC-1] Medium b.sh:5 — t5' \
+    '- [SEC-2] Low b.sh:6 — t6' \
+    '- [SEC-3] Critical b.sh:7 — t7 (pre-existing)' \
+    '- [XREPO-1] Low c.sh:8 — t8' > "$HDR"
+eq "blocking index: Critical/High, any RULE, in-diff non-Low SEC" "4" "$(n1_review_blocking_index_count "$HDR")"
+printf '### Verdict: PASS\nIndex:\n(none)\n' > "$HDR"
+eq "blocking index: (none) counts 0" "0" "$(n1_review_blocking_index_count "$HDR")"
+n1_review_blocking_index_count "$T/no-such-hdr.md" >/dev/null; rc=$?
+eq "blocking index: missing file returns 1" "1" "$rc"
+
+printf -- '---\nreview_fix_cycle: 0\n---\n# O\n' > "$MEM/overview.md"
+printf '%s\n' '### Verdict: FAIL' '- [CR-1] High a.sh:1 — t1' '- [RULE-2] Low a.sh:2 — t2' '- [CR-3] Low a.sh:3 — t3' > "$MEM/review-hdr.md"
+printf '## CR\n' > "$MEM/review-cr.md"
+n1_review_collect false >/dev/null 2>&1
+eq "collect: cycle 0 persists review_c0_blocking" "2" "$(n1_read_frontmatter "$MEM/overview.md" review_c0_blocking)"
+printf -- '---\nreview_fix_cycle: 1\n---\n# O\n' > "$MEM/overview.md"
+n1_review_collect false >/dev/null 2>&1
+eq "collect: later cycles never write review_c0_blocking" "" "$(n1_read_frontmatter "$MEM/overview.md" review_c0_blocking)"
+
 exit $FAIL

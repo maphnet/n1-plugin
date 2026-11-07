@@ -235,6 +235,23 @@ def assistant(ts, text=None, ask=False):
     return {"type": "assistant", "timestamp": ts, "message": {"role": "assistant", "content": content}}
 
 
+def q(text, labels):
+    return {"question": text, "options": [{"label": lbl} for lbl in labels]}
+
+
+def ask_use(ts, tid, questions, sidechain=False):
+    rec = {"type": "assistant", "timestamp": ts, "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": tid, "name": "AskUserQuestion", "input": {"questions": questions}}]}}
+    if sidechain:
+        rec["isSidechain"] = True
+    return rec
+
+
+def ask_result(ts, tid, text):
+    return {"type": "user", "timestamp": ts, "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": tid, "content": text}]}}
+
+
 class LinkingTest(unittest.TestCase):
     def setUp(self):
         self.d = TempDirs()
@@ -555,15 +572,50 @@ class MetricsTest(unittest.TestCase):
         bm.compute_run_metrics(cache)
         self.assertIsNone(cache["metrics"]["interventions"])
 
+    def test_questions_per_run_counts_asked_only(self):
+        cache = {"run_record": make_run(), "turns": [], "questions": [
+            {"step": "brainstorm", "resolution": "auto-decided"},
+            {"step": "brainstorm", "resolution": "asked"},
+            {"step": "plan", "resolution": "decide-for-me"}]}
+        bm.compute_run_metrics(cache)
+        self.assertEqual(cache["metrics"]["questions_per_run"], 1.0)
+        self.assertEqual(cache["metrics"]["brainstorm_questions"], 2.0)
+
+    def test_review_pass_first_try_hard(self):
+        cache = {"run_record": make_run(), "turns": []}
+        bm.compute_run_metrics(cache)
+        self.assertIsNone(cache["metrics"]["review_pass_first_try_hard"])  # pre-5.83.0 run: n/a
+        for raw, expected in (("true", 1.0), ("false", 0.0), ("", None)):
+            run = make_run(outcomes=[{"event": "outcome", "outcomes": {
+                "review_pass_first_try": "false", "review_pass_first_try_hard": raw}}])
+            cache = {"run_record": run, "turns": []}
+            bm.compute_run_metrics(cache)
+            self.assertEqual(cache["metrics"]["review_pass_first_try_hard"], expected, raw)
+            self.assertEqual(cache["metrics"]["review_pass_first_try"], 0.0)
+
+    def test_session_and_orchestrator_cache_creation(self):
+        def run_with(status):
+            run = make_run(summary={"total_cache_creation_tokens": 900},
+                           orchestrator={"totals": {"cache_creation_tokens": 300}})
+            if status:
+                run["usage_status"] = status
+            cache = {"run_record": run, "turns": []}
+            bm.compute_run_metrics(cache)
+            return cache["metrics"]
+        m = run_with(None)
+        self.assertEqual(m["session_cache_creation_tokens"], 900.0)
+        self.assertIsNone(m["orchestrator_cache_creation_tokens"])  # gated: usage not complete
+        self.assertEqual(run_with("complete")["orchestrator_cache_creation_tokens"], 300.0)
+
     def test_metric_registry_shape(self):
         names = [m.name for m in bm.METRICS]
         self.assertEqual(names, ["interventions", "answers", "corrections",
                                  "brainstorm_interactions", "autonomous_interventions",
-                                 "fix_cycles", "review_pass_first_try",
-                                 "duration_min", "orchestrator_output_tokens", "compactions",
-                                 "cache_creation_tokens",
+                                 "fix_cycles", "review_pass_first_try", "review_pass_first_try_hard",
+                                 "duration_min", "work_min", "orchestrator_output_tokens", "compactions",
+                                 "session_cache_creation_tokens", "orchestrator_cache_creation_tokens",
                                  "questions_per_run", "brainstorm_questions",
-                                 "recommended_followed_share", "decide_for_me_share",
+                                 "answer_matches_recommendation", "decide_for_me_share",
                                  "inherited_share",
                                  "bash_calls_per_run", "api_calls_per_run",
                                  "orchestrator_api_calls_per_run", "orchestrator_bash_calls_per_run",
@@ -578,6 +630,143 @@ def asst_with_tools(ts, tool_names, sidechain=False):
     if sidechain:
         rec["isSidechain"] = True
     return rec
+
+
+class ReadAnswersTest(unittest.TestCase):
+    T0, T1 = "2026-09-01T10:01:00Z", "2026-09-01T10:02:00Z"
+    DB = q("Pick DB?", ["SQLite (Recommended)", "Postgres"])
+
+    def setUp(self):
+        self.d = TempDirs()
+
+    def answers(self, records):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, records)
+        return bm.read_answers(p)
+
+    def test_recommended_label_followed(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "Pick DB?"="SQLite (Recommended)". '
+                                      "You can now continue with the user's answers in mind.")]), (1, 1))
+
+    def test_other_option_and_label_without_suffix(self):
+        cache_q = q("Cache?", ["Redis (Recommended)", "None"])
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB, cache_q]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "Pick DB?"="Postgres", '
+                                      '"Cache?"="Redis". You can now continue.')]), (1, 2))
+
+    def test_free_text_with_quotes_is_answered_not_followed(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", 'The user answered: "use "both", really"')]), (0, 1))
+
+    def test_user_answered_prefix_with_multiple_questions_counts_both(self):
+        cache_q = q("Cache?", ["Redis (Recommended)", "None"])
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB, cache_q]),
+            ask_result(self.T1, "a1", 'The user answered: "Pick DB?"="SQLite (Recommended)", '
+                                      '"Cache?"="None"')]), (1, 2))
+
+    def test_user_answered_prefix_with_single_question_recommended_is_followed(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", 'The user answered: "Pick DB?"="SQLite (Recommended)"')]), (1, 1))
+
+    def test_quotes_inside_an_answer_do_not_shift_the_next_one(self):
+        a = q("A?", ["A1 (Recommended)", "A2"])
+        b = q("B?", ["B1 (Recommended)", "B2"])
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [a, b]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "A?"="say "hi", ok", "B?"="B1". Done.')]),
+            (1, 2))
+
+    def test_question_without_recommended_option_is_excluded(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [q("Name?", ["x", "y"])]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "Name?"="x".')]), (0, 0))
+
+    def test_interrupted_unmatched_and_sidechain_are_unanswered(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", "[Tool call interrupted by user]"),
+            ask_use(self.T0, "a2", [self.DB]),
+            ask_result(self.T1, "zz", 'Your questions have been answered: "Pick DB?"="Postgres".'),
+            ask_use(self.T0, "a3", [self.DB], sidechain=True),
+            ask_result(self.T1, "a3", 'Your questions have been answered: "Pick DB?"="Postgres".')]), (0, 0))
+
+    def test_answers_outside_run_window_are_excluded(self):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, [
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "Pick DB?"="SQLite (Recommended)".')])
+        self.assertEqual(bm.read_answers(p, bm.parse_ts("2026-09-01T10:00:00Z"), bm.parse_ts("2026-09-01T10:03:00Z")), (1, 1))
+        self.assertEqual(bm.read_answers(p, bm.parse_ts("2026-09-01T10:05:00Z"), bm.parse_ts("2026-09-01T10:06:00Z")), (0, 0))
+
+    def test_metric_from_compute_run_metrics(self):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, [ask_use(self.T0, "a1", [self.DB, q("Cache?", ["Redis (Recommended)", "None"])]),
+                        ask_result(self.T1, "a1", 'Your questions have been answered: '
+                                                  '"Pick DB?"="SQLite (Recommended)", "Cache?"="None".')])
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": str(p)}
+        bm.compute_run_metrics(cache)
+        self.assertEqual(cache["metrics"]["answer_matches_recommendation"], 0.5)
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": None}
+        bm.compute_run_metrics(cache)
+        self.assertIsNone(cache["metrics"]["answer_matches_recommendation"])
+
+
+class ReadWaitSecondsTest(unittest.TestCase):
+    S, E = bm.parse_ts("2026-09-01T10:00:00Z"), bm.parse_ts("2026-09-01T11:00:00Z")
+
+    def setUp(self):
+        self.d = TempDirs()
+
+    def wait(self, records, s=_UNSET, e=_UNSET):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, records)
+        return bm.read_wait_seconds(p, self.S if s is _UNSET else s, self.E if e is _UNSET else e)
+
+    def test_threshold_is_120_seconds(self):
+        self.assertEqual(self.wait([assistant("2026-09-01T10:00:00Z", "q"), human("2026-09-01T10:01:59Z", "a")]), 0)
+        self.assertEqual(self.wait([assistant("2026-09-01T10:00:00Z", "q"), human("2026-09-01T10:02:00Z", "a")]), 120)
+
+    def test_ask_answer_gap_counts_tool_result_gap_does_not(self):
+        self.assertEqual(self.wait([
+            ask_use("2026-09-01T10:00:00Z", "a1", [q("Pick?", ["x (Recommended)"])]),
+            ask_result("2026-09-01T10:05:00Z", "a1", 'The user answered: "x"'),
+            assistant("2026-09-01T10:06:00Z", "run"),
+            tool_result("2026-09-01T10:16:00Z")]), 300)
+
+    def test_gap_clipped_to_run_window(self):
+        self.assertEqual(self.wait([
+            assistant("2026-09-01T09:50:00Z", "q"), human("2026-09-01T10:05:00Z", "a"),
+            assistant("2026-09-01T10:58:00Z", "q"), human("2026-09-01T11:30:00Z", "a")]), 300 + 120)
+
+    def test_rate_limit_gap_counts(self):
+        limit = assistant("2026-09-01T10:00:00Z", "usage limit")
+        limit.update({"isApiErrorMessage": True, "error": "rate_limit"})
+        self.assertEqual(self.wait([limit, tool_result("2026-09-01T10:30:00Z")]), 1800)
+
+    def test_sidechain_records_ignored(self):
+        side = assistant("2026-09-01T10:01:00Z", "agent")
+        side["isSidechain"] = True
+        self.assertEqual(self.wait([assistant("2026-09-01T10:00:00Z", "q"), side,
+                                    human("2026-09-01T10:05:00Z", "a")]), 300)
+
+    def test_missing_window_is_none(self):
+        self.assertIsNone(self.wait([assistant("2026-09-01T10:00:00Z", "q")], s=None))
+
+    def test_work_min_metric(self):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, [assistant("2026-09-01T10:00:00Z", "q"), human("2026-09-01T10:30:00Z", "a")])
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": str(p)}
+        bm.compute_run_metrics(cache)
+        self.assertEqual((cache["metrics"]["duration_min"], cache["metrics"]["work_min"]), (60.0, 30.0))
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": None}
+        bm.compute_run_metrics(cache)
+        self.assertIsNone(cache["metrics"]["work_min"])
 
 
 class CountToolCallsTest(unittest.TestCase):
@@ -960,6 +1149,29 @@ class MergeVersionsTest(unittest.TestCase):
 
 
 class ReportTest(unittest.TestCase):
+    def test_stat_has_nearest_rank_p90(self):
+        s = bm._stat(list(range(1, 11)))
+        self.assertEqual((s["n"], s["median"], s["p90"]), (10, 5.5, 9))
+        self.assertEqual(bm._stat([7])["p90"], 7)
+
+    def test_duration_metrics_are_robust_and_never_flag_significance(self):
+        self.assertEqual({m.name for m in bm.METRICS if m.robust}, {"duration_min", "work_min"})
+        old, new = group(5, 4, 6), group(2, 1, 3)
+        for name in ("duration_min", "work_min"):
+            old["metrics"][name] = {"n": 5, "mean": 10.0, "median": 9.0, "p90": 20.0, "ci": [8.0, 12.0]}
+            new["metrics"][name] = {"n": 5, "mean": 100.0, "median": 90.0, "p90": 200.0, "ci": [95.0, 105.0]}
+        snap = snap_with({"claude-code/2.70.0": old, "claude-code/2.80.0": new})
+        out = bm.render_report(snap, None, "claude-code/2.70.0", "pinned", {})
+        main = next(ln for ln in out.splitlines() if ln.startswith("| claude-code/2.80.0 | 5/5"))
+        self.assertEqual(main.count("median 90 / p90 200 (n=5) |"), 2)  # no delta appended in the main table
+        rows = [ln for ln in out.splitlines() if ln.startswith(("| duration_min |", "| work_min |"))]
+        self.assertEqual(len(rows), 2)
+        for ln in rows:
+            self.assertIn("median 9 / p90 20 (n=5)", ln)
+            self.assertNotIn("significant", ln)
+        self.assertEqual(bm._fmt_stat({"n": 3, "mean": 1.0, "median": 1.0, "ci": [1, 1]}, robust=True),
+                         "median 1 / p90 n/a (n=3)")  # old snapshot without p90
+
     def test_delta_and_significance(self):
         d = bm.delta(stat(2.0, 1.5, 2.5), stat(4.0, 3.0, 5.0))
         self.assertEqual((d["abs"], d["pct"], d["significant"]), (-2.0, -50.0, True))
