@@ -508,7 +508,8 @@ def sentinel_deny(payload: dict) -> int:
 # (linear, no backtracking regex), so paths and commit text that mention a denied name pass while wrappers (env, sudo,
 # timeout with options, bash -c, eval, xargs, ...) and $( ) are read like any command. _worker_sink adds, for restricted
 # workers only, a read of text handed to another interpreter (every word a command). Best effort: a later line of a
-# multi-line commit message that starts with a denied name, and quoted `|`/`;`/`&` before one, still match (fail toward deny).
+# multi-line commit message (heredoc body line) that starts with a denied name, and quoted `|`/`;`/`&` before one, still match
+# (fail toward deny).
 # Residual (text matching cannot close them): variable or script indirection (`f=n1_x; $f`, `bash script.sh`, a script
 # that merges or deletes), interpreter code built at runtime, other file-removal routes (`mv` of an ancestor under a
 # variable, `git clean`), and a nested `claude` session without -p/--print.
@@ -516,6 +517,8 @@ def sentinel_deny(payload: dict) -> int:
 # by the generic gate in merge_deny; --confirmed only as an n1_review_pin argument.
 _PR_N1_DENIED = {"n1_active_run_clear", "n1_active_run_clear_if", "n1_finish_cleanup", "n1_clean_ticket", "n1_containers_teardown",
                  "n1_merge_authorized", "n1_orca_rm", "n1_step_begin", "n1_step_end", "n1_orca", "n1_orca_handoff"}
+_POINTER_NAMES = ("active-run.x.json", "x.s-pr.json", "/h/.n1/x/active-run.x.json")
+_CD_N1_RE = re.compile(r"\b(?:cd|pushd)\s+\S*(?:\.n1|N1_HOME)")
 _POINTER_MUTATORS = {"rm", "mv", "unlink", "truncate", "ln", "shred", "cp", "tee", "dd", "install", "rsync"}
 WORKER_PROGRAMS = frozenset(_PR_N1_DENIED | _POINTER_MUTATORS | {"n1_review_pin", "git", "orca", "claude", "sed", "find"})
 _WORKTREE_RM_RE = re.compile(r"git\s+(?:(?:-[cC]\s+\S+|--[\w-]+=\S+)\s+)*(?:worktree\s+(?:rm|remove)|branch\s+(?:-\w*[dD]\w*|--delete))\b")
@@ -524,7 +527,7 @@ _SEP_KEEP_RE = re.compile(r"([;&|\n])")
 _SHELLS = {"sh", "bash", "dash", "zsh", "ksh", "source", "."}
 _INTERPS = {"perl", "ruby", "node", "nodejs", "awk", "gawk", "mawk", "claude"}
 _SINK_WRAPPERS = {"env", "command", "exec", "sudo", "doas", "time", "nohup", "xargs", "timeout", "nice", "ionice", "stdbuf", "setsid"}
-_LEADING = {"{", "!", "if", "then", "else", "elif", "do", "while", "until"}
+_LEADING = {"{", "(", "!", "if", "then", "else", "elif", "do", "while", "until"}
 _IN_N1_RE = re.compile(r"\.n1\b|N1_HOME|active-run")
 _DELETES_RE = re.compile(r"remove|unlink|rmtree|rename|move|delete")
 _PROGRAM_TEXT_RE = re.compile(r"\b(?:gh|git|curl|wget)\b|n1_\w+")
@@ -536,47 +539,63 @@ def _mask(cmd: str) -> str:
 
 
 def _worker_sink(masked: str) -> int:
-    """Restricted workers only. 0 nothing; 1 the command hands text to another interpreter (| bash, bash <<<, source <(..),
-    eval $(..), find -exec, python -c, git alias !cmd, case arms): read every word as a command; 2 deny outright
-    (claude -p, an interpreter one-liner that deletes under .n1, xargs feeding a pointer mutator). Linear: str ops and
-    non-nested regexes on each stage; separators inside quotes are masked, so quoted text is not a stage."""
+    """Restricted workers only. 0 nothing; 1 the command hands text to another interpreter (| bash, |& bash, bash <<<,
+    source <(..), >(bash), eval $(..), find -exec, python -c or a heredoc, git alias !cmd, case arms): read every word as a
+    command; 2 deny outright (claude -p, an interpreter that deletes under .n1, xargs feeding a pointer mutator).
+    Linear (SEC-10): every stage fact is one str op or non-nested regex over the stage, computed once per stage, and the
+    whole-command facts once; the per-word loop is set lookups only. Separators inside quotes are masked."""
+    masked = masked.replace("\\\n", " ")
     res = 0
+    in_n1 = _IN_N1_RE.search(masked) is not None
+    whole_del = in_n1 and _DELETES_RE.search(masked) is not None
+    whole_prog = _PROGRAM_TEXT_RE.search(masked) is not None
     parts = _SEP_KEEP_RE.split(masked)
+    pend, prev_empty, prev_sep = False, True, ""
     for i in range(0, len(parts), 2):
-        stage, piped = parts[i], i > 0 and parts[i - 1] == "|"
+        stage = parts[i]
+        if i:
+            sep = parts[i - 1]
+            if sep == "|":
+                pend = not (prev_empty and prev_sep == "|")  # `||` is not a pipe
+            elif sep == ";" or not prev_empty:
+                pend = False  # `|&` and `|` + newline keep the pipe: the empty stage between does not reset it
+            prev_sep = sep
+        piped = pend
         words = stage.split()
         k = 0
         while k < len(words) and (ASSIGN_RE.match(words[k]) or words[k] in _LEADING):
             k += 1
-        if k == len(words):
+        prev_empty = k == len(words)
+        if prev_empty:
             continue
-        base = [w.rsplit("/", 1)[-1].lower() for w in words[k:]]
-        cw, rest = base[0], base[1:]
-        if cw == "case":
+        base = [w.strip("()\"'\\").rsplit("/", 1)[-1].lower() for w in words[k:]]
+        cw = base[0]
+        names = set(base) if cw in _SINK_WRAPPERS else {cw}
+        heredoc = "<<" in stage or "<(" in stage
+        if cw == "case" or ">(" in stage or (cw == "eval" and re.search(r"[$`\x01]", stage)):
             res = 1
-        elif cw == "eval":
-            res = 1 if re.search(r"[$`\x01]", stage) else res
-        for c in [cw] + (rest if cw in _SINK_WRAPPERS else []):
-            if cw == "xargs" and c in _POINTER_MUTATORS:
+        if names & _SHELLS and (piped or heredoc):
+            res = 1
+        if "find" in names and re.search(r"\s-(?:exec|execdir|ok|okdir)\b", stage):
+            res = 1
+        if "git" in names and any(w.lstrip("'\"").startswith("alias.") and w.partition("=")[2].lstrip("'\"").startswith("!") for w in words[k:]):
+            res = 1
+        if "xargs" in names and in_n1 and names & _POINTER_MUTATORS:
+            return 2
+        if names & _INTERPS or any(c.startswith("python") for c in names):
+            hd = "<<" in stage  # code from a heredoc sits on later lines: look at the whole command
+            if whole_del if hd else (_IN_N1_RE.search(stage) and _DELETES_RE.search(stage)):
                 return 2
-            if c in _SHELLS and (piped or "<<" in stage or "<(" in stage):
+            if "claude" in names and re.search(r"\s(?:-p|--print)\b", stage):
+                return 2
+            if piped or (whole_prog if hd else _PROGRAM_TEXT_RE.search(stage)):
                 res = 1
-            elif c == "find" and re.search(r"\s-(?:exec|execdir|ok|okdir)\b", stage):
-                res = 1
-            elif c == "git" and any(w.startswith("alias.") and w.partition("=")[2].lstrip("'\"").startswith("!") for w in words[k:]):
-                res = 1
-            elif c in _INTERPS or c.startswith("python"):
-                if _IN_N1_RE.search(stage) and _DELETES_RE.search(stage):
-                    return 2
-                if c == "claude" and re.search(r"\s(?:-p|--print)\b", stage):
-                    return 2
-                if _PROGRAM_TEXT_RE.search(stage):
-                    res = 1
     return res
 
 
 def _every_word(text: str) -> str:
-    return re.sub(r"[ \t]+", f" {SUBST} ", re.sub(r"[(){}!]", " ", text.replace("<<<", f" {SUBST} ")))
+    # [ ] and , split list-form calls (subprocess.run(["gh","pr","merge"]), system("gh","pr","merge"))
+    return re.sub(r"[ \t]+", f" {SUBST} ", re.sub(r"[(){}!\[\],]", " ", text.replace("<<<", f" {SUBST} ")))
 
 
 def _pointer_hit(c, j) -> bool:
@@ -595,7 +614,13 @@ def _pointer_hit(c, j) -> bool:
     if c[0] == "sed":
         return "active-run" in j and re.search(r"\s-\w*i", j) is not None
     if c[0] == "find":
-        return re.search(r"\s-(?:delete|exec)\b", j) is not None and re.search(r"active|\.n1|N1_HOME", j) is not None
+        if re.search(r"\s-(?:delete|exec)\b", j) is None:
+            return False
+        if re.search(r"active|\.n1|N1_HOME", j):
+            return True
+        # a -name/-path glob that matches a pointer or marker file name (`find ~ -name 'act*' -delete`)
+        return any(w in ("-name", "-iname", "-path", "-ipath") and any(fnmatch.fnmatch(f, c[x + 1]) for f in _POINTER_NAMES)
+                   for x, w in enumerate(c[:-1]))
     return False
 
 
@@ -611,8 +636,11 @@ def _worker_deny(cmd: str, pr: bool) -> bool:
     for text in (map(_every_word, views) if sink else views):
         if pr and "ORCA_CLI_COMMAND" in text:
             return True
+        cd_n1 = _CD_N1_RE.search(text) is not None  # after `cd ~/.n1/x` a relative rm/mv names the pointer dir's files
         for c in _commands(text, WORKER_PROGRAMS):
             j = " ".join(c)
+            if cd_n1 and c[0] in _POINTER_MUTATORS:
+                return True
             if _pointer_hit(c, j):
                 return True
             if not pr:
@@ -630,6 +658,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     tail_persona = persona_of(agent_type)
     tail = tail_persona in ("tail-worker", "post-deploy-verifier")  # the verifier is the tail-worker's delegate: same Bash denies
     gated_worker = tail_persona in ("pr-worker", "tail-worker", "post-deploy-verifier")
+    sink_worker = gated_worker or tail_persona == "tech-writer"  # tech-writer outside a run returns below
     if tail:
         cmd = _command(payload) or ""
         if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)) or _worker_deny(cmd, False):
@@ -650,7 +679,7 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     command = _command(payload)
     if not command:
         return 0
-    sink = gated_worker and _worker_sink(_mask(command)) == 1
+    sink = sink_worker and _worker_sink(_mask(command.replace("\\\n", " "))) == 1
     command = re.sub(r"[\"'\\]", "", command)
     if sink:
         command = _every_word(command)  # restricted workers: text handed to another interpreter is code (SEC-2)
