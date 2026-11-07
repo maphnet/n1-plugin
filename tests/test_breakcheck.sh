@@ -258,6 +258,23 @@ assert_eq "unittest ERROR file-level verdict" "red-then-green" "$(echo "$OUT" | 
 
 rm -rf "$T13" "$T14"
 
+# Case 15 (N1-336): the branch deletes a non-test file the tests do not use. The revert re-creates it
+# (staged); restore must remove it again so the tree is clean and the verdict is not inconclusive.
+T15=$(mktemp -d); make_repo "$T15"
+printf 'def unused():\n    return 1\n' > "$T15/legacy.py"
+git -C "$T15" add -A; git -C "$T15" commit -qm legacy; git -C "$T15" branch -qf base
+git -C "$T15" rm -q legacy.py
+fix_repo "$T15" 'def test_add_negative():
+    assert add(-1, 2) == 1'
+OUT=$(n1_break_check base "$CMD" test_add_negative "$T15/bc.log" "$T15")
+assert_eq "deleted-file branch verdict" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+assert_eq "deleted-file tree clean after check" "" "$(git -C "$T15" status --porcelain)"
+[ -e "$T15/legacy.py" ] && r=present || r=absent
+assert_eq "deleted file absent after restore" "absent" "$r"
+grep -qF "=== post-restore run ===" "$T15/bc.log" && r=kept || r=lost
+assert_eq "log file survives restore" "kept" "$r"
+rm -rf "$T15"
+
 rm -rf "$T9" "$T10" "$T11" "$T12B"
 
 rm -rf "$T7" "$T8"

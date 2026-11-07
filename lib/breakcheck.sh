@@ -159,7 +159,10 @@ n1_break_check() {
     cat "$revert_log" >> "$log"
 
     echo "=== restore ===" >> "$log"
-    git -C "$dir" checkout -q HEAD -- . 2>>"$log"
+    # reset --hard (not checkout HEAD -- .) also drops files the revert re-created that HEAD deleted.
+    # Untracked/ignored files, including the excluded log, are left alone; the dirty-tree guard above
+    # guarantees no user edits exist to lose.
+    git -C "$dir" reset -q --hard HEAD 2>>"$log"
     # Remove all untracked build artefacts left by the reverted run before checking health.
     git -C "$dir" clean -q -fd --exclude "$(basename "$log_abs")" 2>>"$log" || true
     echo "=== post-restore run ===" >> "$log"
