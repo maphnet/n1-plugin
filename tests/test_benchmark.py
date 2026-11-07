@@ -814,7 +814,8 @@ class FinalizeTest(unittest.TestCase):
     def finalize(self, labels):
         lf = self.d.tmp / "labels.json"
         lf.write_text(json.dumps(labels))
-        rc = bm.main(["finalize", "--labels", str(lf), "--out", str(self.d.out), "--plugin-version", "2.83.0"])
+        rc = bm.main(["finalize", "--labels", str(lf), "--out", str(self.d.out), "--plugin-version", "2.83.0",
+                      "--judge-model", "haiku"])
         self.assertEqual(rc, 0)
         return bm.load_snapshots(self.d.out)[-1]
 
@@ -831,14 +832,18 @@ class FinalizeTest(unittest.TestCase):
         self.assertEqual(snap["merged"]["claude-code/2.80.0"]["versions"], ["claude-code/2.80.0"])
         cache = bm.load_cache(self.d.out)["n1-run-1"]
         self.assertEqual(cache["metrics"]["interventions"], 1.0)
-        self.assertEqual(cache["judge_model"], bm.DEFAULT_JUDGE_MODEL)
+        self.assertEqual(cache["judge_model"], "haiku")
+        self.assertEqual(snap["judge_model"], "haiku")
         self.assertEqual([t["label_source"] for t in cache["turns"]], ["judge", "fallback"])
 
     def test_finalize_accepts_dict_labels_and_is_idempotent(self):
         self.finalize({"n1-run-1#0": {"label": "correction"}, "n1-run-1#1": {"label": "instruction"}})
         snap = self.finalize([])
         self.assertEqual(snap["judge_fallbacks"], 0)
+        self.assertIsNone(snap["judge_model"])  # nothing judged in the second run
+        self.assertEqual(bm.load_cache(self.d.out)["n1-run-1"]["judge_model"], "haiku")
         self.assertEqual(len(bm.load_snapshots(self.d.out)), 2)
+        self.assertIn("judge none (no turns judged)", bm.render_report(snap, None, None, "", {}))
 
 
 class BaselineTest(unittest.TestCase):

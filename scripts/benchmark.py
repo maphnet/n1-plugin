@@ -28,7 +28,6 @@ import sys
 from pathlib import Path
 
 RUBRIC_VERSION = 1
-DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
 ELIGIBLE_OUTCOMES = {"pr_created", "investigation_complete"}
 MIN_SAMPLE = 5
 TEXT_LIMIT = 600
@@ -1076,6 +1075,10 @@ def _read_labels(path: str) -> dict:
     return {}
 
 
+def _judged_turns(cache: dict) -> int:
+    return sum(1 for t in cache.get("turns") or [] if t.get("label_source") in ("judge", "fallback"))
+
+
 def cmd_finalize(args) -> int:
     out = Path(args.out)
     caches = load_cache(out)
@@ -1091,10 +1094,13 @@ def cmd_finalize(args) -> int:
         return 0
     labels = _read_labels(args.labels)
     fallbacks = 0
+    stamped = False
     for cache in caches.values():
+        before = _judged_turns(cache)
         fb = apply_labels(cache, labels)
-        if fb or any(t.get("label_source") == "judge" for t in cache.get("turns") or []):
+        if _judged_turns(cache) > before:
             cache["judge_model"] = args.judge_model
+            stamped = True
         cache["judge_fallbacks"] = (cache.get("judge_fallbacks") or 0) + fb
         fallbacks += fb
         compute_run_metrics(cache)
@@ -1107,7 +1113,7 @@ def cmd_finalize(args) -> int:
     snapshot = {
         "snapshot_id": dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "created_at": now_iso(), "by": args.by, "plugin_version": args.plugin_version,
-        "rubric_version": RUBRIC_VERSION, "judge_model": args.judge_model,
+        "rubric_version": RUBRIC_VERSION, "judge_model": args.judge_model if stamped else None,
         "judge_fallbacks": fallbacks, "malformed_lines": 0,
         "groups": aggregate(ordered, args.by),
         "run_ids": sorted(caches),
@@ -1401,7 +1407,7 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
         lines.append("")
 
     lines.append(f"Snapshot {snapshot['snapshot_id']}, plugin {snapshot.get('plugin_version') or 'unknown'}, "
-                 f"rubric v{snapshot['rubric_version']}, judge {snapshot['judge_model']}, "
+                 f"rubric v{snapshot['rubric_version']}, judge {snapshot.get('judge_model') or 'none (no turns judged)'}, "
                  f"judge fallbacks {snapshot['judge_fallbacks']}, malformed lines {snapshot.get('malformed_lines', 0)}. "
                  f"Previous snapshot: {previous['snapshot_id'] if previous else 'none'}.")
     return "\n".join(lines) + "\n"
@@ -1467,7 +1473,7 @@ def build_parser():
     f.add_argument("--labels", required=True)
     f.add_argument("--by", choices=["version", "week"], default="version")
     f.add_argument("--plugin-version", default=None)
-    f.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    f.add_argument("--judge-model", default=None, help="model that labelled the ambiguous turns")
 
     r = sub.add_parser("report")
     common(r)
