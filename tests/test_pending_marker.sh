@@ -91,5 +91,11 @@ eq "T3: no last_checked key invented" 0 "$(grep -c '^last_checked:' "$I")"
 eq "T3: step finish" finish "$(n1_read_frontmatter "$I" step)"
 n1_pending_touch "$T/none.md"; eq "T4: missing file rc 0" 0 $?
 
+# --- n1-finish Step 6 wiring: the snippet and the timeout prose route through the helpers ---
+S6="$R/skills/n1-finish/steps/06-cleanup.md"
+eq "W1: snippet calls n1_pending_clear" yes "$(yn grep -qF 'n1_pending_clear "$OV"' "$S6")"
+eq "W2: timeout prose names n1_pending_touch" yes "$(yn grep -qF 'n1_pending_touch "$OV"' "$S6")"
+eq "W3: snippet awk strips only ## Finish" no "$(yn grep -qF '(Finish|Pending)' "$S6")"
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
