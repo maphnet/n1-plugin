@@ -17,7 +17,7 @@
    - **Ticket:** <moved to <done status> | left open (<reason>) | tracker not configured>
    pr_url: <PR URL from the `## Pending` section being removed below; omit this line on the local-merge path, which has no PR>
    ```
-   If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate), carrying over the `- **Delivery:**` value that Step 4's delivery gate (`03b-ssh-deploy.md`) recorded — never drop or rewrite a pending/succeeded delivery as n/a. Only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, upsert the full validated verification table from this invocation's `post-deploy-verification.md` in `## Finish`; otherwise omit verification details and never read an existing artifact. Do not summarize away `PASS`, `FAIL`, or `SKIPPED` reasons. Also delete the `## Pending` section (the merge is no longer pending), set frontmatter `step: done`, and clear the active-run pointer (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY). If finish exits without a merge (timeout paths), instead set `step` to `finish` (not `done`) and update only its `last_checked` line with `date -u +%Y-%m-%dT%H:%M:%SZ`. Standalone without memory: skip silently.
+   If a `## Finish` section already exists, replace it (idempotent upsert, never duplicate), carrying over the `- **Delivery:**` value that Step 4's delivery gate (`03b-ssh-deploy.md`) recorded — never drop or rewrite a pending/succeeded delivery as n/a. Only when `POST_DEPLOY_VERIFICATION_ARTIFACT=true`, upsert the full validated verification table from this invocation's `post-deploy-verification.md` in `## Finish`; otherwise omit verification details and never read an existing artifact. Do not summarize away `PASS`, `FAIL`, or `SKIPPED` reasons. Also run `n1_pending_clear "$OV"` after the append (the merge is no longer pending: it drops frontmatter `awaiting:` and the `## Pending` marker lines; other lines move to `## Pending notes`), set frontmatter `step: done`, and clear the active-run pointer (idempotent — safe even when n1-start also clears it in FINALIZE MEMORY). If finish exits without a merge (timeout paths), instead run `n1_pending_touch "$OV"` (sets `step: finish`, refreshes only `last_checked`; the marker stays). Standalone without memory: skip silently.
 
 ## One Cleanup Call
 
@@ -34,10 +34,11 @@ OV="$N1_HOME/memory/$ID/overview.md"
 RUN=$(jq -r '.runId // empty' "$(n1_active_run_file)" 2>/dev/null); [ "$RUN" = n1-finish ] && RUN=""   # real run id, read before the clear
 if [ -n "$ID" ] && [ -f "$OV" ]; then
   TMP=$(mktemp "$OV.XXXXXX")
-  awk '/^## /{s=/^## (Finish|Pending)\r?$/} !s' "$OV" > "$TMP" && mv "$TMP" "$OV"
+  awk '/^## /{s=/^## Finish\r?$/} !s' "$OV" > "$TMP" && mv "$TMP" "$OV"
   cat >> "$OV" <<'N1_FINISH_BLOCK_9c1e'
 <the rendered ## Finish block from item 4>
 N1_FINISH_BLOCK_9c1e
+  n1_pending_clear "$OV"   # N1-277: frontmatter awaiting + ## Pending marker lines (after the append: Finish holds pr_url)
   n1_write_frontmatter "$OV" step done
   n1_active_run_clear
   echo memory:done

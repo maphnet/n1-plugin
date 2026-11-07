@@ -11,14 +11,14 @@ unset N1_RUN_ID N1_SESSION_ID N1_QUEUE_RUN_ID
 
 SNIP=$(awk '/^```bash/{b=1;next} b&&/^```/{exit} b' skills/n1-finish/steps/06-cleanup.md \
     | sed -e 's#^source ~/.n1/preamble.sh$#source "$N1_ROOT/lib/preamble.sh"#' -e 's/<ID>/T-1/' -e 's/<defaultBranch>/main/' -e 's/<0|1>/1/' -e 's/<PR number; empty on local merge>//' -e 's/<headRefName>/${HR_TEST:-main}/' \
-          -e 's/^<the rendered ## Finish block from item 4>$/## Finish\n- **Merged:** abc1234/')
+          -e 's/^<the rendered ## Finish block from item 4>$/## Finish\n- **Merged:** abc1234\npr_url: u7/')
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/home/memory/T-1" "$T/repo"
 git -C "$T/repo" init -q -b main
 git -C "$T/repo" -c user.name=t -c user.email=t@t -c commit.gpgSign=false commit -q --allow-empty -m init
 OV="$T/home/memory/T-1/overview.md"
-printf -- '---\nstep: finish\n---\n# T-1\n## Pending\n- pr_url: x\n## Finish\n- **Merged:** old\n## Decision Ledger\n| a | b |\n' > "$OV"
+printf -- '---\nstep: finish\nawaiting: merge\npr: 7\npr_url: u7\n---\n# T-1\n## Pending\nawaiting: merge\npr: 7\npr_url: u7\nbranch: feat\nlast_checked: 2026-01-01T00:00:00Z\ncreated: 2026-01-01T00:00:00Z\n## Finish\n- **Merged:** old\n## Decision Ledger\n| a | b |\n' > "$OV"
 
 run() { OUT=$(cd "$T/repo" && N1_ROOT="$REPO" N1_HOME="$T/home" bash -c "$SNIP" 2>&1); }
 chk() { # <label> <cond-exit>
@@ -27,6 +27,8 @@ chk() { # <label> <cond-exit>
 for pass in 1 2; do
     run
     grep -q '^## Pending' "$OV"; chk "run $pass: Pending removed" $((! $? ))
+    grep -q '^awaiting:' "$OV"; chk "run $pass: no awaiting line (frontmatter or Pending)" $((! $? ))
+    chk "run $pass: pr_url kept in frontmatter and Finish only" $([ "$(grep -c '^pr_url: u7' "$OV")" = 2 ]; echo $?)
     chk "run $pass: Finish exactly once" $([ "$(grep -c '^## Finish' "$OV")" = 1 ]; echo $?)
     grep -q 'Merged:\*\* abc1234' "$OV"; chk "run $pass: new Finish content" $?
     grep -q '^## Decision Ledger' "$OV" && grep -q '^| a | b |' "$OV"; chk "run $pass: Ledger survives" $?

@@ -1027,6 +1027,9 @@ _n1_clean_record() {
         L="- **Cleanup:** $toks${path:+ ($path)}" awk '/^## /{s = /^## Finish\r?$/} s && /^- \*\*Cleanup:\*\*/{next} {print}
             /^## Finish\r?$/{print ENVIRON["L"]; d = 1} END{if (!d) {print ""; print "## Finish"; print ENVIRON["L"]}}' "$ov" > "$tmp" \
             && mv "$tmp" "$ov" || rm -f "$tmp"
+        # N1-277: a ## Finish exists now, so the awaiting-merge marker goes (same helper as n1-finish Step 6).
+        declare -F n1_pending_clear >/dev/null || source "${BASH_SOURCE[0]%/*}/frontmatter.sh" 2>/dev/null
+        n1_pending_clear "$ov" || true
     fi
     if [ -f "$rep" ] && tmp=$(mktemp "$rep.XXXXXX"); then
         L="Cleanup: $toks" awk '/^Cleanup:/{print ENVIRON["L"]; next} {print}' "$rep" > "$tmp" && mv "$tmp" "$rep" || rm -f "$tmp"
