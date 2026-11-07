@@ -1518,9 +1518,11 @@ orca_merged_sweep() {
         did_read=1
         [ "$(n1_queue_pr_state "$URL")" = MERGED ] || continue
         echo "[orca] $T PR merged while its worker is owed: settling"
-        # chain_finish_merged acts only here, and only on a first chain evaluation: a .chained-<ticket> marker already
-        # present (restart mid-chain) means the runner's own -fin may have run, so chain_merged falls back to chain_clean.
-        SWEEPING=""; [ -e "$N1_QUEUE_DIR/.chained-$T" ] || SWEEPING=1
+        # chain_finish_merged acts only here, and only unless the runner's own -fin launch is confirmed: a .chained-<ticket>
+        # marker in state launched/done means -fin ran (chain_merged falls back to chain_clean); a missing or pending one
+        # (restart before the launch was confirmed) proves nothing, so the owed finish is still launched.
+        SWEEPING=1
+        case "$(sed -n 2p "$N1_QUEUE_DIR/.chained-$T" 2>/dev/null)" in launched|done) SWEEPING="" ;; esac
         orca_settle "$TASK"
         SWEEPING=""
     done

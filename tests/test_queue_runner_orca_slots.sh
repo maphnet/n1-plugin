@@ -167,7 +167,19 @@ merged_sweep_run() {   # <tmp> <worker-list liveness verdict>: T-A pr (GitHub UR
     [ "${3:-}" = active ] || printf "find '%s' -type f -exec touch -d '2 hours ago' {} +\n" "$tmp/n1home/memory/T-A" >> "$tmp/fake/at.3"
     # beacon: memory aged, only a fresh progress beacon (re-written by the at.* hooks) shows activity
     [ "${3:-}" != beacon ] || for i in 3 4 5 6 7 8; do printf "printf '%%s\\tci\\n' \"\$(date +%%s)\" > '%s/.hb-T-A'\n" "$tmp" >> "$tmp/fake/at.$i"; done
+    [ -z "${4:-}" ] || printf 'old-run\n%s\n' "$4" > "$tmp/.chained-T-A"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
+}
+
+# Codex: a marker still pending (crash before the runner's -fin launch was confirmed) must not suppress the owed finish;
+# a launched one means -fin ran, so the sweep falls back to n1-clean.
+test_orca_merged_sweep_marker_state() {
+    local tmp st; for st in pending launched; do
+        tmp=$(mktemp -d); merged_sweep_run "$tmp" unverifiable idle "$st"
+        assert_eq "merged-sweep marker $st: mfin|clean" "$([ "$st" = pending ] && echo '1|0' || echo '0|1')" \
+            "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-clean')"
+        rm -rf "$tmp"
+    done
 }
 
 test_orca_merged_sweep_settles() {
@@ -258,6 +270,7 @@ test_orca_stop_notice_then_resume_no_chain
 test_orca_stop_notice_deferral_survives_restart
 test_orca_slot_held_told
 test_orca_merged_sweep_settles
+test_orca_merged_sweep_marker_state
 test_orca_merged_sweep_skips_active_deferred
 test_orca_merged_sweep_skips_beaconing_deferred
 
