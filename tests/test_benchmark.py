@@ -436,6 +436,27 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(res["runs_skipped_host"], 1)
         self.assertFalse((self.d.out / "runs" / "n1-run-codex.json").exists())
 
+    def test_cached_ineligible_run_is_rebuilt_once_inference_makes_it_eligible(self):
+        self.collect()
+        self.assertFalse(json.loads((self.d.out / "runs" / "n1-run-2.json").read_text())["eligible"])
+        self.d.add_run(make_run(run_id="n1-run-2", ticket="T-2", outcome=None,
+                                steps=[{"step": "pr", "outcome": "success"}]))
+        p1 = self.d.out / "runs" / "n1-run-1.json"
+        old = json.loads(p1.read_text())
+        old["turns"][1]["label"], old["turns"][1]["label_source"] = "correction", "judge"
+        for k in ("tier", "plan_path", "outcome_inferred"):
+            old.pop(k)
+        p1.write_text(json.dumps(old))
+        res = self.collect()
+        self.assertEqual((res["runs_new"], res["runs_cached"]), (1, 1))
+        rebuilt = json.loads((self.d.out / "runs" / "n1-run-2.json").read_text())
+        self.assertTrue(rebuilt["eligible"])
+        self.assertTrue(rebuilt["outcome_inferred"])
+        self.assertEqual(rebuilt["final_outcome"], "pr_created")
+        kept = json.loads(p1.read_text())
+        self.assertEqual(kept["turns"][1]["label_source"], "judge")
+        self.assertEqual((kept["tier"], kept["plan_path"], kept["outcome_inferred"]), ("unknown", "none", False))
+
 
 def labeled(label, step="brainstorm", n=0):
     return {"id": f"r#{n}", "timestamp": "x", "step": step, "text": "t", "prev_assistant": "",

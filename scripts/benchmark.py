@@ -523,12 +523,19 @@ def cmd_collect(args) -> int:
     new, cached, ambiguous = 0, 0, []
     for run in runs:
         cache = existing.get(run["run_id"])
+        if cache is not None and not cache.get("eligible") and is_eligible(run):
+            # N1-482: outcome newly inferred. Ineligible caches hold no turns or labels,
+            # so rebuilding loses nothing and needs no --force.
+            cache = None
         if cache is None:
             cache = build_run_cache(run, Path(args.projects_dir))
             cache["run_record"] = {k: v for k, v in run.items() if not k.startswith("_")}
             save_cache(out, _strip_private(cache))
             new += 1
         else:
+            if "tier" not in cache:
+                cache.update(_light_fields(run))
+                save_cache(out, _strip_private(cache))
             cached += 1
         for t in cache["turns"]:
             if t.get("label") == "ambiguous":
