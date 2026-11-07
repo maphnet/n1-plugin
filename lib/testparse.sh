@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # lib/testparse.sh — extract failing/passing test names and zero-test detection from runner output.
-# Supported: pytest, jest/vitest, node:test (TAP), mocha, go test, n1 shell test convention. Framework auto-detected per line.
+# Supported: pytest, jest/vitest, node:test (TAP), mocha, go test, unittest (FAIL:/ERROR:), n1 shell test convention. Framework auto-detected per line.
 
 n1_testparse_strip_ansi() {
     sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g' "$1"
@@ -38,9 +38,16 @@ n1_testparse_failed_names() {
         /^--- FAIL: / {
             name=$3; print name; next
         }
-        # n1 shell test convention: "FAIL: test name (expected=... actual=...)"
+        # n1 shell test convention: "FAIL: test name (expected=... actual=...)" or "FAIL: test name -- <detail>"
+        # (also unittest "FAIL: test_x (module.Class)"). The " -- " detail is cut first so the remaining name
+        # gets the same trailing-paren strip as its PASS line.
         /^FAIL: / {
-            line=$0; sub(/^FAIL: /, "", line); sub(/ \([^()]*\)[[:space:]]*$/, "", line); print line; next
+            line=$0; sub(/^FAIL: /, "", line); sub(/ -- .*$/, "", line); sub(/ \([^()]*\)[[:space:]]*$/, "", line); print line; next
+        }
+        # unittest error: "ERROR: test_x (module.Class)" or "(module.Class.test_x)". Anchored on the dotted-path
+        # paren group so generic "ERROR: <message>" log lines are not taken for test names.
+        /^ERROR: [^ ]+ \([A-Za-z_][A-Za-z0-9_.]*\)[[:space:]]*$/ {
+            print $2; next
         }
     ' | awk 'NF' | sort -u
 }

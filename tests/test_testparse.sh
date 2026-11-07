@@ -66,6 +66,23 @@ assert_eq "n1 bare FAIL name" "adds negative" "$(n1_testparse_failed_names "$T/n
 printf 'PASS: adds positive\nFAIL: adds negative (expected=[1] actual=[0])\n' > "$T/n1_detail.txt"
 assert_eq "n1 FAIL with detail" "adds negative" "$(n1_testparse_failed_names "$T/n1_detail.txt")"
 
+# N1-336: shell helpers (tests/test_orca.sh no()) print "FAIL: <name> -- <detail>"; the detail is not part of the name.
+printf "PASS: eq other\nFAIL: eq name -- expected 'a', got 'b'\n" > "$T/n1_suffix.txt"
+assert_eq "n1 FAIL with -- detail suffix" "eq name" "$(n1_testparse_failed_names "$T/n1_suffix.txt")"
+printf 'FAIL: eq name -- got (rc 1)\n' > "$T/n1_suffix_paren.txt"
+assert_eq "n1 FAIL suffix whose detail ends in a paren group" "eq name" "$(n1_testparse_failed_names "$T/n1_suffix_paren.txt")"
+printf 'PASS: H11: runs (rc 0)\n' > "$T/n1_pair_pass.txt"
+printf "FAIL: H11: runs (rc 0) -- expected 'a', got 'b'\n" > "$T/n1_pair_fail.txt"
+assert_eq "suffixed FAIL name equals its PASS name" "$(n1_testparse_passed_names "$T/n1_pair_pass.txt")" "$(n1_testparse_failed_names "$T/n1_pair_fail.txt")"
+
+# N1-336: unittest errors print "ERROR: test_x (module.Class)" (3.11+: "(module.Class.test_x)").
+printf '======================================================================\nERROR: test_x (module.Class)\n----------------------------------------------------------------------\nRan 2 tests in 0.001s\nFAILED (errors=1)\n' > "$T/unittest_error.txt"
+assert_eq "unittest ERROR name" "test_x" "$(n1_testparse_failed_names "$T/unittest_error.txt")"
+printf 'ERROR: test_y (pkg.mod.Class.test_y)\n' > "$T/unittest_error311.txt"
+assert_eq "unittest 3.11+ ERROR name" "test_y" "$(n1_testparse_failed_names "$T/unittest_error311.txt")"
+printf 'ERROR: something failed\nERROR: could not connect (host down)\n' > "$T/generic_error.txt"
+assert_eq "generic ERROR log lines are not test names" "" "$(n1_testparse_failed_names "$T/generic_error.txt")"
+
 printf 'PASS: adds positive\nPASS: shows total|auto (hook ignored)\nFAIL: adds negative\n' > "$T/n1_pass.txt"
 assert_eq "n1 PASS names (trailing paren stripped, pipe kept)" "$(printf 'adds positive\nshows total|auto')" "$(n1_testparse_passed_names "$T/n1_pass.txt")"
 assert_eq "go PASS name" "TestAddPositive" "$(n1_testparse_passed_names "$T/go.txt")"
