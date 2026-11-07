@@ -535,8 +535,9 @@ def cmd_collect(args) -> int:
             save_cache(out, _strip_private(cache))
             new += 1
         else:
-            if "tier" not in cache:
-                cache.update(_light_fields(run))
+            light = _light_fields(run)
+            if any(cache.get(k) != v for k, v in light.items()):
+                cache.update(light)
                 save_cache(out, _strip_private(cache))
             cached += 1
         for t in cache["turns"]:

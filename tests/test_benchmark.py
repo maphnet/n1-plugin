@@ -416,6 +416,20 @@ class CollectTest(unittest.TestCase):
         self.assertEqual((res["runs_new"], res["runs_cached"]), (0, 2))
         self.assertEqual(len(res["ambiguous"]), 1)
 
+    def test_cached_collect_refreshes_light_fields_and_keeps_turns(self):
+        self.collect()
+        p = self.d.out / "runs" / "n1-run-1.json"
+        cache = json.loads(p.read_text())
+        cache.update(tier="stale", plan_path="stale", outcome_inferred=True)
+        p.write_text(json.dumps(cache))
+        res = self.collect()
+        self.assertEqual(res["runs_cached"], 2)
+        fresh = json.loads(p.read_text())
+        self.assertNotEqual(fresh["tier"], "stale")
+        self.assertNotEqual(fresh["plan_path"], "stale")
+        self.assertFalse(fresh["outcome_inferred"])
+        self.assertEqual(fresh["turns"], cache["turns"])
+
     def test_force_reprocesses(self):
         self.collect()
         res = self.collect("--force")
