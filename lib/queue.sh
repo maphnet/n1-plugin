@@ -1600,7 +1600,7 @@ n1_queue_close() {
                 url=$(n1_queue_attested_pr "$q" "$t" "$n1h"); ps=$(n1_queue_pr_state "$url")
                 case "$ps" in MERGED|CLOSED) ;; *) hard+="$t: PR ${ps:-unreadable} ${url:-(no PR)}"$'\n' ;; esac ;;
             # queue.md is child-writable: only known terminal statuses settle a row; empty or unknown blocks close
-            skip|skipped|stopped|merged|done|failed|blocked|timeout|obsolete|closed) ;;
+            skip|skipped|no-pr|stopped|merged|done|failed|blocked|timeout|obsolete|closed) ;;
             *) hard+="$t: unknown status '${st:-<empty>}'"$'\n' ;;
         esac
     done 3< <(n1_queue_pending_rows "$q" '.*')
