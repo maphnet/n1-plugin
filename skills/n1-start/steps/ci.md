@@ -2,9 +2,12 @@
 ```bash
 source ~/.n1/preamble.sh
 n1_step_begin "ci" 13
+[ "$(sed -nE 's/^ci: (none)\r?$/\1/p' "$N1_HOME/memory/$ID/pr-result.md" 2>/dev/null | tail -1)" = none ] && echo ci:none || true
 ```
 
 **If `prMode` is `"skip"`**: no PR; skip ci gate/n1-ci; run the end block with `skipped`; continue.
+
+**If the begin block printed `ci:none`**: pr-worker found no workflow files; skip n1-ci; run the end block with `skipped`; continue.
 
 **REQUIRED SUB-SKILL:** Use n1:n1-ci to monitor CI checks and fix failures. Pass it the PR number from the PR creation step above.
 

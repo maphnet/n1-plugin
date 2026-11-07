@@ -65,4 +65,27 @@ for l in '1. `sleep 15` (initial delay).' \
 done
 expect "unchanged: poll command" yes "$(yn grep -qF '**The poll command** (never print raw check JSON): `gh pr checks <PR#> --json name,bucket,link --jq' "$M")"
 
+# 3. n1-start ci.md: the begin fence reads ci: from pr-result.md; only an exact `ci: none` skips n1-ci.
+CI=skills/n1-start/steps/ci.md
+RL=$(grep -F 'echo ci:none' "$CI" | head -1)
+expect "ci.md: reader sits in the begin fence" yes "$(yn grep -qF 'echo ci:none' < <(grep -A1 -F 'n1_step_begin "ci" 13' "$CI"))"
+mkdir -p "$T/home/memory/T-1"; F="$T/home/memory/T-1/pr-result.md"
+rd() { N1_HOME="$T/home" ID=T-1 bash -c "$RL" 2>&1; }
+printf 'status: complete\nreason: -\npr: 7\npr_url: https://github.com/o/r/pull/7\nbranch: feat/x\nci: none\n' > "$F"
+expect "ci.md: ci: none -> marker" ci:none "$(rd)"
+printf 'status: complete\nci: none\r\n' > "$F"
+expect "ci.md: CRLF ci: none -> marker" ci:none "$(rd)"
+printf 'status: complete\nreason: -\npr: 7\nbranch: feat/x\n' > "$F"
+expect "ci.md: no ci: line -> no marker" "" "$(rd)"
+for v in 'ci: nonexistent' 'ci: none extra' ' ci: none' 'ci:none' 'ci: '; do
+    printf 'status: complete\n%s\n' "$v" > "$F"
+    expect "ci.md: '$v' -> no marker" "" "$(rd)"
+done
+rm -f "$F"
+expect "ci.md: missing pr-result.md -> no marker" "" "$(rd)"
+G2=$(grep -F '**If the begin block printed `ci:none`**' "$CI" || true)
+expect "ci.md: ci:none skip guard" yes "$(yn test -n "$G2")"
+expect "ci.md: guard ends the step skipped without n1-ci" yes "$(yn grep -qF 'skip n1-ci; run the end block with `skipped`; continue.' <<<"$G2")"
+expect "ci.md: prMode guard kept" yes "$(yn grep -qF '**If `prMode` is `"skip"`**' "$CI")"
+
 exit $FAIL
