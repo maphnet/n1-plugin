@@ -119,10 +119,13 @@ def load_runs(n1_root: Path):
         d = _ticket_dir(rec)
         if d not in ov_by_dir:
             ov_by_dir[d] = _overview_signals(rec["_source_path"])
-        rec["_ov"] = ov_by_dir[d]
         cur = last.get(d)
         if cur is None or (rec.get("started_at") or "") >= (cur.get("started_at") or ""):
             last[d] = rec
+    for rec in runs:
+        # The overview describes the ticket's latest state; older runs keep their own metadata.
+        d = _ticket_dir(rec)
+        rec["_ov"] = ov_by_dir[d] if last[d] is rec else {}
     for rec in runs:
         if rec.get("final_outcome"):
             continue
@@ -204,7 +207,7 @@ def _light_fields(run: dict) -> dict:
     """Cache fields that never need a transcript: inference flag, tier, plan path."""
     ov = run.get("_ov") or {}
     return {"outcome_inferred": bool(run.get("outcome_inferred")),
-            "tier": ov.get("tier") or run.get("estimated_tier") or "unknown",
+            "tier": run.get("estimated_tier") or ov.get("tier") or "unknown",
             "plan_path": ov.get("planning_need") or "none"}
 
 
@@ -522,9 +525,9 @@ def cmd_collect(args) -> int:
     new, cached, ambiguous = 0, 0, []
     for run in runs:
         cache = existing.get(run["run_id"])
-        if cache is not None and not cache.get("eligible") and is_eligible(run):
-            # N1-482: outcome newly inferred. Ineligible caches hold no turns or labels,
-            # so rebuilding loses nothing and needs no --force.
+        if cache is not None and bool(cache.get("eligible")) != is_eligible(run):
+            # N1-482: inferred outcome appeared or disappeared. Ineligible caches hold no
+            # turns or labels; a cache that lost eligibility must not keep counting.
             cache = None
         if cache is None:
             cache = build_run_cache(run, Path(args.projects_dir))

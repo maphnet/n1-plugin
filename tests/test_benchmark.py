@@ -182,6 +182,18 @@ class InferOutcomeTest(unittest.TestCase):
         self.d.add_run(make_run(run_id="a", outcome=""))
         self.assertEqual(self.load()["a"]["final_outcome"], "")
 
+    def test_older_run_keeps_its_own_tier(self):
+        self.overview("T-1", "---\ntier: complex\nplanning_need: plan\n---\n")
+        old = make_run(run_id="old", started="2026-01-01T00:00:00Z")
+        old["estimated_tier"] = "simple"
+        self.d.add_run(old)
+        self.d.add_run(make_run(run_id="new", started="2026-02-01T00:00:00Z"))
+        runs = self.load()
+        old_c = bm.build_run_cache(runs["old"], self.d.projects)
+        new_c = bm.build_run_cache(runs["new"], self.d.projects)
+        self.assertEqual((old_c["tier"], old_c["plan_path"]), ("simple", "none"))
+        self.assertEqual((new_c["tier"], new_c["plan_path"]), ("complex", "plan"))
+
     def test_build_run_cache_light_fields(self):
         self.overview("T-1", "---\ntier: complex\nplanning_need: plan\n---\n")
         self.d.add_run(make_run(run_id="a", outcome="", steps=[{"step": "pr", "outcome": "success"}]))
@@ -435,6 +447,15 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(res["runs_new"], 2)
         self.assertEqual(res["runs_skipped_host"], 1)
         self.assertFalse((self.d.out / "runs" / "n1-run-codex.json").exists())
+
+    def test_cached_eligible_run_is_rebuilt_when_inference_disappears(self):
+        self.collect()
+        p = self.d.out / "runs" / "n1-run-2.json"
+        c = json.loads(p.read_text())
+        c["eligible"], c["outcome_inferred"] = True, True
+        p.write_text(json.dumps(c))
+        self.collect()
+        self.assertFalse(json.loads(p.read_text())["eligible"])
 
     def test_cached_ineligible_run_is_rebuilt_once_inference_makes_it_eligible(self):
         self.collect()
