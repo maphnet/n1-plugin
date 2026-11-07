@@ -1142,7 +1142,8 @@ class ReportTest(unittest.TestCase):
             new["metrics"][name] = {"n": 5, "mean": 100.0, "median": 90.0, "p90": 200.0, "ci": [95.0, 105.0]}
         snap = snap_with({"claude-code/2.70.0": old, "claude-code/2.80.0": new})
         out = bm.render_report(snap, None, "claude-code/2.70.0", "pinned", {})
-        self.assertIn("median 90 / p90 200 (n=5) |", out)
+        main = next(ln for ln in out.splitlines() if ln.startswith("| claude-code/2.80.0 | 5/5"))
+        self.assertEqual(main.count("median 90 / p90 200 (n=5) |"), 2)  # no delta appended in the main table
         rows = [ln for ln in out.splitlines() if ln.startswith(("| duration_min |", "| work_min |"))]
         self.assertEqual(len(rows), 2)
         for ln in rows:
