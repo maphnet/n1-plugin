@@ -252,6 +252,38 @@ n1_remove_run_lock() {
     fi
 }
 
+# n1_abandon_run <tdir> <run> <ticket> <version> (N1-486): close a run nobody will finalize.
+# Appends an abandoned envelope_close unless a terminal one exists (type/tier from the ticket's
+# overview.md), merges, and removes the lock once runs/<run>.jsonl is non-empty. Never checks
+# pending agents: the Stop caller gates on them, recovery deliberately does not. Always returns 0.
+n1_abandon_run() {
+    local tdir="$1" run="$2" ticket="$3" version="$4" out ov t="" tr=""
+    out="$tdir/raw/steps/$run.jsonl"
+    mkdir -p "$tdir/raw/steps"
+    # Per-run guard (mkdir is atomic): a concurrent abandoner owns the close+merge; skip.
+    # A guard left by a crashed holder older than 5 min is reclaimed.
+    local guard="$tdir/raw/steps/$run.abandon.d"
+    if ! mkdir "$guard" 2>/dev/null; then
+        [ -n "$(find "$guard" -maxdepth 0 -mmin +5 2>/dev/null)" ] || return 0
+        rmdir "$guard" 2>/dev/null; mkdir "$guard" 2>/dev/null || return 0
+    fi
+    if ! grep -q '"layer"[[:space:]]*:[[:space:]]*"envelope_close"' "$out" 2>/dev/null; then
+        ov="$tdir/../overview.md"
+        if [ -f "$ov" ]; then
+            type n1_read_frontmatter >/dev/null 2>&1 || source "${_N1_LIB_DIR}/frontmatter.sh"
+            t=$(n1_read_frontmatter "$ov" type 2>/dev/null || true)
+            tr=$(n1_read_frontmatter "$ov" tier 2>/dev/null || true)
+        fi
+        printf '{"layer":"envelope_close","run_id":"%s","n1_version":"%s","ticket_id":"%s","completed_at":"%s","final_outcome":"abandoned","type":"%s","estimated_tier":"%s"}\n' \
+            "$(escape_json_val "$run")" "$(escape_json_val "$version")" "$(escape_json_val "$ticket")" \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(escape_json_val "$t")" "$(escape_json_val "$tr")" >> "$out"
+    fi
+    bash "${_N1_LIB_DIR}/../hooks/telemetry-merge.sh" "$run" "$tdir" 2>/dev/null || true
+    [ -s "$tdir/runs/$run.jsonl" ] && n1_remove_run_lock "$tdir" "$run"
+    rmdir "$guard" 2>/dev/null
+    return 0
+}
+
 # n1_emit_outcome <run_id> <n1_version> <ticket_id> <telemetry_dir> [key=value ...]
 # Appends a pipeline-completion quality outcome event
 # Expected keys: review_pass_first_try, qa_pass_first_try, fix_cycles_count, total_duration_s
@@ -279,21 +311,33 @@ n1_emit_outcome() {
         "$(escape_json_val "$run_id")" "$(escape_json_val "$version")" "$(escape_json_val "$ticket_id")" "$outcomes" "$ts" >> "$file"
 }
 
+# n1_merge_pending <memory_dir> (N1-486): SessionStart recovery over every run lock, any session.
+# Abandon (n1_abandon_run: envelope, merge, lock removal) only when the lock is not this session's,
+# its owner pointer has no live claude pid (_n1_owner_alive), and the run is idle > 24h
+# (raw/steps/<run>.jsonl mtime, lock mtime fallback). Pending agent starts do not block.
+# A missing or pid-less pointer is no liveness signal: the idle rule alone decides. Always returns 0.
+# ponytail: 20 abandons per call so a backlog drains over several starts; raise if starts get rare.
 n1_merge_pending() {
-    local memory_dir="$1"
-    n1_read_lock "$memory_dir" || return 0
-
-    local merged_file="${N1_LOCK_TELEM_DIR}/runs/${N1_LOCK_RUN_ID}.jsonl"
-    local saved_run_id="$N1_LOCK_RUN_ID"
-
-    if [ ! -s "$merged_file" ]; then
-        local merge_script
-        merge_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../hooks/telemetry-merge.sh"
-        bash "$merge_script" "$N1_LOCK_RUN_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
-    fi
-
-    # Remove lock only if merged output exists and lock still belongs to the stale run
-    [ ! -s "$merged_file" ] || n1_remove_run_lock "$N1_LOCK_TELEM_DIR" "$saved_run_id"
+    local memory_dir="$1" home me lock tdir run sid ptr pid ref ticket n=0
+    home="${memory_dir%/memory}"; me=$(n1_session_id)
+    for lock in "$memory_dir"/*/telemetry/locks/*.json "$memory_dir"/*/telemetry/telemetry.lock; do
+        [ "$n" -lt 20 ] || break
+        [ -f "$lock" ] || continue
+        case "$lock" in */locks/*) tdir="${lock%/locks/*}" ;; *) tdir="${lock%/telemetry.lock}" ;; esac
+        run=$(n1_hook_field run_id < "$lock")
+        _n1_valid_run_id "$run" || continue
+        ref="$tdir/raw/steps/$run.jsonl"; [ -f "$ref" ] || ref="$lock"
+        [ -z "$(find "$ref" -mmin -1440 2>/dev/null)" ] || continue   # cheap idle gate first: no jq for fresh locks
+        sid=$(n1_hook_field session_id < "$lock")
+        [ -n "$me" ] && [ "$sid" = "$me" ] && continue
+        pid=""; ptr="$home/active-run.$sid.json"
+        case "$sid" in ''|*[!a-zA-Z0-9_-]*) ;; *) [ -f "$ptr" ] && pid=$(grep -o '"pid"[[:space:]]*:[[:space:]]*[0-9]*' "$ptr" | head -1 | grep -o '[0-9]*$' || true) ;; esac   # pid is unquoted: n1_hook_field misses it without jq
+        _n1_owner_alive "$pid" && continue
+        ticket="${tdir%/telemetry}"; ticket="${ticket##*/}"
+        n1_abandon_run "$tdir" "$run" "$ticket" "$(n1_hook_field n1_version < "$lock")"
+        n=$((n+1))
+    done
+    return 0
 }
 
 # n1_record_decision <decision_id> <result:true|false> [<condition_json>] [key=value ...]
