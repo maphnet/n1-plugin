@@ -163,6 +163,39 @@ def read_answers(path: Path):
     return followed, answered
 
 
+HUMAN_WAIT_S = 120
+
+
+def read_wait_seconds(path: Path, started, completed):
+    """Seconds the orchestrator waited on the human or a usage limit (N1-483): a gap of at least
+    HUMAN_WAIT_S between consecutive non-sidechain user/assistant records where an assistant record is
+    followed by a human turn or an AskUserQuestion answer, or the earlier record is a rate-limit API
+    error. Each gap is clipped to [started, completed]. A long tool_result wait is work, not waiting."""
+    if started is None or completed is None:
+        return None
+    ask_ids, prev, wait = set(), None, 0.0
+    for rec, _ in read_jsonl(path):
+        if not rec or rec.get("isSidechain") or rec.get("type") not in ("user", "assistant"):
+            continue
+        ts = parse_ts(rec.get("timestamp"))
+        if ts is None:
+            continue
+        content = (rec.get("message") or {}).get("content")
+        items = [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+        if rec["type"] == "assistant":
+            ask_ids.update(b["id"] for b in items if b.get("type") == "tool_use"
+                           and b.get("name") == "AskUserQuestion" and b.get("id"))
+        if prev is not None and ts - prev[0] >= HUMAN_WAIT_S:
+            p = prev[1]
+            answer = rec["type"] == "user" and any(
+                b.get("type") == "tool_result" and b.get("tool_use_id") in ask_ids for b in items)
+            limited = p.get("isApiErrorMessage") and p.get("error") == "rate_limit"
+            if (p.get("type") == "assistant" and (is_human_turn(rec) or answer)) or limited:
+                wait += max(0.0, min(ts, completed) - max(prev[0], started))
+        prev = (ts, rec)
+    return wait
+
+
 def load_runs(n1_root: Path):
     """Load merged run records from <n1_root>/*/memory/*/telemetry/runs/*.jsonl.
 
@@ -697,6 +730,18 @@ class DurationMetric(Metric):
         return round((e - s) / 60.0, 1)
 
 
+class WorkMinMetric(DurationMetric):
+    """duration_min minus human-wait and usage-limit gaps from the transcript (N1-483)."""
+    name = "work_min"
+
+    def compute(self, run_record, turns):
+        d = super().compute(run_record, turns)
+        w = run_record.get("_wait_s")
+        if d is None or not isinstance(w, (int, float)):
+            return None
+        return round(max(0.0, d - w / 60.0), 1)
+
+
 class OrchestratorTokensMetric(Metric):
     name, unit, direction = "orchestrator_output_tokens", "tokens", "lower"
 
@@ -854,6 +899,7 @@ METRICS = [
     OutcomeMetric("review_pass_first_try", "review_pass_first_try", "ratio", "higher", boolean=True),
     OutcomeMetric("review_pass_first_try_hard", "review_pass_first_try_hard", "ratio", "higher", boolean=True),
     DurationMetric(),
+    WorkMinMetric(),
     OrchestratorTokensMetric(),
     CompactionsMetric(),
     CacheCreationTokensMetric(),
@@ -885,6 +931,8 @@ def compute_run_metrics(cache: dict) -> None:
         run_record["_bash_calls"] = bash_c
         run_record["_api_calls"] = api_c
         run_record["_answers"] = read_answers(tp)
+        run_record["_wait_s"] = read_wait_seconds(tp, parse_ts(run_record.get("started_at")),
+                                                  parse_ts(run_record.get("completed_at")))
     # Orchestrator metrics from merged run record
     orch = run_record.get("orchestrator") or {}
     totals = orch.get("totals") or {}

@@ -612,7 +612,7 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(names, ["interventions", "answers", "corrections",
                                  "brainstorm_interactions", "autonomous_interventions",
                                  "fix_cycles", "review_pass_first_try", "review_pass_first_try_hard",
-                                 "duration_min", "orchestrator_output_tokens", "compactions",
+                                 "duration_min", "work_min", "orchestrator_output_tokens", "compactions",
                                  "session_cache_creation_tokens", "orchestrator_cache_creation_tokens",
                                  "questions_per_run", "brainstorm_questions",
                                  "answer_matches_recommendation", "decide_for_me_share",
@@ -695,6 +695,58 @@ class ReadAnswersTest(unittest.TestCase):
         cache = {"run_record": make_run(), "turns": [], "transcript_path": None}
         bm.compute_run_metrics(cache)
         self.assertIsNone(cache["metrics"]["answer_matches_recommendation"])
+
+
+class ReadWaitSecondsTest(unittest.TestCase):
+    S, E = bm.parse_ts("2026-09-01T10:00:00Z"), bm.parse_ts("2026-09-01T11:00:00Z")
+
+    def setUp(self):
+        self.d = TempDirs()
+
+    def wait(self, records, s=_UNSET, e=_UNSET):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, records)
+        return bm.read_wait_seconds(p, self.S if s is _UNSET else s, self.E if e is _UNSET else e)
+
+    def test_threshold_is_120_seconds(self):
+        self.assertEqual(self.wait([assistant("2026-09-01T10:00:00Z", "q"), human("2026-09-01T10:01:59Z", "a")]), 0)
+        self.assertEqual(self.wait([assistant("2026-09-01T10:00:00Z", "q"), human("2026-09-01T10:02:00Z", "a")]), 120)
+
+    def test_ask_answer_gap_counts_tool_result_gap_does_not(self):
+        self.assertEqual(self.wait([
+            ask_use("2026-09-01T10:00:00Z", "a1", [q("Pick?", ["x (Recommended)"])]),
+            ask_result("2026-09-01T10:05:00Z", "a1", 'The user answered: "x"'),
+            assistant("2026-09-01T10:06:00Z", "run"),
+            tool_result("2026-09-01T10:16:00Z")]), 300)
+
+    def test_gap_clipped_to_run_window(self):
+        self.assertEqual(self.wait([
+            assistant("2026-09-01T09:50:00Z", "q"), human("2026-09-01T10:05:00Z", "a"),
+            assistant("2026-09-01T10:58:00Z", "q"), human("2026-09-01T11:30:00Z", "a")]), 300 + 120)
+
+    def test_rate_limit_gap_counts(self):
+        limit = assistant("2026-09-01T10:00:00Z", "usage limit")
+        limit.update({"isApiErrorMessage": True, "error": "rate_limit"})
+        self.assertEqual(self.wait([limit, tool_result("2026-09-01T10:30:00Z")]), 1800)
+
+    def test_sidechain_records_ignored(self):
+        side = assistant("2026-09-01T10:01:00Z", "agent")
+        side["isSidechain"] = True
+        self.assertEqual(self.wait([assistant("2026-09-01T10:00:00Z", "q"), side,
+                                    human("2026-09-01T10:05:00Z", "a")]), 300)
+
+    def test_missing_window_is_none(self):
+        self.assertIsNone(self.wait([assistant("2026-09-01T10:00:00Z", "q")], s=None))
+
+    def test_work_min_metric(self):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, [assistant("2026-09-01T10:00:00Z", "q"), human("2026-09-01T10:30:00Z", "a")])
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": str(p)}
+        bm.compute_run_metrics(cache)
+        self.assertEqual((cache["metrics"]["duration_min"], cache["metrics"]["work_min"]), (60.0, 30.0))
+        cache = {"run_record": make_run(), "turns": [], "transcript_path": None}
+        bm.compute_run_metrics(cache)
+        self.assertIsNone(cache["metrics"]["work_min"])
 
 
 class CountToolCallsTest(unittest.TestCase):
