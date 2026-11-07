@@ -1001,6 +1001,40 @@ def aggregate(caches, by: str, keyfn=None) -> dict:
     return out
 
 
+def merge_versions(caches) -> dict:
+    """Map 'host/version' to a headline bucket: adjacent versions of one host are joined
+    (ascending) until the bucket has MIN_SAMPLE eligible runs; an undersized tail joins the
+    previous bucket. A host with one undersized bucket keeps it (insufficient). Legacy excluded."""
+    counts = {}
+    for c in caches:
+        k = group_key(c, "version")
+        if not is_legacy_key(k):
+            counts[k] = counts.get(k, 0) + (1 if c.get("eligible") else 0)
+    by_host = {}
+    for k in counts:
+        host, _, v = k.partition("/")
+        by_host.setdefault(host, []).append(v)
+    mapping = {}
+    for host, versions in by_host.items():
+        buckets, cur, n = [], [], 0
+        for v in sorted(versions, key=version_key):
+            cur.append(v)
+            n += counts[f"{host}/{v}"]
+            if n >= MIN_SAMPLE:
+                buckets.append(cur)
+                cur, n = [], 0
+        if cur:
+            if buckets:
+                buckets[-1] += cur
+            else:
+                buckets.append(cur)
+        for b in buckets:
+            label = f"{host}/{b[0]}" if len(b) == 1 else f"{host}/{b[0]}-{b[-1]}"
+            for v in b:
+                mapping[f"{host}/{v}"] = label
+    return mapping
+
+
 # ---------------------------------------------------------------- storage
 
 def write_snapshot(out: Path, snapshot: dict) -> Path:
@@ -1081,6 +1115,14 @@ def cmd_finalize(args) -> int:
                       "reason": unlink_cause(c)} for c in unlinked],
         "unlinked_causes": causes,
     }
+    if args.by == "version":
+        bucket = merge_versions(ordered)
+        members = [c for c in ordered if group_key(c, "version") in bucket]
+        merged = aggregate(members, "version", keyfn=lambda c: bucket[group_key(c, "version")])
+        for label, grp in merged.items():
+            grp["versions"] = sorted((k for k, b in bucket.items() if b == label),
+                                     key=lambda k: version_key(k.partition("/")[2]))
+        snapshot["merged"] = merged
     # Guarantee unique ids when two finalize calls land in the same second.
     existing = {s["snapshot_id"] for s in load_snapshots(out)}
     while snapshot["snapshot_id"] in existing:
@@ -1143,6 +1185,16 @@ def _sufficient_groups(snapshot: dict, groups=None):
 def latest_sufficient(snapshot: dict, groups=None):
     keys = _sufficient_groups(snapshot, groups)
     return keys[-1] if keys else None
+
+
+def headline_groups(snapshot: dict) -> dict:
+    """Partitions the headline compares: merged buckets (version mode), non-legacy weeks
+    (week mode), {} for a pre-N1-482 version snapshot."""
+    if "merged" in snapshot:
+        return snapshot["merged"]
+    if snapshot.get("by") == "week":
+        return {k: v for k, v in snapshot["groups"].items() if not is_legacy_key(k)}
+    return {}
 
 
 def pick_baseline_group(snapshot: dict, baseline):

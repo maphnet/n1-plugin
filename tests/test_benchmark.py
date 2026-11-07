@@ -827,6 +827,8 @@ class FinalizeTest(unittest.TestCase):
         self.assertEqual(g["metrics"]["corrections"]["mean"], 1.0)
         self.assertFalse(g["sufficient"])
         self.assertEqual(snap["unlinked_causes"], {})
+        self.assertEqual(list(snap["merged"]), ["claude-code/2.80.0"])
+        self.assertEqual(snap["merged"]["claude-code/2.80.0"]["versions"], ["claude-code/2.80.0"])
         cache = bm.load_cache(self.d.out)["n1-run-1"]
         self.assertEqual(cache["metrics"]["interventions"], 1.0)
         self.assertEqual(cache["judge_model"], bm.DEFAULT_JUDGE_MODEL)
@@ -862,6 +864,35 @@ def group(mean_interventions, lo, hi, sufficient=True, n=5):
     metrics = {m.name: stat(mean_interventions if m.name == "interventions" else 1.0, lo, hi, n) for m in bm.METRICS}
     return {"n_runs": n, "n_all": n, "n_incomplete": 0, "n_unlinked": 0, "quality_coverage": 1.0,
             "sufficient": sufficient, "metrics": metrics, "abandon_rate": 0.0, "run_ids": []}
+
+
+class MergeVersionsTest(unittest.TestCase):
+    def test_adjacent_versions_merge_until_min_sample_and_tail_merges_back(self):
+        caches = []
+        for v, n in (("5.58.1", 2), ("5.59.0", 1), ("5.60.0", 3), ("5.61.0", 6), ("5.62.0", 2)):
+            caches += [cache_for(v, f"{v}-{i}", 1.0) for i in range(n)]
+        caches.append(cache_for("5.59.0", "x", None, eligible=False))  # ineligible runs do not count
+        caches.append(cache_for("", "leg", 1.0))
+        m = bm.merge_versions(caches)
+        self.assertEqual(m["claude-code/5.58.1"], "claude-code/5.58.1-5.60.0")
+        self.assertEqual(m["claude-code/5.59.0"], "claude-code/5.58.1-5.60.0")
+        self.assertEqual(m["claude-code/5.60.0"], "claude-code/5.58.1-5.60.0")
+        self.assertEqual(m["claude-code/5.61.0"], "claude-code/5.61.0-5.62.0")
+        self.assertEqual(m["claude-code/5.62.0"], "claude-code/5.61.0-5.62.0")
+        self.assertNotIn("legacy", m)
+
+    def test_single_undersized_bucket_keeps_its_version_label(self):
+        m = bm.merge_versions([cache_for("5.0.0", "a", 1.0), cache_for("5.0.0", "b", 1.0)])
+        self.assertEqual(m, {"claude-code/5.0.0": "claude-code/5.0.0"})
+
+    def test_headline_groups(self):
+        snap = snap_with({"claude-code/2.80.0": group(2, 1, 3)})
+        self.assertEqual(bm.headline_groups(snap), {})
+        snap["merged"] = {"claude-code/2.80.0": group(2, 1, 3)}
+        self.assertIs(bm.headline_groups(snap), snap["merged"])
+        week = snap_with({"claude-code/2026-W36": group(2, 1, 3), "legacy": group(1, 0, 2)})
+        week["by"] = "week"
+        self.assertEqual(list(bm.headline_groups(week)), ["claude-code/2026-W36"])
 
 
 class ReportTest(unittest.TestCase):
