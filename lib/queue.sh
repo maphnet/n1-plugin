@@ -2021,14 +2021,15 @@ n1_queue_attested_pr() {
 }
 
 n1_queue_reconcile() {
-    # Usage: n1_queue_reconcile <queue.md> — N1-268, --status: with no live runner (a live one records merges itself
+    # Usage: n1_queue_reconcile <queue.md> [force] — N1-268, --status: with no live runner (a live one records merges itself
     # on settle), a pr/failed/stopped row whose PR merged since gets Runs Outcome merged, Plan status pr and one
     # ticket_finished outcome=merged event. PR URL: overview.md pr_url only when finalize stamped it for this queue run
     # (queue_run_id == the queue's run_id: ticket memory outlives runs, so an older run's merged PR must not count),
     # else the Runs PR cell (overview.md final_outcome never says merged). Never merges, chains or releases tags; an
     # unreadable PR state, or a ticket without a Runs row, leaves the row.
+    # N1-481: `force` skips the live-runner check; only the runner's own Done section passes it (its pid is still set).
     local q="$1" evf qid rid num ticket repo n1h model status url
-    n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q" && return 0
+    if [ "${2:-}" != force ] && n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then return 0; fi
     evf="$(dirname "$q")/events.jsonl"; qid=$(n1_read_frontmatter "$q" queue_id); rid=$(n1_read_frontmatter "$q" run_id)
     while IFS=$'\t' read -r -u 3 num ticket repo n1h model status; do
         [ "$(_n1_queue_run_outcome "$q" "$ticket")" = merged ] && continue

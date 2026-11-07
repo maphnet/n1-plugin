@@ -2058,6 +2058,9 @@ fi
 [ -z "$HALT_DRAIN" ] || halt_now "$HALT_DRAIN"
 # N1-293/N1-446: runs with an integration branch open the final per-repo PRs before the digest and step: done, so the summary can link them.
 if [ -n "$RUN_MODE" ]; then final_prs; fi
+# N1-481: record PRs merged by hand while the run was going (Runs Outcome merged, ticket_finished event) before the
+# digest and queue_done, so queue_done stays the queue's last event. force: this runner's own pid is still set.
+n1_queue_reconcile "$QUEUE" force || true
 count_rows() { n1_queue_pending_rows "$QUEUE" "$1" | wc -l | tr -d ' '; }
 NOPR=$(count_rows no-pr)
 DIGEST="$(count_rows pr) PR / $([ "$NOPR" = 0 ] || printf '%s no-PR / ' "$NOPR")$(count_rows 'awaiting-human|escalated') awaiting / $(count_rows failed) failed"

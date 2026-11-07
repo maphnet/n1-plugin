@@ -2326,6 +2326,37 @@ test_status_reconcile_merged() {
     rm -rf "$tmp"
 }
 
+# N1-481: the runner's Done section reconciles merges while its own pid is still set (force).
+test_queue_reconcile_force() {
+    local tmp q; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q="$tmp/queue/qf/queue.md"; mkdir -p "${q%/*}" "$tmp/bin"
+    printf '#!/bin/sh\necho MERGED\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+    cat > "$q" <<EOF
+---
+queue_id: qf
+run_id: R1
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | $tmp/h | sonnet | pr | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| T-1 | s | 0 | pr | https://github.com/o/r/pull/1 | |
+EOF
+    : > "${q%/*}/events.jsonl"
+    start_fake_runner "$REPO_ROOT" "$q"; n1_write_frontmatter "$q" pid "$FAKE_RUNNER_PID"
+    assert_eq "reconcile: live runner without force skips" "" "$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$q")"
+    assert_eq "reconcile: force records the merge under a live runner" "reconciled: T-1 merged" \
+        "$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$q" force)"
+    stop_fake_runner
+    assert_eq "runner: Done reconciles with force before queue_done" "yes" \
+        "$(awk '/^n1_queue_reconcile "\$QUEUE" force/ { r = NR } /^ev queue_done/ { d = NR } END { print (r && d && r < d) ? "yes" : "no" }' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+}
+
 # N1-298: --story <Epic> expands each child into its Sub-tasks; --story <Story> is unchanged.
 test_story_epic_wiring() {
     local s="$REPO_ROOT/skills/n1-queue/steps"
@@ -2377,6 +2408,7 @@ test_story_base_wiring
 test_story_branch_wiring
 test_row_status
 test_queue_retry
+test_queue_reconcile_force
 test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
