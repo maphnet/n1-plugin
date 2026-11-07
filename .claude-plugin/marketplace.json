@@ -7,7 +7,7 @@
     {
       "name": "n1",
       "description": "AI-driven development orchestrator. No one writes the code.",
-      "version": "5.79.0",
+      "version": "5.80.0",
       "source": "./"
     }
   ],
