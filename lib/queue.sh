@@ -1599,6 +1599,9 @@ n1_queue_close() {
             pr) [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ] && continue
                 url=$(n1_queue_attested_pr "$q" "$t" "$n1h"); ps=$(n1_queue_pr_state "$url")
                 case "$ps" in MERGED|CLOSED) ;; *) hard+="$t: PR ${ps:-unreadable} ${url:-(no PR)}"$'\n' ;; esac ;;
+            # queue.md is child-writable: only known terminal statuses settle a row; empty or unknown blocks close
+            skip|skipped|stopped|merged|done|failed|blocked|timeout|obsolete|closed) ;;
+            *) hard+="$t: unknown status '${st:-<empty>}'"$'\n' ;;
         esac
     done 3< <(n1_queue_pending_rows "$q" '.*')
     if [ "$integ" = 1 ]; then
@@ -1633,6 +1636,8 @@ n1_queue_close() {
                 n1_clean_ticket "$t" queue </dev/null 2>&1)
             wts+="${wts:+; }$t ${line//$'\n'/, }"
         fi
+        # ponytail: no lock shared with runner startup; rechecking before each removal narrows the window, a startup lock would close it
+        n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q" && { echo "close refused: queue $id started running; remaining identities kept"; return 1; }
         [ -z "$n1h" ] || { n1_orca_sentinel_rm "$n1h" "$t" "${tasks[$t]:-}"; ids+="${ids:+ }$t"; }
     done 3< <(n1_queue_pending_rows "$q" '.*')
     if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
