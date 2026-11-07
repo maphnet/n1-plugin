@@ -111,10 +111,10 @@ Never pass fixVersions under `fields`: Jira ignores the add op there, and a plai
 
 Idempotent: adding an already-set fix version is a no-op in Jira.
 
-**Read-back** (runs only when the gate above passed; all calls on `tracker.mcp`, never `versionMcp`): split `RELEASE_TICKET_IDS` into chunks of at most 50 IDs. For each chunk call `mcp__<tracker.mcp>__<operations.search>` with JQL `key in (<chunk IDs>) AND fixVersion = "<VERSION_NAME>"` and `maxResults=50`.
-- Keys returned are verified. Chunk IDs not returned are missing.
-- Re-run the same query once for the missing IDs only (single retry, no sleep) to allow for search index lag. IDs still missing: warn per ticket `Fix version "<VERSION_NAME>" not set on <ID>: absent after read-back -- continuing.` and put them in the NOT verified set. Do not retry further.
-- If a search call errors or `operations.search` is not configured: warn once `Could not verify fix version for <chunk IDs>: <error> -- continuing.` and put those IDs in the unchecked set (neither verified nor failed).
+**Read-back** (runs only when the gate above passed; all calls on `tracker.mcp`, never `versionMcp`): every ID in `RELEASE_TICKET_IDS` ends in exactly one of three sets: verified, NOT verified, unchecked. IDs whose editTicket call errored are already NOT verified: leave them out of the read-back. Split the remaining IDs into chunks of at most 50. For each chunk call `mcp__<tracker.mcp>__<operations.search>` with JQL `key in (<chunk IDs>) AND fixVersion = "<VERSION_NAME>"` and `maxResults=50`.
+- Intersect the returned keys with the chunk (ignore any other key). Keys in the intersection are verified. Chunk IDs not in it are missing.
+- Re-run the same query once for the missing IDs only (single retry, no sleep) to allow for search index lag; again intersect the returned keys with the missing IDs, and add those to verified. IDs still missing: warn per ticket `Fix version "<VERSION_NAME>" not set on <ID>: absent after read-back -- continuing.` and put them in the NOT verified set. Do not retry further.
+- If a search call (first query or retry) errors or `operations.search` is not configured: warn once `Could not verify fix version for <IDs>: <error> -- continuing.` and put the IDs that call covered, and are not yet verified, in the unchecked set (neither verified nor failed). Do not retry.
 - Never block, roll back, or set a non-zero exit.
 
 Report: `Fix version "<VERSION_NAME>": verified on <IDs>; NOT verified on <IDs>; unchecked <IDs>` (omit an empty bucket). Only verified IDs count as set.
