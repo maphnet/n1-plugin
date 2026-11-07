@@ -260,6 +260,13 @@ n1_abandon_run() {
     local tdir="$1" run="$2" ticket="$3" version="$4" out ov t="" tr=""
     out="$tdir/raw/steps/$run.jsonl"
     mkdir -p "$tdir/raw/steps"
+    # Per-run guard (mkdir is atomic): a concurrent abandoner owns the close+merge; skip.
+    # A guard left by a crashed holder older than 5 min is reclaimed.
+    local guard="$tdir/raw/steps/$run.abandon.d"
+    if ! mkdir "$guard" 2>/dev/null; then
+        [ -n "$(find "$guard" -maxdepth 0 -mmin +5 2>/dev/null)" ] || return 0
+        rmdir "$guard" 2>/dev/null; mkdir "$guard" 2>/dev/null || return 0
+    fi
     if ! grep -q '"layer"[[:space:]]*:[[:space:]]*"envelope_close"' "$out" 2>/dev/null; then
         ov="$tdir/../overview.md"
         if [ -f "$ov" ]; then
@@ -273,6 +280,7 @@ n1_abandon_run() {
     fi
     bash "${_N1_LIB_DIR}/../hooks/telemetry-merge.sh" "$run" "$tdir" 2>/dev/null || true
     [ -s "$tdir/runs/$run.jsonl" ] && n1_remove_run_lock "$tdir" "$run"
+    rmdir "$guard" 2>/dev/null
     return 0
 }
 

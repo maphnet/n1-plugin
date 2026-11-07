@@ -853,6 +853,12 @@ assert_eq "resume start: merged run file written" "true" \
 assert_eq "resume start: run lock removed" "false" \
     "$([ -f "$AB_TELEM/locks/n1-run-abhook.json" ] && echo true || echo false)"
 
+# held per-run guard: a concurrent abandoner owns the close, so no second envelope_close is appended (N1-486)
+G_TELEM="$N1_HOME/memory/T-GUARD/telemetry"; mkdir -p "$G_TELEM/raw/steps/n1-run-guard.abandon.d"
+(source "$REPO_ROOT/lib/telemetry.sh"; n1_abandon_run "$G_TELEM" n1-run-guard T-GUARD 1.0.0) >/dev/null 2>&1 || true
+assert_eq "abandon: held guard skips duplicate close" "false" \
+    "$([ -s "$G_TELEM/raw/steps/n1-run-guard.jsonl" ] && echo true || echo false)"
+
 # N1-321: the session-stop blocks only touch their own T-STOP* tickets, so they run in the background against a private
 # N1_HOME/N1_STATE_DIR, overlapping the session-start blocks below; output is replayed in place after the wait.
 mkdir -p "$T/stop/home"; cp "$N1_HOME/config.json" "$T/stop/home/config.json"
