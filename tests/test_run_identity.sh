@@ -264,4 +264,4 @@ for c in AB-LIVE:n1-run-ablive AB-FRESH:n1-run-abfresh AB-SELF:n1-run-abself; do
     untouched "${c%%:*}" "${c#*:}" || { echo "FAIL: $c was merged" >&2; exit 1; }
 done
 kill "$LIVE" 2>/dev/null || true
-echo 'PASS: n1_merge_pending abandons dead idle runs and keeps live, fresh and own runs (N1-486)'
+echo 'PASS: n1_merge_pending abandons dead idle runs and keeps live, fresh and own runs'
