@@ -9,7 +9,7 @@ Usage:
   python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--force] [--ambiguous-out FILE]
   python3 scripts/benchmark.py finalize --labels FILE [--out DIR] [--by version|week] [--plugin-version V] [--judge-model M]
   python3 scripts/benchmark.py report   [--out DIR] [--snapshot ID] [--by version|week]
-  python3 scripts/benchmark.py baseline set <version> | show [--out DIR]
+  python3 scripts/benchmark.py baseline set <host/version|version> | show [--out DIR]
 
 The script never calls a model. Ambiguous turns are printed by `collect`;
 the n1-benchmark skill labels them and passes the labels file to `finalize`.
@@ -1138,10 +1138,24 @@ def cmd_baseline(args) -> int:
         if not args.version:
             print("baseline set requires a version", file=sys.stderr)
             return 2
+        snaps = load_snapshots(out)
+        if not snaps:
+            print("baseline set: no snapshot found; run finalize first", file=sys.stderr)
+            return 2
+        snap = snaps[-1]
+        valid = [k for k in _sorted_groups(snap) if not is_legacy_key(k)]
+        value = args.version
+        if value not in valid:
+            matches = [k for k in valid if k.partition("/")[2] == value]
+            if len(matches) != 1:
+                print(f"baseline set: {value!r} is not a partition of snapshot {snap['snapshot_id']} "
+                      f"(by {snap.get('by', 'version')}). Valid: {', '.join(valid[:10]) or 'none'}", file=sys.stderr)
+                return 2
+            value = matches[0]
         out.mkdir(parents=True, exist_ok=True)
-        (out / "baseline.json").write_text(json.dumps({"version": args.version, "set_at": now_iso()}, indent=1),
+        (out / "baseline.json").write_text(json.dumps({"version": value, "set_at": now_iso()}, indent=1),
                                            encoding="utf-8")
-        print(f"baseline set to {args.version}")
+        print(f"baseline set to {value}")
         return 0
     b = load_baseline(out)
     print(f"baseline: {b['version']} (set {b['set_at']})" if b else "no baseline pinned")
@@ -1198,13 +1212,19 @@ def headline_groups(snapshot: dict) -> dict:
 
 
 def pick_baseline_group(snapshot: dict, baseline):
-    sufficient = _sufficient_groups(snapshot)
-    if baseline and baseline.get("version") in snapshot["groups"]:
-        return baseline["version"], "pinned"
-    fallback = sufficient[0] if sufficient else None
-    if baseline:
-        return fallback, f"pinned baseline {baseline.get('version')} not found in this snapshot; using oldest sufficient version"
-    return fallback, "no baseline pinned; using oldest sufficient version"
+    hg = headline_groups(snapshot) or snapshot["groups"]
+    sufficient = _sufficient_groups(snapshot, hg)
+    host = sufficient[-1].partition("/")[0] if sufficient else None
+    fallback = next((k for k in sufficient if k.partition("/")[0] == host), None)
+    pinned = (baseline or {}).get("version")
+    if pinned:
+        if pinned in hg and not is_legacy_key(pinned):
+            return pinned, "pinned"
+        bucket = next((k for k, v in hg.items() if pinned in (v.get("versions") or [])), None)
+        if bucket:
+            return bucket, f"pinned {pinned}"
+        return fallback, f"pinned baseline {pinned} not in this snapshot; using oldest sufficient {host} partition"
+    return fallback, "no baseline pinned; using oldest sufficient partition"
 
 
 def _fmt_stat(s):
@@ -1233,11 +1253,12 @@ def _judge_reasons(turns):
 
 def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> str:
     g = snapshot["groups"]
+    hg = headline_groups(snapshot) or g
     lines = [f"# N1 Orchestrator Benchmark — snapshot {snapshot['snapshot_id']}", ""]
 
-    latest = latest_sufficient(snapshot)
-    if latest and baseline_group and baseline_group in g:
-        cur, ref = g[latest]["metrics"].get("interventions"), g[baseline_group]["metrics"].get("interventions")
+    latest = latest_sufficient(snapshot, hg)
+    if latest and baseline_group and baseline_group in hg:
+        cur, ref = hg[latest]["metrics"].get("interventions"), hg[baseline_group]["metrics"].get("interventions")
         if cur and ref:
             d = delta(cur, ref)
             lines.append(f"**{latest} vs baseline {baseline_group}** ({baseline_note}): interventions "
@@ -1307,10 +1328,10 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     lines.append("")
 
     # Baseline comparison table
-    if latest and baseline_group and baseline_group in g and latest != baseline_group:
+    if latest and baseline_group and baseline_group in hg and latest != baseline_group:
         lines += [f"## {latest} vs baseline {baseline_group}", "", "| metric | baseline | latest | delta |", "|---|---|---|---|"]
         for m in METRICS:
-            cur, ref = g[latest]["metrics"].get(m.name), g[baseline_group]["metrics"].get(m.name)
+            cur, ref = hg[latest]["metrics"].get(m.name), hg[baseline_group]["metrics"].get(m.name)
             d = delta(cur, ref) if cur and ref else None
             lines.append(f"| {m.name} | {_fmt_stat(ref)} | {_fmt_stat(cur)} | {_fmt_delta(d, m.direction)} |")
         lines.append("")

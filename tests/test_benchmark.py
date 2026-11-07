@@ -842,12 +842,36 @@ class FinalizeTest(unittest.TestCase):
 
 
 class BaselineTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+        bm.write_snapshot(self.d.out, snap_with({"claude-code/2.80.0": group(2, 1, 3), "legacy": group(1, 0, 2)}))
+
+    def run_quiet(self, *argv, out=None):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            rc = bm.main([*argv, "--out", str(out or self.d.out)])
+        return rc, err.getvalue()
+
     def test_set_and_show(self):
-        d = TempDirs()
-        self.assertEqual(bm.main(["baseline", "set", "2.80.0", "--out", str(d.out)]), 0)
-        self.assertEqual(bm.load_baseline(d.out)["version"], "2.80.0")
-        self.assertEqual(bm.main(["baseline", "show", "--out", str(d.out)]), 0)
-        self.assertEqual(bm.main(["baseline", "set", "--out", str(d.out)]), 2)
+        self.assertEqual(self.run_quiet("baseline", "set", "claude-code/2.80.0")[0], 0)
+        self.assertEqual(bm.load_baseline(self.d.out)["version"], "claude-code/2.80.0")
+        self.assertEqual(self.run_quiet("baseline", "set", "2.80.0")[0], 0)  # bare version resolves
+        self.assertEqual(bm.load_baseline(self.d.out)["version"], "claude-code/2.80.0")
+        self.assertEqual(self.run_quiet("baseline", "show")[0], 0)
+        self.assertEqual(self.run_quiet("baseline", "set")[0], 2)
+
+    def test_set_rejects_value_absent_from_latest_snapshot(self):
+        rc, err = self.run_quiet("baseline", "set", "2026-W29")
+        self.assertEqual(rc, 2)
+        self.assertIn("2026-W29", err)
+        self.assertIn("claude-code/2.80.0", err)
+        self.assertIsNone(bm.load_baseline(self.d.out))
+        self.assertEqual(self.run_quiet("baseline", "set", "legacy")[0], 2)
+
+    def test_set_without_snapshot_fails(self):
+        empty = TempDirs()
+        self.assertEqual(self.run_quiet("baseline", "set", "claude-code/2.80.0", out=empty.out)[0], 2)
+        self.assertIsNone(bm.load_baseline(empty.out))
 
 
 def stat(mean, lo, hi, n=5):
@@ -904,15 +928,36 @@ class ReportTest(unittest.TestCase):
         self.assertIsNone(bm.delta(stat(3.0, 2.0, 4.0), stat(0.0, 0.0, 0.0))["pct"])
 
     def test_baseline_selection(self):
-        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3), "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
-        self.assertEqual(bm.pick_baseline_group(snap, {"version": "claude-code/2.70.0"})[0], "claude-code/2.70.0")
+        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3),
+                          "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
+        snap["merged"] = {
+            "claude-code/2.70.0": {**group(5, 4, 6), "versions": ["claude-code/2.70.0"]},
+            "claude-code/2.80.0-2.81.0": {**group(2, 1, 3, n=7),
+                                          "versions": ["claude-code/2.80.0", "claude-code/2.81.0"]}}
+        self.assertEqual(bm.pick_baseline_group(snap, {"version": "claude-code/2.70.0"}),
+                         ("claude-code/2.70.0", "pinned"))
+        self.assertEqual(bm.pick_baseline_group(snap, {"version": "claude-code/2.81.0"})[0],
+                         "claude-code/2.80.0-2.81.0")
         key, note = bm.pick_baseline_group(snap, None)
         self.assertEqual(key, "claude-code/2.70.0")
         self.assertIn("oldest", note)
-        key, note = bm.pick_baseline_group(snap, {"version": "9.9.9"})
+        key, note = bm.pick_baseline_group(snap, {"version": "2026-W29"})
         self.assertEqual(key, "claude-code/2.70.0")
-        self.assertIn("not found", note)
+        self.assertIn("not in this snapshot", note)
+        self.assertEqual(bm.latest_sufficient(snap, bm.headline_groups(snap)), "claude-code/2.80.0-2.81.0")
         self.assertEqual(bm.latest_sufficient(snap), "claude-code/2.80.0")
+
+    def test_baseline_never_pins_legacy_partition(self):
+        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "legacy": group(1, 0, 2)})  # pre-merge snapshot
+        key, note = bm.pick_baseline_group(snap, {"version": "legacy"})
+        self.assertEqual(key, "claude-code/2.70.0")
+        self.assertIn("not in this snapshot", note)
+
+    def test_baseline_fallback_stays_on_latest_host(self):
+        snap = snap_with({})
+        snap["merged"] = {"aaa/1.0.0": group(1, 0, 2), "claude-code/2.0.0": group(2, 1, 3),
+                          "claude-code/2.1.0": group(3, 2, 4)}
+        self.assertEqual(bm.pick_baseline_group(snap, None)[0], "claude-code/2.0.0")
 
     def test_render_contains_sections(self):
         snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3), "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
