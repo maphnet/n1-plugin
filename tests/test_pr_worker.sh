@@ -11,12 +11,13 @@ has() { if grep -qE -- "$3" "$2" 2>/dev/null; then ok "$1"; else no "$1"; fi; }
 lacks() { if grep -qE -- "$3" "$2" 2>/dev/null; then no "$1"; else ok "$1"; fi; }
 eq() { if [ "$2" = "$3" ]; then ok "$1"; else no "$1 (want $2, got $3)"; fi; }
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+NH=  # N1-474: N1 home holding the s-pr run pointer; empty = no run (HOME is a temp dir, so no ~/.n1 pointer either)
 
 # 1. Guards: a pr-worker Bash call passes the PreToolUse policy for a feature-branch push and
 #    PR create, attended or headless; a default-branch push stays denied (unattended gate).
 WT="$T/wt"; git init -q -b feat/x "$WT"
 pol() { local rc=0; jq -cn --arg c "$1" --arg w "$WT" '{agent_type:"n1:pr-worker",tool_name:"Bash",session_id:"s-pr",cwd:$w,tool_input:{command:$c}}' \
-    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS ${N1H:+N1_HEADLESS=$N1H} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" ${N1H:+N1_HEADLESS=$N1H} ${NH:+N1_HOME=$NH} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
 for N1H in "" 1; do
     eq "guard[headless=$N1H]: feature push allowed" 0 "$(pol 'source ~/.n1/preamble.sh; n1_codex_gate_check "T-1" && git push -u origin feat/x')"
     eq "guard[headless=$N1H]: force-with-lease feature push allowed" 0 "$(pol 'git push --force-with-lease -u origin feat/x')"
@@ -25,6 +26,7 @@ done
 N1H=1
 eq "guard: default-branch push still denied for pr-worker" 2 "$(pol 'git push origin HEAD:main')"
 eq "guard: gh pr merge still denied for pr-worker" 2 "$(pol 'gh pr merge 7 --squash')"
+eq "guard: pr-worker commit staging n1-release skill allowed" 0 "$(pol 'git add skills/n1-release/SKILL.md && git commit -m "docs: n1-release notes"')"
 N1H=
 # SEC-1: merging authorized (mergeOnFinish + fullAuto) must not loosen pr-worker
 CFG="$T/auth.json"; echo '{"finishWork":{"mergeOnFinish":true},"autonomy":{"fullAuto":true}}' > "$CFG"
@@ -39,10 +41,13 @@ for N1H in "" 1; do
     eq "authorized[headless=$N1H]: gh pr create allowed" 0 "$(pol 'gh pr create --title t --body-file /tmp/b --base main')"
     eq "authorized[headless=$N1H]: gh pr comment allowed" 0 "$(pol 'gh pr comment 7 --body-file /tmp/c')"
 done
-# SEC-1 class: a dispatched subagent must not inherit the main session's merge authorization
+# SEC-1 class: a dispatched subagent must not inherit the main session's merge authorization. It holds inside a run
+# (keyed s-pr pointer) and in every unattended session; outside a run attended, non-worker subagents are plain (N1-474)
 polx() { local rc=0; jq -cn --arg a "$1" --arg t "$2" --arg c "$3" --arg w "$WT" \
     '{tool_name:$t,session_id:"s-pr",cwd:$w,tool_input:(if $t=="Bash" then {command:$c} else {subagent_type:$c} end)} + (if $a=="" then {} else {agent_type:$a} end)' \
-    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS ${N1H:+N1_HEADLESS=$N1H} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+    | env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" ${N1H:+N1_HEADLESS=$N1H} ${NH:+N1_HOME=$NH} python3 hooks/enforce-agent-policy.py "${CFG:-}" "$REPO" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+MRG="gh pr"" merge 7"
+NH="$T/nh"; mkdir -p "$NH"; echo '{"ticketId":"N1-1"}' > "$NH/active-run.s-pr.json"
 for N1H in "" 1; do
     for tool in Agent Task; do
         eq "spawn[$tool,headless=$N1H]: pr-worker -> general-purpose denied" 2 "$(polx n1:pr-worker $tool general-purpose)"
@@ -67,9 +72,155 @@ for N1H in "" 1; do
     eq "verifier[headless=$N1H]: git push denied" 2 "$(polx n1:post-deploy-verifier Bash 'git push origin feat')"
     eq "verifier[headless=$N1H]: gh pr comment denied" 2 "$(polx n1:post-deploy-verifier Bash 'gh pr comment 7 --body x')"
     eq "verifier[headless=$N1H]: health curl allowed" 0 "$(polx n1:post-deploy-verifier Bash 'curl -s http://localhost:8080/health')"
+    # N1-474 CR-3: persona denies match in command position only; paths and commit text that mention them pass
+    eq "cr3[headless=$N1H]: tech-writer commit staging n1-release skill allowed" 0 "$(polx n1:tech-writer Bash 'git add skills/n1-release/SKILL.md && git commit -m "docs: n1-release notes"')"
+    eq "cr3[headless=$N1H]: tech-writer commit mentioning --confirmed allowed" 0 "$(polx n1:tech-writer Bash 'git commit -m "docs: describe the --confirmed re-pin"')"
+    eq "cr3[headless=$N1H]: tech-writer commit mentioning n1_step_end allowed" 0 "$(polx n1:tech-writer Bash 'git commit -m "docs: mention n1_step_end and n1_review_pin"')"
+    eq "cr3[headless=$N1H]: tech-writer neighbor of python -c keeps command position" 0 "$(polx n1:tech-writer Bash 'python3 -c '"'"'print("git")'"'"'; git commit -m "docs: explain n1_step_end"')"
+    eq "cr3[headless=$N1H]: pr-worker quote-split bash sink denied" 2 "$(polx n1:pr-worker Bash "echo '$MRG' | b''ash")"
+    eq "cr3[headless=$N1H]: tech-writer custom-home pointer glob denied" 2 "$(polx n1:tech-writer Bash "rm $NH/a?tive-run.s-pr.json")"
+    eq "cr3[headless=$N1H]: tech-writer commit mentioning branch delete allowed" 0 "$(polx n1:tech-writer Bash 'git commit -m "docs: git branch -D note"')"
+    eq "cr3[headless=$N1H]: tech-writer diff of n1-clean skill allowed" 0 "$(polx n1:tech-writer Bash 'git diff skills/n1-clean/SKILL.md')"
+    eq "cr3[headless=$N1H]: tech-writer step end denied" 2 "$(polx n1:tech-writer Bash 'n1_step_end pr 1 success')"
+    eq "cr3[headless=$N1H]: tech-writer env-prefixed step begin denied" 2 "$(polx n1:tech-writer Bash 'FOO=1 n1_step_begin pr 1')"
+    eq "cr3[headless=$N1H]: tech-writer bash -c run pointer clear denied" 2 "$(polx n1:tech-writer Bash "bash -c 'n1_active_run_clear'")"
+    eq "cr3[headless=$N1H]: tech-writer quote-split orca rm denied" 2 "$(polx n1:tech-writer Bash "n1_orc''a_rm /x")"
+    eq "cr3[headless=$N1H]: tech-writer worktree rm denied" 2 "$(polx n1:tech-writer Bash 'cd /w && git -C x worktree rm y')"
+    eq "cr3[headless=$N1H]: tech-writer piped step end denied" 2 "$(polx n1:tech-writer Bash 'ls | n1_step_end a')"
+    eq "cr3[headless=$N1H]: tech-writer then-keyword step end denied" 2 "$(polx n1:tech-writer Bash 'if true; then n1_step_end pr 1 success; fi')"
+    eq "cr3[headless=$N1H]: tech-writer do-keyword run pointer clear denied" 2 "$(polx n1:tech-writer Bash 'for x in a; do n1_active_run_clear; done')"
+    eq "cr3[headless=$N1H]: tech-writer brace-group step end denied" 2 "$(polx n1:tech-writer Bash '{ n1_step_end pr 1 success; }')"
+    eq "cr3[headless=$N1H]: tech-writer sudo option value step end denied" 2 "$(polx n1:tech-writer Bash 'sudo -u root n1_step_end pr 1 success')"
+    eq "cr3[headless=$N1H]: tech-writer quoted-assignment step end denied" 2 "$(polx n1:tech-writer Bash 'FOO="a b" n1_step_end pr 1 success')"
+    eq "cr3[headless=$N1H]: tech-writer grep of n1_step_end allowed" 0 "$(polx n1:tech-writer Bash 'sudo -u root grep n1_step_end README.md')"
+    # fix cycle 1: ReDoS, interpreter hand-offs, nested skill sessions, wrapper options, run-pointer tamper
+    DOT=$(printf 'A="1" %.0s' $(seq 40)); SUDO=$(printf 'sudo -u env %.0s' $(seq 40))
+    eq "fc1[headless=$N1H]: 40 quoted assignments then step end denied fast" 2 "$(timeout 10 bash -c "$(declare -f polx pol); WT='$WT' REPO='$REPO' T='$T' N1H='$N1H' NH='$NH' CFG=; polx n1:tech-writer Bash '${DOT}n1_step_end pr 1 success'")"
+    eq "fc1[headless=$N1H]: 40 quoted assignments then echo allowed fast" 0 "$(timeout 10 bash -c "$(declare -f polx pol); WT='$WT' REPO='$REPO' T='$T' N1H='$N1H' NH='$NH' CFG=; polx n1:tech-writer Bash '${DOT}echo ok'")"
+    eq "fc1[headless=$N1H]: 40 sudo -u env wrappers allowed fast" 0 "$(timeout 10 bash -c "$(declare -f polx pol); WT='$WT' REPO='$REPO' T='$T' N1H='$N1H' NH='$NH' CFG=; polx n1:tech-writer Bash '${SUDO}echo ok'")"
+    for c in 'eval n1_step_end pr 1 success' 'echo n1_active_run_clear | bash' "bash <<< 'n1_step_end pr 1'" 'source <(echo n1_step_end pr 1)' \
+        "bash -e -c 'n1_active_run_clear'" 'timeout -k 5 60 git worktree remove y' 'timeout --foreground 5 git branch -D x' '/usr/bin/git branch -D x' \
+        $'n1_review_pin set 7 \\\n--confirmed' "claude --bg '/n1:n1-clean --ticket T-1'" "claude -p '/n1:n1-release'" 'sudo -u env -u env n1_step_end pr 1' \
+        "eval $MRG" "echo '$MRG' | bash" "bash <<< '$MRG'" "source <(echo $MRG)" "timeout -s KILL 5 $MRG"; do
+        eq "fc1[headless=$N1H]: pr-worker denies: $c" 2 "$(polx n1:pr-worker Bash "$c")"
+    done
+    eq "fc1[headless=$N1H]: tech-writer commit text with parens allowed" 0 "$(polx n1:tech-writer Bash 'git commit -m "docs: rename (n1_step_end)"')"
+    eq "fc1[headless=$N1H]: tech-writer claude without n1-clean allowed" 0 "$(polx n1:tech-writer Bash 'git add skills/n1-clean/SKILL.md')"
+    for w in n1:pr-worker n1:tail-worker n1:tech-writer; do
+        for c in 'rm ~/.n1/x/active-run.s-pr.json' 'rm -f ~/.n1/*/active-run.*.json' 'mv ~/.n1/x/active-run.s-pr.json /tmp/z' 'truncate -s0 ~/.n1/x/active-run.s-pr.json' \
+            'echo {} > ~/.n1/x/active-run.s-pr.json' 'ln -sf /tmp/z ~/.n1/x/active-run.s-pr.json' 'cp /dev/null ~/.n1/x/active-run.s-pr.json' \
+            'find ~/.n1 -name active-run.s-pr.json -delete' "rm ~/.n1/x/active''-run.s-pr.json" 'sed -i s/a/b/ ~/.n1/x/active-run.s-pr.json'; do
+            eq "fc1[headless=$N1H]: $w denies pointer tamper: $c" 2 "$(polx $w Bash "$c")"
+        done
+    done
+    eq "fc1[headless=$N1H]: pointer read allowed" 0 "$(polx n1:pr-worker Bash 'cat ~/.n1/x/active-run.s-pr.json')"
     eq "authorized[headless=$N1H]: main session gh pr merge allowed" 0 "$(polx '' Bash 'gh pr merge 7')"
 done
-CFG=; N1H=
+# N1-474 fix cycle 2: interpreter hand-off is read for pr-worker/tail-worker/tech-writer only; the generic gate (main
+# session in a run, other subagents) is back to command-position matching, so message text is not a command (CR-6/SEC-7/CR-7)
+CFG=; N1H=; NH="$T/nh"
+for c in "git commit -m 'Forms like eval \$(x) and | bash now count, gh pr merge stays denied'" \
+    "git commit -m 'grep -E (py|sh)\$ then gh pr merge notes'" "git commit -F- <<'EOF'
+Forms like eval \$(x) now count, so gh pr merge from pr-worker stays denied. git push origin main too.
+EOF" "git commit -m 'pointer -> active-run, n1_step_end and bash <<< gh pr merge'"; do
+    eq "fc2: main session in run commit text allowed: ${c:0:50}" 0 "$(polx '' Bash "$c")"
+    eq "fc2: developer in run commit text allowed: ${c:0:50}" 0 "$(polx n1:developer Bash "$c")"
+done
+eq "fc2: main session in run | bash merge text is not read as a command (as before N1-474)" 0 "$(polx '' Bash "echo '$MRG' | bash")"
+# restricted workers: forms that hand text to another interpreter or delete the pointer indirectly (SEC-2/SEC-3/CR-4)
+for w in n1:pr-worker n1:tail-worker n1:tech-writer; do
+    for c in "echo '$MRG' | sudo bash" "echo '$MRG' | env bash" "echo '$MRG' | bash -" "echo '$MRG' | bash /dev/stdin" "bash < <(echo $MRG)" \
+        "echo '$MRG' | ksh" "claude -p 'do it'" "python3 -c 'import os; os.system(\"$MRG\")'" "perl -e 'system \"$MRG\"'" \
+        "awk 'BEGIN{system(\"$MRG\")}'" "find . -maxdepth 0 -exec $MRG \\;" "git -c alias.m='!$MRG' m" "case x in a) $MRG;; esac" \
+        "echo 'git push origin HEAD:main' | bash" \
+        "echo '$MRG' |& bash" "echo '$MRG' | (bash)" "echo '$MRG' | ( bash )" "echo '$MRG' | \"bash\"" "echo '$MRG' > >(bash)" \
+        "echo '$MRG' |
+bash" "echo '$MRG' | \\
+bash" "git -c 'alias.m=!$MRG' m" "echo '$MRG' | python3" \
+        "python3 -c 'import subprocess; subprocess.run([\"gh\",\"pr\",\"merge\",\"7\"])'" "perl -e 'system(\"gh\",\"pr\",\"merge\",7)'" \
+        "ruby -e 'system(\"gh\",\"pr\",\"merge\",\"7\")'" "python3 -c 'import subprocess; subprocess.run([\"git\",\"push\",\"origin\",\"HEAD:main\"])'" \
+        "python3 - <<'PY'
+import subprocess
+subprocess.run(\"$MRG\", shell=True)
+PY" "python3 - <<'PY'
+import subprocess
+subprocess.run([\"gh\",\"pr\",\"merge\",\"7\"])
+PY" "node <<<'require(\"child_process\").execSync(\"$MRG\")'" "sh <<'EOF'
+$MRG
+EOF"; do
+        eq "fc2: $w denies: ${c:0:70}" 2 "$(polx $w Bash "$c")"
+    done
+done
+for w in n1:pr-worker n1:tail-worker n1:tech-writer; do
+    for c in 'rm ~/.n1/*/*.s-pr.json' 'rm ~/.n1/x/act*' 'rm -rf ~/.n1/x' 'mv ~/.n1 /tmp/z' 'rm -rf $N1_HOME' 'cd ~/.n1/x && rm *.json' \
+        "find ~/.n1 -name 'active*' -delete" 'ls ~/.n1/*/active-run* | xargs rm' 'ls ~/.n1/x | xargs -n1 rm -f' \
+        "python3 -c 'import glob,os;[os.remove(p) for p in glob.glob(\"$HOME/.n1/*/active*\")]'" "perl -e 'unlink glob q(~/.n1/x/active*)'" \
+        'cd ~/.n1 && rm -rf n1-plugin' 'cd ~/.n1 && mv n1-plugin x' "find ~ -name 'act*' -delete" "find ~ -name '*.s-pr.json' -delete" \
+        'ls ~/.n1/x/active-run* | env xargs rm' 'ls ~/.n1/x/active-run* | timeout 5 xargs rm' \
+        'cd ~/.n1 && rm -rf n1-plugin; echo x | sh' 'cd ~/.n1 && mv n1-plugin x; case a in a) :;; esac' \
+        "find ~ -name 'act*' | xargs rm" "find ~ -name '*.s-pr.json' -print0 | xargs -0 rm" 'ls ~/.n?/*/act* | xargs rm' \
+        "python3 - <<'PY'
+import os
+os.remove('$HOME/.n1/x/active-run.s-pr.json')
+PY"; do
+        eq "fc2: $w denies pointer tamper: $c" 2 "$(polx $w Bash "$c")"
+    done
+    eq "fc2: $w rm of a plain file allowed" 0 "$(polx $w Bash 'rm -f /tmp/x.tmp')"
+    eq "fc2: $w nested bash -c pipeline merge denied" 2 "$(polx $w Bash "bash -c 'echo \"gh pr merge 7\" | bash'")"
+    eq "fc2: $w repeated xargs rm stages allowed" 0 "$(polx $w Bash 'xargs rm /tmp/x.tmp; xargs rm /tmp/x.tmp; xargs rm /tmp/y.tmp')"
+    eq "fc2: $w commit text with arrow and | bash allowed" 0 "$(polx $w Bash 'git commit -m "docs: pointer -> active-run is read-only; a | bash b"')"
+done
+eq "fc2: pr-worker xargs rm of unrelated files allowed" 0 "$(polx n1:pr-worker Bash 'ls /tmp/x* | xargs rm')"
+eq "fc2: pr-worker gh pr view piped to python allowed" 0 "$(polx n1:pr-worker Bash 'gh pr view 7 --json title | python3 -c "import json,sys; print(json.load(sys.stdin))"')"
+eq "fc2: pr-worker grep for bash in a pipe allowed" 0 "$(polx n1:pr-worker Bash 'gh pr view 7 | grep -i bash')"
+# SEC-6: every added regex is linear; a ~200KB adversarial command is decided fast (fail-open on hook timeout otherwise)
+TJ="$T/adv.json"
+for pat in 'eval ' '|' '>' '-sh ' 'sh ' 'sudo git ' 'env git ' 'env find ' 'env perl ' 'env python3 ' 'timeout xargs ' 'git alias. '; do
+    for w in n1:pr-worker n1:tech-writer; do
+        python3 - "$pat" "$TJ" "$w" <<'PY'
+import json, sys
+pat, out, w = sys.argv[1:4]
+cmd = pat * (200000 // len(pat)) + "; echo ok"
+json.dump({"agent_type": w, "tool_name": "Bash", "session_id": "s-pr", "cwd": "/tmp", "tool_input": {"command": cmd}}, open(out, "w"))
+PY
+        S=$(date +%s); timeout 20 env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" N1_HOME="$T/nh" python3 hooks/enforce-agent-policy.py "" "$REPO" < "$TJ" >/dev/null 2>"$T/adv.err"; RC=$?; E=$(date +%s)
+        # the hook must decide (exit 0 allow or 2 deny, no traceback) in time: a crash or timeout would fail open
+        if [ $((E - S)) -lt 5 ] && { [ $RC -eq 0 ] || [ $RC -eq 2 ]; } && ! grep -q Traceback "$T/adv.err"; then ok "fc2: 200KB '$pat' ($w) decided rc=$RC in under 5s"; else no "fc2: 200KB '$pat' ($w) rc=$RC took $((E - S))s"; fi
+    done
+done
+# CR-14: one long `[[[[` glob operand (quadratic in fnmatch) must be decided, and denied, fast
+for w in n1:pr-worker n1:tech-writer; do
+    for pre in 'rm ' 'find . -delete -name '; do
+        python3 - "$pre" "$TJ" "$w" <<'PY'
+import json, sys
+pre, out, w = sys.argv[1:4]
+json.dump({"agent_type": w, "tool_name": "Bash", "session_id": "s-pr", "cwd": "/tmp", "tool_input": {"command": pre + "[" * 100000 + "; echo done"}}, open(out, "w"))
+PY
+        S=$(date +%s); timeout 20 env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" N1_HOME="$T/nh" python3 hooks/enforce-agent-policy.py "" "$REPO" < "$TJ" >/dev/null 2>"$T/adv.err"; RC=$?; E=$(date +%s)
+        if [ $((E - S)) -lt 5 ] && [ $RC -eq 2 ] && ! grep -q Traceback "$T/adv.err"; then ok "cr14: 100KB '[' after '$pre' ($w) denied in under 5s"; else no "cr14: 100KB '[' after '$pre' ($w) rc=$RC took $((E - S))s"; fi
+    done
+done
+# the wrapper-prefixed payload still reaches the merge: decision is a deny, not just fast
+python3 - "$TJ" <<'PY'
+import json, sys
+json.dump({"agent_type": "n1:pr-worker", "tool_name": "Bash", "session_id": "s-pr", "cwd": "/tmp", "tool_input": {"command": "sudo git " * 20000 + "; echo 'gh pr merge 7' | bash"}}, open(sys.argv[1], "w"))
+PY
+timeout 20 env -u N1_QUEUE_RUN_ID -u N1_HEADLESS -u N1_HOME HOME="$T/home" N1_HOME="$T/nh" python3 hooks/enforce-agent-policy.py "" "$REPO" < "$TJ" >/dev/null 2>&1; eq "fc3: 200KB 'sudo git ' then piped merge denied" 2 "$?"
+CFG=; N1H=; NH=
+# N1-474 CR-2: outside a run (no keyed pointer, no config) only pr-worker and tail-worker stay merge-gated when attended
+for a in general-purpose n1:developer n1:tech-writer; do
+    eq "no run, attended: $a merge allowed" 0 "$(polx $a Bash "$MRG")"
+    eq "no run, attended: $a default push allowed" 0 "$(polx $a Bash 'git push origin HEAD:main')"
+    N1H=1
+    eq "no run, headless: $a merge denied" 2 "$(polx $a Bash "$MRG")"
+    eq "no run, headless: $a default push denied" 2 "$(polx $a Bash 'git push origin HEAD:main')"
+    N1H=
+done
+for a in n1:pr-worker n1:tail-worker; do
+    eq "no run, attended: $a merge denied" 2 "$(polx $a Bash "$MRG")"
+    eq "no run, attended: $a default push denied" 2 "$(polx $a Bash 'git push origin HEAD:main')"
+done
+eq "no run, attended: main session merge allowed" 0 "$(polx '' Bash "$MRG")"
 
 # 2. Persona contract: inherit-all tools, never merges, asks, clears or releases; prompt stops carry "prompt:".
 P=agents/pr-worker.md
