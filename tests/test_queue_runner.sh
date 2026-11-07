@@ -1641,7 +1641,7 @@ test_retry_wiring() {
     _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
     assert_eq "retry-wiring: argument-hint offers --retry" "yes" "$(grep -q '^argument-hint:.*\[--retry <ticket>\]' "$s/SKILL.md" && echo yes || echo no)"
     assert_eq "retry-wiring: description usage offers --retry" "yes" "$(grep -q '^description:.*\[--retry <ticket>\]' "$s/SKILL.md" && echo yes || echo no)"
-    assert_eq "retry-wiring: Input parses --retry" "yes" "$(_hasF '--retry <ticket> (reset a failed or escalated row to pending' "$s/SKILL.md")"
+    assert_eq "retry-wiring: Input parses --retry" "yes" "$(_hasF ', --retry <ticket>, --stop [<id>], --close [<id>], ' "$s/SKILL.md")"
     assert_eq "retry-wiring: step 1 routes --retry" "yes" "$(_hasF 'If `--retry`: read and follow `<N1_ROOT>/skills/n1-queue/steps/retry.md`. **STOP.**' "$s/SKILL.md")"
     assert_eq "retry-wiring: step calls the helper" "yes" "$(_hasF 'n1_queue_retry "$QUEUE_FILE" "$RETRY_TICKET"' "$s/steps/retry.md")"
     assert_eq "retry-wiring: step validates the ticket id first" "yes" "$(_hasF '^[A-Za-z][A-Za-z0-9_]*-[0-9]+$' "$s/steps/retry.md")"
@@ -1650,6 +1650,21 @@ test_retry_wiring() {
     assert_eq "retry-wiring: resume makes the step reset the first overview.md write" "yes" "$(_hasF 'The step reset is the first overview.md write' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
     assert_eq "retry-wiring: resume never resets to a runner-terminal step" "yes" "$(_hasF 'If that step is `pr`, `ci` or `done` (terminal for the queue runner poll' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
     assert_eq "retry-wiring: architecture documents the resumable exception" "yes" "$(_hasF 'n1_orca_worktree_resumable' "$REPO_ROOT/references/architecture.md")"
+}
+
+# N1-481: --close routing, operand parsing and the abandon gate.
+test_close_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "close-wiring: argument-hint offers --close" "yes" "$(grep -q '^argument-hint:.*\[--close \[<id>\]\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "close-wiring: description usage offers --close" "yes" "$(grep -q '^description:.*\[--close \[<id>\]\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "close-wiring: step 1 routes --close" "yes" "$(_hasF 'If `--close`: read and follow `<N1_ROOT>/skills/n1-queue/steps/close.md`. **STOP.**' "$s/SKILL.md")"
+    assert_eq "close-wiring: QUEUE_ID takes the --close id" "yes" "$(_hasF '(under `--stop`/`--close`, its `<id>` argument when given)' "$s/SKILL.md")"
+    assert_eq "close-wiring: input.md treats the id as an operand" "yes" "$(_hasF '`--stop`/`--close [<id>]`' "$s/steps/input.md")"
+    assert_eq "close-wiring: step calls the helper" "yes" "$(_hasF 'n1_queue_close "$QUEUE_FILE"' "$s/steps/close.md")"
+    assert_eq "close-wiring: abandon re-call" "yes" "$(_hasF 'n1_queue_close "$QUEUE_FILE" abandon' "$s/steps/close.md")"
+    assert_eq "close-wiring: headless refused" "yes" "$(_hasF '--close needs an interactive session.' "$s/steps/close.md")"
+    assert_eq "close-wiring: abandon gate has no recommendation" "yes" "$(_hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$s/steps/close.md")"
 }
 
 
@@ -2496,6 +2511,7 @@ test_title_vague
 test_desc_chain_wiring
 test_brief_wiring
 test_retry_wiring
+test_close_wiring
 test_form_repair_wiring
 test_overlap_order
 test_schedule_helpers
