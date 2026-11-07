@@ -696,6 +696,14 @@ class ReadAnswersTest(unittest.TestCase):
             ask_use(self.T0, "a3", [self.DB], sidechain=True),
             ask_result(self.T1, "a3", 'Your questions have been answered: "Pick DB?"="Postgres".')]), (0, 0))
 
+    def test_answers_outside_run_window_are_excluded(self):
+        p = self.d.tmp / "transcript.jsonl"
+        write_jsonl(p, [
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", 'Your questions have been answered: "Pick DB?"="SQLite (Recommended)".')])
+        self.assertEqual(bm.read_answers(p, bm.parse_ts("2026-09-01T10:00:00Z"), bm.parse_ts("2026-09-01T10:03:00Z")), (1, 1))
+        self.assertEqual(bm.read_answers(p, bm.parse_ts("2026-09-01T10:05:00Z"), bm.parse_ts("2026-09-01T10:06:00Z")), (0, 0))
+
     def test_metric_from_compute_run_metrics(self):
         p = self.d.tmp / "transcript.jsonl"
         write_jsonl(p, [ask_use(self.T0, "a1", [self.DB, q("Cache?", ["Redis (Recommended)", "None"])]),

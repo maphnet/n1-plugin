@@ -134,10 +134,11 @@ def _parse_answers(text: str, questions):
     return out
 
 
-def read_answers(path: Path):
+def read_answers(path: Path, started=None, completed=None):
     """(followed, answered) over orchestrator AskUserQuestion questions that offered a (Recommended)
     option. Another option or free text counts as answered, not followed; interrupted or unparsed
-    results and questions without a Recommended option count in neither."""
+    results and questions without a Recommended option count in neither. With started/completed, only
+    answers whose result record falls inside that window count."""
     pending, followed, answered = {}, 0, 0
     for rec, _ in read_jsonl(path):
         if not rec or rec.get("isSidechain"):
@@ -160,6 +161,10 @@ def read_answers(path: Path):
                 pending[item["id"]] = qs
             elif rec.get("type") == "user" and item.get("type") == "tool_result" and item.get("tool_use_id") in pending:
                 qs = pending.pop(item["tool_use_id"])
+                ts = parse_ts(rec.get("timestamp"))
+                if (started is not None and (ts is None or ts < started)) or (
+                        completed is not None and (ts is None or ts > completed)):
+                    continue
                 got = _parse_answers(_result_text(item), [qt for qt, _ in qs])
                 for qt, rec_label in qs:
                     if rec_label is None or qt not in got:
@@ -938,9 +943,9 @@ def compute_run_metrics(cache: dict) -> None:
         bash_c, api_c = count_tool_calls(tp)
         run_record["_bash_calls"] = bash_c
         run_record["_api_calls"] = api_c
-        run_record["_answers"] = read_answers(tp)
-        run_record["_wait_s"] = read_wait_seconds(tp, parse_ts(run_record.get("started_at")),
-                                                  parse_ts(run_record.get("completed_at")))
+        started, completed = parse_ts(run_record.get("started_at")), parse_ts(run_record.get("completed_at"))
+        run_record["_answers"] = read_answers(tp, started, completed)
+        run_record["_wait_s"] = read_wait_seconds(tp, started, completed)
     # Orchestrator metrics from merged run record
     orch = run_record.get("orchestrator") or {}
     totals = orch.get("totals") or {}
