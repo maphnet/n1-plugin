@@ -200,6 +200,9 @@ test_orca_merged_sweep_skips_active_deferred() {   # N1-478 CR-1: released dispa
     # and no chain launches, so only the Runs record changes; the resumed worker still runs its own finish.
     assert_eq "merged-sweep: resumed deferred worker not chained" "0|1" \
         "$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')|$(grep -c '"ticket_finished".*"merged"' "$tmp/events.jsonl" || true)"
+    local out; out=$(cat "$tmp/output.txt")
+    assert_eq "merged-sweep: Done reconcile recorded the merge" "yes" "$(grep -qF 'reconciled: T-A merged' <<< "$out" && echo yes || echo no)"
+    assert_eq "merged-sweep: sweep did not settle the owed worker" "no" "$(grep -qF 'PR merged while its worker is owed: settling' <<< "$out" && echo yes || echo no)"
     rm -rf "$tmp"
 }
 
