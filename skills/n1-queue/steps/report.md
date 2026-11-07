@@ -25,7 +25,7 @@ QUEUE_FILE=$(find "$N1_HOME/queue" -name queue.md -printf '%T@ %p\n' 2>/dev/null
 
 If no queue file found: "No queue runs found." **STOP.**
 
-Interrupted check (N1-183) and merge reconcile (N1-268). Print its output verbatim. An `interrupted:` line means the runner died mid-run: the `Step: run` below is stale, and the line gives the one resume command. For a workspace-manager queue it also parks any row whose worker asked a question after the runner died; the same scan covers a finished (`done`/`halted`) queue with a parked row; that row's `--answer` command prints with the awaiting-human hints below. A `reconciled: <ticket> merged` line means that ticket's PR merged after the runner stopped supervising it; the table shows it as `merged`. The runner's Done section and `--close` run the same reconcile; Plan status stays `pr`.
+Interrupted check (N1-183) and merge reconcile (N1-268). Print its output verbatim. An `interrupted:` line means the runner died mid-run: the `Step: run` below is stale, and the line gives the one resume command. For a workspace-manager queue it also parks any row whose worker asked a question after the runner died; the same scan covers a finished (`done`/`halted`) queue with a parked row; that row's `--answer` command prints with the awaiting-human hints below. A `reconciled: <ticket> merged` line means that ticket's PR merged after the runner stopped supervising it; the table shows it as `merged`. The runner's Done section and `--close` run the same reconcile (not in integration-branch runs, where rows merge only into the story branch); Plan status stays `pr`.
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/frontmatter.sh"

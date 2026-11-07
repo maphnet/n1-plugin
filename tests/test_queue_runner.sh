@@ -2369,7 +2369,7 @@ EOF
         "$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$q" force)"
     stop_fake_runner
     assert_eq "runner: Done reconciles with force before queue_done" "yes" \
-        "$(awk '/n1_queue_reconcile "\$QUEUE" force/ { r = NR } /^ev queue_done/ { d = NR } END { print (r && d && r < d) ? "yes" : "no" }' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+        "$(awk '/^if \[ -z "\$RUN_MODE" \]; then n1_queue_reconcile "\$QUEUE" force/ { r = NR } /^ev queue_done/ { d = NR } END { print (r && d && r < d) ? "yes" : "no" }' "$REPO_ROOT/scripts/n1-queue-run.sh")"
 }
 
 # N1-481: --close verifies every row is settled, then removes worktrees, identity files and the queue dir.
@@ -2446,6 +2446,7 @@ EOF
     n1_queue_event "${q%/*}/events.jsonl" q5 R1 final_pr_opened pr=https://github.com/o/r/pull/9
     _close
     assert_eq "close: integration queue with a merged final PR closed" "0|no" "$rc|$(_qd)"
+    assert_eq "close: integration queue skips the hand-merge reconcile" "no" "$(_has 'reconciled: T-1')"
 }
 
 

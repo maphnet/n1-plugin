@@ -1562,10 +1562,10 @@ n1_queue_close() {
     # runner is alive, a row is in-progress/awaiting-human/escalated, a pr row's PR is neither MERGED nor CLOSED (an
     # unreadable state counts as open), an integration queue's final PR is not merged, or a pending/held/deferred row is
     # left. A dead step: run queue returns rc 2 (nothing removed) unless `abandon` is given; abandon waives only
-    # pending/held/deferred rows. Reconciles first, so a PR merged by hand counts. Then removes, in order: each merged
+    # pending/held/deferred rows. Reconciles first (not on integration queues), so a PR merged by hand counts. Then removes, in order: each merged
     # row's worktree (n1_clean_ticket <T> queue in the row's Repo and N1 Home, queue-event env unset; a skip is
     # reported, never fatal), every row's Orca identity and session pointers, the queue dir. No archive. Prints what it removed.
-    local q="$1" mode="${2:-}" dir id num t repo n1h model st url ps fp note hard="" soft="" ids="" wts="" line
+    local q="$1" mode="${2:-}" dir id num t repo n1h model st url ps fp note integ hard="" soft="" ids="" wts="" line
     [ -n "$q" ] && [ -f "$q" ] || { echo "No queue runs found."; return 1; }
     dir=$(dirname -- "$q"); id=${dir##*/}
     { [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [ ! -L "$dir" ] && [ "$(basename -- "${dir%/*}")" = queue ]; } \
@@ -1574,7 +1574,9 @@ n1_queue_close() {
         echo "close refused: queue $id is running; nothing removed (let it end, or --stop it first)"; return 1
     fi
     declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
-    n1_queue_reconcile "$q"
+    # Integration queues skip the hand-merge reconcile: it accepts a PR merged into any base, but their rows merge only into the story branch.
+    integ=0; if [ "$(n1_read_frontmatter "$q" mode)" = story ] || [ "$(n1_read_frontmatter "$q" integration)" = queue ]; then integ=1; fi
+    [ "$integ" = 1 ] || n1_queue_reconcile "$q"
     while IFS=$'\t' read -r -u 3 num t repo n1h model st; do
         case "$st" in
             in-progress|awaiting-human|escalated) hard+="$t: $st"$'\n' ;;
@@ -1584,7 +1586,7 @@ n1_queue_close() {
                 case "$ps" in MERGED|CLOSED) ;; *) hard+="$t: PR ${ps:-unreadable} ${url:-(no PR)}"$'\n' ;; esac ;;
         esac
     done 3< <(n1_queue_pending_rows "$q" '.*')
-    if [ "$(n1_read_frontmatter "$q" mode)" = story ] || [ "$(n1_read_frontmatter "$q" integration)" = queue ]; then
+    if [ "$integ" = 1 ]; then
         fp=$(n1_queue_final_prs "$q" "$dir/events.jsonl" "$(n1_read_frontmatter "$q" run_id)")
         if [ -z "$fp" ]; then hard+="final PR: none recorded"$'\n'
         else
