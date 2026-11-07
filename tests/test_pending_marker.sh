@@ -97,5 +97,38 @@ eq "W1: snippet calls n1_pending_clear" yes "$(yn grep -qF 'n1_pending_clear "$O
 eq "W2: timeout prose names n1_pending_touch" yes "$(yn grep -qF 'n1_pending_touch "$OV"' "$S6")"
 eq "W3: snippet awk strips only ## Finish" no "$(yn grep -qF '(Finish|Pending)' "$S6")"
 
+# --- scripts/clean-pending.sh (one-off): dry-run by default, finished overviews only, local files only ---
+M="$T/mem"; mkdir -p "$M"/F-1 "$M"/F-2 "$M"/P-1 "$M"/C-1 "$T/bin"
+{ printf -- '---\nstep: done\n---\n# F-1\n'; pend; printf '## Finish\n- **Merged:** abc\npr_url: %s\n' "$U"; } > "$M/F-1/overview.md"
+printf -- '---\nstep: done\npr_url: %s\nawaiting: merge\n---\n# F-2\n## Finish\n- **Merged:** abc\n' "$U" > "$M/F-2/overview.md"
+{ printf -- '---\nstep: pr\n---\n# P-1\n'; pend; } > "$M/P-1/overview.md"
+printf -- '---\nstep: done\n---\n# C-1\n## Finish\n- **Merged:** abc\n' > "$M/C-1/overview.md"
+cp "$M/P-1/overview.md" "$T/p0"; cp "$M/C-1/overview.md" "$T/c0"
+printf '#!/usr/bin/env bash\ntouch "%s/gh.called"\n' "$T" > "$T/bin/gh"; chmod +x "$T/bin/gh"
+sum() { cat "$M"/*/overview.md | cksum; }
+S0=$(sum)
+OUT=$(PATH="$T/bin:$PATH" bash "$R/scripts/clean-pending.sh" "$M" 2>&1)
+eq "S1: dry-run changes nothing" "$S0" "$(sum)"
+eq "S1: lists F-1 (A)" yes "$(yn grep -qxF "would clean: $M/F-1/overview.md (A)" <<<"$OUT")"
+eq "S1: lists F-2 (B)" yes "$(yn grep -qxF "would clean: $M/F-2/overview.md (B)" <<<"$OUT")"
+eq "S1: unfinished ticket not listed" no "$(yn grep -qF 'P-1' <<<"$OUT")"
+eq "S1: clean overview not listed" no "$(yn grep -qF 'C-1' <<<"$OUT")"
+eq "S1: count line" yes "$(yn grep -qxF '2 overview(s) would be cleaned; re-run with --apply to edit' <<<"$OUT")"
+OUT=$(PATH="$T/bin:$PATH" bash "$R/scripts/clean-pending.sh" --apply "$M" 2>&1); eq "S2: apply rc 0" 0 $?
+eq "S2: F-1 marker gone" no "$(yn grep -q "$HOOK" "$M/F-1/overview.md")"
+eq "S2: F-1 Pending gone" no "$(yn grep -qx '## Pending' "$M/F-1/overview.md")"
+eq "S2: F-2 marker gone" no "$(yn grep -q '^awaiting:' "$M/F-2/overview.md")"
+eq "S2: unfinished ticket untouched" yes "$(yn cmp -s "$M/P-1/overview.md" "$T/p0")"
+eq "S2: clean overview untouched" yes "$(yn cmp -s "$M/C-1/overview.md" "$T/c0")"
+eq "S2: count line" yes "$(yn grep -qxF '2 overview(s) cleaned' <<<"$OUT")"
+OUT=$(PATH="$T/bin:$PATH" bash "$R/scripts/clean-pending.sh" --apply "$M" 2>&1)
+eq "S3: second apply is a no-op" yes "$(yn grep -qxF '0 overview(s) cleaned' <<<"$OUT")"
+mkdir -p "$T/h/.n1/proj/memory/F-9"; printf -- '---\nawaiting: merge\n---\n## Finish\n' > "$T/h/.n1/proj/memory/F-9/overview.md"
+OUT=$(HOME="$T/h" PATH="$T/bin:$PATH" bash "$R/scripts/clean-pending.sh" 2>&1)
+eq "S4: default root scans ~/.n1/*/memory" yes "$(yn grep -qxF "would clean: $T/h/.n1/proj/memory/F-9/overview.md (B)" <<<"$OUT")"
+bash "$R/scripts/clean-pending.sh" --bogus >/dev/null 2>&1; eq "S5: unknown flag rc 2" 2 $?
+eq "S6: gh never called" no "$(yn test -e "$T/gh.called")"
+eq "S7: script is executable" yes "$(yn test -x "$R/scripts/clean-pending.sh")"
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
