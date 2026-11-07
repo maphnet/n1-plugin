@@ -57,6 +57,8 @@ if ! take_lock; then
     rm -f "$gone"
     take_lock || { echo "queue already running (lock taken)"; exit 3; }
 fi
+# n1_queue_close marks <queue dir>/.closing before its final liveness check; a runner that took the lock after that must not start.
+[ ! -d "$(dirname -- "$QUEUE")/.closing" ] || { echo "queue is being closed"; exit 3; }
 # N1-333: exit trace. TERM/HUP/INT, or any exit while step is still run, leaves one runner.log line and one
 # queue_interrupted event (n1_queue_note_interrupt); halt_now and the normal end set step first and stay silent.
 # step and pid are kept for resume. nap() makes the poll sleeps interruptible; SIGKILL

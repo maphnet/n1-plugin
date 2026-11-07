@@ -2475,6 +2475,11 @@ EOF
     stop_fake_runner
     printf '#!/bin/sh\ncase "$*" in *pull/1*|*pull/9*) echo MERGED ;; *pull/2*) echo CLOSED ;; *pull/3*) echo OPEN ;; esac\n' > "$tmp/bin/gh"
 
+    # Identity cleanup failure keeps the queue dir and reports no success.
+    _mkq q9b done failed; _ids; n1_orca_sentinel_rm() { return 1; }; _close
+    assert_eq "close: identity removal failure keeps queue dir" "1|yes|yes" "$rc|$(_has 'could not remove identity')|$(_qd)"
+    unset -f n1_orca_sentinel_rm
+
     # Integration queue: the final PR must be recorded and merged.
     _mkq q5 done failed; n1_write_frontmatter "$q" integration queue; _close
     assert_eq "close: integration queue without a final PR refused" "1|yes|yes" "$rc|$(_has 'final PR: none recorded')|$(_qd)"

@@ -1624,9 +1624,11 @@ n1_queue_close() {
         fi
         [ -z "$soft" ] || { printf 'close refused: queue %s is not settled; nothing removed:\n%s' "$id" "$soft"; return 1; }
     fi
-    # SEC-2: a runner started since the first check would lose its queue dir and identities.
-    if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
-        echo "close refused: queue $id started running; nothing removed"; return 1
+    # SEC-2: closing marker first, then re-check (Dekker): a runner takes its lock then looks for the marker (scripts/n1-queue-run.sh),
+    # so either it sees the marker and exits, or this check sees its lock/pid and refuses.
+    mkdir -p -- "$dir/.closing" 2>/dev/null || { echo "n1-queue: could not mark $dir closing"; return 1; }
+    if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q" || n1_queue_runner_alive "$(cat "$q.lock" 2>/dev/null)" "$q"; then
+        rmdir -- "$dir/.closing" 2>/dev/null; echo "close refused: queue $id started running; nothing removed"; return 1
     fi
     while IFS=$'\t' read -r -u 3 num t repo n1h model st; do
         [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || continue   # queue.md is child-writable: no path or glob characters reach the rm calls
@@ -1636,13 +1638,8 @@ n1_queue_close() {
                 n1_clean_ticket "$t" queue </dev/null 2>&1)
             wts+="${wts:+; }$t ${line//$'\n'/, }"
         fi
-        # ponytail: no lock shared with runner startup; rechecking before each removal narrows the window, a startup lock would close it
-        n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q" && { echo "close refused: queue $id started running; remaining identities kept"; return 1; }
-        [ -z "$n1h" ] || { n1_orca_sentinel_rm "$n1h" "$t" "${tasks[$t]:-}"; ids+="${ids:+ }$t"; }
+        [ -z "$n1h" ] || { n1_orca_sentinel_rm "$n1h" "$t" "${tasks[$t]:-}" || { echo "close refused: could not remove identity for $t; queue dir kept"; return 1; }; ids+="${ids:+ }$t"; }
     done 3< <(n1_queue_pending_rows "$q" '.*')
-    if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
-        echo "close refused: queue $id started running; queue dir kept"; return 1
-    fi
     rm -rf -- "$dir" || { echo "n1-queue: could not remove $dir"; return 1; }
     printf 'closed queue %s: removed %s\nidentity files: %s\nworktrees: %s\n' "$id" "$dir" "${ids:-none}" "${wts:-none}"
 }
