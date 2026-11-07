@@ -672,6 +672,14 @@ test_queue_digest() {
     printf '{"ts":"2020-01-01T00:00:00Z","queue":"q3","run_id":"R1","event":"escalated","ticket":"T-5","outcome":"","pr":"","session":"","duration_s":null,"reason":""}\n' \
         > "$tmp/queue/q3/events.jsonl"
     assert_eq "digest: stale queue hidden" "" "$(n1_queue_digest "$tmp")"
+    # N1-481: a ticket_cleanup event after ticket_finished merged must not hide the merge.
+    local e4="$tmp/queue/q4/events.jsonl"; mkdir -p "$tmp/queue/q4"
+    n1_queue_event "$e4" q4 R1 queue_started
+    n1_queue_event "$e4" q4 R1 ticket_started ticket=T-7
+    n1_queue_event "$e4" q4 R1 ticket_finished ticket=T-7 outcome=merged
+    n1_queue_event "$e4" q4 R1 ticket_cleanup ticket=T-7 outcome=success
+    n1_queue_event "$e4" q4 R1 queue_done reason="0 PR / 0 awaiting / 0 failed"
+    assert_eq "digest: ticket_cleanup does not hide a merge" "Queue q4: 1 merged, done" "$(n1_queue_digest "$tmp")"
 }
 
 test_fmt_elapsed() {
@@ -1633,7 +1641,7 @@ test_retry_wiring() {
     _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
     assert_eq "retry-wiring: argument-hint offers --retry" "yes" "$(grep -q '^argument-hint:.*\[--retry <ticket>\]' "$s/SKILL.md" && echo yes || echo no)"
     assert_eq "retry-wiring: description usage offers --retry" "yes" "$(grep -q '^description:.*\[--retry <ticket>\]' "$s/SKILL.md" && echo yes || echo no)"
-    assert_eq "retry-wiring: Input parses --retry" "yes" "$(_hasF '--retry <ticket> (reset a failed or escalated row to pending' "$s/SKILL.md")"
+    assert_eq "retry-wiring: Input parses --retry" "yes" "$(_hasF ', --retry <ticket>, --stop [<id>], --close [<id>], ' "$s/SKILL.md")"
     assert_eq "retry-wiring: step 1 routes --retry" "yes" "$(_hasF 'If `--retry`: read and follow `<N1_ROOT>/skills/n1-queue/steps/retry.md`. **STOP.**' "$s/SKILL.md")"
     assert_eq "retry-wiring: step calls the helper" "yes" "$(_hasF 'n1_queue_retry "$QUEUE_FILE" "$RETRY_TICKET"' "$s/steps/retry.md")"
     assert_eq "retry-wiring: step validates the ticket id first" "yes" "$(_hasF '^[A-Za-z][A-Za-z0-9_]*-[0-9]+$' "$s/steps/retry.md")"
@@ -1642,6 +1650,21 @@ test_retry_wiring() {
     assert_eq "retry-wiring: resume makes the step reset the first overview.md write" "yes" "$(_hasF 'The step reset is the first overview.md write' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
     assert_eq "retry-wiring: resume never resets to a runner-terminal step" "yes" "$(_hasF 'If that step is `pr`, `ci` or `done` (terminal for the queue runner poll' "$REPO_ROOT/skills/n1-start/procedures/resume.md")"
     assert_eq "retry-wiring: architecture documents the resumable exception" "yes" "$(_hasF 'n1_orca_worktree_resumable' "$REPO_ROOT/references/architecture.md")"
+}
+
+# N1-481: --close routing, operand parsing and the abandon gate.
+test_close_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "close-wiring: argument-hint offers --close" "yes" "$(grep -q '^argument-hint:.*\[--close \[<id>\]\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "close-wiring: description usage offers --close" "yes" "$(grep -q '^description:.*\[--close \[<id>\]\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "close-wiring: step 1 routes --close" "yes" "$(_hasF 'If `--close`: read and follow `<N1_ROOT>/skills/n1-queue/steps/close.md`. **STOP.**' "$s/SKILL.md")"
+    assert_eq "close-wiring: QUEUE_ID takes the --close id" "yes" "$(_hasF '(under `--stop`/`--close`, its `<id>` argument when given)' "$s/SKILL.md")"
+    assert_eq "close-wiring: input.md treats the id as an operand" "yes" "$(_hasF '`--stop`/`--close [<id>]`' "$s/steps/input.md")"
+    assert_eq "close-wiring: step calls the helper" "yes" "$(_hasF 'n1_queue_close "$QUEUE_FILE"' "$s/steps/close.md")"
+    assert_eq "close-wiring: abandon re-call" "yes" "$(_hasF 'n1_queue_close "$QUEUE_FILE" abandon' "$s/steps/close.md")"
+    assert_eq "close-wiring: headless refused" "yes" "$(_hasF '--close needs an interactive session.' "$s/steps/close.md")"
+    assert_eq "close-wiring: abandon gate has no recommendation" "yes" "$(_hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$s/steps/close.md")"
 }
 
 
@@ -2318,6 +2341,157 @@ test_status_reconcile_merged() {
     rm -rf "$tmp"
 }
 
+# N1-481: the runner's Done section reconciles merges while its own pid is still set (force).
+test_queue_reconcile_force() {
+    local tmp q; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    q="$tmp/queue/qf/queue.md"; mkdir -p "${q%/*}" "$tmp/bin"
+    printf '#!/bin/sh\necho MERGED\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+    cat > "$q" <<EOF
+---
+queue_id: qf
+run_id: R1
+step: run
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | /r | $tmp/h | sonnet | pr | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| T-1 | s | 0 | pr | https://github.com/o/r/pull/1 | |
+EOF
+    : > "${q%/*}/events.jsonl"
+    start_fake_runner "$REPO_ROOT" "$q"; n1_write_frontmatter "$q" pid "$FAKE_RUNNER_PID"
+    assert_eq "reconcile: live runner without force skips" "" "$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$q")"
+    assert_eq "reconcile: force records the merge under a live runner" "reconciled: T-1 merged" \
+        "$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$q" force)"
+    stop_fake_runner
+    assert_eq "runner: Done reconciles with force before queue_done" "yes" \
+        "$(awk '/^if \[ -z "\$RUN_MODE" \]; then n1_queue_reconcile "\$QUEUE" force/ { r = NR } /^ev queue_done/ { d = NR } END { print (r && d && r < d) ? "yes" : "no" }' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+}
+
+# N1-481: --close verifies every row is settled, then removes worktrees, identity files and the queue dir.
+test_queue_close() {
+    local tmp h q out rc t; source "$REPO_ROOT/lib/orca-queue.sh"   # before the RETURN trap: sourcing fires it
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    h="$tmp/h"; mkdir -p "$tmp/bin" "$h/queue/sentinels" "$h/queue/sessions" "$tmp/.n1/orca-home"
+    printf '#!/bin/sh\ncase "$*" in *pull/1*|*pull/9*) echo MERGED ;; *pull/2*) echo CLOSED ;; *pull/3*) echo OPEN ;; esac\n' > "$tmp/bin/gh"
+    chmod +x "$tmp/bin/gh"
+    _mkq() { # <id> <step> <T-3 status> — T-1's PR merged (by hand), T-2's closed, T-3's open
+        q="$tmp/queue/$1/queue.md"; mkdir -p "${q%/*}"
+        cat > "$q" <<EOF
+---
+queue_id: $1
+run_id: R1
+step: $2
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | $tmp/norepo | $h | sonnet | pr | |
+| 2 | T-2 | B | $tmp/norepo | $h | sonnet | pr | |
+| 3 | T-3 | C | $tmp/norepo | $h | sonnet | $3 | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| T-1 | s | 0 | pr | https://github.com/o/r/pull/1 | |
+| T-2 | s | 0 | pr | https://github.com/o/r/pull/2 | |
+| T-3 | s | 0 | pr | https://github.com/o/r/pull/3 | |
+EOF
+        : > "${q%/*}/events.jsonl"
+    }
+    _ids() { for t in T-1 T-2 T-3; do
+        printf 'N1_ORCA_TASK=task-%s\nN1_ORCA_RUN=run-1\n' "$t" > "$h/queue/sentinels/$t.env"; : > "$h/queue/sentinels/$t.sent"; : > "$h/queue/sentinels/$t.beacon"
+        : > "$h/queue/sessions/$t.sid"; printf '%s\n' "$h" > "$tmp/.n1/orca-home/$t"; done; }
+    _left() { ls -A "$h/queue/sentinels" "$h/queue/sessions" "$tmp/.n1/orca-home" | grep -c '^T-' || true; }
+    _has() { grep -qF -- "$1" <<< "$out" && echo yes || echo no; }
+    _qd() { [ -e "${q%/*}" ] && echo yes || echo no; }
+    _close() { rc=0; out=$(HOME="$tmp" PATH="$tmp/bin:$PATH" n1_queue_close "$q" "$@" 2>&1) || rc=$?; }
+    n1_orca_liveness() { :; }   # readable list, no workers
+
+    # AC2: a pr row whose PR is still open refuses; nothing is removed and the row is listed.
+    _mkq q2 done pr; _ids; _close
+    assert_eq "close: open PR refused and listed" "1|yes" "$rc|$(_has 'T-3: PR OPEN https://github.com/o/r/pull/3')"
+    assert_eq "close: refusal removes nothing" "yes|15" "$(_qd)|$(_left)"
+    _mkq q2b done pending; _close
+    assert_eq "close: never-started row on a finished queue refused" "1|yes|yes" "$rc|$(_has 'T-3: pending')|$(_qd)"
+
+    # AC3: a live runner refuses.
+    _mkq q3 done failed; start_fake_runner "$REPO_ROOT" "$q"; n1_write_frontmatter "$q" pid "$FAKE_RUNNER_PID"
+    _close
+    assert_eq "close: live runner refused" "1|yes|yes|15" "$rc|$(_has 'is running')|$(_qd)|$(_left)"
+    stop_fake_runner
+
+    # AC1: runner gone, rows merged (by hand, reconciled) / closed / failed: closes and reports what it removed.
+    _close
+    assert_eq "close: settled queue closed" "0|no|0" "$rc|$(_qd)|$(_left)"
+    assert_eq "close: prints what it removed" "yes|yes|yes" \
+        "$(_has "closed queue q3: removed $tmp/queue/q3")|$(_has 'identity files: T-1 T-2 T-3')|$(_has 'worktrees: T-1 cleanup:skipped (no-repo)')"
+
+    # AC4: dead step: run queue asks first (rc 2, nothing removed); abandon removes the same files as AC1.
+    _mkq q4 run pending; _ids; _close
+    assert_eq "close: dead mid-run queue asks first" "2|yes|yes|15" "$rc|$(_has 'interrupted:')|$(_qd)|$(_left)"
+    _close abandon
+    assert_eq "close: abandon removes the same files" "0|no|0" "$rc|$(_qd)|$(_left)"
+    _mkq q4b run pr; _ids; _close abandon
+    assert_eq "close: abandon never waives an open PR" "1|yes|15" "$rc|$(_qd)|$(_left)"
+
+    # SEC-1: a worker still listed for an identity's task refuses (fail closed on an unreadable list too); nothing removed.
+    _mkq q6 done failed; _ids
+    n1_orca_liveness() { printf 'd-1\ttask-T-3\tlive\t\n'; }; _close
+    assert_eq "close: live worker refused, identity kept" "1|yes|yes|15" "$rc|$(_has 'T-3: worker may still be running')|$(_qd)|$(_left)"
+    n1_orca_liveness() { return 1; }; _close
+    assert_eq "close: unreadable worker list refused" "1|yes|15" "$rc|$(_qd)|$(_left)"
+    n1_orca_liveness() { :; }
+
+    # CR-1: a runner killed mid-child leaves an in-progress row; step: run asks, abandon removes. Other steps refuse.
+    _mkq q7 run in-progress; _ids; _close
+    assert_eq "close: dead mid-child queue asks first" "2|yes|15" "$rc|$(_has 'T-3: in-progress')|$(_left)"
+    _close abandon
+    assert_eq "close: abandon removes a dead mid-child queue" "0|no|0" "$rc|$(_qd)|$(_left)"
+    _mkq q7b done in-progress; _ids; _close abandon
+    assert_eq "close: in-progress outside step run stays refused" "1|yes" "$rc|$(_qd)"
+    _mkq q7c run escalated; _ids; _close abandon
+    assert_eq "close: escalated stays refused under abandon" "1|yes" "$rc|$(_qd)"
+
+    # SEC-3: a child rewriting mode/integration cannot hide an integration queue; the sections and events still mark it.
+    _mkq q2c done no-pr; _ids; _close
+    assert_eq "close: no-pr row counts as settled" "0|no" "$rc|$(_qd)"
+    _mkq q8 done failed; printf '\n## Final PRs\n| Repo | PR | Draft | Mergeable | Note |\n|---|---|---|---|---|\n' >> "$q"; _close
+    assert_eq "close: Final PRs section with forged frontmatter refused" "1|yes|yes" "$rc|$(_has 'final PR: none recorded')|$(_qd)"
+    _mkq q8b done failed; n1_queue_event "${q%/*}/events.jsonl" q8b R1 final_pr_opened pr=https://github.com/o/r/pull/3; _close
+    assert_eq "close: final_pr_opened event with forged frontmatter refused" "1|yes" "$rc|$(_qd)"
+    _mkq q8c done failed; n1_write_frontmatter "$q" story_id S-1; _close
+    assert_eq "close: story_id marks an integration queue" "1|yes" "$rc|$(_qd)"
+
+    # SEC-2: a runner that starts after the first check (here: during the reconcile's gh read) is not closed under.
+    _mkq q9 done failed; _ids; start_fake_runner "$REPO_ROOT" "$q"
+    printf '#!/bin/sh\nsed -i "s/^step: done/step: done\\npid: %s/" "%s"\necho MERGED\n' "$FAKE_RUNNER_PID" "$q" > "$tmp/bin/gh"
+    _close
+    assert_eq "close: runner started mid-close refused, queue kept" "1|yes|yes|15" "$rc|$(_has 'started running')|$(_qd)|$(_left)"
+    stop_fake_runner
+    printf '#!/bin/sh\ncase "$*" in *pull/1*|*pull/9*) echo MERGED ;; *pull/2*) echo CLOSED ;; *pull/3*) echo OPEN ;; esac\n' > "$tmp/bin/gh"
+
+    # Identity cleanup failure keeps the queue dir and reports no success.
+    _mkq q9b done failed; _ids; n1_orca_sentinel_rm() { return 1; }; _close
+    assert_eq "close: identity removal failure keeps queue dir" "1|yes|yes" "$rc|$(_has 'could not remove identity')|$(_qd)"
+    unset -f n1_orca_sentinel_rm
+
+    # Integration queue: the final PR must be recorded and merged.
+    _mkq q5 done failed; n1_write_frontmatter "$q" integration queue; _close
+    assert_eq "close: integration queue without a final PR refused" "1|yes|yes" "$rc|$(_has 'final PR: none recorded')|$(_qd)"
+    printf '\n## Final PRs\n| Repo | PR | Draft | Mergeable | Note |\n|---|---|---|---|---|\n| %s | https://github.com/o/r/pull/9 | no | yes | |\n' \
+        "$tmp/norepo" >> "$q"
+    n1_queue_event "${q%/*}/events.jsonl" q5 R1 final_pr_opened pr=https://github.com/o/r/pull/9
+    _close
+    assert_eq "close: integration queue with a merged final PR closed" "0|no" "$rc|$(_qd)"
+    assert_eq "close: integration queue skips the hand-merge reconcile" "no" "$(_has 'reconciled: T-1')"
+}
+
+
 # N1-298: --story <Epic> expands each child into its Sub-tasks; --story <Story> is unchanged.
 test_story_epic_wiring() {
     local s="$REPO_ROOT/skills/n1-queue/steps"
@@ -2369,6 +2543,8 @@ test_story_base_wiring
 test_story_branch_wiring
 test_row_status
 test_queue_retry
+test_queue_reconcile_force
+test_queue_close
 test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
@@ -2378,6 +2554,7 @@ test_title_vague
 test_desc_chain_wiring
 test_brief_wiring
 test_retry_wiring
+test_close_wiring
 test_form_repair_wiring
 test_overlap_order
 test_schedule_helpers

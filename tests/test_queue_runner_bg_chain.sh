@@ -969,7 +969,8 @@ esac
 EOF
     chmod +x "$tmp/bin/gh"
     assert_eq "bg-held-timeout: exit 0" "0" "$(run_bg_queue "$tmp")"
-    assert_eq "bg-held-timeout: merged on the timeout tick" "3" "$(cat "$tmp/ghcalls")"
+    # 3 poll calls up to the timeout tick + 1 from the Done-section reconcile (N1-481) of T-A's still-pr row.
+    assert_eq "bg-held-timeout: merged on the timeout tick" "4" "$(cat "$tmp/ghcalls")"
     assert_eq "bg-held-timeout: T-B launched once" "1" "$(ls "$tmp/fake" | grep -c '^prompt\..*T-B' || true)"
     assert_eq "bg-held-timeout: T-B finished pr" "pr" "$(plan_cell "$tmp/queue.md" 2 8)"
     rm -rf "$tmp"

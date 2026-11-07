@@ -4,7 +4,7 @@ Resolves which tickets this run plans, then sets `QUEUE_ID` and `QUEUE_DIR`. It 
 
 **Never infer the input (N1-440).** The only input sources are this call's arguments and the reply to item 3. Never pick a tag, story or ticket list from conversation context, memory, config, a schedule or an existing queue dir, and never reuse a queue dir because it looks current. No explicit input means item 3 asks, every time.
 
-1. **Arguments.** Every argument that is neither a flag nor a flag's operand is a token. Flag operands: `--tag <tag>`, `--story <ID>`, `--goal "<text>"` (the quoted value, or the words up to the next flag; it is never a token and never reaches bash), `--run <queue-id>`, `--answer <ticket> <text>`, `--retry <ticket>`, `--status`/`--watch`/`--stop [<id>]`, `--schedule <trigger>`. A token that contains `'` is prose and is never passed to bash. Resolve the other tokens in one bash call, one single-quoted word per token:
+1. **Arguments.** Every argument that is neither a flag nor a flag's operand is a token. Flag operands: `--tag <tag>`, `--story <ID>`, `--goal "<text>"` (the quoted value, or the words up to the next flag; it is never a token and never reaches bash), `--run <queue-id>`, `--answer <ticket> <text>`, `--retry <ticket>`, `--status`/`--watch`/`--stop`/`--close [<id>]`, `--schedule <trigger>`. A token that contains `'` is prose and is never passed to bash. Resolve the other tokens in one bash call, one single-quoted word per token:
 
 ```bash
 source ~/.n1/preamble.sh
