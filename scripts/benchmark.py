@@ -668,6 +668,7 @@ class Metric:
     name = ""
     unit = ""
     direction = "lower"  # or "higher"
+    robust = False  # True: report median/p90, no CI delta (N1-483)
 
     def compute(self, run_record: dict, turns):
         raise NotImplementedError
@@ -722,6 +723,7 @@ class OutcomeMetric(Metric):
 
 class DurationMetric(Metric):
     name, unit, direction = "duration_min", "minutes", "lower"
+    robust = True
 
     def compute(self, run_record, turns):
         s, e = parse_ts(run_record.get("started_at")), parse_ts(run_record.get("completed_at"))
@@ -1082,8 +1084,11 @@ def _stat(vals):
     vals = [v for v in vals if isinstance(v, (int, float))]
     if not vals:
         return None
+    s = sorted(vals)
     return {"n": len(vals), "mean": round(statistics.fmean(vals), 3),
-            "median": round(statistics.median(vals), 3), "ci": list(bootstrap_ci(vals))}
+            "median": round(statistics.median(vals), 3),
+            "p90": s[(9 * len(s) + 9) // 10 - 1],  # nearest rank: ceil(0.9 n)
+            "ci": list(bootstrap_ci(vals))}
 
 
 def aggregate(caches, by: str, keyfn=None) -> dict:
@@ -1383,9 +1388,13 @@ def pick_baseline_group(snapshot: dict, baseline):
     return fallback, "no baseline pinned; using oldest sufficient partition"
 
 
-def _fmt_stat(s):
+def _fmt_stat(s, robust=False):
     if not s:
         return "n/a"
+    if robust:
+        p90 = s.get("p90")
+        p90_txt = format(p90, "g") if isinstance(p90, (int, float)) else "n/a"
+        return f"median {s['median']:g} / p90 {p90_txt} (n={s['n']})"
     return f"{s['mean']:g} [{s['ci'][0]:g}, {s['ci'][1]:g}] (n={s['n']})"
 
 
@@ -1446,8 +1455,8 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
             f"{qcov:.0%}" if qcov is not None else "n/a",
         ]
         for m in METRICS:
-            cell = _fmt_stat(grp["metrics"].get(m.name))
-            if grp["sufficient"] and prev_key and grp["metrics"].get(m.name) and g[prev_key]["metrics"].get(m.name):
+            cell = _fmt_stat(grp["metrics"].get(m.name), m.robust)
+            if not m.robust and grp["sufficient"] and prev_key and grp["metrics"].get(m.name) and g[prev_key]["metrics"].get(m.name):
                 d = delta(grp["metrics"][m.name], g[prev_key]["metrics"][m.name])
                 cell += f" {_fmt_delta(d, m.direction)}"
             row.append(cell)
@@ -1457,7 +1466,8 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
         if grp["sufficient"]:
             prev_key_by_host[host_part] = key
     lines.append("")
-    lines.append("Cells: mean [95% bootstrap CI] (n). Deltas compare against the previous sufficient partition of the same host.")
+    lines.append("Cells: mean [95% bootstrap CI] (n); duration_min and work_min: median / p90 (n), no delta. "
+                 "Deltas compare against the previous sufficient partition of the same host.")
     legacy_keys = [k for k in _sorted_groups(snapshot) if is_legacy_key(k)]
     if legacy_keys:
         total_legacy = sum(g[k]["n_all"] for k in legacy_keys)
@@ -1488,8 +1498,9 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
         lines += [f"## {latest} vs baseline {baseline_group}", "", "| metric | baseline | latest | delta |", "|---|---|---|---|"]
         for m in METRICS:
             cur, ref = hg[latest]["metrics"].get(m.name), hg[baseline_group]["metrics"].get(m.name)
-            d = delta(cur, ref) if cur and ref else None
-            lines.append(f"| {m.name} | {_fmt_stat(ref)} | {_fmt_stat(cur)} | {_fmt_delta(d, m.direction)} |")
+            d = delta(cur, ref) if cur and ref and not m.robust else None
+            lines.append(f"| {m.name} | {_fmt_stat(ref, m.robust)} | {_fmt_stat(cur, m.robust)} | "
+                         f"{'median/p90 only' if m.robust else _fmt_delta(d, m.direction)} |")
         lines.append("")
 
     # Drift vs previous snapshot

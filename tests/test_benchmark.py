@@ -1129,6 +1129,28 @@ class MergeVersionsTest(unittest.TestCase):
 
 
 class ReportTest(unittest.TestCase):
+    def test_stat_has_nearest_rank_p90(self):
+        s = bm._stat(list(range(1, 11)))
+        self.assertEqual((s["n"], s["median"], s["p90"]), (10, 5.5, 9))
+        self.assertEqual(bm._stat([7])["p90"], 7)
+
+    def test_duration_metrics_are_robust_and_never_flag_significance(self):
+        self.assertEqual({m.name for m in bm.METRICS if m.robust}, {"duration_min", "work_min"})
+        old, new = group(5, 4, 6), group(2, 1, 3)
+        for name in ("duration_min", "work_min"):
+            old["metrics"][name] = {"n": 5, "mean": 10.0, "median": 9.0, "p90": 20.0, "ci": [8.0, 12.0]}
+            new["metrics"][name] = {"n": 5, "mean": 100.0, "median": 90.0, "p90": 200.0, "ci": [95.0, 105.0]}
+        snap = snap_with({"claude-code/2.70.0": old, "claude-code/2.80.0": new})
+        out = bm.render_report(snap, None, "claude-code/2.70.0", "pinned", {})
+        self.assertIn("median 90 / p90 200 (n=5) |", out)
+        rows = [ln for ln in out.splitlines() if ln.startswith(("| duration_min |", "| work_min |"))]
+        self.assertEqual(len(rows), 2)
+        for ln in rows:
+            self.assertIn("median 9 / p90 20 (n=5)", ln)
+            self.assertNotIn("significant", ln)
+        self.assertEqual(bm._fmt_stat({"n": 3, "mean": 1.0, "median": 1.0, "ci": [1, 1]}, robust=True),
+                         "median 1 / p90 n/a (n=3)")  # old snapshot without p90
+
     def test_delta_and_significance(self):
         d = bm.delta(stat(2.0, 1.5, 2.5), stat(4.0, 3.0, 5.0))
         self.assertEqual((d["abs"], d["pct"], d["significant"]), (-2.0, -50.0, True))
