@@ -617,6 +617,7 @@ class ApplyLabelsTest(unittest.TestCase):
 
 def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01T10:00:00Z", link="heuristic", host="claude-code"):
     return {"run_id": run_id, "n1_version": version, "host": host, "eligible": eligible, "started_at": started,
+            "completed_at": "2026-09-01T11:00:00Z",
             "link_method": link if eligible else "skipped", "project": "p", "ticket_id": "T",
             "metrics": {"interventions": interventions, "answers": interventions, "corrections": 0.0,
                         "brainstorm_interactions": 0.0, "autonomous_interventions": interventions,
@@ -626,6 +627,36 @@ def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01
 
 
 class AggregateTest(unittest.TestCase):
+    def test_quality_coverage_excludes_unlinkable_by_construction(self):
+        caches = [cache_for("3.0.0", f"r{i}", 1.0) for i in range(4)]
+        noproj = cache_for("3.0.0", "np", None, link="unlinked")
+        noproj["project"] = ""
+        nots = cache_for("3.0.0", "nt", None, link="unlinked")
+        nots["completed_at"] = None
+        other = cache_for("3.0.0", "ot", None, link="unlinked")
+        g = bm.aggregate(caches + [noproj, nots, other], "version")["claude-code/3.0.0"]
+        self.assertEqual(g["n_unlinked"], 3)
+        self.assertAlmostEqual(g["quality_coverage"], 4 / 5, places=3)
+        self.assertEqual([bm.unlink_cause(c) for c in (noproj, nots, other)],
+                         ["no project", "no timestamps", "no transcript matched"])
+
+    def test_cells_and_inferred_count(self):
+        caches = [cache_for("3.0.0", f"r{i}", float(i)) for i in range(6)]
+        for i, c in enumerate(caches):
+            c["tier"], c["plan_path"] = ("standard", "plan") if i < 5 else ("simple", "none")
+            c["outcome_inferred"] = i < 2
+        g = bm.aggregate(caches, "version")["claude-code/3.0.0"]
+        self.assertEqual(g["cells"]["standard/plan"]["n"], 5)
+        self.assertEqual(g["cells"]["standard/plan"]["mean"], 2.0)
+        self.assertEqual(g["cells"]["simple/none"]["n"], 1)
+        self.assertEqual(g["n_inferred"], 2)
+
+    def test_aggregate_keyfn_overrides_partition(self):
+        caches = [cache_for("3.0.0", "a", 1.0), cache_for("3.1.0", "b", 2.0)]
+        agg = bm.aggregate(caches, "version", keyfn=lambda c: "claude-code/3.0.0-3.1.0")
+        self.assertEqual(list(agg), ["claude-code/3.0.0-3.1.0"])
+        self.assertEqual(agg["claude-code/3.0.0-3.1.0"]["n_runs"], 2)
+
     def test_version_key_sorts_numerically(self):
         vs = ["2.10.0", "2.9.0", "2.52.17", "2.52.3", "unknown", ""]
         self.assertEqual(sorted(vs, key=bm.version_key), ["", "unknown", "2.9.0", "2.10.0", "2.52.3", "2.52.17"])
@@ -795,6 +826,7 @@ class FinalizeTest(unittest.TestCase):
         g = snap["groups"]["claude-code/2.80.0"]
         self.assertEqual(g["metrics"]["corrections"]["mean"], 1.0)
         self.assertFalse(g["sufficient"])
+        self.assertEqual(snap["unlinked_causes"], {})
         cache = bm.load_cache(self.d.out)["n1-run-1"]
         self.assertEqual(cache["metrics"]["interventions"], 1.0)
         self.assertEqual(cache["judge_model"], bm.DEFAULT_JUDGE_MODEL)

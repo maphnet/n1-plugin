@@ -916,23 +916,40 @@ def codex_review_prs(cache: dict):
     return []
 
 
-def aggregate(caches, by: str) -> dict:
+UNLINKABLE_CAUSES = ("no project", "no timestamps")
+
+
+def unlink_cause(c: dict) -> str:
+    """Why an eligible run has no transcript. The first two cannot link by construction
+    (link_transcript needs a project dir and both timestamps)."""
+    if not c.get("project"):
+        return "no project"
+    if not c.get("started_at") or not c.get("completed_at"):
+        return "no timestamps"
+    return "no transcript matched"
+
+
+def _stat(vals):
+    vals = [v for v in vals if isinstance(v, (int, float))]
+    if not vals:
+        return None
+    return {"n": len(vals), "mean": round(statistics.fmean(vals), 3),
+            "median": round(statistics.median(vals), 3), "ci": list(bootstrap_ci(vals))}
+
+
+def aggregate(caches, by: str, keyfn=None) -> dict:
+    keyfn = keyfn or (lambda c: group_key(c, by))
     groups = {}
     for c in caches:
-        groups.setdefault(group_key(c, by), []).append(c)
+        groups.setdefault(keyfn(c), []).append(c)
     out = {}
     for key, members in groups.items():
         eligible = [c for c in members if c.get("eligible")]
-        metrics = {}
-        for m in METRICS:
-            vals = [c["metrics"].get(m.name) for c in eligible]
-            vals = [v for v in vals if isinstance(v, (int, float))]
-            if not vals:
-                metrics[m.name] = None
-                continue
-            metrics[m.name] = {"n": len(vals), "mean": round(statistics.fmean(vals), 3),
-                               "median": round(statistics.median(vals), 3),
-                               "ci": list(bootstrap_ci(vals))}
+        metrics = {m.name: _stat([c["metrics"].get(m.name) for c in eligible]) for m in METRICS}
+        cell_vals = {}
+        for c in eligible:
+            cell_vals.setdefault(f"{c.get('tier') or 'unknown'}/{c.get('plan_path') or 'none'}", []).append(
+                c["metrics"].get("interventions"))
         # Gate activation rates for this group's eligible runs
         gate_stats: dict = {}
         for c in eligible:
@@ -951,8 +968,10 @@ def aggregate(caches, by: str) -> dict:
             did: round(100 * v["true"] / v["total"], 1) if v["total"] else None
             for did, v in gate_stats.items()
         }
-        n_unlinked = sum(1 for c in eligible if c.get("link_method") == "unlinked")
-        quality_coverage = round((len(eligible) - n_unlinked) / len(eligible), 3) if eligible else None
+        unlinked = [c for c in eligible if c.get("link_method") == "unlinked"]
+        n_unlinked = len(unlinked)
+        denom = len(eligible) - sum(1 for c in unlinked if unlink_cause(c) in UNLINKABLE_CAUSES)
+        quality_coverage = round((len(eligible) - n_unlinked) / denom, 3) if denom > 0 else None
         review_prs = [(c, pr) for c in members for pr in codex_review_prs(c)]
         outcomes = {outcome: sum(1 for _, pr in review_prs if pr["outcome"] == outcome)
                     for outcome in (*CODEX_REVIEW_OUTCOMES, "missing")}
@@ -964,6 +983,8 @@ def aggregate(caches, by: str) -> dict:
             "n_runs": len(eligible), "n_all": len(members),
             "n_incomplete": len(members) - len(eligible),
             "n_unlinked": n_unlinked,
+            "n_inferred": sum(1 for c in eligible if c.get("outcome_inferred")),
+            "cells": {k: _stat(v) for k, v in cell_vals.items()},
             "quality_coverage": quality_coverage,
             "sufficient": len(eligible) >= MIN_SAMPLE,
             "metrics": metrics,
@@ -1045,6 +1066,10 @@ def cmd_finalize(args) -> int:
         compute_run_metrics(cache)
         save_cache(out, cache)
     ordered = sorted(caches.values(), key=lambda c: c.get("started_at") or "")
+    unlinked = [c for c in ordered if c.get("eligible") and c.get("link_method") == "unlinked"]
+    causes = {}
+    for c in unlinked:
+        causes[unlink_cause(c)] = causes.get(unlink_cause(c), 0) + 1
     snapshot = {
         "snapshot_id": dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "created_at": now_iso(), "by": args.by, "plugin_version": args.plugin_version,
@@ -1053,8 +1078,8 @@ def cmd_finalize(args) -> int:
         "groups": aggregate(ordered, args.by),
         "run_ids": sorted(caches),
         "unlinked": [{"run_id": c["run_id"], "project": c.get("project"), "ticket_id": c.get("ticket_id"),
-                      "reason": "no transcript matched"}
-                     for c in ordered if c.get("eligible") and c.get("link_method") == "unlinked"],
+                      "reason": unlink_cause(c)} for c in unlinked],
+        "unlinked_causes": causes,
     }
     # Guarantee unique ids when two finalize calls land in the same second.
     existing = {s["snapshot_id"] for s in load_snapshots(out)}
@@ -1257,7 +1282,9 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     lines += [f"- {k} ({g[k]['n_runs']} runs)" for k in insufficient] or ["- none"]
     lines.append("")
 
-    lines += ["## Unlinked runs", ""]
+    causes = snapshot.get("unlinked_causes") or {}
+    lines += ["## Unlinked runs", "",
+              "By cause: " + (", ".join(f"{k} {n}" for k, n in sorted(causes.items())) or "n/a"), ""]
     lines += [f"- {u['run_id']} ({u.get('project')}, {u.get('ticket_id')}): {u.get('reason')}"
               for u in snapshot.get("unlinked") or []] or ["- none"]
     lines.append("")
