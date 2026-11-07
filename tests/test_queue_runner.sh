@@ -2404,12 +2404,13 @@ EOF
         : > "${q%/*}/events.jsonl"
     }
     _ids() { for t in T-1 T-2 T-3; do
-        : > "$h/queue/sentinels/$t.env"; : > "$h/queue/sentinels/$t.sent"; : > "$h/queue/sentinels/$t.beacon"
+        printf 'N1_ORCA_TASK=task-%s\nN1_ORCA_RUN=run-1\n' "$t" > "$h/queue/sentinels/$t.env"; : > "$h/queue/sentinels/$t.sent"; : > "$h/queue/sentinels/$t.beacon"
         : > "$h/queue/sessions/$t.sid"; printf '%s\n' "$h" > "$tmp/.n1/orca-home/$t"; done; }
     _left() { ls -A "$h/queue/sentinels" "$h/queue/sessions" "$tmp/.n1/orca-home" | grep -c '^T-' || true; }
     _has() { grep -qF -- "$1" <<< "$out" && echo yes || echo no; }
     _qd() { [ -e "${q%/*}" ] && echo yes || echo no; }
     _close() { rc=0; out=$(HOME="$tmp" PATH="$tmp/bin:$PATH" n1_queue_close "$q" "$@" 2>&1) || rc=$?; }
+    n1_orca_liveness() { :; }   # readable list, no workers
 
     # AC2: a pr row whose PR is still open refuses; nothing is removed and the row is listed.
     _mkq q2 done pr; _ids; _close
@@ -2437,6 +2438,40 @@ EOF
     assert_eq "close: abandon removes the same files" "0|no|0" "$rc|$(_qd)|$(_left)"
     _mkq q4b run pr; _ids; _close abandon
     assert_eq "close: abandon never waives an open PR" "1|yes|15" "$rc|$(_qd)|$(_left)"
+
+    # SEC-1: a worker still listed for an identity's task refuses (fail closed on an unreadable list too); nothing removed.
+    _mkq q6 done failed; _ids
+    n1_orca_liveness() { printf 'd-1\ttask-T-3\tlive\t\n'; }; _close
+    assert_eq "close: live worker refused, identity kept" "1|yes|yes|15" "$rc|$(_has 'T-3: worker may still be running')|$(_qd)|$(_left)"
+    n1_orca_liveness() { return 1; }; _close
+    assert_eq "close: unreadable worker list refused" "1|yes|15" "$rc|$(_qd)|$(_left)"
+    n1_orca_liveness() { :; }
+
+    # CR-1: a runner killed mid-child leaves an in-progress row; step: run asks, abandon removes. Other steps refuse.
+    _mkq q7 run in-progress; _ids; _close
+    assert_eq "close: dead mid-child queue asks first" "2|yes|15" "$rc|$(_has 'T-3: in-progress')|$(_left)"
+    _close abandon
+    assert_eq "close: abandon removes a dead mid-child queue" "0|no|0" "$rc|$(_qd)|$(_left)"
+    _mkq q7b done in-progress; _ids; _close abandon
+    assert_eq "close: in-progress outside step run stays refused" "1|yes" "$rc|$(_qd)"
+    _mkq q7c run escalated; _ids; _close abandon
+    assert_eq "close: escalated stays refused under abandon" "1|yes" "$rc|$(_qd)"
+
+    # SEC-3: a child rewriting mode/integration cannot hide an integration queue; the sections and events still mark it.
+    _mkq q8 done failed; printf '\n## Final PRs\n| Repo | PR | Draft | Mergeable | Note |\n|---|---|---|---|---|\n' >> "$q"; _close
+    assert_eq "close: Final PRs section with forged frontmatter refused" "1|yes|yes" "$rc|$(_has 'final PR: none recorded')|$(_qd)"
+    _mkq q8b done failed; n1_queue_event "${q%/*}/events.jsonl" q8b R1 final_pr_opened pr=https://github.com/o/r/pull/3; _close
+    assert_eq "close: final_pr_opened event with forged frontmatter refused" "1|yes" "$rc|$(_qd)"
+    _mkq q8c done failed; n1_write_frontmatter "$q" story_id S-1; _close
+    assert_eq "close: story_id marks an integration queue" "1|yes" "$rc|$(_qd)"
+
+    # SEC-2: a runner that starts after the first check (here: during the reconcile's gh read) is not closed under.
+    _mkq q9 done failed; _ids; start_fake_runner "$REPO_ROOT" "$q"
+    printf '#!/bin/sh\nsed -i "s/^step: done/step: done\\npid: %s/" "%s"\necho MERGED\n' "$FAKE_RUNNER_PID" "$q" > "$tmp/bin/gh"
+    _close
+    assert_eq "close: runner started mid-close refused, queue kept" "1|yes|yes|15" "$rc|$(_has 'started running')|$(_qd)|$(_left)"
+    stop_fake_runner
+    printf '#!/bin/sh\ncase "$*" in *pull/1*|*pull/9*) echo MERGED ;; *pull/2*) echo CLOSED ;; *pull/3*) echo OPEN ;; esac\n' > "$tmp/bin/gh"
 
     # Integration queue: the final PR must be recorded and merged.
     _mkq q5 done failed; n1_write_frontmatter "$q" integration queue; _close

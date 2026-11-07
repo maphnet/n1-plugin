@@ -1565,7 +1565,8 @@ n1_queue_close() {
     # pending/held/deferred rows. Reconciles first (not on integration queues), so a PR merged by hand counts. Then removes, in order: each merged
     # row's worktree (n1_clean_ticket <T> queue in the row's Repo and N1 Home, queue-event env unset; a skip is
     # reported, never fatal), every row's Orca identity and session pointers, the queue dir. No archive. Prints what it removed.
-    local q="$1" mode="${2:-}" dir id num t repo n1h model st url ps fp note integ hard="" soft="" ids="" wts="" line
+    local q="$1" mode="${2:-}" dir id num t repo n1h model st url ps fp note integ hard="" soft="" ids="" wts="" line task rstep
+    local -A tasks=()
     [ -n "$q" ] && [ -f "$q" ] || { echo "No queue runs found."; return 1; }
     dir=$(dirname -- "$q"); id=${dir##*/}
     { [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [ ! -L "$dir" ] && [ "$(basename -- "${dir%/*}")" = queue ]; } \
@@ -1575,11 +1576,25 @@ n1_queue_close() {
     fi
     declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
     # Integration queues skip the hand-merge reconcile: it accepts a PR merged into any base, but their rows merge only into the story branch.
-    integ=0; if [ "$(n1_read_frontmatter "$q" mode)" = story ] || [ "$(n1_read_frontmatter "$q" integration)" = queue ]; then integ=1; fi
+    # SEC-3: queue.md is child-writable, so fail closed: any integration marker (frontmatter, a Story Branches / Final PRs
+    # section, or a runner-written final_pr_opened event) makes this an integration queue.
+    integ=0
+    if [ "$(n1_read_frontmatter "$q" mode)" = story ] || [ "$(n1_read_frontmatter "$q" integration)" = queue ] \
+        || [ -n "$(n1_read_frontmatter "$q" story_id)" ] || grep -qE '^## (Story Branches|Final PRs)$' "$q" \
+        || grep -qF '"final_pr_opened"' "$dir/events.jsonl" 2>/dev/null; then integ=1; fi
     [ "$integ" = 1 ] || n1_queue_reconcile "$q"
+    rstep=$(n1_read_frontmatter "$q" step)
     while IFS=$'\t' read -r -u 3 num t repo n1h model st; do
+        # SEC-1: the identity file says whether a worker may be live (as in n1_queue_retry); removing it drops the child's
+        # queue restrictions, so refuse while a listed worker of its task is not exited/done or the list is unreadable.
+        if [ -n "$n1h" ] && [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            if task=$(n1_orca_identity_guard "$n1h" "$t" "$(n1_read_frontmatter "$q" orca_run_id)"); then tasks[$t]="$task"
+            else hard+="$t: worker may still be running (stop it first)"$'\n'; fi
+        fi
         case "$st" in
-            in-progress|awaiting-human|escalated) hard+="$t: $st"$'\n' ;;
+            # CR-1: a dead step: run runner never rewrites its in-progress row; that is the abandonable case (rc 2 below)
+            in-progress) if [ "$rstep" = run ]; then soft+="$t: $st"$'\n'; else hard+="$t: $st"$'\n'; fi ;;
+            awaiting-human|escalated) hard+="$t: $st"$'\n' ;;
             pending|held|deferred) soft+="$t: $st"$'\n' ;;
             pr) [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ] && continue
                 url=$(n1_queue_attested_pr "$q" "$t" "$n1h"); ps=$(n1_queue_pr_state "$url")
@@ -1606,6 +1621,10 @@ n1_queue_close() {
         fi
         [ -z "$soft" ] || { printf 'close refused: queue %s is not settled; nothing removed:\n%s' "$id" "$soft"; return 1; }
     fi
+    # SEC-2: a runner started since the first check would lose its queue dir and identities.
+    if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
+        echo "close refused: queue $id started running; nothing removed"; return 1
+    fi
     while IFS=$'\t' read -r -u 3 num t repo n1h model st; do
         [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || continue   # queue.md is child-writable: no path or glob characters reach the rm calls
         if [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ]; then
@@ -1614,8 +1633,11 @@ n1_queue_close() {
                 n1_clean_ticket "$t" queue </dev/null 2>&1)
             wts+="${wts:+; }$t ${line//$'\n'/, }"
         fi
-        [ -z "$n1h" ] || { n1_orca_sentinel_rm "$n1h" "$t"; ids+="${ids:+ }$t"; }
+        [ -z "$n1h" ] || { n1_orca_sentinel_rm "$n1h" "$t" "${tasks[$t]:-}"; ids+="${ids:+ }$t"; }
     done 3< <(n1_queue_pending_rows "$q" '.*')
+    if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
+        echo "close refused: queue $id started running; queue dir kept"; return 1
+    fi
     rm -rf -- "$dir" || { echo "n1-queue: could not remove $dir"; return 1; }
     printf 'closed queue %s: removed %s\nidentity files: %s\nworktrees: %s\n' "$id" "$dir" "${ids:-none}" "${wts:-none}"
 }
