@@ -29,9 +29,10 @@ _UNSET = object()
 
 def make_run(run_id="n1-run-1", version="2.80.0", project="proj", ticket="T-1",
              started="2026-09-01T10:00:00Z", completed=_UNSET,
-             outcome="pr_created", steps=_UNSET, outcomes=_UNSET, summary=_UNSET, orchestrator=_UNSET):
+             outcome="pr_created", steps=_UNSET, outcomes=_UNSET, summary=_UNSET, orchestrator=_UNSET,
+             host="claude-code"):
     return {
-        "schema_version": 2, "parser_schema_version": 6, "run_id": run_id, "session_id": None, "n1_version": version,
+        "schema_version": 2, "parser_schema_version": 6, "run_id": run_id, "host": host, "session_id": None, "n1_version": version,
         "project": project, "ticket_id": ticket, "branch": ticket,
         "started_at": started,
         "completed_at": completed if completed is not _UNSET else "2026-09-01T11:00:00Z",
@@ -110,6 +111,87 @@ class EligibilityTest(unittest.TestCase):
     def test_ineligible_outcomes(self):
         for o in (None, "", "superseded", "operational_fix", "pr_skipped"):
             self.assertFalse(bm.is_eligible(make_run(outcome=o)), repr(o))
+
+
+class InferOutcomeTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+
+    def overview(self, ticket, text, project="proj"):
+        p = self.d.n1 / project / "memory" / ticket / "overview.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+
+    def load(self):
+        runs, _ = bm.load_runs(self.d.n1)
+        return {r["run_id"]: r for r in runs}
+
+    def test_succeeded_pr_step_infers_pr_created(self):
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[{"step": "pr", "outcome": "success"}]))
+        r = self.load()["a"]
+        self.assertEqual(r["final_outcome"], "pr_created")
+        self.assertTrue(r["outcome_inferred"])
+        self.assertTrue(bm.is_eligible(r))
+
+    def test_codex_review_decision_with_branch_infers_pr_created(self):
+        run = make_run(run_id="a", outcome="", steps=[])
+        run["decisions"] = [{"id": "codex-review", "signals": {"branch": "T-1", "outcome": "ran"}}]
+        self.d.add_run(run)
+        self.assertEqual(self.load()["a"]["final_outcome"], "pr_created")
+
+    def test_overview_signals_apply_to_last_run_only(self):
+        self.overview("T-1", "---\ntier: standard\npr_url: https://example.test/pr/1\n---\n# T-1\n")
+        self.d.add_run(make_run(run_id="old", outcome="", steps=[], started="2026-09-01T10:00:00Z"))
+        self.d.add_run(make_run(run_id="new", outcome="", steps=[], started="2026-09-02T10:00:00Z"))
+        runs = self.load()
+        self.assertEqual(runs["new"]["final_outcome"], "pr_created")
+        self.assertEqual(runs["old"]["final_outcome"], "")
+        self.assertNotIn("outcome_inferred", runs["old"])
+
+    def test_overview_frontmatter_final_outcome_wins(self):
+        self.overview("T-1", "---\nfinal_outcome: investigation_complete\n---\n")
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[{"step": "pr", "outcome": "success"}]))
+        self.assertEqual(self.load()["a"]["final_outcome"], "investigation_complete")
+
+    def test_finish_section_pr_url(self):
+        self.overview("T-1", "---\ntier: simple\n---\n# T-1\n\n## Finish\npr_url: https://example.test/pr/2\n")
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[]))
+        self.assertEqual(self.load()["a"]["final_outcome"], "pr_created")
+
+    def test_skipped_pr_is_pr_skipped_and_stays_ineligible(self):
+        self.overview("T-1", "---\nstep: done\n---\n")
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[{"step": "pr", "outcome": "skipped"}]))
+        r = self.load()["a"]
+        self.assertEqual(r["final_outcome"], "pr_skipped")
+        self.assertFalse(bm.is_eligible(r))
+
+    def test_investigation_deliverable(self):
+        self.d.add_run(make_run(run_id="a", outcome=None,
+                                steps=[{"step": "investigation-deliverable", "outcome": "pass"}]))
+        self.assertEqual(self.load()["a"]["final_outcome"], "investigation_complete")
+
+    def test_set_outcome_is_never_overridden(self):
+        run = make_run(run_id="a", outcome="abandoned", steps=[{"step": "pr", "outcome": "success"}])
+        run["decisions"] = [{"id": "codex-review", "signals": {"branch": "T-1"}}]
+        self.d.add_run(run)
+        r = self.load()["a"]
+        self.assertEqual(r["final_outcome"], "abandoned")
+        self.assertNotIn("outcome_inferred", r)
+
+    def test_no_signal_stays_empty(self):
+        self.d.add_run(make_run(run_id="a", outcome=""))
+        self.assertEqual(self.load()["a"]["final_outcome"], "")
+
+    def test_build_run_cache_light_fields(self):
+        self.overview("T-1", "---\ntier: complex\nplanning_need: plan\n---\n")
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[{"step": "pr", "outcome": "success"}]))
+        c = bm.build_run_cache(self.load()["a"], self.d.projects)
+        self.assertEqual((c["tier"], c["plan_path"], c["outcome_inferred"], c["eligible"]),
+                         ("complex", "plan", True, True))
+        plain = make_run(run_id="b", ticket="T-2")
+        plain["estimated_tier"] = "simple"
+        c = bm.build_run_cache(plain, self.d.projects)
+        self.assertEqual((c["tier"], c["plan_path"], c["outcome_inferred"]), ("simple", "none", False))
 
 
 class ParseTsTest(unittest.TestCase):
@@ -648,7 +730,7 @@ class FinalizeTest(unittest.TestCase):
         self.assertEqual(snap["judge_fallbacks"], 1)
         self.assertEqual(snap["plugin_version"], "2.83.0")
         self.assertEqual(snap["rubric_version"], bm.RUBRIC_VERSION)
-        g = snap["groups"]["unknown/2.80.0"]
+        g = snap["groups"]["claude-code/2.80.0"]
         self.assertEqual(g["metrics"]["corrections"]["mean"], 1.0)
         self.assertFalse(g["sufficient"])
         cache = bm.load_cache(self.d.out)["n1-run-1"]

@@ -34,6 +34,10 @@ MIN_SAMPLE = 5
 TEXT_LIMIT = 600
 LABELS = {"answer", "approval", "correction", "instruction", "noise"}
 FALLBACK_LABEL = "instruction"
+SUCCESS_STEP = {"success", "succeeded", "pass"}
+SKIPPED_STEP = {"skip", "skipped"}
+OVERVIEW_KEYS = ("final_outcome", "step", "tier", "planning_need", "pr_url")
+_PR_LINE = re.compile(r"^(?:pr|pr_url):\s*(\S.*)$")
 
 
 # ---------------------------------------------------------------- run loading
@@ -107,11 +111,102 @@ def load_runs(n1_root: Path):
                 continue
             rec["_source_path"] = str(path)
             by_id[rec["run_id"]] = rec
-    return list(by_id.values()), malformed
+    runs = list(by_id.values())
+    # N1-482: infer an empty final_outcome in memory (never written back). Overview
+    # signals are per ticket, so only the ticket's last run (max started_at) gets them.
+    last = {}
+    ov_by_dir = {}
+    for rec in runs:
+        d = _ticket_dir(rec)
+        if d not in ov_by_dir:
+            ov_by_dir[d] = _overview_signals(rec["_source_path"])
+        rec["_ov"] = ov_by_dir[d]
+        cur = last.get(d)
+        if cur is None or (rec.get("started_at") or "") >= (cur.get("started_at") or ""):
+            last[d] = rec
+    for rec in runs:
+        if rec.get("final_outcome"):
+            continue
+        inferred = infer_outcome(rec, rec["_ov"], last[_ticket_dir(rec)] is rec)
+        if inferred:
+            rec["final_outcome"], rec["outcome_inferred"] = inferred, True
+    return runs, malformed
 
 
 def is_eligible(run: dict) -> bool:
     return run.get("final_outcome") in ELIGIBLE_OUTCOMES
+
+
+def _ticket_dir(rec: dict) -> str:
+    """<ticket> dir of <ticket>/telemetry/runs/<run_id>.jsonl (same parent walk as raw_agents_session_path)."""
+    return str(Path(rec["_source_path"]).parent.parent.parent)
+
+
+def _overview_signals(src_path) -> dict:
+    """Read <ticket>/overview.md beside a run file. Returns the OVERVIEW_KEYS found in the
+    frontmatter; pr_url also from pr:/pr_url: lines under ## Pending or ## Finish. {} if unreadable."""
+    if not src_path:
+        return {}
+    try:
+        text = (Path(src_path).parent.parent.parent / "overview.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    lines = text.splitlines()
+    out, body = {}, lines
+    if lines and lines[0].strip() == "---":
+        end = next((j for j in range(1, len(lines)) if lines[j].strip() == "---"), len(lines))
+        for line in lines[1:end]:
+            key, sep, val = line.partition(":")
+            key, val = key.strip(), val.strip().strip("\"'")
+            if sep and key in OVERVIEW_KEYS and val and val.lower() != "null":
+                out[key] = val
+        body = lines[end + 1:]
+    section = None
+    for line in body:
+        if line.startswith("## "):
+            section = line[3:].strip()
+        elif section in ("Pending", "Finish") and "pr_url" not in out:
+            m = _PR_LINE.match(line.strip())
+            if m:
+                out["pr_url"] = m.group(1).strip()
+    return out
+
+
+def _step_outcomes(rec: dict, name: str) -> set:
+    return {str(s.get("outcome") or "").lower() for s in rec.get("steps") or []
+            if isinstance(s, dict) and s.get("step") == name}
+
+
+def infer_outcome(rec: dict, ov: dict, is_last: bool) -> str:
+    """Outcome for a run whose final_outcome is empty (N1-482). Order: overview final_outcome
+    (last run only); succeeded pr step or codex-review decision with pr_url/branch; overview
+    pr_url (last run only); pr_skipped; investigation_complete. "" when nothing applies."""
+    ov = ov if is_last else {}
+    if ov.get("final_outcome"):
+        return ov["final_outcome"]
+    pr_steps = _step_outcomes(rec, "pr")
+    if pr_steps & SUCCESS_STEP:
+        return "pr_created"
+    for d in rec.get("decisions") or []:
+        if isinstance(d, dict) and d.get("id") == "codex-review":
+            sig = d.get("signals") or {}
+            if sig.get("pr_url") or sig.get("branch"):
+                return "pr_created"
+    if ov.get("pr_url"):
+        return "pr_created"
+    if pr_steps & SKIPPED_STEP and ov.get("step") == "done":
+        return "pr_skipped"
+    if _step_outcomes(rec, "investigation-deliverable") & SUCCESS_STEP:
+        return "investigation_complete"
+    return ""
+
+
+def _light_fields(run: dict) -> dict:
+    """Cache fields that never need a transcript: inference flag, tier, plan path."""
+    ov = run.get("_ov") or {}
+    return {"outcome_inferred": bool(run.get("outcome_inferred")),
+            "tier": ov.get("tier") or run.get("estimated_tier") or "unknown",
+            "plan_path": ov.get("planning_need") or "none"}
 
 
 # --------------------------------------------------------------- linking
@@ -364,6 +459,7 @@ def build_run_cache(run: dict, projects_dir: Path) -> dict:
         "_run": run,
     }
     cache["questions"] = _extract_questions(run)
+    cache.update(_light_fields(run))
     if not eligible:
         return cache
     path, method = link_transcript(run, projects_dir)
