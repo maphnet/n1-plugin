@@ -215,6 +215,66 @@ fix_shell_repo "$T12B" "$LINE12"
 OUT=$(n1_break_check base "$SHELL_CMD" target "$T12B/bc.log" "$T12B")
 assert_eq "count-matching abort without target evidence verdict" "inconclusive" "$(echo "$OUT" | jq -r .verdict)"
 
+# Case 13 (N1-336): eq-style helper prints "FAIL: <name> -- <detail>"; two tests break on revert.
+# Before the fix the suffixed FAIL names never matched PASS names → inconclusive.
+T13=$(mktemp -d); make_shell_repo "$T13"
+LINE13=$(cat <<'RAWEOF'
+eq() { if [ "$2" = "$3" ]; then echo "PASS: $1"; else echo "FAIL: $1 -- expected '$3', got '$2'"; FAIL=1; fi; }
+eq "add handles negatives" "$(add -1 2)" "1"
+eq "add negative sum" "$(add -2 1)" "-1"
+RAWEOF
+)
+fix_shell_repo "$T13" "$LINE13"
+OUT=$(n1_break_check base "$SHELL_CMD" "add handles negatives" "$T13/bc.log" "$T13")
+assert_eq "suffixed FAIL named-test verdict" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+
+# Case 14 (N1-336): unittest-style runner reports the new test as ERROR on reverted code → red-then-green.
+T14=$(mktemp -d); make_repo "$T14"
+cat > "$T14/run_unit.py" <<'EOF'
+import importlib, sys
+mod = importlib.import_module("tests.test_app")
+names = sorted(n for n in dir(mod) if n.startswith("test_"))
+errors = []
+for n in names:
+    try:
+        getattr(mod, n)()
+    except Exception:
+        errors.append(n)
+for n in errors:
+    print("=" * 70)
+    print("ERROR: %s (tests.test_app.AppTest)" % n)
+print("Ran %d tests in 0.001s" % len(names))
+print("FAILED (errors=%d)" % len(errors) if errors else "OK")
+sys.exit(1 if errors else 0)
+EOF
+git -C "$T14" add -A; git -C "$T14" commit -qm runner; git -C "$T14" branch -qf base
+fix_repo "$T14" 'def test_add_negative():
+    if add(-1, 2) != 1:
+        raise ValueError("negatives collapse")'
+OUT=$(n1_break_check base 'python3 run_unit.py' test_add_negative "$T14/bc.log" "$T14")
+assert_eq "unittest ERROR named-test verdict" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+OUT=$(n1_break_check base 'python3 run_unit.py' tests/test_app.py "$T14/bc.log" "$T14")
+assert_eq "unittest ERROR file-level verdict" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+
+rm -rf "$T13" "$T14"
+
+# Case 15 (N1-336): the branch deletes a non-test file the tests do not use. The revert re-creates it
+# (staged); restore must remove it again so the tree is clean and the verdict is not inconclusive.
+T15=$(mktemp -d); make_repo "$T15"
+printf 'def unused():\n    return 1\n' > "$T15/legacy.py"
+git -C "$T15" add -A; git -C "$T15" commit -qm legacy; git -C "$T15" branch -qf base
+git -C "$T15" rm -q legacy.py
+fix_repo "$T15" 'def test_add_negative():
+    assert add(-1, 2) == 1'
+OUT=$(n1_break_check base "$CMD" test_add_negative "$T15/bc.log" "$T15")
+assert_eq "deleted-file branch verdict" "red-then-green" "$(echo "$OUT" | jq -r .verdict)"
+assert_eq "deleted-file tree clean after check" "" "$(git -C "$T15" status --porcelain)"
+[ -e "$T15/legacy.py" ] && r=present || r=absent
+assert_eq "deleted file absent after restore" "absent" "$r"
+grep -qF "=== post-restore run ===" "$T15/bc.log" && r=kept || r=lost
+assert_eq "log file survives restore" "kept" "$r"
+rm -rf "$T15"
+
 rm -rf "$T9" "$T10" "$T11" "$T12B"
 
 rm -rf "$T7" "$T8"
