@@ -33,6 +33,13 @@ check "doc: not-recommended mark states a reason" '<option> \(not recommended\):
 check "doc: defers the tier split to the project rule" 'recommended-option project rule' "$DOC"
 check "doc: capital-R marker" 'Always write the marker as `\(Recommended\)`' "$DOC"
 check "doc: alternatives JSON shape" '"alternatives":\{"B":"works when <condition>"\}' "$DOC"
+# N1-284: what earns the label
+check "doc: what-earns-the-label section" '^## What earns the label$' "$DOC"
+check "doc: right-not-quick rule" 'maintain this code for a year' "$DOC"
+check "doc: which-one-is-right test" 'which one is right\?' "$DOC"
+check "doc: temporary-label exception files a follow-up" 'temporary.*follow-up' "$DOC"
+check "doc: unattended runs take Recommended" 'Unattended runs always take the `\(Recommended\)` option' "$DOC"
+check "doc: links the headless behaviour" 'autonomy-headless\.md' "$DOC"
 lacks_tree "no works-when note carries the marker" 'works when[^`]*\(Recommended' skills "$DOC"
 
 # --- n1-refine
