@@ -105,11 +105,14 @@ EOF
     exit 0
 fi
 
-# Merge any stale telemetry from interrupted runs
+# N1-486: close runs whose session ended without finalize. resume/clear too: a live owner's
+# lock is skipped by its pointer pid, and resume is where the previous claude process is gone.
 source "${SCRIPT_DIR}/../lib/telemetry.sh"
 n1_memory_dir=$(n1_home)
+case "${TRIGGER:-}" in startup|resume|clear)
+    [ -z "$n1_memory_dir" ] || n1_merge_pending "${n1_memory_dir}/memory" 2>/dev/null || true ;;
+esac
 if [ "${TRIGGER:-}" = startup ] && [ -n "$n1_memory_dir" ]; then
-    n1_merge_pending "${n1_memory_dir}/memory" 2>/dev/null || true
     find "$n1_memory_dir" -maxdepth 1 -type f -name 'queue-plan.*.json' -mtime +2 -delete 2>/dev/null || true   # N1-440: plans abandoned mid-way
 fi
 

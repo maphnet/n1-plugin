@@ -837,6 +837,22 @@ CTX=$(echo "$OUT" | jq -r .hookSpecificOutput.additionalContext)
 case "$CTX" in *"NEVER use any other MCP server"*) assert_eq "no versionMcp keeps NEVER directive" ok ok;; *) assert_eq "no versionMcp keeps NEVER directive" ok "$CTX";; esac
 export N1_HOST_FILE="$T/host.json"
 
+# --- session-start: resume recovers a dead session's idle run as abandoned (N1-486) ---
+AB_TELEM="$N1_HOME/memory/T-ABANDON/telemetry"
+mkdir -p "$AB_TELEM/locks" "$AB_TELEM/raw/steps" "$AB_TELEM/runs"
+echo '{"run_id":"n1-run-abhook","n1_version":"3.14.1","host":"claude-code","session_id":"s-gone"}' > "$AB_TELEM/locks/n1-run-abhook.json"
+echo '{"layer":"envelope","run_id":"n1-run-abhook","started_at":"2026-01-01T00:00:00Z"}' > "$AB_TELEM/raw/steps/n1-run-abhook.jsonl"
+AB_DEAD=99999; while kill -0 "$AB_DEAD" 2>/dev/null; do AB_DEAD=$((AB_DEAD-1)); done
+echo "{\"ticketId\":\"T-ABANDON\",\"runId\":\"n1-run-abhook\",\"pid\":$AB_DEAD}" > "$N1_HOME/active-run.s-gone.json"
+touch -d '2 days ago' "$AB_TELEM/locks/n1-run-abhook.json" "$AB_TELEM/raw/steps/n1-run-abhook.jsonl"
+echo '{"session_id":"s-new","source":"resume"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
+assert_eq "resume start: dead idle run closed as abandoned" "abandoned" \
+    "$(grep '"envelope_close"' "$AB_TELEM/raw/steps/n1-run-abhook.jsonl" 2>/dev/null | tail -1 | jq -r .final_outcome 2>/dev/null)"
+assert_eq "resume start: merged run file written" "true" \
+    "$([ -s "$AB_TELEM/runs/n1-run-abhook.jsonl" ] && echo true || echo false)"
+assert_eq "resume start: run lock removed" "false" \
+    "$([ -f "$AB_TELEM/locks/n1-run-abhook.json" ] && echo true || echo false)"
+
 # N1-321: the session-stop blocks only touch their own T-STOP* tickets, so they run in the background against a private
 # N1_HOME/N1_STATE_DIR, overlapping the session-start blocks below; output is replayed in place after the wait.
 mkdir -p "$T/stop/home"; cp "$N1_HOME/config.json" "$T/stop/home/config.json"
