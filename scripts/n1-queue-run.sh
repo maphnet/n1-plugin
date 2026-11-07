@@ -1507,7 +1507,12 @@ orca_merged_sweep() {
         [ -n "$N1H" ] || continue
         # A deferred task was released, so Orca reports its dispatch exited/done even if the worker resumed (after a
         # "finished" stop notice) and is merging its own PR: settle it only once it shows no activity in the window.
-        if [[ "$DEFERRED" == *" $TASK "* ]] && n1_queue_recent_activity "$N1H" "$T" "$(( STALL_SECS > 0 ? STALL_SECS : 600 ))"; then continue; fi
+        if [[ "$DEFERRED" == *" $TASK "* ]]; then
+            local WIN=$(( STALL_SECS > 0 ? STALL_SECS : 600 )) HB
+            HB=$(cut -f1 "$N1_QUEUE_DIR/.hb-$T" 2>/dev/null)
+            [[ "$HB" =~ ^[0-9]+$ ]] && [ $((now - HB)) -le "$WIN" ] && continue
+            n1_queue_recent_activity "$N1H" "$T" "$WIN" && continue
+        fi
         URL=$(n1_queue_child_pr_url "$N1H/memory/$T/overview.md")
         [ -n "$URL" ] || continue
         did_read=1

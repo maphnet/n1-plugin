@@ -164,7 +164,9 @@ merged_sweep_run() {   # <tmp> <worker-list liveness verdict>: T-A pr (GitHub UR
     # $3 = idle (ticket memory old) or active (a resumed worker keeps writing it, so it is fresh)
     mkdir -p "$tmp/n1home/memory/T-A"; echo x >> "$tmp/n1home/memory/T-A/notes.md"
     # (aged on tick 3: worker-start writes the overview at launch)
-    [ "${3:-}" != idle ] || printf "find '%s' -type f -exec touch -d '2 hours ago' {} +\n" "$tmp/n1home/memory/T-A" >> "$tmp/fake/at.3"
+    [ "${3:-}" = active ] || printf "find '%s' -type f -exec touch -d '2 hours ago' {} +\n" "$tmp/n1home/memory/T-A" >> "$tmp/fake/at.3"
+    # beacon: memory aged, only a fresh progress beacon (re-written by the at.* hooks) shows activity
+    [ "${3:-}" != beacon ] || for i in 3 4 5 6 7 8; do printf "printf '%%s\\tci\\n' \"\$(date +%%s)\" > '%s/.hb-T-A'\n" "$tmp" >> "$tmp/fake/at.$i"; done
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=8 > /dev/null
 }
 
@@ -183,6 +185,14 @@ test_orca_merged_sweep_skips_active_deferred() {   # N1-478 CR-1: released dispa
     local tmp; tmp=$(mktemp -d)
     merged_sweep_run "$tmp" exited active
     assert_eq "merged-sweep: resumed deferred worker not settled" "0|0" \
+        "$(grep -c '"ticket_finished".*"merged"' "$tmp/events.jsonl" || true)|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')"
+    rm -rf "$tmp"
+}
+
+test_orca_merged_sweep_skips_beaconing_deferred() {   # N1-478 CR-1: a fresh beacon alone protects a deferred worker
+    local tmp; tmp=$(mktemp -d)
+    merged_sweep_run "$tmp" unverifiable beacon
+    assert_eq "merged-sweep: beaconing deferred worker not settled" "0|0" \
         "$(grep -c '"ticket_finished".*"merged"' "$tmp/events.jsonl" || true)|$(count_x "$tmp/fake/events" 'launch n1-oq-T-A-1-mfin')"
     rm -rf "$tmp"
 }
@@ -249,6 +259,7 @@ test_orca_stop_notice_deferral_survives_restart
 test_orca_slot_held_told
 test_orca_merged_sweep_settles
 test_orca_merged_sweep_skips_active_deferred
+test_orca_merged_sweep_skips_beaconing_deferred
 
 echo "---"; echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

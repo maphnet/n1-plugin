@@ -1497,7 +1497,8 @@ n1_queue_recent_activity() {
     fi
     [ -n "$(find "$h/memory/$t" -type f -mmin "-$(( (win + 59) / 60 ))" -print 2>/dev/null | head -n1)" ] && return 0
     ag=$(ls -t "$h/memory/$t/telemetry/raw/agents/"*.jsonl 2>/dev/null | head -n1)
-    [ -n "$ag" ] && jq -s -e 'group_by(.agent_id) | any(.[]; any(.event == "start") and all(.event != "stop"))' "$ag" >/dev/null 2>&1
+    # An orphaned start (process died before its stop row) counts only while the agents file itself is under an hour old.
+    [ -n "$ag" ] && [ -n "$(find "$ag" -mmin -60 2>/dev/null)" ] && jq -s -e 'group_by(.agent_id) | any(.[]; any(.event == "start") and all(.event != "stop"))' "$ag" >/dev/null 2>&1
 }
 
 n1_queue_interrupted() {

@@ -144,9 +144,17 @@ test_orca_stall_flag() {
     tmp=$(mktemp -d); stall_fixture "$tmp"; printf '1\timplement\n' > "$tmp/.hb-T-A"
     mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/agents"
     printf '{"event":"start","agent_id":"a1","ticket_id":"T-A"}\n' > "$tmp/n1home/memory/T-A/telemetry/raw/agents/R1.jsonl"
-    age_memory "$tmp"
+    age_memory "$tmp"; touch -d '30 minutes ago' "$tmp/n1home/memory/T-A/telemetry/raw/agents/R1.jsonl"
     run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
     assert_eq "stall: running subagent not flagged" "0" "$(stalls "$tmp")"
+    rm -rf "$tmp"
+    # (l2) an orphaned start (no stop) in an agents file older than an hour is no activity: flagged.
+    tmp=$(mktemp -d); stall_fixture "$tmp"; printf '1\timplement\n' > "$tmp/.hb-T-A"
+    mkdir -p "$tmp/n1home/memory/T-A/telemetry/raw/agents"
+    printf '{"event":"start","agent_id":"a1"}\n' > "$tmp/n1home/memory/T-A/telemetry/raw/agents/R1.jsonl"
+    age_memory "$tmp"
+    run_orca_queue "$tmp" N1_QUEUE_TEST_MAX_TICKS=3 > /dev/null
+    assert_eq "stall: orphaned subagent start flagged" "1" "$(stalls "$tmp")"
     rm -rf "$tmp"
     # (m) all three signals stale (old commit, aged memory, subagent stopped): flagged once as before.
     tmp=$(mktemp -d); stall_fixture "$tmp"; printf '1\timplement\n' > "$tmp/.hb-T-A"
