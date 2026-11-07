@@ -555,13 +555,48 @@ class MetricsTest(unittest.TestCase):
         bm.compute_run_metrics(cache)
         self.assertIsNone(cache["metrics"]["interventions"])
 
+    def test_questions_per_run_counts_asked_only(self):
+        cache = {"run_record": make_run(), "turns": [], "questions": [
+            {"step": "brainstorm", "resolution": "auto-decided"},
+            {"step": "brainstorm", "resolution": "asked"},
+            {"step": "plan", "resolution": "decide-for-me"}]}
+        bm.compute_run_metrics(cache)
+        self.assertEqual(cache["metrics"]["questions_per_run"], 1.0)
+        self.assertEqual(cache["metrics"]["brainstorm_questions"], 2.0)
+
+    def test_review_pass_first_try_hard(self):
+        cache = {"run_record": make_run(), "turns": []}
+        bm.compute_run_metrics(cache)
+        self.assertIsNone(cache["metrics"]["review_pass_first_try_hard"])  # pre-5.83.0 run: n/a
+        for raw, expected in (("true", 1.0), ("false", 0.0), ("", None)):
+            run = make_run(outcomes=[{"event": "outcome", "outcomes": {
+                "review_pass_first_try": "false", "review_pass_first_try_hard": raw}}])
+            cache = {"run_record": run, "turns": []}
+            bm.compute_run_metrics(cache)
+            self.assertEqual(cache["metrics"]["review_pass_first_try_hard"], expected, raw)
+            self.assertEqual(cache["metrics"]["review_pass_first_try"], 0.0)
+
+    def test_session_and_orchestrator_cache_creation(self):
+        def run_with(status):
+            run = make_run(summary={"total_cache_creation_tokens": 900},
+                           orchestrator={"totals": {"cache_creation_tokens": 300}})
+            if status:
+                run["usage_status"] = status
+            cache = {"run_record": run, "turns": []}
+            bm.compute_run_metrics(cache)
+            return cache["metrics"]
+        m = run_with(None)
+        self.assertEqual(m["session_cache_creation_tokens"], 900.0)
+        self.assertIsNone(m["orchestrator_cache_creation_tokens"])  # gated: usage not complete
+        self.assertEqual(run_with("complete")["orchestrator_cache_creation_tokens"], 300.0)
+
     def test_metric_registry_shape(self):
         names = [m.name for m in bm.METRICS]
         self.assertEqual(names, ["interventions", "answers", "corrections",
                                  "brainstorm_interactions", "autonomous_interventions",
-                                 "fix_cycles", "review_pass_first_try",
+                                 "fix_cycles", "review_pass_first_try", "review_pass_first_try_hard",
                                  "duration_min", "orchestrator_output_tokens", "compactions",
-                                 "cache_creation_tokens",
+                                 "session_cache_creation_tokens", "orchestrator_cache_creation_tokens",
                                  "questions_per_run", "brainstorm_questions",
                                  "recommended_followed_share", "decide_for_me_share",
                                  "inherited_share",

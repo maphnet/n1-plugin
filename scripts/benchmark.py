@@ -645,11 +645,21 @@ class CompactionsMetric(Metric):
 
 
 class CacheCreationTokensMetric(Metric):
-    name, unit, direction = "cache_creation_tokens", "tokens", "lower"
+    """Cache creation tokens of the whole session tree (orchestrator plus every agent)."""
+    name, unit, direction = "session_cache_creation_tokens", "tokens", "lower"
 
     def compute(self, run_record, turns):
         val = (run_record.get("summary") or {}).get("total_cache_creation_tokens")
         return float(val) if isinstance(val, (int, float)) else None
+
+
+class OrchestratorCacheCreationMetric(Metric):
+    """Orchestrator-only cache creation tokens (N1-483); None unless usage is comparable."""
+    name, unit, direction = "orchestrator_cache_creation_tokens", "tokens", "lower"
+
+    def compute(self, run_record, turns):
+        v = run_record.get("_orch_cache_creation")
+        return float(v) if isinstance(v, (int, float)) else None
 
 
 class QuestionMetric(Metric):
@@ -759,11 +769,13 @@ METRICS = [
                     exclude_steps={"outside"} | INTERACTIVE_STEPS),
     OutcomeMetric("fix_cycles", "fix_cycles_count", "count", "lower"),
     OutcomeMetric("review_pass_first_try", "review_pass_first_try", "ratio", "higher", boolean=True),
+    OutcomeMetric("review_pass_first_try_hard", "review_pass_first_try_hard", "ratio", "higher", boolean=True),
     DurationMetric(),
     OrchestratorTokensMetric(),
     CompactionsMetric(),
     CacheCreationTokensMetric(),
-    QuestionMetric("questions_per_run"),
+    OrchestratorCacheCreationMetric(),
+    QuestionMetric("questions_per_run", only_resolutions={"asked"}),
     QuestionMetric("brainstorm_questions", only_steps={"brainstorm"}),
     QuestionShareMetric("recommended_followed_share", "auto-decided"),
     QuestionShareMetric("decide_for_me_share", "decide-for-me"),
@@ -799,6 +811,7 @@ def compute_run_metrics(cache: dict) -> None:
     # complete session usage. Keep those records, but do not benchmark totals.
     comparable = (run_record.get("parser_schema_version") or 0) >= 5 and run_record.get("usage_status") == "complete"
     run_record["_total_input_tokens"] = (run_record.get("summary") or {}).get("total_input_tokens") if comparable else None
+    run_record["_orch_cache_creation"] = totals.get("cache_creation_tokens") if comparable else None
     if comparable and run_record.get('host') == 'claude-code' and totals:
         values = [totals.get(k) for k in ('input_tokens', 'cache_read_tokens', 'cache_creation_tokens')]
         run_record['_orch_input_tokens'] = sum(values) if all(v is not None for v in values) else None
