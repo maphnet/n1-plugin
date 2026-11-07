@@ -615,7 +615,7 @@ class ApplyLabelsTest(unittest.TestCase):
         self.assertEqual(cache["turns"][0]["reason"], "user said wrong file")
 
 
-def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01T10:00:00Z", link="heuristic", host="unknown"):
+def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01T10:00:00Z", link="heuristic", host="claude-code"):
     return {"run_id": run_id, "n1_version": version, "host": host, "eligible": eligible, "started_at": started,
             "link_method": link if eligible else "skipped", "project": "p", "ticket_id": "T",
             "metrics": {"interventions": interventions, "answers": interventions, "corrections": 0.0,
@@ -633,7 +633,7 @@ class AggregateTest(unittest.TestCase):
     def test_group_keys(self):
         self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="claude-code"), "version"), "claude-code/2.80.0")
         self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="codex"), "version"), "codex/2.80.0")
-        self.assertEqual(bm.group_key(cache_for("", "a", 1), "version"), "unknown/unknown")
+        self.assertEqual(bm.group_key(cache_for("", "a", 1), "version"), "legacy")
         self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="claude-code"), "week"), "claude-code/2026-W36")
 
     def test_group_keys_unknown_host_partitioned_separately(self):
@@ -641,9 +641,9 @@ class AggregateTest(unittest.TestCase):
         caches += [cache_for("2.80.0", "u1", 1.0, host="unknown")]
         agg = bm.aggregate(caches, "version")
         self.assertIn("claude-code/2.80.0", agg)
-        self.assertIn("unknown/2.80.0", agg)
+        self.assertIn("legacy", agg)
         self.assertEqual(agg["claude-code/2.80.0"]["n_runs"], 5)
-        self.assertEqual(agg["unknown/2.80.0"]["n_runs"], 1)
+        self.assertEqual(agg["legacy"]["n_runs"], 1)
 
     def test_sorted_groups_no_cross_host_bleeding(self):
         """claude-code keys sort before codex keys; unknown appended last."""
@@ -669,14 +669,14 @@ class AggregateTest(unittest.TestCase):
         caches += [cache_for("2.80.0", "x", None, eligible=False)]
         caches += [cache_for("2.81.0", "b1", 3.0), cache_for("2.81.0", "b2", None, link="unlinked")]
         agg = bm.aggregate(caches, "version")
-        g = agg["unknown/2.80.0"]
+        g = agg["claude-code/2.80.0"]
         self.assertEqual((g["n_runs"], g["n_all"], g["sufficient"]), (5, 6, True))
         self.assertEqual(g["metrics"]["interventions"]["n"], 5)
         self.assertEqual(g["metrics"]["interventions"]["mean"], 2.0)
         self.assertEqual(g["metrics"]["interventions"]["median"], 2.0)
         self.assertIsNone(g["metrics"]["orchestrator_output_tokens"])
         self.assertAlmostEqual(g["abandon_rate"], 1 / 6)
-        h = agg["unknown/2.81.0"]
+        h = agg["claude-code/2.81.0"]
         self.assertFalse(h["sufficient"])
         self.assertEqual(h["metrics"]["interventions"]["n"], 1)
 
@@ -719,7 +719,7 @@ class AggregateTest(unittest.TestCase):
         unrelated_incomplete = cache_for("3.1.0", "no-pr", None, eligible=False)
 
         review = bm.aggregate([completed_without_decision, completed_legacy, incomplete_with_pr,
-                               failed_review, timed_out_review, unrelated_incomplete], "version")["unknown/3.1.0"]["codex_review"]
+                               failed_review, timed_out_review, unrelated_incomplete], "version")["claude-code/3.1.0"]["codex_review"]
 
         self.assertEqual(review["pr_runs"], 5)
         self.assertEqual(review["prs"], 5)
@@ -727,6 +727,32 @@ class AggregateTest(unittest.TestCase):
         self.assertEqual(review["reviewed_prs"], 1)
         self.assertAlmostEqual(review["coverage_rate"], 1 / 5, places=3)
         self.assertEqual(review["outcomes"], {"ran": 1, "skipped": 1, "failed": 1, "timeout": 1, "missing": 1})
+
+
+class LegacyPartitionTest(unittest.TestCase):
+    def test_unknown_host_version_or_timestamp_is_legacy(self):
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="unknown"), "version"), "legacy")
+        self.assertEqual(bm.group_key(cache_for("unknown", "a", 1), "version"), "legacy")
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, started=None), "week"), "legacy")
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1), "week"), "claude-code/2026-W36")
+
+    def test_is_legacy_key_tolerates_old_snapshot_keys(self):
+        for k in ("legacy", "unknown/unknown", "unknown/3.28.4", "claude-code/unknown", "unknown"):
+            self.assertTrue(bm.is_legacy_key(k), k)
+        self.assertFalse(bm.is_legacy_key("claude-code/5.20.0"))
+
+    def test_latest_sufficient_skips_legacy_and_old_unknown_keys(self):
+        snap = snap_with({"claude-code/5.20.0": group(2, 1, 3), "unknown/3.28.4": group(1, 0, 2),
+                          "unknown/unknown": group(1, 0, 2, n=86), "legacy": group(1, 0, 2)})
+        self.assertEqual(bm.latest_sufficient(snap), "claude-code/5.20.0")
+        self.assertEqual(bm._sufficient_groups(snap), ["claude-code/5.20.0"])
+        keys = bm._sorted_groups(snap)
+        self.assertEqual(keys[0], "claude-code/5.20.0")
+        self.assertTrue(all(bm.is_legacy_key(k) for k in keys[1:]))
+
+    def test_merged_labels_sort_by_first_version(self):
+        snap = snap_with({"claude-code/5.10.0-5.12.0": group(1, 0, 2), "claude-code/5.9.0": group(1, 0, 2)})
+        self.assertEqual(bm._sorted_groups(snap), ["claude-code/5.9.0", "claude-code/5.10.0-5.12.0"])
 
 
 class FinalizeTest(unittest.TestCase):

@@ -851,16 +851,29 @@ def version_key(v: str):
     return (1 if parts and parts[0][0] == 1 else 0, parts)
 
 
+LEGACY = "legacy"
+
+
 def group_key(cache: dict, by: str) -> str:
+    """host/version or host/ISO-week; LEGACY when host, version (version mode) or start time (week mode) is unknown."""
     host = cache.get("host") or "unknown"
+    if host == "unknown":
+        return LEGACY
     if by == "week":
         ts = parse_ts(cache.get("started_at"))
         if ts is None:
-            return f"{host}/unknown"
+            return LEGACY
         iso = dt.datetime.fromtimestamp(ts, dt.timezone.utc).isocalendar()
         return f"{host}/{iso[0]}-W{iso[1]:02d}"
     version = cache.get("n1_version") or "unknown"
+    if version == "unknown":
+        return LEGACY
     return f"{host}/{version}"
+
+
+def is_legacy_key(key: str) -> bool:
+    """LEGACY, or a pre-N1-482 key with an unknown part (unknown/unknown, unknown/3.28.4, claude-code/unknown)."""
+    return key == LEGACY or "unknown" in key.split("/")
 
 
 def bootstrap_ci(values, seed=0, n=1000, alpha=0.05):
@@ -1090,28 +1103,29 @@ def delta(cur: dict, ref: dict) -> dict:
 
 
 def _group_sort_key(key: str, by: str):
-    """Sort key for a partition string of the form 'host/version-or-week'."""
+    """Sort key for 'host/version', 'host/first-last' (merged) or 'host/week'."""
     host, _, rest = key.partition("/")
     if by == "week":
         return (host, rest)
-    return (host, version_key(rest))
+    return (host, version_key(rest.split("-", 1)[0]))
 
 
-def _sorted_groups(snapshot: dict):
-    keys = list(snapshot["groups"])
+def _sorted_groups(snapshot: dict, groups=None):
+    groups = snapshot["groups"] if groups is None else groups
     by = snapshot.get("by", "version")
-    unknown_keys = [k for k in keys if k.endswith("/unknown") or k == "unknown"]
-    known_keys = [k for k in keys if k not in unknown_keys]
-    return sorted(known_keys, key=lambda k: _group_sort_key(k, by)) + sorted(unknown_keys)
+    legacy = sorted(k for k in groups if is_legacy_key(k))
+    known = [k for k in groups if not is_legacy_key(k)]
+    return sorted(known, key=lambda k: _group_sort_key(k, by)) + legacy
 
 
-def _sufficient_groups(snapshot: dict):
-    return [k for k in _sorted_groups(snapshot) if snapshot["groups"][k]["sufficient"]]
+def _sufficient_groups(snapshot: dict, groups=None):
+    groups = snapshot["groups"] if groups is None else groups
+    return [k for k in _sorted_groups(snapshot, groups) if groups[k]["sufficient"] and not is_legacy_key(k)]
 
 
-def latest_sufficient(snapshot: dict):
-    groups = _sufficient_groups(snapshot)
-    return groups[-1] if groups else None
+def latest_sufficient(snapshot: dict, groups=None):
+    keys = _sufficient_groups(snapshot, groups)
+    return keys[-1] if keys else None
 
 
 def pick_baseline_group(snapshot: dict, baseline):
@@ -1198,11 +1212,11 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
             prev_key_by_host[host_part] = key
     lines.append("")
     lines.append("Cells: mean [95% bootstrap CI] (n). Deltas compare against the previous sufficient partition of the same host.")
-    # Note unknown partitions
-    unknown_keys = [k for k in _sorted_groups(snapshot) if k.endswith("/unknown") or k == "unknown"]
-    if unknown_keys:
-        total_unknown = sum(g[k]["n_all"] for k in unknown_keys)
-        lines.append(f"Note: {total_unknown} run(s) in unknown-host or unknown-version partitions: {', '.join(unknown_keys)}.")
+    legacy_keys = [k for k in _sorted_groups(snapshot) if is_legacy_key(k)]
+    if legacy_keys:
+        total_legacy = sum(g[k]["n_all"] for k in legacy_keys)
+        lines.append(f"Note: {total_legacy} run(s) in the legacy partition (unknown host or version): "
+                     f"{', '.join(legacy_keys)}; excluded from headline and baseline.")
     lines.append("")
 
     lines += ["## Codex review coverage", "",
