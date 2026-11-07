@@ -559,6 +559,7 @@ def _worker_sink(masked: str) -> int:
     in_n1 = _IN_N1_RE.search(masked) is not None
     whole_del = in_n1 and _DELETES_RE.search(masked) is not None
     whole_prog = _PROGRAM_TEXT_RE.search(masked) is not None
+    glob_word = None  # lazy: one whole-command scan at most
     parts = _SEP_KEEP_RE.split(masked)
     pend, prev_empty, prev_sep = False, True, ""
     for i in range(0, len(parts), 2):
@@ -584,14 +585,17 @@ def _worker_sink(masked: str) -> int:
         heredoc = "<<" in stage or "<(" in stage
         if cw == "case" or ">(" in stage or (cw == "eval" and re.search(r"[$`\x01]", stage)):
             res = 1
-        if names & _SHELLS and (piped or heredoc):
-            res = 1
+        if names & _SHELLS and (piped or heredoc or re.search(r"\s-\w*c\b", stage)):
+            res = 1  # `bash -c '...'`: the quoted payload is code whose own pipes are masked here
         if "find" in names and re.search(r"\s-(?:exec|execdir|ok|okdir)\b", stage):
             res = 1
         if "git" in names and any(w.lstrip("'\"").startswith("alias.") and w.partition("=")[2].lstrip("'\"").startswith("!") for w in words[k:]):
             res = 1
-        if "xargs" in names and names & _POINTER_MUTATORS and (in_n1 or _glob_word(masked)):
-            return 2
+        if "xargs" in names and names & _POINTER_MUTATORS:
+            if glob_word is None:
+                glob_word = _glob_word(masked)
+            if in_n1 or glob_word:
+                return 2
         if names & _INTERPS or any(c.startswith("python") for c in names):
             hd = "<<" in stage  # code from a heredoc sits on later lines: look at the whole command
             if whole_del if hd else (_IN_N1_RE.search(stage) and _DELETES_RE.search(stage)):

@@ -163,6 +163,8 @@ PY"; do
         eq "fc2: $w denies pointer tamper: $c" 2 "$(polx $w Bash "$c")"
     done
     eq "fc2: $w rm of a plain file allowed" 0 "$(polx $w Bash 'rm -f /tmp/x.tmp')"
+    eq "fc2: $w nested bash -c pipeline merge denied" 2 "$(polx $w Bash "bash -c 'echo \"gh pr merge 7\" | bash'")"
+    eq "fc2: $w repeated xargs rm stages allowed" 0 "$(polx $w Bash 'xargs rm /tmp/x.tmp; xargs rm /tmp/x.tmp; xargs rm /tmp/y.tmp')"
     eq "fc2: $w commit text with arrow and | bash allowed" 0 "$(polx $w Bash 'git commit -m "docs: pointer -> active-run is read-only; a | bash b"')"
 done
 eq "fc2: pr-worker xargs rm of unrelated files allowed" 0 "$(polx n1:pr-worker Bash 'ls /tmp/x* | xargs rm')"
