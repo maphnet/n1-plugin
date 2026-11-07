@@ -2357,6 +2357,83 @@ EOF
         "$(awk '/^n1_queue_reconcile "\$QUEUE" force/ { r = NR } /^ev queue_done/ { d = NR } END { print (r && d && r < d) ? "yes" : "no" }' "$REPO_ROOT/scripts/n1-queue-run.sh")"
 }
 
+# N1-481: --close verifies every row is settled, then removes worktrees, identity files and the queue dir.
+test_queue_close() {
+    local tmp h q out rc t; source "$REPO_ROOT/lib/orca-queue.sh"   # before the RETURN trap: sourcing fires it
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+    h="$tmp/h"; mkdir -p "$tmp/bin" "$h/queue/sentinels" "$h/queue/sessions" "$tmp/.n1/orca-home"
+    printf '#!/bin/sh\ncase "$*" in *pull/1*|*pull/9*) echo MERGED ;; *pull/2*) echo CLOSED ;; *pull/3*) echo OPEN ;; esac\n' > "$tmp/bin/gh"
+    chmod +x "$tmp/bin/gh"
+    _mkq() { # <id> <step> <T-3 status> — T-1's PR merged (by hand), T-2's closed, T-3's open
+        q="$tmp/queue/$1/queue.md"; mkdir -p "${q%/*}"
+        cat > "$q" <<EOF
+---
+queue_id: $1
+run_id: R1
+step: $2
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | $tmp/norepo | $h | sonnet | pr | |
+| 2 | T-2 | B | $tmp/norepo | $h | sonnet | pr | |
+| 3 | T-3 | C | $tmp/norepo | $h | sonnet | $3 | |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+| T-1 | s | 0 | pr | https://github.com/o/r/pull/1 | |
+| T-2 | s | 0 | pr | https://github.com/o/r/pull/2 | |
+| T-3 | s | 0 | pr | https://github.com/o/r/pull/3 | |
+EOF
+        : > "${q%/*}/events.jsonl"
+    }
+    _ids() { for t in T-1 T-2 T-3; do
+        : > "$h/queue/sentinels/$t.env"; : > "$h/queue/sentinels/$t.sent"; : > "$h/queue/sentinels/$t.beacon"
+        : > "$h/queue/sessions/$t.sid"; printf '%s\n' "$h" > "$tmp/.n1/orca-home/$t"; done; }
+    _left() { ls -A "$h/queue/sentinels" "$h/queue/sessions" "$tmp/.n1/orca-home" | grep -c '^T-' || true; }
+    _has() { grep -qF -- "$1" <<< "$out" && echo yes || echo no; }
+    _qd() { [ -e "${q%/*}" ] && echo yes || echo no; }
+    _close() { rc=0; out=$(HOME="$tmp" PATH="$tmp/bin:$PATH" n1_queue_close "$q" "$@" 2>&1) || rc=$?; }
+
+    # AC2: a pr row whose PR is still open refuses; nothing is removed and the row is listed.
+    _mkq q2 done pr; _ids; _close
+    assert_eq "close: open PR refused and listed" "1|yes" "$rc|$(_has 'T-3: PR OPEN https://github.com/o/r/pull/3')"
+    assert_eq "close: refusal removes nothing" "yes|15" "$(_qd)|$(_left)"
+    _mkq q2b done pending; _close
+    assert_eq "close: never-started row on a finished queue refused" "1|yes|yes" "$rc|$(_has 'T-3: pending')|$(_qd)"
+
+    # AC3: a live runner refuses.
+    _mkq q3 done failed; start_fake_runner "$REPO_ROOT" "$q"; n1_write_frontmatter "$q" pid "$FAKE_RUNNER_PID"
+    _close
+    assert_eq "close: live runner refused" "1|yes|yes|15" "$rc|$(_has 'is running')|$(_qd)|$(_left)"
+    stop_fake_runner
+
+    # AC1: runner gone, rows merged (by hand, reconciled) / closed / failed: closes and reports what it removed.
+    _close
+    assert_eq "close: settled queue closed" "0|no|0" "$rc|$(_qd)|$(_left)"
+    assert_eq "close: prints what it removed" "yes|yes|yes" \
+        "$(_has "closed queue q3: removed $tmp/queue/q3")|$(_has 'identity files: T-1 T-2 T-3')|$(_has 'worktrees: T-1 cleanup:skipped (no-repo)')"
+
+    # AC4: dead step: run queue asks first (rc 2, nothing removed); abandon removes the same files as AC1.
+    _mkq q4 run pending; _ids; _close
+    assert_eq "close: dead mid-run queue asks first" "2|yes|yes|15" "$rc|$(_has 'interrupted:')|$(_qd)|$(_left)"
+    _close abandon
+    assert_eq "close: abandon removes the same files" "0|no|0" "$rc|$(_qd)|$(_left)"
+    _mkq q4b run pr; _ids; _close abandon
+    assert_eq "close: abandon never waives an open PR" "1|yes|15" "$rc|$(_qd)|$(_left)"
+
+    # Integration queue: the final PR must be recorded and merged.
+    _mkq q5 done failed; n1_write_frontmatter "$q" integration queue; _close
+    assert_eq "close: integration queue without a final PR refused" "1|yes|yes" "$rc|$(_has 'final PR: none recorded')|$(_qd)"
+    printf '\n## Final PRs\n| Repo | PR | Draft | Mergeable | Note |\n|---|---|---|---|---|\n| %s | https://github.com/o/r/pull/9 | no | yes | |\n' \
+        "$tmp/norepo" >> "$q"
+    n1_queue_event "${q%/*}/events.jsonl" q5 R1 final_pr_opened pr=https://github.com/o/r/pull/9
+    _close
+    assert_eq "close: integration queue with a merged final PR closed" "0|no" "$rc|$(_qd)"
+}
+
+
 # N1-298: --story <Epic> expands each child into its Sub-tasks; --story <Story> is unchanged.
 test_story_epic_wiring() {
     local s="$REPO_ROOT/skills/n1-queue/steps"
@@ -2409,6 +2486,7 @@ test_story_branch_wiring
 test_row_status
 test_queue_retry
 test_queue_reconcile_force
+test_queue_close
 test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale

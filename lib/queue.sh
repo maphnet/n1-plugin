@@ -1557,6 +1557,67 @@ n1_queue_retry() {
     echo "Retry queued: /n1:n1-queue --run $(n1_read_frontmatter "$q" queue_id)"
 }
 
+n1_queue_close() {
+    # Usage: n1_queue_close <queue.md> [abandon] — N1-481 (n1-queue --close). Refuses (rc 1, nothing removed) while the
+    # runner is alive, a row is in-progress/awaiting-human/escalated, a pr row's PR is neither MERGED nor CLOSED (an
+    # unreadable state counts as open), an integration queue's final PR is not merged, or a pending/held/deferred row is
+    # left. A dead step: run queue returns rc 2 (nothing removed) unless `abandon` is given; abandon waives only
+    # pending/held/deferred rows. Reconciles first, so a PR merged by hand counts. Then removes, in order: each merged
+    # row's worktree (n1_clean_ticket <T> queue in the row's Repo and N1 Home, queue-event env unset; a skip is
+    # reported, never fatal), every row's Orca identity and session pointers, the queue dir. No archive. Prints what it removed.
+    local q="$1" mode="${2:-}" dir id num t repo n1h model st url ps fp note hard="" soft="" ids="" wts="" line
+    [ -n "$q" ] && [ -f "$q" ] || { echo "No queue runs found."; return 1; }
+    dir=$(dirname -- "$q"); id=${dir##*/}
+    { [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [ ! -L "$dir" ] && [ "$(basename -- "${dir%/*}")" = queue ]; } \
+        || { echo "n1-queue: invalid queue dir: $dir"; return 1; }   # the rm -rf below only ever targets <home>/queue/<id>
+    if n1_queue_runner_alive "$(n1_read_frontmatter "$q" pid)" "$q"; then
+        echo "close refused: queue $id is running; nothing removed (let it end, or --stop it first)"; return 1
+    fi
+    declare -F n1_orca_sentinel_rm >/dev/null || source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/orca-queue.sh" || return 1
+    n1_queue_reconcile "$q"
+    while IFS=$'\t' read -r -u 3 num t repo n1h model st; do
+        case "$st" in
+            in-progress|awaiting-human|escalated) hard+="$t: $st"$'\n' ;;
+            pending|held|deferred) soft+="$t: $st"$'\n' ;;
+            pr) [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ] && continue
+                url=$(n1_queue_attested_pr "$q" "$t" "$n1h"); ps=$(n1_queue_pr_state "$url")
+                case "$ps" in MERGED|CLOSED) ;; *) hard+="$t: PR ${ps:-unreadable} ${url:-(no PR)}"$'\n' ;; esac ;;
+        esac
+    done 3< <(n1_queue_pending_rows "$q" '.*')
+    if [ "$(n1_read_frontmatter "$q" mode)" = story ] || [ "$(n1_read_frontmatter "$q" integration)" = queue ]; then
+        fp=$(n1_queue_final_prs "$q" "$dir/events.jsonl" "$(n1_read_frontmatter "$q" run_id)")
+        if [ -z "$fp" ]; then hard+="final PR: none recorded"$'\n'
+        else
+            while IFS=$'\t' read -r repo url _ _ note; do
+                if [ "$url" = - ]; then
+                    case "$note" in *no-merged-children*) ;; *) hard+="final PR ($repo): not opened"$'\n' ;; esac
+                else
+                    ps=$(n1_queue_pr_state "$url"); [ "$ps" = MERGED ] || hard+="final PR ($repo): ${ps:-unreadable} $url"$'\n'
+                fi
+            done <<< "$fp"
+        fi
+    fi
+    if [ -n "$hard" ]; then printf 'close refused: queue %s is not settled; nothing removed:\n%s' "$id" "$hard$soft"; return 1; fi
+    if [ "$mode" != abandon ]; then
+        if [ "$(n1_read_frontmatter "$q" step)" = run ]; then
+            printf 'interrupted: queue %s stopped mid-run (runner gone); nothing removed. Unfinished rows:\n%s' "$id" "$soft"; return 2
+        fi
+        [ -z "$soft" ] || { printf 'close refused: queue %s is not settled; nothing removed:\n%s' "$id" "$soft"; return 1; }
+    fi
+    while IFS=$'\t' read -r -u 3 num t repo n1h model st; do
+        [[ "$t" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || continue   # queue.md is child-writable: no path or glob characters reach the rm calls
+        if [ "$(_n1_queue_run_outcome "$q" "$t")" = merged ]; then
+            line=$({ [ -n "$repo" ] && cd -- "$repo" 2>/dev/null; } || { echo "cleanup:skipped (no-repo)"; exit 0; }
+                unset N1_QUEUE_DIR N1_QUEUE_RUN_ID N1_RUN_ID; [ -z "$n1h" ] || export N1_HOME="$n1h"
+                n1_clean_ticket "$t" queue </dev/null 2>&1)
+            wts+="${wts:+; }$t ${line//$'\n'/, }"
+        fi
+        [ -z "$n1h" ] || { n1_orca_sentinel_rm "$n1h" "$t"; ids+="${ids:+ }$t"; }
+    done 3< <(n1_queue_pending_rows "$q" '.*')
+    rm -rf -- "$dir" || { echo "n1-queue: could not remove $dir"; return 1; }
+    printf 'closed queue %s: removed %s\nidentity files: %s\nworktrees: %s\n' "$id" "$dir" "${ids:-none}" "${wts:-none}"
+}
+
 n1_queue_claim() {
     # Usage: n1_queue_claim <queue-dir> — N1-226: take the unattended-run claim <queue-dir>/.unattended-claim
     # (mkdir is atomic). Non-zero while another trigger holds a claim under 15 minutes old; an older claim is
