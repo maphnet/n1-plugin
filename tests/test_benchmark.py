@@ -1022,11 +1022,51 @@ class ReportTest(unittest.TestCase):
         self.assertNotIn("better", table_rows[0])
         self.assertNotIn("worse", table_rows[0])
 
-    def test_cmd_report_writes_file(self):
+    def test_cmd_report_writes_summary_and_full(self):
         d = TempDirs()
-        bm.write_snapshot(d.out, snap_with({"2.80.0": group(2, 1, 3)}))
-        self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
-        self.assertTrue((d.out / "reports" / "20260905T000000Z.md").is_file())
+        snap = snap_with({"claude-code/2.80.0": group(2, 1, 3)})
+        snap["merged"] = {"claude-code/2.80.0": {**group(2, 1, 3), "versions": ["claude-code/2.80.0"]}}
+        bm.write_snapshot(d.out, snap)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
+        full = d.out / "reports" / "20260905T000000Z.full.md"
+        self.assertTrue(full.is_file())
+        self.assertIn("Per-partition metrics", full.read_text())
+        summary = (d.out / "reports" / "20260905T000000Z.md").read_text()
+        self.assertEqual(buf.getvalue(), summary)
+        self.assertIn(f"full report: {full}", summary)
+        self.assertNotIn("Per-partition metrics", summary)
+
+    def test_summary_is_short_on_large_snapshot(self):
+        groups = {f"claude-code/5.{i}.0": group(2, 1, 3, sufficient=i % 2 == 0, n=5 if i % 2 == 0 else 2)
+                  for i in range(60)}
+        groups["legacy"] = group(1, 0, 2, n=86)
+        snap = snap_with(groups)
+        cells = {f"{t}/{p}": stat(1.0, 0.5, 1.5, n=6)
+                 for t in ("simple", "standard", "complex", "unknown") for p in ("plan", "direct", "none")}
+        cells["simple/plan"] = stat(1.0, 0.5, 1.5, n=2)
+        snap["merged"] = {f"claude-code/5.{i}.0-5.{i + 1}.0": {**group(2 + i / 100, 1, 3), "cells": cells,
+                                                              "n_inferred": 1, "versions": []}
+                          for i in range(0, 60, 2)}
+        snap["unlinked"] = [{"run_id": f"u{i}", "project": "", "ticket_id": "T", "reason": "no project"}
+                            for i in range(81)]
+        snap["unlinked_causes"] = {"no project": 40, "no timestamps": 15, "no transcript matched": 26}
+        text = bm.render_summary(snap, "claude-code/5.0.0-5.1.0", "pinned", "/x/full.md")
+        lines = text.splitlines()
+        self.assertLess(len(lines), 80)
+        self.assertIn("claude-code/5.58.0-5.59.0 vs baseline claude-code/5.0.0-5.1.0", lines[2])
+        self.assertNotIn("legacy", lines[2])
+        self.assertIn("no project 40", text)
+        self.assertIn("legacy partition (unknown host or version): 86", text)
+        self.assertIn("insufficient (n<5 on a side): 1", text)
+        self.assertEqual(lines[-1], "full report: /x/full.md")
+
+    def test_summary_tolerates_old_snapshot(self):
+        snap = snap_with({"unknown/unknown": group(1, 0, 2, n=86), "claude-code/5.20.0": group(2, 1, 3)})
+        text = bm.render_summary(snap, None, "no baseline pinned", "/x/full.md")
+        self.assertIn("re-run finalize", text)
+        self.assertIn("legacy partition (unknown host or version): 86", text)
 
     def test_cmd_report_without_snapshots(self):
         d = TempDirs()
@@ -1063,6 +1103,13 @@ class SkillInvocationTest(unittest.TestCase):
         except SystemExit as e:
             self.fail(f"SKILL.md collect invocation rejected by argparse (exit {e.code}): {line}")
         self.assertEqual(args.cmd, "collect")
+
+    def test_skill_finalize_passes_judge_model(self):
+        skill = (REPO / ".claude" / "skills" / "n1-benchmark" / "SKILL.md").read_text(encoding="utf-8")
+        line = next(l for l in skill.splitlines() if '"$SCRIPT" finalize' in l)
+        rest = line.split('"$SCRIPT"', 1)[1].replace("[", "").replace("]", "")
+        args = bm.build_parser().parse_args(shlex.split(rest))
+        self.assertEqual(args.judge_model, "haiku")
 
 
 if __name__ == "__main__":

@@ -1413,6 +1413,98 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     return "\n".join(lines) + "\n"
 
 
+SUMMARY_TABLE_ROWS = 8
+SUMMARY_CELL_ROWS = 12
+
+
+def _fmt_pct(v):
+    return f"{v:.0%}" if v is not None else "n/a"
+
+
+def _mean_vs(cur, ref, direction="lower"):
+    if not cur:
+        return "n/a"
+    if not ref:
+        return f"{cur['mean']:g}"
+    return f"{cur['mean']:g}, {_fmt_delta(delta(cur, ref), direction)}"  # _fmt_delta already ends in "(better ...)"
+
+
+def _n(stat_or_none):
+    return stat_or_none["n"] if stat_or_none else 0
+
+
+def render_summary(snapshot, baseline_group, baseline_note, full_path) -> str:
+    """Printed report (N1-482): headline, data quality, sufficient partitions, tier/plan cells."""
+    g = snapshot["groups"]
+    hg = headline_groups(snapshot)
+    latest = latest_sufficient(snapshot, hg) if hg else None
+    compare = bool(latest and baseline_group in hg and latest != baseline_group)
+    lines = [f"# N1 Benchmark summary — snapshot {snapshot['snapshot_id']}", ""]
+    if not hg:
+        lines.append("Headline unavailable: this snapshot has no merged partitions; re-run finalize.")
+    elif compare:
+        cur, ref = hg[latest]["metrics"].get("interventions"), hg[baseline_group]["metrics"].get("interventions")
+        lines.append(f"**{latest} vs baseline {baseline_group}** ({baseline_note}): interventions {_mean_vs(cur, ref)}.")
+    elif latest:
+        lines.append(f"**{latest}** is the only sufficient partition ({baseline_note}); no comparison.")
+    else:
+        lines.append("No partition has a sufficient sample yet; trends are not computed.")
+    lines.append("")
+
+    real = [v for k, v in g.items() if not is_legacy_key(k)]
+    legacy_n = sum(v["n_all"] for k, v in g.items() if is_legacy_key(k))
+    causes = snapshot.get("unlinked_causes") or {}
+    lines += ["## Data quality", "",
+              f"- eligible runs: {sum(v['n_runs'] for v in real)} "
+              f"({sum(v.get('n_inferred', 0) for v in real)} with inferred outcome)",
+              f"- unlinked: {len(snapshot.get('unlinked') or [])} "
+              f"({', '.join(f'{k} {n}' for k, n in sorted(causes.items())) or 'causes n/a'})",
+              f"- legacy partition (unknown host or version): {legacy_n} run(s), excluded from headline and baseline"]
+    if latest:
+        review = hg[latest].get("codex_review") or {}
+        lines.append(f"- {latest}: quality_cov {_fmt_pct(hg[latest].get('quality_coverage'))}, "
+                     f"Codex reviewed {review.get('reviewed_prs', 0)}/{review.get('prs', 0)} PRs")
+    lines += [f"- judge {snapshot.get('judge_model') or 'none (no turns judged)'}, "
+              f"fallbacks {snapshot.get('judge_fallbacks', 0)}", ""]
+
+    suff = _sufficient_groups(snapshot, hg) if hg else []
+    shown = set(suff[-SUMMARY_TABLE_ROWS:])
+    lines += ["## Sufficient partitions (newest last; deltas vs previous partition of the same host)", "",
+              "| partition | runs | interventions | corrections | quality_cov | abandon_rate |",
+              "|---|---|---|---|---|---|"]
+    prev = {}
+    for k in suff:
+        host = k.partition("/")[0]
+        p, grp = prev.get(host), hg[k]
+        if k in shown:
+            row = [k, f"{grp['n_runs']}/{grp['n_all']}"]
+            for m in ("interventions", "corrections"):
+                row.append(_mean_vs(grp["metrics"].get(m), hg[p]["metrics"].get(m) if p else None))
+            row += [_fmt_pct(grp.get("quality_coverage")), _fmt_pct(grp.get("abandon_rate"))]
+            lines.append("| " + " | ".join(row) + " |")
+        prev[host] = k
+    if not suff:
+        lines.append("| none | | | | | |")
+    elif len(suff) > len(shown):
+        lines.append(f"{len(suff) - len(shown)} older partition(s) are in the full report.")
+    lines.append("")
+
+    if compare:
+        cur_cells, ref_cells = hg[latest].get("cells") or {}, hg[baseline_group].get("cells") or {}
+        keys = sorted(set(cur_cells) | set(ref_cells))
+        both = [k for k in keys if _n(cur_cells.get(k)) >= MIN_SAMPLE and _n(ref_cells.get(k)) >= MIN_SAMPLE]
+        lines += [f"## Interventions by tier/plan path: {latest} vs {baseline_group}", "",
+                  "| tier/plan | baseline | latest |", "|---|---|---|"]
+        for k in both[:SUMMARY_CELL_ROWS]:
+            lines.append(f"| {k} | {ref_cells[k]['mean']:g} (n={ref_cells[k]['n']}) | "
+                         f"{_mean_vs(cur_cells[k], ref_cells[k])} (n={cur_cells[k]['n']}) |")
+        if not both:
+            lines.append("| none with n>=5 on both sides | | |")
+        lines += [f"insufficient (n<5 on a side): {len(keys) - len(both)}", ""]
+    lines.append(f"full report: {full_path}")
+    return "\n".join(lines) + "\n"
+
+
 def cmd_report(args) -> int:
     out = Path(args.out)
     snaps = [s for s in load_snapshots(out) if s.get("by", "version") == args.by]
@@ -1429,12 +1521,13 @@ def cmd_report(args) -> int:
     snapshot = snaps[idx]
     previous = snaps[idx - 1] if idx > 0 else None
     baseline_group, note = pick_baseline_group(snapshot, load_baseline(out))
-    text = render_report(snapshot, previous, baseline_group, note, load_cache(out))
-    rp = out / "reports" / f"{snapshot['snapshot_id']}.md"
-    rp.parent.mkdir(parents=True, exist_ok=True)
-    rp.write_text(text, encoding="utf-8")
-    print(text)
-    print(f"report saved: {rp}")
+    rdir = out / "reports"
+    rdir.mkdir(parents=True, exist_ok=True)
+    full_path = rdir / f"{snapshot['snapshot_id']}.full.md"
+    full_path.write_text(render_report(snapshot, previous, baseline_group, note, load_cache(out)), encoding="utf-8")
+    summary = render_summary(snapshot, baseline_group, note, full_path)
+    (rdir / f"{snapshot['snapshot_id']}.md").write_text(summary, encoding="utf-8")
+    print(summary, end="")
     return 0
 
 
