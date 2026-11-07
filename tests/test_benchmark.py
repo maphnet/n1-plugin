@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -28,9 +29,10 @@ _UNSET = object()
 
 def make_run(run_id="n1-run-1", version="2.80.0", project="proj", ticket="T-1",
              started="2026-09-01T10:00:00Z", completed=_UNSET,
-             outcome="pr_created", steps=_UNSET, outcomes=_UNSET, summary=_UNSET, orchestrator=_UNSET):
+             outcome="pr_created", steps=_UNSET, outcomes=_UNSET, summary=_UNSET, orchestrator=_UNSET,
+             host="claude-code"):
     return {
-        "schema_version": 2, "parser_schema_version": 6, "run_id": run_id, "session_id": None, "n1_version": version,
+        "schema_version": 2, "parser_schema_version": 6, "run_id": run_id, "host": host, "session_id": None, "n1_version": version,
         "project": project, "ticket_id": ticket, "branch": ticket,
         "started_at": started,
         "completed_at": completed if completed is not _UNSET else "2026-09-01T11:00:00Z",
@@ -109,6 +111,99 @@ class EligibilityTest(unittest.TestCase):
     def test_ineligible_outcomes(self):
         for o in (None, "", "superseded", "operational_fix", "pr_skipped"):
             self.assertFalse(bm.is_eligible(make_run(outcome=o)), repr(o))
+
+
+class InferOutcomeTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+
+    def overview(self, ticket, text, project="proj"):
+        p = self.d.n1 / project / "memory" / ticket / "overview.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+
+    def load(self):
+        runs, _ = bm.load_runs(self.d.n1)
+        return {r["run_id"]: r for r in runs}
+
+    def test_succeeded_pr_step_infers_pr_created(self):
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[{"step": "pr", "outcome": "success"}]))
+        r = self.load()["a"]
+        self.assertEqual(r["final_outcome"], "pr_created")
+        self.assertTrue(r["outcome_inferred"])
+        self.assertTrue(bm.is_eligible(r))
+
+    def test_codex_review_decision_with_branch_infers_pr_created(self):
+        run = make_run(run_id="a", outcome="", steps=[])
+        run["decisions"] = [{"id": "codex-review", "signals": {"branch": "T-1", "outcome": "ran"}}]
+        self.d.add_run(run)
+        self.assertEqual(self.load()["a"]["final_outcome"], "pr_created")
+
+    def test_overview_signals_apply_to_last_run_only(self):
+        self.overview("T-1", "---\ntier: standard\npr_url: https://example.test/pr/1\n---\n# T-1\n")
+        self.d.add_run(make_run(run_id="old", outcome="", steps=[], started="2026-09-01T10:00:00Z"))
+        self.d.add_run(make_run(run_id="new", outcome="", steps=[], started="2026-09-02T10:00:00Z"))
+        runs = self.load()
+        self.assertEqual(runs["new"]["final_outcome"], "pr_created")
+        self.assertEqual(runs["old"]["final_outcome"], "")
+        self.assertNotIn("outcome_inferred", runs["old"])
+
+    def test_overview_frontmatter_final_outcome_wins(self):
+        self.overview("T-1", "---\nfinal_outcome: investigation_complete\n---\n")
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[{"step": "pr", "outcome": "success"}]))
+        self.assertEqual(self.load()["a"]["final_outcome"], "investigation_complete")
+
+    def test_finish_section_pr_url(self):
+        self.overview("T-1", "---\ntier: simple\n---\n# T-1\n\n## Finish\npr_url: https://example.test/pr/2\n")
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[]))
+        self.assertEqual(self.load()["a"]["final_outcome"], "pr_created")
+
+    def test_skipped_pr_is_pr_skipped_and_stays_ineligible(self):
+        self.overview("T-1", "---\nstep: done\n---\n")
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[{"step": "pr", "outcome": "skipped"}]))
+        r = self.load()["a"]
+        self.assertEqual(r["final_outcome"], "pr_skipped")
+        self.assertFalse(bm.is_eligible(r))
+
+    def test_investigation_deliverable(self):
+        self.d.add_run(make_run(run_id="a", outcome=None,
+                                steps=[{"step": "investigation-deliverable", "outcome": "pass"}]))
+        self.assertEqual(self.load()["a"]["final_outcome"], "investigation_complete")
+
+    def test_set_outcome_is_never_overridden(self):
+        run = make_run(run_id="a", outcome="abandoned", steps=[{"step": "pr", "outcome": "success"}])
+        run["decisions"] = [{"id": "codex-review", "signals": {"branch": "T-1"}}]
+        self.d.add_run(run)
+        r = self.load()["a"]
+        self.assertEqual(r["final_outcome"], "abandoned")
+        self.assertNotIn("outcome_inferred", r)
+
+    def test_no_signal_stays_empty(self):
+        self.d.add_run(make_run(run_id="a", outcome=""))
+        self.assertEqual(self.load()["a"]["final_outcome"], "")
+
+    def test_older_run_keeps_its_own_tier(self):
+        self.overview("T-1", "---\ntier: complex\nplanning_need: plan\n---\n")
+        old = make_run(run_id="old", started="2026-01-01T00:00:00Z")
+        old["estimated_tier"] = "simple"
+        self.d.add_run(old)
+        self.d.add_run(make_run(run_id="new", started="2026-02-01T00:00:00Z"))
+        runs = self.load()
+        old_c = bm.build_run_cache(runs["old"], self.d.projects)
+        new_c = bm.build_run_cache(runs["new"], self.d.projects)
+        self.assertEqual((old_c["tier"], old_c["plan_path"]), ("simple", "none"))
+        self.assertEqual((new_c["tier"], new_c["plan_path"]), ("complex", "plan"))
+
+    def test_build_run_cache_light_fields(self):
+        self.overview("T-1", "---\ntier: complex\nplanning_need: plan\n---\n")
+        self.d.add_run(make_run(run_id="a", outcome="", steps=[{"step": "pr", "outcome": "success"}]))
+        c = bm.build_run_cache(self.load()["a"], self.d.projects)
+        self.assertEqual((c["tier"], c["plan_path"], c["outcome_inferred"], c["eligible"]),
+                         ("complex", "plan", True, True))
+        plain = make_run(run_id="b", ticket="T-2")
+        plain["estimated_tier"] = "simple"
+        c = bm.build_run_cache(plain, self.d.projects)
+        self.assertEqual((c["tier"], c["plan_path"], c["outcome_inferred"]), ("simple", "none", False))
 
 
 class ParseTsTest(unittest.TestCase):
@@ -321,6 +416,20 @@ class CollectTest(unittest.TestCase):
         self.assertEqual((res["runs_new"], res["runs_cached"]), (0, 2))
         self.assertEqual(len(res["ambiguous"]), 1)
 
+    def test_cached_collect_refreshes_light_fields_and_keeps_turns(self):
+        self.collect()
+        p = self.d.out / "runs" / "n1-run-1.json"
+        cache = json.loads(p.read_text())
+        cache.update(tier="stale", plan_path="stale", outcome_inferred=True)
+        p.write_text(json.dumps(cache))
+        res = self.collect()
+        self.assertEqual(res["runs_cached"], 2)
+        fresh = json.loads(p.read_text())
+        self.assertNotEqual(fresh["tier"], "stale")
+        self.assertNotEqual(fresh["plan_path"], "stale")
+        self.assertFalse(fresh["outcome_inferred"])
+        self.assertEqual(fresh["turns"], cache["turns"])
+
     def test_force_reprocesses(self):
         self.collect()
         res = self.collect("--force")
@@ -352,6 +461,36 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(res["runs_new"], 2)
         self.assertEqual(res["runs_skipped_host"], 1)
         self.assertFalse((self.d.out / "runs" / "n1-run-codex.json").exists())
+
+    def test_cached_eligible_run_is_rebuilt_when_inference_disappears(self):
+        self.collect()
+        p = self.d.out / "runs" / "n1-run-2.json"
+        c = json.loads(p.read_text())
+        c["eligible"], c["outcome_inferred"] = True, True
+        p.write_text(json.dumps(c))
+        self.collect()
+        self.assertFalse(json.loads(p.read_text())["eligible"])
+
+    def test_cached_ineligible_run_is_rebuilt_once_inference_makes_it_eligible(self):
+        self.collect()
+        self.assertFalse(json.loads((self.d.out / "runs" / "n1-run-2.json").read_text())["eligible"])
+        self.d.add_run(make_run(run_id="n1-run-2", ticket="T-2", outcome=None,
+                                steps=[{"step": "pr", "outcome": "success"}]))
+        p1 = self.d.out / "runs" / "n1-run-1.json"
+        old = json.loads(p1.read_text())
+        old["turns"][1]["label"], old["turns"][1]["label_source"] = "correction", "judge"
+        for k in ("tier", "plan_path", "outcome_inferred"):
+            old.pop(k)
+        p1.write_text(json.dumps(old))
+        res = self.collect()
+        self.assertEqual((res["runs_new"], res["runs_cached"]), (1, 1))
+        rebuilt = json.loads((self.d.out / "runs" / "n1-run-2.json").read_text())
+        self.assertTrue(rebuilt["eligible"])
+        self.assertTrue(rebuilt["outcome_inferred"])
+        self.assertEqual(rebuilt["final_outcome"], "pr_created")
+        kept = json.loads(p1.read_text())
+        self.assertEqual(kept["turns"][1]["label_source"], "judge")
+        self.assertEqual((kept["tier"], kept["plan_path"], kept["outcome_inferred"]), ("unknown", "none", False))
 
 
 def labeled(label, step="brainstorm", n=0):
@@ -511,8 +650,9 @@ class ApplyLabelsTest(unittest.TestCase):
         self.assertEqual(cache["turns"][0]["reason"], "user said wrong file")
 
 
-def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01T10:00:00Z", link="heuristic", host="unknown"):
+def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01T10:00:00Z", link="heuristic", host="claude-code"):
     return {"run_id": run_id, "n1_version": version, "host": host, "eligible": eligible, "started_at": started,
+            "completed_at": "2026-09-01T11:00:00Z",
             "link_method": link if eligible else "skipped", "project": "p", "ticket_id": "T",
             "metrics": {"interventions": interventions, "answers": interventions, "corrections": 0.0,
                         "brainstorm_interactions": 0.0, "autonomous_interventions": interventions,
@@ -522,6 +662,36 @@ def cache_for(version, run_id, interventions, eligible=True, started="2026-09-01
 
 
 class AggregateTest(unittest.TestCase):
+    def test_quality_coverage_excludes_unlinkable_by_construction(self):
+        caches = [cache_for("3.0.0", f"r{i}", 1.0) for i in range(4)]
+        noproj = cache_for("3.0.0", "np", None, link="unlinked")
+        noproj["project"] = ""
+        nots = cache_for("3.0.0", "nt", None, link="unlinked")
+        nots["completed_at"] = None
+        other = cache_for("3.0.0", "ot", None, link="unlinked")
+        g = bm.aggregate(caches + [noproj, nots, other], "version")["claude-code/3.0.0"]
+        self.assertEqual(g["n_unlinked"], 3)
+        self.assertAlmostEqual(g["quality_coverage"], 4 / 5, places=3)
+        self.assertEqual([bm.unlink_cause(c) for c in (noproj, nots, other)],
+                         ["no project", "no timestamps", "no transcript matched"])
+
+    def test_cells_and_inferred_count(self):
+        caches = [cache_for("3.0.0", f"r{i}", float(i)) for i in range(6)]
+        for i, c in enumerate(caches):
+            c["tier"], c["plan_path"] = ("standard", "plan") if i < 5 else ("simple", "none")
+            c["outcome_inferred"] = i < 2
+        g = bm.aggregate(caches, "version")["claude-code/3.0.0"]
+        self.assertEqual(g["cells"]["standard/plan"]["n"], 5)
+        self.assertEqual(g["cells"]["standard/plan"]["mean"], 2.0)
+        self.assertEqual(g["cells"]["simple/none"]["n"], 1)
+        self.assertEqual(g["n_inferred"], 2)
+
+    def test_aggregate_keyfn_overrides_partition(self):
+        caches = [cache_for("3.0.0", "a", 1.0), cache_for("3.1.0", "b", 2.0)]
+        agg = bm.aggregate(caches, "version", keyfn=lambda c: "claude-code/3.0.0-3.1.0")
+        self.assertEqual(list(agg), ["claude-code/3.0.0-3.1.0"])
+        self.assertEqual(agg["claude-code/3.0.0-3.1.0"]["n_runs"], 2)
+
     def test_version_key_sorts_numerically(self):
         vs = ["2.10.0", "2.9.0", "2.52.17", "2.52.3", "unknown", ""]
         self.assertEqual(sorted(vs, key=bm.version_key), ["", "unknown", "2.9.0", "2.10.0", "2.52.3", "2.52.17"])
@@ -529,7 +699,7 @@ class AggregateTest(unittest.TestCase):
     def test_group_keys(self):
         self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="claude-code"), "version"), "claude-code/2.80.0")
         self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="codex"), "version"), "codex/2.80.0")
-        self.assertEqual(bm.group_key(cache_for("", "a", 1), "version"), "unknown/unknown")
+        self.assertEqual(bm.group_key(cache_for("", "a", 1), "version"), "legacy")
         self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="claude-code"), "week"), "claude-code/2026-W36")
 
     def test_group_keys_unknown_host_partitioned_separately(self):
@@ -537,9 +707,9 @@ class AggregateTest(unittest.TestCase):
         caches += [cache_for("2.80.0", "u1", 1.0, host="unknown")]
         agg = bm.aggregate(caches, "version")
         self.assertIn("claude-code/2.80.0", agg)
-        self.assertIn("unknown/2.80.0", agg)
+        self.assertIn("legacy", agg)
         self.assertEqual(agg["claude-code/2.80.0"]["n_runs"], 5)
-        self.assertEqual(agg["unknown/2.80.0"]["n_runs"], 1)
+        self.assertEqual(agg["legacy"]["n_runs"], 1)
 
     def test_sorted_groups_no_cross_host_bleeding(self):
         """claude-code keys sort before codex keys; unknown appended last."""
@@ -565,14 +735,14 @@ class AggregateTest(unittest.TestCase):
         caches += [cache_for("2.80.0", "x", None, eligible=False)]
         caches += [cache_for("2.81.0", "b1", 3.0), cache_for("2.81.0", "b2", None, link="unlinked")]
         agg = bm.aggregate(caches, "version")
-        g = agg["unknown/2.80.0"]
+        g = agg["claude-code/2.80.0"]
         self.assertEqual((g["n_runs"], g["n_all"], g["sufficient"]), (5, 6, True))
         self.assertEqual(g["metrics"]["interventions"]["n"], 5)
         self.assertEqual(g["metrics"]["interventions"]["mean"], 2.0)
         self.assertEqual(g["metrics"]["interventions"]["median"], 2.0)
         self.assertIsNone(g["metrics"]["orchestrator_output_tokens"])
         self.assertAlmostEqual(g["abandon_rate"], 1 / 6)
-        h = agg["unknown/2.81.0"]
+        h = agg["claude-code/2.81.0"]
         self.assertFalse(h["sufficient"])
         self.assertEqual(h["metrics"]["interventions"]["n"], 1)
 
@@ -590,6 +760,7 @@ class AggregateTest(unittest.TestCase):
     def test_aggregate_codex_review_coverage_includes_all_prs_and_latest_outcome(self):
         completed_without_decision = cache_for("3.1.0", "created", 1.0)
         completed_without_decision["run_record"] = make_run(run_id="created", outcome="pr_created")
+        completed_without_decision["final_outcome"] = "pr_created"
         completed_legacy = cache_for("3.1.0", "legacy", 1.0)
         completed_legacy["run_record"] = make_run(run_id="legacy", outcome="pr_created")
         completed_legacy["run_record"]["decisions"] = [
@@ -615,7 +786,7 @@ class AggregateTest(unittest.TestCase):
         unrelated_incomplete = cache_for("3.1.0", "no-pr", None, eligible=False)
 
         review = bm.aggregate([completed_without_decision, completed_legacy, incomplete_with_pr,
-                               failed_review, timed_out_review, unrelated_incomplete], "version")["unknown/3.1.0"]["codex_review"]
+                               failed_review, timed_out_review, unrelated_incomplete], "version")["claude-code/3.1.0"]["codex_review"]
 
         self.assertEqual(review["pr_runs"], 5)
         self.assertEqual(review["prs"], 5)
@@ -623,6 +794,46 @@ class AggregateTest(unittest.TestCase):
         self.assertEqual(review["reviewed_prs"], 1)
         self.assertAlmostEqual(review["coverage_rate"], 1 / 5, places=3)
         self.assertEqual(review["outcomes"], {"ran": 1, "skipped": 1, "failed": 1, "timeout": 1, "missing": 1})
+
+    def test_codex_review_counted_per_run_by_branch_without_outcome_gate(self):
+        caches = []
+        for i in range(12):
+            c = cache_for("5.66.0", f"r{i}", None, eligible=False)
+            c["final_outcome"] = "abandoned" if i < 5 else ""
+            branch = "VEL-3979" if i < 2 else f"B-{i}"  # same ticket in two runs counts twice
+            c["run_record"] = {"decisions": [
+                {"id": "codex-review", "signals": {"branch": branch, "outcome": "skipped"}},
+                {"id": "codex-review", "signals": {"branch": branch, "outcome": "ran"}}]}
+            caches.append(c)
+        review = bm.aggregate(caches, "version")["claude-code/5.66.0"]["codex_review"]
+        self.assertEqual((review["prs"], review["reviewed_prs"], review["reviewed_runs"]), (12, 12, 12))
+        self.assertEqual(review["outcomes"]["skipped"], 0)
+
+
+class LegacyPartitionTest(unittest.TestCase):
+    def test_unknown_host_version_or_timestamp_is_legacy(self):
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, host="unknown"), "version"), "legacy")
+        self.assertEqual(bm.group_key(cache_for("unknown", "a", 1), "version"), "legacy")
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1, started=None), "week"), "legacy")
+        self.assertEqual(bm.group_key(cache_for("2.80.0", "a", 1), "week"), "claude-code/2026-W36")
+
+    def test_is_legacy_key_tolerates_old_snapshot_keys(self):
+        for k in ("legacy", "unknown/unknown", "unknown/3.28.4", "claude-code/unknown", "unknown"):
+            self.assertTrue(bm.is_legacy_key(k), k)
+        self.assertFalse(bm.is_legacy_key("claude-code/5.20.0"))
+
+    def test_latest_sufficient_skips_legacy_and_old_unknown_keys(self):
+        snap = snap_with({"claude-code/5.20.0": group(2, 1, 3), "unknown/3.28.4": group(1, 0, 2),
+                          "unknown/unknown": group(1, 0, 2, n=86), "legacy": group(1, 0, 2)})
+        self.assertEqual(bm.latest_sufficient(snap), "claude-code/5.20.0")
+        self.assertEqual(bm._sufficient_groups(snap), ["claude-code/5.20.0"])
+        keys = bm._sorted_groups(snap)
+        self.assertEqual(keys[0], "claude-code/5.20.0")
+        self.assertTrue(all(bm.is_legacy_key(k) for k in keys[1:]))
+
+    def test_merged_labels_sort_by_first_version(self):
+        snap = snap_with({"claude-code/5.10.0-5.12.0": group(1, 0, 2), "claude-code/5.9.0": group(1, 0, 2)})
+        self.assertEqual(bm._sorted_groups(snap), ["claude-code/5.9.0", "claude-code/5.10.0-5.12.0"])
 
 
 class FinalizeTest(unittest.TestCase):
@@ -638,7 +849,8 @@ class FinalizeTest(unittest.TestCase):
     def finalize(self, labels):
         lf = self.d.tmp / "labels.json"
         lf.write_text(json.dumps(labels))
-        rc = bm.main(["finalize", "--labels", str(lf), "--out", str(self.d.out), "--plugin-version", "2.83.0"])
+        rc = bm.main(["finalize", "--labels", str(lf), "--out", str(self.d.out), "--plugin-version", "2.83.0",
+                      "--judge-model", "haiku"])
         self.assertEqual(rc, 0)
         return bm.load_snapshots(self.d.out)[-1]
 
@@ -647,28 +859,59 @@ class FinalizeTest(unittest.TestCase):
         self.assertEqual(snap["judge_fallbacks"], 1)
         self.assertEqual(snap["plugin_version"], "2.83.0")
         self.assertEqual(snap["rubric_version"], bm.RUBRIC_VERSION)
-        g = snap["groups"]["unknown/2.80.0"]
+        g = snap["groups"]["claude-code/2.80.0"]
         self.assertEqual(g["metrics"]["corrections"]["mean"], 1.0)
         self.assertFalse(g["sufficient"])
+        self.assertEqual(snap["unlinked_causes"], {})
+        self.assertEqual(list(snap["merged"]), ["claude-code/2.80.0"])
+        self.assertEqual(snap["merged"]["claude-code/2.80.0"]["versions"], ["claude-code/2.80.0"])
         cache = bm.load_cache(self.d.out)["n1-run-1"]
         self.assertEqual(cache["metrics"]["interventions"], 1.0)
-        self.assertEqual(cache["judge_model"], bm.DEFAULT_JUDGE_MODEL)
+        self.assertEqual(cache["judge_model"], "haiku")
+        self.assertEqual(snap["judge_model"], "haiku")
         self.assertEqual([t["label_source"] for t in cache["turns"]], ["judge", "fallback"])
 
     def test_finalize_accepts_dict_labels_and_is_idempotent(self):
         self.finalize({"n1-run-1#0": {"label": "correction"}, "n1-run-1#1": {"label": "instruction"}})
         snap = self.finalize([])
         self.assertEqual(snap["judge_fallbacks"], 0)
+        self.assertIsNone(snap["judge_model"])  # nothing judged in the second run
+        self.assertEqual(bm.load_cache(self.d.out)["n1-run-1"]["judge_model"], "haiku")
         self.assertEqual(len(bm.load_snapshots(self.d.out)), 2)
+        self.assertIn("judge none (no turns judged)", bm.render_report(snap, None, None, "", {}))
 
 
 class BaselineTest(unittest.TestCase):
+    def setUp(self):
+        self.d = TempDirs()
+        bm.write_snapshot(self.d.out, snap_with({"claude-code/2.80.0": group(2, 1, 3), "legacy": group(1, 0, 2)}))
+
+    def run_quiet(self, *argv, out=None):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            rc = bm.main([*argv, "--out", str(out or self.d.out)])
+        return rc, err.getvalue()
+
     def test_set_and_show(self):
-        d = TempDirs()
-        self.assertEqual(bm.main(["baseline", "set", "2.80.0", "--out", str(d.out)]), 0)
-        self.assertEqual(bm.load_baseline(d.out)["version"], "2.80.0")
-        self.assertEqual(bm.main(["baseline", "show", "--out", str(d.out)]), 0)
-        self.assertEqual(bm.main(["baseline", "set", "--out", str(d.out)]), 2)
+        self.assertEqual(self.run_quiet("baseline", "set", "claude-code/2.80.0")[0], 0)
+        self.assertEqual(bm.load_baseline(self.d.out)["version"], "claude-code/2.80.0")
+        self.assertEqual(self.run_quiet("baseline", "set", "2.80.0")[0], 0)  # bare version resolves
+        self.assertEqual(bm.load_baseline(self.d.out)["version"], "claude-code/2.80.0")
+        self.assertEqual(self.run_quiet("baseline", "show")[0], 0)
+        self.assertEqual(self.run_quiet("baseline", "set")[0], 2)
+
+    def test_set_rejects_value_absent_from_latest_snapshot(self):
+        rc, err = self.run_quiet("baseline", "set", "2026-W29")
+        self.assertEqual(rc, 2)
+        self.assertIn("2026-W29", err)
+        self.assertIn("claude-code/2.80.0", err)
+        self.assertIsNone(bm.load_baseline(self.d.out))
+        self.assertEqual(self.run_quiet("baseline", "set", "legacy")[0], 2)
+
+    def test_set_without_snapshot_fails(self):
+        empty = TempDirs()
+        self.assertEqual(self.run_quiet("baseline", "set", "claude-code/2.80.0", out=empty.out)[0], 2)
+        self.assertIsNone(bm.load_baseline(empty.out))
 
 
 def stat(mean, lo, hi, n=5):
@@ -687,6 +930,35 @@ def group(mean_interventions, lo, hi, sufficient=True, n=5):
             "sufficient": sufficient, "metrics": metrics, "abandon_rate": 0.0, "run_ids": []}
 
 
+class MergeVersionsTest(unittest.TestCase):
+    def test_adjacent_versions_merge_until_min_sample_and_tail_merges_back(self):
+        caches = []
+        for v, n in (("5.58.1", 2), ("5.59.0", 1), ("5.60.0", 3), ("5.61.0", 6), ("5.62.0", 2)):
+            caches += [cache_for(v, f"{v}-{i}", 1.0) for i in range(n)]
+        caches.append(cache_for("5.59.0", "x", None, eligible=False))  # ineligible runs do not count
+        caches.append(cache_for("", "leg", 1.0))
+        m = bm.merge_versions(caches)
+        self.assertEqual(m["claude-code/5.58.1"], "claude-code/5.58.1-5.60.0")
+        self.assertEqual(m["claude-code/5.59.0"], "claude-code/5.58.1-5.60.0")
+        self.assertEqual(m["claude-code/5.60.0"], "claude-code/5.58.1-5.60.0")
+        self.assertEqual(m["claude-code/5.61.0"], "claude-code/5.61.0-5.62.0")
+        self.assertEqual(m["claude-code/5.62.0"], "claude-code/5.61.0-5.62.0")
+        self.assertNotIn("legacy", m)
+
+    def test_single_undersized_bucket_keeps_its_version_label(self):
+        m = bm.merge_versions([cache_for("5.0.0", "a", 1.0), cache_for("5.0.0", "b", 1.0)])
+        self.assertEqual(m, {"claude-code/5.0.0": "claude-code/5.0.0"})
+
+    def test_headline_groups(self):
+        snap = snap_with({"claude-code/2.80.0": group(2, 1, 3)})
+        self.assertEqual(bm.headline_groups(snap), {})
+        snap["merged"] = {"claude-code/2.80.0": group(2, 1, 3)}
+        self.assertIs(bm.headline_groups(snap), snap["merged"])
+        week = snap_with({"claude-code/2026-W36": group(2, 1, 3), "legacy": group(1, 0, 2)})
+        week["by"] = "week"
+        self.assertEqual(list(bm.headline_groups(week)), ["claude-code/2026-W36"])
+
+
 class ReportTest(unittest.TestCase):
     def test_delta_and_significance(self):
         d = bm.delta(stat(2.0, 1.5, 2.5), stat(4.0, 3.0, 5.0))
@@ -696,15 +968,36 @@ class ReportTest(unittest.TestCase):
         self.assertIsNone(bm.delta(stat(3.0, 2.0, 4.0), stat(0.0, 0.0, 0.0))["pct"])
 
     def test_baseline_selection(self):
-        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3), "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
-        self.assertEqual(bm.pick_baseline_group(snap, {"version": "claude-code/2.70.0"})[0], "claude-code/2.70.0")
+        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3),
+                          "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
+        snap["merged"] = {
+            "claude-code/2.70.0": {**group(5, 4, 6), "versions": ["claude-code/2.70.0"]},
+            "claude-code/2.80.0-2.81.0": {**group(2, 1, 3, n=7),
+                                          "versions": ["claude-code/2.80.0", "claude-code/2.81.0"]}}
+        self.assertEqual(bm.pick_baseline_group(snap, {"version": "claude-code/2.70.0"}),
+                         ("claude-code/2.70.0", "pinned"))
+        self.assertEqual(bm.pick_baseline_group(snap, {"version": "claude-code/2.81.0"})[0],
+                         "claude-code/2.80.0-2.81.0")
         key, note = bm.pick_baseline_group(snap, None)
         self.assertEqual(key, "claude-code/2.70.0")
         self.assertIn("oldest", note)
-        key, note = bm.pick_baseline_group(snap, {"version": "9.9.9"})
+        key, note = bm.pick_baseline_group(snap, {"version": "2026-W29"})
         self.assertEqual(key, "claude-code/2.70.0")
-        self.assertIn("not found", note)
+        self.assertIn("not in this snapshot", note)
+        self.assertEqual(bm.latest_sufficient(snap, bm.headline_groups(snap)), "claude-code/2.80.0-2.81.0")
         self.assertEqual(bm.latest_sufficient(snap), "claude-code/2.80.0")
+
+    def test_baseline_never_pins_legacy_partition(self):
+        snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "legacy": group(1, 0, 2)})  # pre-merge snapshot
+        key, note = bm.pick_baseline_group(snap, {"version": "legacy"})
+        self.assertEqual(key, "claude-code/2.70.0")
+        self.assertIn("not in this snapshot", note)
+
+    def test_baseline_fallback_stays_on_latest_host(self):
+        snap = snap_with({})
+        snap["merged"] = {"aaa/1.0.0": group(1, 0, 2), "claude-code/2.0.0": group(2, 1, 3),
+                          "claude-code/2.1.0": group(3, 2, 4)}
+        self.assertEqual(bm.pick_baseline_group(snap, None)[0], "claude-code/2.0.0")
 
     def test_render_contains_sections(self):
         snap = snap_with({"claude-code/2.70.0": group(5, 4, 6), "claude-code/2.80.0": group(2, 1, 3), "claude-code/2.81.0": group(3, 2, 4, sufficient=False, n=2)})
@@ -764,15 +1057,72 @@ class ReportTest(unittest.TestCase):
         self.assertNotIn("better", table_rows[0])
         self.assertNotIn("worse", table_rows[0])
 
-    def test_cmd_report_writes_file(self):
+    def test_cmd_report_writes_summary_and_full(self):
         d = TempDirs()
-        bm.write_snapshot(d.out, snap_with({"2.80.0": group(2, 1, 3)}))
-        self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
-        self.assertTrue((d.out / "reports" / "20260905T000000Z.md").is_file())
+        snap = snap_with({"claude-code/2.80.0": group(2, 1, 3)})
+        snap["merged"] = {"claude-code/2.80.0": {**group(2, 1, 3), "versions": ["claude-code/2.80.0"]}}
+        bm.write_snapshot(d.out, snap)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
+        full = d.out / "reports" / "20260905T000000Z.full.md"
+        self.assertTrue(full.is_file())
+        self.assertIn("Per-partition metrics", full.read_text())
+        summary = (d.out / "reports" / "20260905T000000Z.md").read_text()
+        self.assertEqual(buf.getvalue(), summary)
+        self.assertIn(f"full report: {full}", summary)
+        self.assertNotIn("Per-partition metrics", summary)
+
+    def test_summary_is_short_on_large_snapshot(self):
+        groups = {f"claude-code/5.{i}.0": group(2, 1, 3, sufficient=i % 2 == 0, n=5 if i % 2 == 0 else 2)
+                  for i in range(60)}
+        groups["legacy"] = group(1, 0, 2, n=86)
+        snap = snap_with(groups)
+        cells = {f"{t}/{p}": stat(1.0, 0.5, 1.5, n=6)
+                 for t in ("simple", "standard", "complex", "unknown") for p in ("plan", "direct", "none")}
+        cells["simple/plan"] = stat(1.0, 0.5, 1.5, n=2)
+        snap["merged"] = {f"claude-code/5.{i}.0-5.{i + 1}.0": {**group(2 + i / 100, 1, 3), "cells": cells,
+                                                              "n_inferred": 1, "versions": []}
+                          for i in range(0, 60, 2)}
+        snap["unlinked"] = [{"run_id": f"u{i}", "project": "", "ticket_id": "T", "reason": "no project"}
+                            for i in range(81)]
+        snap["unlinked_causes"] = {"no project": 40, "no timestamps": 15, "no transcript matched": 26}
+        text = bm.render_summary(snap, "claude-code/5.0.0-5.1.0", "pinned", "/x/full.md")
+        lines = text.splitlines()
+        self.assertLess(len(lines), 80)
+        self.assertIn("claude-code/5.58.0-5.59.0 vs baseline claude-code/5.0.0-5.1.0", lines[2])
+        self.assertNotIn("legacy", lines[2])
+        self.assertIn("no project 40", text)
+        self.assertIn("legacy partition (unknown host or version): 86", text)
+        self.assertIn("insufficient (n<5 on a side): 1", text)
+        self.assertEqual(lines[-1], "full report: /x/full.md")
+
+    def test_summary_tolerates_old_snapshot(self):
+        snap = snap_with({"unknown/unknown": group(1, 0, 2, n=86), "claude-code/5.20.0": group(2, 1, 3)})
+        text = bm.render_summary(snap, None, "no baseline pinned", "/x/full.md")
+        self.assertIn("re-run finalize", text)
+        self.assertIn("legacy partition (unknown host or version): 86", text)
 
     def test_cmd_report_without_snapshots(self):
         d = TempDirs()
         self.assertEqual(bm.main(["report", "--out", str(d.out)]), 0)
+
+
+class SkillRootResolutionTest(unittest.TestCase):
+    """N1-482 AC5: with CLAUDE_PLUGIN_ROOT unset both skills fall back to ~/.n1/host.json
+    instead of accepting an empty root because /lib exists on the machine."""
+
+    def test_root_resolves_from_host_json_when_env_unset(self):
+        home = Path(tempfile.mkdtemp())
+        (home / ".n1").mkdir()
+        (home / ".n1" / "host.json").write_text(json.dumps({"pluginRoot": str(REPO)}), encoding="utf-8")
+        env = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+        for name in ("n1-benchmark", "n1-telemetry-analyzer"):
+            skill = (REPO / ".claude" / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+            line = next(l for l in skill.splitlines() if l.startswith("N1_ROOT="))
+            res = subprocess.run(["bash", "-c", line + '\nprintf %s "$N1_ROOT"'], env=env,
+                                 capture_output=True, text=True)
+            self.assertEqual(res.stdout, str(REPO), f"{name}: {res.stderr}")
 
 
 class SkillInvocationTest(unittest.TestCase):
@@ -788,6 +1138,13 @@ class SkillInvocationTest(unittest.TestCase):
         except SystemExit as e:
             self.fail(f"SKILL.md collect invocation rejected by argparse (exit {e.code}): {line}")
         self.assertEqual(args.cmd, "collect")
+
+    def test_skill_finalize_passes_judge_model(self):
+        skill = (REPO / ".claude" / "skills" / "n1-benchmark" / "SKILL.md").read_text(encoding="utf-8")
+        line = next(l for l in skill.splitlines() if '"$SCRIPT" finalize' in l)
+        rest = line.split('"$SCRIPT"', 1)[1].replace("[", "").replace("]", "")
+        args = bm.build_parser().parse_args(shlex.split(rest))
+        self.assertEqual(args.judge_model, "haiku")
 
 
 if __name__ == "__main__":

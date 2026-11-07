@@ -9,7 +9,7 @@ Usage:
   python3 scripts/benchmark.py collect  [--n1-root DIR] [--projects-dir DIR] [--out DIR] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--force] [--ambiguous-out FILE]
   python3 scripts/benchmark.py finalize --labels FILE [--out DIR] [--by version|week] [--plugin-version V] [--judge-model M]
   python3 scripts/benchmark.py report   [--out DIR] [--snapshot ID] [--by version|week]
-  python3 scripts/benchmark.py baseline set <version> | show [--out DIR]
+  python3 scripts/benchmark.py baseline set <host/version|version> | show [--out DIR]
 
 The script never calls a model. Ambiguous turns are printed by `collect`;
 the n1-benchmark skill labels them and passes the labels file to `finalize`.
@@ -28,12 +28,15 @@ import sys
 from pathlib import Path
 
 RUBRIC_VERSION = 1
-DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
 ELIGIBLE_OUTCOMES = {"pr_created", "investigation_complete"}
 MIN_SAMPLE = 5
 TEXT_LIMIT = 600
 LABELS = {"answer", "approval", "correction", "instruction", "noise"}
 FALLBACK_LABEL = "instruction"
+SUCCESS_STEP = {"success", "succeeded", "pass"}
+SKIPPED_STEP = {"skip", "skipped"}
+OVERVIEW_KEYS = ("final_outcome", "step", "tier", "planning_need", "pr_url")
+_PR_LINE = re.compile(r"^(?:pr|pr_url):\s*(\S.*)$")
 
 
 # ---------------------------------------------------------------- run loading
@@ -107,11 +110,105 @@ def load_runs(n1_root: Path):
                 continue
             rec["_source_path"] = str(path)
             by_id[rec["run_id"]] = rec
-    return list(by_id.values()), malformed
+    runs = list(by_id.values())
+    # N1-482: infer an empty final_outcome in memory (never written back). Overview
+    # signals are per ticket, so only the ticket's last run (max started_at) gets them.
+    last = {}
+    ov_by_dir = {}
+    for rec in runs:
+        d = _ticket_dir(rec)
+        if d not in ov_by_dir:
+            ov_by_dir[d] = _overview_signals(rec["_source_path"])
+        cur = last.get(d)
+        if cur is None or (rec.get("started_at") or "") >= (cur.get("started_at") or ""):
+            last[d] = rec
+    for rec in runs:
+        # The overview describes the ticket's latest state; older runs keep their own metadata.
+        d = _ticket_dir(rec)
+        rec["_ov"] = ov_by_dir[d] if last[d] is rec else {}
+    for rec in runs:
+        if rec.get("final_outcome"):
+            continue
+        inferred = infer_outcome(rec, rec["_ov"], last[_ticket_dir(rec)] is rec)
+        if inferred:
+            rec["final_outcome"], rec["outcome_inferred"] = inferred, True
+    return runs, malformed
 
 
 def is_eligible(run: dict) -> bool:
     return run.get("final_outcome") in ELIGIBLE_OUTCOMES
+
+
+def _ticket_dir(rec: dict) -> str:
+    """<ticket> dir of <ticket>/telemetry/runs/<run_id>.jsonl (same parent walk as raw_agents_session_path)."""
+    return str(Path(rec["_source_path"]).parent.parent.parent)
+
+
+def _overview_signals(src_path) -> dict:
+    """Read <ticket>/overview.md beside a run file. Returns the OVERVIEW_KEYS found in the
+    frontmatter; pr_url also from pr:/pr_url: lines under ## Pending or ## Finish. {} if unreadable."""
+    if not src_path:
+        return {}
+    try:
+        text = (Path(src_path).parent.parent.parent / "overview.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    lines = text.splitlines()
+    out, body = {}, lines
+    if lines and lines[0].strip() == "---":
+        end = next((j for j in range(1, len(lines)) if lines[j].strip() == "---"), len(lines))
+        for line in lines[1:end]:
+            key, sep, val = line.partition(":")
+            key, val = key.strip(), val.strip().strip("\"'")
+            if sep and key in OVERVIEW_KEYS and val and val.lower() != "null":
+                out[key] = val
+        body = lines[end + 1:]
+    section = None
+    for line in body:
+        if line.startswith("## "):
+            section = line[3:].strip()
+        elif section in ("Pending", "Finish") and "pr_url" not in out:
+            m = _PR_LINE.match(line.strip())
+            if m:
+                out["pr_url"] = m.group(1).strip()
+    return out
+
+
+def _step_outcomes(rec: dict, name: str) -> set:
+    return {str(s.get("outcome") or "").lower() for s in rec.get("steps") or []
+            if isinstance(s, dict) and s.get("step") == name}
+
+
+def infer_outcome(rec: dict, ov: dict, is_last: bool) -> str:
+    """Outcome for a run whose final_outcome is empty (N1-482). Order: overview final_outcome
+    (last run only); succeeded pr step or codex-review decision with pr_url/branch; overview
+    pr_url (last run only); pr_skipped; investigation_complete. "" when nothing applies."""
+    ov = ov if is_last else {}
+    if ov.get("final_outcome"):
+        return ov["final_outcome"]
+    pr_steps = _step_outcomes(rec, "pr")
+    if pr_steps & SUCCESS_STEP:
+        return "pr_created"
+    for d in rec.get("decisions") or []:
+        if isinstance(d, dict) and d.get("id") == "codex-review":
+            sig = d.get("signals") or {}
+            if sig.get("pr_url") or sig.get("branch"):
+                return "pr_created"
+    if ov.get("pr_url"):
+        return "pr_created"
+    if pr_steps & SKIPPED_STEP and ov.get("step") == "done":
+        return "pr_skipped"
+    if _step_outcomes(rec, "investigation-deliverable") & SUCCESS_STEP:
+        return "investigation_complete"
+    return ""
+
+
+def _light_fields(run: dict) -> dict:
+    """Cache fields that never need a transcript: inference flag, tier, plan path."""
+    ov = run.get("_ov") or {}
+    return {"outcome_inferred": bool(run.get("outcome_inferred")),
+            "tier": run.get("estimated_tier") or ov.get("tier") or "unknown",
+            "plan_path": ov.get("planning_need") or "none"}
 
 
 # --------------------------------------------------------------- linking
@@ -364,6 +461,7 @@ def build_run_cache(run: dict, projects_dir: Path) -> dict:
         "_run": run,
     }
     cache["questions"] = _extract_questions(run)
+    cache.update(_light_fields(run))
     if not eligible:
         return cache
     path, method = link_transcript(run, projects_dir)
@@ -427,12 +525,20 @@ def cmd_collect(args) -> int:
     new, cached, ambiguous = 0, 0, []
     for run in runs:
         cache = existing.get(run["run_id"])
+        if cache is not None and bool(cache.get("eligible")) != is_eligible(run):
+            # N1-482: inferred outcome appeared or disappeared. Ineligible caches hold no
+            # turns or labels; a cache that lost eligibility must not keep counting.
+            cache = None
         if cache is None:
             cache = build_run_cache(run, Path(args.projects_dir))
             cache["run_record"] = {k: v for k, v in run.items() if not k.startswith("_")}
             save_cache(out, _strip_private(cache))
             new += 1
         else:
+            light = _light_fields(run)
+            if any(cache.get(k) != v for k, v in light.items()):
+                cache.update(light)
+                save_cache(out, _strip_private(cache))
             cached += 1
         for t in cache["turns"]:
             if t.get("label") == "ambiguous":
@@ -748,16 +854,29 @@ def version_key(v: str):
     return (1 if parts and parts[0][0] == 1 else 0, parts)
 
 
+LEGACY = "legacy"
+
+
 def group_key(cache: dict, by: str) -> str:
+    """host/version or host/ISO-week; LEGACY when host, version (version mode) or start time (week mode) is unknown."""
     host = cache.get("host") or "unknown"
+    if host == "unknown":
+        return LEGACY
     if by == "week":
         ts = parse_ts(cache.get("started_at"))
         if ts is None:
-            return f"{host}/unknown"
+            return LEGACY
         iso = dt.datetime.fromtimestamp(ts, dt.timezone.utc).isocalendar()
         return f"{host}/{iso[0]}-W{iso[1]:02d}"
     version = cache.get("n1_version") or "unknown"
+    if version == "unknown":
+        return LEGACY
     return f"{host}/{version}"
+
+
+def is_legacy_key(key: str) -> bool:
+    """LEGACY, or a pre-N1-482 key with an unknown part (unknown/unknown, unknown/3.28.4, claude-code/unknown)."""
+    return key == LEGACY or "unknown" in key.split("/")
 
 
 def bootstrap_ci(values, seed=0, n=1000, alpha=0.05):
@@ -777,54 +896,63 @@ CODEX_REVIEW_OUTCOMES = ("ran", "skipped", "failed", "timeout")
 
 
 def codex_review_prs(cache: dict):
-    """Return the latest Codex-review outcome for each PR established by a run.
+    """Latest Codex-review outcome per PR reviewed in a run (N1-482).
 
-    A completed ``pr_created`` run establishes one PR even if its telemetry has
-    no Codex decision. New telemetry identifies PRs with ``pr_url``; older
-    telemetry has no URL and therefore maps to the completed run's one PR.
+    Decisions are keyed by pr_url, else signals.branch, within the run; the last
+    decision per key wins. No final_outcome gate. A run with no decision whose
+    (possibly inferred) cache final_outcome is pr_created counts one PR as missing.
     """
     run = cache.get("run_record") or {}
-    decisions = [d for d in (run.get("decisions") or [])
-                 if isinstance(d, dict) and d.get("id") == "codex-review"]
-    with_url = []
-    without_url = []
-    for decision in decisions:
+    by_key = {}
+    for decision in run.get("decisions") or []:
+        if not isinstance(decision, dict) or decision.get("id") != "codex-review":
+            continue
         signals = decision.get("signals") or {}
         pr_url = signals.get("pr_url") or decision.get("pr_url")
         outcome = signals.get("outcome") or decision.get("outcome")
-        entry = {"pr_url": pr_url, "outcome": outcome if outcome in CODEX_REVIEW_OUTCOMES else "missing"}
-        (with_url if pr_url else without_url).append(entry)
-
-    # Assignment overwrites earlier records, making the terminal record win.
-    by_pr = {}
-    for entry in with_url:
-        by_pr[entry["pr_url"]] = entry
-    if by_pr:
-        return list(by_pr.values())
-    if run.get("final_outcome") == "pr_created":
-        if without_url:
-            return [without_url[-1]]
+        by_key[pr_url or signals.get("branch")] = {
+            "pr_url": pr_url, "outcome": outcome if outcome in CODEX_REVIEW_OUTCOMES else "missing"}
+    if by_key:
+        return list(by_key.values())
+    if cache.get("final_outcome") == "pr_created":
         return [{"pr_url": None, "outcome": "missing"}]
     return []
 
 
-def aggregate(caches, by: str) -> dict:
+UNLINKABLE_CAUSES = ("no project", "no timestamps")
+
+
+def unlink_cause(c: dict) -> str:
+    """Why an eligible run has no transcript. The first two cannot link by construction
+    (link_transcript needs a project dir and both timestamps)."""
+    if not c.get("project"):
+        return "no project"
+    if not c.get("started_at") or not c.get("completed_at"):
+        return "no timestamps"
+    return "no transcript matched"
+
+
+def _stat(vals):
+    vals = [v for v in vals if isinstance(v, (int, float))]
+    if not vals:
+        return None
+    return {"n": len(vals), "mean": round(statistics.fmean(vals), 3),
+            "median": round(statistics.median(vals), 3), "ci": list(bootstrap_ci(vals))}
+
+
+def aggregate(caches, by: str, keyfn=None) -> dict:
+    keyfn = keyfn or (lambda c: group_key(c, by))
     groups = {}
     for c in caches:
-        groups.setdefault(group_key(c, by), []).append(c)
+        groups.setdefault(keyfn(c), []).append(c)
     out = {}
     for key, members in groups.items():
         eligible = [c for c in members if c.get("eligible")]
-        metrics = {}
-        for m in METRICS:
-            vals = [c["metrics"].get(m.name) for c in eligible]
-            vals = [v for v in vals if isinstance(v, (int, float))]
-            if not vals:
-                metrics[m.name] = None
-                continue
-            metrics[m.name] = {"n": len(vals), "mean": round(statistics.fmean(vals), 3),
-                               "median": round(statistics.median(vals), 3),
-                               "ci": list(bootstrap_ci(vals))}
+        metrics = {m.name: _stat([c["metrics"].get(m.name) for c in eligible]) for m in METRICS}
+        cell_vals = {}
+        for c in eligible:
+            cell_vals.setdefault(f"{c.get('tier') or 'unknown'}/{c.get('plan_path') or 'none'}", []).append(
+                c["metrics"].get("interventions"))
         # Gate activation rates for this group's eligible runs
         gate_stats: dict = {}
         for c in eligible:
@@ -843,8 +971,10 @@ def aggregate(caches, by: str) -> dict:
             did: round(100 * v["true"] / v["total"], 1) if v["total"] else None
             for did, v in gate_stats.items()
         }
-        n_unlinked = sum(1 for c in eligible if c.get("link_method") == "unlinked")
-        quality_coverage = round((len(eligible) - n_unlinked) / len(eligible), 3) if eligible else None
+        unlinked = [c for c in eligible if c.get("link_method") == "unlinked"]
+        n_unlinked = len(unlinked)
+        denom = len(eligible) - sum(1 for c in unlinked if unlink_cause(c) in UNLINKABLE_CAUSES)
+        quality_coverage = round((len(eligible) - n_unlinked) / denom, 3) if denom > 0 else None
         review_prs = [(c, pr) for c in members for pr in codex_review_prs(c)]
         outcomes = {outcome: sum(1 for _, pr in review_prs if pr["outcome"] == outcome)
                     for outcome in (*CODEX_REVIEW_OUTCOMES, "missing")}
@@ -856,6 +986,8 @@ def aggregate(caches, by: str) -> dict:
             "n_runs": len(eligible), "n_all": len(members),
             "n_incomplete": len(members) - len(eligible),
             "n_unlinked": n_unlinked,
+            "n_inferred": sum(1 for c in eligible if c.get("outcome_inferred")),
+            "cells": {k: _stat(v) for k, v in cell_vals.items()},
             "quality_coverage": quality_coverage,
             "sufficient": len(eligible) >= MIN_SAMPLE,
             "metrics": metrics,
@@ -870,6 +1002,40 @@ def aggregate(caches, by: str) -> dict:
             },
         }
     return out
+
+
+def merge_versions(caches) -> dict:
+    """Map 'host/version' to a headline bucket: adjacent versions of one host are joined
+    (ascending) until the bucket has MIN_SAMPLE eligible runs; an undersized tail joins the
+    previous bucket. A host with one undersized bucket keeps it (insufficient). Legacy excluded."""
+    counts = {}
+    for c in caches:
+        k = group_key(c, "version")
+        if not is_legacy_key(k):
+            counts[k] = counts.get(k, 0) + (1 if c.get("eligible") else 0)
+    by_host = {}
+    for k in counts:
+        host, _, v = k.partition("/")
+        by_host.setdefault(host, []).append(v)
+    mapping = {}
+    for host, versions in by_host.items():
+        buckets, cur, n = [], [], 0
+        for v in sorted(versions, key=version_key):
+            cur.append(v)
+            n += counts[f"{host}/{v}"]
+            if n >= MIN_SAMPLE:
+                buckets.append(cur)
+                cur, n = [], 0
+        if cur:
+            if buckets:
+                buckets[-1] += cur
+            else:
+                buckets.append(cur)
+        for b in buckets:
+            label = f"{host}/{b[0]}" if len(b) == 1 else f"{host}/{b[0]}-{b[-1]}"
+            for v in b:
+                mapping[f"{host}/{v}"] = label
+    return mapping
 
 
 # ---------------------------------------------------------------- storage
@@ -913,6 +1079,10 @@ def _read_labels(path: str) -> dict:
     return {}
 
 
+def _judged_turns(cache: dict) -> int:
+    return sum(1 for t in cache.get("turns") or [] if t.get("label_source") in ("judge", "fallback"))
+
+
 def cmd_finalize(args) -> int:
     out = Path(args.out)
     caches = load_cache(out)
@@ -928,26 +1098,41 @@ def cmd_finalize(args) -> int:
         return 0
     labels = _read_labels(args.labels)
     fallbacks = 0
+    stamped = False
     for cache in caches.values():
+        before = _judged_turns(cache)
         fb = apply_labels(cache, labels)
-        if fb or any(t.get("label_source") == "judge" for t in cache.get("turns") or []):
+        if _judged_turns(cache) > before:
             cache["judge_model"] = args.judge_model
+            stamped = True
         cache["judge_fallbacks"] = (cache.get("judge_fallbacks") or 0) + fb
         fallbacks += fb
         compute_run_metrics(cache)
         save_cache(out, cache)
     ordered = sorted(caches.values(), key=lambda c: c.get("started_at") or "")
+    unlinked = [c for c in ordered if c.get("eligible") and c.get("link_method") == "unlinked"]
+    causes = {}
+    for c in unlinked:
+        causes[unlink_cause(c)] = causes.get(unlink_cause(c), 0) + 1
     snapshot = {
         "snapshot_id": dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         "created_at": now_iso(), "by": args.by, "plugin_version": args.plugin_version,
-        "rubric_version": RUBRIC_VERSION, "judge_model": args.judge_model,
+        "rubric_version": RUBRIC_VERSION, "judge_model": args.judge_model if stamped else None,
         "judge_fallbacks": fallbacks, "malformed_lines": 0,
         "groups": aggregate(ordered, args.by),
         "run_ids": sorted(caches),
         "unlinked": [{"run_id": c["run_id"], "project": c.get("project"), "ticket_id": c.get("ticket_id"),
-                      "reason": "no transcript matched"}
-                     for c in ordered if c.get("eligible") and c.get("link_method") == "unlinked"],
+                      "reason": unlink_cause(c)} for c in unlinked],
+        "unlinked_causes": causes,
     }
+    if args.by == "version":
+        bucket = merge_versions(ordered)
+        members = [c for c in ordered if group_key(c, "version") in bucket]
+        merged = aggregate(members, "version", keyfn=lambda c: bucket[group_key(c, "version")])
+        for label, grp in merged.items():
+            grp["versions"] = sorted((k for k, b in bucket.items() if b == label),
+                                     key=lambda k: version_key(k.partition("/")[2]))
+        snapshot["merged"] = merged
     # Guarantee unique ids when two finalize calls land in the same second.
     existing = {s["snapshot_id"] for s in load_snapshots(out)}
     while snapshot["snapshot_id"] in existing:
@@ -963,10 +1148,24 @@ def cmd_baseline(args) -> int:
         if not args.version:
             print("baseline set requires a version", file=sys.stderr)
             return 2
+        snaps = load_snapshots(out)
+        if not snaps:
+            print("baseline set: no snapshot found; run finalize first", file=sys.stderr)
+            return 2
+        snap = snaps[-1]
+        valid = [k for k in _sorted_groups(snap) if not is_legacy_key(k)]
+        value = args.version
+        if value not in valid:
+            matches = [k for k in valid if k.partition("/")[2] == value]
+            if len(matches) != 1:
+                print(f"baseline set: {value!r} is not a partition of snapshot {snap['snapshot_id']} "
+                      f"(by {snap.get('by', 'version')}). Valid: {', '.join(valid[:10]) or 'none'}", file=sys.stderr)
+                return 2
+            value = matches[0]
         out.mkdir(parents=True, exist_ok=True)
-        (out / "baseline.json").write_text(json.dumps({"version": args.version, "set_at": now_iso()}, indent=1),
+        (out / "baseline.json").write_text(json.dumps({"version": value, "set_at": now_iso()}, indent=1),
                                            encoding="utf-8")
-        print(f"baseline set to {args.version}")
+        print(f"baseline set to {value}")
         return 0
     b = load_baseline(out)
     print(f"baseline: {b['version']} (set {b['set_at']})" if b else "no baseline pinned")
@@ -987,38 +1186,55 @@ def delta(cur: dict, ref: dict) -> dict:
 
 
 def _group_sort_key(key: str, by: str):
-    """Sort key for a partition string of the form 'host/version-or-week'."""
+    """Sort key for 'host/version', 'host/first-last' (merged) or 'host/week'."""
     host, _, rest = key.partition("/")
     if by == "week":
         return (host, rest)
-    return (host, version_key(rest))
+    return (host, version_key(rest.split("-", 1)[0]))
 
 
-def _sorted_groups(snapshot: dict):
-    keys = list(snapshot["groups"])
+def _sorted_groups(snapshot: dict, groups=None):
+    groups = snapshot["groups"] if groups is None else groups
     by = snapshot.get("by", "version")
-    unknown_keys = [k for k in keys if k.endswith("/unknown") or k == "unknown"]
-    known_keys = [k for k in keys if k not in unknown_keys]
-    return sorted(known_keys, key=lambda k: _group_sort_key(k, by)) + sorted(unknown_keys)
+    legacy = sorted(k for k in groups if is_legacy_key(k))
+    known = [k for k in groups if not is_legacy_key(k)]
+    return sorted(known, key=lambda k: _group_sort_key(k, by)) + legacy
 
 
-def _sufficient_groups(snapshot: dict):
-    return [k for k in _sorted_groups(snapshot) if snapshot["groups"][k]["sufficient"]]
+def _sufficient_groups(snapshot: dict, groups=None):
+    groups = snapshot["groups"] if groups is None else groups
+    return [k for k in _sorted_groups(snapshot, groups) if groups[k]["sufficient"] and not is_legacy_key(k)]
 
 
-def latest_sufficient(snapshot: dict):
-    groups = _sufficient_groups(snapshot)
-    return groups[-1] if groups else None
+def latest_sufficient(snapshot: dict, groups=None):
+    keys = _sufficient_groups(snapshot, groups)
+    return keys[-1] if keys else None
+
+
+def headline_groups(snapshot: dict) -> dict:
+    """Partitions the headline compares: merged buckets (version mode), non-legacy weeks
+    (week mode), {} for a pre-N1-482 version snapshot."""
+    if "merged" in snapshot:
+        return snapshot["merged"]
+    if snapshot.get("by") == "week":
+        return {k: v for k, v in snapshot["groups"].items() if not is_legacy_key(k)}
+    return {}
 
 
 def pick_baseline_group(snapshot: dict, baseline):
-    sufficient = _sufficient_groups(snapshot)
-    if baseline and baseline.get("version") in snapshot["groups"]:
-        return baseline["version"], "pinned"
-    fallback = sufficient[0] if sufficient else None
-    if baseline:
-        return fallback, f"pinned baseline {baseline.get('version')} not found in this snapshot; using oldest sufficient version"
-    return fallback, "no baseline pinned; using oldest sufficient version"
+    hg = headline_groups(snapshot) or snapshot["groups"]
+    sufficient = _sufficient_groups(snapshot, hg)
+    host = sufficient[-1].partition("/")[0] if sufficient else None
+    fallback = next((k for k in sufficient if k.partition("/")[0] == host), None)
+    pinned = (baseline or {}).get("version")
+    if pinned:
+        if pinned in hg and not is_legacy_key(pinned):
+            return pinned, "pinned"
+        bucket = next((k for k, v in hg.items() if pinned in (v.get("versions") or [])), None)
+        if bucket:
+            return bucket, f"pinned {pinned}"
+        return fallback, f"pinned baseline {pinned} not in this snapshot; using oldest sufficient {host} partition"
+    return fallback, "no baseline pinned; using oldest sufficient partition"
 
 
 def _fmt_stat(s):
@@ -1047,11 +1263,12 @@ def _judge_reasons(turns):
 
 def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> str:
     g = snapshot["groups"]
+    hg = headline_groups(snapshot) or g
     lines = [f"# N1 Orchestrator Benchmark — snapshot {snapshot['snapshot_id']}", ""]
 
-    latest = latest_sufficient(snapshot)
-    if latest and baseline_group and baseline_group in g:
-        cur, ref = g[latest]["metrics"].get("interventions"), g[baseline_group]["metrics"].get("interventions")
+    latest = latest_sufficient(snapshot, hg)
+    if latest and baseline_group and baseline_group in hg:
+        cur, ref = hg[latest]["metrics"].get("interventions"), hg[baseline_group]["metrics"].get("interventions")
         if cur and ref:
             d = delta(cur, ref)
             lines.append(f"**{latest} vs baseline {baseline_group}** ({baseline_note}): interventions "
@@ -1095,11 +1312,11 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
             prev_key_by_host[host_part] = key
     lines.append("")
     lines.append("Cells: mean [95% bootstrap CI] (n). Deltas compare against the previous sufficient partition of the same host.")
-    # Note unknown partitions
-    unknown_keys = [k for k in _sorted_groups(snapshot) if k.endswith("/unknown") or k == "unknown"]
-    if unknown_keys:
-        total_unknown = sum(g[k]["n_all"] for k in unknown_keys)
-        lines.append(f"Note: {total_unknown} run(s) in unknown-host or unknown-version partitions: {', '.join(unknown_keys)}.")
+    legacy_keys = [k for k in _sorted_groups(snapshot) if is_legacy_key(k)]
+    if legacy_keys:
+        total_legacy = sum(g[k]["n_all"] for k in legacy_keys)
+        lines.append(f"Note: {total_legacy} run(s) in the legacy partition (unknown host or version): "
+                     f"{', '.join(legacy_keys)}; excluded from headline and baseline.")
     lines.append("")
 
     lines += ["## Codex review coverage", "",
@@ -1121,10 +1338,10 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     lines.append("")
 
     # Baseline comparison table
-    if latest and baseline_group and baseline_group in g and latest != baseline_group:
+    if latest and baseline_group and baseline_group in hg and latest != baseline_group:
         lines += [f"## {latest} vs baseline {baseline_group}", "", "| metric | baseline | latest | delta |", "|---|---|---|---|"]
         for m in METRICS:
-            cur, ref = g[latest]["metrics"].get(m.name), g[baseline_group]["metrics"].get(m.name)
+            cur, ref = hg[latest]["metrics"].get(m.name), hg[baseline_group]["metrics"].get(m.name)
             d = delta(cur, ref) if cur and ref else None
             lines.append(f"| {m.name} | {_fmt_stat(ref)} | {_fmt_stat(cur)} | {_fmt_delta(d, m.direction)} |")
         lines.append("")
@@ -1148,7 +1365,9 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
     lines += [f"- {k} ({g[k]['n_runs']} runs)" for k in insufficient] or ["- none"]
     lines.append("")
 
-    lines += ["## Unlinked runs", ""]
+    causes = snapshot.get("unlinked_causes") or {}
+    lines += ["## Unlinked runs", "",
+              "By cause: " + (", ".join(f"{k} {n}" for k, n in sorted(causes.items())) or "n/a"), ""]
     lines += [f"- {u['run_id']} ({u.get('project')}, {u.get('ticket_id')}): {u.get('reason')}"
               for u in snapshot.get("unlinked") or []] or ["- none"]
     lines.append("")
@@ -1192,9 +1411,101 @@ def render_report(snapshot, previous, baseline_group, baseline_note, caches) -> 
         lines.append("")
 
     lines.append(f"Snapshot {snapshot['snapshot_id']}, plugin {snapshot.get('plugin_version') or 'unknown'}, "
-                 f"rubric v{snapshot['rubric_version']}, judge {snapshot['judge_model']}, "
+                 f"rubric v{snapshot['rubric_version']}, judge {snapshot.get('judge_model') or 'none (no turns judged)'}, "
                  f"judge fallbacks {snapshot['judge_fallbacks']}, malformed lines {snapshot.get('malformed_lines', 0)}. "
                  f"Previous snapshot: {previous['snapshot_id'] if previous else 'none'}.")
+    return "\n".join(lines) + "\n"
+
+
+SUMMARY_TABLE_ROWS = 8
+SUMMARY_CELL_ROWS = 12
+
+
+def _fmt_pct(v):
+    return f"{v:.0%}" if v is not None else "n/a"
+
+
+def _mean_vs(cur, ref, direction="lower"):
+    if not cur:
+        return "n/a"
+    if not ref:
+        return f"{cur['mean']:g}"
+    return f"{cur['mean']:g}, {_fmt_delta(delta(cur, ref), direction)}"  # _fmt_delta already ends in "(better ...)"
+
+
+def _n(stat_or_none):
+    return stat_or_none["n"] if stat_or_none else 0
+
+
+def render_summary(snapshot, baseline_group, baseline_note, full_path) -> str:
+    """Printed report (N1-482): headline, data quality, sufficient partitions, tier/plan cells."""
+    g = snapshot["groups"]
+    hg = headline_groups(snapshot)
+    latest = latest_sufficient(snapshot, hg) if hg else None
+    compare = bool(latest and baseline_group in hg and latest != baseline_group)
+    lines = [f"# N1 Benchmark summary — snapshot {snapshot['snapshot_id']}", ""]
+    if not hg:
+        lines.append("Headline unavailable: this snapshot has no merged partitions; re-run finalize.")
+    elif compare:
+        cur, ref = hg[latest]["metrics"].get("interventions"), hg[baseline_group]["metrics"].get("interventions")
+        lines.append(f"**{latest} vs baseline {baseline_group}** ({baseline_note}): interventions {_mean_vs(cur, ref)}.")
+    elif latest:
+        lines.append(f"**{latest}** is the only sufficient partition ({baseline_note}); no comparison.")
+    else:
+        lines.append("No partition has a sufficient sample yet; trends are not computed.")
+    lines.append("")
+
+    real = [v for k, v in g.items() if not is_legacy_key(k)]
+    legacy_n = sum(v["n_all"] for k, v in g.items() if is_legacy_key(k))
+    causes = snapshot.get("unlinked_causes") or {}
+    lines += ["## Data quality", "",
+              f"- eligible runs: {sum(v['n_runs'] for v in real)} "
+              f"({sum(v.get('n_inferred', 0) for v in real)} with inferred outcome)",
+              f"- unlinked: {len(snapshot.get('unlinked') or [])} "
+              f"({', '.join(f'{k} {n}' for k, n in sorted(causes.items())) or 'causes n/a'})",
+              f"- legacy partition (unknown host or version): {legacy_n} run(s), excluded from headline and baseline"]
+    if latest:
+        review = hg[latest].get("codex_review") or {}
+        lines.append(f"- {latest}: quality_cov {_fmt_pct(hg[latest].get('quality_coverage'))}, "
+                     f"Codex reviewed {review.get('reviewed_prs', 0)}/{review.get('prs', 0)} PRs")
+    lines += [f"- judge {snapshot.get('judge_model') or 'none (no turns judged)'}, "
+              f"fallbacks {snapshot.get('judge_fallbacks', 0)}", ""]
+
+    suff = _sufficient_groups(snapshot, hg) if hg else []
+    shown = set(suff[-SUMMARY_TABLE_ROWS:])
+    lines += ["## Sufficient partitions (newest last; deltas vs previous partition of the same host)", "",
+              "| partition | runs | interventions | corrections | quality_cov | abandon_rate |",
+              "|---|---|---|---|---|---|"]
+    prev = {}
+    for k in suff:
+        host = k.partition("/")[0]
+        p, grp = prev.get(host), hg[k]
+        if k in shown:
+            row = [k, f"{grp['n_runs']}/{grp['n_all']}"]
+            for m in ("interventions", "corrections"):
+                row.append(_mean_vs(grp["metrics"].get(m), hg[p]["metrics"].get(m) if p else None))
+            row += [_fmt_pct(grp.get("quality_coverage")), _fmt_pct(grp.get("abandon_rate"))]
+            lines.append("| " + " | ".join(row) + " |")
+        prev[host] = k
+    if not suff:
+        lines.append("| none | | | | | |")
+    elif len(suff) > len(shown):
+        lines.append(f"{len(suff) - len(shown)} older partition(s) are in the full report.")
+    lines.append("")
+
+    if compare:
+        cur_cells, ref_cells = hg[latest].get("cells") or {}, hg[baseline_group].get("cells") or {}
+        keys = sorted(set(cur_cells) | set(ref_cells))
+        both = [k for k in keys if _n(cur_cells.get(k)) >= MIN_SAMPLE and _n(ref_cells.get(k)) >= MIN_SAMPLE]
+        lines += [f"## Interventions by tier/plan path: {latest} vs {baseline_group}", "",
+                  "| tier/plan | baseline | latest |", "|---|---|---|"]
+        for k in both[:SUMMARY_CELL_ROWS]:
+            lines.append(f"| {k} | {ref_cells[k]['mean']:g} (n={ref_cells[k]['n']}) | "
+                         f"{_mean_vs(cur_cells[k], ref_cells[k])} (n={cur_cells[k]['n']}) |")
+        if not both:
+            lines.append("| none with n>=5 on both sides | | |")
+        lines += [f"insufficient (n<5 on a side): {len(keys) - len(both)}", ""]
+    lines.append(f"full report: {full_path}")
     return "\n".join(lines) + "\n"
 
 
@@ -1214,12 +1525,13 @@ def cmd_report(args) -> int:
     snapshot = snaps[idx]
     previous = snaps[idx - 1] if idx > 0 else None
     baseline_group, note = pick_baseline_group(snapshot, load_baseline(out))
-    text = render_report(snapshot, previous, baseline_group, note, load_cache(out))
-    rp = out / "reports" / f"{snapshot['snapshot_id']}.md"
-    rp.parent.mkdir(parents=True, exist_ok=True)
-    rp.write_text(text, encoding="utf-8")
-    print(text)
-    print(f"report saved: {rp}")
+    rdir = out / "reports"
+    rdir.mkdir(parents=True, exist_ok=True)
+    full_path = rdir / f"{snapshot['snapshot_id']}.full.md"
+    full_path.write_text(render_report(snapshot, previous, baseline_group, note, load_cache(out)), encoding="utf-8")
+    summary = render_summary(snapshot, baseline_group, note, full_path)
+    (rdir / f"{snapshot['snapshot_id']}.md").write_text(summary, encoding="utf-8")
+    print(summary, end="")
     return 0
 
 
@@ -1258,7 +1570,7 @@ def build_parser():
     f.add_argument("--labels", required=True)
     f.add_argument("--by", choices=["version", "week"], default="version")
     f.add_argument("--plugin-version", default=None)
-    f.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    f.add_argument("--judge-model", default=None, help="model that labelled the ambiguous turns")
 
     r = sub.add_parser("report")
     common(r)

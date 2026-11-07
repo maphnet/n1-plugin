@@ -1,7 +1,7 @@
 ---
 name: n1-benchmark
 description: "Benchmark N1 as an orchestrator across plugin versions: counts human interventions (answers and corrections) per pipeline run from telemetry plus host transcripts (Claude Code projects or Codex rollouts), adds telemetry quality metrics, persists snapshots under ~/.n1/benchmark/, and reports deltas against the previous snapshot and a pinned baseline. Use when asked how N1 is trending, whether a version regressed, or to run the benchmark."
-argument-hint: "[--baseline <version>] [--by week] [--since YYYY-MM-DD] [--force]"
+argument-hint: "[--baseline <host/version>] [--by week] [--since YYYY-MM-DD] [--force]"
 model: sonnet
 effort: medium
 ---
@@ -15,7 +15,7 @@ All deterministic work is done by `scripts/benchmark.py`. This skill only drives
 ## 1. Resolve paths
 
 ```bash
-N1_ROOT="${CLAUDE_PLUGIN_ROOT}"; [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
+N1_ROOT="${CLAUDE_PLUGIN_ROOT:-}"; [ -n "$N1_ROOT" ] && [ -d "$N1_ROOT/lib" ] || N1_ROOT=$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.n1/host.json")))["pluginRoot"])')
 source "$N1_ROOT/lib/config.sh"
 SCRIPT="$N1_ROOT/scripts/benchmark.py"
 OUT="${HOME}/.n1/benchmark"
@@ -27,11 +27,13 @@ If `~/.n1` does not exist, tell the user N1 is not configured and stop.
 
 ## 2. Pin baseline if requested
 
-If the arguments contain `--baseline <version>`:
+If the arguments contain `--baseline <partition>` (a `host/version` key such as `claude-code/5.60.0`, a bare version that matches one key, or a `host/YYYY-Www` key for week snapshots):
 
 ```bash
-python3 "$SCRIPT" baseline set <version> --out "$OUT"
+python3 "$SCRIPT" baseline set <partition> --out "$OUT"
 ```
+
+It is checked against the latest snapshot. On a non-zero exit, show its stderr (the valid keys) and continue without pinning.
 
 ## 3. Collect
 
@@ -69,13 +71,13 @@ Parse each agent's reply as JSON. If a reply is not valid JSON, retry that batch
 ## 5. Finalize and report
 
 ```bash
-python3 "$SCRIPT" finalize --labels "$WORK/labels.json" --out "$OUT" --plugin-version "$PLUGIN_VERSION" [--by week]
+python3 "$SCRIPT" finalize --labels "$WORK/labels.json" --out "$OUT" --plugin-version "$PLUGIN_VERSION" --judge-model haiku [--by week]
 python3 "$SCRIPT" report --out "$OUT" [--by week]
 rm -rf "$WORK"
 ```
 
-Print the report exactly as the script emitted it. Do not summarize it away; the user wants the tables. The report includes per-version metric tables, a baseline comparison, drift vs. the previous snapshot, a "Worst runs" section, and a "Tool efficiency" section showing `bash_calls_per_run` and `api_calls_per_run` (Bash and total tool invocations by the orchestrator). After it, add at most three sentences of interpretation, and mention if the unlinked list or the insufficient list is long.
+Print the summary exactly as the script emitted it (under 80 lines: headline vs baseline, data quality, sufficient partitions, tier/plan-path comparison). Do not print the full report; its path is the summary's last line. After the summary, add at most three sentences of interpretation, and mention it if the legacy count or an unlinked cause is large.
 
 ## Storage
 
-`~/.n1/benchmark/runs/<run_id>.json` (per-run cache, never re-judged), `snapshots/<id>.json`, `reports/<id>.md`, `baseline.json`. To re-judge everything after a rubric change, run with `--force`.
+`~/.n1/benchmark/runs/<run_id>.json` (per-run cache, never re-judged), `snapshots/<id>.json`, `reports/<id>.md` (summary), `reports/<id>.full.md` (full report), `baseline.json`. To re-judge everything after a rubric change, run with `--force`.
