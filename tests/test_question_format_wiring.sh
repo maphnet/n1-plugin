@@ -69,6 +69,7 @@ check "ticket-watch-react: Re-plan carries a works-when note" 'Re-plan: works wh
 pointer skills/n1-brainstorm/SKILL.md
 lacks "n1-brainstorm: no bare-word recommended answer" 'with a recommended answer for each' skills/n1-brainstorm/SKILL.md
 lacks "n1-brainstorm: no bare-word recommended approach" 'accept the recommended one' skills/n1-brainstorm/SKILL.md
+pointer agents/brainstormer.md
 # --- n1-clean
 lacks "n1-clean: prompt moved out of SKILL.md" 'Remove all Stale and Completed \(Recommended' skills/n1-clean/SKILL.md
 
