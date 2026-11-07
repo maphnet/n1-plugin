@@ -60,7 +60,8 @@ check "pre-existing never listed as soft" 'Never list a ` \(pre-existing\)` find
 check "pre-existing handled before routing on PASS or FAIL" '^\*\*Pre-existing\*\* \(PASS or FAIL, before routing\)' "$RP"
 check "pre-existing Medium/Low filed via followup-filing" 'Medium/Low: append to `## Follow-ups` per `<N1_ROOT>/references/followup-filing\.md` § Append \(source `review`\)' "$RP"
 check "pre-existing Critical/High escalates" 'Critical/High or any other or unparsed severity: § Autonomy Gate' "$RP"
-check "pre-existing prompt: no recommendation" 'No recommendation\. The options are equivalent given the available evidence; select based on team preference\. 1\. File as follow-up' "$RP"
+check "pre-existing prompt: Fix now recommended with external evidence (N1-284)" '1\. Fix now \(Recommended\): treat as in-diff.*NIST SP 800-218 RV\.2.*2\. File as follow-up \(§ Append\) and proceed: works when ' "$RP"
+check_absent "pre-existing prompt: no equivalence sentence (N1-284)" 'No recommendation.' "$RP"
 check "non-pre-existing hard findings still FAIL" 'Other Critical/High/`\[RULE-N\]` always FAIL' "$R"
 check "Exhausted gate: in-diff non-Low SEC blocks auto-resolve" 'No open in-diff non-Low `\[SEC-N\]` or security-class finding' "$F"
 

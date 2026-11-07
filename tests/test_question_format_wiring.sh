@@ -59,7 +59,7 @@ check "11-rules: starter rules normalised with evidence" '^1 — Yes, generate s
 lacks_tree "no lowercase (recommended) mark under skills/" '\(recommended\)' skills
 
 # --- n1-start
-for f in steps/analysis.md steps/fix.md steps/investigation-deliverable.md procedures/ticket-watch-react.md; do
+for f in steps/analysis.md steps/fix.md steps/investigation-deliverable.md procedures/ticket-watch-react.md procedures/review-preexisting.md; do
     pointer "skills/n1-start/$f"
 done
 check "fix.md keeps the pinned mark on option 1" 'Always mark \(Recommended\) on 1' skills/n1-start/steps/fix.md
