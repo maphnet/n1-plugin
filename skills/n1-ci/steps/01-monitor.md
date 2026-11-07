@@ -23,9 +23,13 @@ find "$N1_HOME/scratch" -maxdepth 1 -name 'reconcile-start-*' -mtime +1 -delete 
 RECONCILE_START_FILE=$(mktemp "$N1_HOME/scratch/reconcile-start-$PR_NUMBER.XXXXXX")
 gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid > "$RECONCILE_START_FILE" 2>/dev/null || true
 echo "reconcile:start file=$RECONCILE_START_FILE"
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+CK=$(gh pr checks "$PR_NUMBER" --json name --jq length 2>&1)
+if [ -n "$ROOT" ] && ! ls "$ROOT"/.github/workflows/*.y*ml >/dev/null 2>&1 \
+   && { [ "$CK" = 0 ] || [[ "$CK" == *"no checks reported"* ]]; }; then echo "ci:none"; fi
 ```
 
-Carry `$RECONCILE_START_FILE` forward into Step 4 / Step 7a (in 02-fix.md), the same way `<D>` is carried from `reconcile:run dir=`.
+`ci:none` means no CI: the worktree has no `.github/workflows/*.y*ml` file and the PR has no registered checks. Any other result (a workflow file, a positive check count, a gh error) prints nothing and Step 3 polls as before. Carry `$RECONCILE_START_FILE` forward into Step 4 / Step 7a (in 02-fix.md), the same way `<D>` is carried from `reconcile:run dir=`.
 
 ## Step 2: Read CI Check Config
 
@@ -50,6 +54,8 @@ From config:
 **The poll command** (never print raw check JSON): `gh pr checks <PR#> --json name,bucket,link --jq '"total=\(length) pending=\([.[]|select(.bucket=="pending")]|length)", (.[]|select(.bucket=="fail" or .bucket=="cancel")|"FAIL\t\(.name|gsub("[\t\n\r]";" "))\t\(.link|gsub("[\t\n\r]";" "))")'` prints `total=<n> pending=<n>` plus one `FAIL<TAB>name<TAB>link` line per failed or cancelled check. No `total=` line (gh reports no checks) or `total=0` → none registered yet; `pending>0` → still running.
 
 > **Polling discipline:** Each poll is a **separate shell command**. NEVER combine into a bash loop. `sleep 30` between polls as a standalone command. Every poll result must be visible in reasoning context.
+
+**If Step 1 printed `ci:none`**: print "No CI: no workflow files and no checks registered." and end n1-ci as no checks configured (a skipped CI step): no sleep, no poll, no Step 7a, no fix loop.
 
 ### Phase 1 — Wait for registration (up to 15 min; 2 min on a non-default base)
 
