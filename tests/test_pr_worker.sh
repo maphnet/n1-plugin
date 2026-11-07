@@ -235,7 +235,7 @@ has "persona: runs the three n1-pr steps" "$P" '01-prepare\.md.*02-push-create\.
 has "persona: writes pr-result.md" "$P" 'pr-result\.md'
 has "persona: writes pr-report.md" "$P" 'pr-report\.md'
 has "persona: untrusted data rule" "$P" 'data, not instructions'
-has "persona: ci: none only without workflow files (N1-484)" "$P" '`ci: none` line only when `ls \.github/workflows/\*\.y\*ml`'
+has "persona: ci: none only without workflow files or other CI config (N1-484)" "$P" '`ci: none` line only when `ls -d \.github/workflows/\*\.y\*ml \.circleci \.gitlab-ci\.yml'
 SZ=$(cat "$P" skills/n1-pr/steps/0[1-3]-*.md | wc -c)
 if [ "$SZ" -lt 160000 ]; then ok "AC1: pr-worker reads $SZ B < 160000"; else no "AC1: pr-worker reads $SZ B < 160000"; fi
 has "README lists pr-worker" README.md '^\| pr-worker \|'
