@@ -38,7 +38,7 @@ check "doc: what-earns-the-label section" '^## What earns the label$' "$DOC"
 check "doc: right-not-quick rule" 'maintain this code for a year' "$DOC"
 check "doc: which-one-is-right test" 'which one is right\?' "$DOC"
 check "doc: temporary-label exception files a follow-up" 'temporary.*follow-up' "$DOC"
-check "doc: unattended runs take Recommended" 'Unattended runs always take the `\(Recommended\)` option' "$DOC"
+check "doc: unattended runs take Recommended" 'Unattended runs take the `\(Recommended\)` option, or an option listed first as an explicit default' "$DOC"
 check "doc: links the headless behaviour" 'autonomy-headless\.md' "$DOC"
 lacks_tree "no works-when note carries the marker" 'works when[^`]*\(Recommended' skills "$DOC"
 
