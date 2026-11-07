@@ -2369,7 +2369,7 @@ EOF
         "$(PATH="$tmp/bin:$PATH" n1_queue_reconcile "$q" force)"
     stop_fake_runner
     assert_eq "runner: Done reconciles with force before queue_done" "yes" \
-        "$(awk '/^n1_queue_reconcile "\$QUEUE" force/ { r = NR } /^ev queue_done/ { d = NR } END { print (r && d && r < d) ? "yes" : "no" }' "$REPO_ROOT/scripts/n1-queue-run.sh")"
+        "$(awk '/n1_queue_reconcile "\$QUEUE" force/ { r = NR } /^ev queue_done/ { d = NR } END { print (r && d && r < d) ? "yes" : "no" }' "$REPO_ROOT/scripts/n1-queue-run.sh")"
 }
 
 # N1-481: --close verifies every row is settled, then removes worktrees, identity files and the queue dir.
