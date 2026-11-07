@@ -323,7 +323,7 @@ n1_merge_pending() {
         sid=$(n1_hook_field session_id < "$lock")
         [ -n "$me" ] && [ "$sid" = "$me" ] && continue
         pid=""; ptr="$home/active-run.$sid.json"
-        case "$sid" in ''|*[!a-zA-Z0-9_-]*) ;; *) [ -f "$ptr" ] && pid=$(grep -o '"pid"[[:space:]]*:[[:space:]]*[0-9]*' "$ptr" | head -1 | grep -o '[0-9]*$') ;; esac   # pid is unquoted: n1_hook_field misses it without jq
+        case "$sid" in ''|*[!a-zA-Z0-9_-]*) ;; *) [ -f "$ptr" ] && pid=$(grep -o '"pid"[[:space:]]*:[[:space:]]*[0-9]*' "$ptr" | head -1 | grep -o '[0-9]*$' || true) ;; esac   # pid is unquoted: n1_hook_field misses it without jq
         _n1_owner_alive "$pid" && continue
         ticket="${tdir%/telemetry}"; ticket="${ticket##*/}"
         n1_abandon_run "$tdir" "$run" "$ticket" "$(n1_hook_field n1_version < "$lock")"
