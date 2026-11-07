@@ -132,7 +132,7 @@ awk '/^## Slack$/{f=1; next} /^## /{f=0} f' "$N1_HOME/releases/<TAG>.md"
 ```
 Tracker release:
   Version:     "<VERSION_NAME>" -- created and released / already existed / skipped (jc-mcp not configured)
-  Fix version: set on <IDs> / skipped (jc-mcp not configured) / skipped (tracker server <tracker.mcp> not available)
+  Fix version: verified on <IDs>[, NOT verified on <IDs>][, unchecked <IDs>] / skipped (jc-mcp not configured) / skipped (tracker server <tracker.mcp> not available)
   Tickets:     <N> moved to "<target>" / skipped (no status configured) / skipped (tracker server <tracker.mcp> not available)
 ```
 
@@ -156,5 +156,5 @@ Release notes are idempotent: the notes file is overwritten, the Confluence page
 - **Standalone** -- `/n1:n1-release`
 
 **Invokes:**
-- Inline: `gh` CLI (release view/create, auth status, PR body read/edit, run list/view), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit, Confluence article search/get/create/update and space lookup for release notes), `lib/poll.sh` (`n1_wait_release_runs` deploy watch; `n1_wait_parse_marker`, `n1_wait_step` for custom-procedure poll/monitor steps), `lib/config.sh` (`n1_release_autorun_enabled`), `lib/validation.sh` (`n1_release_vars_valid`), `references/ci-detection.md` (deployment pipeline detection), `references/deployment-actions.md` (deployment actions)
+- Inline: `gh` CLI (release view/create, auth status, PR body read/edit, run list/view), git (tag, push), tracker MCP operations (comment, transitions, version create/release, fix version edit and read-back search, Confluence article search/get/create/update and space lookup for release notes), `lib/poll.sh` (`n1_wait_release_runs` deploy watch; `n1_wait_parse_marker`, `n1_wait_step` for custom-procedure poll/monitor steps), `lib/config.sh` (`n1_release_autorun_enabled`), `lib/validation.sh` (`n1_release_vars_valid`), `references/ci-detection.md` (deployment pipeline detection), `references/deployment-actions.md` (deployment actions)
 - No agent spawns -- thin controller, orchestration only
