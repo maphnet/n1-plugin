@@ -46,7 +46,10 @@ n1_testparse_failed_names() {
         }
         # unittest error: "ERROR: test_x (module.Class)" or "(module.Class.test_x)". Anchored on the dotted-path
         # paren group so generic "ERROR: <message>" log lines are not taken for test names.
-        /^ERROR: [^ ]+ \([A-Za-z_][A-Za-z0-9_.]*\)[[:space:]]*$/ {
+        # Import failures (unittest.loader._FailedTest) and class/module fixture errors are not test names:
+        # they stay inconclusive instead of becoming a never-red verdict.
+        /^ERROR: [^ ]+ \([A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.]*\)[[:space:]]*$/ {
+            if ($3 ~ /^\(unittest\.loader\./ || $2 ~ /^(setUpClass|setUpModule|tearDownClass|tearDownModule)$/) next
             print $2; next
         }
     ' | awk 'NF' | sort -u

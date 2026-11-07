@@ -83,6 +83,11 @@ assert_eq "unittest 3.11+ ERROR name" "test_y" "$(n1_testparse_failed_names "$T/
 printf 'ERROR: something failed\nERROR: could not connect (host down)\n' > "$T/generic_error.txt"
 assert_eq "generic ERROR log lines are not test names" "" "$(n1_testparse_failed_names "$T/generic_error.txt")"
 
+printf 'ERROR: tests.test_mod (unittest.loader._FailedTest.tests.test_mod)\n' > "$T/unittest_import.txt"
+assert_eq "unittest import-failure ERROR is not a test name" "" "$(n1_testparse_failed_names "$T/unittest_import.txt")"
+printf 'ERROR: setUpClass (mod.Class)\nERROR: setUpModule (mod)\nERROR: tearDownClass (mod.Class)\nERROR: tearDownModule (mod.Class)\n' > "$T/unittest_fixture.txt"
+assert_eq "unittest fixture ERRORs are not test names" "" "$(n1_testparse_failed_names "$T/unittest_fixture.txt")"
+
 printf 'PASS: adds positive\nPASS: shows total|auto (hook ignored)\nFAIL: adds negative\n' > "$T/n1_pass.txt"
 assert_eq "n1 PASS names (trailing paren stripped, pipe kept)" "$(printf 'adds positive\nshows total|auto')" "$(n1_testparse_passed_names "$T/n1_pass.txt")"
 assert_eq "go PASS name" "TestAddPositive" "$(n1_testparse_passed_names "$T/go.txt")"
