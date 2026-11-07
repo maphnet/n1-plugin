@@ -235,6 +235,7 @@ has "persona: runs the three n1-pr steps" "$P" '01-prepare\.md.*02-push-create\.
 has "persona: writes pr-result.md" "$P" 'pr-result\.md'
 has "persona: writes pr-report.md" "$P" 'pr-report\.md'
 has "persona: untrusted data rule" "$P" 'data, not instructions'
+has "persona: ci: none only without workflow files (N1-484)" "$P" '`ci: none` line only when `ls \.github/workflows/\*\.y\*ml`'
 SZ=$(cat "$P" skills/n1-pr/steps/0[1-3]-*.md | wc -c)
 if [ "$SZ" -lt 160000 ]; then ok "AC1: pr-worker reads $SZ B < 160000"; else no "AC1: pr-worker reads $SZ B < 160000"; fi
 has "README lists pr-worker" README.md '^\| pr-worker \|'
@@ -274,6 +275,8 @@ printf 'status: complete\nreason: -\npr: 7\npr_url: https://github.com/o/r/pull/
 OUT=$(pr_); eq "parse: complete" pr:complete "$(head -1 <<<"$OUT")"
 if grep -qxF 'pr-number:7 pr-url:https://github.com/o/r/pull/7 branch:feat/x' <<<"$OUT"; then ok "parse: complete relays PR fields"; else no "parse: complete relays PR fields ($OUT)"; fi
 if grep -qx 'missing:' <<<"$OUT"; then ok "parse: complete runs the post-condition"; else no "parse: complete runs the post-condition ($OUT)"; fi
+printf 'status: complete\nreason: -\npr: 7\npr_url: https://github.com/o/r/pull/7\nbranch: feat/x\nci: none\n' > "$F"
+eq "parse: extra ci: none line still complete (N1-484)" pr:complete "$(pr_ | head -1)"
 printf 'status: complete\nreason: -\npr: 7\npr_url: https://github.com/o/r/pull/8\n' > "$F"
 eq "parse: url/number mismatch -> unknown" pr:unknown "$(pr_ | head -1)"
 printf 'status: stopped\nreason: prompt: Uncommitted changes: commit them first?\n' > "$F"

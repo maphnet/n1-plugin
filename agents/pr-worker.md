@@ -37,6 +37,8 @@ pr_url: <PR URL>
 branch: <branch name>
 ```
 
+Append a `ci: none` line only when `ls .github/workflows/*.y*ml` run in `<worktree>` finds no file; otherwise omit the line, and n1-ci decides.
+
 Write both files with the file-write mechanism (`<n1_root>/references/file-write-mechanism.md`), never through a shell command.
 
 ## Return
