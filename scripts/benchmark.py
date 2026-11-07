@@ -92,7 +92,8 @@ def count_tool_calls(path: Path):
 
 
 _ANSWERED_PREFIX = "Your questions have been answered:"
-_FREE_TEXT_RE = re.compile(r'The user answered: "(.*)"', re.S)
+_USER_ANSWERED_PREFIX = "The user answered:"
+_FREE_TEXT_RE =re.compile(r'The user answered: "(.*)"', re.S)
 
 
 def _result_text(item: dict) -> str:
@@ -112,12 +113,17 @@ def _parse_answers(text: str, questions):
     """Map question text -> answer from an AskUserQuestion result. Splits on the known question
     strings, never on a generic quote regex, because free text can contain quotes."""
     text = text.strip()
-    m = _FREE_TEXT_RE.match(text)
-    if m:
-        return {questions[0]: m.group(1)} if len(questions) == 1 else {}
-    if not text.startswith(_ANSWERED_PREFIX):
+    body = None
+    if text.startswith(_ANSWERED_PREFIX):
+        body = text[len(_ANSWERED_PREFIX):]
+    elif text.startswith(_USER_ANSWERED_PREFIX) and any(
+            qt and f'"{qt}"="' in text for qt in questions):
+        body = text[len(_USER_ANSWERED_PREFIX):]  # Claude Code's per-question form
+    if body is None:
+        m = _FREE_TEXT_RE.match(text)
+        if m:
+            return {questions[0]: m.group(1)} if len(questions) == 1 else {}
         return {}
-    body = text[len(_ANSWERED_PREFIX):]
     found = sorted((body.find(f'"{qt}"="'), qt) for qt in questions if qt and f'"{qt}"="' in body)
     out = {}
     for i, (pos, qt) in enumerate(found):

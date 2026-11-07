@@ -662,6 +662,18 @@ class ReadAnswersTest(unittest.TestCase):
             ask_use(self.T0, "a1", [self.DB]),
             ask_result(self.T1, "a1", 'The user answered: "use "both", really"')]), (0, 1))
 
+    def test_user_answered_prefix_with_multiple_questions_counts_both(self):
+        cache_q = q("Cache?", ["Redis (Recommended)", "None"])
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB, cache_q]),
+            ask_result(self.T1, "a1", 'The user answered: "Pick DB?"="SQLite (Recommended)", '
+                                      '"Cache?"="None"')]), (1, 2))
+
+    def test_user_answered_prefix_with_single_question_recommended_is_followed(self):
+        self.assertEqual(self.answers([
+            ask_use(self.T0, "a1", [self.DB]),
+            ask_result(self.T1, "a1", 'The user answered: "Pick DB?"="SQLite (Recommended)"')]), (1, 1))
+
     def test_quotes_inside_an_answer_do_not_shift_the_next_one(self):
         a = q("A?", ["A1 (Recommended)", "A2"])
         b = q("B?", ["B1 (Recommended)", "B2"])
