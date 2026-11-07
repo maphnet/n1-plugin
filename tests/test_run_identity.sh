@@ -2,7 +2,8 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
-trap 'rm -rf "$T"' EXIT
+LIVE=""
+trap 'kill $LIVE 2>/dev/null || true; rm -rf "$T"' EXIT
 unset N1_RUN_ID N1_VERSION N1_TRANSCRIPT_PATH N1_PARENT_SESSION_ID CLAUDE_CODE_SESSION_ID
 export N1_HOME="$T/project" N1_STATE_DIR="$T/state"
 source "$ROOT/lib/telemetry.sh"
@@ -211,3 +212,56 @@ echo 'PASS: n1_close_run with ID unset derives the ticket from the run lock, no-
 ERR=$(bash -c "source '$ROOT/lib/preamble.sh' >/dev/null 2>&1; unset N1_RUN_ID; ID=NP-NONE; n1_step_begin ticket 1" 2>&1 >/dev/null)
 case "$ERR" in *"no run bound for NP-NONE"*) ;; *) echo "missing step-begin diagnostic: $ERR" >&2; exit 1 ;; esac
 echo 'PASS: unbound step begin is reported on stderr'
+
+# --- n1_merge_pending recovers runs whose session ended without finalize (N1-486) ---
+# Live owner: a process whose cmdline contains "claude" (test_owner_guard.sh pattern); dead pid: unused pid.
+AB="$T/abandon/home"; mkdir -p "$AB/memory"
+SLEEP_BIN=$(readlink -f "$(command -v sleep)")
+ln -s "$(command -v sleep)" "$T/claude"
+"$T/claude" 60 & LIVE=$!
+if [ -r "/proc/$$/cmdline" ]; then
+    for _ in $(seq 50); do [ "$(readlink "/proc/$LIVE/exe" 2>/dev/null)" = "$SLEEP_BIN" ] && break; sleep 0.1; done
+fi
+DEAD=99999; while kill -0 "$DEAD" 2>/dev/null; do DEAD=$((DEAD-1)); done
+abrun() { # <ticket> <run> <session> <pid|-|none> <aged 1|0>   "-" = pointer without pid, none = no pointer
+    local td="$AB/memory/$1/telemetry"
+    mkdir -p "$td/locks" "$td/raw/steps" "$td/raw/agents" "$td/runs"
+    printf '{"run_id":"%s","n1_version":"9.9.9","ticket_id":"%s","host":"claude-code","session_id":"%s"}\n' "$2" "$1" "$3" > "$td/locks/$2.json"
+    cp "$td/locks/$2.json" "$td/telemetry.lock"
+    printf '{"layer":"envelope","run_id":"%s","session_id":"%s","started_at":"2026-01-01T00:00:00Z"}\n' "$2" "$3" > "$td/raw/steps/$2.jsonl"
+    case "$4" in
+        none) ;;
+        -) printf '{"ticketId":"%s","runId":"%s","worktreePath":null,"branch":""}\n' "$1" "$2" > "$AB/active-run.$3.json" ;;
+        *) printf '{"ticketId":"%s","runId":"%s","worktreePath":null,"branch":"","pid":%s}\n' "$1" "$2" "$4" > "$AB/active-run.$3.json" ;;
+    esac
+    [ "$5" = 0 ] || touch -d '2 days ago' "$td/raw/steps/$2.jsonl" "$td/locks/$2.json"
+}
+abrun AB-DEAD n1-run-abdead s-dead "$DEAD" 1
+printf -- '---\ntype: bug\ntier: standard\n---\n' > "$AB/memory/AB-DEAD/overview.md"
+echo '{"run_id":"n1-run-abdead","layer":"agent","event":"start","agent_id":"a1","agent_type":"developer"}' \
+    > "$AB/memory/AB-DEAD/telemetry/raw/agents/n1-run-abdead.jsonl"     # unmatched agent start must not block
+abrun AB-LIVE n1-run-ablive s-live "$LIVE" 1        # AC2: live owner, however old
+abrun AB-FRESH n1-run-abfresh s-fresh - 0           # pid-less pointer, active within 24h
+abrun AB-LEGACY n1-run-ablegacy s-legacy - 1        # pid-less pointer, idle: age decides
+abrun AB-NOPTR n1-run-abnoptr s-noptr none 1        # pointer cleared (handoff), idle
+abrun AB-SELF n1-run-abself s-self none 1           # the current session's own lock
+( export N1_HOME="$AB" N1_SESSION_ID=s-self; unset N1_RUN_ID; n1_merge_pending "$AB/memory" )
+abandoned() { # <ticket> <run>: merged as abandoned, both locks gone
+    grep -Eq '"final_outcome": ?"abandoned"' "$AB/memory/$1/telemetry/runs/$2.jsonl" 2>/dev/null \
+        && [ ! -e "$AB/memory/$1/telemetry/locks/$2.json" ] && [ ! -e "$AB/memory/$1/telemetry/telemetry.lock" ]
+}
+untouched() { # <ticket> <run>: lock kept, nothing merged, no close written
+    [ -f "$AB/memory/$1/telemetry/locks/$2.json" ] && [ ! -e "$AB/memory/$1/telemetry/runs/$2.jsonl" ] \
+        && ! grep -q envelope_close "$AB/memory/$1/telemetry/raw/steps/$2.jsonl"
+}
+for c in AB-DEAD:n1-run-abdead AB-LEGACY:n1-run-ablegacy AB-NOPTR:n1-run-abnoptr; do
+    abandoned "${c%%:*}" "${c#*:}" || { echo "FAIL: $c not merged as abandoned" >&2; exit 1; }
+done
+grep envelope_close "$AB/memory/AB-DEAD/telemetry/raw/steps/n1-run-abdead.jsonl" \
+    | jq -e '.final_outcome == "abandoned" and .type == "bug" and .estimated_tier == "standard" and .ticket_id == "AB-DEAD"' >/dev/null \
+    || { echo 'FAIL: abandoned envelope lacks overview type/tier' >&2; exit 1; }
+for c in AB-LIVE:n1-run-ablive AB-FRESH:n1-run-abfresh AB-SELF:n1-run-abself; do
+    untouched "${c%%:*}" "${c#*:}" || { echo "FAIL: $c was merged" >&2; exit 1; }
+done
+kill "$LIVE" 2>/dev/null || true
+echo 'PASS: n1_merge_pending abandons dead idle runs and keeps live, fresh and own runs (N1-486)'

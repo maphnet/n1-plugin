@@ -303,21 +303,33 @@ n1_emit_outcome() {
         "$(escape_json_val "$run_id")" "$(escape_json_val "$version")" "$(escape_json_val "$ticket_id")" "$outcomes" "$ts" >> "$file"
 }
 
+# n1_merge_pending <memory_dir> (N1-486): SessionStart recovery over every run lock, any session.
+# Abandon (n1_abandon_run: envelope, merge, lock removal) only when the lock is not this session's,
+# its owner pointer has no live claude pid (_n1_owner_alive), and the run is idle > 24h
+# (raw/steps/<run>.jsonl mtime, lock mtime fallback). Pending agent starts do not block.
+# A missing or pid-less pointer is no liveness signal: the idle rule alone decides. Always returns 0.
+# ponytail: 20 abandons per call so a backlog drains over several starts; raise if starts get rare.
 n1_merge_pending() {
-    local memory_dir="$1"
-    n1_read_lock "$memory_dir" || return 0
-
-    local merged_file="${N1_LOCK_TELEM_DIR}/runs/${N1_LOCK_RUN_ID}.jsonl"
-    local saved_run_id="$N1_LOCK_RUN_ID"
-
-    if [ ! -s "$merged_file" ]; then
-        local merge_script
-        merge_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../hooks/telemetry-merge.sh"
-        bash "$merge_script" "$N1_LOCK_RUN_ID" "$N1_LOCK_TELEM_DIR" 2>/dev/null || true
-    fi
-
-    # Remove lock only if merged output exists and lock still belongs to the stale run
-    [ ! -s "$merged_file" ] || n1_remove_run_lock "$N1_LOCK_TELEM_DIR" "$saved_run_id"
+    local memory_dir="$1" home me lock tdir run sid ptr pid ref ticket n=0
+    home="${memory_dir%/memory}"; me=$(n1_session_id)
+    for lock in "$memory_dir"/*/telemetry/locks/*.json "$memory_dir"/*/telemetry/telemetry.lock; do
+        [ "$n" -lt 20 ] || break
+        [ -f "$lock" ] || continue
+        case "$lock" in */locks/*) tdir="${lock%/locks/*}" ;; *) tdir="${lock%/telemetry.lock}" ;; esac
+        run=$(n1_hook_field run_id < "$lock")
+        _n1_valid_run_id "$run" || continue
+        ref="$tdir/raw/steps/$run.jsonl"; [ -f "$ref" ] || ref="$lock"
+        [ -z "$(find "$ref" -mmin -1440 2>/dev/null)" ] || continue   # cheap idle gate first: no jq for fresh locks
+        sid=$(n1_hook_field session_id < "$lock")
+        [ -n "$me" ] && [ "$sid" = "$me" ] && continue
+        pid=""; ptr="$home/active-run.$sid.json"
+        case "$sid" in ''|*[!a-zA-Z0-9_-]*) ;; *) [ -f "$ptr" ] && pid=$(n1_hook_field pid < "$ptr") ;; esac
+        _n1_owner_alive "$pid" && continue
+        ticket="${tdir%/telemetry}"; ticket="${ticket##*/}"
+        n1_abandon_run "$tdir" "$run" "$ticket" "$(n1_hook_field n1_version < "$lock")"
+        n=$((n+1))
+    done
+    return 0
 }
 
 # n1_record_decision <decision_id> <result:true|false> [<condition_json>] [key=value ...]
