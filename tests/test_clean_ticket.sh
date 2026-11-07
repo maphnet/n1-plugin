@@ -136,5 +136,15 @@ eq "W9: missing tree listed" yes "$(yn grep -qxF "$(printf '%s\tbs3\tplain\tmiss
 eq "W9: main checkout excluded" 0 "$(grep -c "^$M	" <<<"$D1")"
 eq "W9: four fields per line" 0 "$(awk -F'\t' 'NF!=4' <<<"$D1" | wc -l | tr -d ' ')"
 
+# N1-277: a Finish written by n1_clean_ticket also clears the awaiting-merge marker (both shapes); pr_url stays readable.
+mkdir -p "$N1_HOME/memory/K-77"; O77="$N1_HOME/memory/K-77/overview.md"
+printf -- '---\nstep: pr\nawaiting: merge\n---\n# K-77\n## Pending\nawaiting: merge\npr: 7\npr_url: %s\nbranch: b77\nlast_checked: 2026-01-01T00:00:00Z\ncreated: 2026-01-01T00:00:00Z\n' "$URL" > "$O77"
+ct K-77 "$(printf 'MERGED\tb77\t%s\tmain' "$(rev main)")" >/dev/null
+eq "P1: Cleanup line recorded" yes "$(yn grep -q '^- \*\*Cleanup:\*\*' "$O77")"
+eq "P1: no awaiting line" no "$(yn grep -q '^awaiting:' "$O77")"
+eq "P1: no ## Pending heading" no "$(yn grep -qx '## Pending' "$O77")"
+eq "P1: pr_url kept" yes "$(yn grep -qx "pr_url: $URL" "$O77")"
+eq "P1: n1-clean URL reader still finds pr_url" "$URL" "$(awk '/^## (Pending|Finish)/{f=1;next} /^## /{f=0} f && /^pr_url:/{sub(/^pr_url:[[:space:]]*/,""); print; exit}' "$O77")"
+
 echo "Passed: $PASS  Failed: $FAIL"
 [ "$FAIL" -eq 0 ]
