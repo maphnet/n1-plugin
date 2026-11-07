@@ -1717,7 +1717,7 @@ n1_queue_digest() {
         | [inputs | fromjson? | objects] | group_by(.queue) | map(
             .[-1] as $end
             | any($g[]; . == $end.queue) as $dead
-            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled" and .event != "worker_owed" and .event != "slot_held")] | group_by(.ticket) | map(.[-1])) as $t
+            | ([.[] | select(.run_id == $end.run_id and .ticket != "" and .event != "worker_stopped" and .event != "stalled" and .event != "worker_owed" and .event != "slot_held" and .event != "ticket_cleanup")] | group_by(.ticket) | map(.[-1])) as $t
             | ([$t[] | select(.event == "escalated" or .outcome == "escalated") | .ticket]) as $needs
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "pr")] | length) as $pr
             | ([$t[] | select(.event == "ticket_finished" and .outcome == "no-pr")] | length) as $nopr

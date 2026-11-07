@@ -672,6 +672,14 @@ test_queue_digest() {
     printf '{"ts":"2020-01-01T00:00:00Z","queue":"q3","run_id":"R1","event":"escalated","ticket":"T-5","outcome":"","pr":"","session":"","duration_s":null,"reason":""}\n' \
         > "$tmp/queue/q3/events.jsonl"
     assert_eq "digest: stale queue hidden" "" "$(n1_queue_digest "$tmp")"
+    # N1-481: a ticket_cleanup event after ticket_finished merged must not hide the merge.
+    local e4="$tmp/queue/q4/events.jsonl"; mkdir -p "$tmp/queue/q4"
+    n1_queue_event "$e4" q4 R1 queue_started
+    n1_queue_event "$e4" q4 R1 ticket_started ticket=T-7
+    n1_queue_event "$e4" q4 R1 ticket_finished ticket=T-7 outcome=merged
+    n1_queue_event "$e4" q4 R1 ticket_cleanup ticket=T-7 outcome=success
+    n1_queue_event "$e4" q4 R1 queue_done reason="0 PR / 0 awaiting / 0 failed"
+    assert_eq "digest: ticket_cleanup does not hide a merge" "Queue q4: 1 merged, done" "$(n1_queue_digest "$tmp")"
 }
 
 test_fmt_elapsed() {
