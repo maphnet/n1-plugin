@@ -78,6 +78,16 @@ rm -rf "$WORK"
 
 Print the summary exactly as the script emitted it (under 80 lines: headline vs baseline, data quality, sufficient partitions, tier/plan-path comparison). Do not print the full report; its path is the summary's last line. After the summary, add at most three sentences of interpretation, and mention it if the legacy count or an unlinked cause is large.
 
+## 6. Offer an efficiency investigation
+
+If `N1_HEADLESS=1`, end here and file nothing.
+
+Otherwise, after the summary and interpretation, ask the user whether to investigate the benchmark data for pipeline improvements. State the default goal (lower token cost and faster whole-pipeline runs with no quality loss) and let the user give a different goal. If declined, end.
+
+If accepted, investigate read-only. Read the report the summary points to (`reports/<id>.md`, `reports/<id>.full.md`: worst runs, tool efficiency, gate activation rates, deltas vs the previous snapshot and the baseline) and per-run data in `~/.n1/benchmark/runs/`. Change no code or files and create no tickets during the investigation. End with a list of proposed N1 pipeline tickets, each with title, one-line rationale, expected effect on tokens or speed, and quality risk, and ask the user which to file.
+
+File only the approved ones, in the current repo's tracker. Run `source ~/.n1/preamble.sh` and read `.tracker.mcp` and `.tracker.operations.createIssue` via `n1_config_val`. If no tracker is configured, print the approved list unfiled. Before each create, run `<N1_ROOT>/references/duplicate-check.md` § Check with `CONTEXT=create` and skip a candidate that has a `duplicate` match. Create with the parameters in `<N1_ROOT>/references/ticket-scope.md` § Create-call parameters, type Task.
+
 ## Storage
 
 `~/.n1/benchmark/runs/<run_id>.json` (per-run cache, never re-judged), `snapshots/<id>.json`, `reports/<id>.md` (summary), `reports/<id>.full.md` (full report), `baseline.json`. To re-judge everything after a rubric change, run with `--force`.
