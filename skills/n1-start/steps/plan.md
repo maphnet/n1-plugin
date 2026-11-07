@@ -32,6 +32,7 @@ Spawn with `$PLANNER_MODEL` and `$PLANNER_EFFORT`:
 After return:
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/memory.sh"
 n1_append_key_decision "$N1_HOME/memory/$ID/overview.md" "Plan: <2-3 sentence approach summary; no quotes, backticks or $>"
 n1_step_end "plan" 4 success
 ```
