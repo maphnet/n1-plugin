@@ -33,6 +33,13 @@ check "doc: not-recommended mark states a reason" '<option> \(not recommended\):
 check "doc: defers the tier split to the project rule" 'recommended-option project rule' "$DOC"
 check "doc: capital-R marker" 'Always write the marker as `\(Recommended\)`' "$DOC"
 check "doc: alternatives JSON shape" '"alternatives":\{"B":"works when <condition>"\}' "$DOC"
+# N1-284: what earns the label
+check "doc: what-earns-the-label section" '^## What earns the label$' "$DOC"
+check "doc: right-not-quick rule" 'maintain this code for a year' "$DOC"
+check "doc: which-one-is-right test" 'which one is right\?' "$DOC"
+check "doc: temporary-label exception files a follow-up" 'temporary.*follow-up' "$DOC"
+check "doc: unattended runs take Recommended" 'Unattended runs take the `\(Recommended\)` option, or an option listed first as an explicit default' "$DOC"
+check "doc: links the headless behaviour" 'autonomy-headless\.md' "$DOC"
 lacks_tree "no works-when note carries the marker" 'works when[^`]*\(Recommended' skills "$DOC"
 
 # --- n1-refine
@@ -52,7 +59,7 @@ check "11-rules: starter rules normalised with evidence" '^1 — Yes, generate s
 lacks_tree "no lowercase (recommended) mark under skills/" '\(recommended\)' skills
 
 # --- n1-start
-for f in steps/analysis.md steps/fix.md steps/investigation-deliverable.md procedures/ticket-watch-react.md; do
+for f in steps/analysis.md steps/fix.md steps/investigation-deliverable.md procedures/ticket-watch-react.md procedures/review-preexisting.md; do
     pointer "skills/n1-start/$f"
 done
 check "fix.md keeps the pinned mark on option 1" 'Always mark \(Recommended\) on 1' skills/n1-start/steps/fix.md
@@ -62,6 +69,7 @@ check "ticket-watch-react: Re-plan carries a works-when note" 'Re-plan: works wh
 pointer skills/n1-brainstorm/SKILL.md
 lacks "n1-brainstorm: no bare-word recommended answer" 'with a recommended answer for each' skills/n1-brainstorm/SKILL.md
 lacks "n1-brainstorm: no bare-word recommended approach" 'accept the recommended one' skills/n1-brainstorm/SKILL.md
+pointer agents/brainstormer.md
 # --- n1-clean
 lacks "n1-clean: prompt moved out of SKILL.md" 'Remove all Stale and Completed \(Recommended' skills/n1-clean/SKILL.md
 

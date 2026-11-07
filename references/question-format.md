@@ -18,6 +18,14 @@ Use this format for every prompt that marks an option `(Recommended)` or `(not r
 - Compact one-line prompts keep the mark and a short reason; the per-option notes go in the step that expands the prompt, or are omitted when the line cannot hold them.
 - Always write the marker as `(Recommended)` (capital R). Lowercase or bare-word forms are not recognised in headless runs.
 
+## What earns the label
+
+- Right, not quick: mark the option you would pick if you had to maintain this code for a year. A right option that costs more keeps the mark; name its cost in the evidence.
+- Test: asked "which one is right?", you must name the same option. If you would not, the mark is wrong: move it, or use the No-recommendation sentence.
+- Exception: the quick option may carry the mark only when the right one waits on a decision this run does not own. Its evidence then says it is temporary, and the right fix is filed as a follow-up per `<N1_ROOT>/references/followup-filing.md`.
+- Evidence for the mark follows the recommended-option project rule (see Rules); this section decides only which option gets it.
+- Unattended runs take the `(Recommended)` option, or an option listed first as an explicit default (`skills/n1-start/procedures/autonomy-headless.md`), with no human check, so a wrong mark is acted on silently. A prompt with no recommended option escalates. Stop-list prompts escalate unless a queue plan pre-authorized the category (`skills/n1-start/procedures/autonomy-headless-predecision.md`), in which case the mark is taken too.
+
 ## Headless question JSON
 
 A queue child adds the notes as an optional field next to `rationale`:
