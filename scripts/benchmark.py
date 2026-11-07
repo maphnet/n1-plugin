@@ -893,33 +893,25 @@ CODEX_REVIEW_OUTCOMES = ("ran", "skipped", "failed", "timeout")
 
 
 def codex_review_prs(cache: dict):
-    """Return the latest Codex-review outcome for each PR established by a run.
+    """Latest Codex-review outcome per PR reviewed in a run (N1-482).
 
-    A completed ``pr_created`` run establishes one PR even if its telemetry has
-    no Codex decision. New telemetry identifies PRs with ``pr_url``; older
-    telemetry has no URL and therefore maps to the completed run's one PR.
+    Decisions are keyed by pr_url, else signals.branch, within the run; the last
+    decision per key wins. No final_outcome gate. A run with no decision whose
+    (possibly inferred) cache final_outcome is pr_created counts one PR as missing.
     """
     run = cache.get("run_record") or {}
-    decisions = [d for d in (run.get("decisions") or [])
-                 if isinstance(d, dict) and d.get("id") == "codex-review"]
-    with_url = []
-    without_url = []
-    for decision in decisions:
+    by_key = {}
+    for decision in run.get("decisions") or []:
+        if not isinstance(decision, dict) or decision.get("id") != "codex-review":
+            continue
         signals = decision.get("signals") or {}
         pr_url = signals.get("pr_url") or decision.get("pr_url")
         outcome = signals.get("outcome") or decision.get("outcome")
-        entry = {"pr_url": pr_url, "outcome": outcome if outcome in CODEX_REVIEW_OUTCOMES else "missing"}
-        (with_url if pr_url else without_url).append(entry)
-
-    # Assignment overwrites earlier records, making the terminal record win.
-    by_pr = {}
-    for entry in with_url:
-        by_pr[entry["pr_url"]] = entry
-    if by_pr:
-        return list(by_pr.values())
-    if run.get("final_outcome") == "pr_created":
-        if without_url:
-            return [without_url[-1]]
+        by_key[pr_url or signals.get("branch")] = {
+            "pr_url": pr_url, "outcome": outcome if outcome in CODEX_REVIEW_OUTCOMES else "missing"}
+    if by_key:
+        return list(by_key.values())
+    if cache.get("final_outcome") == "pr_created":
         return [{"pr_url": None, "outcome": "missing"}]
     return []
 

@@ -694,6 +694,7 @@ class AggregateTest(unittest.TestCase):
     def test_aggregate_codex_review_coverage_includes_all_prs_and_latest_outcome(self):
         completed_without_decision = cache_for("3.1.0", "created", 1.0)
         completed_without_decision["run_record"] = make_run(run_id="created", outcome="pr_created")
+        completed_without_decision["final_outcome"] = "pr_created"
         completed_legacy = cache_for("3.1.0", "legacy", 1.0)
         completed_legacy["run_record"] = make_run(run_id="legacy", outcome="pr_created")
         completed_legacy["run_record"]["decisions"] = [
@@ -727,6 +728,20 @@ class AggregateTest(unittest.TestCase):
         self.assertEqual(review["reviewed_prs"], 1)
         self.assertAlmostEqual(review["coverage_rate"], 1 / 5, places=3)
         self.assertEqual(review["outcomes"], {"ran": 1, "skipped": 1, "failed": 1, "timeout": 1, "missing": 1})
+
+    def test_codex_review_counted_per_run_by_branch_without_outcome_gate(self):
+        caches = []
+        for i in range(12):
+            c = cache_for("5.66.0", f"r{i}", None, eligible=False)
+            c["final_outcome"] = "abandoned" if i < 5 else ""
+            branch = "VEL-3979" if i < 2 else f"B-{i}"  # same ticket in two runs counts twice
+            c["run_record"] = {"decisions": [
+                {"id": "codex-review", "signals": {"branch": branch, "outcome": "skipped"}},
+                {"id": "codex-review", "signals": {"branch": branch, "outcome": "ran"}}]}
+            caches.append(c)
+        review = bm.aggregate(caches, "version")["claude-code/5.66.0"]["codex_review"]
+        self.assertEqual((review["prs"], review["reviewed_prs"], review["reviewed_runs"]), (12, 12, 12))
+        self.assertEqual(review["outcomes"]["skipped"], 0)
 
 
 class LegacyPartitionTest(unittest.TestCase):
