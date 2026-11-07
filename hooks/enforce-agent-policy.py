@@ -548,12 +548,14 @@ def _glob_word(masked: str) -> bool:
     return any(re.search(r"[*?\[]", w) and _glob_hits(w.strip("\"'\x01").rsplit("/", 1)[-1]) for w in masked.split())
 
 
-def _worker_sink(masked: str) -> int:
+def _worker_sink(masked: str, spans=None) -> int:
     """Restricted workers only. 0 nothing; 1 the command hands text to another interpreter (| bash, |& bash, bash <<<,
     source <(..), >(bash), eval $(..), find -exec, python -c or a heredoc, git alias !cmd, case arms): read every word as a
     command; 2 deny outright (claude -p, an interpreter that deletes under .n1, xargs feeding a pointer mutator).
     Linear (SEC-10): every stage fact is one str op or non-nested regex over the stage, computed once per stage, and the
-    whole-command facts once; the per-word loop is set lookups only. Separators inside quotes are masked."""
+    whole-command facts once; the per-word loop is set lookups only. Separators inside quotes are masked.
+    `spans` (optional list) collects the (start, end) offsets of each flagged stage and the pipe chain feeding it: the only text
+    to read as code, so neighboring commands keep command-position matching (a heredoc flags the whole command)."""
     masked = masked.replace("\\\n", " ")
     res = 0
     in_n1 = _IN_N1_RE.search(masked) is not None
@@ -562,8 +564,12 @@ def _worker_sink(masked: str) -> int:
     glob_word = None  # lazy: one whole-command scan at most
     parts = _SEP_KEEP_RE.split(masked)
     pend, prev_empty, prev_sep = False, True, ""
+    offs, pstart = [0], 0
+    for part in parts:
+        offs.append(offs[-1] + len(part))
     for i in range(0, len(parts), 2):
         stage = parts[i]
+        hit = False
         if i:
             sep = parts[i - 1]
             if sep == "|":
@@ -571,6 +577,8 @@ def _worker_sink(masked: str) -> int:
             elif sep == ";" or not prev_empty:
                 pend = False  # `|&` and `|` + newline keep the pipe: the empty stage between does not reset it
             prev_sep = sep
+        if not pend:
+            pstart = offs[i]  # first stage of the current pipe chain
         piped = pend
         words = stage.split()
         k = 0
@@ -579,18 +587,18 @@ def _worker_sink(masked: str) -> int:
         prev_empty = k == len(words)
         if prev_empty:
             continue
-        base = [w.strip("()\"'\\").rsplit("/", 1)[-1].lower() for w in words[k:]]
+        base = [re.sub(r"[\"'\\]", "", w.strip("()")).rsplit("/", 1)[-1].lower() for w in words[k:]]
         cw = base[0]
         names = set(base) if cw in _SINK_WRAPPERS else {cw}
         heredoc = "<<" in stage or "<(" in stage
         if cw == "case" or ">(" in stage or (cw == "eval" and re.search(r"[$`\x01]", stage)):
-            res = 1
+            hit = True
         if names & _SHELLS and (piped or heredoc or re.search(r"\s-\w*c\b", stage)):
-            res = 1  # `bash -c '...'`: the quoted payload is code whose own pipes are masked here
+            hit = True  # `bash -c '...'`: the quoted payload is code whose own pipes are masked here
         if "find" in names and re.search(r"\s-(?:exec|execdir|ok|okdir)\b", stage):
-            res = 1
+            hit = True
         if "git" in names and any(w.lstrip("'\"").startswith("alias.") and w.partition("=")[2].lstrip("'\"").startswith("!") for w in words[k:]):
-            res = 1
+            hit = True
         if "xargs" in names and names & _POINTER_MUTATORS:
             if glob_word is None:
                 glob_word = _glob_word(masked)
@@ -603,7 +611,11 @@ def _worker_sink(masked: str) -> int:
             if "claude" in names and re.search(r"\s(?:-p|--print)\b", stage):
                 return 2
             if piped or (whole_prog if hd else _PROGRAM_TEXT_RE.search(stage)):
-                res = 1
+                hit = True
+        if hit:
+            res = 1
+            if spans is not None:
+                spans.append((0, len(masked)) if heredoc else (pstart, offs[i + 1]))
     return res
 
 
@@ -612,7 +624,7 @@ def _every_word(text: str) -> str:
     return re.sub(r"[ \t]+", f" {SUBST} ", re.sub(r"[(){}!\[\],]", " ", text.replace("<<<", f" {SUBST} ")))
 
 
-def _pointer_hit(c, j) -> bool:
+def _pointer_hit(c, j, names=_POINTER_NAMES[:1]) -> bool:
     """Chunk c (joined j) removes, moves or rewrites the run pointer: literal name, a glob that matches it, a glob or
     the home dir itself under .n1/N1_HOME, or find/sed over it."""
     ops = [w for w in c[1:] if not w.startswith("-")]
@@ -622,7 +634,7 @@ def _pointer_hit(c, j) -> bool:
         for o in ops:
             if re.search(r"\.n1|N1_HOME", o) and (re.search(r"[*?\[]", o) or re.search(r"(?:\.n1|N1_HOME\}?)(?:/[^/]*)?/?$", o)):
                 return True
-            if re.search(r"[*?\[]", o) and _glob_hits(o.rsplit("/", 1)[-1], _POINTER_NAMES[:1]):
+            if re.search(r"[*?\[]", o) and _glob_hits(o.rsplit("/", 1)[-1], names):
                 return True
         return False
     if c[0] == "sed":
@@ -633,30 +645,34 @@ def _pointer_hit(c, j) -> bool:
         if re.search(r"active|\.n1|N1_HOME", j):
             return True
         # a -name/-path glob that matches a pointer or marker file name (`find ~ -name 'act*' -delete`)
-        return any(w in ("-name", "-iname", "-path", "-ipath") and _glob_hits(c[x + 1])
+        return any(w in ("-name", "-iname", "-path", "-ipath") and _glob_hits(c[x + 1], _POINTER_NAMES + names)
                    for x, w in enumerate(c[:-1]))
     return False
 
 
-def _worker_deny(cmd: str, pr: bool) -> bool:
+def _worker_deny(cmd: str, pr: bool, sid: str = "") -> bool:
     """pr-worker/tech-writer (pr) and tail-worker: run-pointer tamper (SEC-3: it would ungate a tech-writer child);
     pr also: cleanup/step-marker/--confirmed/workspace-removal/nested n1-clean|n1-release session commands."""
     cmd = cmd.replace("\\\n", " ")
     masked = _mask(cmd)
-    sink = _worker_sink(masked)
+    spans: list = []
+    sink = _worker_sink(masked, spans)
     if sink == 2 or _POINTER_REDIR_RE.search(re.sub(r"[\"'\\]", "", masked)):
         return True
     stripped = re.sub(r"[\"'\\]", "", cmd)
     cd_n1 = _CD_N1_RE.search(stripped) is not None  # after `cd ~/.n1/x` a relative rm/mv names the pointer dir's files
     views = (cmd, stripped, masked)
-    for text in (map(_every_word, views) if sink else views):
+    names = _POINTER_NAMES[:1] + ((f"active-run.{sid}.json",) if sid else ())  # the real pointer name under any N1_HOME
+    code = [" ; ".join(v[a:b] for a, b in spans) for v in (cmd, masked)] if sink else []  # offsets align: _mask keeps length
+    code = list(map(_every_word, code + [re.sub(r"[\"'\\]", "", code[0])] if code else []))
+    for text in (*views, *code):
         if pr and "ORCA_CLI_COMMAND" in text:
             return True
         for c in _commands(text, WORKER_PROGRAMS):
             j = " ".join(c)
             if cd_n1 and c[0] in _POINTER_MUTATORS:
                 return True
-            if _pointer_hit(c, j):
+            if _pointer_hit(c, j, names):
                 return True
             if not pr:
                 continue
@@ -676,12 +692,12 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     sink_worker = gated_worker or tail_persona == "tech-writer"  # tech-writer outside a run returns below
     if tail:
         cmd = _command(payload) or ""
-        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)) or _worker_deny(cmd, False):
+        if TAIL_DENY_RE.search(cmd) or TAIL_DENY_RE.search(re.sub(r"[\"'\\]", "", cmd)) or _worker_deny(cmd, False, str(payload.get("session_id") or "")):
             sys.stderr.write(f"N1: {tail_persona} may not run merge/cleanup/run-pointer/release/push/PR-comment commands; the orchestrator owns them\n")
             return 2
     elif persona_of(agent_type) in ("pr-worker", "tech-writer"):
         cmd = _command(payload) or ""
-        if _worker_deny(cmd, True):
+        if _worker_deny(cmd, True, str(payload.get("session_id") or "")):
             sys.stderr.write("N1: pr-worker/tech-writer may not run cleanup/run-pointer/step-marker/review-pin --confirmed/workspace-removal/n1-clean|n1-release commands; the orchestrator owns them\n")
             return 2
     elif not agent_type and merge_authorized(config):
@@ -694,10 +710,14 @@ def merge_deny(payload: dict, config: dict, config_file: str = "") -> int:
     command = _command(payload)
     if not command:
         return 0
-    sink = sink_worker and _worker_sink(_mask(command.replace("\\\n", " "))) == 1
+    command = command.replace("\\\n", " ")
+    spans: list = []
+    sink = sink_worker and _worker_sink(_mask(command), spans) == 1
+    code = " ; ".join(command[a:b] for a, b in spans) if sink else ""
     command = re.sub(r"[\"'\\]", "", command)
-    if sink:
-        command = _every_word(command)  # restricted workers: text handed to another interpreter is code (SEC-2)
+    if code:
+        # restricted workers: text handed to another interpreter is code (SEC-2); neighbors keep command position
+        command += " ; " + _every_word(re.sub(r"[\"'\\]", "", code))
     git_cfg = config.get("git")
     default = str((git_cfg if isinstance(git_cfg, dict) else {}).get("defaultBranch") or "main")
     cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else None
