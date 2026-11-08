@@ -6,13 +6,31 @@ _n1_review_step_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_n1_review_step_dir/memory.sh"; source "$_n1_review_step_dir/treestate.sh"
 source "$_n1_review_step_dir/related.sh"; source "$_n1_review_step_dir/fingerprints.sh"
 
+n1_review_base() {
+    # Usage: n1_review_base — prints the review base ref: branch-point file, else origin/<story base>, else
+    # config .git.defaultBranch (may be empty); returns 1 on an invalid story base.
+    local SB BP_FILE="$N1_HOME/memory/$ID/branch-point"
+    SB=$(n1_story_base) || return 1
+    [ -f "$BP_FILE" ] && cat "$BP_FILE" || { [ -n "$SB" ] && echo "origin/$SB"; } || n1_config_val '.git.defaultBranch'
+    return 0
+}
+
+n1_review_preexisting_diff() {
+    # Usage: n1_review_preexisting_diff <worktree dir> — N1-275: prints git diff -U0 <base>...HEAD for the pre-existing
+    # downgrade check; returns 1 with no output when the base is missing, unresolvable, the diff fails or is empty.
+    local base out
+    [ -n "$1" ] && [ -d "$1" ] || return 1
+    base=$(n1_review_base) && [ -n "$base" ] && git -C "$1" rev-parse --verify -q "$base^{commit}" >/dev/null \
+        && out=$(git -C "$1" diff -U0 "$base"...HEAD) && [ -n "$out" ] || return 1
+    printf '%s\n' "$out"
+}
+
 n1_review_entry() {
     # Usage: n1_review_entry <worktree dir> — prints "BASE_BRANCH= RELATED_ENABLED= CYCLE= INCREMENTAL=", "TREE_BEFORE=",
     # and "FIX_FILES=" when incremental; writes review-spec.md/qa-facts.md; returns 1 on a missing dependency or bad story base.
-    local SB BP_FILE BASE_BRANCH MEM TREE_BEFORE RELATED_ENABLED CYCLE INCREMENTAL FIX_FILES=""
+    local BASE_BRANCH MEM TREE_BEFORE RELATED_ENABLED CYCLE INCREMENTAL FIX_FILES=""
     n1_verify_dependencies "$N1_HOME/memory/$ID" implementation.md || { echo "ERROR: implementation.md missing — aborting review step" >&2; return 1; }
-    SB=$(n1_story_base) || { echo "ERROR: invalid story base" >&2; return 1; }
-    BP_FILE="$N1_HOME/memory/$ID/branch-point"; BASE_BRANCH=$( [ -f "$BP_FILE" ] && cat "$BP_FILE" || { [ -n "$SB" ] && echo "origin/$SB"; } || n1_config_val '.git.defaultBranch' )
+    BASE_BRANCH=$(n1_review_base) || { echo "ERROR: invalid story base" >&2; return 1; }
     MEM="$N1_HOME/memory/$ID"; rm -f "$MEM/review-hdr.md" "$MEM/review-cr.md" "$MEM/review-sec.md"
     { echo "# Review Spec (generated)"; n1_extract_sections "$MEM/brainstorm.md" "acceptance criteria" "chosen approach|selected approach|decision"; [ -s "$MEM/brainstorm.md" ] || n1_extract_sections "$MEM/ticket.md" "acceptance criteria" "requirements"; } > "$MEM/review-spec.md"
     { echo "# QA Facts (generated)"; n1_extract_sections "$MEM/qa.md" "evidence" "break-check" "tests run"; [ -n "${BREAK_CHECK_TQ:-}" ] && { echo "## Hollow tests (break-check never-red)"; echo "$BREAK_CHECK_TQ" | sed 's/^/- /'; }; } > "$MEM/qa-facts.md"
