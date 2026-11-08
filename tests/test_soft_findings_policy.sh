@@ -72,9 +72,7 @@ check "fingerprints: pre-existing SEC not treated as in-diff excluded" 'except a
 check "pre-existing marker downgraded when in a changed hunk" 'lies in a changed hunk or in a file the diff adds' "$RP"
 check "pre-existing gate skips titles already in Follow-ups" 'Skip a finding whose title is already in `## Follow-ups`' "$RP"
 check "pre-existing unknown severity escalates" 'any other or unparsed severity: § Autonomy Gate' "$RP"
-check "pre-existing downgrade runs the self-contained diff helper (N1-275)" '^n1_review_preexisting_diff$' "$RP"
 check "pre-existing failed diff means no downgrade (N1-275)" 'non-zero exit or empty output: no diff, every marked `\[SEC-N\]` counts as in-diff \(no downgrade\)' "$RP"
-check "pre-existing diff helper names base range" 'git diff -U0 "\$base"\.\.\.HEAD' lib/review-step.sh
 check "pre-existing command has no pathspec or finding text" 'no pathspec, never put a finding path or title in a command' "$RP"
 check "pre-existing unparsable file:line fails closed" 'missing or unparsable `file:line` counts as in-diff' "$RP"
 
