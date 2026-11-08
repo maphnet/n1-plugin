@@ -112,4 +112,31 @@ printf -- '---\nreview_fix_cycle: 1\n---\n# O\n' > "$MEM/overview.md"
 n1_review_collect false >/dev/null 2>&1
 eq "collect: later cycles never write review_c0_blocking" "" "$(n1_read_frontmatter "$MEM/overview.md" review_c0_blocking)"
 
+# N1-275: the pre-existing downgrade diff obtains its own base; any missing input means no diff (exit 1, no downgrade).
+BASE_SHA=$(git -C "$REPO" rev-parse HEAD)
+printf 'x\n' > "$REPO/new.sh"; git -C "$REPO" add new.sh; git -C "$REPO" -c user.name=t -c user.email=t@t commit -q -m feat
+RP="$REPO_ROOT/skills/n1-start/procedures/review-preexisting.md"
+pre() { ( cd "$REPO" && unset BASE_BRANCH && eval "$(fence "$RP" 1)" ) 2>/dev/null; }
+printf '%s' "$BASE_SHA" > "$MEM/branch-point"
+OUT=$(pre); rc=$?
+eq "preexisting: branch-point base exits 0" "0" "$rc"
+has "preexisting: prints the base...HEAD hunks" "$OUT" "+++ b/new.sh"
+rm -f "$MEM/branch-point"
+OUT=$(pre); rc=$?
+eq "preexisting: no base source exits 1" "1" "$rc"
+eq "preexisting: no base source prints nothing" "" "$OUT"
+: > "$MEM/branch-point"
+OUT=$(pre); rc=$?
+eq "preexisting: empty branch-point exits 1" "1" "$rc"
+printf 'origin/no-such-ref' > "$MEM/branch-point"
+OUT=$(pre); rc=$?
+eq "preexisting: unresolvable base exits 1" "1" "$rc"
+eq "preexisting: unresolvable base prints nothing" "" "$OUT"
+git -C "$REPO" rev-parse HEAD > "$MEM/branch-point"
+OUT=$(pre); rc=$?
+eq "preexisting: empty diff exits 1" "1" "$rc"
+printf '%s' "$BASE_SHA" > "$MEM/branch-point"
+OUT=$( export N1_STORY_BRANCH="bad..branch"; pre ); rc=$?
+eq "preexisting: invalid story base exits 1" "1" "$rc"
+
 exit $FAIL
