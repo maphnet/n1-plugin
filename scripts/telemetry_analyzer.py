@@ -283,6 +283,11 @@ def count_fix_cycles_by_kind(run: dict) -> dict | None:
     implementation.md is per ticket, so only the latest run file (names embed a UTC
     timestamp) gets the counts; older runs return None.
     Returns None when the file is missing or unreadable. Unmatched headings are ignored.
+    Per-kind counts are heading-based, while the raw fix_cycles is counter-based (qa +
+    review counters at the pr step), so they can differ. Numbered "Follow-up N" sections are
+    appended post-PR and appear only in per-kind hard (unless marked soft or codex); bare
+    "Follow-up(s)" ticket-list headings are ignored; orchestrator
+    "(orchestrator, lows)" headings count as hard.
     """
     src = run.get("_source_path", "")
     if not src:
@@ -301,13 +306,13 @@ def count_fix_cycles_by_kind(run: dict) -> dict | None:
         h = line[3:].strip().lower()
         if "qa fix cycle" in h or "local-test fix cycle" in h or h.startswith("summary") or h.endswith("summary"):
             continue
-        m = re.search(r"(?:fix cycle|follow-up)\s+(\d+)", h)
-        n = m.group(1) if m else h
+        m = re.search(r"(fix cycle|follow-up)\s+(\d+)", h)
+        n = f"{m.group(1)} {m.group(2)}" if m else h
         if "(soft)" in h:
             kind = "soft"
         elif h.startswith("codex") or "(codex" in h:
             kind = "codex"
-        elif "fix cycle" in h:
+        elif "fix cycle" in h or re.match(r"follow-up\s+\d", h):
             kind = "hard"
         else:
             continue
