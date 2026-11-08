@@ -7,5 +7,5 @@ Read from `steps/review.md` after the reviewers return and the tree freeze passe
 ```bash
 source ~/.n1/preamble.sh
 source "$N1_ROOT/lib/review-step.sh"
-n1_review_preexisting_diff
+n1_review_preexisting_diff "<worktree dir>"
 ```

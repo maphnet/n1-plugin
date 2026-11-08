@@ -16,11 +16,12 @@ n1_review_base() {
 }
 
 n1_review_preexisting_diff() {
-    # Usage: n1_review_preexisting_diff (cwd = worktree) — N1-275: prints git diff -U0 <base>...HEAD for the pre-existing
+    # Usage: n1_review_preexisting_diff <worktree dir> — N1-275: prints git diff -U0 <base>...HEAD for the pre-existing
     # downgrade check; returns 1 with no output when the base is missing, unresolvable, the diff fails or is empty.
     local base out
-    base=$(n1_review_base) && [ -n "$base" ] && git rev-parse --verify -q "$base^{commit}" >/dev/null \
-        && out=$(git diff -U0 "$base"...HEAD) && [ -n "$out" ] || return 1
+    [ -n "$1" ] && [ -d "$1" ] || return 1
+    base=$(n1_review_base) && [ -n "$base" ] && git -C "$1" rev-parse --verify -q "$base^{commit}" >/dev/null \
+        && out=$(git -C "$1" diff -U0 "$base"...HEAD) && [ -n "$out" ] || return 1
     printf '%s\n' "$out"
 }
 

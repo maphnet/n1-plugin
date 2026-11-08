@@ -116,7 +116,7 @@ eq "collect: later cycles never write review_c0_blocking" "" "$(n1_read_frontmat
 BASE_SHA=$(git -C "$REPO" rev-parse HEAD)
 printf 'x\n' > "$REPO/new.sh"; git -C "$REPO" add new.sh; git -C "$REPO" -c user.name=t -c user.email=t@t commit -q -m feat
 RP="$REPO_ROOT/skills/n1-start/procedures/review-preexisting.md"
-pre() { ( cd "$REPO" && unset BASE_BRANCH && eval "$(fence "$RP" 1)" ) 2>/dev/null; }
+pre() { ( cd "$REPO" && unset BASE_BRANCH && eval "$(fence "$RP" 1 | sed "s#<worktree dir>#$REPO#")" ) 2>/dev/null; }
 printf '%s' "$BASE_SHA" > "$MEM/branch-point"
 OUT=$(pre); rc=$?
 eq "preexisting: branch-point base exits 0" "0" "$rc"
@@ -138,5 +138,9 @@ eq "preexisting: empty diff exits 1" "1" "$rc"
 printf '%s' "$BASE_SHA" > "$MEM/branch-point"
 OUT=$( export N1_STORY_BRANCH="bad..branch"; pre ); rc=$?
 eq "preexisting: invalid story base exits 1" "1" "$rc"
+( cd "$REPO" && n1_review_preexisting_diff "$T/no-such-dir" ) >/dev/null 2>&1; rc=$?
+eq "preexisting: non-directory worktree exits 1" "1" "$rc"
+( cd "$REPO" && n1_review_preexisting_diff "" ) >/dev/null 2>&1; rc=$?
+eq "preexisting: empty worktree arg exits 1" "1" "$rc"
 
 exit $FAIL
