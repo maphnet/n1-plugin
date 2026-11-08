@@ -107,6 +107,12 @@ class TelemetryConsumersTest(unittest.TestCase):
     def test_orchestrator_lows_counted_hard(self):
         self.assertEqual(self._kinds("## Fix Cycle 3 (orchestrator, lows)\n"), (1, 0, 0))
 
+    def test_codex_fix_heading_shapes_counted_codex(self):
+        for h in ("## Fix Cycle 2 (Codex)", "## Codex Fix", "## Codex Triage Fix"):
+            self.assertEqual(self._kinds(h + "\n"), (0, 0, 1), h)
+        impl = "## Fix Cycle 2 (Codex)\n## Codex Fix\n## Codex Triage Fix\n"
+        self.assertEqual(self._kinds(impl), (0, 0, 3))
+
     def test_fix_cycles_by_kind_only_latest_run_of_ticket(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:
