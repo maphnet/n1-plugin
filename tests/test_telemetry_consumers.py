@@ -100,6 +100,13 @@ class TelemetryConsumersTest(unittest.TestCase):
     def test_only_follow_up_headings_not_zero(self):
         self.assertEqual(self._kinds("## Follow-up 1\n## Follow-up 2\n"), (2, 0, 0))
 
+    def test_bare_follow_up_heading_not_counted(self):
+        self.assertEqual(self._kinds("## Follow-up\n- TICKET-1\n"), (0, 0, 0))
+        self.assertEqual(self._kinds("## Follow-ups\n- TICKET-1\n"), (0, 0, 0))
+
+    def test_orchestrator_lows_counted_hard(self):
+        self.assertEqual(self._kinds("## Fix Cycle 3 (orchestrator, lows)\n"), (1, 0, 0))
+
     def test_fix_cycles_by_kind_only_latest_run_of_ticket(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:
