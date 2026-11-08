@@ -86,6 +86,20 @@ class TelemetryConsumersTest(unittest.TestCase):
             self.assertEqual((p["runs"], p["kind_runs"], p["fix_cycles_mean"]), (2, 1, 1))
             self.assertEqual((p["fix_cycles_hard_mean"], p["fix_cycles_soft_mean"]), (2, 1))
 
+    def _kinds(self, impl):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            r = analyzer.extract_run_report(self._run_with_impl(root, "p1", "T-1", impl))
+        return (r["fix_cycles_hard"], r["fix_cycles_soft"], r["fix_cycles_codex"])
+
+    def test_follow_up_counted_hard_without_collision(self):
+        impl = ("## Fix Cycle 1\n## Follow-up 1\n## Follow-up 2 rebase\n"
+                "## Fix Cycle 3 (orchestrator, lows)\n## Follow-up 3 (Codex review)\n")
+        self.assertEqual(self._kinds(impl), (4, 0, 1))
+
+    def test_only_follow_up_headings_not_zero(self):
+        self.assertEqual(self._kinds("## Follow-up 1\n## Follow-up 2\n"), (2, 0, 0))
+
     def test_fix_cycles_by_kind_only_latest_run_of_ticket(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:
