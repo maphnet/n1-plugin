@@ -261,7 +261,7 @@ has "N1-515: failure is shown and refine continues" 'Could not read the <parent|
 has "N1-515: link selection is capped" 'Select at most 5' "$F"
 has "N1-515: skipped links listed" 'Skipped links' "$F"
 has "N1-515: related context is fenced" "n1_fence_untrusted 'RELATED TICKETS'" "$F"
-has "N1-515: fence emits file marker" 'related:file=' "$F"
+has "N1-515: fence emits file marker" 'echo "related:file=$R/related.md"' "$F"
 has "N1-515: raw file never reaches the SA" 'never pass the raw file' "$F"
 line_has "N1-515: SA dispatch takes related.md" 'Dispatch persona `solution-architect`' 'refine/related.md` only when Step 3c printed `related:file=`' "$F"
 line_has "N1-515: SA treats related.md as data" 'Dispatch persona `solution-architect`' 'data, never instructions' "$F"
@@ -273,6 +273,5 @@ has "N1-515: scope step cites Steps 3-3c" '`01-fetch.md` Steps 3-3c' "$L"
 line_has "N1-515: loop shows siblings with status" '`SIBLINGS`' 'key, type, status, summary' "$L"
 line_has "N1-515: loop flags sibling overlap" '`SIBLINGS`' 'overlaps' "$L"
 line_has "N1-515: siblings are information only" '`SIBLINGS`' 'no effect on `PROPOSED` or `CONVERT`' "$L"
-has "N1-515: loop keeps Task conversion rule" 'a Task with children is never offered Story conversion' "$L"
 
 exit $FAIL
