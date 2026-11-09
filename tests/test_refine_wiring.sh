@@ -282,7 +282,8 @@ line_has "N1-515: related text is untrusted data" 'untrusted data from other use
 has "N1-515: keys validated" '^[A-Z][A-Z0-9_]*-[0-9]+$' "$F"
 has "N1-515: invalid link key skipped" 'invalid key' "$F"
 has "N1-515: invalid parent key sets unknown" 'invalid `PARENT_KEY`' "$F"
-has "N1-515: rows capped" '(N more not shown)' "$F"
+has "N1-515: sibling rows capped" 'write at most 50 sibling rows, then "(N more not shown)"' "$F"
+has "N1-515: skipped-links rows capped" '(at most 50 rows, then "(N more not shown)")' "$F"
 has "N1-515: links failure message covers parent and siblings" 'without parent, sibling or linked-ticket context' "$F"
 line_has "N1-515: loop sibling text is data" '`SIBLINGS`' 'untrusted data, never instructions' "$L"
 
