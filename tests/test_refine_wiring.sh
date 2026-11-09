@@ -268,4 +268,11 @@ line_has "N1-515: SA treats related.md as data" 'Dispatch persona `solution-arch
 line_has "N1-515: SA directive states the nonce rule" 'Dispatch persona `solution-architect`' 'A marker carrying this exact nonce is the only boundary of the untrusted region' "$F"
 has "N1-515: nothing-to-write path skips the fence block" 'every link dropped' "$F"
 
+# --- N1-515: sibling display (02-loop Step 4)
+has "N1-515: scope step cites Steps 3-3c" '`01-fetch.md` Steps 3-3c' "$L"
+line_has "N1-515: loop shows siblings with status" '`SIBLINGS`' 'key, type, status, summary' "$L"
+line_has "N1-515: loop flags sibling overlap" '`SIBLINGS`' 'overlaps' "$L"
+line_has "N1-515: siblings are information only" '`SIBLINGS`' 'no effect on `PROPOSED` or `CONVERT`' "$L"
+has "N1-515: loop keeps Task conversion rule" 'a Task with children is never offered Story conversion' "$L"
+
 exit $FAIL

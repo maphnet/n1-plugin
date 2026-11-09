@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tests/test_fence_untrusted.sh -- N1-340: n1_fence_untrusted nonce-tagged fence (lib/validation.sh)
-# plus wiring checks over the five call sites that pass non-tracker untrusted text to a model.
+# plus wiring checks over the six call sites that pass non-tracker untrusted text to a model.
 # Run: bash tests/test_fence_untrusted.sh
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

@@ -42,13 +42,15 @@ Exactly one `(Recommended)`, with codebase evidence right after it. Every other 
 
 ## Step 4: Scope Classification
 
-Classify with `<N1_ROOT>/references/ticket-scope.md` § Decomposition by ticket type, using `ISSUE_TYPE` and `CHILDREN` (`01-fetch.md` Steps 3-3b) and the latest confirmed scope. Runs for every ticket type, and again after any answer that adds a repository, a deliverable or user-visible behavior outside the ticket's stated scope. For such a widening, first run `<N1_ROOT>/references/duplicate-check.md` § Check on the widened summary, the way `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` does; show any hits; apply no links. Widening never ends refine: the new classification feeds the draft.
+Classify with `<N1_ROOT>/references/ticket-scope.md` § Decomposition by ticket type, using `ISSUE_TYPE` and `CHILDREN` (`01-fetch.md` Steps 3-3c) and the latest confirmed scope. Runs for every ticket type, and again after any answer that adds a repository, a deliverable or user-visible behavior outside the ticket's stated scope. For such a widening, first run `<N1_ROOT>/references/duplicate-check.md` § Check on the widened summary, the way `<N1_ROOT>/skills/n1-ticket/steps/02-create.md` does; show any hits; apply no links. Widening never ends refine: the new classification feeds the draft.
 
 Results, carried into `03-write.md`:
 - `PROPOSED`: children to create. Epic: Stories. Story, or a Task converting to Story: Sub-tasks. Each has a summary, a description and acceptance criteria as plain bullets. Propose only missing children: drop any child that an entry in `CHILDREN` already covers, so a re-run never re-proposes an existing child.
 - `CONVERT`: `Task` (Story with one atomic deliverable and empty `CHILDREN`), `Story` (Task classified `SCOPE_TYPE=Story`), or empty.
 
 `ISSUE_TYPE` other than `epic`, `story` or `task` (bug, sub-task, ...): `PROPOSED` and `CONVERT` stay empty; refine writes the block only. `CHILDREN` non-empty: show it first (key, type, summary) and flag gaps (scope no child covers) and overlaps (two children, or a child and the ticket's Out list, covering the same deliverable); a Story with children is never offered Task conversion, and a Task with children is never offered Story conversion. `CHILDREN=unknown`: `PROPOSED` and `CONVERT` stay empty; say "Existing children unknown; refine proposes no children or conversion this run." The user confirms or edits `PROPOSED` and `CONVERT` like any other point in the Step 3 batches; nothing is written in this step.
+
+`SIBLINGS` (`01-fetch.md` Step 3c) non-empty: show it after `CHILDREN` (key, type, status, summary per sibling) and flag overlaps (a sibling and this ticket covering the same deliverable). This is information for the user and the decision batches only: it has no effect on `PROPOSED` or `CONVERT`. `SIBLINGS` empty or `unknown`: show no sibling list (Step 3c already reported `unknown`).
 
 ## Step 5: Readiness Verdict
 
