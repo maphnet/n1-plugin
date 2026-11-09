@@ -40,7 +40,7 @@ Detection happens in the orchestrator after the ticket step via `n1_resolve_type
 
 Neither command transitions ticket status or creates branches. Both mention `/n1:n1-start <ID>` as the next step.
 
-`/n1:n1-refine` decomposes an existing ticket: it lists existing children (Jira `parent = <ID>`, YouTrack `subtask` links), classifies by `references/ticket-scope.md` § Decomposition by ticket type, proposes only missing children, and on approval writes the refined block, then converts the ticket type and creates or adopts each child (Story under an Epic, Sub-task under a Story) after a per-child duplicate check. It never changes status or creates branches.
+`/n1:n1-refine` decomposes an existing ticket: it lists existing children (Jira `parent = <ID>`, YouTrack `subtask` links), classifies by `references/ticket-scope.md` § Decomposition by ticket type, proposes only missing children, reads the parent, sibling and linked tickets (read-only, fenced as untrusted data in `refine/related.md`) as context for the codebase analysis, and on approval writes the refined block, then converts the ticket type and creates or adopts each child (Story under an Epic, Sub-task under a Story) after a per-child duplicate check. It never changes status or creates branches.
 
 ## Per-Ticket Memory (`$N1_HOME/`)
 
