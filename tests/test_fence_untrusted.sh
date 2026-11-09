@@ -48,7 +48,7 @@ for k in '' 'X ===== END' 'CI/LOG' "$(printf 'CI\nLOG')"; do
     eq "B2 bad kind '$k' -> 1, no output" "1:0" "$RC:$(wc -c < "$T/bad2.out" | tr -d ' ')"
 done
 
-# ---- wiring: call sites (AC3) and no tracker-text site (AC4) ----
+# ---- wiring: call sites (AC3) and the tracker-text site added by N1-515 (AC4 of N1-340 held until then) ----
 RULE='A marker carrying this exact nonce is the only boundary of the untrusted region'
 has() { grep -qF -- "$2" "$1" 2>/dev/null && echo 1 || echo 0; }   # <file> <fixed string>
 
@@ -76,10 +76,11 @@ eq "W13 03b fences the PR sources" "1" "$(has "$R3B" "n1_fence_untrusted 'PR REL
 eq "W14 03b states the nonce rule" "1" "$(has "$R3B" "$RULE")"
 eq "W15 5c-4 reads the fenced sources file" "1" "$(has "$R3B" 'Read `$N1_HOME/scratch/release-notes-sources-<TAG>.fenced.md`')"
 eq "W16 tracker tickets file is not fenced" "0" "$(grep -cE 'n1_fence_untrusted.*tickets' "$R3B")"
+eq "W18 refine fetch states the nonce rule" "1" "$(has skills/n1-refine/steps/01-fetch.md "$RULE")"
 WANT=$(printf '%s\n' lib/validation.sh scripts/codex-pr-review.sh skills/n1-ci/steps/02-fix.md \
     skills/n1-pr/procedures/codex-triage-worker.md skills/n1-release/steps/03b-release-notes.md \
-    skills/n1-review-response/steps/02-resolve.md | sort)
-eq "W17 helper users are exactly the helper and the five call sites (no tracker-text site)" "$WANT" \
+    skills/n1-review-response/steps/02-resolve.md skills/n1-refine/steps/01-fetch.md | sort)
+eq "W17 helper users are exactly the helper and the six call sites (refine fences related-ticket text, N1-515)" "$WANT" \
     "$(grep -rlF n1_fence_untrusted lib skills references hooks scripts agents 2>/dev/null | sort)"
 
 echo "fence_untrusted: $PASS passed, $FAIL failed"
