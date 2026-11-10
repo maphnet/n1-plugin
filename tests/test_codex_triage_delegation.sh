@@ -35,6 +35,7 @@ has "worker dispatches code-reviewer"              "$CW" 'n1_resolve_agent code-
 has "worker dispatches developer"                  "$CW" 'n1_resolve_agent developer fix'
 has "worker has a fix phase"                       "$CW" '^## Phase: fix$'
 has "worker has a report phase"                    "$CW" '^## Phase: report$'
+has "worker has a validate phase (N1-517)"         "$CW" '^## Phase: validate$'
 has "worker returns triage:fix"                    "$CW" 'triage:fix state='
 has "worker returns triage:file"                   "$CW" 'triage:file='
 lacks "worker never posts"                         "$CW" 'gh pr comment'

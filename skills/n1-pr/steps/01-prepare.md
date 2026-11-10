@@ -19,6 +19,18 @@ echo "DEFAULT_BRANCH=$DEFAULT_BRANCH STORY=${SB:-none}"
 
 Runs once, before docs, PR body, rebase and push, so Codex fixes land in the first push (N1-405). Skipped, failed and timed-out reviews record a receipt and never block PR creation. Only a scope-gate `kept=` (unvetted commits that could not be reset) ends n1-pr before the push.
 
+First check whether n1-start Step 7 already ran Codex on this branch (N1-517):
+
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/codex-review.sh"
+ID='<the ticket ID, or empty>'
+case "$ID" in *[!A-Za-z0-9_-]*) ID="";; esac
+if n1_review_codex_covered; then rm -f "$N1_HOME/memory/$ID/codex-triage.md"; echo "codex:covered"; else echo "codex:not-covered"; fi
+```
+
+`codex:covered`: skip the rest of this section (no runner, no triage, no Scope Gate: Step 7 validated the Codex findings and Step 8 fixed them under its own scope gate) and continue with **PR Mode Resolution**; step 3 then prints `triage:none` and posts no Codex comment. Use `Codex review: ran at n1-start Step 7 (findings in review.md)` in the step 3 Report. `codex:not-covered` (standalone run, or the Step 7 outcome was not `ran`): run the block below; Codex runs once more for this branch.
+
 ```bash
 source ~/.n1/preamble.sh
 ID='<the ticket ID, or empty>'

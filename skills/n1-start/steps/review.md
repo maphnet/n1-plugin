@@ -11,6 +11,8 @@ Output: `BASE_BRANCH= RELATED_ENABLED= CYCLE= INCREMENTAL=`, `TREE_BEFORE=` and,
 
 If `RELATED_ENABLED=true`, read `procedures/review-xrepo.md` and follow it before spawning reviewers.
 
+`CYCLE=0`: read `procedures/review-codex.md`; run its **Start** block right after the Review tier gate below unless `REVIEW_TIER=SKIP`; its **Collect**, **Validate** and **Index** parts run after all reviewers return, before **Tree freeze**.
+
 ### Incremental Re-Review (cycle >= 1)
 
 If `INCREMENTAL=true`: read `procedures/review-incremental.md` and follow it (code-reviewer and security-reviewer scope). `INCREMENTAL=false`: full scope.
@@ -37,7 +39,7 @@ IFS=$'\t' read -r SECURITY_REVIEWER_MODEL SECURITY_REVIEWER_EFFORT < <(n1_resolv
 
 `INCREMENTAL=true`: `procedures/review-extra-round.md § Filter` first. For each Critical/High (also each `[SEC-N]`, except a ` (pre-existing)` one not treated as in-diff: **Pre-existing** above): write `$N1_HOME/memory/$ID/fp-new.tsv` with the file-write mechanism, one line per finding `<id><TAB><severity><TAB><file><TAB><title>` (id bare, e.g. `CR-1`; never put a title or path in a shell command, variable or double-quoted string); the block below records it.
 
-After ALL: **Tree freeze** `n1_tree_verify "<printed TREE_BEFORE>"`. Fail→discard reviewer files+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines; the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]` (except a ` (pre-existing)` `[SEC-N]`: **Pre-existing** above); also any in-diff non-Low `[SEC-N]`, never a `[SEC-N]` Low or ` (pre-existing)` (**PASS** below). Partial (incl. missing/empty reviewer file): retry once.
+After ALL: **Tree freeze** `n1_tree_verify "<printed TREE_BEFORE>"`. Fail→discard reviewer files+`review_discarded_count`+re-run; 2nd→§ Autonomy Gate. Write `$N1_HOME/memory/$ID/review-hdr.md` with the file-write mechanism: `### Verdict: <PASS|FAIL>`, summed counts, review-core.md notes, all Index lines (cycle 0: plus the `n1_review_codex_index` lines, `procedures/review-codex.md § Index`); the block below cats it and the reviewer files (never Read them). **FAIL** if Critical/High/`[RULE-N]` (except a ` (pre-existing)` `[SEC-N]`: **Pre-existing** above); also any in-diff non-Low `[SEC-N]`, never a `[SEC-N]` Low or ` (pre-existing)` (**PASS** below). Partial (incl. missing/empty reviewer file): retry once.
 
 ```bash
 source ~/.n1/preamble.sh

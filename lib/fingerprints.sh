@@ -121,7 +121,7 @@ n1_review_blocking_index_count() {
     awk '
         /^- \[[A-Z]+-[0-9]+\] / {
             id = $2; sev = tolower($3)
-            if (id ~ /^\[SEC-/) {
+            if (id ~ /^\[SEC-/ || (id ~ /^\[CX-/ && $0 ~ / \(security\)[ \t]*$/)) {
                 if ($0 ~ / \(pre-existing\)[ \t]*$/) next
                 if (sev != "low") n++
                 next

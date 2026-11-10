@@ -44,16 +44,17 @@ For each task, in sequence:
 
 **e. Fix loop** (when review finds Critical/Important issues or spec gaps):
 - Rounds 1-3: re-dispatch the same developer with the open findings verbatim.
-- Rounds 4-5: dispatch a fresh developer with the brief, the findings, and this framing: "A prior developer attempted this task; you own it now."
+- Rounds 4-5: a fresh developer gets the brief, the findings and: "A prior developer attempted this task; you own it now."
+- Run mode: n1-start: rounds 1-2 only, then adjudicate.
 - Each round: developer fixes, re-runs covering tests, appends fix report. Then dispatch scoped re-review (Re-Review Template) of the fix diff only.
-- After round 5 with open findings: adjudicate each — park with ruling if non-load-bearing, STOP and escalate if load-bearing.
+- After the last round with open findings: adjudicate each — park with ruling if non-load-bearing, STOP and escalate if load-bearing.
 - Minor findings: park in the progress ledger, never enter the loop.
 
 **f. Complete the task:** After clean review (or all findings parked at the cap), record completion and move to next task.
 
 ### 3. Final Review Gate
 
-After all tasks complete, review the full changeset (diff from merge-base to HEAD) for cross-task consistency. If findings: dispatch ONE fix developer with the complete list, then one scoped re-review. Adjudicate residuals. No second fix wave.
+Run mode: n1-start: skip (Step 7 reviews the full diff). Otherwise, after all tasks, review the full diff (merge-base to HEAD) for cross-task consistency; on findings, ONE fix developer with the complete list, one scoped re-review, adjudicate residuals. No second fix wave.
 
 ### 4. Write Output
 
@@ -122,7 +123,7 @@ Return findings inline in your reply; write no file.
 ## Re-Review Template
 
 ```
-**Re-Review Task N, Round R/5**
+**Re-Review Task N, Round R/<cap>**
 
 Open findings from prior review:
 [list each finding verbatim]
