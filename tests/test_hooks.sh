@@ -744,6 +744,31 @@ rm -f "$N1_HOME/queue-plan.s1.json"
 OUT=$(echo 'not json{' | bash "$PC") && RC=0 || RC=$?
 assert_eq "pre-compact: garbage stdin -> rc 0, no output (N1-404)" "0|" "$RC|$OUT"
 
+# --- N1-523: n1-refine draft pointer helper (lib/config.sh) ---
+rds() { ( unset CLAUDE_CODE_SESSION_ID; export N1_SESSION_ID="${RDS_SID-s1}"; source "$REPO_ROOT/lib/config.sh" && n1_refine_draft_state "$@" ); }
+rm -rf "$N1_HOME/memory/T-40"; rm -f "$N1_HOME"/refine-draft.*.json
+rds write T-40 && RC=0 || RC=$?
+assert_eq "refine draft: write rc 0 (N1-523)" "0" "$RC"
+assert_eq "refine draft: keyed pointer holds only the id (N1-523)" '{"ticketId":"T-40"}' "$(cat "$N1_HOME/refine-draft.s1.json" 2>/dev/null)"
+OUT=$(rds read) && RC=0 || RC=$?
+assert_eq "refine draft: read without block.md -> rc 1 (N1-523)" "1|" "$RC|$OUT"
+mkdir -p "$N1_HOME/memory/T-40/refine"; : > "$N1_HOME/memory/T-40/refine/block.md"
+assert_eq "refine draft: read with block.md prints the id (N1-523)" "T-40" "$(rds read)"
+OUT=$(RDS_SID=s2 rds read) && RC=0 || RC=$?
+assert_eq "refine draft: other session reads nothing (N1-523)" "1|" "$RC|$OUT"
+RDS_SID= rds write T-40 && RC=0 || RC=$?
+assert_eq "refine draft: no session id -> rc 1 (N1-523)" "1" "$RC"
+RDS_SID='s/1' rds write T-40 && RC=0 || RC=$?
+assert_eq "refine draft: unsafe session id -> rc 1 (N1-523)" "1" "$RC"
+rds write '../x' && RC=0 || RC=$?
+assert_eq "refine draft: unsafe ticket id refused, old pointer kept (N1-523)" "1|T-40" "$RC|$(rds read)"
+echo '{"ticketId":"../x"}' > "$N1_HOME/refine-draft.s1.json"
+OUT=$(rds read) && RC=0 || RC=$?
+assert_eq "refine draft: unsafe stored id ignored (N1-523)" "1|" "$RC|$OUT"
+rds write T-40; rds clear
+assert_eq "refine draft: clear removes the pointer (N1-523)" "no" "$([ -e "$N1_HOME/refine-draft.s1.json" ] && echo yes || echo no)"
+rm -rf "$N1_HOME/memory/T-40"
+
 # --- session-start: prMode "skip" is a valid value and is not migrated (NP-202) ---
 echo '{"git":{"prMode":"skip"}}' > "$N1_HOME/config.json"
 echo '{"session_id":"s-prmode","source":"startup"}' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null 2>&1 || true
