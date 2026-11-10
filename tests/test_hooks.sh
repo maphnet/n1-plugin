@@ -700,6 +700,12 @@ echo "$CPAY" | jq -c '.source = "startup"' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bas
 assert_eq "queue plan: startup expires pointers older than 2 days (N1-440)" "no|yes" \
     "$([ -e "$N1_HOME/queue-plan.old.json" ] && echo yes || echo no)|$([ -e "$N1_HOME/queue-plan.new.json" ] && echo yes || echo no)"
 rm -f "$N1_HOME/queue-plan.new.json"
+echo '{}' > "$N1_HOME/refine-draft.old.json"; touch -d '3 days ago' "$N1_HOME/refine-draft.old.json"
+echo '{}' > "$N1_HOME/refine-draft.new.json"
+echo "$CPAY" | jq -c '.source = "startup"' | CLAUDE_PLUGIN_ROOT="$REPO_ROOT" bash "$REPO_ROOT/hooks/session-start.sh" >/dev/null
+assert_eq "refine draft: startup expires pointers older than 2 days (N1-523)" "no|yes" \
+    "$([ -e "$N1_HOME/refine-draft.old.json" ] && echo yes || echo no)|$([ -e "$N1_HOME/refine-draft.new.json" ] && echo yes || echo no)"
+rm -f "$N1_HOME/refine-draft.new.json"
 # --- N1-404: PreCompact hook prints N1 compaction instructions; silent and exit 0 otherwise ---
 HJ="$REPO_ROOT/hooks/hooks.json"
 assert_eq "hooks.json: PreCompact matcher manual|auto (N1-404)" "manual|auto" "$(jq -r '.hooks.PreCompact[0].matcher' "$HJ")"
@@ -768,6 +774,23 @@ assert_eq "refine draft: unsafe stored id ignored (N1-523)" "1|" "$RC|$OUT"
 rds write T-40; rds clear
 assert_eq "refine draft: clear removes the pointer (N1-523)" "no" "$([ -e "$N1_HOME/refine-draft.s1.json" ] && echo yes || echo no)"
 rm -rf "$N1_HOME/memory/T-40"
+# --- N1-523: PreCompact names the n1-refine draft path; output unchanged outside refine ---
+mkdir -p "$N1_HOME/memory/T-40/refine"; : > "$N1_HOME/memory/T-40/refine/block.md"
+OUT=$(echo "$PCP" | bash "$PC")
+assert_eq "pre-compact: no refine pointer -> no refine line (N1-523)" "" "$(grep '^N1 refine:' <<<"$OUT")"
+OUT_BASE=$OUT
+rds write T-40
+OUT=$(echo "$PCP" | bash "$PC") && RC=0 || RC=$?
+assert_eq "pre-compact: refine draft names block.md (N1-523)" "0|N1 refine: preserve verbatim the path $N1_HOME/memory/T-40/refine/block.md and the pending preview answer." "$RC|$(grep '^N1 refine:' <<<"$OUT")"
+assert_eq "pre-compact: refine line is the only addition (N1-523)" "$OUT_BASE" "$(grep -v '^N1 refine:' <<<"$OUT")"
+OUT=$(echo "$PCP" | jq -c '.session_id = "s2"' | bash "$PC")
+assert_eq "pre-compact: other session -> no refine line (N1-523)" "" "$(grep '^N1 refine:' <<<"$OUT")"
+OUT=$(echo "$PCP" | jq -c '.agent_id = "sub-1"' | bash "$PC")
+assert_eq "pre-compact: subagent -> no output with refine pointer (N1-523)" "" "$OUT"
+rm -f "$N1_HOME/memory/T-40/refine/block.md"
+OUT=$(echo "$PCP" | bash "$PC") && RC=0 || RC=$?
+assert_eq "pre-compact: pointer without block.md -> no refine line (N1-523)" "0|" "$RC|$(grep '^N1 refine:' <<<"$OUT")"
+rds clear; rm -rf "$N1_HOME/memory/T-40"
 
 # --- session-start: prMode "skip" is a valid value and is not migrated (NP-202) ---
 echo '{"git":{"prMode":"skip"}}' > "$N1_HOME/config.json"
