@@ -330,4 +330,21 @@ has "N1-516: a stopped ticket does not stop the rest" 'does not stop the rest' "
 has "N1-516: report has an outcome per ticket" '<ID>: refined (description|comment) | skipped: <reason> | failed: <reason>' "$Q"
 has "N1-516: architecture names list mode" 'refines a list of tickets in dependency order' references/architecture.md
 
+# --- N1-516: hand-off and list-mode scoping (Steps 1-3)
+# Catches: a later ticket's SA or loop never seeing earlier Decisions; a conflicting earlier Decision silently
+# winning or losing; PRIOR fed from a failed write; a nested Sub-task refine breaking the outer list; a STOP
+# inside one ticket ending the whole list.
+F=skills/n1-refine/steps/01-fetch.md
+L=skills/n1-refine/steps/02-loop.md
+W=skills/n1-refine/steps/03-write.md
+for f516 in "$F" "$L" "$W"; do
+    has "N1-516: list-mode stop scope in $(basename "$f516")" 'or "refine ends here" in this file ends only the current ticket' "$f516"
+done
+line_has "N1-516: SA receives PRIOR" 'Dispatch persona `solution-architect`' 'Earlier refined tickets in this list:' "$F"
+line_has "N1-516: SA treats PRIOR Decisions as resolved" 'Dispatch persona `solution-architect`' 'Decisions under `Earlier refined tickets in this list:` are resolved' "$F"
+line_has "N1-516: loop carries PRIOR Decisions over" '`PRIOR` Decision that bears on this ticket' 'Why: decided in <KEY>' "$L"
+line_has "N1-516: loop raises a conflict as a question" '`PRIOR`' 'never overridden silently' "$L"
+line_has "N1-516: write appends to PRIOR only after success" 'append to `PRIOR`' 'A failed write appends nothing' "$W"
+line_has "N1-516: list handoff suppresses the Sub-task offer" 'List mode (`00-list.md`): print only' 'no Sub-task offer' "$W"
+
 exit $FAIL

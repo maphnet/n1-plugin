@@ -1,5 +1,7 @@
 <!-- Purpose: contradiction gate, tiering, question batches, scope classification, readiness verdict (Steps 1-5). -->
 
+List mode (`00-list.md`): a **STOP**, "end refine" or "refine ends here" in this file ends only the current ticket; `00-list.md` Step 5 records the outcome and goes on with the next ticket.
+
 ## Step 1: Contradiction Gate
 
 ```bash
@@ -25,6 +27,8 @@ Collect open points: `### Decision Points` in analysis.md, `### Ambiguities` in 
 - **A** — ask in Step 3.
 
 Re-run: Decisions from the existing block stay unless the user changes them; its Assumptions are re-tiered with the rest.
+
+List mode with non-empty `PRIOR` (`00-list.md` Step 5): a `PRIOR` Decision that bears on this ticket is carried over as a Decision (`Why: decided in <KEY>`). When it conflicts with this ticket's own Decisions, its text or the code, it becomes an A-tier point for Step 3 that shows both sides with their sources; a conflict is never overridden silently in either direction.
 
 ## Step 3: Question Batches
 
