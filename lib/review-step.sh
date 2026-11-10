@@ -46,7 +46,7 @@ n1_review_entry() {
 
 n1_review_collect() {
     # Usage: n1_review_collect <true|false: security-reviewer spawned> — concatenates review-hdr/cr[/sec] into review.md,
-    # plus review-codex.md at cycle 0 when present (N1-517, optional); records fp-new.tsv fingerprints, persists cycle-0
+    # plus the sanitized review-codex.md at cycle 0 when present (N1-517, SEC-3, optional); records fp-new.tsv fingerprints, persists cycle-0
     # review_c0_blocking (N1-483), checks convergence, prints TQ_MAX=; returns 1 (PARTIAL on stderr) on a missing file.
     local MEM SEC="$1" f FP_FILE CYCLE TQ_MAX C0
     local -a FILES
@@ -54,8 +54,8 @@ n1_review_collect() {
     CYCLE=$(n1_read_frontmatter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}; [[ $CYCLE =~ ^[0-9]+$ ]] || CYCLE=1
     FILES=(review-hdr.md review-cr.md); [ "$SEC" = true ] && FILES+=(review-sec.md)
     for f in "${FILES[@]}"; do [ -s "$MEM/$f" ] || { echo "PARTIAL: $f missing/empty" >&2; return 1; }; done
-    [ "$CYCLE" -eq 0 ] && [ -s "$MEM/review-codex.md" ] && FILES+=(review-codex.md)
     ( cd "$MEM" && cat "${FILES[@]}" ) > "$MEM/review.md"
+    [ "$CYCLE" -eq 0 ] && [ -s "$MEM/review-codex.md" ] && n1_review_codex_section "$MEM/review-codex.md" >> "$MEM/review.md"
     FP_FILE="$N1_HOME/memory/$ID/fingerprints.jsonl"
     if [ -r "$MEM/fp-new.tsv" ]; then n1_fingerprint_record "$FP_FILE" "$MEM/fp-new.tsv" "$CYCLE" \
         || echo "FP_RECORD_FAILED: see fp-new.tsv.rejected" >&2; fi
@@ -76,7 +76,7 @@ n1_review_codex_start() {
     CYCLE=$(n1_read_frontmatter "$MEM/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}
     [ "$CYCLE" = 0 ] || { echo "codex:skip reason=cycle"; return 0; }
     n1_review_codex_covered && { echo "codex:skip reason=covered"; return 0; }
-    rm -f "$MEM/codex-step7" "$MEM/review-codex.md" "$MEM"/codex-bg.*
+    rm -f "$MEM"/codex-step7* "$MEM/review-codex.md" "$MEM"/codex-bg.*
     [ "$(n1_cross_host_review_val autoTriage)" = true ] || { echo "codex:skip reason=autotriage-off"; return 0; }
     BASE=$(git merge-base "$1" HEAD 2>/dev/null) && [[ $BASE =~ ^[0-9a-f]{40,64}$ ]] || { echo "codex:skip reason=no-base"; return 0; }
     printf '%s %s\n' "$(date +%s)" "$BASE" > "$MEM/codex-bg.started"
@@ -110,8 +110,29 @@ n1_review_codex_collect() {
     if grep -qx 'findings:none' "$OUT"; then F=""
     elif [[ -n "$F" && "$F" == "$N1_HOME"/scratch/codex-findings-*.md.fenced && "$F" != *..* && -f "$F" ]]; then :
     else echo "codex:none outcome=ran-unavailable"; return 0; fi
-    git rev-parse HEAD > "$MEM/codex-step7"
-    if [ -n "$F" ]; then echo "codex:ran findings:file=$F"; else echo "codex:ran findings:none"; fi
+    # SEC-1: a findings file stays pending until n1_review_codex_commit sees the validated review-codex.md.
+    if [ -n "$F" ]; then git rev-parse HEAD > "$MEM/codex-step7.pending"; echo "codex:ran findings:file=$F"
+    else git rev-parse HEAD > "$MEM/codex-step7"; echo "codex:ran findings:none"; fi
+}
+
+n1_review_codex_commit() {
+    # Usage: n1_review_codex_commit — N1-517 SEC-1: promotes codex-step7.pending to the codex-step7 marker only when
+    # review-codex.md exists and opens with the validated header; otherwise drops the pending marker.
+    local MEM="$N1_HOME/memory/$ID"
+    [ -f "$MEM/codex-step7.pending" ] || return 0
+    if [ "$(head -n 1 "$MEM/review-codex.md" 2>/dev/null)" = '## Codex Findings (validated)' ]; then mv -f "$MEM/codex-step7.pending" "$MEM/codex-step7"
+    else rm -f "$MEM/codex-step7.pending"; fi
+}
+
+n1_review_codex_section() {
+    # Usage: n1_review_codex_section <review-codex.md> — N1-517 SEC-3: the Codex block appended to review.md: header, strict
+    # Index lines, strict ### [CX-N] headings; every other line is Codex-derived data and is quoted with "> " so it cannot
+    # forge an Index line, heading or section.
+    [ -f "${1:-}" ] || return 0
+    echo '## Codex Findings (validated)'; n1_review_codex_index "$1"
+    awk 'NR==1 || /^- \[CX-[0-9]+\] / {next}
+        /^### \[CX-[0-9]+\] [^`$]{1,120}$/ || /^[ \t]*$/ {print; next}
+        {print "> " $0}' "$1"
 }
 
 n1_review_codex_index() {

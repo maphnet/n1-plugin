@@ -11,7 +11,7 @@ Output: `BASE_BRANCH= RELATED_ENABLED= CYCLE= INCREMENTAL=`, `TREE_BEFORE=` and,
 
 If `RELATED_ENABLED=true`, read `procedures/review-xrepo.md` and follow it before spawning reviewers.
 
-`CYCLE=0`: read `procedures/review-codex.md` and run its **Start** block now; its **Collect**, **Validate** and **Index** parts run after all reviewers return, before **Tree freeze**.
+`CYCLE=0`: read `procedures/review-codex.md`; run its **Start** block right after the Review tier gate below unless `REVIEW_TIER=SKIP`; its **Collect**, **Validate** and **Index** parts run after all reviewers return, before **Tree freeze**.
 
 ### Incremental Re-Review (cycle >= 1)
 
