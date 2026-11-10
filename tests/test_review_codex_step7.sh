@@ -159,6 +159,17 @@ G=$(line_of 'n1_review_fix_scope "$PRE_FIX_SHA"' "$FX"); D=$(line_of 'FIX_CHANGE
 has "fix.md: gate only when CX findings exist" "$(cat "$FX")" "grep -q '^- \[CX-[0-9]'"
 has "fix.md: kept= stops and escalates" "$(cat "$FX")" '`kept=` or `tree:restore-failed`: STOP and escalate'
 
+# --- n1-pr wiring (01-prepare.md, 03-codex-review.md) ---
+P1="$REPO_ROOT/skills/n1-pr/steps/01-prepare.md"; P3="$REPO_ROOT/skills/n1-pr/steps/03-codex-review.md"
+C=$(line_of 'n1_review_codex_covered' "$P1"); R=$(line_of 'bash "$N1_ROOT/scripts/codex-pr-review.sh"' "$P1")
+[ -n "$C" ] && [ -n "$R" ] && [ "$C" -lt "$R" ] && ok "01: Step 7 coverage check precedes the runner" || no "01: Step 7 coverage check precedes the runner"
+[ -n "$R" ] && ok "01: standalone runner path kept (AC4)" || no "01: standalone runner path kept (AC4)"
+has "01: covered removes a stale triage file" "$(cat "$P1")" 'rm -f "$N1_HOME/memory/$ID/codex-triage.md"; echo "codex:covered"'
+has "01: covered skips runner, triage and Scope Gate" "$(cat "$P1")" '`codex:covered`: skip the rest of this section'
+has "01: triage only on findings:file=" "$(grep -F 'codex-triage.md` and follow it' "$P1")" 'findings:file=<path>'
+N=$(line_of '|| { echo "triage:none"; exit 0; }' "$P3"); M=$(line_of '--body-file "$TRIAGE_FILE"' "$P3")
+[ -n "$N" ] && [ -n "$M" ] && [ "$N" -lt "$M" ] && ok "03: no triage file -> no Codex comment" || no "03: no triage file -> no Codex comment"
+
 # --- end of sections ---
 echo "N1-517 step7 codex tests: FAIL=$FAIL"
 exit "$FAIL"
