@@ -344,4 +344,27 @@ line_has "N1-516: loop raises a conflict as a question" '`PRIOR`' 'never overrid
 line_has "N1-516: write appends to PRIOR only after success" 'append to `PRIOR`' 'A failed write appends nothing' "$W"
 line_has "N1-516: list handoff suppresses the Sub-task offer" 'List mode (`00-list.md`): print only' 'no Sub-task offer' "$W"
 
+# --- N1-523: draft persisted before the preview; Write builds from the files
+# Catches: a block or Actions written only to conversation text (lost on compaction); a redraft that keeps an
+# old block.md; a Remove that leaves the dropped child in actions.md; a pointer left after the preview resolves.
+W=skills/n1-refine/steps/03-write.md
+has "N1-523: block saved to refine/block.md" '$N1_HOME/memory/<ID>/refine/block.md' "$W"
+has "N1-523: actions saved to refine/actions.md" '$N1_HOME/memory/<ID>/refine/actions.md' "$W"
+line_has "N1-523: draft saved with the file-write mechanism" '**Save the draft**' 'file-write-mechanism.md' "$W"
+before "N1-523: save precedes the preview" '**Save the draft**' 'Show the verdict line' "$W"
+line_has "N1-523: every return re-saves" '**Save the draft**' 'every return from Edit, Remove or Step 3' "$W"
+has "N1-523: pointer written by helper" 'n1_refine_draft_state write "<ID>"' "$W"
+has "N1-523: pointer cleared by helper" 'n1_refine_draft_state clear' "$W"
+line_has "N1-523: preview shows saved text" 'Show the verdict line' 'exactly as saved in `block.md`' "$W"
+line_has "N1-523: Edit re-saves" 'Edit: apply the change' 'save the draft again' "$W"
+line_has "N1-523: Remove rewrites actions.md" 'Remove: drop that action' 'so `actions.md` no longer lists it' "$W"
+has "N1-523: Cancel clears the pointer" 'Cancel: clear the draft pointer, say "Nothing written."' "$W"
+line_has "N1-523: Write reads block.md, never conversation text" 'never overwrite blindly' 'never from conversation text' "$W"
+line_has "N1-523: Write strips only the line prefix" 'never overwrite blindly' 'drop only the line-number prefix' "$W"
+line_has "N1-523: Comment posts block.md" '**Comment:**' '`block.md`' "$W"
+line_has "N1-523: Actions run from actions.md" '**Actions:**' 'refine/actions.md` (read as in Write)' "$W"
+line_has "N1-523: files kept after the write" 'Both files stay after the write' 'files are kept' "$W"
+has "N1-523: architecture documents the refine pointer" 'refine-draft.<sid>.json' references/architecture.md
+before "N1-523: handoff clears before printing" 'First clear the draft pointer' 'Refined <ID> (<description|comment>)' "$W"
+
 exit $FAIL

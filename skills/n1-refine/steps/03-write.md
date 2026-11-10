@@ -32,7 +32,21 @@ The last line closes the block; text outside the two marker lines belongs to peo
 
 **Actions** come from `PROPOSED` and `CONVERT` (`02-loop.md` Step 4): `A1 Convert <ID> to <CONVERT>` first, then one `C<n> <child type>: <summary>` per child with its description and acceptance criteria (child type per Step 3c). Drop the actions that cannot run and print each under the block with its reason: every child when `CREATE_ISSUE_OP` is empty ("no create op configured"); Jira children when `CREATE_ISSUE_OP` does not start with `jcm_` and `VERSION_MCP` is empty ("no parent link without jc-mcp"); YouTrack children when `LINK_OP` is empty ("no link op configured"); a Jira conversion when `VERSION_MCP` is empty ("conversion needs jc-mcp; convert <ID> manually"); a YouTrack conversion ("convert <ID> manually"; its children stay, a `subtask of` link needs no parent type). A dropped Jira `CONVERT=Story` also drops its Sub-tasks.
 
-Show the verdict line from `02-loop.md` Step 5, then the block, then the Actions list when it is non-empty, then ask the user (format: `<N1_ROOT>/references/question-format.md`).
+**Save the draft** before every showing of this preview (the first one, and every return from Edit, Remove or Step 3): with the file-write mechanism (`<N1_ROOT>/references/file-write-mechanism.md`), overwrite `$N1_HOME/memory/<ID>/refine/block.md` with the Step 1 block, both marker lines included, and `$N1_HOME/memory/<ID>/refine/actions.md` with the Actions left after the drop rules: `A1 Convert <ID> to <CONVERT>` when listed, then each `C<n> <child type>: <summary>` with its description, acceptance criteria and links when it has any (`- None` when no action is left). Then record the draft for the PreCompact hook; a non-zero exit only loses the compaction hint, so go on:
+
+```bash
+source ~/.n1/preamble.sh
+n1_refine_draft_state write "<ID>" || echo "refine-draft: pointer not saved; continuing"
+```
+
+Both files stay after the write. **Clear the draft pointer** when the preview is resolved (Cancel, the no-tracker-write STOP, Step 4); the files are kept:
+
+```bash
+source ~/.n1/preamble.sh
+n1_refine_draft_state clear || true
+```
+
+Show the verdict line from `02-loop.md` Step 5, then the block exactly as saved in `block.md`, then the Actions list exactly as saved in `actions.md` when it is non-empty, then ask the user (format: `<N1_ROOT>/references/question-format.md`).
 
 1 — Write (Recommended): puts the block in the description, where `agents/product-analyst.md` § Idempotency detects it, then runs every listed action (chosen by `references/ticket-scope.md` § Decomposition by ticket type)
 2 — Edit: say what to change; works when the block or an action needs a change before writing
@@ -40,17 +54,17 @@ Show the verdict line from `02-loop.md` Step 5, then the block, then the Actions
 4 — Block only: write the block, run no action; works when the block is right but the actions should wait
 5 — Remove: name an action (`A1` or `C<n>`) to drop; works when one listed action is wrong
 
-Options 4 and 5 appear only with a non-empty Actions list. `EDIT_OP` empty: replace Write with "Comment: post the block as a comment, then run every listed action" (no Recommended mark). `COMMENT_OP` also empty: print the block and the Actions and say "No tracker write available; paste it yourself." **STOP.** Edit: apply the change (block or Actions), redraft, show this preview again. Remove: drop that action, show this preview again; dropping `A1` when `CONVERT=Story` also drops every Sub-task (Jira rejects Sub-tasks under a Task). Cancel: say "Nothing written." **STOP.**
+Options 4 and 5 appear only with a non-empty Actions list. `EDIT_OP` empty: replace Write with "Comment: post the block as a comment, then run every listed action" (no Recommended mark). `COMMENT_OP` also empty: print the block and the Actions and say "No tracker write available; paste it yourself." Clear the draft pointer. **STOP.** Edit: apply the change (block or Actions), redraft, save the draft again, show this preview again. Remove: drop that action, save the draft again (so `actions.md` no longer lists it), show this preview again; dropping `A1` when `CONVERT=Story` also drops every Sub-task (Jira rejects Sub-tasks under a Task). Cancel: clear the draft pointer, say "Nothing written." **STOP.**
 
 ## Step 3: Write
 
-**Write:** Re-fetch the ticket immediately before the write (`mcp__<TRACKER_MCP>__<READ_OP>`). If the description differs from `DESC_ORIG`, rebuild the new description from the fresh copy, set `DESC_ORIG` to the fresh description, show what changed, and return to Step 2; never overwrite blindly. Build the new description: if it has a line `*Refined by N1*` (match regardless of `*` or `_` emphasis, whole line), replace exactly the lines from it through the next `End of Refined by N1` line (same emphasis rule), inclusive, and nothing else. A block with no end line (written before the end line existed): replace from the marker through the last contiguous `- ` line directly under its `### Assumptions` heading, stopping at the first blank line or heading; text after that belongs to people. Otherwise append a blank line and the block. Show the full old and new description to the user as a diff before the call. Then make one `mcp__<TRACKER_MCP>__<EDIT_OP>` call carrying only the description (Jira: `cloudId`, `issueIdOrKey`, `description`; YouTrack: `issueId`, `description`) as structured tool arguments, never through a shell string. On failure: print the error and the block, and offer Comment.
+**Write:** Re-fetch the ticket immediately before the write (`mcp__<TRACKER_MCP>__<READ_OP>`). If the description differs from `DESC_ORIG`, rebuild the new description from the fresh copy, set `DESC_ORIG` to the fresh description, show what changed, and return to Step 2; never overwrite blindly. Take the block from `$N1_HOME/memory/<ID>/refine/block.md`, never from conversation text: read it with the file-read tool (never a shell `cat`), drop only the line-number prefix the tool adds to each line, and keep every other character and line break as it is. Build the new description: if it has a line `*Refined by N1*` (match regardless of `*` or `_` emphasis, whole line), replace exactly the lines from it through the next `End of Refined by N1` line (same emphasis rule), inclusive, and nothing else. A block with no end line (written before the end line existed): replace from the marker through the last contiguous `- ` line directly under its `### Assumptions` heading, stopping at the first blank line or heading; text after that belongs to people. Otherwise append a blank line and the block. Show the full old and new description to the user as a diff before the call. Then make one `mcp__<TRACKER_MCP>__<EDIT_OP>` call carrying only the description (Jira: `cloudId`, `issueIdOrKey`, `description`; YouTrack: `issueId`, `description`) as structured tool arguments, never through a shell string. On failure: print the error and the block, and offer Comment.
 
-**Comment:** one `mcp__<TRACKER_MCP>__<COMMENT_OP>` call with the block as the comment body. A comment is never edited in place; a later re-run posts a new one. Downstream reads only the newest of the last 5 comments whose first line equals the marker (whole line, `*` or `_` emphasis), so re-run refine if later comments push it out.
+**Comment:** one `mcp__<TRACKER_MCP>__<COMMENT_OP>` call with the block from `block.md` (read as in Write) as the comment body. A comment is never edited in place; a later re-run posts a new one. Downstream reads only the newest of the last 5 comments whose first line equals the marker (whole line, `*` or `_` emphasis), so re-run refine if later comments push it out.
 
 **List mode** (`00-list.md`): after the Write or Comment call succeeds, append to `PRIOR` one entry: `<ID>:` followed by the block's Scope, Decisions and Assumptions lines. A failed write appends nothing.
 
-**Actions:** only when the user picked Write (or Comment) with a non-empty Actions list, and only after that call succeeded; a failed block write runs no Actions. Run Step 3b, then Step 3c. Refine never changes the ticket's status and creates no branch.
+**Actions:** only when the user picked Write (or Comment) with a non-empty Actions list, and only after that call succeeded; a failed block write runs no Actions. Run Step 3b, then Step 3c, taking `A1` and every `C<n>` from `$N1_HOME/memory/<ID>/refine/actions.md` (read as in Write), never from conversation text. Refine never changes the ticket's status and creates no branch.
 
 ## Step 3b: Conversion
 
@@ -82,7 +96,7 @@ Add every key created or adopted here to `CHILDREN` (adopted and pending keys in
 
 ## Step 4: Handoff
 
-Print, then the Sub-task offer below when it applies, then end. When the ticket's resolved type is `investigation` (01-fetch Step 3; `--investigate` on a Task-typed ticket does not count), it is still investigation-typed, so print the `--type task` form of the Next line only, and add "Queue and headless runs would still run the investigation; retype the ticket first." Print the Actions line only when Step 3b or 3c ran.
+First clear the draft pointer (Step 2). Print, then the Sub-task offer below when it applies, then end. When the ticket's resolved type is `investigation` (01-fetch Step 3; `--investigate` on a Task-typed ticket does not count), it is still investigation-typed, so print the `--type task` form of the Next line only, and add "Queue and headless runs would still run the investigation; retype the ticket first." Print the Actions line only when Step 3b or 3c ran.
 
 ```
 Refined <ID> (<description|comment>). <verdict line>
