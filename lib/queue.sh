@@ -1098,7 +1098,7 @@ n1_queue_stale() {
 }
 
 n1_queue_overlap_order() {
-    # Usage: printf '%s\t%s\n' <ticket> <touches> ... | n1_queue_overlap_order
+    # Usage: printf '%s\t%s[\t%s]\n' <ticket> <touches> [<blocker>] ... | n1_queue_overlap_order
     # Prints "<ticket>\t<note>" in execution order (NP-203). Tickets whose comma-separated
     # Touches share a token (case-insensitive) run lowest ticket number first; all other
     # ordering keeps input order. Note: "after <ticket> (<token>)" for the nearest earlier
@@ -1107,6 +1107,10 @@ n1_queue_overlap_order() {
     # the ready-scan skipping a blocked, unrelated ticket; that case is flagged
     # "moved up (unrelated overlap elsewhere)" so the plan table never shows a silent
     # reorder with no explanation. All other unchanged slots print an empty note.
+    # N1-524: optional third field = the ticket a held row waits on (its blocked_on <ID>). A row whose blocker is in
+    # the input runs after that blocker and never holds back other rows: a lower-numbered overlapper gates a row only
+    # when it is not held itself. Blockers outside the input are ignored. If no row is ready (a blocker cycle intake
+    # should have excluded), the first remaining row is taken, so every row still prints exactly once.
     # ponytail: O(n^3) Kahn sort; fine at queue.maxTickets scale, index tokens if batches grow.
     awk -F'\t' '
     function num(k) { sub(/.*-/, "", k); return k + 0 }
@@ -1116,7 +1120,8 @@ n1_queue_overlap_order() {
         return ""
     }
     {
-        n++; key[n] = $1; list[n] = ""
+        n++; key[n] = $1; list[n] = ""; idx[$1] = n
+        b = $3; gsub(/^[[:space:]]+|[[:space:]]+$/, "", b); blk[n] = b
         m = split(tolower($2), parts, ",")
         for (i = 1; i <= m; i++) {
             c = parts[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", c)
@@ -1124,20 +1129,24 @@ n1_queue_overlap_order() {
         }
     }
     END {
+        for (i = 1; i <= n; i++) held[i] = (blk[i] != "" && (blk[i] in idx) && idx[blk[i]] != i)
         for (a = 1; a <= n; a++)
             for (b = 1; b <= n; b++)
                 if (a != b && shared(a, b) != "") { related[a] = 1; related[b] = 1 }
         for (out = 1; out <= n; out++) {
+            pick = 0; first = 0
             for (i = 1; i <= n; i++) {
                 if (done[i]) continue
-                ready = 1
-                for (j = 1; j <= n; j++)
-                    if (!done[j] && j != i && num(key[j]) < num(key[i]) && shared(i, j) != "") { ready = 0; break }
-                if (ready) break
+                if (!first) first = i
+                ready = !(held[i] && !done[idx[blk[i]]])
+                for (j = 1; ready && j <= n; j++)
+                    if (!done[j] && j != i && !held[j] && num(key[j]) < num(key[i]) && shared(i, j) != "") ready = 0
+                if (ready) { pick = i; break }
             }
+            i = pick ? pick : first
             done[i] = 1; seq[out] = i; note = ""
             for (k = out - 1; k >= 1; k--) { c = shared(i, seq[k]); if (c != "") { note = "after " key[seq[k]] " (" c ")"; break } }
-            if (note == "" && !related[i] && out != i) note = "moved up (unrelated overlap elsewhere)"
+            if (note == "" && !related[i] && !held[i] && out != i) note = "moved up (unrelated overlap elsewhere)"
             printf "%s\t%s\n", key[i], note
         }
     }'

@@ -1727,6 +1727,16 @@ test_overlap_order() {
     assert_eq "overlap: disjoint keeps input order" "T-7,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
     out=$(printf '%s\t%s\n' 'T-8' 'x' 'T-4' 'y' 'T-6' 'x,y' | n1_queue_overlap_order)
     assert_eq "overlap: transitive chain" "T-4,T-6,T-8" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    # N1-524: a held row runs after its in-plan blocker and never holds back unblocked overlappers.
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'r:a' 'T-5' 'T-2' 'r:a' '' 'T-3' 'r:a' '' 'T-5' 'r:b' '' | n1_queue_overlap_order)
+    assert_eq "overlap: unblocked overlappers not behind a held row" "T-2,T-3,T-5,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    assert_eq "overlap: held row noted after its nearest overlapper" "after T-3 (r:a)" "$(printf '%s\n' "$out" | awk -F'\t' '$1=="T-1"{print $2}')"
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-4' 'T-4' 'x' '' | n1_queue_overlap_order)
+    assert_eq "overlap: held row after its in-plan blocker" "T-4,T-1" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-99' 'T-2' 'x' '' | n1_queue_overlap_order)
+    assert_eq "overlap: blocker outside the input ignored" "T-1,T-2" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
+    out=$(printf '%s\t%s\t%s\n' 'T-1' 'x' 'T-2' 'T-2' 'y' 'T-1' | n1_queue_overlap_order)
+    assert_eq "overlap: blocker cycle still prints every row once" "T-1,T-2" "$(printf '%s\n' "$out" | cut -f1 | paste -sd, -)"
 }
 
 # N1-303: plan-time schedule (every earlier Touches overlapper is a predecessor), its wave line, and the
