@@ -2297,15 +2297,33 @@ n1_queue_plan_state() {
     esac
 }
 
+n1_queue_plan_unstarted() {
+    # Usage: n1_queue_plan_unstarted <queue-dir> — N1-524: rc 0 only for a saved plan that never started: queue.md
+    # present (not a symlink), frontmatter step: planned with no run_id/pid, every Plan row pending|held|skip, no
+    # ## Runs data row, no .unattended-claim. queue.md is child-writable (SEC-3), so any doubt is rc 1 (fail closed).
+    local dir="$1" q="$1/queue.md" num t repo n1h model st
+    [ -f "$q" ] && [ ! -L "$q" ] && [ ! -e "$dir/.unattended-claim" ] || return 1
+    [ "$(n1_read_frontmatter "$q" step)" = planned ] || return 1
+    [ -z "$(n1_read_frontmatter "$q" run_id)" ] && [ -z "$(n1_read_frontmatter "$q" pid)" ] || return 1
+    while IFS=$'\t' read -r num t repo n1h model st; do
+        case "$st" in pending|held|skip) ;; *) return 1 ;; esac
+    done < <(n1_queue_pending_rows "$q" '.*')
+    awk '/^## /{ r = ($0 ~ /^## Runs[[:space:]]*$/) }
+        r && /^\|/ && !/^\|[[:space:]]*Ticket[[:space:]]*\|/ && !/^\|[-:| ]+$/ { n++ }
+        END { exit n > 0 }' "$q"
+}
+
 n1_queue_plan_discard() {
-    # Usage: n1_queue_plan_discard <queue-id> — Cancel / --dry-run: clear this session's planning pointer and
-    # remove a planning-only queue dir (no queue.md, no unattended claim). rc 1 when the dir is kept.
-    local id="${1:-}" home dir
+    # Usage: n1_queue_plan_discard <queue-id> [saved] — Cancel / --dry-run: clear this session's planning pointer and
+    # remove a planning-only queue dir (no queue.md, no unattended claim). With `saved` (N1-524, --discard) a dir that
+    # holds queue.md is removed only when n1_queue_plan_unstarted passes. rc 1 when the dir is kept.
+    local id="${1:-}" mode="${2:-}" home dir
     n1_queue_plan_state clear 2>/dev/null || true
     [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || return 1
     home=$(n1_home) && [ -n "$home" ] || return 1
     dir="$home/queue/$id"
     [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
-    if [ -e "$dir/queue.md" ] || [ -e "$dir/.unattended-claim" ]; then return 1; fi
+    if [ "$mode" = saved ]; then n1_queue_plan_unstarted "$dir" || return 1
+    elif [ -e "$dir/queue.md" ] || [ -e "$dir/.unattended-claim" ]; then return 1; fi
     rm -rf -- "$dir"
 }

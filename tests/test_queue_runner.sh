@@ -2287,6 +2287,49 @@ test_queue_plan_state() {
     assert_eq "discard: claimed dir kept" "1|yes" "$rc|$([ -d "$h/queue/claimed" ] && echo yes)"
     qdis '../x' && rc=0 || rc=$?
     assert_eq "discard: bad id refused" "1" "$rc"
+    # N1-524: --discard removes a saved plan only while it never started; anything else is kept (fail closed).
+    _mksaved() { # <id> <step> <row-2 status> [frontmatter line] [## Runs row]
+        mkdir -p "$h/queue/$1"; cat > "$h/queue/$1/queue.md" <<EOF
+---
+queue_id: $1
+step: $2
+${4:-}
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | T-1 | A | r | h | sonnet | pending | |
+| 2 | T-2 | B | r | h | sonnet | $3 | blocked_on T-1 |
+
+## Runs
+| Ticket | Started | Exit | Outcome | PR | Session |
+|---|---|---|---|---|---|
+${5:-}
+EOF
+    }
+    _kept() { [ -d "$h/queue/$1" ] && echo yes || echo no; }
+    _mksaved s1 planned held; qdis s1 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: unstarted saved plan removed" "0|no" "$rc|$(_kept s1)"
+    _mksaved s2 planned held 'run_id: R1'; qdis s2 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: run_id kept" "1|yes" "$rc|$(_kept s2)"
+    _mksaved s3 run held; qdis s3 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: step run kept" "1|yes" "$rc|$(_kept s3)"
+    _mksaved s4 planned pr; qdis s4 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: started row kept" "1|yes" "$rc|$(_kept s4)"
+    _mksaved s5 planned held '' '| T-1 | s | 0 | pr | u | |'; qdis s5 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: ## Runs row kept" "1|yes" "$rc|$(_kept s5)"
+    _mksaved s6 planned held 'pid: 123'; qdis s6 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: pid kept" "1|yes" "$rc|$(_kept s6)"
+    _mksaved s7 planned held; mkdir -p "$h/queue/s7/.unattended-claim"; qdis s7 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: claimed kept" "1|yes" "$rc|$(_kept s7)"
+    _mksaved s8t planned held; ln -s "$h/queue/s8t" "$h/queue/s8"; qdis s8 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: symlinked dir kept" "1|yes" "$rc|$(_kept s8t)"
+    qdis '../x' saved && rc=0 || rc=$?
+    assert_eq "discard-saved: bad id refused" "1" "$rc"
+    qdis missing saved && rc=0 || rc=$?
+    assert_eq "discard-saved: missing queue refused" "1" "$rc"
+    _mksaved s9 planned held; qdis s9 && rc=0 || rc=$?
+    assert_eq "discard: without saved, queue.md still kept" "1|yes" "$rc|$(_kept s9)"
     rm -rf "$h"
 }
 
