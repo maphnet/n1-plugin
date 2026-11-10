@@ -140,6 +140,18 @@ has "validate: CX index line shape" "$WV" '`- [CX-<n>] <severity> <file>:<line> 
 has "validate: security-looking suffix" "$WV" '` (security)`'
 has "validate: return line" "$WV" 'triage:validate state=<S> confirmed=<n> total=<m>'
 
+# --- Step 7 wiring (review.md + procedures/review-codex.md) ---
+RV="$REPO_ROOT/skills/n1-start/steps/review.md"; RC="$REPO_ROOT/skills/n1-start/procedures/review-codex.md"
+has "review.md: cycle 0 reads review-codex.md" "$(cat "$RV")" 'procedures/review-codex.md'
+has "review.md: Codex index lines go into review-hdr.md" "$(cat "$RV")" 'n1_review_codex_index'
+[ -f "$RC" ] && ok "procedure exists" || no "procedure exists"
+for s in 'n1_review_codex_start "<BASE_BRANCH' 'n1_review_codex_collect' 'phase: validate' 'n1_review_codex_index' 'never run at cycle >= 1'; do
+  has "procedure: $s" "$(cat "$RC" 2>/dev/null)" "$s"
+done
+A=$(line_of 'codex:ran findings:file=' "$RC"); D=$(line_of 'phase: validate' "$RC")
+[ -n "$A" ] && [ -n "$D" ] && [ "$A" -lt "$D" ] && ok "procedure: validator dispatched only after findings:file=" || no "procedure: validator dispatched only after findings:file="
+has "procedure: findings:none dispatches nothing (AC6)" "$(cat "$RC" 2>/dev/null)" '`codex:ran findings:none`: no Codex findings; dispatch nothing'
+
 # --- end of sections ---
 echo "N1-517 step7 codex tests: FAIL=$FAIL"
 exit "$FAIL"
