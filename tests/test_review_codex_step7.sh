@@ -152,6 +152,13 @@ A=$(line_of 'codex:ran findings:file=' "$RC"); D=$(line_of 'phase: validate' "$R
 [ -n "$A" ] && [ -n "$D" ] && [ "$A" -lt "$D" ] && ok "procedure: validator dispatched only after findings:file=" || no "procedure: validator dispatched only after findings:file="
 has "procedure: findings:none dispatches nothing (AC6)" "$(cat "$RC" 2>/dev/null)" '`codex:ran findings:none`: no Codex findings; dispatch nothing'
 
+# --- Step 8 wiring (fix.md) ---
+FX="$REPO_ROOT/skills/n1-start/steps/fix.md"
+G=$(line_of 'n1_review_fix_scope "$PRE_FIX_SHA"' "$FX"); D=$(line_of 'FIX_CHANGED=$(git diff --name-only "$PRE_FIX_SHA" HEAD)' "$FX")
+[ -n "$G" ] && [ -n "$D" ] && [ "$G" -lt "$D" ] && ok "fix.md: scope gate runs before fix.diff" || no "fix.md: scope gate runs before fix.diff"
+has "fix.md: gate only when CX findings exist" "$(cat "$FX")" "grep -q '^- \[CX-[0-9]'"
+has "fix.md: kept= stops and escalates" "$(cat "$FX")" '`kept=` or `tree:restore-failed`: STOP and escalate'
+
 # --- end of sections ---
 echo "N1-517 step7 codex tests: FAIL=$FAIL"
 exit "$FAIL"

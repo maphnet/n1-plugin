@@ -53,11 +53,14 @@ REVIEW_FIX_MAX=$(n1_config_val '.review.maxFixAttempts'); [[ $REVIEW_FIX_MAX =~ 
 FAIL-only:
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/review-step.sh"
 PRE_FIX_SHA=$(cat "$N1_HOME/memory/$ID/pre-fix-sha" 2>/dev/null || echo "HEAD~1")
+grep -q '^- \[CX-[0-9]' "$N1_HOME/memory/$ID/review.md" 2>/dev/null && n1_review_fix_scope "$PRE_FIX_SHA"
 FIX_CHANGED=$(git diff --name-only "$PRE_FIX_SHA" HEAD)
 echo "$FIX_CHANGED" > "$N1_HOME/memory/$ID/fix-changed-files"
 git diff "$PRE_FIX_SHA" HEAD > "$N1_HOME/memory/$ID/fix.diff"
 ```
+**Scope gate** (N1-517; only when review.md has `[CX-N]` findings, since Codex text can steer the fix): `push:ok`/`push:none`: continue. `push:blocked ... reset=<sha>`: fix commits touching files outside the Step 7 branch diff were removed (patch in `memory/<ID>/codex-blocked-fix.patch`); warn inline and continue: the re-review sees the reduced fix, and open findings end under `## For Human Review`. `tree:restored patch=<path>`: warn inline, continue. `kept=` or `tree:restore-failed`: STOP and escalate (unvetted commits or edits remain; every push path refuses until `git reset --keep <PRE_FIX_SHA>`).
 Emit: `<ID> · review fix cycle <REVIEW_FIX_CYCLE+1>/<MAX>`. FAIL-only: return to Step 7.
 
 **Escalation:** non-security/architecture/public-API: take recommended, A-tier `[auto]` ledger. Security/architecture/public-API: resolution ladder (codebase→web→command→prior decisions); all fail: emit `n1_emit_question_event ... "fix" "quality" "asked" "codebase|web|command|prior-decisions"`. Preamble: `"{Title}: {Core Ask}."` Bug: prepend root-cause. Ask: "{PREAMBLE} Ambiguity: [...]. 1.<recommended> 2.<alt> 3.Decide for me."; "Decide for me"→web+apply, emit `"auto-decided"`.
