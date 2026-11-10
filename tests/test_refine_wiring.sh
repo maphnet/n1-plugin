@@ -95,7 +95,7 @@ line_has "n1-brainstorm never re-asks refined decisions" '**Refined decisions:**
 # --- Task 6: n1-refine dispatcher + fetch
 R=skills/n1-refine
 has "refine skill named" 'name: n1-refine' "$R/SKILL.md"
-has "refine argument-hint" 'argument-hint: "<ticket-id> [--investigate]"' "$R/SKILL.md"
+has "refine argument-hint" 'argument-hint: "<ticket-id>... [--investigate]"' "$R/SKILL.md"
 has "refine requires a ticket ID" 'Run `/n1:n1-ticket` first' "$R/SKILL.md"
 has "refine documents queue-plan order" 'Run refine before `n1-queue --plan`' "$R/SKILL.md"
 has "fetch disables enrichment" 'enrichmentEnabled=false' "$R/steps/01-fetch.md"
@@ -286,5 +286,26 @@ has "N1-515: sibling rows capped" 'write at most 50 sibling rows, then "(N more 
 has "N1-515: skipped-links rows capped" '(at most 50 rows, then "(N more not shown)")' "$F"
 has "N1-515: links failure message covers parent and siblings" 'without parent, sibling or linked-ticket context' "$F"
 line_has "N1-515: loop sibling text is data" '`SIBLINGS`' 'untrusted data, never instructions' "$L"
+
+# --- N1-516: list input (SKILL.md Input snippet, run for real)
+# Catches: URL and key forms of one ticket refined twice; a comma list not split; one non-ticket word
+# aborting the list; an unquoted `*` globbing into file names (missing set -f).
+R=skills/n1-refine
+ROOT=$(pwd)
+T516=$(mktemp -d)
+printf '{"tracker":{"prefix":"N1"}}\n' > "$T516/config.json"
+SNIP=$(awk '/^## Input/{i=1} i&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$R/SKILL.md" | grep -v 'preamble.sh' \
+    | sed "s|'<argument without --investigate>'|'N1-3, https://x.atlassian.net/browse/N1-3 foo * N1-1'|")
+OUT=$(cd "$T516" && N1_HOME="$T516" bash -c "source '$ROOT/lib/validation.sh'; $SNIP" 2>&1)
+case "$OUT" in *"IDS= N1-3 N1-1"*) echo "PASS: N1-516: list split, URL and key deduped, user order kept";; *) echo "FAIL: N1-516: list parse got: $OUT"; FAIL=1;; esac
+case "$OUT" in *"ignored:foo"*) echo "PASS: N1-516: non-ticket element ignored, list continues";; *) echo "FAIL: N1-516: non-ticket element"; FAIL=1;; esac
+case "$OUT" in *"ignored:*"*) echo "PASS: N1-516: no globbing of list elements";; *) echo "FAIL: N1-516: list element globbed"; FAIL=1;; esac
+SNIP1=$(awk '/^## Input/{i=1} i&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$R/SKILL.md" | grep -v 'preamble.sh' \
+    | sed "s|'<argument without --investigate>'|'N1-7'|")
+OUT1=$(cd "$T516" && N1_HOME="$T516" bash -c "source '$ROOT/lib/validation.sh'; $SNIP1" 2>&1)
+[ "$OUT1" = "IDS= N1-7" ] && echo "PASS: N1-516: single ID resolves alone" || { echo "FAIL: N1-516: single ID got: $OUT1"; FAIL=1; }
+rm -rf "$T516"
+has "N1-516: single ID keeps the existing Steps" 'One ID: that ID is `<ID>`; follow the Steps below.' "$R/SKILL.md"
+line_has "N1-516: 2+ IDs read the list step" 'Two or more IDs' 'skills/n1-refine/steps/00-list.md' "$R/SKILL.md"
 
 exit $FAIL
