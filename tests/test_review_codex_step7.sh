@@ -170,6 +170,29 @@ has "01: triage only on findings:file=" "$(grep -F 'codex-triage.md` and follow 
 N=$(line_of '|| { echo "triage:none"; exit 0; }' "$P3"); M=$(line_of '--body-file "$TRIAGE_FILE"' "$P3")
 [ -n "$N" ] && [ -n "$M" ] && [ "$N" -lt "$M" ] && ok "03: no triage file -> no Codex comment" || no "03: no triage file -> no Codex comment"
 
+# --- telemetry: per-task reviewers inside the implementation window (hooks/telemetry-merge.py) ---
+TOUT=$(python3 - "$REPO_ROOT/hooks/telemetry-merge.py" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("tm", sys.argv[1]); tm = importlib.util.module_from_spec(spec); spec.loader.exec_module(tm)
+steps = [{"step": "implementation", "started_at": "2026-01-01T10:00:00Z", "completed_at": "2026-01-01T11:00:00Z"},
+         {"step": "review", "started_at": "2026-01-01T11:00:01Z", "completed_at": None}]
+def a(t, s): return {"agent_type": t, "started_at": s}
+cases = [
+    ("code-reviewer in implementation window", a("n1:code-reviewer", "2026-01-01T10:30:00Z"), steps, "implementation"),
+    ("security-reviewer in implementation window", a("n1:security-reviewer", "2026-01-01T10:31:00Z"), steps, "implementation"),
+    ("code-reviewer in review window", a("n1:code-reviewer", "2026-01-01T11:05:00Z"), steps, "review"),
+    ("code-reviewer outside any window", a("n1:code-reviewer", "2026-01-01T09:00:00Z"), steps, "review"),
+    ("code-reviewer without steps", a("n1:code-reviewer", "2026-01-01T10:30:00Z"), [], "review"),
+    ("planner in implementation window", a("n1:planner", "2026-01-01T10:30:00Z"), steps, "plan"),
+    ("developer in review window", a("n1:developer", "2026-01-01T11:05:00Z"), steps, "review"),
+]
+for name, ag, st, want in cases:
+    got = tm.correlate_step(ag, st)
+    print(("PASS" if got == want else "FAIL") + f": telemetry {name} -> {got} (want {want})")
+PY
+)
+echo "$TOUT"; grep -q '^FAIL' <<<"$TOUT" && FAIL=1
+
 # --- end of sections ---
 echo "N1-517 step7 codex tests: FAIL=$FAIL"
 exit "$FAIL"

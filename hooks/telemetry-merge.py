@@ -171,10 +171,7 @@ def pair_agents(events: list[dict]) -> list[dict]:
     return agents
 
 
-def correlate_step(agent: dict, steps: list[dict]) -> str | None:
-    static = STATIC_MAP.get(persona_of(agent.get("agent_type") or ""))
-    if static and len(static) == 1:
-        return static[0]
+def _temporal_step(agent: dict, steps: list[dict]) -> str | None:
     a_start = agent.get("started_at")
     if not a_start:
         return None
@@ -183,6 +180,17 @@ def correlate_step(agent: dict, steps: list[dict]) -> str | None:
                 (step.get("completed_at") is None or step["completed_at"] >= a_start):
             return step.get("step")
     return None
+
+
+def correlate_step(agent: dict, steps: list[dict]) -> str | None:
+    static = STATIC_MAP.get(persona_of(agent.get("agent_type") or ""))
+    temporal = _temporal_step(agent, steps)
+    if static and len(static) == 1:
+        # N1-517: n1-implement per-task reviewers run inside the implementation step window.
+        if static[0] == "review" and temporal == "implementation":
+            return "implementation"
+        return static[0]
+    return temporal
 
 
 def parse_transcript(path: str) -> dict:
