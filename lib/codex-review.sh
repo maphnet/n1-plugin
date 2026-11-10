@@ -69,7 +69,7 @@ n1_review_reanchor() {
 }
 
 # N1-517: n1-start Step 7 ran Codex for this branch when its marker head (memory/<ID>/codex-step7) is an ancestor of HEAD
-# and the branch receipt is "ran". n1-pr step 01 then skips its own Codex run and triage.
+# (HEAD itself or the recorded reviewed head, SEC-2) and the branch receipt is "ran". n1-pr step 01 then skips its own Codex run and triage.
 n1_review_codex_covered() {
     local m h
     [[ "${ID:-}" =~ ^[A-Za-z0-9_-]+$ && -n "${N1_HOME:-}" ]] || return 1
@@ -77,6 +77,9 @@ n1_review_codex_covered() {
     [ -f "$m" ] || return 1
     h=$(head -n 1 "$m")
     [[ "$h" =~ ^[0-9a-f]{40,64}$ ]] && git -C "${N1_REVIEW_DIR:-.}" merge-base --is-ancestor "$h" HEAD 2>/dev/null || return 1
+    # SEC-2: commits after the marker head count only when n1-start recorded HEAD as the reviewed head (a later review step).
+    [ "$h" = "$(git -C "${N1_REVIEW_DIR:-.}" rev-parse HEAD 2>/dev/null)" ] \
+        || [ "$(n1_review_reviewed_head "$(n1_home)")" = "$(git -C "${N1_REVIEW_DIR:-.}" rev-parse HEAD 2>/dev/null)" ] || return 1
     [ "$(n1_review_outcome "$(git -C "${N1_REVIEW_DIR:-.}" branch --show-current 2>/dev/null)")" = ran ]
 }
 
