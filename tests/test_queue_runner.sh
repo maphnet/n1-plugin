@@ -1667,6 +1667,20 @@ test_close_wiring() {
     assert_eq "close-wiring: abandon gate has no recommendation" "yes" "$(_hasF 'No recommendation. The options are equivalent given the available evidence; select based on team preference.' "$s/steps/close.md")"
 }
 
+# N1-524: --discard routing, required id and the saved-plan helper call.
+test_discard_wiring() {
+    local s="$REPO_ROOT/skills/n1-queue"
+    _hasF() { grep -qF -- "$1" "$2" 2>/dev/null && echo yes || echo no; }
+    assert_eq "discard-wiring: argument-hint offers --discard" "yes" "$(grep -q '^argument-hint:.*\[--discard <id>\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "discard-wiring: description usage offers --discard" "yes" "$(grep -q '^description:.*\[--discard <id>\]' "$s/SKILL.md" && echo yes || echo no)"
+    assert_eq "discard-wiring: step 1 routes --discard" "yes" "$(_hasF 'If `--discard`: read and follow `<N1_ROOT>/skills/n1-queue/steps/discard.md`. **STOP.**' "$s/SKILL.md")"
+    assert_eq "discard-wiring: id required" "yes" "$(_hasF '--discard needs a queue id.' "$s/steps/discard.md")"
+    assert_eq "discard-wiring: id validated before interpolation" "yes" "$(_hasF '^[A-Za-z0-9][A-Za-z0-9._-]*$' "$s/steps/discard.md")"
+    assert_eq "discard-wiring: step calls the saved-plan helper" "yes" "$(_hasF "n1_queue_plan_discard '<QUEUE_ID>' saved" "$s/steps/discard.md")"
+    assert_eq "discard-wiring: refusal points to --close" "yes" "$(_hasF 'Use --close for a started queue.' "$s/steps/discard.md")"
+    assert_eq "discard-wiring: architecture documents --discard" "yes" "$(_hasF 'n1-queue --discard <id>' "$REPO_ROOT/references/architecture.md")"
+}
+
 
 # N1-61: placeholder titles and form-dump descriptions are repaired at intake.
 test_form_repair_wiring() {
@@ -2629,6 +2643,7 @@ test_row_status
 test_queue_retry
 test_queue_reconcile_force
 test_queue_close
+test_discard_wiring
 test_write_plan_cells
 test_pending_rows
 test_decisions_and_stale
