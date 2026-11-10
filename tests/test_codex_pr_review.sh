@@ -17,6 +17,7 @@ if [ "$1" = login ]; then
   exit 0
 fi
 printf 'review\n' >> "$REVIEW_LOG"
+printf '%s\n' "$*" > "${REVIEW_LOG}.args"
 [ "${REVIEW_MODE:-ok}" != hang ] || sleep 10
 [ "${REVIEW_MODE:-ok}" != fail ] || exit 1
 while [ "$#" -gt 0 ]; do
@@ -334,3 +335,17 @@ grep -q '^codex_review_outcome=ran ' "$TMP/det-out"
 jq -e '.branch == "story/S-9" and .outcome == "ran" and .processed' \
   "$N1_HOME/review-receipts/review-test/$(rn "$DT" story/S-9)" >/dev/null
 printf 'PASS: N1_REVIEW_BRANCH reviews a detached checkout under that branch key\n'
+
+# N1-517: the prompt asks for the exact one-line no-findings answer; a preamble before it still fails closed to a findings file.
+unset AUTH_MODE REVIEW_MODE CODEX_OUT
+printf '{}\n' > "$N1_HOME/config.json"; rm -rf "$N1_HOME/scratch"
+X517="$TMP/x517"; B517=$(mkrepo "$X517" feature/x517)
+(cd "$X517" && CODEX_OUT='No findings.' bash "$ROOT/scripts/codex-pr-review.sh" "$B517" T-1) > "$TMP/out-none"
+grep -qF 'If there are no findings, output exactly the single line: No findings. and nothing else.' "${REVIEW_LOG}.args" \
+  || { echo 'FAIL: Codex prompt does not ask for the exact No findings. line'; exit 1; }
+grep -qx 'findings:none' "$TMP/out-none" || { echo 'FAIL: No findings. did not print findings:none'; exit 1; }
+if grep -q '^findings:file=' "$TMP/out-none"; then echo 'FAIL: No findings. produced a findings file'; exit 1; fi
+(cd "$X517" && CODEX_OUT=$'Here is my review.\nNo findings.' bash "$ROOT/scripts/codex-pr-review.sh" "$B517" T-1) > "$TMP/out-pre"
+grep -q '^findings:file=' "$TMP/out-pre" || { echo 'FAIL: preamble + No findings. must fail closed to findings:file='; exit 1; }
+if grep -qx 'findings:none' "$TMP/out-pre"; then echo 'FAIL: multi-line output short-circuited to findings:none'; exit 1; fi
+printf 'PASS: prompt asks for exactly No findings.; one-line answer -> findings:none; preamble -> findings:file (fail closed)\n'
