@@ -115,6 +115,22 @@ n1_review_collect false >/dev/null 2>&1; rc=$?
 eq "collect: absent review-codex.md is not PARTIAL" "0" "$rc"
 rm -f "$MEM/overview.md" "$MEM/review.md" "$MEM/review-hdr.md" "$MEM/review-cr.md"
 
+# --- Step 8 scope gate (n1_review_fix_scope) ---
+printf '%s %s\n' "$(date +%s)" "$BASE_SHA" > "$MEM/codex-bg.started"
+START=$(git rev-parse HEAD); echo fix >> a.txt; gc -am in-scope
+OUT=$(n1_review_fix_scope "$START")
+has "fix scope: fix inside the branch diff is ok" "$OUT" "push:ok"
+START=$(git rev-parse HEAD); echo out > b.txt; git add b.txt; gc -m out-of-scope
+OUT=$(n1_review_fix_scope "$START")
+has "fix scope: file outside the branch diff is blocked" "$OUT" "push:blocked"
+has "fix scope: blocked commits are reset" "$OUT" "reset="
+eq "fix scope: HEAD back at the pre-fix SHA" "$START" "$(git rev-parse HEAD)"
+[ -e "$MEM/codex-gate-blocked" ] && no "fix scope: a clean reset leaves no push block" || ok "fix scope: a clean reset leaves no push block"
+eq "fix scope: no new commit -> push:none" "push:none" "$(n1_review_fix_scope "$(git rev-parse HEAD)" | head -n 1)"
+has "fix scope: invalid pre-fix SHA fails closed" "$(n1_review_fix_scope HEAD~1)" "kept="
+[ -e "$MEM/codex-gate-blocked" ] && ok "fix scope: kept= writes the push block" || no "fix scope: kept= writes the push block"
+rm -f "$MEM/codex-gate-blocked" "$MEM"/codex-bg.* "$MEM/codex-blocked-fix.patch"
+
 # --- end of sections ---
 echo "N1-517 step7 codex tests: FAIL=$FAIL"
 exit "$FAIL"

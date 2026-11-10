@@ -120,3 +120,25 @@ n1_review_codex_index() {
     [ -f "${1:-}" ] || return 0
     grep -E '^- \[CX-[0-9]+\] (Critical|High|Medium|Low) [A-Za-z0-9._/-]+:[0-9]+ — [^`$]{1,120}$' "$1" || true
 }
+
+n1_review_fix_scope() {
+    # Usage: n1_review_fix_scope <START sha> — N1-517: the N1-405 scope gate for a Step 8 FAIL pass that fixed [CX-N] findings.
+    # Allowlist = files of the Step 7 branch diff (codex-bg.started base...START). Prints one push: line; fails closed
+    # (kept= writes the codex-gate-blocked marker that every push path refuses on). No head record: Step 7 re-reviews the fix.
+    local START="${1:-}" MEM="$N1_HOME/memory/$ID" BASE TIP T OUT
+    BASE=$(awk 'NR==1{print $2}' "$MEM/codex-bg.started" 2>/dev/null)
+    TIP=$(git rev-parse HEAD)
+    T=$(mktemp -d) || T=""
+    [[ "${ID:-}" =~ ^[A-Za-z0-9_-]+$ && -n "$T" && $START =~ ^[0-9a-f]{40,64}$ && $BASE =~ ^[0-9a-f]{40,64}$ ]] \
+      && git -c core.quotePath=false diff --no-renames --name-only "$BASE...$START" > "$T/allowed.txt" && printf '%s\n' "$START" > "$T/start" \
+      || { n1_codex_gate_block "${ID:-}" "$START"; [ -z "$T" ] || rm -rf "$T"; echo "push:blocked paths=gate-unavailable kept=$TIP"; return 0; }
+    OUT=$(bash "$_n1_review_step_dir/../scripts/codex-push-gate.sh" "$T/start" "$T/allowed.txt" "$MEM/codex-blocked-fix.patch") || OUT=""
+    rm -rf "$T"
+    case "$OUT" in push:ok|push:none|push:blocked\ *) ;; *) OUT="push:blocked paths=gate-unavailable";; esac
+    if [ "$OUT" = "push:blocked paths=gate-unavailable" ]; then
+        if [ "$TIP" = "$START" ]; then OUT="push:none"; elif git reset -q --keep "$START" 2>/dev/null; then OUT="$OUT reset=$TIP"; else OUT="$OUT kept=$TIP"; fi
+    fi
+    case "$OUT" in *" kept="*) n1_codex_gate_block "$ID" "$START";; esac
+    echo "$OUT"
+    n1_codex_tree_restore "$ID" || echo "push:blocked paths=uncommitted-edits kept=$TIP"
+}
