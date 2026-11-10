@@ -76,6 +76,11 @@ n1_review_codex_start() {
     CYCLE=$(n1_read_frontmatter "$MEM/overview.md" "review_fix_cycle"); CYCLE=${CYCLE:-0}
     [ "$CYCLE" = 0 ] || { echo "codex:skip reason=cycle"; return 0; }
     n1_review_codex_covered && { echo "codex:skip reason=covered"; return 0; }
+    # An earlier run still inside its deadline (interrupted session) is reused: a second detached run would share its output paths.
+    local S0 B0 TO=${N1_CROSS_HOST_REVIEW_TIMEOUT:-900}; TO=${TO%%.*}; [[ $TO =~ ^[0-9]+$ ]] || TO=900
+    { read -r S0 B0 < "$MEM/codex-bg.started"; } 2>/dev/null
+    if [[ ${S0:-} =~ ^[0-9]+$ && ${B0:-} =~ ^[0-9a-f]{40,64}$ && ! -f "$MEM/codex-bg.done" ]] && [ "$(date +%s)" -lt $(( S0 + TO + 60 )) ] \
+       && [ "$B0" = "$(git merge-base "$1" HEAD 2>/dev/null)" ]; then echo "codex:started base=$B0"; return 0; fi
     rm -f "$MEM"/codex-step7* "$MEM/review-codex.md" "$MEM"/codex-bg.*
     [ "$(n1_cross_host_review_val autoTriage)" = true ] || { echo "codex:skip reason=autotriage-off"; return 0; }
     BASE=$(git merge-base "$1" HEAD 2>/dev/null) && [[ $BASE =~ ^[0-9a-f]{40,64}$ ]] || { echo "codex:skip reason=no-base"; return 0; }

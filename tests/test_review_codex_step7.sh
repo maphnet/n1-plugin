@@ -95,6 +95,12 @@ printf '{}\n' > "$N1_HOME/config.json"
 eq "start: skip on an unresolvable base" "codex:skip reason=no-base" "$(n1_review_codex_start refs/does/not/exist)"
 eq "start: skip without ID" "codex:skip reason=no-id" "$(ID="" n1_review_codex_start origin/main)"
 
+printf '{"crossHostReview":{"autoTriage":true}}\n' > "$N1_HOME/config.json"
+MB=$(git merge-base origin/main HEAD); printf '%s %s\n' "$(date +%s)" "$MB" > "$MEM/codex-bg.started"
+eq "start: active run for the same base is reused" "codex:started base=$MB" "$(n1_review_codex_start origin/main)"
+[ "$(wc -l < "$MEM/codex-bg.started")" = 1 ] && [ "$(cut -d' ' -f1 "$MEM/codex-bg.started")" -ge "$(( $(date +%s) - 5 ))" ] && ok "start: reuse leaves the status file untouched" || no "start: reuse leaves the status file untouched"
+printf '{}\n' > "$N1_HOME/config.json"
+
 rm -f "$MEM"/codex-bg.*
 eq "collect: not started" "codex:none outcome=not-started" "$(n1_review_codex_collect)"
 printf '%s %s\n' "$(( $(date +%s) - 2000 ))" "$BASE_SHA" > "$MEM/codex-bg.started"
