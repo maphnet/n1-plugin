@@ -492,6 +492,22 @@ n1_queue_blocker_of() {
     n1_queue_row_reason "$1" "$2" | sed -n 's/^blocked_on \([A-Za-z0-9_-]*\).*/\1/p'
 }
 
+n1_queue_desc_blockers() {
+    # Usage: n1_queue_desc_blockers <SELF_KEY> < description — N1-524: the keys a description names as blockers, one
+    # per line, uppercased, deduped, SELF_KEY excluded. The prefix is SELF_KEY's own (VEL-4162 -> VEL). A key counts
+    # only when a dependency phrase (blocked by, depends on, after, requires) precedes it in the same clause: at most
+    # 3 words between, and no . ; : ( ) between (so "..." and a parenthesized key break it). The keys listed right after
+    # a match ("KEY, KEY", "KEY and KEY") count too: a key is itself a word, so the 3-word window spans the list.
+    # rc 1 on an invalid SELF_KEY (it becomes part of a regex). Uses `command grep` and `\b`, not `(^|[^`: N1-169.
+    # ponytail: 3-word window is a heuristic; the tracker-link check stays the primary blocker source.
+    local self="${1^^}" prefix re
+    [[ "$self" =~ ^[A-Z][A-Z0-9_]*-[0-9]+$ ]] || return 1
+    prefix="${self%-*}"
+    re="\\b(blocked[[:space:]]+by|depends[[:space:]]+on|after|requires)([^[:alnum:].;:()]+[[:alnum:]_'-]+){0,3}[^[:alnum:].;:()]+${prefix}-[0-9]+"
+    { command grep -oiE -- "$re" || :; } | { command grep -oiE -- "\\b${prefix}-[0-9]+" || :; } \
+        | tr '[:lower:]' '[:upper:]' | awk -v s="$self" '$0 != s && !seen[$0]++'
+}
+
 n1_queue_ticket_status() {
     # Usage: n1_queue_ticket_status <queue.md> <ticket> — Status of the ticket's LAST Plan row
     # (a defer-once retry appends a new row, so the last one is current).

@@ -1689,6 +1689,32 @@ test_form_repair_wiring() {
     assert_eq "repair: queue brief re-fetches and skips a changed ticket" "yes" "$(_hasF 'brief skipped (changed)' "$q/preview.md")"
 }
 
+# N1-524: a description line makes a blocker only when the dependency phrase applies to the key.
+test_desc_blockers() {
+    local rc
+    db() { n1_queue_desc_blockers "$1" <<< "$2" | paste -sd, -; }
+    assert_eq "desc-blockers: VEL-4162 line 1 (key in a later clause) yields nothing" "" \
+        "$(db VEL-4162 'Map the error after missing_required_input ... The draft API (VEL-4137, VEL-4146) reuses the same path.')"
+    assert_eq "desc-blockers: VEL-4162 line 2 (needs, parenthesized key) yields nothing" "" \
+        "$(db VEL-4162 'Out: ... new sources and needs (VEL-4166)')"
+    assert_eq "desc-blockers: blocked by" "VEL-4137" "$(db VEL-4162 'Blocked by VEL-4137')"
+    assert_eq "desc-blockers: depends on, word between" "VEL-4137" "$(db VEL-4162 'This depends on the VEL-4137 work.')"
+    assert_eq "desc-blockers: requires a key list" "VEL-4137,VEL-4146" "$(db VEL-4162 'Requires VEL-4137 and VEL-4146.')"
+    assert_eq "desc-blockers: after" "VEL-4137" "$(db VEL-4162 'Start after VEL-4137 merges')"
+    assert_eq "desc-blockers: comma list after one phrase" "VEL-1,VEL-2,VEL-3" "$(db VEL-4162 'blocked by VEL-1, VEL-2 and VEL-3')"
+    assert_eq "desc-blockers: lowercase key uppercased" "VEL-4137" "$(db VEL-4162 'blocked by vel-4137')"
+    assert_eq "desc-blockers: self key skipped" "" "$(db VEL-4162 'Blocked by VEL-4162')"
+    assert_eq "desc-blockers: other prefix ignored" "" "$(db VEL-4162 'Blocked by OTHER-12')"
+    assert_eq "desc-blockers: trigger must be a whole word" "" "$(db VEL-4162 'thereafter VEL-4137')"
+    assert_eq "desc-blockers: bare needs is not a trigger" "" "$(db VEL-4162 'needs VEL-4137')"
+    assert_eq "desc-blockers: more than 3 words between is no match" "" "$(db VEL-4162 'after we finish the API work VEL-4137')"
+    assert_eq "desc-blockers: multi-line, deduped, first-seen order" "VEL-1,VEL-2" \
+        "$(db VEL-4162 "$(printf 'Blocked by VEL-1\nDepends on VEL-2\nblocked by VEL-1')")"
+    assert_eq "desc-blockers: empty description" "" "$(db VEL-4162 '')"
+    n1_queue_desc_blockers 'V.*-1' <<< 'Blocked by V.*-1' >/dev/null && rc=0 || rc=$?
+    assert_eq "desc-blockers: invalid self key refused" "1" "$rc"
+}
+
 # NP-203: overlapping tickets run in creation order; disjoint tickets keep input order.
 test_overlap_order() {
     local out
@@ -2557,6 +2583,7 @@ test_retry_wiring
 test_close_wiring
 test_form_repair_wiring
 test_overlap_order
+test_desc_blockers
 test_schedule_helpers
 test_eligible_rows
 test_schedule_cycle_and_merge_final
