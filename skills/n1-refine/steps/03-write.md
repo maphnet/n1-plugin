@@ -1,5 +1,7 @@
 <!-- Purpose: draft block, preview with actions, write or comment, conversion, children, handoff (Steps 1-4). -->
 
+List mode (`00-list.md`): a **STOP**, "end refine" or "refine ends here" in this file ends only the current ticket; `00-list.md` Step 5 records the outcome and goes on with the next ticket.
+
 ## Step 1: Draft Block
 
 Build the block from the Step 2-5 results of `02-loop.md`. Plain bullets for both trackers (Jira strips checkbox brackets; see `agents/product-analyst.md` § Jira formatting rule). An empty section holds `- None`.
@@ -46,6 +48,8 @@ Options 4 and 5 appear only with a non-empty Actions list. `EDIT_OP` empty: repl
 
 **Comment:** one `mcp__<TRACKER_MCP>__<COMMENT_OP>` call with the block as the comment body. A comment is never edited in place; a later re-run posts a new one. Downstream reads only the newest of the last 5 comments whose first line equals the marker (whole line, `*` or `_` emphasis), so re-run refine if later comments push it out.
 
+**List mode** (`00-list.md`): after the Write or Comment call succeeds, append to `PRIOR` one entry: `<ID>:` followed by the block's Scope, Decisions and Assumptions lines. A failed write appends nothing.
+
 **Actions:** only when the user picked Write (or Comment) with a non-empty Actions list, and only after that call succeeded; a failed block write runs no Actions. Run Step 3b, then Step 3c. Refine never changes the ticket's status and creates no branch.
 
 ## Step 3b: Conversion
@@ -86,6 +90,8 @@ Actions: converted <ID> to <type>; created <keys>; adopted <keys>; skipped <n>; 
 Next: /n1:n1-start <ID>            (investigation-typed ticket: /n1:n1-start <ID> --type task)
 Or queue it: add it to a /n1:n1-queue batch (tag or story), then run --plan.
 ```
+
+List mode (`00-list.md`): print only the `Refined` line and, when Step 3b or 3c ran, the `Actions` line; no Next or queue line and no Sub-task offer (`00-list.md` Step 6 reports the Sub-task keys); then return to `00-list.md` Step 5.
 
 **Sub-task offer:** after the handoff, when `ISSUE_TYPE` is `story`, or Step 3b converted the ticket to Story, and `CHILDREN` holds at least one key, run the check below, then ask the user (format: `<N1_ROOT>/references/question-format.md`). No offer when `CHILDREN` is empty or `unknown`, or when the check prints `queue-run:yes` or `headless:yes` (queue and headless runs end here).
 

@@ -1,7 +1,7 @@
 ---
 name: n1-refine
-description: "Use when a tracker ticket has open decisions, unclear scope or unverified claims to settle with the user before the autonomous pipeline runs: /n1:n1-refine <ID> [--investigate]"
-argument-hint: "<ticket-id> [--investigate]"
+description: "Use when a tracker ticket has open decisions, unclear scope or unverified claims to settle with the user before the autonomous pipeline runs: /n1:n1-refine <ID>... [--investigate]"
+argument-hint: "<ticket-id>... [--investigate]"
 model: sonnet
 effort: medium
 ---
@@ -27,16 +27,25 @@ If the output shows `N1_NOT_CONFIGURED` — N1 is not configured. Tell the user:
 
 ## Input
 
-`INVESTIGATE=true` when the argument contains `--investigate`; strip the flag, then resolve the ID:
+`INVESTIGATE=true` when the argument contains `--investigate` (with several tickets it applies to each); strip the flag. The argument holds one or more ticket IDs or tracker URLs, separated by spaces or commas; resolve each, drop duplicates (first kept):
 
 ```bash
 source ~/.n1/preamble.sh
-ARG='<argument without --investigate>'
-ID=$(n1_extract_ticket_from_url "$ARG" "$N1_HOME/config.json") || ID="$ARG"
-n1_detect_input_type "$ID" "$N1_HOME/config.json"
+set -f
+IDS=""
+for A in $(printf '%s' '<argument without --investigate>' | tr ',' ' '); do
+  K=$(n1_extract_ticket_from_url "$A" "$N1_HOME/config.json") || K="$A"
+  [ "$(n1_detect_input_type "$K" "$N1_HOME/config.json")" = ticket ] || { echo "ignored:$A"; continue; }
+  case " $IDS " in *" $K "*) ;; *) IDS="$IDS $K";; esac
+done
+echo "IDS=$IDS"
 ```
 
-Anything other than `ticket` (brain dump, file, error-tracker URL): say "n1-refine works on an existing ticket. Run `/n1:n1-ticket` first, then `/n1:n1-refine <ID>`." **STOP.**
+`IDS` empty (brain dump, file, error-tracker URL): say "n1-refine works on an existing ticket. Run `/n1:n1-ticket` first, then `/n1:n1-refine <ID>`." **STOP.** Otherwise say "<input>: ignored (not a ticket)" for each `ignored:` line.
+
+One ID: that ID is `<ID>`; follow the Steps below.
+
+Two or more IDs (list mode): read `<N1_ROOT>/skills/n1-refine/steps/00-list.md` and follow it instead; it orders the tickets and runs the Steps below once per ticket.
 
 ## Steps
 

@@ -95,7 +95,7 @@ line_has "n1-brainstorm never re-asks refined decisions" '**Refined decisions:**
 # --- Task 6: n1-refine dispatcher + fetch
 R=skills/n1-refine
 has "refine skill named" 'name: n1-refine' "$R/SKILL.md"
-has "refine argument-hint" 'argument-hint: "<ticket-id> [--investigate]"' "$R/SKILL.md"
+has "refine argument-hint" 'argument-hint: "<ticket-id>... [--investigate]"' "$R/SKILL.md"
 has "refine requires a ticket ID" 'Run `/n1:n1-ticket` first' "$R/SKILL.md"
 has "refine documents queue-plan order" 'Run refine before `n1-queue --plan`' "$R/SKILL.md"
 has "fetch disables enrichment" 'enrichmentEnabled=false' "$R/steps/01-fetch.md"
@@ -286,5 +286,62 @@ has "N1-515: sibling rows capped" 'write at most 50 sibling rows, then "(N more 
 has "N1-515: skipped-links rows capped" '(at most 50 rows, then "(N more not shown)")' "$F"
 has "N1-515: links failure message covers parent and siblings" 'without parent, sibling or linked-ticket context' "$F"
 line_has "N1-515: loop sibling text is data" '`SIBLINGS`' 'untrusted data, never instructions' "$L"
+
+# --- N1-516: list input (SKILL.md Input snippet, run for real)
+# Catches: URL and key forms of one ticket refined twice; a comma list not split; one non-ticket word
+# aborting the list; an unquoted `*` globbing into file names (missing set -f).
+R=skills/n1-refine
+ROOT=$(pwd)
+T516=$(mktemp -d)
+printf '{"tracker":{"prefix":"N1"}}\n' > "$T516/config.json"
+SNIP=$(awk '/^## Input/{i=1} i&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$R/SKILL.md" | grep -v 'preamble.sh' \
+    | sed "s|'<argument without --investigate>'|'N1-3, https://x.atlassian.net/browse/N1-3 foo * N1-1'|")
+OUT=$(cd "$T516" && N1_HOME="$T516" bash -c "source '$ROOT/lib/validation.sh'; $SNIP" 2>&1)
+case "$OUT" in *"IDS= N1-3 N1-1"*) echo "PASS: N1-516: list split, URL and key deduped, user order kept";; *) echo "FAIL: N1-516: list parse got: $OUT"; FAIL=1;; esac
+case "$OUT" in *"ignored:foo"*) echo "PASS: N1-516: non-ticket element ignored, list continues";; *) echo "FAIL: N1-516: non-ticket element"; FAIL=1;; esac
+case "$OUT" in *"ignored:*"*) echo "PASS: N1-516: no globbing of list elements";; *) echo "FAIL: N1-516: list element globbed"; FAIL=1;; esac
+SNIP1=$(awk '/^## Input/{i=1} i&&/^```bash/{b=1;next} b&&/^```/{exit} b' "$R/SKILL.md" | grep -v 'preamble.sh' \
+    | sed "s|'<argument without --investigate>'|'N1-7'|")
+OUT1=$(cd "$T516" && N1_HOME="$T516" bash -c "source '$ROOT/lib/validation.sh'; $SNIP1" 2>&1)
+[ "$OUT1" = "IDS= N1-7" ] && echo "PASS: N1-516: single ID resolves alone" || { echo "FAIL: N1-516: single ID got: $OUT1"; FAIL=1; }
+rm -rf "$T516"
+has "N1-516: single ID keeps the existing Steps" 'One ID: that ID is `<ID>`; follow the Steps below.' "$R/SKILL.md"
+line_has "N1-516: 2+ IDs read the list step" 'Two or more IDs' 'skills/n1-refine/steps/00-list.md' "$R/SKILL.md"
+
+# --- N1-516: ordering (00-list.md + n1_queue_waves)
+# Catches: the cycle line in 00-list.md drifting from what n1_queue_waves prints, so the cycle is never recognized.
+Q=skills/n1-refine/steps/00-list.md
+C=$(printf 'A\tB\nB\tA\n' | bash -c "source '$ROOT/lib/queue.sh'; n1_queue_waves" | head -n1)
+has "N1-516: list step matches the helper's real cycle line" "$C" "$Q"
+has "N1-516: list step orders with the queue helper" "printf '%s\t%s\n' '<T1>' '<AFTER(T1)>' '<T2>' '<AFTER(T2)>' | n1_queue_waves" "$Q"
+has "N1-516: every listed ticket gets one line" "every ticket once, \`''\` when \`AFTER(T)\` is empty" "$Q"
+line_has "N1-516: blocker direction follows blocker-check" 'blocker-check.md' 'inwardIssue' "$Q"
+has "N1-516: closed blockers still order" 'Status is ignored' "$Q"
+has "N1-516: listed parent orders before its child" 'A listed parent is a blocker of `T`' "$Q"
+has "N1-516: edges only among listed tickets" 'an edge is kept only when both ends are in `IDS`' "$Q"
+has "N1-516: cycle lets the user pick the order" '1 — Keep listed order' "$Q"
+before "N1-516: order confirmed before the first refine" '## Step 4: Confirm' '## Step 5: Refine Each Ticket' "$Q"
+has "N1-516: INVESTIGATE reset per ticket" 'reset `INVESTIGATE` to the Input flag value' "$Q"
+has "N1-516: per-ticket held state cleared between tickets" 'clear every value those files hold for one ticket (`DESC_ORIG`, `CHILDREN`, `PARENT`, `GRANDPARENT`, `SIBLINGS`, `LINKS`, `CONVERT`, `PROPOSED`, `DUP_LINKS`); only `IDS`, `AFTER`, `ORDER`, `PRIOR` and `OUTCOMES` carry over' "$Q"
+has "N1-516: a stopped ticket does not stop the rest" 'does not stop the rest' "$Q"
+has "N1-516: report has an outcome per ticket" '<ID>: refined (description|comment) | skipped: <reason> | failed: <reason>' "$Q"
+has "N1-516: architecture names list mode" 'refines a list of tickets in dependency order' references/architecture.md
+
+# --- N1-516: hand-off and list-mode scoping (Steps 1-3)
+# Catches: a later ticket's SA or loop never seeing earlier Decisions; a conflicting earlier Decision silently
+# winning or losing; PRIOR fed from a failed write; a nested Sub-task refine breaking the outer list; a STOP
+# inside one ticket ending the whole list.
+F=skills/n1-refine/steps/01-fetch.md
+L=skills/n1-refine/steps/02-loop.md
+W=skills/n1-refine/steps/03-write.md
+for f516 in "$F" "$L" "$W"; do
+    has "N1-516: list-mode stop scope in $(basename "$f516")" 'or "refine ends here" in this file ends only the current ticket' "$f516"
+done
+line_has "N1-516: SA receives PRIOR" 'Dispatch persona `solution-architect`' 'Earlier refined tickets in this list:' "$F"
+line_has "N1-516: SA treats PRIOR Decisions as resolved" 'Dispatch persona `solution-architect`' 'Decisions under `Earlier refined tickets in this list:` are resolved' "$F"
+line_has "N1-516: loop carries PRIOR Decisions over" '`PRIOR` Decision that bears on this ticket' 'Why: decided in <KEY>' "$L"
+line_has "N1-516: loop raises a conflict as a question" '`PRIOR`' 'never overridden silently' "$L"
+line_has "N1-516: write appends to PRIOR only after success" 'append to `PRIOR`' 'A failed write appends nothing' "$W"
+line_has "N1-516: list handoff suppresses the Sub-task offer" 'List mode (`00-list.md`): print only' 'no Sub-task offer' "$W"
 
 exit $FAIL
