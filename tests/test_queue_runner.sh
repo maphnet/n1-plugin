@@ -2328,6 +2328,8 @@ EOF
     assert_eq "discard-saved: bad id refused" "1" "$rc"
     qdis missing saved && rc=0 || rc=$?
     assert_eq "discard-saved: missing queue refused" "1" "$rc"
+    _mksaved s10 planned held; sed -i 's/^## Runs$/## Runs (archive)/; $a | T-1 | s | 0 | pr | u | |' "$h/queue/s10/queue.md"; qdis s10 saved && rc=0 || rc=$?
+    assert_eq "discard-saved: renamed Runs heading with a row kept" "1|yes" "$rc|$(_kept s10)"
     _mksaved s9 planned held; qdis s9 && rc=0 || rc=$?
     assert_eq "discard: without saved, queue.md still kept" "1|yes" "$rc|$(_kept s9)"
     rm -rf "$h"

@@ -2308,7 +2308,7 @@ n1_queue_plan_unstarted() {
     while IFS=$'\t' read -r num t repo n1h model st; do
         case "$st" in pending|held|skip) ;; *) return 1 ;; esac
     done < <(n1_queue_pending_rows "$q" '.*')
-    awk '/^## /{ r = ($0 ~ /^## Runs[[:space:]]*$/) }
+    awk '/^## /{ r = ($0 ~ /^## Runs/) }
         r && /^\|/ && !/^\|[[:space:]]*Ticket[[:space:]]*\|/ && !/^\|[-:| ]+$/ { n++ }
         END { exit n > 0 }' "$q"
 }
