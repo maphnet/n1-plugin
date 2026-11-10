@@ -2076,6 +2076,9 @@ test_plan_wiring() {
     assert_eq "plan-wiring: queue steps never write overview.md" "no" \
         "$(cat "$s/steps/intake.md" "$s/steps/preview.md" "$s/steps/run.md" | grep -qE 'n1_write_frontmatter[^|]*overview' && echo yes || echo no)"
     assert_eq "plan-wiring: staleness re-plan re-orders every pending row (CR-1)" "yes" "$(has 'Re-run overlap order globally' "$s/steps/run.md")"
+    assert_eq "plan-wiring: preview passes blockers to overlap order (N1-524)" "yes" "$(grep -qF "'<BLOCKER2-or-empty>' | n1_queue_overlap_order" "$s/steps/preview.md" && echo yes || echo no)"
+    assert_eq "plan-wiring: re-plan passes blockers to overlap order (N1-524)" "yes" "$(grep -qF "'<BLOCKER2-or-empty>' | n1_queue_overlap_order" "$s/steps/run.md" && echo yes || echo no)"
+    assert_eq "plan-wiring: re-plan reorders held rows too (N1-524)" "yes" "$(grep -qF 'n1_queue_blocker_of "$QUEUE_FILE" <#>' "$s/steps/run.md" && echo yes || echo no)"
     assert_eq "plan-wiring: staleness recheck uses the sha256 hash helper, not cksum" "yes" "$(has 'n1_queue_content_hash' "$s/steps/run.md")"
     assert_eq "plan-wiring: run.md no longer pipes through cksum" "no" "$(has 'cksum <' "$s/steps/run.md")"
     assert_eq "plan-wiring: preview snapshot uses the sha256 hash helper, not cksum" "yes" "$(has 'n1_queue_content_hash' "$s/steps/preview.md")"
