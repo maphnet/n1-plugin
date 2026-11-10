@@ -44,7 +44,12 @@ memory: <$N1_HOME/memory/<ID>>
 n1_root: <N1_ROOT>
 ```
 
-Wait for it to return. `triage:validate state=<S> confirmed=<n> total=<m>`: go to **Index**. Any other return: warn inline `Codex findings not validated`, continue without Codex findings.
+Wait for it to return. `triage:validate state=<S> confirmed=<n> total=<m>`: go to **Index**. Any other return: warn inline `Codex findings not validated`, continue without Codex findings. Also remove the Step 7 marker so n1-pr runs its own Codex pass:
+
+```bash
+source ~/.n1/preamble.sh
+rm -f "$N1_HOME/memory/$ID/codex-step7"
+```
 
 ## Index
 

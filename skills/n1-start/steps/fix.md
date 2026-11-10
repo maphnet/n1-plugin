@@ -35,9 +35,12 @@ n1_increment_counter "$N1_HOME/memory/$ID/overview.md" "review_fix_cycle"
 
 **SOFT-ONLY** (review PASS routed here; hands-off soft policy, N1-116): spawn developer the same way, passing the `review.md` path and scope: non-TQ Medium titled `(correctness)` only (rest stay deferred), "Record under `## Fix Cycle <N> (soft)` in implementation.md (idempotent), N = REVIEW_FIX_CYCLE+1. Return: commit SHAs, `Findings fixed: N/M`, `Findings deferred`." After it returns: no `review_fix_cycle` increment, no re-review, no Return to Step 7; apply the `Findings deferred` Append line below and add each Medium it left unfixed (not `[SEC-N]`) to `## Deferred Soft Findings` in review.md (file-write mechanism), then run the block below and go to **PASS verdict** (`**Full-suite:**` line under the `(soft)` heading). A failed or partial soft pass never blocks.
 
-SOFT-ONLY, after the developer returns (records the post-review head for `n1_review_pin set`):
+SOFT-ONLY, after the developer returns (scope gate first, same as FAIL; then records the post-review head for `n1_review_pin set`):
 ```bash
 source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/review-step.sh"
+PRE_FIX_SHA=$(cat "$N1_HOME/memory/$ID/pre-fix-sha")
+grep -q '^- \[CX-[0-9]' "$N1_HOME/memory/$ID/review.md" 2>/dev/null && n1_review_fix_scope "$PRE_FIX_SHA"
 n1_head_record "$(cat "$N1_HOME/memory/$ID/pre-fix-sha")"
 ```
 
@@ -60,7 +63,7 @@ FIX_CHANGED=$(git diff --name-only "$PRE_FIX_SHA" HEAD)
 echo "$FIX_CHANGED" > "$N1_HOME/memory/$ID/fix-changed-files"
 git diff "$PRE_FIX_SHA" HEAD > "$N1_HOME/memory/$ID/fix.diff"
 ```
-**Scope gate** (N1-517; only when review.md has `[CX-N]` findings, since Codex text can steer the fix): `push:ok`/`push:none`: continue. `push:blocked ... reset=<sha>`: fix commits touching files outside the Step 7 branch diff were removed (patch in `memory/<ID>/codex-blocked-fix.patch`); warn inline and continue: the re-review sees the reduced fix, and open findings end under `## For Human Review`. `tree:restored patch=<path>`: warn inline, continue. `kept=` or `tree:restore-failed`: STOP and escalate (unvetted commits or edits remain; every push path refuses until `git reset --keep <PRE_FIX_SHA>`).
+**Scope gate** (N1-517; FAIL and SOFT-ONLY; only when review.md has `[CX-N]` findings, since Codex text can steer the fix): `push:ok`/`push:none`: continue. `push:blocked ... reset=<sha>`: fix commits touching files outside the Step 7 branch diff were removed (patch in `memory/<ID>/codex-blocked-fix.patch`); warn inline and continue: the re-review sees the reduced fix, and open findings end under `## For Human Review`. `tree:restored patch=<path>`: warn inline, continue. `kept=` or `tree:restore-failed`: STOP and escalate (unvetted commits or edits remain; every push path refuses until `git reset --keep <PRE_FIX_SHA>`).
 Emit: `<ID> · review fix cycle <REVIEW_FIX_CYCLE+1>/<MAX>`. FAIL-only: return to Step 7.
 
 **Escalation:** non-security/architecture/public-API: take recommended, A-tier `[auto]` ledger. Security/architecture/public-API: resolution ladder (codebase→web→command→prior decisions); all fail: emit `n1_emit_question_event ... "fix" "quality" "asked" "codebase|web|command|prior-decisions"`. Preamble: `"{Title}: {Core Ask}."` Bug: prepend root-cause. Ask: "{PREAMBLE} Ambiguity: [...]. 1.<recommended> 2.<alt> 3.Decide for me."; "Decide for me"→web+apply, emit `"auto-decided"`.

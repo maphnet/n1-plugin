@@ -158,6 +158,10 @@ G=$(line_of 'n1_review_fix_scope "$PRE_FIX_SHA"' "$FX"); D=$(line_of 'FIX_CHANGE
 [ -n "$G" ] && [ -n "$D" ] && [ "$G" -lt "$D" ] && ok "fix.md: scope gate runs before fix.diff" || no "fix.md: scope gate runs before fix.diff"
 has "fix.md: gate only when CX findings exist" "$(cat "$FX")" "grep -q '^- \[CX-[0-9]'"
 has "fix.md: kept= stops and escalates" "$(cat "$FX")" '`kept=` or `tree:restore-failed`: STOP and escalate'
+has "review-codex.md: validate failure removes the codex-step7 marker" "$(cat "$RC")" 'rm -f "$N1_HOME/memory/$ID/codex-step7"'
+SOFT_BLOCK=$(sed -n '/^SOFT-ONLY, after the developer returns/,/^\*\*Security findings/p' "$FX")
+has "fix.md: SOFT-ONLY runs the scope gate" "$SOFT_BLOCK" 'n1_review_fix_scope "$PRE_FIX_SHA"'
+has "fix.md: SOFT-ONLY gate only when CX findings exist" "$SOFT_BLOCK" "grep -q '^- \[CX-[0-9]'"
 
 # --- n1-pr wiring (01-prepare.md, 03-codex-review.md) ---
 P1="$REPO_ROOT/skills/n1-pr/steps/01-prepare.md"; P3="$REPO_ROOT/skills/n1-pr/steps/03-codex-review.md"
