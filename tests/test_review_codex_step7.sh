@@ -41,6 +41,80 @@ n1_review_record "$BR" failed codex-exit-1 true none
 if n1_review_codex_covered; then no "covered: false for a failed receipt"; else ok "covered: false for a failed receipt"; fi
 rm -f "$MEM/codex-step7"; rm -rf "$N1_STATE_DIR/review-receipts"
 
+# --- Step 7 start / collect / index (lib/review-step.sh) ---
+source "$REPO_ROOT/lib/review-step.sh"
+cat > "$T/bin/codex" <<'SH'
+#!/usr/bin/env bash
+[ "$1" = login ] && exit 0
+[ "${REVIEW_MODE:-ok}" != fail ] || exit 1
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -o ]; then printf '%s\n' "${CODEX_OUT:-No findings.}" > "$2"; break; fi
+  shift
+done
+SH
+chmod +x "$T/bin/codex"; export PATH="$T/bin:$PATH" N1_CODEX_COLLECT_WAIT=20 N1_CODEX_AUTH_TIMEOUT=5
+rm -f "$MEM/overview.md"
+OUT=$(n1_review_codex_start origin/main)
+eq "start: cycle 0 starts codex on the merge-base" "codex:started base=$BASE_SHA" "$OUT"
+OUT=$(n1_review_codex_collect)
+has "collect: prints base" "$OUT" "codex:base=$BASE_SHA"
+has "collect: one-line No findings. -> findings:none" "$OUT" "codex:ran findings:none"
+eq "collect: marker holds HEAD" "$(git rev-parse HEAD)" "$(cat "$MEM/codex-step7" 2>/dev/null)"
+if n1_review_codex_covered; then ok "collect: ran run covers the branch"; else no "collect: ran run covers the branch"; fi
+eq "start: skip when already covered" "codex:skip reason=covered" "$(n1_review_codex_start origin/main)"
+
+rm -f "$MEM/codex-step7"; export CODEX_OUT=$'**High** - x\n[P2] y'
+n1_review_codex_start origin/main >/dev/null; OUT=$(n1_review_codex_collect)
+has "collect: findings -> fenced findings file" "$OUT" "codex:ran findings:file=$N1_HOME/scratch/codex-findings-"
+[ -f "$MEM/codex-step7" ] && ok "collect: findings run writes the marker" || no "collect: findings run writes the marker"
+
+rm -f "$MEM/codex-step7"; export REVIEW_MODE=fail
+n1_review_codex_start origin/main >/dev/null; OUT=$(n1_review_codex_collect)
+has "collect: failed run -> codex:none" "$OUT" "codex:none outcome=failed"
+[ -f "$MEM/codex-step7" ] && no "collect: failed run writes no marker" || ok "collect: failed run writes no marker"
+unset REVIEW_MODE CODEX_OUT
+
+printf -- '---\nreview_fix_cycle: 1\n---\n' > "$MEM/overview.md"; printf 'keep\n' > "$MEM/review-codex.md"
+eq "start: no Codex at cycle >= 1" "codex:skip reason=cycle" "$(n1_review_codex_start origin/main)"
+[ -s "$MEM/review-codex.md" ] && ok "start: cycle >= 1 keeps review-codex.md" || no "start: cycle >= 1 keeps review-codex.md"
+rm -f "$MEM/overview.md"
+printf '{"crossHostReview":{"autoTriage":false}}\n' > "$N1_HOME/config.json"
+eq "start: skip when autoTriage is off" "codex:skip reason=autotriage-off" "$(n1_review_codex_start origin/main)"
+[ -e "$MEM/review-codex.md" ] && no "start: stale review-codex.md removed on an uncovered cycle-0 skip" || ok "start: stale review-codex.md removed on an uncovered cycle-0 skip"
+printf '{}\n' > "$N1_HOME/config.json"
+eq "start: skip on an unresolvable base" "codex:skip reason=no-base" "$(n1_review_codex_start refs/does/not/exist)"
+eq "start: skip without ID" "codex:skip reason=no-id" "$(ID="" n1_review_codex_start origin/main)"
+
+rm -f "$MEM"/codex-bg.*
+eq "collect: not started" "codex:none outcome=not-started" "$(n1_review_codex_collect)"
+printf '%s %s\n' "$(( $(date +%s) - 2000 ))" "$BASE_SHA" > "$MEM/codex-bg.started"
+has "collect: past the deadline -> timeout" "$(n1_review_codex_collect)" "codex:none outcome=timeout"
+printf '%s %s\n' "$(date +%s)" "$BASE_SHA" > "$MEM/codex-bg.started"
+has "collect: within the deadline -> pending" "$(N1_CODEX_COLLECT_WAIT=0 n1_review_codex_collect)" "codex:pending"
+rm -f "$MEM"/codex-bg.* "$MEM/codex-step7"; rm -rf "$N1_STATE_DIR/review-receipts"
+
+printf '%s\n' '## Codex Findings (validated)' \
+  '- [CX-1] High lib/a.sh:12 — Off-by-one in loop' \
+  '- [CX-2] Medium unknown:0 — Missing guard (security)' \
+  '- [CX-3] High lib/a.sh:3 — runs `rm` here' \
+  '- [CX-4] Severe lib/a.sh:3 — wrong tier' \
+  '- [CX-5] Low lib/a b.sh:3 — space in path' \
+  '### [CX-1] Off-by-one in loop' 'body text' > "$MEM/review-codex.md"
+eq "index: only strict CX lines" $'- [CX-1] High lib/a.sh:12 — Off-by-one in loop\n- [CX-2] Medium unknown:0 — Missing guard (security)' \
+  "$(n1_review_codex_index "$MEM/review-codex.md")"
+eq "index: missing file prints nothing" "" "$(n1_review_codex_index "$MEM/nope.md")"
+
+printf '### Verdict: FAIL\n' > "$MEM/review-hdr.md"; printf '## CR\n' > "$MEM/review-cr.md"
+n1_review_collect false >/dev/null 2>&1
+has "collect: cycle 0 appends review-codex.md" "$(cat "$MEM/review.md")" "## Codex Findings (validated)"
+printf -- '---\nreview_fix_cycle: 1\n---\n' > "$MEM/overview.md"
+n1_review_collect false >/dev/null 2>&1
+lacks "collect: cycle >= 1 leaves review-codex.md out" "$(cat "$MEM/review.md")" "## Codex Findings (validated)"
+rm -f "$MEM/review-codex.md"; printf -- '---\nreview_fix_cycle: 0\n---\n' > "$MEM/overview.md"
+n1_review_collect false >/dev/null 2>&1; rc=$?
+eq "collect: absent review-codex.md is not PARTIAL" "0" "$rc"
+rm -f "$MEM/overview.md" "$MEM/review.md" "$MEM/review-hdr.md" "$MEM/review-cr.md"
+
 # --- end of sections ---
 echo "N1-517 step7 codex tests: FAIL=$FAIL"
 exit "$FAIL"
