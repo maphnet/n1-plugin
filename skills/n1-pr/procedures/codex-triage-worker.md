@@ -1,6 +1,6 @@
 # Procedure: Codex Triage Worker
 
-Read by the `tail-worker` persona in `mode: codex-triage`, dispatched twice from `skills/n1-pr/procedures/codex-triage.md` before the push; no PR exists yet. Phase `fix` runs State, Severity Parsing, Validation and Fix Cycle and ends after the developer commits (never pushes). Phase `report` runs Triage Reply after the orchestrator's scope gate. State crosses the two dispatches only through files in `<S>`, the `codex-validate-<KEY>.*` directory created below.
+Read by the `tail-worker` persona in `mode: codex-triage`, dispatched twice from `skills/n1-pr/procedures/codex-triage.md` before the push (no PR exists yet), or once with `phase: validate` from `skills/n1-start/procedures/review-codex.md` (n1-start Step 7). Phase `fix` runs State, Severity Parsing, Validation and Fix Cycle and ends after the developer commits (never pushes). Phase `report` runs Triage Reply after the orchestrator's scope gate. State crosses the two dispatches only through files in `<S>`, the `codex-validate-<KEY>.*` directory created below.
 
 Write every file named here (`state.md`, `candidates.md`, `confirmed.md`, `developer.md`, the triage file) with the file-write mechanism (`references/file-write-mechanism.md`), never through a shell command (redirect, heredoc, `cp`, `cat`, `printf`, `tee`, `sed -i`). Never place finding, validator or developer text in a shell command, variable or double-quoted string, and never in your return: return only the status lines named below.
 
@@ -204,6 +204,35 @@ Output format:
 Write the developer's output verbatim to `<S>/developer.md` and record each confirmed finding's action (Fixed or Dismissed, with its Detail) on its line in `<S>/state.md`. Do NOT retry: one developer dispatch per phase `fix`; the orchestrator counts the cycle and runs the scope gate. Then return `triage:fix state=<S> developer=ran`. The orchestrator derives the gate inputs itself.
 
 If the developer dispatch fails (error, timeout, empty output), note it in `<S>/state.md`, route all confirmed findings to human review there, and return `triage:fix state=<S> developer=failed`. The developer may have committed a partial fix; the orchestrator's scope gate checks it like a full fix and keeps only in-scope commits.
+
+## Phase: validate
+
+Dispatched once from n1-start Step 7 (N1-517) with the phase `fix` inputs. Run **State**, **Severity Parsing** and **Validation** of phase `fix` exactly as written; never run **Fix Cycle**, never dispatch a developer, never write a triage file. Here "skip to Triage Reply" means: go to **Codex Index**.
+
+### Codex Index
+
+Write `<memory>/review-codex.md` with the file-write mechanism:
+
+1. Line 1: `## Codex Findings (validated)`.
+2. One Index line per finding the validator marked CONFIRMED or UNVERIFIED, plus every informational P3 finding, numbered from 1 in finding order: `- [CX-<n>] <severity> <file>:<line> — <title>`. INVALID findings get no line.
+   - `<severity>`: tier P1 → `High`; P2 or unclassified → `Medium`; P3, or validator UNVERIFIED → `Low`.
+   - `<file>:<line>`: the finding's repo-relative path (letters, digits, `.`, `_`, `/`, `-` only) and line number; `unknown:0` when either is absent or has other characters.
+   - `<title>`: the `state.md` title with every backtick and `$` removed and the literal text `(correctness)` removed (that tag selects Mediums for the ungated SOFT-ONLY fix pass; Codex-derived text must never carry it), at most 120 characters; append ` (security)` when the finding is security-looking.
+3. Then, per listed finding, a `### [CX-<n>] <title>` heading followed by the finding text and the validator's evidence and reason.
+
+No listed finding: write only line 1.
+
+Remove the state directory (path only, never content):
+
+```bash
+source ~/.n1/preamble.sh
+KEY='<the key from the dispatch>'
+VALIDATE_DIR='<S>'
+case "$KEY" in ''|.*|*[!A-Za-z0-9._-]*) exit 0;; esac
+case "$VALIDATE_DIR" in *..*|"$N1_HOME"/scratch/codex-validate-"$KEY".*/*) ;; "$N1_HOME"/scratch/codex-validate-"$KEY".*) rm -rf "$VALIDATE_DIR";; esac
+```
+
+Return exactly one line: `triage:validate state=<S> confirmed=<n> total=<m>` (`<n>` = CONFIRMED count, `<m>` = findings parsed), or `triage:validate state=unavailable` when State failed or `review-codex.md` was not written.
 
 ## Phase: report
 

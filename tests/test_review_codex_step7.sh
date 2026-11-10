@@ -131,6 +131,15 @@ has "fix scope: invalid pre-fix SHA fails closed" "$(n1_review_fix_scope HEAD~1)
 [ -e "$MEM/codex-gate-blocked" ] && ok "fix scope: kept= writes the push block" || no "fix scope: kept= writes the push block"
 rm -f "$MEM/codex-gate-blocked" "$MEM"/codex-bg.* "$MEM/codex-blocked-fix.patch"
 
+# --- validate phase wiring (codex-triage-worker.md) ---
+W="$REPO_ROOT/skills/n1-pr/procedures/codex-triage-worker.md"
+WV=$(awk '/^## Phase: validate$/{p=1;next} p&&/^## Phase: /{exit} p' "$W")
+has "validate: runs State, Severity Parsing and Validation only" "$WV" "never run **Fix Cycle**"
+has "validate: writes review-codex.md" "$WV" "<memory>/review-codex.md"
+has "validate: CX index line shape" "$WV" '`- [CX-<n>] <severity> <file>:<line> — <title>`'
+has "validate: security-looking suffix" "$WV" '` (security)`'
+has "validate: return line" "$WV" 'triage:validate state=<S> confirmed=<n> total=<m>'
+
 # --- end of sections ---
 echo "N1-517 step7 codex tests: FAIL=$FAIL"
 exit "$FAIL"
