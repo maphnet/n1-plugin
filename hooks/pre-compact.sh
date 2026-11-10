@@ -33,10 +33,10 @@ if [ -n "$qp" ]; then
     IFS=$'\t' read -r qp_id qp_step _ <<<"$qp"
     printf 'N1 queue planning: preserve verbatim queue id %s and step %s.\n' "$qp_id" "$qp_step"
 fi
-# N1-523: an n1-refine preview pending (refine writes no active-run pointer); the path is derived from the validated id.
+# N1-523: an n1-refine preview pending (refine writes no active-run pointer); the dir is derived from the validated id and session id.
 rf=$(n1_refine_draft_state read 2>/dev/null) || rf=""
 if [ -n "$rf" ]; then
-    printf 'N1 refine: preserve verbatim the path %s/memory/%s/refine/block.md and the pending preview answer.\n' "$home" "$rf"
+    printf 'N1 refine: preserve verbatim the path %s/block.md and the pending preview answer.\n' "$rf"
 fi
 run=$(n1_active_run_file 2>/dev/null) && [ -f "$run" ] || exit 0
 case "$run" in */active-run.json) exit 0 ;; esac
