@@ -309,9 +309,10 @@ has "N1-516: single ID keeps the existing Steps" 'One ID: that ID is `<ID>`; fol
 line_has "N1-516: 2+ IDs read the list step" 'Two or more IDs' 'skills/n1-refine/steps/00-list.md' "$R/SKILL.md"
 
 # --- N1-516: ordering (00-list.md + n1_queue_waves)
-# Catches: the cycle line in 00-list.md drifting from what n1_queue_waves prints (cycle never detected);
+# Catches: the cycle line in 00-list.md drifting from what n1_queue_waves prints, so the cycle is never recognized.
 Q=skills/n1-refine/steps/00-list.md
-has "N1-516: list step matches the helper's cycle line" 'cycle in schedule (dependencies loop; re-plan)' "$Q"
+C=$(printf 'A\tB\nB\tA\n' | bash -c "source '$ROOT/lib/queue.sh'; n1_queue_waves" | head -n1)
+has "N1-516: list step matches the helper's real cycle line" "$C" "$Q"
 has "N1-516: list step orders with the queue helper" "printf '%s\t%s\n' '<T1>' '<AFTER(T1)>' '<T2>' '<AFTER(T2)>' | n1_queue_waves" "$Q"
 has "N1-516: every listed ticket gets one line" "every ticket once, \`''\` when \`AFTER(T)\` is empty" "$Q"
 line_has "N1-516: blocker direction follows blocker-check" 'blocker-check.md' 'inwardIssue' "$Q"
