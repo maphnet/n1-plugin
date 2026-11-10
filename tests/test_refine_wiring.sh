@@ -308,4 +308,26 @@ rm -rf "$T516"
 has "N1-516: single ID keeps the existing Steps" 'One ID: that ID is `<ID>`; follow the Steps below.' "$R/SKILL.md"
 line_has "N1-516: 2+ IDs read the list step" 'Two or more IDs' 'skills/n1-refine/steps/00-list.md' "$R/SKILL.md"
 
+# --- N1-516: ordering (00-list.md + n1_queue_waves)
+# Catches: a ticket with no blockers dropped from the order or a tie reordered (edge-line contract);
+# the cycle line in 00-list.md drifting from what the helper prints (cycle never detected).
+Q=skills/n1-refine/steps/00-list.md
+WAVES=$(bash -c "source '$ROOT/lib/config.sh'; source '$ROOT/lib/queue.sh'; printf '%s\t%s\n' N1-3 N1-1 N1-1 '' N1-2 '' | n1_queue_waves")
+[ "$WAVES" = "wave 1: N1-1, N1-2 | wave 2: N1-3 (after N1-1)" ] && echo "PASS: N1-516: foundation first, ties keep user order" || { echo "FAIL: N1-516: waves got: $WAVES"; FAIL=1; }
+CYC=$(bash -c "source '$ROOT/lib/config.sh'; source '$ROOT/lib/queue.sh'; printf '%s\t%s\n' N1-1 N1-2 N1-2 N1-1 | n1_queue_waves")
+[ "$CYC" = "cycle in schedule (dependencies loop; re-plan)" ] && echo "PASS: N1-516: helper reports a cycle" || { echo "FAIL: N1-516: cycle got: $CYC"; FAIL=1; }
+has "N1-516: list step matches the helper's cycle line" 'cycle in schedule (dependencies loop; re-plan)' "$Q"
+has "N1-516: list step orders with the queue helper" "printf '%s\t%s\n' '<T1>' '<AFTER(T1)>' '<T2>' '<AFTER(T2)>' | n1_queue_waves" "$Q"
+has "N1-516: every listed ticket gets one line" "every ticket once, \`''\` when \`AFTER(T)\` is empty" "$Q"
+line_has "N1-516: blocker direction follows blocker-check" 'blocker-check.md' 'inwardIssue' "$Q"
+has "N1-516: closed blockers still order" 'Status is ignored' "$Q"
+has "N1-516: listed parent orders before its child" 'A listed parent is a blocker of `T`' "$Q"
+has "N1-516: edges only among listed tickets" 'an edge is kept only when both ends are in `IDS`' "$Q"
+has "N1-516: cycle lets the user pick the order" '1 — Keep listed order' "$Q"
+before "N1-516: order confirmed before the first refine" '## Step 4: Confirm' '## Step 5: Refine Each Ticket' "$Q"
+has "N1-516: INVESTIGATE reset per ticket" 'reset `INVESTIGATE` to the Input flag value' "$Q"
+has "N1-516: a stopped ticket does not stop the rest" 'does not stop the rest' "$Q"
+has "N1-516: report has an outcome per ticket" '<ID>: refined (description|comment) | skipped: <reason> | failed: <reason>' "$Q"
+has "N1-516: architecture names list mode" 'refines a list of tickets in dependency order' references/architecture.md
+
 exit $FAIL
