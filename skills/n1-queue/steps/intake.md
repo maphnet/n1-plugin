@@ -76,9 +76,17 @@ A tagged or listed story is never expanded into the queue; the user runs it expl
 
 ## Blocker check
 
-For each candidate follow `<N1_ROOT>/references/blocker-check.md` § Check with `ID=<KEY>`, `CALLER=queue` (run its Gate once per intake). With `SKIP_REASON=not-configured` (the config predates the `getIssueLinks` operation), skip link checks, rely on the description grep, and say so in the preview. With `SKIP_REASON=error: <msg>`, note `blocker check skipped for <KEY> (<msg>)` in the preview and do not exclude on links. A candidate with any `OPEN_BLOCKERS` -> excluded with reason `blocked by <ID>`, except in the same-plan case (N1-64). If the only open blocker is itself a candidate of this plan, keep the candidate and prefix its Reason with `blocked_on <ID> · `. run.md § Write plan gives it Status `held`, and the runner launches it only after the user merges the blocker's PR (`n1_queue_held_sweep`). Two candidates that block each other (a cycle) are both excluded with reason `blocked by <ID> (cycle)`.
+For each candidate follow `<N1_ROOT>/references/blocker-check.md` § Check with `ID=<KEY>`, `CALLER=queue` (run its Gate once per intake). With `SKIP_REASON=not-configured` (the config predates the `getIssueLinks` operation), skip link checks, rely on the description grep, and say so in the preview. With `SKIP_REASON=error: <msg>`, note `blocker check skipped for <KEY> (<msg>)` in the preview and do not exclude on links. Its `OPEN_BLOCKERS` are the candidate's link blockers.
 
-Additionally grep the description: a line matching `(after|depends|blocked|requires|needs).*<PREFIX>-[0-9]+` (case-insensitive) naming a ticket that is not done -> excluded with reason `blocked by <ID>`. The same-plan `held` exception above applies only to the tracker-link check; a description-grep blocker is always excluded outright, even when the named ticket is itself a candidate of this plan.
+Additionally grep the description, also when link checks were skipped:
+```bash
+source ~/.n1/preamble.sh
+source "$N1_ROOT/lib/queue.sh"
+F="<QUEUE_DIR>/desc/<KEY>.txt"; [ -f "$F" ] && n1_queue_desc_blockers '<KEY>' < "$F"
+```
+It prints each key that a dependency phrase (`blocked by`, `depends on`, `after`, `requires`) names within three words in the same clause. A key in a later clause or in parentheses never counts. No output, or no `desc/<KEY>.txt` (story mode reads no issue per candidate), means no description blockers. Read the status of each printed key. The ones not done are the candidate's description blockers.
+
+The candidate's open blockers are its link blockers plus its description blockers, counted once per distinct ID. With none, keep it. With exactly one that is itself a candidate of this plan (the same-plan case, N1-64, whichever check found it), keep the candidate and prefix its Reason with `blocked_on <ID> · `. run.md § Write plan gives it Status `held`, and the runner launches it only after the user merges the blocker's PR (`n1_queue_held_sweep`). Otherwise exclude it with reason `blocked by <ID>`, naming the first open blocker that is not a candidate, else the first. Two candidates that block each other through either check (a cycle) are both excluded with reason `blocked by <ID> (cycle)`.
 
 Excluded tickets are left for a later run (no toposort). Before § Output, a held candidate whose blocker was excluded by any later check is excluded too, with reason `blocked by <ID>`.
 
