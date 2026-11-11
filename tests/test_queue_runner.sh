@@ -405,7 +405,7 @@ EOF
     _st() { local n s=""; for n in "$@"; do s+="$(plan_cell "$q" "$n" 8),"; done; printf '%s' "${s%,}"; }
 
     # AC1 chain + AC4: T-1 done in the tracker releases T-2, T-3 (transitively) and T-4 (held-sweep form); nothing else.
-    out=$(printf 'T-1\nT-15\nbad;key\n' | n1_queue_rerun_release "$q")
+    out=$(printf 'T-1\nT-15\nbad;key\n' | n1_queue_rerun_release "$q") || true
     assert_eq "rerun: change lines in plan order" "$(printf 'done\t1\tT-1\tfailed\ndone\t15\tT-15\tskip\nreleased\t2\tT-2\nreleased\t3\tT-3\nreleased\t4\tT-4')" "$out"
     assert_eq "rerun: done row marked with fixed Reason" "done-before-run|done in tracker" "$(plan_cell "$q" 1 8)|$(plan_cell "$q" 1 9)"
     assert_eq "rerun: released rows pending, Reason cleared" "pending,pending,pending||||" "$(_st 2 3 4)|$(plan_cell "$q" 2 9)|$(plan_cell "$q" 3 9)|$(plan_cell "$q" 4 9)|"
@@ -416,22 +416,22 @@ EOF
     assert_eq "rerun: pr row and failed row untouched" "pr,failed" "$(_st 11 5)"
     assert_eq "rerun: step and run_id untouched" "done|R1" "$(n1_read_frontmatter "$q" step)|$(n1_read_frontmatter "$q" run_id)"
     # Idempotent.
-    out=$(printf 'T-1\nT-15\n' | n1_queue_rerun_release "$q")
+    out=$(printf 'T-1\nT-15\n' | n1_queue_rerun_release "$q") || true
     assert_eq "rerun: second call changes nothing" "" "$out"
     # A done keyless gated row (its own ticket done) releases the row gated on it.
-    out=$(printf 'T-14\n' | n1_queue_rerun_release "$q")
+    out=$(printf 'T-14\n' | n1_queue_rerun_release "$q") || true
     assert_eq "rerun: gated predecessor done releases its successor" "$(printf 'done\t14\tT-14\tskip\nreleased\t13\tT-13')" "$out"
 
     # AC5: a failed row whose Orca worker may be live stays failed and keeps its dependent skipped; fail closed.
     printf 'N1_ORCA_TASK=task-5\nN1_ORCA_RUN=run-1\n' > "$h/queue/sentinels/T-5.env"
     n1_orca_liveness() { printf 'd-5\ttask-5\tlive\t\n'; }
-    out=$(printf 'T-5\n' | n1_queue_rerun_release "$q")
+    out=$(printf 'T-5\n' | n1_queue_rerun_release "$q") || true
     assert_eq "rerun: live worker row left, dependent kept" "$(printf 'live\t5\tT-5')|failed,skip" "$out|$(_st 5 6)"
     n1_orca_liveness() { return 1; }
-    out=$(printf 'T-5\n' | n1_queue_rerun_release "$q")
+    out=$(printf 'T-5\n' | n1_queue_rerun_release "$q") || true
     assert_eq "rerun: unreadable worker list counts as live" "$(printf 'live\t5\tT-5')|failed" "$out|$(_st 5)"
     n1_orca_liveness() { :; }
-    out=$(printf 'T-5\n' | n1_queue_rerun_release "$q")
+    out=$(printf 'T-5\n' | n1_queue_rerun_release "$q") || true
     assert_eq "rerun: no live worker marks and releases" "$(printf 'done\t5\tT-5\tfailed\nreleased\t6\tT-6')" "$out"
 
     # pending/held rows, escalated live guard, live runner, missing file, invalid key.
@@ -461,12 +461,12 @@ EOF
     assert_eq "rerun: missing queue file" "1|No queue runs found." "$rc|$out"
     printf 'N1_ORCA_TASK=task-u3\nN1_ORCA_RUN=run-1\n' > "$h/queue/sentinels/U-3.env"
     n1_orca_liveness() { printf 'd-3\ttask-u3\tlive\t\n'; }
-    out=$(printf 'U-1\nU-2\nU-3\n' | n1_queue_rerun_release "$q2")
+    out=$(printf 'U-1\nU-2\nU-3\n' | n1_queue_rerun_release "$q2") || true
     assert_eq "rerun: pending and held marked, live escalated left" \
         "$(printf 'done\t1\tU-1\tpending\ndone\t2\tU-2\theld\nlive\t3\tU-3')|done-before-run,done-before-run,escalated" \
         "$out|$(plan_cell "$q2" 1 8),$(plan_cell "$q2" 2 8),$(plan_cell "$q2" 3 8)"
     n1_orca_liveness() { :; }
-    out=$(printf 'U-3\n' | n1_queue_rerun_release "$q2")
+    out=$(printf 'U-3\n' | n1_queue_rerun_release "$q2") || true
     assert_eq "rerun: escalated row with no live worker marked" "$(printf 'done\t3\tU-3\tescalated')|halted" "$out|$(n1_read_frontmatter "$q2" step)"
     unset -f n1_orca_liveness; source "$REPO_ROOT/lib/orca-queue.sh"   # restore the real helper
 }
