@@ -140,14 +140,15 @@ eq "W14 stall-stop.md is not in the standard-path budget list" "0" "$(grep -c 's
 
 # ---- wiring: QA (steps/qa.md) ----
 QA=skills/n1-start/steps/qa.md
+QAL=lib/qa-step.sh
 prose() { awk '/^[[:space:]]*```/{b=!b; next} !b' "$1"; }
 before() { # <text> <a> <b> -> 1 when a occurs before b in text
     local t="$1" i j; i=${t%%"$2"*}; j=${t%%"$3"*}
     [ "$i" != "$t" ] && [ "$j" != "$t" ] && [ "${#i}" -lt "${#j}" ] && echo 1 || echo 0
 }
-RM_LN=$(grep -nF 'rm -f "$QD/qa-verify.log"' "$QA" | head -1 | cut -d: -f1)
-VL_LN=$(grep -nF 'VERIFY_LOG="$QD/qa-verify.log"' "$QA" | head -1 | cut -d: -f1)
-eq "Q1 qa.md removes qa-verify.log before the verify run (D2)" "1" "$([ -n "$RM_LN" ] && [ -n "$VL_LN" ] && [ "$RM_LN" -lt "$VL_LN" ] && echo 1 || echo 0)"
+RM_LN=$(grep -nF 'rm -f "$QD/qa-verify.log"' "$QAL" | head -1 | cut -d: -f1)
+VL_LN=$(grep -nF 'VERIFY_LOG="$QD/qa-verify.log"' "$QAL" | head -1 | cut -d: -f1)
+eq "Q1 lib/qa-step.sh removes qa-verify.log before the verify run (D2)" "1" "$([ -n "$RM_LN" ] && [ -n "$VL_LN" ] && [ "$RM_LN" -lt "$VL_LN" ] && echo 1 || echo 0)"
 eq "W1 qa.md stall pointer is in prose, not in a fence" "1" "$(prose "$QA" | grep -cF 'procedures/stall-stop.md § QA')"
 QL=$(prose "$QA" | grep -F 'procedures/stall-stop.md § QA' | head -1)
 eq "W2 qa.md stall check precedes the cap test" "1" "$(before "$QL" 'stall-stop.md § QA' 'qa.maxFixAttempts')"

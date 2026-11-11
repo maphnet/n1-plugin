@@ -1339,12 +1339,12 @@ test_story_base_wiring() {
     assert_eq "story-wiring: ensure cuts the branch from BASE" "yes" "$(grep -qF 'git branch <TARGET> "$BASE"' "$ws" && echo yes || echo no)"
     assert_eq "story-wiring: ensure keeps checkout of the default" "yes" "$(grep -qF 'git checkout $DEFAULT' "$ws" && echo yes || echo no)"
     local f
-    for f in lib/review-step.sh skills/n1-start/steps/implementation.md skills/n1-start/steps/qa.md \
+    for f in lib/review-step.sh skills/n1-start/steps/implementation.md lib/qa-step.sh \
              skills/n1-start/procedures/cross-repo.md skills/n1-review/steps/01-analyze.md; do
         assert_eq "story-wiring: $f calls n1_story_base" "yes" "$(grep -q 'n1_story_base' "$REPO_ROOT/$f" && echo yes || echo no)"
     done
     assert_eq "story-wiring: qa passes story base to break-check" "yes" \
-        "$(grep -qF '"${SB:-${BC_DEF:-main}}"' "$REPO_ROOT/skills/n1-start/steps/qa.md" && echo yes || echo no)"
+        "$(grep -qF '"${SB:-${BC_DEF:-main}}"' "$REPO_ROOT/lib/qa-step.sh" && echo yes || echo no)"
     assert_eq "story-wiring: implementation bump skip" "yes" \
         "$(grep -q 'Story child: make no version-bump commit' "$REPO_ROOT/skills/n1-start/steps/implementation.md" && echo yes || echo no)"
     local pp="$REPO_ROOT/skills/n1-pr/steps/01-prepare.md" pc="$REPO_ROOT/skills/n1-pr/steps/02-push-create.md"
