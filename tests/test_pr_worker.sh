@@ -242,8 +242,9 @@ has "README lists pr-worker" README.md '^\| pr-worker \|'
 # 3. pr step routing (pr.md) and the worker result parse (procedure).
 PRF=skills/n1-start/steps/pr.md
 PD=skills/n1-start/procedures/pr-worker-dispatch.md
-has "pr.md: begin fence resolves the pr-worker model" "$PRF" 'n1_resolve_agent pr-worker'
-has "pr.md: route line" "$PRF" 'echo route:worker \|\| echo route:inline'
+PRL=lib/pr-step.sh
+has "pr step: entry resolves the pr-worker model" "$PRL" 'n1_resolve_agent pr-worker'
+has "pr step: route line" "$PRL" 'echo route:worker \|\| echo route:inline'
 has "pr.md: worker route points at the procedure" "$PRF" '`route:worker` → follow `procedures/pr-worker-dispatch\.md`'
 has "pr.md: inline fallback keeps n1-pr" "$PRF" '`n1:n1-pr`\. Pass: `docUpdateMode: "autonomous"`'
 has "pr.md: post-condition stays in the orchestrator" "$PRF" 'MISSING=\$\(n1_review_check_run\)'
@@ -255,7 +256,7 @@ has "procedure: prompt falls back inline" "$PD" '^- `pr:prompt` .*invoke skill `
 has "procedure: unknown falls back inline" "$PD" '^- `pr:unknown` .*invoke skill `n1:n1-pr`'
 
 # Route probe: a dirty tree routes inline, where n1-pr's uncommitted-changes prompt reaches the user.
-RL=$(grep -F 'echo route:worker' "$PRF" | head -1)
+RL=$(grep -F 'echo route:worker' "$PRL" | head -1)
 G="$T/g"; git init -q -b feat/x "$G"; git -C "$G" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 mkdir -p "$T/home/memory/T-1"; echo '{}' > "$T/home/config.json"
 rt() { (cd "$G" && N1_HOME="$T/home" ID=T-1 bash -c "$RL" 2>&1); }

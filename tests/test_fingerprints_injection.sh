@@ -107,7 +107,7 @@ eq "review-step.sh collect defaults CYCLE to 0" "2" "$(grep -cF 'CYCLE=${CYCLE:-
 eq "review-step.sh emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' lib/review-step.sh)"
 eq "review-step.sh no longer discards the verdict" "0" "$(grep -c 'check_convergence.*|| true' lib/review-step.sh)"
 eq "01-analyze.md emits NON_CONVERGING" "1" "$(grep -c '|| echo "NON_CONVERGING: cycle $CYCLE"' skills/n1-review/steps/01-analyze.md)"
-eq "pr.md reads first-pass bucket 0" "1" "$(grep -c 'blocking_count_for_cycle "$FP_FILE" 0' skills/n1-start/steps/pr.md)"
+eq "pr step reads first-pass bucket 0" "1" "$(grep -c 'blocking_count_for_cycle "$FP_FILE" 0' lib/pr-step.sh)"
 eq "telemetry.md lists only emitted fields" "0" "$(grep -cE 'findings_total|execution_path|cross_repo_xrepo|cross_repo_runtime' skills/n1-start/procedures/telemetry.md)"
 eq "01-analyze.md states cycle starts at 0" "1" "$(grep -c 'CYCLE. is 0 on the first review pass' skills/n1-review/steps/01-analyze.md)"
 
