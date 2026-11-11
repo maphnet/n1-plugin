@@ -631,7 +631,7 @@ n1_queue_held_sweep() {
         b=$(n1_queue_blocker_of "$q" "$num"); st=$(n1_queue_ticket_status "$q" "$b")
         [ "$st" = escalated ] && n1_queue_ticket_obsolete "$q" "$b" && st=obsolete
         case "$st" in
-            obsolete|no-pr)   # N1-362: a verified obsolete blocker left nothing to merge; N1-470: nor did a no-PR one
+            obsolete|no-pr|done-before-run)   # N1-536: a blocker done in the tracker too; N1-362: a verified obsolete blocker left nothing to merge; N1-470: nor did a no-PR one
                 n1_queue_row_status "$q" "$num" pending "released: $b $st" ;;
             failed|escalated|skip|'')
                 n1_queue_row_status "$q" "$num" skip "blocked by ${b:-?} (${st:-not in plan})"

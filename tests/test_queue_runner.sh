@@ -469,6 +469,24 @@ EOF
     out=$(printf 'U-3\n' | n1_queue_rerun_release "$q2") || true
     assert_eq "rerun: escalated row with no live worker marked" "$(printf 'done\t3\tU-3\tescalated')|halted" "$out|$(n1_read_frontmatter "$q2" step)"
     unset -f n1_orca_liveness; source "$REPO_ROOT/lib/orca-queue.sh"   # restore the real helper
+    # N1-536 CR-1: a held row (own key not done) blocked_on a pending row marked done-before-run is released by the sweep.
+    q3="$tmp/queue/q3/queue.md"; mkdir -p "${q3%/*}"
+    cat > "$q3" <<EOF
+---
+queue_id: q3
+run_id: R3
+step: halted
+---
+## Plan
+| # | Ticket | Title | Repo | N1 Home | Model | Status | Reason |
+|---|--------|-------|------|---------|-------|--------|--------|
+| 1 | V-1 | A | /r | $h | sonnet | pending | |
+| 2 | V-2 | B | /r | $h | sonnet | held | blocked_on V-1 |
+EOF
+    out=$(printf 'V-1\n' | n1_queue_rerun_release "$q3") || true
+    n1_queue_held_sweep "$q3" > /dev/null
+    assert_eq "rerun: held dependent of a done-before-run row released by sweep" \
+        "$(printf 'done\t1\tV-1\tpending')|done-before-run,pending" "$out|$(plan_cell "$q3" 1 8),$(plan_cell "$q3" 2 8)"
 }
 
 # --- run.md § Write plan cell-fill snippet (NP-203): free text with quotes via cells.tsv ---
