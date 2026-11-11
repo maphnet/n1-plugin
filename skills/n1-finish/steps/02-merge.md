@@ -11,7 +11,7 @@ The Step 1 marker (`n1_finish_mark`) already gates this step and Step 2b; every 
 Evaluate the PR state:
 
 1. **`MERGED`** → capture the merge commit SHA (`.mergeCommit.oid`). Go to Step 3.
-2. **`CLOSED`** (not merged) → report "PR #<n> was closed without merging — nothing to finish. The ticket stays open." **STOP.**
+2. **`CLOSED`** (not merged) → report "PR #<n> was closed without merging — nothing to finish. The ticket stays open." **STOP.** Queue final PR (`headRefName` starts with `queue/`): before the STOP, run `steps/07-queue-chain.md`'s `n1_queue_final_landed` command only and print `left open: <every ticket it listed, landed and unlanded>`; change nothing (N1-532).
 3. **`OPEN`:**
    1. **Pre-merge checks** (only with `merge-on-finish:yes`; otherwise skip to 3.2): read `<N1_ROOT>/skills/n1-finish/references/merge-on-finish.md` now (it is not read at entry) and run its § 3.1. N1 never merges an open PR without it.
    2. **Deployment actions:** follow `<N1_ROOT>/references/deployment-actions.md` § Parse (already read at entry; do not re-read) with `PRS=<n>` and `OUT=$N1_HOME/scratch/deploy-actions-<n>.tsv`. `### Before release` items are deferred (`deferred:<M>`): they never count in `unticked`, are never walked here or written to the runbook, and Step 4 reports them.

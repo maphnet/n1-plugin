@@ -3062,6 +3062,14 @@ test_queue_chain_wiring() {
         "$(grep -qF '**Queue chain (N1-447).**' "$REPO_ROOT/skills/n1-queue/steps/run.md" && echo yes || echo no)"
     assert_eq "chain-wiring: architecture documents it" yes \
         "$(grep -qF '**Queue chain (N1-447).**' "$REPO_ROOT/references/architecture.md" && echo yes || echo no)"
+    assert_eq "close-wiring: step 7 lists landed children (N1-532)" yes \
+        "$(grep -qF 'n1_queue_final_landed "<merged final PR url>"' "$f7" && echo yes || echo no)"
+    assert_eq "close-wiring: step 7 finishes each child after the tracker move" yes \
+        "$(grep -qF 'n1_queue_finish_child "<T>" "<child PR url>" "<merged final PR url>"' "$f7" && echo yes || echo no)"
+    assert_eq "close-wiring: step 1 names the child close" yes \
+        "$(grep -qF 'closes the landed children' "$REPO_ROOT/skills/n1-finish/steps/01-resolve-target.md" && echo yes || echo no)"
+    assert_eq "close-wiring: a closed final PR lists children left open" yes \
+        "$(grep -qF 'left open:' "$REPO_ROOT/skills/n1-finish/steps/02-merge.md" && echo yes || echo no)"
 }
 
 test_queue_integration_wiring() {
