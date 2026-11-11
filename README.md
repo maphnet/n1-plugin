@@ -55,6 +55,7 @@ claude --plugin-dir ~/dev/n1-plugin          # loads the working tree live; /rel
 |-------|-------------|
 | /n1:n1-benchmark | Benchmark orchestrator autonomy across versions (interventions per run, quality metrics, baseline deltas) |
 | /n1:n1-clean | Remove git worktree for a ticket after work is done or abandoned |
+| /n1:n1-config | Set up dev-environment access (`dev-access.md`: dev URL, non-secret setup, allowed commands, dev observability selectors) and turn post-deploy verification on or off |
 | /n1:n1-finish | Verify the PR is merged (the human merges, or n1-finish with `finishWork.mergeOnFinish`; prMode: skip merges locally), watch deploy, close ticket |
 | /n1:n1-init | Set up N1 for your project (tracker, models, flags) |
 | /n1:n1-pr | Finalize branch: docs, push, create PR |
