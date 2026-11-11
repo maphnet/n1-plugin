@@ -1191,33 +1191,6 @@ n1_active_run_file() {
     fi
 }
 
-# N1-523: n1-refine draft pointer $N1_HOME/refine-draft.<sid>.json = {"ticketId":"<ID>"}, read by
-# hooks/pre-compact.sh. Usage: n1_refine_draft_state write <ID> | read | clear. No or unsafe session
-# id -> rc 1 (no unkeyed fallback, as N1-440 queue-plan). read prints <ID> only when it is safe and
-# memory/<ID>/refine/<sid>/block.md exists (a stale pointer self-heals), else rc 1. The draft dir is
-# per session so concurrent sessions on one ticket never share files; write creates it and prints it,
-# read prints it.
-n1_refine_draft_state() {
-    local home sid f id
-    sid=$(n1_session_id)
-    [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
-    home=$(n1_home) && [ -n "$home" ] || return 1
-    f="${home}/refine-draft.${sid}.json"
-    case "${1:-}" in
-        write)
-            [[ "${2:-}" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
-            mkdir -p "${home}/memory/${2}/refine/${sid}" && jq -cn --arg i "$2" '{ticketId:$i}' > "$f" || return 1
-            printf '%s\n' "${home}/memory/${2}/refine/${sid}" ;;
-        read)
-            [ -f "$f" ] || return 1
-            id=$(jq -r '.ticketId // empty | strings' "$f" 2>/dev/null) || return 1
-            [[ "$id" =~ ^[A-Za-z0-9_-]+$ ]] && [ -f "${home}/memory/${id}/refine/${sid}/block.md" ] || return 1
-            printf '%s\n' "${home}/memory/${id}/refine/${sid}" ;;
-        clear) rm -f "$f" ;;
-        *) return 1 ;;
-    esac
-}
-
 # n1_active_run_ticket [sid]: prints ticketId from the active-run pointer (the key n1_active_run_write
 # writes). With a sid, reads that session's keyed file only; without, n1_active_run_file's pick.
 n1_active_run_ticket() {

@@ -376,4 +376,9 @@ has "N1-557: no question when both are empty" 'Both empty: ask nothing.' "$L"
 has "N1-557: dropping A1 drops Sub-tasks" 'Dropping `A1` when `CONVERT=Story` also drops every Sub-task' "$L"
 lacks "N1-557: loop no longer carries draft lists" 'the draft lists' "$L"
 
+lacks "N1-557: no draft helper in lib" 'n1_refine_draft_state' lib/config.sh
+lacks "N1-557: no draft helper in hooks" 'n1_refine_draft_state' hooks
+lacks "N1-557: session-start drops the refine-draft expiry" 'refine-draft' hooks/session-start.sh
+lacks "N1-557: architecture drops the refine pointer" 'refine-draft' references/architecture.md
+
 exit $FAIL
